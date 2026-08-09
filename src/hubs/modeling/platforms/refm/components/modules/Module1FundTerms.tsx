@@ -299,18 +299,39 @@ export default function Module1FundTerms({ projectId }: { projectId: string | nu
       <div style={card}>
         <div style={sectionTitle}>Fee bases</div>
         <div style={{ ...helpText, marginBottom: 'var(--sp-2)' }}>
-          Both figures are yours to enter: a target or committed fund size, and the facility limit. They are inputs
-          rather than results, so a fee can raise the funding requirement without the extra funding raising the fee.
+          Both figures come from your model where the model states them, with an override on each if you would
+          rather state a target. Each one is resolved ONCE, before the funding solve, and then held fixed, so a
+          fee can raise the funding requirement without the extra funding raising the fee.
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--sp-2)' }}>
           <div>
             <label style={label}>Fund size</label>
-            <AmountInput value={terms.fundSize} onChange={(v) => patch({ fundSize: v })} testId="fund-terms-fund-size" />
+            {/* Derived from the model (total equity plus total debt) unless the
+                user pins a target. The tab has no computed snapshot, so it
+                shows the SOURCE and leaves the amount to the engine rather
+                than re-implementing the funding solve here and drifting. */}
+            {!terms.fundSizeOverride ? (
+              <div data-testid="fund-terms-fund-size-resolved" style={{
+                border: `1px solid ${BORDER}`, borderRadius: 6, padding: '7px 9px', background: '#F4F8FD',
+                fontSize: 12, color: NAVY, fontWeight: 600,
+              }}>
+                From your model
+              </div>
+            ) : (
+              <AmountInput value={terms.fundSize} onChange={(v) => patch({ fundSize: v })} testId="fund-terms-fund-size" />
+            )}
             <div style={{ ...helpText, marginTop: 4 }}>
-              Base for the one-time fund structure fee. You enter this rather than the model working it out:
-              fund size is equity plus debt, the debt is decided by the funding requirement, and these fees
-              raise that requirement. Reading it from the model would make the fee change its own base.
+              Base for the one-time fund structure fee: total equity plus total debt over the life of the fund.
+              It is computed before the fees are applied and then frozen, which is what stops the fee from
+              changing its own base. The figure it resolved to is shown on the Module 4 P&amp;L, under Fund Fee Basis.
             </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, cursor: 'pointer' }}>
+              <input
+                type="checkbox" checked={terms.fundSizeOverride} data-testid="fund-terms-fund-size-override"
+                onChange={(e) => patch({ fundSizeOverride: e.target.checked })}
+              />
+              <span style={{ fontSize: 11, color: NAVY }}>State a target fund size myself</span>
+            </label>
           </div>
           <div>
             <label style={label}>Facility limit</label>

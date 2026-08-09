@@ -670,6 +670,9 @@ export interface Project {
     facilityLimit?: number;
     /** True when the typed `facilityLimit` should win over the model's figure. */
     facilityLimitOverride?: boolean;
+    /** Fund layer 2026-08-05: pin the typed fund size instead of deriving it
+     *  from the model (total equity plus total debt). */
+    fundSizeOverride?: boolean;
 
     // ── Fund management fees. Each fee's timing and base are declared once in
     //    FUND_FEE_SPECS (lib/fundTerms.ts), which the UI renders from and the

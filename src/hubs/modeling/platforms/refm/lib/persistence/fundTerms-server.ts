@@ -29,7 +29,7 @@
  */
 
 import { getServerClient } from '@/src/core/db/supabase';
-import { DEFAULT_FUND_TERMS, fromRow, toRow, toRow209, toLegacyRow, type FundTerms } from '../fundTerms';
+import { DEFAULT_FUND_TERMS, fromRow, toRow, toRow210, toRow209, toLegacyRow, type FundTerms } from '../fundTerms';
 
 /** Migration 208 columns: the floor every applied database has. */
 const COLS_BASE = 'fund_enabled, management_fee_pct, fee_base, hurdle_rate_pct, carry_pct, committed_capital, fee_shares';
@@ -37,33 +37,42 @@ const COLS_BASE = 'fund_enabled, management_fee_pct, fee_base, hurdle_rate_pct, 
 const COLS_209 = 'fund_size, facility_limit, fund_structure_fee_pct, fund_management_fee_pct, custody_admin_fee_pct, debt_arranging_fee_pct, other_expenses_per_annum, fee_distribution';
 /** Migration 210 additions: the Fund Manager name + the facility-limit override. */
 const COLS_210 = 'fund_manager_name, facility_limit_override';
-const COLS_FULL = `${COLS_BASE}, ${COLS_209}, ${COLS_210}`;
+/** Migration 211 addition: the fund-size override. */
+const COLS_211 = 'fund_size_override';
+const COLS_FULL = `${COLS_BASE}, ${COLS_209}, ${COLS_210}, ${COLS_211}`;
+/** The 208 + 209 + 210 set, for a database where 211 is outstanding. */
+const COLS_210_ONLY = `${COLS_BASE}, ${COLS_209}, ${COLS_210}`;
 /** The 208 + 209 set, for a database where 210 is outstanding. */
 const COLS_209_ONLY = `${COLS_BASE}, ${COLS_209}`;
 
 /**
  * Which column set this database actually has, cached after the first
- * successful query so each request does not re-probe. Three tiers now, because
- * 210 (the Fund Manager) can lag 209 exactly as 209 lagged 208.
+ * successful query so each request does not re-probe. Four tiers now, because
+ * 211 (the fund-size override) can lag 210 exactly as 210 lagged 209.
  *
- *   210 = everything, 209 = through the distribution matrix, 208 = the original
- *   set. `undefined` = not yet probed; the read starts at the top and steps down
- *   on "column does not exist".
+ *   211 = everything, 210 = through the Fund Manager, 209 = through the
+ *   distribution matrix, 208 = the original set. `undefined` = not yet probed;
+ *   the read starts at the top and steps down on "column does not exist".
+ *
+ * Whatever a lower tier cannot hold still rides in the version snapshot, which
+ * is what the ENGINE reads, so the fund size stays model-derived even on a
+ * database where 211 is outstanding.
  */
-type SchemaTier = 208 | 209 | 210;
+type SchemaTier = 208 | 209 | 210 | 211;
 let schemaTier: SchemaTier | undefined;
 
 /** Test seam: reset the cached probe. */
 export function resetFundTermsSchemaProbe(): void { schemaTier = undefined; }
 
-const COLS_FOR: Record<SchemaTier, string> = { 210: COLS_FULL, 209: COLS_209_ONLY, 208: COLS_BASE };
+const COLS_FOR: Record<SchemaTier, string> = { 211: COLS_FULL, 210: COLS_210_ONLY, 209: COLS_209_ONLY, 208: COLS_BASE };
 const ROW_FOR: Record<SchemaTier, (t: FundTerms) => Record<string, unknown>> = {
-  210: (t) => toRow(t) as unknown as Record<string, unknown>,
+  211: (t) => toRow(t) as unknown as Record<string, unknown>,
+  210: (t) => toRow210(t) as unknown as Record<string, unknown>,
   209: (t) => toRow209(t) as unknown as Record<string, unknown>,
   208: (t) => toLegacyRow(t) as unknown as Record<string, unknown>,
 };
 /** Highest first: the read and the write both walk down this list. */
-const TIERS: SchemaTier[] = [210, 209, 208];
+const TIERS: SchemaTier[] = [211, 210, 209, 208];
 
 function isMissingTable(err: { code?: string | null; message?: string | null } | null): boolean {
   if (!err) return false;
@@ -76,7 +85,7 @@ function isMissingColumn(err: { code?: string | null; message?: string | null } 
   const m = err.message ?? '';
   if (/column .* does not exist/i.test(m)) return true;
   if (/could not find the .* column/i.test(m)) return true;
-  return /(fund_size|facility_limit|fund_structure_fee_pct|fund_management_fee_pct|custody_admin_fee_pct|debt_arranging_fee_pct|other_expenses_per_annum|fee_distribution|fund_manager_name|facility_limit_override)/.test(m);
+  return /(fund_size|facility_limit|fund_structure_fee_pct|fund_management_fee_pct|custody_admin_fee_pct|debt_arranging_fee_pct|other_expenses_per_annum|fee_distribution|fund_manager_name|facility_limit_override|fund_size_override)/.test(m);
 }
 
 const defaults = (): FundTerms => ({ ...DEFAULT_FUND_TERMS, feeDistribution: [], feeShares: [] });

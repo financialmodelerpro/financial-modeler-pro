@@ -20,6 +20,8 @@ import type { SensitivityVariable } from '@/src/core/calculations/returns';
 import { currencyHeaderLine, formatScaledForExport, SCALE_DIVISOR, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import { makeFmt } from './_shared/numberFmt';
 import { M4PeriodTable, type M4Row } from './_shared/m4Table';
+import { FundFeeBasisTable } from './_shared/FundFeeBasisTable';
+import { buildFundFeeBasisRows } from '../../lib/reports/m4Reports';
 import { MetricCard, MetricGrid, AssumptionsPanel, fmtPct, fmtX, type AssumptionsValue } from './Module5Shared';
 import { FAST_INPUT } from './_shared/inputStyles';
 import type { ProjectPartner } from '../../lib/state/module1-types';
@@ -227,6 +229,7 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
         <FeeIncomeSection
           snapshot={rs.feeEarners}
           feeLines={snap.fundFees.lines}
+          basisRows={buildFundFeeBasisRows(snap)}
           axisLabels={axisLabels}
           inceptionLabel={inceptionLabel}
           currency={currency}
@@ -496,12 +499,13 @@ function FundWaterfallSection(props: {
 function FeeIncomeSection(props: {
   snapshot: import('@/src/core/calculations/returns').FeeEarnersSnapshot;
   feeLines: import('../../lib/fundFees').FundFeeSchedule['lines'];
+  basisRows: import('../../lib/reports/m4Reports').FundFeeBasisRow[];
   axisLabels: number[];
   inceptionLabel: number;
   currency: string;
   fmt: (n: number) => string;
 }): React.JSX.Element {
-  const { snapshot: s, feeLines, axisLabels, inceptionLabel, currency, fmt } = props;
+  const { snapshot: s, feeLines, basisRows, axisLabels, inceptionLabel, currency, fmt } = props;
 
   const th: React.CSSProperties = { textAlign: 'right', padding: '5px 8px', fontSize: 11 };
   const thL: React.CSSProperties = { ...th, textAlign: 'left' };
@@ -608,6 +612,16 @@ function FeeIncomeSection(props: {
           )}
         </span>
       </div>
+
+      {/* What each fee is charged on. Same shared builder the M4 statement and
+          the Excel export read, so a reader who asks "why is this fee zero"
+          gets the same answer wherever they look. */}
+      <FundFeeBasisTable
+        rows={basisRows}
+        currency={currency}
+        fmt={fmt}
+        title="Fund Fee Basis (what each fee is charged on)"
+      />
 
       <M4PeriodTable
         title="Fee Income by Period"

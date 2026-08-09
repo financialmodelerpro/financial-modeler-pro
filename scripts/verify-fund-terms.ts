@@ -111,7 +111,9 @@ console.log('\n=== 2. The five fees, each on the base it should be ===');
   check('NAV fees say OPENING, never closing or average',
     FUND_FEE_SPECS.filter((f) => f.base.includes('nav')).every((f) => f.base === 'opening_nav'));
   check('the opening-NAV help says START of the year', /start of that year/i.test(FUND_FEE_SPECS.find((f) => f.base === 'opening_nav')?.help ?? ''));
-  check('the fund size base is described as an input, not a result', /target or committed/i.test(FEE_BASE_HELP.fund_size));
+  check('the fund size base names the model figure AND the freeze',
+    /total equity plus total debt/i.test(FEE_BASE_HELP.fund_size) && /frozen/i.test(FEE_BASE_HELP.fund_size));
+  check('and offers the target override', /override/i.test(FEE_BASE_HELP.fund_size));
   check('the facility base is the LIMIT, not the drawn balance', /not the drawn balance/i.test(FEE_BASE_HELP.facility_limit));
 }
 
@@ -293,8 +295,11 @@ console.log('\n=== 4d. Fund size stays a typed input, on purpose ===');
   check('the SOLVED variant is explicitly forbidden', (CIRCULAR_FEE_BASES as readonly string[]).includes('fund_size_solved' as never));
 
   const tab = read('src/hubs/modeling/platforms/refm/components/modules/Module1FundTerms.tsx');
-  check('the tab explains WHY fund size is typed', /equity plus debt/i.test(tab) && /funding requirement/i.test(tab));
-  check('the tab says reading it would change its own base', /change its own base/i.test(tab));
+  check('the tab explains what the model figure IS', /total equity plus total debt/i.test(tab));
+  check('the tab says the figure is frozen before the solve',
+    /frozen/i.test(tab) && /changing its own base/i.test(tab));
+  check('the tab offers the target-fund-size override',
+    /fund-terms-fund-size-override/.test(tab) && /State a target fund size myself/.test(tab));
 }
 
 console.log('\n=== 5. The two stores agree, and retired columns still resolve ===');
@@ -346,8 +351,9 @@ console.log('\n=== 5. The two stores agree, and retired columns still resolve ==
   check('every 209 column is added by migration 209', extCols.every((c) => new RegExp(`ADD COLUMN IF NOT EXISTS ${c}\\b`).test(sql209)), extCols.join(','));
   // The fallback is now a three-tier walk (210 -> 209 -> 208), because the
   // Fund Manager columns can lag exactly as the 209 columns did.
-  check('the server knows three schema tiers', /type SchemaTier = 208 \| 209 \| 210/.test(serverFile));
-  check('it walks them highest first', /TIERS: SchemaTier\[\] = \[210, 209, 208\]/.test(serverFile));
+  check('the server knows four schema tiers', /type SchemaTier = 208 \| 209 \| 210 \| 211/.test(serverFile));
+  check('it walks them highest first', /TIERS: SchemaTier\[\] = \[211, 210, 209, 208\]/.test(serverFile));
+  check('it recognises the 211 column as steppable', /fund_size_override/.test(serverFile));
   check('it has a row shape for every tier',
     /toRow\(t\)/.test(serverFile) && /toRow209\(t\)/.test(serverFile) && /toLegacyRow\(t\)/.test(serverFile));
   check('it steps down on a missing COLUMN rather than failing', /isMissingColumn/.test(serverFile));

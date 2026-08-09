@@ -79,6 +79,8 @@ export interface FundFeeSchedule {
   /** The facility limit the arranging fee charged on, and where it came from,
    *  so the tab can show the source rather than an unexplained number. */
   facilityLimit: ResolvedFacilityLimit;
+  /** The fund size the structure fee charged on, and where it came from. */
+  fundSize: ResolvedFundSize;
 }
 
 const zeros = (n: number): number[] => new Array<number>(Math.max(0, n)).fill(0);
@@ -189,6 +191,108 @@ export function resolveFacilityLimit(args: {
   return { amount: 0, source: 'none', amountKnown: true, explanation: 'No facility limit found in your model, and none entered, so this fee is zero.' };
 }
 
+// ── Fund size, resolved from the model ─────────────────────────────────────
+
+/** Where the fund size used as a fee base came from. */
+export type FundSizeSource = 'model' | 'manual' | 'none';
+
+export interface ResolvedFundSize {
+  amount: number;
+  source: FundSizeSource;
+  /** Human sentence for the tab, so the user can see WHY the number is what
+   *  it is rather than being handed an unexplained total. */
+  explanation: string;
+  /** The parts the model figure was built from, surfaced so a reader can check
+   *  the arithmetic instead of trusting it. Zero on the manual path. */
+  equityTotal: number;
+  debtTotal: number;
+  /** False when the source was determined but the amount cannot be computed
+   *  here, which happens only in the UI: the model figure needs a computed
+   *  snapshot, and the Fund Terms tab has none. Re-implementing the funding
+   *  solve in the tab would be a second implementation free to drift, so the
+   *  tab says where the number comes from and the engine supplies it. */
+  amountKnown: boolean;
+}
+
+/**
+ * The FUND SIZE the structure fee charges on.
+ *
+ * ── THIS CHANGED ON 2026-08-05, AND THE CHANGE IS THE DANGEROUS KIND ───────
+ *
+ * Fund size used to be a TYPED input, deliberately, because fund size is
+ * equity plus debt, debt is solved by the funding requirement, and the fees
+ * raise that requirement. Reading it from the model makes the fee feed its own
+ * base, which is the exact circularity this whole layer is built to avoid.
+ * `fund_size_solved` is named in CIRCULAR_FEE_BASES for precisely this reason
+ * and STAYS FORBIDDEN: no fee may ever declare it.
+ *
+ * What makes the model-derived figure safe is not that the danger went away.
+ * It is the FREEZE. This function is called ONCE, from the fee-free pass,
+ * before the iterative solver runs, and the number it returns is then a
+ * constant for every iteration. That is the identical treatment opening NAV
+ * gets in Step 3, and it is the only reason a solved aggregate can be a base
+ * at all.
+ *
+ * So the invariant to hold on to is narrow and precise:
+ *
+ *   the BASE KIND is `fund_size`, which is linear and allowed;
+ *   the VALUE is resolved once, from a fee-free snapshot, and frozen;
+ *   `fund_size_solved` (reading a live solved figure inside the loop) is
+ *   still forbidden and still unimplementable.
+ *
+ * ── WHICH FIGURE ──────────────────────────────────────────────────────────
+ *
+ * Total equity plus total debt over the fund's LIFE, not the balance standing
+ * at any one date. A fund that raises 500m has a fund size of 500m whatever
+ * its drawdown timing, and the structure fee is a one-time charge on that
+ * total, booked at inception. Using a period balance instead would charge the
+ * fee on whatever happened to be drawn by the end of the first year, which is
+ * not a fund size in any sense a reader would recognise.
+ */
+export function resolveFundSize(args: {
+  /** Total equity over the life (existing + new cash + in-kind). */
+  equityTotal: number | null;
+  /** Total debt over the life (existing opening + drawdowns + capitalised IDC). */
+  debtTotal: number | null;
+  /** The figure typed on the Fund Terms tab. */
+  manualSize: number;
+  /** When true the typed figure wins, whatever the model says. */
+  override: boolean;
+}): ResolvedFundSize {
+  const manual = Math.max(0, args.manualSize || 0);
+  if (args.override) {
+    return {
+      amount: manual, source: 'manual', amountKnown: true, equityTotal: 0, debtTotal: 0,
+      explanation: 'Using the target fund size you entered (override is on).',
+    };
+  }
+  if (args.equityTotal === null || args.debtTotal === null) {
+    return {
+      amount: 0, source: 'model', amountKnown: false, equityTotal: 0, debtTotal: 0,
+      explanation: 'From your model: total equity plus total debt. The amount is computed in the model, not here.',
+    };
+  }
+  const equity = Math.max(0, args.equityTotal || 0);
+  const debt = Math.max(0, args.debtTotal || 0);
+  const total = equity + debt;
+  if (total > 0) {
+    return {
+      amount: total, source: 'model', amountKnown: true, equityTotal: equity, debtTotal: debt,
+      explanation: 'From your model: total equity plus total debt over the life of the fund, frozen before the funding solve so the fee cannot feed its own base.',
+    };
+  }
+  if (manual > 0) {
+    return {
+      amount: manual, source: 'manual', amountKnown: true, equityTotal: 0, debtTotal: 0,
+      explanation: 'Your model raises no capital yet, so the amount you entered is used.',
+    };
+  }
+  return {
+    amount: 0, source: 'none', amountKnown: true, equityTotal: 0, debtTotal: 0,
+    explanation: 'No capital in the model and no target entered, so this fee is zero.',
+  };
+}
+
 /**
  * Opening NAV per period from a closing-NAV series.
  *
@@ -218,6 +322,13 @@ export interface FundFeeInputs {
    * fallback. Omit to fall back to the typed figure alone.
    */
   facilityLimit?: ResolvedFacilityLimit;
+  /**
+   * The fund size, already resolved from the model by `resolveFundSize`.
+   * Passed in rather than read off `terms` so the base is what the model
+   * actually raises, with the typed figure as the override and the fallback.
+   * FROZEN: resolved once from a fee-free snapshot, never re-derived here.
+   */
+  fundSize?: ResolvedFundSize;
 }
 
 /**
@@ -236,6 +347,8 @@ export function computeFundFeeSchedule(input: FundFeeInputs): FundFeeSchedule {
   // (the pure-unit-test path).
   const facilityLimit: ResolvedFacilityLimit = input.facilityLimit
     ?? { amount: terms.facilityLimit, source: 'manual', amountKnown: true, explanation: 'Using the amount entered on the Fund Terms tab.' };
+  const fundSize: ResolvedFundSize = input.fundSize
+    ?? { amount: terms.fundSize, source: 'manual', amountKnown: true, equityTotal: 0, debtTotal: 0, explanation: 'Using the amount entered on the Fund Terms tab.' };
 
   const lines: FundFeeLine[] = FUND_FEE_SPECS.map((spec) => {
     const rate = spec.kind === 'rate' ? (terms[spec.key] as number) : 0;
@@ -249,7 +362,7 @@ export function computeFundFeeSchedule(input: FundFeeInputs): FundFeeSchedule {
       // about what a fee charges on.
       for (let t = 0; t < N; t++) {
         switch (spec.base) {
-          case 'fund_size':      basis[t] = terms.fundSize; break;
+          case 'fund_size':      basis[t] = fundSize.amount; break;
           case 'facility_limit': basis[t] = facilityLimit.amount; break;
           case 'opening_nav':    basis[t] = Math.max(0, openingNav[t] ?? 0); break;
           case 'flat_amount':    basis[t] = flat; break;
@@ -291,6 +404,7 @@ export function computeFundFeeSchedule(input: FundFeeInputs): FundFeeSchedule {
     total: totalPerPeriod.reduce((s, v) => s + v, 0),
     openingNavPerPeriod: terms.enabled ? openingNav : zeros(N),
     facilityLimit,
+    fundSize,
   };
 }
 
@@ -308,5 +422,6 @@ export function emptyFundFeeSchedule(axisLength: number): FundFeeSchedule {
     total: 0,
     openingNavPerPeriod: zeros(N),
     facilityLimit: { amount: 0, source: 'none', amountKnown: true, explanation: 'The fund layer is off.' },
+    fundSize: { amount: 0, source: 'none', amountKnown: true, equityTotal: 0, debtTotal: 0, explanation: 'The fund layer is off.' },
   };
 }

@@ -33,8 +33,8 @@
  */
 import { computeFinancialsSnapshot, computeFundingGap } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { computeFundFeeSchedule, openingFromClosing, emptyFundFeeSchedule } from '../src/hubs/modeling/platforms/refm/lib/fundFees';
-import { resolveFundTerms, FUND_FEE_SPECS } from '../src/hubs/modeling/platforms/refm/lib/fundTerms';
-import { buildPLRows, buildDirectCFRows, buildIndirectCFRows } from '../src/hubs/modeling/platforms/refm/lib/reports/m4Reports';
+import { resolveFundTerms, FUND_FEE_SPECS, CIRCULAR_FEE_BASES } from '../src/hubs/modeling/platforms/refm/lib/fundTerms';
+import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildFundFeeBasisRows } from '../src/hubs/modeling/platforms/refm/lib/reports/m4Reports';
 import { getFinancialLabels } from '../src/core/calculations/financials';
 import { makeDefaultPhase, makeDefaultProject, makeDefaultCostLines, makeDefaultFinancingTranche } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
@@ -111,11 +111,21 @@ console.log('=== 1. Timing: each fee lands where its spec says ===');
 
   const line = (k: string) => sched.lines.find((l) => l.key === k)!;
 
-  // One-time fees: charged once, at the start, on a user-input base.
+  // One-time fees: charged once, at the start. CHANGED 2026-08-05: the
+  // structure-fee base is now RESOLVED FROM THE MODEL (total equity plus total
+  // debt, frozen in the fee-free pass) rather than the typed figure, so these
+  // assert against the resolved amount. Section 6b proves the freeze holds,
+  // which is what makes a solved aggregate safe to charge on at all.
   const structure = line('fundStructureFeePct');
-  check('the fund structure fee is charged in period 0', near(structure.amountPerPeriod[0], 500_000_000 * 0.01));
+  const resolvedFundSize = sched.fundSize.amount;
+  check('the fund structure fee is charged in period 0', near(structure.amountPerPeriod[0], resolvedFundSize * 0.01));
   check('the fund structure fee is charged ONCE', near(sum(structure.amountPerPeriod.slice(1)), 0));
-  check('the fund structure fee total equals rate x fund size', near(structure.total, 5_000_000));
+  check('the fund structure fee total equals rate x the RESOLVED fund size', near(structure.total, resolvedFundSize * 0.01));
+  check('and the resolved fund size came from the MODEL, not the typed figure',
+    sched.fundSize.source === 'model' && resolvedFundSize > 0,
+    `${sched.fundSize.source} ${resolvedFundSize}`);
+  check('the resolved fund size is total equity plus total debt',
+    near(resolvedFundSize, sched.fundSize.equityTotal + sched.fundSize.debtTotal));
 
   const arranging = line('debtArrangingFeePct');
   // The base is the limit RESOLVED FROM THE MODEL (section 1b proves which
@@ -247,8 +257,12 @@ console.log('\n=== 3b. The rendered P&L: fees total, THEN EBITDA (reference orde
   const label = (s: string) => rows.find((r: any) => r.label === s);
   const idx = (s: string) => rows.findIndex((r: any) => r.label === s);
 
+  // Every fee row now states its RATE and BASE inline (2026-08-05), so the
+  // label is the fee name plus that suffix rather than the bare name. Matched
+  // by prefix, and the suffix content is asserted in section 3e.
+  const rowFor = (name: string) => rows.find((r: any) => String(r.label).startsWith(name));
   check('a row is rendered per charged fee',
-    on.fundFees.lines.filter((l) => l.total !== 0).every((l) => !!label(l.label)));
+    on.fundFees.lines.filter((l) => l.total !== 0).every((l) => !!rowFor(l.label)));
   check('the subtotal is labelled "Total Fund Management Fee"', !!label('Total Fund Management Fee'));
   check('the fee rows are NEGATIVE (a charge, like every other expense row)',
     (label('Total Fund Management Fee')?.values ?? []).every((v: number, t: number) => near(v, -(on.pl.fundFeesPerPeriod[t] ?? 0))));
@@ -298,6 +312,117 @@ console.log('\n=== 3b. The rendered P&L: fees total, THEN EBITDA (reference orde
     offRows.filter((r: any) => /^EBITDA/.test(r.label)).length === 1
     && offRows.findIndex((r: any) => r.label === 'EBITDA')
        === offRows.findIndex((r: any) => r.label === 'Total Operating Expenses') + 1);
+}
+
+console.log('\n=== 3e. Every fee shows its BASE and its RATE (2026-08-05) ===');
+{
+  const state = buildState({ fund: true, taxRate: 0.15 });
+  const on = computeFinancialsSnapshot(state);
+  const ctx = { snap: on, state, filterPhaseId: '__all__', labels: getFinancialLabels(state.project), fmt: (v: number) => String(v) } as any;
+  const rows = buildPLRows(ctx);
+  const basis = buildFundFeeBasisRows(on);
+
+  // The inline label on the statement line itself, which is what reaches the
+  // PDF and Excel without any column-geometry change.
+  const structureRow = rows.find((r: any) => String(r.label).startsWith('Fund structure fee'));
+  check('the structure fee row states its rate', /1\.00%/.test(String(structureRow?.label ?? '')),
+    String(structureRow?.label));
+  check('and names the base it is charged on', /Fund size/.test(String(structureRow?.label ?? '')));
+  check('and shows the base AMOUNT, so a zero fee is diagnosable',
+    new RegExp(String(Math.round(on.fundFees.fundSize.amount))).test(String(structureRow?.label ?? '')),
+    String(structureRow?.label));
+  const flatRow = rows.find((r: any) => String(r.label).startsWith('Other expenses'));
+  check('a flat-amount fee says so rather than showing a meaningless rate',
+    /flat amount/i.test(String(flatRow?.label ?? '')) && !/%/.test(String(flatRow?.label ?? '')),
+    String(flatRow?.label));
+
+  // The columnar table, shared by the M4 tab, the M5 fee income section and
+  // Excel, so all three answer "why is this zero" the same way.
+  check('a basis row exists for every fee', basis.length === on.fundFees.lines.length);
+  check('every basis row names a base and a timing',
+    basis.every((b) => b.base.length > 0 && b.timing.length > 0));
+  check('every rate fee shows a percentage', basis.filter((b) => b.base !== 'Flat amount').every((b) => /%$/.test(b.rate)));
+  check('a flat-amount fee shows no percentage', basis.filter((b) => b.base === 'Flat amount').every((b) => b.rate === '-'));
+  // The arithmetic must be checkable BY EYE, which is the point of the table.
+  check('basis x rate equals the fee charged, every rate fee',
+    on.fundFees.lines.every((l, i) => l.base === 'flat_amount'
+      || near(basis[i].basis * l.rate, basis[i].charged, 1)),
+    'basis x rate must reproduce the charge');
+  check('a flat-amount fee charges its basis directly',
+    on.fundFees.lines.every((l, i) => l.base !== 'flat_amount' || near(basis[i].basis, basis[i].charged, 1)));
+  check('the model-resolved bases carry an explanation of where they came from',
+    basis.filter((b) => b.base === 'Fund size' || b.base === 'Facility limit').every((b) => b.note.length > 20));
+
+  // A ZERO fee must be diagnosable: an empty basis, not a missing rate.
+  const zeroState = buildState({ fund: true, taxRate: 0.15 });
+  (zeroState.project as any).fundTerms = { ...(zeroState.project as any).fundTerms, fundSizeOverride: true, fundSize: 0 };
+  const zeroSnap = computeFinancialsSnapshot(zeroState);
+  const zeroBasis = buildFundFeeBasisRows(zeroSnap).find((b) => b.base === 'Fund size');
+  check('a fee with no base reports a ZERO BASIS beside a live rate',
+    zeroBasis?.basis === 0 && zeroBasis?.rate === '1.00%' && zeroBasis?.charged === 0,
+    `${zeroBasis?.basis} ${zeroBasis?.rate} ${zeroBasis?.charged}`);
+
+  // And a standalone project shows none of it.
+  const offState = buildState({ fund: false, taxRate: 0.15 });
+  check('a standalone project has no fee basis table at all',
+    buildFundFeeBasisRows(computeFinancialsSnapshot(offState)).length === 0);
+}
+
+console.log('\n=== 3f. Fund size is model-derived, and FROZEN ===');
+{
+  const mk = (o: any = {}) => {
+    const s = buildState({ fund: true, taxRate: 0.15 });
+    (s.project as any).fundTerms = { ...(s.project as any).fundTerms, ...o };
+    return computeFinancialsSnapshot(s);
+  };
+  const base = mk();
+  check('the default source is the MODEL, not the typed figure', base.fundFees.fundSize.source === 'model');
+  check('it equals total equity plus total debt',
+    near(base.fundFees.fundSize.amount, base.fundFees.fundSize.equityTotal + base.fundFees.fundSize.debtTotal));
+  check('both components are real and positive',
+    base.fundFees.fundSize.equityTotal > 0 && base.fundFees.fundSize.debtTotal > 0);
+  check('it carries an explanation naming the freeze',
+    /frozen/i.test(base.fundFees.fundSize.explanation), base.fundFees.fundSize.explanation);
+
+  // THE DECISIVE CHECK. If the fund size moved with the fee rate, the fee would
+  // be feeding its own base, which is the exact circularity the whole layer is
+  // built to avoid. Tripling the rate must leave the base untouched.
+  const r1 = mk({ fundStructureFeePct: 0.01 });
+  const r3 = mk({ fundStructureFeePct: 0.03 });
+  const r10 = mk({ fundStructureFeePct: 0.10 });
+  check('tripling the structure-fee rate does NOT move the resolved fund size',
+    r1.fundFees.fundSize.amount === r3.fundFees.fundSize.amount,
+    `${r1.fundFees.fundSize.amount} vs ${r3.fundFees.fundSize.amount}`);
+  check('nor does a tenfold rate', r1.fundFees.fundSize.amount === r10.fundFees.fundSize.amount);
+  check('and the components do not move either',
+    r1.fundFees.fundSize.equityTotal === r10.fundFees.fundSize.equityTotal
+    && r1.fundFees.fundSize.debtTotal === r10.fundFees.fundSize.debtTotal);
+  // But the FEE must move, or the check above is passing on a dead rate.
+  check('while the fee itself does move with the rate',
+    r10.fundFees.lines[0].total > r1.fundFees.lines[0].total * 5);
+  // Other fund fees must not move the base either: they all raise the funding
+  // requirement, so any of them could feed it if the freeze were absent.
+  const heavy = mk({ otherExpensesPerAnnum: 50_000_000 });
+  check('a much larger OTHER fee does not move the fund size either',
+    heavy.fundFees.fundSize.amount === r1.fundFees.fundSize.amount,
+    `${heavy.fundFees.fundSize.amount} vs ${r1.fundFees.fundSize.amount}`);
+
+  // The manual override, which a project stating a target still needs.
+  const manual = mk({ fundSizeOverride: true, fundSize: 500_000_000 });
+  check('the override pins the typed target', manual.fundFees.fundSize.source === 'manual'
+    && manual.fundFees.fundSize.amount === 500_000_000);
+  check('and the fee charges on it', near(manual.fundFees.lines[0].total, 5_000_000));
+  check('the override wins over the model figure',
+    manual.fundFees.fundSize.amount !== base.fundFees.fundSize.amount);
+
+  // The forbidden base stays forbidden: freezing a solved aggregate OUTSIDE the
+  // loop is not the same as reading one INSIDE it, and the registry must still
+  // refuse the latter.
+  check('fund_size_solved is still in the forbidden list',
+    (CIRCULAR_FEE_BASES as readonly string[]).includes('fund_size_solved'));
+  check('no fee declares it', FUND_FEE_SPECS.every((s) => String(s.base) !== 'fund_size_solved'));
+  check('the structure fee still declares the LINEAR fund_size base',
+    FUND_FEE_SPECS.find((s) => s.key === 'fundStructureFeePct')?.base === 'fund_size');
 }
 
 console.log('\n=== 3c. The cash flow SHOWS the fee inside operating activities ===');
@@ -420,7 +545,7 @@ console.log('\n=== 4. The fee raises the funding requirement by exactly its cash
     `rise ${reqOn[0] - reqOff[0]} vs fee ${on.pl.fundFeesPerPeriod[0]}`);
   check('the period-0 fee is the two one-time fees plus the annual flat, charged together',
     near(on.pl.fundFeesPerPeriod[0] ?? 0,
-      500_000_000 * 0.01 + on.fundFees.facilityLimit.amount * 0.0075 + 1_500_000, 1));
+      on.fundFees.fundSize.amount * 0.01 + on.fundFees.facilityLimit.amount * 0.0075 + 1_500_000, 1));
   check('the rise is a real fraction of the fee, not a rounding artefact', reqDelta > 0.01 * feeTotal);
 
   // With tax on, the fee also cuts the tax bill, so the NET cash effect is the
@@ -514,6 +639,9 @@ console.log('\n=== 6. No fee feeds back into its own base ===');
     // Same resolved limit the engine used, so this reproduces the engine's
     // schedule rather than a typed-figure variant of it.
     facilityLimit: on.fundFees.facilityLimit,
+    // Same for the fund size: the FROZEN figure the booked schedule actually
+    // used, not a re-derivation, which is the whole point of the freeze.
+    fundSize: on.fundFees.fundSize,
   });
   check('the booked fees equal the schedule derived from the FEE-FREE pass',
     on.fundFees.totalPerPeriod.every((v, t) => near(v, expected.totalPerPeriod[t] ?? 0, 0.001)));

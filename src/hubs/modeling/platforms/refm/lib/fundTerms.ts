@@ -20,7 +20,8 @@
  * the fee would feed its own base and the fund layer would land inside the M4
  * circular block. So every base is known BEFORE the period's cash moves:
  *
- *   fund size       a user input (target or committed), never a solved output
+ *   fund size       total equity + debt, RESOLVED ONCE from a fee-free pass
+ *                   and frozen before the solver (2026-08-05); never read live
  *   facility limit  a user input (the limit), never the drawn balance
  *   opening NAV     NAV at the START of the period, fixed before cash moves
  *   flat amount     a typed currency figure per annum
@@ -73,7 +74,7 @@ export const FEE_BASE_LABELS: Record<FeeBaseKind, string> = {
 };
 
 export const FEE_BASE_HELP: Record<FeeBaseKind, string> = {
-  fund_size: 'The fund size you enter below. A target or committed figure, so it does not move when funding changes.',
+  fund_size: 'Total equity plus total debt from your model, frozen before the funding solve so the fee cannot feed its own base. Override it below to state a target instead.',
   opening_nav: 'NAV at the START of each year, so the fee is known before the year`s cash moves.',
   facility_limit: 'The facility limit you enter below, not the drawn balance.',
   flat_amount: 'A fixed amount you enter, per annum.',
@@ -260,14 +261,24 @@ export interface FundTerms {
   fundManagerName: string;
 
   /**
-   * FUND SIZE STAYS A TYPED INPUT, deliberately, and this is not an oversight.
-   * Fund size is equity plus debt; debt is solved by the funding requirement;
-   * and the fees RAISE that requirement. Reading it from the model would make
-   * the fee feed its own base, which is the circularity the whole layer is
-   * built to avoid. A target or committed figure the user states does not move
-   * when funding moves.
+   * The TARGET fund size, used when `fundSizeOverride` is on or when the model
+   * raises no capital.
+   *
+   * CHANGED 2026-08-05: fund size is now DERIVED from the model by default
+   * (total equity plus total debt, see resolveFundSize in fundFees.ts). It was
+   * a typed input until then, because fund size is equity plus debt, debt is
+   * solved by the funding requirement, and the fees raise that requirement, so
+   * reading it live would make the fee feed its own base.
+   *
+   * What makes the derived figure safe is the FREEZE, not a change of heart:
+   * it is resolved once from a fee-free snapshot before the solver runs and is
+   * then a constant, exactly as opening NAV has been since Step 3.
+   * `fund_size_solved` (a live solved figure read inside the loop) remains in
+   * CIRCULAR_FEE_BASES and remains forbidden.
    */
   fundSize: number;
+  /** True when the typed `fundSize` should win over the model's figure. */
+  fundSizeOverride: boolean;
   /**
    * The facility LIMIT the debt arranging fee charges on. Resolved from the
    * model where the model states one (see resolveFacilityLimit in fundFees.ts);
@@ -313,6 +324,7 @@ export const DEFAULT_FUND_TERMS: FundTerms = {
   enabled: false,
   fundManagerName: DEFAULT_FUND_MANAGER_NAME,
   fundSize: 0,
+  fundSizeOverride: false,
   facilityLimit: 0,
   facilityLimitOverride: false,
   fundStructureFeePct: 0,
@@ -444,6 +456,7 @@ export function resolveFundTerms(project: Pick<Project, 'fundTerms'> | null | un
     fundManagerName: typeof raw.fundManagerName === 'string' && raw.fundManagerName.trim()
       ? raw.fundManagerName.trim() : DEFAULT_FUND_MANAGER_NAME,
     fundSize: nonNegative(raw.fundSize),
+    fundSizeOverride: raw.fundSizeOverride === true,
     facilityLimit: nonNegative(raw.facilityLimit),
     facilityLimitOverride: raw.facilityLimitOverride === true,
     fundStructureFeePct: clamp01(raw.fundStructureFeePct),
@@ -482,6 +495,7 @@ export function toFundTermsPatch(t: FundTerms): FundTermsPatch {
     enabled: t.enabled,
     fundManagerName: t.fundManagerName,
     fundSize: t.fundSize,
+    fundSizeOverride: t.fundSizeOverride,
     facilityLimit: t.facilityLimit,
     facilityLimitOverride: t.facilityLimitOverride,
     fundStructureFeePct: t.fundStructureFeePct,
@@ -525,6 +539,8 @@ export interface FundTermsRow {
   // Migration 210
   fund_manager_name?: string;
   facility_limit_override?: boolean;
+  // Migration 211
+  fund_size_override?: boolean;
 }
 
 export function fromRow(row: Partial<FundTermsRow> | null | undefined): FundTerms {
@@ -536,6 +552,7 @@ export function fromRow(row: Partial<FundTermsRow> | null | undefined): FundTerm
     // DEFAULT_FUND_TERMS, because verify-fund-terms compares the row and
     // snapshot round trips with JSON.stringify, which is order sensitive.
     fundSize: nonNegative(row.fund_size),
+    fundSizeOverride: row.fund_size_override === true,
     facilityLimit: nonNegative(row.facility_limit),
     facilityLimitOverride: row.facility_limit_override === true,
     fundStructureFeePct: clamp01(row.fund_structure_fee_pct),
@@ -564,6 +581,7 @@ export function toRow(t: FundTerms): Required<FundTermsRow> {
     committed_capital: t.committedCapital,
     fee_shares: t.feeShares,
     fund_size: t.fundSize,
+    fund_size_override: t.fundSizeOverride,
     facility_limit: t.facilityLimit,
     fund_structure_fee_pct: t.fundStructureFeePct,
     fund_management_fee_pct: t.fundManagementFeePct,
@@ -576,6 +594,15 @@ export function toRow(t: FundTerms): Required<FundTermsRow> {
   };
 }
 
+/** The migrations 208 + 209 + 210 subset, for a database where 211 is not
+ *  applied. The fund-size override still rides in the version snapshot, which
+ *  is what the engine reads. */
+export function toRow210(t: FundTerms): FundTermsRow {
+  const row: Record<string, unknown> = { ...toRow(t) };
+  delete row.fund_size_override;
+  return row as unknown as FundTermsRow;
+}
+
 /** The migrations 208 + 209 subset, for a database where 210 is not applied.
  *  The Fund Manager name and the override flag still ride in the version
  *  snapshot, which is what the engine reads. */
@@ -583,6 +610,7 @@ export function toRow209(t: FundTerms): FundTermsRow {
   const row: Record<string, unknown> = { ...toRow(t) };
   delete row.fund_manager_name;
   delete row.facility_limit_override;
+  delete row.fund_size_override;
   return row as unknown as FundTermsRow;
 }
 

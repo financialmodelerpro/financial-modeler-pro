@@ -51,7 +51,11 @@ import type { Module1Store } from './state/module1-store';
 import type { Asset, Phase, FinancingTranche } from './state/module1-types';
 import { DEFAULT_PROJECT_FINANCING_CONFIG } from './state/module1-types';
 import { resolveFundTerms } from './fundTerms';
-import { computeFundFeeSchedule, emptyFundFeeSchedule, resolveFacilityLimit, type FundFeeSchedule } from './fundFees';
+import { computeFundFeeSchedule, emptyFundFeeSchedule, resolveFacilityLimit, resolveFundSize, type FundFeeSchedule } from './fundFees';
+
+/** Lifetime sum of a per-period series. Local to the fund-size resolution. */
+const sumSeries = (a: readonly number[] | undefined): number =>
+  (a ?? []).reduce((s, v) => s + (v ?? 0), 0);
 
 export type FinancialsResolverState = Pick<
   Module1Store,
@@ -2482,6 +2486,32 @@ export function computeFinancialsSnapshot(
         capexTotal: feeFree.financing.capex.totals.exclLandInKind,
         manualLimit: fundTerms.facilityLimit,
         override: fundTerms.facilityLimitOverride,
+      }),
+      // FUND SIZE, resolved from the model and FROZEN here (2026-08-05).
+      //
+      // This is the one base that reads a SOLVED aggregate: total debt moves
+      // with the funding requirement, which the fees themselves raise. It is
+      // safe for exactly one reason, and it is the same reason opening NAV is
+      // safe: it is computed HERE, from the fee-free pass, before the solver
+      // runs, and is then a constant for every iteration. Nothing below this
+      // line ever re-derives it.
+      //
+      // `fund_size_solved` stays in CIRCULAR_FEE_BASES and stays forbidden:
+      // that name means reading the live solved figure INSIDE the loop, which
+      // is a different thing from freezing it outside.
+      //
+      // The figure is the LIFETIME total, not a period balance. A fund that
+      // raises 500m has a fund size of 500m whatever its drawdown timing, and
+      // the structure fee is a one-time charge on that total booked at
+      // inception. Debt includes capitalised IDC because that is debt the fund
+      // genuinely raises.
+      fundSize: resolveFundSize({
+        equityTotal: feeFree.financing.equity.grandTotal,
+        debtTotal: feeFree.financing.existing.debtOutstandingTotal
+          + sumSeries(feeFree.financing.combined.totalDrawdown)
+          + sumSeries(feeFree.financing.combined.totalInterestCapitalized),
+        manualSize: fundTerms.fundSize,
+        override: fundTerms.fundSizeOverride,
       }),
     });
     return computeFinancialsSnapshotSolved(state, schedule);

@@ -20,6 +20,8 @@
 import type { ProjectFinancialsSnapshot, FinancialsResolverState } from '../financials-resolvers';
 import { getFinancialLabels } from '@/src/core/calculations/financials';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
+import type { FundFeeSchedule } from '../fundFees';
+import { FEE_BASE_LABELS, FEE_TIMING_LABELS } from '../fundTerms';
 
 type Labels = ReturnType<typeof getFinancialLabels>;
 
@@ -208,8 +210,14 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
   const fundFees = p.fundFeesPerPeriod ?? [];
   if (fundFees.some((v) => v !== 0)) {
     for (const line of snap.fundFees.lines) {
-      if (line.amountPerPeriod.some((v) => v !== 0)) {
-        rows.push({ label: line.label, values: negArr(line.amountPerPeriod), indent: 1 });
+      // Every fee row states its RATE and its BASE inline. Without this a fee
+      // reading zero is unreadable: you cannot tell a zero rate from an empty
+      // base, which is exactly how a fund structure fee sat at zero with
+      // nothing on screen explaining why. The full columnar detail is in the
+      // Fund Fee Basis table (buildFundFeeBasisRows); this is the version that
+      // travels with the statement line itself into the PDF and Excel.
+      if (line.amountPerPeriod.some((v) => v !== 0) || line.basisPerPeriod.some((v) => v !== 0)) {
+        rows.push({ label: fundFeeLineLabel(line, ctx.fmt), values: negArr(line.amountPerPeriod), indent: 1 });
       }
     }
     rows.push({ label: 'Total Fund Management Fee', values: negArr(fundFees), isSubtotal: true });
@@ -230,6 +238,84 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
   rows.push({ label: labels.pat, values: pat, isTotal: true });
 
   return rows;
+}
+
+// ── Fund fee basis: what each fee is charged on ───────────────────────────
+//
+// Added 2026-08-05. Every fee row must show the BASE it is charged on and the
+// RATE applied. Before this a fee could read zero with nothing on screen to
+// say whether the rate was zero or the base was empty, and the fund structure
+// fee did exactly that.
+//
+// Two layers, because they answer the question at different depths:
+//
+//   `fundFeeLineLabel` puts the rate and the base amount inline on the P&L
+//   row itself, so it travels with the statement into the PDF and Excel for
+//   free and needs no column geometry.
+//
+//   `buildFundFeeBasisRows` is the full columnar detail (timing, base, rate,
+//   basis amount, fee charged, and WHERE the base came from). ONE builder,
+//   consumed by the M4 P&L tab, the Excel export and the M5 fee income
+//   section, so the three cannot drift.
+//
+// The period grid's columns are deliberately NOT extended: Excel's period axis
+// starts at a hardcoded column and the sub-TOC and print setup depend on that
+// geometry, so inserting columns there would shift the whole axis.
+
+/** The label a fund fee carries in the statement: name, rate, base amount. */
+export function fundFeeLineLabel(
+  line: FundFeeSchedule['lines'][number],
+  fmt: (v: number) => string,
+): string {
+  const baseName = FEE_BASE_LABELS[line.base] ?? line.base;
+  // The basis a rate is applied to over the life. For a one-time fee only the
+  // first period carries a basis, so this is that period's figure; for an
+  // annual fee it is the sum of the bases charged, and basis x rate == total
+  // by construction, which is what makes the row checkable by eye.
+  const basis = line.basisPerPeriod.reduce((s, v) => s + (v ?? 0), 0);
+  if (line.base === 'flat_amount') return `${line.label} (flat amount)`;
+  return `${line.label} (${(line.rate * 100).toFixed(2)}% of ${baseName} ${fmt(basis)})`;
+}
+
+/** One row of the Fund Fee Basis table. */
+export interface FundFeeBasisRow {
+  label: string;
+  timing: string;
+  base: string;
+  /** Formatted rate, or a dash for a flat-amount fee that carries no rate. */
+  rate: string;
+  /** The amount the rate was applied to over the life. */
+  basis: number;
+  /** The fee charged over the life. */
+  charged: number;
+  /** Where the base came from, for the bases the model resolves. */
+  note: string;
+}
+
+/**
+ * The fee basis table. Empty when the fund layer is off, so a caller can render
+ * it unconditionally and a standalone project shows nothing.
+ */
+export function buildFundFeeBasisRows(snap: ProjectFinancialsSnapshot): FundFeeBasisRow[] {
+  const sched = snap.fundFees;
+  if (!sched.active) return [];
+  return sched.lines.map((line) => {
+    const basis = line.basisPerPeriod.reduce((s, v) => s + (v ?? 0), 0);
+    let note = '';
+    if (line.base === 'fund_size') note = sched.fundSize.explanation;
+    else if (line.base === 'facility_limit') note = sched.facilityLimit.explanation;
+    else if (line.base === 'opening_nav') note = 'NAV at the start of each year (net assets), so the fee is known before the year\'s cash moves.';
+    else if (line.base === 'flat_amount') note = 'A fixed amount per annum.';
+    return {
+      label: line.label,
+      timing: FEE_TIMING_LABELS[line.timing] ?? line.timing,
+      base: FEE_BASE_LABELS[line.base] ?? line.base,
+      rate: line.base === 'flat_amount' ? '-' : `${(line.rate * 100).toFixed(2)}%`,
+      basis,
+      charged: line.total,
+      note,
+    };
+  });
 }
 
 // ── Cash Flow shared Investment / Financing sections ──────────────────────

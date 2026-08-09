@@ -22,7 +22,7 @@ import { buildCapexReport, type CapexReport } from '../reports/capexReports';
 import { buildFinancingScheduleTables, buildCashSweepTables, type ReportTable } from '../reports/financingReports';
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildOpexReport } from '../reports/opexReports';
-import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, type M4ReportCtx } from '../reports/m4Reports';
+import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildFundFeeBasisRows, type M4ReportCtx } from '../reports/m4Reports';
 import { buildCaseComparisonReport, type CaseComparisonInput, type CaseComparisonReport, type CaseKpiKind } from '../reports/caseComparisonReport';
 import { buildCaseYoYReport, type CaseYoYReport } from '../reports/caseYoYReport';
 import { formatAssumptionValue } from '../cases/assumptionGrid';
@@ -2706,6 +2706,38 @@ function addProfitLoss(ctx: EmitCtx): void {
   const hasData = (rows: M4Row[]): boolean => rows.some((rr) => rr.values.some((v) => v !== 0));
   E.section(`${labels.incomeStatementTitle}: Project`);
   E.emitTable(buildPLRows(mk('__all__')));
+
+  // ── Fund Fee Basis (2026-08-05) ────────────────────────────────────────
+  //
+  // Every fee shows the BASE it is charged on and the RATE applied, so a fee
+  // reading zero can be diagnosed instead of guessed at. Columns B and C are
+  // the free meta columns on a period sheet, which is what lets this land as
+  // a real Base column and Rate column WITHOUT shifting the period axis (it
+  // starts at column F and the sub-TOC and print setup depend on that).
+  //
+  // Rows come from the SAME shared builder the M4 tab and the M5 fee income
+  // section render, so the workbook cannot drift from the screen. Empty and
+  // skipped entirely when the fund layer is off.
+  const basisRows = buildFundFeeBasisRows(snap);
+  if (basisRows.length > 0) {
+    E.gap();
+    E.section('Fund Fee Basis');
+    setBasis(ws.getCell(E.cursor(), META_B), 'Base');
+    setBasis(ws.getCell(E.cursor(), META_C), 'Rate');
+    E.moneyRow('What each fee is charged on', undefined, { style: 'subtotal', noTotal: true });
+    for (let i = 0; i < basisRows.length; i++) {
+      const b = basisRows[i];
+      const line = snap.fundFees.lines[i];
+      const rBasis = E.moneyRow(`${b.label}: basis charged on`, line?.basisPerPeriod, { indent: 1 });
+      setBasis(ws.getCell(rBasis, META_B), b.base);
+      setBasis(ws.getCell(rBasis, META_C), b.rate);
+      const rFee = E.moneyRow(`${b.label}: fee charged`, line?.amountPerPeriod, { indent: 2 });
+      setBasis(ws.getCell(rFee, META_B), b.timing);
+      setBasis(ws.getCell(rFee, META_C), b.note ? 'see note' : '');
+    }
+    E.moneyRow('Total Fund Management Fee', snap.fundFees.totalPerPeriod, { style: 'total' });
+  }
+
   for (const ph of state.phases) {
     const rows = buildPLRows(mk(ph.id));
     if (!hasData(rows)) continue;
