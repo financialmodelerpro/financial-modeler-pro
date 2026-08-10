@@ -27,6 +27,12 @@ import fontkit from '@pdf-lib/fontkit';
 import { formatAccounting, formatArea, formatInteger, type DisplayScale } from '@/src/core/formatters';
 import { computeSubUnitArea } from '@/src/core/calculations';
 import { FUNDING_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
+import { resolveFundTerms } from '../fundTerms';
+import {
+  isFundActive, hasFundFeeIncome, buildFundWaterfallRows, buildFundFeeIncomeRows,
+  buildFundGrossNetRows, buildFundEarnerRows, buildFundHeadlineCards, buildFundTermsPairs,
+  FUND_GROSS_NET_COLUMNS, FUND_EARNER_COLUMNS, type FundReportCtx, type FundFmt,
+} from '../reports/fundReports';
 import INTER_REGULAR_B64 from './fonts/interRegular';
 import INTER_BOLD_B64 from './fonts/interBold';
 import {
@@ -37,7 +43,7 @@ import {
 } from '../financials-resolvers';
 import { computeReturnsSnapshot, type ReturnsSnapshot } from '../returns-resolvers';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
-import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsFeederTables, buildBsReconciliationRows, type M4FeederCtx } from '../reports/m4Reports';
+import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsFeederTables, buildBsReconciliationRows, buildFundFeeBasisRows, type M4FeederCtx } from '../reports/m4Reports';
 import { buildOpexReport } from '../reports/opexReports';
 import { buildCapexReport } from '../reports/capexReports';
 import { buildFinancingScheduleTables, buildCashSweepTables } from '../reports/financingReports';
@@ -547,6 +553,89 @@ const indexLabel = (ix?: { method?: string; rate?: number }): string => {
 const tItem = (tab: string, part: PartKind, item: PdfItem): TaggedItem => ({ tab, part, item });
 const tTable = (tab: string, part: PartKind, table: PdfTable): TaggedItem => tItem(tab, part, { type: 'table', table });
 const tCards = (tab: string, part: PartKind, title: string, cards: PdfCard[]): TaggedItem => tItem(tab, part, { type: 'cards', title, cards });
+
+// ── Fund layer: ONE definition of the PDF fund block ────────────────────────
+//
+// Both PDFs render this: the full report puts it in Module 5, the summary PDF
+// on its own page. The ROWS come from the shared lib/reports/fundReports
+// builders (the same ones the M5 screen and the Excel workbook use), so this
+// only decides PDF layout, never content or row order.
+//
+// Returns an empty list on a standalone project, so a caller can splice it in
+// unconditionally and nothing appears when the fund toggle is off.
+
+/** The formatters the shared fund builders want, from the PDF's Fmt. */
+function fundFmtFrom(fmt: Fmt): FundFmt {
+  return {
+    money: (v: number) => fmt.money(v),
+    pct: (v, d = 1) => fmt.pct(v ?? null, d),
+    mult: (v) => fmt.mult(v ?? null),
+  };
+}
+
+interface FundBlockPiece { title: string; table: PdfTable | null; cards: PdfCard[] | null }
+
+function buildFundBlock(
+  snap: ProjectFinancialsSnapshot,
+  returns: ReturnsSnapshot | null,
+  state: FinancialsResolverState,
+  fmt: Fmt,
+  py: number,
+): FundBlockPiece[] {
+  if (!returns || !isFundActive(returns)) return [];
+  const yl = snap.yearLabels;
+  const streamPrior = returns.streamYearLabels[0] ?? py;
+  const streamYears = returns.streamYearLabels.slice(1);
+  const ctx: FundReportCtx = { snap, returns, fmt: fundFmtFrom(fmt) };
+  const out: FundBlockPiece[] = [];
+
+  out.push({ title: 'Fund Returns, Gross vs Net', table: null, cards: buildFundHeadlineCards(ctx).map((c) => ({ label: c.label, value: c.value, sub: c.sub })) });
+  out.push({
+    title: 'Fund Terms Applied', cards: null,
+    table: kvTable('Fund Terms Applied', buildFundTermsPairs(ctx, resolveFundTerms(state.project).fundManagerName)),
+  });
+  out.push({
+    title: 'Distributed Equity, Gross vs Net', cards: null,
+    table: {
+      title: 'Distributed Equity, Gross vs Net of Performance Fee', kind: 'grid', align: 'data',
+      columns: [...FUND_GROSS_NET_COLUMNS],
+      rows: buildFundGrossNetRows(ctx).map((g) => row(g.cells, g.emphasis)),
+    },
+  });
+  // The waterfall is a stream-basis period table: index 0 is the inception
+  // period, which is why it uses the stream year labels and not the axis ones.
+  out.push({
+    title: 'Distribution Waterfall', cards: null,
+    table: m4RowsToPeriodTable(`Distribution Waterfall (hold to ${returns.exitYearLabel})`, streamPrior, streamYears, buildFundWaterfallRows(ctx)),
+  });
+  if (hasFundFeeIncome(returns)) {
+    out.push({
+      title: 'Fund Fee Income by Earner', cards: null,
+      table: {
+        title: 'Fund Fee Income by Earner', kind: 'grid', align: 'data',
+        columns: [...FUND_EARNER_COLUMNS],
+        rows: buildFundEarnerRows(ctx).map((g) => row(g.cells, g.emphasis)),
+      },
+    });
+    const basis = buildFundFeeBasisRows(snap);
+    if (basis.length > 0) {
+      out.push({
+        title: 'Fund Fee Basis', cards: null,
+        table: {
+          title: 'Fund Fee Basis (what each fee is charged on)', kind: 'grid', align: 'data',
+          columns: ['Fee', 'Timing', 'Base', 'Rate', 'Basis charged on', 'Fee charged'],
+          rows: basis.map((b) => row([b.label, b.timing, b.base, b.rate, fmt.money(b.basis), fmt.money(b.charged)])),
+        },
+      });
+    }
+    out.push({
+      title: 'Fee Income by Period', cards: null,
+      table: m4RowsToPeriodTable('Fee Income by Period', streamPrior, streamYears, buildFundFeeIncomeRows(ctx)),
+    });
+  }
+  void yl;
+  return out;
+}
 
 /** Shared case-comparison matrix: headline KPIs across every case, each scenario
  *  showing its delta vs the base in-cell. Feeds BOTH Module 5 (Tab 3) and Module
@@ -1199,6 +1288,20 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
   // Tab 3: P&L. Full consolidated statement (exact mirror, down to PAT) then a
   // short per-phase P&L (truncated at EBITDA inside the shared builder).
   items.push(tTable('Tab 3: P&L', 'outputs', m4RowsToPeriodTable(`${labels.incomeStatementTitle}: Project`, py, yl, buildPLRows(m4ctx('__all__')))));
+  // Fund Fee Basis: what each fee is charged ON. The statement rows state the
+  // rate and base inline, but the PDF's label column truncates them, so the
+  // columnar version is the one a reader can actually check. Same shared
+  // builder as the M4 tab, the M5 fee income section and the Excel P&L.
+  {
+    const basis = buildFundFeeBasisRows(snap);
+    if (basis.length > 0) {
+      items.push(tTable('Tab 3: P&L', 'outputs', {
+        title: 'Fund Fee Basis (what each fee is charged on)', kind: 'grid', align: 'data',
+        columns: ['Fee', 'Timing', 'Base', 'Rate', 'Basis charged on', 'Fee charged'],
+        rows: basis.map((b) => row([b.label, b.timing, b.base, b.rate, fmt.money(b.basis), fmt.money(b.charged)])),
+      }));
+    }
+  }
   for (const ph of state.phases) {
     const rows = buildPLRows(m4ctx(ph.id));
     if (hasData(rows)) {
@@ -1224,7 +1327,7 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
 }
 
 // ── Module 5: Returns & Valuation ────────────────────────────────────────────
-function buildModule5(returns: ReturnsSnapshot, state: FinancialsResolverState, fmt: Fmt, py: number, caseReport: CaseComparisonReport | null): ModuleContent {
+function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: Fmt, py: number, caseReport: CaseComparisonReport | null): ModuleContent {
   const r = returns.result;
   const re = r.realEstate;
   const cfg = returns.config;
@@ -1376,6 +1479,15 @@ function buildModule5(returns: ReturnsSnapshot, state: FinancialsResolverState, 
     periodRow('(+) Terminal equity value', bu.terminalEquityPerPeriod.slice(1), 'sum', undefined, bu.terminalEquityPerPeriod[0] ?? 0),
     periodRow('= FCFE', returns.fcfePerPeriod.slice(1), 'sum', 'total', returns.fcfePerPeriod[0] ?? 0),
   ])));
+
+  // Tab 5: Fund Layer. Renders ONLY when the fund toggle is on, so a standalone
+  // project produces exactly the tabs it did before. Every row comes from the
+  // shared fundReports builders, the same ones the M5 screen and the Excel
+  // workbook use, so the reference row order has one definition.
+  for (const piece of buildFundBlock(snap, returns, state, fmt, py)) {
+    if (piece.cards) items.push(tCards('Tab 5: Fund Layer', 'outputs', piece.title, piece.cards));
+    else if (piece.table) items.push(tTable('Tab 5: Fund Layer', 'outputs', piece.table));
+  }
 
   return items;
 }
@@ -1825,7 +1937,7 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
     else if (m.key === 'module2') content = buildModule2(snap, opts.state, fmt, py);
     else if (m.key === 'module3') content = buildModule3(snap, opts.state, fmt, py);
     else if (m.key === 'module4') content = buildModule4(snap, opts.state, fmt, py);
-    else if (m.key === 'module5') content = returns ? buildModule5(returns, opts.state, fmt, py, caseReport) : null;
+    else if (m.key === 'module5') content = returns ? buildModule5(returns, snap, opts.state, fmt, py, caseReport) : null;
     else if (m.key === 'module6') content = buildModule6(caseReport, caseYoY, fmt);
     else continue;
     if (!content) continue;
@@ -1888,7 +2000,7 @@ export function collectModuleTabs(state: FinancialsResolverState, caseComparison
     module4: distinct(buildModule4(snap, state, fmt, py)),
     module6: distinct(buildModule6(caseReport, caseYoY, fmt)),
   };
-  if (returns) out.module5 = distinct(buildModule5(returns, state, fmt, py, caseReport));
+  if (returns) out.module5 = distinct(buildModule5(returns, snap, state, fmt, py, caseReport));
   return out;
 }
 
@@ -1915,7 +2027,7 @@ export function collectModuleItems(state: FinancialsResolverState, caseCompariso
     module2: buildModule2(snap, state, fmt, py),
     module3: buildModule3(snap, state, fmt, py),
     module4: buildModule4(snap, state, fmt, py),
-    module5: returns ? buildModule5(returns, state, fmt, py, caseReport) : [],
+    module5: returns ? buildModule5(returns, snap, state, fmt, py, caseReport) : [],
     module6: buildModule6(caseReport, caseYoY, fmt),
   };
   // "populated" = a non-zero value exists (a numeric string with a non-zero digit
@@ -1997,6 +2109,15 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
     periodRow('Total revenue', pl.totalRevenuePerPeriod, 'sum'),
     periodRow('Cost of sales', pl.cosPerPeriod, 'sum'),
     periodRow('Operating expenses', pl.totalOpexPerPeriod, 'sum'),
+    // Fund fees. WITHOUT this row the summary does not foot on a fund project:
+    // `ebitdaPerPeriod` is already NET of the fees (Step 3 struck EBITDA after
+    // them), so revenue less cost of sales less opex did not reach the printed
+    // EBITDA and the gap was exactly the fee, unexplained. The main statements
+    // got this row in August because they render from the shared builder; this
+    // page is hand-built and was missed.
+    ...(snap.fundFees.active
+      ? [periodRow('Total Fund Management Fee', snap.fundFees.totalPerPeriod.map((v) => -v), 'sum')]
+      : []),
     periodRow('EBITDA', pl.ebitdaPerPeriod, 'sum', 'subtotal'),
     periodRow('Depreciation & amortization', pl.daPerPeriod, 'sum'),
     periodRow('EBIT', pl.ebitPerPeriod, 'sum', 'subtotal'),
@@ -2006,6 +2127,12 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
     periodRow('Profit after tax', pl.patPerPeriod, 'sum', 'total'),
   ]) }, fmt);
   drawItem(ctx, { type: 'table', table: periodTable('Cash Flow (summary)', py, yl, [
+    // Same reason as the P&L above: the fee is already inside cash from
+    // operations (that is how it reaches the funding requirement), so without
+    // its own line the operating figure is right and unexplainable.
+    ...(snap.fundFees.active
+      ? [periodRow('Fund Management and Other Expenses', cf.fundFeesPaidPerPeriod ?? [], 'sum')]
+      : []),
     periodRow('Cash from operations', cf.cashFromOperationsPerPeriod, 'sum', 'subtotal'),
     periodRow('Cash from investing', cf.cashFromInvestmentPerPeriod, 'sum', 'subtotal'),
     periodRow('Cash from financing', cf.cashFromFinancingPerPeriod, 'sum', 'subtotal'),
@@ -2053,6 +2180,19 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
       { label: 'Profit Margin', value: fmt.pct(re.profitMargin, 1) },
       { label: 'Equity Multiple', value: fmt.mult(re.equityMultiple) },
     ]);
+  }
+
+  // Fund layer. Its own page, from the SAME shared block the full report
+  // renders, so the summary cannot show a different waterfall from the report
+  // it summarises. Nothing renders on a standalone project.
+  const fundBlock = buildFundBlock(snap, returns, opts.state, fmt, py);
+  if (fundBlock.length > 0) {
+    newPage(ctx, 'Fund Layer');
+    ctx.currentHeader = 'Fund Layer';
+    for (const piece of fundBlock) {
+      if (piece.cards) drawCards(ctx, piece.title, piece.cards);
+      else if (piece.table) drawItem(ctx, { type: 'table', table: piece.table }, fmt);
+    }
   }
 
   drawFooters(ctx);

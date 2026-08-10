@@ -2,7 +2,7 @@
 
 Reference doc for the fund layer in the REFM platform. This is the scope, the design decisions, and the standing rules. Prompts are given to Claude Code one step at a time, verified between each. This file is the source of truth for what we are building and why.
 
-**Status as of 2026-08-10: Steps 1 through 6 are LIVE.** Migrations 208, 209, 210 and 211 applied; Steps 4 and 6 needed none. Step 7 (end-to-end verify) is next, and the browser gap in section 7 is the thing it has to close. Sections 2, 3 and 4 below have been updated to match what was actually built; where the original plan changed, the change and the reason are stated rather than quietly overwritten.
+**Status as of 2026-08-10: Steps 1 through 6b are LIVE.** Migrations 208, 209, 210 and 211 applied; Steps 4 and 6 needed none. Step 7 (end-to-end verify) is next, and the browser gap in section 7 is the thing it has to close. Sections 2, 3 and 4 below have been updated to match what was actually built; where the original plan changed, the change and the reason are stated rather than quietly overwritten.
 
 ---
 
@@ -62,9 +62,10 @@ Declaring linear bases is not sufficient on its own. `computeFinancialsSnapshot`
 | **M4 Financial Statements + Funding** | Fund fees total into a **Total Fund Management Fee** line and **EBITDA is struck AFTER it** (2026-08-05, reference alignment), plus a visible **Fund Management and Other Expenses** row inside operating cash flow, which is how the fee reaches the funding requirement. A **Fund Fee Basis** table (shared builder, also on M5 and in Excel) states what each fee is charged on and the rate applied, so a zero fee is diagnosable rather than ambiguous | **LIVE** |
 | **M5 Returns** | Distribution waterfall over the Distributed-Equity stream on the REFERENCE structure (one combined hurdle balance settled by a single `hurdlePaid` line, then a flat performance fee on the excess), hurdle accrual and unpaid balance, distributions net of fee, post-fee IRR and MOIC. Gross streams untouched | **LIVE** (engine + snapshot; presentation is Step 5) |
 | **M5 Parties** | Fee income as a return line for the Fund Manager, via the `FeeEarner` contract, plus the net-vs-gross and waterfall UI on the Returns tab | **LIVE** |
-| **Excel export** | Fee lines with their basis and Total Fund Management Fee on the P&L, the fee row in operating cash flow, and a `3. Fund Layer` section on Returns (waterfall in the reference row order, gross vs net returns, fee income by earner), all in the locked palette | **LIVE** |
+| **Excel export** | Fee lines with their basis and Total Fund Management Fee on the P&L, the fee row in operating cash flow, a `3. Fund Layer` section on Returns, and a fund block on the Summary tab, all in the locked palette | **LIVE** |
+| **PDF exports** | Full project report: fee lines and Total Fund Management Fee on the Module 4 P&L, the cash flow fee row, the Fund Fee Basis block, and a `Tab 5: Fund Layer` in Module 5. Summary PDF: the fee line and cash flow row (so the summary statements FOOT) plus its own Fund Layer page | **LIVE** |
 | **M7 IC Report** | Fee sections in the IC deck | Post-launch, not gating |
-| **Verifiers** | Toggle-off regression first, then the fee registry, the fee schedule, the waterfall, the fee earners, and the Excel rows | **LIVE** (`verify-fund-layer-guard` 75, `verify-fund-terms` 176, `verify-fund-fees` 131, `verify-fund-waterfall` 382, `verify-fund-fee-income` 107, `verify-fund-excel` 69; `verify-excel-export` stays 304) |
+| **Verifiers** | Toggle-off regression first, then the fee registry, the fee schedule, the waterfall, the fee earners, the Excel rows and both PDFs | **LIVE** (`verify-fund-layer-guard` 75, `verify-fund-terms` 176, `verify-fund-fees` 131, `verify-fund-waterfall` 382, `verify-fund-fee-income` 108, `verify-fund-excel` 69, `verify-fund-pdf` 49; `verify-excel-export` stays 304) |
 
 ### The Fund Manager
 
@@ -91,6 +92,7 @@ One step at a time. Diagnose first, build, verify, hold for review, then the nex
 | 5 | **M5 net vs gross returns + Fund Manager fee income** | **DONE 2026-08-05** | None needed |
 | 5b | **Fee basis display + model-derived fund size** | **DONE 2026-08-05** (pushed 2026-08-09) | 211 |
 | 6 | **Excel export rows** | **DONE 2026-08-10** | No |
+| 6b | **PDF exports + shared presentation builder** | **DONE 2026-08-10** | No |
 | 7 | End-to-end verify | **NEXT** | No |
 
 ### What each completed step actually delivered
@@ -163,6 +165,24 @@ What was genuinely missing was the whole M5 fund surface: the Returns tab read `
 **A pre-existing shape found while diagnosing, deliberately NOT changed.** In the phase-filtered Direct cash flow the fund fee row shows the full project figure in every phase. That is not a fund-layer defect: `Total Revenue Received`, `Total Operating Expenses Paid`, `Tax Paid`, `Cash Flow from Operations` and `Total Capex` all do the same there, because only the per-asset detail rows are phase-filtered in that view. It predates the fund layer and is out of scope for an additive step.
 
 **Fund terms are still absent from the Inputs tab.** The workbook's structural rule is that inputs live on Inputs, and no fund term (toggle, rates, hurdle, fund manager, distribution matrix) appears there. Step 6 states the hurdle rate, the performance fee and the Fund Manager on the Returns tab so the waterfall can be checked by eye, and the fee bases and rates are in the Fund Fee Basis block, but a proper Fund Terms band on Inputs is a real remaining gap.
+
+**Step 6b** closed the gap Step 6 left open, and the diagnosis is the part worth keeping.
+
+*What was actually missing.* The full project PDF already carried the fee lines with their rate and base, Total Fund Management Fee, the EBITDA struck after it and the cash flow fee row, all inherited free from the shared `m4Reports` builders. It carried NO waterfall, no gross vs net, no fee income, and no basis block: the word "hurdle" did not occur anywhere in the document. **The summary PDF carried nothing at all, and was worse than absent**: its P&L is hand-built rather than from `buildPLRows`, and it printed `ebitdaPerPeriod`, which has been net of fund fees since Step 3, with no fee line. So the page did not foot. On the live fixture, revenue less cost of sales less opex came to -35.98m against a printed EBITDA of -56.76m, a 20.78m gap exactly equal to the fund fee and nowhere explained. That is the same defect Step 3 fixed on the main statements in August, still live on a page nobody had re-read.
+
+*The measurement method is worth reusing.* pdf-lib embeds Inter through fontkit as a CID font, so drawn text lands in the content stream as hex GLYPH IDS, not literals, and a naive text grep silently returns nothing. A first pass at the diagnosis did exactly that and reported everything as missing, which was worthless. `scripts/pdfTextExtract.ts` rebuilds the glyph-id to unicode map from the same font bytes the generator embeds and decodes the streams, so PDF claims are now evidence. A second false reading is also worth recording: a probe for `gross)` matched `Advance received from customer (gross)` and reported gross-vs-net as present when it was not. Probe regexes need to be checked against what they actually matched.
+
+*The fix is a shared builder, not a second implementation.* `src/hubs/modeling/platforms/refm/lib/reports/fundReports.ts` is now the ONE definition of how the fund layer is presented: row order, labels, which lines are balances, the gross-vs-net table, the earner grid, the headline cards. **The M5 screen, the Excel workbook, the full PDF and the summary PDF all render from it**, and the Step 6 inline rows in `buildModelWorkbook` were deleted rather than left as a second copy. Formatting stays the caller's (each surface passes its own money/pct/mult), because what must not drift is STRUCTURE. The three balance rows carrying no lifetime total is encoded once, as an empty `totalOverride`, so no surface has to remember the rule.
+
+*The check that earns its place* is not the presence check. `verify-fund-pdf` section 2 asserts every surface IMPORTS the builder and that none of them re-declares a waterfall row label, so two hand-maintained copies that agree today cannot pass. Proven with teeth by three sabotages: swapping two rows in the shared builder fails 3 checks across the builder and both PDFs at once (which is the point), removing the summary fund block fails 6, and re-inlining one row label in the Excel builder fails the parallel-implementation guard alone.
+
+*Toggle off was proven across all three exports at once*, by fingerprinting Excel cell by cell (value, fill, number format, and `pageSetup`) plus the decoded text of both PDFs, at HEAD and after: 8,660 lines, identical. The `pageSetup` inclusion matters, because the Summary tab now switches from one-page to multi-page when the fund block is present, and the fingerprint proves that switch is inert on a standalone project.
+
+*Two things changed that were not defects in the fund layer.* `verify-fund-fee-income` had two checks that grepped the M5 component source for the row labels; those labels now live in the builder, so both were repointed at the builder OUTPUT, which is strictly stronger than a source grep and covers every surface rather than one component (107 -> 108). And the blanket fund-label sweep in `verify-fund-excel` used an alternation that did not match `Fund Management and Other Expenses`, so the toggle-off sweep had a hole; an explicit check covered that row, so nothing had been mis-verified, but the regex is now widened.
+
+*Known and deliberate:* the full PDF truncates the inline fee labels in its narrow label column (`Fund management fee 2.00% of Opening ...`), which is why the columnar Fund Fee Basis block was added there. The Summary tab can no longer be one page on a fund project, which the user accepted explicitly when choosing full detail on every surface.
+
+Verifiers: `verify-fund-pdf` **49**, `verify-fund-excel` 69, `verify-fund-fee-income` 108, `verify-excel-export` 304.
 
 **The UI is verified at SOURCE level only, and that limit is real.** `verify-fund-fee-income` section 7 asserts the sections are gated, the reference labels appear in the reference ORDER, and the fee section is a sibling of `PartnersSection`; section 7b asserts every array handed to the tables is full-length and finite, which is where a runtime crash would come from. It does NOT prove the surface renders. A real render check was attempted and abandoned: the table tree imports a CSS module, which is a Next build feature `tsx` cannot compile, and stubbing the module interop did not hold. The live browser check is therefore a genuine part of Step 5's sign-off, not a formality.
 

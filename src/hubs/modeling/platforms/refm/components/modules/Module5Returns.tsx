@@ -22,6 +22,7 @@ import { makeFmt } from './_shared/numberFmt';
 import { M4PeriodTable, type M4Row } from './_shared/m4Table';
 import { FundFeeBasisTable } from './_shared/FundFeeBasisTable';
 import { buildFundFeeBasisRows } from '../../lib/reports/m4Reports';
+import { buildFundWaterfallRows, buildFundFeeIncomeRows, type FundReportCtx } from '../../lib/reports/fundReports';
 import { MetricCard, MetricGrid, AssumptionsPanel, fmtPct, fmtX, type AssumptionsValue } from './Module5Shared';
 import { FAST_INPUT } from './_shared/inputStyles';
 import type { ProjectPartner } from '../../lib/state/module1-types';
@@ -65,6 +66,15 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
   const decimals: DisplayDecimals = (project.displayDecimals ?? 0) as DisplayDecimals;
   const fmt = makeFmt(scale, decimals);
   const currency = currencyHeaderLine(project.currency ?? 'SAR', scale);
+
+  // The context the SHARED fund builders take. The screen supplies its own
+  // scale-aware formatters; the row structure comes from lib/reports/fundReports
+  // so the Excel workbook, the full PDF and the summary PDF cannot drift from
+  // what is rendered here.
+  const fundReportCtx: FundReportCtx = useMemo(() => ({
+    snap, returns: rs,
+    fmt: { money: fmt, pct: (v, d = 1) => fmtPct(v, d), mult: (v) => fmtX(v) },
+  }), [snap, rs, fmt]);
 
   const cfg = rs.config;
   const r = rs.result;
@@ -197,6 +207,7 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
           waterfall={rs.waterfall}
           gross={r.dividends}
           net={rs.resultNetDividends}
+          reportCtx={fundReportCtx}
           exitYearLabel={rs.exitYearLabel}
           axisLabels={axisLabels}
           inceptionLabel={inceptionLabel}
@@ -228,7 +239,7 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
       {rs.feeEarners.active && (
         <FeeIncomeSection
           snapshot={rs.feeEarners}
-          feeLines={snap.fundFees.lines}
+          reportCtx={fundReportCtx}
           basisRows={buildFundFeeBasisRows(snap)}
           axisLabels={axisLabels}
           inceptionLabel={inceptionLabel}
@@ -372,6 +383,7 @@ function FundWaterfallSection(props: {
   waterfall: import('@/src/core/calculations/returns').WaterfallSnapshot;
   gross: import('@/src/core/calculations/returns').StreamReturns;
   net: import('@/src/core/calculations/returns').StreamReturns;
+  reportCtx: FundReportCtx;
   exitYearLabel: number;
   axisLabels: number[];
   inceptionLabel: number;
@@ -380,31 +392,10 @@ function FundWaterfallSection(props: {
 }): React.JSX.Element {
   const { waterfall: w, gross, net, axisLabels, inceptionLabel, currency, fmt } = props;
 
-  // Same (E+1) convention every other M5 table uses: index 0 is the inception
-  // period and renders in the prior-year column.
-  const toRow = (label: string, arr: number[], opts: Partial<M4Row> = {}): M4Row => ({
-    label,
-    values: arr.slice(1),
-    priorValue: arr[0] ?? 0,
-    totalOverride: fmt(arr.reduce((s, v) => s + (v ?? 0), 0)),
-    ...opts,
-  });
-  /** A balance line: no lifetime total, because balances do not sum. */
-  const balanceRow = (label: string, arr: number[], opts: Partial<M4Row> = {}): M4Row =>
-    toRow(label, arr, { totalOverride: '', ...opts });
-
-  const rows: M4Row[] = [
-    toRow('Equity Drawn', w.equityDrawnPerPeriod),
-    balanceRow('Unpaid Hurdle Balance BoP', w.periods.map((p) => p.openingUnpaidHurdle)),
-    toRow('Hurdle Accrued', w.hurdleAccruedPerPeriod),
-    balanceRow('Total Hurdle Owed', w.totalHurdleOwedPerPeriod, { isSubtotal: true }),
-    toRow('Hurdle Paid', w.hurdlePaidPerPeriod),
-    balanceRow('Unpaid Hurdle Balance EoP', w.unpaidHurdlePerPeriod, { isSubtotal: true }),
-    toRow('Excess Distributions', w.excessDistributionsPerPeriod),
-    toRow('Performance Fee', w.performanceFeePerPeriod),
-    toRow('Distributions Net of Performance Fee', w.netDistributionPerPeriod, { isTotal: true }),
-    toRow('Memo: Distributions (gross, before fee)', w.distributionPerPeriod, { indent: 1 }),
-  ];
+  // Rows come from the SHARED builder (lib/reports/fundReports.ts), the same one
+  // the Excel workbook, the full PDF and the summary PDF render, so the row
+  // order and the no-total-on-balances rule have exactly one definition.
+  const rows: M4Row[] = buildFundWaterfallRows(props.reportCtx);
 
   const th: React.CSSProperties = { textAlign: 'right', padding: '6px 10px' };
   const td: React.CSSProperties = { textAlign: 'right', padding: '6px 10px' };
@@ -498,14 +489,14 @@ function FundWaterfallSection(props: {
  */
 function FeeIncomeSection(props: {
   snapshot: import('@/src/core/calculations/returns').FeeEarnersSnapshot;
-  feeLines: import('../../lib/fundFees').FundFeeSchedule['lines'];
+  reportCtx: FundReportCtx;
   basisRows: import('../../lib/reports/m4Reports').FundFeeBasisRow[];
   axisLabels: number[];
   inceptionLabel: number;
   currency: string;
   fmt: (n: number) => string;
 }): React.JSX.Element {
-  const { snapshot: s, feeLines, basisRows, axisLabels, inceptionLabel, currency, fmt } = props;
+  const { snapshot: s, basisRows, axisLabels, inceptionLabel, currency, fmt } = props;
 
   const th: React.CSSProperties = { textAlign: 'right', padding: '5px 8px', fontSize: 11 };
   const thL: React.CSSProperties = { ...th, textAlign: 'left' };
@@ -522,22 +513,9 @@ function FeeIncomeSection(props: {
       ? { bg: '#E7F6EC', fg: '#1A7A30', icon: '✓', text: `Performance fee shares total ${fmtPct(s.performanceFeeShareSum)}` }
       : { bg: '#FEF3C7', fg: '#92400E', icon: '⚠', text: `Performance fee shares total ${fmtPct(s.performanceFeeShareSum)}` };
 
-  // The five management fees, lifted onto the stream basis with a zero
-  // inception so they line up with every other table on this surface.
-  const toRow = (label: string, arr: number[], opts: Partial<M4Row> = {}): M4Row => ({
-    label,
-    values: arr.slice(1),
-    priorValue: arr[0] ?? 0,
-    totalOverride: fmt(arr.reduce((sum, v) => sum + (v ?? 0), 0)),
-    ...opts,
-  });
-  const onStreamBasis = (axis: number[]): number[] => [0, ...axis.slice(0, axisLabels.length)];
-  const feeLineRows: M4Row[] = [
-    ...feeLines.map((line) => toRow(line.label, onStreamBasis(line.amountPerPeriod), { indent: 1 })),
-    toRow('= Total Management Fees', s.managementFeePerPeriod, { isSubtotal: true }),
-    toRow('Performance Fee', s.performanceFeePerPeriod),
-    toRow('= Total Fee Income', s.totalFeeIncomePerPeriod, { isTotal: true }),
-  ];
+  // From the SHARED builder, which also lifts the axis-charged management fees
+  // onto the stream basis so this table never mixes the two.
+  const feeLineRows: M4Row[] = buildFundFeeIncomeRows(props.reportCtx);
 
   return (
     <section style={{ marginBottom: 'var(--sp-3)' }} data-testid="m5-fee-income">

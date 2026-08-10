@@ -32,6 +32,11 @@ import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { resolveAssetAreaMetrics, computePhaseTimeline, computeProjectTimeline, type AssetAreaMetrics } from '@/src/core/calculations';
 import { FUNDING_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
 import { resolveFundTerms } from '../fundTerms';
+import {
+  isFundActive, hasFundFeeIncome, buildFundWaterfallRows, buildFundFeeIncomeRows,
+  buildFundGrossNetRows, buildFundEarnerRows, buildFundHeadlineCards,
+  FUND_GROSS_NET_COLUMNS, FUND_EARNER_COLUMNS, type FundReportCtx,
+} from '../reports/fundReports';
 import { formatAccounting } from '@/src/core/formatters';
 import { computeLiveModel, type LiveAssetInput, type LiveModel, type LiveGroup } from './liveModel';
 import {
@@ -74,6 +79,11 @@ export interface ExcelPartSelection { inputs?: boolean; outputs?: boolean; sched
 type SheetPart = 'inputs' | 'schedules' | 'outputs' | 'always';
 
 const SHEETS = { cover: 'Cover', guide: 'Guide', summary: 'Summary', assumptions: 'Inputs', timeline: 'Timeline', landArea: 'Land & Area', capex: 'Capex', revenue: 'Revenue', opex: 'Opex', financing: 'Financing', schedules: 'Schedules', pl: 'P&L', cashflow: 'Cash Flow', balsheet: 'Balance Sheet', returns: 'Returns', scenarios: 'Scenarios', checks: 'Checks' };
+
+/** Row count above which the Summary tab can no longer honestly claim to be one
+ *  page. The designed canvas (facts, tiles, two highlight tables, footer) lands
+ *  comfortably under this; only the appended fund block pushes past it. */
+const SUMMARY_ONE_PAGE_ROWS = 60;
 
 const SHEET_PART: Record<string, SheetPart> = {
   [SHEETS.cover]: 'always',
@@ -235,8 +245,14 @@ const HEADER4_SHEETS = new Set<string>([
 function applyPrintSetup(wb: ExcelJS.Workbook): void {
   for (const ws of wb.worksheets) {
     const name = ws.name;
-    const portraitOnePage = name === SHEETS.cover || name === SHEETS.summary;
-    const narrow = name === SHEETS.checks || name === SHEETS.guide; // portrait, but flow to multiple pages
+    // The Summary is a one-page canvas by design, but the fund block appended
+    // to it makes that impossible to honour: forcing fit-to-height 1 would
+    // shrink the whole page to unreadable. So on a FUND project the Summary
+    // flows to a second page instead (fitToHeight 0), and on a standalone
+    // project it is exactly the one-page sheet it has always been.
+    const summaryHasFund = name === SHEETS.summary && (ws.rowCount ?? 0) > SUMMARY_ONE_PAGE_ROWS;
+    const portraitOnePage = name === SHEETS.cover || (name === SHEETS.summary && !summaryHasFund);
+    const narrow = name === SHEETS.checks || name === SHEETS.guide || summaryHasFund; // portrait, flowing to multiple pages
     ws.pageSetup = {
       paperSize: 9, // A4
       orientation: portraitOnePage || narrow ? 'portrait' : 'landscape',
@@ -2869,36 +2885,36 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     for (let t = 0; t < N; t++) { const c = ws.getCell(r, pcol(t)); c.value = cells[t] ?? '-'; c.numFmt = '@'; c.alignment = { horizontal: 'right' }; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; }
     r += 1;
   };
-  // Fund layer (Step 6). A STREAM-basis row (index 0 = inception, rendered in
-  // the opening column E), with the option to suppress the Total.
+  // Fund layer: render one M4Row from the SHARED fund builders. The builders
+  // already put every series on the stream basis (index 0 = inception, which
+  // lands in the opening column E) and already encode the no-total-on-balances
+  // rule as an empty `totalOverride`, so this only has to draw.
   //
-  // Deliberately its own helper rather than an extra branch on `moneyRow`
+  // Deliberately its own emitter rather than an extra branch on `moneyRow`
   // above: that one is shared with the FCFF / FCFE / Distributed Equity stream
   // rows, so widening its style handling would change what a STANDALONE project
-  // renders. This helper is only ever called from the fund block.
-  const fundRow = (label: string, stream: number[] | undefined, opts: { style?: 'plain' | 'subtotal' | 'total'; indent?: number; noTotal?: boolean } = {}): number => {
+  // renders. This is only ever called from the fund block.
+  const emitFundM4 = (row: M4Row): number => {
     const used = r;
-    const s = stream ?? [];
-    const prior = s[0] ?? 0;
-    const vals = new Array<number>(N).fill(0);
-    for (let i = 1; i < s.length && i - 1 < N; i++) vals[i - 1] = s[i] ?? 0;
-    const style = opts.style ?? 'plain';
-    setLabel(ws.getCell(r, LBL_COL), label, { indent: opts.indent, bold: style !== 'plain' });
+    const vals = row.values.slice(0, N);
+    const prior = row.priorValue ?? 0;
+    const style: 'plain' | 'subtotal' | 'total' = row.isTotal ? 'total' : row.isSubtotal ? 'subtotal' : 'plain';
+    setLabel(ws.getCell(r, LBL_COL), row.label, { indent: row.indent, bold: style !== 'plain' });
     const put = (c: number, v: number): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
     put(OPEN_COL, prior);
-    for (let t = 0; t < N; t++) put(pcol(t), vals[t]);
-    // A BALANCE carries no lifetime total: a balance summed across periods is a
-    // number with no meaning. Same rule the on-screen waterfall table follows.
-    if (!opts.noTotal) put(TOTAL_COL, prior + vals.reduce((a, v) => a + v, 0));
+    for (let t = 0; t < N; t++) put(pcol(t), vals[t] ?? 0);
+    // An EMPTY totalOverride means "this is a balance, it has no lifetime
+    // total"; anything else round-trips back to a number (the builder's money
+    // formatter is String(v) for these rows).
+    if (row.totalOverride !== '') {
+      const tv = row.totalOverride !== undefined ? Number(row.totalOverride) : prior + vals.reduce((a, v) => a + (v ?? 0), 0);
+      put(TOTAL_COL, Number.isFinite(tv) ? tv : 0);
+    }
     if (style === 'total') { fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.navy); for (let c = 1; c <= lastActiveCol(N); c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } }; }
     else if (style === 'subtotal') { for (let c = 1; c <= lastActiveCol(N); c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } }; }
     r += 1;
     return used;
   };
-  /** The five management fees are charged on the PROJECT axis; every other row
-   *  in the fund block is on the stream basis. Lift one onto the other so a
-   *  single table never mixes the two. */
-  const onStreamBasis = (axis: number[] | undefined): number[] => [0, ...(axis ?? []).slice(0, N)];
 
   // ── 1. Returns (mirror of the platform Returns tab, in the same order) ───────
   section('1. Returns (IRR / MOIC by basis, dev economics, exit, sources & uses, funding mix, exposure, debt, cash-flow streams)');
@@ -3115,17 +3131,18 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
   //
   // The whole block is gated on the snapshot's own `active` flags, so with the
   // fund toggle off nothing here executes and the tab is byte-identical.
-  if (rs && rs.waterfall.active) {
+  if (rs && isFundActive(rs)) {
     const w = rs.waterfall;
-    const gross = rs.result.dividends, net = rs.resultNetDividends;
+    // TWO contexts, because the two table kinds need different formatting.
+    // Period rows go through emitFundM4, which reads `totalOverride` back as a
+    // NUMBER, so its money formatter is String(v) (the same round-trip trick
+    // the statement tabs use). The string grids and cards are display text, so
+    // they get the workbook's scaled formatters.
+    const rowsCtx: FundReportCtx = { snap, returns: rs, fmt: { money: (v) => String(v), pct: cPct, mult: cMult } };
+    const textCtx: FundReportCtx = { snap, returns: rs, fmt: { money: cMoney, pct: cPct, mult: cMult } };
     section('3. Fund Layer (distribution waterfall, gross vs net returns, fund fee income)');
 
-    kpiStrip('Fund Returns, Gross vs Net', [
-      { label: 'Distributed Equity IRR (gross)', value: cPct(gross.irr, 1), sub: `MOIC ${cMult(gross.moic)}` },
-      { label: 'Distributed Equity IRR (net)', value: cPct(net.irr, 1), sub: `MOIC ${cMult(net.moic)}` },
-      { label: 'Performance Fee', value: cMoney(w.totalPerformanceFee), sub: 'total over the hold' },
-      { label: 'Unpaid Hurdle at Exit', value: cMoney(w.hurdleShortfall), sub: w.hurdleShortfall > 0 ? 'hurdle not fully met' : 'hurdle fully settled' },
-    ]);
+    kpiStrip('Fund Returns, Gross vs Net', buildFundHeadlineCards(textCtx));
 
     // The terms the waterfall was run on. Without them the rows below cannot be
     // checked by eye, and the Inputs tab carries no fund terms.
@@ -3135,48 +3152,25 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     scalarRow('Fund Manager', resolveFundTerms(state.project).fundManagerName, '@');
     r += 1;
 
-    gridTable('Distributed Equity, Gross vs Net of Performance Fee', ['Distributed Equity', 'IRR', 'MOIC', 'Invested', 'Distributions', 'Net Profit'], [
-      ['Excluding fund fees (gross)', cPct(gross.irr, 1), cMult(gross.moic), cMoney(gross.totalOutflow), cMoney(gross.totalInflow), cMoney(gross.netProfit)],
-      ['Net of performance fee', cPct(net.irr, 1), cMult(net.moic), cMoney(net.totalOutflow), cMoney(net.totalInflow), cMoney(net.netProfit)],
-    ]);
+    gridTable('Distributed Equity, Gross vs Net of Performance Fee', [...FUND_GROSS_NET_COLUMNS],
+      buildFundGrossNetRows(textCtx).map((g) => g.cells));
 
-    // The reference row order, exactly as the M5 tab renders it. Each line feeds
-    // the next. The three BALANCE lines carry no lifetime total.
+    // The reference row order, from the SHARED builder. The three BALANCE rows
+    // carry no lifetime total, which the builder encodes as an empty
+    // totalOverride so no surface has to remember the rule.
     subTitle(`Distribution Waterfall (hold to ${rs.exitYearLabel})`);
-    fundRow('Equity Drawn', w.equityDrawnPerPeriod);
-    fundRow('Unpaid Hurdle Balance BoP', w.periods.map((p) => p.openingUnpaidHurdle), { noTotal: true });
-    fundRow('Hurdle Accrued', w.hurdleAccruedPerPeriod);
-    fundRow('Total Hurdle Owed', w.totalHurdleOwedPerPeriod, { style: 'subtotal', noTotal: true });
-    fundRow('Hurdle Paid', w.hurdlePaidPerPeriod);
-    fundRow('Unpaid Hurdle Balance EoP', w.unpaidHurdlePerPeriod, { style: 'subtotal', noTotal: true });
-    fundRow('Excess Distributions', w.excessDistributionsPerPeriod);
-    fundRow('Performance Fee', w.performanceFeePerPeriod);
-    fundRow('Distributions Net of Performance Fee', w.netDistributionPerPeriod, { style: 'total' });
-    fundRow('Memo: Distributions (gross, before fee)', w.distributionPerPeriod, { indent: 1 });
+    for (const row of buildFundWaterfallRows(rowsCtx)) emitFundM4(row);
     r += 1;
 
     // ── Fund Fee Income: who EARNS the fees, beside the equity partners ───────
-    const fe = rs.feeEarners;
-    if (fe.active) {
-      const feeRows: string[][] = fe.earners.map((e) => [
-        e.name,
-        e.kind === 'fund_manager' ? 'Fund Manager' : 'Project Party',
-        cPct(e.managementFeeShare, 1), cMoney(e.totalManagementFeeIncome),
-        cPct(e.performanceFeeShare, 1), cMoney(e.totalPerformanceFeeIncome),
-        cMoney(e.totalFeeIncome),
-      ]);
-      // Shares are never normalised: a matrix summing to 80% allocates 80% and
-      // the remainder is SHOWN rather than absorbed into an earner.
-      if (fe.unallocatedPerformanceFee > 0) {
-        feeRows.push(['Unallocated', '', '', '', cPct(Math.max(0, 1 - fe.performanceFeeShareSum), 1), cMoney(fe.unallocatedPerformanceFee), cMoney(fe.unallocatedPerformanceFee)]);
-      }
-      feeRows.push(['Total', '', '', cMoney(fe.totalManagementFee), '', cMoney(fe.totalPerformanceFee), cMoney(fe.totalManagementFee + fe.totalPerformanceFee)]);
-      gridTable('Fund Fee Income by Earner', ['Fee Earner', 'Type', 'Mgmt Fee %', 'Management Fees', 'Perf. Fee %', 'Performance Fee', 'Total Fee Income'], feeRows);
+    if (hasFundFeeIncome(rs)) {
+      gridTable('Fund Fee Income by Earner', [...FUND_EARNER_COLUMNS],
+        buildFundEarnerRows(textCtx).map((g) => g.cells));
 
-      // What each fee is charged on. SAME shared builder as the P&L tab and the
-      // M5 screen, so a reader asking "why is this fee zero" gets one answer
-      // wherever they look. Base and Rate use the free meta columns B and C, so
-      // the period axis at column F does not shift.
+      // What each fee is charged on. SAME shared builder as the P&L tab, the
+      // M5 screen and both PDFs, so a reader asking "why is this fee zero"
+      // gets one answer wherever they look. Base and Rate use the free meta
+      // columns B and C, so the period axis at column F does not shift.
       const basis = buildFundFeeBasisRows(snap);
       if (basis.length > 0) {
         subTitle('Fund Fee Basis (what each fee is charged on)');
@@ -3196,10 +3190,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
       }
 
       subTitle('Fee Income by Period');
-      for (const line of snap.fundFees.lines) fundRow(line.label, onStreamBasis(line.amountPerPeriod), { indent: 1 });
-      fundRow('= Total Management Fees', fe.managementFeePerPeriod, { style: 'subtotal' });
-      fundRow('Performance Fee', fe.performanceFeePerPeriod);
-      fundRow('= Total Fee Income', fe.totalFeeIncomePerPeriod, { style: 'total' });
+      for (const row of buildFundFeeIncomeRows(rowsCtx)) emitFundM4(row);
       r += 1;
     }
   }
@@ -3991,6 +3982,99 @@ function addSummary(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinanci
   boxBorder(ws, hlTop, 2, hlTop + rows - 1, 4);
   boxBorder(ws, hlTop, 5, hlTop + rows - 1, 7);
   r = hlTop + rows + 1;
+
+  // ── Fund layer (2026-08-10) ─────────────────────────────────────────────────
+  //
+  // The Summary tab was the last surface showing a fund project's economics
+  // with no sign a fund exists: its EBITDA tile is already NET of fund fees and
+  // its Distributed Equity figure is the GROSS one, which is the pair most
+  // likely to be quoted out of a summary. The block APPENDS below the designed
+  // canvas (the same placement the sub-TOC uses on this tab), so every merge
+  // above it is untouched.
+  //
+  // Rows come from the shared fundReports builders. Money is formatted in
+  // millions to match the rest of this page.
+  if (rs && isFundActive(rs)) {
+    const fctx: FundReportCtx = { snap, returns: rs, fmt: { money: m, pct: (v, d = 1) => (v == null || !Number.isFinite(v) ? 'n/a' : `${(v * 100).toFixed(d)}%`), mult } };
+    r += 1;
+    ws.mergeCells(r, 2, r, 7);
+    const band = ws.getCell(r, 2);
+    band.value = 'FUND LAYER';
+    band.font = { name: 'Calibri', size: 10, bold: true, color: { argb: ARGB.white } };
+    band.alignment = { indent: 1, vertical: 'middle' };
+    fillRange(ws, r, 2, r, 7, ARGB.navy);
+    r += 2;
+
+    // Gross vs net, the pair a summary reader must not confuse.
+    const gn = buildFundGrossNetRows(fctx);
+    const gnTop = r;
+    const hdr = [...FUND_GROSS_NET_COLUMNS];
+    for (let c = 0; c < hdr.length; c++) { const cell = ws.getCell(r, 2 + c); cell.value = hdr[c]; cell.font = { name: 'Calibri', size: 8, bold: true, color: { argb: ARGB.navyDark } }; cell.alignment = { horizontal: c === 0 ? 'left' : 'right' }; fillCell(cell, ARGB.subtotal); }
+    r += 1;
+    for (const g of gn) {
+      for (let c = 0; c < g.cells.length; c++) {
+        const cell = ws.getCell(r, 2 + c);
+        cell.value = g.cells[c];
+        cell.font = { name: 'Calibri', size: BODY_SIZE, bold: g.emphasis === 'total', color: { argb: g.emphasis === 'total' ? ARGB.navy : ARGB.formula } };
+        cell.alignment = { horizontal: c === 0 ? 'left' : 'right' };
+      }
+      r += 1;
+    }
+    boxBorder(ws, gnTop, 2, r - 1, 1 + hdr.length);
+    r += 1;
+
+    // Fund headline figures, as a compact label / value list.
+    for (const card of buildFundHeadlineCards(fctx)) {
+      const kc = ws.getCell(r, 2); kc.value = card.label; kc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+      ws.mergeCells(r, 3, r, 4);
+      const vc = ws.getCell(r, 3); vc.value = card.value; vc.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navy } }; vc.alignment = { horizontal: 'right' };
+      const sc = ws.getCell(r, 5); sc.value = card.sub; sc.font = { name: 'Calibri', size: 8, italic: true, color: { argb: ARGB.navyDark } };
+      r += 1;
+    }
+    r += 1;
+
+    // The full waterfall, in the reference row order. Lifetime totals only:
+    // this page is a one-page canvas with no period axis, and the per-period
+    // detail lives on the Returns tab. Balance rows carry no total by
+    // construction (the builder encodes it), so they show a dash.
+    const wfTop = r;
+    const wfHdr = ws.getCell(r, 2); wfHdr.value = 'Distribution Waterfall (lifetime)'; wfHdr.font = { name: 'Calibri', size: 8, bold: true, color: { argb: ARGB.navyDark } };
+    const wfHdr2 = ws.getCell(r, 5); wfHdr2.value = 'Total'; wfHdr2.font = { name: 'Calibri', size: 8, bold: true, color: { argb: ARGB.navyDark } }; wfHdr2.alignment = { horizontal: 'right' };
+    fillRange(ws, r, 2, r, 7, ARGB.subtotal);
+    r += 1;
+    for (const row of buildFundWaterfallRows(fctx)) {
+      const kc = ws.getCell(r, 2);
+      kc.value = `${'   '.repeat(row.indent ?? 0)}${row.label}`;
+      kc.font = { name: 'Calibri', size: BODY_SIZE, bold: !!(row.isTotal || row.isSubtotal), color: { argb: row.isTotal ? ARGB.navy : ARGB.formula } };
+      ws.mergeCells(r, 5, r, 6);
+      const vc = ws.getCell(r, 5);
+      vc.value = row.totalOverride === '' ? '-' : String(row.totalOverride ?? '');
+      vc.font = { name: 'Calibri', size: BODY_SIZE, bold: !!row.isTotal, color: { argb: row.isTotal ? ARGB.navy : ARGB.formula } };
+      vc.alignment = { horizontal: 'right' };
+      r += 1;
+    }
+    boxBorder(ws, wfTop, 2, r - 1, 7);
+    r += 1;
+
+    // Fee income by earner.
+    if (hasFundFeeIncome(rs)) {
+      const feTop = r;
+      const feHdr = [...FUND_EARNER_COLUMNS];
+      for (let c = 0; c < feHdr.length; c++) { const cell = ws.getCell(r, 2 + c); cell.value = feHdr[c]; cell.font = { name: 'Calibri', size: 8, bold: true, color: { argb: ARGB.navyDark } }; cell.alignment = { horizontal: c === 0 ? 'left' : 'right' }; fillCell(cell, ARGB.subtotal); }
+      r += 1;
+      for (const g of buildFundEarnerRows(fctx)) {
+        for (let c = 0; c < g.cells.length; c++) {
+          const cell = ws.getCell(r, 2 + c);
+          cell.value = g.cells[c];
+          cell.font = { name: 'Calibri', size: BODY_SIZE, bold: g.emphasis === 'total', color: { argb: g.emphasis === 'total' ? ARGB.navy : ARGB.formula } };
+          cell.alignment = { horizontal: c === 0 ? 'left' : 'right' };
+        }
+        r += 1;
+      }
+      boxBorder(ws, feTop, 2, r - 1, 1 + feHdr.length);
+      r += 1;
+    }
+  }
 
   // Footer note (snapshot disclaimer) + brand.
   ws.mergeCells(r, 2, r, 7);

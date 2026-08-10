@@ -133,11 +133,20 @@ async function main(): Promise<void> {
   console.log('\n-- 1. Toggle OFF shows nothing, on any sheet --');
   // Deliberately narrow: "funding" (the funding method, funding mix, funding
   // gap) is a different word and predates the fund layer by two years.
-  const FUND_LABEL = /fund (layer|manager|structure fee|management fee|size|fee)|fund fee|hurdle|performance fee|fee earner|distribution waterfall|custody and admin|debt arranging|net of performance/i;
+  // Widened 2026-08-10: the earlier alternation required "fund " to be followed
+  // by one of a fixed list, so "Fund Management and Other Expenses" (the cash
+  // flow row) slipped through it. An explicit check below covered that row, so
+  // nothing was mis-verified, but the blanket sweep had a hole. Now anything
+  // starting with "fund" counts, minus the two pre-fund-layer words that
+  // legitimately begin that way.
+  const FUND_LABEL = /\bfund\b|hurdle|performance fee|fee earner|distribution waterfall|custody and admin|debt arranging|net of performance/i;
+  const NOT_FUND = /^(funding|funded)/i;
   let strayRows = 0; const strays: string[] = [];
   for (const ws of wbOff.worksheets) {
     for (const { row, label } of allLabels(ws)) {
-      if (FUND_LABEL.test(label)) { strayRows++; strays.push(`${ws.name}!${row} ${label}`); }
+      const words = label.split(/[^A-Za-z]+/).filter(Boolean);
+      const fundish = FUND_LABEL.test(label) && !words.every((wd) => NOT_FUND.test(wd) || !/fund/i.test(wd));
+      if (fundish) { strayRows++; strays.push(`${ws.name}!${row} ${label}`); }
     }
   }
   check('fund OFF: no fund label on any of the 17 sheets', strayRows === 0, strays.slice(0, 4).join(' | '));

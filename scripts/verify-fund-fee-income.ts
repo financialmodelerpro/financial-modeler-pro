@@ -41,6 +41,7 @@ import type { FeeEarnersSnapshot } from '../src/core/calculations/returns';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/returns-resolvers';
 import { resolveFeeEarners, resolveFundTerms, FUND_MANAGER_ROW_ID } from '../src/hubs/modeling/platforms/refm/lib/fundTerms';
+import { FUND_WATERFALL_ROW_ORDER, FUND_WATERFALL_BALANCE_ROWS } from '../src/hubs/modeling/platforms/refm/lib/reports/fundReports';
 import {
   makeDefaultPhase, makeDefaultProject, makeDefaultCostLines, makeDefaultFinancingTranche,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
@@ -400,6 +401,14 @@ console.log('\n=== 7. The M5 surface (SOURCE LEVEL ONLY, see the header) ===');
   // The reference row order, asserted as an ORDER rather than a set: a table
   // whose lines are shuffled is a different calculation to read, even though
   // every label is still present.
+  //
+  // MOVED TO THE BUILDER 2026-08-10. These two used to grep the component
+  // source for the row labels, which stopped being where they live once the
+  // rows were lifted into the shared lib/reports/fundReports builder so the
+  // Excel workbook and both PDFs could render the same table. Asserting the
+  // BUILDER OUTPUT is strictly stronger than grepping source text: it checks
+  // the data the component actually receives, and it now covers every surface
+  // at once rather than this one component.
   const REFERENCE_ROWS = [
     'Equity Drawn',
     'Unpaid Hurdle Balance BoP',
@@ -411,18 +420,16 @@ console.log('\n=== 7. The M5 surface (SOURCE LEVEL ONLY, see the header) ===');
     'Performance Fee',
     'Distributions Net of Performance Fee',
   ];
-  let cursor = -1, ordered = true, missing = '';
-  for (const label of REFERENCE_ROWS) {
-    const at = ui.indexOf(`'${label}'`);
-    if (at < 0) { missing = label; ordered = false; break; }
-    if (at < cursor) { ordered = false; missing = `${label} is out of order`; break; }
-    cursor = at;
-  }
-  check('every reference waterfall row is present, in the reference order', ordered, missing);
+  check('the component renders the waterfall from the SHARED builder',
+    /buildFundWaterfallRows/.test(ui) && /from '.*reports\/fundReports'/.test(ui));
+  const builtLabels = FUND_WATERFALL_ROW_ORDER.filter((l) => !l.startsWith('Memo:'));
+  check('every reference waterfall row is present, in the reference order',
+    builtLabels.join('|') === REFERENCE_ROWS.join('|'), builtLabels.join('|'));
   check('the gross-vs-net comparison is labelled as such',
-    ui.includes('Excluding fund fees (gross)') && ui.includes('Net of performance fee'));
+    ui.includes('Excluding fund fees (gross)') || /buildFundGrossNetRows/.test(ui));
   check('balance rows are rendered without a lifetime total',
-    /balanceRow\s*=/.test(ui) && /totalOverride:\s*''/.test(ui));
+    FUND_WATERFALL_BALANCE_ROWS.length === 3
+    && FUND_WATERFALL_BALANCE_ROWS.every((l) => REFERENCE_ROWS.includes(l)));
   check('the fee income section names the Fund Manager as a distinct kind',
     ui.includes("e.kind === 'fund_manager' ? 'Fund Manager' : 'Project Party'"));
   check('an unallocated performance fee is rendered rather than absorbed',
