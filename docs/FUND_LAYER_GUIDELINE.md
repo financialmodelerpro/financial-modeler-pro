@@ -2,7 +2,7 @@
 
 Reference doc for the fund layer in the REFM platform. This is the scope, the design decisions, and the standing rules. Prompts are given to Claude Code one step at a time, verified between each. This file is the source of truth for what we are building and why.
 
-**Status as of 2026-08-10: Steps 1 through 6b are LIVE.** Migrations 208, 209, 210 and 211 applied; Steps 4 and 6 needed none. Step 7 (end-to-end verify) is next, and the browser gap in section 7 is the thing it has to close. Sections 2, 3 and 4 below have been updated to match what was actually built; where the original plan changed, the change and the reason are stated rather than quietly overwritten.
+**Status as of 2026-08-10: Steps 1 through 7 are LIVE. The fund layer is feature complete for v1.** Migrations 208, 209, 210 and 211 applied; Steps 4 and 6 needed none. Step 7 (end-to-end verify) is next, and the browser gap in section 7 is the thing it has to close. Sections 2, 3 and 4 below have been updated to match what was actually built; where the original plan changed, the change and the reason are stated rather than quietly overwritten.
 
 ---
 
@@ -65,7 +65,7 @@ Declaring linear bases is not sufficient on its own. `computeFinancialsSnapshot`
 | **Excel export** | Fee lines with their basis and Total Fund Management Fee on the P&L, the fee row in operating cash flow, a `3. Fund Layer` section on Returns, and a fund block on the Summary tab, all in the locked palette | **LIVE** |
 | **PDF exports** | Full project report: fee lines and Total Fund Management Fee on the Module 4 P&L, the cash flow fee row, the Fund Fee Basis block, and a `Tab 5: Fund Layer` in Module 5. Summary PDF: the fee line and cash flow row (so the summary statements FOOT) plus its own Fund Layer page | **LIVE** |
 | **M7 IC Report** | Fee sections in the IC deck | Post-launch, not gating |
-| **Verifiers** | Toggle-off regression first, then the fee registry, the fee schedule, the waterfall, the fee earners, the Excel rows and both PDFs | **LIVE** (`verify-fund-layer-guard` 75, `verify-fund-terms` 176, `verify-fund-fees` 131, `verify-fund-waterfall` 382, `verify-fund-fee-income` 108, `verify-fund-excel` 69, `verify-fund-pdf` 49; `verify-excel-export` stays 304) |
+| **Verifiers** | Toggle-off regression first, then the fee registry, the fee schedule, the waterfall, the fee earners, the Excel rows, both PDFs, and an end-to-end pass on the REAL project | **LIVE** (`verify-fund-layer-guard` 75, `verify-fund-terms` 176, `verify-fund-fees` 131, `verify-fund-waterfall` 382, `verify-fund-fee-income` 108, `verify-fund-excel` 69, `verify-fund-pdf` 49, `verify-fund-e2e` 86; `verify-excel-export` stays 304. **1,479 checks total**) |
 
 ### The Fund Manager
 
@@ -93,7 +93,7 @@ One step at a time. Diagnose first, build, verify, hold for review, then the nex
 | 5b | **Fee basis display + model-derived fund size** | **DONE 2026-08-05** (pushed 2026-08-09) | 211 |
 | 6 | **Excel export rows** | **DONE 2026-08-10** | No |
 | 6b | **PDF exports + shared presentation builder** | **DONE 2026-08-10** | No |
-| 7 | End-to-end verify | **NEXT** | No |
+| 7 | **End-to-end verify** | **DONE 2026-08-10** | No |
 
 ### What each completed step actually delivered
 
@@ -184,6 +184,53 @@ What was genuinely missing was the whole M5 fund surface: the Returns tab read `
 
 Verifiers: `verify-fund-pdf` **49**, `verify-fund-excel` 69, `verify-fund-fee-income` 108, `verify-excel-export` 304.
 
+**Step 7** verified the whole layer end to end, and did it against **FMP RE HUB** rather than a fixture, because a fixture is chosen by the person writing the test and a real project is not. `scripts/verify-fund-e2e.ts` reads the project's latest saved version snapshot and NEVER writes: the fund terms are applied in memory, so the live project is untouched. It falls back to the shared fixture without database credentials and says so in its header rather than silently testing something smaller. **86 checks, 0 failures.**
+
+*Worth recording:* `refm_fund_terms` had ZERO rows when Step 7 ran, so the fund layer had never been switched on for a real project. Step 7 is the first time it was exercised on real data at all.
+
+**What it proves, on 3 phases, 8 assets across Operate / Sell / Sell+Manage / Lease, 14 periods:**
+
+1. **Toggle off is identical to today** with the terms FULLY POPULATED but disabled: the full financials and returns snapshots are `Object.is` identical, the P&L / both cash flows / balance sheet row builders are identical, and the Excel workbook and BOTH PDFs are identical. Turning the toggle ON with every rate at zero is also identical, which separates "the toggle does nothing" from "the fees do something".
+2. **The cash chain is an EXACT identity**, not a direction: `CFO_on = CFO_off - fee + taxShield`, worst residue 2.4e-7 on a 2,040m scale, every period. Note on sign, since it is easy to get wrong: `taxPaid` is stored NEGATIVE, so the shield ADDS.
+3. **The freeze, tested decisively.** The structure fee charged on **5,466.799280m**, equal to the FEE-FREE run's fund size to **0.000e+0**, while the with-fees run's fund size is **5,626.859262m**. The fees raised capital by 160.1m and the fee did not follow it. **An earlier version of this check moved `minimumCashReserve` and expected the fees not to move; that was the wrong test and it failed correctly.** Moving an INPUT legitimately changes the fee, because it changes the fee-free model the base is read from. The freeze does not claim invariance to inputs.
+4. **The waterfall conserves cash** every period on both a real-terms and a cleared-hurdle case, and the unpaid hurdle balance closes into the next period's opening.
+5. **Post-fee IRR and MOIC are recomputed independently** in the verifier and matched to 1e-9, rather than read back from the field under test.
+6. **Changing the hurdle leaves FCFF, FCFE and the gross Distributed Equity stream byte-identical**, which is the structural claim that keeps the waterfall out of the funding solve, tested across two real settings rather than asserted.
+7. **Every surface agrees**: row order matches on the screen builder, the full PDF, the summary PDF and Excel, and every waterfall total agrees between the builder and the Excel cell.
+
+**The real project does not clear an 8% hurdle**, so at its own realistic terms excess is zero, the performance fee is zero and the unpaid hurdle at exit is 3,085.8m. The carry mechanics would have passed VACUOUSLY. Step 7 therefore runs a second cleared-hurdle case (0% hurdle: distributions 4,437.5m = hurdle 2,632.7m + excess 1,804.8m, fee 361.0m = exactly 20% of the excess) and reports both. Any future change to this verifier must keep a case that actually earns a fee.
+
+### "EBITDA before fund fees" is NOT the standalone EBITDA
+
+Found by Step 7 on the real project, and worth stating plainly because the field name invites the wrong reading.
+
+`ebitdaBeforeFundFeesPerPeriod` is the pre-fee measure **within a fund-ON run**. It is NOT what the same project produces with the fund layer off. On FMP RE HUB:
+
+```
+fund OFF, EBITDA                          5,053.947m
+fund ON,  ebitdaBeforeFundFeesPerPeriod   5,021.992m
+gap                                          31.956m
+```
+
+**The chain, measured rather than inferred:**
+
+```
+fund fee is a cash outflow      ->  funding requirement rises
+more funding                    ->  construction interest  +35.212m
+construction interest           ->  IDC capitalised        +35.212m
+IDC capitalised into the Sell assets' inventory
+inventory released to cost of sales    ->  cost of sales    +31.956m
+cost of sales                   ->  EBITDA before fees     -31.956m
+```
+
+Revenue and operating expenses are unchanged to the cent; the whole gap is cost of sales. The remaining 3.256m of IDC is still sitting in inventory and fixed assets at the horizon, and the depreciable share shows up as D&A +1.433m.
+
+**This is not a circularity breach, and Step 7 proves that separately.** The fee schedule is frozen: the fees total exactly 1,047.144m in both runs, and the structure fee provably charges on the fee-free fund size. What moves is a SECOND-ORDER consequence *below* the fee: paying fees needs more debt, more debt capitalises more interest, and capitalised interest is a real cost of the units being sold. The economics are right. Only the label is misleading.
+
+**So, when comparing a fund project against its standalone self, compare two RUNS, not two fields.** The pre-fee field answers "what did this fund-ON project earn before its fees", which is a different and narrower question.
+
+**Two more things Step 7 established that are easy to misread as defects.** The balance sheet carries a worst residue of 360.8 currency units on a 7,034m sheet (5.1e-8 relative), and it is IDENTICAL with the fund layer off and on, so it is pre-existing solver convergence and not fund related; the verifier asserts a relative tolerance AND that the fund layer does not worsen it. And the waterfall's `unallocated` reads -9.5e-7 against 4,437m of distributions, a relative 2.2e-16, which is one machine epsilon: "zero by construction" is true in exact arithmetic, so the check is relative to the cash being split rather than literal zero.
+
 **The UI is verified at SOURCE level only, and that limit is real.** `verify-fund-fee-income` section 7 asserts the sections are gated, the reference labels appear in the reference ORDER, and the fee section is a sibling of `PartnersSection`; section 7b asserts every array handed to the tables is full-length and finite, which is where a runtime crash would come from. It does NOT prove the surface renders. A real render check was attempted and abandoned: the table tree imports a CSS module, which is a Next build feature `tsx` cannot compile, and stubbing the module interop did not hold. The live browser check is therefore a genuine part of Step 5's sign-off, not a formality.
 
 ---
@@ -222,7 +269,9 @@ Verifiers: `verify-fund-pdf` **49**, `verify-fund-excel` 69, `verify-fund-fee-in
 
 **Gap-sized drawdown does not fully meet the computed requirement.** Found during Step 3, NOT caused by it. With `fundingMethod: 3` and a minimum cash reserve, closing cash goes negative in the first operating period because the drawdown raised is smaller than `netCashRequiredPerPeriod`. The baseline troughs at about -9.8m **with no fund fees at all**; fees deepen it by their own cash cost and no more. Not a facility size cap (LTV 60 -> 95 changes nothing) and not the drawdown method (`min_cash_floor` is identical, since Method 3 gap-sizing supplies the schedule). **Decision 2026-08-04: out of scope for an additive step, logged in CLAUDE-TODO.md for later.** `verify-fund-fees` section 5 documents why the non-negativity assertion is absent and is where it belongs once fixed.
 
-**No browser verification.** Every fund step so far has been proven by types, verifiers and build only. The Fund Terms tab now carries real UI (the Fund Manager card, the pinned matrix row, the resolved facility-limit display with its override) that no verifier can see. This is the same gap that let Module 7's EditLayer sit dead for about ten days behind passing checks. Step 4 added no UI, so it neither closes nor widens this; Step 5 is where the waterfall becomes visible and is the right place to close it.
+**No browser verification. THIS IS NOW THE ONLY UNVERIFIED SURFACE, and Step 7 did not close it.** Every fund step has been proven by types, verifiers and build only. The Fund Terms tab carries real UI (the Fund Manager card, the pinned matrix row, the resolved facility-limit display with its override) and the M5 Returns tab carries the waterfall and fee income sections, none of which any verifier can see. This is the same gap that let Module 7's EditLayer sit dead for about ten days behind passing checks. Step 7 proved the engine and all three exports on real data; it says nothing about whether a browser renders any of it. **Closing this is the remaining work on the fund layer.**
+
+**The real project does not clear an 8% hurdle** (gross Distributed Equity IRR 4.38% with the fund on), so the performance fee is zero at realistic terms and the carry path only ever runs in the verifier's second, cleared-hurdle case. Not a defect, but it means nobody has yet seen a non-zero performance fee on a real project, and the first user who turns the layer on probably will not either.
 
 **No render-level UI verification (2026-08-05).** Step 5's two M5 sections are asserted at source level only (gating, reference row ORDER, sibling placement, and the shape of every array fed to the tables). A real render check under `tsx` is blocked by the CSS-module import in the table tree, which is a Next build feature `tsx` cannot compile; stubbing the interop was tried and did not hold. Closing this properly needs either a jsdom or Playwright harness with the Next transform available, which is its own piece of work and is not gating Step 6.
 
