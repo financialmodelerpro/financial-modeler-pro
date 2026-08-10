@@ -31,6 +31,7 @@ import { computeReturnsSnapshot, type ReturnsSnapshot } from '../returns-resolve
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { resolveAssetAreaMetrics, computePhaseTimeline, computeProjectTimeline, type AssetAreaMetrics } from '@/src/core/calculations';
 import { FUNDING_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
+import { resolveFundTerms } from '../fundTerms';
 import { formatAccounting } from '@/src/core/formatters';
 import { computeLiveModel, type LiveAssetInput, type LiveModel, type LiveGroup } from './liveModel';
 import {
@@ -2641,6 +2642,11 @@ function m4Labels(state: FinancialsResolverState): ReturnType<typeof getFinancia
   return getFinancialLabels(state.project.financialTerminology ?? defaultTerminologyForCountry(state.project.country));
 }
 
+/** Money as it reads inside a row LABEL (never a value cell): compact millions,
+ *  so an inline figure is legible at a glance. Value cells keep full units and
+ *  follow the workbook-wide display scale, which does not reach label text. */
+const labelMoney = (v: number): string => `${formatAccounting(v, 'millions', 1)} m`;
+
 // ── Schedules (Module 4 schedules consolidated: Fixed Assets, IDC, Working Cap) ─
 function addSchedules(ctx: EmitCtx): void {
   const { wb, snap, state } = ctx;
@@ -2699,7 +2705,10 @@ function addProfitLoss(ctx: EmitCtx): void {
   const { wb, snap, state } = ctx;
   const N = snap.axisLength;
   const labels = m4Labels(state);
-  const mk = (filterPhaseId: string): M4ReportCtx => ({ snap, state, labels, filterPhaseId, fmt: (v: number) => String(v) });
+  // `fmt` stays String so a row's totalOverride round-trips back to a number in
+  // emitM4; `labelFmt` is what any figure printed INSIDE a row label uses, so
+  // the fund fee rows read "1.00% of Fund size 154.5 m" and not a raw float.
+  const mk = (filterPhaseId: string): M4ReportCtx => ({ snap, state, labels, filterPhaseId, fmt: (v: number) => String(v), labelFmt: labelMoney });
   const ws = wb.addWorksheet(SHEETS.pl, { properties: { tabColor: { argb: ARGB.navy } } });
   writeSheetHeader(ws, snap, N, 'P&L', `Full detailed mirror of the platform Module 4 income statement: the consolidated project P&L (to ${labels.pat}), then a per-phase P&L (to ${labels.ebitda}).`, { label: 'Line', feeds: 'The platform income statement (Revenue, Cost of Sales, Opex, depreciation, interest, tax).' });
   const E = makeEmitters(ws, N);
@@ -2860,6 +2869,36 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     for (let t = 0; t < N; t++) { const c = ws.getCell(r, pcol(t)); c.value = cells[t] ?? '-'; c.numFmt = '@'; c.alignment = { horizontal: 'right' }; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; }
     r += 1;
   };
+  // Fund layer (Step 6). A STREAM-basis row (index 0 = inception, rendered in
+  // the opening column E), with the option to suppress the Total.
+  //
+  // Deliberately its own helper rather than an extra branch on `moneyRow`
+  // above: that one is shared with the FCFF / FCFE / Distributed Equity stream
+  // rows, so widening its style handling would change what a STANDALONE project
+  // renders. This helper is only ever called from the fund block.
+  const fundRow = (label: string, stream: number[] | undefined, opts: { style?: 'plain' | 'subtotal' | 'total'; indent?: number; noTotal?: boolean } = {}): number => {
+    const used = r;
+    const s = stream ?? [];
+    const prior = s[0] ?? 0;
+    const vals = new Array<number>(N).fill(0);
+    for (let i = 1; i < s.length && i - 1 < N; i++) vals[i - 1] = s[i] ?? 0;
+    const style = opts.style ?? 'plain';
+    setLabel(ws.getCell(r, LBL_COL), label, { indent: opts.indent, bold: style !== 'plain' });
+    const put = (c: number, v: number): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
+    put(OPEN_COL, prior);
+    for (let t = 0; t < N; t++) put(pcol(t), vals[t]);
+    // A BALANCE carries no lifetime total: a balance summed across periods is a
+    // number with no meaning. Same rule the on-screen waterfall table follows.
+    if (!opts.noTotal) put(TOTAL_COL, prior + vals.reduce((a, v) => a + v, 0));
+    if (style === 'total') { fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.navy); for (let c = 1; c <= lastActiveCol(N); c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } }; }
+    else if (style === 'subtotal') { for (let c = 1; c <= lastActiveCol(N); c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } }; }
+    r += 1;
+    return used;
+  };
+  /** The five management fees are charged on the PROJECT axis; every other row
+   *  in the fund block is on the stream basis. Lift one onto the other so a
+   *  single table never mixes the two. */
+  const onStreamBasis = (axis: number[] | undefined): number[] => [0, ...(axis ?? []).slice(0, N)];
 
   // ── 1. Returns (mirror of the platform Returns tab, in the same order) ───────
   section('1. Returns (IRR / MOIC by basis, dev economics, exit, sources & uses, funding mix, exposure, debt, cash-flow streams)');
@@ -3059,6 +3098,110 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     section('2. RE Metrics');
     moneyRow('FCFF (project)', lm.fcff, { style: 'total' });
     moneyRow('FCFE (equity)', lm.fcfe, { style: 'total' });
+  }
+
+  // ── 3. Fund Layer (fund layer Step 6, 2026-08-10) ───────────────────────────
+  //
+  // The M5 fund surface, mirrored: the distribution waterfall in the reference's
+  // exact row order, gross vs post-fee returns, and who earns the fees.
+  //
+  // APPENDED as its own numbered section rather than woven into section 1. The
+  // alternative was to interleave it where the screen puts it (waterfall after
+  // Development Economics, fee income after Equity Partners), which would mean
+  // a section band opening and closing inside "1. Returns" and would renumber
+  // RE Metrics on a fund project but not on a standalone one. A trailing
+  // section keeps every existing row exactly where it is, and the section sink
+  // gives it a Cover ToC entry and a per-tab sub-TOC link for free.
+  //
+  // The whole block is gated on the snapshot's own `active` flags, so with the
+  // fund toggle off nothing here executes and the tab is byte-identical.
+  if (rs && rs.waterfall.active) {
+    const w = rs.waterfall;
+    const gross = rs.result.dividends, net = rs.resultNetDividends;
+    section('3. Fund Layer (distribution waterfall, gross vs net returns, fund fee income)');
+
+    kpiStrip('Fund Returns, Gross vs Net', [
+      { label: 'Distributed Equity IRR (gross)', value: cPct(gross.irr, 1), sub: `MOIC ${cMult(gross.moic)}` },
+      { label: 'Distributed Equity IRR (net)', value: cPct(net.irr, 1), sub: `MOIC ${cMult(net.moic)}` },
+      { label: 'Performance Fee', value: cMoney(w.totalPerformanceFee), sub: 'total over the hold' },
+      { label: 'Unpaid Hurdle at Exit', value: cMoney(w.hurdleShortfall), sub: w.hurdleShortfall > 0 ? 'hurdle not fully met' : 'hurdle fully settled' },
+    ]);
+
+    // The terms the waterfall was run on. Without them the rows below cannot be
+    // checked by eye, and the Inputs tab carries no fund terms.
+    subTitle('Fund Terms Applied');
+    scalarRow('Hurdle rate (preferred return)', w.hurdleRate, NUMFMT.pct2);
+    scalarRow('Performance fee on the excess', w.performanceFeePct, NUMFMT.pct2);
+    scalarRow('Fund Manager', resolveFundTerms(state.project).fundManagerName, '@');
+    r += 1;
+
+    gridTable('Distributed Equity, Gross vs Net of Performance Fee', ['Distributed Equity', 'IRR', 'MOIC', 'Invested', 'Distributions', 'Net Profit'], [
+      ['Excluding fund fees (gross)', cPct(gross.irr, 1), cMult(gross.moic), cMoney(gross.totalOutflow), cMoney(gross.totalInflow), cMoney(gross.netProfit)],
+      ['Net of performance fee', cPct(net.irr, 1), cMult(net.moic), cMoney(net.totalOutflow), cMoney(net.totalInflow), cMoney(net.netProfit)],
+    ]);
+
+    // The reference row order, exactly as the M5 tab renders it. Each line feeds
+    // the next. The three BALANCE lines carry no lifetime total.
+    subTitle(`Distribution Waterfall (hold to ${rs.exitYearLabel})`);
+    fundRow('Equity Drawn', w.equityDrawnPerPeriod);
+    fundRow('Unpaid Hurdle Balance BoP', w.periods.map((p) => p.openingUnpaidHurdle), { noTotal: true });
+    fundRow('Hurdle Accrued', w.hurdleAccruedPerPeriod);
+    fundRow('Total Hurdle Owed', w.totalHurdleOwedPerPeriod, { style: 'subtotal', noTotal: true });
+    fundRow('Hurdle Paid', w.hurdlePaidPerPeriod);
+    fundRow('Unpaid Hurdle Balance EoP', w.unpaidHurdlePerPeriod, { style: 'subtotal', noTotal: true });
+    fundRow('Excess Distributions', w.excessDistributionsPerPeriod);
+    fundRow('Performance Fee', w.performanceFeePerPeriod);
+    fundRow('Distributions Net of Performance Fee', w.netDistributionPerPeriod, { style: 'total' });
+    fundRow('Memo: Distributions (gross, before fee)', w.distributionPerPeriod, { indent: 1 });
+    r += 1;
+
+    // ── Fund Fee Income: who EARNS the fees, beside the equity partners ───────
+    const fe = rs.feeEarners;
+    if (fe.active) {
+      const feeRows: string[][] = fe.earners.map((e) => [
+        e.name,
+        e.kind === 'fund_manager' ? 'Fund Manager' : 'Project Party',
+        cPct(e.managementFeeShare, 1), cMoney(e.totalManagementFeeIncome),
+        cPct(e.performanceFeeShare, 1), cMoney(e.totalPerformanceFeeIncome),
+        cMoney(e.totalFeeIncome),
+      ]);
+      // Shares are never normalised: a matrix summing to 80% allocates 80% and
+      // the remainder is SHOWN rather than absorbed into an earner.
+      if (fe.unallocatedPerformanceFee > 0) {
+        feeRows.push(['Unallocated', '', '', '', cPct(Math.max(0, 1 - fe.performanceFeeShareSum), 1), cMoney(fe.unallocatedPerformanceFee), cMoney(fe.unallocatedPerformanceFee)]);
+      }
+      feeRows.push(['Total', '', '', cMoney(fe.totalManagementFee), '', cMoney(fe.totalPerformanceFee), cMoney(fe.totalManagementFee + fe.totalPerformanceFee)]);
+      gridTable('Fund Fee Income by Earner', ['Fee Earner', 'Type', 'Mgmt Fee %', 'Management Fees', 'Perf. Fee %', 'Performance Fee', 'Total Fee Income'], feeRows);
+
+      // What each fee is charged on. SAME shared builder as the P&L tab and the
+      // M5 screen, so a reader asking "why is this fee zero" gets one answer
+      // wherever they look. Base and Rate use the free meta columns B and C, so
+      // the period axis at column F does not shift.
+      const basis = buildFundFeeBasisRows(snap);
+      if (basis.length > 0) {
+        subTitle('Fund Fee Basis (what each fee is charged on)');
+        // Column captions go on the subtitle band itself, which already carries
+        // the bold navy-dark font, so no extra row is spent on a header.
+        ws.getCell(r - 1, META_B).value = 'Base';
+        ws.getCell(r - 1, META_C).value = 'Rate';
+        for (let i = 0; i < basis.length; i++) {
+          const b = basis[i], line = snap.fundFees.lines[i];
+          const rB = r; moneyRow(`${b.label}: basis charged on`, line?.basisPerPeriod, { indent: 1 });
+          setBasis(ws.getCell(rB, META_B), b.base);
+          setBasis(ws.getCell(rB, META_C), b.rate);
+          const rF = r; moneyRow(`${b.label}: fee charged`, line?.amountPerPeriod, { indent: 2 });
+          setBasis(ws.getCell(rF, META_B), b.timing);
+        }
+        r += 1;
+      }
+
+      subTitle('Fee Income by Period');
+      for (const line of snap.fundFees.lines) fundRow(line.label, onStreamBasis(line.amountPerPeriod), { indent: 1 });
+      fundRow('= Total Management Fees', fe.managementFeePerPeriod, { style: 'subtotal' });
+      fundRow('Performance Fee', fe.performanceFeePerPeriod);
+      fundRow('= Total Fee Income', fe.totalFeeIncomePerPeriod, { style: 'total' });
+      r += 1;
+    }
   }
 
   return { fcffIrrCell, fcfeIrrCell };

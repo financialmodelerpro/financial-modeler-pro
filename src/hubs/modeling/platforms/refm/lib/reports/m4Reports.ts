@@ -33,6 +33,15 @@ export interface M4ReportCtx {
   filterPhaseId: string;
   /** Number formatter for pre-formatted Total/override cells. */
   fmt: (v: number) => string;
+  /**
+   * Number formatter for figures embedded in a row LABEL (currently the fund
+   * fee basis amount). Separate from `fmt` because a caller may need `fmt` to
+   * be machine-readable: the Excel export passes `String(v)` so a row's
+   * `totalOverride` round-trips back to a number, which leaked a raw float into
+   * the fee labels ("1.00% of Fund size 154519446.40625"). Defaults to `fmt`,
+   * so the screen and the PDF are unchanged.
+   */
+  labelFmt?: (v: number) => string;
 }
 
 const ALL = '__all__';
@@ -217,7 +226,7 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
       // Fund Fee Basis table (buildFundFeeBasisRows); this is the version that
       // travels with the statement line itself into the PDF and Excel.
       if (line.amountPerPeriod.some((v) => v !== 0) || line.basisPerPeriod.some((v) => v !== 0)) {
-        rows.push({ label: fundFeeLineLabel(line, ctx.fmt), values: negArr(line.amountPerPeriod), indent: 1 });
+        rows.push({ label: fundFeeLineLabel(line, ctx.labelFmt ?? ctx.fmt), values: negArr(line.amountPerPeriod), indent: 1 });
       }
     }
     rows.push({ label: 'Total Fund Management Fee', values: negArr(fundFees), isSubtotal: true });
