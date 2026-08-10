@@ -382,6 +382,14 @@ app/api/platforms/
 ### Other API Routes
 ```
 app/api/
+├── public/pages/[slug]/           # GET: PARTNER FEED (PaceMakers). x-api-key vs FMP_PUBLIC_API_KEY, fails closed.
+#   SLUG_WHITELIST maps modeling-hub->modeling, refm->modeling-real-estate, training-hub->training (the public
+#   vocabulary is NOT the CMS slug; a literal whitelist matched no live cms_pages row). Published only, drafts 404.
+#   Sections filtered visible=true, ordered by display_order; no internal columns returned. 60 req/min/IP in-memory
+#   (per instance on serverless). 200 carries Cache-Control public, max-age=60, s-maxage=60, swr=300; errors no-store.
+#   401s write public_api_unauthorized to public_api_audit (mig 212, NEW: admin_audit_log.admin_id is NOT NULL so an
+#   unauthenticated caller has no admin to attribute). Audit is best effort, never turns a 401 into a 500.
+#   Verifier scripts/verify-public-pages-api.ts 42.
 ├── agents/market-rates/ + research/
 ├── branding/                      # GET: public, PATCH: admin only
 ├── cms/ contact/ cron/session-reminders/ cron/auto-launch-check/ cron/newsletter-scheduled/ cron/subscription-reminders/ cron/publish-scheduled-articles/ email/send/
