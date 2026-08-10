@@ -333,6 +333,39 @@ export interface FundFeeBasisRow {
   note: string;
 }
 
+/** One line of the capital reconciliation shown above the fee basis table. */
+export interface FundCapitalRow {
+  label: string;
+  amount: number;
+  /** True on the row that is the SUM of the two above it. */
+  isTotal: boolean;
+  note: string;
+}
+
+/**
+ * The three capital bases, stated distinctly so a reader can add the first two
+ * and land on the third.
+ *
+ * The fees charge on three different quantities (equity alone, debt alone, and
+ * the two together), and showing only the per-fee basis leaves the relationship
+ * between them implicit. This makes it explicit and checkable.
+ *
+ * Empty when the fund layer is off, or when the fund size was overridden with a
+ * typed target, because in that case the total is NOT the sum of the parts and
+ * printing it as though it were would be a lie.
+ */
+export function buildFundCapitalRows(snap: ProjectFinancialsSnapshot): FundCapitalRow[] {
+  const sched = snap.fundFees;
+  if (!sched.active) return [];
+  const equity = sched.totalEquity.amount, debt = sched.debtFacility.amount;
+  if (Math.abs(equity + debt - sched.fundSize.amount) > 0.01) return [];
+  return [
+    { label: 'Total equity', amount: equity, isTotal: false, note: sched.totalEquity.explanation },
+    { label: 'Debt facility', amount: debt, isTotal: false, note: sched.debtFacility.explanation },
+    { label: 'Fund size', amount: sched.fundSize.amount, isTotal: true, note: 'Total equity plus the debt facility.' },
+  ];
+}
+
 /**
  * The fee basis table. Empty when the fund layer is off, so a caller can render
  * it unconditionally and a standalone project shows nothing.
@@ -352,6 +385,8 @@ export function buildFundFeeBasisRows(snap: ProjectFinancialsSnapshot): FundFeeB
     const constant = charged.length > 0 && charged.every((x) => Math.abs(x.v - first) < 1e-6);
     let note = '';
     if (line.base === 'fund_size') note = sched.fundSize.explanation;
+    else if (line.base === 'total_equity') note = sched.totalEquity.explanation;
+    else if (line.base === 'debt_facility') note = sched.debtFacility.explanation;
     else if (line.base === 'facility_limit') note = sched.facilityLimit.explanation;
     else if (line.base === 'opening_nav') note = 'NAV at the start of each year (net assets), so the fee is known before the year\'s cash moves.';
     else if (line.base === 'flat_amount') note = 'A fixed amount per annum.';

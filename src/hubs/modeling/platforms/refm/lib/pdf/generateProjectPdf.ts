@@ -43,7 +43,7 @@ import {
 } from '../financials-resolvers';
 import { computeReturnsSnapshot, type ReturnsSnapshot } from '../returns-resolvers';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
-import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsFeederTables, buildBsReconciliationRows, buildFundFeeBasisRows, type M4FeederCtx } from '../reports/m4Reports';
+import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsFeederTables, buildBsReconciliationRows, buildFundFeeBasisRows, buildFundCapitalRows, type M4FeederCtx } from '../reports/m4Reports';
 import { buildOpexReport } from '../reports/opexReports';
 import { buildCapexReport } from '../reports/capexReports';
 import { buildFinancingScheduleTables, buildCashSweepTables } from '../reports/financingReports';
@@ -624,7 +624,11 @@ function buildFundBlock(
         table: {
           title: 'Fund Fee Basis (what each fee is charged on)', kind: 'grid', align: 'data',
           columns: ['Fee', 'Timing', 'Base', 'Rate', 'Basis charged on', 'Fee charged'],
-          rows: basis.map((b) => row([b.label, b.timing, b.base, b.rate, fmt.money(b.basis), fmt.money(b.charged)])),
+          rows: [
+          // The three capital bases first: equity + debt = fund size.
+          ...buildFundCapitalRows(snap).map((c) => row([c.isTotal ? `= ${c.label}` : c.label, '', 'capital base', '', fmt.money(c.amount), ''], c.isTotal ? 'subtotal' : undefined)),
+          ...basis.map((b) => row([b.label, b.timing, b.base, b.rate, fmt.money(b.basis), fmt.money(b.charged)])),
+        ],
         },
       });
     }
@@ -1298,7 +1302,11 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       items.push(tTable('Tab 3: P&L', 'outputs', {
         title: 'Fund Fee Basis (what each fee is charged on)', kind: 'grid', align: 'data',
         columns: ['Fee', 'Timing', 'Base', 'Rate', 'Basis charged on', 'Fee charged'],
-        rows: basis.map((b) => row([b.label, b.timing, b.base, b.rate, fmt.money(b.basis), fmt.money(b.charged)])),
+        rows: [
+          // The three capital bases first: equity + debt = fund size.
+          ...buildFundCapitalRows(snap).map((c) => row([c.isTotal ? `= ${c.label}` : c.label, '', 'capital base', '', fmt.money(c.amount), ''], c.isTotal ? 'subtotal' : undefined)),
+          ...basis.map((b) => row([b.label, b.timing, b.base, b.rate, fmt.money(b.basis), fmt.money(b.charged)])),
+        ],
       }));
     }
   }

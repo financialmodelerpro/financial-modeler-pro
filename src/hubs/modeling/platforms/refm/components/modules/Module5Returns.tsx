@@ -21,7 +21,7 @@ import { currencyHeaderLine, formatScaledForExport, SCALE_DIVISOR, type DisplayS
 import { makeFmt } from './_shared/numberFmt';
 import { M4PeriodTable, type M4Row } from './_shared/m4Table';
 import { FundFeeBasisTable } from './_shared/FundFeeBasisTable';
-import { buildFundFeeBasisRows } from '../../lib/reports/m4Reports';
+import { buildFundFeeBasisRows, buildFundCapitalRows } from '../../lib/reports/m4Reports';
 import { buildFundWaterfallRows, buildFundFeeIncomeRows, type FundReportCtx } from '../../lib/reports/fundReports';
 import { MetricCard, MetricGrid, AssumptionsPanel, fmtPct, fmtX, type AssumptionsValue } from './Module5Shared';
 import { FAST_INPUT } from './_shared/inputStyles';
@@ -241,6 +241,7 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
           snapshot={rs.feeEarners}
           reportCtx={fundReportCtx}
           basisRows={buildFundFeeBasisRows(snap)}
+          capitalRows={buildFundCapitalRows(snap)}
           axisLabels={axisLabels}
           inceptionLabel={inceptionLabel}
           currency={currency}
@@ -491,6 +492,7 @@ function FeeIncomeSection(props: {
   snapshot: import('@/src/core/calculations/returns').FeeEarnersSnapshot;
   reportCtx: FundReportCtx;
   basisRows: import('../../lib/reports/m4Reports').FundFeeBasisRow[];
+  capitalRows: import('../../lib/reports/m4Reports').FundCapitalRow[];
   axisLabels: number[];
   inceptionLabel: number;
   currency: string;

@@ -27,7 +27,7 @@ import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/s
 import { makeFmt } from './_shared/numberFmt';
 import { PhaseSection } from './_shared/PhaseSection';
 import { M4PeriodTable } from './_shared/m4Table';
-import { buildPLRows, buildFundFeeBasisRows } from '../../lib/reports/m4Reports';
+import { buildPLRows, buildFundFeeBasisRows, buildFundCapitalRows } from '../../lib/reports/m4Reports';
 import { FundFeeBasisTable } from './_shared/FundFeeBasisTable';
 import { OverrideBadge } from './_shared/OverrideBadge';
 
@@ -207,7 +207,7 @@ export default function Module4PL(): React.JSX.Element {
           allocation. Rows come from the same shared builder the Excel export
           and the M5 fee income section read. */}
       {filterPhaseId === '__all__' && (
-        <FundFeeBasisTable rows={buildFundFeeBasisRows(snap)} currency={currency} fmt={fmt} />
+        <FundFeeBasisTable rows={buildFundFeeBasisRows(snap)} capital={buildFundCapitalRows(snap)} currency={currency} fmt={fmt} />
       )}
     </div>
   );

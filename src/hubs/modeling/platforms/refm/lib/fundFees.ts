@@ -81,6 +81,29 @@ export interface FundFeeSchedule {
   facilityLimit: ResolvedFacilityLimit;
   /** The fund size the structure fee charged on, and where it came from. */
   fundSize: ResolvedFundSize;
+  /**
+   * The two components of the fund size, resolved as bases in their own right
+   * (2026-08-10) because the annual fees charge on equity alone and the
+   * arranging fee on debt alone.
+   *
+   * Resolved INDEPENDENTLY of `fundSize` rather than read off its
+   * `equityTotal` / `debtTotal`, because a `fundSizeOverride` replaces the
+   * fund size with a typed target and zeroes those components. The equity and
+   * debt bases must keep reporting what the model actually raised even then.
+   *
+   * `totalEquity.amount + debtFacility.amount == fundSize.amount` whenever the
+   * fund size is model-derived, which is what lets the basis table show the
+   * three figures and have a reader add the first two to get the third.
+   */
+  totalEquity: ResolvedCapital;
+  debtFacility: ResolvedCapital;
+}
+
+/** A lifetime capital total used as a fee base, with its provenance. */
+export interface ResolvedCapital {
+  amount: number;
+  source: 'model' | 'none';
+  explanation: string;
 }
 
 const zeros = (n: number): number[] => new Array<number>(Math.max(0, n)).fill(0);
@@ -329,6 +352,13 @@ export interface FundFeeInputs {
    * FROZEN: resolved once from a fee-free snapshot, never re-derived here.
    */
   fundSize?: ResolvedFundSize;
+  /**
+   * Total equity and the debt facility, each a lifetime total resolved from the
+   * FEE-FREE pass and frozen. Omit on the pure-unit-test path and they fall
+   * back to the fund size's own components.
+   */
+  totalEquity?: ResolvedCapital;
+  debtFacility?: ResolvedCapital;
 }
 
 /**
@@ -349,6 +379,13 @@ export function computeFundFeeSchedule(input: FundFeeInputs): FundFeeSchedule {
     ?? { amount: terms.facilityLimit, source: 'manual', amountKnown: true, explanation: 'Using the amount entered on the Fund Terms tab.' };
   const fundSize: ResolvedFundSize = input.fundSize
     ?? { amount: terms.fundSize, source: 'manual', amountKnown: true, equityTotal: 0, debtTotal: 0, explanation: 'Using the amount entered on the Fund Terms tab.' };
+  // The equity and debt bases. Supplied by the resolver from the fee-free pass;
+  // the fallback keeps the pure-unit-test path working off the fund size's own
+  // components.
+  const totalEquity: ResolvedCapital = input.totalEquity
+    ?? { amount: Math.max(0, fundSize.equityTotal), source: fundSize.equityTotal > 0 ? 'model' : 'none', explanation: 'All equity injected over the life of the fund.' };
+  const debtFacility: ResolvedCapital = input.debtFacility
+    ?? { amount: Math.max(0, fundSize.debtTotal), source: fundSize.debtTotal > 0 ? 'model' : 'none', explanation: 'Total debt raised over the life of the fund.' };
 
   const lines: FundFeeLine[] = FUND_FEE_SPECS.map((spec) => {
     const rate = spec.kind === 'rate' ? (terms[spec.key] as number) : 0;
@@ -363,6 +400,8 @@ export function computeFundFeeSchedule(input: FundFeeInputs): FundFeeSchedule {
       for (let t = 0; t < N; t++) {
         switch (spec.base) {
           case 'fund_size':      basis[t] = fundSize.amount; break;
+          case 'total_equity':   basis[t] = totalEquity.amount; break;
+          case 'debt_facility':  basis[t] = debtFacility.amount; break;
           case 'facility_limit': basis[t] = facilityLimit.amount; break;
           case 'opening_nav':    basis[t] = Math.max(0, openingNav[t] ?? 0); break;
           case 'flat_amount':    basis[t] = flat; break;
@@ -405,6 +444,8 @@ export function computeFundFeeSchedule(input: FundFeeInputs): FundFeeSchedule {
     openingNavPerPeriod: terms.enabled ? openingNav : zeros(N),
     facilityLimit,
     fundSize,
+    totalEquity,
+    debtFacility,
   };
 }
 
@@ -423,5 +464,7 @@ export function emptyFundFeeSchedule(axisLength: number): FundFeeSchedule {
     openingNavPerPeriod: zeros(N),
     facilityLimit: { amount: 0, source: 'none', amountKnown: true, explanation: 'The fund layer is off.' },
     fundSize: { amount: 0, source: 'none', amountKnown: true, equityTotal: 0, debtTotal: 0, explanation: 'The fund layer is off.' },
+    totalEquity: { amount: 0, source: 'none', explanation: 'The fund layer is off.' },
+    debtFacility: { amount: 0, source: 'none', explanation: 'The fund layer is off.' },
   };
 }

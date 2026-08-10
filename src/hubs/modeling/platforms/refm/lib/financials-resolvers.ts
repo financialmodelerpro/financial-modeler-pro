@@ -2513,6 +2513,22 @@ export function computeFinancialsSnapshot(
         manualSize: fundTerms.fundSize,
         override: fundTerms.fundSizeOverride,
       }),
+      // The two components as bases in their own right (2026-08-10): the annual
+      // fees charge on equity alone, the arranging fee on debt alone. Read from
+      // the SAME fee-free pass and frozen with everything else, and resolved
+      // independently of `fundSize` so a fundSizeOverride cannot zero them.
+      totalEquity: {
+        amount: Math.max(0, feeFree.financing.equity.grandTotal),
+        source: feeFree.financing.equity.grandTotal > 0 ? 'model' : 'none',
+        explanation: 'From your model: all equity injected over the life of the fund (cash, in kind and equity already in the project), frozen before the funding solve.',
+      },
+      debtFacility: {
+        amount: Math.max(0, feeFree.financing.existing.debtOutstandingTotal
+          + sumSeries(feeFree.financing.combined.totalDrawdown)
+          + sumSeries(feeFree.financing.combined.totalInterestCapitalized)),
+        source: 'model',
+        explanation: 'From your model: total debt raised over the life of the fund including capitalised interest, frozen before the funding solve. This is the amount raised, not the facility ceiling.',
+      },
     });
     return computeFinancialsSnapshotSolved(state, schedule);
   }

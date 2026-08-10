@@ -147,7 +147,13 @@ async function main(): Promise<void> {
     const s = clone(); s.project.fundTerms = { ...TERMS_BASE, ...o }; return s;
   };
 
-  const offState = clone();                                   // fund terms ABSENT (as saved)
+  // Fund terms ABSENT. Built by DELETING them rather than by trusting the saved
+  // snapshot not to have any: once the project saved a version with the fund
+  // layer enabled (2026-08-10), "as saved" became fund-ON and this comparison
+  // was silently measuring fund-on against fund-off instead of absent against
+  // disabled. The verifier has to construct the state it means.
+  const offState = clone();
+  if (offState.project) delete offState.project.fundTerms;
   const disabledState = withTerms({ enabled: false });        // populated but OFF
   const onState = withTerms({ enabled: true });               // the real terms
   const snapOff = computeFinancialsSnapshot(offState);

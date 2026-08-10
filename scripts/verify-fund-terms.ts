@@ -100,16 +100,28 @@ console.log('\n=== 2. The five fees, each on the base it should be ===');
   // every year, and a NAV-based fee could not be reconciled against the fund
   // size at all. Fund size is a constant resolved in the fee-free pass, so the
   // freeze is unchanged.
-  check('fund management fee is ANNUAL on FUND SIZE',
-    spec('fundManagementFeePct')?.timing === 'annual' && spec('fundManagementFeePct')?.base === 'fund_size');
-  check('custody and admin fee is ANNUAL on FUND SIZE',
-    spec('custodyAdminFeePct')?.timing === 'annual' && spec('custodyAdminFeePct')?.base === 'fund_size');
+  check('fund management fee is ANNUAL on TOTAL EQUITY',
+    spec('fundManagementFeePct')?.timing === 'annual' && spec('fundManagementFeePct')?.base === 'total_equity');
+  check('custody and admin fee is ANNUAL on TOTAL EQUITY',
+    spec('custodyAdminFeePct')?.timing === 'annual' && spec('custodyAdminFeePct')?.base === 'total_equity');
   check('NO fee charges on opening NAV any more',
     FUND_FEE_SPECS.every((f) => f.base !== 'opening_nav'));
-  check('every capital-based fee shares ONE base, so they cannot disagree',
-    FUND_FEE_SPECS.filter((f) => f.base === 'fund_size').length === 3);
-  check('debt arranging fee is ONE TIME on the facility limit',
-    spec('debtArrangingFeePct')?.timing === 'one_time' && spec('debtArrangingFeePct')?.base === 'facility_limit');
+  // THREE DISTINCT capital bases, matching the reference. An earlier version of
+  // this check asserted they shared ONE base, which was the over-collapsed
+  // design this replaced; it is inverted deliberately.
+  check('the capital fees use THREE DISTINCT bases, not one',
+    spec('fundStructureFeePct')?.base === 'fund_size'
+    && spec('fundManagementFeePct')?.base === 'total_equity'
+    && spec('debtArrangingFeePct')?.base === 'debt_facility');
+  check('and fund size is the only base used by more than nothing else',
+    FUND_FEE_SPECS.filter((f) => f.base === 'fund_size').length === 1
+    && FUND_FEE_SPECS.filter((f) => f.base === 'total_equity').length === 2
+    && FUND_FEE_SPECS.filter((f) => f.base === 'debt_facility').length === 1);
+  // Moved off the facility LIMIT 2026-08-10: on the reference project the limit
+  // resolves from an LTV cap to 4,273.8m against 2,834.1m actually raised, so
+  // the fee would have charged on a ceiling the fund never drew.
+  check('debt arranging fee is ONE TIME on the DEBT FACILITY (total raised)',
+    spec('debtArrangingFeePct')?.timing === 'one_time' && spec('debtArrangingFeePct')?.base === 'debt_facility');
   check('other expenses is ANNUAL and a flat amount',
     spec('otherExpensesPerAnnum')?.timing === 'annual' && spec('otherExpensesPerAnnum')?.base === 'flat_amount'
     && spec('otherExpensesPerAnnum')?.kind === 'amount');
@@ -128,7 +140,7 @@ console.log('\n=== 2. The five fees, each on the base it should be ===');
     FUND_FEE_SPECS.filter((f) => f.timing === 'annual' && f.base === 'fund_size')
       .every((f) => /fund size/i.test(f.help)));
   check('the fund size base names the model figure AND the freeze',
-    /total equity plus total debt/i.test(FEE_BASE_HELP.fund_size) && /frozen/i.test(FEE_BASE_HELP.fund_size));
+    /total equity plus the debt facility/i.test(FEE_BASE_HELP.fund_size) && /frozen/i.test(FEE_BASE_HELP.fund_size));
   check('and offers the target override', /override/i.test(FEE_BASE_HELP.fund_size));
   check('the facility base is the LIMIT, not the drawn balance', /not the drawn balance/i.test(FEE_BASE_HELP.facility_limit));
 }

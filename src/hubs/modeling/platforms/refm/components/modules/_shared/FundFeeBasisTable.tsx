@@ -20,10 +20,14 @@
  * No em dashes in this file.
  */
 import React from 'react';
-import type { FundFeeBasisRow } from '../../../lib/reports/m4Reports';
+import type { FundFeeBasisRow, FundCapitalRow } from '../../../lib/reports/m4Reports';
 
-export function FundFeeBasisTable({ rows, currency, fmt, title, caption }: {
+export function FundFeeBasisTable({ rows, capital = [], currency, fmt, title, caption }: {
   rows: FundFeeBasisRow[];
+  /** The three capital bases, so a reader can add equity and debt and land on
+   *  the fund size. Empty when the fund size was overridden with a typed
+   *  target, because then the total is not the sum of the parts. */
+  capital?: FundCapitalRow[];
   currency: string;
   fmt: (v: number) => string;
   title?: string;
@@ -47,6 +51,28 @@ export function FundFeeBasisTable({ rows, currency, fmt, title, caption }: {
       <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, fontStyle: 'italic' }}>
         {caption ?? 'What each fee is charged on, and the rate applied. Basis is the amount the rate was applied to over the life of the fund, so basis x rate equals the fee charged. A fee reading zero means an empty basis, not a missing rate.'}
       </div>
+      {/* The three capital bases, stated before the fees that charge on them.
+          The fees use three different quantities (equity alone, debt alone,
+          and the two together), and without this the relationship between them
+          is left implicit and a reader cannot check it. */}
+      {capital.length > 0 && (
+        <div style={{ overflowX: 'auto', marginBottom: 'var(--sp-2)' }} data-testid="fund-capital-bases">
+          <table style={{ borderCollapse: 'collapse', minWidth: 320 }}>
+            <tbody>
+              {capital.map((c) => (
+                <tr key={c.label} style={c.isTotal ? { borderTop: '2px solid var(--color-navy)' } : undefined}>
+                  <td style={{ ...tdL, fontWeight: c.isTotal ? 800 : 600, borderBottom: c.isTotal ? 'none' : td.borderBottom }} title={c.note}>
+                    {c.isTotal ? '= ' : ''}{c.label}
+                  </td>
+                  <td style={{ ...td, fontWeight: c.isTotal ? 800 : 600, borderBottom: c.isTotal ? 'none' : td.borderBottom }}>
+                    {fmt(c.amount)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 720 }}>
           <thead>
@@ -90,10 +116,15 @@ export function FundFeeBasisTable({ rows, currency, fmt, title, caption }: {
           Shown rather than hidden in a tooltip, because the fund size is now
           derived from the model and a reader should not have to hover to learn
           that. */}
+      {/* One line per model-resolved BASE, not per fee, so two fees sharing a
+          base do not repeat its explanation. */}
       <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 10, color: 'var(--color-meta)' }}>
-        {rows.filter((r) => r.note && (r.base === 'Fund size' || r.base === 'Facility limit')).map((r) => (
-          <li key={r.label}><strong>{r.base}:</strong> {r.note}</li>
-        ))}
+        {rows
+          .filter((r) => r.note && r.base !== 'Flat amount')
+          .filter((r, i, all) => all.findIndex((x) => x.base === r.base) === i)
+          .map((r) => (
+            <li key={r.base}><strong>{r.base}:</strong> {r.note}</li>
+          ))}
       </ul>
     </section>
   );

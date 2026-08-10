@@ -49,7 +49,10 @@ import { PARTY_ROLES } from './parties';
 
 /** Every base a v1 fee may charge on. All four are known before the period's
  *  funding solve, which is what keeps the fund layer out of the circular block. */
-export const LINEAR_FEE_BASES = ['fund_size', 'opening_nav', 'facility_limit', 'flat_amount'] as const;
+export const LINEAR_FEE_BASES = [
+  'fund_size', 'total_equity', 'debt_facility',
+  'opening_nav', 'facility_limit', 'flat_amount',
+] as const;
 export type FeeBaseKind = typeof LINEAR_FEE_BASES[number];
 
 /**
@@ -68,13 +71,17 @@ export const CIRCULAR_FEE_BASES = [
 
 export const FEE_BASE_LABELS: Record<FeeBaseKind, string> = {
   fund_size: 'Fund size',
+  total_equity: 'Total equity',
+  debt_facility: 'Debt facility',
   opening_nav: 'Opening NAV',
   facility_limit: 'Facility limit',
   flat_amount: 'Flat amount',
 };
 
 export const FEE_BASE_HELP: Record<FeeBaseKind, string> = {
-  fund_size: 'Total equity plus total debt from your model, frozen before the funding solve so the fee cannot feed its own base. Override it below to state a target instead.',
+  fund_size: 'Total equity plus the debt facility, from your model, frozen before the funding solve so the fee cannot feed its own base. Override it below to state a target instead.',
+  total_equity: 'All equity injected over the life of the fund: cash, in kind and equity already in the project. Frozen before the funding solve.',
+  debt_facility: 'Total debt raised over the life of the fund, including capitalised interest. The amount actually raised, not the facility ceiling. Frozen before the funding solve.',
   opening_nav: 'NAV at the START of each year, so the fee is known before the year`s cash moves.',
   facility_limit: 'The facility limit you enter below, not the drawn balance.',
   flat_amount: 'A fixed amount you enter, per annum.',
@@ -117,31 +124,43 @@ export const FUND_FEE_SPECS: readonly FeeSpec[] = [
     key: 'fundStructureFeePct', label: 'Fund structure fee', timing: 'one_time', base: 'fund_size', kind: 'rate',
     help: 'Charged once on the fund size, for establishing the vehicle.',
   },
-  // The two annual fees charge on FUND SIZE, not on a year-by-year balance.
+  // THREE DISTINCT CAPITAL BASES, matching the reference exactly (2026-08-10).
   //
-  // They charged on OPENING NAV until 2026-08-10. The engine was correct (the
-  // rate was applied to each period's own opening balance, and the fee was
-  // exactly Sigma rate x NAV_t), but the model this platform mirrors sizes a
-  // fund by its TOTAL debt and equity funding over the whole period, not by a
-  // net-asset balance that moves every year. Two consequences of the old base
-  // made that mismatch visible: NAV summed across periods read about seven
-  // times the fund size on a real project, and a NAV-based fee could not be
-  // reconciled against the fund size at all.
+  //   total equity   all equity injected over the life (cash + in kind + the
+  //                  equity already in the project)
+  //   debt facility  total debt RAISED over the life, incl. capitalised interest
+  //   fund size      total equity + debt facility
   //
-  // Fund size is a CONSTANT resolved once in the fee-free pass, so the freeze
-  // is unchanged and strengthened: both annual fees now share the structure
-  // fee's base, and there is one capital figure in the whole fee block.
+  // so a reader can add the two components and land on the third.
+  //
+  // History worth keeping, because this base moved twice in one day. The two
+  // annual fees charged on OPENING NAV until 2026-08-10: the engine was right
+  // (fee_t == openingNAV_t x rate) but a net-asset balance that moves each year
+  // does not match a model that sizes a fund by its total funding, and the
+  // displayed basis summed that balance over the life, reading about seven
+  // times the fund size. They were then briefly moved to FUND SIZE, which
+  // over-collapsed the problem: all three capital fees shared one base and the
+  // equity-only and debt-only fees lost their distinct bases. This is the
+  // correct decomposition.
+  //
+  // All three are lifetime totals resolved ONCE in the fee-free pass and then
+  // frozen, so the freeze is unchanged.
   {
-    key: 'fundManagementFeePct', label: 'Fund management fee', timing: 'annual', base: 'fund_size', kind: 'rate',
-    help: 'Charged each year on the fund size (total debt plus equity funding over the period).',
+    key: 'fundManagementFeePct', label: 'Fund management fee', timing: 'annual', base: 'total_equity', kind: 'rate',
+    help: 'Charged each year on total equity (all equity injected over the life of the fund).',
   },
   {
-    key: 'custodyAdminFeePct', label: 'Custody and admin fee', timing: 'annual', base: 'fund_size', kind: 'rate',
-    help: 'Charged each year on the fund size (total debt plus equity funding over the period).',
+    key: 'custodyAdminFeePct', label: 'Custody and admin fee', timing: 'annual', base: 'total_equity', kind: 'rate',
+    help: 'Charged each year on total equity (all equity injected over the life of the fund).',
   },
+  // On the DEBT FACILITY (total debt raised), not the facility limit. On the
+  // reference project the limit resolves from an LTV cap to 4,273.8m against
+  // 2,834.1m actually raised, a 1,439.8m gap, so the two are not
+  // interchangeable and the fee would have been charged on a ceiling the fund
+  // never drew.
   {
-    key: 'debtArrangingFeePct', label: 'Debt arranging fee', timing: 'one_time', base: 'facility_limit', kind: 'rate',
-    help: 'Charged once on the facility limit, for arranging the debt.',
+    key: 'debtArrangingFeePct', label: 'Debt arranging fee', timing: 'one_time', base: 'debt_facility', kind: 'rate',
+    help: 'Charged once on the debt facility (total debt raised over the life of the fund).',
   },
   {
     key: 'otherExpensesPerAnnum', label: 'Other expenses', timing: 'annual', base: 'flat_amount', kind: 'amount',

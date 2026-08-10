@@ -22,7 +22,7 @@ import { buildCapexReport, type CapexReport } from '../reports/capexReports';
 import { buildFinancingScheduleTables, buildCashSweepTables, type ReportTable } from '../reports/financingReports';
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildOpexReport } from '../reports/opexReports';
-import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildFundFeeBasisRows, type M4ReportCtx } from '../reports/m4Reports';
+import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildFundFeeBasisRows, buildFundCapitalRows, type M4ReportCtx } from '../reports/m4Reports';
 import { buildCaseComparisonReport, type CaseComparisonInput, type CaseComparisonReport, type CaseKpiKind } from '../reports/caseComparisonReport';
 import { buildCaseYoYReport, type CaseYoYReport } from '../reports/caseYoYReport';
 import { formatAssumptionValue } from '../cases/assumptionGrid';
@@ -2747,6 +2747,12 @@ function addProfitLoss(ctx: EmitCtx): void {
   if (basisRows.length > 0) {
     E.gap();
     E.section('Fund Fee Basis');
+    // The three capital bases first, so a reader can add total equity and the
+    // debt facility and land on the fund size. The fees below charge on three
+    // different quantities, and without this the relationship is implicit.
+    for (const c of buildFundCapitalRows(snap)) {
+      E.moneyRow(c.isTotal ? `= ${c.label}` : c.label, undefined, { style: c.isTotal ? 'subtotal' : 'plain', totalValue: c.amount });
+    }
     setBasis(ws.getCell(E.cursor(), META_B), 'Base');
     setBasis(ws.getCell(E.cursor(), META_C), 'Rate');
     E.moneyRow('What each fee is charged on', undefined, { style: 'subtotal', noTotal: true });
@@ -3178,6 +3184,13 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
         // the bold navy-dark font, so no extra row is spent on a header.
         ws.getCell(r - 1, META_B).value = 'Base';
         ws.getCell(r - 1, META_C).value = 'Rate';
+        // The three capital bases, so equity + debt = fund size is visible.
+        for (const c of buildFundCapitalRows(snap)) {
+          const rc = r;
+          moneyRow(c.isTotal ? `= ${c.label}` : c.label, undefined, { indent: c.isTotal ? 0 : 1 });
+          ws.getCell(rc, TOTAL_COL).value = c.amount;
+          if (c.isTotal) for (let cc = 1; cc <= lastActiveCol(N); cc++) ws.getCell(rc, cc).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+        }
         for (let i = 0; i < basis.length; i++) {
           const b = basis[i], line = snap.fundFees.lines[i];
           const rB = r; moneyRow(`${b.label}: basis charged on`, line?.basisPerPeriod, { indent: 1 });
