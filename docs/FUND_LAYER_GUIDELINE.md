@@ -186,7 +186,15 @@ Verifiers: `verify-fund-pdf` **49**, `verify-fund-excel` 69, `verify-fund-fee-in
 
 **Step 7** verified the whole layer end to end, and did it against **FMP RE HUB** rather than a fixture, because a fixture is chosen by the person writing the test and a real project is not. `scripts/verify-fund-e2e.ts` reads the project's latest saved version snapshot and NEVER writes: the fund terms are applied in memory, so the live project is untouched. It falls back to the shared fixture without database credentials and says so in its header rather than silently testing something smaller. **86 checks, 0 failures.**
 
-*Worth recording:* `refm_fund_terms` had ZERO rows when Step 7 ran, so the fund layer had never been switched on for a real project. Step 7 is the first time it was exercised on real data at all.
+*Worth recording, and CORRECTED on 2026-08-10:* an earlier version of this section said `refm_fund_terms` had ZERO rows. That was wrong, and the mistake is worth keeping visible because it is an easy one to repeat: the probe query selected a column named `enabled`, the column is `fund_enabled`, the query errored, and the empty fallback was reported as an empty table without the error object being checked.
+
+**The real state is that the layer is CONFIGURED but DISABLED.** FMP RE HUB has a fully populated `refm_fund_terms` row, written 2026-08-05, carrying a fund structure fee of 0.50%, a fund management fee of 0.25%, custody and admin at 0.50%, debt arranging at 0.50%, other expenses of 3,000,000 per annum, an 8% hurdle, 20% carry, a named Fund Manager and a three-row fee distribution matrix. The one thing it does not carry is `fund_enabled`, which is **false**.
+
+That is exactly the state Step 1's guard was written for (fully populated but disabled), so an export with no fund content anywhere is the correct and tested behaviour rather than a defect. Flipping only that flag, with every other stored value untouched, produces 403.844m of fees and 57 fund rows in the workbook (P&L 17, Cash Flow 4, Returns 36).
+
+**A second thing that follows from the dates:** every saved version of FMP RE HUB is from 2026-06-17 and carries `project.fundTerms` ABSENT, while the terms row was written 2026-08-05. So no saved version carries fund terms at all, and exporting a VERSION through the export picker will show no fund content even once the toggle is on. A new version has to be saved after enabling.
+
+Step 7 remains the first time the layer was exercised on real project data, because the toggle has never been on.
 
 **What it proves, on 3 phases, 8 assets across Operate / Sell / Sell+Manage / Lease, 14 periods:**
 
