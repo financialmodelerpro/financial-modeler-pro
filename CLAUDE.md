@@ -163,7 +163,7 @@ Single source of truth: `app/globals.css`. Tokens: `--color-primary*`, `--sp-1..
 
 ## Deployment + Health
 
-Vercel auto-deploys on push to `main`. Environment variables documented in `.env.example` + the Vercel dashboard. Key ones: `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` / `NEXTAUTH_SECRET` / `NEXTAUTH_URL` / `BREVO_API_KEY` / `HCAPTCHA_SECRET_KEY` / `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` (optional, overrides the AI default model at deploy time) / `CRON_SECRET`.
+Vercel auto-deploys on push to `main`. Environment variables documented in `.env.example` + the Vercel dashboard. Key ones: `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` / `NEXTAUTH_SECRET` / `NEXTAUTH_URL` / `BREVO_API_KEY` / `HCAPTCHA_SECRET_KEY` / `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` (optional, overrides the AI default model at deploy time) / `CRON_SECRET` / `FMP_PUBLIC_API_KEY` (shared secret for the public partner page feed; UNSET means that endpoint refuses every request, it fails closed).
 
 ```bash
 npm run type-check   # tsc --noEmit (zero errors required)

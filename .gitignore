@@ -64,3 +64,8 @@ scripts/module6-field-census.out.tsv
 
 # screenshot harness temp output
 scripts/.tmp/
+
+# Generated exports and operational backups from real client projects.
+# These carry real project figures and must never be committed.
+fund-exports/
+.fund-terms-backup.json
