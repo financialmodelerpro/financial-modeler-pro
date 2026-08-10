@@ -159,6 +159,27 @@ export default function ExportModal({
   const [versions, setVersions] = useState<RefmProjectVersionListItem[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState<string>(CURRENT);
   const [versionsLoading, setVersionsLoading] = useState(false);
+  // Fund layer: whether the SELECTED saved version actually carries fund terms.
+  // Checked against the version itself rather than guessed from dates, so the
+  // warning below is a fact and not a maybe. 'na' covers the current draft and
+  // any project with the fund layer off, where there is nothing to warn about.
+  const [versionFund, setVersionFund] = useState<'na' | 'checking' | 'has' | 'missing'>('na');
+  const fundOnInLiveModel = ((useModule1Store.getState().project ?? {}) as { fundTerms?: { enabled?: boolean } })
+    .fundTerms?.enabled === true;
+
+  useEffect(() => {
+    if (!open || !projectId || !fundOnInLiveModel || selectedVersionId === CURRENT) { setVersionFund('na'); return; }
+    let cancelled = false;
+    setVersionFund('checking');
+    loadVersion(projectId, selectedVersionId)
+      .then((res) => {
+        if (cancelled) return;
+        const snap = res.data?.version?.snapshot as { project?: { fundTerms?: { enabled?: boolean } } } | undefined;
+        setVersionFund(snap?.project?.fundTerms?.enabled === true ? 'has' : 'missing');
+      })
+      .catch(() => { if (!cancelled) setVersionFund('na'); });
+    return () => { cancelled = true; };
+  }, [open, projectId, selectedVersionId, fundOnInLiveModel]);
 
   useEffect(() => {
     if (!open || !projectId) return;
@@ -511,6 +532,24 @@ export default function ExportModal({
                 <span style={{ fontSize: 10, color: 'var(--color-muted)' }}>
                   {versionsLoading ? 'Loading versions…' : 'The file is named after the chosen version.'}
                 </span>
+              </div>
+            )}
+            {/* A saved version reproduces the terms it was computed WITH. A
+                project that turned the fund layer on after its last save has
+                versions that predate the fund terms, and exporting one of them
+                silently produces a file with no fund content anywhere. That
+                reads as a bug, so it is said out loud instead. */}
+            {versionFund === 'missing' && (
+              <div
+                data-testid="export-version-no-fund-terms"
+                style={{
+                  margin: '0 2px 8px', padding: '7px 10px', borderRadius: 6, fontSize: 11, lineHeight: 1.5,
+                  background: '#FFF8E8', border: '1px solid #E4C271', color: '#7A5B12',
+                }}
+              >
+                <strong>This version has no fund terms.</strong> The fund layer is on for this project, but the version
+                you picked was saved before that, so the export will show no fund fees, no waterfall and no fee income.
+                Choose <em>Current working draft</em> to include them, or save a new version first.
               </div>
             )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 2px 8px', flexWrap: 'wrap' }}>

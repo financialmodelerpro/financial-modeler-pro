@@ -70,6 +70,7 @@ import {
   loadVersion,
   saveVersion,
   patchVersion,
+  getFundTerms,
 } from './client';
 import {
   readCachedSnapshot,
@@ -161,6 +162,44 @@ export interface AttachResult {
   versionId?: string | null;
 }
 
+/**
+ * Merge the project's durable fund terms into a snapshot about to be hydrated.
+ *
+ * WHY THIS EXISTS. `Project.fundTerms` is what the ENGINE reads, and until
+ * 2026-08-10 the only thing that ever put it in the store was the M1 Fund Terms
+ * tab mounting. So a user could have the fund toggle on, open the project, go
+ * straight to Export, and get a workbook with no fund content anywhere and no
+ * warning: the live model genuinely had no terms because nothing had fetched
+ * them. Loading them here, on the project-open path, is the fix.
+ *
+ * TWO THINGS THIS IS CAREFUL ABOUT:
+ *
+ *   It merges BEFORE hydrate and before the autosave subscriber is wired, so
+ *   it cannot schedule a save or start an edit session. Injecting it after
+ *   hydrate would trip the store subscriber and cause exactly the version
+ *   churn the editingEnabled gate exists to prevent.
+ *
+ *   It only fills an ABSENT value, the same rule the tab uses. A snapshot that
+ *   already carries terms (an older version being viewed, or unsaved edits)
+ *   must win, or opening a project would silently overwrite what the user is
+ *   looking at with today's row.
+ *
+ * Failure is silent by design: no table (migration outstanding), a network
+ * error or no saved row all leave the snapshot exactly as it was, which is the
+ * pre-2026-08-10 behaviour.
+ */
+async function mergeFundTerms(projectId: string, snapshot: HydrateSnapshot): Promise<HydrateSnapshot> {
+  try {
+    const project = snapshot.project as { fundTerms?: unknown } | undefined;
+    if (!project || project.fundTerms !== undefined) return snapshot;
+    const res = await getFundTerms(projectId);
+    if (res.error || !res.data?.saved || res.data.available === false) return snapshot;
+    return { ...snapshot, project: { ...snapshot.project, fundTerms: res.data.terms } };
+  } catch {
+    return snapshot;
+  }
+}
+
 export async function attachToProject(projectId: string): Promise<AttachResult> {
   // Tear down any previous project's subscription first.
   detach();
@@ -178,6 +217,10 @@ export async function attachToProject(projectId: string): Promise<AttachResult> 
   const serverRes = await loadProject(projectId);
   if (serverRes.data?.version) {
     const checked = hydrationFromAnySnapshotChecked(serverRes.data.version.snapshot);
+    // The durable fund terms are part of the live model from the first paint.
+    // Folded in before hydrate, and into the dirty baseline below, so a project
+    // whose saved version predates the fund terms does not open as "unsaved".
+    checked.snapshot = await mergeFundTerms(projectId, checked.snapshot);
     useModule1Store.getState().hydrate(checked.snapshot);
     writeCachedSnapshot(projectId, checked.snapshot);
     lastSavedJson = dirtyJson(checked.snapshot);
@@ -194,6 +237,7 @@ export async function attachToProject(projectId: string): Promise<AttachResult> 
     const cached = readCachedSnapshot(projectId);
     if (cached) {
       const checked = hydrationFromAnySnapshotChecked(cached.snapshot);
+      checked.snapshot = await mergeFundTerms(projectId, checked.snapshot);
       useModule1Store.getState().hydrate(checked.snapshot);
       lastSavedJson = dirtyJson(checked.snapshot);
       sessionBaseSnapshot  = checked.snapshot;

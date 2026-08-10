@@ -7,9 +7,16 @@
  * management fees, the performance fee and hurdle, and the per-party fee
  * distribution matrix. See docs/FUND_LAYER_GUIDELINE.md.
  *
- * INPUTS ONLY. Nothing entered here changes a number anywhere yet: the fees
- * reach M4 at Step 3 and the waterfall M5 at Step 4. The tab says so rather
- * than letting a user believe their returns already reflect a fee they typed.
+ * THESE INPUTS DRIVE THE MODEL (since Step 3 for the fees, Step 4 for the
+ * waterfall, Steps 6 and 6b for the exports). The header used to say the
+ * opposite, and the on-screen notice with it, both left over from Step 2 when
+ * the tab really was inert. That was corrected on 2026-08-10: with the toggle
+ * on, the fees are charged in M4 and raise the funding requirement, the hurdle
+ * and performance fee run the M5 waterfall, and every figure reaches the
+ * screen, both PDFs and the Excel workbook.
+ *
+ * With the toggle OFF nothing here changes any number, which is what the
+ * off-state notice says and what verify-fund-layer-guard pins.
  *
  * ── THREE THINGS THAT ARE NOT ARBITRARY ────────────────────────────────────
  *
@@ -288,9 +295,11 @@ export default function Module1FundTerms({ projectId }: { projectId: string | nu
             below: it is saved with the project and takes effect only when you switch the toggle on.
           </div>
         ) : (
-          <div style={{ marginTop: 'var(--sp-2)', background: AMBER_BG, border: `1px solid ${AMBER_LINE}`, color: AMBER_INK, borderRadius: 6, padding: '9px 11px', fontSize: 11, lineHeight: 1.5 }}>
-            These terms are recorded but do not yet flow into the model. The fees reach the financial statements, and
-            the hurdle and performance fee reach the returns waterfall, in the next steps of the fund build.
+          <div style={{ marginTop: 'var(--sp-2)', background: '#F4F8FD', border: `1px solid ${BORDER}`, borderRadius: 6, padding: '9px 11px', ...helpText }}>
+            The fund layer is on, so these terms drive the model. The fees are charged in the financial statements and
+            raise the funding requirement; the hurdle and performance fee run the returns waterfall; and all of it
+            appears on the Returns tab and in the PDF and Excel exports. Save a new version to carry these terms into a
+            saved snapshot.
           </div>
         )}
       </div>

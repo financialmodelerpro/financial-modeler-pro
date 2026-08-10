@@ -277,13 +277,27 @@ export function fundFeeLineLabel(
   fmt: (v: number) => string,
 ): string {
   const baseName = FEE_BASE_LABELS[line.base] ?? line.base;
-  // The basis a rate is applied to over the life. For a one-time fee only the
-  // first period carries a basis, so this is that period's figure; for an
-  // annual fee it is the sum of the bases charged, and basis x rate == total
-  // by construction, which is what makes the row checkable by eye.
-  const basis = line.basisPerPeriod.reduce((s, v) => s + (v ?? 0), 0);
   if (line.base === 'flat_amount') return `${line.label} (flat amount)`;
-  return `${line.label} (${(line.rate * 100).toFixed(2)}% of ${baseName} ${fmt(basis)})`;
+  // What the rate is applied to. For a CONSTANT base (fund size, facility
+  // limit) this is that single figure, and an annual fee says how many periods
+  // it was charged over, so the row reads as "0.50% of 5,466.8m, 14 periods"
+  // rather than as one implausible number.
+  //
+  // The old version printed the SUM of the per-period bases here. That is the
+  // figure `basis x rate == fee` needs, but on an annual fee it is a balance
+  // summed across the whole life, which is how a NAV-based fee came to display
+  // about seven times the fund size and read as a calculation error.
+  const charged = line.basisPerPeriod
+    .map((v, i) => ({ v: v ?? 0, i }))
+    .filter((x) => x.v !== 0 || (line.amountPerPeriod[x.i] ?? 0) !== 0);
+  const first = charged[0]?.v ?? 0;
+  const constant = charged.length > 0 && charged.every((x) => Math.abs(x.v - first) < 1e-6);
+  if (constant) {
+    const span = line.timing === 'annual' && charged.length > 1 ? `, ${charged.length} periods` : '';
+    return `${line.label} (${(line.rate * 100).toFixed(2)}% of ${baseName} ${fmt(first)}${span})`;
+  }
+  const basis = line.basisPerPeriod.reduce((s, v) => s + (v ?? 0), 0);
+  return `${line.label} (${(line.rate * 100).toFixed(2)}% of ${baseName}, ${fmt(basis)} over the life)`;
 }
 
 /** One row of the Fund Fee Basis table. */
@@ -293,8 +307,26 @@ export interface FundFeeBasisRow {
   base: string;
   /** Formatted rate, or a dash for a flat-amount fee that carries no rate. */
   rate: string;
-  /** The amount the rate was applied to over the life. */
+  /**
+   * The amount the rate was applied to over the life, i.e. the SUM of the
+   * per-period bases. `basis x rate == charged` holds on every line because of
+   * that, which is what makes a row checkable by eye.
+   *
+   * On an ANNUAL fee this is a sum across periods, so read it with
+   * `basisPerPeriod` below rather than as a single point in time. That
+   * distinction is the whole reason a NAV-based fee used to read about seven
+   * times the fund size: it was a balance summed over fourteen years.
+   */
   basis: number;
+  /**
+   * The base charged in each period it applies, when that base is the SAME in
+   * every charged period (fund size, facility limit, a flat amount). Null when
+   * the base moves period to period, because there is then no single figure to
+   * show. This is the number that reconciles against the fund size.
+   */
+  basisPerPeriod: number | null;
+  /** How many periods actually carried a charge. 1 for a one-time fee. */
+  periodsCharged: number;
   /** The fee charged over the life. */
   charged: number;
   /** Where the base came from, for the bases the model resolves. */
@@ -310,6 +342,14 @@ export function buildFundFeeBasisRows(snap: ProjectFinancialsSnapshot): FundFeeB
   if (!sched.active) return [];
   return sched.lines.map((line) => {
     const basis = line.basisPerPeriod.reduce((s, v) => s + (v ?? 0), 0);
+    // The periods that actually carried a charge, and whether their base was
+    // the same figure in each of them. A one-time fee zeroes every later basis
+    // (see computeFundFeeSchedule), so this naturally reports 1 period there.
+    const charged = line.basisPerPeriod
+      .map((v, i) => ({ v: v ?? 0, i }))
+      .filter((x) => x.v !== 0 || (line.amountPerPeriod[x.i] ?? 0) !== 0);
+    const first = charged[0]?.v ?? 0;
+    const constant = charged.length > 0 && charged.every((x) => Math.abs(x.v - first) < 1e-6);
     let note = '';
     if (line.base === 'fund_size') note = sched.fundSize.explanation;
     else if (line.base === 'facility_limit') note = sched.facilityLimit.explanation;
@@ -321,6 +361,8 @@ export function buildFundFeeBasisRows(snap: ProjectFinancialsSnapshot): FundFeeB
       base: FEE_BASE_LABELS[line.base] ?? line.base,
       rate: line.base === 'flat_amount' ? '-' : `${(line.rate * 100).toFixed(2)}%`,
       basis,
+      basisPerPeriod: constant ? first : null,
+      periodsCharged: charged.length,
       charged: line.total,
       note,
     };

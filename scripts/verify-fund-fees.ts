@@ -140,13 +140,22 @@ console.log('=== 1. Timing: each fee lands where its spec says ===');
   check('other expenses recur every period', other.amountPerPeriod.every((v) => near(v, 1_500_000)));
   check('other expenses total = amount x periods', near(other.total, 1_500_000 * N));
 
-  // Annual NAV fees: opening NAV, zero in the first period.
+  // Annual capital fees. CHANGED 2026-08-10: these charged on OPENING NAV and
+  // were therefore zero in period 0 (a fund holds no net assets before its
+  // first period). They now charge on FUND SIZE, a constant, so they are
+  // charged in EVERY period including the first. That is a real behavioural
+  // change and is pinned from both directions.
   const mgmt = line('fundManagementFeePct');
   const custody = line('custodyAdminFeePct');
-  check('the management fee is ZERO in period 0 (no opening NAV yet)', near(mgmt.amountPerPeriod[0], 0));
-  check('the custody fee is ZERO in period 0', near(custody.amountPerPeriod[0], 0));
+  check('the management fee IS charged in period 0 (fund size is known at the start)',
+    mgmt.amountPerPeriod[0] > 0);
+  check('the custody fee is charged in period 0 too', custody.amountPerPeriod[0] > 0);
   check('the management fee is charged in later periods', sum(mgmt.amountPerPeriod.slice(1)) > 0);
-  check('every NAV-fee period equals rate x that period basis',
+  check('the annual base is the SAME figure in every period (a constant, not a balance)',
+    mgmt.basisPerPeriod.every((v) => near(v, mgmt.basisPerPeriod[0] ?? 0)));
+  check('and that figure IS the fund size, so the two reconcile',
+    near(mgmt.basisPerPeriod[0] ?? 0, resolvedFundSize));
+  check('every capital-fee period equals rate x that period basis',
     mgmt.amountPerPeriod.every((v, t) => near(v, (mgmt.basisPerPeriod[t] ?? 0) * 0.02)));
   check('the custody fee charges the SAME basis as the management fee',
     custody.basisPerPeriod.every((v, t) => near(v, mgmt.basisPerPeriod[t] ?? 0)));
@@ -543,9 +552,17 @@ console.log('\n=== 4. The fee raises the funding requirement by exactly its cash
   check('period 0: the requirement rises by EXACTLY the period-0 fee',
     near(reqOn[0] - reqOff[0], on.pl.fundFeesPerPeriod[0] ?? 0, 0.5),
     `rise ${reqOn[0] - reqOff[0]} vs fee ${on.pl.fundFeesPerPeriod[0]}`);
-  check('the period-0 fee is the two one-time fees plus the annual flat, charged together',
+  // Period 0 now carries FIVE charges, not three: the two one-time fees, the
+  // annual flat, and (since 2026-08-10) both annual capital fees, which charge
+  // on fund size and so are known at the start.
+  check('the period-0 fee is the two one-time fees plus the flat plus BOTH annual capital fees',
     near(on.pl.fundFeesPerPeriod[0] ?? 0,
-      on.fundFees.fundSize.amount * 0.01 + on.fundFees.facilityLimit.amount * 0.0075 + 1_500_000, 1));
+      on.fundFees.fundSize.amount * 0.01          // structure, one time
+      + on.fundFees.facilityLimit.amount * 0.0075 // debt arranging, one time
+      + 1_500_000                                  // other expenses, annual flat
+      + on.fundFees.fundSize.amount * 0.02         // fund management, annual
+      + on.fundFees.fundSize.amount * 0.0025,      // custody and admin, annual
+      1));
   check('the rise is a real fraction of the fee, not a rounding artefact', reqDelta > 0.01 * feeTotal);
 
   // With tax on, the fee also cuts the tax bill, so the NET cash effect is the

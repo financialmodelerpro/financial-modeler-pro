@@ -2,7 +2,7 @@
 
 Reference doc for the fund layer in the REFM platform. This is the scope, the design decisions, and the standing rules. Prompts are given to Claude Code one step at a time, verified between each. This file is the source of truth for what we are building and why.
 
-**Status as of 2026-08-10: Steps 1 through 7 are LIVE. The fund layer is feature complete for v1.** Migrations 208, 209, 210 and 211 applied; Steps 4 and 6 needed none. Step 7 (end-to-end verify) is next, and the browser gap in section 7 is the thing it has to close. Sections 2, 3 and 4 below have been updated to match what was actually built; where the original plan changed, the change and the reason are stated rather than quietly overwritten.
+**Status as of 2026-08-10: Steps 1 through 7 are LIVE. The fund layer is feature complete for v1.** Migrations 208, 209, 210 and 211 applied; Steps 4, 6 and 7 needed none. Post-Step-7 corrections the same day: the annual fee base moved from opening NAV to fund size (section 2), the live model now loads fund terms on project open rather than on tab mount (section 7), and the stale "does not yet flow into the model" notice is gone. The browser gap in section 7 is the only thing still open. Sections 2, 3 and 4 below have been updated to match what was actually built; where the original plan changed, the change and the reason are stated rather than quietly overwritten.
 
 ---
 
@@ -34,14 +34,22 @@ The original plan named ONE management fee on a choice of two bases (committed c
 | Fee | Timing | Base |
 |---|---|---|
 | Fund structure fee | one time | fund size |
-| Fund management fee | annual | **opening** NAV |
-| Custody and admin fee | annual | **opening** NAV |
+| Fund management fee | annual | **fund size** (was opening NAV until 2026-08-10) |
+| Custody and admin fee | annual | **fund size** (was opening NAV until 2026-08-10) |
 | Debt arranging fee | one time | facility limit |
 | Other expenses | annual | flat amount |
 
 **Fund size as a base needs care, and the original doc was imprecise about it.** The old wording said the fee is "not charged on fund size" because fund size is equity plus debt and debt is solved. That is still true of a **derived** fund size. But the fund structure fee IS charged on fund size **as a number the user types**: a target or committed figure that does not move when funding moves. The distinction is one careless line wide, so `fund_size_solved` is named explicitly in the forbidden list.
 
-**NAV fees charge OPENING NAV** (the close of the prior period), so the fee is known before the period's cash moves. Closing NAV and average NAV are both forbidden. NAV is also defined as NET assets (assets minus liabilities), so a debt drawdown does not move it at all: cash and debt rise together.
+**The annual fees moved from opening NAV to FUND SIZE on 2026-08-10.** They charged on opening NAV (the close of the prior period) from Step 2, and the engine was correct: the rate was applied to each period's own opening balance, and the fee was exactly `Sigma rate x NAV_t`, verified on the real project. Two things made the base wrong anyway.
+
+*It did not match the model.* This platform mirrors a model that sizes a fund by its TOTAL debt and equity funding over the whole period, not by a net-asset balance that moves every year. A NAV-based fee cannot be reconciled against the fund size at all, and the two figures sat side by side on the same tab.
+
+*And it read as an error.* The fee basis is displayed as the SUM of the per-period bases, because that is the figure `basis x rate == fee` needs for an annual fee. Summing a BALANCE over fourteen years gave 41,752.1m against a fund size of 5,466.8m, about seven times larger, which looks exactly like a calculation fault. The engine was right and the presentation was indefensible. (Max single-period NAV was 3,953.2m, 0.72x the fund size, so NAV never exceeded capital raised.)
+
+Both annual fees now charge on **fund size**, the same constant the structure fee uses, resolved once in the fee-free pass and frozen. Consequences worth knowing: all three capital fees share ONE base so they cannot disagree; the annual fees are now charged in period 0 as well (fund size is known at the start, where opening NAV was zero); and the basis row carries the per-period constant and a period count, so it reads as "0.50% of 5,466.8m, 14 periods" rather than one implausible number.
+
+`opening_nav` remains a LEGAL base kind. It is linear and correctly implemented, and no fee uses it. `closing_nav` and `average_nav` stay forbidden.
 
 ### The rule is a data structure, not a comment
 
@@ -65,7 +73,7 @@ Declaring linear bases is not sufficient on its own. `computeFinancialsSnapshot`
 | **Excel export** | Fee lines with their basis and Total Fund Management Fee on the P&L, the fee row in operating cash flow, a `3. Fund Layer` section on Returns, and a fund block on the Summary tab, all in the locked palette | **LIVE** |
 | **PDF exports** | Full project report: fee lines and Total Fund Management Fee on the Module 4 P&L, the cash flow fee row, the Fund Fee Basis block, and a `Tab 5: Fund Layer` in Module 5. Summary PDF: the fee line and cash flow row (so the summary statements FOOT) plus its own Fund Layer page | **LIVE** |
 | **M7 IC Report** | Fee sections in the IC deck | Post-launch, not gating |
-| **Verifiers** | Toggle-off regression first, then the fee registry, the fee schedule, the waterfall, the fee earners, the Excel rows, both PDFs, and an end-to-end pass on the REAL project | **LIVE** (`verify-fund-layer-guard` 75, `verify-fund-terms` 176, `verify-fund-fees` 131, `verify-fund-waterfall` 382, `verify-fund-fee-income` 108, `verify-fund-excel` 69, `verify-fund-pdf` 49, `verify-fund-e2e` 86; `verify-excel-export` stays 304. **1,479 checks total**) |
+| **Verifiers** | Toggle-off regression first, then the fee registry, the fee schedule, the waterfall, the fee earners, the Excel rows, both PDFs, and an end-to-end pass on the REAL project | **LIVE** (`verify-fund-layer-guard` 75, `verify-fund-terms` 181, `verify-fund-fees` 133, `verify-fund-waterfall` 382, `verify-fund-fee-income` 108, `verify-fund-excel` 69, `verify-fund-pdf` 49, `verify-fund-e2e` 86; `verify-excel-export` stays 304. **1,486 checks total**) |
 
 ### The Fund Manager
 
@@ -276,6 +284,10 @@ Revenue and operating expenses are unchanged to the cent; the whole gap is cost 
 ## 7. Known issues and open gaps
 
 **Gap-sized drawdown does not fully meet the computed requirement.** Found during Step 3, NOT caused by it. With `fundingMethod: 3` and a minimum cash reserve, closing cash goes negative in the first operating period because the drawdown raised is smaller than `netCashRequiredPerPeriod`. The baseline troughs at about -9.8m **with no fund fees at all**; fees deepen it by their own cash cost and no more. Not a facility size cap (LTV 60 -> 95 changes nothing) and not the drawdown method (`min_cash_floor` is identical, since Method 3 gap-sizing supplies the schedule). **Decision 2026-08-04: out of scope for an additive step, logged in CLAUDE-TODO.md for later.** `verify-fund-fees` section 5 documents why the non-negativity assertion is absent and is where it belongs once fixed.
+
+**Fixed 2026-08-10, found by a user export rather than by any verifier: the live model did not carry the fund terms unless the Fund Terms tab had been opened.** `Project.fundTerms` is what the engine reads, and the only thing that ever put it in the store was `Module1FundTerms` mounting. So a user could have the toggle on, open the project, go straight to Export and get a workbook with no fund content anywhere and no warning, because the live model genuinely had no terms. `attachToProject` now loads them on the project-open path, merged BEFORE hydrate and before the autosave subscriber is wired (injecting after hydrate would trip the subscriber and cause the version churn the `editingEnabled` gate exists to prevent), filling only an ABSENT value so a version being viewed still wins, and folded into the dirty baseline so a project whose saved version predates the terms does not open as "unsaved".
+
+**The related trap is now stated rather than silent.** A saved version reproduces the terms it was computed WITH, so a project that enabled the fund layer after its last save has versions that carry none. The export modal loads the selected version and, when the live model has the fund layer on and that version does not, says so plainly and points at the current working draft. It checks the version rather than guessing from dates, so the warning is a fact.
 
 **No browser verification. THIS IS NOW THE ONLY UNVERIFIED SURFACE, and Step 7 did not close it.** Every fund step has been proven by types, verifiers and build only. The Fund Terms tab carries real UI (the Fund Manager card, the pinned matrix row, the resolved facility-limit display with its override) and the M5 Returns tab carries the waterfall and fee income sections, none of which any verifier can see. This is the same gap that let Module 7's EditLayer sit dead for about ten days behind passing checks. Step 7 proved the engine and all three exports on real data; it says nothing about whether a browser renders any of it. **Closing this is the remaining work on the fund layer.**
 

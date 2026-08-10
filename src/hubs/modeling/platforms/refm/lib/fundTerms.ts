@@ -117,13 +117,27 @@ export const FUND_FEE_SPECS: readonly FeeSpec[] = [
     key: 'fundStructureFeePct', label: 'Fund structure fee', timing: 'one_time', base: 'fund_size', kind: 'rate',
     help: 'Charged once on the fund size, for establishing the vehicle.',
   },
+  // The two annual fees charge on FUND SIZE, not on a year-by-year balance.
+  //
+  // They charged on OPENING NAV until 2026-08-10. The engine was correct (the
+  // rate was applied to each period's own opening balance, and the fee was
+  // exactly Sigma rate x NAV_t), but the model this platform mirrors sizes a
+  // fund by its TOTAL debt and equity funding over the whole period, not by a
+  // net-asset balance that moves every year. Two consequences of the old base
+  // made that mismatch visible: NAV summed across periods read about seven
+  // times the fund size on a real project, and a NAV-based fee could not be
+  // reconciled against the fund size at all.
+  //
+  // Fund size is a CONSTANT resolved once in the fee-free pass, so the freeze
+  // is unchanged and strengthened: both annual fees now share the structure
+  // fee's base, and there is one capital figure in the whole fee block.
   {
-    key: 'fundManagementFeePct', label: 'Fund management fee', timing: 'annual', base: 'opening_nav', kind: 'rate',
-    help: 'Charged each year on NAV at the start of that year.',
+    key: 'fundManagementFeePct', label: 'Fund management fee', timing: 'annual', base: 'fund_size', kind: 'rate',
+    help: 'Charged each year on the fund size (total debt plus equity funding over the period).',
   },
   {
-    key: 'custodyAdminFeePct', label: 'Custody and admin fee', timing: 'annual', base: 'opening_nav', kind: 'rate',
-    help: 'Charged each year on NAV at the start of that year.',
+    key: 'custodyAdminFeePct', label: 'Custody and admin fee', timing: 'annual', base: 'fund_size', kind: 'rate',
+    help: 'Charged each year on the fund size (total debt plus equity funding over the period).',
   },
   {
     key: 'debtArrangingFeePct', label: 'Debt arranging fee', timing: 'one_time', base: 'facility_limit', kind: 'rate',

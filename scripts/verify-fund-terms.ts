@@ -94,10 +94,20 @@ console.log('\n=== 2. The five fees, each on the base it should be ===');
   const spec = (k: string) => FUND_FEE_SPECS.find((f) => f.key === k);
   check('fund structure fee is ONE TIME on fund size',
     spec('fundStructureFeePct')?.timing === 'one_time' && spec('fundStructureFeePct')?.base === 'fund_size');
-  check('fund management fee is ANNUAL on OPENING NAV',
-    spec('fundManagementFeePct')?.timing === 'annual' && spec('fundManagementFeePct')?.base === 'opening_nav');
-  check('custody and admin fee is ANNUAL on OPENING NAV',
-    spec('custodyAdminFeePct')?.timing === 'annual' && spec('custodyAdminFeePct')?.base === 'opening_nav');
+  // CHANGED 2026-08-10: the two annual fees moved from OPENING NAV to FUND
+  // SIZE. The model this platform mirrors sizes a fund by its total debt and
+  // equity funding over the whole period, not by a net-asset balance that moves
+  // every year, and a NAV-based fee could not be reconciled against the fund
+  // size at all. Fund size is a constant resolved in the fee-free pass, so the
+  // freeze is unchanged.
+  check('fund management fee is ANNUAL on FUND SIZE',
+    spec('fundManagementFeePct')?.timing === 'annual' && spec('fundManagementFeePct')?.base === 'fund_size');
+  check('custody and admin fee is ANNUAL on FUND SIZE',
+    spec('custodyAdminFeePct')?.timing === 'annual' && spec('custodyAdminFeePct')?.base === 'fund_size');
+  check('NO fee charges on opening NAV any more',
+    FUND_FEE_SPECS.every((f) => f.base !== 'opening_nav'));
+  check('every capital-based fee shares ONE base, so they cannot disagree',
+    FUND_FEE_SPECS.filter((f) => f.base === 'fund_size').length === 3);
   check('debt arranging fee is ONE TIME on the facility limit',
     spec('debtArrangingFeePct')?.timing === 'one_time' && spec('debtArrangingFeePct')?.base === 'facility_limit');
   check('other expenses is ANNUAL and a flat amount',
@@ -110,7 +120,13 @@ console.log('\n=== 2. The five fees, each on the base it should be ===');
   // an engine, so it gets its own check.
   check('NAV fees say OPENING, never closing or average',
     FUND_FEE_SPECS.filter((f) => f.base.includes('nav')).every((f) => f.base === 'opening_nav'));
-  check('the opening-NAV help says START of the year', /start of that year/i.test(FUND_FEE_SPECS.find((f) => f.base === 'opening_nav')?.help ?? ''));
+  // `opening_nav` stays a LEGAL base kind (it is linear and correctly
+  // implemented) even though no fee uses it now, so the rule above still has
+  // something to bite on if a future fee reaches for it.
+  check('opening NAV remains a legal, linear base kind', (LINEAR_FEE_BASES as readonly string[]).includes('opening_nav'));
+  check('the annual fee help names the fund size base',
+    FUND_FEE_SPECS.filter((f) => f.timing === 'annual' && f.base === 'fund_size')
+      .every((f) => /fund size/i.test(f.help)));
   check('the fund size base names the model figure AND the freeze',
     /total equity plus total debt/i.test(FEE_BASE_HELP.fund_size) && /frozen/i.test(FEE_BASE_HELP.fund_size));
   check('and offers the target override', /override/i.test(FEE_BASE_HELP.fund_size));
@@ -425,7 +441,12 @@ console.log('\n=== 8. The tab is wired, and honest about doing nothing yet ===')
   check('shares for deleted parties are surfaced, not silently dropped', /fund-terms-orphans/.test(tab));
   check('the tab writes the snapshot copy the engine will read', /setProject\(\{ fundTerms:/.test(tab));
   check('the tab also writes the durable row', /saveFundTerms\(/.test(tab));
-  check('the tab says the terms do not flow into the model yet', /do not yet flow into the model/.test(tab));
+  // CHANGED 2026-08-10. The tab used to say the terms did not yet flow into the
+  // model, which was true at Step 2 and false from Step 3 onwards. It must now
+  // say the opposite, and must NOT carry the old wording.
+  check('the tab says the terms DO drive the model when the toggle is on', /these terms drive the model/i.test(tab));
+  check('the stale "do not yet flow" claim is gone', !/do not yet flow into the model/.test(tab));
+  check('the tab points the user at saving a version to carry the terms', /save a new version/i.test(tab));
   check('the tab keeps the fields editable with the toggle OFF', /takes effect only when you switch the toggle on/.test(tab));
   check('the tab degrades when migration 208 is absent', /fund-terms-migration-notice/.test(tab));
   check('the tab degrades when migration 209 is absent', /fund-terms-extended-notice/.test(tab));
