@@ -49,6 +49,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Cohorts',           href: '/admin/training-hub/cohorts',           icon: '👥' },
   { label: 'Training Settings', href: '/admin/training-settings',              icon: '⚙️' },
   { type: 'divider',            label: 'System' },
+  { label: 'API Keys',          href: '/admin/api-keys',                       icon: '🔑' },
   { label: 'Audit Log',         href: '/admin/audit',                          icon: '📋' },
   { label: 'System Health',     href: '/admin/health',                         icon: '❤️' },
   { label: 'Settings',          href: '/admin/settings',                       icon: '⚙️' },

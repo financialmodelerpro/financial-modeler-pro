@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeEqual } from 'crypto';
 import { getServerClient } from '@/src/core/db/supabase';
 import { rateLimited } from '@/src/shared/api/rateLimit';
+import { SLUG_WHITELIST } from '@/src/shared/api/publicPagesConfig';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,17 +35,10 @@ export const dynamic = 'force-dynamic';
  * No em dashes in this file.
  */
 
-/**
- * The only slugs this endpoint will serve, mapped to their CMS page slug.
- * Anything not in this object is a 404, including a real CMS page that simply
- * has not been opted in. Adding a page to the public feed is a deliberate,
- * reviewable edit to this constant.
- */
-const SLUG_WHITELIST: Readonly<Record<string, string>> = {
-  'modeling-hub': 'modeling',
-  'refm': 'modeling-real-estate',
-  'training-hub': 'training',
-};
+// SLUG_WHITELIST moved to src/shared/api/publicPagesConfig.ts on 2026-08-11.
+// The admin API Keys view has to list the same slugs this route serves, and two
+// copies would drift the first time a page is opted in. Behaviour here is
+// unchanged; the constant simply has one home now.
 
 /** Requests per IP per window, and the window. */
 const RATE_LIMIT = 60;
