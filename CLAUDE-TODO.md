@@ -28,7 +28,14 @@
 
 ---
 
-## OPEN GAP: the fund layer has never been opened in a browser (2026-08-04)
+## OPEN GAP: the fund layer has never been opened in a browser (2026-08-04, still open 2026-08-11)
+
+**Widened 2026-08-11.** The gap now also covers the corrected fund fee basis
+block, the new FUND INPUTS band on the Inputs tab, the gross-vs-net note, and
+the M5 waterfall caption. The fund toggle is now ON on the real project, so
+these surfaces are reachable rather than hypothetical. See the START HERE
+section above for the full 2026-08-11 unverified list.
+
 
 Five deploys of fund-layer work (Steps 1 to 3 plus the Fund Manager and facility-limit changes) are live and proven by **types, verifiers and build only**. Nothing has been driven in a real browser.
 
@@ -63,9 +70,64 @@ Five deploys of fund-layer work (Steps 1 to 3 plus the Fund Manager and facility
 
 ---
 
-## ⭐ START HERE (current focus, 2026-08-01)
+## ⭐ START HERE (current focus, 2026-08-11)
 
-**TOMORROW: Module 7 fixes.** Everything below is known-open; nothing here is a
+**NEXT: the PDF review.** The Excel workbook has now had a ten-item user review
+(items 1 to 9 shipped in `9eb7f9ab` and `7b9deb2a`, see CLAUDE-REFM.md
+2026-08-11). The PDF exports have NOT had the equivalent pass. Both PDFs render
+the fund block from the same shared `fundReports` / `m4Reports` builders, so the
+structural fixes from the workbook review reached them for free (the fee-basis
+stock-not-flow correction, the gross-vs-net note, the no-total on Hurdle
+Accrued). What has NOT been reviewed is everything PDF-specific: layout,
+pagination, column widths, truncation, and whether the summary PDF still reads
+correctly now that the Summary tab's headline returns changed source.
+
+**Two things from the workbook review that the PDF pass should check
+specifically**, because they were defects in the Excel and the PDF was never
+measured for them:
+
+1. **Truncation.** The Excel labels were being cut by a 34-character column and
+   nobody noticed until a user read the file. The full PDF is already known to
+   truncate the inline fee labels in its narrow label column (that is why the
+   columnar basis block exists). Measure it rather than assume.
+2. **Which engine the headline figures come from.** The Excel Summary was
+   quoting `liveModel` rather than the platform returns engine, printing
+   Project IRR 177.3% against the Returns tab's 10.9% in the same file. The
+   PDFs were not audited for the same class of error.
+
+**NOTHING FROM THE 2026-08-11 SESSION HAS BEEN BROWSER-VERIFIED.** Types,
+verifiers and build only. In rough order of risk:
+
+1. **The strategy-change confirm dialog and review banner** (M1 Assets). This is
+   the one that most needs a live check: it is new interactive UI on a
+   destructive-looking action, and the underlying store path was rewritten. Open
+   an asset, change its strategy, confirm the dialog lists what will be retained
+   and what needs review, apply it, navigate away and back, and confirm the
+   banner persists until dismissed. Then switch BACK and confirm the original
+   sub-units, opex and (for Sell + Manage) the companion asset return intact.
+   The round trip is proven by `verify-strategy-switch` at the state level, but
+   never through the actual UI. See
+   [[feedback_gesture_lifecycle_pointer_capture]] for why "the verifier passes"
+   has not been sufficient for interactive M1/M7 surfaces before.
+2. **Admin > API Keys** (`05676464`): reveal, copy, the auto-hide, and whether
+   the audit row actually lands in `admin_audit_log`. That last one is the only
+   part whose behaviour depends on the database rather than on code that could
+   be exercised offline, and that table has a `NOT NULL admin_id` history. If
+   the insert fails the reveal still works by design, and the reason appears in
+   the server logs as `[api-keys] audit insert failed`.
+3. **The corrected fund fee basis block and the new Inputs FUND band** in a real
+   Excel client, to confirm the widened Rate column and the shortened labels
+   render as measured.
+
+**Related and still open:** `FMP_PUBLIC_API_KEY` is set in `.env.local` only.
+Until it is set in Vercel (Production scope) AND redeployed, the public partner
+feed refuses every request and `/admin/api-keys` shows the not-configured panel.
+
+---
+
+## Module 7 fixes (was START HERE, 2026-08-01)
+
+Everything below is known-open; nothing here is a
 guess about what might be wrong.
 
 **Where Module 7 actually stands.** The IC Presentation Builder is LIVE and

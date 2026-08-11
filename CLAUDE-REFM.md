@@ -1,5 +1,67 @@
 ﻿# Real Estate Financial Modeling (REFM), Claude Code Project Brief
-**Last updated: 2026-07-09. Lock status: M1 LOCKED (M2.0 Pass 58 base) + Parties tab (mig 190), M2 LOCKED (Pass 9N), M3 LOCKED (Pass 5d), M4 DONE, M5 DONE (Returns & RE Metrics + Lender Covenants + per-partner FCFE/DDM + M1-Parties link), M6 Scenario Analysis LIVE, M7 Reports LIVE (IC / Lender / One-Pager preview + PPT export, migs 191+192). Full verifier suite green via `npx tsx scripts/verify-*.ts`.**
+**Last updated: 2026-08-11. Lock status: M1 LOCKED (M2.0 Pass 58 base) + Parties tab (mig 190), M2 LOCKED (Pass 9N), M3 LOCKED (Pass 5d), M4 DONE, M5 DONE (Returns & RE Metrics + Lender Covenants + per-partner FCFE/DDM + M1-Parties link), M6 Scenario Analysis LIVE, M7 Reports LIVE (IC / Lender / One-Pager preview + PPT export, migs 191+192). Full verifier suite green via `npx tsx scripts/verify-*.ts`.**
+
+## 2026-08-11: ten-item workbook review, the two-model finding, and strategy-change reactivation
+
+A user review of an exported workbook. Nine items on the export, one on model behaviour. Every item was diagnosed and measured on the REAL project before any code changed, and two of the ten turned out not to be what they looked like.
+
+### THE FINDING THAT MATTERS: the workbook shipped TWO models
+
+The Summary tab said **Project IRR 177.3%, Equity IRR 38.3%, multiple 7.31x**. The Returns tab, ten rows above its own metrics block, said **10.9% / 7.0% / 2.33x**. Both figures were in the same file.
+
+Cause: the Summary tiles, the Summary highlights, the Returns tab's own "Returns Metrics" block and the Checks tab's headline all read `lm.*` from `lib/excel/liveModel.ts`. That module is a **deliberately simplified twin** left over from when this workbook emitted live Excel formulas; its own header says so. Its IRR streams are `[0, cfo+cfi, ...]` with no inception outflow and none of the historical development investment that the platform's FCFF build-up carries, so a near-zero early outflow inflates the IRR by an order of magnitude.
+
+The workbook is now a hardcoded platform snapshot, so nothing had reconciled the two since that change. **All four surfaces now read `rs` (the platform returns engine), the same source as the Returns grid, and every label names its basis** ("Project IRR (FCFF, unlevered)"). The third figure the review flagged, Distributed Equity 6.8%, was NOT an error: it is `rs.result.dividends`, a legitimately different basis, and is unchanged.
+
+**`liveModel` is no longer a reporting source anywhere.** It still backs the formula-cached cells, so it remains a latent second model in the file. If those cells are ever removed, delete it.
+
+### The other eight export items
+
+Numbered as the review numbered them, so item 2 above is the missing one.
+
+**Item 1. The Checks tab reported CHECK on a healthy model.** The tolerance was `maxBsDiff < 1`, an ABSOLUTE one-currency-unit band on a seven-billion balance sheet (1.4e-10 relative), so a residue of 360.792 at 5.1e-8 failed. Now relative to the PEAK magnitude (not the worst period's value, which produced "5.0e+0 of 0.0 m" on a net cash flow that crosses zero). Two of the three checks were also the literal string `'OK'` with an unrelated magnitude in the note column, one printing total capex (-3,561,517,930) beside a green OK; all three are now real comparisons and all three read the platform snapshot.
+
+**Item 3. Min DSCR 0.43x is REAL**, not a period artefact. Per period: 0.56 / 2.17 / 3.19 / 0.56 / 0.43 / 1.52, so three of six debt-service years are uncovered, while ICR over the same years runs 0.56 to 25.63. Interest is covered; the amortisation is not. Flagged in check-red on the Summary highlight (with the count in a sentence), the Returns coverage tile, and per year in the DSCR row.
+
+**Item 4. A base is a STOCK.** The fee-basis Total column summed the per-period bases, so an annual fee on total equity printed 36,858.3m against a 5,466.8m fund size, on the Excel P&L, the Excel Returns tab AND both PDFs. Encoded once in the shared builder as `basisDisplay` + `basisIsPerPeriod`.
+
+**Item 5. NOT A DEFECT, and worth not re-investigating.** "Other expenses prints raw 3000000 while neighbours are in millions" was chased to the byte: file round-trip, raw sheet XML, `styles.xml` numFmtId resolution, shared-strings scan. Those cells carry style `s=105` -> `numFmtId=166` -> the millions accounting format, IDENTICAL to every neighbouring fee row, and no 7+ digit run exists as text anywhere in the workbook. The reporter was reading stored values programmatically rather than the rendered cell. A REAL adjacent defect was found and fixed on the way: `labelMoney` was hardcoded to millions regardless of export scale, so a full-unit export read "0.50% of Total equity 2,632.7 m" beside a cell of 13,163,667.
+
+**Item 6. Hurdle Accrued lost its lifetime total**, joining the three balance rows. Noted for reversibility: its sum DOES reconcile (accrued + drawn == paid + unpaid at exit), so this is presentation judgement, not an identity.
+
+**Item 7. Gross equals net is now explained** from a shared `fundGrossNetNote` on all four surfaces, empty the moment a fee arises.
+
+**Item 8. A FUND INPUTS band** was added to the Inputs tab, which had carried no fund content at all.
+
+**Item 9. PARTLY WRONG as reported.** The Cover already listed "Fund Fee Basis" and "3. Fund Layer" as hyperlinked sub-entries; the first scan reported zero only because hyperlink cells hold `{text,hyperlink}` objects that stringify to `[object Object]`. What was genuinely missing was a top-level signal, now a "Fund layer active" identity marker, plus an exemption from the 14-section-per-tab cap. **Registering the Summary tab's front-matter bands as sections was TRIED AND REVERTED**: every section link is an `!A<row>` anchor whose column A must hold the title, and a front-matter canvas keeps column A as a margin, so it broke the anchor invariant workbook-wide to gain three entries.
+
+### Strategy changes now reactivate the right assumptions (`lib/state/strategySwitch.ts`)
+
+The Strategy dropdown wrote one field and nothing else. Since the engine gates on `asset.strategy` in every resolver, the old strategy's assumptions stopped feeding the model the instant the field changed, and the new strategy's never started.
+
+**Measured on the real project: EVERY strategy change dropped the asset's revenue to zero with no warning** (a Sell asset moved to Operate took project revenue 14,055.0m to 11,233.0m), and Sell to Sell + Manage was a model no-op.
+
+Two causes. `asset.revenue` is already partitioned (`.sell` / `.operate` / `.lease`) but an asset carries only the sub-config it was built with. And **sub-units are not partitioned at all**: each holds one `category`, so a Sell asset switched to Operate kept its `Sellable` rows and the Operate resolver counted ZERO keys. Even a seeded revenue config would have computed nothing. Separately, leaving Sell + Manage **HARD DELETED** the companion asset with its sub-units, cost lines and cost overrides, so that was the one strategy whose assumptions did not survive a round trip.
+
+Now the outgoing strategy's sub-units, opex and companion are PARKED in `Asset.retainedByStrategy` and the incoming set is restored, or seeded from the outgoing one on first visit (names, counts and areas carry; the RATE does not, because a sale price is not an ADR and printing one as an ADR is worse than blank). Support sub-units belong to no strategy and never move.
+
+**The design point: retention sits OFF TO ONE SIDE, not as a filter over the live arrays.** `state.subUnits` / `costLines` / `costOverrides` still contain ONLY the active strategy's rows, exactly as before, so none of the roughly forty engine and UI readers had to learn to filter, and none can drift. The dropdown previews via a DRY RUN of the same pure function the store commits, so the dialog cannot promise something other than what happens, then a `strategyReview` banner persists across navigation until dismissed, because the empty assumptions live on other tabs.
+
+`verify-strategy-switch` **82**, teeth proven by three sabotages (4, 12 and 7 failures). The round-trip identity deliberately EXCLUDES `retainedByStrategy`: after A to B to A the asset correctly remembers B, so that a second visit restores rather than re-seeds. The bank is asserted separately so the exclusion hides nothing.
+
+### Fund fee basis block, follow-up the same day
+
+The labels were being TRUNCATED by the 34-character label column: "Custody and admin fee: basis charged on (per period, 14 periods)" is 64 characters and rendered as "...basis charged on (p", hiding the very count it was added to show. Labels are now `<fee>: basis` / `<fee>: charged` (longest 34 of 34) and the period count moved to the **Base** column, which is 30 wide and held only "Total equity", so it reads "Total equity x 14".
+
+The **Rate column was 2 characters** and could not overflow, because the Total cell beside it always has a value; widened to 10, and only when the fund block renders. **ExcelJS trap worth remembering: `isCustomWidth` is `width !== DEFAULT_COLUMN_WIDTH` and that constant is 9, so a column set to exactly 9 is dropped from `<cols>` entirely and the width silently does not apply.** The first attempt used 9 and did nothing; the verifier now asserts `>= 8 && !== 9`.
+
+A **flat-amount fee is now ONE row**: its basis and its charge are the same quantity, so the pair said the same thing twice. `FundFeeBasisRow.hasRate` carries that semantically rather than inferring it from `rate === '-'`, because a display string is not a fact about the fee.
+
+### Proof
+
+**Toggle-off proven on the FIXTURE, not the real project.** The saved FMP RE HUB version is edited IN PLACE (same label, same `created_at`, different `snapshot`), so a baseline captured against it drifts mid-session and reads as an engine regression. Measured: 17,230 cells across 17 sheets at two display scales plus both PDFs at 8,316 decoded lines, identical except Checks / Returns / Summary, which are exactly items 1 to 3, with zero fund labels anywhere. A later run at 18,020 entries including every column width was byte-identical.
+
+`verify-excel-export` 301 -> **304**, `verify-fund-excel` 69 -> **75**, `verify-fund-fee-income` 107 -> **109**, `verify-tab2-fixes` 47, `verify-strategy-switch` **82** (new). Commits `9eb7f9ab` and `7b9deb2a`.
 
 ## 2026-08-04: Fund Terms tab, Fund Manager entity + model-read facility limit
 

@@ -2,6 +2,8 @@
 
 Reference doc for the fund layer in the REFM platform. This is the scope, the design decisions, and the standing rules. Prompts are given to Claude Code one step at a time, verified between each. This file is the source of truth for what we are building and why.
 
+**Status as of 2026-08-11: Steps 1 through 7 are LIVE. The fund layer is feature complete for v1, and the toggle is now ON on the real project.** See section 8 for the 2026-08-11 presentation corrections and the state change.
+
 **Status as of 2026-08-10: Steps 1 through 7 are LIVE. The fund layer is feature complete for v1.** Migrations 208, 209, 210 and 211 applied; Steps 4, 6 and 7 needed none. Post-Step-7 corrections the same day: the annual fee bases moved from opening NAV to TOTAL EQUITY and the arranging fee to the DEBT FACILITY, three distinct bases (section 2), the live model now loads fund terms on project open rather than on tab mount (section 7), and the stale "does not yet flow into the model" notice is gone. The browser gap in section 7 is the only thing still open. Sections 2, 3 and 4 below have been updated to match what was actually built; where the original plan changed, the change and the reason are stated rather than quietly overwritten.
 
 ---
@@ -310,3 +312,59 @@ Revenue and operating expenses are unchanged to the cent; the whole gap is cost 
 **No render-level UI verification (2026-08-05).** Step 5's two M5 sections are asserted at source level only (gating, reference row ORDER, sibling placement, and the shape of every array fed to the tables). A real render check under `tsx` is blocked by the CSS-module import in the table tree, which is a Next build feature `tsx` cannot compile; stubbing the interop was tried and did not hold. Closing this properly needs either a jsdom or Playwright harness with the Next transform available, which is its own piece of work and is not gating Step 6.
 
 **Pre-existing, unrelated: `verify-module6-scenarios` is 127 passed / 1 failed** on `Module 7 is Reports and live (enabled)`, a stale expectation left over from the Modules 6 and 7 swap (Module 7 is now "IC Presentation Builder"). Confirmed identical with all Step 4 code removed, so it is not a fund-layer regression. Logged here so the next step does not spend time re-diagnosing it.
+
+---
+
+## 8. Presentation corrections, 2026-08-11
+
+A user review of an exported workbook. The engine was not touched: every change here is presentation, and toggle-off stayed byte-identical throughout.
+
+### The state changed: the toggle is now ON
+
+`refm_fund_terms.fund_enabled` is **true** and the latest saved version (labelled 1.0, dated 2026-08-10) carries `project.fundTerms.enabled: true`. FMP RE HUB therefore exports a full fund workbook: **359.941m of fees, 5,651.850m distributed, ZERO performance fee** because the 8% hurdle is never cleared, leaving 1,477.007m unpaid at exit.
+
+Two earlier claims in this document are now false and are corrected rather than deleted, so the correction stays legible: the toggle HAS been on, and the saved versions DO carry fund terms.
+
+### A baseline captured against the real project is not a baseline
+
+**Use `buildExcelSampleState` for any before/after identity proof.** The saved FMP RE HUB version is edited IN PLACE by the user (`startEditInPlace` updates the existing row), so the version label and `created_at` stay the same while the `snapshot` changes. A fingerprint taken at the start of a session and compared at the end diverged across Capex, Revenue, Schedules, Financing and Balance Sheet, and asset names changed, which read exactly like an engine regression. It was the data moving. The FIXTURE portion being identical at HEAD is what isolated it.
+
+Second trap from the same session: fingerprint files written on Windows can be CRLF in one capture and LF in another, and `diff` then reports the whole file as one changed hunk, which looks like total divergence. Strip with `sed 's/\r//g'` on both sides, and compare structured cell lines (sorted) separately from PDF text lines (in order).
+
+### A base is a STOCK, and summing one is not a quantity
+
+The fee-basis Total column summed the per-period bases, so an annual fee on total equity printed **36,858.3m against a 5,466.8m fund size** on the Excel P&L, the Excel Returns tab AND both PDFs. Encoded once in the shared builder as `basisDisplay` + `basisIsPerPeriod`: a constant base displays as the CONSTANT with its period count, and only a base that genuinely moves period to period falls back to the lifetime sum. `basis` is retained so `basis x rate == charged` stays checkable, and is marked do-not-render.
+
+### A flat-amount fee is ONE row
+
+Its basis and its charge are the same quantity (3.0m per period charged on a basis of 3.0m per period), so the basis/charged pair said the same thing twice. `FundFeeBasisRow.hasRate` carries that semantically rather than inferring it from `rate === '-'`, because a display string is not a fact about the fee. Rate-based fees keep both rows, where the two genuinely differ.
+
+### Labels have to FIT
+
+"Custody and admin fee: basis charged on (per period, 14 periods)" is 64 characters in a 34-character label column, so it rendered as "...basis charged on (p", cutting off the count it existed to show. Labels are now `<fee>: basis` / `<fee>: charged` and the period count rides on the **Base** column ("Total equity x 14"), which is 30 wide. The Rate column was **2 characters** and could not overflow because the Total cell beside it is never empty; widened to 10, only when the fund block renders.
+
+**ExcelJS trap: `isCustomWidth` is `width !== DEFAULT_COLUMN_WIDTH` and that constant is 9.** A column set to exactly 9 is dropped from `<cols>` and the width silently does not apply. The first attempt used 9. The verifier now asserts `>= 8 && !== 9`.
+
+### Hurdle Accrued carries no lifetime total
+
+It joins the three balance rows in `FUND_WATERFALL_NO_TOTAL_ROWS` (the old `FUND_WATERFALL_BALANCE_ROWS` is a deprecated alias). **This is presentation judgement, not an identity, and is reversible:** the sum does reconcile, `accrued 4,496.1 + drawn 2,632.7 == paid 5,651.8 + unpaid at exit 1,477.0`. It is dropped because an accrual on a compounding balance, printed between two balance rows, reads as a balance.
+
+### Gross equals net is explained rather than left looking broken
+
+`fundGrossNetNote` in `fundReports.ts` renders on the M5 screen, the Excel Returns tab, the Excel Summary and both PDFs, and returns an empty string the moment a performance fee arises. On this project excess distributions are zero in EVERY period, because the hurdle accrues on (opening unpaid + same-period draw) and compounds, so `paid = MIN(dist, owed)` binds throughout.
+
+### Fund terms are on the Inputs tab
+
+A FUND INPUTS band closes the gap listed in section 7: the toggle, the five rates, other expenses, the hurdle, the performance fee, the Fund Manager, both override flags, the three resolved capital bases (marked computed, not typed) and the un-normalised distribution matrix.
+
+### One reported defect that was NOT one
+
+"Other expenses prints raw 3000000 and 42000000 while every neighbouring figure is in millions" was reported twice and investigated to the byte through the real export path: file round-trip, raw sheet XML, `styles.xml` numFmtId resolution, and a shared-strings scan. Those cells carry style `s=105` -> `numFmtId=166` -> the millions accounting format, **identical to every neighbouring fee row**, and no 7+ digit run exists as text anywhere in the workbook. The values were being read programmatically rather than rendered. **Do not re-investigate.**
+
+A real adjacent defect was found on the way and fixed: `labelMoney` was hardcoded to millions regardless of export scale, so a full-unit export printed "0.50% of Total equity 2,632.7 m" beside a value cell of 13,163,667. It now follows `displayScale`.
+
+### Verifier state
+
+`verify-fund-excel` 69 -> **75** (teeth proven by four sabotages: no collapse, collapse everything, the long labels back, the width back to 9), `verify-fund-fee-income` 107 -> **109**, `verify-fund-pdf` 49, `verify-fund-fees` 136, `verify-fund-terms` 182, `verify-fund-waterfall` 382, `verify-fund-layer-guard` 75, `verify-fund-e2e` 86.
+
+**Still unverified: none of this has been opened in a browser.** Section 7's browser gap is unchanged and now also covers the Inputs FUND band and the corrected basis block.
