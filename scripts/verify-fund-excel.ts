@@ -168,7 +168,10 @@ async function main(): Promise<void> {
   const pl = wbOn.getWorksheet('P&L')!;
   const feeLines = snapOn.fundFees.lines;
   check('P&L carries one row per fund fee, in the registry order', (() => {
-    const rows = allLabels(pl).filter((x) => feeLines.some((l) => x.label.startsWith(l.label)) && !/basis charged on|fee charged/.test(x.label));
+    // Excludes the Fund Fee Basis block, whose rows also start with a fee name.
+    // Its labels were shortened to "<fee>: basis" / "<fee>: charged" on
+    // 2026-08-11 so they stop being truncated by the 34-wide label column.
+    const rows = allLabels(pl).filter((x) => feeLines.some((l) => x.label.startsWith(l.label)) && !/: (basis|charged)$/.test(x.label));
     if (rows.length !== feeLines.length) return false;
     return rows.every((x, i) => x.label.startsWith(feeLines[i].label)) && rows.every((x, i) => i === 0 || x.row > rows[i - 1].row);
   })(), `expected ${feeLines.length}`);
@@ -224,29 +227,85 @@ async function main(): Promise<void> {
       const first = charged[0]?.v ?? 0;
       const constant = charged.length > 0 && charged.every((x) => Math.abs(x.v - first) < 1e-6);
       const perPeriod = constant && charged.length > 1;
-      const label = perPeriod
-        ? `${line.label}: basis charged on (per period, ${charged.length} periods)`
-        : `${line.label}: basis charged on`;
-      const R = rowOf(pl, label);
+      // A FLAT AMOUNT collapses to ONE row (its basis and its charge are the
+      // same quantity), so it has a "charged" row and no "basis" row. Every
+      // rate-based fee keeps the pair.
+      const flat = line.base === 'flat_amount';
+      const R = rowOf(pl, flat ? `${line.label}: charged` : `${line.label}: basis`);
       if (R < 0) return false;
-      if (!String(pl.getCell(R, META_B).value ?? '').trim()) return false;
+      if (flat && rowOf(pl, `${line.label}: basis`) >= 0) return false;
+      // The Base cell carries the period count on an annual fee, because the
+      // label column is 34 characters and putting it there truncated it away.
+      const baseCell = String(pl.getCell(R, META_B).value ?? '').trim();
+      if (!baseCell) return false;
+      if (perPeriod !== / x \d+$/.test(baseCell)) return false;
       if (!String(pl.getCell(R, META_C).value ?? '').trim()) return false;
-      const want = constant ? first : sum(line.basisPerPeriod);
+      // The collapsed row carries the CHARGE; a paired basis row carries the base.
+      const want = flat ? line.total : (constant ? first : sum(line.basisPerPeriod));
       if (!near(numAt(pl, R, TOTAL), want)) return false;
     }
     return true;
+  })());
+  // The collapse is the point, so assert it directly rather than leaving it
+  // implicit in the loop above.
+  check('P&L: a flat-amount fee is ONE row, not a tautological basis + charge pair', (() => {
+    const flats = feeLines.filter((l) => l.base === 'flat_amount');
+    if (flats.length === 0) return false; // the fixture must exercise this
+    return flats.every((l) => {
+      const rCharged = rowOf(pl, `${l.label}: charged`);
+      return rowOf(pl, `${l.label}: basis`) < 0
+        && rCharged > 0
+        && near(numAt(pl, rCharged, TOTAL), l.total)
+        && String(pl.getCell(rCharged, META_C).value ?? '') === '-';
+    });
+  })());
+  check('P&L: a RATE-based fee still carries both rows, so the collapse is targeted', (() => {
+    const rated = feeLines.filter((l) => l.base !== 'flat_amount');
+    return rated.length > 0 && rated.every((l) => rowOf(pl, `${l.label}: basis`) > 0 && rowOf(pl, `${l.label}: charged`) > 0);
   })());
   // Teeth: an ANNUAL fee must NOT show the lifetime sum. Without this the check
   // above would still pass if the builder reverted, because a one-time fee's
   // constant and its sum are the same number.
   check('P&L: an annual fee shows the per-period base, NOT the sum over the life', (() => {
-    const annual = feeLines.filter((l) => l.timing === 'annual' && l.basisPerPeriod.filter((v) => v !== 0).length > 1);
+    // Rate-based only: a flat amount has no basis row to check, by design.
+    const annual = feeLines.filter((l) => l.timing === 'annual' && l.base !== 'flat_amount'
+      && l.basisPerPeriod.filter((v) => v !== 0).length > 1);
     if (annual.length === 0) return false; // the fixture must exercise this
     return annual.every((line) => {
       const n = line.basisPerPeriod.filter((v) => v !== 0).length;
-      const R = rowOf(pl, `${line.label}: basis charged on (per period, ${n} periods)`);
-      return R > 0 && !near(numAt(pl, R, TOTAL), sum(line.basisPerPeriod));
+      const R = rowOf(pl, `${line.label}: basis`);
+      return R > 0
+        && !near(numAt(pl, R, TOTAL), sum(line.basisPerPeriod))
+        && String(pl.getCell(R, META_B).value ?? '').endsWith(` x ${n}`);
     });
+  })());
+  // The Rate column has to be wide enough to show a rate. It was 2 characters
+  // and could not overflow, because the Total column beside it always has a
+  // value. NOT 9: ExcelJS's isCustomWidth getter is `width !== 9`, so a column
+  // set to exactly the default width is dropped from <cols> and the setting
+  // silently does nothing. That is why this asserts a real number rather than
+  // just "wider than 2".
+  check('P&L: the Rate column is wide enough to read, and not the ExcelJS default', (() => {
+    const w = pl.getColumn(META_C).width;
+    return typeof w === 'number' && w >= 8 && w !== 9;
+  })(), `width=${pl.getColumn(META_C).width}`);
+  check('Returns: the Rate column is wide enough to read, and not the ExcelJS default', (() => {
+    const w = wbOn.getWorksheet('Returns')!.getColumn(META_C).width;
+    return typeof w === 'number' && w >= 8 && w !== 9;
+  })(), `width=${wbOn.getWorksheet('Returns')!.getColumn(META_C).width}`);
+  // Every label in the basis block has to FIT the label column, or the detail
+  // it carries is not readable. This is the check that would have caught
+  // "Custody and admin fee: basis charged on (per period, 14 periods)".
+  check('P&L: every fund basis label fits the label column', (() => {
+    const width = pl.getColumn(1).width ?? 0;
+    const bad: string[] = [];
+    pl.eachRow((row) => {
+      const a = String(row.getCell(1).value ?? '');
+      if (!/^(.+): (basis|charged)$/.test(a)) return;
+      const indent = (row.getCell(1).alignment as any)?.indent ?? 0;
+      if (a.length + indent * 2 > width) bad.push(`${a} (${a.length})`);
+    });
+    return width > 0 && bad.length === 0;
   })());
   check('P&L: the period axis still starts at column F', String(pl.getCell(4, pcol(0)).value ?? '') !== '' && pcol(0) === 6);
 

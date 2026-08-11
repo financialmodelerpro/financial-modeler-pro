@@ -308,6 +308,18 @@ export interface FundFeeBasisRow {
   /** Formatted rate, or a dash for a flat-amount fee that carries no rate. */
   rate: string;
   /**
+   * False for a flat-amount fee, which is a stated cash amount rather than a
+   * rate applied to something.
+   *
+   * That distinction is load-bearing on the Excel blocks, where each fee gets a
+   * "basis" row and a "charged" row. For a flat amount those two are the SAME
+   * quantity (3.0m per period charged, on a basis of 3.0m per period), so the
+   * pair is a tautology and the Excel emitters collapse it to one row. The
+   * semantic flag lives here rather than being inferred from `rate === '-'`,
+   * because a display string is not a fact about the fee.
+   */
+  hasRate: boolean;
+  /**
    * The amount the rate was applied to over the life, i.e. the SUM of the
    * per-period bases. `basis x rate == charged` holds on every line because of
    * that, which is what makes a row checkable by eye.
@@ -426,6 +438,7 @@ export function buildFundFeeBasisRows(snap: ProjectFinancialsSnapshot): FundFeeB
       timing: FEE_TIMING_LABELS[line.timing] ?? line.timing,
       base: FEE_BASE_LABELS[line.base] ?? line.base,
       rate: line.base === 'flat_amount' ? '-' : `${(line.rate * 100).toFixed(2)}%`,
+      hasRate: line.base !== 'flat_amount',
       basis,
       basisPerPeriod: constant ? first : null,
       basisDisplay: constant ? first : basis,
@@ -456,6 +469,21 @@ export function fundFeeBasisText(row: FundFeeBasisRow, fmt: (v: number) => strin
 export function fundFeeBasisPeriodSuffix(row: FundFeeBasisRow, join = ' x '): string {
   if (!row.basisIsPerPeriod) return '';
   return join === ' x ' ? ` x ${row.periodsCharged}` : `${join}${row.periodsCharged} periods`;
+}
+
+/**
+ * The BASE cell text: the base name, with the period count appended when the
+ * fee is charged on the same base every period ("Total equity x 14").
+ *
+ * The period count lives here rather than in the row label because Excel's
+ * label column is 34 characters and the fee names are long: "Custody and admin
+ * fee: basis charged on (per period, 14 periods)" is 64 characters and was
+ * being cut to "...basis charged on (p", which hid the very number it was added
+ * to show. The Base column is 30 wide and holds only "Total equity", so the
+ * count is both readable and sitting under the caption that explains it.
+ */
+export function fundFeeBasisBaseCell(row: FundFeeBasisRow): string {
+  return `${row.base}${fundFeeBasisPeriodSuffix(row)}`;
 }
 
 // ── Cash Flow shared Investment / Financing sections ──────────────────────

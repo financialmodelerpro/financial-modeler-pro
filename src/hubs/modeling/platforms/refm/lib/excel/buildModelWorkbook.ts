@@ -22,7 +22,7 @@ import { buildCapexReport, type CapexReport } from '../reports/capexReports';
 import { buildFinancingScheduleTables, buildCashSweepTables, type ReportTable } from '../reports/financingReports';
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildOpexReport } from '../reports/opexReports';
-import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildFundFeeBasisRows, buildFundCapitalRows, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
+import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
 import { buildCaseComparisonReport, type CaseComparisonInput, type CaseComparisonReport, type CaseKpiKind } from '../reports/caseComparisonReport';
 import { buildCaseYoYReport, type CaseYoYReport } from '../reports/caseYoYReport';
 import { formatAssumptionValue } from '../cases/assumptionGrid';
@@ -2754,15 +2754,24 @@ function makeLabelMoney(scale: DisplayScale, decimals: DisplayDecimals): (v: num
   return (v: number): string => `${formatAccounting(v, scale, dp)}${unit}`;
 }
 
-/** The Excel row label for a fee's basis line. An ANNUAL fee charges the same
- *  base in every period, so the Total column carries that CONSTANT and the
- *  label says how many periods it applied to. Excel cannot put "2,632.7 x 14"
- *  in the cell (it must stay a number for the display scale to reach it), so
- *  the period count lives here. */
+/**
+ * Excel row labels for a fee's basis and charge lines.
+ *
+ * KEPT SHORT DELIBERATELY. The label column is 34 characters wide and the fee
+ * names run to 21 ("Custody and admin fee"), so anything descriptive appended
+ * here is cut off: "...: basis charged on (per period, 14 periods)" came to 64
+ * characters and rendered as "...basis charged on (p", hiding the period count
+ * it existed to show. The period count moved to the Base column instead (see
+ * fundFeeBasisBaseCell), which is 30 wide and nearly empty.
+ *
+ * Longest results: "Custody and admin fee: basis" (28) and
+ * "Custody and admin fee: charged" (30), both inside 34 with the indent.
+ */
 function fundFeeBasisLabel(b: FundFeeBasisRow): string {
-  return b.basisIsPerPeriod
-    ? `${b.label}: basis charged on (per period, ${b.periodsCharged} periods)`
-    : `${b.label}: basis charged on`;
+  return `${b.label}: basis`;
+}
+function fundFeeChargedLabel(b: FundFeeBasisRow): string {
+  return `${b.label}: charged`;
 }
 
 // ── Schedules (Module 4 schedules consolidated: Fixed Assets, IDC, Working Cap) ─
@@ -2857,6 +2866,15 @@ function addProfitLoss(ctx: EmitCtx): void {
     for (const c of buildFundCapitalRows(snap)) {
       E.moneyRow(c.isTotal ? `= ${c.label}` : c.label, undefined, { style: c.isTotal ? 'subtotal' : 'plain', totalValue: c.amount });
     }
+    // The Rate column was 2 characters wide, so "0.50%" rendered as a sliver
+    // and could not overflow (the Total column beside it is never empty). Only
+    // widened when the fund block actually renders, so a standalone project
+    // keeps its existing geometry.
+    //
+    // NOT 9. ExcelJS treats 9 as DEFAULT_COLUMN_WIDTH and its isCustomWidth
+    // getter is `width !== 9`, so a column set to exactly 9 is dropped from
+    // <cols> entirely and the width silently does not apply.
+    ws.getColumn(META_C).width = Math.max(ws.getColumn(META_C).width ?? 0, 10);
     setBasis(ws.getCell(E.cursor(), META_B), 'Base');
     setBasis(ws.getCell(E.cursor(), META_C), 'Rate');
     E.moneyRow('What each fee is charged on', undefined, { style: 'subtotal', noTotal: true });
@@ -2865,15 +2883,26 @@ function addProfitLoss(ctx: EmitCtx): void {
       const line = snap.fundFees.lines[i];
       // A base is a STOCK, so the Total column carries the per-period CONSTANT
       // on an annual fee, not the sum of fourteen copies of it (which printed
-      // 36,858.3m against a 5,466.8m fund and read as a fault). The period count
-      // goes in the LABEL: the basis cell must stay a plain number so the
-      // workbook display scale reaches it, which rules out "2,632.7 x 14" text.
+      // 36,858.3m against a 5,466.8m fund and read as a fault). The basis cell
+      // must stay a plain NUMBER for the workbook display scale to reach it,
+      // which rules out "2,632.7 x 14" text, so the period count rides on the
+      // Base column instead ("Total equity x 14").
+      // A FLAT AMOUNT IS ONE ROW. Its basis and its charge are the same
+      // quantity (3.0m per period charged on a basis of 3.0m per period), so
+      // the pair says the same thing twice. The single row carries the CHARGE,
+      // which is the figure that matters, with the base and period count beside
+      // it. Rate-based fees keep the pair, where basis and charge differ.
+      if (!b.hasRate) {
+        const rFlat = E.moneyRow(fundFeeChargedLabel(b), line?.amountPerPeriod, { indent: 1 });
+        setBasis(ws.getCell(rFlat, META_B), fundFeeBasisBaseCell(b));
+        setBasis(ws.getCell(rFlat, META_C), b.rate);
+        continue;
+      }
       const rBasis = E.moneyRow(fundFeeBasisLabel(b), line?.basisPerPeriod, { indent: 1, totalValue: b.basisDisplay });
-      setBasis(ws.getCell(rBasis, META_B), b.base);
+      setBasis(ws.getCell(rBasis, META_B), fundFeeBasisBaseCell(b));
       setBasis(ws.getCell(rBasis, META_C), b.rate);
-      const rFee = E.moneyRow(`${b.label}: fee charged`, line?.amountPerPeriod, { indent: 2 });
+      const rFee = E.moneyRow(fundFeeChargedLabel(b), line?.amountPerPeriod, { indent: 2 });
       setBasis(ws.getCell(rFee, META_B), b.timing);
-      setBasis(ws.getCell(rFee, META_C), b.note ? 'see note' : '');
     }
     E.moneyRow('Total Fund Management Fee', snap.fundFees.totalPerPeriod, { style: 'total' });
   }
@@ -3342,16 +3371,26 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
           ws.getCell(rc, TOTAL_COL).value = c.amount;
           if (c.isTotal) for (let cc = 1; cc <= lastActiveCol(N); cc++) ws.getCell(rc, cc).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
         }
+        // Not 9: ExcelJS drops a column whose width equals DEFAULT_COLUMN_WIDTH.
+        ws.getColumn(META_C).width = Math.max(ws.getColumn(META_C).width ?? 0, 10);
         for (let i = 0; i < basis.length; i++) {
           const b = basis[i], line = snap.fundFees.lines[i];
           // Same stock-not-flow rule as the P&L block: the Total column holds
-          // the per-period CONSTANT on an annual fee and the label carries the
-          // period count. See fundFeeBasisLabel.
+          // the per-period CONSTANT on an annual fee, and the period count sits
+          // on the Base column because the label column is too narrow for it.
+          // A flat amount is ONE row: its basis and its charge are the same
+          // quantity. See the P&L block for the reasoning.
+          if (!b.hasRate) {
+            const rFlat = r; moneyRow(fundFeeChargedLabel(b), line?.amountPerPeriod, { indent: 1 });
+            setBasis(ws.getCell(rFlat, META_B), fundFeeBasisBaseCell(b));
+            setBasis(ws.getCell(rFlat, META_C), b.rate);
+            continue;
+          }
           const rB = r; moneyRow(fundFeeBasisLabel(b), line?.basisPerPeriod, { indent: 1 });
           ws.getCell(rB, TOTAL_COL).value = b.basisDisplay;
-          setBasis(ws.getCell(rB, META_B), b.base);
+          setBasis(ws.getCell(rB, META_B), fundFeeBasisBaseCell(b));
           setBasis(ws.getCell(rB, META_C), b.rate);
-          const rF = r; moneyRow(`${b.label}: fee charged`, line?.amountPerPeriod, { indent: 2 });
+          const rF = r; moneyRow(fundFeeChargedLabel(b), line?.amountPerPeriod, { indent: 2 });
           setBasis(ws.getCell(rF, META_B), b.timing);
         }
         r += 1;
