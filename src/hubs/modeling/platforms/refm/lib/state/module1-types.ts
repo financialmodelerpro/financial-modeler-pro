@@ -1176,6 +1176,31 @@ export interface Asset {
   isCompanion?: boolean;
   companionType?: 'operate';
   unitsFromParent?: number;
+  /**
+   * 2026-08-11: per-strategy assumption sets that are NOT currently active.
+   *
+   * Changing an asset's strategy parks the outgoing strategy's sub-units, opex
+   * and (for Sell + Manage) its whole companion asset here, and restores the
+   * incoming strategy's from here, so a user can build the model once and then
+   * test strategies on the same asset without losing anything. Leaving
+   * Sell + Manage used to hard-delete the companion outright.
+   *
+   * Deliberately OFF TO ONE SIDE rather than a flag on the live rows:
+   * `state.subUnits` / `costLines` / `costOverrides` keep containing only the
+   * ACTIVE strategy's rows, exactly as before, so no engine or UI reader has to
+   * learn to filter. See lib/state/strategySwitch.ts.
+   *
+   * Additive and optional: a snapshot written before this existed has none, and
+   * behaves exactly as it did.
+   */
+  retainedByStrategy?: Partial<Record<AssetStrategy, import('./strategySwitch').RetainedStrategyAssumptions>>;
+  /**
+   * The last strategy change on this asset, kept until the user dismisses it.
+   * Drives the review banner: which assumptions activated, which were retained,
+   * and which are still empty. Cleared on dismissal, not on navigation, so it
+   * cannot be clicked past by accident.
+   */
+  strategyReview?: import('./strategySwitch').StrategySwitchReport & { changedAt: string };
   // M2 Pass 2 (2026-05-16): per-asset revenue configuration. Strategy-
   // specific sub-config (sell / operate / lease / sellManage) is added
   // incrementally; each is optional. Schema additive: undefined ==

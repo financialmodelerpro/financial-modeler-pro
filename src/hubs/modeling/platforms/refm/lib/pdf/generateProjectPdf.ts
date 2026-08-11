@@ -31,6 +31,7 @@ import { resolveFundTerms } from '../fundTerms';
 import {
   isFundActive, hasFundFeeIncome, buildFundWaterfallRows, buildFundFeeIncomeRows,
   buildFundGrossNetRows, buildFundEarnerRows, buildFundHeadlineCards, buildFundTermsPairs,
+  fundGrossNetNote,
   FUND_GROSS_NET_COLUMNS, FUND_EARNER_COLUMNS, type FundReportCtx, type FundFmt,
 } from '../reports/fundReports';
 import INTER_REGULAR_B64 from './fonts/interRegular';
@@ -43,7 +44,7 @@ import {
 } from '../financials-resolvers';
 import { computeReturnsSnapshot, type ReturnsSnapshot } from '../returns-resolvers';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
-import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsFeederTables, buildBsReconciliationRows, buildFundFeeBasisRows, buildFundCapitalRows, type M4FeederCtx } from '../reports/m4Reports';
+import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsFeederTables, buildBsReconciliationRows, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisText, type M4FeederCtx } from '../reports/m4Reports';
 import { buildOpexReport } from '../reports/opexReports';
 import { buildCapexReport } from '../reports/capexReports';
 import { buildFinancingScheduleTables, buildCashSweepTables } from '../reports/financingReports';
@@ -573,7 +574,9 @@ function fundFmtFrom(fmt: Fmt): FundFmt {
   };
 }
 
-interface FundBlockPiece { title: string; table: PdfTable | null; cards: PdfCard[] | null }
+/** One piece of the PDF fund block. Exactly one of `table` / `cards` / `note`
+ *  is set; `note` is a short explanatory paragraph (see fundGrossNetNote). */
+interface FundBlockPiece { title: string; table: PdfTable | null; cards: PdfCard[] | null; note?: string }
 
 function buildFundBlock(
   snap: ProjectFinancialsSnapshot,
@@ -602,6 +605,12 @@ function buildFundBlock(
       rows: buildFundGrossNetRows(ctx).map((g) => row(g.cells, g.emphasis)),
     },
   });
+  // Why the two rows are identical, when they are. Empty (and skipped) as soon
+  // as a performance fee arises, so a cleared hurdle carries no stray note.
+  {
+    const note = fundGrossNetNote(ctx);
+    if (note) out.push({ title: 'Gross vs Net', table: null, cards: null, note });
+  }
   // The waterfall is a stream-basis period table: index 0 is the inception
   // period, which is why it uses the stream year labels and not the axis ones.
   out.push({
@@ -627,7 +636,10 @@ function buildFundBlock(
           rows: [
           // The three capital bases first: equity + debt = fund size.
           ...buildFundCapitalRows(snap).map((c) => row([c.isTotal ? `= ${c.label}` : c.label, '', 'capital base', '', fmt.money(c.amount), ''], c.isTotal ? 'subtotal' : undefined)),
-          ...basis.map((b) => row([b.label, b.timing, b.base, b.rate, fmt.money(b.basis), fmt.money(b.charged)])),
+          // Basis via the shared text helper: a constant base prints as the
+          // CONSTANT plus its period count, never as a lifetime sum (which read
+          // 36,858.3m against a 5,466.8m fund).
+          ...basis.map((b) => row([b.label, b.timing, b.base, b.rate, fundFeeBasisText(b, fmt.money), fmt.money(b.charged)])),
         ],
         },
       });
@@ -1305,7 +1317,10 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
         rows: [
           // The three capital bases first: equity + debt = fund size.
           ...buildFundCapitalRows(snap).map((c) => row([c.isTotal ? `= ${c.label}` : c.label, '', 'capital base', '', fmt.money(c.amount), ''], c.isTotal ? 'subtotal' : undefined)),
-          ...basis.map((b) => row([b.label, b.timing, b.base, b.rate, fmt.money(b.basis), fmt.money(b.charged)])),
+          // Basis via the shared text helper: a constant base prints as the
+          // CONSTANT plus its period count, never as a lifetime sum (which read
+          // 36,858.3m against a 5,466.8m fund).
+          ...basis.map((b) => row([b.label, b.timing, b.base, b.rate, fundFeeBasisText(b, fmt.money), fmt.money(b.charged)])),
         ],
       }));
     }
@@ -1495,6 +1510,7 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
   for (const piece of buildFundBlock(snap, returns, state, fmt, py)) {
     if (piece.cards) items.push(tCards('Tab 5: Fund Layer', 'outputs', piece.title, piece.cards));
     else if (piece.table) items.push(tTable('Tab 5: Fund Layer', 'outputs', piece.table));
+    else if (piece.note) items.push(tItem('Tab 5: Fund Layer', 'outputs', { type: 'paragraph', text: piece.note }));
   }
 
   return items;
@@ -2200,6 +2216,7 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
     for (const piece of fundBlock) {
       if (piece.cards) drawCards(ctx, piece.title, piece.cards);
       else if (piece.table) drawItem(ctx, { type: 'table', table: piece.table }, fmt);
+      else if (piece.note) drawItem(ctx, { type: 'paragraph', text: piece.note }, fmt);
     }
   }
 

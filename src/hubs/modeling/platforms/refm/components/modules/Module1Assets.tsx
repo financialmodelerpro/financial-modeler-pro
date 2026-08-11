@@ -73,6 +73,8 @@ import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
 import InputLabel from '../ui/InputLabel';
 import { CELL_HEADER, TABLE_TITLE } from './_shared/tableStyles';
+import { StrategyChangeConfirm, StrategyReviewBanner } from './_shared/StrategyChangeNotice';
+import { applyStrategySwitch, type StrategySwitchReport } from '../../lib/state/strategySwitch';
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 const inputStyle: React.CSSProperties = {
@@ -1014,11 +1016,12 @@ function AssetCard({
   asset, allAssets, allPhases, parcels, subUnits, project,
   landAllocationMode, onUpdate, onRemove,
 }: AssetCardProps): React.JSX.Element {
-  const { addSubUnit, updateSubUnit, removeSubUnit } = useModule1Store(
+  const { addSubUnit, updateSubUnit, removeSubUnit, dismissStrategyReview } = useModule1Store(
     useShallow((s) => ({
       addSubUnit: s.addSubUnit,
       updateSubUnit: s.updateSubUnit,
       removeSubUnit: s.removeSubUnit,
+      dismissStrategyReview: s.dismissStrategyReview,
     })),
   );
   // P10-Fix 6 (2026-05-12): default-collapsed + localStorage persistence
@@ -1119,6 +1122,24 @@ function AssetCard({
     });
   };
 
+  // ── Strategy change: preview, confirm, then review ─────────────────────────
+  //
+  // The preview is a DRY RUN of the pure `applyStrategySwitch` against the LIVE
+  // store slice, so what the dialog promises is literally what the store will
+  // do. Nothing is written until the user confirms; the store then re-runs the
+  // same function for real.
+  const [pendingSwitch, setPendingSwitch] = useState<StrategySwitchReport | null>(null);
+  const onStrategyPick = (to: AssetStrategy): void => {
+    if (to === asset.strategy) return;
+    const st = useModule1Store.getState();
+    const { report } = applyStrategySwitch(
+      { assets: st.assets, subUnits: st.subUnits, costLines: st.costLines, costOverrides: st.costOverrides },
+      asset.id,
+      to,
+    );
+    setPendingSwitch(report);
+  };
+
   const typeOptions = resolveTypeCatalog(asset, project);
   const status = asset.status ?? 'planned';
 
@@ -1134,6 +1155,21 @@ function AssetCard({
       }}
       data-testid={`asset-card-${asset.id}`}
     >
+      {pendingSwitch && (
+        <StrategyChangeConfirm
+          report={pendingSwitch}
+          onCancel={() => setPendingSwitch(null)}
+          onConfirm={() => { onUpdate({ strategy: pendingSwitch.to }); setPendingSwitch(null); }}
+        />
+      )}
+      {/* Persists across navigation, because the assumptions it points at live
+          on other tabs. Only Dismiss clears it. */}
+      {asset.strategyReview && (
+        <StrategyReviewBanner
+          report={asset.strategyReview}
+          onDismiss={() => dismissStrategyReview(asset.id)}
+        />
+      )}
       {/* Header row */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-2)', cursor: 'pointer' }} onClick={() => setCollapsed(!collapsed)}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1167,11 +1203,15 @@ function AssetCard({
             </div>
             <div>
               <InputLabel label="Strategy" help="Sell / Operate / Lease / Sell + Manage. Drives Tab 3 cost classification + future revenue logic." inputId={`asset-${asset.id}-strategy`} />
+              {/* A strategy change is a model operation, so it is previewed and
+                  confirmed rather than written straight through. The preview is
+                  a DRY RUN of the same pure applyStrategySwitch the store
+                  commits, so it cannot describe something else. */}
               <select
                 id={`asset-${asset.id}-strategy`}
                 data-testid={`asset-${asset.id}-strategy`}
                 value={asset.strategy}
-                onChange={(e) => onUpdate({ strategy: e.target.value as AssetStrategy })}
+                onChange={(e) => onStrategyPick(e.target.value as AssetStrategy)}
                 style={inputStyle}
                 title={STRATEGY_TOOLTIPS[asset.strategy]}
               >

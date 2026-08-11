@@ -316,6 +316,10 @@ export interface FundFeeBasisRow {
    * `basisPerPeriod` below rather than as a single point in time. That
    * distinction is the whole reason a NAV-based fee used to read about seven
    * times the fund size: it was a balance summed over fourteen years.
+   *
+   * DO NOT RENDER THIS DIRECTLY. Use `basisDisplay` + `basisIsPerPeriod`; this
+   * field exists so the identity above stays checkable, not so it can be put
+   * in a Total column.
    */
   basis: number;
   /**
@@ -325,6 +329,33 @@ export interface FundFeeBasisRow {
    * show. This is the number that reconciles against the fund size.
    */
   basisPerPeriod: number | null;
+  /**
+   * The figure a surface should SHOW as the basis, and the reason this pair
+   * exists at all.
+   *
+   * A base is a STOCK. On an annual fee the lifetime sum of a constant base is
+   * that base multiplied by the period count, which for the fund management fee
+   * printed 36,858.3m against a fund size of 5,466.8m: seven times the fund and
+   * indistinguishable from a calculation error. So a constant base displays as
+   * the CONSTANT and the surface says how many periods it was charged over,
+   * matching what `fundFeeLineLabel` already puts inline on the statement row
+   * ("0.50% of Total equity 2,632.7 m, 14 periods").
+   *
+   * When the base genuinely moves period to period there is no single figure,
+   * so this falls back to the lifetime sum and `basisIsPerPeriod` is false.
+   *
+   * Encoded here rather than documented, because the P&L block, the Returns
+   * block, the M5 screen and both PDFs each render this and all five had the
+   * same defect independently.
+   */
+  basisDisplay: number;
+  /**
+   * True when `basisDisplay` is a per-period constant charged over more than
+   * one period, so a surface renders it as "2,632.7 x 14" rather than as a
+   * lifetime figure. False for a one-time fee (whose constant IS its lifetime
+   * basis, so "x 1" would be noise) and for a base that moves.
+   */
+  basisIsPerPeriod: boolean;
   /** How many periods actually carried a charge. 1 for a one-time fee. */
   periodsCharged: number;
   /** The fee charged over the life. */
@@ -397,11 +428,34 @@ export function buildFundFeeBasisRows(snap: ProjectFinancialsSnapshot): FundFeeB
       rate: line.base === 'flat_amount' ? '-' : `${(line.rate * 100).toFixed(2)}%`,
       basis,
       basisPerPeriod: constant ? first : null,
+      basisDisplay: constant ? first : basis,
+      basisIsPerPeriod: constant && charged.length > 1,
       periodsCharged: charged.length,
       charged: line.total,
       note,
     };
   });
+}
+
+/**
+ * The basis cell as TEXT: the constant plus how many periods it was charged
+ * over ("2,632.7 x 14"), or the lifetime sum when the base genuinely moves.
+ *
+ * ONE definition, consumed by the M5 screen table and both PDFs, so the three
+ * cannot disagree about how a stock is presented. Excel cannot use it (its
+ * basis cell must stay a NUMBER so the workbook display scale reaches it), and
+ * says the period count in the row label instead; `fundFeeBasisPeriodSuffix`
+ * below is the shared piece the two approaches have in common.
+ */
+export function fundFeeBasisText(row: FundFeeBasisRow, fmt: (v: number) => string): string {
+  return `${fmt(row.basisDisplay)}${fundFeeBasisPeriodSuffix(row, ' x ')}`;
+}
+
+/** " x 14" for a per-period constant base, empty otherwise. `join` lets a
+ *  caller ask for " over 14 periods" instead where there is room for it. */
+export function fundFeeBasisPeriodSuffix(row: FundFeeBasisRow, join = ' x '): string {
+  if (!row.basisIsPerPeriod) return '';
+  return join === ' x ' ? ` x ${row.periodsCharged}` : `${join}${row.periodsCharged} periods`;
 }
 
 // ── Cash Flow shared Investment / Financing sections ──────────────────────

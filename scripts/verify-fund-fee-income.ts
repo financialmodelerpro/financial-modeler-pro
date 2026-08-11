@@ -41,7 +41,7 @@ import type { FeeEarnersSnapshot } from '../src/core/calculations/returns';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/returns-resolvers';
 import { resolveFeeEarners, resolveFundTerms, FUND_MANAGER_ROW_ID } from '../src/hubs/modeling/platforms/refm/lib/fundTerms';
-import { FUND_WATERFALL_ROW_ORDER, FUND_WATERFALL_BALANCE_ROWS } from '../src/hubs/modeling/platforms/refm/lib/reports/fundReports';
+import { FUND_WATERFALL_ROW_ORDER, FUND_WATERFALL_NO_TOTAL_ROWS, buildFundWaterfallRows } from '../src/hubs/modeling/platforms/refm/lib/reports/fundReports';
 import {
   makeDefaultPhase, makeDefaultProject, makeDefaultCostLines, makeDefaultFinancingTranche,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
@@ -427,9 +427,26 @@ console.log('\n=== 7. The M5 surface (SOURCE LEVEL ONLY, see the header) ===');
     builtLabels.join('|') === REFERENCE_ROWS.join('|'), builtLabels.join('|'));
   check('the gross-vs-net comparison is labelled as such',
     ui.includes('Excluding fund fees (gross)') || /buildFundGrossNetRows/.test(ui));
-  check('balance rows are rendered without a lifetime total',
-    FUND_WATERFALL_BALANCE_ROWS.length === 3
-    && FUND_WATERFALL_BALANCE_ROWS.every((l) => REFERENCE_ROWS.includes(l)));
+  // Four rows carry no lifetime total as of 2026-08-11: the three balances,
+  // plus Hurdle Accrued (an accrual on a compounding balance, printed between
+  // two balance rows). Asserted against the BUILDER's own list so the rule has
+  // one definition, and pinned at four so a row cannot quietly drop out.
+  check('balance rows and Hurdle Accrued are rendered without a lifetime total',
+    FUND_WATERFALL_NO_TOTAL_ROWS.length === 4
+    && FUND_WATERFALL_NO_TOTAL_ROWS.includes('Hurdle Accrued')
+    && FUND_WATERFALL_NO_TOTAL_ROWS.every((l) => REFERENCE_ROWS.includes(l)));
+  // Teeth: the rule must be encoded in the BUILDER OUTPUT, not just in a list a
+  // renderer might ignore. Without this the check above passes on a constant.
+  check('the shared builder actually emits those four rows with an empty total',
+    (() => {
+      const { fin, ret } = runSnap(fundTerms(true, []));
+      const rows = buildFundWaterfallRows({
+        snap: fin, returns: ret,
+        fmt: { money: (v) => String(v), pct: (v) => String(v ?? ''), mult: (v) => String(v ?? '') },
+      });
+      const blank = rows.filter((r) => r.totalOverride === '').map((r) => r.label);
+      return blank.length === 4 && FUND_WATERFALL_NO_TOTAL_ROWS.every((l) => blank.includes(l));
+    })());
   check('the fee income section names the Fund Manager as a distinct kind',
     ui.includes("e.kind === 'fund_manager' ? 'Fund Manager' : 'Project Party'"));
   check('an unallocated performance fee is rendered rather than absorbed',

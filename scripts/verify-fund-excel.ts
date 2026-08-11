@@ -210,15 +210,43 @@ async function main(): Promise<void> {
   // axis at column F does not shift.
   const rBasis = rowOf(pl, 'Fund Fee Basis');
   check('P&L: the Fund Fee Basis block is present', rBasis > 0);
+  // A BASE IS A STOCK (2026-08-11). The Total column used to carry the SUM of
+  // the per-period bases, which on an annual fee is the constant multiplied by
+  // the period count: the fund management fee printed 36,858.3m against a fund
+  // size of 5,466.8m. It now carries the CONSTANT, and the row label says how
+  // many periods it applied to. This asserts BOTH, so the old behaviour cannot
+  // come back and neither can a constant with no period count beside it.
   check('P&L: the basis block states a Base and a Rate for every fee', (() => {
     for (const line of feeLines) {
-      const R = rowOf(pl, `${line.label}: basis charged on`);
+      const charged = line.basisPerPeriod
+        .map((v, i) => ({ v: v ?? 0, i }))
+        .filter((x) => x.v !== 0 || (line.amountPerPeriod[x.i] ?? 0) !== 0);
+      const first = charged[0]?.v ?? 0;
+      const constant = charged.length > 0 && charged.every((x) => Math.abs(x.v - first) < 1e-6);
+      const perPeriod = constant && charged.length > 1;
+      const label = perPeriod
+        ? `${line.label}: basis charged on (per period, ${charged.length} periods)`
+        : `${line.label}: basis charged on`;
+      const R = rowOf(pl, label);
       if (R < 0) return false;
       if (!String(pl.getCell(R, META_B).value ?? '').trim()) return false;
       if (!String(pl.getCell(R, META_C).value ?? '').trim()) return false;
-      if (!near(numAt(pl, R, TOTAL), sum(line.basisPerPeriod))) return false;
+      const want = constant ? first : sum(line.basisPerPeriod);
+      if (!near(numAt(pl, R, TOTAL), want)) return false;
     }
     return true;
+  })());
+  // Teeth: an ANNUAL fee must NOT show the lifetime sum. Without this the check
+  // above would still pass if the builder reverted, because a one-time fee's
+  // constant and its sum are the same number.
+  check('P&L: an annual fee shows the per-period base, NOT the sum over the life', (() => {
+    const annual = feeLines.filter((l) => l.timing === 'annual' && l.basisPerPeriod.filter((v) => v !== 0).length > 1);
+    if (annual.length === 0) return false; // the fixture must exercise this
+    return annual.every((line) => {
+      const n = line.basisPerPeriod.filter((v) => v !== 0).length;
+      const R = rowOf(pl, `${line.label}: basis charged on (per period, ${n} periods)`);
+      return R > 0 && !near(numAt(pl, R, TOTAL), sum(line.basisPerPeriod));
+    });
   })());
   check('P&L: the period axis still starts at column F', String(pl.getCell(4, pcol(0)).value ?? '') !== '' && pcol(0) === 6);
 
@@ -267,13 +295,16 @@ async function main(): Promise<void> {
   check('Returns: all ten waterfall rows are present', wfRows.every((R) => R > 0), REFERENCE_ORDER.filter((_l, i) => wfRows[i] < 0).join(', '));
   check('Returns: they appear in the REFERENCE order, contiguously',
     wfRows.every((R, i) => i === 0 || R === wfRows[i - 1] + 1), wfRows.join(','));
-  // Balances do not sum. Three rows must carry no lifetime total.
-  const BALANCES = ['Unpaid Hurdle Balance BoP', 'Total Hurdle Owed', 'Unpaid Hurdle Balance EoP'];
-  check('Returns: the three BALANCE rows carry no lifetime total',
-    BALANCES.every((l) => isBlank(ret, rowOf(ret, l), TOTAL)),
-    BALANCES.filter((l) => !isBlank(ret, rowOf(ret, l), TOTAL)).join(', '));
+  // FOUR rows carry no lifetime total. Three are balances (a balance summed
+  // across periods has no meaning). The fourth, Hurdle Accrued, was added
+  // 2026-08-11: it is an accrual charged on that compounding balance, printed
+  // between two balance rows, so a lifetime figure there reads as a balance.
+  const NO_TOTAL = ['Unpaid Hurdle Balance BoP', 'Hurdle Accrued', 'Total Hurdle Owed', 'Unpaid Hurdle Balance EoP'];
+  check('Returns: the BALANCE rows and Hurdle Accrued carry no lifetime total',
+    NO_TOTAL.every((l) => isBlank(ret, rowOf(ret, l), TOTAL)),
+    NO_TOTAL.filter((l) => !isBlank(ret, rowOf(ret, l), TOTAL)).join(', '));
   check('Returns: the FLOW rows do carry a lifetime total',
-    REFERENCE_ORDER.filter((l) => !BALANCES.includes(l)).every((l) => Number.isFinite(totalAt(ret, l))));
+    REFERENCE_ORDER.filter((l) => !NO_TOTAL.includes(l)).every((l) => Number.isFinite(totalAt(ret, l))));
   // Every row against the engine, per period and in total.
   const tie = (label: string, series: number[], total?: number): void => {
     const got = streamAt(ret, label, N);
@@ -284,7 +315,7 @@ async function main(): Promise<void> {
   };
   tie('Equity Drawn', w.equityDrawnPerPeriod, w.totalEquityDrawn);
   tie('Unpaid Hurdle Balance BoP', w.periods.map((p) => p.openingUnpaidHurdle));
-  tie('Hurdle Accrued', w.hurdleAccruedPerPeriod, w.totalHurdleAccrued);
+  tie('Hurdle Accrued', w.hurdleAccruedPerPeriod); // no lifetime total, see NO_TOTAL above
   tie('Total Hurdle Owed', w.totalHurdleOwedPerPeriod);
   tie('Hurdle Paid', w.hurdlePaidPerPeriod, w.totalHurdlePaid);
   tie('Unpaid Hurdle Balance EoP', w.unpaidHurdlePerPeriod);

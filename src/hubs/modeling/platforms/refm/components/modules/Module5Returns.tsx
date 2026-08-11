@@ -22,7 +22,7 @@ import { makeFmt } from './_shared/numberFmt';
 import { M4PeriodTable, type M4Row } from './_shared/m4Table';
 import { FundFeeBasisTable } from './_shared/FundFeeBasisTable';
 import { buildFundFeeBasisRows, buildFundCapitalRows } from '../../lib/reports/m4Reports';
-import { buildFundWaterfallRows, buildFundFeeIncomeRows, type FundReportCtx } from '../../lib/reports/fundReports';
+import { buildFundWaterfallRows, buildFundFeeIncomeRows, fundGrossNetNote, type FundReportCtx } from '../../lib/reports/fundReports';
 import { MetricCard, MetricGrid, AssumptionsPanel, fmtPct, fmtX, type AssumptionsValue } from './Module5Shared';
 import { FAST_INPUT } from './_shared/inputStyles';
 import type { ProjectPartner } from '../../lib/state/module1-types';
@@ -397,6 +397,7 @@ function FundWaterfallSection(props: {
   // the Excel workbook, the full PDF and the summary PDF render, so the row
   // order and the no-total-on-balances rule have exactly one definition.
   const rows: M4Row[] = buildFundWaterfallRows(props.reportCtx);
+  const grossNetNote = fundGrossNetNote(props.reportCtx);
 
   const th: React.CSSProperties = { textAlign: 'right', padding: '6px 10px' };
   const td: React.CSSProperties = { textAlign: 'right', padding: '6px 10px' };
@@ -462,9 +463,20 @@ function FundWaterfallSection(props: {
         </table>
       </div>
 
+      {/* Why the two rows above are identical, when they are. Two matching
+          "gross" and "net" rows otherwise read as a copied row rather than as a
+          hurdle that was never cleared. Empty as soon as a fee arises, from the
+          SAME shared helper the workbook and both PDFs use. */}
+      {grossNetNote && (
+        <div data-testid="m5-fund-gross-net-note"
+             style={{ fontSize: 11, color: 'var(--color-meta)', fontStyle: 'italic', marginBottom: 'var(--sp-2)' }}>
+          {grossNetNote}
+        </div>
+      )}
+
       <M4PeriodTable
         title={`Distribution Waterfall (hold to ${props.exitYearLabel})`}
-        caption="Each line feeds the next, in the order shown. Balance lines (BoP, Total Hurdle Owed, EoP) carry no lifetime total, because a balance summed across periods has no meaning. The prior column is the inception period. Gross distributions are shown as a memo below the sequence."
+        caption="Each line feeds the next, in the order shown. The three balance lines (BoP, Total Hurdle Owed, EoP) carry no lifetime total, because a balance summed across periods has no meaning, and neither does Hurdle Accrued, which is an accrual charged on that compounding balance. The prior column is the inception period. Gross distributions are shown as a memo below the sequence."
         yearLabels={axisLabels}
         rows={rows}
         currency={currency}

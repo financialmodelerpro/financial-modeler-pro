@@ -36,10 +36,10 @@ import {
   makeDefaultPhase,
   makeDefaultParcel,
   makeDefaultCostLines,
-  makeCompanionAsset,
   makeCompanionSubUnit,
   makeDefaultFinancingTranche,
 } from './module1-types';
+import { applyStrategySwitch } from './strategySwitch';
 import {
   applyOverrides,
   buildOverrides,
@@ -136,6 +136,8 @@ export interface Module1Store {
   addAsset: (asset: Asset) => void;
   updateAsset: (id: string, patch: Partial<Asset>) => void;
   removeAsset: (id: string) => void;
+  /** Clear the review banner raised by the last strategy change on this asset. */
+  dismissStrategyReview: (id: string) => void;
 
   setSubUnits: (subUnits: SubUnit[]) => void;
   addSubUnit: (subUnit: SubUnit) => void;
@@ -579,36 +581,42 @@ export function createModule1Store() {
       }
       const before = s.assets.find((a) => a.id === id);
       const after = next.find((a) => a.id === id);
-      if (!before || !after) return { assets: next };
-      const becomesSellManage = before.strategy !== 'Sell + Manage' && after.strategy === 'Sell + Manage';
-      const leavesSellManage = before.strategy === 'Sell + Manage' && after.strategy !== 'Sell + Manage';
-      if (becomesSellManage) {
-        const existing = s.assets.find((a) => a.parentAssetId === id);
-        if (existing) return { assets: next };
-        const sellableUnits = s.subUnits
-          .filter((u) => u.assetId === id && u.category === 'Sellable')
-          .reduce((sum, u) => sum + Math.max(0, u.metricValue), 0);
-        const companion = makeCompanionAsset(after, sellableUnits);
-        // T2-Fix 5c (2026-05-12): mirror parent Sellable sub-units onto the
-        // new companion so the user immediately sees them with ADR=0.
-        const nextAssets = [...next, companion];
-        const nextSubUnits = syncCompanionSubUnits(nextAssets, s.subUnits);
-        return { assets: nextAssets, subUnits: nextSubUnits };
-      }
-      if (leavesSellManage) {
-        const companionIds = new Set(
-          s.assets.filter((a) => a.parentAssetId === id).map((a) => a.id),
-        );
-        if (companionIds.size === 0) return { assets: next };
-        return {
-          assets: next.filter((a) => !companionIds.has(a.id)),
-          subUnits: s.subUnits.filter((u) => !companionIds.has(u.assetId)),
-          costLines: s.costLines.filter((c) => !c.targetAssetId || !companionIds.has(c.targetAssetId)),
-          costOverrides: s.costOverrides.filter((o) => !companionIds.has(o.assetId)),
-        };
-      }
-      return { assets: next };
+      if (!before || !after || before.strategy === after.strategy) return { assets: next };
+
+      // A STRATEGY CHANGE IS A MODEL OPERATION (2026-08-11), delegated whole to
+      // the pure `applyStrategySwitch`. It parks the outgoing strategy's
+      // sub-units, opex and companion, restores or seeds the incoming ones, and
+      // reports what the user now has to fill in.
+      //
+      // This replaced a cascade that created a default companion on the way in
+      // and DELETED the companion, its sub-units, its cost lines and its cost
+      // overrides on the way out, so Sell + Manage was the one strategy whose
+      // assumptions did not survive a round trip. Every other strategy change
+      // simply left the old sub-units in the wrong category and computed zero.
+      //
+      // `next` already carries the new strategy value; applyStrategySwitch is
+      // handed the ORIGINAL assets so it can read the outgoing strategy off the
+      // asset itself, and it writes the new value as part of the transition.
+      const res = applyStrategySwitch(
+        { assets: s.assets, subUnits: s.subUnits, costLines: s.costLines, costOverrides: s.costOverrides },
+        id,
+        after.strategy,
+      );
+      // Any OTHER field in the same patch (a rename alongside the strategy
+      // change) still has to land, so re-apply the patch on top.
+      const assets = res.assets.map((a) => (a.id === id
+        ? { ...a, ...patch, strategy: after.strategy, retainedByStrategy: a.retainedByStrategy, opex: a.opex, strategyReview: { ...res.report, changedAt: new Date().toISOString() } }
+        : a));
+      // Companion sub-unit mirroring, exactly as before, so a newly seeded
+      // companion shows the parent's Sellable rows with ADR = 0.
+      const subUnits = syncCompanionSubUnits(assets, res.subUnits);
+      return { assets, subUnits, costLines: res.costLines, costOverrides: res.costOverrides };
     }),
+    /** Dismiss the review banner after a strategy change. The banner persists
+     *  across navigation on purpose, so this is the only way it goes away. */
+    dismissStrategyReview: (id) => set((s) => ({
+      assets: s.assets.map((a) => (a.id === id ? { ...a, strategyReview: undefined } : a)),
+    })),
     // P10-Fix 2 (2026-05-12): cascade-delete per-asset cost lines + any
     // child companion assets (Fix 4) when removing the parent. Without
     // this, costLines accumulate orphans (targetAssetId pointing at an

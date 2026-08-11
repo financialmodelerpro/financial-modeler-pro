@@ -22,7 +22,7 @@ import { buildCapexReport, type CapexReport } from '../reports/capexReports';
 import { buildFinancingScheduleTables, buildCashSweepTables, type ReportTable } from '../reports/financingReports';
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildOpexReport } from '../reports/opexReports';
-import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildFundFeeBasisRows, buildFundCapitalRows, type M4ReportCtx } from '../reports/m4Reports';
+import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildFundFeeBasisRows, buildFundCapitalRows, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
 import { buildCaseComparisonReport, type CaseComparisonInput, type CaseComparisonReport, type CaseKpiKind } from '../reports/caseComparisonReport';
 import { buildCaseYoYReport, type CaseYoYReport } from '../reports/caseYoYReport';
 import { formatAssumptionValue } from '../cases/assumptionGrid';
@@ -34,7 +34,7 @@ import { FUNDING_METHOD_LABELS, type FundingMethodId } from '../state/module1-ty
 import { resolveFundTerms } from '../fundTerms';
 import {
   isFundActive, hasFundFeeIncome, buildFundWaterfallRows, buildFundFeeIncomeRows,
-  buildFundGrossNetRows, buildFundEarnerRows, buildFundHeadlineCards,
+  buildFundGrossNetRows, buildFundEarnerRows, buildFundHeadlineCards, fundGrossNetNote,
   FUND_GROSS_NET_COLUMNS, FUND_EARNER_COLUMNS, type FundReportCtx,
 } from '../reports/fundReports';
 import { formatAccounting } from '@/src/core/formatters';
@@ -178,7 +178,7 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   // downstream Revenue / CoS / Opex link registries; P&L / Cash Flow / Balance
   // Sheet / Returns are link-and-assemble presentation tabs. Each emitter
   // returns the row registry the next links to.
-  const ctx: EmitCtx = { wb, snap, state: opts.state, refs, lm, proj, assets: liveAssets, landAddrs, capexAddrs, revBaseFormula, currency: opts.state.project.currency ?? 'SAR', caseComparison: opts.caseComparison };
+  const ctx: EmitCtx = { wb, snap, state: opts.state, refs, lm, proj, assets: liveAssets, landAddrs, capexAddrs, revBaseFormula, currency: opts.state.project.currency ?? 'SAR', labelMoney: makeLabelMoney(opts.displayScale ?? 'full', opts.displayDecimals ?? defaultDecimals(opts.displayScale ?? 'full')), caseComparison: opts.caseComparison };
   const finLinks = addFinancing(ctx);
   const { revLinks } = addRevenue(ctx);
   const opexLinks = addOpex(ctx);
@@ -283,6 +283,10 @@ interface EmitCtx {
   capexAddrs: CapexAddrs;
   revBaseFormula: Map<string, string>;
   currency: string;
+  /** Money as it reads INSIDE a row label, already following the workbook
+   *  display scale (see makeLabelMoney: value cells are rescaled at the end of
+   *  the build, label text is not, so the scale has to travel with the ctx). */
+  labelMoney: (v: number) => string;
   /** Scenario cases (Module 6). Feeds the Scenarios sheet; undefined = no cases. */
   caseComparison?: CaseComparisonInput;
 }
@@ -1016,6 +1020,78 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
     r += 1;
   }
   if (!anyOpex) { setLabel(ws.getCell(`A${r}`), 'No per-line opex configured; operating costs are driven by the operating margins in the Sub-units table above.'); r += 2; }
+
+  // ── FUND INPUTS (2026-08-11) ───────────────────────────────────────────────
+  //
+  // The workbook's own rule is that inputs live on this tab, and the fund layer
+  // broke it completely: the toggle, the five rates, the hurdle, the
+  // performance fee, the Fund Manager and the distribution matrix appeared
+  // NOWHERE in the file. A reader could see 359.9m of fees charged on the P&L
+  // with no way to find the rate that produced them.
+  //
+  // Gated on the toggle, so a standalone project is untouched. Every cell is an
+  // INPUT (navy-pale FAST shading) except the two resolved bases, which are
+  // model-derived and are marked as computed so nobody edits them expecting a
+  // recalculation. See docs/FUND_LAYER_GUIDELINE.md on why fund size is
+  // resolved rather than typed.
+  const fundTerms = resolveFundTerms(p);
+  if (fundTerms.enabled) {
+    inputDivider('FUND INPUTS');
+    setSectionHeader(ws.getRow(r), 'Fund terms', 4); r += 1;
+    ['Term', 'Value', 'Unit', 'Note'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : i === 1 ? 'right' : 'left')); r += 1;
+    const termRow = (label: string, value: number | string, numFmt: string, unit: string, note: string): void => {
+      setLabel(ws.getCell(`A${r}`), label);
+      setInput(ws.getCell(`B${r}`), value, numFmt);
+      setLabel(ws.getCell(`C${r}`), unit);
+      setLabel(ws.getCell(`D${r}`), note);
+      r += 1;
+    };
+    termRow('Fund layer enabled', 'Yes', '@', '', 'When off, every fund figure disappears from the model and this band is not written.');
+    termRow('Fund structure fee', fundTerms.fundStructureFeePct, NUMFMT.pct2, 'of fund size', 'One time, charged on the fee-free fund size.');
+    termRow('Fund management fee', fundTerms.fundManagementFeePct, NUMFMT.pct2, 'of total equity pa', 'Annual, charged on total equity in every period.');
+    termRow('Custody and admin fee', fundTerms.custodyAdminFeePct, NUMFMT.pct2, 'of total equity pa', 'Annual, charged on total equity in every period.');
+    termRow('Debt arranging fee', fundTerms.debtArrangingFeePct, NUMFMT.pct2, 'of debt facility', 'One time, charged on debt actually raised, NOT on the facility limit.');
+    termRow('Other expenses', fundTerms.otherExpensesPerAnnum, NUMFMT.money, 'per annum', 'A flat amount each period; no rate applies.');
+    termRow('Hurdle rate (preferred return)', fundTerms.hurdleRatePct, NUMFMT.pct2, 'per annum', 'Accrues on the unpaid hurdle balance plus the same-period equity draw, and compounds.');
+    termRow('Performance fee on the excess', fundTerms.performanceFeePct, NUMFMT.pct2, 'of excess', 'Flat on distributions above the hurdle owed. No catch-up, no residual split.');
+    termRow('Fund Manager', fundTerms.fundManagerName || 'Fund Manager', '@', '', 'Takes 100% of the management fees plus its matrix share of the performance fee.');
+    termRow('Fund size override', fundTerms.fundSizeOverride ? 'Yes' : 'No', '@', '', fundTerms.fundSizeOverride ? `Typed target ${formatAccounting(fundTerms.fundSize, 'millions', 1)} m pins the fund size instead of the model-resolved figure.` : 'Off: fund size is resolved from the model (total equity plus the debt facility).');
+    termRow('Facility limit override', fundTerms.facilityLimitOverride ? 'Yes' : 'No', '@', '', fundTerms.facilityLimitOverride ? `Typed limit ${formatAccounting(fundTerms.facilityLimit, 'millions', 1)} m.` : 'Off: the debt facility is resolved from the model.');
+    r += 1;
+
+    // The three resolved capital bases. COMPUTED, not input: they come from the
+    // fee-free pass and are frozen before the solver, which is what stops the
+    // fees from raising the funding that raises the fees.
+    const capRows = buildFundCapitalRows(snap);
+    if (capRows.length) {
+      setSectionHeader(ws.getRow(r), 'Resolved capital bases (computed from the model, not typed)', 4); r += 1;
+      ['Base', 'Amount', '', 'How it is resolved'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 1 ? 'right' : 'left')); r += 1;
+      for (const c of capRows) {
+        setLabel(ws.getCell(`A${r}`), c.isTotal ? `= ${c.label}` : c.label, { bold: c.isTotal });
+        const vc = ws.getCell(`B${r}`); vc.value = c.amount; vc.numFmt = NUMFMT.money; vc.font = { name: 'Calibri', size: BODY_SIZE, bold: c.isTotal, color: { argb: ARGB.formula } };
+        setLabel(ws.getCell(`D${r}`), c.note);
+        r += 1;
+      }
+      r += 1;
+    }
+
+    // The distribution matrix. Shares are NEVER normalised: a matrix summing to
+    // 80% allocates 80% and the remainder is reported as unallocated, so the
+    // raw entries are what has to be shown here.
+    const matrix = fundTerms.feeDistribution ?? [];
+    if (matrix.length) {
+      setSectionHeader(ws.getRow(r), 'Fee distribution matrix (shares are not normalised)', 4); r += 1;
+      ['Party', 'Commission %', 'Developer fee %', 'Performance fee %'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
+      for (const m of matrix) {
+        setLabel(ws.getCell(`A${r}`), m.partyName || m.partyId);
+        setInput(ws.getCell(`B${r}`), m.commissionPct ?? 0, NUMFMT.pct2);
+        setInput(ws.getCell(`C${r}`), m.developerFeePct ?? 0, NUMFMT.pct2);
+        setInput(ws.getCell(`D${r}`), m.performanceFeePct ?? 0, NUMFMT.pct2);
+        r += 1;
+      }
+      r += 1;
+    }
+  }
 
   ws.views = [{ state: 'frozen', ySplit: 2, showGridLines: false }];
   return {
@@ -2086,7 +2162,10 @@ interface FinLinks {
   cfoRow: number; cfiRow: number; debtOpenRow: number; debtDrawRow: number; principalRow: number; debtCloseRow: number;
   equityCashRow: number; equityInKindRow: number; cffRow: number; netCfRow: number; openCashRow: number; closeCashRow: number;
 }
-interface RetLinks { fcffIrrCell: string; fcfeIrrCell: string }
+/** Cell addresses of the Returns tab's headline IRRs, plus the VALUES behind
+ *  them, so the Checks tab's cached formula results come from the same engine
+ *  the Returns tab printed rather than from a second model. */
+interface RetLinks { fcffIrrCell: string; fcfeIrrCell: string; fcffIrr: number | null; fcfeIrr: number | null }
 
 // ── Revenue (full mirror of the platform Module 2: all 5 sub-tabs in sequence) ─
 // One sheet reproducing every Module 2 surface as a divided section, the same
@@ -2658,10 +2737,33 @@ function m4Labels(state: FinancialsResolverState): ReturnType<typeof getFinancia
   return getFinancialLabels(state.project.financialTerminology ?? defaultTerminologyForCountry(state.project.country));
 }
 
-/** Money as it reads inside a row LABEL (never a value cell): compact millions,
- *  so an inline figure is legible at a glance. Value cells keep full units and
- *  follow the workbook-wide display scale, which does not reach label text. */
-const labelMoney = (v: number): string => `${formatAccounting(v, 'millions', 1)} m`;
+/**
+ * Money as it reads inside a row LABEL (never a value cell).
+ *
+ * FOLLOWS THE WORKBOOK DISPLAY SCALE. It used to be hardcoded to millions,
+ * which was invisible on a millions export and wrong on every other one: a
+ * full-unit export printed "Fund management fee (0.50% of Total equity 2,632.7
+ * m, 14 periods)" beside a value column reading 13,163,667, so the label and
+ * the number next to it were in different units. `scaleMoneyFormats` rescales
+ * value CELLS at the end of the build but cannot reach text, so the scale has
+ * to be threaded down to the label instead.
+ */
+function makeLabelMoney(scale: DisplayScale, decimals: DisplayDecimals): (v: number) => string {
+  const unit = scale === 'millions' ? ' m' : scale === 'thousands' ? ' k' : '';
+  const dp = scale === 'full' ? 0 : decimals;
+  return (v: number): string => `${formatAccounting(v, scale, dp)}${unit}`;
+}
+
+/** The Excel row label for a fee's basis line. An ANNUAL fee charges the same
+ *  base in every period, so the Total column carries that CONSTANT and the
+ *  label says how many periods it applied to. Excel cannot put "2,632.7 x 14"
+ *  in the cell (it must stay a number for the display scale to reach it), so
+ *  the period count lives here. */
+function fundFeeBasisLabel(b: FundFeeBasisRow): string {
+  return b.basisIsPerPeriod
+    ? `${b.label}: basis charged on (per period, ${b.periodsCharged} periods)`
+    : `${b.label}: basis charged on`;
+}
 
 // ── Schedules (Module 4 schedules consolidated: Fixed Assets, IDC, Working Cap) ─
 function addSchedules(ctx: EmitCtx): void {
@@ -2718,12 +2820,14 @@ function addSchedules(ctx: EmitCtx): void {
 
 // ── P&L (full detailed mirror via the shared platform row-builder) ────────────
 function addProfitLoss(ctx: EmitCtx): void {
-  const { wb, snap, state } = ctx;
+  const { wb, snap, state, labelMoney } = ctx;
   const N = snap.axisLength;
   const labels = m4Labels(state);
   // `fmt` stays String so a row's totalOverride round-trips back to a number in
   // emitM4; `labelFmt` is what any figure printed INSIDE a row label uses, so
-  // the fund fee rows read "1.00% of Fund size 154.5 m" and not a raw float.
+  // the fund fee rows read "0.50% of Fund size 5,466.8 m" and not a raw float.
+  // It follows the workbook display scale, so a full-unit export does not put a
+  // millions figure in the label beside a raw figure in the cell.
   const mk = (filterPhaseId: string): M4ReportCtx => ({ snap, state, labels, filterPhaseId, fmt: (v: number) => String(v), labelFmt: labelMoney });
   const ws = wb.addWorksheet(SHEETS.pl, { properties: { tabColor: { argb: ARGB.navy } } });
   writeSheetHeader(ws, snap, N, 'P&L', `Full detailed mirror of the platform Module 4 income statement: the consolidated project P&L (to ${labels.pat}), then a per-phase P&L (to ${labels.ebitda}).`, { label: 'Line', feeds: 'The platform income statement (Revenue, Cost of Sales, Opex, depreciation, interest, tax).' });
@@ -2759,7 +2863,12 @@ function addProfitLoss(ctx: EmitCtx): void {
     for (let i = 0; i < basisRows.length; i++) {
       const b = basisRows[i];
       const line = snap.fundFees.lines[i];
-      const rBasis = E.moneyRow(`${b.label}: basis charged on`, line?.basisPerPeriod, { indent: 1 });
+      // A base is a STOCK, so the Total column carries the per-period CONSTANT
+      // on an annual fee, not the sum of fourteen copies of it (which printed
+      // 36,858.3m against a 5,466.8m fund and read as a fault). The period count
+      // goes in the LABEL: the basis cell must stay a plain number so the
+      // workbook display scale reaches it, which rules out "2,632.7 x 14" text.
+      const rBasis = E.moneyRow(fundFeeBasisLabel(b), line?.basisPerPeriod, { indent: 1, totalValue: b.basisDisplay });
       setBasis(ws.getCell(rBasis, META_B), b.base);
       setBasis(ws.getCell(rBasis, META_C), b.rate);
       const rFee = E.moneyRow(`${b.label}: fee charged`, line?.amountPerPeriod, { indent: 2 });
@@ -2837,7 +2946,10 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
   };
   // KPI card strip: a row of bordered tiles (label over value), 2 columns each,
   // wrapping when the period axis runs out. The headline visual of the platform.
-  const kpiStrip = (title: string, cards: Array<{ label: string; value: string; sub?: string }>): void => {
+  // `tone: 'bad'` paints the value in the check red. Used for a covenant
+  // reading that must not look like one more neutral metric in the strip (a
+  // Min DSCR below 1.00x is not covered debt service).
+  const kpiStrip = (title: string, cards: Array<{ label: string; value: string; sub?: string; tone?: 'bad' }>): void => {
     subTitle(title);
     const firstCol = OPEN_COL, lastCol = lastActiveCol(N), perCard = 2;
     const hasSub = cards.some((c) => c.sub);
@@ -2848,7 +2960,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
       const c2 = col + perCard - 1;
       for (let rr = 0; rr < h; rr++) ws.mergeCells(r + rr, col, r + rr, c2);
       const lc = ws.getCell(r, col); lc.value = card.label; lc.font = { name: 'Calibri', size: 9, bold: true, color: { argb: ARGB.navyDark } }; lc.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; fillCell(lc, ARGB.grey);
-      const vc = ws.getCell(r + 1, col); vc.value = card.value; vc.font = { name: 'Calibri', size: 12, bold: true, color: { argb: ARGB.navy } }; vc.alignment = { horizontal: 'center', vertical: 'middle' };
+      const vc = ws.getCell(r + 1, col); vc.value = card.value; vc.font = { name: 'Calibri', size: 12, bold: true, color: { argb: card.tone === 'bad' ? ARGB.bad : ARGB.navy } }; vc.alignment = { horizontal: 'center', vertical: 'middle' };
       if (hasSub) { const sc = ws.getCell(r + 2, col); sc.value = card.sub ?? ''; sc.font = { name: 'Calibri', size: 8, italic: true, color: { argb: ARGB.navyDark } }; sc.alignment = { horizontal: 'center', vertical: 'middle' }; }
       boxBorder(ws, r, col, r + h - 1, c2);
       col = c2 + 1;
@@ -3050,23 +3162,39 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     r += 1;
   }
   // Numeric headline metrics (reconcilable constants; feed the Checks tab).
+  //
+  // THESE READ THE PLATFORM RETURNS ENGINE (`rs`), the same source as the
+  // "Returns by Cash-Flow Basis" grid a few rows above. They used to read
+  // `lm.*` from liveModel.ts, a second and deliberately simplified model left
+  // over from when this workbook emitted live formulas, whose FCFF stream
+  // carries no inception outflow and none of the historical development
+  // investment. On the reference project that printed Project IRR 177.3% here
+  // and 10.9% in the grid overhead, so the tab contradicted itself, and the
+  // Summary tab and the Checks tab quoted the wrong one of the two.
   subTitle('Returns Metrics (project + equity)');
   const metricRow = (label: string, v: number, fmt: string): string => {
     setLabel(ws.getCell(r, LBL_COL), label, { bold: true });
     const c = ws.getCell(r, TOTAL_COL); c.value = v; c.numFmt = fmt; c.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navy } };
     const addr = `$${colLetter(TOTAL_COL)}$${r}`; r += 1; return addr;
   };
-  const fcffIrrCell = metricRow('Project IRR (FCFF)', lm.fcffIrr ?? 0, NUMFMT.pct2);
-  metricRow('Project NPV (FCFF)', lm.fcffNpv, NUMFMT.money);
-  metricRow('Project MOIC (FCFF)', lm.fcffMoic, NUMFMT.mult);
-  const fcfeIrrCell = metricRow('Equity IRR (FCFE)', lm.fcfeIrr ?? 0, NUMFMT.pct2);
-  metricRow('Equity NPV (FCFE)', lm.fcfeNpv, NUMFMT.money);
-  metricRow('Equity multiple (FCFE MOIC)', lm.fcfeMoic, NUMFMT.mult);
+  const mFcff = rs?.result.fcff, mFcfe = rs?.result.fcfe;
+  const fcffIrrCell = metricRow('Project IRR (FCFF, unlevered)', mFcff?.irr ?? 0, NUMFMT.pct2);
+  metricRow('Project NPV (FCFF, unlevered)', mFcff?.npv ?? 0, NUMFMT.money);
+  metricRow('Project MOIC (FCFF, unlevered)', mFcff?.moic ?? 0, NUMFMT.mult);
+  const fcfeIrrCell = metricRow('Equity IRR (FCFE, levered)', mFcfe?.irr ?? 0, NUMFMT.pct2);
+  metricRow('Equity NPV (FCFE, levered)', mFcfe?.npv ?? 0, NUMFMT.money);
+  metricRow('Equity multiple (FCFE MOIC, levered)', mFcfe?.moic ?? 0, NUMFMT.mult);
   r += 1;
 
   // ── 2. RE Metrics (mirror of the platform RE Metrics tab) ───────────────────
   if (rs) {
     const re = rs.result.realEstate, de2 = rs.developmentEconomics;
+    // How many debt-service years are not covered from operations. A Min DSCR
+    // below 1.00x is a covenant reading, so the card carries the count and is
+    // painted in the check red rather than sitting neutral beside the IRR.
+    const dscrSeries = (re.dscrPerPeriod ?? []).filter((v) => v != null && Number.isFinite(v) && v > 0);
+    const dscrDebtYears = dscrSeries.length;
+    const dscrUncovered = dscrSeries.filter((v) => v < 1).length;
     section('2. RE Metrics (profitability, yield, leverage, coverage, valuation, per-asset)');
     kpiStrip('Profitability & Yield', [
       { label: 'Yield on Cost', value: cPct(re.yieldOnCost, 2), sub: 'stabilised NOI / cost' },
@@ -3079,7 +3207,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     kpiStrip('Leverage & Coverage', [
       { label: 'LTV at Exit', value: cPct(re.ltvAtExit, 1), sub: 'debt / exit value' },
       { label: 'Debt Yield', value: cPct(re.debtYield, 1), sub: 'NOI / debt' },
-      { label: 'Min DSCR', value: cMult(re.dscrMin), sub: 'worst period' },
+      { label: 'Min DSCR', value: cMult(re.dscrMin), sub: dscrUncovered > 0 ? `${dscrUncovered} of ${dscrDebtYears} yrs below 1.00x` : 'worst period', ...(dscrUncovered > 0 ? { tone: 'bad' as const } : {}) },
       { label: 'Avg DSCR', value: cMult(re.dscrAvg), sub: 'mean over debt years' },
       { label: 'Min Interest Cover', value: cMult(re.icrMin), sub: 'EBITDA / interest' },
       { label: 'Avg Cash-on-Cash', value: cPct(re.cashOnCashAvg, 1), sub: 'cash yield on equity' },
@@ -3106,7 +3234,16 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     const nzc = (a?: number[]): boolean => (a ?? []).some((v) => (v ?? 0) !== 0);
     if (nzc(re.dscrPerPeriod) || nzc(re.icrPerPeriod)) {
       subTitle('Coverage Ratios by Year');
-      statRow('DSCR', re.dscrPerPeriod.map((v) => (v ? v.toFixed(2) : '-')));
+      // A year below 1.00x is marked in the cell itself, so the breach is
+      // visible in the row a reader actually scans and not only in the tile.
+      const dscrRow = r;
+      statRow('DSCR', re.dscrPerPeriod.map((v) => (v ? `${v.toFixed(2)}${v < 1 ? ' !' : ''}` : '-')));
+      for (let t = 0; t < N; t++) {
+        const v = re.dscrPerPeriod[t];
+        if (v != null && Number.isFinite(v) && v > 0 && v < 1) {
+          ws.getCell(dscrRow, pcol(t)).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.bad } };
+        }
+      }
       statRow('Interest cover', re.icrPerPeriod.map((v) => (v ? v.toFixed(2) : '-')));
       statRow('Cash-on-cash %', re.cashOnCashPerPeriod.map((v) => (v ? cPct(v, 1) : '-')));
       r += 1;
@@ -3160,6 +3297,20 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
 
     gridTable('Distributed Equity, Gross vs Net of Performance Fee', [...FUND_GROSS_NET_COLUMNS],
       buildFundGrossNetRows(textCtx).map((g) => g.cells));
+    // Two identical rows labelled gross and net read as a copied row rather
+    // than as a hurdle that was never cleared, so say which it is. Empty (and
+    // therefore skipped) whenever a performance fee actually arises.
+    //
+    // Written into r-1, the blank separator gridTable just left, so the note
+    // sits directly under the table; r += 1 then restores the separator.
+    {
+      const note = fundGrossNetNote(textCtx);
+      if (note) {
+        setLabel(ws.getCell(r - 1, LBL_COL), note);
+        ws.getCell(r - 1, LBL_COL).font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
+        r += 1;
+      }
+    }
 
     // The reference row order, from the SHARED builder. The three BALANCE rows
     // carry no lifetime total, which the builder encodes as an empty
@@ -3193,7 +3344,11 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
         }
         for (let i = 0; i < basis.length; i++) {
           const b = basis[i], line = snap.fundFees.lines[i];
-          const rB = r; moneyRow(`${b.label}: basis charged on`, line?.basisPerPeriod, { indent: 1 });
+          // Same stock-not-flow rule as the P&L block: the Total column holds
+          // the per-period CONSTANT on an annual fee and the label carries the
+          // period count. See fundFeeBasisLabel.
+          const rB = r; moneyRow(fundFeeBasisLabel(b), line?.basisPerPeriod, { indent: 1 });
+          ws.getCell(rB, TOTAL_COL).value = b.basisDisplay;
           setBasis(ws.getCell(rB, META_B), b.base);
           setBasis(ws.getCell(rB, META_C), b.rate);
           const rF = r; moneyRow(`${b.label}: fee charged`, line?.amountPerPeriod, { indent: 2 });
@@ -3208,7 +3363,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     }
   }
 
-  return { fcffIrrCell, fcfeIrrCell };
+  return { fcffIrrCell, fcfeIrrCell, fcffIrr: mFcff?.irr ?? null, fcfeIrr: mFcfe?.irr ?? null };
 }
 
 // ── Scenarios (Module 6: case comparison + year-on-year impact) ───────────────
@@ -3348,37 +3503,101 @@ function addScenarios(ctx: EmitCtx): void {
 
 // ── Checks / legend ───────────────────────────────────────────────────────────
 function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): void {
-  const { wb, snap, lm } = ctx;
+  // No `lm`: every check now reconciles the PLATFORM snapshot, which is what
+  // this workbook prints. It used to read the liveModel twin, so the tab
+  // certified a model the reader never sees.
+  const { wb, snap } = ctx;
   const N = snap.axisLength;
   const ws = wb.addWorksheet(SHEETS.checks, { properties: { tabColor: { argb: ARGB.navy } }, views: [{ showGridLines: false }] });
-  ws.getColumn(1).width = 42; ws.getColumn(2).width = 14; ws.getColumn(3).width = 44;
+  ws.getColumn(1).width = 42; ws.getColumn(2).width = 14; ws.getColumn(3).width = 18; ws.getColumn(4).width = 62;
   setTitle(ws.getCell('A1'), 'Checks & Legend', 16);
   let r = 3;
-  setSectionHeader(ws.getRow(r), 'Colour legend (FAST)', 3); r += 1;
+  setSectionHeader(ws.getRow(r), 'Colour legend (FAST)', 4); r += 1;
   { const inp = ws.getCell(`A${r}`); inp.value = 'Input (the assumption a user edits before re-exporting)'; markInput(inp); r += 1; }
   { const fm = ws.getCell(`A${r}`); fm.value = 'Computed value (platform snapshot, hardcoded constant)'; fm.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; r += 1; }
   r += 1;
 
-  setSectionHeader(ws.getRow(r), 'Platform verification snapshot (results as of export)', 3); r += 1;
-  ['Check', 'Status', 'Note'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, 'left')); r += 1;
+  setSectionHeader(ws.getRow(r), 'Platform verification snapshot (results as of export)', 4); r += 1;
+  ['Check', 'Status', 'Residue', 'Detail'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, 'left')); r += 1;
   // Hardcoded snapshot: each check is the platform's own verification result as
   // of export (a constant), not a live Excel reconciliation.
-  const checkRow = (label: string, statusV: string, noteV: number): void => {
+  //
+  // EVERY ROW IS A REAL COMPARISON. Two of the three used to be the string
+  // 'OK' with an unrelated magnitude in the note column (closing cash, and
+  // total capex printed as though it were a residue, -3,561,517,930 beside a
+  // green OK). A check that cannot fail is worse than no check, because it
+  // certifies the thing it never looked at.
+  //
+  // TOLERANCE IS RELATIVE. It was `maxBsDiff < 1`, an absolute one-currency-unit
+  // band on a balance sheet of seven billion, i.e. 1.4e-10. No iterative funding
+  // solver converges to that, so the workbook reported CHECK on a residue of
+  // 5.1e-8 and failed its own integrity test on every real project. `residue`
+  // carries the measured gap either way, so a genuine break is still visible
+  // and the passing case says how close it actually came.
+  const checkRow = (label: string, ok: boolean, residue: number, detail: string): void => {
     setLabel(ws.getCell(`A${r}`), label);
-    const s = ws.getCell(`B${r}`); s.value = statusV; s.numFmt = '@'; s.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: statusV === 'OK' ? ARGB.navy : ARGB.bad } };
-    const c = ws.getCell(`C${r}`); c.value = noteV; c.numFmt = NUMFMT.money; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; r += 1;
+    const s = ws.getCell(`B${r}`); s.value = ok ? 'OK' : 'CHECK'; s.numFmt = '@'; s.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ok ? ARGB.good : ARGB.bad } };
+    const c = ws.getCell(`C${r}`); c.value = residue; c.numFmt = NUMFMT.money; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+    const d = ws.getCell(`D${r}`); d.value = detail; d.numFmt = '@'; d.font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
+    r += 1;
   };
-  const maxBsDiff = Math.max(0, ...lm.bsDiff.map((v) => Math.abs(v)));
-  checkRow('Balance sheet balances (Assets = L + E)', maxBsDiff < 1 ? 'OK' : 'CHECK', maxBsDiff);
-  checkRow('Cash flow closing == balance sheet cash', 'OK', lm.closeCash[N - 1] ?? 0);
-  checkRow('Capex schedule ties to cost build-up', 'OK', lm.capexCash.reduce((s, v) => s + v, 0));
+  /** A residue passes when it is negligible RELATIVE to the magnitude being
+   *  reconciled. 1e-6 is far tighter than any modelling error and far looser
+   *  than double-precision accumulation over a 14-period solve. */
+  const REL_TOL = 1e-6;
+  const relOk = (residue: number, magnitude: number): boolean =>
+    Math.abs(residue) <= Math.max(1e-6, Math.abs(magnitude) * REL_TOL);
+  const rel = (residue: number, magnitude: number): string =>
+    magnitude === 0 ? 'nothing to reconcile' : `${Math.abs(residue / magnitude).toExponential(1)} of peak ${formatAccounting(Math.abs(magnitude), 'millions', 1)} m, within tolerance ${REL_TOL.toExponential(0)}`;
+
+  /**
+   * Worst absolute divergence between two series, with the magnitude it should
+   * be judged against, so a residue is never reported without its scale.
+   *
+   * The scale is the PEAK of the series over the whole horizon, not its value
+   * in the worst period. Net cash flow legitimately crosses zero, and judging a
+   * residue against a near-zero period produced "5.0e+0 of 0.0 m", a ratio that
+   * says nothing about whether the model reconciles.
+   */
+  const worst = (a: readonly number[], b: readonly number[], mag: readonly number[]): { d: number; at: number; mag: number } => {
+    let d = 0, at = 0, peak = 0;
+    for (let t = 0; t < N; t++) {
+      const x = (a[t] ?? 0) - (b[t] ?? 0);
+      if (Math.abs(x) > Math.abs(d)) { d = x; at = t; }
+      peak = Math.max(peak, Math.abs(mag[t] ?? 0));
+    }
+    return { d, at, mag: peak };
+  };
+  /** Every check reads the PLATFORM snapshot, not liveModel. The Checks tab is
+   *  meant to certify what the workbook prints, and what it prints is the
+   *  platform. */
+  const put = (label: string, w: { d: number; at: number; mag: number }, what: string): void => {
+    const ok = relOk(w.d, w.mag);
+    checkRow(label, ok, w.d, ok
+      ? `worst period ${snap.yearLabels[w.at] ?? w.at}: ${rel(w.d, w.mag)}`
+      : `worst period ${snap.yearLabels[w.at] ?? w.at}, ${what} ${formatAccounting(w.mag, 'millions', 1)} m`);
+  };
+
+  const bs = snap.bs;
+  const lPlusE = bs.totalLiabilitiesPerPeriod.map((v, i) => v + (bs.totalEquityPerPeriod[i] ?? 0));
+  put('Balance sheet balances (Assets = L + E)',
+    worst(bs.totalAssetsPerPeriod, lPlusE, bs.totalAssetsPerPeriod), 'assets');
+
+  put('Cash flow closing == balance sheet cash',
+    worst(snap.directCF.closingCashPerPeriod, bs.cashPerPeriod, bs.cashPerPeriod), 'cash');
+
+  put('Direct cash flow == Indirect cash flow',
+    worst(snap.directCF.netCashFlowPerPeriod, snap.indirectCF.netCashFlowPerPeriod, snap.directCF.netCashFlowPerPeriod), 'net cash flow');
   r += 1;
 
-  setSectionHeader(ws.getRow(r), 'Headline returns (platform snapshot)', 3); r += 1;
-  setLabel(ws.getCell(`A${r}`), 'Project IRR (FCFF)');
-  setFormula(ws.getCell(`C${r}`), fcell(retLinks.fcffIrrCell, lm.fcffIrr ?? 0), NUMFMT.pct2, true); r += 1;
-  setLabel(ws.getCell(`A${r}`), 'Equity IRR (FCFE)');
-  setFormula(ws.getCell(`C${r}`), fcell(retLinks.fcfeIrrCell, lm.fcfeIrr ?? 0), NUMFMT.pct2, true); r += 1;
+  // Linked to the Returns tab cells, with the cached result taken from the SAME
+  // engine that wrote them (retLinks carries the value, not just the address),
+  // so the link and its cached constant cannot disagree.
+  setSectionHeader(ws.getRow(r), 'Headline returns (platform snapshot)', 4); r += 1;
+  setLabel(ws.getCell(`A${r}`), 'Project IRR (FCFF, unlevered)');
+  setFormula(ws.getCell(`C${r}`), fcell(retLinks.fcffIrrCell, retLinks.fcffIrr ?? 0), NUMFMT.pct2, true); r += 1;
+  setLabel(ws.getCell(`A${r}`), 'Equity IRR (FCFE, levered)');
+  setFormula(ws.getCell(`C${r}`), fcell(retLinks.fcfeIrrCell, retLinks.fcfeIrr ?? 0), NUMFMT.pct2, true); r += 1;
   r += 1;
   setLabel(ws.getCell(`A${r}`), 'This workbook is a hardcoded mirror of the platform: every figure is the platform-computed snapshot value, written as a constant. The verification results above are the platform\'s own checks as of export, not a live Excel reconciliation. Editing any cell will NOT recalculate; to run a different scenario, change the inputs in the platform and re-export.');
 }
@@ -3415,6 +3634,18 @@ function frontMatterBanner(ws: ExcelJS.Worksheet, title: string, subtitle: strin
 }
 
 /** Full-width navy section band across B..G at row r. */
+/**
+ * A navy band on a front-matter canvas.
+ *
+ * DELIBERATELY NOT REGISTERED as a section. Registering these was tried and
+ * reverted: every section link in the workbook is an `!A<row>` anchor and the
+ * invariant is that column A of that row holds the section title, but a
+ * front-matter canvas keeps column A as a 3-wide margin and paints its bands
+ * across B..G. Registering them therefore produced links landing on a row whose
+ * column A is empty, breaking the anchor rule for the whole workbook to gain
+ * three Cover entries. The Summary is a one-page executive summary that is read
+ * top to bottom, so it loses nothing by not being sub-indexed.
+ */
 function frontMatterBand(ws: ExcelJS.Worksheet, r: number, text: string): void {
   ws.mergeCells(r, 2, r, 7);
   const c = ws.getCell(r, 2);
@@ -3469,12 +3700,17 @@ function buildCoverContent(ws: ExcelJS.Worksheet, snap: ReturnType<typeof comput
   frontMatterCanvas(ws);
   let r = frontMatterBanner(ws, opts.projectName, 'Real Estate Financial Model  ·  Excel  ·  Hardcoded platform snapshot');
 
-  // Slim identity strip (a single line): date · currency · location · horizon.
+  // Slim identity strip (a single line): date · currency · location · horizon,
+  // plus a FUND LAYER marker when the toggle is on. The fund sections were only
+  // ever reachable as nested bullets under P&L and Returns, so a reader
+  // scanning the numbered tab list had nothing telling them this model carries
+  // a fund at all. Absent on a standalone project.
   const identity = [
     opts.dateLabel,
     currency,
     [p.location, p.country].filter(Boolean).join(', ') || null,
     `${snap.axisLength}-year horizon (${snap.projectStartYear} to ${snap.projectStartYear + snap.axisLength - 1})`,
+    snap.fundFees.active ? 'Fund layer active' : null,
   ].filter(Boolean).join('   ·   ');
   ws.mergeCells(r, 2, r, 7);
   const idc = ws.getCell(r, 2); idc.value = identity; idc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.navyDark } }; idc.alignment = { indent: 1 };
@@ -3511,8 +3747,13 @@ function buildCoverContent(ws: ExcelJS.Worksheet, snap: ReturnType<typeof comput
     zebra += 1; r += 1;
     // Second-level ToC (Option B): every section of this tab, clickable, jumping
     // INTO the section row inside the tab. Capped so a very rich tab stays tidy.
+    // Capped so a very rich tab stays tidy, but FUND sections are never the
+    // ones dropped: they sit at the end of both the P&L and the Returns tab, so
+    // a plain slice would silently push the whole fund layer off the contents
+    // of exactly the projects that have one.
     const secs = dedupSections(sectionReg.get(e.sheet) ?? []);
-    const shown = secs.slice(0, 14);
+    const isFundSec = (t: string): boolean => /fund/i.test(t);
+    const shown = secs.length <= 14 ? secs : [...secs.slice(0, 14), ...secs.slice(14).filter((s) => isFundSec(s.title))];
     for (const sec of shown) {
       const bullet = ws.getCell(r, 2); bullet.value = '›'; bullet.font = { name: 'Calibri', size: 8.5, color: { argb: ARGB.greyMid } }; bullet.alignment = { horizontal: 'right' };
       ws.mergeCells(r, 3, r, 7);
@@ -3925,13 +4166,21 @@ function addSummary(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinanci
 
   // ── Headline metric tiles (3 per row, each spanning 2 columns) ───────────────
   frontMatterBand(ws, r, 'Headline metrics'); r += 1;
+  // HEADLINE RETURNS COME FROM THE PLATFORM RETURNS ENGINE (`rs`), the same
+  // source as the Returns tab. They used to read `lm.*` from liveModel.ts, the
+  // simplified twin left over from the formula-driven era, which printed
+  // Project IRR 177.3% / Equity IRR 38.3% / multiple 7.31x here against
+  // 10.9% / 7.0% / 2.04x on the Returns tab of the same workbook. Each label
+  // now names its basis, so "equity multiple" cannot be read as the project
+  // one. `n/a` when the returns engine could not run, because a figure from a
+  // different model is worse than no figure.
   const tiles: Array<[string, string]> = [
     ['Total development cost', m(snap.financing.capex.totals.inclAllLand)],
     ['Gross development value', m(gdv)],
     ['Profit after financing', m(de?.profitAfterFinancing)],
-    ['Project IRR (FCFF)', pct(lm.fcffIrr)],
-    ['Equity IRR (FCFE)', pct(lm.fcfeIrr)],
-    ['Equity multiple', mult(lm.fcfeMoic)],
+    ['Project IRR (FCFF, unlevered)', pct(rs?.result.fcff.irr)],
+    ['Equity IRR (FCFE, levered)', pct(rs?.result.fcfe.irr)],
+    ['Equity MOIC (FCFE, levered)', mult(rs?.result.fcfe.moic)],
     ['Development margin', pct(de?.developmentMargin)],
     ['Peak debt', m(peakDebt)],
     ['Total equity required', m(rs?.equityExposure.totalEquityRequired)],
@@ -3970,13 +4219,20 @@ function addSummary(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinanci
     ['Profit after financing', m(de?.profitAfterFinancing)],
     ['Development margin', pct(de?.developmentMargin)],
   ];
+  // Min DSCR below 1.0 means debt service is not covered from operations in at
+  // least one year. It printed as a neutral metric beside the IRR, which on the
+  // reference project meant 0.43x read as unremarkable. It is flagged below.
+  const dscrMin = re?.dscrMin;
+  const dscrBreach = dscrMin != null && Number.isFinite(dscrMin) && dscrMin > 0 && dscrMin < 1;
+  const dscrYears = (re?.dscrPerPeriod ?? []).filter((v) => v != null && Number.isFinite(v) && v > 0);
+  const dscrBelow = dscrYears.filter((v) => v < 1).length;
   const rightRows: Array<[string, string]> = [
-    ['Project IRR (FCFF)', pct(lm.fcffIrr)],
-    ['Equity IRR (FCFE)', pct(lm.fcfeIrr)],
-    ['Equity MOIC (FCFE)', mult(lm.fcfeMoic)],
+    ['Project IRR (FCFF, unlevered)', pct(rs?.result.fcff.irr)],
+    ['Equity IRR (FCFE, levered)', pct(rs?.result.fcfe.irr)],
+    ['Equity MOIC (FCFE, levered)', mult(rs?.result.fcfe.moic)],
     ['Peak debt', m(peakDebt)],
     ['Peak equity', m(re?.peakEquity)],
-    ['Min DSCR', mult(re?.dscrMin)],
+    ['Min DSCR', dscrBreach ? `${mult(dscrMin)}  BELOW 1.00x` : mult(dscrMin)],
   ];
   const hlTop = r;
   const rows = Math.max(leftRows.length, rightRows.length);
@@ -3994,7 +4250,21 @@ function addSummary(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinanci
   }
   boxBorder(ws, hlTop, 2, hlTop + rows - 1, 4);
   boxBorder(ws, hlTop, 5, hlTop + rows - 1, 7);
-  r = hlTop + rows + 1;
+  // Paint the Min DSCR value cell in the check red and say what it means, so a
+  // covenant breach cannot be skimmed past as one more metric in the column.
+  if (dscrBreach) {
+    const dscrRow = hlTop + rightRows.length - 1;
+    ws.getCell(dscrRow, 6).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.bad } };
+    r = hlTop + rows;
+    ws.mergeCells(r, 2, r, 7);
+    const warn = ws.getCell(r, 2);
+    warn.value = `Debt service is not covered from operations in ${dscrBelow} of ${dscrYears.length} debt-service years (minimum ${mult(dscrMin)}). Typical for a development funded from drawdowns, but it is a covenant reading, not a neutral metric.`;
+    warn.font = { name: 'Calibri', size: 8, italic: true, color: { argb: ARGB.bad } };
+    warn.alignment = { wrapText: true, vertical: 'top', indent: 1 };
+    ws.getRow(r).height = 24;
+    r += 1;
+  }
+  r = hlTop + rows + (dscrBreach ? 2 : 1);
 
   // ── Fund layer (2026-08-10) ─────────────────────────────────────────────────
   //
@@ -4034,6 +4304,20 @@ function addSummary(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinanci
       r += 1;
     }
     boxBorder(ws, gnTop, 2, r - 1, 1 + hdr.length);
+    // Why the gross and net rows are identical, when they are: without it the
+    // pair reads as a copied row. Shared helper, so this page cannot phrase it
+    // differently from the Returns tab or either PDF.
+    {
+      const note = fundGrossNetNote(fctx);
+      if (note) {
+        ws.mergeCells(r, 2, r, 7);
+        const nc = ws.getCell(r, 2); nc.value = note;
+        nc.font = { name: 'Calibri', size: 8, italic: true, color: { argb: ARGB.navyDark } };
+        nc.alignment = { wrapText: true, vertical: 'top' };
+        ws.getRow(r).height = 24;
+        r += 1;
+      }
+    }
     r += 1;
 
     // Fund headline figures, as a compact label / value list.

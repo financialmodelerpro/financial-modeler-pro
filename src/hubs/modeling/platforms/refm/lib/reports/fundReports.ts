@@ -68,11 +68,25 @@ export function hasFundFeeIncome(returns: ReturnsSnapshot | null | undefined): b
 /**
  * The reference model's row order, exactly. Each line feeds the next.
  *
- * THREE ROWS ARE BALANCES, and they carry NO lifetime total: a balance summed
- * across periods is a number with no meaning. That is expressed here, once, as
- * `totalOverride: ''`, so no surface has to remember it. It is the single most
- * likely thing for a row-copying pass to get wrong, which is why it is encoded
- * rather than documented.
+ * FOUR ROWS CARRY NO LIFETIME TOTAL, expressed here once as `totalOverride: ''`
+ * so no surface has to remember it. It is the single most likely thing for a
+ * row-copying pass to get wrong, which is why it is encoded rather than
+ * documented.
+ *
+ * Three of the four are BALANCES (BoP, Total Hurdle Owed, EoP): a balance summed
+ * across periods is a number with no meaning.
+ *
+ * The fourth is HURDLE ACCRUED, added 2026-08-11, and it is a judgement rather
+ * than an identity. Its sum does reconcile (accrued + drawn == paid + unpaid at
+ * exit, 4,496.1 + 2,632.7 == 5,651.8 + 1,477.0 on the reference project), so it
+ * is not meaningless in the strict sense. It is dropped because it is an accrual
+ * charged on a COMPOUNDING balance, printed between two balance rows, so a
+ * lifetime figure there reads as a balance and invites the reader to compare it
+ * against the hurdle owed. The per-period column is the honest view of it.
+ *
+ * Every other row here is a CASH FLOW whose sum is meaningful and keeps its
+ * total: Equity Drawn (== total equity), Hurdle Paid, Excess Distributions,
+ * Performance Fee, Distributions Net of Performance Fee and the gross memo.
  *
  * GROSS DISTRIBUTIONS ARE A MEMO BELOW the sequence, not part of it, so the
  * nine reference rows match the reference exactly and the Hurdle Paid MIN and
@@ -92,13 +106,15 @@ export function buildFundWaterfallRows(ctx: FundReportCtx): M4Row[] {
     totalOverride: fmt(arr.reduce((s, v) => s + (v ?? 0), 0)),
     ...opts,
   });
+  /** No lifetime total. Named `balance` because that is the case it was built
+   *  for; Hurdle Accrued uses it for the reason set out in the header. */
   const balance = (label: string, arr: number[], opts: Partial<M4Row> = {}): M4Row =>
     toRow(label, arr, { totalOverride: '', ...opts });
 
   return [
     toRow('Equity Drawn', w.equityDrawnPerPeriod),
     balance('Unpaid Hurdle Balance BoP', w.periods.map((p) => p.openingUnpaidHurdle)),
-    toRow('Hurdle Accrued', w.hurdleAccruedPerPeriod),
+    balance('Hurdle Accrued', w.hurdleAccruedPerPeriod),
     balance('Total Hurdle Owed', w.totalHurdleOwedPerPeriod, { isSubtotal: true }),
     toRow('Hurdle Paid', w.hurdlePaidPerPeriod),
     balance('Unpaid Hurdle Balance EoP', w.unpaidHurdlePerPeriod, { isSubtotal: true }),
@@ -124,12 +140,18 @@ export const FUND_WATERFALL_ROW_ORDER: readonly string[] = [
   'Memo: Distributions (gross, before fee)',
 ];
 
-/** The rows that are BALANCES and therefore carry no lifetime total. */
-export const FUND_WATERFALL_BALANCE_ROWS: readonly string[] = [
+/** The rows that carry NO lifetime total: the three balances, plus Hurdle
+ *  Accrued (an accrual on a compounding balance, see the builder header). */
+export const FUND_WATERFALL_NO_TOTAL_ROWS: readonly string[] = [
   'Unpaid Hurdle Balance BoP',
+  'Hurdle Accrued',
   'Total Hurdle Owed',
   'Unpaid Hurdle Balance EoP',
 ];
+
+/** @deprecated Use FUND_WATERFALL_NO_TOTAL_ROWS. Kept so an existing verifier
+ *  keeps compiling; the set gained Hurdle Accrued on 2026-08-11. */
+export const FUND_WATERFALL_BALANCE_ROWS: readonly string[] = FUND_WATERFALL_NO_TOTAL_ROWS;
 
 // ── Gross vs net returns ────────────────────────────────────────────────────
 
@@ -159,6 +181,31 @@ export function buildFundGrossNetRows(ctx: FundReportCtx): FundGridRow[] {
     line('Excluding fund fees (gross)', g),
     line('Net of performance fee', n, 'total'),
   ];
+}
+
+/**
+ * Why gross equals net, when it does. Empty string when a performance fee
+ * actually arises, so a caller renders it unconditionally.
+ *
+ * Without this the section reads as broken: two identical IRR rows labelled
+ * "gross" and "net" look like a copied row, not like a fund whose hurdle was
+ * never cleared. On the reference project excess distributions are zero in
+ * EVERY period because the hurdle accrues on (opening unpaid + same-period
+ * draw) and compounds, so `paid = MIN(distribution, owed)` binds throughout and
+ * 1,477.0m of hurdle is still unpaid at exit.
+ *
+ * Shared rather than written per surface, because it is a statement about the
+ * model that must not be phrased three different ways.
+ */
+export function fundGrossNetNote(ctx: FundReportCtx): string {
+  if (!isFundActive(ctx.returns)) return '';
+  const w = ctx.returns.waterfall;
+  if (w.totalPerformanceFee > 0) return '';
+  const shortfall = ctx.fmt.money(w.hurdleShortfall);
+  if (w.hurdleShortfall > 0) {
+    return `Gross equals net because no performance fee arises: distributions never exceed the hurdle owed, so nothing reaches the excess tier. ${shortfall} of hurdle is still unpaid at exit.`;
+  }
+  return 'Gross equals net because no performance fee arises: the hurdle is settled exactly, so nothing reaches the excess tier.';
 }
 
 /** The four headline figures for the fund block, as label/value/sub cards. */

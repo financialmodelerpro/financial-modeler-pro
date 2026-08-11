@@ -188,8 +188,15 @@ console.log('\n[7/9] Fix 5c: store syncCompanionSubUnits + mutators + Sell-Manag
   else fail('syncCompanionSubUnits call count', `expected >=4, got ${callCount}`);
   if (STORE_SRC.includes('makeCompanionSubUnit')) pass('store imports makeCompanionSubUnit');
   else fail('makeCompanionSubUnit import in store', 'missing');
-  if (STORE_SRC.includes('mirror parent Sellable sub-units onto the')) pass('Sell-Manage TO branch seeds companion sub-units');
-  else fail('Sell-Manage TO mirror seed', 'missing');
+  // The strategy branch was rewritten on 2026-08-11 to delegate to the pure
+  // `applyStrategySwitch` (which retains the outgoing strategy's assumptions
+  // instead of deleting the companion). This used to grep a COMMENT, which
+  // proved nothing about the code path; it now asserts that the branch really
+  // runs the companion sub-unit mirror over the switch result.
+  if (/applyStrategySwitch\(/.test(STORE_SRC)
+    && /syncCompanionSubUnits\(assets, res\.subUnits\)/.test(STORE_SRC)) {
+    pass('Sell-Manage TO branch seeds companion sub-units (mirror runs over the switch result)');
+  } else fail('Sell-Manage TO mirror seed', 'the strategy branch does not mirror sub-units over the applyStrategySwitch result');
 }
 
 // ── Section 8: Fix 5c migration ───────────────────────────────────────────

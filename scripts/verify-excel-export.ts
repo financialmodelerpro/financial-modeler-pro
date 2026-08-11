@@ -210,7 +210,11 @@ async function main(): Promise<void> {
   check('Land & Area has a Basis / Calculation legend', rowByLabel(wb.getWorksheet('Land & Area')!, /^Basis \/ Calculation \(per column\)$/) > 0);
 
   // ── Returns: IRR is a finite constant (not a live formula) ──────────────────
-  const ret = wb.getWorksheet('Returns')!; const irrRow = rowByLabel(ret, /^Project IRR \(FCFF\)$/);
+  // Label gained its basis on 2026-08-11 ("Project IRR (FCFF, unlevered)") when
+  // this row moved off liveModel onto the platform returns engine, so the
+  // Summary tab and this one could stop disagreeing. The regex allows the
+  // qualifier but still requires the FCFF basis to be named.
+  const ret = wb.getWorksheet('Returns')!; const irrRow = rowByLabel(ret, /^Project IRR \(FCFF[^)]*\)$/);
   const irrCell: any = irrRow > 0 ? ret.getCell(irrRow, 4).value : null;
   check('Returns Project IRR is a finite constant (not a formula)', irrRow > 0 && !isFormula(irrCell) && Number.isFinite(num(irrCell)), `irr=${num(irrCell)}`);
   // Module 5 mirror: the Returns tab reproduces the platform Returns + RE Metrics

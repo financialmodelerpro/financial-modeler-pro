@@ -20,7 +20,7 @@
  * No em dashes in this file.
  */
 import React from 'react';
-import type { FundFeeBasisRow, FundCapitalRow } from '../../../lib/reports/m4Reports';
+import { fundFeeBasisText, type FundFeeBasisRow, type FundCapitalRow } from '../../../lib/reports/m4Reports';
 
 export function FundFeeBasisTable({ rows, capital = [], currency, fmt, title, caption }: {
   rows: FundFeeBasisRow[];
@@ -49,7 +49,7 @@ export function FundFeeBasisTable({ rows, capital = [], currency, fmt, title, ca
         <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-meta)' }}>({currency})</span>
       </div>
       <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, fontStyle: 'italic' }}>
-        {caption ?? 'What each fee is charged on, and the rate applied. Basis is the amount the rate was applied to over the life of the fund, so basis x rate equals the fee charged. A fee reading zero means an empty basis, not a missing rate.'}
+        {caption ?? 'What each fee is charged on, and the rate applied. A one-time fee shows the single amount charged on. An annual fee shows the base charged in each period and how many periods it applies to ("2,632.7 x 14"), because a base is a stock and summing it across the life of the fund is not a quantity. A fee reading zero means an empty basis, not a missing rate.'}
       </div>
       {/* The three capital bases, stated before the fees that charge on them.
           The fees use three different quantities (equity alone, debt alone,
@@ -93,10 +93,16 @@ export function FundFeeBasisTable({ rows, capital = [], currency, fmt, title, ca
                 <td style={tdL} title={r.note}>{r.base}</td>
                 <td style={td}>{r.rate}</td>
                 {/* A zero basis is the whole reason this table exists, so it is
-                    called out rather than left as a quiet 0 among the others. */}
+                    called out rather than left as a quiet 0 among the others.
+                    An annual fee shows the per-period CONSTANT and its period
+                    count, never the lifetime sum: a base is a stock. */}
                 <td style={{ ...td, ...(r.basis === 0 ? { color: 'var(--color-warning-fg, #92400E)', fontWeight: 700 } : {}) }}
-                    title={r.basis === 0 ? 'This fee has no basis to charge on, which is why it is zero.' : r.note}>
-                  {fmt(r.basis)}
+                    title={r.basis === 0
+                      ? 'This fee has no basis to charge on, which is why it is zero.'
+                      : r.basisIsPerPeriod
+                        ? `${r.note} Charged on the same base in each of ${r.periodsCharged} periods.`
+                        : r.note}>
+                  {fundFeeBasisText(r, fmt)}
                 </td>
                 <td style={{ ...td, fontWeight: 700 }}>{fmt(r.charged)}</td>
               </tr>
