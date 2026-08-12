@@ -70,58 +70,77 @@ Five deploys of fund-layer work (Steps 1 to 3 plus the Fund Manager and facility
 
 ---
 
-## ⭐ START HERE (current focus, 2026-08-11)
+## ⭐ START HERE (current focus, 2026-08-12)
 
-**NEXT: the PDF review.** The Excel workbook has now had a ten-item user review
-(items 1 to 9 shipped in `9eb7f9ab` and `7b9deb2a`, see CLAUDE-REFM.md
-2026-08-11). The PDF exports have NOT had the equivalent pass. Both PDFs render
-the fund block from the same shared `fundReports` / `m4Reports` builders, so the
-structural fixes from the workbook review reached them for free (the fee-basis
-stock-not-flow correction, the gross-vs-net note, the no-total on Hurdle
-Accrued). What has NOT been reviewed is everything PDF-specific: layout,
-pagination, column widths, truncation, and whether the summary PDF still reads
-correctly now that the Summary tab's headline returns changed source.
+**THE EXPORTS HAVE NOT BEEN REVIEWED SINCE PASS 3 LANDED.** The PDF review
+closed on 2026-08-12 in three passes (`2f546659`, `3cea19dd`, `76ed9e50`, all
+deployed and SHA-confirmed against `/api/health`; see CLAUDE-REFM.md 2026-08-12
+for the full narrative). Every finding came from ONE diagnosis run against the
+real project. **Nobody has re-read either PDF end to end since the fixes went
+in**, and pass 3 in particular changed a great deal of what the documents say:
+new sections (Timeline, Land & Area, Fund Inputs, Lender Covenants, Sensitivity,
+Model Integrity Checks), re-captioned headline metrics, a derived Module 5 tab
+numbering, and a version line on the cover and in every footer.
 
-**Two things from the workbook review that the PDF pass should check
-specifically**, because they were defects in the Excel and the PDF was never
-measured for them:
+What that means concretely:
 
-1. **Truncation.** The Excel labels were being cut by a 34-character column and
-   nobody noticed until a user read the file. The full PDF is already known to
-   truncate the inline fee labels in its narrow label column (that is why the
-   columnar basis block exists). Measure it rather than assume.
-2. **Which engine the headline figures come from.** The Excel Summary was
-   quoting `liveModel` rather than the platform returns engine, printing
-   Project IRR 177.3% against the Returns tab's 10.9% in the same file. The
-   PDFs were not audited for the same class of error.
+1. **Re-read both PDFs.** The verifiers assert identities and the presence of
+   labels; they do not judge whether the document READS well. Pass 2 changed
+   page counts at two of the three scales (thousands and full go 104 -> 140pp),
+   moved column widths, and introduced a label auto-shrink down to 6.5pt. None
+   of that has been looked at by a human.
+2. **The new sections have never been seen.** Timeline, Land & Area, Fund
+   Inputs, Lender Covenants and the Sensitivity grid were written against the
+   engine and asserted by string match. Their LAYOUT is unreviewed.
+3. **Sensitivity is entitlement-gated in the export.** `ExportModal` passes
+   `allows('sensitivity')`. Confirm in a browser that a non-entitled plan gets a
+   PDF WITHOUT the grid and an entitled one gets it with.
+4. **The per-tab picker + Fund Layer.** A pre-existing bug meant `Tab 5: Fund
+   Layer` was never in `PDF_MODULE_TABS`, so touching the picker on a fund
+   project dropped the whole fund section from the PDF. It is in the manifest
+   now and tab matching is name-based rather than label-based, but the PICKER
+   itself has not been exercised in a browser since.
 
-**NOTHING FROM THE 2026-08-11 SESSION HAS BEEN BROWSER-VERIFIED.** Types,
-verifiers and build only. In rough order of risk:
+**Known follow-up, deliberately not done:** the workbook's Checks-tab detail
+text keeps a millions-pinned money formatter (so folding it into the shared
+`checksReport` changed no rendered text). That pinning is the same display-scale
+inconsistency pass 2 fixed everywhere else: a full-unit export prints the
+residue in units and describes its peak in millions. One-line fix, needs a
+fingerprint re-baseline.
 
-1. **The strategy-change confirm dialog and review banner** (M1 Assets). This is
-   the one that most needs a live check: it is new interactive UI on a
-   destructive-looking action, and the underlying store path was rewritten. Open
-   an asset, change its strategy, confirm the dialog lists what will be retained
-   and what needs review, apply it, navigate away and back, and confirm the
-   banner persists until dismissed. Then switch BACK and confirm the original
-   sub-units, opex and (for Sell + Manage) the companion asset return intact.
-   The round trip is proven by `verify-strategy-switch` at the state level, but
-   never through the actual UI. See
+**NOTHING FROM THE 2026-08-11 OR 2026-08-12 SESSIONS HAS BEEN BROWSER-VERIFIED.**
+Types, verifiers and build only. In rough order of risk:
+
+1. **The strategy-change confirm dialog and review banner** (M1 Assets). Still
+   the highest risk: new interactive UI on a destructive-looking action, with
+   the underlying store path rewritten. Open an asset, change its strategy,
+   confirm the dialog lists what will be retained and what needs review, apply
+   it, navigate away and back, and confirm the banner persists until dismissed.
+   Then switch BACK and confirm the original sub-units, opex and (for Sell +
+   Manage) the companion asset return intact. The round trip is proven by
+   `verify-strategy-switch` at the state level, never through the actual UI. See
    [[feedback_gesture_lifecycle_pointer_capture]] for why "the verifier passes"
    has not been sufficient for interactive M1/M7 surfaces before.
-2. **Admin > API Keys** (`05676464`): reveal, copy, the auto-hide, and whether
+2. **Both PDF exports**, per the list above.
+3. **Admin > API Keys** (`05676464`): reveal, copy, the auto-hide, and whether
    the audit row actually lands in `admin_audit_log`. That last one is the only
    part whose behaviour depends on the database rather than on code that could
    be exercised offline, and that table has a `NOT NULL admin_id` history. If
    the insert fails the reveal still works by design, and the reason appears in
    the server logs as `[api-keys] audit insert failed`.
-3. **The corrected fund fee basis block and the new Inputs FUND band** in a real
+4. **The corrected fund fee basis block and the new Inputs FUND band** in a real
    Excel client, to confirm the widened Rate column and the shortened labels
    render as measured.
 
 **Related and still open:** `FMP_PUBLIC_API_KEY` is set in `.env.local` only.
 Until it is set in Vercel (Production scope) AND redeployed, the public partner
 feed refuses every request and `/admin/api-keys` shows the not-configured panel.
+
+**Stale-count warning, recorded because it bit twice:** `verify-strategy-switch`
+is **54 passed + 1 PRE-EXISTING failure** ("the fixture exercises Sell + Manage",
+the fixture builds no companion so those clauses never run), not the 82 this
+file and CLAUDE.md recorded until 2026-08-12. Re-measure a count before quoting
+it.
 
 ---
 

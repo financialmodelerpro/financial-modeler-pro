@@ -1,5 +1,68 @@
 ﻿# Real Estate Financial Modeling (REFM), Claude Code Project Brief
-**Last updated: 2026-08-11. Lock status: M1 LOCKED (M2.0 Pass 58 base) + Parties tab (mig 190), M2 LOCKED (Pass 9N), M3 LOCKED (Pass 5d), M4 DONE, M5 DONE (Returns & RE Metrics + Lender Covenants + per-partner FCFE/DDM + M1-Parties link), M6 Scenario Analysis LIVE, M7 Reports LIVE (IC / Lender / One-Pager preview + PPT export, migs 191+192). Full verifier suite green via `npx tsx scripts/verify-*.ts`.**
+**Last updated: 2026-08-12. Lock status: M1 LOCKED (M2.0 Pass 58 base) + Parties tab (mig 190), M2 LOCKED (Pass 9N), M3 LOCKED (Pass 5d), M4 DONE, M5 DONE (Returns & RE Metrics + Lender Covenants + per-partner FCFE/DDM + M1-Parties link), M6 Scenario Analysis LIVE, M7 Reports LIVE (IC / Lender / One-Pager preview + PPT export, migs 191+192). Full verifier suite green via `npx tsx scripts/verify-*.ts`.**
+
+## 2026-08-12: PDF export review, three passes (arithmetic, readability, consistency) + two shared builders
+
+The workbook got its review on 2026-08-11; this is the equivalent pass over **both PDFs**, the full project report and the executive summary, every section from the cover onward, at all three display scales. Diagnosis first (no fixes), then three reviewed passes. Commits `2f546659` (pass 1), `3cea19dd` (pass 2), `76ed9e50` (pass 3 + the checks fold-in).
+
+**Measurement note that made the review possible, and that cost a wrong first answer.** pdf-lib writes CID glyph ids, and Inter substitutes CASE-ALTERNATE forms for `( ) [ ] - :` when they sit beside digits or capitals. Those alternates decode through `scripts/pdfTextExtract.ts` to PRIVATE USE codepoints (U+E081, U+E082, U+E083, U+E084, U+E088, U+E092), so a naive extract silently **drops every parenthesis and turns negatives into positives**. The first diagnosis pass read "Cost of sales 4,507.6" as a sign error when the value was `(4,507.6)` and correct. Every verifier added here normalises the PUA range before matching.
+
+### Pass 1 (`2f546659`), wrong numbers and sign conventions
+
+Six defects, all of which the existing suite passed over because each check asserted a row EXISTS, not that a column ADDS UP.
+
+1. **The cash sweep waterfall added interest and principal instead of subtracting them.** `directCF.interestPaidPerPeriod` and `directCF.debtRepaymentPerPeriod` are stored ALREADY NEGATIVE (the snapshot field comments say so; returns-resolvers, icReport and the on-screen waterfall all treat them that way), and `buildCashSweepTables` negated each a second time. Overstatement was 2 x interest + 2 x principal: on FMP RE HUB "= Cash Available" printed 2,041.2 in 2030 against a true 1,800.0, and the row captioned "ties to CF + BS" no longer did. **The on-screen waterfall was already correct** (it has its own inline implementation), so only Excel and the PDF were wrong; the shared builder now matches the screen's formula. The minimum cash reserve is also a RESERVATION, never spent, so deducting it into a subtotal the next subtotal ignored broke the chain even with correct signs; it is now an indented memo pair. The chain is `Opening + Ops + Inv + Equity + Debt Draw + Interest = Cash Available`, then `Cash Available + Debt Paid + Dividend = Closing Cash`, an exact identity in every period.
+2. **The FCFE build-up did not foot, PDF only.** It started from FCFF, which already carries the terminal ENTERPRISE value, then added the terminal EQUITY value on top. The two are equal whenever debt at exit is zero, which is why it read plausibly. The screen, Excel and the IC report all had the correct list; the PDF was a fourth copy. See the shared builder below.
+3. **Three different "new debt" figures.** `528.4` = cash drawdown + capitalised interest = debt actually raised (what Sources & Uses uses); `469.2` = cash drawdown only. The executive summary printed the second under the first's name. It now prints 528.4 labelled "incl. capitalised interest"; the FCFE row keeps 469.2 labelled "(cash)", because capitalised interest is not a cash flow. **Correction worth keeping:** "only 528.4 reconciles peak debt" was true on this project but is NOT the general invariant. A project that draws and repays concurrently legitimately raises more than its peak. The verifier checks the roll-forward instead (`existing + raised - repaid == closing`).
+4. **Per-asset economics reported ZERO cost, 100% margin and a null yield on cost for every asset** on a project with 4.9bn of development cost. `perAssetCF.capexPerPeriod` is a POSITIVE magnitude while the project-level `directCF.capexPerPeriod` is negative, and the field carried no sign comment either way, so the engine's `Math.max(0, -sum(capex))` clamped everything to zero. Fixed at the call site with the convention now documented on both ends. Ships on screen too. Two rows still read 100% and are CORRECT: an existing operational asset whose spend is historical pre-capex, and a companion asset whose capex sits on its parent.
+5. **The summary PDF's P&L could not be added.** It printed cost of sales, opex, D&A, interest and tax POSITIVE beside a NEGATIVE fund fee row, so the column summed to 22,724.7 against a printed EBITDA of 4,683.6, and the one negative row made it look deliberate. The full report's P&L renders from the shared builder and was correct.
+6. **Cash balances and the standing minimum reserve were summed across periods** (the 50.0 reserve totalled 700.0). Stock rows now carry an explicit closing-value Total, on screen as well.
+
+`scripts/verify-report-arithmetic.ts` **78**, teeth proven by six sabotages.
+
+### Pass 2 (`3cea19dd`), readability and display scale
+
+**The export offered three display scales and only one produced a readable document.** Measured with the embedded font: the widest period cell needs 45.3pt at millions, 55.3pt at thousands and 71.5pt at full, against a hardcoded 52pt. A full-unit export ellipsised **3,867 numeric cells** in a real 14-year report ("323,870,..."), thousands ellipsised 43. Column geometry is now RESOLVED PER DOCUMENT from the widest cell it will actually draw, which required building all module content before rendering (the builders are pure, so it costs ordering only). **The trade is pages, and it falls only where the problem was: millions unchanged at 104pp, thousands and full 104 -> 140pp.** Wider numbers cost pages, never digits.
+
+**Labels: four causes, not one.** (a) the label column was too narrow (now 230pt minimum, growing to the document's longest label up to 320pt, then shrinking to 6.5pt before it will ever truncate; numeric cells never shrink, so a column stays uniform); (b) **the Inputs legend measured its text then handed that width to `drawCell`, which subtracts 4pt of padding a side** and so was always 6pt short, truncating on every Inputs page of every report ever produced; (c) **the executive summary narrative had the SAME bug**, wrapping to `CONTENT_W - 4` while drawing into `CONTENT_W - 8`; (d) grid tables used a fixed 28%/equal-share split which cut whichever column held the long strings. Result: zero ellipses anywhere, either document, all three scales.
+
+**Per-unit rates are deliberately NOT scaled.** Scaling an ADR of 268 renders "0.0", which destroys the figure rather than scaling it. What read as broken was an unlabelled 2,590,000 under a band saying "All figures in SAR millions", so every such column now names its unit: `Unit price / ADR (SAR/unit)`, `Rate (SAR/sqm)`, `ADR (SAR/night)`, `Indexed rate (SAR/sqm)`.
+
+**Signed zeros are gone.** A value that ROUNDS to zero at the displayed precision now prints the same en-dash an exact zero does, fixed in the shared `formatAccounting` so screen and PDF move together. 126 such cells in the full report and 13 in the summary, including a Balance Sheet cash line reading "(0.0)" and the reconciliation row captioned "Unexplained (must be 0)" showing "(0.0)".
+
+`scripts/verify-report-readability.ts` **55** over three scales x two documents x fixture and real project, teeth proven by six sabotages. Toggle-off proven byte-identical at ALL THREE scales, where it had only ever been checked at millions.
+
+### Pass 3 (`76ed9e50`), consistency and missing content
+
+- **F1/F3, one name per metric.** Two cards both read "Equity Multiple" (2.10x FCFE, 2.22x distributions), the second with no basis; and the same metric was "Dividend IRR" in the executive summary and "Distributed Equity IRR" on the next page. Fixed at the definition: the exec summary and the summary page now take the SHARED card list instead of writing their own.
+- **F2, gross vs net.** On a fund project every headline was GROSS while the Fund Layer page two pages later showed NET, with nothing saying which. Proven by forcing the hurdle to 0 (fee 623.6m): gross 7.1% / 2.22x against net 6.2% / 1.98x. Headlines are now net where a fee arises, captioned as such, with the gross named beside them; where no fee arises the document says so.
+- **F4**, every margin states its basis, and the appraisal profit against profit after tax (3.6x apart on adjacent pages) carries a bridge naming the three items an appraisal does not deduct. **F5**, the live terminal-value parameter is marked `(applied)` and the other `(not applied)`.
+- **G1/G2/G3**, both documents carry a Model Integrity Checks table (the full report had one BS row buried inside the balance sheet; the summary had nothing). Tolerance relative and PEAK-anchored. A sub-1.00x DSCR carries the breached-year count and a sentence, and a Lender Covenants table states threshold vs modelled vs verdict from the same `evaluateCovenant` the screen and workbook use.
+- **H1**, the model version prints on the cover, in every footer, and the comment when supplied. `ExportModal` already computed the label (it queries the chosen version row for it); the generator simply never read it, so the version picker changed only the filename.
+- **H2**, Module 5 tab numbers are DERIVED. Hardcoded, every project without scenarios printed headers and a ToC reading Tab 1, 2, 4, 5.
+- **H3**, Timeline, Land & Area, Fund Inputs, Lender Covenants and the two-way Sensitivity grid added. **Sensitivity is ENTITLEMENT-GATED**: it defaults to omitted and `ExportModal` passes the live gate, because an export must not contain what the plan cannot open on screen.
+- **H4/H5**, the executive summary states the fund fee in its cost story with its own KPI card, and the funding claim is scoped to NEW funding with the real capital mix beside it ("funded 100% debt / 0% equity" sat directly above a table showing 2,550.7 of equity).
+
+`scripts/verify-report-consistency.ts` **59**, teeth proven by five sabotages.
+
+### The two shared builders (the reason pass 1 item 2 happened at all)
+
+**`lib/reports/streamReports.ts`** is now the ONE definition of the FCFF / FCFE / Distributed Equity build-ups. The M5 screen, the Excel Returns tab, the IC report and the project PDF all consume it. The builder owns which rows exist, in what order, and which series each carries; a surface may restyle the wording through a label-override map, which is how the IC deck keeps its sentence case and `= FCFE, levered equity` with byte-identical output. The IC report guarded for an ABSENT `buildup` with optional chaining, so the builder tolerates missing series by contract (the first version did not, and crashed three deck verifiers).
+
+**`lib/reports/checksReport.ts`** is the ONE definition of the three integrity identities and their tolerance, consumed by both PDFs AND the workbook's Checks tab (the workbook's inline copy was folded in, proven byte-identical by a 176-cell fingerprint of the Checks sheet at two display scales). Its money formatter stays pinned to millions there so the extraction changed no rendered text; **that pinning is itself the same display-scale inconsistency pass 2 fixed elsewhere** (a full-unit export prints the residue in units and describes its peak in millions) and is left as a deliberate follow-up. The FAILURE wording now differs from the old Excel text; that branch does not render on a passing model, which is why the fingerprint is clean.
+
+### Two bugs pass 3 created, and one it uncovered
+
+- **The H2 renumbering would have SILENTLY DROPPED Module 5 content from real exports.** `ExportModal` seeds the tab selection from the static `PDF_MODULE_TABS` and the render filter matched the full numbered label, so a renumbered tab stopped matching. Tab identity is now the NAME (`pdfTabKey`), on both sides.
+- **PRE-EXISTING, found while fixing that: `Tab 5: Fund Layer` was never in `PDF_MODULE_TABS` at all.** Because the picker SEEDS the selection from that manifest, touching the per-tab picker on a fund project dropped the entire fund section from the exported PDF. Added.
+- **The first H2 check had no teeth**: it swept every `Tab N:` in the document, and Modules 1 to 4 supply 1 to 5 themselves, so a Module 5 gap was masked and the sabotage passed 58/58. Now scoped to the Module 5 running header. Same for H1, where the footer satisfied the cover assertion.
+
+Two existing verifiers had their PROXY invalidated rather than their intent, and were made more precise: `verify-fund-pdf`'s EBITDA-ordering used a whole-document first-occurrence search that the new exec-summary sentence "EBITDA is struck after them" inverted (now anchored on the P&L heading), and `verify-pdf-export`'s manifest check compares tab names rather than numbered labels.
+
+### Standing traps this review re-confirmed
+
+- **The working tree is CRLF.** Git Bash's `cat -A` does NOT show the `^M`, so a `\n`-anchored patch matches nothing while looking correct. Cost one silently-failed sabotage restore, caught on the diff.
+- **Shell escaping ate backslashes three times** in generated verifier code (`/\s+/` became `/s+/`, `/^Tab \d+:/` became `/^Tab d+:/`, and a `\uE0xx` map lost its keys). Each produced a verifier that ran and reported plausible results while matching nothing. Write generated code from a FILE, never from an inline `node -e` or heredoc with regex literals in it.
 
 ## 2026-08-11: ten-item workbook review, the two-model finding, and strategy-change reactivation
 
@@ -388,6 +451,9 @@ Active engine + composer coverage (run all on every meaningful change). **25 scr
 
 ```bash
 # M2 / M3 / M4 / M5 + financing (current daily loop)
+npx tsx scripts/verify-report-arithmetic.ts        # PDF review pass 1: the identities a reader would try (78)
+npx tsx scripts/verify-report-readability.ts       # PDF review pass 2: no truncation / signed zeros, ALL scales (55)
+npx tsx scripts/verify-report-consistency.ts       # PDF review pass 3: metric basis + missing sections (59)
 npx tsx scripts/verify-revenue-rebuild.ts         # M2 Sell + Hospitality + Lease + AR + UR
 npx tsx scripts/verify-escrow.ts                  # M2 Pass 9h escrow + cleanup
 npx tsx scripts/verify-cost-of-sales-v2.ts        # M2 Pass 9e + 9N cohort tail-catchup
