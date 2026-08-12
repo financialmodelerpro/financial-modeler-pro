@@ -195,11 +195,21 @@ export function formatScaledForExport(num: number | null | undefined, scale: Dis
 // every numeric cell. Rules:
 //   - null / undefined / NaN  -> empty string (cell renders blank)
 //   - exactly 0               -> en-dash "-" (no scale suffix)
+//   - ZERO AT DISPLAY PRECISION -> en-dash "-" as well (see below)
 //   - positive                -> "1,234,567" (or scaled)
 //   - negative                -> "(1,234,567)" (parentheses)
 // Scale division + decimals follow the same conventions as
 // formatScaledForExport: no K / M suffix per cell (scale is shown
 // once in the tab header line via currencyHeaderLine).
+//
+// 2026-08-12: a value that ROUNDS to zero at the display precision now prints
+// the same en-dash an exact zero does. It used to print "0.0" or, for a
+// negative residue, "(0.0)". A solver residue of -2e-7 is zero at one decimal
+// in millions, but it rendered as a parenthesised (negative) figure: the full
+// report carried 126 such cells and the summary 13, including a Balance Sheet
+// cash line reading "(0.0)" and the reconciliation row literally captioned
+// "Unexplained (must be 0)" showing "(0.0)". Rounding to zero and then printing
+// a sign is a statement the number does not support.
 export function formatAccounting(num: number | null | undefined, scale: DisplayScale = 'full', decimals?: number): string {
   if (num === null || num === undefined || isNaN(num as number)) return '';
   if (num === 0) return '-';
@@ -208,6 +218,9 @@ export function formatAccounting(num: number | null | undefined, scale: DisplayS
   if (scaled === 0) return '-';
   const abs = Math.abs(scaled);
   const d = decimals ?? SCALE_DECIMALS[scale];
+  // Round FIRST, at the precision actually shown, so "is this zero?" is asked
+  // of the rendered figure rather than of the underlying float.
+  if (Math.round(abs * 10 ** d) === 0) return '-';
   const text = abs.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
   return scaled < 0 ? `(${text})` : text;
 }

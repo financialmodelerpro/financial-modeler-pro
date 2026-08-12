@@ -147,15 +147,67 @@ const FOOTER_H = 24;
 const CONTENT_W = PAGE_W - 2 * MARGIN;
 const CONTENT_BOTTOM = MARGIN + FOOTER_H;
 
-const LABEL_COL_W = 188;
-const TOTAL_COL_W = 72;
-const PERIOD_COL_W = 52;
+// COLUMN GEOMETRY IS SIZED TO THE DOCUMENT, not fixed (2026-08-12).
+//
+// These were constants tuned for a millions export. At `thousands` the period
+// column was 3pt too narrow and at `full` it was 20pt too narrow, so pdf-lib's
+// fitText ellipsised the numbers: 43 truncated cells at thousands and 3,867 at
+// full in a real 14-year report, i.e. the export offered a scale whose output
+// could not be read. The widths below are MINIMA; `resolveMetrics` grows the
+// period and Total columns to whatever the widest cell in THIS document
+// actually needs, then re-derives how many periods fit on a page. Wider numbers
+// therefore cost pages, never digits.
+const LABEL_COL_W_MIN = 230;   // was 188; see the label-truncation note on fitText
+const LABEL_COL_W_MAX = 320;   // past this the label shrinks instead of the table growing
+const TOTAL_COL_W_MIN = 72;
+const PERIOD_COL_W_MIN = 52;
+const CELL_PAD_W = 8;          // drawCell pads 4pt each side
 const ROW_H = 14;
 const HEADER_ROW_H = 16;
 const TITLE_H = 18;
 const PART_H = 20;
 const SECTION_GAP = 10;
-const PERIODS_PER_PAGE = Math.max(1, Math.floor((CONTENT_W - LABEL_COL_W - TOTAL_COL_W) / PERIOD_COL_W));
+
+/** Resolved per-document table geometry. */
+interface TableMetrics { labelW: number; totalW: number; periodW: number; periodsPerPage: number }
+
+function makeMetrics(labelW: number, totalW: number, periodW: number): TableMetrics {
+  const usable = CONTENT_W - labelW - totalW;
+  return { labelW, totalW, periodW, periodsPerPage: Math.max(1, Math.floor(usable / periodW)) };
+}
+
+/**
+ * Widen the numeric columns until the widest cell this document will draw fits.
+ * Measured with the SAME font and size the cells are drawn at, so it is the
+ * real rendered width and not a digit-count guess.
+ */
+function resolveMetrics(items: readonly PdfItem[], fmt: Fmt, font: PDFFont, bold: PDFFont): TableMetrics {
+  let widestPeriod = 0, widestTotal = 0, widestLabel = 0;
+  const w = (s: string): number => Math.max(font.widthOfTextAtSize(s, 8), bold.widthOfTextAtSize(s, 8));
+  for (const item of items) {
+    if (item.type !== 'table' || item.table.kind !== 'period') continue;
+    for (const r of item.table.rows) {
+      // cells = [label, Total, prior, ...periods].
+      r.cells.forEach((c, k) => {
+        const s = fmt.cell(c ?? null);
+        if (!s) return;
+        const width = w(s);
+        if (k === 0) { if (width > widestLabel) widestLabel = width; }
+        else if (k === 1) { if (width > widestTotal) widestTotal = width; }
+        else if (width > widestPeriod) widestPeriod = width;
+      });
+    }
+  }
+  return makeMetrics(
+    // The label column grows too, up to a cap: at `full` scale the inline fund
+    // fee labels carry a 13-digit base ("0.50% of Total equity 2,550,682,386,
+    // 14 periods") and no sane fixed width holds them. Past the cap the label
+    // shrinks a point or two rather than the table eating the whole page.
+    Math.min(LABEL_COL_W_MAX, Math.max(LABEL_COL_W_MIN, Math.ceil(widestLabel + CELL_PAD_W))),
+    Math.max(TOTAL_COL_W_MIN, Math.ceil(widestTotal + CELL_PAD_W)),
+    Math.max(PERIOD_COL_W_MIN, Math.ceil(widestPeriod + CELL_PAD_W)),
+  );
+}
 
 const PART_LABEL: Record<PartKind, string> = { inputs: 'Inputs', outputs: 'Outputs', schedules: 'Schedules' };
 
@@ -188,6 +240,8 @@ interface Ctx {
   unitLabel: string;
   currentHeader?: string;
   nav: NavState;
+  /** Table geometry, resolved once per document from the widest cell it draws. */
+  metrics: TableMetrics;
 }
 
 function newPage(ctx: Ctx, headerTitle?: string): void {
@@ -223,18 +277,41 @@ function fitText(text: string, font: PDFFont, size: number, maxW: number): strin
   return t.slice(0, lo) + '…';
 }
 
+/**
+ * The smallest size in `[minSize, size]` at which `text` fits `maxW` whole,
+ * or `minSize` if it never does. Used for LABEL cells only: a truncated label
+ * loses the very thing it was added to say (the fund fee labels were cut at
+ * "Fund structure fee (0.50% of Fund size 5,3...", hiding the base amount the
+ * columnar block exists to disclose), whereas a label one point smaller than
+ * its neighbours is merely tighter. Numeric cells never shrink: they must stay
+ * uniform down a column, which is what the widening in `resolveMetrics` is for.
+ */
+function fitSize(text: string, font: PDFFont, size: number, minSize: number, maxW: number): number {
+  if (font.widthOfTextAtSize(text, size) <= maxW) return size;
+  for (let s = size - 0.25; s >= minSize; s -= 0.25) {
+    if (font.widthOfTextAtSize(text, s) <= maxW) return s;
+  }
+  return minSize;
+}
+
+const LABEL_MIN_SIZE = 6.5;
+
 function drawCell(
   ctx: Ctx, text: string, x: number, w: number, y: number,
-  opts: { align?: 'left' | 'right' | 'center'; font?: PDFFont; size?: number; color?: ReturnType<typeof rgb> },
+  opts: { align?: 'left' | 'right' | 'center'; font?: PDFFont; size?: number; color?: ReturnType<typeof rgb>; shrinkToFit?: boolean },
 ): void {
   const font = opts.font ?? ctx.font;
-  const size = opts.size ?? 8;
+  const baseSize = opts.size ?? 8;
   const color = opts.color ?? TEXT;
   const pad = 4;
-  const fitted = fitText(text, font, size, w - 2 * pad);
+  const maxW = w - 2 * pad;
+  const size = opts.shrinkToFit ? fitSize(text ?? '', font, baseSize, Math.min(LABEL_MIN_SIZE, baseSize), maxW) : baseSize;
+  const fitted = fitText(text, font, size, maxW);
   const tw = font.widthOfTextAtSize(fitted, size);
   const tx = opts.align === 'right' ? x + w - pad - tw : opts.align === 'center' ? x + (w - tw) / 2 : x + pad;
-  ctx.page.drawText(fitted, { x: tx, y: y + 4, size, font, color });
+  // Keep the baseline where an 8pt cell would sit so a shrunk label still lines
+  // up with the numbers on its own row.
+  ctx.page.drawText(fitted, { x: tx, y: y + 4 + (baseSize - size) * 0.3, size, font, color });
 }
 
 // ── Number formatting ─────────────────────────────────────────────────────────
@@ -266,6 +343,18 @@ function makeFmt(scale: DisplayScale, decimals?: number): Fmt {
   };
 }
 
+/**
+ * Suffix for a column of PER-UNIT rates (a unit sale price, an ADR, a rate per
+ * sqm). These are the one class of money in the report that does NOT follow the
+ * export scale, and deliberately: an ADR of 268 becomes "0.0" in a millions
+ * export, which destroys the figure rather than scaling it. Leaving them raw is
+ * right; leaving them raw AND unlabelled, under a header band that says "All
+ * figures in SAR millions", is what read as broken. So they carry their unit.
+ */
+function rateUnit(currency: string, per = 'unit'): string {
+  return `(${currency}/${per})`;
+}
+
 function unitLabel(currency: string, scale: DisplayScale): string {
   if (scale === 'thousands') return `All figures in ${currency} '000`;
   if (scale === 'millions') return `All figures in ${currency} millions`;
@@ -273,7 +362,7 @@ function unitLabel(currency: string, scale: DisplayScale): string {
 }
 
 // ── Drawing primitives ──────────────────────────────────────────────────────
-function chunkRanges(nPeriods: number): Array<[number, number]> {
+function chunkRanges(nPeriods: number, PERIODS_PER_PAGE: number): Array<[number, number]> {
   const out: Array<[number, number]> = [];
   for (let s = 0; s < Math.max(1, nPeriods); s += PERIODS_PER_PAGE) out.push([s, Math.min(nPeriods, s + PERIODS_PER_PAGE)]);
   return out.length ? out : [[0, 0]];
@@ -309,13 +398,21 @@ function drawPartHeader(ctx: Ctx, label: string, hint?: string): void {
     const noteW = ctx.font.widthOfTextAtSize(hint, 7);
     const swX = MARGIN + CONTENT_W - noteW - 14;
     ctx.page.drawRectangle({ x: swX, y: ctx.y + 6, width: 8, height: 8, color: FAST_FILL, borderColor: FAST_BORDER, borderWidth: 0.5 });
-    drawCell(ctx, hint, swX + 12, noteW + 2, ctx.y + 2, { size: 7, color: MUTED });
+    // + 2 * pad, because drawCell subtracts 4pt of padding from EACH side of the
+    // width it is handed. Passing the bare text width made the box 6pt too
+    // narrow, so this legend was ellipsised ("... model inputs / assumpt...") on
+    // every Inputs page in the report, every time.
+    drawCell(ctx, hint, swX + 12, noteW + 2 + 8, ctx.y + 2, { size: 7, color: MUTED });
   }
   ctx.y -= 4;
 }
 
 function drawParagraph(ctx: Ctx, text: string, size = 9): void {
-  const maxW = CONTENT_W - 4;
+  // Wrap against the width drawCell will ACTUALLY have after its 4pt-a-side
+  // padding. Wrapping to CONTENT_W - 4 while drawing into CONTENT_W - 8 let a
+  // full line overflow by up to 4pt and get ellipsised, which is how the
+  // executive summary narrative lost its last few words on some projects.
+  const maxW = CONTENT_W - 2 * 4;
   const words = text.split(' ');
   let line = '';
   const flush = (): void => {
@@ -356,18 +453,48 @@ function drawGridTable(ctx: Ctx, table: PdfTable, fmt: Fmt, isInput = false): vo
   drawTitle(ctx, table.title);
   const nCols = table.columns.length;
   const dataAlign = table.align !== 'kv';
-  // Multi-column data grids get a narrower label column so the number columns
-  // are wide enough to show scaled figures without truncation (fixes the
-  // "36,820,510,001,…" overflow). KV (2-col) keeps a wide value column.
-  const firstW = nCols <= 2 ? Math.min(320, CONTENT_W * 0.45) : Math.min(220, CONTENT_W * 0.28);
-  const restW = (CONTENT_W - firstW) / Math.max(1, nCols - 1);
-  const colX = (i: number): number => MARGIN + (i === 0 ? 0 : firstW + (i - 1) * restW);
-  const colW = (i: number): number => (i === 0 ? firstW : restW);
+  // COLUMN WIDTHS FOLLOW THE CONTENT. These used to be a fixed split (a 28%
+  // first column, the rest shared equally), which truncated whichever column
+  // happened to hold the long strings: at `full` scale the percent-line basis
+  // cells read "93,250,000 of selected li..." and a longer header could not fit
+  // at all. Each column now asks for what its widest cell needs; if the asks fit
+  // the page the slack is shared, and if they do not, every column is scaled
+  // down together and `shrinkToFit` takes up the remainder. Nothing is cut.
+  const widest = (i: number): number => {
+    let w = ctx.bold.widthOfTextAtSize(table.columns[i] ?? '', 8);
+    for (const r of table.rows) {
+      const s = fmt.cell(r.cells[i] ?? null);
+      if (!s) continue;
+      const cw = Math.max(ctx.font.widthOfTextAtSize(s, 8), ctx.bold.widthOfTextAtSize(s, 8));
+      if (cw > w) w = cw;
+    }
+    return w + CELL_PAD_W;
+  };
+  const asks = table.columns.map((_, i) => widest(i));
+  const totalAsk = asks.reduce((s, v) => s + v, 0);
+  const widths = totalAsk <= CONTENT_W
+    // Everything fits: share the slack, weighted, so the table still fills the
+    // page instead of huddling on the left.
+    ? asks.map((a) => a + (CONTENT_W - totalAsk) * (a / totalAsk))
+    // Over budget: scale proportionally. A minimum keeps a narrow column
+    // (a "Yes" flag) from collapsing to nothing when a neighbour is huge.
+    : (() => {
+      const floor = Math.min(36, CONTENT_W / nCols);
+      const fixed = asks.map((a) => Math.min(a, floor));
+      const fixedSum = fixed.reduce((s, v) => s + v, 0);
+      const flex = asks.map((a, i) => a - fixed[i]);
+      const flexSum = flex.reduce((s, v) => s + v, 0) || 1;
+      const room = Math.max(0, CONTENT_W - fixedSum);
+      return asks.map((_, i) => fixed[i] + room * (flex[i] / flexSum));
+    })();
+  const offsets = widths.reduce<number[]>((acc, w, i) => { acc[i + 1] = acc[i] + w; return acc; }, [0]);
+  const colX = (i: number): number => MARGIN + offsets[i];
+  const colW = (i: number): number => widths[i];
   const drawHeader = (): void => {
     ensureSpace(ctx, HEADER_ROW_H);
     ctx.y -= HEADER_ROW_H;
     ctx.page.drawRectangle({ x: MARGIN, y: ctx.y, width: CONTENT_W, height: HEADER_ROW_H, color: NAVY });
-    table.columns.forEach((c, i) => drawCell(ctx, c, colX(i), colW(i), ctx.y, { align: i === 0 || !dataAlign ? 'left' : 'right', font: ctx.bold, size: 8, color: WHITE }));
+    table.columns.forEach((c, i) => drawCell(ctx, c, colX(i), colW(i), ctx.y, { align: i === 0 || !dataAlign ? 'left' : 'right', font: ctx.bold, size: 8, color: WHITE, shrinkToFit: true }));
   };
   drawHeader();
   for (const r of table.rows) {
@@ -387,7 +514,7 @@ function drawGridTable(ctx: Ctx, table: PdfTable, fmt: Fmt, isInput = false): vo
     r.cells.forEach((cell, i) => {
       const align: 'left' | 'right' = i === 0 ? 'left' : dataAlign ? 'right' : 'left';
       const color = shadeInputs && i >= 1 ? FAST_TEXT : st.color;
-      drawCell(ctx, fmt.cell(cell), colX(i), colW(i), ctx.y, { align, font: st.bold ? ctx.bold : ctx.font, size: 8, color });
+      drawCell(ctx, fmt.cell(cell), colX(i), colW(i), ctx.y, { align, font: st.bold ? ctx.bold : ctx.font, size: 8, color, shrinkToFit: true });
     });
   }
   ctx.y -= SECTION_GAP;
@@ -395,19 +522,20 @@ function drawGridTable(ctx: Ctx, table: PdfTable, fmt: Fmt, isInput = false): vo
 
 function drawPeriodTable(ctx: Ctx, table: PdfTable, fmt: Fmt, isInput = false): void {
   const periodHeaders = table.columns.slice(2); // [priorYear, ...years]
-  const ranges = chunkRanges(periodHeaders.length);
+  const { labelW, totalW, periodW, periodsPerPage } = ctx.metrics;
+  const ranges = chunkRanges(periodHeaders.length, periodsPerPage);
   ranges.forEach(([from, to], ci) => {
     const chunkCount = to - from;
-    const totalRowW = LABEL_COL_W + TOTAL_COL_W + chunkCount * PERIOD_COL_W;
-    const colX = (k: number): number => k === 0 ? MARGIN : k === 1 ? MARGIN + LABEL_COL_W : MARGIN + LABEL_COL_W + TOTAL_COL_W + (k - 2) * PERIOD_COL_W;
-    const colW = (k: number): number => (k === 0 ? LABEL_COL_W : k === 1 ? TOTAL_COL_W : PERIOD_COL_W);
+    const totalRowW = labelW + totalW + chunkCount * periodW;
+    const colX = (k: number): number => k === 0 ? MARGIN : k === 1 ? MARGIN + labelW : MARGIN + labelW + totalW + (k - 2) * periodW;
+    const colW = (k: number): number => (k === 0 ? labelW : k === 1 ? totalW : periodW);
     const headerLabels = ['', 'Total', ...periodHeaders.slice(from, to)];
     drawTitle(ctx, ci === 0 ? table.title : `${table.title} (continued)`);
     const drawHeader = (): void => {
       ensureSpace(ctx, HEADER_ROW_H);
       ctx.y -= HEADER_ROW_H;
       ctx.page.drawRectangle({ x: MARGIN, y: ctx.y, width: totalRowW, height: HEADER_ROW_H, color: NAVY });
-      headerLabels.forEach((c, k) => drawCell(ctx, c, colX(k), colW(k), ctx.y, { align: k === 0 ? 'left' : 'right', font: ctx.bold, size: 8, color: WHITE }));
+      headerLabels.forEach((c, k) => drawCell(ctx, c, colX(k), colW(k), ctx.y, { align: k === 0 ? 'left' : 'right', font: ctx.bold, size: 8, color: WHITE, shrinkToFit: true }));
     };
     drawHeader();
     for (const r of table.rows) {
@@ -422,7 +550,7 @@ function drawPeriodTable(ctx: Ctx, table: PdfTable, fmt: Fmt, isInput = false): 
           ctx.page.drawRectangle({ x: colX(k), y: ctx.y, width: colW(k), height: ROW_H, color: FAST_FILL, borderColor: FAST_BORDER, borderWidth: 0.5 });
         }
       }
-      cells.forEach((cell, k) => drawCell(ctx, fmt.cell(cell ?? null), colX(k), colW(k), ctx.y, { align: k === 0 ? 'left' : 'right', font: st.bold ? ctx.bold : ctx.font, size: 8, color: shadeInputs && k >= 1 ? FAST_TEXT : st.color }));
+      cells.forEach((cell, k) => drawCell(ctx, fmt.cell(cell ?? null), colX(k), colW(k), ctx.y, { align: k === 0 ? 'left' : 'right', font: st.bold ? ctx.bold : ctx.font, size: 8, color: shadeInputs && k >= 1 ? FAST_TEXT : st.color, shrinkToFit: k === 0 }));
     }
     ctx.y -= SECTION_GAP;
   });
@@ -863,7 +991,7 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       if (!su.length) continue;
       items.push(tTable('Tab 2: Assets & Sub-units', 'inputs', {
         title: `Sub-units, ${a.name}`, kind: 'grid', align: 'data',
-        columns: ['Sub-unit', 'Category', 'Metric', 'Qty', 'Unit price / ADR'],
+        columns: ['Sub-unit', 'Category', 'Metric', 'Qty', `Unit price / ADR ${rateUnit(p.currency ?? 'SAR')}`],
         rows: su.map((u) => row([u.name, u.category, u.metric, u.metric === 'area' ? fmt.area(u.metricValue) : fmt.int(u.metricValue), fmt.int(u.startingAdr ?? u.unitPrice ?? 0)])),
       }));
     }
@@ -890,7 +1018,7 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
   for (const ia of capexReport.inputAssets) {
     items.push(tTable('Tab 3: Capex', 'inputs', {
       title: `Cost Lines, ${ia.assetName} (${ia.phaseName})`, kind: 'grid', align: 'data',
-      columns: ['Cost line', 'Stage', 'Basis (multiplier)', 'Rate / Value', 'Quantity / Basis', 'Amount'],
+      columns: ['Cost line', 'Stage', 'Basis (multiplier)', `Rate / Value ${rateUnit(p.currency ?? 'SAR')}`, 'Quantity / Basis', 'Amount'],
       rows: ia.lines.map((l) => row([l.name, l.stage, l.basis, rateCell(l), basisCell(l), fmt.money(l.amount)]))
         .concat([row([`Total, ${ia.assetName}`, '', '', '', '', fmt.money(ia.total)], 'subtotal')]),
     }));
@@ -932,7 +1060,7 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
   if (state.parcels.length) {
     items.push(tTable('Tab 4: Financing / Inputs', 'inputs', {
       title: 'Land Funding per Parcel', kind: 'grid', align: 'data',
-      columns: ['Parcel', 'Area (sqm)', 'Rate', 'Cash %', 'In-kind %', 'Cash value'],
+      columns: ['Parcel', 'Area (sqm)', `Rate ${rateUnit(p.currency ?? 'SAR', 'sqm')}`, 'Cash %', 'In-kind %', 'Cash value'],
       rows: state.parcels.map((pa) => row([pa.name, fmt.area(pa.area), fmt.int(pa.rate), fmt.pctRaw(pa.cashPct, 0), fmt.pctRaw(pa.inKindPct, 0), fmt.money(pa.area * pa.rate * (pa.cashPct / 100))])),
     }));
   }
@@ -1027,6 +1155,7 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
   const yl = snap.yearLabels;
   const rev = snap.revenue;
   const assetName = (id: string): string => state.assets.find((a) => a.id === id)?.name ?? id;
+  const cur = state.project.currency ?? 'SAR';
   const items: ModuleContent = [];
 
   // Tab 1: Revenue Inputs.
@@ -1040,8 +1169,8 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
         const recog = s?.recognitionProfile?.method === 'point_in_time' ? `PIT (${s?.recognitionProfile?.pointInTimeYear ?? 'handover'})` : 'Over time';
         return row([a.name, a.strategy, `Recognition: ${recog}`, indexLabel(s?.indexation)]);
       }
-      if (a.strategy === 'Operate') return row([a.name, a.strategy, `Starting ADR ${fmt.int(a.revenue?.operate?.startingADR ?? 0)}`, indexLabel(a.revenue?.operate?.adrIndexation)]);
-      return row([a.name, 'Lease', `Base rate ${fmt.int(a.revenue?.lease?.baseRate ?? 0)}`, indexLabel(a.revenue?.lease?.rentIndexation)]);
+      if (a.strategy === 'Operate') return row([a.name, a.strategy, `Starting ADR ${fmt.int(a.revenue?.operate?.startingADR ?? 0)} ${rateUnit(cur, 'night')}`, indexLabel(a.revenue?.operate?.adrIndexation)]);
+      return row([a.name, 'Lease', `Base rate ${fmt.int(a.revenue?.lease?.baseRate ?? 0)} ${rateUnit(cur, 'sqm')}`, indexLabel(a.revenue?.lease?.rentIndexation)]);
     }),
   }));
   for (const a of state.assets) {
@@ -1113,7 +1242,7 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       strPeriodRow('Available room nights', r.availableRoomNightsPerPeriod.map((v) => fmt.int(v))),
       strPeriodRow('Occupied room nights', r.occupiedRoomNightsPerPeriod.map((v) => fmt.int(v))),
       strPeriodRow('Occupancy %', r.occupancyPerPeriod.map((v) => fmt.pct(v, 1))),
-      strPeriodRow('ADR', r.adrPerPeriod.map((v) => fmt.int(v))),
+      strPeriodRow(`ADR ${rateUnit(cur, 'night')}`, r.adrPerPeriod.map((v) => fmt.int(v))),
       periodRow('Rooms revenue', r.roomsRevenuePerPeriod, 'sum'),
       periodRow('F&B revenue', r.fbRevenuePerPeriod, 'sum'),
       periodRow('Other revenue', r.otherRevenuePerPeriod, 'sum'),
@@ -1125,7 +1254,7 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable(`Lease, ${assetName(id)}`, py, yl, [
       strPeriodRow('Occupied area (sqm)', r.occupiedAreaPerPeriod.map((v) => fmt.area(v))),
       strPeriodRow('Occupancy %', r.occupancyPerPeriod.map((v) => fmt.pct(v, 1))),
-      strPeriodRow('Indexed rate', r.indexedRatePerPeriod.map((v) => fmt.int(v))),
+      strPeriodRow(`Indexed rate ${rateUnit(cur, 'sqm')}`, r.indexedRatePerPeriod.map((v) => fmt.int(v))),
       periodRow('Total revenue', r.totalRevenuePerPeriod, 'sum', 'total'),
     ])));
   }
@@ -1929,6 +2058,10 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
     // report; enabled only when at least one module is selected, so the
     // cover-plus-executive-summary (empty selection) output is unchanged.
     nav: { ...disabledNav(), enabled: selectedKeys.size > 0 },
+    // Minimum geometry until the modules are built and measured below. The
+    // executive summary draws only cards and grid tables, which size their own
+    // columns, so nothing before that point depends on this.
+    metrics: makeMetrics(LABEL_COL_W_MIN, TOTAL_COL_W_MIN, PERIOD_COL_W_MIN),
   };
 
   // Case comparison + year-on-year impact (Modules 5 & 6) are computed once from
@@ -1968,9 +2101,14 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
     renderSectionBreak(ctx, mod);
     return mod;
   };
+  // BUILD EVERY MODULE FIRST, then size the columns, then render. The builders
+  // are pure, so this costs nothing but ordering, and it is what lets the period
+  // column be sized to the widest cell the WHOLE document will draw rather than
+  // to a constant tuned for one display scale.
+  const planned: Array<{ m: ModuleConfig; content: ModuleContent | null }> = [];
   for (const m of MODULES) {
     if (!selectedKeys.has(m.key)) continue;
-    if (!BUILT.has(m.key)) { beginModule(m); renderPlaceholderModule(ctx, m); ctx.nav.current = null; continue; }
+    if (!BUILT.has(m.key)) { planned.push({ m, content: null }); continue; }
     let content: ModuleContent | null = null;
     if (m.key === 'module1') content = buildModule1(snap, opts.state, fmt, py);
     else if (m.key === 'module2') content = buildModule2(snap, opts.state, fmt, py);
@@ -1985,6 +2123,19 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
     // Inputs/Schedules/Outputs filter + per-tab selection leave it with nothing to
     // render, so nav lists only included content with no dangling links.
     if (!renderableContent(content, sel[m.key] ?? {}, opts.moduleTabs?.[m.key]).length) continue;
+    planned.push({ m, content });
+  }
+  // Size from the items that will ACTUALLY render (after the part / tab filter),
+  // so a hidden outsized table cannot widen the whole report.
+  ctx.metrics = resolveMetrics(
+    planned.flatMap(({ m, content }) => content
+      ? renderableContent(content, sel[m.key] ?? {}, opts.moduleTabs?.[m.key]).map((t) => t.item)
+      : []),
+    fmt, font, bold,
+  );
+
+  for (const { m, content } of planned) {
+    if (!content) { beginModule(m); renderPlaceholderModule(ctx, m); ctx.nav.current = null; continue; }
     beginModule(m);
     renderModule(ctx, `Module ${m.num}: ${m.longLabel}`, content, sel[m.key] ?? {}, fmt, opts.moduleTabs?.[m.key]);
     ctx.nav.current = null;
@@ -2114,6 +2265,7 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
     // The concise summary PDF carries no ToC / section breaks / outline (nav
     // aids are scoped to the full report), so nav stays disabled here.
     nav: disabledNav(),
+    metrics: makeMetrics(LABEL_COL_W_MIN, TOTAL_COL_W_MIN, PERIOD_COL_W_MIN),
   };
 
   // Scenario summary is shown in the exec summary when the caller supplies the
@@ -2123,15 +2275,15 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
     try { caseReport = buildCaseComparisonReport(opts.caseComparison); } catch { caseReport = null; }
   }
 
+  const py = snap.projectStartYear - 1;
+  const yl = snap.yearLabels;
+  const { pl, directCF: cf, bs } = snap;
+
   // Cover + executive summary (narrative + KPI cards + composition + structure).
   drawCover(ctx, opts.projectName, 'Real Estate Financial Model / Executive Summary', opts.dateLabel);
   newPage(ctx, 'Executive Summary');
   ctx.currentHeader = 'Executive Summary';
   buildExecSummary(ctx, snap, returns, opts.state, fmt, caseReport);
-
-  const py = snap.projectStartYear - 1;
-  const yl = snap.yearLabels;
-  const { pl, directCF: cf, bs } = snap;
 
   // Key inputs + the headline financial statements (summary lines only).
   newPage(ctx, 'Key Inputs & Financial Summary');
@@ -2151,7 +2303,7 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
   // revenue less the printed deductions missed the printed EBITDA by twice their
   // value, and the one negative row made it look deliberate.
   const negate = (a: number[]): number[] => a.map((v) => -(v ?? 0));
-  drawItem(ctx, { type: 'table', table: periodTable('Profit & Loss (summary)', py, yl, [
+  const plTable = periodTable('Profit & Loss (summary)', py, yl, [
     periodRow('Total revenue', pl.totalRevenuePerPeriod, 'sum'),
     periodRow('Cost of sales', negate(pl.cosPerPeriod), 'sum'),
     periodRow('Operating expenses', negate(pl.totalOpexPerPeriod), 'sum'),
@@ -2171,8 +2323,8 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
     periodRow('Profit before tax', pl.pbtPerPeriod, 'sum', 'subtotal'),
     periodRow('Tax / Zakat', negate(pl.taxPerPeriod), 'sum'),
     periodRow('Profit after tax', pl.patPerPeriod, 'sum', 'total'),
-  ]) }, fmt);
-  drawItem(ctx, { type: 'table', table: periodTable('Cash Flow (summary)', py, yl, [
+  ]);
+  const cfTable = periodTable('Cash Flow (summary)', py, yl, [
     // Same reason as the P&L above: the fee is already inside cash from
     // operations (that is how it reaches the funding requirement), so without
     // its own line the operating figure is right and unexplainable.
@@ -2184,15 +2336,28 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
     periodRow('Cash from financing', cf.cashFromFinancingPerPeriod, 'sum', 'subtotal'),
     periodRow('Net cash flow', cf.netCashFlowPerPeriod, 'sum'),
     periodRow('Closing cash', cf.closingCashPerPeriod, 'last', 'total'),
-  ]) }, fmt);
-  drawItem(ctx, { type: 'table', table: periodTable('Balance Sheet (summary)', py, yl, [
+  ]);
+  const bsTable = periodTable('Balance Sheet (summary)', py, yl, [
     periodRow('Cash', bs.cashPerPeriod, 'last', undefined, bs.historicalOpeningCashTotal),
     periodRow('Total assets', bs.totalAssetsPerPeriod, 'last', 'subtotal'),
     periodRow('Debt outstanding', bs.debtOutstandingPerPeriod, 'last', undefined, snap.financing.existing.debtOutstandingTotal),
     periodRow('Total liabilities', bs.totalLiabilitiesPerPeriod, 'last', 'subtotal'),
     periodRow('Total equity', bs.totalEquityPerPeriod, 'last', 'subtotal'),
     periodRow('Liabilities + equity', bs.totalLiabilitiesAndEquityPerPeriod, 'last', 'total'),
-  ]) }, fmt);
+  ]);
+  // Size the columns to these three statements plus the fund block below, then
+  // draw. Same rule as the full report: at `full` scale a 10-digit figure does
+  // not fit a 52pt column, and the answer is a wider column, never a shorter
+  // number.
+  const summaryFundBlock = buildFundBlock(snap, returns, opts.state, fmt, py);
+  ctx.metrics = resolveMetrics(
+    [plTable, cfTable, bsTable, ...summaryFundBlock.flatMap((b) => (b.table ? [b.table] : []))]
+      .map((table) => ({ type: 'table', table } as PdfItem)),
+    fmt, font, bold,
+  );
+  drawItem(ctx, { type: 'table', table: plTable }, fmt);
+  drawItem(ctx, { type: 'table', table: cfTable }, fmt);
+  drawItem(ctx, { type: 'table', table: bsTable }, fmt);
 
   // Returns & valuation (KPI cards).
   if (returns) {
@@ -2231,7 +2396,7 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
   // Fund layer. Its own page, from the SAME shared block the full report
   // renders, so the summary cannot show a different waterfall from the report
   // it summarises. Nothing renders on a standalone project.
-  const fundBlock = buildFundBlock(snap, returns, opts.state, fmt, py);
+  const fundBlock = summaryFundBlock;
   if (fundBlock.length > 0) {
     newPage(ctx, 'Fund Layer');
     ctx.currentHeader = 'Fund Layer';

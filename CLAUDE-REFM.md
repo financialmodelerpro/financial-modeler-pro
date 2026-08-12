@@ -47,7 +47,7 @@ Now the outgoing strategy's sub-units, opex and companion are PARKED in `Asset.r
 
 **The design point: retention sits OFF TO ONE SIDE, not as a filter over the live arrays.** `state.subUnits` / `costLines` / `costOverrides` still contain ONLY the active strategy's rows, exactly as before, so none of the roughly forty engine and UI readers had to learn to filter, and none can drift. The dropdown previews via a DRY RUN of the same pure function the store commits, so the dialog cannot promise something other than what happens, then a `strategyReview` banner persists across navigation until dismissed, because the empty assumptions live on other tabs.
 
-`verify-strategy-switch` **82**, teeth proven by three sabotages (4, 12 and 7 failures). The round-trip identity deliberately EXCLUDES `retainedByStrategy`: after A to B to A the asset correctly remembers B, so that a second visit restores rather than re-seeds. The bank is asserted separately so the exclusion hides nothing.
+`verify-strategy-switch` **54 passed + 1 PRE-EXISTING FAILURE** ("the fixture exercises Sell + Manage (a companion exists to lose)", the fixture builds no companion so the Sell + Manage clauses never run; measured 2026-08-12 and confirmed pre-existing by stashing unrelated changes. The long-recorded 82 was stale). Teeth proven by three sabotages (4, 12 and 7 failures). The round-trip identity deliberately EXCLUDES `retainedByStrategy`: after A to B to A the asset correctly remembers B, so that a second visit restores rather than re-seeds. The bank is asserted separately so the exclusion hides nothing.
 
 ### Fund fee basis block, follow-up the same day
 
@@ -61,7 +61,7 @@ A **flat-amount fee is now ONE row**: its basis and its charge are the same quan
 
 **Toggle-off proven on the FIXTURE, not the real project.** The saved FMP RE HUB version is edited IN PLACE (same label, same `created_at`, different `snapshot`), so a baseline captured against it drifts mid-session and reads as an engine regression. Measured: 17,230 cells across 17 sheets at two display scales plus both PDFs at 8,316 decoded lines, identical except Checks / Returns / Summary, which are exactly items 1 to 3, with zero fund labels anywhere. A later run at 18,020 entries including every column width was byte-identical.
 
-`verify-excel-export` 301 -> **304**, `verify-fund-excel` 69 -> **75**, `verify-fund-fee-income` 107 -> **109**, `verify-tab2-fixes` 47, `verify-strategy-switch` **82** (new). Commits `9eb7f9ab` and `7b9deb2a`.
+`verify-excel-export` 301 -> **304**, `verify-fund-excel` 69 -> **75**, `verify-fund-fee-income` 107 -> **109**, `verify-tab2-fixes` 47, `verify-strategy-switch` **54 + 1 pre-existing failure** (new; see the Module 1 entry above, the 82 recorded here at the time was stale). Commits `9eb7f9ab` and `7b9deb2a`.
 
 ## 2026-08-04: Fund Terms tab, Fund Manager entity + model-read facility limit
 
