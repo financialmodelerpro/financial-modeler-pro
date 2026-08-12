@@ -17,6 +17,7 @@
  * No em dashes in this file.
  */
 
+import { buildFcffBuildup, buildFcfeBuildup } from './streamReports';
 import type { Project, Asset, Phase, ProjectCase, SubUnit } from '../state/module1-types';
 import { FUNDING_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
 import type { ReturnsSnapshot } from '../returns-resolvers';
@@ -637,16 +638,34 @@ export function buildICReportModel(input: {
   };
   const streamsHaveData = S > 0 && Array.isArray(rs.fcffPerPeriod) && rs.fcffPerPeriod.length > 0;
 
+  // The IC deck writes its own house wording; the shared builder owns which
+  // rows exist, in what order, and which series each carries. An unmapped
+  // label falls through, so a new shared row appears here rather than
+  // disappearing silently.
+  const IC_STREAM_LABELS = {
+    '(-) Historical Development Investment': '(-) Historical development investment',
+    '(+) Cash from Operations': '(+) Cash from operations',
+    '(+) Cash from Investing (new capex)': '(+) Cash from investing (new capex)',
+    '(+) Terminal Enterprise Value': '(+) Terminal enterprise value',
+    '= FCFF (unlevered project)': '= FCFF, unlevered project',
+    '(-) Existing Equity Investment (at inception)': '(-) Existing equity investment (at inception)',
+    '(-) In-Kind Equity Investment': '(-) In-kind equity investment',
+    '(+) Debt Drawdown (cash)': '(+) Debt drawdown',
+    '(-) Principal Repayment': '(-) Principal repayment',
+    '(-) Interest Paid': '(-) Interest paid',
+    '(+) Terminal Equity Value': '(+) Terminal equity value',
+    '= FCFE (levered equity)': '= FCFE, levered equity',
+    '(-) New Cash Equity Investment': '(-) New cash equity investment',
+    '(+) Dividends Distributed (cash-sweep waterfall)': '(+) Dividends distributed (cash-sweep waterfall)',
+  } as const;
+  const icStreamRow = (label: string, series: number[], opts: { indent?: number; isTotal?: boolean }): ICScheduleRow =>
+    streamRow(label, series, { indent: opts.indent, emphasis: opts.isTotal });
   const fcffSchedule: ICScheduleBlock = {
     years: [...streamYears],
     hasInception: true,
     showTotal: true,
     rows: [
-      streamRow('(-) Historical development investment', bu?.existingPreCapexPerPeriod, { indent: 1 }),
-      streamRow('(+) Cash from operations', bu?.cfoPerPeriod, { indent: 1 }),
-      streamRow('(+) Cash from investing (new capex)', bu?.cfiPerPeriod, { indent: 1 }),
-      streamRow('(+) Terminal enterprise value', bu?.terminalEnterprisePerPeriod, { indent: 1 }),
-      streamRow('= FCFF, unlevered project', rs.fcffPerPeriod, { emphasis: true }),
+      ...buildFcffBuildup(rs, icStreamRow, IC_STREAM_LABELS),
       cumulativeRow('Memo: cumulative FCFF', rs.fcffPerPeriod),
     ],
     hasData: streamsHaveData,
@@ -657,15 +676,7 @@ export function buildICReportModel(input: {
     hasInception: true,
     showTotal: true,
     rows: [
-      streamRow('(-) Existing equity investment (at inception)', bu?.existingEquityPerPeriod, { indent: 1 }),
-      streamRow('(+) Cash from operations', bu?.cfoPerPeriod, { indent: 1 }),
-      streamRow('(+) Cash from investing (new capex)', bu?.cfiPerPeriod, { indent: 1 }),
-      streamRow('(-) In-kind equity investment', bu?.inKindLandPerPeriod, { indent: 1 }),
-      streamRow('(+) Debt drawdown', bu?.debtDrawPerPeriod, { indent: 1 }),
-      streamRow('(-) Principal repayment', bu?.principalRepayPerPeriod, { indent: 1 }),
-      streamRow('(-) Interest paid', bu?.interestPaidPerPeriod, { indent: 1 }),
-      streamRow('(+) Terminal equity value', bu?.terminalEquityPerPeriod, { indent: 1 }),
-      streamRow('= FCFE, levered equity', rs.fcfePerPeriod, { emphasis: true }),
+      ...buildFcfeBuildup(rs, icStreamRow, IC_STREAM_LABELS),
       cumulativeRow('Memo: cumulative FCFE', rs.fcfePerPeriod),
     ],
     hasData: streamsHaveData,

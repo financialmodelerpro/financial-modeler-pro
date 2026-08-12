@@ -45,6 +45,11 @@ export const PDF_MODULE_TABS: Record<string, string[]> = {
     'Tab 2: RE Metrics',
     'Tab 3: Case Comparison',
     'Tab 4: Cash Flow Streams',
+    // Fund Layer renders only on a fund project. It was MISSING here, so the
+    // per-tab picker never listed it and, because the picker seeds the
+    // selection from this manifest, touching the picker dropped the entire
+    // fund section from the exported PDF.
+    'Tab 5: Fund Layer',
   ],
   module6: [
     'Tab 1: Cases & Assumptions',

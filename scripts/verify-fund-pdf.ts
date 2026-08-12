@@ -88,6 +88,15 @@ function waterfallInOrder(txt: string, order: readonly string[]): { ok: boolean;
   return { ok, detail: order.map((l, i) => `${l}@${idx[i]}`).join(' ') };
 }
 
+/** Index of `needle` at or after the P&L statement heading, so document prose
+ *  cannot stand in for a statement row. */
+const atPL = (txt: string, needle: string): number => {
+  const lines = txt.split('\n');
+  const start = lines.findIndex((l) => /Income Statement|Profit & Loss/.test(l));
+  const from = start < 0 ? 0 : start;
+  const i = lines.slice(from).findIndex((l) => l.includes(needle));
+  return i < 0 ? -1 : from + i;
+};
 async function main(): Promise<void> {
   console.log('=== Fund layer in the PDF exports ===\n');
 
@@ -168,7 +177,7 @@ async function main(): Promise<void> {
     /\d\.\d\d% of (Fund size|Opening NAV|Facility limit)/.test(full));
   check('full PDF: Total Fund Management Fee', full.includes('Total Fund Management Fee'));
   check('full PDF: EBITDA is struck AFTER the fee line',
-    at(full, 'Total Fund Management Fee') >= 0 && at(full, 'Total Fund Management Fee') < at(full, 'EBITDA'));
+    atPL(full, 'Total Fund Management Fee') >= 0 && atPL(full, 'Total Fund Management Fee') < atPL(full, 'EBITDA'));
   check('full PDF: the cash flow fee row', full.includes('Fund Management and Other Expenses'));
   check('full PDF: the Fund Fee Basis block', full.includes('Fund Fee Basis'));
   check('full PDF: every waterfall row is present', FUND_WATERFALL_ROW_ORDER.every((l) => full.includes(l)),
@@ -188,7 +197,7 @@ async function main(): Promise<void> {
   // THE FOOTING FIX. This is the defect that made the old summary misleading.
   check('summary PDF: the P&L carries the fund fee line', summary.includes('Total Fund Management Fee'));
   check('summary PDF: the fee line sits ABOVE EBITDA so the statement foots',
-    at(summary, 'Total Fund Management Fee') >= 0 && at(summary, 'Total Fund Management Fee') < at(summary, 'EBITDA'));
+    atPL(summary, 'Total Fund Management Fee') >= 0 && atPL(summary, 'Total Fund Management Fee') < atPL(summary, 'EBITDA'));
   check('summary PDF: revenue less cost of sales less opex less the fee EQUALS the printed EBITDA', (() => {
     const rev = sum(snap.pl.totalRevenuePerPeriod.slice(0, N));
     const cos = sum(snap.pl.cosPerPeriod.slice(0, N));

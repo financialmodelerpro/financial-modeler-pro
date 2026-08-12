@@ -20,6 +20,8 @@ import JSZip from 'jszip';
 import { computeFinancialsSnapshot, computeFundingGap, type FinancialsResolverState } from '../financials-resolvers';
 import { buildCapexReport, type CapexReport } from '../reports/capexReports';
 import { buildFinancingScheduleTables, buildCashSweepTables, type ReportTable } from '../reports/financingReports';
+import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup, m4StreamRow } from '../reports/streamReports';
+import { buildIntegrityChecks, checkDetail } from '../reports/checksReport';
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildOpexReport } from '../reports/opexReports';
 import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
@@ -3163,32 +3165,18 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     streamRow('Distributed Equity (realized distributions)', rs.dividendStreamPerPeriod, { style: 'subtotal' });
     streamRow('Memo: NOI (recurring)', rs.noiPerPeriod, { indent: 1 });
     r += 1;
-    subTitle('FCFF Build-Up (unlevered, to all capital providers)');
-    streamRow('(-) Historical Development Investment', bld.existingPreCapexPerPeriod, { indent: 1 });
-    streamRow('(+) Cash from Operations', bld.cfoPerPeriod, { indent: 1 });
-    streamRow('(+) Cash from Investing (new capex)', bld.cfiPerPeriod, { indent: 1 });
-    streamRow('(+) Terminal Enterprise Value', bld.terminalEnterprisePerPeriod, { indent: 1 });
-    streamRow('= FCFF (unlevered project)', rs.fcffPerPeriod, { style: 'total' });
-    r += 1;
-    subTitle('FCFE Build-Up (levered, free cash to equity)');
-    streamRow('(-) Existing Equity Investment (at inception)', bld.existingEquityPerPeriod, { indent: 1 });
-    streamRow('(+) Cash from Operations', bld.cfoPerPeriod, { indent: 1 });
-    streamRow('(+) Cash from Investing (new capex)', bld.cfiPerPeriod, { indent: 1 });
-    streamRow('(-) In-Kind Equity Investment', bld.inKindLandPerPeriod, { indent: 1 });
-    streamRow('(+) Debt Drawdown', bld.debtDrawPerPeriod, { indent: 1 });
-    streamRow('(-) Principal Repayment', bld.principalRepayPerPeriod, { indent: 1 });
-    streamRow('(-) Interest Paid', bld.interestPaidPerPeriod, { indent: 1 });
-    streamRow('(+) Terminal Equity Value', bld.terminalEquityPerPeriod, { indent: 1 });
-    streamRow('= FCFE (levered equity)', rs.fcfePerPeriod, { style: 'total' });
-    r += 1;
-    subTitle('Distributed Equity Build-Up (realized distributions)');
-    streamRow('(-) Existing Equity Investment (at inception)', bld.existingEquityPerPeriod, { indent: 1 });
-    streamRow('(-) New Cash Equity Investment', bld.equityCashPerPeriod, { indent: 1 });
-    streamRow('(-) In-Kind Equity Investment', bld.equityInKindPerPeriod, { indent: 1 });
-    streamRow('(+) Dividends Distributed (cash-sweep waterfall)', bld.dividendsDistributedPerPeriod, { indent: 1 });
-    streamRow('(+) Terminal Equity Value', bld.terminalEquityPerPeriod, { indent: 1 });
-    streamRow('= Net Equity Cash Flow (dividend basis)', rs.dividendStreamPerPeriod, { style: 'total' });
-    r += 1;
+    // ROW LISTS COME FROM THE SHARED BUILDER (lib/reports/streamReports.ts),
+    // so this tab, the M5 screen, the IC report and the project PDF cannot
+    // drift apart again. Style stays local: the total row is a navy band here
+    // and a bold row on screen.
+    const emitBuildup = (title: string, rows: Array<{ label: string; values: number[]; indent?: number; isTotal?: boolean }>): void => {
+      subTitle(title);
+      for (const row of rows) streamRow(row.label, row.values, row.isTotal ? { style: 'total' } : { indent: row.indent });
+      r += 1;
+    };
+    emitBuildup('FCFF Build-Up (unlevered, to all capital providers)', buildFcffBuildup(rs, m4StreamRow));
+    emitBuildup('FCFE Build-Up (levered, free cash to equity)', buildFcfeBuildup(rs, m4StreamRow));
+    emitBuildup('Distributed Equity Build-Up (realized distributions)', buildDividendBuildup(rs, m4StreamRow));
   }
   // Numeric headline metrics (reconcilable constants; feed the Checks tab).
   //
@@ -3580,53 +3568,20 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
     const d = ws.getCell(`D${r}`); d.value = detail; d.numFmt = '@'; d.font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
     r += 1;
   };
-  /** A residue passes when it is negligible RELATIVE to the magnitude being
-   *  reconciled. 1e-6 is far tighter than any modelling error and far looser
-   *  than double-precision accumulation over a 14-period solve. */
-  const REL_TOL = 1e-6;
-  const relOk = (residue: number, magnitude: number): boolean =>
-    Math.abs(residue) <= Math.max(1e-6, Math.abs(magnitude) * REL_TOL);
-  const rel = (residue: number, magnitude: number): string =>
-    magnitude === 0 ? 'nothing to reconcile' : `${Math.abs(residue / magnitude).toExponential(1)} of peak ${formatAccounting(Math.abs(magnitude), 'millions', 1)} m, within tolerance ${REL_TOL.toExponential(0)}`;
-
-  /**
-   * Worst absolute divergence between two series, with the magnitude it should
-   * be judged against, so a residue is never reported without its scale.
-   *
-   * The scale is the PEAK of the series over the whole horizon, not its value
-   * in the worst period. Net cash flow legitimately crosses zero, and judging a
-   * residue against a near-zero period produced "5.0e+0 of 0.0 m", a ratio that
-   * says nothing about whether the model reconciles.
-   */
-  const worst = (a: readonly number[], b: readonly number[], mag: readonly number[]): { d: number; at: number; mag: number } => {
-    let d = 0, at = 0, peak = 0;
-    for (let t = 0; t < N; t++) {
-      const x = (a[t] ?? 0) - (b[t] ?? 0);
-      if (Math.abs(x) > Math.abs(d)) { d = x; at = t; }
-      peak = Math.max(peak, Math.abs(mag[t] ?? 0));
-    }
-    return { d, at, mag: peak };
-  };
-  /** Every check reads the PLATFORM snapshot, not liveModel. The Checks tab is
-   *  meant to certify what the workbook prints, and what it prints is the
-   *  platform. */
-  const put = (label: string, w: { d: number; at: number; mag: number }, what: string): void => {
-    const ok = relOk(w.d, w.mag);
-    checkRow(label, ok, w.d, ok
-      ? `worst period ${snap.yearLabels[w.at] ?? w.at}: ${rel(w.d, w.mag)}`
-      : `worst period ${snap.yearLabels[w.at] ?? w.at}, ${what} ${formatAccounting(w.mag, 'millions', 1)} m`);
-  };
-
-  const bs = snap.bs;
-  const lPlusE = bs.totalLiabilitiesPerPeriod.map((v, i) => v + (bs.totalEquityPerPeriod[i] ?? 0));
-  put('Balance sheet balances (Assets = L + E)',
-    worst(bs.totalAssetsPerPeriod, lPlusE, bs.totalAssetsPerPeriod), 'assets');
-
-  put('Cash flow closing == balance sheet cash',
-    worst(snap.directCF.closingCashPerPeriod, bs.cashPerPeriod, bs.cashPerPeriod), 'cash');
-
-  put('Direct cash flow == Indirect cash flow',
-    worst(snap.directCF.netCashFlowPerPeriod, snap.indirectCF.netCashFlowPerPeriod, snap.directCF.netCashFlowPerPeriod), 'net cash flow');
+  // THE RULE LIVES IN ONE PLACE (lib/reports/checksReport.ts), shared with both
+  // PDFs. This tab used to carry its own copy of the tolerance, the worst-
+  // divergence scan and the three identities; the PDFs then grew their own,
+  // and three copies of a tolerance is how a tolerance drifts.
+  //
+  // The money formatter stays pinned to millions here so the rendered text is
+  // unchanged by this extraction. That pinning is itself inconsistent with the
+  // workbook's display scale (a full-unit export prints a residue in units and
+  // describes its peak in millions), but changing it is a behaviour change and
+  // does not belong in a refactor.
+  const checkMoney = (v: number): string => `${formatAccounting(Math.abs(v), 'millions', 1)} m`;
+  for (const c of buildIntegrityChecks(snap)) {
+    checkRow(c.label, c.ok, c.residue, checkDetail(c, snap.yearLabels, checkMoney));
+  }
   r += 1;
 
   // Linked to the Returns tab cells, with the cached result taken from the SAME

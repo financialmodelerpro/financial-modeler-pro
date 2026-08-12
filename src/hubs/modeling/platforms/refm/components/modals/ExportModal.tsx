@@ -374,7 +374,14 @@ export default function ExportModal({
         return;
       }
 
-      const common = { state, projectName: name, versionLabel: pdfVersionLabel, dateLabel, displayScale: pdfScale, displayDecimals: pdfDecimals };
+      // `includeSensitivity` carries the LIVE entitlement gate: the two-way grid
+      // is a paid feature, so the export must not hand a reader what the plan
+      // cannot open on screen.
+      const common = {
+        state, projectName: name, versionLabel: pdfVersionLabel, dateLabel,
+        displayScale: pdfScale, displayDecimals: pdfDecimals,
+        includeSensitivity: allows('sensitivity'),
+      };
       // Per-tab selection: renderModule filters emitted tabs to the listed set.
       const moduleTabs: Record<string, string[]> = {};
       for (const k of selectedKeys) if (selectedTabs[k]) moduleTabs[k] = selectedTabs[k];

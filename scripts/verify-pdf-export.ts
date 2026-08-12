@@ -26,6 +26,7 @@ import { generateProjectPdf, generateSummaryPdf, collectModuleTabs, collectModul
 import { buildBsFeederTables, buildBsReconciliationRows } from '../src/hubs/modeling/platforms/refm/lib/reports/m4Reports';
 import { payloadHasActiveProject } from '../src/shared/entitlements/exportGuard';
 import { PDF_MODULE_TABS } from '../src/hubs/modeling/platforms/refm/lib/pdf/pdfModuleTabs';
+import { pdfTabKey } from '../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import INTER_REGULAR_B64 from '../src/hubs/modeling/platforms/refm/lib/pdf/fonts/interRegular';
 import INTER_BOLD_B64 from '../src/hubs/modeling/platforms/refm/lib/pdf/fonts/interBold';
@@ -311,7 +312,8 @@ async function main(): Promise<void> {
   const orphanTabs: string[] = [];
   for (const [key, tabs] of Object.entries(emitted)) {
     const manifest = PDF_MODULE_TABS[key] ?? [];
-    for (const t of tabs) if (!manifest.includes(t)) orphanTabs.push(`${key}:${t}`);
+    const names = manifest.map(pdfTabKey);
+    for (const t of tabs) if (!names.includes(pdfTabKey(t))) orphanTabs.push(`${key}:${t}`);
   }
   check('PDF tab manifest covers every emitted tab', orphanTabs.length === 0, orphanTabs.join(', '));
 

@@ -17,6 +17,7 @@ import { isEquityParty, type Party } from '../../lib/parties';
 import { computeFinancialsSnapshot, type ProjectFinancialsSnapshot } from '../../lib/financials-resolvers';
 import { computeReturnsSnapshot, computeReturnsSensitivity } from '../../lib/returns-resolvers';
 import type { SensitivityVariable } from '@/src/core/calculations/returns';
+import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup } from '../../lib/reports/streamReports';
 import { currencyHeaderLine, formatScaledForExport, SCALE_DIVISOR, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import { makeFmt } from './_shared/numberFmt';
 import { M4PeriodTable, type M4Row } from './_shared/m4Table';
@@ -138,37 +139,15 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
   const irrTone = (irr: number | null) => (irr === null ? 'neutral' : irr >= cfg.discountRate ? 'good' : 'bad');
 
   // Step-by-step build-up rows (so the derivation is transparent).
-  const b = rs.buildup;
-  const fcffBuildupRows: M4Row[] = [
-    toRow('(-) Historical Development Investment', b.existingPreCapexPerPeriod, { indent: 1 }),
-    toRow('(+) Cash from Operations', b.cfoPerPeriod, { indent: 1 }),
-    toRow('(+) Cash from Investing (new capex)', b.cfiPerPeriod, { indent: 1 }),
-    toRow('(+) Terminal Enterprise Value', b.terminalEnterprisePerPeriod, { indent: 1 }),
-    toRow('= FCFF (unlevered project)', rs.fcffPerPeriod, { isTotal: true }),
-  ];
-  // FCFE build-up, equity-centric. Existing equity = historical investment
-  // net of the debt opening (the two inception lines combine to existing
-  // equity). New CASH equity is the funding of the negative-FCFE periods
-  // (noted in the caption); in-kind equity is shown explicitly.
-  const fcfeBuildupRows: M4Row[] = [
-    toRow('(-) Existing Equity Investment (at inception)', b.existingEquityPerPeriod, { indent: 1 }),
-    toRow('(+) Cash from Operations', b.cfoPerPeriod, { indent: 1 }),
-    toRow('(+) Cash from Investing (new capex)', b.cfiPerPeriod, { indent: 1 }),
-    toRow('(-) In-Kind Equity Investment', b.inKindLandPerPeriod, { indent: 1 }),
-    toRow('(+) Debt Drawdown', b.debtDrawPerPeriod, { indent: 1 }),
-    toRow('(-) Principal Repayment', b.principalRepayPerPeriod, { indent: 1 }),
-    toRow('(-) Interest Paid', b.interestPaidPerPeriod, { indent: 1 }),
-    toRow('(+) Terminal Equity Value', b.terminalEquityPerPeriod, { indent: 1 }),
-    toRow('= FCFE (levered equity)', rs.fcfePerPeriod, { isTotal: true }),
-  ];
-  const dividendBuildupRows: M4Row[] = [
-    toRow('(-) Existing Equity Investment (at inception)', b.existingEquityPerPeriod, { indent: 1 }),
-    toRow('(-) New Cash Equity Investment', b.equityCashPerPeriod, { indent: 1 }),
-    toRow('(-) In-Kind Equity Investment', b.equityInKindPerPeriod, { indent: 1 }),
-    toRow('(+) Dividends Distributed (cash-sweep waterfall)', b.dividendsDistributedPerPeriod, { indent: 1 }),
-    toRow('(+) Terminal Equity Value', b.terminalEquityPerPeriod, { indent: 1 }),
-    toRow('= Net Equity Cash Flow (dividend basis)', rs.dividendStreamPerPeriod, { isTotal: true }),
-  ];
+  // ROW LISTS COME FROM THE SHARED BUILDER (lib/reports/streamReports.ts).
+  // They used to be duplicated here, in the Excel Returns tab, in the IC
+  // report and in the project PDF; the PDF copy drifted and double-counted
+  // the terminal value for months without anything noticing.
+  const streamRow = (label: string, series: number[], opts: { indent?: number; isTotal?: boolean }): M4Row =>
+    toRow(label, series, { indent: opts.indent, isTotal: opts.isTotal });
+  const fcffBuildupRows: M4Row[] = buildFcffBuildup(rs, streamRow);
+  const fcfeBuildupRows: M4Row[] = buildFcfeBuildup(rs, streamRow);
+  const dividendBuildupRows: M4Row[] = buildDividendBuildup(rs, streamRow);
 
   return (
     <div data-testid="module5-returns" style={{ padding: 'var(--sp-3)', width: '100%' }}>

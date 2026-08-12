@@ -25,8 +25,8 @@
 import { PDFDocument, PDFName, PDFHexString, rgb, type PDFFont, type PDFPage, type PDFRef, type PDFObject } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import { formatAccounting, formatArea, formatInteger, type DisplayScale } from '@/src/core/formatters';
-import { computeSubUnitArea } from '@/src/core/calculations';
-import { FUNDING_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
+import { computeSubUnitArea, computePhaseTimeline, computeProjectTimeline } from '@/src/core/calculations';
+import { FUNDING_METHOD_LABELS, DEFAULT_COVENANTS, type FundingMethodId } from '../state/module1-types';
 import { resolveFundTerms } from '../fundTerms';
 import {
   isFundActive, hasFundFeeIncome, buildFundWaterfallRows, buildFundFeeIncomeRows,
@@ -42,10 +42,13 @@ import {
   type ProjectFinancialsSnapshot,
   type FinancialsResolverState,
 } from '../financials-resolvers';
-import { computeReturnsSnapshot, type ReturnsSnapshot } from '../returns-resolvers';
+import { computeReturnsSnapshot, computeReturnsSensitivity, type ReturnsSnapshot } from '../returns-resolvers';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsFeederTables, buildBsReconciliationRows, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisText, type M4FeederCtx } from '../reports/m4Reports';
 import { buildOpexReport } from '../reports/opexReports';
+import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup } from '../reports/streamReports';
+import { buildIntegrityChecks, checkDetail } from '../reports/checksReport';
+import { evaluateCovenant, type CovenantInputs } from '../covenants';
 import { buildCapexReport } from '../reports/capexReports';
 import { buildFinancingScheduleTables, buildCashSweepTables } from '../reports/financingReports';
 import { buildCostOfSalesReport } from '../reports/cosReports';
@@ -117,6 +120,10 @@ export interface GenerateProjectPdfOptions {
    *  (Management base + scenarios). Assembled by the caller (it owns the store /
    *  version snapshot); the PDF computes the report from it. */
   caseComparison?: CaseComparisonInput;
+  /** Include the two-way sensitivity grid. Sensitivity is an entitlement-gated
+   *  feature, so this defaults to FALSE and the caller passes the live gate;
+   *  an export must not contain what the plan cannot open on screen. */
+  includeSensitivity?: boolean;
 }
 
 // ── Colors / layout ─────────────────────────────────────────────────────────
@@ -240,6 +247,8 @@ interface Ctx {
   unitLabel: string;
   currentHeader?: string;
   nav: NavState;
+  /** Model version, printed on the cover and in every footer (H1). */
+  versionLabel?: string | null;
   /** Table geometry, resolved once per document from the widest cell it draws. */
   metrics: TableMetrics;
 }
@@ -563,7 +572,7 @@ function drawItem(ctx: Ctx, item: PdfItem, fmt: Fmt, isInput = false): void {
 }
 
 // ── Cover + footer ────────────────────────────────────────────────────────────
-function drawCover(ctx: Ctx, projectName: string, subtitle: string, dateLabel: string): void {
+function drawCover(ctx: Ctx, projectName: string, subtitle: string, dateLabel: string, versionLabel?: string | null, versionComment?: string | null): void {
   newPage(ctx);
   ctx.page.drawRectangle({ x: 0, y: PAGE_H - 6, width: PAGE_W, height: 6, color: NAVY });
   const cy = PAGE_H / 2 + 30;
@@ -571,6 +580,10 @@ function drawCover(ctx: Ctx, projectName: string, subtitle: string, dateLabel: s
   drawCell(ctx, subtitle, MARGIN, CONTENT_W, cy - 40, { align: 'center', size: 13, color: MUTED });
   ctx.page.drawRectangle({ x: PAGE_W / 2 - 60, y: cy - 56, width: 120, height: 2, color: NAVY });
   drawCell(ctx, dateLabel, MARGIN, CONTENT_W, cy - 84, { align: 'center', size: 10, color: TEXT });
+  if (versionLabel) {
+    drawCell(ctx, `Model version ${versionLabel}`, MARGIN, CONTENT_W, cy - 104, { align: 'center', font: ctx.bold, size: 10, color: NAVY_DARK });
+    if (versionComment) drawCell(ctx, versionComment, MARGIN, CONTENT_W, cy - 120, { align: 'center', size: 8, color: MUTED });
+  }
   drawCell(ctx, 'Financial Modeler Pro', MARGIN, CONTENT_W, MARGIN + 56, { align: 'center', font: ctx.bold, size: 11, color: NAVY });
   drawCell(ctx, 'Institutional-grade real estate financial modeling & feasibility', MARGIN, CONTENT_W, MARGIN + 40, { align: 'center', size: 8, color: MUTED });
 }
@@ -586,7 +599,7 @@ function drawFooters(ctx: Ctx): void {
   pages.forEach((page, i) => {
     // Navy footer bar matching the header band; text sits inside it.
     page.drawRectangle({ x: 0, y: barY, width: PAGE_W, height: barH, color: NAVY });
-    const left = `Page ${i + 1} of ${total}   ·   ${ctx.projectName}   ·   ${ctx.unitLabel}`;
+    const left = `Page ${i + 1} of ${total}   ·   ${ctx.projectName}${ctx.versionLabel ? `   ·   ${ctx.versionLabel}` : ''}   ·   ${ctx.unitLabel}`;
     page.drawText(fitText(left, ctx.font, 8, PAGE_W * 0.62), { x: MARGIN, y: barY + 6, size: 8, font: ctx.font, color: WHITE });
     const tag = 'Financial Modeler Pro · financialmodelerpro.com';
     const tw = ctx.bold.widthOfTextAtSize(tag, 8);
@@ -692,6 +705,63 @@ const tCards = (tab: string, part: PartKind, title: string, cards: PdfCard[]): T
 //
 // Returns an empty list on a standalone project, so a caller can splice it in
 // unconditionally and nothing appears when the fund toggle is off.
+
+// ── Headline returns: ONE name per metric, and every one states its basis ─────
+//
+// The report used to print two different cards both captioned "Equity Multiple"
+// (2.10x on FCFE and 2.22x on distributions), the second with no basis at all;
+// it called the same metric "Dividend IRR" on one page and "Distributed Equity
+// IRR" on the next; and on a fund project every headline was the GROSS figure
+// while the Fund Layer page two pages later showed the net one, with nothing
+// saying which was which. All three are the same failure: a number without its
+// basis. So the basis is part of the definition here, once.
+//
+// On a fund project with a performance fee the distribution cards show NET and
+// name the gross beside them, because net is what the equity actually receives.
+function headlineReturnCards(returns: ReturnsSnapshot, fmt: Fmt): PdfCard[] {
+  const r = returns.result;
+  const fundOn = isFundActive(returns);
+  const net = fundOn ? returns.resultNetDividends : null;
+  const hasFee = !!net && (returns.waterfall?.totalPerformanceFee ?? 0) > 0;
+  const dist = hasFee && net ? net : r.dividends;
+  const basis = hasFee ? 'net of performance fee' : 'on distributions';
+  return [
+    { label: 'Project IRR', value: fmt.pct(r.fcff.irr, 1), sub: 'unlevered, FCFF' },
+    { label: 'Equity IRR', value: fmt.pct(r.fcfe.irr, 1), sub: 'levered, FCFE' },
+    { label: 'Equity Multiple (FCFE)', value: fmt.mult(r.fcfe.moic), sub: 'levered cash flow' },
+    { label: 'Distributed Equity IRR', value: fmt.pct(dist.irr, 1), sub: basis },
+    { label: 'Distributed Equity MOIC', value: fmt.mult(dist.moic), sub: hasFee ? `net; gross ${fmt.mult(r.dividends.moic)}` : 'distributions / invested' },
+    { label: 'Terminal Equity Value', value: fmt.money(returns.terminalEquityValue), sub: `exit ${returns.exitYearLabel}` },
+  ];
+}
+
+/** The one-line note that names the basis of the distribution cards above. */
+function headlineBasisNote(returns: ReturnsSnapshot, fmt: Fmt): string {
+  if (!isFundActive(returns)) return '';
+  const fee = returns.waterfall?.totalPerformanceFee ?? 0;
+  if (fee <= 0) return 'This is a fund project. No performance fee arises, so distributed-equity returns are the same gross and net; see the Fund Layer section.';
+  return `This is a fund project. The distributed-equity figures above are NET of a performance fee of ${fmt.money(fee)}; the gross figures and the full waterfall are in the Fund Layer section.`;
+}
+
+/**
+ * Model integrity checks, from the SHARED builder that also drives the
+ * workbook's Checks tab. Neither PDF had these: the full report carried a
+ * single 'BS Check: BALANCED' row buried inside the balance sheet, and the
+ * summary had no balance check at all, so a reader had no way to tell whether
+ * the statements reconciled. Tolerance is relative and anchored on the PEAK
+ * magnitude, never an absolute band and never the final period.
+ */
+function checksTable(snap: ProjectFinancialsSnapshot, fmt: Fmt): PdfTable {
+  const checks = buildIntegrityChecks(snap);
+  return {
+    title: 'Model Integrity Checks', kind: 'grid', align: 'data',
+    columns: ['Check', 'Status', 'Residue', 'Detail'],
+    rows: checks.map((c) => row(
+      [c.label, c.ok ? 'OK' : 'CHECK', fmt.money(c.residue), checkDetail(c, snap.yearLabels, fmt.money)],
+      c.ok ? undefined : 'subtotal',
+    )),
+  };
+}
 
 /** The formatters the shared fund builders want, from the PDF's Fmt. */
 function fundFmtFrom(fmt: Fmt): FundFmt {
@@ -830,6 +900,7 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
   for (const a of assets) byStrategy.set(a.strategy, (byStrategy.get(a.strategy) ?? 0) + 1);
   const compStr = [...byStrategy.entries()].map(([s, n]) => `${n} ${s}`).join(', ');
   const landCost = Math.max(0, fin.capex.totals.inclAllLand - fin.capex.totals.exclAllLand);
+  const totalDebtRaised = sum(fin.combined.totalDrawdown) + sum(fin.combined.totalInterestCapitalized);
   const constructionCost = fin.capex.totals.exclAllLand;
   const gdv = sum(snap.pl.totalRevenuePerPeriod);
 
@@ -845,7 +916,10 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
     `The model spans ${snap.axisLength} years (${startYear} to ${endYear}). ` +
     `Total development cost is ${fmt.money(fin.capex.totals.inclAllLand)} ` +
     `(${fmt.money(landCost)} land + ${fmt.money(constructionCost)} construction), funded ` +
-    `${fmt.pctRaw(fin.funding.debtPct, 0)} debt / ${fmt.pctRaw(fin.funding.equityPct, 0)} equity. ` +
+    `with new funding drawn ${fmt.pctRaw(fin.funding.debtPct, 0)} debt / ${fmt.pctRaw(fin.funding.equityPct, 0)} equity. ` +
+    `Across the whole capital structure the project draws ${fmt.money(totalDebtRaised)} of debt (incl. capitalised interest) against ` +
+    `${fmt.money(fin.equity.grandTotal)} of equity (cash, in-kind and existing). ` +
+    (snap.fundFees.active ? `This is a FUND project: ${fmt.money(sum(snap.fundFees.totalPerPeriod))} of fund management and other expenses are charged over the hold, and EBITDA is struck after them. ` : '') +
     `Projected gross development value is ${fmt.money(gdv)}` +
     (returns ? `, yielding a project IRR of ${fmt.pct(returns.result.fcff.irr, 1)} and an equity IRR of ${fmt.pct(returns.result.fcfe.irr, 1)}.` : '.');
   drawParagraph(ctx, narrative, 9);
@@ -855,17 +929,18 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
   const cards: PdfCard[] = [];
   if (returns) {
     const r = returns.result;
-    cards.push({ label: 'Project IRR', value: fmt.pct(r.fcff.irr, 1), sub: 'unlevered (FCFF)' });
-    cards.push({ label: 'Equity IRR', value: fmt.pct(r.fcfe.irr, 1), sub: 'levered (FCFE)' });
-    cards.push({ label: 'Equity Multiple', value: fmt.mult(r.fcfe.moic), sub: 'FCFE' });
-    cards.push({ label: 'Dividend IRR', value: fmt.pct(r.dividends.irr, 1), sub: 'distributed equity' });
-    cards.push({ label: 'Dividend MOIC', value: fmt.mult(r.dividends.moic), sub: 'distributions / invested' });
+    for (const c of headlineReturnCards(returns, fmt)) {
+      if (c.label !== 'Terminal Equity Value') cards.push(c);
+    }
   }
   cards.push({ label: 'Total Dev Cost', value: fmt.money(fin.capex.totals.inclAllLand), sub: 'incl. land' });
   cards.push({ label: 'Land Cost', value: fmt.money(landCost), sub: 'land only' });
   cards.push({ label: 'Construction Cost', value: fmt.money(constructionCost), sub: 'excl. land' });
   cards.push({ label: 'Total Revenue (GDV)', value: fmt.money(gdv), sub: 'over the hold' });
   cards.push({ label: 'Peak Debt', value: fmt.money(Math.max(0, ...snap.bs.debtOutstandingPerPeriod)), sub: 'max outstanding' });
+  if (snap.fundFees.active) {
+    cards.push({ label: 'Fund Fees', value: fmt.money(sum(snap.fundFees.totalPerPeriod)), sub: 'over the hold, EBITDA is after' });
+  }
   drawCards(ctx, 'Headline KPIs', cards);
 
   // Asset composition.
@@ -938,6 +1013,24 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     ['Status', String(p.status ?? '-')],
     ['Tax rate', fmt.pct(p.tax?.rate ?? 0, 1)],
   ])));
+  // TIMELINE. The workbook has a whole Timeline tab (dated construction and
+  // operations windows per phase plus the project envelope); the PDF had no
+  // equivalent, so nothing in the document said WHEN anything happened.
+  {
+    const pt = computeProjectTimeline(p, state.phases);
+    items.push(tTable('Tab 1: Project Setup', 'inputs', {
+      title: 'Timeline (construction and operations windows)', kind: 'grid', align: 'data',
+      columns: ['Phase', 'Start', 'Construction ends', 'Operations start', 'Operations end', 'Periods'],
+      rows: [
+        ...state.phases.map((ph) => {
+          const t = computePhaseTimeline(ph, p);
+          return row([ph.name, t.constructionStart, t.constructionEnd, t.operationsStart, t.operationsEnd,
+            `${ph.constructionPeriods ?? 0} + ${ph.operationsPeriods ?? 0}`]);
+        }),
+        row(['Project envelope', pt.start, '', '', pt.end, String(pt.spanPeriods)], 'total'),
+      ],
+    }));
+  }
   items.push(tTable('Tab 1: Project Setup', 'inputs', {
     title: 'Phases', kind: 'grid', align: 'data',
     columns: ['Phase', 'Status', 'Start', 'Constr. yrs', 'Ops yrs'],
@@ -973,6 +1066,36 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     }));
   }
 
+  // FUND INPUTS (only on a fund project; absent leaves the report byte-identical).
+  {
+    const ft = resolveFundTerms(p);
+    if (ft.enabled) {
+      items.push(tTable('Tab 1: Project Setup', 'inputs', kvTable('Fund Inputs (fund layer)', [
+        ['Fund layer', 'Enabled'],
+        ['Fund manager', ft.fundManagerName],
+        ['Fund structure fee', fmt.pct(ft.fundStructureFeePct, 2)],
+        ['Fund management fee', fmt.pct(ft.fundManagementFeePct, 2)],
+        ['Custody and admin fee', fmt.pct(ft.custodyAdminFeePct, 2)],
+        ['Debt arranging fee', fmt.pct(ft.debtArrangingFeePct, 2)],
+        ['Other expenses per annum', fmt.money(ft.otherExpensesPerAnnum)],
+        ['Hurdle rate (preferred return)', fmt.pct(ft.hurdleRatePct, 2)],
+        ['Performance fee on the excess', fmt.pct(ft.performanceFeePct, 2)],
+        ['Fund size', ft.fundSizeOverride ? `${fmt.money(ft.fundSize)} (typed override)` : 'resolved from the model (equity + debt)'],
+        ['Debt facility', ft.facilityLimitOverride ? `${fmt.money(ft.facilityLimit)} (typed override)` : 'resolved from the model'],
+      ])));
+      if (ft.feeDistribution?.length) {
+        items.push(tTable('Tab 1: Project Setup', 'inputs', {
+          title: 'Fee Distribution Matrix (shares are NOT normalised)', kind: 'grid', align: 'data',
+          columns: ['Party', 'Commission %', 'Developer fee %', 'Performance fee %'],
+          rows: ft.feeDistribution.map((d: any) => row([
+            d.partyName ?? d.partyId, fmt.pct(d.commissionPct ?? 0, 1),
+            fmt.pct(d.developerFeePct ?? 0, 1), fmt.pct(d.performanceFeePct ?? 0, 1),
+          ])),
+        }));
+      }
+    }
+  }
+
   // Tab 2: Assets & Sub-units.
   for (const ph of state.phases) {
     const assets = state.assets.filter((a) => a.phaseId === ph.id && a.visible !== false);
@@ -1001,6 +1124,29 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
   // its Quantity = the BUA/NSA/land sqm or unit count the rate multiplies, and
   // the engine Amount). OUTPUT mirrors the platform Capex Results tab. Both come
   // from the shared builder (lib/reports/capexReports.ts).
+  // LAND & AREA. Parcels and their allocation to assets, plus built area, so
+  // land efficiency is legible without cross-referencing three tables.
+  if (state.parcels.length || state.assets.length) {
+    const totalLand = state.parcels.reduce((a, pa) => a + (pa.area ?? 0), 0);
+    const totalBua = state.assets.filter((a) => a.visible !== false).reduce((acc, a) => {
+      const su = state.subUnits.filter((u) => u.assetId === a.id);
+      return acc + (su.length ? su.reduce((x, u) => x + computeSubUnitArea(u), 0) : (a.buaSqm ?? 0));
+    }, 0);
+    items.push(tTable('Tab 2: Assets & Sub-units', 'inputs', {
+      title: 'Land & Area', kind: 'grid', align: 'data',
+      columns: ['Item', 'Land (sqm)', 'Built area (sqm)', 'Plot ratio'],
+      rows: [
+        ...state.parcels.map((pa) => row([`Parcel: ${pa.name}`, fmt.area(pa.area), '', ''])),
+        ...state.assets.filter((a) => a.visible !== false).map((a) => {
+          const su = state.subUnits.filter((u) => u.assetId === a.id);
+          const bua = su.length ? su.reduce((x, u) => x + computeSubUnitArea(u), 0) : (a.buaSqm ?? 0);
+          const land = a.landAllocation?.sqm ?? a.landAreaSqm ?? 0;
+          return row([a.name, fmt.area(land), fmt.area(bua), land > 0 ? (bua / land).toFixed(2) : '-']);
+        }),
+        row(['Total', fmt.area(totalLand), fmt.area(totalBua), totalLand > 0 ? (totalBua / totalLand).toFixed(2) : '-'], 'total'),
+      ],
+    }));
+  }
   const capexReport = buildCapexReport(snap, state);
   // The "Quantity / Basis" column shows what each line's rate or percentage
   // multiplies to produce the Amount: a physical quantity (BUA/NSA/land sqm,
@@ -1413,6 +1559,9 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
   for (const f of buildBsFeederTables(feederCtx)) {
     items.push(tTable('Tab 1: Schedules', 'schedules', m4RowsToPeriodTable(f.title, py, yl, f.rows)));
   }
+  // G1: the three model identities, stated up front rather than left implicit
+  // in a row buried inside the balance sheet.
+  items.push(tTable('Tab 1: Schedules', 'schedules', checksTable(snap, fmt)));
   items.push(tTable('Tab 1: Schedules', 'schedules', m4RowsToPeriodTable('Balance Check, Reconciliation Bridge (per period)', py, yl, buildBsReconciliationRows(feederCtx))));
 
   // Tab 2: Fixed Assets.
@@ -1487,43 +1636,74 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
 }
 
 // ── Module 5: Returns & Valuation ────────────────────────────────────────────
-function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: Fmt, py: number, caseReport: CaseComparisonReport | null): ModuleContent {
+function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: Fmt, py: number, caseReport: CaseComparisonReport | null, includeSensitivity = false): ModuleContent {
   const r = returns.result;
   const re = r.realEstate;
   const cfg = returns.config;
   const syl = returns.streamYearLabels;
   const yl = returns.yearLabels;
   const items: ModuleContent = [];
+
+  // TAB NUMBERS ARE DERIVED, not written down. Case Comparison only exists when
+  // there are at least two cases, and with the numbers hardcoded every project
+  // without scenarios (the default) printed running headers and a table of
+  // contents reading "Tab 1, Tab 2, Tab 4, Tab 5", which reads as a missing
+  // section rather than an absent one.
+  const m5Present: string[] = ['Returns', 'RE Metrics'];
+  const hasCaseComparison = !!caseReport && caseReport.columns.length > 1;
+  if (hasCaseComparison) m5Present.push('Case Comparison');
+  m5Present.push('Cash Flow Streams');
+  if (isFundActive(returns)) m5Present.push('Fund Layer');
+  const m5Tab = (name: string): string => {
+    const i = m5Present.indexOf(name);
+    return i < 0 ? name : `Tab ${i + 1}: ${name}`;
+  };
   const streamPrior = syl[0] ?? py;
   const streamYears = syl.slice(1);
 
   // Tab 1: Returns (KPI cards + tables).
-  items.push(tTable('Tab 1: Returns', 'inputs', kvTable('Returns Assumptions', [
+  // TERMINAL VALUE: show the parameter that is LIVE, and say the other is not.
+  // Printing 'method: perpetuity' beside both an exit multiple and a perpetuity
+  // growth rate left a reader unable to tell which one drove the number.
+  const isPerp = String(cfg.terminalMethod) === 'perpetuity';
+  items.push(tTable(m5Tab('Returns'), 'inputs', kvTable('Returns Assumptions', [
     ['Discount rate', fmt.pct(cfg.discountRate, 2)],
     ['Exit year', String(returns.exitYearLabel)],
-    ['Terminal value method', String(cfg.terminalMethod)],
-    ['Exit multiple', `${(cfg.exitMultiple ?? 0).toFixed(2)}x`],
-    ['Perpetuity growth', fmt.pct(cfg.perpetuityGrowth, 2)],
+    ['Terminal value method', isPerp ? 'Perpetuity growth (Gordon)' : 'Exit multiple'],
+    [isPerp ? 'Perpetuity growth (applied)' : 'Exit multiple (applied)',
+      isPerp ? fmt.pct(cfg.perpetuityGrowth, 2) : `${(cfg.exitMultiple ?? 0).toFixed(2)}x`],
+    [isPerp ? 'Exit multiple (not applied)' : 'Perpetuity growth (not applied)',
+      isPerp ? `${(cfg.exitMultiple ?? 0).toFixed(2)}x` : fmt.pct(cfg.perpetuityGrowth, 2)],
   ])));
-  items.push(tCards('Tab 1: Returns', 'outputs', 'Headline Returns', [
-    { label: 'Project IRR (FCFF)', value: fmt.pct(r.fcff.irr, 1), sub: 'unlevered' },
-    { label: 'Equity IRR (FCFE)', value: fmt.pct(r.fcfe.irr, 1), sub: 'levered' },
-    { label: 'Distributed Equity IRR', value: fmt.pct(r.dividends.irr, 1), sub: 'on distributions' },
-    { label: 'Equity Multiple', value: fmt.mult(r.fcfe.moic), sub: 'FCFE' },
-    { label: 'Dividend MOIC', value: fmt.mult(r.dividends.moic), sub: 'distributed equity' },
-    { label: 'Terminal Equity Value', value: fmt.money(returns.terminalEquityValue), sub: `exit ${returns.exitYearLabel}` },
-  ]));
+
+  items.push(tCards(m5Tab('Returns'), 'outputs', 'Headline Returns', headlineReturnCards(returns, fmt)));
+  {
+    const note = headlineBasisNote(returns, fmt);
+    if (note) items.push(tItem(m5Tab('Returns'), 'outputs', { type: 'paragraph', text: note }));
+  }
+
   const de = returns.developmentEconomics;
-  items.push(tCards('Tab 1: Returns', 'outputs', 'Development Economics', [
-    { label: 'GDV', value: fmt.money(de.gdv) },
-    { label: 'Total Dev Cost', value: fmt.money(de.totalDevelopmentCost) },
-    { label: 'Financing Cost', value: fmt.money(de.totalFinancingCost) },
-    { label: 'Profit Before Fin.', value: fmt.money(de.profitBeforeFinancing) },
-    { label: 'Profit After Fin.', value: fmt.money(de.profitAfterFinancing) },
-    { label: 'Development Margin', value: fmt.pct(de.developmentMargin, 1) },
+  items.push(tCards(m5Tab('Returns'), 'outputs', 'Development Economics (appraisal basis)', [
+    { label: 'GDV', value: fmt.money(de.gdv), sub: 'gross development value' },
+    { label: 'Total Dev Cost', value: fmt.money(de.totalDevelopmentCost), sub: 'incl. land' },
+    { label: 'Financing Cost', value: fmt.money(de.totalFinancingCost), sub: 'interest + fees' },
+    { label: 'Profit Before Fin.', value: fmt.money(de.profitBeforeFinancing), sub: 'GDV less dev cost' },
+    { label: 'Profit After Fin.', value: fmt.money(de.profitAfterFinancing), sub: 'less financing cost' },
+    { label: 'Development Margin', value: fmt.pct(de.developmentMargin, 1), sub: 'profit after fin. / GDV' },
   ]));
+  // A development APPRAISAL and an accounting P&L answer different questions,
+  // and the report printed both without saying so: profit after financing and
+  // profit after tax sat 3.6x apart on adjacent pages with nothing between
+  // them. This states the bridge.
+  items.push(tItem(m5Tab('Returns'), 'outputs', { type: 'paragraph', text:
+    `Appraisal basis, not the P&L. Profit after financing (${fmt.money(de.profitAfterFinancing)}) is GDV less development cost less financing cost, `
+    + `and it excludes operating expenses, depreciation and tax. The P&L's profit after tax over the same horizon is `
+    + `${fmt.money(sum(snap.pl.patPerPeriod))}; the difference is operating expenses (${fmt.money(sum(snap.pl.totalOpexPerPeriod))}), `
+    + `depreciation (${fmt.money(sum(snap.pl.daPerPeriod))}) and tax (${fmt.money(sum(snap.pl.taxPerPeriod))}), which an appraisal does not deduct. `
+    + `Development Margin is measured on GDV; Profit Margin on the RE Metrics page is profit after tax over total revenue.` }));
+
   const ex = returns.exitAnalysis;
-  items.push(tCards('Tab 1: Returns', 'outputs', `Exit Analysis (${ex.exitYearLabel})`, [
+  items.push(tCards(m5Tab('Returns'), 'outputs', `Exit Analysis (${ex.exitYearLabel})`, [
     { label: 'Exit NOI', value: fmt.money(ex.exitNOI) },
     { label: 'Exit EBITDA', value: fmt.money(ex.exitEBITDA) },
     { label: 'Enterprise Value', value: fmt.money(ex.exitEnterpriseValue) },
@@ -1532,7 +1712,7 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
     { label: 'LTV at Exit', value: fmt.pct(ex.ltvAtExit, 1) },
   ]));
   const su = returns.sourcesUses;
-  items.push(tTable('Tab 1: Returns', 'outputs', {
+  items.push(tTable(m5Tab('Returns'), 'outputs', {
     title: 'Sources & Uses', kind: 'grid', align: 'data', columns: ['Sources', 'Amount', 'Uses', 'Amount'],
     rows: [
       row(['Existing equity', fmt.money(su.existingEquity), 'Land', fmt.money(su.land)]),
@@ -1547,7 +1727,7 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
   }));
   const ee = returns.equityExposure;
   const da = returns.debtAnalytics;
-  items.push(tCards('Tab 1: Returns', 'outputs', 'Equity Exposure & Debt Analytics', [
+  items.push(tCards(m5Tab('Returns'), 'outputs', 'Equity Exposure & Debt Analytics', [
     { label: 'Total Equity Required', value: fmt.money(ee.totalEquityRequired) },
     { label: 'Avg Equity Invested', value: fmt.money(ee.averageEquityInvested) },
     { label: 'Equity at Risk', value: fmt.money(ee.equityAtRisk) },
@@ -1557,7 +1737,7 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
   ]));
   // Exit-year analysis (Pass 2) as a table.
   if (returns.exitYears?.length) {
-    items.push(tTable('Tab 1: Returns', 'outputs', {
+    items.push(tTable(m5Tab('Returns'), 'outputs', {
       title: 'Exit-Year Analysis (hold vs sell)', kind: 'grid', align: 'data',
       columns: ['Exit Year', 'Enterprise Value', 'Equity Value', 'Project IRR', 'Equity IRR', 'Equity MOIC'],
       rows: returns.exitYears.map((x) => row([
@@ -1568,7 +1748,7 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
   }
   // Partners (Pass 2) if present.
   if (returns.partners?.partners.length) {
-    items.push(tTable('Tab 1: Returns', 'outputs', {
+    items.push(tTable(m5Tab('Returns'), 'outputs', {
       title: 'Equity Partners', kind: 'grid', align: 'data',
       columns: ['Partner', 'Invested', 'Share %', 'Dividends', 'Terminal', 'IRR', 'MOIC'],
       rows: returns.partners.partners.map((pn) => row([pn.name, fmt.money(pn.totalEquityInvested), fmt.pct(pn.shareholdingPct, 1), fmt.money(pn.dividendsReceived), fmt.money(pn.terminalDistribution), fmt.pct(pn.irr, 1), fmt.mult(pn.moic)])),
@@ -1576,35 +1756,108 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
   }
 
   // Tab 2: RE Metrics (cards + coverage + per-asset).
-  items.push(tCards('Tab 2: RE Metrics', 'outputs', 'Profitability & Yield', [
-    { label: 'Yield on Cost', value: fmt.pct(re.yieldOnCost, 2) },
-    { label: 'Cap Rate at Exit', value: fmt.pct(re.capRateAtExit, 2) },
-    { label: 'Development Spread', value: fmt.pct(re.developmentSpread, 2) },
-    { label: 'Profit on Cost', value: fmt.pct(re.profitOnCost, 1) },
-    { label: 'Profit Margin', value: fmt.pct(re.profitMargin, 1) },
-    { label: 'Equity Multiple', value: fmt.mult(re.equityMultiple) },
+  items.push(tCards(m5Tab('RE Metrics'), 'outputs', 'Profitability & Yield', [
+    { label: 'Yield on Cost', value: fmt.pct(re.yieldOnCost, 2), sub: 'stabilised NOI / total cost' },
+    { label: 'Cap Rate at Exit', value: fmt.pct(re.capRateAtExit, 2), sub: 'exit NOI / exit value' },
+    { label: 'Development Spread', value: fmt.pct(re.developmentSpread, 2), sub: 'yield on cost less exit cap' },
+    { label: 'Profit on Cost', value: fmt.pct(re.profitOnCost, 1), sub: 'appraisal profit / dev cost' },
+    { label: 'Profit Margin', value: fmt.pct(re.profitMargin, 1), sub: 'profit after tax / revenue' },
+    { label: 'Equity Multiple (distributions)', value: fmt.mult(re.equityMultiple), sub: 'distributions / invested' },
   ]));
-  items.push(tCards('Tab 2: RE Metrics', 'outputs', 'Leverage & Coverage', [
-    { label: 'LTV at Exit', value: fmt.pct(re.ltvAtExit, 1) },
-    { label: 'Debt Yield', value: fmt.pct(re.debtYield, 1) },
-    { label: 'Min DSCR', value: fmt.mult(re.dscrMin) },
-    { label: 'Avg DSCR', value: fmt.mult(re.dscrAvg) },
-    { label: 'Min Interest Cover', value: fmt.mult(re.icrMin) },
-    { label: 'Avg Cash-on-Cash', value: fmt.pct(re.cashOnCashAvg, 1) },
+
+  const dscrYears = re.dscrPerPeriod.filter((v) => v > 0);
+  const dscrBelow = dscrYears.filter((v) => v < 1).length;
+  items.push(tCards(m5Tab('RE Metrics'), 'outputs', 'Leverage & Coverage', [
+    { label: 'LTV at Exit', value: fmt.pct(re.ltvAtExit, 1), sub: 'debt / value at exit' },
+    { label: 'Debt Yield', value: fmt.pct(re.debtYield, 1), sub: 'NOI / debt' },
+    { label: 'Min DSCR', value: fmt.mult(re.dscrMin), sub: dscrBelow > 0 ? `below 1.00x in ${dscrBelow} of ${dscrYears.length} yrs` : 'worst debt-service year' },
+    { label: 'Avg DSCR', value: fmt.mult(re.dscrAvg), sub: 'mean over debt-service years' },
+    { label: 'Min Interest Cover', value: fmt.mult(re.icrMin), sub: 'EBITDA / interest' },
+    { label: 'Avg Cash-on-Cash', value: fmt.pct(re.cashOnCashAvg, 1), sub: 'distributions / equity' },
   ]));
+  // A sub-1.00x DSCR is a COVENANT READING, not one more metric in the column.
+  // The workbook paints it in the check red and says so; the PDF said nothing.
+  if (dscrBelow > 0) {
+    items.push(tItem(m5Tab('RE Metrics'), 'outputs', { type: 'paragraph', text:
+      `Debt service is not covered from operations in ${dscrBelow} of ${dscrYears.length} debt-service years `
+      + `(minimum ${fmt.mult(re.dscrMin)}). Typical for a development funded from drawdowns, but it is a covenant `
+      + `reading, not a neutral metric. Interest cover over the same years runs ${fmt.mult(re.icrMin)} to ${fmt.mult(Math.max(...re.icrPerPeriod))}, `
+      + `so interest is covered and the amortisation is not.` }));
+  }
+
   if (anyNonZero(re.dscrPerPeriod) || anyNonZero(re.icrPerPeriod)) {
-    items.push(tTable('Tab 2: RE Metrics', 'outputs', periodTable('Coverage Ratios by Year', py, yl, [
+    items.push(tTable(m5Tab('RE Metrics'), 'outputs', periodTable('Coverage Ratios by Year', py, yl, [
       strPeriodRow('DSCR', re.dscrPerPeriod.map((v) => (v ? v.toFixed(2) : '-'))),
       strPeriodRow('Interest cover', re.icrPerPeriod.map((v) => (v ? v.toFixed(2) : '-'))),
       strPeriodRow('Cash-on-cash %', re.cashOnCashPerPeriod.map((v) => (v ? fmt.pct(v, 1) : '-'))),
     ])));
   }
+  // Lender Covenants: the SAME pure evaluator the M5 screen and the workbook
+  // use (lib/covenants.ts), so a threshold cannot mean one thing on screen and
+  // another in the file. Seeded defaults when the project has none.
+  {
+    const covInputs: CovenantInputs = {
+      dscrPerPeriod: re.dscrPerPeriod,
+      icrPerPeriod: re.icrPerPeriod,
+      noiPerPeriod: returns.noiPerPeriod,
+      debtOutstandingPerPeriod: snap.bs.debtOutstandingPerPeriod,
+      gdvValue: de.gdv,
+      ltvAtExit: re.ltvAtExit,
+    };
+    const covs = state.project.covenants ?? DEFAULT_COVENANTS;
+    const evals = covs.map((c) => ({ c, ev: evaluateCovenant(c, covInputs) }));
+    const shown = evals.filter(({ ev }) => ev.pass !== null);
+    if (shown.length) {
+      const val = (v: number | null, unit: 'x' | 'pct'): string =>
+        v === null ? 'n/a' : unit === 'x' ? fmt.mult(v) : fmt.pct(v, 1);
+      items.push(tTable(m5Tab('RE Metrics'), 'outputs', {
+        title: 'Lender Covenants (threshold vs modelled)', kind: 'grid', align: 'data',
+        columns: ['Covenant', 'Test', 'Threshold', 'Modelled (binding)', 'Average', 'Status'],
+        rows: shown.map(({ c, ev }) => row([
+          c.label,
+          c.operator === 'min' ? 'minimum' : 'maximum',
+          val(c.threshold, ev.unit),
+          val(ev.worst, ev.unit),
+          val(ev.avg, ev.unit),
+          ev.pass ? 'Pass' : 'BREACH',
+        ], ev.pass ? undefined : 'subtotal')),
+      }));
+      const breached = shown.filter(({ ev }) => ev.pass === false);
+      if (breached.length) {
+        items.push(tItem(m5Tab('RE Metrics'), 'outputs', { type: 'paragraph', text:
+          `${breached.length} of ${shown.length} covenants ${breached.length === 1 ? 'is' : 'are'} breached on the modelled case: `
+          + `${breached.map(({ c, ev }) => `${c.label} (${val(ev.worst, ev.unit)} against a ${c.operator === 'min' ? 'minimum' : 'maximum'} of ${val(c.threshold, ev.unit)})`).join(', ')}.` }));
+      }
+    }
+  }
   if (returns.perAsset?.rows.length) {
-    items.push(tTable('Tab 2: RE Metrics', 'outputs', {
+    items.push(tTable(m5Tab('RE Metrics'), 'outputs', {
       title: 'Per-Asset Economics', kind: 'grid', align: 'data',
       columns: ['Asset', 'Strategy', 'Revenue', 'Cost', 'Profit', 'Margin', 'Yield on Cost'],
       rows: returns.perAsset.rows.map((a) => row([a.assetName, a.strategy, fmt.money(a.totalRevenue), fmt.money(a.totalCost), fmt.money(a.profit), fmt.pct(a.profitMargin, 1), a.isIncomeAsset ? fmt.pct(a.yieldOnCost, 1) : 'n/a'])),
     }));
+  }
+
+  // SENSITIVITY. On the M5 Returns tab and in NEITHER export. Gated, because
+  // sensitivity is an entitlement feature: an export must not carry what the
+  // plan cannot open on screen.
+  if (includeSensitivity) {
+    try {
+      const grid = computeReturnsSensitivity(snap, state.project, 'exit_cap_rate', 'sales_price_pct');
+      const pctLabel = (v: number): string => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}%`;
+      items.push(tTable(m5Tab('Returns'), 'outputs', {
+        title: 'Two-Way Sensitivity, Equity IRR (FCFE): sales price vs exit cap rate',
+        kind: 'grid', align: 'data',
+        columns: ['Sales price \ Exit cap', ...grid.xValues.map((x) => fmt.pct(x, 2))],
+        rows: grid.yValues.map((y, yi) => row([
+          pctLabel(y),
+          ...grid.xValues.map((_, xi) => fmt.pct(grid.irr[yi]?.[xi] ?? null, 1)),
+        ])),
+      }));
+      items.push(tItem(m5Tab('Returns'), 'outputs', { type: 'paragraph', text:
+        `Base Equity IRR ${fmt.pct(grid.baseEquityIrr, 1)} at the implied exit cap rate of ${fmt.pct(grid.impliedExitCapRate, 2)}. `
+        + 'Each cell re-runs the model with both shocks applied.' }));
+    } catch { /* sensitivity is optional; never block the report */ }
   }
 
   // Tab 3: Case Comparison. Headline KPIs across every case (Management base +
@@ -1613,48 +1866,37 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
   // on-screen Case Comparison tab. Only rendered when there is more than one
   // case to compare.
   const m5Matrix = caseReport ? buildCaseComparisonMatrix(caseReport, fmt) : null;
-  if (m5Matrix) items.push(tTable('Tab 3: Case Comparison', 'outputs', m5Matrix));
+  if (m5Matrix) items.push(tTable(m5Tab('Case Comparison'), 'outputs', m5Matrix));
 
   // Tab 4: Cash Flow Streams.
   const bu = returns.buildup;
-  items.push(tTable('Tab 4: Cash Flow Streams', 'schedules', periodTable('Sponsor Cash-Flow Streams', streamPrior, streamYears, [
+  items.push(tTable(m5Tab('Cash Flow Streams'), 'schedules', periodTable('Sponsor Cash-Flow Streams', streamPrior, streamYears, [
     periodRow('FCFF (unlevered)', returns.fcffPerPeriod.slice(1), 'sum', undefined, returns.fcffPerPeriod[0] ?? 0),
     periodRow('FCFE (levered)', returns.fcfePerPeriod.slice(1), 'sum', undefined, returns.fcfePerPeriod[0] ?? 0),
     periodRow('Distributed equity', returns.dividendStreamPerPeriod.slice(1), 'sum', undefined, returns.dividendStreamPerPeriod[0] ?? 0),
   ])));
-  items.push(tTable('Tab 4: Cash Flow Streams', 'schedules', periodTable('FCFF Build-up', streamPrior, streamYears, [
-    periodRow('(-) Existing pre-capex', bu.existingPreCapexPerPeriod.slice(1), 'sum', undefined, bu.existingPreCapexPerPeriod[0] ?? 0),
-    periodRow('(+) Cash from operations', bu.cfoPerPeriod.slice(1), 'sum', undefined, bu.cfoPerPeriod[0] ?? 0),
-    periodRow('(+) Cash from investing', bu.cfiPerPeriod.slice(1), 'sum', undefined, bu.cfiPerPeriod[0] ?? 0),
-    periodRow('(+) Terminal enterprise value', bu.terminalEnterprisePerPeriod.slice(1), 'sum', undefined, bu.terminalEnterprisePerPeriod[0] ?? 0),
-    periodRow('= FCFF', returns.fcffPerPeriod.slice(1), 'sum', 'total', returns.fcffPerPeriod[0] ?? 0),
-  ])));
-  // FCFE build-up. This ROW LIST IS THE ONE THE ENGINE ACTUALLY USES, and it is
-  // the same list the M5 screen, the Excel Returns tab and the IC report render:
-  // FCFE is built from (cfo + cfi), NOT from FCFF, so starting at FCFF and adding
-  // the terminal EQUITY value double-counted the terminal (FCFF already carries
-  // the terminal ENTERPRISE value) and left the column short by exactly that
-  // amount. See streamBuild.buildSponsorStreamsForExit.
-  items.push(tTable('Tab 4: Cash Flow Streams', 'schedules', periodTable('FCFE Build-up', streamPrior, streamYears, [
-    periodRow('(-) Existing equity investment (at inception)', bu.existingEquityPerPeriod.slice(1), 'sum', undefined, bu.existingEquityPerPeriod[0] ?? 0),
-    periodRow('(+) Cash from operations', bu.cfoPerPeriod.slice(1), 'sum', undefined, bu.cfoPerPeriod[0] ?? 0),
-    periodRow('(+) Cash from investing (new capex)', bu.cfiPerPeriod.slice(1), 'sum', undefined, bu.cfiPerPeriod[0] ?? 0),
-    periodRow('(-) In-kind equity investment', bu.inKindLandPerPeriod.slice(1), 'sum', undefined, bu.inKindLandPerPeriod[0] ?? 0),
-    periodRow('(+) Debt drawdown (cash)', bu.debtDrawPerPeriod.slice(1), 'sum', undefined, bu.debtDrawPerPeriod[0] ?? 0),
-    periodRow('(-) Principal repaid', bu.principalRepayPerPeriod.slice(1), 'sum', undefined, bu.principalRepayPerPeriod[0] ?? 0),
-    periodRow('(-) Interest paid', bu.interestPaidPerPeriod.slice(1), 'sum', undefined, bu.interestPaidPerPeriod[0] ?? 0),
-    periodRow('(+) Terminal equity value', bu.terminalEquityPerPeriod.slice(1), 'sum', undefined, bu.terminalEquityPerPeriod[0] ?? 0),
-    periodRow('= FCFE', returns.fcfePerPeriod.slice(1), 'sum', 'total', returns.fcfePerPeriod[0] ?? 0),
-  ])));
+  // BUILD-UP ROWS COME FROM THE SHARED BUILDER (lib/reports/streamReports.ts).
+  // This file used to carry a fourth hand-maintained copy, and it was the one
+  // that drifted: it started from FCFF, which already contains the terminal
+  // ENTERPRISE value, then added the terminal EQUITY value on top, so the
+  // column was short by the terminal value in every period it appeared.
+  const pdfStreamRow = (label: string, series: number[], opts: { indent?: number; isTotal?: boolean }): M4Row =>
+    ({ label, values: series.slice(1), priorValue: series[0] ?? 0, indent: opts.indent, isTotal: opts.isTotal });
+  items.push(tTable(m5Tab('Cash Flow Streams'), 'schedules',
+    m4RowsToPeriodTable('FCFF Build-up', streamPrior, streamYears, buildFcffBuildup(returns, pdfStreamRow))));
+  items.push(tTable(m5Tab('Cash Flow Streams'), 'schedules',
+    m4RowsToPeriodTable('FCFE Build-up', streamPrior, streamYears, buildFcfeBuildup(returns, pdfStreamRow))));
+  items.push(tTable(m5Tab('Cash Flow Streams'), 'schedules',
+    m4RowsToPeriodTable('Distributed Equity Build-up', streamPrior, streamYears, buildDividendBuildup(returns, pdfStreamRow))));
 
   // Tab 5: Fund Layer. Renders ONLY when the fund toggle is on, so a standalone
   // project produces exactly the tabs it did before. Every row comes from the
   // shared fundReports builders, the same ones the M5 screen and the Excel
   // workbook use, so the reference row order has one definition.
   for (const piece of buildFundBlock(snap, returns, state, fmt, py)) {
-    if (piece.cards) items.push(tCards('Tab 5: Fund Layer', 'outputs', piece.title, piece.cards));
-    else if (piece.table) items.push(tTable('Tab 5: Fund Layer', 'outputs', piece.table));
-    else if (piece.note) items.push(tItem('Tab 5: Fund Layer', 'outputs', { type: 'paragraph', text: piece.note }));
+    if (piece.cards) items.push(tCards(m5Tab('Fund Layer'), 'outputs', piece.title, piece.cards));
+    else if (piece.table) items.push(tTable(m5Tab('Fund Layer'), 'outputs', piece.table));
+    else if (piece.note) items.push(tItem(m5Tab('Fund Layer'), 'outputs', { type: 'paragraph', text: piece.note }));
   }
 
   return items;
@@ -1753,8 +1995,20 @@ function dropEmptyItems(content: ModuleContent): ModuleContent { return content.
  *  selection (Inputs/Schedules/Outputs) + the per-tab selection. Mirrors the
  *  filters in renderModule, so the caller can tell whether a module renders
  *  anything at all (and therefore whether to give it a nav entry). */
+/**
+ * A tab's IDENTITY is its name; the leading "Tab N: " is presentation and is
+ * now derived (Module 5 renumbers when Case Comparison or Fund Layer is
+ * absent). Comparing the full numbered label against the static picker
+ * manifest would silently DROP a tab whose number moved, so both sides are
+ * compared on the name.
+ */
+export function pdfTabKey(label: string): string {
+  return label.replace(/^Tab \d+:\s*/, '').trim();
+}
+
 function renderableContent(content: ModuleContent, sel: ModuleSectionSelection, selectedTabs?: string[]): ModuleContent {
-  return content.filter((it) => includePart(sel[it.part]) && (!selectedTabs || selectedTabs.includes(it.tab)));
+  const wanted = selectedTabs ? new Set(selectedTabs.map(pdfTabKey)) : null;
+  return content.filter((it) => includePart(sel[it.part]) && (!wanted || wanted.has(pdfTabKey(it.tab))));
 }
 
 /** Placeholder page for a module that is on the roadmap but not built yet, so
@@ -1793,7 +2047,7 @@ function renderModule(ctx: Ctx, moduleLabel: string, items: ModuleContent, sel: 
   const byTab = new Map<string, TaggedItem[]>();
   for (const it of items) {
     if (!includePart(sel[it.part])) continue;
-    if (selectedTabs && !selectedTabs.includes(it.tab)) continue;
+    if (selectedTabs && !selectedTabs.map(pdfTabKey).includes(pdfTabKey(it.tab))) continue;
     if (!byTab.has(it.tab)) { byTab.set(it.tab, []); order.push(it.tab); }
     byTab.get(it.tab)!.push(it);
   }
@@ -2061,6 +2315,7 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
     // Minimum geometry until the modules are built and measured below. The
     // executive summary draws only cards and grid tables, which size their own
     // columns, so nothing before that point depends on this.
+    versionLabel: opts.versionLabel ? `Model version ${opts.versionLabel}` : null,
     metrics: makeMetrics(LABEL_COL_W_MIN, TOTAL_COL_W_MIN, PERIOD_COL_W_MIN),
   };
 
@@ -2074,7 +2329,7 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
   }
 
   // Page 1: clean cover.
-  drawCover(ctx, opts.projectName, 'Real Estate Financial Model / Feasibility Study', opts.dateLabel);
+  drawCover(ctx, opts.projectName, 'Real Estate Financial Model / Feasibility Study', opts.dateLabel, opts.versionLabel, opts.versionComment);
 
   // Page 2: executive summary (its first page is a nav anchor).
   newPage(ctx, 'Executive Summary');
@@ -2114,7 +2369,7 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
     else if (m.key === 'module2') content = buildModule2(snap, opts.state, fmt, py);
     else if (m.key === 'module3') content = buildModule3(snap, opts.state, fmt, py);
     else if (m.key === 'module4') content = buildModule4(snap, opts.state, fmt, py);
-    else if (m.key === 'module5') content = returns ? buildModule5(returns, snap, opts.state, fmt, py, caseReport) : null;
+    else if (m.key === 'module5') content = returns ? buildModule5(returns, snap, opts.state, fmt, py, caseReport, opts.includeSensitivity === true) : null;
     else if (m.key === 'module6') content = buildModule6(caseReport, caseYoY, fmt);
     else continue;
     if (!content) continue;
@@ -2265,6 +2520,7 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
     // The concise summary PDF carries no ToC / section breaks / outline (nav
     // aids are scoped to the full report), so nav stays disabled here.
     nav: disabledNav(),
+    versionLabel: opts.versionLabel ? `Model version ${opts.versionLabel}` : null,
     metrics: makeMetrics(LABEL_COL_W_MIN, TOTAL_COL_W_MIN, PERIOD_COL_W_MIN),
   };
 
@@ -2280,7 +2536,7 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
   const { pl, directCF: cf, bs } = snap;
 
   // Cover + executive summary (narrative + KPI cards + composition + structure).
-  drawCover(ctx, opts.projectName, 'Real Estate Financial Model / Executive Summary', opts.dateLabel);
+  drawCover(ctx, opts.projectName, 'Real Estate Financial Model / Executive Summary', opts.dateLabel, opts.versionLabel, opts.versionComment);
   newPage(ctx, 'Executive Summary');
   ctx.currentHeader = 'Executive Summary';
   buildExecSummary(ctx, snap, returns, opts.state, fmt, caseReport);
@@ -2358,6 +2614,9 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
   drawItem(ctx, { type: 'table', table: plTable }, fmt);
   drawItem(ctx, { type: 'table', table: cfTable }, fmt);
   drawItem(ctx, { type: 'table', table: bsTable }, fmt);
+  // The summary certifies what it prints, from the same shared builder as the
+  // full report and the workbook's Checks tab.
+  drawItem(ctx, { type: 'table', table: checksTable(snap, fmt) }, fmt);
 
   // Returns & valuation (KPI cards).
   if (returns) {
@@ -2367,14 +2626,11 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
     const re = r.realEstate;
     const de = returns.developmentEconomics;
     const exa = returns.exitAnalysis;
-    drawCards(ctx, 'Headline Returns', [
-      { label: 'Project IRR', value: fmt.pct(r.fcff.irr, 1), sub: 'unlevered (FCFF)' },
-      { label: 'Equity IRR', value: fmt.pct(r.fcfe.irr, 1), sub: 'levered (FCFE)' },
-      { label: 'Equity Multiple', value: fmt.mult(r.fcfe.moic), sub: 'FCFE' },
-      { label: 'Distributed Equity IRR', value: fmt.pct(r.dividends.irr, 1), sub: 'on distributions' },
-      { label: 'Distributed MOIC', value: fmt.mult(r.dividends.moic), sub: 'distributions / invested' },
-      { label: 'Terminal Equity Value', value: fmt.money(returns.terminalEquityValue), sub: `exit ${returns.exitYearLabel}` },
-    ]);
+    drawCards(ctx, 'Headline Returns', headlineReturnCards(returns, fmt));
+    {
+      const note = headlineBasisNote(returns, fmt);
+      if (note) drawParagraph(ctx, note, 8);
+    }
     drawCards(ctx, 'Development Economics', [
       { label: 'GDV', value: fmt.money(de.gdv) },
       { label: 'Total Dev Cost', value: fmt.money(de.totalDevelopmentCost) },
@@ -2383,13 +2639,15 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
       { label: 'Yield on Cost', value: fmt.pct(re.yieldOnCost, 2) },
       { label: 'Cap Rate at Exit', value: fmt.pct(re.capRateAtExit, 2) },
     ]);
+    const reDscrYears = re.dscrPerPeriod.filter((v) => v > 0).length;
+    const reDscrBelow = re.dscrPerPeriod.filter((v) => v > 0 && v < 1).length;
     drawCards(ctx, `Exit & Leverage (${exa.exitYearLabel})`, [
       { label: 'Exit Equity Value', value: fmt.money(exa.exitEquityValue) },
       { label: 'LTV at Exit', value: fmt.pct(re.ltvAtExit, 1) },
-      { label: 'Min DSCR', value: fmt.mult(re.dscrMin) },
+      { label: 'Min DSCR', value: fmt.mult(re.dscrMin), sub: reDscrBelow > 0 ? `below 1.00x in ${reDscrBelow} of ${reDscrYears} yrs` : 'worst debt-service year' },
       { label: 'Peak Debt', value: fmt.money(Math.max(0, ...bs.debtOutstandingPerPeriod)) },
       { label: 'Profit Margin', value: fmt.pct(re.profitMargin, 1) },
-      { label: 'Equity Multiple', value: fmt.mult(re.equityMultiple) },
+      { label: 'Equity Multiple (distributions)', value: fmt.mult(re.equityMultiple) },
     ]);
   }
 

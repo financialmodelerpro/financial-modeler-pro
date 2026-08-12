@@ -39,6 +39,7 @@ import { generateProjectPdf, generateSummaryPdf } from '../src/hubs/modeling/pla
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/returns-resolvers';
 import { buildCashSweepTables } from '../src/hubs/modeling/platforms/refm/lib/reports/financingReports';
+import { FCFE_BUILDUP_LABELS } from '../src/hubs/modeling/platforms/refm/lib/reports/streamReports';
 import { buildExcelSampleState } from './excelSampleState';
 
 for (const f of ['.env.local', '.env']) {
@@ -250,7 +251,7 @@ async function runFor(tag: string, state: any): Promise<void> {
     execDebt !== null && Math.abs(execDebt - newDebtRaised / 1e6) < 0.2,
     `printed ${execDebt} vs ${(newDebtRaised / 1e6).toFixed(1)}`);
   check('the FCFE build-up labels its debt drawdown as CASH (the other figure)',
-    fullTxt.includes('(+) Debt drawdown (cash)'));
+    fullTxt.includes('(+) Debt Drawdown (cash)'));
 
   // A2 ON THE PAGE, not just in the engine. The engine identity can hold while
   // the PDF renders a different row list, which is exactly what happened: the
@@ -260,14 +261,11 @@ async function runFor(tag: string, state: any): Promise<void> {
   const fcfeAt = lineOf(fullTxt, 'FCFE Build-up');
   check('the full report renders an FCFE Build-up', fcfeAt >= 0);
   if (fcfeAt >= 0) {
-    const COMPONENTS = [
-      '(-) Existing equity investment (at inception)', '(+) Cash from operations',
-      '(+) Cash from investing (new capex)', '(-) In-kind equity investment',
-      '(+) Debt drawdown (cash)', '(-) Principal repaid', '(-) Interest paid',
-      '(+) Terminal equity value',
-    ];
+    // Labels come FROM THE SHARED BUILDER, so this verifier cannot drift from
+    // the thing it checks and a renamed row fails loudly rather than silently.
+    const COMPONENTS = FCFE_BUILDUP_LABELS.slice(0, -1);
     const parts = COMPONENTS.map((l) => rowTotal(fullTxt, l, fcfeAt));
-    const printedFcfe = rowTotal(fullTxt, '= FCFE', fcfeAt);
+    const printedFcfe = rowTotal(fullTxt, FCFE_BUILDUP_LABELS[FCFE_BUILDUP_LABELS.length - 1], fcfeAt);
     check('every printed FCFE build-up row decoded', parts.every((v) => v !== null) && printedFcfe !== null,
       COMPONENTS.map((l, i) => `${l}=${parts[i]}`).join(' | '));
     if (parts.every((v) => v !== null) && printedFcfe !== null) {
