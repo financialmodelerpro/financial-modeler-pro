@@ -126,10 +126,19 @@ export function buildCashSweepTables(snap: ProjectFinancialsSnapshot, state: Fin
   const equityCash = sliceN(dcf.equityDrawdownPerPeriod, N);
   const inKind = sliceN(fin.equity.inKindPerPeriod, N);
   const debtDraw = sliceN(dcf.debtDrawdownPerPeriod, N);
-  const interestPaid = sliceN(dcf.interestPaidPerPeriod, N);
+  // SIGNS. `directCF.interestPaidPerPeriod` and `directCF.debtRepaymentPerPeriod`
+  // are stored ALREADY NEGATIVE (see the FinancialsSnapshot field comments, and
+  // every other consumer: returns-resolvers, icReport, the on-screen waterfall).
+  // The per-facility `principalRepaid` and `dividends.totalDividendsPerPeriod`
+  // are stored POSITIVE and still need `neg()` for display. Mixing the two
+  // conventions is what previously ADDED interest and principal to the cash
+  // available instead of subtracting them, which overstated every row below
+  // "= Cash Available" by 2 x interest (and again by 2 x principal), and broke
+  // the tie to closing cash that the last row claims.
+  const interestPaid = sliceN(dcf.interestPaidPerPeriod, N);   // already negative
   const minCashArr = new Array<number>(N).fill(minCash);
-  const cashAvailable = opening.map((v, i) => v + (cfo[i] ?? 0) + (cfi[i] ?? 0) + (equityCash[i] ?? 0) + (debtDraw[i] ?? 0) - (interestPaid[i] ?? 0));
-  const cashForDebtDiv = cashAvailable.map((v, i) => v - minCashArr[i]);
+  const cashAvailable = opening.map((v, i) => v + (cfo[i] ?? 0) + (cfi[i] ?? 0) + (equityCash[i] ?? 0) + (debtDraw[i] ?? 0) + (interestPaid[i] ?? 0));
+  const headroom = cashAvailable.map((v, i) => v - minCashArr[i]);
 
   // Per-tranche Debt Paid, ordered existing-first then sweep priority then list.
   const trMeta = (id: string) => state.financingTranches.find((t) => t.id === id);
@@ -139,9 +148,9 @@ export function buildCashSweepTables(snap: ProjectFinancialsSnapshot, state: Fin
     .sort((a, b) => (a.isExisting !== b.isExisting ? (a.isExisting ? -1 : 1) : a.priority !== b.priority ? a.priority - b.priority : a.listIdx - b.listIdx))
     .map(({ id, f, isExisting }) => ({ label: `Debt Paid: ${trName(id)}${isExisting ? ' (existing)' : ''}`, values: neg(sliceN(f.principalRepaid, N)), indent: 1 }));
 
-  const debtPaidTotal = neg(sliceN(dcf.debtRepaymentPerPeriod, N));
-  const cashForDividend = cashForDebtDiv.map((v, i) => v + (debtPaidTotal[i] ?? 0));
-  const dividends = neg(sliceN(div.totalDividendsPerPeriod, N));
+  const debtPaidTotal = sliceN(dcf.debtRepaymentPerPeriod, N);   // already negative
+  const cashForDividend = cashAvailable.map((v, i) => v + (debtPaidTotal[i] ?? 0));
+  const dividends = neg(sliceN(div.totalDividendsPerPeriod, N)); // stored positive
   const closing = sliceN(dcf.closingCashPerPeriod, N);
 
   const waterfall: M4Row[] = [
@@ -151,15 +160,24 @@ export function buildCashSweepTables(snap: ProjectFinancialsSnapshot, state: Fin
     { label: '(+) Equity Drawdown (Cash)', values: equityCash, priorValue: fin.existing.equityTotal },
   ];
   if (anyNonZero(inKind)) waterfall.push({ label: '(+) Equity In-Kind (memo, non-cash)', values: inKind, indent: 1 });
+  // The minimum cash reserve is a RESERVATION, not a payment: it is never spent,
+  // so it does not belong in the running chain (deducting it and then silently
+  // ignoring it two rows later is what stopped the column reaching closing cash).
+  // It rides alongside as an indented memo pair, exactly like the in-kind equity
+  // row above. The chain is therefore:
+  //   Opening + Ops + Inv + Equity + Debt Draw + Interest = Cash Available
+  //   Cash Available + Debt Paid + Dividend Paid          = Closing Cash
+  // Both a BALANCE, so their Total is the closing figure, never a 14-period sum
+  // of a stock (the reserve summed to 700.0 against a standing 50.0 reserve).
   waterfall.push(
     { label: '(+) Debt Drawdown', values: debtDraw, priorValue: fin.existing.debtOutstandingTotal },
-    { label: '(-) Interest Paid', values: neg(interestPaid) },
-    { label: '= Cash Available', values: cashAvailable, isSubtotal: true },
-    { label: '(-) Minimum Cash Requirement', values: neg(minCashArr) },
-    { label: '= Cash Available for Debt + Dividend', values: cashForDebtDiv, isSubtotal: true },
+    { label: '(-) Interest Paid', values: interestPaid },
+    { label: '= Cash Available', values: cashAvailable, isSubtotal: true, totalOverride: fmt(cashAvailable[N - 1] ?? 0) },
+    { label: '(memo) Minimum Cash Requirement (reserved, not spent)', values: neg(minCashArr), indent: 1, totalOverride: fmt(-minCash) },
+    { label: '(memo) Headroom above the minimum reserve', values: headroom, indent: 1, totalOverride: fmt(headroom[N - 1] ?? 0) },
     ...debtPaidRows,
     { label: '(-) Debt Paid (total principal incl. sweep)', values: debtPaidTotal, isSubtotal: true },
-    { label: '= Cash Available for Dividend', values: cashForDividend, isSubtotal: true },
+    { label: '= Cash Available for Dividend', values: cashForDividend, isSubtotal: true, totalOverride: fmt(cashForDividend[N - 1] ?? 0) },
   );
   if (anyNonZero(dividends)) waterfall.push({ label: '(-) Dividend Paid (per policy)', values: dividends });
   waterfall.push({ label: '= Closing Cash (ties to CF + BS)', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0), priorValue: snap.bs.historicalOpeningCashTotal });

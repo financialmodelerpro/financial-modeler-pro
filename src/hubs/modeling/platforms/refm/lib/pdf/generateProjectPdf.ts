@@ -757,7 +757,15 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
   drawGridTable(ctx, kv2Table('Financial Structure', [
     ['Funding method', FUNDING_METHOD_LABELS[(p.financing?.fundingMethod ?? 1) as FundingMethodId]],
     ['Debt / Equity split', `${fmt.pctRaw(fin.funding.debtPct, 0)} / ${fmt.pctRaw(fin.funding.equityPct, 0)}`],
-    ['Total new debt', fmt.money(sum(snap.directCF.debtDrawdownPerPeriod))],
+    // Total new debt RAISED = cash drawdown + interest capitalised to the loan.
+    // The same definition Module 5's Sources & Uses uses, and the only one that
+    // reconciles: existing debt + this = peak debt outstanding. The cash-only
+    // drawdown (which this row used to print) is a different, smaller number and
+    // reading it beside a Sources & Uses figure under the same name was the
+    // contradiction. The FCFE build-up keeps the cash-only figure, labelled as
+    // such, because capitalised interest is not a cash flow.
+    ['Total new debt (incl. capitalised interest)',
+      fmt.money(sum(snap.financing.combined.totalDrawdown) + sum(snap.financing.combined.totalInterestCapitalized))],
     ['Total equity (cash + in-kind + existing)', fmt.money(fin.equity.grandTotal)],
     ['Minimum cash reserve', fmt.money(p.financing?.minimumCashReserve ?? fin.funding.minCashReserve ?? 0)],
   ]), fmt);
@@ -1492,13 +1500,20 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
     periodRow('(+) Terminal enterprise value', bu.terminalEnterprisePerPeriod.slice(1), 'sum', undefined, bu.terminalEnterprisePerPeriod[0] ?? 0),
     periodRow('= FCFF', returns.fcffPerPeriod.slice(1), 'sum', 'total', returns.fcffPerPeriod[0] ?? 0),
   ])));
+  // FCFE build-up. This ROW LIST IS THE ONE THE ENGINE ACTUALLY USES, and it is
+  // the same list the M5 screen, the Excel Returns tab and the IC report render:
+  // FCFE is built from (cfo + cfi), NOT from FCFF, so starting at FCFF and adding
+  // the terminal EQUITY value double-counted the terminal (FCFF already carries
+  // the terminal ENTERPRISE value) and left the column short by exactly that
+  // amount. See streamBuild.buildSponsorStreamsForExit.
   items.push(tTable('Tab 4: Cash Flow Streams', 'schedules', periodTable('FCFE Build-up', streamPrior, streamYears, [
-    periodRow('FCFF', returns.fcffPerPeriod.slice(1), 'sum', undefined, returns.fcffPerPeriod[0] ?? 0),
-    periodRow('(+) Existing debt opening', bu.existingDebtOpeningPerPeriod.slice(1), 'sum', undefined, bu.existingDebtOpeningPerPeriod[0] ?? 0),
-    periodRow('(+) Debt drawdown', bu.debtDrawPerPeriod.slice(1), 'sum', undefined, bu.debtDrawPerPeriod[0] ?? 0),
+    periodRow('(-) Existing equity investment (at inception)', bu.existingEquityPerPeriod.slice(1), 'sum', undefined, bu.existingEquityPerPeriod[0] ?? 0),
+    periodRow('(+) Cash from operations', bu.cfoPerPeriod.slice(1), 'sum', undefined, bu.cfoPerPeriod[0] ?? 0),
+    periodRow('(+) Cash from investing (new capex)', bu.cfiPerPeriod.slice(1), 'sum', undefined, bu.cfiPerPeriod[0] ?? 0),
+    periodRow('(-) In-kind equity investment', bu.inKindLandPerPeriod.slice(1), 'sum', undefined, bu.inKindLandPerPeriod[0] ?? 0),
+    periodRow('(+) Debt drawdown (cash)', bu.debtDrawPerPeriod.slice(1), 'sum', undefined, bu.debtDrawPerPeriod[0] ?? 0),
     periodRow('(-) Principal repaid', bu.principalRepayPerPeriod.slice(1), 'sum', undefined, bu.principalRepayPerPeriod[0] ?? 0),
     periodRow('(-) Interest paid', bu.interestPaidPerPeriod.slice(1), 'sum', undefined, bu.interestPaidPerPeriod[0] ?? 0),
-    periodRow('(-) In-kind land', bu.inKindLandPerPeriod.slice(1), 'sum', undefined, bu.inKindLandPerPeriod[0] ?? 0),
     periodRow('(+) Terminal equity value', bu.terminalEquityPerPeriod.slice(1), 'sum', undefined, bu.terminalEquityPerPeriod[0] ?? 0),
     periodRow('= FCFE', returns.fcfePerPeriod.slice(1), 'sum', 'total', returns.fcfePerPeriod[0] ?? 0),
   ])));
@@ -2129,10 +2144,17 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
       return row([ph.name, String(ph.status ?? 'planning'), String(sy), fmt.int(ph.constructionPeriods ?? 0), fmt.int(ph.operationsPeriods ?? 0)]);
     }),
   } }, fmt);
+  // SIGNS MATCH THE FULL REPORT. The consolidated P&L renders from the shared
+  // builder, which negates every deduction (negArr), so this hand-built summary
+  // has to as well. It used to print cost of sales / opex / D&A / interest / tax
+  // POSITIVE beside a NEGATIVE fund fee row, so the column could not be added:
+  // revenue less the printed deductions missed the printed EBITDA by twice their
+  // value, and the one negative row made it look deliberate.
+  const negate = (a: number[]): number[] => a.map((v) => -(v ?? 0));
   drawItem(ctx, { type: 'table', table: periodTable('Profit & Loss (summary)', py, yl, [
     periodRow('Total revenue', pl.totalRevenuePerPeriod, 'sum'),
-    periodRow('Cost of sales', pl.cosPerPeriod, 'sum'),
-    periodRow('Operating expenses', pl.totalOpexPerPeriod, 'sum'),
+    periodRow('Cost of sales', negate(pl.cosPerPeriod), 'sum'),
+    periodRow('Operating expenses', negate(pl.totalOpexPerPeriod), 'sum'),
     // Fund fees. WITHOUT this row the summary does not foot on a fund project:
     // `ebitdaPerPeriod` is already NET of the fees (Step 3 struck EBITDA after
     // them), so revenue less cost of sales less opex did not reach the printed
@@ -2140,14 +2162,14 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
     // got this row in August because they render from the shared builder; this
     // page is hand-built and was missed.
     ...(snap.fundFees.active
-      ? [periodRow('Total Fund Management Fee', snap.fundFees.totalPerPeriod.map((v) => -v), 'sum')]
+      ? [periodRow('Total Fund Management Fee', negate(snap.fundFees.totalPerPeriod), 'sum')]
       : []),
     periodRow('EBITDA', pl.ebitdaPerPeriod, 'sum', 'subtotal'),
-    periodRow('Depreciation & amortization', pl.daPerPeriod, 'sum'),
+    periodRow('Depreciation & amortization', negate(pl.daPerPeriod), 'sum'),
     periodRow('EBIT', pl.ebitPerPeriod, 'sum', 'subtotal'),
-    periodRow('Interest expense', pl.interestExpensePerPeriod, 'sum'),
+    periodRow('Interest expense', negate(pl.interestExpensePerPeriod), 'sum'),
     periodRow('Profit before tax', pl.pbtPerPeriod, 'sum', 'subtotal'),
-    periodRow('Tax / Zakat', pl.taxPerPeriod, 'sum'),
+    periodRow('Tax / Zakat', negate(pl.taxPerPeriod), 'sum'),
     periodRow('Profit after tax', pl.patPerPeriod, 'sum', 'total'),
   ]) }, fmt);
   drawItem(ctx, { type: 'table', table: periodTable('Cash Flow (summary)', py, yl, [

@@ -659,7 +659,14 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
         strategy: pl.strategy,
         revenuePerPeriod: pl.revenuePerPeriod,
         opexPerPeriod: pl.opexPerPeriod,
-        capexPerPeriod: cf?.capexPerPeriod ?? new Array<number>(N).fill(0),
+        // SIGN FLIP, deliberate. `perAssetCF.capexPerPeriod` is a POSITIVE cost
+        // magnitude (unlike the project-level `directCF.capexPerPeriod`, which
+        // is negative), while `AssetReturnInput.capexPerPeriod` is documented as
+        // a negative outflow. Passing it through unflipped made the engine's
+        // `Math.max(0, -sum(capex))` clamp EVERY asset to zero cost, so per-asset
+        // economics reported 100% margin and a null yield on cost on a project
+        // with 4.9bn of development cost.
+        capexPerPeriod: (cf?.capexPerPeriod ?? new Array<number>(N).fill(0)).map((v) => -(v ?? 0)),
       };
     }),
   );

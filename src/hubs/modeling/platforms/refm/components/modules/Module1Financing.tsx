@@ -2713,14 +2713,24 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
       </tr>
     );
   };
-  const renderStateRow = (label: string, arr: number[], opts?: { bold?: boolean; subtotal?: boolean; priorValue?: number }) => {
+  // A BALANCE row: its Total column is the closing (last) value, never a sum
+  // across periods. Summing a stock is meaningless (the standing minimum cash
+  // reserve summed to 14 x itself, and "Cash Available" summed to a figure that
+  // exists in no period), so every stock line in the waterfall uses this.
+  const renderStateRow = (label: string, arr: number[], opts?: { bold?: boolean; subtotal?: boolean; priorValue?: number; negative?: boolean; indent?: number }) => {
     const cropped = p.cropProject(arr);
     const isBold = opts?.bold === true;
     const isSub = opts?.subtotal === true;
-    const nameStyle = isBold ? ROW_GRAND_TOTAL.name : isSub ? ROW_SUBTOTAL.name : ROW_DATA.name;
-    const numStyle = isBold ? ROW_GRAND_TOTAL.num : isSub ? ROW_SUBTOTAL.num : ROW_DATA.num;
-    const totalStyle = isBold ? ROW_GRAND_TOTAL.numTotal : isSub ? ROW_SUBTOTAL.numTotal : ROW_DATA.numTotal;
-    const priorStyle: React.CSSProperties = { ...numStyle, fontStyle: 'italic', color: 'var(--color-meta)' };
+    const nameStyle: React.CSSProperties = {
+      ...(isBold ? ROW_GRAND_TOTAL.name : isSub ? ROW_SUBTOTAL.name : ROW_DATA.name),
+      paddingLeft: 8 + (opts?.indent ?? 0) * 12,
+    };
+    const baseNum = isBold ? ROW_GRAND_TOTAL.num : isSub ? ROW_SUBTOTAL.num : ROW_DATA.num;
+    const baseTotal = isBold ? ROW_GRAND_TOTAL.numTotal : isSub ? ROW_SUBTOTAL.numTotal : ROW_DATA.numTotal;
+    const applyRed = opts?.negative && !isBold;
+    const numStyle: React.CSSProperties = applyRed ? { ...baseNum, color: 'var(--color-danger, #b91c1c)' } : baseNum;
+    const totalStyle: React.CSSProperties = applyRed ? { ...baseTotal, color: 'var(--color-danger, #b91c1c)' } : baseTotal;
+    const priorStyle: React.CSSProperties = { ...numStyle, fontStyle: 'italic', color: applyRed ? 'var(--color-danger, #b91c1c)' : 'var(--color-meta)' };
     return (
       <tr>
         <td style={nameStyle}>{label}</td>
@@ -3051,9 +3061,14 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                       so they are excluded here to avoid a double-count). */}
                   {renderFlowRow('(+) Debt Drawdown (incl. additional to maintain min cash)', debtDrawW, { priorValue: snap.financing.existing.debtOutstandingTotal })}
                   {renderFlowRow('(−) Interest Paid', interestPaidW, { negative: true })}
-                  {renderFlowRow('= Cash Available', cashAvailableW, { subtotal: true, priorValue: 0 })}
-                  {renderFlowRow('(−) Minimum Cash Requirement (floor maintained)', cashAvailableW.map(() => -minCash), { negative: true })}
-                  {renderFlowRow('= Cash Available for Debt + Dividend', cashForDebtDivW, { subtotal: true, priorValue: 0 })}
+                  {renderStateRow('= Cash Available', cashAvailableW, { subtotal: true })}
+                  {/* The reserve is RESERVED, never spent, so it is a memo beside
+                      the chain rather than a step in it: deducting it here and
+                      then ignoring it two rows down is what stopped the column
+                      reaching Closing Cash. Both rows are balances, so their
+                      Total is the closing figure, not a 14-period sum. */}
+                  {renderStateRow('(memo) Minimum Cash Requirement (reserved, not spent)', cashAvailableW.map(() => -minCash), { negative: true, indent: 1 })}
+                  {renderStateRow('(memo) Headroom above the minimum reserve', cashForDebtDivW, { indent: 1 })}
                   {/* Debt Paid split per tranche (2026-06-02) so the user sees
                       which loan is repaid each period. Each line is that
                       facility's principal repaid (scheduled + sweep); they sum
@@ -3088,7 +3103,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                       ));
                   })()}
                   {renderFlowRow('(−) Debt Paid (total principal incl. sweep)', debtPaidW, { negative: true, subtotal: true })}
-                  {renderFlowRow('= Cash Available for Dividend', cashForDividendW, { subtotal: true, priorValue: 0 })}
+                  {renderStateRow('= Cash Available for Dividend', cashForDividendW, { subtotal: true })}
                   {div.enabled && renderFlowRow('(−) Dividend Paid (per policy, EBITDA-capped)', divArr.map((v) => -v), { negative: true })}
                   {renderStateRow('= Closing Cash (ties to Cash Flow tab + Balance Sheet)', finalClosing, { bold: true, priorValue: snap.bs.historicalOpeningCashTotal })}
                   {hasIdcCash && (

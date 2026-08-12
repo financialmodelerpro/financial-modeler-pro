@@ -94,6 +94,8 @@ export interface AssetCF {
   // Direct method per-asset
   revenueReceivedPerPeriod: number[];
   opexPaidPerPeriod: number[];
+  /** POSITIVE cost magnitude. Note this is the OPPOSITE sign to the
+   *  project-level `DirectCashFlow.capexPerPeriod`, which is negative. */
   capexPerPeriod: number[];
   /** Residential WIP inventory: Sell strategies only (else zeros). */
   inventoryPerPeriod: number[];
