@@ -35,9 +35,9 @@ import Link from 'next/link';
 
 import { DECK_THEME } from '../../../lib/reports/deck/theme';
 import type { Deck } from '../../../lib/reports/deck/types';
-import { findNarrativeTargets, type NarrativeTarget } from '../../../lib/reports/deck/narrativeTargets';
+import { findNarrativeTargets, objectNarrativeText, type NarrativeTarget } from '../../../lib/reports/deck/narrativeTargets';
 import { IC_NARRATIVE_FIELDS, type IcNarrativeFieldKey } from '../../../lib/ai/icNarrative';
-import { generateIcNarrative, getIcNarrativeStatus } from '../../../lib/persistence/client';
+import { generateIcNarrative, generateIcFreeform, getIcNarrativeStatus } from '../../../lib/persistence/client';
 
 /**
  * Containment for the whole AI section.
@@ -91,12 +91,99 @@ export interface NarrativeAiStatus {
 
 /** One generated draft awaiting a decision. */
 export interface NarrativeDraft {
-  field: IcNarrativeFieldKey;
+  /**
+   * Stable identity for a draft in the review step.
+   *
+   * The six fixed fields used their field key for this, which stopped working
+   * the moment a draft could come from a free instruction: a free-form draft
+   * targets a BLOCK and has no field. So identity is now explicit, and it is
+   * the field key for a fixed draft and the object id for a free-form one.
+   * Keying the modal on this rather than on `field` is what lets two drafts for
+   * different blocks coexist without one silently dismissing the other.
+   */
+  id: string;
+  /** Absent on a free-form draft, which targets a block rather than a field. */
+  field?: IcNarrativeFieldKey;
+  /** True when the user wrote the instruction rather than picking a field. */
+  freeform?: boolean;
+  /** What was asked for, on a free-form draft. Shown in the review so the user
+   *  can see the instruction beside what came back. */
+  instruction?: string;
+  /** A model refusal: the instruction asked for something the supplied figures
+   *  cannot support. Carries NO draft, and the review step offers no Apply. */
+  refused?: boolean;
+  refusalReason?: string;
   label: string;
   target: NarrativeTarget;
   draft: string;
   risks?: Array<{ risk: string; mitigant: string }>;
   audit: { ok: boolean; checked: number; supported: number; rounded: number; unsupported: Array<{ raw: string; index: number }>; summary: string };
+}
+
+/**
+ * Free-form drafting: select any block, say what you want.
+ *
+ * It states the three things a user needs before spending a credit: WHICH block
+ * it will write into, that an empty block makes the instruction the only
+ * context, and that the model can only use the project's own figures. The last
+ * one is not decoration: it is why an instruction asking for market benchmarks
+ * comes back refused, and saying so up front turns a surprising refusal into an
+ * expected one.
+ */
+function FreeformBox({
+  selected, instruction, setInstruction, onRun, busy, disabled,
+}: {
+  selected: { label: string; writable: boolean; isEmpty: boolean } | null;
+  instruction: string;
+  setInstruction: (v: string) => void;
+  onRun: () => void;
+  busy: boolean;
+  disabled: boolean;
+}): React.JSX.Element {
+  const canRun = !!selected && selected.writable && instruction.trim().length > 0 && !busy && !disabled;
+  return (
+    <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${DECK_THEME.rule}` }} data-testid="ai-freeform">
+      <div style={{ fontSize: 10, fontWeight: 700, color: DECK_THEME.navy, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 5 }}>
+        Write anything
+      </div>
+      {!selected ? (
+        <div style={{ fontSize: 11, color: DECK_THEME.slate, lineHeight: 1.5 }} data-testid="ai-freeform-noselection">
+          Select a block on the slide, then say what you want written for it.
+        </div>
+      ) : !selected.writable ? (
+        <div style={{ fontSize: 11, color: DECK_THEME.slate, lineHeight: 1.5 }} data-testid="ai-freeform-unwritable">
+          {selected.label} cannot hold drafted text. Select a text, bullets or risk block.
+        </div>
+      ) : (
+        <>
+          <div style={{ fontSize: 11, color: DECK_THEME.slate, marginBottom: 5 }} data-testid="ai-freeform-target">
+            Writing into <strong style={{ color: DECK_THEME.ink }}>{selected.label}</strong>
+            {selected.isEmpty ? ', which is empty, so your instruction is the only context.' : '. The draft replaces what is there.'}
+          </div>
+          <textarea
+            value={instruction}
+            onChange={(e) => setInstruction(e.target.value)}
+            placeholder="Write this up. Explain this IRR. Summarise what this table shows."
+            rows={3}
+            data-testid="ai-freeform-instruction"
+            style={{
+              width: '100%', fontSize: 11, lineHeight: 1.5, padding: 6, borderRadius: 4,
+              border: `1px solid ${DECK_THEME.rule}`, resize: 'vertical', fontFamily: 'inherit', color: DECK_THEME.ink,
+            }}
+          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5 }}>
+            <button style={panelBtn('primary', !canRun)} disabled={!canRun} onClick={onRun} data-testid="ai-freeform-generate">
+              {busy ? 'Drafting...' : 'Generate (1)'}
+            </button>
+            <span style={{ fontSize: 10, color: DECK_THEME.slate }}>Uses one generation</span>
+          </div>
+          <div style={{ fontSize: 10, color: DECK_THEME.slate, marginTop: 5, lineHeight: 1.45 }} data-testid="ai-freeform-grounding-note">
+            Only this project&apos;s computed figures are available. Anything needing market data or outside benchmarks comes back refused rather than invented.
+          </div>
+        </>
+      )}
+    </div>
+  );
 }
 
 const panelBtn = (tone: 'primary' | 'ghost' = 'ghost', disabled = false): React.CSSProperties => ({
@@ -177,11 +264,54 @@ interface PanelProps {
 export function NarrativeAiPanel({
   projectId, deck, model, currency, status, selectedObjectId, onStatusRefresh, onDrafts, onNotice,
 }: PanelProps): React.JSX.Element | null {
-  const [busy, setBusy] = useState<IcNarrativeFieldKey | 'all' | null>(null);
+  const [busy, setBusy] = useState<IcNarrativeFieldKey | 'all' | 'freeform' | null>(null);
+  const [instruction, setInstruction] = useState('');
   const targets = useMemo(() => findNarrativeTargets(deck), [deck]);
 
   const remaining = status?.remaining ?? null;
   const blocked = !status?.available;
+
+  /**
+   * The selected block, resolved from the deck by object id.
+   *
+   * Any block qualifies, not only a narrative one: that is the whole point of
+   * free-form. A synthetic NarrativeTarget is built for it so the existing
+   * apply path (buildNarrativePatch through commit) works unchanged, and it
+   * carries no `field` because there is none.
+   */
+  const selected = useMemo(() => {
+    if (!selectedObjectId) return null;
+    for (let i = 0; i < (deck.slides ?? []).length; i++) {
+      const slide = deck.slides[i];
+      const object = (slide.objects ?? []).find((o) => o.id === selectedObjectId);
+      if (!object) continue;
+      const current = objectNarrativeText(object);
+      const target: NarrativeTarget = {
+        // The apply path needs a field on the type; free-form never reads it,
+        // and the patch builder branches on objectKind alone.
+        field: 'executiveSummary',
+        slideId: slide.id,
+        slideIndex: i,
+        slideTitle: slide.title,
+        objectId: object.id,
+        objectKind: object.type as NarrativeTarget['objectKind'],
+        current,
+        isPlaceholder: !current.trim(),
+      };
+      return {
+        object,
+        slideTitle: slide.title,
+        label: object.name || `${object.type} block on ${slide.title}`,
+        target,
+        /** Only these three can receive text today (buildNarrativePatch). A
+         *  chart or a KPI tile can be selected, but a draft has nowhere to go
+         *  in it, so the box says so rather than spending a credit. */
+        writable: object.type === 'text' || object.type === 'bullets' || object.type === 'riskMatrix',
+        isEmpty: !current.trim(),
+      };
+    }
+    return null;
+  }, [deck, selectedObjectId]);
 
   const runOne = useCallback(async (target: NarrativeTarget): Promise<NarrativeDraft | null> => {
     const res = await generateIcNarrative(projectId, {
@@ -209,6 +339,7 @@ export function NarrativeAiPanel({
     // guess that could drift across tabs.
     onStatusRefresh({ used: res.data.meter.used, cap: res.data.meter.cap, remaining: res.data.meter.remaining });
     return {
+      id: target.field,
       field: target.field,
       label: res.data.label,
       target,
@@ -243,15 +374,80 @@ export function NarrativeAiPanel({
     }
   }, [targets, runOne, onDrafts, onNotice]);
 
+  /**
+   * Draft the SELECTED block from a free instruction.
+   *
+   * Deliberately independent of `targets`: those come from the template map,
+   * which knows only the six narrative slides and returns nothing for a blank
+   * one. Free-form resolves from the selected object itself, which is what lets
+   * it work on a block the template map has never heard of, including an empty
+   * one on a slide the user just added.
+   */
+  const runFreeform = useCallback(async () => {
+    if (!selected) return;
+    setBusy('freeform');
+    const res = await generateIcFreeform(projectId, {
+      instruction,
+      block: {
+        kind: selected.object.type,
+        slideTitle: selected.slideTitle,
+        current: objectNarrativeText(selected.object),
+        ...(selected.object.name ? { name: selected.object.name } : {}),
+      },
+      model,
+      scale: deck.settings.moneyScale,
+      currency,
+    });
+    setBusy(null);
+    if (res.error || !res.data) {
+      onNotice(res.error ?? 'The draft could not be generated.');
+      const fresh = await getIcNarrativeStatus(projectId);
+      if (fresh.data) onStatusRefresh({ used: fresh.data.used, cap: fresh.data.cap, remaining: fresh.data.remaining });
+      return;
+    }
+    onStatusRefresh({ used: res.data.meter.used, cap: res.data.meter.cap, remaining: res.data.meter.remaining });
+    onDrafts([{
+      // Keyed on the OBJECT, so two free-form drafts for two different blocks
+      // coexist in the review instead of one dismissing the other.
+      id: `freeform:${selected.object.id}`,
+      freeform: true,
+      instruction: res.data.instruction,
+      label: selected.label,
+      target: selected.target,
+      draft: res.data.draft,
+      refused: res.data.refused,
+      ...(res.data.refusalReason ? { refusalReason: res.data.refusalReason } : {}),
+      audit: res.data.audit,
+    }]);
+    setInstruction('');
+  }, [selected, instruction, projectId, model, deck.settings.moneyScale, currency, onNotice, onDrafts, onStatusRefresh]);
+
   // The feature being off is not an error state to explain at length; the
   // section simply does not appear, which is what "should not appear or be
   // disabled with a clear reason" asks for.
   if (status && !status.enabled) return null;
 
+  const freeformSection = (
+    <FreeformBox
+      selected={selected}
+      instruction={instruction}
+      setInstruction={setInstruction}
+      onRun={runFreeform}
+      busy={busy === 'freeform'}
+      disabled={blocked || busy !== null || remaining === 0}
+    />
+  );
+
+  // A deck with no NARRATIVE blocks still gets free-form drafting: the two are
+  // independent, and refusing to show the instruction box because the template
+  // map found nothing would withdraw the one feature that works on any block.
   if (targets.length === 0) {
     return (
-      <div style={{ fontSize: 11, color: DECK_THEME.slate, lineHeight: 1.5 }} data-testid="ai-no-targets">
-        No narrative blocks were found in this deck. Rebuild from the library to restore the standard IC slides.
+      <div data-testid="ai-narrative-panel">
+        <div style={{ fontSize: 11, color: DECK_THEME.slate, lineHeight: 1.5 }} data-testid="ai-no-targets">
+          No standard narrative blocks were found in this deck. Select any block and give an instruction instead.
+        </div>
+        {freeformSection}
       </div>
     );
   }
@@ -329,6 +525,8 @@ export function NarrativeAiPanel({
       <div style={{ fontSize: 9, color: DECK_THEME.slateLight, marginTop: 8, lineHeight: 1.5 }}>
         Drafts are written from your model figures and land in a review step. Nothing changes on a slide until you apply it.
       </div>
+
+      {freeformSection}
     </div>
   );
 }
@@ -348,10 +546,10 @@ export function NarrativeReviewModal({ drafts, onApply, onClose }: ReviewProps):
   const [edited, setEdited] = useState<Record<string, string>>({});
   const [dismissed, setDismissed] = useState<Record<string, boolean>>({});
 
-  const live = drafts.filter((d) => !dismissed[d.field]);
+  const live = drafts.filter((d) => !dismissed[d.id]);
   if (drafts.length === 0) return null;
 
-  const withEdits = (d: NarrativeDraft): NarrativeDraft => ({ ...d, draft: edited[d.field] ?? d.draft });
+  const withEdits = (d: NarrativeDraft): NarrativeDraft => ({ ...d, draft: edited[d.id] ?? d.draft });
 
   return (
     <div
@@ -380,36 +578,62 @@ export function NarrativeReviewModal({ drafts, onApply, onClose }: ReviewProps):
 
         <div style={{ overflowY: 'auto', padding: 16, display: 'grid', gap: 14 }}>
           {live.map((d) => {
-            const value = edited[d.field] ?? d.draft;
+            const value = edited[d.id] ?? d.draft;
             return (
-              <div key={d.field} style={{ border: `1px solid ${DECK_THEME.rule}`, borderRadius: 6 }} data-testid={`ai-review-${d.field}`}>
+              <div key={d.id} style={{ border: `1px solid ${d.refused ? DECK_THEME.navy : DECK_THEME.rule}`, borderRadius: 6 }} data-testid={`ai-review-${d.id}`}>
                 <div style={{ padding: '8px 10px', background: DECK_THEME.paleWash, borderBottom: `1px solid ${DECK_THEME.rule}`, display: 'flex', alignItems: 'center', gap: 8 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: DECK_THEME.navyDeep }}>{d.label}</div>
                   <div style={{ fontSize: 10, color: DECK_THEME.slate }}>
                     Slide {d.target.slideIndex + 1}, {d.target.slideTitle}
                   </div>
                   <div style={{ flex: 1 }} />
-                  {!d.audit.ok ? (
+                  {d.refused ? (
+                    <span style={{ fontSize: 10, fontWeight: 700, color: DECK_THEME.navy, border: `1px solid ${DECK_THEME.navy}`, borderRadius: 3, padding: '1px 6px' }} data-testid={`ai-refused-${d.id}`}>
+                      Not answered
+                    </span>
+                  ) : !d.audit.ok ? (
                     <span
                       style={{ fontSize: 10, fontWeight: 700, color: DECK_THEME.red, border: `1px solid ${DECK_THEME.red}`, borderRadius: 3, padding: '1px 6px' }}
                       title={`These figures do not appear in the model data supplied to the draft: ${d.audit.unsupported.map((u) => u.raw).join(', ')}`}
-                      data-testid={`ai-audit-flag-${d.field}`}
+                      data-testid={`ai-audit-flag-${d.id}`}
                     >
                       {d.audit.unsupported.length} figure{d.audit.unsupported.length === 1 ? '' : 's'} to check
                     </span>
                   ) : (
-                    <span style={{ fontSize: 10, color: DECK_THEME.green, fontWeight: 700 }} data-testid={`ai-audit-ok-${d.field}`}>
+                    <span style={{ fontSize: 10, color: DECK_THEME.green, fontWeight: 700 }} data-testid={`ai-audit-ok-${d.id}`}>
                       Figures check out
                     </span>
                   )}
                 </div>
 
-                {!d.audit.ok ? (
+                {d.instruction ? (
+                  <div style={{ padding: '6px 10px', fontSize: 10, color: DECK_THEME.slate, background: DECK_THEME.offWhite, lineHeight: 1.5, borderBottom: `1px solid ${DECK_THEME.rule}` }} data-testid={`ai-instruction-${d.id}`}>
+                    You asked: {d.instruction}
+                  </div>
+                ) : null}
+
+                {/* A REFUSAL, shown as one. The model was asked for something
+                    the project's figures cannot support, so there is no draft
+                    and no Apply: presenting an empty textarea with an Apply
+                    button would invite the user to write the ungrounded answer
+                    themselves under an AI heading. */}
+                {d.refused ? (
+                  <div style={{ padding: '10px', fontSize: 11, color: DECK_THEME.ink, background: DECK_THEME.paleWash, lineHeight: 1.55 }} data-testid={`ai-refusal-reason-${d.id}`}>
+                    <strong>This was not drafted.</strong>{' '}
+                    {d.refusalReason || 'The instruction asks for something the supplied model figures do not carry.'}
+                    <div style={{ marginTop: 6, color: DECK_THEME.slate }}>
+                      Drafting is grounded in this project&apos;s computed figures only. Nothing outside them, market benchmarks included, is available to it, and a partly grounded answer would not show you which half was real.
+                    </div>
+                  </div>
+                ) : null}
+
+                {!d.refused && !d.audit.ok ? (
                   <div style={{ padding: '6px 10px', fontSize: 10, color: DECK_THEME.red, background: '#FBF2F2', lineHeight: 1.5 }}>
                     {d.audit.unsupported.map((u) => u.raw).join(', ')} could not be matched to a figure in your model. Check these before using the text.
                   </div>
                 ) : null}
 
+                {d.refused ? null : (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
                   <div style={{ padding: 10, borderRight: `1px solid ${DECK_THEME.rule}` }}>
                     <div style={{ fontSize: 10, fontWeight: 700, color: DECK_THEME.slate, marginBottom: 4 }}>
@@ -423,8 +647,8 @@ export function NarrativeReviewModal({ drafts, onApply, onClose }: ReviewProps):
                     <div style={{ fontSize: 10, fontWeight: 700, color: DECK_THEME.navy, marginBottom: 4 }}>DRAFT, EDITABLE</div>
                     <textarea
                       value={value}
-                      onChange={(e) => setEdited((m) => ({ ...m, [d.field]: e.target.value }))}
-                      data-testid={`ai-draft-text-${d.field}`}
+                      onChange={(e) => setEdited((m) => ({ ...m, [d.id]: e.target.value }))}
+                      data-testid={`ai-draft-text-${d.id}`}
                       style={{
                         width: '100%', minHeight: 150, fontSize: 11, lineHeight: 1.5, color: DECK_THEME.ink,
                         border: `1px solid ${DECK_THEME.rule}`, borderRadius: 4, padding: 8, fontFamily: 'inherit', resize: 'vertical',
@@ -432,14 +656,22 @@ export function NarrativeReviewModal({ drafts, onApply, onClose }: ReviewProps):
                     />
                   </div>
                 </div>
+                )}
 
                 <div style={{ padding: '8px 10px', borderTop: `1px solid ${DECK_THEME.rule}`, display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                  <button style={panelBtn('ghost')} onClick={() => setDismissed((m) => ({ ...m, [d.field]: true }))} data-testid={`ai-discard-${d.field}`}>
-                    Discard
+                  <button style={panelBtn('ghost')} onClick={() => setDismissed((m) => ({ ...m, [d.id]: true }))} data-testid={`ai-discard-${d.id}`}>
+                    {d.refused ? 'Close' : 'Discard'}
                   </button>
-                  <button style={panelBtn('primary')} onClick={() => { onApply([withEdits(d)]); setDismissed((m) => ({ ...m, [d.field]: true })); }} data-testid={`ai-apply-${d.field}`}>
+                  {/* NO Apply on a refusal. There is nothing to apply, and an
+                      Apply button beside an empty draft would invite the user
+                      to type the ungrounded answer themselves under an AI
+                      heading, which is the outcome the refusal exists to
+                      prevent. */}
+                  {d.refused ? null : (
+                  <button style={panelBtn('primary')} onClick={() => { onApply([withEdits(d)]); setDismissed((m) => ({ ...m, [d.id]: true })); }} data-testid={`ai-apply-${d.id}`}>
                     Apply to slide
                   </button>
+                  )}
                 </div>
               </div>
             );
@@ -449,15 +681,15 @@ export function NarrativeReviewModal({ drafts, onApply, onClose }: ReviewProps):
           ) : null}
         </div>
 
-        {live.length > 1 ? (
+        {live.filter((x) => !x.refused).length > 1 ? (
           <div style={{ padding: '10px 16px', borderTop: `1px solid ${DECK_THEME.rule}`, display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
             <button style={panelBtn('ghost')} onClick={onClose} data-testid="ai-review-discard-all">Discard the rest</button>
             <button
               style={panelBtn('primary')}
-              onClick={() => { onApply(live.map(withEdits)); onClose(); }}
+              onClick={() => { onApply(live.filter((x) => !x.refused).map(withEdits)); onClose(); }}
               data-testid="ai-review-apply-all"
             >
-              Apply all {live.length} to their slides
+              Apply all {live.filter((x) => !x.refused).length} to their slides
             </button>
           </div>
         ) : null}

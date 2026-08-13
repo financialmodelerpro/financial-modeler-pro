@@ -432,6 +432,47 @@ export function generateIcNarrative(
   });
 }
 
+/**
+ * Draft ANY block from a free instruction.
+ *
+ * Same endpoint, same metered feature, same allowance: the free-form mode is a
+ * different way to ask, not a second product. It is opted into by `mode`, so a
+ * caller that knows nothing about it is unaffected.
+ *
+ * A REFUSAL comes back 200 with `refused: true` and an EMPTY draft. That is a
+ * real answer (the figures cannot support the instruction), not an error, and
+ * the empty draft is what stops the UI presenting it as text to apply.
+ */
+export function generateIcFreeform(
+  projectId: string,
+  args: {
+    instruction: string;
+    block: { kind: string; slideTitle: string; current: string; name?: string };
+    model: unknown;
+    scale?: 'millions' | 'thousands';
+    currency?: string;
+    includeSeries?: boolean;
+  },
+): Promise<FetchResult<{
+  applied: false;
+  kind: 'freeform';
+  label: string;
+  instruction: string;
+  draft: string;
+  refused: boolean;
+  refusalReason?: string;
+  audit: { ok: boolean; checked: number; supported: number; rounded: number; unsupported: Array<{ raw: string; index: number }>; summary: string };
+  meter: { used: number; cap: number; remaining: number; planKey: string; periodStart: string };
+  usage: { inputTokens: number | null; outputTokens: number | null };
+  model: string;
+  elapsedMs: number;
+}>> {
+  return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/ai/ic-narrative`, {
+    method: 'POST',
+    body: JSON.stringify({ ...args, mode: 'freeform' }),
+  });
+}
+
 /** IC narrative availability + this month's remaining allowance (AI Unit 8).
  *  Read-only and free: no credit is spent, so the UI can render button state
  *  without anyone paying to find out. The server re-decides on generate. */

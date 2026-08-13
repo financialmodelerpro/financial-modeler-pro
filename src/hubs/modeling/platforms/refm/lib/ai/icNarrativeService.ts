@@ -75,6 +75,10 @@ import {
   shapeNarrativeOutput,
   type IcNarrativeFieldKey,
 } from './icNarrative';
+import {
+  buildFreeformTask, parseFreeformOutput, validateInstruction,
+  FREEFORM_MAX_TOKENS, type FreeformBlockContext,
+} from './icFreeform';
 
 /** Why a generation did not produce a draft. Callers map these to copy and to
  *  an HTTP status; the service does not know about HTTP. */
@@ -385,6 +389,205 @@ export async function generateIcNarrative(input: GenerateIcNarrativeInput): Prom
     model: result.model,
     usage: result.usage,
     elapsedMs: result.elapsedMs,
+  };
+}
+
+// ---------------------------------------------------------------------------
+//  Free-form drafting
+// ---------------------------------------------------------------------------
+
+/**
+ * Draft any block from a free instruction.
+ *
+ * SAME PIPELINE, SAME ORDER, SAME MONEY RULES as the six fixed fields above:
+ * configured check before the meter, meter before the call, ground through the
+ * same abstraction with the same whitelisted facts, audit the output, refund
+ * every failure. It deliberately reuses `generateIcNarrative`'s dependencies and
+ * its refund helper rather than restating them, because a second copy of
+ * "consume before, refund after" is a second chance to get it wrong.
+ *
+ * TWO THINGS ARE DIFFERENT, AND ONLY TWO.
+ *
+ * 1. THE TASK IS THE USER'S. It is validated and bounded (see icFreeform), then
+ *    placed in the task slot, which `buildGroundedRequest` brackets with the
+ *    figure rules on both sides. Grounding is untouched: same provider, same
+ *    model facts, no new source. A free instruction cannot introduce one.
+ *
+ * 2. A REFUSAL IS A FIRST-CLASS OUTCOME. The instruction can ask for something
+ *    the model has no facts for, so the prompt requires all-or-nothing and the
+ *    response is parsed for the refusal sentinel. A refusal is returned as
+ *    `refused: true` with NO draft, so the UI cannot present it as text to
+ *    apply. It KEEPS its counted generation: the call was made, the tokens were
+ *    spent, and the user got a true and useful answer. Refunding it would also
+ *    make refusing free and drafting expensive, which is the wrong incentive to
+ *    build into a no-fabrication feature.
+ */
+export interface GenerateIcFreeformInput extends Omit<GenerateIcNarrativeInput, 'field'> {
+  instruction: string;
+  block: FreeformBlockContext;
+}
+
+export interface IcFreeformDraft extends Omit<IcNarrativeDraft, 'field' | 'targetField' | 'risks'> {
+  /** Discriminates a free-form draft from one of the six fixed fields. */
+  kind: 'freeform';
+  instruction: string;
+  /** True when the model declined because the supplied data cannot support the
+   *  instruction. `draft` is empty in that case, by construction. */
+  refused: boolean;
+  refusalReason?: string;
+}
+
+export type IcFreeformResult =
+  | ({ ok: true } & IcFreeformDraft)
+  | ({ ok: false } & IcNarrativeFailure);
+
+export async function generateIcFreeform(input: GenerateIcFreeformInput): Promise<IcFreeformResult> {
+  const deps = { ...DEFAULT_DEPS, ...(input.deps ?? {}) };
+
+  // 1. The instruction. Validated BEFORE anything else, and before the meter:
+  //    an empty or oversized instruction is a known non-answer, and charging a
+  //    generation for one would be charging for a request we already refused.
+  const validated = validateInstruction(input.instruction);
+  if (!validated.ok) {
+    return { ok: false, stage: 'field', reason: 'unknown_field', status: 400, message: validated.reason };
+  }
+
+  // 2. Availability, before money. There is no per-field predicate here, but
+  //    the same two facts still have to hold: a model to ground against, and a
+  //    block to write into.
+  if (!input.model || typeof input.model !== 'object') {
+    return { ok: false, stage: 'availability', reason: 'not_applicable', status: 409, message: 'No assembled report model was supplied, so there is nothing to interpret.' };
+  }
+  if (!input.block || typeof input.block !== 'object' || !input.block.kind) {
+    return { ok: false, stage: 'availability', reason: 'not_applicable', status: 409, message: 'No block was selected, so there is nowhere for the draft to go.' };
+  }
+
+  if (!deps.configured()) {
+    return { ok: false, stage: 'ai', reason: 'not_configured', status: 503, retryable: false, message: 'AI is not configured on this deployment, so no draft can be generated. No AI allowance was used.' };
+  }
+
+  // 3. Metering. Same feature, same caps, same toggle: a free instruction is
+  //    not a second product and does not get a second allowance.
+  await deps.ensure(IC_NARRATIVE_FEATURE, input.sb);
+  const decision = await deps.meter({
+    userId: input.userId,
+    featureId: IC_NARRATIVE_FEATURE.featureId,
+    platformSlug: IC_NARRATIVE_FEATURE.platformSlug,
+    sb: input.sb,
+  });
+  if (!decision.allowed) {
+    console.warn('[ic-freeform] denied by metering:', { reason: decision.reason, cap: decision.cap, plan: decision.planKey });
+    return {
+      ok: false, stage: 'metering', reason: decision.reason, message: decision.message,
+      status: meterDenyStatus(decision.reason), cap: decision.cap, planKey: decision.planKey,
+    };
+  }
+
+  // 4. Grounding. IDENTICAL to the fixed fields: the same provider, the same
+  //    model facts, the same types read from the code definition.
+  registerRefmGroundingProviders();
+  const bundle: GroundingBundle = await deps.collect({
+    types: IC_NARRATIVE_FEATURE.grounding,
+    input: {
+      platformSlug: IC_NARRATIVE_FEATURE.platformSlug,
+      featureId: IC_NARRATIVE_FEATURE.featureId,
+      asOf: input.asOf,
+      payload: {
+        model: input.model,
+        options: {
+          scale: input.scale ?? 'millions',
+          currencyCode: input.currency ?? 'SAR',
+          includeSeries: input.includeSeries === true,
+        },
+      },
+    },
+  });
+
+  const request = buildGroundedRequest({
+    bundle,
+    task: buildFreeformTask(validated.instruction, input.block),
+    voice: IC_NARRATIVE_VOICE,
+    maxTokens: FREEFORM_MAX_TOKENS,
+  });
+
+  const giveBack = async (): Promise<RefundReport> => {
+    const out = await deps.refund({
+      userId: input.userId,
+      featureRowId: decision.featureRowId,
+      periodStart: decision.periodStart,
+      sb: input.sb,
+    });
+    if (!out.refunded) {
+      console.error('[ic-freeform] the credit could NOT be refunded:', { reason: out.reason });
+      return { refunded: false, reason: out.reason };
+    }
+    return { refunded: true, used: out.used, cap: decision.cap, remaining: Math.max(0, decision.cap - out.used), planKey: decision.planKey };
+  };
+
+  const result: AiResult = await deps.run(request);
+
+  if (!result.ok) {
+    console.error('[ic-freeform] AI call failed:', { kind: result.kind, status: result.status, detail: result.message });
+    const refund = await giveBack();
+    return {
+      ok: false, stage: 'ai', reason: result.kind, refund,
+      message: result.kind === 'not_configured'
+        ? 'AI is not configured on this deployment. No generation is possible until an API key is set.'
+        : result.kind === 'insufficient_credit'
+          ? 'AI generation is unavailable: the platform\'s AI account is out of credit. This is a billing issue on our side, not a problem with your project or your plan. Please contact support.'
+          : `The draft could not be generated: ${result.message}`,
+      status: result.status && result.status >= 400 && result.status < 600 ? result.status : 502,
+      retryable: result.retryable,
+    };
+  }
+
+  const parsed = parseFreeformOutput(result.text);
+
+  // A REFUSAL is a successful outcome with no draft. It is not routed through
+  // the empty-response branch below, which exists for a call that returned
+  // nothing usable: here the model returned something useful, namely a clear
+  // statement that the data cannot support the request.
+  const meter = {
+    used: decision.used, cap: decision.cap, remaining: decision.remaining,
+    planKey: decision.planKey, periodStart: decision.periodStart,
+  };
+  const common = { label: 'Free-form draft', kind: 'freeform' as const, instruction: validated.instruction, meter, model: result.model, usage: result.usage, elapsedMs: result.elapsedMs };
+
+  if (parsed.refused) {
+    console.warn('[ic-freeform] refused for lack of grounded data:', { reason: parsed.refusalReason });
+    return {
+      ok: true, ...common,
+      draft: '',
+      refused: true,
+      refusalReason: parsed.refusalReason,
+      // Nothing was drafted, so there is nothing to audit. Reported as a clean
+      // zero-figure audit rather than omitted, so the UI has one shape to read.
+      audit: { ok: true, checked: 0, supported: 0, rounded: 0, unsupported: [], summary: 'No draft was produced, so no figures were checked.' },
+    };
+  }
+
+  if (!parsed.text.trim()) {
+    const refund = await giveBack();
+    return { ok: false, stage: 'empty', reason: 'empty_response', status: 502, refund, message: 'The model returned an empty draft, so nothing was generated. Your AI allowance has not been used.' };
+  }
+
+  const audit = auditGroundedText(parsed.text, bundle);
+  if (!audit.ok) {
+    console.warn('[ic-freeform] unsupported figures in draft:', { summary: auditSummary(audit) });
+  }
+
+  return {
+    ok: true, ...common,
+    draft: parsed.text,
+    refused: false,
+    audit: {
+      ok: audit.ok,
+      checked: audit.checked,
+      supported: audit.supported.length,
+      rounded: audit.rounded.length,
+      unsupported: audit.unsupported,
+      summary: auditSummary(audit),
+    },
   };
 }
 

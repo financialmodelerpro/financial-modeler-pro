@@ -22,6 +22,7 @@ the built state.
 | Generation service + route | `icNarrativeService.ts`, `/api/refm/projects/[id]/ai/ic-narrative` | `verify-ic-narrative-generation` 149 |
 | Buttons, quota UI, review | `components/modules/deck/NarrativeAi.tsx` | `verify-ic-narrative-ui` 139 |
 | End to end (the seams) | all of the above | `verify-ic-narrative-e2e` 199 |
+| Free-form drafting on any block | `refm/lib/ai/icFreeform.ts` + `generateIcFreeform` | `verify-ic-freeform` 72 |
 
 ## Standing invariants (do not regress these)
 
@@ -32,6 +33,8 @@ the built state.
 - **Availability before money.** A field the model cannot support is refused before the meter, so it costs nothing.
 - **No fabrication, checked not just asked.** Grounding supplies labelled facts; `auditGroundedText` classifies every numeric literal in the output as supported / rounded / unsupported.
 - **Editable draft, never auto-saved.** Generation writes nothing; applying is a user action, and it still needs Save.
+- **A free instruction adds no grounding.** Free-form drafting sends a user-authored task through the SAME `collectGrounding` call with the SAME whitelisted model facts. `buildGroundedRequest` puts `GROUNDING_RULES` in the system prompt and repeats the figure reminder after the task, so an instruction sits INSIDE rules it cannot reach around. That ordering is why a user-authored task is safe to send at all, and the verifier measures it by capturing the real request rather than reading the source.
+- **Free-form refuses WHOLLY or answers wholly.** `GROUNDING_RULES` rule 4 permits a partial answer ("say it is not available or leave it out"), which is right for a fixed field of known scope and wrong for an arbitrary instruction: a half-grounded paragraph hides which half was real. So free-form carries a stricter all-or-nothing rule, a machine-detectable sentinel (`CANNOT_ANSWER_FROM_MODEL:`), and a review step that offers NO Apply on a refusal. A refusal returns 200 with an empty draft and **keeps its counted generation**: the call was made, and refunding it would make refusing free and answering expensive.
 
 ## Full build narrative
 

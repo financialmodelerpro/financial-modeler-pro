@@ -455,7 +455,28 @@ async function main() {
   const meterAt = serviceCode.indexOf('deps.meter(');
   const runAt = serviceCode.indexOf('deps.run(');
   ok('the service meters before it generates', meterAt > 0 && runAt > meterAt, `meter@${meterAt} run@${runAt}`);
-  eq('the service has exactly one AI call site', serviceCode.split('deps.run(').length - 1, 1);
+  // ONE AI CALL SITE PER GENERATION FUNCTION, and one meter call before each.
+  //
+  // This used to assert a single call site in the whole file, which was the
+  // same statement while the service had one entry point. Free-form drafting
+  // added a second (generateIcFreeform), so the file-wide count is now 2 and
+  // the property that actually matters has to be stated per function: no
+  // generation path may call the AI twice, and none may reach the AI without
+  // metering first. That is strictly stronger than the old global count, which
+  // a single function calling run() once and meter() never would have passed.
+  {
+    const entries = serviceCode
+      .split(/export async function /)
+      .slice(1)
+      .filter((chunk) => chunk.startsWith('generateIc'));
+    eq('the service has two generation entry points', entries.length, 2);
+    for (const chunk of entries) {
+      const name = chunk.slice(0, chunk.indexOf('('));
+      eq(`${name} has exactly one AI call site`, chunk.split('deps.run(').length - 1, 1);
+      eq(`${name} has exactly one meter call`, chunk.split('deps.meter(').length - 1, 1);
+      ok(`${name} meters before it generates`, chunk.indexOf('deps.meter(') < chunk.indexOf('deps.run('));
+    }
+  }
   ok('the service hardcodes no cap', !/\bcap\s*[:=]\s*\d+/.test(serviceCode));
   ok('the service reads the feature id from the registration, not a literal',
     /IC_NARRATIVE_FEATURE\.featureId/.test(serviceCode) && !/'m7_ic_narrative'/.test(serviceCode));

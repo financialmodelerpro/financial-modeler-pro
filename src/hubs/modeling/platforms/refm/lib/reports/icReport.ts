@@ -18,6 +18,19 @@
  */
 
 import { buildFcffBuildup, buildFcfeBuildup } from './streamReports';
+// The fund layer comes from the SHARED builders, exactly as the streams above
+// do. The deck owns its wording and its formatters; the builders own which rows
+// exist, in what order, and which of them carry a lifetime total.
+import {
+  isFundActive, hasFundFeeIncome, buildFundTermsPairs, buildFundWaterfallRows,
+  buildFundGrossNetRows, fundGrossNetNote, buildFundEarnerRows, buildFundFeeIncomeRows,
+  fundWaterfallTotalsNote, FUND_GROSS_NET_COLUMNS, FUND_EARNER_COLUMNS, type FundReportCtx,
+} from './fundReports';
+import {
+  buildFundCapitalRows, buildFundFeeBasisRows, fundFeeBasisText, fundFeeBasisBaseCell,
+  FUND_CAPITAL_BASES_NOTE,
+} from './m4Reports';
+import { resolveFundTerms } from '../fundTerms';
 import type { Project, Asset, Phase, ProjectCase, SubUnit } from '../state/module1-types';
 import { FUNDING_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
 import type { ReturnsSnapshot } from '../returns-resolvers';
@@ -64,6 +77,58 @@ export interface ICScheduleBlock {
   showTotal: boolean;
   hasData: boolean;
 }
+/** A simple label / value grid row, for the fund tables that are not period
+ *  tables. Cells are already formatted strings, because the shared fund builders
+ *  format through the surface's own formatter and the deck's is the deck's. */
+export interface ICGridRow { cells: string[]; emphasis?: boolean }
+
+/**
+ * The fund layer, as the IC deck needs it.
+ *
+ * EVERY ROW COMES FROM THE SHARED BUILDERS in lib/reports/fundReports.ts and
+ * lib/reports/m4Reports.ts. Nothing here decides which rows exist, in what
+ * order, or which of them carry a lifetime total: that is the shared builders'
+ * job, and it is the reason the M5 screen, the workbook and both PDFs already
+ * agree. This block is the fourth consumer, not the fourth copy.
+ *
+ * `active` is the ONE question every surface asks first, and it reads the
+ * SNAPSHOT's own flag (via isFundActive) rather than the project's toggle, so
+ * the deck cannot render a fund slide for a project whose engine did not run
+ * one. With the fund off this block is inert: active false, every list empty,
+ * and every fund slide template unavailable, which is what keeps a standalone
+ * deck byte-identical.
+ */
+export interface ICFundBlock {
+  active: boolean;
+  /** Fee income by earner exists separately: a project can carry fees before it
+   *  has distributed anything. */
+  hasFeeIncome: boolean;
+  /** Hurdle, performance fee, fund manager. */
+  terms: Array<{ label: string; value: string }>;
+  /** The three capital bases the fees are charged on, and the note that says
+   *  they are capital rather than fees. */
+  capitalBases: Array<{ label: string; amount: number; note: string; isTotal: boolean }>;
+  capitalNote: string;
+  /** The five fees: timing, base, rate, basis charged on, fee charged. */
+  feeBasis: Array<{ label: string; timing: string; base: string; rate: string; basis: string; charged: number }>;
+  /** The distribution waterfall, in the reference row order, as a period
+   *  schedule so the deck paginates it exactly like the other schedules. */
+  waterfall: ICScheduleBlock;
+  /** The sentence naming which of those Total cells are flows and which are
+   *  balances. Empty when the fund is off. */
+  waterfallNote: string;
+  /** Gross against net, and the note explaining why they are equal when they
+   *  are. The note is empty as soon as a performance fee arises. */
+  grossNetColumns: string[];
+  grossNetRows: ICGridRow[];
+  grossNetNote: string;
+  /** Who earns the fees, beside (never inside) the equity partners. */
+  earnerColumns: string[];
+  earnerRows: ICGridRow[];
+  /** Fee income per period. */
+  feeIncome: ICScheduleBlock;
+}
+
 /** One swimlane in the development-programme Gantt: a phase's construction and
  *  (optional) operations windows in calendar years, across the model horizon. */
 export interface ICProgrammeLane {
@@ -245,6 +310,9 @@ export interface ICReportModel {
     lanes: ICProgrammeLane[];
   };
   /** null when there is only the base case (nothing to compare). */
+  /** The fund layer. Inert (active false, every list empty) on a standalone
+   *  project, which is what makes the fund slides omit themselves. */
+  fund: ICFundBlock;
   scenarios: CaseComparisonReport | null;
 }
 
@@ -252,6 +320,43 @@ const byRole = (parties: Party[], role: string): ICPartyRef[] =>
   parties.filter((p) => Array.isArray(p.roles) && p.roles.includes(role)).map((p) => ({ name: p.name, identifier: p.identifier ?? null }));
 
 const assetBua = (a: Asset): number => (a.buaTotal ?? a.buaSqm ?? 0);
+
+/**
+ * Money for the fund GRID tables, which hold display strings.
+ *
+ * Pinned to millions with one decimal, matching what the fund block shows on
+ * the M5 screen and in the workbook. The period SCHEDULES do not use this: they
+ * carry raw numbers so the deck's own money scale reaches them.
+ */
+const icFundMoney = (v: number): string => `${(v / 1e6).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} m`;
+
+/**
+ * The fund block a standalone project carries: present in the type, inert in
+ * fact.
+ *
+ * A single shared constructor rather than an object literal at each site, so
+ * "fund off means every list is empty" is one statement that a verifier can
+ * check, instead of a shape someone has to keep in sync by eye.
+ */
+const EMPTY_FUND_SCHEDULE = (): ICScheduleBlock =>
+  ({ years: [], rows: [], hasInception: true, showTotal: true, hasData: false });
+
+const EMPTY_FUND_BLOCK = (): ICFundBlock => ({
+  active: false,
+  hasFeeIncome: false,
+  terms: [],
+  capitalBases: [],
+  capitalNote: '',
+  feeBasis: [],
+  waterfall: EMPTY_FUND_SCHEDULE(),
+  waterfallNote: '',
+  grossNetColumns: [],
+  grossNetRows: [],
+  grossNetNote: '',
+  earnerColumns: [],
+  earnerRows: [],
+  feeIncome: EMPTY_FUND_SCHEDULE(),
+});
 const yearOf = (iso: string | undefined, fallback: number): number => {
   if (!iso) return fallback;
   const y = Number(String(iso).slice(0, 4));
@@ -698,6 +803,86 @@ export function buildICReportModel(input: {
     hasData: streamsHaveData,
   };
 
+  // ── The fund layer ────────────────────────────────────────────────────────
+  //
+  // Read entirely from the SHARED builders. This block chooses no rows, no
+  // order, and no totalling rule: doing any of that here would make the deck
+  // the fourth hand-maintained copy of a row list that already exists three
+  // times over, which is the specific failure lib/reports/fundReports.ts was
+  // extracted to prevent.
+  //
+  // TWO FORMATTERS, for the same reason the Excel emitters use two. The grid
+  // tables (terms, gross vs net, earners) hold DISPLAY STRINGS, so they get
+  // readable money. The period schedules must reach the deck as RAW NUMBERS,
+  // because the deck applies its own money scale at render and a pre-formatted
+  // string would be immune to it, so their money formatter is String(v) and the
+  // numbers are read back out.
+  const fundCtx: FundReportCtx = {
+    snap,
+    returns: rs,
+    fmt: {
+      money: (v) => icFundMoney(v),
+      pct: (v, d = 1) => (v != null && Number.isFinite(v) ? `${(v * 100).toFixed(d)}%` : 'n/a'),
+      mult: (v) => (v != null && Number.isFinite(v) ? `${v.toFixed(2)}x` : 'n/a'),
+    },
+  };
+  const fundRowCtx: FundReportCtx = { ...fundCtx, fmt: { ...fundCtx.fmt, money: (v) => String(v) } };
+  const fundOn = isFundActive(rs);
+
+  /** An M4Row from a shared fund builder, as an IC schedule row on the stream
+   *  axis. A row the builder deliberately left untotalled (the waterfall
+   *  balances) keeps `total: null`, so no renderer can invent one. */
+  const fundScheduleRow = (row: { label: string; values: number[]; priorValue?: number; totalOverride?: string; isTotal?: boolean; isSubtotal?: boolean; indent?: number }): ICScheduleRow => {
+    const values = Array.from({ length: S }, (_, i) => (i === 0 ? (row.priorValue ?? 0) : (row.values[i - 1] ?? 0)));
+    const totalNum = Number(row.totalOverride);
+    return {
+      label: row.label,
+      values,
+      total: row.totalOverride === '' || !Number.isFinite(totalNum) ? null : totalNum,
+      emphasis: row.isTotal || row.isSubtotal,
+      indent: row.indent,
+    };
+  };
+
+  const fund: ICFundBlock = fundOn
+    ? {
+      active: true,
+      hasFeeIncome: hasFundFeeIncome(rs),
+      terms: buildFundTermsPairs(fundCtx, resolveFundTerms(project).fundManagerName)
+        .map(([label, value]) => ({ label, value })),
+      capitalBases: buildFundCapitalRows(snap).map((c) => ({ label: c.label, amount: c.amount, note: c.note, isTotal: c.isTotal })),
+      capitalNote: FUND_CAPITAL_BASES_NOTE,
+      feeBasis: buildFundFeeBasisRows(snap).map((b) => ({
+        label: b.label,
+        timing: b.timing,
+        base: fundFeeBasisBaseCell(b),
+        rate: b.rate,
+        basis: fundFeeBasisText(b, icFundMoney),
+        charged: b.charged,
+      })),
+      waterfall: {
+        years: [...streamYears],
+        hasInception: true,
+        showTotal: true,
+        rows: buildFundWaterfallRows(fundRowCtx).map(fundScheduleRow),
+        hasData: streamsHaveData,
+      },
+      waterfallNote: fundWaterfallTotalsNote(fundCtx),
+      grossNetColumns: [...FUND_GROSS_NET_COLUMNS],
+      grossNetRows: buildFundGrossNetRows(fundCtx).map((g) => ({ cells: g.cells, emphasis: g.emphasis === 'total' })),
+      grossNetNote: fundGrossNetNote(fundCtx),
+      earnerColumns: [...FUND_EARNER_COLUMNS],
+      earnerRows: buildFundEarnerRows(fundCtx).map((g) => ({ cells: g.cells, emphasis: g.emphasis === 'total' })),
+      feeIncome: {
+        years: [...streamYears],
+        hasInception: true,
+        showTotal: true,
+        rows: buildFundFeeIncomeRows(fundRowCtx).map(fundScheduleRow),
+        hasData: streamsHaveData,
+      },
+    }
+    : EMPTY_FUND_BLOCK();
+
   return {
     cover: {
       projectName: project.name,
@@ -813,6 +998,7 @@ export function buildICReportModel(input: {
       return { yearLabels, noi, ebitda, peakNoi, hasData: peakNoi > 0.5 };
     })(),
     programme: { startYear, exitYear, debtRepaidYear, lanes },
+    fund,
     scenarios: hasScenarios ? (input.scenarios ?? null) : null,
   };
 }

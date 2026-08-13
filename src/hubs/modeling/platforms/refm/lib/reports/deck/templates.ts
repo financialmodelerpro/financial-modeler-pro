@@ -585,6 +585,87 @@ export const SLIDE_TEMPLATES: SlideTemplate[] = [
     },
   }),
 
+  // ── Fund layer ────────────────────────────────────────────────────────────
+  //
+  // Three slides carrying the five fund sections. EVERY ONE is gated on
+  // `m.fund.active`, which reads the SNAPSHOT's own flag rather than the
+  // project's toggle, so a standalone project seeds a deck with none of them
+  // and its slide numbering, ToC and export are untouched.
+  //
+  // The rows are not chosen here. They arrive on the report model already
+  // ordered by the shared fund builders, which is what keeps this deck
+  // agreeing with the M5 screen, the workbook and both PDFs.
+  T({
+    id: 'fund_terms', title: 'Fund Terms and Fees', group: 'The case', chrome: 'content',
+    available: (m) => m.fund.active && (m.fund.terms.length > 0 || m.fund.feeBasis.length > 0),
+    build: (m, seed, num) => {
+      const leftW = Math.round(CONTENT_W * 0.38);
+      const rightX = MARGIN + leftW + GAP * 2;
+      const rightW = CONTENT_W - leftW - GAP * 2;
+      const tblY = CONTENT_Y + 26;
+      const capY = tblY + 150;
+      return [
+        ...titleBlock(num, 'Fund Terms and Fees'),
+        panelLabel({ x: MARGIN, y: CONTENT_Y + 6, w: leftW, h: 14 }, 'Terms applied'),
+        table({ x: MARGIN, y: tblY, w: leftW, h: 132 }, 'table.fundTerms', { fontSize: 11 }),
+        ...captionBlock({ x: MARGIN, y: capY, w: leftW, h: CONTENT_BOTTOM - capY },
+          'What the fees are charged on', m.fund.capitalNote, 'navy'),
+        panelLabel({ x: rightX, y: CONTENT_Y + 6, w: rightW, h: 14 }, 'Fee basis'),
+        table({ x: rightX, y: tblY, w: rightW, h: CONTENT_BOTTOM - tblY }, 'table.fundFeeBasis', { fontSize: 10 }),
+      ];
+    },
+  }),
+
+  T({
+    id: 'fund_waterfall', title: 'Fund Distribution Waterfall', group: 'The case', chrome: 'content',
+    available: (m) => m.fund.active && m.fund.waterfall.hasData,
+    // Paginated exactly like the other full schedules: a waterfall earns its
+    // space by being complete, not by shrinking years out of readability.
+    pages: (m) => schedulePageCount(m.fund.waterfall),
+    build: (m, seed, num, page) => {
+      const pages = schedulePageCount(m.fund.waterfall);
+      const heading = pages > 1 ? `Fund Distribution Waterfall (${page + 1} of ${pages})` : 'Fund Distribution Waterfall';
+      // The note names which Total cells are lifetime flows and which are
+      // balances. It is quoted from the model by the shared builder, so it
+      // cannot drift from the table above it.
+      const noteH = m.fund.waterfallNote ? 44 : 0;
+      const tblH = CONTENT_H - noteH;
+      return [
+        ...titleBlock(num, heading),
+        table({ x: MARGIN, y: CONTENT_Y, w: CONTENT_W, h: tblH }, 'table.fundWaterfall',
+          { fontSize: 9, striped: false, showUnitNote: true, page, name: 'Fund waterfall table' }),
+        ...(m.fund.waterfallNote
+          ? [text({ x: MARGIN, y: CONTENT_Y + tblH + 6, w: CONTENT_W, h: noteH - 6 }, m.fund.waterfallNote,
+            { ...textStyles.caption(), size: 9, color: DECK_THEME.slateLight })]
+          : []),
+      ];
+    },
+  }),
+
+  T({
+    id: 'fund_returns', title: 'Fund Returns and Fee Income', group: 'The case', chrome: 'content',
+    available: (m) => m.fund.active && (m.fund.grossNetRows.length > 0 || m.fund.earnerRows.length > 0),
+    build: (m, seed, num) => {
+      const topH = 150;
+      const noteH = m.fund.grossNetNote ? 52 : 0;
+      const lowerY = CONTENT_Y + 26 + topH + GAP + noteH;
+      return [
+        ...titleBlock(num, 'Fund Returns and Fee Income'),
+        panelLabel({ x: MARGIN, y: CONTENT_Y + 6, w: CONTENT_W, h: 14 }, 'Distributed equity, gross against net of performance fee'),
+        table({ x: MARGIN, y: CONTENT_Y + 26, w: CONTENT_W, h: topH }, 'table.fundGrossNet', { fontSize: 11 }),
+        // Why the two rows are identical, when they are. The shared builder
+        // returns an empty string the moment a performance fee arises, so a
+        // cleared hurdle carries no stray explanation.
+        ...(m.fund.grossNetNote
+          ? [text({ x: MARGIN, y: CONTENT_Y + 26 + topH + GAP, w: CONTENT_W, h: noteH - 6 }, m.fund.grossNetNote,
+            { ...textStyles.caption(), size: 9, color: DECK_THEME.slateLight })]
+          : []),
+        panelLabel({ x: MARGIN, y: lowerY, w: CONTENT_W, h: 14 }, 'Fee income by earner'),
+        table({ x: MARGIN, y: lowerY + 20, w: CONTENT_W, h: CONTENT_BOTTOM - lowerY - 20 }, 'table.fundFeeEarners', { fontSize: 10 }),
+      ];
+    },
+  }),
+
   // 17 ───────────────────────────────────────────────────────────────────────
   T({
     id: 'key_risks', title: 'Key Risks', group: 'Closing', chrome: 'content',

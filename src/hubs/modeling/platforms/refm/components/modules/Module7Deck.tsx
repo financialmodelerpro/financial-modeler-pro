@@ -591,7 +591,7 @@ export default function Module7Deck({ activeProjectId = null, onRegisterSave, on
       const patch = buildNarrativePatch(draft.target, { draft: draft.draft, risks: draft.risks }, existing);
       return patch ? updateObject(acc, draft.target.slideId, draft.target.objectId, patch as ObjectPatch) : acc;
     }, d));
-    setAiDrafts((cur) => cur.filter((c) => !drafts.some((d) => d.field === c.field)));
+    setAiDrafts((cur) => cur.filter((c) => !drafts.some((d) => d.id === c.id)));
     setNotice(drafts.length === 1
       ? `Applied the ${drafts[0].label.toLowerCase()} draft. Save to keep it.`
       : `Applied ${drafts.length} drafts. Save to keep them.`);
@@ -773,7 +773,7 @@ export default function Module7Deck({ activeProjectId = null, onRegisterSave, on
               status={aiStatus}
               selectedObjectId={selectedIds.length === 1 ? selectedIds[0] : null}
               onStatusRefresh={(next) => setAiStatus((cur) => (cur ? { ...cur, ...next } : cur))}
-              onDrafts={(d) => setAiDrafts((cur) => [...cur.filter((c) => !d.some((x) => x.field === c.field)), ...d])}
+              onDrafts={(d) => setAiDrafts((cur) => [...cur.filter((c) => !d.some((x) => x.id === c.id)), ...d])}
               onNotice={setNotice}
             />
           </NarrativeAiBoundary>

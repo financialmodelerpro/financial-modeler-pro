@@ -315,6 +315,24 @@ Revenue and operating expenses are unchanged to the cent; the whole gap is cost 
 
 ---
 
+## 8b. The fund layer reaches the IC deck, 2026-08-13
+
+The fund numbers existed in Module 5, the workbook and both PDFs and were absent from the IC presentation deck. The cause was singular: **`ICReportModel` carried no fund data at all** (`grep -i fund` on `icReport.ts` returned only `fundingMethodLabel` and `customerFundingPct`), so no slide could have shown any.
+
+Added as a `fund` block on the report model, fed **entirely by the shared builders** (`fundReports.ts` and the fee-basis half of `m4Reports.ts`), then three gated slides and six table bindings:
+
+- **Fund Terms and Fees**: hurdle, performance fee, fund manager, plus the three capital bases and the five fees with timing, base, rate and amount. The capital bases sit in their own captioned rows tagged `capital base`, carrying the 2026-08-11 lesson forward so a quantity of capital cannot read as a charge.
+- **Fund Distribution Waterfall**: the reference row order, paginated like the other full schedules, with the flow-vs-balance note underneath.
+- **Fund Returns and Fee Income**: gross against net with the gross-equals-net note (which the shared builder empties the moment a performance fee arises), then fee income by earner.
+
+**The precedent followed is `schedules.fcff`**, which already consumed `buildFcffBuildup(rs, icStreamRow, IC_STREAM_LABELS)`: the deck supplies its own row constructor and its own wording, the shared builder owns which rows exist and in what order. The deck is the fourth consumer, not the fourth copy, and the verifier proves that by asserting the deck layer restates **none** of the ten waterfall row labels and none of the notes.
+
+**Toggle off is byte-identical**, proven by seeding two decks from the same project (terms ABSENT against terms fully populated but DISABLED) and comparing them in full. `active` reads `isFundActive(returns)`, the snapshot's own flag rather than the project's toggle, so the deck cannot render a fund slide for a project whose engine did not run one. `verify-ic-fund-sections` **84**, teeth proven by three sabotages.
+
+**Not browser-verified**, which is the same standing gap section 7 records for every other fund surface.
+
+---
+
 ## 8. Presentation corrections, 2026-08-11
 
 A user review of an exported workbook. The engine was not touched: every change here is presentation, and toggle-off stayed byte-identical throughout.

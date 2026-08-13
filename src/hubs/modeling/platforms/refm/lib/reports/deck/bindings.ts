@@ -462,7 +462,12 @@ export type TableBindingKey =
   | 'table.returnsBasis' | 'table.returnsBridge'
   | 'table.incomeStatement' | 'table.cashFlow' | 'table.balanceSheet'
   | 'table.isSchedule' | 'table.cfSchedule' | 'table.bsSchedule'
-  | 'table.fcffSchedule' | 'table.fcfeSchedule' | 'table.ddmSchedule';
+  | 'table.fcffSchedule' | 'table.fcfeSchedule' | 'table.ddmSchedule'
+  // Fund layer. Every one of these resolves to `missing` on a standalone
+  // project, and no seeded slide references them, so they are unreachable
+  // rather than merely empty when the fund toggle is off.
+  | 'table.fundTerms' | 'table.fundFeeBasis' | 'table.fundWaterfall'
+  | 'table.fundGrossNet' | 'table.fundFeeEarners' | 'table.fundFeeIncome';
 
 export type CellAlign = 'left' | 'right';
 export interface TableCell { text: string; align: CellAlign; bold?: boolean; color?: string; indent?: number }
@@ -740,6 +745,91 @@ const TABLE_DEFS: TableDef[] = [
   SCHED('table.fcffSchedule', 'FCFF schedule by year', (m) => m.schedules?.fcff, 'This model has no FCFF stream'),
   SCHED('table.fcfeSchedule', 'FCFE schedule by year', (m) => m.schedules?.fcfe, 'This model has no FCFE stream'),
   SCHED('table.ddmSchedule', 'Distributed equity (DDM) schedule by year', (m) => m.schedules?.ddm, 'This model distributes no equity'),
+
+  // ── Fund layer ────────────────────────────────────────────────────────────
+  //
+  // The ROWS all come from the shared fund builders, resolved into the report
+  // model (icReport.ts `fund`). These bindings only turn already-decided rows
+  // into deck cells: none of them chooses a row, an order, or a totalling rule.
+  //
+  // Each one refuses with a stated reason on a standalone project rather than
+  // rendering an empty table, which is the same contract every other binding
+  // here follows.
+  {
+    key: 'table.fundTerms', label: 'Fund terms applied', group: 'Financing',
+    resolve: (m) => {
+      const fund = m.fund;
+      if (!fund?.active || !fund.terms.length) return missing('The fund layer is not active on this project');
+      return ok({
+        headers: [h('Term'), h('Applied', 'right')],
+        rows: fund.terms.map((t) => ({ cells: [c(t.label), c(t.value, 'right')] })),
+        unitNote: '',
+        colWidths: [0.62, 0.38],
+      });
+    },
+  },
+  {
+    key: 'table.fundFeeBasis', label: 'Fund fee basis', group: 'Financing',
+    resolve: (m, f) => {
+      const fund = m.fund;
+      if (!fund?.active || !fund.feeBasis.length) return missing('The fund layer is not active on this project');
+      // The three CAPITAL BASES sit above the fees, captioned, because they are
+      // quantities of capital and not charges. Putting them in the same columns
+      // as the fees is exactly what made a base read as a fee in the workbook.
+      const capital = fund.capitalBases.map((b) => ({
+        cells: [
+          c(b.isTotal ? `= ${b.label}` : b.label, 'left', b.isTotal),
+          c('capital base'), c(''), c(''),
+          money(b.amount, f, b.isTotal),
+        ],
+        emphasis: b.isTotal,
+        shaded: true,
+      }));
+      return ok({
+        headers: [h('Fee'), h('Timing'), h('Base'), h('Rate', 'right'), h('Amount', 'right')],
+        rows: [
+          ...capital,
+          ...fund.feeBasis.map((b) => ({
+            cells: [c(b.label), c(b.timing), c(b.base), c(b.rate, 'right'), money(b.charged, f)],
+          })),
+        ],
+        unitNote: f.moneyUnit,
+        colWidths: [0.28, 0.16, 0.24, 0.12, 0.20],
+      });
+    },
+  },
+  SCHED('table.fundWaterfall', 'Fund distribution waterfall', (m) => (m.fund?.active ? m.fund.waterfall : undefined), 'The fund layer is not active on this project'),
+  {
+    key: 'table.fundGrossNet', label: 'Gross vs net returns', group: 'Returns',
+    resolve: (m) => {
+      const fund = m.fund;
+      if (!fund?.active || !fund.grossNetRows.length) return missing('The fund layer is not active on this project');
+      return ok({
+        headers: fund.grossNetColumns.map((col, i) => h(col, i === 0 ? 'left' : 'right')),
+        rows: fund.grossNetRows.map((r) => ({
+          cells: r.cells.map((cell, i) => c(cell, i === 0 ? 'left' : 'right', !!r.emphasis)),
+          emphasis: r.emphasis,
+        })),
+        unitNote: 'millions',
+      });
+    },
+  },
+  {
+    key: 'table.fundFeeEarners', label: 'Fund fee income by earner', group: 'Financing',
+    resolve: (m) => {
+      const fund = m.fund;
+      if (!fund?.active || !fund.earnerRows.length) return missing('No fund fee income arises on this project');
+      return ok({
+        headers: fund.earnerColumns.map((col, i) => h(col, i <= 1 ? 'left' : 'right')),
+        rows: fund.earnerRows.map((r) => ({
+          cells: r.cells.map((cell, i) => c(cell, i <= 1 ? 'left' : 'right', !!r.emphasis)),
+          emphasis: r.emphasis,
+        })),
+        unitNote: 'millions',
+      });
+    },
+  },
+  SCHED('table.fundFeeIncome', 'Fund fee income by period', (m) => (m.fund?.active ? m.fund.feeIncome : undefined), 'No fund fee income arises on this project'),
 ];
 
 /** Shared renderer for the three condensed financial statements. A two-column

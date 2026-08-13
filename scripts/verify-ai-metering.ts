@@ -374,8 +374,34 @@ async function main() {
       /!shaped\.text\.trim\(\)[\s\S]{0,300}giveBack\(\)/.test(svc));
     ok('the service refunds the exact counter it consumed',
       /featureRowId: decision\.featureRowId[\s\S]{0,120}periodStart: decision\.periodStart/.test(svc));
-    const successTail = svc.slice(svc.indexOf('return {\n    ok: true'));
-    ok('a SUCCESSFUL generation does not refund', !/giveBack/.test(successTail));
+    // A SUCCESSFUL generation does not refund.
+    //
+    // This used to slice the file after the first `ok: true` return and assert
+    // no giveBack appeared beyond it. That worked while the service had one
+    // generation function; free-form drafting added a second BELOW it, so the
+    // tail now contains that function's perfectly legitimate failure refunds.
+    //
+    // Stated directly instead: every giveBack() CALL SITE must sit on a failure
+    // path, which is checked by requiring the return that follows it to carry
+    // `ok: false`. That is the property the old slice was approximating, and it
+    // holds however many generation functions the file grows.
+    {
+      const sites = [...svc.matchAll(/await giveBack\(\)/g)].map((m) => m.index ?? -1);
+      eq('every refund call site is found', sites.length >= 2, true);
+      let allOnFailure = true;
+      for (const at of sites) {
+        const after = svc.slice(at, at + 400);
+        if (!/ok:\s*false/.test(after)) allOnFailure = false;
+      }
+      ok('a SUCCESSFUL generation does not refund (every refund is on a failure path)', allOnFailure,
+        `${sites.length} refund sites`);
+      // And the refusal path, which returns ok: true with no draft, must not
+      // refund either: the call was made and the tokens were spent.
+      const ff = svc.slice(svc.indexOf('export async function generateIcFreeform'));
+      const refusalReturn = ff.indexOf('refused: true');
+      const beforeRefusal = ff.slice(0, refusalReturn);
+      ok('a REFUSAL keeps its counted generation', !/await giveBack\(\)[\s\S]{0,200}refused: true/.test(beforeRefusal + ff.slice(refusalReturn, refusalReturn + 200)));
+    }
     ok('a flagged audit is not treated as a failure',
       !/audit\.ok[\s\S]{0,200}giveBack/.test(svc));
   }

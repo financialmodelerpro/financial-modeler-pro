@@ -39,7 +39,7 @@ import { getProject } from '@/src/hubs/modeling/platforms/refm/lib/persistence/s
 import { getRefmUserContext } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
 import { resolveUserGate } from '@/src/shared/entitlements/resolveUser';
 import { writeBlockReason } from '@/src/shared/entitlements/gate';
-import { generateIcNarrative } from '@/src/hubs/modeling/platforms/refm/lib/ai/icNarrativeService';
+import { generateIcNarrative, generateIcFreeform } from '@/src/hubs/modeling/platforms/refm/lib/ai/icNarrativeService';
 import { IC_NARRATIVE_FIELDS, IC_NARRATIVE_FIELD_KEYS, coerceNarrativeFieldKey } from '@/src/hubs/modeling/platforms/refm/lib/ai/icNarrative';
 import { IC_NARRATIVE_FEATURE } from '@/src/hubs/modeling/platforms/refm/lib/ai/refmAiFeatures';
 import { ensureAiFeature } from '@/src/shared/ai/features';
@@ -153,7 +153,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   const body = await req.json().catch(() => null) as {
+    mode?: unknown;
     field?: unknown;
+    instruction?: unknown;
+    block?: unknown;
     model?: unknown;
     scale?: unknown;
     currency?: unknown;
@@ -161,14 +164,72 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   } | null;
   if (!body) return NextResponse.json({ error: 'Invalid body' }, { status: 400 });
 
-  const field = coerceNarrativeFieldKey(body.field);
-  if (!field) {
-    return NextResponse.json({ error: 'field must be one of the IC narrative fields.' }, { status: 400 });
-  }
-
   const model = body.model as ICReportModel | undefined;
   if (!model || typeof model !== 'object' || !('headline' in model) || !('overview' in model)) {
     return NextResponse.json({ error: 'An assembled report model is required.' }, { status: 400 });
+  }
+
+  // FREE-FORM: any block, any instruction. Opted into by an explicit mode, so
+  // the existing field-keyed contract is untouched and a client that knows
+  // nothing about free-form behaves exactly as before.
+  //
+  // It is the SAME metered feature: same cap, same toggle, same allowance. A
+  // free instruction is a different way to ask, not a second product.
+  if (body.mode === 'freeform') {
+    const block = body.block as Record<string, unknown> | undefined;
+    if (!block || typeof block !== 'object' || typeof block.kind !== 'string' || !block.kind) {
+      return NextResponse.json({ error: 'A selected block is required for a free-form draft.' }, { status: 400 });
+    }
+    const result = await generateIcFreeform({
+      userId,
+      instruction: typeof body.instruction === 'string' ? body.instruction : '',
+      block: {
+        kind: String(block.kind),
+        slideTitle: typeof block.slideTitle === 'string' ? block.slideTitle : '',
+        current: typeof block.current === 'string' ? block.current : '',
+        ...(typeof block.name === 'string' && block.name ? { name: block.name } : {}),
+      },
+      model,
+      scale: body.scale === 'thousands' ? 'thousands' : 'millions',
+      currency: typeof body.currency === 'string' && body.currency ? body.currency : 'SAR',
+      includeSeries: body.includeSeries === true,
+      asOf: new Date().toISOString().slice(0, 10),
+    });
+
+    if (!result.ok) {
+      return NextResponse.json({
+        error: result.message,
+        stage: result.stage,
+        reason: result.reason,
+        ...(result.stage === 'metering' ? { cap: result.cap, planKey: result.planKey } : {}),
+        ...(result.stage === 'ai' ? { retryable: result.retryable } : {}),
+        ...((result.stage === 'ai' || result.stage === 'empty') && result.refund ? { refund: result.refund } : {}),
+      }, { status: result.status });
+    }
+
+    // A REFUSAL comes back 200 with `refused: true` and an EMPTY draft. It is a
+    // real answer, not an error: the model was asked for something the figures
+    // cannot support and said so, which is the outcome this feature wants. The
+    // empty draft is what stops a client presenting it as text to apply.
+    return NextResponse.json({
+      applied: false,
+      kind: 'freeform',
+      label: result.label,
+      instruction: result.instruction,
+      draft: result.draft,
+      refused: result.refused,
+      ...(result.refusalReason ? { refusalReason: result.refusalReason } : {}),
+      audit: result.audit,
+      meter: result.meter,
+      usage: result.usage,
+      model: result.model,
+      elapsedMs: result.elapsedMs,
+    });
+  }
+
+  const field = coerceNarrativeFieldKey(body.field);
+  if (!field) {
+    return NextResponse.json({ error: 'field must be one of the IC narrative fields.' }, { status: 400 });
   }
 
   const result = await generateIcNarrative({

@@ -227,7 +227,11 @@ async function main() {
     ok('a narrative target exists to review into', !!target);
 
     const flagged = [{
-      field: target.field, label: 'Executive summary', target,
+      // `id` is the draft's identity in the review step. It used to be implicit
+      // (the field key) and became explicit when free-form drafting arrived,
+      // since a block-targeted draft has no field. A fixed-field draft keys on
+      // its field, which is what the panel does.
+      id: target.field, field: target.field, label: 'Executive summary', target,
       draft: 'A draft that quotes 9,412 per sqm.',
       audit: { ok: false, checked: 1, supported: 0, rounded: 0, unsupported: [{ raw: '9,412', index: 20 }], summary: '1 unsupported' },
     }];
