@@ -29,7 +29,7 @@
  * because the calc engine doesn't know the role of an arbitrary user line.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import {
@@ -1250,19 +1250,73 @@ function PercentOfSelectedPicker({
   };
   const selectedLines = siblings.filter((s) => selected.has(s.id));
 
+  // OPEN UPWARDS when there is not enough room below. Fixing the stacking trap
+  // makes the options paint above the rows beneath them, but a picker on one of
+  // the last rows still opens into space below the fold and would have to be
+  // scrolled to. Measured against the VIEWPORT rather than the scroll
+  // container, because the popover is now free to paint over anything.
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const [dropUp, setDropUp] = useState(false);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const el = triggerRef.current;
+    if (!el) return;
+    const decide = (): void => {
+      const r = el.getBoundingClientRect();
+      // Popover height: the 240px list cap plus its header and padding, which
+      // is its maximum. Using the cap rather than a measured height keeps the
+      // decision stable while the list is still rendering.
+      const needed = 240 + 56;
+      const below = window.innerHeight - r.bottom;
+      const above = r.top;
+      // Only flip when below genuinely cannot hold it AND above is roomier, so
+      // a picker near the top of a short list never flips off the top edge.
+      setDropUp(below < needed && above > below);
+    };
+    decide();
+    window.addEventListener('resize', decide);
+    // Capture phase: the scroll happens on the module's own container, not on
+    // window, so a bubbling listener would never see it.
+    window.addEventListener('scroll', decide, true);
+    return () => {
+      window.removeEventListener('resize', decide);
+      window.removeEventListener('scroll', decide, true);
+    };
+  }, [open]);
+
   return (
     <tr data-testid={`cost-row-${asset.id}-${line.id}-pct-picker`} style={{ background: 'var(--color-grey-pale)' }}>
       {/* P8-Fix 6 (2026-05-12): colSpan synced to 9 cols (Pass 8 dropped
           Category + Driver). Previously stale at 11 causing the picker
           to render misaligned and occasionally hidden when the row was
           clipped by overflow:hidden cells. */}
-      <td colSpan={9} style={{ padding: '8px 12px' }}>
+      {/* THE POPOVER'S STACKING TRAP LIVED ON THIS CELL (2026-08-13).
+          `app/globals.css` styles EVERY `td:first-child` as
+          `position: sticky; z-index: 1` with an opaque background, to freeze
+          the label column on the wide period tables. This cell is the first
+          (and only) cell in its row, so that rule caught it and made it a
+          stacking context at level 1, which SCOPED the popover's `z-index: 20`
+          inside it. The next cost row's first cell is another sticky level-1
+          context, a later sibling at the same level, so it painted on top and
+          its opaque background hid the options completely.
+          Measured in Chromium: with the global rule applied, a hit test at an
+          option's coordinates returned the row BELOW; on the LAST row (no
+          later sibling) the same popover was hit-testable, which is exactly
+          why the report described it as opening underneath "the cost rows
+          beneath it".
+          Freezing means nothing on a full-width spanning cell, so this opts
+          OUT of the rule rather than escalating z-index: a z-index can never
+          escape an ancestor stacking context, so raising it would have looked
+          like a fix, changed nothing, and invited the next person to raise it
+          again. */}
+      <td colSpan={9} style={{ padding: '8px 12px', position: 'static', zIndex: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
           <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)', paddingTop: 6 }}>
             Apply to:
           </strong>
           <div style={{ position: 'relative', flex: 1, minWidth: 240 }}>
             <button
+              ref={triggerRef}
               type="button"
               disabled={isLocked}
               onClick={() => setOpen((o) => !o)}
@@ -1291,13 +1345,16 @@ function PercentOfSelectedPicker({
                 />
                 <div
                   style={{
-                    position: 'absolute', top: 'calc(100% + 4px)', left: 0,
+                    position: 'absolute',
+                    ...(dropUp ? { bottom: 'calc(100% + 4px)' } : { top: 'calc(100% + 4px)' }),
+                    left: 0,
                     minWidth: 320, maxWidth: 480,
                     background: 'var(--color-surface)', border: '1px solid var(--color-border)',
                     borderRadius: 'var(--radius)', boxShadow: '0 4px 12px rgba(0,0,0,0.10)',
                     zIndex: 20, padding: 8,
                   }}
                   data-testid={`cost-${asset.id}-${line.id}-pct-picker-popover`}
+                  data-placement={dropUp ? 'above' : 'below'}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                     <span>Base lines for the %</span>
