@@ -24,7 +24,7 @@ import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup, m4StreamRow }
 import { buildIntegrityChecks, checkDetail } from '../reports/checksReport';
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildOpexReport } from '../reports/opexReports';
-import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
+import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, totalColumnHeading, totalColumnNote, TOTAL_COLUMN_HEADINGS, TOTAL_COLUMN_NOTES, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, FUND_CAPITAL_BASE_TAG, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
 import { buildCaseComparisonReport, type CaseComparisonInput, type CaseComparisonReport, type CaseKpiKind } from '../reports/caseComparisonReport';
 import { buildCaseYoYReport, type CaseYoYReport } from '../reports/caseYoYReport';
 import { formatAssumptionValue } from '../cases/assumptionGrid';
@@ -37,8 +37,10 @@ import { resolveFundTerms } from '../fundTerms';
 import {
   isFundActive, hasFundFeeIncome, buildFundWaterfallRows, buildFundFeeIncomeRows,
   buildFundGrossNetRows, buildFundEarnerRows, buildFundHeadlineCards, fundGrossNetNote,
+  fundWaterfallTotalsNote, fundHeadlineRestatementNote,
   FUND_GROSS_NET_COLUMNS, FUND_EARNER_COLUMNS, type FundReportCtx,
 } from '../reports/fundReports';
+import { buildAssetNotes, structuralZeroCell } from '../reports/assetNotes';
 import { formatAccounting } from '@/src/core/formatters';
 import { computeLiveModel, type LiveAssetInput, type LiveModel, type LiveGroup } from './liveModel';
 import {
@@ -1447,6 +1449,36 @@ function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs:
     lr += 1;
   }
 
+  // ── Structural zeros ────────────────────────────────────────────────────────
+  // An asset can legitimately report nil area here: an existing operational
+  // asset has no new build, and a companion's area sits on its parent. Beside
+  // assets reporting real areas a bare 0 reads as missing data, so the reasons
+  // are named. The CELLS keep their formulas (the group subtotals reference
+  // column D, and a text marker there would break them), so the explanation is
+  // given as a footnote instead of in the cell.
+  {
+    const notes = buildAssetNotes(state, (v) => `${formatAccounting(v, 'millions', 1)} m`);
+    const nilRows = allARows.filter(({ ref }) => {
+      const m = metricsById.get(ref.id);
+      return notes.hasBuaNote(ref.id, m?.bua ?? 0) !== null;
+    });
+    const raised = notes.takeFootnotes();
+    if (nilRows.length > 0 && raised.length > 0) {
+      lr += 1;
+      setSectionHeader(ws.getRow(lr), 'Assets reporting nil built-up area (and why)', LASTCOL); lr += 1;
+      for (const { ref } of nilRows) {
+        const z = notes.byAssetId.get(ref.id);
+        setLabel(ws.getCell(lr, 1), `${ref.name} ${z ? z.marker : ''}`, { bold: true });
+        lr += 1;
+      }
+      for (const fn of raised) {
+        const fc = ws.getCell(lr, 1); fc.value = fn.text;
+        fc.font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
+        lr += 1;
+      }
+    }
+  }
+
   ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 5, showGridLines: false }];
   return landAddrsByAsset;
 }
@@ -1795,7 +1827,7 @@ const SNAPSHOT_NOTE = 'Figures are platform-computed values as of export. This i
  *  widths + the freeze (rows 1-4, columns A-D). `meta` adds the Capex B / C column
  *  labels. `feeds` is a short cross-tab provenance note ("Sourced from X; feeds
  *  Y") attached as a comment so it does not consume a row. */
-function writeSheetHeader(ws: ExcelJS.Worksheet, snap: ReturnType<typeof computeFinancialsSnapshot>, N: number, title: string, subtitle: string, opts: { label?: string; meta?: [string, string]; feeds?: string } = {}): void {
+function writeSheetHeader(ws: ExcelJS.Worksheet, snap: ReturnType<typeof computeFinancialsSnapshot>, N: number, title: string, subtitle: string, opts: { label?: string; meta?: [string, string]; feeds?: string; totalLabel?: string } = {}): void {
   ws.getColumn(LBL_COL).width = 34;
   // Column B is the "Basis / Calculation" guidance column (plain descriptive
   // text, not a live formula); C is a thin spacer. Both sit in the frozen pane.
@@ -1808,7 +1840,13 @@ function writeSheetHeader(ws: ExcelJS.Worksheet, snap: ReturnType<typeof compute
   setLabel(ws.getCell('A2'), subtitle);
   if (opts.label) setColHeader(ws.getCell(4, LBL_COL), opts.label, 'left');
   setColHeader(ws.getCell(4, META_B), 'Basis / Calculation', 'left');
-  setColHeader(ws.getCell(4, TOTAL_COL), 'Total', 'right');
+  // The leading column does NOT always hold a lifetime sum. On the balance
+  // sheet every figure in it is the closing balance, and on the cash flow tab
+  // it is both at once (summed flows plus closing cash), which is how TOTAL
+  // ASSETS came to print the at-exit figure under a heading saying "Total".
+  // The caller supplies the honest heading, derived from the same shared rule
+  // the screen and the PDFs use (lib/reports/m4Reports.totalColumnHeading).
+  setColHeader(ws.getCell(4, TOTAL_COL), opts.totalLabel ?? 'Total', 'right');
   for (let c = OPEN_COL; c <= lastActiveCol(N); c++) {
     const cl = colLetter(c);
     const d = ws.getCell(3, c); // period-end date (linked to Timeline date row)
@@ -1904,7 +1942,8 @@ function makeEmitters(ws: ExcelJS.Worksheet, N: number, start = 5): {
   section: (text: string) => void; groupBand: (text: string) => void; subTitle: (text: string) => void;
   moneyRow: (label: string, series: number[] | undefined, opts?: { style?: RowStyle; indent?: number; basis?: string; prior?: number; totalLast?: boolean; totalValue?: number; noTotal?: boolean }) => number;
   statRow: (label: string, series: number[] | undefined, numFmt: string, indent?: number) => void;
-  emitM4: (row: M4Row) => number; emitTable: (rows: M4Row[]) => void; gap: () => void; cursor: () => number;
+  emitM4: (row: M4Row) => number; emitTable: (rows: M4Row[]) => void; note: (text: string) => void;
+  gap: () => void; cursor: () => number;
 } {
   let r = start;
   const section = (text: string): void => { setSectionHeader(ws.getRow(r), text, lastActiveCol(N), ARGB.accent); r += 1; };
@@ -1953,9 +1992,19 @@ function makeEmitters(ws: ExcelJS.Worksheet, N: number, start = 5): {
     return moneyRow(row.label, row.values, { style, indent: row.indent, prior: row.priorValue, totalValue: tv !== undefined && Number.isFinite(tv) ? tv : undefined });
   };
   const emitTable = (rows: M4Row[]): void => { for (const row of rows) emitM4(row); };
+  // A short explanatory sentence under whatever was just emitted. Its own
+  // emitter rather than a moneyRow with noTotal, because moneyRow still writes
+  // a zero into every period column and a note is not a data row. No-op on an
+  // empty string, so callers can pass a builder's output unconditionally.
+  const note = (text: string): void => {
+    if (!text) return;
+    setLabel(ws.getCell(r, LBL_COL), text);
+    ws.getCell(r, LBL_COL).font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
+    r += 2;
+  };
   const gap = (): void => { r += 1; };
   const cursor = (): number => r;
-  return { section, groupBand, subTitle, moneyRow, statRow, emitM4, emitTable, gap, cursor };
+  return { section, groupBand, subTitle, moneyRow, statRow, emitM4, emitTable, note, gap, cursor };
 }
 
 // Balance-sheet feeder roll-forwards (the platform Module 4 Schedules "BS
@@ -2781,7 +2830,11 @@ function addSchedules(ctx: EmitCtx): void {
   const { wb, snap, state } = ctx;
   const N = snap.axisLength;
   const ws = wb.addWorksheet(SHEETS.schedules, { properties: { tabColor: { argb: ARGB.navy } } });
-  writeSheetHeader(ws, snap, N, 'Schedules', 'Full mirror of the platform Module 4 Schedules, both sub-tabs in sequence: 1. Fixed Assets & D&A (land + depreciable NBV roll-forward), 2. BS Schedules (balance-sheet feeder roll-forwards ordered ASSETS / LIABILITIES / EQUITY).', { label: 'Line', feeds: 'Sourced from Capex, depreciation, Modules 1-3 and the financing recurrence. Supports the Balance Sheet.' });
+  // Roll-forwards: additions and charges sum, opening and closing balances do
+  // not. Stated on the sheet rather than left to the reader, on the same rule
+  // as the Balance Sheet and Cash Flow tabs. These rows are emitted directly
+  // (not through the shared M4Row model), so the heading is named here.
+  writeSheetHeader(ws, snap, N, 'Schedules', 'Full mirror of the platform Module 4 Schedules, both sub-tabs in sequence: 1. Fixed Assets & D&A (land + depreciable NBV roll-forward), 2. BS Schedules (balance-sheet feeder roll-forwards ordered ASSETS / LIABILITIES / EQUITY).', { label: 'Line', totalLabel: TOTAL_COLUMN_HEADINGS.mixed, feeds: `Sourced from Capex, depreciation, Modules 1-3 and the financing recurrence. Supports the Balance Sheet. ${TOTAL_COLUMN_NOTES.mixed}` });
   const E = makeEmitters(ws, N);
   const assetName = (id: string): string => state.assets.find((a) => a.id === id)?.name ?? id;
   const nz = (a?: number[]): boolean => (a ?? []).some((v) => (v ?? 0) !== 0);
@@ -2865,9 +2918,15 @@ function addProfitLoss(ctx: EmitCtx): void {
     // The three capital bases first, so a reader can add total equity and the
     // debt facility and land on the fund size. The fees below charge on three
     // different quantities, and without this the relationship is implicit.
+    //
+    // THEY ARE THEIR OWN BLOCK, captioned and tagged. Left unlabelled at the
+    // top of the fee table, with Base and Rate empty, their amount sat in the
+    // same column that holds a fee charged on the rows below and read as a fee.
+    E.subTitle(FUND_CAPITAL_BASES_TITLE);
     for (const c of buildFundCapitalRows(snap)) {
-      E.moneyRow(c.isTotal ? `= ${c.label}` : c.label, undefined, { style: c.isTotal ? 'subtotal' : 'plain', totalValue: c.amount });
+      E.moneyRow(c.isTotal ? `= ${c.label}` : c.label, undefined, { style: c.isTotal ? 'subtotal' : 'plain', totalValue: c.amount, basis: FUND_CAPITAL_BASE_TAG });
     }
+    E.note(FUND_CAPITAL_BASES_NOTE);
     // The Rate column was 2 characters wide, so "0.50%" rendered as a sliver
     // and could not overflow (the Total column beside it is never empty). Only
     // widened when the fund block actually renders, so a standalone project
@@ -2924,11 +2983,15 @@ function addCashFlow(ctx: EmitCtx): void {
   const labels = m4Labels(state);
   const mk = (filterPhaseId: string): M4ReportCtx => ({ snap, state, labels, filterPhaseId, fmt: (v: number) => String(v) });
   const ws = wb.addWorksheet(SHEETS.cashflow, { properties: { tabColor: { argb: ARGB.navy } } });
-  writeSheetHeader(ws, snap, N, 'Cash Flow', 'Full detailed mirror of the platform Module 4 cash flow: the consolidated Direct and Indirect methods, then a per-phase Direct view (Operations + Investing).', { label: 'Line', feeds: 'The platform cash flow statement. Closing cash reconciles to the Balance Sheet.' });
+  // Heading DERIVED from the rows the sheet is about to emit, not typed: the
+  // cash flow statement mixes lifetime flows with opening / closing cash, so
+  // it resolves to 'Total / Closing'.
+  const directRows = buildDirectCFRows(mk('__all__'));
+  writeSheetHeader(ws, snap, N, 'Cash Flow', 'Full detailed mirror of the platform Module 4 cash flow: the consolidated Direct and Indirect methods, then a per-phase Direct view (Operations + Investing).', { label: 'Line', totalLabel: totalColumnHeading(directRows), feeds: `The platform cash flow statement. Closing cash reconciles to the Balance Sheet. ${totalColumnNote(directRows)}` });
   const E = makeEmitters(ws, N);
   const hasData = (rows: M4Row[]): boolean => rows.some((rr) => rr.values.some((v) => v !== 0));
   E.section('Cash Flow, Direct Method: Project');
-  E.emitTable(buildDirectCFRows(mk('__all__')));
+  E.emitTable(directRows);
   E.gap(); E.section('Cash Flow, Indirect Method: Project');
   E.emitTable(buildIndirectCFRows(mk('__all__')));
   for (const ph of state.phases) {
@@ -2945,10 +3008,14 @@ function addBalanceSheet(ctx: EmitCtx): void {
   const N = snap.axisLength;
   const labels = m4Labels(state);
   const ws = wb.addWorksheet(SHEETS.balsheet, { properties: { tabColor: { argb: ARGB.navy } } });
-  writeSheetHeader(ws, snap, N, 'Balance Sheet', 'Full detailed mirror of the platform Module 4 balance sheet (consolidated). Assets = Liabilities + Equity; the BS-check row is ~0 by construction.', { label: 'Line', feeds: 'The platform balance sheet. Balances by construction.' });
+  // Every row here is a closing balance, so the leading column resolves to
+  // 'Closing'. It used to say 'Total', which read as a lifetime sum: TOTAL
+  // ASSETS printed the at-exit figure under that heading.
+  const bsRows = buildBSRows({ snap, state, labels, filterPhaseId: '__all__', fmt: (v: number) => String(v) }).rows;
+  writeSheetHeader(ws, snap, N, 'Balance Sheet', 'Full detailed mirror of the platform Module 4 balance sheet (consolidated). Assets = Liabilities + Equity; the BS-check row is ~0 by construction.', { label: 'Line', totalLabel: totalColumnHeading(bsRows), feeds: `The platform balance sheet. Balances by construction. ${totalColumnNote(bsRows)}` });
   const E = makeEmitters(ws, N);
   E.section('Balance Sheet: Project');
-  E.emitTable(buildBSRows({ snap, state, labels, filterPhaseId: '__all__', fmt: (v: number) => String(v) }).rows);
+  E.emitTable(bsRows);
 }
 
 // ── Returns (NOI, terminal value, FCFF / FCFE, live IRR / NPV / MOIC) ─────────
@@ -2969,6 +3036,15 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
 
   // ── local emitters ──
   const section = (text: string): void => { setSectionHeader(ws.getRow(r), text, lastActiveCol(N), ARGB.accent); r += 1; };
+  /** A short explanatory sentence under whatever was just emitted (a footnote,
+   *  a basis note). No-op on an empty string, so callers can pass a shared
+   *  builder's output straight through without a guard. */
+  const note = (text: string): void => {
+    if (!text) return;
+    setLabel(ws.getCell(r, LBL_COL), text);
+    ws.getCell(r, LBL_COL).font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
+    r += 2;
+  };
   const subTitle = (text: string): void => {
     setLabel(ws.getCell(r, LBL_COL), text, { bold: true });
     fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.subtotal);
@@ -3266,8 +3342,19 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
       r += 1;
     }
     if (rs.perAsset?.rows.length) {
+      // Zero cost with a 100% margin is structural on an existing operational
+      // asset (its cost was spent before the model starts) and on a companion
+      // (the cost sits on the parent). Marked and footnoted rather than left as
+      // a bare zero, from the SAME shared rule both PDFs use.
+      const assetNotes = buildAssetNotes(state, cMoney);
       gridTable('Per-Asset Economics', ['Asset', 'Strategy', 'Revenue', 'Cost', 'Profit', 'Margin', 'Yield on Cost'],
-        rs.perAsset.rows.map((a) => [a.assetName, a.strategy, cMoney(a.totalRevenue), cMoney(a.totalCost), cMoney(a.profit), cPct(a.profitMargin, 1), a.isIncomeAsset ? cPct(a.yieldOnCost, 1) : 'n/a']));
+        rs.perAsset.rows.map((a) => {
+          const z = assetNotes.hasCostNote(a.assetId, a.totalCost);
+          const nil = z ? structuralZeroCell(z) : null;
+          return [a.assetName, a.strategy, cMoney(a.totalRevenue), nil ?? cMoney(a.totalCost), cMoney(a.profit),
+            nil ?? cPct(a.profitMargin, 1), nil ?? (a.isIncomeAsset ? cPct(a.yieldOnCost, 1) : 'n/a')];
+        }));
+      for (const fn of assetNotes.takeFootnotes()) note(fn.text);
     }
   } else {
     // Fallback when the returns snapshot cannot be computed: keep the signed streams.
@@ -3303,6 +3390,10 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     section('3. Fund Layer (distribution waterfall, gross vs net returns, fund fee income)');
 
     kpiStrip('Fund Returns, Gross vs Net', buildFundHeadlineCards(textCtx));
+    // These cards restate the headline Distributed Equity pair, split either
+    // side of the performance fee. Same shared sentence the PDFs and the M5
+    // screen carry, so the three cannot phrase it differently.
+    note(fundHeadlineRestatementNote(textCtx));
 
     // The terms the waterfall was run on. Without them the rows below cannot be
     // checked by eye, and the Inputs tab carries no fund terms.
@@ -3334,6 +3425,10 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     // totalOverride so no surface has to remember the rule.
     subTitle(`Distribution Waterfall (hold to ${rs.exitYearLabel})`);
     for (const row of buildFundWaterfallRows(rowsCtx)) emitFundM4(row);
+    // Which of those Total cells are lifetime flows and which are balances.
+    // Hurdle Paid's lifetime total sits directly under an untotalled Total
+    // Hurdle Owed, so the column reads as more paid than was ever owed.
+    note(fundWaterfallTotalsNote(textCtx));
     r += 1;
 
     // ── Fund Fee Income: who EARNS the fees, beside the equity partners ───────
@@ -3347,18 +3442,27 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
       // columns B and C, so the period axis at column F does not shift.
       const basis = buildFundFeeBasisRows(snap);
       if (basis.length > 0) {
+        // THE CAPITAL BASES GET THEIR OWN BLOCK. They used to sit at the top of
+        // the fee basis table with Base and Rate empty and their amount in the
+        // Total column, which on the rows immediately below holds either a
+        // basis or a fee charged. Read down the column, "Total equity 2,550.7"
+        // then "Fund structure fee: charged 26.9" and the first looks like a
+        // fee. They are not fees, they are the quantities the fees are charged
+        // on, so they are stated separately and said to be so.
+        subTitle(FUND_CAPITAL_BASES_TITLE);
+        for (const c of buildFundCapitalRows(snap)) {
+          const rc = r;
+          moneyRow(c.isTotal ? `= ${c.label}` : c.label, undefined, { indent: c.isTotal ? 0 : 1 });
+          ws.getCell(rc, TOTAL_COL).value = c.amount;
+          setBasis(ws.getCell(rc, META_B), FUND_CAPITAL_BASE_TAG);
+          if (c.isTotal) for (let cc = 1; cc <= lastActiveCol(N); cc++) ws.getCell(rc, cc).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+        }
+        note(FUND_CAPITAL_BASES_NOTE);
         subTitle('Fund Fee Basis (what each fee is charged on)');
         // Column captions go on the subtitle band itself, which already carries
         // the bold navy-dark font, so no extra row is spent on a header.
         ws.getCell(r - 1, META_B).value = 'Base';
         ws.getCell(r - 1, META_C).value = 'Rate';
-        // The three capital bases, so equity + debt = fund size is visible.
-        for (const c of buildFundCapitalRows(snap)) {
-          const rc = r;
-          moneyRow(c.isTotal ? `= ${c.label}` : c.label, undefined, { indent: c.isTotal ? 0 : 1 });
-          ws.getCell(rc, TOTAL_COL).value = c.amount;
-          if (c.isTotal) for (let cc = 1; cc <= lastActiveCol(N); cc++) ws.getCell(rc, cc).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
-        }
         // Not 9: ExcelJS drops a column whose width equals DEFAULT_COLUMN_WIDTH.
         ws.getColumn(META_C).width = Math.max(ws.getColumn(META_C).width ?? 0, 10);
         for (let i = 0; i < basis.length; i++) {

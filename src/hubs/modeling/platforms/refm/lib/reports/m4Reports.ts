@@ -46,6 +46,88 @@ export interface M4ReportCtx {
 
 const ALL = '__all__';
 
+// ── The leading column's heading ──────────────────────────────────────────
+//
+// "Total" meant two different things in one document. The P&L used it for a
+// genuine lifetime sum; the Balance Sheet used it for the CLOSING balance
+// (TOTAL ASSETS printed 2,512.1, which is the figure at exit, not a sum of
+// fourteen balance-sheet years), and the Cash Flow statement used it for both
+// at once (four summed flows plus a closing cash row). A reader with no way to
+// tell them apart can only assume the heading means what it says.
+//
+// The heading is now DERIVED from the rows, not typed per table, so a builder
+// that adds a balance row cannot leave a stale heading behind it. Rows declare
+// what their own leading cell is via `M4Row.totalIsBalance`.
+
+/** What the leading column of a row list actually holds. */
+export type TotalColumnKind = 'sum' | 'closing' | 'mixed';
+
+/**
+ * The classification, over anything that can say whether it OCCUPIES the
+ * leading column and whether what it puts there is a balance.
+ *
+ * Taken at this shape rather than on M4Row because the summary PDF's
+ * statements are hand-built rows, not M4Rows, and a second copy of the
+ * three-way rule there is exactly how two surfaces come to disagree. They
+ * share this function and differ only in how they answer the two questions.
+ */
+export function resolveTotalColumnKind(
+  entries: ReadonlyArray<{ occupiesTotalColumn: boolean; isBalance: boolean }>,
+): TotalColumnKind {
+  const valued = entries.filter((e) => e.occupiesTotalColumn);
+  if (valued.length === 0) return 'sum';
+  const balances = valued.filter((e) => e.isBalance).length;
+  if (balances === 0) return 'sum';
+  return balances === valued.length ? 'closing' : 'mixed';
+}
+
+/** True for a row that occupies the leading column at all. Section banners and
+ *  spacer rows do not, so they must not swing the heading; nor does a row whose
+ *  total is deliberately BLANK (the fund waterfall's balance rows). */
+function rowHasTotalCell(r: M4Row): boolean {
+  if (r.isSection && r.values.length === 0) return false;
+  return r.totalOverride !== '';
+}
+
+export function totalColumnKind(rows: readonly M4Row[]): TotalColumnKind {
+  return resolveTotalColumnKind(
+    rows.map((r) => ({ occupiesTotalColumn: rowHasTotalCell(r), isBalance: r.totalIsBalance === true })),
+  );
+}
+
+/**
+ * The heading text for the leading column of a row list.
+ *
+ * 'Closing' when every row is a point-in-time figure (the whole balance
+ * sheet), 'Total / Closing' when the table mixes lifetime flows with balances
+ * (both cash flow statements, where the flows genuinely sum and closing cash
+ * genuinely does not), and 'Total' otherwise, so the P&L is untouched.
+ */
+export function totalColumnHeading(rows: readonly M4Row[]): string {
+  return TOTAL_COLUMN_HEADINGS[totalColumnKind(rows)];
+}
+
+export const TOTAL_COLUMN_HEADINGS: Record<TotalColumnKind, string> = {
+  sum: 'Total',
+  closing: 'Closing',
+  mixed: 'Total / Closing',
+};
+
+/**
+ * The one-line caption a mixed table needs, so a reader knows the column is
+ * not homogeneous. Empty for a table whose heading already tells the whole
+ * story, so a caller renders it unconditionally.
+ */
+export const TOTAL_COLUMN_NOTES: Record<TotalColumnKind, string> = {
+  sum: '',
+  closing: 'Closing column: the balance at the end of the period, never a sum across periods.',
+  mixed: 'Total / Closing column: flow lines are lifetime totals over the hold; balance lines (openings and closings) are the figure at that point in time, not a sum.',
+};
+
+export function totalColumnNote(rows: readonly M4Row[]): string {
+  return TOTAL_COLUMN_NOTES[totalColumnKind(rows)];
+}
+
 /** Compact phase tag for the Phase column ('Phase 1' -> '1'). */
 function phaseShortName(state: FinancialsResolverState, phaseId: string): string {
   const name = state.phases.find((p) => p.id === phaseId)?.name ?? '';
@@ -410,6 +492,23 @@ export function buildFundCapitalRows(snap: ProjectFinancialsSnapshot): FundCapit
 }
 
 /**
+ * The capital bases are their OWN block, above the fee basis table, on every
+ * surface. They used to be the first three rows of it, with Timing and Rate
+ * empty and their amount in the leading money column, which on a fee row holds
+ * either a basis or a fee charged. Reading down the workbook's Total column,
+ * "Total equity 2,550.7" sat immediately above "Fund structure fee: charged
+ * 26.9" and the first read as a fee. It is not one: it is the quantity a fee
+ * is charged on.
+ *
+ * Title, tag and note live here so the four surfaces cannot describe the same
+ * three rows three different ways.
+ */
+export const FUND_CAPITAL_BASES_TITLE = 'Capital Bases (the quantities the fees are charged on)';
+export const FUND_CAPITAL_BASE_TAG = 'capital base';
+export const FUND_CAPITAL_BASES_NOTE =
+  'These three rows are amounts of CAPITAL, not fees. Total equity and the debt facility are what the model raised; the fund size is their sum. Each fee below states which of them it is charged on.';
+
+/**
  * The fee basis table. Empty when the fund layer is off, so a caller can render
  * it unconditionally and a standalone project shows nothing.
  */
@@ -689,8 +788,8 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
   const priorPreCapex = snap.financing.existing.preCapexTotal;
   const netPrior = -priorPreCapex + (snap.financing.existing.equityTotal + existingOpening);
   rows.push({ label: 'Net Cash Flow', values: d.netCashFlowPerPeriod, isTotal: true, priorValue: netPrior });
-  rows.push({ label: 'Opening cash', values: d.openingCashPerPeriod, indent: 1, totalOverride: fmt(d.openingCashPerPeriod[0] ?? 0), priorValue: snap.bs.historicalOpeningCashTotal });
-  rows.push({ label: 'Closing cash', values: d.closingCashPerPeriod, isSubtotal: true, totalOverride: fmt(d.closingCashPerPeriod[N - 1] ?? 0), priorValue: snap.bs.historicalOpeningCashTotal });
+  rows.push({ label: 'Opening cash', values: d.openingCashPerPeriod, indent: 1, totalIsBalance: true, totalOverride: fmt(d.openingCashPerPeriod[0] ?? 0), priorValue: snap.bs.historicalOpeningCashTotal });
+  rows.push({ label: 'Closing cash', values: d.closingCashPerPeriod, isSubtotal: true, totalIsBalance: true, totalOverride: fmt(d.closingCashPerPeriod[N - 1] ?? 0), priorValue: snap.bs.historicalOpeningCashTotal });
   return rows;
 }
 
@@ -805,8 +904,8 @@ export function buildIndirectCFRows(ctx: M4ReportCtx): M4Row[] {
 
   rows.push(...buildFinancingRows(ctx, cff));
   rows.push({ label: 'Net Cash Flow', values: netCf, isTotal: true });
-  rows.push({ label: 'Opening cash', values: ic.openingCashPerPeriod, indent: 1, totalOverride: fmt(ic.openingCashPerPeriod[0] ?? 0), priorValue: snap.bs.historicalOpeningCashTotal });
-  rows.push({ label: 'Closing cash', values: ic.closingCashPerPeriod, isSubtotal: true, totalOverride: fmt(ic.closingCashPerPeriod[N - 1] ?? 0), priorValue: snap.bs.historicalOpeningCashTotal });
+  rows.push({ label: 'Opening cash', values: ic.openingCashPerPeriod, indent: 1, totalIsBalance: true, totalOverride: fmt(ic.openingCashPerPeriod[0] ?? 0), priorValue: snap.bs.historicalOpeningCashTotal });
+  rows.push({ label: 'Closing cash', values: ic.closingCashPerPeriod, isSubtotal: true, totalIsBalance: true, totalOverride: fmt(ic.closingCashPerPeriod[N - 1] ?? 0), priorValue: snap.bs.historicalOpeningCashTotal });
   return rows;
 }
 
@@ -888,48 +987,52 @@ export function buildBSRows(ctx: M4ReportCtx): BSRowsResult {
   const rows: M4Row[] = [];
   rows.push({ label: 'ASSETS', values: [], isSection: true });
   rows.push({ label: 'Fixed Assets', values: [], isSection: true });
-  rows.push({ label: 'Land', values: land, indent: 1, totalOverride: fmt(land[N - 1] ?? 0), priorValue: priorLand });
+  rows.push({ label: 'Land', values: land, indent: 1, totalIsBalance: true, totalOverride: fmt(land[N - 1] ?? 0), priorValue: priorLand });
   const nbvCombined = nbv.map((v, i) => v + (idcNbv[i] ?? 0));
   const fixedAssetsLabel = idcNbv.some((v) => v !== 0) ? 'Fixed Assets (NBV, incl. capitalised IDC)' : 'Fixed Assets (NBV)';
-  rows.push({ label: fixedAssetsLabel, values: nbvCombined, indent: 1, totalOverride: fmt(nbvCombined[N - 1] ?? 0), priorValue: priorBuilding });
-  rows.push({ label: 'Total Fixed Assets', values: totalFA, isSubtotal: true, totalOverride: fmt(totalFA[N - 1] ?? 0), priorValue: priorFA });
+  rows.push({ label: fixedAssetsLabel, values: nbvCombined, indent: 1, totalIsBalance: true, totalOverride: fmt(nbvCombined[N - 1] ?? 0), priorValue: priorBuilding });
+  rows.push({ label: 'Total Fixed Assets', values: totalFA, isSubtotal: true, totalIsBalance: true, totalOverride: fmt(totalFA[N - 1] ?? 0), priorValue: priorFA });
 
   rows.push({ label: 'Current Assets', values: [], isSection: true });
-  rows.push({ label: 'Cash', values: cash, indent: 1, totalOverride: fmt(cash[N - 1] ?? 0), priorValue: priorCash });
+  rows.push({ label: 'Cash', values: cash, indent: 1, totalIsBalance: true, totalOverride: fmt(cash[N - 1] ?? 0), priorValue: priorCash });
   if (arOperating.some((v) => v !== 0)) {
-    rows.push({ label: 'Accounts Receivable (Operating)', values: arOperating, indent: 1, totalOverride: fmt(arOperating[N - 1] ?? 0), priorValue: 0 });
+    rows.push({ label: 'Accounts Receivable (Operating)', values: arOperating, indent: 1, totalIsBalance: true, totalOverride: fmt(arOperating[N - 1] ?? 0), priorValue: 0 });
   }
-  rows.push({ label: 'Residential Sales Receivables', values: resReceivables, indent: 1, totalOverride: fmt(resReceivables[N - 1] ?? 0), priorValue: 0 });
-  rows.push({ label: 'Inventory (Residential WIP)', values: inventory, indent: 1, totalOverride: fmt(inventory[N - 1] ?? 0), priorValue: 0 });
+  rows.push({ label: 'Residential Sales Receivables', values: resReceivables, indent: 1, totalIsBalance: true, totalOverride: fmt(resReceivables[N - 1] ?? 0), priorValue: 0 });
+  rows.push({ label: 'Inventory (Residential WIP)', values: inventory, indent: 1, totalIsBalance: true, totalOverride: fmt(inventory[N - 1] ?? 0), priorValue: 0 });
   if (escrow.some((v) => v !== 0)) {
-    rows.push({ label: 'Restricted Cash (Escrow)', values: escrow, indent: 1, totalOverride: fmt(escrow[N - 1] ?? 0), priorValue: 0 });
+    rows.push({ label: 'Restricted Cash (Escrow)', values: escrow, indent: 1, totalIsBalance: true, totalOverride: fmt(escrow[N - 1] ?? 0), priorValue: 0 });
   }
-  rows.push({ label: 'Total Current Assets', values: totalCA, isSubtotal: true, totalOverride: fmt(totalCA[N - 1] ?? 0), priorValue: priorCA });
+  rows.push({ label: 'Total Current Assets', values: totalCA, isSubtotal: true, totalIsBalance: true, totalOverride: fmt(totalCA[N - 1] ?? 0), priorValue: priorCA });
 
-  rows.push({ label: 'TOTAL ASSETS', values: totalAssets, isTotal: true, totalOverride: fmt(totalAssets[N - 1] ?? 0), priorValue: priorTotalAssets });
+  rows.push({ label: 'TOTAL ASSETS', values: totalAssets, isTotal: true, totalIsBalance: true, totalOverride: fmt(totalAssets[N - 1] ?? 0), priorValue: priorTotalAssets });
 
   rows.push({ label: 'LIABILITIES', values: [], isSection: true });
   rows.push({ label: 'Current Liabilities', values: [], isSection: true });
-  rows.push({ label: 'Accounts Payable', values: ap, indent: 1, totalOverride: fmt(ap[N - 1] ?? 0), priorValue: 0 });
-  rows.push({ label: 'Unearned Revenue (Off-plan advances)', values: unearned, indent: 1, totalOverride: fmt(unearned[N - 1] ?? 0), priorValue: 0 });
-  rows.push({ label: 'Total Current Liabilities', values: totalCL, isSubtotal: true, totalOverride: fmt(totalCL[N - 1] ?? 0), priorValue: 0 });
+  rows.push({ label: 'Accounts Payable', values: ap, indent: 1, totalIsBalance: true, totalOverride: fmt(ap[N - 1] ?? 0), priorValue: 0 });
+  rows.push({ label: 'Unearned Revenue (Off-plan advances)', values: unearned, indent: 1, totalIsBalance: true, totalOverride: fmt(unearned[N - 1] ?? 0), priorValue: 0 });
+  rows.push({ label: 'Total Current Liabilities', values: totalCL, isSubtotal: true, totalIsBalance: true, totalOverride: fmt(totalCL[N - 1] ?? 0), priorValue: 0 });
 
   rows.push({ label: 'Non-current Liabilities', values: [], isSection: true });
-  rows.push({ label: 'Debt (long-term)', values: debt, indent: 1, totalOverride: fmt(debt[N - 1] ?? 0), priorValue: priorDebt });
-  rows.push({ label: 'TOTAL LIABILITIES', values: totalLiab, isTotal: true, totalOverride: fmt(totalLiab[N - 1] ?? 0), priorValue: priorDebt });
+  rows.push({ label: 'Debt (long-term)', values: debt, indent: 1, totalIsBalance: true, totalOverride: fmt(debt[N - 1] ?? 0), priorValue: priorDebt });
+  rows.push({ label: 'TOTAL LIABILITIES', values: totalLiab, isTotal: true, totalIsBalance: true, totalOverride: fmt(totalLiab[N - 1] ?? 0), priorValue: priorDebt });
 
   rows.push({ label: 'SHAREHOLDERS EQUITY', values: [], isSection: true });
-  rows.push({ label: 'Share Capital', values: shareCapital, indent: 1, totalOverride: fmt(shareCapital[N - 1] ?? 0), priorValue: priorEquity });
-  rows.push({ label: 'Statutory Reserve', values: reserve, indent: 1, totalOverride: fmt(reserve[N - 1] ?? 0), priorValue: 0 });
-  rows.push({ label: 'Retained Earnings', values: retained, indent: 1, totalOverride: fmt(retained[N - 1] ?? 0), priorValue: 0 });
-  rows.push({ label: 'Total Equity', values: totalEquity, isSubtotal: true, totalOverride: fmt(totalEquity[N - 1] ?? 0), priorValue: priorEquity });
+  rows.push({ label: 'Share Capital', values: shareCapital, indent: 1, totalIsBalance: true, totalOverride: fmt(shareCapital[N - 1] ?? 0), priorValue: priorEquity });
+  rows.push({ label: 'Statutory Reserve', values: reserve, indent: 1, totalIsBalance: true, totalOverride: fmt(reserve[N - 1] ?? 0), priorValue: 0 });
+  rows.push({ label: 'Retained Earnings', values: retained, indent: 1, totalIsBalance: true, totalOverride: fmt(retained[N - 1] ?? 0), priorValue: 0 });
+  rows.push({ label: 'Total Equity', values: totalEquity, isSubtotal: true, totalIsBalance: true, totalOverride: fmt(totalEquity[N - 1] ?? 0), priorValue: priorEquity });
 
-  rows.push({ label: 'TOTAL LIABILITIES + EQUITY', values: totalLandE, isTotal: true, totalOverride: fmt(totalLandE[N - 1] ?? 0), priorValue: priorLandE });
+  rows.push({ label: 'TOTAL LIABILITIES + EQUITY', values: totalLandE, isTotal: true, totalIsBalance: true, totalOverride: fmt(totalLandE[N - 1] ?? 0), priorValue: priorLandE });
 
   const maxAbsDiff = Math.max(...bsDiff.map((v) => Math.abs(v)));
   const bsTolerance = Math.max(1000, Math.abs(totalLandE[N - 1] ?? 0) * 1e-6);
   const balances = maxAbsDiff < bsTolerance;
-  rows.push({ label: balances ? 'BS Check: BALANCED' : 'BS Check: OUT OF BALANCE', values: bsDiff, isTotal: true, totalOverride: fmt(maxAbsDiff), priorValue: priorTotalAssets - priorLandE });
+  // `totalIsBalance` here means "not a lifetime sum" rather than literally a
+  // balance: the leading cell is the WORST single-period residue. Marking it
+  // keeps the heading honest, since summing this row would be as meaningless
+  // as summing the balances above it.
+  rows.push({ label: balances ? 'BS Check: BALANCED' : 'BS Check: OUT OF BALANCE', values: bsDiff, isTotal: true, totalIsBalance: true, totalOverride: fmt(maxAbsDiff), priorValue: priorTotalAssets - priorLandE });
 
   return { rows, balances, maxAbsDiff, priorYear, bsDiffPerPeriod: bsDiff };
 }
@@ -972,17 +1075,17 @@ export function buildResidentialReceivablesRows(ctx: M4FeederCtx): M4Row[] {
     }
   }
   const rows: M4Row[] = [];
-  rows.push({ label: 'Opening AR (project)', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) });
+  rows.push({ label: 'Opening AR (project)', values: opening, isSubtotal: true, totalIsBalance: true, totalOverride: fmt(opening[0] ?? 0) });
   rows.push({ label: '(+) Pre-Sales Sale Value', values: saleValue, indent: 1 });
   rows.push({ label: '(−) Pre-Sales Cash Collected', values: cashCollected.map((v) => -v), indent: 1 });
-  rows.push({ label: 'Closing AR (project total)', values: closing, isSubtotal: true, totalOverride: fmt(closing[N - 1] ?? 0) });
+  rows.push({ label: 'Closing AR (project total)', values: closing, isSubtotal: true, totalIsBalance: true, totalOverride: fmt(closing[N - 1] ?? 0) });
   if (sellEntries.length > 0) {
     rows.push({ label: 'Closing AR by asset', values: [], isSection: true });
     for (const [assetId, bundle] of sellEntries) {
       const asset = state.assets.find((a) => a.id === assetId);
-      rows.push({ label: asset?.name ?? assetId, values: bundle.ar.perPeriod.slice(0, N), indent: 1, totalOverride: fmt(bundle.ar.perPeriod[N - 1] ?? 0) });
+      rows.push({ label: asset?.name ?? assetId, values: bundle.ar.perPeriod.slice(0, N), indent: 1, totalIsBalance: true, totalOverride: fmt(bundle.ar.perPeriod[N - 1] ?? 0) });
     }
-    rows.push({ label: 'Total Closing AR', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) });
+    rows.push({ label: 'Total Closing AR', values: closing, isTotal: true, totalIsBalance: true, totalOverride: fmt(closing[N - 1] ?? 0) });
   }
   return rows;
 }
@@ -999,10 +1102,10 @@ export function buildOperatingReceivablesRows(ctx: M4FeederCtx): M4Row[] {
   const change = closing.map((v, i) => v - (opening[i] ?? 0));
   const cash = operatingRev.map((v, i) => v - (change[i] ?? 0));
   return [
-    { label: 'Opening AR', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
+    { label: 'Opening AR', values: opening, isSubtotal: true, totalIsBalance: true, totalOverride: fmt(opening[0] ?? 0) },
     { label: '(+) Operating revenue billed', values: operatingRev, indent: 1 },
     { label: '(−) Cash collected', values: cash.map((v) => -v), indent: 1 },
-    { label: 'Closing AR', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
+    { label: 'Closing AR', values: closing, isTotal: true, totalIsBalance: true, totalOverride: fmt(closing[N - 1] ?? 0) },
   ];
 }
 
@@ -1019,10 +1122,10 @@ export function buildInventoryRows(ctx: M4FeederCtx): M4Row[] {
   const capexCapitalized = zeros();
   for (let t = 0; t < N; t++) capexCapitalized[t] = (closing[t] - opening[t]) + (cosTotal[t] ?? 0);
   return [
-    { label: 'Opening inventory', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
+    { label: 'Opening inventory', values: opening, isSubtotal: true, totalIsBalance: true, totalOverride: fmt(opening[0] ?? 0) },
     { label: '(+) Capex capitalized', values: capexCapitalized, indent: 1 },
     { label: '(−) Released to Cost of Sales', values: cosTotal.map((v) => -v), indent: 1 },
-    { label: 'Closing inventory', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
+    { label: 'Closing inventory', values: closing, isTotal: true, totalIsBalance: true, totalOverride: fmt(closing[N - 1] ?? 0) },
   ];
 }
 
@@ -1035,10 +1138,10 @@ export function buildEscrowFeederRows(ctx: M4FeederCtx): M4Row[] {
   const opening = zeros();
   for (let t = 1; t < N; t++) opening[t] = closing[t - 1] ?? 0;
   return [
-    { label: 'Opening Balance', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
+    { label: 'Opening Balance', values: opening, isSubtotal: true, totalIsBalance: true, totalOverride: fmt(opening[0] ?? 0) },
     { label: '(+) Held this period', values: snap.escrow.projectTotals.heldPerPeriod, indent: 1 },
     { label: '(−) Release', values: snap.escrow.projectTotals.releasePerPeriod.map((v) => -v), indent: 1 },
-    { label: 'Closing Balance', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
+    { label: 'Closing Balance', values: closing, isTotal: true, totalIsBalance: true, totalOverride: fmt(closing[N - 1] ?? 0) },
   ];
 }
 
@@ -1048,10 +1151,10 @@ export function buildApFeederRows(ctx: M4FeederCtx): M4Row[] {
   const N = snap.axisLength;
   const t = snap.ap.projectTotals;
   return [
-    { label: 'Opening AP', values: t.openingApPerPeriod, isSubtotal: true, totalOverride: fmt(t.openingApPerPeriod[0] ?? 0), priorValue: 0 },
+    { label: 'Opening AP', values: t.openingApPerPeriod, isSubtotal: true, totalIsBalance: true, totalOverride: fmt(t.openingApPerPeriod[0] ?? 0), priorValue: 0 },
     { label: '(+) Opex incurred', values: t.opexIncurredPerPeriod, indent: 1, priorValue: 0 },
     { label: '(−) Cash paid', values: t.cashPaidPerPeriod.map((v) => -v), indent: 1, priorValue: 0 },
-    { label: 'Closing AP', values: t.closingApPerPeriod, isTotal: true, totalOverride: fmt(t.closingApPerPeriod[N - 1] ?? 0), priorValue: 0 },
+    { label: 'Closing AP', values: t.closingApPerPeriod, isTotal: true, totalIsBalance: true, totalOverride: fmt(t.closingApPerPeriod[N - 1] ?? 0), priorValue: 0 },
   ];
 }
 
@@ -1072,17 +1175,17 @@ export function buildUnearnedRows(ctx: M4FeederCtx): M4Row[] {
     }
   }
   const rows: M4Row[] = [];
-  rows.push({ label: 'Opening unearned revenue (project)', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) });
+  rows.push({ label: 'Opening unearned revenue (project)', values: opening, isSubtotal: true, totalIsBalance: true, totalOverride: fmt(opening[0] ?? 0) });
   rows.push({ label: '(+) Pre-sales contracts signed (sale value)', values: saleValue, indent: 1 });
   rows.push({ label: '(−) Revenue recognized (at handover)', values: recognized.map((v) => -v), indent: 1 });
-  rows.push({ label: 'Closing unearned revenue (project total)', values: closing, isSubtotal: true, totalOverride: fmt(closing[N - 1] ?? 0) });
+  rows.push({ label: 'Closing unearned revenue (project total)', values: closing, isSubtotal: true, totalIsBalance: true, totalOverride: fmt(closing[N - 1] ?? 0) });
   if (sellEntries.length > 0) {
     rows.push({ label: 'Closing unearned revenue by asset', values: [], isSection: true });
     for (const [assetId, bundle] of sellEntries) {
       const asset = state.assets.find((a) => a.id === assetId);
-      rows.push({ label: asset?.name ?? assetId, values: bundle.unearned.perPeriod.slice(0, N), indent: 1, totalOverride: fmt(bundle.unearned.perPeriod[N - 1] ?? 0) });
+      rows.push({ label: asset?.name ?? assetId, values: bundle.unearned.perPeriod.slice(0, N), indent: 1, totalIsBalance: true, totalOverride: fmt(bundle.unearned.perPeriod[N - 1] ?? 0) });
     }
-    rows.push({ label: 'Total Closing Unearned Revenue', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) });
+    rows.push({ label: 'Total Closing Unearned Revenue', values: closing, isTotal: true, totalIsBalance: true, totalOverride: fmt(closing[N - 1] ?? 0) });
   }
   return rows;
 }
@@ -1101,11 +1204,11 @@ export function buildDebtOutstandingRows(ctx: M4FeederCtx): M4Row[] {
     const outRow = f.outstanding.slice(0, N);
     while (outRow.length < N) outRow.push(0);
     const facPrior = f.openingBalance ?? 0;
-    rows.push({ label: t.name, values: outRow, indent: 1, totalOverride: fmt(outRow[N - 1] ?? 0), priorValue: facPrior });
+    rows.push({ label: t.name, values: outRow, indent: 1, totalIsBalance: true, totalOverride: fmt(outRow[N - 1] ?? 0), priorValue: facPrior });
     for (let i = 0; i < N; i++) totalOut[i] += outRow[i] ?? 0;
     totalPrior += facPrior;
   }
-  rows.push({ label: 'Total Debt Outstanding', values: totalOut, isTotal: true, totalOverride: fmt(totalOut[N - 1] ?? 0), priorValue: totalPrior });
+  rows.push({ label: 'Total Debt Outstanding', values: totalOut, isTotal: true, totalIsBalance: true, totalOverride: fmt(totalOut[N - 1] ?? 0), priorValue: totalPrior });
   return rows;
 }
 
@@ -1132,14 +1235,14 @@ export function buildEquityRollForwardRows(ctx: M4FeederCtx): M4Row[] {
     closing[t] = running;
   }
   const rows: M4Row[] = [
-    { label: 'Opening equity', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0), priorValue: 0 },
+    { label: 'Opening equity', values: opening, isSubtotal: true, totalIsBalance: true, totalOverride: fmt(opening[0] ?? 0), priorValue: 0 },
     { label: '(+) Cash equity drawdown', values: cashDraws, indent: 1, priorValue: 0 },
     { label: '(+) In-Kind equity (land in-kind, non-cash)', values: inKindDraws, indent: 1, priorValue: 0 },
   ];
   if (Math.abs(priorExisting) > 0.5) {
     rows.push({ label: '(+) Existing equity (pre-axis carry-forward)', values: existingAxisZeros, indent: 1, priorValue: priorExisting });
   }
-  rows.push({ label: 'Closing equity (cumulative)', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0), priorValue: priorClosing });
+  rows.push({ label: 'Closing equity (cumulative)', values: closing, isTotal: true, totalIsBalance: true, totalOverride: fmt(closing[N - 1] ?? 0), priorValue: priorClosing });
   return rows;
 }
 
@@ -1159,11 +1262,11 @@ export function buildRetainedEarningsRows(ctx: M4FeederCtx): M4Row[] {
   const opening = zeros();
   for (let t = 0; t < N; t++) opening[t] = t === 0 ? 0 : (closing[t - 1] ?? 0);
   return [
-    { label: 'Opening retained earnings', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
+    { label: 'Opening retained earnings', values: opening, isSubtotal: true, totalIsBalance: true, totalOverride: fmt(opening[0] ?? 0) },
     { label: '(+) PAT for the period', values: pat, indent: 1 },
     { label: '(−) Transfer to statutory reserve', values: reserveTransfer.map((v) => -v), indent: 1 },
     { label: '(−) Dividends declared', values: dividends.map((v) => -v), indent: 1 },
-    { label: 'Closing retained earnings', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
+    { label: 'Closing retained earnings', values: closing, isTotal: true, totalIsBalance: true, totalOverride: fmt(closing[N - 1] ?? 0) },
   ];
 }
 

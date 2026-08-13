@@ -70,7 +70,23 @@ Five deploys of fund-layer work (Steps 1 to 3 plus the Fund Manager and facility
 
 ---
 
-## ⭐ START HERE (current focus, 2026-08-12)
+## ⭐ START HERE (current focus, 2026-08-13)
+
+**PASS 4 (PRESENTATION) IS DONE AND UNCOMMITTED, HELD FOR REVIEW.** Six items
+raised against both PDFs and the workbook, all fixed, `verify-report-presentation`
+92 with teeth proven by nine sabotages and the whole suite re-run green (see
+CLAUDE-REFM.md, "export review pass 4"). It is **not committed and not
+browser-verified**, and it changes what a reader SEES on surfaces the verifiers
+can only string-match: a new `Closing` / `Total / Closing` heading on the balance
+sheet, cash flow and schedules (screen too, not just the exports), footnote
+markers replacing structural zeros in four tables, a new capital-bases block
+above the fee basis table, and two dropped cards on the summary PDF's returns
+page. **Read those five things in a real document before committing.** Two
+notes worth carrying: the reported "capital base amount sits in the Fee charged
+column" was exact for the WORKBOOK only (both PDFs already had it under Basis
+charged on), and the balance-sheet heading fix needed `drawPeriodTable` to stop
+hardcoding the literal `'Total'`, which it had been doing regardless of what the
+builders said.
 
 **THE EXPORTS HAVE NOT BEEN REVIEWED SINCE PASS 3 LANDED.** The PDF review
 closed on 2026-08-12 in three passes (`2f546659`, `3cea19dd`, `76ed9e50`, all

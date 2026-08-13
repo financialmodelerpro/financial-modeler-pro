@@ -21,6 +21,11 @@ import {
   nonLabelColumnPct, periodTableStyle, PERIOD_PHASE_PX, PERIOD_LABEL_PX,
 } from './tableStyles';
 import { ScrollableTable } from './ScrollableTable';
+// The leading column's heading is derived from the rows, by the SAME rule the
+// PDF exports and the workbook use, so the four surfaces cannot disagree about
+// whether that column is a lifetime sum or a closing balance. m4Reports imports
+// M4Row from here as a TYPE only, so this direction carries no runtime cycle.
+import { totalColumnHeading, totalColumnNote } from '../../../lib/reports/m4Reports';
 
 export interface M4Row {
   label: string;
@@ -30,6 +35,21 @@ export interface M4Row {
   isSection?: boolean;
   indent?: number;
   totalOverride?: string;
+  /**
+   * True when the leading column holds a POINT-IN-TIME figure (a closing or
+   * opening balance) rather than a lifetime sum.
+   *
+   * The flag exists because `totalOverride` is a formatted STRING, so no
+   * surface can tell by looking at it whether "2,512.1" is a sum or a closing
+   * balance. It was not: the balance sheet set every override to the final
+   * period and printed it under a heading that said "Total", one page after a
+   * P&L whose "Total" was a genuine lifetime sum. Two meanings, one heading,
+   * in one document.
+   *
+   * Surfaces read it through `totalColumnHeading` (lib/reports/m4Reports.ts)
+   * so the heading is derived from the rows rather than typed per table.
+   */
+  totalIsBalance?: boolean;
   rowFmt?: (v: number) => string;
   /** M4 Pass 2j: prior-year column value for stock lines. */
   priorValue?: number;
@@ -133,7 +153,7 @@ export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt,
             <tr>
               <th style={{ ...CELL_HEADER, ...freeze(0) }}>Line</th>
               {hasPhase && (<th style={{ ...CELL_HEADER, textAlign: 'center', fontSize: 10, ...freeze(PERIOD_LABEL_PX) }}>Phase</th>)}
-              <th style={{ ...CELL_HEADER_TOTAL, ...freeze(totalLeftPx) }}>Total</th>
+              <th style={{ ...CELL_HEADER_TOTAL, ...freeze(totalLeftPx) }} title={totalColumnNote(rows) || undefined}>{totalColumnHeading(rows)}</th>
               {hasPrior && (<th style={{ ...CELL_HEADER, fontStyle: 'italic', color: 'var(--color-meta)' }}>{priorYearLabel}</th>)}
               {yearLabels.map((y) => (<th key={y} style={CELL_HEADER}>{y}</th>))}
             </tr>

@@ -153,6 +153,35 @@ export const FUND_WATERFALL_NO_TOTAL_ROWS: readonly string[] = [
  *  keeps compiling; the set gained Hurdle Accrued on 2026-08-11. */
 export const FUND_WATERFALL_BALANCE_ROWS: readonly string[] = FUND_WATERFALL_NO_TOTAL_ROWS;
 
+/**
+ * What the waterfall's Total column means, row by row. Rendered directly under
+ * the table on every surface.
+ *
+ * WHY. Blanking the balance rows' totals is right, but on its own it produced a
+ * worse reading than the mistake it prevented: Hurdle Paid printed a lifetime
+ * total of 5,668.5 immediately below a Total Hurdle Owed row with no total at
+ * all, closing at 4,834.0. Scanning the column, a reader sees more hurdle paid
+ * than was ever owed and concludes the waterfall is broken. It is not: one
+ * figure is fourteen years of payments added up, the other is a balance at a
+ * point in time, and nothing on the page said so.
+ *
+ * The numbers are quoted from the model rather than hardcoded, so the sentence
+ * cannot drift from the table it sits under. Empty when the fund layer is off,
+ * so a caller renders it unconditionally.
+ */
+export function fundWaterfallTotalsNote(ctx: FundReportCtx): string {
+  const w = ctx.returns.waterfall;
+  if (!w.active) return '';
+  const money = ctx.fmt.money;
+  const paid = money(w.hurdlePaidPerPeriod.reduce((s, v) => s + (v ?? 0), 0));
+  const owed = w.totalHurdleOwedPerPeriod;
+  const owedClose = money(owed[owed.length - 1] ?? 0);
+  const periods = owed.length;
+  return 'Total column: flow rows are LIFETIME totals over the hold (Equity Drawn, Hurdle Paid, Excess Distributions, Performance Fee and the distribution rows). '
+    + 'The balance rows carry no total, because a balance summed across periods has no meaning; read their final period column instead. '
+    + `So Hurdle Paid ${paid} is ${periods} periods of payments added together, while Total Hurdle Owed ${owedClose} is the amount owed at a single point in time (the close). The two measure different things and are not comparable.`;
+}
+
 // ── Gross vs net returns ────────────────────────────────────────────────────
 
 /** One row of a simple string grid (headline tables that are not period tables). */
@@ -224,6 +253,28 @@ export function buildFundHeadlineCards(ctx: FundReportCtx): Array<{ label: strin
       sub: w.hurdleShortfall > 0 ? 'hurdle not fully met' : 'hurdle fully settled',
     },
   ];
+}
+
+/**
+ * Why the fund block restates Distributed Equity IRR and MOIC, when the
+ * headline returns already carried them.
+ *
+ * On a ten-page summary the pair appeared three times: the executive summary,
+ * the returns page and here. The first two are the same card set rendered
+ * twice; this one is the only appearance that adds anything, because it splits
+ * the metric either side of the performance fee. Saying so turns a third
+ * restatement into the decomposition it actually is, which matters most when
+ * no fee arises and all three read the same number.
+ *
+ * Empty when the fund layer is off, so a caller renders it unconditionally.
+ */
+export function fundHeadlineRestatementNote(ctx: FundReportCtx): string {
+  if (!isFundActive(ctx.returns)) return '';
+  const fee = ctx.returns.waterfall.totalPerformanceFee;
+  const split = fee > 0
+    ? `The performance fee of ${ctx.fmt.money(fee)} is the whole of the difference between them.`
+    : 'No performance fee arises on this model, so the two are equal here; the split is shown because it is what the fund layer changes.';
+  return `These are the SAME Distributed Equity IRR and MOIC reported in the headline returns, split into the view before the performance fee and the view after it. ${split}`;
 }
 
 /** The terms the waterfall was run on, so its rows can be checked by eye. The

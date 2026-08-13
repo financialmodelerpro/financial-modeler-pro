@@ -31,9 +31,10 @@ import { resolveFundTerms } from '../fundTerms';
 import {
   isFundActive, hasFundFeeIncome, buildFundWaterfallRows, buildFundFeeIncomeRows,
   buildFundGrossNetRows, buildFundEarnerRows, buildFundHeadlineCards, buildFundTermsPairs,
-  fundGrossNetNote,
+  fundGrossNetNote, fundWaterfallTotalsNote, fundHeadlineRestatementNote,
   FUND_GROSS_NET_COLUMNS, FUND_EARNER_COLUMNS, type FundReportCtx, type FundFmt,
 } from '../reports/fundReports';
+import { buildAssetNotes, structuralZeroCell } from '../reports/assetNotes';
 import INTER_REGULAR_B64 from './fonts/interRegular';
 import INTER_BOLD_B64 from './fonts/interBold';
 import {
@@ -44,7 +45,7 @@ import {
 } from '../financials-resolvers';
 import { computeReturnsSnapshot, computeReturnsSensitivity, type ReturnsSnapshot } from '../returns-resolvers';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
-import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsFeederTables, buildBsReconciliationRows, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisText, type M4FeederCtx } from '../reports/m4Reports';
+import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsFeederTables, buildBsReconciliationRows, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisText, totalColumnHeading, totalColumnNote, resolveTotalColumnKind, TOTAL_COLUMN_HEADINGS, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, type M4FeederCtx } from '../reports/m4Reports';
 import { buildOpexReport } from '../reports/opexReports';
 import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup } from '../reports/streamReports';
 import { buildIntegrityChecks, checkDetail } from '../reports/checksReport';
@@ -73,6 +74,10 @@ export type PartKind = 'inputs' | 'outputs' | 'schedules';
 export interface PdfTableRow {
   cells: Array<string | number | null>;
   emphasis?: RowEmphasis;
+  /** True when this row's leading cell is a point-in-time balance rather than
+   *  a lifetime sum. `periodTable` derives the column heading from it, so a
+   *  hand-built table cannot label a closing balance "Total". */
+  totalIsBalance?: boolean;
 }
 
 export interface PdfTable {
@@ -193,6 +198,15 @@ function resolveMetrics(items: readonly PdfItem[], fmt: Fmt, font: PDFFont, bold
   const w = (s: string): number => Math.max(font.widthOfTextAtSize(s, 8), bold.widthOfTextAtSize(s, 8));
   for (const item of items) {
     if (item.type !== 'table' || item.table.kind !== 'period') continue;
+    // The leading column's HEADING is part of its content. It used to be the
+    // literal 'Total' on every period table, so measuring only the cells was
+    // safe; it now reads 'Closing' or 'Total / Closing' depending on the rows,
+    // and an unmeasured caption would be shrunk to fit instead of given room.
+    {
+      const heading = item.table.columns[1] ?? '';
+      const hw = w(heading);
+      if (hw > widestTotal) widestTotal = hw;
+    }
     for (const r of item.table.rows) {
       // cells = [label, Total, prior, ...periods].
       r.cells.forEach((c, k) => {
@@ -538,7 +552,12 @@ function drawPeriodTable(ctx: Ctx, table: PdfTable, fmt: Fmt, isInput = false): 
     const totalRowW = labelW + totalW + chunkCount * periodW;
     const colX = (k: number): number => k === 0 ? MARGIN : k === 1 ? MARGIN + labelW : MARGIN + labelW + totalW + (k - 2) * periodW;
     const colW = (k: number): number => (k === 0 ? labelW : k === 1 ? totalW : periodW);
-    const headerLabels = ['', 'Total', ...periodHeaders.slice(from, to)];
+    // The leading column's caption comes from the TABLE, not a literal: it is
+    // 'Closing' on the balance sheet and 'Total / Closing' on a cash flow
+    // statement. Hardcoding 'Total' here is what kept the balance sheet
+    // labelled as a lifetime sum even after the builders started saying
+    // otherwise.
+    const headerLabels = ['', table.columns[1] ?? TOTAL_COLUMN_HEADINGS.sum, ...periodHeaders.slice(from, to)];
     drawTitle(ctx, ci === 0 ? table.title : `${table.title} (continued)`);
     const drawHeader = (): void => {
       ensureSpace(ctx, HEADER_ROW_H);
@@ -633,13 +652,30 @@ function row(cells: Array<string | number | null>, emphasis?: RowEmphasis): PdfT
 /** Period row: leads with [label, total, prior, ...values]. */
 function periodRow(label: string, values: number[], total: 'sum' | 'last' | 'none', emphasis?: RowEmphasis, prior: number | null = 0): PdfTableRow {
   const t = total === 'sum' ? sum(values) : total === 'last' ? last(values) : null;
-  return { cells: [label, t, prior, ...values], emphasis };
+  // 'last' means the leading cell is the CLOSING figure, which is the whole
+  // reason the heading cannot always read "Total".
+  return { cells: [label, t, prior, ...values], emphasis, ...(total === 'last' ? { totalIsBalance: true } : {}) };
 }
 function strPeriodRow(label: string, strs: string[], total: string | number | null = '', emphasis?: RowEmphasis, prior: string | number | null = ''): PdfTableRow {
   return { cells: [label, total, prior, ...strs], emphasis };
 }
 function periodTable(title: string, priorYear: number, yearLabels: number[], rows: PdfTableRow[]): PdfTable {
-  return { title, kind: 'period', columns: ['', 'Total', String(priorYear), ...yearLabels.map(String)], rows };
+  return { title, kind: 'period', columns: ['', pdfTotalHeading(rows), String(priorYear), ...yearLabels.map(String)], rows };
+}
+/**
+ * Heading for a hand-built period table's leading column.
+ *
+ * The summary PDF's statements are hand-built PdfTableRows rather than shared
+ * M4Rows, so they cannot go through `totalColumnHeading` directly. They go
+ * through the SAME classifier underneath it instead of re-deriving the
+ * three-way rule, which is the difference between one rule and two copies that
+ * happen to agree today.
+ */
+function pdfTotalHeading(rows: readonly PdfTableRow[]): string {
+  return TOTAL_COLUMN_HEADINGS[resolveTotalColumnKind(rows.map((r) => ({
+    occupiesTotalColumn: r.cells[1] !== null && r.cells[1] !== '',
+    isBalance: r.totalIsBalance === true,
+  })))];
 }
 /**
  * Convert the platform's shared statement row model (M4Row[]) into a PDF period
@@ -670,7 +706,11 @@ function m4RowsToPeriodTable(title: string, priorYear: number, yearLabels: numbe
     const padded = values.length < N ? [...values, ...new Array<null>(N - values.length).fill(null)] : values;
     return { cells: [indentLabel(r), total, prior, ...padded], emphasis };
   });
-  return { title, kind: 'period', columns: ['', 'Total', String(priorYear), ...yearLabels.map(String)], rows: pdfRows };
+  // The leading column's heading is DERIVED from the rows: 'Closing' on the
+  // balance sheet, 'Total / Closing' on a cash flow statement that carries
+  // both, 'Total' on the P&L. It used to read 'Total' on all three, so TOTAL
+  // ASSETS printed the closing figure under a heading claiming a lifetime sum.
+  return { title, kind: 'period', columns: ['', totalColumnHeading(rows), String(priorYear), ...yearLabels.map(String)], rows: pdfRows };
 }
 function kvTable(title: string, pairs: Array<[string, string]>): PdfTable {
   return { title, kind: 'grid', columns: ['Field', 'Value'], align: 'kv', rows: pairs.map(([a, b]) => row([a, b])) };
@@ -718,21 +758,39 @@ const tCards = (tab: string, part: PartKind, title: string, cards: PdfCard[]): T
 //
 // On a fund project with a performance fee the distribution cards show NET and
 // name the gross beside them, because net is what the equity actually receives.
-function headlineReturnCards(returns: ReturnsSnapshot, fmt: Fmt): PdfCard[] {
+function headlineReturnCards(returns: ReturnsSnapshot, fmt: Fmt, opts: { omitDistribution?: boolean } = {}): PdfCard[] {
   const r = returns.result;
   const fundOn = isFundActive(returns);
   const net = fundOn ? returns.resultNetDividends : null;
   const hasFee = !!net && (returns.waterfall?.totalPerformanceFee ?? 0) > 0;
   const dist = hasFee && net ? net : r.dividends;
   const basis = hasFee ? 'net of performance fee' : 'on distributions';
+  // The distribution pair is OMITTED on a page that has already printed it a
+  // page or two earlier. In the concise summary the executive summary and the
+  // returns page carried byte-identical card sets, so Distributed Equity IRR
+  // and MOIC appeared three times in ten pages (the third being the fund
+  // layer's gross-vs-net split, which is the only one that adds anything).
+  const distribution: PdfCard[] = opts.omitDistribution ? [] : [
+    { label: 'Distributed Equity IRR', value: fmt.pct(dist.irr, 1), sub: basis },
+    { label: 'Distributed Equity MOIC', value: fmt.mult(dist.moic), sub: hasFee ? `net; gross ${fmt.mult(r.dividends.moic)}` : 'distributions / invested' },
+  ];
   return [
     { label: 'Project IRR', value: fmt.pct(r.fcff.irr, 1), sub: 'unlevered, FCFF' },
     { label: 'Equity IRR', value: fmt.pct(r.fcfe.irr, 1), sub: 'levered, FCFE' },
     { label: 'Equity Multiple (FCFE)', value: fmt.mult(r.fcfe.moic), sub: 'levered cash flow' },
-    { label: 'Distributed Equity IRR', value: fmt.pct(dist.irr, 1), sub: basis },
-    { label: 'Distributed Equity MOIC', value: fmt.mult(dist.moic), sub: hasFee ? `net; gross ${fmt.mult(r.dividends.moic)}` : 'distributions / invested' },
+    ...distribution,
     { label: 'Terminal Equity Value', value: fmt.money(returns.terminalEquityValue), sub: `exit ${returns.exitYearLabel}` },
   ];
+}
+
+/** Where the omitted distribution pair was reported instead. */
+function distributionPointerNote(returns: ReturnsSnapshot, fmt: Fmt): string {
+  const fundOn = isFundActive(returns);
+  const net = fundOn ? returns.resultNetDividends : null;
+  const hasFee = !!net && (returns.waterfall?.totalPerformanceFee ?? 0) > 0;
+  const dist = hasFee && net ? net : returns.result.dividends;
+  const where = fundOn ? 'the Executive Summary, and split gross against net in the Fund Layer section' : 'the Executive Summary';
+  return `Distributed Equity IRR ${fmt.pct(dist.irr, 1)} and MOIC ${fmt.mult(dist.moic)} are reported in ${where}, and are not repeated here.`;
 }
 
 /** The one-line note that names the basis of the distribution cards above. */
@@ -791,6 +849,13 @@ function buildFundBlock(
   const out: FundBlockPiece[] = [];
 
   out.push({ title: 'Fund Returns, Gross vs Net', table: null, cards: buildFundHeadlineCards(ctx).map((c) => ({ label: c.label, value: c.value, sub: c.sub })) });
+  // This block restates the headline Distributed Equity pair, split either side
+  // of the performance fee. Saying so is what stops it reading as a third copy
+  // of the same two numbers, which is exactly how it read when no fee arose.
+  {
+    const restated = fundHeadlineRestatementNote(ctx);
+    if (restated) out.push({ title: 'Fund Returns, Gross vs Net', table: null, cards: null, note: restated });
+  }
   out.push({
     title: 'Fund Terms Applied', cards: null,
     table: kvTable('Fund Terms Applied', buildFundTermsPairs(ctx, resolveFundTerms(state.project).fundManagerName)),
@@ -815,6 +880,13 @@ function buildFundBlock(
     title: 'Distribution Waterfall', cards: null,
     table: m4RowsToPeriodTable(`Distribution Waterfall (hold to ${returns.exitYearLabel})`, streamPrior, streamYears, buildFundWaterfallRows(ctx)),
   });
+  // Which rows in that Total column are lifetime flows and which are balances.
+  // Without it, Hurdle Paid's lifetime total sits under an untotalled Total
+  // Hurdle Owed and reads as more paid than was ever owed.
+  {
+    const totalsNote = fundWaterfallTotalsNote(ctx);
+    if (totalsNote) out.push({ title: 'Distribution Waterfall', table: null, cards: null, note: totalsNote });
+  }
   if (hasFundFeeIncome(returns)) {
     out.push({
       title: 'Fund Fee Income by Earner', cards: null,
@@ -826,14 +898,28 @@ function buildFundBlock(
     });
     const basis = buildFundFeeBasisRows(snap);
     if (basis.length > 0) {
+      // The three capital bases are their OWN table, above the fee rows. They
+      // are quantities of capital, not fees, and sharing a table with the fee
+      // rows left them reading as charges with Timing, Rate and Fee charged all
+      // blank.
+      const capital = buildFundCapitalRows(snap);
+      if (capital.length > 0) {
+        out.push({
+          title: 'Capital Bases', cards: null,
+          table: {
+            title: FUND_CAPITAL_BASES_TITLE, kind: 'grid', align: 'data',
+            columns: ['Capital base', 'Amount', 'How it is resolved'],
+            rows: capital.map((c) => row([c.isTotal ? `= ${c.label}` : c.label, fmt.money(c.amount), c.note], c.isTotal ? 'subtotal' : undefined)),
+          },
+        });
+        out.push({ title: 'Capital Bases', table: null, cards: null, note: FUND_CAPITAL_BASES_NOTE });
+      }
       out.push({
         title: 'Fund Fee Basis', cards: null,
         table: {
           title: 'Fund Fee Basis (what each fee is charged on)', kind: 'grid', align: 'data',
           columns: ['Fee', 'Timing', 'Base', 'Rate', 'Basis charged on', 'Fee charged'],
           rows: [
-          // The three capital bases first: equity + debt = fund size.
-          ...buildFundCapitalRows(snap).map((c) => row([c.isTotal ? `= ${c.label}` : c.label, '', 'capital base', '', fmt.money(c.amount), ''], c.isTotal ? 'subtotal' : undefined)),
           // Basis via the shared text helper: a constant base prints as the
           // CONSTANT plus its period count, never as a lifetime sum (which read
           // 36,858.3m against a 5,466.8m fund).
@@ -943,7 +1029,11 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
   }
   drawCards(ctx, 'Headline KPIs', cards);
 
-  // Asset composition.
+  // Asset composition. A BUA of zero is marked and footnoted when it is
+  // structural (an existing operational asset with no new build, or a companion
+  // whose area sits on its parent), so it does not read as missing data beside
+  // six assets reporting real areas.
+  const notes = buildAssetNotes(state, fmt.money);
   drawGridTable(ctx, {
     title: 'Asset Composition', kind: 'grid', align: 'data',
     columns: ['Phase', 'Asset', 'Strategy', 'BUA (sqm)', 'Sub-units'],
@@ -951,9 +1041,11 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
       const ph = state.phases.find((x) => x.id === a.phaseId);
       const su = state.subUnits.filter((u) => u.assetId === a.id);
       const bua = su.length ? su.reduce((s, u) => s + computeSubUnitArea(u), 0) : (a.buaSqm ?? 0);
-      return row([ph?.name ?? '-', a.name, a.strategy, fmt.area(bua), fmt.int(su.length)]);
+      const z = notes.hasBuaNote(a.id, bua);
+      return row([ph?.name ?? '-', a.name, a.strategy, z ? structuralZeroCell(z) : fmt.area(bua), fmt.int(su.length)]);
     }),
   }, fmt);
+  for (const fn of notes.takeFootnotes()) drawParagraph(ctx, fn.text, 7.5);
 
   // Financial structure as two columns (key/value pairs side by side) so the
   // Executive Summary stays on a single page.
@@ -1003,6 +1095,7 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
   const yl = snap.yearLabels;
   const trName = (id: string): string => state.financingTranches.find((t) => t.id === id)?.name ?? id;
   const items: ModuleContent = [];
+  const assetNotes = buildAssetNotes(state, fmt.money);
 
   // Tab 1: Project Setup.
   items.push(tTable('Tab 1: Project Setup', 'inputs', kvTable('Project Identity', [
@@ -1106,9 +1199,11 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       rows: assets.map((a) => {
         const su = state.subUnits.filter((u) => u.assetId === a.id);
         const bua = su.length ? su.reduce((s, u) => s + computeSubUnitArea(u), 0) : (a.buaSqm ?? 0);
-        return row([a.name, a.strategy, a.type || '-', fmt.area(bua), fmt.area(a.landAllocation?.sqm ?? a.landAreaSqm ?? 0)]);
+        const z = assetNotes.hasBuaNote(a.id, bua);
+        return row([a.name, a.strategy, a.type || '-', z ? structuralZeroCell(z) : fmt.area(bua), fmt.area(a.landAllocation?.sqm ?? a.landAreaSqm ?? 0)]);
       }),
     }));
+    for (const fn of assetNotes.takeFootnotes()) items.push(tItem('Tab 2: Assets & Sub-units', 'inputs', { type: 'paragraph', text: fn.text }));
     for (const a of assets) {
       const su = state.subUnits.filter((u) => u.assetId === a.id);
       if (!su.length) continue;
@@ -1597,12 +1692,22 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
   {
     const basis = buildFundFeeBasisRows(snap);
     if (basis.length > 0) {
+      // Capital bases in their OWN table above the fee rows: they are amounts
+      // of capital, not fees, and sharing the fee table left them with Timing,
+      // Rate and Fee charged blank, reading as broken fee lines.
+      const capital = buildFundCapitalRows(snap);
+      if (capital.length > 0) {
+        items.push(tTable('Tab 3: P&L', 'outputs', {
+          title: FUND_CAPITAL_BASES_TITLE, kind: 'grid', align: 'data',
+          columns: ['Capital base', 'Amount', 'How it is resolved'],
+          rows: capital.map((c) => row([c.isTotal ? `= ${c.label}` : c.label, fmt.money(c.amount), c.note], c.isTotal ? 'subtotal' : undefined)),
+        }));
+        items.push(tItem('Tab 3: P&L', 'outputs', { type: 'paragraph', text: FUND_CAPITAL_BASES_NOTE }));
+      }
       items.push(tTable('Tab 3: P&L', 'outputs', {
         title: 'Fund Fee Basis (what each fee is charged on)', kind: 'grid', align: 'data',
         columns: ['Fee', 'Timing', 'Base', 'Rate', 'Basis charged on', 'Fee charged'],
         rows: [
-          // The three capital bases first: equity + debt = fund size.
-          ...buildFundCapitalRows(snap).map((c) => row([c.isTotal ? `= ${c.label}` : c.label, '', 'capital base', '', fmt.money(c.amount), ''], c.isTotal ? 'subtotal' : undefined)),
           // Basis via the shared text helper: a constant base prints as the
           // CONSTANT plus its period count, never as a lifetime sum (which read
           // 36,858.3m against a 5,466.8m fund).
@@ -1643,6 +1748,7 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
   const syl = returns.streamYearLabels;
   const yl = returns.yearLabels;
   const items: ModuleContent = [];
+  const assetNotes = buildAssetNotes(state, fmt.money);
 
   // TAB NUMBERS ARE DERIVED, not written down. Case Comparison only exists when
   // there are at least two cases, and with the numbers hardcoded every project
@@ -1831,11 +1937,26 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
     }
   }
   if (returns.perAsset?.rows.length) {
+    // A zero cost with a 100% margin is not an error on an existing operational
+    // asset (its cost was spent before the model starts) or on a companion (the
+    // cost sits on the parent). Same markers and footnotes as the composition
+    // table, so a reader who met "[a]" on page 2 does not have to relearn it.
     items.push(tTable(m5Tab('RE Metrics'), 'outputs', {
       title: 'Per-Asset Economics', kind: 'grid', align: 'data',
       columns: ['Asset', 'Strategy', 'Revenue', 'Cost', 'Profit', 'Margin', 'Yield on Cost'],
-      rows: returns.perAsset.rows.map((a) => row([a.assetName, a.strategy, fmt.money(a.totalRevenue), fmt.money(a.totalCost), fmt.money(a.profit), fmt.pct(a.profitMargin, 1), a.isIncomeAsset ? fmt.pct(a.yieldOnCost, 1) : 'n/a'])),
+      rows: returns.perAsset.rows.map((a) => {
+        const z = assetNotes.hasCostNote(a.assetId, a.totalCost);
+        const nil = z ? structuralZeroCell(z) : null;
+        return row([
+          a.assetName, a.strategy, fmt.money(a.totalRevenue),
+          nil ?? fmt.money(a.totalCost),
+          fmt.money(a.profit),
+          nil ?? fmt.pct(a.profitMargin, 1),
+          nil ?? (a.isIncomeAsset ? fmt.pct(a.yieldOnCost, 1) : 'n/a'),
+        ]);
+      }),
     }));
+    for (const fn of assetNotes.takeFootnotes()) items.push(tItem(m5Tab('RE Metrics'), 'outputs', { type: 'paragraph', text: fn.text }));
   }
 
   // SENSITIVITY. On the M5 Returns tab and in NEITHER export. Gated, because
@@ -2626,7 +2747,11 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
     const re = r.realEstate;
     const de = returns.developmentEconomics;
     const exa = returns.exitAnalysis;
-    drawCards(ctx, 'Headline Returns', headlineReturnCards(returns, fmt));
+    // The executive summary two pages back already carried the full card set.
+    // Repeating it verbatim is what put Distributed Equity IRR and MOIC on
+    // three of ten pages, so this page states where they are instead.
+    drawCards(ctx, 'Headline Returns', headlineReturnCards(returns, fmt, { omitDistribution: true }));
+    drawParagraph(ctx, distributionPointerNote(returns, fmt), 8);
     {
       const note = headlineBasisNote(returns, fmt);
       if (note) drawParagraph(ctx, note, 8);
