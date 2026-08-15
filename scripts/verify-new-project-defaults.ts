@@ -86,6 +86,7 @@ const SRC_ASSETS   = read(`${REFM}/components/modules/Module1Assets.tsx`);
 const SRC_SHELL    = read(`${REFM}/components/RealEstatePlatform.tsx`);
 const SRC_SYNC     = read(`${REFM}/lib/persistence/module1-sync.ts`);
 const SRC_CALC     = read('src/core/calculations/index.ts');
+const SRC_WIZARD_UI = read(`${REFM}/components/modals/ProjectWizard.tsx`);
 
 const LOCKED_IDS = ['land-cash', 'land-inkind'];
 const baseId = (id: string): string => id.split('__')[0];
@@ -460,6 +461,17 @@ check('D10 handleAddSubUnit no longer seeds occupancy or margin',
 check('D11 the strategy-derived STRUCTURE is still chosen for the user',
   /category = asset\.strategy === 'Lease' \? 'Leasable'/.test(SRC_ASSETS)
   && /metric: asset\.strategy === 'Lease' \? 'area' : 'units',/.test(SRC_ASSETS));
+
+// D12: the empty land row must not become a WALL. The wizard's step 2 gate read
+// `p.area > 0 && p.rate > 0`, which was harmless while the row arrived
+// pre-filled and would have blocked Next the moment it did not. The wizard
+// already ships no assets and no sub-units and defers them to Tab 2; land is a
+// row to fill in on the same terms.
+check('D12 the wizard does not require land to proceed',
+  /p\.area >= 0 && p\.rate >= 0/.test(SRC_WIZARD_UI)
+  && !/p\.area > 0 && p\.rate > 0/.test(SRC_WIZARD_UI));
+check('D13 ...but the cash / in-kind split must still sum to 100',
+  /Math\.abs\(p\.cashPct \+ p\.inKindPct - 100\) < 0\.1/.test(SRC_WIZARD_UI));
 
 // ════════════════════════════════════════════════════════════════════════════
 // E. A share basis with a zero denominator must not DROP the cost

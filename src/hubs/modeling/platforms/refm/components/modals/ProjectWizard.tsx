@@ -101,8 +101,18 @@ export default function ProjectWizard({
       p.operationsPeriods >= (p.constructionPeriods === 0 ? 1 : 0) &&
       p.startDate.length === 10,
     ) &&
+    // 2026-08-15: land area and rate may be ZERO here. The wizard now opens
+    // with an EMPTY land row instead of a pre-filled 100,000 sqm at 500/sqm, and
+    // the old `> 0` gate would have turned that into a required-entry wall on
+    // step 2, which is a constraint nobody asked for. It also would have been
+    // inconsistent: the wizard already ships `assets: []` and `subUnits: []` and
+    // defers them to Tab 2, so land is a row to fill in on the same terms.
+    // A zero-land project computes cleanly (see the equalPhaseShare fallback in
+    // src/core/calculations, which stops a land-allocated cost being dropped
+    // when the phase has no land). The split must still sum to 100, because
+    // that routes value rather than creating it.
     draft.parcels.every(
-      (p) => p.area > 0 && p.rate > 0 && Math.abs(p.cashPct + p.inKindPct - 100) < 0.1,
+      (p) => p.area >= 0 && p.rate >= 0 && Math.abs(p.cashPct + p.inKindPct - 100) < 0.1,
     );
   // M2.0e: Step 3 simplified to a single project-type pick. PROJECT_TYPES
   // closed enum guarantees draft.projectType is always one of the valid
