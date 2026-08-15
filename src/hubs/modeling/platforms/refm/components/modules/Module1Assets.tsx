@@ -48,7 +48,6 @@ import {
   ASSET_TYPES_BY_PROJECT_TYPE,
   ASSET_TYPES_BY_STRATEGY,
   SUGGESTED_CATEGORIES_BY_PROJECT_TYPE,
-  DEFAULT_OPERATIONS_BY_STRATEGY,
   SUB_UNIT_CATEGORIES,
   LAND_ALLOCATION_MODES,
   PARCEL_WEIGHTED_AVG,
@@ -337,12 +336,16 @@ export default function Module1Assets(): React.JSX.Element {
 
   const handleAddParcel = (): void => {
     if (!phases[0]) return;
+    // 2026-08-15: a new parcel is an EMPTY row to fill in. It used to arrive as
+    // 50,000 sqm at 500/sqm, which is 25m of land cost the user never entered.
+    // The cash / in-kind split routes value rather than creating it, so it
+    // stays as it was and moves nothing at a zero rate.
     addParcel({
       id: `parcel_${Date.now()}`,
       phaseId: phases[0].id,
       name: `Land ${parcels.length + 1}`,
-      area: 50000,
-      rate: 500,
+      area: 0,
+      rate: 0,
       cashPct: 60,
       inKindPct: 40,
     });
@@ -1105,8 +1108,15 @@ function AssetCard({
     setAllocation({ multiParcelSplits: list });
   };
 
+  // 2026-08-15: a new sub-unit arrives EMPTY. It used to carry 50 units of
+  // 100 sqm at 1,000,000 each, which is 5,000 sqm of BUA and 50m of revenue the
+  // user never entered, plus a 65% occupancy and a 35% margin on the operating
+  // strategies. Every one of those feeds the model directly, so all of them are
+  // zero and only the STRUCTURE (category and metric, both derived from the
+  // asset's strategy) is still chosen for the user. Unlike the capex catalog
+  // these fields sit on the row the user is already filling in, so a zero here
+  // is in front of them rather than buried on another tab.
   const handleAddSubUnit = (): void => {
-    const ops = DEFAULT_OPERATIONS_BY_STRATEGY[asset.strategy];
     const category = asset.strategy === 'Lease' ? 'Leasable' : asset.strategy === 'Operate' ? 'Operable' : 'Sellable';
     addSubUnit({
       id: `subunit_${Date.now()}`,
@@ -1114,11 +1124,11 @@ function AssetCard({
       name: 'Sub-unit',
       category,
       metric: asset.strategy === 'Lease' ? 'area' : 'units',
-      metricValue: asset.strategy === 'Lease' ? 1000 : 50,
-      unitArea: asset.strategy === 'Lease' ? undefined : 100,
-      unitPrice: asset.strategy === 'Sell' ? 1000000 : asset.strategy === 'Operate' ? 800 : 1200,
-      occupancyPct: ops.occupancyPct,
-      operatingMargin: ops.operatingMargin,
+      metricValue: 0,
+      unitArea: asset.strategy === 'Lease' ? undefined : 0,
+      unitPrice: 0,
+      occupancyPct: asset.strategy === 'Sell' ? undefined : 0,
+      operatingMargin: asset.strategy === 'Sell' ? undefined : 0,
     });
   };
 

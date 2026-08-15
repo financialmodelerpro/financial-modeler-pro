@@ -36,6 +36,7 @@ import path from 'node:path';
 import {
   makeDefaultCostLines,
   makeBlankCostLines,
+  makeDefaultParcel,
   makeDefaultPhase,
   type Asset,
   type CostLine,
@@ -56,6 +57,8 @@ import {
   type StrategySwitchState,
 } from '../src/hubs/modeling/platforms/refm/lib/state/strategySwitch';
 import { resolveVersionDisplayName } from '../src/hubs/modeling/platforms/refm/lib/persistence/versionNaming';
+import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import { resolveAllocationFactor, resolveDriverFactor } from '../src/core/calculations';
 
 // ── Harness ─────────────────────────────────────────────────────────────────
 let passed = 0;
@@ -82,6 +85,7 @@ const SRC_WIZARD   = read(`${REFM}/lib/wizard/buildWizardSnapshot.ts`);
 const SRC_ASSETS   = read(`${REFM}/components/modules/Module1Assets.tsx`);
 const SRC_SHELL    = read(`${REFM}/components/RealEstatePlatform.tsx`);
 const SRC_SYNC     = read(`${REFM}/lib/persistence/module1-sync.ts`);
+const SRC_CALC     = read('src/core/calculations/index.ts');
 
 const LOCKED_IDS = ['land-cash', 'land-inkind'];
 const baseId = (id: string): string => id.split('__')[0];
@@ -413,6 +417,126 @@ async function versionIdentityEndToEnd(): Promise<void> {
     globalThis.fetch = originalFetch;
   }
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// D. The rest of the create path pre-fills nothing either
+// ════════════════════════════════════════════════════════════════════════════
+section('D. Create-path pre-fills');
+
+// D1..D4: the wizard's own land row. Clicking through the wizard untouched used
+// to put 100,000 sqm at 500/sqm, so 50m of land cost, into the model.
+const draft = makeDefaultWizardDraft();
+check('D1 the wizard opens with exactly one land row', draft.parcels.length === 1);
+check('D2 the wizard land row has no area', draft.parcels[0].area === 0, String(draft.parcels[0].area));
+check('D3 the wizard land row has no rate', draft.parcels[0].rate === 0, String(draft.parcels[0].rate));
+// The split ROUTES value rather than creating it, and zeroing both halves would
+// make land cost vanish once a rate was typed. Pinned so the intent is explicit
+// rather than an oversight.
+check('D4 the cash / in-kind split still sums to 100',
+  draft.parcels[0].cashPct + draft.parcels[0].inKindPct === 100,
+  `${draft.parcels[0].cashPct}/${draft.parcels[0].inKindPct}`);
+
+const wizParcels = wizardSnap.parcels;
+check('D5 the built snapshot carries no land value',
+  wizParcels.every((p) => p.area === 0 && p.rate === 0),
+  wizParcels.map((p) => `${p.area}x${p.rate}`).join(', '));
+check('D6 makeDefaultParcel (store default + migrator fallback) is empty too',
+  makeDefaultParcel().area === 0 && makeDefaultParcel().rate === 0);
+check('D7 the store default state carries no land value',
+  DEFAULT_MODULE1_STATE.parcels.every((p) => p.area === 0 && p.rate === 0));
+
+// D8..D11: source level for the two UI factories, which are inside a component
+// that cannot be rendered under tsx (CSS module import), so they are asserted
+// at source in the same way the strategy dropdown is.
+check('D8 handleAddParcel adds an empty land row',
+  /addParcel\(\{[\s\S]{0,220}area: 0,\s*\n\s*rate: 0,/.test(SRC_ASSETS));
+check('D9 handleAddSubUnit adds no count, area or price',
+  /metricValue: 0,/.test(SRC_ASSETS)
+  && /unitArea: asset\.strategy === 'Lease' \? undefined : 0,/.test(SRC_ASSETS)
+  && /unitPrice: 0,/.test(SRC_ASSETS));
+check('D10 handleAddSubUnit no longer seeds occupancy or margin',
+  !/occupancyPct: ops\.occupancyPct/.test(SRC_ASSETS)
+  && !/operatingMargin: ops\.operatingMargin/.test(SRC_ASSETS));
+check('D11 the strategy-derived STRUCTURE is still chosen for the user',
+  /category = asset\.strategy === 'Lease' \? 'Leasable'/.test(SRC_ASSETS)
+  && /metric: asset\.strategy === 'Lease' \? 'area' : 'units',/.test(SRC_ASSETS));
+
+// ════════════════════════════════════════════════════════════════════════════
+// E. A share basis with a zero denominator must not DROP the cost
+// ════════════════════════════════════════════════════════════════════════════
+section('E. Degenerate allocation basis');
+
+// This is the guard that had to exist before the land pre-fill could go: with
+// no land in the phase, every asset's land_share was 0, the shares summed to 0
+// instead of 1, and a project-level lump sum was allocated to nobody. Measured
+// before the fix: a fixed 1,000,000 line moved total capex by 0.
+function capexWith(area: number, basis: string, includeLine: boolean): number {
+  const snap = buildWizardSnapshot(makeDefaultWizardDraft()) as unknown as Record<string, unknown>;
+  const phaseId = (snap.phases as Array<{ id: string }>)[0].id;
+  const parcels = (snap.parcels as Array<Record<string, unknown>>).map((p) => ({ ...p, area, rate: 500 }));
+  const asset = {
+    id: 'a1', phaseId, name: 'Tower', type: '', strategy: 'Sell', visible: true,
+    gfaSqm: 0, buaSqm: 0, sellableBuaSqm: 0, parkingBaysRequired: 0, status: 'planned',
+  };
+  const su = {
+    id: 'su1', assetId: 'a1', name: 'Apartments', category: 'Sellable',
+    metric: 'units', metricValue: 40, unitArea: 100, unitPrice: 900_000,
+  };
+  const costLines = [...(snap.costLines as Array<Record<string, unknown>>)];
+  if (includeLine) {
+    costLines.push({
+      id: `probe__${phaseId}`, phaseId, name: 'Probe fixed cost',
+      method: 'fixed', value: PROBE_AMOUNT, stage: 'soft', scope: 'indirect',
+      allocationBasis: basis, startPeriod: 1, endPeriod: 1, phasing: 'even',
+    });
+  }
+  const state = { ...snap, parcels, assets: [asset], subUnits: [su], costLines };
+  const fin = computeFinancialsSnapshot(state as never) as unknown as Record<string, unknown>;
+  const dcf = fin.directCF as Record<string, unknown>;
+  return ((dcf.capexPerPeriod as number[]) ?? []).reduce((s, v) => s + (v ?? 0), 0);
+}
+const PROBE_AMOUNT = 1_000_000;
+const landed = (area: number, basis: string): number =>
+  Math.abs(capexWith(area, basis, true) - capexWith(area, basis, false));
+
+for (const basis of ['land_share', 'bua_share', 'per_asset']) {
+  const d = landed(0, basis);
+  check(`E1 ${basis}: a fixed cost still lands with a ZERO denominator`,
+    Math.abs(d - PROBE_AMOUNT) < 1, `moved ${d}`);
+}
+for (const basis of ['land_share', 'bua_share', 'per_asset']) {
+  const d = landed(100_000, basis);
+  check(`E2 ${basis}: unchanged at a real denominator`,
+    Math.abs(d - PROBE_AMOUNT) < 1, `moved ${d}`);
+}
+// The fallback must be a SPLIT, not a duplication: shares still sum to 1.
+{
+  const phaseAssets = [
+    { id: 'a1', visible: true } as never,
+    { id: 'a2', visible: true } as never,
+    { id: 'c1', visible: true, isCompanion: true } as never,
+  ];
+  const share = (id: string): number => resolveAllocationFactor(
+    'land_share', { id, visible: true } as never, phaseAssets, [], [], 'autoByBua');
+  const total = share('a1') + share('a2') + share('c1');
+  check('E3 the fallback splits, it does not duplicate', Math.abs(total - 1) < 1e-9, `sum=${total}`);
+  check('E4 a companion takes no area-based share', share('c1') === 0);
+  check('E5 the two real assets split it evenly',
+    Math.abs(share('a1') - 0.5) < 1e-9 && Math.abs(share('a2') - 0.5) < 1e-9);
+}
+check('E6 no eligible asset means no allocation (nothing to allocate to)',
+  resolveAllocationFactor('land_share', { id: 'x', visible: true } as never, [], [], [], 'autoByBua') === 0);
+check('E7 the driver path got the same fallback, not just the basis path',
+  resolveDriverFactor('land_share', { id: 'a1', visible: true } as never,
+    [{ id: 'a1', visible: true } as never], [], [], 'autoByBua') === 1);
+// Six call sites: bua / gfa / land on the basis path, and bua / land /
+// value_share on the driver path. One definition, so a future basis cannot get
+// a subtly different fallback.
+check('E8 the fallback is ONE shared helper covering every share path',
+  (SRC_CALC.match(/equalPhaseShare\(asset, phaseAssets\)/g) ?? []).length === 6
+  && (SRC_CALC.match(/function equalPhaseShare/g) ?? []).length === 1);
+check('E9 no share path still returns a bare 0 on a zero denominator',
+  !/total(Bua|Gfa|Land) > 0 \? my(Bua|Gfa|Land) \/ total(Bua|Gfa|Land) : 0;/.test(SRC_CALC));
 
 // ── Run ─────────────────────────────────────────────────────────────────────
 async function main(): Promise<void> {

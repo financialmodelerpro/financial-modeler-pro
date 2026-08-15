@@ -2696,12 +2696,18 @@ export function makeDefaultPhase(
   };
 }
 
+// 2026-08-15: area and rate default to ZERO. Area x rate is what puts land
+// value into the model, and this factory backs the store's default state and
+// the migrator's "no parcels" fallback, neither of which the user typed. The
+// cash / in-kind split keeps its 60/40: it routes value rather than creating
+// it, so at a zero rate it moves nothing, and zeroing both halves would make
+// land cost vanish once a rate WAS typed.
 export function makeDefaultParcel(
   id: string = DEFAULT_PARCEL_ID,
   phaseId: string = DEFAULT_PHASE_ID,
   name: string = 'Land 1',
-  area = 100000,
-  rate = 500,
+  area = 0,
+  rate = 0,
 ): Parcel {
   return {
     id,

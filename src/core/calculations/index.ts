@@ -1030,6 +1030,41 @@ export function distributeItemCost(
 }
 
 // ── Allocation helpers ─────────────────────────────────────────────────────
+/**
+ * Equal split across a phase's real assets, used when a share basis has a
+ * DEGENERATE DENOMINATOR (2026-08-15).
+ *
+ * WHY THIS EXISTS. Every share basis was written as
+ * `return total > 0 ? mine / total : 0`, which returns 0 for EVERY asset when
+ * the total is zero. The shares then sum to 0 instead of 1, and a project-level
+ * lump sum allocated on that basis is not allocated to anybody: it is silently
+ * dropped from the model. Measured before the fix, with one asset and a phase
+ * carrying no land: a `fixed` cost line of 1,000,000 on `land_share` moved
+ * total capex by 0.000m, while the same line on `bua_share` or `per_asset`
+ * moved it by the full 1,000,000. Money the user typed left the model with no
+ * warning anywhere.
+ *
+ * This is reachable on any phase whose basis quantity is genuinely zero (no
+ * parcels yet, an operational asset with no new build, areas not entered yet),
+ * and it became the ordinary case once a new project stopped pre-filling a land
+ * parcel.
+ *
+ * The equal split is not a new convention: `computeAssetLandSqm` already falls
+ * back to `phaseLandSqm / phaseAssets.length` when total BUA is zero, and the
+ * `category` basis is already `1 / sameCat.length`. Companions are excluded
+ * because they carry no land, BUA or GFA by construction, so an area-based cost
+ * is not theirs to take; the eligible assets then split the whole cost and the
+ * factors still sum to exactly 1.
+ *
+ * Returns 0 when there is nobody to allocate to, which is the one case where
+ * dropping the cost is the only option.
+ */
+function equalPhaseShare(asset: Asset, phaseAssets: Asset[]): number {
+  const eligible = phaseAssets.filter((a) => a.isCompanion !== true && a.visible);
+  if (eligible.length === 0) return 0;
+  return eligible.some((a) => a.id === asset.id) ? 1 / eligible.length : 0;
+}
+
 // Resolve an asset's share factor (0..1) for a project-level cost line
 // based on its allocationBasis.
 export function resolveAllocationFactor(
@@ -1048,15 +1083,18 @@ export function resolveAllocationFactor(
     if (sameCat.length === 0) return 0;
     return 1 / sameCat.length;
   }
+  // Each share basis falls back to an equal split rather than 0 when its
+  // denominator is degenerate, so a lump sum is never dropped. See
+  // equalPhaseShare.
   if (basis === 'bua_share') {
     const myBua = computeAssetBua(asset, subUnits);
     const totalBua = phaseAssets.reduce((s, a) => s + computeAssetBua(a, subUnits), 0);
-    return totalBua > 0 ? myBua / totalBua : 0;
+    return totalBua > 0 ? myBua / totalBua : equalPhaseShare(asset, phaseAssets);
   }
   if (basis === 'gfa_share') {
     const myGfa = asset.gfaSqm;
     const totalGfa = phaseAssets.reduce((s, a) => s + a.gfaSqm, 0);
-    return totalGfa > 0 ? myGfa / totalGfa : 0;
+    return totalGfa > 0 ? myGfa / totalGfa : equalPhaseShare(asset, phaseAssets);
   }
   if (basis === 'land_share') {
     const myLand = computeAssetLandSqm(asset, parcels, phaseAssets, subUnits, mode);
@@ -1064,7 +1102,7 @@ export function resolveAllocationFactor(
       (s, a) => s + computeAssetLandSqm(a, parcels, phaseAssets, subUnits, mode),
       0,
     );
-    return totalLand > 0 ? myLand / totalLand : 0;
+    return totalLand > 0 ? myLand / totalLand : equalPhaseShare(asset, phaseAssets);
   }
   return 0;
 }
@@ -1591,10 +1629,13 @@ export function resolveDriverFactor(
   subUnits: SubUnit[],
   mode: LandAllocationMode,
 ): number {
+  // Same degenerate-denominator fallback as resolveAllocationFactor: an
+  // Allocated line's pool must reach the assets even when its driver quantity
+  // is zero, or the pool is silently dropped. See equalPhaseShare.
   if (driver === 'bua_share') {
     const myBua = computeAssetBua(asset, subUnits);
     const totalBua = phaseAssets.reduce((s, a) => s + computeAssetBua(a, subUnits), 0);
-    return totalBua > 0 ? myBua / totalBua : 0;
+    return totalBua > 0 ? myBua / totalBua : equalPhaseShare(asset, phaseAssets);
   }
   if (driver === 'land_share') {
     const myLand = computeAssetLandSqm(asset, parcels, phaseAssets, subUnits, mode);
@@ -1602,14 +1643,14 @@ export function resolveDriverFactor(
       (s, a) => s + computeAssetLandSqm(a, parcels, phaseAssets, subUnits, mode),
       0,
     );
-    return totalLand > 0 ? myLand / totalLand : 0;
+    return totalLand > 0 ? myLand / totalLand : equalPhaseShare(asset, phaseAssets);
   }
   // value_share: deferred to bua_share until M2.1 Revenue lands so the
   // asset's projected value is computable without a circular dependency
   // on costs.
   const myBua = computeAssetBua(asset, subUnits);
   const totalBua = phaseAssets.reduce((s, a) => s + computeAssetBua(a, subUnits), 0);
-  return totalBua > 0 ? myBua / totalBua : 0;
+  return totalBua > 0 ? myBua / totalBua : equalPhaseShare(asset, phaseAssets);
 }
 
 // ── M2.0d: Useful life resolution ─────────────────────────────────────────

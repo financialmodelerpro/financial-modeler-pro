@@ -142,13 +142,18 @@ export function buildWizardSnapshot(draft: WizardDraft): HydrateSnapshot {
     cashPct: Math.max(0, Math.min(100, wp.cashPct)),
     inKindPct: Math.max(0, Math.min(100, wp.inKindPct)),
   }));
+  // 2026-08-15: the fallback parcel carries NO area and NO rate. It exists so
+  // the project has a land row to fill in, not so it has land. Area x rate is
+  // what creates value, so both are zero and nothing enters the model until the
+  // user types it. The cash / in-kind split is left alone: it routes value
+  // rather than creating it, and with a zero rate it moves nothing.
   if (parcels.length === 0) {
     parcels.push({
       id: 'parcel_1',
       phaseId: firstPhaseId,
       name: 'Land 1',
-      area: 100000,
-      rate: 500,
+      area: 0,
+      rate: 0,
       cashPct: 60,
       inKindPct: 40,
     });
@@ -203,8 +208,11 @@ export function makeDefaultWizardDraft(): WizardDraft {
     phases: [
       { name: 'Phase 1', startDate: today, constructionPeriods: 3, operationsPeriods: 5, overlapPeriods: 0 },
     ],
+    // 2026-08-15: the wizard opens with an EMPTY land row, not a 100,000 sqm
+    // parcel at 500/sqm. Clicking through the wizard untouched used to put
+    // 50m of land cost into the model that the user never entered.
     parcels: [
-      { name: 'Land 1', area: 100000, rate: 500, cashPct: 60, inKindPct: 40 },
+      { name: 'Land 1', area: 0, rate: 0, cashPct: 60, inKindPct: 40 },
     ],
     landAllocationMode: 'autoByBua',
     // M2.0e: project type defaults to Mixed-Use so Tab 2's catalog
