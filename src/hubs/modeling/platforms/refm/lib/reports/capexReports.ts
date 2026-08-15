@@ -11,7 +11,7 @@
  *
  * Pure: reads the financials snapshot + project state only; no engine mutation.
  */
-import { computeAssetCost, resolveAssetAreaMetrics, type AssetAreaMetrics } from '@/src/core/calculations';
+import { computeAssetCost, deriveCostStage, resolveAssetAreaMetrics, type AssetAreaMetrics } from '@/src/core/calculations';
 import type { ProjectFinancialsSnapshot, FinancialsResolverState } from '../financials-resolvers';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 
@@ -58,7 +58,72 @@ export interface CapexInputLine {
    *  sheet that a single Rate cell would otherwise collapse to one number. */
   perSubUnitRates?: Record<string, number>;
 }
-export interface CapexInputAsset { assetId: string; assetName: string; phaseName: string; lines: CapexInputLine[]; total: number }
+/**
+ * Hard / soft / land subtotals for one asset (2026-08-15).
+ *
+ * The classification was never missing from the DATA: `CostStage`,
+ * `deriveCostStage` and the engine's `byStage` have carried it throughout, and
+ * the per-line stage already reached the PDF capex table and the Excel Inputs
+ * tab as a column. What was missing was any AGGREGATION in the shared report
+ * layer: `lib/reports/` contained no reference to hard or soft anywhere, so no
+ * export could show a subtotal. A development cost summary that cannot separate
+ * hard from soft is not usable for a lender or an investment committee, which
+ * is the whole point of the split.
+ *
+ * Stage comes from `deriveCostStage`, the same resolver the screen tiles and
+ * the engine use, so a standard line's stage cannot read one way here and
+ * another way there.
+ */
+export interface CapexStageSubtotals {
+  land: number;
+  hard: number;
+  soft: number;
+  operating: number;
+  /** Hard + soft + operating. The figure a lender means by "development cost". */
+  exclLand: number;
+  /** Everything, land included. */
+  total: number;
+}
+
+export interface CapexInputAsset {
+  assetId: string;
+  assetName: string;
+  phaseName: string;
+  lines: CapexInputLine[];
+  total: number;
+  /** Per-asset hard / soft split. */
+  subtotals: CapexStageSubtotals;
+}
+
+/** Sum a set of report lines into stage subtotals. Exported so the workbook and
+ *  both PDFs aggregate identically rather than each rolling their own loop. */
+export function sumCapexStages(lines: Array<{ stage: string; amount: number }>): CapexStageSubtotals {
+  const out: CapexStageSubtotals = { land: 0, hard: 0, soft: 0, operating: 0, exclLand: 0, total: 0 };
+  for (const l of lines) {
+    const amt = l.amount ?? 0;
+    if (l.stage === 'land') out.land += amt;
+    else if (l.stage === 'hard') out.hard += amt;
+    else if (l.stage === 'soft') out.soft += amt;
+    else if (l.stage === 'operating') out.operating += amt;
+    out.total += amt;
+  }
+  out.exclLand = out.hard + out.soft + out.operating;
+  return out;
+}
+
+/** Roll per-asset subtotals up to the project. */
+export function totalCapexStages(assets: Array<{ subtotals: CapexStageSubtotals }>): CapexStageSubtotals {
+  const out: CapexStageSubtotals = { land: 0, hard: 0, soft: 0, operating: 0, exclLand: 0, total: 0 };
+  for (const a of assets) {
+    out.land += a.subtotals.land;
+    out.hard += a.subtotals.hard;
+    out.soft += a.subtotals.soft;
+    out.operating += a.subtotals.operating;
+    out.total += a.subtotals.total;
+  }
+  out.exclLand = out.hard + out.soft + out.operating;
+  return out;
+}
 export interface CapexResultTable { title: string; rows: M4Row[] }
 export interface CapexReport { inputAssets: CapexInputAsset[]; results: CapexResultTable[] }
 
@@ -180,7 +245,11 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
         method: String(cl.method ?? ''),
         selectedLineIds: cl.selectedLineIds ?? [],
         name: cl.name,
-        stage: String(cl.stage ?? '-'),
+        // deriveCostStage, not the stored field: a standard line's stage is
+        // id-derived, and reading the raw field here would let the report
+        // disagree with the screen tiles and the engine for any line whose
+        // stored stage was never updated.
+        stage: String(deriveCostStage(cl) ?? cl.stage ?? '-'),
         basis: basisLabel(cl.method),
         rate: cl.value,
         isFixed: cl.method === 'fixed',
@@ -196,7 +265,13 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
         perSubUnitRates: cl.method === 'per_sub_unit_custom_rates' ? (ov?.perSubUnitRates ?? cl.perSubUnitRates) : undefined,
       });
     }
-    if (lines.length) inputAssets.push({ assetId: a.id, assetName: a.name, phaseName: phase.name, lines, total: breakdown.total });
+    if (lines.length) {
+      inputAssets.push({
+        assetId: a.id, assetName: a.name, phaseName: phase.name, lines,
+        total: breakdown.total,
+        subtotals: sumCapexStages(lines),
+      });
+    }
 
     // Results: project each per-period variant onto the axis.
     const inclAll = projectOntoAxis(breakdown.perPeriod ?? [], offset, N);

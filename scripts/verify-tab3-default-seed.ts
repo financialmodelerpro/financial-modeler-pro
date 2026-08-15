@@ -31,9 +31,16 @@ import {
   type Phase,
   makeDefaultPhase,
   makeDefaultProject,
+  STANDARD_COST_LINE_IDS,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
 
+// 2026-08-15: the catalog size is DERIVED, not hardcoded. It was written as a
+// literal 10 (and 30 for three phases), so adding `rett` and `marketing` broke
+// six checks that were not testing anything about the new lines. The size of
+// the catalog is not the invariant; "the seed emits exactly the registered
+// catalog" is, and that survives the next addition.
+const CATALOG = STANDARD_COST_LINE_IDS.length;
 const REPO_ROOT = resolve(__dirname, '..');
 let passed = 0;
 let failed = 0;
@@ -77,8 +84,8 @@ console.log('\n[2/7] Empty single-phase snapshot seeds 10 default lines');
   const out = hydrationFromAnySnapshot(loose);
   const lines = out.costLines as CostLine[];
   const phaseLines = lines.filter((c) => c.phaseId === 'phase-1');
-  if (phaseLines.length === 10) pass(`phase-1 seeded with 10 default lines`);
-  else fail('default line count', `expected 10, got ${phaseLines.length}`);
+  if (phaseLines.length === CATALOG) pass(`phase-1 seeded with the full catalog (${CATALOG} lines)`);
+  else fail('default line count', `expected ${CATALOG}, got ${phaseLines.length}`);
 
   // Spot-check each expected base id.
   const expectedBaseIds = [
@@ -105,11 +112,11 @@ console.log('\n[3/7] Empty multi-phase snapshot seeds per phase');
   const lines = out.costLines as CostLine[];
   for (const phaseId of ['phase-1', 'phase-2', 'phase-3']) {
     const slice = lines.filter((c) => c.phaseId === phaseId);
-    if (slice.length === 10) pass(`${phaseId}: 10 lines seeded`);
-    else fail(`${phaseId} count`, `expected 10, got ${slice.length}`);
+    if (slice.length === CATALOG) pass(`${phaseId}: ${CATALOG} lines seeded`);
+    else fail(`${phaseId} count`, `expected ${CATALOG}, got ${slice.length}`);
   }
-  if (lines.length === 30) pass(`total = 30 lines across 3 phases`);
-  else fail('total count', `expected 30, got ${lines.length}`);
+  if (lines.length === CATALOG * 3) pass(`total = ${CATALOG * 3} lines across 3 phases`);
+  else fail('total count', `expected ${CATALOG * 3}, got ${lines.length}`);
 
   // All ids must be unique.
   const idSet = new Set(lines.map((c) => c.id));
@@ -152,8 +159,8 @@ console.log('\n[4/7] Phase A has lines + asset, Phase B empty + asset: A preserv
     pass(`phase-1 preserved (1 user line stayed; no default seed)`);
   } else fail('phase-1 preserved', `expected 1, got ${phase1Lines.length}`);
   // Phase 2 has 0 lines going in. T3 seed kicks in. Result: 10.
-  if (phase2Lines.length === 10) pass('phase-2 seeded with 10 default lines');
-  else fail('phase-2 seed', `expected 10, got ${phase2Lines.length}`);
+  if (phase2Lines.length === CATALOG) pass(`phase-2 seeded with the full catalog (${CATALOG} lines)`);
+  else fail('phase-2 seed', `expected ${CATALOG}, got ${phase2Lines.length}`);
 }
 
 // ── Section 5: idempotency ───────────────────────────────────────────────

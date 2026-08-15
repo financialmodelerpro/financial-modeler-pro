@@ -1260,8 +1260,28 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     items.push(tTable('Tab 3: Capex', 'inputs', {
       title: `Cost Lines, ${ia.assetName} (${ia.phaseName})`, kind: 'grid', align: 'data',
       columns: ['Cost line', 'Stage', 'Basis (multiplier)', `Rate / Value ${rateUnit(p.currency ?? 'SAR')}`, 'Quantity / Basis', 'Amount'],
+      // 2026-08-15: the hard / soft split, stated rather than left for the
+      // reader to add up from the Stage column. A development cost summary that
+      // cannot separate hard from soft is not usable for a lender or an IC, and
+      // the split reached no export before this. Rows are emitted only when they
+      // carry a figure, so a land-only or all-hard asset gains no empty lines.
       rows: ia.lines.map((l) => row([l.name, l.stage, l.basis, rateCell(l), basisCell(l), fmt.money(l.amount)]))
-        .concat([row([`Total, ${ia.assetName}`, '', '', '', '', fmt.money(ia.total)], 'subtotal')]),
+        .concat(
+          ([
+            ['Hard costs', ia.subtotals.hard],
+            ['Soft costs', ia.subtotals.soft],
+            ['Operating', ia.subtotals.operating],
+            ['Land', ia.subtotals.land],
+          ] as Array<[string, number]>)
+            .filter(([, v]) => v !== 0)
+            .map(([label, v]) => row([label, '', '', '', '', fmt.money(v)], 'subtotal')),
+        )
+        .concat(
+          ia.subtotals.exclLand !== 0 && ia.subtotals.land !== 0
+            ? [row(['Development cost (excl. land)', '', '', '', '', fmt.money(ia.subtotals.exclLand)], 'subtotal')]
+            : [],
+        )
+        .concat([row([`Total, ${ia.assetName}`, '', '', '', '', fmt.money(ia.total)], 'total')]),
     }));
   }
   // Capex Breakdown by Year (land split summary), then the per-stage + the

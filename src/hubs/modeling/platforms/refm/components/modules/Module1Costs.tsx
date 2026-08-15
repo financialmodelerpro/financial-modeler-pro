@@ -57,8 +57,13 @@ import {
   COST_CATEGORY_LABELS,
   COST_DRIVERS,
   COST_DRIVER_LABELS,
+  CAPEX_PHASING_SOURCES,
+  CAPEX_PHASING_SOURCE_LABELS,
+  type CapexPhasingSource,
+  type AssetCapexPhasing,
   deriveLineBaseId,
 } from '../../lib/state/module1-types';
+import { resolvePhasingSource } from '@/src/core/calculations/capexPhasing';
 import {
   computeAssetCost,
   computeCostLinePerSubUnit,
@@ -529,6 +534,47 @@ function CostRow({
       onUpdateLine({ phasing });
     }
   };
+  // ── Phasing inheritance (2026-08-15) ───────────────────────────────────
+  // The row reads its state from the SAME pure resolver the engine uses, so
+  // the badge and the number cannot disagree. Nothing here re-derives a rule.
+  const effPhasingSource: CapexPhasingSource = resolvePhasingSource(line, override);
+  const assetHasCurve = !!asset.capexPhasing;
+  // The line's own curve control is inert when something else is driving:
+  // a derived source, or an asset curve the line is inheriting.
+  const phasingDrivenElsewhere =
+    effPhasingSource === 'land_cash' || effPhasingSource === 'collections'
+    || (effPhasingSource === 'inherit' && assetHasCurve);
+  const phasingSourceHint =
+    'Where this line takes its phasing curve from. Inherit follows the asset curve set above the table; '
+    + 'Own keeps this row on its own curve; land cash and collections follow those cash flows.';
+  const phasingBadge: { text: string; title: string; warn: boolean } | null = (() => {
+    if (effPhasingSource === 'land_cash') {
+      return { text: 'follows land cash', warn: false, title: 'Phased on the land cash outflow, including any deferred parcel schedule.' };
+    }
+    if (effPhasingSource === 'collections') {
+      return { text: 'follows collections', warn: false, title: 'Phased on sales cash collected, so it arises when cash arrives rather than across the build.' };
+    }
+    if (effPhasingSource === 'own') {
+      // The break-out state the brief asks to be visible. Only worth saying
+      // when there is an asset curve for it to have stopped following.
+      return assetHasCurve
+        ? { text: 'not inheriting', warn: true, title: 'This line is on its own curve and does not follow the asset curve set above the table.' }
+        : null;
+    }
+    return null;
+  })();
+  const writePhasingSource = (src: CapexPhasingSource): void => {
+    if (override) {
+      onUpdateOverride({
+        assetId: asset.id, lineId: line.id, method: effMethod, value: effValue,
+        phasing: effPhasing, distribution: override.distribution,
+        disabled: override.disabled, phasingSource: src, overridden: true,
+      });
+    } else {
+      onUpdateLine({ phasingSource: src });
+    }
+  };
+
   const writeStartPeriod = (n: number): void => {
     if (override) {
       onUpdateOverride({ assetId: asset.id, lineId: line.id, method: effMethod, value: effValue, phasing: effPhasing, distribution: override.distribution, disabled: override.disabled, startPeriod: n, endPeriod: override.endPeriod ?? line.endPeriod, overridden: true });
@@ -659,9 +705,30 @@ function CostRow({
           data-testid={`cost-${asset.id}-${line.id}-name`}
           title={line.name}
         />
-        {isCustom && (
-          <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2 }}>custom</div>
-        )}
+        {/* 2026-08-15: the hard / soft marker, restored. It was dropped on
+            2026-05-11 (M2.0L Pass3 Fix 13) leaving only a row background
+            colour with no legend, so a line's classification was invisible on
+            the row that carries it. The classification itself never went away:
+            deriveCostStage, the engine's byStage and the summary tiles have
+            had it throughout. A cost table a lender reads has to say which
+            costs are hard and which are soft on the line itself. */}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 2 }}>
+          <span
+            data-testid={`cost-${asset.id}-${line.id}-stage`}
+            title={`${COST_STAGE_LABELS[stage]} cost`}
+            style={{
+              fontSize: 9, fontWeight: 700, textTransform: 'uppercase',
+              letterSpacing: '0.04em', padding: '1px 5px', borderRadius: 3,
+              background: STAGE_BG[stage], border: '1px solid var(--color-border)',
+              color: 'var(--color-text)',
+            }}
+          >
+            {COST_STAGE_LABELS[stage]}
+          </span>
+          {isCustom && (
+            <span style={{ fontSize: 9, color: 'var(--color-meta)' }}>custom</span>
+          )}
+        </div>
       </td>
       <td style={{ padding: '4px', overflow: 'hidden' }}>
         <select
@@ -841,17 +908,51 @@ function CostRow({
         )}
       </td>
       <td style={{ padding: '4px', minWidth: 110 }}>
+        {/* 2026-08-15: WHERE the curve comes from, above the curve itself.
+            'Inherit' with no asset curve behaves exactly as before, which is
+            what every pre-existing line resolves to. */}
+        <select
+          value={effPhasingSource}
+          onChange={(e) => writePhasingSource(e.target.value as CapexPhasingSource)}
+          disabled={isPhasingLocked}
+          style={{ ...inputStyle, fontSize: 10, marginBottom: 2 }}
+          data-testid={`cost-${asset.id}-${line.id}-phasing-source`}
+          title={phasingSourceHint}
+        >
+          {CAPEX_PHASING_SOURCES.map((s) => (
+            <option key={s} value={s}>{CAPEX_PHASING_SOURCE_LABELS[s]}</option>
+          ))}
+        </select>
+        {/* The line's own curve. Only meaningful when the line is on its own
+            curve or inheriting from an asset that has none, so it is disabled
+            (not hidden) when a source is driving, and the caption says why.
+            Hiding it would make the row look like it had lost a control. */}
         <select
           value={effPhasing}
           onChange={(e) => writePhasing(e.target.value as CostPhasing)}
-          disabled={isPhasingLocked}
-          style={{ ...inputStyle, fontSize: 11 }}
+          disabled={isPhasingLocked || phasingDrivenElsewhere}
+          style={{ ...inputStyle, fontSize: 11, opacity: phasingDrivenElsewhere ? 0.5 : 1 }}
           data-testid={`cost-${asset.id}-${line.id}-phasing`}
         >
           {COST_PHASING_OPTIONS.map((p) => (
             <option key={p} value={p}>{PHASING_LABELS[p]}</option>
           ))}
         </select>
+        {/* A line that has stopped inheriting says so, in the row, rather than
+            leaving the user to infer it from a curve that ignores the asset
+            control above the table. */}
+        {phasingBadge && (
+          <div
+            data-testid={`cost-${asset.id}-${line.id}-phasing-badge`}
+            style={{
+              fontSize: 9, marginTop: 2, fontStyle: 'italic',
+              color: phasingBadge.warn ? 'var(--color-accent-warm)' : 'var(--color-navy)',
+            }}
+            title={phasingBadge.title}
+          >
+            {phasingBadge.text}
+          </div>
+        )}
       </td>
       <td style={{ padding: '4px', minWidth: 110, textAlign: 'right' }}>
         <div style={calcOutputStyle} data-testid={`cost-${asset.id}-${line.id}-total`}>
@@ -1444,6 +1545,100 @@ function PercentOfSelectedPicker({
   );
 }
 
+// ── One curve across the asset (2026-08-15) ───────────────────────────────
+//
+// The group half of the shared inherit-and-override mechanism. Absent means no
+// asset curve, and every line keeps its own phasing, so this control is the
+// opt-in that makes inheritance bite. Turning it OFF restores per-line phasing
+// without discarding anything, because nothing on the lines was rewritten.
+interface AssetPhasingControlProps {
+  asset: Asset;
+  constructionPeriods: number;
+  scale: DisplayScale;
+  onChange: (p: AssetCapexPhasing | undefined) => void;
+}
+
+function AssetPhasingControl({ asset, constructionPeriods, onChange }: AssetPhasingControlProps): React.JSX.Element {
+  const curve = asset.capexPhasing;
+  const on = !!curve;
+  const slots = Math.max(1, constructionPeriods + 1);
+  const dist = curve?.distribution ?? [];
+  const sum = dist.reduce((s, v) => s + (v ?? 0), 0);
+
+  return (
+    <div
+      data-testid={`asset-phasing-${asset.id}`}
+      style={{
+        border: '1px solid var(--color-border)',
+        borderLeft: `4px solid ${on ? 'var(--color-navy)' : 'var(--color-border)'}`,
+        borderRadius: 'var(--radius)',
+        padding: 'var(--sp-1) var(--sp-2)',
+        marginBottom: 'var(--sp-1)',
+        background: on ? 'color-mix(in srgb, var(--color-navy) 5%, transparent)' : 'transparent',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={on}
+            data-testid={`asset-phasing-${asset.id}-toggle`}
+            onChange={(e) => onChange(e.target.checked ? { phasing: 'even' } : undefined)}
+          />
+          One phasing curve for this asset
+        </label>
+        {on && (
+          <>
+            <select
+              value={curve?.phasing ?? 'even'}
+              data-testid={`asset-phasing-${asset.id}-mode`}
+              onChange={(e) => onChange({ phasing: e.target.value as CostPhasing, distribution: curve?.distribution })}
+              style={{ ...inputStyle, width: 130 }}
+            >
+              {COST_PHASING_OPTIONS.map((p) => (<option key={p} value={p}>{PHASING_LABELS[p]}</option>))}
+            </select>
+            <span style={{ fontSize: 11, color: 'var(--color-meta)' }}>
+              Every cost line on this asset follows it, except lines set to their own curve, land cash or collections.
+            </span>
+          </>
+        )}
+        {!on && (
+          <span style={{ fontSize: 11, color: 'var(--color-meta)' }}>
+            Off: each line keeps the phasing set on its own row.
+          </span>
+        )}
+      </div>
+      {on && curve?.phasing === 'manual' && (
+        <div style={{ marginTop: 6 }}>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {Array.from({ length: slots }, (_, i) => (
+              <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <span style={{ fontSize: 9, color: 'var(--color-meta)' }}>P{i}</span>
+                <input
+                  type="number"
+                  value={dist[i] ?? 0}
+                  data-testid={`asset-phasing-${asset.id}-w${i}`}
+                  onChange={(e) => {
+                    const next = Array.from({ length: slots }, (_, k) => dist[k] ?? 0);
+                    next[i] = Math.max(0, Number(e.target.value) || 0);
+                    onChange({ phasing: 'manual', distribution: next });
+                  }}
+                  style={{ ...inputStyle, width: 54, textAlign: 'right' }}
+                />
+              </div>
+            ))}
+          </div>
+          {/* Weights are normalised by the engine, so they need not total 100.
+              Saying so avoids the user chasing a rounding remainder. */}
+          <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
+            Weights total {sum.toFixed(1)}. They are normalised, so they do not have to add to 100.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Per-asset section ─────────────────────────────────────────────────────
 interface AssetCostSectionProps {
   asset: Asset;
@@ -1463,14 +1658,17 @@ interface AssetCostSectionProps {
   onRemoveOverride: (assetId: string, lineId: string) => void;
   onRemoveLine: (lineId: string) => void;
   onAddCustom: () => void;
+  /** 2026-08-15: writes Asset.capexPhasing (the one curve for this asset). */
+  onUpdateAsset?: (assetId: string, patch: Partial<Asset>) => void;
 }
 
 function AssetCostSection({
   asset, lines, costOverrides, breakdown, currency, scale, decimals, periodLabel, constructionPeriods, subUnits,
   metrics,
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
-  onAddCustom,
+  onAddCustom, onUpdateAsset,
 }: AssetCostSectionProps): React.JSX.Element {
+  const cp = constructionPeriods;
   // Default-collapsed (2026-05-13): every per-asset cost section in
   // Tab 3 Inputs starts closed; user expands when ready to edit. Matches
   // Tab 2's default-collapsed convention. Per-session re-open is the
@@ -1522,6 +1720,22 @@ function AssetCostSection({
       </div>
       {!collapsed && (
         <>
+          {/* ── ONE CURVE ACROSS THE ASSET (2026-08-15) ──────────────────────
+              Phasing was set line by line and every line on an asset repeats
+              the same curve in practice, so the user typed the same
+              percentages five or six times per asset. This sets it once; every
+              line inherits unless it is broken out or follows a derived source
+              (land cash / collections).
+
+              OFF by default. While it is off, every line keeps its own
+              phasing, which is why an existing project is unchanged until the
+              user opts in here. */}
+          <AssetPhasingControl
+            asset={asset}
+            constructionPeriods={cp}
+            onChange={(capexPhasing) => onUpdateAsset?.(asset.id, { capexPhasing })}
+            scale={scale}
+          />
           {/* P11 Fix 3 (2026-05-13): per-section Expand all / Collapse all
               buttons removed. Per-row collapse state was deleted in
               T3-edit-runtime v4 ("remove that layer permanently"), so the
@@ -2638,6 +2852,8 @@ export default function Module1Costs(): React.JSX.Element {
   const setProject = useModule1Store((s) => s.setProject);
   const addCostLine = useModule1Store((s) => s.addCostLine);
   const updateCostLine = useModule1Store((s) => s.updateCostLine);
+  // 2026-08-15: writes Asset.capexPhasing from the one-curve control.
+  const updateAsset = useModule1Store((s) => s.updateAsset);
   const removeCostLine = useModule1Store((s) => s.removeCostLine);
   const setCostOverride = useModule1Store((s) => s.setCostOverride);
   const removeCostOverride = useModule1Store((s) => s.removeCostOverride);
@@ -3418,6 +3634,7 @@ export default function Module1Costs(): React.JSX.Element {
                 subUnits={subUnits}
                 metrics={assetMetrics}
                 onUpdateLine={(lineId, patch) => updateCostLine(lineId, patch)}
+                onUpdateAsset={(assetId, patch) => updateAsset(assetId, patch)}
                 onUpdateOverride={(override) => setCostOverride(override)}
                 onRemoveOverride={(assetId, lineId) => removeCostOverride(assetId, lineId)}
                 onRemoveLine={(lineId) => {

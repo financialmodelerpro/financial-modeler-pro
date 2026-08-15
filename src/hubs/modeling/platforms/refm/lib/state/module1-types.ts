@@ -1098,6 +1098,20 @@ export interface Asset {
   // strategy + type when undefined (calc engine resolves the default at
   // compute time so the user can leave it blank).
   managementAgreement?: ManagementAgreement;
+  /**
+   * ONE capex phasing curve for the whole asset (2026-08-15).
+   *
+   * Phasing was set line by line, and in practice every line on an asset
+   * repeats the same curve, so a user typed the same percentages five or six
+   * times per asset. Every cost line on this asset inherits this curve unless
+   * it is broken out (CostLine.phasingSource === 'own') or follows a derived
+   * source (land cash / collections).
+   *
+   * ABSENT means no asset curve, and every line keeps its own phasing exactly
+   * as before. That is what makes this inert on an existing project: the asset
+   * curve is the opt-in.
+   */
+  capexPhasing?: AssetCapexPhasing;
   usefulLifeYears?: number;
   /**
    * M4 Pass 1d (2026-05-19): depreciation method per asset. Defaults
@@ -1688,6 +1702,43 @@ export function normalizeCostPhasing(p: CostPhasing | undefined): CostPhasing {
   return p ?? 'even';
 }
 
+/**
+ * Where a cost line's PHASING CURVE comes from (2026-08-15).
+ *
+ *   inherit      the asset's one curve (Asset.capexPhasing). When the asset has
+ *                no curve this resolves to the line's own stored phasing, which
+ *                is why an untouched project is unchanged by all of this.
+ *   own          broken out: this line keeps its own curve whatever the asset does.
+ *   land_cash    follows the land cash OUTFLOW, including any deferred parcel
+ *                payment schedule. Real estate transfer tax is due when the land
+ *                cash is paid, so it must never take the construction curve.
+ *   collections  follows sales cash COLLECTED. Marketing and commission are paid
+ *                as a percentage of cash received, so they arise when collections
+ *                arrive, not across the build.
+ *
+ * ABSENT MEANS `inherit`, and inherit with no asset curve means "keep what you
+ * had". That is deliberate: every pre-existing line carries undefined here.
+ */
+export type CapexPhasingSource = 'inherit' | 'own' | 'land_cash' | 'collections';
+
+export const CAPEX_PHASING_SOURCES: readonly CapexPhasingSource[] =
+  ['inherit', 'own', 'land_cash', 'collections'] as const;
+
+export const CAPEX_PHASING_SOURCE_LABELS: Record<CapexPhasingSource, string> = {
+  inherit: 'Inherit asset curve',
+  own: 'Own curve',
+  land_cash: 'Follows land cash',
+  collections: 'Follows collections',
+};
+
+/** One phasing curve, held on an asset and inherited by its cost lines. */
+export interface AssetCapexPhasing {
+  phasing: CostPhasing;
+  /** Manual weights, when phasing is 'manual'. Need not sum to 1; the engine
+   *  normalises. */
+  distribution?: number[];
+}
+
 export interface CostLine {
   id: string;
   phaseId: string;
@@ -1701,6 +1752,8 @@ export interface CostLine {
   endPeriod: number;
   phasing: CostPhasing;
   distribution?: number[];
+  /** 2026-08-15. Absent = 'inherit'. See CapexPhasingSource. */
+  phasingSource?: CapexPhasingSource;
   selectedLineIds?: string[];
   isLocked?: boolean;
   requiresCountry?: string;
@@ -1744,6 +1797,10 @@ export interface CostOverride {
   value: number;
   phasing: CostPhasing;
   distribution?: number[];
+  /** 2026-08-15: per-asset phasing source, so one asset can break a line out
+   *  without touching the project-wide master. Absent = defer to the master
+   *  line's own phasingSource. */
+  phasingSource?: CapexPhasingSource;
   // M2.0d: per-asset on/off toggle. When true this asset zeros out the
   // line regardless of value or method. Independent of CostLine.disabled
   // (which zeros out the line for ALL assets).
@@ -2777,12 +2834,20 @@ export function makeDefaultProject(
 export const STANDARD_COST_LINE_IDS = [
   'land-cash',
   'land-inkind',
+  // 2026-08-15: real estate transfer tax. Due when the land cash is PAID, so it
+  // is seeded following the land cash outflow and never takes the construction
+  // curve. Country gated via requiresCountry, the mechanism M2.0c added for
+  // exactly this line.
+  'rett',
   'construction-bua',
   'construction-parking',
   'infrastructure',
   'landscaping',
   'pre-operating',
   'professional-fee',
+  // 2026-08-15: paid as a percentage of cash received, so it is seeded
+  // following collections, alongside commission.
+  'marketing',
   'commission',
   'contingency',
 ] as const;
@@ -2879,6 +2944,19 @@ export function makeDefaultCostLines(
       startPeriod: 0, endPeriod: 0, phasing: 'even',
       isLocked: true,
     },
+    // ── Real estate transfer tax ────────────────────────────────────────
+    // Charged on the land value and DUE WHEN THE LAND CASH IS PAID, so its
+    // phasing follows the land cash outflow (including a deferred parcel
+    // schedule) rather than the construction window. Overridable per line.
+    // Country gated: renders only where the project country matches.
+    {
+      id: id('rett'), phaseId, name: 'Real Estate Transfer Tax',
+      method: 'percent_of_cash_land', value: 0,
+      stage: 'land', scope: 'direct', allocationBasis: 'land_share',
+      startPeriod: 0, endPeriod: 0, phasing: 'even',
+      phasingSource: 'land_cash',
+      requiresCountry: 'Saudi Arabia',
+    },
     // ── Construction (BUA + Parking) ────────────────────────────────────
     {
       id: id('construction-bua'), phaseId, name: 'Construction (BUA)',
@@ -2921,14 +2999,28 @@ export function makeDefaultCostLines(
       startPeriod: 1, endPeriod: cpEnd, phasing: 'even',
       selectedLineIds: [id('construction-bua'), id('construction-parking')],
     },
+    // ── Marketing (% of Revenue) ────────────────────────────────────────
+    // Paid out of cash received, so it arises WHEN COLLECTIONS ARRIVE rather
+    // than across the build. Overridable per line.
+    {
+      id: id('marketing'), phaseId, name: 'Marketing',
+      method: 'percent_of_revenue_sale', value: 0,
+      stage: 'soft', scope: 'indirect', allocationBasis: 'per_asset',
+      startPeriod: Math.max(1, Math.floor(cp / 2)), endPeriod: cpEnd, phasing: 'even',
+      phasingSource: 'collections',
+    },
     // ── Commission (% of Revenue) ───────────────────────────────────────
     // Sell + Sell+Manage only; calc engine zeroes out for non-Sell strategies.
     // Revenue source ships in Module 2.1; for now value × 0 (revenue stub) = 0.
+    // 2026-08-15: like marketing, a percentage of cash RECEIVED, so its default
+    // phasing follows collections. It used to spread across the back half of
+    // the construction window, which is the wrong shape for a sales cost.
     {
       id: id('commission'), phaseId, name: 'Commission',
       method: 'percent_of_selected', value: 4,
       stage: 'soft', scope: 'indirect', allocationBasis: 'per_asset',
       startPeriod: Math.max(1, Math.floor(cp / 2)), endPeriod: cpEnd, phasing: 'even',
+      phasingSource: 'collections',
       selectedLineIds: [],
     },
     // ── Contingency (% of Construction BUA + Parking) ───────────────────

@@ -806,6 +806,26 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
         }
       }
     }
+    // 2026-08-15: hard / soft subtotals per asset. The Stage column above has
+    // always been here, but nothing added it up, so no export could answer
+    // "what is the hard cost" without the reader doing it by hand. Emitted only
+    // where there is a figure, so a land-only asset gains no empty rows.
+    for (const [label, amount] of ([
+      ['Hard costs', ia.subtotals.hard],
+      ['Soft costs', ia.subtotals.soft],
+      ['Operating', ia.subtotals.operating],
+      ['Land', ia.subtotals.land],
+    ] as Array<[string, number]>)) {
+      if (amount === 0) continue;
+      setLabel(ws.getCell(`A${r}`), label, { indent: 1, bold: true });
+      setInput(ws.getCell(`I${r}`), amount, NUMFMT.money);
+      r += 1;
+    }
+    if (ia.subtotals.exclLand !== 0 && ia.subtotals.land !== 0) {
+      setLabel(ws.getCell(`A${r}`), 'Development cost (excl. land)', { indent: 1, bold: true });
+      setInput(ws.getCell(`I${r}`), ia.subtotals.exclLand, NUMFMT.money);
+      r += 1;
+    }
     capexRefs.push({ assetId: ia.assetId, name: ia.assetName, phaseName: ia.phaseName, total: ia.total, lines: lineRefs });
   }
   r += 1;

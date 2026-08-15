@@ -47,6 +47,7 @@ import {
   computeAssetCost,
   resolveUsefulLifeYears,
 } from '@/src/core/calculations';
+import { projectAxisToPhaseLocal } from '@/src/core/calculations/capexPhasing';
 import type { Module1Store } from './state/module1-store';
 import type { Asset, Phase, FinancingTranche } from './state/module1-types';
 import { DEFAULT_PROJECT_FINANCING_CONFIG } from './state/module1-types';
@@ -1565,12 +1566,24 @@ function computeFinancialsSnapshotOnce(
     // (Y0 lump for new-construction land); local i>=1 -> projIdx=offset+i-1.
     const phase = phases.find((p) => p.id === a.phaseId);
     if (phase && (a.strategy === 'Operate' || a.strategy === 'Lease' || a.isCompanion === true || a.strategy === 'Sell' || a.strategy === 'Sell + Manage')) {
+      const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
+      const offset = Math.max(0, phaseStartYear - projectStartYear);
+      // 2026-08-15: the collections profile for lines that follow it (marketing,
+      // commission). Sourced from the sell result computed ABOVE, which is the
+      // same cashCollectedPerPeriod the P&L reads, so a cost that follows
+      // collections lands in exactly the periods the statements show cash
+      // arriving. Undefined for a non-sell asset, which the resolver reports
+      // rather than silently phasing to nothing.
+      const collections = projectAxisToPhaseLocal(
+        revenue.bySellAsset.get(a.id)?.cashCollectedPerPeriod,
+        offset,
+        (phase.constructionPeriods ?? 0) + (phase.operationsPeriods ?? 0) + 2,
+      );
       const breakdown = computeAssetCost(
         a, project, phase, parcels, assets, subUnits, costLines, costOverrides, landAllocationMode,
         project.financing?.parcelFunding,
+        collections,
       );
-      const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
-      const offset = Math.max(0, phaseStartYear - projectStartYear);
       const per = breakdown.perPeriod ?? [];
       for (let i = 0; i < per.length; i++) {
         // M4 Pass 2W (2026-05-24): rescue Phase 1's i=0 lump (see capex.ts).

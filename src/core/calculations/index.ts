@@ -81,6 +81,11 @@ import type {
   ProjectFinancingConfig,
 } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import {
+  capexPhasingIsInert,
+  resolveLinePhasing,
+  type CapexPhasingContext,
+} from './capexPhasing';
+import {
   DEFAULT_USEFUL_LIFE_YEARS,
   PER_SUBUNIT_RATE_KEY_SUPPORT,
   PER_SUBUNIT_RATE_KEY_PARKING,
@@ -1150,6 +1155,17 @@ export function computeAssetCost(
   // Optional: legacy callers (and tests that mock the engine) keep
   // the existing Y0 behaviour when omitted.
   parcelFunding?: ParcelFundingConfig[],
+  /**
+   * 2026-08-15: sales cash COLLECTED for this asset, per phase-relative period.
+   * The only input the phasing resolution cannot derive for itself, because it
+   * comes from the revenue engine. That engine runs BEFORE costs and reads no
+   * cost input, so there is no circularity.
+   *
+   * Optional. A line set to follow collections with none supplied degrades to
+   * the asset curve and then to its own setting, and the resolver reports that
+   * rather than silently phasing it to nothing.
+   */
+  collectionsPerPeriod?: number[],
 ): AssetCostBreakdown {
   // T3-companion Fix 2 (2026-05-12): companion assets (Sell + Manage
   // Operate sibling, isCompanion === true) carry NO physical attributes
@@ -1223,6 +1239,7 @@ export function computeAssetCost(
       endPeriod:   line.endPeriod,
     };
   });
+
 
   // Pass 1: direct methods (everything except percent_of_selected /
   // percent_of_construction).
@@ -1392,6 +1409,72 @@ export function computeAssetCost(
   // phasing curve. Same distributeItemCost call powers both the
   // aggregated perPeriod accumulators above AND this map - one source
   // of truth for per-line per-period.
+  // ── Capex phasing resolution (2026-08-15) ─────────────────────────────────
+  //
+  // One asset curve inherited by every line, RETT following the land cash
+  // outflow, marketing and commission following collections, any line
+  // breakable out. See capexPhasing.ts for the rules.
+  //
+  // IT SITS HERE, INSIDE THE ENGINE, ON PURPOSE. computeAssetCost has ten
+  // production call sites (the financials resolver, the capex and CoS report
+  // builders, two financing hooks, fixed assets, revenue, and three module
+  // screens). Resolving at the call sites would be ten adoption points, and one
+  // missed site would make the screen and the export disagree about WHEN money
+  // moves. Resolving once here makes every caller correct by construction.
+  //
+  // IT SITS AT THIS POINT IN THE FUNCTION on purpose too: after the totals are
+  // final and immediately before the only loop that reads a curve. Phasing
+  // cannot change any total (weights sum to 1), so nothing above is affected.
+  //
+  // NO MATHS CHANGED. The resolution only rewrites the phasing / distribution /
+  // window fields that distributeItemCost already reads, and it is SKIPPED
+  // ENTIRELY when nothing opts in, which is every line on every project that
+  // predates this. `capexPhasingIsInert` is checked rather than trusting the
+  // resolution to be an identity: "we did not run" is a stronger guarantee than
+  // "we ran and it cancelled out".
+  if (!capexPhasingIsInert(asset, phaseLines, costOverrides)) {
+    // The land cash SHAPE, taken from the land lines' own resolved windows and
+    // any deferred parcel schedule. Shape only: RETT follows when the land cash
+    // moves, not how much of it there is.
+    const landShape = new Array<number>(periodSlots).fill(0);
+    for (const r of resolved) {
+      if (r.method !== 'percent_of_cash_land') continue;
+      const own = distributeItemCost(
+        { ...r.line, phasing: r.phasing, distribution: r.distribution, startPeriod: r.startPeriod, endPeriod: r.endPeriod },
+        1,
+        cp,
+      );
+      const lim = Math.min(own.length, periodSlots);
+      for (let i = 0; i < lim; i += 1) landShape[i] += own[i] ?? 0;
+    }
+    if (parcelFunding && phaseCashFractions.size > 0) {
+      for (const [parcelId, frac] of phaseCashFractions) {
+        const cfg = parcelFunding.find((pf) => pf.parcelId === parcelId);
+        if (cfg?.fundingType !== 'deferred_payment' || !cfg.deferredSchedule) continue;
+        const w = expandDeferredSchedule(cfg.deferredSchedule, periodSlots);
+        for (let i = 0; i < periodSlots; i += 1) landShape[i] += frac * (w[i] ?? 0);
+      }
+    }
+    const phasingCtx: CapexPhasingContext = {
+      landCashPerPeriod: landShape,
+      collectionsPerPeriod: collectionsPerPeriod,
+    };
+    for (const r of resolved) {
+      const ov = costOverrides.find((o) => o.assetId === asset.id && o.lineId === r.line.id);
+      const decision = resolveLinePhasing(
+        r.line,
+        { phasing: r.phasing, distribution: r.distribution, startPeriod: r.startPeriod, endPeriod: r.endPeriod },
+        asset,
+        phasingCtx,
+        ov,
+      );
+      r.phasing = decision.effective.phasing;
+      r.distribution = decision.effective.distribution;
+      r.startPeriod = decision.effective.startPeriod;
+      r.endPeriod = decision.effective.endPeriod;
+    }
+  }
+
   const perLinePerPeriod: Record<string, number[]> = {};
   for (const r of resolved) {
     const t = byLineId[r.line.id] ?? 0;
@@ -1559,6 +1642,10 @@ export function expandDeferredSchedule(
 const STANDARD_STAGE_BY_ID: Record<string, CostStage> = {
   'land-cash':            'land',
   'land-inkind':          'land',
+  // 2026-08-15: a transfer tax is a cost of acquiring the land, so it buckets
+  // with land rather than with soft costs.
+  'rett':                 'land',
+  'marketing':            'soft',
   'construction-bua':     'hard',
   'construction-parking': 'hard',
   'infrastructure':       'hard',
