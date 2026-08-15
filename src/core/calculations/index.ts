@@ -85,6 +85,7 @@ import {
   resolveLinePhasing,
   type CapexPhasingContext,
 } from './capexPhasing';
+import { assetVisibleLines, allowedSelectedIds } from './selectedBase';
 import {
   DEFAULT_USEFUL_LIFE_YEARS,
   PER_SUBUNIT_RATE_KEY_SUPPORT,
@@ -1333,9 +1334,32 @@ export function computeAssetCost(
 
   // Pass 3: percent_of_selected = % × sum of selected line ids' totals.
   // selectedLineIds come from the BASE line (overrides don't change them).
+  //
+  // 2026-08-15: the ORDERING RULE IS ENFORCED HERE, not just offered by the
+  // picker. A line may charge only on lines ABOVE it. This pass has always
+  // been a single forward sweep reading a map filled as it goes, so a
+  // downward reference already read an absent entry and contributed ZERO, with
+  // no warning: measured on construction 1000 / dev fee 10% / contingency 5%,
+  // moving the dev fee below contingency changed contingency from 55.00 to
+  // 50.00, and a two-line cycle produced 500 and 750, both artefacts of array
+  // position.
+  //
+  // THIS IS NOT PURELY A TIDY-UP, and the distinction matters. A downward
+  // reference to another PERCENT line already contributed zero, so filtering it
+  // moves nothing. A downward reference to a DIRECT-method line is different:
+  // `directTotals` is fully populated in Pass 1, before this pass runs, so the
+  // old code read a REAL number for it and computed a genuinely wrong base. The
+  // old picker offered lines below, so that state was reachable. On
+  // build 1000 / contingency 10% selecting a 500 line BELOW it, the base was
+  // 1500 and the answer 150; it is now 1000 and 100. Any model carrying such a
+  // selection WILL move, and should.
+  //
+  // Upward-only references also make a cycle unrepresentable, which is why the
+  // picker no longer needs to ban a whole method to stay safe.
+  const visibleForBase = assetVisibleLines(phaseLines, phase.id, asset.id, project.country);
   for (const r of resolved) {
     if (r.method === 'percent_of_selected') {
-      const ids = r.line.selectedLineIds ?? [];
+      const ids = allowedSelectedIds(visibleForBase, r.line.id, r.line.selectedLineIds);
       const base = ids.reduce(
         (s, id) => s + (directTotals[id] ?? percentTotals[id] ?? 0),
         0,

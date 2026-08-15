@@ -64,6 +64,7 @@ import {
   deriveLineBaseId,
 } from '../../lib/state/module1-types';
 import { resolvePhasingSource, isParcelDrivenLandLine } from '@/src/core/calculations/capexPhasing';
+import { assetVisibleLines, eligibleBaseLines } from '@/src/core/calculations/selectedBase';
 import {
   computeAssetCost,
   computeCostLinePerSubUnit,
@@ -1406,15 +1407,27 @@ function PercentOfSelectedPicker({
   // render as small chips beneath the button so the user sees what's
   // chosen without opening the picker.
   const costLines = useModule1Store(useShallow((s) => s.costLines));
+  const projectCountry = useModule1Store((s) => s.project.country);
   const [open, setOpen] = useState(false);
-  // Sibling lines: same phase, NOT this line itself, NOT a
-  // percent_of_selected (we don't allow recursive references), and
-  // visible to this asset (project-wide OR targeted at this asset).
-  const siblings = costLines.filter((c) =>
-    c.phaseId === line.phaseId &&
-    c.id !== line.id &&
-    c.method !== 'percent_of_selected' &&
-    (c.targetAssetId === undefined || c.targetAssetId === asset.id),
+  // EVERY LINE ABOVE THIS ONE ON THIS ASSET, in display order (2026-08-15).
+  //
+  // This used to exclude every `percent_of_selected` line by method, commented
+  // "we don't allow recursive references". That banned a whole method to stop a
+  // cycle, and it cost the ordinary chain a budget is built from: a developers
+  // fee charged on hard cost plus the soft costs above it, then a contingency
+  // charged on everything including that fee. Both are percent_of_selected, so
+  // the chain could not be built. It also stopped the standard catalog putting
+  // professional fee inside contingency's base.
+  //
+  // Note the old filter did NOT exclude custom lines (project-wide and
+  // asset-targeted lines both passed), and it applied NO ordering at all, so it
+  // was simultaneously too strict about method and too loose about position.
+  //
+  // The positional rule replaces both, and it is the SAME function the engine
+  // enforces, so the list offered and the base computed cannot diverge.
+  const siblings = eligibleBaseLines(
+    assetVisibleLines(costLines, line.phaseId, asset.id, projectCountry),
+    line.id,
   );
   const selected = new Set(line.selectedLineIds ?? []);
   const toggle = (id: string): void => {
