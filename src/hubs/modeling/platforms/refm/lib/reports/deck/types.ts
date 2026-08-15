@@ -299,10 +299,22 @@ export interface DeckSettings {
  *  v3 (2026-07-27): adds the FULL year-by-year schedules (income statement, cash
  *  flow, balance sheet, FCFF, FCFE, DDM), each paginated across as many slides as
  *  the model's horizon needs.
+ *  v4 (2026-08-15): adds the three fund layer slides (Fund Terms and Fees, Fund
+ *  Distribution Waterfall, Fund Returns and Fee Income). They shipped on
+ *  2026-08-13 WITHOUT this bump and without a TEMPLATES_BY_VERSION entry, so
+ *  every deck seeded before that date reached its export with no fund content at
+ *  all and the only route to them was a destructive rebuild. See deckUpgrade.
  *  A deck below this version is upgraded once on open
  *  (deckUpgrade.upgradeDeckLayout), non-destructively, and only with the slides
- *  introduced AFTER the version it is on. */
-export const DECK_SCHEMA_VERSION = 3;
+ *  introduced AFTER the version it is on.
+ *
+ *  ADDING A TEMPLATE IS A TWO-STEP CONTRACT: bump this number AND register the
+ *  new id under that number in TEMPLATES_BY_VERSION. Doing only the first
+ *  silently lifts every deck's version without adding anything; doing only the
+ *  second never fires. `verify-deck-template-registry` fails the build if any
+ *  template id is missing from the registry, which is what stops the next
+ *  template repeating the fund slides' mistake. */
+export const DECK_SCHEMA_VERSION = 4;
 
 export interface Deck {
   schemaVersion: number;
