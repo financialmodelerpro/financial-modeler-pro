@@ -19,6 +19,18 @@ Four related changes to Module 1 Capex, built on ONE shared mechanism because th
 
 **Schema is additive and optional throughout**: `Asset.capexPhasing`, `CostLine.phasingSource`, `CostOverride.phasingSource`, all absent on every existing record, and absent means `inherit`, which with no asset curve means "keep what you had". No migration.
 
+## 2026-08-15e: the inherited asset curve was MISALIGNED (money on a curve nobody typed), and land was wrongly in the scheme
+
+Two defects in the 2026-08-15d work, both reported from the screen, both diagnosed by MEASURING THE ENGINE rather than reading the UI.
+
+**1. The asset curve reached the money rows, and reached them WRONG. A correctness bug, not a display one.** With a typed curve of `0 / 10 / 30 / 40 / 20` and a line spanning P1..P4, the engine distributed `0 / 12.5 / 37.5 / 50`. **Cause: `distribute('manual', span, weights)` reads `weights[i]` counting from the START OF THE LINE'S WINDOW, while the asset curve is authored against ABSOLUTE periods P0..Pn** (which is how the control labels it). Handing the whole array to a line starting at P1 applied the P0 weight to P1, shifted every later weight one period early and dropped the last weight off the end. Fixed by slicing the curve to the line's window. **The fix created a hazard that had to be closed in the same change**: a window the curve does not cover, or an all-zero slice, yields a zero distribution, which distributes NOTHING and makes the line's money vanish silently. It now degrades to the line's own curve instead. The row was ALSO stale (it rendered the STORED weights whatever was driving), so the display and the numbers were both wrong and differently wrong; the row now renders the curve IN FORCE, labelled `Asset curve %` and READ-ONLY, because an editable box that does not drive the number is worse than no box. A derived-source line gets a caption naming the source instead of numbers this row cannot compute.
+
+**2. Land was in the phasing scheme at all.** Land cash timing comes from the parcel schedule, so a curve and a "not inheriting" badge implied a decision the user does not have. New shared `isParcelDrivenLandLine`, used by the ENGINE and the ROW from one definition. **Identified by base id, deliberately NOT by stage or by method: both shortcuts would wrongly catch RETT**, which is a land-stage cost charged on land value that genuinely must follow the land cash outflow. Pinned by a check, and a sabotage adding `rett` to the predicate fails it. Land money never actually moved (5.00m at P0 either way), so this was presentational plus latent.
+
+**A gap the new checks found in the SHARED mechanism.** It collapsed "no group set" and "a group exists but says nothing for this row" into one outcome, so the reason read "the asset curve is not set" when it plainly was. Values were right, the explanation misdirected. `InheritanceRequest.groupEmpty` now separates them; the consolidated input matrices will hit the same case.
+
+`verify-capex-phasing` 69 -> **84**, teeth proven by two more sabotages (reinstating the prefix bug fails C2a to C2d with its exact signature `[[0,10,30,40]]`; catching RETT in the land predicate fails E12b). Engine-sensitive verifiers re-run green. **NOT browser-verified, and the display half is exactly what only a browser confirms.**
+
 ## 2026-08-15c: the IC deck never offered the fund slides to an existing deck, and nothing could have caught it (HELD FOR REVIEW, UNCOMMITTED)
 
 **Reported symptom:** the exported IC deck for FMP RE HUB had 36 slides and NO fund content at all, the only occurrence of any fund term being the word "hurdle" inside the sensitivity commentary.

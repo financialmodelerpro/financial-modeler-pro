@@ -63,7 +63,7 @@ import {
   type AssetCapexPhasing,
   deriveLineBaseId,
 } from '../../lib/state/module1-types';
-import { resolvePhasingSource } from '@/src/core/calculations/capexPhasing';
+import { resolvePhasingSource, isParcelDrivenLandLine } from '@/src/core/calculations/capexPhasing';
 import {
   computeAssetCost,
   computeCostLinePerSubUnit,
@@ -537,6 +537,10 @@ function CostRow({
   // ── Phasing inheritance (2026-08-15) ───────────────────────────────────
   // The row reads its state from the SAME pure resolver the engine uses, so
   // the badge and the number cannot disagree. Nothing here re-derives a rule.
+  // Land value lines take no part in phasing: their timing is the parcel
+  // schedule. Same predicate the engine uses, so the row and the maths cannot
+  // disagree about which lines are exempt.
+  const isParcelLand = isParcelDrivenLandLine(line);
   const effPhasingSource: CapexPhasingSource = resolvePhasingSource(line, override);
   const assetHasCurve = !!asset.capexPhasing;
   // The line's own curve control is inert when something else is driving:
@@ -548,6 +552,9 @@ function CostRow({
     'Where this line takes its phasing curve from. Inherit follows the asset curve set above the table; '
     + 'Own keeps this row on its own curve; land cash and collections follow those cash flows.';
   const phasingBadge: { text: string; title: string; warn: boolean } | null = (() => {
+    // No badge on a land value line: it is not inheriting because it is not in
+    // the scheme at all, and "not inheriting" would read as a choice.
+    if (isParcelLand) return null;
     if (effPhasingSource === 'land_cash') {
       return { text: 'follows land cash', warn: false, title: 'Phased on the land cash outflow, including any deferred parcel schedule.' };
     }
@@ -622,7 +629,37 @@ function CostRow({
   // M2.0g Addendum 1: per-period % distribution editor (Manual % phasing).
   // The distribution array sits on either the line OR the per-asset
   // override. writeDistribution merges in place.
-  const effDistribution = override?.distribution ?? line.distribution ?? [];
+  const storedDistribution = override?.distribution ?? line.distribution ?? [];
+  // ── The curve ACTUALLY IN FORCE (2026-08-15b) ──────────────────────────
+  //
+  // This row used to render the line's STORED weights whatever was driving it,
+  // so a line inheriting an asset curve of 0/10/30/40/20 still displayed its
+  // own 10/30/40/20 while the engine spent on the inherited one. The row now
+  // shows what is in force and makes it read-only when the line is not the
+  // thing deciding, because an editable box that does not drive the number is
+  // worse than no box.
+  //
+  // Only the INHERIT case can be resolved here: it is a pure slice of the
+  // asset curve. A derived source (land cash / collections) depends on model
+  // series this row does not have, so its editor is replaced by a caption
+  // naming the source rather than by numbers that might be wrong.
+  const inheritsAssetCurve = effPhasingSource === 'inherit' && assetHasCurve && !isParcelLand;
+  const inheritedCurve: number[] | null = (() => {
+    if (!inheritsAssetCurve) return null;
+    const c = asset.capexPhasing;
+    if (!c || c.phasing !== 'manual') return null;
+    const slice = (c.distribution ?? []).slice(effStartPeriod, effEndPeriod + 1);
+    return slice.reduce((s, v) => s + (v ?? 0), 0) > 0 ? slice : null;
+  })();
+  const effDistribution = inheritedCurve ?? storedDistribution;
+  // What the row should RENDER as its phasing mode, as opposed to what is
+  // stored on the line.
+  const displayPhasing: CostPhasing = isParcelLand
+    ? effPhasing
+    : inheritsAssetCurve
+      ? (asset.capexPhasing?.phasing ?? effPhasing)
+      : effPhasing;
+  const curveIsReadOnly = inheritedCurve !== null;
   const writeDistribution = (next: number[]): void => {
     if (isProjectWide) {
       onUpdateOverride({ assetId: asset.id, lineId: line.id, method: effMethod, value: effValue, phasing: effPhasing, distribution: next, disabled: override?.disabled });
@@ -908,6 +945,20 @@ function CostRow({
         )}
       </td>
       <td style={{ padding: '4px', minWidth: 110 }}>
+        {/* Land value lines carry NO phasing control (2026-08-15b). Their cash
+            timing is the parcel schedule, so a curve here would present a
+            decision the user does not have. This restores the pre-inheritance
+            behaviour for these two rows. */}
+        {isParcelLand ? (
+          <div
+            data-testid={`cost-${asset.id}-${line.id}-phasing-parcel`}
+            style={{ fontSize: 10, color: 'var(--color-meta)', fontStyle: 'italic', lineHeight: 1.3 }}
+            title="Land cash timing follows the payment terms set on the parcel in Tab 2, including any deferred schedule."
+          >
+            from parcel schedule
+          </div>
+        ) : (
+        <>
         {/* 2026-08-15: WHERE the curve comes from, above the curve itself.
             'Inherit' with no asset curve behaves exactly as before, which is
             what every pre-existing line resolves to. */}
@@ -952,6 +1003,8 @@ function CostRow({
           >
             {phasingBadge.text}
           </div>
+        )}
+        </>
         )}
       </td>
       <td style={{ padding: '4px', minWidth: 110, textAlign: 'right' }}>
@@ -1076,7 +1129,20 @@ function CostRow({
         button on the right. M2.0L (2026-05-11) adds the live currency
         chip strip below the % inputs so the user sees the actual
         money distribution as they edit weights. */}
-    {effPhasing === 'manual' && (() => {
+    {/* A line following a derived source has a curve this row cannot compute
+        (it comes from the land cash outflow or the collections profile), so it
+        says where the curve comes from instead of showing numbers that might
+        not be the ones in force. */}
+    {(effPhasingSource === 'land_cash' || effPhasingSource === 'collections') && !isParcelLand && (
+      <tr data-testid={`cost-row-${asset.id}-${line.id}-derived-row`} style={{ background: 'var(--color-grey-pale)' }}>
+        <td colSpan={9} style={{ padding: '6px 12px', fontSize: 11, color: 'var(--color-meta)', fontStyle: 'italic' }}>
+          {effPhasingSource === 'land_cash'
+            ? 'Phased on the land cash outflow, including any deferred parcel schedule. There is no curve to set here.'
+            : 'Phased on sales cash collected, so it arises when cash arrives rather than across the build. There is no curve to set here.'}
+        </td>
+      </tr>
+    )}
+    {displayPhasing === 'manual' && (() => {
       const periods = Math.max(1, effEndPeriod - effStartPeriod + 1);
       const sumOk = Math.abs(distSum - 100) < 0.5;
       // Money per period = total × pct/100 when sum~=100; otherwise
@@ -1087,8 +1153,16 @@ function CostRow({
           <td colSpan={9} style={{ padding: '8px 12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>
-                Manual %
+                {curveIsReadOnly ? 'Asset curve %' : 'Manual %'}
               </strong>
+              {curveIsReadOnly && (
+                <span
+                  data-testid={`cost-${asset.id}-${line.id}-curve-source`}
+                  style={{ fontSize: 10, color: 'var(--color-navy)', fontStyle: 'italic' }}
+                >
+                  in force from the asset curve, edit it above the table
+                </span>
+              )}
               {Array.from({ length: periods }, (_, i) => {
                 const periodIdx = effStartPeriod + i;
                 return (
@@ -1098,7 +1172,7 @@ function CostRow({
                       max={100}
                       value={effDistribution[i] ?? 0}
                       onChange={(n) => updateDistAt(i, n)}
-                      disabled={isLocked}
+                      disabled={isLocked || curveIsReadOnly}
                       data-testid={`cost-${asset.id}-${line.id}-manual-${i}`}
                       style={{ ...inputStyle, width: 60, fontSize: 11 }}
                     />

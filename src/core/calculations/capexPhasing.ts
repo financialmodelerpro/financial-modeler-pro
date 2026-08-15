@@ -128,6 +128,30 @@ export function projectAxisToPhaseLocal(
   return out;
 }
 
+/**
+ * The parcel-driven land value lines, which take NO part in phasing at all.
+ *
+ * Land cash timing comes from the parcel schedule (the payment terms on the
+ * parcel, including a deferred schedule), not from a curve. Letting these lines
+ * inherit an asset curve, or presenting them with a phasing control and an
+ * inheritance badge, implies a decision the user does not actually have.
+ *
+ * Identified by base id rather than by stage or method, deliberately:
+ *   - `stage === 'land'` would also catch RETT, which is a land-stage cost that
+ *     MUST follow the land cash outflow and therefore does participate.
+ *   - `method === 'percent_of_cash_land'` would also catch RETT, for the same
+ *     reason: RETT is charged on the land value.
+ * The two seeded land lines are the parcel value itself, and they are the only
+ * lines whose timing is not a choice.
+ *
+ * Shared by the engine and the row UI so the control and the maths cannot
+ * disagree about which lines are exempt.
+ */
+export function isParcelDrivenLandLine(line: { id: string }): boolean {
+  const base = line.id.split('__')[0];
+  return base === 'land-cash' || base === 'land-inkind';
+}
+
 /** The source a line resolves under, master line merged with any per-asset
  *  override. Absent everywhere means `inherit`, which is what every
  *  pre-existing line carries. */
@@ -156,19 +180,57 @@ export function resolveLinePhasing(
   ctx: CapexPhasingContext,
   override?: CostOverride,
 ): PhasingDecision {
+  // Land value lines never participate: their timing is the parcel schedule.
+  if (isParcelDrivenLandLine(line)) {
+    return {
+      lineId: line.id,
+      effective: fallback,
+      source: 'own',
+      resolution: {
+        value: fallback, kind: 'fallback', brokenOut: false, degraded: false,
+        reason: 'Land cash timing comes from the parcel schedule, not from a phasing curve.',
+      },
+    };
+  }
   const source = resolvePhasingSource(line, override);
 
   // The asset curve keeps the line's OWN window: it says how to spread, not
   // when to start. A followed source says both (see the header).
+  //
+  // THE CURVE IS INDEXED BY ABSOLUTE PERIOD, AND MUST BE SLICED TO THE WINDOW.
+  // `distribute('manual', span, weights)` reads `weights[i]` where i counts
+  // from the START OF THE LINE'S WINDOW, not from period 0. The asset curve is
+  // authored against periods P0..Pn (that is how the control labels it), so
+  // handing the whole array to a line that starts at P1 applied the P0 weight
+  // to P1, shifted every later weight one period early, and dropped the last
+  // one off the end. Measured before this fix: a typed curve of
+  // 0 / 10 / 30 / 40 / 20 distributed a P1..P4 line as 0 / 12.5 / 37.5 / 50,
+  // which is money moving on a curve the user never entered.
   const assetCurve = asset.capexPhasing;
-  const group: EffectivePhasing | undefined = assetCurve
-    ? {
-        phasing: assetCurve.phasing,
-        distribution: assetCurve.distribution,
-        startPeriod: fallback.startPeriod,
-        endPeriod: fallback.endPeriod,
+  let group: EffectivePhasing | undefined;
+  // Set when a curve EXISTS but covers none of this line's window, so the
+  // resolution can say "the asset curve does not cover this row" rather than
+  // "the asset curve is not set", which would be false and misdirecting.
+  let groupEmpty = false;
+  if (assetCurve) {
+    if (assetCurve.phasing !== 'manual') {
+      group = { phasing: assetCurve.phasing, startPeriod: fallback.startPeriod, endPeriod: fallback.endPeriod };
+    } else {
+      const full = assetCurve.distribution ?? [];
+      const slice = full.slice(fallback.startPeriod, fallback.endPeriod + 1);
+      const sum = slice.reduce((s, v) => s + (v ?? 0), 0);
+      // A window the curve says nothing about (all zero, or off the end of the
+      // array) must NOT become a zero curve: that would distribute nothing and
+      // the line's money would vanish. Leaving `group` undefined degrades to
+      // the line's own setting, and the shared mechanism reports it.
+      if (sum > 0) {
+        group = { phasing: 'manual', distribution: slice, startPeriod: fallback.startPeriod, endPeriod: fallback.endPeriod };
+      } else {
+        group = undefined;
+        groupEmpty = true;
       }
-    : undefined;
+    }
+  }
 
   const resolution = resolveInheritance<EffectivePhasing>({
     mode: source,
@@ -179,6 +241,7 @@ export function resolveLinePhasing(
       collections: () => shapeToPhasing(ctx.collectionsPerPeriod),
     },
     fallback,
+    groupEmpty,
     groupLabel: 'the asset curve',
     derivedLabels: SOURCE_LABELS,
   });

@@ -74,6 +74,18 @@ export interface InheritanceRequest<T> {
   /** What the member had before any of this existed. Always defined, so
    *  resolution can never fail. */
   fallback: T;
+  /**
+   * True when a group value EXISTS but has nothing to give this particular
+   * member (2026-08-15b). Distinct from `group === undefined`, which means no
+   * group is set at all.
+   *
+   * Both end at the fallback, so the VALUE is the same either way, but the two
+   * are different situations and a reason that says "the group value is not
+   * set" when it plainly is would send a user to look in the wrong place. The
+   * capex case that found this: an asset curve is set, and a line's window
+   * falls outside the periods the curve covers.
+   */
+  groupEmpty?: boolean;
   /** Human label for the group, used in `reason` (e.g. "the asset curve"). */
   groupLabel?: string;
   /** Human labels for the derived sources, used in `reason`. */
@@ -122,8 +134,14 @@ export function resolveInheritance<T>(req: InheritanceRequest<T>): Resolution<T>
       reason: `Inherits ${groupLabel}.` };
   }
 
-  // 4. FALLBACK. No group set: the member keeps exactly what it had, which is
-  //    what makes this whole mechanism inert on an untouched project.
+  // 4. FALLBACK. The member keeps exactly what it had, which is what makes
+  //    this whole mechanism inert on an untouched project. Two ways to get
+  //    here, and they are reported differently because they send the user to
+  //    different places.
+  if (req.groupEmpty) {
+    return { value: req.fallback, kind: 'fallback', brokenOut: false, degraded: true,
+      reason: `${groupLabel} does not cover this row, so it keeps its own setting.` };
+  }
   return { value: req.fallback, kind: 'fallback', brokenOut: false, degraded: false,
     reason: `Uses its own setting (${groupLabel} is not set).` };
 }

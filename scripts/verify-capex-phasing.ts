@@ -27,7 +27,7 @@ import path from 'node:path';
 import { resolveInheritance } from '../src/hubs/modeling/platforms/refm/lib/state/inheritance';
 import {
   shapeToPhasing, resolvePhasingSource, resolveLinePhasing,
-  capexPhasingIsInert, projectAxisToPhaseLocal,
+  capexPhasingIsInert, projectAxisToPhaseLocal, isParcelDrivenLandLine,
 } from '../src/core/calculations/capexPhasing';
 import {
   makeDefaultCostLines, makeBlankCostLines, makeDefaultPhase, makeDefaultProject,
@@ -146,6 +146,37 @@ check('C2 an asset curve is inherited, keeping the line WINDOW', (() => {
   const e = resolveLinePhasing(bareLine(), FALLBACK, asset({ capexPhasing: { phasing: 'manual', distribution: [1, 2, 3] } }), {}).effective;
   return e.phasing === 'manual' && e.startPeriod === 1 && e.endPeriod === 3;
 })());
+// ── The alignment bug (2026-08-15b) ───────────────────────────────────────
+// The asset curve is authored against ABSOLUTE periods P0..Pn, but
+// distribute('manual', span, weights) reads weights[i] counting from the START
+// OF THE WINDOW. Handing the whole array to a line starting at P1 applied the
+// P0 weight to P1, shifted everything one period early and dropped the last
+// weight. Measured before the fix: a typed 0/10/30/40/20 became
+// 0 / 12.5 / 37.5 / 50 on a P1..P4 line. That is money on a curve the user
+// never entered, so these checks are about the NUMBERS, not the display.
+{
+  const CURVE = [0, 10, 30, 40, 20];
+  const win = { phasing: 'even' as const, distribution: undefined, startPeriod: 1, endPeriod: 4 };
+  const e = resolveLinePhasing(bareLine(), win, asset({ capexPhasing: { phasing: 'manual', distribution: CURVE } }), {}).effective;
+  check('C2a an inherited curve is SLICED to the line window, not applied from index 0',
+    JSON.stringify(e.distribution) === JSON.stringify([10, 30, 40, 20]),
+    JSON.stringify(e.distribution));
+  check('C2b ...so the weight typed against P1 lands on P1',
+    (e.distribution?.[0] ?? 0) === 10, String(e.distribution?.[0]));
+  check('C2c ...and the last period is not dropped off the end',
+    (e.distribution?.[3] ?? 0) === 20, String(e.distribution?.[3]));
+  // A window the curve says nothing about must NOT become a zero curve, or the
+  // line's money disappears without a trace.
+  const far = { phasing: 'even' as const, distribution: undefined, startPeriod: 9, endPeriod: 12 };
+  const d = resolveLinePhasing(bareLine(), far, asset({ capexPhasing: { phasing: 'manual', distribution: CURVE } }), {});
+  check('C2d a window outside the curve degrades instead of zeroing the line',
+    d.resolution.degraded === true && JSON.stringify(d.effective) === JSON.stringify(far));
+  // An all-zero slice is the same hazard by a different route.
+  const zeroSlice = { phasing: 'even' as const, distribution: undefined, startPeriod: 0, endPeriod: 0 };
+  const z = resolveLinePhasing(bareLine(), zeroSlice, asset({ capexPhasing: { phasing: 'manual', distribution: CURVE } }), {});
+  check('C2e an all-zero slice degrades too (P0 carries no weight here)',
+    z.resolution.degraded === true);
+}
 check('C3 a broken-out line ignores the asset curve', (() => {
   const d = resolveLinePhasing(bareLine({ phasingSource: 'own' }), FALLBACK,
     asset({ capexPhasing: { phasing: 'manual', distribution: [1, 2, 3] } }), {});
@@ -299,6 +330,42 @@ check('E10b ...and lands in the periods the collections are in', (() => {
   const series = bd.perLinePerPeriod['follow__p1'] ?? [];
   return (series[4] ?? 0) > 0 && (series[1] ?? 0) === 0;
 })(), 'the cost must arise where the cash arrives, not across the build');
+
+// ── Land takes no part in phasing (2026-08-15b) ───────────────────────────
+// Land cash timing comes from the parcel schedule. Presenting it as a curve,
+// or letting it inherit one, implies a decision the user does not have.
+{
+  const landLine = legacyLines.find((l) => baseId(l.id) === 'land-cash')!;
+  const inKind = legacyLines.find((l) => baseId(l.id) === 'land-inkind')!;
+  check('E12a the land value lines are identified as parcel driven',
+    isParcelDrivenLandLine(landLine) && isParcelDrivenLandLine(inKind));
+  check('E12b RETT is NOT: it is a land-stage cost that DOES follow land cash',
+    !isParcelDrivenLandLine({ id: 'rett__p1' }),
+    'excluding by stage or by method would wrongly catch it');
+  check('E12c a land line never reports as broken out',
+    resolveLinePhasing(landLine, FALLBACK, asset({ capexPhasing: { phasing: 'manual', distribution: [1, 2, 3, 4, 5] } }), {})
+      .resolution.brokenOut === false);
+  check('E12d ...and keeps its own timing whatever the asset curve says', (() => {
+    const e = resolveLinePhasing(landLine, FALLBACK,
+      asset({ capexPhasing: { phasing: 'manual', distribution: [1, 2, 3, 4, 5] } }), {}).effective;
+    return JSON.stringify(e) === JSON.stringify(FALLBACK);
+  })());
+  // The money proof: land is byte-identical with and without an asset curve.
+  const landSeries = (s: string): string => JSON.stringify(
+    (JSON.parse(s) as { perLinePerPeriod: Record<string, number[]> }).perLinePerPeriod['land-cash__p1'] ?? []);
+  check('E12e land money does not move when an asset curve is set',
+    landSeries(withCurve) === landSeries(baseline), `${landSeries(withCurve)} vs ${landSeries(baseline)}`);
+}
+check('E12f the row shows no phasing control for a land line',
+  /isParcelLand \? \(/.test(SRC_COSTS_UI) && /phasing-parcel/.test(SRC_COSTS_UI));
+check('E12g ...and no inheritance badge',
+  /if \(isParcelLand\) return null;/.test(SRC_COSTS_UI));
+check('E12h the row renders the curve IN FORCE, not the stored one',
+  /const effDistribution = inheritedCurve \?\? storedDistribution;/.test(SRC_COSTS_UI));
+check('E12i ...and locks it when the asset curve is driving',
+  /disabled=\{isLocked \|\| curveIsReadOnly\}/.test(SRC_COSTS_UI));
+check('E12j the engine and the row share ONE land predicate',
+  /isParcelDrivenLandLine/.test(SRC_COSTS_UI) && /isParcelDrivenLandLine/.test(read('src/core/calculations/capexPhasing.ts')));
 
 // Totals can never move: weights sum to 1.
 const totalOf = (s: string): number => (JSON.parse(s) as { total: number }).total;
