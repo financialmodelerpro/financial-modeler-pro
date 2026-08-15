@@ -35,11 +35,11 @@ import {
   makeDefaultProject,
   makeDefaultPhase,
   makeDefaultParcel,
-  makeDefaultCostLines,
+  makeBlankCostLines,
   makeCompanionSubUnit,
   makeDefaultFinancingTranche,
 } from './module1-types';
-import { applyStrategySwitch } from './strategySwitch';
+import { applyStrategySwitch, assetHasStrategyAssumptions } from './strategySwitch';
 import {
   applyOverrides,
   buildOverrides,
@@ -374,7 +374,9 @@ function syncCompanionSubUnits(assets: Asset[], subUnits: SubUnit[]): SubUnit[] 
 const defaultPhase = makeDefaultPhase();
 const defaultParcel = makeDefaultParcel(undefined, defaultPhase.id);
 const defaultTranche = makeDefaultFinancingTranche('tranche_1', defaultPhase.id);
-const defaultCostLines = makeDefaultCostLines(defaultPhase.id, defaultPhase.constructionPeriods);
+// 2026-08-15: the catalog, with every editable rate at zero. Nothing enters the
+// costing that the user did not type. See CostLineSeedValues in module1-types.
+const defaultCostLines = makeBlankCostLines(defaultPhase.id, defaultPhase.constructionPeriods);
 
 export const DEFAULT_MODULE1_STATE: HydrateSnapshot = {
   project: makeDefaultProject(),
@@ -537,15 +539,17 @@ export function createModule1Store() {
     // is needed. Auto-replication (Pass 10 Fix 2) is reverted here.
     //
     // When the phase has no cost lines yet (first asset in a brand-
-    // new phase), seed the master catalog via makeDefaultCostLines so
-    // the asset's Total column has something to display from period 0.
+    // new phase), seed the master catalog via makeBlankCostLines so the
+    // asset's Total column has the standard rows from period 0. Rates are
+    // ZERO (2026-08-15): the rows are a checklist to fill in, not costs the
+    // user is opted into by adding an asset.
     addAsset: (asset) => set((s) => {
       const phaseHasLines = s.costLines.some((c) => c.phaseId === asset.phaseId);
       if (phaseHasLines) {
         return { assets: [...s.assets, asset] };
       }
       const phase = s.phases.find((p) => p.id === asset.phaseId);
-      const seed = makeDefaultCostLines(asset.phaseId, phase?.constructionPeriods ?? 24);
+      const seed = makeBlankCostLines(asset.phaseId, phase?.constructionPeriods ?? 24);
       return {
         assets: [...s.assets, asset],
         costLines: [...s.costLines, ...seed],
@@ -597,15 +601,25 @@ export function createModule1Store() {
       // `next` already carries the new strategy value; applyStrategySwitch is
       // handed the ORIGINAL assets so it can read the outgoing strategy off the
       // asset itself, and it writes the new value as part of the transition.
-      const res = applyStrategySwitch(
-        { assets: s.assets, subUnits: s.subUnits, costLines: s.costLines, costOverrides: s.costOverrides },
-        id,
-        after.strategy,
-      );
+      const slice = { assets: s.assets, subUnits: s.subUnits, costLines: s.costLines, costOverrides: s.costOverrides };
+      // 2026-08-15: the REVIEW is only warranted when the asset already carries
+      // assumptions. Measured against the state BEFORE the switch, so picking a
+      // strategy on a freshly added asset (which is created as 'Sell', making
+      // the first pick a "change") is silent. The switch itself still runs: it
+      // is a no-op on an empty asset apart from the Sell + Manage companion,
+      // which must still be created.
+      const hadAssumptions = assetHasStrategyAssumptions(slice, id);
+      const res = applyStrategySwitch(slice, id, after.strategy);
       // Any OTHER field in the same patch (a rename alongside the strategy
       // change) still has to land, so re-apply the patch on top.
       const assets = res.assets.map((a) => (a.id === id
-        ? { ...a, ...patch, strategy: after.strategy, retainedByStrategy: a.retainedByStrategy, opex: a.opex, strategyReview: { ...res.report, changedAt: new Date().toISOString() } }
+        ? {
+            ...a, ...patch, strategy: after.strategy,
+            retainedByStrategy: a.retainedByStrategy, opex: a.opex,
+            strategyReview: hadAssumptions
+              ? { ...res.report, changedAt: new Date().toISOString() }
+              : undefined,
+          }
         : a));
       // Companion sub-unit mirroring, exactly as before, so a newly seeded
       // companion shows the parent's Sellable rows with ADR = 0.

@@ -191,11 +191,22 @@ console.log('\n[6/7] Locked land lines have correct shape');
   if (landInKind?.method === 'percent_of_inkind_land' && landInKind.value === 100) {
     pass('land-inkind method=percent_of_inkind_land, value=100');
   } else fail('land-inkind shape', `method=${landInKind?.method}, value=${landInKind?.value}`);
-  // Construction BUA defaults: method=rate_per_bua, value=4500, stage=hard.
+  // Construction BUA: method=rate_per_bua, stage=hard, and a rate of ZERO.
+  //
+  // 2026-08-15: this asserted value=4500, the reference benchmark rate. The seed
+  // now ships blank on every product path, because the rows arrive switched On
+  // and a seeded rate is indistinguishable from a typed one, so a user who did
+  // not notice them was costing the scheme at a rate they never chose. The
+  // SHAPE is still pinned here; only the rate changed, and it must be zero.
   const conBua = lines.find((c) => c.id === 'construction-bua__phase-1');
-  if (conBua?.method === 'rate_per_bua' && conBua.value === 4500 && conBua.stage === 'hard') {
-    pass('construction-bua rate_per_bua x 4500 (hard stage)');
+  if (conBua?.method === 'rate_per_bua' && conBua.value === 0 && conBua.stage === 'hard') {
+    pass('construction-bua rate_per_bua, BLANK rate (hard stage)');
   } else fail('construction-bua shape', `method=${conBua?.method}, value=${conBua?.value}, stage=${conBua?.stage}`);
+  // The land rows are the deliberate exception: locked derivations of the
+  // parcels the user typed, asserted at 100 above. Nothing else may carry a rate.
+  const seededRates = lines.filter((c) => c.isLocked !== true && c.value !== 0);
+  if (seededRates.length === 0) pass('no editable seeded line carries a rate');
+  else fail('blank seed', seededRates.map((c) => `${c.id}=${c.value}`).join(', '));
 }
 
 // ── Section 7: em-dash sweep ─────────────────────────────────────────────

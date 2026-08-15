@@ -28,7 +28,7 @@ import {
   type SubUnit,
   type FinancingTranche,
   type LandAllocationMode,
-  makeDefaultCostLines,
+  makeBlankCostLines,
   makeDefaultFinancingTranche,
 } from '../state/module1-types';
 
@@ -160,8 +160,12 @@ export function buildWizardSnapshot(draft: WizardDraft): HydrateSnapshot {
   const assets: Asset[] = [];
   const subUnits: SubUnit[] = [];
 
-  // Default cost lines for every phase
-  const costLines = phases.flatMap((p) => makeDefaultCostLines(p.id));
+  // Cost line CATALOG for every phase, with every editable rate at zero
+  // (2026-08-15). A new project used to arrive with the benchmark rates already
+  // in the model: the rows are On by default, so a user who did not notice them
+  // was costing the scheme at rates they never chose. The catalog still ships
+  // (the user gets the standard lines to fill in), the numbers do not.
+  const costLines = phases.flatMap((p) => makeBlankCostLines(p.id));
 
   // Default financing tranche per phase
   const financingTranches: FinancingTranche[] = phases.map((p, i) =>

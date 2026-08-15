@@ -74,7 +74,7 @@ import { PercentageInput } from '../ui/PercentageInput';
 import InputLabel from '../ui/InputLabel';
 import { CELL_HEADER, TABLE_TITLE } from './_shared/tableStyles';
 import { StrategyChangeConfirm, StrategyReviewBanner } from './_shared/StrategyChangeNotice';
-import { applyStrategySwitch, type StrategySwitchReport } from '../../lib/state/strategySwitch';
+import { applyStrategySwitch, assetHasStrategyAssumptions, type StrategySwitchReport } from '../../lib/state/strategySwitch';
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 const inputStyle: React.CSSProperties = {
@@ -1132,11 +1132,17 @@ function AssetCard({
   const onStrategyPick = (to: AssetStrategy): void => {
     if (to === asset.strategy) return;
     const st = useModule1Store.getState();
-    const { report } = applyStrategySwitch(
-      { assets: st.assets, subUnits: st.subUnits, costLines: st.costLines, costOverrides: st.costOverrides },
-      asset.id,
-      to,
-    );
+    const slice = { assets: st.assets, subUnits: st.subUnits, costLines: st.costLines, costOverrides: st.costOverrides };
+    // 2026-08-15: an asset is created as 'Sell', so the user's FIRST pick from
+    // this dropdown is technically a change. There is nothing to preview and
+    // nothing to review on an asset with no assumptions yet, so write it
+    // straight through. Same predicate the store uses for the banner, so the
+    // dialog and the banner cannot disagree.
+    if (!assetHasStrategyAssumptions(slice, asset.id)) {
+      onUpdate({ strategy: to });
+      return;
+    }
+    const { report } = applyStrategySwitch(slice, asset.id, to);
     setPendingSwitch(report);
   };
 

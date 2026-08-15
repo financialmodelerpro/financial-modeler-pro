@@ -2814,10 +2814,38 @@ export function isStandardCostLineBaseId(baseId: string): baseId is StandardCost
   return (STANDARD_COST_LINE_IDS as readonly string[]).includes(baseId);
 }
 
+/**
+ * How the seeded catalog's `value` field is filled (2026-08-15).
+ *
+ * 'reference' is the historical behaviour: the benchmark rates (4,500 per sqm
+ * BUA, 25,000 per bay, 6% professional fee and so on). Test fixtures and the
+ * verifier suite build models on those figures, so they stay available and
+ * unchanged under this name.
+ *
+ * 'blank' is what a REAL project gets. The catalog is identical in every other
+ * respect (names, methods, stages, allocation bases, period windows, the
+ * `selectedLineIds` wiring on the percentage lines); only the rate is zero. The
+ * reason is that a seeded rate is indistinguishable from a typed one once the
+ * project is open: the rows arrive switched On, they are deletable rather than
+ * locked, and a user who does not notice them is silently costing a scheme at
+ * 4,500 per sqm they never chose. A zero rate contributes nothing until it is
+ * typed, which is the only default that cannot be wrong.
+ *
+ * The two LOCKED land rows are exempt and keep their 100. They are not cost
+ * assumptions, they are the derivation that carries the parcel value the user
+ * entered in the wizard into the model, they cannot be switched off or deleted,
+ * and zeroing them would drop land out of the project entirely.
+ */
+export type CostLineSeedValues = 'reference' | 'blank';
+
 // constructionPeriods is read so endPeriod can default to the phase
 // duration. If 0 (no phase yet), endPeriod defaults to 24 to match
 // makeDefaultPhase.
-export function makeDefaultCostLines(phaseId: string, constructionPeriods = 24): CostLine[] {
+export function makeDefaultCostLines(
+  phaseId: string,
+  constructionPeriods = 24,
+  values: CostLineSeedValues = 'reference',
+): CostLine[] {
   const cp = Math.max(1, constructionPeriods);
   // T3-defaults Fix 4 (2026-05-12): construction-line endPeriod defaults
   // to cp+1 (one-period buffer beyond construction) per brief so heavy
@@ -2829,7 +2857,7 @@ export function makeDefaultCostLines(phaseId: string, constructionPeriods = 24):
   // so a multi-phase project produces globally unique ids.
   // selectedLineIds reference the phase-scoped peer ids in the SAME phase.
   const id = (baseId: StandardCostLineId): string => composeLineId(baseId, phaseId);
-  return [
+  const catalog: CostLine[] = [
     // ── Land (cash + in-kind, both locked: derive from parcels) ─────────
     {
       id: id('land-cash'), phaseId, name: 'Land (Cash)',
@@ -2906,6 +2934,19 @@ export function makeDefaultCostLines(phaseId: string, constructionPeriods = 24):
       selectedLineIds: [id('construction-bua'), id('construction-parking')],
     },
   ];
+  if (values === 'reference') return catalog;
+  // Blank: the catalog structure survives, the rates do not. isLocked is the
+  // discriminator rather than the line id, so a line that is genuinely a
+  // derivation (the two land rows) keeps its coefficient and everything the
+  // user can edit, switch off or delete starts at zero.
+  return catalog.map((line) => (line.isLocked ? line : { ...line, value: 0 }));
+}
+
+/** The standard catalog with every editable rate at zero. What a NEW project,
+ *  a new phase and a newly seeded legacy snapshot get, so no cost enters the
+ *  model that the user did not type. See `CostLineSeedValues`. */
+export function makeBlankCostLines(phaseId: string, constructionPeriods = 24): CostLine[] {
+  return makeDefaultCostLines(phaseId, constructionPeriods, 'blank');
 }
 
 // P10-Fix 4 (2026-05-12): companion asset factory for Sell + Manage.

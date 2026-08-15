@@ -45,7 +45,7 @@ import {
   makeDefaultProject,
   makeDefaultPhase,
   makeDefaultParcel,
-  makeDefaultCostLines,
+  makeBlankCostLines,
   makeDefaultFinancingTranche,
   makeCompanionSubUnit,
   DEFAULT_PHASE_ID,
@@ -781,7 +781,10 @@ function migrateT3DefaultCostLineSeed(snap: HydrateSnapshot): HydrateSnapshot {
   for (const phase of phases) {
     if (phaseHasLines(phase.id)) continue;
     const cp = Math.max(1, phase.constructionPeriods ?? 24);
-    seeded.push(...makeDefaultCostLines(phase.id, cp));
+    // Rates ZERO (2026-08-15). This runs on every hydrate for any phase with no
+    // lines, so it is also the path a phase added after create takes. Seeding a
+    // benchmark rate here would inject a cost into a live model on open.
+    seeded.push(...makeBlankCostLines(phase.id, cp));
   }
   if (seeded.length === 0) return snap;
   return { ...snap, costLines: [...existing, ...seeded] };
@@ -1614,8 +1617,9 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
   });
   // If after all that the project still has zero cost lines, seed the
   // M2.0d standard catalog for the first phase so the user sees something.
+  // Rates ZERO (2026-08-15), for the same reason as the seed migration above.
   if (costLines.length === 0) {
-    costLines = makeDefaultCostLines(firstPhaseId, phases[0].constructionPeriods);
+    costLines = makeBlankCostLines(firstPhaseId, phases[0].constructionPeriods);
   }
 
   const costOverrides: CostOverride[] = Array.isArray(o.costOverrides) ? (o.costOverrides as CostOverride[]) : [];

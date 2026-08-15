@@ -41,6 +41,10 @@ import {
   applyStrategySwitch, CATEGORY_BY_STRATEGY, REVENUE_KEY_BY_STRATEGY,
   type StrategySwitchState,
 } from '../src/hubs/modeling/platforms/refm/lib/state/strategySwitch';
+import {
+  useModule1Store,
+  DEFAULT_MODULE1_STATE,
+} from '../src/hubs/modeling/platforms/refm/lib/state/module1-store';
 import { buildExcelSampleState } from './excelSampleState';
 
 let pass = 0, fail = 0;
@@ -277,7 +281,42 @@ async function main(): Promise<void> {
     /applyStrategySwitch\(/.test(store));
   check('the store no longer deletes the companion on leaving Sell + Manage',
     !/leavesSellManage/.test(store));
-  check('the store records the report as a review banner', /strategyReview: \{ \.\.\.res\.report/.test(store));
+  // 2026-08-15: this was a grep for the literal `strategyReview: { ...res.report`,
+  // which broke the moment the assignment became conditional even though the
+  // behaviour was intact. It is now behavioural, and asserts BOTH halves of the
+  // rule: the banner is recorded on a real change, and is NOT recorded on the
+  // first strategy pick for a new asset (which was firing a four-item review on
+  // an asset with nothing on it, because a new asset is created as 'Sell' and
+  // needsReview means "active but empty").
+  {
+    const phaseId = DEFAULT_MODULE1_STATE.phases[0].id;
+    const newAsset = (id: string): any => ({
+      id, phaseId, name: id, type: '', strategy: 'Sell', visible: true,
+      gfaSqm: 0, buaSqm: 0, sellableBuaSqm: 0, parkingBaysRequired: 0, status: 'planned',
+    });
+    const st = useModule1Store.getState();
+
+    st.hydrate({ ...DEFAULT_MODULE1_STATE, assets: [], subUnits: [] });
+    st.addAsset(newAsset('fresh'));
+    useModule1Store.getState().updateAsset('fresh', { strategy: 'Operate' });
+    const fresh = useModule1Store.getState().assets.find((a) => a.id === 'fresh');
+    check('the store raises NO review banner on a first strategy pick',
+      fresh?.strategyReview === undefined,
+      JSON.stringify(fresh?.strategyReview?.needsReview));
+    check('...and the strategy still changed', fresh?.strategy === 'Operate');
+
+    st.hydrate({ ...DEFAULT_MODULE1_STATE, assets: [], subUnits: [] });
+    st.addAsset(newAsset('built'));
+    useModule1Store.getState().addSubUnit({
+      id: 'su_built', assetId: 'built', name: 'Apartments', category: 'Sellable',
+      metric: 'units', metricValue: 40, unitArea: 100, unitPrice: 900_000,
+    } as any);
+    useModule1Store.getState().updateAsset('built', { strategy: 'Operate' });
+    const built = useModule1Store.getState().assets.find((a) => a.id === 'built');
+    check('the store records the report as a review banner on a REAL change',
+      built?.strategyReview !== undefined
+      && (built?.strategyReview?.needsReview.length ?? 0) > 0);
+  }
   check('the dropdown previews instead of writing straight through',
     /onChange=\{\(e\) => onStrategyPick\(/.test(ui) && !/onChange=\{\(e\) => onUpdate\(\{ strategy:/.test(ui));
   check('the preview is a DRY RUN of the same pure function', /applyStrategySwitch\(/.test(ui));

@@ -78,6 +78,7 @@ import {
   writeActiveProjectId,
 } from './cache';
 import { snapshotsEqual } from './snapshot-diff';
+import { resolveVersionDisplayName } from './versionNaming';
 
 const DEBOUNCE_MS = 1500;
 
@@ -153,6 +154,16 @@ function computeAssetMix(snapshot: HydrateSnapshot): string[] {
 }
 
 // ── attach / detach ─────────────────────────────────────────────────────────
+/** Identity of a saved version, for the shell to NAME what is open (2026-08-15).
+ *  The shell used to look this up in a `versions` map that was never populated,
+ *  so every project read as "Unsaved draft". The loader has the row in hand, so
+ *  it hands the identity back rather than making the shell find it again. */
+export interface ActiveVersionInfo {
+  id:        string;
+  name:      string;
+  createdAt: string;
+}
+
 export interface AttachResult {
   loaded:   'server' | 'cache' | 'none';
   error:    string | null;
@@ -160,6 +171,9 @@ export interface AttachResult {
   /** Version row id the session was anchored to (for the
    *  RealEstatePlatform shell to display as the "active version"). */
   versionId?: string | null;
+  /** Name + created date of that same row. Null when the project was served
+   *  from the offline cache, which cannot know which version it holds. */
+  version?: ActiveVersionInfo | null;
 }
 
 /**
@@ -212,6 +226,7 @@ export async function attachToProject(projectId: string): Promise<AttachResult> 
   let error:  string | null          = null;
   let migrationNotice: string | undefined;
   let versionId: string | null = null;
+  let version: ActiveVersionInfo | null = null;
 
   // Try server first.
   const serverRes = await loadProject(projectId);
@@ -228,6 +243,11 @@ export async function attachToProject(projectId: string): Promise<AttachResult> 
     sessionBaseVersionId = serverRes.data.version.id;
     sessionBaseLabel     = serverRes.data.version.label ?? null;
     versionId = serverRes.data.version.id;
+    version = {
+      id:        serverRes.data.version.id,
+      name:      resolveVersionDisplayName(serverRes.data.version) ?? `Version ${serverRes.data.version.version_number}`,
+      createdAt: serverRes.data.version.created_at,
+    };
     loaded = 'server';
     migrationNotice = checked.migrationNotice;
     if (checked.error) error = checked.error;
@@ -264,7 +284,7 @@ export async function attachToProject(projectId: string): Promise<AttachResult> 
   // this as a notice; the user names the session and the save lands
   // through the editing path.
   void migrationNotice;
-  return { loaded, error, migrationNotice, versionId };
+  return { loaded, error, migrationNotice, versionId, version };
 }
 
 /**
@@ -325,8 +345,9 @@ export function detach(): void {
 export async function loadVersionInto(
   projectId: string,
   versionId: string,
-): Promise<{ error: string | null }> {
+): Promise<{ error: string | null; version?: ActiveVersionInfo | null }> {
   isLoading = true;
+  let version: ActiveVersionInfo | null = null;
   const res = await loadVersion(projectId, versionId);
   if (res.data?.version) {
     const snap = hydrationFromAnySnapshot(res.data.version.snapshot);
@@ -341,9 +362,14 @@ export async function loadVersionInto(
     hasFiredNeedsName    = false;
   isStartingSession    = false;
   editingEnabled       = false;  // loading a version opens it in VIEW mode
+    version = {
+      id:        res.data.version.id,
+      name:      resolveVersionDisplayName(res.data.version) ?? `Version ${res.data.version.version_number}`,
+      createdAt: res.data.version.created_at,
+    };
   }
   isLoading = false;
-  return { error: res.error };
+  return { error: res.error, version };
 }
 
 // ── Session controls (called from RealEstatePlatform) ───────────────────────

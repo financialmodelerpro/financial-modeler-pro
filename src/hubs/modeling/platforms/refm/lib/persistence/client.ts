@@ -29,6 +29,9 @@ import type { Deck } from '../reports/deck/types';
 // but kept as its own alias so consumers don't need to know the
 // internal shape.
 export type RefmProjectSummary = RefmProjectListItem;
+// Re-exported so a consumer holding a version list does not have to reach past
+// the client into ./types for its element shape.
+export type { RefmProjectVersionListItem };
 
 export interface FetchResult<T> {
   data:  T | null;

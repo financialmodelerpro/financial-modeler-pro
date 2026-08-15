@@ -39,7 +39,9 @@ import {
   revertEditSession,
   getSessionState,
   setEditingEnabled,
+  type ActiveVersionInfo,
 } from '../lib/persistence/module1-sync';
+import { resolveVersionDisplayName } from '../lib/persistence/versionNaming';
 import { writeActiveProjectId, clearCachedSnapshot } from '../lib/persistence/cache';
 
 import Topbar from './Topbar';
@@ -382,6 +384,18 @@ export default function RealEstatePlatform(): React.JSX.Element {
   const [serverProjects, setServerProjects] = useState<pclient.RefmProjectSummary[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [activeVersionId, setActiveVersionId] = useState<string | null>(null);
+  // 2026-08-15: the NAME of the version currently open. Previously the shell
+  // looked this up in StorageProject.versions, a map that projectsToStorageShape
+  // has always written as `{}` (the project LIST endpoint returns a version
+  // COUNT, never the rows), so the lookup could only ever miss and the topbar,
+  // the sidebar, the Edit-choice dialog and the export dialog all read
+  // "Unsaved draft" no matter which saved version was open. The loaders have the
+  // row in hand, so they hand its identity over directly.
+  const [activeVersion, setActiveVersion] = useState<ActiveVersionInfo | null>(null);
+  // The project's real version list. Feeds the auto-name's X.Y rollover, which
+  // was reading the same empty map and therefore restarted at v1.0 on every
+  // save. Refreshed whenever a version is created.
+  const [projectVersions, setProjectVersions] = useState<pclient.RefmProjectVersionListItem[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // Save state
@@ -489,7 +503,14 @@ export default function RealEstatePlatform(): React.JSX.Element {
       const detail = (e as CustomEvent<{ versionId?: string; label?: string }>).detail;
       const session = getSessionState();
       setEditingVersionLabel(detail?.label ?? session.editingLabel);
-      setActiveVersionId(detail?.versionId ?? session.editingVersionId ?? null);
+      const startedId = detail?.versionId ?? session.editingVersionId ?? null;
+      const startedLabel = detail?.label ?? session.editingLabel ?? null;
+      setActiveVersionId(startedId);
+      // The auto-started session IS a saved version row, so name the selector
+      // after it rather than leaving it reading "Unsaved draft".
+      setActiveVersion(startedId
+        ? { id: startedId, name: startedLabel ?? 'Version', createdAt: new Date().toISOString() }
+        : null);
       setSessionStartedToast(detail?.label ?? session.editingLabel ?? null);
       setHasUnsaved(true);
       setLastSavedAt(new Date().toLocaleTimeString());
@@ -519,6 +540,14 @@ export default function RealEstatePlatform(): React.JSX.Element {
   //   4. Only then flip activeProjectId/activeModule, so the UI
   //      renders with the correct snapshot from the very first
   //      paint.
+  // Pull the project's real version rows. Feeds the auto-name rollover and is
+  // cheap (metadata only, no snapshots). Best effort: a failure leaves the list
+  // as it was rather than blocking the open or the save.
+  const refreshProjectVersions = useCallback(async (projectId: string): Promise<void> => {
+    const res = await pclient.listVersions(projectId);
+    if (res.data?.versions) setProjectVersions(res.data.versions);
+  }, []);
+
   const handleSelectProject = useCallback(async (projectId: string) => {
     setIsSwitchingProject(true);
     setHasUnsaved(false);
@@ -555,9 +584,11 @@ export default function RealEstatePlatform(): React.JSX.Element {
     setEditMode(false);          // ...in VIEW mode until the user clicks Edit
     setHasUnsaved(false);
     setActiveVersionId(res.versionId ?? null);
+    setActiveVersion(res.version ?? null);
     setEditingVersionLabel(null);
     setIsSwitchingProject(false);
-  }, []);
+    void refreshProjectVersions(projectId);
+  }, [refreshProjectVersions]);
 
   const handleCreateFromWizard = useCallback(
     async (draft: WizardDraft): Promise<void> => {
@@ -614,8 +645,18 @@ export default function RealEstatePlatform(): React.JSX.Element {
       setEditMode(true); // a brand-new project opens ready to edit (Setup)
       setHasUnsaved(false);
       setEditingVersionLabel(null);
+      // 2026-08-15: the create path never told the shell which version it had
+      // just made, so a brand-new project showed "Unsaved draft" over a saved
+      // v1. The create response carries the row, so name it from there.
+      setActiveVersionId(res.data.version.id);
+      setActiveVersion({
+        id:        res.data.version.id,
+        name:      resolveVersionDisplayName(res.data.version) ?? `Version ${res.data.version.version_number}`,
+        createdAt: res.data.version.created_at,
+      });
+      void refreshProjectVersions(res.data.project.id);
     },
-    [ent, graceReadOnly],
+    [ent, graceReadOnly, refreshProjectVersions],
   );
 
   // Archive / unarchive a project (entitlement cap). Archive frees a slot;
@@ -647,6 +688,8 @@ export default function RealEstatePlatform(): React.JSX.Element {
     detachSync();
     setActiveProjectId(null);
     setActiveVersionId(null);
+    setActiveVersion(null);
+    setProjectVersions([]);
     if (activeProjectId) clearCachedSnapshot(activeProjectId);
     writeActiveProjectId(null);
     useModule1Store.getState().hydrate({ ...DEFAULT_MODULE1_STATE });
@@ -664,6 +707,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
     }
     setActiveProjectId(projectId);
     setActiveVersionId(versionId);
+    setActiveVersion(res.version ?? null);
     setActiveTab('project-phases');
     setActiveModule('overview'); // loading a version lands on its Overview
     setEditMode(false);          // ...in VIEW mode
@@ -725,8 +769,17 @@ export default function RealEstatePlatform(): React.JSX.Element {
   // (used by in-place and load-for-edit). The sync layer has already enabled its
   // autosave subscriber; this flips the UI lock off.
   const enterEditMode = useCallback((versionId: string | null): void => {
-    if (versionId) setActiveVersionId(versionId);
-    setEditingVersionLabel(getSessionState().editingLabel);
+    const label = getSessionState().editingLabel;
+    if (versionId) {
+      setActiveVersionId(versionId);
+      // Editing in place keeps the open version, so its name must survive. Only
+      // re-derive when the session moved to a DIFFERENT row, and then from the
+      // session's own label rather than blanking the selector back to "draft".
+      setActiveVersion((prev) => (prev && prev.id === versionId
+        ? prev
+        : { id: versionId, name: (label ?? '').trim() || 'Version', createdAt: new Date().toISOString() }));
+    }
+    setEditingVersionLabel(label);
     setEditingEnabled(true);
     setEditMode(true);
     setHasUnsaved(false);
@@ -741,6 +794,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
     if (res.error) { setLoadError(res.error); return; }
     setActiveProjectId(projectId);
     setActiveVersionId(versionId);
+    setActiveVersion(res.version ?? null);
     setActiveTab('project-phases');
     setActiveModule('overview');
     const ip = startEditInPlace();
@@ -806,10 +860,20 @@ export default function RealEstatePlatform(): React.JSX.Element {
       }
       if (res.versionId) {
         setActiveVersionId(res.versionId);
-        setEditingVersionLabel(getSessionState().editingLabel);
+        const label = getSessionState().editingLabel;
+        setEditingVersionLabel(label);
+        // Name the selector after the version just written / promoted.
+        setActiveVersion({
+          id:        res.versionId,
+          name:      (label ?? '').trim() || result.label.trim() || 'Version',
+          createdAt: new Date().toISOString(),
+        });
         // Refresh the picker tile in case assetMix shifted on this save.
         const listRes = await pclient.listProjects();
         if (listRes.data?.projects) setServerProjects(listRes.data.projects);
+        // ...and the version list, so the NEXT auto-name advances the X.Y
+        // rollover from the version just created instead of restarting at 1.0.
+        if (activeProjectId) void refreshProjectVersions(activeProjectId);
       }
       setHasUnsaved(true);
       setLastSavedAt(new Date().toLocaleTimeString());
@@ -819,7 +883,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
       setEditMode(true);
       setNameVersionModalOpen(false);
     },
-    [nameVersionModalMode],
+    [nameVersionModalMode, activeProjectId, refreshProjectVersions],
   );
 
   const handleNameVersionCancel = useCallback((): void => {
@@ -854,9 +918,12 @@ export default function RealEstatePlatform(): React.JSX.Element {
 
   const storage: StorageShape = projectsToStorageShape(serverProjects, activeProjectId, activeVersionId);
   const activeProjectData = activeProjectId ? storage.projects[activeProjectId] : null;
+  // Named from the loaded version row, not from StorageProject.versions (which
+  // is always empty). Guarded on activeVersionId so a stale name can never
+  // outlive the version it belongs to.
   const activeVersionData =
-    activeProjectData && activeVersionId
-      ? activeProjectData.versions[activeVersionId] ?? null
+    activeVersion && activeVersionId === activeVersion.id
+      ? { name: activeVersion.name, createdAt: activeVersion.createdAt, data: null as unknown }
       : null;
 
   const onLockedModuleClick = useCallback(
@@ -1605,13 +1672,20 @@ export default function RealEstatePlatform(): React.JSX.Element {
           onCancel={() => setEditChoiceOpen(false)}
         />
       )}
+      {/* existingVersions carries the REAL version rows (2026-08-15). It used to
+          read the always-empty StorageProject.versions map, so
+          getNextVersionNumber saw an empty list and every version on every
+          project was auto-named v1.0 with no rollover. */}
       <NameVersionModal
         open={nameVersionModalOpen}
         mode={nameVersionModalMode}
         defaultLabel={defaultSessionLabel()}
         currentLabel={editingVersionLabel}
         projectName={activeProjectData?.name ?? null}
-        existingVersions={Object.values(activeProjectData?.versions ?? {}).map((v) => ({ name: v.name, createdAt: v.createdAt }))}
+        existingVersions={projectVersions.map((v) => ({
+          name: v.label ?? (v.version_label ? `_v${v.version_label}_` : `Version ${v.version_number}`),
+          createdAt: v.created_at,
+        }))}
         discardOnCancel={!getSessionState().editingVersionId}
         onConfirm={handleNameVersionConfirm}
         onCancel={handleNameVersionCancel}

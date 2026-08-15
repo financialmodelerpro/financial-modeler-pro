@@ -309,3 +309,49 @@ export function applyStrategySwitch(
 export function switchNeedsReview(report: StrategySwitchReport | null | undefined): boolean {
   return !!report && report.needsReview.length > 0;
 }
+
+/**
+ * Does this asset carry assumptions that a strategy change can disturb?
+ * (2026-08-15)
+ *
+ * WHY THIS IS SEPARATE FROM THE REPORT. `needsReview` answers "what is now
+ * active but empty", and on a brand-new asset the answer is "everything",
+ * because nothing has been entered yet. So the confirmation dialog and the
+ * review banner fired hardest in the one case where there was nothing to
+ * review: a user adds an asset (which is created as `Sell`, the default) and
+ * picks its real strategy from the dropdown for the first time. That is a first
+ * SELECTION, not a change, and it was being announced as a model operation with
+ * a four-item list of things to go and fill in.
+ *
+ * This predicate is the gate. It reads the state BEFORE the switch and asks
+ * whether the user has actually built anything on this asset yet:
+ *
+ *   - sub-units of any category, including Support
+ *   - opex lines
+ *   - any revenue configuration (sell / operate / lease)
+ *   - assumptions already parked by an earlier switch
+ *   - a companion asset (only Sell + Manage has one)
+ *   - cost overrides, or cost lines targeted at this asset specifically
+ *
+ * Useful life is deliberately NOT in the list: it is not strategy scoped and
+ * survives every switch untouched, so it is never a reason to warn.
+ *
+ * Pure, and shared by the store and the dropdown so the dialog and the banner
+ * cannot disagree about whether a switch was worth announcing.
+ */
+export function assetHasStrategyAssumptions(
+  state: StrategySwitchState,
+  assetId: string,
+): boolean {
+  const asset = state.assets.find((a) => a.id === assetId);
+  if (!asset) return false;
+  if (state.subUnits.some((u) => u.assetId === assetId)) return true;
+  if (asset.opex?.lines?.length) return true;
+  const rev = asset.revenue;
+  if (rev && (rev.sell || rev.operate || rev.lease)) return true;
+  if (asset.retainedByStrategy && Object.keys(asset.retainedByStrategy).length > 0) return true;
+  if (state.assets.some((a) => a.parentAssetId === assetId)) return true;
+  if (state.costOverrides.some((o) => o.assetId === assetId)) return true;
+  if (state.costLines.some((c) => c.targetAssetId === assetId)) return true;
+  return false;
+}

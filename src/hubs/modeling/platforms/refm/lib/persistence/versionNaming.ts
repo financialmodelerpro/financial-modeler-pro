@@ -85,6 +85,29 @@ export function buildVersionName(
   return `${proj}_v${versionLabel}_${formatVersionDate(date)}_${task}`;
 }
 
+/**
+ * The name to show for a SAVED version (2026-08-15).
+ *
+ * Every version row has an identity, so a saved version must never present as
+ * "Unsaved draft". Falls back through the three things a row can carry:
+ * the free-text label the user or the auto-namer set, then the "1.5" style
+ * version label, then the sequence number (which every row has). Returns null
+ * only when there is no row at all, which is the one case that genuinely IS a
+ * draft. `Version {n}` matches how VersionModal already labels an unlabelled
+ * row, so the topbar and the history list read the same.
+ */
+export function resolveVersionDisplayName(
+  row: { label?: string | null; version_label?: string | null; version_number?: number | null } | null | undefined,
+): string | null {
+  if (!row) return null;
+  const label = (row.label ?? '').trim();
+  if (label) return label;
+  const vLabel = (row.version_label ?? '').trim();
+  if (vLabel) return `v${vLabel}`;
+  if (typeof row.version_number === 'number') return `Version ${row.version_number}`;
+  return null;
+}
+
 export interface FieldValidation { ok: boolean; error?: string }
 
 export function validateTaskName(taskName: string): FieldValidation {
