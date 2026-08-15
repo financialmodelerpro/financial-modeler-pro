@@ -27,9 +27,11 @@ import path from 'node:path';
 import {
   assetVisibleLines, eligibleBaseLines, allowedSelectedIds,
 } from '../src/core/calculations/selectedBase';
-import { computeAssetCost } from '../src/core/calculations';
+import { computeAssetCost, deriveCostStage, deriveCostType } from '../src/core/calculations';
+import { sumCapexStages } from '../src/hubs/modeling/platforms/refm/lib/reports/capexReports';
 import {
   makeDefaultPhase, makeDefaultProject, makeBlankCostLines,
+  COST_STAGES, COST_STAGE_LABELS,
   type Asset, type CostLine,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
@@ -281,10 +283,39 @@ section('E. The reference cost cascade, built by SELECTION');
   // the platform's own "excl land" figure is stage-based, and sales marketing is
   // a soft cost, so it sits INSIDE that figure. The reference total excludes it.
   // There is no user-defined subtotal that can leave a line out.
-  const stageExclLand = 1300 + 26 + 39 + 13 + 50 + (t['dev-fee'] ?? 0) + (t['conting'] ?? 0);
-  check('E9 KNOWN GAP: the stage-based excl-land total includes sales marketing',
-    near(stageExclLand - totalExclLand, 50),
-    'the reference total cannot be reported as-is; see the note in selectedBase.ts');
+  // ── The subtotal gap, CLOSED (2026-08-16) ───────────────────────────────
+  //
+  // Marketing has its own stage, so the platform's construction-cost figure now
+  // matches the reference total exactly. Built from the SHARED report builder
+  // rather than by re-adding the numbers here, because the builder is what the
+  // screen, the PDF and the workbook all render.
+  {
+    const reportLines = cascade.map((l) => ({
+      stage: l.id === 'sales-marketing' ? 'marketing' : (l.stage as string),
+      amount: t[l.id] ?? 0,
+    }));
+    const sub = sumCapexStages(reportLines);
+    check('E9 construction cost excl land now EXCLUDES marketing',
+      near(sub.exclLand, 1524.37), `${sub.exclLand} (reference 1524.37)`);
+    check('E9a marketing is reported as its own subtotal, not hidden',
+      near(sub.marketing, 50), String(sub.marketing));
+    check('E9b nothing is lost: construction + marketing + land = total',
+      near(sub.exclLand + sub.marketing + sub.land, sub.total),
+      `${sub.exclLand} + ${sub.marketing} + ${sub.land} vs ${sub.total}`);
+    check('E9c marketing is NOT counted as a soft cost any more',
+      near(sub.soft, 26 + 39 + 13 + (t['dev-fee'] ?? 0) + (t['conting'] ?? 0)),
+      String(sub.soft));
+  }
+  // THE OTHER HALF: the stage must not disturb the cascade. Bases are
+  // selections of named lines and have never consulted a stage, so the fee and
+  // the contingency must be unchanged to the last decimal.
+  check('E9d the developer fee STILL charges on marketing',
+    near(t['dev-fee'] ?? 0, 71.4), `${t['dev-fee']} (5% of 1428, marketing included)`);
+  check('E9e the contingency STILL charges on marketing',
+    near(t['conting'] ?? 0, 74.97), `${t['conting']} (5% of 1499.40, marketing included)`);
+  check('E9f the marketing line is still offerable to both bases',
+    eligibleBaseLines(v, 'dev-fee').some((c) => c.id === 'sales-marketing')
+    && eligibleBaseLines(v, 'conting').some((c) => c.id === 'sales-marketing'));
 
   // ── THE BASE IS A LIFETIME TOTAL, NOT AN AMOUNT-TO-DATE ─────────────────
   //
@@ -321,6 +352,34 @@ section('E. The reference cost cascade, built by SELECTION');
     ? { ...l, phasing: 'manual', distribution: [0, 0, 1], startPeriod: 1, endPeriod: 3 } as CostLine : l));
   check('E13 ...and a construction line\'s own phasing does not move the fee either',
     near(totals(shifted)['dev-fee'] ?? 0, 71.4), String(totals(shifted)['dev-fee']));
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+section('F. The marketing stage');
+
+{
+  const cat = makeBlankCostLines('p1', 4);
+  const mk = cat.find((c) => c.id.startsWith('marketing'))!;
+  check('F1 the seeded Marketing line carries the marketing stage', mk.stage === 'marketing');
+  check('F2 deriveCostStage agrees (it is id-driven, and must not say soft)',
+    deriveCostStage(mk) === 'marketing');
+  // CostType is a coarser internal classification with no marketing member. Its
+  // default branch returns 'hard', so an unhandled stage would have made a
+  // selling cost read as a hard cost wherever CostType is consulted.
+  check('F3 CostType maps marketing to soft, NOT to the hard default',
+    deriveCostType(mk) === 'soft');
+  check('F4 no OTHER seeded line was moved onto the new stage',
+    cat.filter((c) => c.stage === 'marketing').length === 1);
+  // Every stage must be renderable, or a line lands on a stage with no label.
+  for (const s of COST_STAGES) {
+    check(`F5 ${s} has a label`, !!COST_STAGE_LABELS[s]);
+  }
+  check('F6 the engine buckets marketing separately', (() => {
+    const lines = [L('build', 'fixed', 1000), { ...L('mk', 'fixed', 50), stage: 'marketing' } as CostLine];
+    const bd = computeAssetCost(asset, project as never, phase as never, [] as never, [asset],
+      [] as never, lines, [], 'autoByBua');
+    return bd.byStage.marketing === 50 && bd.byStage.soft === 0 && bd.byStage.hard === 1000;
+  })());
 }
 
 // ════════════════════════════════════════════════════════════════════════════

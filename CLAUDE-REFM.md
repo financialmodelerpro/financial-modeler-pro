@@ -19,6 +19,20 @@ Four related changes to Module 1 Capex, built on ONE shared mechanism because th
 
 **Schema is additive and optional throughout**: `Asset.capexPhasing`, `CostLine.phasingSource`, `CostOverride.phasingSource`, all absent on every existing record, and absent means `inherit`, which with no asset curve means "keep what you had". No migration.
 
+## 2026-08-16b: marketing is its OWN COST STAGE, which closes the subtotal gap
+
+Follow-up to the cascade work below, which left one thing unexpressible: a reference budget totals CONSTRUCTION COST EXCLUDING LAND as hard cost plus engineering, design, permits, developer fee and contingency, leaving sales marketing OUT of that total while still charging the developer fee and the contingency ON it. The bases were expressible (they are selections); the TOTAL was not, because every subtotal the platform reports is the asset total or a STAGE subtotal, and marketing was a soft cost, so it necessarily fell inside "development cost (excl. land)". Measured gap: 1574.37 reported against the reference 1524.37, exactly the 50.00 of marketing.
+
+**A STAGE, not an exclude-from-totals flag or user-defined subtotal groups.** Marketing is a SELLING cost, not a construction cost, so a stage states something true about it, where a flag would be a general mechanism for omitting any line from any total: a much larger claim, and one nothing else needs.
+
+**Both halves proven on the cascade fixture.** Construction cost excl land is now **1524.37**, matching the reference exactly; marketing is reported as its own 50.00 subtotal; construction + marketing + land reconciles to the total, so nothing is hidden. And the cascade is UNDISTURBED: developer fee 71.40 and contingency 74.97 to the last decimal, because bases are selections of named lines and have never consulted a stage. That second half is the check that matters, since a stage change that quietly altered the fee would be a regression dressed as a fix.
+
+**Three things TypeScript could NOT catch**, found by mapping the blast radius before editing rather than after: (1) two INFERRED object literals in `Module1Costs.tsx` (the Capex-by-Stage table and the tile accumulator) would have silently dropped marketing from the table AND its Total column, since only the sites typed `Record<CostStage, number>` are compiler-guarded; (2) `deriveCostType` has no marketing member and its default branch returns **`'hard'`**, so an unhandled stage would have made a selling cost read as a HARD cost wherever `CostType` is consulted (mapped to `soft`, the honest nearest neighbour, pinned by F3); (3) the `Total Capex Excl. Land` tile needed RENAMING to `Construction Cost Excl. Land` with an "excludes marketing" caption, because leaving the old label on a narrowed figure is worse than the original gap.
+
+**No saved project reclassifies**: all 1400 versions scanned, 0 lines affected, because `marketing` only entered the catalog on 2026-08-15 and seeds on new projects only. **One existing check needed updating**, `verify-capex-phasing` D9 ("Marketing as soft"), which was my own assertion from the previous pass now pinning the superseded classification.
+
+`verify-selected-base` 51 -> **67**, `verify-capex-phasing` **84**. Exports green (excel 304, pdf 58, capex-report 14). **NOT browser-verified.**
+
 ## 2026-08-16: `% of Selected Lines` is POSITIONAL, and the cost cascade composes
 
 **Reported:** the picker on Contingency listed only standard catalog lines, so a Developers fee (charged on hard cost plus the softs above it) could not be included in Contingency's base and the chain could not be built.

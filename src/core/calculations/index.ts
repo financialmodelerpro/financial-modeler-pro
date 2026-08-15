@@ -1180,7 +1180,7 @@ export function computeAssetCost(
     const cpZero = phase.constructionPeriods + 1;
     return {
       byLineId: {},
-      byStage: { land: 0, hard: 0, soft: 0, operating: 0 },
+      byStage: { land: 0, hard: 0, soft: 0, marketing: 0, operating: 0 },
       total: 0,
       perPeriod: new Array<number>(cpZero).fill(0),
       perPeriodLandTotal: new Array<number>(cpZero).fill(0),
@@ -1371,7 +1371,7 @@ export function computeAssetCost(
 
   // Aggregate
   const byLineId: Record<string, number> = { ...directTotals, ...percentTotals };
-  const byStage: Record<CostStage, number> = { land: 0, hard: 0, soft: 0, operating: 0 };
+  const byStage: Record<CostStage, number> = { land: 0, hard: 0, soft: 0, marketing: 0, operating: 0 };
   let total = 0;
   for (const r of resolved) {
     const t = byLineId[r.line.id] ?? 0;
@@ -1586,7 +1586,7 @@ export function computePhaseCost(
 ): PhaseCostBreakdown {
   const phaseAssets = assets.filter((a) => a.phaseId === phase.id && a.visible);
   const byAssetId: Record<string, AssetCostBreakdown> = {};
-  const byStage: Record<CostStage, number> = { land: 0, hard: 0, soft: 0, operating: 0 };
+  const byStage: Record<CostStage, number> = { land: 0, hard: 0, soft: 0, marketing: 0, operating: 0 };
   let total = 0;
   const cp = phase.constructionPeriods;
   const perPeriod = new Array<number>(cp + 1).fill(0);
@@ -1669,7 +1669,9 @@ const STANDARD_STAGE_BY_ID: Record<string, CostStage> = {
   // 2026-08-15: a transfer tax is a cost of acquiring the land, so it buckets
   // with land rather than with soft costs.
   'rett':                 'land',
-  'marketing':            'soft',
+  // 2026-08-16: marketing is a SELLING cost, not a construction cost, so it
+  // buckets on its own and stays out of "construction cost excluding land".
+  'marketing':            'marketing',
   'construction-bua':     'hard',
   'construction-parking': 'hard',
   'infrastructure':       'hard',
@@ -1714,6 +1716,12 @@ export function deriveCostType(line: CostLine): CostType {
   const stage = deriveCostStage(line);
   if (stage === 'operating') return 'operating';
   if (stage === 'soft')      return 'soft';
+  // 2026-08-16: the marketing stage maps to the SOFT cost type. CostType is a
+  // coarser internal classification with no marketing member, and the default
+  // branch below returns 'hard', which would have made a selling cost read as
+  // a hard cost anywhere CostType is consulted. Soft is the honest nearest
+  // neighbour; the stage carries the finer distinction.
+  if (stage === 'marketing') return 'soft';
   return 'hard';
 }
 

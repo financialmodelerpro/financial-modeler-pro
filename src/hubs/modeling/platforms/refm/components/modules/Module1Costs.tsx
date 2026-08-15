@@ -199,6 +199,9 @@ const STAGE_BG: Record<CostStage, string> = {
   land:      'color-mix(in srgb, var(--color-navy) 12%, transparent)',
   hard:      'color-mix(in srgb, var(--color-success) 12%, transparent)',
   soft:      'color-mix(in srgb, var(--color-accent-warm) 12%, transparent)',
+  // Distinct from soft, because the whole point of the stage is that a reader
+  // can see marketing is not part of the construction cost.
+  marketing: 'color-mix(in srgb, var(--color-accent-cool, var(--color-navy)) 8%, transparent)',
   operating: 'color-mix(in srgb, var(--color-grey-mid) 12%, transparent)',
 };
 
@@ -2065,9 +2068,13 @@ function SummaryTables({
   // Capex by Stage: rows = period (cap 24), cols = land/hard/soft/operating/total.
   // M2.0h Fix 6: stage rows distributed annually first, then split to
   // sub-periods per granularity.
-  const annualStageRows: Array<{ land: number; hard: number; soft: number; operating: number }> = [];
+  // 2026-08-16: `marketing` runs through this block alongside the others. These
+  // literals are INFERRED, not typed as Record<CostStage, number>, so the
+  // compiler does not force the new stage in; leaving it out would have dropped
+  // marketing from the by-stage table and from its Total column silently.
+  const annualStageRows: Array<{ land: number; hard: number; soft: number; marketing: number; operating: number }> = [];
   for (let i = 0; i < annualPeriodCount; i++) {
-    let land = 0, hard = 0, soft = 0, operating = 0;
+    let land = 0, hard = 0, soft = 0, marketing = 0, operating = 0;
     for (const pb of perPhaseBreakdowns) {
       for (const a of phaseAssets) {
         const bd = pb.assetTotals[a.id];
@@ -2079,32 +2086,37 @@ function SummaryTables({
         land += bd.byStage.land * share;
         hard += bd.byStage.hard * share;
         soft += bd.byStage.soft * share;
+        marketing += bd.byStage.marketing * share;
         operating += bd.byStage.operating * share;
       }
     }
-    annualStageRows.push({ land, hard, soft, operating });
+    annualStageRows.push({ land, hard, soft, marketing, operating });
   }
   const landSeries = transformAnnualSeries(annualStageRows.map((r) => r.land));
   const hardSeries = transformAnnualSeries(annualStageRows.map((r) => r.hard));
   const softSeries = transformAnnualSeries(annualStageRows.map((r) => r.soft));
+  const marketingSeries = transformAnnualSeries(annualStageRows.map((r) => r.marketing));
   const operatingSeries = transformAnnualSeries(annualStageRows.map((r) => r.operating));
   const stageTable = periodLabels.map((p, idx) => ({
     period: p,
     land: landSeries[idx] ?? 0,
     hard: hardSeries[idx] ?? 0,
     soft: softSeries[idx] ?? 0,
+    marketing: marketingSeries[idx] ?? 0,
     operating: operatingSeries[idx] ?? 0,
-    total: (landSeries[idx] ?? 0) + (hardSeries[idx] ?? 0) + (softSeries[idx] ?? 0) + (operatingSeries[idx] ?? 0),
+    total: (landSeries[idx] ?? 0) + (hardSeries[idx] ?? 0) + (softSeries[idx] ?? 0)
+      + (marketingSeries[idx] ?? 0) + (operatingSeries[idx] ?? 0),
   }));
   const stageTotals = stageTable.reduce(
     (acc, r) => ({
       land: acc.land + r.land,
       hard: acc.hard + r.hard,
       soft: acc.soft + r.soft,
+      marketing: acc.marketing + r.marketing,
       operating: acc.operating + r.operating,
       total: acc.total + r.total,
     }),
-    { land: 0, hard: 0, soft: 0, operating: 0, total: 0 },
+    { land: 0, hard: 0, soft: 0, marketing: 0, operating: 0, total: 0 },
   );
 
   // Capex Summary by Treatment: rows = assets, cols = land cash, land in-kind, hard, soft, operating, total, cash flow impact
@@ -3028,7 +3040,9 @@ export default function Module1Costs(): React.JSX.Element {
 
   // Stage totals across project (for top tile bar)
   const stageTotals = useMemo(() => {
-    const acc = { land: 0, hard: 0, soft: 0, operating: 0 };
+    // Inferred literal, so the compiler does not force `marketing` in. Missing
+    // it would leave the tile bar silently short of the marketing spend.
+    const acc = { land: 0, hard: 0, soft: 0, marketing: 0, operating: 0 };
     for (const pb of perPhaseBreakdowns) {
       for (const a of pb.phaseAssets) {
         const bd = pb.assetTotals[a.id];
@@ -3036,6 +3050,7 @@ export default function Module1Costs(): React.JSX.Element {
         acc.land += bd.byStage.land;
         acc.hard += bd.byStage.hard;
         acc.soft += bd.byStage.soft;
+        acc.marketing += bd.byStage.marketing;
         acc.operating += bd.byStage.operating;
       }
     }
@@ -3171,11 +3186,18 @@ export default function Module1Costs(): React.JSX.Element {
           }}
           data-testid="costs-stage-total-excl-land-card"
         >
+          {/* 2026-08-16: renamed and narrowed. This is CONSTRUCTION cost, and
+              it now excludes marketing as well as land, which is the total a
+              reference budget reports. Marketing has its own tile above, so
+              nothing is hidden: the two plus land reconcile to total capex. */}
           <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase' }}>
-            Total Capex Excl. Land
+            Construction Cost Excl. Land
           </div>
-          <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }} data-testid="costs-construction-excl-land">
             {formatAccounting(stageTotals.hard + stageTotals.soft + stageTotals.operating, scale, decimals)}
+          </div>
+          <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2 }}>
+            excludes marketing
           </div>
         </div>
       </div>

@@ -1271,14 +1271,21 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
             ['Hard costs', ia.subtotals.hard],
             ['Soft costs', ia.subtotals.soft],
             ['Operating', ia.subtotals.operating],
+            ['Marketing', ia.subtotals.marketing],
             ['Land', ia.subtotals.land],
           ] as Array<[string, number]>)
             .filter(([, v]) => v !== 0)
             .map(([label, v]) => row([label, '', '', '', '', fmt.money(v)], 'subtotal')),
         )
         .concat(
-          ia.subtotals.exclLand !== 0 && ia.subtotals.land !== 0
-            ? [row(['Development cost (excl. land)', '', '', '', '', fmt.money(ia.subtotals.exclLand)], 'subtotal')]
+          // Named for what it is now that marketing is out of it, and only
+          // worth printing when something is actually being excluded.
+          ia.subtotals.exclLand !== 0 && (ia.subtotals.land !== 0 || ia.subtotals.marketing !== 0)
+            ? [row([
+                ia.subtotals.marketing !== 0
+                  ? 'Construction cost (excl. land and marketing)'
+                  : 'Construction cost (excl. land)',
+                '', '', '', '', fmt.money(ia.subtotals.exclLand)], 'subtotal')]
             : [],
         )
         .concat([row([`Total, ${ia.assetName}`, '', '', '', '', fmt.money(ia.total)], 'total')]),

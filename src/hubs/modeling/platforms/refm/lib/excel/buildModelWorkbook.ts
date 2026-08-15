@@ -814,6 +814,7 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       ['Hard costs', ia.subtotals.hard],
       ['Soft costs', ia.subtotals.soft],
       ['Operating', ia.subtotals.operating],
+      ['Marketing', ia.subtotals.marketing],
       ['Land', ia.subtotals.land],
     ] as Array<[string, number]>)) {
       if (amount === 0) continue;
@@ -821,8 +822,10 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       setInput(ws.getCell(`I${r}`), amount, NUMFMT.money);
       r += 1;
     }
-    if (ia.subtotals.exclLand !== 0 && ia.subtotals.land !== 0) {
-      setLabel(ws.getCell(`A${r}`), 'Development cost (excl. land)', { indent: 1, bold: true });
+    if (ia.subtotals.exclLand !== 0 && (ia.subtotals.land !== 0 || ia.subtotals.marketing !== 0)) {
+      setLabel(ws.getCell(`A${r}`), ia.subtotals.marketing !== 0
+        ? 'Construction cost (excl. land and marketing)'
+        : 'Construction cost (excl. land)', { indent: 1, bold: true });
       setInput(ws.getCell(`I${r}`), ia.subtotals.exclLand, NUMFMT.money);
       r += 1;
     }

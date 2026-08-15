@@ -78,10 +78,19 @@ export interface CapexStageSubtotals {
   land: number;
   hard: number;
   soft: number;
+  /** 2026-08-16: selling cost, reported separately because it is not part of
+   *  the construction cost even though the developer fee and contingency are
+   *  charged on it. */
+  marketing: number;
   operating: number;
-  /** Hard + soft + operating. The figure a lender means by "development cost". */
+  /**
+   * Hard + soft + operating. The figure a lender means by "development cost",
+   * and it EXCLUDES marketing as well as land (2026-08-16). A reference budget
+   * totals construction cost excluding land as hard cost plus engineering,
+   * design, permits, developer fee and contingency, with marketing outside it.
+   */
   exclLand: number;
-  /** Everything, land included. */
+  /** Everything: land, construction and marketing. */
   total: number;
 }
 
@@ -98,26 +107,29 @@ export interface CapexInputAsset {
 /** Sum a set of report lines into stage subtotals. Exported so the workbook and
  *  both PDFs aggregate identically rather than each rolling their own loop. */
 export function sumCapexStages(lines: Array<{ stage: string; amount: number }>): CapexStageSubtotals {
-  const out: CapexStageSubtotals = { land: 0, hard: 0, soft: 0, operating: 0, exclLand: 0, total: 0 };
+  const out: CapexStageSubtotals = { land: 0, hard: 0, soft: 0, marketing: 0, operating: 0, exclLand: 0, total: 0 };
   for (const l of lines) {
     const amt = l.amount ?? 0;
     if (l.stage === 'land') out.land += amt;
     else if (l.stage === 'hard') out.hard += amt;
     else if (l.stage === 'soft') out.soft += amt;
+    else if (l.stage === 'marketing') out.marketing += amt;
     else if (l.stage === 'operating') out.operating += amt;
     out.total += amt;
   }
+  // Construction cost: land AND marketing both sit outside it.
   out.exclLand = out.hard + out.soft + out.operating;
   return out;
 }
 
 /** Roll per-asset subtotals up to the project. */
 export function totalCapexStages(assets: Array<{ subtotals: CapexStageSubtotals }>): CapexStageSubtotals {
-  const out: CapexStageSubtotals = { land: 0, hard: 0, soft: 0, operating: 0, exclLand: 0, total: 0 };
+  const out: CapexStageSubtotals = { land: 0, hard: 0, soft: 0, marketing: 0, operating: 0, exclLand: 0, total: 0 };
   for (const a of assets) {
     out.land += a.subtotals.land;
     out.hard += a.subtotals.hard;
     out.soft += a.subtotals.soft;
+    out.marketing += a.subtotals.marketing;
     out.operating += a.subtotals.operating;
     out.total += a.subtotals.total;
   }

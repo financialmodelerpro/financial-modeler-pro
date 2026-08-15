@@ -1599,14 +1599,35 @@ export const COST_METHOD_LABELS: Record<CostMethod, string> = {
   percent_of_revenue_sale: '% of Total Revenue (Sale Basis)',
 };
 
-export type CostStage = 'land' | 'hard' | 'soft' | 'operating';
+/**
+ * 2026-08-16: `marketing` is its own stage.
+ *
+ * A reference budget totals CONSTRUCTION COST EXCLUDING LAND as hard cost plus
+ * engineering, design, permits, developer fee and contingency, and leaves sales
+ * marketing OUT of that total, while still charging the developer fee and the
+ * contingency ON it. With marketing classified as a soft cost the platform
+ * could express the bases (they are just selections) but not the total, because
+ * every subtotal it reports is the asset total or a stage subtotal and a soft
+ * cost necessarily falls inside "development cost (excl. land)".
+ *
+ * A stage rather than an exclude-from-totals flag, deliberately: marketing is a
+ * SELLING cost, not a construction cost, so a stage states something true about
+ * it. A flag would be a general mechanism for omitting any line from any total,
+ * which is a much larger claim and one nothing else needs.
+ *
+ * The bases are unaffected. They are selections of specific lines and have
+ * never consulted a stage, so marketing keeps feeding the developer fee and the
+ * contingency exactly as before.
+ */
+export type CostStage = 'land' | 'hard' | 'soft' | 'marketing' | 'operating';
 
-export const COST_STAGES: readonly CostStage[] = ['land', 'hard', 'soft', 'operating'] as const;
+export const COST_STAGES: readonly CostStage[] = ['land', 'hard', 'soft', 'marketing', 'operating'] as const;
 
 export const COST_STAGE_LABELS: Record<CostStage, string> = {
   land:      'Land',
   hard:      'Hard Cost',
   soft:      'Soft Cost',
+  marketing: 'Marketing',
   operating: 'Operating',
 };
 
@@ -3005,7 +3026,9 @@ export function makeDefaultCostLines(
     {
       id: id('marketing'), phaseId, name: 'Marketing',
       method: 'percent_of_revenue_sale', value: 0,
-      stage: 'soft', scope: 'indirect', allocationBasis: 'per_asset',
+      // 2026-08-16: its own stage, so it stays OUT of construction cost while
+      // still being available to the developer fee and contingency bases.
+      stage: 'marketing', scope: 'indirect', allocationBasis: 'per_asset',
       startPeriod: Math.max(1, Math.floor(cp / 2)), endPeriod: cpEnd, phasing: 'even',
       phasingSource: 'collections',
     },

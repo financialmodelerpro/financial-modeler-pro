@@ -240,8 +240,12 @@ check('D7 the new lines seed at a ZERO rate like every other line',
   (byBase.get('rett')?.value ?? -1) === 0 && (byBase.get('marketing')?.value ?? -1) === 0);
 check('D8 no OTHER seeded line was given a source (they inherit)',
   lines.filter((l) => l.phasingSource && !['rett', 'marketing', 'commission'].includes(baseId(l.id))).length === 0);
-check('D9 RETT classifies as land, Marketing as soft',
-  deriveCostStage(byBase.get('rett')!) === 'land' && deriveCostStage(byBase.get('marketing')!) === 'soft');
+// 2026-08-16: Marketing moved from `soft` to its OWN stage, so that construction
+// cost excluding land can exclude it while the developer fee and contingency
+// still charge on it. This check asserted the superseded classification.
+check('D9 RETT classifies as land, Marketing as its own stage',
+  deriveCostStage(byBase.get('rett')!) === 'land'
+  && deriveCostStage(byBase.get('marketing')!) === 'marketing');
 check('D10 the catalog and the id list agree',
   lines.length === STANDARD_COST_LINE_IDS.length, `${lines.length} vs ${STANDARD_COST_LINE_IDS.length}`);
 check('D11 the reference catalog still carries the benchmark rates',
