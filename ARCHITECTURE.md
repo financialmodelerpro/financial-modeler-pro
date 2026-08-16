@@ -2,6 +2,8 @@
 
 **Last updated: 2026-04-29.** Snapshot taken at the close of the 8-phase folder restructure (`RESTRUCTURE_PLAN.md`).
 
+> **This file holds the durable boundary rules. The durable FAILURE modes live beside it in [docs/TRAPS.md](docs/TRAPS.md)**, including the build using `next build --webpack` because Turbopack hits MAX_PATH on Windows/OneDrive (TRAPS 9.3) and `src/middleware.ts` being dead code that must not be activated by moving it (9.2).
+
 This file is the canonical reference for *why* the source tree is shaped the way it is. CLAUDE.md is the day-to-day rulebook; this is the rationale you reach for when adding a new platform, a new hub, or anything that crosses module boundaries.
 
 ---

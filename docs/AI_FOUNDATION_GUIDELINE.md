@@ -1,5 +1,7 @@
 # FMP AI Foundation: Guideline & Build Plan
 
+> **Traps are collected in [docs/TRAPS.md](TRAPS.md).** Most relevant here: a Postgres CHECK constraint PASSES on NULL, so a non-empty-array guard needs `cardinality()` (TRAPS 2.3), and a grep over a `.sql` file proves a clause is PRESENT, never that it FIRES (10.1).
+
 Reference doc for the AI integration across Financial Modeler Pro. This is the plan and the standing rules. Prompts are shared with Claude Code step by step, one unit at a time, verified between each. This file is the source of truth for what we are building and why.
 
 ---

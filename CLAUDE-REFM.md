@@ -1,6 +1,8 @@
 ﻿# Real Estate Financial Modeling (REFM), Claude Code Project Brief
 **Last updated: 2026-08-15. Lock status: M1 LOCKED (M2.0 Pass 58 base) + Parties tab (mig 190), M2 LOCKED (Pass 9N), M3 LOCKED (Pass 5d), M4 DONE, M5 DONE (Returns & RE Metrics + Lender Covenants + per-partner FCFE/DDM + M1-Parties link), M6 Scenario Analysis LIVE, M7 Reports LIVE (IC / Lender / One-Pager preview + PPT export, migs 191+192). Full verifier suite green via `npx tsx scripts/verify-*.ts`.**
 
+> **TRAPS RECORDED IN THIS FILE ARE COLLECTED IN [docs/TRAPS.md](docs/TRAPS.md). Read that first; it is short.** The copies below stay in place, so nothing is lost if you open this file instead. Index of what this file records: the REFM shell `zoom: 0.8` making `vh` and media queries lie (TRAPS 6.1); drag/resize needing pointer capture, not window listeners (6.2); the ExcelJS width-9 column that silently does not apply (3.1); pdf-lib CID glyph ids defeating a naive grep (4.1); the PostgREST 1000-row cap (2.1); export fingerprints needing the FIXTURE, never the live project (5.1); a zero-valued seed hiding a whole code path (7.1); a stage list written as a literal defeating exhaustiveness (7.3); a two-step template registration that fails silently and permanently (8.1); and the verifier rules (a grep proves presence not firing; never gate an assertion on the thing it asserts; prove teeth by sabotage) in TRAPS section 10.
+
 ## 2026-08-15d: Capex phasing, one curve per asset + derived sources, and the hard/soft split restored
 
 Four related changes to Module 1 Capex, built on ONE shared mechanism because the consolidated input matrices will reuse it. `verify-capex-phasing` **69**, teeth proven by four sabotages (2 / 1 / 1 / 2 failures). **NOT browser-verified.**

@@ -2,6 +2,10 @@
 
 > Referenced from CLAUDE.md, all page routes, API routes, components, and lib structure.
 
+> **This file is for SEARCH, not for reading.** At ~324 KB it is a map: grep it for a route or a symbol rather than loading it.
+>
+> **Traps recorded here are collected in [docs/TRAPS.md](docs/TRAPS.md).** The copies below stay in place, so nothing is lost if you open this file instead. Index of what this file records: ExcelJS `spliceRows` not moving merged ranges (TRAPS 3.2); pdf-lib CID glyph ids defeating a naive text grep (4.1); the PostgREST 1000-row cap (2.1); drag/resize pointer capture (6.2); and `src/middleware.ts` being dead code that must not be "fixed" by moving it (9.2).
+
 ---
 
 ## `app/`, Routes by subdomain

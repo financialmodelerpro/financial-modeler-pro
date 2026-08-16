@@ -2,6 +2,8 @@
 
 **Last updated: 2026-08-01. Units 0 to 9 COMPLETE and live.**
 
+> **Traps recorded here are collected in [docs/TRAPS.md](docs/TRAPS.md).** The copies below stay in place. Index: a Postgres CHECK constraint PASSES on NULL, so `array_length(arr,1) >= 1` was a silent no-op and must be `cardinality()` (TRAPS 2.3); and the reason the verifier missed it, a grep over the `.sql` file proves a clause is PRESENT, never that it FIRES (10.1).
+
 The platform-agnostic AI engine: one call path, a feature registry with admin
 toggles, server-side metering with per-plan caps, a grounding abstraction, an
 admin control panel, and the first feature built on it (REFM Module 7 IC

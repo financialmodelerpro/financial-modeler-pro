@@ -1,5 +1,7 @@
 # FMP Fund Layer: Guideline & Build Plan
 
+> **Traps recorded in this file are collected in [docs/TRAPS.md](TRAPS.md).** The copies below stay in place, so nothing is lost if you open this file instead. Index: the ExcelJS width-9 column that silently does not apply (TRAPS 3.1); pdf-lib CID glyph ids defeating a naive grep, use `scripts/pdfTextExtract.ts` (4.1); an errored probe returning an empty fallback that reads as "zero rows" (2.4); the fee-free pass having to call the SOLVER, not the public entry, or it never terminates (7.4); `ebitdaBeforeFundFeesPerPeriod` not being the standalone EBITDA, so compare two RUNS not two fields (7.5); a fee BASE being a stock, not a flow to be summed across periods (3.7); and export fingerprints needing the FIXTURE because the live project is edited in place (5.1).
+
 Reference doc for the fund layer in the REFM platform. This is the scope, the design decisions, and the standing rules. Prompts are given to Claude Code one step at a time, verified between each. This file is the source of truth for what we are building and why.
 
 **Status as of 2026-08-11: Steps 1 through 7 are LIVE. The fund layer is feature complete for v1, and the toggle is now ON on the real project.** See section 8 for the 2026-08-11 presentation corrections and the state change.

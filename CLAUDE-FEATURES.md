@@ -2,6 +2,8 @@
 
 > Referenced from CLAUDE.md, detailed feature specs, flows, and architectural decisions.
 
+> **This is the ARCHIVE. It is not loaded by default and does not need to be read to start work.** Any trap buried in the narrative here is also recorded in [docs/TRAPS.md](docs/TRAPS.md), which is short and current. The copies here stay in place regardless.
+
 ---
 
 ## Feature Status

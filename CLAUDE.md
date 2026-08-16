@@ -50,6 +50,7 @@ Verifier reality + outstanding ops (migrations pending on prod) live in [CLAUDE-
 - See CLAUDE-REFM.md for the full Pass 7-9 narrative; older pass detail is archived to CLAUDE-FEATURES.md.
 
 > **See also:**
+> - **[docs/TRAPS.md](docs/TRAPS.md), the hard-won lessons. READ THIS FIRST; it is short.** Every entry is a failure that reported success: a grep that returned nothing, a constraint that never fired, a column width that silently did not apply, a deploy that silently did not happen. Symptom, mechanism, fix and the measurement that proved it. The individual copies stay in the files below, so nothing is lost either way
 > - [CLAUDE-MODELING-HUB.md](CLAUDE-MODELING-HUB.md), Modeling Hub wrapper, platform catalog, P-Sync admin conventions
 > - [CLAUDE-REFM.md](CLAUDE-REFM.md), Real Estate Financial Modeling (REFM), platform status (Modules 1-7) + conventions + Excel/PDF export
 > - [CLAUDE-AI.md](CLAUDE-AI.md), AI foundation (client, registry, metering, grounding, admin panel, IC narrative). Load when touching anything AI
@@ -64,6 +65,8 @@ Verifier reality + outstanding ops (migrations pending on prod) live in [CLAUDE-
 ---
 
 ## STRICT SESSION RULES, READ FIRST
+
+**Before debugging anything that "should work", read [docs/TRAPS.md](docs/TRAPS.md).** Traps recorded in the module narrative above are indexed there with symptom, mechanism, fix and proof: the ExcelJS width-9 column that silently does not apply (TRAPS 3.1) and `spliceRows` not moving merges (3.2); pdf-lib CID glyph ids defeating a naive PDF grep (4.1); the PostgREST 1000-row silent truncation (2.1); `Number(null)` being `0` and finite, which made an unlimited discount read as fully redeemed (see 2.4 for the family, an absent value collapsed into a real one); `admin_audit_log.admin_id` being NOT NULL (2.5); `requireAdmin` needing to try/catch `getServerSession`, which throws without a request scope (9.4); `src/middleware.ts` being dead code that must not be activated by moving it (9.2); and `Project.fundTerms` only reaching the store when its tab mounted, which is why `attachToProject` loads it before hydrate and before the autosave subscriber. The copies above stay in place.
 
 ### Writing rule: NEVER use the reference client's name
 
