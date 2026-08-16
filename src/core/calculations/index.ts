@@ -90,6 +90,7 @@ import {
   DEFAULT_USEFUL_LIFE_YEARS,
   PER_SUBUNIT_RATE_KEY_SUPPORT,
   PER_SUBUNIT_RATE_KEY_PARKING,
+  COST_STAGES,
   deriveLineBaseId,
 } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
@@ -1618,13 +1619,12 @@ export function computePhaseCost(
     });
     byAssetId[a.id] = breakdown;
     total += breakdown.total;
-    // NOTE (2026-08-16): this stage list is a HARDCODED CAST, not a
-    // Record<CostStage, number>, so the compiler does not force a new stage in.
-    // It currently omits `marketing`, which means the PHASE-level byStage
-    // rollup silently drops marketing spend. Left as-is in this pass because
-    // this pass is a signature refactor with no behaviour change; reported
-    // separately. Fixing it means iterating COST_STAGES here.
-    for (const k of ['land', 'hard', 'soft', 'operating'] as CostStage[]) byStage[k] += breakdown.byStage[k];
+    // 2026-08-16: iterate COST_STAGES, never a literal. This was
+    // `['land','hard','soft','operating'] as CostStage[]`, which silently
+    // dropped `marketing` from the PHASE-level rollup. The cast is what hid it:
+    // it ASSERTS the array is exhaustive, so the compiler cannot check the one
+    // thing that matters. Third occurrence of this family in three days.
+    for (const k of COST_STAGES) byStage[k] += breakdown.byStage[k];
     for (let i = 0; i <= cp; i++) perPeriod[i] += breakdown.perPeriod[i] ?? 0;
   }
 

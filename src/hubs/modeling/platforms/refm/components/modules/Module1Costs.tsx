@@ -3168,9 +3168,27 @@ export default function Module1Costs(): React.JSX.Element {
           Capex Excl. Land. Operating dropped per user feedback (rarely
           used and adds visual noise); Total Excl. Land = Hard + Soft +
           Operating, the figure most decks want for "construction-cost
-          investment net of land". */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--sp-1)', marginBottom: 'var(--sp-2)' }} data-testid="costs-summary-tiles">
-        {(['land', 'hard', 'soft'] as const).map((s) => (
+          investment net of land".
+
+          2026-08-16: the tile list is DERIVED, and marketing joins it when it
+          carries spend. The list was `['land','hard','soft']`, so when the
+          Construction Cost Excl. Land tile was narrowed to exclude marketing,
+          marketing appeared in NO tile at all: the narrowing was justified on
+          the basis that marketing had its own tile, and it did not. Operating
+          stays out by the original decision, and marketing follows the same
+          rule as any other optional stage: shown only when non-zero, so a
+          project that does not use it keeps the four-tile bar. */}
+      {(() => {
+        // Headline stages always show, so the bar does not collapse on an empty
+        // project. EVERY OTHER stage shows when it carries spend, which is the
+        // safe default for a stage added later: it appears the moment it is
+        // used rather than being silently absent. Written as a disjunction
+        // rather than a list so there is no second stage roster to keep in step.
+        const isHeadline = (s: CostStage): boolean => s === 'land' || s === 'hard' || s === 'soft';
+        const shown = COST_STAGES.filter((s) => isHeadline(s) || Math.abs(stageTotals[s]) > 0.005);
+        return (
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${shown.length + 1}, 1fr)`, gap: 'var(--sp-1)', marginBottom: 'var(--sp-2)' }} data-testid="costs-summary-tiles">
+        {shown.map((s) => (
           <div key={s} style={{ ...sectionCardStyle, marginBottom: 0, padding: 12 }} data-testid={`costs-stage-${s}-card`}>
             <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase' }}>
               {COST_STAGE_LABELS[s]}
@@ -3190,9 +3208,10 @@ export default function Module1Costs(): React.JSX.Element {
           data-testid="costs-stage-total-excl-land-card"
         >
           {/* 2026-08-16: renamed and narrowed. This is CONSTRUCTION cost, and
-              it now excludes marketing as well as land, which is the total a
-              reference budget reports. Marketing has its own tile above, so
-              nothing is hidden: the two plus land reconcile to total capex. */}
+              it excludes marketing as well as land, which is the total a
+              reference budget reports. Marketing gets its own tile above
+              whenever it carries spend, so the tiles plus land reconcile to
+              total capex and nothing is hidden. */}
           <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase' }}>
             Construction Cost Excl. Land
           </div>
@@ -3204,6 +3223,8 @@ export default function Module1Costs(): React.JSX.Element {
           </div>
         </div>
       </div>
+        );
+      })()}
 
       {/* M2.0g Fix 7: Inputs / Results sub-tab toggle. */}
       <div

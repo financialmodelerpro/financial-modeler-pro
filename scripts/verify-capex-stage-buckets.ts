@@ -21,6 +21,9 @@
  * No em dashes in this file.
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { aggregateProjectCapex } from '../src/core/calculations/financing/capex';
 import { deriveCostStage } from '../src/core/calculations';
 import {
@@ -124,6 +127,65 @@ const withRate = (baseId: string, value: number) => (c: CostLine): CostLine =>
     hard > 0 && Math.abs(soft) < 1e-9, `hard=${hard} soft=${soft}`);
   check('D2 ...and deriveCostStage is what says so',
     deriveCostStage({ ...catalog.find((c) => c.id.startsWith('construction-bua'))!, stage: 'soft' } as CostLine) === 'hard');
+}
+
+// ── E. NO HARDCODED STAGE LIST ANYWHERE ────────────────────────────────────
+//
+// THE REASON THIS SECTION EXISTS. Three separate defects in three days, all the
+// same shape: a stage list written out by hand instead of derived from
+// COST_STAGES, each surviving because the compiler cannot check it.
+//
+//   perStagePerPeriod   an object literal        -> a marketing line CRASHED
+//   computePhaseCost    `[...] as CostStage[]`   -> marketing silently DROPPED
+//   the tile bar        `[...] as const`         -> marketing had NO tile
+//
+// A cast is the worst of the three, because `as CostStage[]` ASSERTS the array
+// is exhaustive, which is exactly the property that needs checking. So this is
+// a source scan: nothing else can catch it.
+{
+  const ROOT = path.resolve(__dirname, '..');
+  const roots = ['src', 'app'];
+  const files: string[] = [];
+  const walk = (dir: string): void => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) { if (e.name !== 'node_modules' && e.name !== '.next') walk(p); }
+      else if (/\.tsx?$/.test(e.name)) files.push(p);
+    }
+  };
+  for (const r of roots) { const d = path.join(ROOT, r); if (fs.existsSync(d)) walk(d); }
+
+  // Two or more stage members in one bracketed list. The registry's own
+  // definition is the single legitimate occurrence.
+  const REGISTRY = path.join(ROOT, 'src', 'hubs', 'modeling', 'platforms', 'refm', 'lib', 'state', 'module1-types.ts');
+  const MEMBERS = "(?:'land'|'hard'|'soft'|'marketing'|'operating')";
+  const LIST = new RegExp(`\\[\\s*${MEMBERS}\\s*,\\s*${MEMBERS}[^\\]]*\\]`);
+  const offenders: string[] = [];
+  for (const f of files) {
+    const raw = fs.readFileSync(f, 'utf8').replace(/\r\n/g, '\n');
+    // Blank out comments before scanning, preserving line numbering. Several of
+    // these files DOCUMENT the defect in prose (including this one's history),
+    // and a line-prefix test misses the continuation lines of a block or JSX
+    // comment, which is exactly what a first draft of this scan tripped over.
+    const text = raw
+      .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+      .replace(/(^|[^:])\/\/[^\n]*/g, (m, p1) => p1 + ' '.repeat(Math.max(0, m.length - p1.length)));
+    const lines = text.split('\n');
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i];
+      if (!LIST.test(line)) continue;
+      // The registry declaring COST_STAGES / COST_TYPES is the source of truth.
+      if (f === REGISTRY && /COST_STAGES|COST_TYPES|COST_STAGE_LABELS/.test(line)) continue;
+      offenders.push(`${path.relative(ROOT, f)}:${i + 1}  ${line.trim().slice(0, 90)}`);
+    }
+  }
+  check('E1 no hardcoded stage list outside the registry', offenders.length === 0,
+    offenders.join('  |  '));
+  // The scan must be able to fail, or it proves nothing.
+  check('E2 the scan actually matches a hardcoded list',
+    LIST.test("for (const k of ['land', 'hard', 'soft', 'operating'] as CostStage[])"));
+  check('E3 ...and does not match the registry declaration pattern alone',
+    !LIST.test("const COST_STAGES: readonly CostStage[] = STAGES;"));
 }
 
 console.log('');
