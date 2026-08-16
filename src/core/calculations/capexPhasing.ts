@@ -181,6 +181,26 @@ export function collectionsForAssetAtOffset(
 }
 
 /**
+ * Total sales cash collected for an asset over the WHOLE hold (2026-08-16).
+ *
+ * Deliberately summed from the untrimmed project-axis series, NOT from the
+ * phase-local array `collectionsForAsset` returns: that one is windowed to the
+ * phase for phasing purposes, and a total must not lose cash that arrives
+ * outside the window. The two answer different questions and are computed
+ * differently on purpose.
+ *
+ * This is the base for `percent_of_revenue_cash`.
+ */
+export function collectionsTotalForAsset(
+  revenue: CollectionsSource | undefined,
+  assetId: string,
+): number | undefined {
+  const series = revenue?.bySellAsset?.get(assetId)?.cashCollectedPerPeriod;
+  if (!series || series.length === 0) return undefined;
+  return series.reduce((s, v) => s + (v ?? 0), 0);
+}
+
+/**
  * The parcel-driven land value lines, which take NO part in phasing at all.
  *
  * Land cash timing comes from the parcel schedule (the payment terms on the

@@ -63,8 +63,9 @@ import {
   type AssetCapexPhasing,
   deriveLineBaseId,
 } from '../../lib/state/module1-types';
-import { resolvePhasingSource, isParcelDrivenLandLine, collectionsForAsset } from '@/src/core/calculations/capexPhasing';
+import { resolvePhasingSource, isParcelDrivenLandLine, collectionsForAsset, collectionsTotalForAsset } from '@/src/core/calculations/capexPhasing';
 import { computeAllSellResults } from '../../lib/revenue-resolvers';
+import { BASIS_DIVERGENCE_TOL } from '../../lib/reports/checksReport';
 import { assetVisibleLines, eligibleBaseLines } from '@/src/core/calculations/selectedBase';
 import {
   computeAssetCost,
@@ -432,13 +433,16 @@ interface CostRowProps {
   // M2.0L Fix 2 (2026-05-11): when true, edits route to the cost line
   // directly (no per-asset overrides). Used by Same-mode rendering.
   editsGoToLine?: boolean;
+  /** 2026-08-16: total sales cash collected for this asset, so a revenue-based
+   *  row can say when the cash basis and the sale basis differ. */
+  collectionsTotal?: number;
 }
 
 function CostRow({
   asset, line, override, total, isLocked,
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
   currency, scale, decimals, periodLabel, constructionPeriods, subUnits,
-  metrics, editsGoToLine,
+  metrics, editsGoToLine, collectionsTotal,
 }: CostRowProps): React.JSX.Element {
   // M2.0g Fix 6: Stage label still drives the row background + summary
   // tables, but the Direct/Indirect label is dropped (per-asset cost
@@ -575,6 +579,21 @@ function CostRow({
     }
     return null;
   })();
+  // 2026-08-16: a cash-basis line charges on collections, a sale-basis line on
+  // gross list value. They coincide unless cash falls short of the sale value,
+  // so this says so only when it actually does, on the row that is affected.
+  const basisNote: string | null = (() => {
+    if (effMethod !== 'percent_of_revenue_cash' && effMethod !== 'percent_of_revenue_sale') return null;
+    const gross = metrics.totalRevenue ?? 0;
+    if (gross <= 0 || collectionsTotal === undefined) return null;
+    const rel = collectionsTotal / gross - 1;
+    if (Math.abs(rel) <= BASIS_DIVERGENCE_TOL) return null;
+    const pct = (rel * 100).toFixed(1);
+    return effMethod === 'percent_of_revenue_cash'
+      ? `charges on cash collected, ${pct}% vs gross sale value`
+      : `charges on gross sale value; cash collected is ${pct}% different`;
+  })();
+
   const writePhasingSource = (src: CapexPhasingSource): void => {
     if (override) {
       onUpdateOverride({
@@ -771,6 +790,19 @@ function CostRow({
             <span style={{ fontSize: 9, color: 'var(--color-meta)' }}>custom</span>
           )}
         </div>
+        {/* 2026-08-16: shown ONLY when the cash and sale bases actually differ,
+            which is rare. Silent agreement needs no caption; a material gap is
+            the case that would justify a per-period revenue base, so it says so
+            on the row it affects rather than only in a verifier. */}
+        {basisNote && (
+          <div
+            data-testid={`cost-${asset.id}-${line.id}-basis-note`}
+            style={{ fontSize: 9, color: 'var(--color-accent-warm)', marginTop: 2, fontStyle: 'italic' }}
+            title="Cash basis charges on collections; sale basis charges on gross list value. They differ when cash is not all collected inside the hold."
+          >
+            {basisNote}
+          </div>
+        )}
       </td>
       <td style={{ padding: '4px', overflow: 'hidden' }}>
         <select
@@ -1751,6 +1783,9 @@ interface AssetCostSectionProps {
   onAddCustom: () => void;
   /** 2026-08-15: writes Asset.capexPhasing (the one curve for this asset). */
   onUpdateAsset?: (assetId: string, patch: Partial<Asset>) => void;
+  /** 2026-08-16: total sales cash collected for this asset, passed to the row
+   *  so a revenue-based line can say when cash and sale bases differ. */
+  collectionsTotal?: number;
 }
 
 function AssetCostSection({
@@ -3052,6 +3087,7 @@ export default function Module1Costs(): React.JSX.Element {
           asset: a, project, phase, parcels, assets, subUnits, costLines, costOverrides,
           landAllocationMode, parcelFunding,
           collectionsPerPeriod: collectionsForAsset(sellSnap, a.id, phase, projectStartYearForCollections),
+          collectionsTotal: collectionsTotalForAsset(sellSnap, a.id),
         });
       }
       return { phaseId: phase.id, phaseName: phase.name, cp: phase.constructionPeriods, phaseAssets, assetTotals };
@@ -3788,6 +3824,7 @@ export default function Module1Costs(): React.JSX.Element {
                 metrics={assetMetrics}
                 onUpdateLine={(lineId, patch) => updateCostLine(lineId, patch)}
                 onUpdateAsset={(assetId, patch) => updateAsset(assetId, patch)}
+                collectionsTotal={collectionsTotalForAsset(sellSnap, activeAsset.id)}
                 onUpdateOverride={(override) => setCostOverride(override)}
                 onRemoveOverride={(assetId, lineId) => removeCostOverride(assetId, lineId)}
                 onRemoveLine={(lineId) => {

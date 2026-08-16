@@ -33,7 +33,7 @@ import {
   computeProjectTimeline,
   resolveUsefulLifeYears,
 } from '@/src/core/calculations';
-import { collectionsForAssetAtOffset, type CollectionsSource } from '@/src/core/calculations/capexPhasing';
+import { collectionsForAssetAtOffset, collectionsTotalForAsset, type CollectionsSource } from '@/src/core/calculations/capexPhasing';
 import {
   computeAssetFixedAssets,
   type AssetFixedAssetResult,
@@ -223,6 +223,7 @@ export function computeAllFixedAssetResults(state: ResolverState): ProjectFixedA
       landAllocationMode: state.landAllocationMode,
       parcelFunding: project.financing?.parcelFunding,
       collectionsPerPeriod: collectionsForAssetAtOffset(state.revenue, asset.id, offset, phase),
+      collectionsTotal: collectionsTotalForAsset(state.revenue, asset.id),
     });
 
     // Project onto the project axis.

@@ -55,6 +55,70 @@ interface ChecksSource {
   indirectCF: { netCashFlowPerPeriod: number[] };
 }
 
+/**
+ * CASH BASIS VS SALE BASIS (2026-08-16).
+ *
+ * `percent_of_revenue_cash` charges on cash COLLECTED; `percent_of_revenue_sale`
+ * and `percent_of_total_revenue` charge on GROSS LIST VALUE (units x price).
+ * Until 2026-08-16 all three resolved to gross, so the distinction lived on the
+ * schema and nowhere else.
+ *
+ * The two bases coincide whenever every sale is collected inside the hold, which
+ * is the ordinary case and is why the split went unnoticed. They part company on
+ * escrow held past exit, exit truncation, or revenue never collected.
+ *
+ * THIS IS AN ADVISORY, NOT AN INTEGRITY CHECK, and deliberately not folded into
+ * buildIntegrityChecks. Those are identities that must hold to 1e-6 or the model
+ * is broken. A gap between collections and list value is a legitimate model
+ * state, so reporting it as a failed check would cry wolf on a correct model.
+ * It is surfaced so the case that would justify a per-period revenue base is
+ * visible rather than silent.
+ */
+export const BASIS_DIVERGENCE_TOL = 0.005; // 0.5% of gross
+
+export interface RevenueBasisAdvisory {
+  assetId: string;
+  assetName: string;
+  gross: number;
+  collections: number;
+  /** collections / gross - 1. Negative means cash falls short of list value. */
+  relative: number;
+}
+
+/**
+ * Assets whose collections diverge materially from gross list value. Empty when
+ * every asset agrees, which is the normal case, so a caller renders it
+ * unconditionally and shows nothing most of the time.
+ */
+export function buildRevenueBasisAdvisories(
+  assets: ReadonlyArray<{ id: string; name: string }>,
+  grossOf: (assetId: string) => number,
+  collectionsOf: (assetId: string) => number | undefined,
+): RevenueBasisAdvisory[] {
+  const out: RevenueBasisAdvisory[] = [];
+  for (const a of assets) {
+    const gross = grossOf(a.id);
+    const collections = collectionsOf(a.id);
+    // No revenue configured at all is not a divergence, it is an empty asset.
+    if (collections === undefined || gross <= 0) continue;
+    const relative = collections / gross - 1;
+    if (Math.abs(relative) <= BASIS_DIVERGENCE_TOL) continue;
+    out.push({ assetId: a.id, assetName: a.name, gross, collections, relative });
+  }
+  return out;
+}
+
+/** One sentence naming what the divergence means, for any surface. */
+export function revenueBasisAdvisoryText(
+  a: RevenueBasisAdvisory,
+  money: (v: number) => string,
+): string {
+  const pct = (a.relative * 100).toFixed(1);
+  const dir = a.relative < 0 ? 'below' : 'above';
+  return `${a.assetName}: cash collected ${money(a.collections)} is ${pct}% ${dir} gross sale value ${money(a.gross)}. `
+    + 'A cost on the cash basis charges on the smaller figure; one on the sale basis charges on the larger.';
+}
+
 export function relativeCheckOk(residue: number, magnitude: number): boolean {
   return Math.abs(residue) <= Math.max(1e-6, Math.abs(magnitude) * CHECK_REL_TOL);
 }

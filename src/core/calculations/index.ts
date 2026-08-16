@@ -847,6 +847,18 @@ export interface AssetCostContext {
   // pre-resolve the per-asset values for each line so percent methods
   // can refer back to them without recursion.
   resolvedDirectLineTotals: Record<string, number>;
+  /**
+   * 2026-08-16: total sales cash COLLECTED for this asset over the whole hold.
+   *
+   * The base for `percent_of_revenue_cash`, which is what finally separates it
+   * from `percent_of_revenue_sale`. Both methods resolved to the same gross
+   * list value (units x price) since 2026-05-13, so the cash-versus-sale
+   * distinction existed on the schema and nowhere else.
+   *
+   * Absent falls back to the gross figure, which is the previous behaviour, so
+   * a caller that supplies no revenue is unchanged.
+   */
+  collectionsTotal?: number;
 }
 
 function clamp(n: number, lo: number, hi: number): number {
@@ -945,9 +957,21 @@ export function calculateItemTotal(
     // for forward-compat. computeAssetRevenue mirrors the Tab 2
     // AssetAreaReconciliationBlock formula: sum of metricValue x
     // unitPrice across revenue sub-unit categories.
-    case 'percent_of_total_revenue':
     case 'percent_of_revenue_cash':
+      // 2026-08-16: CASH BASIS. Charges on the cash actually COLLECTED, which
+      // is what "cash basis" has always claimed and never did. Falls back to
+      // the gross figure when no collections were supplied, so a caller with no
+      // revenue in scope behaves exactly as before.
+      //
+      // Note the two bases coincide whenever every sale is collected inside the
+      // hold, which is the ordinary case; they part company on escrow held past
+      // exit, exit truncation, or revenue never collected. `checksReport`
+      // surfaces that divergence rather than leaving it silent.
+      return (ctx.collectionsTotal ?? m.totalRevenue) * (clamp(v, 0, 100) / 100);
+    case 'percent_of_total_revenue':
     case 'percent_of_revenue_sale':
+      // SALE BASIS: gross list value from the sub-units, regardless of when or
+      // whether the cash arrives.
       return m.totalRevenue * (clamp(v, 0, 100) / 100);
   }
 }
@@ -1182,12 +1206,22 @@ export interface ComputeAssetCostInput {
    * than silently phasing it to nothing.
    */
   collectionsPerPeriod?: number[];
+  /**
+   * 2026-08-16: total sales cash collected for this asset over the whole hold,
+   * the base for `percent_of_revenue_cash`.
+   *
+   * SEPARATE from `collectionsPerPeriod` on purpose. That one is windowed to
+   * the phase because it drives phasing; a total must not lose cash arriving
+   * outside the window. Use `collectionsTotalForAsset`, which sums the
+   * untrimmed series.
+   */
+  collectionsTotal?: number;
 }
 
 export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdown {
   const {
     asset, project, phase, parcels, assets, subUnits, costLines, costOverrides,
-    landAllocationMode, parcelFunding, collectionsPerPeriod,
+    landAllocationMode, parcelFunding, collectionsPerPeriod, collectionsTotal,
   } = input;
   // T3-companion Fix 2 (2026-05-12): companion assets (Sell + Manage
   // Operate sibling, isCompanion === true) carry NO physical attributes
@@ -1308,6 +1342,13 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
         metrics: aggregatedMetrics,
         subUnits,
         resolvedDirectLineTotals: {},
+        // NOTE: deliberately NOT set. An `allocated` line computes its pool
+        // against AGGREGATED PHASE metrics, and this asset's collections total
+        // is not the phase's. Leaving it undefined falls back to the aggregated
+        // gross figure, which is the correct pool basis; the driver share then
+        // splits it. A phase-wide collections total would be the right input
+        // here, and is not plumbed because no allocated line uses a cash base
+        // today. Flagged rather than guessed.
       };
       const pool = calculateItemTotal(
         { ...r.line, method: r.method, value: r.value },
@@ -1320,7 +1361,7 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
       continue;
     }
     // Direct category (default + Pass 3 semantics preserved):
-    const ctxStub: AssetCostContext = { asset, metrics, subUnits, resolvedDirectLineTotals: {} };
+    const ctxStub: AssetCostContext = { asset, metrics, subUnits, resolvedDirectLineTotals: {}, collectionsTotal };
     const lineTotal = calculateItemTotal(
       { ...r.line, method: r.method, value: r.value },
       ctxStub,

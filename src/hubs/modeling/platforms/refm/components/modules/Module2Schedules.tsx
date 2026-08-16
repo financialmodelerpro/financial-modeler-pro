@@ -36,7 +36,7 @@ import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import { computeAllSellResults, resolveLiteralRecognitionProfile } from '../../lib/revenue-resolvers';
-import { collectionsForAsset } from '@/src/core/calculations/capexPhasing';
+import { collectionsForAsset, collectionsTotalForAsset } from '@/src/core/calculations/capexPhasing';
 import {
   buildAccountsReceivable,
   buildUnearnedRevenue,
@@ -227,6 +227,7 @@ export default function Module2Schedules(): React.JSX.Element {
           // this screen, so a collections-following line phases here exactly as
           // in the model rather than falling back to its own curve.
           collectionsPerPeriod: collectionsForAsset(snap, a.id, phase, projectStartYearLocal),
+          collectionsTotal: collectionsTotalForAsset(snap, a.id),
         });
         const phaseStartYear = phase.startDate
           ? new Date(phase.startDate).getUTCFullYear()

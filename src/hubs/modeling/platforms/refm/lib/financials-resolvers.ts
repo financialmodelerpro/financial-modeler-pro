@@ -47,7 +47,7 @@ import {
   computeAssetCost,
   resolveUsefulLifeYears,
 } from '@/src/core/calculations';
-import { collectionsForAsset } from '@/src/core/calculations/capexPhasing';
+import { collectionsForAsset, collectionsTotalForAsset } from '@/src/core/calculations/capexPhasing';
 import type { Module1Store } from './state/module1-store';
 import type { Asset, Phase, FinancingTranche } from './state/module1-types';
 import { DEFAULT_PROJECT_FINANCING_CONFIG } from './state/module1-types';
@@ -1584,6 +1584,7 @@ function computeFinancialsSnapshotOnce(
         landAllocationMode,
         parcelFunding: project.financing?.parcelFunding,
         collectionsPerPeriod: collections,
+        collectionsTotal: collectionsTotalForAsset(revenue, a.id),
       });
       const per = breakdown.perPeriod ?? [];
       for (let i = 0; i < per.length; i++) {

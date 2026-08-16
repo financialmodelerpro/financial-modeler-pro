@@ -24,6 +24,7 @@ import path from 'node:path';
 
 import { computeAssetCost } from '../src/core/calculations';
 import { collectionsForAsset, collectionsForAssetAtOffset } from '../src/core/calculations/capexPhasing';
+import { buildRevenueBasisAdvisories, revenueBasisAdvisoryText } from '../src/hubs/modeling/platforms/refm/lib/reports/checksReport';
 import {
   makeDefaultPhase, makeDefaultProject, makeBlankCostLines,
   type Asset, type CostLine, type SubUnit,
@@ -170,6 +171,76 @@ check('A5 the financing path uses the AXIS offset, not a date-derived one',
     collectionsForAsset(revenue, 'nope', phase, 2026) === undefined);
   check('C3 an absent revenue snapshot yields nothing',
     collectionsForAsset(undefined, 'a1', phase, 2026) === undefined);
+}
+
+
+// ── D. CASH BASIS vs SALE BASIS (pass three) ───────────────────────────────
+//
+// percent_of_revenue_cash charges on cash COLLECTED; percent_of_revenue_sale
+// and percent_of_total_revenue charge on GROSS LIST VALUE. All three resolved
+// to gross until 2026-08-16, so the distinction lived on the schema and nowhere
+// else. The audit found ZERO saved lines using the cash method with a non-zero
+// rate, so this moves no existing model, but it makes the methods mean what
+// they say.
+{
+  const project = makeDefaultProject();
+  const phase = { ...makeDefaultPhase(), id: 'p1', constructionPeriods: 3, operationsPeriods: 3 };
+  const asset = {
+    id: 'a1', phaseId: 'p1', name: 'A', type: '', strategy: 'Sell', visible: true,
+    gfaSqm: 1000, buaSqm: 1000, sellableBuaSqm: 1000, parkingBaysRequired: 0, status: 'planned',
+  } as Asset;
+  // Gross list value = 10 units x 100,000 = 1,000,000.
+  const subUnits: SubUnit[] = [{
+    id: 'su1', assetId: 'a1', name: 'U', category: 'Sellable',
+    metric: 'units', metricValue: 10, unitArea: 100, unitPrice: 100_000,
+  } as SubUnit];
+  const line = (method: string): CostLine => ({
+    id: 'fee__p1', phaseId: 'p1', name: 'Fee', method, value: 10,
+    stage: 'soft', scope: 'direct', allocationBasis: 'per_asset',
+    startPeriod: 1, endPeriod: 2, phasing: 'even',
+  } as unknown as CostLine);
+  const amount = (method: string, collectionsTotal?: number): number => computeAssetCost({
+    asset, project: project as never, phase: phase as never, parcels: [] as never,
+    assets: [asset], subUnits, costLines: [line(method)], costOverrides: [],
+    landAllocationMode: 'autoByBua', collectionsTotal,
+  }).byLineId['fee__p1'] ?? 0;
+
+  check('D1 sale basis charges on GROSS list value',
+    Math.abs(amount('percent_of_revenue_sale', 600_000) - 100_000) < 1e-9,
+    String(amount('percent_of_revenue_sale', 600_000)));
+  check('D2 cash basis charges on COLLECTIONS, not gross',
+    Math.abs(amount('percent_of_revenue_cash', 600_000) - 60_000) < 1e-9,
+    String(amount('percent_of_revenue_cash', 600_000)));
+  check('D3 the two methods now DIFFER when cash falls short of list value',
+    amount('percent_of_revenue_cash', 600_000) !== amount('percent_of_revenue_sale', 600_000));
+  check('D4 ...and agree when every sale is collected (the ordinary case)',
+    Math.abs(amount('percent_of_revenue_cash', 1_000_000) - amount('percent_of_revenue_sale', 1_000_000)) < 1e-9);
+  check('D5 with NO collections supplied the cash basis falls back to gross (unchanged behaviour)',
+    Math.abs(amount('percent_of_revenue_cash') - 100_000) < 1e-9, String(amount('percent_of_revenue_cash')));
+  check('D6 percent_of_total_revenue stays on gross',
+    Math.abs(amount('percent_of_total_revenue', 600_000) - 100_000) < 1e-9);
+
+  // The advisory: an ADVISORY, never an integrity check, because a gap here is
+  // legitimate model state and a failed check would cry wolf on a good model.
+  const adv = buildRevenueBasisAdvisories(
+    [{ id: 'a1', name: 'A' }, { id: 'a2', name: 'B' }],
+    (id) => (id === 'a1' ? 1_000_000 : 500_000),
+    (id) => (id === 'a1' ? 600_000 : 500_000),
+  );
+  check('D7 a material divergence is reported', adv.length === 1 && adv[0].assetId === 'a1');
+  check('D8 an asset whose cash equals its list value is NOT reported',
+    !adv.some((a) => a.assetId === 'a2'));
+  check('D9 the advisory says which way and by how much',
+    /40.0% below/.test(revenueBasisAdvisoryText(adv[0], (v) => String(v))),
+    revenueBasisAdvisoryText(adv[0], (v) => String(v)));
+  check('D10 an asset with no revenue at all is not a divergence',
+    buildRevenueBasisAdvisories([{ id: 'x', name: 'X' }], () => 0, () => undefined).length === 0);
+  check('D11 the divergence is USER-VISIBLE on the cost row, not only in verifiers',
+    /basis-note/.test(read('src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx')));
+  check('D12 the advisory is NOT folded into the integrity checks',
+    !/buildRevenueBasisAdvisories/.test(
+      read('src/hubs/modeling/platforms/refm/lib/reports/checksReport.ts')
+        .split('export function buildIntegrityChecks')[1] ?? ''));
 }
 
 console.log('');
