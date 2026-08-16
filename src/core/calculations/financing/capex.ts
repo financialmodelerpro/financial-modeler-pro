@@ -79,18 +79,18 @@ export function aggregateProjectCapex(inputs: CapexInputs, axis: ProjectAxis): C
     const offset = axis.phaseOffsets.get(phase.id) ?? 0;
     const phaseAssets = inputs.assets.filter((a) => a.phaseId === phase.id && a.visible);
     for (const asset of phaseAssets) {
-      const breakdown = computeAssetCost(
+      const breakdown = computeAssetCost({
         asset,
-        inputs.project,
+        project: inputs.project,
         phase,
-        inputs.parcels,
-        inputs.assets,
-        inputs.subUnits,
-        inputs.costLines,
-        inputs.costOverrides,
-        inputs.landAllocationMode,
-        inputs.parcelFunding,
-      );
+        parcels: inputs.parcels,
+        assets: inputs.assets,
+        subUnits: inputs.subUnits,
+        costLines: inputs.costLines,
+        costOverrides: inputs.costOverrides,
+        landAllocationMode: inputs.landAllocationMode,
+        parcelFunding: inputs.parcelFunding,
+      });
       // Per-line computed totals (summed across every asset that draws on
       // the line). byLineId already carries the asset's resolved amount.
       for (const [lineId, amt] of Object.entries(breakdown.byLineId ?? {})) {

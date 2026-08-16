@@ -105,19 +105,19 @@ function aggregateProjectPeriodArray(
   for (const phase of src.phases) {
     const phaseAssets = src.assets.filter((a) => a.phaseId === phase.id && a.visible);
     for (const asset of phaseAssets) {
-      const breakdown = computeAssetCost(
+      const breakdown = computeAssetCost({
         asset,
-        src.project,
+        project: src.project,
         phase,
-        src.parcels,
-        src.assets,
-        src.subUnits,
-        src.costLines,
-        src.costOverrides,
-        src.landAllocationMode,
+        parcels: src.parcels,
+        assets: src.assets,
+        subUnits: src.subUnits,
+        costLines: src.costLines,
+        costOverrides: src.costOverrides,
+        landAllocationMode: src.landAllocationMode,
         // M2.0 Pass 14 (2026-05-13): deferred-payment Land Cash spread.
-        src.project.financing?.parcelFunding,
-      );
+        parcelFunding: src.project.financing?.parcelFunding,
+      });
       const series = pick(breakdown);
       for (let localPeriod = 0; localPeriod < series.length; localPeriod++) {
         const pp = costLineProjectPeriodIndex(src.project, phase, localPeriod);
@@ -221,11 +221,13 @@ export function createFinancingHooks(src: FinancingHooksSource): FinancingDataHo
     if (!asset) return out;
     const phase = src.phases.find((p) => p.id === asset.phaseId);
     if (!phase) return out;
-    const breakdown = computeAssetCost(
-      asset, src.project, phase, src.parcels, src.assets, src.subUnits,
-      src.costLines, src.costOverrides, src.landAllocationMode,
-      src.project.financing?.parcelFunding,
-    );
+    const breakdown = computeAssetCost({
+      asset, project: src.project, phase,
+      parcels: src.parcels, assets: src.assets, subUnits: src.subUnits,
+      costLines: src.costLines, costOverrides: src.costOverrides,
+      landAllocationMode: src.landAllocationMode,
+      parcelFunding: src.project.financing?.parcelFunding,
+    });
     for (let localPeriod = 0; localPeriod < breakdown.perPeriod.length; localPeriod++) {
       const pp = costLineProjectPeriodIndex(src.project, phase, localPeriod);
       if (pp < 0 || pp >= out.length) continue;

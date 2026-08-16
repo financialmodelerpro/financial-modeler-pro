@@ -817,18 +817,18 @@ export function computeAssetCapex(state: ResolverState, assetId: string): number
   const phase: Phase | undefined = state.phases.find((p) => p.id === asset.phaseId);
   if (!phase) return 0;
 
-  const bd = computeAssetCost(
+  const bd = computeAssetCost({
     asset,
-    state.project,
+    project: state.project,
     phase,
-    state.parcels,
-    state.assets,
-    state.subUnits,
-    state.costLines,
-    state.costOverrides,
-    state.landAllocationMode,
-    state.project.financing?.parcelFunding,
-  );
+    parcels: state.parcels,
+    assets: state.assets,
+    subUnits: state.subUnits,
+    costLines: state.costLines,
+    costOverrides: state.costOverrides,
+    landAllocationMode: state.landAllocationMode,
+    parcelFunding: state.project.financing?.parcelFunding,
+  });
   return Math.max(0, bd.total);
 }
 

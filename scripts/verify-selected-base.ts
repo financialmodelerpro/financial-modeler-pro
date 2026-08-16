@@ -132,8 +132,7 @@ const asset: Asset = {
   gfaSqm: 1000, buaSqm: 1000, sellableBuaSqm: 1000, parkingBaysRequired: 0, status: 'planned',
 } as Asset;
 const totals = (lines: CostLine[]): Record<string, number> =>
-  computeAssetCost(asset, project as never, phase as never, [] as never, [asset], [] as never,
-    lines, [], 'autoByBua').byLineId;
+  computeAssetCost({ asset: asset, project: project as never, phase: phase as never, parcels: [] as never, assets: [asset], subUnits: [] as never, costLines: lines, costOverrides: [], landAllocationMode: 'autoByBua' }).byLineId;
 
 // The chain from the brief: build 1000, dev fee 10% of build (100),
 // contingency 5% of (build + dev fee) = 5% of 1100 = 55.
@@ -376,8 +375,7 @@ section('F. The marketing stage');
   }
   check('F6 the engine buckets marketing separately', (() => {
     const lines = [L('build', 'fixed', 1000), { ...L('mk', 'fixed', 50), stage: 'marketing' } as CostLine];
-    const bd = computeAssetCost(asset, project as never, phase as never, [] as never, [asset],
-      [] as never, lines, [], 'autoByBua');
+    const bd = computeAssetCost({ asset: asset, project: project as never, phase: phase as never, parcels: [] as never, assets: [asset], subUnits: [] as never, costLines: lines, costOverrides: [], landAllocationMode: 'autoByBua' });
     return bd.byStage.marketing === 50 && bd.byStage.soft === 0 && bd.byStage.hard === 1000;
   })());
 }

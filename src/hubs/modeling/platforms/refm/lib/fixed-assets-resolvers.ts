@@ -200,18 +200,18 @@ export function computeAllFixedAssetResults(state: ResolverState): ProjectFixedA
     const handoverIdx = Math.max(0, Math.min(N - 1, offset + cp - 1));
 
     // Per-asset capex breakdown (phase-local arrays).
-    const breakdown = computeAssetCost(
+    const breakdown = computeAssetCost({
       asset,
       project,
       phase,
-      state.parcels,
+      parcels: state.parcels,
       assets,
-      state.subUnits,
-      state.costLines,
-      state.costOverrides,
-      state.landAllocationMode,
-      project.financing?.parcelFunding,
-    );
+      subUnits: state.subUnits,
+      costLines: state.costLines,
+      costOverrides: state.costOverrides,
+      landAllocationMode: state.landAllocationMode,
+      parcelFunding: project.financing?.parcelFunding,
+    });
 
     // Project onto the project axis.
     const additionsAll = projectOntoAxis(breakdown.perPeriod, offset, N);

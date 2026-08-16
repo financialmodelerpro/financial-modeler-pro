@@ -3030,7 +3030,10 @@ export default function Module1Costs(): React.JSX.Element {
       const phaseAssets = assets.filter((a) => a.phaseId === phase.id && a.visible);
       const assetTotals: Record<string, AssetCostBreakdown> = {};
       for (const a of phaseAssets) {
-        assetTotals[a.id] = computeAssetCost(a, project, phase, parcels, assets, subUnits, costLines, costOverrides, landAllocationMode, parcelFunding);
+        assetTotals[a.id] = computeAssetCost({
+          asset: a, project, phase, parcels, assets, subUnits, costLines, costOverrides,
+          landAllocationMode, parcelFunding,
+        });
       }
       return { phaseId: phase.id, phaseName: phase.name, cp: phase.constructionPeriods, phaseAssets, assetTotals };
     });

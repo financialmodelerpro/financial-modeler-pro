@@ -1140,34 +1140,54 @@ export interface AssetCostBreakdown {
   perLinePerPeriod: Record<string, number[]>;
 }
 
-export function computeAssetCost(
-  asset: Asset,
-  project: Project,
-  phase: Phase,
-  parcels: Parcel[],
-  assets: Asset[],
-  subUnits: SubUnit[],
-  costLines: CostLine[],
-  costOverrides: CostOverride[],
-  landAllocationMode: LandAllocationMode,
-  // M2.0 Pass 14 (2026-05-13): parcel funding config, threaded in so
-  // percent_of_cash_land lines can distribute deferred-payment parcel
-  // slices via expandDeferredSchedule instead of lumping at Y0.
-  // Optional: legacy callers (and tests that mock the engine) keep
-  // the existing Y0 behaviour when omitted.
-  parcelFunding?: ParcelFundingConfig[],
+/**
+ * Everything `computeAssetCost` needs, as ONE NAMED OBJECT (2026-08-16).
+ *
+ * WHY THIS IS NOT POSITIONAL ANY MORE. The signature had grown to eleven
+ * positional parameters across ten call sites, the last two optional. At that
+ * width a site that omits an optional input is INDISTINGUISHABLE from one that
+ * passes it, and the two most recent additions (`parcelFunding`, then
+ * `collectionsPerPeriod`) were each wired at a subset of sites, so the same
+ * asset could be costed one way in the P&L path and another in the financing
+ * path with nothing to show for it. Named fields make a missing input a
+ * deliberate absence rather than a positional accident, and make the next
+ * addition a one-line change at the definition instead of ten edits that must
+ * all be got right.
+ */
+export interface ComputeAssetCostInput {
+  asset: Asset;
+  project: Project;
+  phase: Phase;
+  parcels: Parcel[];
+  assets: Asset[];
+  subUnits: SubUnit[];
+  costLines: CostLine[];
+  costOverrides: CostOverride[];
+  landAllocationMode: LandAllocationMode;
+  /**
+   * M2.0 Pass 14 (2026-05-13): parcel funding config, so percent_of_cash_land
+   * lines distribute deferred-payment parcel slices via expandDeferredSchedule
+   * instead of lumping at Y0. Omitted keeps the Y0 behaviour.
+   */
+  parcelFunding?: ParcelFundingConfig[];
   /**
    * 2026-08-15: sales cash COLLECTED for this asset, per phase-relative period.
-   * The only input the phasing resolution cannot derive for itself, because it
+   * The one input the phasing resolution cannot derive for itself, because it
    * comes from the revenue engine. That engine runs BEFORE costs and reads no
    * cost input, so there is no circularity.
    *
-   * Optional. A line set to follow collections with none supplied degrades to
-   * the asset curve and then to its own setting, and the resolver reports that
-   * rather than silently phasing it to nothing.
+   * A line set to follow collections with none supplied degrades to the asset
+   * curve and then to its own setting, and the resolver reports that rather
+   * than silently phasing it to nothing.
    */
-  collectionsPerPeriod?: number[],
-): AssetCostBreakdown {
+  collectionsPerPeriod?: number[];
+}
+
+export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdown {
+  const {
+    asset, project, phase, parcels, assets, subUnits, costLines, costOverrides,
+    landAllocationMode, parcelFunding, collectionsPerPeriod,
+  } = input;
   // T3-companion Fix 2 (2026-05-12): companion assets (Sell + Manage
   // Operate sibling, isCompanion === true) carry NO physical attributes
   // and inherit operating revenue from the parent. They must NOT pull
@@ -1592,9 +1612,18 @@ export function computePhaseCost(
   const perPeriod = new Array<number>(cp + 1).fill(0);
 
   for (const a of phaseAssets) {
-    const breakdown = computeAssetCost(a, project, phase, parcels, assets, subUnits, costLines, costOverrides, landAllocationMode, parcelFunding);
+    const breakdown = computeAssetCost({
+      asset: a, project, phase, parcels, assets, subUnits, costLines, costOverrides,
+      landAllocationMode, parcelFunding,
+    });
     byAssetId[a.id] = breakdown;
     total += breakdown.total;
+    // NOTE (2026-08-16): this stage list is a HARDCODED CAST, not a
+    // Record<CostStage, number>, so the compiler does not force a new stage in.
+    // It currently omits `marketing`, which means the PHASE-level byStage
+    // rollup silently drops marketing spend. Left as-is in this pass because
+    // this pass is a signature refactor with no behaviour change; reported
+    // separately. Fixing it means iterating COST_STAGES here.
     for (const k of ['land', 'hard', 'soft', 'operating'] as CostStage[]) byStage[k] += breakdown.byStage[k];
     for (let i = 0; i <= cp; i++) perPeriod[i] += breakdown.perPeriod[i] ?? 0;
   }

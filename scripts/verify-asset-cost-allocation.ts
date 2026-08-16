@@ -80,8 +80,8 @@ console.log('\n[A] Fixed lump distribution by BUA');
     stage: 'soft', scope: 'direct', allocationBasis: 'bua_share',
     startPeriod: 0, endPeriod: 3, phasing: 'even',
   };
-  const bA = computeAssetCost(assets[0], project, phase, parcels, assets, subUnits, [fixedLine], [], 'autoByBua');
-  const bB = computeAssetCost(assets[1], project, phase, parcels, assets, subUnits, [fixedLine], [], 'autoByBua');
+  const bA = computeAssetCost({ asset: assets[0], project: project, phase: phase, parcels: parcels, assets: assets, subUnits: subUnits, costLines: [fixedLine], costOverrides: [], landAllocationMode: 'autoByBua' });
+  const bB = computeAssetCost({ asset: assets[1], project: project, phase: phase, parcels: parcels, assets: assets, subUnits: subUnits, costLines: [fixedLine], costOverrides: [], landAllocationMode: 'autoByBua' });
   // Asset A = 60% of 1M = 600,000; Asset B = 40%.
   assertNear('A1: A by BUA share = 600,000', bA.byLineId['lp1'] ?? 0, 600_000);
   assertNear('A2: B by BUA share = 400,000', bB.byLineId['lp1'] ?? 0, 400_000);
@@ -108,7 +108,7 @@ console.log('\n[B] percent_of_construction picks up construction base');
     stage: 'soft', scope: 'direct', allocationBasis: 'bua_share',
     startPeriod: 0, endPeriod: 3, phasing: 'even',
   };
-  const bA = computeAssetCost(assets[0], project, phase, parcels, assets, subUnits, [hardLine, softLine], [], 'autoByBua');
+  const bA = computeAssetCost({ asset: assets[0], project: project, phase: phase, parcels: parcels, assets: assets, subUnits: subUnits, costLines: [hardLine, softLine], costOverrides: [], landAllocationMode: 'autoByBua' });
   // Expected: hard = 60M, soft = 3M
   assertNear('B1: hard rate_per_bua = 60M for A', bA.byLineId['hl1'] ?? 0, 60_000_000);
   assertNear('B2: soft = 5% of 60M = 3M for A', bA.byLineId['sl1'] ?? 0, 3_000_000);
@@ -126,8 +126,8 @@ console.log('\n[C] rate_per_bua uses per-asset BUA');
     stage: 'hard', scope: 'direct', allocationBasis: 'bua_share',
     startPeriod: 0, endPeriod: 3, phasing: 'even',
   };
-  const bA = computeAssetCost(assets[0], project, phase, parcels, assets, subUnits, [rateLine], [], 'autoByBua');
-  const bB = computeAssetCost(assets[1], project, phase, parcels, assets, subUnits, [rateLine], [], 'autoByBua');
+  const bA = computeAssetCost({ asset: assets[0], project: project, phase: phase, parcels: parcels, assets: assets, subUnits: subUnits, costLines: [rateLine], costOverrides: [], landAllocationMode: 'autoByBua' });
+  const bB = computeAssetCost({ asset: assets[1], project: project, phase: phase, parcels: parcels, assets: assets, subUnits: subUnits, costLines: [rateLine], costOverrides: [], landAllocationMode: 'autoByBua' });
   assertNear('C1: A = 60,000 × 100 = 6,000,000', bA.byLineId['rate1'] ?? 0, 6_000_000);
   assertNear('C2: B = 40,000 × 100 = 4,000,000', bB.byLineId['rate1'] ?? 0, 4_000_000);
 }
@@ -144,7 +144,7 @@ console.log('\n[D] byStage bucket rollup');
     { id: 's1', phaseId: phase.id, name: 'Soft', method: 'percent_of_construction', value: 10,
       stage: 'soft', scope: 'direct', allocationBasis: 'bua_share', startPeriod: 0, endPeriod: 3, phasing: 'even' },
   ];
-  const b = computeAssetCost(assets[0], project, phase, parcels, assets, subUnits, lines, [], 'autoByBua');
+  const b = computeAssetCost({ asset: assets[0], project: project, phase: phase, parcels: parcels, assets: assets, subUnits: subUnits, costLines: lines, costOverrides: [], landAllocationMode: 'autoByBua' });
   // hard = 60M; soft = 10% of 60M = 6M.
   assertNear('D1: byStage.hard = 60M', b.byStage.hard, 60_000_000);
   assertNear('D2: byStage.soft = 6M', b.byStage.soft, 6_000_000);
@@ -163,7 +163,7 @@ console.log('\n[E] perPeriod sum identity');
     stage: 'hard', scope: 'direct', allocationBasis: 'bua_share',
     startPeriod: 0, endPeriod: 3, phasing: 'even',
   };
-  const b = computeAssetCost(assets[0], project, phase, parcels, assets, subUnits, [line], [], 'autoByBua');
+  const b = computeAssetCost({ asset: assets[0], project: project, phase: phase, parcels: parcels, assets: assets, subUnits: subUnits, costLines: [line], costOverrides: [], landAllocationMode: 'autoByBua' });
   const perPeriodSum = b.perPeriod.reduce((s, v) => s + v, 0);
   assertNear('E1: sum(perPeriod) = byLineId[l1] (60M)', perPeriodSum, b.byLineId['l1'] ?? 0);
   // perLinePerPeriod should also match.
@@ -183,7 +183,7 @@ console.log('\n[F] disabled cost line zeroes out');
     stage: 'hard', scope: 'direct', allocationBasis: 'bua_share',
     startPeriod: 0, endPeriod: 3, phasing: 'even',
   };
-  const b = computeAssetCost(assets[0], project, phase, parcels, assets, subUnits, [line], [], 'autoByBua');
+  const b = computeAssetCost({ asset: assets[0], project: project, phase: phase, parcels: parcels, assets: assets, subUnits: subUnits, costLines: [line], costOverrides: [], landAllocationMode: 'autoByBua' });
   assertNear('F1: disabled line total = 0', b.byLineId['lZ'] ?? 0, 0);
   assertNear('F2: disabled line perPeriod sum = 0', b.perPeriod.reduce((s, v) => s + v, 0), 0);
 }

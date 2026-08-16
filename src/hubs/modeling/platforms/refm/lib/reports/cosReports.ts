@@ -38,10 +38,13 @@ export function buildCostOfSalesReport(snap: ProjectFinancialsSnapshot, state: F
     const r = snap.revenue.bySellAsset.get(a.id);
     const phase = state.phases.find((p) => p.id === a.phaseId);
     if (!phase) continue;
-    const breakdown = computeAssetCost(
-      a, state.project, phase, state.parcels, state.assets, state.subUnits, state.costLines, state.costOverrides, state.landAllocationMode,
-      state.project.financing?.parcelFunding,
-    );
+    const breakdown = computeAssetCost({
+      asset: a, project: state.project, phase,
+      parcels: state.parcels, assets: state.assets, subUnits: state.subUnits,
+      costLines: state.costLines, costOverrides: state.costOverrides,
+      landAllocationMode: state.landAllocationMode,
+      parcelFunding: state.project.financing?.parcelFunding,
+    });
     const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
     const offset = Math.max(0, phaseStartYear - projectStartYear);
     // Capex projection: CoS uses offset-1 for the Y0 lump (Phase 1 drops it),

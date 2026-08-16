@@ -1579,11 +1579,12 @@ function computeFinancialsSnapshotOnce(
         offset,
         (phase.constructionPeriods ?? 0) + (phase.operationsPeriods ?? 0) + 2,
       );
-      const breakdown = computeAssetCost(
-        a, project, phase, parcels, assets, subUnits, costLines, costOverrides, landAllocationMode,
-        project.financing?.parcelFunding,
-        collections,
-      );
+      const breakdown = computeAssetCost({
+        asset: a, project, phase, parcels, assets, subUnits, costLines, costOverrides,
+        landAllocationMode,
+        parcelFunding: project.financing?.parcelFunding,
+        collectionsPerPeriod: collections,
+      });
       const per = breakdown.perPeriod ?? [];
       for (let i = 0; i < per.length; i++) {
         // M4 Pass 2W (2026-05-24): rescue Phase 1's i=0 lump (see capex.ts).

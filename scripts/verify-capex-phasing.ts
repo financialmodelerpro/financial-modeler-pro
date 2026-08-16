@@ -304,8 +304,7 @@ check('E5 an override source breaks inertness',
 
 // The real proof: run the ENGINE both ways and compare every number.
 const run = (lns: CostLine[], ast: Asset, collections?: number[]): string => JSON.stringify(
-  computeAssetCost(ast, project as never, phase as never, parcels as never, [ast], su as never,
-    lns, [], 'autoByBua', undefined, collections));
+  computeAssetCost({ asset: ast, project: project as never, phase: phase as never, parcels: parcels as never, assets: [ast], subUnits: su as never, costLines: lns, costOverrides: [], landAllocationMode: 'autoByBua', parcelFunding: undefined, collectionsPerPeriod: collections }));
 
 const baseline = run(legacyLines, a0);
 check('E6 the engine is BYTE-IDENTICAL on an untouched project', run(legacyLines, a0) === baseline);

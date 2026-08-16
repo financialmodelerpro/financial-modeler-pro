@@ -184,18 +184,18 @@ export default function Module2CostOfSales(): React.JSX.Element {
     const r = snap.bySellAsset.get(a.id);
     const phase = state.phases.find((p) => p.id === a.phaseId);
     const breakdown: AssetCostBreakdown | null = phase
-      ? computeAssetCost(
-          a,
-          state.project,
+      ? computeAssetCost({
+          asset: a,
+          project: state.project,
           phase,
-          state.parcels,
-          state.assets,
-          state.subUnits,
-          state.costLines,
-          state.costOverrides,
-          state.landAllocationMode,
-          state.project.financing?.parcelFunding,
-        )
+          parcels: state.parcels,
+          assets: state.assets,
+          subUnits: state.subUnits,
+          costLines: state.costLines,
+          costOverrides: state.costOverrides,
+          landAllocationMode: state.landAllocationMode,
+          parcelFunding: state.project.financing?.parcelFunding,
+        })
       : null;
     const N = snap.axisLength;
     // Pass 9e-2 (2026-05-18): per-period capex on the project axis.

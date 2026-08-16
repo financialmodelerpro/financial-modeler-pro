@@ -231,10 +231,11 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
     if (a.visible === false) continue;
     const phase = phases.find((p) => p.id === a.phaseId);
     if (!phase) continue;
-    const breakdown = computeAssetCost(
-      a, project, phase, parcels, assets, subUnits, costLines, costOverrides, landAllocationMode,
-      project.financing?.parcelFunding,
-    );
+    const breakdown = computeAssetCost({
+      asset: a, project, phase, parcels, assets, subUnits, costLines, costOverrides,
+      landAllocationMode,
+      parcelFunding: project.financing?.parcelFunding,
+    });
     if ((breakdown.total ?? 0) === 0) continue;
     const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
     const offset = Math.max(0, phaseStartYear - projectStartYear);

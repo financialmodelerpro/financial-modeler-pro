@@ -216,11 +216,13 @@ export default function Module2Schedules(): React.JSX.Element {
         const phase = phases.find((p) => p.id === a.phaseId);
         if (!phase) continue;
 
-        const breakdown = computeAssetCost(
-          a, project, phase, state.parcels, assets, state.subUnits,
-          state.costLines, state.costOverrides, state.landAllocationMode,
-          project.financing?.parcelFunding,
-        );
+        const breakdown = computeAssetCost({
+          asset: a, project, phase,
+          parcels: state.parcels, assets, subUnits: state.subUnits,
+          costLines: state.costLines, costOverrides: state.costOverrides,
+          landAllocationMode: state.landAllocationMode,
+          parcelFunding: project.financing?.parcelFunding,
+        });
         const phaseStartYear = phase.startDate
           ? new Date(phase.startDate).getUTCFullYear()
           : projectStartYearLocal;

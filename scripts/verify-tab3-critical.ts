@@ -82,7 +82,7 @@ console.log('\n[2/7] Fix 2: engine short-circuit for companions');
   };
   const companion = makeCompanionAsset(parent, 100);
   const lines = makeDefaultCostLines(phase.id, phase.constructionPeriods);
-  const breakdown = computeAssetCost(companion, project, phase, [parcel], [parent, companion], [], lines, [], 'autoByBua');
+  const breakdown = computeAssetCost({ asset: companion, project: project, phase: phase, parcels: [parcel], assets: [parent, companion], subUnits: [], costLines: lines, costOverrides: [], landAllocationMode: 'autoByBua' });
   if (breakdown.total === 0) pass('companion breakdown.total === 0');
   else fail('companion total', `expected 0, got ${breakdown.total}`);
   if (Object.keys(breakdown.byLineId).length === 0) pass('companion byLineId empty');
@@ -104,7 +104,7 @@ console.log('\n[2/7] Fix 2: engine short-circuit for companions');
   } else fail('companion perLinePerPeriod', `expected empty, got ${Object.keys(breakdown.perLinePerPeriod).length} keys`);
 
   // Non-companion sanity: same fixture, run on parent. Should produce non-zero.
-  const parentBreakdown = computeAssetCost(parent, project, phase, [parcel], [parent, companion], [], lines, [], 'autoByBua');
+  const parentBreakdown = computeAssetCost({ asset: parent, project: project, phase: phase, parcels: [parcel], assets: [parent, companion], subUnits: [], costLines: lines, costOverrides: [], landAllocationMode: 'autoByBua' });
   if (parentBreakdown.total > 0) pass(`parent breakdown.total > 0 (${parentBreakdown.total.toFixed(0)})`);
   else fail('parent total', `expected > 0, got ${parentBreakdown.total}`);
 }
@@ -179,7 +179,7 @@ console.log('\n[6/7] Fix 6: Branded Apt reference fixture produces sensible Land
     visible: true, gfaSqm: 0, buaSqm: 130874, sellableBuaSqm: 84297, parkingBaysRequired: 0,
   };
   const lines = makeDefaultCostLines(phase.id, phase.constructionPeriods);
-  const bd = computeAssetCost(branded, project, phase, [parcel], [branded], [], lines, [], 'autoByBua');
+  const bd = computeAssetCost({ asset: branded, project: project, phase: phase, parcels: [parcel], assets: [branded], subUnits: [], costLines: lines, costOverrides: [], landAllocationMode: 'autoByBua' });
 
   // Land lines: cash + in-kind together = total parcel value = 22066 * 98450 = 2,172,398,700 SAR.
   // Branded is sole asset -> 100% allocation. Expected ~2.17B for land.
