@@ -33,6 +33,7 @@ import {
   computeProjectTimeline,
   resolveUsefulLifeYears,
 } from '@/src/core/calculations';
+import { collectionsForAssetAtOffset, type CollectionsSource } from '@/src/core/calculations/capexPhasing';
 import {
   computeAssetFixedAssets,
   type AssetFixedAssetResult,
@@ -96,7 +97,17 @@ type ResolverState = Pick<
   | 'costLines'
   | 'costOverrides'
   | 'landAllocationMode'
->;
+> & {
+  /**
+   * 2026-08-16: the revenue engine's per-asset output, used ONLY to phase cost
+   * lines that follow collections. Fixed assets capitalise capex, so WHEN a
+   * cost lands changes the additions schedule and therefore depreciation;
+   * without this a collections-following line built the asset on a different
+   * curve here than in the P&L. Optional so a caller that has no revenue yet
+   * still resolves, leaving such lines on their own curve.
+   */
+  revenue?: CollectionsSource;
+};
 
 function zeros(n: number): number[] { return new Array<number>(n).fill(0); }
 
@@ -211,6 +222,7 @@ export function computeAllFixedAssetResults(state: ResolverState): ProjectFixedA
       costOverrides: state.costOverrides,
       landAllocationMode: state.landAllocationMode,
       parcelFunding: project.financing?.parcelFunding,
+      collectionsPerPeriod: collectionsForAssetAtOffset(state.revenue, asset.id, offset, phase),
     });
 
     // Project onto the project axis.

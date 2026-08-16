@@ -29,6 +29,7 @@ import type {
 
 import { buildProjectAxis } from './axis';
 import { aggregateProjectCapex } from './capex';
+import type { CollectionsSource } from '../capexPhasing';
 import { computeFundingRequirement, type FundingGapInputs } from './funding';
 import { computeDebtEquitySplit } from './debtEquity';
 import { normaliseFacilityShares } from './shares';
@@ -58,6 +59,14 @@ export interface FinancingContext {
    * fall back to 0.
    */
   fundingGap?: FundingGapInputs;
+  /**
+   * 2026-08-16: the revenue engine's per-asset output, used ONLY to phase cost
+   * lines that follow collections. Structural type (CollectionsSource), so the
+   * core engine keeps no dependency on the platform's revenue resolvers, which
+   * is the same rule `fundingGap` above follows. Optional: absent leaves a
+   * collections-following line on its own curve.
+   */
+  revenue?: CollectionsSource;
   /**
    * Conditional IDC (2026-06-02): per-period surplus-cash budget available
    * to pay construction interest in cash instead of capitalising it to
@@ -91,6 +100,10 @@ export function computeFinancingResult(ctx: FinancingContext): FinancingComputat
     costOverrides:      ctx.costOverrides,
     landAllocationMode: ctx.landAllocationMode,
     parcelFunding:      ctx.financingConfig.parcelFunding ?? [],
+    // 2026-08-16: so a collections-following cost line phases the same way in
+    // the financing schedule as in the P&L. The revenue engine runs before the
+    // financing solve and reads no cost input, so this is a one-way pass.
+    revenue:            ctx.revenue,
   }, axis);
 
   const funding = computeFundingRequirement(capex, ctx.financingConfig, ctx.fundingGap);

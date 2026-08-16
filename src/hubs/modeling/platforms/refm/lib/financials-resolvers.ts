@@ -47,7 +47,7 @@ import {
   computeAssetCost,
   resolveUsefulLifeYears,
 } from '@/src/core/calculations';
-import { projectAxisToPhaseLocal } from '@/src/core/calculations/capexPhasing';
+import { collectionsForAsset } from '@/src/core/calculations/capexPhasing';
 import type { Module1Store } from './state/module1-store';
 import type { Asset, Phase, FinancingTranche } from './state/module1-types';
 import { DEFAULT_PROJECT_FINANCING_CONFIG } from './state/module1-types';
@@ -1420,13 +1420,19 @@ function computeFinancialsSnapshotOnce(
   const opex = computeAllOpexResults({ project, phases, assets, subUnits }, revenue);
   const ap = computeOpexApSnapshot({ project, assets }, opex);
   const escrow = computeEscrowSnapshot({ project, phases, assets, subUnits }, revenue);
-  const fixedAssets = computeAllFixedAssetResults({ project, phases, assets, subUnits, parcels, costLines, costOverrides, landAllocationMode });
+  // 2026-08-16: `revenue` threaded so capitalised capex is built on the same
+  // curve the P&L spends it, for any line that follows collections.
+  const fixedAssets = computeAllFixedAssetResults({ project, phases, assets, subUnits, parcels, costLines, costOverrides, landAllocationMode, revenue });
   const financing = computeFinancingResult({
     project, phases, parcels, assets, subUnits, costLines, costOverrides,
     landAllocationMode,
     financingConfig: project.financing ?? DEFAULT_PROJECT_FINANCING_CONFIG,
     tranches: financingTranches,
     equityContributions,
+    // 2026-08-16: `revenue` is computed on the line above, before this call, so
+    // the financing capex schedule phases collections-following cost lines the
+    // same way the P&L does. One-way: the revenue engine reads no cost input.
+    revenue,
     // M5 / funding (2026-06-01): Methods 2 + 3 size debt/equity to the
     // per-period funding gap. The gap needs a full snapshot to compute, so
     // it is fed back via a guarded second pass (see the end of this
@@ -1568,17 +1574,11 @@ function computeFinancialsSnapshotOnce(
     if (phase && (a.strategy === 'Operate' || a.strategy === 'Lease' || a.isCompanion === true || a.strategy === 'Sell' || a.strategy === 'Sell + Manage')) {
       const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
       const offset = Math.max(0, phaseStartYear - projectStartYear);
-      // 2026-08-15: the collections profile for lines that follow it (marketing,
-      // commission). Sourced from the sell result computed ABOVE, which is the
-      // same cashCollectedPerPeriod the P&L reads, so a cost that follows
-      // collections lands in exactly the periods the statements show cash
-      // arriving. Undefined for a non-sell asset, which the resolver reports
-      // rather than silently phasing to nothing.
-      const collections = projectAxisToPhaseLocal(
-        revenue.bySellAsset.get(a.id)?.cashCollectedPerPeriod,
-        offset,
-        (phase.constructionPeriods ?? 0) + (phase.operationsPeriods ?? 0) + 2,
-      );
+      // 2026-08-16: routed through the shared helper. The offset arithmetic and
+      // the slot count used to be written out here and nowhere else, which is
+      // exactly how a second site copying it by hand lands a curve one period
+      // out. Every call site now calls collectionsForAsset or passes nothing.
+      const collections = collectionsForAsset(revenue, a.id, phase, projectStartYear);
       const breakdown = computeAssetCost({
         asset: a, project, phase, parcels, assets, subUnits, costLines, costOverrides,
         landAllocationMode,

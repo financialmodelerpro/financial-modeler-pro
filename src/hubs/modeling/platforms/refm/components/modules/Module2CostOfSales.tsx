@@ -28,6 +28,7 @@ import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import { computeAllSellResults, resolveLiteralRecognitionProfile } from '../../lib/revenue-resolvers';
+import { collectionsForAsset } from '@/src/core/calculations/capexPhasing';
 import { computeFinancialsSnapshot } from '../../lib/financials-resolvers';
 import { buildCostOfSalesV2, type CostOfSalesV2Result } from '@/src/core/calculations/revenue';
 import { computeAssetCost, type AssetCostBreakdown } from '@/src/core/calculations';
@@ -195,6 +196,10 @@ export default function Module2CostOfSales(): React.JSX.Element {
           costOverrides: state.costOverrides,
           landAllocationMode: state.landAllocationMode,
           parcelFunding: state.project.financing?.parcelFunding,
+          // 2026-08-16: `snap` is the sell-results snapshot this screen already
+          // computes, so collections-following lines phase as in the model.
+          collectionsPerPeriod: collectionsForAsset(
+            snap, a.id, phase, snap.yearLabels[0] ?? 0),
         })
       : null;
     const N = snap.axisLength;

@@ -36,6 +36,7 @@ import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import { computeAllSellResults, resolveLiteralRecognitionProfile } from '../../lib/revenue-resolvers';
+import { collectionsForAsset } from '@/src/core/calculations/capexPhasing';
 import {
   buildAccountsReceivable,
   buildUnearnedRevenue,
@@ -222,6 +223,10 @@ export default function Module2Schedules(): React.JSX.Element {
           costLines: state.costLines, costOverrides: state.costOverrides,
           landAllocationMode: state.landAllocationMode,
           parcelFunding: project.financing?.parcelFunding,
+          // 2026-08-16: `snap` is the sell-results snapshot already computed on
+          // this screen, so a collections-following line phases here exactly as
+          // in the model rather than falling back to its own curve.
+          collectionsPerPeriod: collectionsForAsset(snap, a.id, phase, projectStartYearLocal),
         });
         const phaseStartYear = phase.startDate
           ? new Date(phase.startDate).getUTCFullYear()

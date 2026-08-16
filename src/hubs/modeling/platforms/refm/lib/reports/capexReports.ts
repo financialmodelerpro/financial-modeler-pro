@@ -12,6 +12,7 @@
  * Pure: reads the financials snapshot + project state only; no engine mutation.
  */
 import { computeAssetCost, deriveCostStage, resolveAssetAreaMetrics, type AssetAreaMetrics } from '@/src/core/calculations';
+import { collectionsForAsset } from '@/src/core/calculations/capexPhasing';
 import type { ProjectFinancialsSnapshot, FinancialsResolverState } from '../financials-resolvers';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 
@@ -235,6 +236,11 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
       asset: a, project, phase, parcels, assets, subUnits, costLines, costOverrides,
       landAllocationMode,
       parcelFunding: project.financing?.parcelFunding,
+      // 2026-08-16: the snapshot already carries the revenue engine's output,
+      // so a collections-following line phases here exactly as it does in the
+      // model. Without this the report and the P&L disagreed about WHEN a
+      // marketing or commission cost lands, while agreeing on the total.
+      collectionsPerPeriod: collectionsForAsset(snap.revenue, a.id, phase, projectStartYear),
     });
     if ((breakdown.total ?? 0) === 0) continue;
     const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;

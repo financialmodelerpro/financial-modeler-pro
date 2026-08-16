@@ -805,6 +805,14 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
 /**
  * Total capex for an asset by summing computeAssetCost(asset).total.
  * Returns 0 when the asset is a companion or its phase is missing.
+ *
+ * DELIBERATELY PASSES NO COLLECTIONS (2026-08-16). Every other call site
+ * threads them so a collections-following line phases identically everywhere,
+ * but this one reads `.total` and nothing else, and phasing cannot move a total
+ * (weights sum to 1). Supplying them here would also be the one genuinely
+ * awkward direction: this function is called from inside the revenue layer that
+ * PRODUCES collections, so taking them as an input would invite a cycle that
+ * does not otherwise exist.
  */
 export type ResolverState = Pick<
   Module1Store,

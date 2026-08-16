@@ -128,6 +128,58 @@ export function projectAxisToPhaseLocal(
   return out;
 }
 
+/** The shape a revenue snapshot presents to the capex layer. Structural rather
+ *  than the concrete `ProjectRevenueSnapshot`, so `@/src/core` keeps no import
+ *  back into the platform's revenue resolvers. */
+export interface CollectionsSource {
+  bySellAsset: Map<string, { cashCollectedPerPeriod?: number[] } | undefined>;
+}
+
+/**
+ * Phase-local sales collections for one asset (2026-08-16).
+ *
+ * ONE definition, used by every `computeAssetCost` call site, because this is
+ * where the previous divergence lived: the offset arithmetic and the slot count
+ * were written out at the single wired site and nowhere else, so a second site
+ * copying it by hand is how a curve ends up one period out. A site either calls
+ * this or passes nothing.
+ *
+ * Returns undefined when the asset has no sell result (a Lease or Operate
+ * asset, or a project with no revenue yet), which the resolver reports as a
+ * degraded follow rather than phasing the line to nothing.
+ */
+export function collectionsForAsset(
+  revenue: CollectionsSource | undefined,
+  assetId: string,
+  phase: { startDate?: string; constructionPeriods?: number; operationsPeriods?: number },
+  projectStartYear: number,
+): number[] | undefined {
+  const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
+  return collectionsForAssetAtOffset(
+    revenue, assetId, Math.max(0, phaseStartYear - projectStartYear), phase);
+}
+
+/**
+ * The same thing where the caller ALREADY HOLDS the phase offset.
+ *
+ * The financing aggregate keeps offsets on its axis (`axis.phaseOffsets`) and
+ * uses them to place every other series. Re-deriving the offset from dates
+ * there would be a second source for the same number, and the two can disagree
+ * on a project whose axis was built from anything other than the raw phase
+ * start date. So that path passes its own offset and this is the shared body.
+ */
+export function collectionsForAssetAtOffset(
+  revenue: CollectionsSource | undefined,
+  assetId: string,
+  offset: number,
+  phase: { constructionPeriods?: number; operationsPeriods?: number },
+): number[] | undefined {
+  const series = revenue?.bySellAsset?.get(assetId)?.cashCollectedPerPeriod;
+  if (!series || series.length === 0) return undefined;
+  const slots = (phase.constructionPeriods ?? 0) + (phase.operationsPeriods ?? 0) + 2;
+  return projectAxisToPhaseLocal(series, offset, slots);
+}
+
 /**
  * The parcel-driven land value lines, which take NO part in phasing at all.
  *

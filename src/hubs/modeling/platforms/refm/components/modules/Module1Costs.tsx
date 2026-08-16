@@ -63,7 +63,8 @@ import {
   type AssetCapexPhasing,
   deriveLineBaseId,
 } from '../../lib/state/module1-types';
-import { resolvePhasingSource, isParcelDrivenLandLine } from '@/src/core/calculations/capexPhasing';
+import { resolvePhasingSource, isParcelDrivenLandLine, collectionsForAsset } from '@/src/core/calculations/capexPhasing';
+import { computeAllSellResults } from '../../lib/revenue-resolvers';
 import { assetVisibleLines, eligibleBaseLines } from '@/src/core/calculations/selectedBase';
 import {
   computeAssetCost,
@@ -3025,6 +3026,23 @@ export default function Module1Costs(): React.JSX.Element {
   // (same path Tab 4 uses); legacy projects without financing get
   // undefined and the engine takes its no-deferred fallback.
   const parcelFunding = project.financing?.parcelFunding;
+  // 2026-08-16: the sell-results snapshot, so a cost line that follows
+  // collections phases here exactly as it does in the model.
+  //
+  // This screen computes it rather than receiving it, matching what every other
+  // module screen does (Module1Financing, both Module 2 screens, all of Module
+  // 4 and 5, Module 7 and Overview each run their own). A parent-provided
+  // snapshot would be better, but it is a shell change across ten screens and
+  // belongs in its own pass; doing it here alone would leave this the single
+  // screen fed from above while its own sibling tab computes its own.
+  //
+  // Note this is the LIGHT revenue engine, not computeFinancialsSnapshot: it
+  // takes no cost input, so there is no circularity and no second cost pass.
+  const sellSnap = useMemo(
+    () => computeAllSellResults({ project, phases, assets, subUnits }),
+    [project, phases, assets, subUnits],
+  );
+  const projectStartYearForCollections = sellSnap.yearLabels[0] ?? 0;
   const perPhaseBreakdowns = useMemo(() => {
     return phases.map((phase) => {
       const phaseAssets = assets.filter((a) => a.phaseId === phase.id && a.visible);
@@ -3033,11 +3051,13 @@ export default function Module1Costs(): React.JSX.Element {
         assetTotals[a.id] = computeAssetCost({
           asset: a, project, phase, parcels, assets, subUnits, costLines, costOverrides,
           landAllocationMode, parcelFunding,
+          collectionsPerPeriod: collectionsForAsset(sellSnap, a.id, phase, projectStartYearForCollections),
         });
       }
       return { phaseId: phase.id, phaseName: phase.name, cp: phase.constructionPeriods, phaseAssets, assetTotals };
     });
-  }, [phases, assets, project, parcels, subUnits, costLines, costOverrides, landAllocationMode, parcelFunding]);
+  }, [phases, assets, project, parcels, subUnits, costLines, costOverrides, landAllocationMode, parcelFunding,
+      sellSnap, projectStartYearForCollections]);
 
   const allVisibleAssets = useMemo(() => assets.filter((a) => a.visible), [assets]);
 

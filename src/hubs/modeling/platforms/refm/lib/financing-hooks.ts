@@ -96,6 +96,12 @@ const zeros = (n: number): PeriodArray => Array(Math.max(0, n)).fill(0);
 // project-period-aligned PeriodArray. `pick` chooses which slice of
 // the breakdown to sum (full perPeriod, perPeriodLandTotal, or
 // perPeriodLandInKind).
+// NOTE (2026-08-16): this module is DEAD CODE. `createFinancingHooks` is
+// exported and imported nowhere in src/ or app/, so the two computeAssetCost
+// calls below are unreachable. They are therefore NOT threaded with
+// collections, and a collections-following line would phase on its own curve
+// here if the module were ever revived. Wire `revenue` through
+// FinancingHooksSource and call collectionsForAssetAtOffset before using it.
 function aggregateProjectPeriodArray(
   src: FinancingHooksSource,
   totalPeriods: number,

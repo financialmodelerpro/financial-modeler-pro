@@ -13,6 +13,7 @@
  * Pure: reads the snapshot + state only.
  */
 import { computeAssetCost } from '@/src/core/calculations';
+import { collectionsForAsset } from '@/src/core/calculations/capexPhasing';
 import { buildCostOfSalesV2, type CostOfSalesV2Result } from '@/src/core/calculations/revenue';
 import { resolveLiteralRecognitionProfile } from '../revenue-resolvers';
 import type { ProjectFinancialsSnapshot, FinancialsResolverState } from '../financials-resolvers';
@@ -44,6 +45,7 @@ export function buildCostOfSalesReport(snap: ProjectFinancialsSnapshot, state: F
       costLines: state.costLines, costOverrides: state.costOverrides,
       landAllocationMode: state.landAllocationMode,
       parcelFunding: state.project.financing?.parcelFunding,
+      collectionsPerPeriod: collectionsForAsset(snap.revenue, a.id, phase, projectStartYear),
     });
     const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
     const offset = Math.max(0, phaseStartYear - projectStartYear);

@@ -12,6 +12,7 @@ import type {
 } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { COST_STAGES } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { computeAssetCost, deriveCostStage } from '../index';
+import { collectionsForAssetAtOffset, type CollectionsSource } from '../capexPhasing';
 import type { CapexAggregate, ProjectAxis } from './types';
 
 export interface CapexInputs {
@@ -24,6 +25,17 @@ export interface CapexInputs {
   costOverrides: CostOverride[];
   landAllocationMode: LandAllocationMode;
   parcelFunding: ParcelFundingConfig[];
+  /**
+   * 2026-08-16: the revenue engine's per-asset output, so a cost line that
+   * follows collections phases here exactly as it does in the P&L path.
+   *
+   * Optional, and the reason it can be: the revenue engine runs BEFORE the
+   * financing solve and reads no cost input, so supplying it introduces no
+   * circularity. A caller that omits it leaves collections-following lines on
+   * their own curve, which is a divergence, so every production caller passes
+   * it and `verify-capex-collections` checks that they do.
+   */
+  revenue?: CollectionsSource;
 }
 
 /**
@@ -90,6 +102,10 @@ export function aggregateProjectCapex(inputs: CapexInputs, axis: ProjectAxis): C
         costOverrides: inputs.costOverrides,
         landAllocationMode: inputs.landAllocationMode,
         parcelFunding: inputs.parcelFunding,
+        // The axis already holds this phase's offset, so use it rather than
+        // re-deriving one from dates: two sources for the same number is how
+        // the financing schedule ends up a period out from the P&L.
+        collectionsPerPeriod: collectionsForAssetAtOffset(inputs.revenue, asset.id, offset, phase),
       });
       // Per-line computed totals (summed across every asset that draws on
       // the line). byLineId already carries the asset's resolved amount.
