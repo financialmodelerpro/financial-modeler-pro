@@ -4,6 +4,47 @@
 
 ---
 
+## START HERE (2026-08-16): the Module 1 Capex block is CLOSED. Next task is VERIFICATION, not building.
+
+**No further Capex changes before launch.** The block shipped in nine commits (`6647e665`, `f33144db`, `38c30d4c`, `2e09646b`, `c164ca3a`, `3e4be340`, `e01216a4`, `79abeec1`, `b27c1057`, `b49963d7`, `86de88c9`, `c529e747`) and the full suite closes at **113 verifiers, 4 non-zero exits, all four long-standing pre-existing failures**.
+
+### The next task is to open Module 1 Capex in a BROWSER
+
+This is the highest-value work available, and it is verification. **Three UI defects got past the checks in this block**, all of them invisible to a source assertion:
+
+1. **The inherited asset curve was MISALIGNED.** A typed curve of `0 / 10 / 30 / 40 / 20` distributed money as `0 / 12.5 / 37.5 / 50`, because the curve is authored against absolute periods and `distribute()` indexes from the start of the line's window. Every check passed. Found by a user setting a curve and reading the row.
+2. **Land rows presented a decision that does not exist**, showing "Own curve" and a not-inheriting badge when land timing comes from the parcel schedule.
+3. **The marketing tile did not exist**, after it had been asserted in a report AND used to justify narrowing the Construction Cost Excl. Land tile. Found only by a sweep.
+
+**What to drive, in rough risk order:**
+
+1. **Asset phasing control** (above the cost table): set a manual curve, confirm the per-line rows show the SAME weights against the SAME periods and that the money agrees. This is where the worst defect lived.
+2. **Per-line phasing source**: Inherit / Own / land cash / collections. The "not inheriting" badge must appear only on a genuine break-out; land rows must show `from parcel schedule` with NO control.
+3. **Tile bar**: Land / Hard / Soft always, Marketing only when it carries spend, `Construction Cost Excl. Land` captioned "excludes marketing". The tiles plus land must reconcile to total capex.
+4. **The hard/soft chip** on every row (restored after being dropped 2026-05-11).
+5. **`% of Selected Lines` picker**: a custom Developer Fee must appear in Contingency's list; nothing below the edited line may appear.
+6. **Basis caption**: only visible where collections and gross sale value diverge. On FMP RE HUB they agree to 0.0%, so expect to see nothing there.
+
+Treat anything found here as **blocking for the matrix**, because the matrix inherits this surface.
+
+### POST-LAUNCH, logged and deliberately NOT started
+
+| Item | Why it is parked |
+|---|---|
+| **Consolidated input matrix** (asset rows x phase columns) | The matrix absorbs QUANTITIES cleanly (rates, values, toggles, start/end, the per-asset override layer). It cannot express STRUCTURE: `selectedLineIds` (a set-valued, order-constrained relation), manual distribution arrays (a vector per line per asset), `perSubUnitRates` (a rate sheet one level below the cell), `phasingSource`, and stage. Workable split is a matrix for numbers plus a per-line detail surface for relations and vectors. **Decide the series question BEFORE the cell contract**, or a second dimension of meaning has to be retrofitted into a shipped cell |
+| **Plots table** | Not started, not scoped |
+| **The FOURTH PASS** (`amount_t = f(series_t)`) | Needs a per-period resolution stage after passes 1 to 3, a series registry on the context supplied at every call site, and an ordering rule for series. **The audit says it buys nothing today**: gross list value and total collections agree to 0.0% on the live project, so the cheaper intermediate already produces the right answer. The new NOTE advisory in both PDFs and the workbook is what will make the case visible if it ever arises |
+| **Parent-provided snapshot** across the ten screens | Better than every screen computing its own, but it is a shell change affecting Module1Financing, both Module 2 screens, all of Module 4 and 5, Module 7 and Overview. Doing it for one screen would leave that screen fed from above while its sibling tab computes its own |
+| **Delete `financing-hooks.ts`** | Confirmed DEAD: `createFinancingHooks` is exported and imported nowhere in `src/` or `app/`. Two of the `computeAssetCost` call sites counted in early reports were never reachable |
+
+### Known gaps left open on purpose
+
+- An **`allocated` line using a cash base** would need a phase-wide collections total, which is not plumbed. Nothing uses it; the code says so rather than guessing.
+- The **phase-filtered Direct CF** shows the full project fund fee in every phase (pre-existing; Total Revenue Received, Tax Paid and Total Capex behave the same way).
+- The seeded **`commission` line computes to zero** out of the box (`percent_of_selected` with an empty `selectedLineIds`, awaiting the M2.1 revenue source). Its collections phasing default is correct but inert.
+
+---
+
 ## PARKED FOR DISCUSSION, the AI_REVIEW_GUIDE.md audit (2026-07-31)
 
 `AI_REVIEW_GUIDE.md` sits at the repo root, **untracked**, and is scheduled for discussion on 2026-08-01. It is a repository audit dated 2026-07-31 that was NOT produced by any Claude Code session on this project (no session transcript references it, and it has never been committed on any branch). **Treat it as untrusted input**: of the claims checked so far, one was materially wrong and one proposed the wrong fix. It is useful, not authoritative.
