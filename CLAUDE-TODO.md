@@ -4,6 +4,25 @@
 
 ---
 
+## PARKED, post-launch: the documentation restructure (diagnosed 2026-08-16, half done)
+
+**Done and shipped (`52d09467`):** the migration-flag audit (all eleven PENDING markers in CLAUDE-DB.md were stale, corrected against the live schema, re-runnable via `scripts/audit-migration-flags.ts`) and **[docs/TRAPS.md](docs/TRAPS.md)**, which collects the hard-won lessons that were scattered across five files and agent memory with no authoritative copy. Every old location keeps its copy and gained a pointer.
+
+**Deliberately HELD until after launch**, because it changes no platform behaviour and the docs should not move while end-to-end testing is running:
+
+1. **Slim `CLAUDE.md` from ~103 KB to ~12 KB.** Only ~9.6 KB of it (STRICT SESSION RULES to end) is durable rules; the rest is module narrative that duplicates the platform docs, and it violates the file's own rule that platform work belongs in `CLAUDE-{platform}.md`. Replace the module bullets with a one-line-per-module table plus pointers. This is the highest-leverage single change: a REFM session currently reads ~308 KB before starting, which this drops to ~60 KB.
+2. **Move the 25 dated session sections out of `CLAUDE-REFM.md`** into `CLAUDE-FEATURES.md` (the archive). Six sections are durable and stay: Design System, Verifier Scripts, Module 1 Conventions, and the three archive sections. Promote any rule buried in the narrative into Conventions or TRAPS.md FIRST.
+3. **Archive to `docs/archive/`, moved not deleted:** `PLATFORM_INVENTORY.md`, `RESTRUCTURE_PLAN.md` (both self-labelled historical), `docs/MODULE_1_AUDIT_M1.11.md` (still reads "not yet executed" from May), `docs/MODULE_1_CAPABILITIES.md` (predates the M2.0 rebuild), `M7_IC_Layout_Spec.md` (superseded by the shipped renderer). Move the external-audience docs (`CMS_REFERENCE.md`, `REFM-PLATFORM-SUMMARY.md`, `PACEMAKERS_ADMIN_CMS_SPEC.md`, `PITCH_DECK_BRIEF.md`) to `docs/external/`.
+4. **Regenerate `HANDOFF.md`** (`npm run handoff`); it is auto-generated and was ~12 commits behind.
+5. **Pre-existing em dashes in markdown**: 29 in CLAUDE-ROUTES.md, 19 in CLAUDE-FEATURES.md, 13 in CLAUDE-REFM.md, 2 in CLAUDE-DB.md. `verify-no-em-dash-content` sweeps `app/` and `src/` only, so markdown has never been checked. Sweep when the files are being restructured anyway.
+
+**ADD THESE TWO RULES to CLAUDE.md as part of item 1.** They are why the bloat accumulated, and without them it regrows:
+
+- **The RULE goes in the docs; the STORY goes in the commit message.** Most of the 1.5 MB of markdown is session narrative that `git log` already holds. "The marketing stage crashed the financing aggregate on 2026-08-16" is history. "A stage list must never be a literal array with an `as` cast; derive it from `COST_STAGES`" is a rule.
+- **Verifier counts belong in the verifier, not quoted in prose.** Every count written into a markdown file is stale by default and several already are (the `verify-strategy-switch` figure in CLAUDE.md was wrong for weeks).
+
+---
+
 ## START HERE (2026-08-16): the Module 1 Capex block is CLOSED. Next task is VERIFICATION, not building.
 
 **No further Capex changes before launch.** The block shipped in nine commits (`6647e665`, `f33144db`, `38c30d4c`, `2e09646b`, `c164ca3a`, `3e4be340`, `e01216a4`, `79abeec1`, `b27c1057`, `b49963d7`, `86de88c9`, `c529e747`) and the full suite closes at **113 verifiers, 4 non-zero exits, all four long-standing pre-existing failures**.
