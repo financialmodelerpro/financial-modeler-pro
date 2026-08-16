@@ -10,7 +10,8 @@ import type {
   LandAllocationMode,
   ParcelFundingConfig,
 } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
-import { computeAssetCost } from '../index';
+import { COST_STAGES } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import { computeAssetCost, deriveCostStage } from '../index';
 import type { CapexAggregate, ProjectAxis } from './types';
 
 export interface CapexInputs {
@@ -52,15 +53,26 @@ export function aggregateProjectCapex(inputs: CapexInputs, axis: ProjectAxis): C
   // cost line) + per-stage per-period schedule (for the full Capex
   // Results breakdown). lineStage maps a cost-line id to its stage so the
   // per-line distribution can be bucketed by stage on the project axis.
+  //
+  // 2026-08-16: the stage is DERIVED, not read off the stored field. A catalog
+  // line's stage comes from its id via deriveCostStage, which is what the
+  // screen, the report builders and the engine's own byStage all use; reading
+  // `cl.stage` here let the financing path bucket a line differently from every
+  // other surface whenever the two disagree.
   const lineStage = new Map<string, CostStage>();
-  for (const cl of inputs.costLines) lineStage.set(cl.id, cl.stage);
+  for (const cl of inputs.costLines) lineStage.set(cl.id, deriveCostStage(cl));
   const perLineTotals: Record<string, number> = {};
-  const perStagePerPeriod: Record<string, number[]> = {
-    land: new Array<number>(N).fill(0),
-    hard: new Array<number>(N).fill(0),
-    soft: new Array<number>(N).fill(0),
-    operating: new Array<number>(N).fill(0),
-  };
+  // 2026-08-16: buckets are DERIVED FROM COST_STAGES, not a literal.
+  //
+  // This was `{ land, hard, soft, operating }` written out by hand, and the
+  // increment below is unguarded, so adding the `marketing` stage made a
+  // non-zero marketing line throw `Cannot read properties of undefined`. It was
+  // latent only because the seeded line carries a zero rate and computeAssetCost
+  // skips zero-total lines before building perLinePerPeriod, so the crash needed
+  // a user to type a rate. Deriving the keys means a future stage cannot
+  // reintroduce it.
+  const perStagePerPeriod: Record<string, number[]> = {};
+  for (const s of COST_STAGES) perStagePerPeriod[s] = new Array<number>(N).fill(0);
 
   for (const phase of inputs.phases) {
     if (phase.status === 'operational') continue;
@@ -90,7 +102,12 @@ export function aggregateProjectCapex(inputs: CapexInputs, axis: ProjectAxis): C
       for (const [lineId, dist] of Object.entries(breakdown.perLinePerPeriod ?? {})) {
         const stage = lineStage.get(lineId);
         if (!stage) continue;
+        // Defensive even though the keys are now derived: a line carrying a
+        // stage outside the registry (a hand-built fixture, a legacy snapshot)
+        // must be skipped, not thrown on. Dropping it from the per-stage
+        // schedule is recoverable; crashing the whole model is not.
         const bucket = perStagePerPeriod[stage];
+        if (!bucket) continue;
         for (let i = 0; i < dist.length; i++) {
           const projIdx = i === 0 ? Math.max(0, offset - 1) : offset + i - 1;
           if (projIdx < 0 || projIdx >= N) continue;

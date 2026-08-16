@@ -19,6 +19,18 @@ Four related changes to Module 1 Capex, built on ONE shared mechanism because th
 
 **Schema is additive and optional throughout**: `Asset.capexPhasing`, `CostLine.phasingSource`, `CostOverride.phasingSource`, all absent on every existing record, and absent means `inherit`, which with no asset curve means "keep what you had". No migration.
 
+## 2026-08-16c: the marketing stage CRASHED the financing capex aggregate (shipped, found by diagnosis)
+
+**A defect introduced by 2026-08-16b and pushed to production.** `aggregateProjectCapex` built `perStagePerPeriod` from a **hand-written literal** (`{ land, hard, soft, operating }`) and incremented `bucket[projIdx]` with **no guard**, so a `marketing`-stage line found no bucket and threw `TypeError: Cannot read properties of undefined (reading '0')`.
+
+**Why the whole 111-verifier suite passed over it twice:** the seeded Marketing line carries a **zero rate**, and `computeAssetCost` skips zero-total lines before building `perLinePerPeriod`, so the line never reached the bucket. **The crash needed a user to type a marketing rate on a new project.** No fixture did, because none existed.
+
+**Fixes, all three in one pass:** buckets are now DERIVED from `COST_STAGES` so a future stage cannot reintroduce it; the increment carries a `if (!bucket) continue` guard so an unregistered stage (a hand-built fixture, a legacy snapshot) is skipped rather than crashing the model; and `lineStage` now uses **`deriveCostStage`** instead of the stored `cl.stage`, because the financing path was the one surface bucketing by the raw field while the screen, the report builders and the engine's own `byStage` all use the derived one.
+
+**`verify-capex-stage-buckets` 14**, and the fixture that was missing now exists: a NON-ZERO marketing line, plus a per-stage-to-`inclAllLand` reconciliation. Teeth proven by two sabotages, and the pair is instructive: restoring the literal WITH the guard does not throw, it **silently drops 30,000** (caught by the reconciliation check B5); restoring the literal WITHOUT the guard reproduces the original crash (caught by B1). A guard alone would have converted a loud failure into a quiet one.
+
+**Lesson worth keeping: a zero-valued seed hides a whole code path.** Every seeded line now ships at a zero rate (2026-08-15), which is right for the user and means fixtures must deliberately give lines a value or entire branches go unexercised.
+
 ## 2026-08-16b: marketing is its OWN COST STAGE, which closes the subtotal gap
 
 Follow-up to the cascade work below, which left one thing unexpressible: a reference budget totals CONSTRUCTION COST EXCLUDING LAND as hard cost plus engineering, design, permits, developer fee and contingency, leaving sales marketing OUT of that total while still charging the developer fee and the contingency ON it. The bases were expressible (they are selections); the TOTAL was not, because every subtotal the platform reports is the asset total or a STAGE subtotal, and marketing was a soft cost, so it necessarily fell inside "development cost (excl. land)". Measured gap: 1574.37 reported against the reference 1524.37, exactly the 50.00 of marketing.
