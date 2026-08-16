@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { timingSafeEqual } from 'crypto';
 import { getServerClient } from '@/src/core/db/supabase';
 import { rateLimited } from '@/src/shared/api/rateLimit';
 import { SLUG_WHITELIST } from '@/src/shared/api/publicPagesConfig';
+import { verifyApiKey, PUBLIC_PAGES_KEY_ID } from '@/src/shared/api/publicApiKeys';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,15 +51,12 @@ function clientIp(req: NextRequest): string {
   return req.headers.get('x-real-ip')?.trim() || 'unknown';
 }
 
-/** Constant-time key comparison, so a wrong key cannot be discovered by timing. */
-function keyMatches(provided: string, expected: string): boolean {
-  const a = Buffer.from(provided, 'utf8');
-  const b = Buffer.from(expected, 'utf8');
-  // timingSafeEqual throws on a length mismatch, and the length itself is not
-  // a secret worth protecting here, so the guard is fine.
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
+// The key comparison moved to src/shared/api/publicApiKeys.ts on 2026-08-16,
+// when the key became rotatable from the admin. It is still a constant-time
+// compare; what changed is that the value it compares against now resolves from
+// the rotation table first and the environment variable only as a fallback, and
+// the admin screen resolves through the same function so it cannot describe a
+// key the endpoint would refuse.
 
 /**
  * Record a rejected call. Best effort and NEVER throws into the response: an
@@ -101,16 +98,31 @@ export async function GET(
     );
   }
 
-  // 2. Authenticate.
-  const expected = process.env.FMP_PUBLIC_API_KEY ?? '';
+  // 2. Authenticate against whatever is live: the active rotation row if one
+  //    exists, the environment variable only while none ever has. Resolution
+  //    lives in the shared module so the admin screen and this route cannot
+  //    disagree about which key works. It still fails CLOSED: no key of either
+  //    kind, an unreadable key store, or a retired-only history all refuse
+  //    every caller rather than opening the endpoint.
   const provided = req.headers.get('x-api-key') ?? '';
-  if (!expected) {
-    // Fail CLOSED. An unset key must not mean an open endpoint.
-    console.error('[public-api] FMP_PUBLIC_API_KEY is not set; refusing all requests.');
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401, headers: noStore });
-  }
-  if (!provided || !keyMatches(provided, expected)) {
-    await auditUnauthorized(slug, ip, provided ? 'wrong_key' : 'missing_key');
+  const auth = await verifyApiKey(getServerClient(), PUBLIC_PAGES_KEY_ID, provided);
+  if (!auth.ok) {
+    if (auth.reason === 'not_configured') {
+      console.error('[public-api] no key is configured (no active row and FMP_PUBLIC_API_KEY unset); refusing all requests.');
+    } else if (auth.reason === 'all_keys_retired') {
+      console.error('[public-api] every key has been retired and none issued; refusing all requests.');
+    } else if (auth.reason === 'key_store_unreadable') {
+      // Unreadable is NOT empty. Falling back to the environment here would
+      // resurrect a key that a rotation deliberately retired.
+      console.error('[public-api] the key store could not be read; refusing rather than falling back.');
+    }
+    // Only a CALLER's failure is audited. A server that has no usable key would
+    // otherwise write one row per request for every caller at once, which
+    // floods the audit table with rows about our own misconfiguration; the
+    // console error above is the right channel for that.
+    if (auth.reason === 'missing_key' || auth.reason === 'wrong_key') {
+      await auditUnauthorized(slug, ip, auth.reason);
+    }
     return NextResponse.json({ error: 'unauthorized' }, { status: 401, headers: noStore });
   }
 

@@ -1,40 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession, type Session } from 'next-auth';
-import { authOptions } from '@/src/shared/auth/nextauth';
-import { serverClient } from '@/src/core/db/supabase';
-import {
-  PUBLIC_PAGE_SLUGS, PUBLIC_PAGES_PATH, PUBLIC_API_KEY_GRANTS, PUBLIC_API_KEY_CAVEAT,
-} from '@/src/shared/api/publicPagesConfig';
+import { serverClient, getServerClient } from '@/src/core/db/supabase';
+import { findKeyEntry, requireAdmin, REGISTRY, noStore } from '@/src/shared/api/apiKeyRegistry';
+import { resolveKeyState, type KeyState } from '@/src/shared/api/publicApiKeys';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * /api/admin/api-keys
  *
- * Lets an admin see and copy the shared secrets the platform hands to partners,
- * without opening the Vercel dashboard or a local env file.
+ * Lets an admin see, copy and rotate the shared secrets the platform hands to
+ * partners, without opening the Vercel dashboard or a local env file.
  *
- * ── THE ONE RULE THAT MATTERS ──────────────────────────────────────────────
- *
- * THE CLIENT NEVER NAMES AN ENVIRONMENT VARIABLE. The reveal endpoint takes an
- * `id` and looks it up in the REGISTRY below; it does not read
- * `process.env[whatever the browser sent]`. That is the whole difference
- * between an API keys screen and an arbitrary environment reader that would
- * hand out SUPABASE_SERVICE_ROLE_KEY, NEXTAUTH_SECRET and ANTHROPIC_API_KEY to
- * anyone who could reach it. Adding a key here is a deliberate, reviewable edit
- * to one constant.
+ * The registry that decides WHICH secrets are reachable, and the admin guard,
+ * live in src/shared/api/apiKeyRegistry.ts, because the rotate route needs both
+ * and a route.ts cannot export them.
  *
  * ── WHAT EACH METHOD RETURNS ───────────────────────────────────────────────
  *
- * GET  metadata only: whether the key is configured, how many characters it is,
- *      what it grants, where the endpoint lives. NO PART of the value, not even
- *      a last-four suffix, because the brief was that the value reaches the
- *      client only on an explicit reveal and a suffix is still the value.
+ * GET  metadata only: which key is live and where it came from, its prefix, its
+ *      rotation history, how many characters an environment key is, what it
+ *      grants, where the endpoint lives. NO PART of any value, not even a
+ *      last-four suffix, because the brief was that the value reaches the
+ *      client only on an explicit reveal and a suffix is still the value. A key
+ *      PREFIX is different in kind: it is stored precisely so a key can be
+ *      identified without being disclosed, and it is useless on its own.
  *
  * POST the value, once, for a named registry entry, AND an audit row. Copying
  *      is a read, so the copy button goes through this same path rather than a
  *      quieter one: there is no way to get the secret out of here without
  *      leaving a record.
+ *
+ *      REVEAL ONLY WORKS FOR AN ENVIRONMENT KEY, and that is not a limitation
+ *      to be fixed. A rotated key is stored as a SHA-256 hash, so there is
+ *      nothing here to reveal: the value existed for exactly one response, at
+ *      rotation. This route says so plainly rather than returning an empty
+ *      string that would read as a broken button.
+ *
+ * Rotation lives at POST /api/admin/api-keys/rotate, a separate route because
+ * it is a WRITE that invalidates a live credential, and folding it into the
+ * reveal handler behind a body flag would put "show me the key" and "break the
+ * partner's integration" one typo apart.
  *
  * Both responses are no-store. A secret must not sit in a CDN or a browser
  * cache, and `force-dynamic` keeps the route off the prerender path.
@@ -42,85 +47,47 @@ export const dynamic = 'force-dynamic';
  * No em dashes in this file.
  */
 
-/** A secret an admin is allowed to read through this screen. */
-interface KeyEntry {
-  /** Stable id the client sends on reveal. Never an env var name. */
-  id: string;
-  label: string;
-  /** Named for display only. It is NOT how the value is resolved. */
-  envVar: string;
-  /** Who or what consumes this key. */
-  consumer: string;
-  endpointPath: string;
-  /** How the caller presents it. */
-  transport: string;
-  grants: readonly string[];
-  caveat?: string;
-  slugs?: readonly string[];
-  /** Resolved from the server environment. A function, so the value is read at
-   *  request time and never captured into a module-level constant. */
-  read: () => string | undefined;
-}
-
-const REGISTRY: readonly KeyEntry[] = [
-  {
-    id: 'fmp-public-pages',
-    label: 'Public page feed key',
-    envVar: 'FMP_PUBLIC_API_KEY',
-    consumer: 'PaceMakers Business Consultants, to render FMP page content on the partner site.',
-    endpointPath: PUBLIC_PAGES_PATH,
-    transport: 'Sent as the x-api-key request header.',
-    grants: PUBLIC_API_KEY_GRANTS,
-    caveat: PUBLIC_API_KEY_CAVEAT,
-    slugs: PUBLIC_PAGE_SLUGS,
-    read: () => process.env.FMP_PUBLIC_API_KEY,
-  },
-];
-
-const noStore = { 'Cache-Control': 'no-store' };
-
 /**
- * Admin session or nothing. Returns the session user on success.
- *
- * A session that cannot be READ is not a session. `getServerSession` throws
- * rather than returning null when there is no request scope, and letting that
- * escape would turn a missing session into a 500 with a stack trace instead of
- * a clean 401. Failing closed on the throw is both the safer answer and the
- * honest one.
+ * One sentence an admin can act on, describing what the endpoint will accept
+ * right now. Derived from the SAME resolution the public route runs, so the
+ * screen cannot describe a key the endpoint would refuse.
  */
-async function requireAdmin(): Promise<
-  { ok: true; userId: string; email: string } | { ok: false; res: NextResponse }
-> {
-  let session: Session | null = null;
-  try {
-    session = await getServerSession(authOptions);
-  } catch {
-    return { ok: false, res: NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noStore }) };
+function describeSource(state: KeyState, envVar: string): string {
+  if (state.readError) {
+    return 'The key store could not be read, so the endpoint is refusing every request. It does not fall back to the environment value, because that would resurrect a key a rotation retired.';
   }
-  if (!session?.user) {
-    return { ok: false, res: NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: noStore }) };
+  switch (state.source) {
+    case 'database':
+      return `Rotated key, live from the database. ${envVar} is no longer consulted and can be removed from the deployment.`;
+    case 'environment':
+      return `Live from ${envVar} in the deployment environment. It has never been rotated. Rotating issues a key in the database and retires this one permanently.`;
+    case 'none':
+      return state.retired.length > 0
+        ? 'Every key has been retired and no replacement is active, so the endpoint refuses every request. Rotate to issue a new one.'
+        : `No key is configured. ${envVar} is unset and no key has been issued, so the endpoint refuses every request. It fails closed by design.`;
   }
-  if (session.user.role !== 'admin') {
-    return { ok: false, res: NextResponse.json({ error: 'Admin only' }, { status: 403, headers: noStore }) };
-  }
-  const u = session.user as { id?: string; email?: string | null };
-  return { ok: true, userId: u.id ?? '', email: u.email ?? '' };
 }
 
 /**
  * GET: every registered key, described but not disclosed.
  *
- * `configured` is the field the UI needs most: an unset variable must read as
- * "not configured", naming the variable, rather than as an empty box that looks
- * like a key of length zero.
+ * `configured` answers the question that matters operationally, "will the
+ * endpoint accept anything at all", rather than the narrower "is the env var
+ * set", which stopped being the same question once a key could be rotated.
  */
 export async function GET(): Promise<NextResponse> {
   const auth = await requireAdmin();
   if (!auth.ok) return auth.res;
 
-  const keys = REGISTRY.map((k) => {
-    const value = k.read();
-    const configured = typeof value === 'string' && value.length > 0;
+  const sb = getServerClient();
+
+  const keys = await Promise.all(REGISTRY.map(async (k) => {
+    const envValue = k.read();
+    const envConfigured = typeof envValue === 'string' && envValue.length > 0;
+
+    const state: KeyState | null = k.storeKeyId ? await resolveKeyState(sb, k.storeKeyId) : null;
+    const source = state ? state.source : (envConfigured ? 'environment' : 'none');
+
     return {
       id: k.id,
       label: k.label,
@@ -131,13 +98,37 @@ export async function GET(): Promise<NextResponse> {
       grants: k.grants,
       caveat: k.caveat ?? null,
       slugs: k.slugs ?? [],
-      configured,
-      // Length only. Enough for an admin to sanity check that the deployed
-      // value looks like the key they set, and not a fragment of it.
-      length: configured ? value!.length : 0,
+
+      // ── What is live ─────────────────────────────────────────────────────
+      source,
+      configured: source !== 'none',
+      sourceNote: state ? describeSource(state, k.envVar) : '',
+      // Length only, and only for an environment key. Enough for an admin to
+      // sanity check that the deployed value looks like the key they set.
+      envConfigured,
+      length: envConfigured ? envValue!.length : 0,
+
+      // ── The rotated key, identified but not disclosed ────────────────────
+      activePrefix: state?.active?.keyPrefix ?? null,
+      activeCreatedAt: state?.active?.createdAt ?? null,
+      activeCreatedBy: state?.active?.createdByEmail ?? null,
+      retired: (state?.retired ?? []).map((r) => ({
+        keyPrefix: r.keyPrefix,
+        createdAt: r.createdAt,
+        retiredAt: r.retiredAt,
+        retiredBy: r.retiredByEmail,
+      })),
+
+      // ── What the UI may offer ────────────────────────────────────────────
+      rotatable: Boolean(k.storeKeyId),
+      // A hash cannot be revealed. Saying so as a field means the button can be
+      // absent rather than present and failing.
+      revealable: source === 'environment',
+      rotationUnavailable: state?.tableMissing ? 'migration_213_not_applied' : null,
+      keyStoreError: state?.readError ?? null,
       failsClosed: true,
     };
-  });
+  }));
 
   return NextResponse.json({ keys }, { headers: noStore });
 }
@@ -157,9 +148,31 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try { body = await req.json(); } catch { /* empty body is a bad request below */ }
   const id = typeof body.id === 'string' ? body.id : '';
 
-  const entry = REGISTRY.find((k) => k.id === id);
+  const entry = findKeyEntry(id);
   if (!entry) {
     return NextResponse.json({ error: 'unknown_key' }, { status: 404, headers: noStore });
+  }
+
+  // A rotated key is a hash. There is nothing to reveal and never will be, so
+  // this is a distinct answer from "not configured": the endpoint is working
+  // perfectly, the value is simply gone by design.
+  if (entry.storeKeyId) {
+    const state = await resolveKeyState(getServerClient(), entry.storeKeyId);
+    if (state.readError) {
+      return NextResponse.json({ error: 'key_store_unreadable', message: state.readError }, { status: 503, headers: noStore });
+    }
+    if (state.source === 'database') {
+      return NextResponse.json(
+        { error: 'hashed_not_revealable', prefix: state.active?.keyPrefix ?? null },
+        { status: 409, headers: noStore },
+      );
+    }
+    if (state.source === 'none') {
+      return NextResponse.json(
+        { error: state.retired.length > 0 ? 'all_keys_retired' : 'not_configured', envVar: entry.envVar },
+        { status: 409, headers: noStore },
+      );
+    }
   }
 
   const value = entry.read();

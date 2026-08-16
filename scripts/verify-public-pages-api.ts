@@ -41,12 +41,28 @@ for (const f of ['.env.local', '.env']) {
 const TEST_KEY = process.env.FMP_PUBLIC_API_KEY || 'test-key-'.padEnd(48, 'x');
 process.env.FMP_PUBLIC_API_KEY = TEST_KEY;
 
-let pass = 0, fail = 0;
+let pass = 0, fail = 0, skip = 0;
 const failures: string[] = [];
 const check = (name: string, cond: boolean, detail = ''): void => {
   if (cond) { pass++; console.log(`  [PASS] ${name}`); }
   else { fail++; failures.push(name); console.log(`  [FAIL] ${name}${detail ? ' :: ' + detail : ''}`); }
 };
+const skipped = (name: string, why: string): void => {
+  skip++; console.log(`  [SKIP] ${name} :: ${why}`);
+};
+
+/**
+ * Can this script present a key the endpoint will accept?
+ *
+ * Since 2026-08-16 the key can be ROTATED, and a rotated key is stored as a
+ * hash. Once that has happened the environment value in TEST_KEY is not the
+ * live key and no plaintext exists for this script to send, so every check that
+ * needs a 200 has to skip rather than fail. Rotation working correctly must not
+ * look like the partner feed being broken. The refusal checks still run: they
+ * are the half that does not need a valid key, and they are the half that
+ * matters most.
+ */
+let canAuthenticate = true;
 
 const ROUTE = '../app/api/public/pages/[slug]/route';
 
@@ -66,8 +82,30 @@ async function resetLimiter(): Promise<void> { resetRateLimit('public-pages'); }
 async function main(): Promise<void> {
   console.log('=== Public pages API ===\n');
 
+  // ── 0. Which key is live ──────────────────────────────────────────────────
+  // Resolved through the SAME module the route uses, so this script's idea of
+  // the live key cannot differ from the endpoint's.
+  {
+    const { createClient } = await import('@supabase/supabase-js');
+    const { resolveKeyState, PUBLIC_PAGES_KEY_ID } = await import('../src/shared/api/publicApiKeys');
+    const url = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
+    const svc = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
+    if (url && svc) {
+      const sb = createClient(url, svc, { auth: { persistSession: false } });
+      const state = await resolveKeyState(sb, PUBLIC_PAGES_KEY_ID);
+      canAuthenticate = state.source === 'environment';
+      console.log(`  live key source: ${state.source}${state.tableMissing ? ' (public_api_keys not applied yet)' : ''}`);
+      if (!canAuthenticate) {
+        console.log('  The key has been rotated, so no plaintext exists here. Checks needing a 200 will skip.\n');
+      }
+    }
+  }
+
   // ── 1. Happy path ─────────────────────────────────────────────────────────
   console.log('-- 1. Valid key returns 200 with the right shape --');
+  if (!canAuthenticate) {
+    skipped('the whole 200 path (shape, slugs, cache header)', 'the live key is a rotated hash, not the environment value');
+  } else {
   await resetLimiter();
   const ok = await call('refm', { key: TEST_KEY });
   check('valid key returns 200', ok.status === 200, `status ${ok.status} body ${JSON.stringify(ok.body).slice(0, 160)}`);
@@ -119,6 +157,7 @@ async function main(): Promise<void> {
       r.status === 200 && Array.isArray(r.body?.sections) && r.body.sections.length > 0,
       `status ${r.status} sections ${r.body?.sections?.length}`);
   }
+  }
 
   // ── 2. Auth ───────────────────────────────────────────────────────────────
   console.log('\n-- 2. Auth --');
@@ -166,12 +205,19 @@ async function main(): Promise<void> {
 
   // ── 4. Slug rules ─────────────────────────────────────────────────────────
   console.log('\n-- 4. Slugs --');
-  for (const slug of ['home', 'pricing', 'about', 'modeling', 'training', 'modeling-real-estate', 'nonsense']) {
-    await resetLimiter();
-    const r = await call(slug, { key: TEST_KEY });
-    check(`non-whitelisted slug "${slug}" returns 404`, r.status === 404, `status ${r.status}`);
+  if (!canAuthenticate) {
+    // A non-whitelisted slug 404s only AFTER the key is accepted. Without a
+    // valid key every one of these would 401, which would prove nothing about
+    // the whitelist.
+    skipped('the slug whitelist (404 vs 200)', 'needs an accepted key, and the live key is a rotated hash');
+  } else {
+    for (const slug of ['home', 'pricing', 'about', 'modeling', 'training', 'modeling-real-estate', 'nonsense']) {
+      await resetLimiter();
+      const r = await call(slug, { key: TEST_KEY });
+      check(`non-whitelisted slug "${slug}" returns 404`, r.status === 404, `status ${r.status}`);
+    }
+    check('the internal slugs are NOT accepted directly (mapping is one way)', true);
   }
-  check('the internal slugs are NOT accepted directly (mapping is one way)', true);
 
   // ── 5. Rate limit ─────────────────────────────────────────────────────────
   console.log('\n-- 5. Rate limit --');
@@ -186,13 +232,24 @@ async function main(): Promise<void> {
   const limited = await call('refm', { key: TEST_KEY, ip });
   check('the 429 body names the limit', limited.status === 429 && /60/.test(JSON.stringify(limited.body)));
   check('the 429 carries Retry-After', limited.headers.get('retry-after') === '60');
-  // A different IP is unaffected by another IP's exhausted window.
+  // A different IP is unaffected by another IP's exhausted window. The limiter
+  // runs BEFORE authentication, so the checks above hold either way; only the
+  // 200 needs a key the endpoint accepts.
   const otherIp = await call('refm', { key: TEST_KEY, ip: '203.0.113.78' });
-  check('the limit is PER IP, so a different caller is unaffected', otherIp.status === 200, `status ${otherIp.status}`);
+  if (canAuthenticate) {
+    check('the limit is PER IP, so a different caller is unaffected', otherIp.status === 200, `status ${otherIp.status}`);
+  } else {
+    check('the limit is PER IP, so a different caller is not rate limited', otherIp.status !== 429, `status ${otherIp.status}`);
+  }
 
   // ── 6. Fails closed with no key configured ────────────────────────────────
   console.log('\n-- 6. Fails closed --');
-  {
+  if (!canAuthenticate) {
+    // Clearing the environment variable proves nothing once a rotated key is
+    // live, because the endpoint stopped consulting it. verify-api-key-rotation
+    // proves the equivalent property for the rotated key.
+    skipped('the unset-environment-key path', 'the live key is a rotated hash and the environment value is no longer consulted');
+  } else {
     const saved = process.env.FMP_PUBLIC_API_KEY;
     process.env.FMP_PUBLIC_API_KEY = '';
     await resetLimiter();
@@ -201,7 +258,7 @@ async function main(): Promise<void> {
     process.env.FMP_PUBLIC_API_KEY = saved;
   }
 
-  console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
+  console.log(`\n=== Result: ${pass} passed, ${fail} failed${skip ? `, ${skip} skipped` : ''} ===`);
   if (failures.length) { console.log('\nFailures:'); for (const f of failures) console.log(`  - ${f}`); }
   process.exit(fail === 0 ? 0 : 1);
 }

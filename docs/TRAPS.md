@@ -162,6 +162,27 @@ audit write best-effort so a logging failure never changes a response code.
 
 Use env service-role credentials via `npx tsx --env-file=.env.local`. Do not retry OAuth.
 
+### 2.8 A schema-tolerant fallback can resurrect a retired secret
+
+**Symptom.** None. That is the point: a credential someone deliberately revoked starts working again
+and nothing anywhere says so.
+
+**Mechanism.** 2.6 says a new table must tolerate being absent, and the partner feed key does exactly
+that: no `public_api_keys` row means fall back to `FMP_PUBLIC_API_KEY`. Applied naively, three states
+collapse into that fallback and each one is a live hole. **A retired-only history** (rotate, then
+retire the new key) has no active row, so a naive resolver reads it as "no key configured" and
+re-accepts the environment value the rotation superseded. **An errored read** (2.4 again, in its most
+expensive form) returns an empty list, which is also "no rows". And an in-memory cache of the active
+key keeps a retired key working on a warm serverless instance for the length of its TTL.
+
+**Fix.** The fallback is gated on **no row at all**, not on "no active row": once anything has been
+issued for that key id, the environment is dead forever, and retiring the last key CLOSES the
+endpoint. A read error is distinguished from a missing table by PostgREST code (`42P01`, `PGRST205`)
+and refuses instead of falling back. No cache; the route pays one indexed read per request, which it
+can afford at 60 rpm per IP. **Proven** by `verify-api-key-rotation` against the live database, and
+by sabotage: making the retired-only branch fall back to the environment fails 3 checks, and letting
+the environment win over an active row fails 7.
+
 ---
 
 ## 3. Excel export (ExcelJS)
@@ -498,7 +519,45 @@ residue reported CHECK. Anchoring on the worst period's OWN value divides by som
 legitimately crosses zero (net cash flow does), producing "5.0e+0 of 0.0 m". Anchor on the PEAK
 magnitude over the whole horizon.
 
-### 10.5 Verifier counts do not belong in prose
+### 10.5 A verifier must not be able to cause the damage it checks for
+
+`verify-admin-api-keys` was written to prove that rotating the partner key is admin guarded, by
+POSTing to the rotate route with no session. The first version sent the REAL registry id with
+`confirm: true`. That check passes today, and on the day the guard is ever removed, running the
+verifier would have **rotated the live partner key** and handed the consumer a 401, with no way to
+undo it. It now sends an id that is not in the registry: auth runs before the registry lookup, so
+`401` rather than `404` proves exactly the same property, and the worst case if the guard is gone is
+a harmless 404. Confirmed by actually removing the guard: the response became 404, the key row count
+was unchanged, and the right two checks failed. **Before writing a destructive call into a verifier,
+ask what that call does on the day the check fails.**
+
+### 10.6 A source grep fires on the comment that warns about the pattern
+
+These files document the dangerous thing they refuse. `apiKeyRegistry.ts` explains that the client
+never names an environment variable by quoting `process.env[whatever the browser sent]` in its
+header, and a check asserting `!/process\.env\[/` read that warning as the defect and failed on
+correct code. **Strip comments before asserting the absence of a code pattern.** The other direction
+is worse and is why this matters: a check that fires on prose can be silenced by deleting a comment,
+so it is not testing the code at all.
+
+### 10.7 A check for a character cannot contain that character
+
+The em-dash sweep in a new verifier failed on its own source, because the check was written
+`!src.includes('X')` with the literal em dash in it, and the verifier reads itself. Build the needle
+instead: `String.fromCharCode(0x2014)`. `verify-admin-api-keys` already did this and says so; the new
+file had to learn it again.
+
+### 10.8 A verifier goes red the first time a feature is USED
+
+`verify-public-pages-api` presents `FMP_PUBLIC_API_KEY` and asserts 200s. Once the key is rotated,
+that value is not the live key and no plaintext exists anywhere, so every one of those checks would
+fail and the failure would read as "the partner feed is broken" when it actually means "rotation
+worked". It now resolves the live source through the same shared module the route uses and SKIPS the
+checks that need an accepted key, keeping the refusal checks (which need no key and matter more).
+**When adding a feature that changes a precondition a verifier depends on, check what that verifier
+reports after someone uses the feature once.**
+
+### 10.9 Verifier counts do not belong in prose
 
 Every count quoted in a markdown file is stale by default; several already are. The count lives in
 the verifier.
