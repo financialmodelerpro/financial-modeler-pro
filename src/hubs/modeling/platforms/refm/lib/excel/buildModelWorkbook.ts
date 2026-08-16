@@ -21,7 +21,7 @@ import { computeFinancialsSnapshot, computeFundingGap, type FinancialsResolverSt
 import { buildCapexReport, type CapexReport } from '../reports/capexReports';
 import { buildFinancingScheduleTables, buildCashSweepTables, type ReportTable } from '../reports/financingReports';
 import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup, m4StreamRow } from '../reports/streamReports';
-import { buildIntegrityChecks, checkDetail } from '../reports/checksReport';
+import { buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText } from '../reports/checksReport';
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildOpexReport } from '../reports/opexReports';
 import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, totalColumnHeading, totalColumnNote, TOTAL_COLUMN_HEADINGS, TOTAL_COLUMN_NOTES, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, FUND_CAPITAL_BASE_TAG, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
@@ -3708,6 +3708,21 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
   const checkMoney = (v: number): string => `${formatAccounting(Math.abs(v), 'millions', 1)} m`;
   for (const c of buildIntegrityChecks(snap)) {
     checkRow(c.label, c.ok, c.residue, checkDetail(c, snap.yearLabels, checkMoney));
+  }
+  // 2026-08-16: cash-basis advisories, as NOTE rather than OK or CHECK. A gap
+  // between cash collected and gross sale value is legitimate model state, not
+  // a broken identity, so it must not be coloured as a pass or a failure. Only
+  // rendered when a divergence exists, which on a fully-collected project is
+  // never, so the tab is unchanged for most models.
+  for (const a of buildRevenueBasisAdvisoriesFor(ctx.state.assets, ctx.state.subUnits, snap.revenue)) {
+    setLabel(ws.getCell(`A${r}`), `Revenue basis, ${a.assetName}`);
+    const s2 = ws.getCell(`B${r}`); s2.value = 'NOTE'; s2.numFmt = '@';
+    s2.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+    const c2 = ws.getCell(`C${r}`); c2.value = a.collections - a.gross; c2.numFmt = NUMFMT.money;
+    c2.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+    const d2 = ws.getCell(`D${r}`); d2.value = revenueBasisAdvisoryText(a, checkMoney); d2.numFmt = '@';
+    d2.font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
+    r += 1;
   }
   r += 1;
 

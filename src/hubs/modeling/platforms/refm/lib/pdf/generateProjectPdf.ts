@@ -48,7 +48,7 @@ import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/cal
 import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsFeederTables, buildBsReconciliationRows, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisText, totalColumnHeading, totalColumnNote, resolveTotalColumnKind, TOTAL_COLUMN_HEADINGS, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, type M4FeederCtx } from '../reports/m4Reports';
 import { buildOpexReport } from '../reports/opexReports';
 import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup } from '../reports/streamReports';
-import { buildIntegrityChecks, checkDetail } from '../reports/checksReport';
+import { buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText } from '../reports/checksReport';
 import { evaluateCovenant, type CovenantInputs } from '../covenants';
 import { buildCapexReport } from '../reports/capexReports';
 import { buildFinancingScheduleTables, buildCashSweepTables } from '../reports/financingReports';
@@ -809,15 +809,33 @@ function headlineBasisNote(returns: ReturnsSnapshot, fmt: Fmt): string {
  * the statements reconciled. Tolerance is relative and anchored on the PEAK
  * magnitude, never an absolute band and never the final period.
  */
-function checksTable(snap: ProjectFinancialsSnapshot, fmt: Fmt): PdfTable {
+function checksTable(
+  snap: ProjectFinancialsSnapshot,
+  fmt: Fmt,
+  state?: FinancialsResolverState,
+): PdfTable {
   const checks = buildIntegrityChecks(snap);
+  // 2026-08-16: cash-basis advisories ride in the same table but as NOTE, never
+  // OK or CHECK. They are not identities: a gap between cash collected and
+  // gross sale value is legitimate model state, so failing the model over it
+  // would cry wolf. They appear here because this is where a reader looks for
+  // model caveats, and only when a divergence actually exists.
+  const advisories = state
+    ? buildRevenueBasisAdvisoriesFor(state.assets, state.subUnits, snap.revenue)
+    : [];
   return {
     title: 'Model Integrity Checks', kind: 'grid', align: 'data',
     columns: ['Check', 'Status', 'Residue', 'Detail'],
-    rows: checks.map((c) => row(
-      [c.label, c.ok ? 'OK' : 'CHECK', fmt.money(c.residue), checkDetail(c, snap.yearLabels, fmt.money)],
-      c.ok ? undefined : 'subtotal',
-    )),
+    rows: [
+      ...checks.map((c) => row(
+        [c.label, c.ok ? 'OK' : 'CHECK', fmt.money(c.residue), checkDetail(c, snap.yearLabels, fmt.money)],
+        c.ok ? undefined : 'subtotal',
+      )),
+      ...advisories.map((a) => row(
+        ['Revenue basis, ' + a.assetName, 'NOTE', fmt.money(a.collections - a.gross),
+          revenueBasisAdvisoryText(a, fmt.money)],
+      )),
+    ],
   };
 }
 
@@ -1683,7 +1701,7 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
   }
   // G1: the three model identities, stated up front rather than left implicit
   // in a row buried inside the balance sheet.
-  items.push(tTable('Tab 1: Schedules', 'schedules', checksTable(snap, fmt)));
+  items.push(tTable('Tab 1: Schedules', 'schedules', checksTable(snap, fmt, state)));
   items.push(tTable('Tab 1: Schedules', 'schedules', m4RowsToPeriodTable('Balance Check, Reconciliation Bridge (per period)', py, yl, buildBsReconciliationRows(feederCtx))));
 
   // Tab 2: Fixed Assets.
@@ -2764,7 +2782,7 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
   drawItem(ctx, { type: 'table', table: bsTable }, fmt);
   // The summary certifies what it prints, from the same shared builder as the
   // full report and the workbook's Checks tab.
-  drawItem(ctx, { type: 'table', table: checksTable(snap, fmt) }, fmt);
+  drawItem(ctx, { type: 'table', table: checksTable(snap, fmt, opts.state) }, fmt);
 
   // Returns & valuation (KPI cards).
   if (returns) {

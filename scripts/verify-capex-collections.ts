@@ -243,6 +243,31 @@ check('A5 the financing path uses the AXIS offset, not a date-derived one',
         .split('export function buildIntegrityChecks')[1] ?? ''));
 }
 
+
+// ── E. THE ADVISORY REACHES THE EXPORTS, not only the screen ───────────────
+//
+// It was screen-only when first built, which is exactly the failure mode this
+// whole block has been about: a figure that exists on one surface and not the
+// others. Both PDFs and the workbook Checks tab now carry it.
+{
+  const pdf = read('src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf.ts');
+  const xlsx = read('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts');
+  const checks = read('src/hubs/modeling/platforms/refm/lib/reports/checksReport.ts');
+  check('E1 the PDF renders the advisory', /buildRevenueBasisAdvisoriesFor/.test(pdf));
+  check('E2 the workbook renders it', /buildRevenueBasisAdvisoriesFor/.test(xlsx));
+  check('E3 both use the SHARED sentence, not their own wording',
+    /revenueBasisAdvisoryText/.test(pdf) && /revenueBasisAdvisoryText/.test(xlsx));
+  // It must read as a NOTE on every surface. Colouring it as a pass or a
+  // failure would make a legitimate model state look like a verdict.
+  check('E4 the PDF marks it NOTE, not OK or CHECK', /'NOTE'/.test(pdf));
+  check('E5 the workbook marks it NOTE too', /= 'NOTE'/.test(xlsx));
+  check('E6 the shared wrapper filters to sell assets',
+    /a.strategy === 'Sell' || a.strategy === 'Sell + Manage'/.test(checks));
+  // Empty on a fully-collected project, so most exports are unchanged.
+  check('E7 nothing is emitted when every sale is collected',
+    buildRevenueBasisAdvisories([{ id: 'a', name: 'A' }], () => 1000, () => 1000).length === 0);
+}
+
 console.log('');
 if (failures.length === 0) {
   console.log(`verify-capex-collections: ${passed} passed, 0 failures`);

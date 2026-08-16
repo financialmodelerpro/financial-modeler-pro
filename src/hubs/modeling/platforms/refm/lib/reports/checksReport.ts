@@ -108,6 +108,30 @@ export function buildRevenueBasisAdvisories(
   return out;
 }
 
+/**
+ * The same advisories straight from a snapshot, so every surface asks the
+ * question identically instead of each assembling gross and collections itself.
+ * Sell-strategy assets only: nothing else has a sale value or a collection.
+ */
+export function buildRevenueBasisAdvisoriesFor(
+  assets: ReadonlyArray<{ id: string; name: string; strategy?: string; visible?: boolean }>,
+  subUnits: ReadonlyArray<{ assetId: string; category?: string; metricValue?: number; unitPrice?: number }>,
+  revenue: { bySellAsset: Map<string, { cashCollectedPerPeriod?: number[] } | undefined> } | undefined,
+): RevenueBasisAdvisory[] {
+  const sell = assets.filter((a) => a.visible !== false
+    && (a.strategy === 'Sell' || a.strategy === 'Sell + Manage'));
+  const grossOf = (id: string): number => subUnits
+    .filter((u) => u.assetId === id
+      && (u.category === 'Sellable' || u.category === 'Operable' || u.category === 'Leasable'))
+    .reduce((s, u) => s + Math.max(0, u.metricValue ?? 0) * Math.max(0, u.unitPrice ?? 0), 0);
+  const collectionsOf = (id: string): number | undefined => {
+    const series = revenue?.bySellAsset?.get(id)?.cashCollectedPerPeriod;
+    if (!series || series.length === 0) return undefined;
+    return series.reduce((s, v) => s + (v ?? 0), 0);
+  };
+  return buildRevenueBasisAdvisories(sell, grossOf, collectionsOf);
+}
+
 /** One sentence naming what the divergence means, for any surface. */
 export function revenueBasisAdvisoryText(
   a: RevenueBasisAdvisory,
