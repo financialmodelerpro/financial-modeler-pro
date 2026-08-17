@@ -76,6 +76,7 @@ import {
   type AnyCostCatalogEntry,
   type UserCostCatalogEntry,
 } from '../../lib/state/costCatalog';
+import { planCostCopy } from '../../lib/state/costCopyPlan';
 import { computeAllSellResults } from '../../lib/revenue-resolvers';
 import { BASIS_DIVERGENCE_TOL } from '../../lib/reports/checksReport';
 import { assetVisibleLines, eligibleBaseLines } from '@/src/core/calculations/selectedBase';
@@ -3717,8 +3718,48 @@ export default function Module1Costs(): React.JSX.Element {
       .filter((c) => !c.requiresCountry || c.requiresCountry === project.country);
   }
 
+  /**
+   * Country-gated lines that carry a rate and are NOT being charged (2026-08-17).
+   *
+   * The gate now stops the money as well as the row, which is the fix for a
+   * doubled RETT. That closes a silent overcharge and opens the mirror image: a
+   * rate typed while the country matched, still stored, now contributing
+   * nothing, with the row invisible. So the tab says it out loud rather than
+   * leaving the user to wonder where their transfer tax went.
+   */
+  // A plain filter, not a useMemo: this sits after an early return in the
+  // component, where every other hook in the file is already flagged as
+  // conditionally called. A cheap array scan does not need to add a sixth.
+  const gatedWithRate = costLines.filter(
+    (c) => !!c.requiresCountry
+      && c.requiresCountry !== project.country
+      && Math.abs(c.value) > 0
+      && c.disabled !== true,
+  );
+
   return (
     <div data-testid="module1-costs">
+      {gatedWithRate.length > 0 && (
+        <div
+          data-testid="costs-country-gated-notice"
+          style={{
+            padding: 'var(--sp-1) var(--sp-2)', marginBottom: 'var(--sp-2)',
+            borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--color-accent-warm)',
+            background: 'color-mix(in srgb, var(--color-accent-warm) 10%, transparent)',
+            fontSize: 12, lineHeight: 1.4,
+          }}
+        >
+          <strong>
+            {gatedWithRate.length === 1 ? '1 cost line carries a rate but does not apply here' : `${gatedWithRate.length} cost lines carry a rate but do not apply here`}
+            :
+          </strong>{' '}
+          {gatedWithRate.map((c) => `${c.name} (${c.value}%, ${c.requiresCountry})`).join('; ')}.
+          {' '}The project country is{' '}
+          <strong>{project.country ? project.country : 'not set'}</strong>, so {gatedWithRate.length === 1 ? 'it is' : 'they are'} not charged and {gatedWithRate.length === 1 ? 'its row is' : 'their rows are'} hidden.
+          {' '}Set the country in Project &amp; Phases to use {gatedWithRate.length === 1 ? 'it' : 'them'}.
+        </div>
+      )}
       {/* Undo for a deleted cost line. Deleting used to be immediate and
           irreversible behind a confirm dialog; this restores the row AT ITS
           INDEX, with its per-asset overrides, because position decides what a
@@ -4197,154 +4238,45 @@ export default function Module1Costs(): React.JSX.Element {
                           onClick={() => {
                             if (selectedCount === 0) return;
                             const targetIds = Array.from(copyTargetIds);
-                            const targetNames = peerAssets
-                              .filter((a) => copyTargetIds.has(a.id))
-                              .map((a) => a.name)
-                              .join(', ');
-                            // ── Plan the line-set reconciliation first, so the
-                            // dialog can state exactly what it will do ────────
-                            const targetPhaseIds = Array.from(new Set(
-                              peerAssets.filter((a) => copyTargetIds.has(a.id))
-                                .map((a) => a.phaseId)
-                                .filter((pid) => pid !== sourceAsset.phaseId),
-                            ));
-                            // IDENTITY PLUS OCCURRENCE. Two lines may legitimately
-                            // share one catalog entry (a "Launch campaign" and an
-                            // "Ongoing marketing", both Marketing), and matching on
-                            // identity alone would map both onto the target's first
-                            // one, so the second override would overwrite the first
-                            // and one line would never be created. The nth line with
-                            // a given identity maps to the nth in the target.
-                            const identityOf = (c: CostLine): string => resolveCatalogId(c) ?? `name:${c.name.trim().toLowerCase()}`;
-                            const withOccurrence = (list: CostLine[]): Map<string, string> => {
-                              const seen = new Map<string, number>();
-                              const out = new Map<string, string>();
-                              for (const c of list) {
-                                const base = identityOf(c);
-                                const n = (seen.get(base) ?? 0) + 1;
-                                seen.set(base, n);
-                                out.set(c.id, `${base}#${n}`);
-                              }
-                              return out;
-                            };
-                            const sourceKeyById = withOccurrence(sourceLines);
-                            const plan = targetPhaseIds.map((phaseId) => {
-                              const existing = costLines.filter((c) => c.phaseId === phaseId);
-                              const targetKeyById = withOccurrence(existing);
-                              const targetKeys = new Set(targetKeyById.values());
-                              const sourceKeys = new Set(sourceKeyById.values());
-                              const toCreate = sourceLines.filter((c) => !targetKeys.has(sourceKeyById.get(c.id)!));
-                              const extra = existing.filter(
-                                (c) => !sourceKeys.has(targetKeyById.get(c.id)!) && !isParcelDrivenLandLine(c),
-                              );
-                              return { phaseId, toCreate, extra, targetKeyById };
+                            const targets = peerAssets.filter((a) => copyTargetIds.has(a.id));
+                            const targetNames = targets.map((a) => a.name).join(', ');
+                            // ── The plan is PURE and lives in costCopyPlan.ts ──
+                            // It used to be written out here, inside this click
+                            // handler, which is why "copy reproduces the line
+                            // set" could be asserted by grepping source strings
+                            // while the live project still did not do it.
+                            const plan = planCostCopy({
+                              costLines,
+                              sourcePhaseId: sourceAsset.phaseId,
+                              sourceAssetId: sourceAsset.id,
+                              targetPhaseIds: targets.map((a) => a.phaseId),
+                              country: project.country,
+                              removeExtra: copyRemoveExtra,
                             });
-                            const totalCreate = plan.reduce((s, p) => s + p.toCreate.length, 0);
-                            const totalExtra = plan.reduce((s, p) => s + p.extra.length, 0);
-                            const phaseNote = targetPhaseIds.length === 0 ? '' : [
+                            const crossPhaseCount = plan.phases.length;
+                            const phaseNote = crossPhaseCount === 0 ? '' : [
                               '',
-                              `${totalCreate} line${totalCreate === 1 ? '' : 's'} will be ADDED to ${targetPhaseIds.length} other phase${targetPhaseIds.length === 1 ? '' : 's'} so their cost lines match this asset's.`,
-                              totalExtra > 0
+                              `${plan.created} line${plan.created === 1 ? '' : 's'} will be ADDED to ${crossPhaseCount} other phase${crossPhaseCount === 1 ? '' : 's'} so their cost lines match this asset's.`,
+                              plan.phases.reduce((s, p) => s + p.extra.length, 0) > 0
                                 ? (copyRemoveExtra
-                                    ? `${totalExtra} line${totalExtra === 1 ? '' : 's'} that ${sourceAsset.name} does not have will be REMOVED from those phases.`
-                                    : `${totalExtra} line${totalExtra === 1 ? '' : 's'} that ${sourceAsset.name} does not have will be LEFT IN PLACE.`)
+                                    ? `${plan.removed} line${plan.removed === 1 ? '' : 's'} that ${sourceAsset.name} does not have will be REMOVED from those phases.`
+                                    : `${plan.phases.reduce((s, p) => s + p.extra.length, 0)} line${plan.phases.reduce((s, p) => s + p.extra.length, 0) === 1 ? '' : 's'} that ${sourceAsset.name} does not have will be LEFT IN PLACE.`)
                                 : '',
                               'Cost lines belong to a phase, so this changes those phases for every asset in them, not only the targets.',
                             ].filter(Boolean).join('\n');
                             const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
                               ? window.confirm(
-                                  `Copy ${sourceAsset.name}'s cost configuration (${sourceLines.length} line${sourceLines.length === 1 ? '' : 's'}) to ${targetIds.length} asset${targetIds.length === 1 ? '' : 's'}: ${targetNames}?\n\nExisting per-asset overrides on the targets will be overwritten.${phaseNote}`,
+                                  `Copy ${sourceAsset.name}'s cost configuration (${plan.sourceLines.length} line${plan.sourceLines.length === 1 ? '' : 's'}) to ${targetIds.length} asset${targetIds.length === 1 ? '' : 's'}: ${targetNames}?\n\nExisting per-asset overrides on the targets will be overwritten.${phaseNote}`,
                                 )
                               : true;
                             if (!ok) return;
-                            // ── Reconcile the line sets in ONE write ─────────
-                            // setCostLines once, rather than a create per line,
-                            // so the array (whose ORDER decides what a
-                            // percentage may charge on) is never briefly
-                            // half-reconciled.
-                            const createdIdByPhase = new Map<string, Map<string, string>>();
-                            if (plan.some((p) => p.toCreate.length > 0 || (copyRemoveExtra && p.extra.length > 0))) {
-                              let next = [...costLines];
-                              for (const { phaseId, toCreate, extra } of plan) {
-                                if (copyRemoveExtra && extra.length > 0) {
-                                  const drop = new Set(extra.map((c) => c.id));
-                                  next = next.filter((c) => !drop.has(c.id));
-                                }
-                                const minted = new Map<string, string>();
-                                for (const src of toCreate) {
-                                  const id = mintLineId(
-                                    resolveCatalogId(src) ?? deriveLineBaseId(src.id),
-                                    phaseId,
-                                    next.map((c) => c.id),
-                                  );
-                                  minted.set(src.id, id);
-                                  const clone: CostLine = {
-                                    ...src,
-                                    id,
-                                    phaseId,
-                                    // A custom line targeted at the source asset stays
-                                    // project-wide in the new phase: the target asset
-                                    // is a different asset.
-                                    targetAssetId: undefined,
-                                    distribution: src.distribution ? [...src.distribution] : undefined,
-                                    perSubUnitRates: src.perSubUnitRates ? { ...src.perSubUnitRates } : undefined,
-                                    selectedLineIds: undefined, // remapped below, once every id exists
-                                  };
-                                  // Insert in the source's relative order: after the
-                                  // last line already placed for this phase.
-                                  const lastIdx = next.map((c) => c.phaseId).lastIndexOf(phaseId);
-                                  next.splice(lastIdx < 0 ? next.length : lastIdx + 1, 0, clone);
-                                }
-                                createdIdByPhase.set(phaseId, minted);
-                              }
-                              // Remap every selection into the target phase by
-                              // catalog identity. A source id means nothing in
-                              // another phase, so an unremapped selection would
-                              // silently charge on nothing.
-                              next = next.map((c) => {
-                                const minted = createdIdByPhase.get(c.phaseId);
-                                if (!minted) return c;
-                                const src = sourceLines.find((s2) => minted.get(s2.id) === c.id);
-                                if (!src || !src.selectedLineIds?.length) return c;
-                                // Same occurrence-aware key as the match above,
-                                // recomputed over the RECONCILED list so a
-                                // just-created line is a valid target.
-                                const phaseKeyById = withOccurrence(next.filter((x) => x.phaseId === c.phaseId));
-                                const remapped = src.selectedLineIds
-                                  .map((refId) => {
-                                    const wantedKey = sourceKeyById.get(refId);
-                                    if (!wantedKey) return undefined;
-                                    for (const [id, key] of phaseKeyById) if (key === wantedKey) return id;
-                                    return undefined;
-                                  })
-                                  .filter((v): v is string => !!v);
-                                return remapped.length > 0 ? { ...c, selectedLineIds: remapped } : c;
-                              });
-                              setCostLines(next);
-                            }
-                            // P11 Fix 7 (2026-05-13): one-time deep clone,
-                            // not a live link. Apply was previously routing
-                            // through master + override inheritance: when
-                            // the source inherited the master, targets had
-                            // their overrides REMOVED so they also inherited
-                            // the master. That made every later edit to the
-                            // master cascade across source + targets, which
-                            // is the opposite of what the user wants.
-                            //
-                            // Now: resolve the source line's effective
-                            // values once (master XOR active source
-                            // override) and write a FULL CostOverride on
-                            // the source AND every target, with cloned
-                            // distribution[] and perSubUnitRates{} so no
-                            // reference is shared. After apply each asset
-                            // resolves to its own override and master
-                            // mutations stop propagating; subsequent edits
-                            // via the CostRow inputs route through
-                            // setCostOverride (since the row finds an
-                            // override on the asset) so edits stay
-                            // contained to the asset being edited.
+                            // ONE write for the whole reconciliation, so the
+                            // array (whose ORDER decides what a percentage may
+                            // charge on) is never briefly half-reconciled.
+                            if (plan.created > 0 || plan.removed > 0) setCostLines(plan.nextCostLines);
+
                             let skipped = 0;
-                            for (const line of sourceLines) {
+                            for (const line of plan.sourceLines) {
                               const sourceOv = costOverrides.find((o) =>
                                 o.assetId === sourceAsset.id && o.lineId === line.id,
                               );
@@ -4372,43 +4304,22 @@ export default function Module1Costs(): React.JSX.Element {
                                 endPeriod: effEndPeriod,
                                 overridden: true,
                               });
-                              // Source first: isolates the source asset
-                              // from master mutations by Other Phase Asset
-                              // edits later.
+                              // Source first: isolates the source asset from
+                              // master mutations by other assets' edits later.
                               setCostOverride(makeOverride(sourceAsset.id, line.id));
-                              for (const tId of targetIds) {
-                                const target = peerAssets.find((a) => a.id === tId);
-                                if (!target) continue;
-                                let targetLineId = line.id;
-                                if (target.phaseId !== sourceAsset.phaseId) {
-                                  // BY CATALOG IDENTITY, not by display name. A
-                                  // renamed line has no name twin in the target
-                                  // phase, which is exactly why the old match
-                                  // silently skipped it. The line was created
-                                  // above when it did not exist, so the only way
-                                  // to miss now is a line the user opted not to
-                                  // create.
-                                  const wanted = sourceKeyById.get(line.id);
-                                  const minted = createdIdByPhase.get(target.phaseId)?.get(line.id);
-                                  const targetKeyById = plan.find((p) => p.phaseId === target.phaseId)?.targetKeyById;
-                                  const match = minted
-                                    ? { id: minted }
-                                    : costLines.find((c) =>
-                                        c.phaseId === target.phaseId &&
-                                        (c.targetAssetId === undefined || c.targetAssetId === target.id) &&
-                                        targetKeyById?.get(c.id) === wanted,
-                                      );
-                                  if (!match) { skipped += 1; continue; }
-                                  targetLineId = match.id;
-                                }
-                                setCostOverride(makeOverride(tId, targetLineId));
+                              for (const target of targets) {
+                                const targetLineId = target.phaseId === sourceAsset.phaseId
+                                  ? line.id
+                                  : plan.phases.find((p) => p.phaseId === target.phaseId)?.mapping.get(line.id);
+                                if (!targetLineId) { skipped += 1; continue; }
+                                setCostOverride(makeOverride(target.id, targetLineId));
                               }
                             }
                             setCopyResult({
                               targets: targetIds.length,
-                              lines: sourceLines.length,
-                              created: totalCreate,
-                              removed: copyRemoveExtra ? totalExtra : 0,
+                              lines: plan.sourceLines.length,
+                              created: plan.created,
+                              removed: plan.removed,
                               skipped,
                             });
                             setCopyPanelOpen(false);

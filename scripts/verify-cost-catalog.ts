@@ -41,6 +41,7 @@ import {
 import {
   restoreStrippedPhasingSource, hydrationFromAnySnapshotChecked,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
+import { planCostCopy } from '../src/hubs/modeling/platforms/refm/lib/state/costCopyPlan';
 import type { HydrateSnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-store';
 
 let passed = 0;
@@ -58,12 +59,14 @@ const REFM = 'src/hubs/modeling/platforms/refm';
 const SRC_TYPES = read(`${REFM}/lib/state/module1-types.ts`);
 const SRC_MIGRATE = read(`${REFM}/lib/state/module1-migrate.ts`);
 const SRC_COSTS_UI = read(`${REFM}/components/modules/Module1Costs.tsx`);
+const SRC_COPY_PLAN = read(REFM + '/lib/state/costCopyPlan.ts');
 const SRC_STORE = read(`${REFM}/lib/state/module1-store.ts`);
 const SRC_ROUTE = read('app/api/refm/cost-catalog/route.ts');
 const MIGRATION_214 = read('supabase/migrations/214_refm_cost_catalog.sql');
 
 /** Strip line and block comments so a name mentioned in prose is never mistaken
  *  for a name in code. */
+const base = (id: string): string => id.split('__')[0];
 const stripComments = (src: string): string =>
   src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
@@ -319,10 +322,86 @@ section('E. One money strip, rendered from the engine');
 section('F. Copy reconciles by identity; undo restores at the index');
 
 {
+  // ── THE PLAN IS PURE AND TESTED AGAINST A REAL SHAPE (2026-08-17) ───────
+  //
+  // This used to be asserted by grepping the click handler for source strings,
+  // which is how "copy reproduces the line set" could pass while a live project
+  // still did not do it. The plan is now a function, so the check runs it.
+  //
+  // The fixture is the live project's shape: phase 1 carries renamed catalog
+  // lines and custom lines with a catalogId; phase 2 carries the seeded set
+  // PLUS a country-gated `rett__phase_2` that the user cannot see.
+  const p1 = [
+    ...makeBlankCostLines('phase_1', 4).filter((l) => base(l.id) !== 'rett'),
+    { ...makeBlankCostLines('phase_1', 4).find((l) => base(l.id) === 'pre-operating')!, name: 'Design and consultants' },
+    { id: 'custom-11__phase_1', phaseId: 'phase_1', name: 'Permits & Approvals', method: 'percent_of_selected', value: 1, stage: 'soft', scope: 'indirect', allocationBasis: 'bua_share', startPeriod: 1, endPeriod: 4, phasing: 'even', catalogId: 'permits-approvals' },
+    { id: 'custom-12__phase_1', phaseId: 'phase_1', name: 'Real Estate Transfer Tax (RETT)', method: 'percent_of_cash_land', value: 5, stage: 'land', scope: 'direct', allocationBasis: 'land_share', startPeriod: 0, endPeriod: 0, phasing: 'even', catalogId: 'rett' },
+  ] as CostLine[];
+  const p2 = makeBlankCostLines('phase_2', 3).map((l) => (
+    base(l.id) === 'rett' ? { ...l, value: 5 } : l
+  ));
+  const project = [...p1, ...p2];
+
+  const plan = planCostCopy({
+    costLines: project,
+    sourcePhaseId: 'phase_1',
+    sourceAssetId: 'a1',
+    targetPhaseIds: ['phase_2'],
+    country: '',
+    removeExtra: false,
+  });
+  const phase2Plan = plan.phases[0];
+  check('the gated line is not offered by the source', !plan.sourceLines.some((l) => base(l.id) === 'rett'));
+  check('EVERY source line reaches a counterpart', plan.unmatched === 0, `${plan.unmatched} unmatched`);
+  check('the user\'s own RETT is CREATED in the target phase',
+    phase2Plan.toCreate.some((l) => l.catalogId === 'rett'),
+    phase2Plan.toCreate.map((l) => l.name).join(', '));
+  check('and it does NOT map onto the hidden country-gated row',
+    plan.phases[0].mapping.get('custom-12__phase_1') !== 'rett__phase_2',
+    String(plan.phases[0].mapping.get('custom-12__phase_1')));
+  check('the custom permits line is created too',
+    phase2Plan.toCreate.some((l) => l.catalogId === 'permits-approvals'));
+  check('a line that already exists is matched, not duplicated',
+    !phase2Plan.toCreate.some((l) => base(l.id) === 'construction-bua')
+    && plan.phases[0].mapping.get('construction-bua__phase_1') === 'construction-bua__phase_2');
+  check('the created lines land in the target phase', phase2Plan.toCreate.every(() => true)
+    && plan.nextCostLines.filter((c) => c.phaseId === 'phase_2').length === p2.length + phase2Plan.toCreate.length);
+  check('nothing is removed unless asked', plan.removed === 0);
+  check('and the source phase is untouched',
+    JSON.stringify(plan.nextCostLines.filter((c) => c.phaseId === 'phase_1')) === JSON.stringify(p1));
+
+  const removing = planCostCopy({
+    costLines: project, sourcePhaseId: 'phase_1', sourceAssetId: 'a1',
+    targetPhaseIds: ['phase_2'], country: '', removeExtra: true,
+  });
+  check('removing extras drops what the source does not have', removing.removed > 0);
+  check('but never the parcel-driven land rows',
+    removing.nextCostLines.some((c) => c.id === 'land-cash__phase_2')
+    && removing.nextCostLines.some((c) => c.id === 'land-inkind__phase_2'));
+
+  // Two lines sharing one entry map one for one, not both onto the first.
+  const twoMarketing = [
+    ...p1,
+    { id: 'custom-13__phase_1', phaseId: 'phase_1', name: 'Launch campaign', method: 'percent_of_revenue_sale', value: 1, stage: 'marketing', scope: 'indirect', allocationBasis: 'per_asset', startPeriod: 1, endPeriod: 4, phasing: 'even', catalogId: 'marketing' } as CostLine,
+    ...p2,
+  ];
+  const dup = planCostCopy({
+    costLines: twoMarketing, sourcePhaseId: 'phase_1', sourceAssetId: 'a1',
+    targetPhaseIds: ['phase_2'], country: '', removeExtra: false,
+  });
+  const marketingSources = dup.sourceLines.filter((l) => resolveCatalogId(l) === 'marketing');
+  check('two lines sharing an entry are both mapped', marketingSources.length === 2
+    && new Set(marketingSources.map((l) => dup.phases[0].mapping.get(l.id))).size === 2,
+    marketingSources.map((l) => `${l.name}->${dup.phases[0].mapping.get(l.id)}`).join(', '));
+
   check('copy matches by catalog identity, not display name',
     !SRC_COSTS_UI.includes('c.name.trim().toLowerCase() === line.name.trim().toLowerCase()'));
-  check('a missing line is created rather than skipped', SRC_COSTS_UI.includes('mintLineId('));
-  check('selections are remapped into the target phase', SRC_COSTS_UI.includes('remapped.length > 0'));
+  check('the plan is a module, not a click handler',
+    SRC_COSTS_UI.includes('planCostCopy({') && !SRC_COSTS_UI.includes('const withOccurrence ='));
+  check('a missing line is created rather than skipped', SRC_COPY_PLAN.includes('mintLineId('));
+  check('both sides use the same visibility rule',
+    (SRC_COPY_PLAN.match(/assetVisibleLines\(/g) ?? []).length >= 2);
+  check('selections are remapped into the target phase', SRC_COPY_PLAN.includes('remapped.length > 0'));
   check('removing extra lines is opt-in', SRC_COSTS_UI.includes('costs-copy-panel-remove-extra'));
   check('the result is reported', SRC_COSTS_UI.includes('costs-copy-panel-result'));
   check('and the dialog says the change is phase-wide',

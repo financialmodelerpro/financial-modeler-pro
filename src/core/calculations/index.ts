@@ -1363,10 +1363,28 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
   const phaseAssets = assets.filter((a) => a.phaseId === phase.id && a.visible);
   // M2.0d: filter targeted custom lines so each asset only sees its own
   // (untagged lines = project-wide and apply to all assets).
-  const phaseLines = costLines.filter(
-    (c) => c.phaseId === phase.id &&
-      (c.targetAssetId === undefined || c.targetAssetId === asset.id),
-  );
+  //
+  // ── 2026-08-17: THE SAME FILTER THE SCREEN USES, INCLUDING THE COUNTRY GATE ──
+  //
+  // This list used to filter on phase and target asset only, while
+  // `assetVisibleLines` (the shared rule the picker uses, and which this very
+  // function already uses for the percent-of-selected base thirty lines below)
+  // also drops a line whose `requiresCountry` does not match the project. So
+  // ONE function answered "which lines exist here" two different ways, and a
+  // country-gated line was CHARGED while being invisible in the inputs table,
+  // uneditable and undeletable.
+  //
+  // Measured on a live project: `rett__phase_2` carries 5% and the project
+  // country is empty, so the Phase 2 hotel was charged 937,500 for a Real Estate
+  // Transfer Tax row it does not show, ON TOP of the user's own RETT line at the
+  // same rate. RETT was double-charged, and every downstream surface (financing,
+  // P&L, cash flow, returns, both exports) carried the doubled figure while the
+  // only three places that applied the gate were input-side filters in the
+  // Costs tab. The rate reaches that state simply by being typed while the
+  // country matched and left behind when it stopped matching.
+  //
+  // A gate that hides a row must also stop its money, or it is not a gate.
+  const phaseLines = assetVisibleLines(costLines, phase.id, asset.id, project.country);
   const metrics = resolveAssetAreaMetrics(asset, project, parcels, phaseAssets, subUnits, landAllocationMode);
 
   // Resolve the per-asset method/value/phasing/timing for each line.
@@ -1539,7 +1557,9 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
   //
   // Upward-only references also make a cycle unrepresentable, which is why the
   // picker no longer needs to ban a whole method to stay safe.
-  const visibleForBase = assetVisibleLines(phaseLines, phase.id, asset.id, project.country);
+  // `phaseLines` IS the visible list since 2026-08-17, so this is the same
+  // set. Kept as its own name because it says what it is for.
+  const visibleForBase = phaseLines;
   const selectedBaseByLineId: Record<string, number> = {};
   for (const r of resolved) {
     if (r.method === 'percent_of_selected') {

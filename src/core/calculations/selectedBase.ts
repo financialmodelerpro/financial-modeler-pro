@@ -57,12 +57,23 @@
 
 import type { CostLine } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
-/** The lines visible to one asset within its phase, in display order. Mirrors
- *  the Capex table's own filter so "above" means the same thing in both. */
+/**
+ * The lines visible to one asset within its phase, in display order. Mirrors
+ * the Capex table's own filter so "above" means the same thing in both.
+ *
+ * 2026-08-17: THIS IS ALSO THE SET THE ENGINE CHARGES. `computeAssetCost` used
+ * to build its own list filtering on phase and target asset only, so a
+ * country-gated line was charged while being invisible in the inputs, which
+ * double-charged a transfer tax on a live project. One rule, one answer.
+ *
+ * `assetId` accepts undefined for "the phase's project-wide lines only", which
+ * is what a phase-level reconciliation needs: a line targeted at some other
+ * asset is not part of the phase's shared set.
+ */
 export function assetVisibleLines(
   lines: CostLine[],
   phaseId: string,
-  assetId: string,
+  assetId: string | undefined,
   country?: string,
 ): CostLine[] {
   return lines.filter((c) =>

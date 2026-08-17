@@ -36,7 +36,7 @@ import {
   type Asset, type CostLine, type Parcel, type Phase, type SubUnit, type Project,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import {
-  computeAssetCost, computeAssetLandBreakdown, deriveCostStage, landRateIssueText,
+  computeAssetCost, computeAssetLandBreakdown, computeSubUnitArea, deriveCostStage, landRateIssueText,
 } from '../src/core/calculations';
 import { eligibleBaseLines, assetVisibleLines } from '../src/core/calculations/selectedBase';
 import { repairStaleWizardCostWindows } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
@@ -232,8 +232,18 @@ section('D. A followed source owns the window, and the engine reports it');
   });
   const mkt = lines.find((l) => base(l.id) === 'marketing')!;
   const win = bd.resolvedWindowByLineId[mkt.id];
-  check('the engine reports a window for every line',
-    lines.every((l) => bd.resolvedWindowByLineId[l.id] !== undefined));
+  // Every line the engine CHARGES reports a window. 2026-08-17: that is no
+  // longer every seeded line, because a country-gated line the project cannot
+  // use is not charged at all (see verify-country-gate), and a line that is not
+  // charged has no window to report.
+  const chargeable = lines.filter((l) => !l.requiresCountry || l.requiresCountry === project.country);
+  check('the fixture still has gated and ungated lines (non-vacuous)',
+    chargeable.length > 0 && chargeable.length < lines.length,
+    `${chargeable.length} of ${lines.length}`);
+  check('the engine reports a window for every line it charges',
+    chargeable.every((l) => bd.resolvedWindowByLineId[l.id] !== undefined));
+  check('and none for a line it does not',
+    lines.filter((l) => !chargeable.includes(l)).every((l) => bd.resolvedWindowByLineId[l.id] === undefined));
   check('marketing takes its window from collections', win?.startPeriod === 2 && win?.endPeriod === 3,
     `${win?.startPeriod}-${win?.endPeriod}`);
   check('and names the source', win?.source === 'collections', String(win?.source));
@@ -492,6 +502,41 @@ section('I. Stale wizard windows are repaired, and nothing else is');
   check('the land rows are never touched',
     landRow.costLines[0].startPeriod === 0 && landRow.costLines[0].endPeriod === 0
     && landRow.costLines[0].windowFollowsConstruction === undefined);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+section('K. Area x unit size = count: only two of the three are inputs');
+
+{
+  // Area, Unit Size and Count are one identity, so all three cannot be inputs.
+  // Area and Unit Size are authoritative; Count is derived and read-only. The
+  // one exception is the same rule: with no unit size there is nothing to
+  // divide by, so the count becomes the input (the existing-operations case).
+  check('the row computes whether the count is derived',
+    /const countIsDerived = isUnits && unitArea > 0/.test(SRC_ASSETS_UI));
+  check('a derived count renders as an output, not an input',
+    /countIsDerived \? \(/.test(SRC_ASSETS_UI) && SRC_ASSETS_UI.includes("data-derived=\"true\""));
+  check('and says so beside the unit label',
+    SRC_ASSETS_UI.includes("countIsDerived ? ' (derived)' : ''"));
+  check('the count is editable ONLY when there is no unit size to divide by',
+    /countIsDerived \? \([\s\S]{0,1200}?\) : \([\s\S]{0,400}?onChange=\{\(n\) => onEditCount\(n\)\}/.test(SRC_ASSETS_UI));
+  check('a snapped area is stated rather than silently rewritten',
+    SRC_ASSETS_UI.includes('-area-snapped') && SRC_ASSETS_UI.includes('you entered'));
+
+  // The identity itself, through the engine's own area function.
+  const mk = (metricValue: number, unitArea: number): SubUnit => ({
+    id: 's1', assetId: 'a1', name: 'Keys', category: 'Operable', metric: 'units',
+    metricValue, unitArea, unitPrice: 0,
+  } as unknown as SubUnit);
+  check('area = count x unit size', computeSubUnitArea(mk(160, 83)) === 13280);
+  const typedArea = 13300;
+  const size = 83;
+  const derivedCount = Math.round(typedArea / size);
+  check('a typed area derives the count', derivedCount === 160, String(derivedCount));
+  check('and the area it resolves to is the snapped one, which the row states',
+    computeSubUnitArea(mk(derivedCount, size)) === 13280);
+  check('a whole-number division does not snap at all',
+    computeSubUnitArea(mk(Math.round(13280 / 83), 83)) === 13280);
 }
 
 // ════════════════════════════════════════════════════════════════════════════

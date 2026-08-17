@@ -453,6 +453,36 @@ fingerprinting the damage rather than the defect.
 **Proof.** 2026-08-17: 0 lines repaired when it ran last in the chain; 8 lines when it ran first,
 with the other phase's hand-set windows untouched.
 
+### 7.13 A gate that hides a row but not its money
+
+**Symptom.** A Phase 2 hotel showed one Real Estate Transfer Tax line in the inputs and was
+charged for two. RETT was double-charged, and the doubled figure reached the financing
+schedule, the statements, the returns and both exports.
+
+**Mechanism.** `CostLine.requiresCountry` gates a country-specific line. Three input-side
+filters in the Costs tab honoured it. `computeAssetCost` built its own list filtering on phase
+and target asset ONLY, so a gated line was charged while being invisible, uneditable and
+undeletable. The asymmetry sat inside one function: the set of lines it charged ignored the
+gate, while the set a percentage may charge ON (`assetVisibleLines`, thirty lines below)
+respected it.
+
+Reaching the broken state needs nothing unusual: type a rate while the country matches, then
+change the country. The row disappears and the money does not.
+
+**Fix.** `computeAssetCost` builds its list from `assetVisibleLines`, the same function the
+screen and the base picker use. And because closing a silent overcharge opens the mirror image
+(a rate that now contributes nothing, on a row you cannot see), the tab says so: "1 cost line
+carries a rate but does not apply here".
+
+**Proof.** Measured on a live project, `rett__phase_2` at 5% with the project country empty:
+937,500 charged for an invisible row, on top of the user's own RETT at the same rate. The asset
+subtotal went from 146,889 to 145,952 after the fix, a difference of exactly 937,500.
+`verify-country-gate` 15, teeth proven by restoring the hand-rolled filter (7 failures).
+
+**The general form.** When a predicate decides what a user can SEE, check whether the same
+predicate decides what the model COUNTS. If the two lists are built separately they will
+diverge, and the direction they diverge in is invisible by construction.
+
 ### 7.12 A fix applied to one copy of a rule leaves the other copies wrong
 
 **Symptom.** In the construction cost schedule, Phase 1 land showed a total with every period

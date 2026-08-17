@@ -2083,6 +2083,23 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
   const rateUnit = rateUnitLabel(subUnit.category, assetMetric);
   const countUnit = countUnitLabel(subUnit.category, assetStrategy, assetType);
   const unitsButNoSize = isUnits && unitArea === 0 && totalArea > 0;
+  // ── ONLY TWO OF THE THREE CAN BE INPUTS (2026-08-17) ───────────────────
+  //
+  // Area, Unit Size and Count are one identity: area = count x unit size. All
+  // three were editable and each edit rewrote one of the others, so they read
+  // as three independent inputs that fight: typing a Count silently rewrote the
+  // Area the user had entered, and typing an Area silently rewrote the Count.
+  //
+  // AREA AND UNIT SIZE ARE THE INPUTS. Count is derived and read-only, because
+  // that is how a scheme is actually specified (a floor plate and a unit type
+  // give you the number of units, not the other way round).
+  //
+  // THE ONE EXCEPTION IS NOT A SECOND MODE, IT IS THE SAME RULE. With no unit
+  // size there is nothing to divide by, so nothing can be derived and the count
+  // becomes the input: that is the existing-operations case Pass 57 added
+  // (a hotel that knows it has 200 keys and does not track BUA). Set a unit
+  // size and the count goes back to being derived.
+  const countIsDerived = isUnits && unitArea > 0;
   // P8-Fix 2a: in Units mode, the user edits AREA (sqm). We back-calc
   // count = area / unitArea and store that as metricValue when stored
   // shape is 'units'. When stored shape lags (legacy 'area' subunit
@@ -2106,7 +2123,13 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
       setPendingArea(a > 0 ? a : null);
       return;
     }
-    setPendingArea(null);
+    // Remembered even when it converts cleanly, so the row can say when the
+    // area SNAPPED. A count is a whole number, so an area that does not divide
+    // by the unit size cannot be honoured exactly: 13,300 sqm at 83 sqm is
+    // 160.2 units, which becomes 160 units and 13,280 sqm. That is the model
+    // being consistent, and it used to happen silently, so the user watched a
+    // number they had typed change by itself.
+    setPendingArea(a > 0 ? a : null);
     // Pass 9e-4 (2026-05-18): keys / unit counts must be integers
     // (a hotel can't have 159.989 keys). Round at every site that
     // derives metricValue from area / unitArea.
@@ -2118,7 +2141,10 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
     // This is the other half of the hold in onEditAreaUnits, and it is what
     // makes "enter the BUA, then the unit size" produce the keys.
     if (pendingArea !== null && ua > 0) {
-      setPendingArea(null);
+      // The typed area is KEPT, not cleared: this is the moment it converts,
+      // and a conversion that does not divide evenly is exactly when the row
+      // has to say so. The snap note compares it to the resolved area and
+      // stays quiet when they agree.
       onUpdate({ unitArea: ua, metricValue: Math.round(pendingArea / ua), metric: 'units' });
       return;
     }
@@ -2171,6 +2197,18 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
           style={{ ...inputStyle, fontSize: 11 }}
           data-testid={`subunit-${subUnit.id}-area-input`}
         />
+        {/* The area SNAPPED to a whole number of units. Said out loud, because
+            watching a number you typed change by itself is worse than being
+            told why it did. */}
+        {countIsDerived && pendingArea !== null && Math.abs(pendingArea - storedArea) > 0.5 && (
+          <div
+            style={{ fontSize: 9, color: 'var(--color-accent-warm)', fontStyle: 'italic', lineHeight: 1.3 }}
+            data-testid={`subunit-${subUnit.id}-area-snapped`}
+            title={`A ${countUnit.toLowerCase().replace(/s$/, '')} count is a whole number, so the area resolves to ${fmt(count)} x ${fmt(unitArea)}.`}
+          >
+            you entered {fmt(pendingArea)}; {fmt(count)} x {fmt(unitArea)} = {fmt(storedArea)}
+          </div>
+        )}
       </td>
       {/* Unit Size: editable in Units mode, muted dash in Area mode.
           P10-Fix 8 (2026-05-12): accounting format on blur. */}
@@ -2216,17 +2254,37 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
         {isUnits ? (
           <>
-            <AccountingNumberInput
-              value={count}
-              onChange={(n) => onEditCount(n)}
-              scale="full"
-              decimals={0}
-              min={0}
-              style={{ ...inputStyle, fontSize: 11 }}
-              data-testid={`subunit-${subUnit.id}-count`}
-            />
+            {countIsDerived ? (
+              // DERIVED AND READ-ONLY: area / unit size. Rendered as an output
+              // cell, not a disabled input, so it reads as a result rather than
+              // a field someone forgot to enable.
+              <div
+                style={{
+                  ...calcOutputStyle,
+                  fontSize: 11,
+                  padding: '4px 6px',
+                  textAlign: 'right',
+                }}
+                data-testid={`subunit-${subUnit.id}-count`}
+                data-derived="true"
+                title={`${fmt(totalArea)} sqm / ${fmt(unitArea)} sqm per ${countUnit.toLowerCase().replace(/s$/, '')} = ${fmt(count)}. Change the Area or the Unit Size to change it.`}
+              >
+                {fmt(count)}
+              </div>
+            ) : (
+              <AccountingNumberInput
+                value={count}
+                onChange={(n) => onEditCount(n)}
+                scale="full"
+                decimals={0}
+                min={0}
+                style={{ ...inputStyle, fontSize: 11 }}
+                data-testid={`subunit-${subUnit.id}-count`}
+                title={`No unit size, so there is nothing to divide the area by. Enter the ${countUnit.toLowerCase()} directly, or set a Unit Size and this becomes derived.`}
+              />
+            )}
             <div style={{ fontSize: 9, color: 'var(--color-meta)', textAlign: 'right', marginTop: 2, fontStyle: 'italic' }} data-testid={`subunit-${subUnit.id}-count-unit`}>
-              {countUnit}
+              {countUnit}{countIsDerived ? ' (derived)' : ''}
             </div>
           </>
         ) : (
