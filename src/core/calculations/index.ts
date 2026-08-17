@@ -1385,7 +1385,7 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
   // country matched and left behind when it stopped matching.
   //
   // A gate that hides a row must also stop its money, or it is not a gate.
-  const phaseLines = assetVisibleLines(costLines, phase.id, asset.id, project.country);
+  const phaseLines = assetVisibleLines(costLines, phase.id, asset.id);
   const metrics = resolveAssetAreaMetrics(asset, project, parcels, phaseAssets, subUnits, landAllocationMode);
 
   // Resolve the per-asset method/value/phasing/timing for each line.

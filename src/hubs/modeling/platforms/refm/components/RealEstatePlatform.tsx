@@ -410,9 +410,16 @@ export default function RealEstatePlatform(): React.JSX.Element {
   // (see module1-store MODEL_MUTATORS), so view mode allows ALL view/navigation
   // (collapsibles, phase/asset selectors, view toggles, case switch) while no
   // model number can change. This replaces the old panel-level pointer-events lock.
+  //
+  // ONE RULE, DERIVED ONCE (2026-08-17). `modelLocked` is the whole rule: the
+  // model cannot be written unless the user is editing. The screen lock below
+  // is this AND a project being open on a model tab, so it is provably a subset:
+  // there is no state in which an input looks editable while the store refuses
+  // the write, which is the defect this pair was written for.
+  const modelLocked = !editMode || graceReadOnly;
   useEffect(() => {
-    useModule1Store.getState().setViewLocked(!editMode || graceReadOnly);
-  }, [editMode, graceReadOnly]);
+    useModule1Store.getState().setViewLocked(modelLocked);
+  }, [modelLocked]);
   // 2026-05-31 BUG-B FIX: gates the UI during a project switch so no
   // stale snapshot is rendered between detach + hydrate.
   const [isSwitchingProject, setIsSwitchingProject] = useState(false);
@@ -1322,10 +1329,40 @@ export default function RealEstatePlatform(): React.JSX.Element {
   // Module 7 (the IC deck builder) is the one surface that fills the workspace
   // rather than flowing inside it.
   const isDeckModule = activeModule === 'module7' && !!activeProjectId;
-  const viewLocked = !!activeProjectId && (!editMode || graceReadOnly) && activeModule !== 'dashboard';
+  const viewLocked = modelLocked && !!activeProjectId && activeModule !== 'dashboard';
   // Show the normal "click Edit" view-lock banner only when NOT in grace (grace
   // shows its own renew banner instead, since Edit is unavailable).
   const showViewLockBanner = viewLocked && !graceReadOnly;
+
+  // ── The keyboard half of the view lock (2026-08-17) ───────────────────────
+  //
+  // CSS makes a locked field look and feel read-only and blocks the pointer,
+  // but a field reached with Tab can still be typed into, and a focused select
+  // still responds to the arrow keys. These handlers close that, on the
+  // container rather than on several hundred inputs.
+  //
+  // What stays allowed is what a reader needs: Tab and Shift-Tab to move,
+  // Escape, and the copy shortcuts. Everything else is swallowed, which covers
+  // typing, Backspace, Delete, Space (a checkbox), and the arrows (a select).
+  const isLockedControl = (target: EventTarget | null): boolean => {
+    if (!viewLocked || isDeckModule) return false;
+    const el = target as HTMLElement | null;
+    if (!el || !el.tagName) return false;
+    if (!/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) return false;
+    return !el.closest('[data-view-editable="true"]');
+  };
+  const blockLockedInput = (e: React.SyntheticEvent): void => {
+    if (!isLockedControl(e.target)) return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  const blockLockedKeyboard = (e: React.KeyboardEvent): void => {
+    if (!isLockedControl(e.target)) return;
+    if (e.key === 'Tab' || e.key === 'Escape') return;
+    if ((e.ctrlKey || e.metaKey) && ['c', 'a', 'Insert'].includes(e.key)) return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
 
   return (
     // M2.0i Fix 8 (2026-05-07): outer wrapper height: 100vh (was
@@ -1561,15 +1598,33 @@ export default function RealEstatePlatform(): React.JSX.Element {
               </button>
             </div>
           )}
-          {/* pointer-events lock blocks input/control interaction in view mode;
-              the scroll container (main) still scrolls, the sidebar + this
-              banner stay interactive. */}
           {/* View mode no longer blocks the whole panel (that killed collapsibles,
-              phase/asset selectors, and view toggles). The lock now lives at the
+              phase/asset selectors, and view toggles). The lock lives at the
               model-mutating store setters (see the setViewLocked effect above), so
               ALL view/navigation stays interactive while no model number can
-              change. The view-lock banner above communicates the mode. */}
-          <div data-testid="module-content" style={isDeckModule ? { flex: 1, minHeight: 0 } : undefined}>
+              change. The view-lock banner above communicates the mode.
+
+              ── AND NOW THE INPUTS LOOK LOCKED (2026-08-17) ────────────────────
+              The store's no-op was silent: a user could type into a field, watch
+              the value appear, and lose it on the next render with nothing said.
+              Reported after exactly that happened to a phasing checkbox. So
+              `data-view-locked` styles every input, select and textarea as
+              read-only (globals.css) and the capture handlers below stop the
+              keyboard, which CSS cannot do. Buttons and rows stay live, because
+              every VIEW interaction must keep working.
+
+              MODULE 7 IS EXEMPT: the deck editor carries its own state and its
+              own save, so its text boxes are not model inputs and locking them
+              would break editing a presentation while viewing a model. */}
+          <div
+            data-testid="module-content"
+            data-view-locked={viewLocked && !isDeckModule ? 'true' : undefined}
+            onKeyDownCapture={blockLockedKeyboard}
+            onBeforeInputCapture={blockLockedInput}
+            onPasteCapture={blockLockedInput}
+            onDropCapture={blockLockedInput}
+            style={isDeckModule ? { flex: 1, minHeight: 0 } : undefined}
+          >
             {renderModule()}
           </div>
         </main>

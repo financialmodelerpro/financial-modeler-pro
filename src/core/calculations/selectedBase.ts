@@ -56,7 +56,6 @@
  */
 
 import type { CostLine } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
-import { countryMatches } from '@/src/core/countries';
 
 /**
  * The lines visible to one asset within its phase, in display order. Mirrors
@@ -71,27 +70,28 @@ import { countryMatches } from '@/src/core/countries';
  * is what a phase-level reconciliation needs: a line targeted at some other
  * asset is not part of the phase's shared set.
  *
- * 2026-08-17b: the country test goes through `countryMatches`, which resolves
- * both sides to an ISO code, so a line saved as 'Saudi Arabia' matches a project
- * that now stores 'SA'. See src/core/countries.ts for why the field became a
- * selected value at all.
+ * 2026-08-17c: THE COUNTRY GATE IS GONE, and with it the `country` parameter.
+ * A line could be present but invisible, and that produced two silent money
+ * defects in one week (a hidden row charging, then a hidden row appearing and
+ * doubling a cost). Visibility no longer depends on any project attribute:
+ * every line in the phase that is not targeted at another asset is shown, and
+ * shown is charged. `retireCountryGatedLines` clears the flag from saved
+ * snapshots on load.
  */
 export function assetVisibleLines(
   lines: CostLine[],
   phaseId: string,
   assetId: string | undefined,
-  country?: string,
 ): CostLine[] {
   return lines.filter((c) =>
     c.phaseId === phaseId
-    && (c.targetAssetId === undefined || c.targetAssetId === assetId)
-    && countryMatches(c.requiresCountry, country));
+    && (c.targetAssetId === undefined || c.targetAssetId === assetId));
 }
 
 /**
  * The lines a given line may charge on: everything strictly above it, in
  * display order. Returns [] when the line is not in the list (a stale id, or a
- * line filtered out by country), which is the safe answer: charge on nothing
+ * line targeted at another asset), which is the safe answer: charge on nothing
  * rather than on an arbitrary set.
  */
 export function eligibleBaseLines(

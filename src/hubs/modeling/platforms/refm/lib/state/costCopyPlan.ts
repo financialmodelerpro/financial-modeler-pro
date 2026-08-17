@@ -25,10 +25,13 @@
  *
  * ONE VISIBILITY RULE ON BOTH SIDES. `assetVisibleLines` decides what the
  * source offers AND what the target is considered to have. Measured on a live
- * project: the source list dropped country-gated lines while the target list
- * counted them, so a hidden `rett__phase_2` matched the user's own RETT line,
- * no line was created, and the override was written onto a row the user cannot
- * see. The copy reported success and the visible table did not change.
+ * project when the two disagreed: the source list dropped country-gated lines
+ * while the target list counted them, so a hidden `rett__phase_2` matched the
+ * user's own RETT line, no line was created, and the override was written onto
+ * a row the user cannot see. The copy reported success and the visible table
+ * did not change. (The country gate itself was retired on 2026-08-17c, which
+ * is why the rule no longer takes a country: nothing is hidden any more. The
+ * lesson stands: both sides must ask the same question.)
  *
  * Pure. No em dashes in this file.
  */
@@ -64,8 +67,6 @@ export interface CostCopyPlanInput {
   /** Phase ids of the selected targets, source phase excluded by the caller or
    *  here (it is filtered either way). */
   targetPhaseIds: string[];
-  /** The project country, for the one visibility rule. */
-  country: string | undefined;
   /** Remove target-phase lines the source does not have. Off by default because
    *  it reaches every asset in that phase. */
   removeExtra: boolean;
@@ -99,8 +100,8 @@ export interface CostCopyPlan {
  * mapping, and writes nothing.
  */
 export function planCostCopy(input: CostCopyPlanInput): CostCopyPlan {
-  const { costLines, sourcePhaseId, sourceAssetId, country, removeExtra } = input;
-  const sourceLines = assetVisibleLines(costLines, sourcePhaseId, sourceAssetId, country);
+  const { costLines, sourcePhaseId, sourceAssetId, removeExtra } = input;
+  const sourceLines = assetVisibleLines(costLines, sourcePhaseId, sourceAssetId);
   const sourceKeyById = occurrenceKeys(sourceLines);
   const sourceKeys = new Set(sourceKeyById.values());
   const targetPhaseIds = input.targetPhaseIds.filter((p) => p !== sourcePhaseId);
@@ -113,7 +114,7 @@ export function planCostCopy(input: CostCopyPlanInput): CostCopyPlan {
   for (const phaseId of targetPhaseIds) {
     // THE SAME VISIBILITY RULE AS THE SOURCE. A line the user cannot see must
     // not count as the target already having that identity.
-    const existing = assetVisibleLines(next, phaseId, undefined, country);
+    const existing = assetVisibleLines(next, phaseId, undefined);
     const targetKeyById = occurrenceKeys(existing);
     const targetKeys = new Set(targetKeyById.values());
 

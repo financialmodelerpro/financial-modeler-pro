@@ -86,17 +86,6 @@ export default function Module1ProjectPhases(): React.JSX.Element {
     [project.location],
   );
 
-  // Gated lines the CURRENT country makes chargeable, so selecting a country
-  // states what it switched on rather than moving a total in silence.
-  const countryActivates = useMemo(
-    () => costLines.filter(
-      (c) => !!c.requiresCountry
-        && countryMatches(c.requiresCountry, project.country)
-        && Math.abs(c.value) > 0
-        && c.disabled !== true,
-    ),
-    [costLines, project.country],
-  );
 
   const projectEndDate = useMemo(
     () => computeProjectEndDate(project, phases),
@@ -317,18 +306,18 @@ export default function Module1ProjectPhases(): React.JSX.Element {
           </div>
           {/* ── COUNTRY IS A SELECTED VALUE (2026-08-17) ─────────────────────
               It had NO editor at all, on any screen, while two behaviours read
-              it: the `requiresCountry` gate that decides whether a country
-              specific cost line (the catalog's transfer tax) is charged, and
-              the default statement terminology. Measured on a live project:
-              `country` was '' while the user had typed "Jeddah, Saudi Arabia"
-              into Location above, which is display only, so the transfer tax
-              row was hidden and uncharged and the Capex tab said the country
-              was not set. A dropdown, not free text, because a gate that has
-              to guess at a typed string is the defect one layer down. */}
+              it. Measured on a live project: `country` was '' while the user
+              had typed "Jeddah, Saudi Arabia" into Location above, which is
+              display only. A dropdown, not free text, because a comparison that
+              has to guess at a typed string is the defect one layer down.
+
+              2026-08-17c: it no longer gates any cost line. It sets the default
+              statement terminology and records where the project is. Nothing
+              appears or disappears from the model when it changes. */}
           <div>
             <InputLabel
               label="Country"
-              help="Drives country-specific cost lines (e.g. real estate transfer tax) and the default statement terminology. Selected from a list so the model and the screen cannot read it differently."
+              help="Where the project is. Sets the default statement terminology (for example Zakat). It does NOT add or remove any cost line: a transfer tax is added from the Capex catalog like any other cost."
               inputId="project-country"
             />
             <select
@@ -362,19 +351,12 @@ export default function Module1ProjectPhases(): React.JSX.Element {
                 Location says {countryLabel(locationCountry)}. Use it?
               </button>
             )}
-            {/* Selecting a country can make a gated line chargeable. Say so
-                where the change is made, because the money moves on another
-                tab. */}
-            {countryActivates.length > 0 && (
-              <div
-                data-testid="project-country-activates"
-                style={{ marginTop: 4, fontSize: 11, color: 'var(--color-accent-warm)', lineHeight: 1.35 }}
-              >
-                {countryActivates.length === 1 ? '1 cost line' : `${countryActivates.length} cost lines`} now
-                {' '}charge here: {countryActivates.map((c) => `${c.name} (${c.value}%)`).join(', ')}.
-                {' '}Check Capex for a duplicate before relying on the total.
-              </div>
-            )}
+            {/* No note about cost lines here any more: since 2026-08-17c the
+                country creates and activates NOTHING. Selecting one changes
+                statement terminology and records where the project is, and a
+                transfer tax is added from the Capex catalog like any other
+                cost. A country that conjures a charged row is how the same
+                money got counted twice. */}
           </div>
         </div>
         <div

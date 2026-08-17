@@ -209,7 +209,11 @@ section('C. The catalog covers a real development and carries behaviour');
     check(`${id} is selectable but NOT seeded`,
       BUILT_IN_COST_CATALOG.some((e) => e.id === id) && !seededIds.has(id));
   }
-  check('the seed is still thirteen lines', seeded.length === 13, String(seeded.length));
+  // Twelve since 2026-08-17c, when the country-gated transfer tax stopped
+  // being seeded (see verify-no-hidden-cost-lines). It was thirteen while that
+  // row was seeded and invisible.
+  check('the seed is twelve lines and carries no transfer tax',
+    seeded.length === 12 && !seededIds.has('rett'), String(seeded.length));
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -329,17 +333,18 @@ section('F. Copy reconciles by identity; undo restores at the index');
   // still did not do it. The plan is now a function, so the check runs it.
   //
   // The fixture is the live project's shape: phase 1 carries renamed catalog
-  // lines and custom lines with a catalogId; phase 2 carries the seeded set
-  // PLUS a country-gated `rett__phase_2` that the user cannot see.
+  // lines and custom lines with a catalogId; phase 2 carries the seeded set.
+  // (Until 2026-08-17c phase 2 also carried a country-gated `rett__phase_2`
+  // the user could not see, which the source dropped and the target counted,
+  // so the copy silently did nothing. Nothing is hidden any more, and the
+  // transfer tax is no longer seeded at all.)
   const p1 = [
-    ...makeBlankCostLines('phase_1', 4).filter((l) => base(l.id) !== 'rett'),
+    ...makeBlankCostLines('phase_1', 4),
     { ...makeBlankCostLines('phase_1', 4).find((l) => base(l.id) === 'pre-operating')!, name: 'Design and consultants' },
     { id: 'custom-11__phase_1', phaseId: 'phase_1', name: 'Permits & Approvals', method: 'percent_of_selected', value: 1, stage: 'soft', scope: 'indirect', allocationBasis: 'bua_share', startPeriod: 1, endPeriod: 4, phasing: 'even', catalogId: 'permits-approvals' },
     { id: 'custom-12__phase_1', phaseId: 'phase_1', name: 'Real Estate Transfer Tax (RETT)', method: 'percent_of_cash_land', value: 5, stage: 'land', scope: 'direct', allocationBasis: 'land_share', startPeriod: 0, endPeriod: 0, phasing: 'even', catalogId: 'rett' },
   ] as CostLine[];
-  const p2 = makeBlankCostLines('phase_2', 3).map((l) => (
-    base(l.id) === 'rett' ? { ...l, value: 5 } : l
-  ));
+  const p2 = makeBlankCostLines('phase_2', 3);
   const project = [...p1, ...p2];
 
   const plan = planCostCopy({
@@ -347,17 +352,19 @@ section('F. Copy reconciles by identity; undo restores at the index');
     sourcePhaseId: 'phase_1',
     sourceAssetId: 'a1',
     targetPhaseIds: ['phase_2'],
-    country: '',
+
     removeExtra: false,
   });
   const phase2Plan = plan.phases[0];
-  check('the gated line is not offered by the source', !plan.sourceLines.some((l) => base(l.id) === 'rett'));
+  check('the source offers EVERY line in its phase (nothing is hidden)',
+    plan.sourceLines.length === p1.length, `${plan.sourceLines.length} of ${p1.length}`);
   check('EVERY source line reaches a counterpart', plan.unmatched === 0, `${plan.unmatched} unmatched`);
   check('the user\'s own RETT is CREATED in the target phase',
     phase2Plan.toCreate.some((l) => l.catalogId === 'rett'),
     phase2Plan.toCreate.map((l) => l.name).join(', '));
-  check('and it does NOT map onto the hidden country-gated row',
-    plan.phases[0].mapping.get('custom-12__phase_1') !== 'rett__phase_2',
+  check('and it maps onto that NEW line, not onto anything already there',
+    (plan.phases[0].mapping.get('custom-12__phase_1') ?? '').includes('phase_2')
+    && !p2.some((l) => l.id === plan.phases[0].mapping.get('custom-12__phase_1')),
     String(plan.phases[0].mapping.get('custom-12__phase_1')));
   check('the custom permits line is created too',
     phase2Plan.toCreate.some((l) => l.catalogId === 'permits-approvals'));
@@ -372,7 +379,7 @@ section('F. Copy reconciles by identity; undo restores at the index');
 
   const removing = planCostCopy({
     costLines: project, sourcePhaseId: 'phase_1', sourceAssetId: 'a1',
-    targetPhaseIds: ['phase_2'], country: '', removeExtra: true,
+    targetPhaseIds: ['phase_2'], removeExtra: true,
   });
   check('removing extras drops what the source does not have', removing.removed > 0);
   check('but never the parcel-driven land rows',
@@ -387,7 +394,7 @@ section('F. Copy reconciles by identity; undo restores at the index');
   ];
   const dup = planCostCopy({
     costLines: twoMarketing, sourcePhaseId: 'phase_1', sourceAssetId: 'a1',
-    targetPhaseIds: ['phase_2'], country: '', removeExtra: false,
+    targetPhaseIds: ['phase_2'], removeExtra: false,
   });
   const marketingSources = dup.sourceLines.filter((l) => resolveCatalogId(l) === 'marketing');
   check('two lines sharing an entry are both mapped', marketingSources.length === 2

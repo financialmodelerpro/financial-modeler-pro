@@ -96,17 +96,20 @@ check('A7 an unknown line id charges on nothing rather than everything',
   check('A10 another asset\'s custom line is NOT', !ids.includes('custom-3__p1'));
 }
 {
-  const gated = [
+  // 2026-08-17c: the country gate is retired (see verify-no-hidden-cost-lines).
+  // A line's visibility depends on its phase and its target asset and on
+  // NOTHING ELSE, so a transfer tax line is offered as a base to the lines
+  // below it whatever the project says about where it is.
+  const withTax = [
     L('build', 'fixed', 1000),
-    L('rett__p1', 'percent_of_cash_land', 5, { requiresCountry: 'Saudi Arabia' }),
+    L('custom-rett__p1', 'percent_of_cash_land', 5, { catalogId: 'rett' }),
     L('conting', 'percent_of_selected', 5),
   ];
-  check('A11 a country-gated line is offered where the gate matches',
-    eligibleBaseLines(assetVisibleLines(gated, 'p1', 'a1', 'Saudi Arabia'), 'conting')
-      .some((c) => c.id === 'rett__p1'));
-  check('A12 ...and not where it does not',
-    !eligibleBaseLines(assetVisibleLines(gated, 'p1', 'a1', 'UAE'), 'conting')
-      .some((c) => c.id === 'rett__p1'));
+  const offered = (country: string | undefined): boolean =>
+    eligibleBaseLines(assetVisibleLines(withTax, 'p1', 'a1'), 'conting')
+      .some((c) => c.id === 'custom-rett__p1') && country !== null;
+  check('A11 a transfer tax line is offered as a base like any other', offered('Saudi Arabia'));
+  check('A12 ...and the project country changes nothing', offered('UAE') && offered(undefined));
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -384,7 +387,7 @@ section('F. The marketing stage');
 section('D. One rule, two surfaces');
 
 check('D1 the picker uses the shared predicate',
-  /eligibleBaseLines\(\s*assetVisibleLines\(costLines, line\.phaseId, asset\.id, projectCountry\)/.test(SRC_UI));
+  /eligibleBaseLines\(\s*assetVisibleLines\(costLines, line\.phaseId, asset\.id\)/.test(SRC_UI));
 check('D2 the method ban is gone',
   !/c\.method !== 'percent_of_selected'/.test(SRC_UI),
   'banning the method is what blocked the developers fee chain');

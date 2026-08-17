@@ -445,11 +445,11 @@ export default function Module6Scenarios(): React.JSX.Element {
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid var(--color-border)' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             <label style={{ fontSize: 11, color: 'var(--color-meta)' }}>Filter fields</label>
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="e.g. price, occupancy, discount" style={{ ...FAST_INPUT, width: 200 }} data-testid="m6-field-search" />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="e.g. price, occupancy, discount" style={{ ...FAST_INPUT, width: 200 }} data-testid="m6-field-search" data-view-editable="true" />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             <label style={{ fontSize: 11, color: 'var(--color-meta)' }}>Assumption</label>
-            <select value={selectedPath} onChange={(e) => setSelectedPath(e.target.value)} style={{ ...FAST_INPUT, width: 320 }} data-testid="m6-field-select">
+            <select value={selectedPath} onChange={(e) => setSelectedPath(e.target.value)} style={{ ...FAST_INPUT, width: 320 }} data-testid="m6-field-select" data-view-editable="true">
               <option value="">Select a field to add as a row…</option>
               {pickerGroups.map((g) => (
                 <optgroup key={g.category} label={g.label}>

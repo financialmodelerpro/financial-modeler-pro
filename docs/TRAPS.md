@@ -453,6 +453,58 @@ fingerprinting the damage rather than the defect.
 **Proof.** 2026-08-17: 0 lines repaired when it ran last in the chain; 8 lines when it ran first,
 with the other phase's hand-set windows untouched.
 
+### 7.20 A control that accepts a change and discards it is a lying screen
+
+**Symptom.** "I set the asset phasing curve and checked the box, and it reverted to zero and
+unchecked."
+
+**Mechanism, the second one.** A project opens READ-ONLY until the user clicks Edit, and that
+lock lived only at the store's model-mutating setters, which no-op **silently**. Every input
+still looked and behaved editable: type into it, watch the value appear, lose it on the next
+render, with nothing said. Same family as a screen showing one number while the model uses
+another.
+
+**Why the obvious fix was wrong.** A blanket `pointer-events: none` on the panel had been tried
+before and removed, because it also killed collapsibles, phase and asset selectors and view
+toggles. In view mode every VIEW interaction must keep working.
+
+**Fix.** Lock the CONTROLS, not the panel: `input`, `select` and `textarea` get
+`pointer-events: none` plus a muted, dashed, not-allowed treatment; buttons, rows and links are
+untouched. CSS cannot stop typing into a field reached by Tab, so capture-phase handlers on the
+container swallow every key except Tab, Escape and the copy shortcuts. `data-view-editable`
+opts out the handful of controls that filter a view rather than change the model.
+
+**The pair that must not drift.** The store lock and the screen lock are now ONE derivation
+(`modelLocked` -> `viewLocked`), because two hand-written expressions of the same idea is how a
+field ends up looking editable while the store refuses the write.
+
+**Proof.** Browser: typing `TYPED WHILE LOCKED` into the project name leaves
+`FMP - MARINA GATE`; the stage filter stays live; tabs and expand-all still work; after Edit the
+same field takes the text. `verify-view-lock` 37, teeth proven by two sabotages.
+
+### 7.19 A gate that hides a row is a defect generator, not a feature
+
+**Symptom, twice in one week, opposite directions.** (1) A hidden transfer-tax row was CHARGED:
+937,500 on a Phase 2 hotel that showed no such row, on top of the user's own line. (2) Once the
+gate was honoured, SELECTING A COUNTRY made that hidden row appear and charge, doubling a cost
+the user had already entered by hand.
+
+**Mechanism.** `CostLine.requiresCountry` let a line be PRESENT BUT INVISIBLE. Every consumer
+then had to remember the gate: the engine forgot it once, and the copy planner applied it on one
+side only. A row nobody can see is a row nobody can delete, correct or audit.
+
+**Fix.** Remove the gate, not just its bugs. The transfer tax is no longer seeded; it is a
+catalog entry the user adds when the project needs it, and the entry stamps the land-cash
+phasing onto the line. `retireCountryGatedLines` clears the flag from saved snapshots on load:
+a row the country did not match is REMOVED (it was invisible and charging zero, so nothing
+moves), and a row the country DID match is KEPT with the flag stripped (it is already charged, so
+removing it would delete a live cost). Measured on both live projects: total capex identical to
+the byte, line count 23 -> 21.
+
+**The general form.** Visibility and money must not be governed by different conditions. If a
+value is in the model it must be on the screen. A conditional row is a conditional number, and
+the condition will be forgotten by one consumer.
+
 ### 7.18 A field with no editor is not a default, it is unreachable
 
 **Symptom.** The Capex tab said "the project country is not set, so the transfer tax is not

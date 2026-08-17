@@ -39,6 +39,7 @@ import {
   makeDefaultParcel,
   makeDefaultPhase,
   STANDARD_COST_LINE_IDS,
+  SEEDED_COST_LINE_IDS,
   type Asset,
   type CostLine,
   type SubUnit,
@@ -106,8 +107,8 @@ const blankLines = makeBlankCostLines('p1', 24);
 // Marketing were added, and a hardcoded size fails on a change it is not
 // testing. The invariant is "the seed emits exactly the registered catalog".
 check('A1 the seed emits exactly the registered catalog',
-  blankLines.length === STANDARD_COST_LINE_IDS.length,
-  `got ${blankLines.length}, registry ${STANDARD_COST_LINE_IDS.length}`);
+  blankLines.length === SEEDED_COST_LINE_IDS.length,
+  `got ${blankLines.length}, seed set ${SEEDED_COST_LINE_IDS.length}`);
 check('A2 blank and reference are the same catalog size', blankLines.length === refLines.length);
 
 // The core claim: nothing the user can edit, switch off or delete carries a value.
@@ -119,7 +120,7 @@ check(
 );
 // Editable = the catalog minus the two locked land derivations.
 check('A4 every line except the two locked land rows is editable',
-  editable(blankLines).length === STANDARD_COST_LINE_IDS.length - 2,
+  editable(blankLines).length === SEEDED_COST_LINE_IDS.length - 2,
   `${editable(blankLines).length}`);
 
 // The two locked land rows are derivations of the parcels the user typed, not
@@ -168,7 +169,7 @@ check('A12 the CREATE PROJECT wizard seeds zero rates',
   wizardNonZero.length === 0,
   wizardNonZero.map((l) => `${baseId(l.id)}=${l.value}`).join(', '));
 check('A13 the wizard still seeds the full catalog per phase',
-  wizardSnap.costLines.length === wizardSnap.phases.length * STANDARD_COST_LINE_IDS.length,
+  wizardSnap.costLines.length === wizardSnap.phases.length * SEEDED_COST_LINE_IDS.length,
   `${wizardSnap.costLines.length} lines / ${wizardSnap.phases.length} phases`);
 
 const defaultStateNonZero = editable(DEFAULT_MODULE1_STATE.costLines).filter((l) => l.value !== 0);
@@ -188,7 +189,7 @@ check('A14 the store default state seeds zero rates',
   const seeded = useModule1Store.getState().costLines;
   const seededNonZero = editable(seeded).filter((l) => l.value !== 0);
   check('A15 addAsset seeds a catalog into an empty phase',
-    seeded.length === STANDARD_COST_LINE_IDS.length, `${seeded.length}`);
+    seeded.length === SEEDED_COST_LINE_IDS.length, `${seeded.length}`);
   check('A16 addAsset seeds zero rates',
     seededNonZero.length === 0,
     seededNonZero.map((l) => `${baseId(l.id)}=${l.value}`).join(', '));

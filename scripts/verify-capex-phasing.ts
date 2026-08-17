@@ -31,10 +31,11 @@ import {
 } from '../src/core/calculations/capexPhasing';
 import {
   makeDefaultCostLines, makeBlankCostLines, makeDefaultPhase, makeDefaultProject,
-  STANDARD_COST_LINE_IDS, CAPEX_PHASING_SOURCES,
+  SEEDED_COST_LINE_IDS, CAPEX_PHASING_SOURCES,
   type Asset, type CostLine, type CostOverride,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { computeAssetCost, deriveCostStage } from '../src/core/calculations';
+import { findCatalogEntry } from '../src/hubs/modeling/platforms/refm/lib/state/costCatalog';
 import { sumCapexStages, totalCapexStages } from '../src/hubs/modeling/platforms/refm/lib/reports/capexReports';
 
 let passed = 0;
@@ -230,24 +231,31 @@ section('D. Seeded defaults and classification');
 
 const lines = makeBlankCostLines('p1', 6);
 const byBase = new Map(lines.map((l) => [baseId(l.id), l]));
-check('D1 RETT is in the catalog', byBase.has('rett'));
+// 2026-08-17c: RETT is NO LONGER SEEDED. It was seeded and country gated, so on
+// most projects it was present but invisible, which let the engine charge a row
+// nobody could see and later let selecting a country double a cost the user had
+// entered by hand. It is a catalog ENTRY now, added when the project needs it,
+// and the entry is what carries the land cash source onto the line. See
+// verify-no-hidden-cost-lines. D1 / D3 / D6 moved there.
+const rettEntry = findCatalogEntry('rett');
+check('D1 RETT is in the CATALOG (not the seed)', !!rettEntry && !byBase.has('rett'));
 check('D2 Marketing is in the catalog', byBase.has('marketing'));
-check('D3 RETT follows land cash by default', byBase.get('rett')?.phasingSource === 'land_cash');
+check('D3 the RETT entry follows land cash', rettEntry?.phasingSource === 'land_cash');
 check('D4 Marketing follows collections by default', byBase.get('marketing')?.phasingSource === 'collections');
 check('D5 Commission follows collections by default', byBase.get('commission')?.phasingSource === 'collections');
-check('D6 RETT is country gated', !!byBase.get('rett')?.requiresCountry);
+check('D6 no seeded line is country gated', lines.every((l) => l.requiresCountry === undefined));
 check('D7 the new lines seed at a ZERO rate like every other line',
-  (byBase.get('rett')?.value ?? -1) === 0 && (byBase.get('marketing')?.value ?? -1) === 0);
+  (byBase.get('marketing')?.value ?? -1) === 0);
 check('D8 no OTHER seeded line was given a source (they inherit)',
-  lines.filter((l) => l.phasingSource && !['rett', 'marketing', 'commission'].includes(baseId(l.id))).length === 0);
+  lines.filter((l) => l.phasingSource && !['marketing', 'commission'].includes(baseId(l.id))).length === 0);
 // 2026-08-16: Marketing moved from `soft` to its OWN stage, so that construction
 // cost excluding land can exclude it while the developer fee and contingency
 // still charge on it. This check asserted the superseded classification.
-check('D9 RETT classifies as land, Marketing as its own stage',
-  deriveCostStage(byBase.get('rett')!) === 'land'
+check('D9 a RETT line classifies as land, Marketing as its own stage',
+  rettEntry?.stage === 'land'
   && deriveCostStage(byBase.get('marketing')!) === 'marketing');
-check('D10 the catalog and the id list agree',
-  lines.length === STANDARD_COST_LINE_IDS.length, `${lines.length} vs ${STANDARD_COST_LINE_IDS.length}`);
+check('D10 the seed and the seed-set list agree',
+  lines.length === SEEDED_COST_LINE_IDS.length, `${lines.length} vs ${SEEDED_COST_LINE_IDS.length}`);
 check('D11 the reference catalog still carries the benchmark rates',
   makeDefaultCostLines('p1', 6).find((l) => baseId(l.id) === 'construction-bua')?.value === 4500);
 

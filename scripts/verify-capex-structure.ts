@@ -232,18 +232,16 @@ section('D. A followed source owns the window, and the engine reports it');
   });
   const mkt = lines.find((l) => base(l.id) === 'marketing')!;
   const win = bd.resolvedWindowByLineId[mkt.id];
-  // Every line the engine CHARGES reports a window. 2026-08-17: that is no
-  // longer every seeded line, because a country-gated line the project cannot
-  // use is not charged at all (see verify-country-gate), and a line that is not
-  // charged has no window to report.
-  const chargeable = lines.filter((l) => !l.requiresCountry || l.requiresCountry === project.country);
-  check('the fixture still has gated and ungated lines (non-vacuous)',
-    chargeable.length > 0 && chargeable.length < lines.length,
-    `${chargeable.length} of ${lines.length}`);
-  check('the engine reports a window for every line it charges',
-    chargeable.every((l) => bd.resolvedWindowByLineId[l.id] !== undefined));
-  check('and none for a line it does not',
-    lines.filter((l) => !chargeable.includes(l)).every((l) => bd.resolvedWindowByLineId[l.id] === undefined));
+  // Every line the engine charges reports a window. 2026-08-17c: that is every
+  // seeded line again, because nothing is gated any more (the country gate was
+  // retired: see verify-no-hidden-cost-lines).
+  check('the fixture is non-vacuous', lines.length > 0, `${lines.length} lines`);
+  check('the engine reports a window for every seeded line',
+    lines.every((l) => bd.resolvedWindowByLineId[l.id] !== undefined),
+    lines.filter((l) => bd.resolvedWindowByLineId[l.id] === undefined).map((l) => l.id).join(','));
+  check('and none for a line that is not in this phase at all',
+    Object.keys(bd.resolvedWindowByLineId).every((id) => lines.some((l) => l.id === id)),
+    Object.keys(bd.resolvedWindowByLineId).filter((id) => !lines.some((l) => l.id === id)).join(','));
   check('marketing takes its window from collections', win?.startPeriod === 2 && win?.endPeriod === 3,
     `${win?.startPeriod}-${win?.endPeriod}`);
   check('and names the source', win?.source === 'collections', String(win?.source));
@@ -325,11 +323,19 @@ section('F. Catalog order: developer fee, contingency, marketing last');
   check('hard costs precede soft costs',
     Math.max(...lines.map((l, i) => (deriveCostStage(l) === 'hard' ? i : -1)))
     < Math.min(...lines.map((l, i) => (deriveCostStage(l) === 'soft' ? i : Number.MAX_SAFE_INTEGER))));
-  check('every catalog id is seeded once',
-    new Set(order).size === order.length && STANDARD_COST_LINE_IDS.every((id) => order.includes(id)));
+  check('every seeded id appears exactly once, and is a known catalog id',
+    new Set(order).size === order.length
+    && order.every((id) => (STANDARD_COST_LINE_IDS as readonly string[]).includes(id)),
+    order.join(','));
+  // 2026-08-17c: `rett` is still a known id (existing lines resolve their
+  // identity through it and the picker offers it) but it is NOT seeded. A
+  // country-gated row that was present and invisible is what allowed a cost to
+  // be charged unseen, and later to be doubled. See verify-no-hidden-cost-lines.
+  check('the transfer tax is a known id but is NOT seeded',
+    (STANDARD_COST_LINE_IDS as readonly string[]).includes('rett') && !order.includes('rett'));
 
   // The cascade is expressible: every seeded selection points UPWARD.
-  const visible = assetVisibleLines(lines, 'phase_1', 'a1', undefined);
+  const visible = assetVisibleLines(lines, 'phase_1', 'a1');
   for (const l of lines) {
     const sel = l.selectedLineIds ?? [];
     if (sel.length === 0) continue;
@@ -372,8 +378,8 @@ section('G. Ordering: insert anywhere, move, and position governs the base');
   const idx = lines.indexOf(contingency);
   const above = [...lines.slice(0, idx), custom, ...lines.slice(idx)];
   const below = [...lines.slice(0, idx + 1), custom, ...lines.slice(idx + 1)];
-  const eligibleAbove = eligibleBaseLines(assetVisibleLines(above, 'phase_1', 'a1', undefined), contingency.id);
-  const eligibleBelow = eligibleBaseLines(assetVisibleLines(below, 'phase_1', 'a1', undefined), contingency.id);
+  const eligibleAbove = eligibleBaseLines(assetVisibleLines(above, 'phase_1', 'a1'), contingency.id);
+  const eligibleBelow = eligibleBaseLines(assetVisibleLines(below, 'phase_1', 'a1'), contingency.id);
   check('a line inserted ABOVE is offered to the consumer', eligibleAbove.some((l) => l.id === custom.id));
   check('a line inserted BELOW is not', !eligibleBelow.some((l) => l.id === custom.id));
   check('so position governs, not creation order', true);

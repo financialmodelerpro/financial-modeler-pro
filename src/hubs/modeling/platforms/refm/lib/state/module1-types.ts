@@ -1794,6 +1794,20 @@ export interface CostLine {
   phasingSource?: CapexPhasingSource;
   selectedLineIds?: string[];
   isLocked?: boolean;
+  /**
+   * DEPRECATED and RETIRED (2026-08-17c). Nothing reads this any more.
+   *
+   * It gated a line on `project.country`, which meant a line could be PRESENT
+   * BUT INVISIBLE. That single property produced two silent money defects in
+   * one week: the engine charged a row nobody could see or delete, and then,
+   * once the gate was closed, selecting a country made a tax line appear and
+   * charge on top of the one the user had added by hand.
+   *
+   * It stays on the type ONLY so `retireCountryGatedLines` (module1-migrate)
+   * can find and clear it on saved snapshots. No engine, report, export or
+   * screen consults it. Do not reintroduce a visibility gate on a line that
+   * carries money: hide the row and you hide the number.
+   */
   requiresCountry?: string;
   // M2.0d: per-line toggle (UI on/off). When true the line contributes 0
   // to all assets' rollups regardless of method / value.
@@ -2943,6 +2957,24 @@ export const STANDARD_COST_LINE_IDS = [
 ] as const;
 export type StandardCostLineId = typeof STANDARD_COST_LINE_IDS[number];
 
+/**
+ * What the SEED actually emits, in order (2026-08-17c).
+ *
+ * `STANDARD_COST_LINE_IDS` is the identity registry: every id the platform
+ * recognises, which is what an existing line resolves its behaviour through and
+ * what the row picker can offer. It is NOT the same thing as the set a new
+ * project starts with, and conflating the two is how a row nobody asked for
+ * ends up on every project.
+ *
+ * `rett` is registered but not seeded: it used to be seeded and country gated,
+ * so on most projects it was PRESENT BUT INVISIBLE, which let the engine charge
+ * a row that could not be seen and later let selecting a country double a cost
+ * the user had already entered. A transfer tax is added from the catalog like
+ * any other cost.
+ */
+export const SEEDED_COST_LINE_IDS = STANDARD_COST_LINE_IDS
+  .filter((id) => id !== 'rett') as readonly StandardCostLineId[];
+
 // M2.0L (2026-05-11): cost line ids are now phase-scoped to keep them
 // globally unique across multi-phase projects. Pre-M2.0L snapshots
 // stored hardcoded base ids ('land-cash', etc.) per phase, so a
@@ -3091,19 +3123,22 @@ export function makeDefaultCostLines(
       startPeriod: 0, endPeriod: 0, phasing: 'even',
       isLocked: true,
     },
-    // ── Real estate transfer tax ────────────────────────────────────────
-    // Charged on the land value and DUE WHEN THE LAND CASH IS PAID, so its
-    // phasing follows the land cash outflow (including a deferred parcel
-    // schedule) rather than the construction window. Overridable per line.
-    // Country gated: renders only where the project country matches.
-    {
-      id: id('rett'), phaseId, name: 'Real Estate Transfer Tax',
-      method: 'percent_of_cash_land', value: 0,
-      stage: 'land', scope: 'direct', allocationBasis: 'land_share',
-      startPeriod: 0, endPeriod: 0, phasing: 'even',
-      phasingSource: 'land_cash',
-      requiresCountry: 'Saudi Arabia',
-    },
+    // ── Real estate transfer tax: NOT SEEDED (2026-08-17c) ──────────────
+    //
+    // It used to be seeded here, country gated, so it was PRESENT BUT
+    // INVISIBLE on every project whose country did not match. That is what
+    // made two silent defects possible: the engine charged it while the row
+    // could not be seen (fixed 2026-08-17), and then selecting a country made
+    // a tax line appear and double a cost the user had already entered by
+    // hand (found 2026-08-17b).
+    //
+    // A transfer tax is a cost like any other. It lives in the catalog
+    // (`BUILT_IN_COST_CATALOG`, id 'rett', which is what the row picker
+    // offers), it is added when the project needs it, its rate is typed, and
+    // it still follows the land cash outflow because the entry stamps
+    // `phasingSource: 'land_cash'` onto the line. Nothing is gated, so no line
+    // is ever present but invisible.
+    //
     // ── Construction (BUA + Parking) ────────────────────────────────────
     {
       id: id('construction-bua'), phaseId, name: 'Construction (BUA)',

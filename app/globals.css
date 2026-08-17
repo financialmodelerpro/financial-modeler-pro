@@ -1332,3 +1332,53 @@ body[data-refm-theme="dark"] .app-shell {
   .articles-shell .articles-side { position: static; width: 100%; }
 }
 
+
+/* ── REFM view mode: a locked input LOOKS locked (2026-08-17) ──────────────
+   A project opens read only until the user clicks Edit, and the lock has
+   always lived at the store's model-mutating setters, which no-op silently.
+   So every input still looked and behaved editable: you could type into it,
+   watch the value appear, and it was discarded on the next render with
+   nothing said. That is the same defect class as a number the screen shows
+   and the model does not use.
+
+   WHY IT IS SCOPED TO FORM CONTROLS AND NOT THE PANEL. A blanket
+   pointer-events lock on the whole panel was tried once and removed, because
+   it killed collapsibles, phase and asset selectors and the view toggles: in
+   view mode every VIEW interaction must keep working. Buttons, rows and links
+   are untouched here; only input, select and textarea are locked.
+
+   `data-view-editable="true"` opts a control out, for the handful that filter
+   or arrange a view rather than change the model (the Capex stage filter, the
+   sensitivity axes, the Module 6 field finder). The keyboard half of the lock
+   lives in RealEstatePlatform: CSS cannot stop typing into a focused field.
+
+   The !important is deliberate: these inputs carry inline styles, and this
+   must beat them without editing several hundred call sites. */
+[data-view-locked='true'] input,
+[data-view-locked='true'] select,
+[data-view-locked='true'] textarea {
+  pointer-events: none;
+  cursor: not-allowed;
+  background: var(--color-bg) !important;
+  color: var(--color-meta) !important;
+  border-style: dashed !important;
+}
+[data-view-locked='true'] input[type='checkbox'],
+[data-view-locked='true'] input[type='radio'] {
+  opacity: 0.5;
+  background: transparent !important;
+}
+[data-view-locked='true'] [data-view-editable='true'],
+[data-view-locked='true'] [data-view-editable='true'] input,
+[data-view-locked='true'] [data-view-editable='true'] select,
+[data-view-locked='true'] [data-view-editable='true'] textarea,
+[data-view-locked='true'] input[data-view-editable='true'],
+[data-view-locked='true'] select[data-view-editable='true'],
+[data-view-locked='true'] textarea[data-view-editable='true'] {
+  pointer-events: auto;
+  cursor: auto;
+  opacity: 1;
+  background: var(--color-surface) !important;
+  color: var(--color-heading) !important;
+  border-style: solid !important;
+}

@@ -65,7 +65,6 @@ import {
   deriveCostWindow,
 } from '../../lib/state/module1-types';
 import { resolvePhasingSource, isParcelDrivenLandLine, collectionsForAsset, collectionsTotalForAsset, phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
-import { countryMatches, countryLabel } from '@/src/core/countries';
 import {
   mergeCatalog,
   resolveCatalogId,
@@ -1899,7 +1898,6 @@ function PercentOfSelectedPicker({
   // render as small chips beneath the button so the user sees what's
   // chosen without opening the picker.
   const costLines = useModule1Store(useShallow((s) => s.costLines));
-  const projectCountry = useModule1Store((s) => s.project.country);
   const [open, setOpen] = useState(false);
   // EVERY LINE ABOVE THIS ONE ON THIS ASSET, in display order (2026-08-15).
   //
@@ -1918,7 +1916,7 @@ function PercentOfSelectedPicker({
   // The positional rule replaces both, and it is the SAME function the engine
   // enforces, so the list offered and the base computed cannot diverge.
   const siblings = eligibleBaseLines(
-    assetVisibleLines(costLines, line.phaseId, asset.id, projectCountry),
+    assetVisibleLines(costLines, line.phaseId, asset.id),
     line.id,
   );
   const selected = new Set(line.selectedLineIds ?? []);
@@ -3731,47 +3729,30 @@ export default function Module1Costs(): React.JSX.Element {
     return costLines
       .filter((c) => c.phaseId === phaseId)
       .filter((c) => c.targetAssetId === undefined || c.targetAssetId === asset.id)
-      .filter((c) => stageFilter === 'all' || deriveCostStage(c) === stageFilter)
-      .filter((c) => countryMatches(c.requiresCountry, project.country));
+      .filter((c) => stageFilter === 'all' || deriveCostStage(c) === stageFilter);
   }
-
-  /**
-   * Country-gated lines that carry a rate and are NOT being charged (2026-08-17).
-   *
-   * The gate now stops the money as well as the row, which is the fix for a
-   * doubled RETT. That closes a silent overcharge and opens the mirror image: a
-   * rate typed while the country matched, still stored, now contributing
-   * nothing, with the row invisible. So the tab says it out loud rather than
-   * leaving the user to wonder where their transfer tax went.
-   */
-  // A plain filter, not a useMemo: this sits after an early return in the
-  // component, where every other hook in the file is already flagged as
-  // conditionally called. A cheap array scan does not need to add a sixth.
-  const gatedWithRate = costLines.filter(
-    (c) => !!c.requiresCountry
-      && !countryMatches(c.requiresCountry, project.country)
-      && Math.abs(c.value) > 0
-      && c.disabled !== true,
-  );
 
   /**
    * TWO CHARGED LINES THAT ARE THE SAME COST (2026-08-17b).
    *
-   * Closing the country gate opened this: a user whose country was never set
-   * could not see the seeded transfer-tax row, so they added their own. Both
-   * carry a rate. The moment a country IS selected the seeded row becomes
-   * chargeable and the tax is charged twice, which is the defect the gate fix
-   * was for, arriving from the other side.
+   * A user who could not see the seeded transfer-tax row added their own, and
+   * both carried a rate. That particular pair is gone (the country gate was
+   * retired and the row is no longer seeded), but the check is worth keeping on
+   * its own merits: adding the same catalog entry twice in a phase, by hand or
+   * by a copy, charges the cost twice and nothing else would say so.
    *
-   * Keyed on CATALOG IDENTITY plus phase, not on the label, because the two
-   * rows are named differently ("Real Estate Transfer Tax" and "Real Estate
-   * Transfer Tax (RETT)"). It states the duplication and leaves the choice to
-   * the user: which of the two to delete is not a decision a screen can make.
+   * Keyed on CATALOG IDENTITY plus phase, not on the label, because two rows
+   * for the same entry are usually named differently ("Real Estate Transfer
+   * Tax" and "Real Estate Transfer Tax (RETT)"). It states the duplication and
+   * leaves the choice to the user: which of the two to drop is not a decision a
+   * screen can make.
    */
+  // A plain scan, not a useMemo: this sits after an early return in the
+  // component, where every other hook in the file is already flagged as
+  // conditionally called. A cheap array pass does not need to add a sixth.
   const duplicateCharged = ((): Array<{ phaseId: string; identity: string; lines: CostLine[] }> => {
     const groups = new Map<string, CostLine[]>();
     for (const c of costLines) {
-      if (!countryMatches(c.requiresCountry, project.country)) continue;
       if (c.disabled === true || Math.abs(c.value) === 0) continue;
       const identity = resolveCatalogId(c);
       if (!identity) continue;   // a genuinely custom line has no identity to duplicate
@@ -3810,27 +3791,9 @@ export default function Module1Costs(): React.JSX.Element {
           {' '}Both are charged, so this cost is counted more than once. Delete or zero the one you do not want; deleting is undoable.
         </div>
       )}
-      {gatedWithRate.length > 0 && (
-        <div
-          data-testid="costs-country-gated-notice"
-          style={{
-            padding: 'var(--sp-1) var(--sp-2)', marginBottom: 'var(--sp-2)',
-            borderRadius: 'var(--radius-sm)',
-            border: '1px solid var(--color-accent-warm)',
-            background: 'color-mix(in srgb, var(--color-accent-warm) 10%, transparent)',
-            fontSize: 12, lineHeight: 1.4,
-          }}
-        >
-          <strong>
-            {gatedWithRate.length === 1 ? '1 cost line carries a rate but does not apply here' : `${gatedWithRate.length} cost lines carry a rate but do not apply here`}
-            :
-          </strong>{' '}
-          {gatedWithRate.map((c) => `${c.name} (${c.value}%, ${countryLabel(c.requiresCountry)})`).join('; ')}.
-          {' '}The project country is{' '}
-          <strong>{project.country ? countryLabel(project.country) : 'not set'}</strong>, so {gatedWithRate.length === 1 ? 'it is' : 'they are'} not charged and {gatedWithRate.length === 1 ? 'its row is' : 'their rows are'} hidden.
-          {' '}Set the country in Project &amp; Phases to use {gatedWithRate.length === 1 ? 'it' : 'them'}.
-        </div>
-      )}
+      {/* The country-gated notice that stood here is gone with the gate itself
+          (2026-08-17c). It existed to explain a row the user could not see; no
+          row is hidden any more, so there is nothing to explain. */}
       {/* Undo for a deleted cost line. Deleting used to be immediate and
           irreversible behind a confirm dialog; this restores the row AT ITS
           INDEX, with its per-asset overrides, because position decides what a
@@ -3907,6 +3870,9 @@ export default function Module1Costs(): React.JSX.Element {
             onChange={(e) => setStageFilter(e.target.value as CostStage | 'all')}
             style={inputStyle}
             data-testid="costs-stage-filter"
+            /* Filters the view, changes no number, so it stays live while the
+               project is open read-only. See the view lock in globals.css. */
+            data-view-editable="true"
           >
             <option value="all">All Stages</option>
             {/* Pass 41 (2026-05-14): Operating stage hidden from filter
@@ -4109,7 +4075,6 @@ export default function Module1Costs(): React.JSX.Element {
               .filter((c) => c.phaseId === activeAsset.phaseId)
               .filter((c) => c.targetAssetId === undefined || c.targetAssetId === activeAsset.id)
               .filter((c) => stageFilter === 'all' || deriveCostStage(c) === stageFilter)
-              .filter((c) => countryMatches(c.requiresCountry, project.country))
           : [];
         const assetBreakdown = activeAsset
           ? perPhaseBreakdowns
@@ -4174,8 +4139,7 @@ export default function Module1Costs(): React.JSX.Element {
               // source pulls the right master + custom-targeted lines.
               const sourceLines = costLines
                 .filter((c) => c.phaseId === sourceAsset.phaseId)
-                .filter((c) => c.targetAssetId === undefined || c.targetAssetId === sourceAsset.id)
-                .filter((c) => countryMatches(c.requiresCountry, project.country));
+                .filter((c) => c.targetAssetId === undefined || c.targetAssetId === sourceAsset.id);
               return (
                 <div
                   style={{ ...sectionCardStyle, padding: 'var(--sp-1) var(--sp-2)', borderColor: 'color-mix(in srgb, var(--color-navy) 30%, var(--color-border))' }}
@@ -4362,7 +4326,6 @@ export default function Module1Costs(): React.JSX.Element {
                               sourcePhaseId: sourceAsset.phaseId,
                               sourceAssetId: sourceAsset.id,
                               targetPhaseIds: targets.map((a) => a.phaseId),
-                              country: project.country,
                               removeExtra: copyRemoveExtra,
                             });
                             const crossPhaseCount = plan.phases.length;

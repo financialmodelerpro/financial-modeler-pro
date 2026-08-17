@@ -669,13 +669,13 @@ function SensitivitySection(props: {
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 'var(--sp-1)', flexWrap: 'wrap' }}>
         <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-heading)' }}>
           Columns:{' '}
-          <select value={xVar} onChange={(e) => setXVar(e.target.value as SensitivityVariable)} style={sel}>
+          <select value={xVar} onChange={(e) => setXVar(e.target.value as SensitivityVariable)} style={sel} data-view-editable="true">
             {SENS_VARS.map((s) => <option key={s.v} value={s.v} disabled={s.v === yVar}>{s.label}</option>)}
           </select>
         </label>
         <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-heading)' }}>
           Rows:{' '}
-          <select value={yVar} onChange={(e) => setYVar(e.target.value as SensitivityVariable)} style={sel}>
+          <select value={yVar} onChange={(e) => setYVar(e.target.value as SensitivityVariable)} style={sel} data-view-editable="true">
             {SENS_VARS.map((s) => <option key={s.v} value={s.v} disabled={s.v === xVar}>{s.label}</option>)}
           </select>
         </label>

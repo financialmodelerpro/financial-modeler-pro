@@ -55,6 +55,7 @@ import {
 } from './module1-types';
 import type { RepaymentMethod } from './module1-types';
 import { resolveCatalogId, findCatalogEntry } from './costCatalog';
+import { countryMatches } from '@/src/core/countries';
 
 export const SCHEMA_VERSION = 8;
 
@@ -1949,6 +1950,69 @@ export function restoreStrippedPhasingSource(snap: HydrateSnapshot): HydrateSnap
   return { ...snap, costLines };
 }
 
+/**
+ * RETIRE THE COUNTRY GATE (2026-08-17c).
+ *
+ * `CostLine.requiresCountry` let a line be PRESENT BUT INVISIBLE, and that one
+ * property caused two silent money defects in a week: the engine charged a row
+ * that could not be seen, edited or deleted, and once that was closed,
+ * selecting a country made a seeded tax line appear and charge on top of the
+ * one the user had already added by hand. The gate is gone from the seed, from
+ * the engine and from every screen. This clears it from what is already saved.
+ *
+ * TWO CASES, AND NEITHER MOVES A NUMBER:
+ *
+ *   not chargeable today (the project country does not match, which is every
+ *   project measured on 2026-08-17: the field had no editor until that day)
+ *       -> the line is invisible AND contributes zero, so it is REMOVED. Its
+ *          per-asset overrides go with it, or they would outlive their row.
+ *
+ *   chargeable today (the country matches)
+ *       -> the line is already visible and already charged, so it STAYS and
+ *          only the dead flag is stripped. Removing it here would delete a
+ *          cost the model is currently carrying.
+ *
+ * Measured before shipping, on both live projects: FMP RE HUB has no gated
+ * lines at all, and FMP - MARINA GATE has two (`rett__phase_1` at 0% and
+ * `rett__phase_2` at 5%), both charging exactly zero, so both are removed and
+ * every total is unchanged. The user's own transfer tax lines are ordinary
+ * lines and are untouched.
+ *
+ * Runs on the RAW snapshot before the migration chain, like its two
+ * neighbours, and is idempotent.
+ */
+export function retireCountryGatedLines(snap: HydrateSnapshot): HydrateSnapshot {
+  const lines = snap.costLines ?? [];
+  const gated = lines.filter((c) => !!c.requiresCountry);
+  if (gated.length === 0) return snap;
+
+  const country = snap.project?.country;
+  const keepIds = new Set<string>();
+  const dropIds = new Set<string>();
+  for (const c of gated) {
+    if (countryMatches(c.requiresCountry, country)) keepIds.add(c.id);
+    else dropIds.add(c.id);
+  }
+
+  const costLines = lines
+    .filter((c) => !dropIds.has(c.id))
+    .map((c) => {
+      if (!c.requiresCountry) return c;
+      const next = { ...c };
+      delete next.requiresCountry;
+      return next;
+    });
+  const costOverrides = (snap.costOverrides ?? []).filter((o) => !dropIds.has(o.lineId));
+
+  if (typeof console !== 'undefined') {
+    // Never silent: a row disappearing from a table needs a reason on the
+    // record, even when no number moves.
+    // eslint-disable-next-line no-console
+    console.log(`[REFM] Country gate retired: removed ${dropIds.size} line(s) that were hidden and charging nothing${keepIds.size > 0 ? `, kept ${keepIds.size} that the country matched (now ordinary lines)` : ''}`);
+  }
+  return { ...snap, costLines, costOverrides };
+}
+
 /** The repairs applied to a RAW snapshot (wrapper still attached), which is
  *  what every hydration path starts from. Only `phases` and `costLines` are
  *  read, and both live at the top level of every snapshot shape, so the
@@ -1958,7 +2022,8 @@ function repairRawSnapshot(snapshot: unknown): unknown {
   const s = snapshot as { phases?: unknown; costLines?: unknown };
   if (!Array.isArray(s.phases) || !Array.isArray(s.costLines)) return snapshot;
   const windowed = repairStaleWizardCostWindows(snapshot as unknown as HydrateSnapshot);
-  return restoreStrippedPhasingSource(windowed) as unknown;
+  const sourced = restoreStrippedPhasingSource(windowed);
+  return retireCountryGatedLines(sourced) as unknown;
 }
 
 export function hydrationFromAnySnapshotChecked(snapshot: unknown): CheckedHydration {
