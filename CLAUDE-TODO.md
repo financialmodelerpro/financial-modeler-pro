@@ -23,28 +23,52 @@
 
 ---
 
-## START HERE (2026-08-16): the Module 1 Capex block is CLOSED. Next task is VERIFICATION, not building.
+## START HERE (2026-08-17): MODULE 1 IS CLOSED. The remaining modules have NOT had the same treatment.
 
-**No further Capex changes before launch.** The block shipped in nine commits (`6647e665`, `f33144db`, `38c30d4c`, `2e09646b`, `c164ca3a`, `3e4be340`, `e01216a4`, `79abeec1`, `b27c1057`, `b49963d7`, `86de88c9`, `c529e747`) and the full suite closes at **113 verifiers, 4 non-zero exits, all four long-standing pre-existing failures**.
+**Module 1 closed on 2026-08-17 after 28 defects found by entering a real project end to end**,
+across seven batches in one day, plus two more the new verifiers found themselves. Every fix is
+browser-verified against the live project and a throwaway, pinned by a verifier proven by
+sabotage, and every fix that could move a saved number was measured before and after. Full
+narrative in [CLAUDE-REFM.md](CLAUDE-REFM.md) 2026-08-17; the traps are
+[docs/TRAPS.md](docs/TRAPS.md) 7.12 and 7.15 through 7.21.
 
-### The next task is to open Module 1 Capex in a BROWSER
+**No further Module 1 changes before launch.**
 
-This is the highest-value work available, and it is verification. **Three UI defects got past the checks in this block**, all of them invisible to a source assertion:
+### The finding that should shape the next task
 
-1. **The inherited asset curve was MISALIGNED.** A typed curve of `0 / 10 / 30 / 40 / 20` distributed money as `0 / 12.5 / 37.5 / 50`, because the curve is authored against absolute periods and `distribute()` indexes from the start of the line's window. Every check passed. Found by a user setting a curve and reading the row.
-2. **Land rows presented a decision that does not exist**, showing "Own curve" and a not-inheriting badge when land timing comes from the parcel schedule.
-3. **The marketing tile did not exist**, after it had been asserted in a report AND used to justify narrowing the Construction Cost Excl. Land tile. Found only by a sweep.
+The previous START HERE said the highest-value work was to open Module 1 in a browser, because
+three UI defects had got past every check. That was right, and it under-called it: **driving the
+module as a user found 28.** Not one of them was found by the 120-verifier suite, and several had
+been shipping for weeks (a transfer tax charged twice into the financing schedule, the statements,
+the returns and both exports; a phase 1 land lump present in the model and in no period column;
+capex allocated to nobody when a share basis had a zero denominator).
 
-**What to drive, in rough risk order:**
+The lesson is the plan: **a check written from the same understanding as the code cannot find a
+defect in that understanding.** Only using the product does.
 
-1. **Asset phasing control** (above the cost table): set a manual curve, confirm the per-line rows show the SAME weights against the SAME periods and that the money agrees. This is where the worst defect lived.
-2. **Per-line phasing source**: Inherit / Own / land cash / collections. The "not inheriting" badge must appear only on a genuine break-out; land rows must show `from parcel schedule` with NO control.
-3. **Tile bar**: Land / Hard / Soft always, Marketing only when it carries spend, `Construction Cost Excl. Land` captioned "excludes marketing". The tiles plus land must reconcile to total capex.
-4. **The hard/soft chip** on every row (restored after being dropped 2026-05-11).
-5. **`% of Selected Lines` picker**: a custom Developer Fee must appear in Contingency's list; nothing below the edited line may appear.
-6. **Basis caption**: only visible where collections and gross sale value diverge. On FMP RE HUB they agree to 0.0%, so expect to see nothing there.
+### So: the same treatment, module by module, in a browser
 
-Treat anything found here as **blocking for the matrix**, because the matrix inherits this surface.
+Modules 2 to 7 have never been driven end to end this way. Suggested order, by exposure:
+
+1. **Module 2 (Revenue, CoS, Schedules, Escrow)** and **Module 3 (Opex)**, because Module 1 now
+   feeds them correctly in places it previously did not, and because the phasing / window rules
+   fixed in Module 1 have counterparts here.
+2. **Module 4 (Statements)**, reading the three statements against each other on screen rather
+   than through the reconciliation checks, which pass by construction.
+3. **Module 5 and 6**, where a wrong basis reads as a plausible number.
+4. **Module 7 (the deck)**, which has never been browser-verified at all, and the fund layer,
+   which has an open gap logged below since 2026-08-04.
+
+**What to look for, from what the 28 turned out to be.** Nearly all of them were one rule written
+in more than one place with more than one answer, or a number that was right in the model and
+wrong (or missing, or hidden) on the screen. Concretely: a total that does not equal the sum of
+the cells beside it; a row that is visible in one table and absent from another; a value that
+changes by itself after you type it; a control that accepts a change that does not stick; two
+tables that show the same figure and might be a split rather than a duplicate. Check the
+arithmetic of a printed column by hand at least once per tab.
+
+**Also still true and still worth doing:** the exports have not been re-read since PDF pass 3
+landed, and nothing from the 2026-08-11 or 2026-08-12 sessions has been browser-verified.
 
 ### POST-LAUNCH, logged and deliberately NOT started
 

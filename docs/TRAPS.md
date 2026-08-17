@@ -453,6 +453,43 @@ fingerprinting the damage rather than the defect.
 **Proof.** 2026-08-17: 0 lines repaired when it ran last in the chain; 8 lines when it ran first,
 with the other phase's hand-set windows untouched.
 
+### 7.21 A list that mirrors another list will diverge. Compare them, never restate one
+
+**Symptom, three times in one day, all silent.**
+
+1. `migrateLegacyToV8` rebuilt each record from a literal naming every field it kept, so any
+   field the literal did not name was destroyed on load. Three real fields went that way
+   (`windowFollowsConstruction`, `phasingSource`, `capexPhasing`). See 7.16.
+2. The v6-to-v7 rename map still mapped `marketing` and `project-management`, which had SINCE
+   become real catalog ids, so a line the user has today was renamed into a different line and
+   then deduped away. See 7.17.
+3. `SEEDED_COST_LINE_IDS` was introduced so verifiers could count against the seed instead of a
+   magic number. A sabotage put `rett` back into that constant and **nothing failed**, because
+   every check compared the seed to the constant and the constant to nothing.
+
+**Mechanism.** Each is a hand-maintained list whose correctness is defined by ANOTHER list: the
+type's fields, the catalog's ids, the seed's output. Nothing forces the two to meet, so the
+mirror drifts the moment the original changes, and the drift is silent by construction.
+
+**Fix, in order of preference.**
+
+- **Do not keep the mirror.** Spread the record instead of enumerating its fields (7.16). This
+  is the only fix that cannot rot.
+- **Derive it.** `SEEDED_COST_LINE_IDS` is `STANDARD_COST_LINE_IDS` minus what is deliberately
+  not seeded, not a second literal.
+- **If a mirror must exist, check the RELATIONSHIP, not the mirror.** "No key of the rename map
+  is a current catalog id" and "the seed-set constant equals what the seed emits" are both
+  one-line checks that fail on the next divergence. A check that restates the mirror
+  ("the map contains these seven keys") passes forever and proves nothing.
+
+**The tell.** If you can change one list, run the suite, and see green while the product is
+wrong, the check is comparing a thing to itself. That is what sabotage is for: it found item 3
+in this list, which the check written moments earlier had missed.
+
+**Proof.** `verify-snapshot-field-survival` section F (rename keys vs catalog ids) and
+`verify-no-hidden-cost-lines` section A (seed constant vs actual seed), both added after the
+divergence they now catch.
+
 ### 7.20 A control that accepts a change and discards it is a lying screen
 
 **Symptom.** "I set the asset phasing curve and checked the box, and it reverted to zero and
@@ -662,10 +699,14 @@ carries a rate but does not apply here".
 937,500 charged for an invisible row, on top of the user's own RETT at the same rate. The asset
 subtotal went from 146,889 to 145,952 after the fix, a difference of exactly 937,500.
 `verify-country-gate` 15, teeth proven by restoring the hand-rolled filter (7 failures).
+(That verifier no longer exists: the gate itself was removed on 2026-08-17c and
+`verify-no-hidden-cost-lines` replaced it. See 7.19.)
 
 **The general form.** When a predicate decides what a user can SEE, check whether the same
 predicate decides what the model COUNTS. If the two lists are built separately they will
-diverge, and the direction they diverge in is invisible by construction.
+diverge, and the direction they diverge in is invisible by construction. **And the better answer,
+reached three weeks later the hard way: do not have the predicate at all.** A row that is in the
+model belongs on the screen.
 
 ### 7.12 A fix applied to one copy of a rule leaves the other copies wrong
 

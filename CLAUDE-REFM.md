@@ -1,7 +1,73 @@
 ﻿# Real Estate Financial Modeling (REFM), Claude Code Project Brief
-**Last updated: 2026-08-15. Lock status: M1 LOCKED (M2.0 Pass 58 base) + Parties tab (mig 190), M2 LOCKED (Pass 9N), M3 LOCKED (Pass 5d), M4 DONE, M5 DONE (Returns & RE Metrics + Lender Covenants + per-partner FCFE/DDM + M1-Parties link), M6 Scenario Analysis LIVE, M7 Reports LIVE (IC / Lender / One-Pager preview + PPT export, migs 191+192). Full verifier suite green via `npx tsx scripts/verify-*.ts`.**
+**Last updated: 2026-08-17. Lock status: M1 CLOSED 2026-08-17 (28 defects found in end-to-end use, all fixed and browser-verified; base lock unchanged at M2.0 Pass 58) + Parties tab (mig 190), M2 LOCKED (Pass 9N), M3 LOCKED (Pass 5d), M4 DONE, M5 DONE (Returns & RE Metrics + Lender Covenants + per-partner FCFE/DDM + M1-Parties link), M6 Scenario Analysis LIVE, M7 Reports LIVE (IC / Lender / One-Pager preview + PPT export, migs 191+192). Full verifier suite green via `npx tsx scripts/verify-*.ts`.**
 
 > **TRAPS RECORDED IN THIS FILE ARE COLLECTED IN [docs/TRAPS.md](docs/TRAPS.md). Read that first; it is short.** The copies below stay in place, so nothing is lost if you open this file instead. Index of what this file records: the REFM shell `zoom: 0.8` making `vh` and media queries lie (TRAPS 6.1); drag/resize needing pointer capture, not window listeners (6.2); the ExcelJS width-9 column that silently does not apply (3.1); pdf-lib CID glyph ids defeating a naive grep (4.1); the PostgREST 1000-row cap (2.1); export fingerprints needing the FIXTURE, never the live project (5.1); a zero-valued seed hiding a whole code path (7.1); a stage list written as a literal defeating exhaustiveness (7.3); a two-step template registration that fails silently and permanently (8.1); and the verifier rules (a grep proves presence not firing; never gate an assertion on the thing it asserts; prove teeth by sabotage) in TRAPS section 10.
+
+## 2026-08-17: MODULE 1 CLOSED, 28 defects found by entering a real project end to end
+
+One day, seven batches, all reported from the SCREEN rather than by a check. Two more were found
+by the new verifiers themselves. Every fix is browser-verified against the live project (FMP -
+MARINA GATE) and a throwaway, pinned by a verifier proven by sabotage, and every fix that could
+move a saved number was measured before and after. **No further Module 1 changes before launch.**
+
+**The recurring shape, across almost all 28: one rule written in more than one place, with more
+than one answer.** The Y0 lump placement rule lived in five places with two answers. The
+"which lines are the land value" rule was written once as a shared predicate and once as a method
+test, and the method test also caught RETT. The visibility rule was applied on one side of the
+copy planner and not the other. The view lock was written once for the store and once for the
+screen. Where the second copy could be deleted it was; where it could not, the two are now
+derived from one expression.
+
+**Three structural outcomes.**
+
+1. **THE COUNTRY-GATED RETT MECHANISM IS REMOVED.** `CostLine.requiresCountry` let a line exist
+   in the model while being absent from the screen, and that one property produced two silent
+   money defects in a week, in opposite directions: the engine charged a hidden transfer-tax row
+   (937,500 on a Phase 2 hotel, on top of the user's own line), and once the gate was honoured,
+   selecting a country made that row appear and charge a second time. **The fix for a defect on
+   both sides of a gate is to remove the gate.** RETT is no longer seeded (the seed is twelve
+   lines); it is a catalog entry the user adds when the project needs it, and selecting it stamps
+   `phasingSource: 'land_cash'` onto the line so it still lands with the land cash.
+   `assetVisibleLines` no longer takes a country, so SHOWN IS CHARGED.
+   `retireCountryGatedLines` clears saved rows on every hydrate: not chargeable today means
+   REMOVED with its overrides, chargeable today means KEPT with the dead flag stripped. Measured
+   on both live projects, total capex identical to the byte (426,406,950 either way on MARINA
+   GATE, 23 lines to 21).
+
+2. **VIEW MODE IS VISIBLY READ-ONLY.** The lock lived only at the store's model mutators, which
+   no-op silently, so an input accepted a change, displayed it, and discarded it on the next
+   render. That is the same defect class as a screen showing a number the model does not use, and
+   it is why the asset phasing curve appeared to "revert". The lock is now on the CONTROLS
+   (`input` / `select` / `textarea` get a muted, dashed, not-allowed treatment plus
+   `pointer-events: none`, and capture-phase handlers stop the keyboard), never on the panel: a
+   panel-level lock was tried once before and removed because it killed collapsibles, selectors
+   and view toggles. `data-view-editable` opts out the four controls that filter a view rather
+   than change the model. The store lock and the screen lock are ONE derivation.
+
+3. **THE LEGACY MIGRATION NO LONGER ENUMERATES WHAT IT KEEPS.** `migrateLegacyToV8` rebuilt every
+   record from a literal naming each field, and every app-saved snapshot goes through it, so
+   three real fields were destroyed on load over three weeks (`windowFollowsConstruction`,
+   `phasingSource`, `capexPhasing`). Records now spread and normalise on top, which also makes
+   the loose path agree with the v8 path.
+
+**The batches, in order.** (1) Thirteen defects across Assets and Capex, treated as one piece
+because five of them change the same structure: a parcel is project-wide, the capex table is an
+ordered user-classified list, no silent zero, the period window follows the phase. (2) Four more
+plus the structural change that made a cost line a CATALOG ENTRY plus a label (migration 214).
+(3) The Y0 upfront lump had one placement rule written five times with two answers. (4) Three:
+area x unit size = count, copy reproduces the line SET, and the RETT double charge. (5) Two:
+project-total tiles, and two identical senior debt tables that were NOT a double count (they were
+two 50% shares of one requirement, and removing one would have halved a correct model). (6)
+Facility shares are used exactly as typed. (7) Four: the country field had no editor at all, RETT
+was following a shape that included itself, the phasing curve was saved and then destroyed on
+read, and area-mode sub-units had no unit size.
+
+**Verifiers added or grown in this block:** `verify-capex-structure` 134, `verify-cost-catalog`
+207, `verify-y0-lump-placement` 23, `verify-facility-shares` 55, `verify-no-hidden-cost-lines` 53
+(replaces `verify-country-gate`, which pinned a mechanism deliberately removed),
+`verify-snapshot-field-survival` 27, `verify-view-lock` 37, `verify-capex-phasing` 91,
+`verify-selected-base` 68, `verify-new-project-defaults` 97. Every trap from the block is in
+[docs/TRAPS.md](docs/TRAPS.md) section 7 as 7.12 and 7.15 through 7.21.
 
 ## 2026-08-15d: Capex phasing, one curve per asset + derived sources, and the hard/soft split restored
 
@@ -9,7 +75,7 @@ Four related changes to Module 1 Capex, built on ONE shared mechanism because th
 
 **Diagnosis first, and three findings changed the work.** (1) **The engine needed no new maths**: `distributeItemCost` already reads `phasing` / `distribution` / `startPeriod` / `endPeriod` off the resolved line, and `manual` plus a weight array expresses any curve, so this was a RESOLUTION problem throughout. (2) **Both "follow" sources already existed**: the land cash outflow is already computed per period including deferred parcel schedules (`expandDeferredSchedule`), and collections are `sell.cashCollectedPerPeriod`, computed at `financials-resolvers.ts:1418` BEFORE capex at `:1568`, by an engine that reads no cost input, so following collections is acyclic. (3) **Hard/soft was never missing from the data**: `CostStage`, `deriveCostStage` and `byStage` carried it throughout and the per-line stage already reached the PDF and the Excel Inputs tab as a column. Exactly two things were missing, and the brief was right that it "is no longer present": the **per-row marker**, deliberately deleted 2026-05-11 (`M2.0L Pass3 Fix 13`, comment still in the file) leaving only an unlabelled background COLOUR, and **any aggregation in the shared report layer**, where `lib/reports/` contained ZERO references to hard or soft, which is why no export could show a subtotal.
 
-**RETT and Marketing did not exist as capex lines at all.** RETT appeared only as design intent (the `requiresCountry` gate, comment "drive conditional cost lines (e.g. RETT for KSA)") and as free text in the IC report; the only "Sales & marketing" was a Module 3 OPEX default. Both are now seeded standard lines at a zero rate, RETT country gated through the mechanism M2.0c added for exactly it. Commission DID exist and ran `cp/2 -> cp+1`, spread across the back half of the BUILD, which is the wrong shape the brief describes.
+**RETT and Marketing did not exist as capex lines at all.** RETT appeared only as design intent (the `requiresCountry` gate, comment "drive conditional cost lines (e.g. RETT for KSA)") and as free text in the IC report; the only "Sales & marketing" was a Module 3 OPEX default. Both are now seeded standard lines at a zero rate, RETT country gated through the mechanism M2.0c added for exactly it. **SUPERSEDED 2026-08-17c: the country gate is REMOVED and RETT is NOT SEEDED. Gating a line on a project attribute meant a row could be present but invisible, which charged money nobody could see and later doubled a cost when a country was selected. RETT is a catalog entry the user adds; marketing stays seeded. Kept here so the correction is legible.** Commission DID exist and ran `cp/2 -> cp+1`, spread across the back half of the BUILD, which is the wrong shape the brief describes.
 
 **The shared mechanism** (`lib/state/inheritance.ts`) is generic and carries NO capex vocabulary, enforced by a check, because the input matrices are the next consumer. Resolution order is **own -> derived -> group -> fallback**, and the fallback step is the invariant that makes adoption safe: with nothing set anywhere every member resolves to its own stored value. **A follower whose source yields nothing FALLS THROUGH rather than resolving to empty**, degrading to the group then the fallback and reporting `degraded`, so the UI says "set to follow collections, but there are none yet" instead of showing an unexplained curve. `Resolution` carries WHY as well as WHAT so the UI badge and the number cannot disagree.
 
