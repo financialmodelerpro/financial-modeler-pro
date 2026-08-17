@@ -3644,7 +3644,10 @@ export default function Module1Costs(): React.JSX.Element {
   const stageTotals = useMemo(() => {
     // Inferred literal, so the compiler does not force `marketing` in. Missing
     // it would leave the tile bar silently short of the marketing spend.
-    const acc = { land: 0, hard: 0, soft: 0, marketing: 0, operating: 0 };
+    // `landInKind` is not a stage: it is the in-kind SLICE of the land stage,
+    // taken from the engine's own per-period series so the two total tiles
+    // below use exactly the figures the Capex summary tables use.
+    const acc = { land: 0, hard: 0, soft: 0, marketing: 0, operating: 0, landInKind: 0 };
     for (const pb of perPhaseBreakdowns) {
       for (const a of pb.phaseAssets) {
         const bd = pb.assetTotals[a.id];
@@ -3654,10 +3657,23 @@ export default function Module1Costs(): React.JSX.Element {
         acc.soft += bd.byStage.soft;
         acc.marketing += bd.byStage.marketing;
         acc.operating += bd.byStage.operating;
+        acc.landInKind += (bd.perPeriodLandInKind ?? []).reduce((s, v) => s + (v ?? 0), 0);
       }
     }
     return acc;
   }, [perPhaseBreakdowns]);
+
+  /**
+   * The two project-level totals (2026-08-17).
+   *
+   * Derived from COST_STAGES rather than a hand-written sum, so a stage added
+   * later cannot be silently left out of the headline figure. These are the
+   * same two measures the Capex summary tables already report as "Incl All
+   * Land" and "Excl Land In-Kind"; the tiles put them where the user looks
+   * first instead of at the bottom of the Results sub-tab.
+   */
+  const totalInclLand = COST_STAGES.reduce((s, k) => s + (stageTotals[k] ?? 0), 0);
+  const totalExclInKindLand = totalInclLand - stageTotals.landInKind;
 
   // projectTotal (sum of stage totals) was consumed by the now-removed
   // standalone Project Total bar; the in-table Grand Total rows on Tables
@@ -3873,7 +3889,7 @@ export default function Module1Costs(): React.JSX.Element {
         const isHeadline = (s: CostStage): boolean => s === 'land' || s === 'hard' || s === 'soft';
         const shown = COST_STAGES.filter((s) => isHeadline(s) || Math.abs(stageTotals[s]) > 0.005);
         return (
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${shown.length + 1}, 1fr)`, gap: 'var(--sp-1)', marginBottom: 'var(--sp-2)' }} data-testid="costs-summary-tiles">
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${shown.length + 3}, 1fr)`, gap: 'var(--sp-1)', marginBottom: 'var(--sp-2)' }} data-testid="costs-summary-tiles">
         {shown.map((s) => (
           <div key={s} style={{ ...sectionCardStyle, marginBottom: 0, padding: 12 }} data-testid={`costs-stage-${s}-card`}>
             <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase' }}>
@@ -3906,6 +3922,47 @@ export default function Module1Costs(): React.JSX.Element {
           </div>
           <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2 }}>
             excludes marketing
+          </div>
+        </div>
+        {/* ── The two project totals (2026-08-17) ────────────────────────
+            The tiles above are stages and a construction subtotal, so the
+            figure a reader actually quotes, what the project costs, was not
+            on the tile bar at all. Both are derived from COST_STAGES, and
+            both match the Capex summary tables ("Incl All Land" and "Excl
+            Land In-Kind") exactly, so the tile bar and the schedule cannot
+            report different totals. */}
+        <div
+          style={{ ...sectionCardStyle, marginBottom: 0, padding: 12, borderLeft: '3px solid var(--color-navy)' }}
+          data-testid="costs-total-excl-inkind-card"
+        >
+          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase' }}>
+            Total Project Cost Excl. In-Kind Land
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }} data-testid="costs-total-excl-inkind">
+            {formatAccounting(totalExclInKindLand, scale, decimals)}
+          </div>
+          <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2 }}>
+            the cash cost of the project
+          </div>
+        </div>
+        <div
+          style={{
+            ...sectionCardStyle,
+            marginBottom: 0,
+            padding: 12,
+            borderLeft: '3px solid var(--color-navy)',
+            background: 'color-mix(in srgb, var(--color-navy) 6%, transparent)',
+          }}
+          data-testid="costs-total-incl-land-card"
+        >
+          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase' }}>
+            Total Project Cost Incl. Land
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }} data-testid="costs-total-incl-land">
+            {formatAccounting(totalInclLand, scale, decimals)}
+          </div>
+          <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2 }}>
+            every stage, land included
           </div>
         </div>
       </div>

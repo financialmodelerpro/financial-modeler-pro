@@ -178,10 +178,28 @@ export function buildWizardSnapshot(draft: WizardDraft): HydrateSnapshot {
   // correctly, so this one call site was the whole of the defect.
   const costLines = phases.flatMap((p) => makeBlankCostLines(p.id, p.constructionPeriods));
 
-  // Default financing tranche per phase
-  const financingTranches: FinancingTranche[] = phases.map((p, i) =>
-    makeDefaultFinancingTranche(`tranche_${i + 1}`, p.id),
-  );
+  // ── ONE facility for the project, not one per phase (2026-08-17) ────────
+  //
+  // A facility's schedule is PROJECT-WIDE. Since Pass 28 (2026-05-14) the
+  // engine deliberately stopped windowing a tranche to `tranche.phaseId`,
+  // because a bank funds drawdowns in every phase and the interest on all of
+  // them is IDC. A facility's drawdown is therefore the project debt
+  // requirement multiplied by its SHARE of the facility, and a share is an
+  // equal split when none is set.
+  //
+  // So seeding one per phase produced N identical schedules of 100/N each. On
+  // a two-phase project that is two tables reading exactly the same numbers,
+  // with nothing on screen saying they are halves, and a combined total that
+  // looks like a double count and is not: measured on a live project, two
+  // facilities at 107,426,203 each summing to the 214,852,407 requirement, and
+  // deleting one leaves every combined total byte-identical.
+  //
+  // The phase remains on the tranche (removePhase cascades on it, and a future
+  // per-phase facility would need it), so this changes what a NEW project
+  // opens with, not the schema.
+  const financingTranches: FinancingTranche[] = phases.length > 0
+    ? [makeDefaultFinancingTranche('tranche_1', phases[0].id)]
+    : [];
 
   return {
     project,

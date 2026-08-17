@@ -2191,6 +2191,35 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
   const newTranches      = p.tranches.filter((t) => t.origin !== 'existing');
   const hasActiveExisting = existingTranches.length > 0;
 
+  // ── A NEW FACILITY IS A SHARE OF ONE PROJECT-WIDE REQUIREMENT (2026-08-17) ──
+  //
+  // The schedule is project-wide by design (Pass 28): a facility draws the
+  // project debt requirement times its share, and the share is an equal split
+  // when none is set. So two seeded facilities render two tables reading
+  // exactly the same numbers, and the Combined total, being their sum, reads
+  // like a double count of one of them.
+  //
+  // It is not one. Measured on a live project: two facilities at 107,426,203
+  // each, summing to the 214,852,407 requirement, and deleting one leaves every
+  // combined total byte-identical because the survivor's share becomes 100%.
+  //
+  // The tables now say which share each one is, so two identical schedules read
+  // as halves rather than as a duplicate, and a note says it in words when more
+  // than one new facility carries no explicit share.
+  const sharePctOf = (t: FinancingTranche): number | undefined => p.result.shares.get(t.id);
+  // The condition is the SYMPTOM, not its cause: more than one new facility
+  // drawing the same schedule. Keying it on "no share is set" would miss the
+  // live case, where the shares are explicitly 50 and 50 and the tables are
+  // identical all the same.
+  const identicalFacilities = newTranches.length > 1 && (() => {
+    const first = p.result.facilities.get(newTranches[0].id);
+    if (!first) return false;
+    return newTranches.slice(1).every((t) => {
+      const r = p.result.facilities.get(t.id);
+      return !!r && JSON.stringify(r.drawSchedule) === JSON.stringify(first.drawSchedule);
+    });
+  })();
+
   // Pass 31 (2026-05-14): group-header style for the Existing / New
   // section dividers used across Debt Movement + Finance Cost.
   const groupHeaderStyle: React.CSSProperties = {
@@ -2258,6 +2287,33 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
       {newTranches.length > 0 && (
         <div style={groupHeaderStyle}>Debt Movement - New Facilities</div>
       )}
+      {identicalFacilities && (
+        <div
+          data-testid="fin-implicit-shares-note"
+          style={{
+            padding: 'var(--sp-1) var(--sp-2)', marginBottom: 'var(--sp-1)',
+            borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--color-navy)',
+            background: 'color-mix(in srgb, var(--color-navy) 6%, transparent)',
+            fontSize: 12, lineHeight: 1.45,
+          }}
+        >
+          <strong>
+            These {newTranches.length} facilities are equal shares of ONE project-wide requirement,
+            so their schedules are identical.
+          </strong>{' '}
+          A facility draws the project&apos;s debt requirement times its share, and each of these holds{' '}
+          {newTranches
+            .map((t) => {
+              const s = sharePctOf(t) ?? 0;
+              return `${s % 1 === 0 ? s : s.toFixed(1)}%`;
+            })
+            .join(' and ')}.
+          {' '}<strong>Combined Debt Service is their SUM, not a double count.</strong>
+          {' '}Give them different shares to split the requirement deliberately, or delete all but one:
+          the survivor is rescaled to 100% and every combined total stays exactly the same.
+        </div>
+      )}
       {newTranches.map((t) => {
         const r = p.result.facilities.get(t.id);
         if (!r) return null;
@@ -2266,9 +2322,17 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
         const principalRepaid = r.principalRepaid; // already includes the sweep
         const totalDrawdown = r.drawSchedule.map((v, i) => v + (r.interestCapitalized[i] ?? 0));
         const swept = sweepRowFor(t.id) !== undefined;
+        const share = sharePctOf(t);
         return (
           <section key={t.id} style={sectionStyle}>
-            <div style={TABLE_TITLE}>{t.name}</div>
+            <div style={TABLE_TITLE} data-testid={`fin-facility-title-${t.id}`}>
+              {t.name}
+              {share !== undefined && newTranches.length > 1 && (
+                <span style={{ fontWeight: 400, color: 'var(--color-meta)', fontSize: 12 }}>
+                  {' '}&middot; {share % 1 === 0 ? share : share.toFixed(1)}% of the project facility
+                </span>
+              )}
+            </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={periodTbl}>
                 {colgroup}

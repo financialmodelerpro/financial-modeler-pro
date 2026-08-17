@@ -453,6 +453,36 @@ fingerprinting the damage rather than the defect.
 **Proof.** 2026-08-17: 0 lines repaired when it ran last in the chain; 8 lines when it ran first,
 with the other phase's hand-set windows untouched.
 
+### 7.14 Two identical tables are not necessarily a double count
+
+**Symptom.** The Financing tab rendered the Senior debt schedule twice, two tables with the
+same opening, drawdown, IDC and closing, and Combined Debt Service showed 214,852 against
+107,426 in each. It reads exactly like a line counted twice into a total.
+
+**Mechanism, and why it is NOT that.** There are genuinely two tranches, one seeded per phase,
+and a facility's schedule is PROJECT-WIDE: since Pass 28 (2026-05-14) the engine deliberately
+stopped windowing a tranche to `tranche.phaseId`, because a bank funds drawdowns in every phase
+and the interest on all of them is IDC. So a facility draws the project debt requirement TIMES
+ITS SHARE, and two facilities at 50% each draw identical halves whose sum is the requirement.
+Measured: 107,426,203 x 2 = 214,852,407 = the debt requirement exactly, and collapsing the two
+into one leaves every combined total byte-identical.
+
+The real defect was the wizard seeding one facility per phase for an engine that finances the
+project as a whole, so a per-phase facility had no per-phase meaning: it was an unlabelled 50%
+share.
+
+**Fix.** Seed ONE facility. Name the share on every facility table when there is more than one,
+and say in words that identical schedules are shares of one requirement and the combined is
+their sum. The note keys on the SYMPTOM (more than one new facility with identical draw
+schedules), not on "no share is set", because the live project carried explicit 50 and 50 and
+was identical all the same.
+
+**The lesson.** Before removing a "duplicate", check whether the total equals the sum of the
+parts or twice one part. The fix for a genuine double count and the fix for a split presented
+badly are opposite actions, and applying the first to the second corrupts a correct model.
+`verify-facility-shares` section B pins the arithmetic in both directions: sabotaging the share
+normaliser so each facility draws 100% (a real double count) fails seven checks.
+
 ### 7.13 A gate that hides a row but not its money
 
 **Symptom.** A Phase 2 hotel showed one Real Estate Transfer Tax line in the inputs and was
