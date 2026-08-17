@@ -51,6 +51,7 @@ import {
   SUB_UNIT_CATEGORIES,
   LAND_ALLOCATION_MODES,
   PARCEL_WEIGHTED_AVG,
+  PARCEL_WEIGHTED_AVG_ALL,
   PARCEL_CUSTOM_RATE,
 } from '../../lib/state/module1-types';
 import {
@@ -64,6 +65,7 @@ import {
   computeSubUnitArea,
   computePhaseTimeline,
   formatOperatingEndDate,
+  landRateIssueText,
   resolveAssetAreaMetrics,
   validateLandAllocation,
 } from '@/src/core/calculations';
@@ -356,6 +358,12 @@ export default function Module1Assets(): React.JSX.Element {
     // M2.0g Fix 2: default land allocation to the first phase parcel
     // (not "(weighted average)") so the asset's resolved rate matches
     // a real parcel rate out of the box.
+    //
+    // 2026-08-17: the `?? parcels[0]` fallback crosses phases, which used to
+    // seed a later-phase asset with a reference the dropdown could not show and
+    // the engine valued at ZERO. It is kept, because a parcel is now
+    // project-wide and the reference resolves; it is the reason the widening
+    // had to reach the engine and not only the dropdown.
     const phaseParcels = parcels.filter((p) => p.phaseId === phaseId);
     const fallbackParcel = phaseParcels[0] ?? parcels[0];
     addAsset({
@@ -1080,6 +1088,16 @@ function AssetCard({
   const efficiency = derivedBua > 0 ? (derivedSellable / derivedBua) * 100 : 0;
 
   const phaseParcels = parcels.filter((p) => p.phaseId === asset.phaseId);
+  // 2026-08-17: both weighted scopes, resolved here so each option in the
+  // dropdown can show the rate it would produce. A label that names a scope
+  // without naming its number is what let "(Weighted Average)" sit there
+  // reading zero on a phase that holds no parcels.
+  const phaseWeightedRate = computeLandAggregate(phaseParcels).weightedRate;
+  const allWeightedRate = computeLandAggregate(parcels).weightedRate;
+  const phaseNameById = useMemo(
+    () => new Map(allPhases.map((p) => [p.id, p.name])),
+    [allPhases],
+  );
   const allocation: AssetLandAllocation = asset.landAllocation ?? {};
 
   const setAllocation = (patch: Partial<AssetLandAllocation>): void => {
@@ -1093,7 +1111,7 @@ function AssetCard({
   };
 
   const addSplit = (): void => {
-    const fallbackParcel = phaseParcels[0]?.id ?? '';
+    const fallbackParcel = phaseParcels[0]?.id ?? parcels[0]?.id ?? '';
     const newSplit: AssetParcelSplit = { parcelId: fallbackParcel, sqm: 0 };
     setAllocation({
       multiParcelSplits: [...(allocation.multiParcelSplits ?? []), newSplit],
@@ -1368,7 +1386,8 @@ function AssetCard({
               // cost computes per-parcel using each parcel's own rate.
               <div data-testid={`asset-${asset.id}-multi-parcel-section`}>
                 {allocation.multiParcelSplits.map((sp, idx) => {
-                  const parcel = phaseParcels.find((p) => p.id === sp.parcelId);
+                  // 2026-08-17: project-wide, matching the engine.
+                  const parcel = parcels.find((p) => p.id === sp.parcelId);
                   const rate = parcel ? parcel.rate : 0;
                   const value = Math.max(0, sp.sqm) * rate;
                   return (
@@ -1386,9 +1405,12 @@ function AssetCard({
                           onChange={(e) => updateSplit(idx, { parcelId: e.target.value })}
                           style={inputStyle}
                         >
-                          {phaseParcels.length === 0 && <option value="">(no parcels in phase)</option>}
-                          {phaseParcels.map((p) => (
-                            <option key={p.id} value={p.id}>{p.name} ({fmt(p.rate)} {project.currency}/sqm)</option>
+                          {parcels.length === 0 && <option value="">(no parcels yet)</option>}
+                          {parcels.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name} ({fmt(p.rate)} {project.currency}/sqm)
+                              {p.phaseId !== asset.phaseId ? ` · ${phaseNameById.get(p.phaseId) ?? 'other phase'}` : ''}
+                            </option>
                           ))}
                         </select>
                       </div>
@@ -1431,7 +1453,7 @@ function AssetCard({
                 {landAllocationMode === 'sqm' && (
                   <>
                     <div>
-                      <InputLabel label="Parcel" help="Source parcel for this asset's land draw. Default = first parcel; pick (Weighted Average) to use the phase-blended rate or (Custom Rate) to override with a specific value." inputId={`asset-${asset.id}-parcelId`} />
+                      <InputLabel label="Parcel" help="Source parcel for this asset's land draw. Every parcel in the project can be picked, not just the ones bought in this phase: land is often acquired once and built on across several phases. The two weighted options blend the parcels in this phase, or every parcel in the project; each option shows the rate it resolves to." inputId={`asset-${asset.id}-parcelId`} />
                       <select
                         id={`asset-${asset.id}-parcelId`}
                         data-testid={`asset-${asset.id}-parcelId`}
@@ -1439,10 +1461,23 @@ function AssetCard({
                         onChange={(e) => setAllocation({ parcelId: e.target.value || undefined })}
                         style={inputStyle}
                       >
-                        {phaseParcels.map((p) => (
-                          <option key={p.id} value={p.id}>{p.name} ({fmt(p.rate)} {project.currency}/sqm)</option>
+                        {/* EVERY parcel, not just this phase's (2026-08-17). The
+                            phase filter made a parcel unpickable on any later
+                            phase, and an asset seeded with one anyway resolved
+                            to a rate of zero with nothing on screen saying so.
+                            Parcels from another phase are labelled as such. */}
+                        {parcels.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} ({fmt(p.rate)} {project.currency}/sqm)
+                            {p.phaseId !== asset.phaseId ? ` · ${phaseNameById.get(p.phaseId) ?? 'other phase'}` : ''}
+                          </option>
                         ))}
-                        <option value={PARCEL_WEIGHTED_AVG}>(Weighted Average across parcels)</option>
+                        <option value={PARCEL_WEIGHTED_AVG}>
+                          (Weighted Average, this phase{phaseWeightedRate > 0 ? `: ${fmt(phaseWeightedRate)} ${project.currency}/sqm` : ': no parcels in this phase'})
+                        </option>
+                        <option value={PARCEL_WEIGHTED_AVG_ALL}>
+                          (Weighted Average, all parcels{allWeightedRate > 0 ? `: ${fmt(allWeightedRate)} ${project.currency}/sqm` : ': no parcels yet'})
+                        </option>
                         <option value={PARCEL_CUSTOM_RATE}>(Custom Rate)</option>
                       </select>
                     </div>
@@ -1476,7 +1511,16 @@ function AssetCard({
                     ) : (
                       <div>
                         <InputLabel label="Resolved Rate" help="Picked parcel's rate (or weighted average / custom override)." inputId={`asset-${asset.id}-resolved-rate`} />
-                        <div style={calcOutputStyle} data-testid={`asset-${asset.id}-resolved-rate`}>{fmt(landBreakdown.rate)} {project.currency}/sqm</div>
+                        <div
+                          style={{
+                            ...calcOutputStyle,
+                            ...(landBreakdown.rateIssue ? { borderColor: 'var(--color-accent-warm)', color: 'var(--color-accent-warm)' } : {}),
+                          }}
+                          data-testid={`asset-${asset.id}-resolved-rate`}
+                          data-rate-issue={landBreakdown.rateIssue ?? ''}
+                        >
+                          {fmt(landBreakdown.rate)} {project.currency}/sqm
+                        </div>
                       </div>
                     )}
                   </>
@@ -1497,6 +1541,29 @@ function AssetCard({
                   <InputLabel label="Land Cost" help="Resolved land area x parcel rate." inputId={`asset-${asset.id}-land-cost-display`} />
                   <div style={calcOutputStyle} data-testid={`asset-${asset.id}-land-cost-display`}>{fmtCurrency(landCost, project.currency, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</div>
                 </div>
+                {/* A LAND RATE OF ZERO NOW SAYS WHY (2026-08-17).
+                    A zero rate is indistinguishable from a rate not yet typed,
+                    and a reference that matched no parcel produced exactly that
+                    with nothing on screen. This is the third silent zero of the
+                    family, so the engine returns the reason and the card prints
+                    it beside the number it explains. */}
+                {landBreakdown.rateIssue && (
+                  <div
+                    data-testid={`asset-${asset.id}-land-rate-issue`}
+                    data-rate-issue={landBreakdown.rateIssue}
+                    style={{
+                      gridColumn: '1 / -1',
+                      fontSize: 11,
+                      lineHeight: 1.4,
+                      color: 'var(--color-on-accent-warm, white)',
+                      background: 'var(--color-accent-warm)',
+                      borderRadius: 'var(--radius-sm)',
+                      padding: '4px 8px',
+                    }}
+                  >
+                    {landRateIssueText(landBreakdown.rateIssue)}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1932,6 +1999,11 @@ function switchMetric(
 }
 
 function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decimals, scale, assetStrategy, assetType, isCompanionSub }: SubUnitRowProps & { assetMetric: SubUnitMetric; decimals: import('../../lib/state/module1-types').DisplayDecimals; scale: import('../../lib/state/module1-types').DisplayScale; assetStrategy: AssetStrategy; assetType?: string; isCompanionSub?: boolean }): React.JSX.Element {
+  // An area typed while Unit Size is still zero. In Units mode the row stores a
+  // COUNT, so an area with no unit size cannot be represented yet; holding it
+  // is the difference between "not converted yet" and "thrown away".
+  // Declared before the companion early-return so the hook order is fixed.
+  const [pendingArea, setPendingArea] = useState<number | null>(null);
   // T2-Fix 5c (2026-05-12): companion sub-unit (parentSubUnitId set) is
   // a read-only mirror of its parent's Sellable row. Type / Category /
   // Area / Unit Size / Count are derived; the user only edits ADR
@@ -1995,7 +2067,8 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
   const isUnits = assetMetric === 'units';
   const unitArea = Math.max(0, subUnit.unitArea ?? 0);
   const storedIsUnits = subUnit.metric === 'units' || (subUnit.metric as unknown as string) === 'count';
-  const totalArea = storedIsUnits ? subUnit.metricValue * unitArea : subUnit.metricValue;
+  const storedArea = storedIsUnits ? subUnit.metricValue * unitArea : subUnit.metricValue;
+  const totalArea = pendingArea !== null && storedArea === 0 ? pendingArea : storedArea;
   // P9-Fix 1 (2026-05-12): derived Count rounds to whole number for
   // display. Apartments / keys / beds / bays / tenants are integer
   // concepts; decimal counts are nonsensical. Total Revenue also
@@ -2023,8 +2096,17 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
       // entered Units / Keys whenever they typed into Area on an
       // existing-operation row without BUA. The user should set Unit
       // Size first OR edit Count directly via the new Count input.
+      //
+      // 2026-08-17: THE TYPED AREA IS NO LONGER DISCARDED. The no-op above
+      // protects a hand-entered count, and it is right to keep it, but it also
+      // silently threw away an area the user had just typed: enter BUA first
+      // and then unit size, which is the natural order for a hotel, and both
+      // the area and the keys ended up at zero with nothing said. The area is
+      // held here and converted the moment a unit size arrives.
+      setPendingArea(a > 0 ? a : null);
       return;
     }
+    setPendingArea(null);
     // Pass 9e-4 (2026-05-18): keys / unit counts must be integers
     // (a hotel can't have 159.989 keys). Round at every site that
     // derives metricValue from area / unitArea.
@@ -2032,6 +2114,14 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
   };
   const onEditUnitSize = (nextUnitArea: number): void => {
     const ua = Math.max(0, nextUnitArea);
+    // 2026-08-17: an area typed BEFORE a unit size existed is converted now.
+    // This is the other half of the hold in onEditAreaUnits, and it is what
+    // makes "enter the BUA, then the unit size" produce the keys.
+    if (pendingArea !== null && ua > 0) {
+      setPendingArea(null);
+      onUpdate({ unitArea: ua, metricValue: Math.round(pendingArea / ua), metric: 'units' });
+      return;
+    }
     // Preserve currently displayed Area: when stored is 'units',
     // newCount = area / new ua = (oldCount * oldUnitArea) / ua.
     if (storedIsUnits && ua > 0 && unitArea > 0) {
@@ -2098,7 +2188,20 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
               aria-invalid={unitsButNoSize}
             />
             {unitsButNoSize && (
-              <div style={{ fontSize: 9, color: 'var(--color-meta)', fontStyle: 'italic' }} data-testid={`subunit-${subUnit.id}-units-no-size-error`}>Optional, Area derives when set</div>
+              <div
+                style={{
+                  fontSize: 9, fontStyle: 'italic',
+                  color: pendingArea !== null ? 'var(--color-accent-warm)' : 'var(--color-meta)',
+                }}
+                data-testid={`subunit-${subUnit.id}-units-no-size-error`}
+                title={pendingArea !== null
+                  ? `The ${fmt(pendingArea)} sqm you entered is held. Enter the size of one ${countUnit.toLowerCase()} and it converts.`
+                  : undefined}
+              >
+                {pendingArea !== null
+                  ? `Enter unit size to get ${countUnit.toLowerCase()}`
+                  : 'Optional, Area derives when set'}
+              </div>
             )}
           </>
         ) : (

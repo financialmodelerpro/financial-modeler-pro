@@ -137,13 +137,24 @@ console.log('\n[4/7] Fix 3: strip companion + dedup migration');
   else fail('chain order', 'strip+dedup not chained ahead of seed');
 }
 
-// ── Section 5: Fix 4 endPeriod = cp + 1 ──────────────────────────────────
-console.log('\n[5/7] Fix 4: default endPeriod = cp + 1');
+// ── Section 5: the default window ends AT the construction window ────────
+//
+// SUPERSEDES T3-defaults Fix 4 (2026-05-12), which added a one-period buffer
+// past construction so that costs spilling into the first operations period
+// were captured by default. Retired on 2026-08-17: the row warns whenever
+// endPeriod exceeds the construction length, so the buffer made every seeded
+// line on every new project render a permanent amber "extends into operations
+// period" warning about a value the user never chose. Extending past
+// construction is still one edit away, and now it means something when it
+// happens. The window also FOLLOWS the phase length from here on.
+console.log('\n[5/7] Default window = the construction window');
 {
-  if (TYPES_SRC.includes('T3-defaults Fix 4 (2026-05-12)')) pass('T3-defaults Fix 4 marker present');
-  else fail('T3-defaults Fix 4 marker', 'missing');
-  if (TYPES_SRC.includes('const cpEnd = cp + 1;')) pass('cpEnd = cp + 1 derived');
-  else fail('cpEnd derivation', 'missing');
+  if (TYPES_SRC.includes('export function deriveCostWindow(')) pass('deriveCostWindow is the one definition');
+  else fail('deriveCostWindow', 'missing');
+  if (TYPES_SRC.includes('windowFollowsConstruction: true')) pass('seeded lines follow the construction window');
+  else fail('windowFollowsConstruction seed', 'missing');
+  if (!TYPES_SRC.includes('const cpEnd = cp + 1;')) pass('the cp + 1 buffer is gone');
+  else fail('cpEnd = cp + 1', 'still present');
 
   const lines = makeDefaultCostLines('phase-x', 5);
   const byBase: Record<string, CostLine> = {};
@@ -158,12 +169,13 @@ console.log('\n[5/7] Fix 4: default endPeriod = cp + 1');
   if (byBase['land-inkind']!.startPeriod === 0 && byBase['land-inkind']!.endPeriod === 0) {
     pass('land-inkind start=0, end=0');
   } else fail('land-inkind periods', `start=${byBase['land-inkind']!.startPeriod}, end=${byBase['land-inkind']!.endPeriod}`);
-  // The 8 non-land lines end at cp + 1 = 6.
-  const nonLandBaseIds = ['construction-bua', 'construction-parking', 'infrastructure', 'landscaping', 'pre-operating', 'professional-fee', 'commission', 'contingency'];
+  // Every non-land line ends AT cp = 5. `developer-fee` and `marketing` join
+  // the list on 2026-08-17; RETT sits with the land rows in the Y0 slot.
+  const nonLandBaseIds = ['construction-bua', 'construction-parking', 'infrastructure', 'landscaping', 'pre-operating', 'professional-fee', 'commission', 'developer-fee', 'contingency', 'marketing'];
   for (const baseId of nonLandBaseIds) {
     const l = byBase[baseId]!;
-    if (l.endPeriod === 6) pass(`${baseId} endPeriod = cp + 1 = 6`);
-    else fail(`${baseId} endPeriod`, `expected 6, got ${l.endPeriod}`);
+    if (l.endPeriod === 5) pass(`${baseId} endPeriod = cp = 5`);
+    else fail(`${baseId} endPeriod`, `expected 5, got ${l.endPeriod}`);
   }
 }
 

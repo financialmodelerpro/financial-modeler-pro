@@ -194,6 +194,18 @@ for (const method of [1, 2, 3, 4] as const) {
 // IDC budget) is stable.
 function buildIdcState(mode: 'debt_drawdown' | 'conditional', method: 1 | 3 = 1): Parameters<typeof computeFinancialsSnapshot>[0] {
   const s = buildSnapState(method);
+  // 2026-08-17: the capex window is set EXPLICITLY here rather than inherited
+  // from the catalog seed. Conditional IDC only bites when pre-sales cash
+  // creates a surplus above the minimum reserve while construction interest is
+  // accruing, which needs capex still running when that cash arrives. The seed
+  // used to add a one-period buffer past construction and this scenario quietly
+  // relied on it; when the buffer was retired (the default now ends AT the
+  // construction window) the surplus vanished and the check failed for a reason
+  // that had nothing to do with IDC. A scenario should state its own premise.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (s as any).costLines = (s as any).costLines.map((c: { startPeriod: number; endPeriod: number }) => (
+    c.endPeriod > 0 ? { ...c, endPeriod: c.endPeriod + 1 } : c
+  ));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (s.project as any).financing.minimumCashReserve = 100_000;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

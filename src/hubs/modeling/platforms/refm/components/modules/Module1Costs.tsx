@@ -62,6 +62,7 @@ import {
   type CapexPhasingSource,
   type AssetCapexPhasing,
   deriveLineBaseId,
+  deriveCostWindow,
 } from '../../lib/state/module1-types';
 import { resolvePhasingSource, isParcelDrivenLandLine, collectionsForAsset, collectionsTotalForAsset } from '@/src/core/calculations/capexPhasing';
 import { computeAllSellResults } from '../../lib/revenue-resolvers';
@@ -267,6 +268,52 @@ function strategyBadgeStyle(strategy: AssetStrategy): React.CSSProperties {
   }
 }
 
+/**
+ * A new user line (2026-08-17).
+ *
+ * ONE definition for both entry points (the button under the table and the
+ * insert-above / insert-below controls on a row), and it takes THIS PHASE's
+ * construction length. The old inline version used the longest phase in the
+ * project, so a custom line on a short phase was born spanning a window that
+ * belonged to a different phase entirely.
+ *
+ * `windowFollowsConstruction` is set, so it tracks the phase like a catalog
+ * line until the user types a window of their own. Stage defaults to soft and
+ * is editable on the row.
+ */
+function makeCustomCostLine(phaseId: string, constructionPeriods: number): CostLine {
+  return {
+    // P10-Fix 3 (2026-05-12): a custom line added here is a PROJECT-WIDE master
+    // (no targetAssetId); the user overrides per asset from the row.
+    id: `custom-${Date.now()}__${phaseId}`,
+    phaseId,
+    name: 'Custom Cost',
+    method: 'fixed',
+    value: 0,
+    stage: 'soft',
+    scope: 'direct',
+    allocationBasis: 'per_asset',
+    ...deriveCostWindow('custom', constructionPeriods),
+    windowFollowsConstruction: true,
+    phasing: 'even',
+    costCategory: 'direct',
+  };
+}
+
+/** Small square control for the row's position buttons (2026-08-17). */
+function orderButtonStyle(enabled: boolean): React.CSSProperties {
+  return {
+    fontSize: 9,
+    lineHeight: 1,
+    padding: '2px 4px',
+    borderRadius: 3,
+    border: '1px solid var(--color-border)',
+    background: 'var(--color-surface)',
+    color: enabled ? 'var(--color-meta)' : 'var(--color-border)',
+    cursor: enabled ? 'pointer' : 'not-allowed',
+  };
+}
+
 // ── Custom cost popup ─────────────────────────────────────────────────────
 interface CustomCostPopupProps {
   phaseId: string;
@@ -436,6 +483,22 @@ interface CostRowProps {
   /** 2026-08-16: total sales cash collected for this asset, so a revenue-based
    *  row can say when the cash basis and the sale basis differ. */
   collectionsTotal?: number;
+  /** 2026-08-17: the window the ENGINE spent this line in, and why. The row
+   *  renders this rather than the stored window, so a line following a derived
+   *  source cannot show one window while the model uses another. */
+  resolvedWindow?: import('@/src/core/calculations').ResolvedLineWindow;
+  /** 2026-08-17: the base a `percent_of_selected` line charged on, from the
+   *  pass that computed it. */
+  selectedBase?: number;
+  /** 2026-08-17: every line this asset sees, in DISPLAY ORDER. The row derives
+   *  which of them it may charge on with the same shared rule the engine
+   *  enforces, so a reorder can say what it changed. */
+  visibleLines?: CostLine[];
+  /** 2026-08-17: ordering. Absent means the surface does not offer it. */
+  onMove?: (direction: 'up' | 'down') => void;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
+  onInsertNear?: (position: 'above' | 'below') => void;
 }
 
 function CostRow({
@@ -443,6 +506,7 @@ function CostRow({
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
   currency, scale, decimals, periodLabel, constructionPeriods, subUnits,
   metrics, editsGoToLine, collectionsTotal,
+  resolvedWindow, selectedBase, visibleLines, onMove, canMoveUp, canMoveDown, onInsertNear,
 }: CostRowProps): React.JSX.Element {
   // M2.0g Fix 6: Stage label still drives the row background + summary
   // tables, but the Direct/Indirect label is dropped (per-asset cost
@@ -511,6 +575,25 @@ function CostRow({
   const writeName = (name: string): void => {
     onUpdateLine({ name });
   };
+  // ── Stage: the catalog's default, and the user's answer (2026-08-17) ────
+  // `catalogStage` is what the line would classify as with no user choice, so
+  // picking that value CLEARS the override rather than pinning the current
+  // default forever.
+  const catalogStage = deriveCostStage({ ...line, stageOverride: undefined });
+  const isStageLocked = isLocked && !isCustom && isParcelDrivenLandLine(line);
+  const writeStage = (next: CostStage): void => {
+    onUpdateLine({ stageOverride: next === catalogStage ? undefined : next });
+  };
+  // Selected base lines this row still references but may no longer charge on,
+  // because they now sit below it. Same shared rule the engine enforces.
+  const droppedBaseNames: string[] = (() => {
+    if (effMethod !== 'percent_of_selected' || !visibleLines) return [];
+    const allowed = new Set(eligibleBaseLines(visibleLines, line.id).map((c) => c.id));
+    const selected = line.selectedLineIds ?? [];
+    return selected
+      .filter((id) => !allowed.has(id))
+      .map((id) => visibleLines.find((c) => c.id === id)?.name ?? 'a deleted line');
+  })();
   // P10-Fix 3 (2026-05-12): hybrid write semantics.
   //   - When `override` exists on this (asset, line): edits route to
   //     the override (asset-specific divergence).
@@ -606,19 +689,41 @@ function CostRow({
     }
   };
 
+  // ── The period window: who owns it (2026-08-17) ────────────────────────
+  //
+  // Three states, and the row must not present them all as two editable boxes:
+  //   1. A DERIVED SOURCE (land cash / collections) supplies the window as well
+  //      as the shape, so there is no window to edit. The cells are replaced by
+  //      what the engine resolved, exactly as the land value rows replaced
+  //      their phasing control with "from parcel schedule".
+  //   2. FOLLOWING THE CONSTRUCTION WINDOW. Editable, but it tracks the phase
+  //      until the user types, and says so.
+  //   3. THE LINE'S OWN. Editable, and stays put.
+  const windowIsDerived = effPhasingSource === 'land_cash' || effPhasingSource === 'collections';
+  const overrideHasWindow = override !== undefined && override.overridden !== false
+    && (override.startPeriod !== undefined || override.endPeriod !== undefined);
+  const windowFollowsCp = line.windowFollowsConstruction === true && !overrideHasWindow;
   const writeStartPeriod = (n: number): void => {
     if (override) {
       onUpdateOverride({ assetId: asset.id, lineId: line.id, method: effMethod, value: effValue, phasing: effPhasing, distribution: override.distribution, disabled: override.disabled, startPeriod: n, endPeriod: override.endPeriod ?? line.endPeriod, overridden: true });
     } else {
-      onUpdateLine({ startPeriod: n });
+      // Typing a window IS the deliberate act that stops it following the
+      // construction length. Nothing else clears the flag.
+      onUpdateLine({ startPeriod: n, windowFollowsConstruction: false });
     }
   };
   const writeEndPeriod = (n: number): void => {
     if (override) {
       onUpdateOverride({ assetId: asset.id, lineId: line.id, method: effMethod, value: effValue, phasing: effPhasing, distribution: override.distribution, disabled: override.disabled, startPeriod: override.startPeriod ?? line.startPeriod, endPeriod: n, overridden: true });
     } else {
-      onUpdateLine({ endPeriod: n });
+      onUpdateLine({ endPeriod: n, windowFollowsConstruction: false });
     }
+  };
+  const followConstructionWindow = (): void => {
+    onUpdateLine({
+      ...deriveCostWindow(baseId, constructionPeriods),
+      windowFollowsConstruction: true,
+    });
   };
   const toggleDisabled = (disabled: boolean): void => {
     if (override) {
@@ -773,23 +878,128 @@ function CostRow({
             deriveCostStage, the engine's byStage and the summary tiles have
             had it throughout. A cost table a lender reads has to say which
             costs are hard and which are soft on the line itself. */}
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 2 }}>
-          <span
-            data-testid={`cost-${asset.id}-${line.id}-stage`}
-            title={`${COST_STAGE_LABELS[stage]} cost`}
-            style={{
-              fontSize: 9, fontWeight: 700, textTransform: 'uppercase',
-              letterSpacing: '0.04em', padding: '1px 5px', borderRadius: 3,
-              background: STAGE_BG[stage], border: '1px solid var(--color-border)',
-              color: 'var(--color-text)',
-            }}
-          >
-            {COST_STAGE_LABELS[stage]}
-          </span>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 2, flexWrap: 'wrap' }}>
+          {/* 2026-08-17: the classification is a CHOICE, not a label. Rows can
+              be added, renamed and deleted, so the catalog's answer is a
+              default; the user can say that a line is marketing, or that a
+              custom row is hard cost. Locked land rows keep the badge: their
+              stage is what they are. */}
+          {isStageLocked ? (
+            <span
+              data-testid={`cost-${asset.id}-${line.id}-stage`}
+              title={`${COST_STAGE_LABELS[stage]} cost`}
+              style={{
+                fontSize: 9, fontWeight: 700, textTransform: 'uppercase',
+                letterSpacing: '0.04em', padding: '1px 5px', borderRadius: 3,
+                background: STAGE_BG[stage], border: '1px solid var(--color-border)',
+                color: 'var(--color-text)',
+              }}
+            >
+              {COST_STAGE_LABELS[stage]}
+            </span>
+          ) : (
+            <select
+              value={stage}
+              onChange={(e) => writeStage(e.target.value as CostStage)}
+              data-testid={`cost-${asset.id}-${line.id}-stage`}
+              title={line.stageOverride
+                ? `Classified as ${COST_STAGE_LABELS[stage]} by you. The catalog default is ${COST_STAGE_LABELS[catalogStage]}.`
+                : `${COST_STAGE_LABELS[stage]} cost. Change it to reclassify this line everywhere it is totalled.`}
+              style={{
+                fontSize: 9, fontWeight: 700, textTransform: 'uppercase',
+                letterSpacing: '0.04em', padding: '1px 4px', borderRadius: 3,
+                background: STAGE_BG[stage], border: '1px solid var(--color-border)',
+                color: 'var(--color-text)', maxWidth: 104,
+              }}
+            >
+              {COST_STAGES.map((s) => (
+                <option key={s} value={s}>{COST_STAGE_LABELS[s]}</option>
+              ))}
+            </select>
+          )}
+          {line.stageOverride && (
+            <span
+              data-testid={`cost-${asset.id}-${line.id}-stage-overridden`}
+              style={{ fontSize: 9, color: 'var(--color-navy)', fontStyle: 'italic' }}
+              title={`Reset to the catalog default (${COST_STAGE_LABELS[catalogStage]}).`}
+              onClick={() => onUpdateLine({ stageOverride: undefined })}
+              role="button"
+            >
+              set by you
+            </span>
+          )}
           {isCustom && (
             <span style={{ fontSize: 9, color: 'var(--color-meta)' }}>custom</span>
           )}
         </div>
+        {/* ── Position (2026-08-17) ────────────────────────────────────────
+            Order decides what this line may charge on: a % of selected lines
+            may reference anything ABOVE it and nothing below. Until these
+            controls existed, position was whatever creation order happened to
+            be, so a developer fee added after a contingency could never enter
+            its base. */}
+        {(onMove || onInsertNear) && (
+          <div style={{ display: 'flex', gap: 2, alignItems: 'center', marginTop: 2 }} data-testid={`cost-${asset.id}-${line.id}-order-controls`}>
+            {onMove && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onMove('up')}
+                  disabled={canMoveUp === false}
+                  title="Move up. A line can charge only on the lines above it."
+                  data-testid={`cost-${asset.id}-${line.id}-move-up`}
+                  style={orderButtonStyle(canMoveUp !== false)}
+                >
+                  ▲
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onMove('down')}
+                  disabled={canMoveDown === false}
+                  title="Move down."
+                  data-testid={`cost-${asset.id}-${line.id}-move-down`}
+                  style={orderButtonStyle(canMoveDown !== false)}
+                >
+                  ▼
+                </button>
+              </>
+            )}
+            {onInsertNear && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onInsertNear('above')}
+                  title="Insert a new cost line directly above this one."
+                  data-testid={`cost-${asset.id}-${line.id}-insert-above`}
+                  style={orderButtonStyle(true)}
+                >
+                  +↑
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onInsertNear('below')}
+                  title="Insert a new cost line directly below this one."
+                  data-testid={`cost-${asset.id}-${line.id}-insert-below`}
+                  style={orderButtonStyle(true)}
+                >
+                  +↓
+                </button>
+              </>
+            )}
+          </div>
+        )}
+        {/* A selection this line USED to charge on and no longer may, because
+            one of them is now below it. The engine drops those by rule and has
+            always done so silently; a reorder is exactly when it happens. */}
+        {droppedBaseNames.length > 0 && (
+          <div
+            data-testid={`cost-${asset.id}-${line.id}-base-dropped`}
+            style={{ fontSize: 9, color: 'var(--color-accent-warm)', marginTop: 2, lineHeight: 1.3, whiteSpace: 'normal' }}
+            title="A line can charge only on lines above it. These are selected but now sit below, so they are not in the base."
+          >
+            not in the base any more: {droppedBaseNames.join(', ')}
+          </div>
+        )}
         {/* 2026-08-16: shown ONLY when the cash and sale bases actually differ,
             which is rare. Silent agreement needs no caption; a material gap is
             the case that would justify a per-period revenue base, so it says so
@@ -921,14 +1131,43 @@ function CostRow({
               <div
                 style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
                 data-testid={`cost-${asset.id}-${line.id}-caption`}
-                title={costLineCaption({ line, override, asset, metrics, parkingBays: asset.parkingBaysRequired ?? 0, resolvedTotal: total })}
+                title={costLineCaption({ line, override, asset, metrics, parkingBays: asset.parkingBaysRequired ?? 0, resolvedTotal: total, selectedTotal: selectedBase })}
               >
-                {costLineCaption({ line, override, asset, metrics, parkingBays: asset.parkingBaysRequired ?? 0, resolvedTotal: total })}
+                {costLineCaption({ line, override, asset, metrics, parkingBays: asset.parkingBaysRequired ?? 0, resolvedTotal: total, selectedTotal: selectedBase })}
               </div>
             )}
           </>
         )}
       </td>
+      {windowIsDerived ? (
+        // A followed source supplies the window, so there is nothing here to
+        // edit. Rendering the STORED window in two boxes is how a marketing
+        // line showed periods 1 to 25 while the engine spent it on collections.
+        <td
+          colSpan={2}
+          style={{ padding: '4px' }}
+          data-testid={`cost-${asset.id}-${line.id}-window-derived`}
+          data-window-source={effPhasingSource}
+          title={resolvedWindow?.reason ?? 'The window comes from the source this line follows.'}
+        >
+          <div style={{ fontSize: 10, color: 'var(--color-meta)', fontStyle: 'italic', lineHeight: 1.3, textAlign: 'center' }}>
+            {resolvedWindow && !resolvedWindow.degraded ? (
+              <>
+                <div style={{ color: 'var(--color-navy)', fontWeight: 700 }}>
+                  {periodLabel(resolvedWindow.startPeriod)}
+                  {resolvedWindow.endPeriod !== resolvedWindow.startPeriod ? ` to ${periodLabel(resolvedWindow.endPeriod)}` : ''}
+                </div>
+                <div>from {effPhasingSource === 'land_cash' ? 'land cash' : 'collections'}</div>
+              </>
+            ) : (
+              <div style={{ color: 'var(--color-accent-warm)' }} data-testid={`cost-${asset.id}-${line.id}-window-degraded`}>
+                {effPhasingSource === 'land_cash' ? 'no land cash yet' : 'no collections yet'}
+              </div>
+            )}
+          </div>
+        </td>
+      ) : (
+      <>
       <td style={{ padding: '4px', width: 70 }}>
         {/* T3-edit-runtime v5 (2026-05-12): no max cap on Start. User
             asked to be able to phase costs after construction (e.g.
@@ -970,6 +1209,30 @@ function CostRow({
         <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, textAlign: 'center' }} data-testid={`cost-${asset.id}-${line.id}-end-label`}>
           {periodEndLabel}
         </div>
+        {/* Whether this window is the line's own or the phase's, said on the
+            row. A derived default that never says it is derived is how a
+            three-period phase kept lines running to period 25. */}
+        {!isParcelLand && (
+          windowFollowsCp ? (
+            <div
+              style={{ fontSize: 9, color: 'var(--color-navy)', marginTop: 2, fontStyle: 'italic', textAlign: 'center' }}
+              data-testid={`cost-${asset.id}-${line.id}-window-follows`}
+              title="This window tracks the phase construction length. Typing a start or end period puts the line on its own window."
+            >
+              follows construction
+            </div>
+          ) : !overrideHasWindow && (
+            <button
+              type="button"
+              onClick={followConstructionWindow}
+              data-testid={`cost-${asset.id}-${line.id}-window-refollow`}
+              title="Put this line back on the phase construction window."
+              style={{ fontSize: 9, marginTop: 2, background: 'transparent', border: 'none', color: 'var(--color-meta)', cursor: 'pointer', textDecoration: 'underline', padding: 0, width: '100%' }}
+            >
+              use construction
+            </button>
+          )
+        )}
         {effEndPeriod < effStartPeriod && (
           <div style={{ fontSize: 9, color: 'var(--color-negative)', marginTop: 2 }} data-testid={`cost-${asset.id}-${line.id}-end-error`}>
             End must be on or after Start
@@ -981,6 +1244,8 @@ function CostRow({
           </div>
         )}
       </td>
+      </>
+      )}
       <td style={{ padding: '4px', minWidth: 110 }}>
         {/* Land value lines carry NO phasing control (2026-08-15b). Their cash
             timing is the parcel schedule, so a curve here would present a
@@ -1349,6 +1614,9 @@ function CostRow({
         line={line}
         asset={asset}
         isLocked={isLocked}
+        selectedBase={selectedBase}
+        scale={scale}
+        decimals={decimals}
         onChangeSelected={(ids) => onUpdateLine({ selectedLineIds: ids })}
       />
     )}
@@ -1429,11 +1697,15 @@ function CostRow({
 // ones compose the percent_of_selected base. The current selection is
 // the line.selectedLineIds array.
 function PercentOfSelectedPicker({
-  line, asset, isLocked, onChangeSelected,
+  line, asset, isLocked, selectedBase, scale, decimals, onChangeSelected,
 }: {
   line: CostLine;
   asset: Asset;
   isLocked: boolean;
+  /** 2026-08-17: the amount the percentage is charged on, from the engine. */
+  selectedBase?: number;
+  scale: DisplayScale;
+  decimals: DisplayDecimals;
   onChangeSelected: (ids: string[]) => void;
 }): React.JSX.Element {
   // M2.0M Pass 6 Fix 6 (2026-05-11): rebuilt as a dropdown button +
@@ -1554,8 +1826,9 @@ function PercentOfSelectedPicker({
               }}
             >
               <span>Select lines</span>
-              <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>
-                ({selected.size} selected)
+              <span style={{ fontSize: 10, color: 'var(--color-meta)' }} data-testid={`cost-${asset.id}-${line.id}-pct-picker-base`}>
+                ({selected.size} selected
+                {selectedBase !== undefined ? ` · ${formatAccounting(selectedBase, scale, decimals)}` : ''})
               </span>
               <span style={{ fontSize: 9, opacity: 0.6 }}>{open ? '▲' : '▼'}</span>
             </button>
@@ -1781,6 +2054,11 @@ interface AssetCostSectionProps {
   onRemoveOverride: (assetId: string, lineId: string) => void;
   onRemoveLine: (lineId: string) => void;
   onAddCustom: () => void;
+  /** 2026-08-17: insert a new line directly above / below an existing one. */
+  onInsertNear?: (anchorLineId: string, position: 'above' | 'below') => void;
+  /** 2026-08-17: move a line within its phase, swapping with the row the user
+   *  can see (not the adjacent array element, which a stage filter can hide). */
+  onMoveLine?: (lineId: string, direction: 'up' | 'down', neighbourId?: string) => void;
   /** 2026-08-15: writes Asset.capexPhasing (the one curve for this asset). */
   onUpdateAsset?: (assetId: string, patch: Partial<Asset>) => void;
   /** 2026-08-16: total sales cash collected for this asset, passed to the row
@@ -1792,7 +2070,7 @@ function AssetCostSection({
   asset, lines, costOverrides, breakdown, currency, scale, decimals, periodLabel, constructionPeriods, subUnits,
   metrics,
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
-  onAddCustom, onUpdateAsset,
+  onAddCustom, onInsertNear, onMoveLine, onUpdateAsset,
 }: AssetCostSectionProps): React.JSX.Element {
   const cp = constructionPeriods;
   // Default-collapsed (2026-05-13): every per-asset cost section in
@@ -1900,7 +2178,7 @@ function AssetCostSection({
               </tr>
             </thead>
             <tbody>
-              {lines.map((line) => {
+              {lines.map((line, idx) => {
                 const override = costOverrides.find((o) => o.assetId === asset.id && o.lineId === line.id);
                 const total = breakdown.byLineId[line.id] ?? 0;
                 return (
@@ -1918,6 +2196,19 @@ function AssetCostSection({
                     constructionPeriods={constructionPeriods}
                     subUnits={subUnits}
                     metrics={metrics}
+                    resolvedWindow={breakdown.resolvedWindowByLineId[line.id]}
+                    selectedBase={breakdown.selectedBaseByLineId[line.id]}
+                    visibleLines={lines}
+                    onMove={onMoveLine
+                      ? (direction) => onMoveLine(
+                          line.id,
+                          direction,
+                          (direction === 'up' ? lines[idx - 1] : lines[idx + 1])?.id,
+                        )
+                      : undefined}
+                    canMoveUp={idx > 0}
+                    canMoveDown={idx < lines.length - 1}
+                    onInsertNear={onInsertNear ? (position) => onInsertNear(line.id, position) : undefined}
                     onUpdateLine={(patch) => onUpdateLine(line.id, patch)}
                     onUpdateOverride={onUpdateOverride}
                     onRemoveOverride={() => onRemoveOverride(asset.id, line.id)}
@@ -2986,6 +3277,8 @@ export default function Module1Costs(): React.JSX.Element {
   const setActivePhaseId = useModule1Store((s) => s.setActivePhaseId);
   const setProject = useModule1Store((s) => s.setProject);
   const addCostLine = useModule1Store((s) => s.addCostLine);
+  const insertCostLineNear = useModule1Store((s) => s.insertCostLineNear);
+  const moveCostLine = useModule1Store((s) => s.moveCostLine);
   const updateCostLine = useModule1Store((s) => s.updateCostLine);
   // 2026-08-15: writes Asset.capexPhasing from the one-curve control.
   const updateAsset = useModule1Store((s) => s.updateAsset);
@@ -3835,32 +4128,13 @@ export default function Module1Costs(): React.JSX.Element {
                   if (!ok) return;
                   removeCostLine(lineId);
                 }}
-                onAddCustom={() => {
-                  const id = `custom-${Date.now()}__${activeAsset.phaseId}`;
-                  // P8-Fix 5 (2026-05-12): defaults Start=0, End=maxCp+1.
-                  // maxCp = max constructionPeriods across all phases so a
-                  // multi-phase project gets the longest construction window
-                  // plus a 1-period buffer.
-                  const maxCp = phases.reduce((m, p) => Math.max(m, p.constructionPeriods), 0);
-                  // P10-Fix 3 (2026-05-12): custom cost lines added via
-                  // the Add Custom Cost button are PROJECT-WIDE masters
-                  // (no targetAssetId). Users override per-asset via the
-                  // Override toggle on each row.
-                  addCostLine({
-                    id,
-                    phaseId: activeAsset.phaseId,
-                    name: 'Custom Cost',
-                    method: 'fixed',
-                    value: 0,
-                    stage: 'soft',
-                    scope: 'direct',
-                    allocationBasis: 'per_asset',
-                    startPeriod: 0,
-                    endPeriod: Math.max(1, maxCp + 1),
-                    phasing: 'even',
-                    costCategory: 'direct',
-                  });
-                }}
+                onAddCustom={() => addCostLine(makeCustomCostLine(activeAsset.phaseId, assetPhase?.constructionPeriods ?? 1))}
+                onInsertNear={(anchorLineId, position) => insertCostLineNear(
+                  makeCustomCostLine(activeAsset.phaseId, assetPhase?.constructionPeriods ?? 1),
+                  anchorLineId,
+                  position,
+                )}
+                onMoveLine={(lineId, direction, neighbourId) => moveCostLine(lineId, direction, neighbourId)}
               />
             )}
           </>

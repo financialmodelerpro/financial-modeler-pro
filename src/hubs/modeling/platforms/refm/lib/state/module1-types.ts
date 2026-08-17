@@ -1058,7 +1058,24 @@ export interface AssetLandAllocation {
 }
 
 export const PARCEL_WEIGHTED_AVG = '__weighted__';
+/**
+ * 2026-08-17: weighted average across EVERY parcel in the project.
+ *
+ * `__weighted__` is scoped to the asset's own phase and stays that way, so no
+ * saved model moves. It answers nothing at all on a phase that holds no parcels
+ * of its own, which is the common real setup (one land acquisition, several
+ * construction phases) and is how a Phase 2 asset came to report a zero rate.
+ * Rather than silently widening the existing option's meaning, the wider scope
+ * is its OWN option, and both render the rate they resolve to, so the choice is
+ * made against the number rather than against a label.
+ */
+export const PARCEL_WEIGHTED_AVG_ALL = '__weighted_all__';
 export const PARCEL_CUSTOM_RATE = '__custom__';
+
+/** True for any of the sentinel values above, i.e. "not a real parcel id". */
+export function isParcelSentinel(id: string | undefined): boolean {
+  return id === PARCEL_WEIGHTED_AVG || id === PARCEL_WEIGHTED_AVG_ALL || id === PARCEL_CUSTOM_RATE;
+}
 
 export interface Asset {
   id: string;
@@ -1809,6 +1826,36 @@ export interface CostLine {
   // uses to split the project-wide pool across visible assets in the
   // phase.
   costDriver?: CostDriver;
+  /**
+   * 2026-08-17: the user's OWN classification, which wins over everything else.
+   *
+   * A cost table a lender reads has to let the modeller say what a line is: rows
+   * can be added, renamed and deleted, so the catalog's answer is a default and
+   * not a fact. `deriveCostStage` reads this first.
+   *
+   * A SEPARATE FIELD RATHER THAN WRITING `stage`, deliberately. `stage` is
+   * outranked by `STANDARD_STAGE_BY_ID` for every standard line, and that
+   * precedence is load-bearing: it is how the 2026-08-16 reclassification of
+   * marketing reached every already-saved project without a migration. Flipping
+   * the precedence onto `stage` would silently revert every pre-2026-08-16
+   * marketing line to soft. This field carries the user's intent and nothing
+   * else, so absent means "no one has said otherwise" rather than "soft".
+   */
+  stageOverride?: CostStage;
+  /**
+   * 2026-08-17: this line's period window FOLLOWS THE PHASE CONSTRUCTION WINDOW.
+   *
+   * Absent = the window is the line's own, which is every line on every project
+   * that predates this, so nothing moves. Seeded lines set it true, and the
+   * store re-derives their window whenever the phase's construction length
+   * changes. Editing Start or End clears it, which is the deliberate extension
+   * beyond the construction window the brief asks for.
+   *
+   * `startPeriod` / `endPeriod` stay REQUIRED and are always written, so every
+   * reader (engine, Excel, PDF, cases) keeps reading one concrete number. This
+   * flag says who owns that number, not whether it exists.
+   */
+  windowFollowsConstruction?: boolean;
 }
 
 export interface CostOverride {
@@ -2866,11 +2913,15 @@ export const STANDARD_COST_LINE_IDS = [
   'landscaping',
   'pre-operating',
   'professional-fee',
+  'commission',
+  // 2026-08-17: charged on the lines above it, and above the contingency so the
+  // contingency can charge on it. See CATALOG ORDER in makeDefaultCostLines.
+  'developer-fee',
+  'contingency',
   // 2026-08-15: paid as a percentage of cash received, so it is seeded
   // following collections, alongside commission.
+  // 2026-08-17: LAST in the catalog. See CATALOG ORDER in makeDefaultCostLines.
   'marketing',
-  'commission',
-  'contingency',
 ] as const;
 export type StandardCostLineId = typeof STANDARD_COST_LINE_IDS[number];
 
@@ -2930,6 +2981,43 @@ export function isStandardCostLineBaseId(baseId: string): baseId is StandardCost
  */
 export type CostLineSeedValues = 'reference' | 'blank';
 
+/**
+ * THE PERIOD WINDOW A LINE TAKES WHEN IT IS FOLLOWING THE CONSTRUCTION WINDOW
+ * (2026-08-17).
+ *
+ * ONE definition, used by the seed AND by the store's re-derive when the phase
+ * length changes, so the window a line is born with and the window it keeps are
+ * the same rule rather than two that agree on the day they are written.
+ *
+ * It ends AT `cp`, not `cp + 1`. The old catalog added a one-period buffer past
+ * construction, which meant every seeded line rendered a permanent amber
+ * "extends into operations period" warning on a brand new project: a default
+ * that warns about itself. Extending past construction is still one edit away,
+ * which is the deliberate act the brief asks for.
+ *
+ * The staggered starts (landscaping and the selling costs from mid-build,
+ * pre-operating in the last six periods) are the catalog's own shape and are
+ * kept; they are what makes the default useful rather than uniform.
+ */
+export function deriveCostWindow(
+  baseId: string,
+  constructionPeriods: number,
+): { startPeriod: number; endPeriod: number } {
+  const cp = Math.max(1, constructionPeriods);
+  // The parcel-driven land rows and the transfer tax that follows them sit in
+  // the Y0 lump slot; their timing is the parcel schedule, not a window.
+  if (baseId === 'land-cash' || baseId === 'land-inkind' || baseId === 'rett') {
+    return { startPeriod: 0, endPeriod: 0 };
+  }
+  let startPeriod = 1;
+  if (baseId === 'landscaping' || baseId === 'marketing' || baseId === 'commission') {
+    startPeriod = Math.max(1, Math.floor(cp / 2));
+  } else if (baseId === 'pre-operating') {
+    startPeriod = Math.max(1, cp - 6);
+  }
+  return { startPeriod, endPeriod: Math.max(startPeriod, cp) };
+}
+
 // constructionPeriods is read so endPeriod can default to the phase
 // duration. If 0 (no phase yet), endPeriod defaults to 24 to match
 // makeDefaultPhase.
@@ -2939,17 +3027,37 @@ export function makeDefaultCostLines(
   values: CostLineSeedValues = 'reference',
 ): CostLine[] {
   const cp = Math.max(1, constructionPeriods);
-  // T3-defaults Fix 4 (2026-05-12): construction-line endPeriod defaults
-  // to cp+1 (one-period buffer beyond construction) per brief so heavy
-  // costs spilling into the first operations period are captured by
-  // default. User can shorten back to cp via the input. Land Cash + Land
-  // In-Kind keep startPeriod=0/endPeriod=0 (single-period upfront draw).
-  const cpEnd = cp + 1;
+  // 2026-08-17: every window now comes from `deriveCostWindow`, and every
+  // seeded line carries `windowFollowsConstruction: true` so it TRACKS the
+  // phase rather than freezing the length the phase happened to have at seed
+  // time. The wizard used to call this function without the second argument at
+  // all, so the parameter default of 24 applied and a three-period phase was
+  // seeded with lines running 1 to 25.
+  //
+  // (T3-defaults Fix 4's one-period buffer past construction is retired with
+  // it; see deriveCostWindow for why.)
+  const win = (baseId: StandardCostLineId): { startPeriod: number; endPeriod: number } =>
+    deriveCostWindow(baseId, cp);
   // M2.0L (2026-05-11): every seed line id is composed with phaseId
   // so a multi-phase project produces globally unique ids.
   // selectedLineIds reference the phase-scoped peer ids in the SAME phase.
   const id = (baseId: StandardCostLineId): string => composeLineId(baseId, phaseId);
-  const catalog: CostLine[] = [
+  // ── CATALOG ORDER (2026-08-17) ─────────────────────────────────────────
+  //
+  //   land -> hard -> soft -> developer fee -> contingency -> MARKETING LAST
+  //
+  // Order is not decoration here. A `percent_of_selected` line may charge only
+  // on lines ABOVE it (see selectedBase.ts), so this list IS the default
+  // cascade: the developer fee sits above the contingency so the contingency
+  // can charge on it, and both sit above marketing.
+  //
+  // MARKETING LAST MEANS MARKETING IS OUTSIDE THE FEE AND CONTINGENCY BASES.
+  // A reference budget does charge both on it, so this is a deliberate
+  // departure, made because a positional rule the user can see beats a hidden
+  // exception: a user who wants marketing in the base moves it up, and the row
+  // says what the move changed. Nothing already saved is affected, because no
+  // seeded selection has ever referenced the marketing line.
+  const seeded: CostLine[] = [
     // ── Land (cash + in-kind, both locked: derive from parcels) ─────────
     {
       id: id('land-cash'), phaseId, name: 'Land (Cash)',
@@ -2983,33 +3091,33 @@ export function makeDefaultCostLines(
       id: id('construction-bua'), phaseId, name: 'Construction (BUA)',
       method: 'rate_per_bua', value: 4500,
       stage: 'hard', scope: 'direct', allocationBasis: 'bua_share',
-      startPeriod: 1, endPeriod: cpEnd, phasing: 'even',
+      ...win('construction-bua'), phasing: 'even',
     },
     {
       id: id('construction-parking'), phaseId, name: 'Construction (Parking)',
       method: 'rate_per_parking_bay', value: 25000,
       stage: 'hard', scope: 'direct', allocationBasis: 'per_asset',
-      startPeriod: 1, endPeriod: cpEnd, phasing: 'even',
+      ...win('construction-parking'), phasing: 'even',
     },
     // ── Infrastructure / Landscaping ────────────────────────────────────
     {
       id: id('infrastructure'), phaseId, name: 'Infrastructure',
       method: 'rate_per_nda', value: 250,
       stage: 'hard', scope: 'direct', allocationBasis: 'land_share',
-      startPeriod: 1, endPeriod: cpEnd, phasing: 'even',
+      ...win('infrastructure'), phasing: 'even',
     },
     {
       id: id('landscaping'), phaseId, name: 'Landscaping',
       method: 'rate_per_nda', value: 75,
       stage: 'hard', scope: 'direct', allocationBasis: 'land_share',
-      startPeriod: Math.max(1, Math.floor(cp / 2)), endPeriod: cpEnd, phasing: 'even',
+      ...win('landscaping'), phasing: 'even',
     },
     // ── Pre-operating (% of Construction + Infra + Landscaping) ─────────
     {
       id: id('pre-operating'), phaseId, name: 'Pre-operating',
       method: 'percent_of_selected', value: 3,
       stage: 'soft', scope: 'indirect', allocationBasis: 'bua_share',
-      startPeriod: Math.max(1, cp - 6), endPeriod: cpEnd, phasing: 'even',
+      ...win('pre-operating'), phasing: 'even',
       selectedLineIds: [id('construction-bua'), id('construction-parking'), id('infrastructure'), id('landscaping')],
     },
     // ── Professional Fee (% of Construction BUA + Parking) ──────────────
@@ -3017,20 +3125,8 @@ export function makeDefaultCostLines(
       id: id('professional-fee'), phaseId, name: 'Professional Fee',
       method: 'percent_of_selected', value: 6,
       stage: 'soft', scope: 'indirect', allocationBasis: 'bua_share',
-      startPeriod: 1, endPeriod: cpEnd, phasing: 'even',
+      ...win('professional-fee'), phasing: 'even',
       selectedLineIds: [id('construction-bua'), id('construction-parking')],
-    },
-    // ── Marketing (% of Revenue) ────────────────────────────────────────
-    // Paid out of cash received, so it arises WHEN COLLECTIONS ARRIVE rather
-    // than across the build. Overridable per line.
-    {
-      id: id('marketing'), phaseId, name: 'Marketing',
-      method: 'percent_of_revenue_sale', value: 0,
-      // 2026-08-16: its own stage, so it stays OUT of construction cost while
-      // still being available to the developer fee and contingency bases.
-      stage: 'marketing', scope: 'indirect', allocationBasis: 'per_asset',
-      startPeriod: Math.max(1, Math.floor(cp / 2)), endPeriod: cpEnd, phasing: 'even',
-      phasingSource: 'collections',
     },
     // ── Commission (% of Revenue) ───────────────────────────────────────
     // Sell + Sell+Manage only; calc engine zeroes out for non-Sell strategies.
@@ -3042,19 +3138,58 @@ export function makeDefaultCostLines(
       id: id('commission'), phaseId, name: 'Commission',
       method: 'percent_of_selected', value: 4,
       stage: 'soft', scope: 'indirect', allocationBasis: 'per_asset',
-      startPeriod: Math.max(1, Math.floor(cp / 2)), endPeriod: cpEnd, phasing: 'even',
+      ...win('commission'), phasing: 'even',
       phasingSource: 'collections',
       selectedLineIds: [],
     },
-    // ── Contingency (% of Construction BUA + Parking) ───────────────────
+    // ── Developer Fee (% of the construction and soft costs above) ──────
+    // 2026-08-17. New to the catalog. It seeds at ZERO like every other
+    // editable rate, so it contributes nothing until a rate is typed, and its
+    // base is the hard and soft lines ABOVE it: land and the transfer tax are
+    // excluded (a fee on land value is a different agreement, and selecting it
+    // by default would charge it the moment a rate was typed), and so is
+    // commission, which is a selling cost like marketing.
+    {
+      id: id('developer-fee'), phaseId, name: 'Developer Fee',
+      method: 'percent_of_selected', value: 0,
+      stage: 'soft', scope: 'indirect', allocationBasis: 'bua_share',
+      ...win('developer-fee'), phasing: 'even',
+      selectedLineIds: [
+        id('construction-bua'), id('construction-parking'), id('infrastructure'),
+        id('landscaping'), id('pre-operating'), id('professional-fee'),
+      ],
+    },
+    // ── Contingency (% of everything above it except the selling costs) ─
+    // 2026-08-17: the base now includes infrastructure, landscaping,
+    // pre-operating, the professional fee and the DEVELOPER FEE, which is the
+    // ordinary cascade a budget is built from and the reason the positional
+    // rule replaced the old blanket ban on referencing another percent line.
+    // New seeds only, and every rate in the chain is zero until typed.
     {
       id: id('contingency'), phaseId, name: 'Contingency',
       method: 'percent_of_selected', value: 5,
       stage: 'soft', scope: 'indirect', allocationBasis: 'bua_share',
-      startPeriod: 1, endPeriod: cpEnd, phasing: 'even',
-      selectedLineIds: [id('construction-bua'), id('construction-parking')],
+      ...win('contingency'), phasing: 'even',
+      selectedLineIds: [
+        id('construction-bua'), id('construction-parking'), id('infrastructure'),
+        id('landscaping'), id('pre-operating'), id('professional-fee'), id('developer-fee'),
+      ],
+    },
+    // ── Marketing (% of Revenue). LAST, deliberately: see CATALOG ORDER ──
+    // Paid out of cash received, so it arises WHEN COLLECTIONS ARRIVE rather
+    // than across the build. Overridable per line.
+    {
+      id: id('marketing'), phaseId, name: 'Marketing',
+      method: 'percent_of_revenue_sale', value: 0,
+      // 2026-08-16: its own stage, so it stays OUT of construction cost.
+      stage: 'marketing', scope: 'indirect', allocationBasis: 'per_asset',
+      ...win('marketing'), phasing: 'even',
+      phasingSource: 'collections',
     },
   ];
+  // Every seeded line tracks the phase construction length until the user types
+  // a window of their own. See `deriveCostWindow`.
+  const catalog: CostLine[] = seeded.map((line) => ({ ...line, windowFollowsConstruction: true }));
   if (values === 'reference') return catalog;
   // Blank: the catalog structure survives, the rates do not. isLocked is the
   // discriminator rather than the line id, so a line that is genuinely a

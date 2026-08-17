@@ -42,6 +42,7 @@ import {
   composeLineId,
   deriveLineBaseId,
   isStandardCostLineBaseId,
+  deriveCostWindow,
   makeDefaultProject,
   makeDefaultPhase,
   makeDefaultParcel,
@@ -1613,6 +1614,19 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
       targetAssetId: c.targetAssetId,
       subUnitId: c.subUnitId,
       perSubUnitRates: c.perSubUnitRates,
+      // 2026-08-17: THIS LITERAL IS A FIELD WHITELIST, AND EVERY LOOSE-SHAPED
+      // SNAPSHOT GOES THROUGH IT. A CostLine field that is not named here is
+      // silently dropped on every hydrate, which is the exact inverse of the
+      // schema-tolerance rule the platform normally follows: there, a NEW
+      // column must tolerate being absent; here, a new FIELD must be added or
+      // it never survives a reload. Measured: `windowFollowsConstruction` was
+      // set correctly by the repair and gone by the time the row rendered,
+      // because a project saved without a version wrapper takes this path.
+      windowFollowsConstruction: c.windowFollowsConstruction,
+      stageOverride: c.stageOverride,
+      phasingSource: c.phasingSource,
+      costCategory: c.costCategory,
+      costDriver: c.costDriver,
     };
   });
   // If after all that the project still has zero cost lines, seed the
@@ -1768,7 +1782,103 @@ function resolveBanner(s: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * THE WIZARD'S 1-to-25 COST WINDOWS, REPAIRED (2026-08-17).
+ *
+ * `buildWizardSnapshot` seeded every cost line WITHOUT passing the phase's
+ * construction length, so the catalog's parameter default of 24 applied and
+ * every line on every wizard-created project was born running periods 1 to 25
+ * whatever the user had typed. Measured on a live project: two phases of 4 and
+ * 3 periods, twelve lines each, all seeded 1 to 25.
+ *
+ * WHAT IT REWRITES, and why that is safe to do automatically:
+ *   - Only lines whose window is EXACTLY the stale default for their catalog id
+ *     under a 24-period phase (1 to 25, or 12 to 25 for the mid-build starters,
+ *     or 18 to 25 for pre-operating). That is the wizard's fingerprint, so a
+ *     window the user has touched is left alone.
+ *   - Only when the phase is NOT 24 periods long, since on a 24-period phase
+ *     the stale value and a deliberate value are the same numbers and cannot be
+ *     told apart.
+ *   - Only standard catalog ids. A custom line's old default was derived from
+ *     the longest phase in the project, which leaves no per-phase fingerprint.
+ *   - Only lines with no `windowFollowsConstruction` field, so it never
+ *     second-guesses a line that already declares who owns its window.
+ *
+ * The repaired lines are then marked as FOLLOWING the construction window, so
+ * changing the phase length keeps them right from here on.
+ *
+ * Idempotent: after one pass the lines carry the flag and no longer match.
+ *
+ * IT RUNS FIRST, ON THE RAW SNAPSHOT, BEFORE THE MIGRATION CHAIN. Measured in
+ * the browser on the live project: Pass 8 Fix 5 clamps any endPeriod above
+ * `maxCp + 1` ACROSS THE PROJECT, and T3ClampStartEnd then pulls an end that
+ * has fallen below its start back up to it. So a stale `1 to 25` was already
+ * being rewritten to `1 to 5` on a four-period project, `12 to 25` to `12 to
+ * 12`, and in one case to `12 to 5`, which renders as an invalid window. A
+ * repair that ran after all that would be fingerprinting the damage rather than
+ * the defect, so it runs before the chain sees the numbers at all.
+ */
+export function repairStaleWizardCostWindows(snap: HydrateSnapshot): HydrateSnapshot {
+  const STALE_END = 25; // the old cp + 1 under the 24-period default
+  const legacyStart = (baseId: string): number | null => {
+    if (baseId === 'land-cash' || baseId === 'land-inkind' || baseId === 'rett') return null; // 0-0, unchanged
+    if (baseId === 'landscaping' || baseId === 'marketing' || baseId === 'commission') return 12; // floor(24 / 2)
+    if (baseId === 'pre-operating') return 18; // 24 - 6
+    if (isStandardCostLineBaseId(baseId)) return 1;
+    return null;
+  };
+  const phases = snap.phases ?? [];
+  // What the EXISTING migrations turn a stale 25 into, if this snapshot has
+  // already been opened and saved once since the wizard wrote it. Pass 8 Fix 5
+  // clamps the end to `maxCp + 1` across the PROJECT, and T3ClampStartEnd then
+  // lifts an end that has fallen below its start back up to it. Both are pure
+  // functions of numbers this snapshot already carries, so the clamped shape is
+  // as recognisable as the raw one. Measured on the live project: 1 to 25
+  // became 1 to 5, 12 to 25 became 12 to 12, 18 to 25 became 18 to 18.
+  const projectMaxCp = phases.reduce((m, p) => Math.max(m, p.constructionPeriods ?? 0), 0);
+  const clampedEnd = (start: number): number => Math.max(start, Math.min(STALE_END, projectMaxCp + 1));
+  let touched = 0;
+  const costLines = (snap.costLines ?? []).map((c) => {
+    if (c.windowFollowsConstruction !== undefined) return c;
+    const phase = phases.find((p) => p.id === c.phaseId);
+    if (!phase || phase.constructionPeriods === 24) return c;
+    const baseId = deriveLineBaseId(c.id);
+    const start = legacyStart(baseId);
+    if (start === null) return c;
+    if (c.startPeriod !== start) return c;
+    // Raw stale, or the same thing after the existing clamps have run on it.
+    if (c.endPeriod !== STALE_END && c.endPeriod !== clampedEnd(start)) return c;
+    touched += 1;
+    return {
+      ...c,
+      ...deriveCostWindow(baseId, phase.constructionPeriods),
+      windowFollowsConstruction: true,
+    };
+  });
+  if (touched === 0) return snap;
+  if (typeof console !== 'undefined') {
+    // Never silent: this MOVES money in time on an existing model, so it says
+    // how many lines it moved.
+    // eslint-disable-next-line no-console
+    console.log(`[REFM] Cost windows: ${touched} line(s) still carried the wizard's 24-period default and now follow their phase's construction window`);
+  }
+  return { ...snap, costLines };
+}
+
+/** The same repair applied to a RAW snapshot (wrapper still attached), which is
+ *  what every hydration path starts from. Only `phases` and `costLines` are
+ *  read, and both live at the top level of every snapshot shape, so the
+ *  wrapper's other fields pass through untouched. */
+function repairRawSnapshot(snapshot: unknown): unknown {
+  if (!snapshot || typeof snapshot !== 'object') return snapshot;
+  const s = snapshot as { phases?: unknown; costLines?: unknown };
+  if (!Array.isArray(s.phases) || !Array.isArray(s.costLines)) return snapshot;
+  return repairStaleWizardCostWindows(snapshot as unknown as HydrateSnapshot) as unknown;
+}
+
 export function hydrationFromAnySnapshotChecked(snapshot: unknown): CheckedHydration {
+  // Before anything else: see the header on repairStaleWizardCostWindows.
+  snapshot = repairRawSnapshot(snapshot);
   if (isV8Snapshot(snapshot)) {
     return {
       snapshot: stripV8Wrapper(snapshot),

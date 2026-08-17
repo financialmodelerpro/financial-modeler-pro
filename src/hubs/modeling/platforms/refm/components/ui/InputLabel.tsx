@@ -10,7 +10,16 @@
  * does.
  *
  * Accessibility:
- *   - Trigger is a real <button> so it joins the tab order naturally.
+ *   - Trigger is a real <button>, so it stays in the accessibility tree and a
+ *     screen reader reaches it with the virtual cursor.
+ *   - It is NOT a TAB STOP (2026-08-17). The label renders before its input, so
+ *     with the trigger in the tab order the sequence through a form ran
+ *     input A -> help icon of B -> input B, putting an icon between every pair
+ *     of fields and popping its tooltip over the next one on focus. On a data
+ *     entry screen with dozens of fields per card that makes Tab unusable, and
+ *     the ⓘ is a convenience rather than a control: everything it says is
+ *     also in the `title`, which is why the trigger carries the help text
+ *     there too.
  *   - Tooltip is identified by aria-describedby on the trigger so AT
  *     announces it on focus.
  *   - Esc key while focused dismisses the tooltip.
@@ -89,6 +98,8 @@ export default function InputLabel({ label, help, inputId, textStyle }: InputLab
         <>
           <button
             type="button"
+            tabIndex={-1}
+            title={help}
             onClick={() => setOpen(o => !o)}
             onMouseEnter={() => setOpen(true)}
             onMouseLeave={() => setOpen(false)}

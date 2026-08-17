@@ -420,6 +420,68 @@ referring to another percent line read zero.
 **Fix.** The positional rule (a line charges only on lines above it) is enforced in the ENGINE, not
 only the picker. **A wrong-but-plausible number is more dangerous than a zero.**
 
+### 7.7 A default parameter is a defect waiting for one caller to forget
+
+**Symptom.** Every project created through the wizard seeded its cost lines running periods
+**1 to 25** whatever construction length the user typed. Reported from the screen, never by a check.
+
+**Mechanism.** `makeDefaultCostLines(phaseId, constructionPeriods = 24, ...)`. The store and the
+hydrate-time seeder both passed the phase's real length; `buildWizardSnapshot` called
+`makeBlankCostLines(p.id)` and the default of 24 applied. One caller out of three, and the
+default made the omission invisible: no type error, no runtime error, a plausible number.
+
+**Fix.** For a value that MUST come from the model, prefer a required parameter. Where a default
+stays, a verifier should exercise the real caller (`buildWizardSnapshot`), not just the function.
+
+**Proof.** Measured 2026-08-17 on the live project: two phases of 4 and 3 periods, 24 seeded lines,
+every one of them 1 to 25. `verify-capex-structure` section C now drives the wizard itself.
+
+### 7.8 The damage gets migrated too, so fingerprint the defect BEFORE the chain runs
+
+**Symptom.** A repair for the 1-to-25 windows above fired on zero lines, on a project visibly
+carrying the defect.
+
+**Mechanism.** By the time it ran, the existing chain had already rewritten the numbers: Pass 8
+Fix 5 clamps any `endPeriod` above `maxCp + 1` **across the project**, and `T3ClampStartEnd` then
+lifts an end that has fallen below its start. So a stale `1 to 25` was already `1 to 5`, `12 to 25`
+was `12 to 12`, and one row was `12 to 5`, which renders as an invalid window.
+
+**Fix.** Run a repair on the RAW snapshot, before the migration chain, and recognise the clamped
+shape as well (it is a pure function of numbers the snapshot already carries). Anything else is
+fingerprinting the damage rather than the defect.
+
+**Proof.** 2026-08-17: 0 lines repaired when it ran last in the chain; 8 lines when it ran first,
+with the other phase's hand-set windows untouched.
+
+### 7.9 `migrateLegacyToV8` is a FIELD WHITELIST, and most projects go through it
+
+**Symptom.** A new `CostLine` field is written correctly by a migration and is gone by the time the
+row renders. No error anywhere.
+
+**Mechanism.** The loose path rebuilds every cost line as an object literal naming each field. A
+field not named there is dropped on every hydrate, and a snapshot saved without a version wrapper
+takes that path, which is the common case.
+
+**Fix.** When adding a field to `CostLine` (or any entity that literal rebuilds), add it there too.
+This is the INVERSE of the usual schema-tolerance rule: there, a new column must tolerate being
+absent; here, a new field must be named or it never survives a reload.
+
+**Proof.** 2026-08-17: `windowFollowsConstruction` set by the repair, `[follows]` present after the
+direct call and absent after `hydrationFromAnySnapshotChecked`, on the same snapshot.
+
+### 7.10 One entity, two answers: a derivation that outranks a stored field
+
+**Symptom.** `pre-operating` was counted as a SOFT cost by the engine's stage rollup and displayed
+as OPERATING by the row badge, the stage filter and `deriveCostType`, at the same time.
+
+**Mechanism.** The catalog seeded `stage: 'soft'` while `STANDARD_STAGE_BY_ID` said `'operating'`,
+and the rollup was the one reader of the raw `line.stage` that bypassed `deriveCostStage`.
+
+**Fix.** One derivation, read everywhere. When a stored field is outranked by a derivation, no
+reader may consult the field directly. Note the precedence itself is load-bearing: the id map
+outranking `stage` is how the 2026-08-16 marketing reclassification reached saved projects with no
+migration, so a USER's choice needs its own field (`stageOverride`), not a write to `stage`.
+
 ---
 
 ## 8. Registries and two-step registration

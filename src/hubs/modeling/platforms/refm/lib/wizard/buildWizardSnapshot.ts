@@ -170,7 +170,13 @@ export function buildWizardSnapshot(draft: WizardDraft): HydrateSnapshot {
   // in the model: the rows are On by default, so a user who did not notice them
   // was costing the scheme at rates they never chose. The catalog still ships
   // (the user gets the standard lines to fill in), the numbers do not.
-  const costLines = phases.flatMap((p) => makeBlankCostLines(p.id));
+  //
+  // 2026-08-17: THE PHASE'S OWN CONSTRUCTION LENGTH IS PASSED. It was omitted,
+  // so the parameter default of 24 applied to every project the wizard has ever
+  // created and every seeded line was born running periods 1 to 25 whatever the
+  // user had typed. The store and the hydrate-time seeder both passed it
+  // correctly, so this one call site was the whole of the defect.
+  const costLines = phases.flatMap((p) => makeBlankCostLines(p.id, p.constructionPeriods));
 
   // Default financing tranche per phase
   const financingTranches: FinancingTranche[] = phases.map((p, i) =>

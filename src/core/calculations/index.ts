@@ -79,6 +79,7 @@ import type {
   FundingMethodId,
   ParcelFundingConfig,
   ProjectFinancingConfig,
+  CapexPhasingSource,
 } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import {
   capexPhasingIsInert,
@@ -92,6 +93,9 @@ import {
   PER_SUBUNIT_RATE_KEY_PARKING,
   COST_STAGES,
   deriveLineBaseId,
+  PARCEL_WEIGHTED_AVG,
+  PARCEL_WEIGHTED_AVG_ALL,
+  PARCEL_CUSTOM_RATE,
 } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
 // ── Operating end date (T2P3 Fix 3) ───────────────────────────────────────
@@ -323,6 +327,51 @@ export interface AssetLandBreakdown {
   landValue: number;
   rate: number;
   splits: { parcelId: string; sqm: number; rate: number; value: number }[];
+  /**
+   * WHY THE RATE IS ZERO, when it is (2026-08-17).
+   *
+   * A land rate of zero is indistinguishable from a land rate the user has not
+   * typed yet, and until this field existed the difference was invisible
+   * everywhere: a parcel reference that matched nothing resolved to rate 0,
+   * value 0, and no banner, no check and no cell said so. That is the third
+   * silent zero of this family (after the allocation-share zero of 2026-08-15
+   * and the `Number(null)` discount zero of 2026-08-09), so the reason is now
+   * part of the return value rather than something a caller could forget to
+   * work out.
+   *
+   * Absent means the rate resolved from something real, including a genuine
+   * zero the user typed on a parcel (that is `zero_parcel_rate`, which is
+   * reported too: it is a real answer, but a reader still deserves to know the
+   * cost is zero because the rate is).
+   */
+  rateIssue?: LandRateIssue;
+}
+
+/** Machine-readable reasons a resolved land rate is zero. */
+export type LandRateIssue =
+  /** The asset points at a parcel id that exists nowhere in the project. */
+  | 'parcel_missing'
+  /** The parcel resolved, but its rate is zero. */
+  | 'zero_parcel_rate'
+  /** Weighted average selected, but the scope it averages over holds no parcels. */
+  | 'no_parcels_in_scope'
+  /** Custom rate selected and left at zero. */
+  | 'zero_custom_rate';
+
+/** One sentence, for a UI that must explain the zero it is showing. Shared so
+ *  the asset card, the reconciliation block and the verifier all say the same
+ *  thing. */
+export function landRateIssueText(issue: LandRateIssue): string {
+  switch (issue) {
+    case 'parcel_missing':
+      return 'This asset points at a land parcel that no longer exists, so its land cost is zero. Pick a parcel.';
+    case 'zero_parcel_rate':
+      return 'The selected parcel has a rate of 0, so this asset carries no land cost.';
+    case 'no_parcels_in_scope':
+      return 'Weighted average over a scope that contains no parcels, so the rate is zero. Pick a parcel, or the all-parcels weighted average.';
+    case 'zero_custom_rate':
+      return 'Custom rate is 0, so this asset carries no land cost.';
+  }
 }
 
 export function computeAssetLandBreakdown(
@@ -334,11 +383,29 @@ export function computeAssetLandBreakdown(
 ): AssetLandBreakdown {
   const phaseParcels = parcels.filter((p) => p.phaseId === asset.phaseId);
 
+  // A PARCEL IS PROJECT-WIDE, NOT PHASE-WIDE (2026-08-17).
+  //
+  // An explicit parcel reference now resolves against EVERY parcel in the
+  // project. Land is bought once and built on over several phases, which is the
+  // ordinary case, and scoping the lookup to the asset's own phase made a Phase
+  // 2 asset resolve to `undefined` -> rate 0 -> land value 0, silently. It was
+  // reachable by doing nothing at all: the asset factory seeds
+  // `landAllocation.parcelId` from `phaseParcels[0] ?? parcels[0]`, and that
+  // fallback crosses phases, so a Phase 2 asset was BORN holding a reference
+  // this lookup could not resolve.
+  //
+  // Only the EXPLICIT lookup widens. The implicit allocation rules
+  // (autoByBua / percent / equal share) keep their phase scoping, so no model
+  // that was resolving correctly moves.
+  const findParcel = (id: string): Parcel | undefined => parcels.find((p) => p.id === id);
+
   // Branch 1: explicit multi-parcel splits.
   const splits = asset.landAllocation?.multiParcelSplits;
   if (splits && splits.length > 0) {
+    let missing = false;
     const resolved = splits.map((sp) => {
-      const parcel = phaseParcels.find((p) => p.id === sp.parcelId);
+      const parcel = findParcel(sp.parcelId);
+      if (!parcel) missing = true;
       const sqm = Math.max(0, sp.sqm);
       const rate = parcel ? Math.max(0, parcel.rate) : 0;
       return { parcelId: sp.parcelId, sqm, rate, value: sqm * rate };
@@ -346,32 +413,40 @@ export function computeAssetLandBreakdown(
     const landSqm = resolved.reduce((s, r) => s + r.sqm, 0);
     const landValue = resolved.reduce((s, r) => s + r.value, 0);
     const rate = landSqm > 0 ? landValue / landSqm : 0;
-    return { landSqm, landValue, rate, splits: resolved };
+    const rateIssue: LandRateIssue | undefined = missing
+      ? 'parcel_missing'
+      : (rate <= 0 && landSqm > 0 ? 'zero_parcel_rate' : undefined);
+    return { landSqm, landValue, rate, splits: resolved, rateIssue };
   }
 
-  // M2.0g Fix 2: explicit custom rate sentinel.
-  const PARCEL_WEIGHTED_AVG = '__weighted__';
-  const PARCEL_CUSTOM_RATE = '__custom__';
   const singleParcelId = asset.landAllocation?.parcelId;
   const sqm = Math.max(0, asset.landAllocation?.sqm ?? asset.landAreaSqm ?? 0);
 
+  // M2.0g Fix 2: explicit custom rate sentinel.
   if (mode === 'sqm' && singleParcelId === PARCEL_CUSTOM_RATE) {
     const rate = Math.max(0, asset.landAllocation?.customRate ?? 0);
     const value = sqm * rate;
-    return { landSqm: sqm, landValue: value, rate, splits: [] };
+    return { landSqm: sqm, landValue: value, rate, splits: [], rateIssue: rate > 0 ? undefined : 'zero_custom_rate' };
   }
 
-  // M2.0g Fix 2: explicit weighted-average sentinel (mode A).
-  if (mode === 'sqm' && singleParcelId === PARCEL_WEIGHTED_AVG) {
-    const agg = computeLandAggregate(phaseParcels);
+  // M2.0g Fix 2: explicit weighted-average sentinel (mode A), scoped to the
+  // asset's own phase. 2026-08-17: `PARCEL_WEIGHTED_AVG_ALL` is the same thing
+  // over every parcel in the project, which is the only weighted answer a phase
+  // holding no parcels of its own can give.
+  if (mode === 'sqm' && (singleParcelId === PARCEL_WEIGHTED_AVG || singleParcelId === PARCEL_WEIGHTED_AVG_ALL)) {
+    const scope = singleParcelId === PARCEL_WEIGHTED_AVG_ALL ? parcels : phaseParcels;
+    const agg = computeLandAggregate(scope);
     const rate = agg.weightedRate;
     const value = sqm * rate;
-    return { landSqm: sqm, landValue: value, rate, splits: [] };
+    const rateIssue: LandRateIssue | undefined = rate > 0
+      ? undefined
+      : (agg.totalAreaSqm > 0 ? 'zero_parcel_rate' : 'no_parcels_in_scope');
+    return { landSqm: sqm, landValue: value, rate, splits: [], rateIssue };
   }
 
   // Branch 2: single explicit parcel (mode A only).
   if (mode === 'sqm' && singleParcelId) {
-    const parcel = phaseParcels.find((p) => p.id === singleParcelId);
+    const parcel = findParcel(singleParcelId);
     const rate = parcel ? Math.max(0, parcel.rate) : 0;
     const value = sqm * rate;
     return {
@@ -379,6 +454,7 @@ export function computeAssetLandBreakdown(
       landValue: value,
       rate,
       splits: [{ parcelId: singleParcelId, sqm, rate, value }],
+      rateIssue: parcel ? (rate > 0 ? undefined : 'zero_parcel_rate') : 'parcel_missing',
     };
   }
 
@@ -386,13 +462,17 @@ export function computeAssetLandBreakdown(
   const agg = computeLandAggregate(phaseParcels);
   const landSqm = computeAssetLandSqm(asset, parcels, assets, subUnits, mode);
   if (agg.totalAreaSqm <= 0 || landSqm <= 0) {
-    return { landSqm, landValue: 0, rate: 0, splits: [] };
+    // A zero here is only worth explaining when the asset HAS land to value.
+    return {
+      landSqm, landValue: 0, rate: 0, splits: [],
+      rateIssue: landSqm > 0 ? 'no_parcels_in_scope' : undefined,
+    };
   }
   // Value share = landSqm / total, applied to total value.
   const valueShare = agg.totalAreaSqm > 0 ? landSqm / agg.totalAreaSqm : 0;
   const landValue = agg.totalValue * valueShare;
   const rate = landSqm > 0 ? landValue / landSqm : 0;
-  return { landSqm, landValue, rate, splits: [] };
+  return { landSqm, landValue, rate, splits: [], rateIssue: rate > 0 ? undefined : 'zero_parcel_rate' };
 }
 
 // M2.0g Fix 2 (2026-05-06): project-level land reconciliation. Renders
@@ -1163,6 +1243,41 @@ export interface AssetCostBreakdown {
   // engine's existing distributeItemCost call inside the per-period
   // loop fills both perPeriod (aggregated) and this map.
   perLinePerPeriod: Record<string, number[]>;
+  /**
+   * THE WINDOW EACH LINE ACTUALLY SPENT IN (2026-08-17).
+   *
+   * A followed source replaces the WINDOW, not just the shape (see
+   * capexPhasing.ts), so a line following collections has not spent in the
+   * window stored on it since that mechanism shipped. The row went on rendering
+   * the STORED window in two editable boxes, which is how a marketing line
+   * showed periods 1 to 25 while the engine spent it when cash arrived.
+   *
+   * The engine now reports what it decided, and the screen renders THAT, so the
+   * two cannot disagree. `source` and `degraded` come straight from the same
+   * resolution, which is what lets the row say "follows collections, none yet"
+   * instead of silently showing a construction window.
+   */
+  resolvedWindowByLineId: Record<string, ResolvedLineWindow>;
+  /**
+   * The base amount each `percent_of_selected` line charged on (2026-08-17).
+   *
+   * The row caption has always been able to say "10% x <base>" and has always
+   * been handed `undefined`, so every such row read "10% x 0" whatever the base
+   * was. Reported from the pass that computes it rather than recomputed at the
+   * caption, so the number shown is the number used.
+   */
+  selectedBaseByLineId: Record<string, number>;
+}
+
+export interface ResolvedLineWindow {
+  startPeriod: number;
+  endPeriod: number;
+  /** `own` / `inherit` / `land_cash` / `collections`. */
+  source: CapexPhasingSource;
+  /** True when the line follows a source that yielded nothing and fell through. */
+  degraded: boolean;
+  /** Plain sentence from the shared resolver. */
+  reason: string;
 }
 
 /**
@@ -1241,6 +1356,8 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
       perPeriodLandTotal: new Array<number>(cpZero).fill(0),
       perPeriodLandInKind: new Array<number>(cpZero).fill(0),
       perLinePerPeriod: {},
+      resolvedWindowByLineId: {},
+      selectedBaseByLineId: {},
     };
   }
   const phaseAssets = assets.filter((a) => a.phaseId === phase.id && a.visible);
@@ -1383,7 +1500,11 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
 
   // Pass 2: percent_of_construction = % × sum of stage='hard' direct totals.
   const constructionBase = resolved
-    .filter((r) => !['percent_of_selected', 'percent_of_construction'].includes(r.method) && r.line.stage === 'hard')
+    // 2026-08-17: derived stage, so a line the user has reclassified as hard
+    // enters the construction base and one reclassified away from hard leaves
+    // it. Was the raw field, the second of the two readers that bypassed the
+    // shared derivation.
+    .filter((r) => !['percent_of_selected', 'percent_of_construction'].includes(r.method) && deriveCostStage(r.line) === 'hard')
     .reduce((s, r) => s + (directTotals[r.line.id] ?? 0), 0);
 
   const percentTotals: Record<string, number> = {};
@@ -1419,6 +1540,7 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
   // Upward-only references also make a cycle unrepresentable, which is why the
   // picker no longer needs to ban a whole method to stay safe.
   const visibleForBase = assetVisibleLines(phaseLines, phase.id, asset.id, project.country);
+  const selectedBaseByLineId: Record<string, number> = {};
   for (const r of resolved) {
     if (r.method === 'percent_of_selected') {
       const ids = allowedSelectedIds(visibleForBase, r.line.id, r.line.selectedLineIds);
@@ -1427,6 +1549,7 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
         0,
       );
       const v = clamp(r.value, 0, 100);
+      selectedBaseByLineId[r.line.id] = base;
       percentTotals[r.line.id] = base * (v / 100);
     }
   }
@@ -1438,7 +1561,13 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
   for (const r of resolved) {
     const t = byLineId[r.line.id] ?? 0;
     total += t;
-    byStage[r.line.stage] += t;
+    // 2026-08-17: `deriveCostStage`, not the raw field. This rollup was the one
+    // reader of `line.stage` that bypassed the shared derivation, so a line
+    // whose stored stage differed from its derived one was counted in one
+    // bucket and displayed in another (measured on `pre-operating`, seeded soft
+    // and mapped operating). It is also what makes a user's stage choice reach
+    // the Capex-by-Stage table at all.
+    byStage[deriveCostStage(r.line)] += t;
   }
 
   // Per-period schedule. T3-edit-runtime v6 (2026-05-12): size the
@@ -1518,6 +1647,10 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
   // predates this. `capexPhasingIsInert` is checked rather than trusting the
   // resolution to be an identity: "we did not run" is a stronger guarantee than
   // "we ran and it cancelled out".
+  // What the engine decided about each line's timing, reported to the screen.
+  // Filled by the resolution below when it runs, and from the lines' own
+  // windows when it does not, so the map is complete either way.
+  const resolvedWindowByLineId: Record<string, ResolvedLineWindow> = {};
   if (!capexPhasingIsInert(asset, phaseLines, costOverrides)) {
     // The land cash SHAPE, taken from the land lines' own resolved windows and
     // any deferred parcel schedule. Shape only: RETT follows when the land cash
@@ -1558,7 +1691,24 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
       r.distribution = decision.effective.distribution;
       r.startPeriod = decision.effective.startPeriod;
       r.endPeriod = decision.effective.endPeriod;
+      resolvedWindowByLineId[r.line.id] = {
+        startPeriod: decision.effective.startPeriod,
+        endPeriod: decision.effective.endPeriod,
+        source: decision.source,
+        degraded: decision.resolution.degraded,
+        reason: decision.resolution.reason,
+      };
     }
+  }
+  for (const r of resolved) {
+    if (resolvedWindowByLineId[r.line.id]) continue;
+    resolvedWindowByLineId[r.line.id] = {
+      startPeriod: r.startPeriod,
+      endPeriod: r.endPeriod,
+      source: 'own',
+      degraded: false,
+      reason: 'This line spends on its own window.',
+    };
   }
 
   const perLinePerPeriod: Record<string, number[]> = {};
@@ -1622,7 +1772,10 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
     }
   }
 
-  return { byLineId, byStage, total, perPeriod, perPeriodLandTotal, perPeriodLandInKind, perLinePerPeriod };
+  return {
+    byLineId, byStage, total, perPeriod, perPeriodLandTotal, perPeriodLandInKind,
+    perLinePerPeriod, resolvedWindowByLineId, selectedBaseByLineId,
+  };
 }
 
 // ── Phase cost rollup ──────────────────────────────────────────────────────
@@ -1746,13 +1899,33 @@ const STANDARD_STAGE_BY_ID: Record<string, CostStage> = {
   'construction-parking': 'hard',
   'infrastructure':       'hard',
   'landscaping':          'hard',
-  'pre-operating':        'operating',
+  // 2026-08-17: SOFT, not operating. The map and the catalog seed had disagreed
+  // since the map was written (the seed has always said 'soft'), and because
+  // the engine's stage rollup read the raw `line.stage` while the row badge,
+  // the stage filter and deriveCostType read this map, one line was soft in the
+  // Capex-by-Stage table and operating everywhere else. Pre-operating is a
+  // development cost incurred before operations begin, and soft is what the
+  // catalog already seeds, so settling on soft moves the fewest surfaces: the
+  // stage rollup is unchanged and the badge / filter / cost type now agree
+  // with it.
+  'pre-operating':        'soft',
   'professional-fee':     'soft',
   'commission':           'soft',
+  // 2026-08-17: new to the catalog. A developer fee is a soft cost.
+  'developer-fee':        'soft',
   'contingency':          'soft',
 };
 
 export function deriveCostStage(line: CostLine): CostStage {
+  // 2026-08-17: the USER'S OWN classification outranks everything. Rows can be
+  // added, renamed and deleted, so the catalog's answer is a default, not a
+  // fact, and a modeller must be able to say that a line is marketing.
+  //
+  // `stageOverride` is a separate field rather than a write to `stage` on
+  // purpose: the id map below outranks `stage`, and that precedence is how the
+  // 2026-08-16 reclassification of marketing reached every already-saved
+  // project with no migration. See the field's own note in module1-types.
+  if (line.stageOverride) return line.stageOverride;
   // Standard line -> id-derived. Custom line -> user-picked stage on
   // the line (set when the popup added it). Fallback: stored stage.
   // M2.0L (2026-05-11): ids are now phase-scoped (`baseId__phaseId`);

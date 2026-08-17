@@ -38,6 +38,8 @@ import {
   makeBlankCostLines,
   makeCompanionSubUnit,
   makeDefaultFinancingTranche,
+  deriveCostWindow,
+  deriveLineBaseId,
 } from './module1-types';
 import { applyStrategySwitch, assetHasStrategyAssumptions } from './strategySwitch';
 import {
@@ -146,6 +148,27 @@ export interface Module1Store {
 
   setCostLines: (costLines: CostLine[]) => void;
   addCostLine: (costLine: CostLine) => void;
+  /**
+   * Insert a line directly above or below an existing one (2026-08-17).
+   *
+   * ORDER IS LOAD-BEARING on this array: a `percent_of_selected` line may
+   * charge only on lines ABOVE it (selectedBase.ts), and the Capex table
+   * renders `costLines` filtered and never sorted. Until this existed the only
+   * way to add a line was to append, so position was a synonym for creation
+   * order and a developer fee added after a contingency could never enter its
+   * base.
+   */
+  insertCostLineNear: (costLine: CostLine, anchorLineId: string, position: 'above' | 'below') => void;
+  /**
+   * Move a line one position within ITS OWN PHASE's block of the array.
+   *
+   * `neighbourId` is the row the user can actually SEE above or below, which is
+   * not always the adjacent array element: the Capex table can be filtered by
+   * stage, and swapping with a hidden line would move the row a distance the
+   * user did not ask for. When it is given, those two lines swap. Without it
+   * the nearest same-phase line is used.
+   */
+  moveCostLine: (id: string, direction: 'up' | 'down', neighbourId?: string) => void;
   updateCostLine: (id: string, patch: Partial<CostLine>) => void;
   removeCostLine: (id: string) => void;
   setCostOverride: (override: CostOverride) => void;
@@ -476,10 +499,30 @@ export function createModule1Store() {
       const after = { ...before, ...patch };
       const nextPhases = s.phases.map((p) => (p.id === id ? after : p));
 
+      // 2026-08-17: THE COST WINDOWS FOLLOW THE CONSTRUCTION LENGTH.
+      //
+      // Only lines carrying `windowFollowsConstruction` move, which is the
+      // seeded catalog on a project created after this date and nothing else,
+      // so no saved model is touched. Editing Start or End on a row clears the
+      // flag, and from then on that line keeps whatever the user gave it: this
+      // is the "free to extend beyond it deliberately" half of the brief.
+      //
+      // Deliberately NOT the general phase-date cascade described below. That
+      // one rewrote user-entered per-period arrays and was disabled for it.
+      // This rewrites a DERIVED value that the row labels as derived, and it is
+      // idempotent: re-running it on the same phase length changes nothing.
+      const nextCostLines = before.constructionPeriods !== after.constructionPeriods
+        ? s.costLines.map((c) => (
+            c.phaseId === id && c.windowFollowsConstruction
+              ? { ...c, ...deriveCostWindow(deriveLineBaseId(c.id), after.constructionPeriods) }
+              : c
+          ))
+        : s.costLines;
+
       const oldYear = before.startDate ? new Date(before.startDate).getUTCFullYear() : null;
       const newYear = after.startDate ? new Date(after.startDate).getUTCFullYear() : null;
       if (oldYear == null || newYear == null || oldYear === newYear) {
-        return { phases: nextPhases };
+        return { phases: nextPhases, costLines: nextCostLines };
       }
 
       const yearOf = (p: Phase, fallback: number): number =>
@@ -495,7 +538,7 @@ export function createModule1Store() {
         ? { ...s.project, startDate: `${newOrigin}-01-01` }
         : s.project;
 
-      return { phases: nextPhases, project: nextProject };
+      return { phases: nextPhases, project: nextProject, costLines: nextCostLines };
     }),
     removePhase: (id) => set((s) => {
       // Cascade: drop assets / subUnits / parcels / costLines / tranches /
@@ -674,6 +717,45 @@ export function createModule1Store() {
 
     setCostLines: (costLines) => set({ costLines }),
     addCostLine: (costLine) => set((s) => ({ costLines: [...s.costLines, costLine] })),
+    insertCostLineNear: (costLine, anchorLineId, position) => set((s) => {
+      const idx = s.costLines.findIndex((c) => c.id === anchorLineId);
+      // Unknown anchor appends, which is the old behaviour and never loses the
+      // line.
+      if (idx < 0) return { costLines: [...s.costLines, costLine] };
+      const at = position === 'above' ? idx : idx + 1;
+      const next = [...s.costLines];
+      next.splice(at, 0, costLine);
+      return { costLines: next };
+    }),
+    moveCostLine: (id, direction, neighbourId) => set((s) => {
+      const idx = s.costLines.findIndex((c) => c.id === id);
+      if (idx < 0) return {};
+      const line = s.costLines[idx];
+      if (neighbourId) {
+        const nIdx = s.costLines.findIndex((c) => c.id === neighbourId);
+        if (nIdx < 0 || s.costLines[nIdx].phaseId !== line.phaseId) return {};
+        const swapped = [...s.costLines];
+        swapped[idx] = swapped[nIdx];
+        swapped[nIdx] = line;
+        return { costLines: swapped };
+      }
+      // WITHIN THE PHASE. The array holds every phase's lines end to end, and a
+      // line that crossed into another phase's block would keep its own
+      // phaseId, so it would vanish from both tables (each filters by phaseId)
+      // while still changing what its old neighbours may charge on. The swap
+      // partner is therefore the nearest line IN THE SAME PHASE, which is also
+      // what the user sees directly above or below the row.
+      const step = direction === 'up' ? -1 : 1;
+      let partner = -1;
+      for (let i = idx + step; i >= 0 && i < s.costLines.length; i += step) {
+        if (s.costLines[i].phaseId === line.phaseId) { partner = i; break; }
+      }
+      if (partner < 0) return {}; // already at the top / bottom of its phase
+      const next = [...s.costLines];
+      next[idx] = next[partner];
+      next[partner] = line;
+      return { costLines: next };
+    }),
     updateCostLine: (id, patch) => set((s) => ({
       costLines: s.costLines.map((c) => (c.id === id ? { ...c, ...patch } : c)),
     })),
@@ -928,7 +1010,8 @@ export function createModule1Store() {
       'setParcels', 'addParcel', 'updateParcel', 'removeParcel',
       'setAssets', 'addAsset', 'updateAsset', 'removeAsset',
       'setSubUnits', 'addSubUnit', 'updateSubUnit', 'removeSubUnit',
-      'setCostLines', 'addCostLine', 'updateCostLine', 'removeCostLine',
+      'setCostLines', 'addCostLine', 'insertCostLineNear', 'moveCostLine',
+      'updateCostLine', 'removeCostLine',
       'setCostOverride', 'removeCostOverride',
       'setFinancingTranches', 'addFinancingTranche', 'updateFinancingTranche', 'removeFinancingTranche',
       'setEquityContributions', 'addEquityContribution', 'updateEquityContribution', 'removeEquityContribution',
