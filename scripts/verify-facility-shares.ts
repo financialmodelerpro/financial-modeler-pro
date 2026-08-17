@@ -7,7 +7,8 @@
  * deliberately stopped windowing a tranche to `tranche.phaseId`, because a bank
  * funds drawdowns in every phase and the interest on all of them is IDC. A
  * facility therefore draws the project debt requirement TIMES ITS SHARE, and
- * `normaliseFacilityShares` gives an equal split when no share is set.
+ * `resolveFacilityShares` gives an equal split when NO share is set, and
+ * otherwise uses every share exactly as typed.
  *
  * The wizard seeded one facility PER PHASE, so a two-phase project opened with
  * two facilities at 50% each: two tables reading exactly the same numbers, with
@@ -28,7 +29,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { normaliseFacilityShares } from '../src/core/calculations/financing/shares';
+import {
+  resolveFacilityShares, facilityShareTotal, facilityShareSumIsValid,
+} from '../src/core/calculations/financing/shares';
 import { computeFinancingResult } from '../src/core/calculations/financing';
 import { buildWizardSnapshot } from '../src/hubs/modeling/platforms/refm/lib/wizard/buildWizardSnapshot';
 import {
@@ -99,7 +102,7 @@ section('A. The wizard seeds ONE facility, not one per phase');
   check('and it still carries a phase (removePhase cascades on it)',
     !!snap.financingTranches[0]?.phaseId);
 
-  const shares = normaliseFacilityShares(snap.financingTranches);
+  const shares = resolveFacilityShares(snap.financingTranches);
   check('a lone facility takes the whole requirement',
     shares.get(snap.financingTranches[0].id) === 100, String(shares.get(snap.financingTranches[0].id)));
 }
@@ -111,7 +114,7 @@ section('B. Two facilities are HALVES, and the combined is their sum');
   const one = snap.financingTranches;
   const two = [...one, makeDefaultFinancingTranche('tranche_2', 'phase_2')];
 
-  const shares = normaliseFacilityShares(two);
+  const shares = resolveFacilityShares(two);
   check('no explicit share means an equal split',
     shares.get('tranche_1') === 50 && shares.get('tranche_2') === 50,
     [...shares.entries()].map(([k, v]) => `${k}=${v}`).join(', '));
@@ -162,6 +165,117 @@ section('B. Two facilities are HALVES, and the combined is their sum');
     `${Math.round(sum(rw.facilities.get('tranche_1')!.drawSchedule))}`);
   check('and still sums to the requirement',
     Math.abs(sum(rw.combined.totalDrawdown) - requirement) < 1);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+section('E. A share is used EXACTLY as typed');
+
+{
+  const two = [
+    { ...snap.financingTranches[0], facilitySharePct: 100 },
+    { ...makeDefaultFinancingTranche('tranche_2', 'phase_2'), facilitySharePct: 50 },
+  ] as FinancingTranche[];
+
+  // THE REPORTED CASE. Typing 100 into the first of two facilities, with the
+  // second still at 50, used to rescale to 66.67 and 33.33.
+  const shares = resolveFacilityShares(two);
+  check('100 typed is 100 in force', shares.get('tranche_1') === 100, String(shares.get('tranche_1')));
+  check('the other facility keeps ITS typed number, untouched',
+    shares.get('tranche_2') === 50, String(shares.get('tranche_2')));
+  check('nothing was rescaled to sum to 100',
+    facilityShareTotal(shares) === 150, String(facilityShareTotal(shares)));
+  check('and the sum is reported as wrong', !facilityShareSumIsValid(shares));
+
+  const r = computeFinancingResult(ctx(two));
+  const requirement = sum(r.debtEquitySplit.debt);
+  check('the first facility draws the WHOLE requirement',
+    Math.abs(sum(r.facilities.get('tranche_1')!.drawSchedule) - requirement) < 1,
+    `${Math.round(sum(r.facilities.get('tranche_1')!.drawSchedule))} vs ${Math.round(requirement)}`);
+  check('so a 150% total really does draw 150%',
+    Math.abs(sum(r.combined.totalDrawdown) - requirement * 1.5) < 1,
+    `${Math.round(sum(r.combined.totalDrawdown))}`);
+  // The engine's own reconciliation carries the check, and it could never fire
+  // while the shares were rescaled to 100 by construction.
+  check('the reconciliation reports it rather than the model hiding it',
+    !r.reconciliation.ok && r.reconciliation.issues.some((i) => /Facility shares sum/.test(i)),
+    r.reconciliation.issues.slice(0, 2).join(' | '));
+
+  // One facility carrying everything is now REACHABLE, which it was not.
+  const soloed = [
+    { ...two[0], facilitySharePct: 100 },
+    { ...two[1], facilitySharePct: 0 },
+  ] as FinancingTranche[];
+  const rs = resolveFacilityShares(soloed);
+  check('100 and 0 is a valid, reachable state',
+    rs.get('tranche_1') === 100 && rs.get('tranche_2') === 0 && facilityShareSumIsValid(rs));
+  const rSolo = computeFinancingResult(ctx(soloed));
+  check('and it draws the requirement exactly once',
+    Math.abs(sum(rSolo.combined.totalDrawdown) - requirement) < 1,
+    `${Math.round(sum(rSolo.combined.totalDrawdown))} vs ${Math.round(requirement)}`);
+  check('with the zero-share facility drawing nothing',
+    sum(rSolo.facilities.get('tranche_2')!.drawSchedule) === 0);
+  check('and the reconciliation clean again',
+    !rSolo.reconciliation.issues.some((i) => /Facility shares sum/.test(i)));
+
+  // An under-100 total is equally verbatim: it underfunds and says so.
+  const under = [
+    { ...two[0], facilitySharePct: 60 },
+    { ...two[1], facilitySharePct: 20 },
+  ] as FinancingTranche[];
+  const ru = computeFinancingResult(ctx(under));
+  check('80% typed draws 80%, not a rescaled 100%',
+    Math.abs(sum(ru.combined.totalDrawdown) - requirement * 0.8) < 1,
+    `${Math.round(sum(ru.combined.totalDrawdown))} vs ${Math.round(requirement * 0.8)}`);
+  check('and that is reported too',
+    ru.reconciliation.issues.some((i) => /Facility shares sum/.test(i)));
+
+  // A missing share no longer discards the typed ones. The old code equal-split
+  // everything the moment ONE share was absent.
+  const partial = [
+    { ...two[0], facilitySharePct: 70 },
+    { ...two[1], facilitySharePct: undefined },
+  ] as unknown as FinancingTranche[];
+  const rp = resolveFacilityShares(partial);
+  check('a typed share survives a neighbour with none',
+    rp.get('tranche_1') === 70, String(rp.get('tranche_1')));
+  check('and the one with none resolves to zero, not to an equal split',
+    rp.get('tranche_2') === 0, String(rp.get('tranche_2')));
+
+  // Absent EVERYWHERE still splits equally: nothing was typed, so nothing is
+  // being overridden.
+  const none = [
+    { ...two[0], facilitySharePct: undefined },
+    { ...two[1], facilitySharePct: undefined },
+  ] as unknown as FinancingTranche[];
+  const rn = resolveFacilityShares(none);
+  check('no shares anywhere still means an equal split',
+    rn.get('tranche_1') === 50 && rn.get('tranche_2') === 50);
+
+  check('a negative share is floored at zero',
+    resolveFacilityShares([{ ...two[0], facilitySharePct: -20 }] as FinancingTranche[]).get('tranche_1') === 0);
+  check('an existing facility takes no share at all',
+    resolveFacilityShares([{ ...two[0], origin: 'existing' }] as FinancingTranche[]).size === 0);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+section('F. The screen states a wrong sum instead of repairing it');
+
+{
+  const ui = read('src/hubs/modeling/platforms/refm/components/modules/Module1Financing.tsx');
+  check('a share-sum warning exists', ui.includes('fin-share-sum-warning'));
+  check('it prints the actual total', ui.includes('shareTotal.toFixed(2)'));
+  check('it says which way the model is wrong',
+    ui.includes('raises more debt than the project needs')
+    && ui.includes('leaves part of the requirement unfunded'));
+  check('the fix is one explicit click, not automatic', ui.includes('fin-share-sum-fix'));
+  check('typing into one share does not touch the others',
+    /const next = tranches\.map\(\(t\) => \(t\.id === id \? \{ \.\.\.t, facilitySharePct: raw \} : t\)\)/.test(ui));
+  check('the "Normalised: x%" caption is gone', !ui.includes('Normalised: {normalisedShare'));
+  const shares = read('src/core/calculations/financing/shares.ts');
+  check('the resolver no longer divides through by the total',
+    !/\/ total\) \* 100/.test(shares));
+  check('and its name no longer claims to normalise',
+    !shares.includes('export function normaliseFacilityShares'));
 }
 
 // ════════════════════════════════════════════════════════════════════════════

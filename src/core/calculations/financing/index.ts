@@ -32,7 +32,7 @@ import { aggregateProjectCapex } from './capex';
 import type { CollectionsSource } from '../capexPhasing';
 import { computeFundingRequirement, type FundingGapInputs } from './funding';
 import { computeDebtEquitySplit } from './debtEquity';
-import { normaliseFacilityShares } from './shares';
+import { resolveFacilityShares } from './shares';
 import { computeFacilitySchedule, combineDebtService } from './schedule';
 import { computeEquityMovement } from './equityMovement';
 import { buildExistingAggregate } from './existing';
@@ -118,7 +118,7 @@ export function computeFinancingResult(ctx: FinancingContext): FinancingComputat
     ctx.project,
   );
 
-  const shares = normaliseFacilityShares(ctx.tranches);
+  const shares = resolveFacilityShares(ctx.tranches);
   const existing = buildExistingAggregate(ctx.phases, ctx.tranches, ctx.assets, ctx.project);
 
   // Conditional IDC (2026-06-02): mutable per-period cash budget shared

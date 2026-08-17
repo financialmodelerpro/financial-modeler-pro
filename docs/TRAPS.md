@@ -453,6 +453,40 @@ fingerprinting the damage rather than the defect.
 **Proof.** 2026-08-17: 0 lines repaired when it ran last in the chain; 8 lines when it ran first,
 with the other phase's hand-set windows untouched.
 
+### 7.15 Silent normalisation makes the screen and the model disagree
+
+**Symptom.** Setting the first of two facility shares to 100% produced 66.67% and 33.33%. The
+typed number was not the number in force, and there was no way to make one facility carry the
+whole requirement.
+
+**Mechanism.** `normaliseFacilityShares` rescaled: any set of shares whose sum was not 100 was
+divided through by that sum. 100 and 50 became 66.67 and 33.33 on every recompute. The card even
+printed "Normalised: 66.67%" underneath the 100, so the divergence was visible as a fait
+accompli rather than as a problem to fix.
+
+Worse, one MISSING share discarded every typed one: `anyMissing` triggered an equal split across
+all of them, so a deliberate 70 became 50 because a neighbour had no value.
+
+And the reconciliation already carried the right check, `Facility shares sum N (expected 100)`,
+which **could never fire** because the function it guarded guaranteed 100 by construction. A
+check made vacuous by the very defect it was written for.
+
+**Fix.** Use the shares verbatim, floored at zero. Keep the equal split ONLY when no share is
+typed anywhere, since then nothing is being overridden. A share absent while another is typed
+resolves to zero. A sum that is not 100 is a real state the model is in, so it is stated: the
+reconciliation check now fires, and the tab says which way the model is wrong ("raises more debt
+than the project needs" / "leaves part of the requirement unfunded") with a one-click, explicit
+repair.
+
+**The general form.** Normalising an input behind the user's back is worse than either accepting
+it or rejecting it: it cannot be seen, it cannot be overridden, and it converts an arithmetic
+mistake into a model that quietly disagrees with its own inputs. If a value must satisfy a
+constraint, enforce it where the value is typed and say so, or let it through and report it.
+Never repair it continuously in a pure function three layers down.
+
+**Proof.** `verify-facility-shares` 29 -> 55. Restoring the rescale fails twelve checks and
+reproduces the reported 66.67 / 33.33 exactly.
+
 ### 7.14 Two identical tables are not necessarily a double count
 
 **Symptom.** The Financing tab rendered the Senior debt schedule twice, two tables with the

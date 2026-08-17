@@ -50,6 +50,7 @@ import {
   getAssetPreCapexTotal,
 } from '../../lib/state/module1-types';
 import { computeFinancingResult } from '@/src/core/calculations/financing';
+import { facilityShareTotal, facilityShareSumIsValid } from '@/src/core/calculations/financing/shares';
 import { computeIdcSnapshot, computeFundingGap, computeFinancialsSnapshot } from '../../lib/financials-resolvers';
 import { currencyHeaderLine, formatAccounting } from '@/src/core/formatters';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
@@ -919,9 +920,14 @@ function FacilitiesSection(props: FacilitiesSectionProps): React.JSX.Element {
     onAdd, onAddExisting, onUpdate, onRemove, onSet,
   } = props;
   const handleShareChange = (id: string, raw: number) => {
+    // Only the facility the user typed into changes. Adjusting the others to
+    // keep a running total is the same silent rewrite in a different place.
     const next = tranches.map((t) => (t.id === id ? { ...t, facilitySharePct: raw } : t));
     onSet(next);
   };
+  const shareCount = tranches.filter((t) => t.origin !== 'existing').length;
+  const shareTotal = facilityShareTotal(shares);
+  const shareSumOk = facilityShareSumIsValid(shares);
   const buttonStyle: React.CSSProperties = {
     padding: '4px 12px',
     borderRadius: 'var(--radius-sm)',
@@ -965,6 +971,56 @@ function FacilitiesSection(props: FacilitiesSectionProps): React.JSX.Element {
       {tranches.length === 0 && (
         <div style={{ color: 'var(--color-text-muted)', fontSize: 12, marginTop: 8 }}>
           No facilities yet. Add one to begin.
+        </div>
+      )}
+      {/* ── THE SHARES ARE USED AS TYPED, SO A WRONG SUM IS SAID (2026-08-17) ──
+          They used to be rescaled to 100 on every recompute, so typing 100 into
+          one of two facilities produced 66.67 and 33.33 and there was no way to
+          make one facility carry the whole requirement. Now the typed number is
+          the number in force, which means a sum that is not 100 is a real state
+          the model is in, and it has to be stated rather than quietly repaired.
+          The engine's own reconciliation carries the same check; this says it
+          where the numbers are typed. */}
+      {shareCount > 1 && !shareSumOk && (
+        <div
+          data-testid="fin-share-sum-warning"
+          style={{
+            marginTop: 8, padding: 'var(--sp-1) var(--sp-2)',
+            borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--color-accent-warm)',
+            background: 'color-mix(in srgb, var(--color-accent-warm) 12%, transparent)',
+            fontSize: 12, lineHeight: 1.45,
+            display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+          }}
+        >
+          <span>
+            <strong>Facility shares total {shareTotal.toFixed(2)}%, not 100%.</strong>{' '}
+            Shares are used exactly as typed, so the facilities together draw{' '}
+            {shareTotal.toFixed(2)}% of the project debt requirement
+            {shareTotal > 100
+              ? ', which raises more debt than the project needs.'
+              : ', which leaves part of the requirement unfunded.'}
+          </span>
+          <button
+            type="button"
+            data-testid="fin-share-sum-fix"
+            onClick={() => {
+              // Explicit, one click, and it says what it will do. The point is
+              // that the user asked for it: the old behaviour did this silently
+              // and continuously.
+              const newOnes = tranches.filter((x) => x.origin !== 'existing');
+              const first = newOnes[0];
+              if (!first) return;
+              onSet(tranches.map((x) => (
+                x.origin === 'existing'
+                  ? x
+                  : { ...x, facilitySharePct: x.id === first.id ? 100 : 0 }
+              )));
+            }}
+            style={{ ...buttonStyle, background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}
+          >
+            Put 100% on the first facility
+          </button>
         </div>
       )}
       {tranches.map((t) => (
@@ -1312,8 +1368,14 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
           <div>
             <FieldLabel>Facility Share %</FieldLabel>
             <PercentageInput value={t.facilitySharePct ?? normalisedShare} onChange={onShareChange} style={inputStyle} />
+            {/* 2026-08-17: the "Normalised: x%" caption is gone with the
+                rescaling that produced it. A share is used exactly as typed,
+                so a second number underneath could only ever repeat this one
+                or contradict it. Where the shares do not add up to 100, the
+                banner above the facilities says so once, rather than every
+                row hinting at it. */}
             <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
-              Normalised: {normalisedShare.toFixed(2)}%
+              of the project debt requirement
             </div>
           </div>
         ) : <div />}
