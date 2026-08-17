@@ -453,6 +453,35 @@ fingerprinting the damage rather than the defect.
 **Proof.** 2026-08-17: 0 lines repaired when it ran last in the chain; 8 lines when it ran first,
 with the other phase's hand-set windows untouched.
 
+### 7.12 A fix applied to one copy of a rule leaves the other copies wrong
+
+**Symptom.** In the construction cost schedule, Phase 1 land showed a total with every period
+column a dash, while Phase 2 land phased correctly. The inputs carried the land value in both.
+
+**Mechanism.** The mapping from a phase-local index to the project axis existed in FIVE places
+with TWO answers. Local index 0 is the Y0 upfront lump (land cash, land in kind, RETT) and belongs
+in the period before the phase starts, which has to be CLAMPED for a phase that starts with the
+project. M4 Pass 2W (2026-05-24) clamped it in the financing aggregate and the equity engine,
+because the unclamped form produced -1 for phase 1 and silently deleted the upfront land. The
+Costs tab's own schedule kept `if (offset > 0)`, so it added a phase-1 lump to no column at all.
+The two surfaces then disagreed for twelve weeks, and one of the tables accumulated its row total
+INSIDE the dropped branch, so it reported a smaller number rather than merely misplacing one.
+
+The docstring on the financing aggregate still described the OLD behaviour and claimed the Costs
+tab matched it: "Phase 1 (offset = 0) drops its Y0 lump entirely. This guarantees the Financing
+Tab shows the exact same per-year values as the Costs Tab." Both sentences had been false since
+the day Pass 2W landed.
+
+**Fix.** `phaseLocalToProjectIndex` in `capexPhasing.ts`, called by every site. When a rule is
+worth a comment explaining its edge case, it is worth being a function.
+
+**Proof.** Measured on a live project before the change: 70,000,000 of phase 1 land present in the
+model, in the financing schedule and in the capex table's Total column, and absent from every one
+of that table's period columns. After: land in the first period on both phases, and every row and
+every table total footing (422,705 across all four tables, 362,705 excluding in-kind land,
+299,705 excluding all land, matching the tile). `verify-y0-lump-placement` 23, teeth proven by
+removing the clamp (5 failures) and by restoring the drop guard in one table (1 failure).
+
 ### 7.11 Two guards on the same thing, keyed off two different variables
 
 **Symptom.** A cost row rendered its money TWICE: the amounts on the curve in force

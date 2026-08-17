@@ -12,7 +12,7 @@ import type {
 } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { COST_STAGES } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { computeAssetCost, deriveCostStage } from '../index';
-import { collectionsForAssetAtOffset, collectionsTotalForAsset, type CollectionsSource } from '../capexPhasing';
+import { collectionsForAssetAtOffset, collectionsTotalForAsset, phaseLocalToProjectIndex, type CollectionsSource } from '../capexPhasing';
 import type { CapexAggregate, ProjectAxis } from './types';
 
 export interface CapexInputs {
@@ -41,16 +41,15 @@ export interface CapexInputs {
 /**
  * Project capex aggregation (mirrors Costs tab Table 3 mapping, 2026-05-14).
  *
- * Maps `distributeItemCost`'s local indices onto the project axis using
- * the same offset rule as Module1Costs Table 3 (Capex Excl Land In-Kind):
- *   - Local i = 0 (Y0 upfront lump): only included when offset > 0,
- *     placed at projIdx = offset - 1 (the year before the phase starts).
- *     Phase 1 (offset = 0) drops its Y0 lump entirely.
- *   - Local i >= 1: projIdx = offset + i - 1, so the phase's first
- *     construction year (i = 1) lands at projIdx = offset.
+ * Maps `distributeItemCost`'s local indices onto the project axis with the
+ * SHARED `phaseLocalToProjectIndex`, which is the one definition of that rule.
  *
- * This guarantees the Financing Tab's Capex Breakdown table shows the
- * exact same per-year values as the Costs Tab's Capex schedule.
+ * 2026-08-17: this docstring used to describe the Y0 lump as dropped for phase
+ * 1 and claimed the Costs tab matched. Neither had been true since M4 Pass 2W
+ * (2026-05-24) clamped the mapping here: the code below has placed phase 1's Y0
+ * lump at axis index 0 ever since, while the Costs tab kept dropping it, so the
+ * two surfaces disagreed by the whole of a first phase's land for twelve weeks.
+ * Both now call the same function, and the comment describes what it does.
  *
  * Operational phases (status === 'operational') are skipped entirely;
  * their historical capex flows through `existing.ts` instead.
@@ -126,7 +125,7 @@ export function aggregateProjectCapex(inputs: CapexInputs, axis: ProjectAxis): C
         const bucket = perStagePerPeriod[stage];
         if (!bucket) continue;
         for (let i = 0; i < dist.length; i++) {
-          const projIdx = i === 0 ? Math.max(0, offset - 1) : offset + i - 1;
+          const projIdx = phaseLocalToProjectIndex(i, offset);
           if (projIdx < 0 || projIdx >= N) continue;
           bucket[projIdx] += dist[i] ?? 0;
         }
@@ -136,16 +135,12 @@ export function aggregateProjectCapex(inputs: CapexInputs, axis: ProjectAxis): C
       const perInK  = breakdown.perPeriodLandInKind ?? [];
       const len = Math.max(perAll.length, perLand.length, perInK.length);
       for (let i = 0; i < len; i++) {
-        // M4 Pass 2W (2026-05-24): rescue Phase 1's i=0 lump from the
-        // drop. Previously projIdx = offset - 1 produced -1 for Phase 1
-        // (offset=0), silently deleting the Y0 capex (typically the
-        // upfront land cash + in-kind). Equity engine stamps in-kind
-        // at axis[0] regardless of phase (debtEquity.ts:131), so this
-        // asymmetry leaked into the BS check as Assets < L+E during
-        // construction. Now Phase 1's Y0 lump lands at axis index 0
-        // (clamped) so both sides align. Phase 2+ behaviour unchanged
-        // (Math.max(0, offset-1) = offset-1 when offset>=1).
-        const projIdx = i === 0 ? Math.max(0, offset - 1) : offset + i - 1;
+        // M4 Pass 2W (2026-05-24) clamped phase 1's i=0 lump onto axis index 0
+        // rather than dropping it at -1, which had been silently deleting the
+        // upfront land. 2026-08-17: that rule is now SHARED, because the Costs
+        // tab was still dropping it and the two surfaces disagreed by the whole
+        // of a first phase's land.
+        const projIdx = phaseLocalToProjectIndex(i, offset);
         if (projIdx < 0 || projIdx >= N) continue;
         inclAllLand[projIdx] += perAll[i] ?? 0;
         landTotal[projIdx]   += perLand[i] ?? 0;

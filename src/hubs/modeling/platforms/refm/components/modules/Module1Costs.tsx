@@ -64,7 +64,7 @@ import {
   deriveLineBaseId,
   deriveCostWindow,
 } from '../../lib/state/module1-types';
-import { resolvePhasingSource, isParcelDrivenLandLine, collectionsForAsset, collectionsTotalForAsset } from '@/src/core/calculations/capexPhasing';
+import { resolvePhasingSource, isParcelDrivenLandLine, collectionsForAsset, collectionsTotalForAsset, phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
 import {
   mergeCatalog,
   resolveCatalogId,
@@ -2505,12 +2505,11 @@ function SummaryTables({
       const offset = Number.isFinite(phaseStartYear - projectStartYearForCrop)
         ? Math.max(0, phaseStartYear - projectStartYearForCrop)
         : 0;
-      // perPeriod[0] is the upfront / Y0 lump. Phase 1 (offset === 0)
-      // lands its upfront at project Y0, which is outside the column
-      // grid (grid starts at project Y1, column 0). Phase 2+ lands the
-      // upfront at column offset - 1.
-      if (offset > 0 && Math.abs(bd.perPeriod[0] ?? 0) > 0.5) {
-        const col = offset - 1;
+      // perPeriod[0] is the upfront / Y0 lump: land cash, land in kind, and
+      // anything following them. 2026-08-17: placed by the SHARED rule, so the
+      // columns this scan decides to show are the columns the money is in.
+      if (Math.abs(bd.perPeriod[0] ?? 0) > 0.5) {
+        const col = phaseLocalToProjectIndex(0, offset);
         if (col >= 0) {
           if (col < dataFirstAnnual) dataFirstAnnual = col;
           if (col > dataLastAnnual) dataLastAnnual = col;
@@ -2747,12 +2746,18 @@ function SummaryTables({
                       assetRowAnnual[dest] += v;
                     }
                   }
-                  // perPeriod[0] is the upfront (Y0 / land cash) lump.
-                  // For Phase 1 it lands at project Y0, hidden from the
-                  // project-period grid (which starts at Y1). For later
-                  // phases the upfront occurs at the phase's first year.
-                  if (offset > 0 && offset - 1 < annualPeriodCount && offset - 1 >= 0) {
-                    assetRowAnnual[offset - 1] += bd.perPeriod[0] ?? 0;
+                  // The Y0 upfront lump (land cash, land in kind, RETT).
+                  //
+                  // 2026-08-17: placed by the SHARED rule. The guard here used
+                  // to be `offset > 0`, which dropped a PHASE 1 lump into no
+                  // column at all while the financing engine placed it at index
+                  // 0, so this table showed a land total with every period
+                  // column blank and did not foot. Measured on a live project:
+                  // 70,000,000 of phase 1 land, in the model and in the total
+                  // column and in none of the periods beside it.
+                  const upfrontCol = phaseLocalToProjectIndex(0, offset);
+                  if (upfrontCol >= 0 && upfrontCol < annualPeriodCount) {
+                    assetRowAnnual[upfrontCol] += bd.perPeriod[0] ?? 0;
                   }
                 }
                 // M2.0j Fix 12: hide zero-value asset rows from Results.
@@ -2823,10 +2828,11 @@ function SummaryTables({
                             linePerPeriodAnnual[dest] += v;
                           }
                         }
-                        // Upfront perPeriod[0] (Phase 2+ only): lands at
-                        // offset - 1 (year before the phase starts).
-                        if (offset2 > 0 && offset2 - 1 < annualPeriodCount && offset2 - 1 >= 0) {
-                          linePerPeriodAnnual[offset2 - 1] += linePP[0] ?? 0;
+                        // Upfront perPeriod[0], by the shared rule. "Phase 2+
+                        // only" was the defect: see the asset row above.
+                        const upfrontCol2 = phaseLocalToProjectIndex(0, offset2);
+                        if (upfrontCol2 >= 0 && upfrontCol2 < annualPeriodCount) {
+                          linePerPeriodAnnual[upfrontCol2] += linePP[0] ?? 0;
                         }
                       }
                       if (lineTotal === 0) return null;
@@ -2892,8 +2898,10 @@ function SummaryTables({
                         grandAnnual[dest] += v;
                       }
                     }
-                    if (offset > 0 && offset - 1 < annualPeriodCount && offset - 1 >= 0) {
-                      grandAnnual[offset - 1] += bd.perPeriod[0] ?? 0;
+                    // The Y0 upfront lump, by the shared rule.
+                    const grandUpfrontCol = phaseLocalToProjectIndex(0, offset);
+                    if (grandUpfrontCol >= 0 && grandUpfrontCol < annualPeriodCount) {
+                      grandAnnual[grandUpfrontCol] += bd.perPeriod[0] ?? 0;
                     }
                   }
                 }
@@ -2954,8 +2962,14 @@ function SummaryTables({
               annualRow[dest] += v;
               total += v;
             }
-            // Upfront perPeriod[0] follows the same offset rule.
-            if (offset > 0 && offset - 1 < annualPeriodCount && offset - 1 >= 0) {
+            // Upfront perPeriod[0], by the shared rule.
+            //
+            // 2026-08-17: this one also accumulated `total` INSIDE the dropped
+            // branch, so a phase-1 Y0 lump was missing from the row TOTAL as
+            // well as from every column. The table was not merely displaying
+            // the money in the wrong place, it was reporting a smaller number.
+            const stageUpfrontCol = phaseLocalToProjectIndex(0, offset);
+            if (stageUpfrontCol >= 0 && stageUpfrontCol < annualPeriodCount) {
               const tot = bd.perPeriod[0] ?? 0;
               const landAll = bd.perPeriodLandTotal[0] ?? 0;
               const landInKind = bd.perPeriodLandInKind[0] ?? 0;
@@ -2963,7 +2977,7 @@ function SummaryTables({
                 mode === 'exclAll' ? tot - landAll
                 : mode === 'exclInKind' ? tot - landInKind
                 : tot;
-              annualRow[offset - 1] += v;
+              annualRow[stageUpfrontCol] += v;
               total += v;
             }
           }

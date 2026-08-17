@@ -114,6 +114,36 @@ export function shapeToPhasing(shape: number[] | undefined): EffectivePhasing | 
  * `fixed-assets-resolvers` project WITH, and a second hand-rolled copy is
  * exactly how a curve ends up one period out.
  */
+/**
+ * THE FORWARD MAPPING: one phase-local index onto the project axis (2026-08-17).
+ *
+ * The inverse of `projectAxisToPhaseLocal`, and the ONE definition of a rule
+ * that had been written out five times with two different answers.
+ *
+ *   local 0     the Y0 upfront lump (land cash, land in kind, RETT), which sits
+ *               in the period BEFORE the phase starts, CLAMPED to the first
+ *               project period for a phase that starts with the project.
+ *   local i>=1  `offset + i - 1`, so the phase's first construction period
+ *               lands on the phase's own first project period.
+ *
+ * WHY THE CLAMP, and why this had to become shared. The financing aggregate and
+ * the equity engine clamp (M4 Pass 2W, 2026-05-24, which fixed exactly this:
+ * `offset - 1` was -1 for phase 1 and silently deleted its Y0 capex, leaving the
+ * balance sheet short during construction). The Costs tab's own capex schedule
+ * kept the unclamped form, dropping a phase-1 lump into no column at all, so the
+ * two surfaces have disagreed since that fix landed: measured on a live project,
+ * 70,000,000 of phase 1 land was in the model, in the financing schedule and in
+ * the total column of the capex table, and in none of that table's period
+ * columns. A total that does not equal the sum of the periods beside it.
+ *
+ * Callers that need to know whether a value is off the axis should compare the
+ * result to their own period count; this function never returns a negative.
+ */
+export function phaseLocalToProjectIndex(localIdx: number, offset: number): number {
+  const off = Math.max(0, offset);
+  return localIdx === 0 ? Math.max(0, off - 1) : off + localIdx - 1;
+}
+
 export function projectAxisToPhaseLocal(
   series: number[] | undefined,
   offset: number,
