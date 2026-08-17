@@ -453,6 +453,25 @@ fingerprinting the damage rather than the defect.
 **Proof.** 2026-08-17: 0 lines repaired when it ran last in the chain; 8 lines when it ran first,
 with the other phase's hand-set windows untouched.
 
+### 7.11 Two guards on the same thing, keyed off two different variables
+
+**Symptom.** A cost row rendered its money TWICE: the amounts on the curve in force
+(11,760 / 35,280 / 47,040 / 23,520 on an inherited 10/30/40/20 curve) and, directly beneath,
+an even spread the model never used (29,400 four times).
+
+**Mechanism.** One strip was guarded on `displayPhasing === 'manual'` (the RESOLVED mode) and
+the other on `effPhasing !== 'manual'` (the line's OWN stored mode). Those are equal until
+something resolves differently from what is stored, which is exactly what inheritance does. The
+second strip then recomputed the distribution locally from the stored phasing. The comment on it
+even said it rendered only when phasing was not manual "so we don't double-render and confuse the
+user": right intent, wrong variable, and no check compared the two.
+
+**Fix.** Do not render a number the engine already computed. The row now renders
+`perLinePerPeriod` and calls no distribution function at all, so there is one strip and it cannot
+disagree with the model. `verify-cost-catalog` asserts `distributeItemCost` never appears inside
+the CostRow body, comment-stripped and scoped to the function, because a narrower assertion on one
+spelling of one line was slipped past by a sabotage that renamed the variable.
+
 ### 7.9 `migrateLegacyToV8` is a FIELD WHITELIST, and most projects go through it
 
 **Symptom.** A new `CostLine` field is written correctly by a migration and is gone by the time the
@@ -468,6 +487,20 @@ absent; here, a new field must be named or it never survives a reload.
 
 **Proof.** 2026-08-17: `windowFollowsConstruction` set by the repair, `[follows]` present after the
 direct call and absent after `hydrationFromAnySnapshotChecked`, on the same snapshot.
+
+**IT HAPPENED TWICE.** `phasingSource` went the same way and was measured on the live project:
+version 1, as the wizard wrote it, carried `marketing -> collections`, `commission -> collections`
+and `rett -> land_cash`; in the version being worked on, all three read ABSENT. So a marketing line
+seeded to follow sales collections was phasing on the build programme, and the row's dropdown said
+"Inherit asset curve" because that is genuinely what the surviving data said. Opening the project
+dropped the field in memory and the next save made it permanent.
+
+**The guard that stops a third time.** `verify-cost-catalog` section A parses the `CostLine`
+interface and the rebuild literal from source and fails on any field the literal does not name.
+Proven by deleting `catalogId` from the literal: the check reports it by name. A repair
+(`restoreStrippedPhasingSource`) puts back what was already destroyed, and only where the field is
+ABSENT: choosing a source writes the value explicitly, including `inherit`, so a user's choice is
+distinguishable from a stripped one.
 
 ### 7.10 One entity, two answers: a derivation that outranks a stored field
 

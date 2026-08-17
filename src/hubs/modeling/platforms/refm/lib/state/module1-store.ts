@@ -171,6 +171,15 @@ export interface Module1Store {
   moveCostLine: (id: string, direction: 'up' | 'down', neighbourId?: string) => void;
   updateCostLine: (id: string, patch: Partial<CostLine>) => void;
   removeCostLine: (id: string) => void;
+  /**
+   * Put a removed line back exactly where it was, with its per-asset overrides
+   * (2026-08-17).
+   *
+   * AT ITS INDEX, not appended. Position decides what a `percent_of_selected`
+   * line may charge on, so restoring a line to the bottom of the list would be
+   * a different model from the one that was deleted.
+   */
+  restoreCostLine: (line: CostLine, index: number, overrides: CostOverride[]) => void;
   setCostOverride: (override: CostOverride) => void;
   removeCostOverride: (assetId: string, lineId: string) => void;
 
@@ -763,6 +772,18 @@ export function createModule1Store() {
       costLines: s.costLines.filter((c) => c.id !== id),
       costOverrides: s.costOverrides.filter((o) => o.lineId !== id),
     })),
+    restoreCostLine: (line, index, overrides) => set((s) => {
+      if (s.costLines.some((c) => c.id === line.id)) return {}; // already back
+      const next = [...s.costLines];
+      next.splice(Math.max(0, Math.min(index, next.length)), 0, line);
+      const restoredOverrides = overrides.filter(
+        (o) => !s.costOverrides.some((x) => x.assetId === o.assetId && x.lineId === o.lineId),
+      );
+      return {
+        costLines: next,
+        costOverrides: restoredOverrides.length > 0 ? [...s.costOverrides, ...restoredOverrides] : s.costOverrides,
+      };
+    }),
     setCostOverride: (override) => set((s) => {
       const filtered = s.costOverrides.filter(
         (o) => !(o.assetId === override.assetId && o.lineId === override.lineId),
@@ -1011,7 +1032,7 @@ export function createModule1Store() {
       'setAssets', 'addAsset', 'updateAsset', 'removeAsset',
       'setSubUnits', 'addSubUnit', 'updateSubUnit', 'removeSubUnit',
       'setCostLines', 'addCostLine', 'insertCostLineNear', 'moveCostLine',
-      'updateCostLine', 'removeCostLine',
+      'updateCostLine', 'removeCostLine', 'restoreCostLine',
       'setCostOverride', 'removeCostOverride',
       'setFinancingTranches', 'addFinancingTranche', 'updateFinancingTranche', 'removeFinancingTranche',
       'setEquityContributions', 'addEquityContribution', 'updateEquityContribution', 'removeEquityContribution',

@@ -54,6 +54,7 @@ import {
   PHASE_FILTER_ALL,
 } from './module1-types';
 import type { RepaymentMethod } from './module1-types';
+import { resolveCatalogId, findCatalogEntry } from './costCatalog';
 
 export const SCHEMA_VERSION = 8;
 
@@ -1627,6 +1628,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
       phasingSource: c.phasingSource,
       costCategory: c.costCategory,
       costDriver: c.costDriver,
+      catalogId: c.catalogId,
     };
   });
   // If after all that the project still has zero cost lines, seed the
@@ -1865,7 +1867,51 @@ export function repairStaleWizardCostWindows(snap: HydrateSnapshot): HydrateSnap
   return { ...snap, costLines };
 }
 
-/** The same repair applied to a RAW snapshot (wrapper still attached), which is
+/**
+ * RESTORE A `phasingSource` THAT THE FIELD WHITELIST DESTROYED (2026-08-17).
+ *
+ * `migrateLegacyToV8` rebuilds every cost line from an object literal naming
+ * each field, and `phasingSource` was not in it, so a snapshot with no version
+ * wrapper (the common case) lost the field on EVERY hydrate. Opening the
+ * project dropped it in memory; the next save made the loss permanent.
+ *
+ * Measured on the live project: v1, as the wizard wrote it, carried
+ * `marketing -> collections`, `commission -> collections`, `rett -> land_cash`.
+ * In v2, the version being worked on, all three read ABSENT. So a marketing
+ * line that was seeded to follow sales collections was phasing on the build
+ * programme, and the row's dropdown said "Inherit asset curve" because that is
+ * genuinely what the surviving data said.
+ *
+ * WHY ABSENT IS SAFE TO OVERWRITE, and a user's choice is not. Choosing a
+ * source writes the value explicitly, INCLUDING `inherit`. So a line the user
+ * deliberately put on the asset curve holds the string `'inherit'` and is left
+ * alone here; only a MISSING field is restored, and a missing field on a line
+ * whose catalog entry names a source can only mean the field was stripped,
+ * because the seed always set it.
+ *
+ * Idempotent, and a no-op on every project created after the whitelist fix.
+ */
+export function restoreStrippedPhasingSource(snap: HydrateSnapshot): HydrateSnapshot {
+  let touched = 0;
+  const costLines = (snap.costLines ?? []).map((c) => {
+    if (c.phasingSource !== undefined) return c;
+    const catalogId = resolveCatalogId(c);
+    if (!catalogId) return c;
+    const entry = findCatalogEntry(catalogId);
+    const seeded = entry?.phasingSource;
+    if (!seeded || seeded === 'inherit') return c;
+    touched += 1;
+    return { ...c, phasingSource: seeded };
+  });
+  if (touched === 0) return snap;
+  if (typeof console !== 'undefined') {
+    // eslint-disable-next-line no-console
+    console.log(`[REFM] Phasing source: restored on ${touched} line(s) where it had been stripped (see restoreStrippedPhasingSource)`);
+  }
+  return { ...snap, costLines };
+}
+
+/** The repairs applied to a RAW snapshot (wrapper still attached), which is
  *  what every hydration path starts from. Only `phases` and `costLines` are
  *  read, and both live at the top level of every snapshot shape, so the
  *  wrapper's other fields pass through untouched. */
@@ -1873,7 +1919,8 @@ function repairRawSnapshot(snapshot: unknown): unknown {
   if (!snapshot || typeof snapshot !== 'object') return snapshot;
   const s = snapshot as { phases?: unknown; costLines?: unknown };
   if (!Array.isArray(s.phases) || !Array.isArray(s.costLines)) return snapshot;
-  return repairStaleWizardCostWindows(snapshot as unknown as HydrateSnapshot) as unknown;
+  const windowed = repairStaleWizardCostWindows(snapshot as unknown as HydrateSnapshot);
+  return restoreStrippedPhasingSource(windowed) as unknown;
 }
 
 export function hydrationFromAnySnapshotChecked(snapshot: unknown): CheckedHydration {

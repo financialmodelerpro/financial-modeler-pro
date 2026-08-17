@@ -29,7 +29,7 @@
  * because the calc engine doesn't know the role of an arbitrary user line.
  */
 
-import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import {
@@ -65,6 +65,17 @@ import {
   deriveCostWindow,
 } from '../../lib/state/module1-types';
 import { resolvePhasingSource, isParcelDrivenLandLine, collectionsForAsset, collectionsTotalForAsset } from '@/src/core/calculations/capexPhasing';
+import {
+  mergeCatalog,
+  resolveCatalogId,
+  findCatalogEntry,
+  catalogLabelFor,
+  stampFromEntry,
+  describeCatalogChange,
+  mintLineId,
+  type AnyCostCatalogEntry,
+  type UserCostCatalogEntry,
+} from '../../lib/state/costCatalog';
 import { computeAllSellResults } from '../../lib/revenue-resolvers';
 import { BASIS_DIVERGENCE_TOL } from '../../lib/reports/checksReport';
 import { assetVisibleLines, eligibleBaseLines } from '@/src/core/calculations/selectedBase';
@@ -300,6 +311,101 @@ function makeCustomCostLine(phaseId: string, constructionPeriods: number): CostL
   };
 }
 
+/**
+ * Adding a catalog entry WHERE IT IS USED (2026-08-17).
+ *
+ * If the entry a user needs is not in the list, they add it here and it joins
+ * the list for every future project rather than becoming a one-off custom line.
+ *
+ * WHOEVER ADDS AN ENTRY SETS ITS BEHAVIOUR. Method and stage are required and
+ * the phasing source is explicit, because a name with no behaviour is exactly
+ * the problem the catalog exists to solve: it would be a differently-shaped way
+ * to end up with a row that looks like one thing and charges like another.
+ */
+function AddCatalogEntryForm({
+  initialLabel, onSave, onCancel, testId,
+}: {
+  initialLabel: string;
+  onSave: (draft: { label: string; method: CostMethod; stage: CostStage; phasingSource: CapexPhasingSource }) => Promise<void>;
+  onCancel: () => void;
+  testId: string;
+}): React.JSX.Element {
+  const [label, setLabel] = useState(initialLabel.trim() === 'Custom Cost' ? '' : initialLabel);
+  const [method, setMethod] = useState<CostMethod>('percent_of_selected');
+  const [stage, setStage] = useState<CostStage>('soft');
+  const [source, setSource] = useState<CapexPhasingSource>('inherit');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const labelStyle: React.CSSProperties = { fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-meta)', display: 'block' };
+  const fieldStyle: React.CSSProperties = { ...inputStyle, fontSize: 10, padding: '2px 4px' };
+  return (
+    <div
+      data-testid={testId}
+      style={{
+        marginTop: 4, padding: 6, borderRadius: 'var(--radius-sm)',
+        border: '1px solid var(--color-navy)',
+        background: 'color-mix(in srgb, var(--color-navy) 5%, transparent)',
+        display: 'grid', gap: 4,
+      }}
+    >
+      <div>
+        <span style={labelStyle}>Name</span>
+        <input
+          type="text" value={label} onChange={(e) => setLabel(e.target.value)}
+          placeholder="e.g. Utility connections"
+          style={fieldStyle} data-testid={`${testId}-label`}
+        />
+      </div>
+      <div>
+        <span style={labelStyle}>Method</span>
+        <select value={method} onChange={(e) => setMethod(e.target.value as CostMethod)} style={fieldStyle} data-testid={`${testId}-method`}>
+          {COST_METHODS.filter((m) => m !== 'rate_per_parking_bay').map((m) => (
+            <option key={m} value={m}>{COST_METHOD_LABELS[m]}</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <span style={labelStyle}>Stage</span>
+        <select value={stage} onChange={(e) => setStage(e.target.value as CostStage)} style={fieldStyle} data-testid={`${testId}-stage`}>
+          {COST_STAGES.map((s) => (<option key={s} value={s}>{COST_STAGE_LABELS[s]}</option>))}
+        </select>
+      </div>
+      <div>
+        <span style={labelStyle}>Phasing source</span>
+        <select value={source} onChange={(e) => setSource(e.target.value as CapexPhasingSource)} style={fieldStyle} data-testid={`${testId}-source`}>
+          {CAPEX_PHASING_SOURCES.map((s) => (<option key={s} value={s}>{CAPEX_PHASING_SOURCE_LABELS[s]}</option>))}
+        </select>
+      </div>
+      {error && <div style={{ fontSize: 9, color: 'var(--color-negative)' }} data-testid={`${testId}-error`}>{error}</div>}
+      <div style={{ display: 'flex', gap: 4 }}>
+        <button
+          type="button"
+          disabled={busy || label.trim().length === 0}
+          onClick={async () => {
+            setBusy(true); setError(null);
+            try { await onSave({ label: label.trim(), method, stage, phasingSource: source }); }
+            catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+            finally { setBusy(false); }
+          }}
+          data-testid={`${testId}-save`}
+          style={{ fontSize: 9, padding: '3px 8px', background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)', border: 'none', borderRadius: 3, cursor: 'pointer' }}
+        >
+          {busy ? 'Saving...' : 'Add and use'}
+        </button>
+        <button
+          type="button" onClick={onCancel} data-testid={`${testId}-cancel`}
+          style={{ fontSize: 9, padding: '3px 8px', background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 3, cursor: 'pointer' }}
+        >
+          Cancel
+        </button>
+      </div>
+      <div style={{ fontSize: 9, color: 'var(--color-meta)', lineHeight: 1.3 }}>
+        Saved to your catalog and available on every project.
+      </div>
+    </div>
+  );
+}
+
 /** Small square control for the row's position buttons (2026-08-17). */
 function orderButtonStyle(enabled: boolean): React.CSSProperties {
   return {
@@ -490,6 +596,14 @@ interface CostRowProps {
   /** 2026-08-17: the base a `percent_of_selected` line charged on, from the
    *  pass that computed it. */
   selectedBase?: number;
+  /** 2026-08-17: the per-period money the ENGINE spent on this line
+   *  (`perLinePerPeriod`). The row renders this and computes nothing itself. */
+  resolvedSchedule?: number[];
+  /** 2026-08-17: the catalog entries available to this user (built-ins plus
+   *  their own), and the current identity of this row. */
+  catalogEntries?: AnyCostCatalogEntry[];
+  /** Called when the user adds a new entry from the row's picker. */
+  onAddCatalogEntry?: (draft: { label: string; method: CostMethod; stage: CostStage; phasingSource: CapexPhasingSource }) => Promise<void>;
   /** 2026-08-17: every line this asset sees, in DISPLAY ORDER. The row derives
    *  which of them it may charge on with the same shared rule the engine
    *  enforces, so a reorder can say what it changed. */
@@ -506,7 +620,9 @@ function CostRow({
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
   currency, scale, decimals, periodLabel, constructionPeriods, subUnits,
   metrics, editsGoToLine, collectionsTotal,
-  resolvedWindow, selectedBase, visibleLines, onMove, canMoveUp, canMoveDown, onInsertNear,
+  resolvedWindow, selectedBase, resolvedSchedule, visibleLines,
+  catalogEntries, onAddCatalogEntry,
+  onMove, canMoveUp, canMoveDown, onInsertNear,
 }: CostRowProps): React.JSX.Element {
   // M2.0g Fix 6: Stage label still drives the row background + summary
   // tables, but the Direct/Indirect label is dropped (per-asset cost
@@ -579,6 +695,46 @@ function CostRow({
   // `catalogStage` is what the line would classify as with no user choice, so
   // picking that value CLEARS the override rather than pinning the current
   // default forever.
+  // ── Catalog identity (2026-08-17) ──────────────────────────────────────
+  // The row's identity is a SELECTION; the name is a label. `resolveCatalogId`
+  // falls back to the line's own base id, so every existing line declares
+  // itself with no migration: a row renamed "Permits and approvals" that is the
+  // seeded Commission line captions as Commission, which is the mismatch
+  // showing itself.
+  const catalog = catalogEntries ?? [];
+  const currentCatalogId = resolveCatalogId(line);
+  const currentEntry = findCatalogEntry(currentCatalogId, catalog.filter((e) => !e.builtIn) as UserCostCatalogEntry[]);
+  const catalogLabel = catalogLabelFor(line, catalog.filter((e) => !e.builtIn) as UserCostCatalogEntry[]);
+  // THE FLAG FIRES WHEN THE LABEL CLAIMS TO BE A DIFFERENT CATALOG ENTRY, not
+  // merely when it differs from this one's label. Comparing against the entry
+  // label alone marked every seeded row whose name is a synonym of its entry
+  // (measured: "Construction (BUA)" against the entry "Superstructure",
+  // "Landscaping" against "Landscape"), which is noise in exactly the place the
+  // signal has to be trusted. A row named after ANOTHER entry is the real case:
+  // "Project management" on a Professional fee line, "Permits and approvals" on
+  // a Commission line. The identity caption is always visible either way.
+  const nameClaimsAnotherEntry = catalog.some(
+    (e) => e.id !== currentCatalogId && e.label.trim().toLowerCase() === line.name.trim().toLowerCase(),
+  );
+  const applyCatalogEntry = (entry: AnyCostCatalogEntry): void => {
+    // A reassignment CHANGES THE NUMBER when the method changes, so it says
+    // what it will change before doing it. A silent reassignment would be the
+    // same class of defect the catalog exists to close.
+    const changes = describeCatalogChange(line, entry, {
+      method: COST_METHOD_LABELS as unknown as Record<string, string>,
+      stage: COST_STAGE_LABELS as unknown as Record<string, string>,
+      source: CAPEX_PHASING_SOURCE_LABELS as unknown as Record<string, string>,
+    });
+    if (changes.length > 0 && typeof window !== 'undefined' && typeof window.confirm === 'function') {
+      const lines = changes.map((c) => `  ${c.field}: ${c.from} -> ${c.to}`).join('\n');
+      const ok = window.confirm(
+        `Set '${line.name}' to the catalog entry '${entry.label}'?\n\nThis changes:\n${lines}\n\n`
+        + 'The name stays as it is. Value, window and selected lines are not touched.',
+      );
+      if (!ok) return;
+    }
+    onUpdateLine(stampFromEntry(entry));
+  };
   const catalogStage = deriveCostStage({ ...line, stageOverride: undefined });
   const isStageLocked = isLocked && !isCustom && isParcelDrivenLandLine(line);
   const writeStage = (next: CostStage): void => {
@@ -632,6 +788,7 @@ function CostRow({
   // Land value lines take no part in phasing: their timing is the parcel
   // schedule. Same predicate the engine uses, so the row and the maths cannot
   // disagree about which lines are exempt.
+  const [addingCatalog, setAddingCatalog] = useState(false);
   const isParcelLand = isParcelDrivenLandLine(line);
   const effPhasingSource: CapexPhasingSource = resolvePhasingSource(line, override);
   const assetHasCurve = !!asset.capexPhasing;
@@ -878,6 +1035,64 @@ function CostRow({
             deriveCostStage, the engine's byStage and the summary tiles have
             had it throughout. A cost table a lender reads has to say which
             costs are hard and which are soft on the line itself. */}
+        {/* ── THE ROW'S CATALOG IDENTITY (2026-08-17) ─────────────────────
+            One control doing both jobs the brief asks for: it says what this
+            line IS, and it is how you change it. Renaming the input above
+            changes the label and nothing else, so this caption is the only
+            place the behaviour is declared. */}
+        {!isParcelLand && catalog.length > 0 && (
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 2, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 9, color: 'var(--color-meta)' }}>is a</span>
+            <select
+              value={currentCatalogId ?? '__custom__'}
+              disabled={isLocked}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === '__add__') { setAddingCatalog(true); return; }
+                if (v === '__custom__') { onUpdateLine({ catalogId: undefined }); return; }
+                const entry = catalog.find((c) => c.id === v);
+                if (entry) applyCatalogEntry(entry);
+              }}
+              data-testid={`cost-${asset.id}-${line.id}-catalog`}
+              title={currentEntry?.hint ?? 'Which catalog entry this line is. Selecting one sets the method, stage and phasing source.'}
+              style={{
+                fontSize: 9, padding: '1px 4px', borderRadius: 3, maxWidth: 150,
+                border: '1px solid var(--color-border)',
+                background: nameClaimsAnotherEntry ? 'color-mix(in srgb, var(--color-accent-warm) 14%, transparent)' : 'var(--color-surface)',
+                color: 'var(--color-meta)', fontStyle: 'italic',
+              }}
+            >
+              {!currentCatalogId && <option value="__custom__">Custom line</option>}
+              {catalog.filter((c) => c.selectable !== false).map((c) => (
+                <option key={c.id} value={c.id}>{c.label}</option>
+              ))}
+              {currentCatalogId && currentEntry?.selectable === false && (
+                <option value={currentCatalogId}>{catalogLabel}</option>
+              )}
+              {onAddCatalogEntry && <option value="__add__">+ Add to catalog...</option>}
+            </select>
+            {nameClaimsAnotherEntry && (
+              <span
+                data-testid={`cost-${asset.id}-${line.id}-catalog-renamed`}
+                style={{ fontSize: 9, color: 'var(--color-accent-warm)', fontStyle: 'italic' }}
+                title={`This row is labelled "${line.name}", which is the name of a different catalog entry, and it is a ${catalogLabel} line. Rename it or reassign it.`}
+              >
+                renamed
+              </span>
+            )}
+          </div>
+        )}
+        {addingCatalog && onAddCatalogEntry && (
+          <AddCatalogEntryForm
+            initialLabel={line.name}
+            onCancel={() => setAddingCatalog(false)}
+            onSave={async (draft) => {
+              await onAddCatalogEntry(draft);
+              setAddingCatalog(false);
+            }}
+            testId={`cost-${asset.id}-${line.id}-catalog-add`}
+          />
+        )}
         <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 2, flexWrap: 'wrap' }}>
           {/* 2026-08-17: the classification is a CHOICE, not a label. Rows can
               be added, renamed and deleted, so the catalog's answer is a
@@ -1405,12 +1620,10 @@ function CostRow({
         {!isLocked && (
           <button
             type="button"
-            onClick={() => {
-              const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
-                ? window.confirm(`Delete cost line "${line.name}"?`)
-                : true;
-              if (ok) onRemoveLine();
-            }}
+            // 2026-08-17: no confirm. The row is removed and an Undo banner
+            // restores it at its index with its overrides. A dialog you learn
+            // to dismiss is not a safety net; an undo that works is.
+            onClick={onRemoveLine}
             style={{
               background: 'transparent', border: '1px solid var(--color-border)', cursor: 'pointer',
               fontSize: 12, color: 'var(--color-negative)', borderRadius: 'var(--radius-sm)',
@@ -1503,70 +1716,39 @@ function CostRow({
                 Auto-normalize
               </button>
             </div>
-            {/* M2.0L: currency chip strip below the % inputs. Shows
-                the live money distribution per period given the
-                current weights and the line's total. */}
-            <div
-              style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8, paddingTop: 6, borderTop: '1px dashed var(--color-border)' }}
-              data-testid={`cost-${asset.id}-${line.id}-manual-money-chips`}
-            >
-              <strong style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)', alignSelf: 'center' }}>
-                Money {currency}
-              </strong>
-              {Array.from({ length: periods }, (_, i) => {
-                const periodIdx = effStartPeriod + i;
-                const pct = effDistribution[i] ?? 0;
-                const money = (total * pct) / sumDenom;
-                const positive = money > 0;
-                return (
-                  <span
-                    key={i}
-                    data-testid={`cost-${asset.id}-${line.id}-money-${i}`}
-                    title={`${periodLabel(periodIdx)}: ${formatAccounting(money, scale, decimals)}`}
-                    style={{
-                      display: 'inline-flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      padding: '3px 6px',
-                      minWidth: 64,
-                      borderRadius: 4,
-                      background: positive
-                        ? 'color-mix(in srgb, var(--color-navy) 12%, transparent)'
-                        : 'var(--color-grey-pale)',
-                      fontSize: 10,
-                      fontWeight: positive ? 700 : 400,
-                      color: positive ? 'var(--color-heading)' : 'var(--color-meta)',
-                    }}
-                  >
-                    <span style={{ fontSize: 9, color: 'var(--color-meta)', fontWeight: 400 }}>{periodLabel(periodIdx)}</span>
-                    <span>{formatAccounting(money, scale, decimals)}</span>
-                  </span>
-                );
-              })}
-            </div>
+            {/* 2026-08-17: the money chips that used to sit here are gone. This
+                block is the WEIGHT editor; the money is rendered once, below,
+                from the engine's own schedule. See the money strip. */}
           </td>
         </tr>
       );
     })()}
-    {/* T3-edit-runtime v6 (2026-05-12): per-row period chip strip.
-        Renders ONLY when phasing != manual; Manual % phasing has its
-        own % grid + money chip strip below (so we don't double-render
-        and confuse the user). Chips span the line's actual
-        [startPeriod, endPeriod] range, including periods past
-        construction; distributeItemCost sizes the output array to
-        fit endPeriod regardless of cp. */}
-    {!effDisabled && total > 0 && effEndPeriod > 0 && effPhasing !== 'manual' && (() => {
-      const perPeriod = distributeItemCost(
-        { ...line, phasing: effPhasing, distribution: effDistribution, startPeriod: effStartPeriod, endPeriod: effEndPeriod },
-        total,
-        constructionPeriods,
-      );
-      const start = Math.max(0, effStartPeriod);
-      const end = Math.max(start, effEndPeriod);
-      const chips: Array<{ idx: number; amount: number }> = [];
-      for (let p = start; p <= end; p++) {
-        chips.push({ idx: p, amount: perPeriod[p] ?? 0 });
+    {/* ── ONE MONEY STRIP, FROM THE ENGINE (2026-08-17) ────────────────────
+        There used to be TWO. The money chips inside the Manual % block were
+        guarded on `displayPhasing === 'manual'` (the RESOLVED mode) and the
+        strip here on `effPhasing !== 'manual'` (the line's OWN stored mode),
+        and those differ for every line inheriting a manual asset curve. So a
+        line inheriting a 10/30/40/20 curve rendered the correct amounts and,
+        directly beneath, an even spread the model never used: measured on
+        Construction (BUA), 11,760 / 35,280 / 47,040 / 23,520 above
+        29,400 four times. The comment on the old strip said it rendered only
+        when phasing was not manual "so we don't double-render and confuse the
+        user", which was the right intent pointed at the wrong variable.
+
+        The row no longer distributes anything. It renders `perLinePerPeriod`,
+        the schedule the ENGINE spent, so the screen cannot disagree with the
+        model. A line following a derived source now shows its real money too,
+        where before it showed a caption and nothing else. */}
+    {!effDisabled && (() => {
+      const sched = resolvedSchedule ?? [];
+      let first = -1;
+      let last = -1;
+      for (let i = 0; i < sched.length; i += 1) {
+        if ((sched[i] ?? 0) !== 0) { if (first < 0) first = i; last = i; }
       }
+      if (first < 0) return null;
+      const chips: Array<{ idx: number; amount: number }> = [];
+      for (let p = first; p <= last; p += 1) chips.push({ idx: p, amount: sched[p] ?? 0 });
       if (chips.length === 0) return null;
       return (
         <tr data-testid={`cost-row-${asset.id}-${line.id}-chip-strip`} style={{ background: 'transparent' }}>
@@ -2059,6 +2241,9 @@ interface AssetCostSectionProps {
   /** 2026-08-17: move a line within its phase, swapping with the row the user
    *  can see (not the adjacent array element, which a stage filter can hide). */
   onMoveLine?: (lineId: string, direction: 'up' | 'down', neighbourId?: string) => void;
+  /** 2026-08-17: built-in catalog entries plus this user's own. */
+  catalogEntries?: AnyCostCatalogEntry[];
+  onAddCatalogEntry?: (draft: { label: string; method: CostMethod; stage: CostStage; phasingSource: CapexPhasingSource }) => Promise<void>;
   /** 2026-08-15: writes Asset.capexPhasing (the one curve for this asset). */
   onUpdateAsset?: (assetId: string, patch: Partial<Asset>) => void;
   /** 2026-08-16: total sales cash collected for this asset, passed to the row
@@ -2071,6 +2256,7 @@ function AssetCostSection({
   metrics,
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
   onAddCustom, onInsertNear, onMoveLine, onUpdateAsset,
+  catalogEntries, onAddCatalogEntry,
 }: AssetCostSectionProps): React.JSX.Element {
   const cp = constructionPeriods;
   // Default-collapsed (2026-05-13): every per-asset cost section in
@@ -2198,7 +2384,10 @@ function AssetCostSection({
                     metrics={metrics}
                     resolvedWindow={breakdown.resolvedWindowByLineId[line.id]}
                     selectedBase={breakdown.selectedBaseByLineId[line.id]}
+                    resolvedSchedule={breakdown.perLinePerPeriod[line.id]}
                     visibleLines={lines}
+                    catalogEntries={catalogEntries}
+                    onAddCatalogEntry={onAddCatalogEntry}
                     onMove={onMoveLine
                       ? (direction) => onMoveLine(
                           line.id,
@@ -3283,8 +3472,50 @@ export default function Module1Costs(): React.JSX.Element {
   // 2026-08-15: writes Asset.capexPhasing from the one-curve control.
   const updateAsset = useModule1Store((s) => s.updateAsset);
   const removeCostLine = useModule1Store((s) => s.removeCostLine);
+  const restoreCostLine = useModule1Store((s) => s.restoreCostLine);
+  const setCostLines = useModule1Store((s) => s.setCostLines);
   const setCostOverride = useModule1Store((s) => s.setCostOverride);
   const removeCostOverride = useModule1Store((s) => s.removeCostOverride);
+
+  // ── The shared cost catalog (2026-08-17) ───────────────────────────────
+  //
+  // Built-ins come from code, so the picker is populated before any network
+  // call and stays populated if the call fails or the table is not there yet
+  // (a deploy landing before migration 214). The user's own entries are a layer
+  // on top. Nothing here is on a calculation path: an entry stamps its method,
+  // stage and phasing source onto the LINE, and the engine reads the line.
+  const [userCatalog, setUserCatalog] = useState<UserCostCatalogEntry[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/refm/cost-catalog');
+        if (!res.ok) return;
+        const body = await res.json() as { entries?: UserCostCatalogEntry[] };
+        if (!cancelled && Array.isArray(body.entries)) setUserCatalog(body.entries);
+      } catch { /* built-ins are enough */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  const catalogEntries = useMemo(() => mergeCatalog(userCatalog), [userCatalog]);
+  const addCatalogEntry = async (draft: { label: string; method: CostMethod; stage: CostStage; phasingSource: CapexPhasingSource }): Promise<void> => {
+    const res = await fetch('/api/refm/cost-catalog', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(draft),
+    });
+    const body = await res.json() as { entry?: UserCostCatalogEntry; error?: string };
+    if (!res.ok || !body.entry) throw new Error(body.error ?? 'Could not save the entry.');
+    setUserCatalog((prev) => [...prev.filter((e) => e.id !== body.entry!.id), body.entry!]);
+  };
+
+  // ── Undo for a deleted cost line (2026-08-17) ──────────────────────────
+  // Deleting was immediate and irreversible, behind a confirm dialog that a
+  // user learns to dismiss. The line, its position and its per-asset overrides
+  // are held here until the next delete, so Undo restores the row exactly where
+  // it was, which matters because position decides what a percentage may
+  // charge on.
+  const [undoBuffer, setUndoBuffer] = useState<{ line: CostLine; index: number; overrides: CostOverride[] } | null>(null);
 
   const [stageFilter, setStageFilter] = useState<CostStage | 'all'>('all');
   const [popupAssetId, setPopupAssetId] = useState<string | null>(null);
@@ -3309,6 +3540,10 @@ export default function Module1Costs(): React.JSX.Element {
   // cherry-pick targets instead of a blanket apply-to-all.
   const [copyTargetIds, setCopyTargetIds] = useState<Set<string>>(new Set());
   const [copyPanelOpen, setCopyPanelOpen] = useState<boolean>(false);
+  const [copyRemoveExtra, setCopyRemoveExtra] = useState<boolean>(false);
+  const [copyResult, setCopyResult] = useState<
+    { targets: number; lines: number; created: number; removed: number; skipped: number } | null
+  >(null);
   // P11 Fix 5 (2026-05-13): user-selectable source asset for the copy
   // panel. null = fall back to the currently active asset; otherwise
   // a specific asset id from anywhere in the project. Decoupling the
@@ -3470,6 +3705,53 @@ export default function Module1Costs(): React.JSX.Element {
 
   return (
     <div data-testid="module1-costs">
+      {/* Undo for a deleted cost line. Deleting used to be immediate and
+          irreversible behind a confirm dialog; this restores the row AT ITS
+          INDEX, with its per-asset overrides, because position decides what a
+          percentage may charge on. */}
+      {undoBuffer && (
+        <div
+          data-testid="costs-undo-banner"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flexWrap: 'wrap',
+            padding: 'var(--sp-1) var(--sp-2)', marginBottom: 'var(--sp-2)',
+            borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--color-accent-warm)',
+            background: 'color-mix(in srgb, var(--color-accent-warm) 10%, transparent)',
+            fontSize: 12,
+          }}
+        >
+          <span>
+            Removed <strong>{undoBuffer.line.name}</strong>
+            {undoBuffer.overrides.length > 0
+              ? ` and ${undoBuffer.overrides.length} per-asset override${undoBuffer.overrides.length === 1 ? '' : 's'}`
+              : ''}.
+          </span>
+          <button
+            type="button"
+            data-testid="costs-undo-restore"
+            onClick={() => {
+              restoreCostLine(undoBuffer.line, undoBuffer.index, undoBuffer.overrides);
+              setUndoBuffer(null);
+            }}
+            style={{
+              fontSize: 11, padding: '4px 12px', fontWeight: 700,
+              background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)',
+              border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+            }}
+          >
+            Undo
+          </button>
+          <button
+            type="button"
+            data-testid="costs-undo-dismiss"
+            onClick={() => setUndoBuffer(null)}
+            style={{ fontSize: 11, padding: '4px 10px', background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 'var(--sp-2)', flexWrap: 'wrap', gap: 'var(--sp-1)' }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 'var(--font-h2)', fontWeight: 'var(--fw-bold)' }}>3. Development Costs</h2>
@@ -3688,11 +3970,21 @@ export default function Module1Costs(): React.JSX.Element {
                 phase filter so it's clearly project-wide, not phase-
                 scoped. Source = whichever asset is currently active.
                 Target list = every visible non-companion asset across
-                EVERY phase except the active one. Cross-phase apply
-                matches lines by name because cost line IDs are phase-
-                scoped (each phase carries its own master records);
-                lines that exist in the source asset's phase but not in
-                the target asset's phase are skipped silently. */}
+                EVERY phase except the active one.
+
+                2026-08-17: cross-phase apply RECONCILES THE LINE SET rather
+                than matching by name. It used to write per-asset overrides
+                only, matching a target line whose display name was identical,
+                and `continue` past anything with no match. So a renamed line,
+                an added line and a deletion never crossed a phase boundary and
+                nothing said so: the target phase kept the seeded catalog while
+                the panel reported success. Matching is now by CATALOG IDENTITY,
+                a missing line is CREATED, and the counts are stated.
+
+                COST LINES ARE PER PHASE, NOT PER ASSET, so making a target's
+                phase match the source's changes that phase for every asset in
+                it. The confirm dialog says so, and removing lines the source
+                does not have is opt-in. */}
             {activeAsset && (() => {
               const eligibleSources = allVisibleAssets.filter((a) => a.isCompanion !== true);
               if (eligibleSources.length === 0) return null;
@@ -3728,7 +4020,7 @@ export default function Module1Costs(): React.JSX.Element {
                         Copy cost configuration between assets
                       </strong>
                       <span style={{ marginLeft: 8 }}>
-                        pick a source asset + one or more targets; copies method, value, start, end, phasing per cost line. Cross-phase targets match lines by name.
+                        pick a source asset + one or more targets. Reproduces the source asset&apos;s cost lines in the target&apos;s phase (matched by catalog entry, not by name) and copies method, value, window and phasing per line.
                       </span>
                     </div>
                     <button
@@ -3740,6 +4032,34 @@ export default function Module1Costs(): React.JSX.Element {
                       {copyPanelOpen ? 'Hide' : 'Open copy panel...'}
                     </button>
                   </div>
+                  {/* What the copy actually did. The old panel closed silently
+                      whether it had matched every line or none of them. */}
+                  {copyResult && (
+                    <div
+                      data-testid="costs-copy-panel-result"
+                      style={{
+                        marginTop: 6, padding: '4px 8px', borderRadius: 'var(--radius-sm)',
+                        background: copyResult.skipped > 0
+                          ? 'color-mix(in srgb, var(--color-accent-warm) 12%, transparent)'
+                          : 'color-mix(in srgb, var(--color-success) 12%, transparent)',
+                        fontSize: 11, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+                      }}
+                    >
+                      <span>
+                        Copied {copyResult.lines} line{copyResult.lines === 1 ? '' : 's'} to {copyResult.targets} asset{copyResult.targets === 1 ? '' : 's'}
+                        {copyResult.created > 0 ? `, added ${copyResult.created} missing line${copyResult.created === 1 ? '' : 's'}` : ''}
+                        {copyResult.removed > 0 ? `, removed ${copyResult.removed}` : ''}
+                        {copyResult.skipped > 0 ? `, skipped ${copyResult.skipped} with no counterpart` : ''}.
+                      </span>
+                      <button
+                        type="button" onClick={() => setCopyResult(null)}
+                        data-testid="costs-copy-panel-result-dismiss"
+                        style={{ fontSize: 10, padding: '2px 8px', background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  )}
                   {copyPanelOpen && (
                     <div style={{ marginTop: 'var(--sp-1)', borderTop: '1px solid var(--color-border)', paddingTop: 'var(--sp-1)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap', marginBottom: 'var(--sp-1)' }}>
@@ -3844,7 +4164,19 @@ export default function Module1Costs(): React.JSX.Element {
                           </div>
                         ))}
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 'var(--sp-1)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'var(--sp-1)', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+                        {/* Removing lines from the target's PHASE affects every
+                            asset in that phase, so it is never the default. */}
+                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={copyRemoveExtra}
+                            onChange={(e) => setCopyRemoveExtra(e.target.checked)}
+                            data-testid="costs-copy-panel-remove-extra"
+                          />
+                          Also remove lines the source does not have
+                          <span style={{ color: 'var(--color-meta)' }}>(affects every asset in the target phase)</span>
+                        </label>
                         <button
                           type="button"
                           disabled={selectedCount === 0}
@@ -3855,12 +4187,127 @@ export default function Module1Costs(): React.JSX.Element {
                               .filter((a) => copyTargetIds.has(a.id))
                               .map((a) => a.name)
                               .join(', ');
+                            // ── Plan the line-set reconciliation first, so the
+                            // dialog can state exactly what it will do ────────
+                            const targetPhaseIds = Array.from(new Set(
+                              peerAssets.filter((a) => copyTargetIds.has(a.id))
+                                .map((a) => a.phaseId)
+                                .filter((pid) => pid !== sourceAsset.phaseId),
+                            ));
+                            // IDENTITY PLUS OCCURRENCE. Two lines may legitimately
+                            // share one catalog entry (a "Launch campaign" and an
+                            // "Ongoing marketing", both Marketing), and matching on
+                            // identity alone would map both onto the target's first
+                            // one, so the second override would overwrite the first
+                            // and one line would never be created. The nth line with
+                            // a given identity maps to the nth in the target.
+                            const identityOf = (c: CostLine): string => resolveCatalogId(c) ?? `name:${c.name.trim().toLowerCase()}`;
+                            const withOccurrence = (list: CostLine[]): Map<string, string> => {
+                              const seen = new Map<string, number>();
+                              const out = new Map<string, string>();
+                              for (const c of list) {
+                                const base = identityOf(c);
+                                const n = (seen.get(base) ?? 0) + 1;
+                                seen.set(base, n);
+                                out.set(c.id, `${base}#${n}`);
+                              }
+                              return out;
+                            };
+                            const sourceKeyById = withOccurrence(sourceLines);
+                            const plan = targetPhaseIds.map((phaseId) => {
+                              const existing = costLines.filter((c) => c.phaseId === phaseId);
+                              const targetKeyById = withOccurrence(existing);
+                              const targetKeys = new Set(targetKeyById.values());
+                              const sourceKeys = new Set(sourceKeyById.values());
+                              const toCreate = sourceLines.filter((c) => !targetKeys.has(sourceKeyById.get(c.id)!));
+                              const extra = existing.filter(
+                                (c) => !sourceKeys.has(targetKeyById.get(c.id)!) && !isParcelDrivenLandLine(c),
+                              );
+                              return { phaseId, toCreate, extra, targetKeyById };
+                            });
+                            const totalCreate = plan.reduce((s, p) => s + p.toCreate.length, 0);
+                            const totalExtra = plan.reduce((s, p) => s + p.extra.length, 0);
+                            const phaseNote = targetPhaseIds.length === 0 ? '' : [
+                              '',
+                              `${totalCreate} line${totalCreate === 1 ? '' : 's'} will be ADDED to ${targetPhaseIds.length} other phase${targetPhaseIds.length === 1 ? '' : 's'} so their cost lines match this asset's.`,
+                              totalExtra > 0
+                                ? (copyRemoveExtra
+                                    ? `${totalExtra} line${totalExtra === 1 ? '' : 's'} that ${sourceAsset.name} does not have will be REMOVED from those phases.`
+                                    : `${totalExtra} line${totalExtra === 1 ? '' : 's'} that ${sourceAsset.name} does not have will be LEFT IN PLACE.`)
+                                : '',
+                              'Cost lines belong to a phase, so this changes those phases for every asset in them, not only the targets.',
+                            ].filter(Boolean).join('\n');
                             const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
                               ? window.confirm(
-                                  `Copy ${sourceAsset.name}'s cost configuration (${sourceLines.length} line${sourceLines.length === 1 ? '' : 's'}) to ${targetIds.length} asset${targetIds.length === 1 ? '' : 's'}: ${targetNames}?\n\nCross-phase targets match lines by name. Existing per-asset overrides on the targets will be overwritten.`,
+                                  `Copy ${sourceAsset.name}'s cost configuration (${sourceLines.length} line${sourceLines.length === 1 ? '' : 's'}) to ${targetIds.length} asset${targetIds.length === 1 ? '' : 's'}: ${targetNames}?\n\nExisting per-asset overrides on the targets will be overwritten.${phaseNote}`,
                                 )
                               : true;
                             if (!ok) return;
+                            // ── Reconcile the line sets in ONE write ─────────
+                            // setCostLines once, rather than a create per line,
+                            // so the array (whose ORDER decides what a
+                            // percentage may charge on) is never briefly
+                            // half-reconciled.
+                            const createdIdByPhase = new Map<string, Map<string, string>>();
+                            if (plan.some((p) => p.toCreate.length > 0 || (copyRemoveExtra && p.extra.length > 0))) {
+                              let next = [...costLines];
+                              for (const { phaseId, toCreate, extra } of plan) {
+                                if (copyRemoveExtra && extra.length > 0) {
+                                  const drop = new Set(extra.map((c) => c.id));
+                                  next = next.filter((c) => !drop.has(c.id));
+                                }
+                                const minted = new Map<string, string>();
+                                for (const src of toCreate) {
+                                  const id = mintLineId(
+                                    resolveCatalogId(src) ?? deriveLineBaseId(src.id),
+                                    phaseId,
+                                    next.map((c) => c.id),
+                                  );
+                                  minted.set(src.id, id);
+                                  const clone: CostLine = {
+                                    ...src,
+                                    id,
+                                    phaseId,
+                                    // A custom line targeted at the source asset stays
+                                    // project-wide in the new phase: the target asset
+                                    // is a different asset.
+                                    targetAssetId: undefined,
+                                    distribution: src.distribution ? [...src.distribution] : undefined,
+                                    perSubUnitRates: src.perSubUnitRates ? { ...src.perSubUnitRates } : undefined,
+                                    selectedLineIds: undefined, // remapped below, once every id exists
+                                  };
+                                  // Insert in the source's relative order: after the
+                                  // last line already placed for this phase.
+                                  const lastIdx = next.map((c) => c.phaseId).lastIndexOf(phaseId);
+                                  next.splice(lastIdx < 0 ? next.length : lastIdx + 1, 0, clone);
+                                }
+                                createdIdByPhase.set(phaseId, minted);
+                              }
+                              // Remap every selection into the target phase by
+                              // catalog identity. A source id means nothing in
+                              // another phase, so an unremapped selection would
+                              // silently charge on nothing.
+                              next = next.map((c) => {
+                                const minted = createdIdByPhase.get(c.phaseId);
+                                if (!minted) return c;
+                                const src = sourceLines.find((s2) => minted.get(s2.id) === c.id);
+                                if (!src || !src.selectedLineIds?.length) return c;
+                                // Same occurrence-aware key as the match above,
+                                // recomputed over the RECONCILED list so a
+                                // just-created line is a valid target.
+                                const phaseKeyById = withOccurrence(next.filter((x) => x.phaseId === c.phaseId));
+                                const remapped = src.selectedLineIds
+                                  .map((refId) => {
+                                    const wantedKey = sourceKeyById.get(refId);
+                                    if (!wantedKey) return undefined;
+                                    for (const [id, key] of phaseKeyById) if (key === wantedKey) return id;
+                                    return undefined;
+                                  })
+                                  .filter((v): v is string => !!v);
+                                return remapped.length > 0 ? { ...c, selectedLineIds: remapped } : c;
+                              });
+                              setCostLines(next);
+                            }
                             // P11 Fix 7 (2026-05-13): one-time deep clone,
                             // not a live link. Apply was previously routing
                             // through master + override inheritance: when
@@ -3882,6 +4329,7 @@ export default function Module1Costs(): React.JSX.Element {
                             // setCostOverride (since the row finds an
                             // override on the asset) so edits stay
                             // contained to the asset being edited.
+                            let skipped = 0;
                             for (const line of sourceLines) {
                               const sourceOv = costOverrides.find((o) =>
                                 o.assetId === sourceAsset.id && o.lineId === line.id,
@@ -3919,17 +4367,36 @@ export default function Module1Costs(): React.JSX.Element {
                                 if (!target) continue;
                                 let targetLineId = line.id;
                                 if (target.phaseId !== sourceAsset.phaseId) {
-                                  const match = costLines.find((c) =>
-                                    c.phaseId === target.phaseId &&
-                                    (c.targetAssetId === undefined || c.targetAssetId === target.id) &&
-                                    c.name.trim().toLowerCase() === line.name.trim().toLowerCase(),
-                                  );
-                                  if (!match) continue;
+                                  // BY CATALOG IDENTITY, not by display name. A
+                                  // renamed line has no name twin in the target
+                                  // phase, which is exactly why the old match
+                                  // silently skipped it. The line was created
+                                  // above when it did not exist, so the only way
+                                  // to miss now is a line the user opted not to
+                                  // create.
+                                  const wanted = sourceKeyById.get(line.id);
+                                  const minted = createdIdByPhase.get(target.phaseId)?.get(line.id);
+                                  const targetKeyById = plan.find((p) => p.phaseId === target.phaseId)?.targetKeyById;
+                                  const match = minted
+                                    ? { id: minted }
+                                    : costLines.find((c) =>
+                                        c.phaseId === target.phaseId &&
+                                        (c.targetAssetId === undefined || c.targetAssetId === target.id) &&
+                                        targetKeyById?.get(c.id) === wanted,
+                                      );
+                                  if (!match) { skipped += 1; continue; }
                                   targetLineId = match.id;
                                 }
                                 setCostOverride(makeOverride(tId, targetLineId));
                               }
                             }
+                            setCopyResult({
+                              targets: targetIds.length,
+                              lines: sourceLines.length,
+                              created: totalCreate,
+                              removed: copyRemoveExtra ? totalExtra : 0,
+                              skipped,
+                            });
                             setCopyPanelOpen(false);
                             setCopyTargetIds(new Set());
                           }}
@@ -4121,13 +4588,21 @@ export default function Module1Costs(): React.JSX.Element {
                 onUpdateOverride={(override) => setCostOverride(override)}
                 onRemoveOverride={(assetId, lineId) => removeCostOverride(assetId, lineId)}
                 onRemoveLine={(lineId) => {
-                  const line = costLines.find((c) => c.id === lineId);
-                  const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
-                    ? window.confirm(`Remove '${line?.name ?? 'cost line'}'?`)
-                    : true;
-                  if (!ok) return;
+                  // 2026-08-17: no confirm dialog. The line, its index and its
+                  // overrides are held so Undo puts it back exactly where it
+                  // was; an undo that works beats a dialog you learn to dismiss.
+                  const index = costLines.findIndex((c) => c.id === lineId);
+                  const line = costLines[index];
+                  if (!line) return;
+                  setUndoBuffer({
+                    line,
+                    index,
+                    overrides: costOverrides.filter((o) => o.lineId === lineId),
+                  });
                   removeCostLine(lineId);
                 }}
+                catalogEntries={catalogEntries}
+                onAddCatalogEntry={addCatalogEntry}
                 onAddCustom={() => addCostLine(makeCustomCostLine(activeAsset.phaseId, assetPhase?.constructionPeriods ?? 1))}
                 onInsertNear={(anchorLineId, position) => insertCostLineNear(
                   makeCustomCostLine(activeAsset.phaseId, assetPhase?.constructionPeriods ?? 1),

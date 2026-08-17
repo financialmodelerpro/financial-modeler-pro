@@ -1856,6 +1856,24 @@ export interface CostLine {
    * flag says who owns that number, not whether it exists.
    */
   windowFollowsConstruction?: boolean;
+  /**
+   * 2026-08-17: WHICH CATALOG ENTRY THIS ROW IS.
+   *
+   * A cost line has two parts: an entry underneath that carries the method,
+   * stage and phasing source, and a display name the user renames freely.
+   * Without this, behaviour lived in the line's `id` while the label was free
+   * text, so a row renamed "Permits and approvals" was still the seeded
+   * Commission line, following sales collections, with nothing on screen
+   * saying so.
+   *
+   * Absent resolves from the line's own base id (see `resolveCatalogId`), which
+   * is why every existing line declares its identity with no migration.
+   *
+   * LABEL SIDE ONLY. The entry stamps method / stage / source onto the line at
+   * selection time and is never read by the engine or the exports, so a catalog
+   * that cannot be reached can never change a number.
+   */
+  catalogId?: string;
 }
 
 export interface CostOverride {
