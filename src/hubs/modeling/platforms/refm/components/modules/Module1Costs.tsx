@@ -65,6 +65,7 @@ import {
   deriveCostWindow,
 } from '../../lib/state/module1-types';
 import { resolvePhasingSource, isParcelDrivenLandLine, collectionsForAsset, collectionsTotalForAsset, phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
+import { countryMatches, countryLabel } from '@/src/core/countries';
 import {
   mergeCatalog,
   resolveCatalogId,
@@ -3731,7 +3732,7 @@ export default function Module1Costs(): React.JSX.Element {
       .filter((c) => c.phaseId === phaseId)
       .filter((c) => c.targetAssetId === undefined || c.targetAssetId === asset.id)
       .filter((c) => stageFilter === 'all' || deriveCostStage(c) === stageFilter)
-      .filter((c) => !c.requiresCountry || c.requiresCountry === project.country);
+      .filter((c) => countryMatches(c.requiresCountry, project.country));
   }
 
   /**
@@ -3748,13 +3749,67 @@ export default function Module1Costs(): React.JSX.Element {
   // conditionally called. A cheap array scan does not need to add a sixth.
   const gatedWithRate = costLines.filter(
     (c) => !!c.requiresCountry
-      && c.requiresCountry !== project.country
+      && !countryMatches(c.requiresCountry, project.country)
       && Math.abs(c.value) > 0
       && c.disabled !== true,
   );
 
+  /**
+   * TWO CHARGED LINES THAT ARE THE SAME COST (2026-08-17b).
+   *
+   * Closing the country gate opened this: a user whose country was never set
+   * could not see the seeded transfer-tax row, so they added their own. Both
+   * carry a rate. The moment a country IS selected the seeded row becomes
+   * chargeable and the tax is charged twice, which is the defect the gate fix
+   * was for, arriving from the other side.
+   *
+   * Keyed on CATALOG IDENTITY plus phase, not on the label, because the two
+   * rows are named differently ("Real Estate Transfer Tax" and "Real Estate
+   * Transfer Tax (RETT)"). It states the duplication and leaves the choice to
+   * the user: which of the two to delete is not a decision a screen can make.
+   */
+  const duplicateCharged = ((): Array<{ phaseId: string; identity: string; lines: CostLine[] }> => {
+    const groups = new Map<string, CostLine[]>();
+    for (const c of costLines) {
+      if (!countryMatches(c.requiresCountry, project.country)) continue;
+      if (c.disabled === true || Math.abs(c.value) === 0) continue;
+      const identity = resolveCatalogId(c);
+      if (!identity) continue;   // a genuinely custom line has no identity to duplicate
+      const key = `${c.phaseId}::${identity}`;
+      const list = groups.get(key) ?? [];
+      list.push(c);
+      groups.set(key, list);
+    }
+    const out: Array<{ phaseId: string; identity: string; lines: CostLine[] }> = [];
+    for (const [key, lines] of groups) {
+      if (lines.length < 2) continue;
+      const [phaseId, identity] = key.split('::');
+      out.push({ phaseId, identity, lines });
+    }
+    return out;
+  })();
+
   return (
     <div data-testid="module1-costs">
+      {duplicateCharged.length > 0 && (
+        <div
+          data-testid="costs-duplicate-charge-notice"
+          style={{
+            padding: 'var(--sp-1) var(--sp-2)', marginBottom: 'var(--sp-2)',
+            borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--color-danger, #B3261E)',
+            background: 'color-mix(in srgb, var(--color-danger, #B3261E) 8%, transparent)',
+            fontSize: 12, lineHeight: 1.4,
+          }}
+        >
+          <strong>Charged twice:</strong>{' '}
+          {duplicateCharged.map((g) => {
+            const phase = phases.find((p) => p.id === g.phaseId);
+            return `${phase?.name ?? g.phaseId} has ${g.lines.length} lines that are the same cost (${g.lines.map((l) => `${l.name} at ${l.value}`).join(', ')})`;
+          }).join('; ')}.
+          {' '}Both are charged, so this cost is counted more than once. Delete or zero the one you do not want; deleting is undoable.
+        </div>
+      )}
       {gatedWithRate.length > 0 && (
         <div
           data-testid="costs-country-gated-notice"
@@ -3770,9 +3825,9 @@ export default function Module1Costs(): React.JSX.Element {
             {gatedWithRate.length === 1 ? '1 cost line carries a rate but does not apply here' : `${gatedWithRate.length} cost lines carry a rate but do not apply here`}
             :
           </strong>{' '}
-          {gatedWithRate.map((c) => `${c.name} (${c.value}%, ${c.requiresCountry})`).join('; ')}.
+          {gatedWithRate.map((c) => `${c.name} (${c.value}%, ${countryLabel(c.requiresCountry)})`).join('; ')}.
           {' '}The project country is{' '}
-          <strong>{project.country ? project.country : 'not set'}</strong>, so {gatedWithRate.length === 1 ? 'it is' : 'they are'} not charged and {gatedWithRate.length === 1 ? 'its row is' : 'their rows are'} hidden.
+          <strong>{project.country ? countryLabel(project.country) : 'not set'}</strong>, so {gatedWithRate.length === 1 ? 'it is' : 'they are'} not charged and {gatedWithRate.length === 1 ? 'its row is' : 'their rows are'} hidden.
           {' '}Set the country in Project &amp; Phases to use {gatedWithRate.length === 1 ? 'it' : 'them'}.
         </div>
       )}
@@ -4054,7 +4109,7 @@ export default function Module1Costs(): React.JSX.Element {
               .filter((c) => c.phaseId === activeAsset.phaseId)
               .filter((c) => c.targetAssetId === undefined || c.targetAssetId === activeAsset.id)
               .filter((c) => stageFilter === 'all' || deriveCostStage(c) === stageFilter)
-              .filter((c) => !c.requiresCountry || c.requiresCountry === project.country)
+              .filter((c) => countryMatches(c.requiresCountry, project.country))
           : [];
         const assetBreakdown = activeAsset
           ? perPhaseBreakdowns
@@ -4120,7 +4175,7 @@ export default function Module1Costs(): React.JSX.Element {
               const sourceLines = costLines
                 .filter((c) => c.phaseId === sourceAsset.phaseId)
                 .filter((c) => c.targetAssetId === undefined || c.targetAssetId === sourceAsset.id)
-                .filter((c) => !c.requiresCountry || c.requiresCountry === project.country);
+                .filter((c) => countryMatches(c.requiresCountry, project.country));
               return (
                 <div
                   style={{ ...sectionCardStyle, padding: 'var(--sp-1) var(--sp-2)', borderColor: 'color-mix(in srgb, var(--color-navy) 30%, var(--color-border))' }}

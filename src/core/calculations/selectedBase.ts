@@ -56,6 +56,7 @@
  */
 
 import type { CostLine } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import { countryMatches } from '@/src/core/countries';
 
 /**
  * The lines visible to one asset within its phase, in display order. Mirrors
@@ -69,6 +70,11 @@ import type { CostLine } from '@/src/hubs/modeling/platforms/refm/lib/state/modu
  * `assetId` accepts undefined for "the phase's project-wide lines only", which
  * is what a phase-level reconciliation needs: a line targeted at some other
  * asset is not part of the phase's shared set.
+ *
+ * 2026-08-17b: the country test goes through `countryMatches`, which resolves
+ * both sides to an ISO code, so a line saved as 'Saudi Arabia' matches a project
+ * that now stores 'SA'. See src/core/countries.ts for why the field became a
+ * selected value at all.
  */
 export function assetVisibleLines(
   lines: CostLine[],
@@ -79,7 +85,7 @@ export function assetVisibleLines(
   return lines.filter((c) =>
     c.phaseId === phaseId
     && (c.targetAssetId === undefined || c.targetAssetId === assetId)
-    && (!c.requiresCountry || c.requiresCountry === country));
+    && countryMatches(c.requiresCountry, country));
 }
 
 /**

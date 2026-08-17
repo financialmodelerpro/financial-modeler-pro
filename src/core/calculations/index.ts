@@ -84,6 +84,7 @@ import type {
 import {
   capexPhasingIsInert,
   resolveLinePhasing,
+  isParcelDrivenLandLine,
   type CapexPhasingContext,
 } from './capexPhasing';
 import { assetVisibleLines, allowedSelectedIds } from './selectedBase';
@@ -1677,7 +1678,19 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
     // moves, not how much of it there is.
     const landShape = new Array<number>(periodSlots).fill(0);
     for (const r of resolved) {
-      if (r.method !== 'percent_of_cash_land') continue;
+      // THE LAND LINE, NOT THE METHOD (2026-08-17b). This selected every line
+      // whose METHOD is `percent_of_cash_land`, which is also RETT's method,
+      // because a transfer tax IS a percentage of the cash land value. So RETT
+      // was half of the shape it was supposed to be following: measured on a
+      // live project, phase 2 land cash sat entirely in period 0 while RETT
+      // resolved to 0..3 as 468,750 / 156,250 / 156,250 / 156,250, which is the
+      // real land cash at period 0 blended with RETT's OWN construction spread.
+      //
+      // `isParcelDrivenLandLine` is the one definition of which lines are the
+      // land value, and its own docstring says that method is the wrong
+      // discriminator for exactly this reason. In-kind land is excluded by the
+      // same helper's companion test below: RETT follows the CASH outflow.
+      if (!isParcelDrivenLandLine(r.line) || r.method !== 'percent_of_cash_land') continue;
       const own = distributeItemCost(
         { ...r.line, phasing: r.phasing, distribution: r.distribution, startPeriod: r.startPeriod, endPeriod: r.endPeriod },
         1,

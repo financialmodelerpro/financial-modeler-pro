@@ -1492,6 +1492,27 @@ function isLooseSnapshot(s: unknown): boolean {
 // the full migration chain (v7 -> v8, parking fold, phasing normalize,
 // id dedupe) so the result is bit-identical to a freshly saved v8
 // snapshot for fields the user did populate.
+//
+// ── EVERY RECORD SPREADS FIRST (2026-08-17) ────────────────────────────────
+//
+// Each collection below used to be rebuilt from an object literal naming a
+// FIXED set of fields, so ANY field the literal did not name was destroyed on
+// load. That has now cost three real fields: `windowFollowsConstruction` and
+// `phasingSource` on cost lines, and `capexPhasing` on assets, which is why a
+// user could tick "one phasing curve for this asset", watch it save (the
+// version row in the database really does carry it), reopen the project, and
+// find it unchecked with nothing said.
+//
+// The fix is the shape of the code, not another name on a list: spread the raw
+// record first, then normalise on top. Defaults and id renames still apply
+// exactly as before, and a field nobody here has heard of survives instead of
+// vanishing. This also makes the loose path agree with the v8 path, which has
+// always spread (`{ ...s }`) and runs the identical migration chain afterwards,
+// so the two entry points can no longer disagree about what a snapshot holds.
+//
+// A guard verifier is not enough for this class: it fails AFTER a field has
+// been added and before anyone notices, and it has to be updated per type.
+// Spreading removes the failure mode.
 function migrateLegacyToV8(input: unknown): HydrateSnapshot {
   const o = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
 
@@ -1513,6 +1534,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
   // Phases: must have at least one. Backfill timing fields per phase.
   const rawPhases = Array.isArray(o.phases) ? (o.phases as Partial<Phase>[]) : [];
   const phases: Phase[] = (rawPhases.length > 0 ? rawPhases : [makeDefaultPhase()]).map((p, idx) => ({
+    ...p,
     id: p.id ?? (idx === 0 ? DEFAULT_PHASE_ID : `phase_${idx + 1}`),
     name: p.name ?? `Phase ${idx + 1}`,
     constructionStart: typeof p.constructionStart === 'number' ? p.constructionStart : 1,
@@ -1537,6 +1559,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
   const rawParcels = Array.isArray(o.parcels) ? (o.parcels as Partial<Parcel>[]) : [];
   const parcels: Parcel[] = rawParcels.length > 0
     ? rawParcels.map((p, idx) => ({
+        ...p,
         id: p.id ?? (idx === 0 ? 'parcel_1' : `parcel_${idx + 1}`),
         phaseId: p.phaseId ?? firstPhaseId,
         name: p.name ?? `Land ${idx + 1}`,
@@ -1553,6 +1576,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
   // Assets: rename legacy 'Hybrid' strategy to 'Sell + Manage'.
   const rawAssets = Array.isArray(o.assets) ? (o.assets as Partial<Asset>[]) : [];
   const assets: Asset[] = rawAssets.map((a) => ({
+    ...a,
     id: a.id ?? `asset_${Math.random().toString(36).slice(2, 8)}`,
     phaseId: a.phaseId ?? firstPhaseId,
     name: a.name ?? 'Asset',
@@ -1580,22 +1604,38 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
   // Cost lines: rename legacy v6 ids to closest v7 standard so the
   // calc engine's stage/scope derivation still works. Anything else
   // passes through unchanged.
+  // A RENAME KEY MUST NOT BE A CURRENT CATALOG ID (2026-08-17b).
+  //
+  // This map turns a v6 line id into its v7 equivalent. Two of its keys have
+  // since become real catalog ids in their own right: `marketing` (added to the
+  // standard catalog 2026-08-15, a marketing-stage line that follows sales
+  // collections) and `project-management` (a selectable catalog entry added
+  // 2026-08-17). Because every app-saved snapshot takes this path, a line the
+  // user has TODAY was being renamed into a different line on the next open,
+  // and the dedupe that follows then deleted it outright: measured, a snapshot
+  // carrying `marketing__phase_1` came back with no marketing line at all,
+  // while the same content wrapped as v8 kept it.
+  //
+  // So both keys are gone. A genuine v6 snapshot carrying `marketing` now keeps
+  // a marketing line, which is what it was called, rather than being folded
+  // into commission. `verify-snapshot-field-survival` fails if any key here is
+  // ever a catalog id again, because the next catalog entry that reuses an old
+  // name would repeat this silently.
   const V6_TO_V7_LINE_ID: Record<string, string> = {
     'site-prep':          'infrastructure',
     'structural':         'construction-bua',
     'mep':                'construction-bua',
     'finishing':          'construction-bua',
     'professional-fees':  'professional-fee',
-    'project-management': 'professional-fee',
     'legal':              'professional-fee',
     'ffe':                'pre-operating',
-    'marketing':          'commission',
   };
   const rawCostLines = Array.isArray(o.costLines) ? (o.costLines as Partial<CostLine>[]) : [];
   let costLines: CostLine[] = rawCostLines.map((c) => {
     const baseId = deriveLineBaseId(c.id ?? '');
     const renamed = V6_TO_V7_LINE_ID[baseId] ?? baseId;
     return {
+      ...c,
       id: c.id ? (V6_TO_V7_LINE_ID[baseId] ? renamed : c.id) : `custom-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       phaseId: c.phaseId ?? firstPhaseId,
       name: c.name ?? 'Cost Line',
@@ -1615,14 +1655,12 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
       targetAssetId: c.targetAssetId,
       subUnitId: c.subUnitId,
       perSubUnitRates: c.perSubUnitRates,
-      // 2026-08-17: THIS LITERAL IS A FIELD WHITELIST, AND EVERY LOOSE-SHAPED
-      // SNAPSHOT GOES THROUGH IT. A CostLine field that is not named here is
-      // silently dropped on every hydrate, which is the exact inverse of the
-      // schema-tolerance rule the platform normally follows: there, a NEW
-      // column must tolerate being absent; here, a new FIELD must be added or
-      // it never survives a reload. Measured: `windowFollowsConstruction` was
-      // set correctly by the repair and gone by the time the row rendered,
-      // because a project saved without a version wrapper takes this path.
+      // 2026-08-17: this literal WAS a field whitelist, and every loose-shaped
+      // snapshot goes through it, so a CostLine field not named here was
+      // silently dropped on every hydrate. `windowFollowsConstruction` and
+      // `phasingSource` were both lost that way. The `...c` spread above is the
+      // fix; the explicit names below stay because they carry defaults or
+      // normalisation, and the ones that carry neither are harmless.
       windowFollowsConstruction: c.windowFollowsConstruction,
       stageOverride: c.stageOverride,
       phasingSource: c.phasingSource,

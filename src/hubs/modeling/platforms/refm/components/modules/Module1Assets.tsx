@@ -2243,7 +2243,25 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
             )}
           </>
         ) : (
-          <span style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-unitArea-hidden`}>-</span>
+          // ── AREA MODE ALSO GETS A UNIT SIZE (2026-08-17b) ───────────────
+          // This cell was a dash, so on an Area-metric asset there was no way
+          // to enter a unit size and therefore no way to derive a count at
+          // all: the identity area = count x unit size was only enforceable in
+          // Units mode. The stored quantity does NOT change (metric stays
+          // 'area', metricValue stays the total sqm), so nothing the engine
+          // computes moves: `computeSubUnitArea` and `makeSubUnitMaterial`
+          // both branch on `metric` and never read `unitArea` in this mode.
+          // It is an input that yields a derived count and nothing else.
+          <AccountingNumberInput
+            value={Number((subUnit.unitArea ?? 0).toFixed(2))}
+            onChange={(n) => onUpdate({ unitArea: Math.max(0, n) })}
+            scale="full"
+            decimals={0}
+            min={0}
+            style={{ ...inputStyle, fontSize: 11 }}
+            data-testid={`subunit-${subUnit.id}-unitArea`}
+            title={`Size of one ${countUnit.toLowerCase().replace(/s$/, '')}. The count below derives from it. The rate stays per sqm in Area mode, so this changes no number in the model.`}
+          />
         )}
       </td>
       {/* Count: Pass 57 (2026-05-16) directly editable in Units mode so
@@ -2288,7 +2306,32 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
             </div>
           </>
         ) : (
-          <span style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-count-hidden`}>-</span>
+          // Area mode: the count is DERIVED from the two inputs beside it and
+          // is never editable, because metricValue is the area here. With no
+          // unit size there is nothing to divide by, which the cell says.
+          <>
+            {unitArea > 0 ? (
+              <div
+                style={{ ...calcOutputStyle, fontSize: 11, padding: '4px 6px', textAlign: 'right' }}
+                data-testid={`subunit-${subUnit.id}-count`}
+                data-derived="true"
+                title={`${fmt(totalArea)} sqm / ${fmt(unitArea)} sqm per ${countUnit.toLowerCase().replace(/s$/, '')} = ${fmt(Math.round(rawCount))}. Derived: change the Area or the Unit Size.`}
+              >
+                {fmt(Math.round(rawCount))}
+              </div>
+            ) : (
+              <span
+                style={{ fontSize: 11, color: 'var(--color-meta)' }}
+                data-testid={`subunit-${subUnit.id}-count-hidden`}
+                title={`Enter a unit size to derive the ${countUnit.toLowerCase()}.`}
+              >
+                -
+              </span>
+            )}
+            <div style={{ fontSize: 9, color: 'var(--color-meta)', textAlign: 'right', marginTop: 2, fontStyle: 'italic' }} data-testid={`subunit-${subUnit.id}-count-unit`}>
+              {unitArea > 0 ? `${countUnit} (derived)` : countUnit}
+            </div>
+          </>
         )}
       </td>
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>

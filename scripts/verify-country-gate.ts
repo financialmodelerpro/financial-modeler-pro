@@ -30,6 +30,10 @@ import path from 'node:path';
 import { computeAssetCost } from '../src/core/calculations';
 import { assetVisibleLines } from '../src/core/calculations/selectedBase';
 import {
+  COUNTRIES, resolveCountryCode, countryMatches, guessCountryFromLocation,
+} from '../src/core/countries';
+import { defaultTerminologyForCountry } from '../src/core/calculations/financials/labels';
+import {
   makeBlankCostLines, makeDefaultPhase, makeDefaultProject,
   type Asset, type CostLine, type Parcel, type Phase, type Project, type SubUnit,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
@@ -153,6 +157,112 @@ section('D. The mirror image is not silent either');
     /c\.requiresCountry/.test(ui) && ui.includes('not set'));
   check('and it only fires when there is a rate to lose',
     /Math\.abs\(c\.value\) > 0/.test(ui));
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+section('E. A COUNTRY IS A SELECTED VALUE (2026-08-17b)');
+
+// The gate was never reachable: `project.country` had no editor on any screen.
+// Project & Phases offered `location` ("display only"), which is where the user
+// had typed "Jeddah, Saudi Arabia" while `country` stayed ''. So the fix is a
+// select writing a code, and one comparison that resolves BOTH sides.
+{
+  check('a code resolves', resolveCountryCode('SA') === 'SA');
+  check('the canonical name resolves to the code', resolveCountryCode('Saudi Arabia') === 'SA');
+  check('case and spacing do not matter', resolveCountryCode('  saudi   arabia ') === 'SA');
+  check('a common alias resolves', resolveCountryCode('KSA') === 'SA' && resolveCountryCode('UAE') === 'AE');
+  check('an empty value is NOT a country', resolveCountryCode('') === undefined && resolveCountryCode(undefined) === undefined);
+  check('an unknown value is not silently mapped', resolveCountryCode('Atlantis') === undefined);
+  check('the list is complete enough to be usable', COUNTRIES.length > 190);
+  check('every entry has a two letter code and a name',
+    COUNTRIES.every((c) => /^[A-Z]{2}$/.test(c.code) && c.name.length > 1));
+  check('codes are unique', new Set(COUNTRIES.map((c) => c.code)).size === COUNTRIES.length);
+
+  // The point of the resolution: a saved line and a newly stored code match
+  // without either side being migrated.
+  check('a line saved as a NAME matches a project storing a CODE',
+    countryMatches('Saudi Arabia', 'SA'));
+  check('and the reverse', countryMatches('SA', 'Saudi Arabia'));
+  check('an ungated line matches anything', countryMatches(undefined, '') && countryMatches('', 'SA'));
+  check('a different country does not match', !countryMatches('Saudi Arabia', 'AE'));
+  check('an unset country never matches a gated line', !countryMatches('Saudi Arabia', ''));
+  check('two unknown strings still compare as text (nothing that matched stops matching)',
+    countryMatches('Atlantis', 'atlantis') && !countryMatches('Atlantis', 'Narnia'));
+}
+
+{
+  // The engine, through the real function, with the code form.
+  const bd = run('SA', 5);
+  check('the ENGINE charges the gated line when the project stores the CODE',
+    Math.abs((bd.byLineId['rett__phase_1'] ?? 0) - RETT_AT_5) < 1,
+    `${Math.round(bd.byLineId['rett__phase_1'] ?? 0)}`);
+  const ae = run('AE', 5);
+  check('and not when the code is another country', (ae.byLineId['rett__phase_1'] ?? 0) === 0);
+
+  // Terminology reads the same field, so it must accept the same values.
+  check('Zakat terminology follows the code', defaultTerminologyForCountry('SA') === 'saudi');
+  check('and still follows every spelling it used to accept',
+    defaultTerminologyForCountry('Saudi Arabia') === 'saudi'
+    && defaultTerminologyForCountry('ksa') === 'saudi'
+    && defaultTerminologyForCountry('saudi') === 'saudi');
+  check('and nothing else', defaultTerminologyForCountry('AE') === 'standard'
+    && defaultTerminologyForCountry('') === 'standard'
+    && defaultTerminologyForCountry(undefined) === 'standard');
+}
+
+{
+  const ui = read('src/hubs/modeling/platforms/refm/components/modules/Module1ProjectPhases.tsx');
+  check('Project & Phases has a country control at all',
+    ui.includes('data-testid="project-country"'));
+  check('and it is a SELECT, not free text',
+    /<select[\s\S]{0,400}data-testid="project-country"/.test(ui));
+  check('it offers a not-set option so a country is never assumed',
+    /<option value="">Not set<\/option>/.test(ui));
+  check('the location field no longer claims to be a country',
+    !/Free-text city \/ country \/ region\. Display only\./.test(ui));
+  // The suggestion is a SUGGESTION.
+  check('the location suggestion is a button the user presses',
+    ui.includes('project-country-suggestion') && /onClick=\{\(\) => setProject\(\{ country: locationCountry \}\)\}/.test(ui));
+  check('and it only appears when no country is set',
+    /!resolveCountryCode\(project\.country\) && locationCountry/.test(ui));
+  check('guessing is never called by anything but the screen',
+    !stripComments(read('src/core/calculations/index.ts')).includes('guessCountryFromLocation')
+    && !stripComments(read('src/core/calculations/selectedBase.ts')).includes('guessCountryFromLocation'));
+
+  check('a city plus country resolves to the country',
+    guessCountryFromLocation('Jeddah, Saudi Arabia') === 'SA');
+  check('a bare city does not', guessCountryFromLocation('Jeddah') === undefined);
+  check('and a substring cannot be mistaken for a country',
+    guessCountryFromLocation('Nigerien Street, France') === 'FR');
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+section('F. Setting a country cannot silently double a cost');
+
+// Closing the gate opened the mirror: a user who could not see the seeded
+// transfer tax added their own. Both carry a rate, so the moment a country is
+// selected the cost is charged twice. That is stated, not repaired: which row
+// to drop is the user's call.
+{
+  const bd = run('SA', 5);
+  const charged = Object.entries(bd.byLineId).filter(([, v]) => Math.abs(v) > 0.5).map(([id]) => id);
+  check('the fixture really does charge two transfer taxes once the country is set',
+    charged.includes('rett__phase_1') && charged.includes(OWN_RETT.id));
+
+  const costsUi = read('src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx');
+  check('the Capex tab states a doubled cost',
+    costsUi.includes('costs-duplicate-charge-notice'));
+  check('it groups by CATALOG IDENTITY, not by label (the two rows are named differently)',
+    /const identity = resolveCatalogId\(c\)/.test(costsUi));
+  check('it only counts lines that are actually charged',
+    /if \(!countryMatches\(c\.requiresCountry, project\.country\)\) continue;/.test(costsUi)
+    && /Math\.abs\(c\.value\) === 0\) continue;/.test(costsUi));
+  check('and it does not delete anything for the user',
+    !/removeCostLine\([\s\S]{0,80}duplicate/i.test(costsUi));
+
+  const tab1 = read('src/hubs/modeling/platforms/refm/components/modules/Module1ProjectPhases.tsx');
+  check('the country field itself names what it switched on',
+    tab1.includes('project-country-activates'));
 }
 
 // ── Report ─────────────────────────────────────────────────────────────────

@@ -540,6 +540,54 @@ section('K. Area x unit size = count: only two of the three are inputs');
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+section('L. Area mode has a unit size too, and its count is derived');
+
+// The identity was only enforceable in Units mode: in Area mode the Unit Size
+// and Count cells were inert dashes, so on an Area-metric asset there was no
+// way to enter a size and no way to get a count at all. Three of the four
+// sub-units on the live project are Area-metric.
+{
+  // The dash survives in exactly ONE place: the companion row, which mirrors
+  // its parent and is read-only by design. Anywhere else it would mean the
+  // editable row still refuses a unit size.
+  check('Area mode renders a unit size INPUT, not a dash', (() => {
+    const editable = SRC_ASSETS_UI.slice(SRC_ASSETS_UI.indexOf('const countIsDerived'));
+    return /data-testid=\{`subunit-\$\{subUnit\.id\}-unitArea`\}/.test(editable)
+      && !editable.includes('-unitArea-hidden')
+      && (SRC_ASSETS_UI.match(/-unitArea-hidden/g) ?? []).length === 1;
+  })());
+  check('it writes unitArea and nothing else',
+    /onChange=\{\(n\) => onUpdate\(\{ unitArea: Math\.max\(0, n\) \}\)\}/.test(SRC_ASSETS_UI));
+  check('the Area-mode count is derived and read-only',
+    /data-derived="true"[\s\S]{0,400}fmt\(Math\.round\(rawCount\)\)/.test(SRC_ASSETS_UI));
+  check('with no unit size it says there is nothing to divide by',
+    /Enter a unit size to derive the/.test(SRC_ASSETS_UI));
+
+  // THE SAFETY PROOF: in Area mode the stored quantity is the area, so a unit
+  // size must move NO number. Run the engine over a full model both ways.
+  const areaSub = (unitArea?: number): SubUnit => ({
+    id: 'su_area', assetId: 'a1', name: 'Retail', category: 'Sellable', metric: 'area',
+    metricValue: 4000, unitPrice: 12000, ...(unitArea === undefined ? {} : { unitArea }),
+  } as unknown as SubUnit);
+  check('the sub-unit area ignores a unit size in Area mode',
+    computeSubUnitArea(areaSub(200)) === computeSubUnitArea(areaSub(undefined))
+    && computeSubUnitArea(areaSub(200)) === 4000);
+
+  const areaAsset = mkAsset('a1', 'phase_1', { parcelId: 'parcel_1', sqm: 4000 });
+  const runWith = (u: SubUnit): string => JSON.stringify(computeAssetCost({
+    asset: areaAsset, project: { ...makeDefaultProject(), startDate: '2026-01-01' }, phase: PHASE1, parcels: PARCELS,
+    assets: [areaAsset], subUnits: [u], costLines: makeBlankCostLines('phase_1', 4).map((l) => (
+      l.id.startsWith('construction-bua') ? { ...l, value: 4500 } : l
+    )),
+    costOverrides: [], landAllocationMode: 'autoByBua',
+  }));
+  check('and the whole cost breakdown is byte-identical with a unit size set',
+    runWith(areaSub(200)) === runWith(areaSub(undefined)));
+  check('the fixture is non-vacuous (the model is not empty)',
+    JSON.parse(runWith(areaSub(200))).total > 0);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 section('J. Tab order: the help icon is not a tab stop');
 
 {

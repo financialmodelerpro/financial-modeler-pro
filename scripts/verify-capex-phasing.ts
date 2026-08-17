@@ -397,6 +397,77 @@ check('E16 the asset curve control sits above the asset cost table', (() => {
   return tableAfter > at && sectionEnd > tableAfter;
 })());
 
+// ════════════════════════════════════════════════════════════════════════════
+section('F. RETT follows the LAND LINE, not every line sharing its method');
+
+// The shape a `land_cash` follower follows was built by scanning for
+// `method === 'percent_of_cash_land'`. A transfer tax IS a percentage of the
+// cash land value, so RETT was HALF OF THE SHAPE IT WAS FOLLOWING. Measured on
+// a live project: phase 2 land cash was 18,750,000 entirely in period 1, and
+// RETT resolved across 1..3 as 625,000 / 156,250 / 156,250, which is the land
+// cash blended with RETT's own construction spread.
+{
+  const landCash: CostLine = {
+    id: 'land-cash__p1', phaseId: 'p1', name: 'Land (Cash)', method: 'percent_of_cash_land',
+    value: 100, stage: 'land', scope: 'direct', allocationBasis: 'land_share',
+    startPeriod: 1, endPeriod: 1, phasing: 'even', isLocked: true,
+  };
+  const rett: CostLine = {
+    id: 'rett__p1', phaseId: 'p1', name: 'Real Estate Transfer Tax', method: 'percent_of_cash_land',
+    value: 5, stage: 'land', scope: 'direct', allocationBasis: 'land_share',
+    // A CONSTRUCTION window, which is what a seeded or user-added line carries.
+    // This is the input that produced the wrong answer.
+    startPeriod: 1, endPeriod: 4, phasing: 'even', phasingSource: 'land_cash',
+  };
+  const lns = [landCash, rett];
+  const bd = JSON.parse(run(lns, a0)) as {
+    perLinePerPeriod: Record<string, number[]>;
+    resolvedWindowByLineId: Record<string, { startPeriod: number; endPeriod: number; source: string }>;
+    byLineId: Record<string, number>;
+  };
+  const cash = bd.perLinePerPeriod['land-cash__p1'] ?? [];
+  const tax = bd.perLinePerPeriod['rett__p1'] ?? [];
+  const cashPeriods = cash.map((v, i) => (v > 0.5 ? i : -1)).filter((i) => i >= 0);
+  const taxPeriods = tax.map((v, i) => (v > 0.5 ? i : -1)).filter((i) => i >= 0);
+
+  check('F1 the fixture is non-vacuous: the land cash is a real amount in ONE period',
+    cashPeriods.length === 1 && (bd.byLineId['land-cash__p1'] ?? 0) > 0,
+    `periods ${cashPeriods.join(',')}`);
+  check('F2 the transfer tax lands in exactly the periods the land cash does',
+    JSON.stringify(taxPeriods) === JSON.stringify(cashPeriods),
+    `tax in ${taxPeriods.join(',')} vs land cash in ${cashPeriods.join(',')}`);
+  check('F3 ...as ONE amount, not spread across the build',
+    taxPeriods.length === 1
+    && Math.abs((tax[taxPeriods[0]] ?? 0) - (bd.byLineId['rett__p1'] ?? 0)) < 1,
+    `${Math.round(tax[taxPeriods[0]] ?? 0)} of ${Math.round(bd.byLineId['rett__p1'] ?? 0)}`);
+  check('F4 and the engine reports that it followed the land cash',
+    bd.resolvedWindowByLineId['rett__p1']?.source === 'land_cash');
+
+  // Moving the land cash moves the tax with it: proof it FOLLOWS rather than
+  // happening to agree.
+  const moved = JSON.parse(run([{ ...landCash, startPeriod: 3, endPeriod: 3 }, rett], a0)) as {
+    perLinePerPeriod: Record<string, number[]>;
+  };
+  const movedTax = (moved.perLinePerPeriod['rett__p1'] ?? []).map((v, i) => (v > 0.5 ? i : -1)).filter((i) => i >= 0);
+  check('F5 moving the land cash moves the tax with it',
+    JSON.stringify(movedTax) === JSON.stringify([3]), movedTax.join(','));
+
+  // In-kind land is not cash: a transfer tax follows the CASH outflow.
+  const inKind: CostLine = {
+    ...landCash, id: 'land-inkind__p1', name: 'Land (In-Kind)',
+    method: 'percent_of_inkind_land', startPeriod: 4, endPeriod: 4,
+  };
+  const withInKind = JSON.parse(run([landCash, inKind, rett], a0)) as { perLinePerPeriod: Record<string, number[]> };
+  const tax2 = (withInKind.perLinePerPeriod['rett__p1'] ?? []).map((v, i) => (v > 0.5 ? i : -1)).filter((i) => i >= 0);
+  check('F6 an in-kind land line does not pull the transfer tax',
+    JSON.stringify(tax2) === JSON.stringify(cashPeriods), tax2.join(','));
+
+  // The rule is named, not re-derived.
+  check('F7 the engine selects the land line by the shared predicate',
+    /if \(!isParcelDrivenLandLine\(r\.line\) \|\| r\.method !== 'percent_of_cash_land'\) continue;/
+      .test(SRC_ENGINE));
+}
+
 console.log('');
 if (failures.length === 0) {
   console.log(`verify-capex-phasing: ${passed} passed, 0 failures`);

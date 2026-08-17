@@ -29,6 +29,9 @@ import {
 } from '../../lib/state/module1-types';
 import { computeProjectEndDate, computePhaseTimeline, computeProjectTimeline } from '@/src/core/calculations';
 import { currencyHeaderLine } from '@/src/core/formatters';
+import {
+  COUNTRIES, resolveCountryCode, countryLabel, countryMatches, guessCountryFromLocation,
+} from '@/src/core/countries';
 import InputLabel from '../ui/InputLabel';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { CELL_HEADER } from './_shared/tableStyles';
@@ -64,15 +67,35 @@ const tableHeaderLabelStyle: React.CSSProperties = {
 const STATUS_OPTIONS: ProjectStatus[] = ['draft', 'active', 'archived'];
 
 export default function Module1ProjectPhases(): React.JSX.Element {
-  const { project, phases, setProject, addPhase, updatePhase, removePhase } = useModule1Store(
+  const { project, phases, costLines, setProject, addPhase, updatePhase, removePhase } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
       phases: s.phases,
+      costLines: s.costLines,
       setProject: s.setProject,
       addPhase: s.addPhase,
       updatePhase: s.updatePhase,
       removePhase: s.removePhase,
     })),
+  );
+
+  // 2026-08-17: the country the free-text Location names, offered as a
+  // one-click fill and nothing more. See src/core/countries.ts.
+  const locationCountry = useMemo(
+    () => guessCountryFromLocation(project.location),
+    [project.location],
+  );
+
+  // Gated lines the CURRENT country makes chargeable, so selecting a country
+  // states what it switched on rather than moving a total in silence.
+  const countryActivates = useMemo(
+    () => costLines.filter(
+      (c) => !!c.requiresCountry
+        && countryMatches(c.requiresCountry, project.country)
+        && Math.abs(c.value) > 0
+        && c.disabled !== true,
+    ),
+    [costLines, project.country],
   );
 
   const projectEndDate = useMemo(
@@ -279,7 +302,7 @@ export default function Module1ProjectPhases(): React.JSX.Element {
           <div>
             <InputLabel
               label="Location"
-              help="Free-text city / country / region. Display only."
+              help="Free-text city / district. Display only: it drives nothing. The Country below is the one the model reads."
               inputId="project-location"
             />
             <input
@@ -291,6 +314,67 @@ export default function Module1ProjectPhases(): React.JSX.Element {
               style={inputStyle}
               placeholder="Riyadh, Saudi Arabia"
             />
+          </div>
+          {/* ── COUNTRY IS A SELECTED VALUE (2026-08-17) ─────────────────────
+              It had NO editor at all, on any screen, while two behaviours read
+              it: the `requiresCountry` gate that decides whether a country
+              specific cost line (the catalog's transfer tax) is charged, and
+              the default statement terminology. Measured on a live project:
+              `country` was '' while the user had typed "Jeddah, Saudi Arabia"
+              into Location above, which is display only, so the transfer tax
+              row was hidden and uncharged and the Capex tab said the country
+              was not set. A dropdown, not free text, because a gate that has
+              to guess at a typed string is the defect one layer down. */}
+          <div>
+            <InputLabel
+              label="Country"
+              help="Drives country-specific cost lines (e.g. real estate transfer tax) and the default statement terminology. Selected from a list so the model and the screen cannot read it differently."
+              inputId="project-country"
+            />
+            <select
+              id="project-country"
+              data-testid="project-country"
+              value={resolveCountryCode(project.country) ?? ''}
+              onChange={(e) => setProject({ country: e.target.value })}
+              style={inputStyle}
+            >
+              <option value="">Not set</option>
+              {COUNTRIES.map((c) => (
+                <option key={c.code} value={c.code}>{c.name}</option>
+              ))}
+            </select>
+            {/* A SUGGESTION, NEVER AN INFERENCE. The location field is where
+                users have been putting the country, so offer to copy it across
+                in one click. Nothing is written until the button is pressed. */}
+            {!resolveCountryCode(project.country) && locationCountry && (
+              <button
+                type="button"
+                data-testid="project-country-suggestion"
+                onClick={() => setProject({ country: locationCountry })}
+                style={{
+                  marginTop: 4, fontSize: 11, cursor: 'pointer', padding: '2px 8px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--color-accent-warm)',
+                  background: 'color-mix(in srgb, var(--color-accent-warm) 12%, transparent)',
+                  color: 'var(--color-heading)',
+                }}
+              >
+                Location says {countryLabel(locationCountry)}. Use it?
+              </button>
+            )}
+            {/* Selecting a country can make a gated line chargeable. Say so
+                where the change is made, because the money moves on another
+                tab. */}
+            {countryActivates.length > 0 && (
+              <div
+                data-testid="project-country-activates"
+                style={{ marginTop: 4, fontSize: 11, color: 'var(--color-accent-warm)', lineHeight: 1.35 }}
+              >
+                {countryActivates.length === 1 ? '1 cost line' : `${countryActivates.length} cost lines`} now
+                {' '}charge here: {countryActivates.map((c) => `${c.name} (${c.value}%)`).join(', ')}.
+                {' '}Check Capex for a duplicate before relying on the total.
+              </div>
+            )}
           </div>
         </div>
         <div

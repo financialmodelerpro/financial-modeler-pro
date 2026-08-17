@@ -14,6 +14,8 @@
  * Defaults to 'standard'. UI components call getFinancialLabels(mode).
  */
 
+import { resolveCountryCode } from '@/src/core/countries';
+
 export type FinancialTerminologyMode = 'standard' | 'saudi';
 
 export interface FinancialLabels {
@@ -71,7 +73,9 @@ export function getFinancialLabels(mode: FinancialTerminologyMode | undefined): 
  */
 export function defaultTerminologyForCountry(country: string | undefined): FinancialTerminologyMode {
   if (!country) return 'standard';
-  const c = country.trim().toLowerCase();
-  if (c === 'saudi arabia' || c === 'ksa' || c === 'saudi') return 'saudi';
-  return 'standard';
+  // 2026-08-17b: resolved through the shared country list, so the code the
+  // Project & Phases select now writes ('SA') is recognised as well as every
+  // spelling this used to accept. The literal fallbacks are gone because
+  // `resolveCountryCode` already knows 'ksa' and 'saudi' as aliases.
+  return resolveCountryCode(country) === 'SA' ? 'saudi' : 'standard';
 }

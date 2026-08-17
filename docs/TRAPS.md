@@ -453,6 +453,74 @@ fingerprinting the damage rather than the defect.
 **Proof.** 2026-08-17: 0 lines repaired when it ran last in the chain; 8 lines when it ran first,
 with the other phase's hand-set windows untouched.
 
+### 7.18 A field with no editor is not a default, it is unreachable
+
+**Symptom.** The Capex tab said "the project country is not set, so the transfer tax is not
+charged", while Project & Phases plainly showed `Jeddah, Saudi Arabia`.
+
+**Mechanism.** `Project.country` had **no editor on any screen**, and no wizard step wrote it.
+The visible field was `location` ("free-text city / country / region, display only"), a
+different field that drives nothing. So `country` sat at its default `''` on every project this
+app has ever created, and `requiresCountry: 'Saudi Arabia'` could never match. Two behaviours
+read it: the cost-line gate and the default statement terminology (Zakat).
+
+The tempting diagnosis was "the gate matches free text and the user typed a city as well". That
+would have been fixed by matching a second string, and the field would still have been
+unreachable.
+
+**Fix.** A `<select>` writing an ISO code, and ONE comparison (`countryMatches`) that resolves
+both sides, so a line saved as 'Saudi Arabia' matches a project storing 'SA' with nothing
+migrated on either side. The free-text location can offer its country as a one-click
+suggestion; it never infers.
+
+**The general form.** When a gate reads a field, check that a user can actually SET that field
+before assuming the comparison is wrong. Ask of any behaviour-carrying field: which screen
+writes this?
+
+**Second lesson, on closing a gate.** Because the country had never been settable, users added
+their own copy of the gated line. Closing the gate correctly (2026-08-17) then made setting a
+country DOUBLE the cost. A fix that unblocks a path must consider what the users did while the
+path was blocked.
+
+### 7.17 A legacy rename must never target a line that exists today
+
+**Symptom.** A marketing cost line saved by a new project was gone after reopening it.
+
+**Mechanism.** `migrateLegacyToV8` carries a v6-to-v7 id map that renamed `marketing` to
+`commission` (in v6, marketing WAS the sales commission line). `marketing` became a real catalog
+id on 2026-08-15, and `project-management` on 2026-08-17. Every app-saved snapshot takes the
+legacy path, so a line the user has today was renamed into a different line on the next open and
+the dedupe that follows then deleted it.
+
+**Fix.** Both keys removed, and `verify-snapshot-field-survival` now fails if ANY key of the
+rename map is a current catalog id. The invariant is what is checked, not the two names: the
+next catalog entry that reuses an old id would otherwise repeat this silently.
+
+**How it was found.** Not by the report. A check written for a different defect ("the loose path
+and the v8 path hydrate identically") failed with a whole line missing on one side.
+
+### 7.16 A whitelist is the wrong shape for a migration
+
+**Symptom.** Tick "one phasing curve for this asset", set the weights, save. The version row in
+the database really does carry `capexPhasing`. Reopen the project: unchecked, empty, nothing
+said. Verified in a real browser before the fix.
+
+**Mechanism.** `migrateLegacyToV8` rebuilt every phase, parcel, asset and cost line from an
+object literal naming a FIXED set of fields, so anything the literal did not name was destroyed
+on load. This has now eaten three real fields: `windowFollowsConstruction`, `phasingSource` (both
+cost lines) and `capexPhasing` (asset). It runs on EVERY snapshot without a version wrapper,
+which is every project this app saves, so it is not a legacy path in practice.
+
+**Fix, third time asked.** Not a fourth name on the list, and not the guard verifier added the
+second time (it fails after a field has been added, and has to be repeated per type). Every
+record now spreads the raw object first and normalises on top, so there is no list. This also
+makes the loose path agree with the v8 path, which has always spread, and
+`verify-snapshot-field-survival` proves it by round-tripping a field the verifier invented.
+
+**The general form.** If a defect recurs, fix the SHAPE that allows it, not the instance. An
+enumerate-what-you-keep transform silently discards; an enumerate-what-you-change transform
+cannot.
+
 ### 7.15 Silent normalisation makes the screen and the model disagree
 
 **Symptom.** Setting the first of two facility shares to 100% produced 66.67% and 33.33%. The
