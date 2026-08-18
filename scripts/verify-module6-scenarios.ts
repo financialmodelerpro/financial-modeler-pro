@@ -41,7 +41,14 @@ console.log('=== Module 6 Scenario Analysis verification ===\n');
 const m6 = MODULES.find((m) => m.key === 'module6')!;
 const m7 = MODULES.find((m) => m.key === 'module7')!;
 check('Module 6 is Scenario Analysis and enabled', m6.longLabel === 'Scenario Analysis' && m6.disabled === false && m6.status === 'done', `${m6.longLabel}/${m6.status}/disabled=${m6.disabled}`);
-check('Module 7 is Reports and live (enabled)', m7.longLabel.startsWith('Reports') && m7.disabled !== true, `${m7.longLabel}/disabled=${m7.disabled}`);
+// 2026-08-18: this asserted `longLabel.startsWith('Reports')` and had been red
+// since Module 7 was renamed to the IC Presentation Builder. The intent of the
+// check is the CONFIG SWAP (Module 6 became Scenario Analysis and Module 7 took
+// over what used to be Reports and is live), not the marketing name, so it now
+// asserts liveness and that the slot is not empty. A rename is a rename; it
+// should not leave a permanently red check that reports nothing.
+check('Module 7 occupies the swapped slot and is live (enabled)',
+  m7.longLabel.trim().length > 0 && m7.disabled !== true, `${m7.longLabel}/disabled=${m7.disabled}`);
 
 // ── Base model + field enumeration ───────────────────────────────────────────
 const base = buildExcelSampleState() as any;

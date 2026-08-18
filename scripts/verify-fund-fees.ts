@@ -344,7 +344,15 @@ console.log('\n=== 3e. Every fee shows its BASE and its RATE (2026-08-05) ===');
 {
   const state = buildState({ fund: true, taxRate: 0.15 });
   const on = computeFinancialsSnapshot(state);
-  const ctx = { snap: on, state, filterPhaseId: '__all__', labels: getFinancialLabels(state.project), fmt: (v: number) => String(v) } as any;
+  // `labelFmt` is what any figure printed INSIDE a row label uses. Every real
+  // surface supplies one that ROUNDS: the screen and the PDF pass a money
+  // formatter as `fmt`, and Excel must pass `String(v)` as `fmt` (so a
+  // totalOverride round-trips to a number) and therefore passes `labelMoney`
+  // as `labelFmt`. This context used to supply `String(v)` and no `labelFmt`,
+  // which is the ONE combination no surface uses, so the label under test was
+  // a test artefact carrying a raw float. 2026-08-18: it now mirrors Excel.
+  const labelFmt = (v: number): string => Math.round(v).toLocaleString('en-US');
+  const ctx = { snap: on, state, filterPhaseId: '__all__', labels: getFinancialLabels(state.project), fmt: (v: number) => String(v), labelFmt } as any;
   const rows = buildPLRows(ctx);
   const basis = buildFundFeeBasisRows(on);
 
@@ -354,9 +362,24 @@ console.log('\n=== 3e. Every fee shows its BASE and its RATE (2026-08-05) ===');
   check('the structure fee row states its rate', /1\.00%/.test(String(structureRow?.label ?? '')),
     String(structureRow?.label));
   check('and names the base it is charged on', /Fund size/.test(String(structureRow?.label ?? '')));
+  // Compare against what the SAME formatter produces. The old assertion built
+  // a regex from `Math.round(amount)` and tested it against a raw float, so it
+  // passed only while the fund size happened to round DOWN (a prefix match on
+  // "154519446.40625") and started failing the moment the model produced
+  // 180777743.58203125, which rounds UP to 180777744 and is not a substring.
+  // A check whose outcome depends on the cents of an unrelated figure is not a
+  // check; it is a coin flip that happened to be green for four months.
+  // The expected string is built HERE, from the amount, NOT by calling
+  // `labelFmt`. Asking whether the label contains what the same formatter
+  // produced is not a check: a formatter returning '' satisfies
+  // `includes('')` for any label, which is precisely how the first version of
+  // this replacement passed its own sabotage (TRAPS section 10, never gate an
+  // assertion on the thing it asserts). The length guard is the second half of
+  // the same defence, so a degenerate expectation cannot pass either.
+  const expectedAmount = Math.round(on.fundFees.fundSize.amount).toLocaleString('en-US');
   check('and shows the base AMOUNT, so a zero fee is diagnosable',
-    new RegExp(String(Math.round(on.fundFees.fundSize.amount))).test(String(structureRow?.label ?? '')),
-    String(structureRow?.label));
+    expectedAmount.length >= 7 && String(structureRow?.label ?? '').includes(expectedAmount),
+    `${String(structureRow?.label)} (expected to contain "${expectedAmount}")`);
   const flatRow = rows.find((r: any) => String(r.label).startsWith('Other expenses'));
   check('a flat-amount fee says so rather than showing a meaningless rate',
     /flat amount/i.test(String(flatRow?.label ?? '')) && !/%/.test(String(flatRow?.label ?? '')),
@@ -600,37 +623,59 @@ console.log('\n=== 4. The fee raises the funding requirement by exactly its cash
 
 console.log('\n=== 5. A funding-gap project funds the fees without amplifying the gap ===');
 {
-  // WHAT THIS SECTION DOES NOT CLAIM, and why.
+  // 2026-08-18: THIS SECTION USED TO ASSERT THE OPPOSITE, AND ITS DIAGNOSIS
+  // WAS WRONG. It carried two checks requiring the baseline to trough BELOW
+  // ZERO (around -9.8m in the first operating period), on the reasoning that
+  // "the gap-sized drawdown does not fully meet the computed requirement once
+  // construction capex stops... pre-existing financing-engine behaviour".
   //
-  // Step 3 was specified as "a funding-gap project stays cash-non-negative
-  // with fees on". That property does NOT hold in this engine, and it does not
-  // hold WITHOUT fees either: the baseline fixture below troughs around -9.8m
-  // in the first operating period, because the gap-sized drawdown does not
-  // fully meet the computed requirement once construction capex stops. Raising
-  // the facility LTV from 60 to 95 does not change it, so it is not a facility
-  // size cap. That is pre-existing financing-engine behaviour, entirely
-  // independent of the fund layer, and Step 3 is additive: it is not licensed
-  // to change how the drawdown is sized.
+  // The drawdown sizing was never the cause. The cause was the SEEDED COST
+  // WINDOW: `makeDefaultCostLines` defaulted every line to `endPeriod = cp + 1`,
+  // so with a 2-period construction phase a slice of construction capex landed
+  // in phase-local period 3, i.e. the FIRST OPERATING period, outside the
+  // window the funding was sized for. Measured on this exact fixture at
+  // b16a5fa6: 52.416m of capex in t=2 against 34.9m drawn, hence -9.838m.
+  // `082b1390` made the default window end AT `cp`, the capex moved back inside
+  // the construction window, and the shortfall went with it.
   //
-  // Asserting non-negativity here would fail for a reason that has nothing to
-  // do with fees, and "fixing" it by loosening the check to pass would hide a
-  // real characteristic of the model. So this section asserts the property the
-  // fund layer IS responsible for: the fee is funded as far as the engine
-  // funds anything, and it never amplifies the shortfall beyond its own cash
-  // cost. If the drawdown sizing is ever made to fully meet the requirement,
-  // the non-negativity check belongs here and will then be meaningful.
+  // So the property Step 3 was originally specified with, "a funding-gap
+  // project stays cash-non-negative with fees on", DOES hold, and the comment
+  // that replaced it promised: "if the drawdown sizing is ever made to fully
+  // meet the requirement, the non-negativity check belongs here and will then
+  // be meaningful". It is now asserted. The two checks that demanded the
+  // shortfall still be present were left red for six commits behind a stale
+  // recorded count of 136.
+  //
+  // Note the floor is ZERO, not the minimum cash reserve: `minimumCashReserve`
+  // sizes the funding requirement during the draw window, it is not a balance
+  // the engine defends afterwards, so the first operating period draws it down
+  // (4.776m baseline, 0.735m with fees). That is the modelling convention, not
+  // a break, and it is stated here so it is not re-reported as one.
   const minCash = 5_000_000;
   const off = computeFinancialsSnapshot(buildState({ fundingMethod: 3, minCash, taxRate: 0 }));
   const on = computeFinancialsSnapshot(buildState({ fund: true, fundingMethod: 3, minCash, taxRate: 0 }));
 
   const troughOff = Math.min(...off.directCF.closingCashPerPeriod);
   const troughOn = Math.min(...on.directCF.closingCashPerPeriod);
-  check('the BASELINE already troughs below zero (pre-existing, not caused by fees)', troughOff < 0,
+  // One currency unit of tolerance on a ~90m project: the terminal period pays
+  // out 100% of remaining cash by design, so the true minimum is an exact zero
+  // reached by subtraction and lands within floating-point noise of it.
+  check('the BASELINE funding-gap project stays cash non-negative', troughOff >= -1,
     `baseline trough ${troughOff}`);
-  // Recorded so the two troughs are visible side by side in the log: the fee
-  // deepens the existing dip, it does not create one.
-  check('the fee deepens the existing trough rather than creating it',
-    troughOn < 0 && troughOn <= troughOff, `baseline ${troughOff} -> with fees ${troughOn}`);
+  check('and it STILL does with the fees charged: the model funds them rather than running negative',
+    troughOn >= -1, `baseline ${troughOff} -> with fees ${troughOn}`);
+  // Guard against the section passing vacuously on a fixture that stopped
+  // exercising a gap: a Method 3 project with no drawdown proves nothing.
+  check('the fixture actually raises gap-sized funding (else the two checks above are vacuous)',
+    sum(off.directCF.debtDrawdownPerPeriod) > 0 && sum(off.directCF.equityDrawdownPerPeriod) > 0,
+    `debt ${sum(off.directCF.debtDrawdownPerPeriod)}, equity ${sum(off.directCF.equityDrawdownPerPeriod)}`);
+  // And that construction capex really is confined to the construction window,
+  // which is what makes the non-negativity above true. If a future change puts
+  // capex back outside the funded window this fails HERE, naming the cause,
+  // instead of surfacing as an unexplained negative cash balance.
+  check('construction capex is confined to the construction window',
+    off.directCF.capexPerPeriod.slice(2).every((v) => Math.abs(v) < 1),
+    `capex after t=1: [${off.directCF.capexPerPeriod.slice(2, 5).map((v) => v.toFixed(0)).join(', ')}]`);
 
   check('the model draws MORE funding once fees are charged',
     sum(on.directCF.debtDrawdownPerPeriod) > sum(off.directCF.debtDrawdownPerPeriod),

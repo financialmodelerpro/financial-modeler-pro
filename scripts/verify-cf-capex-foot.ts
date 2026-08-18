@@ -294,6 +294,23 @@ function runFixture(name: string, build: () => State, expectInKind: boolean, exp
     }
   }
 
+  // G0. THE SECTION MUST FOOT UNDER EVERY PHASE FILTER, not just under "All".
+  //     The asset rows are phase-filtered by `matchesPhase`, so a subtotal that
+  //     ignores the filter leaves a phase view whose rows and total describe
+  //     different populations. Checking only the unfiltered view (which the
+  //     first version of this verifier did) misses exactly that.
+  for (const ph of state.phases) {
+    for (const [method, build2] of [['Direct CF', buildDirectCFRows], ['Indirect CF', buildIndirectCFRows]] as const) {
+      const rows = build2(ctxFor(state, snap, ph.id));
+      const total = rowByLabel(rows, 'Total Capex');
+      if (!total) continue;
+      const rowsTotal = seriesSum(capexAssetRows(rows), N);
+      check(`${name}: ${method} foots under the "${ph.name}" filter too`,
+        Array.from({ length: N }, (_, t) => near(rowsTotal[t], total.values[t] ?? 0, 0.5)).every(Boolean),
+        `rows ${sum(rowsTotal).toFixed(0)} vs total ${sum(total.values).toFixed(0)}`);
+    }
+  }
+
   // G. The phase filter changes the SCOPE, never the BASIS. Summing the two
   //    phase-filtered subtotals must give the unfiltered one.
   if (state.phases.length > 1) {

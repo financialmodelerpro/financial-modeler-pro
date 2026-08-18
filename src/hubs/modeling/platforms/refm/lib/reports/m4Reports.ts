@@ -639,6 +639,26 @@ function buildInvestmentRows(ctx: M4ReportCtx, capexSubtotal: number[], cfiSubto
   if (priorPreCapex > 0) {
     rows.push({ label: 'Pre-Capex (existing operations)', values: new Array<number>(N).fill(0), indent: 1, priorValue: -priorPreCapex });
   }
+  // UNDER A PHASE FILTER THE SUBTOTAL IS DERIVED FROM THE ROWS ABOVE IT.
+  //
+  // 2026-08-18. The subtotal arrives as a parameter, and the two callers were
+  // passing different things: the Indirect CF passed a phase-filtered series,
+  // the Direct CF passed the PROJECT-level `directCF.capexPerPeriod` whatever
+  // the filter was. The asset rows here are phase-filtered either way
+  // (`matchesPhase`), so a phase-filtered Direct CF rendered Phase 1's rows
+  // under the whole project's Total Capex. Measured: rows -348,935,825 against
+  // a Total Capex of -686,465,700.
+  //
+  // Deriving it here means the rows and the subtotal cannot describe different
+  // populations, whichever caller asks. The UNFILTERED subtotal is still the
+  // engine's own `capex.perPeriod.exclLandInKind` passed in, because that is
+  // the authoritative project figure and must not be re-derived from a row
+  // list that could omit something; the verifier pins that the two agree.
+  const scoped = filterPhaseId !== ALL;
+  const capexRendered = seriesTotal([...residentialAssets, ...hospitalityAssets, ...retailAssets], assetCash);
+  const capexShown = scoped ? capexRendered.map((v) => -v) : capexSubtotal;
+  const cfiShown = scoped ? capexRendered.map((v) => -v) : cfiSubtotal;
+
   const inKindAll = seriesTotal(
     [...residentialAssets, ...hospitalityAssets, ...retailAssets],
     (id) => snap.perAssetCF.get(id)?.landInKindPerPeriod ?? [],
@@ -652,8 +672,8 @@ function buildInvestmentRows(ctx: M4ReportCtx, capexSubtotal: number[], cfiSubto
       values: inKindAll.map((v) => -v), indent: 1,
     });
   }
-  rows.push({ label: 'Total Capex', values: capexSubtotal, isSubtotal: true, priorValue: -priorPreCapex });
-  rows.push({ label: 'Cash Flow from Investment', values: cfiSubtotal, isTotal: true, priorValue: -priorPreCapex });
+  rows.push({ label: 'Total Capex', values: capexShown, isSubtotal: true, priorValue: -priorPreCapex });
+  rows.push({ label: 'Cash Flow from Investment', values: cfiShown, isTotal: true, priorValue: -priorPreCapex });
   return rows;
 }
 

@@ -77,7 +77,17 @@ check('live platforms loaded for plans come from the dashboard list', /dashboard
 check('pricing page renders the PricingExplorer (picker + plans)', /<PricingExplorer\b/.test(pricingPage));
 check('explorer step 1: a platform picker built from the platforms prop', /data-testid="platform-picker"/.test(explorer) && /platforms\.map\(/.test(explorer));
 check('explorer marks live as Available now (clickable) + coming-soon disabled', /Available now/.test(explorer) && /Coming soon/.test(explorer) && /aria-disabled="true"/.test(explorer));
-check('live platform card is a clickable button that selects in place', /platform-card-\$\{p\.slug\}/.test(explorer) && /onClick=\{\(\) => setSelected\(p\.slug\)\}/.test(explorer));
+// 2026-08-18, previously recorded as "1 PRE-EXISTING FAILURE, NOT yet
+// diagnosed". Diagnosed: the markup is correct and the behaviour is intact.
+// `PricingExplorer.tsx:322` renders
+//   <button type="button" data-testid={`platform-card-${p.slug}`} onClick={() => selectPlatform(p.slug)}
+// and `selectPlatform` calls `setSelected(slug)` plus the URL sync. The check
+// required the literal `onClick={() => setSelected(p.slug)}`, so it broke when
+// the handler was extracted, which is a refactor, not a regression. It now
+// asserts the property it names: a BUTTON carrying the card testid whose click
+// handler selects that platform, by either route.
+check('live platform card is a clickable button that selects in place',
+  /<button[^>]*data-testid=\{`platform-card-\$\{p\.slug\}`\}[^>]*onClick=\{\(\) => (?:selectPlatform|setSelected)\(p\.slug\)\}/.test(explorer));
 check('explorer step 2: plans view reuses LivePlanCards scoped to the selection', /data-testid="pricing-plans-view"/.test(explorer) && /<LivePlanCards\b/.test(explorer));
 check('explorer step 2 has a back-to-platforms control', /data-testid="back-to-platforms"/.test(explorer));
 check('explorer shows the real platform NAME (not a generic label)', /data-testid="selected-platform-name"/.test(explorer) && /selectedPlatform\.name/.test(explorer));

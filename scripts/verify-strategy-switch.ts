@@ -87,7 +87,31 @@ const slice = (st: any): StrategySwitchState => ({
 const merge = (st: any, r: StrategySwitchState): any =>
   ({ ...clone(st), assets: r.assets, subUnits: r.subUnits, costLines: r.costLines, costOverrides: r.costOverrides });
 
+// 2026-08-18: LOAD .env.local OURSELVES, like every sibling verifier does.
+// This script only documented `npx tsx --env-file=.env.local`, and run the
+// ordinary way it silently fell back to `buildExcelSampleState()`, which has
+// no Sell + Manage asset and therefore no companion. Eight checks live inside
+// `if (sm)` below and simply did not run, including every assertion that
+// leaving Sell + Manage RETAINS the companion rather than hard deleting it
+// with its sub-units, cost lines and overrides, which is the destructive bug
+// the whole retention mechanism exists to prevent. The run still printed
+// "56 passed, 1 failed", and that single failure was recorded in CLAUDE.md as
+// a pre-existing fixture limitation rather than as "you ran it wrong".
+// Run the documented way it is 84 passed, 0 failed. A verifier must not need
+// a particular invocation to be honest.
+function loadDotEnv(): void {
+  for (const f of ['.env.local', '.env']) {
+    try {
+      for (const l of readFileSync(f, 'utf8').split('\n')) {
+        const m = /^([A-Z0-9_]+)\s*=\s*(.*)$/.exec(l.trim());
+        if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+      }
+    } catch { /* optional */ }
+  }
+}
+
 async function loadState(): Promise<{ st: any; src: string }> {
+  loadDotEnv();
   const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) return { st: buildExcelSampleState(), src: 'FIXTURE (no database credentials)' };
   try {
@@ -146,9 +170,26 @@ async function main(): Promise<void> {
   // The specific case the old code could not do: Sell + Manage owns a whole
   // companion asset, which used to be deleted with its sub-units, cost lines
   // and cost overrides on the way out.
-  const sm = targets.find((a) => a.strategy === 'Sell + Manage');
-  check('the fixture exercises Sell + Manage (a companion exists to lose)', !!sm, sm?.name ?? 'none');
+  //
+  // 2026-08-18: THIS USED TO BE A BARE `if (sm)` OVER WHATEVER THE DATA
+  // HAPPENED TO CONTAIN, and on the fixture path `sm` was undefined, so all
+  // eight checks below silently did not run while the suite reported one
+  // cosmetic failure. If the loaded model has no Sell + Manage asset we now
+  // MAKE one, by switching a Sell asset into it, which is the same code path a
+  // user takes and which seeds the companion itself. The branch is therefore
+  // always exercised, on live data and on the fixture alike.
+  let smBase = base;
+  let sm = targets.find((a) => a.strategy === 'Sell + Manage');
+  if (!sm) {
+    const seedFrom = targets.find((a) => a.strategy === 'Sell') ?? targets[0];
+    smBase = applyStrategySwitch(base, seedFrom.id, 'Sell + Manage');
+    sm = smBase.assets.find((a) => a.id === seedFrom.id);
+    console.log(`  (no Sell + Manage asset in the loaded model; seeded one from "${seedFrom.name}" so the companion clauses run)`);
+  }
+  check('a Sell + Manage asset is available, so the companion clauses below actually run',
+    !!sm && sm.strategy === 'Sell + Manage', sm ? `${sm.name}/${sm.strategy}` : 'none');
   if (sm) {
+    const base = smBase;
     const companionIds = base.assets.filter((a) => a.parentAssetId === sm.id).map((a) => a.id);
     check('Sell + Manage owns a companion asset', companionIds.length === 1, companionIds.join(','));
     const away = applyStrategySwitch(base, sm.id, 'Sell');
@@ -158,7 +199,16 @@ async function main(): Promise<void> {
       !away.subUnits.some((u) => companionIds.includes(u.assetId)));
     const parked = away.assets.find((a) => a.id === sm.id)?.retainedByStrategy?.['Sell + Manage'];
     check('the companion is RETAINED, not deleted', !!parked?.companion, parked ? 'retained' : 'MISSING');
-    check('the retained companion keeps its sub-units', (parked?.companion?.subUnits.length ?? 0) > 0);
+    // EXACT retention, not `> 0`. A companion seeded moments ago legitimately
+    // owns zero sub-units, so `> 0` asserted a property of the FIXTURE rather
+    // than of the code, and would have failed honestly on a real project whose
+    // companion the user had not filled in yet. Comparing to the count it
+    // actually had is stronger on live data (7 assets, a populated companion)
+    // and correct on a freshly seeded one.
+    const companionSubUnitsBefore = base.subUnits.filter((u) => companionIds.includes(u.assetId)).length;
+    check('the retained companion keeps EVERY sub-unit it had',
+      (parked?.companion?.subUnits.length ?? -1) === companionSubUnitsBefore,
+      `retained ${parked?.companion?.subUnits.length ?? 'none'} of ${companionSubUnitsBefore}`);
     const back = applyStrategySwitch(away, sm.id, 'Sell + Manage');
     check('switching back restores the SAME companion (not a fresh default)',
       back.assets.some((a) => companionIds.includes(a.id)));

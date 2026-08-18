@@ -11,23 +11,50 @@
  *
  * TOLERANCE IS RELATIVE, AND ANCHORED ON THE PEAK. Two mistakes to avoid, both
  * of which have already been made in this codebase:
- *   - an ABSOLUTE band (the workbook's old `maxBsDiff < 1`) is 1.4e-10 on a
- *     seven-billion balance sheet, which no iterative funding solver reaches,
- *     so the model reported CHECK on a healthy residue of 5.1e-8;
  *   - anchoring on the WORST PERIOD's own value divides by something that
  *     legitimately crosses zero (net cash flow does), producing "5.0e+0 of
  *     0.0 m". The anchor is the PEAK magnitude over the whole horizon.
+ *   - a band far looser than floating-point noise. See below: this one cost
+ *     us a real defect.
  * The m4Reports balance-sheet row had a third variant, `max(1000, |L+E at the
  * FINAL period| * 1e-6)`, which is relative but anchored on a period that can
  * be near zero after debt is repaid. It now uses this shared rule too.
+ *
+ * WHY THE BAND IS 1e-12 AND NOT 1e-6 (2026-08-18, and this is the second time
+ * a loosened tolerance has certified a real break).
+ *
+ * These three identities are EXACT BY CONSTRUCTION: each side is a sum of the
+ * same flows, so a healthy residue is pure double-precision noise and nothing
+ * else. Measured on both live projects with the model correct: worst residue
+ * 1.9e-6 on a 6,597.1m peak, a relative 2.9e-16, which is one machine epsilon.
+ * There is no iterative-solver slack in these three, and the note this comment
+ * replaces was wrong to imply there is: the funding solver converges BEFORE
+ * the statements are struck.
+ *
+ * At 1e-6 the band on that project was 6,597 currency units, ten orders of
+ * magnitude above the noise. It reported OK on a residue of 360.79, which was
+ * recorded in CLAUDE.md and docs/FUND_LAYER_GUIDELINE.md as "pre-existing
+ * solver convergence" and pinned as a non-defect. It was a REAL 25,000,000
+ * imbalance on the sister project (in-kind equity recognised in a different
+ * period from the in-kind land it pays for, see docs/TRAPS.md 7.22), and this
+ * check certified the smaller instance of it as healthy. THE PREVIOUS BAND WAS
+ * LOOSENED TO MAKE A RED CHECK GREEN, AND THE RED CHECK WAS RIGHT.
+ *
+ * 1e-12 keeps the anchor fix (the real reason the band went relative) and
+ * still leaves roughly 3,000x headroom over the measured noise: 6.6e-3 on the
+ * 6,597.1m sheet against a 1.9e-6 residue. It would have caught the 360.79 by
+ * five orders of magnitude. If a legitimate residue ever exceeds this, find
+ * out WHY before widening it again.
  *
  * Pure: reads the snapshot only.
  *
  * No em dashes in this file.
  */
 
-/** A residue passes when it is negligible RELATIVE to the magnitude reconciled. */
-export const CHECK_REL_TOL = 1e-6;
+/** A residue passes when it is negligible RELATIVE to the magnitude reconciled.
+ *  Sized against measured floating-point noise, not against convenience: read
+ *  the tolerance note above before changing it. */
+export const CHECK_REL_TOL = 1e-12;
 
 export interface IntegrityCheck {
   label: string;

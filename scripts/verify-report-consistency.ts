@@ -161,10 +161,23 @@ async function main(): Promise<void> {
       checks.filter((c) => !c.ok).map((c) => `${c.label} residue=${c.residue}`).join(' | '));
     check('G2: the magnitude is the PEAK, not the final period',
       checks.every((c) => c.magnitude >= Math.abs(c.residue)));
-    // A one-unit absolute band (the old rule) would fail a healthy solve; the
-    // relative rule must not, and must still bite on a real break.
+    // 2026-08-18: THE COMMENT THAT STOOD HERE WAS WRONG, and it is why the band
+    // was ten orders of magnitude too loose. It read "a one-unit absolute band
+    // (the old rule) would fail a healthy solve". It would not. These three
+    // identities are exact by construction, the funding solver has converged
+    // before the statements are struck, and a healthy residue is pure
+    // double-precision noise: measured on both live projects, worst 1.9e-6 on a
+    // 6,597.1m peak, a relative 2.9e-16. The old `< 1` absolute band was
+    // perfectly safe; what was actually broken was the ANCHOR, not the scale.
+    //
+    // Accepting 1e-9 of the magnitude, as this check used to require, is one
+    // currency unit on a billion, seven orders above the real noise floor. That
+    // is what let a 360.79 residue read OK on the live project while it was a
+    // real 25,000,000 imbalance on its sister (docs/TRAPS.md 7.22).
     check('G2: a residue of 1e-3 of the magnitude is REJECTED', !relativeCheckOk(1e-3 * 1e9, 1e9));
-    check('G2: a residue of 1e-9 of the magnitude is ACCEPTED', relativeCheckOk(1e-9 * 1e9, 1e9));
+    check('G2: a residue at machine-epsilon scale is ACCEPTED', relativeCheckOk(3e-16 * 1e9, 1e9));
+    check('G2: a ONE-UNIT residue on a billion is REJECTED (it is orders above floating-point noise)',
+      !relativeCheckOk(1, 1e9));
   }
 
   console.log('\n-- G3: DSCR is presented as a covenant reading, with thresholds --');

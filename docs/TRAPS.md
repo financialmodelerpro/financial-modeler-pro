@@ -938,12 +938,31 @@ A verifier written after a fix will pass against the fixed code whether or not i
 code deliberately, one way per check, and confirm the RIGHT check fails. Restore carefully: one
 silently-failed sabotage restore has already been caught on a diff.
 
-### 10.4 A tolerance must be relative and peak-anchored
+### 10.4 A tolerance must be relative and peak-anchored, and SIZED AGAINST MEASURED NOISE
 
-An ABSOLUTE band (`maxBsDiff < 1`) is 1.4e-10 on a seven-billion balance sheet, so a healthy 5.1e-8
-residue reported CHECK. Anchoring on the worst period's OWN value divides by something that
-legitimately crosses zero (net cash flow does), producing "5.0e+0 of 0.0 m". Anchor on the PEAK
-magnitude over the whole horizon.
+Anchoring on the worst period's OWN value divides by something that legitimately crosses zero (net
+cash flow does), producing "5.0e+0 of 0.0 m". Anchor on the PEAK magnitude over the whole horizon.
+That part was right and stands.
+
+**CORRECTED 2026-08-18, and the correction is the important half.** This entry used to open: "an
+ABSOLUTE band (`maxBsDiff < 1`) is 1.4e-10 on a seven-billion balance sheet, so a healthy 5.1e-8
+residue reported CHECK." **The residue was not healthy.** It was 360.79 currency units, and it was
+a real defect: in-kind equity recognised in a different period from the in-kind land it pays for,
+which on the sister project was a 25,000,000 balance-sheet break (see 7.22). The red check was
+right, and it was made green by widening the band around it.
+
+Two mistakes ran together. The ANCHOR was genuinely broken and needed fixing. The SCALE was then
+changed at the same time and in the same breath, from an absolute 1 to `peak * 1e-6`, which on that
+project is 6,597 units, and nobody asked what a healthy residue actually looks like. **It is
+measurable, and it was never measured.** These identities are exact by construction, so a healthy
+residue is pure double-precision noise: measured with the model correct, worst 1.9e-6 on a 6,597.1m
+peak, a relative 2.9e-16. The band was ten orders of magnitude above the thing it was meant to
+tolerate. `CHECK_REL_TOL` is now 1e-12, which still leaves roughly 3,000x headroom.
+
+**The rule: measure the noise floor on a model you have proved correct, then set the band a couple
+of orders above THAT.** Never set it from the residue you are currently looking at, because if that
+residue is a defect you have just certified it. And when a check goes red, changing the threshold is
+the last hypothesis to test, not the first.
 
 ### 10.5 A verifier must not be able to cause the damage it checks for
 
@@ -982,6 +1001,45 @@ worked". It now resolves the live source through the same shared module the rout
 checks that need an accepted key, keeping the refusal checks (which need no key and matter more).
 **When adding a feature that changes a precondition a verifier depends on, check what that verifier
 reports after someone uses the feature once.**
+
+### 10.10 A pinned "pre-existing failure" is a diagnosis you have not done
+
+**Symptom.** Five verifiers carried recorded failures in CLAUDE.md, each with a short reason and the
+note "confirmed pre-existing by stashing unrelated changes and re-running". Swept on 2026-08-18: not
+one was what its note said, and none of the five was a product defect, but one of them was hiding
+something much worse than a red line.
+
+- **`verify-strategy-switch`, recorded as "54 passed + 1 PRE-EXISTING FAILURE (the fixture builds no
+  companion)".** The script only documented `npx tsx --env-file=.env.local` and did not load
+  `.env.local` itself as every sibling does, so run the ordinary way it fell back to a two-asset
+  fixture with no Sell + Manage asset. **Eight checks sat inside `if (sm)` and did not run, every
+  one of them asserting that leaving Sell + Manage RETAINS the companion instead of hard deleting it
+  with its sub-units, cost lines and overrides, which is the destructive bug the whole retention
+  mechanism exists to prevent.** The run still printed "56 passed, 1 failed", so the output looked
+  like one cosmetic gap. Run as documented it is 84 passed, 0 failed. Proven afterwards by sabotage:
+  deleting the companion instead of parking it now fails three checks on the fixture path where it
+  previously failed none.
+- **`verify-fund-fees`, recorded as 136 and actually 133 + 3 since six commits earlier.** Two of the
+  three DEMANDED THAT A DEFECT STILL BE PRESENT ("the BASELINE already troughs below zero"), and it
+  had been fixed: the shortfall was never the drawdown sizing the comment blamed, it was the seeded
+  `endPeriod = cp + 1` window putting construction capex in the first OPERATING period, outside the
+  funded window, and `082b1390` moved it back. The third built a regex from `Math.round(amount)` and
+  tested it against a raw float, so it passed only while the figure happened to round DOWN.
+- **`verify-tab2-pass2` (5), `verify-module6-scenarios` (1), `verify-pricing-application-ready` (1,
+  recorded as "NOT yet diagnosed").** All literal source-string greps that drifted: whitespace-exact
+  multi-line matches, a module renamed, a handler extracted into a named function. The behaviour is
+  present in every case.
+
+**Mechanism.** "Confirmed pre-existing by stashing" answers only "did I cause this", which is the
+less interesting question. It does not ask whether the check is right, whether the code is right, or
+**how many other checks stopped running when this one broke**. A count in prose then freezes the
+answer, and the next person compares against the frozen count rather than zero.
+
+**Fix.** Zero failures, or a diagnosis with a root cause. A check that can never go green is worse
+than no check: it trains everyone to read the failure line as furniture. Two specifics worth
+generalising: a verifier must not need a particular invocation to be honest (load the env yourself),
+and **a conditional block that skips silently must be made unconditional** or must report what it
+did not run, because "56 passed" and "56 passed with 8 skipped" look identical.
 
 ### 10.9 Verifier counts do not belong in prose
 

@@ -3,6 +3,91 @@
 
 > **TRAPS RECORDED IN THIS FILE ARE COLLECTED IN [docs/TRAPS.md](docs/TRAPS.md). Read that first; it is short.** The copies below stay in place, so nothing is lost if you open this file instead. Index of what this file records: the REFM shell `zoom: 0.8` making `vh` and media queries lie (TRAPS 6.1); drag/resize needing pointer capture, not window listeners (6.2); the ExcelJS width-9 column that silently does not apply (3.1); pdf-lib CID glyph ids defeating a naive grep (4.1); the PostgREST 1000-row cap (2.1); export fingerprints needing the FIXTURE, never the live project (5.1); a zero-valued seed hiding a whole code path (7.1); a stage list written as a literal defeating exhaustiveness (7.3); a two-step template registration that fails silently and permanently (8.1); and the verifier rules (a grep proves presence not firing; never gate an assertion on the thing it asserts; prove teeth by sabotage) in TRAPS section 10.
 
+## 2026-08-18b: Sweep of everything recorded as a known non-defect
+
+Prompted by the 360.79 residue turning out to be a 25,000,000 balance-sheet break. The question was
+what else is written down as acceptable rather than investigated. **Five verifiers carried pinned
+failures and none of the five reasons was correct.** No product defect was found among them, but one
+was hiding eight checks that were not running, and the sweep found one genuine screen defect on its
+own. Trap recorded as [docs/TRAPS.md](docs/TRAPS.md) 10.10, and 10.4 is CORRECTED.
+
+**1. `verify-strategy-switch`, recorded as 54 + 1 pre-existing. Actually 84 + 0, and the gap mattered.**
+The script documents `npx tsx --env-file=.env.local` and does not load `.env.local` itself the way
+every sibling verifier does, so run the ordinary way it fell back to a two-asset fixture with no
+Sell + Manage asset. **Eight checks live inside `if (sm)` and did not run**, every one asserting that
+leaving Sell + Manage RETAINS the companion rather than hard deleting it with its sub-units, cost
+lines and overrides, which is the destructive bug the retention mechanism exists to prevent. The run
+printed "56 passed, 1 failed", so it read as one cosmetic gap. Now: the script loads the env itself,
+and when the loaded model carries no Sell + Manage asset it SEEDS one by switching a Sell asset into
+it (the same code path a user takes, which seeds the companion), so the branch runs on both paths.
+Live 84/0, fixture 65/0. Proven by sabotage: suppressing companion retention now fails three checks
+on the fixture path where it previously failed none. One check was also wrong: "the retained
+companion keeps its sub-units" asserted `> 0`, a property of the fixture rather than of the code, and
+a freshly seeded companion legitimately has none; it now asserts EXACT retention of the count it had.
+
+**2. `verify-fund-fees`, recorded as 136. Actually 133 + 3 since `082b1390`, six commits earlier. Now 138 + 0.**
+Two of the three demanded that a DEFECT still be present: "the BASELINE already troughs below zero
+(pre-existing, not caused by fees)". It no longer does, and **the recorded cause was wrong**. The
+comment blamed the gap-sized drawdown ("does not fully meet the computed requirement once
+construction capex stops... pre-existing financing-engine behaviour"). Bisected: the cause was the
+seeded cost window. `makeDefaultCostLines` defaulted to `endPeriod = cp + 1`, so on a 2-period
+construction phase a slice of construction capex landed in phase-local period 3, the first OPERATING
+period, outside the window the funding was sized for. Measured at `b16a5fa6`: 52.416m of capex in
+t=2 against 34.9m drawn, hence the -9.838m trough. `082b1390` made the window end AT `cp` and the
+shortfall went with it. The section now asserts the non-negativity its own comment promised would
+"then be meaningful", plus two guards so it cannot pass vacuously (the fixture must really raise
+gap-sized funding, and construction capex must be confined to the construction window, which fails
+HERE naming the cause if it ever escapes again). The third failure was a coin flip: the check built
+a regex from `Math.round(fundSize)` and tested it against a raw float, so it passed only while the
+figure rounded DOWN, and started failing when the model produced `...743.58`. Teeth proven by two
+sabotages (3 failures and 1). Note the first replacement PASSED its own sabotage because it compared
+the label to what the same formatter produced, so an empty formatter satisfied `includes` of the
+empty string; the expected string is now built independently (TRAPS 10.2, learned again).
+
+**3. THE CHECKS-TAB TOLERANCE WAS TEN ORDERS OF MAGNITUDE TOO LOOSE, and that is how the 360.79 got written down as noise.**
+Measured with the pre-fix engine: MARINA GATE's 25,000,000 break **was** reported as CHECK by the
+Model Integrity Checks table in both PDFs and the workbook, correctly, and went unnoticed until a
+user read the cash flow. FMP RE HUB's 360.79 passed as **OK** against a tolerance of 6,597. The
+2026-08-11 export review had moved the band from an absolute `< 1` to `peak * 1e-6` for a good
+reason (the anchor legitimately crossed zero) and changed the SCALE in the same breath without
+measuring what a healthy residue looks like. It is measurable: these identities are exact by
+construction, and the worst true residue on either live project is 1.9e-6 on a 6,597.1m peak, a
+relative 2.9e-16. `CHECK_REL_TOL` is now **1e-12**, keeping the anchor fix and roughly 3,000x
+headroom, and it catches the 360.79 by five orders of magnitude. `verify-report-consistency` had a
+check asserting that a residue of 1e-9 of the magnitude (one unit on a billion, seven orders above
+the real noise floor) must be ACCEPTED; that assertion is what ratified the loose band and it is
+replaced by two that encode the measured reality. 58 + 1 -> **60 + 0**.
+
+**4. A genuine defect the sweep found: the phase-filtered Direct CF Investing section did not foot.**
+The recorded known gap said "the phase-filtered Direct CF shows the full project fund fee in every
+phase (pre-existing, so do Total Revenue Received / Tax Paid / Total Capex there)". Measured on the
+live project it is real: with a phase selected, the Direct CF's asset rows are phase-filtered by
+`matchesPhase` while its Total Capex was the whole project's, so Phase 1's rows sat under the
+project's total. Measured on the new fixture: rows -348,935,825 against a Total Capex of
+-686,465,700. The Indirect CF was correct because it passed a filtered series. **The subtotal was a
+PARAMETER, so the two callers could disagree**; `buildInvestmentRows` now derives it from the
+population it actually renders whenever a filter is on, and keeps the engine's authoritative
+`exclLandInKind` for the unfiltered view. `verify-cf-capex-foot` 57 -> **63**, with the footing now
+asserted under every phase filter on both methods, not only under "All".
+
+**5. Stale source-string greps, behaviour intact in all three.** `verify-module6-scenarios` asserted
+`longLabel.startsWith('Reports')` and Module 7 is now the IC Presentation Builder; it asserts the
+config swap and liveness instead (127 + 1 -> **128 + 0**). `verify-pricing-application-ready`, the
+one recorded as "NOT yet diagnosed", required a literal `onClick` arrow calling `setSelected` and
+the handler had been extracted to `selectPlatform(p.slug)`: a refactor, not a regression, and the
+button, testid and behaviour are all correct. It now asserts the property it names, proven by four
+sabotages (48 + 1 -> **49 + 0**). `verify-tab2-pass2` **is left at 16 + 5 and is the one open item**:
+its five failures are whitespace-exact multi-line source literals and the guards they look for ARE
+present (nine matching sites in `Module1Assets.tsx`), but the right fix is to make them behavioural
+rather than to re-pin the indentation, which is a bigger job in a module this block did not touch.
+
+**Recorded as known gaps and left alone, deliberately, with the reason.** The phase-filtered Direct
+CF still shows the project-wide figure for Total Revenue Received, Tax Paid and the fund fee (item 4
+fixed capex only; the others need the same treatment and are a separate piece of work). Admin PAGE
+enforcement is CLIENT-side only and the documented server-side guarantee does not exist, which is
+recorded accurately in CLAUDE.md and is a real exposure decision, not a measurement error. Historical
+and existing-operations inputs are still not consumed by the compute pipeline.
+
 ## 2026-08-18: The Cash Flow Investing section foots, and in-kind land has ONE recognition rule
 
 Reported from the screen: the Cash Flow's Investing section did not add up. Its per-asset capex
@@ -382,7 +467,7 @@ Now the outgoing strategy's sub-units, opex and companion are PARKED in `Asset.r
 
 **The design point: retention sits OFF TO ONE SIDE, not as a filter over the live arrays.** `state.subUnits` / `costLines` / `costOverrides` still contain ONLY the active strategy's rows, exactly as before, so none of the roughly forty engine and UI readers had to learn to filter, and none can drift. The dropdown previews via a DRY RUN of the same pure function the store commits, so the dialog cannot promise something other than what happens, then a `strategyReview` banner persists across navigation until dismissed, because the empty assumptions live on other tabs.
 
-`verify-strategy-switch` **54 passed + 1 PRE-EXISTING FAILURE** ("the fixture exercises Sell + Manage (a companion exists to lose)", the fixture builds no companion so the Sell + Manage clauses never run; measured 2026-08-12 and confirmed pre-existing by stashing unrelated changes. The long-recorded 82 was stale). Teeth proven by three sabotages (4, 12 and 7 failures). The round-trip identity deliberately EXCLUDES `retainedByStrategy`: after A to B to A the asset correctly remembers B, so that a second visit restores rather than re-seeds. The bank is asserted separately so the exclusion hides nothing.
+`verify-strategy-switch` **84 passed, 0 failed** (CORRECTED 2026-08-18, see the sweep section dated 2026-08-18: the recorded failure was an artefact of running it without `--env-file=.env.local`, and eight companion-retention checks were silently not running. Originally measured 2026-08-12 and confirmed pre-existing by stashing unrelated changes. The long-recorded 82 was stale). Teeth proven by three sabotages (4, 12 and 7 failures). The round-trip identity deliberately EXCLUDES `retainedByStrategy`: after A to B to A the asset correctly remembers B, so that a second visit restores rather than re-seeds. The bank is asserted separately so the exclusion hides nothing.
 
 ### Fund fee basis block, follow-up the same day
 
