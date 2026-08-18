@@ -157,6 +157,42 @@ check('total debt = base facility + IDC drawn, and ALL of it is repaid',
 check('the retired toggles are not consulted: the snapshot reports the one treatment',
   snap.idc.capitalize === true && snap.idc.fundingMode === 'conditional');
 
+// THE STRICT QUALIFYING-ASSET TEST (decision 2026-08-18). Interest is IDC only
+// to the extent it funds an asset still UNDER CONSTRUCTION. A specific
+// borrowing against an asset that is complete and operating is not directly
+// attributable to anything being built, however much building is going on
+// elsewhere in the project, so its interest stays an operating finance cost.
+//
+// This is the guard against reintroducing the capex-share allocation that was
+// designed, measured and rejected: on FMP RE HUB it reclassified 604,800k of a
+// pre-existing hotel loan into IDC purely because other phases were building.
+// See CLAUDE-TODO.md, "tranche.phaseId is not a usable attribution key".
+{
+  const withExisting = build();
+  withExisting.financingTranches = [
+    ...withExisting.financingTranches,
+    {
+      ...makeDefaultFinancingTranche('t-existing', 'p1'),
+      origin: 'existing' as const, openingBalance: 40_000_000, originationYear: 2025,
+      interestRatePct: 6,
+    },
+  ];
+  const exSnap = computeFinancialsSnapshot(withExisting);
+  const exFac = exSnap.financing.facilities.get('t-existing');
+  const exIdc = sum(exFac?.interestDuringConstruction);
+  const exAccrued = sum(exFac?.interestAccrued);
+  check('an EXISTING facility accrues real interest in the fixture (else this is vacuous)',
+    exAccrued > 0, `${(exAccrued / 1e6).toFixed(2)}m`);
+  check('an EXISTING facility\'s interest is NEVER IDC, even while other assets are building',
+    Math.abs(exIdc) < 0.01, `${(exIdc / 1e6).toFixed(3)}m classified as IDC`);
+  // And it must not have quietly leaked into the project IDC total either.
+  check('the project IDC total excludes it',
+    Math.abs(sum(exSnap.financing.combined.totalIdc) - sum(exSnap.financing.combined.totalIdc.map((v, t) => {
+      const newFac = exSnap.financing.facilities.get('t1');
+      return Math.min(v, (newFac?.interestDuringConstruction?.[t] ?? 0) + 0.01);
+    }))) < 0.01);
+}
+
 // A saved project carrying the OLD toggles must be ignored, not obeyed.
 {
   const legacy = build();

@@ -6,7 +6,7 @@
 ## 2026-08-18c: FCFF is full cost, FCFE chains from it, and IDC has one treatment
 
 Three corrections to the returns build-ups and IDC, matching the reference.
-`verify-returns-buildup` **27 NEW**, teeth proven by five sabotages
+`verify-returns-buildup` **30 NEW**, teeth proven by five sabotages
 (2 / 2 / 2 / 2 / 4 failures). **MOVES PROJECT IRR ON BOTH LIVE PROJECTS, deliberately.**
 **NOT browser-verified.**
 
@@ -93,17 +93,55 @@ defect went with them: `buildModelWorkbook` printed the funding mode defaulting
 to `debt_drawdown` while the engine defaulted to `conditional`, so MARINA GATE's
 Excel Inputs tab had been stating a mode the model was not using.
 
-### One judgement call, flagged
+### The IAS 23 question, RESOLVED 2026-08-18: strict qualifying-asset test
 
-"While construction is running in a period, the entire finance cost of that
-period is IDC" is implemented for NEW facilities. **EXISTING facilities are still
-treated as an operating finance cost**, and on FMP RE HUB that is 151,200k per
-year across 2026-2029 plus 103,433k in 2030, about **708,233k** that would
-reclassify into asset cost if the rule swept them in too. A loan secured on an
-already-operating hotel is not a borrowing cost of the new construction under any
-standard, and the swing is large enough to want an explicit decision rather than
-an inferred one. Say the word and it is a one-line change (`!isExisting` in the
-`constructionRunning` test in `schedule.ts`).
+The flagged judgement call is now a decision, and it needed NO engine change:
+both live projects were already correct under the rule chosen.
+
+**The rule in force.** Interest is IDC only to the extent it funds an asset still
+UNDER CONSTRUCTION in that period, attributed by what the tranche actually funds.
+A specific borrowing against an asset that is complete and operating is not
+directly attributable to anything being built, however much building is going on
+elsewhere, so its interest stays an operating finance cost.
+
+**What was measured before deciding** (`scripts/diagnose-idc-per-facility.ts`,
+READ ONLY, per phase / per physical facility / per debt facility / per year):
+
+- **FMP - MARINA GATE matches the premise exactly.** All four assets are
+  `status=planned` with zero historical pre-capex; nothing operates at project
+  start; Phase 1 builds 2027-2030, Phase 2 builds 2028-2030, both operate from
+  2031. One tranche. Today: IDC 2027-2030 (32,177k), operating 2031 (10,652k).
+  **Already correct.** Note it never exercises the interesting case: both phases
+  complete together, so nothing ever flips to operating while something else is
+  still building.
+- **FMP RE HUB does NOT match the premise.** `Hotel Phase 1` is
+  `status=operational` with `cp = 0`, operating from project start 2026, carrying
+  2,600,000k of historical pre-capex and 1,200,000k of historical equity, and
+  `Senior Debt - T1` is an existing 2,400,000k loan originated 2025. Today: the
+  new senior debt is IDC 2026-2030 (48,008k) and operating 2031; T1 is operating
+  throughout. **Already correct.**
+
+**The capex-share allocation was designed, measured and REJECTED.** Splitting each
+tranche's interest across phases by that phase's share of cumulative capex and
+classifying each slice by that phase's own window gives IDC 642,837k on RE HUB, a
+594,829k reclassification, and it is wrong twice over: it sweeps 604,800k of the
+existing hotel loan into IDC because other phases happen to be building, and it
+peels 9,971k onto Phase 1, which is the pre-existing hotel with only historical
+spend, purely because that hotel's 2.6bn sits in the denominator. Do not build it.
+
+**`tranche.phaseId` is not a usable attribution key**, logged as tech debt and
+deliberately not fixed (CLAUDE-TODO.md). Both RE HUB tranches are tagged
+`phase_1` while the new one funds Phases 2 and 3; classifying by the stored
+`phaseId` puts ZERO of RE HUB's 759,694k into IDC, losing the 48,008k that
+genuinely is IDC. The real fix is a disbursement target on the tranche, not a
+better guess.
+
+**Pinned.** `verify-returns-buildup` gained three checks: an existing facility
+accrues real interest in the fixture (anti-vacuity), its interest is NEVER IDC
+while other assets are building, and it has not leaked into the project IDC
+total. Proven by sabotage: dropping `!isExisting` from the `constructionRunning`
+test in `schedule.ts`, which is exactly the rejected change, fails two of them
+with 9.692m misclassified. 27 -> **30**.
 
 ### Verifiers updated, all of them because they pinned the OLD contract
 

@@ -135,7 +135,22 @@ Five deploys of fund-layer work (Steps 1 to 3 plus the Fund Manager and facility
 
 ---
 
-## KNOWN ISSUE: gap-sized drawdown does not fully meet the computed requirement (2026-08-04)
+## RESOLVED 2026-08-18: gap-sized drawdown does not fully meet the computed requirement (raised 2026-08-04)
+
+**The diagnosis below was WRONG about the cause, and the cause has since been fixed by
+something else.** It blamed the drawdown sizing. It was the SEEDED COST WINDOW:
+`makeDefaultCostLines` defaulted every line to `endPeriod = cp + 1`, so on a 2-period
+construction phase a slice of construction capex landed in phase-local period 3, the first
+OPERATING period, outside the window the funding was sized for. Bisected to `082b1390`
+(which made the default window end AT `cp` for a different reason); measured at `b16a5fa6`,
+52.416m of capex in t=2 against 34.9m drawn, hence the -9.838m trough.
+
+`verify-fund-fees` section 5 now carries the non-negativity assertion this section asked for,
+plus two guards so it cannot pass vacuously, and a check that construction capex is confined
+to the construction window which fails HERE naming the cause if it ever escapes again.
+The original text is kept below because the "what it is NOT" list is still useful evidence.
+
+### Original entry, 2026-08-04
 
 **Found during fund layer Step 3; NOT caused by it, and explicitly out of scope for an additive step. Ahmad's decision 2026-08-04: leave drawdown sizing alone, log it here for later.**
 
@@ -154,6 +169,42 @@ Five deploys of fund-layer work (Steps 1 to 3 plus the Fund Manager and facility
 
 ---
 
+## TECH DEBT, logged not fixed: `tranche.phaseId` is not a usable attribution key (2026-08-18)
+
+**Decision 2026-08-18: log it, do not fix it now.** The Capex block is closed pre-launch,
+MARINA GATE does not need it, and the only proposed fix produced two wrong answers.
+
+**What is wrong.** A `FinancingTranche` carries a `phaseId`, which reads as "the phase this
+facility funds". It is not that. On FMP RE HUB BOTH tranches are tagged `phase_1` while the
+new senior debt plainly funds Phases 2 and 3, and Phase 1 is the pre-existing operating hotel
+with `cp = 0`. Any rule that classifies a facility by its stored `phaseId` therefore collapses:
+measured, it puts ZERO of RE HUB's 759,694k of finance cost into IDC, including the 48,008k
+that genuinely is IDC today.
+
+This is a leftover from before Pass 28 (2026-05-14), which stopped windowing a tranche to its
+`phaseId` precisely because a bank funds drawdowns in every phase. The field survives because
+`removePhase` cascades on it, so it cannot simply be dropped.
+
+**What NOT to build.** A capex-share allocation, splitting each tranche's interest across
+phases by that phase's share of cumulative capex and classifying each slice by that phase's
+own window, was designed, measured and REJECTED on 2026-08-18. It produces two errors:
+
+1. It reclassifies **604,800k** of the existing hotel loan's interest into IDC on RE HUB,
+   because Phases 2 and 3 are building in those years. That loan is a specific borrowing
+   against a complete, operating asset; qualifying activity on it has ceased.
+2. It peels **9,971k** onto Phase 1, which is the pre-existing hotel with only historical
+   spend, so a new construction loan cannot be funding it. The slice is an artifact of the
+   hotel's 2.6bn of historical capex sitting in the denominator.
+
+**The rule that is in force instead** (see CLAUDE-REFM.md 2026-08-18c) is the strict IAS 23
+qualifying-asset test: interest is IDC only to the extent it funds an asset still under
+construction in that period, attributed by what the tranche actually funds. Under it both live
+projects are already correct and no engine change was needed.
+
+**When this is picked up**, the thing to add is a real disbursement target on the tranche (what
+it actually funds), not a better guess from `phaseId` and not an allocation by capex share.
+
+---
 ## ⭐ START HERE (current focus, 2026-08-13)
 
 **PASS 4 (PRESENTATION) IS DONE AND UNCOMMITTED, HELD FOR REVIEW.** Six items
