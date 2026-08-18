@@ -2442,12 +2442,22 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
       {/* Pass 31 (2026-05-14): group per-facility Finance Cost tables
           by origin. Existing facilities first under their own header,
           then new facilities. */}
-      {/* Pass 33 (2026-05-14): Finance Cost schedule rebuilt as a
-          standard movement ledger - Opening / Charge (Accrued) /
-          Capitalized / Paid / Closing. The Closing balance tracks
-          accrued interest payable: in our engine accrual = capitalized
-          + paid each period so closings are structurally zero, but the
-          movement reads like a textbook accrual schedule. */}
+      {/* Finance Cost ledger. 2026-08-18c: the Capitalized row is no longer a
+          DEDUCTION, and that is the fix for a real defect.
+
+          It was written when capitalised interest meant interest that was never
+          paid, so deducting both Paid and Capitalized from the payable was
+          right. The charge is now settled in full every period (matching the
+          reference), which makes the capitalised figure a DEBT DRAWDOWN rather
+          than a second settlement, and deducting it here removed the same money
+          twice: the closing balance walked to a stuck -21,525k on the live
+          project and stayed there.
+
+          The drawdown belongs to the DEBT schedule above, where it already
+          appears inside Debt Draw Down. Here the ledger is what it says it is,
+          Opening + Charge - Paid = Closing, closing at zero because the charge
+          is paid. The capitalised figure stays as a MEMO so a reader can still
+          see how much of the payment was funded by drawing. */}
       {(() => {
         const buildFinanceCostBalances = (accrued: number[], capitalized: number[], paid: number[]) => {
           const N = Math.max(accrued.length, capitalized.length, paid.length);
@@ -2455,7 +2465,10 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
           const closing = new Array<number>(N).fill(0);
           for (let i = 0; i < N; i++) {
             opening[i] = i === 0 ? 0 : (closing[i - 1] ?? 0);
-            closing[i] = opening[i] + (accrued[i] ?? 0) - (capitalized[i] ?? 0) - (paid[i] ?? 0);
+            // No capitalised deduction: see the note above. That figure funds
+            // the payment, it does not settle the payable a second time.
+            void capitalized;
+            closing[i] = opening[i] + (accrued[i] ?? 0) - (paid[i] ?? 0);
           }
           return { opening, closing };
         };
@@ -2473,8 +2486,8 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                   <tbody>
                     {renderStateRow('Opening', opening)}
                     {renderFlowRow('Charge (Accrued)', r.interestAccrued)}
-                    {renderFlowRow('Capitalized', r.interestCapitalized, { negative: true })}
                     {renderFlowRow('Paid', r.interestPaid, { negative: true })}
+                    {renderFlowRow('  (memo) of which funded by drawing debt', r.interestCapitalized)}
                     {renderStateRow('Closing', closing, { bold: true })}
                   </tbody>
                 </table>

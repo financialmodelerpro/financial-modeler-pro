@@ -328,7 +328,11 @@ async function main(): Promise<void> {
   check('Cash Flow: the Indirect section carries NO fund fee add-back', (() => {
     const rInd = rowOf(cf, 'Cash Flow, Indirect Method: Project');
     const rPhase = allLabels(cf).find((x) => /^Cash Flow: .+ \(Operations \+ Investing\)$/.test(x.label))?.row ?? Number.MAX_SAFE_INTEGER;
-    return !allLabels(cf).some((x) => x.row > rInd && x.row < rPhase && /fund/i.test(x.label));
+    // 2026-08-18c: an ADD-BACK, not any label containing the word. The equity
+    // draw memo beneath the financing section now says 'of which for fund
+    // fees', which names what equity was raised for and is not an operating
+    // add-back; a bare /fund/i tripped on it.
+    return !allLabels(cf).some((x) => x.row > rInd && x.row < rPhase && /fund/i.test(x.label) && !/(memo)/i.test(x.label));
   })());
 
   // ── 4. Returns: the waterfall, in the reference row order ─────────────────

@@ -70,6 +70,12 @@ export interface TerminalConfig {
 
 export interface SponsorStreams {
   fcff: number[];
+  /** FCFF BEFORE the terminal value, which is the row the FCFE chain starts
+   *  from. The reference keeps these as two rows (its FCFF subtotal is
+   *  pre-terminal and its "FCFF Incl. Terminal Value" is the next line down),
+   *  and having it lets FCFE chain cleanly instead of backing the enterprise
+   *  terminal out again. */
+  fcffBeforeTerminal: number[];
   fcfe: number[];
   stabilisedNOI: number;
   exitNOI: number;
@@ -108,16 +114,27 @@ export function buildSponsorStreamsForExit(
   const tvEquity = terminalEquityValue(tvEnterprise, debtAtExit, 0);
 
   const fcff = new Array<number>(E + 1).fill(0);
+  const fcffBeforeTerminal = new Array<number>(E + 1).fill(0);
   const fcfe = new Array<number>(E + 1).fill(0);
   fcff[0] = -inp.existingPreCapex;
+  fcffBeforeTerminal[0] = -inp.existingPreCapex;
   fcfe[0] = -inp.existingPreCapex + inp.existingDebtOpening;
   for (let t = 0; t < E; t++) {
     const base = (inp.cfoAxis[t] ?? 0) + fullCapexAt(t);
     fcff[t + 1] = base;
-    // FCFE is the SAME base plus the financing legs. In-kind land is already
-    // inside `base` and must not repeat; the finance cost is NOT in `base` at
-    // all and is deducted here in full, with the IDC drawdown beside it.
+    fcffBeforeTerminal[t + 1] = base;
+    // FCFE = FCFF, plus net debt, less the finance cost, plus (at exit) the
+    // levered terminal. Two things ride inside those steps:
+    //
+    //  - NET DEBT is the TOTAL drawdown, capex plus IDC, less principal repaid.
+    //    The reference sums exactly those two rows into one "Net Debt" line.
+    //  - IN-KIND EQUITY IS CREDITED BACK. FCFF charges the full land including
+    //    the in-kind portion, because the project really did consume that land.
+    //    The equity holder CONTRIBUTED it, so charging them for it without ever
+    //    crediting the contribution would leave it charged once and credited
+    //    never. Crediting it here makes FCFE the return on CASH equity.
     fcfe[t + 1] = base
+      + (inp.inKindAxis[t] ?? 0)
       - (inp.financeCostAxis[t] ?? 0)
       + (inp.debtDrawAxis[t] ?? 0) + (inp.idcDrawAxis[t] ?? 0)
       + (inp.principalAxis[t] ?? 0);
@@ -125,5 +142,5 @@ export function buildSponsorStreamsForExit(
   fcff[exit + 1] += tvEnterprise;
   fcfe[exit + 1] += tvEquity;
 
-  return { fcff, fcfe, stabilisedNOI, exitNOI, terminalEnterpriseValue: tvEnterprise, terminalEquityValue: tvEquity };
+  return { fcff, fcffBeforeTerminal, fcfe, stabilisedNOI, exitNOI, terminalEnterpriseValue: tvEnterprise, terminalEquityValue: tvEquity };
 }

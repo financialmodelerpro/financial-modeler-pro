@@ -47,8 +47,8 @@ export interface StreamBuildupSource {
     inKindLandPerPeriod: number[];
     financeCostPerPeriod: number[];
     fcffSubtotalPerPeriod: number[];
-    existingPreCapexRemovalPerPeriod: number[];
-    terminalEnterpriseRemovalPerPeriod: number[];
+    netDebtPerPeriod: number[];
+    inKindEquityCreditPerPeriod: number[];
     debtDrawPerPeriod: number[];
     idcDrawPerPeriod: number[];
     principalRepayPerPeriod: number[];
@@ -101,15 +101,25 @@ const FCFF_ROWS: readonly BuildupRowDef[] = [
 // none of it. Only part of that charge left the bank; the rest was funded by
 // drawing debt, which is the row beneath it. The two net to the cash actually
 // paid, and the capitalised slice comes back out later as principal.
+// FOUR STEPS, matching the reference exactly: FCFF, plus net debt, less the
+// finance cost, plus the terminal value. Its FCFF subtotal is PRE-TERMINAL,
+// which is what lets this chain start cleanly instead of adding the enterprise
+// terminal and then backing it out again; those two removal rows are gone.
+//
+// Net debt is ONE row, the total drawdown (capex plus IDC) less principal
+// repaid, because that is what the reference sums into its "Net Debt" line. The
+// capex-versus-IDC split lives in the financing schedule.
+//
+// The in-kind equity credit is the fifth row and it is deliberate, not a
+// reference row: FCFF charges the full land including the in-kind portion, so
+// without crediting the contribution here the equity holder would be charged
+// for land they provided and never credited for providing it.
 const FCFE_ROWS: readonly BuildupRowDef[] = [
   { label: '(-) Existing Equity Investment (at inception)', pick: 'existingEquityPerPeriod' },
-  { label: '(=) FCFF (unlevered, after full-cost capex)', pick: 'fcffSubtotalPerPeriod' },
-  { label: '(-) Historical Development Investment (in FCFF above)', pick: 'existingPreCapexRemovalPerPeriod' },
-  { label: '(-) Terminal Enterprise Value (in FCFF above)', pick: 'terminalEnterpriseRemovalPerPeriod' },
-  { label: '(-) Finance Cost, full accrued charge (incl. IDC)', pick: 'financeCostPerPeriod' },
-  { label: '(+) Debt Drawdown for Capex', pick: 'debtDrawPerPeriod' },
-  { label: '(+) Debt Drawdown for IDC (funds the charge above)', pick: 'idcDrawPerPeriod' },
-  { label: '(-) Principal Repayment (repays the capitalised IDC too)', pick: 'principalRepayPerPeriod' },
+  { label: '(=) FCFF (unlevered, before terminal value)', pick: 'fcffSubtotalPerPeriod' },
+  { label: '(+) In-Kind Equity Contributed (charged in FCFF, credited here)', pick: 'inKindEquityCreditPerPeriod' },
+  { label: '(+) Net Debt (total drawdown less principal repaid)', pick: 'netDebtPerPeriod' },
+  { label: '(-) Finance Cost (full accrued charge, incl. IDC)', pick: 'financeCostPerPeriod' },
   { label: '(+) Terminal Value less Closing Debt', pick: 'terminalEquityPerPeriod' },
 ];
 

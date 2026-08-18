@@ -118,9 +118,9 @@ export interface ReturnsBuildup {
   financeCostPerPeriod: number[];
   terminalEnterprisePerPeriod: number[];// (+) terminal enterprise value (exit only)
   // FCFE (levered) chain ON TOP of the FCFF subtotal.
-  fcffSubtotalPerPeriod: number[];      // (=) FCFF itself, the first row of the chain
-  existingPreCapexRemovalPerPeriod: number[]; // (+) backs out FCFF's unlevered inception
-  terminalEnterpriseRemovalPerPeriod: number[]; // (-) backs out FCFF's enterprise terminal
+  fcffSubtotalPerPeriod: number[];      // (=) FCFF PRE-TERMINAL, the chain's first row
+  netDebtPerPeriod: number[];           // (+) total drawdown less principal, ONE row
+  inKindEquityCreditPerPeriod: number[];// (+) the in-kind land credited back to equity
   debtDrawPerPeriod: number[];          // (+) debt drawn for CAPEX
   idcDrawPerPeriod: number[];           // (+) debt drawn for IDC
   principalRepayPerPeriod: number[];    // (-) principal repaid (already negative)
@@ -472,11 +472,24 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     inKindLandPerPeriod: incep(0, inKindAxis.map((v) => -v)),
     financeCostPerPeriod: incep(0, financeCostAxis.map((v) => -v)),
     terminalEnterprisePerPeriod: incep(0, atExitAxis(tvEnterprise)),
-    fcffSubtotalPerPeriod: streams.fcff.slice(),
-    // The two rows the FCFE chain uses to swap FCFF's enterprise terminal for
-    // the levered one, and to drop the unlevered inception (FCFE has its own).
-    existingPreCapexRemovalPerPeriod: incep(existingPreCapex, new Array<number>(E).fill(0)),
-    terminalEnterpriseRemovalPerPeriod: incep(0, atExitAxis(-tvEnterprise)),
+    // PRE-TERMINAL FCFF, the row the FCFE chain starts from. The reference
+    // does the same: its FCFF subtotal is pre-terminal and the terminal value
+    // is the line below it. Chaining from this is what removes the two "add
+    // the enterprise terminal then back it out again" rows.
+    // AXIS ONLY, zero at inception. The chain already opens with
+    // `existingEquityPerPeriod`, which carries the levered inception; FCFF
+    // carries its own UNLEVERED inception, and including both double-counted it
+    // (measured: the FCFE rows missed their total by exactly the historical
+    // development investment).
+    fcffSubtotalPerPeriod: streams.fcffBeforeTerminal.map((v, i) => (i === 0 ? 0 : v)),
+    // Net debt as ONE row: total drawdown (capex plus IDC) less principal,
+    // which is exactly what the reference sums into its Net Debt line.
+    netDebtPerPeriod: incep(0, debtDrawAxis.map((v, t) =>
+      v + (idcDrawAxis[t] ?? 0) + (principalAxis[t] ?? 0))),
+    // The in-kind land as a POSITIVE credit. `inKindLandPerPeriod` is the
+    // negative charge FCFF carries; this is the same magnitude the other way,
+    // so across the pair it is charged once and credited once.
+    inKindEquityCreditPerPeriod: incep(0, inKindAxis.slice()),
     debtDrawPerPeriod: incep(0, debtDrawAxis),
     idcDrawPerPeriod: incep(0, idcDrawAxis),
     principalRepayPerPeriod: incep(0, principalAxis),

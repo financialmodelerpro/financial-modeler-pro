@@ -113,10 +113,9 @@ async function main(): Promise<void> {
   // because FCFE chains from FCFF it must back that out explicitly and put the
   // levered terminal in its place. Doing the swap implicitly is the mistake that
   // once left the PDF short by a whole terminal value.
-  check('FCFF and FCFE build-ups carry DIFFERENT terminal rows, and the swap is explicit',
+  check('FCFF and FCFE build-ups carry DIFFERENT terminal rows',
     FCFF_BUILDUP_LABELS.includes('(+) Terminal Enterprise Value')
     && FCFE_BUILDUP_LABELS.includes('(+) Terminal Value less Closing Debt')
-    && FCFE_BUILDUP_LABELS.includes('(-) Terminal Enterprise Value (in FCFF above)')
     && !FCFE_BUILDUP_LABELS.includes('(+) Terminal Enterprise Value'));
   check('the dividend build-up is its own row list', DIVIDEND_BUILDUP_LABELS.includes('(+) Dividends Distributed (cash-sweep waterfall)'));
   {

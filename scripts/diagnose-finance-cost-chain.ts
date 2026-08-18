@@ -63,7 +63,7 @@ async function main(): Promise<void> {
       const paid = (snap.financing.facilities.size > 0
         ? Array.from(snap.financing.facilities.values() as any).reduce((x: number, f: any) => x + (f.interestPaid?.[t] ?? 0), 0)
         : 0);
-      const close = open + acc - cap - paid;
+      const close = open + acc - paid; void cap;
       if (acc !== 0 || paid !== 0) {
         console.log(`      ${y0 + t} ${k(open)} ${k(acc)} ${k(cap)} ${k(paid)} ${k(close)}`);
       }

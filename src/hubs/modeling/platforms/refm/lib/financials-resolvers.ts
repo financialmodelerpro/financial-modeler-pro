@@ -191,6 +191,15 @@ export interface ProjectDirectCF {
   /** Interest arising with no construction spend: the operating finance cost.
    *  Positive magnitude. `idcPaid + operatingInterestPaid = interestPaid`. */
   operatingInterestPaidPerPeriod: number[];
+  /** The cash equity draw ATTRIBUTED ACROSS WHAT IT FUNDED (2026-08-18c), a
+   *  MEMO breakdown: the four series sum to `equityDrawdownPerPeriod` exactly
+   *  and the draw itself is untouched. Pro rata across the period deficit
+   *  drivers: cash capex, fund fees, operating shortfall, finance cost paid. An
+   *  explicitly equity-funded fee is attributed in full first. */
+  equityForCapexPerPeriod: number[];
+  equityForFundFeesPerPeriod: number[];
+  equityForOperatingShortfallPerPeriod: number[];
+  equityForFinanceCostPerPeriod: number[];
   /** Equity drawn specifically to fund the management fee, when
    *  `fundTerms.managementFeeFunding === 'equity'`. Zero otherwise. Already
    *  INSIDE `equityDrawdownPerPeriod`; carried separately so the funding
@@ -235,6 +244,10 @@ export interface ProjectIndirectCF {
   idcAccruedPerPeriod: number[];
   idcPaidPerPeriod: number[];
   operatingInterestPaidPerPeriod: number[];
+  equityForCapexPerPeriod: number[];
+  equityForFundFeesPerPeriod: number[];
+  equityForOperatingShortfallPerPeriod: number[];
+  equityForFinanceCostPerPeriod: number[];
   managementFeeEquityDrawPerPeriod: number[];
   cashFromInvestmentPerPeriod: number[];
   /** M4 Pass 2P (2026-05-24): cash equity only, what actually moves
@@ -1991,18 +2004,15 @@ function computeFinancialsSnapshotOnce(
   const equityExistingArr = financing.equity.existingEquityPerPeriod.slice(0, N);
   while (equityExistingArr.length < N) equityExistingArr.push(0);
   const equityDraws = equityCashArr.map((v, i) => v + (equityInKindArr[i] ?? 0));
-  // ONLY THE CAPEX DRAWDOWN IS CASH. 2026-08-18b: the IDC drawdown is a
-  // non-cash increase in the debt balance (the interest it funds is never paid
-  // out), so it must not appear as a financing inflow. It is carried separately
-  // on the direct CF as a memo, and the debt schedule shows it growing the
-  // balance. Treating it as cash inflated the drawdown and the interest paid by
-  // the same amount, which cancelled in closing cash and broke the Finance Cost
-  // ledger instead.
+
+  // BOTH DRAWDOWNS ARE CASH (2026-08-18c, matching the reference, whose closing
+  // cash adds the TOTAL drawdown and subtracts the FULL finance cost). They are
+  // carried separately as well so the schedule can show each.
   const capexDrawArr = financing.combined.totalDrawdown.slice(0, N);
   while (capexDrawArr.length < N) capexDrawArr.push(0);
   const idcDrawArr = financing.combined.totalIdcDrawdown.slice(0, N);
   while (idcDrawArr.length < N) idcDrawArr.push(0);
-  const debtDraws = capexDrawArr.slice();
+  const debtDraws = capexDrawArr.map((v, i) => v + (idcDrawArr[i] ?? 0));
   const debtRepays = financing.combined.totalPrincipalRepaid.slice(0, N);
   while (debtRepays.length < N) debtRepays.push(0);
   // 2026-08-18: read the SUMMED cash interest rather than backing it out of
@@ -2013,12 +2023,58 @@ function computeFinancialsSnapshotOnce(
   // have understated the outflow by exactly the IDC drawdown.
   const interestPaidArr = financing.combined.totalInterestPaid.slice(0, N);
   while (interestPaidArr.length < N) interestPaidArr.push(0);
-  // The FULL IDC charge, and the cash half of it. `idcAccruedArr` is what the
-  // FCFE chain deducts (with the drawdown added back); `idcPaidArr` is what the
-  // cash statement shows leaving the bank.
+
+  // ── EQUITY DRAW ATTRIBUTED ACROSS WHAT IT FUNDED (2026-08-18c) ──────────
+  //
+  // A MEMO breakdown: the four series below sum to the cash equity draw
+  // exactly, and the draw itself is untouched. The question it answers is
+  // "what was this equity raised for", which one undifferentiated deficit
+  // draw could not, and which is what left the management fee invisible.
+  //
+  // Pro rata across the DEFICIT DRIVERS of the period, which are the outflows
+  // the funding requirement had to cover: capex (cash), the fund fees, the
+  // operating shortfall (opex paid in excess of revenue received, floored at
+  // zero) and the finance cost paid. Each driver takes the share of the draw
+  // equal to its share of the total. When the fee is EXPLICITLY equity funded
+  // its draw is attributed to it in full first and the pro rata runs over the
+  // rest, because that part is not an estimate.
+  const equityForCapex = zeros(N);
+  const equityForFundFees = zeros(N);
+  const equityForOperatingShortfall = zeros(N);
+  const equityForFinanceCost = zeros(N);
+  for (let t = 0; t < N; t++) {
+    const draw = Math.max(0, equityCashArr[t] ?? 0);
+    if (draw <= 0) continue;
+    const explicitFee = Math.min(draw, Math.max(0, managementFeeEquityDraw[t] ?? 0));
+    const remaining = draw - explicitFee;
+    equityForFundFees[t] += explicitFee;
+    const dCapex = Math.max(0, capexProj[t] ?? 0);
+    const dFees = explicitFee > 0 ? 0 : Math.max(0, fundFees[t] ?? 0);
+    const dOps = Math.max(0, (opexPaidProject[t] ?? 0) + (hqOpexPaid[t] ?? 0)
+      - (revRcvProject[t] ?? 0) - (netRevAdj[t] ?? 0));
+    const dInt = Math.max(0, interestPaidArr[t] ?? 0);
+    const total = dCapex + dFees + dOps + dInt;
+    if (total <= 0) {
+      // Nothing to attribute against: development equity by default, which is
+      // what a draw with no other driver in the period must be.
+      equityForCapex[t] += remaining;
+      continue;
+    }
+    const share = (x: number): number => (remaining * x) / total;
+    const aCapex = share(dCapex), aFees = share(dFees), aOps = share(dOps);
+    equityForCapex[t] += aCapex;
+    equityForFundFees[t] += aFees;
+    equityForOperatingShortfall[t] += aOps;
+    // The last bucket takes the residue, so the four sum to the draw EXACTLY
+    // rather than to within rounding.
+    equityForFinanceCost[t] += remaining - aCapex - aFees - aOps;
+  }
+  // The IDC charge is PAID IN FULL, so accrued and paid are the same series.
+  // Both names are kept because the FCFE chain reads the charge and the cash
+  // statement reads the payment, and they are the same number by construction.
   const idcAccruedArr = financing.combined.totalIdc.slice(0, N);
   while (idcAccruedArr.length < N) idcAccruedArr.push(0);
-  const idcPaidArr = idcAccruedArr.map((v, i) => Math.max(0, v - (idcDrawArr[i] ?? 0)));
+  const idcPaidArr = idcAccruedArr.slice();
   const opInterestArr = interestPaidArr.map((v, i) => Math.max(0, v - (idcPaidArr[i] ?? 0)));
 
   const cashFromFin = zeros(N);
@@ -2221,6 +2277,10 @@ function computeFinancialsSnapshotOnce(
     idcAccruedPerPeriod: idcAccruedArr,
     idcPaidPerPeriod: idcPaidArr,
     operatingInterestPaidPerPeriod: opInterestArr,
+    equityForCapexPerPeriod: equityForCapex,
+    equityForFundFeesPerPeriod: equityForFundFees,
+    equityForOperatingShortfallPerPeriod: equityForOperatingShortfall,
+    equityForFinanceCostPerPeriod: equityForFinanceCost,
     managementFeeEquityDrawPerPeriod: managementFeeEquityDraw,
     cashFromInvestmentPerPeriod: cashFromInv,
     equityDrawdownPerPeriod: equityCashArr,
@@ -2273,6 +2333,10 @@ function computeFinancialsSnapshotOnce(
     idcAccruedPerPeriod: idcAccruedArr,
     idcPaidPerPeriod: idcPaidArr,
     operatingInterestPaidPerPeriod: opInterestArr,
+    equityForCapexPerPeriod: equityForCapex,
+    equityForFundFeesPerPeriod: equityForFundFees,
+    equityForOperatingShortfallPerPeriod: equityForOperatingShortfall,
+    equityForFinanceCostPerPeriod: equityForFinanceCost,
     managementFeeEquityDrawPerPeriod: managementFeeEquityDraw,
     cashFromInvestmentPerPeriod: cashFromInv,
     // CASH equity only on CF. In-kind kept as a memo field.

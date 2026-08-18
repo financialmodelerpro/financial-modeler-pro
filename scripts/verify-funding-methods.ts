@@ -352,10 +352,12 @@ console.log('\n[IDC-LATE] Conditional IDC is decided PER PERIOD (capitalise when
   check('IDC-LATE: IDC is SETTLED in the period it arises, by cash or by drawing',
     idcC.every((v, i) => Math.abs(v - ((cashC[i] ?? 0) + (capC[i] ?? 0))) < 0.01),
     `idc=${Math.round(idcC.reduce((s, v) => s + v, 0))} cash+drawn=${Math.round(cashC.reduce((s, v) => s + v, 0) + capC.reduce((s, v) => s + v, 0))}`);
-  check('IDC-LATE: cash-paid interest EXCLUDES the drawn slice',
-    Math.abs(paidC.reduce((s, v) => s + v, 0)
-      - (accruedTotal(cond) - capC.reduce((s, v) => s + v, 0))) < 0.5,
-    `paid=${Math.round(paidC.reduce((s, v) => s + v, 0))}`);
+  // 2026-08-18c, matching the reference: the FULL charge is paid each period
+  // and the drawn slice funds part of that payment. So paid == accrued, and
+  // the drawdown is a real inflow rather than something netted off the cost.
+  check('IDC-LATE: the full charge is PAID (paid == accrued); the drawn slice funds it, it is not netted off',
+    Math.abs(paidC.reduce((s, v) => s + v, 0) - accruedTotal(cond)) < 0.5,
+    `paid=${Math.round(paidC.reduce((s, v) => s + v, 0))} accrued=${Math.round(accruedTotal(cond))}`);
 
   // Funding: cash first, debt only for the shortfall. The early years are
   // cash-short so they borrow; the late year has surplus above the minimum

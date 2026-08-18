@@ -46,6 +46,14 @@ tests/screenshots/
 # repo root for verification. The reference client's actual filename
 # MUST NOT appear in this file — use generic patterns.
 *Cashflow*.xlsx
+# 2026-08-18: a plain .xlsx reference model dropped at the repo root was NOT
+# covered by any rule above and sat one `git add -A` away from being committed.
+# Every root-level .xlsx is now ignored by default; the two that are genuinely
+# tracked are re-included by name below. A new reference workbook at the root is
+# therefore safe by default, which is the direction the risk should point.
+/*.xlsx
+!/Project West  - Area Program.xlsx
+!/REFM_Build_Prompts_v2.1.xlsx
 # Excel binary workbooks (xlsb / xlsm), kept locally only for reference
 # / inspection. Macro-enabled .xlsm variants explicitly excluded so an
 # accidental `git add -A` cannot snag them.

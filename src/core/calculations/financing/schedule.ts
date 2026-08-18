@@ -335,7 +335,21 @@ export function computeFacilitySchedule(
     // rest. The three old toggles (capitalize / fundingMode / the implicit
     // window) are gone; `capitalizeInterest` is now always true.
     //
-    // `interestPaid` IS CASH ONLY. 2026-08-18b, correcting 2026-08-18a.
+    // THE FULL FINANCE COST IS PAID EACH PERIOD. 2026-08-18c, reverting the
+    // 2026-08-18b "cash only" change after reading the reference model.
+    //
+    // The reference settles the whole charge in cash and draws debt for the
+    // shortfall, and its closing-cash formula proves it: it subtracts the FULL
+    // finance cost and adds the TOTAL drawdown, capex plus IDC. Capitalising is
+    // an ACCOUNTING routing (the charge lands in asset cost, cost of sales and
+    // fixed assets via `interestForAssetBasis`), NOT a way of avoiding the
+    // payment, so the IDC drawdown is a real cash inflow and not a memo.
+    //
+    // 2026-08-18b went the other way to fix the Finance Cost ledger, which was
+    // walking to a stuck negative. That ledger was the thing at fault: it
+    // deducted BOTH `Paid` and `Capitalized` from an interest payable, and once
+    // the charge is fully paid the capitalised figure is a DEBT DRAWDOWN, not a
+    // second settlement. The ledger is fixed where it broke instead.
     //
     // The first version of this block set `interestPaid = interest` (the whole
     // charge) and treated the capitalised slice as a matching drawdown, on the
@@ -357,12 +371,12 @@ export function computeFacilitySchedule(
     if (constructionRunning) {
       interestDuringConstruction[i] = interest;
       interestForAssetBasis[i] = interest;
-      // Cash first, up to the headroom above the minimum cash target.
+      // Paid in full; debt is drawn only for the part cash cannot cover.
+      interestPaid[i] = interest;
       const avail = Math.max(0, remainingIdcBudget?.[i] ?? 0);
       const fromCash = Math.min(interest, avail);
       const drawnForIdc = interest - fromCash;
       if (fromCash > 0) {
-        interestPaid[i] = fromCash;
         interestCapitalizedCashPaid[i] = fromCash;
         if (remainingIdcBudget) remainingIdcBudget[i] = avail - fromCash;
       }

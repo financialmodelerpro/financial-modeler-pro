@@ -687,8 +687,23 @@ function buildFinancingRows(ctx: M4ReportCtx, cffSubtotal: number[]): M4Row[] {
   const d = snap.directCF;
   rows.push({ label: 'CASH FROM FINANCING', values: [], isSection: true });
   const priorEquityTotal = snap.financing.existing.equityTotal;
+  // The equity draw says what it was RAISED FOR (2026-08-18c). The draw itself
+  // is ONE line and its total is untouched; beneath it a MEMO attributes it
+  // pro rata across the period's deficit drivers, because one undifferentiated
+  // draw told a reader how much equity came in and nothing about why, and the
+  // management fee was invisible inside it. The four memo lines sum to the
+  // draw exactly.
   if (d.equityDrawdownPerPeriod.some((v) => v !== 0) || priorEquityTotal > 0) {
     rows.push({ label: 'Equity Drawdown (Cash)', values: d.equityDrawdownPerPeriod, indent: 1, priorValue: priorEquityTotal });
+    const memo: Array<[string, number[]]> = [
+      ['(memo) of which for capex', d.equityForCapexPerPeriod],
+      ['(memo) of which for fund fees', d.equityForFundFeesPerPeriod],
+      ['(memo) of which for operating shortfall', d.equityForOperatingShortfallPerPeriod],
+      ['(memo) of which for finance cost', d.equityForFinanceCostPerPeriod],
+    ];
+    for (const [label, series] of memo) {
+      if ((series ?? []).some((v) => Math.abs(v) > 0.005)) rows.push({ label, values: series, indent: 2 });
+    }
   }
   if (d.equityInKindDrawdownPerPeriod.some((v) => v !== 0)) {
     rows.push({ label: '(memo) In-Kind Equity (non-cash, see BS Schedules E1)', values: d.equityInKindDrawdownPerPeriod, indent: 2 });
@@ -704,34 +719,31 @@ function buildFinancingRows(ctx: M4ReportCtx, cffSubtotal: number[]): M4Row[] {
     }
     return out;
   };
-  // 2026-08-18b. THE CASH STATEMENT SHOWS CASH ONLY.
-  //  - the drawdown is SPLIT, and only the CAPEX half is a cash inflow. The IDC
-  //    drawdown never reaches the bank (it funds interest that is never paid
-  //    out), so it renders as a MEMO beneath, outside the cash total;
-  //  - the finance cost is SPLIT into the IDC actually paid in cash and the
-  //    operating finance cost, and both are real outflows;
-  //  - the capitalised IDC appears NOWHERE as cash. It grew the debt balance
-  //    and leaves later inside Debt Repayment.
-  // The gross presentation (full charge, drawdown added back) belongs to the
-  // FCFE build-up, which is a return measure, not a cash statement.
+  // THE REFERENCE'S LINE STRUCTURE (2026-08-18c). Its financing schedule
+  // carries the drawdown as ONE line (its cash flow reads the total) and the
+  // finance cost as TWO: "IDC" and "Finance Cost - Operations". That second
+  // split is genuine, two different charges (one capitalised into the asset,
+  // one expensed), so it is KEPT here. What is not kept is the same movement
+  // stated three ways: the drawdown was split, then the payment was split, then
+  // a contra row offset the split, five lines describing one thing.
+  //
+  // Capitalising routes the IDC charge into asset cost, cost of sales and fixed
+  // assets via `interestForAssetBasis`. That is an accounting routing, not a
+  // reason to hide the payment, so nothing here is a memo.
   const pushDebtBucket = (origin: 'existing' | 'new', label: string, opening?: number): void => {
     const draw = sumOrigin(origin, 'drawSchedule');
     const drawIdc = sumOrigin(origin, 'interestCapitalized');
     const repaid = sumOrigin(origin, 'principalRepaid');
     const intPaid = sumOrigin(origin, 'interestPaid');
-    // The IDC actually settled in cash is the charge less the slice funded by
-    // drawing debt. `intPaid` is already cash-only, so the operating half is
-    // simply what is left after the cash IDC.
     const idc = sumOrigin(origin, 'interestDuringConstruction');
-    const idcCash = idc.map((v, i) => Math.max(0, v - (drawIdc[i] ?? 0)));
-    const opInt = intPaid.map((v, i) => v - (idcCash[i] ?? 0));
-    if (draw.some((v) => v !== 0) || (opening ?? 0) > 0) {
-      rows.push({ label: `Debt Drawdown for Capex, ${label}`, values: draw, indent: 1, ...(opening !== undefined ? { priorValue: opening } : {}) });
+    const opInt = intPaid.map((v, i) => v - (idc[i] ?? 0));
+    const drawAll = draw.map((v, i) => v + (drawIdc[i] ?? 0));
+    if (drawAll.some((v) => v !== 0) || (opening ?? 0) > 0) {
+      rows.push({ label: `Debt Drawdown, ${label}`, values: drawAll, indent: 1, ...(opening !== undefined ? { priorValue: opening } : {}) });
     }
-    if (repaid.some((v) => v !== 0)) rows.push({ label: `Debt Repayment (incl. the capitalised IDC), ${label}`, values: repaid.map((v) => -v), indent: 1 });
-    if (idcCash.some((v) => Math.abs(v) > 0.005)) rows.push({ label: `Interest During Construction paid in cash, ${label}`, values: idcCash.map((v) => -v), indent: 1 });
-    if (opInt.some((v) => Math.abs(v) > 0.005)) rows.push({ label: `Finance Cost Paid, operating, ${label}`, values: opInt.map((v) => -v), indent: 1 });
-    if (drawIdc.some((v) => v !== 0)) rows.push({ label: `(memo) IDC capitalised to debt, non-cash, ${label}`, values: drawIdc, indent: 2 });
+    if (repaid.some((v) => v !== 0)) rows.push({ label: `Debt Repayment, ${label}`, values: repaid.map((v) => -v), indent: 1 });
+    if (idc.some((v) => Math.abs(v) > 0.005)) rows.push({ label: `Interest Paid, IDC (capitalised into asset cost), ${label}`, values: idc.map((v) => -v), indent: 1 });
+    if (opInt.some((v) => Math.abs(v) > 0.005)) rows.push({ label: `Interest Paid, operating, ${label}`, values: opInt.map((v) => -v), indent: 1 });
   };
   pushDebtBucket('existing', 'Existing loans', existingOpening);
   pushDebtBucket('new', 'New loans');

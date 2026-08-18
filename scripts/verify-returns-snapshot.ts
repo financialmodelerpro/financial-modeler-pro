@@ -121,12 +121,16 @@ console.log('=== M5 Returns snapshot integration ===');
     // levered stream replaces (its inception and its enterprise terminal),
     // plus its own inception and the financing legs. In-kind and IDC appear
     // nowhere here: they are inside the FCFF subtotal and must not repeat.
+    // FOUR STEPS from the pre-terminal FCFF (2026-08-18c): plus in-kind equity
+    // credited back, plus net debt, less the full finance cost, plus the
+    // levered terminal. No removal rows: chaining from the PRE-terminal FCFF is
+    // what makes them unnecessary.
     const fcfeSum = bld.existingEquityPerPeriod[t]
-      + bld.fcffSubtotalPerPeriod[t] + bld.existingPreCapexRemovalPerPeriod[t]
-      + bld.terminalEnterpriseRemovalPerPeriod[t]
+      + bld.fcffSubtotalPerPeriod[t]
+      + bld.inKindEquityCreditPerPeriod[t]
+      + bld.netDebtPerPeriod[t]
       + bld.financeCostPerPeriod[t]
-      + bld.debtDrawPerPeriod[t] + bld.idcDrawPerPeriod[t]
-      + bld.principalRepayPerPeriod[t] + bld.terminalEquityPerPeriod[t];
+      + bld.terminalEquityPerPeriod[t];
     if (Math.abs(fcfeSum - rs.fcfePerPeriod[t]) > 0.01) fcfeOk = false;
     const divSum = bld.existingEquityPerPeriod[t] + bld.equityCashPerPeriod[t] + bld.equityInKindPerPeriod[t] + bld.dividendsDistributedPerPeriod[t] + bld.terminalEquityPerPeriod[t];
     if (Math.abs(divSum - rs.dividendStreamPerPeriod[t]) > 0.01) divOk = false;
@@ -320,13 +324,16 @@ console.log('=== M5 Returns snapshot integration ===');
   // would be exactly the double charge this restructure exists to prevent.
   let bridgeOk = true;
   for (let t = 0; t < rs.fcffPerPeriod.length; t++) {
+    // 2026-08-18c: the in-kind equity is CREDITED in FCFE (charged in FCFF),
+    // so the bridge carries it as a positive term.
     const bridge = b.existingDebtOpeningPerPeriod[t] + b.financeCostPerPeriod[t]
+      + b.inKindEquityCreditPerPeriod[t]
       + b.debtDrawPerPeriod[t] + b.idcDrawPerPeriod[t]
       + b.principalRepayPerPeriod[t]
       + (b.terminalEquityPerPeriod[t] - b.terminalEnterprisePerPeriod[t]);
     if (Math.abs((rs.fcfePerPeriod[t] - rs.fcffPerPeriod[t]) - bridge) > 0.01) bridgeOk = false;
   }
-  check('SPONSOR: bridge FCFE = FCFF + both drawdowns + principal + operating finance cost + terminal swap', bridgeOk);
+  check('SPONSOR: bridge FCFE = FCFF + in-kind credit + net debt + full finance cost + terminal swap', bridgeOk);
 
   // Existing equity is in the equity IRR stream, so it is finite (not infinite).
   check('SPONSOR: FCFE IRR finite or null (equity actually invested)', rs.result.fcfe.irr === null || Number.isFinite(rs.result.fcfe.irr));

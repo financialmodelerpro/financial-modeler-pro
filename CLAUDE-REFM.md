@@ -3,6 +3,104 @@
 
 > **TRAPS RECORDED IN THIS FILE ARE COLLECTED IN [docs/TRAPS.md](docs/TRAPS.md). Read that first; it is short.** The copies below stay in place, so nothing is lost if you open this file instead. Index of what this file records: the REFM shell `zoom: 0.8` making `vh` and media queries lie (TRAPS 6.1); drag/resize needing pointer capture, not window listeners (6.2); the ExcelJS width-9 column that silently does not apply (3.1); pdf-lib CID glyph ids defeating a naive grep (4.1); the PostgREST 1000-row cap (2.1); export fingerprints needing the FIXTURE, never the live project (5.1); a zero-valued seed hiding a whole code path (7.1); a stage list written as a literal defeating exhaustiveness (7.3); a two-step template registration that fails silently and permanently (8.1); and the verifier rules (a grep proves presence not firing; never gate an assertion on the thing it asserts; prove teeth by sabotage) in TRAPS section 10.
 
+## 2026-08-18e: read the reference formulas, revert 18d where it contradicted them, four items
+
+The reference model was placed in the repo and its formulas READ DIRECTLY
+(Schedules rows 100 to 165, Returns rows 93 to 109) rather than worked from a
+description. `verify-returns-buildup` **39**, rewritten end to end for the
+reference contract, teeth proven by six sabotages (2 / 3 / 2 / 2 / 2 / 1
+failures). **NOT browser-verified.**
+
+**First, the reference file was one `git add -A` from being committed.** It is
+a plain root `.xlsx`; the ignore rules covered `*Cashflow*.xlsx`, `*.xlsb` and
+`*.xlsm` only, and `git check-ignore` confirmed it was NOT ignored. Root
+`.xlsx` is now ignored by default (`/*.xlsx`) with the two genuinely tracked
+workbooks re-included by name, so a reference model dropped at the root is safe
+by default. No client name in the rule.
+
+### What the reference does, from the formulas
+
+Closing cash (Schedules R143) settles the IDC question:
+`opening + pre-financing net cash + R124 + equity draw - R132 + repayment - dividends + disposal`,
+where **R124 is the TOTAL drawdown (capex + IDC) and R132 the FULL finance
+cost.** R133 `IDC = IF(construction outflow = 0, 0, full finance cost)`; R134
+`Finance Cost - Operations = R132 - R133`; R123 `IDC drawdown = MAX(0, IDC -
+headroom above min cash)`. **There is no finance-cost payable ledger**: rows
+126 to 130 are a debt schedule. Returns: FCFF is CFO / less capex incl. in-kind
+/ **= FCFF (pre-terminal)** / terminal / = incl TV; FCFE is FCFF (pre-terminal)
+/ Net Debt (drawdown + repayment) / Finance Cost (full) / = FCFE / TV less
+closing debt. Four steps.
+
+### 18d item A was WRONG and is reverted
+
+18d made `interestPaid` cash-only and demoted the IDC drawdown to a memo, to fix
+the Finance Cost ledger. The reference does the opposite: the whole charge is
+paid out and the whole drawdown comes in. **The ledger was the thing at fault**,
+not the cash treatment: it deducted BOTH `Paid` and `Capitalized` from an
+interest payable, and once the charge is paid in full the capitalised figure is
+a DRAWDOWN, not a second settlement, so it removed the same money twice and
+stuck at -21,525k. It is now `Opening + Charge - Paid = Closing`, foots at
+0.00, and shows capitalised as a memo line.
+
+### The four items
+
+1. **IDC lines: the reference structure.** ONE `Debt Drawdown` line per origin
+   (the total), `Debt Repayment`, and the finance cost as TWO genuine charges,
+   `Interest Paid, IDC (capitalised into asset cost)` and `Interest Paid,
+   operating`. Kept because they are two different charges. Gone is the same
+   movement stated three ways (drawdown split, payment split, contra row).
+2. **Construction period = where cost is incurred.** Verified, no change: MARINA
+   GATE 2030 carries 79,254k of construction cost, ZERO drawdown (pre-sales
+   covered it) and still 11,299k of IDC. Funding ending early does not shorten
+   the window.
+3. **Land in kind: charged in FCFF, credited in FCFE**, both lines changed
+   together. FCFF deducts full land including in-kind (a real resource cost);
+   FCFE credits the in-kind contribution back (a real equity contribution). So
+   FCFE is the return on CASH equity. Charged once, credited once, and the
+   verifier asserts the pair is equal and opposite every period.
+4. **Equity draw attributed across what it funded.** One line, total untouched,
+   with a MEMO beneath: pro rata across the deficit drivers (cash capex, fund
+   fees, operating shortfall, finance cost paid), an explicitly equity-funded
+   fee attributed in full first, the last bucket taking the residue so the four
+   sum to the draw EXACTLY. On MARINA GATE: 54,793k = capex 48,515k + fees
+   2,508k + finance cost 3,770k.
+
+**FCFE is four steps** from the PRE-TERMINAL FCFF: plus in-kind credit, plus
+net debt (one row: total drawdown less principal), less the full finance cost,
+plus terminal value less closing debt. The two "back the enterprise terminal
+out" rows are gone; chaining from the pre-terminal subtotal is what removes
+them, which is how the reference avoids them.
+
+### Numbers
+
+| | Project IRR | Project MOIC | Equity IRR | Equity MOIC |
+|---|---|---|---|---|
+| FMP - MARINA GATE | **26.30%** | **3.205x** | **109.63%** | **16.875x** |
+| FMP RE HUB | **7.15%** | **1.773x** | **14.37%** | **4.026x** |
+
+Both build-ups foot to 0.00; balance sheet 0.00 on both. The equity IRR is the
+return on CASH equity: with the in-kind land credited back, an equity holder
+who put in 54.8m of cash and 60m of land against which the whole project was
+built shows a very high cash IRR. That is what the credit means and it was
+chosen with that number in view; the reference itself does NOT credit in-kind
+in FCFE (its DDM block measures total equity separately), so this is a
+deliberate departure and is recorded as one.
+
+### Verifiers
+
+`verify-returns-buildup` rewritten to **39** (unlevered purity on the row list
+and the arithmetic; the ledger foots WITHOUT a capitalised deduction; the
+in-kind pair; the four-step chain with no removal rows; the equity memo sums to
+the draw). Updated to the four-step chain: `verify-returns-snapshot` 100,
+`verify-report-arithmetic` 78, `verify-report-consistency` 60,
+`verify-funding-methods` 95, `verify-fund-excel` 75 (its "no fund fee add-back"
+check used a bare `/fund/i` and tripped on the new memo label). Green:
+`verify-returns-engine` 107, `verify-m4-bs-reconciliation` 187,
+`verify-m4-reconciliation-broad` 24, `verify-cf-capex-foot` 63,
+`verify-fund-fees` 138, `verify-fund-e2e` 86, `verify-excel-export` 304,
+`verify-report-presentation` 92, `verify-fund-pdf` 49, `verify-pdf-export` 58,
+`verify-report-readability` 55.
+
 ## 2026-08-18d: the finance-cost chain, six items against the reference models
 
 Corrects 2026-08-18c the same day, on the reference structure. `verify-returns-buildup`
