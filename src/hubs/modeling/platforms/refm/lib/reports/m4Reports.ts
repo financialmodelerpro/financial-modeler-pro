@@ -596,21 +596,37 @@ function buildInvestmentRows(ctx: M4ReportCtx, capexSubtotal: number[], cfiSubto
   const residentialAssets = visibleAssets.filter((a) => (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') && matchesPhase(a));
   const hospitalityAssets = visibleAssets.filter((a) => (a.strategy === 'Operate' || a.isCompanion === true) && matchesPhase(a));
   const retailAssets = visibleAssets.filter((a) => a.strategy === 'Lease' && matchesPhase(a));
-  const bucketTotal = (list: typeof residentialAssets): number[] => {
+  // CASH capex. This is a CASH FLOW statement, and its Total Capex subtotal
+  // has been the cash basis (`capex.perPeriod.exclLandInKind`) since M4 Pass 2P:
+  // land contributed IN KIND never leaves the bank, it is recognised as Land
+  // and Share Capital at once. The asset rows above it were the FULL cost
+  // including that in-kind land, so the section did not foot, by exactly the
+  // in-kind land, and a reader adding the rows up got a different number from
+  // the subtotal printed under them. Measured on the live project 2026-08-18:
+  // rows 426,407.0 against a Total Capex of 366,407.0, the gap 60,000.0 being
+  // the whole of the in-kind land. Both the rows and the subtotal are now the
+  // cash slice, and the in-kind land is stated on its own memo row rather than
+  // dropped, so nothing the model charges disappears from the screen.
+  const assetCash = (id: string): number[] => {
+    const cf = snap.perAssetCF.get(id);
+    if (!cf) return new Array<number>(N).fill(0);
+    return cf.capexPerPeriod.map((v, t) => (v ?? 0) - (cf.landInKindPerPeriod[t] ?? 0));
+  };
+  const seriesTotal = (list: typeof residentialAssets, pick: (id: string) => number[]): number[] => {
     const out = new Array<number>(N).fill(0);
     for (const a of list) {
-      const series = snap.perAssetCF.get(a.id)?.capexPerPeriod ?? [];
+      const series = pick(a.id);
       for (let t = 0; t < N; t++) out[t] += series[t] ?? 0;
     }
     return out;
   };
   const pushCapexBucket = (list: typeof residentialAssets, label: string, group: string): void => {
     if (list.length === 0) return;
-    const total = bucketTotal(list);
+    const total = seriesTotal(list, assetCash);
     if (!total.some((v) => v !== 0)) return;
     rows.push({ label, values: total.map((v) => -v), isSection: true, collapseGroup: group, collapseRole: 'header', defaultCollapsed: false });
     for (const a of list) {
-      const series = snap.perAssetCF.get(a.id)?.capexPerPeriod ?? [];
+      const series = assetCash(a.id);
       if (series.every((v) => v === 0)) continue;
       rows.push({ label: a.name, values: series.map((v) => -v), indent: 2, phaseLabel: phaseShort(a.phaseId), collapseGroup: group, collapseRole: 'member' });
     }
@@ -622,6 +638,19 @@ function buildInvestmentRows(ctx: M4ReportCtx, capexSubtotal: number[], cfiSubto
   const priorPreCapex = snap.financing.existing.preCapexTotal;
   if (priorPreCapex > 0) {
     rows.push({ label: 'Pre-Capex (existing operations)', values: new Array<number>(N).fill(0), indent: 1, priorValue: -priorPreCapex });
+  }
+  const inKindAll = seriesTotal(
+    [...residentialAssets, ...hospitalityAssets, ...retailAssets],
+    (id) => snap.perAssetCF.get(id)?.landInKindPerPeriod ?? [],
+  );
+  if (inKindAll.some((v) => v !== 0)) {
+    rows.push({
+      label: '(memo) Land In-Kind (non-cash, not in Total Capex)',
+      // indent 1, level with Pre-Capex: this is a PROJECT-level memo, and at
+      // indent 2 it rendered directly under the last asset of the Retail
+      // bucket and read as one of that bucket's rows.
+      values: inKindAll.map((v) => -v), indent: 1,
+    });
   }
   rows.push({ label: 'Total Capex', values: capexSubtotal, isSubtotal: true, priorValue: -priorPreCapex });
   rows.push({ label: 'Cash Flow from Investment', values: cfiSubtotal, isTotal: true, priorValue: -priorPreCapex });
@@ -834,7 +863,10 @@ export function buildIndirectCFRows(ctx: M4ReportCtx): M4Row[] {
     for (const a of assets) {
       const cf = snap.perAssetCF.get(a.id);
       if (!cf) continue;
-      for (let t = 0; t < N; t++) out[t] += -(cf.capexPerPeriod[t] ?? 0);
+      // CASH capex, matching the unfiltered branch (`ic.capexPerPeriod`, which
+      // is `exclLandInKind`). Summing the full cost here meant the phase filter
+      // changed the BASIS of the subtotal, not just its scope.
+      for (let t = 0; t < N; t++) out[t] += -((cf.capexPerPeriod[t] ?? 0) - (cf.landInKindPerPeriod[t] ?? 0));
     }
     return out;
   })();

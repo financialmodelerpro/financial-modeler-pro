@@ -1,8 +1,6 @@
 import type {
   Parcel,
   ParcelFundingConfig,
-  Phase,
-  Project,
 } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import type {
   CapexAggregate,
@@ -46,7 +44,10 @@ function parcelDebtEquity(cfg: ParcelFundingConfig | undefined): ParcelDeb {
  *   Non-land capex: project-wide ratio from FundingRequirement.
  *   Land cash:      per-parcel ratio (debtPct / equityPct on the
  *                   ParcelFundingConfig).
- *   Land in-kind:   never split; lump at axis col 0.
+ *   Land in-kind:   never split; recognised period by period on
+ *                   `capex.perPeriod.landInKind`, i.e. when the land is
+ *                   capitalised, so the equity credit and the asset it
+ *                   creates land in the same column of the Balance Sheet.
  *
  * Aggregates parcel-level cash-land ratios into a project-period
  * blended ratio: weight each parcel's debt% by that parcel's share
@@ -61,8 +62,6 @@ export function computeDebtEquitySplit(
   parcels: Parcel[],
   parcelFunding: ParcelFundingConfig[],
   axis: ProjectAxis,
-  phases?: Phase[],
-  project?: Project,
 ): DebtEquitySplit {
   const N = axis.totalPeriods;
   const debt        = new Array<number>(N).fill(0);
@@ -89,31 +88,31 @@ export function computeDebtEquitySplit(
   const landDebtFrac = totalCashLand > 0 ? totalDebtWeighted / totalCashLand : 0;
   const landEquityFrac = 1 - landDebtFrac;
 
-  // M4 Pass 2Z (2026-05-24): stamp in-kind per parcel at the OWNING
-  // phase's projected i=0 axis index, mirrors the asset-side
-  // projection rule in aggregateProjectCapex / fixed-assets-resolvers
-  // (projIdx = Math.max(0, offset - 1) post Pass 2W). Previously the
-  // sum lumped at axis[0] regardless of phase, leaving Phase 3+
-  // (offset >= 2) with Y0 equity but no matching Land asset, peak
-  // contributor to the user's 1.4M BS construction-year imbalance.
-  const projStart = project?.startDate
-    ? new Date(project.startDate).getUTCFullYear()
-    : Number.NaN;
-  let inKindLump = 0; // running total (for total-of-totals identity)
+  // In-kind equity is recognised in the period the in-kind land is
+  // CAPITALISED, and that is a single series the capex engine already
+  // produces: `capex.perPeriod.landInKind`.
+  //
+  // 2026-08-18. This used to be a SECOND definition of the same rule: a walk
+  // over the parcels, valuing each one itself and stamping it at its OWNING
+  // phase's i=0 index. That was written when a parcel belonged to its phase.
+  // Since 2026-08-17 A PARCEL IS PROJECT-WIDE, so an asset in a later phase
+  // may draw on an earlier phase's land, and when it does the capex engine
+  // capitalises that slice in the CONSUMING asset's window while this walk
+  // credited the equity in the OWNING parcel's window. The Balance Sheet was
+  // then out by the slice, for every period between the two.
+  //
+  // Measured on the live project (one Phase 1 parcel, 50% in kind, two Phase 2
+  // assets drawing on it): equity recognised the whole 60,000,000 at t=0 while
+  // the land arrived 35,000,000 at t=0 and 25,000,000 at t=1, and the Balance
+  // Sheet was out by exactly -25,000,000 in the construction year and balanced
+  // from t=1 on. Reading the capex series makes the two sides ONE number, so
+  // the identity holds by construction rather than by two rules agreeing.
+  //
+  // No fallback to the parcel valuation when the capex series is empty: land
+  // that no asset capitalises is not on the Balance Sheet, so crediting equity
+  // for it is precisely the imbalance this removes.
   const inKindByPeriod = new Array<number>(N).fill(0);
-  for (const p of parcels) {
-    const inKindValue = p.area * p.rate * (Math.max(0, Math.min(100, 100 - (p.cashPct ?? 0))) / 100);
-    if (inKindValue <= 0) continue;
-    inKindLump += inKindValue;
-    let projIdx = 0;
-    if (phases && Number.isFinite(projStart)) {
-      const phase = phases.find((ph) => ph.id === p.phaseId);
-      const psy = phase?.startDate ? new Date(phase.startDate).getUTCFullYear() : projStart;
-      const offset = Math.max(0, psy - projStart);
-      projIdx = Math.max(0, offset - 1);
-    }
-    if (projIdx >= 0 && projIdx < N) inKindByPeriod[projIdx] += inKindValue;
-  }
+  for (let i = 0; i < N; i++) inKindByPeriod[i] = capex.perPeriod.landInKind[i] ?? 0;
 
   // Pass 30 (2026-05-14): when Method 4 (Specified Debt + Equity) is
   // selected, the user-supplied per-period arrays drive the split.
@@ -153,7 +152,6 @@ export function computeDebtEquitySplit(
     equity[i] = nonLandEquity[i] + landEquity[i];
   }
   for (let i = 0; i < N; i++) inKind[i] = inKindByPeriod[i] ?? 0;
-  void inKindLump; // running total kept above for clarity / future use
 
   return { debt, equity, inKind, landDebt, landEquity, nonLandDebt, nonLandEquity };
 }

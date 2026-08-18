@@ -3,6 +3,75 @@
 
 > **TRAPS RECORDED IN THIS FILE ARE COLLECTED IN [docs/TRAPS.md](docs/TRAPS.md). Read that first; it is short.** The copies below stay in place, so nothing is lost if you open this file instead. Index of what this file records: the REFM shell `zoom: 0.8` making `vh` and media queries lie (TRAPS 6.1); drag/resize needing pointer capture, not window listeners (6.2); the ExcelJS width-9 column that silently does not apply (3.1); pdf-lib CID glyph ids defeating a naive grep (4.1); the PostgREST 1000-row cap (2.1); export fingerprints needing the FIXTURE, never the live project (5.1); a zero-valued seed hiding a whole code path (7.1); a stage list written as a literal defeating exhaustiveness (7.3); a two-step template registration that fails silently and permanently (8.1); and the verifier rules (a grep proves presence not firing; never gate an assertion on the thing it asserts; prove teeth by sabotage) in TRAPS section 10.
 
+## 2026-08-18: The Cash Flow Investing section foots, and in-kind land has ONE recognition rule
+
+Reported from the screen: the Cash Flow's Investing section did not add up. Its per-asset capex
+rows summed to 426,407.0k while the `Total Capex` subtotal printed under them read 366,407.0k.
+`verify-cf-capex-foot` **57 NEW**, teeth proven by four sabotages (15 / 1 / 15 / 8 failures) plus
+a permanent counterfactual section. **NOT browser-verified**, but verified through the real shared
+row builders against both live saved snapshots.
+
+**Measure first, and the 60,000.0k gap named itself: it was the LAND CONTRIBUTED IN KIND**, to the
+currency unit, arriving 35,000.0k in t=0 and 25,000.0k in t=1. That pointed at a second, larger
+defect that the reporter had also noticed: the Balance Sheet was out by 25,000,000.
+
+**Defect 1, presentation.** The `Total Capex` subtotal has been the CASH basis since M4 Pass 2P
+(`capex.perPeriod.exclLandInKind`), because land contributed in kind never leaves the bank: it is
+recognised as Land and Share Capital simultaneously. The asset rows above it were the FULL cost.
+Two bases under one heading, so the column could not be added up. The phase filter compounded it:
+`capexFiltered` summed the full cost while the unfiltered branch used the cash basis, so changing
+the FILTER changed the BASIS rather than the scope. `AssetCF` gained `landInKindPerPeriod`; the
+rows, the bucket headers and both filtered and unfiltered subtotals are now the cash slice, and
+the in-kind land is stated on a project-level `(memo) Land In-Kind (non-cash, not in Total Capex)`
+row rather than dropped. **`AssetCF.capexPerPeriod` is deliberately unchanged** and still carries
+the full cost, because inventory, per-asset returns and the IC report want the asset's CARRYING
+value, not its cash; the verifier asserts that explicitly so a future tidy-up cannot net it down.
+
+**Defect 2, and this is the money one.** In-kind LAND is capitalised by the capex engine, per
+asset, in the CONSUMING asset's window. In-kind EQUITY was stamped by a separate walk over the
+parcels in `computeDebtEquitySplit`, at the OWNING parcel's phase. **Those are the same quantity
+described twice**, and they agreed for as long as a parcel belonged to its phase. Since
+2026-08-17 A PARCEL IS PROJECT-WIDE, so a Phase 2 asset can draw on Phase 1 land, and from that
+day the equity credit and the asset it creates could land in different columns. Measured live:
+equity recognised the whole 60,000,000 at t=0 while the land arrived 35,000,000 / 25,000,000, and
+`bsDifferencePerPeriod` was -25,000,000 in the construction year and zero in every period after.
+
+**The fix is to delete the copy.** `computeDebtEquitySplit` reads `capex.perPeriod.landInKind`
+verbatim. **No fallback** to the parcel valuation when that series is empty: land that no asset
+capitalises is not on the Balance Sheet, so crediting equity for it is precisely the imbalance
+being removed. Its `phases` and `project` parameters became dead and are gone, along with the
+arguments the one call site was carefully passing. The per-asset capex loop in
+`financials-resolvers` also now calls the shared `phaseLocalToProjectIndex` instead of spelling
+the rule out a second time (TRAPS 7.12).
+
+**Measured after: max |Assets - L&E| is 0.00 on BOTH live projects.** FMP - MARINA GATE
+25,000,000.00 -> 0.00; FMP RE HUB 360.79 -> 0.00. **That 360.79 had been recorded in CLAUDE.md and
+in docs/FUND_LAYER_GUIDELINE.md as a pre-existing solver-convergence residue and explicitly pinned
+as a non-defect so it would not be re-reported. It was this defect.** Both records are corrected
+in place rather than deleted, because reading a small residue as numerical noise (it was small, it
+was relative 5.1e-8, and it did not move with the feature under test) is exactly how a genuine
+imbalance survives a verifier looking somewhere else. The only other figure that moves is FMP RE
+HUB's total in-kind equity, by 400 currency units on 1.35bn, because it now equals the in-kind
+land actually capitalised rather than the parcel's own valuation.
+
+**Why the entire suite stayed green while a live project was out by 25m.** Every pre-existing
+fixture puts the parcel in the SAME phase as the asset that consumes it, and several verifiers
+already assert the Balance Sheet balances, so the defect is simply unreachable in that shape. It
+also needs the later phase's land line to sit off phase-local index 0: index 0 is the upfront lump
+and clamps to `offset - 1`, which makes the two rules agree by accident for a phase one year out.
+The new fixture is built for the shape (`sqm` allocation mode, an explicit cross-phase
+`parcelId`, and Phase 2's land window typed to period 1, all of which the live project has) and
+reproduces the live 35,000,000 / 25,000,000 split exactly. Because section A's Balance Sheet check
+cannot be sabotaged after the fact (the sheet is already built by the time the harness runs), the
+verifier carries a permanent COUNTERFACTUAL section that recomputes what the retired parcel rule
+would have produced on the same fixture and fails if the two AGREE, so the fixture cannot quietly
+stop reproducing the defect.
+
+Also noted: `verify-fund-fees` is **133 passed + 3 PRE-EXISTING FAILURES**, confirmed by stashing
+these changes and re-running (identical figures before and after). The long-recorded 136 was stale.
+
+Trap recorded as [docs/TRAPS.md](docs/TRAPS.md) 7.22.
+
 ## 2026-08-17: MODULE 1 CLOSED, 28 defects found by entering a real project end to end
 
 One day, seven batches, all reported from the SCREEN rather than by a check. Two more were found

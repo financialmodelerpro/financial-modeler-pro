@@ -47,7 +47,7 @@ import {
   computeAssetCost,
   resolveUsefulLifeYears,
 } from '@/src/core/calculations';
-import { collectionsForAsset, collectionsTotalForAsset } from '@/src/core/calculations/capexPhasing';
+import { collectionsForAsset, collectionsTotalForAsset, phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
 import type { Module1Store } from './state/module1-store';
 import type { Asset, Phase, FinancingTranche } from './state/module1-types';
 import { DEFAULT_PROJECT_FINANCING_CONFIG } from './state/module1-types';
@@ -98,6 +98,19 @@ export interface AssetCF {
   /** POSITIVE cost magnitude. Note this is the OPPOSITE sign to the
    *  project-level `DirectCashFlow.capexPerPeriod`, which is negative. */
   capexPerPeriod: number[];
+  /** The slice of `capexPerPeriod` that is land contributed IN KIND, and is
+   *  therefore NOT a cash outflow (it is recognised as equity in kind on the
+   *  other side of the Balance Sheet). POSITIVE, same sign and same axis as
+   *  `capexPerPeriod`, so the CASH capex of an asset is
+   *  `capexPerPeriod - landInKindPerPeriod`.
+   *
+   *  Kept as its own series rather than netted out of `capexPerPeriod`
+   *  because the asset's CARRYING value (inventory, fixed assets, per-asset
+   *  returns, the IC report) is the full cost including in-kind land; only
+   *  the CASH FLOW statement wants the cash slice. Summed across every
+   *  visible asset this equals `financing.capex.perPeriod.landInKind`, which
+   *  is what lets the Cash Flow's asset rows foot to its Total Capex. */
+  landInKindPerPeriod: number[];
   /** Residential WIP inventory: Sell strategies only (else zeros). */
   inventoryPerPeriod: number[];
 }
@@ -1502,6 +1515,7 @@ function computeFinancialsSnapshotOnce(
     const revRcv = zeros(N);
     const opexPaid = zeros(N);
     const capex = zeros(N);
+    const landInKind = zeros(N);
 
     // Revenue per strategy
     if (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') {
@@ -1587,11 +1601,16 @@ function computeFinancialsSnapshotOnce(
         collectionsTotal: collectionsTotalForAsset(revenue, a.id),
       });
       const per = breakdown.perPeriod ?? [];
-      for (let i = 0; i < per.length; i++) {
-        // M4 Pass 2W (2026-05-24): rescue Phase 1's i=0 lump (see capex.ts).
-        const projIdx = i === 0 ? Math.max(0, offset - 1) : offset + i - 1;
+      const perInK = breakdown.perPeriodLandInKind ?? [];
+      for (let i = 0; i < Math.max(per.length, perInK.length); i++) {
+        // M4 Pass 2W (2026-05-24) rescues phase 1's i=0 lump. 2026-08-18: this
+        // site used to spell that rule out again by hand; it now calls the one
+        // definition `aggregateProjectCapex` uses, so the per-asset rows and
+        // the project total cannot land a period apart (TRAPS 7.12).
+        const projIdx = phaseLocalToProjectIndex(i, offset);
         if (projIdx >= 0 && projIdx < N) {
           capex[projIdx] += per[i] ?? 0;
+          landInKind[projIdx] += perInK[i] ?? 0;
         }
       }
     }
@@ -1649,6 +1668,7 @@ function computeFinancialsSnapshotOnce(
       revenueReceivedPerPeriod: revRcv,
       opexPaidPerPeriod: opexPaid,
       capexPerPeriod: capex,
+      landInKindPerPeriod: landInKind,
       inventoryPerPeriod: inventoryRow,
     });
   }

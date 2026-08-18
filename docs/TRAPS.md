@@ -453,6 +453,53 @@ fingerprinting the damage rather than the defect.
 **Proof.** 2026-08-17: 0 lines repaired when it ran last in the chain; 8 lines when it ran first,
 with the other phase's hand-set windows untouched.
 
+### 7.22 One quantity recognised by two rules lands in two columns, and the Balance Sheet carries the difference
+
+**Symptom.** The Cash Flow's Investing section did not foot: the per-asset capex rows summed to
+426,407.0k against a Total Capex of 366,407.0k printed under them. Chasing the 60,000.0k gap led
+to a much larger one: the Balance Sheet was out by **-25,000,000** in the construction year, and
+balanced in every period after it.
+
+**Mechanism, two layers.**
+
+1. *Presentation.* The Total Capex subtotal has been the CASH basis since M4 Pass 2P
+   (`capex.perPeriod.exclLandInKind`, because land contributed in kind never leaves the bank).
+   The asset rows above it were the FULL cost. Two bases under one heading, so the column could
+   not be added up. The phase filter made it worse: filtered used the full cost, unfiltered the
+   cash, so changing the filter changed the BASIS and not just the scope.
+2. *The real defect.* In-kind LAND is capitalised by the capex engine, per asset, in the
+   CONSUMING asset's window. In-kind EQUITY was stamped by a separate walk over the parcels, at
+   the OWNING parcel's phase. Those are the same quantity described twice. They agreed for as
+   long as a parcel belonged to its phase; **since 2026-08-17 a parcel is PROJECT-WIDE**, so a
+   Phase 2 asset can draw on Phase 1 land, and from that day the equity credit and the asset it
+   creates could land in different columns. Measured: equity recognised the whole 60,000,000 at
+   t=0 while the land arrived 35,000,000 at t=0 and 25,000,000 at t=1.
+
+**This is 7.12 again with a different quantity.** There the Y0 lump rule was written in five
+places with two answers; here the in-kind recognition rule was written in two places with two
+answers. The fix is the same shape: delete the copy, read the one series.
+
+**Fix.** `computeDebtEquitySplit` reads `capex.perPeriod.landInKind` verbatim, with NO fallback
+to the parcel valuation: land no asset capitalises is not on the Balance Sheet, so crediting
+equity for it is precisely the imbalance being removed. `AssetCF` gained `landInKindPerPeriod`,
+so the Cash Flow can render the cash slice while inventory, per-asset returns and the IC report
+keep the full carrying value. The in-kind land is stated on a memo row rather than dropped.
+
+**Why the whole suite stayed green.** Every pre-existing fixture puts the parcel in the SAME
+phase as the asset consuming it, and several verifiers already assert the BS balances. The
+defect is unreachable in that shape. It also needs the later phase's land line off phase-local
+index 0, because index 0 clamps to `offset - 1` and makes the two rules agree by accident. A
+fixture has to be built for the shape, not adapted from the shape that was already there.
+
+**Proof.** 2026-08-18. `bsDifferencePerPeriod` max |v| on the two live projects: 25,000,000.00
+and 360.79 before, **0.00 and 0.00** after. The 360.79 on FMP RE HUB had been recorded in
+CLAUDE.md and docs/FUND_LAYER_GUIDELINE.md as a pre-existing solver-convergence residue and
+pinned as a non-defect; it was this. `verify-cf-capex-foot` **57**, teeth proven by four
+sabotages (15 / 1 / 15 / 8 failures) plus a permanent COUNTERFACTUAL section that recomputes
+what the retired rule would have produced on the same fixture and asserts the two disagree,
+because a Balance Sheet that balances proves nothing unless the fixture could have unbalanced it
+and section A cannot be sabotaged after the fact.
+
 ### 7.21 A list that mirrors another list will diverge. Compare them, never restate one
 
 **Symptom, three times in one day, all silent.**
