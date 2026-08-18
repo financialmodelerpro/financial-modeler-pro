@@ -734,11 +734,17 @@ console.log('\n[P] Pass 2T-Fix: Dividend EBITDA cap');
 //   Q1: snap exposes gap.method3Waterfall
 //   Q2: per period, Cash Available Before New Debt
 //       = Opening + Ops + Inv + ExistingEquity + ExistingDebtDraw
-//         + ExistingDebtRepayment(neg) + FinanceCostPaid(neg)
-//         + DividendsBeforeSweep(neg)
-//   Q3: Net Cash Required = max(0, minCash − Cash Available)
-//   Q4: Opening Cash[t+1] = max(minCash, Cash Available[t]) when net
-//       required plugs the gap (forward-walk consistency)
+//         + the equity-funded fee draw (if any)
+//       2026-08-18g, THE REFERENCE RULE (Schedules R112 to R116): NO finance
+//       cost and NO dividend enters the sizing. Interest is paid from cash the
+//       project has; the IDC shortfall is a separate drawdown measured against
+//       this pre-interest cash. Existing debt repayment was already excluded.
+//   Q3: Net Cash Required = IF(cash capex > 0, max(0, minCash − Cash Available), 0)
+//       (R116's gate: no development funding is raised in a period with no
+//       construction spend)
+//   Q4: Opening Cash[t+1] = Cash Available[t] + Net Cash Required[t]
+//       (R114 = prior R143: in a spending period that is the floor; in a
+//       non-spending period nothing is raised and the true cash carries)
 // ──────────────────────────────────────────────────────────────────
 console.log('\n[Q] Pass 2U: Method 3 detailed waterfall identities');
 {
@@ -755,20 +761,20 @@ console.log('\n[Q] Pass 2U: Method 3 detailed waterfall identities');
     process.exit(1);
   }
   for (let t = 0; t < w.axisLength; t++) {
+    // NO finance cost, NO dividend, NO existing repayment in the sizing.
     const expectedAvail = (w.openingCashPerPeriod[t] ?? 0)
       + (w.cashFromOpsPerPeriod[t] ?? 0)
       + (w.cashFromInvPerPeriod[t] ?? 0)
       + (w.existingEquityDrawdownPerPeriod[t] ?? 0)
       + (w.existingDebtDrawdownPerPeriod[t] ?? 0)
-      + (w.existingDebtRepaymentPerPeriod[t] ?? 0)
-      + (w.financeCostPaidPerPeriod[t] ?? 0)
-      + (w.dividendsBeforeSweepPerPeriod[t] ?? 0);
-    assertNear(`Q2[t=${t}]: cashAvailable identity`, w.cashAvailableBeforeNewDebtPerPeriod[t] ?? 0, expectedAvail);
-    const expectedReq = Math.max(0, w.minCashReserve - (w.cashAvailableBeforeNewDebtPerPeriod[t] ?? 0));
-    assertNear(`Q3[t=${t}]: netCashRequired = max(0, minCash − cashAvail)`, w.netCashRequiredPerPeriod[t] ?? 0, expectedReq);
+      + (w.managementFeeEquityDrawPerPeriod[t] ?? 0);
+    assertNear(`Q2[t=${t}]: cashAvailable identity (pre-interest, per the reference)`, w.cashAvailableBeforeNewDebtPerPeriod[t] ?? 0, expectedAvail);
+    const spending = (w.cashFromInvPerPeriod[t] ?? 0) < -0.005;
+    const expectedReq = spending ? Math.max(0, w.minCashReserve - (w.cashAvailableBeforeNewDebtPerPeriod[t] ?? 0)) : 0;
+    assertNear(`Q3[t=${t}]: netCashRequired = IF(capex>0, max(0, minCash − cashAvail), 0)`, w.netCashRequiredPerPeriod[t] ?? 0, expectedReq);
     if (t + 1 < w.axisLength) {
-      const expectedOpeningNext = Math.max(w.minCashReserve, w.cashAvailableBeforeNewDebtPerPeriod[t] ?? 0);
-      assertNear(`Q4[t=${t}→${t+1}]: opening cash forward-walk`, w.openingCashPerPeriod[t + 1] ?? 0, expectedOpeningNext);
+      const expectedOpeningNext = (w.cashAvailableBeforeNewDebtPerPeriod[t] ?? 0) + (w.netCashRequiredPerPeriod[t] ?? 0);
+      assertNear(`Q4[t=${t}→${t+1}]: opening cash forward-walk (avail + raised)`, w.openingCashPerPeriod[t + 1] ?? 0, expectedOpeningNext);
     }
   }
 }

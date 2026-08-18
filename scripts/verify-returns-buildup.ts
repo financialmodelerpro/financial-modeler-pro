@@ -40,7 +40,7 @@ import {
   type Asset, type CostLine, type Phase, type Project, type SubUnit, type Parcel,
   makeDefaultPhase, makeDefaultProject, makeDefaultCostLines, makeDefaultFinancingTranche,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
-import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import { computeFinancialsSnapshot, computeFundingGap } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/returns-resolvers';
 import {
   FCFF_BUILDUP_LABELS, FCFE_BUILDUP_LABELS, buildFcffBuildup, buildFcfeBuildup, m4StreamRow,
@@ -396,6 +396,53 @@ console.log('\n-- 5b. Fee funding: deficit path and equity path, neither funds t
   check('the legacy debt spelling resolves to the deficit path',
     sum(sLegacy.directCF.managementFeeEquityDrawPerPeriod) < 0.01
     && Math.abs(sum(sLegacy.directCF.equityDrawdownPerPeriod) - sum(sDef.directCF.equityDrawdownPerPeriod)) < 1);
+}
+
+// ── 5c. THE DEFICIT SIZING RULE (Schedules R112 to R116, applied 2026-08-18g) ──
+console.log('\n-- 5c. Deficit sizing: no finance cost in it, IDC headroom pre-interest, capex>0 gate --');
+{
+  // A Method 3 variant with a real interest bill AND a post-construction
+  // operating tail, so all three rules have something to bite on.
+  const st = build();
+  const fin = (st.project as unknown as { financing: { fundingMethod: number; minimumCashReserve: number } }).financing;
+  fin.fundingMethod = 3; fin.minimumCashReserve = 5_000_000;
+  const sn = computeFinancialsSnapshot(st);
+  const g = computeFundingGap(sn);
+  const w = g.method3Waterfall;
+  const nn = sn.axisLength;
+  // NO FINANCE COST IN THE SIZING. Cash available reconstructs from the
+  // pre-interest components alone, exactly (R115 = R114 + R112).
+  let availOk = true;
+  for (let t = 0; t < nn; t++) {
+    const expected = (w.openingCashPerPeriod[t] ?? 0) + (w.cashFromOpsPerPeriod[t] ?? 0) + (w.cashFromInvPerPeriod[t] ?? 0)
+      + (w.existingEquityDrawdownPerPeriod[t] ?? 0) + (w.existingDebtDrawdownPerPeriod[t] ?? 0) + (w.managementFeeEquityDrawPerPeriod[t] ?? 0);
+    if (Math.abs((w.cashAvailableBeforeNewDebtPerPeriod[t] ?? 0) - expected) > 0.01) availOk = false;
+  }
+  check('cash available carries NO finance cost and NO dividend (R115 = opening + pre-financing net cash)', availOk);
+  check('the fixture has real cash interest, so the rule above is not vacuous', sum(w.financeCostPaidPerPeriod) < -1, M(sum(w.financeCostPaidPerPeriod)));
+  // THE capex > 0 GATE (R116). A period with no cash capex raises nothing.
+  let gateOk = true, gateBit = false;
+  for (let t = 0; t < nn; t++) {
+    const spending = (w.cashFromInvPerPeriod[t] ?? 0) < -0.005;
+    if (!spending && (w.netCashRequiredPerPeriod[t] ?? 0) > 0.01) gateOk = false;
+    if (!spending && (w.cashAvailableBeforeNewDebtPerPeriod[t] ?? 0) < w.minCashReserve - 1) gateBit = true;
+  }
+  check('no development funding is raised in a period with NO cash capex (R116 gate)', gateOk);
+  console.log(gateBit ? '  (info) the gate is exercised: a non-spending period sits below the floor and raises nothing' : '  (info) no non-spending period below the floor on this fixture; the gate holds vacuously here, the live project exercises it');
+  // IDC HEADROOM PRE-INTEREST (R123). The IDC drawdown equals IDC less the
+  // headroom above min cash AFTER the development draw, and that headroom is
+  // measured on the pre-interest cash available.
+  let idcOk = true, idcDetail = '';
+  const c = sn.financing.combined;
+  for (let t = 0; t < nn; t++) {
+    const idc = c.totalIdc[t] ?? 0;
+    if (idc <= 0.01) continue;
+    const headroom = Math.max(0, (w.cashAvailableBeforeNewDebtPerPeriod[t] ?? 0) + (w.netCashRequiredPerPeriod[t] ?? 0) - w.minCashReserve);
+    const expectedDraw = Math.max(0, idc - headroom);
+    const actualDraw = c.totalIdcDrawdown[t] ?? 0;
+    if (Math.abs(actualDraw - expectedDraw) > Math.max(1, idc * 0.02)) { idcOk = false; idcDetail = `t=${t} idc ${M(idc)} headroom ${M(headroom)} expected draw ${M(expectedDraw)} actual ${M(actualDraw)}`; }
+  }
+  check('IDC drawdown = MAX(0, IDC - headroom measured PRE-interest after the development draw) (R123)', idcOk, idcDetail);
 }
 
 // ── 6. Nothing else moved ────────────────────────────────────────────────────

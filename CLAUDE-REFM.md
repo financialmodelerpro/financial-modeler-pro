@@ -3,6 +3,50 @@
 
 > **TRAPS RECORDED IN THIS FILE ARE COLLECTED IN [docs/TRAPS.md](docs/TRAPS.md). Read that first; it is short.** The copies below stay in place, so nothing is lost if you open this file instead. Index of what this file records: the REFM shell `zoom: 0.8` making `vh` and media queries lie (TRAPS 6.1); drag/resize needing pointer capture, not window listeners (6.2); the ExcelJS width-9 column that silently does not apply (3.1); pdf-lib CID glyph ids defeating a naive grep (4.1); the PostgREST 1000-row cap (2.1); export fingerprints needing the FIXTURE, never the live project (5.1); a zero-valued seed hiding a whole code path (7.1); a stage list written as a literal defeating exhaustiveness (7.3); a two-step template registration that fails silently and permanently (8.1); and the verifier rules (a grep proves presence not firing; never gate an assertion on the thing it asserts; prove teeth by sabotage) in TRAPS section 10.
 
+## 2026-08-18g: the deficit sizing rule applied, from the reference formulas
+
+Applies the three differences reported in 18f, on instruction. `verify-returns-buildup`
+47 -> **51**; `verify-m4-bs-reconciliation` section Q rewritten to the rule
+(187, unchanged count). **NOT browser-verified.**
+
+**The rule** (Schedules R112 to R116, R123):
+
+- **No finance cost of any kind enters the sizing**, not the operating half
+  and not the IDC half. `Cash Available = Opening + Ops + Inv + existing
+  financing (+ the equity-funded fee draw, if any)`. Before-sweep dividends
+  are out for the same reason: a distribution is not a development funding
+  need. Interest is paid from the cash the project has.
+- **The `capex > 0` gate**: `Net Cash Required = IF(cash capex > 0, MAX(0, min
+  cash - Cash Available), 0)`. Once construction spend stops, no development
+  funding is raised, whatever cash does. The forward walk carries the TRUE
+  cash into the next period rather than assuming the floor is always plugged.
+- **IDC headroom is measured PRE-interest, after the development draw**: `IDC
+  drawdown = MAX(0, IDC - MAX(0, (Cash Available + Net Cash Required) - min
+  cash))`. Before this the surplus was read from a cash-available figure that
+  had already had the cash interest subtracted, so the interest fed back into
+  its own headroom and the drawn slice was overstated on every construction
+  period.
+
+**Measured.** MARINA GATE: net cash required 172,152k -> **182,642k**, IDC drawn
+21,525k -> 22,799k, closing cash never below the floor, project 26.30% /
+equity 37.96% unchanged. RE HUB: net cash required 420,532k -> **263,244k**,
+debt drawn 158,272k -> 93,276k, and closing cash **-276,696k (2026) /
+-288,172k (2027)**, from -226,653k / -230,355k before. That deepening is the
+honest number: the 157,288k the old sizing was raising was CONSTRUCTION funding
+being used to service the existing hotel loan interest, and construction
+capital does not service an existing operating loan. RE HUB was already
+negative before any of this; the shortfall is pre-existing and now correctly
+unfunded by the development requirement. Project 7.15%, equity 7.44% -> 7.45%.
+
+**Superseding earlier notes.** 18d Item D (HELD) is now applied and
+stronger than proposed there (no finance cost at all, not just the operating
+half). The 2026-08-04 "gap-sized drawdown does not fully meet the
+requirement" known issue is now BY DESIGN for RE HUB: the requirement excludes
+what should never have driven it.
+
+The Financing tab caption and the deficit block state the rule; the finance
+cost halves render as memo lines AFTER the subtotal, marked NOT in sizing.
+
 ## 2026-08-18f: three corrections against the reference, and the deficit block reported line by line
 
 `verify-returns-buildup` 39 -> **47**, six sabotages. Migration **215** written, NOT applied.

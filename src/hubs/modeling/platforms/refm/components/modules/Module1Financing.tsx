@@ -3117,7 +3117,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
           <section style={sectionStyle}>
             <div style={TABLE_TITLE}>Method 3, Cash Deficit Funding (Drawdown Sizing)</div>
             <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6, fontStyle: 'italic' }}>
-              Sizes the NEW funding required each period to keep cash at the minimum reserve ({p.fmt(minCash)}). Opening + Ops + Inv + existing financing − finance cost = Cash Available; where it falls below the floor, Net Cash Required is drawn as New Debt + New Equity at the project ratio. {hasIdcCash ? 'Conditional IDC: construction interest is paid in cash where surplus exists, capitalised to debt only for the shortfall.' : 'IDC is capitalised to debt.'} Existing equity / debt opening are pre-axis (prior column). The actual cash movements (repayments, sweep, dividends, closing) are in the waterfall below.
+              Sizes the NEW development funding required each period to keep cash at the minimum reserve ({p.fmt(minCash)}), on the reference rule: Opening + Ops + Inv + existing financing = Cash Available, with NO finance cost and no dividend in the sizing; where it falls below the floor IN A PERIOD WITH CONSTRUCTION SPEND, Net Cash Required is drawn as New Debt + New Equity at the project ratio, and once the spend stops nothing more is raised. Interest is paid from the cash the project has; where construction cash cannot cover the IDC, the shortfall is a separate IDC drawdown measured against this pre-interest cash. The finance cost rows below are shown for information and do not size the requirement. Existing equity / debt opening are pre-axis (prior column). The actual cash movements (repayments, sweep, dividends, closing) are in the waterfall below.
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={periodTbl}>
@@ -3138,9 +3138,11 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                       funding gap never sizes new debt to repay old debt (no churn).
                       Repayment is serviced from cash on hand and appears in the
                       consolidated cash waterfall + Direct CF below, not in sizing. */}
-                  {w.financeCostPaidPerPeriod.some((v) => v !== 0) && renderFlowRow('(−) Finance Cost Paid (cash)', w.financeCostPaidPerPeriod, { negative: true, indent: 1, priorValue: 0 })}
+                  {/* 2026-08-18g: the finance cost is INFORMATION here, not a sizing input. It renders after the subtotal so a reader can see it without it being inside Cash Available. */}
                   {w.dividendsBeforeSweepPerPeriod.some((v) => v !== 0) && renderFlowRow('(−) Operational Dividend (before sweep)', w.dividendsBeforeSweepPerPeriod, { negative: true, indent: 1, priorValue: 0 })}
                   {renderFlowRow('Cash Available (before new funding)', w.cashAvailableBeforeNewDebtPerPeriod, { subtotal: true, priorValue: 0 })}
+                  {w.idcCashOnlyPerPeriod.some((v) => v !== 0) && renderFlowRow('  (memo) IDC paid in cash, NOT in sizing', w.idcCashOnlyPerPeriod, { negative: true, indent: 1, priorValue: 0 })}
+                  {w.operatingFinanceCostPerPeriod.some((v) => v !== 0) && renderFlowRow('  (memo) Operating finance cost, NOT in sizing', w.operatingFinanceCostPerPeriod, { negative: true, indent: 1, priorValue: 0 })}
                   {hasIdcCash && renderFlowRow('  (memo) IDC paid in cash (surplus)', idcCash, { indent: 1, priorValue: 0 })}
                   {idcAdd.some((v) => v !== 0) && renderFlowRow('  (memo) IDC capitalised to debt (shortfall)', idcAdd, { indent: 1, priorValue: 0 })}
                   {w.netCashRequiredPerPeriod.some((v) => v !== 0) && (

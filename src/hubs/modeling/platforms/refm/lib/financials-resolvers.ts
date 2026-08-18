@@ -1436,29 +1436,46 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
     // Repayment is serviced from cash on hand / operations, never from a fresh
     // drawdown, so it does not size the gap. (The real outflow still hits the
     // actual Direct CF and the consolidated cash waterfall.)
+    // THE REFERENCE SIZING RULE (2026-08-18g, read from Schedules R112 to
+    // R116 and applied on instruction, superseding the 18b hold):
+    //
+    //   R112  pre-financing net cash = operating inflows - cash capex
+    //   R115  cash before financing  = opening + R112
+    //   R116  funding need           = IF(cash capex > 0, MAX(0, min - R115), 0)
+    //
+    // NO FINANCE COST OF ANY KIND enters the sizing, not the operating half and
+    // not the IDC half. Interest is paid from the cash the project has, and
+    // where construction cash cannot cover the IDC the shortfall is drawn as a
+    // separate IDC drawdown (R123, computed AGAINST this pre-interest cash) and
+    // never sized into the development need. Before this, cash finance cost was
+    // subtracted here, so on a project carrying a large existing loan the
+    // sizing raised CONSTRUCTION funding to service that loan's interest:
+    // measured on FMP RE HUB, 420,532k against 263,780k under this rule, the
+    // gap being the existing hotel loan. Construction capital does not service
+    // an existing operating loan, and if removing it deepens a shortfall that
+    // is the honest number.
+    //
+    // Before-sweep dividends stay out for the same reason: a distribution is
+    // not a development funding need.
     const cashAvail = openingC
       + (cashFromOpsPerPeriod[t] ?? 0)
       + (cashFromInvPerPeriod[t] ?? 0)
       + (existingEquityDrawdownPerPeriod[t] ?? 0)
       + (existingDebtDrawdownPerPeriod[t] ?? 0)
-      + (managementFeeEquityDrawPerPeriod[t] ?? 0)
-      // ITEM D IS HELD, NOT APPLIED (2026-08-18b). Sizing still uses the FULL
-      // cash finance cost. Switching this to `idcCashOnlyPerPeriod` is the
-      // one-line change that applies Item D, and it is deliberately not made:
-      // measured on FMP RE HUB it drops net cash required from 420,532k to
-      // 263,244k and takes closing cash NEGATIVE, -276,696k in 2026 and
-      // -288,172k in 2027. That is an operating shortfall the model is
-      // currently funding with construction capital, and auto-funding it that
-      // way is a separate decision. The split series below are computed and
-      // exposed so the schedule can show each half; only the SIZING is held.
-      + (financeCostPaidPerPeriod[t] ?? 0)       // already negative
-      + (dividendsBeforeSweepPerPeriod[t] ?? 0); // already negative
+      + (managementFeeEquityDrawPerPeriod[t] ?? 0);
     cashAvailableBeforeNewDebtPerPeriod[t] = cashAvail;
-    const netReq = Math.max(0, minCashReserve - cashAvail);
+    // R116's gate: a development funding need exists only in a period that is
+    // spending on construction. Once the spend stops, no construction funding
+    // is raised, whatever cash does. Reads the CASH capex (R105 is construction
+    // + land cash + RETT), which is what `cashFromInvPerPeriod` carries.
+    const spendingThisPeriod = (cashFromInvPerPeriod[t] ?? 0) < -0.005;
+    const netReq = spendingThisPeriod ? Math.max(0, minCashReserve - cashAvail) : 0;
     netCashRequiredPerPeriod[t] = netReq;
-    // Assume new debt drawdown = netReq is sized to plug the gap; closing
-    // cash thus = max(minCash, cashAvail).
-    openingC = Math.max(minCashReserve, cashAvail);
+    // Closing = cash available plus whatever the gate let the deficit raise.
+    // In a spending period that plugs to the floor; in a non-spending period
+    // nothing is raised and the walk carries the true (possibly lower) cash,
+    // which is what R143 does. This mirrors R114 = prior R143.
+    openingC = cashAvail + netReq;
   }
   const method3Waterfall: Method3WaterfallSnapshot = {
     axisLength: N,
@@ -2609,23 +2626,27 @@ function deriveCircularInputs(
     if (gapTotal > 0) fundingGap = candidate;
   }
 
-  // (b) Conditional-IDC cash budget. Construction periods are those where
-  // this iteration's capitalised + cash-paid IDC > 0. The budget is the
-  // surplus cash above the minimum reserve available in each such period
-  // (before any new-debt drawdown), which the schedule diverts from
-  // debt-growth to cash interest.
+  // (b) The IDC cash budget: how much of the period's IDC the project can pay
+  // from cash before it has to draw for the rest. THE REFERENCE RULE (R123):
+  //
+  //   IDC drawdown = MAX(0, IDC - MAX(0, (R115 + R116) - min cash))
+  //
+  // so the headroom is measured on cash BEFORE ANY FINANCE COST (R115 carries
+  // none, since 2026-08-18g neither does ours) PLUS the development draw
+  // (R116, which plugs cash to the floor in a spending period). Before this
+  // the surplus was read from a cash-available figure that had already had
+  // the cash interest subtracted, so the interest fed back into its own
+  // headroom and the drawn slice was overstated on every construction period.
+  // Handed to the schedule as the per-period cash it may consume for IDC.
   let idcCashBudget: number[] | undefined;
   if (idcConditional) {
     const w = gap.method3Waterfall;
     const minCash = w.minCashReserve;
-    const cap = snap.financing.combined.totalInterestCapitalized;
-    const capCash = snap.financing.combined.totalInterestCapitalizedCashPaid;
     const budget = new Array<number>(N).fill(0);
     let hasBudget = false;
     for (let t = 0; t < N; t++) {
-      const constructionInterest = (cap[t] ?? 0) + (capCash[t] ?? 0);
-      if (constructionInterest <= 0) continue; // not a construction-interest period
-      const surplus = Math.max(0, (w.cashAvailableBeforeNewDebtPerPeriod[t] ?? 0) - minCash);
+      const cashAfterDevelopmentDraw = (w.cashAvailableBeforeNewDebtPerPeriod[t] ?? 0) + (w.netCashRequiredPerPeriod[t] ?? 0);
+      const surplus = Math.max(0, cashAfterDevelopmentDraw - minCash);
       if (surplus > 0) { budget[t] = surplus; hasBudget = true; }
     }
     if (hasBudget) idcCashBudget = budget;
