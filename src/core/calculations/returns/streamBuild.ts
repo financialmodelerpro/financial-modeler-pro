@@ -9,24 +9,29 @@
  * Stream layout (length E+1, E = exitIdx+1): index 0 = inception
  * (projectStartYear − 1), indices 1..E = axis years through exit.
  *
- * 2026-08-18, matching the reference:
- *   FCFF = CFO (pre-interest) LESS FULL-COST CAPEX, where full cost is the cash
- *          capex plus the land contributed in kind plus the IDC. Inception is
- *          − existing pre-capex; the terminal ENTERPRISE value lands at exit.
- *   FCFE = FCFF + debt drawn for capex + debt drawn for IDC + principal repaid
- *          + the OPERATING finance cost, with the enterprise terminal backed
- *          out and the terminal EQUITY value (terminal value less closing
- *          debt) put in its place. Inception is − existing equity.
+ * 2026-08-18b, matching the reference models:
+ *   FCFF = CFO (pre-interest) LESS CAPEX INCLUDING IN-KIND LAND, plus the
+ *          terminal ENTERPRISE value. Inception is − existing pre-capex.
+ *          THERE IS NO INTEREST LINE OF ANY KIND IN FCFF, and none belongs:
+ *          it is an UNLEVERED measure, so the whole finance cost including the
+ *          IDC lives in FCFE. In-kind land DOES stay, because it is a real
+ *          resource the project consumed, not a financing charge.
+ *   FCFE = FCFF, less the FULL accrued finance cost (which carries the IDC),
+ *          plus the debt drawn for capex, plus the debt drawn for IDC, less
+ *          principal repaid, with the enterprise terminal backed out and the
+ *          terminal EQUITY value put in its place. Inception is − existing
+ *          equity.
  *
- * TWO THINGS THAT MUST STAY TRUE, and each is deducted EXACTLY ONCE:
- *   - In-kind land is a real cost of the project, so FCFF carries it. FCFE
- *     inherits it through FCFF and must not charge it again.
- *   - The finance cost is SPLIT. The IDC half is inside FCFF (it is capex);
- *     only the operating half belongs in the FCFE step. Passing total interest
- *     there would deduct the IDC twice.
- * The algebra closes: FCFE = CFO − capexCash − inKind − IDC + capexDraw
- * + idcDraw − principal − operating interest, which is the equity holder's
- * actual net cash. `verify-returns-buildup` asserts exactly that.
+ * WHY THE IDC DRAWDOWN IS A ROW HERE. FCFE deducts the whole charge, but only
+ * part of it left the bank; the rest was funded by drawing debt. Showing both
+ * the gross charge and the drawdown that funded it nets to the cash actually
+ * paid, and keeps the reader able to see each. The capitalised slice is not
+ * lost: it grew the balance and leaves later as PRINCIPAL, which is why the
+ * principal row is what ultimately carries it.
+ *
+ * The algebra closes: FCFE = CFO − capexCash − inKind − cashInterest
+ * − principal + capexDraw, which is the equity holder's actual net cash.
+ * `verify-returns-buildup` asserts exactly that.
  */
 import { terminalEnterpriseValue, terminalEquityValue } from './terminalValue';
 import type { TerminalMethod } from './types';
@@ -38,16 +43,15 @@ export interface SponsorStreamInputs {
   cfiAxis: number[];
   /** Land contributed in kind, POSITIVE magnitude. Deducted in FCFF. */
   inKindAxis: number[];
-  /** IDC, POSITIVE magnitude. Deducted in FCFF: it is part of the cost of
-   *  building, and it is NOT deducted again as a finance cost in FCFE. */
-  idcAxis: number[];
+  /** The FULL accrued finance cost, POSITIVE magnitude: operating plus IDC.
+   *  Deducted in FCFE and NOWHERE in FCFF. */
+  financeCostAxis: number[];
   /** Debt drawn to fund CAPEX. */
   debtDrawAxis: number[];
-  /** Debt drawn to fund IDC. Shown separately so a reader can see each. */
+  /** Debt drawn to fund IDC. NOT a cash inflow on the cash statement; here it
+   *  is the add-back that turns the gross charge into the cash actually paid. */
   idcDrawAxis: number[];
   principalAxis: number[];   // already negative
-  /** OPERATING finance cost only, already negative. The IDC half is in FCFF. */
-  interestAxis: number[];    // already negative
   noiPerPeriod: number[];
   debtOutstandingPerPeriod: number[];
   existingPreCapex: number;
@@ -84,8 +88,9 @@ export function buildSponsorStreamsForExit(
   const exitNOI = noi[exit] ?? 0;
   const stabilisedNOI = Math.max(exitNOI, ...noi.slice(0, E), 0);
 
+  // Capex INCLUDING in-kind land. No IDC: FCFF is unlevered.
   const fullCapexAt = (t: number): number =>
-    (inp.cfiAxis[t] ?? 0) - (inp.inKindAxis[t] ?? 0) - (inp.idcAxis[t] ?? 0);
+    (inp.cfiAxis[t] ?? 0) - (inp.inKindAxis[t] ?? 0);
   const exitFcff = (inp.cfoAxis[exit] ?? 0) + fullCapexAt(exit);
   let tvEnterprise: number;
   if (term.capRateOverride !== undefined && term.capRateOverride > 0) {
@@ -109,11 +114,13 @@ export function buildSponsorStreamsForExit(
   for (let t = 0; t < E; t++) {
     const base = (inp.cfoAxis[t] ?? 0) + fullCapexAt(t);
     fcff[t + 1] = base;
-    // FCFE is the SAME base plus the financing legs. In-kind and IDC are
-    // already inside `base`, which is why neither appears again here.
+    // FCFE is the SAME base plus the financing legs. In-kind land is already
+    // inside `base` and must not repeat; the finance cost is NOT in `base` at
+    // all and is deducted here in full, with the IDC drawdown beside it.
     fcfe[t + 1] = base
+      - (inp.financeCostAxis[t] ?? 0)
       + (inp.debtDrawAxis[t] ?? 0) + (inp.idcDrawAxis[t] ?? 0)
-      + (inp.principalAxis[t] ?? 0) + (inp.interestAxis[t] ?? 0);
+      + (inp.principalAxis[t] ?? 0);
   }
   fcff[exit + 1] += tvEnterprise;
   fcfe[exit + 1] += tvEquity;

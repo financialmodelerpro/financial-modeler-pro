@@ -45,7 +45,7 @@ export interface StreamBuildupSource {
     cfoPerPeriod: number[];
     cfiPerPeriod: number[];
     inKindLandPerPeriod: number[];
-    idcCapitalisedPerPeriod: number[];
+    financeCostPerPeriod: number[];
     fcffSubtotalPerPeriod: number[];
     existingPreCapexRemovalPerPeriod: number[];
     terminalEnterpriseRemovalPerPeriod: number[];
@@ -71,17 +71,16 @@ interface BuildupRowDef { label: string; pick: BuildupKey }
 /** How a surface turns one labelled series into its own row type. */
 export type StreamRowMaker<T> = (label: string, series: number[], opts: { indent?: number; isTotal?: boolean }) => T;
 
-// FCFF deducts the FULL COST of building, which is the cash capex plus the two
-// non-cash pieces: land contributed in kind, and the interest capitalised into
-// the asset while it was being built. Both are stated on their own row rather
-// than folded into the capex line, because a reader has to be able to see that
-// the project was charged for them (2026-08-18).
+// FCFF IS UNLEVERED, so it carries NO INTEREST LINE OF ANY KIND, not even the
+// IDC. 2026-08-18b removed the IDC row a few hours after adding it: the whole
+// finance cost belongs in FCFE. In-kind land STAYS, on its own row, because it
+// is a real resource the project consumed rather than a financing charge.
+// `verify-returns-buildup` enforces the purity as a check on this list.
 const FCFF_ROWS: readonly BuildupRowDef[] = [
   { label: '(-) Historical Development Investment', pick: 'existingPreCapexPerPeriod' },
   { label: '(+) Cash from Operations (pre-interest)', pick: 'cfoPerPeriod' },
   { label: '(-) Capex, cash (Cash from Investing)', pick: 'cfiPerPeriod' },
   { label: '(-) Land Contributed In-Kind (non-cash)', pick: 'inKindLandPerPeriod' },
-  { label: '(-) Interest During Construction (capitalised)', pick: 'idcCapitalisedPerPeriod' },
   { label: '(+) Terminal Enterprise Value', pick: 'terminalEnterprisePerPeriod' },
 ];
 
@@ -95,18 +94,22 @@ const FCFF_ROWS: readonly BuildupRowDef[] = [
 // exact mistake that once left the PDF short by a whole terminal value, so it
 // is two visible rows that sum to the swap.
 //
-// NOTE what is NOT here: no in-kind row and no IDC row. Both are inside FCFF
-// already, and repeating them would charge the equity holder twice. The
-// interest row is the OPERATING finance cost only, for the same reason.
+// NOTE what is NOT here: no in-kind row. It is inside FCFF already and
+// repeating it would charge the equity holder twice.
+//
+// The finance cost IS here, in full, because FCFF is unlevered and carries
+// none of it. Only part of that charge left the bank; the rest was funded by
+// drawing debt, which is the row beneath it. The two net to the cash actually
+// paid, and the capitalised slice comes back out later as principal.
 const FCFE_ROWS: readonly BuildupRowDef[] = [
   { label: '(-) Existing Equity Investment (at inception)', pick: 'existingEquityPerPeriod' },
   { label: '(=) FCFF (unlevered, after full-cost capex)', pick: 'fcffSubtotalPerPeriod' },
   { label: '(-) Historical Development Investment (in FCFF above)', pick: 'existingPreCapexRemovalPerPeriod' },
   { label: '(-) Terminal Enterprise Value (in FCFF above)', pick: 'terminalEnterpriseRemovalPerPeriod' },
+  { label: '(-) Finance Cost, full accrued charge (incl. IDC)', pick: 'financeCostPerPeriod' },
   { label: '(+) Debt Drawdown for Capex', pick: 'debtDrawPerPeriod' },
-  { label: '(+) Debt Drawdown for IDC', pick: 'idcDrawPerPeriod' },
-  { label: '(-) Principal Repayment', pick: 'principalRepayPerPeriod' },
-  { label: '(-) Finance Cost, operating (IDC is inside FCFF)', pick: 'interestPaidPerPeriod' },
+  { label: '(+) Debt Drawdown for IDC (funds the charge above)', pick: 'idcDrawPerPeriod' },
+  { label: '(-) Principal Repayment (repays the capitalised IDC too)', pick: 'principalRepayPerPeriod' },
   { label: '(+) Terminal Value less Closing Debt', pick: 'terminalEquityPerPeriod' },
 ];
 

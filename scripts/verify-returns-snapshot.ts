@@ -112,10 +112,10 @@ console.log('=== M5 Returns snapshot integration ===');
   check('buildup arrays length = exit + 2', bld.cfoPerPeriod.length === len && bld.existingPreCapexPerPeriod.length === len);
   let fcffOk = true, fcfeOk = true, divOk = true;
   for (let t = 0; t < len; t++) {
-    // 2026-08-18: FCFF deducts the FULL COST of building, so the in-kind land
-    // and the IDC are components of it now, not omissions from it.
+    // 2026-08-18b: FCFF deducts capex INCLUDING in-kind land and NO interest
+    // of any kind. The whole finance cost, IDC included, is an FCFE step.
     const fcffSum = bld.existingPreCapexPerPeriod[t] + bld.cfoPerPeriod[t] + bld.cfiPerPeriod[t]
-      + bld.inKindLandPerPeriod[t] + bld.idcCapitalisedPerPeriod[t] + bld.terminalEnterprisePerPeriod[t];
+      + bld.inKindLandPerPeriod[t] + bld.terminalEnterprisePerPeriod[t];
     if (Math.abs(fcffSum - rs.fcffPerPeriod[t]) > 0.01) fcffOk = false;
     // FCFE is the CHAIN: FCFF, less the two things FCFF carries that the
     // levered stream replaces (its inception and its enterprise terminal),
@@ -124,8 +124,9 @@ console.log('=== M5 Returns snapshot integration ===');
     const fcfeSum = bld.existingEquityPerPeriod[t]
       + bld.fcffSubtotalPerPeriod[t] + bld.existingPreCapexRemovalPerPeriod[t]
       + bld.terminalEnterpriseRemovalPerPeriod[t]
+      + bld.financeCostPerPeriod[t]
       + bld.debtDrawPerPeriod[t] + bld.idcDrawPerPeriod[t]
-      + bld.principalRepayPerPeriod[t] + bld.interestPaidPerPeriod[t] + bld.terminalEquityPerPeriod[t];
+      + bld.principalRepayPerPeriod[t] + bld.terminalEquityPerPeriod[t];
     if (Math.abs(fcfeSum - rs.fcfePerPeriod[t]) > 0.01) fcfeOk = false;
     const divSum = bld.existingEquityPerPeriod[t] + bld.equityCashPerPeriod[t] + bld.equityInKindPerPeriod[t] + bld.dividendsDistributedPerPeriod[t] + bld.terminalEquityPerPeriod[t];
     if (Math.abs(divSum - rs.dividendStreamPerPeriod[t]) > 0.01) divOk = false;
@@ -292,21 +293,21 @@ console.log('=== M5 Returns snapshot integration ===');
   // contributed in kind and the IDC, and FCFE inherits all three through it.
   const inKindTotal = b.inKindLandPerPeriod.reduce((s, v) => s + v, 0);
   check('SPONSOR: in-kind land is a real deduction (negative)', inKindTotal < 0, `inKindTotal=${inKindTotal}`);
-  // FCFF reconstructs only WITH the in-kind land and the IDC in it.
+  // FCFF reconstructs WITH the in-kind land and WITHOUT any interest term.
   let fcffFullCost = true;
   for (let t = 0; t < rs.fcffPerPeriod.length; t++) {
     const sum = b.existingPreCapexPerPeriod[t] + b.cfoPerPeriod[t] + b.cfiPerPeriod[t]
-      + b.inKindLandPerPeriod[t] + b.idcCapitalisedPerPeriod[t] + b.terminalEnterprisePerPeriod[t];
+      + b.inKindLandPerPeriod[t] + b.terminalEnterprisePerPeriod[t];
     if (Math.abs(sum - rs.fcffPerPeriod[t]) > 0.01) fcffFullCost = false;
   }
-  check('SPONSOR: FCFF is FULL COST (reconstructs only WITH in-kind land and IDC)', fcffFullCost);
+  check('SPONSOR: FCFF includes in-kind land and NO interest line (unlevered)', fcffFullCost);
   // Negative control, so this cannot pass on a project that simply has neither:
   // dropping the in-kind term must BREAK the identity.
   if (inKindTotal < -0.01) {
     let wouldBreak = false;
     for (let t = 0; t < rs.fcffPerPeriod.length; t++) {
       const withoutInKind = b.existingPreCapexPerPeriod[t] + b.cfoPerPeriod[t] + b.cfiPerPeriod[t]
-        + b.idcCapitalisedPerPeriod[t] + b.terminalEnterprisePerPeriod[t];
+        + b.terminalEnterprisePerPeriod[t];
       if (Math.abs(withoutInKind - rs.fcffPerPeriod[t]) > 0.01) wouldBreak = true;
     }
     check('SPONSOR: and it would NOT reconstruct without the in-kind term', wouldBreak);
@@ -319,8 +320,9 @@ console.log('=== M5 Returns snapshot integration ===');
   // would be exactly the double charge this restructure exists to prevent.
   let bridgeOk = true;
   for (let t = 0; t < rs.fcffPerPeriod.length; t++) {
-    const bridge = b.existingDebtOpeningPerPeriod[t] + b.debtDrawPerPeriod[t] + b.idcDrawPerPeriod[t]
-      + b.principalRepayPerPeriod[t] + b.interestPaidPerPeriod[t]
+    const bridge = b.existingDebtOpeningPerPeriod[t] + b.financeCostPerPeriod[t]
+      + b.debtDrawPerPeriod[t] + b.idcDrawPerPeriod[t]
+      + b.principalRepayPerPeriod[t]
       + (b.terminalEquityPerPeriod[t] - b.terminalEnterprisePerPeriod[t]);
     if (Math.abs((rs.fcfePerPeriod[t] - rs.fcffPerPeriod[t]) - bridge) > 0.01) bridgeOk = false;
   }

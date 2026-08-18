@@ -302,6 +302,11 @@ console.log('\n[CONV] Iterative solver converges to a fixed point');
 // year that has surplus cash above the minimum reserve pays its IDC in cash
 // (no drawdown). Sales (and their cash) land in the last construction year,
 // so the early years are cash-negative and the last is cash-positive.
+// Total accrued interest on a snapshot, so the cash-paid assertion below can
+// state what cash-paid must EQUAL rather than merely bound it.
+const accruedTotal = (sn: { financing: { combined: { totalInterestAccrued: number[] } } }): number =>
+  sn.financing.combined.totalInterestAccrued.reduce((a, v) => a + (v ?? 0), 0);
+
 console.log('\n[IDC-LATE] Conditional IDC is decided PER PERIOD (capitalise when short, cash when surplus)');
 {
   const buildLate = (mode: 'debt_drawdown' | 'conditional'): Parameters<typeof computeFinancialsSnapshot>[0] => {
@@ -339,9 +344,18 @@ console.log('\n[IDC-LATE] Conditional IDC is decided PER PERIOD (capitalise when
   // Every construction period's interest is IDC, and all of it is PAID.
   check('IDC-LATE: IDC arises in the construction periods', (idcC[0] ?? 0) > 0 && (idcC[2] ?? 0) > 0,
     `idc=[${idcC.slice(0, 4).map((v) => Math.round(v)).join(', ')}]`);
-  check('IDC-LATE: IDC is PAID in the period it arises, all of it',
-    idcC.every((v, i) => v <= (paidC[i] ?? 0) + 0.01),
-    `idc=${Math.round(idcC.reduce((s, v) => s + v, 0))} paid=${Math.round(paidC.reduce((s, v) => s + v, 0))}`);
+  // 2026-08-18b: SETTLED, not 'paid in full'. IDC is settled in the period it
+  // arises, but only the part cash can cover leaves the bank; the rest is
+  // funded by drawing debt. The exhaustiveness check below is the real
+  // assertion, and `paidC` is now cash-only so it is NOT an upper bound on the
+  // charge.
+  check('IDC-LATE: IDC is SETTLED in the period it arises, by cash or by drawing',
+    idcC.every((v, i) => Math.abs(v - ((cashC[i] ?? 0) + (capC[i] ?? 0))) < 0.01),
+    `idc=${Math.round(idcC.reduce((s, v) => s + v, 0))} cash+drawn=${Math.round(cashC.reduce((s, v) => s + v, 0) + capC.reduce((s, v) => s + v, 0))}`);
+  check('IDC-LATE: cash-paid interest EXCLUDES the drawn slice',
+    Math.abs(paidC.reduce((s, v) => s + v, 0)
+      - (accruedTotal(cond) - capC.reduce((s, v) => s + v, 0))) < 0.5,
+    `paid=${Math.round(paidC.reduce((s, v) => s + v, 0))}`);
 
   // Funding: cash first, debt only for the shortfall. The early years are
   // cash-short so they borrow; the late year has surplus above the minimum

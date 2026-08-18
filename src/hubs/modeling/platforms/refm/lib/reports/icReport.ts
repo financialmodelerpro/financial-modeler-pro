@@ -548,8 +548,11 @@ export function buildICReportModel(input: {
     ],
     bridge: {
       fcff: r.fcff.netProfit,
-      debtDraw: sumArr(bu?.debtDrawPerPeriod),
-      interest: sumArr(bu?.interestPaidPerPeriod),      // already signed negative
+      // 2026-08-18b: the FCFF-to-FCFE bridge now carries the FULL accrued
+      // finance cost (FCFF is unlevered), and the IDC drawdown that funded part
+      // of it sits with the capex drawdown.
+      debtDraw: sumArr(bu?.debtDrawPerPeriod) + sumArr(bu?.idcDrawPerPeriod),
+      interest: sumArr(bu?.financeCostPerPeriod),       // already signed negative
       principal: sumArr(bu?.principalRepayPerPeriod),   // already signed negative
       fcfe: r.fcfe.netProfit,
       distributions: Number.isFinite(rs.totalDividendsDistributed) ? rs.totalDividendsDistributed : sumArr(rs.dividendStreamPerPeriod),

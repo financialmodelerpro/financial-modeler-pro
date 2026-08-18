@@ -98,9 +98,9 @@ if (SAB === 2) {
   for (let t = 0; t < rs.fcffPerPeriod.length; t++) rs.fcffPerPeriod[t] -= (rs.buildup.inKindLandPerPeriod[t] ?? 0);
 }
 if (SAB === 3) {
-  // 3: FCFE deducts the TOTAL finance cost rather than the operating half, so
-  //    the IDC is charged once in FCFF and once again here.
-  for (let t = 0; t < N; t++) rs.fcfePerPeriod[t + 1] = (rs.fcfePerPeriod[t + 1] ?? 0) - (d.idcPaidPerPeriod[t] ?? 0);
+  // 3: FCFE deducts the full charge but FORGETS the IDC drawdown beside it, so
+  //    the capitalised slice is charged to equity twice.
+  for (let t = 0; t < N; t++) rs.fcfePerPeriod[t + 1] = (rs.fcfePerPeriod[t + 1] ?? 0) - (d.idcDrawdownPerPeriod[t] ?? 0);
 }
 if (SAB === 4) {
   // 4: the classification reverts to a phase window, so a period with real
@@ -108,13 +108,17 @@ if (SAB === 4) {
   //    Reclassified IN PLACE, so the period still has spend: that is the shape
   //    the live project was in, where 2030 was building and its interest was
   //    not IDC.
-  d.operatingInterestPaidPerPeriod[0] = (d.operatingInterestPaidPerPeriod[0] ?? 0) + (d.idcPaidPerPeriod[0] ?? 0);
+  d.operatingInterestPaidPerPeriod[0] = (d.operatingInterestPaidPerPeriod[0] ?? 0) + (d.idcAccruedPerPeriod[0] ?? 0);
+  d.idcAccruedPerPeriod[0] = 0;
   d.idcPaidPerPeriod[0] = 0;
 }
 if (SAB === 5) {
-  // 5: IDC goes back to being rolled into the balance instead of paid, so the
-  //    drawdown exceeds what it funds and the debt no longer foots.
-  for (let t = 0; t < N; t++) d.idcDrawdownPerPeriod[t] = (d.idcDrawdownPerPeriod[t] ?? 0) * 2;
+  // 5: the capitalised slice is treated as paid as well, which is the ledger
+  //    defect: it gets removed twice and the roll walks negative.
+  for (let t = 0; t < N; t++) {
+    snap.financing.combined.totalInterestPaid[t] = (snap.financing.combined.totalInterestPaid[t] ?? 0)
+      + (snap.financing.combined.totalInterestCapitalized[t] ?? 0);
+  }
 }
 
 // ── 1. The fixture is not vacuous ────────────────────────────────────────────
@@ -130,7 +134,7 @@ const capexByPeriod = snap.financing.capex.perPeriod.inclAllLand;
 let classOk = true, classDetail = '';
 for (let t = 0; t < N; t++) {
   const spend = capexByPeriod[t] ?? 0;
-  const idc = d.idcPaidPerPeriod[t] ?? 0;
+  const idc = d.idcAccruedPerPeriod[t] ?? 0;
   const op = d.operatingInterestPaidPerPeriod[t] ?? 0;
   // A period with spend puts its WHOLE finance cost in IDC; a period without
   // puts none of it there. This is the rule that replaced the phase window.
@@ -143,11 +147,21 @@ check('IDC is PAID in the period it arises, all of it',
 check('IDC + operating finance cost = interest paid, every period',
   Array.from({ length: N }, (_, t) => Math.abs(((d.idcPaidPerPeriod[t] ?? 0) + (d.operatingInterestPaidPerPeriod[t] ?? 0))
     - -(d.interestPaidPerPeriod[t] ?? 0)) < 0.01).every(Boolean));
-check('debt drawn for IDC never exceeds the IDC itself',
-  d.idcDrawdownPerPeriod.every((v, t) => v <= (d.idcPaidPerPeriod[t] ?? 0) + 0.01));
-check('the two drawdowns sum to the debt drawdown on the cash flow',
-  Array.from({ length: N }, (_, t) => Math.abs(((d.capexDrawdownPerPeriod[t] ?? 0) + (d.idcDrawdownPerPeriod[t] ?? 0))
+check('debt drawn for IDC never exceeds the IDC charge it funds',
+  d.idcDrawdownPerPeriod.every((v, t) => v <= (d.idcAccruedPerPeriod[t] ?? 0) + 0.01));
+check('IDC charge = the cash half plus the debt-funded half, every period',
+  Array.from({ length: N }, (_, t) => Math.abs((d.idcAccruedPerPeriod[t] ?? 0)
+    - ((d.idcPaidPerPeriod[t] ?? 0) + (d.idcDrawdownPerPeriod[t] ?? 0))) < 0.01).every(Boolean));
+// ONLY THE CAPEX DRAWDOWN IS CASH. The IDC drawdown funds interest that is
+// never paid out, so it must not appear as a financing inflow; it grows the
+// balance and leaves later as principal.
+check('the cash drawdown is the CAPEX drawdown alone',
+  Array.from({ length: N }, (_, t) => Math.abs((d.capexDrawdownPerPeriod[t] ?? 0)
     - (d.debtDrawdownPerPeriod[t] ?? 0)) < 0.01).every(Boolean));
+check('the IDC drawdown is NOT inside the cash drawdown',
+  sum(d.idcDrawdownPerPeriod) > 0
+  && Math.abs(sum(d.debtDrawdownPerPeriod) - sum(d.capexDrawdownPerPeriod)) < 0.01,
+  `idcDraw ${(sum(d.idcDrawdownPerPeriod) / 1e6).toFixed(3)}m`);
 // The whole facility, base plus IDC, is repaid.
 const drawnAll = sum(d.capexDrawdownPerPeriod) + sum(d.idcDrawdownPerPeriod);
 const repaidAll = -sum(d.debtRepaymentPerPeriod);
@@ -204,16 +218,26 @@ check('the retired toggles are not consulted: the snapshot reports the one treat
     `idc ${sum(legacySnap.financing.combined.totalIdc).toFixed(0)} vs ${idcTotal.toFixed(0)}`);
 }
 
-// ── 3. FCFF is full cost ─────────────────────────────────────────────────────
-console.log('\n-- 2. FCFF deducts the FULL COST of building --');
+// ── 3. FCFF is unlevered, and carries capex including in-kind land ──────────
+console.log('\n-- 2. FCFF: capex incl. in-kind land, and NO interest of any kind --');
 const b = rs.buildup;
-check('FCFF names the cash capex, the in-kind land and the IDC, each on its own row',
+check('FCFF names the cash capex and the in-kind land, each on its own row',
   FCFF_BUILDUP_LABELS.some((l) => l.includes('Capex, cash'))
-  && FCFF_BUILDUP_LABELS.some((l) => l.includes('Land Contributed In-Kind'))
-  && FCFF_BUILDUP_LABELS.some((l) => l.includes('Interest During Construction')),
+  && FCFF_BUILDUP_LABELS.some((l) => l.includes('Land Contributed In-Kind')),
   FCFF_BUILDUP_LABELS.join(' | '));
 check('FCFF states that Cash from Operations is PRE-INTEREST',
   FCFF_BUILDUP_LABELS.some((l) => l.includes('pre-interest')));
+
+// THE UNLEVERED-PURITY GUARD. FCFF is an unlevered measure, so no row in it
+// may be an interest or IDC line. This is a check on the ROW LIST, so it bites
+// the moment anyone adds one back, which is exactly what happened on
+// 2026-08-18a and was reversed the same day.
+{
+  const offenders = FCFF_BUILDUP_LABELS.filter((l) =>
+    /\bIDC\b|finance cost|during construction|interest (paid|charge|expense)|\(-\)[^)]*interest/i.test(l));
+  check('UNLEVERED PURITY: no interest, IDC or finance-cost row appears in FCFF',
+    offenders.length === 0, offenders.join(' | '));
+}
 {
   const rows = buildFcffBuildup(rs, m4StreamRow);
   const comps = rows.slice(0, -1);
@@ -223,28 +247,33 @@ check('FCFF states that Cash from Operations is PRE-INTEREST',
 check('the in-kind land really is inside FCFF (removing it breaks the identity)',
   rs.fcffPerPeriod.some((v, t) => Math.abs(
     ((b.existingPreCapexPerPeriod[t] ?? 0) + (b.cfoPerPeriod[t] ?? 0) + (b.cfiPerPeriod[t] ?? 0)
-     + (b.idcCapitalisedPerPeriod[t] ?? 0) + (b.terminalEnterprisePerPeriod[t] ?? 0)) - v) > 0.01));
-check('the IDC really is inside FCFF (removing it breaks the identity)',
-  rs.fcffPerPeriod.some((v, t) => Math.abs(
+     + (b.terminalEnterprisePerPeriod[t] ?? 0)) - v) > 0.01));
+// And the numeric half of the purity guard: FCFF must reconstruct from cfo,
+// cash capex and in-kind land alone, with no interest term needed.
+check('NUMERIC PURITY: FCFF reconstructs with no interest term at all',
+  rs.fcffPerPeriod.every((v, t) => Math.abs(
     ((b.existingPreCapexPerPeriod[t] ?? 0) + (b.cfoPerPeriod[t] ?? 0) + (b.cfiPerPeriod[t] ?? 0)
-     + (b.inKindLandPerPeriod[t] ?? 0) + (b.terminalEnterprisePerPeriod[t] ?? 0)) - v) > 0.01));
+     + (b.inKindLandPerPeriod[t] ?? 0) + (b.terminalEnterprisePerPeriod[t] ?? 0)) - v) < 0.01));
 
 // ── 4. FCFE chains from FCFF, and nothing is charged twice ───────────────────
 console.log('\n-- 3. FCFE builds from FCFF, each cost charged exactly ONCE --');
 check('the FCFE chain opens with the FCFF subtotal',
   FCFE_BUILDUP_LABELS.some((l) => l.includes('FCFF (unlevered')), FCFE_BUILDUP_LABELS.join(' | '));
-check('the FCFE chain names both drawdowns and the OPERATING finance cost',
+check('the FCFE chain names both drawdowns and the FULL finance cost',
   FCFE_BUILDUP_LABELS.some((l) => l.includes('Debt Drawdown for Capex'))
   && FCFE_BUILDUP_LABELS.some((l) => l.includes('Debt Drawdown for IDC'))
-  && FCFE_BUILDUP_LABELS.some((l) => l.includes('Finance Cost, operating')));
+  && FCFE_BUILDUP_LABELS.some((l) => l.includes('full accrued charge')));
 check('the FCFE chain swaps the terminal EXPLICITLY, backing the enterprise one out',
   FCFE_BUILDUP_LABELS.some((l) => l.includes('Terminal Enterprise Value (in FCFF above)'))
   && FCFE_BUILDUP_LABELS.some((l) => l.includes('Terminal Value less Closing Debt')));
-// THE DOUBLE-CHARGE GUARD. Neither cost may appear a second time in the chain.
-check('NO in-kind row and NO IDC row in the FCFE chain (they are inside FCFF)',
-  !FCFE_BUILDUP_LABELS.some((l) => /in-kind/i.test(l))
-  && !FCFE_BUILDUP_LABELS.some((l) => /Interest During Construction/i.test(l)),
-  FCFE_BUILDUP_LABELS.filter((l) => /in-kind|Interest During/i.test(l)).join(' | '));
+// THE DOUBLE-CHARGE GUARD. In-kind land is inside FCFF and must not repeat.
+// The finance cost is NOT inside FCFF, so it appears here once, in full.
+check('NO in-kind row in the FCFE chain (it is inside FCFF)',
+  !FCFE_BUILDUP_LABELS.some((l) => /in-kind/i.test(l)),
+  FCFE_BUILDUP_LABELS.filter((l) => /in-kind/i.test(l)).join(' | '));
+check('exactly ONE finance-cost row in the FCFE chain',
+  FCFE_BUILDUP_LABELS.filter((l) => /finance cost/i.test(l)).length === 1,
+  FCFE_BUILDUP_LABELS.filter((l) => /finance cost/i.test(l)).join(' | '));
 {
   const rows = buildFcfeBuildup(rs, m4StreamRow);
   const comps = rows.slice(0, -1);
@@ -261,10 +290,10 @@ check('NO in-kind row and NO IDC row in the FCFE chain (they are inside FCFF)',
     const equityCash = (d.cashFromOperationsPerPeriod[t] ?? 0)
       + (d.capexPerPeriod[t] ?? 0)                       // negative: cash capex
       - (snap.financing.capex.perPeriod.landInKind[t] ?? 0)
-      - (d.idcPaidPerPeriod[t] ?? 0)
-      + (d.capexDrawdownPerPeriod[t] ?? 0) + (d.idcDrawdownPerPeriod[t] ?? 0)
-      + (d.debtRepaymentPerPeriod[t] ?? 0)               // already negative
-      - (d.operatingInterestPaidPerPeriod[t] ?? 0);
+      - (d.idcPaidPerPeriod[t] ?? 0)                     // the CASH half of IDC
+      - (d.operatingInterestPaidPerPeriod[t] ?? 0)
+      + (d.capexDrawdownPerPeriod[t] ?? 0)               // the only cash drawdown
+      + (d.debtRepaymentPerPeriod[t] ?? 0);              // already negative
     // rs streams are inception-prefixed, so axis period t is index t+1; strip
     // the terminal value, which is a valuation and not a cash movement.
     const fromStream = (rs.fcfePerPeriod[t + 1] ?? 0) - (b.terminalEquityPerPeriod[t + 1] ?? 0);
@@ -284,17 +313,43 @@ console.log('\n-- 4. A reader can SEE the IDC on the cash flow --');
     fmt: (v: number) => String(v),
   } as Parameters<typeof buildDirectCFRows>[0]);
   const has = (frag: string): boolean => rows.some((r) => r.label.includes(frag));
-  check('the cash flow names the capex drawdown and the IDC drawdown separately',
-    has('Debt Drawdown for Capex') && has('Debt Drawdown for IDC'));
-  check('the cash flow shows the IDC as PAID and says it is capitalised',
-    has('Interest During Construction paid (capitalised into asset cost)'));
+  check('the cash flow names the capex drawdown, and the IDC drawdown as a MEMO',
+    has('Debt Drawdown for Capex') && has('(memo) IDC capitalised to debt, non-cash'));
+  check('the cash flow shows the IDC paid IN CASH',
+    has('Interest During Construction paid in cash'));
   check('the old offsetting contra row is GONE (it would deduct IDC twice)',
     !has('Capitalised via IDC drawdown'));
-  const idcRow = rows.find((r) => r.label.includes('Interest During Construction paid'));
-  check('the IDC row carries the IDC figure', !!idcRow && Math.abs(-sum(idcRow.values) - idcTotal) < 1,
-    `row ${idcRow ? (-sum(idcRow.values) / 1e6).toFixed(3) : 'absent'}m vs IDC ${(idcTotal / 1e6).toFixed(3)}m`);
+  const idcRow = rows.find((r) => r.label.includes('Interest During Construction paid in cash'));
+  const idcCashTotal = sum(d.idcPaidPerPeriod);
+  check('the IDC cash row carries the CASH half, not the whole charge',
+    !!idcRow && Math.abs(-sum(idcRow.values) - idcCashTotal) < 1,
+    `row ${idcRow ? (-sum(idcRow.values) / 1e6).toFixed(3) : 'absent'}m vs cash IDC ${(idcCashTotal / 1e6).toFixed(3)}m (charge ${(idcTotal / 1e6).toFixed(3)}m)`);
 }
 
+// ── 5b. THE FINANCE COST ROLL FOOTS ─────────────────────────────────────────
+// Opening + Accrued - Capitalised - Paid = Closing, with Paid being CASH ONLY.
+// This is the ledger that walked to a stuck -21,525 on the live project when
+// `interestPaid` briefly carried the whole charge: the capitalised slice was
+// removed twice, once as capitalised and once inside paid.
+console.log('\n-- 5. The finance cost ledger foots, with cash-paid excluding the capitalised slice --');
+{
+  const c = snap.financing.combined;
+  let open = 0, worst = 0;
+  for (let t = 0; t < N; t++) {
+    const close = open + (c.totalInterestAccrued[t] ?? 0) - (c.totalInterestCapitalized[t] ?? 0)
+      - (c.totalInterestPaid[t] ?? 0);
+    if (Math.abs(close) > Math.abs(worst)) worst = close;
+    open = close;
+  }
+  check('the finance cost roll closes at ZERO every period', Math.abs(worst) < 0.01,
+    `worst closing ${(worst / 1e6).toFixed(3)}m`);
+  check('cash paid EXCLUDES the capitalised slice',
+    Math.abs(sum(c.totalInterestPaid) - (sum(c.totalInterestAccrued) - sum(c.totalInterestCapitalized))) < 0.01,
+    `paid ${(sum(c.totalInterestPaid) / 1e6).toFixed(3)}m vs accrued-less-capitalised ${((sum(c.totalInterestAccrued) - sum(c.totalInterestCapitalized)) / 1e6).toFixed(3)}m`);
+  check('the capitalised slice is real on this fixture (else the two above are vacuous)',
+    sum(c.totalInterestCapitalized) > 0, `${(sum(c.totalInterestCapitalized) / 1e6).toFixed(3)}m`);
+}
+
 // ── 6. Nothing else moved ────────────────────────────────────────────────────
 console.log('\n-- 5. The statements still reconcile --');
 check('the balance sheet balances every period',

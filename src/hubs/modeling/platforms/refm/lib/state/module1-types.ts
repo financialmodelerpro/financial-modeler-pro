@@ -657,6 +657,20 @@ export interface Project {
      *  than in refm_parties because it only exists when the fund layer is on. */
     fundManagerName?: string;
 
+    /** HOW THE MANAGEMENT FEE IS FUNDED (2026-08-18b), mirroring the project's
+     *  debt/equity funding switch.
+     *
+     *  'debt' (DEFAULT, and what every existing project does): the fee sits
+     *  inside cash from operations, lowers cash available, and is funded by the
+     *  deficit at the project debt/equity ratio like any other requirement.
+     *
+     *  'equity': the fee is drawn as an ADDITIONAL EQUITY LINE and kept out of
+     *  the cash deficit, so total equity funding is equity capex plus the
+     *  management fee. Matches the reference model that funds the fee this way.
+     *
+     *  Absent means 'debt', so no saved project changes by adding this. */
+    managementFeeFunding?: 'debt' | 'equity';
+
     // ── Fee bases the user TYPES. Never solved outputs: that is what keeps
     //    every fee linear and out of the M4 circular solve.
     /** Fund size (target or committed), base for the one-time structure fee.

@@ -175,8 +175,9 @@ async function runFor(tag: string, state: any): Promise<void> {
   const fcfeRebuilt = rs.fcfePerPeriod.map((_: number, i: number) =>
     (bu.existingEquityPerPeriod[i] ?? 0) + (bu.fcffSubtotalPerPeriod[i] ?? 0)
     + (bu.existingPreCapexRemovalPerPeriod[i] ?? 0) + (bu.terminalEnterpriseRemovalPerPeriod[i] ?? 0)
+    + (bu.financeCostPerPeriod[i] ?? 0)
     + (bu.debtDrawPerPeriod[i] ?? 0) + (bu.idcDrawPerPeriod[i] ?? 0) + (bu.principalRepayPerPeriod[i] ?? 0)
-    + (bu.interestPaidPerPeriod[i] ?? 0) + (bu.terminalEquityPerPeriod[i] ?? 0));
+    + (bu.terminalEquityPerPeriod[i] ?? 0));
   check('the build-up components sum to FCFE in every period',
     fcfeRebuilt.every((v: number, i: number) => near(v, rs.fcfePerPeriod[i] ?? 0, peakFcfe)),
     `worst ${Math.max(...fcfeRebuilt.map((v: number, i: number) => Math.abs(v - (rs.fcfePerPeriod[i] ?? 0)))).toExponential(2)}`);

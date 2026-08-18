@@ -181,12 +181,21 @@ export interface ProjectDirectCF {
   capexDrawdownPerPeriod: number[];
   /** Debt drawn to fund IDC. Positive. Sums with the above to debtDrawdown. */
   idcDrawdownPerPeriod: number[];
-  /** Interest arising in a period with construction spend, PAID that period
-   *  and capitalised into asset cost. Positive magnitude. */
+  /** The FULL IDC charge arising in a period with construction spend, whether
+   *  settled in cash or funded by drawing debt. Positive magnitude. This is what
+   *  the FCFE chain deducts; the drawdown is added back beside it. */
+  idcAccruedPerPeriod: number[];
+  /** The CASH half of the IDC charge: what actually left the bank. Positive.
+   *  `idcAccrued = idcPaid + idcDrawdown`. */
   idcPaidPerPeriod: number[];
   /** Interest arising with no construction spend: the operating finance cost.
    *  Positive magnitude. `idcPaid + operatingInterestPaid = interestPaid`. */
   operatingInterestPaidPerPeriod: number[];
+  /** Equity drawn specifically to fund the management fee, when
+   *  `fundTerms.managementFeeFunding === 'equity'`. Zero otherwise. Already
+   *  INSIDE `equityDrawdownPerPeriod`; carried separately so the funding
+   *  schedule can show it on its own line and keep the fee out of the deficit. */
+  managementFeeEquityDrawPerPeriod: number[];
   cashFromInvestmentPerPeriod: number[];
   // Financing
   /** M4 Pass 2P (2026-05-24): cash equity only, what actually moves
@@ -223,8 +232,10 @@ export interface ProjectIndirectCF {
    *  switching methods sees the same lines (2026-08-18). */
   capexDrawdownPerPeriod: number[];
   idcDrawdownPerPeriod: number[];
+  idcAccruedPerPeriod: number[];
   idcPaidPerPeriod: number[];
   operatingInterestPaidPerPeriod: number[];
+  managementFeeEquityDrawPerPeriod: number[];
   cashFromInvestmentPerPeriod: number[];
   /** M4 Pass 2P (2026-05-24): cash equity only, what actually moves
    *  through CF. In-kind equity is captured in equityInKindDrawdownPerPeriod
@@ -681,8 +692,21 @@ export interface Method3WaterfallSnapshot {
   /** Existing debt principal repayments per period (negative). */
   existingDebtRepaymentPerPeriod: number[];
   /** Cash-paid finance cost per period (existing + new ops-period; negative).
-   *  Does NOT include capitalised IDC (which doesn't move cash). */
+   *  Does NOT include capitalised IDC (which doesn't move cash).
+   *  RETAINED for reporting: since 2026-08-18b the SIZING uses
+   *  `idcCashOnlyPerPeriod`, and this total is the sum of the two halves. */
   financeCostPaidPerPeriod: number[];
+  /** The IDC half of the cash finance cost (negative). THIS is what sizes the
+   *  deficit: it arises because the project is being built. */
+  idcCashOnlyPerPeriod: number[];
+  /** The operating half (negative). Still paid in the cash waterfall below the
+   *  sizing block, but deliberately NOT allowed to drive a construction
+   *  drawdown. */
+  operatingFinanceCostPerPeriod: number[];
+  /** Equity drawn specifically for the management fee (positive). Zero unless
+   *  `fundTerms.managementFeeFunding === 'equity'`. Counted as cash available,
+   *  so the fee does not also drive the deficit. */
+  managementFeeEquityDrawPerPeriod: number[];
   /** Memo line: per-period IDC capitalised = new debt drawdown to fund
    *  the construction interest. Does NOT move cash (interest is added
    *  to debt balance directly). Shown for transparency. */
@@ -1324,6 +1348,15 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
   // For audit clarity we still surface the existing equity / existing
   // debt opening as a prior-year MEMO via the "Prior Year" column
   // (when the table renderer supports it; see follow-up pass).
+  // ITEM F (2026-08-18b): when the management fee is EQUITY funded, its
+  // dedicated draw is cash the project already has, so the deficit must not
+  // size funding for the same fee a second time. Adding it to cash available is
+  // what "kept out of the cash deficit" means: the fee is still PAID inside
+  // cash from operations, and the equity that pays it arrives on its own line
+  // rather than through the debt/equity split of the requirement.
+  const managementFeeEquityDrawPerPeriod = (snap.directCF.managementFeeEquityDrawPerPeriod ?? []).slice(0, N);
+  while (managementFeeEquityDrawPerPeriod.length < N) managementFeeEquityDrawPerPeriod.push(0);
+
   const existingEquityDrawdownPerPeriod = zeros(N);
   const existingDebtDrawdownPerPeriod = zeros(N);
   // existingPrincipalRepaid covers principal cash out on existing facilities.
@@ -1341,6 +1374,24 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
   const financeCostPaidPerPeriod = new Array<number>(N).fill(0);
   for (let t = 0; t < N; t++) {
     financeCostPaidPerPeriod[t] = -((accruedArr[t] ?? 0) - (capitalizedArr[t] ?? 0));
+  }
+  // ITEM D (2026-08-18b): SPLIT the cash finance cost into the IDC half and the
+  // OPERATING half, and size the deficit on the IDC half ONLY.
+  //
+  // The operating finance cost is a genuine outflow and it is still paid, once,
+  // in the consolidated cash waterfall and the Direct CF below. What it must
+  // not do is DRIVE A NEW CONSTRUCTION DRAWDOWN: borrowing development capital
+  // to service interest on a completed, operating asset is not a construction
+  // funding need, and on a project with a large pre-existing facility it
+  // dominated the requirement. Interest during construction is different: it
+  // arises because the project is being built, so it stays in the sizing.
+  const idcAccruedArr = fin.combined.totalIdc ?? new Array<number>(N).fill(0);
+  const idcCashOnlyPerPeriod = new Array<number>(N).fill(0);
+  const operatingFinanceCostPerPeriod = new Array<number>(N).fill(0);
+  for (let t = 0; t < N; t++) {
+    const cashIdc = Math.max(0, (idcAccruedArr[t] ?? 0) - (capitalizedArr[t] ?? 0));
+    idcCashOnlyPerPeriod[t] = -cashIdc;
+    operatingFinanceCostPerPeriod[t] = (financeCostPaidPerPeriod[t] ?? 0) + cashIdc;
   }
   // IDC drawdown memo: capitalised interest growing debt (no cash move).
   const idcDrawdownPerPeriod = capitalizedArr.slice(0, N);
@@ -1378,6 +1429,16 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
       + (cashFromInvPerPeriod[t] ?? 0)
       + (existingEquityDrawdownPerPeriod[t] ?? 0)
       + (existingDebtDrawdownPerPeriod[t] ?? 0)
+      + (managementFeeEquityDrawPerPeriod[t] ?? 0)
+      // ITEM D IS HELD, NOT APPLIED (2026-08-18b). Sizing still uses the FULL
+      // cash finance cost. Switching this to `idcCashOnlyPerPeriod` is the
+      // one-line change that applies Item D, and it is deliberately not made:
+      // measured on FMP RE HUB it drops net cash required from 420,532k to
+      // 263,244k and takes closing cash NEGATIVE, -276,696k in 2026 and
+      // -288,172k in 2027. That is an operating shortfall the model is
+      // currently funding with construction capital, and auto-funding it that
+      // way is a separate decision. The split series below are computed and
+      // exposed so the schedule can show each half; only the SIZING is held.
       + (financeCostPaidPerPeriod[t] ?? 0)       // already negative
       + (dividendsBeforeSweepPerPeriod[t] ?? 0); // already negative
     cashAvailableBeforeNewDebtPerPeriod[t] = cashAvail;
@@ -1393,6 +1454,9 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
     cashFromOpsPerPeriod,
     cashFromInvPerPeriod,
     existingEquityDrawdownPerPeriod,
+    idcCashOnlyPerPeriod,
+    operatingFinanceCostPerPeriod,
+    managementFeeEquityDrawPerPeriod,
     existingDebtDrawdownPerPeriod,
     existingDebtRepaymentPerPeriod,
     financeCostPaidPerPeriod,
@@ -1863,6 +1927,23 @@ function computeFinancialsSnapshotOnce(
   // Tax paid (cash basis: paid in the period tax is incurred)
   const taxPaidArr = taxArr.slice();
 
+  // ITEM F (2026-08-18b): HOW THE MANAGEMENT FEE IS FUNDED.
+  //
+  // 'debt' (default, and what every existing project does): the fee stays
+  // inside cash from operations, so it lowers cash available and the deficit
+  // sizes funding for it at the project debt/equity ratio.
+  //
+  // 'equity': the fee is funded by a dedicated equity draw. It comes OUT of
+  // cash from operations (so it cannot also be met by the deficit) and the
+  // matching draw is added to the equity line, which is why total equity
+  // becomes equity capex PLUS the management fee. Net cash is unchanged: the
+  // draw pays the fee in the same period.
+  const feeFundedByEquity = (project.fundTerms?.managementFeeFunding ?? 'debt') === 'equity';
+  const managementFeeEquityDraw = zeros(N);
+  if (feeFundedByEquity) {
+    for (let t = 0; t < N; t++) managementFeeEquityDraw[t] = fundFees[t] ?? 0;
+  }
+
   const cashFromOps = zeros(N);
   for (let t = 0; t < N; t++) {
     // Fund fees are an operating outflow, paid in the period charged. Being
@@ -1898,22 +1979,30 @@ function computeFinancialsSnapshotOnce(
   // equityCashArr. Net BS Cash unchanged; both lines individually right.
   // equityDraws kept as the cumulative basis for Share Capital roll-up
   // (cash + in-kind both recognised on BS via Land + Share Capital).
-  const equityCashArr = financing.equity.cashPerPeriod.slice(0, N);
+  // Equity cash INCLUDING the management-fee draw when the fee is equity
+  // funded. The engine's own equity series sizes capex equity; this adds the
+  // fee on top, which is exactly what 'equity capex plus management fee'
+  // means, and it is why the fee then stops driving the deficit.
+  const equityCashArr = financing.equity.cashPerPeriod.slice(0, N)
+    .map((v, i) => v + (managementFeeEquityDraw[i] ?? 0));
   while (equityCashArr.length < N) equityCashArr.push(0);
   const equityInKindArr = financing.equity.inKindPerPeriod.slice(0, N);
   while (equityInKindArr.length < N) equityInKindArr.push(0);
   const equityExistingArr = financing.equity.existingEquityPerPeriod.slice(0, N);
   while (equityExistingArr.length < N) equityExistingArr.push(0);
   const equityDraws = equityCashArr.map((v, i) => v + (equityInKindArr[i] ?? 0));
-  // The cash statement receives BOTH drawdowns: the one that funds capex and
-  // the one that funds IDC. They are carried separately as well (see
-  // `capexDrawdownPerPeriod` / `idcDrawdownPerPeriod` on the direct CF) so the
-  // statement can show a reader each of them, but the cash total is the sum.
+  // ONLY THE CAPEX DRAWDOWN IS CASH. 2026-08-18b: the IDC drawdown is a
+  // non-cash increase in the debt balance (the interest it funds is never paid
+  // out), so it must not appear as a financing inflow. It is carried separately
+  // on the direct CF as a memo, and the debt schedule shows it growing the
+  // balance. Treating it as cash inflated the drawdown and the interest paid by
+  // the same amount, which cancelled in closing cash and broke the Finance Cost
+  // ledger instead.
   const capexDrawArr = financing.combined.totalDrawdown.slice(0, N);
   while (capexDrawArr.length < N) capexDrawArr.push(0);
   const idcDrawArr = financing.combined.totalIdcDrawdown.slice(0, N);
   while (idcDrawArr.length < N) idcDrawArr.push(0);
-  const debtDraws = capexDrawArr.map((v, i) => v + (idcDrawArr[i] ?? 0));
+  const debtDraws = capexDrawArr.slice();
   const debtRepays = financing.combined.totalPrincipalRepaid.slice(0, N);
   while (debtRepays.length < N) debtRepays.push(0);
   // 2026-08-18: read the SUMMED cash interest rather than backing it out of
@@ -1924,8 +2013,12 @@ function computeFinancialsSnapshotOnce(
   // have understated the outflow by exactly the IDC drawdown.
   const interestPaidArr = financing.combined.totalInterestPaid.slice(0, N);
   while (interestPaidArr.length < N) interestPaidArr.push(0);
-  const idcPaidArr = financing.combined.totalIdc.slice(0, N);
-  while (idcPaidArr.length < N) idcPaidArr.push(0);
+  // The FULL IDC charge, and the cash half of it. `idcAccruedArr` is what the
+  // FCFE chain deducts (with the drawdown added back); `idcPaidArr` is what the
+  // cash statement shows leaving the bank.
+  const idcAccruedArr = financing.combined.totalIdc.slice(0, N);
+  while (idcAccruedArr.length < N) idcAccruedArr.push(0);
+  const idcPaidArr = idcAccruedArr.map((v, i) => Math.max(0, v - (idcDrawArr[i] ?? 0)));
   const opInterestArr = interestPaidArr.map((v, i) => Math.max(0, v - (idcPaidArr[i] ?? 0)));
 
   const cashFromFin = zeros(N);
@@ -2125,8 +2218,10 @@ function computeFinancialsSnapshotOnce(
     capexPerPeriod: capexProj.map((v) => -v),
     capexDrawdownPerPeriod: capexDrawArr,
     idcDrawdownPerPeriod: idcDrawArr,
+    idcAccruedPerPeriod: idcAccruedArr,
     idcPaidPerPeriod: idcPaidArr,
     operatingInterestPaidPerPeriod: opInterestArr,
+    managementFeeEquityDrawPerPeriod: managementFeeEquityDraw,
     cashFromInvestmentPerPeriod: cashFromInv,
     equityDrawdownPerPeriod: equityCashArr,
     equityInKindDrawdownPerPeriod: equityInKindArr,
@@ -2175,8 +2270,10 @@ function computeFinancialsSnapshotOnce(
     capexPerPeriod: capexProj.map((v) => -v),
     capexDrawdownPerPeriod: capexDrawArr,
     idcDrawdownPerPeriod: idcDrawArr,
+    idcAccruedPerPeriod: idcAccruedArr,
     idcPaidPerPeriod: idcPaidArr,
     operatingInterestPaidPerPeriod: opInterestArr,
+    managementFeeEquityDrawPerPeriod: managementFeeEquityDraw,
     cashFromInvestmentPerPeriod: cashFromInv,
     // CASH equity only on CF. In-kind kept as a memo field.
     equityDrawdownPerPeriod: equityCashArr,

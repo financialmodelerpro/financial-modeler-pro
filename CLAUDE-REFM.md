@@ -3,6 +3,116 @@
 
 > **TRAPS RECORDED IN THIS FILE ARE COLLECTED IN [docs/TRAPS.md](docs/TRAPS.md). Read that first; it is short.** The copies below stay in place, so nothing is lost if you open this file instead. Index of what this file records: the REFM shell `zoom: 0.8` making `vh` and media queries lie (TRAPS 6.1); drag/resize needing pointer capture, not window listeners (6.2); the ExcelJS width-9 column that silently does not apply (3.1); pdf-lib CID glyph ids defeating a naive grep (4.1); the PostgREST 1000-row cap (2.1); export fingerprints needing the FIXTURE, never the live project (5.1); a zero-valued seed hiding a whole code path (7.1); a stage list written as a literal defeating exhaustiveness (7.3); a two-step template registration that fails silently and permanently (8.1); and the verifier rules (a grep proves presence not firing; never gate an assertion on the thing it asserts; prove teeth by sabotage) in TRAPS section 10.
 
+## 2026-08-18d: the finance-cost chain, six items against the reference models
+
+Corrects 2026-08-18c the same day, on the reference structure. `verify-returns-buildup`
+30 -> **37**, teeth proven by five sabotages. **NOT browser-verified.**
+
+### A. The finance cost ledger was removing the capitalised slice TWICE
+
+`interestPaid` had been set to the WHOLE accrued charge, with the capitalised
+part treated as a matching drawdown. Cash-neutral, and wrong exactly the way M4
+Pass 2P was wrong about capex and in-kind equity: both gross lines overstated by
+the same amount, the error cancelling in closing cash so nothing caught it.
+
+What did break is the Finance Cost ledger, whose own comment states the invariant
+`Opening + Accrued - Capitalised - Paid = Closing`. Measured on MARINA GATE:
+accrued 42,829k, capitalised 21,525k, paid 42,829k, and the closing balance stuck
+at **-21,525k** from 2029 on. Two definitions of cash interest had appeared and
+disagreed by exactly the capitalised total: the deficit waterfall said 21,305k
+(right), `FacilityResult.interestPaid` said 42,829k (wrong).
+
+**`interestPaid` is CASH ONLY again.** The capitalised slice increases the debt
+balance and leaves later as PRINCIPAL. The roll now closes at **0.00** on both
+projects, and both definitions agree. The cash statement also stops presenting
+the IDC drawdown as a financing inflow: it funds interest that is never paid out,
+so it renders as a memo outside the cash total.
+
+### B. FCFF is UNLEVERED: no interest line of any kind
+
+The IDC line added in 2026-08-18c comes out. FCFF is Cash from Operations
+(pre-interest) less capex INCLUDING in-kind land, plus the terminal value, which
+is what both reference models do. In-kind land STAYS: it is a real resource the
+project consumed, not a financing charge.
+
+**Project IRR 25.25% -> 28.64% (MOIC 3.113x -> 3.487x) on MARINA GATE, and
+7.04% -> 7.15% (1.763x -> 1.773x) on RE HUB.**
+
+### C. The whole finance cost flows through FCFE, gross, with the drawdown beside it
+
+FCFE deducts the FULL accrued charge and shows the IDC drawdown that funded part
+of it as its own row; the two net to the cash actually paid. **FCFE does not move:
+41.75% / 6.453x and 7.44% / 2.129x**, which is the guard: the gross presentation
+is only right if the capitalised slice comes back out later as principal, and if
+it were being dropped FCFE would fall.
+
+### D. HELD, not applied. Removing the operating finance cost from deficit sizing
+
+Built, measured, and reverted to a one-line switch because it trips the condition
+set for it. Sizing the deficit on the IDC half only would, on RE HUB:
+
+- drop net cash required from 420,532k to **263,244k**;
+- take closing cash to **-276,696k in 2026 and -288,172k in 2027**.
+
+**RE HUB is ALREADY negative before the change**: -226,653k and -230,355k in those
+years, and -230,371k measured at `0ce10096`, so the shortfall is pre-existing and
+nothing to do with this block. Item D would DEEPEN it by roughly 50,000k to
+58,000k, not create it. Auto-funding an operating shortfall with construction
+capital is a separate decision, so the change is not applied. The split series
+(`idcCashOnlyPerPeriod` / `operatingFinanceCostPerPeriod`) ARE computed and
+exposed so the schedule can show each half; only the SIZING is held, and the
+switch is one line in `financials-resolvers.ts` with the measurement beside it.
+
+**Note this also reopens the 2026-08-04 known issue** that was closed earlier the
+same day. That closure was correct for the FIXTURE (the `cp + 1` window) and is
+NOT correct for RE HUB, which still troughs negative for a different reason.
+
+### E. Cash from Operations, per-class contribution
+
+Revenue received and opex paid stay visible PER ASSET, and a per-class subtotal is
+struck from them: Residential Cash Collection (installment-based, no opex of its
+own), Hospitality EBITDA, Retail NOI. Deliberately ADDITIVE, so
+`Total Revenue Received` and `Total Operating Expenses Paid` keep their meaning
+and their position and nothing that reads them breaks.
+
+### F. The management fee funding toggle
+
+`fundTerms.managementFeeFunding`, absent means `debt`, so no saved project moves.
+`debt` keeps today: the fee sits in cash from operations and the deficit funds it
+at the project ratio. `equity` draws it as its own equity line AND credits that
+draw as cash available, so the fee stops driving the deficit; without the second
+half the fee would be funded twice, which is how it was first built and measured
+(net cash required did not move).
+
+**Measured on RE HUB (MARINA GATE has the fund layer off and cannot exercise it):**
+equity drawn 0 -> **347,832k**, exactly the fee; net cash required 420,532k ->
+**354,839k**; project and equity IRR unchanged; balance sheet balances.
+
+### Guards added
+
+- **UNLEVERED PURITY**, on the row list and on the arithmetic: no interest, IDC or
+  finance-cost row may appear in FCFF, and FCFF must reconstruct with no interest
+  term at all. The label check deliberately does not fire on "pre-interest" in the
+  Cash from Operations caption.
+- **THE FINANCE COST ROLL FOOTS**: closes at zero every period, cash-paid equals
+  accrued less capitalised, and the capitalised slice is non-zero on the fixture so
+  neither check can pass vacuously.
+
+### Final figures, for the browser read
+
+| | Project IRR | Project MOIC | Equity IRR | Equity MOIC | Dividend IRR |
+|---|---|---|---|---|---|
+| FMP - MARINA GATE | **28.64%** | **3.487x** | **41.75%** | **6.453x** | 31.54% |
+| FMP RE HUB | **7.15%** | **1.773x** | **7.44%** | **2.129x** | 7.39% |
+
+Balance sheet 0.00 on both. Suite green: `verify-returns-buildup` 37,
+`verify-returns-snapshot` 100, `verify-funding-methods` 95,
+`verify-m4-bs-reconciliation` 187, `verify-m4-reconciliation-broad` 24,
+`verify-cf-capex-foot` 63, `verify-fund-fees` 138, `verify-fund-e2e` 86,
+`verify-report-arithmetic` 78, `verify-report-consistency` 60,
+`verify-excel-export` 304, `verify-fund-excel` 75, `verify-report-readability` 55,
+`verify-report-presentation` 92, `verify-fund-pdf` 49, `verify-pdf-export` 58.
+
 ## 2026-08-18c: FCFF is full cost, FCFE chains from it, and IDC has one treatment
 
 Three corrections to the returns build-ups and IDC, matching the reference.

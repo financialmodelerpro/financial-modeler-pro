@@ -335,22 +335,34 @@ export function computeFacilitySchedule(
     // rest. The three old toggles (capitalize / fundingMode / the implicit
     // window) are gone; `capitalizeInterest` is now always true.
     //
-    // WHY BOTH MOVEMENTS ARE BOOKED. The old 'debt_drawdown' branch grew the
-    // balance and left `interestPaid` at zero, so the interest never appeared
-    // in the cash statement at all: no drawdown row, no payment row, just a
-    // bigger balance. Booking the payment AND the drawdown is cash-neutral
-    // (they net to the same closing cash) and lets a reader see both.
+    // `interestPaid` IS CASH ONLY. 2026-08-18b, correcting 2026-08-18a.
+    //
+    // The first version of this block set `interestPaid = interest` (the whole
+    // charge) and treated the capitalised slice as a matching drawdown, on the
+    // reasoning that the interest is "paid, funded by debt". Cash-neutral, and
+    // wrong the same way M4 Pass 2P was wrong about capex and in-kind equity:
+    // BOTH gross lines were overstated by the capitalised amount and the error
+    // cancelled in closing cash, so nothing caught it. What DID break was the
+    // Finance Cost ledger, whose stated invariant is
+    //     Opening + Accrued - Capitalised - Paid = Closing
+    // and which walked to a stuck -21,525 on the live project, exactly the
+    // capitalised total, because that slice was removed twice.
+    //
+    // The capitalised slice never moves cash: it increases the debt balance and
+    // leaves as PRINCIPAL later. So `interestPaid` carries only what actually
+    // left the bank, and `interestCapitalized` is a non-cash balance movement.
+    // The gross presentation the returns build-up wants (full charge deducted,
+    // IDC drawdown added back) is built in the FCFE chain, not here.
     const constructionRunning = !isExisting && (constructionSpendByPeriod?.[i] ?? 0) > 0;
     if (constructionRunning) {
       interestDuringConstruction[i] = interest;
       interestForAssetBasis[i] = interest;
-      // Pay it, all of it, in the period it arises.
-      interestPaid[i] = interest;
-      // Draw debt only for what cash could not cover.
+      // Cash first, up to the headroom above the minimum cash target.
       const avail = Math.max(0, remainingIdcBudget?.[i] ?? 0);
       const fromCash = Math.min(interest, avail);
       const drawnForIdc = interest - fromCash;
       if (fromCash > 0) {
+        interestPaid[i] = fromCash;
         interestCapitalizedCashPaid[i] = fromCash;
         if (remainingIdcBudget) remainingIdcBudget[i] = avail - fromCash;
       }

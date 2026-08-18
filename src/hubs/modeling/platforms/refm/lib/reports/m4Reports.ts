@@ -704,30 +704,34 @@ function buildFinancingRows(ctx: M4ReportCtx, cffSubtotal: number[]): M4Row[] {
     }
     return out;
   };
-  // 2026-08-18. Four changes, all so a reader can see the IDC:
-  //  - the drawdown is SPLIT into the part that funds capex and the part that
-  //    funds IDC, because they answer different questions;
-  //  - the finance cost is SPLIT the same way, into IDC (capitalised into the
-  //    asset) and the operating finance cost;
-  //  - IDC is now genuinely PAID, so it appears in the cost rows rather than
-  //    only as a bigger balance;
-  //  - the old `Finance Cost (Capitalised via IDC drawdown)` contra row is
-  //    GONE. It existed to offset a drawdown whose interest was never paid.
-  //    Keeping it now would deduct the IDC twice.
+  // 2026-08-18b. THE CASH STATEMENT SHOWS CASH ONLY.
+  //  - the drawdown is SPLIT, and only the CAPEX half is a cash inflow. The IDC
+  //    drawdown never reaches the bank (it funds interest that is never paid
+  //    out), so it renders as a MEMO beneath, outside the cash total;
+  //  - the finance cost is SPLIT into the IDC actually paid in cash and the
+  //    operating finance cost, and both are real outflows;
+  //  - the capitalised IDC appears NOWHERE as cash. It grew the debt balance
+  //    and leaves later inside Debt Repayment.
+  // The gross presentation (full charge, drawdown added back) belongs to the
+  // FCFE build-up, which is a return measure, not a cash statement.
   const pushDebtBucket = (origin: 'existing' | 'new', label: string, opening?: number): void => {
     const draw = sumOrigin(origin, 'drawSchedule');
     const drawIdc = sumOrigin(origin, 'interestCapitalized');
     const repaid = sumOrigin(origin, 'principalRepaid');
     const intPaid = sumOrigin(origin, 'interestPaid');
+    // The IDC actually settled in cash is the charge less the slice funded by
+    // drawing debt. `intPaid` is already cash-only, so the operating half is
+    // simply what is left after the cash IDC.
     const idc = sumOrigin(origin, 'interestDuringConstruction');
-    const opInt = intPaid.map((v, i) => v - (idc[i] ?? 0));
+    const idcCash = idc.map((v, i) => Math.max(0, v - (drawIdc[i] ?? 0)));
+    const opInt = intPaid.map((v, i) => v - (idcCash[i] ?? 0));
     if (draw.some((v) => v !== 0) || (opening ?? 0) > 0) {
       rows.push({ label: `Debt Drawdown for Capex, ${label}`, values: draw, indent: 1, ...(opening !== undefined ? { priorValue: opening } : {}) });
     }
-    if (drawIdc.some((v) => v !== 0)) rows.push({ label: `Debt Drawdown for IDC, ${label}`, values: drawIdc, indent: 1 });
-    if (repaid.some((v) => v !== 0)) rows.push({ label: `Debt Repayment, ${label}`, values: repaid.map((v) => -v), indent: 1 });
-    if (idc.some((v) => v !== 0)) rows.push({ label: `Interest During Construction paid (capitalised into asset cost), ${label}`, values: idc.map((v) => -v), indent: 1 });
+    if (repaid.some((v) => v !== 0)) rows.push({ label: `Debt Repayment (incl. the capitalised IDC), ${label}`, values: repaid.map((v) => -v), indent: 1 });
+    if (idcCash.some((v) => Math.abs(v) > 0.005)) rows.push({ label: `Interest During Construction paid in cash, ${label}`, values: idcCash.map((v) => -v), indent: 1 });
     if (opInt.some((v) => Math.abs(v) > 0.005)) rows.push({ label: `Finance Cost Paid, operating, ${label}`, values: opInt.map((v) => -v), indent: 1 });
+    if (drawIdc.some((v) => v !== 0)) rows.push({ label: `(memo) IDC capitalised to debt, non-cash, ${label}`, values: drawIdc, indent: 2 });
   };
   pushDebtBucket('existing', 'Existing loans', existingOpening);
   pushDebtBucket('new', 'New loans');
@@ -817,6 +821,45 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
   }
   if (d.hqOpexPaidPerPeriod.some((v) => v !== 0)) {
     rows.push({ label: 'HQ Expenses', values: d.hqOpexPaidPerPeriod, indent: 1 });
+  }
+
+  // ITEM E (2026-08-18b): PER-CLASS CONTRIBUTION, struck from the rows above.
+  //
+  // Residential is a cash COLLECTION (installments during construction, no
+  // operating cost of its own); hospitality contributes EBITDA and retail
+  // contributes NOI, each being that class's revenue received less its opex
+  // paid. The per-asset revenue and opex rows are NOT collapsed into these:
+  // they stay visible above, and these are the subtotals a reader could
+  // otherwise only get with a calculator. Deliberately additive, so
+  // `Total Revenue Received` and `Total Operating Expenses Paid` keep their
+  // meaning and their position.
+  {
+    const contribution: Array<{ label: string; series: number[] }> = [];
+    if (residentialAssets.length > 0) {
+      const rev = sumAssetSeries(residentialAssets, 'revenueReceivedPerPeriod');
+      const opx = sumAssetSeries(residentialAssets, 'opexPaidPerPeriod');
+      if (rev.some((v) => v !== 0)) {
+        contribution.push({ label: '= Residential Cash Collection', series: rev.map((v, i) => v - (opx[i] ?? 0)) });
+      }
+    }
+    if (hospitalityAssets.length > 0) {
+      const rev = sumAssetSeries(hospitalityAssets, 'revenueReceivedPerPeriod');
+      const opx = sumAssetSeries(hospitalityAssets, 'opexPaidPerPeriod');
+      if (rev.some((v) => v !== 0) || opx.some((v) => v !== 0)) {
+        contribution.push({ label: '= Hospitality EBITDA', series: rev.map((v, i) => v - (opx[i] ?? 0)) });
+      }
+    }
+    if (retailAssets.length > 0) {
+      const rev = sumAssetSeries(retailAssets, 'revenueReceivedPerPeriod');
+      const opx = sumAssetSeries(retailAssets, 'opexPaidPerPeriod');
+      if (rev.some((v) => v !== 0) || opx.some((v) => v !== 0)) {
+        contribution.push({ label: '= Retail NOI', series: rev.map((v, i) => v - (opx[i] ?? 0)) });
+      }
+    }
+    if (contribution.length > 0) {
+      rows.push({ label: 'CONTRIBUTION BY ASSET CLASS', values: [], isSection: true });
+      for (const c of contribution) rows.push({ label: c.label, values: c.series, isSubtotal: true });
+    }
   }
   rows.push({ label: 'Total Operating Expenses Paid', values: d.opexPaidPerPeriod.map((v, i) => v + (d.hqOpexPaidPerPeriod[i] ?? 0)), isSubtotal: true });
 
