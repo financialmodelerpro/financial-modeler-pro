@@ -293,6 +293,13 @@ export interface FundTerms {
    *  layer is on, which is why it lives here and not on the Parties tab. */
   fundManagerName: string;
 
+  /** HOW THE MANAGEMENT FEE IS FUNDED (2026-08-18f). 'deficit' = through cash
+   *  deficit funding at the project debt/equity ratio like any other outflow
+   *  (the default, and what the reference model does); 'equity' = 100% by a
+   *  dedicated equity draw, removed from the deficit and drawn on top of the
+   *  ratio split. */
+  managementFeeFunding: 'deficit' | 'equity';
+
   /**
    * The TARGET fund size, used when `fundSizeOverride` is on or when the model
    * raises no capital.
@@ -356,6 +363,7 @@ export type LegacyFeeBase = typeof LEGACY_FEE_BASES[number];
 export const DEFAULT_FUND_TERMS: FundTerms = {
   enabled: false,
   fundManagerName: DEFAULT_FUND_MANAGER_NAME,
+  managementFeeFunding: 'deficit',
   fundSize: 0,
   fundSizeOverride: false,
   facilityLimit: 0,
@@ -488,6 +496,8 @@ export function resolveFundTerms(project: Pick<Project, 'fundTerms'> | null | un
     enabled: raw.enabled === true,
     fundManagerName: typeof raw.fundManagerName === 'string' && raw.fundManagerName.trim()
       ? raw.fundManagerName.trim() : DEFAULT_FUND_MANAGER_NAME,
+    // 'debt' is the 18b spelling of the default; normalised on read.
+    managementFeeFunding: raw.managementFeeFunding === 'equity' ? 'equity' : 'deficit',
     fundSize: nonNegative(raw.fundSize),
     fundSizeOverride: raw.fundSizeOverride === true,
     facilityLimit: nonNegative(raw.facilityLimit),
@@ -527,6 +537,7 @@ export function toFundTermsPatch(t: FundTerms): FundTermsPatch {
   return {
     enabled: t.enabled,
     fundManagerName: t.fundManagerName,
+    managementFeeFunding: t.managementFeeFunding,
     fundSize: t.fundSize,
     fundSizeOverride: t.fundSizeOverride,
     facilityLimit: t.facilityLimit,
@@ -574,6 +585,8 @@ export interface FundTermsRow {
   facility_limit_override?: boolean;
   // Migration 211
   fund_size_override?: boolean;
+  // Migration 215
+  management_fee_funding?: string | null;
 }
 
 export function fromRow(row: Partial<FundTermsRow> | null | undefined): FundTerms {
@@ -581,6 +594,7 @@ export function fromRow(row: Partial<FundTermsRow> | null | undefined): FundTerm
   return {
     enabled: row.fund_enabled === true,
     fundManagerName: typeof row.fund_manager_name === 'string' && row.fund_manager_name.trim() ? row.fund_manager_name.trim() : DEFAULT_FUND_MANAGER_NAME,
+    managementFeeFunding: row.management_fee_funding === 'equity' ? 'equity' : 'deficit',
     // Key order deliberately matches the FundTerms interface and
     // DEFAULT_FUND_TERMS, because verify-fund-terms compares the row and
     // snapshot round trips with JSON.stringify, which is order sensitive.
@@ -624,14 +638,24 @@ export function toRow(t: FundTerms): Required<FundTermsRow> {
     fee_distribution: t.feeDistribution,
     fund_manager_name: t.fundManagerName,
     facility_limit_override: t.facilityLimitOverride,
+    management_fee_funding: t.managementFeeFunding,
   };
+}
+
+/** The migrations 208 through 211 subset, for a database where 215 is not
+ *  applied. The fee-funding choice still rides in the version snapshot, which
+ *  is what the engine reads. */
+export function toRow211(t: FundTerms): FundTermsRow {
+  const row: Record<string, unknown> = { ...toRow(t) };
+  delete row.management_fee_funding;
+  return row as unknown as FundTermsRow;
 }
 
 /** The migrations 208 + 209 + 210 subset, for a database where 211 is not
  *  applied. The fund-size override still rides in the version snapshot, which
- *  is what the engine reads. */
+ *  is what the engine reads. Every lower tier strips the 215 column too. */
 export function toRow210(t: FundTerms): FundTermsRow {
-  const row: Record<string, unknown> = { ...toRow(t) };
+  const row: Record<string, unknown> = { ...toRow211(t) };
   delete row.fund_size_override;
   return row as unknown as FundTermsRow;
 }
@@ -640,7 +664,7 @@ export function toRow210(t: FundTerms): FundTermsRow {
  *  The Fund Manager name and the override flag still ride in the version
  *  snapshot, which is what the engine reads. */
 export function toRow209(t: FundTerms): FundTermsRow {
-  const row: Record<string, unknown> = { ...toRow(t) };
+  const row: Record<string, unknown> = { ...toRow211(t) };
   delete row.fund_manager_name;
   delete row.facility_limit_override;
   delete row.fund_size_override;

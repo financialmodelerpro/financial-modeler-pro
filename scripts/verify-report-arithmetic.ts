@@ -172,10 +172,9 @@ async function runFor(tag: string, state: any): Promise<void> {
   // subtotal, backs out the two things FCFF carries that the levered stream
   // replaces, and adds the financing legs. No in-kind term and no IDC term:
   // both are inside the FCFF subtotal already.
-  // 2026-08-18c: four steps from the PRE-terminal FCFF, plus the in-kind credit.
+  // 2026-08-18f: four steps from the PRE-terminal FCFF. No in-kind credit.
   const fcfeRebuilt = rs.fcfePerPeriod.map((_: number, i: number) =>
     (bu.existingEquityPerPeriod[i] ?? 0) + (bu.fcffSubtotalPerPeriod[i] ?? 0)
-    + (bu.inKindEquityCreditPerPeriod[i] ?? 0)
     + (bu.netDebtPerPeriod[i] ?? 0)
     + (bu.financeCostPerPeriod[i] ?? 0)
     + (bu.terminalEquityPerPeriod[i] ?? 0));

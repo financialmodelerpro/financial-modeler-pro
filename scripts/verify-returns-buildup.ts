@@ -18,11 +18,14 @@
  *   terminal value. UNLEVERED: no interest of any kind, IDC included.
  *
  *   FCFE. FOUR steps from the PRE-TERMINAL FCFF: plus net debt, less the full
- *   finance cost, plus the terminal value less closing debt. Plus one row the
- *   reference does not carry and this model does deliberately: the in-kind
- *   land is charged in FCFF (a real resource) and CREDITED in FCFE (a real
- *   equity contribution), so across the pair it is charged once and credited
- *   once, and FCFE is the return on cash equity.
+ *   finance cost, plus the terminal value less closing debt. NO in-kind credit:
+ *   FCFF charges the full land including in-kind and FCFE inherits it, exactly
+ *   as the reference does, so FCFE is the return on TOTAL equity.
+ *
+ *   FEE FUNDING. A toggle: 'deficit' (default, matches the reference) funds
+ *   the management fee through cash deficit funding at the project ratio;
+ *   'equity' removes it from the deficit and draws it as dedicated equity.
+ *   Both paths must work AT THE ENGINE, and neither may fund the fee twice.
  *
  *   EQUITY. The draw is one line whose total never changes, with a MEMO
  *   attributing it pro rata across what it funded: capex, fund fees, operating
@@ -106,9 +109,10 @@ if (SAB === 2) {
   for (let t = 0; t < rs.fcffPerPeriod.length; t++) rs.fcffPerPeriod[t] -= (b.inKindLandPerPeriod[t] ?? 0);
 }
 if (SAB === 3) {
-  // 3: FCFE forgets the in-kind credit, so the equity holder is charged for
-  //    land they contributed and never credited for contributing it.
-  for (let t = 0; t < rs.fcfePerPeriod.length; t++) rs.fcfePerPeriod[t] -= (b.inKindEquityCreditPerPeriod[t] ?? 0);
+  // 3: FCFE CREDITS the in-kind land back, the add-back that was built and
+  //    then reverted on 2026-08-18: it makes FCFE the return on cash equity
+  //    only, which the reference does not do.
+  for (let t = 0; t < rs.fcfePerPeriod.length; t++) rs.fcfePerPeriod[t] -= (b.inKindLandPerPeriod[t] ?? 0);
 }
 if (SAB === 4) {
   // 4: the classification reverts to a phase window: a period with real
@@ -267,15 +271,17 @@ check('the FCFE chain is the reference four steps: FCFF, Net Debt, Finance Cost,
   && FCFE_BUILDUP_LABELS.some((l) => l.includes('Terminal Value less Closing Debt')), FCFE_BUILDUP_LABELS.join(' | '));
 check('it chains from PRE-TERMINAL FCFF, so it carries NO removal rows',
   !FCFE_BUILDUP_LABELS.some((l) => /in FCFF above|removal|back(ed)? out/i.test(l)));
-check('it is SHORT: at most six rows before the total', FCFE_BUILDUP_LABELS.length <= 7, `${FCFE_BUILDUP_LABELS.length} labels`);
+check('it is SHORT: at most five rows before the total', FCFE_BUILDUP_LABELS.length <= 6, `${FCFE_BUILDUP_LABELS.length} labels`);
 check('exactly ONE finance-cost row', FCFE_BUILDUP_LABELS.filter((l) => /finance cost/i.test(l)).length === 1);
-// THE IN-KIND PAIR: charged in FCFF, credited in FCFE, both present, equal and opposite.
-check('in-kind land is CHARGED in FCFF (a (-) row) and CREDITED in FCFE (a (+) row)',
-  FCFF_BUILDUP_LABELS.some((l) => /In-Kind/i.test(l) && l.startsWith('(-)'))
-  && FCFE_BUILDUP_LABELS.some((l) => /In-Kind/i.test(l) && l.startsWith('(+)')));
-check('the two in-kind rows are equal and opposite, every period',
-  Array.from({ length: rs.fcffPerPeriod.length }, (_, i) =>
-    Math.abs((b.inKindLandPerPeriod[i] ?? 0) + (b.inKindEquityCreditPerPeriod[i] ?? 0)) < 0.01).every(Boolean));
+// NO IN-KIND CREDIT. In-kind land is charged in FCFF (a (-) row) and FCFE
+// inherits it: no in-kind row of any sign appears in the FCFE chain. This is
+// the reference treatment and it is pinned because the credit was built once
+// and had to be reverted.
+check('in-kind land is CHARGED in FCFF (a (-) row)',
+  FCFF_BUILDUP_LABELS.some((l) => /In-Kind/i.test(l) && l.startsWith('(-)')));
+check('and NO in-kind row of any sign appears in FCFE (FCFE inherits the charge, as the reference does)',
+  !FCFE_BUILDUP_LABELS.some((l) => /in-kind/i.test(l)),
+  FCFE_BUILDUP_LABELS.filter((l) => /in-kind/i.test(l)).join(' | '));
 {
   const rows = buildFcfeBuildup(rs, m4StreamRow);
   const comps = rows.slice(0, -1);
@@ -283,13 +289,15 @@ check('the two in-kind rows are equal and opposite, every period',
     rs.fcfePerPeriod.every((v, t) => Math.abs(comps.reduce((a, r) => a + (r.values[t] ?? 0), 0) - v) < 0.01));
 }
 // THE IDENTITY. FCFE must equal the equity holder's actual net cash, rebuilt
-// from the cash statement independently of the returns engine. The in-kind
-// pair nets to zero across FCFF and FCFE, so it does not appear here.
+// from the cash statement independently of the returns engine, LESS the
+// in-kind land (which FCFE inherits from FCFF as a charge; it is not a cash
+// movement, and the reference charges it the same way).
 {
   let worst = 0, at = -1;
   for (let t = 0; t < N; t++) {
     const equityCash = (d.cashFromOperationsPerPeriod[t] ?? 0)
       + (d.capexPerPeriod[t] ?? 0)                        // negative: cash capex
+      - (snap.financing.capex.perPeriod.landInKind[t] ?? 0) // in-kind, charged in FCFF, inherited
       - (d.idcPaidPerPeriod[t] ?? 0)                      // the FULL IDC charge, paid
       - (d.operatingInterestPaidPerPeriod[t] ?? 0)
       + (d.capexDrawdownPerPeriod[t] ?? 0) + (d.idcDrawdownPerPeriod[t] ?? 0)
@@ -328,6 +336,66 @@ console.log('\n-- 5. The cash flow: reference line structure, and the equity mem
     rows.some((r) => r.label === 'Equity Drawdown (Cash)') && has('(memo) of which for capex'));
   check('every memo bucket is non-negative', [d.equityForCapexPerPeriod, d.equityForFundFeesPerPeriod, d.equityForOperatingShortfallPerPeriod, d.equityForFinanceCostPerPeriod]
     .every((s) => s.every((v) => v >= -0.01)));
+}
+// ── 5b. The management fee funding toggle, both paths, at the ENGINE ─────────
+console.log('\n-- 5b. Fee funding: deficit path and equity path, neither funds the fee twice --');
+{
+  // A fund-enabled variant of the fixture, so there is a fee to fund. Both
+  // paths are exercised on the SAME project and compared.
+  const withFund = (mode: 'deficit' | 'equity' | 'debt'): State => {
+    const st = build();
+    (st.project as unknown as { fundTerms: unknown }).fundTerms = {
+      enabled: true, fundSize: 0, fundSizeOverride: false, facilityLimit: 0, facilityLimitOverride: false,
+      fundStructureFeePct: 0.01, fundManagementFeePct: 0.01, custodyAdminFeePct: 0.0025,
+      debtArrangingFeePct: 0.005, otherExpensesPerAnnum: 1_000_000, performanceFeePct: 0.2, hurdleRatePct: 0.08,
+      fundManagerName: 'FM', feeDistribution: [], managementFeeFunding: mode,
+    };
+    const fin = (st.project as unknown as { financing: { fundingMethod: number; minimumCashReserve: number } }).financing;
+    fin.fundingMethod = 3; fin.minimumCashReserve = 5_000_000;
+    return st;
+  };
+  const sDef = computeFinancialsSnapshot(withFund('deficit'));
+  const sEq = computeFinancialsSnapshot(withFund('equity'));
+  const sLegacy = computeFinancialsSnapshot(withFund('debt'));
+  const feeDef = sum(sDef.fundFees.totalPerPeriod);
+  check('the fund fixture charges a real fee (else this section is vacuous)', feeDef > 0, M(feeDef));
+  check('DEFICIT path: no dedicated fee draw', sum(sDef.directCF.managementFeeEquityDrawPerPeriod) < 0.01);
+  check('EQUITY path: the dedicated equity draw equals the fee, every period',
+    Array.from({ length: N }, (_, t) => Math.abs((sEq.directCF.managementFeeEquityDrawPerPeriod[t] ?? 0) - (sEq.fundFees.totalPerPeriod[t] ?? 0)) < 0.01).every(Boolean));
+  // The ENGINE's equity series must carry the dedicated draw, which is how you
+  // know it is not a post-hoc overlay: engine equity on the equity path equals
+  // the ratio share of the (now smaller) deficit PLUS the fee. A naive "rises
+  // by the fee" check is wrong, because the deficit itself shrank by the fee
+  // and its 30% equity share shrank with it (measured: +17.2m, not +23.1m).
+  {
+    // Read the engine's OWN split rather than reconstructing the deficit from
+    // the cash statement, which also carries the IDC drawdown (outside the
+    // ratio) and over-counts. The engine's equity is the ratio share of the
+    // deficit-sized debt PLUS the dedicated fee: debt / 0.70 x 0.30 + fee.
+    const eqRatio = 0.30, debtRatio = 0.70;
+    const engineDebtEq = sum(sEq.financing.debtEquitySplit.debt);
+    const engineEquityEq = sum(sEq.financing.debtEquitySplit.equity);
+    const impliedEquity = engineDebtEq / debtRatio * eqRatio + feeDef;
+    check('EQUITY path: the ENGINE split carries the fee as equity on top of the ratio (equity = debt x 30/70 + fee)',
+      Math.abs(engineEquityEq - impliedEquity) < Math.max(1, feeDef * 0.05),
+      `engine equity ${M(engineEquityEq)} vs debt ${M(engineDebtEq)} x 30/70 + fee ${M(feeDef)} = ${M(impliedEquity)}`);
+    check('EQUITY path: the deficit-sized debt is LOWER than on the deficit path (the fee left the deficit)',
+      engineDebtEq < sum(sDef.financing.debtEquitySplit.debt) - 1,
+      `${M(engineDebtEq)} vs ${M(sum(sDef.financing.debtEquitySplit.debt))}`);
+  }
+  // NOT FUNDED TWICE: total new funding on the equity path may exceed the
+  // deficit path by AT MOST the fee. If the fee were still inside the deficit
+  // as well, the excess would approach twice the fee.
+  const newFundDef = sum(sDef.directCF.debtDrawdownPerPeriod) + sum(sDef.directCF.equityDrawdownPerPeriod);
+  const newFundEq = sum(sEq.directCF.debtDrawdownPerPeriod) + sum(sEq.directCF.equityDrawdownPerPeriod);
+  check('EQUITY path does NOT fund the fee twice (extra funding <= the fee, within the solver)',
+    newFundEq - newFundDef <= feeDef * 1.05 + 1, `extra ${M(newFundEq - newFundDef)} vs fee ${M(feeDef)}`);
+  check('both paths keep the balance sheet balanced',
+    Math.max(...sDef.bs.bsDifferencePerPeriod.map((v) => Math.abs(v))) < 1
+    && Math.max(...sEq.bs.bsDifferencePerPeriod.map((v) => Math.abs(v))) < 1);
+  check('the legacy debt spelling resolves to the deficit path',
+    sum(sLegacy.directCF.managementFeeEquityDrawPerPeriod) < 0.01
+    && Math.abs(sum(sLegacy.directCF.equityDrawdownPerPeriod) - sum(sDef.directCF.equityDrawdownPerPeriod)) < 1);
 }
 
 // ── 6. Nothing else moved ────────────────────────────────────────────────────

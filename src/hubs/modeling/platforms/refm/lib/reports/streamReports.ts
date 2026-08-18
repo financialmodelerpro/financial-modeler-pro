@@ -48,7 +48,6 @@ export interface StreamBuildupSource {
     financeCostPerPeriod: number[];
     fcffSubtotalPerPeriod: number[];
     netDebtPerPeriod: number[];
-    inKindEquityCreditPerPeriod: number[];
     debtDrawPerPeriod: number[];
     idcDrawPerPeriod: number[];
     principalRepayPerPeriod: number[];
@@ -110,14 +109,12 @@ const FCFF_ROWS: readonly BuildupRowDef[] = [
 // repaid, because that is what the reference sums into its "Net Debt" line. The
 // capex-versus-IDC split lives in the financing schedule.
 //
-// The in-kind equity credit is the fifth row and it is deliberate, not a
-// reference row: FCFF charges the full land including the in-kind portion, so
-// without crediting the contribution here the equity holder would be charged
-// for land they provided and never credited for providing it.
+// No in-kind row here. FCFF charges the full land including in-kind and FCFE
+// inherits it, exactly as the reference does (2026-08-18f, reverting a credit
+// row that was never asked for).
 const FCFE_ROWS: readonly BuildupRowDef[] = [
   { label: '(-) Existing Equity Investment (at inception)', pick: 'existingEquityPerPeriod' },
   { label: '(=) FCFF (unlevered, before terminal value)', pick: 'fcffSubtotalPerPeriod' },
-  { label: '(+) In-Kind Equity Contributed (charged in FCFF, credited here)', pick: 'inKindEquityCreditPerPeriod' },
   { label: '(+) Net Debt (total drawdown less principal repaid)', pick: 'netDebtPerPeriod' },
   { label: '(-) Finance Cost (full accrued charge, incl. IDC)', pick: 'financeCostPerPeriod' },
   { label: '(+) Terminal Value less Closing Debt', pick: 'terminalEquityPerPeriod' },

@@ -124,17 +124,17 @@ export function buildSponsorStreamsForExit(
     fcff[t + 1] = base;
     fcffBeforeTerminal[t + 1] = base;
     // FCFE = FCFF, plus net debt, less the finance cost, plus (at exit) the
-    // levered terminal. Two things ride inside those steps:
+    // levered terminal. NET DEBT is the TOTAL drawdown, capex plus IDC, less
+    // principal repaid: the reference sums exactly those two rows into one
+    // "Net Debt" line.
     //
-    //  - NET DEBT is the TOTAL drawdown, capex plus IDC, less principal repaid.
-    //    The reference sums exactly those two rows into one "Net Debt" line.
-    //  - IN-KIND EQUITY IS CREDITED BACK. FCFF charges the full land including
-    //    the in-kind portion, because the project really did consume that land.
-    //    The equity holder CONTRIBUTED it, so charging them for it without ever
-    //    crediting the contribution would leave it charged once and credited
-    //    never. Crediting it here makes FCFE the return on CASH equity.
+    // NO IN-KIND CREDIT. 2026-08-18f, reverting an add-back that was built the
+    // same day and never asked for. FCFF charges the full land including the
+    // in-kind portion and FCFE inherits that charge, which is what the
+    // reference does (its Returns R104 = the FCFF subtotal, and R105 / R106
+    // are debt and finance cost only). FCFE is therefore the return on TOTAL
+    // equity, cash plus in-kind; the reference measures the same thing.
     fcfe[t + 1] = base
-      + (inp.inKindAxis[t] ?? 0)
       - (inp.financeCostAxis[t] ?? 0)
       + (inp.debtDrawAxis[t] ?? 0) + (inp.idcDrawAxis[t] ?? 0)
       + (inp.principalAxis[t] ?? 0);

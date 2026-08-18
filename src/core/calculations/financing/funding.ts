@@ -13,6 +13,12 @@ import type { CapexAggregate, FundingRequirement } from './types';
 export interface FundingGapInputs {
   method2PerPeriod: number[];
   method3PerPeriod: number[];
+  /** Equity drawn for a SPECIFIC purpose OUTSIDE the deficit and outside the
+   *  debt/equity ratio (2026-08-18f): today, the management fee when the fund
+   *  terms say it is 100% equity funded. The deficit above has ALREADY had that
+   *  outflow removed, so this is additive: it never double-funds. Absent means
+   *  none, which is every project until the toggle is set. */
+  dedicatedEquityByPeriod?: number[];
 }
 
 /** Normalise a debt / equity pair to percentages summing to 100 (default 70/30). */
@@ -144,6 +150,14 @@ export function computeFundingRequirement(
       selectedByPeriod = gapForDisplay.slice();
       customDebtByPeriod = gapForDisplay.map((v) => v * debtFrac);
       customEquityByPeriod = gapForDisplay.map((v) => v * equityFrac);
+      // Dedicated equity (an equity-funded fee) is drawn ON TOP of the ratio
+      // split, as equity only. It was removed from the deficit before the
+      // deficit was sized, so adding it here funds it exactly once.
+      const dedicated = gapInputs.dedicatedEquityByPeriod;
+      if (dedicated && dedicated.some((v) => (v ?? 0) > 0)) {
+        customEquityByPeriod = customEquityByPeriod.map((v, i) => v + Math.max(0, dedicated[i] ?? 0));
+        selectedByPeriod = selectedByPeriod.map((v, i) => v + Math.max(0, dedicated[i] ?? 0));
+      }
     } else {
       selectedByPeriod = exclLandInKindByPeriod.slice();
     }

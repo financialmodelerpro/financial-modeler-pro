@@ -379,8 +379,10 @@ console.log('\n=== 5. The two stores agree, and retired columns still resolve ==
   check('every 209 column is added by migration 209', extCols.every((c) => new RegExp(`ADD COLUMN IF NOT EXISTS ${c}\\b`).test(sql209)), extCols.join(','));
   // The fallback is now a three-tier walk (210 -> 209 -> 208), because the
   // Fund Manager columns can lag exactly as the 209 columns did.
-  check('the server knows four schema tiers', /type SchemaTier = 208 \| 209 \| 210 \| 211/.test(serverFile));
-  check('it walks them highest first', /TIERS: SchemaTier\[\] = \[211, 210, 209, 208\]/.test(serverFile));
+  // 2026-08-18f: five tiers, 215 (fee funding) above 211.
+  check('the server knows five schema tiers', /type SchemaTier = 208 \| 209 \| 210 \| 211 \| 215/.test(serverFile));
+  check('it walks them highest first', /TIERS: SchemaTier\[\] = \[215, 211, 210, 209, 208\]/.test(serverFile));
+  check('it recognises the 215 column as steppable', /management_fee_funding/.test(serverFile));
   check('it recognises the 211 column as steppable', /fund_size_override/.test(serverFile));
   check('it has a row shape for every tier',
     /toRow\(t\)/.test(serverFile) && /toRow209\(t\)/.test(serverFile) && /toLegacyRow\(t\)/.test(serverFile));

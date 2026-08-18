@@ -392,6 +392,41 @@ export default function Module1FundTerms({ projectId }: { projectId: string | nu
             style={{ ...FAST_INPUT, background: '#FFFFFF' }}
           />
         </div>
+
+        {/* HOW THE MANAGEMENT FEE IS FUNDED (2026-08-18f). Two paths, and until
+            this toggle existed the model did neither cleanly: the fee simply fell
+            into the undifferentiated deficit draw. */}
+        <div style={{ marginTop: 'var(--sp-3)' }}>
+          <label style={label}>How the management fee is funded</label>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }} data-testid="fund-terms-fee-funding">
+            {([
+              ['deficit', 'Cash deficit funding (project debt / equity ratio)'],
+              ['equity', '100% equity (dedicated equity draw)'],
+            ] as const).map(([value, text]) => {
+              const active = terms.managementFeeFunding === value;
+              return (
+                <button
+                  key={value} type="button" data-testid={`fund-terms-fee-funding-${value}`}
+                  onClick={() => patch({ managementFeeFunding: value })}
+                  style={{
+                    padding: '6px 12px', borderRadius: 'var(--radius-sm)', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                    border: `1px solid ${active ? NAVY : 'var(--color-border)'}`,
+                    background: active ? NAVY : 'var(--color-surface)',
+                    color: active ? '#FFFFFF' : NAVY,
+                  }}
+                >{text}</button>
+              );
+            })}
+          </div>
+          <div style={{ ...helpText, marginTop: 4 }}>
+            <strong>Cash deficit funding</strong> (the default, and what the reference structure does): the fee sits
+            inside cash from operations, lowers cash available, and is funded through the deficit at the project
+            debt / equity ratio like any other outflow.
+            {' '}<strong>100% equity</strong>: the fee is removed from the deficit and drawn as a dedicated equity line
+            on top of the ratio split, so total equity is equity capex plus the management fee. The cash flow names
+            it either way.
+          </div>
+        </div>
       </div>
 
       {/* ── Fund management fees, rendered from FUND_FEE_SPECS ──────────── */}

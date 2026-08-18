@@ -125,9 +125,10 @@ console.log('=== M5 Returns snapshot integration ===');
     // credited back, plus net debt, less the full finance cost, plus the
     // levered terminal. No removal rows: chaining from the PRE-terminal FCFF is
     // what makes them unnecessary.
+    // 2026-08-18f: NO in-kind credit. FCFF charges the full land and FCFE
+    // inherits it, exactly as the reference does.
     const fcfeSum = bld.existingEquityPerPeriod[t]
       + bld.fcffSubtotalPerPeriod[t]
-      + bld.inKindEquityCreditPerPeriod[t]
       + bld.netDebtPerPeriod[t]
       + bld.financeCostPerPeriod[t]
       + bld.terminalEquityPerPeriod[t];
@@ -324,16 +325,14 @@ console.log('=== M5 Returns snapshot integration ===');
   // would be exactly the double charge this restructure exists to prevent.
   let bridgeOk = true;
   for (let t = 0; t < rs.fcffPerPeriod.length; t++) {
-    // 2026-08-18c: the in-kind equity is CREDITED in FCFE (charged in FCFF),
-    // so the bridge carries it as a positive term.
+    // 2026-08-18f: FCFE inherits FCFF's in-kind charge; no credit term.
     const bridge = b.existingDebtOpeningPerPeriod[t] + b.financeCostPerPeriod[t]
-      + b.inKindEquityCreditPerPeriod[t]
       + b.debtDrawPerPeriod[t] + b.idcDrawPerPeriod[t]
       + b.principalRepayPerPeriod[t]
       + (b.terminalEquityPerPeriod[t] - b.terminalEnterprisePerPeriod[t]);
     if (Math.abs((rs.fcfePerPeriod[t] - rs.fcffPerPeriod[t]) - bridge) > 0.01) bridgeOk = false;
   }
-  check('SPONSOR: bridge FCFE = FCFF + in-kind credit + net debt + full finance cost + terminal swap', bridgeOk);
+  check('SPONSOR: bridge FCFE = FCFF + net debt + full finance cost + terminal swap', bridgeOk);
 
   // Existing equity is in the equity IRR stream, so it is finite (not infinite).
   check('SPONSOR: FCFE IRR finite or null (equity actually invested)', rs.result.fcfe.irr === null || Number.isFinite(rs.result.fcfe.irr));

@@ -1361,12 +1361,11 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
   // For audit clarity we still surface the existing equity / existing
   // debt opening as a prior-year MEMO via the "Prior Year" column
   // (when the table renderer supports it; see follow-up pass).
-  // ITEM F (2026-08-18b): when the management fee is EQUITY funded, its
-  // dedicated draw is cash the project already has, so the deficit must not
-  // size funding for the same fee a second time. Adding it to cash available is
-  // what "kept out of the cash deficit" means: the fee is still PAID inside
-  // cash from operations, and the equity that pays it arrives on its own line
-  // rather than through the debt/equity split of the requirement.
+  // An EQUITY-FUNDED management fee is not a deficit driver (2026-08-18f).
+  // The fee is still paid inside cash from operations; adding the same amount
+  // back here before the gap is measured means the deficit does not size
+  // debt-and-equity for it, and the engine draws it as dedicated equity
+  // instead. Zero unless the fund terms say the fee is equity funded.
   const managementFeeEquityDrawPerPeriod = (snap.directCF.managementFeeEquityDrawPerPeriod ?? []).slice(0, N);
   while (managementFeeEquityDrawPerPeriod.length < N) managementFeeEquityDrawPerPeriod.push(0);
 
@@ -1940,18 +1939,24 @@ function computeFinancialsSnapshotOnce(
   // Tax paid (cash basis: paid in the period tax is incurred)
   const taxPaidArr = taxArr.slice();
 
-  // ITEM F (2026-08-18b): HOW THE MANAGEMENT FEE IS FUNDED.
+  // HOW THE MANAGEMENT FEE IS FUNDED (2026-08-18f, rebuilt AT THE ENGINE).
   //
-  // 'debt' (default, and what every existing project does): the fee stays
-  // inside cash from operations, so it lowers cash available and the deficit
-  // sizes funding for it at the project debt/equity ratio.
+  // The first build (18b) added an equity draw to the equity series AFTER the
+  // engine had run, so the engine never saw it, the deficit still sized
+  // funding for the fee, and the fee was funded twice. Now:
   //
-  // 'equity': the fee is funded by a dedicated equity draw. It comes OUT of
-  // cash from operations (so it cannot also be met by the deficit) and the
-  // matching draw is added to the equity line, which is why total equity
-  // becomes equity capex PLUS the management fee. Net cash is unchanged: the
-  // draw pays the fee in the same period.
-  const feeFundedByEquity = (project.fundTerms?.managementFeeFunding ?? 'debt') === 'equity';
+  //  'deficit' (default, every existing project): the fee stays inside cash
+  //     from operations, lowers cash available, and the deficit funds it at the
+  //     project debt/equity ratio like any other outflow.
+  //  'equity': the fee is REMOVED from the deficit sizing (the waterfall adds
+  //     it back to cash available before measuring the gap) and handed to the
+  //     financing engine as `dedicatedEquityByPeriod`, which it draws as equity
+  //     only, on top of the ratio split. The fee is then funded exactly once,
+  //     by equity, and the equity series the engine returns already carries it.
+  //
+  // `managementFeeEquityDraw` is now a REPORTING series: the fee that was
+  // funded that way this period, for the memo and the attribution.
+  const feeFundedByEquity = (project.fundTerms?.managementFeeFunding ?? 'deficit') === 'equity';
   const managementFeeEquityDraw = zeros(N);
   if (feeFundedByEquity) {
     for (let t = 0; t < N; t++) managementFeeEquityDraw[t] = fundFees[t] ?? 0;
@@ -1992,12 +1997,11 @@ function computeFinancialsSnapshotOnce(
   // equityCashArr. Net BS Cash unchanged; both lines individually right.
   // equityDraws kept as the cumulative basis for Share Capital roll-up
   // (cash + in-kind both recognised on BS via Land + Share Capital).
-  // Equity cash INCLUDING the management-fee draw when the fee is equity
-  // funded. The engine's own equity series sizes capex equity; this adds the
-  // fee on top, which is exactly what 'equity capex plus management fee'
-  // means, and it is why the fee then stops driving the deficit.
-  const equityCashArr = financing.equity.cashPerPeriod.slice(0, N)
-    .map((v, i) => v + (managementFeeEquityDraw[i] ?? 0));
+  // The engine's equity series ALREADY carries the dedicated fee draw when the
+  // fee is equity funded (it was handed in as `dedicatedEquityByPeriod`), so
+  // nothing is added here. 18b added it here, after the engine, and funded the
+  // fee twice.
+  const equityCashArr = financing.equity.cashPerPeriod.slice(0, N);
   while (equityCashArr.length < N) equityCashArr.push(0);
   const equityInKindArr = financing.equity.inKindPerPeriod.slice(0, N);
   while (equityInKindArr.length < N) equityInKindArr.push(0);
@@ -2596,6 +2600,9 @@ function deriveCircularInputs(
     const candidate: FundingGapInputs = {
       method2PerPeriod: gap.methodAGapPerPeriod,
       method3PerPeriod: gap.method3Waterfall.netCashRequiredPerPeriod,
+      // The equity-funded management fee, drawn as equity only, on top of the
+      // ratio split. The waterfall above already excluded it from the deficit.
+      dedicatedEquityByPeriod: gap.method3Waterfall.managementFeeEquityDrawPerPeriod,
     };
     const relevant = fundingMethod === 2 ? candidate.method2PerPeriod : candidate.method3PerPeriod;
     const gapTotal = relevant.reduce((s, v) => s + Math.max(0, v ?? 0), 0);

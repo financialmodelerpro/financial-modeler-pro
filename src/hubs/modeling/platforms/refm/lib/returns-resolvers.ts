@@ -120,7 +120,7 @@ export interface ReturnsBuildup {
   // FCFE (levered) chain ON TOP of the FCFF subtotal.
   fcffSubtotalPerPeriod: number[];      // (=) FCFF PRE-TERMINAL, the chain's first row
   netDebtPerPeriod: number[];           // (+) total drawdown less principal, ONE row
-  inKindEquityCreditPerPeriod: number[];// (+) the in-kind land credited back to equity
+
   debtDrawPerPeriod: number[];          // (+) debt drawn for CAPEX
   idcDrawPerPeriod: number[];           // (+) debt drawn for IDC
   principalRepayPerPeriod: number[];    // (-) principal repaid (already negative)
@@ -486,10 +486,7 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     // which is exactly what the reference sums into its Net Debt line.
     netDebtPerPeriod: incep(0, debtDrawAxis.map((v, t) =>
       v + (idcDrawAxis[t] ?? 0) + (principalAxis[t] ?? 0))),
-    // The in-kind land as a POSITIVE credit. `inKindLandPerPeriod` is the
-    // negative charge FCFF carries; this is the same magnitude the other way,
-    // so across the pair it is charged once and credited once.
-    inKindEquityCreditPerPeriod: incep(0, inKindAxis.slice()),
+
     debtDrawPerPeriod: incep(0, debtDrawAxis),
     idcDrawPerPeriod: incep(0, idcDrawAxis),
     principalRepayPerPeriod: incep(0, principalAxis),

@@ -3,6 +3,103 @@
 
 > **TRAPS RECORDED IN THIS FILE ARE COLLECTED IN [docs/TRAPS.md](docs/TRAPS.md). Read that first; it is short.** The copies below stay in place, so nothing is lost if you open this file instead. Index of what this file records: the REFM shell `zoom: 0.8` making `vh` and media queries lie (TRAPS 6.1); drag/resize needing pointer capture, not window listeners (6.2); the ExcelJS width-9 column that silently does not apply (3.1); pdf-lib CID glyph ids defeating a naive grep (4.1); the PostgREST 1000-row cap (2.1); export fingerprints needing the FIXTURE, never the live project (5.1); a zero-valued seed hiding a whole code path (7.1); a stage list written as a literal defeating exhaustiveness (7.3); a two-step template registration that fails silently and permanently (8.1); and the verifier rules (a grep proves presence not firing; never gate an assertion on the thing it asserts; prove teeth by sabotage) in TRAPS section 10.
 
+## 2026-08-18f: three corrections against the reference, and the deficit block reported line by line
+
+`verify-returns-buildup` 39 -> **47**, six sabotages. Migration **215** written, NOT applied.
+**NOT browser-verified.**
+
+### 1. The in-kind credit is REMOVED from FCFE
+
+It was built in 18e and never asked for. FCFF charges the full land including
+in-kind (kept); FCFE now INHERITS that charge with no add-back, which is what
+the reference does (Returns R104 = the FCFF subtotal; R105 / R106 are debt and
+finance cost only). FCFE is therefore the return on TOTAL equity, cash plus
+in-kind. **Equity IRR MARINA GATE 109.63% -> 37.96% (16.875x -> 5.839x); RE HUB
+14.37% -> 7.44% (4.026x -> 2.129x). Project IRR unchanged** at 26.30% / 7.15%.
+Pinned: no in-kind row of any sign appears in the FCFE chain, and sabotage 3
+(re-adding the credit) fails.
+
+### 2. The management fee funding toggle, at the ENGINE, both paths
+
+**What the reference does: there is no fee-funding toggle.** Its fee row
+(Returns R51) feeds `Mgmt Fees, Revenue Share & Zakat` (Schedules R110), which
+feeds total operating inflows -> pre-financing net cash -> the development
+funding need -> the 60/40 split. The fee is funded through the deficit at the
+project ratio, like any other outflow. The reference has an unrelated
+`Equity-first drawdown` flag (Inputs E72, R118/R119) that draws equity to its
+full commitment before any debt; that flag is set to 0 in the live model.
+
+**What ours did before this: neither path, cleanly.** The 18b build set an
+equity draw AFTER the engine had run, so the engine never saw it, the deficit
+still sized funding for the fee, and the fee was funded twice. There was no UI,
+so neither branch was reachable from a screen.
+
+**Now.** `fundTerms.managementFeeFunding`, `deficit` (default, matches the
+reference, every existing project unchanged) or `equity`. On `equity` the
+waterfall adds the fee back to cash available BEFORE the gap is measured, so
+the deficit no longer contains it, and `deriveCircularInputs` hands the fee to
+the financing engine as `FundingGapInputs.dedicatedEquityByPeriod`, which the
+funding requirement draws as equity only, on top of the ratio split. The
+engine equity series carries it; nothing is added after the fact. The legacy
+`debt` spelling from 18b normalises to `deficit`. Toggle on the Fund Terms tab,
+mapped through all four `fundTerms.ts` mappers, migration 215 with a fifth
+server tier (215 -> 211 -> 210 -> 209 -> 208).
+
+Measured on RE HUB (fee 347,832k): deficit path, net cash required 420,532k,
+equity drawn 0 (RE HUB is 100/0 debt/equity, so zero cash equity is correct);
+equity path, net cash required **354,839k**, equity drawn **347,832k** exactly,
+debt drawn 158,272k -> 125,731k, IRRs unchanged, balance sheet 0.00. On the
+fixture the equity path adds +17.2m of engine equity against a 23.1m fee,
+because the deficit shrank by the fee and its 30% equity share shrank with it;
+the verifier asserts the exact identity (equity = debt x 30/70 + fee) rather
+than the naive "rises by the fee".
+
+### 3. Cash deficit funding, ours vs the reference, LINE BY LINE (no change made)
+
+Read from Schedules R102 to R124. Both projects measured.
+
+| Line | Reference | Ours today | Same? |
+|---|---|---|---|
+| Cash capex | R105 = construction + land cash + RETT | `capex.exclLandInKind` | yes |
+| Operating inflows | R111 = collections + hotel EBITDA + retail NOI + (mgmt fees + zakat) | `cashFromOps`, ALL-in, includes fees and tax | yes, one number vs four rows |
+| Pre-financing net cash | R112 = R111 - R105 | ops + investing | yes |
+| Opening cash | R114 = prior closing | same | yes |
+| Cash before financing | R115 = R114 + R112 | `cashAvailableBeforeNewDebt` | **NO: ours also subtracts finance cost paid and before-sweep dividends** |
+| Development funding need | R116 = `IF(cash capex > 0, MAX(0, min cash - R115), 0)` | `MAX(0, min cash - cash available)` | **NO: no `capex > 0` gate; ours can raise construction funding in a period with no construction spend** |
+| Debt / equity split | R118 / R119 at ratio, or equity-first | at ratio | yes (no equity-first) |
+| IDC drawdown | R123 = `MAX(0, IDC - MAX(0, R115 + R116 - min cash))` | budget from surplus AFTER cash interest | **NO: reference measures headroom BEFORE any finance cost, ours after** |
+| Total drawdown | R124 = R122 + R123 | same | yes |
+
+**Two of the three differences are the same thing**: the reference keeps ALL
+finance cost out of the sizing (R112 has none, and R123 measures IDC headroom
+from R115 + R116, both pre-interest). Ours puts the cash finance cost into cash
+available, so it drives the requirement and it feeds back into the IDC budget.
+
+**Measured effect.** On MARINA GATE the two rules give the SAME requirement
+(78,806 / 70,554 / 33,282, then zero) because finance cost only starts biting
+in 2030 when cash is already above the floor. On RE HUB they diverge: ours
+414,980 + 5,553 = 420,532k, the reference rule 263,780k. The gap is the
+existing hotel loan interest (151,200k a year), which our sizing raises
+construction funding to service and the reference does not. This is Item D
+from 18d, HELD then and still held: applying it drops RE HUB closing cash from
+-230,355k to about -288,000k, and RE HUB was already negative before any of
+this. Whether an operating shortfall may be funded with construction capital is
+the decision that has to come first.
+
+**The `capex > 0` gate** is separately worth deciding. On both live projects it
+changes nothing today (every period with a positive requirement also has
+construction spend). Its effect is on the tail: it stops the deficit raising
+construction funding once construction has stopped.
+
+### Numbers
+
+| | Project IRR | Project MOIC | Equity IRR | Equity MOIC |
+|---|---|---|---|---|
+| FMP - MARINA GATE | **26.30%** | **3.205x** | **37.96%** | **5.839x** |
+| FMP RE HUB | **7.15%** | **1.773x** | **7.44%** | **2.129x** |
+
+Both build-ups foot to 0.00; balance sheet 0.00 on both.
+
 ## 2026-08-18e: read the reference formulas, revert 18d where it contradicted them, four items
 
 The reference model was placed in the repo and its formulas READ DIRECTLY
