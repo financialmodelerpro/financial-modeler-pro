@@ -18,9 +18,9 @@ interest capitalised while building**. The FCFF card even said "less in-kind lan
 contributed", which was false: that line was on FCFE. FCFF now deducts the cash
 capex, the in-kind land and the IDC, each on its own row.
 
-**Measured. Project IRR 41.24% -> 24.67% (MOIC 4.912x -> 3.064x) on FMP - MARINA
+**Measured. Project IRR 41.21% -> 25.25% (MOIC 4.909x -> 3.113x) on FMP - MARINA
 GATE, and 11.31% -> 7.04% (2.401x -> 1.763x) on FMP RE HUB.** The in-kind land is
-60.0m and 1,350.7m respectively; the IDC 41.5m and 48.0m.
+60.0m and 1,350.7m respectively; the IDC 32.2m and 48.0m (RE HUB 38.0m -> 48.0m, the 2030 reclassification).
 
 ### 2. FCFE builds visibly from FCFF, and each cost is charged EXACTLY ONCE
 
@@ -41,7 +41,7 @@ independently of the returns engine. Sabotaging either double-charge trips it by
 exactly the amount double-charged (40,000,000 and 15,259,496 on the fixture).
 
 **FCFE does not move on either project**, which is the proof the pair stayed
-consistent: 44.08% / 3.603x and 7.44% / 2.129x before and after. Only FCFF moves.
+consistent: 41.75% / 6.453x and 7.44% / 2.129x before and after. Only FCFF moves. **FIGURES CORRECTED 2026-08-18: the first MARINA GATE measurement was taken against a snapshot the user then edited IN PLACE (version v2 is rewritten in place, so its content changes without a new version number). Re-measured before and after at ONE instant against the current snapshot; the deltas and the FCFE-unchanged invariant are unaffected. See TRAPS 5.1, which already records this for FMP RE HUB.**
 
 `CFO was ALREADY pre-interest` and is now labelled so; measured, the identity
 `CFO == revenue + adj - opex - HQ - fees - tax` holds to 0.00 on both projects.
@@ -57,7 +57,7 @@ statement nowhere at all.
 
 **THE 2030 QUESTION, answered.** Construction WAS still running in 2030 on FMP -
 MARINA GATE: Phase 1 cp=4 (2027..2030), Phase 2 cp=3 (2028..2030), and 79,254k of
-construction spend in that year. The 18,933k of interest WAS classified as IDC
+construction spend in that year, and that year's interest WAS classified as IDC
 internally. **The defect was that every row labelled "IDC" carried only the
 CAPITALISED slice**, and 2030 was the one year the whole IDC was paid from
 surplus cash rather than borrowed, so `interestCapitalized` was zero and every
@@ -75,12 +75,13 @@ drawn for IDC are separate lines that sum to total drawdown.
 **Cash-neutral by construction**, and proven: closing cash and the balance sheet
 are unchanged (max |Assets - L&E| 0.00 on both projects). Booking the payment and
 the drawdown nets to what the roll-up did; what changes is that a reader can see
-both. On MARINA GATE, interest paid goes 37,865k -> 60,415k as the previously
-invisible 22,550k becomes a real payment funded by a real drawdown.
+both. On MARINA GATE, interest paid is 42,829k, of which the 21,525k that was
+previously an invisible balance roll-up is now a real payment funded by a real
+drawdown.
 
-The financing section now reads: Debt Drawdown for Capex 229,885k, Debt Drawdown
-for IDC 22,550k, Debt Repayment -252,434k, IDC paid -41,482k, operating finance
-cost -18,933k. **Total drawn 252,435k against 252,434k repaid**, which is the
+The financing section now reads: Debt Drawdown for Capex 120,506k, Debt Drawdown
+for IDC 21,525k, Debt Repayment -142,031k, IDC paid -32,177k, operating finance
+cost -10,652k. **Total drawn 142,031k against 142,031k repaid**, which is the
 reference invariant that the whole facility, base plus IDC, is repaid.
 
 **Toggles removed.** `idcConfig.capitalize` and `idcConfig.fundingMode` are
