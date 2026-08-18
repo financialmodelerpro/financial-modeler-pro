@@ -102,12 +102,21 @@ async function main(): Promise<void> {
   const fx = fundFixture();
   const snap: any = computeFinancialsSnapshot(fx);
   const rs: any = computeReturnsSnapshot(snap, fx.project);
-  check('FCFE build-up starts from the equity inception, not from FCFF',
+  // 2026-08-18, REVERSED: FCFE now builds VISIBLY FROM FCFF, which is what the
+  // reference does and what a reader following one number into the next
+  // statement needs. It still opens on the equity inception (FCFF's own
+  // unlevered inception is backed out on the row below).
+  check('FCFE build-up opens on the equity inception, then chains from FCFF',
     FCFE_BUILDUP_LABELS[0] === '(-) Existing Equity Investment (at inception)'
-    && !FCFE_BUILDUP_LABELS.some((l) => l.trim() === 'FCFF'));
-  check('FCFF and FCFE build-ups carry DIFFERENT terminal rows',
+    && FCFE_BUILDUP_LABELS.some((l) => l.includes('FCFF (unlevered')));
+  // The terminal SWAP has to be visible: FCFF carries the enterprise value, and
+  // because FCFE chains from FCFF it must back that out explicitly and put the
+  // levered terminal in its place. Doing the swap implicitly is the mistake that
+  // once left the PDF short by a whole terminal value.
+  check('FCFF and FCFE build-ups carry DIFFERENT terminal rows, and the swap is explicit',
     FCFF_BUILDUP_LABELS.includes('(+) Terminal Enterprise Value')
-    && FCFE_BUILDUP_LABELS.includes('(+) Terminal Equity Value')
+    && FCFE_BUILDUP_LABELS.includes('(+) Terminal Value less Closing Debt')
+    && FCFE_BUILDUP_LABELS.includes('(-) Terminal Enterprise Value (in FCFF above)')
     && !FCFE_BUILDUP_LABELS.includes('(+) Terminal Enterprise Value'));
   check('the dividend build-up is its own row list', DIVIDEND_BUILDUP_LABELS.includes('(+) Dividends Distributed (cash-sweep waterfall)'));
   {

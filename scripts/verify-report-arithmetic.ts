@@ -168,9 +168,14 @@ async function runFor(tag: string, state: any): Promise<void> {
   console.log('-- A2: the FCFE build-up foots to FCFE --');
   const bu = rs.buildup;
   const peakFcfe = Math.max(1, ...rs.fcfePerPeriod.map((v: number) => Math.abs(v)));
+  // 2026-08-18: FCFE is now the CHAIN FROM FCFF. It starts at the FCFF
+  // subtotal, backs out the two things FCFF carries that the levered stream
+  // replaces, and adds the financing legs. No in-kind term and no IDC term:
+  // both are inside the FCFF subtotal already.
   const fcfeRebuilt = rs.fcfePerPeriod.map((_: number, i: number) =>
-    (bu.existingEquityPerPeriod[i] ?? 0) + (bu.cfoPerPeriod[i] ?? 0) + (bu.cfiPerPeriod[i] ?? 0)
-    + (bu.inKindLandPerPeriod[i] ?? 0) + (bu.debtDrawPerPeriod[i] ?? 0) + (bu.principalRepayPerPeriod[i] ?? 0)
+    (bu.existingEquityPerPeriod[i] ?? 0) + (bu.fcffSubtotalPerPeriod[i] ?? 0)
+    + (bu.existingPreCapexRemovalPerPeriod[i] ?? 0) + (bu.terminalEnterpriseRemovalPerPeriod[i] ?? 0)
+    + (bu.debtDrawPerPeriod[i] ?? 0) + (bu.idcDrawPerPeriod[i] ?? 0) + (bu.principalRepayPerPeriod[i] ?? 0)
     + (bu.interestPaidPerPeriod[i] ?? 0) + (bu.terminalEquityPerPeriod[i] ?? 0));
   check('the build-up components sum to FCFE in every period',
     fcfeRebuilt.every((v: number, i: number) => near(v, rs.fcfePerPeriod[i] ?? 0, peakFcfe)),
@@ -250,8 +255,11 @@ async function runFor(tag: string, state: any): Promise<void> {
   check('the executive summary prints the reconciling new-debt figure',
     execDebt !== null && Math.abs(execDebt - newDebtRaised / 1e6) < 0.2,
     `printed ${execDebt} vs ${(newDebtRaised / 1e6).toFixed(1)}`);
-  check('the FCFE build-up labels its debt drawdown as CASH (the other figure)',
-    fullTxt.includes('(+) Debt Drawdown (cash)'));
+  // 2026-08-18: the drawdown is now SPLIT, so the row that used to read
+  // "(cash)" to distinguish it from the capitalised-interest figure is instead
+  // named for what it funds. Both halves must be on the page.
+  check('the FCFE build-up names BOTH drawdowns, capex and IDC',
+    fullTxt.includes('(+) Debt Drawdown for Capex') && fullTxt.includes('(+) Debt Drawdown for IDC'));
 
   // A2 ON THE PAGE, not just in the engine. The engine identity can hold while
   // the PDF renders a different row list, which is exactly what happened: the

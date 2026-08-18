@@ -111,14 +111,19 @@ export interface ReturnsBuildup {
   existingEquityPerPeriod: number[];    // (-) existing equity = preCapex − debt (dividend)
   // FCFF (unlevered) build-up
   cfoPerPeriod: number[];               // (+) cash from operations
-  cfiPerPeriod: number[];               // (+) cash from investing (= -capex)
-  inKindLandPerPeriod: number[];        // (-) in-kind land contributed (FCFE only)
+  cfiPerPeriod: number[];               // (-) cash capex (Cash from Investing)
+  inKindLandPerPeriod: number[];        // (-) land contributed in kind. IN FCFF since 2026-08-18
+  idcCapitalisedPerPeriod: number[];    // (-) IDC capitalised into asset cost. In FCFF
   terminalEnterprisePerPeriod: number[];// (+) terminal enterprise value (exit only)
-  // FCFE (levered) extra lines on top of unlevered FCFF
-  debtDrawPerPeriod: number[];          // (+) debt drawdown
+  // FCFE (levered) chain ON TOP of the FCFF subtotal.
+  fcffSubtotalPerPeriod: number[];      // (=) FCFF itself, the first row of the chain
+  existingPreCapexRemovalPerPeriod: number[]; // (+) backs out FCFF's unlevered inception
+  terminalEnterpriseRemovalPerPeriod: number[]; // (-) backs out FCFF's enterprise terminal
+  debtDrawPerPeriod: number[];          // (+) debt drawn for CAPEX
+  idcDrawPerPeriod: number[];           // (+) debt drawn for IDC
   principalRepayPerPeriod: number[];    // (-) principal repaid (already negative)
-  interestPaidPerPeriod: number[];      // (-) interest paid (already negative)
-  terminalEquityPerPeriod: number[];    // (+) terminal equity value (exit only)
+  interestPaidPerPeriod: number[];      // (-) OPERATING finance cost only (already negative)
+  terminalEquityPerPeriod: number[];    // (+) terminal value less closing debt (exit only)
   // Dividend (realised equity) build-up
   equityCashPerPeriod: number[];        // (-) cash equity contributed
   equityInKindPerPeriod: number[];      // (-) in-kind equity contributed
@@ -229,9 +234,11 @@ function sponsorInputsFromSnap(snap: ProjectFinancialsSnapshot, project: Project
       cfoAxis: sl(dcf.cashFromOperationsPerPeriod),
       cfiAxis: sl(dcf.cashFromInvestmentPerPeriod),
       inKindAxis: sl(fin.equity.inKindPerPeriod),
-      debtDrawAxis: sl(dcf.debtDrawdownPerPeriod),
+      idcAxis: sl(dcf.idcPaidPerPeriod),
+      debtDrawAxis: sl(dcf.capexDrawdownPerPeriod),
+      idcDrawAxis: sl(dcf.idcDrawdownPerPeriod),
       principalAxis: sl(dcf.debtRepaymentPerPeriod),
-      interestAxis: sl(dcf.interestPaidPerPeriod),
+      interestAxis: sl(dcf.operatingInterestPaidPerPeriod).map((v) => -v),
       noiPerPeriod: noi,
       debtOutstandingPerPeriod: bs.debtOutstandingPerPeriod,
       existingPreCapex: Math.max(0, fin.existing.preCapexTotal),
@@ -314,9 +321,14 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   const cfoAxis = sliceE(dcf.cashFromOperationsPerPeriod);
   const cfiAxis = sliceE(dcf.cashFromInvestmentPerPeriod);  // new construction capex (cash)
   const inKindAxis = sliceE(equityInKind);                  // in-kind land contributed
-  const debtDrawAxis = sliceE(dcf.debtDrawdownPerPeriod);
+  // 2026-08-18: the two drawdowns and the two halves of the finance cost are
+  // carried separately, because FCFF now absorbs the IDC half as capex and
+  // FCFE must therefore deduct only the operating half.
+  const debtDrawAxis = sliceE(dcf.capexDrawdownPerPeriod);  // debt drawn for capex
+  const idcDrawAxis = sliceE(dcf.idcDrawdownPerPeriod);     // debt drawn for IDC
+  const idcAxis = sliceE(dcf.idcPaidPerPeriod);             // POSITIVE magnitude
   const principalAxis = sliceE(dcf.debtRepaymentPerPeriod); // already negative
-  const interestAxis = sliceE(dcf.interestPaidPerPeriod);   // already negative
+  const interestAxis = sliceE(dcf.operatingInterestPaidPerPeriod).map((v) => -v); // operating only, negated
   const equityCashAxis = sliceE(equityCash);
   // Terminal 100% payout (2026-06-02) is now booked in the FINANCING ENGINE
   // (computeCashWaterfall): the exit period retains no minimum cash and
@@ -338,10 +350,10 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   // ── FCFF + FCFE streams + terminal value (shared builder, also driving
   // the exit-year analysis loop so the selected-year row matches exactly).
   // Terminal value: exit-multiple on stabilised NOI; perpetuity on the
-  // exit-year unlevered free cash flow (CFO + CFI). FCFF has NO in-kind land
-  // line; FCFE carries it as an equity outflow. ─────────────────────────
+  // exit-year unlevered free cash flow. 2026-08-18: FCFF deducts FULL-COST
+  // capex (cash + in-kind land + IDC) and FCFE inherits all three through it. ─────────────────────────
   const sponsorInputs = {
-    cfoAxis, cfiAxis, inKindAxis, debtDrawAxis, principalAxis, interestAxis,
+    cfoAxis, cfiAxis, inKindAxis, idcAxis, debtDrawAxis, idcDrawAxis, principalAxis, interestAxis,
     noiPerPeriod, debtOutstandingPerPeriod: bs.debtOutstandingPerPeriod,
     existingPreCapex, existingDebtOpening,
   };
@@ -454,8 +466,15 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     cfoPerPeriod: incep(0, cfoAxis),
     cfiPerPeriod: incep(0, cfiAxis),
     inKindLandPerPeriod: incep(0, inKindAxis.map((v) => -v)),
+    idcCapitalisedPerPeriod: incep(0, idcAxis.map((v) => -v)),
     terminalEnterprisePerPeriod: incep(0, atExitAxis(tvEnterprise)),
+    fcffSubtotalPerPeriod: streams.fcff.slice(),
+    // The two rows the FCFE chain uses to swap FCFF's enterprise terminal for
+    // the levered one, and to drop the unlevered inception (FCFE has its own).
+    existingPreCapexRemovalPerPeriod: incep(existingPreCapex, new Array<number>(E).fill(0)),
+    terminalEnterpriseRemovalPerPeriod: incep(0, atExitAxis(-tvEnterprise)),
     debtDrawPerPeriod: incep(0, debtDrawAxis),
+    idcDrawPerPeriod: incep(0, idcDrawAxis),
     principalRepayPerPeriod: incep(0, principalAxis),
     interestPaidPerPeriod: incep(0, interestAxis),
     terminalEquityPerPeriod: incep(0, atExitAxis(tvEquity)),
@@ -620,9 +639,11 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     cfoAxis: dcf.cashFromOperationsPerPeriod.slice(0, N).map((v) => v ?? 0),
     cfiAxis: dcf.cashFromInvestmentPerPeriod.slice(0, N).map((v) => v ?? 0),
     inKindAxis: equityInKind.slice(0, N).map((v) => v ?? 0),
-    debtDrawAxis: dcf.debtDrawdownPerPeriod.slice(0, N).map((v) => v ?? 0),
+    idcAxis: dcf.idcPaidPerPeriod.slice(0, N).map((v) => v ?? 0),
+    idcDrawAxis: dcf.idcDrawdownPerPeriod.slice(0, N).map((v) => v ?? 0),
+    debtDrawAxis: dcf.capexDrawdownPerPeriod.slice(0, N).map((v) => v ?? 0),
     principalAxis: dcf.debtRepaymentPerPeriod.slice(0, N).map((v) => v ?? 0),
-    interestAxis: dcf.interestPaidPerPeriod.slice(0, N).map((v) => v ?? 0),
+    interestAxis: dcf.operatingInterestPaidPerPeriod.slice(0, N).map((v) => -(v ?? 0)),
     noiPerPeriod,
     debtOutstandingPerPeriod: bs.debtOutstandingPerPeriod,
     existingPreCapex,

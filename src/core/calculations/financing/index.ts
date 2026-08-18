@@ -138,12 +138,21 @@ export function computeFinancingResult(ctx: FinancingContext): FinancingComputat
   // Compute schedules in budget-consumption order (existing-first), then
   // assemble the final map in the ORIGINAL tranche order so downstream
   // per-tranche tables keep their displayed sequence.
+  // IDC classification input (2026-08-18): the periods in which the project is
+  // actually SPENDING on construction. That, and not a phase-date window, is
+  // what makes a period's finance cost IDC. Read from the capex aggregate,
+  // which is computed above from cost lines only and reads no debt input, so
+  // there is no circularity: IDC asks whether capex is happening, it does not
+  // size it. Land in-kind is included because a period in which the land is
+  // contributed is still a period in which the project is being built.
+  const constructionSpendByPeriod = capex.perPeriod.inclAllLand.slice();
+
   const computed = new Map<string, FacilityResult>();
   for (const t of trancheOrder) {
     const pct = shares.get(t.id) ?? 0;
     computed.set(
       t.id,
-      computeFacilitySchedule(t, ctx.project, ctx.phases, axis, split.debt, pct, remainingIdcBudget, remainingSweepBudget),
+      computeFacilitySchedule(t, ctx.project, ctx.phases, axis, split.debt, pct, remainingIdcBudget, remainingSweepBudget, constructionSpendByPeriod),
     );
   }
   const facilities = new Map<string, FacilityResult>();

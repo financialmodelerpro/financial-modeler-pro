@@ -8,10 +8,25 @@
  *
  * Stream layout (length E+1, E = exitIdx+1): index 0 = inception
  * (projectStartYear − 1), indices 1..E = axis years through exit.
- *   FCFF inception: − existing pre-capex; axis: CFO + CFI; exit: + terminal EV
- *   FCFE inception: − existing pre-capex + existing debt opening;
- *                   axis: CFO + CFI + debt draw − principal − interest − in-kind;
- *                   exit: + terminal equity value
+ *
+ * 2026-08-18, matching the reference:
+ *   FCFF = CFO (pre-interest) LESS FULL-COST CAPEX, where full cost is the cash
+ *          capex plus the land contributed in kind plus the IDC. Inception is
+ *          − existing pre-capex; the terminal ENTERPRISE value lands at exit.
+ *   FCFE = FCFF + debt drawn for capex + debt drawn for IDC + principal repaid
+ *          + the OPERATING finance cost, with the enterprise terminal backed
+ *          out and the terminal EQUITY value (terminal value less closing
+ *          debt) put in its place. Inception is − existing equity.
+ *
+ * TWO THINGS THAT MUST STAY TRUE, and each is deducted EXACTLY ONCE:
+ *   - In-kind land is a real cost of the project, so FCFF carries it. FCFE
+ *     inherits it through FCFF and must not charge it again.
+ *   - The finance cost is SPLIT. The IDC half is inside FCFF (it is capex);
+ *     only the operating half belongs in the FCFE step. Passing total interest
+ *     there would deduct the IDC twice.
+ * The algebra closes: FCFE = CFO − capexCash − inKind − IDC + capexDraw
+ * + idcDraw − principal − operating interest, which is the equity holder's
+ * actual net cash. `verify-returns-buildup` asserts exactly that.
  */
 import { terminalEnterpriseValue, terminalEquityValue } from './terminalValue';
 import type { TerminalMethod } from './types';
@@ -19,10 +34,19 @@ import type { TerminalMethod } from './types';
 export interface SponsorStreamInputs {
   /** Axis arrays (index = axis period). Need entries through the exit index. */
   cfoAxis: number[];
+  /** Cash construction capex, negative (Cash from Investing). */
   cfiAxis: number[];
+  /** Land contributed in kind, POSITIVE magnitude. Deducted in FCFF. */
   inKindAxis: number[];
+  /** IDC, POSITIVE magnitude. Deducted in FCFF: it is part of the cost of
+   *  building, and it is NOT deducted again as a finance cost in FCFE. */
+  idcAxis: number[];
+  /** Debt drawn to fund CAPEX. */
   debtDrawAxis: number[];
+  /** Debt drawn to fund IDC. Shown separately so a reader can see each. */
+  idcDrawAxis: number[];
   principalAxis: number[];   // already negative
+  /** OPERATING finance cost only, already negative. The IDC half is in FCFF. */
   interestAxis: number[];    // already negative
   noiPerPeriod: number[];
   debtOutstandingPerPeriod: number[];
@@ -60,7 +84,9 @@ export function buildSponsorStreamsForExit(
   const exitNOI = noi[exit] ?? 0;
   const stabilisedNOI = Math.max(exitNOI, ...noi.slice(0, E), 0);
 
-  const exitFcff = (inp.cfoAxis[exit] ?? 0) + (inp.cfiAxis[exit] ?? 0);
+  const fullCapexAt = (t: number): number =>
+    (inp.cfiAxis[t] ?? 0) - (inp.inKindAxis[t] ?? 0) - (inp.idcAxis[t] ?? 0);
+  const exitFcff = (inp.cfoAxis[exit] ?? 0) + fullCapexAt(exit);
   let tvEnterprise: number;
   if (term.capRateOverride !== undefined && term.capRateOverride > 0) {
     tvEnterprise = stabilisedNOI > 0 ? stabilisedNOI / term.capRateOverride : 0;
@@ -81,9 +107,13 @@ export function buildSponsorStreamsForExit(
   fcff[0] = -inp.existingPreCapex;
   fcfe[0] = -inp.existingPreCapex + inp.existingDebtOpening;
   for (let t = 0; t < E; t++) {
-    const base = (inp.cfoAxis[t] ?? 0) + (inp.cfiAxis[t] ?? 0);
+    const base = (inp.cfoAxis[t] ?? 0) + fullCapexAt(t);
     fcff[t + 1] = base;
-    fcfe[t + 1] = base + (inp.debtDrawAxis[t] ?? 0) + (inp.principalAxis[t] ?? 0) + (inp.interestAxis[t] ?? 0) - (inp.inKindAxis[t] ?? 0);
+    // FCFE is the SAME base plus the financing legs. In-kind and IDC are
+    // already inside `base`, which is why neither appears again here.
+    fcfe[t + 1] = base
+      + (inp.debtDrawAxis[t] ?? 0) + (inp.idcDrawAxis[t] ?? 0)
+      + (inp.principalAxis[t] ?? 0) + (inp.interestAxis[t] ?? 0);
   }
   fcff[exit + 1] += tvEnterprise;
   fcfe[exit + 1] += tvEquity;

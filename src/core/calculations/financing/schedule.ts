@@ -48,6 +48,12 @@ export function computeFacilitySchedule(
    *  balance). The sweep is now part of the ENGINE schedule (single source of
    *  truth), not a downstream overlay. */
   remainingSweepBudget?: number[],
+  /** IDC classification input (2026-08-18): project construction spend per
+   *  period. A period with spend is a period whose finance cost is IDC. Taken
+   *  from the capex aggregate, which is computed BEFORE the debt schedule and
+   *  reads no debt input, so this stays acyclic: IDC does not size capex, it
+   *  only asks whether capex is happening. */
+  constructionSpendByPeriod?: number[],
 ): FacilityResult {
   const N = axis.totalPeriods;
   const drawSchedule       = new Array<number>(N).fill(0);
@@ -61,18 +67,12 @@ export function computeFacilitySchedule(
   const principalRepaid    = new Array<number>(N).fill(0);
   const sweepRepaid        = new Array<number>(N).fill(0);
 
-  // M4 Pass 2O (2026-05-24): IDC policy. Capitalize controls ACCOUNTING
-  // (asset basis vs P&L); fundingMode controls FUNDING (debt growth vs
-  // cash payment). The two are independent. Defaults match prior
-  // hard-coded behaviour: capitalize=true + fundingMode='debt_drawdown'.
-  const idc = project.idcConfig ?? {};
-  const capitalizeInterest = idc.capitalize !== false; // default true
-  // Default 2026-06-02: 'conditional', raise IDC debt only to the extent
-  // needed to maintain minimum cash (pay in cash where surplus exists). The
-  // user's standing rule: "we make drawdown as money required, why draw
-  // extra funds if we have enough cash available." Set 'debt_drawdown' or
-  // 'cash' explicitly to override.
-  const idcFundingMode = idc.fundingMode ?? 'conditional';
+  // 2026-08-18: `idcConfig.capitalize` and `idcConfig.fundingMode` are RETIRED.
+  // There is one treatment (see the IDC block below), so two projects can no
+  // longer behave differently. The fields stay on the type, deprecated, so old
+  // snapshots still load; nothing reads them. `allocationBasis` survives and
+  // is read in financials-resolvers: it splits IDC ACROSS assets and changes
+  // no project-level total, so it is an allocation choice, not a treatment.
 
   // Pass 27 (2026-05-14): effective interest rate = Interbank Rate +
   // Credit Spread when both are present; otherwise fall back to the
@@ -121,13 +121,11 @@ export function computeFacilitySchedule(
     ? openingBalanceRaw
     : drawSchedule.reduce((s, v) => s + v, 0);
 
-  // Pass 28 (2026-05-14): Tab 4 is project-wide, so the IDC window
-  // must be project-wide too. Derive [start, end) as the union of
-  // every non-operational phase's construction span. Using a single
-  // phase (tranche.phaseId) caused IDC to miss capex happening in
-  // other phases - the bank still funded those drawdowns, so their
-  // interest is also IDC.
-  let constructionStartProj = Number.POSITIVE_INFINITY;
+  // The end of the construction span, as the union over every non-operational
+  // phase. 2026-08-18: this NO LONGER GATES IDC, which is now driven by actual
+  // construction spend per period (see the IDC block below). It survives only
+  // as the default first repayment period and the sweep start, which are
+  // genuinely schedule dates rather than a classification of interest.
   let constructionEndProj = 0;
   for (const ph of phases) {
     if (ph.status === 'operational') continue;
@@ -135,10 +133,8 @@ export function computeFacilitySchedule(
     const phCp = ph.constructionPeriods ?? 0;
     const phOverlap = ph.overlapPeriods ?? 0;
     const phEnd = phOffset + Math.max(0, phCp - phOverlap);
-    if (phOffset < constructionStartProj) constructionStartProj = phOffset;
     if (phEnd > constructionEndProj) constructionEndProj = phEnd;
   }
-  if (!Number.isFinite(constructionStartProj)) constructionStartProj = 0;
 
   // Pass 27 (2026-05-14): grace period concept retired; engine treats
   // gracePeriods as 0 unconditionally. Field stays on the schema for
@@ -321,43 +317,46 @@ export function computeFacilitySchedule(
     const accrueInterest = !isExisting || i >= interestStartProj;
     const interest = accrueInterest ? bal * periodicRate : 0;
     interestAccrued[i] = interest;
-    // M4 Pass 2O: split accounting (capitalize) from funding (fundingMode).
-    //   Cap=Y + Fund=Debt (default): grows debt, sits in asset basis.
-    //   Cap=Y + Fund=Cash         : cash out, sits in asset basis.
-    //   Cap=N + Fund=Debt         : grows debt, hits P&L Finance Cost.
-    //   Cap=N + Fund=Cash         : cash out, hits P&L Finance Cost.
-    // Ops period + existing facility: always cash-paid + P&L expense.
-    const inConstructionWindow = !isExisting && i >= constructionStartProj && i < constructionEndProj;
-    if (inConstructionWindow) {
+    // ── IDC, ONE TREATMENT (2026-08-18) ───────────────────────────────────
+    //
+    // THE SPLIT IS DRIVEN BY CONSTRUCTION SPEND, NOT BY A WINDOW OR A FLAG.
+    // While construction is running in a period, that period's finance cost is
+    // IDC; once it stops, the same facility's interest is an operating finance
+    // cost. Previously the test was a phase-date WINDOW, and the two disagree
+    // whenever spend runs past the window or a phase's window ends while
+    // another phase is still building. Measured on the live project: 2030
+    // carried 79,254k of construction spend and 18,933k of interest, and one
+    // facility's share of that was already outside its own phase window.
+    //
+    // IDC IS PAID IN THE PERIOD IT ARISES. Debt is drawn only for the part
+    // cash cannot cover, which is IDC less the headroom above the minimum cash
+    // target (`remainingIdcBudget`, filled by the orchestrator). That is a
+    // funding fact, not a policy: the project pays what it can and borrows the
+    // rest. The three old toggles (capitalize / fundingMode / the implicit
+    // window) are gone; `capitalizeInterest` is now always true.
+    //
+    // WHY BOTH MOVEMENTS ARE BOOKED. The old 'debt_drawdown' branch grew the
+    // balance and left `interestPaid` at zero, so the interest never appeared
+    // in the cash statement at all: no drawdown row, no payment row, just a
+    // bigger balance. Booking the payment AND the drawdown is cash-neutral
+    // (they net to the same closing cash) and lets a reader see both.
+    const constructionRunning = !isExisting && (constructionSpendByPeriod?.[i] ?? 0) > 0;
+    if (constructionRunning) {
       interestDuringConstruction[i] = interest;
-      // Accounting side: where this hits the books. The asset is built
-      // with the FULL interest regardless of funding source.
-      if (capitalizeInterest) interestForAssetBasis[i] = interest;
-      // Funding side: where the cash comes from.
-      if (idcFundingMode === 'cash') {
-        // Always pay in cash, never grow debt.
-        interestPaid[i] = interest;
-      } else if (idcFundingMode === 'conditional') {
-        // Conditional IDC (2026-06-02): pay in cash up to the per-period
-        // surplus-cash budget shared across tranches; capitalise (grow
-        // debt) only the shortfall. Existing-first / priority order in the
-        // orchestrator decides which tranche consumes the budget first.
-        const avail = Math.max(0, remainingIdcBudget?.[i] ?? 0);
-        const cashPaid = Math.min(interest, avail);
-        const capitalised = interest - cashPaid;
-        if (cashPaid > 0) {
-          interestPaid[i] = cashPaid;
-          interestCapitalizedCashPaid[i] = cashPaid;
-          if (remainingIdcBudget) remainingIdcBudget[i] = avail - cashPaid;
-        }
-        if (capitalised > 0) {
-          interestCapitalized[i] = capitalised;
-          bal += capitalised;
-        }
-      } else {
-        // 'debt_drawdown' (default): grow the debt balance.
-        interestCapitalized[i] = interest;
-        bal += interest;
+      interestForAssetBasis[i] = interest;
+      // Pay it, all of it, in the period it arises.
+      interestPaid[i] = interest;
+      // Draw debt only for what cash could not cover.
+      const avail = Math.max(0, remainingIdcBudget?.[i] ?? 0);
+      const fromCash = Math.min(interest, avail);
+      const drawnForIdc = interest - fromCash;
+      if (fromCash > 0) {
+        interestCapitalizedCashPaid[i] = fromCash;
+        if (remainingIdcBudget) remainingIdcBudget[i] = avail - fromCash;
+      }
+      if (drawnForIdc > 0) {
+        interestCapitalized[i] = drawnForIdc;
+        bal += drawnForIdc;
       }
     } else {
       interestPaid[i] = interest;
@@ -421,6 +420,11 @@ export function combineDebtService(
 ): CombinedDebtService {
   const N = axis.totalPeriods;
   const totalDrawdown          = new Array<number>(N).fill(0);
+  const totalIdcDrawdown       = new Array<number>(N).fill(0);
+  const totalDrawdownAll       = new Array<number>(N).fill(0);
+  const totalInterestPaid      = new Array<number>(N).fill(0);
+  const totalIdc               = new Array<number>(N).fill(0);
+  const totalOperatingInterest = new Array<number>(N).fill(0);
   const totalInterestAccrued   = new Array<number>(N).fill(0);
   const totalInterestCapitalized = new Array<number>(N).fill(0);
   const totalInterestCapitalizedCashPaid = new Array<number>(N).fill(0);
@@ -452,7 +456,13 @@ export function combineDebtService(
       const ab   = r.interestForAssetBasis[i] ?? 0;
       const prin = r.principalRepaid[i] ?? 0;
       const swp  = r.sweepRepaid[i] ?? 0;
+      const idcHere = r.interestDuringConstruction[i] ?? 0;
       totalDrawdown[i]               += draw;
+      totalIdcDrawdown[i]            += cap;
+      totalDrawdownAll[i]            += draw + cap;
+      totalInterestPaid[i]           += cash;
+      totalIdc[i]                    += idcHere;
+      totalOperatingInterest[i]      += Math.max(0, acc - idcHere);
       totalInterestAccrued[i]        += acc;
       totalInterestCapitalized[i]    += cap;
       totalInterestCapitalizedCashPaid[i] += capCash;
@@ -482,12 +492,22 @@ export function combineDebtService(
   }
   const debtServiceCash = new Array<number>(N).fill(0);
   for (let i = 0; i < N; i++) {
-    // Cash debt service uses CASH-paid interest, not P&L accrual.
-    // (When Cap=N|Fund=Debt, P&L hits but no cash leaves.)
-    debtServiceCash[i] = (totalInterestAccrued[i] - totalInterestCapitalized[i]) + totalPrincipalRepaid[i];
+    // 2026-08-18: SUMMED, not derived. This was
+    // `(accrued - capitalized) + principal`, which was only correct while
+    // capitalised interest was interest that never got paid. IDC is now paid in
+    // the period it arises and the capitalised figure is the DRAWDOWN that
+    // funds it, so the old derivation would have understated cash interest by
+    // exactly the IDC drawdown. Closing cash is unaffected either way, because
+    // the drawdown comes back in on the financing line.
+    debtServiceCash[i] = totalInterestPaid[i] + totalPrincipalRepaid[i];
   }
   return {
     totalDrawdown,
+    totalIdcDrawdown,
+    totalDrawdownAll,
+    totalInterestPaid,
+    totalIdc,
+    totalOperatingInterest,
     totalInterestAccrued,
     totalInterestCapitalized,
     totalInterestCapitalizedCashPaid,

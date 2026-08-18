@@ -335,15 +335,18 @@ export default function Module1Financing(): React.JSX.Element {
             </div>
           </section>
 
-          {/* M4 Pass 2O (2026-05-24): IDC (Interest During Construction) policy.
-              3 independent decisions: allocation basis, capitalize Y/N,
-              funding mode. Lives in Financing because it's a financing
-              policy question. Defaults match historical behaviour. */}
+          {/* IDC (Interest During Construction). 2026-08-18: the CAPITALIZE and
+              FUNDING MODE toggles are GONE. There is one treatment, matching the
+              reference: while construction is running in a period that period's
+              finance cost is IDC, it is paid in the period it arises, debt is
+              drawn only for what cash cannot cover, and it is capitalised into
+              the asset cost. Options here let two projects behave differently
+              for no modelling reason and made the statements hard to read.
+              Allocation basis STAYS: it splits IDC across assets and changes no
+              project-level total, so it is an allocation, not a treatment. */}
           {(() => {
             const idcCfg = project.idcConfig ?? {};
             const basis = idcCfg.allocationBasis ?? 'land';
-            const capitalize = idcCfg.capitalize !== false;
-            const fundingMode = idcCfg.fundingMode ?? 'conditional';
             const setIdcCfg = (patch: Partial<NonNullable<typeof project.idcConfig>>) => {
               setProject({ idcConfig: { ...idcCfg, ...patch } });
             };
@@ -383,7 +386,7 @@ export default function Module1Financing(): React.JSX.Element {
             return (
               <section style={sectionStyle}>
                 <div style={sectionTitle}>1b. IDC (Interest During Construction) Policy</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 16 }}>
                   <div>
                     <div style={labelStyle}>Allocation Basis</div>
                     <div style={{ display: 'flex', gap: 6 }}>
@@ -395,24 +398,16 @@ export default function Module1Financing(): React.JSX.Element {
                     </div>
                   </div>
                   <div>
-                    <div style={labelStyle}>Capitalize Interest</div>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      {pillBtn(capitalize, 'Yes (capitalize)', () => setIdcCfg({ capitalize: true }), 'cap-y')}
-                      {pillBtn(!capitalize, 'No (expense to P&L)', () => setIdcCfg({ capitalize: false }), 'cap-n')}
+                    <div style={labelStyle}>Treatment</div>
+                    <div style={{ fontSize: 12, color: 'var(--color-heading)', fontWeight: 600 }}>
+                      Capitalised into asset cost, paid when it arises
                     </div>
                     <div style={captionStyle}>
-                      Yes: construction interest goes to asset basis (CoS for Sell; Fixed Assets + D&A for Operate/Lease). No: hits P&L Finance Cost during construction, no allocation to assets.
-                    </div>
-                  </div>
-                  <div>
-                    <div style={labelStyle}>Funding Mode (IDC cash)</div>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {pillBtn(fundingMode === 'debt_drawdown', 'Drawdown via Debt', () => setIdcCfg({ fundingMode: 'debt_drawdown' }), 'fd-debt')}
-                      {pillBtn(fundingMode === 'cash', 'Pay from Cash Flow', () => setIdcCfg({ fundingMode: 'cash' }), 'fd-cash')}
-                      {pillBtn(fundingMode === 'conditional', 'Conditional (cash if surplus)', () => setIdcCfg({ fundingMode: 'conditional' }), 'fd-cond')}
-                    </div>
-                    <div style={captionStyle}>
-                      Drawdown: additional debt grows balance to cover interest (no cash impact). Cash: interest always paid from operating cash, debt unchanged. Conditional: pay interest in cash only where surplus exists above the minimum cash reserve, capitalising the shortfall to debt, so debt is raised only to the extent the project genuinely needs it.
+                      One treatment, no options. A period with construction spend is a period whose
+                      finance cost is IDC; once the spend stops the same interest is an operating
+                      finance cost. IDC is paid in the period it arises and debt is drawn only for
+                      the part cash cannot cover, that is IDC less the headroom above the minimum
+                      cash target. The two drawdowns are shown separately on the cash flow.
                     </div>
                   </div>
                 </div>
@@ -2546,12 +2541,12 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                 : 'color-mix(in srgb, var(--color-warning, #92400e) 12%, transparent)',
               color: idc.capitalize ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)',
               border: `1px solid ${idc.capitalize ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)'}`,
-            }}>{idc.capitalize ? 'Capitalize: ON' : 'Capitalize: OFF (P&L)'}</span>
+            }}>Capitalised into asset cost</span>
             <span style={{
               fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99,
               background: 'color-mix(in srgb, var(--color-meta, #6b7280) 12%, transparent)',
               color: 'var(--color-meta, #6b7280)', border: '1px solid var(--color-meta, #6b7280)',
-            }}>Funding: {idc.fundingMode === 'cash' ? 'Cash (no extra debt)' : idc.fundingMode === 'debt_drawdown' ? 'Drawdown via Debt' : 'Conditional (cash if surplus)'}</span>
+            }}>Paid when it arises, debt drawn for the shortfall</span>
           </div>
         );
 

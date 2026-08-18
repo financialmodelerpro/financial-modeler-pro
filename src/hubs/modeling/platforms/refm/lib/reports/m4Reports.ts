@@ -693,7 +693,7 @@ function buildFinancingRows(ctx: M4ReportCtx, cffSubtotal: number[]): M4Row[] {
   if (d.equityInKindDrawdownPerPeriod.some((v) => v !== 0)) {
     rows.push({ label: '(memo) In-Kind Equity (non-cash, see BS Schedules E1)', values: d.equityInKindDrawdownPerPeriod, indent: 2 });
   }
-  const sumOrigin = (origin: 'existing' | 'new', key: 'drawSchedule' | 'interestCapitalized' | 'principalRepaid' | 'interestPaid'): number[] => {
+  const sumOrigin = (origin: 'existing' | 'new', key: 'drawSchedule' | 'interestCapitalized' | 'principalRepaid' | 'interestPaid' | 'interestDuringConstruction'): number[] => {
     const out = new Array<number>(N).fill(0);
     for (const t of state.financingTranches) {
       if ((t.origin === 'existing' ? 'existing' : 'new') !== origin) continue;
@@ -704,18 +704,30 @@ function buildFinancingRows(ctx: M4ReportCtx, cffSubtotal: number[]): M4Row[] {
     }
     return out;
   };
+  // 2026-08-18. Four changes, all so a reader can see the IDC:
+  //  - the drawdown is SPLIT into the part that funds capex and the part that
+  //    funds IDC, because they answer different questions;
+  //  - the finance cost is SPLIT the same way, into IDC (capitalised into the
+  //    asset) and the operating finance cost;
+  //  - IDC is now genuinely PAID, so it appears in the cost rows rather than
+  //    only as a bigger balance;
+  //  - the old `Finance Cost (Capitalised via IDC drawdown)` contra row is
+  //    GONE. It existed to offset a drawdown whose interest was never paid.
+  //    Keeping it now would deduct the IDC twice.
   const pushDebtBucket = (origin: 'existing' | 'new', label: string, opening?: number): void => {
     const draw = sumOrigin(origin, 'drawSchedule');
     const drawIdc = sumOrigin(origin, 'interestCapitalized');
     const repaid = sumOrigin(origin, 'principalRepaid');
     const intPaid = sumOrigin(origin, 'interestPaid');
+    const idc = sumOrigin(origin, 'interestDuringConstruction');
+    const opInt = intPaid.map((v, i) => v - (idc[i] ?? 0));
     if (draw.some((v) => v !== 0) || (opening ?? 0) > 0) {
-      rows.push({ label: `Debt Drawdown, ${label}`, values: draw, indent: 1, ...(opening !== undefined ? { priorValue: opening } : {}) });
+      rows.push({ label: `Debt Drawdown for Capex, ${label}`, values: draw, indent: 1, ...(opening !== undefined ? { priorValue: opening } : {}) });
     }
-    if (drawIdc.some((v) => v !== 0)) rows.push({ label: `Debt Drawdown (IDC), ${label}`, values: drawIdc, indent: 1 });
+    if (drawIdc.some((v) => v !== 0)) rows.push({ label: `Debt Drawdown for IDC, ${label}`, values: drawIdc, indent: 1 });
     if (repaid.some((v) => v !== 0)) rows.push({ label: `Debt Repayment, ${label}`, values: repaid.map((v) => -v), indent: 1 });
-    if (intPaid.some((v) => v !== 0)) rows.push({ label: `Finance Cost Paid, ${label}`, values: intPaid.map((v) => -v), indent: 1 });
-    if (drawIdc.some((v) => v !== 0)) rows.push({ label: `Finance Cost (Capitalised via IDC drawdown), ${label}`, values: drawIdc.map((v) => -v), indent: 1 });
+    if (idc.some((v) => v !== 0)) rows.push({ label: `Interest During Construction paid (capitalised into asset cost), ${label}`, values: idc.map((v) => -v), indent: 1 });
+    if (opInt.some((v) => Math.abs(v) > 0.005)) rows.push({ label: `Finance Cost Paid, operating, ${label}`, values: opInt.map((v) => -v), indent: 1 });
   };
   pushDebtBucket('existing', 'Existing loans', existingOpening);
   pushDebtBucket('new', 'New loans');

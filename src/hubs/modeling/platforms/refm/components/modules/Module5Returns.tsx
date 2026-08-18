@@ -309,7 +309,7 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
       </div>
       <M4PeriodTable
         title="FCFF Build-Up (unlevered, to all capital providers)"
-        caption="Free Cash Flow to Firm = Cash from Operations + Cash from Investing (capex) less in-kind land contributed, plus the terminal enterprise value at exit. Pre-financing: interest and debt are excluded."
+        caption="Free Cash Flow to Firm = Cash from Operations (pre-interest) less the FULL COST of building, which is the cash capex plus the land contributed in-kind plus the interest capitalised during construction, plus the terminal enterprise value at exit. Pre-financing: debt drawdowns, principal and the operating finance cost are excluded and appear in FCFE below."
         yearLabels={axisLabels}
         rows={fcffBuildupRows}
         currency={currency}
@@ -318,7 +318,7 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
       />
       <M4PeriodTable
         title="FCFE Build-Up (levered, free cash to equity)"
-        caption="Free Cash Flow to Equity = existing equity investment (at inception) + project cash (Operations + Investing) − in-kind equity + debt drawdown − principal repayment − interest paid + terminal equity value at exit. The NEGATIVE periods are the NEW cash equity the sponsor must inject; in-kind + existing equity are shown explicitly. Distributed Equity (below) shows all three equity contributions side-by-side with the distributions."
+        caption="Free Cash Flow to Equity builds from FCFF above: FCFF, then the debt drawn for capex and the debt drawn for IDC, less principal repaid and the OPERATING finance cost, with the terminal enterprise value swapped for terminal value less closing debt. The in-kind land and the IDC are already inside FCFF and are deliberately not repeated here, so each is charged exactly once. The NEGATIVE periods are the NEW cash equity the sponsor must inject. Distributed Equity (below) shows all three equity contributions side-by-side with the distributions."
         yearLabels={axisLabels}
         rows={fcfeBuildupRows}
         currency={currency}

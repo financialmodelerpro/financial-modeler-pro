@@ -45,7 +45,12 @@ export interface StreamBuildupSource {
     cfoPerPeriod: number[];
     cfiPerPeriod: number[];
     inKindLandPerPeriod: number[];
+    idcCapitalisedPerPeriod: number[];
+    fcffSubtotalPerPeriod: number[];
+    existingPreCapexRemovalPerPeriod: number[];
+    terminalEnterpriseRemovalPerPeriod: number[];
     debtDrawPerPeriod: number[];
+    idcDrawPerPeriod: number[];
     principalRepayPerPeriod: number[];
     interestPaidPerPeriod: number[];
     terminalEnterprisePerPeriod: number[];
@@ -66,22 +71,43 @@ interface BuildupRowDef { label: string; pick: BuildupKey }
 /** How a surface turns one labelled series into its own row type. */
 export type StreamRowMaker<T> = (label: string, series: number[], opts: { indent?: number; isTotal?: boolean }) => T;
 
+// FCFF deducts the FULL COST of building, which is the cash capex plus the two
+// non-cash pieces: land contributed in kind, and the interest capitalised into
+// the asset while it was being built. Both are stated on their own row rather
+// than folded into the capex line, because a reader has to be able to see that
+// the project was charged for them (2026-08-18).
 const FCFF_ROWS: readonly BuildupRowDef[] = [
   { label: '(-) Historical Development Investment', pick: 'existingPreCapexPerPeriod' },
-  { label: '(+) Cash from Operations', pick: 'cfoPerPeriod' },
-  { label: '(+) Cash from Investing (new capex)', pick: 'cfiPerPeriod' },
+  { label: '(+) Cash from Operations (pre-interest)', pick: 'cfoPerPeriod' },
+  { label: '(-) Capex, cash (Cash from Investing)', pick: 'cfiPerPeriod' },
+  { label: '(-) Land Contributed In-Kind (non-cash)', pick: 'inKindLandPerPeriod' },
+  { label: '(-) Interest During Construction (capitalised)', pick: 'idcCapitalisedPerPeriod' },
   { label: '(+) Terminal Enterprise Value', pick: 'terminalEnterprisePerPeriod' },
 ];
 
+// FCFE now builds VISIBLY FROM FCFF (2026-08-18). The first row is the FCFF
+// subtotal itself, so a reader can follow one number into the next statement
+// instead of re-reading a parallel column of the same components.
+//
+// Two rows exist purely to keep that honest. FCFF carries the terminal
+// ENTERPRISE value inside it, so the chain backs that out and puts the levered
+// terminal (value less closing debt) in its place; doing this implicitly is the
+// exact mistake that once left the PDF short by a whole terminal value, so it
+// is two visible rows that sum to the swap.
+//
+// NOTE what is NOT here: no in-kind row and no IDC row. Both are inside FCFF
+// already, and repeating them would charge the equity holder twice. The
+// interest row is the OPERATING finance cost only, for the same reason.
 const FCFE_ROWS: readonly BuildupRowDef[] = [
   { label: '(-) Existing Equity Investment (at inception)', pick: 'existingEquityPerPeriod' },
-  { label: '(+) Cash from Operations', pick: 'cfoPerPeriod' },
-  { label: '(+) Cash from Investing (new capex)', pick: 'cfiPerPeriod' },
-  { label: '(-) In-Kind Equity Investment', pick: 'inKindLandPerPeriod' },
-  { label: '(+) Debt Drawdown (cash)', pick: 'debtDrawPerPeriod' },
+  { label: '(=) FCFF (unlevered, after full-cost capex)', pick: 'fcffSubtotalPerPeriod' },
+  { label: '(-) Historical Development Investment (in FCFF above)', pick: 'existingPreCapexRemovalPerPeriod' },
+  { label: '(-) Terminal Enterprise Value (in FCFF above)', pick: 'terminalEnterpriseRemovalPerPeriod' },
+  { label: '(+) Debt Drawdown for Capex', pick: 'debtDrawPerPeriod' },
+  { label: '(+) Debt Drawdown for IDC', pick: 'idcDrawPerPeriod' },
   { label: '(-) Principal Repayment', pick: 'principalRepayPerPeriod' },
-  { label: '(-) Interest Paid', pick: 'interestPaidPerPeriod' },
-  { label: '(+) Terminal Equity Value', pick: 'terminalEquityPerPeriod' },
+  { label: '(-) Finance Cost, operating (IDC is inside FCFF)', pick: 'interestPaidPerPeriod' },
+  { label: '(+) Terminal Value less Closing Debt', pick: 'terminalEquityPerPeriod' },
 ];
 
 const DIVIDEND_ROWS: readonly BuildupRowDef[] = [

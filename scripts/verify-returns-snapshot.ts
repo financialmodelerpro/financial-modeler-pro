@@ -112,11 +112,20 @@ console.log('=== M5 Returns snapshot integration ===');
   check('buildup arrays length = exit + 2', bld.cfoPerPeriod.length === len && bld.existingPreCapexPerPeriod.length === len);
   let fcffOk = true, fcfeOk = true, divOk = true;
   for (let t = 0; t < len; t++) {
-    const fcffSum = bld.existingPreCapexPerPeriod[t] + bld.cfoPerPeriod[t] + bld.cfiPerPeriod[t] + bld.terminalEnterprisePerPeriod[t];
+    // 2026-08-18: FCFF deducts the FULL COST of building, so the in-kind land
+    // and the IDC are components of it now, not omissions from it.
+    const fcffSum = bld.existingPreCapexPerPeriod[t] + bld.cfoPerPeriod[t] + bld.cfiPerPeriod[t]
+      + bld.inKindLandPerPeriod[t] + bld.idcCapitalisedPerPeriod[t] + bld.terminalEnterprisePerPeriod[t];
     if (Math.abs(fcffSum - rs.fcffPerPeriod[t]) > 0.01) fcffOk = false;
-    const fcfeSum = bld.existingPreCapexPerPeriod[t] + bld.existingDebtOpeningPerPeriod[t]
-      + bld.cfoPerPeriod[t] + bld.cfiPerPeriod[t] + bld.inKindLandPerPeriod[t]
-      + bld.debtDrawPerPeriod[t] + bld.principalRepayPerPeriod[t] + bld.interestPaidPerPeriod[t] + bld.terminalEquityPerPeriod[t];
+    // FCFE is the CHAIN: FCFF, less the two things FCFF carries that the
+    // levered stream replaces (its inception and its enterprise terminal),
+    // plus its own inception and the financing legs. In-kind and IDC appear
+    // nowhere here: they are inside the FCFF subtotal and must not repeat.
+    const fcfeSum = bld.existingEquityPerPeriod[t]
+      + bld.fcffSubtotalPerPeriod[t] + bld.existingPreCapexRemovalPerPeriod[t]
+      + bld.terminalEnterpriseRemovalPerPeriod[t]
+      + bld.debtDrawPerPeriod[t] + bld.idcDrawPerPeriod[t]
+      + bld.principalRepayPerPeriod[t] + bld.interestPaidPerPeriod[t] + bld.terminalEquityPerPeriod[t];
     if (Math.abs(fcfeSum - rs.fcfePerPeriod[t]) > 0.01) fcfeOk = false;
     const divSum = bld.existingEquityPerPeriod[t] + bld.equityCashPerPeriod[t] + bld.equityInKindPerPeriod[t] + bld.dividendsDistributedPerPeriod[t] + bld.terminalEquityPerPeriod[t];
     if (Math.abs(divSum - rs.dividendStreamPerPeriod[t]) > 0.01) divOk = false;
@@ -277,27 +286,45 @@ console.log('=== M5 Returns snapshot integration ===');
   check('SPONSOR: FCFE inception = FCFF inception + existing debt opening', near(rs.fcfePerPeriod[0], rs.fcffPerPeriod[0] + existingDebtOpening));
   check('SPONSOR: dividend inception = -(existing equity)', near(rs.dividendStreamPerPeriod[0], -existingEquity));
 
-  // In-kind land appears on FCFE (build-up), NOT on FCFF.
+  // 2026-08-18, REVERSED. This block used to assert that FCFF EXCLUDED the
+  // in-kind land and that FCFE carried it as a separate equity outflow. FCFF is
+  // now full-cost, matching the reference: it deducts the cash capex, the land
+  // contributed in kind and the IDC, and FCFE inherits all three through it.
   const inKindTotal = b.inKindLandPerPeriod.reduce((s, v) => s + v, 0);
-  check('SPONSOR: in-kind land contribution present on FCFE (negative)', inKindTotal < 0, `inKindTotal=${inKindTotal}`);
-  // FCFF reconstructs WITHOUT any in-kind term (existingPreCapex + cfo + cfi + terminalEV).
-  let fcffNoInKind = true;
+  check('SPONSOR: in-kind land is a real deduction (negative)', inKindTotal < 0, `inKindTotal=${inKindTotal}`);
+  // FCFF reconstructs only WITH the in-kind land and the IDC in it.
+  let fcffFullCost = true;
   for (let t = 0; t < rs.fcffPerPeriod.length; t++) {
-    const sum = b.existingPreCapexPerPeriod[t] + b.cfoPerPeriod[t] + b.cfiPerPeriod[t] + b.terminalEnterprisePerPeriod[t];
-    if (Math.abs(sum - rs.fcffPerPeriod[t]) > 0.01) fcffNoInKind = false;
+    const sum = b.existingPreCapexPerPeriod[t] + b.cfoPerPeriod[t] + b.cfiPerPeriod[t]
+      + b.inKindLandPerPeriod[t] + b.idcCapitalisedPerPeriod[t] + b.terminalEnterprisePerPeriod[t];
+    if (Math.abs(sum - rs.fcffPerPeriod[t]) > 0.01) fcffFullCost = false;
   }
-  check('SPONSOR: FCFF excludes in-kind land (reconstructs without it)', fcffNoInKind);
+  check('SPONSOR: FCFF is FULL COST (reconstructs only WITH in-kind land and IDC)', fcffFullCost);
+  // Negative control, so this cannot pass on a project that simply has neither:
+  // dropping the in-kind term must BREAK the identity.
+  if (inKindTotal < -0.01) {
+    let wouldBreak = false;
+    for (let t = 0; t < rs.fcffPerPeriod.length; t++) {
+      const withoutInKind = b.existingPreCapexPerPeriod[t] + b.cfoPerPeriod[t] + b.cfiPerPeriod[t]
+        + b.idcCapitalisedPerPeriod[t] + b.terminalEnterprisePerPeriod[t];
+      if (Math.abs(withoutInKind - rs.fcffPerPeriod[t]) > 0.01) wouldBreak = true;
+    }
+    check('SPONSOR: and it would NOT reconstruct without the in-kind term', wouldBreak);
+  }
 
-  // Per-period bridge: FCFE - FCFF = existing debt opening + debt draw
-  //   + principal + interest + in-kind land (neg) + (terminalEquity - terminalEV).
+  // Per-period bridge, 2026-08-18: FCFE - FCFF = existing debt opening
+  //   + capex drawdown + IDC drawdown + principal + OPERATING finance cost
+  //   + (terminalEquity - terminalEV).
+  // NO in-kind term and NO IDC term. Both are inside FCFF, and adding them here
+  // would be exactly the double charge this restructure exists to prevent.
   let bridgeOk = true;
   for (let t = 0; t < rs.fcffPerPeriod.length; t++) {
-    const bridge = b.existingDebtOpeningPerPeriod[t] + b.debtDrawPerPeriod[t] + b.principalRepayPerPeriod[t]
-      + b.interestPaidPerPeriod[t] + b.inKindLandPerPeriod[t]
+    const bridge = b.existingDebtOpeningPerPeriod[t] + b.debtDrawPerPeriod[t] + b.idcDrawPerPeriod[t]
+      + b.principalRepayPerPeriod[t] + b.interestPaidPerPeriod[t]
       + (b.terminalEquityPerPeriod[t] - b.terminalEnterprisePerPeriod[t]);
     if (Math.abs((rs.fcfePerPeriod[t] - rs.fcffPerPeriod[t]) - bridge) > 0.01) bridgeOk = false;
   }
-  check('SPONSOR: per-period bridge FCFE = FCFF + financing + in-kind + terminal-equity adj', bridgeOk);
+  check('SPONSOR: bridge FCFE = FCFF + both drawdowns + principal + operating finance cost + terminal swap', bridgeOk);
 
   // Existing equity is in the equity IRR stream, so it is finite (not infinite).
   check('SPONSOR: FCFE IRR finite or null (equity actually invested)', rs.result.fcfe.irr === null || Number.isFinite(rs.result.fcfe.irr));

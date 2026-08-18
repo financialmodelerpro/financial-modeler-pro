@@ -864,9 +864,9 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   addKV('Debt share', fin.funding.debtPct / 100, NUMFMT.pct, 'DebtPct');
   addKV('Equity share', fin.funding.equityPct / 100, NUMFMT.pct, 'EquityPct');
   addKV('Minimum cash reserve', p.financing?.minimumCashReserve ?? fin.funding.minCashReserve ?? 0, NUMFMT.money, 'MinCashReserve');
-  addKV('IDC capitalize (1 = yes)', p.idcConfig?.capitalize === false ? 0 : 1, NUMFMT.int);
+  addKV('IDC treatment', 'Capitalised into asset cost; paid when it arises', '@');
   addKV('IDC allocation basis', String(p.idcConfig?.allocationBasis ?? 'land'), '@');
-  addKV('IDC funding mode', String(p.idcConfig?.fundingMode ?? 'debt_drawdown'), '@');
+  addKV('IDC funding', 'Cash first, debt drawn only for the shortfall', '@');
   addKV('Dividends enabled (1 = yes)', p.dividendPolicy?.enabled ? 1 : 0, NUMFMT.int);
   addKV('Dividend payout ratio %', (p.dividendPolicy?.payoutRatio ?? 0) / 100, NUMFMT.pct);
   addKV('Dividend start year (0 = auto)', p.dividendStartYear ?? 0, NUMFMT.year);
@@ -2697,7 +2697,7 @@ function addFinancing(ctx: EmitCtx): FinLinks {
   echo('Blended interest rate', proj.debtRate, NUMFMT.pct2, A);
   echo('IDC capitalize', idc.capitalize === false ? 'No' : 'Yes', '@', A);
   echo('IDC allocation basis', String(idc.allocationBasis ?? 'land'), '@', A);
-  echo('IDC funding mode', String(idc.fundingMode ?? 'conditional'), '@', A);
+  echo('IDC funding', 'Cash first, debt drawn only for the shortfall', '@', A);
   echo('Dividends enabled', div?.enabled ? 'Yes' : 'No', '@', A);
   echo('Dividend payout ratio', (div?.payoutRatio ?? 0) / 100, NUMFMT.pct, A);
   echo('Dividend start year (0 = auto)', state.project.dividendStartYear ?? 0, NUMFMT.year, A);

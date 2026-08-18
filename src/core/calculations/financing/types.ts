@@ -97,9 +97,17 @@ export interface FacilityResult {
    *  raised inside the axis are 0. Use this for the BS prior-year column. */
   openingBalance: number;
   interestAccrued: number[];
-  /** Construction-window interest added to the debt balance (funding via
-   *  additional drawdown). Zero when idcConfig.fundingMode === 'cash'.
-   *  Used by the financing CF block as "IDC Drawdown". */
+  /** DEBT DRAWN TO FUND IDC, per period.
+   *
+   *  2026-08-18, reference treatment: IDC is PAID in the period it arises and
+   *  debt is drawn only for the part cash cannot cover (IDC less the headroom
+   *  above the minimum cash target). This series is that drawdown, and it is a
+   *  real financing inflow shown beside the capex drawdown, not a silent
+   *  roll-up of the balance. The name is kept for snapshot and reader
+   *  compatibility; `idcDrawdown` is the exported alias that says what it is.
+   *
+   *  Before this date it meant the opposite: construction interest added to the
+   *  balance INSTEAD of being paid, invisible in the cash statement. */
   interestCapitalized: number[];
   /** Conditional IDC (2026-06-02): construction-window interest that was
    *  PAID IN CASH instead of capitalised to debt, because surplus cash was
@@ -135,7 +143,29 @@ export interface FacilityResult {
 }
 
 export interface CombinedDebtService {
+  /** Debt drawn to fund CAPEX. Does NOT include the IDC drawdown; the two are
+   *  separate lines that sum to `totalDrawdownAll`, so a reader can see how
+   *  much of the facility went into the building and how much into carrying it
+   *  (2026-08-18). */
   totalDrawdown: number[];
+  /** Debt drawn to fund IDC = sum of FacilityResult.interestCapitalized. */
+  totalIdcDrawdown: number[];
+  /** `totalDrawdown + totalIdcDrawdown`. The figure the debt balance actually
+   *  grows by, and the one the cash statement receives. */
+  totalDrawdownAll: number[];
+  /** Interest actually PAID in cash, all facilities, all periods. Since
+   *  2026-08-18 IDC is paid in the period it arises, so this equals accrued
+   *  interest; it is summed from the schedules rather than derived, because
+   *  deriving it as (accrued - capitalised) was only true while capitalised
+   *  interest went unpaid. */
+  totalInterestPaid: number[];
+  /** Interest arising in a period with construction spend: the IDC. Capitalised
+   *  into asset cost, and therefore part of capex for the returns build-up. */
+  totalIdc: number[];
+  /** Interest arising in a period with NO construction spend: the operating
+   *  finance cost. This, not total interest, is what FCFE deducts, because the
+   *  IDC half is already inside FCFF's capex. */
+  totalOperatingInterest: number[];
   totalInterestAccrued: number[];
   /** Sum of FacilityResult.interestCapitalized: amount added to debt
    *  balance (the "additional drawdown" piece). Zero when fundingMode='cash'. */

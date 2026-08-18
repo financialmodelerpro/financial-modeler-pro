@@ -177,6 +177,16 @@ export interface ProjectDirectCF {
   cashFromOperationsPerPeriod: number[];
   // Investment
   capexPerPeriod: number[];                // negative
+  /** Debt drawn to fund CAPEX (2026-08-18). Positive. */
+  capexDrawdownPerPeriod: number[];
+  /** Debt drawn to fund IDC. Positive. Sums with the above to debtDrawdown. */
+  idcDrawdownPerPeriod: number[];
+  /** Interest arising in a period with construction spend, PAID that period
+   *  and capitalised into asset cost. Positive magnitude. */
+  idcPaidPerPeriod: number[];
+  /** Interest arising with no construction spend: the operating finance cost.
+   *  Positive magnitude. `idcPaid + operatingInterestPaid = interestPaid`. */
+  operatingInterestPaidPerPeriod: number[];
   cashFromInvestmentPerPeriod: number[];
   // Financing
   /** M4 Pass 2P (2026-05-24): cash equity only, what actually moves
@@ -209,6 +219,12 @@ export interface ProjectIndirectCF {
   changeInEscrowPerPeriod: number[];       // −ΔEscrow (restricted-cash asset build consumes cash)
   cashFromOperationsPerPeriod: number[];
   capexPerPeriod: number[];
+  /** Same four IDC / drawdown series the direct method carries, so a reader
+   *  switching methods sees the same lines (2026-08-18). */
+  capexDrawdownPerPeriod: number[];
+  idcDrawdownPerPeriod: number[];
+  idcPaidPerPeriod: number[];
+  operatingInterestPaidPerPeriod: number[];
   cashFromInvestmentPerPeriod: number[];
   /** M4 Pass 2P (2026-05-24): cash equity only, what actually moves
    *  through CF. In-kind equity is captured in equityInKindDrawdownPerPeriod
@@ -603,8 +619,12 @@ export function computeIdcSnapshot(
   return {
     axisLength: N,
     allocationBasis,
-    capitalize: project.idcConfig?.capitalize !== false,
-    fundingMode: project.idcConfig?.fundingMode ?? 'conditional',
+    // 2026-08-18: constants, not settings. One treatment: IDC is always
+    // capitalised into asset cost and always funded cash-first, borrowing
+    // only the shortfall. Reported on the snapshot so the panels keep a
+    // field to render, and so a stale saved toggle can never resurface.
+    capitalize: true,
+    fundingMode: 'conditional' as const,
     totalConstructionInterestPerPeriod,
     totalIdcPerPeriod,
     byAsset: byAssetIDC,
@@ -1885,12 +1905,28 @@ function computeFinancialsSnapshotOnce(
   const equityExistingArr = financing.equity.existingEquityPerPeriod.slice(0, N);
   while (equityExistingArr.length < N) equityExistingArr.push(0);
   const equityDraws = equityCashArr.map((v, i) => v + (equityInKindArr[i] ?? 0));
-  const debtDraws = financing.combined.totalDrawdown.slice(0, N);
-  while (debtDraws.length < N) debtDraws.push(0);
+  // The cash statement receives BOTH drawdowns: the one that funds capex and
+  // the one that funds IDC. They are carried separately as well (see
+  // `capexDrawdownPerPeriod` / `idcDrawdownPerPeriod` on the direct CF) so the
+  // statement can show a reader each of them, but the cash total is the sum.
+  const capexDrawArr = financing.combined.totalDrawdown.slice(0, N);
+  while (capexDrawArr.length < N) capexDrawArr.push(0);
+  const idcDrawArr = financing.combined.totalIdcDrawdown.slice(0, N);
+  while (idcDrawArr.length < N) idcDrawArr.push(0);
+  const debtDraws = capexDrawArr.map((v, i) => v + (idcDrawArr[i] ?? 0));
   const debtRepays = financing.combined.totalPrincipalRepaid.slice(0, N);
   while (debtRepays.length < N) debtRepays.push(0);
-  const interestPaidArr = financing.combined.debtServiceCash.slice(0, N).map((v, i) => Math.max(0, v - (debtRepays[i] ?? 0)));
+  // 2026-08-18: read the SUMMED cash interest rather than backing it out of
+  // debt service. The old derivation (`debtServiceCash - principal`) equalled
+  // accrued less capitalised, which was right only while capitalised interest
+  // was interest nobody paid. IDC is now paid in the period it arises and the
+  // capitalised figure is the drawdown funding it, so the derivation would
+  // have understated the outflow by exactly the IDC drawdown.
+  const interestPaidArr = financing.combined.totalInterestPaid.slice(0, N);
   while (interestPaidArr.length < N) interestPaidArr.push(0);
+  const idcPaidArr = financing.combined.totalIdc.slice(0, N);
+  while (idcPaidArr.length < N) idcPaidArr.push(0);
+  const opInterestArr = interestPaidArr.map((v, i) => Math.max(0, v - (idcPaidArr[i] ?? 0)));
 
   const cashFromFin = zeros(N);
   for (let t = 0; t < N; t++) {
@@ -2087,6 +2123,10 @@ function computeFinancialsSnapshotOnce(
     taxPaidPerPeriod: taxPaidArr.map((v) => -v),
     cashFromOperationsPerPeriod: cashFromOps,
     capexPerPeriod: capexProj.map((v) => -v),
+    capexDrawdownPerPeriod: capexDrawArr,
+    idcDrawdownPerPeriod: idcDrawArr,
+    idcPaidPerPeriod: idcPaidArr,
+    operatingInterestPaidPerPeriod: opInterestArr,
     cashFromInvestmentPerPeriod: cashFromInv,
     equityDrawdownPerPeriod: equityCashArr,
     equityInKindDrawdownPerPeriod: equityInKindArr,
@@ -2133,6 +2173,10 @@ function computeFinancialsSnapshotOnce(
     changeInEscrowPerPeriod: escrowChange.map((v) => -v),
     cashFromOperationsPerPeriod: cashFromOpsIndirect,
     capexPerPeriod: capexProj.map((v) => -v),
+    capexDrawdownPerPeriod: capexDrawArr,
+    idcDrawdownPerPeriod: idcDrawArr,
+    idcPaidPerPeriod: idcPaidArr,
+    operatingInterestPaidPerPeriod: opInterestArr,
     cashFromInvestmentPerPeriod: cashFromInv,
     // CASH equity only on CF. In-kind kept as a memo field.
     equityDrawdownPerPeriod: equityCashArr,
@@ -2587,10 +2631,10 @@ function computeFinancialsSnapshotSolved(
 ): ProjectFinancialsSnapshot {
   const finCfg = state.project.financing ?? DEFAULT_PROJECT_FINANCING_CONFIG;
   const fundingMethod = finCfg.fundingMethod;
-  // Default 'conditional' (2026-06-02): IDC debt is raised only to maintain
-  // minimum cash; surplus periods pay interest in cash. Override with an
-  // explicit 'debt_drawdown' / 'cash' fundingMode.
-  const idcConditional = (state.project.idcConfig?.fundingMode ?? 'conditional') === 'conditional';
+  // Always true since 2026-08-18: IDC is funded cash-first and borrows only
+  // the shortfall, so the iterative pass that computes the surplus-cash
+  // budget is always required. The toggle that could switch it off is gone.
+  const idcConditional = true;
   // Cash sweep (2026-06-02): a sweep-eligible tranche means the sweep repayment
   // (and the interest that follows the swept balance) must be resolved by the
   // iterative two-pass, the sweep needs cumulative cash, computed in the cash

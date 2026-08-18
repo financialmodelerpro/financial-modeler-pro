@@ -325,18 +325,36 @@ console.log('\n[IDC-LATE] Conditional IDC is decided PER PERIOD (capitalise when
   const capB = base.financing.combined.totalInterestCapitalized;
   const capC = cond.financing.combined.totalInterestCapitalized;
   const cashC = cond.financing.combined.totalInterestCapitalizedCashPaid;
-  // Baseline (debt_drawdown): every construction year capitalises, none cash.
-  check('IDC-LATE baseline: early construction year capitalises (idx 0)', (capB[0] ?? 0) > 0);
-  check('IDC-LATE baseline: late construction year capitalises (idx 2)', (capB[2] ?? 0) > 0);
-  // Conditional: cash-short early years STILL capitalise; the surplus late
-  // year pays IDC in cash (no drawdown).
-  check('IDC-LATE conditional: cash-short early year still capitalises (idx 0)', (capC[0] ?? 0) > 0 && (cashC[0] ?? 0) === 0, `cap0=${Math.round(capC[0] ?? 0)} cash0=${Math.round(cashC[0] ?? 0)}`);
-  check('IDC-LATE conditional: surplus late year pays IDC in cash, not debt (idx 2)', (cashC[2] ?? 0) > 0 && (capC[2] ?? 0) < (capB[2] ?? 0), `cash2=${Math.round(cashC[2] ?? 0)} capC2=${Math.round(capC[2] ?? 0)} capB2=${Math.round(capB[2] ?? 0)}`);
-  // Whole-project: conditional draws less debt than always-capitalise.
-  const debtB = base.bs.debtOutstandingPerPeriod.reduce((s, v) => s + v, 0);
-  const debtC = cond.bs.debtOutstandingPerPeriod.reduce((s, v) => s + v, 0);
-  check('IDC-LATE conditional: total debt outstanding < always-capitalise', debtC < debtB, `cond=${Math.round(debtC)} base=${Math.round(debtB)}`);
-  check('IDC-LATE conditional: BS balances', Math.max(...cond.bs.bsDifferencePerPeriod.map((v) => Math.abs(v))) < 1);
+  const idcC = cond.financing.combined.totalIdc;
+  const paidC = cond.financing.combined.totalInterestPaid;
+
+  // 2026-08-18: THE MODE ARGUMENT IS DEAD, and these checks are rewritten to
+  // the one treatment. `buildLate('debt_drawdown')` and `buildLate('conditional')`
+  // now build IDENTICAL models, which is the whole point of retiring the
+  // toggle, so the first assertion is that they AGREE rather than differ.
+  check('IDC-LATE: the retired fundingMode argument changes NOTHING (one treatment)',
+    capB.every((v, i) => Math.abs(v - (capC[i] ?? 0)) < 0.01),
+    `base=${Math.round(capB.reduce((s, v) => s + v, 0))} cond=${Math.round(capC.reduce((s, v) => s + v, 0))}`);
+
+  // Every construction period's interest is IDC, and all of it is PAID.
+  check('IDC-LATE: IDC arises in the construction periods', (idcC[0] ?? 0) > 0 && (idcC[2] ?? 0) > 0,
+    `idc=[${idcC.slice(0, 4).map((v) => Math.round(v)).join(', ')}]`);
+  check('IDC-LATE: IDC is PAID in the period it arises, all of it',
+    idcC.every((v, i) => v <= (paidC[i] ?? 0) + 0.01),
+    `idc=${Math.round(idcC.reduce((s, v) => s + v, 0))} paid=${Math.round(paidC.reduce((s, v) => s + v, 0))}`);
+
+  // Funding: cash first, debt only for the shortfall. The early years are
+  // cash-short so they borrow; the late year has surplus above the minimum
+  // reserve and pays from cash instead.
+  check('IDC-LATE: a cash-short early year BORROWS for its IDC (idx 0)',
+    (capC[0] ?? 0) > 0 && (cashC[0] ?? 0) === 0, `drawn0=${Math.round(capC[0] ?? 0)} cash0=${Math.round(cashC[0] ?? 0)}`);
+  check('IDC-LATE: a surplus late year pays its IDC from CASH, borrowing nothing (idx 2)',
+    (cashC[2] ?? 0) > 0 && (capC[2] ?? 0) === 0, `cash2=${Math.round(cashC[2] ?? 0)} drawn2=${Math.round(capC[2] ?? 0)}`);
+  // The two funding routes are exhaustive: every unit of IDC is either paid
+  // from cash or borrowed, never neither and never both.
+  check('IDC-LATE: cash-funded + debt-funded = IDC, every period',
+    idcC.every((v, i) => Math.abs(v - ((cashC[i] ?? 0) + (capC[i] ?? 0))) < 0.01));
+  check('IDC-LATE: BS balances', Math.max(...cond.bs.bsDifferencePerPeriod.map((v) => Math.abs(v))) < 1);
 }
 
 // ── CASH SWEEP wired through Schedule → CF → BS → P&L (2026-06-02) ─────

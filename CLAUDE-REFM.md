@@ -3,6 +3,121 @@
 
 > **TRAPS RECORDED IN THIS FILE ARE COLLECTED IN [docs/TRAPS.md](docs/TRAPS.md). Read that first; it is short.** The copies below stay in place, so nothing is lost if you open this file instead. Index of what this file records: the REFM shell `zoom: 0.8` making `vh` and media queries lie (TRAPS 6.1); drag/resize needing pointer capture, not window listeners (6.2); the ExcelJS width-9 column that silently does not apply (3.1); pdf-lib CID glyph ids defeating a naive grep (4.1); the PostgREST 1000-row cap (2.1); export fingerprints needing the FIXTURE, never the live project (5.1); a zero-valued seed hiding a whole code path (7.1); a stage list written as a literal defeating exhaustiveness (7.3); a two-step template registration that fails silently and permanently (8.1); and the verifier rules (a grep proves presence not firing; never gate an assertion on the thing it asserts; prove teeth by sabotage) in TRAPS section 10.
 
+## 2026-08-18c: FCFF is full cost, FCFE chains from it, and IDC has one treatment
+
+Three corrections to the returns build-ups and IDC, matching the reference.
+`verify-returns-buildup` **27 NEW**, teeth proven by five sabotages
+(2 / 2 / 2 / 2 / 4 failures). **MOVES PROJECT IRR ON BOTH LIVE PROJECTS, deliberately.**
+**NOT browser-verified.**
+
+### 1. FCFF deducts FULL-COST capex
+
+`FCFF = CFO + CFI` where CFI is the CASH basis, so **the unlevered return was
+measured against a cost base that excluded the land contributed in kind and the
+interest capitalised while building**. The FCFF card even said "less in-kind land
+contributed", which was false: that line was on FCFE. FCFF now deducts the cash
+capex, the in-kind land and the IDC, each on its own row.
+
+**Measured. Project IRR 41.24% -> 24.67% (MOIC 4.912x -> 3.064x) on FMP - MARINA
+GATE, and 11.31% -> 7.04% (2.401x -> 1.763x) on FMP RE HUB.** The in-kind land is
+60.0m and 1,350.7m respectively; the IDC 41.5m and 48.0m.
+
+### 2. FCFE builds visibly from FCFF, and each cost is charged EXACTLY ONCE
+
+The two streams were built in PARALLEL from components, deliberately: an earlier
+PDF started from FCFF and forgot to back out the enterprise terminal, so the
+column was short by a whole terminal value. FCFE now chains from FCFF and the
+terminal swap is TWO VISIBLE ROWS rather than an implicit adjustment, which is
+the safe way to have what the reference has.
+
+**The consistency trap, and it is the reason this had to be done as one change.**
+FCFE carried its own `(-) In-Kind Equity Investment` row. Making CFI full-cost
+and leaving that row charges the sponsor TWICE for land they contributed once,
+silently. The same trap applies to the finance cost: FCFF now absorbs the IDC as
+capex, so **FCFE must deduct only the OPERATING half**. Both rows are gone from
+the chain and the guard is an algebraic identity, not a row count: FCFE must
+equal the equity holder's actual net cash, rebuilt from the cash statement
+independently of the returns engine. Sabotaging either double-charge trips it by
+exactly the amount double-charged (40,000,000 and 15,259,496 on the fixture).
+
+**FCFE does not move on either project**, which is the proof the pair stayed
+consistent: 44.08% / 3.603x and 7.44% / 2.129x before and after. Only FCFF moves.
+
+`CFO was ALREADY pre-interest` and is now labelled so; measured, the identity
+`CFO == revenue + adj - opex - HQ - fees - tax` holds to 0.00 on both projects.
+
+### 3. IDC: one treatment, and the split follows construction SPEND
+
+**Where it went before.** IDC never reached `capex.perPeriod` (measured: capex =
+cash + in-kind exactly, no IDC term) but it did reach CWIP, through Sell-asset
+inventory and Operate/Lease IDC NBV. Under the old `debt_drawdown` mode the
+balance simply rolled up: `interestCapitalized[i] = interest; bal += interest`
+with `interestPaid[i]` left at ZERO, so the interest appeared in the cash
+statement nowhere at all.
+
+**THE 2030 QUESTION, answered.** Construction WAS still running in 2030 on FMP -
+MARINA GATE: Phase 1 cp=4 (2027..2030), Phase 2 cp=3 (2028..2030), and 79,254k of
+construction spend in that year. The 18,933k of interest WAS classified as IDC
+internally. **The defect was that every row labelled "IDC" carried only the
+CAPITALISED slice**, and 2030 was the one year the whole IDC was paid from
+surplus cash rather than borrowed, so `interestCapitalized` was zero and every
+IDC line read zero with it. The label tracked the funding route, not the cost.
+A drawdown caused by a cash shortage and IDC paid are now separate rows.
+
+**Three rule changes.** (a) The split is driven by whether the period has
+construction SPEND, not by a phase-date window. The window and the spend diverge
+whenever spend runs past the window: on FMP RE HUB, 2030 had 63,122k of spend and
+0 of IDC, and now correctly books 9,971k. (b) IDC is PAID in the period it
+arises, and debt is drawn only for the part cash cannot cover, that is IDC less
+the headroom above the minimum cash target. (c) Debt drawn for capex and debt
+drawn for IDC are separate lines that sum to total drawdown.
+
+**Cash-neutral by construction**, and proven: closing cash and the balance sheet
+are unchanged (max |Assets - L&E| 0.00 on both projects). Booking the payment and
+the drawdown nets to what the roll-up did; what changes is that a reader can see
+both. On MARINA GATE, interest paid goes 37,865k -> 60,415k as the previously
+invisible 22,550k becomes a real payment funded by a real drawdown.
+
+The financing section now reads: Debt Drawdown for Capex 229,885k, Debt Drawdown
+for IDC 22,550k, Debt Repayment -252,434k, IDC paid -41,482k, operating finance
+cost -18,933k. **Total drawn 252,435k against 252,434k repaid**, which is the
+reference invariant that the whole facility, base plus IDC, is repaid.
+
+**Toggles removed.** `idcConfig.capitalize` and `idcConfig.fundingMode` are
+retired: the engine no longer reads either, and a saved project carrying
+`capitalize: false, fundingMode: cash` is proven to compute IDENTICALLY.
+`allocationBasis` STAYS: it splits IDC across assets and changes no
+project-level total, so it is an allocation, not a competing treatment. A found
+defect went with them: `buildModelWorkbook` printed the funding mode defaulting
+to `debt_drawdown` while the engine defaulted to `conditional`, so MARINA GATE's
+Excel Inputs tab had been stating a mode the model was not using.
+
+### One judgement call, flagged
+
+"While construction is running in a period, the entire finance cost of that
+period is IDC" is implemented for NEW facilities. **EXISTING facilities are still
+treated as an operating finance cost**, and on FMP RE HUB that is 151,200k per
+year across 2026-2029 plus 103,433k in 2030, about **708,233k** that would
+reclassify into asset cost if the rule swept them in too. A loan secured on an
+already-operating hotel is not a borrowing cost of the new construction under any
+standard, and the swing is large enough to want an explicit decision rather than
+an inferred one. Say the word and it is a one-line change (`!isExisting` in the
+`constructionRunning` test in `schedule.ts`).
+
+### Verifiers updated, all of them because they pinned the OLD contract
+
+`verify-returns-snapshot` 99 -> **100** (asserted FCFF EXCLUDED in-kind; now
+asserts it is full cost, plus a negative control that dropping the term must
+break the identity). `verify-funding-methods` 93 -> **94** (three IDC-LATE checks
+pinned the three retired modes; the first now asserts the mode argument changes
+NOTHING). `verify-report-arithmetic` **78** and `verify-report-consistency`
+**60** (the FCFE row list and the "debt drawdown (cash)" label). Green:
+`verify-returns-engine` 107, `verify-m4-bs-reconciliation` 187,
+`verify-m4-reconciliation-broad` 24, `verify-cf-capex-foot` 63,
+`verify-report-presentation` 92, `verify-report-readability` 55,
+`verify-excel-export` 304, `verify-fund-e2e` 86, `verify-fund-excel` 75,
+`verify-fund-pdf` 49, `verify-pdf-export` 58.
+
 ## 2026-08-18b: Sweep of everything recorded as a known non-defect
 
 Prompted by the 360.79 residue turning out to be a 25,000,000 balance-sheet break. The question was
