@@ -101,6 +101,7 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
     equityContributions, landAllocationMode,
     setProject, setFinancingTranches, addFinancingTranche,
     updateFinancingTranche, removeFinancingTranche, updatePhase, updateAsset,
+    viewLocked,
   } = useModule1Store(
     useShallow((s) => ({
       project:                s.project,
@@ -114,6 +115,7 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
       equityContributions:    s.equityContributions,
       landAllocationMode:     s.landAllocationMode,
       setProject:             s.setProject,
+      viewLocked:             s.viewLocked,
       setFinancingTranches:   s.setFinancingTranches,
       addFinancingTranche:    s.addFinancingTranche,
       updateFinancingTranche: s.updateFinancingTranche,
@@ -129,6 +131,20 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
   /** Writes the snapshot copy (what the engine reads) AND the durable fund
    *  terms row, so the choice survives without a visit to the Fund Terms tab. */
   const setManagementFeeFunding = (value: 'deficit' | 'equity'): void => {
+    // ONE GUARD, AND IT COVERS BOTH WRITES (2026-08-19).
+    //
+    // `setProject` is a MODEL_MUTATOR and no-ops when the project is open
+    // read-only. `saveFundTerms` is a network call and does not. So without this
+    // return, a click in view mode wrote `equity` to the DURABLE row while the
+    // snapshot and the screen stayed on the old value: the two stores split, and
+    // the one the engine reads was not the one that changed. Measured live on
+    // FMP - MARINA GATE, whose durable row said deficit while its snapshot said
+    // equity.
+    //
+    // The button is also disabled and visibly locked, so this should be
+    // unreachable; it is here because a guard that depends on a button staying
+    // disabled is not a guard.
+    if (viewLocked) return;
     const next = { ...fundTermsResolved, managementFeeFunding: value };
     setProject({ fundTerms: toFundTermsPatch(next) });
     setFeeFundingNotice(null);
@@ -478,6 +494,9 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
                       <button
                         key={value} type="button" data-testid={`financing-fee-funding-${value}`}
                         onClick={() => setManagementFeeFunding(value)}
+                        data-view-mutates="true"
+                        disabled={viewLocked}
+                        title={viewLocked ? 'Read-only. Click Edit to change how the fee is funded.' : undefined}
                         style={{
                           padding: '6px 12px', borderRadius: 'var(--radius-sm)', fontSize: 11, fontWeight: 600, cursor: 'pointer',
                           border: `1px solid ${active ? 'var(--color-navy)' : 'var(--color-border)'}`,
@@ -488,6 +507,11 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
                     );
                   })}
                 </div>
+                {viewLocked && (
+                  <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 4, fontStyle: 'italic' }} data-testid="financing-fee-funding-locked">
+                    Read-only. Click Edit to change how the fee is funded.
+                  </div>
+                )}
                 <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 4 }}>
                   <strong>Cash deficit funding</strong>: the fee is an operating outflow inside the requirement and is funded at the project debt / equity ratio.
                   {' '}<strong>100% equity</strong>: the fee is left out of the requirement and drawn from equity directly, as the third row of Total Equity Required, only while construction is spending and only as far as keeps cash at the minimum; after construction it is paid from cash.

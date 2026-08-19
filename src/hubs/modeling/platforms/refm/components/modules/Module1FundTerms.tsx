@@ -135,8 +135,9 @@ function AmountInput({ value, onChange, testId }: {
 }
 
 export default function Module1FundTerms({ projectId }: { projectId: string | null }): React.JSX.Element {
-  const { project, setProject, financingTranches } = useModule1Store(useShallow((s) => ({
+  const { project, setProject, financingTranches, viewLocked } = useModule1Store(useShallow((s) => ({
     project: s.project, setProject: s.setProject, financingTranches: s.financingTranches,
+    viewLocked: s.viewLocked,
   })));
 
   // The snapshot copy is the source of truth for what is ON SCREEN, because it
@@ -407,7 +408,10 @@ export default function Module1FundTerms({ projectId }: { projectId: string | nu
               return (
                 <button
                   key={value} type="button" data-testid={`fund-terms-fee-funding-${value}`}
-                  onClick={() => patch({ managementFeeFunding: value })}
+                  onClick={() => { if (viewLocked) return; patch({ managementFeeFunding: value }); }}
+                  data-view-mutates="true"
+                  disabled={viewLocked}
+                  title={viewLocked ? 'Read-only. Click Edit to change how the fee is funded.' : undefined}
                   style={{
                     padding: '6px 12px', borderRadius: 'var(--radius-sm)', fontSize: 11, fontWeight: 600, cursor: 'pointer',
                     border: `1px solid ${active ? NAVY : 'var(--color-border)'}`,
@@ -418,6 +422,11 @@ export default function Module1FundTerms({ projectId }: { projectId: string | nu
               );
             })}
           </div>
+          {viewLocked && (
+            <div style={{ ...helpText, marginTop: 4, fontStyle: 'italic' }} data-testid="fund-terms-fee-funding-locked">
+              Read-only. Click Edit to change how the fee is funded.
+            </div>
+          )}
           <div style={{ ...helpText, marginTop: 4 }}>
             <strong>Cash deficit funding</strong> (the default, and what the reference structure does): the fee sits
             inside cash from operations, lowers cash available, and is funded through the deficit at the project

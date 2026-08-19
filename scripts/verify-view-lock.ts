@@ -182,6 +182,94 @@ section('F. Module 7 is exempt, deliberately');
     /MODULE 7 IS EXEMPT/.test(SHELL));
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+section('G. A button that changes the model is locked too (2026-08-19)');
+
+// THE DEFECT. The view lock covered input, select and textarea, deliberately,
+// because a blanket panel lock had been tried and reverted for killing
+// collapsibles and selectors. Buttons were therefore free, and the two fund
+// fee-funding toggles are buttons: in view mode they were clickable,
+// `setProject` no-opped, and the click was discarded in silence. That is the
+// same lying-screen defect (TRAPS 7.20) the input lock exists to prevent, and it
+// was reported by a user, not by this file.
+//
+// The rule for buttons is INVERTED from the rule for inputs, and it has to be: a
+// button carries nothing in the DOM that distinguishes "changes the model" from
+// "expands a section". So a mutating button DECLARES itself with
+// `data-view-mutates="true"`, and these checks are what stop that declaration
+// being forgotten.
+{
+  check('G1 the CSS locks a declared mutating button',
+    /\[data-view-locked='true'\] \[data-view-mutates='true'\]/.test(CSS));
+  check('G2 and it is visibly locked, not merely inert',
+    (() => {
+      const m = /\[data-view-locked='true'\] \[data-view-mutates='true'\] \{([^}]*)\}/.exec(CSS);
+      if (!m) return false;
+      const body = m[1];
+      return /pointer-events:\s*none/.test(body)
+        && /cursor:\s*not-allowed/.test(body)
+        && /opacity/.test(body);
+    })());
+  check('G3 the CSS says WHY buttons are opt-in where inputs are opt-out',
+    /BUTTONS ARE LOCKED BY DECLARATION/.test(CSS));
+
+  // The two toggles in question, both files, all three defences: the marker, the
+  // disabled attribute and a handler guard. CSS pointer-events does not stop a
+  // keyboard Enter on a focused button, which is why `disabled` is not optional.
+  const FUND = read('src/hubs/modeling/platforms/refm/components/modules/Module1FundTerms.tsx');
+  const FIN = read('src/hubs/modeling/platforms/refm/components/modules/Module1Financing.tsx');
+  for (const [name, src, testid] of [
+    ['Fund Terms', FUND, 'fund-terms-fee-funding-'],
+    ['Financing', FIN, 'financing-fee-funding-'],
+  ] as const) {
+    const at = src.indexOf(testid);
+    check(`G4 ${name}: the fee-funding toggle exists`, at >= 0);
+    if (at < 0) continue;
+    // The button's own JSX, from its testid to the end of the opening tag.
+    const block = src.slice(Math.max(0, at - 400), at + 900);
+    check(`G5 ${name}: the toggle declares that it mutates`, /data-view-mutates="true"/.test(block));
+    check(`G6 ${name}: the toggle is disabled when the view is locked`, /disabled=\{viewLocked\}/.test(block));
+    check(`G7 ${name}: and it says so rather than looking broken`,
+      /Read-only\. Click Edit/.test(block));
+    check(`G8 ${name}: a locked state is rendered beside the control`,
+      src.includes(`${testid.replace(/-$/, '')}-locked`));
+    check(`G9 ${name}: the component actually reads viewLocked from the store`,
+      /viewLocked:\s*s\.viewLocked/.test(src));
+  }
+
+  // THE SPLIT BRAIN. `setProject` no-ops under the lock; `saveFundTerms` is a
+  // network call and does not. Without a guard, a click in view mode wrote the
+  // DURABLE row while the snapshot the engine reads stayed put, so the two
+  // stores disagreed and the one that changed was the one nothing computes from.
+  // Measured live on FMP - MARINA GATE: durable said deficit, snapshot said
+  // equity.
+  const finSetterRaw = /const setManagementFeeFunding[\s\S]*?\n  \};/.exec(FIN)?.[0] ?? '';
+  // COMMENTS STRIPPED BEFORE ANY ORDERING CLAIM. The first version of G12 asked
+  // whether the guard appeared before `saveFundTerms` in the raw text, and it
+  // FAILED against correct code: the comment above the guard explains what
+  // `saveFundTerms` is, so `indexOf` found the word in the prose first. A
+  // source-text check that reads comments is measuring the documentation.
+  const finSetter = finSetterRaw
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+  check('G10 the Financing setter exists', finSetter.length > 0);
+  check('G11 it returns EARLY when the view is locked, before any write',
+    /if \(viewLocked\) return;/.test(finSetter));
+  check('G12 and the guard precedes the durable write, so the two stores cannot split',
+    finSetter.indexOf('if (viewLocked) return;') >= 0
+    && finSetter.includes('saveFundTerms')
+    && finSetter.indexOf('if (viewLocked) return;') < finSetter.indexOf('saveFundTerms'));
+  check('G13 the Fund Terms toggle guards its handler too',
+    /if \(viewLocked\) return; patch\(\{ managementFeeFunding/.test(FUND));
+
+  // NOT A BLANKET LOCK. The reverted regression must stay reverted: a plain
+  // button with no declaration is still free, or every collapsible and phase
+  // pill dies in view mode.
+  check('G14 an undeclared button is NOT locked (the reverted blanket lock stays reverted)',
+    !/\[data-view-locked='true'\]\s+button\s*\{/.test(CSS)
+    && !/\[data-view-locked='true'\] \* \{/.test(CSS));
+}
+
 // ── Report ─────────────────────────────────────────────────────────────────
 console.log(`\n${'='.repeat(70)}`);
 console.log(`verify-view-lock: ${passed} passed, ${failures.length} failed`);

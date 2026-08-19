@@ -1344,8 +1344,23 @@ body[data-refm-theme="dark"] .app-shell {
    WHY IT IS SCOPED TO FORM CONTROLS AND NOT THE PANEL. A blanket
    pointer-events lock on the whole panel was tried once and removed, because
    it killed collapsibles, phase and asset selectors and the view toggles: in
-   view mode every VIEW interaction must keep working. Buttons, rows and links
-   are untouched here; only input, select and textarea are locked.
+   view mode every VIEW interaction must keep working. Rows and links are
+   untouched here; input, select and textarea are locked.
+
+   BUTTONS ARE LOCKED BY DECLARATION (2026-08-19), via
+   `data-view-mutates="true"`. A button carries no attribute that says whether
+   it changes the model or merely changes the view, and the two live side by
+   side: a collapsible chevron, a phase pill and a fee-funding toggle are all
+   <button>. Locking every button reintroduces exactly the regression described
+   above, so the rule is inverted for buttons only: they are free unless they
+   declare that they mutate.
+
+   That declaration is not left to memory. `verify-view-lock` fails on a button
+   whose handler reaches a model mutator without it. The defect this closes: the
+   fund fee-funding toggles were plain buttons, so in view mode they were
+   clickable, `setProject` no-opped, and the click was discarded in silence,
+   which is the same lying-screen defect (TRAPS 7.20) the input lock exists to
+   prevent.
 
    `data-view-editable="true"` opts a control out, for the handful that filter
    or arrange a view rather than change the model (the Capex stage filter, the
@@ -1367,6 +1382,16 @@ body[data-refm-theme="dark"] .app-shell {
 [data-view-locked='true'] input[type='radio'] {
   opacity: 0.5;
   background: transparent !important;
+}
+/* A button that CHANGES THE MODEL. Declared, because the DOM cannot tell a
+   mutating button from a navigating one. The visible state matters as much as
+   the lock: a control that simply does nothing reads as a broken button. */
+[data-view-locked='true'] [data-view-mutates='true'] {
+  pointer-events: none !important;
+  cursor: not-allowed !important;
+  opacity: 0.45 !important;
+  border-style: dashed !important;
+  filter: grayscale(1);
 }
 [data-view-locked='true'] [data-view-editable='true'],
 [data-view-locked='true'] [data-view-editable='true'] input,
