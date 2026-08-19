@@ -265,17 +265,20 @@ export interface ResolvedFundSize {
  *
  * ── WHICH FIGURE ──────────────────────────────────────────────────────────
  *
- * Total equity plus total debt over the fund's LIFE, not the balance standing
- * at any one date. A fund that raises 500m has a fund size of 500m whatever
- * its drawdown timing, and the structure fee is a one-time charge on that
- * total, booked at inception. Using a period balance instead would charge the
- * fee on whatever happened to be drawn by the end of the first year, which is
- * not a fund size in any sense a reader would recognise.
+ * Since 2026-08-19: THE SELECTED FUNDING METHOD'S REQUIREMENT, split at its
+ * base debt / equity ratio (the reference charges its fees on "Base
+ * Requirement" x the debt or equity share). The caller passes the two shares;
+ * this function adds them. IDC drawdowns, the fee's own equity draw, land in
+ * kind and pre-existing capital are outside the base: the fee is charged on
+ * the capital the development REQUIRES, not on what the solve happened to draw.
+ * Before that date the figure was every draw the model made over its life.
  */
 export function resolveFundSize(args: {
-  /** Total equity over the life (existing + new cash + in-kind). */
+  /** The equity share of the selected method's requirement (base, no in-kind,
+   *  no existing, no fee draw). */
   equityTotal: number | null;
-  /** Total debt over the life (existing opening + drawdowns + capitalised IDC). */
+  /** The debt share of the selected method's requirement (base, no IDC
+   *  drawdown, no existing debt). */
   debtTotal: number | null;
   /** The figure typed on the Fund Terms tab. */
   manualSize: number;
@@ -292,7 +295,7 @@ export function resolveFundSize(args: {
   if (args.equityTotal === null || args.debtTotal === null) {
     return {
       amount: 0, source: 'model', amountKnown: false, equityTotal: 0, debtTotal: 0,
-      explanation: 'From your model: total equity plus total debt. The amount is computed in the model, not here.',
+      explanation: 'From your model: the selected funding method requirement (base debt plus base equity). The amount is computed in the model, not here.',
     };
   }
   const equity = Math.max(0, args.equityTotal || 0);
@@ -301,7 +304,7 @@ export function resolveFundSize(args: {
   if (total > 0) {
     return {
       amount: total, source: 'model', amountKnown: true, equityTotal: equity, debtTotal: debt,
-      explanation: 'From your model: total equity plus total debt over the life of the fund, frozen before the funding solve so the fee cannot feed its own base.',
+      explanation: 'From your model: the selected funding method requirement, base debt plus base equity, frozen before the funding solve so the fee cannot feed its own base.',
     };
   }
   if (manual > 0) {

@@ -1055,7 +1055,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
           {activeTab === 'fund-terms' && <Module1FundTerms projectId={activeProjectId} />}
           {activeTab === 'assets' && <Module1Assets />}
           {activeTab === 'costs' && <Module1Costs />}
-          {activeTab === 'financing' && <Module1Financing />}
+          {activeTab === 'financing' && <Module1Financing projectId={activeProjectId} />}
         </div>
       );
     }

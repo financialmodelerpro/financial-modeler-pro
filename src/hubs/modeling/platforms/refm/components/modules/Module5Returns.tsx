@@ -23,7 +23,7 @@ import { makeFmt } from './_shared/numberFmt';
 import { M4PeriodTable, type M4Row } from './_shared/m4Table';
 import { FundFeeBasisTable } from './_shared/FundFeeBasisTable';
 import { buildFundFeeBasisRows, buildFundCapitalRows } from '../../lib/reports/m4Reports';
-import { buildFundWaterfallRows, buildFundFeeIncomeRows, fundGrossNetNote, type FundReportCtx } from '../../lib/reports/fundReports';
+import { buildFundWaterfallRows, buildDdmPostFeeRows, buildFundFeeIncomeRows, fundGrossNetNote, type FundReportCtx } from '../../lib/reports/fundReports';
 import { MetricCard, MetricGrid, AssumptionsPanel, fmtPct, fmtX, type AssumptionsValue } from './Module5Shared';
 import { FAST_INPUT } from './_shared/inputStyles';
 import type { ProjectPartner } from '../../lib/state/module1-types';
@@ -178,23 +178,6 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
         <MetricCard label="Development Margin" value={fmtPct(de.developmentMargin)} sub="profit / GDV" tone={de.developmentMargin == null ? 'neutral' : de.developmentMargin >= 0 ? 'good' : 'bad'} />
       </MetricGrid>
 
-      {/* ── Fund layer Step 5: the distribution waterfall + gross vs net.
-            Renders ONLY when the fund toggle is on. Every standalone project
-            sees exactly what it saw before. ── */}
-      {rs.waterfall.active && (
-        <FundWaterfallSection
-          waterfall={rs.waterfall}
-          gross={r.dividends}
-          net={rs.resultNetDividends}
-          reportCtx={fundReportCtx}
-          exitYearLabel={rs.exitYearLabel}
-          axisLabels={axisLabels}
-          inceptionLabel={inceptionLabel}
-          currency={currency}
-          fmt={fmt}
-        />
-      )}
-
       {/* ── Equity Partners ── */}
       <PartnersSection
         partners={project.partners ?? []}
@@ -325,15 +308,36 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
         fmt={fmt}
         priorYearLabel={inceptionLabel}
       />
+      {/* THE DDM, IN THE REFERENCE ORDER (2026-08-19): the dividend discount
+          model BEFORE the performance fee with its IRR / MOIC, then the
+          performance fee (hurdle waterfall), then the distributions net of the
+          fee against the same equity investment with the post-fee IRR / MOIC.
+          On a standalone project only the first table renders. */}
       <M4PeriodTable
-        title="Distributed Equity Build-Up (realized distributions)"
-        caption="Realized equity cash = dividends actually distributed by the cash-sweep waterfall, less the equity invested (existing + new cash + in-kind), plus the terminal equity value at exit. This is the basis for the Distributed Equity IRR. Dividends are sized in the Financial Statements (Cash Sweep + Dividend policy), not in the funding gap."
+        title={rs.waterfall.active ? 'Dividend Discount Model (DDM), before performance fee' : 'Distributed Equity Build-Up (Dividend Discount Model)'}
+        caption="Equity investment (existing + new cash + in-kind) out, dividends and return of capital distributed by the cash-sweep waterfall in, plus the terminal equity value at exit. This is the basis for the Distributed Equity IRR. Dividends are sized in the Financial Statements (Cash Sweep + Dividend policy), not in the funding gap."
         yearLabels={axisLabels}
         rows={dividendBuildupRows}
         currency={currency}
         fmt={fmt}
         priorYearLabel={inceptionLabel}
       />
+      <div data-testid="m5-ddm-pre-fee-metrics" style={{ fontSize: 12, margin: '0 0 var(--sp-3)', color: 'var(--color-heading)' }}>
+        <strong>DDM IRR{rs.waterfall.active ? ' (before performance fee)' : ''}</strong> {fmtPct(r.dividends.irr)} · <strong>MOIC</strong> {fmtX(r.dividends.moic)}
+      </div>
+      {rs.waterfall.active && (
+        <FundWaterfallSection
+          waterfall={rs.waterfall}
+          gross={r.dividends}
+          net={rs.resultNetDividends}
+          reportCtx={fundReportCtx}
+          exitYearLabel={rs.exitYearLabel}
+          axisLabels={axisLabels}
+          inceptionLabel={inceptionLabel}
+          currency={currency}
+          fmt={fmt}
+        />
+      )}
 
       {/* ── Two-way Sensitivity (Equity IRR), moved to the bottom of the tab. ── */}
       <SensitivitySection snap={snap} project={project} />
@@ -376,6 +380,7 @@ function FundWaterfallSection(props: {
   // the Excel workbook, the full PDF and the summary PDF render, so the row
   // order and the no-total-on-balances rule have exactly one definition.
   const rows: M4Row[] = buildFundWaterfallRows(props.reportCtx);
+  const postFeeRows: M4Row[] = buildDdmPostFeeRows(props.reportCtx);
   const grossNetNote = fundGrossNetNote(props.reportCtx);
 
   const th: React.CSSProperties = { textAlign: 'right', padding: '6px 10px' };
@@ -383,11 +388,12 @@ function FundWaterfallSection(props: {
 
   return (
     <section style={{ marginBottom: 'var(--sp-3)' }} data-testid="m5-fund-waterfall">
-      <SectionTitle>Fund Distribution Waterfall</SectionTitle>
+      <SectionTitle>Performance Fee (hurdle waterfall) and DDM after fee</SectionTitle>
       <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
         Equity drawn folds into a single unpaid hurdle balance, which accrues at the hurdle rate and is settled
         by one Hurdle Paid line. Anything distributed above it is excess, and the performance fee is a flat
         percentage of that excess. Hurdle {fmtPct(w.hurdleRate)}, performance fee {fmtPct(w.performanceFeePct)}.
+        The distributions net of that fee, against the same equity investment, give the DDM after fee below.
       </div>
 
       {/* Gross vs net, the headline of this section. */}
@@ -454,7 +460,7 @@ function FundWaterfallSection(props: {
       )}
 
       <M4PeriodTable
-        title={`Distribution Waterfall (hold to ${props.exitYearLabel})`}
+        title={`Performance Fee (hold to ${props.exitYearLabel})`}
         caption="Each line feeds the next, in the order shown. The three balance lines (BoP, Total Hurdle Owed, EoP) carry no lifetime total, because a balance summed across periods has no meaning, and neither does Hurdle Accrued, which is an accrual charged on that compounding balance. The prior column is the inception period. Gross distributions are shown as a memo below the sequence."
         yearLabels={axisLabels}
         rows={rows}
@@ -462,6 +468,18 @@ function FundWaterfallSection(props: {
         fmt={fmt}
         priorYearLabel={inceptionLabel}
       />
+      <M4PeriodTable
+        title="Dividend Discount Model (DDM), after performance fee"
+        caption="The same equity investment as the DDM above, with the distributions net of the performance fee. The IRR and MOIC below are the post-fee return to the equity holders."
+        yearLabels={axisLabels}
+        rows={postFeeRows}
+        currency={currency}
+        fmt={fmt}
+        priorYearLabel={inceptionLabel}
+      />
+      <div data-testid="m5-ddm-post-fee-metrics" style={{ fontSize: 12, margin: '0 0 var(--sp-3)', color: 'var(--color-heading)' }}>
+        <strong>DDM IRR (after performance fee)</strong> {fmtPct(net.irr)} · <strong>MOIC</strong> {fmtX(net.moic)}
+      </div>
     </section>
   );
 }

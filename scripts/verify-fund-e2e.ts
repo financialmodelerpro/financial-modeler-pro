@@ -271,17 +271,32 @@ async function main(): Promise<void> {
     //
     // So: recompute the engine's own fund-size formula on BOTH runs and check
     // which one the fee actually charged on. It must be the fee-free one.
-    const sumArr = (a: unknown): number => Array.isArray(a) ? (a as number[]).reduce((s, v) => s + (v ?? 0), 0) : 0;
-    const fundSizeOf = (s: any): number =>
-      (s.financing.equity.grandTotal ?? 0) + (s.financing.existing.debtOutstandingTotal ?? 0)
-      + sumArr(s.financing.combined.totalDrawdown) + sumArr(s.financing.combined.totalInterestCapitalized);
+    //
+    // THE FORMULA CHANGED ON 2026-08-19 and this check follows it: the fund
+    // size is now the SELECTED FUNDING METHOD'S REQUIREMENT (base debt plus
+    // base equity at its ratio), matching the reference, where it used to be
+    // every draw the model made over its life. What is being tested is
+    // unchanged and is the whole point: whichever formula, it is evaluated on
+    // the FEE-FREE pass.
+    const fundSizeOf = (s: any): number => {
+      const req = Math.max(0, s.financing.funding.selectedWithMinCash ?? 0);
+      const d = Math.max(0, s.financing.funding.debtPct ?? 0) / 100;
+      const e = Math.max(0, s.financing.funding.equityPct ?? 0) / 100;
+      return req * d + req * e;
+    };
     const charged = snapOn.fundFees.fundSize.amount;
     const feeFreeSize = fundSizeOf(snapOff), withFeesSize = fundSizeOf(snapOn);
-    check('the fee charges on the FEE-FREE fund size, exactly', near(charged, feeFreeSize, 0.01),
+    check('the fee charges on the FEE-FREE funding requirement, exactly', near(charged, feeFreeSize, 0.01),
       `charged ${M(charged)} vs fee-free ${M(feeFreeSize)}`);
-    check('and NOT on the with-fees fund size (so the freeze is not vacuous)',
+    check('and NOT on the with-fees requirement (so the freeze is not vacuous)',
       Math.abs(charged - withFeesSize) > 1_000_000,
-      `charged ${M(charged)} vs with-fees ${M(withFeesSize)} (the fees raised capital by ${M(withFeesSize - feeFreeSize)})`);
+      `charged ${M(charged)} vs with-fees ${M(withFeesSize)} (the fees raised the requirement by ${M(withFeesSize - feeFreeSize)})`);
+    check('the base EXCLUDES what the reference excludes: it is smaller than every-draw-ever',
+      charged < (snapOff.financing.equity.grandTotal ?? 0)
+        + (snapOff.financing.existing.debtOutstandingTotal ?? 0)
+        + (snapOff.financing.combined.totalDrawdown as number[]).reduce((s: number, v: number) => s + (v ?? 0), 0)
+        + (snapOff.financing.combined.totalInterestCapitalized as number[]).reduce((s: number, v: number) => s + (v ?? 0), 0),
+      'in-kind land, pre-existing capital and IDC drawdowns are outside the base');
 
     // Statement integrity with fees on. The engine is an iterative fixed point,
     // so the bar is that the fund layer does not DEGRADE the residue, not that

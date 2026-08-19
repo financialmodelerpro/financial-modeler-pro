@@ -74,11 +74,22 @@ export interface FundingRequirement {
   // uses these instead of the capex-derived split.
   customDebtByPeriod?: number[];
   customEquityByPeriod?: number[];
+  /** The management fee equity draw per period (2026-08-19), floored at zero
+   *  and length N. Outside the requirement and outside the ratio: it becomes
+   *  `DebtEquitySplit.dedicatedEquity` verbatim. Zero unless the fund terms
+   *  fund the fee by equity. */
+  dedicatedEquityByPeriod: number[];
 }
 
 export interface DebtEquitySplit {
   debt: number[];
+  /** BASE development equity: the equity share of the selected method's
+   *  requirement (plus the land-cash equity on the capex path). Does NOT
+   *  include the management fee equity draw, which is `dedicatedEquity`. */
   equity: number[];
+  /** The management fee drawn from equity directly (2026-08-19), outside the
+   *  debt / equity ratio. Zero unless the fund terms fund the fee by equity. */
+  dedicatedEquity: number[];
   inKind: number[];
   landDebt: number[];
   landEquity: number[];
@@ -205,11 +216,22 @@ export interface CombinedDebtService {
 }
 
 export interface EquityMovement {
+  /** ALL cash equity drawn in the period: development + management fee. Every
+   *  reader that means "cash equity" (cash flow, share capital, returns) reads
+   *  this and is right without knowing about the split. */
   cashPerPeriod: number[];
+  /** The two halves of `cashPerPeriod` (2026-08-19): the BASE development
+   *  equity (the equity share of the requirement) and the management fee drawn
+   *  from equity directly. `developmentPerPeriod + managementFeePerPeriod ==
+   *  cashPerPeriod` every period, by construction. */
+  developmentPerPeriod: number[];
+  managementFeePerPeriod: number[];
   inKindPerPeriod: number[];
   existingEquityPerPeriod: number[];
   totalPerPeriod: number[];
   totalCash: number;
+  totalDevelopment: number;
+  totalManagementFee: number;
   totalInKind: number;
   totalExisting: number;
   grandTotal: number;

@@ -18,26 +18,36 @@ export function computeEquityMovement(
 ): EquityMovement {
   const N = axis.totalPeriods;
   const cashPerPeriod          = new Array<number>(N).fill(0);
+  const developmentPerPeriod   = new Array<number>(N).fill(0);
+  const managementFeePerPeriod = new Array<number>(N).fill(0);
   const inKindPerPeriod        = new Array<number>(N).fill(0);
   const existingEquityPerPeriod = new Array<number>(N).fill(0);
   const totalPerPeriod         = new Array<number>(N).fill(0);
   for (let i = 0; i < N; i++) {
-    cashPerPeriod[i]   = split.equity[i] ?? 0;
-    inKindPerPeriod[i] = split.inKind[i] ?? 0;
+    developmentPerPeriod[i]   = split.equity[i] ?? 0;
+    managementFeePerPeriod[i] = split.dedicatedEquity?.[i] ?? 0;
+    cashPerPeriod[i]          = developmentPerPeriod[i] + managementFeePerPeriod[i];
+    inKindPerPeriod[i]        = split.inKind[i] ?? 0;
   }
   if (N > 0) existingEquityPerPeriod[0] = existing.equityTotal;
   for (let i = 0; i < N; i++) {
     totalPerPeriod[i] = cashPerPeriod[i] + inKindPerPeriod[i] + existingEquityPerPeriod[i];
   }
   const totalCash     = cashPerPeriod.reduce((s, v) => s + v, 0);
+  const totalDevelopment   = developmentPerPeriod.reduce((s, v) => s + v, 0);
+  const totalManagementFee = managementFeePerPeriod.reduce((s, v) => s + v, 0);
   const totalInKind   = inKindPerPeriod.reduce((s, v) => s + v, 0);
   const totalExisting = existingEquityPerPeriod.reduce((s, v) => s + v, 0);
   return {
     cashPerPeriod,
+    developmentPerPeriod,
+    managementFeePerPeriod,
     inKindPerPeriod,
     existingEquityPerPeriod,
     totalPerPeriod,
     totalCash,
+    totalDevelopment,
+    totalManagementFee,
     totalInKind,
     totalExisting,
     grandTotal: totalCash + totalInKind + totalExisting,

@@ -150,14 +150,6 @@ export function computeFundingRequirement(
       selectedByPeriod = gapForDisplay.slice();
       customDebtByPeriod = gapForDisplay.map((v) => v * debtFrac);
       customEquityByPeriod = gapForDisplay.map((v) => v * equityFrac);
-      // Dedicated equity (an equity-funded fee) is drawn ON TOP of the ratio
-      // split, as equity only. It was removed from the deficit before the
-      // deficit was sized, so adding it here funds it exactly once.
-      const dedicated = gapInputs.dedicatedEquityByPeriod;
-      if (dedicated && dedicated.some((v) => (v ?? 0) > 0)) {
-        customEquityByPeriod = customEquityByPeriod.map((v, i) => v + Math.max(0, dedicated[i] ?? 0));
-        selectedByPeriod = selectedByPeriod.map((v, i) => v + Math.max(0, dedicated[i] ?? 0));
-      }
     } else {
       selectedByPeriod = exclLandInKindByPeriod.slice();
     }
@@ -190,6 +182,16 @@ export function computeFundingRequirement(
   const totalFundingNeedByPeriod = selectedByPeriod.map((v, i) => v + (minCashByPeriod[i] ?? 0));
   const selectedWithMinCash = selected + (selectedMethodId === 3 ? 0 : minCashReserve);
 
+  // THE MANAGEMENT FEE EQUITY DRAW IS ITS OWN LINE (2026-08-19). It is NOT part
+  // of the selected method's requirement and NOT part of the debt / equity
+  // split: the requirement above is the BASE debt and equity the development
+  // needs, and the fee is drawn from equity directly on top of it, as the
+  // third row of Total Equity Required. Carried through verbatim (floored at
+  // zero) so debtEquity.ts can hand it to the equity movement unchanged.
+  const dedicatedEquityByPeriod = new Array<number>(N).fill(0);
+  const dedicatedSrc = gapInputs?.dedicatedEquityByPeriod;
+  if (dedicatedSrc) for (let i = 0; i < N; i++) dedicatedEquityByPeriod[i] = Math.max(0, dedicatedSrc[i] ?? 0);
+
   return {
     method1: m1,
     method2: m2,
@@ -206,5 +208,6 @@ export function computeFundingRequirement(
     selectedWithMinCash,
     customDebtByPeriod,
     customEquityByPeriod,
+    dedicatedEquityByPeriod,
   };
 }

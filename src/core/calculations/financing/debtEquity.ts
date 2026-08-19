@@ -71,6 +71,11 @@ export function computeDebtEquitySplit(
   const landEquity  = new Array<number>(N).fill(0);
   const nonLandDebt   = new Array<number>(N).fill(0);
   const nonLandEquity = new Array<number>(N).fill(0);
+  // The management fee equity draw rides through untouched (2026-08-19): it is
+  // not part of the requirement and not split, so it is neither in `equity`
+  // nor in the ratio arithmetic below. Floored and length N already.
+  const dedicatedEquity = new Array<number>(N).fill(0);
+  for (let i = 0; i < N; i++) dedicatedEquity[i] = Math.max(0, funding.dedicatedEquityByPeriod?.[i] ?? 0);
 
   const debtFrac   = funding.debtPct   / 100;
   const equityFrac = funding.equityPct / 100;
@@ -135,7 +140,7 @@ export function computeDebtEquitySplit(
       equity[i] = nonLandEquity[i];
     }
     for (let i = 0; i < N; i++) inKind[i] = inKindByPeriod[i] ?? 0;
-    return { debt, equity, inKind, landDebt, landEquity, nonLandDebt, nonLandEquity };
+    return { debt, equity, dedicatedEquity, inKind, landDebt, landEquity, nonLandDebt, nonLandEquity };
   }
 
   for (let i = 0; i < N; i++) {
@@ -153,5 +158,5 @@ export function computeDebtEquitySplit(
   }
   for (let i = 0; i < N; i++) inKind[i] = inKindByPeriod[i] ?? 0;
 
-  return { debt, equity, inKind, landDebt, landEquity, nonLandDebt, nonLandEquity };
+  return { debt, equity, dedicatedEquity, inKind, landDebt, landEquity, nonLandDebt, nonLandEquity };
 }

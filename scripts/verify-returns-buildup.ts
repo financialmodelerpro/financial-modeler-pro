@@ -132,8 +132,9 @@ if (SAB === 5) {
   }
 }
 if (SAB === 6) {
-  // 6: the equity memo drifts from the draw it explains.
-  for (let t = 0; t < N; t++) d.equityForCapexPerPeriod[t] = (d.equityForCapexPerPeriod[t] ?? 0) * 1.1;
+  // 6: the equity split drifts from the draw it decomposes, which is what a
+  //    reconstructed (rather than engine-supplied) split is free to do.
+  for (let t = 0; t < N; t++) d.equityDevelopmentDrawdownPerPeriod[t] = (d.equityDevelopmentDrawdownPerPeriod[t] ?? 0) * 1.1;
 }
 
 // ── 0. Not vacuous ───────────────────────────────────────────────────────────
@@ -320,22 +321,42 @@ console.log('\n-- 5. The cash flow: reference line structure, and the equity mem
   const has = (frag: string): boolean => rows.some((r) => r.label.includes(frag));
   check('ONE debt drawdown line per origin (the total, capex plus IDC)',
     has('Debt Drawdown, New loans') && !has('Debt Drawdown for Capex') && !has('Debt Drawdown for IDC'));
-  check('the finance cost is split into IDC and operating (two genuine charges)',
-    has('Interest Paid, IDC') && has('Interest Paid, operating'));
+  // ONE INTEREST LINE ON THE CASH FLOW (2026-08-19, reference Returns R65).
+  // The IDC / operating split is a CLASSIFICATION and lives on the Financing
+  // tab's schedules; on the cash flow statement it is one payment, and it must
+  // carry the whole charge.
+  check('ONE interest line per origin, not an IDC / operating split',
+    has('Interest Paid, New loans') && !has('Interest Paid, IDC') && !has('Interest Paid, operating'));
   check('no memo row and no contra row for the IDC (it is paid, and the drawdown is cash)',
     !has('(memo) IDC') && !has('Capitalised via IDC drawdown'));
-  const idcRow = rows.find((r) => r.label.includes('Interest Paid, IDC'));
-  check('the IDC row carries the FULL charge', !!idcRow && Math.abs(-sum(idcRow.values) - idcTotal) < 1,
-    `row ${idcRow ? M(-sum(idcRow.values)) : 'absent'} vs charge ${M(idcTotal)}`);
-  // The equity draw: one line, total untouched, memo attributed beneath.
-  const memoOk = Array.from({ length: N }, (_, t) => Math.abs(((d.equityForCapexPerPeriod[t] ?? 0) + (d.equityForFundFeesPerPeriod[t] ?? 0)
-    + (d.equityForOperatingShortfallPerPeriod[t] ?? 0) + (d.equityForFinanceCostPerPeriod[t] ?? 0))
-    - (d.equityDrawdownPerPeriod[t] ?? 0)) < 0.01).every(Boolean);
-  check('the equity memo (capex / fund fees / operating shortfall / finance cost) sums to the draw EXACTLY', memoOk);
-  check('the equity draw is a single line with the memo beneath it',
-    rows.some((r) => r.label === 'Equity Drawdown (Cash)') && has('(memo) of which for capex'));
-  check('every memo bucket is non-negative', [d.equityForCapexPerPeriod, d.equityForFundFeesPerPeriod, d.equityForOperatingShortfallPerPeriod, d.equityForFinanceCostPerPeriod]
-    .every((s) => s.every((v) => v >= -0.01)));
+  const intRows = rows.filter((r) => r.label.startsWith('Interest Paid,'));
+  const intPaidTotal = intRows.reduce((s, r) => s + -sum(r.values), 0);
+  check('the interest lines carry the FULL charge, IDC included',
+    intRows.length > 0 && Math.abs(intPaidTotal - sum(snap.financing.combined.totalInterestPaid)) < 1,
+    `rows ${M(intPaidTotal)} vs charge ${M(sum(snap.financing.combined.totalInterestPaid))}`);
+  check('and that charge really includes the IDC (not vacuous)', idcTotal > 0 && intPaidTotal > idcTotal, M(idcTotal));
+  // THE EQUITY DRAW, SPLIT BY WHAT IT IS (2026-08-19). Two real series from the
+  // engine, not a pro rata estimate: development plus management fee equals the
+  // draw exactly, by construction.
+  const splitOk = Array.from({ length: N }, (_, t) => Math.abs(((d.equityDevelopmentDrawdownPerPeriod[t] ?? 0)
+    + (d.equityManagementFeeDrawdownPerPeriod[t] ?? 0)) - (d.equityDrawdownPerPeriod[t] ?? 0)) < 0.01).every(Boolean);
+  check('development equity + management fee equity = the cash equity draw, EXACTLY, every period', splitOk);
+  check('both halves are non-negative',
+    [d.equityDevelopmentDrawdownPerPeriod, d.equityManagementFeeDrawdownPerPeriod].every((s) => s.every((v) => v >= -0.01)));
+  check('with no fund fee there is no fee draw and the single equity line is rendered',
+    sum(d.equityManagementFeeDrawdownPerPeriod) < 0.01
+    && rows.some((r) => r.label === 'Equity Drawdown (Cash)')
+    && !has('Equity Drawdown, management fee'));
+  check('the retired pro rata memo lines are gone',
+    !has('(memo) of which for capex') && !has('(memo) of which for finance cost'));
+  // The IN-KIND PAIR is inside the statement and nets to zero (2026-08-19).
+  const landIk = rows.find((r) => r.label.startsWith('Land In-Kind'));
+  const eqIk = rows.find((r) => r.label.startsWith('In-Kind Equity'));
+  if (inKindTotal > 0) {
+    check('the in-kind land and in-kind equity rows are both INSIDE the statement', !!landIk && !!eqIk);
+    check('and they net to zero every period, so Net Cash Flow is unchanged',
+      !!landIk && !!eqIk && Array.from({ length: N }, (_, t) => Math.abs((landIk.values[t] ?? 0) + (eqIk.values[t] ?? 0)) < 0.5).every(Boolean));
+  }
 }
 // ── 5b. The management fee funding toggle, both paths, at the ENGINE ─────────
 console.log('\n-- 5b. Fee funding: deficit path and equity path, neither funds the fee twice --');
@@ -356,12 +377,35 @@ console.log('\n-- 5b. Fee funding: deficit path and equity path, neither funds t
   };
   const sDef = computeFinancialsSnapshot(withFund('deficit'));
   const sEq = computeFinancialsSnapshot(withFund('equity'));
+  if (SAB === 7) {
+    // 7: THE REPORTED DEFECT. The fee equity draw goes back to the whole fee
+    //    in every period, so it draws throughout the project life instead of
+    //    only while construction spends and only up to the minimum cash.
+    for (let t = 0; t < sEq.axisLength; t++) {
+      sEq.directCF.equityManagementFeeDrawdownPerPeriod[t] = sEq.fundFees.totalPerPeriod[t] ?? 0;
+    }
+  }
   const sLegacy = computeFinancialsSnapshot(withFund('debt'));
   const feeDef = sum(sDef.fundFees.totalPerPeriod);
   check('the fund fixture charges a real fee (else this section is vacuous)', feeDef > 0, M(feeDef));
-  check('DEFICIT path: no dedicated fee draw', sum(sDef.directCF.managementFeeEquityDrawPerPeriod) < 0.01);
-  check('EQUITY path: the dedicated equity draw equals the fee, every period',
-    Array.from({ length: N }, (_, t) => Math.abs((sEq.directCF.managementFeeEquityDrawPerPeriod[t] ?? 0) - (sEq.fundFees.totalPerPeriod[t] ?? 0)) < 0.01).every(Boolean));
+  check('DEFICIT path: no dedicated fee draw', sum(sDef.directCF.equityManagementFeeDrawdownPerPeriod) < 0.01);
+  // THE FEE DRAW IS CAPPED (2026-08-19, on instruction): only while
+  // construction is spending, and only as far as keeps cash at the minimum. It
+  // is NOT the whole fee for the whole project life, which is what it was
+  // before and what the user reported: "it is doing drawdown throughout the
+  // project life".
+  const eqW = computeFundingGap(sEq).method3Waterfall;
+  const feeDrawEq = sEq.directCF.equityManagementFeeDrawdownPerPeriod;
+  check('EQUITY path: a real fee draw happens', sum(feeDrawEq) > 0, M(sum(feeDrawEq)));
+  check('EQUITY path: no fee draw in ANY period with no construction spend',
+    Array.from({ length: N }, (_, t) => (eqW.cashFromInvPerPeriod[t] ?? 0) < -0.005 || (feeDrawEq[t] ?? 0) < 0.01).every(Boolean));
+  check('EQUITY path: no period draws MORE than that period fee',
+    Array.from({ length: N }, (_, t) => (feeDrawEq[t] ?? 0) <= (sEq.fundFees.totalPerPeriod[t] ?? 0) + 0.01).every(Boolean));
+  check('EQUITY path: the draw is capped at what keeps cash at the minimum (never funds a surplus)',
+    Array.from({ length: N }, (_, t) => (eqW.closingCashAfterFundingPerPeriod[t] ?? 0) <= eqW.minCashReserve + 1
+      || (feeDrawEq[t] ?? 0) < 0.01).every(Boolean));
+  check('EQUITY path: the cap BITES, so the draw is less than the whole fee (not vacuous)',
+    sum(feeDrawEq) < feeDef - 1, `drawn ${M(sum(feeDrawEq))} of a ${M(feeDef)} fee`);
   // The ENGINE's equity series must carry the dedicated draw, which is how you
   // know it is not a post-hoc overlay: engine equity on the equity path equals
   // the ratio share of the (now smaller) deficit PLUS the fee. A naive "rises
@@ -375,10 +419,20 @@ console.log('\n-- 5b. Fee funding: deficit path and equity path, neither funds t
     const eqRatio = 0.30, debtRatio = 0.70;
     const engineDebtEq = sum(sEq.financing.debtEquitySplit.debt);
     const engineEquityEq = sum(sEq.financing.debtEquitySplit.equity);
-    const impliedEquity = engineDebtEq / debtRatio * eqRatio + feeDef;
-    check('EQUITY path: the ENGINE split carries the fee as equity on top of the ratio (equity = debt x 30/70 + fee)',
-      Math.abs(engineEquityEq - impliedEquity) < Math.max(1, feeDef * 0.05),
-      `engine equity ${M(engineEquityEq)} vs debt ${M(engineDebtEq)} x 30/70 + fee ${M(feeDef)} = ${M(impliedEquity)}`);
+    // THE FEE EQUITY IS ITS OWN SERIES (2026-08-19), NOT folded into the ratio
+    // split: `equity` is the base development equity and `dedicatedEquity` is
+    // the fee. So the base equity must equal the base debt at the ratio,
+    // exactly, with nothing extra in it.
+    const engineFeeEq = sum(sEq.financing.debtEquitySplit.dedicatedEquity);
+    check('EQUITY path: the base equity is the RATIO share of the base debt, with no fee folded in',
+      Math.abs(engineEquityEq - engineDebtEq / debtRatio * eqRatio) < Math.max(1, engineEquityEq * 0.01),
+      `base equity ${M(engineEquityEq)} vs debt ${M(engineDebtEq)} x 30/70 = ${M(engineDebtEq / debtRatio * eqRatio)}`);
+    check('EQUITY path: the fee rides in dedicatedEquity, outside the ratio',
+      engineFeeEq > 0 && Math.abs(engineFeeEq - sum(sEq.directCF.equityManagementFeeDrawdownPerPeriod)) < 1,
+      `dedicated ${M(engineFeeEq)}`);
+    check('EQUITY path: cash equity = development + dedicated, so nothing is lost between the engine and the statement',
+      Math.abs(sum(sEq.financing.equity.cashPerPeriod) - (engineEquityEq + engineFeeEq)) < 1);
+    check('DEFICIT path: dedicatedEquity is empty', sum(sDef.financing.debtEquitySplit.dedicatedEquity) < 0.01);
     check('EQUITY path: the deficit-sized debt is LOWER than on the deficit path (the fee left the deficit)',
       engineDebtEq < sum(sDef.financing.debtEquitySplit.debt) - 1,
       `${M(engineDebtEq)} vs ${M(sum(sDef.financing.debtEquitySplit.debt))}`);
@@ -394,7 +448,7 @@ console.log('\n-- 5b. Fee funding: deficit path and equity path, neither funds t
     Math.max(...sDef.bs.bsDifferencePerPeriod.map((v) => Math.abs(v))) < 1
     && Math.max(...sEq.bs.bsDifferencePerPeriod.map((v) => Math.abs(v))) < 1);
   check('the legacy debt spelling resolves to the deficit path',
-    sum(sLegacy.directCF.managementFeeEquityDrawPerPeriod) < 0.01
+    sum(sLegacy.directCF.equityManagementFeeDrawdownPerPeriod) < 0.01
     && Math.abs(sum(sLegacy.directCF.equityDrawdownPerPeriod) - sum(sDef.directCF.equityDrawdownPerPeriod)) < 1);
 }
 
@@ -414,8 +468,8 @@ console.log('\n-- 5c. Deficit sizing: no finance cost in it, IDC headroom pre-in
   // pre-interest components alone, exactly (R115 = R114 + R112).
   let availOk = true;
   for (let t = 0; t < nn; t++) {
-    const expected = (w.openingCashPerPeriod[t] ?? 0) + (w.cashFromOpsPerPeriod[t] ?? 0) + (w.cashFromInvPerPeriod[t] ?? 0)
-      + (w.existingEquityDrawdownPerPeriod[t] ?? 0) + (w.existingDebtDrawdownPerPeriod[t] ?? 0) + (w.managementFeeEquityDrawPerPeriod[t] ?? 0);
+    const expected = (w.openingCashPerPeriod[t] ?? 0) + (w.operatingInflowsPerPeriod[t] ?? 0) + (w.cashFromInvPerPeriod[t] ?? 0)
+      + (w.existingEquityDrawdownPerPeriod[t] ?? 0) + (w.existingDebtDrawdownPerPeriod[t] ?? 0);
     if (Math.abs((w.cashAvailableBeforeNewDebtPerPeriod[t] ?? 0) - expected) > 0.01) availOk = false;
   }
   check('cash available carries NO finance cost and NO dividend (R115 = opening + pre-financing net cash)', availOk);
@@ -437,7 +491,7 @@ console.log('\n-- 5c. Deficit sizing: no finance cost in it, IDC headroom pre-in
   for (let t = 0; t < nn; t++) {
     const idc = c.totalIdc[t] ?? 0;
     if (idc <= 0.01) continue;
-    const headroom = Math.max(0, (w.cashAvailableBeforeNewDebtPerPeriod[t] ?? 0) + (w.netCashRequiredPerPeriod[t] ?? 0) - w.minCashReserve);
+    const headroom = Math.max(0, w.idcHeadroomPerPeriod[t] ?? 0);
     const expectedDraw = Math.max(0, idc - headroom);
     const actualDraw = c.totalIdcDrawdown[t] ?? 0;
     if (Math.abs(actualDraw - expectedDraw) > Math.max(1, idc * 0.02)) { idcOk = false; idcDetail = `t=${t} idc ${M(idc)} headroom ${M(headroom)} expected draw ${M(expectedDraw)} actual ${M(actualDraw)}`; }

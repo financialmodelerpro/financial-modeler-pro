@@ -7,10 +7,17 @@
  * add up to the "Total Capex" subtotal printed under them. Measured on
  * FMP - MARINA GATE: the rows summed to 426,407.0k against a Total Capex of
  * 366,407.0k, a gap of 60,000.0k which was exactly the LAND CONTRIBUTED IN
- * KIND. The subtotal has been the CASH basis since M4 Pass 2P (in-kind land is
- * not a cash outflow, it is recognised as Land and Share Capital at once); the
- * rows were the full cost. Both are now the cash slice, with the in-kind land
- * on its own memo row so nothing the model charges leaves the screen.
+ * KIND. The subtotal was the CASH basis (in-kind land is not a cash outflow);
+ * the rows were the full cost.
+ *
+ * UPDATED 2026-08-19, on instruction. The section still foots, but the in-kind
+ * land is now INSIDE the totals rather than beside them as a memo: the asset
+ * rows are the cash capex, the "Land In-Kind" row states the non-cash slice,
+ * and Total Capex is their sum, i.e. the FULL cost. The matching In-Kind Equity
+ * row is inside Cash Flow from Financing, so the two net to zero and the
+ * statement's Net Cash Flow is unchanged. So the identity checked here is
+ * "rows + in-kind = Total Capex = full cost", where it used to be
+ * "rows = Total Capex = cash cost, memo excluded".
  *
  * The second, larger defect it led to: the Balance Sheet was out by
  * -25,000,000 in the construction year. In-kind EQUITY was stamped by a walk
@@ -145,7 +152,8 @@ const capexAssetRows = (rows: M4Row[]): M4Row[] =>
 const capexHeaderRows = (rows: M4Row[]): M4Row[] =>
   rows.filter((r) => typeof r.collapseGroup === 'string' && r.collapseGroup.startsWith('cf-capex-') && r.collapseRole === 'header');
 const rowByLabel = (rows: M4Row[], label: string): M4Row | undefined => rows.find((r) => r.label === label);
-const memoRow = (rows: M4Row[]): M4Row | undefined => rows.find((r) => r.label.includes('(memo) Land In-Kind'));
+const memoRow = (rows: M4Row[]): M4Row | undefined => rows.find((r) => r.label.startsWith('Land In-Kind'));
+const inKindEquityRow = (rows: M4Row[]): M4Row | undefined => rows.find((r) => r.label.startsWith('In-Kind Equity'));
 
 function seriesSum(rows: M4Row[], N: number): number[] {
   const out = new Array<number>(N).fill(0);
@@ -186,7 +194,7 @@ function sabotage(snap: ReturnType<typeof computeFinancialsSnapshot>): ReturnTyp
     }
   }
   if (SABOTAGE === 4) {
-    // 4: the memo row's source is emptied, so the in-kind land is silently
+    // 4: the in-kind row's source is emptied, so the in-kind land is silently
     //    absent from the screen rather than stated.
     for (const cf of snap.perAssetCF.values()) {
       cf.capexPerPeriod = cf.capexPerPeriod.map((v, t) => v - (cf.landInKindPerPeriod[t] ?? 0));
@@ -263,34 +271,51 @@ function runFixture(name: string, build: () => State, expectInKind: boolean, exp
       `${assetRows.length} rows, total ${total ? 'present' : 'ABSENT'}`);
     if (!total) continue;
     const rowsTotal = seriesSum(assetRows, N);
-    const okRows = Array.from({ length: N }, (_, t) => near(rowsTotal[t], total.values[t] ?? 0, 0.5)).every(Boolean);
-    check(`${name}: ${method} asset rows sum to Total Capex, EVERY period`, okRows,
-      `rows ${sum(rowsTotal).toFixed(0)} vs total ${sum(total.values).toFixed(0)}`);
+    const memo = memoRow(rows);
+    const memoVals = (t: number): number => memo?.values[t] ?? 0;
+    const okRows = Array.from({ length: N }, (_, t) => near(rowsTotal[t] + memoVals(t), total.values[t] ?? 0, 0.5)).every(Boolean);
+    check(`${name}: ${method} asset rows + in-kind land sum to Total Capex, EVERY period`, okRows,
+      `rows ${(sum(rowsTotal) + sum(memo?.values ?? [])).toFixed(0)} vs total ${sum(total.values).toFixed(0)}`);
     const headTotal = seriesSum(headers, N);
-    check(`${name}: ${method} bucket headers sum to Total Capex too`,
-      Array.from({ length: N }, (_, t) => near(headTotal[t], total.values[t] ?? 0, 0.5)).every(Boolean),
-      `headers ${sum(headTotal).toFixed(0)} vs total ${sum(total.values).toFixed(0)}`);
-    check(`${name}: ${method} Total Capex is the CASH basis (exclLandInKind), negated`,
-      Array.from({ length: N }, (_, t) => near(total.values[t] ?? 0, -(snap.financing.capex.perPeriod.exclLandInKind[t] ?? 0), 0.5)).every(Boolean));
+    check(`${name}: ${method} bucket headers + in-kind land sum to Total Capex too`,
+      Array.from({ length: N }, (_, t) => near(headTotal[t] + memoVals(t), total.values[t] ?? 0, 0.5)).every(Boolean),
+      `headers ${(sum(headTotal) + sum(memo?.values ?? [])).toFixed(0)} vs total ${sum(total.values).toFixed(0)}`);
+    check(`${name}: ${method} Total Capex is the FULL cost (inclAllLand), negated`,
+      Array.from({ length: N }, (_, t) => near(total.values[t] ?? 0, -(snap.financing.capex.perPeriod.inclAllLand[t] ?? 0), 0.5)).every(Boolean));
     check(`${name}: ${method} Cash Flow from Investment equals Total Capex`,
       Array.from({ length: N }, (_, t) => near(rowByLabel(rows, 'Cash Flow from Investment')?.values[t] ?? 0, total.values[t] ?? 0, 0.5)).every(Boolean));
 
-    // F. Nothing is hidden: the in-kind land is STATED, and it is exactly the
-    //    difference between what the assets cost and what left the bank.
-    const memo = memoRow(rows);
+    // F. Nothing is hidden: the in-kind land is STATED as a row inside the
+    //    total, and it is exactly the difference between what the assets cost
+    //    and what left the bank. Its matching In-Kind Equity row is inside the
+    //    financing total, so the pair nets to zero and Net Cash Flow is
+    //    UNCHANGED by having both inside the statement rather than beside it.
     if (expectInKind) {
-      check(`${name}: ${method} states the in-kind land on a memo row`, !!memo);
+      check(`${name}: ${method} states the in-kind land on its own row`, !!memo);
       if (memo) {
-        check(`${name}: ${method} the memo equals the capitalised in-kind land, every period`,
+        check(`${name}: ${method} the in-kind row equals the capitalised in-kind land, every period`,
           Array.from({ length: N }, (_, t) => near(memo.values[t] ?? 0, -(capIK[t] ?? 0), 0.5)).every(Boolean),
-          `memo ${sum(memo.values).toFixed(0)} vs in-kind ${(-sum(capIK)).toFixed(0)}`);
-        check(`${name}: ${method} rows + memo reconstruct the FULL cost (nothing dropped)`,
-          Array.from({ length: N }, (_, t) => near((rowsTotal[t] ?? 0) + (memo.values[t] ?? 0), -(snap.financing.capex.perPeriod.inclAllLand[t] ?? 0), 0.5)).every(Boolean));
-        check(`${name}: ${method} the memo is not counted in Total Capex`,
-          !near(total.values[0] ?? 0, (rowsTotal[0] ?? 0) + (memo.values[0] ?? 0), 0.5) || near(memo.values[0] ?? 0, 0, 0.5));
+          `row ${sum(memo.values).toFixed(0)} vs in-kind ${(-sum(capIK)).toFixed(0)}`);
+        check(`${name}: ${method} the asset rows alone are the CASH capex (the in-kind is the separate row)`,
+          Array.from({ length: N }, (_, t) => near(rowsTotal[t], -(snap.financing.capex.perPeriod.exclLandInKind[t] ?? 0), 0.5)).every(Boolean),
+          `rows ${sum(rowsTotal).toFixed(0)} vs cash ${(-sum(snap.financing.capex.perPeriod.exclLandInKind)).toFixed(0)}`);
+        const eqRow = inKindEquityRow(rows);
+        check(`${name}: ${method} the matching In-Kind Equity row is inside the financing section`, !!eqRow);
+        if (eqRow) {
+          check(`${name}: ${method} the two in-kind rows net to ZERO every period (Net Cash Flow unchanged)`,
+            Array.from({ length: N }, (_, t) => near((memo.values[t] ?? 0) + (eqRow.values[t] ?? 0), 0, 0.5)).every(Boolean),
+            `land ${sum(memo.values).toFixed(0)} vs equity ${sum(eqRow.values).toFixed(0)}`);
+          const cff = rowByLabel(rows, 'Cash Flow from Financing');
+          const net = rowByLabel(rows, 'Net Cash Flow');
+          const cfi = rowByLabel(rows, 'Cash Flow from Investment');
+          const cfo = rowByLabel(rows, 'Cash Flow from Operations');
+          check(`${name}: ${method} CFO + CFI + CFF still equals the engine's Net Cash Flow`,
+            !!cff && !!net && !!cfi && !!cfo && Array.from({ length: N }, (_, t) =>
+              near((cfo.values[t] ?? 0) + (cfi.values[t] ?? 0) + (cff.values[t] ?? 0), net.values[t] ?? 0, 0.5)).every(Boolean));
+        }
       }
     } else {
-      check(`${name}: ${method} renders NO memo row when there is no in-kind land`, !memo);
+      check(`${name}: ${method} renders NO in-kind land row when there is none`, !memo);
     }
   }
 
@@ -305,9 +330,10 @@ function runFixture(name: string, build: () => State, expectInKind: boolean, exp
       const total = rowByLabel(rows, 'Total Capex');
       if (!total) continue;
       const rowsTotal = seriesSum(capexAssetRows(rows), N);
+      const ik = memoRow(rows);
       check(`${name}: ${method} foots under the "${ph.name}" filter too`,
-        Array.from({ length: N }, (_, t) => near(rowsTotal[t], total.values[t] ?? 0, 0.5)).every(Boolean),
-        `rows ${sum(rowsTotal).toFixed(0)} vs total ${sum(total.values).toFixed(0)}`);
+        Array.from({ length: N }, (_, t) => near(rowsTotal[t] + (ik?.values[t] ?? 0), total.values[t] ?? 0, 0.5)).every(Boolean),
+        `rows ${(sum(rowsTotal) + sum(ik?.values ?? [])).toFixed(0)} vs total ${sum(total.values).toFixed(0)}`);
     }
   }
 
@@ -373,7 +399,8 @@ runFixture('same-phase parcel (control)', buildSamePhase, true);
   check('all-cash land: no in-kind land anywhere', near(sum(snap.financing.capex.perPeriod.landInKind), 0));
   check('all-cash land: no in-kind equity anywhere', near(sum(snap.financing.equity.inKindPerPeriod), 0));
   const rows = buildDirectCFRows(ctxFor(s, snap));
-  check('all-cash land: no memo row is rendered', !memoRow(rows));
+  check('all-cash land: no in-kind land row is rendered', !memoRow(rows));
+  check('all-cash land: no in-kind equity row is rendered', !inKindEquityRow(rows));
   const total = rowByLabel(rows, 'Total Capex');
   const rowsTotal = seriesSum(capexAssetRows(rows), N);
   check('all-cash land: the section still foots',

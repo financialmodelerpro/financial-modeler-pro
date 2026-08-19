@@ -125,6 +125,33 @@ export function buildFundWaterfallRows(ctx: FundReportCtx): M4Row[] {
   ];
 }
 
+/**
+ * THE DDM AFTER THE PERFORMANCE FEE (2026-08-19, reference Returns R135 to
+ * R139). The reference reads: DDM before the fee (equity investment,
+ * distributions, terminal value, net cash flow, IRR / MOIC), then the
+ * performance fee block, then distributions net of the fee against the same
+ * equity investment, with its own IRR / MOIC. These three rows are that last
+ * step, on the STREAM basis like the waterfall rows above. Empty when the fund
+ * is off, so a standalone project renders exactly what it did.
+ */
+export function buildDdmPostFeeRows(ctx: FundReportCtx): M4Row[] {
+  const w = ctx.returns.waterfall;
+  if (!w.active) return [];
+  const fmt = ctx.fmt.money;
+  const toRow = (label: string, arr: number[], opts: Partial<M4Row> = {}): M4Row => ({
+    label,
+    values: arr.slice(1),
+    priorValue: arr[0] ?? 0,
+    totalOverride: fmt(arr.reduce((s, v) => s + (v ?? 0), 0)),
+    ...opts,
+  });
+  return [
+    toRow('(-) Equity Investment (existing + new cash + in-kind)', w.equityDrawnPerPeriod.map((v) => -v)),
+    toRow('(+) Distributions Net of Performance Fee (dividends, return of capital, terminal value)', w.netDistributionPerPeriod),
+    toRow('= Net Cash Flow (after performance fee)', ctx.returns.netDividendStreamPerPeriod, { isTotal: true }),
+  ];
+}
+
 /** The labels above, in order, for a verifier that wants to assert the order
  *  without rebuilding the rows. Derived from the builder so it cannot drift. */
 export const FUND_WATERFALL_ROW_ORDER: readonly string[] = [

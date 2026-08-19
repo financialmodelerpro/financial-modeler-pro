@@ -596,17 +596,15 @@ function buildInvestmentRows(ctx: M4ReportCtx, capexSubtotal: number[], cfiSubto
   const residentialAssets = visibleAssets.filter((a) => (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') && matchesPhase(a));
   const hospitalityAssets = visibleAssets.filter((a) => (a.strategy === 'Operate' || a.isCompanion === true) && matchesPhase(a));
   const retailAssets = visibleAssets.filter((a) => a.strategy === 'Lease' && matchesPhase(a));
-  // CASH capex. This is a CASH FLOW statement, and its Total Capex subtotal
-  // has been the cash basis (`capex.perPeriod.exclLandInKind`) since M4 Pass 2P:
-  // land contributed IN KIND never leaves the bank, it is recognised as Land
-  // and Share Capital at once. The asset rows above it were the FULL cost
-  // including that in-kind land, so the section did not foot, by exactly the
-  // in-kind land, and a reader adding the rows up got a different number from
-  // the subtotal printed under them. Measured on the live project 2026-08-18:
-  // rows 426,407.0 against a Total Capex of 366,407.0, the gap 60,000.0 being
-  // the whole of the in-kind land. Both the rows and the subtotal are now the
-  // cash slice, and the in-kind land is stated on its own memo row rather than
-  // dropped, so nothing the model charges disappears from the screen.
+  // The asset rows are the CASH capex and the land contributed IN KIND is its
+  // own row beneath them, INSIDE the totals (2026-08-19, on instruction, like
+  // the reference's "Land in Kind" row under "Capex - Cash"): Total Capex and
+  // Cash Flow from Investment carry the full cost, and the matching In-Kind
+  // Equity row sits inside Cash Flow from Financing, so the two net to zero
+  // and every subtotal is the sum of the rows above it. The engine's own
+  // `directCF.cashFromInvestmentPerPeriod` stays the cash slice (the funding
+  // sizing, the returns and the balance sheet cash all read it); this is the
+  // statement's presentation of the same movement.
   const assetCash = (id: string): number[] => {
     const cf = snap.perAssetCF.get(id);
     if (!cf) return new Array<number>(N).fill(0);
@@ -656,21 +654,19 @@ function buildInvestmentRows(ctx: M4ReportCtx, capexSubtotal: number[], cfiSubto
   // list that could omit something; the verifier pins that the two agree.
   const scoped = filterPhaseId !== ALL;
   const capexRendered = seriesTotal([...residentialAssets, ...hospitalityAssets, ...retailAssets], assetCash);
-  const capexShown = scoped ? capexRendered.map((v) => -v) : capexSubtotal;
-  const cfiShown = scoped ? capexRendered.map((v) => -v) : cfiSubtotal;
-
   const inKindAll = seriesTotal(
     [...residentialAssets, ...hospitalityAssets, ...retailAssets],
     (id) => snap.perAssetCF.get(id)?.landInKindPerPeriod ?? [],
   );
+  const capexCashShown = scoped ? capexRendered.map((v) => -v) : capexSubtotal;
+  const cfiCashShown = scoped ? capexRendered.map((v) => -v) : cfiSubtotal;
+  const capexShown = capexCashShown.map((v, t) => v - (inKindAll[t] ?? 0));
+  const cfiShown = cfiCashShown.map((v, t) => v - (inKindAll[t] ?? 0));
   if (inKindAll.some((v) => v !== 0)) {
-    rows.push({
-      label: '(memo) Land In-Kind (non-cash, not in Total Capex)',
-      // indent 1, level with Pre-Capex: this is a PROJECT-level memo, and at
-      // indent 2 it rendered directly under the last asset of the Retail
-      // bucket and read as one of that bucket's rows.
-      values: inKindAll.map((v) => -v), indent: 1,
-    });
+    // indent 1, level with Pre-Capex: this is a PROJECT-level row, and at
+    // indent 2 it rendered directly under the last asset of the Retail
+    // bucket and read as one of that bucket's rows.
+    rows.push({ label: 'Land In-Kind (non-cash, matched by In-Kind Equity below)', values: inKindAll.map((v) => -v), indent: 1 });
   }
   rows.push({ label: 'Total Capex', values: capexShown, isSubtotal: true, priorValue: -priorPreCapex });
   rows.push({ label: 'Cash Flow from Investment', values: cfiShown, isTotal: true, priorValue: -priorPreCapex });
@@ -687,27 +683,25 @@ function buildFinancingRows(ctx: M4ReportCtx, cffSubtotal: number[]): M4Row[] {
   const d = snap.directCF;
   rows.push({ label: 'CASH FROM FINANCING', values: [], isSection: true });
   const priorEquityTotal = snap.financing.existing.equityTotal;
-  // The equity draw says what it was RAISED FOR (2026-08-18c). The draw itself
-  // is ONE line and its total is untouched; beneath it a MEMO attributes it
-  // pro rata across the period's deficit drivers, because one undifferentiated
-  // draw told a reader how much equity came in and nothing about why, and the
-  // management fee was invisible inside it. The four memo lines sum to the
-  // draw exactly.
+  // THE EQUITY DRAW, BY WHAT IT IS (2026-08-19). Two real lines from the
+  // engine's own split, no estimate: the development equity (the equity share
+  // of the funding requirement) and the management fee drawn from equity
+  // directly, when the fund terms fund it that way. The in-kind equity is a
+  // third line INSIDE the financing total, matching the Land In-Kind row inside
+  // the investing total, so the two net to zero and both sections foot.
+  const feeDraw = d.equityManagementFeeDrawdownPerPeriod ?? [];
+  const hasFeeDraw = feeDraw.some((v) => Math.abs(v) > 0.005);
   if (d.equityDrawdownPerPeriod.some((v) => v !== 0) || priorEquityTotal > 0) {
-    rows.push({ label: 'Equity Drawdown (Cash)', values: d.equityDrawdownPerPeriod, indent: 1, priorValue: priorEquityTotal });
-    const memo: Array<[string, number[]]> = [
-      ['(memo) of which for capex', d.equityForCapexPerPeriod],
-      ['(memo) of which for fund fees', d.equityForFundFeesPerPeriod],
-      ['(memo) of which for operating shortfall', d.equityForOperatingShortfallPerPeriod],
-      ['(memo) of which for finance cost', d.equityForFinanceCostPerPeriod],
-    ];
-    for (const [label, series] of memo) {
-      if ((series ?? []).some((v) => Math.abs(v) > 0.005)) rows.push({ label, values: series, indent: 2 });
-    }
+    rows.push({
+      label: hasFeeDraw ? 'Equity Drawdown, development' : 'Equity Drawdown (Cash)',
+      values: hasFeeDraw ? d.equityDevelopmentDrawdownPerPeriod : d.equityDrawdownPerPeriod,
+      indent: 1, priorValue: priorEquityTotal,
+    });
   }
-  if (d.equityInKindDrawdownPerPeriod.some((v) => v !== 0)) {
-    rows.push({ label: '(memo) In-Kind Equity (non-cash, see BS Schedules E1)', values: d.equityInKindDrawdownPerPeriod, indent: 2 });
-  }
+  if (hasFeeDraw) rows.push({ label: 'Equity Drawdown, management fee', values: feeDraw, indent: 1 });
+  const inKindEq = d.equityInKindDrawdownPerPeriod;
+  const hasInKindEq = inKindEq.some((v) => v !== 0);
+  if (hasInKindEq) rows.push({ label: 'In-Kind Equity (non-cash, matched by Land In-Kind above)', values: inKindEq, indent: 1 });
   const sumOrigin = (origin: 'existing' | 'new', key: 'drawSchedule' | 'interestCapitalized' | 'principalRepaid' | 'interestPaid' | 'interestDuringConstruction'): number[] => {
     const out = new Array<number>(N).fill(0);
     for (const t of state.financingTranches) {
@@ -719,38 +713,35 @@ function buildFinancingRows(ctx: M4ReportCtx, cffSubtotal: number[]): M4Row[] {
     }
     return out;
   };
-  // THE REFERENCE'S LINE STRUCTURE (2026-08-18c). Its financing schedule
-  // carries the drawdown as ONE line (its cash flow reads the total) and the
-  // finance cost as TWO: "IDC" and "Finance Cost - Operations". That second
-  // split is genuine, two different charges (one capitalised into the asset,
-  // one expensed), so it is KEPT here. What is not kept is the same movement
-  // stated three ways: the drawdown was split, then the payment was split, then
-  // a contra row offset the split, five lines describing one thing.
-  //
-  // Capitalising routes the IDC charge into asset cost, cost of sales and fixed
-  // assets via `interestForAssetBasis`. That is an accounting routing, not a
-  // reason to hide the payment, so nothing here is a memo.
+  // THE REFERENCE'S CASH FLOW LINE STRUCTURE (2026-08-19, Returns R63 to R65):
+  // Debt Drawdown (ONE line, capex draw plus IDC draw), Debt Repayment,
+  // Interest Paid (ONE line, the FULL finance cost, IDC and operating together).
+  // The IDC / operating split of the charge lives on the Financing tab's
+  // schedules, where it is a classification; on the cash flow statement it is
+  // one payment. Capitalising routes the IDC charge into asset cost via
+  // `interestForAssetBasis`, an accounting routing, not a reason to hide the
+  // payment, so nothing here is a memo.
   const pushDebtBucket = (origin: 'existing' | 'new', label: string, opening?: number): void => {
     const draw = sumOrigin(origin, 'drawSchedule');
     const drawIdc = sumOrigin(origin, 'interestCapitalized');
     const repaid = sumOrigin(origin, 'principalRepaid');
     const intPaid = sumOrigin(origin, 'interestPaid');
-    const idc = sumOrigin(origin, 'interestDuringConstruction');
-    const opInt = intPaid.map((v, i) => v - (idc[i] ?? 0));
     const drawAll = draw.map((v, i) => v + (drawIdc[i] ?? 0));
     if (drawAll.some((v) => v !== 0) || (opening ?? 0) > 0) {
       rows.push({ label: `Debt Drawdown, ${label}`, values: drawAll, indent: 1, ...(opening !== undefined ? { priorValue: opening } : {}) });
     }
     if (repaid.some((v) => v !== 0)) rows.push({ label: `Debt Repayment, ${label}`, values: repaid.map((v) => -v), indent: 1 });
-    if (idc.some((v) => Math.abs(v) > 0.005)) rows.push({ label: `Interest Paid, IDC (capitalised into asset cost), ${label}`, values: idc.map((v) => -v), indent: 1 });
-    if (opInt.some((v) => Math.abs(v) > 0.005)) rows.push({ label: `Interest Paid, operating, ${label}`, values: opInt.map((v) => -v), indent: 1 });
+    if (intPaid.some((v) => Math.abs(v) > 0.005)) rows.push({ label: `Interest Paid, ${label}`, values: intPaid.map((v) => -v), indent: 1 });
   };
   pushDebtBucket('existing', 'Existing loans', existingOpening);
   pushDebtBucket('new', 'New loans');
   if (d.dividendsPaidPerPeriod.some((v) => v !== 0)) {
     rows.push({ label: 'Dividends paid', values: d.dividendsPaidPerPeriod, indent: 1 });
   }
-  rows.push({ label: 'Cash Flow from Financing', values: cffSubtotal, isSubtotal: true, priorValue: priorEquityTotal + existingOpening });
+  // In-kind equity is inside the financing total, matching the Land In-Kind row
+  // inside the investing total (see buildInvestmentRows).
+  const cffShown = hasInKindEq ? cffSubtotal.map((v, t) => v + (inKindEq[t] ?? 0)) : cffSubtotal;
+  rows.push({ label: 'Cash Flow from Financing', values: cffShown, isSubtotal: true, priorValue: priorEquityTotal + existingOpening });
   return rows;
 }
 
