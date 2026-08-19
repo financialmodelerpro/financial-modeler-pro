@@ -3,6 +3,262 @@
 
 > **TRAPS RECORDED IN THIS FILE ARE COLLECTED IN [docs/TRAPS.md](docs/TRAPS.md). Read that first; it is short.** The copies below stay in place, so nothing is lost if you open this file instead. Index of what this file records: the REFM shell `zoom: 0.8` making `vh` and media queries lie (TRAPS 6.1); drag/resize needing pointer capture, not window listeners (6.2); the ExcelJS width-9 column that silently does not apply (3.1); pdf-lib CID glyph ids defeating a naive grep (4.1); the PostgREST 1000-row cap (2.1); export fingerprints needing the FIXTURE, never the live project (5.1); a zero-valued seed hiding a whole code path (7.1); a stage list written as a literal defeating exhaustiveness (7.3); a two-step template registration that fails silently and permanently (8.1); and the verifier rules (a grep proves presence not firing; never gate an assertion on the thing it asserts; prove teeth by sabotage) in TRAPS section 10.
 
+## 2026-08-19b: a selling cost applies only to an asset that sells
+
+Three symptoms reported from the Marketing line on the Costs tab. All three were measured on the
+saved snapshots of both live projects before any code changed.
+
+### 1. "A rate typed on one asset appeared on another"
+
+Reported as: an input typed on the residential asset auto-added itself to the retail asset, and
+removing it from retail removed it from residential too.
+
+**That is exactly what happens, and it is the design.** A cost line belongs to a PHASE and is
+project-wide across the assets in it. With no per-asset override, an edit writes `line.value`, which
+every asset in the phase reads; writing zero on one asset writes zero for all of them. The per-asset
+Override toggle has existed since M2.0d Pass 10 to break that.
+
+**So the defect was not the sharing, it was the silence.** Confirmed on the saved snapshot: FMP -
+MARINA GATE carries `custom-1787123860417__phase_1` ("Marketing Cost", `percent_of_revenue_sale`)
+at **value 0 with NO overrides at all**, which is precisely the state the reported sequence leaves
+behind.
+
+Fixed by saying it, on the row, with names: "Shared with Podium Retail: typing here changes it for
+that asset too." The names matter, because "project-wide" does not tell a user WHICH assets those
+are. The Override button's tooltip says the same thing. `sharingAssets` excludes assets carrying
+their own active override (they do not move) and companions (they charge nothing).
+
+### 2. Marketing was charged to Operate and Lease assets
+
+A commission and a marketing budget are percentages of a SALE. An asset that is held and operated
+carries its own operating expenses in the Opex module, and there is no sale for a selling cost to be
+a percentage of. `assetVisibleLines` filtered on phase and target asset only, so there was no way to
+express this and the user's only recourse was a per-asset override set to zero, one asset at a time.
+
+**Now:** `CostLine.assetScopeOverride` (`'all' | 'selling'`) plus `deriveAssetScope`, on the
+`deriveCostStage` pattern exactly:
+
+    the user's own override first
+    then SELLING_ONLY_BASE_IDS keyed on the base id
+    then 'all'
+
+The id fallback is what makes every ALREADY-SAVED line gain the scope with no migration and no data
+change, and it is the same precedence that carried the 2026-08-16 marketing reclassification.
+Selecting a catalog entry STAMPS the scope explicitly (`'all'` for a construction entry), so a line
+minted from one entry can never inherit the selling scope of an id it happens to carry.
+
+**Enforced in ONE place**, `assetVisibleLines`, which the Costs tab, `computeAssetCost` and the copy
+planner all call. That is what makes this NOT a gate of the kind TRAPS 7.19 warns about: a gate hides
+a row while the engine charges it, and here the screen and the charge read the same rule. The strategy
+is the FOURTH and OPTIONAL argument, because two callers legitimately ask about the phase rather than
+one asset (the copy planner's target list, the phase-level reconciliation); omitting it keeps every
+line, which is the pre-existing behaviour and the right answer to a phase-level question.
+
+The tab STATES the absence rather than leaving a gap a user has to notice, naming the lines and the
+reason, and a row-level "Applies to" picker is the escape hatch for a project that genuinely wants a
+selling cost on a held asset.
+
+**This is the reference structure.** Its Marketing (Schedules R40) is
+`IFERROR($L$20 * I208 / $H$208, 0)`: a lifetime total spread on the SALE REVENUE (GDV) curve, where
+R208 is "TOTAL Sale Revenue (GDV)" and excludes both the retail lease income and the hotel revenue.
+
+**MEASURED, and this is why it was safe to ship:** total capex is IDENTICAL on both live projects, to
+the byte.
+
+| project | before | after |
+| --- | --- | --- |
+| FMP - MARINA GATE | 426,406,950.00 | 426,406,950.00 |
+| FMP RE HUB | 4,912,199,955.98 | 4,912,199,955.98 |
+
+Because the one project with a marketing line carries a zero rate, and the other had already been
+zeroed BY HAND on every operated and leased asset (`commission__phase_2` and `__phase_3` carry
+`v=0` overrides on Hotel 01 and both Support Retail assets), which is the manual workaround this
+replaces. `scripts/measure-selling-scope.ts` re-measures it on demand.
+
+### 3. The amount is wrong. Confirmed, worse than reported, and deliberately not fixed
+
+`computeAssetRevenue` is the basis every percent-of-revenue cost method charges on, and it sums
+`metricValue x unitPrice` across the Sellable, Operable AND Leasable sub-units. Those are three
+incompatible products:
+
+| category | product | what it is |
+| --- | --- | --- |
+| Sellable | area x price/sqm, or units x price/unit | a genuine SALE value |
+| Leasable | area x rent/sqm/year | ONE YEAR of rent at full occupancy |
+| Operable | keys x ADR | ONE NIGHT at full occupancy |
+
+Measured against the revenue engine's lifetime figures (`scripts/diagnose-marketing-basis.ts`):
+
+| asset | strategy | cost-engine basis | revenue-engine lifetime | ratio |
+| --- | --- | --- | --- | --- |
+| Marina Residences | Sell | 571.900m | 626.803m | x1.1 |
+| Podium Retail | Lease | 5.985m | 31.721m | **x5.3** |
+| Marina Hotel | Operate | 0.136m | 344.303m | **x2,532** |
+| Hotel Phase 1 | Operate | 1.158m | 5,488.913m | **x4,739** |
+| Support Retail Phase 2 | Lease | 19.323m | 214.752m | **x11.1** |
+| Branded Apartments | Sell | 2,822.032m | 2,822.029m | x1.0 |
+
+Correct for the selling assets (the x1.1 on Marina Residences is sale-price indexation over the sale
+period, which is legitimate); understated 5x to 11x on a leased asset and by over two thousand times
+on a hotel.
+
+**Scoping the selling costs removes the exposure for marketing and commission, and the basis itself
+is UNCHANGED.** Correcting it moves every percent-of-revenue line on every held asset, and that is a
+separate decision with its own before-and-after. It is pinned with the numbers stated in
+`verify-selling-cost-scope` section E, which fails the moment the basis changes, and the standing
+warning is: **any line pointed at `percent_of_total_revenue`, `percent_of_revenue_sale` or
+`percent_of_revenue_cash` on an Operate or Lease asset is still charging on a one-night or one-year
+figure.** Recorded as TRAPS 7.24.
+
+### Found while doing it: a fourth inline copy of the visibility rule
+
+The Costs tab's own per-asset row list spelled the phase and target-asset filter out inline instead
+of calling `assetVisibleLines`. Left alone, the engine would have stopped charging a marketing line
+to a leased asset while that list carried on showing it: shown but not charged, the exact mirror of
+the country-gate defect (TRAPS 7.13) the shared rule was written to close. Now it calls the shared
+function; the stage filter stays local and is asserted to, because it filters the VIEW and is
+deliberately not part of what the engine charges. Recorded as TRAPS 7.23.
+
+### Three guards earned their keep
+
+- `verify-cost-catalog` failed on `assetScopeOverride` missing from `migrateLegacyToV8`'s literal.
+  That is the guard added on 2026-08-17 after `phasingSource` became the third field silently dropped
+  on every hydrate, and it caught the fourth before it shipped.
+- `verify-no-hidden-cost-lines` and `verify-selected-base` pinned the old THREE-argument call shape
+  by source regex and went red. Both now demand the strategy argument, so a caller that drops it
+  fails rather than silently charging what the screen does not show. **Relaxing them would have been
+  the wrong move**: the assertion existed to catch exactly this class of change.
+
+### Verifier
+
+`verify-selling-cost-scope` **44 passed, 0 failed**, teeth proven by two sabotages:
+
+| sabotage | what it reproduces | failures |
+| --- | --- | --- |
+| 1 | the scope ignored, so a selling cost charges every asset on a rent or an ADR | 5 |
+| 2 | the scope leaking the other way, so a construction line stops charging held assets | 3 |
+
+Worth recording: the first draft wrote `SAB === 1 ||` escapes INTO the checks the sabotage was meant
+to trip, so both sabotages passed 44 / 0. A check that excuses itself under sabotage cannot be proven
+to have teeth. The escapes were removed and the verifier asserts their absence is permanent by
+construction (there is no `SAB` reference left in any check).
+
+Also fixed in section F: a check written as
+`(x > 0 || strategy === 'Operate' || strategy === 'Lease' ? true : false)`, whose ternary binds after
+the `||`, making it the constant `true` on the very thing the section exists to prove.
+
+**Not browser-verified.**
+
+---
+
+## 2026-08-19: the fee is drawn from equity, the statements foot, and the DDM has two halves
+
+Six items, read from the reference formulas rather than inferred. `verify-returns-buildup`
+**51 -> 62** (seven sabotages), `verify-cf-capex-foot` **63 -> 72** (four sabotages re-proven),
+`verify-fund-e2e` **86 -> 87**.
+
+### 1. The fee funding toggle is on the FINANCING tab
+
+It existed only on Fund Terms, which is why it could not be found. It belongs beside the funding
+method, because what it decides is whether the fee sits inside the deficit that method sizes. One
+field, both screens, written to the version snapshot AND the durable `refm_fund_terms` row (so the
+choice survives without a visit to the other tab), with a plain notice if the row write fails rather
+than a silent success.
+
+### 2. The fee equity draw is CAPPED
+
+Reported: "it works but wrong as it does drawdown throughout the project life."
+
+It was the whole fee in every period. Now:
+
+    drawn only while construction is SPENDING            (the R116 gate)
+    and only min(fee, max(0, minCash - (cashAfterBase - fee)))
+
+so it never exceeds the period's fee, never funds a surplus, and stops when the spend stops; after
+construction the fee is paid from the cash the project has, which may take cash below the floor, and
+that is the honest number rather than a reason to raise equity. Measured on the fixture: **5.079m
+drawn of a 17.478m fee.** Sabotage 7 restores the uncapped draw and trips four checks.
+
+### 3. It is its own row, not part of the ratio
+
+`DebtEquitySplit` gains `dedicatedEquity` and `EquityMovement` splits `cashPerPeriod` into
+`developmentPerPeriod` + `managementFeePerPeriod`. It renders as the THIRD row of schedule 9 Total
+Equity Required and in the Equity Movement schedule. Base equity is now EXACTLY the ratio share of
+base debt with nothing folded into it, which the verifier checks directly
+(`base equity == base debt x 30/70`) rather than by the old indirect `debt x 30/70 + fee`.
+
+Every reader that means "cash equity" still reads `cashPerPeriod` and is right without knowing about
+the split, which is why no cash flow, share capital or returns figure had to learn the difference.
+
+### 4. The deficit schedule IS the reference schedule (R105 to R124)
+
+    Cash Capex (construction, land cash, RETT)
+    Operating inflows
+      Residential cash collection
+      Hospitality EBITDA
+      Retail NOI
+      (-) Fund management fee            [only when the deficit funds it]
+      Other operating cash (HQ, tax, escrow)
+    = Total operating inflows
+    = Pre-financing net cash
+    Minimum cash target / Opening cash / existing openings
+    = Cash before financing
+    Development funding need = IF(cash capex > 0, MAX(0, minimum - cash before financing), 0)
+      Debt draw, base (x%) / Equity draw, base (y%)
+    Debt Drawdown: capex / IDC / = Total
+    Equity Drawdown: development / fund management fee / = Total
+    = Closing cash (after funding, before finance cost, sweep, dividends)
+
+**Every "NOT in sizing" memo line is gone.** Four of them sat under Cash Available saying what was
+NOT in the number above; each row is now in the arithmetic of the row beneath it, which is what makes
+a schedule readable.
+
+### 5. The in-kind pair is INSIDE the totals
+
+Land In-Kind sits inside Total Capex and In-Kind Equity inside Cash Flow from Financing, matching the
+reference (its "Land in Kind" row sits under "Capex - Cash"). Both sections now foot on the FULL
+cost, the two rows net to zero every period, and Net Cash Flow is unchanged, which the verifier
+proves as an identity rather than asserting. `directCF.cashFromInvestmentPerPeriod` stays the CASH
+slice, because the funding sizing, the returns and the balance sheet cash all read it; this is the
+statement's presentation of the same movement.
+
+**Interest Paid is ONE line per origin again** (Returns R65). The IDC / operating split is a
+classification and belongs on the Financing tab's schedules; on the cash flow statement it is one
+payment, and it must carry the whole charge.
+
+### 6. Two DDMs, in the reference order (Returns R114 to R139)
+
+    Dividend Discount Model (DDM), before performance fee   + IRR / MOIC
+    Performance Fee (hurdle waterfall)
+    Dividend Discount Model (DDM), after performance fee    + IRR / MOIC
+
+New shared `buildDdmPostFeeRows` in `fundReports.ts`, so the row list has one definition. On a
+standalone project only the first table renders and the label drops the "before performance fee"
+qualifier, since there is no fee to be before.
+
+### The fee bases now follow the reference
+
+Fund size is the **SELECTED METHOD'S FUNDING REQUIREMENT** split at its base debt / equity ratio
+(`selectedWithMinCash x debtPct` and `x equityPct`), matching the reference's "Base Requirement"
+bases. It was every draw the model made over its life, so IDC drawdowns, the fee's own equity draw,
+in-kind land and pre-existing capital all inflated it.
+
+**The freeze invariant is unchanged and is what makes this safe:** the figure is resolved on the
+fee-free pass, before the solver, and is a constant for every iteration. `fund_size_solved` stays in
+`CIRCULAR_FEE_BASES` and stays forbidden. `verify-fund-e2e`'s freeze check was updated to evaluate
+the NEW formula on both passes, which is the point of that check: whichever formula, it must be
+evaluated fee-free.
+
+### Retired
+
+The 18c pro rata equity attribution: four memo lines ESTIMATING what a draw funded, pro rata across
+the period's deficit drivers. The engine now supplies the real split, so an estimate is no longer
+needed, and `equityFor*PerPeriod` is gone from both CF types.
+
+**Not browser-verified.**
+
+---
+
 ## 2026-08-18g: the deficit sizing rule applied, from the reference formulas
 
 Applies the three differences reported in 18f, on instruction. `verify-returns-buildup`

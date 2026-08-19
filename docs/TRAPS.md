@@ -453,6 +453,77 @@ fingerprinting the damage rather than the defect.
 **Proof.** 2026-08-17: 0 lines repaired when it ran last in the chain; 8 lines when it ran first,
 with the other phase's hand-set windows untouched.
 
+### 7.24 A basis that sums three incompatible products is wrong for two of them, and reads as merely small
+
+**Symptom.** A marketing cost at a percentage of revenue charged almost nothing on a hotel and a
+fifth of what was expected on a leased retail unit. Reported as "the marketing amount value is not
+correct".
+
+**Mechanism.** `computeAssetRevenue` is the basis every percent-of-revenue cost method charges on,
+and it sums `metricValue x unitPrice` across the Sellable, Operable AND Leasable sub-units. Those
+three products are not the same kind of number:
+
+| category | the product | what it actually is |
+| --- | --- | --- |
+| Sellable | area x price per sqm, or units x price per unit | a genuine SALE value |
+| Leasable | area x rent per sqm per year | ONE YEAR of rent at full occupancy |
+| Operable | keys x ADR | ONE NIGHT at full occupancy |
+
+So the basis is correct for the selling assets and wildly understated for the rest. **Measured
+against the revenue engine's lifetime figures on the two live projects: a leased asset understated
+by 5x to 11x, a hotel by 2,255x to 4,739x.** FMP RE HUB's Hotel Phase 1 carries a 1.158m basis
+against 5,488.913m of revenue the model itself computes.
+
+**Why it survived.** The number is not zero and not negative, so nothing looked broken; it just
+looked small, and a percentage of a small number is a small cost, which is a plausible answer.
+There is no check that a basis is the same ORDER as the quantity it claims to measure, and the
+field is named `totalRevenue`, which is what a reader would want it to be.
+
+**Fix, and what was deliberately NOT fixed (2026-08-19).** The two SELLING costs (marketing,
+commission) are now scoped to the assets that sell, so they never touch the broken half of the
+basis. The basis itself is UNCHANGED and the defect is pinned with the numbers stated
+(`verify-selling-cost-scope` section E), because correcting it moves every percent-of-revenue line
+on every held asset and that is a separate decision. **Any line pointed at a percent-of-revenue
+method on an Operate or Lease asset is still charging on a one-night or one-year figure.**
+
+**Lesson.** When a computed basis feeds a percentage, check its ORDER OF MAGNITUDE against the
+quantity it names, from an independent source. A wrong basis does not announce itself: it produces a
+small, believable number, where a wrong denominator producing zero would have been noticed in a day.
+
+---
+
+### 7.23 A rule with four copies gains a fifth argument in one of them
+
+**Symptom.** None yet, which is the point: it was caught by a verifier during the change, not in
+production.
+
+**Mechanism.** `assetVisibleLines` is the ONE definition of which cost lines an asset carries, and
+2026-08-17 made the engine call it precisely so the screen and the charge could not diverge. But the
+Costs tab's own per-asset row list still spelled the filter out inline:
+
+```ts
+costLines
+  .filter((c) => c.phaseId === activeAsset.phaseId)
+  .filter((c) => c.targetAssetId === undefined || c.targetAssetId === activeAsset.id)
+```
+
+When the shared rule gained the selling-cost scope, the engine stopped charging a marketing line to
+a leased asset while THAT list carried on showing it: shown but not charged, the exact mirror of the
+country-gate defect (7.13) the shared rule was written to close. Two verifiers also pinned the old
+three-argument call shape by source regex, so they went red rather than silently passing.
+
+**Fix.** The tab calls the shared function with the asset's strategy. The stage filter stays local
+and is asserted to, because it filters the VIEW and is deliberately not part of what the engine
+charges.
+
+**Lesson.** Extracting a shared rule is only half the job; the other half is removing every copy.
+Grep for the SHAPE of the old filter, not just for the function name, because a surviving copy
+contains no reference to the function that replaced it. And when a shared rule gains a parameter,
+the guards that pin its call shape going red is the system working: update the assertion to demand
+the new argument, never relax it.
+
+---
+
 ### 7.22 One quantity recognised by two rules lands in two columns, and the Balance Sheet carries the difference
 
 **Symptom.** The Cash Flow's Investing section did not foot: the per-asset capex rows summed to
