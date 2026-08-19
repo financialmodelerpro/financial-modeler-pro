@@ -3,6 +3,95 @@
 
 > **TRAPS RECORDED IN THIS FILE ARE COLLECTED IN [docs/TRAPS.md](docs/TRAPS.md). Read that first; it is short.** The copies below stay in place, so nothing is lost if you open this file instead. Index of what this file records: the REFM shell `zoom: 0.8` making `vh` and media queries lie (TRAPS 6.1); drag/resize needing pointer capture, not window listeners (6.2); the ExcelJS width-9 column that silently does not apply (3.1); pdf-lib CID glyph ids defeating a naive grep (4.1); the PostgREST 1000-row cap (2.1); export fingerprints needing the FIXTURE, never the live project (5.1); a zero-valued seed hiding a whole code path (7.1); a stage list written as a literal defeating exhaustiveness (7.3); a two-step template registration that fails silently and permanently (8.1); and the verifier rules (a grep proves presence not firing; never gate an assertion on the thing it asserts; prove teeth by sabotage) in TRAPS section 10.
 
+## 2026-08-19d (Pass A): the reconciliation knows about dedicated equity, and every reachable call site values a cost line the same way
+
+Two defects, both introduced by 19b and 19c and both LIVE on production when they were found. Fixed
+as a narrow pass on their own, deliberately not bundled with anything else.
+
+### 1. A false imbalance on the Reconciliation Warnings
+
+`reconcile` compared `EquityMovement.totalCash` against `sum(split.equity)`. Since 19 cash equity
+has TWO halves: the base development draw in `split.equity` and the management fee in
+`split.dedicatedEquity`, drawn outside the ratio. The check therefore ran short by exactly the fee
+whenever the fee is equity funded.
+
+Measured on FMP - MARINA GATE: **61,153,555.75 against 52,485,540.76, a gap of 8,668,014.99**, which
+is the fee draw to the cent.
+
+It now compares against both halves. A SECOND check asserts the two halves sum to `cashPerPeriod`
+**per period**, because a lifetime total can agree while the timing does not, and the halves are
+exactly what the Total Equity Required schedule and the Cash Flow's two equity rows render: a
+period-level divergence would show on screen as rows that do not foot.
+
+**Why nothing caught it.** Both live projects are set to `deficit`, where the dedicated series is all
+zeros and the two forms of the check agree. The identity was broken and the whole suite stayed green.
+
+### 2. The model disagreed with itself about capex
+
+Linking the revenue bases into `computeAssetCost` (19c) wired FIVE of its ELEVEN call sites. The rest
+fell back to `metrics.totalRevenue`, the old sub-unit product, so the same cost line had two values
+depending on which surface asked.
+
+| | financing aggregate | per-asset Cash Flow | divergence |
+| --- | --- | --- | --- |
+| FMP - MARINA GATE | 432,082,531.35 | 431,585,397.11 | **497,134.24** |
+| FMP RE HUB | 4,912,201,581.86 | 4,912,199,955.98 | **1,625.87** |
+
+Same class as the 2026-08-18 "the Investing section did not foot" defect, one day later.
+
+Wired: `financials-resolvers.ts` (the per-asset CF loop), `fixed-assets-resolvers.ts`,
+`reports/capexReports.ts`, `reports/cosReports.ts`, and `revenue-resolvers.ts`
+`computeAssetCapex` via a new OPTIONAL `revenue` argument threaded from
+`computeAssetScheduleBundle`, whose one live caller already holds the snapshot.
+
+`financing-hooks.ts` is NOT wired and that is not a miss: `createFinancingHooks` is imported nowhere
+in `src`, `app` or `scripts`. Wiring unreachable code would be pretending it was fixed.
+
+**After: both totals agree to 0.00 on both projects.**
+
+### Reconciliation, before and after, under BOTH settings
+
+| project | deficit | equity |
+| --- | --- | --- |
+| FMP - MARINA GATE | 0 -> 0 | 1 -> **0** |
+| FMP RE HUB | 2 -> 2 | 3 -> **2** |
+
+RE HUB's two remaining issues are PRE-EXISTING and unrelated (facility shares summing 33.33, the
+by-design stated warning, and a period-0 drawdown mismatch). Present on the as-saved model,
+unchanged by this pass.
+
+### The guard, and why its shape is the point
+
+`verify-capex-collections` **52 -> 63**. Its call-site registry now carries TWO dimensions,
+`wired` for the collections series and `bases` for the revenue bases, each with its own per-call
+argument scanner.
+
+**That split IS the defect.** `computeAssetCapex` was registered `wired: false` with the reason
+"computeAssetCapex reads .total only, and phasing cannot move a total". That reason is TRUE, and it
+was quietly taken as permission to omit the revenue bases as well, which move the total a great deal.
+One flag standing for two different inputs turned a correct statement about phasing into a wrong
+conclusion about amounts. Recorded as TRAPS 7.26.
+
+`verify-returns-buildup` **62 -> 66**, asserting the reconciliation is clean on BOTH paths, with a
+non-vacuity check that the equity path really carries a dedicated draw (asserting only the deficit
+path passes with the bug in).
+
+Teeth proven by REVERTING each fix rather than mutating a fixture: the reconcile revert fails the
+equity reconciliation check, the call-site revert fails `A2b` for that exact file.
+
+### Deployed
+
+```
+HEAD    2771650efa922a17f1a337538173018eddbc8c40
+health  2771650efa922a17f1a337538173018eddbc8c40   MATCH
+```
+
+**Not browser-verified.** Passes B (the fee toggle's view-mode discard and the split-brain write) and
+C (marketing and commission owned by Module 2 Revenue) were diagnosed in full and are NOT built; the
+diagnosis is preserved in [CLAUDE-TODO.md](CLAUDE-TODO.md).
+
+---
+
 ## 2026-08-19c: the revenue basis, and a defect I shipped in 19b
 
 Two things, reported from the screen after 19b was live and pushed.

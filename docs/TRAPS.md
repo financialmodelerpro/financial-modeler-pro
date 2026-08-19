@@ -453,6 +453,43 @@ fingerprinting the damage rather than the defect.
 **Proof.** 2026-08-17: 0 lines repaired when it ran last in the chain; 8 lines when it ran first,
 with the other phase's hand-set windows untouched.
 
+### 7.26 One flag standing for two inputs turns a true reason into a wrong conclusion
+
+**Symptom.** After the percent-of-revenue BASE was linked to the revenue module, the financing
+aggregate and the per-asset Cash Flow reported different capex: 432,082,531.35 against
+431,585,397.11 on FMP - MARINA GATE, a **497,134.24** divergence, and 1,625.87 on FMP RE HUB.
+
+**Mechanism.** `computeAssetCost` has eleven call sites and `verify-capex-collections` already
+carried a REGISTRY of them, each with a `wired` flag and a written reason, plus a check that a new
+unregistered site fails. A good guard. But `wired` meant one thing, "passes the collections series",
+and the collections series drives PHASING. The new revenue bases drive the AMOUNT. Two different
+inputs, one flag.
+
+So `revenue-resolvers.ts` sat in the registry as:
+
+    { file: '...revenue-resolvers.ts', wired: false,
+      why: 'computeAssetCapex reads .total only, and phasing cannot move a total' }
+
+Every word of that reason is TRUE. A total is a sum, phasing redistributes within the sum, so
+omitting the phasing series genuinely cannot change the answer. And it was read as permission to omit
+the new bases too, which change the total by over a million. The registry was consulted, the reason
+was correct, and the conclusion was wrong.
+
+**Fix.** The registry carries TWO dimensions, `wired` (collections) and `bases` (revenue bases),
+each with its own per-call argument scanner and its own assertion. `revenue-resolvers.ts` is now
+`wired: false, bases: true`, which is the honest description.
+
+**Lesson.** A registry entry's reason is scoped to the thing it was written about. When a function
+gains a NEW input, do not reuse the existing flag: a reason that justified omitting input A will be
+read as justifying omitting input B, and it will read as reasonable because it IS reasonable, about A.
+Add the dimension, and re-derive every entry's answer for it rather than inheriting.
+
+The general form: **a boolean that answers "is this site correct" is only as good as the number of
+ways a site can be wrong.** When the count goes up, the boolean is no longer a guard, it is a
+comforting label.
+
+---
+
 ### 7.25 Two identity rules for one entity, and the second one is the one you wrote
 
 **Symptom.** A Marketing line, scoped the day before to selling assets only, kept charging a leased
