@@ -1334,6 +1334,22 @@ export interface Asset {
       };
       handoverYearOverride?: number;
       /**
+       * SALE COHORT TERMS (2026-08-19, restructure Step 1). Mirrors
+       * AssetSellConfig in src/core/calculations/revenue/types.ts, where
+       * the meaning of each field is documented in full.
+       *
+       * STORED AND EDITABLE, READ BY NO ENGINE PATH YET.
+       *
+       * downpaymentByPhase is phase-local and one entry per SALE YEAR,
+       * a FRACTION (0.20 = 20%) like the velocity and cash strips beside
+       * it. The other two are one value for the asset.
+       * instalmentsStopAtHandover defaults to true when absent, which is
+       * the reference model's hard cut-off.
+       */
+      downpaymentByPhase?: number[];
+      maxInstalmentYears?: number;
+      instalmentsStopAtHandover?: boolean;
+      /**
        * M2 Pass 9h (2026-05-19): per-asset escrow override. Either
        * field can be set independently; unset fields fall back to the
        * project default (Project.escrow.heldPct / defaultReleaseYear)

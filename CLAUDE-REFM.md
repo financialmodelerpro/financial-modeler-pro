@@ -1,7 +1,70 @@
 ﻿# Real Estate Financial Modeling (REFM), Claude Code Project Brief
 **Last updated: 2026-08-17. Lock status: M1 CLOSED 2026-08-17 (28 defects found in end-to-end use, all fixed and browser-verified; base lock unchanged at M2.0 Pass 58) + Parties tab (mig 190), M2 LOCKED (Pass 9N), M3 LOCKED (Pass 5d), M4 DONE, M5 DONE (Returns & RE Metrics + Lender Covenants + per-partner FCFE/DDM + M1-Parties link), M6 Scenario Analysis LIVE, M7 Reports LIVE (IC / Lender / One-Pager preview + PPT export, migs 191+192). Full verifier suite green via `npx tsx scripts/verify-*.ts`.**
 
+
 > **TRAPS RECORDED IN THIS FILE ARE COLLECTED IN [docs/TRAPS.md](docs/TRAPS.md). Read that first; it is short.** The copies below stay in place, so nothing is lost if you open this file instead. Index of what this file records: the REFM shell `zoom: 0.8` making `vh` and media queries lie (TRAPS 6.1); drag/resize needing pointer capture, not window listeners (6.2); the ExcelJS width-9 column that silently does not apply (3.1); pdf-lib CID glyph ids defeating a naive grep (4.1); the PostgREST 1000-row cap (2.1); export fingerprints needing the FIXTURE, never the live project (5.1); a zero-valued seed hiding a whole code path (7.1); a stage list written as a literal defeating exhaustiveness (7.3); a two-step template registration that fails silently and permanently (8.1); and the verifier rules (a grep proves presence not firing; never gate an assertion on the thing it asserts; prove teeth by sabotage) in TRAPS section 10.
+## 2026-08-19i: sale cohort restructure, Step 1. Three inputs that change nothing
+
+**Step 1 of five, on instruction, after a diagnosis that was accepted.** The Module 2 sell engine
+collects cash from one payment profile shared by every sale year. The reference model gives each
+sale year its own terms. Step 1 lands the INPUTS for those terms before the rule that consumes them,
+so the screen can be reviewed while no saved number can move. **Steps 2 to 5 are not started.**
+
+**The three inputs**, on `AssetSellConfig` (engine) and mirrored on the stored asset shape:
+
+- `downpaymentByPhase`, a FRACTION per SALE YEAR, phase-local, matching the velocity tables that
+  produce those sale years. Phase-local ONLY: every neighbour carries a deprecated project-axis twin
+  for legacy snapshots, and a new field has no legacy to be compatible with, so it gains no dual
+  write. Named for the quantity, not the unit, after a first version called `downpaymentPctByPhase`
+  while storing 0.20.
+- `maxInstalmentYears`, one number for the asset. Not per sale year: decided.
+- `instalmentsStopAtHandover`, a TOGGLE, absent means true (the reference's hard cut-off). Built as a
+  toggle now rather than retrofitted, because post-handover instalments exist in the market and an
+  exception bolted onto a hard-coded rule is how one rule ends up written twice.
+
+Edited on the Module 2 Revenue sell panel in a new **Sale cohort terms** section that states, on the
+screen, that the inputs are not yet applied and describes what the rule will do when they are. The
+cash payment profile above it gained the **tail catch-up note**: anything the profile places past the
+last model year is collected in the final year instead, so receivables settle, which means a
+mis-specified profile shows a large final year rather than an error.
+
+**TWO DEFECTS OF THE SAME SHAPE, FOUND AND FIXED, NEITHER IN THE ORIGINAL SCOPE.** Both are the
+field-list shape of TRAPS 7.16, and this path now had **three** instances of it.
+
+1. `updateSellInline` in `Module2Revenue.tsx` rebuilt the sell config from a NAMED LIST, so every
+   sell field it did not name was destroyed by any unrelated edit on that tab. It already omitted
+   `escrow`. Measured across every live project: no asset carries a `sell.escrow` today, so nothing
+   was actually lost, but it would have destroyed all three new fields.
+2. `resolveSellConfig` in `revenue-resolvers.ts` builds the engine config from the stored asset by
+   naming fields, so the three new ones were dropped on the way IN. **This is the one worth
+   remembering** (TRAPS 7.28): it made the Step 1 contract untestable while the test passed. A
+   sabotage that made the engine read `downpaymentByPhase` and multiply cash collections by
+   `(1 - downpayment)` still passed the byte-identical checks, because both runs saw `undefined`. The
+   section was proving the mapper was lossy, not that the engine was inert.
+
+Both fixed by spreading first and defaulting on top, so there is no list to keep current. The
+verifier gained the check that would have caught it: assert BEHAVIOURALLY that the engine config
+CARRIES the fields, so the invariance claim is about the engine rather than about the mapper.
+
+**Measured, nothing moved.** Total sales collections, funding requirement and peak debt are identical
+on both live projects before and after (FMP - MARINA GATE 626.80m / 174.95m / 144.19m; FMP RE HUB
+6,408.96m / 234.30m / 2,483.02m), and worst `|Assets - L&E|` is 0.00 on both.
+
+`verify-sale-cohort-inputs` **32 NEW**, teeth proven by three sabotages that break the CODE (remove
+the spread: 2 failures; engine mentions a field: 1; engine moves money with it: 3, against 1 before
+the mapper fix). Neighbours re-run green: `verify-selling-cost-scope` 91, `verify-snapshot-field-survival`
+27, `verify-capex-phasing` 91, `verify-phase-date-preservation` 37, `verify-revenue-rebuild` 0 failures.
+
+**Sections C and D of the new verifier are DESIGNED TO FAIL at Step 3.** That is the contract:
+whoever wires these fields into the engine must come here and replace the "reads nothing" checks
+with checks on what the rule does. A silent switch-on is not possible.
+
+**Also logged, deliberately not built:** two cost of sales engines with different bases, one feeding
+the P&L and one feeding the Module 2 screen and both exports. Its own pass, recorded in
+[CLAUDE-TODO.md](CLAUDE-TODO.md).
+
+**NOT browser-verified at time of writing.**
+
 
 ## 2026-08-19h: selling costs year on year, an exit cap rate, and a phasing curve I dropped
 

@@ -3,6 +3,45 @@
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
 ---
+## OPEN 2026-08-19: TWO COST OF SALES ENGINES, WITH DIFFERENT BASES. Its own pass.
+
+**Found while diagnosing the Module 2 sale cohort restructure. Deliberately NOT folded into that
+work, by instruction. To be taken after the restructure or before its Step 3, decided when we get
+there.**
+
+There are two cost of sales engines and they answer the same question differently.
+
+- `src/core/calculations/revenue/costOfSales.ts` (v1) spreads total capex in proportion to
+  RECOGNITION: `CoS[i] = totalCapex x recognition[i] / totalRecognition`, clamped so the cumulative
+  charge settles on total capex.
+- `src/core/calculations/revenue/costOfSalesV2.ts` (v2) uses a JOINT CUMULATIVE of construction
+  progress and cumulative pre-sales, measures pre-sales in AREA OR UNITS rather than value, adds
+  capitalised interest into its capex base, and splits the answer into a construction stream and an
+  operations stream. Its own header comment says v1 "ignores the timing of pre-sales".
+
+**Who reads which.** The P&L reads v1: `financials-resolvers.ts` builds it at the `augmentedCos`
+site (capex plus capitalised IDC), and `revenue-resolvers.ts` builds it per sell asset. The Module 2
+Cost of Sales SCREEN reads v2, and so does `lib/reports/cosReports.ts`, which is the shared builder
+both PDFs and the workbook render from. So the statement and the schedule that explains the
+statement are computed by different engines.
+
+**Why it has stayed invisible.** Both settle to the same lifetime total by construction, so the
+totals agree and only the per-period timing differs. Measured 2026-08-19 on FMP RE HUB: P&L cost of
+sales 4,416.81m against the report's Project Total Cost of Sales 4,416.81m, agreeing to the cent.
+FMP - MARINA GATE did not tie on a first crude reading (P&L 243.73m against a 180.49m subtotal), but
+that comparison was not clean enough to quote as a gap, because the P&L figure includes cost of
+sales from non-sell strategies. **The per-period divergence is NOT yet measured and no figure for it
+should be quoted until it is.**
+
+**What the pass has to decide**, and it is a modelling question rather than a code question: whether
+cost of sales is matched to revenue recognition (v1, and what the reference model does at Schedules
+R247-R249, `$D248*I$234/$H$234`) or to the joint progress of construction and pre-sales (v2). The
+reference matches recognition. Whichever wins, the loser is DELETED rather than left reachable,
+because this is the recurring shape in this codebase: one rule written twice with two answers.
+
+**Do not start by making them agree numerically.** Start by deciding which is right.
+
+---
 
 ## CLOSED 2026-08-19: Passes B and C, both shipped and browser-verified
 

@@ -80,6 +80,67 @@ export interface AssetSellConfig {
   // for the asset's phase. Engine reads from project + phases when
   // omitted, but the field is allowed as an override for testing.
   handoverYearOverride?: number;
+
+  // ── SALE COHORT TERMS (2026-08-19, restructure Step 1) ──────────────────
+  //
+  // STORED AND EDITABLE, READ BY NO ENGINE PATH YET. Step 1 of the Module 2
+  // sale cohort restructure deliberately lands the inputs before the rule that
+  // consumes them, so the screen can be reviewed while no saved number can
+  // move. `verify-sale-cohort-inputs` asserts that absence, so wiring these up
+  // without also updating that verifier will fail the suite rather than pass
+  // quietly.
+  //
+  // They describe the reference model's collection rule: a cohort selling in
+  // year s pays a downpayment in year s and the balance in EQUAL instalments
+  // over MIN(maxInstalmentYears, handover - s) years. A cohort selling at or
+  // after handover pays in full in its sale year, which is what the existing
+  // post-sales convention already does.
+  //
+  // ONE SET OF TERMS PER ASSET, except the downpayment, which is the whole
+  // point of a cohort grid: it varies by SALE YEAR.
+
+  /**
+   * Downpayment as a share of the cohort's own sale value (GDV), one entry per
+   * SALE YEAR, phase-local (arr[0] = the phase's first year), matching the
+   * velocity tables that produce those sale years.
+   *
+   * A FRACTION, not a percentage: 0.20 is twenty percent, the same convention
+   * as `cashPaymentProfile.percentages` and the velocity arrays. The field is
+   * named for the quantity rather than the unit so the name cannot lie about
+   * it.
+   *
+   * Stored PHASE-LOCAL ONLY. Every other array here carries a deprecated
+   * project-axis twin for legacy snapshots; this field is new, so it has no
+   * legacy to be compatible with and gains no dual write.
+   *
+   * A missing or short array means no downpayment is set for that sale year.
+   * Absent is not zero: a sale year with no entry has not been specified, and
+   * the rule that consumes this in Step 3 decides what to do about it. Nothing
+   * reads it today.
+   */
+  downpaymentByPhase?: number[];
+
+  /**
+   * The maximum number of years the instalment balance may be spread over,
+   * counted from the year AFTER the sale. ONE number for the asset, not one
+   * per sale year, and cut off by handover rather than replaced by it.
+   */
+  maxInstalmentYears?: number;
+
+  /**
+   * Whether instalments must finish by handover.
+   *
+   * True (the default, and the reference model's behaviour) caps the instalment
+   * run at the years remaining to handover, so a cohort selling close to
+   * handover pays over fewer years rather than past it. False lets the full
+   * `maxInstalmentYears` run even where that carries payments beyond handover,
+   * which some real sale plans do.
+   *
+   * A TOGGLE RATHER THAN A RULE, decided before the rule is built, because
+   * retrofitting an exception to a hard-coded cut-off is how a single rule ends
+   * up written twice.
+   */
+  instalmentsStopAtHandover?: boolean;
 }
 
 // Per-sub-unit material context the engine pulls from M1 so the math

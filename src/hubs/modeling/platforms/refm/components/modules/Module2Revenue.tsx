@@ -672,7 +672,17 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   const idxConfig = sellConfig?.indexation ?? { method: 'none' as const };
 
   const updateSellInline = (patch: Partial<NonNullable<Asset['revenue']>['sell']>): void => {
+    // SPREAD THE EXISTING CONFIG FIRST, then re-state the fields that need a
+    // default when absent. This used to be a FIELD LIST, which is the shape
+    // recorded in docs/TRAPS.md 7.16: a rebuild that enumerates what it keeps
+    // silently discards everything it does not name. It had already dropped
+    // `escrow`, so a per-asset escrow override was destroyed by any unrelated
+    // edit on this tab (no live project carried one, measured 2026-08-19, so
+    // nothing was actually lost), and it would have destroyed the three sale
+    // cohort fields added the same day. Fixed by SHAPE so a fourth field
+    // cannot go the same way.
     const nextSell = {
+      ...(sellConfig ?? {}),
       assetId: asset.id,
       subUnits: sellConfig?.subUnits ?? subUnits.map((su) => ({
         subUnitId: su.id,
@@ -830,6 +840,51 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
         positionsByPhase: cashProfile.positionsByPhase,
       },
     });
+  };
+
+  // ── SALE COHORT TERMS (2026-08-19, restructure Step 1) ────────────────────
+  //
+  // STORED AND EDITED HERE, READ BY NO ENGINE PATH. Landing the inputs before
+  // the rule that consumes them means the screen can be reviewed while no
+  // saved number can move. `verify-sale-cohort-inputs` asserts that no engine
+  // file reads these, so wiring them up without updating that verifier fails
+  // the suite rather than passing quietly.
+  //
+  // The downpayment is the one term that varies by SALE YEAR, which is what
+  // makes a cohort grid a grid. It is stored phase-local only (it is a new
+  // field with no legacy axis-indexed twin to keep in step), so the strip
+  // expands to the project axis for display and converts back on write.
+  const downpaymentAxis = ((): number[] => {
+    const axis = new Array<number>(Math.max(0, totalPeriods)).fill(0);
+    const arr = sellConfig?.downpaymentByPhase ?? [];
+    for (let i = 0; i < arr.length; i++) {
+      const j = phaseOffset + i;
+      if (j >= 0 && j < axis.length) axis[j] = arr[i] ?? 0;
+    }
+    return axis;
+  })();
+
+  const setDownpayment = (periodIdx: number, pct: number): void => {
+    const value = Math.max(0, Math.min(1, pct / 100));
+    const phaseLen = Math.max(0, totalPeriods - phaseOffset);
+    const next = new Array<number>(phaseLen).fill(0);
+    const existing = sellConfig?.downpaymentByPhase ?? [];
+    for (let i = 0; i < phaseLen; i++) next[i] = existing[i] ?? 0;
+    const localIdx = periodIdx - phaseOffset;
+    if (localIdx >= 0 && localIdx < phaseLen) next[localIdx] = value;
+    updateSellInline({ downpaymentByPhase: next });
+  };
+
+  const setMaxInstalmentYears = (years: number): void => {
+    // Zero is a legitimate answer: it means the whole balance falls due with
+    // the downpayment. Clamped to the axis so a typo cannot describe a
+    // schedule longer than the model.
+    const v = Math.max(0, Math.min(Math.max(1, totalPeriods), Math.round(years)));
+    updateSellInline({ maxInstalmentYears: Number.isFinite(v) ? v : 0 });
+  };
+
+  const setInstalmentsStopAtHandover = (stop: boolean): void => {
+    updateSellInline({ instalmentsStopAtHandover: stop });
   };
 
   const setRecognitionMethod = (method: 'point_in_time' | 'over_time'): void => {
@@ -2275,6 +2330,64 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
               onChange={setCashPct}
               testidPrefix={`m2-cash-${asset.id}`}
             />
+            <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4, fontStyle: 'italic', lineHeight: 1.4 }}>
+              <strong>Note:</strong> anything this profile places beyond the last model year is collected in the final year instead, so receivables always settle. That keeps the balance sheet honest, but it means a profile that runs past the end of the model shows a large final year rather than an error. Check the last column reads the way you expect.
+            </div>
+          </InlineSection>
+
+          {/* Sale cohort terms (full row, BELOW Cash). Stored and edited here;
+              no engine path reads them yet. */}
+          <InlineSection
+            title="Sale cohort terms"
+            hint="Each sale year is its own cohort with its own terms: a downpayment in the year it sells, then the balance in equal instalments."
+            tag="Not yet applied"
+            tagColor="var(--color-warning, #92400e)"
+          >
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>Max instalment years after sale</span>
+                <div style={{ width: 70 }}>
+                  <input
+                    type="number"
+                    value={sellConfig?.maxInstalmentYears ?? 3}
+                    min={0}
+                    max={Math.max(1, totalPeriods)}
+                    step={1}
+                    onChange={(e) => setMaxInstalmentYears(Number(e.target.value))}
+                    style={FAST_INPUT}
+                    data-testid={`m2-cohort-${asset.id}-max-instalment-years`}
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                <span style={{ fontSize: 10, color: 'var(--color-meta)', marginRight: 2 }}>Instalments</span>
+                <MethodPill
+                  active={(sellConfig?.instalmentsStopAtHandover ?? true) === true}
+                  label={`Must finish by handover (${yearLabels[handoverYear] ?? '?'})`}
+                  onClick={() => setInstalmentsStopAtHandover(true)}
+                />
+                <MethodPill
+                  active={sellConfig?.instalmentsStopAtHandover === false}
+                  label="May run past handover"
+                  onClick={() => setInstalmentsStopAtHandover(false)}
+                />
+              </div>
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--color-meta)', marginBottom: 4 }}>
+              Downpayment by sale year (% of that year&apos;s sale value)
+            </div>
+            <InlineProfileStrip
+              cells={constructionWindow}
+              values={downpaymentAxis}
+              onChange={setDownpayment}
+              testidPrefix={`m2-cohort-dp-${asset.id}`}
+            />
+            <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4, fontStyle: 'italic', lineHeight: 1.4 }}>
+              <strong>These inputs are stored but not yet used.</strong> Collections still follow the cash payment profile above. When the cohort rule is switched on, a cohort selling in year N will pay its downpayment in year N and the balance in equal instalments over
+              {' '}{(sellConfig?.instalmentsStopAtHandover ?? true)
+                ? <>the lesser of {sellConfig?.maxInstalmentYears ?? 3} years and the years remaining to handover ({yearLabels[handoverYear] ?? '?'})</>
+                : <>{sellConfig?.maxInstalmentYears ?? 3} years, even where that runs past handover</>}, and a cohort selling at or after handover will pay in full in its own year. Sale years run across the construction window because a cohort selling after handover has nothing to pay a downpayment against.
+            </div>
           </InlineSection>
         </div>
       )}

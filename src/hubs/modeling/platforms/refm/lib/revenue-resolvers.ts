@@ -180,7 +180,22 @@ function expandIndexationFromYearKeyed(
 export function resolveSellConfig(asset: Asset, _project: Project): AssetSellConfig | null {
   const cfg = asset.revenue?.sell;
   if (!cfg) return null;
+  // SPREAD FIRST, then default the fields that need a default. This used to be
+  // a field list, which is the shape recorded in docs/TRAPS.md 7.16: a rebuild
+  // that enumerates what it keeps silently drops everything it does not name,
+  // and it is the THIRD instance of that shape on this one path (the legacy
+  // migration and the Module 2 Revenue sell rebuild were the other two).
+  //
+  // Found on 2026-08-19 by sabotage: a test that made the engine read a new
+  // sale cohort field and move real money still passed, because this function
+  // had already dropped the field on the way in. That is worse than a wrong
+  // number, because it makes the wrongness untestable.
+  //
+  // No behaviour changes here: everything this now carries through is read by
+  // nothing today. It means Step 3 of the sale cohort restructure has a config
+  // that already carries its inputs, rather than a fourth name to remember.
   return {
+    ...cfg,
     assetId: asset.id,
     subUnits: cfg.subUnits,
     cashPaymentProfile: cfg.cashPaymentProfile ?? DEFAULT_CASH_PROFILE,

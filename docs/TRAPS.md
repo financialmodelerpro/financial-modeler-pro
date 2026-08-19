@@ -510,7 +510,48 @@ differ, which here was simply an asset that is actually built.
 year off the end. That is not value lost. Closing NBV rises by the same amount to the cent, and the
 balance sheet still closes at 0.00. Measure both sides before calling a reduction a defect.
 
+
 ---
+### 7.28 A lossy mapper makes a wrongness untestable, and the test still passes
+
+**Symptom.** Step 1 of the Module 2 sale cohort restructure added three inputs that are stored and
+edited but read by nothing, and a verifier asserted exactly that: compute a sell asset with and
+without the three fields set, demand the results are byte identical. It passed, 28 checks, 0 failed.
+
+Then the sabotage. The engine was edited to actually READ one of the new fields and multiply cash
+collections by `(1 - downpayment)`, which moves real money. **The verifier still passed that
+section.** Only the source-text check noticed, and a source-text check cannot tell a read from a
+mention.
+
+**Mechanism.** `resolveSellConfig` in `revenue-resolvers.ts` builds the engine's `AssetSellConfig`
+from the stored asset by naming the fields it keeps. It never named the three new ones, so they were
+dropped on the way in and the engine's `config.downpaymentByPhase` was always `undefined`. Both runs
+therefore computed the same thing for the same reason, and the section was proving the mapper was
+LOSSY rather than proving the engine was INERT. The check was not weak; it was measuring something
+else entirely and reporting it as the thing asked for.
+
+This is the **third** instance of the field-list shape on one path: `migrateLegacyToV8` (7.9, 7.16),
+the Module 2 Revenue sell rebuild (which had already been silently dropping `escrow`), and this. All
+three were fixed the same way, by spreading first and defaulting on top, so there is no list to keep
+up to date.
+
+**Fix.** Every one of the three spreads. And the verifier gained the check that would have caught
+it: assert BEHAVIOURALLY that the engine config actually CARRIES the fields, so "setting them
+changes nothing" is a statement about the engine rather than about the mapper. Re-run the same
+sabotage after the fix: 3 failures, the two identity checks and the source check, where before there
+was 1.
+
+**The general form.** *A negative result is only evidence if the input reached the code under test.*
+Before trusting "setting X changes nothing", prove X arrived. An anti-vacuity check belongs beside
+every invariance check, and it is the one that earns its keep, because an invariance check passes by
+default in exactly the circumstances that make it worthless.
+
+**Proof.** `verify-sale-cohort-inputs` 32 checks, teeth proven by three sabotages that break the
+CODE (removing the spread: 2 failures; making the engine mention a field: 1; making the engine move
+money with it: 3, where the pre-fix version of the same sabotage produced 1).
+
+---
+
 
 ### 7.26 One flag standing for two inputs turns a true reason into a wrong conclusion
 
