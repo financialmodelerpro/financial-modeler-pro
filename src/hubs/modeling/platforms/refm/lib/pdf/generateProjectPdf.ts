@@ -23,6 +23,7 @@
  * readable. The renderer is pure (state in, bytes out).
  */
 import { PDFDocument, PDFName, PDFHexString, rgb, type PDFFont, type PDFPage, type PDFRef, type PDFObject } from 'pdf-lib';
+import { buildSaleCohortTermsBlock, saleCohortRuleText, CASH_PROFILE_SUPERSEDED_LABEL } from '../reports/saleCohortReports';
 import fontkit from '@pdf-lib/fontkit';
 import { formatAccounting, formatArea, formatInteger, type DisplayScale } from '@/src/core/formatters';
 import { computeSubUnitArea, computePhaseTimeline, computeProjectTimeline } from '@/src/core/calculations';
@@ -1477,8 +1478,27 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       title: `Cash & Recognition Profile, ${a.name} (relative to sale year)`, kind: 'grid', align: 'data',
       columns: ['Profile', ...cols],
       rows: [
-        row(['Cash payment %', ...Array.from({ length: n }, (_, i) => fmt.pctRaw((cashPct[i] ?? 0) * 100, 1))]),
+        row([CASH_PROFILE_SUPERSEDED_LABEL, ...Array.from({ length: n }, (_, i) => fmt.pctRaw((cashPct[i] ?? 0) * 100, 1))]),
         ...(recogPct.length ? [row(['Recognition %', ...Array.from({ length: n }, (_, i) => fmt.pctRaw((recogPct[i] ?? 0) * 100, 1))])] : []),
+      ],
+    }));
+  }
+
+  // Sale cohort terms, which is what actually drives collections. Built from
+  // the shared builder so the workbook and this document cannot drift.
+  for (const a of state.assets) {
+    const block = buildSaleCohortTermsBlock(a, state.phases.find((ph) => ph.id === a.phaseId), Number(yl[0]) || 0);
+    if (!block || block.downpayments.length === 0) continue;
+    items.push(tTable('Tab 1: Revenue Inputs', 'inputs', {
+      title: `Sale Cohort Terms, ${a.name}`, kind: 'grid', align: 'data',
+      columns: ['Term', ...block.downpayments.map((d) => String(d.year))],
+      rows: [
+        row(['Downpayment % by sale year', ...block.downpayments.map((d) => (
+          d.source === 'unset' ? 'not set' : fmt.pctRaw(d.value * 100, 1)
+        ))]),
+        row(['Max instalment years', String(block.instalmentYears), ...block.downpayments.slice(1).map(() => '')]),
+        row(['Instalments stop at handover', block.stopAtHandover ? 'yes' : 'no', ...block.downpayments.slice(1).map(() => '')]),
+        row([saleCohortRuleText(block), ...block.downpayments.map(() => '')]),
       ],
     }));
   }

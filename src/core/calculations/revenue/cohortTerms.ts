@@ -51,6 +51,13 @@ import type { ProfileSpec } from './cohort';
  *
  * `null` in the stored array means "not set". A number means the user said so.
  */
+/**
+ * The instalment allowance used when an asset has not set one. Shared with the
+ * Module 2 screen so the number shown as the default and the number the engine
+ * applies are the same constant, not two that happen to agree.
+ */
+export const DEFAULT_INSTALMENT_YEARS = 3;
+
 export type DownpaymentEntry = number | null | undefined;
 
 export type DownpaymentSource =

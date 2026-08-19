@@ -1,7 +1,7 @@
 import { applyIndexation } from './indexation';
-import { distributeCashCollection } from './payment';
 import { buildRecognition } from './recognition';
-import { buildCohortMatrix } from './cohort';
+import { buildCohortMatrix, columnSums, type ProfileSpec } from './cohort';
+import { buildSaleCohortProfile, resolveDownpayment, DEFAULT_INSTALMENT_YEARS } from './cohortTerms';
 import type {
   AssetSellConfig,
   RecognitionProfile,
@@ -28,8 +28,9 @@ export interface ComputeSellInputs {
  * handover year from the asset's phase (constructionStart +
  * constructionPeriods - 1, or config.handoverYearOverride when set).
  *
- * Single implicit cohort. The buildCohortMatrix helper is still used
- * to produce the vintage matrices.
+ * ONE COHORT PER SALE YEAR (2026-08-19). Each carries its own payment
+ * terms; see the sale cohort block below for the rule and why it replaced
+ * the single shared cash payment profile.
  */
 export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
   const { config, subUnits, axisLength, handoverYear, projectStartYear } = inputs;
@@ -133,7 +134,39 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
     cumulativeShareBySubUnit.set(su.id, cumShare);
   }
 
-  const cashCollectedPresales = distributeCashCollection(presalesRevenue, config.cashPaymentProfile, N);
+  // ── SALE COHORT COLLECTIONS (2026-08-19, restructure Step 3) ──────────────
+  //
+  // EVERY SALE YEAR IS ITS OWN COHORT WITH ITS OWN TERMS. It pays a
+  // downpayment in the year it sells and the balance in equal instalments over
+  // the years that follow, and the run is cut short by handover, because a
+  // buyer's payment plan ends when they get the keys. A cohort selling at or
+  // after handover pays in full in its own year, which is the convention the
+  // post-sales lines below have always used.
+  //
+  // This REPLACES `cashPaymentProfile` as the driver of pre-sales cash. That
+  // profile was ONE schedule shared by every sale year, so a cohort selling in
+  // year 1 and a cohort selling in year 4 were forced onto the same milestones.
+  // There is now one payment rule, not two: `distributeCashCollection` is gone
+  // rather than left reachable, and `cashPaymentProfile` is retained only so no
+  // saved data is destroyed. The Module 2 screen and the exports say so.
+  //
+  // The rule itself lives in cohortTerms.ts and is shared with the screen, so
+  // the terms a user reads and the terms the model applies are the same object.
+  //
+  // ONE MATRIX, not two. The vintage matrix used to be built separately from
+  // the collections series, from the same profile, which is two chances to
+  // answer one question. The series is now the matrix's column sums, so they
+  // cannot disagree.
+  const cohortProfileFor = (saleYear: number): ProfileSpec => buildSaleCohortProfile({
+    saleYear,
+    handoverYear,
+    downpayment: resolveDownpayment(config.downpayment, saleYear).value,
+    instalmentYearsAllowed: config.maxInstalmentYears ?? DEFAULT_INSTALMENT_YEARS,
+    // Absent means the hard cut-off, which is the reference model's behaviour.
+    stopAtHandover: config.instalmentsStopAtHandover ?? true,
+  });
+  const cashVintageMatrix = buildCohortMatrix(presalesRevenue, cohortProfileFor, N);
+  const cashCollectedPresales = columnSums(cashVintageMatrix, N);
   const recognitionPresales = buildRecognition(presalesRevenue, config.recognitionProfile, handoverYear, N, projectStartYear);
 
   // Pass 7f (2026-05-17): post-sales convention. Post-handover sales
@@ -144,7 +177,6 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
   const cashCollected = cashCollectedPresales.map((v, i) => v + (postSalesCash[i] ?? 0));
   const recognition = recognitionPresales.map((v, i) => v + (postSalesRecognition[i] ?? 0));
 
-  const cashVintageMatrix = buildCohortMatrix(presalesRevenue, config.cashPaymentProfile, N);
   const recognitionVintageMatrix = buildRecognitionMatrix(presalesRevenue, config.recognitionProfile, handoverYear, N);
 
   return {

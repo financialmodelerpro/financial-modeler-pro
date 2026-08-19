@@ -2,6 +2,88 @@
 **Last updated: 2026-08-17. Lock status: M1 CLOSED 2026-08-17 (28 defects found in end-to-end use, all fixed and browser-verified; base lock unchanged at M2.0 Pass 58) + Parties tab (mig 190), M2 LOCKED (Pass 9N), M3 LOCKED (Pass 5d), M4 DONE, M5 DONE (Returns & RE Metrics + Lender Covenants + per-partner FCFE/DDM + M1-Parties link), M6 Scenario Analysis LIVE, M7 Reports LIVE (IC / Lender / One-Pager preview + PPT export, migs 191+192). Full verifier suite green via `npx tsx scripts/verify-*.ts`.**
 
 
+## 2026-08-19k: sale cohort restructure, Step 3. The rule is live, and numbers moved
+
+**Step 3 of five. THIS IS THE STEP THAT MOVES MONEY, deliberately. Measured before and after on both
+live projects and on a throwaway. Lifetime collections unchanged PER ASSET to the currency unit;
+balance sheet 0.00 on both; zero reconciliation warnings.**
+
+**THE SWITCH.** `computeSellAsset` builds pre-sales cash from the cohort rule instead of
+`distributeCashCollection`, which is DELETED from the call path rather than left reachable (one
+payment rule, not two). A cohort selling in year s pays its downpayment in year s and the balance in
+equal instalments over `min(m, H - s)` years under the hard cut-off, or `m` years with the toggle
+released; a cohort selling at or after handover pays in full in its own year, which is the convention
+the post-sales lines always used. `handoverYear` is the engine's own `resolveHandoverYear`, the LAST
+construction year.
+
+**ONE MATRIX, not two.** The vintage matrix used to be built separately from the collections series
+off the same profile, which is two chances to answer one question. Collections are now the matrix's
+column sums.
+
+**Storage is phase-local, the engine is project-axis**, so the platform mapper expands
+`downpaymentByPhase` into `downpayment`, exactly as `preSalesVelocityByPhase` becomes
+`preSalesVelocity`. NULLS ARE PRESERVED through the expansion, because an unset sale year is not a
+zero-downpayment one.
+
+**MEASURED (before -> after):**
+
+| | MARINA GATE | RE HUB |
+|---|---|---|
+| lifetime collections | 626,802,766.02 -> 626,802,766.02 | 6,408,964,785.00 -> 6,408,964,785.00 |
+| funding requirement | 174.952m -> **238.452m** | 234.301m -> **1,032.419m** |
+| peak debt | 144.193m -> **193.412m** | 2,483.021m -> **2,789.627m** |
+| IDC capitalised | 32.541m -> 41.002m | 25.842m -> 94.580m |
+| P&L cost of sales | 243.727m -> 247.653m | 4,416.813m -> 4,479.195m |
+| profit after tax | 435.883m -> 424.819m | 2,702.407m -> 2,675.395m |
+| worst abs(Assets - L&E) | 0.00 -> 0.00 | 0.00 -> 0.00 |
+| min closing cash | 0.000m -> -0.000m | -269.951m -> -1,091.880m |
+
+MARINA GATE collections by year: 5.72 / 37.17 / 97.11 / 143.78 / 175.76 / 167.26 becomes
+2.86 / 17.16 / 55.19 / 223.51 / 160.83 / 167.26 (2027 to 2032).
+
+**COST OF SALES MOVED AND THAT SURPRISED ME, so it was traced before continuing.** It is a genuine
+consequence, not a defect: the CoS capex base is `capex + total IDC` (`augmentedCos` in
+financials-resolvers), collections arriving later means more debt for longer, IDC rises, so the base
+rises. MARINA GATE IDC +8.461m against CoS +3.926m; RE HUB IDC +68.738m against CoS +62.382m. Profit
+after tax falls by roughly the CoS rise plus the interest change. Nothing else moved unexplained, and
+reconciliation warnings stayed at zero on both.
+
+**THE BIG NUMBER IS DRIVEN BY A DEFAULT, NOT BY TERMS ANYONE SET.** RE HUB carries NO cohort terms at
+all, so every cohort resolves to a zero downpayment and a three year run: nothing is collected in the
+sale year, which is why its requirement more than quadrupled. That is the rule applied faithfully to
+an asset with nothing entered, and it is reachable by doing nothing, so the Module 2 screen now states
+it in amber on any asset with no downpayment set. **Whether unset should mean zero is a modelling
+decision worth revisiting**; the alternative would be a project-level default.
+
+**THE RETIRED INPUT IS VISIBLY RETIRED.** The cash payment profile no longer drives collections, and
+an editable strip that changes nothing is TRAPS 7.20, so the strip is GONE from the screen: the
+section is headed "superseded", tagged "No longer used", and prints the entered schedule as text so
+the data is still readable and copyable. `cashPaymentProfile` is retained in storage; nothing reads
+it. The exports were the same lie on paper (three sites hand-printing "Cash payment %" under a plain
+heading), so a shared `lib/reports/saleCohortReports.ts` now owns the retired-row label and the live
+cohort terms block, and the Excel Inputs tab and the full PDF both render from it. Formatting stays
+per-surface; structure does not drift.
+
+**THE VERIFIER CONTRACT INVERTED, as its own comments promised.** Sections C and D and check H10 used
+to assert that nothing read the fields; they now assert that the terms reach the engine, that
+changing each of the three MOVES the cash, that lifetime collections still equal lifetime sale value
+in every configuration, that pre-sales collections are exactly the matrix column sums, that
+recognition is untouched, and that no surface still presents the retired profile as live.
+`verify-sale-cohort-inputs` **89 -> 116**, teeth proven by two new sabotages on the switch itself
+(hardcode the downpayment to zero: 1 failure; fall back to the retired single profile: 3).
+
+**A check of mine that was wrong and is corrected:** C4 first compared the matrix column sums against
+TOTAL collections and failed. The matrix is pre-sales only and always has been; total collections
+also carry post-handover sales. The check now compares the pre-sales half and separately asserts the
+two halves sum to the total.
+
+**Throwaway project, six configurations** (no terms at all, 20% flat, varying by sale year, cut-off
+released, 100% downpayment, zero instalment years): collections equal sale value to 1e-6 in every
+one, and the released cut-off correctly pushes cash two years past handover.
+
+**Steps 4 and 5 not started** (render the grid; closing inventory area and the roll-forward
+presentations).
+
 ## 2026-08-19j: sale cohort restructure, Step 2. The matrix varies by sale year
 
 **Step 2 of five, plus three display fixes to the Step 1 inputs. Nothing calls the new rule, so no

@@ -1,7 +1,7 @@
 /**
  * verify-sale-cohort-inputs.ts (2026-08-19)
  *
- * MODULE 2 SALE COHORT RESTRUCTURE, STEP 1: THE INPUTS EXIST AND CHANGE NOTHING.
+ * MODULE 2 SALE COHORT RESTRUCTURE: THE COHORT RULE DRIVES COLLECTIONS.
  *
  * Step 1 lands three inputs before the rule that will consume them:
  *
@@ -9,17 +9,18 @@
  *   maxInstalmentYears          one number for the asset
  *   instalmentsStopAtHandover   a toggle, absent means true (hard cut-off)
  *
- * The whole point of shipping them first is that the screen can be reviewed
- * while NO SAVED NUMBER CAN MOVE. That property is worth nothing if it is only
- * an intention, so this file proves it two ways: behaviourally, by computing a
- * sell asset with and without the three fields set and demanding the results
- * are byte identical, and structurally, by demanding no engine file so much as
- * mentions the field names.
+ * Steps 1 and 2 landed the inputs and the rule while nothing read them, and
+ * this file asserted that nothing did. STEP 3 SWITCHED IT ON, so those checks
+ * have been REPLACED, as their own comments promised, by checks on what the
+ * rule actually does:
  *
- * WHEN STEP 3 ARRIVES, SECTIONS C AND D WILL FAIL. That is deliberate and it is
- * the contract: whoever wires the fields into the engine has to come here and
- * replace the "reads nothing" checks with checks on what the rule actually
- * does. A silent switch-on is not possible.
+ *   C  the terms reach the engine and MOVE the money they are supposed to move
+ *   D  the retired input no longer drives collections, and the screen and the
+ *      exports say so rather than presenting it as live
+ *
+ * The invariant that survives from the earlier steps is the one that matters
+ * most: LIFETIME COLLECTIONS PER ASSET ARE UNCHANGED, because a rule that only
+ * re-times money cannot change how much there is.
  *
  * Section E covers a defect found while building Step 1 and fixed with it: the
  * Module 2 Revenue sell rebuild was a FIELD LIST, the shape recorded in
@@ -38,6 +39,7 @@ import path from 'node:path';
 import { computeAllSellResults, resolveSellConfig } from '../src/hubs/modeling/platforms/refm/lib/revenue-resolvers';
 import { buildCohortMatrix, columnSums } from '../src/core/calculations/revenue/cohort';
 import { buildSaleCohortProfile, instalmentCount, resolveDownpayment, hasAnyDownpayment } from '../src/core/calculations/revenue/cohortTerms';
+import { buildSaleCohortTermsBlock, saleCohortRuleText } from '../src/hubs/modeling/platforms/refm/lib/reports/saleCohortReports';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
 import type { Asset, Phase, Project, SubUnit } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
@@ -131,7 +133,7 @@ section('B. A saved project carrying all three survives being loaded');
 }
 
 // ---------------------------------------------------------------------------
-section('C. THE STEP 1 CONTRACT: setting them changes no computed number');
+section('C. THE TERMS REACH THE ENGINE AND MOVE THE MONEY');
 
 {
   const project = { name: 'P', startDate: '2026-01-01', modelType: 'annual' } as unknown as Project;
@@ -159,89 +161,140 @@ section('C. THE STEP 1 CONTRACT: setting them changes no computed number');
     },
   } as unknown as Asset);
 
-  const base = computeAllSellResults({ project, phases: [phase], assets: [makeAsset({})], subUnits: [subUnit] } as never);
-  const withTerms = computeAllSellResults({
-    project, phases: [phase],
-    assets: [makeAsset({
-      downpaymentByPhase: [0.2, 0.15, 0.25, 0.3],
-      maxInstalmentYears: 1,
-      instalmentsStopAtHandover: false,
-    })],
-    subUnits: [subUnit],
-  } as never);
+  const run = (terms: Record<string, unknown>) => computeAllSellResults(
+    { project, phases: [phase], assets: [makeAsset(terms)], subUnits: [subUnit] } as never,
+  ).bySellAsset.get('asset1') as unknown as Record<string, number[]>;
 
-  const a = base.bySellAsset.get('asset1') as unknown as Record<string, unknown>;
-  const b = withTerms.bySellAsset.get('asset1') as unknown as Record<string, unknown>;
-  check('C: the fixture actually computes something (not a vacuous pass)',
-    a !== undefined && (a.cashCollectedPerPeriod as number[])?.some((v) => v > 0));
-
-  // THE ANTI-VACUITY CHECK, and it is the most important one in this file.
-  //
-  // "Setting them changes nothing" is only meaningful if the engine ACTUALLY
-  // RECEIVES them. It did not: `resolveSellConfig` was a field list that
-  // dropped all three on the way in, so a sabotage that made the engine read
-  // a cohort field and move real money still passed the checks above. The
-  // whole section was proving the mapper was lossy, not that the engine was
-  // inert. Fixed by spreading, and pinned here behaviourally rather than by
-  // reading the source, so the guard survives a refactor of that function.
-  const cfgForEngine = resolveSellConfig(
+  // C1. THE TERMS REACH THE ENGINE. This was the check that was missing at
+  // Step 1 and it is why a sabotage that moved real money still passed: the
+  // config mapper had dropped the fields before the engine ever saw them.
+  const cfg = resolveSellConfig(
     makeAsset({ downpaymentByPhase: [0.2], maxInstalmentYears: 1, instalmentsStopAtHandover: false }),
     project,
   ) as unknown as Record<string, unknown>;
-  check('C: the engine config carries downpaymentByPhase (else this section is vacuous)',
-    JSON.stringify(cfgForEngine?.downpaymentByPhase) === JSON.stringify([0.2]));
-  check('C: the engine config carries maxInstalmentYears', cfgForEngine?.maxInstalmentYears === 1);
-  check('C: the engine config carries instalmentsStopAtHandover as false',
-    cfgForEngine?.instalmentsStopAtHandover === false);
-  // Same reasoning for the field that was already being dropped.
-  const cfgEscrow = resolveSellConfig(
-    makeAsset({ escrow: { heldPctOverride: 0.35 } }), project,
-  ) as unknown as { escrow?: { heldPctOverride?: number } };
-  check('C: the engine config carries escrow, which the field list had dropped',
-    cfgEscrow?.escrow?.heldPctOverride === 0.35);
-  check('C: the whole sell result is byte identical with the cohort terms set',
-    JSON.stringify(a) === JSON.stringify(b));
-  // Named separately, because these are the two series Step 3 will move and a
-  // reader should see them called out rather than buried in a deep-equal.
-  check('C: cash collected is unchanged',
-    JSON.stringify(a?.cashCollectedPerPeriod) === JSON.stringify(b?.cashCollectedPerPeriod));
-  check('C: recognised revenue is unchanged',
-    JSON.stringify(a?.recognitionPerPeriod) === JSON.stringify(b?.recognitionPerPeriod));
-  check('C: the cash cohort matrix is unchanged',
-    JSON.stringify(a?.cashVintageMatrix) === JSON.stringify(b?.cashVintageMatrix));
+  check('C1: the engine config carries the downpayment',
+    JSON.stringify(cfg?.downpaymentByPhase) === JSON.stringify([0.2]));
+  check('C1: the engine config carries the instalment allowance', cfg?.maxInstalmentYears === 1);
+  check('C1: the engine config carries the cut-off toggle', cfg?.instalmentsStopAtHandover === false);
+  const cfgEscrow = resolveSellConfig(makeAsset({ escrow: { heldPctOverride: 0.35 } }), project) as unknown as { escrow?: { heldPctOverride?: number } };
+  check('C1: and escrow, which the old field list had dropped', cfgEscrow?.escrow?.heldPctOverride === 0.35);
+
+  // C2. CHANGING A TERM CHANGES THE CASH. The mirror of the Step 1 check: what
+  // was required to be inert is now required to bite.
+  const a = run({ downpaymentByPhase: [0.5, 0.5, 0.5, 0.5], maxInstalmentYears: 3 });
+  const b = run({ downpaymentByPhase: [0, 0, 0, 0], maxInstalmentYears: 3 });
+  check('C2: a different downpayment gives a different cash profile',
+    JSON.stringify(a.cashCollectedPerPeriod) !== JSON.stringify(b.cashCollectedPerPeriod));
+  const c = run({ downpaymentByPhase: [0.5, 0.5, 0.5, 0.5], maxInstalmentYears: 1 });
+  check('C2: a different instalment allowance gives a different cash profile',
+    JSON.stringify(a.cashCollectedPerPeriod) !== JSON.stringify(c.cashCollectedPerPeriod));
+  const d = run({ downpaymentByPhase: [0.5, 0.5, 0.5, 0.5], maxInstalmentYears: 3, instalmentsStopAtHandover: false });
+  check('C2: releasing the handover cut-off gives a different cash profile',
+    JSON.stringify(a.cashCollectedPerPeriod) !== JSON.stringify(d.cashCollectedPerPeriod));
+
+  // C3. AND THE TOTAL NEVER MOVES. The invariant behind the whole restructure.
+  const totalOf = (x: Record<string, number[]>) => (x.cashCollectedPerPeriod ?? []).reduce((s2, v) => s2 + v, 0);
+  const saleOf = (x: Record<string, number[]>) =>
+    (x.presalesRevenuePerPeriod ?? []).reduce((s2, v) => s2 + v, 0)
+    + (x.postSalesRevenuePerPeriod ?? []).reduce((s2, v) => s2 + v, 0);
+  for (const [label, res] of [['downpayment 50%', a], ['downpayment 0%', b], ['one instalment', c], ['no cut-off', d]] as const) {
+    check('C3: lifetime collections equal lifetime sale value (' + label + ')',
+      Math.abs(totalOf(res) - saleOf(res)) < 1e-6, String(totalOf(res) - saleOf(res)));
+  }
+
+  // C4. THE PRE-SALES CASH SERIES IS THE MATRIX. They used to be built
+  // separately from the same profile, which is two chances to answer one
+  // question. Compared against the PRE-SALES half deliberately: the vintage
+  // matrix covers pre-sales cohorts only, and total collections also carry
+  // post-handover sales, which have no matrix and never did.
+  const cols = new Array((a.cashCollectedPerPeriod ?? []).length).fill(0);
+  for (const rowArr of (a as unknown as { cashVintageMatrix: number[][] }).cashVintageMatrix) {
+    for (let i = 0; i < rowArr.length && i < cols.length; i++) cols[i] += rowArr[i] ?? 0;
+  }
+  check('C4: pre-sales collections are exactly the cohort matrix column sums',
+    cols.every((v, i) => Math.abs(v - (a.presalesCashPerPeriod[i] ?? 0)) < 1e-9));
+  check('C4: and total collections are the pre-sales plus post-sales halves',
+    (a.cashCollectedPerPeriod ?? []).every((v, i) => Math.abs(v - ((a.presalesCashPerPeriod[i] ?? 0) + (a.postSalesCashPerPeriod[i] ?? 0))) < 1e-9));
+
+  // C5. A POST-HANDOVER COHORT IS UNAFFECTED BY THE TERMS, because it pays in
+  // full in its own year. Sales during operation must not have been disturbed.
+  check('C5: post-sales cash still equals post-sales revenue exactly',
+    JSON.stringify(a.postSalesCashPerPeriod) === JSON.stringify(a.postSalesRevenuePerPeriod));
+
+  // C6. RECOGNITION IS UNTOUCHED. Cash and recognition are separate schedules
+  // and this step changed only one of them.
+  check('C6: changing the cash terms does not move recognition',
+    JSON.stringify(a.recognitionPerPeriod) === JSON.stringify(b.recognitionPerPeriod));
 }
 
 // ---------------------------------------------------------------------------
-section('D. No engine or resolver file reads the three names');
+section('D. The retired input is retired, and every surface says so');
 
 {
-  // Section C proves the behaviour on one fixture. This proves the class: a
-  // field nothing mentions cannot be read down some path the fixture missed.
-  const roots = ['src/core/calculations', 'src/hubs/modeling/platforms/refm/lib'];
-  const offenders: string[] = [];
-  const walk = (dir: string): void => {
-    for (const entry of fs.readdirSync(path.join(process.cwd(), dir), { withFileTypes: true })) {
-      const rel = `${dir}/${entry.name}`;
-      if (entry.isDirectory()) { walk(rel); continue; }
-      if (!entry.name.endsWith('.ts')) continue;
-      // The two type declarations are where the fields are DEFINED, not read.
-      if (rel === ENGINE_TYPES || rel === STORED_TYPES) continue;
-      const src = stripComments(read(rel));
-      for (const f of FIELDS) if (src.includes(f)) offenders.push(`${rel} reads ${f}`);
-    }
-  };
-  for (const r of roots) walk(r);
-  check('D: no engine or resolver file mentions any of the three fields',
-    offenders.length === 0, offenders.slice(0, 5).join('; '));
+  // The cash payment profile no longer drives collections. Leaving an editable
+  // strip that changes nothing would be TRAPS 7.20, and leaving the exports
+  // printing it under a plain heading would be the same lie on paper.
+  const screen = read(SCREEN);
 
-  // And the screen DOES, or the inputs are unreachable and Step 1 shipped
-  // nothing. The mirror of the check above, so neither can pass by accident.
-  const screen = stripComments(read(SCREEN));
-  for (const f of FIELDS) check(`D: the Module 2 Revenue screen edits ${f}`, screen.includes(f));
-  check('D: the downpayment strip is rendered', screen.includes('m2-cohort-dp-'));
-  check('D: the instalment years input is rendered', screen.includes('m2-cohort-') && screen.includes('max-instalment-years'));
-  check('D: the screen states that the inputs are not yet applied',
-    /not yet (applied|used)/i.test(read(SCREEN)));
+  check('D: the engine no longer calls the old single-profile distributor',
+    !stripComments(read('src/core/calculations/revenue/sell.ts')).includes('distributeCashCollection'));
+  check('D: and the engine builds its cash from the cohort rule',
+    stripComments(read('src/core/calculations/revenue/sell.ts')).includes('buildSaleCohortProfile'));
+
+  // No editable control for the retired profile. The setter may still exist for
+  // the stored data, but nothing may render an input bound to it.
+  check('D: the screen renders no editable strip for the cash payment profile',
+    !/testidPrefix=\{`m2-cash-\$\{asset\.id\}`\}/.test(screen));
+  check('D: and it says the profile is superseded',
+    /superseded/i.test(screen) && /No longer used/i.test(screen));
+  check('D: the cohort section no longer claims it is not applied',
+    !/not yet (applied|used)/i.test(screen));
+  check('D: the cohort section says it drives collections',
+    /Drives collections/i.test(screen) && /These terms drive collections/i.test(screen));
+
+  // An asset with no downpayment set is treated as taking no deposit, which is
+  // a large consequence reachable by doing nothing, so the screen must say it.
+  check('D: the screen warns when no downpayment is set anywhere on the asset',
+    /No downpayment is set on this asset/.test(screen));
+
+  // ONE SHARED BUILDER for the exports, not three copies. The label must come
+  // from the shared constant at every site, so re-wording it is one edit.
+  const wb = read('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts');
+  const pdf = read('src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf.ts');
+  for (const [name, src] of [['workbook', wb], ['pdf', pdf]] as const) {
+    check('D: the ' + name + ' imports the shared sale cohort builder', src.includes('saleCohortReports'));
+    check('D: the ' + name + ' labels the retired row from the shared constant',
+      src.includes('CASH_PROFILE_SUPERSEDED_LABEL'));
+    check('D: the ' + name + ' prints the live cohort terms', src.includes('buildSaleCohortTermsBlock'));
+    check('D: the ' + name + ' re-declares no label of its own',
+      !/'Cash payment %'/.test(stripComments(src)));
+  }
+
+  // The builder must produce something on a real shape, or the wiring above is
+  // decorative.
+  const phase = { id: 'ph1', startDate: '2026-01-01', constructionPeriods: 4 } as unknown as Phase;
+  const asset = {
+    id: 'a1', phaseId: 'ph1', name: 'Tower A',
+    revenue: { sell: { assetId: 'a1', subUnits: [], downpaymentByPhase: [0.2, null, 0.3], maxInstalmentYears: 2, instalmentsStopAtHandover: false } },
+  } as unknown as Asset;
+  const block = buildSaleCohortTermsBlock(asset, phase, 2026);
+  check('D: the builder returns a block for a sell asset', block !== null);
+  check('D: one column per construction year', block?.downpayments.length === 4);
+  check('D: it reports the set year', block?.downpayments[0].source === 'set' && block?.downpayments[0].value === 0.2);
+  check('D: it carries forward into the unset year', block?.downpayments[1].source === 'inherited' && block?.downpayments[1].value === 0.2);
+  check('D: handover is the LAST construction year, not the first operating one',
+    block?.handoverYear === 2029);
+  check('D: it reports the allowance and the toggle',
+    block?.instalmentYears === 2 && block?.stopAtHandover === false);
+  check('D: the rule text names this asset\'s own numbers',
+    (saleCohortRuleText(block!) ?? '').includes('2 years') && saleCohortRuleText(block!).includes('2029'));
+  const bare = buildSaleCohortTermsBlock(
+    { id: 'a2', phaseId: 'ph1', name: 'B', revenue: { sell: { assetId: 'a2', subUnits: [] } } } as unknown as Asset, phase, 2026,
+  );
+  check('D: an asset with no downpayment is flagged', bare?.noDownpaymentSet === true);
+  check('D: and the default allowance is the shared constant', bare?.instalmentYears === 3);
+  check('D: a non-sell asset returns nothing',
+    buildSaleCohortTermsBlock({ id: 'a3', phaseId: 'ph1', name: 'C' } as unknown as Asset, phase, 2026) === null);
 }
 
 // ---------------------------------------------------------------------------
@@ -505,22 +558,19 @@ section('H. STEP 2: the reference rule, on the cases that separate it');
       Math.abs(m[6][6] - 50) < 1e-9 && m[6].every((v, i) => i === 6 || Math.abs(v) < 1e-9));
   }
 
-  // H10. STILL NOTHING CALLS IT. Step 2 builds the rule; Step 3 wires it.
+  // H10. THE RULE IS THE ONE THE ENGINE RUNS. Steps 1 and 2 asserted that
+  // nothing called this; Step 3 requires that the sell engine does, and that
+  // the retired distributor is gone rather than merely unused.
   {
-    const roots = ['src/core/calculations', 'src/hubs/modeling/platforms/refm/lib'];
-    const offenders: string[] = [];
-    const walk = (dir: string): void => {
-      for (const entry of fs.readdirSync(path.join(process.cwd(), dir), { withFileTypes: true })) {
-        const rel = `${dir}/${entry.name}`;
-        if (entry.isDirectory()) { walk(rel); continue; }
-        if (!entry.name.endsWith('.ts')) continue;
-        // Where it is DEFINED and where it is re-exported are not calls.
-        if (rel.endsWith('/revenue/cohortTerms.ts') || rel.endsWith('/revenue/index.ts')) continue;
-        if (stripComments(read(rel)).includes('buildSaleCohortProfile')) offenders.push(rel);
-      }
-    };
-    for (const r of roots) walk(r);
-    check('H10: no engine path calls buildSaleCohortProfile yet', offenders.length === 0, offenders.join('; '));
+    const sell = stripComments(read('src/core/calculations/revenue/sell.ts'));
+    check('H10: the sell engine builds its cash from buildSaleCohortProfile',
+      sell.includes('buildSaleCohortProfile'));
+    check('H10: it resolves the downpayment through the shared rule',
+      sell.includes('resolveDownpayment'));
+    check('H10: it takes the collections series from the cohort matrix',
+      sell.includes('columnSums(cashVintageMatrix'));
+    check('H10: the old single-profile distributor is not called anywhere in src',
+      !stripComments(read('src/core/calculations/revenue/sell.ts')).includes('distributeCashCollection'));
   }
 }
 

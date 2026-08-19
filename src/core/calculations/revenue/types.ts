@@ -81,20 +81,18 @@ export interface AssetSellConfig {
   // omitted, but the field is allowed as an override for testing.
   handoverYearOverride?: number;
 
-  // ── SALE COHORT TERMS (2026-08-19, restructure Step 1) ──────────────────
+  // ── SALE COHORT TERMS (2026-08-19, restructure Steps 1 to 3) ───────────
   //
-  // STORED AND EDITABLE, READ BY NO ENGINE PATH YET. Step 1 of the Module 2
-  // sale cohort restructure deliberately lands the inputs before the rule that
-  // consumes them, so the screen can be reviewed while no saved number can
-  // move. `verify-sale-cohort-inputs` asserts that absence, so wiring these up
-  // without also updating that verifier will fail the suite rather than pass
-  // quietly.
+  // LIVE SINCE STEP 3. These drive pre-sales collections, replacing
+  // `cashPaymentProfile`, which was ONE schedule shared by every sale year.
   //
-  // They describe the reference model's collection rule: a cohort selling in
-  // year s pays a downpayment in year s and the balance in EQUAL instalments
-  // over MIN(maxInstalmentYears, handover - s) years. A cohort selling at or
-  // after handover pays in full in its sale year, which is what the existing
-  // post-sales convention already does.
+  // The rule: a cohort selling in year s pays a downpayment in year s and the
+  // balance in EQUAL instalments over MIN(maxInstalmentYears, handover - s)
+  // years. A cohort selling at or after handover pays in full in its sale
+  // year, which is what the post-sales convention already did.
+  //
+  // The rule itself is in cohortTerms.ts, shared with the Module 2 screen so
+  // the terms a user reads and the terms the model applies are one object.
   //
   // ONE SET OF TERMS PER ASSET, except the downpayment, which is the whole
   // point of a cohort grid: it varies by SALE YEAR.
@@ -123,6 +121,18 @@ export interface AssetSellConfig {
    * screen calls, so a caption cannot promise something the model would not do.
    */
   downpaymentByPhase?: Array<number | null>;
+
+  /**
+   * THE SAME QUANTITY ON THE PROJECT AXIS, which is what the engine reads.
+   *
+   * Storage is phase-local and the engine works on the project axis, so the
+   * platform mapper expands one into the other. This is exactly the pattern
+   * `preSalesVelocity` and `preSalesVelocityByPhase` have always used, and the
+   * two names are kept distinct so it is never ambiguous which axis an array
+   * is on. Nulls are preserved by the expansion, because an unset year is not
+   * a zero one.
+   */
+  downpayment?: Array<number | null>;
 
   /**
    * The maximum number of years the instalment balance may be spread over,

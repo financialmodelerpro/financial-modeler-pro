@@ -600,6 +600,24 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
           postSalesVelocity: expandPhaseLocalToAxis(stored?.postSalesVelocityByPhase, stored?.postSalesVelocity, phaseOffset, N),
         };
       }),
+      // Sale cohort downpayment: phase-local in storage, project axis for the
+      // engine, exactly as the velocity arrays above. NULLS ARE PRESERVED
+      // rather than flattened to zero, because an unset sale year is not a
+      // zero-downpayment one and the forward-fill rule needs to tell them
+      // apart. Years before the phase starts stay null; nothing sells there.
+      downpayment: (() => {
+        const byPhase = storedSell?.downpaymentByPhase;
+        if (!Array.isArray(byPhase)) return undefined;
+        const axis = new Array<number | null>(N).fill(null);
+        for (let k = 0; k < byPhase.length; k++) {
+          const axisIdx = phaseOffset + k;
+          const v = byPhase[k];
+          if (axisIdx >= 0 && axisIdx < N) {
+            axis[axisIdx] = typeof v === 'number' && Number.isFinite(v) ? v : null;
+          }
+        }
+        return axis;
+      })(),
       cashPaymentProfile: (() => {
         const cpp = cfgRaw.cashPaymentProfile;
         const sCpp = storedSell?.cashPaymentProfile;

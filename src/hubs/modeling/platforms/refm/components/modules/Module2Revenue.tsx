@@ -28,7 +28,7 @@ import { useModule1Store } from '../../lib/state/module1-store';
 import type { Asset, SubUnit, Phase, Project } from '../../lib/state/module1-types';
 import { computeProjectTimeline, computeSubUnitArea } from '@/src/core/calculations';
 import { formatArea, formatAccounting } from '@/src/core/formatters';
-import { resolveDownpayment } from '@/src/core/calculations/revenue/cohortTerms';
+import { resolveDownpayment, hasAnyDownpayment, DEFAULT_INSTALMENT_YEARS } from '@/src/core/calculations/revenue/cohortTerms';
 import { PercentageInput } from '../ui/PercentageInput';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { CELL_HEADER } from './_shared/tableStyles';
@@ -2330,29 +2330,43 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
 
           {/* Cash Payment Profile (full row, BELOW Recognition) */}
           <InlineSection
-            title={`Cash payment profile · ${cashWindow[0]?.year ?? '?'} to ${cashWindow[cashWindow.length - 1]?.year ?? '?'}`}
-            hint="Milestones (% of cohort value collected per project year). Cohort sold in year N catches up cumulative-to-N at N then per profile in later years."
-            tag={`Sum: ${(cashSum * 100).toFixed(1)}%`}
-            tagColor={cashSumOk ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)'}
+            title={`Cash payment profile · ${cashWindow[0]?.year ?? '?'} to ${cashWindow[cashWindow.length - 1]?.year ?? '?'} · superseded`}
+            hint="Kept so the schedule you entered is not lost. It no longer drives collections."
+            tag="No longer used"
+            tagColor="var(--color-warning, #92400e)"
           >
-            <InlineProfileStrip
-              cells={cashWindow}
-              values={cashProfile.percentages}
-              onChange={setCashPct}
-              testidPrefix={`m2-cash-${asset.id}`}
-            />
-            <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4, fontStyle: 'italic', lineHeight: 1.4 }}>
-              <strong>Note:</strong> anything this profile places beyond the last model year is collected in the final year instead, so receivables always settle. That keeps the balance sheet honest, but it means a profile that runs past the end of the model shows a large final year rather than an error. Check the last column reads the way you expect.
+            {/* NO EDITABLE STRIP HERE, DELIBERATELY. This profile stopped
+                driving collections when the sale cohort rule went live, and a
+                control that accepts a change and discards it is a lying screen
+                (docs/TRAPS.md 7.20). The stored values are shown as text so the
+                user can still read what they entered and copy it into the
+                cohort terms below, without a box that pretends to do
+                something. */}
+            <div style={{ fontSize: 11, color: 'var(--color-body)', lineHeight: 1.5 }}>
+              This asset&apos;s collections are now set by <strong>Sale cohort terms</strong> below. That profile was one schedule shared by every sale year, so a cohort selling in the first year and one selling in the last were forced onto the same milestones; each sale year now carries its own terms. Your entered schedule is kept and shown here for reference, and nothing reads it.
             </div>
+            {cashSum > 0 ? (
+              <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 6, lineHeight: 1.5 }}>
+                Entered schedule ({(cashSum * 100).toFixed(1)}% in total):{' '}
+                {cashWindow
+                  .filter((c) => (cashProfile.percentages?.[c.idx] ?? 0) > 0)
+                  .map((c) => `${c.year} ${(((cashProfile.percentages?.[c.idx] ?? 0)) * 100).toFixed(1)}%`)
+                  .join(' · ') || 'nothing outside the visible window'}
+              </div>
+            ) : (
+              <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 6 }}>
+                No schedule was entered on this asset.
+              </div>
+            )}
           </InlineSection>
 
-          {/* Sale cohort terms (full row, BELOW Cash). Stored and edited here;
-              no engine path reads them yet. */}
+          {/* Sale cohort terms (full row, BELOW Cash). LIVE: these drive
+              pre-sales collections. */}
           <InlineSection
             title="Sale cohort terms"
             hint="Each sale year is its own cohort with its own terms: a downpayment in the year it sells, then the balance in equal instalments."
-            tag="Not yet applied"
-            tagColor="var(--color-warning, #92400e)"
+            tag="Drives collections"
+            tagColor="var(--color-success, #166534)"
           >
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -2360,7 +2374,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
                 <div style={{ width: 70 }}>
                   <input
                     type="number"
-                    value={sellConfig?.maxInstalmentYears ?? 3}
+                    value={sellConfig?.maxInstalmentYears ?? DEFAULT_INSTALMENT_YEARS}
                     min={0}
                     max={Math.max(1, totalPeriods)}
                     step={1}
@@ -2397,10 +2411,15 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
               entryStates={downpaymentStates}
             />
             <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4, fontStyle: 'italic', lineHeight: 1.4 }}>
-              <strong>These inputs are stored but not yet used.</strong> Collections still follow the cash payment profile above. When the cohort rule is switched on, a cohort selling in year N will pay its downpayment in year N and the balance in equal instalments over
+              <strong>These terms drive collections.</strong> A cohort selling in year N pays its downpayment in year N and the balance in equal instalments over
               {' '}{(sellConfig?.instalmentsStopAtHandover ?? true)
-                ? <>the lesser of {sellConfig?.maxInstalmentYears ?? 3} years and the years remaining to handover ({yearLabels[handoverYear] ?? '?'})</>
-                : <>{sellConfig?.maxInstalmentYears ?? 3} years, even where that runs past handover</>}, and a cohort selling at or after handover will pay in full in its own year. Sale years run across the construction window because a cohort selling after handover has nothing to pay a downpayment against.
+                ? <>the lesser of {sellConfig?.maxInstalmentYears ?? DEFAULT_INSTALMENT_YEARS} years and the years remaining to handover ({yearLabels[handoverYear] ?? '?'})</>
+                : <>{sellConfig?.maxInstalmentYears ?? DEFAULT_INSTALMENT_YEARS} years, even where that runs past handover</>}, and a cohort selling at or after handover pays in full in its own year. Sale years run across the construction window because a cohort selling after handover has nothing to pay a downpayment against.
+              {!hasAnyDownpayment(sellConfig?.downpaymentByPhase) && (
+                <>
+                  {' '}<strong style={{ color: 'var(--color-warning, #92400e)' }}>No downpayment is set on this asset, so every cohort is treated as taking no deposit</strong> and pays its whole value in instalments after the sale year. If that is not the sale plan, set a downpayment above.
+                </>
+              )}
             </div>
           </InlineSection>
         </div>

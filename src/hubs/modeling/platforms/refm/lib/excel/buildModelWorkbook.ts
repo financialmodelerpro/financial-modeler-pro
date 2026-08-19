@@ -16,6 +16,7 @@
  * Pure: reads computeFinancialsSnapshot + state, returns a workbook.
  */
 import ExcelJS from 'exceljs';
+import { buildSaleCohortTermsBlock, saleCohortRuleText, CASH_PROFILE_SUPERSEDED_LABEL } from '../reports/saleCohortReports';
 import JSZip from 'jszip';
 import { computeFinancialsSnapshot, computeFundingGap, type FinancialsResolverState } from '../financials-resolvers';
 import { buildCapexReport, type CapexReport } from '../reports/capexReports';
@@ -1005,8 +1006,24 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
     if (!n) continue;
     setSectionHeader(ws.getRow(r), `Cash & recognition profile, ${a.name} (% by year from sale)`, n + 1); r += 1;
     setColHeader(ws.getCell(r, 1), 'Profile', 'left'); for (let i = 0; i < n; i++) setColHeader(ws.getCell(r, 2 + i), `Yr ${i + 1}`, 'right'); r += 1;
-    setLabel(ws.getCell(`A${r}`), 'Cash payment %'); for (let i = 0; i < n; i++) setInput(ws.getCell(r, 2 + i), cashPct[i] ?? 0, NUMFMT.pct); r += 1;
+    setLabel(ws.getCell(`A${r}`), CASH_PROFILE_SUPERSEDED_LABEL); for (let i = 0; i < n; i++) setInput(ws.getCell(r, 2 + i), cashPct[i] ?? 0, NUMFMT.pct); r += 1;
     if (recogPct.length) { setLabel(ws.getCell(`A${r}`), 'Recognition %'); for (let i = 0; i < n; i++) setInput(ws.getCell(r, 2 + i), recogPct[i] ?? 0, NUMFMT.pct); r += 1; }
+    // Sale cohort terms: what actually drives collections. Shared builder, so
+    // this and the PDF cannot drift.
+    {
+      const block = buildSaleCohortTermsBlock(a, opts.state.phases.find((ph) => ph.id === a.phaseId), Number(snap.yearLabels[0]) || 0);
+      if (block && block.downpayments.length) {
+        r += 1;
+        setSectionHeader(ws.getRow(r), `Sale cohort terms, ${a.name}`, block.downpayments.length + 1); r += 1;
+        setColHeader(ws.getCell(r, 1), 'Term', 'left');
+        for (let i = 0; i < block.downpayments.length; i++) setColHeader(ws.getCell(r, 2 + i), String(block.downpayments[i].year), 'right'); r += 1;
+        setLabel(ws.getCell(`A${r}`), 'Downpayment % by sale year');
+        for (let i = 0; i < block.downpayments.length; i++) setInput(ws.getCell(r, 2 + i), block.downpayments[i].value, NUMFMT.pct); r += 1;
+        setLabel(ws.getCell(`A${r}`), 'Max instalment years'); setInput(ws.getCell(r, 2), block.instalmentYears); r += 1;
+        setLabel(ws.getCell(`A${r}`), 'Instalments stop at handover'); setInput(ws.getCell(r, 2), block.stopAtHandover ? 'Yes' : 'No'); r += 1;
+        setLabel(ws.getCell(`A${r}`), saleCohortRuleText(block)); r += 1;
+      }
+    }
     r += 1;
   }
 
@@ -2343,7 +2360,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
     const recogPct = s.recognitionProfile?.percentages ?? [];
     if (!anyNonZero(cashPct) && !anyNonZero(recogPct)) continue;
     subTitle(`Cash & Recognition Profile, ${a.name} (% relative to sale year; first period column = Year 1)`);
-    statRow('Cash payment %', cashPct.map((v) => v ?? 0), NUMFMT.pct);
+    statRow(CASH_PROFILE_SUPERSEDED_LABEL, cashPct.map((v) => v ?? 0), NUMFMT.pct);
     if (recogPct.length) statRow('Recognition %', recogPct.map((v) => v ?? 0), NUMFMT.pct);
     r += 1;
   }
