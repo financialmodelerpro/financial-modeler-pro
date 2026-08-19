@@ -48,7 +48,7 @@ import type { Asset, SubUnit } from '../../lib/state/module1-types';
 import { computeProjectTimeline, computeSubUnitArea, computeAssetRevenue, computeAssetCost } from '@/src/core/calculations';
 import { computeSellingCosts, type SellingCostRow } from '@/src/core/calculations/revenue/sellingCosts';
 import { assetVisibleLines } from '@/src/core/calculations/selectedBase';
-import { phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
+import { collectionsForAsset, phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
 import { assetStrategySells, type CostLine, type CostOverride, type LandAllocationMode, type Parcel, type Phase, type Project } from '../../lib/state/module1-types';
 import { resolveCatalogId } from '../../lib/state/costCatalog';
 import {
@@ -1807,10 +1807,21 @@ function SellingCostSchedule(props: {
       const asset = assets.find((a) => a.id === r.assetId);
       const phase = phases.find((p) => p.id === r.phaseId);
       if (!asset || !phase) continue;
+      // THE COLLECTIONS CURVE IS NOT OPTIONAL HERE (2026-08-19).
+      //
+      // `perLinePerPeriod` is PHASED BY THIS CALL, not read from somewhere that
+      // already phased it, so omitting the collections series does not "read an
+      // already-phased number": it makes this call phase the line differently
+      // from the Capex tab. A selling cost carries `phasingSource: 'collections'`
+      // and degrades to its own curve without it, which is exactly what went
+      // wrong: Marina Residences' marketing showed 1,253,606 in 2027 here
+      // against 114,380 on Capex, with the lifetime totals agreeing so the
+      // error looked like a rounding quirk rather than a different curve.
       const bd = computeAssetCost({
         asset, project, phase, parcels, assets, subUnits, costLines, costOverrides,
         landAllocationMode, parcelFunding: project.financing?.parcelFunding,
         revenue,
+        collectionsPerPeriod: collectionsForAsset(revenue, r.assetId, phase, projectStartYear),
       } as Parameters<typeof computeAssetCost>[0]);
       const local = bd.perLinePerPeriod?.[r.lineId] ?? [];
       const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;

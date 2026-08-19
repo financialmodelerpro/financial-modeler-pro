@@ -636,6 +636,73 @@ console.log('\n-- I. The Revenue display and the Capex engine are one calculatio
     !/clamp\(v, 0, 100\)/.test(codeOnly) && !/\* \(/.test(codeOnly), codeOnly.slice(0, 120));
 }
 
+// ── J. A SELLING COST IS PHASED ON COLLECTIONS, ON EVERY SURFACE ────────────
+//
+// THE DEFECT (2026-08-19, reported). The Module 2 Revenue year-on-year table
+// called `computeAssetCost` WITHOUT `collectionsPerPeriod`. A selling cost
+// carries `phasingSource: 'collections'`, so it degraded to its own curve and
+// the same line showed different years on Revenue and on Capex, while the
+// LIFETIME TOTALS still agreed, which is what made it look like a rounding
+// quirk instead of a different curve. Measured on FMP - MARINA GATE: Marina
+// Residences' marketing read 1,253,606 in 2027 on Revenue against 114,380 on
+// Capex.
+//
+// I had registered that call site as `wired: false` with the reason
+// "perLinePerPeriod is already phased, so it needs the bases but not the
+// collections curve". That reasoning is fluent and wrong: the series is phased
+// BY that very call. TRAPS 7.26, in the registry written to prevent it.
+console.log('\n-- J. Phasing follows collections wherever the line is rendered --');
+{
+  const ls = lines2().map((l) => (resolveCatalogId(l) === 'marketing'
+    ? { ...l, phasingSource: 'collections' as const, startPeriod: 1, endPeriod: 4 }
+    : l));
+  const mk = byIdentity(ls, 'marketing');
+  const asset = ASSETS[0];
+
+  // A collections curve that is deliberately LUMPY, so a line following it
+  // cannot coincidentally match an even spread.
+  const collections = [0, 0, 0, 100, 900];
+
+  const withCollections = computeAssetCost({
+    asset, assets: ASSETS, phase: PHASE, phases: [PHASE], parcels: PARCELS, subUnits: SUBUNITS,
+    costLines: ls, costOverrides: [], landAllocationMode: 'sqm', project: PROJECT,
+    revenue: REV_SOURCE, collectionsPerPeriod: collections,
+  } as unknown as Parameters<typeof computeAssetCost>[0]);
+  const withoutCollections = computeAssetCost({
+    asset, assets: ASSETS, phase: PHASE, phases: [PHASE], parcels: PARCELS, subUnits: SUBUNITS,
+    costLines: ls, costOverrides: [], landAllocationMode: 'sqm', project: PROJECT,
+    revenue: REV_SOURCE,
+  } as unknown as Parameters<typeof computeAssetCost>[0]);
+
+  const a = withCollections.perLinePerPeriod?.[mk.id] ?? [];
+  const b = withoutCollections.perLinePerPeriod?.[mk.id] ?? [];
+  const sumOf = (x: number[]): number => x.reduce((s2, v) => s2 + (v ?? 0), 0);
+
+  check('J1 the fixture line follows collections', mk.phasingSource === 'collections');
+  check('J2 it produces a real schedule', a.length > 0 && sumOf(a) > 1_000_000, sumOf(a).toFixed(0));
+  // THE ARGUMENT IS LOAD-BEARING. If these matched, passing collections would be
+  // decoration and the check below would prove nothing.
+  check('J3 omitting the collections curve CHANGES the per-period shape',
+    a.some((v, i) => Math.abs((v ?? 0) - (b[i] ?? 0)) > 0.5),
+    `with ${a.map((v) => (v ?? 0).toFixed(0)).join('/')} vs without ${b.map((v) => (v ?? 0).toFixed(0)).join('/')}`);
+  // AND THE TOTALS AGREE EITHER WAY, which is exactly why the defect hid: a
+  // check on lifetime totals alone would have passed throughout.
+  check('J4 while the LIFETIME TOTAL is identical either way (why the defect hid)',
+    Math.abs(sumOf(a) - sumOf(b)) < 0.5, `${sumOf(a).toFixed(0)} vs ${sumOf(b).toFixed(0)}`);
+  // The shape really is the collections curve.
+  check('J5 the phased line tracks the collections curve, not an even spread',
+    (a[4] ?? 0) > (a[3] ?? 0) * 5,
+    `${(a[3] ?? 0).toFixed(0)} then ${(a[4] ?? 0).toFixed(0)} on collections 100 then 900`);
+
+  // The Module 2 table must pass it. A source check, because the component is a
+  // React tree this file cannot render.
+  const M2 = read('src/hubs/modeling/platforms/refm/components/modules/Module2RevenueOutput.tsx');
+  check('J6 the Module 2 year-on-year schedule passes the collections curve',
+    /collectionsPerPeriod: collectionsForAsset\(revenue, r\.assetId, phase, projectStartYear\)/.test(M2));
+  check('J7 and it reads the engine series rather than rebuilding a curve',
+    /perLinePerPeriod\?\.\[r\.lineId\]/.test(M2));
+}
+
 console.log(`\n=== ${pass} passed, ${fail} failed ===`);
 if (fail > 0) { console.log('FAILURES:'); failures.forEach((f) => console.log(`  - ${f}`)); }
 process.exit(fail > 0 ? 1 : 0);
