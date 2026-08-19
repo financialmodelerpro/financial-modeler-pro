@@ -305,7 +305,10 @@ cost halves render as memo lines AFTER the subtotal, marked NOT in sizing.
 
 ## 2026-08-18f: three corrections against the reference, and the deficit block reported line by line
 
-`verify-returns-buildup` 39 -> **47**, six sabotages. Migration **215** written, NOT applied.
+`verify-returns-buildup` 39 -> **47**, six sabotages. Migration **215** written; **APPLIED 2026-08-19**
+and verified live by probe (the column reads on both project rows and the four tiers below it are
+present). The tier fallback stays in the server for the same reason it always did: prod can lag the
+repo, and a read must tolerate the column being absent.
 **NOT browser-verified.**
 
 ### 1. The in-kind credit is REMOVED from FCFE

@@ -77,7 +77,29 @@ const PROBES: Probe[] = [
   { migration: '210_refm_fund_manager', doc: 'APPLIED', table: 'refm_fund_terms', column: 'fund_manager_name' },
   { migration: '211_refm_fund_size_override', doc: 'APPLIED', table: 'refm_fund_terms', column: 'fund_size_override' },
   { migration: '212_public_api_audit', doc: 'APPLIED', table: 'public_api_audit', column: null },
+  { migration: '213_public_api_keys', doc: 'APPLIED', table: 'public_api_keys', column: null },
+  { migration: '214_refm_cost_catalog', doc: 'APPLIED', table: 'refm_cost_catalog', column: null },
+  // 215 was recorded NOT APPLIED when it was written (2026-08-18) and applied
+  // by hand on 2026-08-19. Probed rather than believed, which is the whole point
+  // of this script: a marker in prose is not evidence either way.
+  { migration: '215_refm_fund_fee_funding', doc: 'APPLIED', table: 'refm_fund_terms', column: 'management_fee_funding' },
 ];
+
+/**
+ * A NOTE ON WHAT THIS SCRIPT CANNOT SETTLE.
+ *
+ * It proves an object EXISTS. It does not prove a CHECK constraint, a default,
+ * a NOT NULL or an index came with it, because PostgREST exposes no catalog
+ * read and the only behavioural test is a write that would violate the
+ * constraint. On a table holding live rows that is not a test worth running:
+ * if the constraint is absent the "test" is the damage.
+ *
+ * Do not be tempted by a write that matches no rows. An UPDATE with a WHERE
+ * that selects nothing never evaluates a CHECK, because no row is written, so
+ * it returns success whether the constraint exists or not. That reads as proof
+ * and is not, which is exactly the shape of failure this script was written
+ * after (see docs/TRAPS.md section 10 on checks that cannot fire).
+ */
 
 type Live = 'present' | 'no-table' | 'no-column' | 'unknown';
 
