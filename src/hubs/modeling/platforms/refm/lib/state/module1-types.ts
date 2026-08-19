@@ -1872,6 +1872,28 @@ export interface CostLine {
    */
   stageOverride?: CostStage;
   /**
+   * 2026-08-19: WHICH ASSETS THE LINE APPLIES TO.
+   *
+   *   'all'      every asset in the phase (the default and every other line)
+   *   'selling'  only assets that SELL their product: `Sell` and
+   *              `Sell + Manage`. A selling cost has no meaning on an asset
+   *              that is held and operated: a hotel and a leased retail unit
+   *              carry their own operating expenses, and there is no sale for a
+   *              commission or a marketing budget to be a percentage of.
+   *
+   * ABSENT MEANS "NO ONE HAS SAID OTHERWISE", not 'all', exactly as
+   * `stageOverride` does: `deriveAssetScope` reads this field first and falls
+   * back to `SELLING_ONLY_BASE_IDS`, so the two selling lines gain the scope on
+   * every already-saved project with no migration. That precedence is the same
+   * one that carried the 2026-08-16 marketing reclassification, and it is why
+   * this is a separate override field rather than a written value.
+   *
+   * Enforced in ONE place, `assetVisibleLines`, which the Costs tab, the cost
+   * engine and the copy planner all call. Shown is charged and unshown is not
+   * charged, both from the same rule (see docs/TRAPS.md 7.19).
+   */
+  assetScopeOverride?: CostAssetScope;
+  /**
    * 2026-08-17: this line's period window FOLLOWS THE PHASE CONSTRUCTION WINDOW.
    *
    * Absent = the window is the line's own, which is every line on every project
@@ -1904,6 +1926,32 @@ export interface CostLine {
    */
   catalogId?: string;
 }
+
+/** Which assets a cost line applies to. See `CostLine.assetScopeOverride`. */
+export type CostAssetScope = 'all' | 'selling';
+
+/** The strategies that SELL their product, so a selling cost applies to them. */
+export function assetStrategySells(strategy: AssetStrategy | undefined): boolean {
+  return strategy === 'Sell' || strategy === 'Sell + Manage';
+}
+
+/**
+ * The base ids that are SELLING costs by default.
+ *
+ * Read only as the fallback in `deriveAssetScope`, and deliberately keyed on
+ * the base id rather than the catalog, because the catalog is a label-side
+ * concern the engine never reads (see costCatalog.ts). Mirrors
+ * `STANDARD_STAGE_BY_ID` exactly, including the reason: a set keyed on the id
+ * reaches every saved project with no migration.
+ */
+export const SELLING_ONLY_BASE_IDS: ReadonlySet<string> = new Set(['marketing', 'commission']);
+
+/** The two scopes, for the row's picker. */
+export const COST_ASSET_SCOPES: readonly CostAssetScope[] = ['all', 'selling'];
+export const COST_ASSET_SCOPE_LABELS: Record<CostAssetScope, string> = {
+  all: 'Every asset in the phase',
+  selling: 'Selling assets only (Sell, Sell + Manage)',
+};
 
 export interface CostOverride {
   assetId: string;

@@ -55,7 +55,13 @@
  * Pure. No em dashes in this file.
  */
 
-import type { CostLine } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import {
+  assetStrategySells,
+  SELLING_ONLY_BASE_IDS,
+  type AssetStrategy,
+  type CostLine,
+} from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import { deriveLineBaseId } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
 /**
  * The lines visible to one asset within its phase, in display order. Mirrors
@@ -77,15 +83,44 @@ import type { CostLine } from '@/src/hubs/modeling/platforms/refm/lib/state/modu
  * every line in the phase that is not targeted at another asset is shown, and
  * shown is charged. `retireCountryGatedLines` clears the flag from saved
  * snapshots on load.
+ *
+ * 2026-08-19: A SELLING COST APPLIES ONLY TO AN ASSET THAT SELLS. `strategy`
+ * is the fourth argument and is OPTIONAL, because two callers legitimately ask
+ * about the phase rather than about one asset (the copy planner's target list
+ * and the phase-level reconciliation): omitting it keeps every line, which is
+ * the pre-existing behaviour and the right answer for a phase-level question.
+ *
+ * Note this is NOT a gate of the kind 7.19 warns about. A gate hides a row from
+ * the screen while the engine charges it; this is the same single rule the
+ * engine charges from, so an asset that cannot see a marketing line is not
+ * charged for one, and the Costs tab says why the row is absent.
  */
 export function assetVisibleLines(
   lines: CostLine[],
   phaseId: string,
   assetId: string | undefined,
+  strategy?: AssetStrategy,
 ): CostLine[] {
+  const sells = strategy === undefined ? true : assetStrategySells(strategy);
   return lines.filter((c) =>
     c.phaseId === phaseId
-    && (c.targetAssetId === undefined || c.targetAssetId === assetId));
+    && (c.targetAssetId === undefined || c.targetAssetId === assetId)
+    && (sells || lineAppliesToNonSellingAsset(c)));
+}
+
+/**
+ * Whether a line applies to an asset that does NOT sell.
+ *
+ * Duplicates nothing: it is the same precedence `deriveAssetScope` uses (the
+ * user's override first, then the selling-cost base ids), spelled out here
+ * rather than imported because `src/core/calculations/index.ts` imports THIS
+ * module and the cycle would be real. The two are pinned equal by
+ * verify-selling-cost-scope, so they cannot drift.
+ */
+function lineAppliesToNonSellingAsset(line: CostLine): boolean {
+  if (line.assetScopeOverride) return line.assetScopeOverride === 'all';
+  const baseId = deriveLineBaseId(line.id);
+  return !SELLING_ONLY_BASE_IDS.has(baseId) && !SELLING_ONLY_BASE_IDS.has(line.id);
 }
 
 /**

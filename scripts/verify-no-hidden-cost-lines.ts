@@ -182,8 +182,14 @@ section('C. Shown == charged, for every project attribute');
   // The rule itself no longer knows what a country is.
   const sel = stripComments(read('src/core/calculations/selectedBase.ts'));
   check('assetVisibleLines takes no country parameter', !/country/i.test(sel));
-  check('and the engine calls it with phase and asset only',
-    /assetVisibleLines\(costLines, phase\.id, asset\.id\)/.test(stripComments(read('src/core/calculations/index.ts'))));
+  // The rule gained a fourth argument on 2026-08-19, the asset's STRATEGY, so a
+  // selling cost is not charged to an asset that is held and operated. The
+  // engine must PASS it: reading the rule without the strategy would charge a
+  // marketing line the Costs tab does not show, which is the same
+  // shown-versus-charged divergence this whole verifier exists to prevent, in
+  // the opposite direction.
+  check('and the engine calls it with the asset STRATEGY, so the charge matches the screen',
+    /assetVisibleLines\(costLines, phase\.id, asset\.id, asset\.strategy\)/.test(stripComments(read('src/core/calculations/index.ts'))));
   const costsUi = stripComments(read('src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx'));
   check('the Capex tab filters no line on country', !/requiresCountry/.test(costsUi));
   check('and its gated-line notice is gone', !costsUi.includes('costs-country-gated-notice'));

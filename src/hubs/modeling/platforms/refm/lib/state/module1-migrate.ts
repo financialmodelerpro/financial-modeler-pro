@@ -1664,6 +1664,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
       // normalisation, and the ones that carry neither are harmless.
       windowFollowsConstruction: c.windowFollowsConstruction,
       stageOverride: c.stageOverride,
+      assetScopeOverride: c.assetScopeOverride,
       phasingSource: c.phasingSource,
       costCategory: c.costCategory,
       costDriver: c.costDriver,

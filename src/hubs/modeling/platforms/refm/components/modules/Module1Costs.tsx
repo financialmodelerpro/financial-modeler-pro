@@ -63,6 +63,10 @@ import {
   type AssetCapexPhasing,
   deriveLineBaseId,
   deriveCostWindow,
+  assetStrategySells,
+  COST_ASSET_SCOPES,
+  COST_ASSET_SCOPE_LABELS,
+  type CostAssetScope,
 } from '../../lib/state/module1-types';
 import { resolvePhasingSource, isParcelDrivenLandLine, collectionsForAsset, collectionsTotalForAsset, phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
 import {
@@ -89,6 +93,7 @@ import {
   computeCashFlowImpact,
   resolveUsefulLifeYears,
   deriveCostStage,
+  deriveAssetScope,
   distribute,
   distributeItemCost,
   generatePeriodLabels,
@@ -609,6 +614,12 @@ interface CostRowProps {
    *  which of them it may charge on with the same shared rule the engine
    *  enforces, so a reorder can say what it changed. */
   visibleLines?: CostLine[];
+  /** Every non-hidden asset in this line's phase, and every override on any of
+   *  them, so the row can say which OTHER assets a typed value reaches
+   *  (2026-08-19). Optional: the Same-mode surface has no per-asset overrides,
+   *  and an absent list simply means the row says nothing. */
+  phaseAssets?: Asset[];
+  allOverrides?: CostOverride[];
   /** 2026-08-17: ordering. Absent means the surface does not offer it. */
   onMove?: (direction: 'up' | 'down') => void;
   canMoveUp?: boolean;
@@ -622,6 +633,7 @@ function CostRow({
   currency, scale, decimals, periodLabel, constructionPeriods, subUnits,
   metrics, editsGoToLine, collectionsTotal,
   resolvedWindow, selectedBase, resolvedSchedule, visibleLines,
+  phaseAssets = [], allOverrides = [],
   catalogEntries, onAddCatalogEntry,
   onMove, canMoveUp, canMoveDown, onInsertNear,
 }: CostRowProps): React.JSX.Element {
@@ -858,6 +870,18 @@ function CostRow({
   //      until the user types, and says so.
   //   3. THE LINE'S OWN. Editable, and stays put.
   const windowIsDerived = effPhasingSource === 'land_cash' || effPhasingSource === 'collections';
+  const assetScope = deriveAssetScope(line);
+  /** The OTHER assets that read this line's own value, i.e. the ones a typed
+   *  rate reaches. Excludes any asset carrying its own active override, since
+   *  those do not move, and excludes companions, which charge nothing. */
+  const sharingAssets = React.useMemo(() => {
+    if (!isProjectWide || isCustom) return [];
+    return phaseAssets
+      .filter((a) => a.id !== asset.id && a.isCompanion !== true)
+      .filter((a) => (assetScope === 'all' ? true : assetStrategySells(a.strategy)))
+      .filter((a) => !allOverrides.some((o) => o.assetId === a.id && o.lineId === line.id && o.overridden !== false))
+      .map((a) => a.name);
+  }, [phaseAssets, allOverrides, asset.id, line.id, isProjectWide, isCustom, assetScope]);
   const overrideHasWindow = override !== undefined && override.overridden !== false
     && (override.startPeriod !== undefined || override.endPeriod !== undefined);
   const windowFollowsCp = line.windowFollowsConstruction === true && !overrideHasWindow;
@@ -1148,6 +1172,29 @@ function CostRow({
             <span style={{ fontSize: 9, color: 'var(--color-meta)' }}>custom</span>
           )}
         </div>
+        {/* ── APPLIES TO (2026-08-19) ──────────────────────────────────────
+            A selling cost is a percentage of a SALE, so it has no meaning on an
+            asset that is held and operated: a hotel and a leased retail unit
+            carry their own operating expenses and there is no sale for it to be
+            a percentage of. Rendered only on the two selling lines, so every
+            other row is untouched. Changing it here changes the LINE, which is
+            phase-wide, and the caption says so. */}
+        {(assetScope === 'selling' || line.assetScopeOverride === 'all') && (
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 2 }}>
+            <span style={{ fontSize: 9, color: 'var(--color-meta)' }}>Applies to</span>
+            <select
+              value={assetScope}
+              onChange={(e) => onUpdateLine({ assetScopeOverride: e.target.value as CostAssetScope })}
+              data-testid={`cost-${asset.id}-${line.id}-asset-scope`}
+              title="Which assets in this phase carry this line. A selling cost applies to the assets that sell; setting it to every asset charges it to the operated and leased ones too, on their own revenue basis."
+              style={{ fontSize: 9, padding: '1px 4px', borderRadius: 3, border: '1px solid var(--color-border)', maxWidth: 190 }}
+            >
+              {COST_ASSET_SCOPES.map((sc) => (
+                <option key={sc} value={sc}>{COST_ASSET_SCOPE_LABELS[sc]}</option>
+              ))}
+            </select>
+          </div>
+        )}
         {/* ── Position (2026-08-17) ────────────────────────────────────────
             Order decides what this line may charge on: a % of selected lines
             may reference anything ABOVE it and nothing below. Until these
@@ -1537,6 +1584,21 @@ function CostRow({
               Click creates an override seeded from master.
             - Override active: shows ↺ "Inherit from master" button.
               Click removes the override; cell reverts to master. */}
+        {/* A COST LINE BELONGS TO A PHASE, AND THIS SAYS SO (2026-08-19).
+            The reported symptom: a rate typed on one asset "auto added" itself
+            to another, and clearing it on the second removed it from the first.
+            That is exactly what happens, by design: with no override the edit
+            writes the LINE, which every asset in the phase reads. The design is
+            not the defect; saying nothing about it was. The names are listed,
+            because "project-wide" does not tell a user which assets those are. */}
+        {isProjectWide && !isLocked && !isCustom && !override && sharingAssets.length > 0 && (
+          <div
+            data-testid={`cost-${asset.id}-${line.id}-shared-notice`}
+            style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 3, lineHeight: 1.4 }}
+          >
+            Shared with {sharingAssets.join(', ')}: typing here changes it for {sharingAssets.length === 1 ? 'that asset' : 'those assets'} too.
+          </div>
+        )}
         {isProjectWide && !isLocked && !isCustom && (
           override ? (
             <button
@@ -1563,7 +1625,9 @@ function CostRow({
               type="button"
               onClick={startOverride}
               data-testid={`cost-${asset.id}-${line.id}-override`}
-              title={`Override the project-wide value for this cost line, only on ${asset.name}.`}
+              title={sharingAssets.length > 0
+                ? `This value is shared with ${sharingAssets.join(', ')}. Click to give ${asset.name} its own value instead.`
+                : `Override the project-wide value for this cost line, only on ${asset.name}.`}
               style={{
                 background: 'transparent',
                 border: '1px dashed var(--color-meta)',
@@ -1916,7 +1980,7 @@ function PercentOfSelectedPicker({
   // The positional rule replaces both, and it is the SAME function the engine
   // enforces, so the list offered and the base computed cannot diverge.
   const siblings = eligibleBaseLines(
-    assetVisibleLines(costLines, line.phaseId, asset.id),
+    assetVisibleLines(costLines, line.phaseId, asset.id, asset.strategy),
     line.id,
   );
   const selected = new Set(line.selectedLineIds ?? []);
@@ -2222,6 +2286,12 @@ interface AssetCostSectionProps {
   asset: Asset;
   lines: CostLine[];                  // visible to this asset (project + custom-targeted)
   costOverrides: CostOverride[];
+  /** Every non-hidden asset in this phase, and every override across all of
+   *  them, so a row can name the OTHER assets a typed value reaches
+   *  (2026-08-19). `costOverrides` above is scoped to THIS asset and cannot
+   *  answer that. */
+  phaseAssets: Asset[];
+  allOverrides: CostOverride[];
   breakdown: AssetCostBreakdown;
   currency: string;
   scale: DisplayScale;
@@ -2252,7 +2322,7 @@ interface AssetCostSectionProps {
 }
 
 function AssetCostSection({
-  asset, lines, costOverrides, breakdown, currency, scale, decimals, periodLabel, constructionPeriods, subUnits,
+  asset, lines, costOverrides, phaseAssets, allOverrides, breakdown, currency, scale, decimals, periodLabel, constructionPeriods, subUnits,
   metrics,
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
   onAddCustom, onInsertNear, onMoveLine, onUpdateAsset,
@@ -2386,6 +2456,8 @@ function AssetCostSection({
                     selectedBase={breakdown.selectedBaseByLineId[line.id]}
                     resolvedSchedule={breakdown.perLinePerPeriod[line.id]}
                     visibleLines={lines}
+                    phaseAssets={phaseAssets}
+                    allOverrides={allOverrides}
                     catalogEntries={catalogEntries}
                     onAddCatalogEntry={onAddCatalogEntry}
                     onMove={onMoveLine
@@ -4070,11 +4142,26 @@ export default function Module1Costs(): React.JSX.Element {
         // produced correct breakdowns. Matches the engine's filter at
         // calculations/index.ts:1042 + the linesForAsset helper at
         // Module1Costs.tsx:2596.
+        // THE SHARED VISIBILITY RULE, not a fourth copy of it (2026-08-19).
+        //
+        // This list spelled the phase and target-asset filter out inline, which
+        // is the shape TRAPS 7.12 is about: when the rule gained the selling
+        // scope, the engine stopped charging a marketing line to a leased asset
+        // while THIS list carried on showing it, which is the mirror defect
+        // (shown but not charged) of the one the shared rule was written to
+        // close. The stage filter stays here because it filters the VIEW and is
+        // deliberately not part of what the engine charges.
         const assetLines = activeAsset
-          ? costLines
-              .filter((c) => c.phaseId === activeAsset.phaseId)
-              .filter((c) => c.targetAssetId === undefined || c.targetAssetId === activeAsset.id)
+          ? assetVisibleLines(costLines, activeAsset.phaseId, activeAsset.id, activeAsset.strategy)
               .filter((c) => stageFilter === 'all' || deriveCostStage(c) === stageFilter)
+          : [];
+        // The selling lines this asset does NOT carry, so their absence is
+        // stated rather than left as a gap the user has to notice. Read from the
+        // same rule, by difference, so it can never name a line that is in fact
+        // being charged.
+        const sellingLinesNotShown = activeAsset && !assetStrategySells(activeAsset.strategy)
+          ? assetVisibleLines(costLines, activeAsset.phaseId, activeAsset.id)
+              .filter((c) => !assetVisibleLines(costLines, activeAsset.phaseId, activeAsset.id, activeAsset.strategy).some((v) => v.id === c.id))
           : [];
         const assetBreakdown = activeAsset
           ? perPhaseBreakdowns
@@ -4568,12 +4655,38 @@ export default function Module1Costs(): React.JSX.Element {
                 Override toggle inline per row when not locked.
                 T3-companion Fix 2 (2026-05-12): companion branch
                 handled above (info block instead of cost table). */}
+            {/* A SELLING COST DOES NOT APPLY TO AN ASSET THAT IS HELD AND
+                OPERATED (2026-08-19). Stating the absence matters: a row that
+                is simply missing reads as a bug, and the previous behaviour
+                (charging a commission or a marketing budget on a hotel's ADR or
+                a retail unit's rent) is what this replaces. Named lines, from
+                the same rule the engine charges from. */}
+            {sellingLinesNotShown.length > 0 && activeAsset && (
+              <div
+                data-testid={`costs-selling-scope-notice-${activeAsset.id}`}
+                style={{
+                  border: '1px solid var(--color-border)', borderLeft: '3px solid var(--color-navy)',
+                  background: 'var(--color-navy-pale)', borderRadius: 'var(--radius-sm)',
+                  padding: 'var(--sp-2)', marginBottom: 'var(--sp-2)', fontSize: 11, lineHeight: 1.5,
+                }}
+              >
+                <strong>{sellingLinesNotShown.map((c) => c.name).join(', ')}</strong>
+                {sellingLinesNotShown.length === 1 ? ' is a selling cost and does not apply to ' : ' are selling costs and do not apply to '}
+                <strong>{activeAsset.name}</strong>, which is {activeAsset.strategy === 'Operate' ? 'operated' : 'leased'} rather than sold.
+                {' '}It carries its own operating expenses in the Opex module, and there is no sale for a commission or a marketing budget to be a percentage of.
+                {' '}The {sellingLinesNotShown.length === 1 ? 'line is' : 'lines are'} still charged in full to the selling assets in this phase.
+                {' '}To charge {sellingLinesNotShown.length === 1 ? 'it' : 'one'} here anyway, set the line&apos;s <em>Applies to</em> to every asset on a selling asset&apos;s row.
+              </div>
+            )}
+
             {phaseHasAssets && activeAsset && activeAsset.isCompanion !== true && assetBreakdown && assetMetrics && (
               <AssetCostSection
                 key={activeAsset.id}
                 asset={activeAsset}
                 lines={assetLines}
                 costOverrides={costOverrides.filter((o) => o.assetId === activeAsset.id)}
+                phaseAssets={assets.filter((a) => a.phaseId === activeAsset.phaseId && a.visible !== false)}
+                allOverrides={costOverrides}
                 breakdown={assetBreakdown}
                 currency={project.currency}
                 scale={scale}

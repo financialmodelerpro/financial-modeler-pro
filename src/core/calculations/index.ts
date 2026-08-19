@@ -66,6 +66,7 @@ import type {
   CostPhasing,
   CostStage,
   CostScope,
+  CostAssetScope,
   CostType,
   CostCategory,
   CostDriver,
@@ -90,6 +91,7 @@ import {
 import { assetVisibleLines, allowedSelectedIds } from './selectedBase';
 import {
   DEFAULT_USEFUL_LIFE_YEARS,
+  SELLING_ONLY_BASE_IDS,
   PER_SUBUNIT_RATE_KEY_SUPPORT,
   PER_SUBUNIT_RATE_KEY_PARKING,
   COST_STAGES,
@@ -1385,7 +1387,7 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
   // country matched and left behind when it stopped matching.
   //
   // A gate that hides a row must also stop its money, or it is not a gate.
-  const phaseLines = assetVisibleLines(costLines, phase.id, asset.id);
+  const phaseLines = assetVisibleLines(costLines, phase.id, asset.id, asset.strategy);
   const metrics = resolveAssetAreaMetrics(asset, project, parcels, phaseAssets, subUnits, landAllocationMode);
 
   // Resolve the per-asset method/value/phasing/timing for each line.
@@ -1966,6 +1968,26 @@ export function deriveCostStage(line: CostLine): CostStage {
   // still resolve via the same map.
   const baseId = deriveLineBaseId(line.id);
   return STANDARD_STAGE_BY_ID[baseId] ?? STANDARD_STAGE_BY_ID[line.id] ?? line.stage;
+}
+
+/**
+ * WHICH ASSETS A LINE APPLIES TO (2026-08-19).
+ *
+ * The user's own choice first, then the selling-cost default keyed on the base
+ * id, then 'all'. Same shape and same precedence as `deriveCostStage`, for the
+ * same reason: the id fallback reaches every already-saved line with no
+ * migration, and an override field carries intent rather than a fact.
+ *
+ * MEASURED BEFORE SHIPPING on both live projects: no charged amount moves. The
+ * marketing line on the one project that has one carries a zero rate, and the
+ * commission line on the other was already zeroed by hand on every operating
+ * and leased asset, which is the manual workaround this replaces.
+ */
+export function deriveAssetScope(line: CostLine): CostAssetScope {
+  if (line.assetScopeOverride) return line.assetScopeOverride;
+  const baseId = deriveLineBaseId(line.id);
+  if (SELLING_ONLY_BASE_IDS.has(baseId) || SELLING_ONLY_BASE_IDS.has(line.id)) return 'selling';
+  return 'all';
 }
 
 export function deriveCostScope(line: CostLine): CostScope {

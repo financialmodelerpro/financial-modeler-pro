@@ -386,8 +386,8 @@ section('F. The marketing stage');
 // ════════════════════════════════════════════════════════════════════════════
 section('D. One rule, two surfaces');
 
-check('D1 the picker uses the shared predicate',
-  /eligibleBaseLines\(\s*assetVisibleLines\(costLines, line\.phaseId, asset\.id\)/.test(SRC_UI));
+check('D1 the picker uses the shared predicate, WITH the asset strategy (2026-08-19)',
+  /eligibleBaseLines\(\s*assetVisibleLines\(costLines, line\.phaseId, asset\.id, asset\.strategy\)/.test(SRC_UI));
 check('D2 the method ban is gone',
   !/c\.method !== 'percent_of_selected'/.test(SRC_UI),
   'banning the method is what blocked the developers fee chain');

@@ -39,6 +39,7 @@ import {
   type CapexPhasingSource,
   type CostLine,
   type CostMethod,
+  type CostAssetScope,
   type CostScope,
   type CostStage,
 } from './module1-types';
@@ -56,6 +57,16 @@ export interface CostCatalogEntry {
   phasingSource?: CapexPhasingSource;
   allocationBasis: AllocationBasis;
   scope: CostScope;
+  /**
+   * 2026-08-19: which assets the entry applies to. Absent means 'all'.
+   *
+   * 'selling' for the two selling costs: a commission and a marketing budget
+   * are percentages of a SALE, so they have no meaning on an asset that is held
+   * and operated. Stamped onto the line at selection time, like everything else
+   * here, and `deriveAssetScope` falls back to the same rule keyed on the base
+   * id so an already-saved line resolves it with no migration.
+   */
+  assetScope?: CostAssetScope;
   /** One line on what the entry is for, shown in the picker. */
   hint?: string;
   /** False for the two parcel-driven land rows: they are derivations, not
@@ -171,13 +182,15 @@ export const BUILT_IN_COST_CATALOG: readonly CostCatalogEntry[] = [
   {
     id: 'commission', label: 'Commission', method: 'percent_of_selected', stage: 'soft',
     phasingSource: 'collections', allocationBasis: 'per_asset', scope: 'indirect', builtIn: true,
-    hint: 'A selling cost paid out of cash received, so it follows sales collections.',
+    assetScope: 'selling',
+    hint: 'A selling cost on the assets that SELL, paid out of cash received, so it follows sales collections.',
   },
   // ── Marketing stage ─────────────────────────────────────────────────────
   {
     id: 'marketing', label: 'Marketing', method: 'percent_of_revenue_sale', stage: 'marketing',
     phasingSource: 'collections', allocationBasis: 'per_asset', scope: 'indirect', builtIn: true,
-    hint: 'A selling cost, outside construction cost, following sales collections.',
+    assetScope: 'selling',
+    hint: 'A selling cost on the assets that SELL, outside construction cost, following sales collections.',
   },
 ];
 
@@ -232,6 +245,7 @@ export interface CatalogStamp {
   phasingSource: CapexPhasingSource;
   allocationBasis: AllocationBasis;
   scope: CostScope;
+  assetScopeOverride: CostAssetScope;
 }
 
 export function stampFromEntry(entry: AnyCostCatalogEntry): CatalogStamp {
@@ -246,6 +260,10 @@ export function stampFromEntry(entry: AnyCostCatalogEntry): CatalogStamp {
     phasingSource: entry.phasingSource ?? 'inherit',
     allocationBasis: entry.allocationBasis,
     scope: entry.scope,
+    // Written EXPLICITLY, for the same reason `stageOverride` is: the base-id
+    // fallback outranks nothing, so a line minted from a construction entry
+    // must not inherit the selling scope of the id it happens to carry.
+    assetScopeOverride: entry.assetScope ?? 'all',
   };
 }
 
