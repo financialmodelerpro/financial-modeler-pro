@@ -3,6 +3,173 @@
 
 > **TRAPS RECORDED IN THIS FILE ARE COLLECTED IN [docs/TRAPS.md](docs/TRAPS.md). Read that first; it is short.** The copies below stay in place, so nothing is lost if you open this file instead. Index of what this file records: the REFM shell `zoom: 0.8` making `vh` and media queries lie (TRAPS 6.1); drag/resize needing pointer capture, not window listeners (6.2); the ExcelJS width-9 column that silently does not apply (3.1); pdf-lib CID glyph ids defeating a naive grep (4.1); the PostgREST 1000-row cap (2.1); export fingerprints needing the FIXTURE, never the live project (5.1); a zero-valued seed hiding a whole code path (7.1); a stage list written as a literal defeating exhaustiveness (7.3); a two-step template registration that fails silently and permanently (8.1); and the verifier rules (a grep proves presence not firing; never gate an assertion on the thing it asserts; prove teeth by sabotage) in TRAPS section 10.
 
+## 2026-08-19h: selling costs year on year, an exit cap rate, and a phasing curve I dropped
+
+Two requested items and one defect I introduced between them.
+
+### Selling Costs, Year on Year (Module 2 Revenue)
+
+A second table under the basis table: every selling cost per asset and line, per year, TOTAL column
+first as every other period table has it. It reads the engine's own `perLinePerPeriod`, the same
+series the Capex schedule and the exports render, projected with the shared
+`phaseLocalToProjectIndex`. A caption states the lifetime total against the basis table above, so a
+mismatch would be visible rather than silent.
+
+Found doing it: `capexReports.projectOntoAxis` spelled the phase-local mapping out again instead of
+calling `phaseLocalToProjectIndex`, and a THIRD copy was about to be written here. TRAPS 7.12 shape;
+now one definition.
+
+### THE DEFECT, reported and fixed the same day
+
+The new table called `computeAssetCost` WITHOUT `collectionsPerPeriod`. A selling cost carries
+`phasingSource: collections`, so it degraded to an even spread and disagreed with Capex, while the
+LIFETIME TOTALS still matched, which made it read as a rounding quirk rather than a different curve.
+
+| year | Capex | Revenue table | collections x rate |
+| --- | --- | --- | --- |
+| 2027 | 114,380 | 1,253,606 | 114,380 |
+| 2029 | 1,942,172 | 5,014,422 | 1,942,172 |
+| 2031 | 3,515,263 | **0** | 3,515,263 |
+| TOTAL | 12,536,055 | 12,536,055 | 12,536,055 |
+
+Capex matched the stated rule exactly, so the engine was right and only the new surface was wrong.
+
+**And the registry entry I wrote for that call site was wrong**: `wired: false`, reasoning that
+"perLinePerPeriod is already phased, so it needs the bases but not the collections curve". The series
+is phased BY that very call. TRAPS 7.26, committed into the registry I had just extended to prevent
+it. FMP RE HUB was checked and is NOT affected: its commission lines carry `phasing: manual`, a curve
+the user drew, so Revenue and Capex agree there and neither equals collections x rate, correctly.
+
+### Exit cap rate and the forward-income toggle (Module 5)
+
+`cap_rate` is a terminal method: Terminal EV = exit metric / cap rate. The rate is DERIVED as
+`r - g` unless the user types one, so a project that never touches it follows the two rates it is
+made of rather than freezing a stale number; only the OVERRIDE is stored. `r - g` is the spread
+Gordon divides by, so the derived cap rate and the perpetuity agree BY CONSTRUCTION, which is the
+check that makes the default defensible rather than merely convenient.
+
+The growth step is now explicit and shared: it was buried in the perpetuity branch as a literal
+`(1 + g)`, invisible and unavailable to the other methods. ABSENT MEANS THE METHOD'S CONVENTION, so
+every existing project is unmoved. The exit-cap-rate SENSITIVITY axis had its own `NOI / rate`
+arithmetic beside the engine's and now routes through the same call.
+
+**A default I nearly broke, caught by an existing check.** Writing the growth step as
+`applyGrowth === true` silently stopped Gordon being Gordon for any DIRECT caller that did not pass
+the new flag. `verify-returns-engine`'s "perpetuity 100,g2%,r10% = 1275" went red. The default now
+lives in the FUNCTION as well as the caller: a function that needs a new argument to keep computing
+what its own name says is a trap for the next caller.
+
+**Measured: terminal EV, terminal equity, project IRR and equity IRR are byte-identical on both live
+projects** (MARINA GATE 236.741m / 26.94% / 37.44%, RE HUB 3,565.055m / 7.88% / 8.43%).
+
+`verify-returns-engine` 107 -> 123 (three sabotages), `verify-selling-cost-scope` 84 -> 91 (section J,
+whose J3 shows 0/0/0/690,000/6,210,000 with the curve against a flat 1,725,000 without, and whose J4
+asserts the totals match either way, making the defect's own disguise into a check),
+`verify-capex-collections` 63 -> 66.
+
+**Browser-verified on production.**
+
+---
+
+## 2026-08-19g: depreciation starts when the asset is available for use
+
+Reported by a user, caught by no check, and it took TWO passes, which is the lesson.
+
+`fixed-assets-resolvers.ts` handed the depreciation engine `offset + cp - 1`, the LAST CONSTRUCTION
+period. That index is the M2 PIT REVENUE-RECOGNITION handover, deliberate and pinned by A2-1..A2-5,
+answering "when is the unit handed to the buyer". It was reused to answer "when may the asset be
+depreciated", which is when it is AVAILABLE FOR USE. One index, two rules, and the name
+(`handoverIdx`) described where it came from rather than what it served.
+
+**THERE WERE TWO COPIES.** The asset's own capex (`computeAllFixedAssetResults`) and the IDC
+capitalised into it (`computeIdcSnapshot`); `AssetPL.daPerPeriod` is their SUM, which is what the
+screen shows. The first fix corrected one, so IDC depreciation still landed in the last construction
+year (0.654m and 0.076m) and the user reported it again. **My measurement script read only the
+fixed-asset stream and printed "none" while the defect was live**: a measurement blind to half the
+quantity is worse than none.
+
+**And the shared helper was wrong on its first attempt.** Reading
+`computePhaseTimeline().operationsStart` and differencing YEARS is wrong for any non-annual model:
+that function defaults to MONTHLY when `modelType` is absent, so four construction periods became
+four MONTHS and the index collapsed to zero. The verifier fixture caught it. It now works in PERIODS
+(`offset + cp - overlap`, or `offset` when `cp = 0`), which also handles `overlapPeriods` that a plain
+`offset + cp` gets wrong.
+
+| | MARINA GATE | RE HUB |
+| --- | --- | --- |
+| charged before operations | 5.791m + 0.654m -> 0 | 14.294m + 0.076m -> 0 |
+| P&L D&A | 58.008m -> 51.562m | 1,614.267m -> 1,599.897m |
+| profit after tax | 429.599m -> 435.883m | 2,688.418m -> 2,702.407m |
+| closing NBV at exit | 92.659m -> 98.450m | 1,344.117m -> 1,358.411m |
+| worst \|Assets - L&E\| | 0.00 | 0.00 |
+
+The lifetime charge FALLS and closing NBV RISES by the same amount to the cent: a vintage already
+running past the axis end loses one more year off the end. Conservation, not value lost. Both sides
+were measured rather than one assumed.
+
+`verify-fixed-assets` 82 -> 99, sections M and N, three sabotages. **Why 82 checks missed it:** every
+resolver fixture in that file is an EXISTING asset with opening NBV and `cp = 0`, where the old and
+new rules both resolve to 0 and agree. The new fixture is an asset that is actually BUILT. Recorded
+as TRAPS 7.27. **Browser-verified on production.**
+
+---
+
+## 2026-08-19f (Pass C): Revenue owns the selling-cost calculation, Capex reads it
+
+`computeAssetCost` takes the REVENUE SNAPSHOT and resolves the bases internally.
+`collectionsTotal`, `saleRevenueTotal` and `totalRevenueTotal` are DELETED, along with their three
+helpers in capexPhasing.ts. This is the structural version of Pass A: Pass A wired six sites by hand,
+which fixed the numbers and left a twelfth free to forget. With ONE input a site either has revenue
+in scope or it does not, and the compiler named every site during the change.
+
+`core/calculations/revenue/sellingCosts.ts` owns basis resolution AND the multiplication; the engine
+does no arithmetic of its own for those three methods, and a check asserts it. The file has ZERO
+imports, which is what lets `src/core` consume the snapshot structurally without importing the hub.
+
+A visible **Selling Costs** section in Module 2 Revenue, with the basis NAMED on each row and held
+assets showing zero with the reason stated. Commission follows the identical path.
+
+Layering, confirmed after the change: `computeAllSellResults` keeps its inputs and reads NO cost
+input; revenue resolves fully before any cost is valued. That ordering is load-bearing rather than
+incidental, because `revenue-resolvers.computeAssetCapex` calls BACK into `computeAssetCost`.
+
+Drift prevention is a measured identity: section I compares every displayed row against what the
+engine charges, in BOTH directions, on seeded ids AND catalog-minted ids. `verify-selling-cost-scope`
+64 -> 84, two sabotages that break the code. `scripts/diagnose-basis-divergence.ts` RETIRED: its
+premise is structurally impossible now, and a diagnostic that cannot fail is worse than none.
+
+No number moves: both capex totals unchanged, divergence 0.00.
+
+---
+
+## 2026-08-19e (Pass B): a button that changes the model is locked too
+
+The fee-funding toggle could be clicked in view mode, changed nothing, and said nothing.
+
+**The view lock now covers buttons, BY DECLARATION.** It covered input, select and textarea only,
+deliberately, because a blanket panel lock had been tried and reverted for killing collapsibles and
+phase pills. The rule for buttons is INVERTED from the rule for inputs and has to be: nothing in the
+DOM distinguishes a button that changes the model from one that expands a section. A mutating button
+declares `data-view-mutates="true"` and gets pointer-events none, a grey dashed treatment AND the
+`disabled` attribute, because CSS cannot stop a keyboard Enter on a focused button. A check asserts
+the reverted blanket lock stays reverted.
+
+**The split brain is gone.** `setManagementFeeFunding` called `setProject` (no-ops under the lock) and
+`saveFundTerms` (a network call, which does not), so a click in view mode wrote the DURABLE row while
+the snapshot the engine reads stayed put. One guard returns before either write.
+
+**Stored state repaired.** FMP - MARINA GATE held `fund_enabled=false, deficit` durably against
+`enabled=true, equity` in the snapshot, which is the split brain caught in the act; the durable row
+was aligned TO THE SNAPSHOT. FMP RE HUB already agreed once resolved and nothing was written. No
+chosen setting was changed, and the snapshot is never written: it is versioned history.
+`scripts/pass-b-store-state.ts` reports and repairs on `--repair`.
+
+`verify-view-lock` 37 -> 57, three sabotages each hitting a different defence. One lesson kept: G12
+asserts the guard PRECEDES the durable write and its first version FAILED against correct code,
+because the comment above the guard names `saveFundTerms` and `indexOf` found it in the prose. It
+strips comments now. A source-text check that reads comments is measuring the documentation.
+
+---
 ## 2026-08-19d (Pass A): the reconciliation knows about dedicated equity, and every reachable call site values a cost line the same way
 
 Two defects, both introduced by 19b and 19c and both LIVE on production when they were found. Fixed

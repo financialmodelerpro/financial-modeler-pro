@@ -4,109 +4,18 @@
 
 ---
 
-## OPEN: Pass B, the fund fee toggle is discarded in view mode (diagnosed 2026-08-19, NOT built)
+## CLOSED 2026-08-19: Passes B and C, both shipped and browser-verified
 
-Pass A shipped. Passes B and C were specified and diagnosed in the same session and deliberately not
-started, so the whole diagnosis is here rather than in a chat log.
+Diagnosed and logged here as open, then built. The full narrative, with the measurements, is in
+[CLAUDE-REFM.md](CLAUDE-REFM.md) 2026-08-19e (Pass B) and 2026-08-19f (Pass C).
 
-Re-run the diagnosis with `npx tsx scripts/diagnose-fee-visibility.ts`.
-
-### What is NOT wrong
-
-The code IS on production and both controls exist and render:
-
-- **Equity fee row**: `Module1Financing.tsx`, schedule 9 Total Equity Required,
-  `data-testid="equity-required-management-fee-row"`, plus a matching row in Equity Movement.
-- **Fund Terms toggle**: `Module1FundTerms.tsx`, inside the Fund Manager card below the Name field.
-  It is NOT gated on `enabled`, so it renders whatever the fund state.
-- **Financing tab toggle**: Financing / Inputs section 2, gated on `fundTermsResolved.enabled`,
-  which is `true` on both live projects.
-
-The row is gated on `equity.totalManagementFee > 0.005`, which is genuinely 0 on the `deficit` path.
-With the toggle set to `equity` the row appears on both projects: **FMP - MARINA GATE 8.668m**,
-**FMP RE HUB 5.290m** of fee equity draw.
-
-### What IS wrong: the setting will not stick
-
-| project | durable `refm_fund_terms` | version snapshot | resolved |
-| --- | --- | --- | --- |
-| FMP - MARINA GATE | `fund_enabled=false`, `deficit` | `enabled=true`, `deficit` | enabled, deficit |
-| FMP RE HUB | `fund_enabled=true`, `deficit` | `enabled=true`, **`undefined`** | enabled, deficit |
-
-Note the two stores DISAGREE on `fund_enabled` for MARINA GATE, and RE HUB's snapshot predates the
-field entirely.
-
-**Cause (a): both toggles are silently discarded in view mode.** `setProject` is a
-`MODEL_MUTATOR` that no-ops when `viewLocked`. The view lock's CSS
-(`app/globals.css`, `[data-rbac-readonly="true"]`) only disables `input`, `select` and
-`textarea`; plain `<button>` elements are untouched unless they carry `.rbac-action-btn`. Both
-toggles are pill BUTTONS, so in view mode they are clickable, change nothing and say nothing. This is
-**TRAPS 7.20** again, newly reintroduced.
-
-**Cause (b): the Financing toggle is a split brain.** `setManagementFeeFunding` calls `setProject`
-(no-op in view mode) AND `saveFundTerms` (a network write that succeeds regardless). In view mode
-that writes `equity` to the durable row while the snapshot and the screen stay `deficit`.
-
-**Cause (c), historical:** before migration 215 was applied (2026-08-19), the server's tier write
-stepped down from 215 to 211 and `toRow211` STRIPS `management_fee_funding`, so any save before then
-silently dropped the choice. That explains RE HUB's `undefined`.
-
-### The build
-
-1. The view lock must cover plain buttons, not just `input`/`select`/`textarea`. A locked toggle
-   shows a visible locked state and cannot be clicked into a silent no-op.
-2. One guard on the Financing toggle so it cannot write the durable row when the store write no-ops.
-3. Repair both projects so the durable row and the snapshot AGREE, **without changing either
-   project's chosen setting**. Report what each held before and after.
+- **Pass B** the view lock now covers model-mutating buttons by declaration, the Financing toggle
+  cannot write the durable row when the store write no-ops, and both projects' two stores were made
+  consistent without changing either chosen setting.
+- **Pass C** `computeAssetCost` takes the revenue snapshot, `revenue/sellingCosts.ts` owns the one
+  multiplication, and Module 2 Revenue shows the Selling Costs section plus a year-on-year schedule.
 
 ---
-
-## OPEN: Pass C, marketing and commission belong to Module 2 Revenue (diagnosed 2026-08-19, NOT built)
-
-Re-run the measurements with `npx tsx scripts/diagnose-basis-divergence.ts` and
-`npx tsx scripts/measure-revenue-basis.ts`.
-
-### Where things stand
-
-19c moved the percent-of-revenue BASE to the revenue module and Pass A wired every reachable call
-site, so the numbers are now correct and consistent. What was asked for and NOT delivered is the
-OWNERSHIP: marketing is still computed inside `calculateItemTotal` in
-`src/core/calculations/index.ts`, and nothing renders in Module 2 Revenue.
-
-- **Marketing and commission are computed in exactly one place**, `calculateItemTotal`, methods
-  `percent_of_revenue_sale` / `percent_of_total_revenue`. Everything else consumes `byLineId`,
-  `byStage.marketing` or `total`.
-- **Commission is the identical pattern** and must not diverge from whatever marketing gets.
-- `Module2RevenueOutput.tsx` reads only `project, phases, assets, subUnits`. It ALREADY holds the
-  sale revenue; it lacks only the RATE, which lives on the cost line, so it needs `costLines` and
-  `costOverrides` and NOT the cost engine.
-
-### The layering that must hold
-
-    subUnits + phases        ->  computeAllSellResults      (NO cost input, unchanged)
-            saleRevenue      ->  computeSellingCosts        (NEW, pure, owns the multiplication)
-            amounts          ->  computeAssetCost reads them, does not multiply again
-                             ->  capex, financing, CoS, statements, exports
-
-Acyclic. Note `revenue-resolvers.ts` already calls `computeAssetCost` via `computeAssetCapex`, so
-the ordering above is what keeps it acyclic and must be preserved deliberately.
-
-### The build
-
-1. `computeAssetCost` takes the REVENUE SNAPSHOT and resolves the bases internally, so a call site
-   cannot forget one. All eleven sites pass `revenue`. (Pass A wired the bases site by site, which
-   fixes today's numbers but leaves a twelfth site free to forget; this is the structural version.)
-2. `computeSellingCosts` in the revenue layer owns the multiplication; the engine reads its result.
-   No second multiplication anywhere.
-3. A visible **Selling Costs** section in Module 2 Revenue: marketing and commission per asset, with
-   the basis stated on each row. Held assets show ZERO with the stated reason, never a fallback.
-4. Drift prevention: the displayed row and the engine figure come from the SAME returned object.
-5. The verifier must cover BOTH a seeded id and a catalog-minted id. A fixture where both identity
-   resolvers agree proves nothing (see TRAPS 7.25). Prove any new section with a sabotage that breaks
-   the CODE, not one that renames fixture data.
-
----
-
 ## CLOSED 2026-08-19: depreciation started a year early. FIXED
 
 Logged here as open the same day and fixed on request. Kept rather than deleted, because the
