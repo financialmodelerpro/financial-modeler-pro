@@ -4,6 +4,44 @@
 
 ---
 
+## OPEN, DIAGNOSED AND MEASURED, NOT FIXED: depreciation starts a year early (2026-08-19)
+
+**Explicitly held out of scope** for the three passes of 2026-08-19; logged here so it is not lost.
+Diagnosed with figures, no code touched. Re-run `npx tsx scripts/diagnose-depreciation-start.ts`.
+
+**The mechanism.** `fixed-assets-resolvers.ts:211`:
+
+```ts
+const handoverIdx = Math.max(0, Math.min(N - 1, offset + cp - 1));   // LAST construction year
+```
+
+and that index is handed to the depreciation engine as `startIdx`.
+
+`offset + cp - 1` is the **M2 PIT revenue-recognition handover**, which is a deliberate,
+verifier-pinned convention (CLAUDE.md: "PIT recognition handover = LAST construction year
+(`phaseStart + cp - 1 - projectStart`), NOT first operations year. Verifier A2-1..A2-5 pin this").
+It is being reused as the DEPRECIATION start, and the two are different questions. Revenue is
+recognised when the unit is handed over; depreciation begins when the asset is **available for use**,
+which is the first operating year, `offset + cp`. One index answering two rules.
+
+**Measured on both live projects.** Every Operate and Lease asset is depreciated one year early:
+
+| project | charged in | should start | amount charged early |
+| --- | --- | --- | --- |
+| FMP - MARINA GATE | 2030 (last construction year) | 2031 | Marina Hotel 4.301m + Podium Retail 0.838m + Waterfront Retail 0.652m = **5.791m** |
+| FMP RE HUB | 2029 | 2030 | Hotel 01 9.809m + Support Retail Phase 2 3.056m + Phase 3 1.429m = **14.294m** |
+
+**A second defect in the same line.** FMP RE HUB Phase 1 has `cp = 0`, so `offset + cp - 1 = -1`,
+which the `Math.max(0, ...)` clamps to index 0. The clamp hides the condition rather than answering
+it: a phase with no construction period has no handover, and index 0 is a guess. Whoever fixes the
+start year must decide that case explicitly rather than re-clamping.
+
+**Blast radius when it is fixed:** depreciation moves between two periods per asset, so P&L, net
+income, tax, retained earnings and the balance sheet all move in those periods, on both live
+projects. It needs its own before-and-after measurement and its own pass.
+
+---
+
 ## PARKED, post-launch: the documentation restructure (diagnosed 2026-08-16, half done)
 
 **Done and shipped (`52d09467`):** the migration-flag audit (all eleven PENDING markers in CLAUDE-DB.md were stale, corrected against the live schema, re-runnable via `scripts/audit-migration-flags.ts`) and **[docs/TRAPS.md](docs/TRAPS.md)**, which collects the hard-won lessons that were scattered across five files and agent memory with no authoritative copy. Every old location keeps its copy and gained a pointer.

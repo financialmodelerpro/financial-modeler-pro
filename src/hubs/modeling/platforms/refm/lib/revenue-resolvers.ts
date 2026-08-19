@@ -21,6 +21,12 @@ import {
   computeSubUnitArea,
 } from '@/src/core/calculations';
 import {
+  collectionsTotalForAsset,
+  saleRevenueTotalForAsset,
+  totalRevenueTotalForAsset,
+  type CollectionsSource,
+} from '@/src/core/calculations/capexPhasing';
+import {
   computeSellAsset,
   computeHospitalityAsset,
   computeLeaseAsset,
@@ -819,7 +825,22 @@ export type ResolverState = Pick<
   'project' | 'phases' | 'assets' | 'subUnits' | 'parcels' | 'costLines' | 'costOverrides' | 'landAllocationMode'
 >;
 
-export function computeAssetCapex(state: ResolverState, assetId: string): number {
+export function computeAssetCapex(
+  state: ResolverState,
+  assetId: string,
+  /**
+   * The revenue snapshot, so the percent-of-revenue cost methods charge on the
+   * same bases as every other surface (2026-08-19). OPTIONAL because this
+   * function predates the link and a caller without a snapshot must still work;
+   * omitting it falls back to the sub-unit product, which is what every caller
+   * did before. The one live caller passes it.
+   *
+   * No cycle: `computeAllSellResults` reads project, phases, assets and
+   * sub-units only and never reads a cost input, so revenue is fully resolved
+   * before any cost is valued.
+   */
+  revenue?: CollectionsSource,
+): number {
   const asset: Asset | undefined = state.assets.find((a) => a.id === assetId);
   if (!asset) return 0;
   const phase: Phase | undefined = state.phases.find((p) => p.id === asset.phaseId);
@@ -836,6 +857,9 @@ export function computeAssetCapex(state: ResolverState, assetId: string): number
     costOverrides: state.costOverrides,
     landAllocationMode: state.landAllocationMode,
     parcelFunding: state.project.financing?.parcelFunding,
+    collectionsTotal: collectionsTotalForAsset(revenue, assetId),
+    saleRevenueTotal: saleRevenueTotalForAsset(revenue, assetId),
+    totalRevenueTotal: totalRevenueTotalForAsset(revenue, assetId),
   });
   return Math.max(0, bd.total);
 }
@@ -855,6 +879,9 @@ export interface AssetScheduleBundle {
 export function computeAssetScheduleBundle(
   state: ResolverState,
   result: SellAssetResult,
+  /** Threaded to `computeAssetCapex` so cost of sales is built on the same
+   *  capex the financing aggregate reports (2026-08-19). */
+  revenue?: CollectionsSource,
 ): AssetScheduleBundle {
   const N = result.axisLength;
   // Pass 7q: sale value drives both AR + UR (gross obligation).
@@ -869,7 +896,7 @@ export function computeAssetScheduleBundle(
     result.presalesRevenuePerPeriod,
     N,
   );
-  const capex = computeAssetCapex(state, result.assetId);
+  const capex = computeAssetCapex(state, result.assetId, revenue);
   const cos = buildCostOfSales(result.recognitionPerPeriod, capex, N);
   return { assetId: result.assetId, ar, unearned, cos };
 }

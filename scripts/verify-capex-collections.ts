@@ -40,25 +40,34 @@ const ROOT = path.resolve(__dirname, '..');
 const read = (rel: string): string =>
   fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
 
-// ── A. EVERY REACHABLE CALL SITE PASSES COLLECTIONS ────────────────────────
+// ── A. EVERY REACHABLE CALL SITE PASSES COLLECTIONS, AND THE REVENUE BASES ──
 //
 // Each entry is a file that calls computeAssetCost, with why it does or does
-// not need the series. A new call site that does neither fails A1.
-const SITES: Array<{ file: string; wired: boolean; why: string }> = [
-  { file: 'src/core/calculations/index.ts', wired: false,
-    why: 'computePhaseCost: an internal rollup whose caller already resolved phasing' },
-  { file: 'src/core/calculations/financing/capex.ts', wired: true, why: 'financing capex schedule' },
-  { file: 'src/hubs/modeling/platforms/refm/lib/financials-resolvers.ts', wired: true, why: 'the model' },
-  { file: 'src/hubs/modeling/platforms/refm/lib/reports/capexReports.ts', wired: true, why: 'capex report + exports' },
-  { file: 'src/hubs/modeling/platforms/refm/lib/reports/cosReports.ts', wired: true, why: 'cost of sales report' },
-  { file: 'src/hubs/modeling/platforms/refm/lib/fixed-assets-resolvers.ts', wired: true, why: 'capitalised capex drives depreciation' },
-  { file: 'src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx', wired: true, why: 'the Capex screen' },
-  { file: 'src/hubs/modeling/platforms/refm/components/modules/Module2CostOfSales.tsx', wired: true, why: 'CoS screen' },
-  { file: 'src/hubs/modeling/platforms/refm/components/modules/Module2Schedules.tsx', wired: true, why: 'schedules screen' },
-  { file: 'src/hubs/modeling/platforms/refm/lib/revenue-resolvers.ts', wired: false,
-    why: 'computeAssetCapex reads .total only, and phasing cannot move a total' },
-  { file: 'src/hubs/modeling/platforms/refm/lib/financing-hooks.ts', wired: false,
-    why: 'DEAD CODE: createFinancingHooks is imported nowhere' },
+// not need each input. A new call site that is not registered fails A3.
+//
+// TWO SEPARATE DIMENSIONS, and the difference is what a 2026-08-19 defect was
+// made of. `collections` drives PHASING (when a line's money lands) and the
+// `bases` drive the AMOUNT of a percent-of-revenue line. A site can legitimately
+// need one and not the other: `computeAssetCapex` reads `.total` only, so
+// phasing cannot move its answer, but the bases certainly can. Registering one
+// flag for both would have hidden exactly that, and did: the site's recorded
+// reason, "phasing cannot move a total", was true and was quietly taken as
+// permission to omit everything.
+const SITES: Array<{ file: string; wired: boolean; bases: boolean; why: string }> = [
+  { file: 'src/core/calculations/index.ts', wired: false, bases: false,
+    why: 'computePhaseCost: an internal rollup whose caller already resolved both' },
+  { file: 'src/core/calculations/financing/capex.ts', wired: true, bases: true, why: 'financing capex schedule' },
+  { file: 'src/hubs/modeling/platforms/refm/lib/financials-resolvers.ts', wired: true, bases: true, why: 'the model' },
+  { file: 'src/hubs/modeling/platforms/refm/lib/reports/capexReports.ts', wired: true, bases: true, why: 'capex report + exports' },
+  { file: 'src/hubs/modeling/platforms/refm/lib/reports/cosReports.ts', wired: true, bases: true, why: 'cost of sales report' },
+  { file: 'src/hubs/modeling/platforms/refm/lib/fixed-assets-resolvers.ts', wired: true, bases: true, why: 'capitalised capex drives depreciation' },
+  { file: 'src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx', wired: true, bases: true, why: 'the Capex screen' },
+  { file: 'src/hubs/modeling/platforms/refm/components/modules/Module2CostOfSales.tsx', wired: true, bases: true, why: 'CoS screen' },
+  { file: 'src/hubs/modeling/platforms/refm/components/modules/Module2Schedules.tsx', wired: true, bases: true, why: 'schedules screen' },
+  { file: 'src/hubs/modeling/platforms/refm/lib/revenue-resolvers.ts', wired: false, bases: true,
+    why: 'computeAssetCapex reads .total only, so phasing cannot move it, but a revenue BASE can' },
+  { file: 'src/hubs/modeling/platforms/refm/lib/financing-hooks.ts', wired: false, bases: false,
+    why: 'DEAD CODE: createFinancingHooks is imported nowhere in src, app or scripts' },
 ];
 
 /**
@@ -95,6 +104,34 @@ for (const s of SITES) {
   if (!hasCall) continue;
   check(`A2 ${path.basename(s.file)} ${s.wired ? 'passes' : 'does NOT pass'} collections (${s.why})`,
     anyCallPassesCollections(text) === s.wired);
+  check(`A2b ${path.basename(s.file)} ${s.bases ? 'passes' : 'does NOT pass'} the revenue bases (${s.why})`,
+    anyCallPassesBases(text) === s.bases);
+}
+
+/**
+ * Does any `computeAssetCost({...})` CALL in this text pass the revenue bases?
+ *
+ * Same per-call scoping as the collections scanner above, for the same reason:
+ * searching the whole file answers "is the word present", and both
+ * `capexPhasing.ts` and `index.ts` mention these names without passing them.
+ */
+function anyCallPassesBases(text: string): boolean {
+  let i = 0;
+  for (;;) {
+    const at = text.indexOf('computeAssetCost({', i);
+    if (at < 0) return false;
+    let depth = 0;
+    let j = at + 'computeAssetCost('.length;
+    const start = j;
+    do {
+      const c = text[j];
+      if (c === '(' || c === '{' || c === '[') depth += 1;
+      else if (c === ')' || c === '}' || c === ']') depth -= 1;
+      j += 1;
+    } while (j < text.length && depth > 0);
+    if (/saleRevenueTotal\s*:/.test(text.slice(start, j))) return true;
+    i = j;
+  }
 }
 
 // A NEW call site must be added to SITES above, or this fails.
@@ -116,7 +153,7 @@ for (const s of SITES) {
   const known = new Set(SITES.map((s) => s.file));
   const unknown = callers.filter((c) => !known.has(c));
   check('A3 no UNREGISTERED computeAssetCost call site', unknown.length === 0,
-    `add to SITES with a wired flag and a reason: ${unknown.join(', ')}`);
+    `add to SITES with a wired flag, a bases flag and a reason: ${unknown.join(', ')}`);
 }
 
 check('A4 the offset variant exists so a caller holding an offset does not re-derive one',

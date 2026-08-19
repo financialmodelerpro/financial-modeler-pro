@@ -132,8 +132,42 @@ export function reconcile(
     }
   }
 
-  if (!near(equity.totalCash, totalEquity))
-    issues.push(`EquityMovement.totalCash ${equity.totalCash} vs split.equity sum ${totalEquity}`);
+  // CASH EQUITY HAS TWO HALVES SINCE 2026-08-19, and this check knew about one.
+  //
+  // `split.equity` is the BASE development equity, the equity share of the
+  // selected method's requirement. The management fee, when the fund terms fund
+  // it by equity, is drawn OUTSIDE that ratio and rides in
+  // `split.dedicatedEquity`. `EquityMovement.totalCash` is the sum of both, so
+  // comparing it against `split.equity` alone is short by exactly the fee and
+  // reports a false imbalance. Measured on FMP - MARINA GATE:
+  // 61,153,555.75 against 52,485,540.76, a difference of 8,668,014.99 which is
+  // the fee draw to the cent.
+  //
+  // It was invisible until reported because both live projects are set to
+  // `deficit`, where the dedicated series is all zeros and the two forms of the
+  // check agree, so the whole suite stayed green on a broken identity.
+  const totalDedicated = (split.dedicatedEquity ?? []).reduce((s, v) => s + (v ?? 0), 0);
+  if (!near(equity.totalCash, totalEquity + totalDedicated)) {
+    issues.push(
+      `EquityMovement.totalCash ${equity.totalCash} vs split.equity + split.dedicatedEquity `
+      + `${totalEquity + totalDedicated} (equity ${totalEquity}, dedicated ${totalDedicated})`,
+    );
+  }
+
+  // AND THE TWO HALVES MUST SUM TO THE WHOLE, PERIOD BY PERIOD. A lifetime total
+  // can agree while the timing does not, and the halves are what the Total
+  // Equity Required schedule and the Cash Flow's two equity rows render, so a
+  // period-level divergence would show on screen as rows that do not foot.
+  for (let i = 0; i < equity.cashPerPeriod.length; i++) {
+    const halves = (equity.developmentPerPeriod[i] ?? 0) + (equity.managementFeePerPeriod[i] ?? 0);
+    if (!near(halves, equity.cashPerPeriod[i] ?? 0)) {
+      issues.push(
+        `Equity cash halves do not sum at period ${i}: development ${equity.developmentPerPeriod[i] ?? 0} `
+        + `+ management fee ${equity.managementFeePerPeriod[i] ?? 0} vs cash ${equity.cashPerPeriod[i] ?? 0}`,
+      );
+      break;
+    }
+  }
 
   const inKindSum = split.inKind.reduce((s, v) => s + v, 0);
   if (!near(equity.totalInKind, inKindSum))

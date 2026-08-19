@@ -447,6 +447,33 @@ console.log('\n-- 5b. Fee funding: deficit path and equity path, neither funds t
   check('both paths keep the balance sheet balanced',
     Math.max(...sDef.bs.bsDifferencePerPeriod.map((v) => Math.abs(v))) < 1
     && Math.max(...sEq.bs.bsDifferencePerPeriod.map((v) => Math.abs(v))) < 1);
+
+  // THE RECONCILIATION MUST BE CLEAN ON BOTH PATHS (2026-08-19).
+  //
+  // Nothing caught this and a user reported it. `reconcile` compared
+  // `EquityMovement.totalCash` against `sum(split.equity)`, and since the fee
+  // equity draw rides in `split.dedicatedEquity` the check was short by exactly
+  // the fee, reporting a false imbalance on screen. It was invisible because
+  // both live projects are set to `deficit`, where the dedicated series is all
+  // zeros and the two forms of the check agree: the identity was broken and the
+  // whole suite stayed green. Measured on FMP - MARINA GATE at the time:
+  // 61,153,555.75 against 52,485,540.76, a gap of 8,668,014.99, the fee to the
+  // cent. Checking the DEFICIT path alone would still pass with it broken, so
+  // the EQUITY assertion below is the one that matters.
+  const recDef = sDef.financing.reconciliation.issues;
+  const recEq = sEq.financing.reconciliation.issues;
+  check('DEFICIT path reconciles with no issues', recDef.length === 0, recDef.join(' | '));
+  check('EQUITY path reconciles with no issues (the check knows about dedicated equity)',
+    recEq.length === 0, recEq.join(' | '));
+  // Not vacuous: there IS a dedicated draw on the equity path, so the two forms
+  // of the check genuinely differ here.
+  const dedicated = sum(sEq.financing.debtEquitySplit.dedicatedEquity);
+  check('and the equity path really carries a dedicated draw, so the two forms of the check differ',
+    dedicated > 1, M(dedicated));
+  check('the halves sum to cash equity every period, on both paths',
+    [sDef, sEq].every((sn) => sn.financing.equity.cashPerPeriod.every((v, i) =>
+      Math.abs(((sn.financing.equity.developmentPerPeriod[i] ?? 0)
+        + (sn.financing.equity.managementFeePerPeriod[i] ?? 0)) - (v ?? 0)) < 0.01)));
   check('the legacy debt spelling resolves to the deficit path',
     sum(sLegacy.directCF.equityManagementFeeDrawdownPerPeriod) < 0.01
     && Math.abs(sum(sLegacy.directCF.equityDrawdownPerPeriod) - sum(sDef.directCF.equityDrawdownPerPeriod)) < 1);
