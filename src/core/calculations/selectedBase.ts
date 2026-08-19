@@ -59,9 +59,43 @@ import {
   assetStrategySells,
   SELLING_ONLY_BASE_IDS,
   type AssetStrategy,
+  type CostAssetScope,
   type CostLine,
 } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
-import { deriveLineBaseId } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import { resolveCatalogId } from '@/src/hubs/modeling/platforms/refm/lib/state/costCatalog';
+
+/**
+ * WHICH ASSETS A COST LINE APPLIES TO. The ONE implementation (2026-08-19).
+ *
+ * Precedence, and it is the same shape `deriveCostStage` uses:
+ *
+ *   1. the user's own `assetScopeOverride`, which outranks everything
+ *   2. the line's CATALOG IDENTITY, when that identity is a selling cost
+ *   3. 'all'
+ *
+ * STEP 2 READS `resolveCatalogId`, WHICH IS THE POINT. The first version of
+ * this resolved identity from `deriveLineBaseId(line.id)` alone, which is a
+ * SECOND identity rule, and it disagreed with the shared one on exactly the
+ * shape a real project produces: a line added from the catalog picker gets a
+ * minted id like `custom-1787123860417__phase_1` and carries its identity in
+ * `catalogId`. Its base id is `custom-1787123860417`, which matches no selling
+ * id, so the scope resolved to 'all' and a Marketing line kept charging a leased
+ * asset (measured live: 119,700 on Podium Retail) while the seeded
+ * `commission__phase_2` on the same project was correctly scoped. One rule
+ * written twice with two answers, which is the defect class this repo keeps
+ * meeting; there is now one implementation and every caller reads it.
+ *
+ * Lives HERE rather than in `calculations/index.ts` because the visibility
+ * filter below needs it and `index.ts` imports this module, so putting it there
+ * would need a private copy of the precedence, which is what went wrong.
+ * `index.ts` re-exports it, so existing callers are unchanged.
+ */
+export function deriveAssetScope(line: CostLine): CostAssetScope {
+  if (line.assetScopeOverride) return line.assetScopeOverride;
+  const identity = resolveCatalogId(line);
+  if (identity !== undefined && SELLING_ONLY_BASE_IDS.has(identity)) return 'selling';
+  return 'all';
+}
 
 /**
  * The lines visible to one asset within its phase, in display order. Mirrors
@@ -109,18 +143,13 @@ export function assetVisibleLines(
 }
 
 /**
- * Whether a line applies to an asset that does NOT sell.
- *
- * Duplicates nothing: it is the same precedence `deriveAssetScope` uses (the
- * user's override first, then the selling-cost base ids), spelled out here
- * rather than imported because `src/core/calculations/index.ts` imports THIS
- * module and the cycle would be real. The two are pinned equal by
- * verify-selling-cost-scope, so they cannot drift.
+ * Whether a line applies to an asset that does NOT sell. One line, delegating
+ * to `deriveAssetScope` above, so there is no second copy of the precedence to
+ * drift. An earlier version spelled the precedence out here to avoid an import
+ * cycle that does not exist, and the two copies promptly disagreed.
  */
 function lineAppliesToNonSellingAsset(line: CostLine): boolean {
-  if (line.assetScopeOverride) return line.assetScopeOverride === 'all';
-  const baseId = deriveLineBaseId(line.id);
-  return !SELLING_ONLY_BASE_IDS.has(baseId) && !SELLING_ONLY_BASE_IDS.has(line.id);
+  return deriveAssetScope(line) === 'all';
 }
 
 /**

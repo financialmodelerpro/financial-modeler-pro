@@ -162,7 +162,15 @@ export function projectAxisToPhaseLocal(
  *  than the concrete `ProjectRevenueSnapshot`, so `@/src/core` keeps no import
  *  back into the platform's revenue resolvers. */
 export interface CollectionsSource {
-  bySellAsset: Map<string, { cashCollectedPerPeriod?: number[] } | undefined>;
+  bySellAsset: Map<string, {
+    cashCollectedPerPeriod?: number[];
+    presalesRevenuePerPeriod?: number[];
+    postSalesRevenuePerPeriod?: number[];
+  } | undefined>;
+  /** Present on the real revenue snapshot; absent on the narrow stubs some
+   *  callers build. Used only by `totalRevenueTotalForAsset` below. */
+  byHospitalityAsset?: Map<string, { totalRevenuePerPeriod?: number[] } | undefined>;
+  byLeaseAsset?: Map<string, { totalRevenuePerPeriod?: number[] } | undefined>;
 }
 
 /**
@@ -228,6 +236,64 @@ export function collectionsTotalForAsset(
   const series = revenue?.bySellAsset?.get(assetId)?.cashCollectedPerPeriod;
   if (!series || series.length === 0) return undefined;
   return series.reduce((s, v) => s + (v ?? 0), 0);
+}
+
+const sumSeries = (a: readonly number[] | undefined): number =>
+  (a ?? []).reduce((s: number, v: number) => s + (v ?? 0), 0);
+
+/**
+ * THE SALE VALUE (GDV) FOR ONE ASSET, FROM THE REVENUE MODULE (2026-08-19).
+ *
+ * The base for `percent_of_revenue_sale`, which is what a marketing budget and a
+ * sales commission are percentages of.
+ *
+ * WHY THIS EXISTS. The cost engine's own `computeAssetRevenue` sums
+ * `metricValue x unitPrice` across the Sellable, Operable AND Leasable
+ * sub-units, and only the first of those three products is a sale value: for
+ * Leasable it is ONE YEAR of rent and for Operable it is ONE NIGHT at full
+ * occupancy. Measured on the live projects, that basis understated a leased
+ * asset by 5x to 11x and a hotel by 2,255x to 4,739x, and it also ignored sale
+ * price indexation, so even a Sell asset was understated (626.803m of sale value
+ * read as 571.900m). The revenue module computes each class properly over the
+ * whole hold, so the basis comes from there and the RATE stays an input on the
+ * Capex tab. Same one-directional link `collectionsTotalForAsset` already uses:
+ * revenue depends on sub-units and phases, never on cost, so there is no
+ * circularity.
+ *
+ * ZERO AND UNDEFINED ARE DIFFERENT ANSWERS, and conflating them would reinstate
+ * the defect. An asset with a revenue snapshot but no SELL result has no sale
+ * revenue, and 0 is the true answer; returning undefined would make the caller
+ * fall back to the broken basis and charge a marketing budget on a hotel's ADR.
+ * So undefined means ONLY "no revenue snapshot was supplied at all".
+ */
+export function saleRevenueTotalForAsset(
+  revenue: CollectionsSource | undefined,
+  assetId: string,
+): number | undefined {
+  if (!revenue?.bySellAsset) return undefined;
+  const r = revenue.bySellAsset.get(assetId);
+  return sumSeries(r?.presalesRevenuePerPeriod) + sumSeries(r?.postSalesRevenuePerPeriod);
+}
+
+/**
+ * THE ASSET'S WHOLE-HOLD REVENUE, FROM THE REVENUE MODULE (2026-08-19).
+ *
+ * The base for `percent_of_total_revenue`: sale value plus hospitality revenue
+ * plus lease revenue, each over the entire hold. Same zero-versus-undefined rule
+ * as above, and undefined additionally when the snapshot carries no operating
+ * maps (a narrow stub), because then "total revenue" cannot be answered here and
+ * a wrong answer is worse than a declared absence.
+ */
+export function totalRevenueTotalForAsset(
+  revenue: CollectionsSource | undefined,
+  assetId: string,
+): number | undefined {
+  if (!revenue?.bySellAsset) return undefined;
+  if (!revenue.byHospitalityAsset || !revenue.byLeaseAsset) return undefined;
+  const sale = saleRevenueTotalForAsset(revenue, assetId) ?? 0;
+  const hosp = sumSeries(revenue.byHospitalityAsset.get(assetId)?.totalRevenuePerPeriod);
+  const lease = sumSeries(revenue.byLeaseAsset.get(assetId)?.totalRevenuePerPeriod);
+  return sale + hosp + lease;
 }
 
 /**

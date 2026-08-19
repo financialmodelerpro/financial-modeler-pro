@@ -88,7 +88,10 @@ import {
   isParcelDrivenLandLine,
   type CapexPhasingContext,
 } from './capexPhasing';
-import { assetVisibleLines, allowedSelectedIds } from './selectedBase';
+import { assetVisibleLines, allowedSelectedIds, deriveAssetScope } from './selectedBase';
+// Re-exported so every existing caller keeps its import, while the derivation
+// itself has exactly ONE implementation (see selectedBase.ts for why).
+export { deriveAssetScope };
 import {
   DEFAULT_USEFUL_LIFE_YEARS,
   SELLING_ONLY_BASE_IDS,
@@ -942,6 +945,25 @@ export interface AssetCostContext {
    * a caller that supplies no revenue is unchanged.
    */
   collectionsTotal?: number;
+  /**
+   * 2026-08-19: THE REVENUE BASES, FROM THE REVENUE MODULE.
+   *
+   *   saleRevenueTotal   the asset's sale value (GDV) over the hold, the base
+   *                      for percent_of_revenue_sale
+   *   totalRevenueTotal  sale plus hospitality plus lease revenue over the
+   *                      hold, the base for percent_of_total_revenue
+   *
+   * The RATE stays an input on the Capex tab; only the BASE is linked. See
+   * saleRevenueTotalForAsset in capexPhasing.ts for why metrics.totalRevenue
+   * could not serve as the base: it sums three incompatible products and
+   * understated a hotel by up to 4,739x.
+   *
+   * Absent falls back to metrics.totalRevenue, the previous behaviour, so a
+   * caller with no revenue snapshot is unchanged. ZERO IS NOT ABSENT: a leased
+   * asset genuinely has no sale revenue and its base is 0.
+   */
+  saleRevenueTotal?: number;
+  totalRevenueTotal?: number;
 }
 
 function clamp(n: number, lo: number, hi: number): number {
@@ -1052,10 +1074,23 @@ export function calculateItemTotal(
       // surfaces that divergence rather than leaving it silent.
       return (ctx.collectionsTotal ?? m.totalRevenue) * (clamp(v, 0, 100) / 100);
     case 'percent_of_total_revenue':
+      // THE ASSET'S WHOLE-HOLD REVENUE, from the revenue module (2026-08-19):
+      // sale value plus hospitality plus lease. The fallback is the old sub-unit
+      // product, so a caller with no revenue snapshot is unchanged.
+      return (ctx.totalRevenueTotal ?? m.totalRevenue) * (clamp(v, 0, 100) / 100);
     case 'percent_of_revenue_sale':
-      // SALE BASIS: gross list value from the sub-units, regardless of when or
-      // whether the cash arrives.
-      return m.totalRevenue * (clamp(v, 0, 100) / 100);
+      // SALE BASIS: the SALE VALUE (GDV) from the revenue module (2026-08-19),
+      // regardless of when or whether the cash arrives.
+      //
+      // It used to be the sub-unit product metricValue x unitPrice summed over
+      // Sellable AND Operable AND Leasable, which is a sale value for the first
+      // only: a marketing budget was charged on a hotel's nightly rate and a
+      // retail unit's annual rent, and even a Sell asset was understated because
+      // the product ignores sale price indexation (626.803m of sale value read as
+      // 571.900m on the live project). A HELD ASSET NOW RESOLVES TO ZERO here,
+      // which is the true answer: there is no sale for a selling cost to be a
+      // percentage of.
+      return (ctx.saleRevenueTotal ?? m.totalRevenue) * (clamp(v, 0, 100) / 100);
   }
 }
 
@@ -1334,12 +1369,33 @@ export interface ComputeAssetCostInput {
    * untrimmed series.
    */
   collectionsTotal?: number;
+  /**
+   * 2026-08-19: THE REVENUE BASES, FROM THE REVENUE MODULE.
+   *
+   *   saleRevenueTotal   the asset's sale value (GDV) over the hold, the base
+   *                      for percent_of_revenue_sale
+   *   totalRevenueTotal  sale plus hospitality plus lease revenue over the
+   *                      hold, the base for percent_of_total_revenue
+   *
+   * The RATE stays an input on the Capex tab; only the BASE is linked. See
+   * saleRevenueTotalForAsset in capexPhasing.ts for why the cost engine's own
+   * computeAssetRevenue could not serve as the base: it sums three
+   * incompatible products and understated a hotel by up to 4,739x.
+   *
+   * Absent falls back to metrics.totalRevenue, the previous behaviour, so a
+   * caller that supplies no revenue snapshot is unchanged. ZERO IS NOT ABSENT:
+   * a leased asset genuinely has no sale revenue and its base is 0, which is
+   * why the helpers return a number whenever a snapshot exists.
+   */
+  saleRevenueTotal?: number;
+  totalRevenueTotal?: number;
 }
 
 export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdown {
   const {
     asset, project, phase, parcels, assets, subUnits, costLines, costOverrides,
     landAllocationMode, parcelFunding, collectionsPerPeriod, collectionsTotal,
+    saleRevenueTotal, totalRevenueTotal,
   } = input;
   // T3-companion Fix 2 (2026-05-12): companion assets (Sell + Manage
   // Operate sibling, isCompanion === true) carry NO physical attributes
@@ -1480,13 +1536,15 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
         metrics: aggregatedMetrics,
         subUnits,
         resolvedDirectLineTotals: {},
-        // NOTE: deliberately NOT set. An `allocated` line computes its pool
-        // against AGGREGATED PHASE metrics, and this asset's collections total
-        // is not the phase's. Leaving it undefined falls back to the aggregated
-        // gross figure, which is the correct pool basis; the driver share then
-        // splits it. A phase-wide collections total would be the right input
-        // here, and is not plumbed because no allocated line uses a cash base
-        // today. Flagged rather than guessed.
+        // NOTE: collectionsTotal, saleRevenueTotal and totalRevenueTotal are
+        // deliberately NOT set. An `allocated` line computes its pool against
+        // AGGREGATED PHASE metrics, and this asset's revenue is not the phase's.
+        // Leaving them undefined falls back to the aggregated gross figure,
+        // which is the correct pool basis; the driver share then splits it. A
+        // phase-wide revenue total would be the right input here and is not
+        // plumbed because no allocated line uses a revenue base today. Flagged
+        // rather than guessed, and the fallback is a PHASE-level figure so it is
+        // not the per-asset defect described on the fields themselves.
       };
       const pool = calculateItemTotal(
         { ...r.line, method: r.method, value: r.value },
@@ -1499,7 +1557,7 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
       continue;
     }
     // Direct category (default + Pass 3 semantics preserved):
-    const ctxStub: AssetCostContext = { asset, metrics, subUnits, resolvedDirectLineTotals: {}, collectionsTotal };
+    const ctxStub: AssetCostContext = { asset, metrics, subUnits, resolvedDirectLineTotals: {}, collectionsTotal, saleRevenueTotal, totalRevenueTotal };
     const lineTotal = calculateItemTotal(
       { ...r.line, method: r.method, value: r.value },
       ctxStub,
@@ -1968,26 +2026,6 @@ export function deriveCostStage(line: CostLine): CostStage {
   // still resolve via the same map.
   const baseId = deriveLineBaseId(line.id);
   return STANDARD_STAGE_BY_ID[baseId] ?? STANDARD_STAGE_BY_ID[line.id] ?? line.stage;
-}
-
-/**
- * WHICH ASSETS A LINE APPLIES TO (2026-08-19).
- *
- * The user's own choice first, then the selling-cost default keyed on the base
- * id, then 'all'. Same shape and same precedence as `deriveCostStage`, for the
- * same reason: the id fallback reaches every already-saved line with no
- * migration, and an override field carries intent rather than a fact.
- *
- * MEASURED BEFORE SHIPPING on both live projects: no charged amount moves. The
- * marketing line on the one project that has one carries a zero rate, and the
- * commission line on the other was already zeroed by hand on every operating
- * and leased asset, which is the manual workaround this replaces.
- */
-export function deriveAssetScope(line: CostLine): CostAssetScope {
-  if (line.assetScopeOverride) return line.assetScopeOverride;
-  const baseId = deriveLineBaseId(line.id);
-  if (SELLING_ONLY_BASE_IDS.has(baseId) || SELLING_ONLY_BASE_IDS.has(line.id)) return 'selling';
-  return 'all';
 }
 
 export function deriveCostScope(line: CostLine): CostScope {
@@ -2529,6 +2567,15 @@ export interface CostLineCaptionInput {
   // Optional, for percent_of_selected and per_sub_unit_custom_rates only.
   selectedTotal?: number;
   perSubUnitRows?: number;
+  /**
+   * The revenue bases the engine charged on (2026-08-19), so the caption states
+   * the SAME figure the maths used. Before this it printed
+   * `metrics.totalRevenue` whatever the method, which is now the FALLBACK only,
+   * so a caption could name a number the engine had not used.
+   */
+  collectionsTotal?: number;
+  saleRevenueTotal?: number;
+  totalRevenueTotal?: number;
 }
 
 // M2.0M Pass 9 Fix 5 (2026-05-12): caption drops the trailing
@@ -2536,7 +2583,8 @@ export interface CostLineCaptionInput {
 // number; the caption only carries the formula (multiplier x metric)
 // or the "no X defined yet" warning. Cleaner display, less duplication.
 export function costLineCaption(input: CostLineCaptionInput): string {
-  const { line, override, asset, metrics, parkingBays, resolvedTotal: _resolvedTotal, selectedTotal, perSubUnitRows } = input;
+  const { line, override, asset, metrics, parkingBays, resolvedTotal: _resolvedTotal, selectedTotal, perSubUnitRows,
+    collectionsTotal, saleRevenueTotal, totalRevenueTotal } = input;
   void _resolvedTotal; // retained on interface for API stability; no longer used in caption.
   const method = override?.method ?? line.method;
   const value = override?.value ?? line.value;
@@ -2604,11 +2652,28 @@ export function costLineCaption(input: CostLineCaptionInput): string {
     case 'percent_of_total_revenue':
     case 'percent_of_revenue_cash':
     case 'percent_of_revenue_sale': {
-      if (metrics.totalRevenue <= 0) return noArea('asset revenue (set sub-unit metric x price in Tab 2)');
-      const basisLabel = method === 'percent_of_revenue_cash'
-        ? 'revenue cash basis'
-        : method === 'percent_of_revenue_sale' ? 'revenue sale basis' : 'total revenue';
-      return `${fmt(value, 2)}% of ${fmtMoney(metrics.totalRevenue)} (${basisLabel})`;
+      // THE CAPTION NAMES THE FIGURE THE ENGINE USED (2026-08-19), and each of
+      // the three methods now has its own base from the revenue module. It used
+      // to print metrics.totalRevenue for all three, which is the sub-unit
+      // product and is now the fallback only, so the caption could state a
+      // number the maths had not used.
+      const basis = method === 'percent_of_revenue_cash' ? (collectionsTotal ?? metrics.totalRevenue)
+        : method === 'percent_of_revenue_sale' ? (saleRevenueTotal ?? metrics.totalRevenue)
+        : (totalRevenueTotal ?? metrics.totalRevenue);
+      const basisLabel = method === 'percent_of_revenue_cash' ? 'sales cash collected'
+        : method === 'percent_of_revenue_sale' ? 'sale value (GDV), from Revenue'
+        : 'total revenue over the hold, from Revenue';
+      // ZERO IS AN ANSWER, NOT AN ABSENCE, and the two need different captions.
+      // A held asset has no sale value, so a sale-basis line on it is genuinely
+      // zero and says so; only a project with no revenue entered at all is the
+      // "nothing set up yet" case the old message described.
+      if (basis <= 0) {
+        if (method === 'percent_of_revenue_sale' && saleRevenueTotal !== undefined && metrics.totalRevenue > 0) {
+          return `${fmt(value, 2)}% of 0 (no sale value: this asset is held, not sold)`;
+        }
+        return noArea('asset revenue (set sub-unit metric x price in Tab 2)');
+      }
+      return `${fmt(value, 2)}% of ${fmtMoney(basis)} (${basisLabel})`;
     }
     case 'percent_of_inkind_land': {
       if (metrics.inKindLandValue <= 0) {

@@ -28,7 +28,7 @@ import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import { computeAllSellResults, resolveLiteralRecognitionProfile } from '../../lib/revenue-resolvers';
-import { collectionsForAsset, collectionsTotalForAsset } from '@/src/core/calculations/capexPhasing';
+import { collectionsForAsset, collectionsTotalForAsset, saleRevenueTotalForAsset, totalRevenueTotalForAsset } from '@/src/core/calculations/capexPhasing';
 import { computeFinancialsSnapshot } from '../../lib/financials-resolvers';
 import { buildCostOfSalesV2, type CostOfSalesV2Result } from '@/src/core/calculations/revenue';
 import { computeAssetCost, type AssetCostBreakdown } from '@/src/core/calculations';
@@ -201,6 +201,8 @@ export default function Module2CostOfSales(): React.JSX.Element {
           collectionsPerPeriod: collectionsForAsset(
             snap, a.id, phase, snap.yearLabels[0] ?? 0),
           collectionsTotal: collectionsTotalForAsset(snap, a.id),
+          saleRevenueTotal: saleRevenueTotalForAsset(snap, a.id),
+          totalRevenueTotal: totalRevenueTotalForAsset(snap, a.id),
         })
       : null;
     const N = snap.axisLength;
