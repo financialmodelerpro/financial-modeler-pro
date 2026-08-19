@@ -453,6 +453,49 @@ fingerprinting the damage rather than the defect.
 **Proof.** 2026-08-17: 0 lines repaired when it ran last in the chain; 8 lines when it ran first,
 with the other phase's hand-set windows untouched.
 
+### 7.27 One index answering two rules, and the fixture that could not tell them apart
+
+**Symptom.** Depreciation was charged in the LAST YEAR OF CONSTRUCTION, before the asset existed to
+be used. Reported by a user. Measured: 5.791m in 2030 on FMP - MARINA GATE (operations start 2031)
+and 14.294m in 2029 on FMP RE HUB.
+
+**Mechanism.** `fixed-assets-resolvers.ts` computed
+
+    const handoverIdx = Math.max(0, Math.min(N - 1, offset + cp - 1));
+
+and handed it to the depreciation engine as `startIdx`. `offset + cp - 1` is a real and correct
+index: it is the M2 PIT REVENUE-RECOGNITION handover, deliberate and pinned by verifiers A2-1..A2-5.
+It answers "when is the unit handed to the buyer". It was reused to answer "when may the asset be
+depreciated", which is a different question with a different answer: when the asset is AVAILABLE FOR
+USE, i.e. `offset + cp`.
+
+Nothing was wrong with the index. What was wrong was one index answering two rules, and the variable
+name (`handoverIdx`) described the rule it came from rather than the rule it was being used for, so
+the mismatch was invisible at the call site.
+
+**The clamp made it worse, quietly.** `Math.max(0, ...)` turned a `cp = 0` phase's `-1` into index 0,
+a guess wearing the costume of an answer, and `Math.min(N - 1, ...)` would start a year of
+depreciation in the final period for an asset whose operations begin beyond the axis. Both are gone:
+`Math.max(0, offset + cp)` is right for `cp = 0`, and the engine already returns all zeros for a start
+index past the axis end.
+
+**Why 82 checks missed it.** Every resolver fixture in `verify-fixed-assets` was an EXISTING asset
+with opening NBV and `cp = 0`. Under `cp = 0` the old rule clamps `-1` to `0` and the new rule gives
+`0`: the two agree exactly, on every fixture in the file. The verifier had teeth and no reach.
+
+**Lesson.** When you reuse an index, name it for the rule it is SERVING, not the rule it came from.
+`handoverIdx` passed as `startIdx` reads as correct; `operationsStartIdx` passed as `startIdx` reads
+as correct AND is checkable. And when a fixture set makes two candidate rules produce the same
+answer, it cannot distinguish them however many assertions it contains: add the shape where they
+differ, which here was simply an asset that is actually built.
+
+**A conservation note worth keeping.** Fixing it REDUCED lifetime depreciation charged (52.121m to
+46.329m, 1,613.235m to 1,598.941m) because a vintage already running past the axis end loses one more
+year off the end. That is not value lost. Closing NBV rises by the same amount to the cent, and the
+balance sheet still closes at 0.00. Measure both sides before calling a reduction a defect.
+
+---
+
 ### 7.26 One flag standing for two inputs turns a true reason into a wrong conclusion
 
 **Symptom.** After the percent-of-revenue BASE was linked to the revenue module, the financing

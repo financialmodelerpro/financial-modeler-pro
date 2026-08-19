@@ -28,7 +28,10 @@ import {
 } from '@/src/core/calculations/depreciation';
 import { computeAllFixedAssetResults } from '@/src/hubs/modeling/platforms/refm/lib/fixed-assets-resolvers';
 import type { Module1Store } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-store';
-import type { Asset, Phase, Project } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import type { Asset, CostLine, Phase, Project } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import { readFileSync } from 'node:fs';
+import * as nodePath from 'node:path';
+const rootDir = nodePath.resolve(__dirname, '..');
 
 let pass = 0;
 let fail = 0;
@@ -364,6 +367,36 @@ function buildExistingHotelState(opts: {
   } as unknown as Module1Store;
 }
 
+/**
+ * An Operate asset that is BUILT, not inherited: a construction period and a
+ * real cost line, so `computeAllFixedAssetResults` produces additions and
+ * therefore depreciation. The existing hotel fixtures all carry opening NBV and
+ * `cp = 0`, so none of them could ever have caught a wrong START INDEX.
+ */
+function buildUnderConstructionOperateState(cp: number, startYear = 2026): Module1Store {
+  const project = makeBaseProject();
+  const phase = makePhase('p1', 'Phase 1', startYear, cp, 20);
+  const asset = makeAsset({
+    id: 'op1', name: 'Hotel Under Construction', phaseId: 'p1', strategy: 'Operate',
+    usefulLifeYears: 10,
+  } as Partial<Asset> & Pick<Asset, 'id' | 'name' | 'phaseId' | 'strategy'>);
+  const line = {
+    id: 'build__p1', phaseId: 'p1', name: 'Construction', method: 'fixed', value: 100_000_000,
+    stage: 'hard', scope: 'direct', allocationBasis: 'per_asset',
+    startPeriod: 1, endPeriod: Math.max(1, cp), phasing: 'even',
+  } as unknown as CostLine;
+  return {
+    project,
+    phases: [phase],
+    assets: [asset],
+    subUnits: [],
+    parcels: [],
+    costLines: [line],
+    costOverrides: [],
+    landAllocationMode: 'auto',
+  } as unknown as Module1Store;
+}
+
 function buildTwoHospitalityAssetsState(): Module1Store {
   const project = makeBaseProject();
   const phase = makePhase('p1', 'Phase 1', 2026, 4, 25);
@@ -480,6 +513,86 @@ console.log('\n[L] Engine reducing-balance with custom rate (15%)');
   // Effective rate echoed
   assertNear('L3: effectiveRate = 0.15', r.effectiveRate ?? 0, 0.15);
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// M: DEPRECIATION STARTS WHEN THE ASSET IS AVAILABLE FOR USE
+// ─────────────────────────────────────────────────────────────────────
+//
+// THE DEFECT (2026-08-19, reported by a user, caught by no check). The resolver
+// handed the engine `offset + cp - 1`, the LAST CONSTRUCTION period. That index
+// is the M2 PIT REVENUE-RECOGNITION handover, a deliberate and verifier-pinned
+// convention for when a unit is handed to a buyer, and it was reused for a
+// different question. Revenue is recognised on handover; depreciation begins
+// when the asset can be USED, which is the first operating period.
+//
+// Measured on the live projects at the time: 5.791m charged in 2030 on
+// FMP - MARINA GATE (construction to 2030, operations from 2031) and 14.294m in
+// 2029 on FMP RE HUB.
+//
+// WHY THE EXISTING SECTIONS COULD NOT CATCH IT. Every resolver fixture in this
+// file is an EXISTING asset with opening NBV and `cp = 0`, where the old and new
+// rules both clamp to index 0 and agree. The fixture below is the shape that
+// separates them: an asset that is actually built.
+console.log('\n[M] Depreciation starts at the first OPERATING period');
+{
+  const cp = 4;
+  const snap = computeAllFixedAssetResults(buildUnderConstructionOperateState(cp));
+  const row = snap.byAsset.get('op1');
+  if (!row) {
+    fail++; failures.push('M0: row missing'); console.log('  [FAIL] M0: row missing');
+  } else {
+    const dep = row.depreciable.depreciationPerPeriod;
+    const firstCharged = dep.findIndex((v) => v > 0.005);
+    // cp = 4, phase starts at the project start, so construction occupies
+    // indices 0..3 and operations begin at index 4.
+    assertEqInt('M1: first depreciation is at the first OPERATING index (offset + cp)', firstCharged, cp);
+    assertNear('M2: nothing is charged in the LAST CONSTRUCTION period', dep[cp - 1] ?? 0, 0);
+    // Not vacuous: there IS depreciation, and a real amount of it.
+    const total = dep.reduce((s, v) => s + v, 0);
+    assertEqInt('M3: the fixture actually depreciates (not a vacuous pass)', total > 1_000_000 ? 1 : 0, 1);
+    // The additions are all in the construction window, so this is genuinely a
+    // START-INDEX question and not an artefact of when capex lands.
+    const adds = row.depreciable.additionsPerPeriod;
+    const addsInConstruction = adds.slice(0, cp).reduce((s, v) => s + v, 0);
+    const addsAfter = adds.slice(cp).reduce((s, v) => s + v, 0);
+    assertEqInt('M4: every addition lands during construction, so only the start index can move the charge',
+      addsInConstruction > 0 && addsAfter < 0.005 ? 1 : 0, 1);
+  }
+}
+
+// A phase with NO construction period: the old rule computed -1 and leaned on
+// Math.max(0, ...) to turn it into index 0, which is a guess dressed as an
+// answer. offset + cp gives the phase start, which is the real answer for an
+// asset available immediately.
+console.log('\n[M] cp = 0: available from the phase start, not by a clamp');
+{
+  const snap = computeAllFixedAssetResults(buildUnderConstructionOperateState(0));
+  const row = snap.byAsset.get('op1');
+  if (!row) {
+    fail++; failures.push('M5: row missing'); console.log('  [FAIL] M5: row missing');
+  } else {
+    const dep = row.depreciable.depreciationPerPeriod;
+    const firstCharged = dep.findIndex((v) => v > 0.005);
+    assertEqInt('M5: with cp = 0 depreciation starts at the phase start (index 0)', firstCharged, 0);
+  }
+}
+
+// The rule is written ONCE and named for what it is.
+{
+  const SRC = readFileSync(
+    nodePath.join(rootDir, 'src/hubs/modeling/platforms/refm/lib/fixed-assets-resolvers.ts'), 'utf8',
+  ).replace(/\r\n/g, '\n');
+  // COMMENTS STRIPPED: the comment block above the rule names the retired
+  // index, so a raw search would find it and report the fix as absent.
+  const code = SRC.split('\n').filter((l: string) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+  assertEqInt('M6: the resolver uses offset + cp, the first operating index',
+    /const operationsStartIdx = Math\.max\(0, offset \+ cp\);/.test(code) ? 1 : 0, 1);
+  assertEqInt('M7: and the retired last-construction index is gone',
+    /offset \+ cp - 1/.test(code) ? 0 : 1, 1);
+  assertEqInt('M8: no clamp to N - 1, which would start a year of depreciation for an asset that never opens',
+    /Math\.min\(N - 1, offset \+ cp\)/.test(code) ? 0 : 1, 1);
+}
+
 
 console.log(`\n--- Fixed Asset verifier: ${pass} pass / ${fail} fail / ${pass + fail} total ---`);
 if (fail > 0) {

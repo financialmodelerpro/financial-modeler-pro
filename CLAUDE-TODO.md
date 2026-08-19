@@ -107,44 +107,45 @@ the ordering above is what keeps it acyclic and must be preserved deliberately.
 
 ---
 
-## OPEN, DIAGNOSED AND MEASURED, NOT FIXED: depreciation starts a year early (2026-08-19)
+## CLOSED 2026-08-19: depreciation started a year early. FIXED
 
-**Explicitly held out of scope** for the three passes of 2026-08-19; logged here so it is not lost.
-Diagnosed with figures, no code touched. Re-run `npx tsx scripts/diagnose-depreciation-start.ts`.
+Logged here as open the same day and fixed on request. Kept rather than deleted, because the
+measured figures are the record of what moved.
 
-**The mechanism.** `fixed-assets-resolvers.ts:211`:
+**The mechanism.** `fixed-assets-resolvers.ts` handed the depreciation engine `offset + cp - 1`,
+the LAST CONSTRUCTION period. That index is the M2 PIT revenue-recognition handover, a deliberate
+and verifier-pinned convention (A2-1..A2-5) for when a unit is handed to a buyer, and it was
+reused for a different question. Revenue is recognised on handover; depreciation begins when the
+asset is AVAILABLE FOR USE, which is the first operating period, `offset + cp`. One index
+answering two rules.
 
-```ts
-const handoverIdx = Math.max(0, Math.min(N - 1, offset + cp - 1));   // LAST construction year
-```
+**Fixed** to `operationsStartIdx = Math.max(0, offset + cp)`, and the `Math.min(N - 1, ...)` clamp
+is gone: it turned a `cp = 0` phase into index 0 (a guess) and a phase opening beyond the axis
+into a year of depreciation for an asset that never opens. The engine already returns zeros for a
+start past the axis, which is the honest answer.
 
-and that index is handed to the depreciation engine as `startIdx`.
+**Measured on both live projects:**
 
-`offset + cp - 1` is the **M2 PIT revenue-recognition handover**, which is a deliberate,
-verifier-pinned convention (CLAUDE.md: "PIT recognition handover = LAST construction year
-(`phaseStart + cp - 1 - projectStart`), NOT first operations year. Verifier A2-1..A2-5 pin this").
-It is being reused as the DEPRECIATION start, and the two are different questions. Revenue is
-recognised when the unit is handed over; depreciation begins when the asset is **available for use**,
-which is the first operating year, `offset + cp`. One index answering two rules.
-
-**Measured on both live projects.** Every Operate and Lease asset is depreciated one year early:
-
-| project | charged in | should start | amount charged early |
+| project | charged before operations | lifetime depreciation | closing NBV at exit |
 | --- | --- | --- | --- |
-| FMP - MARINA GATE | 2030 (last construction year) | 2031 | Marina Hotel 4.301m + Podium Retail 0.838m + Waterfront Retail 0.652m = **5.791m** |
-| FMP RE HUB | 2029 | 2030 | Hotel 01 9.809m + Support Retail Phase 2 3.056m + Phase 3 1.429m = **14.294m** |
+| FMP - MARINA GATE | 5.791m in 2030 -> **0** | 52.121m -> 46.329m | 92.659m -> **98.450m** |
+| FMP RE HUB | 14.294m in 2029 -> **0** | 1,613.235m -> 1,598.941m | 1,344.117m -> **1,358.411m** |
 
-**A second defect in the same line.** FMP RE HUB Phase 1 has `cp = 0`, so `offset + cp - 1 = -1`,
-which the `Math.max(0, ...)` clamps to index 0. The clamp hides the condition rather than answering
-it: a phase with no construction period has no handover, and index 0 is a guess. Whoever fixes the
-start year must decide that case explicitly rather than re-clamping.
+The lifetime charge FALLS because a vintage whose useful life already ran past the end of the axis
+loses one more year off the end. That is not value lost: closing NBV rises by the same amount to
+the cent, which is the conservation identity, and the balance sheet still closes at 0.00 on both
+projects. Profit after tax rises (429.599m -> 435.245m and 2,688.418m -> 2,702.332m) and tax with
+it (11.238m -> 11.382m, 71.764m -> 72.121m), which is the arithmetic consequence of charging less
+depreciation inside the window.
 
-**Blast radius when it is fixed:** depreciation moves between two periods per asset, so P&L, net
-income, tax, retained earnings and the balance sheet all move in those periods, on both live
-projects. It needs its own before-and-after measurement and its own pass.
+`verify-fixed-assets` 82 -> 90, section M, teeth proven by restoring the old index (4 failures).
+Its fixture is an asset that is actually BUILT: every pre-existing resolver fixture in that file
+carries opening NBV with `cp = 0`, where the old and new rules both clamp to 0 and agree, which is
+exactly why 82 checks could not see this.
+
+Re-measure with `npx tsx scripts/measure-depreciation-start.ts`.
 
 ---
-
 ## PARKED, post-launch: the documentation restructure (diagnosed 2026-08-16, half done)
 
 **Done and shipped (`52d09467`):** the migration-flag audit (all eleven PENDING markers in CLAUDE-DB.md were stale, corrected against the live schema, re-runnable via `scripts/audit-migration-flags.ts`) and **[docs/TRAPS.md](docs/TRAPS.md)**, which collects the hard-won lessons that were scattered across five files and agent memory with no authoritative copy. Every old location keeps its copy and gained a pointer.

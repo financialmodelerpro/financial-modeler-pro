@@ -208,7 +208,37 @@ export function computeAllFixedAssetResults(state: ResolverState): ProjectFixedA
       : projectStartYear;
     const offset = Math.max(0, phaseStartYear - projectStartYear);
     const cp = Math.max(0, phase.constructionPeriods ?? 0);
-    const handoverIdx = Math.max(0, Math.min(N - 1, offset + cp - 1));
+    // DEPRECIATION BEGINS WHEN THE ASSET IS AVAILABLE FOR USE (2026-08-19),
+    // which is the FIRST OPERATING period, `offset + cp`.
+    //
+    // It used to be `offset + cp - 1`, the LAST CONSTRUCTION period. That index
+    // is the M2 PIT REVENUE-RECOGNITION handover, a deliberate and
+    // verifier-pinned convention (A2-1..A2-5) for when a unit is handed to a
+    // buyer, and it was reused here for a different question. Revenue is
+    // recognised on handover; depreciation starts when the asset can be used.
+    // One index was answering two rules, so every Operate and Lease asset was
+    // charged a full year of depreciation while it was still being built.
+    //
+    // Measured before the change: 5.791m charged in 2030 on FMP - MARINA GATE
+    // (construction ran to 2030, operations start 2031) and 14.294m in 2029 on
+    // FMP RE HUB.
+    //
+    // NO CLAMP TO `N - 1`. The old clamp did two wrong things quietly. A phase
+    // with `cp = 0` gave `-1`, which `Math.max(0, ...)` turned into index 0, a
+    // guess dressed as an answer; `offset + cp` gives `offset`, which is the
+    // right answer for an asset available from the phase start. And a phase
+    // whose operations begin beyond the axis gave `N - 1`, starting a year of
+    // depreciation in the final period for an asset that never opens; the engine
+    // already returns all zeros for a start index past the axis
+    // (`buildStraightLine`: `if (start >= out.length) return out`), which is the
+    // honest answer. The floor at zero stays, for a phase starting before the
+    // project axis.
+    //
+    // The engine takes this as a FLOOR, not a fixed date: each addition
+    // depreciates from `max(its own period, startIdx)`, so capex spent after
+    // operations begin still starts in its own period, and an existing asset's
+    // opening NBV is unaffected because it depreciates from index 0 regardless.
+    const operationsStartIdx = Math.max(0, offset + cp);
 
     // Per-asset capex breakdown (phase-local arrays).
     const breakdown = computeAssetCost({
@@ -244,7 +274,7 @@ export function computeAllFixedAssetResults(state: ResolverState): ProjectFixedA
     const depreciable = computeAssetFixedAssets({
       assetId: asset.id,
       axisLength: N,
-      startIdx: handoverIdx,
+      startIdx: operationsStartIdx,
       additionsPerPeriod: additionsDepreciable,
       usefulLifeYears,
       openingNBV: openingBuilding,
