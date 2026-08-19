@@ -45,10 +45,11 @@ import {
   type SellAssetResult,
 } from '@/src/core/calculations/revenue';
 import type { Asset, SubUnit } from '../../lib/state/module1-types';
-import { computeProjectTimeline, computeSubUnitArea, computeAssetRevenue } from '@/src/core/calculations';
+import { computeProjectTimeline, computeSubUnitArea, computeAssetRevenue, computeAssetCost } from '@/src/core/calculations';
 import { computeSellingCosts, type SellingCostRow } from '@/src/core/calculations/revenue/sellingCosts';
 import { assetVisibleLines } from '@/src/core/calculations/selectedBase';
-import { assetStrategySells, type CostLine, type CostOverride } from '../../lib/state/module1-types';
+import { phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
+import { assetStrategySells, type CostLine, type CostOverride, type LandAllocationMode, type Parcel, type Phase, type Project } from '../../lib/state/module1-types';
 import { resolveCatalogId } from '../../lib/state/costCatalog';
 import {
   formatAccounting,
@@ -565,8 +566,12 @@ function buildProjectGroupedRows({
 }
 
 export default function Module2RevenueOutput(): React.JSX.Element {
-  const { project, phases, assets, subUnits, costLines, costOverrides } = useModule1Store(
-    useShallow((s) => ({ project: s.project, phases: s.phases, assets: s.assets, subUnits: s.subUnits, costLines: s.costLines, costOverrides: s.costOverrides })),
+  const { project, phases, assets, subUnits, costLines, costOverrides, parcels, landAllocationMode } = useModule1Store(
+    useShallow((s) => ({
+      project: s.project, phases: s.phases, assets: s.assets, subUnits: s.subUnits,
+      costLines: s.costLines, costOverrides: s.costOverrides,
+      parcels: s.parcels, landAllocationMode: s.landAllocationMode,
+    })),
   );
 
   const snap = useMemo(
@@ -1076,7 +1081,12 @@ export default function Module2RevenueOutput(): React.JSX.Element {
         phases={phases}
         costLines={costLines}
         costOverrides={costOverrides}
+        parcels={parcels}
+        landAllocationMode={landAllocationMode}
+        project={project}
         subUnits={subUnits}
+        yearLabels={snap.yearLabels}
+        projectStartYear={projectStartYear}
         fmt={fmt}
         currency={currency}
         scale={scale}
@@ -1603,15 +1613,23 @@ function PhaseDivider({ title, meta, count }: { title: string; meta?: string; co
 function SellingCostsSection(props: {
   revenue: ProjectRevenueSnapshot;
   assets: Asset[];
-  phases: Array<{ id: string; name: string }>;
+  phases: Phase[];
   costLines: CostLine[];
   costOverrides: CostOverride[];
+  parcels: Parcel[];
+  landAllocationMode: LandAllocationMode;
+  project: Project;
   subUnits: SubUnit[];
+  yearLabels: number[];
+  projectStartYear: number;
   fmt: (n: number) => string;
   currency: string;
   scale: DisplayScale;
 }): React.JSX.Element | null {
-  const { revenue, assets, phases, costLines, costOverrides, subUnits, fmt, currency, scale } = props;
+  const {
+    revenue, assets, phases, costLines, costOverrides, parcels, landAllocationMode,
+    project, subUnits, yearLabels, projectStartYear, fmt, currency, scale,
+  } = props;
 
   const result = useMemo(() => computeSellingCosts({
     revenue,
@@ -1722,7 +1740,163 @@ function SellingCostsSection(props: {
         {new Set(result.rows.map((r) => r.assetId)).size} asset{new Set(result.rows.map((r) => r.assetId)).size === 1 ? '' : 's'}.
         These are the same figures the Capex tab charges: one calculation, read by both.
       </div>
+
+      <SellingCostSchedule
+        rows={result.rows}
+        assets={assets}
+        phases={phases}
+        costLines={costLines}
+        costOverrides={costOverrides}
+        parcels={parcels}
+        landAllocationMode={landAllocationMode}
+        project={project}
+        subUnits={subUnits}
+        revenue={revenue}
+        yearLabels={yearLabels}
+        projectStartYear={projectStartYear}
+        fmt={fmt}
+        currency={currency}
+        scale={scale}
+      />
     </section>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// SELLING COSTS, YEAR ON YEAR
+//
+// The table above states WHAT each selling cost is and what it is charged on.
+// This one states WHEN it is charged, so the year-on-year figures can be read
+// straight against the Capex tab without a calculator.
+//
+// IT READS THE ENGINE'S OWN `perLinePerPeriod`, the same series the Capex
+// schedule and every export render, projected onto the project axis with the
+// shared `phaseLocalToProjectIndex` rule. It re-derives nothing: a selling cost
+// follows sales collections rather than the construction curve, and rebuilding
+// that here would be a second phasing rule free to drift from the first.
+//
+// The Total column is FIRST, matching every other period table in the platform.
+// ════════════════════════════════════════════════════════════════════════════
+
+function SellingCostSchedule(props: {
+  rows: SellingCostRow[];
+  assets: Asset[];
+  phases: Phase[];
+  costLines: CostLine[];
+  costOverrides: CostOverride[];
+  parcels: Parcel[];
+  landAllocationMode: LandAllocationMode;
+  project: Project;
+  subUnits: SubUnit[];
+  revenue: ProjectRevenueSnapshot;
+  yearLabels: number[];
+  projectStartYear: number;
+  fmt: (n: number) => string;
+  currency: string;
+  scale: DisplayScale;
+}): React.JSX.Element | null {
+  const {
+    rows, assets, phases, costLines, costOverrides, parcels, landAllocationMode,
+    project, subUnits, revenue, yearLabels, projectStartYear, fmt, currency, scale,
+  } = props;
+
+  const N = yearLabels.length;
+  const schedule = useMemo(() => {
+    const out: Array<{ key: string; assetName: string; lineName: string; values: number[]; total: number }> = [];
+    for (const r of rows) {
+      const asset = assets.find((a) => a.id === r.assetId);
+      const phase = phases.find((p) => p.id === r.phaseId);
+      if (!asset || !phase) continue;
+      const bd = computeAssetCost({
+        asset, project, phase, parcels, assets, subUnits, costLines, costOverrides,
+        landAllocationMode, parcelFunding: project.financing?.parcelFunding,
+        revenue,
+      } as Parameters<typeof computeAssetCost>[0]);
+      const local = bd.perLinePerPeriod?.[r.lineId] ?? [];
+      const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
+      const offset = Math.max(0, phaseStartYear - projectStartYear);
+      const values = new Array<number>(N).fill(0);
+      for (let i = 0; i < local.length; i++) {
+        const idx = phaseLocalToProjectIndex(i, offset);
+        if (idx >= 0 && idx < N) values[idx] += local[i] ?? 0;
+      }
+      out.push({
+        key: `${r.assetId}::${r.lineId}`,
+        assetName: r.assetName,
+        lineName: r.lineName,
+        values,
+        total: values.reduce((x, v) => x + v, 0),
+      });
+    }
+    return out;
+  }, [rows, assets, phases, costLines, costOverrides, parcels, landAllocationMode, project, subUnits, revenue, N, projectStartYear]);
+
+  if (schedule.length === 0) return null;
+
+  const totals = new Array<number>(N).fill(0);
+  for (const r of schedule) for (let t = 0; t < N; t++) totals[t] += r.values[t] ?? 0;
+  const grand = totals.reduce((x, v) => x + v, 0);
+  // The lifetime figures from the table above, so a mismatch is visible rather
+  // than silent. They are the same calculation, so they must agree.
+  const lifetimeFromBasis = rows.reduce((x, r) => x + r.amount, 0);
+  const drift = grand - lifetimeFromBasis;
+
+  const th: React.CSSProperties = { textAlign: 'right', padding: '5px 8px', fontSize: 11, whiteSpace: 'nowrap' };
+  const thL: React.CSSProperties = { ...th, textAlign: 'left' };
+  const td: React.CSSProperties = { textAlign: 'right', padding: '4px 8px', fontSize: 11, borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap' };
+  const tdL: React.CSSProperties = { ...td, textAlign: 'left' };
+  const tdTotal: React.CSSProperties = { ...td, fontWeight: 700, background: 'var(--color-navy-pale)' };
+
+  return (
+    <div data-testid="m2-selling-costs-schedule" style={{ marginTop: 'var(--sp-2)' }}>
+      <div style={{
+        background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)',
+        padding: '6px 12px', fontSize: 12, fontWeight: 700,
+        textTransform: 'uppercase', letterSpacing: '0.05em',
+      }}>
+        Selling Costs, Year on Year ({currencyHeaderLine(currency, scale)})
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--color-meta)', padding: '6px 12px', background: 'var(--color-surface)', borderLeft: '1px solid var(--color-border)', borderRight: '1px solid var(--color-border)' }}>
+        When each selling cost is charged. These are the engine&apos;s own per-period figures, the same
+        series the Capex schedule renders, so a year here can be read straight against Capex. A
+        selling cost follows sales collections rather than the construction curve, which is why the
+        years differ from the build.
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, background: 'var(--color-surface)' }}>
+          <thead>
+            <tr style={{ background: 'var(--color-navy-pale)' }}>
+              <th style={thL}>Asset</th>
+              <th style={thL}>Line</th>
+              <th style={{ ...th, background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>Total</th>
+              {yearLabels.map((y) => <th key={y} style={th}>{y}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {schedule.map((r) => (
+              <tr key={r.key} data-testid={`m2-selling-cost-yoy-${r.key}`}>
+                <td style={tdL}>{r.assetName}</td>
+                <td style={tdL}>{r.lineName}</td>
+                <td style={tdTotal}>{fmt(r.total)}</td>
+                {r.values.map((v, t) => <td key={t} style={td}>{fmt(v)}</td>)}
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr style={{ background: 'var(--color-navy-pale)', fontWeight: 700 }}>
+              <td style={tdL} colSpan={2}>Total selling costs</td>
+              <td style={{ ...tdTotal, fontWeight: 800 }} data-testid="m2-selling-costs-yoy-total">{fmt(grand)}</td>
+              {totals.map((v, t) => <td key={t} style={{ ...td, fontWeight: 700 }}>{fmt(v)}</td>)}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <div style={{ fontSize: 10, color: 'var(--color-meta)', padding: '6px 12px', fontStyle: 'italic' }}>
+        {Math.abs(drift) < 0.005
+          ? 'The lifetime total matches the basis table above exactly, which is the check that the two views are one calculation.'
+          : `The lifetime total differs from the basis table above by ${fmt(drift)}. That should be zero; the two views read the same calculation.`}
+      </div>
+    </div>
   );
 }
 

@@ -68,6 +68,8 @@ const SITES: Array<{ file: string; wired: boolean; bases: boolean; why: string }
   { file: 'src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx', wired: true, bases: true, why: 'the Capex screen' },
   { file: 'src/hubs/modeling/platforms/refm/components/modules/Module2CostOfSales.tsx', wired: true, bases: true, why: 'CoS screen' },
   { file: 'src/hubs/modeling/platforms/refm/components/modules/Module2Schedules.tsx', wired: true, bases: true, why: 'schedules screen' },
+  { file: 'src/hubs/modeling/platforms/refm/components/modules/Module2RevenueOutput.tsx', wired: false, bases: true,
+    why: 'the Module 2 Selling Costs year-on-year schedule reads perLinePerPeriod, which the engine has already phased, so it needs the revenue BASES but not the collections curve' },
   { file: 'src/hubs/modeling/platforms/refm/lib/revenue-resolvers.ts', wired: false, bases: true,
     why: 'computeAssetCapex reads .total only, so phasing cannot move it, but a revenue BASE can' },
   { file: 'src/hubs/modeling/platforms/refm/lib/financing-hooks.ts', wired: false, bases: false,

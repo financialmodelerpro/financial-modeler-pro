@@ -114,9 +114,17 @@ const selectStyle: React.CSSProperties = { ...FAST_INPUT, cursor: 'pointer' };
 export interface AssumptionsValue {
   discountRatePct: number;
   exitYearOffset: number;
-  terminalMethod: 'none' | 'exit_multiple' | 'perpetuity';
+  terminalMethod: 'none' | 'exit_multiple' | 'perpetuity' | 'cap_rate';
   exitMultiple: number;
   perpetuityGrowthPct: number;
+  /** The exit cap rate as a PERCENT, resolved (derived or manual). */
+  capRatePct: number;
+  /** `r - g` as a percent, so the panel can show what the model would use even
+   *  while an override is in force. */
+  capRateDerivedPct: number;
+  capRateOverride: boolean;
+  /** Grow the exit metric by (1 + g) before capitalising. */
+  applyGrowthToTerminal: boolean;
 }
 
 /** Returns assumptions panel (discount rate / exit year / terminal value). */
@@ -171,6 +179,7 @@ export function AssumptionsPanel(props: {
             style={selectStyle}
           >
             <option value="exit_multiple">Exit Multiple</option>
+            <option value="cap_rate">Exit Cap Rate</option>
             <option value="perpetuity">Perpetuity (Gordon)</option>
             <option value="none">None</option>
           </select>
@@ -181,10 +190,65 @@ export function AssumptionsPanel(props: {
             {numInput(value.exitMultiple, (n) => onChange({ exitMultiple: Math.max(0, n) }), 0.5)}
           </div>
         )}
-        {value.terminalMethod === 'perpetuity' && (
+        {(value.terminalMethod === 'perpetuity' || value.terminalMethod === 'cap_rate') && (
           <div>
-            <label style={labelStyle}>Perpetuity Growth (%)<OverrideBadge path="project.returns.perpetuityGrowth" /></label>
+            <label style={labelStyle}>Growth g (%)<OverrideBadge path="project.returns.perpetuityGrowth" /></label>
             {numInput(value.perpetuityGrowthPct, (n) => onChange({ perpetuityGrowthPct: n }), 0.25)}
+          </div>
+        )}
+        {/* THE EXIT CAP RATE (2026-08-19). Derived as WACC less growth unless the
+            user types one, so a project that never touches it follows the two
+            rates it is made of instead of freezing a number that goes stale.
+            Shown whenever the cap rate is the valuation basis. */}
+        {value.terminalMethod === 'cap_rate' && (
+          <div>
+            <label style={labelStyle}>
+              Exit Cap Rate (%)<OverrideBadge path="project.returns.capRate" />
+            </label>
+            {numInput(
+              value.capRateOverride ? value.capRatePct : value.capRateDerivedPct,
+              (n) => onChange({ capRatePct: Math.max(0, n), capRateOverride: true }),
+              0.25,
+            )}
+            <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 2 }}>
+              {value.capRateOverride ? (
+                <>
+                  Set by you. <button
+                    type="button"
+                    data-testid="returns-cap-rate-use-derived"
+                    onClick={() => onChange({ capRateOverride: false })}
+                    style={{ background: 'none', border: 'none', padding: 0, color: 'var(--color-navy)', cursor: 'pointer', textDecoration: 'underline', fontSize: 10 }}
+                  >Use WACC less growth ({value.capRateDerivedPct.toFixed(2)}%)</button>
+                </>
+              ) : (
+                <>WACC less growth: {value.discountRatePct.toFixed(2)}% - {value.perpetuityGrowthPct.toFixed(2)}% = {value.capRateDerivedPct.toFixed(2)}%. Type to override.</>
+              )}
+            </div>
+          </div>
+        )}
+        {/* THE FORWARD-INCOME TOGGLE. A capitalisation is conventionally applied
+            to NEXT year's income, and that step used to be buried inside the
+            Gordon formula as a literal (1 + g), invisible and unavailable to the
+            other methods. */}
+        {value.terminalMethod !== 'none' && (
+          <div>
+            <label style={labelStyle}>
+              Terminal metric<OverrideBadge path="project.returns.applyGrowthToTerminal" />
+            </label>
+            <select
+              value={value.applyGrowthToTerminal ? 'forward' : 'current'}
+              data-testid="returns-apply-growth"
+              onChange={(e) => onChange({ applyGrowthToTerminal: e.target.value === 'forward' })}
+              style={selectStyle}
+            >
+              <option value="current">Exit year as is</option>
+              <option value="forward">Grown by (1 + g)</option>
+            </select>
+            <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 2 }}>
+              {value.applyGrowthToTerminal
+                ? `Capitalises forward income: exit metric x (1 + ${value.perpetuityGrowthPct.toFixed(2)}%).`
+                : 'Capitalises the exit year figure itself.'}
+            </div>
           </div>
         )}
       </div>

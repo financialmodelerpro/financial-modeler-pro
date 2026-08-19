@@ -92,6 +92,10 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
     terminalMethod: cfg.terminalMethod,
     exitMultiple: cfg.exitMultiple,
     perpetuityGrowthPct: cfg.perpetuityGrowth * 100,
+    capRatePct: cfg.capRate * 100,
+    capRateDerivedPct: cfg.capRateDerived * 100,
+    capRateOverride: cfg.capRateSource === 'manual',
+    applyGrowthToTerminal: cfg.applyGrowthToTerminal,
   };
   const onAssumptions = (patch: Partial<AssumptionsValue>): void => {
     const next = { ...assumptions, ...patch };
@@ -103,6 +107,11 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
         terminalMethod: next.terminalMethod,
         exitMultiple: Math.max(0, next.exitMultiple),
         perpetuityGrowth: next.perpetuityGrowthPct / 100,
+        // Only the OVERRIDE is stored. With the flag off the cap rate is derived
+        // from the WACC and the growth rate on every read, so it follows them.
+        capRateOverride: next.capRateOverride,
+        capRate: next.capRateOverride ? Math.max(0, next.capRatePct / 100) : undefined,
+        applyGrowthToTerminal: next.applyGrowthToTerminal,
       },
     });
   };

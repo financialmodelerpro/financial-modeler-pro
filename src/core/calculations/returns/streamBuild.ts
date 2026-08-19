@@ -63,8 +63,15 @@ export interface TerminalConfig {
   exitMultiple: number;
   perpetuityGrowth: number;
   discountRate: number;
-  /** When set (> 0), terminal EV = stabilised NOI / capRate, overriding the
-   *  method (used by the exit-cap-rate sensitivity axis). */
+  /** The exit cap rate (decimal), used when `method` is `cap_rate`. */
+  capRate?: number;
+  /** Grow the exit metric by (1 + g) before capitalising. */
+  applyGrowth?: boolean;
+  /** When set (> 0), FORCES the cap-rate valuation whatever the method. Used by
+   *  the exit-cap-rate sensitivity axis, which sweeps the rate on a model whose
+   *  own method may be something else. It routes through the SAME
+   *  `terminalEnterpriseValue` call below rather than computing its own
+   *  `NOI / rate`, so the axis cannot drift from the model it is sweeping. */
   capRateOverride?: number;
 }
 
@@ -98,18 +105,20 @@ export function buildSponsorStreamsForExit(
   const fullCapexAt = (t: number): number =>
     (inp.cfiAxis[t] ?? 0) - (inp.inKindAxis[t] ?? 0);
   const exitFcff = (inp.cfoAxis[exit] ?? 0) + fullCapexAt(exit);
-  let tvEnterprise: number;
-  if (term.capRateOverride !== undefined && term.capRateOverride > 0) {
-    tvEnterprise = stabilisedNOI > 0 ? stabilisedNOI / term.capRateOverride : 0;
-  } else {
-    tvEnterprise = terminalEnterpriseValue({
-      method: term.method,
-      exitMetric: term.method === 'perpetuity' ? exitFcff : stabilisedNOI,
-      exitMultiple: term.exitMultiple,
-      perpetuityGrowth: term.perpetuityGrowth,
-      discountRate: term.discountRate,
-    });
-  }
+  // The sensitivity axis forces the cap-rate method; everything else follows the
+  // model's own. ONE call either way, so the swept value and the model value are
+  // the same calculation.
+  const sweeping = term.capRateOverride !== undefined && term.capRateOverride > 0;
+  const method = sweeping ? 'cap_rate' : term.method;
+  const tvEnterprise = terminalEnterpriseValue({
+    method,
+    exitMetric: method === 'perpetuity' ? exitFcff : stabilisedNOI,
+    exitMultiple: term.exitMultiple,
+    perpetuityGrowth: term.perpetuityGrowth,
+    discountRate: term.discountRate,
+    capRate: sweeping ? term.capRateOverride : term.capRate,
+    applyGrowth: term.applyGrowth,
+  });
   const debtAtExit = inp.debtOutstandingPerPeriod[exit] ?? 0;
   const tvEquity = terminalEquityValue(tvEnterprise, debtAtExit, 0);
 

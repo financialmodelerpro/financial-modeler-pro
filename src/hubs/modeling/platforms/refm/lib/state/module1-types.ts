@@ -611,11 +611,34 @@ export interface Project {
      *  axis; unset => last active year. */
     exitYearOffset?: number;
     /** Terminal-value method the user picks. */
-    terminalMethod?: 'none' | 'exit_multiple' | 'perpetuity';
+    terminalMethod?: 'none' | 'exit_multiple' | 'perpetuity' | 'cap_rate';
     /** Exit multiple applied to stabilised NOI (exit_multiple method). */
     exitMultiple?: number;
     /** Perpetuity growth rate g (perpetuity method, decimal). */
     perpetuityGrowth?: number;
+    /**
+     * EXIT CAP RATE (2026-08-19, decimal). Terminal EV = exit metric / cap rate.
+     *
+     * DERIVED FROM THE DISCOUNT RATE unless `capRateOverride` is true: a cap
+     * rate is the discount rate less long-run growth, `r - g`, which is the same
+     * spread the Gordon perpetuity divides by. Storing only the OVERRIDE means a
+     * project that has never touched it follows the WACC and the growth rate as
+     * they change, instead of freezing a number that silently goes stale.
+     */
+    capRate?: number;
+    /** True when the user typed a cap rate, so the derived `r - g` is ignored. */
+    capRateOverride?: boolean;
+    /**
+     * Whether the terminal metric is grown by one year before capitalising
+     * (2026-08-19). A cap rate is conventionally applied to FORWARD income, so
+     * this multiplies the exit metric by `(1 + g)`.
+     *
+     * ABSENT MEANS "the method's own convention", which is what keeps every
+     * existing project unchanged: the Gordon perpetuity already has `(1 + g)` in
+     * its formula, so it resolves to true, and exit-multiple and cap-rate
+     * resolve to false. Writing a value overrides that.
+     */
+    applyGrowthToTerminal?: boolean;
   };
   /**
    * Fund layer, Step 1 (2026-08-03): the standalone-vs-fund toggle, and

@@ -18,7 +18,7 @@
  * Run: npx tsx scripts/verify-returns-engine.ts
  */
 import { npv, irr, moic, paybackPeriod, peakExposure } from '../src/core/calculations/returns/irr';
-import { terminalEnterpriseValue, terminalEquityValue } from '../src/core/calculations/returns/terminalValue';
+import { terminalEnterpriseValue, terminalEquityValue, resolveCapRate, resolveApplyGrowth } from '../src/core/calculations/returns/terminalValue';
 import {
   yieldOnCost, capRate, profitOnCost, profitMargin, loanToValue,
   equityMultiple, debtYield, dscrSeries, icrSeries, cashOnCashSeries,
@@ -78,6 +78,61 @@ check('perpetuity 100,g2%,r10% = 1275', near(terminalEnterpriseValue({ method: '
 check('perpetuity r<=g guarded to 0', terminalEnterpriseValue({ method: 'perpetuity', exitMetric: 100, perpetuityGrowth: 0.10, discountRate: 0.05 }) === 0);
 check('terminal none = 0', terminalEnterpriseValue({ method: 'none', exitMetric: 100 }) === 0);
 check('equity TV = EV - debt + cash', terminalEquityValue(1000, 300, 50) === 750);
+
+// ── THE EXIT CAP RATE AND THE FORWARD-INCOME TOGGLE (2026-08-19) ────────────
+//
+// A cap rate is the discount rate less long-run growth, which is the same spread
+// Gordon divides by, so the two methods MUST agree when the cap rate is derived.
+// That equivalence is the check worth having: it is what makes the derived
+// default defensible rather than merely convenient.
+check('cap_rate 100 at 8% = 1250',
+  near(terminalEnterpriseValue({ method: 'cap_rate', exitMetric: 100, capRate: 0.08 }), 1250));
+check('cap_rate with growth applied = 1275 (forward income)',
+  near(terminalEnterpriseValue({ method: 'cap_rate', exitMetric: 100, capRate: 0.08, perpetuityGrowth: 0.02, applyGrowth: true }), 1275));
+check('cap_rate at the DERIVED r-g equals the Gordon perpetuity, exactly',
+  near(
+    terminalEnterpriseValue({ method: 'cap_rate', exitMetric: 100, capRate: 0.10 - 0.02, perpetuityGrowth: 0.02, applyGrowth: true }),
+    terminalEnterpriseValue({ method: 'perpetuity', exitMetric: 100, perpetuityGrowth: 0.02, discountRate: 0.10 }),
+  ));
+check('a zero cap rate is guarded to 0, not an infinity',
+  terminalEnterpriseValue({ method: 'cap_rate', exitMetric: 100, capRate: 0 }) === 0);
+check('a negative cap rate is guarded to 0 too',
+  terminalEnterpriseValue({ method: 'cap_rate', exitMetric: 100, capRate: -0.05 }) === 0);
+
+// The toggle, on every method that capitalises.
+check('exit_multiple does NOT grow the metric by default',
+  terminalEnterpriseValue({ method: 'exit_multiple', exitMetric: 100, exitMultiple: 10, perpetuityGrowth: 0.02 }) === 1000);
+check('exit_multiple grows it when asked',
+  near(terminalEnterpriseValue({ method: 'exit_multiple', exitMetric: 100, exitMultiple: 10, perpetuityGrowth: 0.02, applyGrowth: true }), 1020));
+check('perpetuity CAN be told not to grow (the toggle bites both ways)',
+  near(terminalEnterpriseValue({ method: 'perpetuity', exitMetric: 100, perpetuityGrowth: 0.02, discountRate: 0.10, applyGrowth: false }), 1250));
+
+// resolveCapRate: derived unless overridden, and the derived figure is still
+// reported when an override is in force, so the screen can offer it back.
+{
+  const d = resolveCapRate({ discountRate: 0.10, perpetuityGrowth: 0.02 });
+  check('resolveCapRate derives r - g', near(d.rate, 0.08) && d.source === 'derived');
+  const m = resolveCapRate({ discountRate: 0.10, perpetuityGrowth: 0.02, stored: 0.065, override: true });
+  check('an override wins', near(m.rate, 0.065) && m.source === 'manual');
+  check('and the derived figure is still reported beside it', near(m.derived, 0.08));
+  const neg = resolveCapRate({ discountRate: 0.02, perpetuityGrowth: 0.10 });
+  check('g above r floors the derived rate at 0 rather than going negative', neg.rate === 0);
+}
+
+// resolveApplyGrowth: absent means the method's convention, which is what leaves
+// every existing project unmoved.
+check('resolveApplyGrowth defaults TRUE for perpetuity (Gordon carries 1+g)',
+  resolveApplyGrowth('perpetuity') === true);
+check('and FALSE for exit_multiple and cap_rate',
+  resolveApplyGrowth('exit_multiple') === false && resolveApplyGrowth('cap_rate') === false);
+check('an explicit value always wins',
+  resolveApplyGrowth('perpetuity', false) === false && resolveApplyGrowth('cap_rate', true) === true);
+
+// THE DEFAULT LIVES IN THE FUNCTION, not only in the caller. Making it
+// `=== true` silently stopped Gordon being Gordon for any direct caller that did
+// not pass the new flag, and the check above caught it.
+check('a bare perpetuity call is still Gordon, with no applyGrowth passed',
+  near(terminalEnterpriseValue({ method: 'perpetuity', exitMetric: 100, perpetuityGrowth: 0.02, discountRate: 0.10 }), 1275));
 check('equity TV floored at 0', terminalEquityValue(100, 500, 0) === 0);
 
 // ── RE metric primitives ──────────────────────────────────────────────

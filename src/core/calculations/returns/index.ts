@@ -76,7 +76,7 @@ export function computeReturns(input: ReturnsInput): ReturnsResult {
 }
 
 export { npv, irr, moic, paybackPeriod, peakExposure } from './irr';
-export { terminalEnterpriseValue, terminalEquityValue } from './terminalValue';
+export { terminalEnterpriseValue, terminalEquityValue, resolveCapRate, resolveApplyGrowth } from './terminalValue';
 export {
   developmentEconomics, exitAnalysis, sourcesUses, fundingMix,
   equityExposure, stabilizationMetrics, debtAnalytics,

@@ -9,7 +9,7 @@
  * POSITIVE = cash IN (returned). period[0] is the first project year.
  */
 
-export type TerminalMethod = 'none' | 'exit_multiple' | 'perpetuity';
+export type TerminalMethod = 'none' | 'exit_multiple' | 'perpetuity' | 'cap_rate';
 
 /** One signed cash-flow stream (e.g. FCFF, FCFE, Dividends). */
 export interface CashFlowStream {
@@ -44,6 +44,11 @@ export interface StreamReturns {
 /** Terminal-value inputs (exit-multiple or perpetuity). */
 export interface TerminalValueInput {
   method: TerminalMethod;
+  /** The exit cap rate (decimal), for `cap_rate`. Terminal EV = metric / rate. */
+  capRate?: number;
+  /** Multiply the exit metric by (1 + g) before capitalising. See
+   *  `Project.returns.applyGrowthToTerminal` for why this is explicit. */
+  applyGrowth?: boolean;
   /** Exit-year metric the terminal value is built on:
    *   exit_multiple -> stabilised EBITDA / NOI at exit
    *   perpetuity    -> exit-year free cash flow (FCFF or FCFE) */

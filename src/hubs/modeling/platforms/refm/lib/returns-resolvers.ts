@@ -50,6 +50,8 @@ import {
   buildSponsorStreamsForExit, exitYearAnalysis, computePerAssetReturns,
   computeSensitivity, defaultSensitivityValues,
   computeDistributionWaterfall, computeFeeEarnerReturns,
+  resolveCapRate,
+  resolveApplyGrowth,
 } from '@/src/core/calculations/returns';
 import type {
   ReturnsResult, ReturnsInput, TerminalMethod, StreamReturns,
@@ -69,6 +71,14 @@ export interface ReturnsConfig {
   terminalMethod: TerminalMethod;
   exitMultiple: number;
   perpetuityGrowth: number;
+  /** The cap rate the model will use, already resolved (2026-08-19). */
+  capRate: number;
+  /** The `r - g` figure, kept beside the resolved rate so the screen can show
+   *  what the model WOULD use, even while an override is in force. */
+  capRateDerived: number;
+  capRateSource: 'manual' | 'derived';
+  /** Whether the exit metric is grown by (1 + g) before capitalising. */
+  applyGrowthToTerminal: boolean;
 }
 
 export const DEFAULT_RETURNS_CONFIG: Omit<ReturnsConfig, 'exitYearOffset'> = {
@@ -76,6 +86,15 @@ export const DEFAULT_RETURNS_CONFIG: Omit<ReturnsConfig, 'exitYearOffset'> = {
   terminalMethod: 'exit_multiple',
   exitMultiple: 8,
   perpetuityGrowth: 0.02,
+  // 10% WACC less 2% growth. Stated here for completeness; `resolveReturnsConfig`
+  // DERIVES it from whatever the project's own rate and growth are, so these two
+  // are never the source of a live figure.
+  capRate: 0.08,
+  capRateDerived: 0.08,
+  capRateSource: 'derived',
+  // exit_multiple does not grow the metric, so the default leaves every existing
+  // project exactly where it was.
+  applyGrowthToTerminal: false,
 };
 
 /** Resolve the stored project config + defaults into a concrete config. */
@@ -85,12 +104,24 @@ export function resolveReturnsConfig(project: Project, axisLength: number): Retu
   let exit = r.exitYearOffset ?? lastIdx;
   if (!Number.isFinite(exit)) exit = lastIdx;
   exit = Math.max(0, Math.min(lastIdx, Math.round(exit)));
+  const discountRate = Math.max(0, r.discountRate ?? DEFAULT_RETURNS_CONFIG.discountRate);
+  const perpetuityGrowth = r.perpetuityGrowth ?? DEFAULT_RETURNS_CONFIG.perpetuityGrowth;
+  const terminalMethod = r.terminalMethod ?? DEFAULT_RETURNS_CONFIG.terminalMethod;
+  // The cap rate follows the WACC and the growth rate unless the user has typed
+  // one, so a project that never touches it cannot go stale.
+  const cap = resolveCapRate({
+    discountRate, perpetuityGrowth, stored: r.capRate, override: r.capRateOverride,
+  });
   return {
-    discountRate: Math.max(0, r.discountRate ?? DEFAULT_RETURNS_CONFIG.discountRate),
+    discountRate,
     exitYearOffset: exit,
-    terminalMethod: r.terminalMethod ?? DEFAULT_RETURNS_CONFIG.terminalMethod,
+    terminalMethod,
     exitMultiple: Math.max(0, r.exitMultiple ?? DEFAULT_RETURNS_CONFIG.exitMultiple),
-    perpetuityGrowth: r.perpetuityGrowth ?? DEFAULT_RETURNS_CONFIG.perpetuityGrowth,
+    perpetuityGrowth,
+    capRate: cap.rate,
+    capRateDerived: cap.derived,
+    capRateSource: cap.source,
+    applyGrowthToTerminal: resolveApplyGrowth(terminalMethod, r.applyGrowthToTerminal),
   };
 }
 
@@ -361,7 +392,11 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     noiPerPeriod, debtOutstandingPerPeriod: bs.debtOutstandingPerPeriod,
     existingPreCapex, existingDebtOpening,
   };
-  const terminalCfg = { method: cfg.terminalMethod, exitMultiple: cfg.exitMultiple, perpetuityGrowth: cfg.perpetuityGrowth, discountRate: cfg.discountRate };
+  const terminalCfg = {
+    method: cfg.terminalMethod, exitMultiple: cfg.exitMultiple,
+    perpetuityGrowth: cfg.perpetuityGrowth, discountRate: cfg.discountRate,
+    capRate: cfg.capRate, applyGrowth: cfg.applyGrowthToTerminal,
+  };
   const streams = buildSponsorStreamsForExit(sponsorInputs, exit, terminalCfg);
   const tvEnterprise = streams.terminalEnterpriseValue;
   const tvEquity = streams.terminalEquityValue;

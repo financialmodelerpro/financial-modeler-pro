@@ -12,7 +12,7 @@
  * Pure: reads the financials snapshot + project state only; no engine mutation.
  */
 import { computeAssetCost, deriveCostStage, resolveAssetAreaMetrics, type AssetAreaMetrics } from '@/src/core/calculations';
-import { collectionsForAsset } from '@/src/core/calculations/capexPhasing';
+import { collectionsForAsset, phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
 import type { ProjectFinancialsSnapshot, FinancialsResolverState } from '../financials-resolvers';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 
@@ -198,12 +198,17 @@ function basisFor(method: string | undefined, m: AssetAreaMetrics, amount: numbe
   }
 }
 
-/** Project a phase-relative per-period series onto the project axis (same rule
- *  as financing/capex.ts: local i=0 -> max(0, offset-1); i>=1 -> offset+i-1). */
-function projectOntoAxis(perPeriod: number[], offset: number, N: number): number[] {
+/** Project a phase-relative per-period series onto the project axis.
+ *
+ *  2026-08-19: this spelled the rule out again (local i=0 -> max(0, offset-1),
+ *  i>=1 -> offset+i-1), which is the shape TRAPS 7.12 is about, and a THIRD copy
+ *  was about to be written for the Module 2 selling-cost schedule. It now calls
+ *  `phaseLocalToProjectIndex`, the one definition, and the shared helper below
+ *  calls this. */
+export function projectOntoAxis(perPeriod: number[], offset: number, N: number): number[] {
   const out = new Array<number>(N).fill(0);
   for (let i = 0; i < perPeriod.length; i++) {
-    const projIdx = i === 0 ? Math.max(0, offset - 1) : offset + i - 1;
+    const projIdx = phaseLocalToProjectIndex(i, offset);
     if (projIdx >= 0 && projIdx < N) out[projIdx] += perPeriod[i] ?? 0;
   }
   return out;
