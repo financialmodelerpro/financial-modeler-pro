@@ -89,11 +89,17 @@ import {
   type CapexPhasingContext,
 } from './capexPhasing';
 import { assetVisibleLines, allowedSelectedIds, deriveAssetScope } from './selectedBase';
+import {
+  resolveSellingCostBasis,
+  sellingCostAmount,
+  type RevenueSource,
+} from './revenue/sellingCosts';
 // Re-exported so every existing caller keeps its import, while the derivation
 // itself has exactly ONE implementation (see selectedBase.ts for why).
 export { deriveAssetScope };
 import {
   DEFAULT_USEFUL_LIFE_YEARS,
+  assetStrategySells,
   SELLING_ONLY_BASE_IDS,
   PER_SUBUNIT_RATE_KEY_SUPPORT,
   PER_SUBUNIT_RATE_KEY_PARKING,
@@ -934,36 +940,24 @@ export interface AssetCostContext {
   // can refer back to them without recursion.
   resolvedDirectLineTotals: Record<string, number>;
   /**
-   * 2026-08-16: total sales cash COLLECTED for this asset over the whole hold.
+   * THE REVENUE SNAPSHOT (2026-08-19, Pass C). ONE input, not three derived
+   * numbers, and that is what makes a percent-of-revenue base impossible to
+   * forget: a call site either has revenue in scope or it does not, with no set
+   * of individually-omittable figures to get half right.
    *
-   * The base for `percent_of_revenue_cash`, which is what finally separates it
-   * from `percent_of_revenue_sale`. Both methods resolved to the same gross
-   * list value (units x price) since 2026-05-13, so the cash-versus-sale
-   * distinction existed on the schema and nowhere else.
+   * It replaced `collectionsTotal`, `saleRevenueTotal` and `totalRevenueTotal`,
+   * which existed for one day, during which five of eleven call sites passed
+   * them and six did not, so the financing aggregate and the per-asset Cash
+   * Flow reported capex figures 497,134.24 apart on a live project.
    *
-   * Absent falls back to the gross figure, which is the previous behaviour, so
-   * a caller that supplies no revenue is unchanged.
+   * The bases are resolved by `revenue/sellingCosts.ts`, which is also what the
+   * Module 2 Revenue display calls, so the screen and the model are one
+   * calculation rather than two that agree.
+   *
+   * Absent means no revenue in scope, and every method falls back to
+   * `metrics.totalRevenue` exactly as it did before the link.
    */
-  collectionsTotal?: number;
-  /**
-   * 2026-08-19: THE REVENUE BASES, FROM THE REVENUE MODULE.
-   *
-   *   saleRevenueTotal   the asset's sale value (GDV) over the hold, the base
-   *                      for percent_of_revenue_sale
-   *   totalRevenueTotal  sale plus hospitality plus lease revenue over the
-   *                      hold, the base for percent_of_total_revenue
-   *
-   * The RATE stays an input on the Capex tab; only the BASE is linked. See
-   * saleRevenueTotalForAsset in capexPhasing.ts for why metrics.totalRevenue
-   * could not serve as the base: it sums three incompatible products and
-   * understated a hotel by up to 4,739x.
-   *
-   * Absent falls back to metrics.totalRevenue, the previous behaviour, so a
-   * caller with no revenue snapshot is unchanged. ZERO IS NOT ABSENT: a leased
-   * asset genuinely has no sale revenue and its base is 0.
-   */
-  saleRevenueTotal?: number;
-  totalRevenueTotal?: number;
+  revenue?: RevenueSource;
 }
 
 function clamp(n: number, lo: number, hi: number): number {
@@ -1063,34 +1057,31 @@ export function calculateItemTotal(
     // AssetAreaReconciliationBlock formula: sum of metricValue x
     // unitPrice across revenue sub-unit categories.
     case 'percent_of_revenue_cash':
-      // 2026-08-16: CASH BASIS. Charges on the cash actually COLLECTED, which
-      // is what "cash basis" has always claimed and never did. Falls back to
-      // the gross figure when no collections were supplied, so a caller with no
-      // revenue in scope behaves exactly as before.
-      //
-      // Note the two bases coincide whenever every sale is collected inside the
-      // hold, which is the ordinary case; they part company on escrow held past
-      // exit, exit truncation, or revenue never collected. `checksReport`
-      // surfaces that divergence rather than leaving it silent.
-      return (ctx.collectionsTotal ?? m.totalRevenue) * (clamp(v, 0, 100) / 100);
     case 'percent_of_total_revenue':
-      // THE ASSET'S WHOLE-HOLD REVENUE, from the revenue module (2026-08-19):
-      // sale value plus hospitality plus lease. The fallback is the old sub-unit
-      // product, so a caller with no revenue snapshot is unchanged.
-      return (ctx.totalRevenueTotal ?? m.totalRevenue) * (clamp(v, 0, 100) / 100);
     case 'percent_of_revenue_sale':
-      // SALE BASIS: the SALE VALUE (GDV) from the revenue module (2026-08-19),
-      // regardless of when or whether the cash arrives.
+      // ALL THREE GO THROUGH ONE FUNCTION (2026-08-19, Pass C).
       //
-      // It used to be the sub-unit product metricValue x unitPrice summed over
-      // Sellable AND Operable AND Leasable, which is a sale value for the first
-      // only: a marketing budget was charged on a hotel's nightly rate and a
-      // retail unit's annual rent, and even a Sell asset was understated because
-      // the product ignores sale price indexation (626.803m of sale value read as
-      // 571.900m on the live project). A HELD ASSET NOW RESOLVES TO ZERO here,
-      // which is the true answer: there is no sale for a selling cost to be a
-      // percentage of.
-      return (ctx.saleRevenueTotal ?? m.totalRevenue) * (clamp(v, 0, 100) / 100);
+      // `revenue/sellingCosts.ts` owns the basis resolution AND the
+      // multiplication, and the Module 2 Revenue display calls the same pair, so
+      // the figure on the screen and the figure in the model are one calculation
+      // rather than two that agree. Nothing is multiplied here.
+      //
+      // A HELD ASSET RESOLVES TO ZERO on the sale basis, which is the true
+      // answer: there is no sale for a selling cost to be a percentage of. That
+      // is distinct from "no revenue snapshot", which falls back to
+      // `m.totalRevenue`, and conflating the two is what charged a marketing
+      // budget on a hotel's nightly rate.
+      //
+      // The cash and sale bases coincide whenever every sale is collected inside
+      // the hold, which is the ordinary case; they part company on escrow held
+      // past exit, exit truncation, or revenue never collected. `checksReport`
+      // surfaces that divergence rather than leaving it silent.
+      return sellingCostAmount(
+        resolveSellingCostBasis(
+          ctx.revenue, ctx.asset.id, line.method, m.totalRevenue, !assetStrategySells(ctx.asset.strategy),
+        ),
+        v,
+      );
   }
 }
 
@@ -1360,42 +1351,23 @@ export interface ComputeAssetCostInput {
    */
   collectionsPerPeriod?: number[];
   /**
-   * 2026-08-16: total sales cash collected for this asset over the whole hold,
-   * the base for `percent_of_revenue_cash`.
+   * THE REVENUE SNAPSHOT (2026-08-19, Pass C), the base for every
+   * percent-of-revenue method. ONE input, so a call site cannot pass half of
+   * what it needs; see the note on `AssetCostContext.revenue` for the day the
+   * three separate figures existed and six of eleven sites omitted them.
    *
-   * SEPARATE from `collectionsPerPeriod` on purpose. That one is windowed to
-   * the phase because it drives phasing; a total must not lose cash arriving
-   * outside the window. Use `collectionsTotalForAsset`, which sums the
-   * untrimmed series.
+   * SEPARATE from `collectionsPerPeriod`, which stays: that one is windowed to
+   * the phase because it drives PHASING, and a total must not lose cash
+   * arriving outside the window. Two different questions, two inputs, on
+   * purpose.
    */
-  collectionsTotal?: number;
-  /**
-   * 2026-08-19: THE REVENUE BASES, FROM THE REVENUE MODULE.
-   *
-   *   saleRevenueTotal   the asset's sale value (GDV) over the hold, the base
-   *                      for percent_of_revenue_sale
-   *   totalRevenueTotal  sale plus hospitality plus lease revenue over the
-   *                      hold, the base for percent_of_total_revenue
-   *
-   * The RATE stays an input on the Capex tab; only the BASE is linked. See
-   * saleRevenueTotalForAsset in capexPhasing.ts for why the cost engine's own
-   * computeAssetRevenue could not serve as the base: it sums three
-   * incompatible products and understated a hotel by up to 4,739x.
-   *
-   * Absent falls back to metrics.totalRevenue, the previous behaviour, so a
-   * caller that supplies no revenue snapshot is unchanged. ZERO IS NOT ABSENT:
-   * a leased asset genuinely has no sale revenue and its base is 0, which is
-   * why the helpers return a number whenever a snapshot exists.
-   */
-  saleRevenueTotal?: number;
-  totalRevenueTotal?: number;
+  revenue?: RevenueSource;
 }
 
 export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdown {
   const {
     asset, project, phase, parcels, assets, subUnits, costLines, costOverrides,
-    landAllocationMode, parcelFunding, collectionsPerPeriod, collectionsTotal,
-    saleRevenueTotal, totalRevenueTotal,
+    landAllocationMode, parcelFunding, collectionsPerPeriod, revenue,
   } = input;
   // T3-companion Fix 2 (2026-05-12): companion assets (Sell + Manage
   // Operate sibling, isCompanion === true) carry NO physical attributes
@@ -1536,8 +1508,7 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
         metrics: aggregatedMetrics,
         subUnits,
         resolvedDirectLineTotals: {},
-        // NOTE: collectionsTotal, saleRevenueTotal and totalRevenueTotal are
-        // deliberately NOT set. An `allocated` line computes its pool against
+        // NOTE: `revenue` is deliberately NOT set. An `allocated` line computes its pool against
         // AGGREGATED PHASE metrics, and this asset's revenue is not the phase's.
         // Leaving them undefined falls back to the aggregated gross figure,
         // which is the correct pool basis; the driver share then splits it. A
@@ -1557,7 +1528,7 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
       continue;
     }
     // Direct category (default + Pass 3 semantics preserved):
-    const ctxStub: AssetCostContext = { asset, metrics, subUnits, resolvedDirectLineTotals: {}, collectionsTotal, saleRevenueTotal, totalRevenueTotal };
+    const ctxStub: AssetCostContext = { asset, metrics, subUnits, resolvedDirectLineTotals: {}, revenue };
     const lineTotal = calculateItemTotal(
       { ...r.line, method: r.method, value: r.value },
       ctxStub,
@@ -2573,9 +2544,9 @@ export interface CostLineCaptionInput {
    * `metrics.totalRevenue` whatever the method, which is now the FALLBACK only,
    * so a caption could name a number the engine had not used.
    */
-  collectionsTotal?: number;
-  saleRevenueTotal?: number;
-  totalRevenueTotal?: number;
+  /** The revenue snapshot, so the caption states the SAME basis the engine
+   *  charged on rather than a figure the maths did not use. */
+  revenue?: RevenueSource;
 }
 
 // M2.0M Pass 9 Fix 5 (2026-05-12): caption drops the trailing
@@ -2584,7 +2555,7 @@ export interface CostLineCaptionInput {
 // or the "no X defined yet" warning. Cleaner display, less duplication.
 export function costLineCaption(input: CostLineCaptionInput): string {
   const { line, override, asset, metrics, parkingBays, resolvedTotal: _resolvedTotal, selectedTotal, perSubUnitRows,
-    collectionsTotal, saleRevenueTotal, totalRevenueTotal } = input;
+    revenue } = input;
   void _resolvedTotal; // retained on interface for API stability; no longer used in caption.
   const method = override?.method ?? line.method;
   const value = override?.value ?? line.value;
@@ -2653,27 +2624,19 @@ export function costLineCaption(input: CostLineCaptionInput): string {
     case 'percent_of_revenue_cash':
     case 'percent_of_revenue_sale': {
       // THE CAPTION NAMES THE FIGURE THE ENGINE USED (2026-08-19), and each of
-      // the three methods now has its own base from the revenue module. It used
-      // to print metrics.totalRevenue for all three, which is the sub-unit
-      // product and is now the fallback only, so the caption could state a
-      // number the maths had not used.
-      const basis = method === 'percent_of_revenue_cash' ? (collectionsTotal ?? metrics.totalRevenue)
-        : method === 'percent_of_revenue_sale' ? (saleRevenueTotal ?? metrics.totalRevenue)
-        : (totalRevenueTotal ?? metrics.totalRevenue);
-      const basisLabel = method === 'percent_of_revenue_cash' ? 'sales cash collected'
-        : method === 'percent_of_revenue_sale' ? 'sale value (GDV), from Revenue'
-        : 'total revenue over the hold, from Revenue';
+      // THE CAPTION READS THE SAME RESOLVER THE ENGINE DOES, so it cannot name a
+      // figure the maths did not use.
+      const b = resolveSellingCostBasis(
+        revenue, asset.id, method, metrics.totalRevenue, !assetStrategySells(asset.strategy),
+      );
       // ZERO IS AN ANSWER, NOT AN ABSENCE, and the two need different captions.
-      // A held asset has no sale value, so a sale-basis line on it is genuinely
-      // zero and says so; only a project with no revenue entered at all is the
-      // "nothing set up yet" case the old message described.
-      if (basis <= 0) {
-        if (method === 'percent_of_revenue_sale' && saleRevenueTotal !== undefined && metrics.totalRevenue > 0) {
+      if (b.amount <= 0) {
+        if (b.reason === 'no_sale_on_held_asset') {
           return `${fmt(value, 2)}% of 0 (no sale value: this asset is held, not sold)`;
         }
         return noArea('asset revenue (set sub-unit metric x price in Tab 2)');
       }
-      return `${fmt(value, 2)}% of ${fmtMoney(basis)} (${basisLabel})`;
+      return `${fmt(value, 2)}% of ${fmtMoney(b.amount)} (${b.label})`;
     }
     case 'percent_of_inkind_land': {
       if (metrics.inKindLandValue <= 0) {

@@ -20,12 +20,7 @@ import {
   computeAssetCost,
   computeSubUnitArea,
 } from '@/src/core/calculations';
-import {
-  collectionsTotalForAsset,
-  saleRevenueTotalForAsset,
-  totalRevenueTotalForAsset,
-  type CollectionsSource,
-} from '@/src/core/calculations/capexPhasing';
+import { type CollectionsSource } from '@/src/core/calculations/capexPhasing';
 import {
   computeSellAsset,
   computeHospitalityAsset,
@@ -857,9 +852,7 @@ export function computeAssetCapex(
     costOverrides: state.costOverrides,
     landAllocationMode: state.landAllocationMode,
     parcelFunding: state.project.financing?.parcelFunding,
-    collectionsTotal: collectionsTotalForAsset(revenue, assetId),
-    saleRevenueTotal: saleRevenueTotalForAsset(revenue, assetId),
-    totalRevenueTotal: totalRevenueTotalForAsset(revenue, assetId),
+    revenue,
   });
   return Math.max(0, bd.total);
 }

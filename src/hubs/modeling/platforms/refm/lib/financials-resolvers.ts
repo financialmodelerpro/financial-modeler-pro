@@ -47,7 +47,7 @@ import {
   computeAssetCost,
   resolveUsefulLifeYears,
 } from '@/src/core/calculations';
-import { collectionsForAsset, collectionsTotalForAsset, saleRevenueTotalForAsset, totalRevenueTotalForAsset, phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
+import { collectionsForAsset, phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
 import type { Module1Store } from './state/module1-store';
 import type { Asset, Phase, FinancingTranche } from './state/module1-types';
 import { DEFAULT_PROJECT_FINANCING_CONFIG } from './state/module1-types';
@@ -1742,15 +1742,7 @@ function computeFinancialsSnapshotOnce(
         landAllocationMode,
         parcelFunding: project.financing?.parcelFunding,
         collectionsPerPeriod: collections,
-        collectionsTotal: collectionsTotalForAsset(revenue, a.id),
-        // The revenue bases (2026-08-19). Passed HERE as well as at the
-        // financing aggregate, because a site that omits them falls back to
-        // metrics.totalRevenue, the old sub-unit product, and the same cost
-        // line then has two values depending on which surface asks. Measured
-        // before this: the financing aggregate and the per-asset Cash Flow
-        // disagreed by 497,134.24 on FMP - MARINA GATE.
-        saleRevenueTotal: saleRevenueTotalForAsset(revenue, a.id),
-        totalRevenueTotal: totalRevenueTotalForAsset(revenue, a.id),
+        revenue,
       });
       const per = breakdown.perPeriod ?? [];
       const perInK = breakdown.perPeriodLandInKind ?? [];

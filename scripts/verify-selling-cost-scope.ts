@@ -54,10 +54,15 @@ import {
   type AssetAreaMetrics,
 } from '@/src/core/calculations';
 import {
-  saleRevenueTotalForAsset,
-  totalRevenueTotalForAsset,
-  type CollectionsSource,
-} from '@/src/core/calculations/capexPhasing';
+  computeSellingCosts,
+  isSellingCostMethod,
+  saleRevenueOf,
+  totalRevenueOf,
+  type RevenueSource,
+} from '@/src/core/calculations/revenue/sellingCosts';
+import * as path from 'node:path';
+const ROOT = path.resolve(__dirname, '..');
+const read = (rel: string): string => readFileSync(path.join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
 import { assetVisibleLines } from '@/src/core/calculations/selectedBase';
 import {
   assetStrategySells,
@@ -183,7 +188,7 @@ const TOTAL_REVENUE: Record<string, number> = Object.fromEntries(
   Object.keys(SALE_REVENUE).map((k) => [k, SALE_REVENUE[k] + OPERATING_REVENUE[k]]),
 );
 /** Shaped like the real snapshot, split across the three maps the helpers read. */
-const REV_SOURCE: CollectionsSource = {
+const REV_SOURCE: RevenueSource = {
   bySellAsset: new Map(Object.keys(SALE_REVENUE).map((id) => [id, {
     presalesRevenuePerPeriod: [SALE_REVENUE[id]],
     postSalesRevenuePerPeriod: [0],
@@ -192,11 +197,10 @@ const REV_SOURCE: CollectionsSource = {
   byHospitalityAsset: new Map([['a_operate', { totalRevenuePerPeriod: [OPERATING_REVENUE['a_operate']] }]]),
   byLeaseAsset: new Map([['a_lease', { totalRevenuePerPeriod: [OPERATING_REVENUE['a_lease']] }]]),
 };
-const REV_BASES: Record<string, { saleRevenueTotal?: number; totalRevenueTotal?: number }> =
-  Object.fromEntries(Object.keys(SALE_REVENUE).map((id) => [id, {
-    saleRevenueTotal: saleRevenueTotalForAsset(REV_SOURCE, id),
-    totalRevenueTotal: totalRevenueTotalForAsset(REV_SOURCE, id),
-  }]));
+/** Since Pass C the engine takes the SNAPSHOT, not three derived figures, so
+ *  every arm below passes the same object the real callers do. */
+const REV_BASES: Record<string, { revenue?: RevenueSource }> =
+  Object.fromEntries(Object.keys(SALE_REVENUE).map((id) => [id, { revenue: REV_SOURCE }]));
 /** Minimal metrics for a direct `costLineCaption` call. */
 const METRICS_STUB = {
   landSqm: 0, ndaSqm: 0, roadsSqm: 0, gfa: 0, bua: 0, nsa: 0, unitCount: 0, parkingBays: 0,
@@ -214,7 +218,7 @@ function costOf(
   asset: Asset,
   ls: CostLine[],
   overrides: CostOverride[] = [],
-  bases?: { saleRevenueTotal?: number; totalRevenueTotal?: number },
+  bases?: { revenue?: RevenueSource },
 ): ReturnType<typeof computeAssetCost> {
   return computeAssetCost({
     asset, assets: ASSETS, phase: PHASE, phases: [PHASE], parcels: PARCELS, subUnits: SUBUNITS,
@@ -407,25 +411,25 @@ console.log('\n-- E. The percent-of-revenue bases come from the REVENUE MODULE -
   // ZERO IS NOT ABSENT. The helper must return a number when a snapshot exists,
   // because undefined falls back to the broken basis; that distinction IS the
   // fix for the held assets above.
-  check('saleRevenueTotalForAsset returns 0, not undefined, for a held asset with a snapshot',
-    saleRevenueTotalForAsset(REV_SOURCE, 'a_lease') === 0);
+  check('saleRevenueOf returns 0, not undefined, for a held asset with a snapshot',
+    saleRevenueOf(REV_SOURCE, 'a_lease') === 0);
   check('and returns undefined only when NO revenue snapshot is supplied',
-    saleRevenueTotalForAsset(undefined, 'a_lease') === undefined);
-  check('totalRevenueTotalForAsset returns undefined when the operating maps are absent',
-    totalRevenueTotalForAsset({ bySellAsset: REV_SOURCE.bySellAsset }, 'a_lease') === undefined);
+    saleRevenueOf(undefined, 'a_lease') === undefined);
+  check('totalRevenueOf returns undefined when the operating maps are absent',
+    totalRevenueOf({ bySellAsset: REV_SOURCE.bySellAsset }, 'a_lease') === undefined);
 
   // The caption must state the figure the engine used, or it is a second source.
   const cap = costLineCaption({
     line: byIdentity(ls, 'marketing'),
     asset: ASSETS[0], metrics: METRICS_STUB, parkingBays: 0, resolvedTotal: 0,
-    saleRevenueTotal: SALE_REVENUE['a_sell'],
+    revenue: REV_SOURCE,
   });
   check('the caption names the sale value (GDV) and says it comes from Revenue',
     /sale value \(GDV\), from Revenue/.test(cap), cap);
   const capHeld = costLineCaption({
     line: byIdentity(ls, 'marketing'),
     asset: ASSETS[3], metrics: METRICS_STUB, parkingBays: 0, resolvedTotal: 0,
-    saleRevenueTotal: 0,
+    revenue: REV_SOURCE,
   });
   check('and on a held asset it says there is no sale value rather than "nothing set up"',
     /no sale value: this asset is held, not sold/.test(capHeld), capHeld);
@@ -510,6 +514,126 @@ console.log('\n-- H. A line minted by the catalog picker scopes the same as a se
   const sellRes = costOf(ASSETS[0], minted, [], REV_BASES['a_sell']);
   check('while the selling asset is still charged in full for the minted line',
     (sellRes.byLineId[mk.id] ?? 0) > 1_000_000, (sellRes.byLineId[mk.id] ?? 0).toFixed(0));
+}
+
+// ── I. ONE CALCULATION, READ BY BOTH SURFACES (2026-08-19, Pass C) ──────────
+//
+// The Module 2 Revenue display and the Capex engine must not be able to
+// disagree. They do not because there is ONE multiplication:
+// `sellingCostAmount(resolveSellingCostBasis(...))` in
+// core/calculations/revenue/sellingCosts.ts. This section proves the identity
+// per asset and per line, rather than asserting that two sites call the same
+// function name.
+//
+// EVERY CASE RUNS TWICE, on SEEDED ids and on CATALOG-MINTED ids, because a
+// fixture where both identity resolvers agree proves nothing (TRAPS 7.25).
+console.log('\n-- I. The Revenue display and the Capex engine are one calculation --');
+{
+  const shapes: Array<[string, () => CostLine[]]> = [
+    ['seeded ids', lines2],
+    ['catalog-minted ids', mintedLines],
+  ];
+  for (const [shapeName, build] of shapes) {
+    const ls = build();
+    // What Module 2 Revenue renders.
+    const display = computeSellingCosts({
+      revenue: REV_SOURCE,
+      assets: ASSETS,
+      linesForAsset: (assetId) => {
+        const a = ASSETS.find((x) => x.id === assetId)!;
+        return assetVisibleLines(ls, a.phaseId, a.id, a.strategy).map((l) => ({
+          id: l.id, name: l.name, method: l.method, value: l.value, catalogId: resolveCatalogId(l),
+        }));
+      },
+      rateFor: (_a, _l, v) => v,
+      sells: (st) => assetStrategySells(st as AssetStrategy),
+      fallbackBasis: (assetId) => computeAssetRevenue(ASSETS.find((x) => x.id === assetId)!, SUBUNITS),
+    });
+    check(`I1 [${shapeName}] the display produces rows at all`, display.rows.length > 0, String(display.rows.length));
+
+    // What the ENGINE charges, for the same asset and line.
+    let allMatch = true; let detail = '';
+    let compared = 0;
+    for (const a of ASSETS) {
+      const engine = costOf(a, ls, [], REV_BASES[a.id]);
+      for (const row of display.rows.filter((r) => r.assetId === a.id)) {
+        compared += 1;
+        const charged = engine.byLineId[row.lineId] ?? 0;
+        if (Math.abs(charged - row.amount) > 1e-9) {
+          allMatch = false;
+          detail = `${a.name} / ${row.lineName}: display ${row.amount} vs engine ${charged}`;
+        }
+      }
+      // And nothing the engine charges for a selling method is missing from the
+      // display, which a one-directional check would not catch.
+      for (const l of ls) {
+        if (!isSellingCostMethod(l.method)) continue;
+        const charged = engine.byLineId[l.id] ?? 0;
+        if (charged === 0) continue;
+        if (!display.rows.some((r) => r.assetId === a.id && r.lineId === l.id)) {
+          allMatch = false;
+          detail = `${a.name} / ${l.name}: engine charges ${charged} and the display omits it`;
+        }
+      }
+    }
+    check(`I2 [${shapeName}] every displayed row equals what the engine charges, and nothing is omitted`,
+      allMatch, detail);
+    check(`I3 [${shapeName}] the comparison was not vacuous`, compared >= 4, `${compared} rows compared`);
+
+    // A HELD ASSET IS ZERO WITH A REASON, not a fallback.
+    for (const a of [ASSETS[2], ASSETS[3]]) {
+      const rows = display.rows.filter((r) => r.assetId === a.id);
+      check(`I4 [${shapeName}] ${a.name} carries no selling-cost row (scoped out)`, rows.length === 0,
+        rows.map((r) => r.lineName).join(','));
+    }
+    // With the scope forced open, the held asset appears and is ZERO with a
+    // stated reason, which is the basis doing the work rather than the scope.
+    {
+      const open = ls.map((l) => ({ ...l, assetScopeOverride: 'all' as const }));
+      const openDisplay = computeSellingCosts({
+        revenue: REV_SOURCE,
+        assets: ASSETS,
+        linesForAsset: (assetId) => {
+          const a = ASSETS.find((x) => x.id === assetId)!;
+          return assetVisibleLines(open, a.phaseId, a.id, a.strategy).map((l) => ({
+            id: l.id, name: l.name, method: l.method, value: l.value, catalogId: resolveCatalogId(l),
+          }));
+        },
+        rateFor: (_a, _l, v) => v,
+        sells: (st) => assetStrategySells(st as AssetStrategy),
+        fallbackBasis: (assetId) => computeAssetRevenue(ASSETS.find((x) => x.id === assetId)!, SUBUNITS),
+      });
+      const held = openDisplay.rows.filter((r) => r.assetId === 'a_lease' && r.method === 'percent_of_revenue_sale');
+      check(`I5 [${shapeName}] a held asset on a sale basis is ZERO`,
+        held.length > 0 && held.every((r) => r.amount === 0),
+        held.map((r) => String(r.amount)).join(','));
+      check(`I6 [${shapeName}] and it STATES why, rather than showing a bare zero`,
+        held.every((r) => /held and operated, not sold/.test(r.note)),
+        held.map((r) => r.note).join(' | '));
+      check(`I7 [${shapeName}] the reason is the basis, not a missing snapshot`,
+        held.every((r) => r.basis.fromRevenueModule && r.basis.reason === 'no_sale_on_held_asset'));
+    }
+  }
+
+  // COMMISSION FOLLOWS THE IDENTICAL PATTERN. Anything true of marketing above
+  // must be true of commission, or the two have diverged.
+  const ls = lines2();
+  const mk = byIdentity(ls, 'marketing');
+  const cm = byIdentity(ls, 'commission');
+  check('I8 both selling lines resolve through the same basis machinery',
+    isSellingCostMethod(mk.method) && isSellingCostMethod(cm.method));
+  check('I9 and both are scoped to selling assets',
+    deriveAssetScope(mk) === 'selling' && deriveAssetScope(cm) === 'selling');
+
+  // THE ENGINE DOES NOT MULTIPLY. If a second multiplication appears in the cost
+  // engine for these methods, the two surfaces can drift again.
+  const ENGINE = read('src/core/calculations/index.ts');
+  const caseBlock = /case 'percent_of_revenue_cash':[\s\S]*?\n      \);/.exec(ENGINE)?.[0] ?? '';
+  check('I10 the engine routes all three methods through the shared helper',
+    /sellingCostAmount\(/.test(caseBlock) && /resolveSellingCostBasis\(/.test(caseBlock), caseBlock.slice(0, 80));
+  const codeOnly = caseBlock.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+  check('I11 and does no arithmetic of its own there',
+    !/clamp\(v, 0, 100\)/.test(codeOnly) && !/\* \(/.test(codeOnly), codeOnly.slice(0, 120));
 }
 
 console.log(`\n=== ${pass} passed, ${fail} failed ===`);

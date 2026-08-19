@@ -68,7 +68,8 @@ import {
   COST_ASSET_SCOPE_LABELS,
   type CostAssetScope,
 } from '../../lib/state/module1-types';
-import { resolvePhasingSource, isParcelDrivenLandLine, collectionsForAsset, collectionsTotalForAsset, saleRevenueTotalForAsset, totalRevenueTotalForAsset, phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
+import { resolvePhasingSource, isParcelDrivenLandLine, collectionsForAsset, phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
+import { resolveSellingCostBasis, type RevenueSource } from '@/src/core/calculations/revenue/sellingCosts';
 import {
   mergeCatalog,
   resolveCatalogId,
@@ -592,14 +593,11 @@ interface CostRowProps {
   // M2.0L Fix 2 (2026-05-11): when true, edits route to the cost line
   // directly (no per-asset overrides). Used by Same-mode rendering.
   editsGoToLine?: boolean;
-  /** 2026-08-16: total sales cash collected for this asset, so a revenue-based
-   *  row can say when the cash basis and the sale basis differ. */
-  collectionsTotal?: number;
-  /** The revenue bases from the revenue module (2026-08-19), so a row can name
-   *  what its percentage is charged ON rather than printing a bare figure. Both
-   *  optional: absent means no revenue snapshot, which the caption says. */
-  saleRevenueTotal?: number;
-  totalRevenueTotal?: number;
+  /** The revenue snapshot (2026-08-19). A row names what its percentage is
+   *  charged ON rather than printing a bare figure, and a revenue-based row can
+   *  say when the cash basis and the sale basis differ. Absent means no
+   *  snapshot, which the caption says rather than silently falling back. */
+  revenue?: RevenueSource;
   /** 2026-08-17: the window the ENGINE spent this line in, and why. The row
    *  renders this rather than the stored window, so a line following a derived
    *  source cannot show one window while the model uses another. */
@@ -636,7 +634,7 @@ function CostRow({
   asset, line, override, total, isLocked,
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
   currency, scale, decimals, periodLabel, constructionPeriods, subUnits,
-  metrics, editsGoToLine, collectionsTotal, saleRevenueTotal, totalRevenueTotal,
+  metrics, editsGoToLine, revenue,
   resolvedWindow, selectedBase, resolvedSchedule, visibleLines,
   phaseAssets = [], allOverrides = [],
   catalogEntries, onAddCatalogEntry,
@@ -842,9 +840,16 @@ function CostRow({
   // so this says so only when it actually does, on the row that is affected.
   const basisNote: string | null = (() => {
     if (effMethod !== 'percent_of_revenue_cash' && effMethod !== 'percent_of_revenue_sale') return null;
-    const gross = metrics.totalRevenue ?? 0;
-    if (gross <= 0 || collectionsTotal === undefined) return null;
-    const rel = collectionsTotal / gross - 1;
+    // BOTH SIDES FROM THE SHARED RESOLVER (2026-08-19, Pass C). This compared
+    // collections against `metrics.totalRevenue`, the sub-unit product, which is
+    // no longer what either method charges on, so the note could fire on a
+    // divergence neither basis had.
+    const cash = resolveSellingCostBasis(revenue, asset.id, 'percent_of_revenue_cash', metrics.totalRevenue ?? 0);
+    const sale = resolveSellingCostBasis(revenue, asset.id, 'percent_of_revenue_sale', metrics.totalRevenue ?? 0);
+    if (!cash.fromRevenueModule || !sale.fromRevenueModule) return null;
+    const gross = sale.amount;
+    if (gross <= 0) return null;
+    const rel = cash.amount / gross - 1;
     if (Math.abs(rel) <= BASIS_DIVERGENCE_TOL) return null;
     const pct = (rel * 100).toFixed(1);
     return effMethod === 'percent_of_revenue_cash'
@@ -1399,9 +1404,9 @@ function CostRow({
               <div
                 style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
                 data-testid={`cost-${asset.id}-${line.id}-caption`}
-                title={costLineCaption({ line, override, asset, metrics, parkingBays: asset.parkingBaysRequired ?? 0, resolvedTotal: total, selectedTotal: selectedBase, collectionsTotal, saleRevenueTotal, totalRevenueTotal })}
+                title={costLineCaption({ line, override, asset, metrics, parkingBays: asset.parkingBaysRequired ?? 0, resolvedTotal: total, selectedTotal: selectedBase, revenue })}
               >
-                {costLineCaption({ line, override, asset, metrics, parkingBays: asset.parkingBaysRequired ?? 0, resolvedTotal: total, selectedTotal: selectedBase, collectionsTotal, saleRevenueTotal, totalRevenueTotal })}
+                {costLineCaption({ line, override, asset, metrics, parkingBays: asset.parkingBaysRequired ?? 0, resolvedTotal: total, selectedTotal: selectedBase, revenue })}
               </div>
             )}
           </>
@@ -2321,19 +2326,14 @@ interface AssetCostSectionProps {
   onAddCatalogEntry?: (draft: { label: string; method: CostMethod; stage: CostStage; phasingSource: CapexPhasingSource }) => Promise<void>;
   /** 2026-08-15: writes Asset.capexPhasing (the one curve for this asset). */
   onUpdateAsset?: (assetId: string, patch: Partial<Asset>) => void;
-  /** 2026-08-16: total sales cash collected for this asset, passed to the row
-   *  so a revenue-based line can say when cash and sale bases differ. */
-  collectionsTotal?: number;
-  /** The revenue bases from the revenue module (2026-08-19), so a row can name
-   *  what its percentage is charged ON rather than printing a bare figure. Both
-   *  optional: absent means no revenue snapshot, which the caption says. */
-  saleRevenueTotal?: number;
-  totalRevenueTotal?: number;
+  /** The revenue snapshot (2026-08-19), passed to each row so it names what its
+   *  percentage is charged ON and can say when the cash and sale bases differ. */
+  revenue?: RevenueSource;
 }
 
 function AssetCostSection({
   asset, lines, costOverrides, phaseAssets, allOverrides, breakdown, currency, scale, decimals, periodLabel, constructionPeriods, subUnits,
-  metrics, collectionsTotal, saleRevenueTotal, totalRevenueTotal,
+  metrics, revenue,
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
   onAddCustom, onInsertNear, onMoveLine, onUpdateAsset,
   catalogEntries, onAddCatalogEntry,
@@ -2468,9 +2468,7 @@ function AssetCostSection({
                     visibleLines={lines}
                     phaseAssets={phaseAssets}
                     allOverrides={allOverrides}
-                    collectionsTotal={collectionsTotal}
-                    saleRevenueTotal={saleRevenueTotal}
-                    totalRevenueTotal={totalRevenueTotal}
+                    revenue={revenue}
                     catalogEntries={catalogEntries}
                     onAddCatalogEntry={onAddCatalogEntry}
                     onMove={onMoveLine
@@ -3187,17 +3185,16 @@ interface SameModeCostTableProps {
   // (asset reverts to master).
   onUpdateOverride: (override: CostOverride) => void;
   onRemoveOverride: (assetId: string, lineId: string) => void;
-  /** Per-asset revenue bases (2026-08-19), so this grid's captions state the
-   *  same figures the engine charged on. Keyed by asset id; an absent entry
-   *  means no revenue snapshot for that asset. */
-  revenueBasisByAsset?: Map<string, { collectionsTotal?: number; saleRevenueTotal?: number; totalRevenueTotal?: number }>;
+  /** The revenue snapshot (2026-08-19), so this grid's captions state the same
+   *  figures the engine charged on. */
+  revenue?: RevenueSource;
 }
 
 function SameModeCostTable({
   phaseId, phaseName, constructionPeriods, phaseAssets,
   lines, costOverrides, breakdowns, currency, scale, decimals, periodLabel,
   subUnits, metricsByAsset, onUpdateLine, onRemoveLine, onAddCustom,
-  onUpdateOverride, onRemoveOverride, revenueBasisByAsset,
+  onUpdateOverride, onRemoveOverride, revenue,
 }: SameModeCostTableProps): React.JSX.Element {
   // M2.0L Pass2 Fix 4 + Fix 10 (2026-05-11): Same mode renders ONE
   // editable master cost table (top) + per-asset read-only replicas
@@ -3409,12 +3406,10 @@ function SameModeCostTable({
                           metrics: m,
                           parkingBays: a.parkingBaysRequired ?? 0,
                           resolvedTotal: lineTotal,
-                          // The same bases the engine charged on, per asset, so
-                          // this grid's caption cannot name a different figure
-                          // from the per-asset rows above it (2026-08-19).
-                          collectionsTotal: revenueBasisByAsset?.get(a.id)?.collectionsTotal,
-                          saleRevenueTotal: revenueBasisByAsset?.get(a.id)?.saleRevenueTotal,
-                          totalRevenueTotal: revenueBasisByAsset?.get(a.id)?.totalRevenueTotal,
+                          // The same snapshot the engine charged on, so this
+                          // grid's caption cannot name a different figure from
+                          // the per-asset rows above it (2026-08-19).
+                          revenue,
                         });
                         // M2.0M Pass 6 Fix 7: locked lines (Land Cash /
                         // Land In-Kind / Auto-IDC) flow from upstream
@@ -3724,9 +3719,7 @@ export default function Module1Costs(): React.JSX.Element {
           asset: a, project, phase, parcels, assets, subUnits, costLines, costOverrides,
           landAllocationMode, parcelFunding,
           collectionsPerPeriod: collectionsForAsset(sellSnap, a.id, phase, projectStartYearForCollections),
-          collectionsTotal: collectionsTotalForAsset(sellSnap, a.id),
-          saleRevenueTotal: saleRevenueTotalForAsset(sellSnap, a.id),
-          totalRevenueTotal: totalRevenueTotalForAsset(sellSnap, a.id),
+          revenue: sellSnap,
         });
       }
       return { phaseId: phase.id, phaseName: phase.name, cp: phase.constructionPeriods, phaseAssets, assetTotals };
@@ -4722,9 +4715,7 @@ export default function Module1Costs(): React.JSX.Element {
                 metrics={assetMetrics}
                 onUpdateLine={(lineId, patch) => updateCostLine(lineId, patch)}
                 onUpdateAsset={(assetId, patch) => updateAsset(assetId, patch)}
-                collectionsTotal={collectionsTotalForAsset(sellSnap, activeAsset.id)}
-                saleRevenueTotal={saleRevenueTotalForAsset(sellSnap, activeAsset.id)}
-                totalRevenueTotal={totalRevenueTotalForAsset(sellSnap, activeAsset.id)}
+                revenue={sellSnap}
                 onUpdateOverride={(override) => setCostOverride(override)}
                 onRemoveOverride={(assetId, lineId) => removeCostOverride(assetId, lineId)}
                 onRemoveLine={(lineId) => {

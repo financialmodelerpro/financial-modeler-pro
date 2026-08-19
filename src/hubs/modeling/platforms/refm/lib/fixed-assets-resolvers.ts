@@ -33,7 +33,7 @@ import {
   computeProjectTimeline,
   resolveUsefulLifeYears,
 } from '@/src/core/calculations';
-import { collectionsForAssetAtOffset, collectionsTotalForAsset, saleRevenueTotalForAsset, totalRevenueTotalForAsset, type CollectionsSource } from '@/src/core/calculations/capexPhasing';
+import { collectionsForAssetAtOffset, type CollectionsSource } from '@/src/core/calculations/capexPhasing';
 import {
   computeAssetFixedAssets,
   type AssetFixedAssetResult,
@@ -223,15 +223,7 @@ export function computeAllFixedAssetResults(state: ResolverState): ProjectFixedA
       landAllocationMode: state.landAllocationMode,
       parcelFunding: project.financing?.parcelFunding,
       collectionsPerPeriod: collectionsForAssetAtOffset(state.revenue, asset.id, offset, phase),
-      collectionsTotal: collectionsTotalForAsset(state.revenue, asset.id),
-        // The revenue bases (2026-08-19). Passed HERE as well as at the
-        // financing aggregate, because a site that omits them falls back to
-        // metrics.totalRevenue, the old sub-unit product, and the same cost
-        // line then has two values depending on which surface asks. Measured
-        // before this: the financing aggregate and the per-asset Cash Flow
-        // disagreed by 497,134.24 on FMP - MARINA GATE.
-      saleRevenueTotal: saleRevenueTotalForAsset(state.revenue, asset.id),
-      totalRevenueTotal: totalRevenueTotalForAsset(state.revenue, asset.id),
+      revenue: state.revenue,
     });
 
     // Project onto the project axis.

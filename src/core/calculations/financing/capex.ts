@@ -12,7 +12,7 @@ import type {
 } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { COST_STAGES } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { computeAssetCost, deriveCostStage } from '../index';
-import { collectionsForAssetAtOffset, collectionsTotalForAsset, saleRevenueTotalForAsset, totalRevenueTotalForAsset, phaseLocalToProjectIndex, type CollectionsSource } from '../capexPhasing';
+import { collectionsForAssetAtOffset, phaseLocalToProjectIndex, type CollectionsSource } from '../capexPhasing';
 import type { CapexAggregate, ProjectAxis } from './types';
 
 export interface CapexInputs {
@@ -105,12 +105,10 @@ export function aggregateProjectCapex(inputs: CapexInputs, axis: ProjectAxis): C
         // re-deriving one from dates: two sources for the same number is how
         // the financing schedule ends up a period out from the P&L.
         collectionsPerPeriod: collectionsForAssetAtOffset(inputs.revenue, asset.id, offset, phase),
-        collectionsTotal: collectionsTotalForAsset(inputs.revenue, asset.id),
-        // The revenue bases, from the revenue module (2026-08-19). Same
-        // one-directional link as the collections above: revenue depends on
-        // sub-units and phases, never on cost.
-        saleRevenueTotal: saleRevenueTotalForAsset(inputs.revenue, asset.id),
-        totalRevenueTotal: totalRevenueTotalForAsset(inputs.revenue, asset.id),
+        // The revenue snapshot (2026-08-19). Same one-directional link as the
+        // collections series above: revenue depends on sub-units and phases and
+        // never on cost, so it is fully resolved before any cost is valued.
+        revenue: inputs.revenue,
       });
       // Per-line computed totals (summed across every asset that draws on
       // the line). byLineId already carries the asset's resolved amount.

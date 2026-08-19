@@ -10,8 +10,7 @@
  *   BEFORE  computeAssetCost without them -> falls back to metrics.totalRevenue,
  *           which is the sub-unit product metricValue x unitPrice summed over
  *           Sellable AND Operable AND Leasable (the old behaviour exactly)
- *   AFTER   computeAssetCost with saleRevenueTotal / totalRevenueTotal from the
- *           revenue module
+ *   AFTER   computeAssetCost with the revenue snapshot
  *
  * Any difference is a number that moves, and it must be reported rather than
  * discovered later.
@@ -22,11 +21,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { readFileSync } from 'node:fs';
 import { computeAssetCost } from '@/src/core/calculations';
-import {
-  collectionsTotalForAsset,
-  saleRevenueTotalForAsset,
-  totalRevenueTotalForAsset,
-} from '@/src/core/calculations/capexPhasing';
 import { computeAllSellResults } from '@/src/hubs/modeling/platforms/refm/lib/revenue-resolvers';
 import type { Asset, CostLine, CostOverride, Parcel, Phase, SubUnit, LandAllocationMode, Project } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
@@ -84,12 +78,8 @@ async function main(): Promise<void> {
       const ph = phases.find((p) => p.id === a.phaseId);
       if (!ph) continue;
       const before = computeAssetCost({ ...base, asset: a, phase: ph } as never);
-      const after = computeAssetCost({
-        ...base, asset: a, phase: ph,
-        collectionsTotal: collectionsTotalForAsset(rev, a.id),
-        saleRevenueTotal: saleRevenueTotalForAsset(rev, a.id),
-        totalRevenueTotal: totalRevenueTotalForAsset(rev, a.id),
-      } as never);
+      // AFTER: the revenue snapshot, the single input since Pass C.
+      const after = computeAssetCost({ ...base, asset: a, phase: ph, revenue: rev } as never);
       beforeTotal += before.total; afterTotal += after.total;
       for (const l of costLines) {
         if (l.phaseId !== a.phaseId || !REVENUE_METHODS.has(l.method)) continue;

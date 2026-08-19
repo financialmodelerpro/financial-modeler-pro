@@ -45,7 +45,11 @@ import {
   type SellAssetResult,
 } from '@/src/core/calculations/revenue';
 import type { Asset, SubUnit } from '../../lib/state/module1-types';
-import { computeProjectTimeline, computeSubUnitArea } from '@/src/core/calculations';
+import { computeProjectTimeline, computeSubUnitArea, computeAssetRevenue } from '@/src/core/calculations';
+import { computeSellingCosts, type SellingCostRow } from '@/src/core/calculations/revenue/sellingCosts';
+import { assetVisibleLines } from '@/src/core/calculations/selectedBase';
+import { assetStrategySells, type CostLine, type CostOverride } from '../../lib/state/module1-types';
+import { resolveCatalogId } from '../../lib/state/costCatalog';
 import {
   formatAccounting,
   formatArea,
@@ -561,8 +565,8 @@ function buildProjectGroupedRows({
 }
 
 export default function Module2RevenueOutput(): React.JSX.Element {
-  const { project, phases, assets, subUnits } = useModule1Store(
-    useShallow((s) => ({ project: s.project, phases: s.phases, assets: s.assets, subUnits: s.subUnits })),
+  const { project, phases, assets, subUnits, costLines, costOverrides } = useModule1Store(
+    useShallow((s) => ({ project: s.project, phases: s.phases, assets: s.assets, subUnits: s.subUnits, costLines: s.costLines, costOverrides: s.costOverrides })),
   );
 
   const snap = useMemo(
@@ -1058,6 +1062,25 @@ export default function Module2RevenueOutput(): React.JSX.Element {
 
       {/* M2 Pass 9M (2026-05-21): asset quick-nav strip at top of Output. */}
       <AssetQuickNav assets={assets} idPrefix="m2-out-asset" testidPrefix="m2-out-nav" />
+
+      {/* SELLING COSTS, OWNED BY REVENUE (2026-08-19, Pass C).
+
+          A marketing budget and a sales commission are percentages of REVENUE,
+          so the calculation belongs here, beside the revenue it is charged on,
+          and not in the Capex tab where only the RATE is typed. The Capex
+          engine reads the very same function, so the figure below and the
+          figure in the model are one calculation rather than two that agree. */}
+      <SellingCostsSection
+        revenue={snap}
+        assets={assets}
+        phases={phases}
+        costLines={costLines}
+        costOverrides={costOverrides}
+        subUnits={subUnits}
+        fmt={fmt}
+        currency={currency}
+        scale={scale}
+      />
 
       {/* Pass 9e-8 (2026-05-18): strategy-first grouping per user.
           Outer sections are Residential / Sell, Hospitality / Operations,
@@ -1558,5 +1581,150 @@ function PhaseDivider({ title, meta, count }: { title: string; meta?: string; co
     </div>
   );
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// SELLING COSTS
+//
+// THE CALCULATION LIVES HERE, and the Capex engine reads it. Both call
+// `computeSellingCosts` / `sellingCostAmount` in
+// `core/calculations/revenue/sellingCosts.ts`, so the row below and the cost the
+// model charges are one calculation. Before this the engine multiplied the rate
+// out itself and nothing rendered in Revenue at all.
+//
+// THE RATE IS STILL A CAPEX INPUT, deliberately: a user types a cost rate where
+// cost rates are typed. Only the BASE, and now the multiplication, belong to
+// Revenue.
+//
+// A HELD ASSET SHOWS ZERO WITH ITS REASON, never a fallback. That distinction is
+// the whole point: a hotel has no sale value, so a selling cost on it is
+// genuinely zero, where the old basis charged it on one night's ADR.
+// ════════════════════════════════════════════════════════════════════════════
+
+function SellingCostsSection(props: {
+  revenue: ProjectRevenueSnapshot;
+  assets: Asset[];
+  phases: Array<{ id: string; name: string }>;
+  costLines: CostLine[];
+  costOverrides: CostOverride[];
+  subUnits: SubUnit[];
+  fmt: (n: number) => string;
+  currency: string;
+  scale: DisplayScale;
+}): React.JSX.Element | null {
+  const { revenue, assets, phases, costLines, costOverrides, subUnits, fmt, currency, scale } = props;
+
+  const result = useMemo(() => computeSellingCosts({
+    revenue,
+    assets: assets.filter((a) => a.visible !== false),
+    // THE SHARED VISIBILITY RULE, so a line hidden from an asset on the Capex
+    // tab cannot appear here either. Passing the asset's strategy is what scopes
+    // a selling cost to the assets that sell.
+    linesForAsset: (assetId) => {
+      const a = assets.find((x) => x.id === assetId);
+      if (!a) return [];
+      return assetVisibleLines(costLines, a.phaseId, a.id, a.strategy).map((l) => ({
+        id: l.id, name: l.name, method: l.method, value: l.value, catalogId: resolveCatalogId(l),
+      }));
+    },
+    // The per-asset override wins exactly as it does in the engine.
+    rateFor: (assetId, lineId, lineValue) => {
+      const ov = costOverrides.find((o) => o.assetId === assetId && o.lineId === lineId);
+      if (ov && ov.overridden !== false && ov.value !== undefined) return ov.value;
+      return lineValue;
+    },
+    sells: (strategy) => assetStrategySells(strategy as Asset['strategy']),
+    // Only reached when NO revenue snapshot exists, which cannot happen here;
+    // supplied so the shape is honest rather than a lie by omission.
+    fallbackBasis: (assetId) => {
+      const a = assets.find((x) => x.id === assetId);
+      return a ? computeAssetRevenue(a, subUnits) : 0;
+    },
+  }), [revenue, assets, costLines, costOverrides, subUnits]);
+
+  if (result.rows.length === 0) return null;
+
+  const phaseName = (id: string): string => phases.find((p) => p.id === id)?.name ?? id;
+  const th: React.CSSProperties = { textAlign: 'right', padding: '6px 10px', fontSize: 11 };
+  const thL: React.CSSProperties = { ...th, textAlign: 'left' };
+  const td: React.CSSProperties = { textAlign: 'right', padding: '5px 10px', fontSize: 11, borderBottom: '1px solid var(--color-border)' };
+  const tdL: React.CSSProperties = { ...td, textAlign: 'left' };
+
+  const byName = new Map<string, SellingCostRow[]>();
+  for (const r of result.rows) {
+    const k = r.catalogId ?? r.lineName;
+    byName.set(k, [...(byName.get(k) ?? []), r]);
+  }
+
+  return (
+    <section data-testid="m2-selling-costs" style={{ marginBottom: 'var(--sp-3)' }}>
+      <div style={{
+        background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)',
+        padding: '6px 12px', borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
+        fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em',
+      }}>
+        Selling Costs ({currencyHeaderLine(currency, scale)})
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--color-meta)', padding: '6px 12px', background: 'var(--color-surface)', borderLeft: '1px solid var(--color-border)', borderRight: '1px solid var(--color-border)' }}>
+        Marketing and commission are percentages of revenue, so they are computed here and the
+        Capex tab reads the result. The <strong>rate</strong> is still typed on Capex; the
+        <strong> basis</strong> is the revenue figure named on each row. An asset that is held and
+        operated has no sale, so a selling cost on it is zero and says so.
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, background: 'var(--color-surface)' }}>
+          <thead>
+            <tr style={{ background: 'var(--color-navy-pale)' }}>
+              <th style={thL}>Asset</th>
+              <th style={thL}>Phase</th>
+              <th style={thL}>Strategy</th>
+              <th style={thL}>Line</th>
+              <th style={th}>Rate</th>
+              <th style={thL}>Basis</th>
+              <th style={th}>Basis amount</th>
+              <th style={th}>Cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            {result.rows.map((r) => (
+              <tr key={`${r.assetId}::${r.lineId}`} data-testid={`m2-selling-cost-${r.assetId}-${r.lineId}`}>
+                <td style={tdL}>{r.assetName}</td>
+                <td style={tdL}>{phaseName(r.phaseId)}</td>
+                <td style={tdL}>{r.strategy}</td>
+                <td style={tdL}>{r.lineName}</td>
+                <td style={td}>{r.ratePct.toFixed(2)}%</td>
+                <td style={tdL}>{r.basis.label}</td>
+                <td style={td}>{fmt(r.basis.amount)}</td>
+                <td style={{ ...td, fontWeight: 700 }}>{fmt(r.amount)}</td>
+              </tr>
+            ))}
+            {result.rows.some((r) => r.note) && (
+              <tr>
+                <td colSpan={8} style={{ ...tdL, background: 'var(--color-bg)', fontStyle: 'italic', color: 'var(--color-meta)' }}>
+                  {result.rows.filter((r) => r.note).map((r) => (
+                    <div key={`${r.assetId}::${r.lineId}::note`} data-testid={`m2-selling-cost-note-${r.assetId}-${r.lineId}`}>
+                      <strong>{r.assetName} / {r.lineName}:</strong> {r.note}
+                    </div>
+                  ))}
+                </td>
+              </tr>
+            )}
+          </tbody>
+          <tfoot>
+            <tr style={{ background: 'var(--color-navy-pale)', fontWeight: 700 }}>
+              <td colSpan={7} style={{ ...tdL, textAlign: 'right' }}>Total selling costs</td>
+              <td style={{ ...td, fontWeight: 800 }} data-testid="m2-selling-costs-total">{fmt(result.total)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <div style={{ fontSize: 10, color: 'var(--color-meta)', padding: '6px 12px', fontStyle: 'italic' }}>
+        {Array.from(byName.keys()).length} selling cost {Array.from(byName.keys()).length === 1 ? 'line' : 'lines'} across{' '}
+        {new Set(result.rows.map((r) => r.assetId)).size} asset{new Set(result.rows.map((r) => r.assetId)).size === 1 ? '' : 's'}.
+        These are the same figures the Capex tab charges: one calculation, read by both.
+      </div>
+    </section>
+  );
+}
+
 
 export type { SellAssetResult };

@@ -24,6 +24,7 @@ import path from 'node:path';
 
 import { computeAssetCost } from '../src/core/calculations';
 import { collectionsForAsset, collectionsForAssetAtOffset } from '../src/core/calculations/capexPhasing';
+import type { RevenueSource } from '../src/core/calculations/revenue/sellingCosts';
 import { buildRevenueBasisAdvisories, revenueBasisAdvisoryText } from '../src/hubs/modeling/platforms/refm/lib/reports/checksReport';
 import {
   makeDefaultPhase, makeDefaultProject, makeBlankCostLines,
@@ -40,19 +41,22 @@ const ROOT = path.resolve(__dirname, '..');
 const read = (rel: string): string =>
   fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
 
-// ── A. EVERY REACHABLE CALL SITE PASSES COLLECTIONS, AND THE REVENUE BASES ──
+// ── A. EVERY REACHABLE CALL SITE PASSES COLLECTIONS, AND THE REVENUE SNAPSHOT ──
 //
 // Each entry is a file that calls computeAssetCost, with why it does or does
 // not need each input. A new call site that is not registered fails A3.
 //
 // TWO SEPARATE DIMENSIONS, and the difference is what a 2026-08-19 defect was
-// made of. `collections` drives PHASING (when a line's money lands) and the
-// `bases` drive the AMOUNT of a percent-of-revenue line. A site can legitimately
-// need one and not the other: `computeAssetCapex` reads `.total` only, so
-// phasing cannot move its answer, but the bases certainly can. Registering one
-// flag for both would have hidden exactly that, and did: the site's recorded
-// reason, "phasing cannot move a total", was true and was quietly taken as
-// permission to omit everything.
+// made of. `collections` drives PHASING (when a line's money lands) and
+// `revenue` drives the AMOUNT of a percent-of-revenue line. A site can
+// legitimately need one and not the other: `computeAssetCapex` reads `.total`
+// only, so phasing cannot move its answer, but a revenue base certainly can.
+// Registering one flag for both hid exactly that: the site's recorded reason,
+// "phasing cannot move a total", was true and was quietly taken as permission to
+// omit everything (TRAPS 7.26).
+//
+// Pass C then replaced three separate basis figures with ONE `revenue` input, so
+// the `bases` flag now asks a single question: does this call pass the snapshot.
 const SITES: Array<{ file: string; wired: boolean; bases: boolean; why: string }> = [
   { file: 'src/core/calculations/index.ts', wired: false, bases: false,
     why: 'computePhaseCost: an internal rollup whose caller already resolved both' },
@@ -109,11 +113,12 @@ for (const s of SITES) {
 }
 
 /**
- * Does any `computeAssetCost({...})` CALL in this text pass the revenue bases?
+ * Does any `computeAssetCost({...})` CALL in this text pass the revenue snapshot?
  *
  * Same per-call scoping as the collections scanner above, for the same reason:
- * searching the whole file answers "is the word present", and both
- * `capexPhasing.ts` and `index.ts` mention these names without passing them.
+ * searching the whole file answers "is the word present", and several files
+ * mention `revenue` without passing it to this call. Matches the shorthand
+ * `revenue,` as well as `revenue: x`, since both are how a caller passes it.
  */
 function anyCallPassesBases(text: string): boolean {
   let i = 0;
@@ -129,7 +134,7 @@ function anyCallPassesBases(text: string): boolean {
       else if (c === ')' || c === '}' || c === ']') depth -= 1;
       j += 1;
     } while (j < text.length && depth > 0);
-    if (/saleRevenueTotal\s*:/.test(text.slice(start, j))) return true;
+    if (/\brevenue\s*[:,]/.test(text.slice(start, j))) return true;
     i = j;
   }
 }
@@ -236,10 +241,29 @@ check('A5 the financing path uses the AXIS offset, not a date-derived one',
     stage: 'soft', scope: 'direct', allocationBasis: 'per_asset',
     startPeriod: 1, endPeriod: 2, phasing: 'even',
   } as unknown as CostLine);
-  const amount = (method: string, collectionsTotal?: number): number => computeAssetCost({
+  /**
+   * A revenue snapshot shaped like the real one. Since Pass C the bases come
+   * from ONE input, so the fixture supplies a snapshot rather than a loose
+   * figure per method. Sale value stays at the 1,000,000 list value and the
+   * collections vary, which is what separates the cash basis from the sale
+   * basis.
+   */
+  const revenueWith = (collected?: number): RevenueSource | undefined => {
+    if (collected === undefined) return undefined;
+    return {
+      bySellAsset: new Map([['a1', {
+        presalesRevenuePerPeriod: [1_000_000],
+        postSalesRevenuePerPeriod: [0],
+        cashCollectedPerPeriod: [collected],
+      }]]),
+      byHospitalityAsset: new Map(),
+      byLeaseAsset: new Map(),
+    };
+  };
+  const amount = (method: string, collected?: number): number => computeAssetCost({
     asset, project: project as never, phase: phase as never, parcels: [] as never,
     assets: [asset], subUnits, costLines: [line(method)], costOverrides: [],
-    landAllocationMode: 'autoByBua', collectionsTotal,
+    landAllocationMode: 'autoByBua', revenue: revenueWith(collected),
   }).byLineId['fee__p1'] ?? 0;
 
   check('D1 sale basis charges on GROSS list value',
@@ -252,7 +276,7 @@ check('A5 the financing path uses the AXIS offset, not a date-derived one',
     amount('percent_of_revenue_cash', 600_000) !== amount('percent_of_revenue_sale', 600_000));
   check('D4 ...and agree when every sale is collected (the ordinary case)',
     Math.abs(amount('percent_of_revenue_cash', 1_000_000) - amount('percent_of_revenue_sale', 1_000_000)) < 1e-9);
-  check('D5 with NO collections supplied the cash basis falls back to gross (unchanged behaviour)',
+  check('D5 with NO revenue snapshot the cash basis falls back to gross (unchanged behaviour)',
     Math.abs(amount('percent_of_revenue_cash') - 100_000) < 1e-9, String(amount('percent_of_revenue_cash')));
   check('D6 percent_of_total_revenue stays on gross',
     Math.abs(amount('percent_of_total_revenue', 600_000) - 100_000) < 1e-9);
