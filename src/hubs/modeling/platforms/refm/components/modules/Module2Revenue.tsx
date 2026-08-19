@@ -28,6 +28,7 @@ import { useModule1Store } from '../../lib/state/module1-store';
 import type { Asset, SubUnit, Phase, Project } from '../../lib/state/module1-types';
 import { computeProjectTimeline, computeSubUnitArea } from '@/src/core/calculations';
 import { formatArea, formatAccounting } from '@/src/core/formatters';
+import { resolveDownpayment } from '@/src/core/calculations/revenue/cohortTerms';
 import { PercentageInput } from '../ui/PercentageInput';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { CELL_HEADER } from './_shared/tableStyles';
@@ -854,24 +855,34 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   // makes a cohort grid a grid. It is stored phase-local only (it is a new
   // field with no legacy axis-indexed twin to keep in step), so the strip
   // expands to the project axis for display and converts back on write.
-  const downpaymentAxis = ((): number[] => {
-    const axis = new Array<number>(Math.max(0, totalPeriods)).fill(0);
-    const arr = sellConfig?.downpaymentByPhase ?? [];
-    for (let i = 0; i < arr.length; i++) {
-      const j = phaseOffset + i;
-      if (j >= 0 && j < axis.length) axis[j] = arr[i] ?? 0;
-    }
-    return axis;
-  })();
+  // The displayed value and its provenance, per project-axis year. Both come
+  // from `resolveDownpayment` in core, which is the ONE definition of the
+  // forward-fill rule: a year with no value of its own carries the last year
+  // that had one, and says so. If the screen worked that out for itself the
+  // caption could promise something the model would not do.
+  const downpaymentAxis = new Array<number>(Math.max(0, totalPeriods)).fill(0);
+  const downpaymentStates: Record<number, 'set' | 'inherited' | 'unset'> = {};
+  for (const c of constructionWindow) {
+    const local = c.idx - phaseOffset;
+    const r = resolveDownpayment(sellConfig?.downpaymentByPhase, local);
+    downpaymentAxis[c.idx] = r.value;
+    downpaymentStates[c.idx] = r.source;
+  }
 
   const setDownpayment = (periodIdx: number, pct: number): void => {
     const value = Math.max(0, Math.min(1, pct / 100));
-    const phaseLen = Math.max(0, totalPeriods - phaseOffset);
-    const next = new Array<number>(phaseLen).fill(0);
-    const existing = sellConfig?.downpaymentByPhase ?? [];
-    for (let i = 0; i < phaseLen; i++) next[i] = existing[i] ?? 0;
     const localIdx = periodIdx - phaseOffset;
-    if (localIdx >= 0 && localIdx < phaseLen) next[localIdx] = value;
+    if (localIdx < 0) return;
+    // PRESERVE NULLS. Filling untouched years with 0 would erase the
+    // difference between "no deposit taken" and "not decided yet", which is the
+    // distinction the strip exists to show. Only the edited year is written.
+    const existing = sellConfig?.downpaymentByPhase ?? [];
+    const next: Array<number | null> = [];
+    for (let i = 0; i <= Math.max(localIdx, existing.length - 1); i++) {
+      const v = existing[i];
+      next.push(typeof v === 'number' && Number.isFinite(v) ? v : null);
+    }
+    next[localIdx] = value;
     updateSellInline({ downpaymentByPhase: next });
   };
 
@@ -1538,7 +1549,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
                   values={opOccupancy}
                   onChange={setOperateOccupancy}
                   testidPrefix={`m2-asset-${asset.id}-occ`}
-                  showCumulative={false}
+                  summary="avg"
                   label="Occupancy"
                 />
               </InlineSection>
@@ -1743,7 +1754,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
                     values={opKeysParticipation}
                     onChange={setOperateKeysParticipation}
                     testidPrefix={`m2-asset-${asset.id}-pool`}
-                    showCumulative={false}
+                    summary="avg"
                     label="Pool %"
                   />
                   <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 6, fontStyle: 'italic', lineHeight: 1.4 }}>
@@ -1978,7 +1989,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
                   values={leaseOccupancy}
                   onChange={setLeaseOccupancy}
                   testidPrefix={`m2-asset-${asset.id}-lease-occ`}
-                  showCumulative={false}
+                  summary="avg"
                   label="Occupancy"
                 />
               </InlineSection>
@@ -2374,13 +2385,16 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
               </div>
             </div>
             <div style={{ fontSize: 10, color: 'var(--color-meta)', marginBottom: 4 }}>
-              Downpayment by sale year (% of that year&apos;s sale value)
+              Downpayment by sale year (% of that year&apos;s own sale value). These are independent per-cohort terms, so they are not meant to add up to anything. A year you have not set carries the last year you did, marked <em>carried</em>; a year with nothing before it reads <em>not set</em>, which is different from a deliberate 0%.
             </div>
             <InlineProfileStrip
               cells={constructionWindow}
               values={downpaymentAxis}
               onChange={setDownpayment}
               testidPrefix={`m2-cohort-dp-${asset.id}`}
+              label="Downpayment %"
+              summary="none"
+              entryStates={downpaymentStates}
             />
             <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4, fontStyle: 'italic', lineHeight: 1.4 }}>
               <strong>These inputs are stored but not yet used.</strong> Collections still follow the cash payment profile above. When the cohort rule is switched on, a cohort selling in year N will pay its downpayment in year N and the balance in equal instalments over
@@ -2658,19 +2672,33 @@ function InlineGrid({ cells, rows }: { cells: WindowCell[]; rows: InlineGridRow[
   );
 }
 
-function InlineProfileStrip({ cells, values, onChange, testidPrefix, showCumulative = true, label = 'Profile %' }: {
+function InlineProfileStrip({ cells, values, onChange, testidPrefix, summary = 'total', label = 'Profile %', entryStates }: {
   cells: WindowCell[];
   values: number[];
   onChange: (projectIdx: number, pct: number) => void;
   testidPrefix?: string;
-  // Pass 8f (2026-05-18): cash + recognition profiles sum to 100% across
-  // the cohort, so the cumulative row is meaningful. Occupancy is a
-  // per-year rate (no cohort sum semantics), so disable for that case.
-  showCumulative?: boolean;
+  // What the leading summary column means, and whether a cumulative row is
+  // shown at all. Pass 8f (2026-05-18) had this as a boolean, because there
+  // were only two answers: a cash or recognition profile sums to 100% across
+  // the cohort so both are meaningful, and occupancy is a per-year rate so an
+  // average is shown instead.
+  //
+  // 'none' is the third answer (2026-08-19). The downpayment strip holds
+  // INDEPENDENT per-cohort terms, each a percentage of its own sale year's
+  // value, so they do not sum to anything: a total of 80% across four years
+  // would invite a reader to treat 100% as a target it must reach. The
+  // reference model carries neither row on its downpayment line for the same
+  // reason.
+  summary?: 'total' | 'avg' | 'none';
   // Pass 9e (2026-05-18): per-caller row label. Defaults to 'Profile %'
   // for cash + recognition profiles; occupancy passes 'Occupancy'.
   label?: string;
+  // Per-cell provenance, keyed on the project axis index, for strips where an
+  // unset year and a deliberate zero are different statements. Omit entirely
+  // for strips where every cell is simply a number.
+  entryStates?: Record<number, 'set' | 'inherited' | 'unset'>;
 }): React.JSX.Element {
+  const showCumulative = summary === 'total';
   const HEADER_YEAR: React.CSSProperties = { ...CELL_HEADER, minWidth: 55 };
   const HEADER_HANDOVER: React.CSSProperties = { ...HEADER_YEAR, borderBottom: '2px solid var(--color-warning, #f59e0b)' };
   const HEADER_LABEL: React.CSSProperties = { ...CELL_HEADER, textAlign: 'left', minWidth: 140 };
@@ -2683,15 +2711,15 @@ function InlineProfileStrip({ cells, values, onChange, testidPrefix, showCumulat
   const stripAvgPct = nonZeroCount > 0
     ? `${(stripTotal / nonZeroCount * 100).toFixed(1)}%`
     : '-';
-  const summaryLabel = showCumulative ? 'Total' : 'Avg';
-  const summaryValue = showCumulative ? stripTotalPct : stripAvgPct;
+  const summaryLabel = summary === 'total' ? 'Total' : 'Avg';
+  const summaryValue = summary === 'total' ? stripTotalPct : stripAvgPct;
   return (
     <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
       <table style={{ width: '100%', fontSize: 10, borderCollapse: 'collapse' }}>
         <thead>
           <tr>
             <th style={HEADER_LABEL}>{label}</th>
-            <th style={HEADER_TOTAL_CELL}>{summaryLabel}</th>
+            {summary !== 'none' && <th style={HEADER_TOTAL_CELL}>{summaryLabel}</th>}
             {cells.map((c) => (
               <th
                 key={c.idx}
@@ -2708,21 +2736,62 @@ function InlineProfileStrip({ cells, values, onChange, testidPrefix, showCumulat
             <td style={{ padding: '4px 6px', fontWeight: 700, color: 'var(--color-heading)', borderRight: '1px solid var(--color-border)' }}>
               {label}
             </td>
-            <td style={BODY_TOTAL_CELL}>{summaryValue}</td>
-            {cells.map((c) => (
-              <td key={c.idx} style={{ padding: '2px 3px', textAlign: 'center' }}>
-                <PercentageInput
-                  value={(values[c.idx] ?? 0) * 100}
-                  onChange={(n) => onChange(c.idx, n)}
-                  min={0}
-                  max={100}
-                  decimals={2}
-                  style={FAST_INPUT}
-                  data-testid={testidPrefix ? `${testidPrefix}-${c.idx}` : `m2-profile-${c.idx}`}
-                />
-              </td>
-            ))}
+            {summary !== 'none' && <td style={BODY_TOTAL_CELL}>{summaryValue}</td>}
+            {cells.map((c) => {
+              const state = entryStates?.[c.idx];
+              // An unset cell must not read as a decision. It gets a dashed
+              // amber box and a marker row below; an inherited cell gets a
+              // quieter treatment, because it does carry a real value, just
+              // not one typed for this year.
+              const cellStyle: React.CSSProperties = state === 'unset'
+                ? { ...FAST_INPUT, borderStyle: 'dashed', borderColor: 'var(--color-warning, #f59e0b)' }
+                : state === 'inherited'
+                  ? { ...FAST_INPUT, borderStyle: 'dashed', color: 'var(--color-meta)' }
+                  : FAST_INPUT;
+              return (
+                <td key={c.idx} style={{ padding: '2px 3px', textAlign: 'center' }}>
+                  <PercentageInput
+                    value={(values[c.idx] ?? 0) * 100}
+                    onChange={(n) => onChange(c.idx, n)}
+                    min={0}
+                    max={100}
+                    decimals={2}
+                    style={cellStyle}
+                    title={state === 'unset'
+                      ? 'Not set for this year. This is not the same as a zero downpayment.'
+                      : state === 'inherited'
+                        ? 'Carried forward from the last year you set. Type here to set this year explicitly.'
+                        : undefined}
+                    data-testid={testidPrefix ? `${testidPrefix}-${c.idx}` : `m2-profile-${c.idx}`}
+                  />
+                </td>
+              );
+            })}
           </tr>
+          {entryStates !== undefined && (
+            <tr>
+              <td style={{ padding: '4px 6px', fontWeight: 600, color: 'var(--color-meta)', borderRight: '1px solid var(--color-border)' }}>
+                Set for this year
+              </td>
+              {summary !== 'none' && <td style={BODY_TOTAL_CELL} />}
+              {cells.map((c) => {
+                const state = entryStates[c.idx] ?? 'unset';
+                return (
+                  <td
+                    key={c.idx}
+                    style={{
+                      padding: '2px 6px', textAlign: 'center', fontSize: 9, fontWeight: 700,
+                      color: state === 'set' ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)',
+                    }}
+                    title={state === 'set' ? 'Typed for this year' : state === 'inherited' ? 'Carried forward' : 'Not set'}
+                    data-testid={testidPrefix ? `${testidPrefix}-state-${c.idx}` : undefined}
+                  >
+                    {state === 'set' ? 'set' : state === 'inherited' ? 'carried' : 'not set'}
+                  </td>
+                );
+              })}
+            </tr>
+          )}
           {showCumulative && (
             <tr>
               <td style={{ padding: '4px 6px', fontWeight: 700, color: 'var(--color-meta)', borderRight: '1px solid var(--color-border)', background: 'var(--color-grey-pale)' }}>

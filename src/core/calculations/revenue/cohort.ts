@@ -24,29 +24,65 @@ export interface ProfileSpec {
   profileMode?: ProfileMode;
 }
 
+/**
+ * A profile that may differ per sale year.
+ *
+ * Sale cohort restructure Step 2 (2026-08-19): the matrix has always been a
+ * genuine sale-year by collection-year grid, but every row was forced to share
+ * one set of terms. A resolver lets each cohort carry its own, which is what
+ * makes a downpayment that varies by sale year, and an instalment run that
+ * shortens as handover approaches, expressible at all.
+ *
+ * Passing a plain ProfileSpec is unchanged in every respect, including the
+ * early return on an empty or mismatched profile. A resolver returning the same
+ * spec for every year produces the identical matrix, which is the property that
+ * makes the switch-over in Step 3 a decision rather than a leap.
+ */
+export type ProfileResolver = (saleYear: number) => ProfileSpec;
+
+interface PreparedProfile {
+  pairs: Array<{ p: number; pos: number }>;
+  mode: ProfileMode;
+}
+
+/** Order a spec's percentages by position. Returns null when the spec cannot
+ *  be used at all (no percentages, or positions that do not line up). */
+function prepareProfile(profile: ProfileSpec): PreparedProfile | null {
+  const pct = profile.percentages ?? [];
+  const pos = profile.positions ?? pct.map((_, k) => k);
+  const mode: ProfileMode = profile.profileMode ?? 'absolute_with_catchup';
+  if (pct.length === 0 || pos.length !== pct.length) return null;
+  const pairs = pct
+    .map((p, k) => ({ p, pos: pos[k] ?? k }))
+    .filter((x) => Number.isFinite(x.pos))
+    .sort((a, b) => a.pos - b.pos);
+  return { pairs, mode };
+}
+
 export function buildCohortMatrix(
   salesValuePerYear: number[],
-  profile: ProfileSpec,
+  profile: ProfileSpec | ProfileResolver,
   axisLength: number,
 ): number[][] {
   const N = Math.max(0, axisLength);
   const out: number[][] = [];
   for (let i = 0; i < N; i++) out.push(new Array<number>(N).fill(0));
 
-  const pct = profile.percentages ?? [];
-  const pos = profile.positions ?? pct.map((_, k) => k);
-  const mode: ProfileMode = profile.profileMode ?? 'absolute_with_catchup';
-
-  if (pct.length === 0 || pos.length !== pct.length) return out;
-
-  const orderedPairs = pct
-    .map((p, k) => ({ p, pos: pos[k] ?? k }))
-    .filter((x) => Number.isFinite(x.pos))
-    .sort((a, b) => a.pos - b.pos);
+  // Static profile: prepared ONCE and the whole call abandoned when it is
+  // unusable, exactly as before. A resolver is prepared per row instead, and an
+  // unusable row is SKIPPED rather than abandoning the matrix, because one
+  // cohort with no terms says nothing about the others.
+  const isResolver = typeof profile === 'function';
+  const staticProfile = isResolver ? null : prepareProfile(profile);
+  if (!isResolver && staticProfile === null) return out;
 
   for (let saleYear = 0; saleYear < N; saleYear++) {
     const cohortValue = Math.max(0, salesValuePerYear[saleYear] ?? 0);
     if (cohortValue === 0) continue;
+
+    const prepared = staticProfile ?? prepareProfile((profile as ProfileResolver)(saleYear));
+    if (prepared === null) continue;
+    const { pairs: orderedPairs, mode } = prepared;
 
     if (mode === 'absolute_with_catchup') {
       let catchup = 0;

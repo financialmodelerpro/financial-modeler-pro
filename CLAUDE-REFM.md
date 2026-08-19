@@ -2,6 +2,70 @@
 **Last updated: 2026-08-17. Lock status: M1 CLOSED 2026-08-17 (28 defects found in end-to-end use, all fixed and browser-verified; base lock unchanged at M2.0 Pass 58) + Parties tab (mig 190), M2 LOCKED (Pass 9N), M3 LOCKED (Pass 5d), M4 DONE, M5 DONE (Returns & RE Metrics + Lender Covenants + per-partner FCFE/DDM + M1-Parties link), M6 Scenario Analysis LIVE, M7 Reports LIVE (IC / Lender / One-Pager preview + PPT export, migs 191+192). Full verifier suite green via `npx tsx scripts/verify-*.ts`.**
 
 
+## 2026-08-19j: sale cohort restructure, Step 2. The matrix varies by sale year
+
+**Step 2 of five, plus three display fixes to the Step 1 inputs. Nothing calls the new rule, so no
+number moves. Measured unchanged on both live projects.**
+
+**THREE DISPLAY FIXES, reported from the screen.**
+
+1. **The downpayment strip carries no Total and no Cumulative row.** These are INDEPENDENT
+   per-cohort terms, each a percentage of its own sale year's value, so they do not sum to anything
+   and 100% is not a target; a total of 80% invited the reader to think the strip had to add up. The
+   reference model carries neither row on its downpayment line for the same reason. `InlineProfileStrip`
+   gained `summary: 'total' | 'avg' | 'none'`, replacing the `showCumulative` boolean, which had only
+   ever had two answers because there were only two callers' worth of question. **Both rows stay on
+   the cash payment profile**, where they do mean something, and the verifier asserts that too, since
+   dropping them everywhere is the opposite mistake.
+2. **A newly added sale year inherits the last set value.** Lengthening a construction period extends
+   the sale-year window, and a new column appearing as a silent 0% would quietly change the terms of
+   every cohort added after it. Forward fill, marked `carried` on the row beneath.
+3. **Unset is visibly distinct from a deliberate zero.** A 0% downpayment is a legitimate term, so a
+   blank could not be allowed to read as 0.00%. **This forced a storage change:** `downpaymentByPhase`
+   is now `Array<number | null>`, because a plain `number[]` filled with zeros cannot express the
+   difference, and the old setter was zero-filling every untouched year on the first edit. Now only
+   the edited year is written and the rest stay null. Unset cells get a dashed amber box, inherited
+   cells a quieter dashed grey, and a `Set for this year` row reads set / carried / not set.
+
+The rule lives in ONE place, `src/core/calculations/revenue/cohortTerms.ts` (`resolveDownpayment`),
+which the screen calls, so a caption cannot promise something the model would not do.
+
+**STEP 2 ITSELF: `buildCohortMatrix` now accepts `ProfileSpec | (saleYear) => ProfileSpec`.** The
+matrix has always been a genuine sale-year by collection-year grid; every row was simply forced to
+share one set of terms. Passing a plain spec is unchanged in every respect including the early return
+on an unusable profile, and a resolver returning the same spec for every year produces the identical
+matrix, which is the property that makes the Step 3 switch-over a decision rather than a leap. A row
+the resolver cannot serve is SKIPPED rather than abandoning the whole matrix, because one cohort with
+no terms says nothing about the others.
+
+**`buildSaleCohortProfile` implements the reference rule and nothing calls it.** It needed no new
+mechanism: `relative_to_sale` has keyed offsets from the sale year since the matrix was written, so
+the rule is a PROFILE. For a cohort selling in year s against handover H, with downpayment d and an
+allowance of m years: `s >= H` pays in full at once; otherwise d at offset 0 and `(1 - d) / n` at
+offsets 1..n, where `n = min(m, H - s)` under the hard cut-off and `n = m` under the toggle. Every
+row sums to exactly 1, proven across 288 combinations to 1e-12, which is the invariant that makes the
+whole restructure a re-timing of money rather than a change to how much there is.
+
+**One naming decision worth knowing:** `SaleCohortTerms.instalmentYearsAllowed` is deliberately NOT
+called `maxInstalmentYears`. The Step 1 guard asserts that no engine file mentions the stored field
+names, and `cohortTerms.ts` takes plain numbers rather than reading the asset, so the local vocabulary
+is kept distinct instead of weakening the guard with an exemption.
+
+`verify-sale-cohort-inputs` **32 -> 89**, teeth proven by five sabotages that break the CODE: remove
+the handover cut-off (9 failures), front-load the instalments while still conserving the total (5,
+which is the case that proves the equality checks are independent of conservation), unset resolving
+to zero instead of carrying forward (5), the Total row put back on the downpayment strip (1), and a
+resolver silently reusing row 0's profile for every row (5).
+
+**Measured unchanged** on both live projects: collections, funding requirement, peak debt identical
+(FMP - MARINA GATE 626.80m / 174.95m / 144.19m; FMP RE HUB 6,408.96m / 234.30m / 2,483.02m), worst
+`|Assets - L&E|` 0.00. Neighbours green: `verify-selling-cost-scope` 91, `verify-returns-engine` 123,
+`verify-snapshot-field-survival` 27, `verify-capex-phasing` 91, `verify-phase-date-preservation` 37,
+`verify-revenue-rebuild` 0 failures.
+
+**Steps 3 to 5 not started.** Section H10 asserts nothing calls `buildSaleCohortProfile`, so Step 3
+cannot switch it on silently.
+
 > **TRAPS RECORDED IN THIS FILE ARE COLLECTED IN [docs/TRAPS.md](docs/TRAPS.md). Read that first; it is short.** The copies below stay in place, so nothing is lost if you open this file instead. Index of what this file records: the REFM shell `zoom: 0.8` making `vh` and media queries lie (TRAPS 6.1); drag/resize needing pointer capture, not window listeners (6.2); the ExcelJS width-9 column that silently does not apply (3.1); pdf-lib CID glyph ids defeating a naive grep (4.1); the PostgREST 1000-row cap (2.1); export fingerprints needing the FIXTURE, never the live project (5.1); a zero-valued seed hiding a whole code path (7.1); a stage list written as a literal defeating exhaustiveness (7.3); a two-step template registration that fails silently and permanently (8.1); and the verifier rules (a grep proves presence not firing; never gate an assertion on the thing it asserts; prove teeth by sabotage) in TRAPS section 10.
 ## 2026-08-19i: sale cohort restructure, Step 1. Three inputs that change nothing
 

@@ -113,12 +113,16 @@ export interface AssetSellConfig {
    * project-axis twin for legacy snapshots; this field is new, so it has no
    * legacy to be compatible with and gains no dual write.
    *
-   * A missing or short array means no downpayment is set for that sale year.
-   * Absent is not zero: a sale year with no entry has not been specified, and
-   * the rule that consumes this in Step 3 decides what to do about it. Nothing
-   * reads it today.
+   * NULL MEANS NOT SET, AND THAT IS NOT THE SAME AS ZERO. A zero downpayment
+   * is a legitimate term (no deposit taken), so the two have to stay
+   * distinguishable from storage through to the screen, or a half-filled strip
+   * reads as a fully specified one. A short array is unset past its end.
+   *
+   * An unset year carries the last set year FORWARD: see `resolveDownpayment`
+   * in cohortTerms.ts, which is the one definition of that rule and is what the
+   * screen calls, so a caption cannot promise something the model would not do.
    */
-  downpaymentByPhase?: number[];
+  downpaymentByPhase?: Array<number | null>;
 
   /**
    * The maximum number of years the instalment balance may be spread over,

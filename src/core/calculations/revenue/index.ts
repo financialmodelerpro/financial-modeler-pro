@@ -28,6 +28,11 @@ export type {
 
 export { applyIndexation } from './indexation';
 export { buildCohortMatrix, columnSums } from './cohort';
+export type { ProfileSpec, ProfileResolver } from './cohort';
+export {
+  resolveDownpayment, hasAnyDownpayment, instalmentCount, buildSaleCohortProfile,
+} from './cohortTerms';
+export type { DownpaymentEntry, DownpaymentSource, ResolvedDownpayment, SaleCohortTerms } from './cohortTerms';
 export { distributeCashCollection } from './payment';
 export { buildRecognition } from './recognition';
 export { computeSellAsset, resolveHandoverYear } from './sell';

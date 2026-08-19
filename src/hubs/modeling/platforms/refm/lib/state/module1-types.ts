@@ -1346,7 +1346,7 @@ export interface Asset {
        * instalmentsStopAtHandover defaults to true when absent, which is
        * the reference model's hard cut-off.
        */
-      downpaymentByPhase?: number[];
+      downpaymentByPhase?: Array<number | null>;
       maxInstalmentYears?: number;
       instalmentsStopAtHandover?: boolean;
       /**
