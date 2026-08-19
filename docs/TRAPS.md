@@ -453,6 +453,35 @@ fingerprinting the damage rather than the defect.
 **Proof.** 2026-08-17: 0 lines repaired when it ran last in the chain; 8 lines when it ran first,
 with the other phase's hand-set windows untouched.
 
+### 7.25 Two identity rules for one entity, and the second one is the one you wrote
+
+**Symptom.** A Marketing line, scoped the day before to selling assets only, kept charging a leased
+asset. Reported as "marketing still applied on retail". Measured live: 119,700 on Podium Retail.
+
+**Mechanism.** A cost line's catalog identity has ONE resolver, `resolveCatalogId`, and its
+precedence is `catalogId` first, then the base id. The new scope rule did not call it; it resolved
+identity itself, from `deriveLineBaseId(line.id)` alone. Those agree on a SEEDED line
+(`commission__phase_2` has base id `commission`) and disagree on a line added from the CATALOG
+PICKER, which mints `custom-<timestamp>__<phase>` and carries the identity in `catalogId`. The live
+project had one of each, so half the rule worked and the half the user was looking at did not.
+
+**Why it survived a verifier with sabotage-proven teeth.** The fixture used seeded ids exclusively,
+so both resolvers agreed on every line in it. The verifier had 44 checks and two proven sabotages and
+could not see the defect, because the defect lives in a SHAPE the fixture did not contain.
+
+**Fix.** One implementation. `deriveAssetScope` moved into `selectedBase.ts`, calls
+`resolveCatalogId`, and `index.ts` re-exports it. The private copy in `selectedBase.ts` (written to
+dodge an import cycle that does not exist) is deleted rather than pinned equal to the other.
+
+**Lesson.** When adding a rule that keys off an entity's identity, CALL the existing identity
+resolver; do not re-derive identity, even from something as innocent as an id prefix. And when a
+fixture only contains one of the shapes a real project produces, the verifier's teeth are real but
+its coverage is not: add the awkward shape as a permanent case, then prove it bites by reverting the
+fix, not by mutating the fixture. A "sabotage" that changes the fixture into a shape the fixed code
+handles correctly passes and proves nothing.
+
+---
+
 ### 7.24 A basis that sums three incompatible products is wrong for two of them, and reads as merely small
 
 **Symptom.** A marketing cost at a percentage of revenue charged almost nothing on a hotel and a
@@ -479,12 +508,26 @@ looked small, and a percentage of a small number is a small cost, which is a pla
 There is no check that a basis is the same ORDER as the quantity it claims to measure, and the
 field is named `totalRevenue`, which is what a reader would want it to be.
 
-**Fix, and what was deliberately NOT fixed (2026-08-19).** The two SELLING costs (marketing,
-commission) are now scoped to the assets that sell, so they never touch the broken half of the
-basis. The basis itself is UNCHANGED and the defect is pinned with the numbers stated
-(`verify-selling-cost-scope` section E), because correcting it moves every percent-of-revenue line
-on every held asset and that is a separate decision. **Any line pointed at a percent-of-revenue
-method on an Operate or Lease asset is still charging on a one-night or one-year figure.**
+**Fix, in two stages on the same day (2026-08-19).** First the two SELLING costs (marketing,
+commission) were scoped to the assets that sell, so they stopped touching the broken half of the
+basis, and the basis itself was pinned as-is with the numbers stated, because correcting it moves
+numbers. Then, on instruction, **the basis itself was corrected**: it now comes from the REVENUE
+MODULE (`saleRevenueTotalForAsset` / `totalRevenueTotalForAsset`) while the RATE stays an input on
+the Capex tab. `percent_of_revenue_sale` reads the sale value (GDV), `percent_of_total_revenue` the
+whole-hold revenue, `percent_of_revenue_cash` the collections it already read.
+
+A subtlety that IS the fix: **zero and absent are different answers.** A held asset has no sale
+value, so its sale basis is 0; had the helper returned `undefined` there, the caller would have
+fallen back to the broken product and charged a marketing budget on an ADR again. So `undefined`
+means only "no revenue snapshot supplied". That is why a sale-basis line now charges zero on a hotel
+even with the scope forced open, which makes the scope and the basis independent defences rather than
+one fix wearing two hats.
+
+**Measured:** FMP - MARINA GATE total capex 437,844,950.00 -> 438,943,005.32, all of it the marketing
+line on Marina Residences (11,438,000.00 -> 12,536,055.32, i.e. 2% of a 626.803m sale value instead
+of a 571.900m product, the gap being sale price indexation the product ignores). FMP RE HUB
++1,625.87 on 4.9bn, rounding scale, because both its selling assets are Sell so product and sale
+value already agreed.
 
 **Lesson.** When a computed basis feeds a percentage, check its ORDER OF MAGNITUDE against the
 quantity it names, from an independent source. A wrong basis does not announce itself: it produces a

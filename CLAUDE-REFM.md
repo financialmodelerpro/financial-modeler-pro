@@ -3,6 +3,123 @@
 
 > **TRAPS RECORDED IN THIS FILE ARE COLLECTED IN [docs/TRAPS.md](docs/TRAPS.md). Read that first; it is short.** The copies below stay in place, so nothing is lost if you open this file instead. Index of what this file records: the REFM shell `zoom: 0.8` making `vh` and media queries lie (TRAPS 6.1); drag/resize needing pointer capture, not window listeners (6.2); the ExcelJS width-9 column that silently does not apply (3.1); pdf-lib CID glyph ids defeating a naive grep (4.1); the PostgREST 1000-row cap (2.1); export fingerprints needing the FIXTURE, never the live project (5.1); a zero-valued seed hiding a whole code path (7.1); a stage list written as a literal defeating exhaustiveness (7.3); a two-step template registration that fails silently and permanently (8.1); and the verifier rules (a grep proves presence not firing; never gate an assertion on the thing it asserts; prove teeth by sabotage) in TRAPS section 10.
 
+## 2026-08-19c: the revenue basis, and a defect I shipped in 19b
+
+Two things, reported from the screen after 19b was live and pushed.
+
+### 1. "Marketing still applied on retail." My defect, found by the user
+
+19b scoped the selling costs to selling assets and measured no movement on either live project. The
+user then reported that Marketing was still charging the retail asset.
+
+**It was.** `deriveAssetScope` resolved the line's identity from `deriveLineBaseId(line.id)` alone.
+That is a SECOND identity rule. The shared one is `resolveCatalogId`, whose precedence is
+`catalogId` first and the base id second, and the two agree on a SEEDED line and disagree on a line
+added from the CATALOG PICKER, which mints `custom-<timestamp>__<phase>` and carries the identity in
+`catalogId`.
+
+The live project has one of each:
+
+| line | id | catalogId | base id | old scope | charged Podium Retail |
+| --- | --- | --- | --- | --- | --- |
+| "Marketing" | `commission__phase_2` | absent | `commission` | selling, correct | 0.00 |
+| "Marketing Cost" | `custom-1787123860417__phase_1` | `marketing` | `custom-1787123860417` | **all, wrong** | **119,700.00** |
+
+So half the rule worked and the half the user was looking at did not.
+
+**Why the verifier could not see it.** Its fixture used seeded ids exclusively, so both resolvers
+agreed on every line in it. Forty-four checks and two sabotage-proven failures, and the defect lived
+in a SHAPE the fixture did not contain. Teeth are not coverage.
+
+**Fixed by having ONE implementation, not two that agree.** `deriveAssetScope` moved into
+`selectedBase.ts`, calls `resolveCatalogId`, and `index.ts` re-exports it so every caller is
+unchanged. The private copy of the precedence that had been written into `selectedBase.ts` to dodge
+an import cycle that does not exist is DELETED rather than pinned equal to the other. Recorded as
+TRAPS 7.25.
+
+### 2. The revenue basis, computed in the Revenue module and linked back
+
+19b measured the basis defect and deliberately left it, because correcting it moves numbers. On
+instruction, it is now corrected, with the split the user specified: **the RATE stays an input on the
+Capex tab, the BASE comes from the Revenue module.**
+
+| method | base before | base now |
+| --- | --- | --- |
+| `percent_of_revenue_sale` | `metricValue x unitPrice` over Sellable + Operable + Leasable | the asset's SALE VALUE (GDV) |
+| `percent_of_total_revenue` | the same product | sale + hospitality + lease, whole hold |
+| `percent_of_revenue_cash` | collections (already linked 2026-08-16) | unchanged |
+
+New `saleRevenueTotalForAsset` and `totalRevenueTotalForAsset` in `capexPhasing.ts`, beside
+`collectionsTotalForAsset` and following its precedent exactly, wired at all five sites that already
+pass collections (`financing/capex.ts`, two in `Module1Costs`, `Module2CostOfSales`,
+`Module2Schedules`). The link is one-directional: revenue depends on sub-units and phases and never
+on cost, so there is no circularity, which is the same argument that made the collections link safe.
+
+**ZERO AND ABSENT ARE DIFFERENT ANSWERS, and that distinction IS the fix.** A held asset has no sale
+value, so its sale basis is 0. Had the helper returned `undefined` there, the caller would have
+fallen back to `metrics.totalRevenue` and charged a marketing budget on an ADR again, which is the
+whole defect. So `undefined` means ONLY "no revenue snapshot was supplied at all", and the helpers
+return a number whenever a snapshot exists. The consequence is worth stating: **a sale-basis line
+charges zero on a hotel even with the scope forced OPEN**, so the scope and the basis are independent
+defences rather than one fix wearing two hats, and the verifier proves it that way.
+
+`totalRevenueTotalForAsset` returns `undefined` when the snapshot carries no operating maps (a narrow
+stub), because "total revenue" cannot be answered from a sell-only source and a wrong answer is worse
+than a declared absence.
+
+**The caption states the figure the engine used.** It printed `metrics.totalRevenue` for all three
+methods, which is now the FALLBACK only, so a caption could name a number the maths had not used. It
+now reads "3% of 230,000,000 (sale value (GDV), from Revenue)", and on a held asset "3% of 0 (no sale
+value: this asset is held, not sold)" rather than the old "asset revenue not set up yet", because
+zero and absent read differently to a user too.
+
+**MEASURED, A/B at one instant through the same function the engine calls** (`scripts/measure-revenue-basis.ts`,
+where the BEFORE arm simply omits the bases and so reproduces the old fallback exactly):
+
+| project | total capex before | after | delta |
+| --- | --- | --- | --- |
+| FMP - MARINA GATE | 437,844,950.00 | 438,943,005.32 | **+1,098,055.32** |
+| FMP RE HUB | 4,912,199,955.98 | 4,912,201,581.86 | +1,625.87 |
+
+All of MARINA GATE's movement is one line: Marina Residences' marketing, 11,438,000.00 ->
+12,536,055.32, i.e. 2% of a 626.803m sale value instead of 2% of a 571.900m sub-unit product. The gap
+is sale price indexation, which the product ignores. RE HUB moves at rounding scale on 4.9bn because
+both its selling assets are `Sell`, so their product and their sale value already agreed.
+
+**Note the base total differs from 19b's 426,406,950** because the user typed the 2% marketing rate
+between the two measurements. The snapshot is edited in place and is not a stable baseline (TRAPS
+5.1); both arms of the A/B above are measured against the SAME snapshot at one instant.
+
+### Verifier
+
+`verify-selling-cost-scope` **44 -> 64**. Section E previously PINNED the broken basis with its
+measured multiples, because fixing it needed a decision; it now pins the fix, and the old
+measurements survive as assertions so the size of the defect stays on the record rather than only in
+a commit message. New permanent section H carries the catalog-minted shape.
+
+| sabotage | reproduces | failures |
+| --- | --- | --- |
+| 1 | the scope ignored | 4 |
+| 2 | the scope leaking onto construction lines | 3 |
+| 4 | the revenue bases withheld (the old product basis) | 4 |
+
+**Three verifier lessons, each a near miss worth recording:**
+
+- **A sabotage that mutates the FIXTURE proves nothing.** Sabotage 3 renamed the ids into the minted
+  shape; the fixed code handles that shape, so it passed 44/0. It is deleted, the case is now
+  permanent section H, and section H's teeth were proven the honest way: by reverting
+  `deriveAssetScope` to base-id-only and watching six checks go red, including a held asset charged
+  9,600,000. A sabotage must break the CODE.
+- **Looking fixture lines up by literal id made section A CRASH** under a sabotage that renames them,
+  and a crash hides a failure rather than reporting it. Every lookup is now by identity, and the
+  patch asserts no literal-id lookup survives.
+- **Sabotage 4 is applied in the call helper, not the fixture**, so it withholds the bases from the
+  code path rather than editing the data.
+
+**Not browser-verified.**
+
+---
+
 ## 2026-08-19b: a selling cost applies only to an asset that sells
 
 Three symptoms reported from the Marketing line on the Costs tab. All three were measured on the
