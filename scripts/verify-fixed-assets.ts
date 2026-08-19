@@ -27,6 +27,7 @@ import {
   computeAssetFixedAssets,
 } from '@/src/core/calculations/depreciation';
 import { computeAllFixedAssetResults } from '@/src/hubs/modeling/platforms/refm/lib/fixed-assets-resolvers';
+import { operationsStartIndex } from '@/src/core/calculations';
 import type { Module1Store } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-store';
 import type { Asset, CostLine, Phase, Project } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { readFileSync } from 'node:fs';
@@ -577,6 +578,82 @@ console.log('\n[M] cp = 0: available from the phase start, not by a clamp');
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// N: BOTH DEPRECIATION STREAMS START AT OPERATIONS, AND THE RULE IS SHARED
+// ─────────────────────────────────────────────────────────────────────
+//
+// THE FIRST FIX WAS INCOMPLETE AND THE USER RE-REPORTED IT. There are TWO
+// depreciation streams: the asset's own capex, resolved by
+// `computeAllFixedAssetResults`, and the IDC capitalised into it, resolved by
+// `computeIdcSnapshot`. Each derived its own start index by hand as
+// `offset + cp - 1`. Fixing the first left the second charging a full year of
+// IDC depreciation during construction: 0.654m on FMP - MARINA GATE and 0.076m
+// on FMP RE HUB, small enough to look like nothing and wrong all the same.
+//
+// Both now call `operationsStartIndex`, which reads the canonical phase
+// timeline. These checks are on the SHARED definition, because the way this
+// defect survived its first fix was a second copy.
+console.log('\n[N] One shared operations-start rule, read by both depreciation streams');
+{
+  const project = makeBaseProject();
+
+  // The canonical answer, for the three shapes a hand-rolled offset + cp gets
+  // wrong or right by luck.
+  const cases: Array<[string, Phase, number]> = [
+    ['cp = 4, no overlap', makePhase('n1', 'P', 2026, 4, 10), 4],
+    ['cp = 0 (operational from the start)', makePhase('n2', 'P', 2026, 0, 10), 0],
+  ];
+  for (const [label, phase, expected] of cases) {
+    assertEqInt(`N1 ${label}: operationsStartIndex = ${expected}`,
+      operationsStartIndex(phase, 0), expected);
+  }
+
+  // OVERLAP is the case `offset + cp` gets WRONG: operations begin BEFORE
+  // construction ends, so the first operating period is earlier. A hand-rolled
+  // offset + cp would say 4; the canonical timeline says 3.
+  {
+    const overlapped = makePhase('n3', 'P', 2026, 4, 10);
+    (overlapped as unknown as { overlapPeriods: number }).overlapPeriods = 1;
+    const idx = operationsStartIndex(overlapped, 0);
+    assertEqInt('N2 overlap = 1 moves the start EARLIER than offset + cp', idx, 3);
+    assertEqInt('N3 and offset + cp would have been wrong here', idx === 4 ? 0 : 1, 1);
+  }
+
+  // A phase opening beyond the axis is NOT clamped: the engine returns zeros for
+  // a start past the end, which is the honest answer for an asset that never
+  // opens. Clamping to N - 1 would charge it a year of depreciation.
+  {
+    // A phase whose offset already sits past the axis: the result is past the
+    // end and is NOT clamped, so the engine charges nothing.
+    const late = makePhase('n4', 'P', 2050, 4, 10);
+    const idx = operationsStartIndex(late, 24);
+    assertEqInt('N4 a phase opening beyond the axis is not clamped', idx === 28 ? 1 : 0, 1);
+  }
+
+  // BOTH RESOLVERS CALL THE SHARED RULE. This is the check that would have
+  // caught the incomplete first fix.
+  const faSrc = readFileSync(
+    nodePath.join(rootDir, 'src/hubs/modeling/platforms/refm/lib/fixed-assets-resolvers.ts'), 'utf8',
+  ).replace(/\r\n/g, '\n');
+  const finSrc = readFileSync(
+    nodePath.join(rootDir, 'src/hubs/modeling/platforms/refm/lib/financials-resolvers.ts'), 'utf8',
+  ).replace(/\r\n/g, '\n');
+  const strip = (t: string): string =>
+    t.split('\n').filter((l: string) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+  assertEqInt('N5 the fixed-asset resolver calls operationsStartIndex',
+    /operationsStartIndex\(/.test(strip(faSrc)) ? 1 : 0, 1);
+  assertEqInt('N6 the IDC depreciation block calls it too (the copy that survived the first fix)',
+    /startIdx: depreciationStartIdx/.test(strip(finSrc))
+    && /const depreciationStartIdx = operationsStartIndex\(/.test(strip(finSrc)) ? 1 : 0, 1);
+  assertEqInt('N7 neither derives a depreciation start by hand any more',
+    /const handoverIdx/.test(strip(faSrc)) || /const handoverIdx/.test(strip(finSrc)) ? 0 : 1, 1);
+  // The construction WINDOW legitimately ends at the last construction period,
+  // so that use of offset + cp - 1 must SURVIVE. A check that removed it would
+  // be over-fitting to the fix.
+  assertEqInt('N8 the construction WINDOW still ends at the last construction period',
+    /const endIdxRaw = offset \+ cp - 1;/.test(strip(finSrc)) ? 1 : 0, 1);
+}
+
 // The rule is written ONCE and named for what it is.
 {
   const SRC = readFileSync(
@@ -585,8 +662,8 @@ console.log('\n[M] cp = 0: available from the phase start, not by a clamp');
   // COMMENTS STRIPPED: the comment block above the rule names the retired
   // index, so a raw search would find it and report the fix as absent.
   const code = SRC.split('\n').filter((l: string) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
-  assertEqInt('M6: the resolver uses offset + cp, the first operating index',
-    /const operationsStartIdx = Math\.max\(0, offset \+ cp\);/.test(code) ? 1 : 0, 1);
+  assertEqInt('M6: the resolver reads the SHARED operations-start rule',
+    /const operationsStartIdx = operationsStartIndex\(phase, offset\);/.test(code) ? 1 : 0, 1);
   assertEqInt('M7: and the retired last-construction index is gone',
     /offset \+ cp - 1/.test(code) ? 0 : 1, 1);
   assertEqInt('M8: no clamp to N - 1, which would start a year of depreciation for an asset that never opens',

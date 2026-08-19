@@ -2255,6 +2255,48 @@ function addOneDay(iso: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * THE AXIS INDEX AT WHICH A PHASE'S OPERATIONS BEGIN, and therefore the period
+ * from which its assets may be depreciated (2026-08-19).
+ *
+ * ONE definition, because there were two and both were wrong the same way. The
+ * fixed-asset resolver and the IDC depreciation block each derived a start by
+ * hand as `offset + cp - 1`, the LAST CONSTRUCTION period. That index is the M2
+ * PIT REVENUE-RECOGNITION handover, a deliberate and verifier-pinned convention
+ * for when a unit is handed to a BUYER, reused to answer when an asset may be
+ * DEPRECIATED. Fixing one copy left the other charging a full year of IDC
+ * depreciation during construction, which is how the defect survived its first
+ * fix and was reported a second time.
+ *
+ * IT WORKS IN PERIODS, NOT DATES, and that is deliberate. The obvious
+ * implementation reads `computePhaseTimeline().operationsStart` and differences
+ * the YEARS. That is wrong for any model that is not annual:
+ * `computePhaseTimeline` defaults to MONTHLY when `project.modelType` is absent,
+ * so a four-period construction resolves to four MONTHS and the index collapses
+ * to zero. The first version of this helper did exactly that and the verifier
+ * fixture caught it. Every caller already holds the phase offset in axis
+ * periods, so the arithmetic belongs in the same unit.
+ *
+ * The rule is `computePhaseTimeline`'s, expressed in periods:
+ *
+ *   cp === 0            operations begin at the phase start, nothing to follow
+ *   overlapPeriods > 0  operations begin BEFORE construction ends, so the first
+ *                       operating period is EARLIER than `offset + cp`
+ *   otherwise           the period after construction ends
+ *
+ * The result may be at or past `axisLength`, which is correct and deliberate: a
+ * phase opening beyond the model horizon depreciates nothing, and the engine
+ * already returns zeros for a start past the axis. Clamping to the last period
+ * would charge a year of depreciation for an asset that never opens.
+ */
+export function operationsStartIndex(phase: Phase, phaseOffsetPeriods: number): number {
+  const offset = Math.max(0, phaseOffsetPeriods);
+  const cp = Math.max(0, phase.constructionPeriods ?? 0);
+  if (cp === 0) return offset;
+  const overlap = Math.max(0, Math.min(cp, phase.overlapPeriods ?? 0));
+  return Math.max(offset, offset + cp - overlap);
+}
+
 export function computePhaseTimeline(phase: Phase, project: Project): PhaseTimeline {
   const fallbackOffsetPeriods = Math.max(0, phase.constructionStart - 1);
   const start = phase.startDate && phase.startDate.length === 10

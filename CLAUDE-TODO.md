@@ -138,7 +138,20 @@ projects. Profit after tax rises (429.599m -> 435.245m and 2,688.418m -> 2,702.3
 it (11.238m -> 11.382m, 71.764m -> 72.121m), which is the arithmetic consequence of charging less
 depreciation inside the window.
 
-`verify-fixed-assets` 82 -> 90, section M, teeth proven by restoring the old index (4 failures).
+**IT TOOK TWO PASSES, and the second is the lesson.** There are TWO depreciation streams: the
+asset's own capex (`computeAllFixedAssetResults`) and the IDC capitalised into it
+(`computeIdcSnapshot`), each with its own hand-rolled `offset + cp - 1`. The first fix corrected
+only the fixed-asset stream, so IDC depreciation still landed in the last construction year
+(0.654m on FMP - MARINA GATE, 0.076m on FMP RE HUB) and the user reported it again. The
+measurement script also read only the fixed-asset stream, so it reported "none" while the defect
+was live. Both now call ONE shared `operationsStartIndex`, and the script reads the per-asset P&L
+D&A, which sums both streams.
+
+Final P&L D&A: 52.216m -> 51.562m (MARINA GATE) and 1,599.973m -> 1,599.897m (RE HUB) after the
+IDC copy was fixed as well.
+
+`verify-fixed-assets` 82 -> 99, sections M and N, teeth proven by three sabotages against the code
+(the old index restored, the shared rule reverted, the overlap term dropped).
 Its fixture is an asset that is actually BUILT: every pre-existing resolver fixture in that file
 carries opening NBV with `cp = 0`, where the old and new rules both clamp to 0 and agree, which is
 exactly why 82 checks could not see this.

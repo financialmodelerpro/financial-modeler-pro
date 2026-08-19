@@ -30,6 +30,7 @@
 
 import {
   computeAssetCost,
+  operationsStartIndex,
   computeProjectTimeline,
   resolveUsefulLifeYears,
 } from '@/src/core/calculations';
@@ -238,7 +239,13 @@ export function computeAllFixedAssetResults(state: ResolverState): ProjectFixedA
     // depreciates from `max(its own period, startIdx)`, so capex spent after
     // operations begin still starts in its own period, and an existing asset's
     // opening NBV is unaffected because it depreciates from index 0 regardless.
-    const operationsStartIdx = Math.max(0, offset + cp);
+    //
+    // 2026-08-19b: this derived `offset + cp` by hand, which is right only when
+    // `overlapPeriods` is zero. It now calls the ONE shared definition, which
+    // reads the canonical phase timeline. There was a second hand-rolled copy in
+    // the IDC depreciation block, and fixing only this one left depreciation
+    // still landing in the last construction year.
+    const operationsStartIdx = operationsStartIndex(phase, offset);
 
     // Per-asset capex breakdown (phase-local arrays).
     const breakdown = computeAssetCost({

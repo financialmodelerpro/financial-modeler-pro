@@ -483,6 +483,22 @@ index past the axis end.
 with opening NBV and `cp = 0`. Under `cp = 0` the old rule clamps `-1` to `0` and the new rule gives
 `0`: the two agree exactly, on every fixture in the file. The verifier had teeth and no reach.
 
+**IT SURVIVED ITS FIRST FIX, and that is the part worth remembering.** There were TWO hand-rolled
+copies: the fixed-asset resolver AND the IDC depreciation block, which depreciates the interest
+capitalised into the asset. Fixing the first left the second charging a full year during
+construction (0.654m on FMP - MARINA GATE, 0.076m on FMP RE HUB), small enough to look like
+nothing and wrong all the same, and the user reported it again. Worse, the measurement script read
+only the fixed-asset stream, so it printed "none" while the defect was still live: a measurement
+blind to half the quantity is worse than no measurement. Both now call one shared
+`operationsStartIndex`, and the script reads the per-asset P&L D&A, which is the sum of both.
+
+**And the shared helper was wrong on its first attempt too.** The obvious implementation reads
+`computePhaseTimeline().operationsStart` and differences the YEARS. `computePhaseTimeline` defaults
+to MONTHLY when `project.modelType` is absent, so a four-period construction resolved to four
+MONTHS and the index collapsed to zero. The verifier fixture caught it before it shipped. The rule
+now works in PERIODS (`offset + cp - overlap`, or `offset` when `cp === 0`), the same unit every
+caller already holds, which also handles `overlapPeriods` that a plain `offset + cp` gets wrong.
+
 **Lesson.** When you reuse an index, name it for the rule it is SERVING, not the rule it came from.
 `handoverIdx` passed as `startIdx` reads as correct; `operationsStartIdx` passed as `startIdx` reads
 as correct AND is checkable. And when a fixture set makes two candidate rules produce the same

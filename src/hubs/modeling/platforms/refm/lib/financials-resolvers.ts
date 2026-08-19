@@ -45,6 +45,7 @@ import {
   computeAssetLandSqm,
   computeAssetBua,
   computeAssetCost,
+  operationsStartIndex,
   resolveUsefulLifeYears,
 } from '@/src/core/calculations';
 import { collectionsForAsset, phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
@@ -617,12 +618,23 @@ export function computeIdcSnapshot(
     if (!phase) continue;
     const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
     const cp = Math.max(0, phase.constructionPeriods ?? 0);
-    const handoverIdx = Math.max(0, Math.min(N - 1, (phaseStartYear - projectStartYear) + cp - 1));
+    // IDC CAPITALISED INTO AN ASSET DEPRECIATES ON THE SAME RULE AS THE ASSET
+    // (2026-08-19b): from the first OPERATING period, not the last construction
+    // one. This was the SECOND hand-rolled copy of `offset + cp - 1`, the M2 PIT
+    // revenue-recognition handover, and fixing the fixed-asset resolver alone
+    // left this one charging a full year of IDC depreciation during
+    // construction, which is why the defect survived its first fix and was
+    // reported again.
+    //
+    // Note the construction WINDOW above legitimately ends at `offset + cp - 1`:
+    // a window's last period IS the last construction period. Only the
+    // depreciation START was wrong, so that line is deliberately untouched.
+    const depreciationStartIdx = operationsStartIndex(phase, phaseStartYear - projectStartYear);
     const usefulLife = resolveUsefulLifeYears(a);
     const idcRes = computeAssetFixedAssets({
       assetId: a.id,
       axisLength: N,
-      startIdx: handoverIdx,
+      startIdx: depreciationStartIdx,
       additionsPerPeriod: idc.idcPerPeriod,
       usefulLifeYears: usefulLife,
       method: 'straight_line',

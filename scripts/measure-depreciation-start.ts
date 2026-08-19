@@ -69,11 +69,19 @@ async function main(): Promise<void> {
     }
 
     // Anything charged BEFORE its phase's first operating period is the defect.
+    //
+    // READ THE PER-ASSET P&L D&A, NOT THE FIXED-ASSET STREAM ALONE. There are
+    // TWO depreciation streams: the asset's own capex (fixedAssets) and the IDC
+    // capitalised into it (the IDC snapshot), and `AssetPL.daPerPeriod` is their
+    // sum, which is what the screen shows. An earlier version of this script
+    // read only the fixed-asset stream and reported "none" while the IDC stream
+    // was still charging a full year during construction, which is exactly the
+    // defect the user re-reported. A measurement blind to half the quantity is
+    // worse than no measurement.
     let earlyTotal = 0;
     for (const a of assets) {
       if (a.visible === false) continue;
-      const row = fa?.byAsset?.get(a.id);
-      const d = row?.depreciable?.depreciationPerPeriod ?? [];
+      const d = s.perAssetPL?.get(a.id)?.daPerPeriod ?? [];
       const ph = phases.find((p) => p.id === a.phaseId);
       if (!ph) continue;
       const psY = ph.startDate ? new Date(ph.startDate).getUTCFullYear() : startYear;
@@ -85,7 +93,10 @@ async function main(): Promise<void> {
       if (early.length === 0) continue;
       const e = early.reduce((x: number, r: { v: number }) => x + r.v, 0);
       earlyTotal += e;
-      console.log(`  ** ${a.name} (${a.strategy}) depreciates before operations start (${startYear + firstOperatingIdx}): ${M(e)}`);
+      const faOnly = (fa?.byAsset?.get(a.id)?.depreciable?.depreciationPerPeriod ?? [])
+        .filter((_v: number, t: number) => t < firstOperatingIdx)
+        .reduce((x: number, v: number) => x + v, 0);
+      console.log(`  ** ${a.name} (${a.strategy}) depreciates before operations start (${startYear + firstOperatingIdx}): ${M(e)} total, of which fixed assets ${M(faOnly)} and IDC ${M(e - faOnly)}`);
       for (const r of early) console.log(`        ${startYear + r.t}  ${M(r.v)}`);
     }
     console.log(`  TOTAL CHARGED BEFORE OPERATIONS  ${M(earlyTotal)}   ${earlyTotal < 0.005 ? '<- none' : '<- DEFECT'}`);
