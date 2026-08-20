@@ -101,6 +101,7 @@ export default function PlatformGuideModal({
   doc,
   dateLabel,
   onStartTour,
+  onShowWelcome,
 }: {
   open: boolean;
   onClose: () => void;
@@ -109,6 +110,10 @@ export default function PlatformGuideModal({
   /** When provided, the guide offers to (re)start the guided tour. Closing the
    *  guide first is the caller's job inside this callback. */
   onStartTour?: () => void;
+  /** Re-shows the first-run welcome prompt, so a one-click dismissal is a
+   *  choice and not a dead end. Lives here because this is also where the
+   *  tour restarts: one place for both re-entries. */
+  onShowWelcome?: () => void;
 }): React.JSX.Element | null {
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState('');
@@ -190,6 +195,9 @@ export default function PlatformGuideModal({
           }}
         />
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
+          {onShowWelcome && (
+            <button type="button" style={btn(false)} onClick={onShowWelcome} data-testid="guide-show-welcome">Welcome tips</button>
+          )}
           {onStartTour && (
             <button type="button" style={btn(false)} onClick={onStartTour} data-testid="guide-start-tour">Start guided tour</button>
           )}

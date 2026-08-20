@@ -32,24 +32,51 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { TourStep } from '../lib/guide/tour';
+import type { TourStep, TourMode } from '../lib/guide/tour';
 import { saveTourState } from '../lib/guide/tourState';
 
+/**
+ * IS THE RENDERED SURFACE EMPTY? Read off the actual DOM, never a list of
+ * tabs that are "usually empty": such a list is a guess that goes stale the
+ * day a tab changes. Two signals, both from the surface itself:
+ *
+ *   1. The platform declares it: a project-less surface renders a
+ *      placeholder whose data-testid ends "-no-project".
+ *
+ *   2. Substance: a data-bearing tab renders tables and inputs by
+ *      construction; a blank one renders a sentence and a button. Fewer
+ *      than three such elements AND almost no text reads as blank.
+ *
+ * Used only to SKIP a step, and only after two consecutive reads agree
+ * (see the resolve effect), so a surface still rendering is not mistaken
+ * for an empty one.
+ */
+function surfaceIsEmpty(main: Element): boolean {
+  if (main.querySelector('[data-testid$="-no-project"]')) return true;
+  const substance = main.querySelectorAll('table, input, select, textarea').length;
+  const text = ((main as HTMLElement).innerText ?? '').trim();
+  return substance < 3 && text.length < 160;
+}
 const CARD_W = 380;
 const PAD = 8;
 
 interface Props {
   open: boolean;
+  /** 'module' when no project is open: the builder emits no tab steps. */
+  mode: TourMode;
   steps: TourStep[];
   initialStep?: number;
   /** paused: keep the resume position. skipped / completed: never auto-run again. */
   onClose: (reason: 'paused' | 'skipped' | 'completed') => void;
 }
 
-export default function PlatformTour({ open, steps, initialStep = 0, onClose }: Props): React.JSX.Element | null {
+export default function PlatformTour({ open, mode, steps, initialStep = 0, onClose }: Props): React.JSX.Element | null {
   const [idx, setIdx] = useState(() => Math.min(Math.max(0, initialStep), Math.max(0, steps.length - 1)));
   const [rect, setRect] = useState<DOMRect | null>(null);
   const retries = useRef(0);
+  // Which way the user is travelling, so an empty surface is skipped ONWARD
+  // when they pressed Next and BACKWARD when they pressed Back.
+  const direction = useRef<1 | -1>(1);
 
   const step = steps[idx];
 
@@ -65,6 +92,23 @@ export default function PlatformTour({ open, steps, initialStep = 0, onClose }: 
     let cancelled = false;
     const resolve = (): void => {
       if (cancelled) return;
+      // A tab or surface step against an EMPTY rendered surface is skipped in
+      // the direction of travel, before any card shows: a spotlight on a
+      // blank screen reads as an error, not a walkthrough. Two reads 200ms
+      // apart must both say empty, so a surface still rendering is not
+      // mistaken for a blank one.
+      if (step.id.includes('/')) {
+        const main = document.querySelector('[data-testid="platform-main"]');
+        if (main && surfaceIsEmpty(main)) {
+          window.setTimeout(() => {
+            if (cancelled) return;
+            const again = document.querySelector('[data-testid="platform-main"]');
+            if (again && surfaceIsEmpty(again)) setIdx((i) => Math.min(Math.max(0, i + direction.current), steps.length - 1));
+            else resolve();
+          }, 200);
+          return;
+        }
+      }
       for (const sel of step.anchors) {
         const el = document.querySelector(sel);
         if (el) {
@@ -82,19 +126,20 @@ export default function PlatformTour({ open, steps, initialStep = 0, onClose }: 
     const onResize = (): void => { retries.current = 0; resolve(); };
     window.addEventListener('resize', onResize);
     return () => { cancelled = true; window.clearTimeout(t); window.removeEventListener('resize', onResize); };
-  }, [open, idx, step]);
+  }, [open, idx, step, steps.length]);
 
-  const persist = useCallback((patch: { step?: number; completedAt?: string; skippedAt?: string }): void => {
+  const persist = useCallback((patch: { step?: number; completedAt?: string; skippedAt?: string; completedMode?: TourMode }): void => {
     saveTourState({ startedAt: new Date().toISOString(), step: idx, ...patch });
   }, [idx]);
 
   const go = useCallback((next: number): void => {
+    direction.current = next >= idx ? 1 : -1;
     const clamped = Math.min(Math.max(0, next), steps.length - 1);
     setIdx(clamped);
     persist({ step: clamped });
-  }, [steps.length, persist]);
+  }, [idx, steps.length, persist]);
 
-  const finish = useCallback((): void => { persist({ completedAt: new Date().toISOString() }); onClose('completed'); }, [persist, onClose]);
+  const finish = useCallback((): void => { persist({ completedAt: new Date().toISOString(), completedMode: mode }); onClose('completed'); }, [persist, onClose, mode]);
   const skip = useCallback((): void => { persist({ skippedAt: new Date().toISOString() }); onClose('skipped'); }, [persist, onClose]);
   const pause = useCallback((): void => { persist({}); onClose('paused'); }, [persist, onClose]);
 
@@ -162,6 +207,7 @@ export default function PlatformTour({ open, steps, initialStep = 0, onClose }: 
         <div style={{ position: 'fixed', inset: 0, background: 'color-mix(in srgb, var(--color-heading) 55%, transparent)' }} />
       )}
 
+      {(rect !== null || step.anchors.length === 0) && (
       <div
         data-testid="tour-card"
         style={{
@@ -186,6 +232,7 @@ export default function PlatformTour({ open, steps, initialStep = 0, onClose }: 
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 

@@ -22,10 +22,24 @@ export interface TourState {
   /** Resume position: the step index the user was on. */
   step?: number;
   completedAt?: string;
+  /** Which shape finished: 'module' (the short walk taken with no project
+   *  open) or the full walk. Auto-run stops after either; the guide restart
+   *  button never consults completion at all, which is what keeps the full
+   *  tour reachable after a module-only run. */
+  completedMode?: 'module' | 'full';
+  /** When the first-run "read the guide" prompt was dismissed. One click,
+   *  permanent: set by BOTH of its actions, so it shows exactly once. */
+  guidePromptAt?: string;
   skippedAt?: string;
 }
 
 const LS_KEY = 'refm-tour-state';
+
+// The last state this session has seen, so saves can MERGE. Two features
+// share the blob (the tour and the first-run guide prompt); an overwrite by
+// one would silently erase the other, which is how a dismissed prompt would
+// come back the day the tour saved its step.
+let lastKnown: TourState | null = null;
 
 function readLocal(): TourState | null {
   try {
@@ -57,10 +71,11 @@ export async function loadTourState(): Promise<TourState | null> {
     const res = await fetch('/api/refm/tour-state', { cache: 'no-store' });
     if (res.ok) {
       const data = await res.json() as { available?: boolean; state?: TourState | null };
-      if (data.available) return data.state ?? null;
+      if (data.available) { lastKnown = data.state ?? null; return lastKnown; }
     }
   } catch { /* fall through to local */ }
-  return readLocal();
+  lastKnown = readLocal();
+  return lastKnown;
 }
 
 /**
@@ -69,10 +84,12 @@ export async function loadTourState(): Promise<TourState | null> {
  * browser even if the server write was the one that failed.
  */
 export function saveTourState(s: TourState): void {
-  writeLocal(s);
+  const merged: TourState = { ...(lastKnown ?? {}), ...s };
+  lastKnown = merged;
+  writeLocal(merged);
   void fetch('/api/refm/tour-state', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ state: s }),
+    body: JSON.stringify({ state: merged }),
   }).catch(() => { /* fire and forget */ });
 }

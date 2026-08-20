@@ -43,7 +43,8 @@ const stripComments = (src: string): string => src
   .replace(/\/\*[\s\S]*?\*\//g, '')
   .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 
-const steps = buildPlatformTour();
+const steps = buildPlatformTour('full');
+const moduleSteps = buildPlatformTour('module');
 const ids = steps.map((s) => s.id);
 
 // ---------------------------------------------------------------------------
@@ -74,6 +75,21 @@ section('A. Every module, in canonical order, and every tab within it');
   const tabCount = Object.values(MODULE_TABS).reduce((n, t) => n + t.length, 0);
   const expected = 1 + GUIDE_MODULE_ORDER.length + tabCount + MODULE6_SURFACES.length + 1;
   check('A: the step count is exactly the structure', steps.length === expected, `${steps.length} vs ${expected}`);
+
+  // MODULE-ONLY MODE (no project open): welcome + the seven modules +
+  // finish, and NOT ONE tab step, because every tab surface is a
+  // placeholder and spotlighting a blank reads as an error. The assertion
+  // is structural for BOTH shapes, so neither mode can go red on a count
+  // written for the other.
+  const expectedModule = 1 + GUIDE_MODULE_ORDER.length + 1;
+  check('A: module-only mode is welcome + modules + finish',
+    moduleSteps.length === expectedModule, `${moduleSteps.length} vs ${expectedModule}`);
+  check('A: module-only mode contains no tab or surface step',
+    moduleSteps.every((st) => !st.id.includes('/')));
+  check('A: module-only mode still walks all seven modules in order',
+    GUIDE_MODULE_ORDER.every((mk) => moduleSteps.some((st) => st.id === mk)));
+  check('A: the module-only finish points at opening a project for the full walk',
+    /open a project/i.test(moduleSteps[moduleSteps.length - 1].body));
 }
 
 // ---------------------------------------------------------------------------
@@ -182,9 +198,10 @@ section('E. Persistence is per user, additive, and schema tolerant');
   check('E: the state size is capped', /length > 2_?000/.test(route));
   const state = stripComments(read('src/hubs/modeling/platforms/refm/lib/guide/tourState.ts'));
   check('E: the client reads the server first and falls back to localStorage',
-    state.indexOf("fetch('/api/refm/tour-state'") < state.indexOf('return readLocal();')
+    state.indexOf("fetch('/api/refm/tour-state'") < state.indexOf('lastKnown = readLocal();')
     && state.includes('localStorage.getItem'));
-  check('E: writes go to both stores', /writeLocal\(s\);[\s\S]{0,80}fetch\('\/api\/refm\/tour-state'/.test(state));
+  check('E: writes go to both stores, MERGED, so shared fields survive',
+    /writeLocal\(merged\);[\s\S]{0,120}fetch\('\/api\/refm\/tour-state'/.test(state));
   check('E: a failed persist never blocks the tour',
     /void fetch\('\/api\/refm\/tour-state'[^]{0,220}\.catch\(/.test(state));
 }
@@ -199,6 +216,83 @@ section('F. Locked palette');
   check('F: and actually uses them', (comp.match(/var\(--color-/g) ?? []).length > 8);
 }
 
+// ---------------------------------------------------------------------------
+section('G. Emptiness is read off the rendered surface, not a tab list');
+
+{
+  const comp = stripComments(read('src/hubs/modeling/platforms/refm/components/PlatformTour.tsx'));
+  check('G: the detector exists and reads the DOM', comp.includes('function surfaceIsEmpty(main: Element)'));
+  check('G: it honours the platform own no-project markers',
+    comp.includes(String.raw`[data-testid$="-no-project"]`));
+  check('G: substance is measured, not guessed',
+    comp.includes("querySelectorAll('table, input, select, textarea')"));
+  // The forbidden shape: a hardcoded list of which tabs are empty.
+  const detBody = comp.slice(comp.indexOf('function surfaceIsEmpty'), comp.indexOf('const CARD_W'));
+  check('G: the detector names no tab', !/m\d-|module\d/.test(detBody), detBody.match(/m\d-|module\d/)?.[0] ?? '');
+  check('G: two reads must agree before a step is skipped',
+    /surfaceIsEmpty\(main\)[^]{0,400}setTimeout[^]{0,300}surfaceIsEmpty\(again\)/.test(comp));
+  check('G: the skip travels in the user direction',
+    comp.includes('i + direction.current') && comp.includes('direction.current = next >= idx ? 1 : -1'));
+  check('G: no card renders until the spotlight resolved',
+    comp.includes('(rect !== null || step.anchors.length === 0) && ('));
+
+  // Mode selection follows the live project, in the shell.
+  const shell = stripComments(read('src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx'));
+  check('G: the mode follows whether a project is open',
+    shell.includes("activeProjectId ? 'full' : 'module'"));
+  check('G: the steps rebuild when the mode changes',
+    shell.includes('buildPlatformTour(tourMode), [tourMode]'));
+
+  // A module-only completion must never block the full tour later.
+  check('G: completion records WHICH shape finished', comp.includes('completedMode: mode'));
+  check('G: the guide restart consults no completion state',
+    /onStartTour=\{\(\) => \{ setGuideOpen\(false\); setTourStartStep\(0\); setTourOpen\(true\); \}\}/.test(shell));
+}
+
+// ---------------------------------------------------------------------------
+section('H. The first-run guide prompt shows once, before the tour');
+
+{
+  const prompt = stripComments(read('src/hubs/modeling/platforms/refm/components/FirstRunGuidePrompt.tsx'));
+  const shell = stripComments(read('src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx'));
+  const state = stripComments(read('src/hubs/modeling/platforms/refm/lib/guide/tourState.ts'));
+  const guide = stripComments(read('src/hubs/modeling/platforms/refm/components/modals/PlatformGuideModal.tsx'));
+
+  check('H: the prompt component exists with both actions',
+    prompt.includes('first-run-open-guide') && prompt.includes('first-run-continue'));
+  check('H: it is gated on guidePromptAt, in the same load as the tour',
+    shell.includes('if (!st?.guidePromptAt)') && shell.includes('setWelcomePromptOpen(true)'));
+  check('H: it shows BEFORE the tour offer',
+    shell.indexOf('setWelcomePromptOpen(true)') < shell.indexOf('} else if (tourDue) {'));
+  check('H: BOTH actions stamp the dismissal, one click, permanent',
+    /dismissWelcome[^]{0,300}saveTourState\(\{ guidePromptAt: new Date\(\)\.toISOString\(\) \}\)/.test(shell)
+    && shell.includes('onOpenGuide={() => dismissWelcome(true)}')
+    && shell.includes('onContinue={() => dismissWelcome(false)}'));
+  check('H: Continue does not block the tour offer',
+    /if \(tourPendingAfterPrompt\.current\) \{ tourPendingAfterPrompt\.current = false; setTourOpen\(true\); \}/.test(shell));
+  check('H: reading the guide first does not swallow the tour either',
+    /setGuideOpen\(false\); if \(tourPendingAfterPrompt\.current\)/.test(shell));
+
+  // ONE STORE. The prompt rides the mig-217 blob through the SAME client,
+  // and the client MERGES, or the tour saving its step would erase the
+  // dismissal and the prompt would come back.
+  check('H: the state field lives on TourState', state.includes('guidePromptAt?: string'));
+  check('H: saves merge over the last known state',
+    state.includes('const merged: TourState = { ...(lastKnown ?? {}), ...s };'));
+  check('H: no second migration was added',
+    !fs.existsSync(path.join(process.cwd(), 'supabase/migrations')) ||
+    !fs.readdirSync(path.join(process.cwd(), 'supabase/migrations')).some((f) => /^218/.test(f) && /tour|guide|prompt/i.test(f)));
+  check('H: the prompt component itself stores nothing',
+    !prompt.includes('saveTourState') && !prompt.includes('fetch('));
+
+  // Re-showable where the tour restarts.
+  check('H: the guide overlay re-offers it beside the tour restart',
+    guide.includes('guide-show-welcome') && shell.includes('onShowWelcome={()'));
+
+  // Locked palette.
+  const colourish = prompt.match(/#[0-9a-fA-F]{3,8}\b|rgb\(/g) ?? [];
+  check('H: the prompt uses design tokens only', colourish.length === 0, colourish.slice(0, 3).join(', '));
+}
 console.log(`\n${'='.repeat(64)}`);
 if (failures.length === 0) {
   console.log(`verify-platform-tour: ${passed} passed, 0 failed`);

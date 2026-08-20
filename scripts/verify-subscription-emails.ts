@@ -23,7 +23,7 @@ import fs from 'fs';
 import path from 'path';
 import {
   subscriptionActivePaddleEmail, planActiveManualEmail, subscriptionCanceledEmail,
-  trialStartedEmail, trialEndingEmail, renewalReminderEmail, expiryReminderEmail,
+  trialStartedEmail, trialDeclinedEmail, trialEndingEmail, renewalReminderEmail, expiryReminderEmail,
   graceStartedEmail, graceEndingEmail, manualInvoiceEmail, planChangedEmail, planEndedEmail, fmtAmount, fmtDate, planLabel,
 } from '../src/shared/email/templates/subscription';
 import { generateManualReceiptPdf, makeReceiptNumber } from '../src/shared/payments/manualInvoice';
@@ -269,6 +269,23 @@ const lc = (s: string) => s.toLowerCase();
   check('immediate plan-change email notes the attached invoice', lc(upA.html).includes('invoice for that charge is attached'));
   const upNo = await planChangedEmail({ name: 'Sam', planKey: 'firm', interval: 'annual', timing: 'scheduled', effectiveAt: '2026-08-01T00:00:00Z', manageUrl: 'https://x/dashboard#billing', pricingUrl: 'https://x/pricing/refm' });
   check('scheduled downgrade email has NO invoice note', !lc(upNo.html).includes('invoice'));
+
+  // ── Trial request DECLINED (2026-08-20) ─────────────────────────────────
+  // A decline used to send NOTHING: the requester could not tell a refusal
+  // from a request nobody saw. Short and neutral by instruction: no reason,
+  // no admin-typed message.
+  const declined = await trialDeclinedEmail({ name: 'Sam <img src=x onerror=1>', pricingUrl: 'https://x/pricing/refm' });
+  check('declined: neutral wording, no reason stated', lc(declined.html).includes('was not approved at this time') && !/not approved[^<]{0,120}because/.test(lc(declined.html)));
+  check('declined: carries the pricing link', declined.html.includes('https://x/pricing/refm'));
+  check('declined: the user-supplied name is escaped', !declined.html.includes('<img src=x'));
+  check('declined: no trial promised, no access implied', !lc(declined.html).includes('your trial has started'));
+  const semDecl = read('src/shared/email/subscriptionEmails.ts');
+  check('declined: sender goes through the shared never-throws dispatch', /sendTrialDeclinedEmail[^]{0,600}await dispatch\(sb, key/.test(semDecl));
+  check('declined: deduped PER REQUEST, not per day', /email_type: 'trial_declined', threshold: `evt:\$\{args\.requestId\}`/.test(semDecl));
+  check('declined: sent from no-reply', /trialDeclinedEmail\(\{ name: c\.name[^]{0,200}from: FROM\.noreply/.test(semDecl));
+  const trRoute = read('app/api/admin/trial-requests/route.ts');
+  check('declined: the decline branch actually sends it', /action === 'decline'[^]{0,200}sendTrialDeclinedEmail\(sb, \{ userId: targetUserId/.test(trRoute));
+  check('declined: sent AFTER the status update records the decision', trRoute.indexOf('sendTrialDeclinedEmail(sb') > trRoute.indexOf(".eq('id', id)"));
 
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
   if (fail > 0) { console.log('FAILED:', fails.join(', ')); process.exit(1); }

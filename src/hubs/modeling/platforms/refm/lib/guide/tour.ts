@@ -41,7 +41,19 @@ export interface TourStep {
 const sidebarAnchor = (moduleKey: string): string => `[data-testid="sidebar-${moduleKey}"]`;
 const MAIN = '[data-testid="platform-main"]';
 
-export function buildPlatformTour(): TourStep[] {
+/**
+ * MODULE-ONLY MODE (2026-08-20). With no project open, every tab surface
+ * renders a placeholder, and a tour step spotlighting a blank screen reads
+ * as an error, not a walkthrough. So the tour has two shapes: the FULL walk
+ * (every module, every tab) when a project is open, and a module-level walk
+ * when none is. Which INDIVIDUAL tabs are empty is never decided here: that
+ * is read off the actual rendered surface at step time (see surfaceIsEmpty
+ * in PlatformTour.tsx), because a list of "usually empty" tabs is a guess
+ * that goes stale.
+ */
+export type TourMode = 'full' | 'module';
+
+export function buildPlatformTour(mode: TourMode = 'full'): TourStep[] {
   const steps: TourStep[] = [];
 
   steps.push({
@@ -65,6 +77,8 @@ export function buildPlatformTour(): TourStep[] {
       nav: { module: mk },
       anchors: [sidebarAnchor(mk)],
     });
+
+    if (mode === 'module') continue;
 
     const tabs = MODULE_TABS[mk] ?? [];
     if (tabs.length > 0) {
@@ -98,7 +112,8 @@ export function buildPlatformTour(): TourStep[] {
   steps.push({
     id: 'finish',
     title: 'You are set',
-    body: 'The Guide button in the top bar opens the full written guide from anywhere, with search and a section map, and this tour can be restarted from inside it whenever you want the walkthrough again.',
+    body: 'The Guide button in the top bar opens the full written guide from anywhere, with search and a section map, and this tour can be restarted from inside it whenever you want the walkthrough again.'
+      + (mode === 'module' ? ' Once you open a project, restarting the tour walks every tab as well.' : ''),
     anchors: ['[data-testid="topbar-open-guide"]'],
   });
 

@@ -20,7 +20,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { sendEmail, FROM, type EmailAttachment } from './sendEmail';
 import {
   subscriptionActivePaddleEmail, planActiveManualEmail, subscriptionCanceledEmail,
-  trialStartedEmail, trialEndingEmail, renewalReminderEmail, expiryReminderEmail,
+  trialStartedEmail, trialDeclinedEmail, trialEndingEmail, renewalReminderEmail, expiryReminderEmail,
   graceStartedEmail, graceEndingEmail, manualInvoiceEmail, planChangedEmail, planEndedEmail,
   renewalReceiptEmail, paymentFailedEmail, fmtAmount,
 } from './templates/subscription';
@@ -376,6 +376,27 @@ export async function sendTrialStartedEmail(
  * effective day. `timing` is 'immediate' (upgrade / interval, effective now) or
  * 'scheduled' (downgrade, effective next cycle). Renew/plans link is per-platform.
  */
+/**
+ * Trial request DECLINED. Same never-throws dispatch as every other send
+ * here: a failed email must not fail the decline. Deduped PER REQUEST
+ * (threshold evt:<requestId>), so re-declining the same request, or a retry
+ * of the admin action, sends exactly one email, while a decline of a NEW
+ * later request from the same user still sends.
+ */
+export async function sendTrialDeclinedEmail(
+  sb: SupabaseClient,
+  args: { userId: string; platform?: string; requestId: string },
+): Promise<void> {
+  const platform = args.platform ?? PLATFORM_DEFAULT;
+  const key: MarkerKey = { user_id: args.userId, platform_slug: platform, email_type: 'trial_declined', threshold: `evt:${args.requestId}`, anchor_day: dayStr(Date.now()) };
+  await dispatch(sb, key, async () => {
+    const c = await getContact(sb, args.userId);
+    if (!c) throw new Error('no contact');
+    const { subject, html } = await trialDeclinedEmail({ name: c.name, pricingUrl: pricingUrl(platform) });
+    return (await sendEmail({ to: c.email, subject, html, from: FROM.noreply })).id;
+  });
+}
+
 export async function sendPlanChangedEmail(
   sb: SupabaseClient,
   args: { userId: string; platform?: string; planKey: string; interval: 'monthly' | 'annual'; timing: 'immediate' | 'scheduled'; effectiveAt?: string | null; subscriptionId?: string | null; transactionId?: string | null },

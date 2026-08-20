@@ -81,8 +81,9 @@ import RbacModal from './modals/RbacModal';
 import ExportModal from './modals/ExportModal';
 import PlatformGuideModal from './modals/PlatformGuideModal';
 import PlatformTour from './PlatformTour';
-import { buildPlatformTour } from '../lib/guide/tour';
-import { loadTourState, tourShouldAutoRun } from '../lib/guide/tourState';
+import FirstRunGuidePrompt from './FirstRunGuidePrompt';
+import { buildPlatformTour, type TourMode } from '../lib/guide/tour';
+import { loadTourState, saveTourState, tourShouldAutoRun } from '../lib/guide/tourState';
 import UpgradePrompt from '@/src/shared/components/UpgradePrompt';
 import { buildPlatformGuide } from '../lib/guide/platformGuide';
 import { useEntitlements } from '../lib/useEntitlements';
@@ -306,15 +307,38 @@ export default function RealEstatePlatform(): React.JSX.Element {
   // from guideContent.ts, the same source the written guide renders.
   const [tourOpen, setTourOpen] = useState(false);
   const [tourStartStep, setTourStartStep] = useState(0);
-  const tourSteps = useMemo(() => buildPlatformTour(), []);
+  // MODE FOLLOWS REALITY: no project open means every tab surface is a
+  // placeholder, so the tour walks modules only. Opening a project rebuilds
+  // the full step list; which individual tabs are empty is then read off the
+  // rendered DOM per step, never off a list (see PlatformTour).
+  // FIRST-RUN SEQUENCE: the guide prompt shows BEFORE the tour offer, once
+  // per user (guidePromptAt in the same mig-217 blob). Either action marks
+  // it permanently; neither blocks the tour, which runs after Continue, or
+  // after the guide closes if they chose to read first.
+  const [welcomePromptOpen, setWelcomePromptOpen] = useState(false);
+  const tourPendingAfterPrompt = useRef(false);
   useEffect(() => {
     let cancelled = false;
     void loadTourState().then((st) => {
-      if (cancelled || !tourShouldAutoRun(st)) return;
-      setTourStartStep(st?.step ?? 0);
-      setTourOpen(true);
+      if (cancelled) return;
+      const tourDue = tourShouldAutoRun(st);
+      if (tourDue) setTourStartStep(st?.step ?? 0);
+      if (!st?.guidePromptAt) {
+        tourPendingAfterPrompt.current = tourDue;
+        setWelcomePromptOpen(true);
+      } else if (tourDue) {
+        setTourOpen(true);
+      }
     });
     return () => { cancelled = true; };
+  }, []);
+  const dismissWelcome = useCallback((openGuide: boolean): void => {
+    // One click, permanent: BOTH actions stamp guidePromptAt. saveTourState
+    // merges over the loaded blob, so the tour fields are untouched.
+    saveTourState({ guidePromptAt: new Date().toISOString() });
+    setWelcomePromptOpen(false);
+    if (openGuide) { setGuideOpen(true); return; }
+    if (tourPendingAfterPrompt.current) { tourPendingAfterPrompt.current = false; setTourOpen(true); }
   }, []);
 
   // RBAC (admin-only by default; left as user-toggle for testing)
@@ -339,6 +363,11 @@ export default function RealEstatePlatform(): React.JSX.Element {
   // Server-side project list
   const [serverProjects, setServerProjects] = useState<pclient.RefmProjectSummary[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  // (declared with the tour state above; sits here because it reads
+  // activeProjectId, which is declared on the line before)
+  const tourMode: TourMode = activeProjectId ? 'full' : 'module';
+  const tourSteps = useMemo(() => buildPlatformTour(tourMode), [tourMode]);
+
   const [activeVersionId, setActiveVersionId] = useState<string | null>(null);
   // 2026-08-15: the NAME of the version currently open. Previously the shell
   // looked this up in StorageProject.versions, a map that projectsToStorageShape
@@ -1722,7 +1751,13 @@ export default function RealEstatePlatform(): React.JSX.Element {
         projectName={activeProjectData?.name ?? null}
         versionLabel={activeVersionData?.name ?? null}
       />
+      <FirstRunGuidePrompt
+        open={welcomePromptOpen}
+        onOpenGuide={() => dismissWelcome(true)}
+        onContinue={() => dismissWelcome(false)}
+      />
       <PlatformTour
+        mode={tourMode}
         open={tourOpen}
         steps={tourSteps}
         initialStep={tourStartStep}
@@ -1730,7 +1765,8 @@ export default function RealEstatePlatform(): React.JSX.Element {
       />
       <PlatformGuideModal
         open={guideOpen}
-        onClose={() => setGuideOpen(false)}
+        onClose={() => { setGuideOpen(false); if (tourPendingAfterPrompt.current) { tourPendingAfterPrompt.current = false; setTourOpen(true); } }}
+        onShowWelcome={() => { setGuideOpen(false); setWelcomePromptOpen(true); }}
         onStartTour={() => { setGuideOpen(false); setTourStartStep(0); setTourOpen(true); }}
         doc={buildPlatformGuide({ modules: MODULES, moduleTabs: MODULE_TABS })}
         dateLabel={new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}

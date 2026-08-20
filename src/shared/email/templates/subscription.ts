@@ -158,6 +158,29 @@ export async function trialStartedEmail(data: {
   return { subject: 'Your free trial has started', html };
 }
 
+// ── 4b. Trial request declined ──────────────────────────────────────────────
+
+/**
+ * Sent when an admin DECLINES a pending trial request. Deliberately short and
+ * neutral: no reason is stated and no admin-typed message is carried, by
+ * instruction. Before this existed the requester heard NOTHING on a decline,
+ * which from their side was indistinguishable from a request nobody saw.
+ */
+export async function trialDeclinedEmail(data: {
+  name: string | null; pricingUrl: string;
+}): Promise<Built> {
+  const html = await subLayout(`
+    ${h1('About your trial request')}
+    ${p(greeting(data.name))}
+    ${p('Thank you for your interest in the platform. Your trial request was not approved at this time.')}
+    ${p('You can still get full access straight away with any of our plans.')}
+    <div style="text-align:center;">${button('See the plans', data.pricingUrl)}</div>
+    ${divider()}
+    ${p('If you think this was a mistake, just reply to this email.', 'font-size:13px;color:#6b7280;')}
+  `);
+  return { subject: 'About your trial request', html };
+}
+
 // ── 5. Trial ending soon (7d / 1d) ──────────────────────────────────────────
 
 export async function trialEndingEmail(data: {

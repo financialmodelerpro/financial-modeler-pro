@@ -4,7 +4,7 @@ import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { setUserPlan } from '@/src/shared/entitlements/setUserPlan';
 import { isUserLivePaddle, PADDLE_BILLED_BLOCK_MESSAGE } from '@/src/shared/payments/config';
-import { sendTrialStartedEmail } from '@/src/shared/email/subscriptionEmails';
+import { sendTrialStartedEmail, sendTrialDeclinedEmail } from '@/src/shared/email/subscriptionEmails';
 
 // Admin trial-request queue (used when "Trial requires approval" is on).
 //   GET  -> pending requests joined with the requester's email/name/company/title.
@@ -99,6 +99,14 @@ export async function POST(req: NextRequest) {
       decided_at: new Date().toISOString(),
       decided_by: adminId,
     }).eq('id', id);
+
+    // The requester hears the outcome either way. Approval sends the trial
+    // started email above; a decline now sends its own short neutral note,
+    // AFTER the status update so the email never reports a decision that
+    // failed to record. Never throws; deduped per request id.
+    if (action === 'decline') {
+      await sendTrialDeclinedEmail(sb, { userId: targetUserId, platform: PLATFORM, requestId: id });
+    }
 
     return NextResponse.json({ ok: true, action });
   } catch {
