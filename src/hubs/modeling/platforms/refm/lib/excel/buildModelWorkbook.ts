@@ -17,7 +17,7 @@
  */
 import { buildReceivablesRollForward, buildUnearnedRollForward } from '../reports/saleRollForwardReports';
 import ExcelJS from 'exceljs';
-import { buildSaleCohortTermsBlock, saleCohortRuleText, CASH_PROFILE_SUPERSEDED_LABEL, buildSaleCohortGrid, saleCohortGridCaption } from '../reports/saleCohortReports';
+import { buildSaleCohortTermsBlock, saleCohortRuleText, buildSaleCohortGrid, saleCohortGridCaption } from '../reports/saleCohortReports';
 import JSZip from 'jszip';
 import { computeFinancialsSnapshot, computeFundingGap, type FinancialsResolverState } from '../financials-resolvers';
 import { buildCapexReport, type CapexReport } from '../reports/capexReports';
@@ -1001,14 +1001,16 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   // Per-asset cash + recognition profiles (% by year from the sale year).
   for (const a of visibleAssets) {
     const s = a.revenue?.sell; if (!s) continue;
-    const cashPct = s.cashPaymentProfile?.percentages ?? [];
+    // RECOGNITION ONLY (2026-08-20). The cash payment profile row was removed
+    // once the cohort rule was verified: it drives nothing, so printing it in
+    // an inputs table presented a dead field as a live one. The field itself
+    // is deprecated in storage, not deleted, so no entered schedule is lost.
     const recogPct = s.recognitionProfile?.percentages ?? [];
-    let n = 0; for (let i = 0; i < Math.max(cashPct.length, recogPct.length); i++) if ((cashPct[i] ?? 0) !== 0 || (recogPct[i] ?? 0) !== 0) n = i + 1;
+    let n = 0; for (let i = 0; i < recogPct.length; i++) if ((recogPct[i] ?? 0) !== 0) n = i + 1;
     if (!n) continue;
-    setSectionHeader(ws.getRow(r), `Cash & recognition profile, ${a.name} (% by year from sale)`, n + 1); r += 1;
+    setSectionHeader(ws.getRow(r), `Recognition profile, ${a.name} (% by year from sale)`, n + 1); r += 1;
     setColHeader(ws.getCell(r, 1), 'Profile', 'left'); for (let i = 0; i < n; i++) setColHeader(ws.getCell(r, 2 + i), `Yr ${i + 1}`, 'right'); r += 1;
-    setLabel(ws.getCell(`A${r}`), CASH_PROFILE_SUPERSEDED_LABEL); for (let i = 0; i < n; i++) setInput(ws.getCell(r, 2 + i), cashPct[i] ?? 0, NUMFMT.pct); r += 1;
-    if (recogPct.length) { setLabel(ws.getCell(`A${r}`), 'Recognition %'); for (let i = 0; i < n; i++) setInput(ws.getCell(r, 2 + i), recogPct[i] ?? 0, NUMFMT.pct); r += 1; }
+    setLabel(ws.getCell(`A${r}`), 'Recognition %'); for (let i = 0; i < n; i++) setInput(ws.getCell(r, 2 + i), recogPct[i] ?? 0, NUMFMT.pct); r += 1;
     // Sale cohort terms: what actually drives collections. Shared builder, so
     // this and the PDF cannot drift.
     {
@@ -2357,12 +2359,11 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
   // period column is Year 1 from sale, not the absolute axis year).
   for (const a of state.assets) {
     const s = a.revenue?.sell; if (!s) continue;
-    const cashPct = s.cashPaymentProfile?.percentages ?? [];
+    // Recognition only; see the note on the Inputs tab block above.
     const recogPct = s.recognitionProfile?.percentages ?? [];
-    if (!anyNonZero(cashPct) && !anyNonZero(recogPct)) continue;
-    subTitle(`Cash & Recognition Profile, ${a.name} (% relative to sale year; first period column = Year 1)`);
-    statRow(CASH_PROFILE_SUPERSEDED_LABEL, cashPct.map((v) => v ?? 0), NUMFMT.pct);
-    if (recogPct.length) statRow('Recognition %', recogPct.map((v) => v ?? 0), NUMFMT.pct);
+    if (!anyNonZero(recogPct)) continue;
+    subTitle(`Recognition Profile, ${a.name} (% relative to sale year; first period column = Year 1)`);
+    statRow('Recognition %', recogPct.map((v) => v ?? 0), NUMFMT.pct);
     r += 1;
   }
 

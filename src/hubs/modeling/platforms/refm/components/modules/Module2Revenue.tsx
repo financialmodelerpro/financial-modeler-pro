@@ -778,10 +778,6 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   // asset.revenue.sell with sensible defaults; no project-level
   // template, no override chip.
   const sellConfig = asset.revenue?.sell;
-  const cashProfile = sellConfig?.cashPaymentProfile ?? {
-    percentages: [] as number[],
-    profileMode: 'absolute_with_catchup' as const,
-  };
   const recProfile = sellConfig?.recognitionProfile ?? {
     method: 'point_in_time' as const,
     pointInTimeYear: 'handover' as const,
@@ -928,36 +924,15 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     updateSellInline({ subUnits: nextSubs });
   };
 
-  const setCashPct = (periodIdx: number, pct: number): void => {
-    const value = Math.max(0, Math.min(1, pct / 100));
-    const next = paddedArray(cashProfile.percentages, totalPeriods);
-    next[periodIdx] = value;
-    // M4 Pass 2h: dual-write to phase-local sibling.
-    // M2 Pass 9k-Fix (2026-05-20): the cash payment profile is a
-    // TEMPLATE that distributes each cohort's revenue across multiple
-    // years, NOT a single-year per-phase setting. The schedule can
-    // legitimately extend past the phase's construction + operations
-    // window (long payment plans). Use the full remaining-axis window
-    // from phase start, not cp + op - overlap.
-    // M2 Pass 9L-Fix (2026-05-21): rebuild byPhase from the FULL
-    // (updated) legacy axis so historical values entered before the
-    // dual-write fix don't get zeroed out by an empty existingByPhase.
-    const phaseLen = Math.max(0, totalPeriods - phaseOffset);
-    const nextByPhase = new Array<number>(phaseLen).fill(0);
-    for (let i = 0; i < phaseLen; i++) {
-      const axisIdx = i + phaseOffset;
-      nextByPhase[i] = next[axisIdx] ?? 0;
-    }
-    updateSellInline({
-      cashPaymentProfile: {
-        percentages: next,
-        positions: cashProfile.positions,
-        profileMode: cashProfile.profileMode ?? 'absolute_with_catchup',
-        percentagesByPhase: nextByPhase,
-        positionsByPhase: cashProfile.positionsByPhase,
-      },
-    });
-  };
+  // THE CASH PAYMENT PROFILE HAS NO EDITOR (2026-08-20). It stopped driving
+  // collections at restructure Step 3, and its superseded display block was
+  // removed once the cohort rule was verified, so the setter that wrote it had
+  // no caller left.
+  //
+  // The STORED FIELD IS UNTOUCHED: deprecated, not deleted, so no schedule a
+  // user entered is lost and the legacy migration still carries it. Nothing
+  // reads it to compute a number. See CashPaymentProfile in
+  // core/calculations/revenue/types.ts.
 
   // ── SALE COHORT TERMS (2026-08-19, restructure Step 1) ────────────────────
   //
@@ -1421,8 +1396,6 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     return v[0] ?? 0;
   };
 
-  const cashSum = cashProfile.percentages.reduce((s, v) => s + v, 0);
-  const cashSumOk = Math.abs(cashSum - 1) < 0.005;
   const recSum = (recProfile.percentages ?? []).reduce((s, v) => s + v, 0);
   const recSumOk = recProfile.method === 'point_in_time' || Math.abs(recSum - 1) < 0.005;
 
@@ -2457,38 +2430,6 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
                 <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4, fontStyle: 'italic' }}>
                   Percent of cohort recognised per project year. Catch-up applies at the cohort sale year (absolute mode). Total must sum to 100%.
                 </div>
-              </div>
-            )}
-          </InlineSection>
-
-          {/* Cash Payment Profile (full row, BELOW Recognition) */}
-          <InlineSection
-            title={`Cash payment profile · ${cashWindow[0]?.year ?? '?'} to ${cashWindow[cashWindow.length - 1]?.year ?? '?'} · superseded`}
-            hint="Kept so the schedule you entered is not lost. It no longer drives collections."
-            tag="No longer used"
-            tagColor="var(--color-warning, #92400e)"
-          >
-            {/* NO EDITABLE STRIP HERE, DELIBERATELY. This profile stopped
-                driving collections when the sale cohort rule went live, and a
-                control that accepts a change and discards it is a lying screen
-                (docs/TRAPS.md 7.20). The stored values are shown as text so the
-                user can still read what they entered and copy it into the
-                cohort terms below, without a box that pretends to do
-                something. */}
-            <div style={{ fontSize: 11, color: 'var(--color-body)', lineHeight: 1.5 }}>
-              This asset&apos;s collections are now set by <strong>Sale cohort terms</strong> below. That profile was one schedule shared by every sale year, so a cohort selling in the first year and one selling in the last were forced onto the same milestones; each sale year now carries its own terms. Your entered schedule is kept and shown here for reference, and nothing reads it.
-            </div>
-            {cashSum > 0 ? (
-              <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 6, lineHeight: 1.5 }}>
-                Entered schedule ({(cashSum * 100).toFixed(1)}% in total):{' '}
-                {cashWindow
-                  .filter((c) => (cashProfile.percentages?.[c.idx] ?? 0) > 0)
-                  .map((c) => `${c.year} ${(((cashProfile.percentages?.[c.idx] ?? 0)) * 100).toFixed(1)}%`)
-                  .join(' · ') || 'nothing outside the visible window'}
-              </div>
-            ) : (
-              <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 6 }}>
-                No schedule was entered on this asset.
               </div>
             )}
           </InlineSection>

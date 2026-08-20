@@ -47,12 +47,22 @@ export interface SaleCohortTermsBlock {
   noDownpaymentSet: boolean;
 }
 
-/** The one sentence every surface uses to mark the retired input, so the
- *  wording cannot drift between the screen, the workbook and the PDF. */
-export const CASH_PROFILE_SUPERSEDED_LABEL = 'Cash payment % (superseded, no longer drives collections)';
-
-export const CASH_PROFILE_SUPERSEDED_NOTE =
-  'The cash payment profile was one schedule shared by every sale year. Collections now follow the sale cohort terms below, where each sale year carries its own downpayment and instalment run. The profile is retained so no entered data is lost, and nothing reads it.';
+/*
+ * CASH_PROFILE_SUPERSEDED_LABEL and _NOTE lived here from 2026-08-19 to
+ * 2026-08-20. They marked the retired cash payment profile wherever it was
+ * still printed, which was the honest thing to do while the cohort rule was
+ * new and a reader might still be looking for the old input.
+ *
+ * Once the rule was verified, the block was removed from the Module 2 sell
+ * panel and from all three export surfaces: a large explanation of something
+ * that drives nothing, sitting between two live sections, is noise. There is
+ * nothing left to label, so the constants went with it.
+ *
+ * THE STORED FIELD IS UNTOUCHED: deprecated, not deleted, so no schedule a
+ * user entered is lost and the legacy migration still carries it. Nothing
+ * reads it to compute a number. See CashPaymentProfile in
+ * core/calculations/revenue/types.ts.
+ */
 
 /**
  * Build the block for one Sell asset, or null when the asset has no sell

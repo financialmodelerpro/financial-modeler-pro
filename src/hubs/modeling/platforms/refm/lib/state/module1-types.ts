@@ -1327,6 +1327,21 @@ export interface Asset {
         preSalesVelocityByPhase?: number[];
         postSalesVelocityByPhase?: number[];
       }>;
+      /**
+       * @deprecated 2026-08-20. RETAINED FOR DATA, READ BY NOTHING, AND
+       * NO LONGER EDITABLE ANYWHERE.
+       *
+       * One milestone schedule shared by every sale year. Pre-sales
+       * collections have followed the per-sale-year cohort rule since the
+       * sale cohort restructure Step 3; on 2026-08-20 the last surfaces
+       * that displayed this profile were removed along with its editor.
+       *
+       * NOT DELETED, deliberately: saved projects carry schedules users
+       * entered, this schema is additive only, and the legacy migration
+       * still maintains the phase-local sibling so a hydrate loses
+       * nothing. See CashPaymentProfile in
+       * src/core/calculations/revenue/types.ts.
+       */
       cashPaymentProfile: {
         /** @deprecated M4 Pass 2h: project-axis-indexed. */
         percentages: number[];

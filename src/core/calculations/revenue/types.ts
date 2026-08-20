@@ -24,12 +24,28 @@ export interface SellSubUnitConfig {
   postSalesVelocity: number[];
 }
 
-// Cash payment milestone profile. percentages sum to 1.0 across the
-// cohort. positions[i] = the project-period index where percentages[i]
-// applies (absolute_with_catchup mode) or the offset from cohort sale
-// year (relative_to_sale mode). When positions is omitted, the engine
-// treats percentages[i] as project period i (absolute) or offset i
-// (relative).
+/**
+ * @deprecated 2026-08-20. RETAINED FOR DATA, READ BY NOTHING.
+ *
+ * One milestone schedule shared by EVERY sale year, which is exactly the
+ * limitation the sale cohort restructure removed: a cohort selling in year 1
+ * and one selling in year 4 were forced onto the same milestones. Pre-sales
+ * collections have been driven by the per-sale-year cohort rule since
+ * restructure Step 3 (see cohortTerms.ts), and on 2026-08-20 the last surfaces
+ * that displayed this profile were removed, along with its editor.
+ *
+ * IT IS NOT DELETED, and must not be: saved projects carry schedules users
+ * entered, the schema here is additive only, and the legacy migration still
+ * maintains its phase-local sibling so nothing is lost on a hydrate. The field
+ * stays REQUIRED on AssetSellConfig because the platform mapper still supplies
+ * it and making it optional would be a breaking change for no gain.
+ *
+ * Historic meaning, for anyone reading old data: percentages sum to 1.0 across
+ * the cohort. positions[i] = the project-period index where percentages[i]
+ * applies (absolute_with_catchup mode) or the offset from the cohort sale year
+ * (relative_to_sale mode). When positions is omitted, percentages[i] was
+ * treated as project period i (absolute) or offset i (relative).
+ */
 export interface CashPaymentProfile {
   percentages: number[];
   positions?: number[];

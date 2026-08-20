@@ -1170,7 +1170,6 @@ export default function Module2RevenueOutput(): React.JSX.Element {
               }
               const assetSubUnits = subUnits.filter((u) => u.assetId === a.id);
               const cfg = resolveSellConfig(a, project);
-              const cashProfile = cfg?.cashPaymentProfile;
               const recProfile = cfg?.recognitionProfile;
               const indexation = cfg?.indexation;
               const totalAreaPerSU = assetSubUnits.map((su) => computeSubUnitArea(su));
@@ -1227,9 +1226,6 @@ export default function Module2RevenueOutput(): React.JSX.Element {
               const recLabel = recProfile?.method === 'point_in_time'
                 ? `Point-in-Time at ${recProfile.pointInTimeYear ?? 'handover'}`
                 : 'Over-Time profile';
-              const cashMode = cashProfile?.profileMode === 'relative_to_sale'
-                ? 'relative-to-sale milestone schedule'
-                : 'absolute milestone schedule with sale-year catchup';
 
               // Pass 9e-7 (2026-05-18): companion no longer rendered
               // inline in the Sell section. It shows under Hospitality

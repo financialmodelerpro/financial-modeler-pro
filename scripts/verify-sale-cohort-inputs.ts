@@ -42,6 +42,7 @@ import { buildSaleCohortProfile, instalmentCount, resolveDownpayment, hasAnyDown
 import { resolveCohortDownpayment, resolveAssetDownpaymentSource, buildEngineDownpaymentAxis } from '../src/hubs/modeling/platforms/refm/lib/state/saleCohortResolution';
 import { buildInventoryRollForward, buildReceivablesRollForward, buildUnearnedRollForward } from '../src/hubs/modeling/platforms/refm/lib/reports/saleRollForwardReports';
 import { buildSaleCohortGrid } from '../src/hubs/modeling/platforms/refm/lib/reports/saleCohortReports';
+import { saleCohortAdvisoryText, SALE_COHORT_DETAIL_MAX } from '../src/hubs/modeling/platforms/refm/lib/reports/checksReport';
 import { buildSaleCohortAdvisories } from '../src/hubs/modeling/platforms/refm/lib/reports/checksReport';
 import { buildSaleCohortTermsBlock, saleCohortRuleText } from '../src/hubs/modeling/platforms/refm/lib/reports/saleCohortReports';
 import { makeDefaultProject } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
@@ -250,8 +251,20 @@ section('D. The retired input is retired, and every surface says so');
   // the stored data, but nothing may render an input bound to it.
   check('D: the screen renders no editable strip for the cash payment profile',
     !/testidPrefix=\{`m2-cash-\$\{asset\.id\}`\}/.test(screen));
-  check('D: and it says the profile is superseded',
-    /superseded/i.test(screen) && /No longer used/i.test(screen));
+  // INVERTED 2026-08-20. The superseded block was removed from the sell panel
+  // once the cohort rule was verified: a large explanation of something that
+  // drives nothing, sitting between two live sections, is noise. What must
+  // hold now is that NO trace of it renders, and that the STORED FIELD SURVIVES.
+  check('D: the superseded block is gone from the screen',
+    !/superseded/i.test(stripComments(screen)) && !/No longer used/i.test(stripComments(screen)));
+  check('D: and its editor is gone with it, so nothing writes a dead field',
+    !stripComments(screen).includes('setCashPct'));
+  check('D: but the stored field is DEPRECATED, not deleted',
+    /@deprecated/.test(read('src/core/calculations/revenue/types.ts').slice(
+      read('src/core/calculations/revenue/types.ts').indexOf('CashPaymentProfile') - 1400,
+      read('src/core/calculations/revenue/types.ts').indexOf('export interface CashPaymentProfile'),
+    ))
+    && read(STORED_TYPES).includes('cashPaymentProfile'));
   // SCOPED TO THE COHORT TERMS SECTION, not the whole screen. The project
   // default band added by Option B Step 1 correctly says 'Not yet applied'
   // about ITSELF, and a screen-wide scan cannot tell the two apart.
@@ -278,8 +291,11 @@ section('D. The retired input is retired, and every surface says so');
   const pdf = read('src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf.ts');
   for (const [name, src] of [['workbook', wb], ['pdf', pdf]] as const) {
     check('D: the ' + name + ' imports the shared sale cohort builder', src.includes('saleCohortReports'));
-    check('D: the ' + name + ' labels the retired row from the shared constant',
-      src.includes('CASH_PROFILE_SUPERSEDED_LABEL'));
+    // INVERTED with the screen: nothing may print the retired profile, and
+    // the shared label constant was deleted with the last call site.
+    check('D: the ' + name + ' no longer prints the retired profile at all',
+      !stripComments(src).includes('CASH_PROFILE_SUPERSEDED_LABEL')
+      && !stripComments(src).includes('cashPaymentProfile'));
     check('D: the ' + name + ' prints the live cohort terms', src.includes('buildSaleCohortTermsBlock'));
     check('D: the ' + name + ' re-declares no label of its own',
       !/'Cash payment %'/.test(stripComments(src)));
@@ -809,6 +825,37 @@ section('K. OPTION B STEP 3: blocked is visible where the number is consumed');
       buildSaleCohortAdvisories([{ ...sellAsset('c', 'Companion', undefined), isCompanion: true }] as never, undefined, revenueOf(['c']) as never).length === 0);
     check('K2: an asset the revenue engine does not resolve is not flagged',
       buildSaleCohortAdvisories([sellAsset('z', 'Unresolved', undefined)] as never, undefined, { bySellAsset: new Map() } as never).length === 0);
+  }
+
+  // K2b. THE DETAIL LINE MUST STAY SHORT. PDF grid columns are content-sized,
+  // so one long sentence in the Detail column steals width from the Check
+  // column and ellipsises the labels of every row above it. The first version
+  // of this text was ~250 characters and truncated all three integrity check
+  // labels in BOTH PDFs; six verify-report-consistency checks went red and it
+  // shipped, because that pass ran the export verifiers it expected to be
+  // affected and not that one.
+  {
+    const long = { assetId: 'a', assetName: 'A Fairly Long Asset Name Here', saleValue: 1234567890 };
+    const text = saleCohortAdvisoryText(long, (v) => (v / 1e6).toFixed(2) + 'm');
+    check('K2b: the advisory detail stays inside the column-width budget',
+      text.length <= SALE_COHORT_DETAIL_MAX, text.length + ' chars');
+    check('K2b: and still names the asset and the money at stake',
+      text.includes('A Fairly Long Asset Name Here') && text.includes('1234.57m'));
+  }
+
+  // K2c. NO PROSE IN A PDF GRID CELL. Columns are content-sized, so a long
+  // sentence in one cell steals the width from every other column and
+  // ellipsises the rows above it. Three separate strings did this during the
+  // restructure (the advisory detail, the cohort rule text and the grid
+  // caption), breaking 15 checks across verify-report-consistency and
+  // verify-report-readability. The captions stay on the screen and in the
+  // workbook, which can hold them.
+  {
+    const pdfSrc = stripComments(read('src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf.ts'));
+    check('K2c: the PDF puts no rule text in a grid row',
+      !pdfSrc.includes('row([saleCohortRuleText'));
+    check('K2c: the PDF puts no grid caption in a grid row',
+      !pdfSrc.includes('row([saleCohortGridCaption'));
   }
 
   // K3. IT IS AN ADVISORY, NOT A FAILED IDENTITY. buildIntegrityChecks holds

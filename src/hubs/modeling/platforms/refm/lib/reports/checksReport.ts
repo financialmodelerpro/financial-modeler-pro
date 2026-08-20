@@ -279,13 +279,33 @@ export function buildSaleCohortAdvisories(
 }
 
 /** One sentence for any surface. Names the asset, the money at stake and the fix. */
+/**
+ * KEEP THIS SHORT. It renders in the Detail column of the Model Integrity
+ * Checks grid, and PDF grid columns are CONTENT-SIZED: the widest cell in a
+ * column sets that column's width, so one long sentence here steals the width
+ * from the Check column and ellipsises the labels of every row above it.
+ *
+ * That is not hypothetical. The first version of this function was about 250
+ * characters and it truncated all three integrity check labels in BOTH PDFs,
+ * turning "Balance sheet balances (Assets = L + E)" into something a reader,
+ * and `verify-report-consistency` G1, could not match. Six checks went red and
+ * it shipped, because the pass that introduced it ran the export verifiers it
+ * expected to be affected and not that one.
+ *
+ * The full explanation belongs where there is room for it: the Module 2
+ * Revenue banner. This is the one-line version.
+ *
+ * `SALE_COHORT_DETAIL_MAX` is asserted by `verify-sale-cohort-inputs`, so a
+ * future edit that lengthens it fails a check instead of silently squeezing a
+ * table nobody re-reads.
+ */
+export const SALE_COHORT_DETAIL_MAX = 120;
+
 export function saleCohortAdvisoryText(
   a: SaleCohortAdvisory,
   money: (v: number) => string,
 ): string {
-  return `${a.assetName}: no downpayment is set on the asset and no project default is set, so all `
-    + `${money(a.saleValue)} of sales is treated as taking no deposit and is collected in instalments `
-    + 'after the sale year. Set a downpayment on the asset, or a project default on Module 2 Revenue.';
+  return `${a.assetName}: no deposit stated on ${money(a.saleValue)} of sales. Set one on the asset or a project default.`;
 }
 
 /** The same thing as one short line, for a warnings list that has no money formatter. */

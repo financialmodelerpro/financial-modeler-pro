@@ -511,6 +511,41 @@ year off the end. That is not value lost. Closing NBV rises by the same amount t
 balance sheet still closes at 0.00. Measure both sides before calling a reduction a defect.
 
 
+
+### 7.29 Prose in a content-sized grid cell steals a neighbouring column's labels
+
+**Symptom.** `verify-report-consistency` went 60/0 to 54/6 and `verify-report-readability` 55/0 to
+39/16, both PDFs, and it shipped and stayed live for two commits. The six consistency failures all
+said the same thing: the Model Integrity Checks table exists, but
+`Balance sheet balances (Assets = L + E)` is not in the document.
+
+**Mechanism.** A PDF grid column is sized from the WIDEST CELL it will draw. A ~250-character
+advisory sentence was added to the Detail column of that table, so Detail took the width and the
+Check column was squeezed until every label in it ellipsised. The label was still "there" in the
+model and absent from the rendered text. Two more long strings (a rule text and a grid caption,
+~200 and ~330 characters) did the same to two other tables as whole caption ROWS.
+
+This is the same family as the 2026-08-12 export review's column geometry work, from a new
+direction: there a WIDE NUMBER cost digits, here a LONG SENTENCE cost a neighbouring column its
+labels.
+
+**Fix.** Prose does not go in a grid cell. The advisory detail is one short line under an asserted
+`SALE_COHORT_DETAIL_MAX` of 120 characters; the two caption rows were removed from the PDF entirely
+and kept on the screen and in the workbook, which can hold them. Guards `K2b` and `K2c` in
+`verify-sale-cohort-inputs` catch both shapes, and the length guard fires at 206 characters, well
+before the expensive export verifier notices.
+
+**THE PROCESS LESSON, which is the bigger one.** I ran the verifiers whose SUBJECT felt related
+(excel-export, report-arithmetic, the revenue ones) and never the two covering the FILE I had edited
+in all five passes, `generateProjectPdf.ts`. Both were green at the start and would have gone red the
+moment the change landed.
+
+*Run the verifier that covers the surface you touched, not the one whose subject matter feels
+related.* A cheap way to obey it: before committing, list the files changed and run every verifier
+that reads any of them.
+
+---
+
 ---
 ### 7.28 A lossy mapper makes a wrongness untestable, and the test still passes
 

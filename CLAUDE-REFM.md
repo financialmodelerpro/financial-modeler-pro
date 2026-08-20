@@ -2,6 +2,68 @@
 **Last updated: 2026-08-17. Lock status: M1 CLOSED 2026-08-17 (28 defects found in end-to-end use, all fixed and browser-verified; base lock unchanged at M2.0 Pass 58) + Parties tab (mig 190), M2 LOCKED (Pass 9N), M3 LOCKED (Pass 5d), M4 DONE, M5 DONE (Returns & RE Metrics + Lender Covenants + per-partner FCFE/DDM + M1-Parties link), M6 Scenario Analysis LIVE, M7 Reports LIVE (IC / Lender / One-Pager preview + PPT export, migs 191+192). Full verifier suite green via `npx tsx scripts/verify-*.ts`.**
 
 
+## 2026-08-20f: the superseded Cash Payment Profile block is gone, AND A REGRESSION I SHIPPED IS FIXED
+
+**Two things in one pass. The requested removal is small. The regression it uncovered is not, and it
+was live on production for two commits.**
+
+### The removal
+
+**READ AUDIT FIRST, as instructed.** Every non-comment reference to `cashPaymentProfile` was listed
+before anything was touched. **Nothing reads it to compute a number**: `sell.ts` has no reference at
+all, the engine takes its collections from the cohort rule, and the remaining references were the
+type declarations, the platform mapper (which must still SUPPLY the required field), the legacy
+migration (which must keep maintaining its phase-local sibling), and the display sites being removed.
+
+Removed from the Module 2 sell panel, the Excel Inputs tab, the Excel Revenue tab and the full PDF.
+The `Cash & Recognition Profile` tables are now `Recognition Profile`. `CASH_PROFILE_SUPERSEDED_LABEL`
+and `_NOTE` went with their last call sites. **The editor went too** (`setCashPct` had no caller
+left), which is what "deprecate rather than delete" means for an input: the data stays, the way to
+change it does not.
+
+**THE STORED FIELD IS UNTOUCHED** and now carries a `@deprecated` block on both the engine type and
+the stored shape saying why it is kept. Three dead locals fell out with it, two of which my own
+Step 4 caption change had already orphaned.
+
+### The regression, which is the important half
+
+`verify-report-consistency` was **54 passed, 6 failed**, and `verify-report-readability` **39 passed,
+16 failed**. Both were **60/0 and 55/0 before the restructure**. Bisecting the eight restructure
+commits put the break at `06a7966c` (Option B Step 3).
+
+**CAUSE: PROSE IN A CONTENT-SIZED PDF GRID CELL.** A PDF grid column is sized from its widest cell,
+so a long sentence in one column steals width from every other column and ellipsises the rows above
+it. Three strings did it: the advisory detail (~250 chars) in the Model Integrity Checks table, which
+truncated all three integrity check labels in BOTH documents so `Balance sheet balances (Assets =
+L + E)` no longer matched; and `saleCohortRuleText` (~200) and `saleCohortGridCaption` (~330) as
+caption rows in the Step 3 and Step 4 tables.
+
+This is the column-geometry family already recorded from the 2026-08-12 export review, arriving from
+a new direction: previously a WIDE NUMBER cost digits, here a LONG SENTENCE cost a neighbouring
+column its labels.
+
+**Fixed:** the advisory detail is now one short line (`SALE_COHORT_DETAIL_MAX` = 120, asserted), and
+the two caption rows are gone from the PDF, where a grid cannot hold prose. **Both captions stay on
+the screen and in the workbook**, which have room for them. Restored to **60/0 and 55/0**.
+
+**WHY I DID NOT CATCH IT: I ran the verifiers I expected to be affected rather than the ones covering
+the surface I touched.** Every one of those five passes edited `generateProjectPdf.ts`, and I ran
+`verify-excel-export`, `verify-report-arithmetic` and the revenue verifiers, never
+`verify-report-consistency` or `verify-report-readability`. Both were green at the start of the
+session and would have failed the moment Step 3 landed. **Touching a surface means running that
+surface's verifier, not the one whose subject matter feels related.**
+
+New guards: **K2b** caps the advisory detail (fires at 206 chars, comfortably before the expensive
+export verifier would) and **K2c** forbids either caption function appearing in a PDF grid row.
+`verify-sale-cohort-inputs` **229 -> 233**, teeth proven by three sabotages, each confirmed to have
+landed inside the intended function: restoring the superseded block (1 failure), removing the
+`@deprecated` marker instead of keeping the field (1), lengthening the advisory past the budget (1),
+and putting a caption row back (1).
+
+**NO NUMBER MOVES:** collections per year and in total, funding requirement, peak debt, cost of
+sales, profit after tax, closing receivables and unearned, `|Assets - L&E|` and the reconciliation
+counts are identical stashed and re-run on both projects.
+
 ## 2026-08-20e: restructure Step 5. Three roll-forwards, each with a check. THE RESTRUCTURE IS COMPLETE
 
 **Step 5 of five, additive only. No number moves on either project, proven stashed and re-run.**

@@ -24,7 +24,7 @@
  */
 import { buildReceivablesRollForward, buildUnearnedRollForward } from '../reports/saleRollForwardReports';
 import { PDFDocument, PDFName, PDFHexString, rgb, type PDFFont, type PDFPage, type PDFRef, type PDFObject } from 'pdf-lib';
-import { buildSaleCohortTermsBlock, saleCohortRuleText, CASH_PROFILE_SUPERSEDED_LABEL, buildSaleCohortGrid, saleCohortGridCaption } from '../reports/saleCohortReports';
+import { buildSaleCohortTermsBlock, saleCohortRuleText, buildSaleCohortGrid, saleCohortGridCaption } from '../reports/saleCohortReports';
 import fontkit from '@pdf-lib/fontkit';
 import { formatAccounting, formatArea, formatInteger, type DisplayScale } from '@/src/core/formatters';
 import { computeSubUnitArea, computePhaseTimeline, computeProjectTimeline } from '@/src/core/calculations';
@@ -1476,23 +1476,25 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
   for (const a of state.assets) {
     const s = a.revenue?.sell;
     if (!s) continue;
-    const cashPct = s.cashPaymentProfile?.percentages ?? [];
     const recogPct = s.recognitionProfile?.percentages ?? [];
-    if (!cashPct.length && !recogPct.length) continue;
+    if (!recogPct.length) continue;
     // Only show the columns that actually carry a non-zero % (trailing zeros
     // padded out to year 14/15 are noise). n = last index with any value + 1.
     let n = 0;
-    for (let i = 0; i < Math.max(cashPct.length, recogPct.length); i++) {
-      if ((cashPct[i] ?? 0) !== 0 || (recogPct[i] ?? 0) !== 0) n = i + 1;
+    for (let i = 0; i < recogPct.length; i++) {
+      if ((recogPct[i] ?? 0) !== 0) n = i + 1;
     }
     if (n === 0) continue;
     const cols = Array.from({ length: n }, (_, i) => `Yr ${i + 1}`);
+    // RECOGNITION ONLY (2026-08-20). The cash payment profile row was removed
+    // once the cohort rule was verified: it drives nothing, so printing it in
+    // an inputs table presented a dead field as a live one. The field itself
+    // is deprecated in storage, not deleted, so no entered schedule is lost.
     items.push(tTable('Tab 1: Revenue Inputs', 'inputs', {
-      title: `Cash & Recognition Profile, ${a.name} (relative to sale year)`, kind: 'grid', align: 'data',
+      title: `Recognition Profile, ${a.name} (relative to sale year)`, kind: 'grid', align: 'data',
       columns: ['Profile', ...cols],
       rows: [
-        row([CASH_PROFILE_SUPERSEDED_LABEL, ...Array.from({ length: n }, (_, i) => fmt.pctRaw((cashPct[i] ?? 0) * 100, 1))]),
-        ...(recogPct.length ? [row(['Recognition %', ...Array.from({ length: n }, (_, i) => fmt.pctRaw((recogPct[i] ?? 0) * 100, 1))])] : []),
+        row(['Recognition %', ...Array.from({ length: n }, (_, i) => fmt.pctRaw((recogPct[i] ?? 0) * 100, 1))]),
       ],
     }));
   }
@@ -1511,7 +1513,12 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
         ))]),
         row(['Max instalment years', String(block.instalmentYears), ...block.downpayments.slice(1).map(() => '')]),
         row(['Instalments stop at handover', block.stopAtHandover ? 'yes' : 'no', ...block.downpayments.slice(1).map(() => '')]),
-        row([saleCohortRuleText(block), ...block.downpayments.map(() => '')]),
+        // NO PROSE ROW HERE. A PDF grid column is CONTENT-SIZED, so a long
+        // sentence in the first cell steals the width from every other column
+        // and ellipsises the rows above it. The rule text is ~200 characters
+        // and did exactly that. It stays on the Module 2 screen and in the
+        // workbook, both of which can hold it; this table states the terms as
+        // data instead, which is what a grid is for.
       ],
     }));
   }
@@ -1586,7 +1593,9 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
           ])),
           row(['Total', '', '', fmt.money(cohortGrid.gdvTotal), fmt.money(cohortGrid.collectedTotal),
             cohortGrid.ok ? '0.00' : (cohortGrid.collectedTotal - cohortGrid.gdvTotal).toFixed(2)], 'subtotal'),
-          row([saleCohortGridCaption(cohortGrid), '', '', '', '', '']),
+          // No prose row: see the note on the terms table above. The title
+          // already carries the handover year, and the Check column states
+          // what the reader needs to verify.
         ],
       }));
     }
