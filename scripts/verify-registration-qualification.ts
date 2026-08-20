@@ -320,6 +320,63 @@ section('F. The trial request card carries the whole person');
     panel.includes('{user && ('));
 }
 
+section('G. A declined request is a decision, not a dead end');
+
+{
+  // Before this, a declined row vanished from the queue (GET fetched pending
+  // only) and approve on it returned 409, so the routes back were the user
+  // requesting again or a manual plan assignment. Now the decline stays
+  // visible and reversible, with its history intact.
+  const route = stripComments(read('app/api/admin/trial-requests/route.ts'));
+  const page = stripComments(read('app/admin/plans/page.tsx'));
+  const mig = read('supabase/migrations/218_trial_requests_decline_history.sql');
+
+  // The migration is two additive columns and nothing else.
+  check('G: mig 218 adds declined_at and declined_by, additively',
+    mig.includes('ADD COLUMN IF NOT EXISTS declined_at timestamptz')
+    && mig.includes('ADD COLUMN IF NOT EXISTS declined_by uuid')
+    && !/DROP |ALTER COLUMN|DELETE FROM/i.test(mig));
+
+  // The queue lists declined rows, separately, without risking the pending list.
+  check('G: the route fetches declined rows in their own query',
+    /eq\('status', 'declined'\)/.test(route) && route.includes('runDeclined'));
+  check('G: a declined-list failure cannot empty the pending queue',
+    route.includes('declined: dErr ? [] : (declinedRows ?? [])'));
+  check('G: declined rows come newest first and capped',
+    /order\('decided_at', \{ ascending: false \}\)/.test(route) && route.includes('.limit(25)'));
+
+  // Approve works on declined; decline stays pending-only.
+  check('G: approve is allowed on pending AND declined',
+    /action === .approve. \? \[.pending., .declined.\] : \[.pending.\]/.test(route));
+  check('G: a second decline of the same row is refused',
+    route.includes("'Request already decided'"));
+
+  // History: the decline survives the approval.
+  check('G: a decline stamps its own history columns',
+    /action === .decline.[^]{0,120}patch\.declined_at = patch\.decided_at/.test(route));
+  check('G: approving a declined row backfills the decline before overwriting',
+    /rowStatus === 'declined'[^]{0,300}patch\.declined_at = prev\.decided_at/.test(route));
+  check('G: schema tolerant: without mig 218 the update retries bare',
+    /declined_at\|declined_by/.test(route) && route.includes('delete patch.declined_at'));
+
+  // The screen: its own section, not mixed into pending, approve only.
+  check('G: the page renders a declined section',
+    page.includes('declined-requests-heading') && page.includes('setDeclinedRequests(res.declined')
+    && page.includes('{declinedRequests.length > 0 && ('));
+  check('G: with approve and WITHOUT a re-decline button',
+    page.includes('declined-approve-') && !/declined-request[^]{0,900}trial-decline-/.test(page));
+  check('G: the decline timestamp is shown', /Declined \{formatAdminStamp\(r\.decided_at\)/.test(page));
+
+  // The decline email can never block the approval email: different email
+  // types, and the approval keys on the trial end date, which a fresh grant
+  // refreshes. Checked as facts about the senders, not as prose.
+  const sem = stripComments(read('src/shared/email/subscriptionEmails.ts'));
+  check('G: the two emails are distinct dedupe types',
+    sem.includes("email_type: 'trial_declined'") && sem.includes("email_type: 'trial_started'"));
+  check('G: the approval email keys on the trial end date, not the request',
+    /email_type: .trial_started., threshold: `evt:\$\{token\}`/.test(sem));
+}
+
 // ---------------------------------------------------------------------------
 console.log(`\n${'='.repeat(66)}`);
 if (failures.length === 0) {

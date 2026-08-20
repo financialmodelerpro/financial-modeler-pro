@@ -49,6 +49,11 @@ export default function AdminPlansPage() {
   const [trialApproval, setTrialApproval] = useState(false);
   const [savingApproval, setSavingApproval] = useState(false);
   const [trialRequests, setTrialRequests] = useState<{ id: string; company: string | null; job_title: string | null; created_at: string; users: { email?: string; name?: string; phone?: string | null; city?: string | null; country?: string | null; created_at?: string | null; works_in_real_estate?: boolean | null; real_estate_role_note?: string | null } | null }[]>([]);
+  // Declined rows, kept VISIBLE in their own section (2026-08-20): a decline
+  // is a decision an admin can reverse after speaking with the user, not a
+  // row that vanished. decided_at is the decline timestamp while the row
+  // stays declined.
+  const [declinedRequests, setDeclinedRequests] = useState<({ id: string; company: string | null; job_title: string | null; created_at: string; users: { email?: string; name?: string; phone?: string | null; city?: string | null; country?: string | null; created_at?: string | null; works_in_real_estate?: boolean | null; real_estate_role_note?: string | null } | null } & { decided_at?: string | null })[]>([]);
 
   const showToast = useCallback((msg: string, type: 'success' | 'error') => {
     setToast({ msg, type });
@@ -114,8 +119,8 @@ export default function AdminPlansPage() {
   const loadTrialRequests = useCallback(() => {
     fetch('/api/admin/trial-requests')
       .then((r) => r.json())
-      .then((res) => setTrialRequests(res.requests ?? []))
-      .catch(() => setTrialRequests([]));
+      .then((res) => { setTrialRequests(res.requests ?? []); setDeclinedRequests(res.declined ?? []); })
+      .catch(() => { setTrialRequests([]); setDeclinedRequests([]); });
   }, []);
 
   useEffect(() => {
@@ -450,6 +455,41 @@ export default function AdminPlansPage() {
                       style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer', fontWeight: 700, fontSize: 12, color: '#475569' }}>Decline</button>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* DECLINED, STILL ACTIONABLE (2026-08-20). Its own list, never
+                mixed into pending. Approving from here grants the trial and
+                sends the normal approval email (a different email type and a
+                fresh trial end date, so the decline email dedupe cannot touch
+                it), and the decline history survives on the row: declined_at
+                and declined_by keep the decline while decided_at and
+                decided_by take the approval. */}
+            {declinedRequests.length > 0 && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#92400e', marginBottom: 8 }} data-testid="declined-requests-heading">
+                  Declined requests ({declinedRequests.length})
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {declinedRequests.map((r) => (
+                    <div key={r.id} data-testid={`declined-request-${r.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', border: '1px solid #FDE68A', background: '#FFFBEB', borderRadius: 7, padding: '8px 10px' }}>
+                      <div style={{ flex: 1, minWidth: 220 }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a' }}>{(r.users?.name ?? '').trim() || r.users?.email || r.id}</div>
+                        {(r.users?.name ?? '').trim() && r.users?.email ? (
+                          <div style={{ fontSize: 11, color: '#475569' }}>{r.users.email}</div>
+                        ) : null}
+                        <div style={{ fontSize: 11, color: '#92400e', marginTop: 3 }}>
+                          Declined {formatAdminStamp(r.decided_at) || '(no timestamp)'}
+                          {r.users?.works_in_real_estate === true ? ' · in real estate' : r.users?.works_in_real_estate === false ? ' · not in real estate' : ''}
+                        </div>
+                      </div>
+                      {/* Approve only. Re-declining a declined row would just
+                          re-date the decline, so it is not offered. */}
+                      <button onClick={() => decideRequest(r.id, 'approve')} data-testid={`declined-approve-${r.id}`}
+                        style={{ padding: '6px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 12, color: '#fff', background: '#2EAA4A' }}>Approve now</button>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
