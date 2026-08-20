@@ -2,6 +2,65 @@
 **Last updated: 2026-08-17. Lock status: M1 CLOSED 2026-08-17 (28 defects found in end-to-end use, all fixed and browser-verified; base lock unchanged at M2.0 Pass 58) + Parties tab (mig 190), M2 LOCKED (Pass 9N), M3 LOCKED (Pass 5d), M4 DONE, M5 DONE (Returns & RE Metrics + Lender Covenants + per-partner FCFE/DDM + M1-Parties link), M6 Scenario Analysis LIVE, M7 Reports LIVE (IC / Lender / One-Pager preview + PPT export, migs 191+192). Full verifier suite green via `npx tsx scripts/verify-*.ts`.**
 
 
+## 2026-08-20b: Option B Step 2. Four states, resolved once, and the asset always wins
+
+**Step 2 of three. Moves nothing while every project default is unset, proven byte for byte on both
+live projects, which is the live condition on both.**
+
+**FOUR STATES, NOT THREE**, and a user can always see which is in force:
+
+| state | meaning |
+|---|---|
+| `set` | typed for this sale year on this asset |
+| `carried` | not typed for this year, carried from the last year on THIS asset that was |
+| `project default` | this asset has no downpayment on any sale year, so the project default stands in |
+| `not set` | neither, so no deposit has been stated for these cohorts |
+
+**`lib/state/saleCohortResolution.ts` is the ONE answer**, called by the Module 2 screen AND by the
+mapper on the way to the engine, so the source a user reads and the source the model uses cannot be
+two things that merely agree.
+
+**It uses the shared `inheritance.ts` primitive** rather than becoming a fourth hand-written chain,
+with ONE deliberate adaptation worth knowing: that primitive types `fallback` as always present, so
+"resolution can never fail". Here it MUST be able to fail, since a cohort with no downpayment
+anywhere is the blocked state this whole step exists for. So `T` is `number | undefined` and
+`fallback: undefined` is a legitimate value of T rather than a lie about the contract.
+
+**THE ASSET WINS PER ASSET, NOT PER YEAR.** An asset holding a downpayment on ANY sale year governs
+EVERY one of its years through its own forward fill, and the project default is never consulted for
+it. A year with nothing before it carries 0, and that 0 is still the ASSET's answer. Filling
+individual blank years from the project would interleave two sources inside one strip and make a row
+unreadable. **An explicit 0 on the asset keeps ownership**, which is what the null convention exists
+for, and **a project default of 0 is a decision** while no default at all is blocked.
+
+**The engine array** is seeded with ONE entry at the phase start when the project default applies,
+and the SAME forward fill in core carries it across every later sale year, so there is no second
+definition of "applies from here on".
+
+**PROVEN INERT.** Neither live project has a default set, which is the real-world condition. With
+`src` stashed to the Step 1 code and again with Step 2 live, collections per year, the lifetime
+total, funding requirement, peak debt, cost of sales and `|Assets - L&E|` are byte-identical:
+MARINA GATE 626,802,766.02 / 238.452m / 193.412m / 247.653m / 0.00; RE HUB 6,408,964,785.00 /
+1,032.419m / 2,789.627m / 4,479.195m / 0.00.
+
+**Section I's Step 1 contract INVERTED**, as it promised: "no engine or resolver file reads
+saleCohortDefaults yet" is replaced by checks that the mapper DOES resolve it, that `src/core` still
+does NOT (the project belongs to the platform), and that setting a default now changes the cash on an
+asset with no terms while leaving lifetime collections unchanged.
+
+`verify-sale-cohort-inputs` **129 -> 156**, new section J. Teeth proven by two sabotages: the project
+default winning over the asset (8 failures) and the mapper ignoring the default (3).
+
+**A SABOTAGE THAT LANDED IN THE WRONG PLACE, worth recording.** The second one used
+`String.replace` on `if (source.kind === 'project_default')`, which appears TWICE in the file, so it
+patched `resolveCohortDownpayment` instead of `buildEngineDownpaymentAxis` and reported 2 failures
+that looked like a pass for the branch actually under test. Retargeted by finding the branch AFTER
+the function's own offset: 3 failures, the right ones. Second lesson of the same shape this week
+(TRAPS 10): confirm a sabotage landed where you aimed it, not merely that it landed.
+
+**Step 3 remains:** the blocked state wired to the reconciliation warnings and the shared checks
+report, plus the Module 6 scenario lever. **Restructure Steps 4 and 5 untouched.**
+
 ## 2026-08-20a: Option B Step 1. A project-wide downpayment default, stored and inert
 
 **Step 1 of three, after a diagnosis that was approved. Moves no number, proven on both live

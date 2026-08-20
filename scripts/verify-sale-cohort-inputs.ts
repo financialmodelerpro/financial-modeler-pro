@@ -39,6 +39,7 @@ import path from 'node:path';
 import { computeAllSellResults, resolveSellConfig } from '../src/hubs/modeling/platforms/refm/lib/revenue-resolvers';
 import { buildCohortMatrix, columnSums } from '../src/core/calculations/revenue/cohort';
 import { buildSaleCohortProfile, instalmentCount, resolveDownpayment, hasAnyDownpayment } from '../src/core/calculations/revenue/cohortTerms';
+import { resolveCohortDownpayment, resolveAssetDownpaymentSource, buildEngineDownpaymentAxis } from '../src/hubs/modeling/platforms/refm/lib/state/saleCohortResolution';
 import { buildSaleCohortTermsBlock, saleCohortRuleText } from '../src/hubs/modeling/platforms/refm/lib/reports/saleCohortReports';
 import { makeDefaultProject } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
@@ -259,8 +260,14 @@ section('D. The retired input is retired, and every surface says so');
 
   // An asset with no downpayment set is treated as taking no deposit, which is
   // a large consequence reachable by doing nothing, so the screen must say it.
-  check('D: the screen warns when no downpayment is set anywhere on the asset',
-    /No downpayment is set on this asset/.test(screen));
+  // The wording moved into the shared resolver at Option B Step 2, so the
+  // check follows it there and separately asserts the screen renders it.
+  check('D: the shared resolver states the blocked case in words',
+    /No downpayment is set on this asset and no project default is set/
+      .test(read('src/hubs/modeling/platforms/refm/lib/state/saleCohortResolution.ts')));
+  check('D: and the screen renders that reason rather than its own copy',
+    /downpaymentSource.reason/.test(screen)
+    && !/No downpayment is set on this asset and no project default/.test(stripComments(screen)));
 
   // ONE SHARED BUILDER for the exports, not three copies. The label must come
   // from the shared constant at every site, so re-wording it is one edit.
@@ -580,7 +587,7 @@ section('H. STEP 2: the reference rule, on the cases that separate it');
 }
 
 // ---------------------------------------------------------------------------
-section('I. OPTION B STEP 1: the project default is stored and changes nothing');
+section('I. OPTION B: the project default is stored, and Step 2 reads it');
 
 {
   // The per-asset downpayment is set per sale year. An asset carrying NOTHING
@@ -606,23 +613,14 @@ section('I. OPTION B STEP 1: the project default is stored and changes nothing')
     defaults.saleCohortDefaults === undefined
     || (defaults.saleCohortDefaults as { downpayment?: number }).downpayment === undefined);
 
-  // Nothing in the engine or the resolvers may read it yet.
-  {
-    const roots = ['src/core/calculations', 'src/hubs/modeling/platforms/refm/lib'];
-    const offenders: string[] = [];
-    const walk = (dir: string): void => {
-      for (const entry of fs.readdirSync(path.join(process.cwd(), dir), { withFileTypes: true })) {
-        const rel = `${dir}/${entry.name}`;
-        if (entry.isDirectory()) { walk(rel); continue; }
-        if (!entry.name.endsWith('.ts')) continue;
-        if (rel === STORED_TYPES) continue;   // where it is DECLARED, not read
-        if (stripComments(read(rel)).includes('saleCohortDefaults')) offenders.push(rel);
-      }
-    };
-    for (const r of roots) walk(r);
-    check('I: no engine or resolver file reads saleCohortDefaults yet',
-      offenders.length === 0, offenders.join('; '));
-  }
+  // STEP 2 WIRED IT, so the Step 1 "reads nothing" check is replaced here by
+  // checks on the resolution, the same contract inversion Step 3 of the
+  // restructure performed on sections C and D.
+  check('I: the mapper resolves the project default on the way to the engine',
+    stripComments(read('src/hubs/modeling/platforms/refm/lib/revenue-resolvers.ts')).includes('buildEngineDownpaymentAxis'));
+  check('I: src/core does NOT read the project default (it belongs to the platform)',
+    !stripComments(read('src/core/calculations/revenue/sell.ts')).includes('saleCohortDefaults')
+    && !stripComments(read('src/core/calculations/revenue/cohortTerms.ts')).includes('saleCohortDefaults'));
 
   // And the screen DOES edit it, or Step 1 shipped nothing.
   const screen = read(SCREEN);
@@ -630,7 +628,7 @@ section('I. OPTION B STEP 1: the project default is stored and changes nothing')
   check('I: the project default input is rendered', screen.includes('m2-project-default-downpayment'));
   check('I: it can be CLEARED back to not-set',
     screen.includes('m2-project-default-downpayment-clear') && /delete next\.downpayment/.test(screen));
-  check('I: the screen states it is not yet applied', /Not yet applied/.test(screen));
+  check('I: the project default band still marks itself as not yet applied at the engine', /Not yet applied/.test(screen));
   check('I: and states that not set is not the same as zero',
     /not the same as zero/i.test(screen));
   // The write must SPREAD, not rebuild from a field list, so a sibling default
@@ -670,9 +668,97 @@ section('I. OPTION B STEP 1: the project default is stored and changes nothing')
     const without = computeAllSellResults({ project, phases: [phase], assets: [asset], subUnits: [subUnit] } as never).bySellAsset.get('asset1');
     const withIt = computeAllSellResults({ project: withDefault, phases: [phase], assets: [asset], subUnits: [subUnit] } as never).bySellAsset.get('asset1');
     check('I: the fixture computes something', ((without as unknown as Record<string, number[]>)?.cashCollectedPerPeriod ?? []).some((v) => v > 0));
-    check('I: setting the project default moves NOTHING at Step 1',
-      JSON.stringify(without) === JSON.stringify(withIt));
+    // STEP 2: the default now BITES on an asset with nothing of its own.
+    check('I: setting the project default now changes the cash on an asset with no terms',
+      JSON.stringify(without) !== JSON.stringify(withIt));
+    // And it still conserves, because it only re-times money.
+    const totalOf = (x: unknown): number =>
+      ((x as Record<string, number[]>)?.cashCollectedPerPeriod ?? []).reduce((a, b) => a + b, 0);
+    check('I: and lifetime collections are unchanged by it',
+      Math.abs(totalOf(without) - totalOf(withIt)) < 1e-6);
   }
+}
+
+// ---------------------------------------------------------------------------
+section('J. OPTION B STEP 2: four states, and the asset always wins');
+
+{
+  // J1. THE FOUR STATES, in order. A user must always be able to see which one
+  // is in force, so the resolver returns the reason with the number.
+  const own = [0.1, null, 0.3];
+  check('J1: a typed year reports SET', resolveCohortDownpayment(own, 0.9, 0).kind === 'set');
+  check('J1: a blank year on an asset that has terms reports CARRIED',
+    resolveCohortDownpayment(own, 0.9, 1).kind === 'carried');
+  check('J1: and CARRIED takes the asset value, never the project default',
+    resolveCohortDownpayment(own, 0.9, 1).value === 0.1);
+  check('J1: an asset with nothing reports PROJECT DEFAULT',
+    resolveCohortDownpayment([], 0.25, 0).kind === 'project_default'
+    && resolveCohortDownpayment([], 0.25, 0).value === 0.25);
+  check('J1: with neither, it reports NOT SET',
+    resolveCohortDownpayment([], undefined, 0).kind === 'not_set');
+  check('J1: not set resolves to zero, which is what the engine already did',
+    resolveCohortDownpayment([], undefined, 0).value === 0);
+  check('J1: every state carries a reason sentence',
+    [resolveCohortDownpayment(own, 0.9, 0), resolveCohortDownpayment(own, 0.9, 1),
+      resolveCohortDownpayment([], 0.25, 0), resolveCohortDownpayment([], undefined, 0)]
+      .every((r) => typeof r.reason === 'string' && r.reason.length > 20));
+
+  // J2. THE ASSET WINS PER ASSET, NOT PER YEAR. This is the decision that keeps
+  // a row readable: one strip, one source, never two interleaved.
+  const src = resolveAssetDownpaymentSource([null, null, 0.3], 0.9);
+  check('J2: an asset with a value on ANY year owns all its years', src.kind === 'own');
+  check('J2: even a year BEFORE the one that was set carries, not project default',
+    resolveCohortDownpayment([null, null, 0.3], 0.9, 0).kind === 'carried');
+  // Index 0 has nothing before it, so the forward fill has nothing to carry and
+  // the value is zero. It is still the ASSET's answer, not the project's, which
+  // is the point: the project default is not consulted for this asset at all.
+  check('J2: and that carried value is 0, not the project default 0.9',
+    resolveCohortDownpayment([null, null, 0.3], 0.9, 0).value === 0);
+
+  // J3. AN EXPLICIT ZERO IS A DECISION and must not hand the asset to the
+  // project default. This is the case the whole null convention exists for.
+  check('J3: an asset whose only value is an explicit 0 still owns its years',
+    resolveAssetDownpaymentSource([0], 0.5).kind === 'own');
+  check('J3: and resolves to 0, not to the project default',
+    resolveCohortDownpayment([0], 0.5, 0).value === 0
+    && resolveCohortDownpayment([0], 0.5, 0).kind === 'set');
+
+  // J4. A PROJECT DEFAULT OF ZERO is also a decision, and is different from no
+  // default at all: one is chosen, the other is blocked.
+  check('J4: a project default of 0 resolves as PROJECT DEFAULT, not not-set',
+    resolveCohortDownpayment([], 0, 0).kind === 'project_default');
+  check('J4: while no default at all is NOT SET',
+    resolveCohortDownpayment([], undefined, 0).kind === 'not_set');
+
+  // J5. THE ENGINE ARRAY. What the mapper hands the engine must agree with what
+  // the screen shows, or the two drift.
+  check('J5: an asset with its own terms is passed its own array',
+    JSON.stringify(buildEngineDownpaymentAxis([0.2, null], undefined, 0, 3)) === JSON.stringify([0.2, null, null]));
+  check('J5: the array is placed at the phase offset',
+    JSON.stringify(buildEngineDownpaymentAxis([0.2], undefined, 2, 4)) === JSON.stringify([null, null, 0.2, null]));
+  check('J5: an asset with nothing gets the project default at its phase start',
+    JSON.stringify(buildEngineDownpaymentAxis([], 0.3, 1, 4)) === JSON.stringify([null, 0.3, null, null]));
+  check('J5: with neither, the engine gets nothing and behaves as before',
+    buildEngineDownpaymentAxis([], undefined, 0, 4) === undefined
+    && buildEngineDownpaymentAxis(undefined, undefined, 0, 4) === undefined);
+  // The single seeded entry relies on the SAME forward fill the asset uses, so
+  // there is no second definition of "applies from here on".
+  {
+    const axis = buildEngineDownpaymentAxis([], 0.3, 0, 4) ?? [];
+    check('J5: the seeded default carries forward through the shared rule',
+      resolveDownpayment(axis, 3).value === 0.3 && resolveDownpayment(axis, 3).source === 'inherited');
+  }
+
+  // J6. THE SCREEN SHOWS ALL FOUR and names the one in force.
+  const screen = read(SCREEN);
+  check('J6: the strip renders the project default token', /project default/.test(screen));
+  check('J6: the marker row is labelled for the source, not just "set"',
+    /Value in force from/.test(screen));
+  check('J6: the caption prints the resolved reason', /downpaymentSource\.reason/.test(screen));
+  check('J6: cells carry the per-year reason as a tooltip', /entryReasons/.test(screen));
+  check('J6: the screen calls the SHARED resolver, not its own copy',
+    stripComments(screen).includes('resolveCohortDownpayment')
+    && !stripComments(screen).includes('resolveDownpayment('));
 }
 
 // ---------------------------------------------------------------------------

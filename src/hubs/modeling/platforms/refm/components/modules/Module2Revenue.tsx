@@ -28,7 +28,10 @@ import { useModule1Store } from '../../lib/state/module1-store';
 import type { Asset, SubUnit, Phase, Project } from '../../lib/state/module1-types';
 import { computeProjectTimeline, computeSubUnitArea } from '@/src/core/calculations';
 import { formatArea, formatAccounting } from '@/src/core/formatters';
-import { resolveDownpayment, hasAnyDownpayment, DEFAULT_INSTALMENT_YEARS } from '@/src/core/calculations/revenue/cohortTerms';
+import { DEFAULT_INSTALMENT_YEARS } from '@/src/core/calculations/revenue/cohortTerms';
+import {
+  resolveCohortDownpayment, resolveAssetDownpaymentSource, type DownpaymentSourceKind,
+} from '../../lib/state/saleCohortResolution';
 import { PercentageInput } from '../ui/PercentageInput';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { CELL_HEADER } from './_shared/tableStyles';
@@ -947,14 +950,31 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   // forward-fill rule: a year with no value of its own carries the last year
   // that had one, and says so. If the screen worked that out for itself the
   // caption could promise something the model would not do.
+  //
+  // Option B Step 2 (2026-08-20): FOUR states, not three. The project default
+  // stands in for an asset with no downpayment on any sale year, and a user
+  // must always be able to see which of the four is in force, so the resolver
+  // returns the reason with the number. It is the SAME function the mapper
+  // calls on the way to the engine, so the source shown and the source used
+  // are one answer.
   const downpaymentAxis = new Array<number>(Math.max(0, totalPeriods)).fill(0);
-  const downpaymentStates: Record<number, 'set' | 'inherited' | 'unset'> = {};
+  const downpaymentStates: Record<number, DownpaymentSourceKind> = {};
+  const downpaymentReasons: Record<number, string> = {};
   for (const c of constructionWindow) {
     const local = c.idx - phaseOffset;
-    const r = resolveDownpayment(sellConfig?.downpaymentByPhase, local);
+    const r = resolveCohortDownpayment(
+      sellConfig?.downpaymentByPhase,
+      project.saleCohortDefaults?.downpayment,
+      local,
+    );
     downpaymentAxis[c.idx] = r.value;
-    downpaymentStates[c.idx] = r.source;
+    downpaymentStates[c.idx] = r.kind;
+    downpaymentReasons[c.idx] = r.reason;
   }
+  const downpaymentSource = resolveAssetDownpaymentSource(
+    sellConfig?.downpaymentByPhase,
+    project.saleCohortDefaults?.downpayment,
+  );
 
   const setDownpayment = (periodIdx: number, pct: number): void => {
     const value = Math.max(0, Math.min(1, pct / 100));
@@ -2496,15 +2516,26 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
               label="Downpayment %"
               summary="none"
               entryStates={downpaymentStates}
+              entryReasons={downpaymentReasons}
             />
             <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4, fontStyle: 'italic', lineHeight: 1.4 }}>
               <strong>These terms drive collections.</strong> A cohort selling in year N pays its downpayment in year N and the balance in equal instalments over
               {' '}{(sellConfig?.instalmentsStopAtHandover ?? true)
                 ? <>the lesser of {sellConfig?.maxInstalmentYears ?? DEFAULT_INSTALMENT_YEARS} years and the years remaining to handover ({yearLabels[handoverYear] ?? '?'})</>
                 : <>{sellConfig?.maxInstalmentYears ?? DEFAULT_INSTALMENT_YEARS} years, even where that runs past handover</>}, and a cohort selling at or after handover pays in full in its own year. Sale years run across the construction window because a cohort selling after handover has nothing to pay a downpayment against.
-              {!hasAnyDownpayment(sellConfig?.downpaymentByPhase) && (
+              {' '}<strong
+                style={{
+                  color: downpaymentSource.kind === 'not_set'
+                    ? 'var(--color-warning, #92400e)'
+                    : 'var(--color-body)',
+                }}
+                data-testid={`m2-cohort-source-${asset.id}`}
+              >
+                {downpaymentSource.reason}
+              </strong>
+              {downpaymentSource.kind === 'not_set' && (
                 <>
-                  {' '}<strong style={{ color: 'var(--color-warning, #92400e)' }}>No downpayment is set on this asset, so every cohort is treated as taking no deposit</strong> and pays its whole value in instalments after the sale year. If that is not the sale plan, set a downpayment above.
+                  {' '}Every cohort is therefore treated as taking no deposit and pays its whole value in instalments after the sale year. Set a downpayment above, or a project default at the top of this tab.
                 </>
               )}
             </div>
@@ -2778,7 +2809,7 @@ function InlineGrid({ cells, rows }: { cells: WindowCell[]; rows: InlineGridRow[
   );
 }
 
-function InlineProfileStrip({ cells, values, onChange, testidPrefix, summary = 'total', label = 'Profile %', entryStates }: {
+function InlineProfileStrip({ cells, values, onChange, testidPrefix, summary = 'total', label = 'Profile %', entryStates, entryReasons }: {
   cells: WindowCell[];
   values: number[];
   onChange: (projectIdx: number, pct: number) => void;
@@ -2802,7 +2833,9 @@ function InlineProfileStrip({ cells, values, onChange, testidPrefix, summary = '
   // Per-cell provenance, keyed on the project axis index, for strips where an
   // unset year and a deliberate zero are different statements. Omit entirely
   // for strips where every cell is simply a number.
-  entryStates?: Record<number, 'set' | 'inherited' | 'unset'>;
+  entryStates?: Record<number, DownpaymentSourceKind>;
+  /** Per-cell sentence naming where the value came from, for the tooltip. */
+  entryReasons?: Record<number, string>;
 }): React.JSX.Element {
   const showCumulative = summary === 'total';
   const HEADER_YEAR: React.CSSProperties = { ...CELL_HEADER, minWidth: 55 };
@@ -2849,9 +2882,9 @@ function InlineProfileStrip({ cells, values, onChange, testidPrefix, summary = '
               // amber box and a marker row below; an inherited cell gets a
               // quieter treatment, because it does carry a real value, just
               // not one typed for this year.
-              const cellStyle: React.CSSProperties = state === 'unset'
+              const cellStyle: React.CSSProperties = state === 'not_set'
                 ? { ...FAST_INPUT, borderStyle: 'dashed', borderColor: 'var(--color-warning, #f59e0b)' }
-                : state === 'inherited'
+                : state === 'carried' || state === 'project_default'
                   ? { ...FAST_INPUT, borderStyle: 'dashed', color: 'var(--color-meta)' }
                   : FAST_INPUT;
               return (
@@ -2863,11 +2896,7 @@ function InlineProfileStrip({ cells, values, onChange, testidPrefix, summary = '
                     max={100}
                     decimals={2}
                     style={cellStyle}
-                    title={state === 'unset'
-                      ? 'Not set for this year. This is not the same as a zero downpayment.'
-                      : state === 'inherited'
-                        ? 'Carried forward from the last year you set. Type here to set this year explicitly.'
-                        : undefined}
+                    title={entryReasons?.[c.idx]}
                     data-testid={testidPrefix ? `${testidPrefix}-${c.idx}` : `m2-profile-${c.idx}`}
                   />
                 </td>
@@ -2877,22 +2906,32 @@ function InlineProfileStrip({ cells, values, onChange, testidPrefix, summary = '
           {entryStates !== undefined && (
             <tr>
               <td style={{ padding: '4px 6px', fontWeight: 600, color: 'var(--color-meta)', borderRight: '1px solid var(--color-border)' }}>
-                Set for this year
+                Value in force from
               </td>
               {summary !== 'none' && <td style={BODY_TOTAL_CELL} />}
               {cells.map((c) => {
-                const state = entryStates[c.idx] ?? 'unset';
+                const state = entryStates[c.idx] ?? 'not_set';
+                // FOUR states. Green only for a value typed for this very year;
+                // amber only for nothing anywhere. The two middle states carry a
+                // real number from somewhere nameable, so they read as neutral
+                // rather than as a problem.
+                const colour = state === 'set'
+                  ? 'var(--color-success, #166534)'
+                  : state === 'not_set'
+                    ? 'var(--color-warning, #92400e)'
+                    : 'var(--color-meta)';
+                const text = state === 'set' ? 'set'
+                  : state === 'carried' ? 'carried'
+                    : state === 'project_default' ? 'project default'
+                      : 'not set';
                 return (
                   <td
                     key={c.idx}
-                    style={{
-                      padding: '2px 6px', textAlign: 'center', fontSize: 9, fontWeight: 700,
-                      color: state === 'set' ? 'var(--color-success, #166534)' : 'var(--color-warning, #92400e)',
-                    }}
-                    title={state === 'set' ? 'Typed for this year' : state === 'inherited' ? 'Carried forward' : 'Not set'}
+                    style={{ padding: '2px 6px', textAlign: 'center', fontSize: 9, fontWeight: 700, color: colour }}
+                    title={entryReasons?.[c.idx]}
                     data-testid={testidPrefix ? `${testidPrefix}-state-${c.idx}` : undefined}
                   >
-                    {state === 'set' ? 'set' : state === 'inherited' ? 'carried' : 'not set'}
+                    {text}
                   </td>
                 );
               })}

@@ -15,6 +15,7 @@
  * imports from src/hubs (matches the M1.7 resolver pattern).
  */
 
+import { buildEngineDownpaymentAxis } from './state/saleCohortResolution';
 import {
   computeProjectTimeline,
   computeAssetCost,
@@ -605,19 +606,21 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
       // rather than flattened to zero, because an unset sale year is not a
       // zero-downpayment one and the forward-fill rule needs to tell them
       // apart. Years before the phase starts stay null; nothing sells there.
-      downpayment: (() => {
-        const byPhase = storedSell?.downpaymentByPhase;
-        if (!Array.isArray(byPhase)) return undefined;
-        const axis = new Array<number | null>(N).fill(null);
-        for (let k = 0; k < byPhase.length; k++) {
-          const axisIdx = phaseOffset + k;
-          const v = byPhase[k];
-          if (axisIdx >= 0 && axisIdx < N) {
-            axis[axisIdx] = typeof v === 'number' && Number.isFinite(v) ? v : null;
-          }
-        }
-        return axis;
-      })(),
+      //
+      // Option B Step 2 (2026-08-20): the PROJECT DEFAULT is applied here, for
+      // an asset that carries no downpayment on any sale year. The decision
+      // lives in `saleCohortResolution.ts`, which the Module 2 screen also
+      // calls, so the source a user reads and the source the model uses are
+      // one answer rather than two that agree.
+      //
+      // With no project default set, this returns exactly what it returned
+      // before, which is what makes the step inert on every existing project.
+      downpayment: buildEngineDownpaymentAxis(
+        storedSell?.downpaymentByPhase,
+        project.saleCohortDefaults?.downpayment,
+        phaseOffset,
+        N,
+      ),
       cashPaymentProfile: (() => {
         const cpp = cfgRaw.cashPaymentProfile;
         const sCpp = storedSell?.cashPaymentProfile;
