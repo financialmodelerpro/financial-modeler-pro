@@ -390,7 +390,7 @@ section('H. Success replaces the form, and the default theme is light');
   check('H: the old inline success banner is gone', !form.includes('{success &&'));
   // The CONDITION itself, not just the markup: a screen behind false && is a
   // screen that exists and never shows, which greps as present.
-  check('H: the screen is gated on success itself', /if (success) {/.test(form));
+  check('H: the screen is gated on success itself', form.includes('if (success) {'));
   // The stated contents.
   check('H: it names the address the email went to', form.includes('register-success-email'));
   check('H: it says the link must be clicked to activate', /click the confirmation link to activate/.test(form));
