@@ -205,6 +205,28 @@ section('E. The overlay is full screen, navigable, and searchable');
   // The one consistent entry point survives.
   const topbar = stripComments(read('src/hubs/modeling/platforms/refm/components/Topbar.tsx'));
   check('E: the Topbar Guide button is the entry point', topbar.includes('topbar-open-guide'));
+
+  // READABLE ON THE NAVY BAR, as a CLASS check. Bare .pm-btn carries no
+  // colour of its own, so any button using it without an explicit text colour
+  // renders black on dark navy. The Guide button shipped that way, then
+  // "Save as new version" and "Colours" were found the same; this sweeps
+  // EVERY bare pm-btn in the Topbar so the next one added fails here instead
+  // of being reported from the screen. Variant classes (ctx, save,
+  // export-excel...) carry their own colour and are exempt by construction.
+  {
+    const bare = [...topbar.matchAll(/className="pm-btn"/g)];
+    check('E: the sweep found bare pm-btn buttons at all', bare.length >= 3, String(bare.length));
+    bare.forEach((m, i) => {
+      // The colour must appear within this button, before the NEXT button
+      // starts, so one styled neighbour cannot vouch for an unstyled one.
+      const next = topbar.indexOf('<button', m.index! + 1);
+      const tagEnd = Math.min(next < 0 ? topbar.length : next, m.index! + 900);
+      const tag = topbar.slice(m.index!, tagEnd);
+      check(`E: bare pm-btn #${i + 1} declares a token text colour`,
+        tag.includes("color: 'var(--color-on-primary-navy)'"),
+        tag.slice(0, 80).replace(/\s+/g, ' '));
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------

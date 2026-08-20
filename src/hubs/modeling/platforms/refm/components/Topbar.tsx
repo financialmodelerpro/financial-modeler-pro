@@ -362,7 +362,12 @@ export default function Topbar({
           onClick={() => (isEntitled('versioning') ? onSaveAsNewVersion() : onLockedFeature?.('versioning'))}
           data-testid="topbar-save-as-new"
           title={'SAVE AS NEW VERSION\n\nBranch the current working state into a brand-new named version and keep editing from there. Use this when you want to fork rather than keep overwriting the version you opened.'}
-          style={{ fontWeight: 600 }}
+          style={{
+            fontWeight: 600,
+            color: 'var(--color-on-primary-navy)',
+            background: 'color-mix(in srgb, var(--color-on-primary-navy) 12%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--color-on-primary-navy) 30%, transparent)',
+          }}
         >
           🌿 Save as new version
         </button>
@@ -417,6 +422,7 @@ export default function Topbar({
               background: colorPanelOpen
                 ? 'color-mix(in srgb, var(--color-primary) 15%, transparent)'
                 : 'transparent',
+              color: 'var(--color-on-primary-navy)',
               padding: '4px 9px',
               transition: 'border-color 0.15s, background 0.15s',
             }}
