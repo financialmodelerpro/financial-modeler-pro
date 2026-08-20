@@ -40,6 +40,7 @@ import { computeAllSellResults, resolveSellConfig } from '../src/hubs/modeling/p
 import { buildCohortMatrix, columnSums } from '../src/core/calculations/revenue/cohort';
 import { buildSaleCohortProfile, instalmentCount, resolveDownpayment, hasAnyDownpayment } from '../src/core/calculations/revenue/cohortTerms';
 import { resolveCohortDownpayment, resolveAssetDownpaymentSource, buildEngineDownpaymentAxis } from '../src/hubs/modeling/platforms/refm/lib/state/saleCohortResolution';
+import { buildInventoryRollForward, buildReceivablesRollForward, buildUnearnedRollForward } from '../src/hubs/modeling/platforms/refm/lib/reports/saleRollForwardReports';
 import { buildSaleCohortGrid } from '../src/hubs/modeling/platforms/refm/lib/reports/saleCohortReports';
 import { buildSaleCohortAdvisories } from '../src/hubs/modeling/platforms/refm/lib/reports/checksReport';
 import { buildSaleCohortTermsBlock, saleCohortRuleText } from '../src/hubs/modeling/platforms/refm/lib/reports/saleCohortReports';
@@ -977,6 +978,107 @@ section('L. STEP 4: the cohort grid, and every row foots to its own sale value')
       /#1B4F8A/.test(read('src/hubs/modeling/platforms/refm/components/modules/_shared/SaleCohortGridTable.tsx'))
       && /#E8EEF7/.test(read('src/hubs/modeling/platforms/refm/components/modules/_shared/SaleCohortGridTable.tsx'))
       && /#F1F3F5/.test(read('src/hubs/modeling/platforms/refm/components/modules/_shared/SaleCohortGridTable.tsx')));
+  }
+}
+
+// ---------------------------------------------------------------------------
+section('M. STEP 5: three roll-forwards, each with a check that can fail');
+
+{
+  const n = 4;
+  // M1. INVENTORY, the one quantity the diagnosis found genuinely missing:
+  // inventory existed only as a VALUE, never as unsold area or units.
+  {
+    const t = buildInventoryRollForward(1000, [100, 200, 0, 300], n, 'sqm');
+    const row = (label: string) => t.rows.find((r) => r.label.startsWith(label));
+    check('M1: opening starts at the asset total', row('Opening')?.values[0] === 1000);
+    check('M1: opening rolls from the prior closing',
+      JSON.stringify(row('Opening')?.values) === JSON.stringify([1000, 900, 700, 700]));
+    check('M1: sold is shown as a deduction, not a positive',
+      JSON.stringify(row('Sold')?.values) === JSON.stringify([-100, -200, -0, -300]));
+    check('M1: closing is opening less sold',
+      JSON.stringify(row('Closing')?.values) === JSON.stringify([900, 700, 700, 400]));
+    check('M1: the check is zero on a sound roll-forward', t.ok && t.worstResidue === 0);
+    check('M1: opening and closing are marked as BALANCES, not lifetime sums',
+      row('Opening')?.totalIsBalance === true && row('Closing')?.totalIsBalance === true);
+    check('M1: the sold row is NOT marked a balance (it is a flow)',
+      row('Sold')?.totalIsBalance !== true);
+    check('M1: selling everything closes at zero',
+      buildInventoryRollForward(500, [500], 1, 'units').rows.find((r) => r.label.startsWith('Closing'))?.values[0] === 0);
+  }
+
+  // M2. RECEIVABLES. Read from the engine's own result, not recomputed.
+  {
+    const ar = { perPeriod: [80, 120, 60, 0], openingPerPeriod: [0, 80, 120, 60] };
+    const t = buildReceivablesRollForward(ar, [100, 100, 0, 0], [20, 60, 60, 60], n);
+    check('M2: the closing row is the engine result verbatim',
+      JSON.stringify(t.rows.find((r) => r.label.startsWith('Closing'))?.values) === JSON.stringify([80, 120, 60, 0]));
+    check('M2: contracted is an addition and collections a deduction',
+      JSON.stringify(t.rows.find((r) => r.label.startsWith('Add'))?.values) === JSON.stringify([100, 100, 0, 0])
+      && JSON.stringify(t.rows.find((r) => r.label.startsWith('Less'))?.values) === JSON.stringify([-20, -60, -60, -60]));
+    check('M2: the identity holds and the check reads zero', t.ok);
+    check('M2: the change row is omitted unless asked for',
+      t.rows.every((r) => !r.label.startsWith('Change')));
+    check('M2: and included when it is',
+      buildReceivablesRollForward(ar, [100, 100, 0, 0], [20, 60, 60, 60], n, [80, 40, -60, -60])
+        .rows.some((r) => r.label.startsWith('Change')));
+  }
+
+  // M3. UNEARNED. Same shape, driven by recognition rather than cash.
+  {
+    const ur = { perPeriod: [100, 200, 100, 0], openingPerPeriod: [0, 100, 200, 100] };
+    const t = buildUnearnedRollForward(ur, [100, 100, 0, 0], [0, 0, 100, 100], n);
+    check('M3: the identity holds', t.ok);
+    check('M3: it is driven by revenue recognised, not by cash',
+      t.rows.some((r) => /recognised/i.test(r.label)) && !t.rows.some((r) => /collected/i.test(r.label)));
+  }
+
+  // M4. THE CHECK MUST BE ABLE TO FAIL, or it certifies nothing. Feed a
+  // closing balance that does not follow from the movements.
+  {
+    const broken = buildReceivablesRollForward(
+      { perPeriod: [999, 120, 60, 0], openingPerPeriod: [0, 80, 120, 60] },
+      [100, 100, 0, 0], [20, 60, 60, 60], n,
+    );
+    check('M4: a roll-forward that does not foot FAILS', broken.ok === false);
+    check('M4: and the residue names the gap', Math.abs(broken.worstResidue + 919) < 1e-9);
+    const brokenInv = buildInventoryRollForward(1000, [100], 1, 'sqm');
+    check('M4: a sound inventory roll still passes, so M4 is not vacuous', brokenInv.ok === true);
+  }
+
+  // M5. EVERY TABLE CARRIES A CHECK ROW. This is the requirement, so assert it
+  // on all three rather than trusting the shared helper.
+  {
+    const tables = [
+      buildInventoryRollForward(100, [50], 1, 'sqm'),
+      buildReceivablesRollForward({ perPeriod: [0], openingPerPeriod: [0] }, [0], [0], 1),
+      buildUnearnedRollForward({ perPeriod: [0], openingPerPeriod: [0] }, [0], [0], 1),
+    ];
+    check('M5: all three carry a check row',
+      tables.every((t) => t.rows.some((r) => r.label.startsWith('Check'))));
+    check('M5: all three carry a caption stating the identity',
+      tables.every((t) => t.caption.length > 40));
+  }
+
+  // M6. ONE SOURCE, THREE SURFACES.
+  {
+    const screen = stripComments(read('src/hubs/modeling/platforms/refm/components/modules/Module2RevenueOutput.tsx'));
+    const pdf = stripComments(read('src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf.ts'));
+    const wb = stripComments(read('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts'));
+    check('M6: the screen renders all three from the builders',
+      screen.includes('buildInventoryRollForward') && screen.includes('buildReceivablesRollForward') && screen.includes('buildUnearnedRollForward'));
+    for (const [name, src] of [['pdf', pdf], ['workbook', wb]] as const) {
+      check('M6: the ' + name + ' renders the roll-forwards from the builders',
+        src.includes('buildReceivablesRollForward') && src.includes('buildUnearnedRollForward'));
+    }
+    // The old hand-built rows must be GONE from the screen, not left beside
+    // the shared ones, or there are two presentations of one balance.
+    check('M6: the screen no longer hand-builds the AR rows',
+      !screen.includes("label: 'Opening AR'") && !screen.includes("label: 'Closing AR'"));
+    check('M6: nor the unearned rows',
+      !screen.includes("label: 'Opening Unearned'") && !screen.includes("label: 'Closing Unearned'"));
+    check('M6: and the exports no longer hand-build the abbreviated version',
+      !pdf.includes("periodRow('AR opening'") && !wb.includes("moneyRow('AR opening'"));
   }
 }
 

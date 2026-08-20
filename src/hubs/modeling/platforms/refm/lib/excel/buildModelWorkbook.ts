@@ -15,6 +15,7 @@
  *
  * Pure: reads computeFinancialsSnapshot + state, returns a workbook.
  */
+import { buildReceivablesRollForward, buildUnearnedRollForward } from '../reports/saleRollForwardReports';
 import ExcelJS from 'exceljs';
 import { buildSaleCohortTermsBlock, saleCohortRuleText, CASH_PROFILE_SUPERSEDED_LABEL, buildSaleCohortGrid, saleCohortGridCaption } from '../reports/saleCohortReports';
 import JSZip from 'jszip';
@@ -2482,14 +2483,29 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
   section('4. Schedules (Accounts Receivable + Unearned revenue roll-forward, per asset)');
   for (const [id, b] of snap.byAssetSchedules) {
     if (!anyNonZero(b.ar.perPeriod) && !anyNonZero(b.unearned.perPeriod)) continue;
-    subTitle(`Accounts Receivable & Unearned, ${assetName(id)}`);
-    moneyRow('AR opening', b.ar.openingPerPeriod, { indent: 1, noTotal: true });
-    moneyRow('AR change', b.ar.changePerPeriod, { indent: 1 });
-    moneyRow('AR closing', b.ar.perPeriod, { style: 'subtotal', totalLast: true });
-    moneyRow('Unearned opening', b.unearned.openingPerPeriod, { indent: 1, noTotal: true });
-    moneyRow('Unearned change', b.unearned.changePerPeriod, { indent: 1 });
-    moneyRow('Unearned closing', b.unearned.perPeriod, { style: 'subtotal', totalLast: true });
-    r += 1;
+    // FULL ROLL-FORWARDS from the shared builders (2026-08-20, Step 5). This
+    // used to print opening / change / closing only, which is a balance moving
+    // with no statement of why, and no check row.
+    {
+      const sr = snap.revenue.bySellAsset.get(id);
+      const tables = [
+        buildReceivablesRollForward(b.ar, sr?.presalesRevenuePerPeriod ?? [], sr?.presalesCashPerPeriod ?? [], N, b.ar.changePerPeriod),
+        buildUnearnedRollForward(b.unearned, sr?.presalesRevenuePerPeriod ?? [], sr?.presalesRecognitionPerPeriod ?? [], N, b.unearned.changePerPeriod),
+      ];
+      for (const t of tables) {
+        subTitle(`${t.title}, ${assetName(id)}`);
+        for (const rw of t.rows) {
+          moneyRow(rw.label, A(rw.values), {
+            indent: rw.isTotal ? 0 : 1,
+            style: rw.isTotal ? 'subtotal' : undefined,
+            totalLast: rw.totalIsBalance === true,
+            noTotal: rw.totalIsBalance === true && !rw.isTotal && rw.label.startsWith('Opening'),
+          });
+        }
+        setLabel(ws.getCell(`A${r}`), t.caption);
+        r += 2;
+      }
+    }
   }
 
   // ── 5. Escrow (only when pre-sales escrow is active) ─────────────────────────

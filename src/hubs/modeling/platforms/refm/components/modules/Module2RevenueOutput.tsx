@@ -35,6 +35,7 @@
  * _shared/tableStyles + PhaseSection + VintageMatrix.
  */
 
+import { buildInventoryRollForward, buildReceivablesRollForward, buildUnearnedRollForward, type RollForwardTable } from '../../lib/reports/saleRollForwardReports';
 import SaleCohortGridTable from './_shared/SaleCohortGridTable';
 import { buildSaleCohortGrid } from '../../lib/reports/saleCohortReports';
 import React, { useMemo } from 'react';
@@ -195,6 +196,19 @@ function SubUnitReferenceStrip({
 }
 
 type RowKind = 'data' | 'subtotal' | 'grand' | 'section';
+
+// Adapt the SHARED roll-forward rows (M4Row, the contract both PDFs and the
+// workbook also render) to this screen table. An adapter, deliberately, not a
+// second row builder: the STRUCTURE stays in one place and only the rendering
+// shape differs per surface.
+function rollRowsToPeriodRows(t: RollForwardTable): PeriodRow[] {
+  return t.rows.map((r) => ({
+    label: r.label,
+    values: r.values,
+    kind: r.isTotal ? ('grand' as RowKind) : r.isSubtotal ? ('subtotal' as RowKind) : undefined,
+    indent: r.indent,
+  }));
+}
 
 interface PeriodRow {
   label: string;
@@ -1191,6 +1205,16 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                 r.presalesRevenuePerPeriod,
                 r.axisLength,
               );
+              // Roll-forward PRESENTATION from the shared builders (2026-08-20,
+              // restructure Step 5). The engine results above are unchanged and
+              // are still what the statements read; these only lay them out,
+              // and add the check row the tables never carried.
+              const arRoll = buildReceivablesRollForward(
+                ar, r.presalesRevenuePerPeriod, r.presalesCashPerPeriod, r.axisLength, ar.changePerPeriod,
+              );
+              const unRoll = buildUnearnedRollForward(
+                ur, r.presalesRevenuePerPeriod, r.presalesRecognitionPerPeriod, r.axisLength, ur.changePerPeriod,
+              );
 
               // Captions
               const indexLabel = indexation?.method === 'yoy_compound'
@@ -1270,6 +1294,29 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                     )}
                     fmt={inventoryFmt}
                   />
+                  {/* 1d. CLOSING INVENTORY (2026-08-20, restructure Step 5).
+                      The one quantity the Module 2 diagnosis found genuinely
+                      missing: inventory existed only as a VALUE (cumulative
+                      capex less cumulative cost of sales), never as the area
+                      or units still unsold. Rows come from the shared builder
+                      both exports also render. */}
+                  {(() => {
+                    const t = buildInventoryRollForward(
+                      inventoryDenomAsset,
+                      preInventoryTotal.map((v, i) => v + (postInventoryTotal[i] ?? 0)),
+                      snap.yearLabels.length,
+                      inventoryLabelLower,
+                    );
+                    return (
+                      <PeriodTable
+                        title={`1d. Closing Inventory (unsold ${inventoryLabelLower})`}
+                        formula={t.caption}
+                        yearLabels={snap.yearLabels}
+                        rows={rollRowsToPeriodRows(t)}
+                        fmt={inventoryFmt}
+                      />
+                    );
+                  })()}
 
                   {/* 2. Revenue */}
                   <SectionHeading n="2" title="Revenue (Sales Value)" />
@@ -1404,15 +1451,9 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                   <SectionHeading n="5" title="Accounts Receivable" />
                   <PeriodTable
                     title="5. Accounts Receivable (Sales Receivable roll-forward)"
-                    formula="Closing[y] = Opening[y] + Pre-Sales Sale Value[y] - Cash Received[y]. Opening[y] = Closing[y-1] (Opening[0] = 0). Sale value (Block 2a) credits the receivable at contract signing; cash received via the milestone profile drains it. Settles to 0 when total cash equals total pre-sales sale value."
+                    formula={`${arRoll.caption} The rows come from the shared builder both exports also render, and the check row must read zero in every year.`}
                     yearLabels={snap.yearLabels}
-                    rows={[
-                      { label: 'Opening AR', values: ar.openingPerPeriod },
-                      { label: '(+) Pre-Sales Sale Value', values: r.presalesRevenuePerPeriod },
-                      { label: '(-) Cash Received', values: r.presalesCashPerPeriod.map((v) => -v) },
-                      { label: 'Change in AR (CF delta)', values: ar.changePerPeriod, kind: 'subtotal' },
-                      { label: 'Closing AR', values: ar.perPeriod, kind: 'grand' },
-                    ]}
+                    rows={rollRowsToPeriodRows(arRoll)}
                     unit={currency}
                     fmt={fmt}
                   />
@@ -1421,15 +1462,9 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                   <SectionHeading n="6" title="Unearned Revenue" />
                   <PeriodTable
                     title="6. Unearned Revenue (Contract Liability roll-forward)"
-                    formula="Closing[y] = Opening[y] + Pre-Sales Sale Value[y] - Revenue Recognised[y]. Opening[y] = Closing[y-1] (Opening[0] = 0). Sale value (Block 2a) credits the obligation at contract signing; recognition via the recognition profile drains it. Settles to 0 when total recognition equals total pre-sales sale value."
+                    formula={`${unRoll.caption} The rows come from the shared builder both exports also render, and the check row must read zero in every year.`}
                     yearLabels={snap.yearLabels}
-                    rows={[
-                      { label: 'Opening Unearned', values: ur.openingPerPeriod },
-                      { label: '(+) Pre-Sales Sale Value', values: r.presalesRevenuePerPeriod },
-                      { label: '(-) Revenue Recognised', values: r.presalesRecognitionPerPeriod.map((v) => -v) },
-                      { label: 'Change in Unearned (CF delta)', values: ur.changePerPeriod, kind: 'subtotal' },
-                      { label: 'Closing Unearned', values: ur.perPeriod, kind: 'grand' },
-                    ]}
+                    rows={rollRowsToPeriodRows(unRoll)}
                     unit={currency}
                     fmt={fmt}
                   />

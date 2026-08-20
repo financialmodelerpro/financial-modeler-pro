@@ -22,6 +22,7 @@
  * by default, user-selectable in the Export modal) so large figures stay
  * readable. The renderer is pure (state in, bytes out).
  */
+import { buildReceivablesRollForward, buildUnearnedRollForward } from '../reports/saleRollForwardReports';
 import { PDFDocument, PDFName, PDFHexString, rgb, type PDFFont, type PDFPage, type PDFRef, type PDFObject } from 'pdf-lib';
 import { buildSaleCohortTermsBlock, saleCohortRuleText, CASH_PROFILE_SUPERSEDED_LABEL, buildSaleCohortGrid, saleCohortGridCaption } from '../reports/saleCohortReports';
 import fontkit from '@pdf-lib/fontkit';
@@ -1626,14 +1627,27 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
   // Tab 4: Schedules (AR / Unearned / Escrow).
   for (const [id, b] of snap.byAssetSchedules) {
     if (!anyNonZero(b.ar.perPeriod) && !anyNonZero(b.unearned.perPeriod)) continue;
-    items.push(tTable('Tab 4: Schedules', 'schedules', periodTable(`Accounts Receivable & Unearned, ${assetName(id)}`, py, yl, [
-      periodRow('AR opening', b.ar.openingPerPeriod.slice(0, yl.length), 'none'),
-      periodRow('AR change', b.ar.changePerPeriod.slice(0, yl.length), 'sum'),
-      periodRow('AR closing', b.ar.perPeriod.slice(0, yl.length), 'last', 'subtotal'),
-      periodRow('Unearned opening', b.unearned.openingPerPeriod.slice(0, yl.length), 'none'),
-      periodRow('Unearned change', b.unearned.changePerPeriod.slice(0, yl.length), 'sum'),
-      periodRow('Unearned closing', b.unearned.perPeriod.slice(0, yl.length), 'last', 'subtotal'),
-    ])));
+    // FULL ROLL-FORWARDS from the shared builders (2026-08-20, Step 5). This
+    // used to print opening / change / closing only, which is a balance moving
+    // with no statement of WHY, and no check. The screen and the workbook
+    // render the same rows.
+    const sr = snap.revenue.bySellAsset.get(id);
+    const arRoll = buildReceivablesRollForward(
+      b.ar, sr?.presalesRevenuePerPeriod ?? [], sr?.presalesCashPerPeriod ?? [], yl.length, b.ar.changePerPeriod,
+    );
+    const unRoll = buildUnearnedRollForward(
+      b.unearned, sr?.presalesRevenuePerPeriod ?? [], sr?.presalesRecognitionPerPeriod ?? [], yl.length, b.unearned.changePerPeriod,
+    );
+    for (const t of [arRoll, unRoll]) {
+      items.push(tTable('Tab 4: Schedules', 'schedules', periodTable(
+        `${t.title}, ${assetName(id)}`, py, yl,
+        t.rows.map((rw) => periodRow(
+          rw.label, rw.values.slice(0, yl.length),
+          rw.totalIsBalance ? 'last' : 'sum',
+          rw.isTotal ? 'subtotal' : undefined,
+        )),
+      )));
+    }
   }
   // Tab 5: Escrow. Mirrors the platform Escrow tab's three output tables
   // (A: Pre-Sales Cash by Asset / B: Balance Roll-Forward / C: Cash Flow Impact).

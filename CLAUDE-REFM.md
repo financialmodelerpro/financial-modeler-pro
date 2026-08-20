@@ -2,6 +2,61 @@
 **Last updated: 2026-08-17. Lock status: M1 CLOSED 2026-08-17 (28 defects found in end-to-end use, all fixed and browser-verified; base lock unchanged at M2.0 Pass 58) + Parties tab (mig 190), M2 LOCKED (Pass 9N), M3 LOCKED (Pass 5d), M4 DONE, M5 DONE (Returns & RE Metrics + Lender Covenants + per-partner FCFE/DDM + M1-Parties link), M6 Scenario Analysis LIVE, M7 Reports LIVE (IC / Lender / One-Pager preview + PPT export, migs 191+192). Full verifier suite green via `npx tsx scripts/verify-*.ts`.**
 
 
+## 2026-08-20e: restructure Step 5. Three roll-forwards, each with a check. THE RESTRUCTURE IS COMPLETE
+
+**Step 5 of five, additive only. No number moves on either project, proven stashed and re-run.**
+
+**A CORRECTION TO MY OWN STEP 5 DESCRIPTION.** I said the receivables and unearned roll-forwards
+"have no dedicated presentation". **They do**, and had for a long time: Module 2 sections 5 and 6.
+What they lacked was a CHECK ROW, and they were hand-built inline on the screen while both exports
+printed a different, abbreviated version (opening / change / closing only, which is a balance moving
+with no statement of why). So the real work was moving all three surfaces onto one builder and adding
+the check, not inventing a presentation.
+
+**`lib/reports/saleRollForwardReports.ts`** owns all three, returning `M4Row[]`, the shared row
+contract both exports already render. It computes no schedule: inventory is a running difference of
+series the engine produced, and receivables and unearned are read from the engine's own results
+verbatim. **The only arithmetic in the file is the check itself**, which has to live there or it
+would be three separate opinions on one identity.
+
+**1d. CLOSING INVENTORY is the genuinely new one.** Inventory existed only as a VALUE (cumulative
+capex less cumulative cost of sales); nothing tracked the area or units still unsold, though every
+ingredient was already in the sell engine. Sits under section 1 after 1c, in the asset's own metric.
+Measured on the live projects, closing unsold is 0.00 sqm on Marina Residences and 0.10 sqm /
+-0.01 units on two RE HUB assets, which is the whole-unit rounding the sell engine applies, not a
+leak.
+
+**`totalIsBalance` is set on every opening and closing row.** That flag exists because a formatted
+total string cannot say whether it is a lifetime sum or a point-in-time balance, and a closing
+balance printed under a heading reading "Total" is how the balance sheet once contradicted the P&L
+inside one document.
+
+**The change row survived the move.** The old screen tables carried "Change in AR (CF delta)", which
+drives the cash-flow working-capital delta; dropping it would have been a regression dressed up as a
+refactor, so it is an optional row on the builder and the screen still passes it.
+
+**PROVEN INERT:** collections per year and in total, funding requirement, peak debt, cost of sales,
+profit after tax, total closing receivables, total closing unearned, `|Assets - L&E|` and the
+reconciliation counts are identical before and after on both projects (MARINA GATE AR 191.301m /
+unearned 289.381m; RE HUB AR 4,519.889m / unearned 3,452.023m). `verify-excel-export` **304** and
+`verify-report-arithmetic` **78**, both unchanged.
+
+`verify-sale-cohort-inputs` **201 -> 227**, new section M. Teeth proven by two sabotages: inventory
+closing ignoring what was sold (5 failures) and the check row hardcoded to zero (2).
+
+**A SABOTAGE THAT REFUSED TO RUN, and that is the guard working.** The second one first targeted
+`export function finish`, and `finish` is not exported; the helper reported FN MISS and wrote
+nothing rather than reporting a pass on a file it had not touched. That is the third variant of this
+failure this week (wrong function, wrong window, no match at all), and the helper that now checks the
+injected symbol's offset against the target function's own range caught all three.
+
+**THE MODULE 2 SALE COHORT RESTRUCTURE IS COMPLETE**, five steps plus the three-step Option B. Still
+open and deliberately untouched, both logged in [CLAUDE-TODO.md](CLAUDE-TODO.md): the two cost of
+sales engines with different bases, and RE HUB's sell-asset cost base exceeding project cash capex by
+917.7m (which predates all of this work).
+
+**NOT BROWSER-VERIFIED.**
+
 ## 2026-08-20d: restructure Step 4. The sale cohort grid, on one source
 
 **Step 4 of five. DISPLAY ONLY, no number moves on either project, proven stashed and re-run.**
