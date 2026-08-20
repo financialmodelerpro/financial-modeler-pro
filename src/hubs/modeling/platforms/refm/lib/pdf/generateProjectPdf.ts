@@ -23,6 +23,8 @@
  * readable. The renderer is pure (state in, bytes out).
  */
 import { buildReceivablesRollForward, buildUnearnedRollForward } from '../reports/saleRollForwardReports';
+import { applyExportWatermark } from './drawWatermark';
+import type { WatermarkSpec } from '@/src/shared/entitlements/exportWatermark';
 import { PDFDocument, PDFName, PDFHexString, rgb, type PDFFont, type PDFPage, type PDFRef, type PDFObject } from 'pdf-lib';
 import { buildSaleCohortTermsBlock, saleCohortRuleText, buildSaleCohortGrid, saleCohortGridCaption } from '../reports/saleCohortReports';
 import fontkit from '@pdf-lib/fontkit';
@@ -131,6 +133,11 @@ export interface GenerateProjectPdfOptions {
    *  feature, so this defaults to FALSE and the caller passes the live gate;
    *  an export must not contain what the plan cannot open on screen. */
   includeSensitivity?: boolean;
+  /** Trial watermark, RESOLVED BY THE SERVER from the caller's plan. The
+   *  builder never decides this: it is handed a spec or null, so there is no
+   *  plan logic in the PDF layer to get out of step with the gate. Absent is
+   *  the paid path and produces a byte-identical document. */
+  watermark?: WatermarkSpec | null;
 }
 
 // ── Colors / layout ─────────────────────────────────────────────────────────
@@ -2667,6 +2674,8 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
   }
 
   drawFooters(ctx);
+  // AFTER the footers, so the stamp sits over everything the report drew.
+  await applyExportWatermark(doc, opts.watermark ?? null);
   return doc.save();
 }
 
@@ -2929,5 +2938,7 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
   }
 
   drawFooters(ctx);
+  // AFTER the footers, so the stamp sits over everything the report drew.
+  await applyExportWatermark(doc, opts.watermark ?? null);
   return doc.save();
 }

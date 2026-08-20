@@ -20,6 +20,8 @@
  * No em dashes in this file.
  */
 
+import { applyExportWatermark } from '@/src/hubs/modeling/platforms/refm/lib/pdf/drawWatermark';
+import type { WatermarkSpec } from '@/src/shared/entitlements/exportWatermark';
 import { PDFDocument, PDFArray, PDFName, PDFString, PDFHexString, StandardFonts, rgb, type PDFFont, type PDFPage, type PDFRef, type RGB } from 'pdf-lib';
 import type { ICReportModel } from '../icReport';
 import type { DeckFmt, ChartData } from './bindings';
@@ -601,7 +603,7 @@ function buildDeckOutline(doc: PDFDocument, pages: PDFPage[], slides: ExportSlid
 }
 
 /** Build the shareable PDF. Returns the serialized bytes. */
-export async function buildDeckPdf({ deck, model, fmt }: BuildDeckPdfArgs): Promise<Uint8Array> {
+export async function buildDeckPdf({ deck, model, fmt, watermark }: BuildDeckPdfArgs & { watermark?: WatermarkSpec | null }): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const f: Fonts = {
     sans: await doc.embedFont(StandardFonts.Helvetica),
@@ -656,5 +658,8 @@ export async function buildDeckPdf({ deck, model, fmt }: BuildDeckPdfArgs): Prom
 
   // Bookmarks last: every page ref exists by now, same as the link pass above.
   buildDeckOutline(doc, pages, ex.slides);
+  // Same stamp as the two project reports, from the same shared helper: an IC
+  // deck is the most likely of the three to be forwarded to somebody outside.
+  await applyExportWatermark(doc, watermark ?? null);
   return doc.save();
 }

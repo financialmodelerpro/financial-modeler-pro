@@ -17,6 +17,7 @@ import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { useRequireAdmin } from '@/src/shared/hooks/useRequireAdmin';
 import { PlanMatrix, type MatrixFeature, type MatrixPlan, type CellValue } from './PlanMatrix';
 import { CouponManager } from './CouponManager';
+import { WatermarkCard } from './WatermarkCard';
 import { formatLimit } from '@/src/shared/entitlements/moduleCatalog';
 import { CREDIBILITY_SECTION, CREDIBILITY_KEY, DEFAULT_CREDIBILITY_LINE } from '@/src/shared/entitlements/pricingPageSettings';
 import { countryLabel } from '@/src/core/countries';
@@ -602,6 +603,9 @@ export default function AdminPlansPage() {
 
         {/* Coupons (relocated from the removed /admin/pricing editor). */}
         <CouponManager />
+        {/* Plan keys come from the LIVE plan list, so a plan added later
+            appears here without this file being edited. */}
+        <WatermarkCard planKeys={plans.map((p) => p.plan_key)} showToast={showToast} />
 
         {toast && (
           <div style={{ position: 'fixed', bottom: 20, right: 20, padding: '10px 18px', borderRadius: 8, color: '#fff', fontWeight: 700, fontSize: 13, background: toast.type === 'success' ? '#2EAA4A' : '#DC2626', boxShadow: '0 4px 12px rgba(0,0,0,0.2)', zIndex: 2000 }}>

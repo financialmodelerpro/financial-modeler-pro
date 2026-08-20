@@ -29,6 +29,7 @@
  * them in place.
  */
 
+import { isLegacySeedValue } from '@/src/core/calculations/opex/defaults';
 import type { HydrateSnapshot } from './module1-store';
 import { DEFAULT_MODULE1_STATE } from './module1-store';
 import { computeSubUnitArea } from '@/src/core/calculations';
@@ -1982,6 +1983,91 @@ export function restoreStrippedPhasingSource(snap: HydrateSnapshot): HydrateSnap
  * Runs on the RAW snapshot before the migration chain, like its two
  * neighbours, and is idempotent.
  */
+/**
+ * CLEAR A SEEDED VALUE OFF A DISABLED OPEX LINE (2026-08-20).
+ *
+ * The OpEx builders used to seed real numbers (HQ payroll 5,000,000, an F&B
+ * cost of 65% of revenue, and 24 others). They now seed zero, because a model
+ * must not carry figures the user never entered. Zeroing the builders does
+ * nothing for a project that already SAVED those values, and every live
+ * project has: the way users dealt with lines they did not want was to DISABLE
+ * them, which stops the charge and leaves the number sitting there. Switching
+ * such a line back on would charge 5,000,000 that nobody typed.
+ *
+ * So: a disabled line whose value is one this codebase seeded is cleared to
+ * zero. Three deliberate limits.
+ *
+ *   ENABLED LINES ARE NEVER TOUCHED. An enabled line is charging today, and
+ *   clearing it would change a saved model. Some enabled lines are still
+ *   sitting at their seeded value; that is a question for the user about their
+ *   own model, not something to silently rewrite on load.
+ *
+ *   A DISABLED LINE CARRYING THE USER'S OWN NUMBER IS KEPT. isLegacySeedValue
+ *   matches category AND mode AND the exact figure, so a value they chose
+ *   survives being parked. Fixing our defect by deleting their input would be
+ *   the worse trade.
+ *
+ *   NO NUMBER MOVES. Every line it touches is disabled, so it contributes
+ *   nothing to any total before or after. That is provable rather than hoped
+ *   for, and the verifier proves it on both live projects.
+ *
+ * Runs on the RAW snapshot on every hydrate, beside the other repairs, and is
+ * idempotent (a cleared value is 0, which isLegacySeedValue rejects).
+ */
+export function clearSeededDisabledOpexValues(snap: HydrateSnapshot): HydrateSnapshot {
+  const s = snap as unknown as Record<string, unknown>;
+
+  type RawLine = { category?: string; mode?: string; value?: unknown; disabled?: boolean };
+
+  const fixLines = (lines: unknown): { lines: unknown; changed: boolean } => {
+    if (!Array.isArray(lines)) return { lines, changed: false };
+    let changed = false;
+    const out = lines.map((raw) => {
+      if (!raw || typeof raw !== 'object') return raw;
+      const l = raw as RawLine;
+      if (l.disabled !== true) return raw;
+      if (!isLegacySeedValue(l.category, l.mode, l.value)) return raw;
+      changed = true;
+      // Spread, never a field list. See TRAPS 7.16: a rebuild that names the
+      // fields it keeps is how three separate fields have already been lost on
+      // this path.
+      return { ...(raw as object), value: 0 };
+    });
+    return { lines: changed ? out : lines, changed };
+  };
+
+  let touched = false;
+  const next: Record<string, unknown> = { ...s };
+
+  const project = s.project;
+  if (project && typeof project === 'object') {
+    const hq = (project as Record<string, unknown>).hqOpex;
+    if (hq && typeof hq === 'object') {
+      const r = fixLines((hq as Record<string, unknown>).lines);
+      if (r.changed) {
+        touched = true;
+        next.project = { ...(project as object), hqOpex: { ...(hq as object), lines: r.lines } };
+      }
+    }
+  }
+
+  if (Array.isArray(s.assets)) {
+    let assetsChanged = false;
+    const assets = s.assets.map((a) => {
+      if (!a || typeof a !== 'object') return a;
+      const opex = (a as Record<string, unknown>).opex;
+      if (!opex || typeof opex !== 'object') return a;
+      const r = fixLines((opex as Record<string, unknown>).lines);
+      if (!r.changed) return a;
+      assetsChanged = true;
+      return { ...(a as object), opex: { ...(opex as object), lines: r.lines } };
+    });
+    if (assetsChanged) { touched = true; next.assets = assets; }
+  }
+
+  return (touched ? next : s) as unknown as HydrateSnapshot;
+}
+
 export function retireCountryGatedLines(snap: HydrateSnapshot): HydrateSnapshot {
   const lines = snap.costLines ?? [];
   const gated = lines.filter((c) => !!c.requiresCountry);
@@ -2024,7 +2110,11 @@ function repairRawSnapshot(snapshot: unknown): unknown {
   if (!Array.isArray(s.phases) || !Array.isArray(s.costLines)) return snapshot;
   const windowed = repairStaleWizardCostWindows(snapshot as unknown as HydrateSnapshot);
   const sourced = restoreStrippedPhasingSource(windowed);
-  return retireCountryGatedLines(sourced) as unknown;
+  const gated = retireCountryGatedLines(sourced);
+  // LAST in the chain. It reads project.hqOpex and assets[].opex, which no
+  // earlier repair touches, so the order is not load bearing; it is placed
+  // here so the chain reads in the order the repairs were added.
+  return clearSeededDisabledOpexValues(gated) as unknown;
 }
 
 export function hydrationFromAnySnapshotChecked(snapshot: unknown): CheckedHydration {

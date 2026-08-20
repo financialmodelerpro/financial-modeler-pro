@@ -25,6 +25,13 @@ import { getProject } from '@/src/hubs/modeling/platforms/refm/lib/persistence/s
 import { getRefmUserId } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
 import { coerceDeck } from '@/src/hubs/modeling/platforms/refm/lib/persistence/deck-server';
 import { assertExportAllowed } from '@/src/shared/entitlements/exportGuard';
+import { resolveUserGate } from '@/src/shared/entitlements/resolveUser';
+import { featureAllowed } from '@/src/shared/entitlements/gate';
+import { moduleFeatureKey } from '@/src/shared/entitlements/moduleCatalog';
+import { resolveWatermarkForGate } from '@/src/shared/entitlements/watermarkServer';
+import type { WatermarkSpec } from '@/src/shared/entitlements/exportWatermark';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/src/shared/auth/nextauth';
 import { buildDeckPptx } from '@/src/hubs/modeling/platforms/refm/lib/reports/deck/deckPptx';
 import { buildDeckPdf } from '@/src/hubs/modeling/platforms/refm/lib/reports/deck/deckPdf';
 import { makeDeckFmt } from '@/src/hubs/modeling/platforms/refm/lib/reports/deck/bindings';
@@ -51,6 +58,36 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const { row, error } = await getProject(userId, id);
   if (error) return NextResponse.json({ error }, { status: 500 });
   if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
+  // PLAN GATE (2026-08-20). This route had ownership and the lapse guard and
+  // NO per-plan check, so an active trial that reached the endpoint received
+  // an editable .pptx of the IC deck. What kept it out in practice was that
+  // Module 7 is not in the trial plan and the editor is therefore unreachable
+  // in the UI, which is a gate made of a screen, not of a rule.
+  //
+  // The key is the SHARED module key (`reports` is component 7), so this route
+  // and the module list cannot disagree about who has Module 7.
+  let watermark: WatermarkSpec | null = null;
+  {
+    let sessionRole: string | undefined;
+    try {
+      const session = await getServerSession(authOptions);
+      sessionRole = (session?.user as { role?: string } | undefined)?.role;
+    } catch { sessionRole = undefined; }
+    const gate = await resolveUserGate(userId, { sessionIsAdmin: sessionRole === 'admin' });
+    if (!featureAllowed(gate, moduleFeatureKey('reports', 7))) {
+      return NextResponse.json({
+        error: 'The IC Presentation Builder is not included in your current plan. Upgrade to export a deck.',
+        code: 'FEATURE_NOT_INCLUDED',
+        featureKey: moduleFeatureKey('reports', 7),
+        planKey: gate.planKey,
+      }, { status: 403 });
+    }
+    // Resolved here rather than trusted from the body, for the same reason the
+    // browser export resolves it over the network: a caller must not be able
+    // to ask for an unmarked document.
+    watermark = await resolveWatermarkForGate(gate);
+  }
 
   const body = await req.json().catch(() => null) as
     | { deck?: unknown; model?: unknown; scale?: string; currency?: string; format?: string; fileName?: string }
@@ -85,7 +122,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         },
       });
     }
-    const bytes = await buildDeckPdf({ deck, model, fmt });
+    const bytes = await buildDeckPdf({ deck, model, fmt, watermark });
     return new NextResponse(new Uint8Array(bytes), {
       status: 200,
       headers: {

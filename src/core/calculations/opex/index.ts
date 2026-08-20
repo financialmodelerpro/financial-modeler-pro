@@ -27,6 +27,11 @@ export {
   defaultHQOpexLines,
   defaultOpexIndexation,
   normalizeOpexIndexation,
+  // The frozen record of the values these builders used to seed, and the
+  // predicate that recognises one. Exported so the snapshot repair and the
+  // engine verifier can read them; nothing may use them to seed anything.
+  LEGACY_OPEX_SEED_VALUES,
+  isLegacySeedValue,
 } from './defaults';
 export { buildAccountsPayable } from './accountsPayable';
 export type {

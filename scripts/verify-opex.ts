@@ -16,6 +16,7 @@ import {
   defaultHospitalityOpexLines,
   defaultLeaseOpexLines,
   defaultHQOpexLines,
+  LEGACY_OPEX_SEED_VALUES,
   defaultOpexIndexation,
 } from '@/src/core/calculations/opex';
 import type { OpexRevenueContext } from '@/src/core/calculations/opex';
@@ -75,7 +76,32 @@ const hospRev = makeRev((t) => (t >= opsStart && t <= opsEnd)
   ? { r: roomRev, f: fbRev, o: otherRev, tr: totalRev, l: 0 }
   : { r: 0, f: 0, o: 0, tr: 0, l: 0 });
 
-const hospLines = defaultHospitalityOpexLines();
+
+/**
+ * THE TEST STATES ITS OWN INPUTS (2026-08-20).
+ *
+ * This suite exercises the OpEx ENGINE: baselines, percent-of-revenue,
+ * percent-of-GOP, per-key rates, the inflation factor, the disabled flag. It
+ * used to take those inputs from whatever the default builders happened to
+ * seed, which made every assertion below an assertion about the DEFAULTS and
+ * left the engine tested only for as long as somebody kept seeding real money
+ * into a new project.
+ *
+ * The builders now seed zero, because a model must not carry figures the user
+ * never entered (see verify-opex-seed-zero). That product decision must not
+ * silently switch this suite off, which is exactly what it would have done:
+ * every check would compare 0 against 0 and pass while testing nothing.
+ *
+ * So the fixture applies the FROZEN record of what this file was written
+ * against. Imported rather than retyped, so the 26 figures exist once.
+ */
+function withLegacyValues<T extends { category?: string; mode?: string; value?: number }>(lines: T[]): T[] {
+  return lines.map((l) => {
+    const seed = LEGACY_OPEX_SEED_VALUES.find((v) => v.category === l.category && v.mode === l.mode);
+    return seed ? { ...l, value: seed.value } : l;
+  });
+}
+const hospLines = withLegacyValues(defaultHospitalityOpexLines());
 const hospResult = computeAssetOpex({
   assetId: 'h1',
   strategy: 'Hospitality',
@@ -159,7 +185,7 @@ const leaseCtx = makeRev((t) => (t >= opsStart && t <= opsEnd)
   ? { r: 0, f: 0, o: 0, tr: leaseRev, l: leaseRev }
   : { r: 0, f: 0, o: 0, tr: 0, l: 0 });
 
-const leaseLines = defaultLeaseOpexLines();
+const leaseLines = withLegacyValues(defaultLeaseOpexLines());
 const leaseResult = computeAssetOpex({
   assetId: 'r1',
   strategy: 'Lease',
@@ -229,7 +255,7 @@ assertNear('C1: Tech fee year-over-year ratio = 1.03 (yoy_compound 3%)',
 // ─────────────────────────────────────────────────────────────────────
 // D-series: Disabled line stays zero, doesn't impact GOP
 // ─────────────────────────────────────────────────────────────────────
-const disabledLines = defaultHospitalityOpexLines();
+const disabledLines = withLegacyValues(defaultHospitalityOpexLines());
 const itLineIdx = disabledLines.findIndex((l) => l.category === 'indirect_it');
 disabledLines[itLineIdx] = { ...disabledLines[itLineIdx], disabled: true };
 const disabledResult = computeAssetOpex({
@@ -254,7 +280,21 @@ assertNear('D2: Disabled IT drops indirect by 2% × TR',
 // ─────────────────────────────────────────────────────────────────────
 // E-series: HQ engine
 // ─────────────────────────────────────────────────────────────────────
-const hqLines = defaultHQOpexLines();
+// THE TEST STATES ITS OWN INPUTS (2026-08-20).
+//
+// The E-series exercises the HQ engine: a baseline fixed cost, a percent of
+// total revenue, the inflation factor. It used to take those inputs from
+// whatever `defaultHQOpexLines()` happened to seed, so the assertions below
+// were really assertions about the DEFAULTS, and the engine was only being
+// tested for as long as somebody kept seeding real money into a new project.
+//
+// The builders now seed zero, because a model must not show figures the user
+// never entered (see verify-opex-seed-zero). That is a product decision and it
+// must not silently switch this suite off, which is exactly what would have
+// happened: every E check would have compared 0 against 0 and passed while
+// testing nothing. So the figures are written here, in the test, where they
+// belong. They are the values this file always used.
+const hqLines = withLegacyValues(defaultHQOpexLines());
 const projectTR = new Array<number>(N).fill(0);
 for (let t = opsStart; t <= opsEnd; t++) projectTR[t] = totalRev;
 const hqResult = computeHQOpex({

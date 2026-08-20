@@ -23,6 +23,7 @@ import { createPortal } from 'react-dom';
 import { MODULES } from '../../lib/modules-config';
 import { REFM_PLATFORM_SLUG } from '../../lib/usePlatformModules';
 import { moduleComponentNumber } from '@/src/shared/entitlements/moduleCatalog';
+import type { WatermarkSpec } from '@/src/shared/entitlements/exportWatermark';
 import { useModule1Store, modelFromSnapshot, pickModel } from '../../lib/state/module1-store';
 import { hydrationFromAnySnapshot } from '../../lib/state/module1-migrate';
 import { applyOverrides, buildOverrides, baseCaseId, normaliseCases } from '../../lib/cases/applyOverrides';
@@ -309,6 +310,26 @@ export default function ExportModal({
       return;
     }
     setGenerating(true);
+    // THE WATERMARK DECISION IS THE SERVER'S, and it is taken BEFORE anything
+    // is built. The export runs in this browser, so if the answer lived here
+    // it would be a value in client memory; instead the server resolves the
+    // session's plan and returns a spec or null.
+    //
+    // A FAILURE TO RESOLVE REFUSES THE EXPORT. Defaulting to no watermark
+    // would make a dropped request the way to obtain an unmarked trial file,
+    // which is the whole thing this is for. Defaulting to a watermark would
+    // stamp a paying customer's document over a network blip. Neither is
+    // acceptable, so nothing is produced and the user is told to retry.
+    let watermark: WatermarkSpec | null = null;
+    try {
+      const res = await fetch('/api/export/watermark', { cache: 'no-store' });
+      if (!res.ok) throw new Error(String(res.status));
+      watermark = ((await res.json()) as { watermark: WatermarkSpec | null }).watermark ?? null;
+    } catch {
+      setGenerating(false);
+      setError('Could not confirm your plan for this export. Check your connection and try again.');
+      return;
+    }
     try {
       const { generateProjectPdf, generateSummaryPdf } = await import('../../lib/pdf/generateProjectPdf');
       // Resolve the state + naming for the chosen version. "Current" exports the
@@ -381,6 +402,7 @@ export default function ExportModal({
         state, projectName: name, versionLabel: pdfVersionLabel, dateLabel,
         displayScale: pdfScale, displayDecimals: pdfDecimals,
         includeSensitivity: allows('sensitivity'),
+        watermark,
       };
       // Per-tab selection: renderModule filters emitted tabs to the listed set.
       const moduleTabs: Record<string, string[]> = {};
