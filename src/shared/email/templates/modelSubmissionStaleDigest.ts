@@ -1,4 +1,12 @@
-import { baseLayoutBranded, h1, p, button, divider } from './_base';
+/*
+ * html-safe: thresholdDays
+ * html-safe: reviewSlaDays
+ * html-safe: rows
+ *
+ * Counts and a row array whose text fields are escaped where they reach
+ * HTML (see tableRows). The text half is marked separately.
+ */
+import { baseLayoutBranded, h1, p, button, divider , escapeHtml } from './_base';
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';
 
@@ -49,8 +57,8 @@ export async function modelSubmissionStaleDigestTemplate({
   const tableRows = rows.map(r => `
     <tr>
       <td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;font-size:12px;color:#1F3864;font-weight:600;">
-        ${r.studentName ?? '(no name)'}<br/>
-        <span style="font-weight:400;color:#64748B;">${r.studentEmail}</span>
+        ${r.studentName ? escapeHtml(r.studentName) : '(no name)'}<br/>
+        <span style="font-weight:400;color:#64748B;">${escapeHtml(r.studentEmail)}</span>
       </td>
       <td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;font-size:12px;color:#374151;">
         ${r.courseCode}
@@ -67,6 +75,8 @@ export async function modelSubmissionStaleDigestTemplate({
     </tr>
   `).join('');
 
+  // PLAIN TEXT, deliberately NOT escaped: entities would render literally to
+  // a reader of the text part. Escaping belongs to the HTML branch only.
   const textRows = rows.map(r =>
     `  - ${r.studentName ?? '(no name)'} <${r.studentEmail}> · ${r.courseCode} · attempt ${r.attemptNumber}/${r.maxAttempts} · waiting ${r.daysWaiting}d (submitted ${formatDate(r.submittedAt)})`
   ).join('\n');
@@ -98,6 +108,7 @@ export async function modelSubmissionStaleDigestTemplate({
     ${p(`This digest is triggered daily and only sent when at least one submission has been pending longer than the stale threshold. To change the threshold, edit <code style="font-family:monospace;color:#64748B;">model_submission_stale_threshold_days</code> in <em>Training Settings</em>. To stop the digest entirely, disable <strong>New-submission email alerts</strong> on the same page.`, 'font-size:11px;color:#94A3B8;')}
   `);
 
+  // plain-text-safe: the text half must not be escaped.
   const text = `Financial Modeler Pro - Pending Model Submissions\n\n`
     + `${rows.length} submission${rows.length === 1 ? '' : 's'} pending > ${thresholdDays} day${thresholdDays === 1 ? '' : 's'} (review SLA: ${reviewSlaDays} business days):\n\n`
     + `${textRows}\n\n`

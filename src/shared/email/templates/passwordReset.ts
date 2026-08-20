@@ -1,3 +1,9 @@
+/*
+ * html-safe: resetUrl
+ * html-safe: expiresMinutes
+ *
+ * A URL built by this codebase from a server-generated token, and a number.
+ */
 import { baseLayoutBranded, h1, p, button, divider } from './_base';
 
 interface PasswordResetData {

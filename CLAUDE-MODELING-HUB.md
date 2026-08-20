@@ -2,6 +2,71 @@
 **Last updated: 2026-05-12**
 
 Modeling Hub (`app.financialmodelerpro.com`) is the interactive financial modeling workspace. Each modeling discipline lives as a platform with one or more modules. The Hub itself is the wrapper around the platform catalog, admin sync, and shared shell; platform-specific behavior lives in per-platform MDs.
+## 2026-08-20j: the XSS sweep across every email template
+
+**Ten templates were interpolating user-supplied values into email HTML unescaped. One was already
+receiving student-written notes in production.**
+
+**ONE HELPER, in `_base.ts`:** `escapeHtml` and `escapeHtmlMultiline`. The multiline form exists
+because every free-text field was doing `value.replace(/\n/g, '<br/>')` with no escaping, and the
+ORDER is the point: escape first, then insert the breaks, or the `<br/>` you just added gets escaped
+along with the attacker's markup.
+
+**Two private copies were deleted.** `liveSessionNotification` carried its own, and it was **weaker**:
+it escaped `& < >` and the double quote but NOT the apostrophe, so a value inside a single-quoted
+attribute could still break out. That is the argument for one implementation rather than five that
+drift, and it was sitting in the codebase as a worked example.
+
+### Affected, and fixed
+
+| Template | What was raw |
+|---|---|
+| `modelSubmissionAdminAlert` | **student note (LIVE)**, name, email, registration id, course, file name |
+| `modelSubmissionApproved` | reviewer note, name, file name, course |
+| `modelSubmissionRejected` | reviewer note, name, file name, course |
+| `modelSubmissionStaleDigest` | student name and email in the table |
+| `modelSubmissionNoticeBroadcast` | the greeting name |
+| `liveSessionNotification` | session title, date, time, timezone, url, live url, attachment names and urls, dial-in number |
+| `lockedOut` | name, session name |
+| `quizResult` | name, session name |
+| `registrationConfirmation` | course name |
+| `resendRegistrationId` | name |
+| `subscription` | the greeting name, across fourteen templates |
+
+Already clean: `confirmEmail`, `deviceVerification`, `otpVerification`, `passwordReset`, `newsletter`,
+`newRegistrationAlert`. Their inputs are server-generated tokens, codes, numbers and URLs, and each
+now declares that in writing rather than being clean by luck.
+
+`subscription.ts` was fixed at its shared `greeting()` helper, once, rather than at fourteen call
+sites. `newsletter.body` is the ONE input that is deliberately HTML (an admin composes rich content
+in the CMS), and it is declared as such rather than left to be inferred.
+
+### The check catches the class
+
+`verify-email-escaping` **20 NEW**. The rule: any `${...}` referencing one of a template's own
+PARAMETERS must pass through the shared helper, unless it is exempted IN WRITING. Two exemptions,
+both narrow: `plain-text-safe` for the text half of an email (escaping there would print `&amp;` to
+the reader) and `html-safe: <name>` plus a reason for a value the code itself built.
+
+**Teeth proven two ways.** Un-escaping the live student note trips it, and so does a BRAND NEW
+template file that never existed when the check was written. That is the difference between checking
+the class and checking a list.
+
+**Three things the checker got wrong first, all fixed, because a checker that cries wolf gets
+switched off:** a naive `\$\{([^}]*)\}` truncated at the first closing brace so nested calls read as
+offenders; matching param names against raw source flagged `${p('... enter the code below ...')}`
+because the English word "code" matched a parameter called `code`; and a three-line lookback for the
+marker was shorter than the two-line justification above a three-line expression.
+
+**A per-line marker was tried and REVERTED**: these interpolations sit inside template literals, so a
+`//` comment beside one is not a comment, it is text that prints into the email. It rendered
+`// html-safe: ...` above the confirm button. Exemptions are file-level for that reason, and the
+file-level form is the more honest shape anyway: it names the VALUE and the reason, once.
+
+**A defect I introduced mid-sweep and caught:** a blanket find-and-replace escaped `courseLabel` in
+the PLAIN TEXT half of the admin alert as well as the HTML, which would have printed entities to a
+text reader. Reverted; the text halves are now explicitly marked and exempt.
+
 ## 2026-08-20i: the launch date is the single source, and the signup alert is Modeling only
 
 **Two things: the Training branch removed from the signup alert on instruction, and item 1c built.**

@@ -1,4 +1,11 @@
-import { baseLayoutBranded, h1, p, button, divider } from './_base';
+/*
+ * html-safe: d.userId
+ *
+ * Only ever tested for emptiness here and interpolated into the admin URL
+ * through encodeURIComponent. Every other field on this template goes
+ * through escapeHtml or orNone.
+ */
+import { baseLayoutBranded, h1, p, button, divider, escapeHtml, escapeHtmlMultiline } from './_base';
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';
 
@@ -36,27 +43,11 @@ export interface NewRegistrationAlertData {
 
 }
 
-/**
- * ESCAPE EVERY USER-SUPPLIED VALUE.
- *
- * Every field in this email is typed by whoever is registering, and the email
- * goes to support. Interpolating it raw into HTML would let a registrant put
- * markup, a fake "click here" link, or a broken tag that swallows the rest of
- * the message into an inbox we read and act on. The existing
- * modelSubmissionAdminAlert template interpolates its free-text note without
- * escaping; that is worth fixing separately and is NOT copied here.
- *
- * Ampersand first, or it would double-escape the entities added after it.
- */
-function esc(v: string): string {
-  return v
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
+// The escape helper lives in _base.ts and is shared by every template, so
+// there is one implementation of this rule rather than a copy per file. This
+// file carried a private esc() for a day; the sweep that found the same
+// hole in four other templates moved it.
+const esc = escapeHtml;
 /** A value, or a visible marker that there isn't one. Never a blank cell: an
  *  empty row reads as a rendering fault rather than as missing data. */
 function orNone(v: string | null | undefined): string {
@@ -142,7 +133,7 @@ export async function newRegistrationAlertTemplate(d: NewRegistrationAlertData) 
     ${(d.roleNote ?? '').trim() !== ''
       ? `<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:12px 14px;margin:14px 0;">
            <div style="font-size:11px;font-weight:700;color:#92400E;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">What they do</div>
-           <div style="font-size:13px;color:#78350F;line-height:1.55;">${esc((d.roleNote ?? '').trim()).replace(/\n/g, '<br/>')}</div>
+           <div style="font-size:13px;color:#78350F;line-height:1.55;">${escapeHtmlMultiline((d.roleNote ?? '').trim())}</div>
          </div>`
       : ''}
 

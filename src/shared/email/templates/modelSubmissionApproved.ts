@@ -1,4 +1,9 @@
-import { baseLayoutBranded, h1, p, button, divider } from './_base';
+/*
+ * html-safe: attemptNumber
+ * 
+ * A count, not text. Every value that can carry markup is escaped.
+ */
+import { baseLayoutBranded, h1, p, button, divider , escapeHtml, escapeHtmlMultiline } from './_base';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 
@@ -22,17 +27,17 @@ interface ModelSubmissionApprovedData {
 export async function modelSubmissionApprovedTemplate({
   name, courseLabel, fileName, attemptNumber, reviewerNote, reviewedFileUrl, reviewedFileName,
 }: ModelSubmissionApprovedData) {
-  const subject = `✓ Model approved, Final exam unlocked: ${courseLabel}`;
+  const subject = `✓ Model approved, Final exam unlocked: ${escapeHtml(courseLabel)}`;
 
   const html = await baseLayoutBranded(`
-    ${h1(`Model approved${name ? `, ${name}` : ''}!`)}
-    ${name ? p(`Hi <strong>${name}</strong>,`) : ''}
-    ${p(`Your financial model for <strong>${courseLabel}</strong> has been reviewed and <strong>approved</strong>. Great work.`)}
+    ${h1(`Model approved${name ? `, ${escapeHtml(name)}` : ''}!`)}
+    ${name ? p(`Hi <strong>${escapeHtml(name)}</strong>,`) : ''}
+    ${p(`Your financial model for <strong>${escapeHtml(courseLabel)}</strong> has been reviewed and <strong>approved</strong>. Great work.`)}
 
     <div style="background:#F0FDF4;border:2px solid #2EAA4A;border-radius:10px;padding:22px;margin:20px 0;">
       <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#166534;margin-bottom:8px;">APPROVED</div>
       <div style="font-size:14px;color:#14532D;line-height:1.55;">
-        <strong>Submission:</strong> ${fileName}<br/>
+        <strong>Submission:</strong> ${escapeHtml(fileName)}<br/>
         <strong>Attempt:</strong> ${attemptNumber}
       </div>
     </div>
@@ -40,14 +45,14 @@ export async function modelSubmissionApprovedTemplate({
     ${reviewerNote
       ? `<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:14px 16px;margin:16px 0;">
            <div style="font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Reviewer Note</div>
-           <div style="font-size:13px;color:#374151;line-height:1.55;">${reviewerNote.replace(/\n/g, '<br/>')}</div>
+           <div style="font-size:13px;color:#374151;line-height:1.55;">${escapeHtmlMultiline(reviewerNote)}</div>
          </div>`
       : ''}
 
     ${reviewedFileUrl
       ? `<div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:16px 18px;margin:16px 0;">
            <div style="font-size:11px;font-weight:700;color:#1D4ED8;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Your reviewed model</div>
-           <div style="font-size:13px;color:#374151;line-height:1.55;margin-bottom:12px;">Your reviewer returned a marked-up copy of your model${reviewedFileName ? ` (<strong>${reviewedFileName}</strong>)` : ''}. Download it to see their feedback in context. It is also available in your dashboard.</div>
+           <div style="font-size:13px;color:#374151;line-height:1.55;margin-bottom:12px;">Your reviewer returned a marked-up copy of your model${reviewedFileName ? ` (<strong>${escapeHtml(reviewedFileName)}</strong>)` : ''}. Download it to see their feedback in context. It is also available in your dashboard.</div>
            <div>${button('Download reviewed model', reviewedFileUrl)}</div>
          </div>`
       : ''}
@@ -62,12 +67,13 @@ export async function modelSubmissionApprovedTemplate({
     ${p('Thanks for putting the work in. Your model showed the effort we were looking for.', 'font-size:13px;color:#64748B;')}
   `);
 
+  // plain-text-safe: the text half must not be escaped.
   const text = `Financial Modeler Pro, Model Approved\n\n`
-    + `${name ? `Hi ${name},\n\n` : ''}`
-    + `Your financial model for ${courseLabel} has been APPROVED.\n`
-    + `Submission: ${fileName} (attempt ${attemptNumber})\n`
+    + `${name ? `Hi ${escapeHtml(name)},\n\n` : ''}`
+    + `Your financial model for ${escapeHtml(courseLabel)} has been APPROVED.\n`
+    + `Submission: ${escapeHtml(fileName)} (attempt ${attemptNumber})\n`
     + `${reviewerNote ? `\nReviewer note: ${reviewerNote}\n` : ''}`
-    + `${reviewedFileUrl ? `\nYour reviewer returned a marked-up model${reviewedFileName ? ` (${reviewedFileName})` : ''}.\nDownload: ${reviewedFileUrl}\n` : ''}`
+    + `${reviewedFileUrl ? `\nYour reviewer returned a marked-up model${reviewedFileName ? ` (${escapeHtml(reviewedFileName)})` : ''}.\nDownload: ${reviewedFileUrl}\n` : ''}`
     + `\nThe Final Exam is now unlocked on your dashboard.\n`
     + `\nYour models: ${LEARN_URL}/training/dashboard?tab=my-model`;
 

@@ -1,3 +1,10 @@
+/*
+ * html-safe: code
+ * html-safe: expiryMinutes
+ *
+ * The verification code is generated server-side and is digits only; the
+ * expiry is a number. Neither can carry markup. See verify-email-escaping.
+ */
 import { baseLayoutBranded, h1, p, divider } from './_base';
 
 interface DeviceVerificationOptions {

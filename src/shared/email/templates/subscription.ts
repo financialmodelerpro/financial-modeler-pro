@@ -8,7 +8,28 @@
  *
  * No em dashes in this file.
  */
-import { baseLayoutBranded, h1, p, button, divider } from './_base';
+/*
+ * html-safe: data.manageUrl
+ * html-safe: data.receiptNumber
+ * html-safe: data.interval
+ * html-safe: data.endsOn
+ * html-safe: plan
+ * html-safe: data.billingUrl
+ * html-safe: data.dashboardUrl
+ * html-safe: data.pricingUrl
+ * html-safe: data.daysLeft
+ * html-safe: data.renewUrl
+ * html-safe: data.invoiceAttached
+ * html-safe: data.amount
+ * html-safe: data.planLabel
+ * html-safe: data.periodEnd
+ * html-safe: data.trialEnd
+ *
+ * URLs this codebase builds, a boolean, and values formatted by helpers in
+ * this file. The user-supplied name is escaped inside greeting() above, once,
+ * rather than at each call site.
+ */
+import { baseLayoutBranded, h1, p, button, divider , escapeHtml } from './_base';
 
 // ── FMP company footer (billing emails) ─────────────────────────────────────
 // Subscription / billing emails carry the consistent FMP company line ("A
@@ -50,8 +71,11 @@ export function planLabel(planKey: string): string {
   return k.charAt(0).toUpperCase() + k.slice(1);
 }
 
+// Escaped HERE, once, rather than at each of the fourteen call sites below.
+// The name is user-supplied and every template in this file renders this
+// greeting into HTML.
 const greeting = (name: string | null | undefined): string =>
-  name && name.trim() ? `Hi ${name.trim().split(' ')[0]},` : 'Hi,';
+  name && name.trim() ? `Hi ${escapeHtml(name.trim().split(' ')[0])},` : 'Hi,';
 
 interface Built { subject: string; html: string; }
 

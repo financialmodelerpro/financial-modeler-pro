@@ -4,7 +4,14 @@
  * Uses email_branding table for logo + signature (same as System A).
  */
 
-import { getEmailBranding } from './_base';
+/*
+ * html-safe: p.registrationCount
+ *
+ * A count, not text. Everything else on this template that reaches HTML is
+ * escaped through the shared helper; the subject lines are marked
+ * plain-text-safe because a subject is not HTML.
+ */
+import { getEmailBranding, escapeHtml } from './_base';
 
 interface NotificationParams {
   name: string;
@@ -62,13 +69,12 @@ async function emailShell(bannerText: string, body: string): Promise<string> {
 </body></html>`;
 }
 
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
+// The escape helper lives in _base.ts and is shared by every template. This
+// file used to carry its own, and it was WEAKER: it escaped & < > and the
+// double quote but not the apostrophe, so a value inside a single-quoted
+// attribute could still break out. That is the argument for one
+// implementation in one place, not five that drift.
+
 
 // Resolve a human greeting name. The notify route passes `r.name || r.email`,
 // so recipients without a roster name would otherwise be greeted as
@@ -142,13 +148,15 @@ function descriptionToEmailHtml(raw: string): string {
  * Announcement or reminder email - links to session page (not direct join link).
  */
 export async function liveSessionNotificationTemplate(p: NotificationParams): Promise<{ subject: string; html: string }> {
-  const subject = p.isReminder
+  // plain-text-safe: the subject is not HTML. Escaping it would print
+  // entities into an inbox subject line.
+  const subject = p.isReminder // plain-text-safe
     ? `Reminder: ${p.sessionTitle} starts in 1 hour`
     : `New Live Session: ${p.sessionTitle} - ${p.sessionDate}`;
 
   const dialInBlock = (p.dialInTollNumber || p.dialInConferenceId) ? `
       <p style="margin:12px 0 0;font-size:12px;color:#888;">
-        Phone dial-in:${p.dialInTollNumber ? ` ${p.dialInTollNumber}` : ''}${p.dialInConferenceId ? ` (Conference ID: ${p.dialInConferenceId})` : ''}
+        Phone dial-in:${p.dialInTollNumber ? ` ${escapeHtml(p.dialInTollNumber)}` : ''}${p.dialInConferenceId ? ` (Conference ID: ${escapeHtml(p.dialInConferenceId)})` : ''}
       </p>` : '';
 
   // Full session write-up rendered as its own section, with structure
@@ -164,10 +172,10 @@ export async function liveSessionNotificationTemplate(p: NotificationParams): Pr
   const dateBlock = `
     <div style="background:#f0f4ff;border-left:4px solid #2E75B6;padding:20px 24px;border-radius:6px;margin:24px 0;">
       <p style="margin:0 0 8px;font-weight:bold;color:#1F3864;">
-        ${p.sessionDate} at ${p.sessionTime} (${p.timezone})</p>
+        ${escapeHtml(p.sessionDate)} at ${escapeHtml(p.sessionTime)} (${escapeHtml(p.timezone)})</p>
       ${p.registrationCount ? `<p style="margin:8px 0;font-size:13px;color:#2E75B6;">Join ${p.registrationCount} other students who have already registered</p>` : ''}
       <div style="margin-top:16px;">
-        <a href="${p.sessionUrl}" style="background:#2E75B6;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;">
+        <a href="${escapeHtml(p.sessionUrl)}" style="background:#2E75B6;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;">
           View & Register for This Session
         </a>
       </div>
@@ -177,15 +185,15 @@ export async function liveSessionNotificationTemplate(p: NotificationParams): Pr
 
   const attachBlock = p.attachments?.length ? `
     <p><strong>Session Materials:</strong></p>
-    <ul>${p.attachments.map(a => `<li><a href="${a.url}" style="color:#2E75B6;">${a.name}</a></li>`).join('')}</ul>` : '';
+    <ul>${p.attachments.map(a => `<li><a href="${escapeHtml(a.url)}" style="color:#2E75B6;">${escapeHtml(a.name)}</a></li>`).join('')}</ul>` : '';
 
   const body = p.isReminder
     ? `<p>Dear <strong>${escapeHtml(greetingName(p.name))}</strong>,</p>
-       <p>This is a reminder that <strong>${p.sessionTitle}</strong> starts in <strong>1 hour</strong>.</p>
+       <p>This is a reminder that <strong>${escapeHtml(p.sessionTitle)}</strong> starts in <strong>1 hour</strong>.</p>
        ${dateBlock}${descriptionBlock}${attachBlock}`
     : `<p>Dear <strong>${escapeHtml(greetingName(p.name))}</strong>,</p>
        <p>A new live training session has been scheduled:</p>
-       <h2 style="color:#1F3864;margin:16px 0;">${p.sessionTitle}</h2>
+       <h2 style="color:#1F3864;margin:16px 0;">${escapeHtml(p.sessionTitle)}</h2>
        ${dateBlock}
        ${descriptionBlock}${attachBlock}`;
 
@@ -196,24 +204,25 @@ export async function liveSessionNotificationTemplate(p: NotificationParams): Pr
  * Registration confirmation email - sent when student registers for a session.
  */
 export async function registrationConfirmationTemplate(p: ConfirmationParams): Promise<{ subject: string; html: string }> {
+  // plain-text-safe: subject line, not HTML.
   const subject = `You're registered: ${p.sessionTitle} - ${p.sessionDate}`;
 
   const body = `
     <p>Dear <strong>${escapeHtml(greetingName(p.name))}</strong>,</p>
-    <p>You're confirmed for <strong>${p.sessionTitle}</strong>!</p>
+    <p>You're confirmed for <strong>${escapeHtml(p.sessionTitle)}</strong>!</p>
 
     <div style="background:#f0fdf4;border-left:4px solid #2EAA4A;padding:20px 24px;border-radius:6px;margin:24px 0;">
       <p style="margin:0 0 8px;font-weight:bold;color:#166534;">
-        ${p.sessionDate} at ${p.sessionTime} (${p.timezone})</p>
+        ${escapeHtml(p.sessionDate)} at ${escapeHtml(p.sessionTime)} (${escapeHtml(p.timezone)})</p>
       <p style="margin:8px 0;color:#555;">
         The join link will be available in your dashboard <strong>30 minutes before</strong> the session starts.</p>
       <div style="margin-top:16px;">
-        <a href="${p.sessionUrl}" style="background:#2EAA4A;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;">
+        <a href="${escapeHtml(p.sessionUrl)}" style="background:#2EAA4A;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;">
           View Session in Dashboard
         </a>
       </div>
       ${p.liveUrl ? `<div style="margin-top:10px;">
-        <a href="${p.liveUrl}" style="background:#1B4F8A;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;">
+        <a href="${escapeHtml(p.liveUrl)}" style="background:#1B4F8A;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;">
           Join Session
         </a>
       </div>` : ''}

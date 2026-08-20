@@ -1,3 +1,13 @@
+/*
+ * html-safe: body
+ * html-safe: unsubscribeToken
+ *
+ * The newsletter body is DELIBERATELY HTML: an admin composes it as rich
+ * content in the CMS, so escaping it would print the markup instead of
+ * rendering it. This is the one template where an input is meant to be HTML,
+ * and it is declared here rather than left to be inferred. The token is
+ * server-generated and goes into a URL.
+ */
 import { getEmailBranding } from './_base';
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';

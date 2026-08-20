@@ -1,4 +1,12 @@
-import { baseLayoutBranded, h1, p, button, divider } from './_base';
+/*
+ * html-safe: score
+ * html-safe: passMark
+ * html-safe: attemptsUsed
+ * html-safe: maxAttempts
+ *
+ * Numbers. sessionName and name are escaped where they reach HTML.
+ */
+import { baseLayoutBranded, h1, p, button, divider , escapeHtml } from './_base';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://financialmodelerpro.com';
 
@@ -13,7 +21,8 @@ interface QuizResultData {
 }
 
 export async function quizResultTemplate({ name, sessionName, score, passMark, passed, attemptsUsed, maxAttempts }: QuizResultData) {
-  const subject = passed
+  // plain-text-safe: subject line, not HTML.
+  const subject = passed // plain-text-safe
     ? `✓ Passed: ${sessionName} - Score ${score}%`
     : `Result: ${sessionName} - Score ${score}%`;
 
@@ -23,9 +32,9 @@ export async function quizResultTemplate({ name, sessionName, score, passMark, p
   const statusLabel = passed ? 'PASSED' : 'NOT PASSED';
 
   const html = await baseLayoutBranded(`
-    ${h1(passed ? `Well done${name ? `, ${name}` : ''}!` : `Result: ${sessionName}`)}
-    ${name && !passed ? p(`Hi <strong>${name}</strong>,`) : ''}
-    ${p(`Here are your results for <strong>${sessionName}</strong>:`)}
+    ${h1(passed ? `Well done${name ? `, ${escapeHtml(name)}` : ''}!` : `Result: ${sessionName}`)}
+    ${name && !passed ? p(`Hi <strong>${escapeHtml(name)}</strong>,`) : ''}
+    ${p(`Here are your results for <strong>${escapeHtml(sessionName)}</strong>:`)}
 
     <div style="background:${scoreBg};border:2px solid ${borderColor};border-radius:10px;padding:24px;text-align:center;margin:20px 0;">
       <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:${scoreColor};margin-bottom:8px;">${statusLabel}</div>
@@ -46,6 +55,7 @@ export async function quizResultTemplate({ name, sessionName, score, passMark, p
     ${p('Keep up the great work - every session brings you closer to your certificate.', 'font-size:13px;color:#64748B;')}
   `);
 
+  // plain-text-safe: the text half must not be escaped.
   const text = `Financial Modeler Pro - Quiz Result\n\n${name ? `Hi ${name},\n\n` : ''}Result for ${sessionName}: ${statusLabel}\nScore: ${score}% (Pass mark: ${passMark}%)\n\nDashboard: ${APP_URL}/training/dashboard`;
 
   return { subject, html, text };

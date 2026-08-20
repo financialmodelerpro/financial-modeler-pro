@@ -1,3 +1,10 @@
+/*
+ * html-safe: confirmUrl
+ *
+ * Built by this codebase from APP_URL plus a server-generated confirmation
+ * token. No user-supplied text reaches it, and escaping a URL would break the
+ * link. See verify-email-escaping for the rule this declaration satisfies.
+ */
 import { baseLayoutBranded, h1, p, button, divider } from './_base';
 
 interface ConfirmEmailOptions {

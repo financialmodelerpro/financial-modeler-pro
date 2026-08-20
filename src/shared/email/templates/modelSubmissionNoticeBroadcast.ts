@@ -1,4 +1,12 @@
-import { baseLayoutBranded, h1, p, button, divider } from './_base';
+/*
+ * html-safe: reviewSlaDays
+ * html-safe: maxAttempts
+ * html-safe: noticeDays
+ * 
+ * Counts, not text. studentName is escaped for the HTML greeting and kept
+ * raw for the text one; see greeting / greetingText below.
+ */
+import { baseLayoutBranded, h1, p, button, divider , escapeHtml } from './_base';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 
@@ -40,7 +48,13 @@ export async function modelSubmissionNoticeBroadcastTemplate({
   studentName, scope, noticeDays, reviewSlaDays, maxAttempts,
 }: ModelSubmissionNoticeBroadcastData) {
   const dashUrl = `${LEARN_URL}/training/dashboard`;
-  const greeting = studentName?.trim() ? `Hi ${studentName.trim()},` : 'Hi,';
+  // TWO FORMS, because this greeting goes into BOTH the HTML body and the
+  // plain-text part. The HTML one is escaped; the text one must not be, or a
+  // name with an apostrophe renders as &#39; to a text reader.
+  // plain-text-safe: the text greeting must stay raw, or a name with an
+  // apostrophe renders as &#39; to a text reader.
+  const greetingText = studentName?.trim() ? `Hi ${studentName.trim()},` : 'Hi,';
+  const greeting = studentName?.trim() ? `Hi ${escapeHtml(studentName.trim())},` : 'Hi,';
   const { headline, bodyIntro } = SCOPE_COPY[scope];
   const subject = `[FMP] ${headline}`;
 
@@ -77,6 +91,7 @@ export async function modelSubmissionNoticeBroadcastTemplate({
     ${p('Questions? Reply to this email and we will get back to you. We are doing this to make the certificate worth more, not to put more friction in your path.', 'font-size:12px;color:#94A3B8;')}
   `);
 
+  // plain-text-safe: the text half must not be escaped.
   const text =
     `Financial Modeler Pro - ${headline}\n\n` +
     `${greeting}\n\n` +

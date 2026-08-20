@@ -3,25 +3,14 @@
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
 ---
-## OPEN 2026-08-20: modelSubmissionAdminAlert interpolates a student note unescaped
+## CLOSED 2026-08-20: the email XSS sweep. DONE
 
-**Found while building the signup notification. Same class, same inbox, different feature, so it was
-NOT folded into that pass.**
+Ten templates were escaping nothing; all fixed, one shared helper, and
+`verify-email-escaping` now catches the CLASS (a new template that
+interpolates its own input raw fails, proven by adding one). Narrative in
+CLAUDE-MODELING-HUB.md 2026-08-20j.
 
-`src/shared/email/templates/modelSubmissionAdminAlert.ts` renders the student's free-text note as
-`${studentNotes.replace(/\n/g, '<br/>')}` with no HTML escaping. The note is typed by a student and
-the email goes to the reviewer's inbox, so a student can put arbitrary markup, a fake link, or a
-broken tag that swallows the rest of the message into an email an admin reads and acts on.
 
-The signup alert (`templates/newRegistrationAlert.ts`) has an `esc()` helper written for exactly
-this; the fix is to use the same approach there. Check the other admin-facing templates in the same
-sweep rather than one at a time: any template rendering user-supplied text into HTML has the same
-exposure.
-
-Not urgent (it needs a student who wants to do it, and the blast radius is one internal inbox), but
-it is a real hole and it is cheap to close.
-
----
 
 ## OPEN 2026-08-20: RE HUB's sell-asset cost base exceeds project cash capex by 917.7m
 

@@ -1,4 +1,10 @@
-import { baseLayoutBranded, h1, p, divider } from './_base';
+/*
+ * html-safe: attemptsUsed
+ * html-safe: maxAttempts
+ *
+ * Counts, not text.
+ */
+import { baseLayoutBranded, h1, p, divider , escapeHtml } from './_base';
 
 const SUPPORT_EMAIL = process.env.EMAIL_FROM_SUPPORT ?? 'support@financialmodelerpro.com';
 
@@ -11,12 +17,13 @@ interface LockedOutData {
 }
 
 export async function lockedOutTemplate({ name, sessionName, reason, attemptsUsed, maxAttempts }: LockedOutData) {
+  // plain-text-safe: subject line, not HTML.
   const subject = `Access Restricted - ${sessionName}`;
 
   const html = await baseLayoutBranded(`
     ${h1('Session Access Restricted')}
-    ${name ? p(`Hi <strong>${name}</strong>,`) : ''}
-    ${p(`Your access to <strong>${sessionName}</strong> has been temporarily restricted.`)}
+    ${name ? p(`Hi <strong>${escapeHtml(name)}</strong>,`) : ''}
+    ${p(`Your access to <strong>${escapeHtml(sessionName)}</strong> has been temporarily restricted.`)}
 
     ${attemptsUsed && maxAttempts ? `
     <div style="background:#FEF2F2;border-left:4px solid #EF4444;border-radius:6px;padding:16px 20px;margin:16px 0;">
@@ -38,6 +45,7 @@ export async function lockedOutTemplate({ name, sessionName, reason, attemptsUse
     </p>
   `);
 
+  // plain-text-safe: the text half must not be escaped.
   const text = `Financial Modeler Pro - Session Access Restricted\n\n${name ? `Hi ${name},\n\n` : ''}Your access to ${sessionName} has been temporarily restricted.\n\n${reason ?? ''}\n\nContact support: ${SUPPORT_EMAIL}`;
 
   return { subject, html, text };

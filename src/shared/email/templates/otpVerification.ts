@@ -1,3 +1,9 @@
+/*
+ * html-safe: code
+ * html-safe: expiresMinutes
+ *
+ * A server-generated code and a number. Neither can carry markup.
+ */
 import { baseLayoutBranded, h1, p, divider } from './_base';
 
 interface OtpVerificationData {

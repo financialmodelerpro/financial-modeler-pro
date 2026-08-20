@@ -1,4 +1,14 @@
-import { baseLayoutBranded, h1, p, button, divider } from './_base';
+/*
+ * html-safe: attemptNumber
+ * html-safe: maxAttempts
+ * html-safe: fileSize
+ * html-safe: submissionId
+ *
+ * Two counts, a byte size rendered by formatBytes, and a server-generated id.
+ * None can carry markup. Every value that CAN is escaped through the shared
+ * helper; see verify-email-escaping for the rule.
+ */
+import { baseLayoutBranded, h1, p, button, divider, escapeHtml, escapeHtmlMultiline } from './_base';
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';
 
@@ -38,6 +48,7 @@ export async function modelSubmissionAdminAlertTemplate({
   attemptNumber, maxAttempts, studentNotes, submissionId,
 }: ModelSubmissionAdminAlertData) {
   const reviewUrl = `${MAIN_URL}/admin/training-hub/model-submissions`;
+  // plain-text-safe: subject line, not HTML.
   const subject = `New model submission: ${studentName || studentEmail} (${courseCode}, attempt ${attemptNumber}/${maxAttempts})`;
 
   const html = await baseLayoutBranded(`
@@ -48,20 +59,20 @@ export async function modelSubmissionAdminAlertTemplate({
       <table cellpadding="0" cellspacing="0" border="0" style="width:100%;font-size:13px;color:#374151;">
         <tr>
           <td style="padding:5px 0;color:#64748B;width:140px;">Student</td>
-          <td style="padding:5px 0;font-weight:600;color:#1F3864;">${studentName ? studentName : '(no name on file)'}</td>
+          <td style="padding:5px 0;font-weight:600;color:#1F3864;">${studentName ? escapeHtml(studentName) : '(no name on file)'}</td>
         </tr>
         <tr>
           <td style="padding:5px 0;color:#64748B;">Email</td>
-          <td style="padding:5px 0;"><a href="mailto:${studentEmail}" style="color:#2E75B6;">${studentEmail}</a></td>
+          <td style="padding:5px 0;"><a href="mailto:${escapeHtml(studentEmail)}" style="color:#2E75B6;">${escapeHtml(studentEmail)}</a></td>
         </tr>
         ${registrationId ? `
         <tr>
           <td style="padding:5px 0;color:#64748B;">Registration ID</td>
-          <td style="padding:5px 0;font-family:monospace;color:#1F3864;">${registrationId}</td>
+          <td style="padding:5px 0;font-family:monospace;color:#1F3864;">${escapeHtml(registrationId)}</td>
         </tr>` : ''}
         <tr>
           <td style="padding:5px 0;color:#64748B;">Course</td>
-          <td style="padding:5px 0;font-weight:600;">${courseLabel} (${courseCode})</td>
+          <td style="padding:5px 0;font-weight:600;">${escapeHtml(courseLabel)} (${escapeHtml(courseCode)})</td>
         </tr>
         <tr>
           <td style="padding:5px 0;color:#64748B;">Attempt</td>
@@ -69,7 +80,7 @@ export async function modelSubmissionAdminAlertTemplate({
         </tr>
         <tr>
           <td style="padding:5px 0;color:#64748B;">File</td>
-          <td style="padding:5px 0;color:#1F3864;">${fileName} <span style="color:#94A3B8;">(${formatBytes(fileSize)})</span></td>
+          <td style="padding:5px 0;color:#1F3864;">${escapeHtml(fileName)} <span style="color:#94A3B8;">(${formatBytes(fileSize)})</span></td>
         </tr>
       </table>
     </div>
@@ -77,7 +88,7 @@ export async function modelSubmissionAdminAlertTemplate({
     ${studentNotes
       ? `<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:12px 14px;margin:14px 0;">
            <div style="font-size:11px;font-weight:700;color:#92400E;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Student note</div>
-           <div style="font-size:13px;color:#78350F;line-height:1.55;">${studentNotes.replace(/\n/g, '<br/>')}</div>
+           <div style="font-size:13px;color:#78350F;line-height:1.55;">${escapeHtmlMultiline(studentNotes)}</div>
          </div>`
       : ''}
 
@@ -91,6 +102,7 @@ export async function modelSubmissionAdminAlertTemplate({
     ${p(`Submission ID: <code style="font-family:monospace;color:#64748B;">${submissionId}</code>`, 'font-size:11px;color:#94A3B8;')}
   `);
 
+  // plain-text-safe: the text half must not be escaped.
   const text = `Financial Modeler Pro, New Model Submission\n\n`
     + `Student: ${studentName || '(no name)'} <${studentEmail}>\n`
     + `${registrationId ? `Registration: ${registrationId}\n` : ''}`

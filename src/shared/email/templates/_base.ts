@@ -109,3 +109,51 @@ export function h1(text: string): string {
 export function p(text: string, style = ''): string {
   return `<p style="margin:0 0 14px;line-height:1.6;color:#374151;${style}">${text}</p>`;
 }
+
+/**
+ * ESCAPE EVERY USER-SUPPLIED VALUE BEFORE IT GOES INTO EMAIL HTML.
+ *
+ * THE ONE implementation. Templates must not carry private copies: a second
+ * copy is a second thing to get wrong, and the sweep that added this found the
+ * class already live in four templates at once.
+ *
+ * ── WHY THIS MATTERS IN EMAIL SPECIFICALLY ───────────────────────────────────
+ *
+ * Almost every value in these templates is typed by somebody else: a student's
+ * name and notes, an uploaded file name, a registrant's company. Several of
+ * these emails go to an internal inbox we read and ACT on. Interpolated raw,
+ * a value can inject markup, a plausible-looking link to somewhere else, or a
+ * broken tag that swallows the rest of the message so the part you needed to
+ * read never renders.
+ *
+ * Email clients vary wildly in what they execute, so this is not primarily
+ * about script execution: it is about a sender controlling what a reader sees
+ * in a message the reader trusts.
+ *
+ * Ampersand FIRST, or it would double-escape the entities added after it.
+ *
+ * `verify-email-escaping` enforces this by CLASS: any template interpolating
+ * one of its own parameters without this call fails, so a new template cannot
+ * reintroduce the hole.
+ */
+export function escapeHtml(v: unknown): string {
+  return String(v ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Escape a value AND turn its newlines into line breaks.
+ *
+ * The free-text fields (a student note, a reviewer note, "what do you do")
+ * are multi-line, and every template that renders one was doing
+ * `value.replace(/\n/g, '<br/>')` with no escaping. Order is the whole point:
+ * escape FIRST, then insert the breaks, or the `<br/>` you just added gets
+ * escaped along with the attacker's markup.
+ */
+export function escapeHtmlMultiline(v: unknown): string {
+  return escapeHtml(v).replace(/\r?\n/g, '<br/>');
+}
