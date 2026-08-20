@@ -11,7 +11,7 @@
  * Tabs (4): Project & Phases / Assets & Sub-units / Costs / Financing.
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 
 import {
@@ -80,6 +80,9 @@ import EditChoiceModal, { type EditChoice } from './modals/EditChoiceModal';
 import RbacModal from './modals/RbacModal';
 import ExportModal from './modals/ExportModal';
 import PlatformGuideModal from './modals/PlatformGuideModal';
+import PlatformTour from './PlatformTour';
+import { buildPlatformTour } from '../lib/guide/tour';
+import { loadTourState, tourShouldAutoRun } from '../lib/guide/tourState';
 import UpgradePrompt from '@/src/shared/components/UpgradePrompt';
 import { buildPlatformGuide } from '../lib/guide/platformGuide';
 import { useEntitlements } from '../lib/useEntitlements';
@@ -296,6 +299,23 @@ export default function RealEstatePlatform(): React.JSX.Element {
   }, [canAccess]);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  // GUIDED TOUR (2026-08-20). Auto-runs on a user FIRST platform open and
+  // never again once completed or skipped; pause keeps the step so it
+  // resumes where it left off. State is per user (mig 217) with a
+  // localStorage fallback while the migration is pending. The steps derive
+  // from guideContent.ts, the same source the written guide renders.
+  const [tourOpen, setTourOpen] = useState(false);
+  const [tourStartStep, setTourStartStep] = useState(0);
+  const tourSteps = useMemo(() => buildPlatformTour(), []);
+  useEffect(() => {
+    let cancelled = false;
+    void loadTourState().then((st) => {
+      if (cancelled || !tourShouldAutoRun(st)) return;
+      setTourStartStep(st?.step ?? 0);
+      setTourOpen(true);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   // RBAC (admin-only by default; left as user-toggle for testing)
   const [currentUserRole, setCurrentUserRole] = useState<Role>(ROLES.ADMIN);
@@ -1365,6 +1385,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
             what left a large blank band under the deck. Modules 1 to 6 keep the
             original block-flow scrolling untouched. */}
         <main
+          data-testid="platform-main"
           className={scrollStyles.scroll}
           style={{
             flex: 1, padding: 'var(--sp-3)', minHeight: 0,
@@ -1701,9 +1722,16 @@ export default function RealEstatePlatform(): React.JSX.Element {
         projectName={activeProjectData?.name ?? null}
         versionLabel={activeVersionData?.name ?? null}
       />
+      <PlatformTour
+        open={tourOpen}
+        steps={tourSteps}
+        initialStep={tourStartStep}
+        onClose={() => setTourOpen(false)}
+      />
       <PlatformGuideModal
         open={guideOpen}
         onClose={() => setGuideOpen(false)}
+        onStartTour={() => { setGuideOpen(false); setTourStartStep(0); setTourOpen(true); }}
         doc={buildPlatformGuide({ modules: MODULES, moduleTabs: MODULE_TABS })}
         dateLabel={new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
       />
