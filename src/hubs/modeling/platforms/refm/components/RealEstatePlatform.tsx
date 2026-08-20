@@ -199,82 +199,18 @@ export const sidebarModules: readonly SidebarNavItem[] = [
   })),
 ];
 
-// ── Module 1 tabs ─────────────────────────────────────────────────────────
-// Fund Terms (fund layer Step 2, 2026-08-03) sits at 3, directly after Parties,
-// because its fee share is split by PARTY ROLE and reads better once the roles
-// are in front of the user. Inputs only: nothing on that tab changes a number
-// until Step 3 wires the fee into M4.
-export const m1Tabs = [
-  { key: 'project-phases', icon: '📅', label: '1. Project & Phases', step: 1 },
-  { key: 'parties', icon: '🤝', label: '2. Parties', step: 2 },
-  { key: 'fund-terms', icon: '🏛️', label: '3. Fund Terms', step: 3 },
-  { key: 'assets', icon: '🏗️', label: '4. Assets & Sub-units', step: 4 },
-  { key: 'costs', icon: '💸', label: '5. Capex', step: 5 },
-  { key: 'financing', icon: '🏦', label: '6. Financing', step: 6 },
-];
-
-// ── Module 2 tabs (M2 Pass 9h: 5 tabs - Inputs / Revenue / CoS / Schedules / Escrow) ──
-// Inputs reuses the Pass 5/6 phase-wise asset card surface; the other
-// four tabs are read-only output surfaces driven by the revenue engine.
-// Escrow added 2026-05-19 (Pass 9h): pre-sales held % + per-asset release
-// year, modelled on the reference v1.16 Escrow tab methodology.
-export const m2Tabs = [
-  { key: 'm2-inputs', icon: '📝', label: '1. Inputs', step: 1 },
-  { key: 'm2-revenue', icon: '💰', label: '2. Revenue', step: 2 },
-  { key: 'm2-cost-of-sales', icon: '🧾', label: '3. Cost of Sales', step: 3 },
-  { key: 'm2-schedules', icon: '📑', label: '4. Schedules', step: 4 },
-  { key: 'm2-escrow', icon: '🔒', label: '5. Escrow', step: 5 },
-];
-
-// ── Module 3 tabs (Opex Pass 2: Inputs / Output) ──
-// Inputs is the per-asset line-item editor + HQ corporate overheads.
-// Output is the read-only narrative + project totals computed by the
-// engine from M1 sub-units + M2 revenue + the per-asset opex config.
-export const m3Tabs = [
-  { key: 'm3-inputs', icon: '📝', label: '1. Inputs', step: 1 },
-  { key: 'm3-output', icon: '📊', label: '2. Opex Output', step: 2 },
-];
-
-// ── Module 4 tabs (Financial Statements) ────────────────────────────
-// Pass 1 shipped Fixed Assets + Depreciation; Pass 2 added the full
-// financial statements (P&L, CF, BS). Pass 2i (2026-05-20) merges the
-// former "Fixed Assets & D&A" and "BS Schedules" entries under a single
-// "Schedules" tab with an internal sub-tab toggle. The shell component
-// lives in Module4Schedules and switches between Module4FixedAssets and
-// Module4BSFeeders.
-export const m4Tabs = [
-  { key: 'm4-schedules', icon: '📑', label: '1. Schedules', step: 1 },
-  { key: 'm4-pl', icon: '📈', label: '2. P&L', step: 2 },
-  { key: 'm4-cashflow', icon: '💵', label: '3. Cash Flow', step: 3 },
-  { key: 'm4-balancesheet', icon: '⚖️', label: '4. Balance Sheet', step: 4 },
-];
-
-// ── Module 5 tabs (Returns and Valuation) ─────────────────────────────
-export const m5Tabs = [
-  { key: 'm5-returns', icon: '📈', label: '1. Returns', step: 1 },
-  { key: 'm5-metrics', icon: '🏷️', label: '2. RE Metrics', step: 2 },
-  { key: 'm5-cases', icon: '🔀', label: '3. Case Comparison', step: 3 },
-];
-
-// Module 7 is a single full-screen surface (the IC Presentation Builder), so it
-// has one nominal tab. The tab row is not rendered; the builder has its own shell.
-export const m7Tabs = [
-  { key: 'm7-ic', icon: '📊', label: 'Presentation', step: 1 },
-];
-
-// Universal module → sub-tabs map. Any module key that needs a sidebar
-// drop-down just registers its tabs here; Sidebar.tsx reads from this
-// map instead of hard-coding per-module branches. New modules (M4/M5/M6)
-// only need to add their tabs here, sidebar code stays untouched.
-export type SidebarSubTab = { key: string; icon: string; label: string; step: number };
-export const MODULE_TABS: Record<string, ReadonlyArray<SidebarSubTab>> = {
-  module1: m1Tabs,
-  module2: m2Tabs,
-  module3: m3Tabs,
-  module4: m4Tabs,
-  module5: m5Tabs,
-  module7: m7Tabs,
-};
+// ── Tab registry ──────────────────────────────────────────────────────────
+// MOVED to lib/moduleTabs.ts (2026-08-20) and re-exported verbatim, so the
+// existing importers (Sidebar) are untouched. It moved because this file
+// imports a CSS module and cannot be loaded under tsx, which forced the guide
+// verifier to keep a FROZEN COPY of the map, and the copy is how the guide
+// silently lost two modules. The registry now lives where the shell, the
+// guide, the tour AND the verifier can all import the same one.
+export {
+  m1Tabs, m2Tabs, m3Tabs, m4Tabs, m5Tabs, m7Tabs, MODULE_TABS,
+} from '../lib/moduleTabs';
+export type { SidebarSubTab } from '../lib/moduleTabs';
+import { m1Tabs, m2Tabs, m3Tabs, m4Tabs, m5Tabs, m7Tabs, MODULE_TABS } from '../lib/moduleTabs';
 
 // ── Main component ────────────────────────────────────────────────────────
 export default function RealEstatePlatform(): React.JSX.Element {
