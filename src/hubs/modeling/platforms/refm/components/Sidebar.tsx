@@ -38,7 +38,6 @@ interface SidebarProps {
   subLoaded: boolean;
   onLockedModuleClick: (featureKey: string) => void;
   onOpenProjects: () => void;
-  onOpenRbac: () => void;
   /** Optional dynamic module list, overrides the static export. */
   modules?: readonly SidebarNavItem[];
 }
@@ -61,7 +60,6 @@ export default function Sidebar({
   subLoaded,
   onLockedModuleClick,
   onOpenProjects,
-  onOpenRbac,
   modules,
 }: SidebarProps): React.JSX.Element {
   const roleMeta = ROLE_META[currentUserRole];
@@ -247,8 +245,7 @@ export default function Sidebar({
       <div className="sidebar-footer">
         <div
           className="sb-role-indicator"
-          onClick={onOpenRbac}
-          title={`Role: ${roleMeta?.label}. Click to switch.`}
+          title={`Role: ${roleMeta?.label}. Role management returns with Module 8 Collaboration.`}
           data-testid="sidebar-role-indicator"
         >
           <div className="sb-role-dot" style={{ background: roleMeta?.dotColor }} />

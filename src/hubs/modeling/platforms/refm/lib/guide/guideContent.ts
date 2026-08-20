@@ -83,7 +83,7 @@ export const TAB_CONTENT: Record<string, GuideTabEntry> = {
     intro: 'Describe what is being built in each phase, and how each asset makes money.',
     steps: [
       'Add each asset to its phase and choose its strategy: Sell (residential for sale), Operate (hospitality), Lease (income property), or Sell + Manage.',
-      'Changing a strategy later is a model operation, not a label change: the dialog previews exactly what moves, the outgoing strategy’s assumptions are parked (not deleted), and a review banner lists the inputs the new strategy still needs.',
+      'Changing a strategy later is a model operation, not a label change: the dialog previews exactly what moves, the outgoing strategy\'s assumptions are parked (not deleted), and a review banner lists the inputs the new strategy still needs.',
       'Set the asset areas (BUA, GFA) and link the asset to its land parcel. Parcels are project-wide: a Phase 2 asset can draw on Phase 1 land, and every parcel option shows the rate it resolves to.',
       'Add sub-units under each asset: apartments or villas, hotel keys, or leasable space. Area and unit size are the inputs and the count is derived (area = unit size x count), so only two of the three are ever typed.',
     ],
@@ -114,7 +114,7 @@ export const TAB_CONTENT: Record<string, GuideTabEntry> = {
   'module2/m2-inputs': {
     intro: 'Set the revenue assumptions for each asset, grouped by strategy.',
     steps: [
-      'For Sell assets, set the sales velocity: how many units or how much area sell each year, in the pre-handover and post-handover tables. Each velocity must sum to the asset’s total inventory.',
+      'For Sell assets, set the sales velocity: how many units or how much area sell each year, in the pre-handover and post-handover tables. Each velocity must sum to the asset\'s total inventory.',
       'For Operate (hospitality) assets, set the starting ADR, occupancy per year, and food-and-beverage and other revenue, with indexation.',
       'For Lease assets, set the base rent, occupancy, and rent indexation.',
     ],
@@ -127,7 +127,7 @@ export const TAB_CONTENT: Record<string, GuideTabEntry> = {
       'Set the maximum instalment years. A cohort selling in year N pays its downpayment in year N and the balance in equal instalments over that run.',
       'Choose the handover cut-off: with the hard cut-off (the default) instalments stop at handover, where the buyer pays the remainder; switched off, they run their full length past it.',
     ],
-    review: 'the cohort grid (sale years down, calendar years across) showing exactly when each cohort’s cash arrives; the rule sentence above it states the active terms in words. Also review the Selling Costs section, which names the basis each selling cost charges on, and shows a held asset at zero with the reason.',
+    review: 'the cohort grid (sale years down, calendar years across) showing exactly when each cohort\'s cash arrives; the rule sentence above it states the active terms in words. Also review the Selling Costs section, which names the basis each selling cost charges on, and shows a held asset at zero with the reason.',
   },
   'module2/m2-cost-of-sales': {
     intro: 'Cost of sales for residential sales, matched to revenue recognition (read-only).',
@@ -238,7 +238,7 @@ export const MODULE6_SURFACES: ReadonlyArray<GuideSurface> = [
   {
     id: 'module6/yoy',
     title: 'Year-on-year impact',
-    body: 'For each changed input, the per-period outputs it drives: the base series and each scenario’s divergence from it, year by year, so a scenario is explained rather than just totalled.',
+    body: 'For each changed input, the per-period outputs it drives: the base series and each scenario\'s divergence from it, year by year, so a scenario is explained rather than just totalled.',
     anchor: 'm6-yoy',
   },
 ];

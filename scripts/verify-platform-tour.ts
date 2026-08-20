@@ -207,6 +207,22 @@ section('E. Persistence is per user, additive, and schema tolerant');
 }
 
 // ---------------------------------------------------------------------------
+section('I. No em dash in any step of either mode, or the prompt');
+
+{
+  // Checked on the BUILT steps, so a dash arriving through guideContent OR
+  // through a registry label both fail here, and both modes are swept so a
+  // module-only-mode string cannot hide.
+  for (const [name, cp] of [[String.fromCharCode(101, 109) + ' dash', 8212], ['en dash', 8211], ['horizontal bar', 8213], ['curly apostrophe', 8217]] as Array<[string, number]>) {
+    const ch = String.fromCharCode(cp);
+    const hit = [...steps, ...moduleSteps].find((st) => st.title.includes(ch) || st.body.includes(ch));
+    check(`I: no ${name} in any tour step`, !hit, hit?.id ?? '');
+    const prompt = read('src/hubs/modeling/platforms/refm/components/FirstRunGuidePrompt.tsx');
+    check(`I: no ${name} in the first-run prompt`, !prompt.includes(ch));
+  }
+}
+
+// ---------------------------------------------------------------------------
 section('F. Locked palette');
 
 {

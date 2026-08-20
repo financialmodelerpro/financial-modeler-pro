@@ -77,7 +77,9 @@ import ProjectWizard, { type WizardDraft } from './modals/ProjectWizard';
 import VersionModal from './modals/VersionModal';
 import NameVersionModal, { defaultSessionLabel, type NameVersionModalMode, type NameVersionConfirm } from './modals/NameVersionModal';
 import EditChoiceModal, { type EditChoice } from './modals/EditChoiceModal';
-import RbacModal from './modals/RbacModal';
+// RbacModal is deliberately NOT imported (2026-08-20): the role /
+// permissions panel is parked until Module 8 Collaboration. The component
+// file stays in modals/ so the restore is a re-import, not a rebuild.
 import ExportModal from './modals/ExportModal';
 import PlatformGuideModal from './modals/PlatformGuideModal';
 import PlatformTour from './PlatformTour';
@@ -343,8 +345,6 @@ export default function RealEstatePlatform(): React.JSX.Element {
 
   // RBAC (admin-only by default; left as user-toggle for testing)
   const [currentUserRole, setCurrentUserRole] = useState<Role>(ROLES.ADMIN);
-  const [rbacModalOpen, setRbacModalOpen] = useState(false);
-  const [rbacSelectedRole, setRbacSelectedRole] = useState<Role>(ROLES.ADMIN);
 
   // Dark mode (workspace-scoped via body[data-refm-theme])
   const [darkMode, setDarkMode] = useState(false);
@@ -1377,7 +1377,6 @@ export default function RealEstatePlatform(): React.JSX.Element {
         onSaveAsNewVersion={handleSaveAsNewVersion}
         onOpenProjects={() => setProjectModalOpen(true)}
         onOpenVersions={() => setVersionModalOpen(true)}
-        onOpenRbac={() => setRbacModalOpen(true)}
         onExportClick={() => { if (graceReadOnly || !activeProjectId) return; setExportModalOpen(true); }}
         exportDisabled={!activeProjectId}
         onGuideClick={() => setGuideOpen(true)}
@@ -1403,7 +1402,6 @@ export default function RealEstatePlatform(): React.JSX.Element {
           subLoaded={subLoaded}
           onLockedModuleClick={onLockedModuleClick}
           onOpenProjects={() => setProjectModalOpen(true)}
-          onOpenRbac={() => setRbacModalOpen(true)}
           modules={dynamicSidebarModules}
         />
         {/* Module 7 is the one full-height surface: it owns its own scrolling
@@ -1730,17 +1728,6 @@ export default function RealEstatePlatform(): React.JSX.Element {
         discardOnCancel={!getSessionState().editingVersionId}
         onConfirm={handleNameVersionConfirm}
         onCancel={handleNameVersionCancel}
-      />
-      <RbacModal
-        open={rbacModalOpen}
-        onClose={() => setRbacModalOpen(false)}
-        currentRole={currentUserRole}
-        selectedRole={rbacSelectedRole}
-        onSelectRole={setRbacSelectedRole}
-        onApply={(role) => {
-          setCurrentUserRole(role);
-          setRbacModalOpen(false);
-        }}
       />
       <ExportModal
         open={exportModalOpen}

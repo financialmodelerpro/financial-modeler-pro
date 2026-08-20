@@ -153,7 +153,18 @@ section('C. The content is current, not a description of the old platform');
   check('C: the M7 binding contract is stated', /binding/i.test(MODULE_INTRO.module7));
 
   // Writing rules hold in the rendered document.
-  check('C: no em dash anywhere in the guide', !allText.includes(String.fromCharCode(8212)) && !md.includes(String.fromCharCode(8212)));
+  // TYPOGRAPHY, on the RENDERED document. The rendered text includes values
+  // interpolated from the registries (module labels, funding method names),
+  // so checking the source files alone would miss a dash arriving through
+  // one of them. Em dash, en dash and horizontal bar are all banned (a
+  // swapped-in en dash is the classic way the rule gets "fixed"), and the
+  // curly apostrophe goes with them: it is off house style and renders
+  // dash-like in some fonts, which is exactly how it got reported.
+  for (const [name, cp] of [[String.fromCharCode(101, 109) + ' dash', 8212], ['en dash', 8211], ['horizontal bar', 8213], ['curly apostrophe', 8217]] as Array<[string, number]>) {
+    const ch = String.fromCharCode(cp);
+    check(`C: no ${name} in the rendered guide`, !allText.includes(ch) && !md.includes(ch),
+      allText.split(ch)[0]?.slice(-40) ?? '');
+  }
 }
 
 // ---------------------------------------------------------------------------

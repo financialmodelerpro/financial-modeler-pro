@@ -6,7 +6,7 @@
  * Phase M2.0b (2026-05-06): brings back the FMP brand identity that
  * the M2.0 slim shell stripped, navy gradient header, gold logo,
  * project/version dropdown context buttons, Save / Export pills,
- * RBAC badge, theme toggle, Hub link, Sign Out.
+ * theme toggle, Hub link, Sign Out. (The RBAC badge was removed 2026-08-20; it returns with Module 8.)
  *
  * Adapted to v5: project name + version metadata are passed in via
  * props from the v5-aware shell rather than read from the legacy
@@ -17,7 +17,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { signOut } from 'next-auth/react';
 import type { Role, PermissionMap } from '@/src/core/types/settings.types';
-import { ROLE_META, useBrandingStore } from '@/src/core/state';
+import { useBrandingStore } from '@/src/core/state';
 import { getPlatformLogo, DEFAULT_BRANDING } from '@/src/core/branding';
 import OfficeColorPicker from '@/src/shared/components/ui/OfficeColorPicker';
 import CaseSwitcher from './CaseSwitcher';
@@ -48,7 +48,6 @@ interface TopbarProps {
   onSaveAsNewVersion?: () => void;
   onOpenProjects: () => void;
   onOpenVersions: () => void;
-  onOpenRbac: () => void;
   onExportClick?: () => void;
   /** Disable the Export control when no project / active model is open (a fresh
    *  export would produce an empty, numberless file). Shows a tooltip instead. */
@@ -163,7 +162,6 @@ export default function Topbar({
   onSaveAsNewVersion,
   onOpenProjects,
   onOpenVersions,
-  onOpenRbac,
   onExportClick,
   exportDisabled = false,
   onGuideClick,
@@ -173,7 +171,6 @@ export default function Topbar({
   // Plan entitlement layered over role can(); default allows everything so the
   // gate only bites when the parent passes a real resolver.
   const isEntitled = (featureKey: string): boolean => (entitled ? entitled(featureKey) : true);
-  const roleMeta = ROLE_META[currentUserRole];
   const branding = useBrandingStore((s) => s.branding);
   const platformLogo = getPlatformLogo(branding);
   const displayName = branding.platformName;
@@ -374,6 +371,14 @@ export default function Topbar({
       {onGuideClick && (
         <button
           className="pm-btn"
+          // Readable on the navy bar: bare .pm-btn carries no colour of its
+          // own, so this rendered black on dark navy. White text with a
+          // visible border, from the tokens, matching the other bar buttons.
+          style={{
+            color: 'var(--color-on-primary-navy)',
+            background: 'color-mix(in srgb, var(--color-on-primary-navy) 12%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--color-on-primary-navy) 30%, transparent)',
+          }}
           title={'PLATFORM GUIDE\n\nA walkthrough of every module and tab. View it in-app or download it as PDF / Markdown. The guide is generated from the live platform and updates automatically as features change.'}
           onClick={onGuideClick}
           data-testid="topbar-open-guide"
@@ -425,15 +430,12 @@ export default function Topbar({
 
       <div className="pm-divider" />
 
-      <button
-        className={`rbac-badge role-${currentUserRole}`}
-        onClick={onOpenRbac}
-        title={`ROLE: ${roleMeta?.label}\n\nYour current role determines which actions you can take (save, export, change branding, edit assumptions). Click to open the role / permissions panel.`}
-        data-testid="topbar-open-rbac"
-      >
-        <span>{roleMeta?.icon}</span>
-        <span>{roleMeta?.label}</span>
-      </button>
+{/* The ADMIN role badge and the role / permissions panel it opened are
+          REMOVED from the top bar (2026-08-20). They return with Module 8
+          Collaboration; the ROLE LOGIC underneath (currentUserRole, can(),
+          ROLE_META) is untouched and still gates save / export / branding.
+          The sidebar footer keeps a display-only role indicator. */}
+
 
       <div className="pm-divider" />
 
