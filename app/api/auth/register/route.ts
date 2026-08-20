@@ -5,6 +5,7 @@ import { verifyCaptcha } from '@/src/shared/auth/captcha';
 import { createConfirmationToken } from '@/src/shared/auth/emailConfirmation';
 import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
 import { confirmEmailTemplate } from '@/src/shared/email/templates/confirmEmail';
+import { sendNewRegistrationAlert } from '@/src/shared/email/newRegistrationAlert';
 import { canEmailRegisterModeling } from '@/src/hubs/modeling/lib/access';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com';
@@ -167,6 +168,34 @@ export async function POST(req: NextRequest) {
   if (insertErr) {
     return NextResponse.json({ error: insertErr.message }, { status: 500 });
   }
+
+  // NOTIFY SUPPORT (2026-08-20). Fire-and-forget, deliberately not awaited:
+  // the account exists at this point, so the signup response must not wait on
+  // Brevo, and a send that fails must not turn a successful registration into
+  // an error the user sees. `sendNewRegistrationAlert` never throws; it logs
+  // under `[reg-alert]`.
+  //
+  // The user id is read back rather than assumed, because the insert above may
+  // have taken one of the schema-tolerant fallbacks and we want the row that
+  // actually landed. A miss here costs the admin link, not the email.
+  void (async () => {
+    const { data: created } = await serverClient
+      .from('users').select('id, created_at').eq('email', email).maybeSingle();
+    await sendNewRegistrationAlert({
+      userId: created?.id ?? '',
+      name: clean.name,
+      email,
+      phone: clean.phone,
+      city: clean.city,
+      country: clean.country,
+      company: clean.company,
+      jobTitle: clean.job_title,
+      worksInRealEstate: body.works_in_real_estate,
+      roleNote: clean.real_estate_role_note,
+      registeredAt: created?.created_at ?? new Date().toISOString(),
+      hub: 'modeling',
+    });
+  })();
 
   // Send confirmation email
   const token      = await createConfirmationToken(email, 'modeling');

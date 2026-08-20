@@ -2,6 +2,58 @@
 **Last updated: 2026-05-12**
 
 Modeling Hub (`app.financialmodelerpro.com`) is the interactive financial modeling workspace. Each modeling discipline lives as a platform with one or more modules. The Hub itself is the wrapper around the platform catalog, admin sync, and shared shell; platform-specific behavior lives in per-platform MDs.
+## 2026-08-20h: a signup notification to support, on one sending path
+
+**Every new Modeling Hub registration now emails support. Migration 216 is APPLIED.**
+
+**ONE SENDING PATH.** `src/shared/email/newRegistrationAlert.ts` is the only place this is sent from:
+it owns the sender (`FROM.noreply`), the recipient (`support@financialmodelerpro.com`, overridable
+via `EMAIL_SIGNUP_ALERT_TO` so a staging deploy can point it somewhere harmless), the failure
+behaviour and the logging. It uses the existing `sendEmail` and the shared `baseLayoutBranded`; no
+second transport, no second template base.
+
+**A FAILED EMAIL CANNOT FAIL A REGISTRATION.** The dispatcher catches everything and never rethrows,
+and the route fires it with `void (async () => {...})()` AFTER the insert has succeeded, so the
+signup response never waits on Brevo. Logged under `[reg-alert] sent` with the Brevo message id, or
+`[reg-alert] FAILED`, matching the `[sub-email]` convention. The user id is read back rather than
+assumed, because the insert may have taken a schema-tolerant fallback; a miss there costs the admin
+link, not the email.
+
+**Carries everything asked for:** name, email, phone, city, country, company, job title, the yes/no
+in words, the free text IN FULL with its line breaks preserved, the timestamp as UTC (explicitly
+labelled, because a bare local time in an inbox read from two countries is a time nobody can act on),
+and a button to that user in the admin panel. The subject leads with the qualification
+(`[real estate]` / `[not real estate]`), which is the one thing that decides whether a signup is
+worth chasing today.
+
+**A DEFECT FOUND AND FIXED DURING THE PASS, worth recording.** Every field here is typed by whoever
+is registering and the email goes to an inbox we act from. The first version escaped the table cells
+and interpolated the name **RAW** into the intro paragraph and the subject, so a registrant named
+`<script>alert(1)</script>` put a live script tag in support's mailbox. Found because a verifier
+check of mine was WRONG in a way that exposed it: the check asserted "no raw `<script>` anywhere",
+which I assumed was failing because the base layout carried one. It does not (`grep -c` = 0). The tag
+was mine. Now every user value goes through `esc()`, and the subject collapses newlines and caps at
+80 characters for the name.
+
+**The existing `modelSubmissionAdminAlert` template interpolates its free-text student note WITHOUT
+escaping** (`studentNotes.replace(/\n/g, '<br/>')`). Same class, same inbox. NOT fixed here because
+it is a different feature and this pass was scoped to signup; logged in
+[CLAUDE-TODO.md](CLAUDE-TODO.md).
+
+`verify-signup-alert` **42 NEW**. It RENDERS the template and inspects the output rather than
+grepping the source for field names: a grep proves a variable is mentioned, not that its value
+reaches the page. Teeth proven by three sabotages, each confirmed to have landed inside the intended
+function: dropping the intro escape (1 failure, the real defect), emitting the admin button with no
+user record (2), and letting a send failure escape (1).
+
+**TRAINING HUB: recommended, same template, not wired.** See the session report. The template already
+handles it (absent fields read "not given", the qualification reads "not asked", the free-text block
+is omitted, and the admin button is replaced by a sentence saying why there is none), and it takes a
+`hub` discriminator. What stops it being a one-line change is that Training registrations write to
+`training_pending_registrations`, NOT to `users`, so there is no admin page to link to and no user id
+to carry. That is a decision about where a training signup should be reviewed, not a template
+problem.
+
 ## 2026-08-20g: registration and platform access. FOUR ITEMS, ONE PASS
 
 **The live blocker was NOT the entitlement gate. It was a routing loop, and it affected every
