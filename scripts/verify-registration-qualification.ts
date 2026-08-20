@@ -377,6 +377,45 @@ section('G. A declined request is a decision, not a dead end');
     /email_type: .trial_started., threshold: `evt:\$\{token\}`/.test(sem));
 }
 
+section('H. Success replaces the form, and the default theme is light');
+
+{
+  // The success message used to render ABOVE the form, which stayed on
+  // screen fully populated and read as if nothing had happened.
+  const form = stripComments(read(FORM));
+  check('H: success renders a dedicated screen', form.includes('register-success-screen'));
+  // The screen must REPLACE the form: an early return BEFORE the form render.
+  check('H: and it returns before the form is rendered',
+    form.indexOf('register-success-screen') < form.indexOf('<form onSubmit={handleSubmit}'));
+  check('H: the old inline success banner is gone', !form.includes('{success &&'));
+  // The CONDITION itself, not just the markup: a screen behind false && is a
+  // screen that exists and never shows, which greps as present.
+  check('H: the screen is gated on success itself', /if (success) {/.test(form));
+  // The stated contents.
+  check('H: it names the address the email went to', form.includes('register-success-email'));
+  check('H: it says the link must be clicked to activate', /click the confirmation link to activate/.test(form));
+  check('H: it says trial requests go to the team for approval', /go to our team for approval/.test(form));
+  // Resend goes through the dedicated always-200 endpoint, not a second
+  // registration (captcha tokens are single use).
+  check('H: resend exists and uses the dedicated endpoint',
+    form.includes('register-resend') && form.includes("'/api/auth/resend-confirmation'"));
+  check('H: resend reports both outcomes', form.includes("'sent'") && form.includes("'failed'"));
+
+  // THEME DEFAULT IS LIGHT. The dashboard used to fall back to the OS colour
+  // scheme when nothing was stored, so a new user on a dark-OS machine opened
+  // in dark mode having chosen nothing. A stored choice still wins.
+  const dash = stripComments(read('app/modeling/dashboard/page.tsx'));
+  check('H: no stored theme falls back to prefers-color-scheme nowhere',
+    !dash.includes('prefers-color-scheme'));
+  check('H: a stored choice is still honoured',
+    dash.includes("localStorage.getItem('modelingDarkMode')") && dash.includes("setDarkMode(stored === 'true')"));
+  check('H: the state itself defaults to light', /const \[darkMode, setDarkMode\] = useState\(false\)/.test(dash));
+  // The platform workspace already defaulted to light; pinned so it stays.
+  const shell = stripComments(read('src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx'));
+  check('H: the workspace defaults to light too',
+    /const \[darkMode, setDarkMode\] = useState\(false\)/.test(shell) && !shell.includes('prefers-color-scheme'));
+}
+
 // ---------------------------------------------------------------------------
 console.log(`\n${'='.repeat(66)}`);
 if (failures.length === 0) {

@@ -298,12 +298,15 @@ export default function ModelingDashboardPage() {
     if (localStorage.getItem('modelingSidebarCollapsed') === 'true') {
       setCollapsed(true);
     }
-    // Dark mode: localStorage wins, otherwise system pref
+    // Dark mode: a STORED CHOICE wins; no stored choice means LIGHT
+    // (2026-08-20). This used to fall back to the OS colour scheme, so a new
+    // user on a dark-OS machine opened their first session in dark mode having
+    // chosen nothing, which read as the product's default. The product default
+    // is light; dark is something a user turns on, and once they do, the
+    // stored value keeps winning exactly as before.
     const stored = localStorage.getItem('modelingDarkMode');
     if (stored === 'true' || stored === 'false') {
       setDarkMode(stored === 'true');
-    } else if (window.matchMedia?.('(prefers-color-scheme: dark)').matches) {
-      setDarkMode(true);
     }
   }, []);
 

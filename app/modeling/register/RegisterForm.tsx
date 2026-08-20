@@ -81,6 +81,7 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProp
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState('');
   const [success,    setSuccess]    = useState('');
+  const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
   const [showPw,     setShowPw]     = useState(false);
   const [showCfm,    setShowCfm]    = useState(false);
 
@@ -149,6 +150,72 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProp
     setCaptchaToken('');
   }
 
+  // Resend goes through the DEDICATED endpoint, not a second registration:
+  // re-POSTing the form would need a fresh captcha token (they are single
+  // use) and would re-run the whole insert path for a row that exists.
+  async function handleResend(): Promise<void> {
+    setResendState('sending');
+    try {
+      const res = await fetch('/api/auth/resend-confirmation', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+      });
+      setResendState(res.ok ? 'sent' : 'failed');
+    } catch {
+      setResendState('failed');
+    }
+  }
+
+  // SUCCESS REPLACES THE FORM (2026-08-20). The success message used to
+  // render as a banner ABOVE the form, which stayed on screen fully
+  // populated and read as if nothing had happened. A created account is a
+  // finished step, so the form is gone and the next actions are stated.
+  if (success) {
+    return (
+      <div style={{
+        minHeight: 'calc(100vh - 64px)', background: '#F5F7FA',
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', padding: '40px 20px',
+        fontFamily: "'Inter', sans-serif",
+      }}>
+        <div style={{ width: '100%', maxWidth: 460 }}>
+          <div
+            data-testid="register-success-screen"
+            style={{ background: '#fff', borderRadius: 14, border: '1px solid #E5E7EB', boxShadow: '0 4px 24px rgba(0,0,0,0.07)', overflow: 'hidden' }}
+          >
+            <div style={{ background: NAVY, padding: '28px 36px 24px', textAlign: 'center' }}>
+              <div style={{ fontSize: 34, marginBottom: 8 }}>✅</div>
+              <h1 style={{ fontSize: 20, fontWeight: 800, color: '#fff', margin: 0 }}>Account created</h1>
+            </div>
+            <div style={{ padding: '26px 36px 28px' }}>
+              <p style={{ fontSize: 13.5, lineHeight: 1.65, color: '#374151', margin: '0 0 10px' }}>
+                We have sent a confirmation email to <strong data-testid="register-success-email">{email.trim().toLowerCase()}</strong>.
+              </p>
+              <ol style={{ margin: '0 0 16px', paddingLeft: 20, fontSize: 13, lineHeight: 1.7, color: '#374151' }}>
+                <li>Open that email and click the confirmation link to activate your account.</li>
+                <li>Sign in and request your free trial from the dashboard. Trial requests go to our team for approval, and you will hear back by email.</li>
+              </ol>
+              <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 8, padding: '12px 14px', fontSize: 12.5, color: '#475569' }}>
+                No email after a few minutes? Check your spam folder, then{' '}
+                <button
+                  type="button"
+                  onClick={() => void handleResend()}
+                  disabled={resendState === 'sending'}
+                  data-testid="register-resend"
+                  style={{ background: 'none', border: 'none', padding: 0, color: BLUE, fontWeight: 700, cursor: 'pointer', fontSize: 12.5, textDecoration: 'underline' }}
+                >
+                  {resendState === 'sending' ? 'sending...' : 'resend the confirmation email'}
+                </button>.
+                {resendState === 'sent' && <span style={{ color: '#15803D', fontWeight: 700 }}>{' '}Sent. Give it a minute.</span>}
+                {resendState === 'failed' && <span style={{ color: '#DC2626', fontWeight: 700 }}>{' '}That did not go through. Try again shortly.</span>}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       {/* NavbarServer rendered by page.tsx */}
@@ -183,11 +250,6 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProp
               {error && (
                 <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '12px 14px', marginBottom: 18, fontSize: 13, color: '#DC2626' }}>
                   {error}
-                </div>
-              )}
-              {success && (
-                <div style={{ background: '#F0FFF4', border: '1px solid #BBF7D0', borderRadius: 8, padding: '12px 14px', marginBottom: 18, fontSize: 13, color: '#15803D' }}>
-                  {success}
                 </div>
               )}
 
