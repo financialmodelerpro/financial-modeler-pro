@@ -34,5 +34,19 @@ export async function ensureNotComingSoon(): Promise<void> {
       return false;
     },
     redirectTo: '/signin?bypass=true',
+    // A SIGNED-IN USER MUST NEVER BE SENT TO /signin. That page sees the
+    // session, finds its own coming-soon flag disabled, and redirects to
+    // /dashboard, which is the platform selector the user just came from: a
+    // loop with no explanation, and the entitlement gate below is never
+    // reached. Measured live 2026-08-20 on a trial user with a valid plan.
+    //
+    // The dashboard is the honest destination for someone who IS signed in but
+    // cannot enter the workspace yet: it is where the launch banner and their
+    // plan state live, so the answer is on the page they land on.
+    hasSession: async () => {
+      const session = await getServerSession(authOptions);
+      return Boolean(session?.user);
+    },
+    signedInRedirectTo: '/dashboard?hub=coming-soon',
   });
 }

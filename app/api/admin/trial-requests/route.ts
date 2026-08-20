@@ -23,11 +23,30 @@ async function requireAdmin() {
 export async function GET() {
   if (!await requireAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const sb = getServerClient();
-  const { data, error } = await sb
+  // The qualification answers come from the USER row, not from a snapshot on
+  // the request. `trial_requests` already duplicates company and job_title,
+  // which is one answer stored twice; this does not extend that. One copy,
+  // read through the existing join, so the card and the admin user record
+  // cannot show different things.
+  //
+  // SCHEMA-TOLERANT, WIDEST FIRST, and the fallback matters here: this route
+  // returns an EMPTY QUEUE on any error, so without the retry a database
+  // without mig 216 would show "no pending requests" and an admin would
+  // approve nothing while requests piled up. A missing column must cost the
+  // two new fields, never the queue.
+  const run = (cols: string) => sb
     .from('trial_requests')
-    .select('id, user_id, status, company, job_title, created_at, users(email, name)')
+    .select(cols)
     .eq('status', 'pending')
     .order('created_at', { ascending: true });
+
+  const NARROW = 'id, user_id, status, company, job_title, created_at, users(email, name)';
+  const WIDE = 'id, user_id, status, company, job_title, created_at, users(email, name, works_in_real_estate, real_estate_role_note)';
+
+  let { data, error } = await run(WIDE);
+  if (error && /works_in_real_estate|real_estate_role_note/.test(error.message)) {
+    ({ data, error } = await run(NARROW));
+  }
   // Table absent (mig 173 not applied) -> empty queue, never error the admin UI.
   if (error) return NextResponse.json({ requests: [], migrationApplied: false });
   return NextResponse.json({ requests: data ?? [], migrationApplied: true });

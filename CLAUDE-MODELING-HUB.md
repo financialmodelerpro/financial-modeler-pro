@@ -2,6 +2,93 @@
 **Last updated: 2026-05-12**
 
 Modeling Hub (`app.financialmodelerpro.com`) is the interactive financial modeling workspace. Each modeling discipline lives as a platform with one or more modules. The Hub itself is the wrapper around the platform catalog, admin sync, and shared shell; platform-specific behavior lives in per-platform MDs.
+## 2026-08-20g: registration and platform access. FOUR ITEMS, ONE PASS
+
+**The live blocker was NOT the entitlement gate. It was a routing loop, and it affected every
+non-admin, non-whitelisted user regardless of plan.**
+
+### 1. The trial user who could not open the platform
+
+**Diagnosed, then fixed.** `abuzarsadiq.002@gmail.com` had a correct entitlement throughout:
+`users.subscription_plan = 'trial'`, `trial_ends_at` a month out, and the `trial` plan grants
+modules 1 to 4 plus pdf_export. `isNoPlanLockedOut('trial', false, 'active')` is false, so the gate
+would have let them in. `user_platform_subscriptions` is empty and that is CORRECT: `setUserPlan`'s
+partial sync is UPDATE-only and never fabricates a row for a trial, and nothing reads store B for
+access.
+
+**The loop:** `app/refm/layout.tsx` runs `ensureNotComingSoon()` BEFORE the gate.
+`modeling_hub_coming_soon` was `"true"`, the user was not on the two-entry
+`modeling_access_whitelist`, so `/refm` redirected to `/signin?bypass=true`. `/signin` sees a valid
+session and reads a DIFFERENT key (`modeling_hub_signin_coming_soon`, unset, so false) and redirects
+to `/dashboard`, which is the platform selector. **The entitlement gate never ran.**
+
+**Why it surfaced today:** `modeling_hub_launch_date` was 2026-08-20T07:00 and passed, but
+`modeling_hub_auto_launch` is `"false"`, so the cron never flipped the gate. The launch date arrived,
+the banner switched to its launched message, and the hub stayed shut.
+
+**Fixed two ways.** `modeling_hub_coming_soon` set to `"false"` (the live unblock), and the shared
+`shouldGateComingSoon` gained an optional `hasSession` + `signedInRedirectTo` pair so a SIGNED-IN
+user is never sent to the sign-in page. Modeling sends them to `/dashboard?hub=coming-soon`. Optional
+on purpose: a caller that supplies neither keeps today's single-target behaviour.
+
+### 2. Company and job title were not enforced
+
+**The server validated `name` and nothing else.** Company and job title were checked in the browser
+only; **phone, city and country were marked `required` in HTML and checked NOWHERE, on either side**,
+then all five were coerced with `?.trim() || null` and inserted. Measured: 4 of 5 users carry a blank
+company and job title, three predating the fields and one from today.
+
+**Worth stating plainly: I could not determine how the client was bypassed.** The reported user has
+phone, city and country populated, so they used the real form, and the client check for the other two
+runs before the fetch. `/api/auth/register` is the only route that inserts into `users`, and its
+schema-tolerant retry cannot have fired (another user saved a company through the same path an hour
+earlier). The server gap is real and now closed; the client bypass is unexplained and I am not
+inventing a mechanism for it.
+
+All seven text fields plus the yes/no are now enforced server-side, whitespace-only rejected, with
+the values captured as they are validated rather than asserted with `!` afterwards.
+
+### 3. KSA-first defaults
+
+Phone `+966`, city placeholder `Riyadh`, country defaulting to `SA` and now a **selected value with
+a type-to-filter list** rather than free text. **Backed by the existing `src/core/countries.ts`**, the
+same 249-entry list the project country field uses: one country list in the codebase, not two.
+Existing free-text rows (`"Pakistan"`, `"Saudi Arabia"`) keep working because `countryLabel` and
+`resolveCountryCode` resolve a stored NAME as readily as a code. Defaults, not restrictions: nothing
+is filtered out, and the verifier asserts that.
+
+### 4. Signup qualification (migration 216, NOT YET APPLIED)
+
+Two required questions: **are you actively working in real estate** (yes/no) and **what do you do**
+(two or three lines). Both show on the **admin user record** and on the **pending trial request
+card**, where the note renders IN FULL because it is the reason to approve or decline. The yes/no is
+**filterable and sortable** in the admin user list.
+
+**`works_in_real_estate` is a NULLABLE boolean, deliberately.** Three states, not two: yes, no, and
+"registered before this question existed". A `not null default false` would record an answer nobody
+gave on every existing row, and the admin list filters on this column, so it would be filtering on a
+fiction. The list shows a dash for that third state, never a blank that reads as "no".
+
+**ONE COPY.** `trial_requests` already snapshots company and job_title, which is one answer stored
+twice; this does not extend that. The card reads both answers from the USER row through the existing
+join, so the card and the user record cannot disagree.
+
+**Schema-tolerant at every read site**, widest-select first with a fallback: the register route, the
+admin user list, the user detail panel and the trial-request queue. That last one matters most, since
+it returns an EMPTY QUEUE on any error, so without the fallback a database lacking mig 216 would show
+"no pending requests" while requests piled up.
+
+**Training Hub deliberately untouched:** it does not share the component and has no company or job
+title fields. A verifier section pins that so a later pass does not "fix" the asymmetry by accident.
+
+`verify-registration-qualification` **56 NEW**, teeth proven by four sabotages, each confirmed to have
+landed inside the intended function: signed-in users routed back to `/signin` (1 failure), company
+dropped from the server list (1), the phone default reverted to US (2), and the yes/no made
+`not null default false` (1). `verify-entitlement-gate` **92**, unchanged.
+
+**STILL OPEN, reported and not built:** making the launch date and the coming-soon gate ONE intention
+rather than two settings that can disagree. Proposal in the session report.
+
 
 > **See also:**
 > - [CLAUDE.md](CLAUDE.md), Root project brief, session rules, stack, both-hub auth, envs

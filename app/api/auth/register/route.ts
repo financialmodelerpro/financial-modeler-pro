@@ -20,13 +20,56 @@ export async function POST(req: NextRequest) {
     city?: string;
     country?: string;
     captchaToken?: string;
+    works_in_real_estate?: boolean | null;
+    real_estate_role_note?: string;
   } | null;
 
   if (!body?.email || !body?.password) {
     return NextResponse.json({ error: 'email and password are required' }, { status: 400 });
   }
-  if (!body.name?.trim()) {
-    return NextResponse.json({ error: 'Full name is required' }, { status: 400 });
+
+  /**
+   * EVERY FIELD THE FORM MARKS REQUIRED IS ENFORCED HERE (2026-08-20).
+   *
+   * Before this, `name` was the only one checked. Company and job title were
+   * validated in the browser only; phone, city and country carried the HTML
+   * `required` attribute and were checked NOWHERE, on either side. All five
+   * were then coerced with `?.trim() || null` and inserted, so a request that
+   * omitted them succeeded silently and the row landed with nulls. One live
+   * user reached the database with a blank company and job title.
+   *
+   * The client keeps its own copies of these checks for fast feedback. THIS is
+   * the authority: a client check is a courtesy, not a constraint.
+   *
+   * Whitespace counts as blank. A name of "   " is not a name.
+   */
+  const REQUIRED_TEXT: ReadonlyArray<readonly [keyof typeof body & string, string]> = [
+    ['name', 'Full name is required'],
+    ['company', 'Company / organization is required'],
+    ['job_title', 'Job title is required'],
+    ['phone', 'Phone number is required'],
+    ['city', 'City is required'],
+    ['country', 'Country is required'],
+    ['real_estate_role_note', 'Please tell us briefly what you do'],
+  ];
+  // Collect the trimmed values as we validate, rather than validating here and
+  // reaching for `body.x!` later: the assertion would be correct today and
+  // silently wrong the first time a field leaves this list.
+  const clean: Record<string, string> = {};
+  for (const [field, message] of REQUIRED_TEXT) {
+    const v = body[field];
+    if (typeof v !== 'string' || v.trim() === '') {
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
+    clean[field] = v.trim();
+  }
+  // The yes/no is a BOOLEAN, so a blank check is the wrong test: `false` is a
+  // real answer and must pass, while null / undefined / a string must not.
+  if (typeof body.works_in_real_estate !== 'boolean') {
+    return NextResponse.json(
+      { error: 'Please tell us whether you work in the real estate industry' },
+      { status: 400 },
+    );
   }
   if (!body.captchaToken) {
     return NextResponse.json({ error: 'Captcha verification required' }, { status: 400 });
@@ -83,26 +126,40 @@ export async function POST(req: NextRequest) {
   // (which would hit the access-preserving safety net and wrongly grant access).
   const baseRow = {
     email,
-    name:                body.name.trim(),
+    name:                clean.name,
     password_hash,
-    phone:               body.phone?.trim() || null,
-    city:                body.city?.trim()  || null,
-    country:             body.country?.trim() || null,
+    phone:               clean.phone,
+    city:                clean.city,
+    country:             clean.country,
     role:                'user',
     subscription_plan:   'none',
     subscription_status: 'expired',
     projects_limit:      0,
     email_confirmed:     false,
   };
-  // Company / Job Title (mig 172). Schema-tolerant: if the columns are not yet
-  // applied, retry without them so registration never breaks pre-migration.
+  // Company / Job Title (mig 172) and the qualification answers (mig 216).
+  // Schema-tolerant: if the columns are not yet applied, retry without them so
+  // registration never breaks on a deploy that lands before the migration.
+  //
+  // The retry is a LAST RESORT, not a silent data drop: these fields are now
+  // validated above, so a request that reaches here has them, and the only way
+  // to lose them is a genuinely missing column. Ordered widest first so the
+  // most complete row is attempted before anything is given up.
   const withProfile = {
     ...baseRow,
-    company:   body.company?.trim()   || null,
-    job_title: body.job_title?.trim() || null,
+    company:   clean.company,
+    job_title: clean.job_title,
+  };
+  const withQualification = {
+    ...withProfile,
+    works_in_real_estate:  body.works_in_real_estate,
+    real_estate_role_note: clean.real_estate_role_note,
   };
 
-  let insertErr = (await serverClient.from('users').insert(withProfile)).error;
+  let insertErr = (await serverClient.from('users').insert(withQualification)).error;
+  if (insertErr && /works_in_real_estate|real_estate_role_note/.test(insertErr.message)) {
+    insertErr = (await serverClient.from('users').insert(withProfile)).error;
+  }
   if (insertErr && /company|job_title/.test(insertErr.message)) {
     insertErr = (await serverClient.from('users').insert(baseRow)).error;
   }

@@ -45,7 +45,7 @@ export default function AdminPlansPage() {
   // the pending trial-request queue (only used when the toggle is on).
   const [trialApproval, setTrialApproval] = useState(false);
   const [savingApproval, setSavingApproval] = useState(false);
-  const [trialRequests, setTrialRequests] = useState<{ id: string; company: string | null; job_title: string | null; created_at: string; users: { email?: string; name?: string } | null }[]>([]);
+  const [trialRequests, setTrialRequests] = useState<{ id: string; company: string | null; job_title: string | null; created_at: string; users: { email?: string; name?: string; works_in_real_estate?: boolean | null; real_estate_role_note?: string | null } | null }[]>([]);
 
   const showToast = useCallback((msg: string, type: 'success' | 'error') => {
     setToast({ msg, type });
@@ -364,10 +364,47 @@ export default function AdminPlansPage() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {trialRequests.map((r) => (
-                  <div key={r.id} data-testid={`trial-request-${r.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', border: '1px solid #eef2f7', borderRadius: 7, padding: '8px 10px' }}>
-                    <div style={{ flex: 1, minWidth: 200 }}>
+                  <div key={r.id} data-testid={`trial-request-${r.id}`} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap', border: '1px solid #eef2f7', borderRadius: 7, padding: '8px 10px' }}>
+                    <div style={{ flex: 1, minWidth: 240 }}>
                       <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a' }}>{r.users?.email ?? r.id}</div>
                       <div style={{ fontSize: 11, color: '#64748b' }}>{[r.company, r.job_title].filter(Boolean).join(' - ') || 'no company/title on file'}</div>
+                      {/* QUALIFICATION (2026-08-20). The point of asking at
+                          signup is that a request can be judged BEFORE it is
+                          approved, so both answers sit next to the buttons.
+                          The note renders IN FULL: it is two or three lines,
+                          it is the reason to approve or decline, and a
+                          truncated version would send an admin hunting for
+                          the rest of a sentence they need to read. */}
+                      {r.users?.works_in_real_estate === undefined ? null : (
+                        <div style={{ marginTop: 6 }} data-testid={`trial-request-qualification-${r.id}`}>
+                          <span style={{
+                            display: 'inline-block', fontSize: 10, fontWeight: 800, letterSpacing: '0.04em',
+                            padding: '2px 7px', borderRadius: 999,
+                            color: r.users.works_in_real_estate === true ? '#166534'
+                              : r.users.works_in_real_estate === false ? '#92400e' : '#475569',
+                            background: r.users.works_in_real_estate === true ? '#DCFCE7'
+                              : r.users.works_in_real_estate === false ? '#FEF3C7' : '#F1F5F9',
+                          }}>
+                            {r.users.works_in_real_estate === true ? 'IN REAL ESTATE'
+                              : r.users.works_in_real_estate === false ? 'NOT IN REAL ESTATE'
+                                : 'NOT ASKED'}
+                          </span>
+                          {r.users.real_estate_role_note ? (
+                            <div style={{
+                              marginTop: 5, fontSize: 11.5, color: '#334155', lineHeight: 1.5,
+                              whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                              background: '#F8FAFC', border: '1px solid #E2E8F0',
+                              borderRadius: 6, padding: '6px 8px',
+                            }}>
+                              {r.users.real_estate_role_note}
+                            </div>
+                          ) : (
+                            <div style={{ marginTop: 5, fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>
+                              No description on file.
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <button onClick={() => decideRequest(r.id, 'approve')} data-testid={`trial-approve-${r.id}`}
                       style={{ padding: '6px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 12, color: '#fff', background: '#2EAA4A' }}>Approve</button>

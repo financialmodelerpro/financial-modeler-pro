@@ -22,6 +22,11 @@ interface User {
   // or the stored status when there is no expiry. lapseState is the raw state.
   accessExpiresAt?: string | null;
   accessStatus?: string;
+  // Signup qualification (mig 216). undefined = the column is absent (migration
+  // not applied); null = the user registered before the question existed. Those
+  // are different and the column says so rather than showing a blank.
+  works_in_real_estate?: boolean | null;
+  real_estate_role_note?: string | null;
   lapseState?: 'active' | 'grace' | 'lapsed';
   // Cancellation state from the durable scheduled_cancel_at marker (mig 183):
   // 'canceling' = cancel scheduled, access not yet ended; 'canceled' = the
@@ -137,6 +142,10 @@ export default function AdminUsersPage() {
   const [planFilter, setPlanFilter]         = useState('all');
   const [roleFilter, setRoleFilter]         = useState('all');
   const [cancelFilter, setCancelFilter]     = useState('all');
+  // Signup qualification (mig 216): filter and sort, so every active real
+  // estate user reads at a glance rather than being hunted for one by one.
+  const [reFilter, setReFilter]             = useState('all');
+  const [sortByRe, setSortByRe]             = useState(false);
   const [page, setPage]             = useState(0);
   const [total, setTotal]           = useState(0);
   const [updating, setUpdating]     = useState<string | null>(null);
@@ -188,11 +197,13 @@ export default function AdminUsersPage() {
     if (roleFilter !== 'all')   params.set('role', roleFilter);
     if (planFilter !== 'all')   params.set('plan', planFilter);
     if (cancelFilter !== 'all') params.set('cancel', cancelFilter);
+    if (reFilter !== 'all')     params.set('real_estate', reFilter);
+    if (sortByRe)               params.set('sort', 'real_estate');
     fetch(`/api/admin/users?${params}`)
       .then(r => r.json())
       .then(j => { setUsers(j.users ?? []); setTotal(j.total ?? 0); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [page, search, roleFilter, planFilter, cancelFilter]);
+  }, [page, search, roleFilter, planFilter, cancelFilter, reFilter, sortByRe]);
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
@@ -301,22 +312,44 @@ export default function AdminUsersPage() {
             <option value="canceling">Canceling (access not ended)</option>
             <option value="canceled">Canceled</option>
           </select>
+          {/* Qualification filter + sort. 'Not asked' is offered deliberately:
+              the users who registered before the question existed are a real
+              cohort to chase, not a gap to hide. */}
+          <select value={reFilter} onChange={e => { setReFilter(e.target.value); setPage(0); }}
+            data-testid="real-estate-filter"
+            style={{ padding: '8px 14px', border: '1px solid #D1D5DB', borderRadius: 7, fontSize: 13, background: '#fff', cursor: 'pointer' }}>
+            <option value="all">All industries</option>
+            <option value="yes">In real estate</option>
+            <option value="no">Not in real estate</option>
+            <option value="unknown">Not asked</option>
+          </select>
+          <button type="button" onClick={() => { setSortByRe(v => !v); setPage(0); }}
+            data-testid="real-estate-sort"
+            aria-pressed={sortByRe}
+            style={{
+              padding: '8px 14px', borderRadius: 7, fontSize: 13, cursor: 'pointer', fontWeight: 700,
+              border: sortByRe ? '1px solid #1B4F8A' : '1px solid #D1D5DB',
+              background: sortByRe ? '#1B4F8A' : '#fff',
+              color: sortByRe ? '#fff' : '#374151',
+            }}>
+            Sort by real estate
+          </button>
         </div>
 
         <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E8F0FB', overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#1B4F8A' }}>
-                {['Email', 'Name', 'Role', 'Plan', 'Status', 'Access', 'Expires', 'Projects', 'Joined', 'Actions'].map(h => (
+                {['Email', 'Name', 'Role', 'Real estate', 'Plan', 'Status', 'Access', 'Expires', 'Projects', 'Joined', 'Actions'].map(h => (
                   <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#fff', letterSpacing: '0.05em', textTransform: 'uppercase' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={10} style={{ padding: '40px 16px', textAlign: 'center', color: '#6B7280' }}>Loading…</td></tr>
+                <tr><td colSpan={11} style={{ padding: '40px 16px', textAlign: 'center', color: '#6B7280' }}>Loading…</td></tr>
               ) : users.length === 0 ? (
-                <tr><td colSpan={10} style={{ padding: '40px 16px', textAlign: 'center', color: '#6B7280' }}>No users found.</td></tr>
+                <tr><td colSpan={11} style={{ padding: '40px 16px', textAlign: 'center', color: '#6B7280' }}>No users found.</td></tr>
               ) : users.map((u, i) => {
                 const isSelf      = u.id === selfId;
                 const savingField = updating?.startsWith(u.id) ? updating.split(':')[1] : null;
@@ -345,6 +378,22 @@ export default function AdminUsersPage() {
                         </select>
                         {savingField === 'role' && <span style={{ fontSize: 11, color: '#6B7280' }}>Saving…</span>}
                       </div>
+                    </td>
+
+                    {/* Signup qualification. THREE states shown as three
+                        different things: yes, no, and a dash for a user who
+                        registered before the question existed. A blank for the
+                        third would read as "no", which is an answer they never
+                        gave. The note is the cell's tooltip, so the detail is
+                        one hover away without widening the table. */}
+                    <td style={{ padding: '12px 16px' }} data-testid={'user-real-estate-' + u.id}>
+                      {u.works_in_real_estate === true ? (
+                        <span title={u.real_estate_role_note ?? undefined} style={{ fontSize: 11, fontWeight: 800, color: '#166534', background: '#DCFCE7', padding: '3px 8px', borderRadius: 999 }}>Yes</span>
+                      ) : u.works_in_real_estate === false ? (
+                        <span title={u.real_estate_role_note ?? undefined} style={{ fontSize: 11, fontWeight: 800, color: '#92400e', background: '#FEF3C7', padding: '3px 8px', borderRadius: 999 }}>No</span>
+                      ) : (
+                        <span title="Registered before this question was asked" style={{ fontSize: 12, color: '#9CA3AF' }}>-</span>
+                      )}
                     </td>
 
                     {/* Plan: read-only resolved plan + link to the single write path

@@ -26,7 +26,7 @@ import {
 
 const PLATFORMS = [{ slug: 'real-estate', label: 'Real Estate (REFM)' }];
 
-interface FullUser { id: string; email: string; name: string | null; subscription_plan: string; subscription_status: string; trial_ends_at: string | null; company?: string | null; job_title?: string | null }
+interface FullUser { id: string; email: string; name: string | null; subscription_plan: string; subscription_status: string; trial_ends_at: string | null; company?: string | null; job_title?: string | null; works_in_real_estate?: boolean | null; real_estate_role_note?: string | null }
 interface FeatureRow extends ResolveFeature { build_status?: string }
 interface SubscriptionInfo {
   source: 'paddle' | 'manual';
@@ -305,6 +305,49 @@ export function UserAccessPanel({ userId }: { userId: string }) {
       <p style={{ color: '#64748b', fontSize: 13, marginTop: 0, marginBottom: 20, maxWidth: 920 }}>
         Effective entitlements (plan coverage plus per-user overrides, override wins, expired overrides ignored). Grant or revoke any single feature, assign a plan, or approve a trial. Writes user_permissions and the user plan/trial columns only; it does not change the live gate.
       </p>
+
+      {/* WHO THIS PERSON IS (2026-08-20). The panel decided a user's access
+          without ever showing what they said about themselves at signup, so the
+          answers that justify a trial lived only on the request card and
+          vanished the moment it was approved. Same two answers, same shared
+          source, shown here permanently. The note renders in full. */}
+      {user && (user.company || user.job_title || user.works_in_real_estate !== undefined) && (
+        <div
+          data-testid="user-qualification"
+          style={{
+            background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8,
+            padding: '12px 14px', marginBottom: 20, maxWidth: 920,
+          }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 800, color: '#0D2E5A', marginBottom: 8, letterSpacing: '0.03em' }}>
+            SIGNUP PROFILE
+          </div>
+          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 12.5, color: '#334155' }}>
+            <div><span style={{ color: '#64748b' }}>Company: </span><strong>{user.company || 'not given'}</strong></div>
+            <div><span style={{ color: '#64748b' }}>Job title: </span><strong>{user.job_title || 'not given'}</strong></div>
+            <div>
+              <span style={{ color: '#64748b' }}>Real estate: </span>
+              <strong style={{
+                color: user.works_in_real_estate === true ? '#166534'
+                  : user.works_in_real_estate === false ? '#92400e' : '#64748b',
+              }}>
+                {user.works_in_real_estate === true ? 'Yes, actively working in it'
+                  : user.works_in_real_estate === false ? 'No'
+                    : 'Not asked'}
+              </strong>
+            </div>
+          </div>
+          {user.real_estate_role_note ? (
+            <div style={{
+              marginTop: 8, fontSize: 12.5, color: '#334155', lineHeight: 1.55,
+              whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+              background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 6, padding: '8px 10px',
+            }}>
+              {user.real_estate_role_note}
+            </div>
+          ) : null}
+        </div>
+      )}
 
       {!migrationApplied && (
         <div style={{ padding: 14, borderRadius: 8, background: '#fef3c7', color: '#92400e', fontSize: 13, marginBottom: 20, border: '1px solid #fde68a' }}>

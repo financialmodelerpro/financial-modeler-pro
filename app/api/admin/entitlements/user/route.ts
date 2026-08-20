@@ -29,9 +29,16 @@ export async function GET(req: NextRequest) {
 
   // company / job_title are mig 172; select them when present, else fall back so
   // the panel still loads pre-migration.
+  // Qualification answers are mig 216. Same ladder, widest first, so the panel
+  // still loads on a database where either migration has not landed.
   const USER_BASE = 'id, email, name, role, subscription_plan, subscription_status, trial_ends_at';
+  const USER_PROFILE = `${USER_BASE}, company, job_title`;
+  const USER_FULL = `${USER_PROFILE}, works_in_real_estate, real_estate_role_note`;
   let { data: user, error: uErr } = await sb
-    .from('users').select(`${USER_BASE}, company, job_title`).eq('id', userId).single();
+    .from('users').select(USER_FULL).eq('id', userId).single();
+  if (uErr && /works_in_real_estate|real_estate_role_note/.test(uErr.message)) {
+    ({ data: user, error: uErr } = await sb.from('users').select(USER_PROFILE).eq('id', userId).single());
+  }
   if (uErr && /company|job_title/.test(uErr.message)) {
     ({ data: user, error: uErr } = await sb.from('users').select(USER_BASE).eq('id', userId).single());
   }

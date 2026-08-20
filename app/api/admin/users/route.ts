@@ -31,6 +31,9 @@ export async function GET(req: NextRequest) {
     // and access has not ended yet; 'canceled' = a scheduled cancel whose date has
     // passed. Both read the durable scheduled_cancel_at marker (mig 183).
     const cancel = searchParams.get('cancel') ?? '';
+    // Qualification filter + sort (mig 216).
+    const reFilter = searchParams.get('real_estate') ?? '';
+    const sort = searchParams.get('sort') ?? '';
 
     const sb = getServerClient();
     const nowMs = Date.now();
@@ -67,12 +70,33 @@ export async function GET(req: NextRequest) {
       let q = sb.from('users').select(cols, { count: 'exact' });
       if (search) q = q.ilike('email', `%${search}%`);
       if (role && role !== 'all') q = q.eq('role', role);
+      // Qualification filter (mig 216). THREE states, so 'all' is not the only
+      // alternative to yes and no: 'unknown' finds the rows that predate the
+      // question, which is a real cohort an admin needs to chase rather than a
+      // gap to hide. Only applied when the caller asks, so a pre-migration DB
+      // that never receives the parameter is unaffected.
+      if (reFilter === 'yes') q = q.eq('works_in_real_estate', true);
+      if (reFilter === 'no') q = q.eq('works_in_real_estate', false);
+      if (reFilter === 'unknown') q = q.is('works_in_real_estate', null);
       if (restrictIds !== null) q = q.in('id', restrictIds.length ? restrictIds : ['00000000-0000-0000-0000-000000000000']);
-      q = q.order('created_at', { ascending: false }).range(page * size, (page + 1) * size - 1);
+      // Sort. Default stays newest-first; `sort=real_estate` groups the answer
+      // so every active real estate user reads at a glance, with the newest
+      // first inside each group.
+      q = sort === 'real_estate'
+        ? q.order('works_in_real_estate', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false })
+        : q.order('created_at', { ascending: false });
+      q = q.range(page * size, (page + 1) * size - 1);
       return q;
     };
 
-    let { data, count, error: dbError } = await runQuery(`${BASE}, company, job_title`);
+    // Qualification answers are mig 216. Same schema-tolerant ladder, widest
+    // first, so the list never breaks because a migration has not landed yet.
+    const PROFILE = `${BASE}, company, job_title`;
+    const FULL = `${PROFILE}, works_in_real_estate, real_estate_role_note`;
+    let { data, count, error: dbError } = await runQuery(FULL);
+    if (dbError && /works_in_real_estate|real_estate_role_note/.test(dbError.message)) {
+      ({ data, count, error: dbError } = await runQuery(PROFILE));
+    }
     if (dbError && /company|job_title/.test(dbError.message)) {
       ({ data, count, error: dbError } = await runQuery(BASE));
     }

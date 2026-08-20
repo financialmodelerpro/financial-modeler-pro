@@ -5,6 +5,7 @@
 // App Router rejects named function exports from page modules). This standalone
 // page shows only the signup form - no tab switcher needed.
 
+import { COUNTRIES, countryLabel, resolveCountryCode } from '@/src/core/countries';
 import React, { useState, useRef, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 // Navbar now rendered by server page.tsx via NavbarServer
@@ -52,10 +53,21 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProp
   const [email,      setEmail]      = useState(invitedEmail ?? '');
   const [company,    setCompany]    = useState('');
   const [jobTitle,   setJobTitle]   = useState('');
-  const [phoneCode,  setPhoneCode]  = useState('+1');
+  // KSA-FIRST DEFAULTS (2026-08-20). Defaults, not restrictions: every country
+  // code stays selectable in the picker, and the country dropdown below lists
+  // all 249 entries. We simply stop asking a Riyadh user to change three fields
+  // before they can type their number.
+  const [phoneCode,  setPhoneCode]  = useState('+966');
   const [phoneLocal, setPhoneLocal] = useState('');
   const [city,       setCity]       = useState('');
-  const [country,    setCountry]    = useState('');
+  // Stores an ISO CODE from src/core/countries.ts, not free text. Existing
+  // rows hold full names ('Saudi Arabia', 'Pakistan') and keep working,
+  // because countryMatches / countryLabel resolve BOTH forms.
+  const [country,    setCountry]    = useState('SA');
+  // Qualification (2026-08-20). Null until answered, so an untouched form
+  // cannot submit a default nobody chose.
+  const [worksInRe,  setWorksInRe]  = useState<boolean | null>(null);
+  const [reNote,     setReNote]     = useState('');
 
   // Remember a plan chosen on the (logged-out) pricing page so the action
   // resumes after the user signs in. No dead ends for a logged-out click.
@@ -77,9 +89,20 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProp
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    // Every field the form marks required is checked HERE and again on the
+    // server. Until 2026-08-20 phone, city and country were `required` in the
+    // HTML only, with no check on either side, so anything that was not a
+    // browser form submission could omit them; company and job title were
+    // checked here but not on the server. One user reached the database with
+    // both blank. The server is the authority; this is the fast feedback.
     if (!name.trim())         { setError('Full name is required.');       return; }
     if (!company.trim())      { setError('Company / organization is required.'); return; }
     if (!jobTitle.trim())     { setError('Job title is required.');        return; }
+    if (!phoneLocal.trim())   { setError('Phone number is required.');     return; }
+    if (!city.trim())         { setError('City is required.');             return; }
+    if (!country.trim())      { setError('Country is required.');          return; }
+    if (worksInRe === null)   { setError('Please tell us whether you work in real estate.'); return; }
+    if (!reNote.trim())       { setError('Please tell us briefly what you do.'); return; }
     if (password !== confirm) { setError('Passwords do not match.');       return; }
     if (!captchaToken)        { setError('Please complete the captcha.'); return; }
 
@@ -95,6 +118,8 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProp
         company, job_title: jobTitle,
         phone: phoneCode + phoneLocal,
         city, country, captchaToken,
+        works_in_real_estate: worksInRe,
+        real_estate_role_note: reNote,
       }),
     });
     const json = await res.json().catch(() => ({})) as { error?: string; message?: string };
@@ -245,17 +270,86 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProp
                   <div>
                     <label style={labelStyle}>CITY <span style={{ color: '#DC2626' }}>*</span></label>
                     <input type="text" required value={city} onChange={e => setCity(e.target.value)}
-                      placeholder="New York" style={inputStyle}
+                      placeholder="Riyadh" style={inputStyle} data-testid="register-city"
                       onFocus={e => { e.currentTarget.style.borderColor = BLUE; }}
                       onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
                   </div>
                   <div>
                     <label style={labelStyle}>COUNTRY <span style={{ color: '#DC2626' }}>*</span></label>
-                    <input type="text" required value={country} onChange={e => setCountry(e.target.value)}
-                      placeholder="United States" style={inputStyle}
+                    {/* A SELECTED VALUE, NOT FREE TEXT. Type to filter, pick
+                        from the list. Backed by the SAME `COUNTRIES` list the
+                        project country field uses (src/core/countries.ts, 249
+                        entries), so there is one country list in the codebase
+                        and not two that drift.
+
+                        Defaults to Saudi Arabia and restricts nothing: every
+                        entry is selectable. Existing rows that hold free text
+                        ("Pakistan", "Saudi Arabia") keep working, because
+                        `countryLabel` resolves a stored name as readily as a
+                        stored code. */}
+                    <input
+                      type="text" required list="register-country-list"
+                      value={countryLabel(country)}
+                      onChange={(e) => {
+                        const code = resolveCountryCode(e.target.value);
+                        setCountry(code ?? e.target.value);
+                      }}
+                      placeholder="Saudi Arabia" style={inputStyle} data-testid="register-country"
                       onFocus={e => { e.currentTarget.style.borderColor = BLUE; }}
                       onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
+                    <datalist id="register-country-list">
+                      {COUNTRIES.map((c) => <option key={c.code} value={c.name} />)}
+                    </datalist>
                   </div>
+                </div>
+
+                {/* QUALIFICATION (2026-08-20). Asked at signup so a pending
+                    trial request can be judged BEFORE it is approved, rather
+                    than after somebody already has the platform. Both answers
+                    show on the admin user record and on the request card. */}
+                <div style={{
+                  border: '1px solid #E5E7EB', borderRadius: 8,
+                  background: '#F9FAFB', padding: '14px 14px 12px',
+                }} data-testid="register-qualification">
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#374151', letterSpacing: '0.05em', marginBottom: 10 }}>
+                    ABOUT YOUR WORK
+                  </div>
+                  <label style={labelStyle}>
+                    ARE YOU ACTIVELY WORKING IN THE REAL ESTATE INDUSTRY? <span style={{ color: '#DC2626' }}>*</span>
+                  </label>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                    {([['Yes', true], ['No', false]] as const).map(([label, val]) => (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() => setWorksInRe(val)}
+                        data-testid={`register-works-in-re-${label.toLowerCase()}`}
+                        aria-pressed={worksInRe === val}
+                        style={{
+                          flex: 1, padding: '9px 12px', fontSize: 13, fontWeight: 700,
+                          borderRadius: 7, cursor: 'pointer',
+                          border: worksInRe === val ? `1.5px solid ${BLUE}` : '1.5px solid #D1D5DB',
+                          background: worksInRe === val ? BLUE : '#fff',
+                          color: worksInRe === val ? '#fff' : '#374151',
+                          fontFamily: "'Inter', sans-serif",
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <label style={labelStyle}>
+                    WHAT DO YOU DO? <span style={{ color: '#DC2626' }}>*</span>
+                  </label>
+                  <textarea
+                    required rows={3} value={reNote}
+                    onChange={(e) => setReNote(e.target.value)}
+                    placeholder="A line or two: your role, the kind of projects you work on, and what you want to use the platform for."
+                    data-testid="register-re-note"
+                    style={{ ...inputStyle, resize: 'vertical', minHeight: 68, lineHeight: 1.5 }}
+                    onFocus={e => { e.currentTarget.style.borderColor = BLUE; }}
+                    onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }}
+                  />
                 </div>
 
                 <div>
