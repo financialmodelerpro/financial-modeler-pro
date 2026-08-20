@@ -29,6 +29,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
+import { createClient } from '@supabase/supabase-js';
 import {
   DEFAULT_WATERMARK_SETTINGS,
   WATERMARK_TEXT_MAX,
@@ -37,6 +38,18 @@ import {
   resolveWatermarkSpec,
 } from '@/src/shared/entitlements/exportWatermark';
 import { applyExportWatermark } from '@/src/hubs/modeling/platforms/refm/lib/pdf/drawWatermark';
+
+
+// Section H reads the LIVE plan permissions, so it needs the same credentials
+// the other behavioural verifiers use. Without them H skips and says so.
+for (const f of ['.env.local', '.env']) {
+  try {
+    for (const l of fs.readFileSync(f, 'utf8').split(String.fromCharCode(10))) {
+      const m = /^([A-Z0-9_]+)s*=s*(.*)$/.exec(l.trim());
+      if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+    }
+  } catch { }
+}
 
 let passed = 0;
 const failures: string[] = [];
@@ -284,6 +297,86 @@ section('C. The stamp is drawn, on every page, and a paid export is untouched');
     !card.includes('=== \'trial\'') && !card.includes('function watermarkApplies'));
   check('F: it stores through the existing content route, with no new table',
     card.includes("'/api/admin/content'") && card.includes('WATERMARK_SECTION'));
+
+  // -------------------------------------------------------------------------
+  section('G. Each format gates on the feature that matches what it produces');
+
+  {
+    const modalG = stripComments(read('src/hubs/modeling/platforms/refm/components/modals/ExportModal.tsx'));
+
+    // THE MAP IS THE ONLY PLACE A FEATURE KEY IS NAMED. Before this, the map
+    // said one thing and six picker cards spelled the keys out again, which is
+    // how a corrected map can go on denying: you fix one copy and the card
+    // keeps its literal.
+    check('G: no export gate names a feature key inline',
+      !/allows\('(pdf_export|excel_formula|excel_snapshot)'\)/.test(modalG));
+    const routed = (modalG.match(/allows\(FEATURE_FOR_KIND\./g) ?? []).length;
+    check('G: every format gate reads the map', routed >= 9, String(routed));
+    check('G: and the generate path reads it too',
+      modalG.includes('FEATURE_FOR_KIND[reportKind]'));
+
+    // The corrected key.
+    check('G: Excel gates on excel_snapshot', /excel: 'excel_snapshot'/.test(modalG));
+    check('G: and no longer on excel_formula', !/excel: 'excel_formula'/.test(modalG));
+    check('G: both PDF reports gate on pdf_export',
+      /full: 'pdf_export'/.test(modalG) && /summary: 'pdf_export'/.test(modalG));
+
+    // WHY excel_snapshot IS THE RIGHT KEY, asserted rather than asserted in
+    // prose: the workbook writes constants, not formulas. If that ever stops
+    // being true the key has to be revisited, and this check is what says so.
+    const wb = stripComments(read('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts'));
+    check('G: the workbook is a snapshot, so the snapshot key is the honest one',
+      !/cell\.value\s*=\s*\{\s*formula:/.test(wb));
+  }
+
+  // -------------------------------------------------------------------------
+  section('H. The live plan permissions give each plan what it is sold');
+
+  {
+    const url = process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !key) {
+      console.log('   (skipped: no database credentials)');
+    } else {
+      const sb = createClient(url, key, { auth: { persistSession: false } });
+      const { data } = await sb.from('plan_permissions').select('plan_key,feature_key,included');
+      const rows = (data ?? []) as Array<{ plan_key: string; feature_key: string; included: boolean }>;
+      const inc = (plan: string, feature: string): boolean | undefined =>
+        rows.find((r) => r.plan_key === plan && r.feature_key === feature)?.included;
+
+      check('H: the permission rows were actually read', rows.length > 0, String(rows.length));
+
+      // THE POINT OF THE FIX. Under the old key both were denied.
+      check('H: pro can now export Excel', inc('pro', 'excel_snapshot') === true);
+      check('H: firm can now export Excel', inc('firm', 'excel_snapshot') === true);
+
+      // THE THING THAT MUST NOT HAVE CHANGED.
+      check('H: trial is still denied Excel', inc('trial', 'excel_snapshot') === false);
+      check('H: solo is still denied Excel', inc('solo', 'excel_snapshot') === false);
+      // Denied under the OLD key too, which is what makes this a safe swap:
+      // no plan gains Excel that was previously allowed it.
+      check('H: trial was denied under the old key as well',
+        inc('trial', 'excel_formula') === false);
+      check('H: no plan had excel_formula, so nothing loses access',
+        ['trial', 'solo', 'pro', 'firm'].every((p) => inc(p, 'excel_formula') === false));
+
+      // PDF, including trial, which keeps it and is watermarked instead.
+      for (const p of ['trial', 'solo', 'pro', 'firm']) {
+        check(`H: ${p} keeps PDF export`, inc(p, 'pdf_export') === true);
+      }
+      // PowerPoint is Module 7, firm only. This is the gate the deck route now
+      // enforces server side.
+      check('H: Module 7 (PowerPoint) is firm only',
+        inc('trial', 'module_7') === false && inc('solo', 'module_7') === false
+        && inc('pro', 'module_7') === false && inc('firm', 'module_7') === true);
+
+      // The watermark default must line up with who actually has PDF: a plan
+      // that cannot export cannot be watermarked, which would be a silent
+      // no-op rather than a policy.
+      check('H: every watermarked plan can actually export a PDF',
+        DEFAULT_WATERMARK_SETTINGS.plans.every((p) => inc(p, 'pdf_export') === true));
+    }
+  }
 
   console.log(`\n${'='.repeat(62)}`);
   if (failures.length === 0) {

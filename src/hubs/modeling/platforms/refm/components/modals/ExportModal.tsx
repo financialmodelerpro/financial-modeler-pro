@@ -132,14 +132,28 @@ function liveModelFromStore(): HydrateSnapshot {
   return pickModel(useModule1Store.getState() as unknown as Record<string, unknown>);
 }
 
-// Which entitlement feature each export format requires. PDF reports gate on
-// pdf_export; the Excel model is the formula-linked workbook, gating on
-// excel_formula. (A future snapshot-only Excel export would gate on
-// excel_snapshot.)
+// Which entitlement feature each export format requires.
+//
+// EXCEL GATES ON excel_snapshot, CORRECTED 2026-08-20. It gated on
+// excel_formula, which describes a workbook whose cells recalculate. Ours does
+// not: buildModelWorkbook writes every computed cell as a CONSTANT, the file
+// says so, and re-exporting is the documented way to see new numbers. So the
+// gate named a product we do not ship.
+//
+// That was not a cosmetic mismatch. excel_formula is `included: false` on ALL
+// FOUR plans, so this line denied the Excel export to everybody, including
+// firm, which is sold it. excel_snapshot is false on trial and solo and true
+// on pro and firm, which is the intended commercial shape.
+//
+// The comment this replaces said a future snapshot-only export "would gate on
+// excel_snapshot". The snapshot-only export is the one that shipped; nobody
+// came back and moved the key.
+//
+// TRIAL IS UNAFFECTED: denied under either key.
 const FEATURE_FOR_KIND: Record<'full' | 'summary' | 'excel', string> = {
   full: 'pdf_export',
   summary: 'pdf_export',
-  excel: 'excel_formula',
+  excel: 'excel_snapshot',
 };
 
 export default function ExportModal({
@@ -477,11 +491,11 @@ export default function ExportModal({
             <button
               type="button"
               data-testid="export-option-pdf_full"
-              onClick={() => { if (!allows('pdf_export')) { setError('PDF export is not included in your current plan. Upgrade to unlock it.'); return; } setReportKind('full'); setStep('modules'); }}
+              onClick={() => { if (!allows(FEATURE_FOR_KIND.full)) { setError('PDF export is not included in your current plan. Upgrade to unlock it.'); return; } setReportKind('full'); setStep('modules'); }}
               style={{
                 display: 'flex', alignItems: 'center', gap: 14, padding: '14px',
                 borderRadius: 8, border: '1.5px solid var(--color-navy)', background: 'var(--color-navy-pale, #F4F7FC)',
-                cursor: 'pointer', textAlign: 'left', opacity: allows('pdf_export') ? 1 : 0.6,
+                cursor: 'pointer', textAlign: 'left', opacity: allows(FEATURE_FOR_KIND.full) ? 1 : 0.6,
               }}
             >
               <span style={{ fontSize: 22 }}>📋</span>
@@ -489,16 +503,16 @@ export default function ExportModal({
                 <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)' }}>PDF, Full Financial Model</div>
                 <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2 }}>All inputs &amp; outputs, module by module, platform-styled</div>
               </div>
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-on-primary-navy)', background: 'var(--color-primary)', padding: '5px 12px', borderRadius: 6 }}>{allows('pdf_export') ? 'Continue' : '🔒 Upgrade'}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-on-primary-navy)', background: 'var(--color-primary)', padding: '5px 12px', borderRadius: 6 }}>{allows(FEATURE_FOR_KIND.full) ? 'Continue' : '🔒 Upgrade'}</span>
             </button>
             <button
               type="button"
               data-testid="export-option-pdf_summary"
-              onClick={() => { if (!allows('pdf_export')) { setError('PDF export is not included in your current plan. Upgrade to unlock it.'); return; } setReportKind('summary'); setStep('modules'); }}
+              onClick={() => { if (!allows(FEATURE_FOR_KIND.summary)) { setError('PDF export is not included in your current plan. Upgrade to unlock it.'); return; } setReportKind('summary'); setStep('modules'); }}
               style={{
                 display: 'flex', alignItems: 'center', gap: 14, padding: '14px',
                 borderRadius: 8, border: '1.5px solid var(--color-border)', background: 'var(--color-surface)',
-                cursor: 'pointer', textAlign: 'left', opacity: allows('pdf_export') ? 1 : 0.6,
+                cursor: 'pointer', textAlign: 'left', opacity: allows(FEATURE_FOR_KIND.summary) ? 1 : 0.6,
               }}
             >
               <span style={{ fontSize: 22 }}>📈</span>
@@ -506,16 +520,16 @@ export default function ExportModal({
                 <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)' }}>PDF, Executive Summary</div>
                 <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2 }}>Key inputs, headline P&amp;L / cash flow / balance sheet, and returns, on a few pages</div>
               </div>
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)', border: '1px solid var(--color-border)', padding: '5px 12px', borderRadius: 6 }}>{allows('pdf_export') ? 'Continue' : '🔒 Upgrade'}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)', border: '1px solid var(--color-border)', padding: '5px 12px', borderRadius: 6 }}>{allows(FEATURE_FOR_KIND.summary) ? 'Continue' : '🔒 Upgrade'}</span>
             </button>
             <button
               type="button"
               data-testid="export-option-excel"
-              onClick={() => { if (!allows('excel_formula')) { setError('Excel export is not included in your current plan. Upgrade to unlock it.'); return; } setReportKind('excel'); setSelectedCaseId(baseCaseId(normaliseCases(useModule1Store.getState().cases))); setStep('modules'); }}
+              onClick={() => { if (!allows(FEATURE_FOR_KIND.excel)) { setError('Excel export is not included in your current plan. Upgrade to unlock it.'); return; } setReportKind('excel'); setSelectedCaseId(baseCaseId(normaliseCases(useModule1Store.getState().cases))); setStep('modules'); }}
               style={{
                 display: 'flex', alignItems: 'center', gap: 14, padding: '14px',
                 borderRadius: 8, border: '1.5px solid var(--color-border)', background: 'var(--color-surface)',
-                cursor: 'pointer', textAlign: 'left', opacity: allows('excel_formula') ? 1 : 0.6,
+                cursor: 'pointer', textAlign: 'left', opacity: allows(FEATURE_FOR_KIND.excel) ? 1 : 0.6,
               }}
             >
               <span style={{ fontSize: 22 }}>📗</span>
@@ -523,7 +537,7 @@ export default function ExportModal({
                 <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)' }}>Excel Model</div>
                 <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2 }}>Hardcoded platform mirror: every figure is the platform-computed value as a constant, across all tabs (Inputs, Capex, Financing, statements, Returns, Scenarios)</div>
               </div>
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)', border: '1px solid var(--color-border)', padding: '5px 12px', borderRadius: 6 }}>{allows('excel_formula') ? 'Continue' : '🔒 Upgrade'}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)', border: '1px solid var(--color-border)', padding: '5px 12px', borderRadius: 6 }}>{allows(FEATURE_FOR_KIND.excel) ? 'Continue' : '🔒 Upgrade'}</span>
             </button>
           </div>
         )}
