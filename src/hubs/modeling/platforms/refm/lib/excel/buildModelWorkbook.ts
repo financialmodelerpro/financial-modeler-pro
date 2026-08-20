@@ -16,7 +16,7 @@
  * Pure: reads computeFinancialsSnapshot + state, returns a workbook.
  */
 import ExcelJS from 'exceljs';
-import { buildSaleCohortTermsBlock, saleCohortRuleText, CASH_PROFILE_SUPERSEDED_LABEL } from '../reports/saleCohortReports';
+import { buildSaleCohortTermsBlock, saleCohortRuleText, CASH_PROFILE_SUPERSEDED_LABEL, buildSaleCohortGrid, saleCohortGridCaption } from '../reports/saleCohortReports';
 import JSZip from 'jszip';
 import { computeFinancialsSnapshot, computeFundingGap, type FinancialsResolverState } from '../financials-resolvers';
 import { buildCapexReport, type CapexReport } from '../reports/capexReports';
@@ -2395,7 +2395,54 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
     moneyRow('Post-sales recognised', rr.postSalesRecognitionPerPeriod, { indent: 1 });
     byAssetRow.set(id, moneyRow('Total revenue recognised', rr.recognitionPerPeriod, { style: 'total' }));
     r += 1;
-    vintage(`Cash Vintage Matrix, ${assetName(id)}`, rr.cashVintageMatrix);
+    // THE SALE COHORT GRID (2026-08-20, restructure Step 4), from the SHARED
+    // builder the Module 2 screen and both PDFs also render, so the row set and
+    // the check cannot drift. Falls back to the plain vintage matrix only when
+    // the builder has nothing to say (no sell config resolved).
+    {
+      const ca = state.assets.find((x) => x.id === id);
+      const grid = ca
+        ? buildSaleCohortGrid(ca, state.phases.find((ph) => ph.id === ca.phaseId),
+          Number(yl[0]) || 0, yl, state.project.saleCohortDefaults?.downpayment, rr)
+        : null;
+      if (grid && grid.rows.length) {
+        subTitle(`Sale Cohort Grid, ${assetName(id)} (handover ${grid.handoverYear})`);
+        for (const cr of grid.rows) {
+          moneyRow(
+            cr.paysInFull
+              ? `${cr.saleYear} sale, paid in full`
+              : `${cr.saleYear} sale, ${(cr.downpayment * 100).toFixed(2)}% down`,
+            A(cr.cells), { indent: 1 },
+          );
+        }
+        moneyRow('Total collected', A(grid.columnTotals), { style: 'total' });
+        r += 1;
+        // The check, as its own small block: the period grid has one Total
+        // column and cannot carry a per-row sale value beside it.
+        subTitle(`Sale Cohort Grid check, ${assetName(id)}`);
+        setColHeader(ws.getCell(r, 1), 'Sale year', 'left');
+        setColHeader(ws.getCell(r, 2), 'Down %', 'right');
+        setColHeader(ws.getCell(r, 3), 'In force from', 'left');
+        setColHeader(ws.getCell(r, 4), 'Sale value', 'right');
+        setColHeader(ws.getCell(r, 5), 'Collected', 'right');
+        setColHeader(ws.getCell(r, 6), 'Check', 'right');
+        r += 1;
+        for (const cr of grid.rows) {
+          setLabel(ws.getCell(`A${r}`), String(cr.saleYear));
+          const dp = ws.getCell(r, 2); dp.value = cr.paysInFull ? 1 : cr.downpayment; dp.numFmt = NUMFMT.pct;
+          setLabel(ws.getCell(r, 3), cr.paysInFull ? 'not used' : cr.downpaymentSource.replace('_', ' '));
+          const gv = ws.getCell(r, 4); gv.value = cr.gdv; gv.numFmt = NUMFMT.money;
+          const cv = ws.getCell(r, 5); cv.value = cr.rowTotal; cv.numFmt = NUMFMT.money;
+          const ck = ws.getCell(r, 6); ck.value = cr.checkResidue; ck.numFmt = NUMFMT.money;
+          ck.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: cr.ok ? ARGB.good : ARGB.bad } };
+          r += 1;
+        }
+        setLabel(ws.getCell(`A${r}`), saleCohortGridCaption(grid));
+        r += 2;
+      } else {
+        vintage(`Cash Vintage Matrix, ${assetName(id)}`, rr.cashVintageMatrix);
+      }
+    }
     vintage(`Recognition Vintage Matrix, ${assetName(id)}`, rr.recognitionVintageMatrix);
   }
   for (const [id, rr] of snap.revenue.byHospitalityAsset) {

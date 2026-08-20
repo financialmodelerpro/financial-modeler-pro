@@ -40,6 +40,7 @@ import { computeAllSellResults, resolveSellConfig } from '../src/hubs/modeling/p
 import { buildCohortMatrix, columnSums } from '../src/core/calculations/revenue/cohort';
 import { buildSaleCohortProfile, instalmentCount, resolveDownpayment, hasAnyDownpayment } from '../src/core/calculations/revenue/cohortTerms';
 import { resolveCohortDownpayment, resolveAssetDownpaymentSource, buildEngineDownpaymentAxis } from '../src/hubs/modeling/platforms/refm/lib/state/saleCohortResolution';
+import { buildSaleCohortGrid } from '../src/hubs/modeling/platforms/refm/lib/reports/saleCohortReports';
 import { buildSaleCohortAdvisories } from '../src/hubs/modeling/platforms/refm/lib/reports/checksReport';
 import { buildSaleCohortTermsBlock, saleCohortRuleText } from '../src/hubs/modeling/platforms/refm/lib/reports/saleCohortReports';
 import { makeDefaultProject } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
@@ -877,6 +878,105 @@ section('K. OPTION B STEP 3: blocked is visible where the number is consumed');
       /'saleCohortDefaults\.downpayment': '[^']+'/.test(grid));
     check('K6: and it is formatted as a percentage, not a raw fraction',
       grid.split('PERCENT_FRACTION_LEAVES')[1]?.includes('saleCohortDefaults.downpayment') === true);
+  }
+}
+
+// ---------------------------------------------------------------------------
+section('L. STEP 4: the cohort grid, and every row foots to its own sale value');
+
+{
+  // The grid is PRESENTATION over the engine's own cashVintageMatrix, which
+  // since Step 3 IS the collections series. It recomputes nothing, so the only
+  // thing to prove is that it presents it faithfully and that the check column
+  // can actually fail.
+  const phase = { id: 'p1', startDate: '2026-01-01', constructionPeriods: 4 } as unknown as Phase;
+  const asset = {
+    id: 'a1', phaseId: 'p1', name: 'Tower', strategy: 'Sell', visible: true,
+    revenue: { sell: { assetId: 'a1', subUnits: [], downpaymentByPhase: [0.1, 0.2] } },
+  } as unknown as Asset;
+  const yl = [2026, 2027, 2028, 2029, 2030];
+  // Two pre-sales cohorts and one post-handover cohort.
+  const sell = {
+    cashVintageMatrix: [
+      [10, 30, 30, 30, 0],
+      [0, 20, 40, 40, 0],
+      [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0],
+    ],
+    presalesRevenuePerPeriod: [100, 100, 0, 0, 0],
+    postSalesRevenuePerPeriod: [0, 0, 0, 0, 50],
+    postSalesCashPerPeriod: [0, 0, 0, 0, 50],
+  };
+  const g = buildSaleCohortGrid(asset, phase, 2026, yl, undefined, sell);
+  check('L: the grid builds', g !== null);
+  check('L: one row per sale year that actually sold, not one per axis year',
+    g?.rows.length === 3, String(g?.rows.length));
+  check('L: rows are sale years in order',
+    JSON.stringify(g?.rows.map((r) => r.saleYear)) === JSON.stringify([2026, 2027, 2030]));
+  check('L: handover is the LAST construction year', g?.handoverYear === 2029);
+
+  // The cells are the engine's, untouched.
+  check('L: a row carries the engine cells verbatim',
+    JSON.stringify(g?.rows[0].cells) === JSON.stringify([10, 30, 30, 30, 0]));
+  check('L: each row totals its own cells', g?.rows[0].rowTotal === 100 && g?.rows[1].rowTotal === 100);
+  check('L: the check column is zero when a row foots', g?.rows.every((r) => r.ok) === true);
+  check('L: column totals are the per-year collections',
+    JSON.stringify(g?.columnTotals) === JSON.stringify([10, 50, 70, 70, 50]));
+  check('L: and the grid agrees overall', g?.ok === true && g?.gdvTotal === 250 && g?.collectedTotal === 250);
+
+  // THE POST-HANDOVER COHORT. It never enters the vintage matrix, by the
+  // long-standing operating-sales convention, so the grid places its cash in
+  // its own sale year. Without this it would show a sale value and no cash.
+  {
+    const post = g?.rows.find((r) => r.saleYear === 2030);
+    check('L: a post-handover cohort is marked as paying in full', post?.paysInFull === true);
+    check('L: and its cash lands in its own sale year, not nowhere',
+      post?.cells[4] === 50 && post?.rowTotal === 50 && post?.ok === true);
+  }
+  check('L: a pre-handover cohort is NOT marked as paying in full',
+    g?.rows[0].paysInFull === false && g?.rows[1].paysInFull === false);
+
+  // THE DOWNPAYMENT AND ITS SOURCE ride beside the row, so a reader can see
+  // what produced it. Resolved through the same shared rule as everywhere else.
+  check('L: the downpayment is reported per row',
+    Math.abs((g?.rows[0].downpayment ?? 0) - 0.1) < 1e-12
+    && Math.abs((g?.rows[1].downpayment ?? 0) - 0.2) < 1e-12);
+  check('L: and its source is reported', g?.rows[0].downpaymentSource === 'set');
+  {
+    const noTerms = { ...asset, revenue: { sell: { assetId: 'a1', subUnits: [] } } } as unknown as Asset;
+    check('L: an asset on the project default says so',
+      buildSaleCohortGrid(noTerms, phase, 2026, yl, 0.3, sell)?.rows[0].downpaymentSource === 'project_default');
+    check('L: and with no default anywhere it says not set',
+      buildSaleCohortGrid(noTerms, phase, 2026, yl, undefined, sell)?.rows[0].downpaymentSource === 'not_set');
+  }
+
+  // THE CHECK COLUMN MUST BE ABLE TO FAIL, or it certifies nothing.
+  {
+    const broken = buildSaleCohortGrid(asset, phase, 2026, yl, undefined, {
+      ...sell, presalesRevenuePerPeriod: [120, 100, 0, 0, 0],
+    });
+    check('L: a row whose cells do not sum to its sale value FAILS the check',
+      broken?.rows[0].ok === false);
+    check('L: and the residue names the gap', Math.abs((broken?.rows[0].checkResidue ?? 0) + 20) < 1e-9);
+    check('L: and the grid as a whole reports not ok', broken?.ok === false);
+  }
+
+  // ONE SOURCE, THREE SURFACES.
+  {
+    const screen = read('src/hubs/modeling/platforms/refm/components/modules/Module2RevenueOutput.tsx');
+    const pdf = read('src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf.ts');
+    const wb = read('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts');
+    for (const [name, src] of [['screen', screen], ['pdf', pdf], ['workbook', wb]] as const) {
+      check('L: the ' + name + ' renders the grid from the shared builder',
+        stripComments(src).includes('buildSaleCohortGrid'));
+    }
+    check('L: the screen caption no longer claims cohorts follow the cash payment profile',
+      // stripComments FIRST: the corrected caption carries a comment quoting
+      // the old wording to say why it changed, and a raw scan matches that.
+      !/cascades through the cash payment profile/.test(stripComments(screen)));
+    check('L: the grid table uses the locked palette',
+      /#1B4F8A/.test(read('src/hubs/modeling/platforms/refm/components/modules/_shared/SaleCohortGridTable.tsx'))
+      && /#E8EEF7/.test(read('src/hubs/modeling/platforms/refm/components/modules/_shared/SaleCohortGridTable.tsx'))
+      && /#F1F3F5/.test(read('src/hubs/modeling/platforms/refm/components/modules/_shared/SaleCohortGridTable.tsx')));
   }
 }
 

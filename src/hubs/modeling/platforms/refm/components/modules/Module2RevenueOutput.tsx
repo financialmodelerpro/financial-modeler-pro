@@ -35,6 +35,8 @@
  * _shared/tableStyles + PhaseSection + VintageMatrix.
  */
 
+import SaleCohortGridTable from './_shared/SaleCohortGridTable';
+import { buildSaleCohortGrid } from '../../lib/reports/saleCohortReports';
 import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
@@ -1356,16 +1358,35 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                   {/* 4. Cash Collected */}
                   <SectionHeading n="4" title="Cash Collected" />
                   <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, fontStyle: 'italic' }}>
-                    Formula: rows = cohort sale year, columns = year collected. Each cohort cascades through the cash payment profile ({cashMode}). Sum across each row = cohort total sales value; sum down each column = cash collected per year (Pre-Sales only).
+                    {/* CAPTION CORRECTED 2026-08-20: this said each cohort
+                        "cascades through the cash payment profile", which has
+                        been false since restructure Step 3 retired that
+                        profile as the driver of collections. */}
+                    Rows are sale years, columns are the years that cohort pays. Each sale year is its own cohort on its own terms: a downpayment in the year it sells, then the balance in equal instalments, cut off at handover. A cohort selling at or after handover pays in full in its own year. Sum down each column = cash collected per year (Pre-Sales only).
                   </div>
-                  <VintageMatrix
-                    title="4a. Pre-Sales Cash Vintage Matrix"
-                    yearLabels={snap.yearLabels}
-                    matrix={r.cashVintageMatrix}
-                    currency={currency}
-                    handoverYearIdx={handoverYearIdx}
-                    fmt={fmt}
-                  />
+                  {(() => {
+                    const grid = buildSaleCohortGrid(
+                      a, phases.find((ph) => ph.id === a.phaseId), snap.projectStartYear,
+                      snap.yearLabels, project.saleCohortDefaults?.downpayment, r,
+                    );
+                    return grid ? (
+                      <SaleCohortGridTable
+                        grid={grid}
+                        title="4a. Sale Cohort Grid (pre-sales cash)"
+                        currency={currency}
+                        fmt={fmt}
+                      />
+                    ) : (
+                      <VintageMatrix
+                        title="4a. Pre-Sales Cash Vintage Matrix"
+                        yearLabels={snap.yearLabels}
+                        matrix={r.cashVintageMatrix}
+                        currency={currency}
+                        handoverYearIdx={handoverYearIdx}
+                        fmt={fmt}
+                      />
+                    );
+                  })()}
                   <PeriodTable
                     title="4b. Cash Summary (per period)"
                     formula="Pre-Sales Cash = column-sum of 4a (per cash payment profile). Sales During Operation Cash = post-sales revenue collected same period (operating sales, no deferral). Total = Pre + Post = cash flow from revenue per year."

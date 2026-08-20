@@ -2,6 +2,68 @@
 **Last updated: 2026-08-17. Lock status: M1 CLOSED 2026-08-17 (28 defects found in end-to-end use, all fixed and browser-verified; base lock unchanged at M2.0 Pass 58) + Parties tab (mig 190), M2 LOCKED (Pass 9N), M3 LOCKED (Pass 5d), M4 DONE, M5 DONE (Returns & RE Metrics + Lender Covenants + per-partner FCFE/DDM + M1-Parties link), M6 Scenario Analysis LIVE, M7 Reports LIVE (IC / Lender / One-Pager preview + PPT export, migs 191+192). Full verifier suite green via `npx tsx scripts/verify-*.ts`.**
 
 
+## 2026-08-20d: restructure Step 4. The sale cohort grid, on one source
+
+**Step 4 of five. DISPLAY ONLY, no number moves on either project, proven stashed and re-run.**
+
+**IT EXTENDS THE EXISTING MATRIX RATHER THAN ADDING A SECOND ONE.** All three surfaces already
+rendered a cash vintage matrix, which is already sale-year by collection-year and, since Step 3, IS
+the collections series (the series is its column sums). A parallel grid of the same quantity is the
+duplication this codebase keeps paying for, so `buildSaleCohortGrid` in `lib/reports/saleCohortReports.ts`
+wraps the engine's own `cashVintageMatrix` and adds what a reader needs to CHECK it: the downpayment
+that produced the row and where it came from, the cohort's own gross development value, the row
+total, and the residue between them. **It recomputes nothing.**
+
+**MARINA GATE, the walkthrough case, reads correctly** (handover 2030, terms 10 / 15 / 25 / 30,
+allowance 3, hard cut-off). Figures in millions:
+
+| Sale yr | Down % | Source | Sale value | 2027 | 2028 | 2029 | 2030 | 2031 | 2032 | Total | Check |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 2027 | 10% | set | 28.59 | 2.86 | 8.58 | 8.58 | 8.58 | | | 28.59 | 0.00 |
+| 2028 | 15% | set | 57.19 | | 8.58 | 24.31 | 24.31 | | | 57.19 | 0.00 |
+| 2029 | 25% | set | 89.22 | | | 22.30 | 66.91 | | | 89.22 | 0.00 |
+| 2030 | paid in full | not used | 123.71 | | | | 123.71 | | | 123.71 | 0.00 |
+| 2031 | paid in full | not used | 160.83 | | | | | 160.83 | | 160.83 | 0.00 |
+| 2032 | paid in full | not used | 167.26 | | | | | | 167.26 | 167.26 | 0.00 |
+| **Total** | | | **626.80** | 2.86 | 17.16 | 55.19 | 223.51 | 160.83 | 167.26 | **626.80** | **0.00** |
+
+The instalment run shortens exactly as the rule requires: 2027 gets three, 2028 two, 2029 one, and
+2030 (the handover year) pays in full. Column totals equal the collections series to the cent.
+
+**THE POST-HANDOVER COHORTS NEEDED EXPLICIT HANDLING.** They never enter the vintage matrix at all,
+by the long-standing operating-sales convention, so a naive read of that matrix would show them with
+a sale value and NO cash. The builder places their cash in their own sale year, which is what the
+engine does with it, and marks the row `paysInFull` so a reader knows the 100% is the RULE and not an
+input. Their downpayment column reads "not used" rather than a value the model ignores.
+
+**A STALE CAPTION FIXED, and it was a live lying screen.** Module 2 section 4a said each cohort
+"cascades through the cash payment profile", which has been false since Step 3 retired that profile
+as the driver of collections. It now describes the cohort rule.
+
+**ONE SOURCE, THREE SURFACES.** The screen renders `_shared/SaleCohortGridTable.tsx` on the locked
+palette (navy #1B4F8A header, pale #E8EEF7 sub-header and zebra, #F1F3F5 period header, slate
+#5A6675 secondary, ink #2A3440 body). Both PDFs and the workbook read the SAME builder; because a
+period table has one fixed Total column and cannot carry a per-row sale value beside it, the
+downpayment rides in the row label and the check gets a small companion table. Formatting is
+per-surface; STRUCTURE comes from one place.
+
+**PROVEN INERT:** collections per year and in total, funding requirement, peak debt, cost of sales,
+profit after tax, `|Assets - L&E|` and the reconciliation issue counts are identical before and after
+on both projects. `verify-excel-export` **304**, unchanged, so the palette lock still holds.
+
+`verify-sale-cohort-inputs` **177 -> 201**, new section L. Teeth proven by two sabotages, each
+CONFIRMED to have landed inside `buildSaleCohortGrid` by checking the injected symbol's offset
+against that function's own range: dropping the post-handover cohort's cash (4 failures) and making
+the check column always pass (1).
+
+**A check of mine that failed against correct code, third of this shape:** the caption check scanned
+the RAW screen source for the retired phrase, and the corrected caption carries a comment quoting
+that phrase to explain why it changed. Stripped comments first, which this file already had a helper
+for and which I had used everywhere else.
+
+**Step 5 not started** (closing inventory area, and the receivables and unearned roll-forward
+presentations).
+
 ## 2026-08-20c: Option B Step 3. Blocked is visible where the number is consumed
 
 **Step 3 of three, closing Option B. NO NUMBER MOVES on either live project, proven stashed and

@@ -23,7 +23,7 @@
  * readable. The renderer is pure (state in, bytes out).
  */
 import { PDFDocument, PDFName, PDFHexString, rgb, type PDFFont, type PDFPage, type PDFRef, type PDFObject } from 'pdf-lib';
-import { buildSaleCohortTermsBlock, saleCohortRuleText, CASH_PROFILE_SUPERSEDED_LABEL } from '../reports/saleCohortReports';
+import { buildSaleCohortTermsBlock, saleCohortRuleText, CASH_PROFILE_SUPERSEDED_LABEL, buildSaleCohortGrid, saleCohortGridCaption } from '../reports/saleCohortReports';
 import fontkit from '@pdf-lib/fontkit';
 import { formatAccounting, formatArea, formatInteger, type DisplayScale } from '@/src/core/formatters';
 import { computeSubUnitArea, computePhaseTimeline, computeProjectTimeline } from '@/src/core/calculations';
@@ -1548,9 +1548,47 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       periodRow('Post-sales recognised', r.postSalesRecognitionPerPeriod, 'sum'),
       periodRow('Total revenue recognised', r.recognitionPerPeriod, 'sum', 'total'),
     ])));
-    // Vintage matrices, with a Total row matching the platform VintageMatrix.
-    const cashRows = r.cashVintageMatrix.map((m, i) => periodRow(`FY ${yl[i] ?? i}`, m, 'sum')).filter((rr) => (rr.cells[1] as number) !== 0);
-    if (cashRows.length) items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable(`Cash Vintage Matrix, ${assetName(id)}`, py, yl, [...cashRows, vintageTotalRow(r.cashVintageMatrix, yl.length)])));
+    // THE SALE COHORT GRID (2026-08-20, restructure Step 4). Rows come from the
+    // SHARED builder, the same one the Module 2 screen and the workbook render,
+    // so the row set, the labels and the check cannot drift between surfaces.
+    // The period-table geometry has one fixed Total column, so the downpayment
+    // and the cohort's own sale value ride in the label, and the check gets its
+    // own small companion table below.
+    const cohortAsset = state?.assets.find((x) => x.id === id);
+    const cohortGrid = cohortAsset
+      ? buildSaleCohortGrid(
+        cohortAsset, state?.phases.find((ph) => ph.id === cohortAsset.phaseId),
+        Number(yl[0]) || 0, yl, state?.project.saleCohortDefaults?.downpayment, r,
+      )
+      : null;
+    if (cohortGrid && cohortGrid.rows.length) {
+      const gridRows = cohortGrid.rows.map((cr) => periodRow(
+        cr.paysInFull
+          ? `${cr.saleYear} sale, paid in full`
+          : `${cr.saleYear} sale, ${(cr.downpayment * 100).toFixed(2)}% down`,
+        cr.cells, 'sum',
+      ));
+      items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable(
+        `Sale Cohort Grid, ${assetName(id)} (handover ${cohortGrid.handoverYear})`,
+        py, yl, [...gridRows, periodRow('Total collected', cohortGrid.columnTotals, 'sum', 'total')],
+      )));
+      items.push(tTable('Tab 2: Revenue Output', 'outputs', {
+        title: `Sale Cohort Grid check, ${assetName(id)}`, kind: 'grid', align: 'data',
+        columns: ['Sale year', 'Down %', 'In force from', 'Sale value', 'Collected', 'Check'],
+        rows: [
+          ...cohortGrid.rows.map((cr) => row([
+            String(cr.saleYear),
+            cr.paysInFull ? '100%' : `${(cr.downpayment * 100).toFixed(2)}%`,
+            cr.paysInFull ? 'not used' : cr.downpaymentSource.replace('_', ' '),
+            fmt.money(cr.gdv), fmt.money(cr.rowTotal),
+            cr.ok ? '0.00' : cr.checkResidue.toFixed(2),
+          ])),
+          row(['Total', '', '', fmt.money(cohortGrid.gdvTotal), fmt.money(cohortGrid.collectedTotal),
+            cohortGrid.ok ? '0.00' : (cohortGrid.collectedTotal - cohortGrid.gdvTotal).toFixed(2)], 'subtotal'),
+          row([saleCohortGridCaption(cohortGrid), '', '', '', '', '']),
+        ],
+      }));
+    }
     const recRows = r.recognitionVintageMatrix.map((m, i) => periodRow(`FY ${yl[i] ?? i}`, m, 'sum')).filter((rr) => (rr.cells[1] as number) !== 0);
     if (recRows.length) items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable(`Recognition Vintage Matrix, ${assetName(id)}`, py, yl, [...recRows, vintageTotalRow(r.recognitionVintageMatrix, yl.length)])));
   }

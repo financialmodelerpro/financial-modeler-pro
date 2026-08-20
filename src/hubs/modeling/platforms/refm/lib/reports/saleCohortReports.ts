@@ -105,3 +105,149 @@ export function saleCohortRuleText(block: SaleCohortTermsBlock): string {
     ? `${base} No downpayment is set on this asset, so every cohort is treated as taking no deposit.`
     : base;
 }
+
+/**
+ * THE SALE COHORT GRID (2026-08-20, restructure Step 4).
+ *
+ * Sale years down, calendar years across, which is what a cohort matrix has
+ * always been. The engine already produces the cells: `cashVintageMatrix` is
+ * `matrix[saleYear][collectionYear]`, and since Step 3 it IS the collections
+ * series (the series is its column sums), so nothing here recomputes anything.
+ *
+ * WHAT THIS ADDS is the context a reader needs to check it: the downpayment
+ * percentage that produced the row, the gross development value the row is a
+ * schedule for, the row total, and whether the two agree. A grid of numbers
+ * with no way to tell whether a row is complete is a grid nobody can audit.
+ *
+ * EXTENDS THE EXISTING MATRIX RATHER THAN ADDING A SECOND ONE. All three
+ * surfaces already render a cash vintage matrix; a parallel grid of the same
+ * quantity is the duplication this codebase keeps paying for.
+ *
+ * Pure presentation over the engine's own output. No arithmetic beyond summing
+ * a row that the engine built.
+ */
+export interface SaleCohortGridRow {
+  /** Absolute calendar year this cohort sold in. */
+  saleYear: number;
+  /** Downpayment fraction in force, and where it came from. */
+  downpayment: number;
+  downpaymentSource: 'set' | 'carried' | 'project_default' | 'not_set';
+  /** The cohort's gross development value: what it sold for. */
+  gdv: number;
+  /** Cash collected from THIS cohort in each calendar year, project axis. */
+  cells: number[];
+  /** Sum of `cells`. Must equal `gdv`. */
+  rowTotal: number;
+  /** rowTotal - gdv. Zero to the currency unit on a correct model. */
+  checkResidue: number;
+  ok: boolean;
+  /** True when the cohort sold at or after handover, so it pays in full in its
+   *  own year and the downpayment is not consulted. Worth marking: a reader
+   *  seeing 100% in one cell needs to know it is the rule, not an input. */
+  paysInFull: boolean;
+}
+
+export interface SaleCohortGrid {
+  assetId: string;
+  assetName: string;
+  handoverYear: number;
+  yearLabels: number[];
+  rows: SaleCohortGridRow[];
+  /** Column sums: total collections per calendar year across every cohort. */
+  columnTotals: number[];
+  gdvTotal: number;
+  collectedTotal: number;
+  /** True when every row foots and the totals agree. */
+  ok: boolean;
+}
+
+/** A cent, in model units. Anything under this is float noise, not a defect. */
+const GRID_TOL = 0.005;
+
+export function buildSaleCohortGrid(
+  asset: Asset,
+  phase: Phase | undefined,
+  projectStartYear: number,
+  yearLabels: number[],
+  projectDefault: number | undefined,
+  sell: {
+    cashVintageMatrix?: number[][];
+    presalesRevenuePerPeriod?: number[];
+    postSalesRevenuePerPeriod?: number[];
+    postSalesCashPerPeriod?: number[];
+  } | undefined,
+): SaleCohortGrid | null {
+  if (!sell?.cashVintageMatrix) return null;
+  const n = yearLabels.length;
+  const phaseStartYear = phase?.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
+  const cp = Math.max(0, phase?.constructionPeriods ?? 0);
+  const handoverYear = phaseStartYear + Math.max(0, cp - 1);
+
+  const pre = sell.presalesRevenuePerPeriod ?? [];
+  const post = sell.postSalesRevenuePerPeriod ?? [];
+  const postCash = sell.postSalesCashPerPeriod ?? [];
+
+  const rows: SaleCohortGridRow[] = [];
+  const columnTotals = new Array<number>(n).fill(0);
+
+  for (let s = 0; s < n; s++) {
+    const saleYear = projectStartYear + s;
+    const gdvPre = pre[s] ?? 0;
+    const gdvPost = post[s] ?? 0;
+    const gdv = gdvPre + gdvPost;
+    if (Math.abs(gdv) < GRID_TOL) continue;   // a year with no sale is not a cohort
+
+    // The engine's own cells for the pre-sales half. A POST-handover cohort has
+    // no vintage row (it never enters the matrix, by the long-standing
+    // operating-sales convention), so its cash is placed in its own sale year,
+    // which is exactly what the engine does with it.
+    const cells = new Array<number>(n).fill(0);
+    const vintage = sell.cashVintageMatrix[s] ?? [];
+    for (let c = 0; c < n; c++) cells[c] += vintage[c] ?? 0;
+    if (Math.abs(gdvPost) >= GRID_TOL) cells[s] += postCash[s] ?? gdvPost;
+
+    const dp = resolveDownpayment(asset.revenue?.sell?.downpaymentByPhase, s - (phaseStartYear - projectStartYear));
+    const hasOwn = hasAnyDownpayment(asset.revenue?.sell?.downpaymentByPhase);
+    const source: SaleCohortGridRow['downpaymentSource'] = hasOwn
+      ? (dp.source === 'set' ? 'set' : 'carried')
+      : (projectDefault !== undefined ? 'project_default' : 'not_set');
+    const downpayment = hasOwn ? dp.value : (projectDefault ?? 0);
+
+    const rowTotal = cells.reduce((a, b) => a + b, 0);
+    for (let c = 0; c < n; c++) columnTotals[c] += cells[c];
+
+    rows.push({
+      saleYear,
+      downpayment,
+      downpaymentSource: source,
+      gdv,
+      cells,
+      rowTotal,
+      checkResidue: rowTotal - gdv,
+      ok: Math.abs(rowTotal - gdv) < GRID_TOL,
+      paysInFull: saleYear >= handoverYear,
+    });
+  }
+
+  const gdvTotal = rows.reduce((a, r) => a + r.gdv, 0);
+  const collectedTotal = columnTotals.reduce((a, b) => a + b, 0);
+  return {
+    assetId: asset.id,
+    assetName: asset.name,
+    handoverYear,
+    yearLabels,
+    rows,
+    columnTotals,
+    gdvTotal,
+    collectedTotal,
+    ok: rows.every((r) => r.ok) && Math.abs(gdvTotal - collectedTotal) < GRID_TOL,
+  };
+}
+
+/** The caption, stating what the grid is and what the check column proves. */
+export function saleCohortGridCaption(grid: SaleCohortGrid): string {
+  return 'Rows are sale years, columns are the years that cohort pays. Each row is one cohort on its own terms: '
+    + `a downpayment in the year it sells and the balance in equal instalments, cut off at handover (${grid.handoverYear}). `
+    + `A cohort selling at or after handover pays in full in its own year. The check column is the row total less the cohort's `
+    + 'own gross development value, so every row must read zero.';
+}
