@@ -17,6 +17,7 @@
  */
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { formatLimit } from '@/src/shared/entitlements/moduleCatalog';
+import { signupContactFields, qualificationTone } from '@/src/shared/admin/signupProfile';
 import {
   resolveEffectiveFeatures,
   type ResolveFeature,
@@ -26,7 +27,7 @@ import {
 
 const PLATFORMS = [{ slug: 'real-estate', label: 'Real Estate (REFM)' }];
 
-interface FullUser { id: string; email: string; name: string | null; subscription_plan: string; subscription_status: string; trial_ends_at: string | null; company?: string | null; job_title?: string | null; works_in_real_estate?: boolean | null; real_estate_role_note?: string | null }
+interface FullUser { id: string; email: string; name: string | null; subscription_plan: string; subscription_status: string; trial_ends_at: string | null; company?: string | null; job_title?: string | null; phone?: string | null; city?: string | null; country?: string | null; created_at?: string | null; works_in_real_estate?: boolean | null; real_estate_role_note?: string | null }
 interface FeatureRow extends ResolveFeature { build_status?: string }
 interface SubscriptionInfo {
   source: 'paddle' | 'manual';
@@ -311,7 +312,13 @@ export function UserAccessPanel({ userId }: { userId: string }) {
           answers that justify a trial lived only on the request card and
           vanished the moment it was approved. Same two answers, same shared
           source, shown here permanently. The note renders in full. */}
-      {user && (user.company || user.job_title || user.works_in_real_estate !== undefined) && (
+      {/* Rendered whenever there is a user. It was gated on company /
+          job title / the qualification answer, which made sense while those
+          were the only three fields; the block now carries the contact details
+          and both timestamps, and an account always has at least an email and
+          a registration date. A block that vanished because one optional field
+          was blank would read as a fault. */}
+      {user && (
         <div
           data-testid="user-qualification"
           style={{
@@ -322,17 +329,34 @@ export function UserAccessPanel({ userId }: { userId: string }) {
           <div style={{ fontSize: 12, fontWeight: 800, color: '#0D2E5A', marginBottom: 8, letterSpacing: '0.03em' }}>
             SIGNUP PROFILE
           </div>
-          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 12.5, color: '#334155' }}>
-            <div><span style={{ color: '#64748b' }}>Company: </span><strong>{user.company || 'not given'}</strong></div>
-            <div><span style={{ color: '#64748b' }}>Job title: </span><strong>{user.job_title || 'not given'}</strong></div>
+          {/* The field list comes from the SHARED builder, which is the same
+              one the pending trial request card renders. The decision screen
+              and the record screen showing different things about the same
+              person is exactly the divergence this avoids: there is one order,
+              one country resolution and one timestamp format, in one file. */}
+          <div style={{ display: 'flex', gap: '4px 18px', flexWrap: 'wrap', fontSize: 12.5, color: '#334155' }}>
+            {signupContactFields({
+              email: user.email,
+              phone: user.phone,
+              city: user.city,
+              country: user.country,
+              company: user.company,
+              jobTitle: user.job_title,
+              registeredAt: user.created_at,
+            }).map((f) => (
+              <div key={f.label}>
+                <span style={{ color: '#64748b' }}>{f.label}: </span>
+                <strong>{f.value || 'not given'}</strong>
+              </div>
+            ))}
             <div>
               <span style={{ color: '#64748b' }}>Real estate: </span>
               <strong style={{
-                color: user.works_in_real_estate === true ? '#166534'
-                  : user.works_in_real_estate === false ? '#92400e' : '#64748b',
+                color: qualificationTone(user.works_in_real_estate) === 'yes' ? '#166534'
+                  : qualificationTone(user.works_in_real_estate) === 'no' ? '#92400e' : '#64748b',
               }}>
-                {user.works_in_real_estate === true ? 'Yes, actively working in it'
-                  : user.works_in_real_estate === false ? 'No'
+                {qualificationTone(user.works_in_real_estate) === 'yes' ? 'Yes, actively working in it'
+                  : qualificationTone(user.works_in_real_estate) === 'no' ? 'No'
                     : 'Not asked'}
               </strong>
             </div>

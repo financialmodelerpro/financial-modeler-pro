@@ -31,7 +31,11 @@ export async function GET(req: NextRequest) {
   // the panel still loads pre-migration.
   // Qualification answers are mig 216. Same ladder, widest first, so the panel
   // still loads on a database where either migration has not landed.
-  const USER_BASE = 'id, email, name, role, subscription_plan, subscription_status, trial_ends_at';
+  // phone / city / country / created_at predate both ladders (migs 002 and
+  // 027), so they belong in the BASE select: they cannot be the reason a wider
+  // select fails, and putting them higher up would mean a database missing mig
+  // 172 lost the contact block for no reason.
+  const USER_BASE = 'id, email, name, role, subscription_plan, subscription_status, trial_ends_at, phone, city, country, created_at';
   const USER_PROFILE = `${USER_BASE}, company, job_title`;
   const USER_FULL = `${USER_PROFILE}, works_in_real_estate, real_estate_role_note`;
   let { data: user, error: uErr } = await sb

@@ -165,8 +165,15 @@ section('D. The qualification is stored, additive, and shown in both places');
   // ONE COPY. trial_requests already duplicates company and job_title; this
   // reads the user row through the existing join rather than adding a third.
   const reqRoute = stripComments(read('app/api/admin/trial-requests/route.ts'));
+  // Stated as the RELATIONSHIP rather than as the literal select string. The
+  // first version of this check pinned the exact column list, so widening the
+  // select for the contact block failed it while the rule it protects was
+  // never in question. What must stay true is that the two answers are read
+  // through the users(...) join and are NOT duplicated onto trial_requests,
+  // the way company and job_title already are.
   check('D: the card reads the answers from the USER row, not a second copy',
-    reqRoute.includes('users(email, name, works_in_real_estate, real_estate_role_note)'));
+    /users\([^)]*works_in_real_estate[^)]*real_estate_role_note[^)]*\)/.test(reqRoute)
+    && !/trial_requests[\s\S]{0,400}?insert[\s\S]{0,200}?works_in_real_estate/.test(reqRoute));
   check('D: and the queue survives a database without the migration',
     reqRoute.includes('NARROW') && /works_in_real_estate\|real_estate_role_note/.test(reqRoute));
 
@@ -206,6 +213,86 @@ section('E. The Training Hub is deliberately untouched');
     !trainingForm.includes("from '@/app/modeling/register/RegisterForm'"));
   check('E: and still asks for no company or job title',
     !trainingForm.includes('job_title') && !/setCompany/.test(trainingForm));
+}
+
+section('F. The trial request card carries the whole person');
+
+{
+  // WHY THIS SECTION EXISTS. An approval is a judgement about a person, and it
+  // was being made from an email address, a company and a free-text note.
+  // Everything else the registrant typed was already in the database and was
+  // simply not selected, so an admin had to leave the queue and look the
+  // person up to answer "who is this, and when did they sign up".
+
+  const route = stripComments(read('app/api/admin/trial-requests/route.ts'));
+  const card = stripComments(read('app/admin/plans/page.tsx'));
+  const shared = stripComments(read('src/shared/admin/signupProfile.ts'));
+  const panel = stripComments(read('src/components/admin/UserAccessPanel.tsx'));
+  const userRoute = stripComments(read('app/api/admin/entitlements/user/route.ts'));
+
+  // The route must actually ASK for the fields. A card cannot render a column
+  // that was never selected, and that is exactly how these came to be missing.
+  for (const col of ['phone', 'city', 'country']) {
+    check(`F: the trial request select asks for ${col}`,
+      new RegExp(`CONTACT = '[^']*\\b${col}\\b`).test(route));
+  }
+  check('F: and for the user OWN created_at, which is the registration time',
+    /CONTACT = '[^']*\bcreated_at\b/.test(route));
+  // Both selects carry it, or the schema fallback silently drops the whole
+  // contact block on a database missing mig 216.
+  check('F: the narrow fallback carries the same contact block',
+    /NARROW = `[^`]*\$\{CONTACT\}/.test(route) && /WIDE = `[^`]*\$\{CONTACT\}/.test(route));
+  // The retry must still test ONLY the two mig-216 columns. Widening it to the
+  // contact columns would let a genuinely missing column downgrade the queue.
+  check('F: the schema retry still tests only the two mig-216 columns',
+    /works_in_real_estate\|real_estate_role_note/.test(route)
+    && !/phone\|city/.test(route) && !/city\|country/.test(route));
+
+  // The card renders them.
+  check('F: the card renders a contact block', card.includes('trial-request-contact-'));
+  for (const label of ['Phone', 'City', 'Country', 'Registered', 'Requested']) {
+    check(`F: the card labels ${label}`, new RegExp(`'${label}'`).test(card));
+  }
+  // The two timestamps are DIFFERENT quantities. Rendering the request time
+  // twice under two labels would look complete and be wrong.
+  check('F: Registered reads the USER row and Requested reads the REQUEST row',
+    /\['Registered', formatAdminStamp\(r\.users\?\.created_at\)\]/.test(card)
+    && /\['Requested', formatAdminStamp\(r\.created_at\)\]/.test(card));
+  check('F: the name leads the card', /r\.users\?\.name/.test(card));
+  // An absent value must be visibly absent, not a blank that reads as a fault.
+  check('F: an absent contact value renders a marker', /not given/.test(card));
+
+  // ONE IMPLEMENTATION. The decision screen and the record screen must not
+  // format the same person two different ways.
+  check('F: the shared signup profile builder exists',
+    shared.includes('export function signupContactFields('));
+  check('F: the user record renders from the shared builder',
+    panel.includes('signupContactFields('));
+  check('F: both screens take the qualification wording from the shared helper',
+    card.includes('qualificationLabel(') && panel.includes('qualificationTone('));
+  check('F: neither screen restates the three-state wording inline',
+    !card.includes("'NOT IN REAL ESTATE'") && !panel.includes("'NOT IN REAL ESTATE'"));
+  // The country rule is the shared resolver, not a second one.
+  check('F: country resolves through the shared country list',
+    shared.includes("from '@/src/core/countries'") && shared.includes('countryLabel('));
+  check('F: the timestamp is UTC and says so',
+    /UTC/.test(shared) && shared.includes('toISOString()'));
+  // Three states, not two: never asked is not the same as answered no.
+  check('F: the qualification keeps three states',
+    shared.includes("'unasked'") && /v === true/.test(shared) && /v === false/.test(shared));
+
+  // The user detail route must supply what the panel now renders.
+  check('F: the user detail select carries the contact block in its BASE select',
+    /USER_BASE = '[^']*\bphone\b[^']*\bcity\b[^']*\bcountry\b[^']*\bcreated_at\b/.test(userRoute));
+  // Contact columns predate both ladders, so they must NOT be what a fallback
+  // gives up.
+  check('F: and the profile / full ladders still sit above it',
+    /USER_PROFILE = `\$\{USER_BASE\}, company, job_title`/.test(userRoute)
+    && /USER_FULL = `\$\{USER_PROFILE\}, works_in_real_estate, real_estate_role_note`/.test(userRoute));
+
+  // The block must not vanish because one optional field happens to be blank.
+  check('F: the signup profile block renders whenever there is a user',
+    panel.includes('{user && ('));
 }
 
 // ---------------------------------------------------------------------------

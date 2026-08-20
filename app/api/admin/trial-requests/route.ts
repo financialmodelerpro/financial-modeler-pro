@@ -40,8 +40,20 @@ export async function GET() {
     .eq('status', 'pending')
     .order('created_at', { ascending: true });
 
-  const NARROW = 'id, user_id, status, company, job_title, created_at, users(email, name)';
-  const WIDE = 'id, user_id, status, company, job_title, created_at, users(email, name, works_in_real_estate, real_estate_role_note)';
+  // The contact block (phone / city / country) and the user's OWN created_at
+  // sit in BOTH selects: those columns predate this work (migs 027 and 172), so
+  // they cannot be what makes the wide select fail. Only the two mig-216
+  // columns are in question, which is why the retry below tests for exactly
+  // those two names and nothing else.
+  //
+  // `users(created_at)` is the REGISTRATION time. It is a different quantity
+  // from the request's own created_at, which is when they asked for a trial.
+  // Both are shown on the card and both are labelled, because "signed up three
+  // weeks ago, asked today" and "signed up today, asked today" are different
+  // requests.
+  const CONTACT = 'email, name, phone, city, country, created_at';
+  const NARROW = `id, user_id, status, company, job_title, created_at, users(${CONTACT})`;
+  const WIDE = `id, user_id, status, company, job_title, created_at, users(${CONTACT}, works_in_real_estate, real_estate_role_note)`;
 
   let { data, error } = await run(WIDE);
   if (error && /works_in_real_estate|real_estate_role_note/.test(error.message)) {

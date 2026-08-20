@@ -19,6 +19,8 @@ import { PlanMatrix, type MatrixFeature, type MatrixPlan, type CellValue } from 
 import { CouponManager } from './CouponManager';
 import { formatLimit } from '@/src/shared/entitlements/moduleCatalog';
 import { CREDIBILITY_SECTION, CREDIBILITY_KEY, DEFAULT_CREDIBILITY_LINE } from '@/src/shared/entitlements/pricingPageSettings';
+import { countryLabel } from '@/src/core/countries';
+import { formatAdminStamp, qualificationLabel } from '@/src/shared/admin/signupProfile';
 
 const PLATFORMS = [{ slug: 'real-estate', label: 'Real Estate (REFM)' }];
 const cellKey = (planKey: string, featureKey: string) => `${planKey}::${featureKey}`;
@@ -45,7 +47,7 @@ export default function AdminPlansPage() {
   // the pending trial-request queue (only used when the toggle is on).
   const [trialApproval, setTrialApproval] = useState(false);
   const [savingApproval, setSavingApproval] = useState(false);
-  const [trialRequests, setTrialRequests] = useState<{ id: string; company: string | null; job_title: string | null; created_at: string; users: { email?: string; name?: string; works_in_real_estate?: boolean | null; real_estate_role_note?: string | null } | null }[]>([]);
+  const [trialRequests, setTrialRequests] = useState<{ id: string; company: string | null; job_title: string | null; created_at: string; users: { email?: string; name?: string; phone?: string | null; city?: string | null; country?: string | null; created_at?: string | null; works_in_real_estate?: boolean | null; real_estate_role_note?: string | null } | null }[]>([]);
 
   const showToast = useCallback((msg: string, type: 'success' | 'error') => {
     setToast({ msg, type });
@@ -366,8 +368,45 @@ export default function AdminPlansPage() {
                 {trialRequests.map((r) => (
                   <div key={r.id} data-testid={`trial-request-${r.id}`} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap', border: '1px solid #eef2f7', borderRadius: 7, padding: '8px 10px' }}>
                     <div style={{ flex: 1, minWidth: 240 }}>
-                      <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a' }}>{r.users?.email ?? r.id}</div>
+                      {/* NAME leads and the email sits under it. An approval is
+                          a judgement about a person, and "Ahmad Chaudhry" is
+                          what an admin recognises from a call or an inbox; the
+                          email is the identifier, not the identity. It falls
+                          back to the email, then to the row id, so the card
+                          always has a heading. */}
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a' }}>{(r.users?.name ?? '').trim() || r.users?.email || r.id}</div>
+                      {(r.users?.name ?? '').trim() && r.users?.email ? (
+                        <div style={{ fontSize: 11, color: '#475569' }}>{r.users.email}</div>
+                      ) : null}
                       <div style={{ fontSize: 11, color: '#64748b' }}>{[r.company, r.job_title].filter(Boolean).join(' - ') || 'no company/title on file'}</div>
+                      {/* CONTACT + TIMING (2026-08-20). Every field is rendered
+                          as "label value" rather than as bare text: a lone
+                          "Lahore" beside a lone "+92..." is guesswork, and an
+                          absent value has to be visibly absent rather than a
+                          gap that reads as a rendering fault.
+
+                          The two timestamps are DIFFERENT quantities and are
+                          labelled as such. Registered is users.created_at, which
+                          the widened select now carries; requested is the
+                          request row's own created_at, which was already here
+                          and was not being shown at all. */}
+                      <div
+                        data-testid={`trial-request-contact-${r.id}`}
+                        style={{ marginTop: 5, display: 'flex', flexWrap: 'wrap', gap: '2px 14px', fontSize: 11, color: '#475569' }}
+                      >
+                        {([
+                          ['Phone', (r.users?.phone ?? '').trim()],
+                          ['City', (r.users?.city ?? '').trim()],
+                          ['Country', countryLabel(r.users?.country)],
+                          ['Registered', formatAdminStamp(r.users?.created_at)],
+                          ['Requested', formatAdminStamp(r.created_at)],
+                        ] as Array<[string, string]>).map(([label, value]) => (
+                          <span key={label}>
+                            <span style={{ color: '#94a3b8' }}>{label}: </span>
+                            {value ? value : <span style={{ color: '#cbd5e1' }}>not given</span>}
+                          </span>
+                        ))}
+                      </div>
                       {/* QUALIFICATION (2026-08-20). The point of asking at
                           signup is that a request can be judged BEFORE it is
                           approved, so both answers sit next to the buttons.
@@ -385,9 +424,7 @@ export default function AdminPlansPage() {
                             background: r.users.works_in_real_estate === true ? '#DCFCE7'
                               : r.users.works_in_real_estate === false ? '#FEF3C7' : '#F1F5F9',
                           }}>
-                            {r.users.works_in_real_estate === true ? 'IN REAL ESTATE'
-                              : r.users.works_in_real_estate === false ? 'NOT IN REAL ESTATE'
-                                : 'NOT ASKED'}
+                            {qualificationLabel(r.users.works_in_real_estate)}
                           </span>
                           {r.users.real_estate_role_note ? (
                             <div style={{
