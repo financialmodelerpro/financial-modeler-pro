@@ -3,6 +3,45 @@
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
 ---
+## OPEN 2026-08-20: RE HUB's sell-asset cost base exceeds project cash capex by 917.7m
+
+**Found while re-verifying the Step 3 figures on request. PREDATES STEP 3, measured against the
+parent commit. Not touched. Belongs with the cost of sales pass below, because it is the same
+quantity seen from a different side.**
+
+On FMP RE HUB the three sell assets' cost of sales BASE sums to **4,479.195m** while the project's
+whole cash capex line in the direct cash flow statement is **3,561.520m**, a gap of **917.675m**. The
+sell assets alone therefore carry more cost than the entire project spends in cash.
+
+**What is NOT wrong.** Cost of sales equals its own base to the cent on every asset, on both live
+projects, so the CoS engine is internally consistent and is not over-charging:
+
+    Marina Residences     base   247.653m   charged   247.653m
+    Branded Apartments    base 1,912.533m   charged 1,912.533m
+    Residential Tower     base   659.889m   charged   659.889m
+    Branded Apartments    base 1,906.773m   charged 1,906.773m
+
+FMP - MARINA GATE has no such gap: CoS 247.653m against cash capex 372.381m plus IDC 41.002m.
+
+**It predates Step 3**, proven by running the same measurement against commit `7c5ab44a`: CoS
+4,416.813m against the identical 3,561.520m cash capex line, so the gap was 855.3m before the sale
+cohort switch and 917.7m after, and the movement is only the IDC the switch added. **Step 3 did not
+cause it.**
+
+**NOT DIAGNOSED, and no figure for the cause should be quoted until it is.** The likely source is
+cost capitalised into an asset that never appears in the forecast cash capex line: in-kind land, and
+RE HUB's pre-existing operational asset carrying historical pre-capex. Both would legitimately sit in
+an asset's carrying value while being absent from forward cash spend. That is a hypothesis, not a
+finding. A first probe for `landInKindPerPeriod` on the direct cash flow returned 0.000m, which is
+either genuinely zero or the wrong field name; it was not chased.
+
+**Where to start:** reconcile, per sell asset, the CoS base against that asset's own capex breakdown
+(cash + in-kind + historical + IDC). If the parts add up, the only defect is that no surface states
+the basis difference. If they do not, the base is wrong and every cost of sales figure on RE HUB is
+wrong with it.
+
+---
+
 ## OPEN 2026-08-19: TWO COST OF SALES ENGINES, WITH DIFFERENT BASES. Its own pass.
 
 **Found while diagnosing the Module 2 sale cohort restructure. Deliberately NOT folded into that
