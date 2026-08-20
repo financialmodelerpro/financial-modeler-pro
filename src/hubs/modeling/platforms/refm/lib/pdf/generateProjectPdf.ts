@@ -49,7 +49,7 @@ import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/cal
 import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsFeederTables, buildBsReconciliationRows, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisText, totalColumnHeading, totalColumnNote, resolveTotalColumnKind, TOTAL_COLUMN_HEADINGS, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, type M4FeederCtx } from '../reports/m4Reports';
 import { buildOpexReport } from '../reports/opexReports';
 import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup } from '../reports/streamReports';
-import { buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText } from '../reports/checksReport';
+import { buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
 import { evaluateCovenant, type CovenantInputs } from '../covenants';
 import { buildCapexReport } from '../reports/capexReports';
 import { buildFinancingScheduleTables, buildCashSweepTables } from '../reports/financingReports';
@@ -824,6 +824,14 @@ function checksTable(
   const advisories = state
     ? buildRevenueBasisAdvisoriesFor(state.assets, state.subUnits, snap.revenue)
     : [];
+  // Option B Step 3 (2026-08-20): a sell asset with no downpayment on itself
+  // and no project default to fall back on. Same NOTE treatment and the same
+  // reasoning: a missing input is not a broken identity, so it must not be
+  // coloured as a failed check, but it must be visible where the number is
+  // read and not only where it is entered.
+  const cohortAdvisories = state
+    ? buildSaleCohortAdvisories(state.assets, state.project.saleCohortDefaults?.downpayment, snap.revenue)
+    : [];
   return {
     title: 'Model Integrity Checks', kind: 'grid', align: 'data',
     columns: ['Check', 'Status', 'Residue', 'Detail'],
@@ -835,6 +843,10 @@ function checksTable(
       ...advisories.map((a) => row(
         ['Revenue basis, ' + a.assetName, 'NOTE', fmt.money(a.collections - a.gross),
           revenueBasisAdvisoryText(a, fmt.money)],
+      )),
+      ...cohortAdvisories.map((a) => row(
+        ['Downpayment not stated, ' + a.assetName, 'NOTE', fmt.money(a.saleValue),
+          saleCohortAdvisoryText(a, fmt.money)],
       )),
     ],
   };

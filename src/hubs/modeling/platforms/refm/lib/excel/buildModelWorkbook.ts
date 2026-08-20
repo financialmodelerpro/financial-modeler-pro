@@ -22,7 +22,7 @@ import { computeFinancialsSnapshot, computeFundingGap, type FinancialsResolverSt
 import { buildCapexReport, type CapexReport } from '../reports/capexReports';
 import { buildFinancingScheduleTables, buildCashSweepTables, type ReportTable } from '../reports/financingReports';
 import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup, m4StreamRow } from '../reports/streamReports';
-import { buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText } from '../reports/checksReport';
+import { buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildOpexReport } from '../reports/opexReports';
 import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, totalColumnHeading, totalColumnNote, TOTAL_COLUMN_HEADINGS, TOTAL_COLUMN_NOTES, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, FUND_CAPITAL_BASE_TAG, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
@@ -3739,6 +3739,20 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
     c2.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
     const d2 = ws.getCell(`D${r}`); d2.value = revenueBasisAdvisoryText(a, checkMoney); d2.numFmt = '@';
     d2.font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
+    r += 1;
+  }
+  // Option B Step 3 (2026-08-20): a sell asset with no downpayment on itself
+  // and no project default. NOTE, not OK or CHECK, for the same reason as the
+  // basis advisory above: a missing input is not a broken identity, and a
+  // check that cries wolf on correct arithmetic gets ignored.
+  for (const a of buildSaleCohortAdvisories(ctx.state.assets, ctx.state.project.saleCohortDefaults?.downpayment, snap.revenue)) {
+    setLabel(ws.getCell(`A${r}`), `Downpayment not stated, ${a.assetName}`);
+    const s3 = ws.getCell(`B${r}`); s3.value = 'NOTE'; s3.numFmt = '@';
+    s3.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+    const c3 = ws.getCell(`C${r}`); c3.value = a.saleValue; c3.numFmt = NUMFMT.money;
+    c3.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+    const d3 = ws.getCell(`D${r}`); d3.value = saleCohortAdvisoryText(a, checkMoney); d3.numFmt = '@';
+    d3.font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
     r += 1;
   }
   r += 1;

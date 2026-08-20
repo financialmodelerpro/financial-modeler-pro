@@ -40,6 +40,7 @@ import { computeAllSellResults, resolveSellConfig } from '../src/hubs/modeling/p
 import { buildCohortMatrix, columnSums } from '../src/core/calculations/revenue/cohort';
 import { buildSaleCohortProfile, instalmentCount, resolveDownpayment, hasAnyDownpayment } from '../src/core/calculations/revenue/cohortTerms';
 import { resolveCohortDownpayment, resolveAssetDownpaymentSource, buildEngineDownpaymentAxis } from '../src/hubs/modeling/platforms/refm/lib/state/saleCohortResolution';
+import { buildSaleCohortAdvisories } from '../src/hubs/modeling/platforms/refm/lib/reports/checksReport';
 import { buildSaleCohortTermsBlock, saleCohortRuleText } from '../src/hubs/modeling/platforms/refm/lib/reports/saleCohortReports';
 import { makeDefaultProject } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
@@ -759,6 +760,124 @@ section('J. OPTION B STEP 2: four states, and the asset always wins');
   check('J6: the screen calls the SHARED resolver, not its own copy',
     stripComments(screen).includes('resolveCohortDownpayment')
     && !stripComments(screen).includes('resolveDownpayment('));
+}
+
+// ---------------------------------------------------------------------------
+section('K. OPTION B STEP 3: blocked is visible where the number is consumed');
+
+{
+  const sellAsset = (id: string, name: string, dp: Array<number | null> | undefined) => ({
+    id, name, strategy: 'Sell', visible: true,
+    revenue: { sell: { assetId: id, subUnits: [], downpaymentByPhase: dp } },
+  });
+  const revenueOf = (ids: string[]) => ({
+    bySellAsset: new Map(ids.map((id) => [id, {
+      presalesRevenuePerPeriod: [100, 200], postSalesRevenuePerPeriod: [50],
+    }])),
+  });
+
+  // K1. WHO IS BLOCKED. Nothing of its own AND no project default.
+  {
+    const assets = [sellAsset('a1', 'No terms', undefined), sellAsset('a2', 'Has terms', [0.2])];
+    const rev = revenueOf(['a1', 'a2']);
+    const none = buildSaleCohortAdvisories(assets as never, undefined, rev as never);
+    check('K1: an asset with nothing and no default is flagged',
+      none.length === 1 && none[0].assetId === 'a1');
+    check('K1: an asset with its own terms is NOT flagged', !none.some((a) => a.assetId === 'a2'));
+    check('K1: the flag carries the sale value at stake', none[0]?.saleValue === 350);
+
+    // A project default clears it. This is the whole point of Option B.
+    check('K1: setting a project default clears the flag',
+      buildSaleCohortAdvisories(assets as never, 0.2, rev as never).length === 0);
+    // Including a default of ZERO, which is a decision, unlike no default.
+    check('K1: a project default of ZERO also clears it, because it is a decision',
+      buildSaleCohortAdvisories(assets as never, 0, rev as never).length === 0);
+  }
+
+  // K2. WHO IS NOT IN SCOPE. A held asset has no sale cohorts to deposit
+  // against, and an asset the revenue engine does not resolve has nothing at
+  // stake, so neither may raise a warning a user cannot act on.
+  {
+    const held = [{ id: 'h1', name: 'Hotel', strategy: 'Operate', visible: true, revenue: { sell: { assetId: 'h1', subUnits: [] } } }];
+    check('K2: a held asset is never flagged',
+      buildSaleCohortAdvisories(held as never, undefined, revenueOf(['h1']) as never).length === 0);
+    check('K2: a hidden asset is never flagged',
+      buildSaleCohortAdvisories([{ ...sellAsset('x', 'Hidden', undefined), visible: false }] as never, undefined, revenueOf(['x']) as never).length === 0);
+    check('K2: a companion is never flagged',
+      buildSaleCohortAdvisories([{ ...sellAsset('c', 'Companion', undefined), isCompanion: true }] as never, undefined, revenueOf(['c']) as never).length === 0);
+    check('K2: an asset the revenue engine does not resolve is not flagged',
+      buildSaleCohortAdvisories([sellAsset('z', 'Unresolved', undefined)] as never, undefined, { bySellAsset: new Map() } as never).length === 0);
+  }
+
+  // K3. IT IS AN ADVISORY, NOT A FAILED IDENTITY. buildIntegrityChecks holds
+  // arithmetic that must be true or the model is broken; a missing input is
+  // not that, and a check that cries wolf on correct arithmetic gets ignored.
+  {
+    const src = read('src/hubs/modeling/platforms/refm/lib/reports/checksReport.ts');
+    const fnStart = src.indexOf('export function buildIntegrityChecks');
+    // Bound the slice to the FUNCTION, not a fixed character count: a fixed
+    // window ran past the end of it into the advisory added below and failed
+    // against correct code, which is the same shape as a grep that matches a
+    // symbol in a neighbouring docstring.
+    const nextExport = src.indexOf(String.fromCharCode(10) + 'export ', fnStart + 10);
+    const fnBody = src.slice(fnStart, nextExport > 0 ? nextExport : src.length);
+    check('K3: the integrity checks do NOT consult the downpayment',
+      !stripComments(fnBody).includes('downpayment') && !stripComments(fnBody).includes('SaleCohort'));
+  }
+
+  // K4. THE ENGINE STILL COMPUTES. Blocked says the model is incomplete; it
+  // does not refuse to produce a number, and it must not throw.
+  {
+    const project = { name: 'P', startDate: '2026-01-01', modelType: 'annual' } as unknown as Project;
+    const phase = { id: 'p1', name: 'P1', startDate: '2026-01-01', constructionPeriods: 4, operationsPeriods: 4, overlapPeriods: 0, status: 'planning' } as unknown as Phase;
+    const su = { id: 's1', assetId: 'a1', name: 'A', category: 'residential', metric: 'units', metricValue: 100, unitArea: 100, unitPrice: 1_000_000 } as unknown as SubUnit;
+    const asset = {
+      id: 'a1', phaseId: 'p1', name: 'Blocked', type: 'Residential', strategy: 'Sell', visible: true,
+      revenue: { sell: { assetId: 'a1',
+        subUnits: [{ subUnitId: 's1', preSalesVelocityByPhase: [0.5, 0.5], postSalesVelocityByPhase: [], preSalesVelocity: [], postSalesVelocity: [] }],
+        cashPaymentProfile: { percentages: [], profileMode: 'absolute_with_catchup' },
+        recognitionProfile: { method: 'point_in_time', pointInTimeYear: 'handover' },
+        indexation: { method: 'none' } } },
+    } as unknown as Asset;
+    let threw = false;
+    let collected = 0;
+    try {
+      const r = computeAllSellResults({ project, phases: [phase], assets: [asset], subUnits: [su] } as never).bySellAsset.get('a1');
+      collected = ((r as unknown as Record<string, number[]>)?.cashCollectedPerPeriod ?? []).reduce((x, v) => x + v, 0);
+    } catch { threw = true; }
+    check('K4: a blocked asset does not make the engine throw', !threw);
+    check('K4: and it still produces collections', collected > 0);
+  }
+
+  // K5. EVERY SURFACE READS THE SHARED BUILDER, so four surfaces cannot name
+  // different assets. The wording lives in one place too.
+  {
+    const pdf = read('src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf.ts');
+    const wb = read('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts');
+    const fin = read('src/hubs/modeling/platforms/refm/lib/financials-resolvers.ts');
+    const screen = read(SCREEN);
+    check('K5: the PDF renders it', pdf.includes('buildSaleCohortAdvisories') && pdf.includes('saleCohortAdvisoryText'));
+    check('K5: the workbook renders it', wb.includes('buildSaleCohortAdvisories') && wb.includes('saleCohortAdvisoryText'));
+    check('K5: the reconciliation carries it', fin.includes('buildSaleCohortAdvisories') && fin.includes('saleCohortAdvisoryIssue'));
+    check('K5: the screen names the blocked assets', screen.includes('m2-cohort-blocked-notice'));
+    check('K5: the screen resolves them through the shared function, not its own filter',
+      stripComments(screen).includes('resolveAssetDownpaymentSource'));
+    // The sentence must be declared ONCE. Two copies drift.
+    check('K5: no surface re-declares the advisory wording',
+      [pdf, wb, screen].every((src) => !/no downpayment is set on the asset and no project default/i.test(stripComments(src))));
+  }
+
+  // K6. IT IS A SCENARIO LEVER. A value that changes the funding requirement
+  // and cannot be offered as a scenario is silently unavailable, which is the
+  // failure shape the Module 7 template registry already cost this project.
+  {
+    const grid = read('src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid.ts');
+    check('K6: the project default is a curated lever', grid.includes("'saleCohortDefaults.downpayment'"));
+    check('K6: it has a plain-English label',
+      /'saleCohortDefaults\.downpayment': '[^']+'/.test(grid));
+    check('K6: and it is formatted as a percentage, not a raw fraction',
+      grid.split('PERCENT_FRACTION_LEAVES')[1]?.includes('saleCohortDefaults.downpayment') === true);
+  }
 }
 
 // ---------------------------------------------------------------------------

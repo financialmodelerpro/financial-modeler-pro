@@ -199,6 +199,16 @@ export default function Module2Revenue(): React.JSX.Element {
   // CLEARING RESTORES "NOT SET", which is a different state from zero and has
   // to be reachable, or a user who types a value can never get back to the
   // blocked state that tells them nothing has been chosen.
+  // Sell assets with no downpayment on themselves AND no project default.
+  // Resolved through the SAME shared function the engine, the reconciliation
+  // and both exports use, so the four surfaces cannot name different assets.
+  const blockedAssets = visibleAssets.filter((a) =>
+    (a.strategy === 'Sell' || a.strategy === 'Sell + Manage')
+    && a.revenue?.sell !== undefined
+    && resolveAssetDownpaymentSource(
+      a.revenue.sell.downpaymentByPhase, project.saleCohortDefaults?.downpayment,
+    ).kind === 'not_set');
+
   const clearProjectDefaultDownpayment = (): void => {
     const next = { ...(project.saleCohortDefaults ?? {}) };
     delete next.downpayment;
@@ -293,8 +303,24 @@ export default function Module2Revenue(): React.JSX.Element {
             </span>
           </div>
           <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 6, lineHeight: 1.5, maxWidth: 900 }}>
-            Stands in for an asset that carries no downpayment of its own. An asset with a downpayment on any sale year uses its own terms for every year and ignores this. <strong>Not set is not the same as zero:</strong> with neither this nor asset terms, a cohort has no stated deposit at all. <strong>This is stored but not yet read by the model;</strong> collections still resolve as they do today.
+            Stands in for an asset that carries no downpayment of its own. An asset with a downpayment on any sale year uses its own terms for every year and ignores this. <strong>Not set is not the same as zero:</strong> with neither this nor asset terms, a cohort has no stated deposit at all.
           </div>
+          {blockedAssets.length > 0 && (
+            <div
+              data-testid="m2-cohort-blocked-notice"
+              style={{
+                marginTop: 8, padding: '8px 10px', borderRadius: 'var(--radius-sm)',
+                background: 'var(--color-warning-pale, #fdf6e7)',
+                border: '1px solid var(--color-warning, #f59e0b)',
+                fontSize: 11, lineHeight: 1.5, color: 'var(--color-body)', maxWidth: 900,
+              }}
+            >
+              <strong style={{ color: 'var(--color-warning, #92400e)' }}>
+                No deposit is stated for {blockedAssets.length === 1 ? 'this asset' : `${blockedAssets.length} assets`}:
+              </strong>{' '}
+              {blockedAssets.map((a) => a.name).join(', ')}. Every sale cohort on {blockedAssets.length === 1 ? 'it' : 'them'} is computed as taking no deposit and collecting the whole value in instalments after the sale year, which raises the funding requirement. Set a downpayment on the asset, or a project default above. <strong>This also appears in the Financing reconciliation warnings and in the model checks in both exports.</strong>
+            </div>
+          )}
         </div>
       )}
 

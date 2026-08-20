@@ -84,6 +84,10 @@ const COST_LINE_LEVER_LABELS: Record<string, string> = {
 // ── Plain-English labels per entity-relative leaf field ─────────────────────
 const FIELD_LABELS: Record<string, string> = {
   'returns.discountRate': 'Discount rate',
+  // Option B Step 3 (2026-08-20). Registered as a lever deliberately: a value
+  // that changes the funding requirement and is NOT offerable as a scenario is
+  // silently unavailable, which is the shape this project keeps paying for.
+  'saleCohortDefaults.downpayment': 'Sale cohort downpayment (project default)',
   'returns.exitMultiple': 'Exit multiple',
   'returns.perpetuityGrowth': 'Perpetuity growth rate',
   'returns.exitYearOffset': 'Exit year (offset)',
@@ -129,6 +133,7 @@ export function isPerPeriodLever(field: string): boolean {
 
 const CURATED_LEAVES = new Set<string>([
   'returns.discountRate', 'returns.exitMultiple', 'returns.perpetuityGrowth',
+  'saleCohortDefaults.downpayment',
   // Tax / Zakat rate is intentionally NOT curated: it is constant across cases,
   // so it is noise in the assumptions grid. Still reachable via "Show all".
   'unitPrice', 'startingAdr',
@@ -147,6 +152,7 @@ const ACCOUNTING_LEAVES = new Set<string>([
 ]);
 const PERCENT_FRACTION_LEAVES = new Set<string>([
   'returns.discountRate', 'returns.perpetuityGrowth', 'tax.rate',
+  'saleCohortDefaults.downpayment',
   'statutoryReserve.transferRate', 'statutoryReserve.capOfShareCapital',
 ]);
 

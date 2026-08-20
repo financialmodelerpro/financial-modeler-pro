@@ -1,3 +1,4 @@
+import { resolveAssetDownpaymentSource } from '../state/saleCohortResolution';
 /**
  * checksReport.ts (2026-08-12)
  *
@@ -215,4 +216,79 @@ export function checkDetail(c: IntegrityCheck, yearLabels: readonly number[], mo
   return c.ok
     ? `worst period ${year}: ${ratio} of peak ${money(Math.abs(c.magnitude))}, within tolerance ${CHECK_REL_TOL.toExponential(0)}`
     : `worst period ${year}: ${ratio} of peak ${money(Math.abs(c.magnitude))}, OUTSIDE tolerance ${CHECK_REL_TOL.toExponential(0)}`;
+}
+
+/**
+ * NO DOWNPAYMENT STATED (2026-08-20, Option B Step 3).
+ *
+ * A sale cohort's downpayment comes from the asset, or failing that from the
+ * project default. With NEITHER, no deposit has been stated at all and every
+ * cohort is computed as taking none, which is the difference between a 234m
+ * funding requirement and a 1,032m one on a real project. It is reachable by
+ * doing nothing, so it must be visible where the number is CONSUMED and not
+ * only where it is entered.
+ *
+ * AN ADVISORY, NOT AN INTEGRITY CHECK, and deliberately so, for exactly the
+ * reason the revenue-basis advisory above is one: `buildIntegrityChecks` holds
+ * arithmetic identities that must be true or the model is broken. A missing
+ * input is not a broken identity. Reporting it as a failed check would turn the
+ * Checks tab red on a model whose arithmetic is perfect, and a check that cries
+ * wolf gets ignored, which would defeat the point.
+ *
+ * The engine still computes. Blocked means the model SAYS it is incomplete, not
+ * that it refuses to produce a number.
+ */
+export interface SaleCohortAdvisory {
+  assetId: string;
+  assetName: string;
+  /** Sale value at stake, so the reader can weigh it. */
+  saleValue: number;
+}
+
+/**
+ * Sell assets with no downpayment of their own AND no project default to fall
+ * back on. Empty when every asset resolves, which is the normal case, so a
+ * caller renders it unconditionally and shows nothing most of the time.
+ */
+export function buildSaleCohortAdvisories(
+  assets: ReadonlyArray<{
+    id: string; name: string; strategy?: string; visible?: boolean; isCompanion?: boolean;
+    revenue?: { sell?: { downpaymentByPhase?: Array<number | null> } };
+  }>,
+  projectDefault: number | undefined,
+  revenue: { bySellAsset: Map<string, {
+    presalesRevenuePerPeriod?: number[]; postSalesRevenuePerPeriod?: number[];
+  } | undefined> } | undefined,
+): SaleCohortAdvisory[] {
+  const out: SaleCohortAdvisory[] = [];
+  for (const a of assets) {
+    if (a.visible === false || a.isCompanion === true) continue;
+    if (a.strategy !== 'Sell' && a.strategy !== 'Sell + Manage') continue;
+    // Only an asset the revenue engine actually resolves can be at stake.
+    const r = revenue?.bySellAsset?.get(a.id);
+    if (!r) continue;
+    if (resolveAssetDownpaymentSource(a.revenue?.sell?.downpaymentByPhase, projectDefault).kind !== 'not_set') continue;
+    const sum = (s: number[] | undefined): number => (s ?? []).reduce((x, v) => x + (v ?? 0), 0);
+    out.push({
+      assetId: a.id,
+      assetName: a.name,
+      saleValue: sum(r.presalesRevenuePerPeriod) + sum(r.postSalesRevenuePerPeriod),
+    });
+  }
+  return out;
+}
+
+/** One sentence for any surface. Names the asset, the money at stake and the fix. */
+export function saleCohortAdvisoryText(
+  a: SaleCohortAdvisory,
+  money: (v: number) => string,
+): string {
+  return `${a.assetName}: no downpayment is set on the asset and no project default is set, so all `
+    + `${money(a.saleValue)} of sales is treated as taking no deposit and is collected in instalments `
+    + 'after the sale year. Set a downpayment on the asset, or a project default on Module 2 Revenue.';
+}
+
+/** The same thing as one short line, for a warnings list that has no money formatter. */
+export function saleCohortAdvisoryIssue(a: SaleCohortAdvisory): string {
+  return `${a.assetName}: no downpayment stated (no asset value and no project default), so every sale cohort is computed as taking no deposit`;
 }

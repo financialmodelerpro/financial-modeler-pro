@@ -2,6 +2,80 @@
 **Last updated: 2026-08-17. Lock status: M1 CLOSED 2026-08-17 (28 defects found in end-to-end use, all fixed and browser-verified; base lock unchanged at M2.0 Pass 58) + Parties tab (mig 190), M2 LOCKED (Pass 9N), M3 LOCKED (Pass 5d), M4 DONE, M5 DONE (Returns & RE Metrics + Lender Covenants + per-partner FCFE/DDM + M1-Parties link), M6 Scenario Analysis LIVE, M7 Reports LIVE (IC / Lender / One-Pager preview + PPT export, migs 191+192). Full verifier suite green via `npx tsx scripts/verify-*.ts`.**
 
 
+## 2026-08-20c: Option B Step 3. Blocked is visible where the number is consumed
+
+**Step 3 of three, closing Option B. NO NUMBER MOVES on either live project, proven stashed and
+re-run. The only difference anywhere is that RE HUB now says it is incomplete.**
+
+**AN ADVISORY, NOT A FAILED INTEGRITY CHECK, and the distinction is load-bearing.**
+`buildIntegrityChecks` holds arithmetic identities that must be true or the model is broken. A
+missing input is not a broken identity, and reporting it as a failed check would turn the Checks tab
+red on a model whose arithmetic is perfect. A check that cries wolf gets ignored, which would defeat
+the point. So it renders as **NOTE**, exactly like the 2026-08-16 revenue-basis advisory it is
+modelled on, and `verify-sale-cohort-inputs` K3 asserts the integrity checks never consult it.
+
+**THE ENGINE STILL COMPUTES.** Blocked means the model SAYS it is incomplete; it does not throw and
+it does not refuse a number (K4 proves both).
+
+**WHAT APPEARS, AND WHERE.**
+
+| Surface | FMP RE HUB | FMP - MARINA GATE |
+|---|---|---|
+| Module 2 Revenue banner | amber notice naming all 3 assets | nothing |
+| Module 1 Financing reconciliation | 2 issues -> **5** (3 added) | 0 issues, unchanged |
+| Checks report (both PDFs + workbook Checks tab) | 3 NOTE rows, one per asset, with the sale value at stake (2,822.03m / 928.91m / 2,658.02m) | no NOTE rows |
+| Integrity checks | all 3 still OK | all 3 still OK |
+
+RE HUB's other two reconciliation issues (facility shares 33.33, the period-0 drawdown mismatch) are
+**PRE-EXISTING and unrelated**, recorded long before this work, and they are still exactly 2 before
+the change.
+
+**ONE SHARED BUILDER**, `buildSaleCohortAdvisories` + `saleCohortAdvisoryText` +
+`saleCohortAdvisoryIssue` in `lib/reports/checksReport.ts`, resolving through the SAME
+`resolveAssetDownpaymentSource` the screen and the engine use, so four surfaces cannot name different
+assets. K5 asserts no surface re-declares the wording.
+
+**Appended to the reconciliation at the COMPOSER, not inside `reconcile()`**, which is a pure
+arithmetic identity check over capex, funding and facilities with no revenue in scope. The composer
+has both, so the pure function stays pure and the warning still reaches the panel a user already
+watches.
+
+**Held assets, hidden assets, companions and assets the revenue engine does not resolve are never
+flagged** (K2), because a warning a user cannot act on is noise.
+
+**A PROJECT DEFAULT OF ZERO CLEARS THE FLAG** and no default at all does not. One is a decision, the
+other is an absence, which is the distinction the whole of Option B exists to preserve.
+
+**MODULE 6 LEVER.** `saleCohortDefaults.downpayment` is registered as a curated lever with a
+plain-English label and percentage formatting. A value that changes the funding requirement and
+cannot be offered as a scenario is silently unavailable, which is the failure shape the Module 7
+template registry already cost this project.
+
+**PROVEN INERT.** Stashed to the Step 2 code and re-run: collections per year and in total, funding
+requirement, peak debt, cost of sales, profit after tax and `|Assets - L&E|` are identical on both
+projects. MARINA GATE 626,802,766.02 / 238.452m / 193.412m / 247.653m / 446.187m / 0.00; RE HUB
+6,408,964,785.00 / 1,032.419m / 2,789.627m / 4,479.195m / 2,675.395m / 0.00. The ONLY delta in the
+whole comparison is RE HUB's reconciliation issue count, 2 -> 5.
+
+`verify-sale-cohort-inputs` **156 -> 177**, new section K. Teeth proven by two sabotages, each
+CONFIRMED to have landed inside the intended function by checking the injected symbol's offset
+against that function's own range before trusting the result: the advisory ignoring the project
+default (2 failures) and the advisory promoted into `buildIntegrityChecks` (1).
+
+**A check of mine that failed against correct code**, worth recording because it is the same shape as
+a grep matching a symbol in a neighbouring docstring: K3 sliced a FIXED 3000 characters from
+`buildIntegrityChecks` to assert the downpayment is absent from it, and that window ran past the end
+of the function into the new advisory below. Bounded to the next `export` instead.
+
+**A BASELINE THAT MOVED UNDER ME, and it was not code.** MARINA GATE's profit after tax reads
+446.187m here against 424.819m quoted during restructure Step 3. Nothing in Options B moved it: the
+user set the downpayment terms (10 / 15 / 25 / 30) on that project in between, and version v2 is
+rewritten IN PLACE, so the snapshot changed under a figure I had already published. TRAPS 5.1
+exactly, and the reason a before/after must be taken at one instant.
+
+**Option B is COMPLETE. Restructure Steps 4 and 5 remain untouched** (render the cohort grid;
+closing inventory area and the roll-forward presentations).
+
 ## 2026-08-20b: Option B Step 2. Four states, resolved once, and the asset always wins
 
 **Step 2 of three. Moves nothing while every project default is unset, proven byte for byte on both

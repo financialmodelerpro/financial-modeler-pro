@@ -12,6 +12,7 @@
  * the asset-filter logic and the strategy-grouping in one place.
  */
 
+import { buildSaleCohortAdvisories, saleCohortAdvisoryIssue } from './reports/checksReport';
 import {
   computeAllSellResults,
   computeAssetCapex,
@@ -1610,6 +1611,30 @@ function computeFinancialsSnapshotOnce(
     // the swept balance. Fed by the snapshot two-pass (deriveCircularInputs).
     sweepBudget: opts?.sweepBudget,
   });
+
+  // NO DOWNPAYMENT STATED (2026-08-20, Option B Step 3). Appended to the
+  // financing reconciliation HERE rather than inside `reconcile()`, which is a
+  // pure arithmetic identity check over capex, funding and facilities and has
+  // no revenue in scope. This is the composer, where both are available, so
+  // the pure function stays pure and the warning still reaches the panel a
+  // user already watches for "something is wrong with this model".
+  //
+  // The engine still computes. This says the model is INCOMPLETE, it does not
+  // refuse to produce a number.
+  {
+    const blocked = buildSaleCohortAdvisories(
+      assets, project.saleCohortDefaults?.downpayment, revenue,
+    );
+    if (blocked.length > 0) {
+      financing.reconciliation = {
+        ok: false,
+        issues: [
+          ...financing.reconciliation.issues,
+          ...blocked.map(saleCohortAdvisoryIssue),
+        ],
+      };
+    }
+  }
 
   const N = revenue.axisLength;
   const projectStartYear = revenue.projectStartYear;
