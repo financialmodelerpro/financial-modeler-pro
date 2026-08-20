@@ -104,17 +104,42 @@ section('C. KSA-first defaults, which restrict nothing');
   check('C: the city placeholder reads Riyadh', form.includes('placeholder="Riyadh"'));
   check('C: the country defaults to Saudi Arabia', form.includes("useState('SA')"));
 
-  // A SELECTED VALUE, not free text, and backed by the ONE country list.
-  check('C: the country field is backed by a list', form.includes('list="register-country-list"'));
-  check('C: rendered from the shared COUNTRIES constant',
-    form.includes('COUNTRIES.map') && form.includes("from '@/src/core/countries'"));
-  check('C: it does NOT declare a second country list of its own',
+  // A REAL COMBOBOX (2026-08-20), replacing the <datalist>, whose popup is
+  // browser-owned: on some browsers typing JUMPED to the first match instead
+  // of filtering. The checks moved with the implementation: the field is the
+  // shared CountryCombobox, which itself imports the ONE country list.
+  const combo = stripComments(read('src/shared/components/CountryCombobox.tsx'));
+  check('C: the country field is the shared combobox',
+    form.includes('<CountryCombobox') && form.includes("from '@/src/shared/components/CountryCombobox'"));
+  check('C: the datalist is gone', !form.includes('register-country-list'));
+  check('C: the combobox reads the ONE country list',
+    combo.includes("from '@/src/core/countries'") && !/const\s+COUNTRIES\s*[:=]/.test(combo));
+  check('C: neither file declares a second country list',
     !/const\s+COUNTRIES\s*[:=]/.test(form));
+  check('C: typing filters on ANY part of the name, case insensitive',
+    combo.includes('.toLowerCase().includes(q)'));
+  check('C: arrows move, Enter selects the highlighted entry, Escape closes',
+    combo.includes("'ArrowDown'") && combo.includes("'ArrowUp'")
+    && combo.includes('select(filtered[Math.min(highlight, filtered.length - 1)].name)')
+    && combo.includes("'Escape'"));
+  check('C: clicking the field opens the full list with no typing',
+    combo.includes('onClick={() => setOpen(true)}') && combo.includes("q === '' ? COUNTRIES"));
+  check('C: the signin register tab uses the same combobox',
+    stripComments(read('app/modeling/signin/SignInForm.tsx')).includes('<CountryCombobox'));
 
-  // EXISTING FREE TEXT MUST KEEP WORKING. Live rows hold 'Pakistan' and
-  // 'Saudi Arabia', not codes, so the display resolves both forms.
+  // STORAGE IS UNCHANGED: a recognised pick stores the code, free text is
+  // kept verbatim, which is what keeps every existing stored value working.
   check('C: the stored value is resolved through the shared helpers',
-    form.includes('countryLabel(') && form.includes('resolveCountryCode('));
+    combo.includes('resolveCountryCode(name) ?? name') && combo.includes('countryLabel(value)'));
+  check('C: unrecognised free text is kept, not discarded',
+    combo.includes('resolveCountryCode(prev) ?? prev'));
+
+  // The phone code selector got the arrow keys it lacked.
+  const phone = stripComments(read('src/shared/components/PhoneInput.tsx'));
+  check('C: the phone code selector has arrow-key navigation',
+    phone.includes("'ArrowDown'") && phone.includes('filtered[Math.min(highlight, filtered.length - 1)].code'));
+  check('C: and its highlight is visible and mouse-tracked',
+    phone.includes('i === highlight') && phone.includes('onMouseEnter={() => setHighlight(i)}'));
   {
     // Behavioural, not a grep: the helpers must round-trip a stored NAME.
     const countries = read('src/core/countries.ts');

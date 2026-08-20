@@ -1,5 +1,6 @@
 'use client';
 
+import CountryCombobox from '@/src/shared/components/CountryCombobox';
 import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -382,10 +383,14 @@ function ModelingSignInInner() {
                     </div>
                     <div>
                       <label style={labelStyle}>COUNTRY <span style={{ color: '#DC2626' }}>*</span></label>
-                      <input type="text" required value={country} onChange={e => setCountry(e.target.value)}
-                        placeholder="United States" style={inputStyle}
-                        onFocus={e => { e.currentTarget.style.borderColor = BLUE; }}
-                        onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
+                      <CountryCombobox
+                        value={country}
+                        onChange={setCountry}
+                        required
+                        inputStyle={inputStyle}
+                        placeholder="United States"
+                        testid="signin-register-country"
+                      />
                     </div>
                   </div>
                   <div>

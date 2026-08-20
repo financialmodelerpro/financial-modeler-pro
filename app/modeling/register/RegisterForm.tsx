@@ -5,7 +5,7 @@
 // App Router rejects named function exports from page modules). This standalone
 // page shows only the signup form - no tab switcher needed.
 
-import { COUNTRIES, countryLabel, resolveCountryCode } from '@/src/core/countries';
+import CountryCombobox from '@/src/shared/components/CountryCombobox';
 import React, { useState, useRef, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 // Navbar now rendered by server page.tsx via NavbarServer
@@ -276,7 +276,11 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProp
                   </div>
                   <div>
                     <label style={labelStyle}>COUNTRY <span style={{ color: '#DC2626' }}>*</span></label>
-                    {/* A SELECTED VALUE, NOT FREE TEXT. Type to filter, pick
+                    {/* A REAL COMBOBOX (2026-08-20), replacing the <datalist>, whose
+                        popup is browser-owned and on some browsers behaves like a
+                        native select (typing jumped to the first match instead of
+                        filtering). Typing now filters on ANY part of the name, arrows
+                        move, Enter selects, Escape closes, and a click opens the full
                         from the list. Backed by the SAME `COUNTRIES` list the
                         project country field uses (src/core/countries.ts, 249
                         entries), so there is one country list in the codebase
@@ -287,19 +291,15 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProp
                         ("Pakistan", "Saudi Arabia") keep working, because
                         `countryLabel` resolves a stored name as readily as a
                         stored code. */}
-                    <input
-                      type="text" required list="register-country-list"
-                      value={countryLabel(country)}
-                      onChange={(e) => {
-                        const code = resolveCountryCode(e.target.value);
-                        setCountry(code ?? e.target.value);
-                      }}
-                      placeholder="Saudi Arabia" style={inputStyle} data-testid="register-country"
-                      onFocus={e => { e.currentTarget.style.borderColor = BLUE; }}
-                      onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
-                    <datalist id="register-country-list">
-                      {COUNTRIES.map((c) => <option key={c.code} value={c.name} />)}
-                    </datalist>
+                    <CountryCombobox
+                      value={country}
+                      onChange={setCountry}
+                      required
+                      accentColor={BLUE}
+                      inputStyle={inputStyle}
+                      placeholder="Saudi Arabia"
+                      testid="register-country"
+                    />
                   </div>
                 </div>
 

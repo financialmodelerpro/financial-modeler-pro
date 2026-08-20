@@ -85,6 +85,10 @@ export function PhoneInput({
 }: PhoneInputProps) {
   const [open,   setOpen]   = useState(false);
   const [search, setSearch] = useState('');
+  // Arrow-key position in the FILTERED list (2026-08-20). Enter used to
+  // take the first match with no way to move; now arrows move, Enter takes
+  // the highlighted entry.
+  const [highlight, setHighlight] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const searchRef    = useRef<HTMLInputElement>(null);
   const listRef      = useRef<HTMLDivElement>(null);
@@ -115,6 +119,12 @@ export function PhoneInput({
     if (open) setTimeout(() => searchRef.current?.focus(), 10);
   }, [open]);
 
+  useEffect(() => { setHighlight(0); }, [search]);
+
+  useEffect(() => {
+    listRef.current?.querySelector<HTMLElement>(`[data-idx="${highlight}"]`)?.scrollIntoView({ block: 'nearest' });
+  }, [highlight]);
+
   function handleSelect(code: string) {
     onCodeChange(code);
     setOpen(false);
@@ -122,10 +132,12 @@ export function PhoneInput({
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === 'Escape') { setOpen(false); setSearch(''); }
+    if (e.key === 'Escape') { setOpen(false); setSearch(''); setHighlight(0); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setHighlight((h) => Math.min(h + 1, filtered.length - 1)); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); setHighlight((h) => Math.max(h - 1, 0)); }
     if (e.key === 'Enter' && filtered.length > 0) {
       e.preventDefault();
-      handleSelect(filtered[0].code);
+      handleSelect(filtered[Math.min(highlight, filtered.length - 1)].code);
     }
   }
 
@@ -213,21 +225,22 @@ export function PhoneInput({
           <div ref={listRef} style={{ overflowY: 'auto', maxHeight: 220 }}>
             {filtered.length === 0 ? (
               <div style={{ padding: '12px 14px', fontSize: 13, color: '#9CA3AF' }}>No results</div>
-            ) : filtered.map(c => (
+            ) : filtered.map((c, i) => (
               <button
                 key={c.code + c.label}
+                data-idx={i}
                 type="button"
                 onClick={() => handleSelect(c.code)}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8,
                   width: '100%', padding: '8px 12px',
-                  border: 'none', background: c.code === phoneCode ? '#EFF6FF' : 'transparent',
+                  border: 'none', background: i === highlight ? '#EFF6FF' : 'transparent',
                   cursor: 'pointer', textAlign: 'left',
                   fontSize: 13, fontFamily: "'Inter', sans-serif",
                   color: '#374151',
                 }}
-                onMouseEnter={e => { e.currentTarget.style.background = '#F9FAFB'; }}
-                onMouseLeave={e => { e.currentTarget.style.background = c.code === phoneCode ? '#EFF6FF' : 'transparent'; }}
+                onMouseEnter={() => setHighlight(i)}
+                
               >
                 <span style={{ fontSize: 16, flexShrink: 0 }}>{c.flag}</span>
                 <span style={{ color: '#6B7280', flexShrink: 0, minWidth: 36 }}>{c.code}</span>
