@@ -490,6 +490,39 @@ export interface Project {
     defaultHeldUntilYear?: number;
   };
   /**
+   * SALE COHORT DEFAULTS (2026-08-20, restructure Option B Step 1).
+   *
+   * STORED AND EDITABLE, READ BY NO ENGINE PATH YET.
+   *
+   * A sale cohort's downpayment is set per sale year on the asset. When an
+   * asset carries NOTHING, the engine used to resolve every cohort to a zero
+   * deposit, which is a large consequence reachable by doing nothing: it is
+   * what takes one live project's funding requirement from 234m to 1,032m.
+   * This is the project-wide default that stands in for an asset with no
+   * terms of its own.
+   *
+   * SEEDED TO NOTHING, deliberately. `undefined` means no default has been
+   * chosen, which is NOT the same as a default of zero, and an asset with
+   * neither its own terms nor a project default is BLOCKED and says so
+   * rather than quietly computing from a number nobody picked. Same
+   * distinction the per-year strip already makes between "not set" and a
+   * deliberate 0%.
+   *
+   * PER PROJECT, NOT PER PHASE, matching `escrow` above. Per-phase terms
+   * would be an additive change if a real deal ever needs them.
+   *
+   * THE DEFAULT APPLIES PER ASSET, NOT PER YEAR: an asset holding a
+   * downpayment on ANY sale year governs every one of its years through its
+   * own forward fill, and this default is never consulted for it. Filling
+   * individual blank years from here would interleave two sources inside one
+   * strip and make a row unreadable.
+   */
+  saleCohortDefaults?: {
+    /** Downpayment as a FRACTION of the cohort's sale value (0.20 = 20%),
+     *  matching the per-asset strip. Absent means no default is set. */
+    downpayment?: number;
+  };
+  /**
    * M4 Pass 2a (2026-05-20): project-wide Accounts Payable defaults.
    * Drives DPO-based AP roll-forward on all opex (per-asset + HQ).
    * Per-asset override lives on Asset.opex.apDaysOverride.

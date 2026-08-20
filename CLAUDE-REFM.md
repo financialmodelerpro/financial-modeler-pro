@@ -2,6 +2,58 @@
 **Last updated: 2026-08-17. Lock status: M1 CLOSED 2026-08-17 (28 defects found in end-to-end use, all fixed and browser-verified; base lock unchanged at M2.0 Pass 58) + Parties tab (mig 190), M2 LOCKED (Pass 9N), M3 LOCKED (Pass 5d), M4 DONE, M5 DONE (Returns & RE Metrics + Lender Covenants + per-partner FCFE/DDM + M1-Parties link), M6 Scenario Analysis LIVE, M7 Reports LIVE (IC / Lender / One-Pager preview + PPT export, migs 191+192). Full verifier suite green via `npx tsx scripts/verify-*.ts`.**
 
 
+## 2026-08-20a: Option B Step 1. A project-wide downpayment default, stored and inert
+
+**Step 1 of three, after a diagnosis that was approved. Moves no number, proven on both live
+projects across four default values.**
+
+**THE PROBLEM IT EXISTS FOR.** A sale cohort's downpayment is set per sale year on the asset. An
+asset carrying NOTHING resolved every cohort to a zero deposit, which is a large consequence
+reachable by doing nothing: it is what takes FMP RE HUB's funding requirement from 234.301m to
+1,032.419m. Amber text on the input was not enough, because the number is consumed a long way from
+where it is entered.
+
+**`Project.saleCohortDefaults.downpayment`**, beside `Project.escrow`, which is the precedent in
+every respect: project-wide default, per-asset override, **snapshot-only jsonb so NO MIGRATION**. The
+v8 rebuild does `{ ...makeDefaultProject(), ...legacyProject }`, so the field survives the legacy
+path rather than meeting a whitelist (TRAPS 7.16).
+
+**SEEDED TO NOTHING, deliberately.** `undefined` is not `0`. A default of zero is a stated decision;
+no default at all means nothing has been chosen, and an asset with neither its own terms nor a
+project default will be BLOCKED at Step 3 rather than quietly computing from a number nobody picked.
+The input renders dashed amber and reads "not set", and a **Clear** button restores that state, or a
+user who types a value could never get back to it.
+
+**PER PROJECT, NOT PER PHASE**, matching escrow; per-phase would be additive if a real deal needs it.
+**AND PER ASSET, NOT PER YEAR:** an asset holding a downpayment on ANY sale year governs every one of
+its years through its own forward fill, and the default is never consulted for it. Filling individual
+blank years from the project would interleave two sources inside one strip and make a row unreadable.
+
+**Placement note:** the plan said "Project & Phases beside the escrow defaults". The escrow project
+defaults are in fact on the Module 2 Escrow tab, not Project & Phases, so the faithful reading put
+this at the top of Module 2 Revenue, in the same module as the per-asset terms it defaults.
+
+**PROVEN TO MOVE NOTHING.** On both live projects, with the default set to 0%, 20%, 75% and 100% in
+turn, collections per year, funding requirement, peak debt, cost of sales and profit after tax are
+ALL IDENTICAL, worst per-year difference 0.000000. Baselines unchanged: MARINA GATE 626,802,766.02 /
+238.452m / 193.412m / 247.653m; RE HUB 6,408,964,785.00 / 1,032.419m / 2,789.627m / 4,479.195m;
+`|Assets - L&E|` 0.00 on both.
+
+`verify-sale-cohort-inputs` **116 -> 129**, new section I. Teeth proven by a sabotage that makes the
+mapper read the field (1 failure). **A FIRST ATTEMPT AT THAT SABOTAGE WAS VACUOUS**: the perl
+substitution silently did not apply, the suite passed, and it would have read as proof. Caught by
+grepping for the injected symbol and finding zero occurrences (TRAPS 10). Always confirm a sabotage
+landed before trusting that it passed.
+
+**One existing check had to be narrowed, not deleted.** Section D asserted the screen no longer says
+"not yet applied" anywhere; the new project-default band correctly says exactly that ABOUT ITSELF, and
+a screen-wide scan cannot tell the two apart. It now matches the specific retired sentences.
+
+**Steps 2 and 3 not started:** resolution through `inheritance.ts` in the mapper plus the fourth
+state on the strip (Step 2), then the blocked state wired to the reconciliation warnings and the
+shared checks report, and the Module 6 scenario lever (Step 3). **Restructure Steps 4 and 5 remain
+untouched.**
+
 ## 2026-08-19k: sale cohort restructure, Step 3. The rule is live, and numbers moved
 
 **Step 3 of five. THIS IS THE STEP THAT MOVES MONEY, deliberately. Measured before and after on both

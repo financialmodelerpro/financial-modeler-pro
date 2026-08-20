@@ -40,6 +40,7 @@ import { computeAllSellResults, resolveSellConfig } from '../src/hubs/modeling/p
 import { buildCohortMatrix, columnSums } from '../src/core/calculations/revenue/cohort';
 import { buildSaleCohortProfile, instalmentCount, resolveDownpayment, hasAnyDownpayment } from '../src/core/calculations/revenue/cohortTerms';
 import { buildSaleCohortTermsBlock, saleCohortRuleText } from '../src/hubs/modeling/platforms/refm/lib/reports/saleCohortReports';
+import { makeDefaultProject } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
 import type { Asset, Phase, Project, SubUnit } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
@@ -247,8 +248,12 @@ section('D. The retired input is retired, and every surface says so');
     !/testidPrefix=\{`m2-cash-\$\{asset\.id\}`\}/.test(screen));
   check('D: and it says the profile is superseded',
     /superseded/i.test(screen) && /No longer used/i.test(screen));
-  check('D: the cohort section no longer claims it is not applied',
-    !/not yet (applied|used)/i.test(screen));
+  // SCOPED TO THE COHORT TERMS SECTION, not the whole screen. The project
+  // default band added by Option B Step 1 correctly says 'Not yet applied'
+  // about ITSELF, and a screen-wide scan cannot tell the two apart.
+  check('D: the cohort terms section no longer claims it is not applied',
+    !/These (inputs|terms) are stored but not yet (applied|used)/i.test(screen)
+    && !/Collections still follow the cash payment profile above/i.test(screen));
   check('D: the cohort section says it drives collections',
     /Drives collections/i.test(screen) && /These terms drive collections/i.test(screen));
 
@@ -571,6 +576,102 @@ section('H. STEP 2: the reference rule, on the cases that separate it');
       sell.includes('columnSums(cashVintageMatrix'));
     check('H10: the old single-profile distributor is not called anywhere in src',
       !stripComments(read('src/core/calculations/revenue/sell.ts')).includes('distributeCashCollection'));
+  }
+}
+
+// ---------------------------------------------------------------------------
+section('I. OPTION B STEP 1: the project default is stored and changes nothing');
+
+{
+  // The per-asset downpayment is set per sale year. An asset carrying NOTHING
+  // used to resolve every cohort to a zero deposit, which is a large
+  // consequence reachable by doing nothing: it is what takes FMP RE HUB's
+  // funding requirement from 234.301m to 1,032.419m. The project default
+  // stands in for such an asset.
+  //
+  // STEP 1 STORES IT AND READS IT NOWHERE, so the screen can be reviewed while
+  // no saved number can move. Step 2 wires the resolution and MUST replace the
+  // "reads nothing" checks below, exactly as Step 3 of the restructure
+  // replaced sections C and D.
+
+  const stored = read(STORED_TYPES);
+  check('I: saleCohortDefaults is declared on Project', /saleCohortDefaults\?:/.test(stored));
+  check('I: with a downpayment field', /saleCohortDefaults\?: \{[\s\S]{0,400}downpayment\?: number;/.test(stored));
+
+  // SEEDED TO NOTHING. A default of zero and no default at all are different
+  // statements, and the whole point of this step is that the second one is
+  // visible rather than silently behaving like the first.
+  const defaults = makeDefaultProject() as unknown as Record<string, unknown>;
+  check('I: a new project has NO default seeded',
+    defaults.saleCohortDefaults === undefined
+    || (defaults.saleCohortDefaults as { downpayment?: number }).downpayment === undefined);
+
+  // Nothing in the engine or the resolvers may read it yet.
+  {
+    const roots = ['src/core/calculations', 'src/hubs/modeling/platforms/refm/lib'];
+    const offenders: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of fs.readdirSync(path.join(process.cwd(), dir), { withFileTypes: true })) {
+        const rel = `${dir}/${entry.name}`;
+        if (entry.isDirectory()) { walk(rel); continue; }
+        if (!entry.name.endsWith('.ts')) continue;
+        if (rel === STORED_TYPES) continue;   // where it is DECLARED, not read
+        if (stripComments(read(rel)).includes('saleCohortDefaults')) offenders.push(rel);
+      }
+    };
+    for (const r of roots) walk(r);
+    check('I: no engine or resolver file reads saleCohortDefaults yet',
+      offenders.length === 0, offenders.join('; '));
+  }
+
+  // And the screen DOES edit it, or Step 1 shipped nothing.
+  const screen = read(SCREEN);
+  check('I: the Module 2 Revenue screen edits it', stripComments(screen).includes('saleCohortDefaults'));
+  check('I: the project default input is rendered', screen.includes('m2-project-default-downpayment'));
+  check('I: it can be CLEARED back to not-set',
+    screen.includes('m2-project-default-downpayment-clear') && /delete next\.downpayment/.test(screen));
+  check('I: the screen states it is not yet applied', /Not yet applied/.test(screen));
+  check('I: and states that not set is not the same as zero',
+    /not the same as zero/i.test(screen));
+  // The write must SPREAD, not rebuild from a field list, so a sibling default
+  // added later is not dropped (TRAPS 7.16, three instances on this path).
+  check('I: the setter spreads the existing defaults object',
+    /\.\.\.\(project\.saleCohortDefaults \?\? \{\}\)/.test(stripComments(screen)));
+
+  // BEHAVIOURAL: setting it moves nothing, because nothing reads it. The
+  // anti-vacuity lesson from Step 1 applies, so this also proves the value
+  // really is present on the project the engine is handed.
+  {
+    const project = { name: 'P', startDate: '2026-01-01', modelType: 'annual' } as unknown as Project;
+    const withDefault = { ...project, saleCohortDefaults: { downpayment: 0.45 } } as unknown as Project;
+    check('I: the fixture really carries the default (not a vacuous pass)',
+      (withDefault as unknown as { saleCohortDefaults?: { downpayment?: number } }).saleCohortDefaults?.downpayment === 0.45);
+    const phase = {
+      id: 'phase1', name: 'Phase 1', startDate: '2026-01-01',
+      constructionPeriods: 4, operationsPeriods: 6, overlapPeriods: 0, status: 'planning',
+    } as unknown as Phase;
+    const subUnit = {
+      id: 'su1', assetId: 'asset1', name: 'Apartments', category: 'residential',
+      metric: 'units', metricValue: 100, unitArea: 100, unitPrice: 1_000_000,
+    } as unknown as SubUnit;
+    // An asset with NO downpayment of its own: the exact case the default is
+    // for, so if it were being read anywhere this would move.
+    const asset = {
+      id: 'asset1', phaseId: 'phase1', name: 'Tower A', type: 'Residential',
+      strategy: 'Sell', visible: true, gfaSqm: 10000, buaSqm: 8000, sellableBuaSqm: 6000,
+      revenue: { sell: {
+        assetId: 'asset1',
+        subUnits: [{ subUnitId: 'su1', preSalesVelocityByPhase: [0.1, 0.3, 0.3, 0.2], postSalesVelocityByPhase: [0.1], preSalesVelocity: [], postSalesVelocity: [] }],
+        cashPaymentProfile: { percentages: [], profileMode: 'absolute_with_catchup' },
+        recognitionProfile: { method: 'point_in_time', pointInTimeYear: 'handover' },
+        indexation: { method: 'none' },
+      } },
+    } as unknown as Asset;
+    const without = computeAllSellResults({ project, phases: [phase], assets: [asset], subUnits: [subUnit] } as never).bySellAsset.get('asset1');
+    const withIt = computeAllSellResults({ project: withDefault, phases: [phase], assets: [asset], subUnits: [subUnit] } as never).bySellAsset.get('asset1');
+    check('I: the fixture computes something', ((without as unknown as Record<string, number[]>)?.cashCollectedPerPeriod ?? []).some((v) => v > 0));
+    check('I: setting the project default moves NOTHING at Step 1',
+      JSON.stringify(without) === JSON.stringify(withIt));
   }
 }
 

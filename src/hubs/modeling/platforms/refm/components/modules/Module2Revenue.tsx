@@ -167,12 +167,13 @@ function SubUnitReferenceStrip({
 }
 
 export default function Module2Revenue(): React.JSX.Element {
-  const { project, phases, assets, subUnits } = useModule1Store(
+  const { project, phases, assets, subUnits, setProject } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
       phases: s.phases,
       assets: s.assets,
       subUnits: s.subUnits,
+      setProject: s.setProject,
     })),
   );
 
@@ -180,6 +181,26 @@ export default function Module2Revenue(): React.JSX.Element {
     () => assets.filter((a) => a.visible !== false && a.isCompanion !== true),
     [assets],
   );
+
+  // Project-wide sale cohort defaults. Written like the escrow defaults on
+  // Module 2 Escrow: spread the existing object so a sibling field added later
+  // is not dropped, which is the field-list shape recorded in TRAPS 7.16.
+  const setProjectDefaultDownpayment = (pct: number): void => {
+    setProject({
+      saleCohortDefaults: {
+        ...(project.saleCohortDefaults ?? {}),
+        downpayment: Math.max(0, Math.min(1, pct / 100)),
+      },
+    });
+  };
+  // CLEARING RESTORES "NOT SET", which is a different state from zero and has
+  // to be reachable, or a user who types a value can never get back to the
+  // blocked state that tells them nothing has been chosen.
+  const clearProjectDefaultDownpayment = (): void => {
+    const next = { ...(project.saleCohortDefaults ?? {}) };
+    delete next.downpayment;
+    setProject({ saleCohortDefaults: next });
+  };
 
   return (
     <div data-testid="module2-shell" style={{ padding: 'var(--sp-3)' }}>
@@ -205,6 +226,72 @@ export default function Module2Revenue(): React.JSX.Element {
           }}
         >
           No assets yet. Add assets on Module 1 · Tab 2 (Assets &amp; Sub-units), then come back to configure their revenue.
+        </div>
+      )}
+
+      {/* Project-wide sale cohort defaults. Sits at project level for the same
+       *  reason the escrow defaults do (Module 2 Escrow): it is a value set
+       *  once that every asset without its own terms takes.
+       *
+       *  STORED AND EDITABLE, READ BY NO ENGINE PATH YET (Option B Step 1).
+       *  Step 2 wires the resolution; until then this changes no number, and
+       *  `verify-sale-cohort-inputs` asserts that. */}
+      {visibleAssets.length > 0 && (
+        <div
+          data-testid="m2-project-cohort-defaults"
+          style={{
+            marginBottom: 'var(--sp-3)', padding: 'var(--sp-2)',
+            background: 'var(--color-surface)', border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-sm)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <strong style={{ fontSize: 'var(--font-small)', color: 'var(--color-heading)' }}>
+              Project default downpayment
+            </strong>
+            <div style={{ width: 90 }}>
+              <PercentageInput
+                value={project.saleCohortDefaults?.downpayment !== undefined
+                  ? project.saleCohortDefaults.downpayment * 100
+                  : 0}
+                onChange={setProjectDefaultDownpayment}
+                min={0}
+                max={100}
+                decimals={2}
+                style={project.saleCohortDefaults?.downpayment === undefined
+                  ? { ...FAST_INPUT, borderStyle: 'dashed', borderColor: 'var(--color-warning, #f59e0b)' }
+                  : FAST_INPUT}
+                title={project.saleCohortDefaults?.downpayment === undefined
+                  ? 'No project default is set. This is not the same as a default of zero.'
+                  : undefined}
+                data-testid="m2-project-default-downpayment"
+              />
+            </div>
+            <span style={{ fontSize: 10, fontWeight: 700, color: project.saleCohortDefaults?.downpayment === undefined ? 'var(--color-warning, #92400e)' : 'var(--color-success, #166534)' }}>
+              {project.saleCohortDefaults?.downpayment === undefined ? 'not set' : 'set'}
+            </span>
+            {project.saleCohortDefaults?.downpayment !== undefined && (
+              <button
+                type="button"
+                data-view-mutates="true"
+                onClick={clearProjectDefaultDownpayment}
+                style={{
+                  fontSize: 10, padding: '3px 8px', cursor: 'pointer',
+                  background: 'var(--color-surface)', color: 'var(--color-body)',
+                  border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)',
+                }}
+                data-testid="m2-project-default-downpayment-clear"
+              >
+                Clear
+              </button>
+            )}
+            <span style={{ fontSize: 10, color: 'var(--color-warning, #92400e)', fontWeight: 600 }}>
+              Not yet applied
+            </span>
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 6, lineHeight: 1.5, maxWidth: 900 }}>
+            Stands in for an asset that carries no downpayment of its own. An asset with a downpayment on any sale year uses its own terms for every year and ignores this. <strong>Not set is not the same as zero:</strong> with neither this nor asset terms, a cohort has no stated deposit at all. <strong>This is stored but not yet read by the model;</strong> collections still resolve as they do today.
+          </div>
         </div>
       )}
 
