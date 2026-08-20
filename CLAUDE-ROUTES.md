@@ -192,6 +192,14 @@ app/portal/page.tsx              # Authenticated hub
 
 ## `app/api/`, API Routes
 
+### Added 2026-08-20 (guide / tour / watermark / trial lifecycle)
+
+- `GET /api/export/watermark`: resolves whether THIS session's PDF export is watermarked (plan via `resolveUserGate`, settings via `loadWatermarkSettings`); no request input by design; 503 on unresolved (the client REFUSES the export rather than defaulting either way).
+- `GET/PATCH /api/refm/tour-state`: per-user guided-tour blob (`users.refm_tour`, mig 217); session-resolved, 2KB cap, `available:false` on a missing column (client falls back to localStorage).
+- `/api/admin/trial-requests`: GET now also returns `declined` (own query, newest first, cap 25); POST approve allowed on pending AND declined with decline history preserved (mig 218, schema-tolerant); decline sends `trialDeclinedEmail`.
+- New shared libs/components: `src/shared/entitlements/exportWatermark.ts` (+`watermarkServer.ts`), `src/shared/admin/signupProfile.ts`, `src/shared/components/CountryCombobox.tsx`, `src/hubs/modeling/platforms/refm/lib/moduleTabs.ts` (THE tab registry, re-exported by RealEstatePlatform), `lib/guide/guideContent.ts` / `tour.ts` / `tourState.ts`, `lib/pdf/drawWatermark.ts`, `components/PlatformTour.tsx` / `FirstRunGuidePrompt.tsx`, `app/admin/plans/WatermarkCard.tsx`. `PlatformGuideModal.tsx` rebuilt as the full-screen overlay.
+- New verifiers: `verify-export-watermark` (84), `verify-opex-seed-zero` (45), `verify-platform-tour` (180); `verify-platform-guide` rewritten (34 -> 150) against the live registry.
+
 ### Auth (Modeling Hub)
 ```
 app/api/auth/

@@ -330,6 +330,21 @@ it does not rescue you.
 
 ## 6. REFM UI shell
 
+### 6.3 A `<datalist>` is not a combobox, and its behaviour is not yours to fix
+
+**Symptom (2026-08-20, Create Account country field).** "Typing P then a jumps to Panama instead of
+filtering." Reported as a native-select bug; the field was an `<input list>` + `<datalist>`.
+
+**Mechanism.** The datalist popup is BROWSER-OWNED: some browsers substring-filter, some behave like
+a select's type-ahead, arrow keys have no defined contract, clicking does not reliably open the
+list, and none of it is stylable or interceptable. Whatever the user reports about it, there is no
+code of ours behind the behaviour, so there is nothing to patch.
+
+**Fix.** A real combobox is a REBUILD, not a patch: controlled input, own filtered popup,
+arrow/Enter/Escape, click-opens-full-list (`src/shared/components/CountryCombobox.tsx`). Keep the
+STORED value byte-identical to what the old path stored so existing rows keep working. If a
+datalist is doing anything more than throwaway suggestions, it is already the wrong element.
+
 ### 6.1 The shell is zoomed, so `vh` and media queries LIE inside it
 
 **Symptom.** A full-height surface leaves ~345px of dead space, worsening on taller screens. A
@@ -369,6 +384,24 @@ folder in the App Router (404), so name a temp harness route without the undersc
 ---
 
 ## 7. Engine and model
+
+### 7.30 Two features sharing one stored blob need MERGING writes
+
+**Symptom (2026-08-20, caught in design, would have shipped).** The guided tour and the first-run
+guide prompt share `users.refm_tour` (one jsonb blob, mig 217). Each feature saved the WHOLE blob
+from its own fields, so the tour persisting its resume step would have erased `guidePromptAt`, and
+the "shown once, permanently dismissed" prompt would have come back the next session.
+
+**Mechanism.** A blob column invites `update({ col: myObject })`, and `myObject` is only ever the
+writer's own view. The second feature added to the blob turns every existing save into a delete of
+the new field. Nothing errors; the field is simply gone next read, and the symptom (a dismissed
+prompt reappearing) surfaces far from the cause (the tour saving a step).
+
+**Fix.** ONE write path that merges over the last known state (`tourState.saveTourState`:
+`{ ...lastKnown, ...patch }`), used by every writer; the verifier pins the merge line
+(`verify-platform-tour` section E/H) and the sabotage (overwrite instead of merge) goes red. The
+general rule: the moment a second feature stores a field in an existing blob, the save must become
+a merge, in one place.
 
 ### 7.1 A zero-valued seed hides a whole code path
 
@@ -1202,6 +1235,42 @@ A live client token under sandbox (or the reverse). `paddleEnv.paddleEnvMismatch
 ---
 
 ## 10. Verifier discipline
+
+### 10.11 Markup greps as present while `false &&` keeps it from ever rendering
+
+**Symptom (2026-08-20, TWICE IN ONE DAY).** Sabotaging the declined-requests section with
+`{false && declinedRequests.length > 0 && (` passed every check; hours later, sabotaging the
+registration success screen with `if (false && success)` passed again. Both times the checks
+asserted the markup EXISTS (testids, headings, field labels), and hidden markup exists perfectly
+well.
+
+**Mechanism.** 10.1's general form, specialised to conditional rendering: presence in source is not
+reachability. A surface behind a falsified condition is the UI equivalent of the country-gated cost
+line (7.13), present but invisible, and a presence grep is structurally unable to see the
+difference.
+
+**Fix.** Pin the RENDER CONDITION itself as source text beside the markup checks:
+`{declinedRequests.length > 0 && (`, `if (success) {`. Crude, but the sabotage that motivated it
+goes red, which is the test. Anything stronger needs a real render, which tsx cannot do here.
+
+### 10.12 A check can be broken in transit and then fail CORRECT code
+
+**Symptom (2026-08-20).** A check written as `/if \(success\) \{/` arrived in the file as
+`/if (success) {/` (the escaping was eaten by the bash -> node -e -> file pipeline), which is a
+syntactically valid regex that matches nothing the form contains. It failed against the CORRECT
+shipped code, and the commit went out with one red check because the restored-run output was
+misread as the sabotage-run output.
+
+**Mechanism.** Two compounding failures: patch pipelines with multiple escaping layers can corrupt
+a pattern into a different-but-valid one (1.x family), and a red suite line can be attributed to a
+still-applied sabotage when the restore already ran. A broken check that fails good code is worse
+than no check: it trains people to ignore the suite.
+
+**Fix.** After writing any check through a patch pipeline, read the LINE AS LANDED (grep it) before
+trusting a failure; prefer `includes()` over regex where a literal suffices; and the commit gate is
+a GREEN run on restored code as the LAST command before `git add`, not a green remembered from
+earlier. Related: the `>` inside `onClick={() =>` defeats any "slice the tag at the first >"
+bounding; bound at the next `<button` instead (found the same day in the pm-btn contrast sweep).
 
 ### 10.1 A grep proves a clause is PRESENT, never that it FIRES
 

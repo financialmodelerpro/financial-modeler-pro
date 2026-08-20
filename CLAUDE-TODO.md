@@ -3,6 +3,36 @@
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
 ---
+## STATUS SWEEP 2026-08-20 (end of day): the logged items below are CONFIRMED CURRENT
+
+Checked at close of the 2026-08-20 sessions, against HEAD:
+
+- **RE HUB 917.7m gap (below): STILL OPEN, unchanged.** Nothing today touched cost of sales or
+  capex attribution; the figures in that entry remain the measured state.
+- **Two cost of sales engines (below): STILL OPEN, its own pass, not started.**
+- **Depreciation start year: CLOSED 2026-08-19 (entry below), and stays closed.** Both streams
+  (asset capex and capitalised IDC) start at operations; `verify-fixed-assets` 99 pins it.
+- **The unexplained client validation bypass: STILL UNEXPLAINED, now logged here as a watch item
+  (next entry) rather than only inside the CLAUDE-MODELING-HUB.md narrative.**
+- Migrations 215 through 218 are ALL APPLIED (215 on 2026-08-19; 216/217/218 on 2026-08-20, each
+  probed live). No "pending apply" flag remains anywhere in the docs.
+- New since the last sweep, shipped and deployed today, narratives in CLAUDE-REFM.md 2026-08-20g/h
+  and CLAUDE-MODELING-HUB.md 2026-08-20k: guide rebuild + guided tour + first-run prompt, trial PDF
+  watermark + PowerPoint server gate + Excel key fix, OpEx zero seeds, decline email +
+  declined-approvable queue, registration success screen, light theme default, country combobox,
+  topbar contrast sweep and the parked RBAC badge.
+
+---
+## WATCH 2026-08-20: the unexplained client validation bypass (registration)
+
+One user registered with a blank company and job title while the client-side checks for both ran
+before the fetch, their phone/city/country prove the real form was used, and the only inserting
+route is `/api/auth/register` (full diagnosis in CLAUDE-MODELING-HUB.md 2026-08-20g section 2).
+**The mechanism was never determined and no mechanism is being invented.** The damage is closed:
+every field is enforced SERVER-side since 2026-08-20, so a repeat produces a 400, not a blank row.
+If a blank-company row ever appears again dated after 2026-08-20, that is the signal this deserves
+a real hunt (it would mean the server check was bypassed too, which is a different and worse fact).
+
 ## CLOSED 2026-08-20: the email XSS sweep. DONE
 
 Ten templates were escaping nothing; all fixed, one shared helper, and
@@ -12,7 +42,7 @@ CLAUDE-MODELING-HUB.md 2026-08-20j.
 
 
 
-## OPEN 2026-08-20: RE HUB's sell-asset cost base exceeds project cash capex by 917.7m
+## OPEN 2026-08-20: RE HUB's sell-asset cost base exceeds project cash capex by 917.7m (re-confirmed current at 2026-08-20 close)
 
 **Found while re-verifying the Step 3 figures on request. PREDATES STEP 3, measured against the
 parent commit. Not touched. Belongs with the cost of sales pass below, because it is the same
@@ -51,7 +81,7 @@ wrong with it.
 
 ---
 
-## OPEN 2026-08-19: TWO COST OF SALES ENGINES, WITH DIFFERENT BASES. Its own pass.
+## OPEN 2026-08-19: TWO COST OF SALES ENGINES, WITH DIFFERENT BASES. Its own pass. (re-confirmed current at 2026-08-20 close)
 
 **Found while diagnosing the Module 2 sale cohort restructure. Deliberately NOT folded into that
 work, by instruction. To be taken after the restructure or before its Step 3, decided when we get

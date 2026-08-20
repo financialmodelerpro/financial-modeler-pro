@@ -1,6 +1,6 @@
 # Architecture, Financial Modeler Pro
 
-**Last updated: 2026-04-29.** Snapshot taken at the close of the 8-phase folder restructure (`RESTRUCTURE_PLAN.md`).
+**Last updated: 2026-08-20** (boundary rules unchanged since the 2026-04-29 restructure snapshot; re-confirmed current at the 2026-08-20 docs sweep. Everything added since lives INSIDE the existing boundaries: cross-hub UI in `src/shared/components/` (PhoneInput, CountryCombobox), cross-hub admin presentation in `src/shared/admin/`, entitlement rules in `src/shared/entitlements/`, and REFM-only surfaces under `src/hubs/modeling/platforms/refm/`, including the pure `lib/moduleTabs.ts` tab registry that RealEstatePlatform re-exports so verifiers can import it without the CSS-importing shell).
 
 > **This file holds the durable boundary rules. The durable FAILURE modes live beside it in [docs/TRAPS.md](docs/TRAPS.md)**, including the build using `next build --webpack` because Turbopack hits MAX_PATH on Windows/OneDrive (TRAPS 9.3) and `src/middleware.ts` being dead code that must not be activated by moving it (9.2).
 
