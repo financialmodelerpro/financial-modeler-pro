@@ -48,8 +48,10 @@ function convert(arr: Array<number | null>): { next: Array<number | null>; chang
     const v = arr[i];
     if (typeof v === 'number' && Number.isFinite(v) && v !== 0) lastReal = i;
   }
-  const next = arr.map((v, i) => (i > lastReal ? null : v));
-  const changed = next.reduce((n, v, i) => n + (v === null && arr[i] !== null ? 1 : 0), 0);
+  const next: Array<number | null> = arr.map((v, i) => (i > lastReal ? null : v));
+  // Explicit accumulator type: reduce would otherwise infer it from the array
+  // element (number | null) and the addition becomes a type error.
+  const changed = next.reduce<number>((n, v, i) => n + (v === null && arr[i] !== null ? 1 : 0), 0);
   return { next, changed };
 }
 
