@@ -193,7 +193,6 @@ export async function POST(req: NextRequest) {
       worksInRealEstate: body.works_in_real_estate,
       roleNote: clean.real_estate_role_note,
       registeredAt: created?.created_at ?? new Date().toISOString(),
-      hub: 'modeling',
     });
   })();
 

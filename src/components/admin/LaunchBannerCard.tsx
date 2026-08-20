@@ -151,6 +151,31 @@ export function LaunchBannerCard({ onMessage }: { onMessage?: (msg: string, type
   const input: React.CSSProperties = { width: '100%', padding: '8px 10px', fontSize: 13, border: '1px solid #D1D5DB', borderRadius: 6, color: NAVY, background: '#fff', fontFamily: "'Inter', sans-serif" };
 
   async function save() {
+    // WARN BEFORE SAVING, because this field now GATES THE HUB (2026-08-20).
+    //
+    // The launch date used to be banner copy: it changed a countdown and
+    // nothing else, and only a separate auto-launch flag let it touch the
+    // workspace. It is now the single source for the Coming Soon state, so
+    // typing a future date CLOSES a hub that is currently open, and every
+    // signed-in user without a whitelist entry stops being able to enter.
+    //
+    // That is a big consequence for a date field that used to be cosmetic, so
+    // it is stated before the write rather than discovered afterwards. Only
+    // the closing direction is confirmed: opening a hub needs no warning.
+    const nowMs = Date.now();
+    const willGate = draftIso.trim() !== '' && Date.parse(draftIso) > nowMs;
+    const isOpenNow = !(saved.launchDate.trim() !== '' && Date.parse(saved.launchDate) > nowMs);
+    if (willGate && isOpenNow) {
+      const when = new Date(Date.parse(draftIso)).toISOString().slice(0, 10);
+      const ok = window.confirm(
+        `This launch date is in the future (${when}).\n\n`
+        + 'The launch date now controls the hub itself, not just the banner. '
+        + 'Saving this will put the Modeling Hub back into Coming Soon: everyone '
+        + 'except admins and whitelisted emails will lose access to the platform '
+        + `until ${when}.\n\nSave anyway?`,
+      );
+      if (!ok) return;
+    }
     setSaving(true);
     try {
       const res = await fetch(ENDPOINT, {
@@ -195,7 +220,23 @@ export function LaunchBannerCard({ onMessage }: { onMessage?: (msg: string, type
         Shown to visitors on the home page, the Modeling Hub pages and the platform pages. Three states:
         it <strong>counts down</strong> while the date is in the future, switches to the <strong>launched</strong> message
         once that date passes, and stays there until you switch it <strong>off</strong> below. Switching it off is the way to
-        retire it: clearing the date would also blank the date the auto-launch cron reads.
+        retire the banner without touching the date.
+      </div>
+      {/* THE DATE GATES THE HUB (2026-08-20). It used to be banner copy, so an
+          admin could reasonably treat it as cosmetic. Saying so here, next to
+          the field, is the cheap half of the fix; the confirm dialog on save is
+          the other half. */}
+      <div
+        data-testid="launch-date-gates-hub"
+        style={{
+          fontSize: 12, lineHeight: 1.55, color: '#92400E', background: '#FFFBEB',
+          border: '1px solid #FDE68A', borderRadius: 8, padding: '9px 12px', marginBottom: 14,
+        }}
+      >
+        <strong>This date controls access, not just the banner.</strong> While it is in the future the
+        Modeling Hub is in Coming Soon and only admins and whitelisted emails can open the platform.
+        Once it passes, the hub is live. There is no separate switch and no nightly job: the date is
+        the single source, so the banner and the hub can no longer disagree.
       </div>
 
       {/* The status readout. The whole point of this card. */}

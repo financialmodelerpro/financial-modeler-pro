@@ -1,12 +1,26 @@
+import { resolveComingSoonFromDate, type ComingSoonSource } from '@/src/shared/comingSoon/resolveFromDate';
 import { getServerClient } from '@/src/core/db/supabase';
 
 export interface ModelingComingSoonState {
   enabled:              boolean;
   launchDate:           string | null;
-  /** When true + launchDate <= now, the auto-launch cron will flip `enabled` off. */
+  /**
+   * @deprecated 2026-08-20. RETIRED, READ BY NOTHING.
+   *
+   * It used to authorise a nightly cron to flip `modeling_hub_coming_soon`
+   * once the launch date passed. The date now decides `enabled` directly, so
+   * there is no firing to authorise, and Modeling has been removed from that
+   * cron. Kept on the shape and in the database rather than deleted, so no
+   * stored value is destroyed and any straggling reader still compiles.
+   */
   autoLaunch:           boolean;
   /** ISO timestamp of the last time the cron auto-flipped this hub. Empty until the first firing. */
   lastAutoLaunchedAt:   string | null;
+  /** How `enabled` was decided: the stored flag, or a launch date pending or
+   *  passed. The admin card prints this so the reason is never guessed at. */
+  source:               ComingSoonSource;
+  /** One sentence naming that reason, for the admin card. */
+  reason:               string;
 }
 
 const KEYS = [
@@ -26,14 +40,32 @@ export async function getModelingComingSoonState(): Promise<ModelingComingSoonSt
     const map = new Map((data ?? []).map((r: { key: string; value: string }) => [r.key, r.value]));
     const rawDate = (map.get('modeling_hub_launch_date') ?? '').trim();
     const rawAuto = (map.get('modeling_hub_last_auto_launched_at') ?? '').trim();
+    // THE LAUNCH DATE IS THE SINGLE SOURCE (2026-08-20). It used to sit beside
+    // the flag doing nothing unless `modeling_hub_auto_launch` let a nightly
+    // cron flip it, so a date could pass while the hub stayed shut and the
+    // public banner said "launched". The date now decides whenever one is set;
+    // with no date the stored flag decides exactly as before. See
+    // src/shared/comingSoon/resolveFromDate.ts.
+    const resolved = resolveComingSoonFromDate({
+      flag: map.get('modeling_hub_coming_soon') === 'true',
+      launchDate: rawDate,
+      nowMs: Date.now(),
+    });
     return {
-      enabled:              map.get('modeling_hub_coming_soon') === 'true',
+      enabled:              resolved.enabled,
       launchDate:           rawDate || null,
+      // RETIRED (2026-08-20). Nothing reads it: the date decides directly, so
+      // there is no cron to authorise. Kept on the shape and in the database so
+      // no stored value is destroyed and any reader still compiles.
       autoLaunch:           map.get('modeling_hub_auto_launch') === 'true',
       lastAutoLaunchedAt:   rawAuto || null,
+      source:               resolved.source,
+      reason:               resolved.reason,
     };
   } catch {
-    return { enabled: false, launchDate: null, autoLaunch: false, lastAutoLaunchedAt: null };
+    // A read failure must not gate a live hub: fall open, and say so.
+    return { enabled: false, launchDate: null, autoLaunch: false, lastAutoLaunchedAt: null,
+      source: 'flag', reason: 'Could not read the launch settings; treating the hub as live.' };
   }
 }
 

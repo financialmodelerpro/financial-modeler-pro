@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { resolveComingSoonFromDate } from '@/src/shared/comingSoon/resolveFromDate';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
@@ -42,8 +43,20 @@ async function readAll(): Promise<KeyMap> {
 }
 
 function toResponse(map: KeyMap) {
+  // THE DERIVED STATE, computed by the SAME pure rule the live guard uses, so
+  // the card cannot claim the hub is live while the gate keeps it shut. That
+  // divergence is exactly what happened on 2026-08-20.
+  const resolved = resolveComingSoonFromDate({
+    flag: map.get('modeling_hub_coming_soon') === 'true',
+    launchDate: map.get('modeling_hub_launch_date') ?? '',
+    nowMs: Date.now(),
+  });
   return {
     enabled:            map.get('modeling_hub_coming_soon') === 'true',
+    // What the hub ACTUALLY does right now, and why.
+    effectiveEnabled:   resolved.enabled,
+    effectiveSource:    resolved.source,
+    effectiveReason:    resolved.reason,
     launchDate:         map.get('modeling_hub_launch_date') ?? '',
     autoLaunch:         map.get('modeling_hub_auto_launch') === 'true',
     lastAutoLaunchedAt: map.get('modeling_hub_last_auto_launched_at') ?? '',
@@ -90,15 +103,14 @@ export async function PATCH(req: NextRequest) {
       rows.push({ key: 'modeling_hub_coming_soon', value: body.enabled ? 'true' : 'false' });
     }
     if (typeof body.launchDate === 'string') {
-      const trimmed = body.launchDate.trim();
-      rows.push({ key: 'modeling_hub_launch_date', value: trimmed });
-      // An empty launch_date can't support an auto-launch, clear the flag so
-      // the cron doesn't look at a dangling enabled=true without a target time.
-      if (!trimmed) rows.push({ key: 'modeling_hub_auto_launch', value: 'false' });
+      rows.push({ key: 'modeling_hub_launch_date', value: body.launchDate.trim() });
     }
-    if (typeof body.autoLaunch === 'boolean') {
-      rows.push({ key: 'modeling_hub_auto_launch', value: body.autoLaunch ? 'true' : 'false' });
-    }
+    // `autoLaunch` is RETIRED (2026-08-20) and no longer written. The launch
+    // date decides the Coming Soon state directly, so there is no cron firing
+    // to authorise and Modeling has been removed from that cron. A client
+    // still sending the field is accepted and ignored rather than erroring,
+    // because rejecting it would break an admin screen mid-deploy; the stored
+    // row is left exactly as it is, which destroys nothing.
     // Banner copy. An empty string is a MEANINGFUL write (it clears the custom
     // text and restores the default at render), so these are stored as sent
     // rather than skipped when blank.

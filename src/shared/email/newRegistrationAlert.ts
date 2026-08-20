@@ -4,7 +4,8 @@ import { newRegistrationAlertTemplate, type NewRegistrationAlertData } from './t
 /**
  * THE ONE PLACE A NEW-REGISTRATION ALERT IS SENT.
  *
- * Both hubs call this. It exists so there is a single sending path rather than
+ * The Modeling Hub register route calls this. It exists so there is a single
+ * sending path rather than
  * a fetch here and a fetch there: the sender, the recipient, the failure
  * behaviour and the logging are decided once.
  *
@@ -42,10 +43,10 @@ export async function sendNewRegistrationAlert(data: NewRegistrationAlertData): 
     });
     // Log the Brevo message id, so a "did support get it" question is answered
     // from the logs rather than from a mailbox search.
-    console.log(`[reg-alert] sent hub=${data.hub} user=${data.email} to=${ALERT_TO} id=${res.id}`);
+    console.log(`[reg-alert] sent user=${data.email} to=${ALERT_TO} id=${res.id}`);
   } catch (err) {
     // Logged, never rethrown. See the contract above.
-    console.error(`[reg-alert] FAILED hub=${data.hub} user=${data.email}: ${
+    console.error(`[reg-alert] FAILED user=${data.email}: ${
       err instanceof Error ? err.message : String(err)}`);
   }
 }

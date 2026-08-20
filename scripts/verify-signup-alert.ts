@@ -48,7 +48,6 @@ const FULL = {
   worksInRealEstate: true,
   roleNote: 'Feasibility for mixed-use schemes.\nMostly residential towers.',
   registeredAt: '2026-08-20T07:03:52.068Z',
-  hub: 'modeling' as const,
 };
 
 async function main(): Promise<void> {
@@ -85,7 +84,7 @@ async function main(): Promise<void> {
   {
     const { subject: s2, html: h2 } = await newRegistrationAlertTemplate({
       ...FULL, userId: '', company: null, jobTitle: null,
-      worksInRealEstate: null, roleNote: null, phone: null, hub: 'training',
+      worksInRealEstate: null, roleNote: null, phone: null,
     });
     // A BLANK CELL READS AS A RENDERING FAULT. Say "not given" instead.
     check('B: a missing field says so rather than rendering blank', h2.includes('not given'));
@@ -96,10 +95,24 @@ async function main(): Promise<void> {
     check('B: with no user record, the admin button is omitted',
       !h2.includes('Open this user in admin'));
     check('B: and the email says why rather than leaving a gap',
-      h2.includes('no admin page to link to'));
-    check('B: the subject names the right hub', s2.includes('Training Hub'));
+      h2.includes('could not be read back'));
+    check('B: the subject always names the Modeling Hub', s2.includes('Modeling Hub'));
     check('B: and carries no qualification flag when it was not asked',
       !s2.includes('[real estate]') && !s2.includes('[not real estate]'));
+  }
+
+  // TRAINING IS NOT WIRED, by instruction. Asserted so a later pass cannot
+  // quietly reintroduce it, and so the removal of the hub discriminator is a
+  // decision on record rather than something that looks like an oversight.
+  {
+    const dispatchSrc = stripComments(read(DISPATCH));
+    const tmplSrc = stripComments(read('src/shared/email/templates/newRegistrationAlert.ts'));
+    check('B: no training branch remains in the template',
+      !tmplSrc.includes('Training Hub'));
+    check('B: and no hub discriminator is carried',
+      !/hub:s*.modeling./.test(tmplSrc) && !dispatchSrc.includes('data.hub'));
+    check('B: the training register route does not send this alert',
+      !stripComments(read('app/api/training/register/route.ts')).includes('sendNewRegistrationAlert'));
   }
 
   // -------------------------------------------------------------------------

@@ -2,6 +2,62 @@
 **Last updated: 2026-05-12**
 
 Modeling Hub (`app.financialmodelerpro.com`) is the interactive financial modeling workspace. Each modeling discipline lives as a platform with one or more modules. The Hub itself is the wrapper around the platform catalog, admin sync, and shared shell; platform-specific behavior lives in per-platform MDs.
+## 2026-08-20i: the launch date is the single source, and the signup alert is Modeling only
+
+**Two things: the Training branch removed from the signup alert on instruction, and item 1c built.**
+
+### Training removed from the signup alert
+
+**The `hub` discriminator is gone.** Audited first: it was used in exactly two places, the subject
+label ternary and the two log lines, and existed only to render "Training Hub". Nothing else read
+it, so it went rather than remaining a setting nobody sets. The subject is now a constant.
+
+**The empty-`userId` guard STAYS, and the reason changed.** It was written for Training signups,
+which have no `users` row, but it is reachable HERE: the register route reads the id back after
+inserting (`created?.id ?? ''`) because the insert may have taken a schema-tolerant fallback, so a
+failed read-back gives an empty id while the account exists. The button is omitted rather than
+pointing at `/admin/users/` with nothing after it. The message no longer says "this hub does not
+create a user record" (which would now be false) and instead tells support to find them by email.
+
+`verify-signup-alert` **42 -> 45**, with three checks pinning that Training stays unwired: no
+"Training Hub" string in the template, no hub discriminator, and no call from the training register
+route. A later pass cannot quietly reintroduce it and have it look like an oversight.
+
+### Item 1c: one intention, not two settings
+
+**`src/shared/comingSoon/resolveFromDate.ts`** is the pure rule:
+
+| launch date | result |
+|---|---|
+| none, or unparseable | the stored flag decides, exactly as before |
+| in the future | Coming Soon, whatever the flag says |
+| passed | live, whatever the flag says |
+
+**The date OUTRANKS the flag whenever one is set.** That is the whole point: a launch date that does
+not launch anything is a lie, and a flag that survives its own launch date is the 2026-08-20 outage.
+An UNPARSEABLE date falls back to the flag rather than to either extreme, so a typo can neither open
+a gated hub nor close an open one.
+
+**`modeling_hub_auto_launch` is RETIRED, not deleted.** Nothing reads it, the admin API no longer
+writes it, and **Modeling is removed from the `auto-launch-check` cron**, because there is no longer
+a flip to authorise: the moment the date passes, every reader already agrees. **Training still uses
+that cron and is untouched**; when it moves to the same rule the whole route can go with it. The
+stored row stays, and the field stays on the type marked `@deprecated`.
+
+**The admin card warns before it closes the hub.** The launch date used to be banner copy, so an
+admin could reasonably treat it as cosmetic; it now gates access. Saving a FUTURE date while the hub
+is currently OPEN raises a confirm naming the date and what will happen. Only that direction is
+confirmed: opening needs no warning. The field also carries a permanent amber note saying the date
+controls access, and the admin API now returns `effectiveEnabled` / `effectiveSource` /
+`effectiveReason` computed by the SAME rule the live guard uses, so the card cannot claim the hub is
+live while the gate keeps it shut. That divergence is exactly what happened.
+
+`verify-launch-single-source` **26 NEW**, teeth proven by two sabotages, each confirmed to have
+landed inside the intended function. **Sabotage 1 reproduces the original outage** (let the flag win
+over a passed date) and trips section A. `verify-launch-banner` **141**, unchanged.
+
+**Not browser-verified.**
+
 ## 2026-08-20h: a signup notification to support, on one sending path
 
 **Every new Modeling Hub registration now emails support. Migration 216 is APPLIED.**

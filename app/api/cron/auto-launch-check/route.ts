@@ -47,13 +47,17 @@ const HUBS: HubSpec[] = [
     autoLaunchKey:   'training_hub_auto_launch',
     lastLaunchedKey: 'training_hub_last_auto_launched_at',
   },
-  {
-    label:           'modeling',
-    comingSoonKey:   'modeling_hub_coming_soon',
-    launchDateKey:   'modeling_hub_launch_date',
-    autoLaunchKey:   'modeling_hub_auto_launch',
-    lastLaunchedKey: 'modeling_hub_last_auto_launched_at',
-  },
+  // MODELING WAS REMOVED HERE ON 2026-08-20, deliberately.
+  //
+  // Its Coming Soon state is now derived from the launch date directly
+  // (src/shared/comingSoon/resolveFromDate.ts), so there is nothing left for a
+  // nightly job to flip: the moment the date passes, every reader already
+  // agrees. Leaving the entry would have kept a second mechanism writing the
+  // same flag on a timer, which is exactly the two-sources problem the change
+  // exists to remove.
+  //
+  // TRAINING STILL USES THIS CRON and is untouched. When it moves to the same
+  // rule, this whole route can go with it.
 ];
 
 interface FireResult {
