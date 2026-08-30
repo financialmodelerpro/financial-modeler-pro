@@ -85,9 +85,16 @@ function Tile({ label, value, sub, wide }: { label: string; value: string; sub?:
  *  engine's own absolute year labels, so projects starting in different years
  *  line up correctly rather than by period index. */
 function FundingChart({ group, currency }: { group: Group; currency: string }) {
-  // Show every year on the dense axis, including a genuinely empty one: a
-  // gap year is information, and dropping it would compress the axis again.
-  const points = group.fundingByYear;
+  // Funding is front-loaded by nature, so the dense axis carried a long tail
+  // of empty years, each labelled "SAR 0". Trim the empty HEAD and TAIL only:
+  // an INTERIOR empty year is kept, because it is real information (a pause in
+  // funding) and dropping it would compress the time axis, which is the same
+  // mistake that overstated the IRR before the axis was made dense. The DATA
+  // axis is untouched; this is display.
+  const all = group.fundingByYear;
+  const firstReal = all.findIndex((p) => p.total !== 0);
+  const lastReal = all.length - 1 - [...all].reverse().findIndex((p) => p.total !== 0);
+  const points = firstReal === -1 ? [] : all.slice(firstReal, lastReal + 1);
   if (points.length === 0) return null;
   const max = Math.max(...points.map((p) => p.total));
   const ids = [...new Set(points.flatMap((p) => Object.keys(p.byProject)))];
@@ -100,7 +107,7 @@ function FundingChart({ group, currency }: { group: Group; currency: string }) {
         Funding requirement by year
       </div>
       <div style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)', marginBottom: 'var(--sp-2)' }}>
-        Stacked by project, on calendar years. {currency}.
+        Stacked by project, on calendar years. Hover a bar for the amount. {currency}.
       </div>
 
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 'var(--sp-2)', height: 160 }}>
@@ -121,9 +128,6 @@ function FundingChart({ group, currency }: { group: Group; currency: string }) {
               ))}
             </div>
             <div style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)', whiteSpace: 'nowrap' }}>{p.year}</div>
-            <div style={{ fontSize: 'var(--font-micro)', color: 'var(--color-heading)', fontWeight: 600, whiteSpace: 'nowrap' }}>
-              {money(p.total, currency)}
-            </div>
           </div>
         ))}
       </div>
@@ -153,16 +157,13 @@ export default function PortfolioSummary({ projectCount, markets }: { projectCou
     return () => { cancelled = true; };
   }, []);
 
-  // PROJECTS and MARKETS stay, as small secondary counts rather than headline
-  // tiles: they are facts about the list, not about the portfolio.
+  // PROJECTS and MARKETS are facts about the LIST, not the portfolio, so they
+  // sit in the footnote under the tiles rather than as a stray grey line above
+  // them. Shown on their own only while there are no figures to caption.
   const counts = (
     <div style={{ display: 'flex', gap: 'var(--sp-3)', fontSize: 'var(--font-micro)', color: 'var(--color-meta)', marginBottom: 'var(--sp-2)' }}>
       <span data-testid="portfolio-count-projects"><strong style={{ color: 'var(--color-heading)' }}>{projectCount}</strong> project{projectCount === 1 ? '' : 's'}</span>
       <span data-testid="portfolio-count-markets"><strong style={{ color: 'var(--color-heading)' }}>{markets}</strong> market{markets === 1 ? '' : 's'}</span>
-      {data && data.modelledCount < data.projectCount && (
-        <span>{data.projectCount - data.modelledCount} not modelled yet</span>
-      )}
-      {!!data?.archivedExcluded && <span>{data.archivedExcluded} archived (excluded)</span>}
     </div>
   );
 
@@ -192,7 +193,9 @@ export default function PortfolioSummary({ projectCount, markets }: { projectCou
 
   return (
     <div data-testid="portfolio-summary">
-      {counts}
+      {/* The counts caption the tiles from below; with nothing modelled there
+          are no tiles to caption, so they stand on their own. */}
+      {groupsWithModel.length === 0 && counts}
 
       {groupsWithModel.length === 0 ? (
         <div className="card" style={{ padding: 'var(--sp-3)', fontSize: 'var(--font-meta)', color: 'var(--color-meta)' }} data-testid="portfolio-nothing-modelled">
@@ -218,7 +221,7 @@ export default function PortfolioSummary({ projectCount, markets }: { projectCou
               )}
 
               <div style={{ display: 'grid', gap: 'var(--sp-2)', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' }}>
-                <Tile label="Gross development value" value={money(g.gdv, g.currency)} sub={`${g.modelledCount} of ${g.projectCount} modelled`} />
+                <Tile label="Gross development value" value={money(g.gdv, g.currency)} sub="GDV over the hold" />
                 <Tile label="Development cost" value={money(g.totalDevelopmentCost, g.currency)} sub="incl. land" />
                 <Tile label="Funding requirement" value={money(g.fundingRequirement, g.currency)} sub="net cash to fund" />
                 <Tile
@@ -229,17 +232,34 @@ export default function PortfolioSummary({ projectCount, markets }: { projectCou
                 <Tile
                   label="Portfolio equity IRR"
                   value={pct(g.portfolioEquityIrr)}
-                  sub={`aggregated cash flows, ${g.modelledCount} of ${g.projectCount} modelled`}
+                  sub="aggregated cash flows"
                 />
                 <Tile
                   label="Equity multiple"
                   value={mult(g.portfolioEquityMultiple)}
                   sub="distributions / equity invested"
                 />
-                <Tile label="Saleable area" value={`${num(g.saleableAreaSqm)} sqm`} sub={g.saleableUnits > 0 ? `${num(g.saleableUnits)} units` : 'area-based sub-units'} />
               </div>
 
-              <div style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)', marginTop: 6 }}>
+              {/* ONE footnote under the tiles carrying every caption: the list
+                  counts, the modelled count (stated once, not on two tiles),
+                  saleable area, and the basis. */}
+              <div style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)', marginTop: 'var(--sp-1)', lineHeight: 1.7 }} data-testid="portfolio-footnote">
+                <span data-testid="portfolio-count-projects"><strong style={{ color: 'var(--color-heading)' }}>{projectCount}</strong> project{projectCount === 1 ? '' : 's'}</span>
+                {' across '}
+                <span data-testid="portfolio-count-markets"><strong style={{ color: 'var(--color-heading)' }}>{markets}</strong> market{markets === 1 ? '' : 's'}</span>
+                {' · '}
+                <span data-testid="portfolio-modelled">{g.modelledCount} of {g.projectCount} modelled</span>
+                {g.saleableAreaSqm > 0 && (
+                  <>
+                    {' · '}
+                    <span data-testid="portfolio-saleable">
+                      {num(g.saleableAreaSqm)} sqm saleable{g.saleableUnits > 0 ? `, ${num(g.saleableUnits)} units` : ''}
+                    </span>
+                  </>
+                )}
+                {!!data.archivedExcluded && <>{' · '}{data.archivedExcluded} archived (excluded)</>}
+                <br />
                 Management base case, archived projects excluded. The IRR is computed once on the
                 combined cash flows of every modelled project; it is not an average of project IRRs.
               </div>

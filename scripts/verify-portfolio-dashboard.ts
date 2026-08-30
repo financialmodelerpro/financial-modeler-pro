@@ -132,8 +132,38 @@ function main() {
     check('E3 "N of M" is reported', g.modelledCount === 1 && g.projectCount === 2);
     check('E4 it is still LISTED, so it is not hidden', g.projects.length === 2);
     check('E5 the aggregate reports the portfolio-wide split', agg.modelledCount === 1 && agg.projectCount === 2);
-    check('E6 the UI shows the modelled count beside every ratio',
-      (src('src/hubs/modeling/platforms/refm/components/PortfolioSummary.tsx').match(/of \$\{g\.projectCount\} modelled/g) ?? []).length >= 2);
+    // Stated ONCE, in the footnote under the tiles. It used to be repeated on
+    // the GDV and IRR tiles, which read as duplication; the rule is that the
+    // caveat is present exactly once, not that every ratio repeats it.
+    const summary = src('src/hubs/modeling/platforms/refm/components/PortfolioSummary.tsx');
+    check('E6 the modelled count is stated exactly ONCE, in the footnote',
+      (summary.match(/of \{g\.projectCount\} modelled/g) ?? []).length === 1
+      && /portfolio-modelled/.test(summary)
+      && !/sub=\{`\$\{g\.modelledCount\} of/.test(summary));
+  }
+
+  console.log('E7. Presentation cleanup (2026-08-30m)');
+  {
+    const summary = src('src/hubs/modeling/platforms/refm/components/PortfolioSummary.tsx');
+    // The chart trims the empty head and tail (funding is front-loaded, so the
+    // dense axis carried ten years of "SAR 0"), but NOT interior gaps, which
+    // are real information and whose removal would compress the time axis.
+    check('E7a the chart trims the empty head and tail',
+      /const firstReal = all\.findIndex/.test(summary) && /const lastReal =/.test(summary)
+      && /all\.slice\(firstReal, lastReal \+ 1\)/.test(summary));
+    check('E7b an INTERIOR empty year is still kept (no re-compression)',
+      !/fundingByYear\.filter\(\(p\) => p\.total !== 0\)/.test(summary));
+    check('E7c the per-bar amount labels are gone, so no "SAR 0" can render',
+      !/\{money\(p\.total, currency\)\}/.test(summary));
+    check('E7d the amount is still reachable, on the segment tooltip',
+      /title=\{`\$\{nameOf\(id\)\}/.test(summary) && /Hover a bar for the amount/.test(summary));
+    check('E7e the stacked-by-project treatment and legend survive',
+      /byProject\[id\]/.test(summary) && /colourOf\(id\)/.test(summary) && /\{nameOf\(id\)\}/.test(summary));
+    check('E7f the Saleable area TILE is gone, the figure moved to the footnote',
+      !/<Tile label="Saleable area"/.test(summary) && /portfolio-saleable/.test(summary));
+    check('E7g six tiles remain', (summary.match(/<Tile\b/g) ?? []).length === 6);
+    check('E7h the counts caption the tiles from below, not a stray line above',
+      /groupsWithModel\.length === 0 && counts/.test(summary));
   }
 
   console.log('F. The dead tiles and the duplicate status value are gone');
