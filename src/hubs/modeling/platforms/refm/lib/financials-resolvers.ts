@@ -15,13 +15,13 @@
 import { buildSaleCohortAdvisories, saleCohortAdvisoryIssue } from './reports/checksReport';
 import {
   computeAllSellResults,
-  computeAssetCapex,
   computeAssetScheduleBundle,
   computeEscrowSnapshot,
   type ProjectRevenueSnapshot,
   type ProjectEscrowSnapshot,
   type AssetScheduleBundle,
 } from './revenue-resolvers';
+import { buildAssetCostOfSales, type AssetCostOfSales } from './costOfSales';
 import {
   computeAllOpexResults,
   computeOpexApSnapshot,
@@ -38,9 +38,7 @@ import {
 } from '@/src/core/calculations/depreciation';
 import {
   buildAccountsReceivableDSO,
-  buildCostOfSales,
   type AccountsReceivableDSOResult,
-  type CostOfSalesResult,
 } from '@/src/core/calculations/revenue';
 import {
   computeAssetLandSqm,
@@ -459,9 +457,13 @@ export interface ProjectFinancialsSnapshot {
   financing: FinancingComputation;
   /** IDC allocation by land-area share (Pass 2f). */
   idc: ProjectIDCSnapshot;
-  // Per-asset bundles (AR / Unearned / CoS WIP). For Sell assets, the
-  // CoS bundle here is IDC-augmented (totalCapex + cumulative IDC).
+  // Per-asset AR / Unearned bundles.
   byAssetSchedules: Map<string, AssetScheduleBundle>;
+  /** THE cost-of-sales result, per Sell asset. Built once by the Module 2
+   *  layer (lib/costOfSales) and read by the P&L, the balance sheet's
+   *  inventory, the Module 2 screen, both PDFs and the workbook. No surface
+   *  assembles a capex base of its own. */
+  byAssetCostOfSales: Map<string, AssetCostOfSales>;
   // Composed statements
   perAssetPL: Map<string, AssetPL>;
   perAssetCF: Map<string, AssetCF>;
@@ -1650,33 +1652,32 @@ function computeFinancialsSnapshotOnce(
   );
   const byAssetIDC = idcSnapshot.byAsset;
 
-  // 2b. Per-asset Cost-of-Sales + AR + Unearned bundles (Sell strategies).
-  // CoS uses the AR + Unearned bundle's standard outputs but the CoS
-  // amount is rebuilt below with IDC-augmented capex.
+  // 2b. Per-asset AR + Unearned bundles (Sell strategies).
   const byAssetSchedules = new Map<string, AssetScheduleBundle>();
   for (const [assetId, sellResult] of revenue.bySellAsset) {
-    const bundle = computeAssetScheduleBundle(
-      { project, phases, assets, subUnits, parcels, costLines, costOverrides, landAllocationMode },
+    byAssetSchedules.set(assetId, computeAssetScheduleBundle(sellResult));
+  }
+
+  // 2b-ii. COST OF SALES, computed ONCE, by the Module 2 layer that owns it.
+  // The capex base, the capitalised IDC on top of it and the spread across the
+  // recognition share are all assembled in `buildAssetCostOfSales`; this reads
+  // the result and never re-derives any part of it. The P&L, the balance
+  // sheet's inventory, the Module 2 screen, both PDFs and the workbook all
+  // consume this one map, so the displayed figure and the model figure cannot
+  // drift. Until 2026-08-30 the bundle above built a CoS on an IDC-free base
+  // which was then thrown away and rebuilt here, and a SECOND engine
+  // (costOfSalesV2) produced different figures for the screen and the exports.
+  const byAssetCostOfSales = new Map<string, AssetCostOfSales>();
+  for (const [assetId, sellResult] of revenue.bySellAsset) {
+    const built = buildAssetCostOfSales({
+      state: { project, phases, assets, subUnits, parcels, costLines, costOverrides, landAllocationMode },
       sellResult,
-      // The revenue snapshot, so the capex behind cost of sales is valued on the
-      // same bases as the financing aggregate (2026-08-19).
       revenue,
-    );
-    // Augment CoS with cumulative IDC. The total capex base for CoS
-    // becomes the original capex + total IDC capitalised to this asset.
-    const idc = byAssetIDC.get(assetId);
-    if (idc && idc.totalIdc > 0) {
-      const baseTotalCapex = bundle.cos.totalCapex;
-      const augmentedCapex = baseTotalCapex + idc.totalIdc;
-      const augmentedCos: CostOfSalesResult = buildCostOfSales(
-        sellResult.recognitionPerPeriod,
-        augmentedCapex,
-        N,
-      );
-      byAssetSchedules.set(assetId, { ...bundle, cos: augmentedCos });
-    } else {
-      byAssetSchedules.set(assetId, bundle);
-    }
+      idcPerPeriod: byAssetIDC.get(assetId)?.idcPerPeriod ?? zeros(N),
+      axisLength: N,
+      projectStartYear,
+    });
+    if (built) byAssetCostOfSales.set(assetId, built);
   }
 
   // 2c. IDC-driven depreciation for Operate / Lease assets: now embedded
@@ -1713,9 +1714,10 @@ function computeFinancialsSnapshotOnce(
           revRow[t] = (sell.presalesRecognitionPerPeriod[t] ?? 0) + (sell.postSalesRevenuePerPeriod[t] ?? 0);
           revRcv[t] = sell.cashCollectedPerPeriod[t] ?? 0;
         }
-        const bundle = byAssetSchedules.get(a.id);
-        if (bundle) {
-          for (let t = 0; t < N; t++) cosRow[t] = bundle.cos.perPeriod[t] ?? 0;
+        // READ the one result. Nothing is assembled or spread here.
+        const cosResult = byAssetCostOfSales.get(a.id);
+        if (cosResult) {
+          for (let t = 0; t < N; t++) cosRow[t] = cosResult.cos.perPeriod[t] ?? 0;
         }
       }
     }
@@ -1830,15 +1832,19 @@ function computeFinancialsSnapshotOnce(
     // to 0 once the remaining capex is placed, so the BS balances every period.
     // Inventory only goes negative in this capex-past-handover edge; with capex
     // inside the construction window it stays >= 0 exactly as before.
+    // INVENTORY comes from the same object as cost of sales, so the balance
+    // sheet and the Module 2 roll-forward cannot sit on different capex bases.
+    // They did until 2026-08-30: the statement built its own cumulative capex
+    // here while the screen built another, and on Marina Gate the screen's base
+    // was 62,936,759 smaller. Both halves of that gap are fixed at source (the
+    // Y0 lump is placed by the shared clamped rule, and computeAssetCost no
+    // longer truncates a line that runs past its window), so this row now
+    // closes at zero instead of at minus the truncated amount.
     const inventoryRow = zeros(N);
     if (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') {
-      const idcRow = byAssetIDC.get(a.id)?.idcPerPeriod ?? zeros(N);
-      let cumCapex = 0;
-      let cumCos = 0;
-      for (let t = 0; t < N; t++) {
-        cumCapex += (capex[t] ?? 0) + (idcRow[t] ?? 0);
-        cumCos += cosRow[t] ?? 0;
-        inventoryRow[t] = cumCapex - cumCos;
+      const cosResult = byAssetCostOfSales.get(a.id);
+      if (cosResult) {
+        for (let t = 0; t < N; t++) inventoryRow[t] = cosResult.inventoryPerPeriod[t] ?? 0;
       }
     }
 
@@ -2600,6 +2606,7 @@ function computeFinancialsSnapshotOnce(
     financing,
     idc: idcSnapshot,
     byAssetSchedules,
+    byAssetCostOfSales,
     perAssetPL,
     perAssetCF,
     pl,

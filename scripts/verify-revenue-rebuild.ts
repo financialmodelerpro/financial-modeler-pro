@@ -775,64 +775,47 @@ assertNear('K14: empty subUnits fallback Rooms = ORN × 500',
 // Total capex = 1876587.72.
 // Expected results from reference Costs sheet rows 122-138.
 // ───────────────────────────────────────────────────────────────
-console.log('\n--- Fixture L: CoS V2 joint cumulative (Pass 9e-2) ---');
+console.log('\n--- Fixture L: cost of sales on the reference capex (ONE engine) ---');
 
-import { buildCostOfSalesV2 } from '@/src/core/calculations/revenue';
+import { buildCostOfSales } from '@/src/core/calculations/revenue';
 
-// 14-year axis. 2025 = idx 0 (project start), 2026 = idx 1, ...
-// Capex starts year 2 (idx 1) per reference; pre-sales also align with
-// capex years. Total inventory = 100 (% mode); pre-sales 5/30/30/25
-// post-sales 10.
-const cosLInputs = {
-  capexPerPeriod: [0, 694341.78, 328401.65, 394081.98, 448022.62, 11739.69, 0, 0, 0, 0, 0, 0, 0, 0],
-  presalesPerPeriod:    [0, 5, 30, 30, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-  postSalesPerPeriod:   [0, 0,  0,  0,  0, 10, 0, 0, 0, 0, 0, 0, 0, 0],
-  recognitionPerPeriod: [0, 30, 30, 30, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-  totalInventory: 100,
-  axisLength: 14,
-};
-const cosL = buildCostOfSalesV2(cosLInputs);
+// This fixture used to pin buildCostOfSalesV2, a second cost-of-sales engine
+// that was deleted on 2026-08-30 after it was measured disagreeing with the
+// P&L by up to 407,131,731 in a single year on a live project. The reference
+// capex it was built around is kept; what is pinned is now the ONE engine and
+// the property that made it the right one.
+//
+// Reference capex per year (Costs sheet rows 122-138), 14-year axis with
+// 2025 = idx 0: total 1876587.72.
+const cosLCapex = [0, 694341.78, 328401.65, 394081.98, 448022.62, 11739.69, 0, 0, 0, 0, 0, 0, 0, 0];
+const cosLBase = cosLCapex.reduce((s, v) => s + v, 0);
+// Revenue RECOGNISED per period: 90% of inventory pre-sold and recognised
+// across construction on a 30/30/30/10 profile, the last 10% sold and
+// recognised in operations. This is the series the P&L books as revenue.
+const cosLRecognition = [0, 0.27, 0.27, 0.27, 0.09, 0.10, 0, 0, 0, 0, 0, 0, 0, 0];
+const cosL = buildCostOfSales(cosLRecognition, cosLBase, 14);
 
-assertNear('L1: Total capex = 1876587.72',
-  cosL.totalCapex, 1876587.72, 0.05);
-assertNear('L2: Cum pre-sales by handover (idx 4) = 0.9',
-  cosL.cumPreSalesPerPeriod[4], 0.9, 1e-6);
-assertNear('L3: Cum recognition at handover = 1.0',
-  cosL.cumRecognitionPerPeriod[4], 1.0, 1e-6);
-assertNear('L4: Joint factor at handover = 1.0 × 0.9 = 0.9',
-  cosL.jointFactorPerPeriod[4], 0.9, 1e-6);
-// Per-year construction CoS expected from reference r136:
-// 2026 (idx 1): 10415.13; 2027 (idx 2): 204360.99;
-// 2028 (idx 3): 614066.75; 2029 (idx 4): 849520.37
-assertNear('L5: CoS construction 2026 = 10415.13',
-  cosL.cosConstructionPerPeriod[1], 10415.13, 1.0);
-assertNear('L6: CoS construction 2027 = 204360.99',
-  cosL.cosConstructionPerPeriod[2], 204360.99, 1.0);
-assertNear('L7: CoS construction 2028 = 614066.75',
-  cosL.cosConstructionPerPeriod[3], 614066.75, 1.0);
-assertNear('L8: CoS construction 2029 = 849520.37',
-  cosL.cosConstructionPerPeriod[4], 849520.37, 1.0);
-// CoS operations: 10% × 1876587.72 = 187658.77 in 2030 (idx 5)
-assertNear('L9: CoS operations 2030 = 187658.77',
-  cosL.cosOperationsPerPeriod[5], 187658.77, 0.5);
-// Lifetime total CoS = total capex × (cum_pre + cum_post) = 1876587.72
-// (since pre + post = 100% of inventory).
-const lifetimeCos = cosL.totalCosPerPeriod.reduce((s, v) => s + v, 0);
-assertNear('L10: Lifetime CoS = total capex (100% of inventory sold)',
-  lifetimeCos, 1876587.72, 0.5);
-// Vintage matrix: row 1 (2026 capex 694341.78), col 1 (2026) = 10415.13
-assertNear('L11: Vintage[2026][2026] = 694341.78 × 0.015 = 10415.13',
-  cosL.vintageMatrix[1][1], 10415.13, 1.0);
-// Vintage[2026][2027] = 694341.78 × 0.195 = 135396.65
-assertNear('L12: Vintage[2026][2027] = 694341.78 × 0.195 = 135396.65',
-  cosL.vintageMatrix[1][2], 135396.65, 1.0);
-// Vintage[2027][2027] = 328401.65 × 0.21 = 68964.35 (collapses 2026 share)
-assertNear('L13: Vintage[2027][2027] = 328401.65 × 0.21 = 68964.35',
-  cosL.vintageMatrix[2][2], 68964.35, 1.0);
-// Vintage row sum = capex_i × cum_pre_at_handover = capex × 0.9
-const vintage2026RowSum = cosL.vintageMatrix[1].reduce((s, v) => s + v, 0);
-assertNear('L14: Vintage[2026] row sum = capex_2026 × 0.9 = 624907.60',
-  vintage2026RowSum, 624907.60, 1.0);
+assertNear('L1: Total capex base = 1876587.72', cosLBase, 1876587.72, 0.05);
+assertNear('L2: Lifetime cost of sales exhausts the base exactly',
+  cosL.perPeriod.reduce((s, v) => s + v, 0), 1876587.72, 0.05);
+assertNear('L3: 2026 takes its 27% share', cosL.perPeriod[1], 1876587.72 * 0.27, 0.5);
+assertNear('L4: 2029 takes its 9% share', cosL.perPeriod[4], 1876587.72 * 0.09, 0.5);
+assertNear('L5: the operations year takes the last 10%', cosL.perPeriod[5], 1876587.72 * 0.10, 0.5);
+assertNear('L6: nothing is charged before revenue is recognised', cosL.perPeriod[0], 0, 1e-9);
+assertNear('L7: the cumulative series ends at the base',
+  cosL.cumulativePerPeriod[13], 1876587.72, 0.05);
+// THE property: charge proportional to recognised revenue means a constant
+// gross margin, which is what the second engine could not hold (it swung from
+// 75.7% to 6.4% to 27.6% on one live product).
+{
+  const totalRev = 3000000;
+  const margins = [1, 2, 3, 4, 5].map((i) => {
+    const rev = totalRev * cosLRecognition[i];
+    return (rev - cosL.perPeriod[i]) / rev;
+  });
+  const spread = Math.max(...margins) - Math.min(...margins);
+  assertNear('L8: gross margin is CONSTANT across every recognising period', spread, 0, 1e-9);
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // M-series: Retail / Lease engine (Pass 9g)

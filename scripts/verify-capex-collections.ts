@@ -49,8 +49,8 @@ const read = (rel: string): string =>
 // TWO SEPARATE DIMENSIONS, and the difference is what a 2026-08-19 defect was
 // made of. `collections` drives PHASING (when a line's money lands) and
 // `revenue` drives the AMOUNT of a percent-of-revenue line. A site can
-// legitimately need one and not the other: `computeAssetCapex` reads `.total`
-// only, so phasing cannot move its answer, but a revenue base certainly can.
+// legitimately need one and not the other: a site reading `.total` only cannot
+// have its answer moved by phasing, but a revenue base certainly can.
 // Registering one flag for both hid exactly that: the site's recorded reason,
 // "phasing cannot move a total", was true and was quietly taken as permission to
 // omit everything (TRAPS 7.26).
@@ -63,15 +63,18 @@ const SITES: Array<{ file: string; wired: boolean; bases: boolean; why: string }
   { file: 'src/core/calculations/financing/capex.ts', wired: true, bases: true, why: 'financing capex schedule' },
   { file: 'src/hubs/modeling/platforms/refm/lib/financials-resolvers.ts', wired: true, bases: true, why: 'the model' },
   { file: 'src/hubs/modeling/platforms/refm/lib/reports/capexReports.ts', wired: true, bases: true, why: 'capex report + exports' },
-  { file: 'src/hubs/modeling/platforms/refm/lib/reports/cosReports.ts', wired: true, bases: true, why: 'cost of sales report' },
+  { file: 'src/hubs/modeling/platforms/refm/lib/costOfSales.ts', wired: true, bases: true,
+    why: 'THE cost-of-sales layer (2026-08-30). The only place a cost-of-sales capex base is assembled: the screen, both PDFs, the workbook, the P&L and the balance sheet all read its result. It needs BOTH, because a selling cost follows collections for its phasing and charges on a revenue base for its amount' },
   { file: 'src/hubs/modeling/platforms/refm/lib/fixed-assets-resolvers.ts', wired: true, bases: true, why: 'capitalised capex drives depreciation' },
   { file: 'src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx', wired: true, bases: true, why: 'the Capex screen' },
-  { file: 'src/hubs/modeling/platforms/refm/components/modules/Module2CostOfSales.tsx', wired: true, bases: true, why: 'CoS screen' },
-  { file: 'src/hubs/modeling/platforms/refm/components/modules/Module2Schedules.tsx', wired: true, bases: true, why: 'schedules screen' },
   { file: 'src/hubs/modeling/platforms/refm/components/modules/Module2RevenueOutput.tsx', wired: true, bases: true,
     why: 'the Selling Costs year-on-year schedule. It was registered wired:false on the reasoning that perLinePerPeriod is "already phased"; that reasoning was WRONG, because the series is phased BY this very call, and a selling cost carries phasingSource collections. See TRAPS 7.26: a registry reason can be fluent and false' },
-  { file: 'src/hubs/modeling/platforms/refm/lib/revenue-resolvers.ts', wired: false, bases: true,
-    why: 'computeAssetCapex reads .total only, so phasing cannot move it, but a revenue BASE can' },
+  // revenue-resolvers.ts was here for `computeAssetCapex`, which read `.total`
+  // only. That function is GONE (2026-08-30): the cost-of-sales base needs the
+  // per-period spend as well as the total, so a scalar-only helper could only
+  // ever be half of it, and its "phasing cannot move a total" reason was the
+  // TRAPS 7.26 shape, true in itself and quietly taken as permission to omit
+  // the phasing entirely.
   { file: 'src/hubs/modeling/platforms/refm/lib/financing-hooks.ts', wired: false, bases: false,
     why: 'DEAD CODE: createFinancingHooks is imported nowhere in src, app or scripts' },
 ];
@@ -153,9 +156,21 @@ function anyCallPassesBases(text: string): boolean {
     }
   };
   for (const r of roots) walk(path.join(ROOT, r));
+  // STRIP COMMENTS AND STRING LITERALS FIRST. This detector read raw source, so
+  // a file that only MENTIONED computeAssetCost in prose registered as a call
+  // site: on 2026-08-30 a comment recording that `computeAssetCapex` had been
+  // deleted ("returned computeAssetCost(...).total") made revenue-resolvers.ts
+  // fail as an unregistered caller after its last real call was removed. A
+  // check that a token is absent must never be able to see its own explanation.
+  const stripSource = (s: string): string => s
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/[^\n]*/g, '')
+    .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
+    .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
+    .replace(/`(?:[^`\\]|\\.)*`/g, '``');
   const callers = files.filter((f) => {
-    const t = fs.readFileSync(f, 'utf8');
-    return /computeAssetCost\(/.test(t) && !/export function computeAssetCost/.test(t.slice(0, 200));
+    const t = stripSource(fs.readFileSync(f, 'utf8'));
+    return /computeAssetCost\(/.test(t) && !/export function computeAssetCost/.test(t.slice(0, 400));
   }).map((f) => path.relative(ROOT, f).replace(/\\/g, '/'));
   const known = new Set(SITES.map((s) => s.file));
   const unknown = callers.filter((c) => !known.has(c));

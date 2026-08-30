@@ -34,7 +34,7 @@ import {
   computeProjectTimeline,
   resolveUsefulLifeYears,
 } from '@/src/core/calculations';
-import { collectionsForAssetAtOffset, type CollectionsSource } from '@/src/core/calculations/capexPhasing';
+import { collectionsForAssetAtOffset, phaseLocalToProjectIndex, type CollectionsSource } from '@/src/core/calculations/capexPhasing';
 import {
   computeAssetFixedAssets,
   type AssetFixedAssetResult,
@@ -119,18 +119,20 @@ function isDepreciableAsset(a: Asset): boolean {
 }
 
 /**
- * Project a phase-local per-period array onto the project axis using
- * the same offset rule as financing/capex.ts::aggregateProjectCapex.
- *   - Local i = 0 (Y0 upfront): placed at projIdx = offset - 1; Phase 1
- *     (offset === 0) drops the Y0 lump entirely.
- *   - Local i >= 1: projIdx = offset + i - 1.
+ * Project a phase-local per-period array onto the project axis.
+ *
+ * Calls `phaseLocalToProjectIndex`, THE one definition of the Y0 placement
+ * rule. It used to write the rule out inline; the code was right (it clamped)
+ * but the comment above it said the opposite, that phase 1 "drops the Y0 lump
+ * entirely", which is the unclamped behaviour that deleted a phase-1 lump
+ * elsewhere. A rule stated twice is a rule that can disagree with itself, and
+ * here one copy already disagreed with its own description.
  */
 function projectOntoAxis(local: number[] | undefined, offset: number, N: number): number[] {
   const out = zeros(N);
   if (!local) return out;
   for (let i = 0; i < local.length; i++) {
-    // M4 Pass 2W (2026-05-24): rescue Phase 1's i=0 lump (see capex.ts).
-    const projIdx = i === 0 ? Math.max(0, offset - 1) : offset + i - 1;
+    const projIdx = phaseLocalToProjectIndex(i, offset);
     if (projIdx < 0 || projIdx >= N) continue;
     out[projIdx] += local[i] ?? 0;
   }

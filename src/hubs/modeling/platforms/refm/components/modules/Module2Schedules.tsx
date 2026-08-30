@@ -35,15 +35,13 @@
 import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
-import { computeAllSellResults, resolveLiteralRecognitionProfile } from '../../lib/revenue-resolvers';
-import { collectionsForAsset } from '@/src/core/calculations/capexPhasing';
+import { computeAllSellResults } from '../../lib/revenue-resolvers';
+import { computeFinancialsSnapshot } from '../../lib/financials-resolvers';
 import {
   buildAccountsReceivable,
   buildUnearnedRevenue,
   buildAccountsReceivableDSO,
-  buildCostOfSalesV2,
 } from '@/src/core/calculations/revenue';
-import { computeAssetCost } from '@/src/core/calculations';
 import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import { makeFmt, ZERO_SNAP_THRESHOLD } from './_shared/numberFmt';
 import {
@@ -189,6 +187,10 @@ export default function Module2Schedules(): React.JSX.Element {
       costLines: s.costLines,
       costOverrides: s.costOverrides,
       landAllocationMode: s.landAllocationMode,
+      // Needed to compute the financials snapshot, which is where the ONE
+      // cost-of-sales result and the inventory roll-forward come from.
+      financingTranches: s.financingTranches,
+      equityContributions: s.equityContributions,
     })),
   );
   const { project, phases, assets } = state;
@@ -196,6 +198,14 @@ export default function Module2Schedules(): React.JSX.Element {
     () => computeAllSellResults({ project, phases, assets, subUnits: state.subUnits }),
     [project, phases, assets, state.subUnits],
   );
+  // Cost of sales and the inventory roll-forward are READ from the one result
+  // the Module 2 layer builds, never re-assembled here. This screen used to
+  // build its own capex base and run a second engine over it, which is how its
+  // inventory came to sit on a base 62,936,759 smaller than the balance
+  // sheet's on a live project.
+  const finSnap = useMemo(() => {
+    try { return computeFinancialsSnapshot(state); } catch { return null; }
+  }, [state]);
   const currency = project.currency || '';
   const scale: DisplayScale = project.displayScale ?? 'full';
   const decimals: DisplayDecimals = project.displayDecimals ?? 2;
@@ -217,58 +227,10 @@ export default function Module2Schedules(): React.JSX.Element {
         const phase = phases.find((p) => p.id === a.phaseId);
         if (!phase) continue;
 
-        const breakdown = computeAssetCost({
-          asset: a, project, phase,
-          parcels: state.parcels, assets, subUnits: state.subUnits,
-          costLines: state.costLines, costOverrides: state.costOverrides,
-          landAllocationMode: state.landAllocationMode,
-          parcelFunding: project.financing?.parcelFunding,
-          // 2026-08-16: `snap` is the sell-results snapshot already computed on
-          // this screen, so a collections-following line phases here exactly as
-          // in the model rather than falling back to its own curve.
-          collectionsPerPeriod: collectionsForAsset(snap, a.id, phase, projectStartYearLocal),
-          revenue: snap,
-        });
-        const phaseStartYear = phase.startDate
-          ? new Date(phase.startDate).getUTCFullYear()
-          : projectStartYearLocal;
-        const offset = Math.max(0, phaseStartYear - projectStartYearLocal);
-        const capexPerPeriod = zeros();
-        const perAll = breakdown.perPeriod ?? [];
-        for (let i = 0; i < perAll.length; i++) {
-          const projIdx = i === 0 ? offset - 1 : offset + i - 1;
-          if (projIdx >= 0 && projIdx < N) capexPerPeriod[projIdx] += perAll[i] ?? 0;
-        }
-        const assetSubs = state.subUnits.filter((u) => u.assetId === a.id);
-        const allUnits = assetSubs.length > 0 && assetSubs.every((u) => u.metric === 'units');
-        const presales = allUnits ? r.presalesUnitsPerPeriod : r.presalesAreaPerPeriod;
-        const postSales = allUnits ? r.postSalesUnitsPerPeriod : r.postSalesAreaPerPeriod;
-        const totalInventory = presales.reduce((s, v) => s + Math.max(0, v), 0)
-          + postSales.reduce((s, v) => s + Math.max(0, v), 0);
-        const profileRes = resolveLiteralRecognitionProfile(
-          a, phase, projectStartYearLocal, N, r.presalesRecognitionPerPeriod,
-        );
-        const cos = buildCostOfSalesV2({
-          capexPerPeriod,
-          presalesPerPeriod: presales,
-          postSalesPerPeriod: postSales,
-          recognitionPerPeriod: profileRes.profile,
-          totalInventory,
-          axisLength: N,
-        });
-
-        // Inventory roll-forward with snap-to-zero residual.
-        const inventory = zeros();
-        let prev = 0;
-        for (let t = 0; t < N; t++) {
-          const cap = Math.max(0, capexPerPeriod[t] ?? 0);
-          const coSC = Math.max(0, cos.cosConstructionPerPeriod[t] ?? 0);
-          const coSO = Math.max(0, cos.cosOperationsPerPeriod[t] ?? 0);
-          let close = Math.max(0, prev + cap - coSC - coSO);
-          if (Math.abs(close) < 1000) close = 0;
-          inventory[t] = close;
-          prev = close;
-        }
+        // THE one result. No base assembled here, no second engine.
+        const cosResult = finSnap?.byAssetCostOfSales.get(a.id) ?? null;
+        const capexPerPeriod = cosResult ? cosResult.capexPerPeriod.slice(0, N) : zeros();
+        const inventory = cosResult ? cosResult.inventoryPerPeriod.slice(0, N) : zeros();
 
         // Pass 9g-I (2026-05-18): correct engine args.
         //   AR = Pre-Sales Sale Value (signing) - Pre-Sales Cash Received
@@ -303,9 +265,9 @@ export default function Module2Schedules(): React.JSX.Element {
           isCompanion: false,
           revenue,
           cashCollected,
-          cosConstr: cos.cosConstructionPerPeriod.slice(),
-          cosOps: cos.cosOperationsPerPeriod.slice(),
-          totalCos: cos.totalCosPerPeriod.slice(),
+          cosConstr: cosResult ? cosResult.cosPresalesPerPeriod.slice(0, N) : zeros(),
+          cosOps: cosResult ? cosResult.cosPostSalesPerPeriod.slice(0, N) : zeros(),
+          totalCos: cosResult ? cosResult.cos.perPeriod.slice(0, N) : zeros(),
           inventory,
           ar: arSnapped,
           ur: urSnapped,

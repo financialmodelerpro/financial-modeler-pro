@@ -1,21 +1,24 @@
 /**
  * cosReports.ts
  *
- * Shared pure builder for the Module 2 Cost of Sales tab. The financials
- * snapshot only carries the reduced CoS result (per-period / gross-margin /
- * cumulative), so this recomputes the per-asset CoS-V2 result the platform tab
- * renders (buildCostOfSalesV2) with the SAME inputs (computeAssetCost projected
- * onto the axis + IDC + the literal recognition profile), then shapes it into
- * the platform's currency tables: a Capex basis driver, the Vintage Matrix
- * (with a Total row), the CoS Summary, and the Inventory roll-forward, per Sell
- * asset, plus the project totals. fmt-parametrised for last-balance cells.
+ * Shared pure SHAPER for the Module 2 Cost of Sales tab. It computes nothing:
+ * it reads `snap.byAssetCostOfSales`, the one result the Module 2 layer built
+ * (lib/costOfSales), and arranges it into the platform's currency tables, so
+ * the screen, both PDFs and the workbook render the same numbers the P&L and
+ * the balance sheet are built from.
  *
- * Pure: reads the snapshot + state only.
+ * WHAT THIS FILE USED TO DO, and why it does not any more (2026-08-30): it
+ * RE-COMPUTED cost of sales with a second engine (buildCostOfSalesV2) on a
+ * capex base it assembled itself, including a hand-rolled Y0 placement rule
+ * that dropped a phase-1 lump off the axis. On the live projects that put the
+ * exports up to 407,131,731 away from the P&L in a single year. There is now
+ * exactly one computation, upstream, and this file is downstream of it.
+ *
+ * Pure: reads the snapshot only.
+ *
+ * No em dashes in this file.
  */
-import { computeAssetCost } from '@/src/core/calculations';
-import { collectionsForAsset } from '@/src/core/calculations/capexPhasing';
-import { buildCostOfSalesV2, type CostOfSalesV2Result } from '@/src/core/calculations/revenue';
-import { resolveLiteralRecognitionProfile } from '../revenue-resolvers';
+import { costOfSalesBasisLabel, type AssetCostOfSales } from '../costOfSales';
 import type { ProjectFinancialsSnapshot, FinancialsResolverState } from '../financials-resolvers';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 
@@ -26,65 +29,25 @@ const anyNonZero = (a: number[] | undefined): boolean => !!a && a.some((v) => (v
 export function buildCostOfSalesReport(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: (v: number) => string): ReportTable[] {
   const N = snap.axisLength;
   const yl = snap.yearLabels;
-  const projectStartYear = yl[0] ?? 0;
-  const sellAssets = state.assets.filter((a) => a.visible !== false && (a.strategy === 'Sell' || a.strategy === 'Sell + Manage'));
   const tables: ReportTable[] = [];
+  const perAsset: Array<{ name: string; cos: AssetCostOfSales }> = [];
 
-  const projConstruction = new Array<number>(N).fill(0);
-  const projOperations = new Array<number>(N).fill(0);
-  const projTotal = new Array<number>(N).fill(0);
-  const perAssetCos: Array<{ name: string; cos: CostOfSalesV2Result }> = [];
+  for (const a of state.assets) {
+    if (a.visible === false) continue;
+    const cos = snap.byAssetCostOfSales.get(a.id);
+    if (!cos || !anyNonZero(cos.cos.perPeriod)) continue;
+    perAsset.push({ name: a.name, cos });
 
-  for (const a of sellAssets) {
-    const r = snap.revenue.bySellAsset.get(a.id);
-    const phase = state.phases.find((p) => p.id === a.phaseId);
-    if (!phase) continue;
-    const breakdown = computeAssetCost({
-      asset: a, project: state.project, phase,
-      parcels: state.parcels, assets: state.assets, subUnits: state.subUnits,
-      costLines: state.costLines, costOverrides: state.costOverrides,
-      landAllocationMode: state.landAllocationMode,
-      parcelFunding: state.project.financing?.parcelFunding,
-      collectionsPerPeriod: collectionsForAsset(snap.revenue, a.id, phase, projectStartYear),
-      revenue: snap.revenue,
-    });
-    const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
-    const offset = Math.max(0, phaseStartYear - projectStartYear);
-    // Capex projection: CoS uses offset-1 for the Y0 lump (Phase 1 drops it),
-    // matching Module2CostOfSales exactly.
-    const capexPerPeriod = new Array<number>(N).fill(0);
-    const perAll = breakdown.perPeriod ?? [];
-    for (let i = 0; i < perAll.length; i++) {
-      const projIdx = i === 0 ? offset - 1 : offset + i - 1;
-      if (projIdx >= 0 && projIdx < N) capexPerPeriod[projIdx] += perAll[i] ?? 0;
-    }
-    const idcRow = snap.idc.byAsset.get(a.id);
-    const idcPerPeriod = idcRow?.idcPerPeriod ?? new Array<number>(N).fill(0);
-    for (let i = 0; i < N; i++) capexPerPeriod[i] += idcPerPeriod[i] ?? 0;
-
-    const assetSubUnits = state.subUnits.filter((u) => u.assetId === a.id);
-    const allUnits = assetSubUnits.length > 0 && assetSubUnits.every((u) => u.metric === 'units');
-    const presales = r ? (allUnits ? r.presalesUnitsPerPeriod : r.presalesAreaPerPeriod) : new Array<number>(N).fill(0);
-    const postSales = r ? (allUnits ? r.postSalesUnitsPerPeriod : r.postSalesAreaPerPeriod) : new Array<number>(N).fill(0);
-    const totalInventory = presales.reduce((s, v) => s + Math.max(0, v), 0) + postSales.reduce((s, v) => s + Math.max(0, v), 0);
-    const derivedFallback = r?.presalesRecognitionPerPeriod ?? new Array<number>(N).fill(0);
-    const { profile } = resolveLiteralRecognitionProfile(a, phase, projectStartYear, N, derivedFallback);
-    const cos = buildCostOfSalesV2({ capexPerPeriod, presalesPerPeriod: presales, postSalesPerPeriod: postSales, recognitionPerPeriod: profile, totalInventory, axisLength: N });
-
-    if (!anyNonZero(cos.totalCosPerPeriod)) continue;
-    perAssetCos.push({ name: a.name, cos });
-    for (let t = 0; t < N; t++) {
-      projConstruction[t] += cos.cosConstructionPerPeriod[t] ?? 0;
-      projOperations[t] += cos.cosOperationsPerPeriod[t] ?? 0;
-      projTotal[t] += cos.totalCosPerPeriod[t] ?? 0;
-    }
-
-    // Capex basis driver (currency).
-    tables.push({ title: `Cost of Sales Driver, ${a.name} (capex basis incl. IDC)`, rows: [
-      { label: 'Capex per period (incl. capitalised IDC)', values: capexPerPeriod, isTotal: true },
+    // The basis, stated on the row: what the charge is computed on, INCLUDING
+    // the capitalised IDC inside it, the way a marketing line states its own.
+    tables.push({ title: `Cost of Sales Basis, ${a.name}`, rows: [
+      { label: costOfSalesBasisLabel(fmt, cos.basis.assetCost, cos.basis.idc), values: [], isSection: true },
+      { label: 'Asset capex', values: [], totalOverride: fmt(cos.basis.assetCost) },
+      { label: 'Capitalised IDC', values: [], totalOverride: fmt(cos.basis.idc) },
+      { label: 'Capex base charged through cost of sales', values: cos.capexPerPeriod, isTotal: true },
     ] });
 
-    // Vintage Matrix with a Total row (per-year column sums).
+    // Vintage matrix (capex period x recognition period), with a Total row.
     const vmRows: M4Row[] = cos.vintageMatrix
       .map((m, i) => ({ label: `Spent in ${yl[i] ?? i}`, values: m.slice(0, N) }))
       .filter((rr) => anyNonZero(rr.values));
@@ -95,47 +58,42 @@ export function buildCostOfSalesReport(snap: ProjectFinancialsSnapshot, state: F
       tables.push({ title: `Cost of Sales Vintage Matrix, ${a.name}`, rows: vmRows });
     }
 
-    // Summary (currency).
+    // Summary. The split is by WHICH recognition drove the charge, and the two
+    // rows sum to the total exactly; it is not a second computation.
     tables.push({ title: `Cost of Sales Summary, ${a.name}`, rows: [
-      { label: 'CoS during construction (pre-sales cohort)', values: cos.cosConstructionPerPeriod },
-      { label: 'CoS during operations (post-handover sales)', values: cos.cosOperationsPerPeriod },
-      { label: 'Total Cost of Sales', values: cos.totalCosPerPeriod, isTotal: true },
+      { label: 'On pre-sales recognition', values: cos.cosPresalesPerPeriod },
+      { label: 'On post-handover sales', values: cos.cosPostSalesPerPeriod },
+      { label: 'Total Cost of Sales', values: cos.cos.perPeriod, isTotal: true },
     ] });
 
-    // Inventory roll-forward (currency).
+    // Inventory roll-forward. THE SAME series the balance sheet carries.
     const opening = new Array<number>(N).fill(0);
-    const balance = new Array<number>(N).fill(0);
-    for (let t = 0; t < N; t++) {
-      opening[t] = t === 0 ? 0 : balance[t - 1];
-      balance[t] = opening[t] + (capexPerPeriod[t] ?? 0) - (cos.cosConstructionPerPeriod[t] ?? 0) - (cos.cosOperationsPerPeriod[t] ?? 0);
-    }
+    for (let t = 0; t < N; t++) opening[t] = t === 0 ? 0 : (cos.inventoryPerPeriod[t - 1] ?? 0);
     tables.push({ title: `Inventory Roll-Forward, ${a.name}`, rows: [
       { label: 'Opening balance', values: opening, totalOverride: fmt(0) },
-      { label: '(+) Capex', values: capexPerPeriod },
-      { label: '(-) Cost of Sales during construction', values: cos.cosConstructionPerPeriod.map((v) => -v) },
-      { label: '(-) Cost of Sales during operations', values: cos.cosOperationsPerPeriod.map((v) => -v) },
-      { label: 'Inventory balance', values: balance, isTotal: true, totalOverride: fmt(balance[N - 1] ?? 0) },
+      { label: '(+) Capex (incl. capitalised IDC)', values: cos.capexPerPeriod },
+      { label: '(-) Cost of Sales', values: cos.cos.perPeriod.map((v) => -v) },
+      { label: 'Inventory balance (as carried on the balance sheet)', values: cos.inventoryPerPeriod, isTotal: true, totalOverride: fmt(cos.inventoryPerPeriod[N - 1] ?? 0) },
     ] });
   }
 
-  // Project totals (Residential / Sell), per-asset rows + total.
-  if (perAssetCos.length) {
-    const sumOf = (pick: (c: CostOfSalesV2Result) => number[]): number[] => {
+  if (perAsset.length) {
+    const sumOf = (pick: (c: AssetCostOfSales) => number[]): number[] => {
       const out = new Array<number>(N).fill(0);
-      for (const { cos } of perAssetCos) { const s = pick(cos); for (let t = 0; t < N; t++) out[t] += s[t] ?? 0; }
+      for (const { cos } of perAsset) { const s = pick(cos); for (let t = 0; t < N; t++) out[t] += s[t] ?? 0; }
       return out;
     };
-    const mk = (title: string, pick: (c: CostOfSalesV2Result) => number[], totalLabel: string): ReportTable => ({
+    const mk = (title: string, pick: (c: AssetCostOfSales) => number[], totalLabel: string): ReportTable => ({
       title,
       rows: [
         { label: 'Residential / Sell', values: [], isSection: true },
-        ...perAssetCos.map(({ name, cos }): M4Row => ({ label: name, values: pick(cos), indent: 1 })),
+        ...perAsset.map(({ name, cos }): M4Row => ({ label: name, values: pick(cos), indent: 1 })),
         { label: totalLabel, values: sumOf(pick), isTotal: true },
       ],
     });
-    tables.push(mk('Project Cost of Sales, During Construction', (c) => c.cosConstructionPerPeriod, 'Total CoS during construction'));
-    tables.push(mk('Project Cost of Sales, During Operations', (c) => c.cosOperationsPerPeriod, 'Total CoS during operations'));
-    tables.push(mk('Project Total Cost of Sales', (c) => c.totalCosPerPeriod, 'Total Cost of Sales'));
+    tables.push(mk('Project Cost of Sales, On Pre-Sales Recognition', (c) => c.cosPresalesPerPeriod, 'Total on pre-sales recognition'));
+    tables.push(mk('Project Cost of Sales, On Post-Handover Sales', (c) => c.cosPostSalesPerPeriod, 'Total on post-handover sales'));
+    tables.push(mk('Project Total Cost of Sales', (c) => c.cos.perPeriod, 'Total Cost of Sales'));
   }
 
   return tables;

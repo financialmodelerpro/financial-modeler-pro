@@ -1814,8 +1814,8 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
           nonDeferredTotal,
           cp,
         );
-        const lim = Math.min(tmp.length, periodSlots);
-        for (let i = 0; i < lim; i++) dist[i] += tmp[i] ?? 0;
+        // GROW, never truncate: see the note on the aggregation loop below.
+        for (let i = 0; i < tmp.length; i++) dist[i] = (dist[i] ?? 0) + (tmp[i] ?? 0);
       }
     } else {
       dist = distributeItemCost(
@@ -1827,13 +1827,34 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
     perLinePerPeriod[r.line.id] = dist;
     const isLand = deriveCostStage(r.line) === 'land';
     const isInKindLand = r.method === 'percent_of_inkind_land';
-    const lim = Math.min(dist.length, periodSlots);
-    for (let i = 0; i < lim; i++) {
+    // GROW the aggregate to fit the line, never truncate it to the window.
+    //
+    // `periodSlots` is sized from constructionPeriods and the latest cost-line
+    // endPeriod, but a line that FOLLOWS a phasing source (a selling cost on
+    // `percent_of_revenue_sale` following collections, say) is distributed over
+    // that source's window, which can run past both. The old
+    // `Math.min(dist.length, periodSlots)` silently dropped the overhang, so
+    // `total` (accumulated separately, from the resolved line values) no longer
+    // equalled the sum of the periods beside it. Measured live before the fix:
+    // Marina Gate's "Marketing Cost" lost 6,561,759 and RE HUB's "Commission"
+    // lost 10,632,560, and because the balance sheet builds inventory as
+    // cumulative capex minus cumulative cost of sales, Marina Gate closed on an
+    // inventory of exactly -6,561,759. A negative closing inventory was the
+    // visible end of a silent truncation.
+    for (let i = 0; i < dist.length; i++) {
       const v = dist[i] ?? 0;
-      perPeriod[i] += v;
-      if (isLand) perPeriodLandTotal[i] += v;
-      if (isInKindLand) perPeriodLandInKind[i] += v;
+      perPeriod[i] = (perPeriod[i] ?? 0) + v;
+      if (isLand) perPeriodLandTotal[i] = (perPeriodLandTotal[i] ?? 0) + v;
+      if (isInKindLand) perPeriodLandInKind[i] = (perPeriodLandInKind[i] ?? 0) + v;
     }
+  }
+  // A grown array can carry holes if one line reached further than another; fill
+  // them so every consumer reads numbers rather than undefined.
+  const widest = Math.max(perPeriod.length, perPeriodLandTotal.length, perPeriodLandInKind.length);
+  for (let i = 0; i < widest; i++) {
+    perPeriod[i] = perPeriod[i] ?? 0;
+    perPeriodLandTotal[i] = perPeriodLandTotal[i] ?? 0;
+    perPeriodLandInKind[i] = perPeriodLandInKind[i] ?? 0;
   }
 
   return {

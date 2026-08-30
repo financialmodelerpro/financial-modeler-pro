@@ -93,8 +93,34 @@ async function main(): Promise<void> {
   const rowByLabelLast = (ws: ExcelJS.Worksheet, re: RegExp): number => { let row = -1; ws.eachRow((_r, R) => { if (re.test(labelOf(ws, R))) row = R; }); return row; };
   const cosTotRow = rowByLabelLast(wb.getWorksheet('Revenue')!, /^Total Cost of Sales$/);
   const cosProjTable = buildCostOfSalesReport(snap, state, (v: number) => String(v)).find((t) => t.title === 'Project Total Cost of Sales');
-  const cosProjTotal = cosProjTable ? sumA(cosProjTable.rows.find((r) => r.isTotal)?.values ?? [], N) : 0;
+  const cosProjRow = (cosProjTable?.rows.find((r) => r.isTotal)?.values ?? []) as number[];
+  const cosProjTotal = sumA(cosProjRow, N);
   check('Cost of Sales project total ties to the CoS builder', cosTotRow > 0 && close(num(wb.getWorksheet('Revenue')!.getCell(cosTotRow, 4).value), cosProjTotal));
+  // 2026-08-30: tying the workbook to the Module 2 builder was never enough,
+  // because that builder used to run a SECOND engine. It is the P&L the
+  // workbook has to agree with, PER PERIOD, not just in total: the two engines
+  // agreed to within 0.24% over a lifetime on one live project while being
+  // 407,131,731 apart in a single year, and that near-agreement is exactly what
+  // hid the split. There is one engine now, and this pins it.
+  {
+    let tie = true; let worst = 0; let worstT = -1;
+    for (let t = 0; t < N; t++) {
+      const d = Math.abs((cosProjRow[t] ?? 0) - (snap.pl.cosPerPeriod[t] ?? 0));
+      if (d > worst) { worst = d; worstT = t; }
+      if (!close(cosProjRow[t] ?? 0, snap.pl.cosPerPeriod[t] ?? 0)) tie = false;
+    }
+    check('Cost of Sales ties to the P&L in EVERY period, not just in total', tie,
+      `worst gap ${Math.round(worst).toLocaleString()} at period ${worstT}`);
+  }
+  // And the inventory the Module 2 roll-forward shows is the one the balance
+  // sheet carries: same object, so the screen and the statement cannot differ.
+  {
+    const invM2 = new Array<number>(N).fill(0);
+    for (const [, c] of snap.byAssetCostOfSales) for (let t = 0; t < N; t++) invM2[t] += c.inventoryPerPeriod[t] ?? 0;
+    let tie = true;
+    for (let t = 0; t < N; t++) if (!close(invM2[t], snap.bs.inventoryPerPeriod[t] ?? 0)) tie = false;
+    check('Module 2 inventory roll-forward IS the balance sheet inventory', tie);
+  }
   // Module 2 mirror: the Revenue sheet reproduces all platform sub-tabs in order.
   const revWs = wb.getWorksheet('Revenue')!;
   const m2 = (re: RegExp): number => rowByLabel(revWs, re);

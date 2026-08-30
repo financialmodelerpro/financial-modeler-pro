@@ -48,9 +48,13 @@ export { buildAccountsReceivableDSO } from './accountsReceivableDSO';
 export type { AccountsReceivableDSOResult, BuildAccountsReceivableDSOInputs } from './accountsReceivableDSO';
 export { buildUnearnedRevenue } from './unearnedRevenue';
 export type { UnearnedRevenueResult } from './unearnedRevenue';
+// THE cost-of-sales engine, and the only one (2026-08-30). A second engine,
+// `buildCostOfSalesV2`, was exported here and used by the Module 2 screen and
+// both exports while the P&L used this one; they disagreed by up to 407,131,731
+// in a single year on a live project. It is deleted, not deprecated. The base
+// and the spread are assembled once, in the platform's Module 2 cost-of-sales
+// layer (hubs/modeling/platforms/refm/lib/costOfSales.ts), which calls this.
 export { buildCostOfSales } from './costOfSales';
 export type { CostOfSalesResult } from './costOfSales';
-export { buildCostOfSalesV2 } from './costOfSalesV2';
-export type { CostOfSalesV2Inputs, CostOfSalesV2Result } from './costOfSalesV2';
 export { computeEscrow } from './escrow';
 export type { EscrowConfig, EscrowAssetResult } from './escrow';

@@ -530,6 +530,24 @@ fingerprinting the damage rather than the defect.
 **Proof.** 2026-08-17: 0 lines repaired when it ran last in the chain; 8 lines when it ran first,
 with the other phase's hand-set windows untouched.
 
+### 7.30 Two engines for one quantity agree on the lifetime total and disagree in every period
+
+**Symptom.** Cost of sales was computed by two engines. The P&L used one; the Module 2 screen, both PDFs and the workbook used another. On the main demo project their lifetime totals agreed to within **0.24%** (4,469,665,536 against 4,459,032,976), which is close enough that nobody looked further. Per period they were **407,131,731 apart in one year**, 34.7% of the P&L figure, and the screen showed a 6.4% gross margin in a year the P&L showed 30.5%. On a second live project the same pair were **25.4% apart over the lifetime too** (247,653,102 against 184,716,343), so the agreement was never a property of the design; it was a coincidence on one project.
+
+**Mechanism.** Three separate faults, each invisible on its own.
+
+1. **Two engines.** `buildCostOfSales` spread the capex base across the recognition series the P&L actually books, which holds gross margin constant per asset. `buildCostOfSalesV2` spread it across a product of cumulatives (`cumRecognition x cumPreSales`) that was a re-approximation of cohort recognition rather than the revenue engine's own `recognitionVintageMatrix`. Both were internally consistent and each had its own green verifier, which is exactly why neither verifier could see the problem: **a verifier that pins one engine cannot detect that a second one exists.**
+2. **A hand-rolled copy of a shared rule.** The screen and the report builder each wrote out the Y0 placement rule as `i === 0 ? offset - 1 : offset + i - 1` instead of calling `phaseLocalToProjectIndex`, whose clamp exists precisely because the unclamped form yields -1 for a phase starting with the project. **56,375,000 of capex landed off the axis and was discarded**, silently, on one asset.
+3. **A silent truncation in the cost engine.** `computeAssetCost` sized its `perPeriod` array from the construction window and the latest line `endPeriod`, then aggregated with `Math.min(dist.length, periodSlots)`. A line that FOLLOWS a phasing source (a selling cost on `percent_of_revenue_sale` following collections) is distributed over that source's window, which runs past both. The overhang was dropped. `total` is accumulated separately and stayed right, so **`.total` no longer equalled the sum of the periods beside it**: 6,561,759 lost on Marina Gate's "Marketing Cost", 10,632,560 on RE HUB's "Commission".
+
+**What made it findable.** Not a verifier: a **negative closing inventory**. The balance sheet builds inventory as cumulative capex minus cumulative cost of sales, so Marina Gate closed at exactly **-6,561,759**, the truncated amount, and RE HUB at exactly **-10,632,560**. A balance that should end at zero and instead ends at minus a suspiciously round-looking number is the visible end of a silent subtraction. **Check that a roll-forward closes at zero; it is a free reconciliation of two independent series.**
+
+**Fix.** One computation, in the layer that owns the quantity (`lib/costOfSales.ts`): base plus IDC assembled once, spread once, with the inventory roll-forward and the vintage matrix derived from the same object, and every surface (P&L, balance sheet, screen, both PDFs, workbook) reading it. The second engine was deleted, not deprecated. The Y0 rule is placed by the shared function everywhere. The cost engine grows its aggregate to fit the distribution instead of truncating it.
+
+**Proof.** After: cost of sales ties to the P&L in **every period** on both live projects (max gap 0.00), the Module 2 inventory roll-forward IS the balance-sheet series, and both projects' inventory closes at **0** instead of at minus the lost amount. The consolidation itself moved **no number anywhere**, measured across the whole chain; every movement traced to fault 3, whose correction raised capex by the previously-dropped amounts and flowed through debt to IDC.
+
+**The general lesson.** **Two implementations of one quantity will agree on the aggregate long after they have stopped agreeing on the detail**, because an aggregate is a sum and errors of timing cancel in it. Never verify two surfaces against each other on a total. Verify them **per period**, or better, delete one of them. And when you find a second engine, ask what its verifier was pinning: a green suite is not evidence of one implementation, only of one that works.
+
 ### 7.27 One index answering two rules, and the fixture that could not tell them apart
 
 **Symptom.** Depreciation was charged in the LAST YEAR OF CONSTRUCTION, before the asset existed to

@@ -8,8 +8,11 @@
  * Two responsibilities:
  *   1. computeAllSellResults(state) -> Map of every Sell-strategy
  *      asset's per-period revenue / cash / recognition / escrow stream.
- *   2. computeAssetCapex(state, assetId) -> total capex for an asset
- *      (drives Cost of Sales in M2 Tab 3).
+ *   2. computeAssetScheduleBundle(result) -> that asset's AR + Unearned
+ *      roll-forwards.
+ *
+ * COST OF SALES IS NOT HERE. It is assembled once, in ./costOfSales, which
+ * needs the per-period capex as well as the total and the IDC on top of both.
  *
  * Engine helpers stay pure; the bridge stays here so the engine never
  * imports from src/hubs (matches the M1.7 resolver pattern).
@@ -18,7 +21,6 @@
 import { buildEngineDownpaymentAxis } from './state/saleCohortResolution';
 import {
   computeProjectTimeline,
-  computeAssetCost,
   computeSubUnitArea,
 } from '@/src/core/calculations';
 import { type CollectionsSource } from '@/src/core/calculations/capexPhasing';
@@ -29,7 +31,6 @@ import {
   resolveHandoverYear,
   buildAccountsReceivable,
   buildUnearnedRevenue,
-  buildCostOfSales,
   type AssetSellConfig,
   type CashPaymentProfile,
   type HospitalityAssetResult,
@@ -42,7 +43,6 @@ import {
   type SubUnitMaterial,
   type AccountsReceivableResult,
   type UnearnedRevenueResult,
-  type CostOfSalesResult,
 } from '@/src/core/calculations/revenue';
 import type { Module1Store } from './state/module1-store';
 import type { Asset, Phase, Project, SubUnit } from './state/module1-types';
@@ -839,65 +839,26 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
   };
 }
 
-/**
- * Total capex for an asset by summing computeAssetCost(asset).total.
- * Returns 0 when the asset is a companion or its phase is missing.
- *
- * DELIBERATELY PASSES NO COLLECTIONS (2026-08-16). Every other call site
- * threads them so a collections-following line phases identically everywhere,
- * but this one reads `.total` and nothing else, and phasing cannot move a total
- * (weights sum to 1). Supplying them here would also be the one genuinely
- * awkward direction: this function is called from inside the revenue layer that
- * PRODUCES collections, so taking them as an input would invite a cycle that
- * does not otherwise exist.
- */
 export type ResolverState = Pick<
   Module1Store,
   'project' | 'phases' | 'assets' | 'subUnits' | 'parcels' | 'costLines' | 'costOverrides' | 'landAllocationMode'
 >;
 
-export function computeAssetCapex(
-  state: ResolverState,
-  assetId: string,
-  /**
-   * The revenue snapshot, so the percent-of-revenue cost methods charge on the
-   * same bases as every other surface (2026-08-19). OPTIONAL because this
-   * function predates the link and a caller without a snapshot must still work;
-   * omitting it falls back to the sub-unit product, which is what every caller
-   * did before. The one live caller passes it.
-   *
-   * No cycle: `computeAllSellResults` reads project, phases, assets and
-   * sub-units only and never reads a cost input, so revenue is fully resolved
-   * before any cost is valued.
-   */
-  revenue?: CollectionsSource,
-): number {
-  const asset: Asset | undefined = state.assets.find((a) => a.id === assetId);
-  if (!asset) return 0;
-  const phase: Phase | undefined = state.phases.find((p) => p.id === asset.phaseId);
-  if (!phase) return 0;
-
-  const bd = computeAssetCost({
-    asset,
-    project: state.project,
-    phase,
-    parcels: state.parcels,
-    assets: state.assets,
-    subUnits: state.subUnits,
-    costLines: state.costLines,
-    costOverrides: state.costOverrides,
-    landAllocationMode: state.landAllocationMode,
-    parcelFunding: state.project.financing?.parcelFunding,
-    revenue,
-  });
-  return Math.max(0, bd.total);
-}
+// `computeAssetCapex` lived here and returned `computeAssetCost(...).total` as
+// the cost-of-sales base. It is GONE (2026-08-30): the cost-of-sales layer in
+// ./costOfSales needs the per-period spend as well as the total, on one
+// projection, so a scalar-only helper could only ever be half the base. Its
+// last caller was the schedule bundle above.
 
 export interface AssetScheduleBundle {
   assetId: string;
   ar: AccountsReceivableResult;
   unearned: UnearnedRevenueResult;
-  cos: CostOfSalesResult;
+  // NO cos here (2026-08-30). Cost of sales is assembled once, in
+  // ./costOfSales, which is the only place the capex base plus IDC and the
+  // spread are put together. This bundle used to carry a CoS built on an
+  // IDC-free base that the P&L then threw away and rebuilt, so the result was
+  // computed twice and the first one was always discarded.
 }
 
 /**
@@ -906,11 +867,7 @@ export interface AssetScheduleBundle {
  * then runs the three schedule builders.
  */
 export function computeAssetScheduleBundle(
-  state: ResolverState,
   result: SellAssetResult,
-  /** Threaded to `computeAssetCapex` so cost of sales is built on the same
-   *  capex the financing aggregate reports (2026-08-19). */
-  revenue?: CollectionsSource,
 ): AssetScheduleBundle {
   const N = result.axisLength;
   // Pass 7q: sale value drives both AR + UR (gross obligation).
@@ -925,9 +882,7 @@ export function computeAssetScheduleBundle(
     result.presalesRevenuePerPeriod,
     N,
   );
-  const capex = computeAssetCapex(state, result.assetId, revenue);
-  const cos = buildCostOfSales(result.recognitionPerPeriod, capex, N);
-  return { assetId: result.assetId, ar, unearned, cos };
+  return { assetId: result.assetId, ar, unearned };
 }
 
 // ────────────────────────────────────────────────────────────────────
