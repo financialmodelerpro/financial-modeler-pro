@@ -158,6 +158,16 @@ async function main() {
     check('D7 removed summary reports the project/version counts',
       res.ok && res.removed.projects === 2 && res.removed.versions === 7);
     check('D8 offline email failure is best-effort, not fatal', res.ok && res.messageEmailed === false);
+    // The live FK admin_audit_log_target_user_id_fkey is NO ACTION on prod
+    // (probed 2026-08-30), so the engine must null the target IN CODE before
+    // the users delete, or the delete is blocked by any audit row that ever
+    // named this user. The audit rows must SURVIVE (update, never delete).
+    const auditNullIdx = calls.findIndex((c) => c.table === 'admin_audit_log' && c.op === 'update');
+    const userDelIdx2 = calls.findIndex((c) => c.table === 'users' && c.op === 'delete');
+    check('D9 audit-log target nulled (update) BEFORE the users delete',
+      auditNullIdx !== -1 && userDelIdx2 !== -1 && auditNullIdx < userDelIdx2);
+    check('D10 audit rows are never DELETED by the engine (they must survive the user)',
+      !deleted(calls, 'admin_audit_log'));
   }
 
   console.log('E. Retained tables are never touched');
@@ -194,6 +204,21 @@ async function main() {
     && /ALTER TABLE account_deletions ENABLE ROW LEVEL SECURITY/.test(noComments));
   check('G4 deleted_user_id is a raw copy, not an FK',
     /deleted_user_id\s+uuid\s+NOT NULL,/.test(mig) && !/deleted_user_id\s+uuid[^,]*REFERENCES/.test(mig));
+
+  console.log('H. Migration 221 (FK drift fix) shape');
+  const m221 = src('supabase/migrations/221_fix_user_delete_fk_drift.sql');
+  const m221Code = m221.replace(/--[^\n]*/g, '').replace(/'[^']*'/g, "''");
+  check('H1 target_user_id re-added ON DELETE SET NULL',
+    /admin_audit_log_target_user_id_fkey\s+FOREIGN KEY \(target_user_id\) REFERENCES public\.users\(id\) ON DELETE SET NULL/.test(m221));
+  check('H2 created_by re-added ON DELETE SET NULL (restores 006 intent)',
+    /user_permissions_created_by_fkey\s+FOREIGN KEY \(created_by\) REFERENCES public\.users\(id\) ON DELETE SET NULL/.test(m221));
+  check('H3 admin_id constraint deliberately untouched',
+    !m221Code.includes('admin_audit_log_admin_id_fkey'));
+  check('H4 constraint replacement only: no table drop, no data change',
+    !/DROP TABLE|TRUNCATE|DELETE\s+FROM|INSERT\s+INTO|UPDATE\s+\w+\s+SET/i.test(m221Code)
+    && /DROP CONSTRAINT/.test(m221Code));
+  check('H5 guarded (IF EXISTS) so a fresh or already-fixed environment no-ops',
+    (m221Code.match(/IF EXISTS/g) ?? []).length >= 4);
 
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);

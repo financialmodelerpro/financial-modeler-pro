@@ -183,6 +183,32 @@ can afford at 60 rpm per IP. **Proven** by `verify-api-key-rotation` against the
 by sabotage: making the retired-only branch fall back to the environment fails 3 checks, and letting
 the environment win over an active row fails 7.
 
+### 2.9 The migration file is not the schema: CREATE IF NOT EXISTS no-ops silently on drifted tables
+
+**Symptom.** A live admin delete failed with `admin_audit_log_target_user_id_fkey` blocking the
+users-row delete, when `007_audit_log.sql` plainly declares `target_user_id ... ON DELETE SET NULL`.
+The diagnosis that read the file was wrong about production.
+
+**Mechanism.** Several tables (`users`, the legacy `projects`, `admin_audit_log`, and evidently the
+never-materialised `password_reset_tokens` of mig 008) predate the migration log. `CREATE TABLE IF
+NOT EXISTS` against a pre-existing, differently-constrained table is a SILENT no-op: the file
+records intent, the database keeps whatever it had, and every later reader of the file inherits the
+fiction. The clue was already on record as 2.5 (`admin_id` NOT NULL contradicts 007's nullable
+declaration) without the general lesson being drawn. A second shape of the same trap: two
+migrations both `CREATE TABLE IF NOT EXISTS user_permissions` with DIFFERENT `created_by` clauses
+(006 SET NULL, 158 bare = NO ACTION); whichever ran against an empty database wins, and on prod it
+was 158.
+
+**Fix / method.** Never assert FK behavior from a migration file; probe it. When `pg_constraint` is
+unreachable (PostgREST has no catalog read, `DATABASE_URL` stale), probe BEHAVIORALLY: insert a
+child row referencing a throwaway probe user, delete the user, and observe (blocked 23503 = NO
+ACTION, child gone = CASCADE, column nulled = SET NULL); PostgREST's violation message carries the
+LIVE constraint name, which is the pg_constraint fact. Clean up every probe row. The delete engine
+now implements the intended SET NULL in code before the users delete (works regardless of the
+constraint), and mig 221 aligns the constraint itself. **Proven live**: a probe user with target
+audit rows reproduced the exact block on a bare delete, and the fixed engine deleted them with both
+audit rows surviving, targets nulled.
+
 ---
 
 ## 3. Excel export (ExcelJS)

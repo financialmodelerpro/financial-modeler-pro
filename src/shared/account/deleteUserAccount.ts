@@ -23,8 +23,10 @@
  *     - payment_transactions: the revenue ledger /admin/revenue aggregates;
  *       deleting it would falsify recorded revenue;
  *     - manual_invoices + their stored PDFs: issued financial documents;
- *     - admin_audit_log rows (target_user_id goes NULL by FK, the action record
- *       stays);
+ *     - admin_audit_log rows: the ENGINE nulls target_user_id before the
+ *       delete (the live FK is NO ACTION, not the SET NULL migration 007
+ *       declares; probed 2026-08-30, aligned by mig 221), so the action
+ *       records survive the user;
  *     - articles authored (author_id goes NULL by FK);
  *     - Training Hub roster records (training_* tables): a separate identity
  *       system keyed by email/registration id, NOT touched here;
@@ -221,6 +223,23 @@ export async function deleteUserAccount(sb: SupabaseClient, opts: DeleteAccountO
   }
 
   // ── 4. Explicit cleanup of the tables with NO users FK (would orphan) ──────
+  // FIRST: null this user out of the audit log's TARGET column. The live
+  // constraint admin_audit_log_target_user_id_fkey is ON DELETE NO ACTION
+  // (probed 2026-08-30; migration 007's SET NULL never took effect, the table
+  // predates it), so without this the users delete below is BLOCKED by any
+  // audit row that ever named this user (every plan / role / status change
+  // writes one). This IS the SET NULL the schema intended, done in code: the
+  // audit rows SURVIVE the user with the target nulled, and this deletion's
+  // own account_deletions row keeps the identity (raw id + email). Mig 221
+  // aligns the constraint itself; this line keeps deletes working either way.
+  {
+    const { error } = await sb.from('admin_audit_log').update({ target_user_id: null }).eq('target_user_id', opts.userId);
+    if (error) {
+      // If this failed AND the constraint is still NO ACTION, the delete below
+      // would fail anyway; abort with the precise reason instead.
+      return { ok: false, code: 'delete_failed', error: `Could not release audit-log references (${error.message}); the account was NOT deleted.` };
+    }
+  }
   try {
     const { count } = await sb.from('user_platform_subscriptions').delete({ count: 'exact' }).eq('user_id', opts.userId);
     removed.subscriptionRows = count ?? removed.subscriptionRows;
