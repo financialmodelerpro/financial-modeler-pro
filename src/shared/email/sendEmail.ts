@@ -40,14 +40,19 @@ interface SendEmailOptions {
   text?: string;
   from?: string;
   attachments?: EmailAttachment[];
+  /** Optional Reply-To. Additive: every existing caller omits it and is
+   *  unaffected. Campaigns use it to send FROM no-reply while replies reach a
+   *  real person. Accepts "Name <email>" or a bare address. */
+  replyTo?: string;
 }
 
 interface SendEmailResult {
   id: string;
 }
 
-export async function sendEmail({ to, subject, html, text, from, attachments }: SendEmailOptions): Promise<SendEmailResult> {
+export async function sendEmail({ to, subject, html, text, from, attachments, replyTo }: SendEmailOptions): Promise<SendEmailResult> {
   const sender = parseSender(from ?? FROM.training);
+  const replyToSender = replyTo ? parseSender(replyTo) : undefined;
   const recipients = (Array.isArray(to) ? to : [to]).map(email => ({ email }));
   // Brevo's field is singular `attachment`; each entry carries name + (content | url).
   const attachment = attachments && attachments.length > 0
@@ -60,6 +65,7 @@ export async function sendEmail({ to, subject, html, text, from, attachments }: 
     htmlContent: html,
     textContent: text ?? stripHtml(html),
     ...(attachment ? { attachment } : {}),
+    ...(replyToSender ? { replyTo: replyToSender } : {}),
   });
   return { id: result.messageId ?? '' };
 }
@@ -131,6 +137,38 @@ export interface BatchEmailResult {
   ids: string[];
   /** Aggregate error description when ok=false. */
   error?: string;
+}
+
+export interface PerRecipientItem extends BatchEmailItem { replyTo?: string }
+export interface PerRecipientOutcome { ok: boolean; id?: string; error?: string }
+
+/**
+ * Send one personalised email per recipient and report EACH outcome, using the
+ * SAME wave pacing as sendEmailBatch (BATCH_WAVE_SIZE per wave, a pause
+ * between waves) so a large campaign cannot trip Brevo's rate limit.
+ *
+ * Deliberately separate from sendEmailBatch rather than a rewrite of it: that
+ * function's callers (notify, communications, newsletter) branch on a single
+ * ok/failed for the whole slice, and widening its result would change what
+ * they mean. This shares the constants and the underlying Brevo call, so there
+ * is still ONE sending path and one pacing rule.
+ */
+export async function sendEmailPerRecipient(items: PerRecipientItem[]): Promise<PerRecipientOutcome[]> {
+  const out: PerRecipientOutcome[] = new Array(items.length);
+  for (let start = 0; start < items.length; start += BATCH_WAVE_SIZE) {
+    const wave = items.slice(start, start + BATCH_WAVE_SIZE);
+    const settled = await Promise.allSettled(wave.map((it) => sendEmail({
+      to: it.to, subject: it.subject, html: it.html, text: it.text, from: it.from, replyTo: it.replyTo,
+    })));
+    for (let j = 0; j < settled.length; j++) {
+      const r = settled[j];
+      out[start + j] = r.status === 'fulfilled'
+        ? { ok: true, id: r.value.id }
+        : { ok: false, error: r.reason instanceof Error ? r.reason.message : String(r.reason) };
+    }
+    if (start + BATCH_WAVE_SIZE < items.length) await sleep(INTER_WAVE_DELAY_MS);
+  }
+  return out;
 }
 
 export async function sendEmailBatch(items: BatchEmailItem[]): Promise<BatchEmailResult> {

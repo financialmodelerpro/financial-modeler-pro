@@ -107,7 +107,7 @@ export async function newRegistrationAlertTemplate(d: NewRegistrationAlertData) 
   })();
 
   const reAnswer = d.worksInRealEstate === true
-    ? '<span style="font-weight:700;color:#166534;">Yes, actively working in real estate</span>'
+    ? '<span style="font-weight:700;color:#166534;">Yes, actively working in real estate or hospitality</span>'
     : d.worksInRealEstate === false
       ? '<span style="font-weight:700;color:#92400E;">No</span>'
       : '<span style="color:#94A3B8;">not asked</span>';

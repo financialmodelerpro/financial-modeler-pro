@@ -357,7 +357,7 @@ export function UserAccessPanel({ userId }: { userId: string }) {
                 color: qualificationTone(user.works_in_real_estate) === 'yes' ? '#166534'
                   : qualificationTone(user.works_in_real_estate) === 'no' ? '#92400e' : '#64748b',
               }}>
-                {qualificationTone(user.works_in_real_estate) === 'yes' ? 'Yes, actively working in it'
+                {qualificationTone(user.works_in_real_estate) === 'yes' ? 'Yes, actively working in real estate or hospitality'
                   : qualificationTone(user.works_in_real_estate) === 'no' ? 'No'
                     : 'Not asked'}
               </strong>

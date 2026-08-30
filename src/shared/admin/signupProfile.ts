@@ -86,5 +86,7 @@ export function qualificationTone(v: boolean | null | undefined): QualificationT
 
 export function qualificationLabel(v: boolean | null | undefined): string {
   const tone = qualificationTone(v);
-  return tone === 'yes' ? 'IN REAL ESTATE' : tone === 'no' ? 'NOT IN REAL ESTATE' : 'NOT ASKED';
+  // Broadened 2026-08-30 to real estate OR hospitality. The stored field is
+  // still works_in_real_estate; only its MEANING and every label widened.
+  return tone === 'yes' ? 'IN RE / HOSPITALITY' : tone === 'no' ? 'NOT IN RE / HOSPITALITY' : 'NOT ASKED';
 }

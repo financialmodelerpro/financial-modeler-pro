@@ -308,8 +308,8 @@ export default function AdminUsersPage() {
             data-testid="real-estate-filter"
             style={{ padding: '8px 14px', border: '1px solid #D1D5DB', borderRadius: 7, fontSize: 13, background: '#fff', cursor: 'pointer' }}>
             <option value="all">All industries</option>
-            <option value="yes">In real estate</option>
-            <option value="no">Not in real estate</option>
+            <option value="yes">In real estate / hospitality</option>
+            <option value="no">Not in real estate / hospitality</option>
             <option value="unknown">Not asked</option>
           </select>
           <button type="button" onClick={() => { setSortByRe(v => !v); setPage(0); }}
@@ -321,7 +321,7 @@ export default function AdminUsersPage() {
               background: sortByRe ? '#1B4F8A' : '#fff',
               color: sortByRe ? '#fff' : '#374151',
             }}>
-            Sort by real estate
+            Sort by RE / hospitality
           </button>
         </div>
 
@@ -329,7 +329,7 @@ export default function AdminUsersPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#1B4F8A' }}>
-                {['Email', 'Name', 'Role', 'Real estate', 'Plan', 'Status', ...(showAccessCol ? ['Access'] : []), 'Expires', 'Projects', 'Joined', 'Actions'].map(h => (
+                {['Email', 'Name', 'Role', 'RE / Hospitality', 'Plan', 'Status', ...(showAccessCol ? ['Access'] : []), 'Expires', 'Projects', 'Joined', 'Actions'].map(h => (
                   <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#fff', letterSpacing: '0.05em', textTransform: 'uppercase' }}>{h}</th>
                 ))}
               </tr>
@@ -382,7 +382,7 @@ export default function AdminUsersPage() {
                         <span title={u.real_estate_role_note ?? undefined} style={{ fontSize: 11, fontWeight: 800, color: '#92400e', background: '#FEF3C7', padding: '3px 8px', borderRadius: 999 }}>No</span>
                       ) : (
                         <span
-                          title="Never asked: this user registered before the real estate question existed"
+                          title="Never asked: this user registered before the real estate / hospitality question existed"
                           style={{ fontSize: 12, color: '#9CA3AF', cursor: 'help', borderBottom: '1px dotted #9CA3AF', paddingBottom: 1 }}
                         >-</span>
                       )}

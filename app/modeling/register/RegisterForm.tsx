@@ -102,7 +102,7 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProp
     if (!phoneLocal.trim())   { setError('Phone number is required.');     return; }
     if (!city.trim())         { setError('City is required.');             return; }
     if (!country.trim())      { setError('Country is required.');          return; }
-    if (worksInRe === null)   { setError('Please tell us whether you work in real estate.'); return; }
+    if (worksInRe === null)   { setError('Please tell us whether you work in real estate or hospitality.'); return; }
     if (!reNote.trim())       { setError('Please tell us briefly what you do.'); return; }
     if (password !== confirm) { setError('Passwords do not match.');       return; }
     if (!captchaToken)        { setError('Please complete the captcha.'); return; }
@@ -247,6 +247,24 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProp
                 hubLabel="The Modeling Hub"
               />
 
+              {/* Who this is for. Placed above the fields deliberately: a
+                  person deciding whether the platform fits their work should
+                  be able to tell before they invest effort in the form. */}
+              <div
+                data-testid="register-audience-notice"
+                style={{
+                  background: '#FDF6E3', border: '1px solid #C9A84C', borderRadius: 8,
+                  padding: '14px 16px', marginBottom: 18,
+                  fontSize: 12.5, color: '#0D2E5A', lineHeight: 1.65,
+                }}
+              >
+                This platform is built for <strong>real estate and hospitality professionals</strong>:
+                developers, investors, fund managers, asset managers, and the advisors who serve them.
+                It builds institutional-grade development feasibility and investment models. It is not
+                a training tool or a general finance calculator. If you work outside real estate or
+                hospitality, it is unlikely to fit your work.
+              </div>
+
               {error && (
                 <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '12px 14px', marginBottom: 18, fontSize: 13, color: '#DC2626' }}>
                   {error}
@@ -377,7 +395,7 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProp
                     ABOUT YOUR WORK
                   </div>
                   <label style={labelStyle}>
-                    ARE YOU ACTIVELY WORKING IN THE REAL ESTATE INDUSTRY? <span style={{ color: '#DC2626' }}>*</span>
+                    ARE YOU ACTIVELY WORKING IN REAL ESTATE OR HOSPITALITY? <span style={{ color: '#DC2626' }}>*</span>
                   </label>
                   <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
                     {([['Yes', true], ['No', false]] as const).map(([label, val]) => (

@@ -30,6 +30,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Payments',          href: '/admin/payments',                       icon: '💳' },
   { label: 'Revenue',           href: '/admin/revenue',                        icon: '💰' },
   { label: 'Projects',          href: '/admin/projects',                       icon: '📁' },
+  { label: 'Email Campaigns',   href: '/admin/campaigns',                      icon: '📣' },
   { type: 'divider',            label: 'Training Hub' },
   { label: 'Overview',          href: '/admin/training-hub',                   icon: '📊' },
   { label: 'Platform Analytics', href: '/admin/analytics',                     icon: '📈' },

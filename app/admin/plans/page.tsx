@@ -480,7 +480,7 @@ export default function AdminPlansPage() {
                         ) : null}
                         <div style={{ fontSize: 11, color: '#92400e', marginTop: 3 }}>
                           Declined {formatAdminStamp(r.decided_at) || '(no timestamp)'}
-                          {r.users?.works_in_real_estate === true ? ' · in real estate' : r.users?.works_in_real_estate === false ? ' · not in real estate' : ''}
+                          {r.users?.works_in_real_estate === true ? ' · in real estate / hospitality' : r.users?.works_in_real_estate === false ? ' · not in real estate / hospitality' : ''}
                         </div>
                       </div>
                       {/* Approve only. Re-declining a declined row would just
