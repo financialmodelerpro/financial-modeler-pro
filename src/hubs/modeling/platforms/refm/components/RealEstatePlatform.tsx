@@ -658,14 +658,20 @@ export default function RealEstatePlatform(): React.JSX.Element {
   // authoritative and returns CAP_REACHED / ARCHIVE_NOT_ALLOWED, which we map
   // to the upgrade-or-archive prompt.
   const handleArchiveProject = useCallback(async (projectId: string, archived: boolean): Promise<void> => {
+    // Read-only grace blocks every write, archiving included. The card also
+    // withholds the control, so this is the second line of defence.
+    if (graceReadOnly) return;
     const res = await pclient.patchProject(projectId, { archived });
     if (res.error || !res.data) {
       const msg = res.error ?? '';
-      if (/CAP_REACHED/i.test(msg) || /limit reached/i.test(msg)) {
+      // The route's machine code (client FetchResult.code) is authoritative;
+      // the sentence match stays only as a fallback for an older response.
+      const code = res.code ?? '';
+      if (code === 'CAP_REACHED' || /CAP_REACHED/i.test(msg) || /limit reached/i.test(msg)) {
         setUpgradePrompt({ kind: 'cap', archiveAllowed: ent.archiveAllowed, projectLimit: ent.projectLimit });
         return;
       }
-      if (/ARCHIVE_NOT_ALLOWED/i.test(msg) || /does not include archiving/i.test(msg)) {
+      if (code === 'ARCHIVE_NOT_ALLOWED' || /ARCHIVE_NOT_ALLOWED/i.test(msg) || /does not include archiving/i.test(msg)) {
         setUpgradePrompt({ kind: 'feature', featureKey: 'projects', message: msg });
         return;
       }
@@ -676,7 +682,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
     // (active count changed, which may free or consume a slot).
     setServerProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, archived } : p)));
     ent.refresh();
-  }, [ent]);
+  }, [ent, graceReadOnly]);
 
   const handleCloseProject = useCallback((): void => {
     detachSync();
@@ -986,6 +992,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
           onCreateProject={() => setWizardOpen(true)}
           onSelectProject={(id) => void handleSelectProject(id)}
           onDeleteProject={graceReadOnly ? undefined : (id) => requestDeleteProject(id)}
+          onArchiveProject={graceReadOnly ? undefined : (id, archived) => void handleArchiveProject(id, archived)}
           onSelectModule={setActiveModule}
           onSelectTab={setActiveTab}
           onSaveVersion={() => setVersionModalOpen(true)}

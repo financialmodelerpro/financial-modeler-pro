@@ -31,6 +31,9 @@ interface DashboardProps {
   /** Absent in read-only grace, which hides the Delete control entirely
    *  rather than accepting a click and discarding it. */
   onDeleteProject?: (id: string) => void;
+  /** Archive / unarchive. Absent in read-only grace (the control is withheld
+   *  rather than accepting a click and discarding it). */
+  onArchiveProject?: (id: string, archived: boolean) => void;
   onSelectModule: (m: string) => void;
   onSelectTab: (t: string) => void;
   onSaveVersion: () => void;
@@ -98,6 +101,7 @@ export default function Dashboard({
   onCreateProject,
   onSelectProject,
   onDeleteProject,
+  onArchiveProject,
 }: DashboardProps): React.JSX.Element {
   // Confirmation lives in DeleteProjectModal, rendered once by the parent:
   // the dialog states the version count, the recovery window and who can
@@ -167,14 +171,18 @@ export default function Dashboard({
 
           {/* ── Projects ── */}
           <div style={sectionLabel}>All projects</div>
-          <div style={{ display: 'grid', gap: 'var(--sp-2)', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }} data-testid="dashboard-projects">
+          <div style={{ display: 'grid', gap: 'var(--sp-2)', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))' }} data-testid="dashboard-projects">
             {projects.map((p) => {
               const m = STATUS_META[p.status] ?? STATUS_META.Draft;
-              const tags = p.assetMix.slice(0, 4);
+              // Six chips before the overflow marker (was four, which made a
+              // four-asset project read as "+4" on a 300px card).
+              const tags = p.assetMix.slice(0, 6);
+              const hidden = p.assetMix.slice(tags.length);
+              const isArchived = p.archived === true;
               return (
                 <div key={p.id} className="card" style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }} data-testid={`dashboard-project-${p.id}`}>
                   <div style={{ height: 4, background: m.accent }} />
-                  <div style={{ padding: 'var(--sp-2)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)', flex: 1 }}>
+                  <div style={{ padding: 'var(--sp-3)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)', flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontWeight: 700, color: 'var(--color-heading)', fontSize: 'var(--font-body)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
                       <StatusBadge status={p.status} />
@@ -187,23 +195,52 @@ export default function Dashboard({
                         {tags.map((t) => (
                           <span key={t} style={{ fontSize: 'var(--font-micro)', color: 'var(--color-navy)', background: 'var(--color-navy-light)', padding: '2px 8px', borderRadius: 'var(--radius-pill)' }}>{t}</span>
                         ))}
-                        {p.assetMix.length > tags.length && (
-                          <span style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)' }}>+{p.assetMix.length - tags.length}</span>
+                        {hidden.length > 0 && (
+                          <span title={hidden.join(', ')} style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)', cursor: 'help' }}>
+                            +{hidden.length} more
+                          </span>
                         )}
                       </div>
                     )}
                     <div style={{ flex: 1 }} />
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 'var(--sp-1)', paddingTop: 'var(--sp-1)', borderTop: '1px solid var(--color-border-light)' }}>
-                      <span style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)', flex: 1 }}>
+                    <div style={{ marginTop: 'var(--sp-1)', paddingTop: 'var(--sp-2)', borderTop: '1px solid var(--color-border-light)' }}>
+                      <div style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
                         {(p.versionCount ?? 0)} version{(p.versionCount ?? 0) === 1 ? '' : 's'} · {relativeTime(p.lastModified)}
-                      </span>
-                      <button type="button" onClick={() => onDeleteProject?.(p.id)} title="Delete project" data-testid={`dashboard-delete-${p.id}`}
-                        style={{ padding: '5px 10px', fontSize: 'var(--font-meta)', fontWeight: 600, border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', background: 'transparent', color: 'var(--color-negative)', cursor: 'pointer' }}>
-                        Delete
-                      </button>
-                      <button type="button" onClick={() => onSelectProject(p.id)} className="btn-primary" style={{ padding: '5px 16px', fontSize: 'var(--font-meta)', fontWeight: 700 }} data-testid={`dashboard-open-${p.id}`}>
-                        Open
-                      </button>
+                        {isArchived && ' · archived (view-only)'}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        {/* Archive is the SAFE shelf and reads first: reversible,
+                            view-only, frees a project slot, never expires. Delete
+                            follows it, deliberately quieter. */}
+                        {onArchiveProject && (
+                          <button
+                            type="button"
+                            onClick={() => onArchiveProject(p.id, !isArchived)}
+                            title={isArchived
+                              ? 'Return this project to your active list'
+                              : 'Shelve this project: view-only, frees a project slot, reversible at any time'}
+                            data-testid={`dashboard-archive-${p.id}`}
+                            style={{ padding: '6px 12px', fontSize: 'var(--font-meta)', fontWeight: 600, border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', background: 'var(--color-grey-white)', color: 'var(--color-heading)', cursor: 'pointer' }}
+                          >
+                            {isArchived ? 'Unarchive' : 'Archive'}
+                          </button>
+                        )}
+                        {onDeleteProject && (
+                          <button
+                            type="button"
+                            onClick={() => onDeleteProject(p.id)}
+                            title="Delete project (recoverable for a limited time, then permanent)"
+                            data-testid={`dashboard-delete-${p.id}`}
+                            style={{ padding: '6px 10px', fontSize: 'var(--font-micro)', fontWeight: 600, border: 'none', background: 'transparent', color: 'var(--color-meta)', textDecoration: 'underline', cursor: 'pointer' }}
+                          >
+                            Delete
+                          </button>
+                        )}
+                        <div style={{ flex: 1 }} />
+                        <button type="button" onClick={() => onSelectProject(p.id)} className="btn-primary" style={{ padding: '6px 18px', fontSize: 'var(--font-meta)', fontWeight: 700 }} data-testid={`dashboard-open-${p.id}`}>
+                          Open
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

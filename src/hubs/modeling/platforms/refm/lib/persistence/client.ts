@@ -36,15 +36,23 @@ export type { RefmProjectVersionListItem };
 export interface FetchResult<T> {
   data:  T | null;
   error: string | null;
+  /** Machine-readable error code from the route's JSON body when it sends one
+   *  (ARCHIVE_NOT_ALLOWED, CAP_REACHED, PROJECT_ARCHIVED, READ_ONLY_GRACE...).
+   *  Additive and optional: callers that only read `error` are unaffected, but
+   *  a caller no longer has to pattern-match a human sentence to tell "your
+   *  plan does not include this" from "you are at your limit". */
+  code?: string;
 }
 
 // ── Internal helpers ────────────────────────────────────────────────────────
-async function readError(res: Response): Promise<string> {
+async function readError(res: Response): Promise<{ error: string; code?: string }> {
   try {
     const body = await res.json();
-    if (body && typeof body.error === 'string') return body.error;
+    const code = body && typeof body.code === 'string' ? body.code : undefined;
+    if (body && typeof body.error === 'string') return { error: body.error, code };
+    if (code) return { error: `${res.status} ${res.statusText}`, code };
   } catch { /* empty / non-json body */ }
-  return `${res.status} ${res.statusText}`;
+  return { error: `${res.status} ${res.statusText}` };
 }
 
 async function callJson<T>(
@@ -64,7 +72,10 @@ async function callJson<T>(
   } catch (e) {
     return { data: null, error: e instanceof Error ? e.message : 'Network error' };
   }
-  if (!res.ok) return { data: null, error: await readError(res) };
+  if (!res.ok) {
+    const { error, code } = await readError(res);
+    return { data: null, error, code };
+  }
   try {
     const body = (await res.json()) as T;
     return { data: body, error: null };
@@ -388,7 +399,10 @@ export async function exportReportDeck(
   } catch (e) {
     return { data: null, error: e instanceof Error ? e.message : 'Network error' };
   }
-  if (!res.ok) return { data: null, error: await readError(res) };
+  if (!res.ok) {
+    const { error, code } = await readError(res);
+    return { data: null, error, code };
+  }
   try {
     return { data: await res.blob(), error: null };
   } catch (e) {

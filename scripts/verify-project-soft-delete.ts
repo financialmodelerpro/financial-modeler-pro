@@ -222,6 +222,27 @@ async function main() {
   check('F5 ONE dialog: rendered by the parent, not per list',
     (platform.match(/<DeleteProjectModal/g) ?? []).length === 1);
 
+  console.log('H. The card offers the SAFE action, and offers it first');
+  // Archive existed but only inside the switch-project modal, so the card's
+  // only visible action was Delete and a user shelving a project deleted it.
+  check('H1 the card renders Archive / Unarchive from the project state',
+    /dashboard-archive-/.test(dash) && /isArchived \? 'Unarchive' : 'Archive'/.test(dash));
+  check('H2 Archive is rendered BEFORE Delete',
+    dash.indexOf('dashboard-archive-') < dash.indexOf('dashboard-delete-'));
+  check('H3 Delete is the quieter control (no button chrome, muted colour)',
+    /dashboard-delete-[\s\S]{0,400}textDecoration: 'underline'/.test(dash)
+    && !/dashboard-delete-[\s\S]{0,400}color: 'var\(--color-negative\)'/.test(dash));
+  check('H4 both actions are WITHHELD in grace, never rendered dead',
+    /\{onArchiveProject && \(/.test(dash) && /\{onDeleteProject && \(/.test(dash)
+    && /onArchiveProject=\{graceReadOnly \? undefined :/.test(platform));
+  check('H5 ONE archive handler, reading the route code rather than its prose',
+    (platform.match(/const handleArchiveProject = useCallback/g) ?? []).length === 1
+    && /code === 'CAP_REACHED'/.test(platform) && /code === 'ARCHIVE_NOT_ALLOWED'/.test(platform));
+  check('H6 an archived card says it is view-only', /archived \(view-only\)/.test(dash));
+  check('H7 the card grid is wider and the overflow chip names what it hides',
+    /minmax\(380px, 1fr\)/.test(dash) && /\+\{hidden\.length\} more/.test(dash)
+    && /assetMix\.slice\(0, 6\)/.test(dash));
+
   console.log('G. Migration 224 and the cron wiring');
   const mig = src('supabase/migrations/224_refm_projects_soft_delete.sql');
   const migCode = mig.replace(/--[^\n]*/g, '').replace(/'[^']*'/g, "''");
