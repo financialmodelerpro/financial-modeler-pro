@@ -21,7 +21,8 @@ export default function ProjectsPage() {
       <main style={{ flex: 1, padding: 40, overflowY: 'auto' }}>
         <h1 style={{ fontSize: 24, fontWeight: 800, color: '#1B3A6B', marginBottom: 4 }}>📁 Projects Browser</h1>
         <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 32 }}>
-          View all projects across all users. Archive or delete orphaned/oversized projects.
+          Every project across all users and platforms, from each platform&apos;s own project table.
+          Archive is reversible; delete is permanent and destroys the project&apos;s versions with it.
         </p>
         <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: 24 }}>
           <ProjectsBrowser />

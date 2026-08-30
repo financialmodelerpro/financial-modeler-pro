@@ -8,6 +8,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { verifyPassword } from '@/src/shared/auth/password';
+import { PROJECT_SOURCES } from '@/src/shared/admin/projectSources';
 
 async function getSession() {
   const session = await getServerSession(authOptions);
@@ -31,9 +32,21 @@ export async function GET() {
   if (userResult.error && /column|does not exist|company|job_title|phone|city|avatar_url/i.test(userResult.error.message)) {
     userResult = await db.from('users').select('id, name, email').eq('id', userId).single();
   }
-  const countResult = await db
-    .from('projects').select('id', { count: 'exact', head: true })
-    .eq('user_id', userId).eq('is_archived', false);
+  // Active projects across the per-platform tables (registry driven). This
+  // used to count the DEPRECATED legacy `projects` table, which is empty, so
+  // the field was always 0. No UI currently renders it, but an API field must
+  // not lie while it exists.
+  const perSource = await Promise.all(PROJECT_SOURCES.map(async (s) => {
+    try {
+      let q = db.from(s.table).select('id', { count: 'exact', head: true }).eq(s.ownerColumn, userId);
+      if (s.archivedColumn) q = q.eq(s.archivedColumn, false);
+      const { count } = await q;
+      return count ?? 0;
+    } catch {
+      return 0;
+    }
+  }));
+  const countResult = { count: perSource.reduce((a, b) => a + b, 0) };
 
   if (userResult.error) return NextResponse.json({ error: userResult.error.message }, { status: 500 });
 

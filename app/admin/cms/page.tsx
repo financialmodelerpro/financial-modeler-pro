@@ -2,16 +2,20 @@ import { getServerClient } from '@/src/core/db/supabase';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import Link from 'next/link';
 import { getServerSession } from 'next-auth';
+import { PROJECT_SOURCES } from '@/src/shared/admin/projectSources';
 
 async function getStats() {
   try {
     const sb = getServerClient();
     // All four counts are independent, so they go out in ONE parallel wave.
-    // The projects table might not exist, so its count is resolved through a
-    // catch that yields 0 rather than rejecting, which would fail the batch.
-    const projectsCount = Promise.resolve(
-      sb.from('projects').select('id', { count: 'exact', head: true }),
-    ).then(r => r.count ?? 0).catch(() => 0);
+    // Projects are summed across the per-platform project tables (registry
+    // driven); the legacy `projects` table this used to count is DEPRECATED
+    // and empty, which is why this stat read 0. A source whose table is
+    // absent contributes 0 rather than rejecting the batch.
+    const projectsCount = Promise.all(PROJECT_SOURCES.map((s) =>
+      Promise.resolve(sb.from(s.table).select('id', { count: 'exact', head: true }))
+        .then(r => r.count ?? 0).catch(() => 0),
+    )).then((counts) => counts.reduce((a, b) => a + b, 0)).catch(() => 0);
 
     const [usersRes, articlesRes, coursesRes, projectCount] = await Promise.all([
       sb.from('users').select('id', { count: 'exact', head: true }),
