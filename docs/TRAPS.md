@@ -530,7 +530,7 @@ fingerprinting the damage rather than the defect.
 **Proof.** 2026-08-17: 0 lines repaired when it ran last in the chain; 8 lines when it ran first,
 with the other phase's hand-set windows untouched.
 
-### 7.30 Two engines for one quantity agree on the lifetime total and disagree in every period
+### 7.31 Two engines for one quantity agree on the lifetime total and disagree in every period
 
 **Symptom.** Cost of sales was computed by two engines. The P&L used one; the Module 2 screen, both PDFs and the workbook used another. On the main demo project their lifetime totals agreed to within **0.24%** (4,469,665,536 against 4,459,032,976), which is close enough that nobody looked further. Per period they were **407,131,731 apart in one year**, 34.7% of the P&L figure, and the screen showed a 6.4% gross margin in a year the P&L showed 30.5%. On a second live project the same pair were **25.4% apart over the lifetime too** (247,653,102 against 184,716,343), so the agreement was never a property of the design; it was a coincidence on one project.
 

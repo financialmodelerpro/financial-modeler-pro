@@ -12,13 +12,30 @@
 - **Stale `DATABASE_URL` in `.env.local`**: password fails at the resolved tenant (aws-1-ap-northeast-1), so no session can run DDL or read pg_constraint; refreshing it would let the drift audit verify ON DELETE / UNIQUE / CHECK directly instead of behaviorally.
 
 ---
-## STATUS SWEEP 2026-08-20 (end of day): the logged items below are CONFIRMED CURRENT
+## STATUS SWEEP 2026-08-30 (end of day): NEXT ITEM is the capex reconciliation
 
-Checked at close of the 2026-08-20 sessions, against HEAD:
+Checked at close of the 2026-08-30 sessions, against HEAD:
 
-- **RE HUB 917.7m gap (below): STILL OPEN, unchanged.** Nothing today touched cost of sales or
-  capex attribution; the figures in that entry remain the measured state.
-- **Two cost of sales engines (below): STILL OPEN, its own pass, not started.**
+- **NEXT ITEM: the sell-asset cost base vs project cash capex reconciliation (first entry below).**
+  Now **908.146m** on RE HUB, restated at today's HEAD. It is the last open question about the
+  cost-of-sales base, and today's pass sharpened it: the engine question is settled, so what remains
+  is purely whether the BASE is right. It also corrected the earlier dead end (the "in-kind returned
+  0.000m" probe read the wrong field name; the right one reads 1,350.682m).
+- **Two cost of sales engines: CLOSED 2026-08-30.** One engine, owned by Module 2; the loser is
+  deleted. Narrative in [CHANGELOG.md](CHANGELOG.md) 2026-08-30o, lesson in
+  [docs/TRAPS.md](docs/TRAPS.md) 7.31.
+- **Migrations 219 through 226 are ALL APPLIED** (219/221/222/224/225/226 probe-proven live;
+  220/223 comment-only and founder-confirmed, which is the documented limit of PostgREST). No
+  "pending apply" flag remains anywhere in the docs.
+- **Not browser-verified, accumulated across 2026-08-30 and worth one pass:** the dashboard access
+  card, the project card's Archive/Delete pair and the delete modal, the admin Projects Browser and
+  its Deleted bin, /admin/campaigns, the Portfolio Dashboard tiles, and (most of all) the rebuilt
+  **Module 2 Cost of Sales tab**, whose row set changed with the engine consolidation.
+
+### Superseded, kept for the trail: the 2026-08-20 sweep
+
+- **RE HUB gap: was 917.7m at the 2026-08-20 close**, restated to 908.146m at 2026-08-30 (the
+  movement is the truncation fix, which raised cash capex by 10.633m).
 - **Depreciation start year: CLOSED 2026-08-19 (entry below), and stays closed.** Both streams
   (asset capex and capitalised IDC) start at operations; `verify-fixed-assets` 99 pins it.
 - **The unexplained client validation bypass: STILL UNEXPLAINED, now logged here as a watch item
@@ -51,15 +68,29 @@ CLAUDE-MODELING-HUB.md 2026-08-20j.
 
 
 
-## OPEN 2026-08-20: RE HUB's sell-asset cost base exceeds project cash capex by 917.7m (re-confirmed current at 2026-08-20 close)
+## OPEN, AND THE NEXT ITEM: RE HUB's sell-asset cost base exceeds project cash capex by 908.1m (restated 2026-08-30 at HEAD)
 
-**Found while re-verifying the Step 3 figures on request. PREDATES STEP 3, measured against the
-parent commit. Not touched. Belongs with the cost of sales pass below, because it is the same
-quantity seen from a different side.**
+**This is now the ONLY open question about cost of sales, and the reason it is next.** The engine
+question that used to sit below it is closed (one engine, Module 2 owns it, CHANGELOG 2026-08-30o),
+which removes the confound: any remaining discrepancy is about the BASE, not about which engine
+spreads it. Everything below is re-measured at today's HEAD, not carried forward.
 
-On FMP RE HUB the three sell assets' cost of sales BASE sums to **4,479.195m** while the project's
-whole cash capex line in the direct cash flow statement is **3,561.520m**, a gap of **917.675m**. The
-sell assets alone therefore carry more cost than the entire project spends in cash.
+On FMP RE HUB the three sell assets' cost of sales BASE sums to **4,469.666m** (asset capex 4,393.361m
+plus capitalised IDC 76.305m) while the project's whole cash capex line is **3,561.520m**, a gap of
+**908.146m**. The sell assets alone therefore carry more cost than the entire project spends in cash.
+
+**THE 2026-08-30 ADVANCE, and it is the place to start.** The earlier entry recorded that "a first
+probe for `landInKindPerPeriod` on the direct cash flow returned 0.000m, which is either genuinely
+zero or the wrong field name; it was not chased." **It was the wrong field name.** The live field is
+`equityInKindDrawdownPerPeriod`, and on RE HUB it reads **1,350.682m**, which is LARGER than the
+908.146m gap. In-kind land capitalised into asset cost while absent from the forward cash capex line
+is therefore no longer a hypothesis with no evidence; it is a candidate that is the right order of
+magnitude and then some. It is still NOT a finding: nobody has reconciled it per asset, and an
+in-kind figure exceeding the gap needs its own explanation.
+
+MARINA GATE has no gap in the same direction at all: base 254.302m against cash capex 378.943m, so
+the base is 124.641m BELOW cash capex there, which is what a project with non-sell assets should look
+like. Whatever RE HUB is doing is specific to RE HUB.
 
 **What is NOT wrong.** Cost of sales equals its own base to the cent on every asset, on both live
 projects, so the CoS engine is internally consistent and is not over-charging:
@@ -69,32 +100,55 @@ projects, so the CoS engine is internally consistent and is not over-charging:
     Residential Tower     base   659.889m   charged   659.889m
     Branded Apartments    base 1,906.773m   charged 1,906.773m
 
-FMP - MARINA GATE has no such gap: CoS 247.653m against cash capex 372.381m plus IDC 41.002m.
+(The per-asset figures above are pre-2026-08-30 and are superseded by the restated block; kept
+because the equality they demonstrate, base charged to the cent, still holds and is now pinned by
+`verify-cost-of-sales` B4.)
 
 **It predates Step 3**, proven by running the same measurement against commit `7c5ab44a`: CoS
 4,416.813m against the identical 3,561.520m cash capex line, so the gap was 855.3m before the sale
 cohort switch and 917.7m after, and the movement is only the IDC the switch added. **Step 3 did not
 cause it.**
 
-**NOT DIAGNOSED, and no figure for the cause should be quoted until it is.** The likely source is
-cost capitalised into an asset that never appears in the forecast cash capex line: in-kind land, and
-RE HUB's pre-existing operational asset carrying historical pre-capex. Both would legitimately sit in
-an asset's carrying value while being absent from forward cash spend. That is a hypothesis, not a
-finding. A first probe for `landInKindPerPeriod` on the direct cash flow returned 0.000m, which is
-either genuinely zero or the wrong field name; it was not chased.
+**STILL NOT DIAGNOSED, and no figure for the cause should be quoted as a finding until it is.** The
+candidates are cost capitalised into an asset that never appears in the forecast cash capex line:
+in-kind land (now measured at 1,350.682m, see above) and RE HUB's pre-existing operational asset
+carrying historical pre-capex. Both would legitimately sit in an asset's carrying value while being
+absent from forward cash spend.
 
-**Where to start:** reconcile, per sell asset, the CoS base against that asset's own capex breakdown
-(cash + in-kind + historical + IDC). If the parts add up, the only defect is that no surface states
-the basis difference. If they do not, the base is wrong and every cost of sales figure on RE HUB is
-wrong with it.
+**Where to start, unchanged and now unobstructed:** reconcile, PER SELL ASSET, the cost-of-sales base
+against that asset's own capex breakdown (cash + in-kind + historical + IDC). The base is now a
+single documented quantity (`AssetCostOfSales.capexBase`, with `assetCost` and `idc` beside it and
+`capexPerPeriod` summing to it), so the reconciliation has one thing to reconcile against rather than
+two engines' worth. If the parts add up, the only defect is that no surface STATES the basis
+difference, and the fix is presentational. If they do not, the base is wrong and every cost-of-sales
+figure on RE HUB is wrong with it.
+
+**One cheap check first**, because it is nearly free and it is what found the truncation: a Sell
+asset's inventory roll-forward must close at ZERO. Both live projects now do. If a per-asset
+reconciliation disagrees with that, one of the two is lying and the roll-forward is the more trusted
+of the pair.
 
 ---
 
-## OPEN 2026-08-19: TWO COST OF SALES ENGINES, WITH DIFFERENT BASES. Its own pass. (re-confirmed current at 2026-08-20 close)
+## CLOSED 2026-08-30: TWO COST OF SALES ENGINES, WITH DIFFERENT BASES
 
-**Found while diagnosing the Module 2 sale cohort restructure. Deliberately NOT folded into that
-work, by instruction. To be taken after the restructure or before its Step 3, decided when we get
-there.**
+**Diagnosed and built 2026-08-30. Full narrative in [CHANGELOG.md](CHANGELOG.md) 2026-08-30o, the
+standing lesson in [docs/TRAPS.md](docs/TRAPS.md) 7.31, the invariant in CLAUDE.md.**
+
+**Outcome:** v1 won, on base and on shape, and v2 was DELETED rather than left reachable. Module 2
+owns the whole calculation (`lib/costOfSales.ts`): capex base, the capitalised IDC inside it, the
+spread, the inventory roll-forward and the vintage matrix, all assembled once; the P&L, the balance
+sheet, the Module 2 screen, both PDFs and the workbook read that one result.
+
+**The entry below was right about the shape and wrong about one fact, which is worth keeping.** It
+recorded that the two engines "both settle to the same lifetime total by construction". They do not.
+They agreed to 0.24% on RE HUB, which is what hid it, and were **25.4% apart over the lifetime on
+MARINA GATE**. Per period they were **407,131,731 apart in one year**. Two base defects sat under
+that: a hand-rolled Y0 rule dropping 56,375,000 off the axis, and a silent truncation in
+`computeAssetCost` that stopped `.total` equalling the sum of its own periods. Both are fixed at
+source, and the second one moved real numbers (RE HUB capex +10.633m, FCFE IRR 8.04% -> 8.02%).
+
+**The original entry, kept verbatim for the reasoning it recorded:**
 
 There are two cost of sales engines and they answer the same question differently.
 

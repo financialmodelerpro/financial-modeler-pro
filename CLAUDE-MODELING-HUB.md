@@ -1,5 +1,5 @@
 # Modeling Hub, Claude Code Project Brief
-**Last updated: 2026-05-12**
+**Last updated: 2026-08-30.** (The header had read 2026-05-12 since May while the narrative below ran to 2026-08-20k; it was the date stamp that was stale, not the content.)
 
 Modeling Hub (`app.financialmodelerpro.com`) is the interactive financial modeling workspace. Each modeling discipline lives as a platform with one or more modules. The Hub itself is the wrapper around the platform catalog, admin sync, and shared shell; platform-specific behavior lives in per-platform MDs.
 ## 2026-08-20j: the XSS sweep across every email template
@@ -66,6 +66,22 @@ file-level form is the more honest shape anyway: it names the VALUE and the reas
 **A defect I introduced mid-sweep and caught:** a blanket find-and-replace escaped `courseLabel` in
 the PLAIN TEXT half of the admin alert as well as the HTML, which would have printed entities to a
 text reader. Reverted; the text halves are now explicitly marked and exempt.
+
+## 2026-08-30: the account journey, end to end
+
+**Full dated narrative in [CHANGELOG.md](CHANGELOG.md) 2026-08-30 (entries a through o); per-route and migration detail in [CLAUDE-ROUTES.md](CLAUDE-ROUTES.md) + [CLAUDE-DB.md](CLAUDE-DB.md). Recorded here because every item below is a Modeling Hub account concern rather than a platform one.**
+
+**(1) USERS REGISTERED AND NEVER ASKED FOR ACCESS.** The request button existed but sat where a no-plan user had no reason to look. The dashboard now LEADS with an access card for a user with no plan and no pending request, the pending state persists (`trialRequestPending` on the entitlements route), and the daily cron sends a once-only reminder two days after email confirmation. No tour was built for this: the card and the email are the fix.
+
+**(2) THE REGISTRATION QUESTION NOW COVERS HOSPITALITY.** The industry question reads real estate OR hospitality across the label, the error text, the admin column, both filters, the sort button, the tooltip, the shared `qualificationLabel` and the registration alert email. **The stored field name `works_in_real_estate` is deliberately unchanged**, so only its MEANING moved and nothing needed migrating. A who-this-is-for notice sits ABOVE the fields, not below them: someone deciding whether the platform fits their work should be able to tell before spending effort on the form.
+
+**(3) ACCOUNT DELETION, BOTH SIDES, THROUGH ONE ENGINE** (`src/shared/account/deleteUserAccount.ts`, migs 219 + 221). It retains the financial ledger, refuses to orphan a live Paddle subscription, and audits into `account_deletions`. **The first live attempt was BLOCKED by a foreign key**, and the diagnosis that preceded it was wrong in an instructive way: it had read migration 007, which declares `admin_audit_log.target_user_id` as ON DELETE SET NULL. Production has NO ACTION, because that table predates the migration log and `CREATE TABLE IF NOT EXISTS` silently no-opped ([docs/TRAPS.md](docs/TRAPS.md) 2.9). **A migration file is not the schema.** Every other user-referencing FK was then probed behaviourally rather than read, the engine nulls the target in code, and mig 221 aligns the constraint as defence in depth.
+
+**(4) PASSWORD RESET HAD NEVER WORKED** (mig 222). Migration 008 declares `password_reset_tokens`; the table did not exist on prod, and the flow's own errors were unchecked, so **the user saw a success screen every time**. Rebuilt end to end with token expiry, atomic single use, honest send failures and escaped values, and proven live against the deployed endpoint (redeem, reuse refused, expiry refused, unknown refused). The rewritten routes answer an honest 503 when the table is missing, checked BEFORE the user lookup so a degraded state cannot leak which emails exist.
+
+**(5) ADMIN EMAIL CAMPAIGNS TO MODELING HUB USERS** (migs 225 + 226), on the existing Brevo path with no second sender. Detail in CLAUDE-ROUTES.md; the lesson worth carrying is from the first real send, where the reported symptom was "the link markup is not rendering" and **the markup was fine**: the meeting field was blank, so the anchor merged to `href=""`, which mail clients render as unclickable text. A fix aimed at the markup would have changed nothing.
+
+---
 
 ## 2026-08-20k: the request queue answers both ways, the form tells the truth, and light is the default
 
