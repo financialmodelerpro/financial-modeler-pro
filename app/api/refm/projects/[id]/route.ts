@@ -7,7 +7,8 @@
  *            NULL (mid-create or a row written by a partial failure).
  *   PATCH  → update project metadata (name / location / status /
  *            asset_mix). Snapshot saves go through POST /[id]/versions.
- *   DELETE → drop the project + cascade all its versions.
+ *   DELETE → SOFT delete: hide the project and start the retention clock.
+ *            The row and its versions survive until the purge (mig 224).
  *
  * Auth: NextAuth session required. Every query joins on user_id.
  */
@@ -18,7 +19,7 @@ import {
   getVersionById,
   getLatestVersion,
   updateProject,
-  deleteProject,
+  softDeleteProject,
 } from '@/src/hubs/modeling/platforms/refm/lib/persistence/server';
 import { getRefmUserId, getRefmUserContext } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
 import {
@@ -26,7 +27,8 @@ import {
   type ProjectStatus,
 } from '@/src/hubs/modeling/platforms/refm/lib/persistence/types';
 import { resolveUserGate } from '@/src/shared/entitlements/resolveUser';
-import { canAddActiveProject } from '@/src/shared/entitlements/gate';
+import { canAddActiveProject, writeBlockReason } from '@/src/shared/entitlements/gate';
+import { RETENTION_DAYS } from '@/src/shared/admin/projectSources';
 
 function unauthorized() { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
 function badRequest(msg: string) { return NextResponse.json({ error: msg }, { status: 400 }); }
@@ -166,12 +168,17 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 }
 
 // ── DELETE /api/refm/projects/[id] ──────────────────────────────────────────
-// Cascade is handled by refm_project_versions.project_id ON DELETE CASCADE.
+// SOFT delete (mig 224): the project leaves the user's world (hidden from the
+// list, cannot be opened, out of the project cap) but the row and every
+// version survive, so the deletion is recoverable for RETENTION_DAYS. The
+// daily purge does the hard delete, with the existing cascades.
+//
 // Verifies ownership first because Supabase JS doesn't return rows-affected
-// on a SERVICE_ROLE delete; without the check the route would silently
-// return 200 for an id that belongs to another user.
+// on a SERVICE_ROLE write; without the check the route would silently
+// return 200 for an id that belongs to another user. (getProject already
+// excludes soft-deleted rows, so a second DELETE is a 404, not a no-op 200.)
 export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const userId = await getRefmUserId();
+  const { userId, isAdmin } = await getRefmUserContext();
   if (!userId) return unauthorized();
   const { id } = await ctx.params;
 
@@ -179,7 +186,29 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
   if (ownerErr) return serverError(ownerErr);
   if (!row) return notFound();
 
-  const { error } = await deleteProject(userId, id);
+  // Read-only GRACE blocks deletion, like every other write choke point.
+  // The reason is specific to deletion, not just symmetry: a grace user is on
+  // a path to LAPSED (no access at all), so a project deleted now would reach
+  // the end of its retention window while the user cannot see it, ask for it
+  // back, or even log in to notice. Renewing restores the ability to delete.
+  const gate = await resolveUserGate(userId, { sessionIsAdmin: isAdmin });
+  if (gate.readOnly) {
+    return NextResponse.json(
+      {
+        error: 'Your subscription has expired, so your projects are read-only. Renew to delete projects.',
+        code: writeBlockReason(gate) ?? 'READ_ONLY_GRACE',
+      },
+      { status: 403 },
+    );
+  }
+
+  const { error, unsupported } = await softDeleteProject(userId, id);
+  if (unsupported) {
+    return NextResponse.json(
+      { error: 'Project deletion is temporarily unavailable. Please try again later.', code: 'SOFT_DELETE_UNAVAILABLE' },
+      { status: 503 },
+    );
+  }
   if (error) return serverError(error);
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, softDeleted: true, retentionDays: RETENTION_DAYS });
 }

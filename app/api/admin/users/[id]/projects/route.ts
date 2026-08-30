@@ -24,12 +24,21 @@ export async function GET(
   const { id } = await params;
 
   const sb = getServerClient();
-  const { data, error } = await sb
-    .from('refm_projects')
-    .select('id, name, archived, created_at, updated_at')
-    .eq('user_id', id)
-    .order('updated_at', { ascending: false })
-    .range(0, 499);
+  // Soft-deleted projects (mig 224) are excluded: this list answers "what does
+  // this user have", which is what the user themself sees. Deleted projects
+  // live in the Projects Browser's Deleted filter, where they can be restored.
+  // Dropped on a pre-224 database, where nothing is deleted.
+  const run = (live: boolean) => {
+    const q = sb
+      .from('refm_projects')
+      .select('id, name, archived, created_at, updated_at')
+      .eq('user_id', id)
+      .order('updated_at', { ascending: false })
+      .range(0, 499);
+    return live ? q.is('deleted_at', null) : q;
+  };
+  let { data, error } = await run(true);
+  if (error && /deleted_at/i.test(error.message)) ({ data, error } = await run(false));
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const rows = (data ?? []) as Array<{ id: string; name: string | null; archived: boolean | null; created_at: string; updated_at: string }>;

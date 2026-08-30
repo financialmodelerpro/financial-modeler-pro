@@ -28,7 +28,9 @@ interface DashboardProps {
   activeVersionId: string | null;
   onCreateProject: () => void;
   onSelectProject: (id: string) => void;
-  onDeleteProject: (id: string) => void;
+  /** Absent in read-only grace, which hides the Delete control entirely
+   *  rather than accepting a click and discarding it. */
+  onDeleteProject?: (id: string) => void;
   onSelectModule: (m: string) => void;
   onSelectTab: (t: string) => void;
   onSaveVersion: () => void;
@@ -97,11 +99,9 @@ export default function Dashboard({
   onSelectProject,
   onDeleteProject,
 }: DashboardProps): React.JSX.Element {
-  const confirmDelete = (id: string, name: string): void => {
-    if (typeof window !== 'undefined' && window.confirm(`Delete "${name}"? This removes the project and all its versions. This cannot be undone.`)) {
-      onDeleteProject(id);
-    }
-  };
+  // Confirmation lives in DeleteProjectModal, rendered once by the parent:
+  // the dialog states the version count, the recovery window and who can
+  // restore it, none of which a window.confirm could say honestly.
   const projects = Object.entries(storage.projects).map(([id, p]) => ({ id, ...p }));
   const total = projects.length;
   const byStatus = (s: StorageProject['status']): number => projects.filter((p) => p.status === s).length;
@@ -197,7 +197,7 @@ export default function Dashboard({
                       <span style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)', flex: 1 }}>
                         {(p.versionCount ?? 0)} version{(p.versionCount ?? 0) === 1 ? '' : 's'} · {relativeTime(p.lastModified)}
                       </span>
-                      <button type="button" onClick={() => confirmDelete(p.id, p.name)} title="Delete project" data-testid={`dashboard-delete-${p.id}`}
+                      <button type="button" onClick={() => onDeleteProject?.(p.id)} title="Delete project" data-testid={`dashboard-delete-${p.id}`}
                         style={{ padding: '5px 10px', fontSize: 'var(--font-meta)', fontWeight: 600, border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', background: 'transparent', color: 'var(--color-negative)', cursor: 'pointer' }}>
                         Delete
                       </button>

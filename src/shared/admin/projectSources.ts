@@ -36,8 +36,36 @@ export interface ProjectSource {
   ownerColumn: string;
   nameColumn: string;
   archivedColumn: string | null;
+  /** Soft-delete timestamp column (mig 224 for REFM). Null = the platform has
+   *  no soft delete, so the browser offers no restore and the purge skips it. */
+  deletedColumn: string | null;
   versionsTable: string | null;
   versionsFk: string | null;
+}
+
+/** THE retention window for a soft-deleted project, in days. One definition:
+ *  the purge, the admin browser's "days left", the user's confirm dialog and
+ *  the verifier all read this. */
+export const RETENTION_DAYS = 30;
+
+/** Whole days left before a soft-deleted project is hard deleted. 0 means it
+ *  is due on the next purge run; never negative. Pure, so the client, the
+ *  server and the verifier share one answer. */
+export function daysRemaining(deletedAtIso: string | null | undefined, nowMs: number = Date.now()): number {
+  if (!deletedAtIso) return RETENTION_DAYS;
+  const deletedMs = Date.parse(deletedAtIso);
+  if (Number.isNaN(deletedMs)) return RETENTION_DAYS;
+  const dueMs = deletedMs + RETENTION_DAYS * 86_400_000;
+  return Math.max(0, Math.ceil((dueMs - nowMs) / 86_400_000));
+}
+
+/** Whether a soft-deleted project is past its retention window (the purge
+ *  predicate). Shared with the verifier so the boundary is stated once. */
+export function isPurgeDue(deletedAtIso: string | null | undefined, nowMs: number = Date.now()): boolean {
+  if (!deletedAtIso) return false;
+  const deletedMs = Date.parse(deletedAtIso);
+  if (Number.isNaN(deletedMs)) return false;
+  return nowMs - deletedMs >= RETENTION_DAYS * 86_400_000;
 }
 
 export const PROJECT_SOURCES: ProjectSource[] = [
@@ -49,6 +77,7 @@ export const PROJECT_SOURCES: ProjectSource[] = [
     ownerColumn: 'user_id',
     nameColumn: 'name',
     archivedColumn: 'archived',
+    deletedColumn: 'deleted_at',
     versionsTable: 'refm_project_versions',
     versionsFk: 'project_id',
   },

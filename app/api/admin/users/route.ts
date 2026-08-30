@@ -6,6 +6,10 @@ import { writeAuditLog } from '@/src/shared/audit';
 import { resolveLapseAnchorMs, computeLapseState, type LapseState } from '@/src/shared/entitlements/gate';
 import { syncPlatformSubscriptionFields } from '@/src/shared/payments/config';
 
+// Cached per process: false once a pre-mig-224 database is observed, so the
+// soft-delete filter on the embedded project count is dropped for good.
+let deletedFilterOk = true;
+
 // ── Admin guard ───────────────────────────────────────────────────────────────
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -72,6 +76,11 @@ export async function GET(req: NextRequest) {
     const BASE = 'id, email, name, role, subscription_plan, subscription_status, created_at, trial_ends_at, projects:refm_projects(count)';
     const runQuery = async (cols: string) => {
       let q = sb.from('users').select(cols, { count: 'exact' });
+      // Soft-deleted projects (mig 224) are out of the user's world, so they
+      // are out of this count too: the column must show what the user sees.
+      // Filtering an embedded resource is supported (probed live); dropped on
+      // a pre-224 database by the ladder below.
+      if (deletedFilterOk) q = q.is('projects.deleted_at', null);
       if (search) q = q.ilike('email', `%${search}%`);
       if (role && role !== 'all') q = q.eq('role', role);
       // Qualification filter (mig 216). THREE states, so 'all' is not the only
@@ -98,6 +107,11 @@ export async function GET(req: NextRequest) {
     const PROFILE = `${BASE}, company, job_title`;
     const FULL = `${PROFILE}, works_in_real_estate, real_estate_role_note`;
     let { data, count, error: dbError } = await runQuery(FULL);
+    // Pre-224 database: drop the soft-delete filter and retry the same ladder.
+    if (dbError && /deleted_at/i.test(dbError.message)) {
+      deletedFilterOk = false;
+      ({ data, count, error: dbError } = await runQuery(FULL));
+    }
     if (dbError && /works_in_real_estate|real_estate_role_note/.test(dbError.message)) {
       ({ data, count, error: dbError } = await runQuery(PROFILE));
     }

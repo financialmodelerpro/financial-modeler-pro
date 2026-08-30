@@ -32,7 +32,8 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { writeAuditLog } from '@/src/shared/audit';
-import { PROJECT_SOURCES, getProjectSource, type ProjectSource } from '@/src/shared/admin/projectSources';
+import { PROJECT_SOURCES, getProjectSource, daysRemaining, RETENTION_DAYS, type ProjectSource } from '@/src/shared/admin/projectSources';
+import { restoreDeletedProject } from '@/src/shared/admin/projectRetention';
 
 async function guard() {
   const session = await getServerSession(authOptions);
@@ -55,12 +56,16 @@ interface NormalizedProject {
   ownerEmail: string | null;
   ownerName: string | null;
   versionCount: number;
+  /** Soft-delete stamp (mig 224), null when live. */
+  deletedAt: string | null;
+  /** Whole days before the purge hard deletes it; null when not deleted. */
+  daysLeft: number | null;
 }
 
 const PER_SOURCE_LIMIT = 200;
 
 async function listSource(sb: ReturnType<typeof getServerClient>, source: ProjectSource): Promise<{ rows: NormalizedProject[]; error: string | null }> {
-  const cols = [
+  const baseCols = [
     'id',
     source.nameColumn,
     source.ownerColumn,
@@ -68,12 +73,21 @@ async function listSource(sb: ReturnType<typeof getServerClient>, source: Projec
     'updated_at',
     ...(source.archivedColumn ? [source.archivedColumn] : []),
     'users(email, name)',
-  ].join(', ');
-  const { data, error } = await sb
+  ];
+  // The soft-delete column is selected when the platform declares one, and
+  // dropped on a database that does not have it yet (pre-224), where every
+  // project is live by definition.
+  const run = (cols: string[]) => sb
     .from(source.table)
-    .select(cols)
+    .select(cols.join(', '))
     .order('updated_at', { ascending: false })
     .range(0, PER_SOURCE_LIMIT - 1);
+
+  const wantDeleted = !!source.deletedColumn;
+  let { data, error } = await run(wantDeleted ? [...baseCols, source.deletedColumn!] : baseCols);
+  if (error && wantDeleted) {
+    ({ data, error } = await run(baseCols));
+  }
   if (error) return { rows: [], error: `${source.key}: ${error.message}` };
 
   const raw = (data ?? []) as unknown as Array<Record<string, unknown>>;
@@ -94,6 +108,7 @@ async function listSource(sb: ReturnType<typeof getServerClient>, source: Projec
     error: null,
     rows: raw.map((r, i) => {
       const owner = r.users as { email?: string | null; name?: string | null } | null;
+      const deletedAt = source.deletedColumn ? ((r[source.deletedColumn] as string | null) ?? null) : null;
       return {
         platform: source.key,
         platformLabel: source.shortLabel,
@@ -106,6 +121,8 @@ async function listSource(sb: ReturnType<typeof getServerClient>, source: Projec
         ownerEmail: owner?.email ?? null,
         ownerName: owner?.name ?? null,
         versionCount: counts[i],
+        deletedAt,
+        daysLeft: deletedAt ? daysRemaining(deletedAt) : null,
       };
     }),
   };
@@ -132,8 +149,11 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     projects,
     sources: PROJECT_SOURCES.map((s) => ({
-      key: s.key, label: s.label, shortLabel: s.shortLabel, supportsArchive: !!s.archivedColumn,
+      key: s.key, label: s.label, shortLabel: s.shortLabel,
+      supportsArchive: !!s.archivedColumn,
+      supportsRestore: !!s.deletedColumn,
     })),
+    retentionDays: RETENTION_DAYS,
     sourceErrors,
   });
 }
@@ -160,8 +180,26 @@ export async function POST(req: NextRequest) {
   const source = getProjectSource(body.platform ?? '');
   if (!source) return NextResponse.json({ error: 'Unknown platform' }, { status: 400 });
   if (!body.id) return NextResponse.json({ error: 'id required' }, { status: 400 });
+
+  // ── RESTORE a soft-deleted project (mig 224) ──────────────────────────────
+  // Registry driven and cap-tolerant by design (see restoreDeletedProject).
+  if (body.action === 'restore') {
+    const res = await restoreDeletedProject(getServerClient(), source.key, body.id);
+    if (!res.ok) {
+      const status = res.code === 'not_found' ? 404 : res.code === 'failed' ? 500 : 400;
+      return NextResponse.json({ error: res.error, code: res.code }, { status });
+    }
+    await writeAuditLog({
+      adminId,
+      action: 'restore_project',
+      targetUserId: res.userId,
+      afterValue: { platform: source.key, project_id: body.id, name: res.name },
+    });
+    return NextResponse.json({ ok: true, restored: res.name });
+  }
+
   if (body.action !== 'archive' && body.action !== 'unarchive') {
-    return NextResponse.json({ error: 'action must be archive or unarchive' }, { status: 400 });
+    return NextResponse.json({ error: 'action must be archive, unarchive or restore' }, { status: 400 });
   }
   if (!source.archivedColumn) {
     return NextResponse.json({ error: `${source.shortLabel} projects have no archive state` }, { status: 400 });

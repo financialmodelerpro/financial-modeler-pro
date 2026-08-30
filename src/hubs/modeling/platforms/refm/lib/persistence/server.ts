@@ -40,6 +40,18 @@ void PROJECT_COLS;
 // observe the missing-column error.
 let archivedApplied: boolean | undefined;
 
+// Migration 224 (2026-08-30) adds `deleted_at` for SOFT DELETE. Every
+// user-facing read filters it out (`deleted_at IS NULL`), with the same
+// probe-and-fall-back tolerance: on a database without the column the filter
+// is dropped and nothing is hidden, which is exactly the pre-224 behaviour.
+// Cached like archivedApplied so the cost is one probe per process.
+let deletedApplied: boolean | undefined;
+
+/** True when a PostgREST error names the soft-delete column as missing. */
+function isMissingDeletedColumn(err: { message: string; code?: string | null } | null): boolean {
+  return !!err && isMissingColumnError(err) && /deleted_at/i.test(err.message);
+}
+
 function decorateProjectRow<T extends Record<string, unknown>>(row: T | null): T | null {
   if (!row) return row;
   if (!('archived' in row)) (row as Record<string, unknown>).archived = false;
@@ -135,12 +147,24 @@ async function listProjectRowsPaginated(
   const out: Array<Record<string, unknown>> = [];
   let from = 0;
   while (from < PROJECT_HARD_CAP) {
-    const { data, error } = await sb
-      .from('refm_projects')
-      .select(cols)
-      .eq('user_id', userId)
-      .order('updated_at', { ascending: false })
-      .range(from, from + PAGE_SIZE - 1);
+    // Soft-deleted projects are hidden from the user entirely (mig 224). The
+    // filter is dropped on a pre-224 database, where nothing is deleted.
+    const base = () => {
+      const q = sb
+        .from('refm_projects')
+        .select(cols)
+        .eq('user_id', userId)
+        .order('updated_at', { ascending: false })
+        .range(from, from + PAGE_SIZE - 1);
+      return deletedApplied === false ? q : q.is('deleted_at', null);
+    };
+    let { data, error } = await base();
+    if (error && isMissingDeletedColumn(error)) {
+      deletedApplied = false;
+      ({ data, error } = await base());
+    } else if (!error && deletedApplied === undefined) {
+      deletedApplied = true;
+    }
     if (error) return { rows: out, error };
     const page = (data ?? []) as unknown as Array<Record<string, unknown>>;
     out.push(...page);
@@ -226,18 +250,30 @@ export async function getProject(userId: string, projectId: string): Promise<{
   error: string | null;
 }> {
   const sb = getServerClient();
+  // A soft-deleted project is gone from the user's world: it must not load,
+  // open or accept writes. Same drop-the-filter tolerance as the list.
+  const one = async (cols: string) => {
+    const build = () => {
+      const q = sb.from('refm_projects').select(cols).eq('id', projectId).eq('user_id', userId);
+      return (deletedApplied === false ? q : q.is('deleted_at', null)).maybeSingle();
+    };
+    let r = await build();
+    if (r.error && isMissingDeletedColumn(r.error)) {
+      deletedApplied = false;
+      r = await build();
+    } else if (!r.error && deletedApplied === undefined) {
+      deletedApplied = true;
+    }
+    return r;
+  };
+
   if (archivedApplied !== false) {
-    const r = await sb.from('refm_projects').select(PROJECT_COLS_FULL).eq('id', projectId).eq('user_id', userId).maybeSingle();
+    const r = await one(PROJECT_COLS_FULL);
     if (!r.error) { archivedApplied = true; return { row: (r.data ?? null) as RefmProjectRow | null, error: null }; }
     if (!isMissingColumnError(r.error)) return { row: null, error: r.error.message };
     archivedApplied = false;
   }
-  const { data, error } = await sb
-    .from('refm_projects')
-    .select(PROJECT_COLS_BASE)
-    .eq('id', projectId)
-    .eq('user_id', userId)
-    .maybeSingle();
+  const { data, error } = await one(PROJECT_COLS_BASE);
   if (error) return { row: null, error: error.message };
   return { row: decorateProjectRow(data as Record<string, unknown> | null) as RefmProjectRow | null, error: null };
 }
@@ -293,7 +329,18 @@ export async function setProjectCurrentVersion(
   return { error: error?.message ?? null };
 }
 
-export async function deleteProject(
+/**
+ * HARD delete: removes the row and everything the FK cascades take (versions
+ * with their change log, report decks + deck versions, fund terms, parties).
+ *
+ * TWO call sites only, neither of them a user pressing Delete:
+ *   1. the create-rollback in POST /api/refm/projects (a half-created project
+ *      the user never saw), and
+ *   2. the retention purge, which hard deletes what the 30-day window has
+ *      expired on.
+ * A user's Delete goes through softDeleteProject.
+ */
+export async function hardDeleteProject(
   userId: string,
   projectId: string,
 ): Promise<{ error: string | null }> {
@@ -303,6 +350,36 @@ export async function deleteProject(
     .delete()
     .eq('id', projectId)
     .eq('user_id', userId);
+  return { error: error?.message ?? null };
+}
+
+/**
+ * SOFT delete (mig 224): stamps deleted_at. The row and every version stay,
+ * so the deletion is recoverable for the retention window, but the project is
+ * hidden from the user's list, cannot be opened, and leaves the project cap.
+ *
+ * Returns `unsupported: true` when the column is absent (pre-224), so the
+ * caller can refuse honestly rather than reporting a deletion that did not
+ * happen. It NEVER silently falls back to a hard delete: a soft delete that
+ * quietly became permanent is the one outcome this feature exists to prevent.
+ */
+export async function softDeleteProject(
+  userId: string,
+  projectId: string,
+  nowIso: string = new Date().toISOString(),
+): Promise<{ error: string | null; unsupported?: true }> {
+  const sb = getServerClient();
+  const { error } = await sb
+    .from('refm_projects')
+    .update({ deleted_at: nowIso })
+    .eq('id', projectId)
+    .eq('user_id', userId)
+    .is('deleted_at', null);
+  if (error && isMissingDeletedColumn({ message: error.message, code: error.code })) {
+    deletedApplied = false;
+    return { error: 'Project deletion is temporarily unavailable.', unsupported: true };
+  }
+  if (!error) deletedApplied = true;
   return { error: error?.message ?? null };
 }
 

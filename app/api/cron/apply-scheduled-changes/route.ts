@@ -1,6 +1,12 @@
 /**
  * GET /api/cron/apply-scheduled-changes
  *
+ * TWO scheduled jobs, both daily:
+ *   1. DEFERRED downgrades (mig 178) whose effective date has arrived, plus the
+ *      convert-to-manual backstop.
+ *   2. The SOFT-DELETE retention purge (mig 224): projects whose 30-day window
+ *      has expired are hard deleted with their cascades, registry driven.
+ *
  * Applies DEFERRED downgrades (mig 178) whose effective date has arrived. For
  * each user_platform_subscriptions row with a scheduled change due now, it
  * swaps the Paddle subscription item to the scheduled (lower) price, then clears
@@ -22,6 +28,7 @@ import { getServerClient } from '@/src/core/db/supabase';
 import { loadPaymentSettings, providerConfigFrom, clearScheduledChange, loadScheduledManualConversion } from '@/src/shared/payments/config';
 import { changeSubscriptionPlan } from '@/src/shared/payments/paddleApi';
 import { applyScheduledManualConversion } from '@/src/shared/payments/manualConversion';
+import { purgeExpiredDeletedProjects } from '@/src/shared/admin/projectRetention';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -96,5 +103,12 @@ export async function GET(req: NextRequest) {
     // columns absent pre mig 180: skip.
   }
 
-  return Response.json({ ok: true, due: rows.length, applied, convertsApplied, failures });
+  // Soft-delete retention purge (mig 224): hard delete projects whose 30-day
+  // window has expired, registry driven across every platform. Folded into
+  // this daily cron rather than a new Vercel entry (Hobby plan: a cron change
+  // has taken down a whole deploy before), and semantically at home here,
+  // since a scheduled hard delete is a scheduled change. Never throws.
+  const purge = await purgeExpiredDeletedProjects(sb);
+
+  return Response.json({ ok: true, due: rows.length, applied, convertsApplied, failures, purge });
 }

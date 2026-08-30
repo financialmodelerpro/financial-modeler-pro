@@ -28,16 +28,23 @@ interface ProjectRow {
   ownerEmail: string | null;
   ownerName: string | null;
   versionCount: number;
+  /** Soft-delete stamp (mig 224); null when live. */
+  deletedAt: string | null;
+  /** Days before the purge hard deletes it; null when live. */
+  daysLeft: number | null;
 }
 
-interface SourceInfo { key: string; label: string; shortLabel: string; supportsArchive: boolean; }
+interface SourceInfo { key: string; label: string; shortLabel: string; supportsArchive: boolean; supportsRestore: boolean; }
 
 export default function ProjectsBrowser() {
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [sources,  setSources]  = useState<SourceInfo[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [search,   setSearch]   = useState('');
-  const [filter,   setFilter]   = useState<'all' | 'active' | 'archived'>('active');
+  // 'all' means every LIVE project. A soft-deleted project sits in its own
+  // 'deleted' bin and never appears in the other three views.
+  const [filter,   setFilter]   = useState<'all' | 'active' | 'archived' | 'deleted'>('active');
+  const [retentionDays, setRetentionDays] = useState(30);
   const [platform, setPlatform] = useState<string>('all');
   const [toast,    setToast]    = useState('');
   const [deleteTarget, setDeleteTarget] = useState<ProjectRow | null>(null);
@@ -54,6 +61,7 @@ export default function ProjectsBrowser() {
       const j = await res.json();
       setProjects(j.projects ?? []);
       setSources(j.sources ?? []);
+      if (typeof j.retentionDays === 'number') setRetentionDays(j.retentionDays);
       if ((j.sourceErrors ?? []).length) showToast('Some platforms could not be read: ' + j.sourceErrors.join('; '));
     }
     setLoading(false);
@@ -69,6 +77,19 @@ export default function ProjectsBrowser() {
     if (!res.ok) { showToast('Failed: ' + ((await res.json()).error ?? 'error')); return; }
     setProjects((rows) => rows.map((r) => (r.id === p.id && r.platform === p.platform ? { ...r, archived: archive } : r)));
     showToast(archive ? 'Project archived' : 'Project restored to active');
+  };
+
+  // Restore a soft-deleted project to its owner. The project returns in
+  // whatever archived state it had; if it was active it can put the owner at
+  // cap + 1, which is deliberate (see restoreDeletedProject) and stated below.
+  const restore = async (p: ProjectRow) => {
+    const res = await fetch('/api/admin/projects', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'restore', platform: p.platform, id: p.id }),
+    });
+    if (!res.ok) { showToast('Restore failed: ' + ((await res.json()).error ?? 'error')); return; }
+    setProjects((rows) => rows.map((r) => (r.id === p.id && r.platform === p.platform ? { ...r, deletedAt: null, daysLeft: null } : r)));
+    showToast('Project restored to its owner');
   };
 
   const performDelete = async () => {
@@ -95,6 +116,9 @@ export default function ProjectsBrowser() {
 
   const filtered = projects.filter((p) => {
     if (platform !== 'all' && p.platform !== platform) return false;
+    const isDeleted = !!p.deletedAt;
+    if (filter === 'deleted') { if (!isDeleted) return false; }
+    else if (isDeleted) return false;
     if (filter === 'active'   && p.archived)  return false;
     if (filter === 'archived' && !p.archived) return false;
     if (!search) return true;
@@ -105,10 +129,12 @@ export default function ProjectsBrowser() {
   });
 
   const inPlatform = projects.filter((p) => platform === 'all' || p.platform === platform);
+  const live = inPlatform.filter((p) => !p.deletedAt);
   const counts = {
-    all:      inPlatform.length,
-    active:   inPlatform.filter((p) => !p.archived).length,
-    archived: inPlatform.filter((p) =>  p.archived).length,
+    all:      live.length,
+    active:   live.filter((p) => !p.archived).length,
+    archived: live.filter((p) =>  p.archived).length,
+    deleted:  inPlatform.filter((p) => !!p.deletedAt).length,
   };
 
   const armed = !!deleteTarget && confirmName === deleteTarget.name;
@@ -137,14 +163,14 @@ export default function ProjectsBrowser() {
           </select>
         )}
         <div style={{ display: 'flex', gap: 4 }}>
-          {(['active', 'archived', 'all'] as const).map((f) => (
+          {(['active', 'archived', 'all', 'deleted'] as const).map((f) => (
             <button key={f} onClick={() => setFilter(f)} style={{
               padding: '5px 14px', fontSize: 12, fontWeight: 600, borderRadius: 20,
               border: '1px solid var(--color-border)', cursor: 'pointer', fontFamily: 'Inter,sans-serif',
               background: filter === f ? 'var(--color-primary)' : 'var(--color-grey-white)',
               color:      filter === f ? 'var(--color-grey-white)' : 'var(--color-meta)',
             }}>
-              {f.charAt(0).toUpperCase() + f.slice(1)} ({counts[f]})
+              {f === 'deleted' ? 'Deleted' : f.charAt(0).toUpperCase() + f.slice(1)} ({counts[f]})
             </button>
           ))}
         </div>
@@ -152,6 +178,12 @@ export default function ProjectsBrowser() {
           ↻ Refresh
         </button>
       </div>
+
+      {filter === 'deleted' && (
+        <div data-testid="projects-deleted-note" style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 8, background: '#FDF6E3', border: '1px solid #C9A84C', fontSize: 12.5, color: '#0D2E5A', lineHeight: 1.6 }}>
+          Projects the owner deleted. They are hidden from the owner and do not count against their project limit, but every version still exists: Restore hands one back. After {retentionDays} days the daily purge deletes them permanently, with all their versions. A restored project returns in the state it had, which can briefly put the owner one over their plan limit.
+        </div>
+      )}
 
       {loading ? (
         <div style={{ padding: 32, textAlign: 'center', color: 'var(--color-meta)' }}>Loading…</div>
@@ -187,12 +219,22 @@ export default function ProjectsBrowser() {
                   </td>
                   <td style={{ fontSize: 12, color: 'var(--color-heading)' }}>{p.versionCount}</td>
                   <td>
-                    <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, fontWeight: 700,
-                      background: p.archived ? '#fee2e2' : 'var(--color-green-light)',
-                      color:      p.archived ? 'var(--color-negative)' : 'var(--color-green-dark)',
-                    }}>
-                      {p.archived ? 'Archived' : 'Active'}
-                    </span>
+                    {p.deletedAt ? (
+                      <span
+                        data-testid={`deleted-badge-${p.id}`}
+                        title={`Deleted ${new Date(p.deletedAt).toLocaleDateString()}. Hard deleted with all its versions when the window runs out.`}
+                        style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, fontWeight: 700, background: '#fee2e2', color: 'var(--color-negative)', whiteSpace: 'nowrap' }}
+                      >
+                        Deleted · {p.daysLeft === 0 ? 'purges today' : `${p.daysLeft}d left`}
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, fontWeight: 700,
+                        background: p.archived ? '#fffbeb' : 'var(--color-green-light)',
+                        color:      p.archived ? '#92400e' : 'var(--color-green-dark)',
+                      }}>
+                        {p.archived ? 'Archived' : 'Active'}
+                      </span>
+                    )}
                   </td>
                   <td style={{ fontSize: 11, color: 'var(--color-meta)', whiteSpace: 'nowrap' }}>
                     {new Date(p.createdAt).toLocaleDateString()}
@@ -202,6 +244,17 @@ export default function ProjectsBrowser() {
                   </td>
                   <td>
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                      {p.deletedAt ? (
+                        <button
+                          onClick={() => restore(p)}
+                          data-testid={`restore-${p.id}`}
+                          title="Clear the deletion and hand this project back to its owner"
+                          style={{ fontSize: 10, padding: '3px 8px', borderRadius: 10, border: '1px solid var(--color-green-dark)', background: 'var(--color-green-light)', color: 'var(--color-green-dark)', cursor: 'pointer', fontFamily: 'Inter,sans-serif', fontWeight: 700 }}
+                        >
+                          Restore
+                        </button>
+                      ) : (
+                      <>
                       {sources.find((s) => s.key === p.platform)?.supportsArchive !== false && (
                         p.archived ? (
                           <button onClick={() => setArchived(p, false)} data-testid={`unarchive-${p.id}`} style={{ fontSize: 10, padding: '3px 8px', borderRadius: 10, border: '1px solid var(--color-border)', background: 'var(--color-grey-white)', color: 'var(--color-heading)', cursor: 'pointer', fontFamily: 'Inter,sans-serif', fontWeight: 600 }}>
@@ -216,6 +269,8 @@ export default function ProjectsBrowser() {
                       <button onClick={() => { setDeleteTarget(p); setConfirmName(''); setError(null); }} data-testid={`delete-${p.id}`} style={{ fontSize: 10, padding: '3px 8px', borderRadius: 10, border: '1px solid #fca5a5', background: '#fee2e2', color: 'var(--color-negative)', cursor: 'pointer', fontFamily: 'Inter,sans-serif', fontWeight: 600 }}>
                         Delete…
                       </button>
+                      </>
+                      )}
                     </div>
                   </td>
                 </tr>

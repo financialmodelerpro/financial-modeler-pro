@@ -279,9 +279,8 @@ export default function ProjectsScreen({
                       style={{ fontSize: '12px', padding: '5px 10px' }}
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (window.confirm(`Delete "${proj.name}"? This cannot be undone.`)) {
-                          onDeleteProject(pid);
-                        }
+                        // The parent opens DeleteProjectModal; no window.confirm.
+                        onDeleteProject(pid);
                       }}
                     >
                       🗑

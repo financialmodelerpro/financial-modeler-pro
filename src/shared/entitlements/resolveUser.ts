@@ -80,6 +80,18 @@ function deniedGate(userId: string, isAdmin: boolean): ResolvedUserGate {
 /** Count the user's ACTIVE (non-archived) projects. Tolerates a DB without the
  *  archived column (pre-migration-161) by falling back to counting all rows. */
 export async function countActiveProjects(sb: SupabaseClient, userId: string): Promise<number> {
+  // A SOFT-DELETED project (mig 224) is out of the user's world and therefore
+  // out of the cap: deleting must free a slot immediately, not in 30 days.
+  // Tried with the filter first; a pre-224 database drops it (nothing is
+  // deleted there, so the count is identical).
+  const live = await sb
+    .from('refm_projects')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('archived', false)
+    .is('deleted_at', null);
+  if (!live.error) return live.count ?? 0;
+
   const { count, error } = await sb
     .from('refm_projects')
     .select('id', { count: 'exact', head: true })

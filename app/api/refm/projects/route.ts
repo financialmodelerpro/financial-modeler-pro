@@ -18,7 +18,7 @@ import {
   insertProject,
   insertVersion,
   setProjectCurrentVersion,
-  deleteProject,
+  hardDeleteProject,
 } from '@/src/hubs/modeling/platforms/refm/lib/persistence/server';
 import { getRefmUserId, getRefmUserContext } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
 import {
@@ -133,7 +133,7 @@ export async function POST(req: NextRequest) {
     snapshot:       body.snapshot,
   });
   if (verErr || !versionRow) {
-    await deleteProject(userId, projectRow.id);
+    await hardDeleteProject(userId, projectRow.id);
     return serverError(verErr ?? 'Failed to write initial version.');
   }
 

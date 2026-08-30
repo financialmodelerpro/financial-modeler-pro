@@ -21,7 +21,7 @@ import {
   insertProject,
   insertVersion,
   setProjectCurrentVersion,
-  deleteProject,
+  hardDeleteProject,
 } from '@/src/hubs/modeling/platforms/refm/lib/persistence/server';
 import { getRefmUserId, getRefmUserContext } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
 import { resolveUserGate } from '@/src/shared/entitlements/resolveUser';
@@ -103,7 +103,7 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
     snapshot,
   });
   if (verErr || !cloneVersion) {
-    await deleteProject(userId, clone.id);
+    await hardDeleteProject(userId, clone.id);
     return serverError(verErr ?? 'Failed to write clone version.');
   }
 

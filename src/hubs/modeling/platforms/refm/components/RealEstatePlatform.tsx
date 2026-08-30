@@ -82,6 +82,8 @@ import EditChoiceModal, { type EditChoice } from './modals/EditChoiceModal';
 // file stays in modals/ so the restore is a re-import, not a rebuild.
 import ExportModal from './modals/ExportModal';
 import PlatformGuideModal from './modals/PlatformGuideModal';
+import DeleteProjectModal from './modals/DeleteProjectModal';
+import { RETENTION_DAYS } from '@/src/shared/admin/projectSources';
 import PlatformTour from './PlatformTour';
 import FirstRunGuidePrompt from './FirstRunGuidePrompt';
 import { buildPlatformTour, type TourMode } from '../lib/guide/tour';
@@ -895,18 +897,47 @@ export default function RealEstatePlatform(): React.JSX.Element {
     setProjectModalOpen(true);
   }, []);
 
-  const handleDeleteProject = useCallback(
-    async (pid: string): Promise<void> => {
+  // ── Delete a project ────────────────────────────────────────────────────
+  // Two steps by design: the lists ASK (requestDeleteProject), a real dialog
+  // states what happens, and only its confirm calls the API. This is the one
+  // delete path in the platform; the two window.confirm() prompts the lists
+  // used to carry are gone, and with them the two different stories they told.
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; versionCount: number } | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const requestDeleteProject = useCallback((pid: string): void => {
+    // Read-only grace: deletion is blocked with every other write. A grace
+    // user is heading for LAPSED, where they could not ask for the project
+    // back before its retention window ran out. The server enforces this too.
+    if (graceReadOnly) return;
+    const p = serverProjects.find((x) => x.id === pid);
+    setDeleteError(null);
+    setDeleteTarget({
+      id: pid,
+      name: p?.name ?? 'this project',
+      versionCount: p?.version_count ?? 0,
+    });
+  }, [graceReadOnly, serverProjects]);
+
+  const confirmDeleteProject = useCallback(async (): Promise<void> => {
+    if (!deleteTarget) return;
+    const pid = deleteTarget.id;
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
       const res = await pclient.deleteProject(pid);
       if (res.error) {
-        setLoadError(res.error);
+        setDeleteError(res.error);
         return;
       }
       setServerProjects((prev) => prev.filter((p) => p.id !== pid));
+      setDeleteTarget(null);
       if (activeProjectId === pid) handleCloseProject();
-    },
-    [activeProjectId, handleCloseProject],
-  );
+    } finally {
+      setDeleteBusy(false);
+    }
+  }, [deleteTarget, activeProjectId, handleCloseProject]);
 
   const storage: StorageShape = projectsToStorageShape(serverProjects, activeProjectId, activeVersionId);
   const activeProjectData = activeProjectId ? storage.projects[activeProjectId] : null;
@@ -954,7 +985,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
           activeVersionId={activeVersionId}
           onCreateProject={() => setWizardOpen(true)}
           onSelectProject={(id) => void handleSelectProject(id)}
-          onDeleteProject={(id) => void handleDeleteProject(id)}
+          onDeleteProject={graceReadOnly ? undefined : (id) => requestDeleteProject(id)}
           onSelectModule={setActiveModule}
           onSelectTab={setActiveTab}
           onSaveVersion={() => setVersionModalOpen(true)}
@@ -982,7 +1013,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
           onSelectProject={(id) => void handleSelectProject(id)}
           onCloseProject={handleCloseProject}
           onEditProject={handleEditProject}
-          onDeleteProject={(id) => void handleDeleteProject(id)}
+          onDeleteProject={graceReadOnly ? undefined : (id) => requestDeleteProject(id)}
           setActiveModule={setActiveModule}
           can={can}
         />
@@ -1758,6 +1789,17 @@ export default function RealEstatePlatform(): React.JSX.Element {
         doc={buildPlatformGuide({ modules: MODULES, moduleTabs: MODULE_TABS })}
         dateLabel={new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
       />
+      {deleteTarget && (
+        <DeleteProjectModal
+          projectName={deleteTarget.name}
+          versionCount={deleteTarget.versionCount}
+          retentionDays={RETENTION_DAYS}
+          busy={deleteBusy}
+          error={deleteError}
+          onCancel={() => { if (!deleteBusy) { setDeleteTarget(null); setDeleteError(null); } }}
+          onConfirm={() => void confirmDeleteProject()}
+        />
+      )}
       {upgradePrompt && (
         <div
           role="dialog"
