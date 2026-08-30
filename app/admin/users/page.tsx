@@ -5,6 +5,7 @@ import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { useSession } from 'next-auth/react';
 import { useRequireAdmin } from '@/src/shared/hooks/useRequireAdmin';
 import { DeleteUserModal } from '@/src/components/admin/DeleteUserModal';
+import { UserProjectsModal } from '@/src/components/admin/UserProjectsModal';
 
 interface User {
   id: string;
@@ -55,19 +56,6 @@ function CancelBadge({ state }: { state: 'canceling' | 'canceled' }) {
   );
 }
 
-const PLAN_COLORS: Record<string, string> = {
-  // New entitlement plan set (post-reconciliation).
-  trial:        '#D97706',
-  solo:         '#0EA5E9',
-  pro:          '#2563EB',
-  firm:         '#7C3AED',
-  unassigned:   '#9CA3AF',
-  // Legacy keys kept for any un-reconciled row (still rendered, not written).
-  free:         '#6B7280',
-  professional: '#2563EB',
-  enterprise:   '#7C3AED',
-};
-
 const STATUS_COLORS: Record<string, string> = {
   active:    '#1A7A30',
   trial:     '#D97706',
@@ -96,43 +84,9 @@ function AccessStatusBadge({ status }: { status: string }) {
   );
 }
 
-function PlanBadge({ plan }: { plan: string }) {
-  const color = PLAN_COLORS[plan] ?? '#6B7280';
-  return (
-    <span style={{
-      display: 'inline-block',
-      padding: '2px 9px',
-      borderRadius: 12,
-      fontSize: 11,
-      fontWeight: 700,
-      color: '#fff',
-      background: color,
-      letterSpacing: '0.03em',
-      textTransform: 'capitalize',
-    }}>
-      {plan}
-    </span>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const color = STATUS_COLORS[status] ?? '#6B7280';
-  return (
-    <span style={{
-      display: 'inline-block',
-      padding: '2px 9px',
-      borderRadius: 12,
-      fontSize: 11,
-      fontWeight: 700,
-      color: '#fff',
-      background: color,
-      letterSpacing: '0.03em',
-      textTransform: 'capitalize',
-    }}>
-      {status}
-    </span>
-  );
-}
+// PlanBadge / StatusBadge are gone deliberately (2026-08-30): each merely
+// repeated the value of the dropdown beside it, so a row said the same thing
+// twice. The dropdowns are the single statement of plan and status.
 
 export default function AdminUsersPage() {
   const { loading: authLoading } = useRequireAdmin();
@@ -152,6 +106,11 @@ export default function AdminUsersPage() {
   const [updating, setUpdating]     = useState<string | null>(null);
   const [toast, setToast]           = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [projectsTarget, setProjectsTarget] = useState<{ id: string; email: string } | null>(null);
+  // Live lockdown flags (mig 136): the pre-launch banner renders ONLY when a
+  // surface is actually closed, worded for whichever one is. Both false (the
+  // launched hub) means no banner at all; null = not yet loaded (no banner).
+  const [lockdown, setLockdown] = useState<{ signin: boolean; register: boolean } | null>(null);
   const PAGE_SIZE = 20;
 
   const showToast = (msg: string, type: 'success' | 'error') => {
@@ -166,6 +125,16 @@ export default function AdminUsersPage() {
       .then(r => r.json())
       .then(j => setEntPlans((j.plans ?? []).filter((p: { active: boolean }) => p.active).map((p: { plan_key: string; label: string }) => ({ plan_key: p.plan_key, label: p.label }))))
       .catch(() => setEntPlans([]));
+  }, []);
+
+  // Read the ACTUAL lockdown state so the banner cannot go stale again: the
+  // same flags the sign-in / register pages enforce (mig 136).
+  useEffect(() => {
+    Promise.all([
+      fetch('/api/admin/modeling-signin-coming-soon').then(r => r.json()).catch(() => ({ enabled: false })),
+      fetch('/api/admin/modeling-register-coming-soon').then(r => r.json()).catch(() => ({ enabled: false })),
+    ]).then(([s, r]) => setLockdown({ signin: !!s.enabled, register: !!r.enabled }))
+      .catch(() => setLockdown({ signin: false, register: false }));
   }, []);
 
   // Assign a plan via THE shared plan-setting endpoint (same path as /admin/access).
@@ -251,6 +220,18 @@ export default function AdminUsersPage() {
 
   if (authLoading) return null;
 
+  // ACCESS is the date-driven state (grace / lapsed / canceling), which the
+  // stored STATUS dropdown cannot express: it diverges when a plan's expiry
+  // date has passed while the stored status still reads active (the gate
+  // enforces by date; the stored value only moves via cron or an admin), and
+  // during the one-month read-only grace window. On every other row it merely
+  // mirrors STATUS, so the whole column renders ONLY when at least one row on
+  // the page genuinely diverges.
+  const accessDiverges = (u: User) =>
+    (u.lapseState === 'grace' || u.lapseState === 'lapsed') || !!u.cancelState;
+  const showAccessCol = users.some(accessDiverges);
+  const colCount = showAccessCol ? 11 : 10;
+
   return (
     <div style={{ display: 'flex', minHeight: '100vh', fontFamily: "'Inter', sans-serif", background: '#F4F7FC' }}>
       <CmsAdminNav active="/admin/users" />
@@ -258,32 +239,38 @@ export default function AdminUsersPage() {
         <h1 style={{ fontSize: 24, fontWeight: 800, color: '#1B3A6B', marginBottom: 6 }}>User Management</h1>
         <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 16 }}>{total} total users</p>
 
-        {/* Modeling Hub access banner (migration 136) */}
-        <div style={{
-          background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 10,
-          padding: '14px 18px', marginBottom: 24,
-          display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
-        }}>
-          <span style={{ fontSize: 20 }}>🔒</span>
-          <div style={{ flex: 1, minWidth: 240 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#1B3A6B', marginBottom: 2 }}>
-              Modeling Hub is in pre-launch lockdown
+        {/* Modeling Hub lockdown banner (migration 136): shown ONLY while a
+            surface is actually closed, and worded for whichever one is. The
+            previous banner was static and claimed pre-launch lockdown forever;
+            with the hub live it was simply false, so it now reads the same
+            flags the sign-in / register pages enforce. */}
+        {lockdown && (lockdown.signin || lockdown.register) && (
+          <div data-testid="lockdown-banner" style={{
+            background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 10,
+            padding: '14px 18px', marginBottom: 24,
+            display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
+          }}>
+            <span style={{ fontSize: 20 }}>🔒</span>
+            <div style={{ flex: 1, minWidth: 240 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#1B3A6B', marginBottom: 2 }}>
+                Modeling Hub {lockdown.signin && lockdown.register ? 'registration and sign-in are' : lockdown.register ? 'registration is' : 'sign-in is'} closed
+              </div>
+              <div style={{ fontSize: 12, color: '#1B4F8A' }}>
+                Only admins and whitelisted emails can {lockdown.signin && lockdown.register ? 'register or sign in' : lockdown.register ? 'register' : 'sign in'} right now. Adding a user here does NOT grant Modeling Hub access - use the Access Whitelist.
+              </div>
             </div>
-            <div style={{ fontSize: 12, color: '#1B4F8A' }}>
-              Only admins and whitelisted emails can register or sign in. Adding a user here does NOT grant Modeling Hub access - use the Access Whitelist.
-            </div>
+            <Link
+              href="/admin/modeling-access"
+              style={{
+                fontSize: 12, fontWeight: 700, padding: '8px 16px',
+                borderRadius: 7, border: '1px solid #1B4F8A',
+                background: '#fff', color: '#1B4F8A', textDecoration: 'none',
+              }}
+            >
+              Manage Whitelist →
+            </Link>
           </div>
-          <Link
-            href="/admin/modeling-access"
-            style={{
-              fontSize: 12, fontWeight: 700, padding: '8px 16px',
-              borderRadius: 7, border: '1px solid #1B4F8A',
-              background: '#fff', color: '#1B4F8A', textDecoration: 'none',
-            }}
-          >
-            Manage Whitelist →
-          </Link>
-        </div>
+        )}
 
         {/* Filters */}
         <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
@@ -342,16 +329,16 @@ export default function AdminUsersPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#1B4F8A' }}>
-                {['Email', 'Name', 'Role', 'Real estate', 'Plan', 'Status', 'Access', 'Expires', 'Projects', 'Joined', 'Actions'].map(h => (
+                {['Email', 'Name', 'Role', 'Real estate', 'Plan', 'Status', ...(showAccessCol ? ['Access'] : []), 'Expires', 'Projects', 'Joined', 'Actions'].map(h => (
                   <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#fff', letterSpacing: '0.05em', textTransform: 'uppercase' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={11} style={{ padding: '40px 16px', textAlign: 'center', color: '#6B7280' }}>Loading…</td></tr>
+                <tr><td colSpan={colCount} style={{ padding: '40px 16px', textAlign: 'center', color: '#6B7280' }}>Loading…</td></tr>
               ) : users.length === 0 ? (
-                <tr><td colSpan={11} style={{ padding: '40px 16px', textAlign: 'center', color: '#6B7280' }}>No users found.</td></tr>
+                <tr><td colSpan={colCount} style={{ padding: '40px 16px', textAlign: 'center', color: '#6B7280' }}>No users found.</td></tr>
               ) : users.map((u, i) => {
                 const isSelf      = u.id === selfId;
                 const savingField = updating?.startsWith(u.id) ? updating.split(':')[1] : null;
@@ -394,7 +381,10 @@ export default function AdminUsersPage() {
                       ) : u.works_in_real_estate === false ? (
                         <span title={u.real_estate_role_note ?? undefined} style={{ fontSize: 11, fontWeight: 800, color: '#92400e', background: '#FEF3C7', padding: '3px 8px', borderRadius: 999 }}>No</span>
                       ) : (
-                        <span title="Registered before this question was asked" style={{ fontSize: 12, color: '#9CA3AF' }}>-</span>
+                        <span
+                          title="Never asked: this user registered before the real estate question existed"
+                          style={{ fontSize: 12, color: '#9CA3AF', cursor: 'help', borderBottom: '1px dotted #9CA3AF', paddingBottom: 1 }}
+                        >-</span>
                       )}
                     </td>
 
@@ -424,7 +414,6 @@ export default function AdminUsersPage() {
                           )}
                           {entPlans.map(p => <option key={p.plan_key} value={p.plan_key}>{p.label}</option>)}
                         </select>
-                        <PlanBadge plan={u.subscription_plan ?? 'unassigned'} />
                         {savingField === 'plan' && <span style={{ fontSize: 11, color: '#6B7280' }}>Saving…</span>}
                         <Link href={`/admin/users/${u.id}`} title="Manage plan, entitlements and per-user overrides"
                           style={{ fontSize: 11, fontWeight: 600, color: '#1B4F8A', textDecoration: 'none', padding: '2px 7px', border: '1px solid #BDD0F0', borderRadius: 4, background: '#E8F0FB', whiteSpace: 'nowrap' }}>
@@ -433,7 +422,7 @@ export default function AdminUsersPage() {
                       </div>
                     </td>
 
-                    {/* Status dropdown + badge */}
+                    {/* Status dropdown */}
                     <td style={{ padding: '12px 16px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <select
@@ -447,20 +436,29 @@ export default function AdminUsersPage() {
                           <option value="expired">expired</option>
                           <option value="cancelled">cancelled</option>
                         </select>
-                        <StatusBadge status={u.subscription_status ?? 'active'} />
                         {savingField === 'status' && <span style={{ fontSize: 11, color: '#6B7280' }}>Saving…</span>}
                       </div>
                     </td>
 
-                    {/* Access status (auto-computed by date: active / grace / lapsed)
-                        plus a Canceling / Canceled badge from the durable marker, so
-                        a canceled user is never shown as plain active. */}
-                    <td style={{ padding: '12px 16px' }} data-testid={`user-access-${u.id}`}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
-                        <AccessStatusBadge status={u.accessStatus ?? u.subscription_status ?? 'active'} />
-                        {u.cancelState && <span data-testid={`user-cancel-${u.id}`}><CancelBadge state={u.cancelState} /></span>}
-                      </div>
-                    </td>
+                    {/* Access: rendered only when at least one row on the page
+                        diverges from STATUS (see accessDiverges above). A row
+                        that does not diverge shows a dash; a diverging row shows
+                        the date-driven state (grace / lapsed) and/or the durable
+                        Canceling / Canceled marker, which STATUS cannot express. */}
+                    {showAccessCol && (
+                      <td style={{ padding: '12px 16px' }} data-testid={`user-access-${u.id}`}>
+                        {accessDiverges(u) ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
+                            {(u.lapseState === 'grace' || u.lapseState === 'lapsed') && (
+                              <AccessStatusBadge status={u.accessStatus ?? 'active'} />
+                            )}
+                            {u.cancelState && <span data-testid={`user-cancel-${u.id}`}><CancelBadge state={u.cancelState} /></span>}
+                          </div>
+                        ) : (
+                          <span title="Access matches the stored status" style={{ fontSize: 12, color: '#9CA3AF' }}>-</span>
+                        )}
+                      </td>
+                    )}
 
                     {/* Expires: the cancel-ends date when canceling/canceled, else the
                         plan's access-expiry anchor (blank when it does not expire). */}
@@ -483,12 +481,17 @@ export default function AdminUsersPage() {
                     {/* Actions */}
                     <td style={{ padding: '12px 16px' }}>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <Link
-                          href={`/admin/projects?userId=${u.id}`}
-                          style={{ fontSize: 11, fontWeight: 600, color: '#1B4F8A', textDecoration: 'none', padding: '3px 8px', border: '1px solid #BDD0F0', borderRadius: 4, background: '#E8F0FB' }}
+                        {/* Read-only list of this user's projects (name, dates,
+                            version count). Used to link /admin/projects?userId=...,
+                            which ignored the param and queried the empty legacy
+                            projects table, so it always showed nothing. */}
+                        <button
+                          data-testid={`user-projects-${u.id}`}
+                          onClick={() => setProjectsTarget({ id: u.id, email: u.email })}
+                          style={{ fontSize: 11, fontWeight: 600, color: '#1B4F8A', padding: '3px 8px', border: '1px solid #BDD0F0', borderRadius: 4, background: '#E8F0FB', cursor: 'pointer', fontFamily: 'inherit' }}
                         >
                           Projects
-                        </Link>
+                        </button>
                         {/* Delete: not for yourself, not for admin accounts
                             (the endpoint refuses both; the button just does not
                             offer a dead end). */}
@@ -527,6 +530,15 @@ export default function AdminUsersPage() {
           </div>
         )}
       </main>
+
+      {/* Read-only projects list for one user. */}
+      {projectsTarget && (
+        <UserProjectsModal
+          userId={projectsTarget.id}
+          email={projectsTarget.email}
+          onClose={() => setProjectsTarget(null)}
+        />
+      )}
 
       {/* Delete confirmation: the shared modal (same one the detail panel uses). */}
       {deleteTarget && (

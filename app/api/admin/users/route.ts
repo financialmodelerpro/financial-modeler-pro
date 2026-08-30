@@ -65,7 +65,11 @@ export async function GET(req: NextRequest) {
     // company / job_title are mig 172, trial_ends_at gives the trial expiry anchor.
     // Select them when present; fall back to the base columns if a migration is
     // not applied yet (never break the list).
-    const BASE = 'id, email, name, role, subscription_plan, subscription_status, created_at, trial_ends_at, projects(count)';
+    // The project count embeds REFM_PROJECTS (the table projects actually live
+    // in, FK mig 149), aliased to `projects` so the client shape is unchanged.
+    // It used to embed the legacy `projects` table, which exists on prod with
+    // ZERO rows, so every user read 0 regardless of their real projects.
+    const BASE = 'id, email, name, role, subscription_plan, subscription_status, created_at, trial_ends_at, projects:refm_projects(count)';
     const runQuery = async (cols: string) => {
       let q = sb.from('users').select(cols, { count: 'exact' });
       if (search) q = q.ilike('email', `%${search}%`);
