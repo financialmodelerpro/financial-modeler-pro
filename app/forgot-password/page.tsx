@@ -15,11 +15,20 @@ function ForgotPasswordInner() {
     setError('');
 
     try {
-      await fetch('/api/auth/forgot-password', {
+      const res = await fetch('/api/auth/forgot-password', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ email }),
       });
+      if (!res.ok) {
+        // An infrastructure failure (store unavailable, email send failed) is
+        // a REAL error the user must see; showing "check your email" here was
+        // a false success on top of the server's own. Enumeration safety is
+        // unaffected: the server answers known and unknown emails identically.
+        const j = await res.json().catch(() => ({}));
+        setError(j.error ?? 'Something went wrong. Please try again.');
+        return;
+      }
       // Always show "check your email" regardless of whether the account exists
       setSubmitted(true);
     } catch {

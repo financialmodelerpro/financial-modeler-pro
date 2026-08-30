@@ -1,0 +1,97 @@
+MISSING TABLE: founder_profile (declared in 002_phase1_cms.sql)
+MISSING TABLE: pricing_plans (declared in 014_pricing.sql, 018_pricing_initial_plans.sql)
+MISSING TABLE: pricing_features (declared in 014_pricing.sql, 018_pricing_initial_plans.sql)
+MISSING TABLE: pricing_modules (declared in 014_pricing.sql, 018_pricing_initial_plans.sql)
+MISSING TABLE: marketing_designs (declared in 100_marketing_studio.sql)
+MISSING TABLE: marketing_brand_kit (declared in 100_marketing_studio.sql)
+UNDECLARED LIVE TABLE: project_scenarios
+UNDECLARED LIVE TABLE: newsletter_subscribers_legacy
+UNDECLARED LIVE TABLE: projects
+UNDECLARED LIVE TABLE: training_passwords
+UNDECLARED LIVE TABLE: transcript_links
+UNDECLARED LIVE TABLE: certificate_eligibility_raw
+MISSING COLUMN: certificates.assessment_id (declared 005_training_assessments.sql)
+MISSING COLUMN: certificates.certificate_number (declared 005_training_assessments.sql)
+EXTRA LIVE COLUMN: branding_config.platform_id (no migration declares it)
+EXTRA LIVE COLUMN: branding_config.updated_by (no migration declares it)
+MISSING COLUMN: features_registry.display_name (declared 006_permissions.sql)
+DEFAULT: features_registry.category declared [modules] (006_permissions.sql) but live is [general]
+MISSING COLUMN: plan_permissions.plan (declared 006_permissions.sql)
+MISSING COLUMN: plan_permissions.enabled (declared 006_permissions.sql)
+MISSING COLUMN: plan_permissions.updated_by (declared 006_permissions.sql)
+NULLABILITY: user_permissions.override_value declared NOT NULL (006_permissions.sql) but live is nullable
+REDECLARATION CONFLICT: user_permissions override_value: 006_permissions.sql vs 158_entitlement_catalog.sql: notNull true vs false
+REDECLARATION CONFLICT: user_permissions created_by: 006_permissions.sql vs 158_entitlement_catalog.sql: ON DELETE SET NULL vs NO ACTION
+NULLABILITY: admin_audit_log.admin_id declared nullable (007_audit_log.sql) but live is NOT NULL
+NULLABILITY: training_pending_registrations.course declared NOT NULL (027_auth_enhancements.sql) but live is nullable
+EXTRA LIVE COLUMN: session_registrations.reminder_24h_sent (no migration declares it)
+EXTRA LIVE COLUMN: session_registrations.reminder_1h_sent (no migration declares it)
+NULLABILITY: session_watch_history.watch_seconds declared NOT NULL (107_live_session_watch_seconds.sql) but live is nullable
+NULLABILITY: session_watch_history.total_seconds declared NOT NULL (107_live_session_watch_seconds.sql) but live is nullable
+NULLABILITY: session_watch_history.last_position declared NOT NULL (107_live_session_watch_seconds.sql) but live is nullable
+NULLABILITY: session_watch_history.updated_at declared NOT NULL (107_live_session_watch_seconds.sql) but live is nullable
+DEFAULT: email_branding.signature_html declared [<div style="margin-top:32px;padding-top:24px;border-top:1px solid #e5e7eb;"> <p style="margin:0;font-size:14px;color:#374151;font-weight:600;">financial modeler pro</p> <p style="margin:4px 0 0;font-size:13px;color:#6b7280;">professional financial modeling training</p> <p style="margin:4px 0 0;font-size:13px;color:#6b7280;"><a href="https://financialmodelerpro.com" style="color:#2e75b6;">financialmodelerpro.com</a></p> </div>] (043_email_system.sql) but live is [none]
+MISSING COLUMN: newsletter_subscribers.name (declared 078_articles_newsletter.sql)
+DEFAULT: newsletter_subscribers.source declared [articles] (078_articles_newsletter.sql) but live is [none]
+MISSING COLUMN: newsletter_subscribers.is_active (declared 078_articles_newsletter.sql)
+DEFAULT: refm_projects.schema_version declared [4] (149_refm_projects.sql) but live is [5]
+FK TARGET: refm_projects.current_version_id declared -> no FK (149_refm_projects.sql) but live -> refm_project_versions
+DEFAULT: refm_project_versions.schema_version declared [4] (149_refm_projects.sql) but live is [5]
+FK TARGET: refm_project_versions.base_version_id declared -> no FK (152_refm_version_change_log.sql) but live -> refm_project_versions
+FK TARGET: refm_report_decks.current_version_id declared -> no FK (207_refm_report_deck_versions.sql) but live -> refm_report_deck_versions
+
+-- unparsed --
+002_phase1_cms.sql: DO $$ block (procedural, not folded into the model)
+017_seed_courses_curriculum.sql: DO $$ block (procedural, not folded into the model)
+018_pricing_initial_plans.sql: DO $$ block (procedural, not folded into the model)
+020_course_descriptions.sql: constraint-altering statement (not folded into the model): ALTER TABLE courses DROP CONSTRAINT IF EXISTS courses_skill_level_check;
+020_course_descriptions.sql: constraint-altering statement (not folded into the model): ALTER TABLE courses ADD CONSTRAINT courses_skill_level_check CHECK (skill_level IN ('Begin
+097_two_platforms_vf_backfill.sql: DO $$ block (procedural, not folded into the model)
+112_drop_legacy_not_null_constraints.sql: constraint-altering statement (not folded into the model): ALTER TABLE student_certificates ALTER COLUMN %I DROP NOT NULL', legacy_col );
+112_drop_legacy_not_null_constraints.sql: constraint-altering statement (not folded into the model): ALTER TABLE student_certificates ALTER COLUMN %I SET DEFAULT NULL', legacy_col );
+112_drop_legacy_not_null_constraints.sql: DO $$ block (procedural, not folded into the model)
+125_teams_and_announcement_tracking.sql: constraint-altering statement (not folded into the model): ALTER TABLE live_sessions ADD CONSTRAINT live_sessions_meeting_provider_check CHECK (meeti
+125_teams_and_announcement_tracking.sql: DO $$ block (procedural, not folded into the model)
+129_add_registration_id_unique.sql: constraint-altering statement (not folded into the model): ALTER TABLE training_registrations_meta ADD CONSTRAINT training_registrations_meta_registr
+129_add_registration_id_unique.sql: DO $$ block (procedural, not folded into the model)
+130_training_passwords_registration_id_unique.sql: constraint-altering statement (not folded into the model): ALTER TABLE training_passwords ADD CONSTRAINT training_passwords_registration_id_key UNIQU
+130_training_passwords_registration_id_unique.sql: DO $$ block (procedural, not folded into the model)
+131_meta_name_pending_course_nullable.sql: constraint-altering statement (not folded into the model): ALTER TABLE training_pending_registrations ALTER COLUMN course DROP NOT NULL;
+142_marketing_studio_rebuild.sql: DO $$ block (procedural, not folded into the model)
+143_newsletter_rebuild.sql: constraint-altering statement (not folded into the model): ALTER TABLE newsletter_campaigns DROP CONSTRAINT IF EXISTS newsletter_campaigns_status_che
+143_newsletter_rebuild.sql: constraint-altering statement (not folded into the model): ALTER TABLE newsletter_campaigns ADD CONSTRAINT newsletter_campaigns_status_check CHECK (s
+149_refm_projects.sql: constraint-altering statement (not folded into the model): ALTER TABLE refm_projects ADD CONSTRAINT refm_projects_current_version_fkey FOREIGN KEY (c
+149_refm_projects.sql: DO $$ block (procedural, not folded into the model)
+150_p_sync_platform_modules.sql: DO $$ block (procedural, not folded into the model)
+152_refm_version_change_log.sql: constraint-altering statement (not folded into the model): ALTER TABLE refm_project_versions ADD CONSTRAINT refm_project_versions_base_version_fkey F
+152_refm_version_change_log.sql: DO $$ block (procedural, not folded into the model)
+154_refm_modules_live_status.sql: DO $$ block (procedural, not folded into the model)
+156_refm_modules_clean_names.sql: DO $$ block (procedural, not folded into the model)
+157_refm_modules_scenario_reports_swap.sql: DO $$ block (procedural, not folded into the model)
+158_entitlement_catalog.sql: DO $$ block (procedural, not folded into the model)
+159_entitlement_plans.sql: DO $$ block (procedural, not folded into the model)
+160_user_plan_reconciliation.sql: constraint-altering statement (not folded into the model): ALTER TABLE users DROP CONSTRAINT IF EXISTS users_subscription_plan_check;
+160_user_plan_reconciliation.sql: DO $$ block (procedural, not folded into the model)
+165_entitlement_plans_trial_days.sql: DO $$ block (procedural, not folded into the model)
+184_coupon_paddle_reference.sql: constraint-altering statement (not folded into the model): ALTER TABLE coupon_codes ADD CONSTRAINT coupon_codes_kind_check CHECK (kind IN ('public', 
+184_coupon_paddle_reference.sql: DO $$ block (procedural, not folded into the model)
+201_refm_module7_ic_presentation.sql: DO $$ block (procedural, not folded into the model)
+202_refm_module7_features.sql: DO $$ block (procedural, not folded into the model)
+203_ai_feature_registry.sql: DO $$ block (procedural, not folded into the model)
+204_ai_features_grounding_check_fix.sql: constraint-altering statement (not folded into the model): ALTER TABLE public.ai_features DROP CONSTRAINT %I', con.conname);
+204_ai_features_grounding_check_fix.sql: constraint-altering statement (not folded into the model): ALTER TABLE public.ai_features ADD CONSTRAINT ai_features_grounding_valid CHECK ( cardinal
+204_ai_features_grounding_check_fix.sql: DO $$ block (procedural, not folded into the model)
+205_ai_usage_metering.sql: DO $$ block (procedural, not folded into the model)
+207_refm_report_deck_versions.sql: constraint-altering statement (not folded into the model): ALTER TABLE refm_report_decks ADD CONSTRAINT refm_report_decks_current_version_id_fkey FOR
+207_refm_report_deck_versions.sql: DO $$ block (procedural, not folded into the model)
+209_refm_fund_terms_extended.sql: constraint-altering statement (not folded into the model): ALTER TABLE refm_fund_terms ADD CONSTRAINT refm_fund_terms_rates_0_1 CHECK ( fund_structur
+209_refm_fund_terms_extended.sql: constraint-altering statement (not folded into the model): ALTER TABLE refm_fund_terms ADD CONSTRAINT refm_fund_terms_amounts_non_negative CHECK ( fu
+209_refm_fund_terms_extended.sql: DO $$ block (procedural, not folded into the model)
+220_deprecate_legacy_projects.sql: DO $$ block (procedural, not folded into the model)
+221_fix_user_delete_fk_drift.sql: constraint-altering statement (not folded into the model): ALTER TABLE public.admin_audit_log DROP CONSTRAINT admin_audit_log_target_user_id_fkey;
+221_fix_user_delete_fk_drift.sql: constraint-altering statement (not folded into the model): ALTER TABLE public.admin_audit_log ADD CONSTRAINT admin_audit_log_target_user_id_fkey FORE
+221_fix_user_delete_fk_drift.sql: constraint-altering statement (not folded into the model): ALTER TABLE public.user_permissions DROP CONSTRAINT user_permissions_created_by_fkey;
+221_fix_user_delete_fk_drift.sql: constraint-altering statement (not folded into the model): ALTER TABLE public.user_permissions ADD CONSTRAINT user_permissions_created_by_fkey FOREIG
+221_fix_user_delete_fk_drift.sql: DO $$ block (procedural, not folded into the model)
+m2_0_module1_rebuild.sql: constraint-altering statement (not folded into the model): ALTER TABLE refm_projects ALTER COLUMN schema_version SET DEFAULT 5;
+m2_0_module1_rebuild.sql: constraint-altering statement (not folded into the model): ALTER TABLE refm_project_versions ALTER COLUMN schema_version SET DEFAULT 5;
