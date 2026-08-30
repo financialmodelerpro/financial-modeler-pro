@@ -96,6 +96,13 @@ export default function SettingsPage() {
   const [newPassword,      setNewPassword]      = useState('');
   const [confirmPassword,  setConfirmPassword]  = useState('');
   const [deleteConfirm,    setDeleteConfirm]    = useState('');
+  // Deletion preview (what a deletion removes + whether a live paid
+  // subscription stands in the way), loaded from GET /api/user/account.
+  const [delPreview, setDelPreview] = useState<{
+    projects: number; versions: number;
+    liveSubscriptions: Array<{ platform: string; planKey: string | null }>;
+  } | null>(null);
+  const [ackCancelSub, setAckCancelSub] = useState(false);
 
   // ── Loading / feedback per section ──────────────────────────────────────────
   const [savingName,     setSavingName]     = useState(false);
@@ -131,6 +138,16 @@ export default function SettingsPage() {
       })
       .catch(() => {})
       .finally(() => setProfileLoading(false));
+  }, [session]);
+
+  // ── Deletion preview: what a deletion removes + any live paid subscription
+  //    that must be explicitly cancelled with it. ─────────────────────────────
+  useEffect(() => {
+    if (!session) return;
+    fetch('/api/user/account')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d) setDelPreview({ projects: d.projects ?? 0, versions: d.versions ?? 0, liveSubscriptions: d.liveSubscriptions ?? [] }); })
+      .catch(() => {});
   }, [session]);
 
   if (authLoading) return null;
@@ -229,11 +246,16 @@ export default function SettingsPage() {
   async function deleteAccount(e: React.FormEvent) {
     e.preventDefault();
     if (deleteConfirm !== 'DELETE') { showToast('Type DELETE to confirm', 'error'); return; }
+    const hasLiveSub = (delPreview?.liveSubscriptions?.length ?? 0) > 0;
+    if (hasLiveSub && !ackCancelSub) {
+      showToast('Confirm the subscription cancellation first', 'error');
+      return;
+    }
     setDeleting(true);
     try {
       const res = await fetch('/api/user/account', {
         method: 'DELETE', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirmText: 'DELETE' }),
+        body: JSON.stringify({ confirmText: 'DELETE', acknowledgeSubscriptionCancel: ackCancelSub }),
       });
       const j = await res.json();
       if (!res.ok) { showToast(j.error ?? 'Deletion failed', 'error'); return; }
@@ -461,9 +483,33 @@ export default function SettingsPage() {
           {/* Delete account */}
           <form onSubmit={deleteAccount}>
             <div style={{ fontSize: 14, fontWeight: 600, color: '#991b1b', marginBottom: 6 }}>Delete account</div>
-            <p style={{ fontSize: 12, color: 'var(--color-meta)', marginBottom: 14, lineHeight: 1.6 }}>
-              This permanently deletes your account, all projects, and all data. This action cannot be undone.
+            <p style={{ fontSize: 12, color: 'var(--color-meta)', marginBottom: 10, lineHeight: 1.6 }} data-testid="delete-account-summary">
+              This permanently deletes your account
+              {delPreview
+                ? <>, including <strong>{delPreview.projects}</strong> project{delPreview.projects === 1 ? '' : 's'} with <strong>{delPreview.versions}</strong> saved version{delPreview.versions === 1 ? '' : 's'}, your trial and subscription records, and your profile.</>
+                : ', all projects with their saved versions, and all account data.'}
+              {' '}Payment records already issued are retained for accounting. This action cannot be undone.
             </p>
+            {delPreview && delPreview.liveSubscriptions.length > 0 && (
+              <div data-testid="delete-account-live-sub" style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 14px', marginBottom: 12 }}>
+                <div style={{ fontSize: 12.5, color: '#92400e', fontWeight: 600, lineHeight: 1.6, marginBottom: 8 }}>
+                  You have an active paid subscription
+                  ({delPreview.liveSubscriptions.map(s => s.planKey ?? 'plan').join(', ')}).
+                  Deleting your account cancels it immediately; any time already paid for is forfeited.
+                  To keep your access until the period ends, cancel from Billing first and delete later.
+                </div>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, color: '#92400e', fontWeight: 700, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    data-testid="delete-account-ack-cancel"
+                    checked={ackCancelSub}
+                    onChange={e => setAckCancelSub(e.target.checked)}
+                    style={{ marginTop: 2 }}
+                  />
+                  I understand my paid subscription will be cancelled immediately.
+                </label>
+              </div>
+            )}
             <div style={S.fieldGroup}>
               <label style={{ ...S.label, color: '#991b1b' }}>Type DELETE to confirm</label>
               <div style={S.row}>
@@ -473,10 +519,10 @@ export default function SettingsPage() {
                 />
                 <button
                   type="submit"
-                  disabled={deleting || deleteConfirm !== 'DELETE'}
+                  disabled={deleting || deleteConfirm !== 'DELETE' || ((delPreview?.liveSubscriptions?.length ?? 0) > 0 && !ackCancelSub)}
                   style={{
                     padding: '9px 20px', height: 37,
-                    background: deleteConfirm === 'DELETE' ? '#dc2626' : '#9ca3af',
+                    background: deleteConfirm === 'DELETE' && !((delPreview?.liveSubscriptions?.length ?? 0) > 0 && !ackCancelSub) ? '#dc2626' : '#9ca3af',
                     color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)',
                     fontSize: 13, fontWeight: 700, cursor: deleteConfirm === 'DELETE' ? 'pointer' : 'not-allowed',
                     fontFamily: 'Inter, sans-serif', flexShrink: 0,

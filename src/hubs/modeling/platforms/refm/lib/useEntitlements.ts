@@ -42,6 +42,11 @@ export interface EntitlementsState {
   projectLimit: number;
   archiveAllowed: boolean;
   activeProjectCount: number;
+  /** True when a no-plan user has a PENDING trial request awaiting admin review
+   *  (drives the dashboard access card's pending state). Always false for
+   *  entitled users and admins. */
+  trialRequestPending: boolean;
+  trialRequestedAt: string | null;
   error: boolean;
 }
 
@@ -49,7 +54,8 @@ const INITIAL: EntitlementsState = {
   loaded: false, isAdmin: false, fullAccess: false, planKey: '', knownPlan: false,
   trialExpired: false, trialEndsAt: null, lapseState: 'active', readOnly: false,
   accessExpiresAt: null, graceEndsAt: null, featureMap: {}, projectLimit: 0,
-  archiveAllowed: false, activeProjectCount: 0, error: false,
+  archiveAllowed: false, activeProjectCount: 0,
+  trialRequestPending: false, trialRequestedAt: null, error: false,
 };
 
 export interface UseEntitlements extends EntitlementsState {
@@ -86,6 +92,8 @@ export function useEntitlements(): UseEntitlements {
           projectLimit: typeof j.projectLimit === 'number' ? j.projectLimit : 0,
           archiveAllowed: !!j.archiveAllowed,
           activeProjectCount: j.activeProjectCount ?? 0,
+          trialRequestPending: !!j.trialRequestPending,
+          trialRequestedAt: j.trialRequestedAt ?? null,
           error: !!j.error,
         });
       })

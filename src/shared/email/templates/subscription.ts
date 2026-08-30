@@ -384,3 +384,49 @@ export async function planEndedEmail(data: {
   `);
   return { subject: `Your ${plan} plan has ended`, html };
 }
+
+// ── 15. Access reminder (confirmed, never requested access) ─────────────────
+// Sent ONCE, two days after email confirmation, to a confirmed user who has no
+// plan, no trial request of any status, and no subscription row. The link goes
+// straight to the page carrying the request button.
+
+export async function accessReminderEmail(data: {
+  name: string | null; requestUrl: string; pricingUrl: string;
+}): Promise<Built> {
+  const html = await subLayout(`
+    ${h1('Your access is one request away')}
+    ${p(greeting(data.name))}
+    ${p('Your Financial Modeler Pro account is confirmed, but platform access is not active yet: the modeling workspace unlocks with a free trial or a plan, and we have not received a request from you.')}
+    ${p('It takes one click. Request your free trial and the team will set you up:')}
+    <div style="text-align:center;">${button('Request free access', data.requestUrl)}</div>
+    ${divider()}
+    ${p(`Prefer to start on a paid plan? <a href="${data.pricingUrl}" style="color:#2E75B6;">See the plans</a>. If you have decided the platform is not for you, no action is needed and we will not send this reminder again.`, 'font-size:13px;color:#6b7280;')}
+  `);
+  return { subject: 'Your Financial Modeler Pro access is one request away', html };
+}
+
+// ── 16. Account deleted ─────────────────────────────────────────────────────
+// Sent after a successful deletion. For an admin-initiated deletion the admin
+// may attach an explanatory message, rendered as a quoted block. The message is
+// admin-typed free text, so it is escaped here.
+
+export async function accountDeletedEmail(data: {
+  name: string | null; message: string | null; source: 'self' | 'admin';
+}): Promise<Built> {
+  const msgBlock = data.message && data.message.trim()
+    ? `<blockquote style="margin:16px 0;padding:12px 16px;border-left:3px solid #C9A84C;background:#FDF6E3;color:#374151;font-size:14px;line-height:1.6;">${escapeHtml(data.message.trim()).replace(/\n/g, '<br/>')}</blockquote>`
+    : '';
+  const opening = data.source === 'admin'
+    ? 'Your Financial Modeler Pro account has been deleted by our team.'
+    : 'Your Financial Modeler Pro account has been deleted at your request.';
+  const html = await subLayout(`
+    ${h1('Your account has been deleted')}
+    ${p(greeting(data.name))}
+    ${p(opening)}
+    ${msgBlock}
+    ${p('Your projects, versions and account data have been permanently removed, and any active subscription has been cancelled so you will not be billed again. This cannot be undone.')}
+    ${divider()}
+    ${p('If you believe this was a mistake, or you would like to come back, you can register a new account any time, or reply to this email to reach the team.', 'font-size:13px;color:#6b7280;')}
+  `);
+  return { subject: 'Your Financial Modeler Pro account has been deleted', html };
+}

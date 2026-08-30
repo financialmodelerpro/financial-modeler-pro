@@ -129,6 +129,118 @@ const NAV_ITEMS: NavItem[] = [
 // not duplicated). Items with an href still navigate away.
 type DashView = 'dashboard' | 'billing';
 
+/**
+ * The access card at the top of the dashboard for a user with NO plan.
+ * Two states:
+ *   - request: access is not active yet; the request button is INSIDE the card
+ *     (POST /api/refm/trial, the same action choose-plan performs). Self-serve
+ *     grants instantly; with the approval toggle on it files a request.
+ *   - pending: a trial request is with the team; nothing more to do.
+ * A lapsed (expired-plan) user is NOT shown this card: their path is renew, and
+ * the existing banner handles it.
+ */
+function AccessCard({ theme, pending, requestedAt, onGranted, onRequested }: {
+  theme: Theme;
+  pending: boolean;
+  requestedAt: string | null;
+  onGranted: () => void;
+  onRequested: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [granted, setGranted] = useState(false);
+
+  async function requestAccess() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/refm/trial', { method: 'POST', credentials: 'same-origin' }).then((r) => r.json());
+      if (res.status === 'granted') { setGranted(true); onGranted(); return; }
+      if (res.status === 'requested') { onRequested(); return; }
+      setError(res.error ? String(res.error) : 'Could not submit the request. Please try again.');
+    } catch {
+      setError('Could not submit the request. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const requestedLabel = requestedAt
+    ? new Date(requestedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+    : null;
+
+  return (
+    <div
+      data-testid="dashboard-access-card"
+      role="region"
+      aria-label={pending ? 'Access request pending' : 'Access not active'}
+      style={{
+        marginBottom: 28, padding: '22px 24px', borderRadius: 14,
+        background: pending ? theme.surface : '#FDF6E3',
+        border: pending ? `1.5px solid ${theme.border}` : '2px solid #C9A84C',
+        boxShadow: theme.cardShadow,
+        display: 'flex', gap: 18, alignItems: 'flex-start', flexWrap: 'wrap',
+      }}
+    >
+      <div style={{
+        width: 46, height: 46, borderRadius: 12, flexShrink: 0,
+        background: pending ? theme.surfaceAlt : '#C9A84C22',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22,
+      }} aria-hidden>
+        {pending ? '⏳' : '🔓'}
+      </div>
+      <div style={{ flex: 1, minWidth: 260 }}>
+        {pending ? (
+          <div data-testid="dashboard-access-pending">
+            <div style={{ fontSize: 16.5, fontWeight: 800, color: theme.heading, marginBottom: 5 }}>
+              Your access request is with the team
+            </div>
+            <p style={{ fontSize: 13.5, color: theme.body, lineHeight: 1.65, margin: 0 }}>
+              Your free trial request{requestedLabel ? <> from <strong>{requestedLabel}</strong></> : null} has been
+              submitted and is waiting for review. You will get an email as soon as it is approved, and the platforms
+              below will unlock automatically. No further action is needed.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div style={{ fontSize: 16.5, fontWeight: 800, color: '#0D2E5A', marginBottom: 5 }}>
+              Your access is not active yet
+            </div>
+            <p style={{ fontSize: 13.5, color: '#374151', lineHeight: 1.65, margin: '0 0 14px' }}>
+              Your account is ready, but the modeling platforms unlock with a free trial or a plan.
+              Request your free trial below and the team will set you up, or pick a plan directly.
+            </p>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <button
+                data-testid="dashboard-access-request"
+                onClick={requestAccess}
+                disabled={busy || granted}
+                style={{
+                  background: '#C9A84C', color: '#0D2E5A', fontWeight: 800, fontSize: 13.5,
+                  padding: '11px 22px', borderRadius: 9, border: 'none',
+                  cursor: busy || granted ? 'default' : 'pointer', fontFamily: 'inherit',
+                  opacity: busy ? 0.7 : 1, whiteSpace: 'nowrap',
+                }}
+              >
+                {granted ? 'Trial activated ✓' : busy ? 'Requesting…' : 'Request free trial'}
+              </button>
+              <a href="/choose-plan" data-testid="dashboard-get-access"
+                style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A', textDecoration: 'underline', whiteSpace: 'nowrap' }}>
+                View plans →
+              </a>
+            </div>
+            {error && (
+              <div data-testid="dashboard-access-error" style={{ marginTop: 10, fontSize: 12.5, color: '#991B1B', fontWeight: 600 }}>
+                {error}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function PlatformCard({ platform, theme, noPlan }: { platform: Platform; theme: Theme; noPlan: boolean }) {
   const [hovered, setHovered] = useState(false);
   const route  = PLATFORM_ROUTES[platform.slug];
@@ -236,7 +348,15 @@ export default function ModelingDashboardPage() {
   // still log in but has no platform access, so the storefront routes them to
   // get-access, exactly like the deliberate 'none' state. A GRACE user (read-only)
   // is NOT treated as no-plan: they keep entering the workspace to view.
-  const noPlan = ent.loaded && !ent.isAdmin && (ent.planKey === NONE_PLAN_KEY || ent.lapseState === 'lapsed');
+  // The two no-plan shapes get DIFFERENT surfaces: a genuine 'none' user (never
+  // had access) gets the access card with the request button; a lapsed user
+  // (had a plan, let it end) gets the renew banner.
+  const noneNoPlan = ent.loaded && !ent.isAdmin && ent.planKey === NONE_PLAN_KEY;
+  const lapsedNoPlan = ent.loaded && !ent.isAdmin && ent.lapseState === 'lapsed';
+  const noPlan = noneNoPlan || lapsedNoPlan;
+  // Pending state: server fact (survives reload) OR the request made just now.
+  const [justRequested, setJustRequested] = useState(false);
+  const accessPending = ent.trialRequestPending || justRequested;
   // Grace: the plan expired but is inside the 1-month read-only window. The user
   // keeps view access (not treated as no-plan), so show the same read-only renew
   // banner the platform shows, right here on the dashboard on login.
@@ -673,18 +793,32 @@ export default function ModelingDashboardPage() {
               Welcome back{user.name ? `, ${user.name.split(' ')[0]}` : ''}
             </h1>
             <p style={{ fontSize: 13.5, color: theme.muted, margin: 0, lineHeight: 1.6 }}>
-              {noPlan ? 'Choose a plan to unlock the modeling platforms.' : 'Select a platform to open your modeling workspace.'}
+              {noPlan ? 'Your account is ready. Activate access to unlock the modeling platforms.' : 'Select a platform to open your modeling workspace.'}
             </p>
           </div>
 
-          {/* No-plan banner: the storefront shows the platforms, but entering one
-              routes to get-access (the cards + the /refm server gate enforce it). */}
-          {noPlan && (
+          {/* Access card: a genuine no-plan user (never had access) sees, at the
+              top, that access is not active and the request button to fix it;
+              once requested it flips to the pending state. The /refm server gate
+              enforces access independently of any of this. */}
+          {noneNoPlan && (
+            <AccessCard
+              theme={theme}
+              pending={accessPending}
+              requestedAt={ent.trialRequestedAt}
+              onGranted={() => ent.refresh()}
+              onRequested={() => { setJustRequested(true); ent.refresh(); }}
+            />
+          )}
+
+          {/* Lapsed-plan banner: the plan ended and the grace month elapsed; the
+              path back is renew / choose a plan, not a trial request. */}
+          {lapsedNoPlan && (
             <div data-testid="dashboard-no-plan-banner" style={{ marginBottom: 28, padding: '14px 18px', borderRadius: 12, background: '#FDF6E3', border: '1px solid #C9A84C', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 13.5, color: '#0D2E5A', fontWeight: 600, flex: 1, minWidth: 220 }}>
-                You do not have an active plan yet. Choose a plan or start a free trial to unlock the platforms.
+                Your plan has ended. Choose a plan to restore access to the platforms.
               </span>
-              <a href="/choose-plan" data-testid="dashboard-get-access" style={{ background: '#C9A84C', color: '#0D2E5A', fontWeight: 800, fontSize: 13, padding: '9px 18px', borderRadius: 9, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+              <a href="/choose-plan" data-testid="dashboard-renew-access" style={{ background: '#C9A84C', color: '#0D2E5A', fontWeight: 800, fontSize: 13, padding: '9px 18px', borderRadius: 9, textDecoration: 'none', whiteSpace: 'nowrap' }}>
                 Get access →
               </a>
             </div>

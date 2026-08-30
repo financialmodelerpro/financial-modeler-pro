@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { useSession } from 'next-auth/react';
 import { useRequireAdmin } from '@/src/shared/hooks/useRequireAdmin';
+import { DeleteUserModal } from '@/src/components/admin/DeleteUserModal';
 
 interface User {
   id: string;
@@ -150,6 +151,7 @@ export default function AdminUsersPage() {
   const [total, setTotal]           = useState(0);
   const [updating, setUpdating]     = useState<string | null>(null);
   const [toast, setToast]           = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const PAGE_SIZE = 20;
 
   const showToast = (msg: string, type: 'success' | 'error') => {
@@ -487,6 +489,19 @@ export default function AdminUsersPage() {
                         >
                           Projects
                         </Link>
+                        {/* Delete: not for yourself, not for admin accounts
+                            (the endpoint refuses both; the button just does not
+                            offer a dead end). */}
+                        {!isSelf && u.role !== 'admin' && (
+                          <button
+                            data-testid={`delete-user-${u.id}`}
+                            onClick={() => setDeleteTarget(u.id)}
+                            title="Delete this user"
+                            style={{ fontSize: 11, fontWeight: 600, color: '#DC2626', padding: '3px 8px', border: '1px solid #FECACA', borderRadius: 4, background: '#FFF5F5', cursor: 'pointer', fontFamily: 'inherit' }}
+                          >
+                            Delete
+                          </button>
+                        )}
                         {isSelf && <span style={{ fontSize: 11, color: '#9CA3AF' }}>You</span>}
                       </div>
                     </td>
@@ -512,6 +527,19 @@ export default function AdminUsersPage() {
           </div>
         )}
       </main>
+
+      {/* Delete confirmation: the shared modal (same one the detail panel uses). */}
+      {deleteTarget && (
+        <DeleteUserModal
+          userId={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onDeleted={(email) => {
+            setDeleteTarget(null);
+            showToast(`${email} deleted`, 'success');
+            fetchUsers();
+          }}
+        />
+      )}
 
       {/* Toast */}
       {toast && (

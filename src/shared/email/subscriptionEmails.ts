@@ -22,7 +22,7 @@ import {
   subscriptionActivePaddleEmail, planActiveManualEmail, subscriptionCanceledEmail,
   trialStartedEmail, trialDeclinedEmail, trialEndingEmail, renewalReminderEmail, expiryReminderEmail,
   graceStartedEmail, graceEndingEmail, manualInvoiceEmail, planChangedEmail, planEndedEmail,
-  renewalReceiptEmail, paymentFailedEmail, fmtAmount,
+  renewalReceiptEmail, paymentFailedEmail, accessReminderEmail, fmtAmount,
 } from './templates/subscription';
 import { createAndStoreManualInvoice } from '@/src/shared/payments/manualInvoice';
 import {
@@ -779,4 +779,115 @@ export async function runSubscriptionReminderScan(sb: SupabaseClient, platform =
   }
 
   return { ...counters, scannedTrials, scannedSubs };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// ACCESS-REQUEST REMINDER (confirmed users who never requested access)
+// ────────────────────────────────────────────────────────────────────────────
+
+/** The users-row fields the eligibility rule reads. */
+export interface AccessReminderCandidate {
+  id: string;
+  email: string | null;
+  name: string | null;
+  role: string | null;
+  email_confirmed: boolean | null;
+  subscription_plan: string | null;
+  confirmed_at: string | null;
+  created_at: string | null;
+}
+
+/** The reminder anchors on WHEN THE USER CONFIRMED (confirmed_at), falling back
+ *  to account creation for rows confirmed before confirmed_at existed. This is
+ *  also the dedupe anchor_day, so the reminder can fire at most once per user,
+ *  ever: the anchor never moves. */
+export function accessReminderAnchorMs(u: Pick<AccessReminderCandidate, 'confirmed_at' | 'created_at'>): number | null {
+  return parseMs(u.confirmed_at) ?? parseMs(u.created_at);
+}
+
+export const ACCESS_REMINDER_DELAY_MS = 2 * 86_400_000; // two days after confirmation
+
+/**
+ * PURE eligibility rule, one place, shared with the verifier:
+ *   - not an admin, has an email, email confirmed (null counts as confirmed,
+ *     matching the sign-in rule),
+ *   - no plan (subscription_plan null / '' / 'none'),
+ *   - has NEVER filed a trial request, of ANY status (an approved or declined
+ *     requester engaged; this reminder is for the ones who never did),
+ *   - has no subscription row (a Paddle or manual history means they engaged),
+ *   - confirmed at least two days ago.
+ */
+export function isAccessReminderEligible(
+  u: AccessReminderCandidate, hasTrialRequest: boolean, hasSubscriptionRow: boolean, nowMs: number,
+): boolean {
+  if (!u.email) return false;
+  if (u.role === 'admin') return false;
+  if (u.email_confirmed === false) return false;
+  const plan = (u.subscription_plan ?? '').toLowerCase();
+  if (plan !== '' && plan !== 'none') return false;
+  if (hasTrialRequest || hasSubscriptionRow) return false;
+  const anchor = accessReminderAnchorMs(u);
+  if (anchor == null) return false;
+  return nowMs - anchor >= ACCESS_REMINDER_DELAY_MS;
+}
+
+export interface AccessReminderScanResult { scannedCandidates: number; accessReminders: number; }
+
+/**
+ * Daily scan (same cron as the subscription reminders): email every confirmed
+ * user who registered, never requested access, and has been sitting with no
+ * plan for two days. ONCE ONLY: the dedupe key is (user, 'access_reminder',
+ * 'once', confirm-day), and the confirm day never changes, so a second run, a
+ * second day, or a re-registration of interest can never re-send it.
+ * The button links straight to the page carrying the request button.
+ */
+export async function runAccessReminderScan(sb: SupabaseClient, platform = PLATFORM_DEFAULT): Promise<AccessReminderScanResult> {
+  const nowMs = Date.now();
+  let scannedCandidates = 0;
+  let accessReminders = 0;
+  try {
+    // Prefilter server-side (no plan, not admin); the PURE rule below is the
+    // authority and re-checks everything, including the '' plan the .or cannot
+    // express cleanly.
+    const { data: rows } = await sb
+      .from('users')
+      .select('id, email, name, role, email_confirmed, subscription_plan, confirmed_at, created_at')
+      .or('subscription_plan.is.null,subscription_plan.eq.none')
+      // NULL-safe admin exclusion: a bare .neq would also drop NULL-role rows
+      // (NULL <> 'admin' is NULL in SQL). Two .or filters AND together.
+      .or('role.is.null,role.neq.admin')
+      .range(0, 1999);
+    const candidates = (rows ?? []) as AccessReminderCandidate[];
+    if (candidates.length === 0) return { scannedCandidates, accessReminders };
+
+    const ids = candidates.map((u) => u.id);
+    // A trial request of ANY status disqualifies (they engaged); so does any
+    // subscription row. Both loaded in bulk.
+    const [{ data: reqs }, { data: subs }] = await Promise.all([
+      sb.from('trial_requests').select('user_id').in('user_id', ids).range(0, 4999),
+      sb.from('user_platform_subscriptions').select('user_id').in('user_id', ids).range(0, 4999),
+    ]);
+    const requested = new Set(((reqs ?? []) as Array<{ user_id: string }>).map((r) => r.user_id));
+    const subscribed = new Set(((subs ?? []) as Array<{ user_id: string }>).map((r) => r.user_id));
+
+    for (const u of candidates) {
+      scannedCandidates++;
+      if (!isAccessReminderEligible(u, requested.has(u.id), subscribed.has(u.id), nowMs)) continue;
+      const anchor = accessReminderAnchorMs(u)!;
+      const key: MarkerKey = {
+        user_id: u.id, platform_slug: platform, email_type: 'access_reminder',
+        threshold: 'once', anchor_day: dayStr(anchor),
+      };
+      const sent = await dispatch(sb, key, async () => {
+        const { subject, html } = await accessReminderEmail({
+          name: u.name, requestUrl: `${appUrl()}/choose-plan`, pricingUrl: pricingUrl(platform),
+        });
+        return (await sendEmail({ to: u.email!, subject, html, from: FROM.noreply })).id;
+      });
+      if (sent) accessReminders++;
+    }
+  } catch (e) {
+    console.warn('[sub-email] access-reminder pass error:', e instanceof Error ? e.message : String(e));
+  }
+  return { scannedCandidates, accessReminders };
 }

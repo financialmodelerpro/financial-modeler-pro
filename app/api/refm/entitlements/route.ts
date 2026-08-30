@@ -18,6 +18,8 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getRefmUserId } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
 import { resolveUserGate } from '@/src/shared/entitlements/resolveUser';
+import { NONE_PLAN_KEY } from '@/src/shared/entitlements/gate';
+import { getServerClient } from '@/src/core/db/supabase';
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -29,10 +31,36 @@ export async function GET() {
 
   const gate = await resolveUserGate(userId, { sessionIsAdmin });
 
+  // Pending trial request: queried ONLY for a no-plan non-admin (exactly the
+  // state where the dashboard access card needs it), so the hot gate fetch pays
+  // nothing for entitled users. Schema-tolerant: an absent trial_requests table
+  // reads as "no pending request".
+  let trialRequestPending = false;
+  let trialRequestedAt: string | null = null;
+  if (!gate.isAdmin && gate.planKey === NONE_PLAN_KEY) {
+    try {
+      const sb = getServerClient();
+      const { data } = await sb
+        .from('trial_requests')
+        .select('created_at')
+        .eq('user_id', userId)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (data) {
+        trialRequestPending = true;
+        trialRequestedAt = (data as { created_at?: string }).created_at ?? null;
+      }
+    } catch { /* no pending request */ }
+  }
+
   // Shape a compact response: the client needs the feature map, cap facts,
   // admin/full-access flags, and trial state. user_permissions detail stays
   // server-side.
   return NextResponse.json({
+    trialRequestPending,
+    trialRequestedAt,
     isAdmin: gate.isAdmin,
     fullAccess: gate.fullAccess,
     planKey: gate.planKey,

@@ -17,6 +17,7 @@
  */
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { formatLimit } from '@/src/shared/entitlements/moduleCatalog';
+import { DeleteUserModal } from '@/src/components/admin/DeleteUserModal';
 import { signupContactFields, qualificationTone } from '@/src/shared/admin/signupProfile';
 import {
   resolveEffectiveFeatures,
@@ -93,6 +94,7 @@ export function UserAccessPanel({ userId }: { userId: string }) {
   // Convert-to-manual (Paddle-billed users): immediate-confirm + busy.
   const [confirmImmediate, setConfirmImmediate] = useState(false);
   const [convertBusy, setConvertBusy] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const showToast = useCallback((msg: string, type: 'success' | 'error') => {
     setToast({ msg, type });
@@ -692,6 +694,33 @@ export function UserAccessPanel({ userId }: { userId: string }) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Danger zone: delete this user. The confirmation modal names the user,
+          states removed vs retained, takes the optional emailed message, and
+          requires typing the email. Shared with the users list. */}
+      {user && (
+        <div style={{ marginTop: 24, background: '#fff', border: '1px solid #FECACA', borderRadius: 10, padding: '16px 20px' }} data-testid="user-danger-zone">
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#991B1B', marginBottom: 4 }}>Danger zone</div>
+          <div style={{ fontSize: 12.5, color: '#6B7280', marginBottom: 10, lineHeight: 1.6 }}>
+            Permanently delete this user, their projects and versions, and cancel any active subscription. Audited, and cannot be undone.
+          </div>
+          <button
+            data-testid="open-delete-user"
+            onClick={() => setDeleteOpen(true)}
+            style={{ padding: '8px 16px', borderRadius: 7, border: '1px solid #DC2626', background: '#fff', color: '#DC2626', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
+          >
+            Delete this user…
+          </button>
+        </div>
+      )}
+
+      {deleteOpen && user && (
+        <DeleteUserModal
+          userId={user.id}
+          onClose={() => setDeleteOpen(false)}
+          onDeleted={() => { window.location.href = '/admin/users?deleted=1'; }}
+        />
       )}
 
       {toast && (
