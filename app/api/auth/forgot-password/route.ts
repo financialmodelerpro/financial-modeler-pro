@@ -43,9 +43,11 @@ export async function POST(req: NextRequest) {
 
   // Token-store availability FIRST, before any user lookup: in a degraded
   // state every request must fail identically, or the 503-vs-200 difference
-  // would leak which emails exist.
+  // would leak which emails exist. Deliberately a GET select, NOT a HEAD one:
+  // PostgREST answers a HEAD request on an ABSENT table with an empty 204 and
+  // no error (observed live 2026-08-30), so a HEAD-based guard can never fire.
   {
-    const { error } = await db.from('password_reset_tokens').select('id', { head: true, count: 'exact' });
+    const { error } = await db.from('password_reset_tokens').select('id').limit(0);
     if (error) {
       console.error('[forgot-password] token store unavailable:', error.code, error.message);
       return NextResponse.json({ error: UNAVAILABLE }, { status: 503 });

@@ -36,8 +36,11 @@ async function main() {
 
   console.log('A. Honest failure, no enumeration leak');
   check('A1 store availability checked BEFORE the user lookup',
-    forgot.indexOf("from('password_reset_tokens').select('id', { head: true") <
-    forgot.indexOf("from('users').select('id, name')"));
+    forgot.indexOf("from('password_reset_tokens').select('id').limit(0)") !== -1
+    && forgot.indexOf("from('password_reset_tokens').select('id').limit(0)") <
+       forgot.indexOf("from('users').select('id, name')"));
+  check('A1b the availability guard is a GET, never HEAD (a HEAD on an absent table is a silent 204)',
+    !/head:\s*true/.test(forgot));
   check('A2 unavailable store answers 503 with a message, never ok:true',
     /status: 503/.test(forgot) && /UNAVAILABLE/.test(forgot));
   check('A3 token insert error is CHECKED and fails the request',
