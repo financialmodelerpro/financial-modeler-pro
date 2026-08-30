@@ -35,7 +35,13 @@ import type { HydrateSnapshot } from '../state/module1-store';
 export const SCHEMA_VERSION = 7 as const;
 
 // ── Status enum (mirrors the SQL CHECK constraint) ──────────────────────────
-export const PROJECT_STATUSES = ['Draft', 'Active', 'IC Review', 'Approved', 'Archived'] as const;
+// 'Archived' was removed 2026-08-30: it duplicated the separate `archived`
+// boolean (mig 161) that the project cap, the card and the admin browser all
+// use, so one word meant two things. No row ever carried it (probed on
+// production: every row is 'Draft'), nothing in the product writes status,
+// and the database CHECK constraint is deliberately left alone, so this is a
+// type narrowing and not a schema change. Archiving is `archived`, always.
+export const PROJECT_STATUSES = ['Draft', 'Active', 'IC Review', 'Approved'] as const;
 export type ProjectStatus = typeof PROJECT_STATUSES[number];
 
 // ── refm_projects row shape ─────────────────────────────────────────────────
@@ -50,9 +56,10 @@ export interface RefmProjectRow {
   current_version_id:  string | null;
   created_at:          string;
   updated_at:          string;
-  // Migration 161 (2026-06-22): entitlement project-cap archive flag. Distinct
-  // from the workflow status value 'Archived'. Reads decorate it to false when
-  // the column is absent (pre-migration), so it is always present.
+  // Migration 161 (2026-06-22): entitlement project-cap archive flag. THE one
+  // archive state: the duplicate 'Archived' status value was removed 2026-08-30.
+  // Reads decorate it to false when the column is absent (pre-migration), so it
+  // is always present.
   archived:            boolean;
 }
 

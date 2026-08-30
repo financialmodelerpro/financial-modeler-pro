@@ -108,7 +108,9 @@ export interface StorageProject {
   createdAt: string;
   lastModified: string;
   location: string;
-  status: 'Draft' | 'Active' | 'IC Review' | 'Approved' | 'Archived';
+  /** Workflow status. Archiving is the separate `archived` flag below, never
+   *  a status value. */
+  status: 'Draft' | 'Active' | 'IC Review' | 'Approved';
   assetMix: string[];
   versions: Record<string, { name: string; createdAt: string; data: unknown }>;
   versionCount?: number;

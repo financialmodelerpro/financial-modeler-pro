@@ -45,10 +45,6 @@ const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
     bg: 'color-mix(in srgb, var(--color-primary) 12%, transparent)',
     color: 'var(--color-primary)',
   },
-  Archived: {
-    bg: 'color-mix(in srgb, var(--color-negative) 10%, transparent)',
-    color: 'var(--color-negative)',
-  },
 };
 
 export default function ProjectsScreen({
@@ -160,7 +156,6 @@ export default function ProjectsScreen({
           <option value="Active">Active</option>
           <option value="IC Review">IC Review</option>
           <option value="Approved">Approved</option>
-          <option value="Archived">Archived</option>
         </select>
       </div>
 

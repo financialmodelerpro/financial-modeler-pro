@@ -19,6 +19,7 @@
  */
 
 import React from 'react';
+import PortfolioSummary from './PortfolioSummary';
 import type { PermissionMap } from '@/src/core/types/settings.types';
 import type { StorageShape, StorageProject } from './RealEstatePlatform';
 
@@ -66,7 +67,6 @@ const STATUS_META: Record<StorageProject['status'], { accent: string; bg: string
   Active:      { accent: 'var(--color-green)',       bg: 'var(--color-green-light)', fg: 'var(--color-green-dark)' },
   'IC Review': { accent: 'var(--color-gold)',        bg: 'var(--color-gold-light)',  fg: 'var(--color-gold-dark)' },
   Approved:    { accent: 'var(--color-navy)',        bg: 'var(--color-navy-light)',  fg: 'var(--color-navy)' },
-  Archived:    { accent: 'var(--color-grey-mid)',    bg: 'var(--color-grey-pale)',   fg: 'var(--color-grey-mid)' },
 };
 
 function StatusBadge({ status }: { status: StorageProject['status'] }): React.JSX.Element {
@@ -83,19 +83,6 @@ const sectionLabel: React.CSSProperties = {
   textTransform: 'uppercase', color: 'var(--color-meta)', margin: '0 0 var(--sp-2)',
 };
 
-// Brand-accented KPI tile (reuses the .kpi-card design language).
-function Kpi({ label, value, accent }: { label: string; value: string | number; accent: string }): React.JSX.Element {
-  return (
-    <div className="kpi-card">
-      <div className="kpi-card__accent" style={{ background: accent }} />
-      <div className="kpi-card__body">
-        <div className="kpi-card__label">{label}</div>
-        <div className="kpi-card__value">{value}</div>
-      </div>
-    </div>
-  );
-}
-
 export default function Dashboard({
   storage,
   onCreateProject,
@@ -108,7 +95,6 @@ export default function Dashboard({
   // restore it, none of which a window.confirm could say honestly.
   const projects = Object.entries(storage.projects).map(([id, p]) => ({ id, ...p }));
   const total = projects.length;
-  const byStatus = (s: StorageProject['status']): number => projects.filter((p) => p.status === s).length;
   const markets = new Set(projects.map((p) => (p.location || '').trim()).filter(Boolean)).size;
   const recent = [...projects]
     .sort((a, b) => new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime())
@@ -140,14 +126,16 @@ export default function Dashboard({
         </div>
       ) : (
         <>
-          {/* ── Portfolio KPIs (composition + pipeline; no weak "versions" stat) ── */}
+          {/* ── Portfolio figures ──────────────────────────────────────────
+              The five count tiles are gone. Three of them (Active / In Review /
+              Approved) counted a workflow status NOTHING in the product ever
+              sets, so they were permanently zero, and the other two were counts
+              rather than insight. Real money now, from the engine, per
+              currency, base case, archived excluded. Projects and Markets
+              survive as the small secondary counts inside PortfolioSummary. */}
           <div style={sectionLabel}>Portfolio</div>
-          <div style={{ display: 'grid', gap: 'var(--sp-2)', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', marginBottom: 'var(--sp-3)' }}>
-            <Kpi label="Projects" value={total} accent="var(--color-navy)" />
-            <Kpi label="Active" value={byStatus('Active')} accent="var(--color-green)" />
-            <Kpi label="In Review" value={byStatus('IC Review')} accent="var(--color-gold)" />
-            <Kpi label="Approved" value={byStatus('Approved')} accent="var(--color-navy-mid)" />
-            <Kpi label="Markets" value={markets} accent="var(--color-navy-dark)" />
+          <div style={{ marginBottom: 'var(--sp-3)' }}>
+            <PortfolioSummary projectCount={total} markets={markets} />
           </div>
 
           {/* ── Recent activity ── */}
