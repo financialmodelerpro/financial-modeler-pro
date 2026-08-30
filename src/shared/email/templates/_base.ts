@@ -94,6 +94,31 @@ export async function baseLayoutBranded(
 </html>`;
 }
 
+/**
+ * The Modeling Hub signature and footer.
+ *
+ * The shared email_branding row is TRAINING HUB copy by default ("Professional
+ * Financial Modeling Training", "you registered for our training program"),
+ * which is correct for the Training Hub and wrong on any email about the
+ * platform. Every Modeling Hub email passes these instead. Extracted here
+ * 2026-08-30 from subscription.ts, where they had been private, after a
+ * campaign shipped with the training footer on it.
+ */
+export const FMP_SIGNATURE_HTML = `<div style="margin-top:32px;padding-top:24px;border-top:1px solid #e5e7eb;">
+  <p style="margin:0;font-size:14px;color:#374151;font-weight:600;">Financial Modeler Pro</p>
+  <p style="margin:4px 0 0;font-size:13px;color:#6b7280;">A PaceMakers Business Consultants Platform</p>
+  <p style="margin:4px 0 0;font-size:13px;color:#6b7280;"><a href="https://financialmodelerpro.com" style="color:#2E75B6;">financialmodelerpro.com</a></p>
+</div>`;
+
+export const FMP_FOOTER_TEXT =
+  '© Financial Modeler Pro. A PaceMakers Business Consultants Platform. You are receiving this because you have an account with Financial Modeler Pro.';
+
+/** THE branded shell for a Modeling Hub email: the shared layout with the
+ *  Modeling Hub signature and footer forced over the Training Hub defaults. */
+export function fmpLayout(content: string): Promise<string> {
+  return baseLayoutBranded(content, { signature_html: FMP_SIGNATURE_HTML, footer_text: FMP_FOOTER_TEXT });
+}
+
 export function button(label: string, href: string): string {
   return `<a href="${href}" style="display:inline-block;background:#2E75B6;color:#ffffff;font-size:14px;font-weight:700;text-decoration:none;padding:13px 32px;border-radius:7px;margin:16px 0;">${label}</a>`;
 }

@@ -23,10 +23,24 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { sendEmailPerRecipient, FROM } from './sendEmail';
-import { baseLayoutBranded, escapeHtml } from './templates/_base';
+import { fmpLayout, button, escapeHtml } from './templates/_base';
 
 /** Replies go to a person, while the send stays FROM no-reply. */
 export const CAMPAIGN_REPLY_TO = 'Ahmad Din <ahmad.din@financialmodelerpro.com>';
+
+/**
+ * The booking page every campaign points at by default, so an admin does not
+ * paste it each time and an empty field cannot produce a dead link. It is the
+ * SAME page the founder and contact pages link to (/book-a-meeting), stated
+ * once here. Editable per campaign; this is only the default.
+ */
+export const DEFAULT_MEETING_LINK = 'https://financialmodelerpro.com/book-a-meeting';
+
+/** The campaign link, falling back to the booking page when left blank. */
+export function resolveMeetingLink(raw: string | null | undefined): string {
+  const v = (raw ?? '').trim();
+  return v === '' ? DEFAULT_MEETING_LINK : v;
+}
 
 export interface CampaignFilters {
   /** Explicitly chosen user ids. When present, the filters below are ignored
@@ -144,7 +158,8 @@ export const MERGE_FIELDS = [
   { token: '{{name}}', label: 'Recipient first name (falls back to "there")' },
   { token: '{{company}}', label: 'Recipient company (falls back to "your team")' },
   { token: '{{company_clause}}', label: 'Reads " at Acme" when a company is known, otherwise nothing' },
-  { token: '{{meeting_link}}', label: 'The meeting link entered for this campaign' },
+  { token: '{{meeting_button}}', label: 'A styled Book-a-meeting button (use this, not a hand-written link)' },
+  { token: '{{meeting_link}}', label: 'The raw meeting URL, for your own href' },
 ] as const;
 
 /**
@@ -155,11 +170,18 @@ export const MERGE_FIELDS = [
 export function mergeBody(bodyHtml: string, ctx: MergeContext): string {
   const first = (ctx.name ?? '').trim().split(/\s+/)[0] || 'there';
   const company = (ctx.company ?? '').trim();
+  // The link falls back to the booking page, so a blank field can never render
+  // href="" (which most clients show as unclickable plain text: that is exactly
+  // how the first real campaign shipped a dead "Book your walkthrough").
+  const link = resolveMeetingLink(ctx.meetingLink);
   const values: Record<string, string> = {
     '{{name}}': escapeHtml(first),
     '{{company}}': escapeHtml(company || 'your team'),
     '{{company_clause}}': company ? ` at ${escapeHtml(company)}` : '',
-    '{{meeting_link}}': escapeHtml(ctx.meetingLink),
+    // The button uses the SHARED button() helper, so campaign CTAs look like
+    // every other platform email and the styling lives in one place.
+    '{{meeting_button}}': `<div style="text-align:center;">${button('Book your walkthrough', escapeHtml(link))}</div>`,
+    '{{meeting_link}}': escapeHtml(link),
     '{{unsubscribe_url}}': escapeHtml(ctx.unsubscribeUrl),
   };
   let out = bodyHtml;
@@ -171,11 +193,15 @@ export function mergeBody(bodyHtml: string, ctx: MergeContext): string {
  *  every campaign carries. */
 export async function renderCampaign(bodyHtml: string, ctx: MergeContext): Promise<string> {
   const merged = mergeBody(bodyHtml, ctx);
+  // The "why you are receiving this" line lives in the shared FMP footer now,
+  // so this block carries only the opt-out itself.
   const footer = `<div style="margin-top:28px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280;">
-    You are receiving this because you have a Financial Modeler Pro account.
     <a href="${escapeHtml(ctx.unsubscribeUrl)}" style="color:#2E75B6;">Unsubscribe from these emails</a>.
   </div>`;
-  return baseLayoutBranded(`${merged}\n${footer}`);
+  // fmpLayout, NOT the bare layout: the shared email_branding row carries
+  // Training Hub copy, and a campaign is a Modeling Hub email. That mismatch
+  // is exactly what shipped on the first real campaign.
+  return fmpLayout(`${merged}\n${footer}`);
 }
 
 // ── Sending ────────────────────────────────────────────────────────────────

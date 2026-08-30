@@ -29,23 +29,15 @@
  * this file. The user-supplied name is escaped inside greeting() above, once,
  * rather than at each call site.
  */
-import { baseLayoutBranded, h1, p, button, divider , escapeHtml } from './_base';
+import { fmpLayout, h1, p, button, divider , escapeHtml } from './_base';
 
 // ── FMP company footer (billing emails) ─────────────────────────────────────
-// Subscription / billing emails carry the consistent FMP company line ("A
-// PaceMakers Business Consultants Platform", matching the pricing credibility
-// line), NOT the Training Hub tagline the shared email_branding default uses.
-const FMP_SIGNATURE = `<div style="margin-top:32px;padding-top:24px;border-top:1px solid #e5e7eb;">
-  <p style="margin:0;font-size:14px;color:#374151;font-weight:600;">Financial Modeler Pro</p>
-  <p style="margin:4px 0 0;font-size:13px;color:#6b7280;">A PaceMakers Business Consultants Platform</p>
-  <p style="margin:4px 0 0;font-size:13px;color:#6b7280;"><a href="https://financialmodelerpro.com" style="color:#2E75B6;">financialmodelerpro.com</a></p>
-</div>`;
-const FMP_FOOTER = '© Financial Modeler Pro. A PaceMakers Business Consultants Platform. You are receiving this because you have an account with Financial Modeler Pro.';
-
-/** Branded shell for every subscription/billing email, forcing the FMP footer. */
-function subLayout(content: string): Promise<string> {
-  return baseLayoutBranded(content, { signature_html: FMP_SIGNATURE, footer_text: FMP_FOOTER });
-}
+// The signature and footer moved to _base.ts as fmpLayout on 2026-08-30, so
+// that EVERY Modeling Hub email uses one override of the Training Hub
+// email_branding defaults rather than each caller remembering to pass it (a
+// campaign shipped with the training footer because it did not). Behaviour
+// here is unchanged: the same two strings, from one place.
+const subLayout = fmpLayout;
 
 // ── Shared formatting helpers ───────────────────────────────────────────────
 

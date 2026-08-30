@@ -14,7 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
-import { MERGE_FIELDS } from '@/src/shared/email/campaigns';
+import { MERGE_FIELDS, DEFAULT_MEETING_LINK } from '@/src/shared/email/campaigns';
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -36,7 +36,7 @@ export async function GET() {
     .order('created_at', { ascending: false });
   if (dbErr) return NextResponse.json({ error: UNAVAILABLE, code: 'MIGRATION_PENDING', detail: dbErr.message }, { status: 503 });
 
-  return NextResponse.json({ templates: data ?? [], mergeFields: MERGE_FIELDS });
+  return NextResponse.json({ templates: data ?? [], mergeFields: MERGE_FIELDS, defaultMeetingLink: DEFAULT_MEETING_LINK });
 }
 
 export async function POST(req: NextRequest) {

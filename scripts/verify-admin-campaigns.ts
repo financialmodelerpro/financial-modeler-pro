@@ -27,7 +27,7 @@ import * as path from 'path';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   resolveCampaignRecipients, mergeBody, unsubscribeToken, verifyUnsubscribeToken,
-  CAMPAIGN_REPLY_TO, MERGE_FIELDS,
+  CAMPAIGN_REPLY_TO, MERGE_FIELDS, DEFAULT_MEETING_LINK, resolveMeetingLink, renderCampaign,
 } from '../src/shared/email/campaigns';
 
 const ROOT = path.resolve(__dirname, '..');
@@ -110,6 +110,46 @@ async function main() {
     check('B6 the merge-field list is published for the editor', MERGE_FIELDS.length >= 3);
   }
 
+  console.log('B2. The CTA renders as a link, and defaults to the booking page');
+  {
+    // The first real campaign shipped a DEAD call to action: the meeting field
+    // was left blank, so the template's anchor merged to href="" and mail
+    // clients rendered "Book your walkthrough" as ordinary text.
+    check('B2a a blank link falls back to the booking page, never an empty href',
+      resolveMeetingLink('') === DEFAULT_MEETING_LINK
+      && resolveMeetingLink(null) === DEFAULT_MEETING_LINK
+      && resolveMeetingLink('   ') === DEFAULT_MEETING_LINK);
+    check('B2b the default IS the real booking page the site links to',
+      DEFAULT_MEETING_LINK === 'https://financialmodelerpro.com/book-a-meeting');
+    check('B2c an admin-entered link still wins',
+      resolveMeetingLink('https://cal.example/x') === 'https://cal.example/x');
+
+    const blank = mergeBody('{{meeting_button}}', { name: null, company: null, meetingLink: '', unsubscribeUrl: 'https://u' });
+    check('B2d the button renders a REAL href even when the field was left blank',
+      blank.includes('href="' + DEFAULT_MEETING_LINK + '"') && !blank.includes('href=""'));
+    check('B2e and it is a styled button, not bare text',
+      /display:inline-block/.test(blank) && /Book your walkthrough/.test(blank));
+    const handWritten = mergeBody('<a href="{{meeting_link}}">x</a>', { name: null, company: null, meetingLink: '', unsubscribeUrl: 'https://u' });
+    check('B2f a hand-written href gets the same fallback, so it cannot be empty either',
+      !handWritten.includes('href=""') && handWritten.includes(DEFAULT_MEETING_LINK));
+    check('B2g the button field is published to the editor',
+      MERGE_FIELDS.some((f) => f.token === '{{meeting_button}}'));
+  }
+
+  console.log('B3. Modeling Hub footer, not Training Hub');
+  {
+    const html = await renderCampaign('<p>Hello</p>', { name: 'A', company: null, meetingLink: '', unsubscribeUrl: 'https://u/x' });
+    check('B3a the campaign carries the Modeling Hub company line',
+      html.includes('A PaceMakers Business Consultants Platform'));
+    check('B3b and NOT the Training Hub copy the shared branding row holds',
+      !/Professional Financial Modeling Training/.test(html)
+      && !/registered for our training program/.test(html));
+    check('B3c the unsubscribe link is present exactly once', (html.match(/Unsubscribe from these emails/g) ?? []).length === 1);
+    check('B3d the override lives ONCE in _base, and subscription delegates to it',
+      /export function fmpLayout/.test(src('src/shared/email/templates/_base.ts'))
+      && /const subLayout = fmpLayout/.test(src('src/shared/email/templates/subscription.ts')));
+  }
+
   console.log('C. Unsubscribe token');
   {
     const t = unsubscribeToken('u1');
@@ -140,8 +180,8 @@ async function main() {
   check('D6 sent from no-reply with a human reply-to',
     /from: FROM\.noreply/.test(camp) && /replyTo: CAMPAIGN_REPLY_TO/.test(camp)
     && /ahmad\.din@financialmodelerpro\.com/.test(CAMPAIGN_REPLY_TO));
-  check('D7 the shared branded layout is used, not a bespoke one',
-    /baseLayoutBranded/.test(camp));
+  check('D7 the shared MODELING HUB layout is used, not the bare one and not a bespoke one',
+    /fmpLayout\(/.test(camp) && !/baseLayoutBranded/.test(camp));
   check('D8 every campaign carries an unsubscribe link', /Unsubscribe from these emails/.test(camp));
 
   console.log('E. Safety rails');

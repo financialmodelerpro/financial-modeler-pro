@@ -88,6 +88,9 @@ export default function CampaignsPage() {
     if (!res.ok) { setUnavailable(j.error ?? 'Templates unavailable'); return; }
     setTemplates(j.templates ?? []);
     setMergeFields(j.mergeFields ?? []);
+    // Prefill the booking page so an admin never has to paste it, and a blank
+    // field can never produce a dead link. Still fully editable.
+    if (j.defaultMeetingLink) setMeetingLink((cur) => cur || j.defaultMeetingLink);
   }, []);
 
   const loadLogs = useCallback(async () => {
@@ -276,7 +279,10 @@ export default function CampaignsPage() {
           <div style={{ marginBottom: 14 }}>
             <label style={label}>Meeting link</label>
             <input value={meetingLink} onChange={(e) => { setMeetingLink(e.target.value); setPreview(null); }} style={input}
-              placeholder="https://calendly.com/..." data-testid="campaign-meeting-link" />
+              placeholder="https://financialmodelerpro.com/book-a-meeting" data-testid="campaign-meeting-link" />
+            <div style={{ fontSize: 11, color: '#6B7280', marginTop: 4 }}>
+              Defaults to the booking page. Use <code>{'{{meeting_button}}'}</code> in the body to render it as a button.
+            </div>
           </div>
           <div style={{ marginBottom: 10 }}>
             <label style={label}>Body</label>
