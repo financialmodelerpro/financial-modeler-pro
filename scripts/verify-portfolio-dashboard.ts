@@ -18,6 +18,11 @@
  *      cannot drag a ratio, and "N of M" is reported.
  *   F. The dead status tiles are gone, and with them the duplicate 'Archived'
  *      status value; the route uses the BASE case and excludes archived.
+ *   G. The funding chart LEFT the Portfolio Dashboard (2026-08-30), and its
+ *      series left with it, while the two series that are load-bearing
+ *      (debt for peak debt, FCFE for the IRR) provably stayed.
+ *   H. The single-project chart on the project dashboard, over the SHARED
+ *      trim rule: empty edges dropped, an INTERIOR gap kept.
  *
  * Runs OFFLINE (no env, no DB).
  * Run: npx tsx scripts/verify-portfolio-dashboard.ts
@@ -28,6 +33,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { aggregatePortfolio, type ProjectPortfolioMetrics } from '../src/hubs/modeling/platforms/refm/lib/portfolio/portfolioMetrics';
 import { irr } from '../src/core/calculations/returns/irr';
+import { trimEmptyEdges, type FundingYearPoint } from '../src/hubs/modeling/platforms/refm/lib/portfolio/fundingSeries';
 import { PROJECT_STATUSES } from '../src/hubs/modeling/platforms/refm/lib/persistence/types';
 
 const ROOT = path.resolve(__dirname, '..');
@@ -44,7 +50,7 @@ function proj(over: Partial<ProjectPortfolioMetrics>): ProjectPortfolioMetrics {
     projectId: 'p', name: 'P', currency: 'SAR', modelled: true,
     gdv: 0, totalDevelopmentCost: 0, totalFinancingCost: 0, fundingRequirement: 0,
     saleableAreaSqm: 0, saleableUnits: 0, equityInvested: 0, equityDistributions: 0,
-    debtByYear: {}, fcfeByYear: {}, fundingByYear: {}, projectIrr: null, equityIrr: null,
+    debtByYear: {}, fcfeByYear: {}, projectIrr: null, equityIrr: null,
     ...over,
   };
 }
@@ -89,20 +95,25 @@ function main() {
 
   console.log('C. Series align on calendar years, not period index');
   {
-    const early = proj({ projectId: 'e', fundingByYear: { 2026: 50 }, debtByYear: { 2026: 10 } });
-    const late = proj({ projectId: 'l', fundingByYear: { 2029: 70 }, debtByYear: { 2029: 20 } });
+    // Pinned through the OUTPUTS that consume the axis (the IRR and peak debt),
+    // because the chart series that used to expose it directly went with the
+    // chart on 2026-08-30. The rule it protects is unchanged and is the
+    // load-bearing one: stackByYear must zero-fill a gap year rather than
+    // closing it up.
+    const early = proj({ projectId: 'e', fcfeByYear: { 2026: -100 }, debtByYear: { 2026: 10 } });
+    const late = proj({ projectId: 'l', fcfeByYear: { 2030: 160 }, debtByYear: { 2029: 20 } });
     const g = aggregatePortfolio([early, late]).groups[0];
-    const years = g.fundingByYear.map((p) => p.year);
-    // DENSE axis: 2026..2029, gap years zero-filled. A sparse axis would place
-    // 2029 two slots after 2026 and an IRR over it would be overstated.
+    // DENSE: -100 in 2026 returning 160 in 2030 is four years of waiting.
+    const dense = irr([-100, 0, 0, 0, 160])!;
+    const sparse = irr([-100, 160])!;
     check('C1 the year axis is DENSE, so a gap year cannot compress time',
-      years.join(',') === '2026,2027,2028,2029');
-    check('C2 each year carries only its own project',
-      g.fundingByYear[0].byProject.e === 50 && g.fundingByYear[0].byProject.l === undefined);
-    check('C3 the chart can stack by project',
-      Object.keys(g.fundingByYear[3].byProject)[0] === 'l' && g.fundingByYear[3].year === 2029);
-    check('C3b the gap years are genuinely empty, not invented',
-      g.fundingByYear[1].total === 0 && g.fundingByYear[2].total === 0);
+      g.portfolioEquityIrr != null && Math.abs(g.portfolioEquityIrr - dense) < 1e-9,
+      `got ${g.portfolioEquityIrr}, dense ${dense}`);
+    check('C2 and a sparse axis would have overstated it, so this is not vacuous',
+      Math.abs(dense - sparse) > 0.3 && Math.abs((g.portfolioEquityIrr ?? 0) - sparse) > 0.3,
+      `dense ${dense} vs sparse ${sparse}`);
+    check('C3 years align by calendar label, not by period index',
+      g.peakDebtYear === 2029 && g.peakDebt === 20);
     check('C4 peak debt of non-overlapping projects is the larger, not the sum', g.peakDebt === 20);
   }
 
@@ -142,28 +153,70 @@ function main() {
       && !/sub=\{`\$\{g\.modelledCount\} of/.test(summary));
   }
 
-  console.log('E7. Presentation cleanup (2026-08-30m)');
+  console.log('E7. Portfolio tiles only, and the footnote carries the captions');
   {
     const summary = src('src/hubs/modeling/platforms/refm/components/PortfolioSummary.tsx');
-    // The chart trims the empty head and tail (funding is front-loaded, so the
-    // dense axis carried ten years of "SAR 0"), but NOT interior gaps, which
-    // are real information and whose removal would compress the time axis.
-    check('E7a the chart trims the empty head and tail',
-      /const firstReal = all\.findIndex/.test(summary) && /const lastReal =/.test(summary)
-      && /all\.slice\(firstReal, lastReal \+ 1\)/.test(summary));
-    check('E7b an INTERIOR empty year is still kept (no re-compression)',
-      !/fundingByYear\.filter\(\(p\) => p\.total !== 0\)/.test(summary));
-    check('E7c the per-bar amount labels are gone, so no "SAR 0" can render',
-      !/\{money\(p\.total, currency\)\}/.test(summary));
-    check('E7d the amount is still reachable, on the segment tooltip',
-      /title=\{`\$\{nameOf\(id\)\}/.test(summary) && /Hover a bar for the amount/.test(summary));
-    check('E7e the stacked-by-project treatment and legend survive',
-      /byProject\[id\]/.test(summary) && /colourOf\(id\)/.test(summary) && /\{nameOf\(id\)\}/.test(summary));
     check('E7f the Saleable area TILE is gone, the figure moved to the footnote',
       !/<Tile label="Saleable area"/.test(summary) && /portfolio-saleable/.test(summary));
     check('E7g six tiles remain', (summary.match(/<Tile\b/g) ?? []).length === 6);
     check('E7h the counts caption the tiles from below, not a stray line above',
       /groupsWithModel\.length === 0 && counts/.test(summary));
+  }
+
+  console.log('G. The funding chart left the portfolio (2026-08-30n)');
+  {
+    const summary = strip(src('src/hubs/modeling/platforms/refm/components/PortfolioSummary.tsx'));
+    check('G1 no chart, caption or legend remains on the Portfolio Dashboard',
+      !/FundingChart/.test(summary) && !/portfolio-funding-chart/.test(summary)
+      && !/Funding requirement by year/.test(summary) && !/Stacked by project/.test(summary));
+    check('G2 the series went with it, rather than being computed for nobody',
+      !/fundingByYear/.test(strip(src('src/hubs/modeling/platforms/refm/lib/portfolio/portfolioMetrics.ts')))
+      && !/fundingByYear/.test(summary));
+    // The two series that remain are NOT presentation and must not follow it out.
+    const metrics = src('src/hubs/modeling/platforms/refm/lib/portfolio/portfolioMetrics.ts');
+    check('G3 debtByYear survives, because peak debt is the max of the SUMMED series',
+      /stackByYear\(live, \(m\) => m\.debtByYear\)/.test(metrics));
+    check('G4 fcfeByYear survives, because the portfolio IRR runs over the summed stream',
+      /stackByYear\(live, \(m\) => m\.fcfeByYear\)/.test(metrics));
+  }
+
+  console.log('H. The project chart: one rule, trimmed at the edges only');
+  {
+    const pts = (vals: Array<[number, number]>): FundingYearPoint[] => vals.map(([year, value]) => ({ year, value }));
+    check('H1 an empty leading run is trimmed',
+      JSON.stringify(trimEmptyEdges(pts([[2026, 0], [2027, 0], [2028, 50]]))) === JSON.stringify(pts([[2028, 50]])));
+    check('H2 an empty trailing run is trimmed',
+      JSON.stringify(trimEmptyEdges(pts([[2026, 50], [2027, 0], [2028, 0]]))) === JSON.stringify(pts([[2026, 50]])));
+    // THE distinction. An interior gap is a pause in funding, and closing it up
+    // would compress the time axis, which is exactly the mistake that read
+    // 9.50% against a true 4.87% before the portfolio axis was made dense.
+    const gap = trimEmptyEdges(pts([[2026, 0], [2027, 40], [2028, 0], [2029, 60], [2030, 0]]));
+    check('H3 an INTERIOR empty year is KEPT',
+      gap.map((p) => p.year).join(',') === '2027,2028,2029' && gap[1].value === 0);
+    check('H4 an all-empty series trims to nothing, so no row of zero bars renders',
+      trimEmptyEdges(pts([[2026, 0], [2027, 0]])).length === 0);
+    check('H5 a fully funded series is returned untouched',
+      trimEmptyEdges(pts([[2026, 10], [2027, 20]])).length === 2);
+    check('H6 a single funded year survives on its own',
+      trimEmptyEdges(pts([[2026, 0], [2027, 5], [2028, 0]])).length === 1);
+
+    const overview = src('src/hubs/modeling/platforms/refm/components/Overview.tsx');
+    check('H7 the project dashboard renders it, from the SHARED rule',
+      /overview-funding-chart/.test(overview) && /fundingChartPoints\(snap\)/.test(overview)
+      && /from '\.\.\/lib\/portfolio\/fundingSeries'/.test(overview));
+    check('H8 the amount is ON each bar, not on hover only',
+      /\{money\(p\.value\)\}/.test(overview) && !/title=\{`/.test(strip(overview)));
+    check('H9 it sits in Cost & capital structure, before Timeline',
+      overview.indexOf('{fundingChart}') > overview.indexOf('Cap Rate at Exit')
+      && overview.indexOf('{fundingChart}') < overview.indexOf('Timeline &amp; structure'));
+    check('H10 locked palette only',
+      !/#[0-9a-fA-F]{3,6}/.test(strip(overview).split('overview-funding-chart')[1]?.split('legendRow')[0] ?? ''));
+    const series = src('src/hubs/modeling/platforms/refm/lib/portfolio/fundingSeries.ts');
+    check('H11 the requirement is the Method 3 waterfall, the same figure the tile totals',
+      /computeFundingGap\(snap\)\.method3Waterfall/.test(series)
+      && /netCashRequiredPerPeriod/.test(series));
+    check('H12 periods are paired with the engine own year labels, never an index',
+      /snap\.yearLabels/.test(series));
   }
 
   console.log('F. The dead tiles and the duplicate status value are gone');

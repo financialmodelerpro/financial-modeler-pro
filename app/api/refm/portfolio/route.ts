@@ -81,7 +81,7 @@ export async function GET() {
         projectId: p.id, name: p.name, currency: 'n/a', modelled: false,
         gdv: 0, totalDevelopmentCost: 0, totalFinancingCost: 0, fundingRequirement: 0,
         saleableAreaSqm: 0, saleableUnits: 0, equityInvested: 0, equityDistributions: 0,
-        debtByYear: {}, fcfeByYear: {}, fundingByYear: {}, projectIrr: null, equityIrr: null,
+        debtByYear: {}, fcfeByYear: {}, projectIrr: null, equityIrr: null,
       });
       continue;
     }

@@ -21,6 +21,7 @@ import { formatAccounting, currencyHeaderLine, type DisplayScale, type DisplayDe
 import { useModule1Store } from '../lib/state/module1-store';
 import { computeFinancialsSnapshot } from '../lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../lib/returns-resolvers';
+import { fundingChartPoints, type FundingYearPoint } from '../lib/portfolio/fundingSeries';
 
 interface OverviewProps {
   projectName: string | null;
@@ -94,14 +95,22 @@ export default function Overview({ projectName, status }: OverviewProps): React.
   const mult = (v: number | null | undefined): string =>
     v == null || !Number.isFinite(v) ? 'n/a' : `${v.toFixed(2)}x`;
 
-  const rs = useMemo(() => {
+  const computed = useMemo(() => {
     try {
       const snap = computeFinancialsSnapshot(state as never);
-      return computeReturnsSnapshot(snap, project);
+      return {
+        rs: computeReturnsSnapshot(snap, project),
+        // Funding by year comes from the SHARED rule, so this chart cannot hold
+        // a different definition of the requirement than the Financing tab's
+        // Funding Gap sub-tab and the portfolio tile do.
+        funding: fundingChartPoints(snap),
+      };
     } catch {
       return null;
     }
   }, [state, project]);
+  const rs = computed?.rs ?? null;
+  const funding: FundingYearPoint[] = computed?.funding ?? [];
 
   if (!rs) {
     return (
@@ -144,6 +153,52 @@ export default function Overview({ projectName, status }: OverviewProps): React.
     <div style={{ minWidth: 0 }}>
       <div style={{ fontSize: 'var(--font-micro)', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.66)', marginBottom: 6 }}>{label}</div>
       <div style={{ fontSize: 34, fontWeight: 800, color: '#fff', lineHeight: 1, letterSpacing: '-0.02em' }}>{value}</div>
+    </div>
+  );
+
+  // ── Funding requirement by year (this project only) ────────────────────────
+  // Sits at the foot of Cost & capital structure, which is where it belongs:
+  // that section already says how the capital splits (the donut) and what it
+  // costs (the tiles), and this says WHEN it is needed, which is the question
+  // Peak Equity right above it raises. Amounts are ON the bars, not on hover,
+  // because a single project has room for them and this is a figure a reader
+  // wants to quote rather than discover. The empty head and tail are already
+  // trimmed by the shared rule; an interior empty year is kept.
+  const fundingMax = funding.reduce((m, p) => Math.max(m, p.value), 0);
+  const fundingChart = funding.length === 0 || fundingMax <= 0 ? null : (
+    <div className="card" style={{ padding: 'var(--sp-3)', marginBottom: 'var(--sp-3)' }} data-testid="overview-funding-chart">
+      <div style={{ fontSize: 'var(--font-meta)', fontWeight: 700, color: 'var(--color-heading)', marginBottom: 2 }}>
+        Funding requirement by year
+      </div>
+      <div style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)', marginBottom: 'var(--sp-2)' }}>
+        Net cash this project must raise in each calendar year. Figures in {currency}.
+      </div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 'var(--sp-2)', overflowX: 'auto', paddingBottom: 4 }}>
+        {funding.map((p) => (
+          <div key={p.year} style={{ flex: '1 1 0', minWidth: 62, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
+            {/* The amount, shown rather than hidden behind a hover. money()
+                prints the en-dash for a zero, so an empty interior year does
+                not read as a currency figure of nothing. */}
+            <div style={{ fontSize: 'var(--font-micro)', fontWeight: 700, color: 'var(--color-heading)', whiteSpace: 'nowrap' }}>
+              {money(p.value)}
+            </div>
+            <div style={{ height: 132, width: '100%', display: 'flex', alignItems: 'flex-end' }}>
+              <div
+                style={{
+                  width: '100%',
+                  // A funded year always draws something, so a small figure
+                  // beside a large one is visible rather than a bare label.
+                  height: p.value > 0 ? `${Math.max(3, (p.value / fundingMax) * 100)}%` : 0,
+                  background: 'var(--color-navy)',
+                  borderTop: p.value > 0 ? '3px solid var(--color-gold)' : undefined,
+                  borderRadius: '2px 2px 0 0',
+                }}
+              />
+            </div>
+            <div style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)', whiteSpace: 'nowrap' }}>{p.year}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 
@@ -232,6 +287,9 @@ export default function Overview({ projectName, status }: OverviewProps): React.
           <Kpi label="Cap Rate at Exit" value={pct(re.capRateAtExit)} accent="var(--color-gold)" />
         </div>
       </div>
+
+      {/* ── When that capital is needed ── */}
+      {fundingChart}
 
       {/* ── Timeline & structure ── */}
       <div style={sectionLabel}><span style={accentDot('var(--color-navy-mid)')} />Timeline &amp; structure</div>

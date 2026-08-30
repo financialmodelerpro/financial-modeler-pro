@@ -58,10 +58,15 @@ export interface ProjectPortfolioMetrics {
   saleableUnits: number;
   equityInvested: number;
   equityDistributions: number;
-  /** Calendar year -> value, so aggregation never touches a period index. */
+  /** Calendar year -> value, so aggregation never touches a period index.
+   *  BOTH are load-bearing: debtByYear is summed across projects and its MAX
+   *  taken for peak debt, fcfeByYear is summed and the portfolio IRR computed
+   *  once over the combined stream. Neither exists for a chart.
+   *  (A fundingByYear series lived here too until 2026-08-30 and fed only the
+   *  portfolio chart; it went with the chart. The single-project funding series
+   *  is defined once in ./fundingSeries.) */
   debtByYear: Record<number, number>;
   fcfeByYear: Record<number, number>;
-  fundingByYear: Record<number, number>;
   /** The project's own IRR, for the per-project list (never averaged). */
   projectIrr: number | null;
   equityIrr: number | null;
@@ -100,7 +105,7 @@ export function projectPortfolioMetrics(
     modelled: false,
     gdv: 0, totalDevelopmentCost: 0, totalFinancingCost: 0, fundingRequirement: 0,
     saleableAreaSqm: 0, saleableUnits: 0, equityInvested: 0, equityDistributions: 0,
-    debtByYear: {}, fcfeByYear: {}, fundingByYear: {},
+    debtByYear: {}, fcfeByYear: {},
     projectIrr: null, equityIrr: null,
   };
   // An empty project is not an error and not a zero: it is simply not modelled.
@@ -136,7 +141,6 @@ export function projectPortfolioMetrics(
       equityDistributions: rs.result?.dividends?.totalInflow ?? 0,
       debtByYear: byYear(snap.bs.debtOutstandingPerPeriod, snap.yearLabels),
       fcfeByYear: byYear(rs.fcfePerPeriod, rs.streamYearLabels),
-      fundingByYear: byYear(gap.netCashRequiredPerPeriod, snap.yearLabels),
       projectIrr: rs.result?.fcff?.irr ?? null,
       equityIrr: rs.result?.fcfe?.irr ?? null,
     };
@@ -173,7 +177,6 @@ export interface PortfolioCurrencyGroup {
   /** Sum of distributions / sum of equity invested. A ratio of sums, so this
    *  one IS aggregable. */
   portfolioEquityMultiple: number | null;
-  fundingByYear: PortfolioYearPoint[];
 }
 
 export interface PortfolioAggregate {
@@ -253,7 +256,6 @@ export function aggregatePortfolio(
       peakDebtYear,
       portfolioEquityIrr,
       portfolioEquityMultiple: invested > 0 ? distributions / invested : null,
-      fundingByYear: stackByYear(live, (m) => m.fundingByYear),
     };
   });
 

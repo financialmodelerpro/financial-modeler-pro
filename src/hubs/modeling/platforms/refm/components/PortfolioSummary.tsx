@@ -13,9 +13,14 @@
  * case, so a sensitivity left selected inside one project cannot move the
  * portfolio. Archived projects are excluded.
  *
+ * TILES ONLY (2026-08-30). The stacked funding-by-year chart that sat under
+ * them is gone, and its series went with it rather than being computed for
+ * nobody. Funding over time is a per-project question and is answered on the
+ * project's own Overview, from the shared lib/portfolio/fundingSeries rule.
+ *
  * Three honesty rules are visible in the markup, not just in the API:
- *   * every ratio carries "N of M modelled", because an empty project must
- *     not read as a zero that drags an average;
+ *   * the modelled count is stated ONCE, in the footnote under the tiles,
+ *     because an empty project must not read as a zero that drags an average;
  *   * a mixed-currency portfolio is NEVER summed into one number: one block
  *     per currency, and a note saying why;
  *   * the IRR is labelled as computed from aggregated cash flows, because an
@@ -27,7 +32,6 @@
  */
 import React, { useEffect, useState } from 'react';
 
-interface YearPoint { year: number; byProject: Record<string, number>; total: number }
 interface Group {
   currency: string;
   projects: Array<{ projectId: string; name: string; modelled: boolean; gdv: number; irr: number | null; error?: string }>;
@@ -36,19 +40,12 @@ interface Group {
   fundingRequirement: number; saleableAreaSqm: number; saleableUnits: number;
   peakDebt: number; peakDebtYear: number | null;
   portfolioEquityIrr: number | null; portfolioEquityMultiple: number | null;
-  fundingByYear: YearPoint[];
 }
 interface PortfolioResponse {
   groups: Group[]; mixedCurrency: boolean;
   projectCount: number; modelledCount: number; markets: number;
   archivedExcluded?: number;
 }
-
-// Series colours for the stacked chart, from the locked palette only.
-const SERIES = [
-  'var(--color-navy)', 'var(--color-gold)', 'var(--color-green)',
-  'var(--color-navy-mid)', 'var(--color-navy-dark)', 'var(--color-grey-mid)',
-];
 
 function money(v: number, currency: string): string {
   const abs = Math.abs(v);
@@ -77,69 +74,6 @@ function Tile({ label, value, sub, wide }: { label: string; value: string; sub?:
         {value}
       </div>
       {sub && <div style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)' }}>{sub}</div>}
-    </div>
-  );
-}
-
-/** Funding requirement by calendar year, stacked by project. Years are the
- *  engine's own absolute year labels, so projects starting in different years
- *  line up correctly rather than by period index. */
-function FundingChart({ group, currency }: { group: Group; currency: string }) {
-  // Funding is front-loaded by nature, so the dense axis carried a long tail
-  // of empty years, each labelled "SAR 0". Trim the empty HEAD and TAIL only:
-  // an INTERIOR empty year is kept, because it is real information (a pause in
-  // funding) and dropping it would compress the time axis, which is the same
-  // mistake that overstated the IRR before the axis was made dense. The DATA
-  // axis is untouched; this is display.
-  const all = group.fundingByYear;
-  const firstReal = all.findIndex((p) => p.total !== 0);
-  const lastReal = all.length - 1 - [...all].reverse().findIndex((p) => p.total !== 0);
-  const points = firstReal === -1 ? [] : all.slice(firstReal, lastReal + 1);
-  if (points.length === 0) return null;
-  const max = Math.max(...points.map((p) => p.total));
-  const ids = [...new Set(points.flatMap((p) => Object.keys(p.byProject)))];
-  const nameOf = (id: string) => group.projects.find((p) => p.projectId === id)?.name ?? 'Project';
-  const colourOf = (id: string) => SERIES[ids.indexOf(id) % SERIES.length];
-
-  return (
-    <div className="card" style={{ padding: 'var(--sp-3)', marginTop: 'var(--sp-2)' }} data-testid="portfolio-funding-chart">
-      <div style={{ fontSize: 'var(--font-meta)', fontWeight: 700, color: 'var(--color-heading)', marginBottom: 2 }}>
-        Funding requirement by year
-      </div>
-      <div style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)', marginBottom: 'var(--sp-2)' }}>
-        Stacked by project, on calendar years. Hover a bar for the amount. {currency}.
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 'var(--sp-2)', height: 160 }}>
-        {points.map((p) => (
-          <div key={p.year} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, height: '100%' }}>
-            <div style={{ flex: 1, width: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-              {ids.filter((id) => (p.byProject[id] ?? 0) > 0).map((id) => (
-                <div
-                  key={id}
-                  title={`${nameOf(id)} · ${p.year} · ${money(p.byProject[id] ?? 0, currency)}`}
-                  style={{
-                    height: `${((p.byProject[id] ?? 0) / max) * 100}%`,
-                    background: colourOf(id),
-                    borderRadius: 2,
-                    marginTop: 1,
-                  }}
-                />
-              ))}
-            </div>
-            <div style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)', whiteSpace: 'nowrap' }}>{p.year}</div>
-          </div>
-        ))}
-      </div>
-
-      <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap', marginTop: 'var(--sp-2)' }}>
-        {ids.map((id) => (
-          <span key={id} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 'var(--font-micro)', color: 'var(--color-meta)' }}>
-            <span style={{ width: 9, height: 9, borderRadius: 2, background: colourOf(id) }} />
-            {nameOf(id)}
-          </span>
-        ))}
-      </div>
     </div>
   );
 }
@@ -263,8 +197,6 @@ export default function PortfolioSummary({ projectCount, markets }: { projectCou
                 Management base case, archived projects excluded. The IRR is computed once on the
                 combined cash flows of every modelled project; it is not an average of project IRRs.
               </div>
-
-              <FundingChart group={g} currency={g.currency} />
             </div>
           ))}
         </>
