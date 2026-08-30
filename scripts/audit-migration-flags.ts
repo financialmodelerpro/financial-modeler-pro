@@ -83,6 +83,10 @@ const PROBES: Probe[] = [
   // by hand on 2026-08-19. Probed rather than believed, which is the whole point
   // of this script: a marker in prose is not evidence either way.
   { migration: '215_refm_fund_fee_funding', doc: 'APPLIED', table: 'refm_fund_terms', column: 'management_fee_funding' },
+  // 219 shipped 2026-08-30 flagged PENDING (the session could not run DDL: the
+  // stored DATABASE_URL password is stale) and was applied by the founder the
+  // same day, then probed live before the flag was cleared.
+  { migration: '219_account_deletions', doc: 'APPLIED', table: 'account_deletions', column: null },
 ];
 
 /**
