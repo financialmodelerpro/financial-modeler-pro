@@ -25,7 +25,6 @@ export default function robots(): MetadataRoute.Robots {
           '/training/confirm-email',
           '/training/set-password',
           '/training/certificate',
-          '/training/certificates',
           '/training/transcript',
           '/training/material',
           '/training/watch/',

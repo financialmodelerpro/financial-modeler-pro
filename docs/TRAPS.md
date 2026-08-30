@@ -209,6 +209,24 @@ constraint), and mig 221 aligns the constraint itself. **Proven live**: a probe 
 audit rows reproduced the exact block on a bare delete, and the fixed engine deleted them with both
 audit rows surviving, targets nulled.
 
+### 2.10 A storage bucket sharing a table's name makes every grep for that table lie
+
+**Symptom.** Diagnosing the dead `certificates` TABLE, a grep for `from('certificates')` reported
+ten readers. Seven of them were the LIVE certificate system, reading the storage BUCKET that
+happens to carry the same name (`sb.storage.from('certificates')`: templates, generated PDFs,
+transcripts). Only three touched the table. A retirement scoped off the raw grep would have deleted
+live code.
+
+**Mechanism.** supabase-js uses the same method name for both: `sb.from(x)` is a table,
+`sb.storage.from(x)` is a bucket. A text search for `from('certificates')` cannot tell them apart,
+and the bucket is load-bearing while the table is empty and dead.
+
+**Fix.** Classify every hit by the token before `.from(`: `storage` = bucket, anything else =
+table. The retirement verifier (`verify-legacy-training-retirement.ts`) encodes exactly this and
+ALSO asserts the bucket reads still exist, so the discrimination itself is proven non-vacuous;
+sabotage (a table read added to the bucket-heavy engine file) is flagged while the bucket reads
+pass. Mig 223's deprecation comment carries the same warning at the schema.
+
 ---
 
 ## 3. Excel export (ExcelJS)
