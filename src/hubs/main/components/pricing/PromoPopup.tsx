@@ -14,6 +14,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { isSamePageTarget } from '@/src/shared/promo/samePageTarget';
 
 const GOLD = '#C9A84C';
 const GOLD_DARK = '#92400E';
@@ -26,6 +27,13 @@ const NAVY = '#0D2E5A';
 //    the workspace, admin panel, dashboard, sign-in, etc.).
 // Marketing pages (home, about, articles, contact, ...) are NOT in this list, so
 // the popup shows there.
+//
+// THE /pricing ENTRY IS NOT WHAT KEEPS THIS PROMO OFF ITS OWN DESTINATION
+// (2026-08-31). It happens to, because this promo's href IS a pricing URL, but
+// that is a coincidence of two independent decisions: nothing here names the
+// destination, so pointing the promo somewhere else would have re-opened the
+// collision silently. The destination check below is the rule; this list stays
+// what it says it is, a list of surfaces a marketing promo does not belong on.
 const HIDE_ON_PREFIXES = [
   '/pricing', '/admin', '/dashboard', '/refm', '/modeling', '/modeling-hub',
   '/training', '/settings', '/account', '/choose-plan',
@@ -51,6 +59,13 @@ export default function PromoPopup({
   // navigation (pathname dep), so it hides when moving into an excluded surface.
   useEffect(() => {
     const path = pathname || '/';
+    // A promo never links to the page you are on. Shared with the launch popup,
+    // which had the same collision and no coincidence to save it.
+    if (isSamePageTarget({
+      pathname: path,
+      href,
+      origin: typeof window === 'undefined' ? null : window.location.origin,
+    })) { setVisible(false); return; }
     const hidden = HIDE_ON_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
     if (hidden) { setVisible(false); return; }
     try {
@@ -58,7 +73,7 @@ export default function PromoPopup({
     } catch {
       setVisible(true);
     }
-  }, [storageKey, pathname]);
+  }, [storageKey, pathname, href]);
 
   if (!visible) return null;
 

@@ -31,6 +31,11 @@ import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { CountdownTimer } from '@/src/shared/components/CountdownTimer';
 import { isLaunchBannerPath, launchDismissKey, type LaunchMode, type LaunchCopy, type LaunchedCopy } from './launchCountdown';
+import { isSamePageTarget, appRootEquivalence } from '@/src/shared/promo/samePageTarget';
+
+/** Same default as the server component that builds the call to action, so the
+ *  origin this popup compares against is the origin that href was built from. */
+const APP_ORIGIN = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com';
 
 const NAVY_DARKEST = '#0D2E5A';
 const NAVY = '#1B4F8A';
@@ -60,12 +65,27 @@ export default function LaunchCountdownPopup({ targetIso, mode, countdown, launc
 
   useEffect(() => {
     if (!isLaunchBannerPath(pathname)) { setVisible(false); return; }
+    // A PROMO NEVER LINKS TO THE PAGE YOU ARE ON (2026-08-31).
+    //
+    // The allowlist above and the call to action below were set independently:
+    // the banner is allowed on /modeling/real-estate, and its default
+    // destination is the launch platform's own page, which for the real-estate
+    // launch IS /modeling/real-estate. So it announced the platform to somebody
+    // already standing on it, with a button back to where they were. The
+    // destination decides this, not another path list, so changing either the
+    // allowlist or the CTA cannot re-open it. See shared/promo/samePageTarget.
+    if (current === 'launched' && isSamePageTarget({
+      pathname,
+      href: launched.ctaHref,
+      origin: typeof window === 'undefined' ? null : window.location.origin,
+      equivalentPaths: appRootEquivalence(APP_ORIGIN),
+    })) { setVisible(false); return; }
     try {
       setVisible(sessionStorage.getItem(storageKey) !== '1');
     } catch {
       setVisible(true); // storage blocked (private mode): still announce it
     }
-  }, [pathname, storageKey]);
+  }, [pathname, storageKey, current, launched.ctaHref]);
 
   const dismiss = useCallback(() => {
     setVisible(false);

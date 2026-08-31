@@ -372,6 +372,36 @@ it cannot drift the way a hand-kept number does.
 Live probe over all four projects: no project carries a `rett` line at all, and
 none has ever had 13 seeded lines.
 
+### 3.11 Two independent lists, one of them a destination
+
+**Symptom.** A launch popup on `/modeling/real-estate` announcing the
+real-estate platform, with a button to `/modeling/real-estate`.
+
+**Mechanism.** WHERE a promo may appear and WHERE it points are configured in
+different places by different people: an allowlist of five paths in code, and a
+call-to-action href in `training_settings` that an admin can override. Neither
+knows about the other, so the collision is invisible from either side.
+
+**The near miss that hides it.** The pricing promo has the same shape and does
+not misbehave, because `/pricing` happens to be in its hide-list for an
+unrelated reason. That reads as "one popup is broken, one is fine". Both were
+one edit away from the same defect; only one had a coincidence covering it.
+
+**Fix.** Compare the destination to the current page, in one shared rule both
+popups call, so neither list has to know about the other. Fail OPEN: when the
+rule cannot tell, show the promo. A missed suppression is visible and gets
+reported; a wrong suppression is a promo nobody ever sees.
+
+**Watch the origin.** The apex and the app subdomain both serve a
+real-estate path, so path-only comparison suppresses across domains. And an
+equivalence like "/ is /modeling" is true only on the app subdomain, so it has
+to carry its origin or it wrongly fires on the apex home.
+
+**Proof.** `verify-promo-self-link` pins the live configuration (a relative
+admin override of `/modeling/real-estate`), that the popup still shows on the
+other four allowed paths, and that the pricing promo would suppress itself even
+if `/pricing` left its hide-list.
+
 ## 4. PDF export (pdf-lib)
 
 ### 4.1 PDF text is glyph ids, so a naive grep returns nothing
