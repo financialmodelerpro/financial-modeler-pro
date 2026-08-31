@@ -149,6 +149,85 @@
 
 ---
 
+## Constraint drift, READ from pg_constraint (2026-08-31)
+
+> Until 2026-08-31 every constraint in this schema was **DECLARED-UNVERIFIABLE**:
+> `audit-schema-drift.ts` reads the live schema through PostgREST's OpenAPI
+> output, which exposes tables, columns, types, NOT NULL, defaults and FK
+> targets, and nothing that lives in `pg_constraint`. 157 declarations were
+> reported as unknown rather than assumed to match, which is how the 007 drift
+> hid for months. With a working session-pooler connection they are now READ:
+> **`npx tsx scripts/audit-constraints-live.ts`** (read-only, three catalog
+> SELECTs, writes `scripts/constraint-drift-report.txt`).
+>
+> **Result: 186 declarations parsed, 176 checkable, 8 findings.** 57 of 65 FK
+> `ON DELETE` clauses match exactly, all 51 column CHECKs are present, 40 of 45
+> table-level constraints are present. What follows is every exception, recorded
+> so nobody re-derives it or "fixes" something that is already right.
+
+### `newsletter_subscribers.email`: the LIVE composite is correct. DO NOT add the declared constraint.
+
+Migration `078_articles_newsletter.sql` declares `email` **UNIQUE on its own**.
+Live carries `newsletter_subscribers_email_hub_key UNIQUE (email, hub)`, a
+COMPOSITE, and that is the intended design: one person may subscribe to the
+Training Hub and the Modeling Hub separately.
+
+**The data already depends on it.** 248 rows, 246 distinct emails: two addresses
+appear twice, once per hub. **Adding the single-column UNIQUE that 078 declares
+would FAIL today**, and if it somehow succeeded it would silently make a
+cross-hub subscription impossible. 078's clause is the stale side. Left as-is:
+the file records what ran, and the live shape is what is wanted.
+
+### `branding_config.scope`: declared UNIQUE, NOTHING enforces it. Logged, not fixed.
+
+`003_branding_config.sql` declares `scope` UNIQUE. Live has no unique constraint
+and no unique index on it, alone or composite; the only unique is the `id`
+primary key. **The table is EMPTY (0 rows)**, so nothing violates it and nothing
+is currently at risk, but the guarantee the migration claims does not exist. If
+this table ever takes rows, a duplicate `scope` will be accepted and whichever
+reader expects one row per scope will pick an arbitrary one.
+
+### The two FK `ON DELETE` differences, and why the migrations are LEFT ALONE
+
+**Never edit an existing migration** (see the Do NOT touch list in CLAUDE.md). A
+migration file is the record of what RAN. Editing 007 so it reads `NO ACTION`
+would make the repo claim history that did not happen and would erase the
+evidence of the drift, which is the only reason the drift was findable at all.
+
+1. **`user_permissions.created_by`: NOTHING TO CORRECT.** `158` declares
+   `NO ACTION`; live is `SET NULL`; and `221` explicitly ALTERs it to
+   `SET NULL`. The chain 006 -> 158 -> 221 CONVERGES on the live value, so a
+   database rebuilt from the migrations reproduces production exactly. 158 is
+   superseded when read in isolation, not wrong. No action, now or later.
+
+2. **`admin_audit_log.admin_id`: a REAL divergence, deliberately open.** `007`
+   declares `ON DELETE SET NULL` and nullable; live is `NO ACTION` and
+   `NOT NULL`. 007's clause never took effect because it opens
+   `CREATE TABLE IF NOT EXISTS admin_audit_log` on a table that already existed,
+   which makes the whole column list a no-op (TRAPS 2.9, and the
+   "migration file is not schema" lesson). `221` states the decision in prose,
+   *"admin_id is DELIBERATELY LEFT ALONE (NOT NULL, NO ACTION): it names the
+   actor"*, but does not ALTER it, because live already was that.
+
+   **Consequence, recorded rather than fixed:** a database rebuilt from the
+   migration set gets `SET NULL` + nullable for this column and therefore does
+   NOT match production. The remedy is a NEW migration making it explicit
+   (`ALTER ... ON DELETE NO ACTION` plus `SET NOT NULL`), matching live and
+   221's stated intent. Not done here because this pass was explicitly
+   report-only.
+
+### Superseded shapes, not drift
+
+`certificates.assessment_id` (FK) and `certificates.certificate_number` (UNIQUE)
+are declared by `005` on columns that do not exist live; `certificates` carries
+the comment *"DEPRECATED 2026-08-30. Legacy 002/005-era training system"*, holds
+0 rows, and the live system is `student_certificates`. `plan_permissions.updated_by`
+(FK) and `PRIMARY KEY (plan, feature_key)` are declared by `006` against a shape
+`158` replaced (live: PK `id`, UNIQUE `(plan_key, feature_key)`, 92 rows).
+Nothing to do in either case.
+
+---
+
 ## Database Migrations Log
 
 > **Database traps recorded in this file are collected in [docs/TRAPS.md](docs/TRAPS.md) section 2.** The copies here stay in place, so nothing is lost if you open this file instead: the PostgREST 1000-row silent truncation (TRAPS 2.1); a PENDING flag in prose not being evidence (2.2); a Postgres CHECK constraint PASSING on NULL, so `array_length` must be `cardinality` (2.3); an errored query returning an empty fallback that reads as real data (2.4); `admin_audit_log.admin_id` being NOT NULL (2.5); new columns having to tolerate being absent because prod lags the repo (2.6); hosted Supabase MCP OAuth not working here, so use env service-role creds via tsx (2.7); and a schema-tolerant fallback RESURRECTING a retired secret, because "no active row", "an errored read" and "the table is absent" all collapse into the same empty result unless you keep them apart (2.8).

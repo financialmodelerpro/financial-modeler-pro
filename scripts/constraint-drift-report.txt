@@ -1,0 +1,151 @@
+== A. FOREIGN KEY ON DELETE: declared vs live ==
+  65 declared FK columns: 57 match, 2 differ, 2 missing, 4 skipped
+
+== B. UNIQUE: declared vs live ==
+  25 declared column UNIQUEs: 20 present, 3 absent
+
+== C. CHECK: declared vs live ==
+  51 declared column CHECKs: 51 present, 0 absent
+
+== D. TABLE-LEVEL constraints: declared vs live ==
+  45 declared table-level constraints: 40 present, 1 not found
+
+==============================================================================
+FINDINGS, RANKED
+==============================================================================
+
+-- 1. ON DELETE DIFFERS FROM THE MIGRATION (a delete behaves differently than declared) --
+  ON DELETE DIFFERS: admin_audit_log.admin_id -> users: declared SET NULL (007_audit_log.sql) but LIVE IS NO ACTION  [admin_audit_log_admin_id_fkey]
+  ON DELETE DIFFERS: user_permissions.created_by -> users: declared NO ACTION (158_entitlement_catalog.sql) but LIVE IS SET NULL  [user_permissions_created_by_fkey]
+
+-- 2. DECLARED CONSTRAINT ABSENT LIVE (the guarantee does not exist) --
+  FK MISSING: certificates.assessment_id -> assessments declared ON DELETE NO ACTION (005_training_assessments.sql) but NO FK exists live
+  FK MISSING: plan_permissions.updated_by -> users declared ON DELETE SET NULL (006_permissions.sql) but NO FK exists live
+  UNIQUE MISSING: branding_config.scope declared UNIQUE (003_branding_config.sql) but no unique constraint or index covers it, alone or composite
+  UNIQUE MISSING: certificates.certificate_number declared UNIQUE (005_training_assessments.sql) but no unique constraint or index covers it, alone or composite
+  UNIQUE NARROWER LIVE: newsletter_subscribers.email declared UNIQUE alone (078_articles_newsletter.sql) but live is COMPOSITE newsletter_subscribers_email_hub_key (email, hub)
+  TABLE CONSTRAINT NOT FOUND: plan_permissions: PRIMARY KEY (plan, feature_key) (006_permissions.sql)
+
+-- 3. SKIPPED, table not live --
+  10 declarations on tables that do not exist live
+    FK pricing_features.plan_id: table not live (014_pricing.sql)
+    FK pricing_modules.plan_id: table not live (014_pricing.sql)
+    FK pricing_features.plan_id: table not live (018_pricing_initial_plans.sql)
+    FK pricing_modules.plan_id: table not live (018_pricing_initial_plans.sql)
+    UNIQUE pricing_plans.code: table not live (014_pricing.sql)
+    UNIQUE pricing_plans.code: table not live (018_pricing_initial_plans.sql)
+    TABLE-CON founder_profile: table not live (002_phase1_cms.sql)
+    TABLE-CON pricing_modules: table not live (014_pricing.sql)
+    TABLE-CON pricing_modules: table not live (018_pricing_initial_plans.sql)
+    TABLE-CON marketing_brand_kit: table not live (100_marketing_studio.sql)
+
+-- 4. LIVE CHECK DEFINITIONS, for the reader to judge equivalence --
+    modules.status: CHECK ((status = ANY (ARRAY['live'::text, 'coming_soon'::text, 'hidden'::text])))
+    articles.status: CHECK ((status = ANY (ARRAY['draft'::text, 'published'::text, 'scheduled'::text])))
+    courses.status: CHECK ((status = ANY (ARRAY['draft'::text, 'published'::text])))
+    testimonials.rating: CHECK (((rating >= 1) AND (rating <= 5)))
+    testimonials.status: CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])))
+    training_admin_actions.action_type: CHECK ((action_type = ANY (ARRAY['block'::text, 'revoke_certificate'::text])))
+    student_testimonials.testimonial_type: CHECK ((testimonial_type = ANY (ARRAY['written'::text, 'video'::text])))
+    student_testimonials.rating: CHECK (((rating >= 1) AND (rating <= 5)))
+    student_testimonials.status: CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])))
+    session_feedback.rating: CHECK (((rating >= 1) AND (rating <= 5)))
+    coupon_codes.discount_type: CHECK ((discount_type = ANY (ARRAY['percentage'::text, 'fixed'::text])))
+    certification_watch_history.status: CHECK ((status = ANY (ARRAY['in_progress'::text, 'completed'::text])))
+    newsletter_subscribers.hub: CHECK ((hub = ANY (ARRAY['training'::text, 'modeling'::text])))
+    newsletter_subscribers.status: CHECK ((status = ANY (ARRAY['active'::text, 'unsubscribed'::text])))
+    newsletter_campaigns.target_hub: CHECK ((target_hub = ANY (ARRAY['training'::text, 'modeling'::text, 'all'::text])))
+    newsletter_campaigns.status: CHECK ((status = ANY (ARRAY['draft'::text, 'scheduled'::text, 'sending'::text, 'sent'::text, 'failed'::text, 'cancelled'::text])))
+    newsletter_auto_settings.target_hub: CHECK ((target_hub = ANY (ARRAY['training'::text, 'modeling'::text, 'all'::text])))
+    live_session_assessments.pass_threshold: CHECK (((pass_threshold >= 0) AND (pass_threshold <= 100)))
+    live_session_assessments.max_attempts: CHECK ((max_attempts > 0))
+    live_session_assessments.watch_threshold: CHECK (((watch_threshold >= 0) AND (watch_threshold <= 100)))
+    live_session_attempts.score: CHECK (((score >= 0) AND (score <= 100)))
+    announcement_recipient_log.status: CHECK ((status = ANY (ARRAY['pending'::text, 'sent'::text, 'failed'::text, 'bounced'::text, 'complained'::text])))
+    newsletter_recipient_log.status: CHECK ((status = ANY (ARRAY['pending'::text, 'sent'::text, 'failed'::text, 'bounced'::text, 'complained'::text, 'opened'::text, 'clicked'::text])))
+    model_submissions.course_code: CHECK ((course_code = ANY (ARRAY['3SFM'::text, 'BVM'::text])))
+    model_submissions.attempt_number: CHECK (((attempt_number >= 1) AND (attempt_number <= 3)))
+    model_submissions.status: CHECK ((status = ANY (ARRAY['pending_review'::text, 'approved'::text, 'rejected'::text])))
+    refm_projects.status: CHECK ((status = ANY (ARRAY['Draft'::text, 'Active'::text, 'IC Review'::text, 'Approved'::text, 'Archived'::text])))
+    refm_project_versions.version_number: CHECK ((version_number >= 1))
+    platform_modules.status: CHECK ((status = ANY (ARRAY['live'::text, 'coming_soon'::text, 'hidden'::text, 'pro'::text, 'enterprise'::text])))
+    platform_modules.gating_tier: CHECK ((gating_tier = ANY (ARRAY['free'::text, 'pro'::text, 'enterprise'::text])))
+    platform_module_pages.page_section: CHECK ((page_section = ANY (ARRAY['hero'::text, 'features'::text, 'how_it_works'::text, 'cta'::text, 'testimonials'::text])))
+    features_registry.feature_type: CHECK ((feature_type = ANY (ARRAY['gate'::text, 'limit'::text, 'metered'::text])))
+    features_registry.build_status: CHECK ((build_status = ANY (ARRAY['live'::text, 'in_development'::text, 'stub'::text, 'needs_build'::text])))
+    user_permissions.mode: CHECK ((mode = ANY (ARRAY['grant'::text, 'revoke'::text])))
+    payment_settings.active_provider: CHECK ((active_provider = ANY (ARRAY['none'::text, 'paddle'::text, 'paypro'::text])))
+    trial_requests.status: CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'declined'::text])))
+    ai_features.category: CHECK ((category = ANY (ARRAY['narrative'::text, 'validation'::text, 'guidance'::text, 'generation'::text])))
+    ai_features.grounding: CHECK (((cardinality(grounding) >= 1) AND (grounding <@ ARRAY['model'::text, 'external'::text, 'context'::text])))
+    ai_feature_caps.monthly_cap: CHECK ((monthly_cap >= 0))
+    ai_usage_counters.used: CHECK ((used >= 0))
+    ... and 11 more (full list in the report file)
+
+-- 5. UNPARSED column definitions (not silently skipped) --
+  0
+
+== FULL CHECK DEFINITION LIST ==
+    modules.status: CHECK ((status = ANY (ARRAY['live'::text, 'coming_soon'::text, 'hidden'::text])))
+    articles.status: CHECK ((status = ANY (ARRAY['draft'::text, 'published'::text, 'scheduled'::text])))
+    courses.status: CHECK ((status = ANY (ARRAY['draft'::text, 'published'::text])))
+    testimonials.rating: CHECK (((rating >= 1) AND (rating <= 5)))
+    testimonials.status: CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])))
+    training_admin_actions.action_type: CHECK ((action_type = ANY (ARRAY['block'::text, 'revoke_certificate'::text])))
+    student_testimonials.testimonial_type: CHECK ((testimonial_type = ANY (ARRAY['written'::text, 'video'::text])))
+    student_testimonials.rating: CHECK (((rating >= 1) AND (rating <= 5)))
+    student_testimonials.status: CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])))
+    session_feedback.rating: CHECK (((rating >= 1) AND (rating <= 5)))
+    coupon_codes.discount_type: CHECK ((discount_type = ANY (ARRAY['percentage'::text, 'fixed'::text])))
+    certification_watch_history.status: CHECK ((status = ANY (ARRAY['in_progress'::text, 'completed'::text])))
+    newsletter_subscribers.hub: CHECK ((hub = ANY (ARRAY['training'::text, 'modeling'::text])))
+    newsletter_subscribers.status: CHECK ((status = ANY (ARRAY['active'::text, 'unsubscribed'::text])))
+    newsletter_campaigns.target_hub: CHECK ((target_hub = ANY (ARRAY['training'::text, 'modeling'::text, 'all'::text])))
+    newsletter_campaigns.status: CHECK ((status = ANY (ARRAY['draft'::text, 'scheduled'::text, 'sending'::text, 'sent'::text, 'failed'::text, 'cancelled'::text])))
+    newsletter_auto_settings.target_hub: CHECK ((target_hub = ANY (ARRAY['training'::text, 'modeling'::text, 'all'::text])))
+    live_session_assessments.pass_threshold: CHECK (((pass_threshold >= 0) AND (pass_threshold <= 100)))
+    live_session_assessments.max_attempts: CHECK ((max_attempts > 0))
+    live_session_assessments.watch_threshold: CHECK (((watch_threshold >= 0) AND (watch_threshold <= 100)))
+    live_session_attempts.score: CHECK (((score >= 0) AND (score <= 100)))
+    announcement_recipient_log.status: CHECK ((status = ANY (ARRAY['pending'::text, 'sent'::text, 'failed'::text, 'bounced'::text, 'complained'::text])))
+    newsletter_recipient_log.status: CHECK ((status = ANY (ARRAY['pending'::text, 'sent'::text, 'failed'::text, 'bounced'::text, 'complained'::text, 'opened'::text, 'clicked'::text])))
+    model_submissions.course_code: CHECK ((course_code = ANY (ARRAY['3SFM'::text, 'BVM'::text])))
+    model_submissions.attempt_number: CHECK (((attempt_number >= 1) AND (attempt_number <= 3)))
+    model_submissions.status: CHECK ((status = ANY (ARRAY['pending_review'::text, 'approved'::text, 'rejected'::text])))
+    refm_projects.status: CHECK ((status = ANY (ARRAY['Draft'::text, 'Active'::text, 'IC Review'::text, 'Approved'::text, 'Archived'::text])))
+    refm_project_versions.version_number: CHECK ((version_number >= 1))
+    platform_modules.status: CHECK ((status = ANY (ARRAY['live'::text, 'coming_soon'::text, 'hidden'::text, 'pro'::text, 'enterprise'::text])))
+    platform_modules.gating_tier: CHECK ((gating_tier = ANY (ARRAY['free'::text, 'pro'::text, 'enterprise'::text])))
+    platform_module_pages.page_section: CHECK ((page_section = ANY (ARRAY['hero'::text, 'features'::text, 'how_it_works'::text, 'cta'::text, 'testimonials'::text])))
+    features_registry.feature_type: CHECK ((feature_type = ANY (ARRAY['gate'::text, 'limit'::text, 'metered'::text])))
+    features_registry.build_status: CHECK ((build_status = ANY (ARRAY['live'::text, 'in_development'::text, 'stub'::text, 'needs_build'::text])))
+    user_permissions.mode: CHECK ((mode = ANY (ARRAY['grant'::text, 'revoke'::text])))
+    payment_settings.active_provider: CHECK ((active_provider = ANY (ARRAY['none'::text, 'paddle'::text, 'paypro'::text])))
+    trial_requests.status: CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'declined'::text])))
+    ai_features.category: CHECK ((category = ANY (ARRAY['narrative'::text, 'validation'::text, 'guidance'::text, 'generation'::text])))
+    ai_features.grounding: CHECK (((cardinality(grounding) >= 1) AND (grounding <@ ARRAY['model'::text, 'external'::text, 'context'::text])))
+    ai_feature_caps.monthly_cap: CHECK ((monthly_cap >= 0))
+    ai_usage_counters.used: CHECK ((used >= 0))
+    refm_report_deck_versions.version_number: CHECK ((version_number >= 1))
+    refm_fund_terms.management_fee_pct: CHECK (((management_fee_pct >= (0)::numeric) AND (management_fee_pct <= (1)::numeric)))
+    refm_fund_terms.fee_base: CHECK ((fee_base = ANY (ARRAY['committed_capital'::text, 'total_development_cost'::text])))
+    refm_fund_terms.hurdle_rate_pct: CHECK (((hurdle_rate_pct >= (0)::numeric) AND (hurdle_rate_pct <= (1)::numeric)))
+    refm_fund_terms.carry_pct: CHECK (((carry_pct >= (0)::numeric) AND (carry_pct <= (1)::numeric)))
+    refm_fund_terms.committed_capital: CHECK ((committed_capital >= (0)::numeric)) | CHECK ((fee_base = ANY (ARRAY['committed_capital'::text, 'total_development_cost'::text])))
+    public_api_keys.status: CHECK ((status = ANY (ARRAY['active'::text, 'retired'::text])))
+    refm_cost_catalog.entry_id: CHECK ((entry_id ~ '^[a-z0-9-]{1,48}$'::text))
+    refm_cost_catalog.label: CHECK (((length(btrim(label)) >= 1) AND (length(btrim(label)) <= 80)))
+    account_deletions.source: CHECK ((source = ANY (ARRAY['self'::text, 'admin'::text])))
+    admin_campaign_sends.status: CHECK ((status = ANY (ARRAY['sent'::text, 'failed'::text, 'skipped_unsubscribed'::text])))
+
+== FULL SKIPPED LIST ==
+FK pricing_features.plan_id: table not live (014_pricing.sql)
+FK pricing_modules.plan_id: table not live (014_pricing.sql)
+FK pricing_features.plan_id: table not live (018_pricing_initial_plans.sql)
+FK pricing_modules.plan_id: table not live (018_pricing_initial_plans.sql)
+UNIQUE pricing_plans.code: table not live (014_pricing.sql)
+UNIQUE pricing_plans.code: table not live (018_pricing_initial_plans.sql)
+TABLE-CON founder_profile: table not live (002_phase1_cms.sql)
+TABLE-CON pricing_modules: table not live (014_pricing.sql)
+TABLE-CON pricing_modules: table not live (018_pricing_initial_plans.sql)
+TABLE-CON marketing_brand_kit: table not live (100_marketing_studio.sql)

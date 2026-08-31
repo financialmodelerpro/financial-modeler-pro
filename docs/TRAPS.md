@@ -229,6 +229,41 @@ pass. Mig 223's deprecation comment carries the same warning at the schema.
 
 ---
 
+### 2.11 A pooler auth error names a user that is not in your connection string
+
+**Symptom.** `DATABASE_URL` was refreshed twice and still failed. First
+`ENOTFOUND db.<ref>.supabase.co`. Then, with the pooler string,
+`28P01 password authentication failed for user "postgres"` while the string
+said `postgres.<ref>`.
+
+**Three separate causes, each looking like a bad password.**
+
+1. **The direct host is gone.** Supabase retired IPv4 direct connections, so
+   `db.<ref>.supabase.co` does not resolve at all. That fails with ENOTFOUND, not
+   an auth error, but "the DB credential is stale" was the standing assumption
+   and the DNS failure was read as one more symptom of it. The credential was
+   fine the whole time.
+2. **The region must match.** The session pooler is
+   `aws-<n>-<region>.pooler.supabase.com:5432` with user `postgres.<ref>`. The
+   WRONG region answers `tenant/user postgres.<ref> not found`, which reads like
+   a bad username. `aws-0` and `aws-1` are different tenants; only one holds the
+   project.
+3. **A stray space in the value.** `...:<ref>: pass@host` (one space after the
+   colon) yields `password authentication failed for user "postgres"`. The
+   pooler resolves the TENANT from `postgres.<ref>` and then reports the
+   underlying ROLE, so the error names a user that appears nowhere in your
+   string, and says nothing about which half is wrong. An unquoted `.env` value
+   containing a space is the kind of thing every parser handles differently.
+
+**How to tell them apart.** Compare `new URL(raw).password.length` with the
+decoded length and with the raw substring: a space encodes to `%20` and the
+three disagree. Better, assert it: the audit script now REFUSES a URL whose
+password has leading or trailing whitespace, and refuses a `db.` host by name,
+with a message saying what to use instead.
+
+**Proof.** Same string, one character removed: 28P01 becomes a connection, and
+`pg_constraint`, `pg_get_constraintdef` and transactional DDL all work.
+
 ## 3. Excel export (ExcelJS)
 
 ### 3.1 A column width of exactly 9 silently does not apply
