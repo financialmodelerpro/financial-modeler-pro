@@ -300,6 +300,48 @@ is why the heading is derived via `M4Row.totalIsBalance` + `resolveTotalColumnKi
 
 ---
 
+### 3.8 A shared builder can only carry what EVERY renderer can read
+
+**Symptom.** A recognition share of 0.1573, emitted from the one shared Module 2
+builder, rendered correctly on screen and as a currency cell in both exports.
+
+**Mechanism.** `M4Row.rowFmt` is a FUNCTION. The screen calls it; the PDF's
+period renderer formats every numeric cell as money and never looks at it; and
+an Excel cell takes a numFmt STRING, so a function cannot cross into the
+workbook at all. A per-row formatter is therefore a screen-only feature wearing
+the clothes of a shared one. The three surfaces each destroy the figure their
+own way: "-" on screen (below the zero-snap threshold), "0" in the PDF, "0.00"
+in the workbook. Nothing errors.
+
+**Fix.** Put a FLAG on the row (`M4Row.isPercent`), not a formatter, and let each
+renderer pick its own rendering from it. A flag is data and crosses any
+boundary; a closure is not and does not.
+
+**Proof.** `verify-cost-of-sales` D5c asserts all three renderers branch on the
+flag; the workbook cells now carry `NUMFMT.pct` and the PDF text reads "100.0%".
+
+### 3.9 Four copies of one emitter, and the divergent copy is the one in use
+
+**Symptom.** The Module 2 workbook tab printed 0.00 in every column, Total
+included, for two rows the screen and the PDF filled in with 116,519,875 and
+22,230,070.
+
+**Mechanism.** `buildModelWorkbook` declares `emitM4` FOUR times. The shared
+`makeEmitters` copy reads `M4Row.totalOverride` as "print this value"; the
+Revenue tab's own copy, which is the one the Cost of Sales section reaches, read
+it as `totalLast: row.totalOverride !== undefined`, meaning "this row is a
+balance, print the LAST period". For a scalar row carrying `values: []` the last
+period is `undefined`, so the Total printed 0. It looked right because zero is a
+plausible number, and the two other copies are correct only by coincidence:
+their overrides happen always to BE the last period.
+
+**Fix.** One `m4RowOpts(row)` maps an M4Row to money-row options, and both
+emitters that render builder rows call it. A shorthand that is true of today's
+callers is not a rule.
+
+**Proof.** Whole-workbook before/after dump on the fixture: the two rows go from
+all-zero to their real year series, and no other cell in 886 rows moves.
+
 ## 4. PDF export (pdf-lib)
 
 ### 4.1 PDF text is glyph ids, so a naive grep returns nothing

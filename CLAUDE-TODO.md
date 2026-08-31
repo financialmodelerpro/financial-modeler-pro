@@ -12,6 +12,32 @@
 - **Stale `DATABASE_URL` in `.env.local`**: password fails at the resolved tenant (aws-1-ap-northeast-1), so no session can run DDL or read pg_constraint; refreshing it would let the drift audit verify ON DELETE / UNIQUE / CHECK directly instead of behaviorally.
 
 ---
+## OPEN FROM 2026-08-31 (found while adding the Module 2 cost-of-sales build)
+
+- **The workbook still has FOUR `emitM4` implementations.** Two now share
+  `m4RowOpts` (the shared `makeEmitters` copy and the Revenue tab's, which is the
+  one the Module 2 Cost of Sales section reaches, and which was printing 0.00 in
+  the Total column of every scalar override row). The other two, the Opex tab's
+  and the statements', still read `totalOverride` as "print the last period".
+  They are correct TODAY only because their overrides always are the last period,
+  which is a coincidence, not a rule. Route them through `m4RowOpts` as well, and
+  measure the whole workbook before and after (`scripts/snapshot-fingerprint.ts`
+  plus a per-row dump) rather than reasoning about it. Lesson in TRAPS 3.9.
+- **CLAUDE.md claims "Full suite green via `npx tsx scripts/verify-*.ts`". It is
+  not.** Measured 2026-08-31 across all 142 verifiers at HEAD 94134290: **19 fail**
+  (admin-users-cleanup 1, ai-grounding 1, deck-financials 1, deck-schedules 2,
+  email-escaping 1, funding-methods 4, fund-terms 1, idc-depreciation 24,
+  module6-field-census 3, module6-pipeline 1, module6-scenarios 2,
+  phase-date-preservation 15, refm-version-reads, registration-qualification 1,
+  returns-buildup 2, subscription-emails 2, tab2-pass2 5, tab3-critical 1,
+  tab3-default-seed 6). None are diagnosed. `verify-idc-depreciation`, at 24
+  failures, is the loudest and touches the same IDC the cost-of-sales base
+  charges, so it is the one to open first. Until they are triaged, the sentence
+  in CLAUDE.md is a green light nobody has earned.
+- **Nothing from 2026-08-30 or 2026-08-31 has been browser-verified**, the Module
+  2 Cost of Sales build included.
+
+---
 ## STATUS SWEEP 2026-08-30 (end of day): NEXT ITEM is the capex reconciliation
 
 Checked at close of the 2026-08-30 sessions, against HEAD:

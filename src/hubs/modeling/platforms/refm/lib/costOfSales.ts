@@ -70,9 +70,26 @@ export interface AssetCostOfSales {
    *  and is the ONE capex series the inventory roll-forward uses, on screen and
    *  on the balance sheet alike. */
   capexPerPeriod: number[];
+  /** THE TWO HALVES OF capexPerPeriod, kept rather than recomputed, so a surface
+   *  can show WHERE the base came from year by year without re-deriving either
+   *  half.
+   *
+   *  `assetCapexPerPeriod` is the Module 1 capex: the same `computeAssetCost`
+   *  breakdown, on the same arguments, that `buildCapexReport` renders on the
+   *  Module 1 Capex tab, laid on the project axis. `idcCapitalisedPerPeriod` is
+   *  `computeIdcSnapshot`'s series for this asset, verbatim, floored at zero.
+   *  Neither is computed a second time here, and by construction
+   *  assetCapexPerPeriod[t] + idcCapitalisedPerPeriod[t] === capexPerPeriod[t]. */
+  assetCapexPerPeriod: number[];
+  idcCapitalisedPerPeriod: number[];
   /** The recognition series the spread is weighted by: exactly the revenue the
    *  P&L books for this asset. */
   recognitionPerPeriod: number[];
+  /** recognitionPerPeriod[t] / totalRecognition: the WEIGHT the engine spreads
+   *  the base on. Stated so a reader can do the arithmetic the model does,
+   *  capexBase x recognitionSharePerPeriod[t] === cos.perPeriod[t], exactly.
+   *  Sums to 1 whenever anything is recognised, and to 0 when nothing is. */
+  recognitionSharePerPeriod: number[];
   totalRecognition: number;
   /** The result of the ONE engine. */
   cos: CostOfSalesResult;
@@ -168,13 +185,19 @@ export function buildAssetCostOfSales(input: BuildAssetCostOfSalesInput): AssetC
 
   const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
   const offset = Math.max(0, phaseStartYear - projectStartYear);
-  const capexPerPeriod = projectCapexOntoAxis(breakdown.perPeriod ?? [], offset, N);
+  // The two halves are laid on the axis SEPARATELY and then added, rather than
+  // one being accumulated into the other, so the build can be shown without any
+  // surface re-deriving either half. capexPerPeriod is unchanged: still the one
+  // series the roll-forward and the balance sheet read.
+  const assetCapexPerPeriod = projectCapexOntoAxis(breakdown.perPeriod ?? [], offset, N);
+  const idcCapitalisedPerPeriod = new Array<number>(N).fill(0);
   let idc = 0;
   for (let t = 0; t < N; t++) {
     const v = Math.max(0, idcPerPeriod[t] ?? 0);
-    capexPerPeriod[t] += v;
+    idcCapitalisedPerPeriod[t] = v;
     idc += v;
   }
+  const capexPerPeriod = assetCapexPerPeriod.map((v, t) => v + (idcCapitalisedPerPeriod[t] ?? 0));
   const assetCost = Math.max(0, breakdown.total);
   const capexBase = capexPerPeriod.reduce((s, v) => s + v, 0);
 
@@ -185,6 +208,17 @@ export function buildAssetCostOfSales(input: BuildAssetCostOfSalesInput): AssetC
   // The pre / post split is the SAME spread, attributed to whichever half of
   // the recognition drove it. Not a second computation: these sum to cos.
   const totalRecognition = cos.totalRecognition;
+
+  // The weight, stated. NOT a second computation: this is the identical
+  // expression buildCostOfSales spreads on, so capexBase x share[t] reproduces
+  // cos.perPeriod[t] to the last bit, which is what the build's check row pins.
+  const recognitionSharePerPeriod = new Array<number>(N).fill(0);
+  if (totalRecognition > 0) {
+    for (let t = 0; t < N; t++) {
+      recognitionSharePerPeriod[t] = Math.max(0, recognitionPerPeriod[t] ?? 0) / totalRecognition;
+    }
+  }
+
   const cosPresalesPerPeriod = new Array<number>(N).fill(0);
   const cosPostSalesPerPeriod = new Array<number>(N).fill(0);
   if (totalRecognition > 0) {
@@ -221,7 +255,9 @@ export function buildAssetCostOfSales(input: BuildAssetCostOfSalesInput): AssetC
   return {
     assetId: asset.id,
     assetCost, idc, capexBase, capexPerPeriod,
+    assetCapexPerPeriod, idcCapitalisedPerPeriod,
     recognitionPerPeriod: recognitionPerPeriod.slice(0, N),
+    recognitionSharePerPeriod,
     totalRecognition,
     cos, cosPresalesPerPeriod, cosPostSalesPerPeriod,
     inventoryPerPeriod, vintageMatrix,

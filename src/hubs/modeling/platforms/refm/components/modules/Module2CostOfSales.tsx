@@ -46,11 +46,12 @@ import {
 import { ScrollableTable } from './_shared/ScrollableTable';
 import { PhaseSection } from './_shared/PhaseSection';
 import { AssetQuickNav } from './_shared/AssetQuickNav';
-import { makeFmt } from './_shared/numberFmt';
+import { makeFmt, makePctFmt } from './_shared/numberFmt';
 import type { M4Row } from './_shared/m4Table';
 
-function PeriodTable({ title, caption, yearLabels, rows, currency, fmt }: {
-  title: string; caption?: string; yearLabels: number[]; rows: M4Row[]; currency: string; fmt: (v: number) => string;
+function PeriodTable({ title, caption, yearLabels, rows, currency, fmt, pctFmt }: {
+  title: string; caption?: string; yearLabels: number[]; rows: M4Row[]; currency: string;
+  fmt: (v: number) => string; pctFmt: (v: number) => string;
 }): React.JSX.Element {
   // Universal prior-year column: leads with the year before project
   // start so the year axis aligns column-for-column across the platform.
@@ -103,7 +104,7 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, fmt }: {
               }
               const tokens = r.isTotal ? ROW_GRAND_TOTAL : ROW_DATA;
               const stickyBg = r.isTotal ? undefined : STICKY_DATA_BG;
-              const cellFmt = r.rowFmt ?? fmt;
+              const cellFmt = r.rowFmt ?? (r.isPercent ? pctFmt : fmt);
               const total = r.values.reduce((s, v) => s + v, 0);
               const totalDisplay = r.totalOverride ?? cellFmt(total);
               const indentPx = Math.max(0, r.indent ?? 0) * 14;
@@ -146,6 +147,9 @@ export default function Module2CostOfSales(): React.JSX.Element {
   const decimals: DisplayDecimals = (state.project.displayDecimals ?? 1) as DisplayDecimals;
   const currency = state.project.currency ?? 'SAR';
   const fmt = useMemo(() => makeFmt(scale, decimals), [scale, decimals]);
+  // Ratio rows (the recognition share the base is spread on) follow
+  // project.displayDecimals like every other percentage on the platform.
+  const pctFmt = useMemo(() => makePctFmt(decimals), [decimals]);
 
   // The ONE snapshot. Cost of sales is already computed inside it, by the
   // Module 2 layer, on the same base the P&L and the balance sheet use.
@@ -203,6 +207,7 @@ export default function Module2CostOfSales(): React.JSX.Element {
             rows={t.rows}
             currency={currencyHeaderLine(currency, scale)}
             fmt={fmt}
+            pctFmt={pctFmt}
           />
         ))}
       </PhaseSection>

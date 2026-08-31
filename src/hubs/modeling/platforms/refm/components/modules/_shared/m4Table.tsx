@@ -50,6 +50,19 @@ export interface M4Row {
    * so the heading is derived from the rows rather than typed per table.
    */
   totalIsBalance?: boolean;
+  /**
+   * True when this row's values are RATIOS (0..1) to be shown as percentages
+   * rather than currency.
+   *
+   * A shared builder feeds three renderers (this screen, the PDF, the
+   * workbook), and only the screen honours `rowFmt`, which is a function and so
+   * cannot cross into an Excel number format at all. A recognition share of
+   * 0.1573 emitted without this flag prints as a money cell reading "-" on
+   * screen (below the zero-snap threshold), "0" in the PDF and "0.00" in the
+   * workbook: three surfaces, three ways of destroying the same figure. Each
+   * renderer reads the flag and picks its own percentage rendering.
+   */
+  isPercent?: boolean;
   rowFmt?: (v: number) => string;
   /** M4 Pass 2j: prior-year column value for stock lines. */
   priorValue?: number;

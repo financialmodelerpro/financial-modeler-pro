@@ -20,6 +20,10 @@
  *      which is what made `.total` disagree with the sum of `.perPeriod`.
  *   D. ONE implementation: the second engine is gone, nothing re-assembles a
  *      base, and every surface reads the same result.
+ *   E. The year-by-year BUILD of the base (2026-08-31): both halves of the base
+ *      are carried on the result rather than recomputed, the recognition share
+ *      is the weight the engine actually spreads on, and the shared builder's
+ *      first table shows the build and foots it to the charge with a check row.
  *
  * Runs OFFLINE (no env, no DB).
  * Run: npx tsx scripts/verify-cost-of-sales.ts
@@ -30,6 +34,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { buildCostOfSales } from '@/src/core/calculations/revenue';
 import { buildAssetCostOfSales, projectCapexOntoAxis } from '@/src/hubs/modeling/platforms/refm/lib/costOfSales';
+import { buildCostOfSalesReport } from '@/src/hubs/modeling/platforms/refm/lib/reports/cosReports';
 
 const ROOT = path.resolve(__dirname, '..');
 let pass = 0, fail = 0;
@@ -48,6 +53,7 @@ const strip = (s: string): string => s
   .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
   .replace(/`(?:[^`\\]|\\.)*`/g, '``');
 const sum = (a: number[]): number => a.reduce((s, v) => s + (v ?? 0), 0);
+const anyNonZeroArr = (a: number[]): boolean => a.some((v) => (v ?? 0) !== 0);
 
 function main(): void {
   console.log('A. The engine: cost of sales is proportional to recognised revenue');
@@ -75,10 +81,20 @@ function main(): void {
     // deleted the Y0 lump under the old hand-rolled rule.
     const phase = { id: 'ph', name: 'P1', startDate: '2026-01-01', constructionPeriods: 3 };
     const asset = { id: 'a1', name: 'A', phaseId: 'ph', strategy: 'Sell', visible: true };
+    // The fixture carries a REAL cost line. It used to carry none, which made
+    // the asset-capex half of the base identically zero: B2's "base = capex +
+    // IDC" then held for the trivial reason that the capex was nothing, and any
+    // check on the capex half would have passed on a zero series. Same lesson as
+    // B10 below, one level up: a fixture with nothing in it proves nothing.
+    const costLine = {
+      id: 'cl1', phaseId: 'ph', name: 'Construction', method: 'fixed', value: 900,
+      stage: 'hard', scope: 'direct', allocationBasis: 'per_asset',
+      startPeriod: 0, endPeriod: 2, phasing: 'even',
+    };
     const state = {
       project: { currency: 'SAR', startDate: '2026-01-01' },
       phases: [phase], assets: [asset], subUnits: [], parcels: [],
-      costLines: [], costOverrides: [], landAllocationMode: 'equal',
+      costLines: [costLine], costOverrides: [], landAllocationMode: 'equal',
     } as unknown as Parameters<typeof buildAssetCostOfSales>[0]['state'];
 
     const N = 5;
@@ -112,6 +128,75 @@ function main(): void {
         near(built.inventoryPerPeriod[N - 1] ?? 0, 0), String(built.inventoryPerPeriod[N - 1]));
       check('B9 the basis names the IDC inside the base',
         /capitalised IDC/.test(built.basis.label) && /Asset capex/.test(built.basis.label), built.basis.label);
+
+      // ── E. The build of the base, year by year ──────────────────────────────
+      // Run here rather than in its own fixture: these are properties OF this
+      // result, and building a second fixture to assert them would be the same
+      // mistake (a second assembly) this whole file exists to prevent.
+      console.log('E. The year-by-year build of the base');
+      check('E1 the two halves add to the base series in EVERY period, not just in total',
+        built.capexPerPeriod.every((v, t) => near((built.assetCapexPerPeriod[t] ?? 0) + (built.idcCapitalisedPerPeriod[t] ?? 0), v)),
+        built.capexPerPeriod.join(','));
+      check('E2 the Module 1 capex half sums to the asset cost, and is not vacuously zero',
+        near(sum(built.assetCapexPerPeriod), built.assetCost) && built.assetCost > 0,
+        `${sum(built.assetCapexPerPeriod)} vs ${built.assetCost}`);
+      check('E3 the IDC half is the series it was GIVEN, verbatim',
+        built.idcCapitalisedPerPeriod.join(',') === [0, 10, 20, 0, 0].join(',')
+        && near(sum(built.idcCapitalisedPerPeriod), built.idc),
+        built.idcCapitalisedPerPeriod.join(','));
+      check('E4 the recognition share sums to exactly 1 when anything is recognised',
+        near(sum(built.recognitionSharePerPeriod), 1, 1e-12), String(sum(built.recognitionSharePerPeriod)));
+      check('E5 base x share REPRODUCES the charge in every period (the check row is real)',
+        built.cos.perPeriod.every((v, t) => near(built.capexBase * (built.recognitionSharePerPeriod[t] ?? 0), v, 1e-9)));
+      check('E6 nothing recognised means a zero share, not a divide by zero',
+        (() => {
+          const none = buildAssetCostOfSales({
+            state, sellResult: { ...sellResult, recognitionPerPeriod: [0, 0, 0, 0, 0] },
+            revenue: { bySellAsset: new Map() } as unknown as Parameters<typeof buildAssetCostOfSales>[0]['revenue'],
+            idcPerPeriod: [0, 10, 20, 0, 0], axisLength: N, projectStartYear: 2026,
+          });
+          return none !== null && none.recognitionSharePerPeriod.every((v) => v === 0);
+        })());
+
+      // The shared builder's first table IS the build, and it foots.
+      const snapStub = {
+        axisLength: N,
+        yearLabels: [2026, 2027, 2028, 2029, 2030],
+        byAssetCostOfSales: new Map([['a1', built]]),
+      } as unknown as Parameters<typeof buildCostOfSalesReport>[0];
+      const stateStub = { assets: [asset] } as unknown as Parameters<typeof buildCostOfSalesReport>[1];
+      const money = (v: number): string => v.toFixed(2);
+      const tables = buildCostOfSalesReport(snapStub, stateStub, money);
+      const build = tables[0];
+      check('E7 the FIRST table an asset shows is the build, not the charge',
+        !!build && build.title === 'Cost of Sales Build, A', build?.title ?? 'none');
+      if (build) {
+        const labels = build.rows.map((rr) => rr.label);
+        check('E8 the build names the capex, the IDC and the total base, each as a YEAR series',
+          ['Capex, from Module 1', 'Capitalised IDC', 'Total base charged through cost of sales']
+            .every((l) => build.rows.some((rr) => rr.label === l && rr.values.length === N && anyNonZeroArr(rr.values))),
+          labels.join(' | '));
+        check('E9 the recognition share is flagged as a RATIO, so no surface prints it as money',
+          build.rows.some((rr) => /Recognition share/.test(rr.label) && rr.isPercent === true));
+        // No label in the build may lean on a parenthesis: REFM PDF text
+        // extraction drops them (TRAPS 4.1), so a row named "Capex (Module 1)"
+        // cannot be found in the exported document by the name it was given.
+        check('E9a no build label depends on a parenthesis surviving the PDF',
+          build.rows.every((rr) => !/[()]/.test(rr.label)),
+          build.rows.filter((rr) => /[()]/.test(rr.label)).map((rr) => rr.label).join(' | '));
+        check('E10 the base rows come BEFORE the cost of sales row',
+          labels.findIndex((l) => l === 'Total base charged through cost of sales')
+          < labels.findIndex((l) => /^Cost of Sales, total base/.test(l)));
+        const checkRow = build.rows[build.rows.length - 1];
+        check('E11 the build ends on a check row',
+          /^Check, / .test(checkRow.label), checkRow.label);
+        check('E12 the check is zero in every period (base x share reproduces the charge)',
+          checkRow.values.length === N && checkRow.values.every((v) => near(v, 0, 1e-6)),
+          checkRow.values.join(','));
+        check('E13 the check TOTAL is the independent footing, base less cost of sales, and it is zero',
+          checkRow.totalOverride === money(0),
+          String(checkRow.totalOverride));
+      }
     }
 
     // THE Y0 REGRESSION, tested on the projection itself. The old rule sent
@@ -178,6 +263,21 @@ function main(): void {
     const screen = strip(src('src/hubs/modeling/platforms/refm/components/modules/Module2CostOfSales.tsx'));
     check('D5 the Module 2 screen renders the shared builder and assembles nothing',
       !/computeAssetCost/.test(screen) && /buildCostOfSalesReport/.test(screen));
+
+    // The build reaches BOTH exports from the same builder, and all three
+    // renderers honour the ratio flag. Without the flag a share of 0.1573 is a
+    // money cell: "-" on screen, "0" in the PDF, "0.00" in the workbook.
+    check('D5a the PDF renders the Module 2 CoS section from the shared builder',
+      /buildCostOfSalesReport\(snap, state, cosFmtFn\)/.test(strip(src('src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf.ts'))));
+    check('D5b the workbook renders the Module 2 CoS section from the shared builder',
+      /buildCostOfSalesReport\(snap, state,/.test(strip(src('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts'))));
+    for (const [rel, pat] of [
+      ['src/hubs/modeling/platforms/refm/components/modules/Module2CostOfSales.tsx', /r\.isPercent \? pctFmt/],
+      ['src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf.ts', /if \(r\.isPercent\)/],
+      ['src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts', /row\.isPercent \? NUMFMT\.pct/],
+    ] as Array<[string, RegExp]>) {
+      check(`D5c ${path.basename(rel)} renders a ratio row as a percentage`, pat.test(strip(src(rel))));
+    }
     const schedules = strip(src('src/hubs/modeling/platforms/refm/components/modules/Module2Schedules.tsx'));
     check('D6 the Schedules screen reads the result rather than rebuilding it',
       !/computeAssetCost/.test(schedules) && /byAssetCostOfSales/.test(schedules));

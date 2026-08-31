@@ -692,6 +692,11 @@ function pdfTotalHeading(rows: readonly PdfTableRow[]): string {
  * in sync automatically: both render from lib/reports/m4Reports.ts). Collapsible
  * groups are always rendered expanded (print has no interactivity).
  */
+/** Percentage rendering for an M4Row flagged `isPercent`. The scale argument is
+ *  irrelevant to `pct` (a ratio is not money), so any Fmt serves; taking it from
+ *  makeFmt keeps the one percentage rule rather than spelling out a second. */
+const M4_PCT = makeFmt('full');
+
 function m4RowsToPeriodTable(title: string, priorYear: number, yearLabels: number[], rows: M4Row[]): PdfTable {
   const N = yearLabels.length;
   const indentLabel = (r: M4Row): string => {
@@ -712,6 +717,21 @@ function m4RowsToPeriodTable(title: string, priorYear: number, yearLabels: numbe
       : r.values.reduce((s, v) => s + (v ?? 0), 0);
     const prior: number | null = r.priorValue ?? null;
     const values = r.values.slice(0, N);
+    // A ratio row is rendered here, as strings, because the period renderer
+    // formats every numeric cell as money.
+    if (r.isPercent) {
+      const strs: Array<string | null> = values.map((v) => M4_PCT.pct(v, 1));
+      while (strs.length < N) strs.push(null);
+      return {
+        cells: [
+          indentLabel(r),
+          r.totalOverride !== undefined ? r.totalOverride : M4_PCT.pct(values.reduce((s, v) => s + (v ?? 0), 0), 1),
+          prior === null ? null : M4_PCT.pct(prior, 1),
+          ...strs,
+        ],
+        emphasis,
+      };
+    }
     const padded = values.length < N ? [...values, ...new Array<null>(N - values.length).fill(null)] : values;
     return { cells: [indentLabel(r), total, prior, ...padded], emphasis };
   });
@@ -1633,8 +1653,8 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
   }
 
   // Tab 3: Cost of Sales. Mirrors the platform CoS tab via the shared builder
-  // (per-asset Capex driver + Vintage Matrix with a Total row + Summary +
-  // Inventory roll-forward, then the project totals).
+  // (per-asset year-by-year base build with its check row + Vintage Matrix with
+  // a Total row + Summary + Inventory roll-forward, then the project totals).
   const cosFmtFn = (v: number): string => fmt.money(v);
   for (const t of buildCostOfSalesReport(snap, state, cosFmtFn)) {
     items.push(tTable('Tab 3: Cost of Sales', 'outputs', m4RowsToPeriodTable(t.title, py, yl, t.rows)));

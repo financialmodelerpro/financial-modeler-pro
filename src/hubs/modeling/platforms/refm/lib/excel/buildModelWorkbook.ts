@@ -1981,9 +1981,33 @@ function scalarCell(ws: ExcelJS.Worksheet, r: number, label: string, link: strin
 // titles, navy totals, navy-dark subtotals. emitM4 renders a shared-builder
 // M4Row (the on-screen statement model) exactly.
 type RowStyle = 'plain' | 'subtotal' | 'total';
+
+/** Options a money row takes from an M4Row. The three parts a renderer cannot
+ *  guess are all here, in ONE place, because they were guessed differently in
+ *  two: the Revenue tab's own emitter read `totalOverride` as "this row is a
+ *  balance, so print the LAST period" instead of "print THIS value". On the
+ *  Module 2 Cost of Sales section that silently printed 0 in the Total column
+ *  of every scalar row the screen and the PDF filled in, and it would have
+ *  printed the last period of the build's check row rather than the footing.
+ *  Both emitters now map a row the same way. */
+interface M4RowOpts { style: RowStyle; indent?: number; prior?: number; totalValue?: number; numFmt?: string }
+function m4RowOpts(row: M4Row): M4RowOpts {
+  const tv = row.totalOverride !== undefined ? Number(row.totalOverride) : undefined;
+  return {
+    style: row.isTotal ? 'total' : row.isSubtotal ? 'subtotal' : 'plain',
+    indent: row.indent,
+    prior: row.priorValue,
+    // The builders are handed String as their formatter on this surface, so an
+    // override parses back to its exact number. A non-numeric one (a label, a
+    // dash) falls through to the summed Total rather than writing NaN.
+    totalValue: tv !== undefined && Number.isFinite(tv) ? tv : undefined,
+    numFmt: row.isPercent ? NUMFMT.pct : undefined,
+  };
+}
+
 function makeEmitters(ws: ExcelJS.Worksheet, N: number, start = 5): {
   section: (text: string) => void; groupBand: (text: string) => void; subTitle: (text: string) => void;
-  moneyRow: (label: string, series: number[] | undefined, opts?: { style?: RowStyle; indent?: number; basis?: string; prior?: number; totalLast?: boolean; totalValue?: number; noTotal?: boolean }) => number;
+  moneyRow: (label: string, series: number[] | undefined, opts?: { style?: RowStyle; indent?: number; basis?: string; prior?: number; totalLast?: boolean; totalValue?: number; noTotal?: boolean; numFmt?: string }) => number;
   statRow: (label: string, series: number[] | undefined, numFmt: string, indent?: number) => void;
   emitM4: (row: M4Row) => number; emitTable: (rows: M4Row[]) => void; note: (text: string) => void;
   gap: () => void; cursor: () => number;
@@ -2004,13 +2028,17 @@ function makeEmitters(ws: ExcelJS.Worksheet, N: number, start = 5): {
     for (let c = 1; c <= lastActiveCol(N); c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
     r += 1;
   };
-  const moneyRow = (label: string, series: number[] | undefined, opts: { style?: RowStyle; indent?: number; basis?: string; prior?: number; totalLast?: boolean; totalValue?: number; noTotal?: boolean } = {}): number => {
+  const moneyRow = (label: string, series: number[] | undefined, opts: { style?: RowStyle; indent?: number; basis?: string; prior?: number; totalLast?: boolean; totalValue?: number; noTotal?: boolean; numFmt?: string } = {}): number => {
     const used = r;
     const style = opts.style ?? 'plain';
     setLabel(ws.getCell(r, LBL_COL), label, { indent: opts.indent, bold: style !== 'plain' });
     if (opts.basis) setBasis(ws.getCell(r, META_B), opts.basis);
     const vals = (series ?? []).slice(0, N);
-    const put = (c: number, v: number): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
+    // numFmt is an override, not a new styling path: a ratio row (a recognition
+    // share) is the same row in every other respect, and must NOT be swept by
+    // scaleMoneyFormats, which only touches money / money1.
+    const nf = opts.numFmt ?? NUMFMT.money;
+    const put = (c: number, v: number): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = nf; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
     put(OPEN_COL, opts.prior ?? 0);
     for (let t = 0; t < N; t++) put(pcol(t), vals[t] ?? 0);
     if (!opts.noTotal) put(TOTAL_COL, opts.totalValue !== undefined ? opts.totalValue : opts.totalLast ? (vals[N - 1] ?? 0) : vals.reduce((s, v) => s + (v ?? 0), 0) + (opts.prior ?? 0));
@@ -2030,9 +2058,7 @@ function makeEmitters(ws: ExcelJS.Worksheet, N: number, start = 5): {
   // exact platform Total; priorValue -> the opening (E) column.
   const emitM4 = (row: M4Row): number => {
     if (row.isSection) { subTitle(row.label); return r - 1; }
-    const style: RowStyle = row.isTotal ? 'total' : row.isSubtotal ? 'subtotal' : 'plain';
-    const tv = row.totalOverride !== undefined ? Number(row.totalOverride) : undefined;
-    return moneyRow(row.label, row.values, { style, indent: row.indent, prior: row.priorValue, totalValue: tv !== undefined && Number.isFinite(tv) ? tv : undefined });
+    return moneyRow(row.label, row.values, m4RowOpts(row));
   };
   const emitTable = (rows: M4Row[]): void => { for (const row of rows) emitM4(row); };
   // A short explanatory sentence under whatever was just emitted. Its own
@@ -2296,16 +2322,21 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
   // One money row from a snapshot array. style: plain / subtotal (grey-bold) /
   // total (navy band). totalLast => Total = last value (balances); noTotal =>
   // no Total cell (opening rows). Returns the row used.
-  const moneyRow = (label: string, series: number[] | undefined, opts: { style?: RowStyle; indent?: number; basis?: string; prior?: number; totalLast?: boolean; noTotal?: boolean } = {}): number => {
+  const moneyRow = (label: string, series: number[] | undefined, opts: { style?: RowStyle; indent?: number; basis?: string; prior?: number; totalLast?: boolean; noTotal?: boolean; totalValue?: number; numFmt?: string } = {}): number => {
     const used = r;
     const style = opts.style ?? 'plain';
     setLabel(ws.getCell(r, LBL_COL), label, { indent: opts.indent, bold: style !== 'plain' });
     if (opts.basis) setBasis(ws.getCell(r, META_B), opts.basis);
     const vals = A(series);
-    const put = (c: number, v: number): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
+    // numFmt is an override, not a second styling path: a ratio row (the
+    // recognition share the base is spread on) is the same row in every other
+    // respect, and must NOT be swept by scaleMoneyFormats, which only rescales
+    // money / money1.
+    const nf = opts.numFmt ?? NUMFMT.money;
+    const put = (c: number, v: number): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = nf; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
     put(OPEN_COL, opts.prior ?? 0);
     for (let t = 0; t < N; t++) put(pcol(t), vals[t] ?? 0);
-    if (!opts.noTotal) put(TOTAL_COL, opts.totalLast ? (vals[N - 1] ?? 0) : vals.reduce((s, v) => s + (v ?? 0), 0) + (opts.prior ?? 0));
+    if (!opts.noTotal) put(TOTAL_COL, opts.totalValue !== undefined ? opts.totalValue : opts.totalLast ? (vals[N - 1] ?? 0) : vals.reduce((s, v) => s + (v ?? 0), 0) + (opts.prior ?? 0));
     if (style === 'total') { fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.navy); for (let c = 1; c <= lastActiveCol(N); c++) { const cell = ws.getCell(r, c); cell.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white }, italic: c === META_B }; } }
     else if (style === 'subtotal') { for (let c = 1; c <= lastActiveCol(N); c++) { const cell = ws.getCell(r, c); cell.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark }, italic: c === META_B }; } }
     r += 1;
@@ -2319,10 +2350,11 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
     r += 1;
   };
   // An M4Row from a shared report builder (Cost of Sales). Returns the row used.
+  // Mapped by m4RowOpts, the ONE rule, so this tab's Total column says what the
+  // screen and the PDF say.
   const emitM4 = (row: M4Row): number => {
     if (row.isSection) { subTitle(row.label); return r - 1; }
-    const style: RowStyle = row.isTotal ? 'total' : row.isSubtotal ? 'subtotal' : 'plain';
-    return moneyRow(row.label, row.values, { style, indent: row.indent, prior: row.priorValue, totalLast: row.totalOverride !== undefined });
+    return moneyRow(row.label, row.values, m4RowOpts(row));
   };
   // A vintage matrix (cohort-year rows + a column-sum Total), non-zero cohorts only.
   const vintage = (title: string, matrix: number[][]): void => {
@@ -2471,7 +2503,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
   }
 
   // ── 3. Cost of Sales ─────────────────────────────────────────────────────────
-  section('3. Cost of Sales (per-asset capex driver, vintage matrix, summary, inventory roll-forward, project totals)');
+  section('3. Cost of Sales (per-asset base build, vintage matrix, summary, inventory roll-forward, project totals)');
   const cosByAssetRow = new Map<string, number>();
   let cosTotalRow = r;
   for (const t of buildCostOfSalesReport(snap, state, (v) => String(v))) {
