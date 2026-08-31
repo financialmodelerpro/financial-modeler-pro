@@ -23,39 +23,44 @@
   which is a coincidence, not a rule. Route them through `m4RowOpts` as well, and
   measure the whole workbook before and after (`scripts/snapshot-fingerprint.ts`
   plus a per-row dump) rather than reasoning about it. Lesson in TRAPS 3.9.
-- **THE 19 FAILING VERIFIERS ARE NOW DIAGNOSED (2026-08-31b), NONE FIXED.** 123 of
-  142 pass. The CLAUDE.md green claim is corrected to state the count. Full
-  classification in [CHANGELOG.md](CHANGELOG.md) 2026-08-31b. Headline: **no
-  failure is a live wrong number.** 14 verifiers are stale pins, 3 are broken
-  checks, 2 are real but narrow. `verify-idc-depreciation` (24) does NOT indicate
-  an IDC defect: its A-F depreciation sections pass, and its G/H/J sections call
-  `computeFacilitySchedule` with 6 of 9 arguments (so IDC classification never
-  fires) while asserting the `capitalize` x `fundingMode` quadrants retired on
-  2026-08-18. **Fix order, none started:**
-  1. `verify-email-escaping`: `button()` in `_base.ts` interpolates `href` raw;
-     `templates/subscription.ts:393` is the only call site passing a non-constant
-     URL. One line.
-  2. `verify-ai-grounding`: `auditGroundedText` lets an ungrounded market figure
-     through on a percentage collision (7.5% cap rate). One predicate.
-  3. **The UI half of the sale-cohort finding, the only user-facing one.**
-     `buildSaleCohortProfile` replaced the per-period cash payment profile, but
-     `Module2Revenue.tsx:1049` still WRITES `cashPaymentProfile.percentagesByPhase`
-     and the screen still offers the editor. A user can type a payment plan the
-     engine does not read. Decide: restore the read, or remove the input. Do NOT
-     leave it accepting keystrokes that change nothing.
-  4. Re-aim `verify-idc-depreciation` G/H/J at the ONE treatment; pass
-     `constructionSpendByPeriod`; delete the retired quadrant assertions rather
-     than letting them keep passing for the wrong reason.
-  5. Wording pins (`verify-admin-users-cleanup`, `verify-registration-qualification`,
-     `verify-subscription-emails`), the stale `STANDARD_COST_LINE_IDS` RETT entry
-     behind `verify-tab3-default-seed`, the stale synthetic fixtures behind
-     `verify-deck-schedules` / `verify-deck-financials`, and the OpEx-seeds-ZERO
-     fixtures behind the two module6 files.
-  6. Last: `verify-tab2-pass2`, `verify-tab3-critical`, `verify-fund-terms` and
-     `verify-refm-version-reads`. These assert a LOCATION or an exact source
-     string, not a behaviour. Rewrite them to assert behaviour; do not restore
-     the greps. `verify-refm-version-reads` also CRASHES on a stub client that
-     predates mig 224, so it currently reports nothing at all.
+- **THE SUITE IS 133 PASS / 9 FAIL (2026-08-31c). Was 123/19.** Ten verifiers
+  re-aimed and two real defects fixed, in the order set out in the 2026-08-31b
+  diagnosis; every rewritten check sabotage-tested. Narrative in
+  [CHANGELOG.md](CHANGELOG.md) 2026-08-31c. **The 9 remaining failures (34
+  checks) are diagnosed, deliberately open, and none is a live wrong number:**
+  1. **The sale-cohort supersession fixtures** (`verify-phase-date-preservation`
+     15, `verify-funding-methods` 4, `verify-returns-buildup` 2).
+     `buildSaleCohortProfile` replaced `cashPaymentProfile` as the driver of
+     pre-sales cash on 2026-08-19. Sections A/B/C/H of phase-date-preservation,
+     the phase-date subject the file is named for, all PASS; D-G assert the old
+     per-period schedule. funding-methods and returns-buildup fail only on the
+     advisory "no downpayment stated ... so every sale cohort is computed as
+     taking no deposit", which is the fixture having no downpayment, not a
+     defect. Re-aim the fixtures at cohort terms.
+  2. **Two stale synthetic deck fixtures** (`verify-deck-schedules` 2,
+     `verify-deck-financials` 1). The FCFF gap is EXACTLY the in-kind land row
+     (+3.0, +2.9, +2.8 ...) that the hand-authored `rs` omits from its stream;
+     the FCFE fixture leaves all four bridge series at zero. The DDM block,
+     same code and same fixture, ties to 0.00, and deck-financials' own bridge
+     identity passes on the same run, so the code is fine and the fixture is
+     stale. deck-financials fails only a SIGN convention on the interest line.
+  3. **The Module 6 fixtures and lever curation** (`verify-module6-field-census`
+     3, `verify-module6-scenarios` 2, `verify-module6-pipeline` 1). The opex
+     lever moves nothing because `baseOpex = 0`, downstream of the deliberate
+     OpEx-seeds-ZERO change. The field census is the one with real product
+     content: 11 ungated DEAD levers (including
+     `cashPaymentProfile.profileMode`, inert since the cohort rule landed, and
+     `project.idcConfig.fundingMode`, retired 2026-08-18), several live levers
+     not offered, and "Land price moves no comparison KPI". Module 6 offering a
+     lever that changes nothing is user-facing; triage that list.
+  4. **`verify-tab3-default-seed` 6: LEFT DELIBERATELY.** The seeder is right
+     and the LIST is stale: `STANDARD_COST_LINE_IDS` still carries the
+     country-gated RETT entry retired on 2026-08-17c, so the expected count is
+     13 and the seeder correctly produces 12. Fixing it means editing the
+     Module 1 seed catalog, and **Module 1 is CLOSED before launch**. Either
+     take the Module 1 change deliberately, or derive the verifier's expected
+     count from the seeder rather than from the list.
+
 - **Nothing from 2026-08-30 or 2026-08-31 has been browser-verified**, the Module
   2 Cost of Sales build included.
 
