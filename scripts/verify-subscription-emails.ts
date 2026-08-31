@@ -145,10 +145,36 @@ const lc = (s: string) => s.toLowerCase();
   // ── Billing display + invoices + manual receipts (this task) ────────────────
   console.log('=== FMP footer branding (not the Training tagline) ===');
   const subTpl = read('src/shared/email/templates/subscription.ts');
-  check('subscription emails force an FMP footer wrapper', subTpl.includes('function subLayout(') && !subTpl.includes('await baseLayoutBranded('));
-  check('footer uses the PaceMakers company line', subTpl.includes('A PaceMakers Business Consultants Platform'));
-  check('footer drops the Training Hub tagline', !subTpl.includes('Professional Financial Modeling Training') && !subTpl.includes('training program'));
   const baseTpl = read('src/shared/email/templates/_base.ts');
+  // FOLLOW THE COMPOSITION, do not forbid a token.
+  //
+  // These two checks required subscription.ts to declare its OWN subLayout
+  // function and to hold the PaceMakers string itself. Both were true until
+  // 2026-08-30, when the signature and footer were deliberately consolidated
+  // into _base.ts as fmpLayout, so that every Modeling Hub email gets the
+  // override rather than each caller remembering it (a campaign had already
+  // shipped with the Training Hub footer because it did not). The checks then
+  // forbade the very fix, while the check immediately below them confirmed the
+  // mechanism it uses. They are re-aimed at the property: a subscription email
+  // ENDS UP with the FMP footer and not the Training Hub one.
+  //
+  // Not rendered, because baseLayoutBranded reads email_branding from the
+  // database and this verifier runs offline; the composition is followed
+  // instead, link by link.
+  check('subscription bodies go through ONE layout helper', /const subLayout = (\w+)/.test(subTpl));
+  const layoutFn = (subTpl.match(/const subLayout = (\w+)/) ?? [])[1] ?? '';
+  check('and that helper is the FMP-branded layout, not the raw branded one',
+    layoutFn === 'fmpLayout' && !/await baseLayoutBranded\(/.test(subTpl), layoutFn || 'none');
+  const fmpLayoutSrc = (baseTpl.match(/export function fmpLayout[\s\S]{0,400}/) ?? [''])[0];
+  check('fmpLayout overrides BOTH the signature and the footer',
+    /signature_html:\s*FMP_SIGNATURE_HTML/.test(fmpLayoutSrc) && /footer_text:\s*FMP_FOOTER_TEXT/.test(fmpLayoutSrc));
+  check('footer uses the PaceMakers company line',
+    /FMP_SIGNATURE_HTML[\s\S]{0,400}A PaceMakers Business Consultants Platform/.test(baseTpl)
+    && /FMP_FOOTER_TEXT[\s\S]{0,200}A PaceMakers Business Consultants Platform/.test(baseTpl));
+  check('footer drops the Training Hub tagline',
+    !/FMP_SIGNATURE_HTML[\s\S]{0,400}(Professional Financial Modeling Training|training program)/.test(baseTpl)
+    && !/FMP_FOOTER_TEXT[\s\S]{0,200}(Professional Financial Modeling Training|training program)/.test(baseTpl)
+    && !subTpl.includes('Professional Financial Modeling Training') && !subTpl.includes('training program'));
   check('baseLayoutBranded accepts signature/footer overrides', /overrides\?:\s*\{[^}]*signature_html/.test(baseTpl));
 
   console.log('=== Billing source precedence (Paddle wins) ===');

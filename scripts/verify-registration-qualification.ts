@@ -210,8 +210,15 @@ section('D. The qualification is stored, additive, and shown in both places');
   check('D: the API filters on all three states',
     listApi.includes("reFilter === 'yes'") && listApi.includes("reFilter === 'no'") && listApi.includes("reFilter === 'unknown'"));
   check('D: the API sorts on the answer', /order\('works_in_real_estate'/.test(listApi));
+  // THREE RENDERINGS, not one sentence. This looked for a literal string that
+  // no longer exists anywhere in the page, so it could only ever have passed
+  // against the copy of the day. The property is that the column renders three
+  // DISTINCT states and that the third says why it is blank.
   check('D: the list column distinguishes "not asked" from "no"',
-    list.includes('user-real-estate-') && list.includes('Registered before this question was asked'));
+    list.includes('user-real-estate-')
+    && /works_in_real_estate === true/.test(list)
+    && /works_in_real_estate === false/.test(list)
+    && /title="Never asked:[^"]{10,}"/.test(list));
 
   // SCHEMA-TOLERANT everywhere it is read, so a deploy before the migration
   // degrades to "not asked" rather than breaking a screen.

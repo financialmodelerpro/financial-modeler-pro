@@ -107,8 +107,13 @@ async function main() {
     !page.includes('is in pre-launch lockdown'));
 
   console.log('E. Never-asked dash');
+  // THE STATE, NOT THE SENTENCE. This pinned the tooltip's exact wording and
+  // went red on 2026-08-30 when the signup question widened to "real estate /
+  // hospitality". Nothing was broken: a copy edit failed a check about
+  // behaviour. What must hold is that the never-asked dash still EXPLAINS
+  // itself, so an admin cannot read it as "no".
   check('E1 dash keeps a tooltip naming the never-asked state',
-    /title="Never asked: this user registered before the real estate question existed"/.test(page));
+    /title="Never asked:[^"]{10,}"/.test(page), (page.match(/title="Never asked:[^"]*"/) ?? ['none'])[0]);
   check('E2 tooltip is discoverable (help cursor)',
     /cursor: 'help'[^}]*borderBottom: '1px dotted/.test(page));
 
