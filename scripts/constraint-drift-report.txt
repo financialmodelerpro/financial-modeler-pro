@@ -1,5 +1,5 @@
 == A. FOREIGN KEY ON DELETE: declared vs live ==
-  59 FK columns after 10 superseding ALTER(s): 54 match, 1 differ, 2 missing, 2 skipped
+  59 FK columns after 12 superseding ALTER(s): 55 match, 0 differ, 2 missing, 2 skipped
 
 == B. UNIQUE: declared vs live ==
   25 declared column UNIQUEs: 20 present, 3 absent
@@ -15,7 +15,7 @@ FINDINGS, RANKED
 ==============================================================================
 
 -- 1. ON DELETE DIFFERS FROM THE MIGRATION (a delete behaves differently than declared) --
-  ON DELETE DIFFERS: user_permissions.created_by -> users: declared NO ACTION (158_entitlement_catalog.sql) but LIVE IS SET NULL  [user_permissions_created_by_fkey]
+  none
 
 -- 2. DECLARED CONSTRAINT ABSENT LIVE (the guarantee does not exist) --
   FK MISSING: certificates.assessment_id -> assessments declared ON DELETE NO ACTION (005_training_assessments.sql) but NO FK exists live
