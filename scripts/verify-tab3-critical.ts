@@ -53,9 +53,55 @@ console.log('\n[1/7] Fix 1: UI filter master-inclusive shape');
 {
   if (COSTS_SRC.includes('T3-render Fix 1 (2026-05-12)')) pass('T3-render Fix 1 marker present');
   else fail('T3-render Fix 1 marker', 'missing');
-  if (COSTS_SRC.includes('c.targetAssetId === undefined || c.targetAssetId === activeAsset.id')) {
-    pass('assetLines filter uses master-inclusive shape');
-  } else fail('assetLines filter', 'does not include master lines');
+  // MASTER-INCLUSIVE, however the variable is spelled. This pinned
+  // "c.targetAssetId === undefined || c.targetAssetId === activeAsset.id" and
+  // went red on a rename: the two live filters read a.id and asset.id. The
+  // property is that EVERY per-asset cost-line filter admits project-wide
+  // master lines, which is stronger than the old check as well as more durable,
+  // because it now covers all of them rather than one spelling of one.
+  {
+    // Comments and strings out first: this file CONTAINS a comment describing
+    // the strict-equality filter that caused the original bug, and matching
+    // prose about a defect as if it were the defect is its own failure mode.
+    const code = COSTS_SRC
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/[^\n]*/g, '')
+      .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
+      .replace(/"(?:[^"\\\n]|\\.)*"/g, '""');
+    // Every .filter() whose predicate mentions targetAssetId. A label test such
+    // as `const isCustom = line.targetAssetId === asset.id` is not a filter and
+    // is correctly strict.
+    /** The text of one .filter(...) call, from its open paren to the paren
+     *  that closes it. A fixed-length window is not good enough: a short
+     *  predicate lets it run into the next statement, which is how
+     *  `.filter((g) => g.assets.length > 0)` got reported as a cost-line
+     *  filter that drops master lines. */
+    const filterCall = (src: string, at: number): string => {
+      const open = src.indexOf('(', at);
+      if (open < 0) return '';
+      let depth = 0;
+      for (let i = open; i < src.length && i < open + 2000; i++) {
+        if (src[i] === '(') depth += 1;
+        else if (src[i] === ')') { depth -= 1; if (depth === 0) return src.slice(open, i + 1); }
+      }
+      return src.slice(open, open + 2000);
+    };
+    const regions: string[] = [];
+    for (let at = code.indexOf('.filter('); at >= 0; at = code.indexOf('.filter(', at + 1)) {
+      const region = filterCall(code, at);
+      if (/targetAssetId/.test(region)) regions.push(region);
+    }
+    const masterInclusive = (s: string): boolean =>
+      /targetAssetId === undefined \s*\|\|/.test(s) || /!\w+\.targetAssetId \s*\|\|/.test(s);
+    const bad = regions.filter((s) => !masterInclusive(s));
+    if (regions.length > 0 && bad.length === 0) {
+      pass(`every per-asset cost-line filter admits project-wide master lines (${regions.length} filter(s))`);
+    } else if (regions.length === 0) {
+      fail('assetLines filter', 'no cost-line filter mentioning targetAssetId found at all');
+    } else {
+      fail('assetLines filter', `${bad.length} of ${regions.length} filter(s) drop master lines: ${bad[0].slice(0, 90).replace(/\s+/g, ' ')}`);
+    }
+  }
   // Verify the strict-equality bug is gone (legacy: `c.targetAssetId === activeAsset.id` only).
   // The remaining matches at lines 2779 + 2793 use `!c.targetAssetId || ...` which is OK.
   const bugRegex = /\.filter\(\(c\) => c\.targetAssetId === activeAsset\.id\)/g;

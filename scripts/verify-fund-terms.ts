@@ -441,7 +441,16 @@ console.log('\n=== 8. The tab is wired, and honest about doing nothing yet ===')
   const shell = read('src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx');
   const tab = read('src/hubs/modeling/platforms/refm/components/modules/Module1FundTerms.tsx');
 
-  check('the tab is registered in m1Tabs', /key: 'fund-terms'/.test(shell));
+  // REGISTERED, WHEREVER THE REGISTRY LIVES. This grepped RealEstatePlatform
+  // for the tab literal. The tab is registered, and always was: the Module 1
+  // tab list moved into lib/moduleTabs.ts on 2026-08-20 so the platform guide
+  // and the 34-step tour could read the same structure the shell renders. The
+  // check was pinned to a FILE, not to the fact of registration.
+  const tabRegistry = read('src/hubs/modeling/platforms/refm/lib/moduleTabs.ts');
+  check('the tab is registered in the shared module-tab registry',
+    /key: 'fund-terms'/.test(tabRegistry) || /key: 'fund-terms'/.test(shell));
+  // And the shell actually renders it, so registration is not decorative.
+  check('and the shell renders it', /activeTab === 'fund-terms'/.test(shell) && /Module1FundTerms/.test(shell));
   check('the tab renders in the M1 branch', /activeTab === 'fund-terms' && <Module1FundTerms/.test(shell));
 
   check('the fee rows render FROM the registry, not hand-written per fee', /FUND_FEE_SPECS\.map/.test(tab));

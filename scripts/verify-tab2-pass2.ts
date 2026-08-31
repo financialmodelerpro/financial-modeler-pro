@@ -149,33 +149,81 @@ console.log('\n[2/5] Fix 1: computeAssetLandSqm per-phase data ownership (refere
 }
 
 // ── Section 3: Fix 2 companion guards ────────────────────────────────────
+//
+// WHAT THESE USED TO DO, and why they stopped. Each check matched an exact
+// multi-line source fragment, indentation included, of the form
+// "!asset.isCompanion && (\n          <div\n            style={{ display: 'grid'...".
+// The guards are all still there and still correct; the file was reformatted
+// and a few characters between the guard and the element moved. Five checks
+// went red and reported "marker not found", which says nothing about whether a
+// companion asset renders an Areas Row.
+//
+// THE PROPERTY IS GATING, so gating is what is asserted: for each
+// companion-sensitive feature, find a STABLE anchor inside it and require the
+// nearest thing above it to be a !asset.isCompanion guard. Survives
+// reformatting, fails the moment a feature escapes its guard.
+
+/** True when `anchor` sits inside a `!asset.isCompanion` guard: the guard
+ *  appears within `window` characters above it, with no intervening JSX close
+ *  of that guard. Deliberately not an exact-source match. */
+function companionGated(src: string, anchor: string, window = 500): boolean {
+  const at = src.indexOf(anchor);
+  if (at < 0) return false;
+  const before = src.slice(Math.max(0, at - window), at);
+  return /!asset\.isCompanion\s*&&/.test(before);
+}
+
 console.log('\n[3/5] Fix 2: companion guard sweep');
 {
-  const needles: Array<[string, string]> = [
-    ['Areas Row guard', `!asset.isCompanion && (\n          <div\n            style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)'`],
-    ['NDA row guard', '!asset.isCompanion && project.projectNdaEnabled === true && project.projectNdaScope'],
-    ['Hierarchy chips guard', '!asset.isCompanion && (() => {\n            const hier = computeAssetAreaHierarchy(asset, subUnits);'],
-    ['Footer summary guard', `!asset.isCompanion && (() => {\n            const hier = computeAssetAreaHierarchy(asset, subUnits);\n            const eff = hier.bua > 0`],
-    ['Land Recon companion exclusion', 'a.visible && a.isCompanion !== true'],
+  const gated: Array<[string, string]> = [
+    ['Areas Row is companion-gated', '-areas-row'],
+    ['NDA row is companion-gated', "projectNdaScope === 'asset' && ("],
+    ['Hierarchy chips are companion-gated', 'const gfaDisplay ='],
+    ['Footer summary is companion-gated', 'const eff = hier.bua > 0'],
   ];
-  for (const [name, needle] of needles) {
-    if (ASSETS_SRC.includes(needle)) pass(name);
-    else fail(name, `marker not found`);
+  for (const [name, anchor] of gated) {
+    if (companionGated(ASSETS_SRC, anchor)) pass(name);
+    else fail(name, `no !asset.isCompanion guard above "${anchor}"`);
   }
+  // The land reconciliation lists assets and must leave companions out of them.
+  const landReconFilters = (ASSETS_SRC.match(/a\.isCompanion !== true/g) ?? []).length;
+  if (landReconFilters >= 1) pass('Land Recon excludes companions from its asset list');
+  else fail('Land Recon companion exclusion', 'no companion filter found');
+  // A negative control: the companion-ONLY block must NOT be companion-gated,
+  // or the check above would pass on a file where everything is hidden.
+  if (/\{asset\.isCompanion && \(/.test(ASSETS_SRC)) pass('a companion-only block still exists (the gate cuts both ways)');
+  else fail('companion-only block', 'not found');
 }
 
 // ── Section 4: Fix 3 + 4 auto-managed Area Recon ─────────────────────────
 console.log('\n[4/5] Fix 3 + 4: Area Reconciliation auto-render');
 {
-  if (ASSETS_SRC.includes('!asset.isCompanion && (() => {\n            const reconRevenue = assetSubUnits')) {
+  if (companionGated(ASSETS_SRC, 'const reconRevenue = assetSubUnits')) {
     pass('Fix 3: companion drops Area Reconciliation block');
-  } else fail('Fix 3 companion drop', 'guard not found');
+  } else fail('Fix 3 companion drop', 'no !asset.isCompanion guard above the recon block');
   if (ASSETS_SRC.includes('if (allZero) return null;')) pass('Fix 4: zero-data auto-skip');
   else fail('Fix 4 zero-data', 'allZero return null missing');
-  // Auto-render reappears when sub-units exist (sanity on the conditional).
-  if (ASSETS_SRC.includes('assetSubUnits.length === 0\n              && hierForRecon.bua === 0')) {
-    pass('Fix 4 zero-data covers all 8 attributes (sub-units / BUA / NSA / Support / Parking / Land sqm / Land cost / Revenue)');
-  } else fail('Fix 4 zero-data attributes', 'conjunction not found');
+  // ALL EIGHT DIMENSIONS, by name, inside the allZero expression. This used to
+  // match the first two terms and their exact indentation, so it could go red
+  // on a reformat and, worse, would have stayed GREEN if terms three to eight
+  // had been deleted.
+  {
+    const expr = (ASSETS_SRC.match(/const allZero =[\s\S]*?;/) ?? [''])[0];
+    const terms: Array<[string, RegExp]> = [
+      ['sub-units', /assetSubUnits\.length === 0/],
+      ['BUA', /\.bua === 0/],
+      ['NSA', /\.nsa === 0/],
+      ['Support', /supportArea === 0/],
+      ['Parking', /parkingArea === 0/],
+      ['Land sqm', /landSqm === 0/],
+      ['Land cost', /landCost === 0/],
+      ['Revenue', /reconRevenue === 0/],
+    ];
+    const missing = terms.filter(([, re]) => !re.test(expr)).map(([n]) => n);
+    if (expr && missing.length === 0) {
+      pass('Fix 4 zero-data covers all 8 attributes (sub-units / BUA / NSA / Support / Parking / Land sqm / Land cost / Revenue)');
+    } else fail('Fix 4 zero-data attributes', expr ? `missing: ${missing.join(', ')}` : 'allZero expression not found');
+  }
 }
 
 // ── Section 5: em-dash sweep on touched files ────────────────────────────

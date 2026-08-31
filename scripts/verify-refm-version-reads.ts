@@ -50,19 +50,42 @@ function eq(label: string, actual: unknown, expected: unknown) {
 const src = readFileSync(join(ROOT, SERVER_REL), 'utf8');
 
 /** Extracts each query chain starting at `.from('<table>')` up to its `;`. */
+/**
+ * The query chains against one table.
+ *
+ * A CHAIN NO LONGER ENDS AT THE SEMICOLON. This took the text from `.from(`
+ * to the next `;` and called anything without a bounding call UNBOUNDED. Then
+ * the soft-delete filter (mig 224) split one chain in two:
+ *
+ *     const q = sb.from('refm_projects').select(cols).eq('id', id);
+ *     return (deletedApplied === false ? q : q.is('deleted_at', null)).maybeSingle();
+ *
+ * The `.maybeSingle()` that bounds it now sits on the NEXT statement, so a
+ * correctly bounded single-row read was reported as an unbounded scan. The
+ * chain now carries a trailing window as well, and `boundedness` looks for the
+ * assigned variable being bounded there.
+ */
 function queryChains(source: string, table: string): string[] {
   const out: string[] = [];
   const needle = `.from('${table}')`;
   let i = source.indexOf(needle);
   while (i !== -1) {
     const end = source.indexOf(';', i);
-    out.push(source.slice(i, end === -1 ? source.length : end));
+    const stop = end === -1 ? source.length : end;
+    // The statement, plus enough of what follows to see a builder that is
+    // finished on a later line.
+    out.push(source.slice(i, Math.min(source.length, stop + 300)));
     i = source.indexOf(needle, i + needle.length);
   }
   return out;
 }
 
-/** A chain is bounded if it cannot return an unbounded row set. */
+/** A chain is bounded if it cannot return an unbounded row set.
+ *
+ *  The question is about the REQUEST, so a bounding call that is applied to the
+ *  builder one statement later still bounds it. What must never pass is a read
+ *  with no bound anywhere in reach, which is the shape PostgREST silently
+ *  truncates at 1000 rows (TRAPS 2.1). */
 function boundedness(chain: string): { bounded: boolean; how: string } {
   if (/\.insert\(|\.update\(|\.delete\(|\.upsert\(/.test(chain)) return { bounded: true, how: 'write' };
   if (/head:\s*true/.test(chain)) return { bounded: true, how: 'head count' };
@@ -147,6 +170,14 @@ function fakeClient(tables: Record<string, Row[]>, stats: Stats): any {
           return b;
         },
         eq(c: string, v: unknown) { s.filters.push((r) => r[c] === v); return b; },
+        // `.is('deleted_at', null)` arrived with the soft-delete migration (224,
+        // 2026-08-30). The stub did not have it, so this whole file threw
+        // "q.is is not a function" at the first listProjects call and every
+        // check after that point never ran: it reported no summary at all, not
+        // even a failure count. A stub that lags the query builder does not
+        // report a defect, it reports nothing.
+        is(c: string, v: unknown) { s.filters.push((r) => (r[c] ?? null) === v); return b; },
+        not(c: string, _op: string, v: unknown) { s.filters.push((r) => (r[c] ?? null) !== v); return b; },
         in(c: string, vs: unknown[]) { s.filters.push((r) => vs.includes(r[c])); return b; },
         order(col: string, o?: { ascending?: boolean }) { s.order = { col, asc: o?.ascending !== false }; return b; },
         range(from: number, to: number) { s.range = { from, to }; return b; },
