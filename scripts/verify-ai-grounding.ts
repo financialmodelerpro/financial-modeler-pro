@@ -36,7 +36,7 @@ import { buildIcModelGrounding, icModelGroundingProvider } from '../src/hubs/mod
 
 import { NOT_AVAILABLE, allFacts, factIndex, formatPercent } from '../src/shared/ai/grounding/facts';
 import { GROUNDING_RULES, buildGroundedRequest, renderGroundingPrompt } from '../src/shared/ai/grounding/render';
-import { auditGroundedText, auditSummary, extractFigures } from '../src/shared/ai/grounding/audit';
+import { auditGroundedText, auditSummary, extractFigures, externalClaims } from '../src/shared/ai/grounding/audit';
 import {
   GROUNDING_TYPE_ORDER,
   collectGrounding,
@@ -212,6 +212,41 @@ async function main() {
   const marketClaim = 'Comparable Riyadh assets trade at a 7.5% cap rate.';
   const a3 = auditGroundedText(marketClaim, bundle);
   ok('a market figure with no external data supplied is CAUGHT', !a3.ok);
+  // WHY it is caught matters. This check passed for years on the figure alone,
+  // then stopped: with a hundred-odd supplied percentages, 7.5% is an ordinary
+  // ROUNDED restatement of some real one (7.46% here), and rounded matches do
+  // not fail by default. Magnitude cannot separate an invented market rate from
+  // a restated model rate, so the CLAIM is what is checked.
+  ok('and it is caught as an ungrounded external CLAIM, not by luck of magnitude',
+    a3.externalClaims.length > 0 && a3.unsupported.length === 0,
+    `claims=${a3.externalClaims.map((c) => c.phrase).join('/')} unsupported=${a3.unsupported.map((f) => f.raw).join(',')}`);
+  // The same sentence must PASS once external data is actually supplied, or the
+  // rule is not "ground your claims", it is "never mention the market".
+  const withExternal: GroundingBundle = {
+    documents: [doc, { ...doc, type: 'external', providerId: 'test.market' }],
+    status: [{ type: 'model', outcome: 'ok', providerId: 'refm.ic-model' },
+      { type: 'external', outcome: 'ok', providerId: 'test.market' }],
+  };
+  ok('the SAME claim passes once an external document is supplied',
+    auditGroundedText(marketClaim, withExternal).externalClaims.length === 0);
+  ok('an ordinary model sentence raises no external claim',
+    auditGroundedText('The scheme reaches practical completion in 2029.', bundle).externalClaims.length === 0);
+  ok('the phrase match is whole-word ("incomparable" is not "comparable")',
+    externalClaims('This asset is incomparable.').length === 0);
+
+  // FORM AWARENESS. supportedValues used to return bare numbers, so a figure
+  // matched any fact of the same magnitude in any unit. A percent must be
+  // answered by something supplied AS a percent.
+  const countDoc = {
+    type: 'model' as const, providerId: 'p', source: 's', available: true,
+    sections: [{ id: 'a', title: 'A', facts: [
+      { key: 'n', label: 'Units', kind: 'count' as const, value: 42, formatted: '42' },
+    ] }],
+  };
+  ok('a PERCENT cannot borrow the magnitude of a plain count',
+    !auditGroundedText('The yield is 42%.', [countDoc]).ok);
+  ok('and the same count still supports a plain 42',
+    auditGroundedText('There are 42 units.', [countDoc]).ok);
 
   const derived = `Sources and uses net to ${(model.capital.totalSources / M + 12345.6789).toFixed(4)} SAR m.`;
   const a4 = auditGroundedText(derived, bundle);
