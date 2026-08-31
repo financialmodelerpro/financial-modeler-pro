@@ -23,17 +23,39 @@
   which is a coincidence, not a rule. Route them through `m4RowOpts` as well, and
   measure the whole workbook before and after (`scripts/snapshot-fingerprint.ts`
   plus a per-row dump) rather than reasoning about it. Lesson in TRAPS 3.9.
-- **CLAUDE.md claims "Full suite green via `npx tsx scripts/verify-*.ts`". It is
-  not.** Measured 2026-08-31 across all 142 verifiers at HEAD 94134290: **19 fail**
-  (admin-users-cleanup 1, ai-grounding 1, deck-financials 1, deck-schedules 2,
-  email-escaping 1, funding-methods 4, fund-terms 1, idc-depreciation 24,
-  module6-field-census 3, module6-pipeline 1, module6-scenarios 2,
-  phase-date-preservation 15, refm-version-reads, registration-qualification 1,
-  returns-buildup 2, subscription-emails 2, tab2-pass2 5, tab3-critical 1,
-  tab3-default-seed 6). None are diagnosed. `verify-idc-depreciation`, at 24
-  failures, is the loudest and touches the same IDC the cost-of-sales base
-  charges, so it is the one to open first. Until they are triaged, the sentence
-  in CLAUDE.md is a green light nobody has earned.
+- **THE 19 FAILING VERIFIERS ARE NOW DIAGNOSED (2026-08-31b), NONE FIXED.** 123 of
+  142 pass. The CLAUDE.md green claim is corrected to state the count. Full
+  classification in [CHANGELOG.md](CHANGELOG.md) 2026-08-31b. Headline: **no
+  failure is a live wrong number.** 14 verifiers are stale pins, 3 are broken
+  checks, 2 are real but narrow. `verify-idc-depreciation` (24) does NOT indicate
+  an IDC defect: its A-F depreciation sections pass, and its G/H/J sections call
+  `computeFacilitySchedule` with 6 of 9 arguments (so IDC classification never
+  fires) while asserting the `capitalize` x `fundingMode` quadrants retired on
+  2026-08-18. **Fix order, none started:**
+  1. `verify-email-escaping`: `button()` in `_base.ts` interpolates `href` raw;
+     `templates/subscription.ts:393` is the only call site passing a non-constant
+     URL. One line.
+  2. `verify-ai-grounding`: `auditGroundedText` lets an ungrounded market figure
+     through on a percentage collision (7.5% cap rate). One predicate.
+  3. **The UI half of the sale-cohort finding, the only user-facing one.**
+     `buildSaleCohortProfile` replaced the per-period cash payment profile, but
+     `Module2Revenue.tsx:1049` still WRITES `cashPaymentProfile.percentagesByPhase`
+     and the screen still offers the editor. A user can type a payment plan the
+     engine does not read. Decide: restore the read, or remove the input. Do NOT
+     leave it accepting keystrokes that change nothing.
+  4. Re-aim `verify-idc-depreciation` G/H/J at the ONE treatment; pass
+     `constructionSpendByPeriod`; delete the retired quadrant assertions rather
+     than letting them keep passing for the wrong reason.
+  5. Wording pins (`verify-admin-users-cleanup`, `verify-registration-qualification`,
+     `verify-subscription-emails`), the stale `STANDARD_COST_LINE_IDS` RETT entry
+     behind `verify-tab3-default-seed`, the stale synthetic fixtures behind
+     `verify-deck-schedules` / `verify-deck-financials`, and the OpEx-seeds-ZERO
+     fixtures behind the two module6 files.
+  6. Last: `verify-tab2-pass2`, `verify-tab3-critical`, `verify-fund-terms` and
+     `verify-refm-version-reads`. These assert a LOCATION or an exact source
+     string, not a behaviour. Rewrite them to assert behaviour; do not restore
+     the greps. `verify-refm-version-reads` also CRASHES on a stub client that
+     predates mig 224, so it currently reports nothing at all.
 - **Nothing from 2026-08-30 or 2026-08-31 has been browser-verified**, the Module
   2 Cost of Sales build included.
 
