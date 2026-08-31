@@ -231,75 +231,124 @@ function makeFixture(idcConfig: Project['idcConfig']): {
   return { project, phases, tranche, debtPerPeriod };
 }
 
-function runFacility(idcConfig: Project['idcConfig']): ReturnType<typeof computeFacilitySchedule> {
+/** Run the fixture facility.
+ *
+ *  `constructionSpend` IS THE ARGUMENT THAT DECIDES WHETHER THERE IS ANY IDC
+ *  AT ALL (2026-08-18), and it is the 9th parameter. This helper used to pass
+ *  six, so `constructionSpendByPeriod` was undefined, `constructionRunning`
+ *  was false in every period, and no IDC classification fired anywhere in
+ *  sections G, H or J. Twenty-four checks failed for that one reason and
+ *  several others PASSED for it, asserting a zero the engine produced because
+ *  it had been told nothing was being built. Pass it explicitly, always.
+ */
+function runFacility(
+  idcConfig: Project['idcConfig'],
+  constructionSpend: number[] = CONSTRUCTION_SPEND,
+  budget?: number[],
+): ReturnType<typeof computeFacilitySchedule> {
   const f = makeFixture(idcConfig);
   const axis = buildProjectAxis(f.project, f.phases);
-  return computeFacilitySchedule(f.tranche, f.project, f.phases, axis, f.debtPerPeriod, 100);
+  return computeFacilitySchedule(
+    f.tranche, f.project, f.phases, axis, f.debtPerPeriod, 100, budget, undefined, constructionSpend,
+  );
 }
 
-console.log('\n[G] Capitalize × Funding mode quadrants (single 1000 draw at t=0, 10% annual)');
+/** Construction runs in periods 0..2, matching the fixture's 3 construction
+ *  periods. Spend, not a date window, is what makes a period an IDC period. */
+const CONSTRUCTION_SPEND = [500, 500, 500, 0, 0, 0, 0, 0];
+const NO_CONSTRUCTION = [0, 0, 0, 0, 0, 0, 0, 0];
+
+console.log('\n[G] ONE IDC treatment: construction SPEND decides, not a flag (1000 draw at t=0, 10%)');
 {
-  // Cap=Y, Fund=Debt (default): interest grows debt and goes to asset basis.
-  const r1 = runFacility({ capitalize: true, fundingMode: 'debt_drawdown' });
-  // Construction periods 0..2 (3 years). With straight-line repay starting at
-  // t=3, balance grows by interest during 0..2 then amortises.
-  // t=0: bal opens at 0, draw 1000 → bal=1000, interest=100, IDC adds → bal=1100.
-  assertNear('G1a Cap=Y Fund=Debt: interestCapitalized[0]', r1.interestCapitalized[0], 100);
-  assertNear('G1b Cap=Y Fund=Debt: interestForAssetBasis[0]', r1.interestForAssetBasis[0], 100);
-  assertNear('G1c Cap=Y Fund=Debt: interestPaid[0] = 0', r1.interestPaid[0], 0);
-  assertNear('G1d Cap=Y Fund=Debt: outstanding[0] = 1100', r1.outstanding[0], 1100);
-  assertNear('G1e Cap=Y Fund=Debt: interestDuringConstruction[0] = 100', r1.interestDuringConstruction[0], 100);
+  // THE QUADRANTS ARE GONE. `idcConfig.capitalize` and `idcConfig.fundingMode`
+  // were retired on 2026-08-18: there is one treatment, so two projects cannot
+  // behave differently. Sections G and H used to assert four different
+  // behaviours across those two flags. What is pinned now is the ONE rule, plus
+  // the fact that the retired flags are inert.
+  const r = runFacility({ capitalize: true, fundingMode: 'debt_drawdown' });
 
-  // Cap=Y, Fund=Cash: interest goes to asset basis, paid in cash, balance unchanged.
-  const r2 = runFacility({ capitalize: true, fundingMode: 'cash' });
-  assertNear('G2a Cap=Y Fund=Cash: interestCapitalized[0] = 0', r2.interestCapitalized[0], 0);
-  assertNear('G2b Cap=Y Fund=Cash: interestForAssetBasis[0] = 100', r2.interestForAssetBasis[0], 100);
-  assertNear('G2c Cap=Y Fund=Cash: interestPaid[0] = 100', r2.interestPaid[0], 100);
-  assertNear('G2d Cap=Y Fund=Cash: outstanding[0] = 1000 (no debt growth)', r2.outstanding[0], 1000);
+  // t=0: draw 1000, interest 100, construction is running, so the whole charge
+  // is IDC and lands on the asset basis.
+  assertNear('G1a interest during construction goes to the asset basis', r.interestForAssetBasis[0], 100);
+  assertNear('G1b and is reported as interest during construction', r.interestDuringConstruction[0], 100);
+  assertNear('G1c the FULL charge is paid in the period it arises', r.interestPaid[0], 100);
+  // No IDC cash budget was supplied, so every currency unit of it is funded by
+  // a drawdown, which is what grows the balance.
+  assertNear('G1d with no IDC cash budget the whole charge is funded by drawdown', r.interestCapitalized[0], 100);
+  assertNear('G1e and the balance grows by exactly that drawdown', r.outstanding[0], 1100);
 
-  // Cap=N, Fund=Debt: interest hits P&L (interestForAssetBasis=0), balance grows.
-  const r3 = runFacility({ capitalize: false, fundingMode: 'debt_drawdown' });
-  assertNear('G3a Cap=N Fund=Debt: interestCapitalized[0] = 100', r3.interestCapitalized[0], 100);
-  assertNear('G3b Cap=N Fund=Debt: interestForAssetBasis[0] = 0', r3.interestForAssetBasis[0], 0);
-  assertNear('G3c Cap=N Fund=Debt: interestPaid[0] = 0 (no cash out)', r3.interestPaid[0], 0);
-  assertNear('G3d Cap=N Fund=Debt: outstanding[0] = 1100 (debt still grows)', r3.outstanding[0], 1100);
-  assertNear('G3e Cap=N Fund=Debt: interestDuringConstruction[0] = 100', r3.interestDuringConstruction[0], 100);
+  // NO SPEND, NO IDC. The same facility in a period with nothing being built
+  // carries an ordinary operating finance cost.
+  const idle = runFacility({ capitalize: true, fundingMode: 'debt_drawdown' }, NO_CONSTRUCTION);
+  assertNear('G2a a period with no construction spend books NO asset-basis interest', idle.interestForAssetBasis[0], 0);
+  assertNear('G2b and no interest during construction', idle.interestDuringConstruction[0], 0);
+  assertNear('G2c the charge is still accrued', idle.interestAccrued[0], 100);
+  assertNear('G2d and still paid', idle.interestPaid[0], 100);
+  assertNear('G2e nothing is drawn to fund it, so the balance is unchanged', idle.outstanding[0], 1000);
 
-  // Cap=N, Fund=Cash: interest hits P&L, paid in cash, balance unchanged.
-  const r4 = runFacility({ capitalize: false, fundingMode: 'cash' });
-  assertNear('G4a Cap=N Fund=Cash: interestCapitalized[0] = 0', r4.interestCapitalized[0], 0);
-  assertNear('G4b Cap=N Fund=Cash: interestForAssetBasis[0] = 0', r4.interestForAssetBasis[0], 0);
-  assertNear('G4c Cap=N Fund=Cash: interestPaid[0] = 100', r4.interestPaid[0], 100);
-  assertNear('G4d Cap=N Fund=Cash: outstanding[0] = 1000', r4.outstanding[0], 1000);
+  // OMITTING the argument must behave exactly like no spend. This is what the
+  // old six-argument call was silently doing, and nothing said so.
+  const omitted = (() => {
+    const f = makeFixture({ capitalize: true, fundingMode: 'debt_drawdown' });
+    const axis = buildProjectAxis(f.project, f.phases);
+    return computeFacilitySchedule(f.tranche, f.project, f.phases, axis, f.debtPerPeriod, 100);
+  })();
+  assertNear('G3 omitting constructionSpendByPeriod is the same as no construction', omitted.interestForAssetBasis[0], 0);
 
-  // Identity per period: accrued = capitalized + paid (no double-count).
-  for (const [name, r] of [['G5a Cap=Y/Debt', r1], ['G5b Cap=Y/Cash', r2], ['G5c Cap=N/Debt', r3], ['G5d Cap=N/Cash', r4]] as const) {
-    for (let t = 0; t < r.interestAccrued.length; t++) {
-      const sum = (r.interestCapitalized[t] ?? 0) + (r.interestPaid[t] ?? 0);
-      assertNear(`${name}: interestAccrued[${t}] = capitalized + paid`, r.interestAccrued[t], sum);
+  // THE RETIRED FLAGS ARE INERT. If either is ever read again, these fail.
+  const quadrants = [
+    ['Cap=Y Fund=Debt', { capitalize: true, fundingMode: 'debt_drawdown' as const }],
+    ['Cap=Y Fund=Cash', { capitalize: true, fundingMode: 'cash' as const }],
+    ['Cap=N Fund=Debt', { capitalize: false, fundingMode: 'debt_drawdown' as const }],
+    ['Cap=N Fund=Cash', { capitalize: false, fundingMode: 'cash' as const }],
+  ] as const;
+  for (const [name, cfg] of quadrants) {
+    const q = runFacility(cfg);
+    for (const [field, series] of [
+      ['interestForAssetBasis', q.interestForAssetBasis],
+      ['interestCapitalized', q.interestCapitalized],
+      ['interestPaid', q.interestPaid],
+      ['outstanding', q.outstanding],
+    ] as const) {
+      const base = (r as unknown as Record<string, number[]>)[field];
+      assertNear(`G4 ${name}: ${field}[0] is identical (capitalize / fundingMode are RETIRED)`, series[0] ?? 0, base[0] ?? 0);
+    }
+  }
+
+  // THE PER-PERIOD IDENTITY, restated for the current engine.
+  //
+  // It used to read `accrued = capitalized + paid`, which was true only while a
+  // capitalised charge was one that never got paid. Since 2026-08-18c the full
+  // charge is paid every period and the capitalised figure is the DRAWDOWN that
+  // funds the part cash could not, so that sum double-counts. The identity that
+  // holds now is that the funding splits the charge: what came from the cash
+  // budget plus what was drawn equals the charge routed to the asset basis.
+  for (const [name, rr] of [['G5a with construction', r], ['G5b idle', idle]] as const) {
+    for (let t = 0; t < rr.interestAccrued.length; t++) {
+      assertNear(`${name}: paid[${t}] = accrued (the full charge settles each period)`,
+        rr.interestPaid[t] ?? 0, rr.interestAccrued[t] ?? 0);
+      const funded = (rr.interestCapitalized[t] ?? 0) + (rr.interestCapitalizedCashPaid[t] ?? 0);
+      assertNear(`${name}: drawn + fromCash = asset basis at t=${t}`, funded, rr.interestForAssetBasis[t] ?? 0);
     }
   }
 }
 
 console.log('\n[H] combineDebtService: totalInterestExpensed = accrued − forAssetBasis');
 {
-  // Build a combined snapshot for each quadrant and verify the aggregated
-  // P&L identity. Construction-window interest at t=0 for Cap=Y must
-  // produce 0 P&L expense (everything sits on asset basis); for Cap=N it
-  // must produce the full interest as P&L expense regardless of funding.
+  // ONE treatment, so there is one expected answer, not four. During
+  // construction the whole charge sits on the asset basis and the P&L line is
+  // 0; outside construction the whole charge is an operating finance cost.
   const axis = buildProjectAxis(makeFixture({}).project, makeFixture({}).phases);
-  for (const [name, cfg, expExpensedT0] of [
-    ['H1 Cap=Y Fund=Debt', { capitalize: true, fundingMode: 'debt_drawdown' as const }, 0],
-    ['H2 Cap=Y Fund=Cash', { capitalize: true, fundingMode: 'cash' as const }, 0],
-    ['H3 Cap=N Fund=Debt', { capitalize: false, fundingMode: 'debt_drawdown' as const }, 100],
-    ['H4 Cap=N Fund=Cash', { capitalize: false, fundingMode: 'cash' as const }, 100],
+  for (const [name, spend, expExpensedT0] of [
+    ['H1 construction running', CONSTRUCTION_SPEND, 0],
+    ['H2 no construction', NO_CONSTRUCTION, 100],
   ] as const) {
-    const r = runFacility(cfg);
+    const r = runFacility({ capitalize: true, fundingMode: 'debt_drawdown' }, spend);
     const facMap = new Map([[r.trancheId, r]]);
-    const f = makeFixture(cfg);
+    const f = makeFixture({ capitalize: true, fundingMode: 'debt_drawdown' });
     const combined = combineDebtService(facMap, axis, [f.tranche]);
     assertNear(`${name}: totalInterestExpensed[0]`, combined.totalInterestExpensed[0], expExpensedT0);
-    // Sanity: accrual identity holds, expensed = accrued − forAssetBasis.
+    // The identity itself, every period.
     for (let t = 0; t < axis.totalPeriods; t++) {
       const acc = combined.totalInterestAccrued[t] ?? 0;
       const ab = combined.totalInterestForAssetBasis[t] ?? 0;
@@ -307,6 +356,13 @@ console.log('\n[H] combineDebtService: totalInterestExpensed = accrued − forAs
       assertNear(`${name}: accrued − assetBasis = expensed at t=${t}`, acc - ab, exp);
     }
   }
+  // And the retired flags cannot change the P&L either.
+  const capN = runFacility({ capitalize: false, fundingMode: 'cash' });
+  const capY = runFacility({ capitalize: true, fundingMode: 'debt_drawdown' });
+  const f0 = makeFixture({});
+  const expN = combineDebtService(new Map([[capN.trancheId, capN]]), axis, [f0.tranche]).totalInterestExpensed[0];
+  const expY = combineDebtService(new Map([[capY.trancheId, capY]]), axis, [f0.tranche]).totalInterestExpensed[0];
+  assertNear('H3 capitalize=false no longer expenses construction interest (flag RETIRED)', expN, expY);
 }
 
 // ──────────────────────────────────────────────────────────────────
@@ -359,18 +415,26 @@ console.log('\n[I] Pass 2Q: integrated Capex + IDC FA roll-forward identity');
 }
 
 // ──────────────────────────────────────────────────────────────────
-// J: Conditional IDC (2026-06-02). fundingMode = 'conditional' pays
-// construction interest in cash up to the per-period surplus-cash budget
-// (remainingIdcBudget), capitalising the shortfall to debt. Interest is
-// still routed to the asset basis. Uses the same 1000-draw, 10% fixture
-// (interest = 100 at t=0).
-//   J1: full budget (>=100) => all paid in cash, debt does NOT grow.
-//   J2: partial budget (40) => 40 cash, 60 capitalised; debt grows 60.
-//   J3: zero/absent budget => behaves like debt_drawdown (all capitalised).
+// J: The IDC cash budget (2026-06-02, restated 2026-08-31). Construction
+// interest is PAID IN FULL in the period it arises; the per-period surplus-cash
+// budget (remainingIdcBudget) funds as much of it as it can and debt is drawn
+// for the shortfall. Interest is routed to the asset basis either way. Same
+// 1000-draw, 10% fixture (interest = 100 at t=0), now with construction spend
+// supplied, without which none of this fires at all.
+//   J1: full budget (>=100) => wholly funded from cash, debt does NOT grow.
+//   J2: partial budget (40)  => 40 from cash, 60 drawn; debt grows 60.
+//   J3: zero/absent budget   => the whole charge is funded by drawdown.
 //   J4: identity capitalized + cashPaid = forAssetBasis (during construction).
-//   J5: budget is decremented (consumed) by the cash paid.
+//   J5: budget is decremented (consumed) by the cash it funded.
 //   J6: combineDebtService surfaces totalInterestCapitalizedCashPaid and
 //       totalInterestCapitalized + ...CashPaid = totalInterestForAssetBasis.
+//
+// WHAT CHANGED IN THE EXPECTATIONS, and why it is not a regression: this
+// section read interestPaid as "the cash slice only", so J2 expected 40 and J3
+// expected 0. Since 2026-08-18c the full charge settles every period and the
+// capitalised figure is the DRAWDOWN that funds part of it, not a second
+// settlement. interestPaid is therefore 100 in all three cases, and the split
+// to read is capitalized vs capitalizedCashPaid.
 // ──────────────────────────────────────────────────────────────────
 console.log('\n[J] Conditional IDC: cash up to budget, capitalise shortfall');
 {
@@ -378,15 +442,18 @@ console.log('\n[J] Conditional IDC: cash up to budget, capitalise shortfall');
     const f = makeFixture({ capitalize: true, fundingMode: 'conditional' });
     const axis = buildProjectAxis(f.project, f.phases);
     const remaining = budget.slice();
-    const r = computeFacilitySchedule(f.tranche, f.project, f.phases, axis, f.debtPerPeriod, 100, remaining);
+    const r = computeFacilitySchedule(
+      f.tranche, f.project, f.phases, axis, f.debtPerPeriod, 100,
+      remaining, undefined, CONSTRUCTION_SPEND,
+    );
     return { r, remaining, tranche: f.tranche, axis };
   };
 
   // J1: full budget at t=0 (interest=100).
   {
     const { r } = runWithBudget([100, 0, 0, 0, 0, 0, 0, 0]);
-    assertNear('J1a full budget: interestPaid[0] = 100 (cash)', r.interestPaid[0], 100);
-    assertNear('J1b full budget: interestCapitalized[0] = 0 (no debt growth)', r.interestCapitalized[0], 0);
+    assertNear('J1a full budget: interestPaid[0] = 100 (the full charge settles)', r.interestPaid[0], 100);
+    assertNear('J1b full budget: interestCapitalized[0] = 0 (nothing drawn)', r.interestCapitalized[0], 0);
     assertNear('J1c full budget: interestCapitalizedCashPaid[0] = 100', r.interestCapitalizedCashPaid[0], 100);
     assertNear('J1d full budget: interestForAssetBasis[0] = 100 (asset still built)', r.interestForAssetBasis[0], 100);
     assertNear('J1e full budget: outstanding[0] = 1000 (no IDC drawdown)', r.outstanding[0], 1000);
@@ -395,8 +462,9 @@ console.log('\n[J] Conditional IDC: cash up to budget, capitalise shortfall');
   // J2: partial budget (40) at t=0.
   {
     const { r } = runWithBudget([40, 0, 0, 0, 0, 0, 0, 0]);
-    assertNear('J2a partial: interestPaid[0] = 40 (cash)', r.interestPaid[0], 40);
-    assertNear('J2b partial: interestCapitalized[0] = 60 (debt)', r.interestCapitalized[0], 60);
+    // 100 leaves the bank; 40 of it came from the budget and 60 from a drawdown.
+    assertNear('J2a partial: interestPaid[0] = 100 (the full charge settles)', r.interestPaid[0], 100);
+    assertNear('J2b partial: interestCapitalized[0] = 60 (drawn for the shortfall)', r.interestCapitalized[0], 60);
     assertNear('J2c partial: interestCapitalizedCashPaid[0] = 40', r.interestCapitalizedCashPaid[0], 40);
     assertNear('J2d partial: interestForAssetBasis[0] = 100', r.interestForAssetBasis[0], 100);
     assertNear('J2e partial: outstanding[0] = 1060 (1000 + 60 IDC)', r.outstanding[0], 1060);
@@ -405,8 +473,8 @@ console.log('\n[J] Conditional IDC: cash up to budget, capitalise shortfall');
   // J3: zero budget => same as debt_drawdown.
   {
     const { r } = runWithBudget([0, 0, 0, 0, 0, 0, 0, 0]);
-    assertNear('J3a zero budget: interestCapitalized[0] = 100 (all debt)', r.interestCapitalized[0], 100);
-    assertNear('J3b zero budget: interestPaid[0] = 0', r.interestPaid[0], 0);
+    assertNear('J3a zero budget: interestCapitalized[0] = 100 (wholly drawn)', r.interestCapitalized[0], 100);
+    assertNear('J3b zero budget: interestPaid[0] = 100 (still settles, funded by the drawdown)', r.interestPaid[0], 100);
     assertNear('J3c zero budget: outstanding[0] = 1100', r.outstanding[0], 1100);
   }
 
