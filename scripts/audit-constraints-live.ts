@@ -92,6 +92,8 @@ interface DeclFk { table: string; col: string; refTable: string; onDelete: strin
 interface DeclSimple { table: string; col: string; file: string }
 interface DeclTableCon { table: string; text: string; file: string }
 
+/** FK declarations in FILE ORDER. The LAST one for a (table, column) wins,
+ *  because that is how migrations actually compose. */
 const fks: DeclFk[] = [];
 const uniques: DeclSimple[] = [];
 const checks: DeclSimple[] = [];
@@ -111,10 +113,35 @@ function splitTopLevel(body: string): string[] {
   return parts.map((p) => p.trim()).filter(Boolean);
 }
 
+/**
+ * ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY, which is how a later
+ * migration CHANGES an earlier declaration.
+ *
+ * Reading only CREATE TABLE makes the audit report on ONE FILE rather than on
+ * the migration CHAIN, and the two give opposite answers here. 158 declares
+ * user_permissions.created_by NO ACTION and 221 alters it to SET NULL; 007
+ * declares admin_audit_log.admin_id SET NULL and 227 alters it to NO ACTION.
+ * Reading CREATE TABLE alone, BOTH look like live drift. Reading the chain,
+ * both converge on live and there is nothing to report. The first version of
+ * this file did the former and would have gone on reporting admin_id forever,
+ * however many migrations fixed it.
+ */
+function parseAlterConstraints(sql: string, file: string): void {
+  const re = /ALTER TABLE\s+(?:public\.)?"?([a-z_][a-z0-9_]*)"?\s+ADD CONSTRAINT\s+"?[a-z_][a-z0-9_]*"?\s+FOREIGN KEY\s*\(\s*"?([a-z_][a-z0-9_]*)"?\s*\)\s*REFERENCES\s+(?:public\.)?"?([a-z_][a-z0-9_]*)"?[^;]*/gi;
+  for (let m = re.exec(sql); m !== null; m = re.exec(sql)) {
+    const od = m[0].match(/ON DELETE\s+(SET NULL|CASCADE|RESTRICT|NO ACTION|SET DEFAULT)/i);
+    fks.push({
+      table: m[1].toLowerCase(), col: m[2].toLowerCase(), refTable: m[3].toLowerCase(),
+      onDelete: (od ? od[1] : 'NO ACTION').toUpperCase(), file,
+    });
+  }
+}
+
 function parseMigrations(): void {
   const files = fs.readdirSync(MIG_DIR).filter((f) => f.endsWith('.sql')).sort();
   for (const file of files) {
     const sql = stripComments(fs.readFileSync(path.join(MIG_DIR, file), 'utf8'));
+    parseAlterConstraints(sql, file);
     const re = /CREATE TABLE(?:\s+IF NOT EXISTS)?\s+(?:public\.)?"?([a-z_][a-z0-9_]*)"?\s*\(/gi;
     for (let m = re.exec(sql); m !== null; m = re.exec(sql)) {
       const table = m[1].toLowerCase();
@@ -205,7 +232,12 @@ async function main(): Promise<void> {
   const skipped: string[] = [];
 
   say('== A. FOREIGN KEY ON DELETE: declared vs live ==');
-  for (const d of fks) {
+  // LAST declaration wins, per file order: the effective declaration is what a
+  // rebuild would end up with, not what the first file that mentioned it said.
+  const effectiveFks = new Map<string, DeclFk>();
+  for (const d of fks) effectiveFks.set(`${d.table}.${d.col}`, d);
+  const supersededCount = fks.length - effectiveFks.size;
+  for (const d of effectiveFks.values()) {
     if (!live.tables.has(d.table)) { skipped.push(`FK ${d.table}.${d.col}: table not live (${d.file})`); continue; }
     const hit = byTable(d.table).find((c) => c.type === 'f' && c.cols.length === 1 && c.cols[0] === d.col);
     if (!hit) { missing.push(`FK MISSING: ${d.table}.${d.col} -> ${d.refTable} declared ON DELETE ${d.onDelete} (${d.file}) but NO FK exists live`); continue; }
@@ -215,7 +247,7 @@ async function main(): Promise<void> {
       matched.push(`ok  ${d.table}.${d.col} ON DELETE ${hit.onDelete}`);
     }
   }
-  say(`  ${fks.length} declared FK columns: ${matched.length} match, ${differs.length} differ, ${missing.length} missing, ${skipped.length} skipped`);
+  say(`  ${effectiveFks.size} FK columns after ${supersededCount} superseding ALTER(s): ${matched.length} match, ${differs.length} differ, ${missing.length} missing, ${skipped.length} skipped`);
 
   say('\n== B. UNIQUE: declared vs live ==');
   let uOk = 0; const uMissing: string[] = [];

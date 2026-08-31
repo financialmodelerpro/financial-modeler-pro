@@ -1,5 +1,5 @@
 == A. FOREIGN KEY ON DELETE: declared vs live ==
-  65 declared FK columns: 57 match, 2 differ, 2 missing, 4 skipped
+  59 FK columns after 10 superseding ALTER(s): 54 match, 1 differ, 2 missing, 2 skipped
 
 == B. UNIQUE: declared vs live ==
   25 declared column UNIQUEs: 20 present, 3 absent
@@ -15,7 +15,6 @@ FINDINGS, RANKED
 ==============================================================================
 
 -- 1. ON DELETE DIFFERS FROM THE MIGRATION (a delete behaves differently than declared) --
-  ON DELETE DIFFERS: admin_audit_log.admin_id -> users: declared SET NULL (007_audit_log.sql) but LIVE IS NO ACTION  [admin_audit_log_admin_id_fkey]
   ON DELETE DIFFERS: user_permissions.created_by -> users: declared NO ACTION (158_entitlement_catalog.sql) but LIVE IS SET NULL  [user_permissions_created_by_fkey]
 
 -- 2. DECLARED CONSTRAINT ABSENT LIVE (the guarantee does not exist) --
@@ -27,9 +26,7 @@ FINDINGS, RANKED
   TABLE CONSTRAINT NOT FOUND: plan_permissions: PRIMARY KEY (plan, feature_key) (006_permissions.sql)
 
 -- 3. SKIPPED, table not live --
-  10 declarations on tables that do not exist live
-    FK pricing_features.plan_id: table not live (014_pricing.sql)
-    FK pricing_modules.plan_id: table not live (014_pricing.sql)
+  8 declarations on tables that do not exist live
     FK pricing_features.plan_id: table not live (018_pricing_initial_plans.sql)
     FK pricing_modules.plan_id: table not live (018_pricing_initial_plans.sql)
     UNIQUE pricing_plans.code: table not live (014_pricing.sql)
@@ -139,8 +136,6 @@ FINDINGS, RANKED
     admin_campaign_sends.status: CHECK ((status = ANY (ARRAY['sent'::text, 'failed'::text, 'skipped_unsubscribed'::text])))
 
 == FULL SKIPPED LIST ==
-FK pricing_features.plan_id: table not live (014_pricing.sql)
-FK pricing_modules.plan_id: table not live (014_pricing.sql)
 FK pricing_features.plan_id: table not live (018_pricing_initial_plans.sql)
 FK pricing_modules.plan_id: table not live (018_pricing_initial_plans.sql)
 UNIQUE pricing_plans.code: table not live (014_pricing.sql)
