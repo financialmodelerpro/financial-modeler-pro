@@ -32,6 +32,7 @@ import {
   makeDefaultPhase,
   makeDefaultProject,
   STANDARD_COST_LINE_IDS,
+  SEEDED_COST_LINE_IDS,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
 
@@ -40,7 +41,28 @@ import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/li
 // six checks that were not testing anything about the new lines. The size of
 // the catalog is not the invariant; "the seed emits exactly the registered
 // catalog" is, and that survives the next addition.
-const CATALOG = STANDARD_COST_LINE_IDS.length;
+/**
+ * WHAT THE SEED EMITS, not what the platform recognises (2026-08-31).
+ *
+ * This counted `STANDARD_COST_LINE_IDS`, which is the IDENTITY REGISTRY: every
+ * id the platform knows, what an existing line resolves its behaviour through,
+ * and what the row picker can offer. The SEED set is a different thing, and
+ * conflating the two is what this file was doing. It expected 13 and the seeder
+ * correctly produces 12.
+ *
+ * The difference is exactly `rett`, which is REGISTERED BUT NOT SEEDED since
+ * 2026-08-17c. It used to be seeded and country gated, so on most projects it
+ * was present but invisible, which let the engine charge a row nobody could see
+ * and later let selecting a country double a cost the user had already entered.
+ * A transfer tax is now added from the catalog like any other cost.
+ *
+ * `SEEDED_COST_LINE_IDS` is DERIVED from the seed, and verify-no-hidden-cost-lines
+ * pins that it equals what the seeder actually emits, so this constant cannot
+ * drift from the seeder the way a hand-kept number would. The three other
+ * verifiers that count seeded lines (capex-phasing, new-project-defaults,
+ * no-hidden-cost-lines) already use it; this file was the one holdout.
+ */
+const CATALOG = SEEDED_COST_LINE_IDS.length;
 const REPO_ROOT = resolve(__dirname, '..');
 let passed = 0;
 let failed = 0;
@@ -86,6 +108,24 @@ console.log('\n[2/7] Empty single-phase snapshot seeds 10 default lines');
   const phaseLines = lines.filter((c) => c.phaseId === 'phase-1');
   if (phaseLines.length === CATALOG) pass(`phase-1 seeded with the full catalog (${CATALOG} lines)`);
   else fail('default line count', `expected ${CATALOG}, got ${phaseLines.length}`);
+
+  // THE WHOLE SEED SET, IN ORDER, not ten of it. The hand-kept list below
+  // covered ten of the twelve seeded ids and silently omitted developer-fee and
+  // marketing, so either could have stopped seeding without this file noticing.
+  // Reading the set from the same constant the count uses also means a line
+  // added to the catalog cannot pass here by being absent from a literal.
+  if (JSON.stringify(phaseLines.map((c) => c.id.split('__')[0])) === JSON.stringify([...SEEDED_COST_LINE_IDS])) {
+    pass(`phase-1 seeds the whole seed set, in order (${CATALOG} lines)`);
+  } else {
+    fail('phase-1 seed set',
+      `${phaseLines.map((c) => c.id.split('__')[0]).join(',')} vs ${SEEDED_COST_LINE_IDS.join(',')}`);
+  }
+  // The transfer tax is REGISTERED but must never arrive by seeding: that is
+  // the present-but-invisible row this whole arrangement exists to prevent.
+  if ((STANDARD_COST_LINE_IDS as readonly string[]).includes('rett')
+    && !phaseLines.some((c) => c.id.split('__')[0] === 'rett')) {
+    pass('the transfer tax stays a known id that is NOT seeded');
+  } else fail('transfer tax', 'either it is no longer registered, or it was seeded');
 
   // Spot-check each expected base id.
   const expectedBaseIds = [

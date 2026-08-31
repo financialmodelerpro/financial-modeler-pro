@@ -342,6 +342,36 @@ callers is not a rule.
 **Proof.** Whole-workbook before/after dump on the fixture: the two rows go from
 all-zero to their real year series, and no other cell in 886 rows moves.
 
+### 3.10 A registry is not a seed set, and counting the wrong one looks like drift
+
+**Symptom.** `verify-tab3-default-seed` expected 13 cost lines per phase and the
+seeder produced 12. It read as a stale entry left in a list.
+
+**Mechanism.** Two constants, one derived from the other, with different jobs.
+`STANDARD_COST_LINE_IDS` is the IDENTITY REGISTRY: every id the platform
+recognises, what an existing line resolves its behaviour through, what the row
+picker can offer, and what the legacy id-rescoping migration treats as a
+catalog line. `SEEDED_COST_LINE_IDS` is that list minus `rett` and is what a
+new project starts with. The verifier took its expected count from the
+registry. Three other verifiers already counted the seed set; this one was the
+holdout.
+
+**The trap is the plausible fix.** "Remove the stale entry from the list" is the
+obvious reading and it is wrong in three ways at once: `isStandardCostLineBaseId`
+would stop recognising an existing transfer-tax line, the picker could no longer
+offer the entry a user is now expected to ADD, and
+`migrateM20lDedupeCostLineIds` would stop rescoping a legacy unscoped `rett` id,
+reintroducing the cross-phase id collision it exists to prevent.
+
+**Fix.** Count the seed set. `SEEDED_COST_LINE_IDS` is derived from the seeder
+and `verify-no-hidden-cost-lines` pins that it equals what the seeder emits, so
+it cannot drift the way a hand-kept number does.
+
+**Proof.** Removing the entry was measured, not argued: it fails
+`verify-capex-structure` ("the transfer tax is a known id but is NOT seeded").
+Live probe over all four projects: no project carries a `rett` line at all, and
+none has ever had 13 seeded lines.
+
 ## 4. PDF export (pdf-lib)
 
 ### 4.1 PDF text is glyph ids, so a naive grep returns nothing

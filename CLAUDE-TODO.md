@@ -23,10 +23,10 @@
   which is a coincidence, not a rule. Route them through `m4RowOpts` as well, and
   measure the whole workbook before and after (`scripts/snapshot-fingerprint.ts`
   plus a per-row dump) rather than reasoning about it. Lesson in TRAPS 3.9.
-- **THE SUITE IS 133 PASS / 9 FAIL (2026-08-31c). Was 123/19.** Ten verifiers
+- **THE SUITE IS 134 PASS / 8 FAIL (2026-08-31d). Was 123/19.** Ten verifiers
   re-aimed and two real defects fixed, in the order set out in the 2026-08-31b
   diagnosis; every rewritten check sabotage-tested. Narrative in
-  [CHANGELOG.md](CHANGELOG.md) 2026-08-31c. **The 9 remaining failures (34
+  [CHANGELOG.md](CHANGELOG.md) 2026-08-31c. **The 8 remaining failures (28
   checks) are diagnosed, deliberately open, and none is a live wrong number:**
   1. **The sale-cohort supersession fixtures** (`verify-phase-date-preservation`
      15, `verify-funding-methods` 4, `verify-returns-buildup` 2).
@@ -53,13 +53,15 @@
      `project.idcConfig.fundingMode`, retired 2026-08-18), several live levers
      not offered, and "Land price moves no comparison KPI". Module 6 offering a
      lever that changes nothing is user-facing; triage that list.
-  4. **`verify-tab3-default-seed` 6: LEFT DELIBERATELY.** The seeder is right
-     and the LIST is stale: `STANDARD_COST_LINE_IDS` still carries the
-     country-gated RETT entry retired on 2026-08-17c, so the expected count is
-     13 and the seeder correctly produces 12. Fixing it means editing the
-     Module 1 seed catalog, and **Module 1 is CLOSED before launch**. Either
-     take the Module 1 change deliberately, or derive the verifier's expected
-     count from the seeder rather than from the list.
+  4. **`verify-tab3-default-seed`: CLOSED 2026-08-31d (24/6 -> 32/0), and the
+     diagnosis above was wrong.** The entry is NOT stale. `STANDARD_COST_LINE_IDS`
+     is the identity registry and `SEEDED_COST_LINE_IDS` (the same list minus
+     `rett`) is the seed set; the verifier counted the registry. Removing `rett`
+     would have broken identity resolution for an existing transfer-tax line,
+     removed the entry from the row picker, and stopped
+     `migrateM20lDedupeCostLineIds` rescoping a legacy unscoped id. Measured by
+     doing it: `verify-capex-structure` fails. No Module 1 change was needed.
+     See TRAPS 3.10.
 
 - **Nothing from 2026-08-30 or 2026-08-31 has been browser-verified**, the Module
   2 Cost of Sales build included.
