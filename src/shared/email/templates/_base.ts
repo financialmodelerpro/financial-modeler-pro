@@ -119,8 +119,32 @@ export function fmpLayout(content: string): Promise<string> {
   return baseLayoutBranded(content, { signature_html: FMP_SIGNATURE_HTML, footer_text: FMP_FOOTER_TEXT });
 }
 
+/**
+ * A call-to-action button.
+ *
+ * BOTH arguments are escaped HERE, not at the call site (2026-08-31).
+ *
+ * `href` used to be interpolated raw into an `href="..."` attribute. Thirty
+ * call sites pass a URL this codebase builds, so the values were safe, and the
+ * safety was maintained by hand: each template declared its URLs `html-safe:`
+ * in a file-level comment and `verify-email-escaping` took that as a promise.
+ * A promise repeated in sixteen places is a list, and a list drifts: the
+ * access-request reminder shipped on 2026-08-30 with `data.requestUrl` passed
+ * through here and never added to its file's declaration. Nothing was
+ * exploitable, because the URL is server-built, but the guard had been reduced
+ * to whether somebody remembered.
+ *
+ * Escaping in the helper makes the answer structural. A quote inside `href`
+ * can no longer close the attribute, and an unescaped `&` in a query string
+ * becomes `&amp;`, which is the correct encoding INSIDE an attribute and is
+ * decoded back to `&` by every client that follows the link.
+ *
+ * `verify-email-escaping` therefore lists `button(` among its SAFE_CALLS, and
+ * pins THIS function's escaping so the entry can never outlive the behaviour
+ * it stands for.
+ */
 export function button(label: string, href: string): string {
-  return `<a href="${href}" style="display:inline-block;background:#2E75B6;color:#ffffff;font-size:14px;font-weight:700;text-decoration:none;padding:13px 32px;border-radius:7px;margin:16px 0;">${label}</a>`;
+  return `<a href="${escapeHtml(href)}" style="display:inline-block;background:#2E75B6;color:#ffffff;font-size:14px;font-weight:700;text-decoration:none;padding:13px 32px;border-radius:7px;margin:16px 0;">${escapeHtml(label)}</a>`;
 }
 
 export function divider(): string {

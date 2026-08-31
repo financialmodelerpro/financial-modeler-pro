@@ -54,7 +54,11 @@ const read = (rel: string): string => fs.readFileSync(path.join(process.cwd(), r
 // descriptionToEmailHtml escapes every line it emits (see its flushPara /
 // bullet paths); allowing it is not a hole, and forcing a double escape
 // there would print entities to a reader.
-const SAFE_CALLS = ['escapeHtml(', 'escapeHtmlMultiline(', 'esc(', 'encodeURIComponent(', 'descriptionToEmailHtml(', 'orNone(', 'greeting('];
+// Calls whose result is already safe. Every entry here escapes its own inputs,
+// and section A pins that for each one: an entry on this list whose function
+// stopped escaping would turn the whole of section B into a check that passes
+// for the wrong reason.
+const SAFE_CALLS = ['escapeHtml(', 'escapeHtmlMultiline(', 'esc(', 'encodeURIComponent(', 'descriptionToEmailHtml(', 'orNone(', 'greeting(', 'button('];
 
 /** Lines a template can exempt, in writing, next to the code. */
 const EXEMPT_MARKERS = ['plain-text-safe', 'html-safe:'];
@@ -123,6 +127,53 @@ check('A: the sweep found the templates at all', files.length >= 15, String(file
   // A private copy in a template is a second thing to get wrong.
   const copies = files.filter((f) => /^function esc(apeHtml)?\s*\(/m.test(read(`${DIR}/${f}`)));
   check('A: no template declares its own escape function', copies.length === 0, copies.join(', '));
+
+  // EVERY SAFE_CALLS ENTRY DEFINED IN _base.ts MUST ACTUALLY ESCAPE.
+  //
+  // Section B treats a call to one of these as already safe and stops looking.
+  // That is only true while the function still escapes, and nothing said so:
+  // The button entry was added to the list on 2026-08-31 precisely because it
+  // now escapes its href, and an entry that outlived its behaviour would
+  // silently exempt thirty call sites.
+  for (const entry of SAFE_CALLS) {
+    const fn = entry.slice(0, -1);
+    // escapeHtml itself IS the escaper, and encodeURIComponent is a builtin.
+    if (fn === 'escapeHtml' || fn === 'escapeHtmlMultiline' || fn === 'encodeURIComponent') continue;
+    // Wherever it is defined: a function declaration in _base.ts, or a const
+    // arrow / local in the template that uses it. greeting() is all three.
+    //
+    // THE WINDOW IS THE WHOLE FUNCTION, not a fixed slice. The first version
+    // read 600 characters from the declaration and reported
+    // descriptionToEmailHtml as unescaped: its two escapeHtml calls sit about
+    // twenty-five lines in, past the window. A check that reports a safe
+    // function as unsafe is as useless as one that misses a hole, and it was
+    // the check that had to change, not the code.
+    //
+    // ROUTING THROUGH THE SHARED ESCAPER, DIRECTLY OR NOT, is the property.
+    // `const esc = escapeHtml` is an alias, so the paren never appears; orNone
+    // escapes by calling esc(). Both are safe, and a rule that only accepted a
+    // literal `escapeHtml(` would have forced a pointless rewrite of both.
+    const trusted = SAFE_CALLS.map((c) => c.slice(0, -1)).filter((n) => n !== fn);
+    const defs: string[] = [];
+    for (const f of ['_base.ts', ...files]) {
+      const src = read(`${DIR}/${f}`);
+      const at = src.search(new RegExp(`(?:export )?(?:function|const) ${fn}\\b`));
+      if (at < 0) continue;
+      // To the first line that closes a top-level block, which is the end of
+      // the declaration for every shape used here.
+      const rest = src.slice(at);
+      const end = rest.search(/\n\}|\n;/);
+      defs.push(end > 0 ? rest.slice(0, end) : rest.slice(0, 3000));
+    }
+    if (defs.length === 0) continue;
+    const routes = (d: string): boolean =>
+      /escapeHtml\b/.test(d) || trusted.some((n) => new RegExp(`\\b${n}\\(`).test(d));
+    check(`A: ${fn}(), trusted by section B, routes its input through the shared escaper`,
+      defs.every(routes), `${defs.length} definition(s), ${defs.filter((d) => !routes(d)).length} unrouted`);
+  }
+  // The specific reason button() joined the list: the HREF, not just the label.
+  check('A: button() escapes the href, not just the label',
+    /href="\$\{escapeHtml\(href\)\}"/.test(base));
 }
 
 section('B. No parameter is interpolated into HTML unescaped');
