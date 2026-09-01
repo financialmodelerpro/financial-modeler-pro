@@ -2,15 +2,36 @@
  * verify-module6-field-census.ts
  *
  * EXHAUSTIVE, EMPIRICAL per-field audit of every Module 6 overridable input on
- * the LIVE "FMP RE HUB" project snapshot (scripts/fmpReHubSnapshot.json), not a
+ * the LIVE reference project snapshot (scripts/marinaGateSnapshot.json), not a
  * sample. For each field offered by the grid + add-row catalog it APPLIES an
  * override, recomputes through the real comparison pipeline (applyOverrides ->
  * computeFinancialsSnapshot -> computeReturnsSnapshot -> CASE_KPIS) and records
  * the observed KPI delta.
  *
+ * THE FIXTURE IS THE REFERENCE MODEL, NOT A TEST PROJECT (2026-09-01e). It ran
+ * against FMP RE HUB until then, and RE HUB is a scratch project: its two
+ * facilities summed to 83.33 rather than 100, and its `buaSqm` / `unitArea`
+ * sat at zero so the candidate ladder reached 100,000x and reported movers off
+ * 0.0005% deltas. Both produced "findings" that were facts about the fixture.
+ * A finding that reproduces only on RE HUB is not a finding, so the census now
+ * measures the project the numbers are read off.
+ *
  * It then proves the two-way gating contract so no silent dead lever can ship:
- *   1. NO field that EMPIRICALLY moves a comparison KPI is gated or excluded
- *      (a live lever must never be hidden).
+ *   1. NO field that EMPIRICALLY moves a comparison KPI is HIDDEN. Hidden has
+ *      ONE meaning, and it is the narrower of the two gate functions:
+ *        - `nonEconomicLeverReason` REMOVES the field from the picker. It is
+ *          filtered out of `fields` in Module6Scenarios, so it is unreachable
+ *          by search, by "Show all" and by the grid. That is concealment.
+ *        - `inactiveLeverReason` does NOT hide anything. The field stays in
+ *          the picker and renders in the grid carrying a visible amber "not
+ *          used under current settings" badge with the reason as its tooltip;
+ *          it is dropped only from the CURATED DEFAULTS. A field shown with a
+ *          truthful note is offered, not concealed.
+ *      Conflating the two was this check's own defect: it read the four
+ *      land-in-kind phasing fields, which are visible and annotated with a
+ *      reason that says outright that moving them shifts returns, as hidden
+ *      levers. Annotated movers are instead REPORTED and pinned (see
+ *      ANNOTATED_MOVER below), so a NEW gate over a live lever still fails red.
  *   2. EVERY field that moves NO comparison KPI is gated (inactiveLeverReason),
  *      excluded as non-economic (nonEconomicLeverReason) or excluded as a
  *      per-period lever (isPerPeriodLever). No inert, unexplained ("silent
@@ -20,7 +41,7 @@
  * one, flips one of these assertions red.
  *
  * Run: npx tsx scripts/verify-module6-field-census.ts
- * (Refresh the fixture from prod with: npx tsx scripts/fetch-fmp-re-hub.ts)
+ * (Refresh the fixture from prod with: npx tsx scripts/fetch-census-fixture.ts)
  */
 import { readFileSync, existsSync, writeFileSync } from 'node:fs';
 import {
@@ -41,11 +62,11 @@ function check(label: string, ok: boolean, detail = ''): void {
 
 // The fixture is the user's LIVE project data, so it is .gitignore-listed and not
 // committed. When it is absent (fresh clone / CI), skip-with-notice rather than
-// fail: refresh it with `npx tsx scripts/fetch-fmp-re-hub.ts` (needs Supabase env).
-const FIXTURE = 'scripts/fmpReHubSnapshot.json';
+// fail: refresh it with `npx tsx scripts/fetch-census-fixture.ts` (needs Supabase env).
+const FIXTURE = 'scripts/marinaGateSnapshot.json';
 if (!existsSync(FIXTURE)) {
   console.log(`[SKIP] ${FIXTURE} not present (live project data, gitignored).`);
-  console.log('       Refresh it with: npx tsx scripts/fetch-fmp-re-hub.ts');
+  console.log('       Refresh it with: npx tsx scripts/fetch-census-fixture.ts');
   console.log('=== Result: skipped (no fixture) ===');
   process.exit(0);
 }
@@ -82,16 +103,26 @@ type KpiVals = Record<string, number | null>;
  * the funding and report a shortfall, which is a real consequence of a real
  * lever, and excluding it lost two checks that were correctly passing.
  *
- * And a result filter cannot work here at all, because THIS SNAPSHOT'S BASE IS
- * ALREADY MALFORMED for the field in question: its two facilities carry 33.33%
- * and 50%, summing to 83.33, and the reconciliation says so before any override
- * is applied. Every share value is then equally invalid, so there is no valid
- * measurement to compare against and no filter can manufacture one.
+ * And a result filter cannot work here at all, because the base itself can be
+ * malformed FOR THE FIELD IN QUESTION before any override is applied. Every
+ * share value is then equally invalid, so there is no valid measurement to
+ * compare against and no filter can manufacture one.
  *
  * So the field is declared UNMEASURABLE on this project, reported as such, and
  * excluded from both halves of the contract. It is neither a live lever being
- * hidden nor a silent dead lever; it is a field whose own input invariant is
- * broken in the fixture, which is a fact about the fixture.
+ * hidden nor a silent dead lever; it is a field whose own input invariant does
+ * not admit a second value here.
+ *
+ * MOVING THE FIXTURE TO THE REFERENCE PROJECT DID NOT REMOVE THE NEED FOR IT,
+ * measured 2026-09-01e. It changed which clause carries it. The old fixture
+ * tripped the SUM clause (two facilities at 33.33 and 50, summing to 83.33).
+ * The reference project has ONE facility at 100, so the sum is clean and that
+ * clause is quiet, but the single-facility clause now fires: with one facility
+ * there is no second valid share, so dialling it to 150 or to 50 measures a
+ * funding plan the platform reports as broken. Removing the precondition puts
+ * `facilitySharePct` straight back into the failure with 11 KPIs "moved",
+ * which is the same false finding by a different route. Both clauses stay, and
+ * the one that fired is printed below so it is never an unstated assumption.
  */
 function kpisOf(model: any): KpiVals | null {
   try {
@@ -134,14 +165,45 @@ function movedKpis(scen: KpiVals | null): string[] {
 
 // Path-aware override candidates (enum domains keyed by full leaf path so an
 // enum is never fed an invalid value that reads as a false dead lever).
+//
+// AN UNDECLARED STRING DOMAIN USED TO READ AS A DEAD LEVER (2026-09-01e). A
+// string field matching no pattern here fell through to `return []`, so it was
+// probed with ZERO candidates and landed in DEAD with no evidence whatsoever.
+// The dead bucket then said "inert, no gating reason" about a field the census
+// had never touched. Seven fields were sitting in that hole on the reference
+// project, and six of them are live levers, measured:
+//
+//   costLines[].catalogId          -> 'commission'  moves 13 KPIs
+//   costLines[].phasingSource      -> 'own'         moves 11 KPIs
+//   costLines[].stageOverride      -> 'land'        moves 8 KPIs
+//   assets[].capexPhasing.phasing  -> 'even'        moves 11 KPIs
+//   fundTerms.managementFeeFunding -> 'deficit'     moves 11 KPIs
+//
+// So the domains below are now REQUIRED: `undeclaredStringDomains` fails the
+// run for any picker string field that matches nothing here, which is the only
+// form that cannot regress silently. A field that is genuinely free text is
+// excluded from the picker by nonEconomicLeverReason and never reaches the
+// check.
 const PATH_ALTERNATES: ReadonlyArray<readonly [RegExp, string[]]> = [
+  // Cost-line behaviour, stamped per line. `catalogId` is NOT inert: selecting
+  // an entry stamps its method / stage / scope onto the line, and identity
+  // resolves through it (resolveCatalogId), so swapping it re-prices the line.
+  [/^costLines\[[^\]]+\]\.catalogId$/, ['commission', 'contingency', 'developer-fee', 'marketing', 'rett']],
+  [/\.stageOverride$/, ['land', 'hard', 'soft', 'marketing', 'operating']],
+  [/\.phasingSource$/, ['inherit', 'own', 'land_cash', 'collections']],
+  // User-pickable CostPhasing only. 'frontloaded' / 'backloaded' / 'sCurve' /
+  // 'phase_aligned' are legacy, accepted on read and treated as 'even', so
+  // probing with them would measure the alias rather than the lever.
+  [/\.capexPhasing\.phasing$/, ['even', 'manual']],
+  [/^project\.fundTerms\.managementFeeFunding$/, ['deficit', 'equity']],
+  [/^project\.fundTerms\.feeBase$/, ['committed_capital', 'total_development_cost']],
   [/recognitionProfile\.method$/, ['point_in_time', 'over_time']],
   [/recognitionProfile\.profileMode$/, ['equal', 'absolute_with_catchup']],
   [/recognitionProfile\.pointInTimeYear$/, ['handover', 'first_operations', 'custom']],
   [/cashPaymentProfile\.profileMode$/, ['equal', 'absolute_with_catchup']],
   [/(adrIndexation|rentIndexation|defaultIndexation)\.method$/, ['none', 'single_rate', 'yoy_compound', 'yoy_per_period']],
   [/\.indexation\.method$/, ['none', 'single_rate', 'yoy_compound', 'step']],
-  [/returns\.terminalMethod$/, ['exit_multiple', 'perpetuity']],
+  [/returns\.terminalMethod$/, ['exit_multiple', 'perpetuity', 'cap_rate']],
   [/\.strategy$/, ['Sell', 'Operate', 'Lease', 'Sell + Manage']],
   [/idcConfig\.fundingMode$/, ['capitalized', 'expensed', 'conditional']],
   [/idcConfig\.allocationBasis$/, ['nsa', 'bua', 'gfa']],
@@ -167,8 +229,11 @@ function candidatesFor(f: OverridableField): unknown[] {
   if (f.type === 'string') { for (const [re, alts] of PATH_ALTERNATES) if (re.test(f.path)) return alts.filter((a) => a !== f.value); return []; }
   const v = Number(f.value);
   if (isPeriodish(f.field)) {
-    // small, bounded integer shifts only
-    if (Math.abs(v) > 1e-9) return [v + 1, Math.max(0, v - 1), v + 3];
+    // Small, bounded integer shifts only, and BOTH DIRECTIONS. Probing upward
+    // alone read several live window fields as dead (2026-09-01e): a phase-2
+    // line seeded endPeriod 4 against a 3-period construction had its extra
+    // periods clamped away, so 5 and 7 changed nothing while 2 moved 11 KPIs.
+    if (Math.abs(v) > 1e-9) return [v + 1, Math.max(0, v - 1), v + 3, Math.max(0, v - 2), 0];
     return [1, 2, 5, 10];
   }
   if (Math.abs(v) > 1e-9) return [v * 1.5, v * 0.5, -v, v * 3, v + 1000];
@@ -214,9 +279,60 @@ const unmeasurable = rows.filter((r) => unmeasurableReason(r.path) !== null);
 const isUnmeasurable = (r: Row): boolean => unmeasurableReason(r.path) !== null;
 const dead = rows.filter((r) => r.status === 'DEAD' && !DOCUMENTED_INERT(r) && !isUnmeasurable(r));
 const documentedInert = rows.filter((r) => r.status === 'DEAD' && DOCUMENTED_INERT(r));
-// False-gated: empirically moves a KPI yet a gating/exclusion reason claims it is inert.
-const falseGated = rows.filter((r) => !isUnmeasurable(r) && r.moved.length > 0 && r.moved[0] !== '<compute-error>'
-  && (inactiveLeverReason(r.path, base) || nonEconomicLeverReason(r.path, r.path.split('.').pop()!)));
+
+// ── HIDDEN vs ANNOTATED. The two gate functions do different things, and this
+//    check conflated them until 2026-09-01e.
+//
+//    nonEconomicLeverReason  Module6Scenarios FILTERS the field out of `fields`.
+//                            It is then unreachable: not in the picker, not in
+//                            search, not under "Show all", never in the grid.
+//                            A live lever landing here IS concealed.
+//    inactiveLeverReason     the field stays in `fields` and renders in the
+//                            grid with a visible amber "not used under current
+//                            settings" badge carrying the reason as its
+//                            tooltip. It is dropped only from the CURATED
+//                            DEFAULTS. Nothing is concealed; the user is told
+//                            something and can still dial it.
+//
+//    So only the first is hiding. The four land in-kind / land cash phasing
+//    fields are annotated, not hidden, and their note says outright that moving
+//    them shifts returns materially, which is exactly what the measurement
+//    shows. Reading them as hidden levers was this check's own defect.
+//
+//    Annotated movers are NOT ignored. They are pinned below, so a NEW gate
+//    placed over a live lever still fails red and has to be justified.
+const isHidden = (r: Row): boolean => nonEconomicLeverReason(r.path, r.path.split('.').pop()!) !== null;
+const hiddenMovers = rows.filter((r) => !isUnmeasurable(r) && r.moved.length > 0
+  && r.moved[0] !== '<compute-error>' && isHidden(r));
+
+// ── ANNOTATED MOVERS: shown with a note, and the note must be earned.
+//
+// Land is charged as a single lump, so its start / end window does not spread
+// it into a curve. But `phaseLocalToProjectIndex` places that lump AGAINST the
+// window, so the window decides WHICH YEAR the charge lands in, and land timing
+// is among the largest drivers of return on a development. The note says so.
+// Measured on the reference project: moving land-inkind__phase_1.startPeriod
+// from 0 to 3 moves Equity IRR by 21.87%.
+//
+// Pinned by pattern, so a gate newly placed over some OTHER live lever still
+// fails red rather than joining a growing exempt list.
+const ANNOTATED_MOVER = (r: Row): boolean =>
+  /^costLines\[id=land-(cash|inkind)__[^\]]+\]\.(startPeriod|endPeriod)$/.test(r.path)
+  // Asset-level BUA on a Sell asset that takes its saleable area from the
+  // sub-units. It does not drive REVENUE there, which is what the note says,
+  // but a cost line allocated on BUA share reads it, so it moves returns. The
+  // note says that too, in the same breath. Shown, badged, and true.
+  || /^assets\[id=[^\]]+\]\.buaSqm$/.test(r.path);
+const annotatedMovers = rows.filter((r) => !isUnmeasurable(r) && r.moved.length > 0
+  && r.moved[0] !== '<compute-error>' && !isHidden(r) && inactiveLeverReason(r.path, base) !== null);
+const undocumentedAnnotated = annotatedMovers.filter((r) => !ANNOTATED_MOVER(r));
+
+// ── A string field probed with NO candidate is not evidence of anything.
+//    Only fields that actually reach the picker need a domain: a free-text
+//    field is removed by nonEconomicLeverReason and never gets here.
+const undeclaredStringDomains = picker.filter((f) => f.type === 'string'
+  && nonEconomicLeverReason(f.path, f.field) === null
+  && candidatesFor(f).length === 0);
 
 console.log('=== Census summary ===');
 const byStatus = new Map<string, number>();
@@ -225,10 +341,25 @@ for (const [s, n] of [...byStatus.entries()].sort((a, b) => b[1] - a[1])) consol
 console.log(`  PER-PERIOD (excluded from picker): ${perPeriod.length}`);
 console.log(`  picker total: ${picker.length}\n`);
 
+if (unmeasurable.length) {
+  console.log('  unmeasurable on this project (excluded from BOTH contract halves):');
+  for (const r of unmeasurable) console.log(`    ${r.path}: ${unmeasurableReason(r.path)}`);
+  console.log('');
+}
+
 check('base model computes a full KPI set', Object.values(baseKpis).some((v) => v != null));
 check('a non-trivial number of fields empirically move a comparison KPI', movers.length > 30, `movers=${movers.length}`);
-check('NO live lever is hidden: every empirical KPI mover is offered active (not gated / excluded)', falseGated.length === 0,
-  falseGated.slice(0, 8).map((r) => `${r.path} moves[${r.moved.join(',')}]`).join(' ; '));
+check('NO live lever is HIDDEN: no empirical KPI mover is removed from the picker by nonEconomicLeverReason', hiddenMovers.length === 0,
+  hiddenMovers.slice(0, 8).map((r) => `${r.path} moves[${r.moved.join(',')}]`).join(' ; '));
+check('every ANNOTATED mover (shown with a note, dropped from curated defaults) is a documented one', undocumentedAnnotated.length === 0,
+  undocumentedAnnotated.slice(0, 8).map((r) => `${r.path} moves[${r.moved.join(',')}]`).join(' ; '));
+check('every picker string field has a declared override domain (an unprobed field is not evidence of inertness)',
+  undeclaredStringDomains.length === 0,
+  `${undeclaredStringDomains.length} undeclared: ` + undeclaredStringDomains.slice(0, 12).map((f) => f.path).join(' ; '));
+if (annotatedMovers.length) {
+  console.log('  annotated movers (visible in the grid, badged "not used under current settings"):');
+  for (const r of annotatedMovers) console.log(`    ${r.path} moves[${r.moved.join(',')}]`);
+}
 check('NO silent dead lever: every inert field is gated or excluded with a reason', dead.length === 0,
   `${dead.length} ungated dead: ` + dead.slice(0, 25).map((r) => `${r.path}`).join(' ; '));
 check('documented engine-internal inert set stays small (<= 2) and is empirically inert', documentedInert.length <= 2 && documentedInert.every((r) => r.moved.length === 0),
@@ -291,7 +422,21 @@ if (parcel) {
 }
 if (activeOv) proveMoves('Per-asset construction rate (costOverride)', `costOverrides[${activeOv.assetId}::${activeOv.lineId}].value`, Number(activeOv.value) * 1.5, 'Total Development Cost');
 proveMoves('Discount rate', 'project.returns.discountRate', Number(base.project.returns?.discountRate ?? 0.1) + 0.05, 'NPV (FCFF)');
-proveMoves('Perpetuity growth (active terminal method)', 'project.returns.perpetuityGrowth', Number(base.project.returns?.perpetuityGrowth ?? 0.02) + 0.01, 'Terminal Equity Value');
+// The ACTIVE terminal driver, whichever it is. Naming one method hard-coded a
+// fact about the old fixture: the reference project exits on a cap rate, so
+// pinning perpetuity growth asserted that an input the model correctly ignores
+// should move the terminal value, and the check failed for being right.
+{
+  const tm = String(base.project.returns?.terminalMethod ?? 'exit_multiple');
+  const TERMINAL_DRIVER: Record<string, { path: string; next: number }> = {
+    perpetuity: { path: 'project.returns.perpetuityGrowth', next: Number(base.project.returns?.perpetuityGrowth ?? 0.02) + 0.01 },
+    exit_multiple: { path: 'project.returns.exitMultiple', next: Number(base.project.returns?.exitMultiple ?? 8) + 2 },
+    cap_rate: { path: 'project.returns.capRate', next: Number(base.project.returns?.capRate ?? 0.08) + 0.02 },
+  };
+  const d = TERMINAL_DRIVER[tm];
+  check(`terminal method is one this check knows how to drive (got "${tm}")`, d !== undefined);
+  if (d) proveMoves(`Terminal driver for the active method "${tm}"`, d.path, d.next, 'Terminal Equity Value');
+}
 if (sellAsset) {
   const su = (base.subUnits as any[]).find((u) => u.assetId === sellAsset.id && Number(u.unitPrice) > 0);
   if (su) proveMoves('Sub-unit unit price', `subUnits[id=${su.id}].unitPrice`, Number(su.unitPrice) * 1.5, 'Gross Development Value');

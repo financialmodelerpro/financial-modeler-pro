@@ -24,6 +24,7 @@ import { deriveLineBaseId, assetStrategySells } from '../state/module1-types';
 // The engine's OWN scope rule, not a restatement of it: the reason a user reads
 // and the test the engine applies must be the same function.
 import { deriveAssetScope } from '@/src/core/calculations';
+import { resolvePhasingSource } from '@/src/core/calculations/capexPhasing';
 import type { Asset, Phase, CostLine, SubUnit, CostOverride, FinancingTranche } from '../state/module1-types';
 
 // ── Categories (mirror the Inputs-tab bands) ────────────────────────────────
@@ -408,6 +409,7 @@ export function curatedDefaultFields(model: HydrateSnapshot): OverridableField[]
 // Leaf names that are non-economic for every entity.
 const NON_ECONOMIC_LEAVES: Record<string, string> = {
   name: 'a label', status: 'a status flag', type: 'an entity type', location: 'a location label',
+  fundManagerName: 'a label', partyName: 'a label',
   projectType: 'a project-type selector', phaseId: 'an entity reference', parentAssetId: 'an entity reference',
   companionType: 'a structural flag', isCompanion: 'a structural flag',
   subUnitMetric: 'a unit-of-measure selector', id: 'an identifier',
@@ -451,6 +453,29 @@ const RETIRED_FIELD_PATTERNS: ReadonlyArray<{ re: RegExp; why: string }> = [
     // no saved schedule was destroyed, but nothing reads it.
     re: /^assets\[[^\]]+\]\.revenue\.sell\.cashPaymentProfile\./,
     why: 'a retired payment-profile control: sale cohort terms (downpayment and instalments) drive pre-sales cash now, so this changes nothing',
+  },
+  {
+    // Migration 208's fee model. `fundTerms.ts` marks these "Legacy, migration
+    // 208. Retired from the UI, still resolved so an existing row keeps its
+    // values and nothing is silently lost", and FUND_FEE_SPECS replaced them:
+    // each fee now declares its OWN base (fund size / total equity / debt
+    // facility / flat amount) instead of sharing one `feeBase`. `carryPct` is
+    // the third of these: carry IS the performance fee, and the resolver reads
+    // `performanceFeePct ?? carryPct`, so with the live field present the alias
+    // is never consulted. Measured inert on the reference project, including
+    // in pairs (committedCapital + managementFeePct together move nothing).
+    re: /^project\.fundTerms\.(managementFeePct|feeBase|committedCapital|carryPct)$/,
+    why: 'a retired migration-208 fund fee control: each fund fee now declares its own base (fund size, total equity, debt facility or a flat amount), and the performance fee is read from performanceFeePct, so this changes nothing',
+  },
+  {
+    // Read ONLY by the store: `updatePhase` re-derives the window of every
+    // flagged line when a phase's construction length changes (module1-store).
+    // The ENGINE reads startPeriod / endPeriod and never this flag, so a
+    // value-only case override, which patches the snapshot the engine reads and
+    // never runs a store action, cannot do anything at all. All 14 instances on
+    // the reference project measured inert.
+    re: /^cost(Lines|Overrides)\[[^\]]+\]\.windowFollowsConstruction$/,
+    why: 'a store-maintenance flag: it re-derives this line\'s window when the phase construction length is edited, and the engine never reads it, so a scenario override changes nothing (edit the start / end period instead)',
   },
 ];
 
@@ -641,17 +666,19 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
     const asset = assetById(opDetail[1]);
     if (asset?.strategy === 'Operate') return 'Hospitality revenue is driven by per-sub-unit (ADR / occupancy) and per-period inputs; this asset-level operate detail has no headline-KPI effect';
   }
-  // Other-revenue MODE switches how that revenue is computed, but has nothing to
-  // scale when other revenue is off for the asset (here: zero on these assets).
-  // NOTE: F&B mode (fb.mode) DOES move (F&B scales off the sub-unit room revenue,
-  // which exists even at a zero asset-level ADR), so it is deliberately NOT here.
-  const opMode = /^assets\[id=([^\]]+)\]\.revenue\.operate\.otherRevenue\.mode$/.exec(path);
-  if (opMode) {
-    const asset = assetById(opMode[1]);
-    if (asset?.strategy === 'Operate' && !(Number(asset?.revenue?.operate?.startingADR) > 0)) {
-      return 'Other revenue is not active for this Operate asset; the other-revenue mode has nothing to scale';
-    }
-  }
+  // OTHER-REVENUE MODE IS NOT GATED, and the gate that used to sit here was
+  // wrong on its own terms. It read "Other revenue is not active for this
+  // Operate asset" whenever the ASSET-LEVEL `startingADR` was zero. But
+  // hospitality revenue runs off per-SUB-UNIT ADR, which is precisely why the
+  // asset-level scalar is gated a few lines above, so room revenue exists and a
+  // percent-of-rooms other-revenue mode has plenty to scale. The note directly
+  // above made that argument for F&B mode and then drew the opposite conclusion
+  // for the identical field one line down.
+  //
+  // Measured 2026-09-01 on the reference project: Marina Hotel carries
+  // startingADR 0 with otherRevenue percent_of_rooms 0.08, and switching the
+  // mode moves 10 KPIs including Gross Development Value. It is a live revenue
+  // lever and belongs in the curated defaults, so it is gated nowhere.
   // Companion (rental-pool Operate) asset: depreciation is modelled on its parent
   // asset, so the companion's useful life is not used.
   const life = /^assets\[id=([^\]]+)\]\.usefulLifeYears$/.exec(path);
@@ -774,8 +801,17 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
     if (ph?.status === 'operational') return 'This phase is already operational; its forward operations / overlap period counts are not used';
   }
 
-  // Land cost lines. Land is funded in-kind here, so the cash-land line value
-  // contributes nothing. (The in-kind land VALUE still moves and stays active.)
+  // Land cost lines.
+  //
+  // THE CASH-LAND VALUE REASON WAS FALSE TOO, measured 2026-09-01 on the
+  // reference project: it read "Land is funded in-kind here; the cash-land cost
+  // line contributes nothing", and that project funds land BOTH ways (both
+  // lines carry 100%). Overriding `land-cash__phase_1.value` moves 13 KPIs
+  // including Land Cost and Total Development Cost. The claim was true of the
+  // project the gate was written against and false of the reference one, which
+  // is exactly why it now MEASURES the split instead of asserting it: the line
+  // is inert only when its own share is zero, and that is a fact about the
+  // model, not a standing property of the field.
   //
   // THE PHASING REASON WAS FALSE, and measured so on 2026-09-01 (FMP MARINA
   // GATE, the reference project): it read "land cost is incurred upfront; the
@@ -800,9 +836,109 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
       if (landLine[2] === 'startPeriod' || landLine[2] === 'endPeriod') {
         return 'Land is charged as a single lump, so this window does not spread it over time. It does decide WHICH period the lump lands in, and moving it shifts returns materially (measured: over 20% on equity IRR)';
       }
-      if (baseId === 'land-cash') return 'Land is funded in-kind here; the cash-land cost line contributes nothing (use the per-parcel land price)';
+      if (landLine[2] === 'value') {
+        // Both land lines are a PERCENTAGE of their own half of the land
+        // split, so a line is inert only when that half is zero.
+        const share = Number((((model as unknown as { costLines?: CostLine[] }).costLines ?? [])
+          .find((l) => l.id === landLine[1]) as { value?: number } | undefined)?.value);
+        if (!(Math.abs(share) > 0)) {
+          return baseId === 'land-cash'
+            ? 'This project funds no land in cash (the cash-land share is zero), so the cash-land line contributes nothing'
+            : 'This project contributes no land in kind (the in-kind share is zero), so the in-kind land line contributes nothing';
+        }
+      }
     }
   }
+  // ── A FOLLOWED PHASING SOURCE REPLACES THE WINDOW, not just the shape.
+  //    A line set to follow the land cash outflow or sales collections takes
+  //    BOTH its shape and its periods from that source, so its own start / end
+  //    are not what the engine spends on (the row renders
+  //    `resolvedWindowByLineId` for the same reason). Measured inert on every
+  //    such line on the reference project. `resolvePhasingSource` is the
+  //    engine's own resolver, so the reason a user reads and the rule the
+  //    engine applies are the same test. ──
+  const winLine = /^costLines\[id=([^\]]+)\]\.(startPeriod|endPeriod)$/.exec(path);
+  if (winLine) {
+    const line = ((model as unknown as { costLines?: CostLine[] }).costLines ?? []).find((l) => l.id === winLine[1]);
+    const src = line ? resolvePhasingSource(line) : 'inherit';
+    if (src === 'land_cash' || src === 'collections') {
+      return `This line follows ${src === 'land_cash' ? 'the land cash outflow' : 'sales collections'}, which replaces its own window; the periods it is spent over come from that source`;
+    }
+  }
+
+  // ── A SELLING COST IN A PHASE WHERE NOTHING SELLS. The master-line twin of
+  //    the per-asset override rule above, and it reads the same two engine
+  //    functions rather than restating the scope rule a third time. A
+  //    commission or marketing line is charged on a sale base; where no asset
+  //    in the phase sells there is nothing for it to be a percentage of. ──
+  const sellLine = /^costLines\[id=([^\]]+)\]\.(value|phasingSource|startPeriod|endPeriod)$/.exec(path);
+  if (sellLine) {
+    const line = ((model as unknown as { costLines?: CostLine[] }).costLines ?? []).find((l) => l.id === sellLine[1]);
+    if (line && deriveAssetScope(line) === 'selling') {
+      const inPhase = (m.assets ?? []).filter((a) => a.phaseId === line.phaseId);
+      if (inPhase.length > 0 && !inPhase.some((a) => assetStrategySells(a.strategy))) {
+        return 'No asset in this phase sells, and a selling cost is charged on a sale base, so this line has nothing to be a percentage of';
+      }
+    }
+  }
+
+  // ── A cost line's CATALOG IDENTITY sets its stage and its asset scope
+  //    (`deriveCostStage` / `deriveAssetScope`), never its price: the line's
+  //    own `value` is what it costs. So the identity is inert on a line that
+  //    already pins both, which is a line carrying an explicit stage override
+  //    whose scope is already selling: every other selling identity leaves the
+  //    scope where it is, and every non-selling one only widens it to assets
+  //    whose sale base is zero. ──
+  const catId = /^costLines\[id=([^\]]+)\]\.catalogId$/.exec(path);
+  if (catId) {
+    const line = ((model as unknown as { costLines?: CostLine[] }).costLines ?? []).find((l) => l.id === catId[1]);
+    if (line && (line as { stageOverride?: string }).stageOverride && deriveAssetScope(line) === 'selling') {
+      const inPhase = (m.assets ?? []).filter((a) => a.phaseId === line.phaseId);
+      if (!inPhase.some((a) => !assetStrategySells(a.strategy) && Number((a as { buaSqm?: number }).buaSqm) > 0)) {
+        return 'The catalog entry sets this line\'s stage and scope, not its price; this line already carries an explicit stage override and a selling scope, so changing the entry does not change what it costs';
+      }
+    }
+  }
+
+  // ── Per-asset land rate: read only when the asset is NOT drawing on a
+  //    parcel. `landAllocation.parcelId` points at a real parcel here, so the
+  //    parcel's own rate is the price and the per-asset custom rate is not
+  //    consulted. (An asset set to "__custom__" reads it, and it is live there.) ──
+  const custRate = /^assets\[id=([^\]]+)\]\.landAllocation\.customRate$/.exec(path);
+  if (custRate) {
+    const parcelId = (assetById(custRate[1])?.landAllocation ?? {}).parcelId;
+    if (parcelId && parcelId !== '__custom__') {
+      return 'This asset takes its land from a parcel, so the parcel\'s own land price applies; the per-asset custom rate is only read when the asset is set to a custom rate';
+    }
+  }
+
+  // ── HQ opex indexation escalates HQ opex lines. With every HQ line disabled
+  //    or zero there is no cost to escalate, exactly as for the per-asset opex
+  //    inflation gate below. ──
+  if (/^project\.hqOpex\.defaultIndexation\.(rate|startYear|method)$/.test(path)) {
+    const hqLines = ((proj.hqOpex ?? {}).lines ?? []) as Array<{ value?: number; disabled?: boolean }>;
+    if (hqLines.length > 0 && !hqLines.some((l) => l.disabled !== true && Math.abs(Number(l.value)) > 0)) {
+      return 'Every head-office overhead line is switched off or zero; an inflation rate only escalates a cost that exists';
+    }
+  }
+
+  // ── Fund terms that are live fields but not live LEVERS here. ────────────
+  if (path === 'project.fundTerms.fundSize') {
+    if (!(proj.fundTerms ?? {}).fundSizeOverride) {
+      return 'Fund size is solved by the model on the fee-free pass; the typed value is read only when the fund-size override is switched on';
+    }
+  }
+  if (/^project\.fundTerms\.(facilityLimit|facilityLimitOverride)$/.test(path)) {
+    // No entry in FUND_FEE_SPECS is charged on the facility limit: the four
+    // rate fees run on fund size, total equity (x2) and the debt facility
+    // ACTUALLY RAISED, which is deliberate (the limit resolves well above what
+    // a fund draws). The typed limit is reported on the fund-terms exports.
+    return 'No fund fee is charged on the facility limit: each fee declares its own base (fund size, total equity, or the debt actually raised). The typed limit is shown on the fund terms, but it does not enter a calculation';
+  }
+  if (/^project\.fundTerms\.(performanceFeePct|hurdleRatePct)$/.test(path)) {
+    return 'The performance fee and hurdle split fund proceeds between the LP and the GP in the waterfall. They move net-of-carry LP distributions, but the comparison KPIs are consolidated returns struck before that split';
+  }
+
   // ── Master cost-line fields on an already-OPERATIONAL phase: the costs are
   //    historical, not in the forward projection. (Construction-phase master cost
   //    lines DO move and are left active even when some assets also override them.) ──

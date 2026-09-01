@@ -22,7 +22,7 @@
  * the merged model) flips one of these red.
  *
  * The fixture (scripts/fmpReHubSnapshot.json) is live project data, gitignored.
- * Skip-with-notice when absent; refresh via: npx tsx scripts/fetch-fmp-re-hub.ts
+ * Skip-with-notice when absent; refresh via: npx tsx scripts/fetch-census-fixture.ts "RE HUB"
  *
  * Run: npx tsx scripts/verify-active-case-drives-model.ts
  */
@@ -41,7 +41,7 @@ function check(label: string, ok: boolean, detail = ''): void {
 const FIXTURE = 'scripts/fmpReHubSnapshot.json';
 if (!existsSync(FIXTURE)) {
   console.log(`[SKIP] ${FIXTURE} not present (live project data, gitignored).`);
-  console.log('       Refresh it with: npx tsx scripts/fetch-fmp-re-hub.ts');
+  console.log('       Refresh it with: npx tsx scripts/fetch-census-fixture.ts "RE HUB"');
   console.log('=== Result: skipped (no fixture) ===');
   process.exit(0);
 }

@@ -496,6 +496,58 @@ function entirely (a post-handover cohort never reaches `buildSaleCohortProfile`
 at all; it is handled by the post-sales path in `sell.ts`, which is why
 disabling all three cohort guards changed nothing).
 
+### 3.15 A field probed with ZERO candidates is filed as inert
+
+**Symptom.** An exhaustive per-field audit reported eleven "silent dead levers".
+Five of them moved 8 to 13 KPIs the moment they were given a valid value.
+
+**Mechanism.** The candidate generator ended `if (type === 'string') { for
+(...) if (re.test(path)) return alts; return []; }`. A string field matching no
+declared enum domain got an EMPTY candidate list, so the loop body never ran,
+"moved nothing" was recorded, and the field landed in the dead bucket labelled
+"INERT, no gating reason". The audit had never touched it. The empty list is the
+absent-value-collapsing-into-a-real-one family again (TRAPS 2.4): no evidence
+read as strong evidence of the negative.
+
+**Fix.** Declare the domains, and make an UNDECLARED one a hard failure rather
+than a silent zero: `undeclaredStringDomains` fails the run for any field that
+reaches the picker with no candidates. A check that never ran is not a result.
+
+**The general form.** Any sweep that scores "did X change anything?" must first
+assert that it actually tried. Distinguish "tested, no effect" from "not tested"
+and never let the second render as the first. The same shape bit the period
+leaves in the same file: candidates went upward only (`v+1, v-1, v+3`), and a
+line seeded `endPeriod` 4 against a 3-period phase had its extra periods
+clamped, so 5 and 7 changed nothing while 2 moved 11 KPIs.
+
+### 3.16 A gate written by walking one project's dead list
+
+**Symptom.** Repointing an audit from a scratch project to the reference project
+turned 0 ungated dead fields into 71, and three checks red, with no product
+change whatsoever.
+
+**Mechanism.** The gating reasons had been authored by reading the FIRST
+project's inert list and writing a reason for each entry. That makes the gate set
+a mirror of one fixture rather than a statement about the model, and mirrored
+lists diverge silently (see the same lesson in 3.11). Worse, several reasons were
+true only of that fixture: "Land is funded in-kind here; the cash-land line
+contributes nothing" is false on a project that funds land both ways, where the
+same field moves 13 KPIs.
+
+**Fix.** Ground each reason in the CODE, not in the observation. Read the same
+resolver the engine reads (`resolvePhasingSource`, `deriveAssetScope`,
+`FUND_FEE_SPECS`) so the reason a user sees and the rule the engine applies are
+one test, and MEASURE the config that makes a field inert rather than asserting
+it. A reason that names a project is a reason that will be wrong on the next one.
+
+**And check the neighbours.** One gate here claimed "other revenue is not active
+for this Operate asset" whenever the asset-level ADR was zero. The comment
+immediately above it explained, correctly, that F&B revenue scales off the
+per-SUB-UNIT room revenue which exists at a zero asset-level ADR, and is
+therefore deliberately not gated. The identical argument applied one line down
+and the opposite conclusion had been drawn. Contradictory reasoning inside one
+function is cheap to find and worth looking for.
+
 ## 4. PDF export (pdf-lib)
 
 ### 4.1 PDF text is glyph ids, so a naive grep returns nothing

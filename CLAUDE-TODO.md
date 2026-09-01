@@ -12,44 +12,32 @@
 - **Stale `DATABASE_URL` in `.env.local`**: password fails at the resolved tenant (aws-1-ap-northeast-1), so no session can run DDL or read pg_constraint; refreshing it would let the drift audit verify ON DELETE / UNIQUE / CHECK directly instead of behaviorally.
 
 ---
-## OPEN FROM 2026-09-01d: ONE census check, needing a decision I was not asked to make
+## CLOSED 2026-09-01e: the census decision, taken, and what it uncovered
 
-`verify-module6-field-census` is 16 passed / 1 failed. The two dropped findings
-are fixed IN THE CENSUS (2026-09-01d) and the two real ones now carry truthful
-gate reasons. What remains is a single check and a single question.
+`verify-module6-field-census` is **18 passed / 0 failed**. Option 2 was chosen:
+only `nonEconomicLeverReason` counts as hiding, because it is the one that
+removes a field from the picker; `inactiveLeverReason` leaves it shown with an
+amber note. Annotated movers are pinned by pattern rather than ignored. The
+four phasing fields were NOT ungated.
 
-**"NO live lever is hidden" tests whether a mover IS GATED, not whether its
-reason is TRUE.** So correcting the four land-in-kind phasing reasons, which was
-the right fix and is done, cannot clear it: the fields still move (Equity IRR
-21.87% on Marina Gate) and are still marked inactive.
+The fixture also moved to Marina Gate, and **the per-field precondition is
+still needed**: the sum clause went quiet but the single-facility clause now
+carries it, and removing it puts `facilitySharePct` straight back into the
+failure. Both stay, and the clause that fired is printed.
 
-Six fields remain in the failure. Four are the land-in-kind phasing fields,
-confirmed real on Marina Gate. Two are RE HUB's `buaSqm` and `unitArea`, which
-move 0.0005% off a zero base under a 100,000x override and do NOT reproduce on
-Marina Gate: fixture noise, per the rule that a RE HUB-only finding is not one.
+The move then convicted the census itself: a string lever with no declared
+domain was probed with ZERO candidates and filed as dead (five live levers sat
+in that hole), period fields were probed upward only, and the terminal
+spot-proof named one method. Forty genuinely inert fields were then gated
+against the code rather than against the old fixture, one more false gate
+reason was corrected (`land-cash[].value`) and one gate deleted for a premise
+its own neighbouring comment refutes (`otherRevenue.mode`, a live revenue
+lever). Thirteen sabotages, all caught. Full detail in CHANGELOG 2026-09-01e.
 
-**Two coherent resolutions. Pick one; do not split them.**
-
-1. **Ungate the four phasing fields.** They move returns materially, so arguably
-   they belong in the picker as active levers. This was rejected once already
-   ("do not ungate"), so it needs an explicit reversal.
-2. **Teach the census what the two reason functions actually mean.** In
-   `Module6Scenarios`, `nonEconomicLeverReason` FILTERS a field out of the picker
-   (hidden), while `inactiveLeverReason` leaves it SHOWN with its note and only
-   excludes it from the curated defaults. The check treats both as "hidden",
-   which is why a shown-with-a-truthful-note field reads as a concealed lever.
-   Narrowing the check to `nonEconomicLeverReason` would make the contract match
-   what the UI actually does.
-
-Option 2 looks right and is the smaller change, but it redefines what the check
-asserts, so it is a decision rather than a fix.
-
-**Separately, and worth its own look: the census fixture is RE HUB**, a test
-project whose facility shares already sum to 83.33 rather than 100. Pointing it
-at Marina Gate would remove the last two noise fields at source, and is the
-reason the `facilitySharePct` guard had to be a per-field precondition rather
-than a result filter.
-
+**Still on RE HUB, deliberately and untouched here**: `verify-active-case-drives-model`,
+`verify-module6-debt-equity-pair` and `verify-module6-yoy`. They do not depend on
+the malformed facility shares, but nobody has re-measured them against the
+reference project. Refresh either fixture with `npx tsx scripts/fetch-census-fixture.ts`.
 ---
 ## OPEN FROM 2026-09-01
 

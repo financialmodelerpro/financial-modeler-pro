@@ -11,7 +11,7 @@
  * to the existing computed series (no recompute).
  *
  * Fixture is gitignored live data; skip-with-notice when absent
- * (refresh: npx tsx scripts/fetch-fmp-re-hub.ts).
+ * (refresh: npx tsx scripts/fetch-census-fixture.ts "RE HUB").
  *
  * Run: npx tsx scripts/verify-module6-yoy.ts
  */
@@ -34,7 +34,7 @@ const nonZero = (a: number[]) => a.some((v) => Math.abs(v) > 1);
 const FIXTURE = 'scripts/fmpReHubSnapshot.json';
 if (!existsSync(FIXTURE)) {
   console.log(`[SKIP] ${FIXTURE} not present (live project data, gitignored).`);
-  console.log('       Refresh it with: npx tsx scripts/fetch-fmp-re-hub.ts');
+  console.log('       Refresh it with: npx tsx scripts/fetch-census-fixture.ts "RE HUB"');
   console.log('=== Result: skipped (no fixture) ===');
   process.exit(0);
 }
