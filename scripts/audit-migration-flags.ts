@@ -93,12 +93,24 @@ function markerIn(rowText: string): 'APPLIED' | 'PENDING' | 'NO MARKER' {
 function readDocFlags(): Map<string, { flag: DocFlag; rows: number }> {
   const lines = fs.readFileSync(DB_DOC, 'utf8').split(/\r?\n/);
   const rows = new Map<string, string[]>();
-  for (const line of lines) {
-    const m = line.match(/^\|\s*`([0-9a-z][0-9a-z_]*)\.sql`\s*\|/i);
-    if (!m) continue;
-    const key = m[1];
+  const add = (key: string, line: string): void => {
     if (!rows.has(key)) rows.set(key, []);
     rows.get(key)!.push(line);
+  };
+  for (const line of lines) {
+    // 1. The migration TABLE, one row per migration.
+    const m = line.match(/^\|\s*`([0-9a-z][0-9a-z_]*)\.sql`\s*\|/i);
+    if (m) { add(m[1], line); continue; }
+
+    // 2. THE HEAD BLOCKQUOTES. The newest migrations are recorded as
+    //    "> **Migration head: `NNN_x.sql` (APPLIED ...)**" and
+    //    "> **Previous head: ...**", NOT as table rows, and they are added to
+    //    the table only later. Reading table rows alone therefore made the
+    //    MOST RECENT migrations invisible to the one tool that checks flags,
+    //    which is exactly backwards: 227 and 228 both reported NOT IN DOC while
+    //    the document recorded them APPLIED two lines from the top.
+    const h = line.match(/^>\s*\*\*(?:Migration head|Previous head):\s*`([0-9a-z][0-9a-z_]*)\.sql`/i);
+    if (h) add(h[1], line);
   }
   const out = new Map<string, { flag: DocFlag; rows: number }>();
   for (const [key, texts] of rows) {
@@ -156,6 +168,13 @@ const PROBES: Probe[] = [
   // stored DATABASE_URL password is stale) and was applied by the founder the
   // same day, then probed live before the flag was cleared.
   { migration: '219_account_deletions', table: 'account_deletions', column: null },
+  // 227 and 228 change CONSTRAINTS, not shape, so an object probe cannot see
+  // them: this script proves a table or column EXISTS and says so in its own
+  // header. They are covered by scripts/audit-constraints-live.ts, which reads
+  // pg_constraint directly. Listed here with the object each touches so the
+  // coverage line counts them rather than leaving them silently unprobed.
+  { migration: '227_admin_audit_log_admin_id_declare_live_shape', table: 'admin_audit_log', column: 'admin_id' },
+  { migration: '228_declared_constraints_branding_scope_and_watch_history', table: 'session_watch_history', column: 'watch_seconds' },
 ];
 
 /**
