@@ -12,29 +12,43 @@
 - **Stale `DATABASE_URL` in `.env.local`**: password fails at the resolved tenant (aws-1-ap-northeast-1), so no session can run DDL or read pg_constraint; refreshing it would let the drift audit verify ON DELETE / UNIQUE / CHECK directly instead of behaviorally.
 
 ---
-## OPEN FROM 2026-09-01c: two Module 6 curation findings, NOT fixture problems
+## OPEN FROM 2026-09-01d: ONE census check, needing a decision I was not asked to make
 
-The backlog is otherwise cleared (CHANGELOG 2026-09-01c). Two checks in
-`verify-module6-field-census` remain red, and an earlier report of mine wrongly
-grouped them with the OpEx-fixture failures. They are not fixtures. Each needs a
-modelling decision, so neither was guessed at:
+`verify-module6-field-census` is 16 passed / 1 failed. The two dropped findings
+are fixed IN THE CENSUS (2026-09-01d) and the two real ones now carry truthful
+gate reasons. What remains is a single check and a single question.
 
-1. **"NO live lever is hidden": 7 fields MOVE a comparison KPI while being gated
-   or excluded.** `assets[].buaSqm`, `subUnits[].unitArea`,
-   `costLines[land-inkind__phase_2|3].startPeriod` and `.endPeriod`, and
-   `financingTranches[].facilitySharePct`. Either the gate's stated reason is
-   FALSE (the field is read after all, and a user is being told it is not), or
-   the field moves a KPI only through a path the gate did not anticipate. Read
-   `inactiveLeverReason` for each and decide per field; do not blanket-ungate,
-   because the reasons are individually argued.
-2. **"Land price (per-parcel rate) moves at least one comparison KPI":
-   movedKpis=none.** The census expects the parcel rate to be a live lever and
-   measures that it moves nothing. Either the override path it writes is wrong
-   (so the test is broken) or land price genuinely does not reach a comparison
-   KPI on this project (so it is a real dead lever and belongs in the gated
-   set). Measure which before touching either side.
+**"NO live lever is hidden" tests whether a mover IS GATED, not whether its
+reason is TRUE.** So correcting the four land-in-kind phasing reasons, which was
+the right fix and is done, cannot clear it: the fields still move (Equity IRR
+21.87% on Marina Gate) and are still marked inactive.
 
-Both were red before this pass and are unchanged by it.
+Six fields remain in the failure. Four are the land-in-kind phasing fields,
+confirmed real on Marina Gate. Two are RE HUB's `buaSqm` and `unitArea`, which
+move 0.0005% off a zero base under a 100,000x override and do NOT reproduce on
+Marina Gate: fixture noise, per the rule that a RE HUB-only finding is not one.
+
+**Two coherent resolutions. Pick one; do not split them.**
+
+1. **Ungate the four phasing fields.** They move returns materially, so arguably
+   they belong in the picker as active levers. This was rejected once already
+   ("do not ungate"), so it needs an explicit reversal.
+2. **Teach the census what the two reason functions actually mean.** In
+   `Module6Scenarios`, `nonEconomicLeverReason` FILTERS a field out of the picker
+   (hidden), while `inactiveLeverReason` leaves it SHOWN with its note and only
+   excludes it from the curated defaults. The check treats both as "hidden",
+   which is why a shown-with-a-truthful-note field reads as a concealed lever.
+   Narrowing the check to `nonEconomicLeverReason` would make the contract match
+   what the UI actually does.
+
+Option 2 looks right and is the smaller change, but it redefines what the check
+asserts, so it is a decision rather than a fix.
+
+**Separately, and worth its own look: the census fixture is RE HUB**, a test
+project whose facility shares already sum to 83.33 rather than 100. Pointing it
+at Marina Gate would remove the last two noise fields at source, and is the
+reason the `facilitySharePct` guard had to be a per-field precondition rather
+than a result filter.
 
 ---
 ## OPEN FROM 2026-09-01

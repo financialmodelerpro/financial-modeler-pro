@@ -55,11 +55,67 @@ console.log(`=== Module 6 field census on LIVE project "${doc.projectName}" (v${
 console.log(`funding method ${base.project?.financing?.fundingMethod}, terminal ${base.project?.returns?.terminalMethod}, ${base.assets?.length} assets, ${base.subUnits?.length} sub-units, ${base.costLines?.length} cost lines, ${base.costOverrides?.length} overrides\n`);
 
 type KpiVals = Record<string, number | null>;
+
+/**
+ * KPIs for a model, or null when the model is INVALID.
+ *
+ * A KPI that moved because the override broke the model is not evidence that
+ * the field is a live lever. `financingTranches[].facilitySharePct` is the case
+ * that forced this: on FMP MARINA GATE there is ONE facility at 100%, and the
+ * census dialled it to 50 and to 1,100. At 50 the platform itself reports
+ * `reconciliation.ok = false`, "Facility shares sum 50 (expected 100)", which is
+ * the wrong-sum state the product STATES and offers a one-click repair for
+ * rather than silently rescaling. Returns duly collapsed (equity IRR -92%), the
+ * census read that as a live lever, and the field was reported as wrongly gated.
+ *
+ * It was measuring a configuration no user can save without being told it is
+ * broken. A NEWLY invalid model yields null, exactly as a throwing one does, so
+ * it counts as "no evidence" instead of "strong evidence".
+ *
+ * IT IS A PRECONDITION ON THE FIELD, not a filter on the result, and three
+ * attempts were needed to land that.
+ *
+ * "Invalid" cannot mean "reconciliation.ok is false": the base model on this
+ * snapshot already reports issues, so that rejected the BASE and the census
+ * computed nothing at all. Nor can it mean "the override introduced ANY new
+ * issue": raising a construction rate or a unit price can legitimately outgrow
+ * the funding and report a shortfall, which is a real consequence of a real
+ * lever, and excluding it lost two checks that were correctly passing.
+ *
+ * And a result filter cannot work here at all, because THIS SNAPSHOT'S BASE IS
+ * ALREADY MALFORMED for the field in question: its two facilities carry 33.33%
+ * and 50%, summing to 83.33, and the reconciliation says so before any override
+ * is applied. Every share value is then equally invalid, so there is no valid
+ * measurement to compare against and no filter can manufacture one.
+ *
+ * So the field is declared UNMEASURABLE on this project, reported as such, and
+ * excluded from both halves of the contract. It is neither a live lever being
+ * hidden nor a silent dead lever; it is a field whose own input invariant is
+ * broken in the fixture, which is a fact about the fixture.
+ */
 function kpisOf(model: any): KpiVals | null {
   try {
     const rs = computeReturnsSnapshot(computeFinancialsSnapshot(model), model.project);
     const out: KpiVals = {}; for (const k of CASE_KPIS) out[k.label] = k.get(rs); return out;
   } catch { return null; }
+}
+
+/** Why a field cannot be measured on THIS model, or null when it can be. */
+function unmeasurableReason(path: string): string | null {
+  if (/^financingTranches\[[^\]]+\]\.facilitySharePct$/.test(path)) {
+    const shares = ((base.financingTranches ?? []) as any[])
+      .map((t) => Number(t.facilitySharePct))
+      .filter((n) => Number.isFinite(n));
+    if (!shares.length) return null;
+    const sum = shares.reduce((s, v) => s + v, 0);
+    if (Math.abs(sum - 100) > 0.01) {
+      return `facility shares already sum to ${sum.toFixed(2)} (expected 100) BEFORE any override, so every value of this field is a configuration the platform reports as malformed`;
+    }
+    if (shares.length === 1) {
+      return 'a single facility must carry 100%; there is no other valid value to measure';
+    }
+  }
+  return null;
 }
 const baseKpis = kpisOf(base);
 if (!baseKpis) { console.error('base model failed to compute'); process.exit(1); }
@@ -154,10 +210,12 @@ const movers = rows.filter((r) => r.status === 'MOVER');
 // dead lever that does not match still fails the guard red.
 const DOCUMENTED_INERT = (r: Row): boolean =>
   /^costLines\[id=construction-parking__[^\]]+\]\.endPeriod$/.test(r.path);
-const dead = rows.filter((r) => r.status === 'DEAD' && !DOCUMENTED_INERT(r));
+const unmeasurable = rows.filter((r) => unmeasurableReason(r.path) !== null);
+const isUnmeasurable = (r: Row): boolean => unmeasurableReason(r.path) !== null;
+const dead = rows.filter((r) => r.status === 'DEAD' && !DOCUMENTED_INERT(r) && !isUnmeasurable(r));
 const documentedInert = rows.filter((r) => r.status === 'DEAD' && DOCUMENTED_INERT(r));
 // False-gated: empirically moves a KPI yet a gating/exclusion reason claims it is inert.
-const falseGated = rows.filter((r) => r.moved.length > 0 && r.moved[0] !== '<compute-error>'
+const falseGated = rows.filter((r) => !isUnmeasurable(r) && r.moved.length > 0 && r.moved[0] !== '<compute-error>'
   && (inactiveLeverReason(r.path, base) || nonEconomicLeverReason(r.path, r.path.split('.').pop()!)));
 
 console.log('=== Census summary ===');
@@ -196,8 +254,41 @@ function proveMovesAny(label: string, path: string, value: unknown): void {
 }
 const sellAsset = (base.assets as any[]).find((a) => a.strategy === 'Sell');
 const activeOv = (base.costOverrides as any[]).find((o) => o.overridden !== false && !o.disabled && Number(o.value) > 0);
+// LAND PRICE: only where the project actually PRICES land off the parcel.
+//
+// The parcel rate is a live lever wherever an asset resolves its land against
+// the parcel: on FMP MARINA GATE it is exactly proportional (rate x2 -> land
+// cost x2, 123,000,000 -> 246,000,000, 13 KPIs move).
+//
+// It is NOT a project invariant. An asset's `landAllocation` may carry
+// `parcelId: "__custom__"` with its own `customRate`, which is a supported
+// branch of `computeAssetLandBreakdown`: land value is then
+// `split.sqm x customRate` and the PARCEL's rate feeds nothing. On the RE HUB
+// snapshot this file runs against, EVERY asset holding land does exactly that
+// (the only asset pointing at parcel_1 has sqm: 0), so the parcel rate is
+// legitimately inert there and asserting otherwise reported a defect that does
+// not exist. Land still responded to cashPct / inKindPct, which is what proved
+// the value was never coming from the parcel.
+//
+// So the precondition is checked rather than assumed, and when it does not hold
+// the check says so instead of failing.
 const parcel = (base.parcels as any[])[0];
-if (parcel) proveMovesAny('Land price (per-parcel rate)', `parcels[id=${parcel.id}].rate`, Number(parcel.rate) * 1.5);
+if (parcel) {
+  const usesParcel = (base.assets as any[]).some((a) => {
+    const la = (a as any).landAllocation;
+    if (!la) return false;
+    const splits = la.multiParcelSplits as Array<{ parcelId?: string; sqm?: number }> | undefined;
+    if (splits?.length) return splits.some((s) => s.parcelId === parcel.id && Number(s.sqm) > 0);
+    return la.parcelId === parcel.id && Number(la.sqm) > 0;
+  });
+  if (usesParcel) {
+    proveMovesAny('Land price (per-parcel rate)', `parcels[id=${parcel.id}].rate`, Number(parcel.rate) * 1.5);
+  } else {
+    const custom = (base.assets as any[]).filter((a) => (a as any).landAllocation?.parcelId === '__custom__').length;
+    check('Land price (per-parcel rate): skipped, no asset prices land off the parcel', true,
+      `${custom} asset(s) use parcelId "__custom__" with their own customRate, so the parcel rate feeds nothing on this project`);
+  }
+}
 if (activeOv) proveMoves('Per-asset construction rate (costOverride)', `costOverrides[${activeOv.assetId}::${activeOv.lineId}].value`, Number(activeOv.value) * 1.5, 'Total Development Cost');
 proveMoves('Discount rate', 'project.returns.discountRate', Number(base.project.returns?.discountRate ?? 0.1) + 0.05, 'NPV (FCFF)');
 proveMoves('Perpetuity growth (active terminal method)', 'project.returns.perpetuityGrowth', Number(base.project.returns?.perpetuityGrowth ?? 0.02) + 0.01, 'Terminal Equity Value');

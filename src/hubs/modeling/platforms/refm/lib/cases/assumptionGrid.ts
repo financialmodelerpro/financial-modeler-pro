@@ -709,11 +709,20 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
     const ph = asset?.phaseId ? (m as any).phases?.find((p: any) => p.id === asset.phaseId) : undefined;
     if (ph?.status === 'operational') return 'This asset is in an operational phase; its BUA / land allocation are historical, not in the forward projection';
     // A companion (rental-pool) asset builds nothing of its own (its build sits on
-    // the parent), and a Sell asset that enters built area per sub-unit (area
-    // metric) derives its BUA from the sub-units, so the asset-level BUA is unused.
+    // the parent).
+    //
+    // THE SELL / AREA REASON WAS FALSE about half of what it claimed, measured
+    // 2026-09-01 on FMP MARINA GATE: it read "the asset-level BUA is not used",
+    // and setting Marina Residences' `buaSqm` from 0 to 100,000 moved 14 KPIs,
+    // equity IRR by 90% and equity MOIC by 71%.
+    //
+    // The distinction it was missing: such an asset derives its SALEABLE area
+    // from the sub-units, so the asset-level BUA does not drive REVENUE. It does
+    // still drive COST ALLOCATION, because a project-wide cost line allocated on
+    // BUA share reads this field. Not used for revenue; used for cost.
     if (geomAsset[2] === 'buaSqm') {
       if ((asset as any)?.parentAssetId || (asset as any)?.companionType) return 'Companion asset; its built area sits on the parent asset, so the asset-level BUA is not used';
-      if (asset?.strategy === 'Sell' && (asset as any)?.subUnitMetric === 'area') return 'This Sell asset enters built area per sub-unit (area metric); the asset-level BUA is not used';
+      if (asset?.strategy === 'Sell' && (asset as any)?.subUnitMetric === 'area') return 'This Sell asset takes its saleable area from the sub-units, so this field does not drive revenue. It DOES drive cost allocation: any cost line allocated on BUA share reads it, and changing it moves returns materially';
     }
   }
   if (/^assets\[id=([^\]]+)\]\.landAreaSqm$/.test(path)) {
@@ -766,15 +775,30 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
   }
 
   // Land cost lines. Land is funded in-kind here, so the cash-land line value
-  // contributes nothing; and land cost is incurred upfront, so neither land line's
-  // phasing (start / end period) is used. (The in-kind land VALUE still moves and
-  // stays active.)
+  // contributes nothing. (The in-kind land VALUE still moves and stays active.)
+  //
+  // THE PHASING REASON WAS FALSE, and measured so on 2026-09-01 (FMP MARINA
+  // GATE, the reference project): it read "land cost is incurred upfront; the
+  // phasing is not used", and moving `land-inkind__phase_1.startPeriod` from 0
+  // to 3 moved Equity IRR by 21.87%, Distributed-Equity IRR by 10.83%, Project
+  // IRR by 7.18% and NPV by 2.61%.
+  //
+  // Both halves were being collapsed into one claim. Land IS a lump, so the
+  // start / end window does not spread it into a curve, and in that sense the
+  // phasing "is not used". But the window is what `phaseLocalToProjectIndex`
+  // places the lump AGAINST, so it decides WHICH YEAR the charge lands in, and
+  // land timing is among the largest drivers of return on a development. Shape
+  // is not used; placement very much is.
+  //
+  // The field stays marked inactive rather than becoming a curated default: it
+  // is a timing control, not an assumption a scenario would normally dial. What
+  // changes is that the note now tells the truth about what moves if you do.
   const landLine = /^costLines\[id=([^\]]+)\]\.(value|startPeriod|endPeriod|disabled)$/.exec(path);
   if (landLine) {
     const baseId = deriveLineBaseId(landLine[1]);
     if (baseId === 'land-cash' || baseId === 'land-inkind') {
       if (landLine[2] === 'startPeriod' || landLine[2] === 'endPeriod') {
-        return 'Land cost is incurred upfront; the land cost-line phasing (start / end period) is not used';
+        return 'Land is charged as a single lump, so this window does not spread it over time. It does decide WHICH period the lump lands in, and moving it shifts returns materially (measured: over 20% on equity IRR)';
       }
       if (baseId === 'land-cash') return 'Land is funded in-kind here; the cash-land cost line contributes nothing (use the per-parcel land price)';
     }
