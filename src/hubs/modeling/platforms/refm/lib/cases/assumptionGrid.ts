@@ -20,7 +20,10 @@
  */
 import type { HydrateSnapshot } from '../state/module1-store';
 import { enumerateOverridableFields, type OverridableField } from './applyOverrides';
-import { deriveLineBaseId } from '../state/module1-types';
+import { deriveLineBaseId, assetStrategySells } from '../state/module1-types';
+// The engine's OWN scope rule, not a restatement of it: the reason a user reads
+// and the test the engine applies must be the same function.
+import { deriveAssetScope } from '@/src/core/calculations';
 import type { Asset, Phase, CostLine, SubUnit, CostOverride, FinancingTranche } from '../state/module1-types';
 
 // ── Categories (mirror the Inputs-tab bands) ────────────────────────────────
@@ -406,7 +409,8 @@ export function curatedDefaultFields(model: HydrateSnapshot): OverridableField[]
 const NON_ECONOMIC_LEAVES: Record<string, string> = {
   name: 'a label', status: 'a status flag', type: 'an entity type', location: 'a location label',
   projectType: 'a project-type selector', phaseId: 'an entity reference', parentAssetId: 'an entity reference',
-  companionType: 'a structural flag', subUnitMetric: 'a unit-of-measure selector', id: 'an identifier',
+  companionType: 'a structural flag', isCompanion: 'a structural flag',
+  subUnitMetric: 'a unit-of-measure selector', id: 'an identifier',
   projectNdaScope: 'a scope selector', modelType: 'a model-type selector',
   viewMode: 'a UI view setting', assetFilter: 'a UI filter', phaseFilter: 'a UI filter',
   resultsViewMode: 'a UI view setting', outputGranularity: 'an output-granularity setting',
@@ -422,6 +426,34 @@ const NON_ECONOMIC_LEAVES: Record<string, string> = {
 // Structural SELECTORS: enum fields that define HOW an entity is set up (its
 // category / scope / phasing curve / method), not a numeric assumption value a
 // scenario dials. A scenario varies values, it does not restructure the model.
+/**
+ * Fields the engine NO LONGER READS. Offering one as a scenario lever invites a
+ * user to type a number that changes nothing, which is the failure this whole
+ * curation exists to prevent.
+ *
+ * MATCHED ON THE FULL PATH, NOT THE LEAF, and that is not a style choice.
+ * `profileMode` is a leaf on TWO different objects: `cashPaymentProfile`, which
+ * was retired when the sale-cohort rule replaced it, and `recognitionProfile`,
+ * which is LIVE under over-time recognition and already correctly gated below.
+ * A leaf-name entry would have removed a working lever along with the dead one.
+ */
+const RETIRED_FIELD_PATTERNS: ReadonlyArray<{ re: RegExp; why: string }> = [
+  {
+    // 2026-08-18: IDC has ONE treatment. capitalize / fundingMode are retired
+    // and computeFacilitySchedule reads neither; all four former quadrants
+    // produce identical output.
+    re: /^project\.idcConfig\.(fundingMode|capitalize)$/,
+    why: 'a retired IDC control: interest during construction now has one treatment, decided by construction spend, so this changes nothing',
+  },
+  {
+    // 2026-08-19: buildSaleCohortProfile replaced cashPaymentProfile as the
+    // driver of pre-sales cash. The stored field is deprecated, not deleted, so
+    // no saved schedule was destroyed, but nothing reads it.
+    re: /^assets\[[^\]]+\]\.revenue\.sell\.cashPaymentProfile\./,
+    why: 'a retired payment-profile control: sale cohort terms (downpayment and instalments) drive pre-sales cash now, so this changes nothing',
+  },
+];
+
 const STRUCTURAL_SELECTOR_PATTERNS: ReadonlyArray<RegExp> = [
   /^costLines\[[^\]]+\]\.(costCategory|scope|stage|allocationBasis|method|phasing)$/,
   /^costOverrides\[[^\]]+\]\.(phasing|method)$/,
@@ -436,6 +468,9 @@ export function nonEconomicLeverReason(path: string, field: string): string | nu
   const leaf = field.split('.').pop() ?? field;
   const desc = NON_ECONOMIC_LEAVES[leaf];
   if (desc) return `${desc}, not a financial assumption`;
+  for (const { re, why } of RETIRED_FIELD_PATTERNS) {
+    if (re.test(path)) return why;
+  }
   for (const re of STRUCTURAL_SELECTOR_PATTERNS) {
     if (re.test(path)) return 'a structural selector (defines how the line / unit / facility is set up, not a numeric assumption)';
   }
@@ -693,6 +728,29 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
     if (recDetail[2] === 'pointInTimeYear' && method && method !== 'point_in_time') return 'Revenue is recognised over time; the point-in-time handover year is not used';
     if (recDetail[2] === 'profileMode' && method === 'point_in_time') return 'Revenue is recognised at a point in time; the over-time profile mode is not used';
   }
+  // A SELLING COST OVERRIDE ON AN ASSET THAT DOES NOT SELL.
+  //
+  // GATED, not removed. On a Sell or Sell + Manage asset a commission override
+  // is a real lever; it is inert only for THIS asset, because a commission and a
+  // marketing budget have nothing to be a percentage of on a held-and-operated
+  // one. Removing the field would hide a working lever on every selling asset.
+  //
+  // The rule is not restated here: `deriveAssetScope` and `assetStrategySells`
+  // are the engine's own, so the reason a user reads and the reason the engine
+  // acts on are the same test. On the live projects this covers three overrides,
+  // all commission lines sitting on Lease or Operate assets.
+  const ovDetail = /^costOverrides\[([^:\]]+)::([^\]]+)\]\./.exec(path);
+  if (ovDetail) {
+    const ovAsset = assetById(ovDetail[1]);
+    const ovLine = ((m as unknown as { costLines?: CostLine[] }).costLines ?? [])
+      .find((c) => c.id === ovDetail[2]);
+    if (ovAsset && ovLine
+      && deriveAssetScope(ovLine) === 'selling'
+      && !assetStrategySells(ovAsset.strategy)) {
+      return `This is a selling cost and ${ovAsset.name || 'this asset'} is held and operated (${ovAsset.strategy}), so it is not charged here and the override changes nothing`;
+    }
+  }
+
   // Working-capital timing (operate DSO / lease AR days): affects balance-sheet
   // and cash phasing, not a headline comparison KPI.
   if (/^assets\[id=[^\]]+\]\.revenue\.(operate\.dso|lease\.arDays)$/.test(path)) {
