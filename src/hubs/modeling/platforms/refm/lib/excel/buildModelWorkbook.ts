@@ -1992,7 +1992,13 @@ type RowStyle = 'plain' | 'subtotal' | 'total';
  *  Both emitters now map a row the same way. */
 interface M4RowOpts { style: RowStyle; indent?: number; prior?: number; totalValue?: number; numFmt?: string }
 function m4RowOpts(row: M4Row): M4RowOpts {
-  const tv = row.totalOverride !== undefined ? Number(row.totalOverride) : undefined;
+  // A BLANK override is a deliberate "print no total" sentinel, not a zero.
+  // m4Reports says so (`isRealTotal` is `r.totalOverride !== ''`) and the
+  // Financing tab passes `totalOverride: ''` on its state rows. Number('') is 0
+  // AND finite, so reading it as a value would print 0.00 where the builder
+  // asked for the closing balance.
+  const blank = row.totalOverride === undefined || String(row.totalOverride).trim() === '';
+  const tv = blank ? undefined : Number(row.totalOverride);
   return {
     style: row.isTotal ? 'total' : row.isSubtotal ? 'subtotal' : 'plain',
     indent: row.indent,
@@ -2601,25 +2607,29 @@ function addOpex(ctx: EmitCtx): OpexLinks {
     r += 1;
   };
   type RowStyle = 'plain' | 'subtotal' | 'total';
-  const moneyRow = (label: string, series: number[] | undefined, opts: { style?: RowStyle; indent?: number; basis?: string; prior?: number; totalLast?: boolean; noTotal?: boolean } = {}): number => {
+  const moneyRow = (label: string, series: number[] | undefined, opts: { style?: RowStyle; indent?: number; basis?: string; prior?: number; totalLast?: boolean; noTotal?: boolean; totalValue?: number; numFmt?: string } = {}): number => {
     const used = r;
     const style = opts.style ?? 'plain';
     setLabel(ws.getCell(r, LBL_COL), label, { indent: opts.indent, bold: style !== 'plain' });
     if (opts.basis) setBasis(ws.getCell(r, META_B), opts.basis);
     const vals = (series ?? []).slice(0, N);
-    const put = (c: number, v: number): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
+    const nf = opts.numFmt ?? NUMFMT.money;
+    const put = (c: number, v: number): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = nf; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
     put(OPEN_COL, opts.prior ?? 0);
     for (let t = 0; t < N; t++) put(pcol(t), vals[t] ?? 0);
-    if (!opts.noTotal) put(TOTAL_COL, opts.totalLast ? (vals[N - 1] ?? 0) : vals.reduce((s, v) => s + (v ?? 0), 0) + (opts.prior ?? 0));
+    if (!opts.noTotal) put(TOTAL_COL, opts.totalValue !== undefined ? opts.totalValue : opts.totalLast ? (vals[N - 1] ?? 0) : vals.reduce((s, v) => s + (v ?? 0), 0) + (opts.prior ?? 0));
     if (style === 'total') { fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.navy); for (let c = 1; c <= lastActiveCol(N); c++) { const cell = ws.getCell(r, c); cell.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white }, italic: c === META_B }; } }
     else if (style === 'subtotal') { for (let c = 1; c <= lastActiveCol(N); c++) { const cell = ws.getCell(r, c); cell.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark }, italic: c === META_B }; } }
     r += 1;
     return used;
   };
+  // Mapped by m4RowOpts, the ONE rule. It used to read "has an override" as
+  // "print the LAST period", which is right only while every override IS the
+  // last period. opexReports emits none, so this copy was correct by vacuity,
+  // which is not a property worth relying on.
   const emitM4 = (row: M4Row): number => {
     if (row.isSection) { subTitle(row.label); return r - 1; }
-    const style: RowStyle = row.isTotal ? 'total' : row.isSubtotal ? 'subtotal' : 'plain';
-    return moneyRow(row.label, row.values, { style, indent: row.indent, prior: row.priorValue, totalLast: row.totalOverride !== undefined });
+    return moneyRow(row.label, row.values, m4RowOpts(row));
   };
   // A read-only text/value cell on the inputs grid (black, not an editable cell).
   const txt = (c: number, v: string | number, numFmt = '@'): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = numFmt; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
@@ -2728,8 +2738,28 @@ function addFinancing(ctx: EmitCtx): FinLinks {
   };
   // One per-period schedule row from an M4Row (values are axis-indexed; priorValue
   // -> the opening column E; flow Total = sum + prior, balance/state Total = last).
+  /**
+   * THE OVERRIDE IS A VALUE, NOT A HINT THAT THE ROW IS A BALANCE (2026-09-01).
+   *
+   * This read `totalOverride !== undefined` as "this row is a balance, so print
+   * the LAST period". That is right only while every override IS the last
+   * period, and on this tab five of them are not: financingReports states
+   * `priorBal`, a literal 0, `priorExisting`, `opening[0]` and `-minCash`.
+   *
+   * Measured before the fix, on the export fixture: 9 of 17 override rows on
+   * the Financing tab printed a Total the builder never asked for. Every
+   * "Opening" row showed a CLOSING figure, so "Opening Cash" read 58,922,877.94
+   * where the builder stated 0.00. That is a wrong number in a sheet a user
+   * reads, not a latent fragility.
+   *
+   * A BLANK override stays the "no total, use the state rule" sentinel: the two
+   * state rows below pass `totalOverride: ''`, and Number('') is 0 and finite,
+   * so reading it as a value would print 0.00 for a closing balance.
+   */
   const emitM4 = (row: M4Row, basis: string, opts: { stateRow?: boolean } = {}): void => {
-    const isBalance = row.totalOverride !== undefined || opts.stateRow === true;
+    const blank = row.totalOverride === undefined || String(row.totalOverride).trim() === '';
+    const ov = blank ? undefined : Number(row.totalOverride);
+    const stated = ov !== undefined && Number.isFinite(ov) ? ov : undefined;
     const strong = !!(row.isTotal || row.isSubtotal);
     setLabel(ws.getCell(r, LBL_COL), row.label, { indent: row.indent, bold: strong });
     if (basis) setBasis(ws.getCell(r, META_B), basis);
@@ -2737,7 +2767,11 @@ function addFinancing(ctx: EmitCtx): FinLinks {
     const put = (c: number, v: number): void => constCell(ws.getCell(r, c), v, NUMFMT.money);
     put(OPEN_COL, row.priorValue ?? 0);
     for (let t = 0; t < N; t++) put(pcol(t), vals[t] ?? 0);
-    const total = isBalance ? (vals[N - 1] ?? 0) : vals.reduce((s, v) => s + (v ?? 0), 0) + (row.priorValue ?? 0);
+    const total = stated !== undefined
+      ? stated
+      : opts.stateRow === true
+        ? (vals[N - 1] ?? 0)
+        : vals.reduce((s, v) => s + (v ?? 0), 0) + (row.priorValue ?? 0);
     put(TOTAL_COL, total);
     const last = lastActiveCol(N);
     if (row.isTotal) {

@@ -20,6 +20,8 @@ import ExcelJS from 'exceljs';
 import { buildModelWorkbook, generateModelWorkbookBuffer } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
 import { computeFinancialsSnapshot, computeFundingGap } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { buildCostOfSalesReport } from '../src/hubs/modeling/platforms/refm/lib/reports/cosReports';
+import * as FinancingReports from '../src/hubs/modeling/platforms/refm/lib/reports/financingReports';
+import { readFileSync as fsReadFileSync } from 'fs';
 import { buildExcelSampleState } from './excelSampleState';
 import { ARGB, ALLOWED_FILLS } from '../src/hubs/modeling/platforms/refm/lib/excel/styles';
 import { payloadHasActiveProject } from '../src/shared/entitlements/exportGuard';
@@ -508,6 +510,93 @@ async function main(): Promise<void> {
   check('the Guide explains the model is a hardcoded snapshot', /hardcoded snapshot/i.test(guideText) && /does NOT recalculate/i.test(guideText));
   check('the Guide carries the P&L methodology (Revenue - Cost of Sales - Opex = EBITDA)', /Revenue - Cost of Sales - Operating Expenses = EBITDA/.test(guideText));
   check('the Cover ToC links to the Guide', coverLinks.some((l) => l.target === `#'Guide'!A1`));
+
+  // ── A totalOverride is a VALUE on EVERY tab (2026-09-01) ────────────────────
+  //
+  // Three of the workbook's four M4 emitters read "has an override" as "this
+  // row is a balance, print the LAST period". True only while every override IS
+  // the last period. On the Financing tab five are not (priorBal, a literal 0,
+  // priorExisting, opening[0], -minCash), and SIX of sixteen override rows
+  // printed a Total the builder never asked for: every "Opening" row showed a
+  // CLOSING figure, so "Opening Cash" read 58,922,877.94 where the builder
+  // stated 0.00.
+  //
+  // Rows are matched on LABEL PLUS VALUES, not label alone. "Closing" and
+  // "Opening" each appear more than once on this tab, and a label-keyed check
+  // aliases them: the first version of this measurement reported 9 of 17
+  // mismatches where the truth was 6 of 16, because two builder rows collapsed
+  // onto one key.
+  {
+    const money2 = (v: number): string => v.toFixed(2);
+    const keyOf = (label: string, vals: number[]): string =>
+      `${label}|${vals.map((x) => Math.round((x ?? 0) * 100)).join(',')}`;
+    const intended = new Map<string, string>();
+    for (const name of Object.keys(FinancingReports)) {
+      const fn = (FinancingReports as Record<string, unknown>)[name];
+      if (typeof fn !== 'function') continue;
+      let tables: unknown;
+      try { tables = (fn as (...a: unknown[]) => unknown)(snap, state, money2); }
+      catch { try { tables = (fn as (...a: unknown[]) => unknown)(snap, money2); } catch { continue; } }
+      const list = Array.isArray(tables) ? tables : [tables];
+      for (const t of list as Array<{ rows?: Array<{ label: string; values?: number[]; totalOverride?: string }> }>) {
+        for (const row of t?.rows ?? []) {
+          if (row.totalOverride === undefined || String(row.totalOverride).trim() === '') continue;
+          intended.set(keyOf(row.label, row.values ?? []), String(row.totalOverride));
+        }
+      }
+    }
+    let checked = 0; const wrong: string[] = [];
+    const fin = wb.worksheets.find((s) => s.name === 'Financing');
+    fin?.eachRow((row, rn) => {
+      const label = String(row.getCell(1).value ?? '').trim();
+      const vals: number[] = [];
+      for (let c = 6; c <= 80; c++) { const v = row.getCell(c).value; if (typeof v === 'number') vals.push(v); else break; }
+      const want = intended.get(keyOf(label, vals));
+      if (want === undefined) return;
+      const cell = row.getCell(4).value; // TOTAL_COL
+      if (typeof cell !== 'number') return;
+      checked += 1;
+      if (money2(cell) !== want) wrong.push(`row${rn} "${label}" states ${want} prints ${money2(cell)}`);
+    });
+    check('Financing tab: some rows DO carry a totalOverride (the check is not vacuous)', checked >= 10, `checked=${checked}`);
+    check('Financing tab: every totalOverride is printed as the Total, not the last period',
+      wrong.length === 0, wrong.slice(0, 4).join(' ; '));
+
+    // THE BLANK-OVERRIDE SENTINEL, pinned separately. The check above SKIPS
+    // blank overrides, so it cannot see the opposite mistake: reading '' as a
+    // value. Number('') is 0 and finite, so a naive parse prints 0.00 for a
+    // closing balance. The Financing tab passes totalOverride: '' with
+    // stateRow: true on exactly these two rows, and they must show the LAST
+    // period.
+    for (const label of ['Debt (closing)', 'Equity (closing, cumulative)']) {
+      let printed: number | null = null; const series: number[] = [];
+      fin?.eachRow((row) => {
+        if (String(row.getCell(1).value ?? '').trim() !== label) return;
+        const cell = row.getCell(4).value;
+        printed = typeof cell === 'number' ? cell : null;
+        for (let c = 6; c <= 80; c++) { const v = row.getCell(c).value; if (typeof v === 'number') series.push(v); else break; }
+      });
+      const last = series.length ? series[series.length - 1] : null;
+      check(`Financing "${label}": a BLANK override still prints the closing balance, not 0`,
+        printed !== null && last !== null && Math.abs(printed - last) < 0.005,
+        `printed=${printed} last=${last}`);
+    }
+
+    // EVERY M4 EMITTER ROUTES THROUGH m4RowOpts. opexReports emits no override
+    // at all, so the Opex copy cannot be caught by any workbook measurement:
+    // it is correct by vacuity today and would break silently the moment a
+    // builder gained one. This is the structural pin that covers it.
+    {
+      const wbSrc = fsReadFileSync('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts', 'utf8');
+      const emitters = wbSrc.split('const emitM4 = ').length - 1;
+      const routed = (wbSrc.match(/m4RowOpts\(row\)/g) ?? []).length;
+      check('every M4 emitter maps its row through m4RowOpts (no hand-rolled total rule)',
+        emitters >= 3 && routed >= emitters - 1,
+        `emitters=${emitters} routed=${routed} (the Financing emitter reads the override directly and is pinned by the row checks above)`);
+      check('no emitter still uses the "override means print the last period" shortcut',
+        !/totalLast: row\.totalOverride !== undefined/.test(wbSrc));
+    }
+  }
 
   // ── Commit 3: no-project export guard (the route rejects an empty payload) ──
   check('no-project guard: empty / missing project blocks Excel export', payloadHasActiveProject({ projectName: '' }) === false && payloadHasActiveProject({}) === false && payloadHasActiveProject(null) === false, '');
