@@ -3,14 +3,29 @@
  *
  * Read-only audit of the migration-status flags recorded in CLAUDE-DB.md.
  *
- * Background: CLAUDE-DB.md carries eleven "PENDING apply to prod" / "PENDING
- * manual apply" markers, while CLAUDE.md states several of the same migrations
- * are applied. The two documents cannot both be right, and a wrong flag has a
+ * Background: CLAUDE-DB.md carried eleven "PENDING apply to prod" / "PENDING
+ * manual apply" markers, while CLAUDE.md stated several of the same migrations
+ * were applied. The two documents cannot both be right, and a wrong flag has a
  * real cost either way: a false PENDING invites a duplicate apply, a false
  * APPLIED hides a missing column until something 500s in production.
  *
  * The docs cannot settle it. Only the database can, so this probes the live
  * schema for the object each migration creates.
+ *
+ * THE DOC FLAG IS READ FROM THE DOC (2026-09-01). It used to be a `doc` field
+ * HARDCODED beside each probe, mirroring what CLAUDE-DB.md said on the day this
+ * file was written. The 2026-08-16 sweep then cleared all eleven PENDING markers
+ * from the document and nobody updated the copy in here, so for two weeks this
+ * script reported "Flags to correct: 11" on every run, naming eleven migrations
+ * the document already recorded as APPLIED. That is the mirrored-list failure
+ * the rest of this repo keeps finding: a list whose correctness is defined by
+ * ANOTHER list, maintained by hand, drifts. Worse than merely wrong, it made the
+ * tool useless as a signal, because a REAL stale flag would have arrived in a
+ * pile of eleven false ones nobody reads.
+ *
+ * So the script can no longer hold an opinion about what the document says. It
+ * PARSES CLAUDE-DB.md, and where the document has no clear marker it reports
+ * that rather than assuming either way.
  *
  * Method: PostgREST returns a distinguishable error per failure mode.
  *   42P01 / PGRST205 -> the TABLE does not exist
@@ -28,65 +43,119 @@
  * No em dashes in this file.
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
 import { getServerClient } from '../src/core/db/supabase';
 
-type DocFlag = 'PENDING' | 'APPLIED';
+/** What CLAUDE-DB.md says, as READ from it. The last two are not statuses: they
+ *  are the honest answers when the document does not state one, and they are
+ *  never collapsed into APPLIED or PENDING. */
+type DocFlag = 'PENDING' | 'APPLIED' | 'NO MARKER' | 'DIVERGED' | 'NOT IN DOC';
 
 interface Probe {
   migration: string;
-  /** What CLAUDE-DB.md currently claims. */
-  doc: DocFlag;
   table: string;
   /** Null probes the table only. */
   column: string | null;
 }
 
+// ── Reading the document ────────────────────────────────────────────────────
+
+const DB_DOC = path.resolve(__dirname, '..', 'CLAUDE-DB.md');
+
 /**
- * The eleven flagged PENDING in CLAUDE-DB.md, plus a CONTROL GROUP of
- * migrations recorded as applied. The control group is the half that matters
- * most: a false PENDING is noisy, a false APPLIED is a live outage waiting to
- * happen, and an audit that only checks the PENDING ones cannot find it.
+ * The status marker in one migration-log row.
+ *
+ * CASE IS THE DISCRIMINATOR, deliberately. The document uses UPPERCASE APPLIED
+ * and PENDING as status markers, and lowercase "applied" / "pending" freely in
+ * prose: "applied at the effective date by the cron", "pending/approved/declined"
+ * as an enum's values, "a pending schedule". Thirteen rows contain a lowercase
+ * "pending" with no status marker at all, so a case-insensitive match would
+ * invent thirteen PENDING flags out of description text.
+ */
+function markerIn(rowText: string): 'APPLIED' | 'PENDING' | 'NO MARKER' {
+  const applied = /\bAPPLIED\b/.test(rowText);
+  const pending = /\bPENDING\b/.test(rowText);
+  if (applied && pending) return 'NO MARKER'; // says both: not a usable claim
+  if (applied) return 'APPLIED';
+  if (pending) return 'PENDING';
+  return 'NO MARKER';
+}
+
+/**
+ * Every migration row in CLAUDE-DB.md, with its flag.
+ *
+ * A migration can appear on MORE THAN ONE row (47 do, as of 2026-09-01, every
+ * pair byte-identical). Duplicates that AGREE are fine; duplicates that
+ * DISAGREE are reported as DIVERGED and never resolved by picking one, because
+ * picking one is how you launder a contradiction into a fact.
+ */
+function readDocFlags(): Map<string, { flag: DocFlag; rows: number }> {
+  const lines = fs.readFileSync(DB_DOC, 'utf8').split(/\r?\n/);
+  const rows = new Map<string, string[]>();
+  for (const line of lines) {
+    const m = line.match(/^\|\s*`([0-9a-z][0-9a-z_]*)\.sql`\s*\|/i);
+    if (!m) continue;
+    const key = m[1];
+    if (!rows.has(key)) rows.set(key, []);
+    rows.get(key)!.push(line);
+  }
+  const out = new Map<string, { flag: DocFlag; rows: number }>();
+  for (const [key, texts] of rows) {
+    const flags = [...new Set(texts.map(markerIn))];
+    out.set(key, { flag: flags.length === 1 ? flags[0] : 'DIVERGED', rows: texts.length });
+  }
+  return out;
+}
+
+/**
+ * WHAT TO PROBE, and how. This is the only thing the script legitimately knows
+ * that the document does not: which table or column each migration creates.
+ * There is deliberately NO status field here any more; see the header.
+ *
+ * The set spans migrations the document records both ways, which is the half
+ * that matters most: a false PENDING is noisy, a false APPLIED is a live outage
+ * waiting to happen, and an audit that only checks the PENDING ones cannot find
+ * it. Anything in the document but not in this list is reported as UNCOVERED
+ * rather than passed over in silence.
  */
 const PROBES: Probe[] = [
-  // --- flagged PENDING in CLAUDE-DB.md ---
-  { migration: '170_payment_paddle_client_token', doc: 'PENDING', table: 'payment_settings', column: 'paddle_client_token' },
-  { migration: '171_payment_webhook_events', doc: 'PENDING', table: 'payment_webhook_events', column: null },
-  { migration: '172_users_company_job_title', doc: 'PENDING', table: 'users', column: 'job_title' },
-  { migration: '173_trial_requests', doc: 'PENDING', table: 'trial_requests', column: null },
-  { migration: '176_users_paddle_subscription', doc: 'PENDING', table: 'users', column: 'paddle_subscription_id' },
-  { migration: '177_user_platform_subscriptions', doc: 'PENDING', table: 'user_platform_subscriptions', column: null },
-  { migration: '178_scheduled_plan_change', doc: 'PENDING', table: 'user_platform_subscriptions', column: 'scheduled_plan_key' },
-  { migration: '179_manual_subscriptions', doc: 'PENDING', table: 'user_platform_subscriptions', column: 'source' },
-  { migration: '180_payment_ledger_and_convert', doc: 'PENDING', table: 'payment_transactions', column: null },
-  { migration: '186_platform_modules_include_in_pdf', doc: 'PENDING', table: 'platform_modules', column: 'include_in_pdf' },
-  { migration: '189_article_hero_position', doc: 'PENDING', table: 'articles', column: 'hero_before_content' },
-
-  // --- control group: recorded as applied ---
-  { migration: '181_subscription_email_log', doc: 'APPLIED', table: 'subscription_email_log', column: null },
-  { migration: '182_manual_invoices', doc: 'APPLIED', table: 'manual_invoices', column: null },
-  { migration: '183_scheduled_cancel_at', doc: 'APPLIED', table: 'user_platform_subscriptions', column: 'scheduled_cancel_at' },
-  { migration: '184_coupon_paddle_reference', doc: 'APPLIED', table: 'coupon_codes', column: 'paddle_discount_id' },
-  { migration: '185_reviewed_model_return', doc: 'APPLIED', table: 'model_submissions', column: 'reviewed_file_path' },
-  { migration: '190_refm_parties', doc: 'APPLIED', table: 'refm_parties', column: null },
-  { migration: '199_report_decks', doc: 'APPLIED', table: 'refm_report_decks', column: null },
-  { migration: '203_ai_feature_registry', doc: 'APPLIED', table: 'ai_features', column: null },
-  { migration: '205_ai_usage_metering', doc: 'APPLIED', table: 'ai_usage_counters', column: null },
-  { migration: '207_refm_report_deck_versions', doc: 'APPLIED', table: 'refm_report_deck_versions', column: null },
-  { migration: '208_refm_fund_terms', doc: 'APPLIED', table: 'refm_fund_terms', column: null },
-  { migration: '209_refm_fund_terms_extended', doc: 'APPLIED', table: 'refm_fund_terms', column: 'fund_structure_fee_pct' },
-  { migration: '210_refm_fund_manager', doc: 'APPLIED', table: 'refm_fund_terms', column: 'fund_manager_name' },
-  { migration: '211_refm_fund_size_override', doc: 'APPLIED', table: 'refm_fund_terms', column: 'fund_size_override' },
-  { migration: '212_public_api_audit', doc: 'APPLIED', table: 'public_api_audit', column: null },
-  { migration: '213_public_api_keys', doc: 'APPLIED', table: 'public_api_keys', column: null },
-  { migration: '214_refm_cost_catalog', doc: 'APPLIED', table: 'refm_cost_catalog', column: null },
+  { migration: '170_payment_paddle_client_token', table: 'payment_settings', column: 'paddle_client_token' },
+  { migration: '171_payment_webhook_events', table: 'payment_webhook_events', column: null },
+  { migration: '172_users_company_job_title', table: 'users', column: 'job_title' },
+  { migration: '173_trial_requests', table: 'trial_requests', column: null },
+  { migration: '176_users_paddle_subscription', table: 'users', column: 'paddle_subscription_id' },
+  { migration: '177_user_platform_subscriptions', table: 'user_platform_subscriptions', column: null },
+  { migration: '178_scheduled_plan_change', table: 'user_platform_subscriptions', column: 'scheduled_plan_key' },
+  { migration: '179_manual_subscriptions', table: 'user_platform_subscriptions', column: 'source' },
+  { migration: '180_payment_ledger_and_convert', table: 'payment_transactions', column: null },
+  { migration: '186_platform_modules_include_in_pdf', table: 'platform_modules', column: 'include_in_pdf' },
+  { migration: '189_article_hero_position', table: 'articles', column: 'hero_before_content' },
+  { migration: '181_subscription_email_log', table: 'subscription_email_log', column: null },
+  { migration: '182_manual_invoices', table: 'manual_invoices', column: null },
+  { migration: '183_scheduled_cancel_at', table: 'user_platform_subscriptions', column: 'scheduled_cancel_at' },
+  { migration: '184_coupon_paddle_reference', table: 'coupon_codes', column: 'paddle_discount_id' },
+  { migration: '185_reviewed_model_return', table: 'model_submissions', column: 'reviewed_file_path' },
+  { migration: '190_refm_parties', table: 'refm_parties', column: null },
+  { migration: '199_report_decks', table: 'refm_report_decks', column: null },
+  { migration: '203_ai_feature_registry', table: 'ai_features', column: null },
+  { migration: '205_ai_usage_metering', table: 'ai_usage_counters', column: null },
+  { migration: '207_refm_report_deck_versions', table: 'refm_report_deck_versions', column: null },
+  { migration: '208_refm_fund_terms', table: 'refm_fund_terms', column: null },
+  { migration: '209_refm_fund_terms_extended', table: 'refm_fund_terms', column: 'fund_structure_fee_pct' },
+  { migration: '210_refm_fund_manager', table: 'refm_fund_terms', column: 'fund_manager_name' },
+  { migration: '211_refm_fund_size_override', table: 'refm_fund_terms', column: 'fund_size_override' },
+  { migration: '212_public_api_audit', table: 'public_api_audit', column: null },
+  { migration: '213_public_api_keys', table: 'public_api_keys', column: null },
+  { migration: '214_refm_cost_catalog', table: 'refm_cost_catalog', column: null },
   // 215 was recorded NOT APPLIED when it was written (2026-08-18) and applied
   // by hand on 2026-08-19. Probed rather than believed, which is the whole point
   // of this script: a marker in prose is not evidence either way.
-  { migration: '215_refm_fund_fee_funding', doc: 'APPLIED', table: 'refm_fund_terms', column: 'management_fee_funding' },
+  { migration: '215_refm_fund_fee_funding', table: 'refm_fund_terms', column: 'management_fee_funding' },
   // 219 shipped 2026-08-30 flagged PENDING (the session could not run DDL: the
   // stored DATABASE_URL password is stale) and was applied by the founder the
   // same day, then probed live before the flag was cleared.
-  { migration: '219_account_deletions', doc: 'APPLIED', table: 'account_deletions', column: null },
+  { migration: '219_account_deletions', table: 'account_deletions', column: null },
 ];
 
 /**
@@ -110,12 +179,20 @@ type Live = 'present' | 'no-table' | 'no-column' | 'unknown';
 interface Result extends Probe {
   live: Live;
   detail: string;
+  doc: DocFlag;
+  docRows: number;
 }
 
-async function probe(db: ReturnType<typeof getServerClient>, p: Probe): Promise<Result> {
+async function probe(
+  db: ReturnType<typeof getServerClient>,
+  p: Probe,
+  docFlags: Map<string, { flag: DocFlag; rows: number }>,
+): Promise<Result> {
+  const d = docFlags.get(p.migration);
+  const base = { ...p, doc: (d?.flag ?? 'NOT IN DOC') as DocFlag, docRows: d?.rows ?? 0 };
   const sel = p.column ?? '*';
   const { error } = await db.from(p.table).select(sel).limit(0);
-  if (!error) return { ...p, live: 'present', detail: 'ok' };
+  if (!error) return { ...base, live: 'present', detail: 'ok' };
 
   const code = String(error.code ?? '');
   const msg = String(error.message ?? '');
@@ -123,12 +200,12 @@ async function probe(db: ReturnType<typeof getServerClient>, p: Probe): Promise<
   // collapsed: "no such table" against a column probe would otherwise be
   // reported as a missing column on a table that is itself missing.
   if (code === '42P01' || code === 'PGRST205' || /Could not find the table/i.test(msg)) {
-    return { ...p, live: 'no-table', detail: `${code}: ${msg}` };
+    return { ...base, live: 'no-table', detail: `${code}: ${msg}` };
   }
   if (code === '42703' || code === 'PGRST204' || /column .* does not exist/i.test(msg)) {
-    return { ...p, live: 'no-column', detail: `${code}: ${msg}` };
+    return { ...base, live: 'no-column', detail: `${code}: ${msg}` };
   }
-  return { ...p, live: 'unknown', detail: `${code}: ${msg}` };
+  return { ...base, live: 'unknown', detail: `${code}: ${msg}` };
 }
 
 async function main(): Promise<void> {
@@ -137,9 +214,10 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   const db = getServerClient();
+  const docFlags = readDocFlags();
 
   const results: Result[] = [];
-  for (const p of PROBES) results.push(await probe(db, p));
+  for (const p of PROBES) results.push(await probe(db, p, docFlags));
 
   const pad = (s: string, n: number) => s.length >= n ? s : s + ' '.repeat(n - s.length);
 
@@ -150,13 +228,18 @@ async function main(): Promise<void> {
   console.log('-'.repeat(96));
 
   const wrong: Result[] = [];
+  const unclear: Result[] = [];
   for (const r of results) {
     const applied = r.live === 'present';
-    const agrees = (r.doc === 'APPLIED') === applied;
     let verdict: string;
     if (r.live === 'unknown') {
       verdict = 'INCONCLUSIVE (see detail)';
-    } else if (agrees) {
+    } else if (r.doc !== 'APPLIED' && r.doc !== 'PENDING') {
+      // The document states nothing usable. That is a finding about the
+      // DOCUMENT, and it is neither a correct flag nor a wrong one.
+      verdict = `doc states no usable flag (${r.doc}); live is ${applied ? 'PRESENT' : 'ABSENT'}`;
+      unclear.push(r);
+    } else if ((r.doc === 'APPLIED') === applied) {
       verdict = 'flag correct';
     } else if (r.doc === 'PENDING') {
       verdict = '*** FLAG WRONG: already applied ***';
@@ -175,9 +258,22 @@ async function main(): Promise<void> {
   const pendApplied = pend.filter((r) => r.live === 'present');
   const ctrl = results.filter((r) => r.doc === 'APPLIED');
   const ctrlMissing = ctrl.filter((r) => r.live !== 'present');
+  console.log(`Flags read from CLAUDE-DB.md: ${docFlags.size} migrations, ${[...docFlags.values()].reduce((a, b) => a + b.rows, 0)} rows`);
   console.log(`Flagged PENDING: ${pend.length}, of which ACTUALLY APPLIED: ${pendApplied.length}`);
   console.log(`Recorded APPLIED: ${ctrl.length}, of which NOT PRESENT: ${ctrlMissing.length}`);
+  console.log(`Doc states no usable flag: ${unclear.length}${unclear.length ? ` (${unclear.map((u) => u.migration).join(', ')})` : ''}`);
   console.log(`Flags to correct: ${wrong.length}`);
+
+  // COVERAGE, stated rather than assumed: a migration the document lists and
+  // this script never probes is not evidence of anything, and a summary that
+  // hides that reads as a clean bill of health for the whole log.
+  const probed = new Set(PROBES.map((p) => p.migration));
+  const uncovered = [...docFlags.keys()].filter((k) => !probed.has(k));
+  const divergedRows = [...docFlags.entries()].filter(([, v]) => v.flag === 'DIVERGED');
+  console.log(`Uncovered by this script: ${uncovered.length} of ${docFlags.size} migrations in the log`);
+  if (divergedRows.length) {
+    console.log(`DUPLICATE ROWS THAT DISAGREE: ${divergedRows.length} (${divergedRows.map(([k]) => k).join(', ')})`);
+  }
   console.log('');
 }
 

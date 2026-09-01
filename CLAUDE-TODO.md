@@ -12,6 +12,12 @@
 - **Stale `DATABASE_URL` in `.env.local`**: password fails at the resolved tenant (aws-1-ap-northeast-1), so no session can run DDL or read pg_constraint; refreshing it would let the drift audit verify ON DELETE / UNIQUE / CHECK directly instead of behaviorally.
 
 ---
+## OPEN FROM 2026-09-01
+
+- **DE-DUP CLAUDE-DB.md's migration log: 47 duplicated migrations, all pairs byte-identical (found 2026-09-01, logged not fixed).** 257 rows across 210 migrations. **The precondition is already answered: no pair has diverged**, in text or in status flag, so dropping one row of each pair cannot lose content. **RE-RUN THE SCAN FIRST anyway** rather than trusting that sentence: a row edited between now and then is precisely the case that makes a blind de-dup destructive. The scan is a walk over every line matching `^\| \`NNN_name.sql\` \|`, grouping by migration and comparing full row text plus the parsed marker (uppercase APPLIED / PENDING; case matters, 13 rows use a lowercase "pending" in prose). **Why bother:** a duplicated row is two places to update and two chances to disagree, and that is how eleven stale PENDING flags survived from 2026-08-16 to 2026-09-01 inside `audit-migration-flags.ts`, which mirrored them by hand. **While in there:** 153 of 210 rows carry no status marker at all, and `211_refm_fund_size_override` is the one probed migration with none, which the flag audit now reports as "doc states no usable flag" instead of assuming.
+
+
+---
 ## OPEN FROM 2026-08-31 (found while adding the Module 2 cost-of-sales build)
 
 - **The workbook still has FOUR `emitM4` implementations.** Two now share
