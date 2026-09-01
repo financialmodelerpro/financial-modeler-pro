@@ -17,14 +17,16 @@ import { useSession } from 'next-auth/react';
 import {
   ROLES,
   ROLE_META,
-  MODULE_VISIBILITY,
   PERMISSIONS,
   useBrandingStore,
 } from '@/src/core/state';
-import type { Role, ModuleKey, PermissionMap } from '@/src/core/types/settings.types';
+import type { Role, PermissionMap } from '@/src/core/types/settings.types';
 
 import { useModule1Store, DEFAULT_MODULE1_STATE, type HydrateSnapshot } from '../lib/state/module1-store';
 import * as pclient from '../lib/persistence/client';
+// REFM's own module-visibility map (Module 10 step 0). The ROLES are shared;
+// which modules a role sees is per platform, so it moved out of core/state.
+import { refmRoleSeesModule } from '../lib/moduleVisibility';
 import type { ProjectStatus } from '@/src/shared/admin/projectStatus';
 // Reuse the table scrollbar styling so the workspace vertical scrollbar is the
 // same 14px thickness as the horizontal scrollbars inside the results tables.
@@ -357,8 +359,13 @@ export default function RealEstatePlatform(): React.JSX.Element {
     if (tourPendingAfterPrompt.current) { tourPendingAfterPrompt.current = false; setTourOpen(true); }
   }, []);
 
-  // RBAC (admin-only by default; left as user-toggle for testing)
-  const [currentUserRole, setCurrentUserRole] = useState<Role>(ROLES.ADMIN);
+  // RBAC. PINNED TO OWNER and not yet resolved from the server: there is no
+  // per-project role to read until membership lands (Module 10 step 2), so
+  // `can()` returns true for everything and this is a scaffold, not a gate.
+  // Renamed from ROLES.ADMIN in step 0: OWNER is a role on ONE PROJECT, while
+  // `users.role === 'admin'` is the platform administrator and is a different
+  // thing entirely. See src/shared/collab/projectRoles.ts.
+  const [currentUserRole, setCurrentUserRole] = useState<Role>(ROLES.OWNER);
 
   // Dark mode (workspace-scoped via body[data-refm-theme])
   const [darkMode, setDarkMode] = useState(false);
@@ -460,7 +467,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
     [currentUserRole],
   );
   const canSeeModule = useCallback(
-    (key: string): boolean => MODULE_VISIBILITY[currentUserRole]?.includes(key as ModuleKey) ?? true,
+    (key: string): boolean => refmRoleSeesModule(currentUserRole, key),
     [currentUserRole],
   );
 

@@ -39,6 +39,65 @@ lever). Thirteen sabotages, all caught. Full detail in CHANGELOG 2026-09-01e.
 the malformed facility shares, but nobody has re-measured them against the
 reference project. Refresh either fixture with `npx tsx scripts/fetch-census-fixture.ts`.
 ---
+## OPEN, LOGGED NOT FIXED (2026-09-01): the cost catalog is PER USER, and sharing will expose it
+
+`refm_cost_catalog` is keyed `(user_id, entry_id)` and every query filters
+`user_id = session.user.id`. That is correct for a single-owner world and
+WRONG the moment two people work one project: **two members of one project see
+different catalogs**, and a cost line stamped with a `catalogId` the other
+member does not have resolves to an unknown identity.
+
+This is a MODELLING DEFECT, not a missing feature, and it is not fixed by any
+step of the collaboration plan. **It needs its own pass before sharing goes
+live.** The open question is whether a catalog entry belongs to a user, to a
+project, or to the account (most likely the account, since the whole point of a
+catalog is a firm's standard cost lines).
+
+Do not fold this into a collaboration step: it changes cost IDENTITY, which is
+engine-adjacent, and it deserves its own measurement on a live project.
+
+---
+## MODULE 10 COLLABORATION: the build plan (2026-09-01)
+
+**It is module 10, not 8**, settled from two independent live tables:
+`platform_modules` (`{number: 10, slug: 'collaborate'}`) and
+`features_registry` (`module_10` = "Module 10: Collaborate"). **8 is Portfolio**,
+which is already shipped (the Portfolio Dashboard, 2026-08-30) and sold
+(`module_8` included for solo / pro / firm). Numbering collaboration as 8 would
+collide with a live, paid feature.
+
+Decisions taken:
+- **Project cap counts against the ACCOUNT ADMIN only.** A member added to a
+  shared project consumes none of their own allowance. Seats limit team size;
+  the project cap does not police it a second time.
+- **Seats: the plan's stored count** (pro 3, firm 10), raisable per client via
+  `user_permissions`. No eleventh until raised.
+- **Non-owners are READ-ONLY from step 2 until step 5 lands.** The window where
+  two people can autosave over each other is never opened.
+- **`sort_order` and `priority` move to the membership row in step 3**, while
+  every value is still NULL and the move is free.
+
+| # | Step | Status |
+|---|------|--------|
+| 0 | Rename roles, move module visibility per platform, settle the number | **DONE 2026-09-01** |
+| 1 | `created_by` on `refm_project_versions` | next |
+| 2 | Membership table + registry columns + admin assign UI; `getProject` becomes a membership check; non-owners read-only | |
+| 3 | Move `sort_order` + `priority` to the membership row | |
+| 4 | Server-side role enforcement (`can()` reads the membership role) | |
+| 5 | Edit lock: table, heartbeat, atomic steal, request / accept / decline | |
+| 6 | Append-only change-log table | |
+| 7 | Comments (project_id + nullable version_id + path) | |
+| 8 | Seat counting + enforcement | |
+| 9 | Delete requires admin approval | |
+
+**Open, needs a decision in step 4:** the carried-over visibility map does not
+let an EDITOR see module 5 (Returns), while giving them every other module. An
+editor who can change construction costs but cannot see what that did to the
+IRR is not a coherent role. Preserved verbatim through step 0 rather than
+silently corrected, because a behaviour change hidden inside a rename is
+unreviewable. It is inert today (the role is pinned to owner).
+
+---
 ## OPEN FROM 2026-09-01
 
 - **DE-DUP CLAUDE-DB.md's migration log: DONE 2026-09-01 in `a570f6fe`, re-verified 2026-09-01e.** The log is now **210 table rows across 210 migrations, zero same-kind duplicates**, and the flag audit reads 0. The 11 groups a naive scan still reports are CROSS-KIND (one table row plus one head blockquote), which coexist by design and agree on their marker. **Two migrations, 227 and 228, existed only as head blockquotes and now have table rows.** A first re-scan here found zero duplicates using its own regex while the flag audit was reporting 223 rows across 212 migrations: a scan that defines "row" differently from the tool whose numbers it checks answers a different question, so the scan now uses `readDocFlags`'s exact two detectors. Original finding, kept for the reasoning: 47 duplicated migrations, all pairs byte-identical, 257 rows across 210 migrations. **The precondition is already answered: no pair has diverged**, in text or in status flag, so dropping one row of each pair cannot lose content. **RE-RUN THE SCAN FIRST anyway** rather than trusting that sentence: a row edited between now and then is precisely the case that makes a blind de-dup destructive. The scan is a walk over every line matching `^\| \`NNN_name.sql\` \|`, grouping by migration and comparing full row text plus the parsed marker (uppercase APPLIED / PENDING; case matters, 13 rows use a lowercase "pending" in prose). **Why bother:** a duplicated row is two places to update and two chances to disagree, and that is how eleven stale PENDING flags survived from 2026-08-16 to 2026-09-01 inside `audit-migration-flags.ts`, which mirrored them by hand. **While in there:** 153 of 210 rows carry no status marker at all, and `211_refm_fund_size_override` is the one probed migration with none, which the flag audit now reports as "doc states no usable flag" instead of assuming.
