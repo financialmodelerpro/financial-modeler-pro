@@ -2,7 +2,7 @@
   59 FK columns after 12 superseding ALTER(s): 55 match, 0 differ, 2 missing, 2 skipped
 
 == B. UNIQUE: declared vs live ==
-  25 declared column UNIQUEs: 20 present, 3 absent
+  25 declared column UNIQUEs: 21 present, 2 absent
 
 == C. CHECK: declared vs live ==
   51 declared column CHECKs: 51 present, 0 absent
@@ -20,7 +20,6 @@ FINDINGS, RANKED
 -- 2. DECLARED CONSTRAINT ABSENT LIVE (the guarantee does not exist) --
   FK MISSING: certificates.assessment_id -> assessments declared ON DELETE NO ACTION (005_training_assessments.sql) but NO FK exists live
   FK MISSING: plan_permissions.updated_by -> users declared ON DELETE SET NULL (006_permissions.sql) but NO FK exists live
-  UNIQUE MISSING: branding_config.scope declared UNIQUE (003_branding_config.sql) but no unique constraint or index covers it, alone or composite
   UNIQUE MISSING: certificates.certificate_number declared UNIQUE (005_training_assessments.sql) but no unique constraint or index covers it, alone or composite
   UNIQUE NARROWER LIVE: newsletter_subscribers.email declared UNIQUE alone (078_articles_newsletter.sql) but live is COMPOSITE newsletter_subscribers_email_hub_key (email, hub)
   TABLE CONSTRAINT NOT FOUND: plan_permissions: PRIMARY KEY (plan, feature_key) (006_permissions.sql)
