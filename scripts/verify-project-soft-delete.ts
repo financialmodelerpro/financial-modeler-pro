@@ -141,6 +141,7 @@ async function main() {
       key: 'erm', label: 'Energy', shortLabel: 'ERM', table: 'erm_projects',
       ownerColumn: 'user_id', nameColumn: 'name', archivedColumn: null,
       deletedColumn: null, versionsTable: null, versionsFk: null,
+      statusColumn: null, priorityColumn: null, sortOrderColumn: null,
     });
     const { sb, calls } = makeFake({ refm_projects: [] });
     const res = await purgeExpiredDeletedProjects(sb, NOW);

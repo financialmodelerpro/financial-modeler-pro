@@ -18,10 +18,13 @@
  * module.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import PortfolioSummary from './PortfolioSummary';
 import type { PermissionMap } from '@/src/core/types/settings.types';
 import type { StorageShape, StorageProject } from './RealEstatePlatform';
+import {
+  PROJECT_STATUSES, groupProjectCards, reorderWithinGroup, type ProjectStatus,
+} from '@/src/shared/admin/projectStatus';
 
 interface DashboardProps {
   storage: StorageShape;
@@ -35,6 +38,16 @@ interface DashboardProps {
   /** Archive / unarchive. Absent in read-only grace (the control is withheld
    *  rather than accepting a click and discarding it). */
   onArchiveProject?: (id: string, archived: boolean) => void;
+  /** Set the lifecycle status from the card, without opening the project.
+   *  Absent in read-only grace, like every other mutating control here. */
+  onSetProjectStatus?: (id: string, status: ProjectStatus) => void;
+  /** Toggle the urgent flag. */
+  onSetProjectPriority?: (id: string, priority: boolean) => void;
+  /** Persist a manual order. Receives the WHOLE group's new positions, not a
+   *  single moved card: a dense reassignment cannot drift out of step with
+   *  what the user sees, whereas patching one card leaves the rest to be
+   *  inferred identically on both sides, which is where orders diverge. */
+  onReorderProjects?: (order: Array<{ id: string; sortOrder: number }>) => void;
   onSelectModule: (m: string) => void;
   onSelectTab: (t: string) => void;
   onSaveVersion: () => void;
@@ -61,12 +74,31 @@ function relativeTime(iso: string): string {
   return `${yr} year${yr === 1 ? '' : 's'} ago`;
 }
 
-// Status -> brand accent + badge tint (navy / green / gold from the palette).
-const STATUS_META: Record<StorageProject['status'], { accent: string; bg: string; fg: string }> = {
-  Draft:       { accent: 'var(--color-grey-light)', bg: 'var(--color-grey-pale)',   fg: 'var(--color-grey-mid)' },
-  Active:      { accent: 'var(--color-green)',       bg: 'var(--color-green-light)', fg: 'var(--color-green-dark)' },
-  'IC Review': { accent: 'var(--color-gold)',        bg: 'var(--color-gold-light)',  fg: 'var(--color-gold-dark)' },
-  Approved:    { accent: 'var(--color-navy)',        bg: 'var(--color-navy-light)',  fg: 'var(--color-navy)' },
+// Status -> brand accent + badge tint. LOCKED PALETTE ONLY: every value here
+// is an existing token (navy / green / gold / grey / negative). Live states
+// carry colour and terminal states go quiet, so the page reads at a glance
+// without the reader knowing the group order by heart.
+const STATUS_META: Record<ProjectStatus, { accent: string; bg: string; fg: string }> = {
+  Construction: { accent: 'var(--color-gold)',       bg: 'var(--color-gold-light)',  fg: 'var(--color-gold-dark)' },
+  Operation:    { accent: 'var(--color-green)',      bg: 'var(--color-green-light)', fg: 'var(--color-green-dark)' },
+  Funded:       { accent: 'var(--color-navy)',       bg: 'var(--color-navy-light)',  fg: 'var(--color-navy)' },
+  Draft:        { accent: 'var(--color-grey-light)', bg: 'var(--color-grey-pale)',   fg: 'var(--color-grey-mid)' },
+  Completed:    { accent: 'var(--color-navy-mid)',   bg: 'var(--color-navy-pale)',   fg: 'var(--color-navy-dark)' },
+  Closed:       { accent: 'var(--color-grey-mid)',   bg: 'var(--color-grey-pale)',   fg: 'var(--color-grey-dark)' },
+  Dropped:      { accent: 'var(--color-negative)',   bg: 'var(--color-grey-pale)',   fg: 'var(--color-negative)' },
+};
+
+// What each group heading says, so the order is explained on the page rather
+// than learned. The group order itself is NOT restated here: it comes from
+// STATUS_GROUP_ORDER via groupProjectCards.
+const STATUS_HINT: Record<ProjectStatus, string> = {
+  Construction: 'Building now',
+  Operation:    'Operating and earning',
+  Funded:       'Capital committed, not yet on site',
+  Draft:        'Not started',
+  Completed:    'Delivered',
+  Closed:       'Wound up',
+  Dropped:      'Not proceeding',
 };
 
 function StatusBadge({ status }: { status: StorageProject['status'] }): React.JSX.Element {
@@ -89,7 +121,16 @@ export default function Dashboard({
   onSelectProject,
   onDeleteProject,
   onArchiveProject,
+  onSetProjectStatus,
+  onSetProjectPriority,
+  onReorderProjects,
 }: DashboardProps): React.JSX.Element {
+  // The card currently being dragged, and the card it is hovering over. Held
+  // as state rather than in a ref so the drop target renders its insertion
+  // hint; cleared on dragend, which fires even when the drop is cancelled or
+  // happens outside a target, so no listener is left armed.
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
   // Confirmation lives in DeleteProjectModal, rendered once by the parent:
   // the dialog states the version count, the recovery window and who can
   // restore it, none of which a window.confirm could say honestly.
@@ -157,21 +198,100 @@ export default function Dashboard({
             ))}
           </div>
 
-          {/* ── Projects ── */}
+          {/* ── Projects, grouped by status ──
+              Ordering is NOT done here. `groupProjectCards` applies the one
+              shared rule (status group, then priority within the group, then
+              manual order within the group, then recency) so the server, this
+              grid and the verifier cannot disagree. Sorting by last-modified
+              alone is what made any write reorder the page. */}
           <div style={sectionLabel}>All projects</div>
+          {groupProjectCards(projects).map((group) => {
+            const gm = STATUS_META[group.status];
+            const groupIds = group.cards.map((c) => c.id);
+            // Reordering is WITHIN A GROUP ONLY: a drop is ignored unless both
+            // cards are in this group, so a card can never change status by
+            // being dragged. Status is set from the dropdown, deliberately.
+            const canDrag = !!onReorderProjects && group.cards.length > 1;
+            const moveTo = (movedId: string, toIndex: number): void => {
+              if (!onReorderProjects) return;
+              onReorderProjects(reorderWithinGroup(groupIds, movedId, toIndex));
+            };
+            const dropOn = (targetId: string): void => {
+              if (!dragId || dragId === targetId) return;
+              if (!groupIds.includes(dragId)) return; // a different group: ignore
+              moveTo(dragId, groupIds.indexOf(targetId));
+            };
+            return (
+            <div key={group.status} data-testid={`dashboard-group-${group.status}`} style={{ marginBottom: 'var(--sp-3)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 var(--sp-2)' }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: gm.accent, flexShrink: 0 }} />
+                <span style={{ fontSize: 'var(--font-meta)', fontWeight: 700, color: 'var(--color-heading)' }}>{group.status}</span>
+                <span style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)' }}>{STATUS_HINT[group.status]}</span>
+                <span style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)' }}>· {group.cards.length}</span>
+              </div>
           <div style={{ display: 'grid', gap: 'var(--sp-2)', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))' }} data-testid="dashboard-projects">
-            {projects.map((p) => {
+            {group.cards.map((p, idx) => {
               const m = STATUS_META[p.status] ?? STATUS_META.Draft;
               // Six chips before the overflow marker (was four, which made a
               // four-asset project read as "+4" on a 300px card).
               const tags = p.assetMix.slice(0, 6);
               const hidden = p.assetMix.slice(tags.length);
               const isArchived = p.archived === true;
+              const isUrgent = p.priority === true;
+              const isDragging = dragId === p.id;
+              const isOver = overId === p.id && dragId !== null && dragId !== p.id && groupIds.includes(dragId);
               return (
-                <div key={p.id} className="card" style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }} data-testid={`dashboard-project-${p.id}`}>
-                  <div style={{ height: 4, background: m.accent }} />
+                <div
+                  key={p.id}
+                  className="card"
+                  draggable={canDrag}
+                  onDragStart={canDrag ? (e) => { setDragId(p.id); e.dataTransfer.effectAllowed = 'move'; } : undefined}
+                  onDragOver={canDrag ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setOverId(p.id); } : undefined}
+                  onDragLeave={canDrag ? () => setOverId((cur) => (cur === p.id ? null : cur)) : undefined}
+                  onDrop={canDrag ? (e) => { e.preventDefault(); dropOn(p.id); setDragId(null); setOverId(null); } : undefined}
+                  onDragEnd={canDrag ? () => { setDragId(null); setOverId(null); } : undefined}
+                  style={{
+                    overflow: 'hidden', display: 'flex', flexDirection: 'column',
+                    opacity: isDragging ? 0.45 : 1,
+                    outline: isOver ? '2px solid var(--color-gold)' : 'none',
+                    outlineOffset: isOver ? '-2px' : undefined,
+                  }}
+                  data-testid={`dashboard-project-${p.id}`}
+                >
+                  {/* The URGENT rail replaces the status accent when a project
+                      is flagged, so the flag is visible without opening or
+                      reading the card. */}
+                  <div style={{ height: 4, background: isUrgent ? 'var(--color-negative)' : m.accent }} />
                   <div style={{ padding: 'var(--sp-3)', display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)', flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {canDrag && (
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`Reorder ${p.name} within ${group.status}. Use the arrow keys.`}
+                          title="Drag to reorder within this status, or focus and use the arrow keys"
+                          data-testid={`dashboard-drag-${p.id}`}
+                          // Keyboard reordering, because a drag-only control is
+                          // unusable without a mouse. Same one shared function
+                          // the drop path calls, so the two cannot disagree.
+                          onKeyDown={(e) => {
+                            if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); moveTo(p.id, Math.max(0, idx - 1)); }
+                            if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); moveTo(p.id, Math.min(groupIds.length - 1, idx + 1)); }
+                          }}
+                          style={{ cursor: 'grab', color: 'var(--color-meta)', fontSize: 'var(--font-meta)', lineHeight: 1, userSelect: 'none', flexShrink: 0 }}
+                        >
+                          ⠿
+                        </span>
+                      )}
+                      {isUrgent && (
+                        <span
+                          title="Flagged urgent"
+                          data-testid={`dashboard-urgent-${p.id}`}
+                          style={{ fontSize: 'var(--font-micro)', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', padding: '2px 8px', borderRadius: 'var(--radius-pill)', background: 'var(--color-warning-bg)', color: 'var(--color-negative)', flexShrink: 0 }}
+                        >
+                          Urgent
+                        </span>
+                      )}
                       <span style={{ fontWeight: 700, color: 'var(--color-heading)', fontSize: 'var(--font-body)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
                       <StatusBadge status={p.status} />
                     </div>
@@ -195,6 +315,59 @@ export default function Dashboard({
                       <div style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
                         {(p.versionCount ?? 0)} version{(p.versionCount ?? 0) === 1 ? '' : 's'} · {relativeTime(p.lastModified)}
                         {isArchived && ' · archived (view-only)'}
+                      </div>
+                      {/* ── Status + urgent, set from the card ──
+                          Both are BLOCKED while a project is archived, because
+                          an archived project is view-only and the PATCH route
+                          rejects a metadata edit on one with a 403. The control
+                          is disabled and says why, rather than accepting a
+                          click and silently discarding it (which is what a
+                          plain enabled control would do here). */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 'var(--sp-1)' }}>
+                        {onSetProjectStatus && (
+                          <select
+                            value={p.status}
+                            disabled={isArchived}
+                            onChange={(e) => onSetProjectStatus(p.id, e.target.value as ProjectStatus)}
+                            title={isArchived
+                              ? 'This project is archived and view-only. Unarchive it to change its status.'
+                              : 'Set the project status. A label only: it does not archive, delete, or unlock anything.'}
+                            data-testid={`dashboard-status-${p.id}`}
+                            style={{
+                              padding: '5px 8px', fontSize: 'var(--font-micro)', fontWeight: 600,
+                              border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)',
+                              background: isArchived ? 'var(--color-grey-pale)' : 'var(--color-grey-white)',
+                              color: isArchived ? 'var(--color-meta)' : 'var(--color-heading)',
+                              cursor: isArchived ? 'not-allowed' : 'pointer',
+                            }}
+                          >
+                            {PROJECT_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                        )}
+                        {onSetProjectPriority && (
+                          <button
+                            type="button"
+                            disabled={isArchived}
+                            aria-pressed={isUrgent}
+                            onClick={() => onSetProjectPriority(p.id, !isUrgent)}
+                            title={isArchived
+                              ? 'This project is archived and view-only. Unarchive it to flag it.'
+                              : isUrgent
+                                ? 'Remove the urgent flag'
+                                : 'Flag this project urgent. It sorts to the top of its status group.'}
+                            data-testid={`dashboard-priority-${p.id}`}
+                            style={{
+                              padding: '5px 10px', fontSize: 'var(--font-micro)', fontWeight: 700,
+                              border: `1px solid ${isUrgent ? 'var(--color-negative)' : 'var(--color-border)'}`,
+                              borderRadius: 'var(--radius-sm)',
+                              background: isUrgent ? 'var(--color-warning-bg)' : 'var(--color-grey-white)',
+                              color: isArchived ? 'var(--color-meta)' : isUrgent ? 'var(--color-negative)' : 'var(--color-heading)',
+                              cursor: isArchived ? 'not-allowed' : 'pointer',
+                            }}
+                          >
+                            {isUrgent ? '★ Urgent' : '☆ Urgent'}
+                          </button>
+                        )}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         {/* Archive is the SAFE shelf and reads first: reversible,
@@ -235,6 +408,9 @@ export default function Dashboard({
               );
             })}
           </div>
+            </div>
+            );
+          })}
         </>
       )}
     </div>

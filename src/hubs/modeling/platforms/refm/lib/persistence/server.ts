@@ -31,7 +31,14 @@ const PROJECT_COLS_BASE =
 // project cap. Tried first; on "column does not exist" we fall back to the
 // base list and synthesize archived:false, so the platform keeps working
 // before the migration is applied (mirrors the m152 tolerance pattern).
-const PROJECT_COLS_FULL = `${PROJECT_COLS_BASE}, archived`;
+// Migration 229 (2026-09-01) adds `priority` + `sort_order` for card
+// ordering. Folded into the SAME probe as `archived` rather than given a
+// second one: they land together, a database either has the card columns or
+// it does not, and two independent probes would mean four states to reason
+// about where only two exist. On a pre-229 database the FULL select fails,
+// the base list is used, and `decorateProjectRow` synthesises priority:false
+// and sort_order:null, which is exactly the pre-229 ordering (recency).
+const PROJECT_COLS_FULL = `${PROJECT_COLS_BASE}, archived, priority, sort_order`;
 // Back-compat alias: existing call sites that don't need archived.
 const PROJECT_COLS = PROJECT_COLS_BASE;
 void PROJECT_COLS;
@@ -55,6 +62,13 @@ function isMissingDeletedColumn(err: { message: string; code?: string | null } |
 function decorateProjectRow<T extends Record<string, unknown>>(row: T | null): T | null {
   if (!row) return row;
   if (!('archived' in row)) (row as Record<string, unknown>).archived = false;
+  // priority defaults to false: an un-flagged project. sort_order defaults to
+  // NULL, NOT 0, and that distinction carries the whole fallback: null means
+  // "never dragged" and sorts by recency, while 0 is a real position at the
+  // top of a group. Decorating it to 0 would silently promote every project
+  // on a pre-229 database to first place.
+  if (!('priority' in row)) (row as Record<string, unknown>).priority = false;
+  if (!('sort_order' in row)) (row as Record<string, unknown>).sort_order = null;
   return row;
 }
 // 2026-05-31 (migration 152): base_version_id + change_log columns added.
@@ -302,15 +316,75 @@ export async function updateProject(
   patch: Record<string, unknown>,
 ): Promise<{ row: RefmProjectRow | null; error: string | null }> {
   const sb = getServerClient();
-  const { data, error } = await sb
+  // SELECT THE FULL COLUMN LIST, not the base one. This returned
+  // PROJECT_COLS_BASE and then decorated, so every write echoed back
+  // archived:false / priority:false regardless of what had just been stored:
+  // a client that trusted the response would show an urgent toggle snapping
+  // straight back off. Harmless while nothing read the echo, wrong the moment
+  // something did. Same probe-and-fall-back as the list read, so a pre-229
+  // database still works and simply gets the decorated defaults.
+  const run = (cols: string) => sb
     .from('refm_projects')
     .update(patch)
     .eq('id', projectId)
     .eq('user_id', userId)
-    .select(PROJECT_COLS_BASE)
+    .select(cols)
     .maybeSingle();
+  let { data, error } = archivedApplied === false ? await run(PROJECT_COLS_BASE) : await run(PROJECT_COLS_FULL);
+  if (error && isMissingColumnError(error)) {
+    archivedApplied = false;
+    ({ data, error } = await run(PROJECT_COLS_BASE));
+  } else if (!error && archivedApplied === undefined) {
+    archivedApplied = true;
+  }
   if (error) return { row: null, error: error.message };
   return { row: decorateProjectRow(data as Record<string, unknown> | null) as RefmProjectRow | null, error: null };
+}
+
+/**
+ * Persist a manual card order: a dense sortOrder per project, for ONE status
+ * group.
+ *
+ * Takes the WHOLE group rather than the single moved card. A dense
+ * reassignment is what the user is looking at, so it cannot drift; patching
+ * one card would leave the other positions to be re-derived identically on
+ * both sides, and any disagreement silently reorders someone's page.
+ *
+ * OWNERSHIP IS ENFORCED PER ROW, not once for the batch: every update carries
+ * an equality on user_id, so a payload naming another user's project id
+ * updates nothing rather than reordering their dashboard. The ids arrive from
+ * a client and are never trusted.
+ *
+ * Returns the number of rows actually updated, so the caller can tell a
+ * partially applied batch (someone else's id, or a deleted project) from a
+ * clean one instead of reporting success for a write that moved nothing.
+ */
+export async function reorderProjects(
+  userId: string,
+  order: ReadonlyArray<{ id: string; sortOrder: number }>,
+): Promise<{ updated: number; error: string | null }> {
+  if (order.length === 0) return { updated: 0, error: null };
+  const sb = getServerClient();
+  let updated = 0;
+  for (const { id, sortOrder } of order) {
+    const { data, error } = await sb
+      .from('refm_projects')
+      .update({ sort_order: sortOrder })
+      .eq('id', id)
+      .eq('user_id', userId)
+      .select('id')
+      .maybeSingle();
+    if (error) {
+      // A pre-229 database has no column to write. Report that as an honest
+      // failure naming the migration rather than pretending the order stuck.
+      if (isMissingColumnError(error)) {
+        return { updated, error: 'Card ordering needs migration 229 (refm_projects.sort_order). Order not saved.' };
+      }
+      return { updated, error: error.message };
+    }
+    if (data) updated++;
+  }
+  return { updated, error: null };
 }
 
 // Used by the create flow to stamp current_version_id without going

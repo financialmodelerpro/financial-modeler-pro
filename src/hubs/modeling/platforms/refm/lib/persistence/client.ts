@@ -119,7 +119,15 @@ export interface PatchProjectInput {
   status?:   ProjectStatus;
   assetMix?: string[];
   archived?: boolean;
+  /** The urgent flag. A metadata edit, so the route rejects it on an archived
+   *  project like any other. */
+  priority?: boolean;
 }
+
+// NOTE: there is deliberately no sortOrder here. Manual order is a property of
+// a whole status GROUP, not of one card, so it goes through reorderProjects
+// below. Offering it as a single-card patch would let a card be given a
+// position that contradicts its neighbours.
 
 export function patchProject(
   projectId: string,
@@ -128,6 +136,23 @@ export function patchProject(
   return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}`, {
     method: 'PATCH',
     body:   JSON.stringify(patch),
+  });
+}
+
+/**
+ * Persist a manual card order for ONE status group.
+ *
+ * Sends the whole group's dense 0..n-1 assignment, which is what the grid is
+ * displaying, rather than the single moved card. The server stores it verbatim,
+ * so there is no second derivation of the order that could disagree with the
+ * first. `updated` comes back so a partially applied batch is visible.
+ */
+export function reorderProjects(
+  order: ReadonlyArray<{ id: string; sortOrder: number }>,
+): Promise<FetchResult<{ updated: number; requested: number }>> {
+  return callJson('/api/refm/projects/reorder', {
+    method: 'POST',
+    body:   JSON.stringify({ order }),
   });
 }
 

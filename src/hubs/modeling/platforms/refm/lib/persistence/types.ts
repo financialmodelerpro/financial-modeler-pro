@@ -34,15 +34,32 @@ import type { HydrateSnapshot } from '../state/module1-store';
 // "Schema migrated to v7. Please recreate this project." error.
 export const SCHEMA_VERSION = 7 as const;
 
-// ── Status enum (mirrors the SQL CHECK constraint) ──────────────────────────
-// 'Archived' was removed 2026-08-30: it duplicated the separate `archived`
-// boolean (mig 161) that the project cap, the card and the admin browser all
-// use, so one word meant two things. No row ever carried it (probed on
-// production: every row is 'Draft'), nothing in the product writes status,
-// and the database CHECK constraint is deliberately left alone, so this is a
-// type narrowing and not a schema change. Archiving is `archived`, always.
-export const PROJECT_STATUSES = ['Draft', 'Active', 'IC Review', 'Approved'] as const;
-export type ProjectStatus = typeof PROJECT_STATUSES[number];
+// ── Status enum ─────────────────────────────────────────────────────────────
+//
+// RE-EXPORTED, NOT DECLARED. The vocabulary, the card group order and the
+// comparator live in `src/shared/admin/projectStatus.ts` so every platform
+// shares one definition; REFM keeps these names only so existing importers do
+// not have to move.
+//
+// 2026-09-01 (mig 229): the five-value APPROVAL workflow ('Draft', 'Active',
+// 'IC Review', 'Approved', 'Archived') became the seven-value LIFECYCLE, which
+// overlaps it on 'Draft' alone. Every production row was 'Draft', so nothing
+// was rewritten. 'Archived' is NOT reintroduced: archiving is the `archived`
+// boolean (mig 161) and soft delete is `deleted_at` (mig 224). Status is a
+// LABEL and gates nothing; the standing rule is at the top of projectStatus.ts.
+//
+// NOT TO BE CONFUSED WITH `ProjectStatus` in `lib/state/module1-types.ts`,
+// which is 'draft' | 'active' | 'archived' and describes the IN-MODEL project
+// inside a snapshot. Same name, different concept, different file, and they
+// must not be unified: this one is a row on refm_projects, that one is a field
+// the engine reads.
+export {
+  PROJECT_STATUSES,
+  DEFAULT_PROJECT_STATUS,
+  isProjectStatus,
+  type ProjectStatus,
+} from '@/src/shared/admin/projectStatus';
+import type { ProjectStatus } from '@/src/shared/admin/projectStatus';
 
 // ── refm_projects row shape ─────────────────────────────────────────────────
 export interface RefmProjectRow {
@@ -61,6 +78,15 @@ export interface RefmProjectRow {
   // Reads decorate it to false when the column is absent (pre-migration), so it
   // is always present.
   archived:            boolean;
+  // Migration 229 (2026-09-01): card ordering. Like `archived`, both are
+  // decorated by the reader when the columns are absent, so they are always
+  // present on a row that reached the client.
+  //   priority   the URGENT flag, one flag not a scale; false pre-migration.
+  //   sort_order manual position WITHIN the status group. NULL means never
+  //              dragged and falls back to recency, so it stays nullable
+  //              rather than being decorated to 0 (a real position).
+  priority:            boolean;
+  sort_order:          number | null;
 }
 
 // Picker-list shape (subset of RefmProjectRow excluding user_id, which

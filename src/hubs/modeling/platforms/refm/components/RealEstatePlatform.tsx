@@ -25,6 +25,7 @@ import type { Role, ModuleKey, PermissionMap } from '@/src/core/types/settings.t
 
 import { useModule1Store, DEFAULT_MODULE1_STATE, type HydrateSnapshot } from '../lib/state/module1-store';
 import * as pclient from '../lib/persistence/client';
+import type { ProjectStatus } from '@/src/shared/admin/projectStatus';
 // Reuse the table scrollbar styling so the workspace vertical scrollbar is the
 // same 14px thickness as the horizontal scrollbars inside the results tables.
 import scrollStyles from './modules/_shared/ScrollableTable.module.css';
@@ -108,14 +109,21 @@ export interface StorageProject {
   createdAt: string;
   lastModified: string;
   location: string;
-  /** Workflow status. Archiving is the separate `archived` flag below, never
-   *  a status value. */
-  status: 'Draft' | 'Active' | 'IC Review' | 'Approved';
+  /** Lifecycle status, a LABEL that gates nothing. Typed from the shared
+   *  vocabulary rather than restated: this union was spelled out here as a
+   *  literal and became a third copy of the list, which is how a vocabulary
+   *  drifts. Archiving is the separate `archived` flag below, never a status
+   *  value. */
+  status: ProjectStatus;
   assetMix: string[];
   versions: Record<string, { name: string; createdAt: string; data: unknown }>;
   versionCount?: number;
   /** Entitlement cap archive flag (mig 161), distinct from the status enum. */
   archived?: boolean;
+  /** Card ordering (mig 229). `priority` is the urgent flag; `sortOrder` is
+   *  the manual position within the status group, null when never dragged. */
+  priority?: boolean;
+  sortOrder?: number | null;
 }
 
 export interface StorageShape {
@@ -151,6 +159,8 @@ function projectsToStorageShape(
       versions: {},
       versionCount: p.version_count,
       archived: p.archived ?? false,
+      priority: p.priority ?? false,
+      sortOrder: p.sort_order ?? null,
     };
   }
   return out;
@@ -366,6 +376,13 @@ export default function RealEstatePlatform(): React.JSX.Element {
 
   // Server-side project list
   const [serverProjects, setServerProjects] = useState<pclient.RefmProjectSummary[]>([]);
+  // A mirror of the list, for the optimistic card handlers (status / urgent /
+  // order). They need the PREVIOUS value to roll back to on failure, and
+  // reading it from a ref keeps them out of the state's dependency list, so a
+  // list refresh does not re-create every handler. Reading it inside a
+  // setState updater instead would put a side effect in a reducer, which
+  // React is free to run twice.
+  const serverProjectsRef = useRef<pclient.RefmProjectSummary[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   // (declared with the tour state above; sits here because it reads
   // activeProjectId, which is declared on the line before)
@@ -686,6 +703,60 @@ export default function RealEstatePlatform(): React.JSX.Element {
     ent.refresh();
   }, [ent, graceReadOnly]);
 
+  // ── Card status / urgent / manual order ──
+  //
+  // All three are OPTIMISTIC: the card updates immediately and the write is
+  // reconciled behind it. On failure the local state is put back from the
+  // server's answer rather than left showing a value that was never stored,
+  // which is the whole risk of an optimistic update.
+  //
+  // Read-only grace blocks all three, as the second line of defence behind
+  // the card withholding the controls and the route rejecting the write.
+
+  const handleSetProjectStatus = useCallback(async (projectId: string, status: ProjectStatus): Promise<void> => {
+    if (graceReadOnly) return;
+    const before = serverProjectsRef.current.find((p) => p.id === projectId)?.status;
+    setServerProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, status } : p)));
+    const res = await pclient.patchProject(projectId, { status });
+    if (res.error || !res.data) {
+      // Put the old value back. An archived project is view-only and the
+      // route answers PROJECT_ARCHIVED; the card already disables the control,
+      // so this path is reached only by a stale render or a direct call.
+      if (before !== undefined) {
+        setServerProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, status: before } : p)));
+      }
+      setLoadError(res.error || 'Failed to update the project status');
+    }
+  }, [graceReadOnly]);
+
+  const handleSetProjectPriority = useCallback(async (projectId: string, priority: boolean): Promise<void> => {
+    if (graceReadOnly) return;
+    setServerProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, priority } : p)));
+    const res = await pclient.patchProject(projectId, { priority });
+    if (res.error || !res.data) {
+      setServerProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, priority: !priority } : p)));
+      setLoadError(res.error || 'Failed to update the urgent flag');
+    }
+  }, [graceReadOnly]);
+
+  const handleReorderProjects = useCallback(async (order: Array<{ id: string; sortOrder: number }>): Promise<void> => {
+    if (graceReadOnly) return;
+    const byId = new Map(order.map((o) => [o.id, o.sortOrder]));
+    const previous = serverProjectsRef.current.map((p) => ({ id: p.id, sort_order: p.sort_order ?? null }));
+    setServerProjects((prev) => prev.map((p) => (byId.has(p.id) ? { ...p, sort_order: byId.get(p.id)! } : p)));
+    const res = await pclient.reorderProjects(order);
+    if (res.error || !res.data) {
+      // Restore EVERY position, not just the moved one: the write was a dense
+      // reassignment of the whole group, so a partial rollback would leave an
+      // order that neither the user nor the server ever asked for.
+      const back = new Map(previous.map((p) => [p.id, p.sort_order]));
+      setServerProjects((prev) => prev.map((p) => (back.has(p.id) ? { ...p, sort_order: back.get(p.id) ?? null } : p)));
+      setLoadError(res.error || 'Failed to save the project order');
+    }
+  }, [graceReadOnly]);
+
+  useEffect(() => { serverProjectsRef.current = serverProjects; }, [serverProjects]);
+
   const handleCloseProject = useCallback((): void => {
     detachSync();
     setActiveProjectId(null);
@@ -995,6 +1066,9 @@ export default function RealEstatePlatform(): React.JSX.Element {
           onSelectProject={(id) => void handleSelectProject(id)}
           onDeleteProject={graceReadOnly ? undefined : (id) => requestDeleteProject(id)}
           onArchiveProject={graceReadOnly ? undefined : (id, archived) => void handleArchiveProject(id, archived)}
+          onSetProjectStatus={graceReadOnly ? undefined : (id, status) => void handleSetProjectStatus(id, status)}
+          onSetProjectPriority={graceReadOnly ? undefined : (id, priority) => void handleSetProjectPriority(id, priority)}
+          onReorderProjects={graceReadOnly ? undefined : (order) => void handleReorderProjects(order)}
           onSelectModule={setActiveModule}
           onSelectTab={setActiveTab}
           onSaveVersion={() => setVersionModalOpen(true)}

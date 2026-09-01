@@ -41,6 +41,22 @@ export interface ProjectSource {
   deletedColumn: string | null;
   versionsTable: string | null;
   versionsFk: string | null;
+
+  // ── Card ordering (mig 229 for REFM). A platform opts in by naming its
+  //    three columns; the vocabulary, the group order and the comparator are
+  //    NOT restated per platform, they live once in `projectStatus.ts`. All
+  //    three null means the platform has no card ordering, and the card then
+  //    falls back to recency exactly as it did before.
+
+  /** Lifecycle status column, validated against PROJECT_STATUSES. Label only:
+   *  see the standing rule at the top of `projectStatus.ts`, which is that no
+   *  status value may free a project slot or make a project view-only. */
+  statusColumn: string | null;
+  /** The urgent flag, one boolean. Sorts within a status group, never across. */
+  priorityColumn: string | null;
+  /** Manual position within the status group. Nullable in the database:
+   *  NULL means never dragged. */
+  sortOrderColumn: string | null;
 }
 
 /** THE retention window for a soft-deleted project, in days. One definition:
@@ -80,10 +96,24 @@ export const PROJECT_SOURCES: ProjectSource[] = [
     deletedColumn: 'deleted_at',
     versionsTable: 'refm_project_versions',
     versionsFk: 'project_id',
+    statusColumn: 'status',
+    priorityColumn: 'priority',
+    sortOrderColumn: 'sort_order',
   },
   // ERM / BVM: add one entry per platform when their project tables exist.
+  // Card ordering comes with the entry: name the three columns and the
+  // grouping, the urgent flag and the drag order all work, because the rule
+  // is in projectStatus.ts and nothing here restates it.
 ];
 
 export function getProjectSource(key: string): ProjectSource | null {
   return PROJECT_SOURCES.find((s) => s.key === key) ?? null;
+}
+
+/** Whether a platform has card ordering wired. All three columns are required
+ *  together: status without a sort order groups but cannot be reordered, and a
+ *  sort order without a status has no group to be an order WITHIN. Answering
+ *  "partly" would ship a half-working card, so the answer is all or nothing. */
+export function hasCardOrdering(s: ProjectSource): boolean {
+  return !!s.statusColumn && !!s.priorityColumn && !!s.sortOrderColumn;
 }

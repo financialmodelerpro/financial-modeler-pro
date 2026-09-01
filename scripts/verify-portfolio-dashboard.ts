@@ -225,9 +225,20 @@ function main() {
     check('F1 the ACTIVE / IN REVIEW / APPROVED tiles are gone',
       !/byStatus\('Active'\)/.test(dash) && !/label="In Review"/.test(dash) && !/label="Approved"/.test(dash));
     check('F2 the dashboard renders the portfolio summary instead', /<PortfolioSummary/.test(dash));
-    check('F3 the duplicate Archived STATUS value is removed',
-      !(PROJECT_STATUSES as readonly string[]).includes('Archived')
-      && PROJECT_STATUSES.length === 4);
+    // F3 asserted `length === 4` alongside this, which pinned the SIZE of a
+    // vocabulary rather than the property that matters. Migration 229 replaced
+    // the four-value approval workflow with the seven-value lifecycle, a
+    // deliberate change, and the count clause failed for it while the real
+    // invariant, that 'Archived' is not a status, held throughout. Re-aimed at
+    // that invariant, and widened to the whole family: archiving is `archived`
+    // and deletion is `deleted_at`, so NO status value may name either.
+    const FORBIDDEN_STATUS_VALUES = ['Archived', 'archived', 'Deleted', 'deleted'];
+    check('F3 no status value duplicates the archive or delete state',
+      FORBIDDEN_STATUS_VALUES.every((v) => !(PROJECT_STATUSES as readonly string[]).includes(v)),
+      `statuses: ${PROJECT_STATUSES.join(', ')}`);
+    check('F3b the status vocabulary is the shared one, not a local copy',
+      /from '@\/src\/shared\/admin\/projectStatus'/.test(
+        src('src/hubs/modeling/platforms/refm/lib/persistence/types.ts')));
     check('F4 archiving is still the separate boolean (unchanged)',
       /archived:\s+boolean;/.test(src('src/hubs/modeling/platforms/refm/lib/persistence/types.ts')));
     const route = src('app/api/refm/portfolio/route.ts');

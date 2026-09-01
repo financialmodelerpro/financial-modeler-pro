@@ -65,8 +65,15 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 }
 
 // ── PATCH /api/refm/projects/[id] ───────────────────────────────────────────
-// Body: subset of { name, location, status, assetMix }. Empty body returns
-// the unchanged row.
+// Body: subset of { name, location, status, assetMix, archived, priority }.
+// Empty body returns the unchanged row.
+//
+// `priority` is a METADATA edit, so it is blocked on an archived project like
+// every other one: an archived project is view-only, and flagging a view-only
+// project urgent would be a write the user cannot act on. `sort_order` is NOT
+// settable here at all; manual order is a whole-group operation and goes
+// through POST /api/refm/projects/reorder, so a single card can never be given
+// a position that contradicts its neighbours.
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { userId, isAdmin } = await getRefmUserContext();
   if (!userId) return unauthorized();
@@ -78,6 +85,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     status?:   ProjectStatus;
     assetMix?: string[];
     archived?: boolean;
+    priority?: boolean;
   };
   try { body = await req.json(); }
   catch { return badRequest('Body must be valid JSON.'); }
@@ -128,7 +136,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   //    UNLESS the same request is unarchiving it. ─────────────────────────────
   const hasMetadataEdit =
     typeof body.name === 'string' || body.location !== undefined ||
-    body.status !== undefined || body.assetMix !== undefined;
+    body.status !== undefined || body.assetMix !== undefined ||
+    body.priority !== undefined;
   const willBeArchived = update.archived === true || (current.archived && update.archived !== false);
   if (hasMetadataEdit && willBeArchived) {
     return NextResponse.json(
@@ -150,6 +159,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     update.status = body.status;
   }
   if (body.assetMix !== undefined) update.asset_mix = body.assetMix;
+  if (body.priority !== undefined) {
+    // Rejected rather than coerced: a truthy string from a sloppy client must
+    // not become a silent true. One flag, so the only valid values are the
+    // two booleans.
+    if (typeof body.priority !== 'boolean') return badRequest('priority must be a boolean.');
+    update.priority = body.priority;
+  }
 
   if (Object.keys(update).length === 0) {
     // Read-back so the client gets a fresh (unchanged) row.

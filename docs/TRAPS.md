@@ -548,6 +548,41 @@ therefore deliberately not gated. The identical argument applied one line down
 and the opposite conclusion had been drawn. Contradictory reasoning inside one
 function is cheap to find and worth looking for.
 
+### 3.17 The sabotage applied, and the check matched somewhere else
+
+**Symptom.** Three checks passed their sabotage. The edit landed, the anchor was
+unique, the file really changed, and the verifier stayed green.
+
+**Mechanism.** Each check was a regex over a WHOLE FILE, and the pattern
+appeared more than once:
+
+  - an ownership check sliced the source at the function name and ran to
+    end-of-file, so a LATER function's own `user_id` filter satisfied it after
+    the target's was deleted;
+  - "the status control is disabled while archived" matched
+    `disabled={isArchived}` anywhere, and the urgent BUTTON still had one after
+    the select lost it;
+  - "a drag cannot cross a group" matched `groupIds.includes(dragId)`
+    anywhere, and the drop-target HIGHLIGHT still used it after the actual drop
+    guard was removed.
+
+The checks were true. They were just true about a different line than the one
+they named, so the thing they existed to protect was unprotected.
+
+**Fix.** Scope every source-reading check to the construct it names: slice a
+function body to the NEXT top-level export rather than to EOF, and anchor a
+per-control assertion to that control's own `data-testid` before matching its
+attributes. All three then caught their sabotage.
+
+**The general form.** This is distinct from 3.13 (a sabotage that never
+applied) and 3.14 (a check that cannot fail for its stated reason): here the
+sabotage applied and the check CAN fail, but the evidence it reads comes from
+the wrong place. A file-wide regex is a claim about a file, not about a
+function or a control. Whenever a check names one specific thing, make its
+window that thing. And keep sabotaging: seventeen were run here and exactly the
+three that mattered most, ownership enforcement, the view-only rule and the
+cross-group guard, were the ones that came back inert.
+
 ## 4. PDF export (pdf-lib)
 
 ### 4.1 PDF text is glyph ids, so a naive grep returns nothing
