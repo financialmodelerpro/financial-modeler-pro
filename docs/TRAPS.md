@@ -437,6 +437,65 @@ admin override of `/modeling/real-estate`), that the popup still shows on the
 other four allowed paths, and that the pricing promo would suppress itself even
 if `/pricing` left its hide-list.
 
+### 3.12 An override is a VALUE; "it has one" is not a shape hint
+
+**Symptom.** The Financing tab's Total column showed a CLOSING figure on every
+"Opening" row. "Opening Cash" printed 58,922,877.94 where the builder stated
+0.00.
+
+**Mechanism.** Three of four M4 emitters read `row.totalOverride !== undefined`
+as "this row is a balance, so print `values[N-1]`". That is true only while
+every override IS the last period. Most are, so the shortcut survived; five on
+this one tab are not (`priorBal`, a literal 0, `priorExisting`, `opening[0]`,
+`-minCash`), and six of sixteen rows printed a number nobody asked for.
+
+**The blank sentinel is the other half.** A blank override means "no total, use
+the state rule". `Number('')` is 0 AND finite, so a naive parse prints 0.00 for
+a closing balance: the opposite mistake, equally silent. Both need handling and
+each needs its own check, because a check that skips blanks cannot see the
+second one.
+
+**Measuring it is where the trap bites twice.** The first measurement keyed rows
+by LABEL and reported 9 of 17. "Opening" and "Closing" each appear more than
+once on the tab, so two builder rows collapsed onto one key and the comparison
+aliased. Keyed on label PLUS values the truth is 6 of 16. A diagnostic that
+over-reports is still a diagnostic that is wrong.
+
+### 3.13 A sabotage that does not apply reports PASS
+
+**Symptom.** Three sabotage runs against a CRLF file all reported the check
+still passing, which read as "the check does not catch this".
+
+**Mechanism.** The anchors were written with `\n` and the file uses `\r\n`, so
+`replace` matched nothing and the file was never modified. The verifier then ran
+against untouched code and passed, correctly. Nothing errored: a failed
+string replace is silent.
+
+**Fix.** Sabotage through the same CRLF-normalising patcher used for edits, and
+make it THROW when an anchor is missing or not unique. A sabotage that cannot
+fail proves nothing, and one that silently no-ops proves less than nothing,
+because it is read as evidence.
+
+### 3.14 A check that cannot fail for the reason it names
+
+**Symptom.** "NOTHING is collected after handover" passed, and still passed with
+the handover cap deleted from the engine.
+
+**Mechanism.** `DEFAULT_INSTALMENT_YEARS` is 3 and the fixture left exactly 3
+slots before handover, so `min(3, 3)` is 3 with or without the cap. The check
+was true, about a case where the rule it names never engaged.
+
+**Fix.** Choose a fixture where the constraint BINDS: three construction years
+leave two slots, so a default of three must be cut to two. Then the sabotage
+fails the check.
+
+**The general form.** Sabotage-testing is not a formality. It tells you whether
+the check is about the thing its name claims. Two checks in this session passed
+their sabotage for the wrong reason, and a third turned out to cover a different
+function entirely (a post-handover cohort never reaches `buildSaleCohortProfile`
+at all; it is handled by the post-sales path in `sell.ts`, which is why
+disabling all three cohort guards changed nothing).
+
 ## 4. PDF export (pdf-lib)
 
 ### 4.1 PDF text is glyph ids, so a naive grep returns nothing

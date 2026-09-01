@@ -12,6 +12,31 @@
 - **Stale `DATABASE_URL` in `.env.local`**: password fails at the resolved tenant (aws-1-ap-northeast-1), so no session can run DDL or read pg_constraint; refreshing it would let the drift audit verify ON DELETE / UNIQUE / CHECK directly instead of behaviorally.
 
 ---
+## OPEN FROM 2026-09-01c: two Module 6 curation findings, NOT fixture problems
+
+The backlog is otherwise cleared (CHANGELOG 2026-09-01c). Two checks in
+`verify-module6-field-census` remain red, and an earlier report of mine wrongly
+grouped them with the OpEx-fixture failures. They are not fixtures. Each needs a
+modelling decision, so neither was guessed at:
+
+1. **"NO live lever is hidden": 7 fields MOVE a comparison KPI while being gated
+   or excluded.** `assets[].buaSqm`, `subUnits[].unitArea`,
+   `costLines[land-inkind__phase_2|3].startPeriod` and `.endPeriod`, and
+   `financingTranches[].facilitySharePct`. Either the gate's stated reason is
+   FALSE (the field is read after all, and a user is being told it is not), or
+   the field moves a KPI only through a path the gate did not anticipate. Read
+   `inactiveLeverReason` for each and decide per field; do not blanket-ungate,
+   because the reasons are individually argued.
+2. **"Land price (per-parcel rate) moves at least one comparison KPI":
+   movedKpis=none.** The census expects the parcel rate to be a live lever and
+   measures that it moves nothing. Either the override path it writes is wrong
+   (so the test is broken) or land price genuinely does not reach a comparison
+   KPI on this project (so it is a real dead lever and belongs in the gated
+   set). Measure which before touching either side.
+
+Both were red before this pass and are unchanged by it.
+
+---
 ## OPEN FROM 2026-09-01
 
 - **DE-DUP CLAUDE-DB.md's migration log: 47 duplicated migrations, all pairs byte-identical (found 2026-09-01, logged not fixed).** 257 rows across 210 migrations. **The precondition is already answered: no pair has diverged**, in text or in status flag, so dropping one row of each pair cannot lose content. **RE-RUN THE SCAN FIRST anyway** rather than trusting that sentence: a row edited between now and then is precisely the case that makes a blind de-dup destructive. The scan is a walk over every line matching `^\| \`NNN_name.sql\` \|`, grouping by migration and comparing full row text plus the parsed marker (uppercase APPLIED / PENDING; case matters, 13 rows use a lowercase "pending" in prose). **Why bother:** a duplicated row is two places to update and two chances to disagree, and that is how eleven stale PENDING flags survived from 2026-08-16 to 2026-09-01 inside `audit-migration-flags.ts`, which mirrored them by hand. **While in there:** 153 of 210 rows carry no status marker at all, and `211_refm_fund_size_override` is the one probed migration with none, which the flag audit now reports as "doc states no usable flag" instead of assuming.
