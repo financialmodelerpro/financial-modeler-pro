@@ -46,7 +46,20 @@ const rs: any = {
   },
   buildup: {
     debtDrawPerPeriod: [0, k(500), k(400), 0],
-    interestPaidPerPeriod: [0, k(-45), k(-60), k(-20)],
+    // THE FIELD THE BRIDGE READS IS `financeCostPerPeriod` (2026-08-18b).
+    //
+    // FCFF became UNLEVERED FULL COST, so the FCFF-to-FCFE bridge carries the
+    // whole accrued finance charge rather than only the cash interest paid, and
+    // the field was renamed with it. This fixture still supplied
+    // `interestPaidPerPeriod`, which nothing reads, so the bridge summed a
+    // missing array to 0 and the check reported "interest summed (negative)"
+    // as a failure. The stream was never wrong; the fixture was feeding a field
+    // that no longer exists.
+    //
+    // Same values, under the name the code reads. `idcDrawPerPeriod` is left
+    // absent deliberately: this fixture models no capitalised IDC, and the
+    // bridge sums an absent array to 0, which is the honest reading.
+    financeCostPerPeriod: [0, k(-45), k(-60), k(-20)],
     principalRepayPerPeriod: [0, 0, k(-500), k(-400)],
   },
   totalDividendsDistributed: k(4300),

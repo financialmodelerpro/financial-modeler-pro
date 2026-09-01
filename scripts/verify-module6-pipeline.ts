@@ -40,6 +40,44 @@ function compareCols() {
   const baseModel = activeIsBase ? m : s.baseSnapshot;
   return buildCaseComparisonReport({ baseModel, cases: s.cases, activeCaseId: s.activeCaseId, liveActiveModel: m }).columns;
 }
+/**
+ * The same measurement, on a model that HAS operating costs.
+ *
+ * The shared export fixture carries none: measured 2026-09-01, its Operate /
+ * Lease assets have no `opex` block and `project.hqOpex` is null. So the opex
+ * check below was asking whether a lever moves a total the fixture made
+ * structurally zero. Right about the product, run against the wrong model.
+ *
+ * Seeded HERE rather than into `base`, because `base` is hydrated by every
+ * other check in this file and adding operating costs to it would shift the
+ * KPI set they all measure against. And not into the shared fixture, which
+ * several other verifiers pin numbers to.
+ */
+function withOpex(model: any): any {
+  const m = JSON.parse(JSON.stringify(model));
+  for (const a of m.assets ?? []) {
+    if (a.strategy !== 'Operate' && a.strategy !== 'Lease') continue;
+    a.opex = {
+      defaultIndexation: { method: 'single_rate', rate: 0.03 },
+      lines: [{ id: `opex_fixed_${a.id}`, name: 'Operating cost', mode: 'fixed_baseline', value: 5_000_000 }],
+    };
+  }
+  return m;
+}
+
+function movedKpisOn(model: any, path: string, value: number): string[] {
+  store.getState().hydrate({ ...model, cases: seedCases(), activeCaseId: 'case_management' } as any);
+  store.getState().setActiveCase(DOWN);
+  store.getState().setCaseFieldValue(DOWN, path, value);
+  const cols = compareCols();
+  const mm = cols.find((c) => c.id === MGMT)!.values;
+  const dd = cols.find((c) => c.id === DOWN)!.values;
+  return CASE_KPIS.filter((k) => {
+    const a = mm[k.label], b = dd[k.label];
+    return typeof a === 'number' && typeof b === 'number' && Math.abs(a - b) > 1e-9;
+  }).map((k) => k.label);
+}
+
 function movedKpis(path: string, value: number): string[] {
   reset();
   store.getState().setActiveCase(DOWN);
@@ -89,8 +127,14 @@ if (sub) {
 // Opex inflation: on an Operate/Lease asset; expect a profit/margin/IRR move.
 const opAsset = (base.assets as any[]).find((a) => a.strategy === 'Operate' || a.strategy === 'Lease');
 if (opAsset) {
-  const opexMoved = movedKpis(`assets[id=${opAsset.id}].opex.defaultIndexation.rate`, 0.10);
+  const opexModel = withOpex(base);
+  // Not vacuous: prove the seeded model carries opex before asserting a move.
+  const opexBaseline = movedKpisOn(opexModel, `assets[id=${opAsset.id}].opex.defaultIndexation.rate`, 0.03);
+  check('the opex-bearing model is seeded (a same-value override moves nothing)',
+    opexBaseline.length === 0, `moved=${opexBaseline.join(', ')}`);
+  const opexMoved = movedKpisOn(opexModel, `assets[id=${opAsset.id}].opex.defaultIndexation.rate`, 0.10);
   check('Opex inflation 10% moves the comparison (opex -> NOI -> returns)', opexMoved.length > 0, `moved=${opexMoved.join(', ')}`);
+  reset();
 }
 
 // ── 3. "N overrides" count must equal a REAL difference from base. ───────────

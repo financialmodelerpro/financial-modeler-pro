@@ -62,6 +62,15 @@ const M = (v: number): string => `${(v / 1e6).toFixed(3)}m`;
 // ── Fixture: in-kind land AND a real IDC bill, so no section is vacuous ──────
 function build(): State {
   const project: Project = { ...makeDefaultProject(), startDate: '2027-01-01' };
+  // A SALE COHORT NEEDS A DEPOSIT RULE (2026-09-01). Since 2026-08-19 pre-sales
+  // cash comes from `buildSaleCohortProfile`, and a Sell asset with no
+  // downpayment of its own and no project default resolves to "takes no
+  // deposit", which the reconciliation reports as an advisory. Correctly: it is
+  // a gap in the inputs, not a defect. This fixture predates the rule, so the
+  // advisory fired on every run and both reconcile checks read it as a failure.
+  // NOT a loosened check: both still assert zero issues, and removing this
+  // deposit brings the advisory straight back.
+  (project as unknown as { saleCohortDefaults: unknown }).saleCohortDefaults = { downpayment: 0.2 };
   (project as unknown as { financing: unknown }).financing = {
     fundingMethod: 1, parcelFunding: [], fixedRatio: { debtPct: 70, equityPct: 30 },
     minimumCashReserve: 5_000_000, viewMode: 'combined', phaseFilter: 'all',

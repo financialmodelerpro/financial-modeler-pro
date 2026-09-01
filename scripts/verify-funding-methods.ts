@@ -157,6 +157,20 @@ function buildSnapState(method: 1 | 2 | 3 | 4): Parameters<typeof computeFinanci
   const sell: any = { id: 'a1', phaseId: 'p1', name: 'Tower', type: '', strategy: 'Sell', visible: true, gfaSqm: 50000, buaSqm: 50000, sellableBuaSqm: 50000, parkingBaysRequired: 0,
     revenue: { sell: { assetId: 'a1', subUnits: [{ subUnitId: 'su1', preSalesVelocity: [], postSalesVelocity: [], preSalesVelocityByPhase: [0.5, 0.5, 0, 0, 0, 0, 0, 0], postSalesVelocityByPhase: [] }], cashPaymentProfile: { percentages: [], profileMode: 'relative_to_sale', percentagesByPhase: [1], positionsByPhase: [0] }, recognitionProfile: { method: 'point_in_time', pointInTimeYear: 'handover' }, indexation: { method: 'none' } } } };
   const su = { id: 'su1', assetId: 'a1', name: '2BR', category: 'Sellable', metric: 'area', metricValue: 50000, unitPrice: 5000 };
+  // A SALE COHORT NEEDS A DEPOSIT RULE (2026-09-01).
+  //
+  // Since 2026-08-19 pre-sales cash is driven by `buildSaleCohortProfile`: each
+  // sale year pays a downpayment and the balance in instalments capped at
+  // handover. A Sell asset with NO downpayment of its own AND no project
+  // default resolves to "takes no deposit", and the reconciliation reports that
+  // as an advisory. Correctly: it is a real gap in the inputs, not a defect.
+  //
+  // This fixture predates that rule and states no deposit anywhere, so the
+  // advisory fired on every run and the reconciliation check read it as a
+  // failure. The fixture now supplies the input the model requires. NOT a
+  // loosened check: `reconciliation.ok` is still asserted in full, and removing
+  // the deposit brings the advisory straight back.
+  (project as { saleCohortDefaults?: { downpayment: number } }).saleCohortDefaults = { downpayment: 0.2 };
   const parcel = { id: 'parcel1', phaseId: 'p1', name: 'Plot', area: 10000, rate: 1000, cashPct: 100, inKindPct: 0 };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return { project, phases: [p1], assets: [sell], subUnits: [su], parcels: [parcel], costLines: makeDefaultCostLines('p1', 2), costOverrides: [], landAllocationMode: 'autoByBua', financingTranches: [makeDefaultFinancingTranche('t1', 'p1')], equityContributions: [] } as any;

@@ -26,6 +26,40 @@ import { MODULES } from '../src/hubs/modeling/platforms/refm/lib/modules-config'
 import { useModule1Store } from '../src/hubs/modeling/platforms/refm/lib/state/module1-store';
 import { buildExcelSampleState } from './excelSampleState';
 
+/**
+ * An opex-bearing COPY of the fixture, used ONLY where opex has to be non-zero.
+ *
+ * The shared export fixture carries no opex at all: measured 2026-09-01, its
+ * Operate / Lease assets have no `opex` block and `project.hqOpex` is null. The
+ * two magnitude checks below were asserting that an opex lever changes a total
+ * the fixture made structurally zero. They were right about the product and run
+ * against a model with no operating costs in it.
+ *
+ * THE BASE FIXTURE IS LEFT UNSEEDED ON PURPOSE. The rate-only check immediately
+ * above them needs an asset whose opex block does NOT exist, because that is the
+ * exact case it pins: a grid-style write must land a method-less
+ * `defaultIndexation`. Seeding opex into the shared base makes those two
+ * requirements contradict each other, and the first attempt at this fix did
+ * precisely that: it turned two failures into two different ones. So the two
+ * groups get two models.
+ *
+ * The shared fixture itself is not touched either: several other verifiers pin
+ * numbers against it, and seeding opex there would churn all of them for two
+ * checks here.
+ */
+function withOpex(model: any): any {
+  const m = JSON.parse(JSON.stringify(model));
+  for (const a of m.assets ?? []) {
+    if (a.strategy !== 'Operate' && a.strategy !== 'Lease') continue;
+    a.opex = {
+      defaultIndexation: { method: 'single_rate', rate: 0.03 },
+      lines: [{ id: `opex_fixed_${a.id}`, name: 'Operating cost', mode: 'fixed_baseline', value: 5_000_000 }],
+    };
+  }
+  return m;
+}
+
+
 let passed = 0, failed = 0;
 const fails: string[] = [];
 function check(label: string, ok: boolean, detail = ''): void {
@@ -276,9 +310,27 @@ console.log('\n=== Opex inflation override flows to results ===');
     check('grid-style override writes a rate-only defaultIndexation (no method)', !!injected && (injected as any).method === undefined && Math.abs((injected as any).rate - 0.08) < 1e-12, JSON.stringify(injected));
     const scenOpex = sumOpex(scen);
     const scenIrrO = irrOf(scen);
-    check('opex inflation override (3%->8%) raises total opex', scenOpex > baseOpex + 1, `baseOpex=${Math.round(baseOpex)} scenOpex=${Math.round(scenOpex)}`);
-    check('opex inflation override moves project IRR (non-zero)', baseIrrO === null || scenIrrO === null || Math.abs((scenIrrO ?? 0) - (baseIrrO ?? 0)) > 1e-9, `baseIRR=${baseIrrO} scenIRR=${scenIrrO}`);
     check('base opex is unchanged after the override (base never mutated)', Math.abs(sumOpex(base) - baseOpex) < 1e-6);
+    void scenOpex; void scenIrrO; void baseIrrO;
+
+    // MAGNITUDE, on a model that actually has operating costs. Same override,
+    // same path, a fixture with opex in it. Asserting a rise on the unseeded
+    // base was asserting a change to zero.
+    const oBase = withOpex(base);
+    const oBaseOpex = sumOpex(oBase);
+    const oBaseIrr = irrOf(oBase);
+    check('the opex-bearing fixture really does carry opex (the check is not vacuous)',
+      oBaseOpex > 1, `totalOpex=${Math.round(oBaseOpex)}`);
+    const oScen = applyOverrides(oBase, { [opexPath]: 0.08 });
+    const oScenOpex = sumOpex(oScen);
+    const oScenIrr = irrOf(oScen);
+    check('opex inflation override (3%->8%) raises total opex',
+      oScenOpex > oBaseOpex + 1, `baseOpex=${Math.round(oBaseOpex)} scenOpex=${Math.round(oScenOpex)}`);
+    check('opex inflation override moves project IRR (non-zero)',
+      oBaseIrr !== null && oScenIrr !== null && Math.abs(oScenIrr - oBaseIrr) > 1e-9,
+      `baseIRR=${oBaseIrr} scenIRR=${oScenIrr}`);
+    check('the opex-bearing base is not mutated by the override',
+      Math.abs(sumOpex(oBase) - oBaseOpex) < 1e-6);
   }
 
   // HQ opex inflation is the larger fixed-cost lever; the same rate-only path.

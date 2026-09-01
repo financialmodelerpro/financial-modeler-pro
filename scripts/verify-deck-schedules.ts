@@ -149,14 +149,44 @@ const buildup = {
   equityInKindPerPeriod: sSeries(-3, 0.1),
   dividendsDistributedPerPeriod: sSeries(0, 2),
 };
+// THE FIELDS THE FCFE BUILD-UP ACTUALLY READS (2026-08-18).
+//
+// FCFE stopped being a flat list of cash lines and became a VISIBLE derivation
+// from FCFF: four steps, matching the reference. Its rows read
+// `fcffSubtotalPerPeriod` (FCFF PRE-terminal), `netDebtPerPeriod` (total
+// drawdown less principal, ONE row) and `financeCostPerPeriod` (the full
+// accrued charge). This fixture still supplied only the older
+// debtDraw / principalRepay / interestPaid series, so all four bridge rows
+// summed absent arrays to zero and the derivation could not tie.
+//
+// Derived from the series already above rather than hand-typed, so the build-up
+// and the stream cannot drift apart the way they just did.
+const addAllPre = (...arrs: number[][]): number[] =>
+  Array.from({ length: S }, (_, i) => arrs.reduce((s, a) => s + (a[i] ?? 0), 0));
+const fcffSubtotalPerPeriod = addAllPre(
+  buildup.existingPreCapexPerPeriod, buildup.cfoPerPeriod, buildup.cfiPerPeriod, buildup.inKindLandPerPeriod,
+);
+const netDebtPerPeriod = addAllPre(buildup.debtDrawPerPeriod, buildup.principalRepayPerPeriod);
+const financeCostPerPeriod = buildup.interestPaidPerPeriod;
+Object.assign(buildup, { fcffSubtotalPerPeriod, netDebtPerPeriod, financeCostPerPeriod });
 /** The streams are the EXACT sums of their own build-up lines, as the engine
  *  produces them: this is what lets the verifier prove the derivation ties. */
 const addAll = (...arrs: number[][]): number[] =>
   Array.from({ length: S }, (_, i) => arrs.reduce((s, a) => s + (a[i] ?? 0), 0));
-const fcffPerPeriod = addAll(buildup.existingPreCapexPerPeriod, buildup.cfoPerPeriod, buildup.cfiPerPeriod, buildup.terminalEnterprisePerPeriod);
+// IN-KIND LAND IS PART OF FCFF. The build-up shows it as a deduction (FCFF is
+// unlevered FULL COST, so land contributed in kind is charged), and this stream
+// omitted it, so the rendered rows summed 3.0m more than the total they sat
+// under. That gap WAS the FCFF failure: exactly the in-kind row, period by
+// period.
+const fcffPerPeriod = addAll(
+  buildup.existingPreCapexPerPeriod, buildup.cfoPerPeriod, buildup.cfiPerPeriod,
+  buildup.inKindLandPerPeriod, buildup.terminalEnterprisePerPeriod,
+);
+// FCFE is the FOUR-STEP derivation, not a flat list: FCFF (pre-terminal), plus
+// net debt, less the finance cost, plus the terminal equity value.
 const fcfePerPeriod = addAll(
-  buildup.existingEquityPerPeriod, buildup.cfoPerPeriod, buildup.cfiPerPeriod, buildup.inKindLandPerPeriod,
-  buildup.debtDrawPerPeriod, buildup.principalRepayPerPeriod, buildup.interestPaidPerPeriod, buildup.terminalEquityPerPeriod,
+  buildup.existingEquityPerPeriod, fcffSubtotalPerPeriod,
+  netDebtPerPeriod, financeCostPerPeriod, buildup.terminalEquityPerPeriod,
 );
 const dividendStreamPerPeriod = addAll(
   buildup.existingEquityPerPeriod, buildup.equityCashPerPeriod, buildup.equityInKindPerPeriod,

@@ -58,6 +58,19 @@ function assertEq(name: string, actual: unknown, expected: unknown): void {
   }
 }
 
+/** A boolean assertion, for the cohort checks that compare shapes rather than
+ *  magnitudes (which calendar years collect, how many years a cohort pays in). */
+function check(name: string, ok: boolean, detail = ''): void {
+  if (ok) {
+    pass++;
+    console.log(`  [PASS] ${name}`);
+  } else {
+    fail++;
+    failures.push(`${name}${detail ? `: ${detail}` : ''}`);
+    console.log(`  [FAIL] ${name}${detail ? `: ${detail}` : ''}`);
+  }
+}
+
 function assertNear(name: string, actual: number, expected: number, tol = 0.5): void {
   const delta = Math.abs(actual - expected);
   if (delta <= tol) {
@@ -245,277 +258,216 @@ console.log('\n[C] expandYearKeyedToAxis maps by absolute year');
 //    offset positions by phaseOffset so cohorts pay at the correct
 //    absolute project years.
 // ─────────────────────────────────────────────────────────────────────
-console.log('\n[D] Cash payment profile picks up phaseOffset for Phase 2+');
+// ══════════════════════════════════════════════════════════════════════════
+// D. THE CASH SCHEDULE STILL KEEPS ITS CALENDAR-YEAR INTENT WHEN A PHASE MOVES
+//
+// Sections D to G used to pin `cashPaymentProfile.percentagesByPhase`: a single
+// per-period schedule shared by every sale year, with tests for a profile that
+// outran the phase, a truncated one, and a legacy array merged on top.
+//
+// THAT MECHANISM IS GONE (2026-08-19). `buildSaleCohortProfile` replaced it:
+// EVERY SALE YEAR IS ITS OWN COHORT, paying a downpayment in the year it sells
+// and the balance in equal instalments over the years that follow, cut short by
+// handover, because a buyer's payment plan ends when they get the keys. The old
+// profile was one schedule forced on every cohort, which is why it went. The
+// stored field is deprecated, not deleted, and nothing reads it.
+//
+// So the old assertions could not pass and should not: they described a
+// mechanism the model no longer has. What they were REALLY protecting is this
+// file's subject, and that subject is unchanged and still worth pinning:
+//
+//     moving a phase must not move the CALENDAR YEARS a cohort collects in.
+//
+// D to G below ask exactly that question of the rule that exists now.
+// ══════════════════════════════════════════════════════════════════════════
+console.log('\n[D] Cohort cash keeps its calendar years when Phase 1 moves');
 {
-  // Phase 2 starts 2031 (phaseOffset = 5). Phase-local cash slot 1 =
-  // year 2032; slot 2 = 2033; slot 3 = 2034. Pre-sale of 100 units at
-  // year 2031 (phase-local 0): 50% at booking (slot 0 = 2031), 50% at
-  // slot 1 (= 2032).
-  const project = {
-    name: 'cash-phase-offset',
-    currency: 'SAR',
-    modelType: 'annual' as const,
-    startDate: '2026-01-01',
-    status: 'Draft' as const,
-    location: '',
-    country: 'Saudi Arabia',
-  } as unknown as Project;
-  const phase1: Phase = { id: 'p1', name: 'P1', startDate: '2026-01-01', constructionPeriods: 5, operationsPeriods: 0, overlapPeriods: 0, status: 'planning' } as unknown as Phase;
-  const phase2: Phase = { id: 'p2', name: 'P2', startDate: '2031-01-01', constructionPeriods: 4, operationsPeriods: 4, overlapPeriods: 0, status: 'planning' } as unknown as Phase;
-  const asset: Asset = {
-    id: 'a1', phaseId: 'p2', name: 'P2 Tower', type: 'Residential', strategy: 'Sell', visible: true,
-    gfaSqm: 10000, buaSqm: 10000, sellableBuaSqm: 10000,
-    revenue: {
-      sell: {
-        assetId: 'a1',
-        subUnits: [{
-          subUnitId: 'su1',
-          preSalesVelocityByPhase: [1.0, 0, 0, 0], // sell 100% in phase-local year 0 (2031)
-          postSalesVelocityByPhase: [],
-          preSalesVelocity: [], postSalesVelocity: [],
-        }],
-        cashPaymentProfile: {
-          percentages: [],
-          profileMode: 'absolute_with_catchup',
-          // Phase-local cash schedule: 50% slot 0 (2031), 50% slot 1 (2032).
-          percentagesByPhase: [0.5, 0.5, 0, 0],
-        },
+  const mk = (phase1Start: string) => {
+    const project = {
+      name: 'cohort-anchor', currency: 'SAR', modelType: 'annual' as const,
+      startDate: phase1Start, status: 'Draft' as const, location: '', country: 'Saudi Arabia',
+      saleCohortDefaults: { downpayment: 0.2 },
+    } as unknown as Project;
+    // Phase 2 is FIXED at 2030 and never moves. Phase 1's start is the variable.
+    const p1: Phase = { id: 'p1', name: 'P1', startDate: phase1Start, constructionPeriods: 2, operationsPeriods: 4, overlapPeriods: 0, status: 'planning' } as unknown as Phase;
+    const p2: Phase = { id: 'p2', name: 'P2', startDate: '2030-01-01', constructionPeriods: 3, operationsPeriods: 4, overlapPeriods: 0, status: 'planning' } as unknown as Phase;
+    const asset: Asset = {
+      id: 'a2', phaseId: 'p2', name: 'Phase 2 tower', type: 'Residential', strategy: 'Sell', visible: true,
+      gfaSqm: 10000, buaSqm: 10000, sellableBuaSqm: 10000,
+      revenue: { sell: {
+        assetId: 'a2',
+        subUnits: [{ subUnitId: 'su2', preSalesVelocityByPhase: [1.0, 0, 0], postSalesVelocityByPhase: [], preSalesVelocity: [], postSalesVelocity: [] }],
         recognitionProfile: { method: 'point_in_time', pointInTimeYear: 'handover' },
         indexation: { method: 'none' },
-      },
-    },
-  } as unknown as Asset;
-  const subUnit: SubUnit = {
-    id: 'su1', assetId: 'a1', name: 'Apartments', category: 'residential',
-    metric: 'units', metricValue: 100, unitArea: 100, unitPrice: 1_000_000,
-  } as unknown as SubUnit;
-  const res = computeAllSellResults({ project, phases: [phase1, phase2], assets: [asset], subUnits: [subUnit] });
-  const sell = res.bySellAsset.get('a1');
-  if (!sell) {
-    console.log('  [FAIL] D-pre: no sell result');
-    fail++;
+      } },
+    } as unknown as Asset;
+    const subUnit: SubUnit = { id: 'su2', assetId: 'a2', name: 'Apartments', category: 'Sellable', metric: 'units', metricValue: 100, unitArea: 100, unitPrice: 1_000_000 } as unknown as SubUnit;
+    const res = computeAllSellResults({ project, phases: [p1, p2], assets: [asset], subUnits: [subUnit] });
+    return { res, sell: res.bySellAsset.get('a2'), startYear: new Date(phase1Start).getUTCFullYear() };
+  };
+
+  // Same project, twice, with Phase 1 starting a year earlier the second time.
+  // The project axis origin moves; Phase 2 does not.
+  const a = mk('2026-01-01');
+  const b = mk('2025-01-01');
+
+  if (!a.sell || !b.sell) {
+    fail++; failures.push('D-pre: no sell result'); console.log('  [FAIL] D-pre: no sell result');
   } else {
-    // Total contract value = 100 × 1M = 100M, all sold in 2031.
-    // Cash 50% in 2031 (axis idx 5), 50% in 2032 (axis idx 6).
-    assertNear('D1: cash in 2026 (axis 0) = 0 (Phase 1 has no asset)', sell.cashCollectedPerPeriod[0] ?? 0, 0, 1);
-    assertNear('D2: cash in 2030 (axis 4) = 0 (before Phase 2)', sell.cashCollectedPerPeriod[4] ?? 0, 0, 1);
-    assertNear('D3: cash in 2031 (axis 5) = 50M', sell.cashCollectedPerPeriod[5] ?? 0, 50_000_000, 10);
-    assertNear('D4: cash in 2032 (axis 6) = 50M', sell.cashCollectedPerPeriod[6] ?? 0, 50_000_000, 10);
+    // Cash keyed by ABSOLUTE calendar year, which is what must not move.
+    const byYear = (r: { cashCollectedPerPeriod: number[] }, origin: number): Map<number, number> => {
+      const m = new Map<number, number>();
+      r.cashCollectedPerPeriod.forEach((v, i) => { if (Math.abs(v) > 0.5) m.set(origin + i, v); });
+      return m;
+    };
+    const ya = byYear(a.sell, a.startYear);
+    const yb = byYear(b.sell, b.startYear);
+
+    assertNear('D1: the cohort collects something at all', [...ya.values()].reduce((s, v) => s + v, 0), 100_000_000, 100);
+    check('D2: the SAME calendar years collect before and after Phase 1 moves',
+      [...ya.keys()].sort().join(',') === [...yb.keys()].sort().join(','),
+      `before=[${[...ya.keys()].sort().join(',')}] after=[${[...yb.keys()].sort().join(',')}]`);
+    let sameAmounts = true;
+    for (const [yr, v] of ya) if (Math.abs((yb.get(yr) ?? 0) - v) > 1) sameAmounts = false;
+    check('D3: and the SAME amount lands in each of those years', sameAmounts,
+      `before=${JSON.stringify([...ya])} after=${JSON.stringify([...yb])}`);
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// E: cash schedule can extend past phase construction + operations.
-//    A long payment plan running into post-phase years should still
-//    deliver cash (M2 Pass 9k-Fix removes the aggressive truncation
-//    to cp + op - overlap).
-// ─────────────────────────────────────────────────────────────────────
-console.log('\n[E] Cash schedule extends past phaseLen');
+// ══════════════════════════════════════════════════════════════════════════
+console.log('\n[E] The cohort rule itself: deposit in the sale year, balance to handover');
 {
   const project = {
-    name: 'long-pay-plan',
-    currency: 'SAR',
-    modelType: 'annual' as const,
-    startDate: '2026-01-01',
-    status: 'Draft' as const,
-    location: '',
-    country: 'Saudi Arabia',
+    name: 'cohort-shape', currency: 'SAR', modelType: 'annual' as const,
+    startDate: '2026-01-01', status: 'Draft' as const, location: '', country: 'Saudi Arabia',
+    saleCohortDefaults: { downpayment: 0.25 },
   } as unknown as Project;
-  // Phase: cp=2, op=2 → phaseLen = 4. A second phase extends the
-  // project axis to 10 years so the long pay plan has room to land.
-  const phase: Phase = { id: 'p1', name: 'P1', startDate: '2026-01-01', constructionPeriods: 2, operationsPeriods: 2, overlapPeriods: 0, status: 'planning' } as unknown as Phase;
-  const phaseExt: Phase = { id: 'p2', name: 'P2', startDate: '2032-01-01', constructionPeriods: 2, operationsPeriods: 2, overlapPeriods: 0, status: 'planning' } as unknown as Phase;
-  const asset: Asset = {
-    id: 'a1', phaseId: 'p1', name: 'Long-pay tower', type: 'Residential', strategy: 'Sell', visible: true,
-    gfaSqm: 10000, buaSqm: 10000, sellableBuaSqm: 10000,
-    revenue: {
-      sell: {
-        assetId: 'a1',
-        subUnits: [{
-          subUnitId: 'su1',
-          preSalesVelocityByPhase: [1.0, 0], // sell 100% in phase-local year 0 (2026)
-          postSalesVelocityByPhase: [],
-          preSalesVelocity: [], postSalesVelocity: [],
-        }],
-        cashPaymentProfile: {
-          percentages: [],
-          profileMode: 'absolute_with_catchup',
-          // 10% per phase-local slot for 6 years (extends 2 years past phaseLen).
-          percentagesByPhase: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1],
-        },
-        recognitionProfile: { method: 'point_in_time', pointInTimeYear: 'handover' },
-        indexation: { method: 'none' },
-      },
-    },
-  } as unknown as Asset;
-  const subUnit: SubUnit = {
-    id: 'su1', assetId: 'a1', name: 'Apartments', category: 'residential',
-    metric: 'units', metricValue: 100, unitArea: 100, unitPrice: 1_000_000,
-  } as unknown as SubUnit;
-  // Total inventory present, set project endpoints to keep total revenue at 60M (6 × 10%).
-  void subUnit;
-  const res = computeAllSellResults({ project, phases: [phase, phaseExt], assets: [asset], subUnits: [subUnit] });
-  const sell = res.bySellAsset.get('a1');
-  if (!sell) {
-    console.log('  [FAIL] E-pre: no sell result');
-    fail++;
-  } else {
-    // Total contract = 100 × 1M = 100M sold in 2026 (axis 0).
-    // Cash 10M per year for 6 years (2026..2031), axis 0..5.
-    // Cumulative collected = 60M (60% of contract). The remaining 40%
-    // stays uncollected since the schedule only sums to 60%.
-    assertNear('E1: cash at axis 0 (2026) = 10M', sell.cashCollectedPerPeriod[0] ?? 0, 10_000_000, 100);
-    assertNear('E2: cash at axis 3 (2029, still within phaseLen) = 10M', sell.cashCollectedPerPeriod[3] ?? 0, 10_000_000, 100);
-    assertNear('E3: cash at axis 4 (2030, post-phaseLen) = 10M', sell.cashCollectedPerPeriod[4] ?? 0, 10_000_000, 100);
-    assertNear('E4: cash at axis 5 (2031, post-phaseLen) = 10M', sell.cashCollectedPerPeriod[5] ?? 0, 10_000_000, 100);
-    assertNear('E5: cumulative cash through axis 5 = 60M', sell.cashCollectedPerPeriod.slice(0, 6).reduce((s, v) => s + v, 0), 60_000_000, 100);
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// F: percentagesByPhase longer than project axis must NOT empty the
-//    cash vintage matrix. buildCohortMatrix early-returns when pct
-//    and pos arrays disagree in length, so the resolver must pass
-//    them through in lockstep (don't filter pos, the engine drops
-//    out-of-range positions internally).
-// ─────────────────────────────────────────────────────────────────────
-console.log('\n[F] Long percentagesByPhase does not zero out the matrix (lockstep pct/pos)');
-{
-  const project = {
-    name: 'long-by-phase',
-    currency: 'SAR',
-    modelType: 'annual' as const,
-    startDate: '2026-01-01',
-    status: 'Draft' as const,
-    location: '',
-    country: 'Saudi Arabia',
-  } as unknown as Project;
-  // Project axis is 5 years (2026..2030) driven by phases.
-  const phase: Phase = { id: 'p1', name: 'P1', startDate: '2026-01-01', constructionPeriods: 2, operationsPeriods: 3, overlapPeriods: 0, status: 'planning' } as unknown as Phase;
+  // Construction 4 years: handover is 2029 (phaseStart + cp - 1).
+  const phase: Phase = { id: 'p1', name: 'P1', startDate: '2026-01-01', constructionPeriods: 4, operationsPeriods: 4, overlapPeriods: 0, status: 'planning' } as unknown as Phase;
   const asset: Asset = {
     id: 'a1', phaseId: 'p1', name: 'Tower', type: 'Residential', strategy: 'Sell', visible: true,
     gfaSqm: 10000, buaSqm: 10000, sellableBuaSqm: 10000,
-    revenue: {
-      sell: {
-        assetId: 'a1',
-        subUnits: [{
-          subUnitId: 'su1',
-          preSalesVelocityByPhase: [1.0, 0],
-          postSalesVelocityByPhase: [],
-          preSalesVelocity: [], postSalesVelocity: [],
-        }],
-        cashPaymentProfile: {
-          percentages: [],
-          profileMode: 'absolute_with_catchup',
-          // Length 10 (longer than the 5-year axis). The cohort engine
-          // must drop positions 5-9 internally without breaking the
-          // pct/pos length-equality guard.
-          percentagesByPhase: [0.2, 0.2, 0.2, 0.2, 0.2, 0, 0, 0, 0, 0],
-        },
-        recognitionProfile: { method: 'point_in_time', pointInTimeYear: 'handover' },
-        indexation: { method: 'none' },
-      },
-    },
+    revenue: { sell: {
+      assetId: 'a1',
+      // Everything sells in the FIRST year, so one cohort's shape is visible.
+      subUnits: [{ subUnitId: 'su1', preSalesVelocityByPhase: [1.0, 0, 0, 0], postSalesVelocityByPhase: [], preSalesVelocity: [], postSalesVelocity: [] }],
+      recognitionProfile: { method: 'point_in_time', pointInTimeYear: 'handover' },
+      indexation: { method: 'none' },
+    } },
   } as unknown as Asset;
-  const subUnit: SubUnit = {
-    id: 'su1', assetId: 'a1', name: 'Apartments', category: 'residential',
-    metric: 'units', metricValue: 100, unitArea: 100, unitPrice: 1_000_000,
-  } as unknown as SubUnit;
+  const subUnit: SubUnit = { id: 'su1', assetId: 'a1', name: 'Apartments', category: 'Sellable', metric: 'units', metricValue: 100, unitArea: 100, unitPrice: 1_000_000 } as unknown as SubUnit;
   const res = computeAllSellResults({ project, phases: [phase], assets: [asset], subUnits: [subUnit] });
   const sell = res.bySellAsset.get('a1');
   if (!sell) {
-    console.log('  [FAIL] F-pre: no sell result');
-    fail++;
+    fail++; failures.push('E-pre: no sell result'); console.log('  [FAIL] E-pre: no sell result');
   } else {
-    // Contract value 100M sold in 2026. Cash 20% × 5 years = 100M total.
-    assertNear('F1: cash at axis 0 (2026) = 20M', sell.cashCollectedPerPeriod[0] ?? 0, 20_000_000, 10);
-    assertNear('F2: cash at axis 2 (2028) = 20M (matrix not empty)', sell.cashCollectedPerPeriod[2] ?? 0, 20_000_000, 10);
-    assertNear('F3: cash at axis 4 (2030) = 20M', sell.cashCollectedPerPeriod[4] ?? 0, 20_000_000, 10);
-    assertNear('F4: total cash = 100M (all collected within axis)', sell.cashCollectedPerPeriod.reduce((s, v) => s + v, 0), 100_000_000, 10);
-    // Vintage matrix must be populated, not zeroed.
-    const matrixSum = sell.cashVintageMatrix.reduce((s, row) => s + row.reduce((a, b) => a + b, 0), 0);
-    assertNear('F5: vintage matrix sum = 100M (NOT empty)', matrixSum, 100_000_000, 10);
+    const cash = sell.cashCollectedPerPeriod;
+    const total = cash.reduce((s, v) => s + v, 0);
+    assertNear('E1: the WHOLE contract is collected, nothing is dropped', total, 100_000_000, 100);
+    assertNear('E2: the deposit lands in the SALE year (25% of 100M)', cash[0] ?? 0, 25_000_000, 100);
+    // Sale year 0, handover year 3 -> three instalment slots, 75M split equally.
+    for (const t of [1, 2, 3]) {
+      assertNear(`E3[t=${t}]: an equal instalment of the balance`, cash[t] ?? 0, 25_000_000, 100);
+    }
+    const afterHandover = cash.slice(4).reduce((s, v) => s + v, 0);
+    assertNear('E4: NOTHING is collected after handover, the plan ends with the keys', afterHandover, 0, 1);
+  }
+
+  // THE CAP MUST BIND, and above it does not: DEFAULT_INSTALMENT_YEARS is 3 and
+  // that fixture leaves exactly 3 slots before handover, so min(3, 3) is 3
+  // whether or not the cap exists. Sabotaging the cap changed nothing and E4
+  // still passed, which makes E4 a check that cannot fail for the reason it
+  // names. A SHORTER build is what pins it: 3 construction years leave only 2
+  // slots, so the default of 3 has to be cut down to 2.
+  {
+    const shortPhase: Phase = { id: 'p1', name: 'P1', startDate: '2026-01-01', constructionPeriods: 3, operationsPeriods: 5, overlapPeriods: 0, status: 'planning' } as unknown as Phase;
+    const res2 = computeAllSellResults({ project, phases: [shortPhase], assets: [asset], subUnits: [subUnit] });
+    const c2 = res2.bySellAsset.get('a1')?.cashCollectedPerPeriod ?? [];
+    // Handover is year 2. Deposit 25M in year 0, then 75M over TWO years.
+    assertNear('E5: the deposit is unchanged by the shorter build', c2[0] ?? 0, 25_000_000, 100);
+    assertNear('E6: the balance is cut into TWO instalments, not the default three', c2[1] ?? 0, 37_500_000, 100);
+    assertNear('E7: the second and last instalment lands ON handover', c2[2] ?? 0, 37_500_000, 100);
+    assertNear('E8: and nothing at all after it', c2.slice(3).reduce((s, v) => s + v, 0), 0, 1);
+    assertNear('E9: the whole contract is still collected', c2.reduce((s, v) => s + v, 0), 100_000_000, 100);
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// G: data recovery when percentagesByPhase was truncated by Pass 9k
-//    but legacy percentages still holds the user's original data.
-//    The resolver must MERGE both rather than pick one source.
-// ─────────────────────────────────────────────────────────────────────
-console.log('\n[G] Truncated percentagesByPhase + intact legacy = full schedule recovered');
+// ══════════════════════════════════════════════════════════════════════════
+console.log('\n[F] A cohort selling AT or AFTER handover pays in full, in its own year');
 {
   const project = {
-    name: 'data-recovery',
-    currency: 'SAR',
-    modelType: 'annual' as const,
-    startDate: '2026-01-01',
-    status: 'Draft' as const,
-    location: '',
-    country: 'Saudi Arabia',
+    name: 'cohort-late', currency: 'SAR', modelType: 'annual' as const,
+    startDate: '2026-01-01', status: 'Draft' as const, location: '', country: 'Saudi Arabia',
+    saleCohortDefaults: { downpayment: 0.25 },
   } as unknown as Project;
-  // Phase: cp=4, op=0 (handover at year 3). Pass 9k truncated
-  // percentagesByPhase to length cp + op - overlap = 4. A second
-  // phase extends the project axis so the full 8-year schedule
-  // has somewhere to land.
-  const phase: Phase = { id: 'p1', name: 'P1', startDate: '2026-01-01', constructionPeriods: 4, operationsPeriods: 0, overlapPeriods: 0, status: 'planning' } as unknown as Phase;
-  const phaseExt: Phase = { id: 'p2', name: 'P2', startDate: '2031-01-01', constructionPeriods: 2, operationsPeriods: 3, overlapPeriods: 0, status: 'planning' } as unknown as Phase;
+  const phase: Phase = { id: 'p1', name: 'P1', startDate: '2026-01-01', constructionPeriods: 2, operationsPeriods: 5, overlapPeriods: 0, status: 'planning' } as unknown as Phase;
   const asset: Asset = {
     id: 'a1', phaseId: 'p1', name: 'Tower', type: 'Residential', strategy: 'Sell', visible: true,
     gfaSqm: 10000, buaSqm: 10000, sellableBuaSqm: 10000,
-    revenue: {
-      sell: {
-        assetId: 'a1',
-        subUnits: [{
-          subUnitId: 'su1',
-          preSalesVelocityByPhase: [1.0, 0, 0, 0],
-          postSalesVelocityByPhase: [],
-          preSalesVelocity: [], postSalesVelocity: [],
-        }],
-        cashPaymentProfile: {
-          // Legacy: full 8-year schedule (axis 0..7 = 2026..2033).
-          // 10% per year, sum = 80%. The remaining 20% sits in the
-          // cohort matrix as catchup at sale year.
-          percentages: [0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0, 0],
-          // ByPhase: truncated to cp+op-overlap = 4 by Pass 9k. The
-          // last 4 entries (post-handover) are lost in storage.
-          percentagesByPhase: [0.10, 0.10, 0.10, 0.10],
-          profileMode: 'absolute_with_catchup',
-        },
-        recognitionProfile: { method: 'point_in_time', pointInTimeYear: 'handover' },
-        indexation: { method: 'none' },
-      },
-    },
+    revenue: { sell: {
+      assetId: 'a1',
+      // Handover is year 1 (cp = 2). Selling entirely POST-handover.
+      subUnits: [{ subUnitId: 'su1', preSalesVelocityByPhase: [], postSalesVelocityByPhase: [0, 0, 1.0, 0], preSalesVelocity: [], postSalesVelocity: [] }],
+      recognitionProfile: { method: 'point_in_time', pointInTimeYear: 'handover' },
+      indexation: { method: 'none' },
+    } },
   } as unknown as Asset;
-  const subUnit: SubUnit = {
-    id: 'su1', assetId: 'a1', name: 'Apartments', category: 'residential',
-    metric: 'units', metricValue: 100, unitArea: 100, unitPrice: 1_000_000,
-  } as unknown as SubUnit;
-  const res = computeAllSellResults({ project, phases: [phase, phaseExt], assets: [asset], subUnits: [subUnit] });
+  const subUnit: SubUnit = { id: 'su1', assetId: 'a1', name: 'Apartments', category: 'Sellable', metric: 'units', metricValue: 100, unitArea: 100, unitPrice: 1_000_000 } as unknown as SubUnit;
+  const res = computeAllSellResults({ project, phases: [phase], assets: [asset], subUnits: [subUnit] });
   const sell = res.bySellAsset.get('a1');
   if (!sell) {
-    console.log('  [FAIL] G-pre: no sell result');
-    fail++;
+    fail++; failures.push('F-pre: no sell result'); console.log('  [FAIL] F-pre: no sell result');
   } else {
-    // Cohort sells 100M in 2026. Schedule 10% × 8 years => 10M at each
-    // of 2026..2033 (axis 0..7). 80M total collected, 20M unhandled
-    // catchup sits at sale year (2026): cohort gets 10M + 20M catchup
-    // for the 0..0 catchup = no actually no catchup at sale year since
-    // pos 0 == saleYear, just 10M. So 80M total over 8 years.
-    assertNear('G1: cash at axis 0 (2026) = 10M', sell.cashCollectedPerPeriod[0] ?? 0, 10_000_000, 10);
-    assertNear('G2: cash at axis 3 (2029, last truncated slot) = 10M', sell.cashCollectedPerPeriod[3] ?? 0, 10_000_000, 10);
-    assertNear('G3: cash at axis 4 (2030, post-truncation slot from legacy) = 10M', sell.cashCollectedPerPeriod[4] ?? 0, 10_000_000, 10);
-    assertNear('G4: cash at axis 7 (2033) = 10M', sell.cashCollectedPerPeriod[7] ?? 0, 10_000_000, 10);
-    assertNear('G5: total collected over 8 years = 80M', sell.cashCollectedPerPeriod.slice(0, 8).reduce((s, v) => s + v, 0), 80_000_000, 10);
+    const cash = sell.cashCollectedPerPeriod;
+    assertNear('F1: the whole contract is still collected', cash.reduce((s, v) => s + v, 0), 100_000_000, 100);
+    check('F2: a post-handover cohort collects in ONE year, not on a payment plan',
+      cash.filter((v) => Math.abs(v) > 0.5).length === 1,
+      `non-zero years: ${cash.map((v, i) => (Math.abs(v) > 0.5 ? i : -1)).filter((i) => i >= 0).join(',')}`);
+    assertNear('F3: and nothing is collected before the sale', cash.slice(0, 2).reduce((s, v) => s + v, 0), 0, 1);
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// H: expandPhaseLocalToAxis merges legacy + byPhase so the last
-//    operations year still produces revenue when byPhase is shorter
-//    than the project axis (axis-extension scenario where ByPhase was
-//    seeded by an earlier-narrower hydration).
-// ─────────────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════
+console.log('\n[G] The retired per-period profile is IGNORED, not half-read');
+{
+  const project = {
+    name: 'retired-profile', currency: 'SAR', modelType: 'annual' as const,
+    startDate: '2026-01-01', status: 'Draft' as const, location: '', country: 'Saudi Arabia',
+    saleCohortDefaults: { downpayment: 0.25 },
+  } as unknown as Project;
+  const phase: Phase = { id: 'p1', name: 'P1', startDate: '2026-01-01', constructionPeriods: 4, operationsPeriods: 4, overlapPeriods: 0, status: 'planning' } as unknown as Phase;
+  const mk = (withProfile: boolean): Asset => ({
+    id: 'a1', phaseId: 'p1', name: 'Tower', type: 'Residential', strategy: 'Sell', visible: true,
+    gfaSqm: 10000, buaSqm: 10000, sellableBuaSqm: 10000,
+    revenue: { sell: {
+      assetId: 'a1',
+      subUnits: [{ subUnitId: 'su1', preSalesVelocityByPhase: [1.0, 0, 0, 0], postSalesVelocityByPhase: [], preSalesVelocity: [], postSalesVelocity: [] }],
+      ...(withProfile
+        ? { cashPaymentProfile: { percentages: [], profileMode: 'absolute_with_catchup', percentagesByPhase: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1] } }
+        : {}),
+      recognitionProfile: { method: 'point_in_time', pointInTimeYear: 'handover' },
+      indexation: { method: 'none' },
+    } },
+  } as unknown as Asset);
+  const subUnit: SubUnit = { id: 'su1', assetId: 'a1', name: 'Apartments', category: 'Sellable', metric: 'units', metricValue: 100, unitArea: 100, unitPrice: 1_000_000 } as unknown as SubUnit;
+  const run = (withProfile: boolean): number[] => {
+    const res = computeAllSellResults({ project, phases: [phase], assets: [mk(withProfile)], subUnits: [subUnit] });
+    return res.bySellAsset.get('a1')?.cashCollectedPerPeriod ?? [];
+  };
+  const without = run(false);
+  const withIt = run(true);
+
+  // THE POINT: a saved project carrying the deprecated schedule must compute
+  // IDENTICALLY to one without it. Deprecated means "kept so no saved data is
+  // destroyed", and a field that is kept but half-read is worse than one that
+  // is deleted, because the model quietly depends on it.
+  check('G1: a deprecated cashPaymentProfile changes NOTHING, period for period',
+    without.length === withIt.length && without.every((v, i) => Math.abs(v - (withIt[i] ?? 0)) < 1),
+    `without=${without.map((v) => Math.round(v / 1e6)).join(',')} with=${withIt.map((v) => Math.round(v / 1e6)).join(',')}`);
+  assertNear('G2: and the contract is fully collected either way', withIt.reduce((s, v) => s + v, 0), 100_000_000, 100);
+}
+
+
 console.log('\n[H] expandPhaseLocalToAxis legacy fills byPhase tail');
 {
   // Axis = 5 (project 2026..2030). byPhase has only 3 entries.
