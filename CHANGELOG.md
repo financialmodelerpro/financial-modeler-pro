@@ -4,6 +4,15 @@
 
 Entries are grouped by their most recent date. Fuller per-day narrative for REFM platform work lives in [CLAUDE-REFM.md](CLAUDE-REFM.md); per-route and migration detail in [CLAUDE-ROUTES.md](CLAUDE-ROUTES.md) and [CLAUDE-DB.md](CLAUDE-DB.md); the general lessons in [docs/TRAPS.md](docs/TRAPS.md); fund-layer standing rules in [docs/FUND_LAYER_GUIDELINE.md](docs/FUND_LAYER_GUIDELINE.md). This file is loaded on demand only and has no size limit.
 
+## 2026-09-02
+
+- **THE FLAKY RATE-LIMIT TEST IS FIXED BY INJECTING THE CLOCK (2026-09-02). `verify-public-pages-api` 40/3 (or 43/0 when lucky) -> 47 passed / 0 failed, confirmed on EIGHT consecutive runs.** It fired 61 live requests at a 60-per-60,000ms limiter on the real clock; each request runs the real handler with its database queries, so the loop took about as long as the window it was measuring and straddled the boundary. The limiter was correct throughout; the test timed it with a stopwatch the same length as the thing being timed.
+  - **The seam is in `rateLimit.ts`, not the route.** `setRateLimitClock(fn | null)` joins `resetRateLimit` in the module that exists precisely to hold test seams (a Next route may only export a fixed set of names, which the file header already explained). **The route is unchanged.** With no injection the clock is `Date.now`, and a check asserts that nothing under `app/` calls the seam, so a route can never quietly acquire a fake clock.
+  - **The limit was not widened and the loop is not retried.** Both would have hidden the race rather than removed it.
+  - **The rewrite is STRONGER than what it replaced.** A frozen clock can assert what a wall clock cannot without sleeping for a minute: 1ms BEFORE the reset the caller is still refused, and AT the reset the same caller is allowed again. 43 checks became 47.
+  - **Two mistakes of my own, both caught by sabotage rather than by reading.** (1) **The per-IP check went vacuous**: placed AFTER the window-roll steps, time had already moved past the reset, so a limiter keyed on one GLOBAL bucket looked correct too, and swapping the per-IP key for a constant failed NOTHING until the check moved back above the roll. (2) **The clock sabotage cannot name a single expected failure**: removing the injection breaks four section-5 checks but WHICH ones depends on machine speed, which is the flakiness itself reappearing, so that one case accepts any failure and says why.
+  - Seven sabotages, all caught, including one that puts the seam into a route.
+
 ## 2026-09-01
 
 - **MODULE 10 COLLABORATION, STEP 1: WHO SAVED THIS VERSION (2026-09-01i, mig 230 APPLIED). `verify-version-authorship` 23, thirteen sabotages all caught. Suite 145 pass / 1 fail of 146, and the 1 is NOT this change: `verify-public-pages-api` is FLAKY (fail / pass / fail on three identical runs, and it fails on a clean tree too). Diagnosed and logged in CLAUDE-TODO.md.** `refm_project_versions` carried no author column at all, so the platform could not answer "who saved this" even for a single user. The smallest useful step, and deliberately independent: no membership, no roles, no lock.

@@ -57,30 +57,37 @@ Do not fold this into a collaboration step: it changes cost IDENTITY, which is
 engine-adjacent, and it deserves its own measurement on a live project.
 
 ---
-## OPEN, LOGGED NOT FIXED (2026-09-01): `verify-public-pages-api` is FLAKY
+## CLOSED 2026-09-02: `verify-public-pages-api` is deterministic
 
-Three identical runs on the same tree gave **fail, pass, fail**. It fails on a
-CLEAN tree too, so it is not a regression from any recent change, and it is why
-an earlier "145 / 0" reading was luck rather than a measurement.
+Fixed by INJECTING THE CLOCK, which is what the diagnosis called for.
+`rateLimit.ts` gains `setRateLimitClock(fn | null)`, a test seam in the
+module that exists to hold test seams (`resetRateLimit` was already one, and
+the file header explains why a Next route cannot export one itself). The
+route is UNCHANGED and production never touches the seam: with no injection
+the clock is `Date.now`, and a check asserts that no file under `app/` calls
+it, so a route can never quietly acquire a fake clock.
 
-**Diagnosed, and it is a TEST defect, not a product one.** The route limits to
-`RATE_LIMIT = 60` requests per `RATE_WINDOW_MS = 60_000` per IP, and the window
-is wall-clock (`resetAt = now + windowMs`). Section 5 of the verifier fires
-**61 real requests in a loop**, each hitting the live handler with its DB
-queries, and expects the 61st to be refused. At roughly a second per request the
-loop takes about as long as the window it is testing, so it straddles the
-boundary: the counter resets mid-loop, the 61st is allowed, and three checks go
-red together ("first 429 at request -1", plus the two that inspect the 429
-body). **The limiter is correct; the test measures it with a stopwatch the same
-length as the thing being timed.**
+The limit was NOT widened and the loop is NOT retried. Section 5 freezes
+time, so all 61 requests land in one window by construction however slow the
+machine is, and it then steps time forward deliberately.
 
-The fix is to inject the clock rather than race it: `checkRateLimit` already
-takes `now` as a parameter (`rateLimit.ts:40`), so the test can drive time
-itself and stop depending on how fast the machine is. Until that is done the
-suite count is unreliable by up to three checks.
+**The rewrite is stronger than what it replaced**, because a frozen clock can
+assert things a wall clock cannot without sleeping for a minute: that 1ms
+BEFORE the reset the caller is still refused, and that AT the reset the same
+caller is allowed again. 43 checks became 47.
 
-**Do not "fix" this by widening the limit or by retrying the loop.** Both hide a
-real property of the test rather than removing the race.
+Two mistakes of my own, both caught by sabotage rather than by reading:
+
+- **The per-IP check went vacuous.** I first placed it AFTER the window-roll
+  steps, by which point time had moved past the reset, so a limiter keyed on
+  one GLOBAL bucket would have looked correct too. Replacing the per-IP key
+  with a constant failed NOTHING until the check moved back above the roll.
+- **The clock sabotage cannot name a single expected failure.** Removing the
+  injection breaks four section-5 checks, but WHICH ones depends on machine
+  speed, which is the flakiness itself reappearing. The sabotage harness
+  accepts any failure for that one case, and says why.
+
+Confirmed on EIGHT consecutive runs: 47 passed, 0 failed, every time.
 
 ---
 ## MODULE 10 COLLABORATION: the build plan (2026-09-01)

@@ -23,9 +23,10 @@
  *
  * No em dashes in this file.
  */
-import { readFileSync } from 'fs';
+import { readFileSync, readdirSync } from 'fs';
+import { join } from 'path';
 import { NextRequest } from 'next/server';
-import { resetRateLimit } from '../src/shared/api/rateLimit';
+import { resetRateLimit, setRateLimitClock } from '../src/shared/api/rateLimit';
 
 for (const f of ['.env.local', '.env']) {
   try {
@@ -220,26 +221,90 @@ async function main(): Promise<void> {
   }
 
   // ── 5. Rate limit ─────────────────────────────────────────────────────────
-  console.log('\n-- 5. Rate limit --');
-  await resetLimiter();
-  const ip = '203.0.113.77';
-  let firstRefusal = -1;
-  for (let i = 1; i <= 61; i++) {
-    const r = await call('refm', { key: TEST_KEY, ip });
-    if (r.status === 429 && firstRefusal < 0) firstRefusal = i;
+  //
+  // TIME IS FROZEN HERE, and that is the whole point of this section.
+  //
+  // It used to fire 61 live requests against a 60-per-60,000ms limiter on the
+  // real clock. Each request runs the real handler with its database queries,
+  // so the loop took about as long as the window it was measuring: it
+  // straddled the boundary, the counter rolled over mid-loop, the 61st was
+  // allowed, and three checks went red together. Three identical runs gave
+  // fail, pass, fail, and a green reading was luck rather than a measurement.
+  // The limiter was correct throughout; the test timed it with a stopwatch the
+  // same length as the thing being timed.
+  //
+  // With the clock injected the requests land in one window BY CONSTRUCTION,
+  // however slow the machine, and time only moves when this test moves it.
+  console.log('\n-- 5. Rate limit (clock injected, so the window cannot roll under us) --');
+  let fakeNow = Date.UTC(2026, 0, 1, 0, 0, 0);
+  setRateLimitClock(() => fakeNow);
+  try {
+    await resetLimiter();
+    const ip = '203.0.113.77';
+
+    // Exactly 60 allowed.
+    let refusedEarly = -1;
+    for (let i = 1; i <= 60; i++) {
+      const r = await call('refm', { key: TEST_KEY, ip });
+      if (r.status === 429 && refusedEarly < 0) refusedEarly = i;
+    }
+    check('the first 60 requests inside one window are all allowed',
+      refusedEarly === -1, `refused early at request ${refusedEarly}`);
+
+    // The 61st is refused.
+    const limited = await call('refm', { key: TEST_KEY, ip });
+    check('the 61st request in the same window is refused', limited.status === 429,
+      `status ${limited.status}`);
+    check('the 429 body names the limit', limited.status === 429 && /60/.test(JSON.stringify(limited.body)));
+    check('the 429 carries Retry-After', limited.headers.get('retry-after') === '60');
+
+    // PER IP, checked WHILE THE FIRST IP IS STILL EXHAUSTED. The order
+    // matters and I had it wrong: with this placed AFTER the window-roll
+    // steps, time had already moved past the reset, so a limiter keyed on a
+    // single GLOBAL bucket would have looked correct too. Sabotaging the key
+    // to a constant failed nothing at all until this moved back above the
+    // roll. The limiter runs BEFORE authentication, so these hold either way;
+    // only the 200 needs a key the endpoint accepts.
+    const otherIp = await call('refm', { key: TEST_KEY, ip: '203.0.113.78' });
+    if (canAuthenticate) {
+      check('the limit is PER IP, so a different caller is unaffected', otherIp.status === 200, `status ${otherIp.status}`);
+    } else {
+      check('the limit is PER IP, so a different caller is not rate limited', otherIp.status !== 429, `status ${otherIp.status}`);
+    }
+
+    // A check the wall-clock version could not make without sleeping for a
+    // minute: the window ROLLS. One millisecond before the reset the caller is
+    // still refused; at the reset they are allowed again.
+    fakeNow += 59_999;
+    const stillLimited = await call('refm', { key: TEST_KEY, ip });
+    check('1ms before the window resets the caller is STILL refused',
+      stillLimited.status === 429, `status ${stillLimited.status}`);
+    fakeNow += 1;
+    const afterReset = await call('refm', { key: TEST_KEY, ip });
+    check('when the window rolls the same caller is allowed again',
+      afterReset.status !== 429, `status ${afterReset.status}`);
+  } finally {
+    // Restored in a finally so a failure above cannot leave a frozen clock
+    // behind for the sections that follow.
+    setRateLimitClock(null);
+    await resetLimiter();
   }
-  check('the first 60 requests are allowed and the 61st is refused', firstRefusal === 61, `first 429 at request ${firstRefusal}`);
-  const limited = await call('refm', { key: TEST_KEY, ip });
-  check('the 429 body names the limit', limited.status === 429 && /60/.test(JSON.stringify(limited.body)));
-  check('the 429 carries Retry-After', limited.headers.get('retry-after') === '60');
-  // A different IP is unaffected by another IP's exhausted window. The limiter
-  // runs BEFORE authentication, so the checks above hold either way; only the
-  // 200 needs a key the endpoint accepts.
-  const otherIp = await call('refm', { key: TEST_KEY, ip: '203.0.113.78' });
-  if (canAuthenticate) {
-    check('the limit is PER IP, so a different caller is unaffected', otherIp.status === 200, `status ${otherIp.status}`);
-  } else {
-    check('the limit is PER IP, so a different caller is not rate limited', otherIp.status !== 429, `status ${otherIp.status}`);
+
+  // The seam must never reach production. Nothing under app/ may move the
+  // clock, or a route could quietly acquire a fake one.
+  {
+    const appFiles: string[] = [];
+    const walk = (dir: string): void => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (/\.(ts|tsx)$/.test(e.name)) appFiles.push(p);
+      }
+    };
+    try { walk('app'); } catch { /* nothing to walk */ }
+    const offenders = appFiles.filter((f) => readFileSync(f, 'utf8').includes('setRateLimitClock'));
+    check('no route moves the rate-limit clock (the seam stays a test seam)',
+      offenders.length === 0, offenders.join(', '));
   }
 
   // ── 6. Fails closed with no key configured ────────────────────────────────
