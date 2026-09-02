@@ -99,7 +99,7 @@ export async function PATCH(
 
   // Verify ownership of the parent project + load the existing
   // version row in the same step.
-  const { row: project, error: projErr } = await getProjectForWrite(userId, projectId);
+  const { row: project, error: projErr } = await getProjectForWrite(userId, projectId, 'canSave');
   if (projErr) return serverError(projErr);
   if (!project) return notFound();
 

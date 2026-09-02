@@ -116,10 +116,11 @@ console.log('\n=== D. Module visibility is per platform ===');
     !/MODULE_VISIBILITY/.test(coreState));
   check('D2 the REFM map lives with REFM and covers every role',
     PROJECT_ROLES.every((r) => Array.isArray(REFM_MODULE_VISIBILITY[r])));
-  // Carried over verbatim: the pre-move lists, transcribed.
+  // The AGREED map. Identical to the pre-move lists except for ONE
+  // deliberate change made in step 4: the editor regained module5.
   const EXPECT: Record<ProjectRole, string> = {
     owner:    'dashboard,projects,overview,module1,module2,module3,module4,module5,module6,module7',
-    editor:   'dashboard,projects,overview,module1,module2,module3,module4,module6,module7',
+    editor:   'dashboard,projects,overview,module1,module2,module3,module4,module5,module6,module7',
     reviewer: 'dashboard,projects,module6,module7',
     viewer:   'dashboard,module6,module7',
   };
@@ -127,11 +128,17 @@ console.log('\n=== D. Module visibility is per platform ===');
   for (const r of PROJECT_ROLES) {
     if (REFM_MODULE_VISIBILITY[r].join(',') !== EXPECT[r]) moved += ` ${r};`;
   }
-  check('D3 every visibility list carried over verbatim', moved === '', moved);
-  // The known oddity is recorded rather than silently fixed, so step 4 finds it.
-  check('D4 the editor / module5 oddity is written down, not quietly corrected',
-    !REFM_MODULE_VISIBILITY.editor.includes('module5')
-    && /module5|Returns/i.test(src('src/hubs/modeling/platforms/refm/lib/moduleVisibility.ts')));
+  check('D3 every visibility list matches the agreed map', moved === '', moved);
+  // THE FIX, pinned so it cannot be undone by a later carry-over. The editor
+  // was excluded from module5 by a RENUMBERING, not a decision: the original
+  // map's own legend granted the analyst "Module 4 (Returns)", and Returns
+  // later became module5 while the positional list kept excluding it. An
+  // editor who can change costs must be able to see the effect on returns.
+  check('D4 the editor can see Returns (module5), the renumbering omission is fixed',
+    REFM_MODULE_VISIBILITY.editor.includes('module5'));
+  check('D4b the history of that omission is recorded, not just the fix',
+    /OMISSION/i.test(src('src/hubs/modeling/platforms/refm/lib/moduleVisibility.ts'))
+    && /renumber/i.test(src('src/hubs/modeling/platforms/refm/lib/moduleVisibility.ts')));
 }
 
 console.log('\n=== E. Unknown roles are denied ===');

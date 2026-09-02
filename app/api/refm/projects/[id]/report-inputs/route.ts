@@ -14,6 +14,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getProject, getProjectForWrite } from '@/src/hubs/modeling/platforms/refm/lib/persistence/server';
+import type { Permission } from '@/src/core/collab/projectRoles';
 import { getReportInputs, upsertReportInputs } from '@/src/hubs/modeling/platforms/refm/lib/persistence/reportInputs-server';
 import { getRefmUserId } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
 import { defaultReportInputs, normalizeAllSectionConfigs, coerceNarrativeExtras, coerceICDeckCase, coerceICMoneyScale, type ReportInputs } from '@/src/hubs/modeling/platforms/refm/lib/reportInputs';
@@ -40,10 +41,14 @@ async function requireOwnedProject(id: string): Promise<{ userId: string } | Nex
  * share that one: narrowing it in place would have stopped a Reviewer reading
  * a project they are legitimately a member of. Reads keep the old helper.
  */
-async function requireWritableProject(id: string): Promise<{ userId: string } | NextResponse> {
+/** `need` is passed IN rather than hardcoded, so a handler declares the
+ *  permission it requires and the matrix answers. A blanket helper would
+ *  give every verb in the file the same rights, which is how a delete ends
+ *  up gated as an edit. */
+async function requireWritableProject(id: string, need: Permission): Promise<{ userId: string } | NextResponse> {
   const userId = await getRefmUserId();
   if (!userId) return unauthorized();
-  const { row, error } = await getProjectForWrite(userId, id);
+  const { row, error } = await getProjectForWrite(userId, id, need);
   if (error) return serverError(error);
   if (!row) return notFound();
   return { userId };
@@ -62,7 +67,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
 export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const owned = await requireWritableProject(id);
+  const owned = await requireWritableProject(id, 'canEditInputs');
   if (owned instanceof NextResponse) return owned;
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
   const d = defaultReportInputs();

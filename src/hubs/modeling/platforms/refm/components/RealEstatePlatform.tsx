@@ -14,10 +14,12 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 
+// PERMISSIONS is no longer imported: can() reads the SHARED matrix via
+// roleCan, the same function the server gates on, so the UI and the boundary
+// cannot disagree about what a role may do.
 import {
   ROLES,
   ROLE_META,
-  PERMISSIONS,
   useBrandingStore,
 } from '@/src/core/state';
 import type { Role, PermissionMap } from '@/src/core/types/settings.types';
@@ -28,6 +30,7 @@ import * as pclient from '../lib/persistence/client';
 // which modules a role sees is per platform, so it moved out of core/state.
 import { refmRoleSeesModule } from '../lib/moduleVisibility';
 import type { ProjectStatus } from '@/src/shared/admin/projectStatus';
+import { roleCan, type ProjectRole } from '@/src/core/collab/projectRoles';
 // Reuse the table scrollbar styling so the workspace vertical scrollbar is the
 // same 14px thickness as the horizontal scrollbars inside the results tables.
 import scrollStyles from './modules/_shared/ScrollableTable.module.css';
@@ -122,10 +125,15 @@ export interface StorageProject {
   versionCount?: number;
   /** Entitlement cap archive flag (mig 161), distinct from the status enum. */
   archived?: boolean;
-  /** Card ordering (mig 229). `priority` is the urgent flag; `sortOrder` is
-   *  the manual position within the status group, null when never dragged. */
+  /** Card ordering (mig 232, per member). `priority` is the urgent flag;
+   *  `sortOrder` is the manual position within the status group, null when
+   *  never dragged. Both are THIS user's, not the project's. */
   priority?: boolean;
   sortOrder?: number | null;
+  /** THIS user's role on this project (Module 10 step 4). Undefined means a
+   *  database with no membership table, where access is by ownership and the
+   *  caller holds everything. */
+  role?: ProjectRole | null;
 }
 
 export interface StorageShape {
@@ -163,6 +171,7 @@ function projectsToStorageShape(
       archived: p.archived ?? false,
       priority: p.priority ?? false,
       sortOrder: p.sort_order ?? null,
+      role: p.role ?? null,
     };
   }
   return out;
@@ -359,13 +368,6 @@ export default function RealEstatePlatform(): React.JSX.Element {
     if (tourPendingAfterPrompt.current) { tourPendingAfterPrompt.current = false; setTourOpen(true); }
   }, []);
 
-  // RBAC. PINNED TO OWNER and not yet resolved from the server: there is no
-  // per-project role to read until membership lands (Module 10 step 2), so
-  // `can()` returns true for everything and this is a scaffold, not a gate.
-  // Renamed from ROLES.ADMIN in step 0: OWNER is a role on ONE PROJECT, while
-  // `users.role === 'admin'` is the platform administrator and is a different
-  // thing entirely. See src/shared/collab/projectRoles.ts.
-  const [currentUserRole, setCurrentUserRole] = useState<Role>(ROLES.OWNER);
 
   // Dark mode (workspace-scoped via body[data-refm-theme])
   const [darkMode, setDarkMode] = useState(false);
@@ -462,8 +464,41 @@ export default function RealEstatePlatform(): React.JSX.Element {
   const sessionToastTimerRef = useRef<number>(0);
 
   // Permissions / visibility helpers
+  // RBAC, RESOLVED FROM THE SERVER (Module 10 step 4). No longer pinned.
+  //
+  // The role is a property of THIS USER on THIS PROJECT, so it is read from
+  // the open project's row, which the server decorates from the caller's
+  // membership. Two people opening the same project get different answers,
+  // which is the entire point.
+  //
+  // WITH NO PROJECT OPEN the role falls back to OWNER, and that is not a
+  // loophole. The dashboard is project-agnostic and the only thing `can()`
+  // gates there is creating a project, which every signed-in user may do in
+  // their own space. Per-project actions on the dashboard (archive, delete,
+  // status, urgent) read THAT CARD's role, not this one, and every one of
+  // them is enforced again on the server, which is the boundary that counts.
+  //
+  // A null or undefined role also resolves to OWNER: that is the pre-231
+  // "reached as the owner, no membership table" case, where the caller holds
+  // everything. It never means "no rights", because a caller with no
+  // membership never receives the row at all.
+  const activeProjectRole = useMemo((): Role => {
+    if (!activeProjectId) return ROLES.OWNER;
+    const p = serverProjects.find((x) => x.id === activeProjectId);
+    const r = p?.role;
+    return r ?? ROLES.OWNER;
+  }, [activeProjectId, serverProjects]);
+  const currentUserRole = activeProjectRole;
+
+  // THE SHARED MATRIX, not a local lookup. `roleCan` is the same function the
+  // SERVER gates on, so the control a user sees and the write the server
+  // allows are decided by one table. A UI that hid a button the server would
+  // have accepted, or showed one it would refuse, is the failure this avoids.
+  //
+  // The UI is a COURTESY, not the boundary. Every permission checked here is
+  // checked again server-side in `getProjectForWrite`.
   const can = useCallback(
-    (permission: keyof PermissionMap): boolean => PERMISSIONS[currentUserRole]?.[permission] === true,
+    (permission: keyof PermissionMap): boolean => roleCan(currentUserRole, permission),
     [currentUserRole],
   );
   const canSeeModule = useCallback(

@@ -14,7 +14,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getServerClient } from '@/src/core/db/supabase';
-import { isProjectRole, type ProjectRole } from '@/src/core/collab/projectRoles';
+import { isProjectRole, roleCan, type ProjectRole, type Permission } from '@/src/core/collab/projectRoles';
 import type {
   RefmProjectRow,
   RefmProjectVersionRow,
@@ -406,8 +406,13 @@ function isMissingMemberOrder(err: { message?: string; code?: string | null } | 
 }
 
 /**
- * This user's ordering for a set of projects, as `{ projectId: {priority,
- * sortOrder} }`.
+ * This user's ordering AND ROLE for a set of projects, as
+ * `{ projectId: {priority, sortOrder, role} }`.
+ *
+ * The role rides along because it comes from the same row and the list needs
+ * it (step 4): the client resolves `can()` from the role it holds on the OPEN
+ * project, and each card gates its own actions on its own role. A second
+ * query for the same row would be a second thing to keep in step.
  *
  * ONE query for the whole list. Absent from the map means this user holds no
  * membership row for that project, which happens on a pre-231 database where
@@ -421,15 +426,15 @@ async function memberOrdering(
   userId: string,
   projectIds: readonly string[],
   sb: Db,
-): Promise<Record<string, { priority: boolean; sortOrder: number | null }>> {
-  const out: Record<string, { priority: boolean; sortOrder: number | null }> = {};
+): Promise<Record<string, { priority: boolean; sortOrder: number | null; role: ProjectRole | null }>> {
+  const out: Record<string, { priority: boolean; sortOrder: number | null; role: ProjectRole | null }> = {};
   if (memberOrderApplied === false || projectIds.length === 0) return out;
   try {
     for (let i = 0; i < projectIds.length; i += PAGE_SIZE) {
       const slice = projectIds.slice(i, i + PAGE_SIZE);
       const { data, error } = await sb
         .from('refm_project_members')
-        .select('project_id, priority, sort_order')
+        .select('project_id, priority, sort_order, role')
         .eq('user_id', userId)
         .in('project_id', slice)
         .limit(slice.length);
@@ -444,6 +449,10 @@ async function memberOrdering(
           // un-dragged project to the top of its group, which is the
           // absent-value trap 229 already had to avoid once.
           sortOrder: typeof r.sort_order === 'number' ? r.sort_order : null,
+          // An unrecognised role reads as null, which every consumer treats
+          // as no rights. A value this build does not know is not evidence
+          // of entitlement.
+          role: isProjectRole(r.role) ? r.role : null,
         };
       }
     }
@@ -463,16 +472,19 @@ async function overlayOne(
   return applyMemberOrdering([row], order)[0];
 }
 
-/** Overlay this user's ordering onto project rows, in place of the
+/** Overlay this user's ordering AND ROLE onto project rows, in place of the
  *  deprecated project-level columns. A project with no membership row keeps
- *  what it had, which is the pre-232 fallback. */
+ *  what it had, which is the pre-232 fallback; its role stays undefined,
+ *  which is the pre-231 "reached as owner" case and grants everything. */
 function applyMemberOrdering<T extends { id: string; priority: boolean; sort_order: number | null }>(
   rows: T[],
-  order: Record<string, { priority: boolean; sortOrder: number | null }>,
-): T[] {
+  order: Record<string, { priority: boolean; sortOrder: number | null; role: ProjectRole | null }>,
+): Array<T & { role?: ProjectRole | null }> {
   return rows.map((r) => {
     const mine = order[r.id];
-    return mine ? { ...r, priority: mine.priority, sort_order: mine.sortOrder } : r;
+    return mine
+      ? { ...r, priority: mine.priority, sort_order: mine.sortOrder, role: mine.role }
+      : r;
   });
 }
 
@@ -762,19 +774,74 @@ export async function reorderProjects(
  * Until the edit lock ships (step 5) "may write" means OWNER. See
  * roleMayWrite for why that narrowing is deliberate rather than provisional.
  */
-export async function getProjectForWrite(userId: string, projectId: string): Promise<{
+interface GatedProject {
   row: RefmProjectRow | null;
   error: string | null;
   role?: ProjectRole | null;
-  /** Set when a real project was found but this caller may only read it, so a
-   *  route can distinguish "no such project" from "not yours to change" in a
-   *  log line without leaking the difference to the caller. */
+  /** Set when a real project was found but this caller may not perform the
+   *  action, so a route can distinguish "no such project" from "not yours to
+   *  change" in a log line without leaking the difference to the caller. */
   readOnly?: boolean;
-}> {
+}
+
+/**
+ * A project this caller may perform `need` on, WITHOUT mutating it.
+ *
+ * For gated READS: exporting a PDF or a deck renders a file and writes
+ * nothing, so the missing edit lock has no bearing on it and the owner-only
+ * narrowing below does not apply. The MATRIX decides: a Reviewer may export
+ * (`canExport` is true for them), a Viewer may not.
+ */
+export async function getProjectForAction(
+  userId: string,
+  projectId: string,
+  need: Permission,
+): Promise<GatedProject> {
   const r = await getProject(userId, projectId);
   if (r.error || !r.row) return r;
-  if (r.mayWrite === false) {
-    return { row: null, error: null, role: r.role ?? null, readOnly: true };
+  // A null role means the project was reached as its owner on a pre-231
+  // database, where there is no membership to consult; the owner holds every
+  // permission, so that path allows.
+  const allowed = r.role === null || r.role === undefined ? true : roleCan(r.role, need);
+  if (!allowed) return { row: null, error: null, role: r.role ?? null, readOnly: true };
+  return r;
+}
+
+/**
+ * A project this caller may MUTATE, for the permission `need`.
+ *
+ * TWO GATES, AND THEY MEAN DIFFERENT THINGS. Both must pass.
+ *
+ *   1. THE MATRIX (`roleCan`). This is the real, permanent rule: a Viewer
+ *      cannot save because a Viewer has never been able to save, and a
+ *      Reviewer cannot edit inputs because reviewing is not editing. Naming
+ *      the permission at the call site is what makes this specific: a route
+ *      declares what it needs and the matrix answers, instead of every
+ *      mutation sharing one blanket "may write".
+ *
+ *   2. THE OWNER-ONLY NARROWING (`roleMayWrite`). Temporary, and it exists
+ *      for one reason: there is no server-side edit lock yet, so two people
+ *      editing one project would autosave over each other silently. It comes
+ *      out in step 5 when the lock lands, and the matrix alone will decide.
+ *
+ * Keeping them separate matters. If they were merged, removing the temporary
+ * narrowing in step 5 would mean editing the permanent rule, and it would be
+ * impossible to see which restriction was which.
+ */
+export async function getProjectForWrite(
+  userId: string,
+  projectId: string,
+  need: Permission,
+): Promise<GatedProject> {
+  const r = await getProject(userId, projectId);
+  if (r.error || !r.row) return r;
+  const role = r.role ?? null;
+  // Gate 1: the matrix. A pre-231 owner (null role) holds everything.
+  const permitted = role === null ? true : roleCan(role, need);
+  // Gate 2: the temporary owner-only narrowing, until the edit lock ships.
+  const unlocked = r.mayWrite !== false;
+  if (!permitted || !unlocked) {
+    return { row: null, error: null, role, readOnly: true };
   }
   return r;
 }

@@ -11,21 +11,37 @@
  *
  * The vocabulary itself stays shared, in `src/core/collab/projectRoles.ts`.
  *
- * ── CARRIED OVER VERBATIM, INCLUDING ONE ODDITY ───────────────────────────
+ * ── THE EDITOR / RETURNS EXCLUSION WAS AN OMISSION, AND IS FIXED ──────────
  *
- * Not one entry was changed in the move, because step 0 is a rename and a
- * relocation and must not smuggle a behaviour change in beside them. One entry
- * looks wrong and is deliberately LEFT wrong until step 4:
+ * Carried over verbatim through step 0, which was a rename and must not
+ * smuggle a behaviour change in beside it, with one entry flagged as probably
+ * wrong: the editor (then "analyst") got every module EXCEPT module 5,
+ * Returns. An editor who can change construction costs but cannot see what
+ * that did to the IRR is not a coherent role.
  *
- *   EDITOR CANNOT SEE MODULE 5 (Returns). Every other module is visible to an
- *   editor, and an editor who can change construction costs but cannot see
- *   what they did to the IRR is not a coherent role. It reads like an
- *   omission rather than a decision.
+ * SETTLED FROM THE HISTORY, 2026-09-02, and it was an OMISSION with a
+ * traceable cause rather than a decision. The original map (js/settings.js,
+ * March 2026) carried its own legend:
  *
- * It changes nothing today: `currentUserRole` is pinned to the top role, so
- * this map is not consulted for any real user, and correcting it now would be
- * an unreviewable change hidden inside a rename. Decide it in step 4, when a
- * role is actually resolved from the server and the answer is visible.
+ *   ANALYST -> Dashboard, Projects, Overview, Module 1 (Setup/Land/Costs/
+ *              Financing), Module 2 (Revenue), Module 3 (OpEx),
+ *              MODULE 4 (RETURNS), Module 6 (Reports)
+ *
+ * and its list granted the analyst a named `returns` screen outright. The
+ * analyst was ALWAYS meant to see Returns.
+ *
+ * What happened is a collision between two numbering schemes. When the named
+ * slugs were dropped and the modules renumbered, Returns moved from 4 to 5.
+ * The analyst list was carried across POSITIONALLY, keeping `module1` to
+ * `module4` and excluding `module5`. It still reads like "modules 1 through
+ * 4", but the thing that exclusion was about moved out from under it, and
+ * what it now excludes is precisely the screen the legend says the analyst
+ * should have. The exclusion is not a judgement about Returns; it is a
+ * judgement about a module that no longer bears that number.
+ *
+ * So `module5` is restored to the editor. This is the ONE behaviour change in
+ * this map, made in the step where a role is finally resolved from the server
+ * and the effect is visible, rather than hidden inside a rename.
  *
  * No em dashes in this file.
  */
@@ -34,8 +50,10 @@ import type { ModuleKey } from '@/src/core/types/settings.types';
 
 export const REFM_MODULE_VISIBILITY: Record<ProjectRole, ModuleKey[]> = {
   owner:    ['dashboard', 'projects', 'overview', 'module1', 'module2', 'module3', 'module4', 'module5', 'module6', 'module7'],
-  // module5 (Returns) is absent. See the note above: preserved, not endorsed.
-  editor:   ['dashboard', 'projects', 'overview', 'module1', 'module2', 'module3', 'module4', 'module6', 'module7'],
+  // module5 (Returns) RESTORED 2026-09-02. It was dropped by a renumbering,
+  // not by a decision: see the header. An editor who can change costs must be
+  // able to see what that did to the returns.
+  editor:   ['dashboard', 'projects', 'overview', 'module1', 'module2', 'module3', 'module4', 'module5', 'module6', 'module7'],
   reviewer: ['dashboard', 'projects', 'module6', 'module7'],
   viewer:   ['dashboard', 'module6', 'module7'],
 };

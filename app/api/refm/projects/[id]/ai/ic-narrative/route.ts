@@ -148,7 +148,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     }, { status: 403 });
   }
 
-  const { row: project, error: projErr } = await getProjectForWrite(userId, projectId);
+  const { row: project, error: projErr } = await getProjectForWrite(userId, projectId, 'canEditInputs');
   if (projErr) return NextResponse.json({ error: projErr }, { status: 500 });
   if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 

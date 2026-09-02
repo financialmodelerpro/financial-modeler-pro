@@ -124,7 +124,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (!body.snapshot) return badRequest('snapshot is required.');
 
   // Verify ownership of the parent project before writing.
-  const { row: project, error: projErr } = await getProjectForWrite(userId, projectId);
+  const { row: project, error: projErr } = await getProjectForWrite(userId, projectId, 'canSave');
   if (projErr) return serverError(projErr);
   if (!project) return notFound();
 

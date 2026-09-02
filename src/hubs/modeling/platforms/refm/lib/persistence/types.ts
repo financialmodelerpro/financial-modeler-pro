@@ -60,6 +60,7 @@ export {
   type ProjectStatus,
 } from '@/src/shared/admin/projectStatus';
 import type { ProjectStatus } from '@/src/shared/admin/projectStatus';
+import type { ProjectRole } from '@/src/core/collab/projectRoles';
 
 // ── refm_projects row shape ─────────────────────────────────────────────────
 export interface RefmProjectRow {
@@ -87,6 +88,15 @@ export interface RefmProjectRow {
   //              rather than being decorated to 0 (a real position).
   priority:            boolean;
   sort_order:          number | null;
+  // Migration 231 / Module 10 step 4: THE CALLER'S ROLE on this project.
+  // Not a column on refm_projects: it comes from the caller's membership row
+  // and is decorated on by the server, so the same project row carries a
+  // different role for each person who reads it.
+  //
+  // Undefined or null means "reached as the owner on a database with no
+  // membership table", which grants everything. It never means "no rights":
+  // a caller with no membership does not get the row at all.
+  role?:               ProjectRole | null;
 }
 
 // Picker-list shape (subset of RefmProjectRow excluding user_id, which

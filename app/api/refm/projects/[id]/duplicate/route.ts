@@ -57,7 +57,7 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
   }
 
   // Step 1: load source project (with ownership check).
-  const { row: source, error: srcErr } = await getProjectForWrite(userId, sourceId);
+  const { row: source, error: srcErr } = await getProjectForWrite(userId, sourceId, 'canCreateProject');
   if (srcErr) return serverError(srcErr);
   if (!source) return notFound();
 

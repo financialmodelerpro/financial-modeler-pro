@@ -21,7 +21,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getProject, getProjectForWrite } from '@/src/hubs/modeling/platforms/refm/lib/persistence/server';
+import { getProject, getProjectForAction } from '@/src/hubs/modeling/platforms/refm/lib/persistence/server';
 import { getRefmUserId } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
 import { coerceDeck } from '@/src/hubs/modeling/platforms/refm/lib/persistence/deck-server';
 import { assertExportAllowed } from '@/src/shared/entitlements/exportGuard';
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   const userId = await getRefmUserId();
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const { row, error } = await getProjectForWrite(userId, id);
+  const { row, error } = await getProjectForAction(userId, id, 'canExport');
   if (error) return NextResponse.json({ error }, { status: 500 });
   if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 

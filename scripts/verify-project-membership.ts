@@ -123,9 +123,15 @@ console.log('\n=== B. EVERY write handler gates on getProjectForWrite ===');
   check('B2 a meaningful number of write handlers are covered', covered.length >= 13,
     `covered=${covered.length}: ${covered.join(', ')}`);
   const srv = strip(src(SRV));
-  check('B3 getProductForWrite returns nothing to a read-only member',
-    /getProjectForWrite/.test(srv) && /r\.mayWrite === false/.test(srv)
-    && /row: null[\s\S]{0,60}readOnly: true/.test(srv));
+  // Aimed at the DENY PATH, not at one spelling of the condition. This
+  // pinned `r.mayWrite === false`, which step 4 rewrote into
+  // `unlocked = r.mayWrite !== false` when it split the gate in two. The
+  // behaviour never changed: a caller who may not act gets no row.
+  const writeFn = (srv.split('export async function getProjectForWrite')[1] ?? '').split(/\nexport /)[0];
+  check('B3 getProjectForWrite returns nothing to a caller who may not write',
+    writeFn.length > 0
+    && /mayWrite/.test(writeFn)
+    && /row: null[\s\S]{0,80}readOnly: true/.test(writeFn));
   check('B4 it is a SEPARATE function, not a flag, so it can be enumerated',
     /export async function getProjectForWrite/.test(srv));
 }

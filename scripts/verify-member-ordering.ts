@@ -130,8 +130,16 @@ console.log('\n=== E. Tolerance, and the absent-value rule ===');
   check('E2 NULL stays NULL, never coerced to 0',
     /typeof r\.sort_order === 'number' \? r\.sort_order : null/.test(srv)
     && !/sort_order.{0,30}\?\?\s*0/.test(srv));
-  check('E3 a project with no membership row keeps what it had',
-    /return mine \? \{ \.\.\.r, priority: mine\.priority, sort_order: mine\.sortOrder \} : r/.test(srv));
+  // Aimed at the RULE, not at the exact return expression. This pinned the
+  // line verbatim and step 4 added `role: mine.role` to it, which changed
+  // nothing about the rule: with no membership row the project is returned
+  // UNCHANGED, and only the overlaid branch rewrites anything.
+  const overlayFn = (srv.split('function applyMemberOrdering')[1] ?? '').split(/\nasync |\nexport |\nfunction /)[0];
+  check('E3 a project with no membership row is returned unchanged',
+    overlayFn.length > 0
+    && /const mine = order\[r\.id\]/.test(overlayFn)
+    && /:\s*r;?\s*$/m.test(overlayFn)
+    && /mine\.priority/.test(overlayFn) && /mine\.sortOrder/.test(overlayFn));
   check('E4 the write failure names migration 232, not 229',
     /migration 232 \(refm_project_members\.sort_order\)/.test(src(SRV))
     && !/migration 229 \(refm_projects\.sort_order\)/.test(src(SRV)));
