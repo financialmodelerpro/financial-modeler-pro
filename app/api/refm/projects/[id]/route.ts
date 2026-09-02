@@ -20,6 +20,7 @@ import {
   getVersionById,
   getLatestVersion,
   updateProject,
+  setProjectPriority,
   softDeleteProject,
 } from '@/src/hubs/modeling/platforms/refm/lib/persistence/server';
 import { getRefmUserId, getRefmUserContext } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
@@ -160,16 +161,29 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     update.status = body.status;
   }
   if (body.assetMix !== undefined) update.asset_mix = body.assetMix;
+  // THE URGENT FLAG IS NOT PART OF THE PROJECT PATCH (mig 232). It lives on
+  // the MEMBERSHIP row, because urgency is a property of this person's
+  // relationship to the project rather than of the project. Putting it in
+  // `update` would write the deprecated project-level column: the flag would
+  // appear to save, would be shared with every other member, and nothing
+  // would read it back.
+  let priorityWrite: boolean | null = null;
   if (body.priority !== undefined) {
     // Rejected rather than coerced: a truthy string from a sloppy client must
     // not become a silent true. One flag, so the only valid values are the
     // two booleans.
     if (typeof body.priority !== 'boolean') return badRequest('priority must be a boolean.');
-    update.priority = body.priority;
+    priorityWrite = body.priority;
+  }
+
+  if (priorityWrite !== null) {
+    const { error: prErr } = await setProjectPriority(userId, id, priorityWrite);
+    if (prErr) return serverError(prErr);
   }
 
   if (Object.keys(update).length === 0) {
-    // Read-back so the client gets a fresh (unchanged) row.
+    // Read-back so the client gets a fresh (unchanged) row. It carries THIS
+    // user's ordering, so a priority write above is reflected here.
     const { row, error } = await getProjectForWrite(userId, id);
     if (error) return serverError(error);
     if (!row) return notFound();

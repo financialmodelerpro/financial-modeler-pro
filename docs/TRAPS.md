@@ -583,6 +583,57 @@ window that thing. And keep sabotaging: seventeen were run here and exactly the
 three that mattered most, ownership enforcement, the view-only rule and the
 cross-group guard, were the ones that came back inert.
 
+### 3.18 A patch script that converts line endings TWICE
+
+**Symptom.** A source file compiles, every verifier passes, and the diff looks
+right. It contains 83 `\r\r\n` sequences. The only thing that caught it was a
+later sabotage anchor failing to match.
+
+**Mechanism.** A patch script had two layers that both applied the line
+ending:
+
+```js
+const J = (a) => a.join(eol);              // layer 1
+function swap(from, to) {
+  const f = from.split('\n').join(eol);    // layer 2
+  ...
+}
+swap(J([...]), J([...]));                  // both applied
+```
+
+With `eol = "\r\n"`, layer 1 produces `a\r\nb`. Layer 2 splits that on `\n`,
+leaving a trailing `\r` on each piece, and rejoins with `\r\n`, giving
+`a\r\r\nb`. The anchor then matches nothing, OR, if the anchor happened to be
+a single line, the REPLACEMENT is written with the doubled ending and the
+corruption lands silently.
+
+TypeScript, eslint and every verifier ignore a stray CR, so nothing downstream
+complains. Git reports the file as changed but a whitespace-blind reader sees
+nothing wrong.
+
+**Fix.** Convert in exactly ONE place. Write anchors with plain `\n` and let
+the swap helper do the single conversion. When repairing, prove the fix is
+whitespace-only by comparing both versions with every `\r` stripped:
+
+```js
+const norm = (x) => x.split('\r').join('');
+if (norm(before) !== norm(after)) throw new Error('more than line endings changed');
+```
+
+**The general form, and why this entry exists at all.** This was diagnosed and
+fixed once, two steps earlier, in a different patch script, and the lesson was
+written into that script as a comment. It was then reintroduced from scratch
+in the next one, because the comment lived in the file that had already been
+fixed rather than anywhere the next script would be read. A lesson recorded
+only at the site of the old bug does not reach the new one. That is what this
+file is for.
+
+**A related hazard in the same family.** These files have MIXED line endings:
+most of a file is CRLF while a block edited by an earlier tool is LF. Detecting
+one EOL for a whole file and building every anchor with it silently matches
+nothing in the other blocks. Try both forms per anchor and adopt whichever one
+matched, so the surrounding block stays byte-consistent.
+
 ## 4. PDF export (pdf-lib)
 
 ### 4.1 PDF text is glyph ids, so a naive grep returns nothing

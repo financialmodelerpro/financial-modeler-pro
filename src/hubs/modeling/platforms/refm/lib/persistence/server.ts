@@ -306,8 +306,15 @@ export async function listProjects(userId: string, sb: Db = getServerClient()): 
   const { counts, error: countErr } = await countVersionsByProject(sb, projects.map(p => p.id));
   if (countErr) return { rows: [], error: countErr };
 
+  // THIS USER's ordering, not the project's (mig 232). One query for the
+  // whole list. A project with no membership row for this caller keeps the
+  // values the project row carried, which is the pre-232 behaviour and is
+  // what a pre-231 database produces.
+  const ordering = await memberOrdering(userId, projects.map((p) => p.id), sb);
+  const ordered = applyMemberOrdering(projects, ordering);
+
   return {
-    rows: projects.map(p => ({ ...p, version_count: counts[p.id] ?? 0 })),
+    rows: ordered.map(p => ({ ...p, version_count: counts[p.id] ?? 0 })),
     error: null,
   };
 }
@@ -373,6 +380,100 @@ async function listProjectRowsByIds(
     out.push(...((data ?? []) as unknown as Array<Record<string, unknown>>));
   }
   return { rows: out, error: null };
+}
+
+// ── Per-member ordering (mig 232, Module 10 step 3) ──────────────────────
+//
+// `priority` and `sort_order` moved from the PROJECT row to the MEMBERSHIP
+// row: they are properties of one person's relationship to a project, not of
+// the project, and two members sharing one column would overwrite each
+// other's arrangement. `status` did NOT move and is still read straight off
+// the project: a building under construction is under construction for
+// everyone.
+//
+// The ROW SHAPE IS UNCHANGED. `RefmProjectRow` still carries `priority` and
+// `sort_order`; only their SOURCE changed, from the project column to this
+// caller's membership. That is deliberate, so no client, report or export
+// had to learn a new field, and a single-user account sees the same numbers
+// through a different join.
+let memberOrderApplied: boolean | undefined;
+
+/** True when a PostgREST error names the per-member ordering columns. */
+function isMissingMemberOrder(err: { message?: string; code?: string | null } | null): boolean {
+  if (!err) return false;
+  if (err.code === '42703' || err.code === 'PGRST204') return true;
+  return /priority|sort_order/i.test(String(err.message ?? ''));
+}
+
+/**
+ * This user's ordering for a set of projects, as `{ projectId: {priority,
+ * sortOrder} }`.
+ *
+ * ONE query for the whole list. Absent from the map means this user holds no
+ * membership row for that project, which happens on a pre-231 database where
+ * access is still resolved by ownership; the caller then keeps whatever the
+ * project row carried, which is the pre-232 behaviour.
+ *
+ * Never throws. Ordering is a presentation concern and must not be able to
+ * fail a project list.
+ */
+async function memberOrdering(
+  userId: string,
+  projectIds: readonly string[],
+  sb: Db,
+): Promise<Record<string, { priority: boolean; sortOrder: number | null }>> {
+  const out: Record<string, { priority: boolean; sortOrder: number | null }> = {};
+  if (memberOrderApplied === false || projectIds.length === 0) return out;
+  try {
+    for (let i = 0; i < projectIds.length; i += PAGE_SIZE) {
+      const slice = projectIds.slice(i, i + PAGE_SIZE);
+      const { data, error } = await sb
+        .from('refm_project_members')
+        .select('project_id, priority, sort_order')
+        .eq('user_id', userId)
+        .in('project_id', slice)
+        .limit(slice.length);
+      if (error) {
+        if (isMissingMemberOrder(error) || isMissingMembersTable(error)) memberOrderApplied = false;
+        return out;
+      }
+      for (const r of (data ?? []) as unknown as Array<Record<string, unknown>>) {
+        out[String(r.project_id)] = {
+          priority: r.priority === true,
+          // NULL stays NULL. Coercing it to 0 would promote every
+          // un-dragged project to the top of its group, which is the
+          // absent-value trap 229 already had to avoid once.
+          sortOrder: typeof r.sort_order === 'number' ? r.sort_order : null,
+        };
+      }
+    }
+    memberOrderApplied = true;
+  } catch { /* the list stands, unordered */ }
+  return out;
+}
+
+/** Overlay this user's ordering onto ONE project row. Same rule as the list
+ *  overlay, just for a single read (getProject / updateProject). */
+async function overlayOne(
+  userId: string,
+  row: RefmProjectRow,
+  sb: Db,
+): Promise<RefmProjectRow> {
+  const order = await memberOrdering(userId, [row.id], sb);
+  return applyMemberOrdering([row], order)[0];
+}
+
+/** Overlay this user's ordering onto project rows, in place of the
+ *  deprecated project-level columns. A project with no membership row keeps
+ *  what it had, which is the pre-232 fallback. */
+function applyMemberOrdering<T extends { id: string; priority: boolean; sort_order: number | null }>(
+  rows: T[],
+  order: Record<string, { priority: boolean; sortOrder: number | null }>,
+): T[] {
+  return rows.map((r) => {
+    const mine = order[r.id];
+    return mine ? { ...r, priority: mine.priority, sort_order: mine.sortOrder } : r;
+  });
 }
 
 export async function getProjectRole(
@@ -490,13 +591,18 @@ export async function getProject(userId: string, projectId: string): Promise<{
 
   if (archivedApplied !== false) {
     const r = await one(PROJECT_COLS_FULL);
-    if (!r.error) { archivedApplied = true; return { row: (r.data ?? null) as RefmProjectRow | null, error: null, role, mayWrite: byMembership ? roleMayWrite(role) : true }; }
+    if (!r.error) {
+      archivedApplied = true;
+      const one = (r.data ?? null) as RefmProjectRow | null;
+      return { row: one ? (await overlayOne(userId, one, sb)) : null, error: null, role, mayWrite: byMembership ? roleMayWrite(role) : true };
+    }
     if (!isMissingColumnError(r.error)) return { row: null, error: r.error.message };
     archivedApplied = false;
   }
   const { data, error } = await one(PROJECT_COLS_BASE);
   if (error) return { row: null, error: error.message };
-  return { row: decorateProjectRow(data as Record<string, unknown> | null) as RefmProjectRow | null, error: null, role, mayWrite: byMembership ? roleMayWrite(role) : true };
+  const base = decorateProjectRow(data as Record<string, unknown> | null) as RefmProjectRow | null;
+  return { row: base ? (await overlayOne(userId, base, sb)) : null, error: null, role, mayWrite: byMembership ? roleMayWrite(role) : true };
 }
 
 export async function insertProject(insert: {
@@ -557,15 +663,54 @@ export async function updateProject(
  * one card would leave the other positions to be re-derived identically on
  * both sides, and any disagreement silently reorders someone's page.
  *
+ * WRITES THE MEMBERSHIP ROW, not the project (mig 232). The order is this
+ * user's, so it is stored against this user: two members of one project keep
+ * separate arrangements and cannot overwrite each other. The deprecated
+ * project-level column is not written at all any more.
+ *
  * OWNERSHIP IS ENFORCED PER ROW, not once for the batch: every update carries
- * an equality on user_id, so a payload naming another user's project id
- * updates nothing rather than reordering their dashboard. The ids arrive from
- * a client and are never trusted.
+ * an equality on user_id, so a payload naming a project this user holds no
+ * membership on updates nothing rather than reordering someone else's
+ * dashboard. The ids arrive from a client and are never trusted.
  *
  * Returns the number of rows actually updated, so the caller can tell a
  * partially applied batch (someone else's id, or a deleted project) from a
  * clean one instead of reporting success for a write that moved nothing.
  */
+/**
+ * Set THIS user's urgent flag on a project (mig 232).
+ *
+ * Separate from `updateProject`, which writes `refm_projects`. Passing
+ * `priority` through that would write the DEPRECATED project-level column:
+ * the flag would appear to save, would be shared with every other member,
+ * and nothing would read it back. Urgency is a property of this person's
+ * relationship to the project, so it is stored against the membership row.
+ *
+ * Returns whether a row was actually updated, so a caller can tell a
+ * successful write from one that matched no membership.
+ */
+export async function setProjectPriority(
+  userId: string,
+  projectId: string,
+  priority: boolean,
+): Promise<{ updated: boolean; error: string | null }> {
+  const sb = getServerClient();
+  const { data, error } = await sb
+    .from('refm_project_members')
+    .update({ priority })
+    .eq('project_id', projectId)
+    .eq('user_id', userId)
+    .select('project_id')
+    .maybeSingle();
+  if (error) {
+    if (isMissingColumnError(error) || isMissingMembersTable(error)) {
+      return { updated: false, error: 'The urgent flag needs migration 232 (refm_project_members.priority). Not saved.' };
+    }
+    return { updated: false, error: error.message };
+  }
+  return { updated: !!data, error: null };
+}
+
 export async function reorderProjects(
   userId: string,
   order: ReadonlyArray<{ id: string; sortOrder: number }>,
@@ -575,17 +720,18 @@ export async function reorderProjects(
   let updated = 0;
   for (const { id, sortOrder } of order) {
     const { data, error } = await sb
-      .from('refm_projects')
+      .from('refm_project_members')
       .update({ sort_order: sortOrder })
-      .eq('id', id)
+      .eq('project_id', id)
       .eq('user_id', userId)
-      .select('id')
+      .select('project_id')
       .maybeSingle();
     if (error) {
-      // A pre-229 database has no column to write. Report that as an honest
-      // failure naming the migration rather than pretending the order stuck.
-      if (isMissingColumnError(error)) {
-        return { updated, error: 'Card ordering needs migration 229 (refm_projects.sort_order). Order not saved.' };
+      // A database without the per-member column has nothing to write.
+      // Report it as an honest failure naming the migration rather than
+      // pretending the order stuck.
+      if (isMissingColumnError(error) || isMissingMembersTable(error)) {
+        return { updated, error: 'Card ordering needs migration 232 (refm_project_members.sort_order). Order not saved.' };
       }
       return { updated, error: error.message };
     }
