@@ -425,7 +425,7 @@ swallows, and it needed both.
 2. The VERIFIER that runs this exact embed and compares it against a direct
    count was gated on credentials it was never given, so it printed
    `SKIP A4/A5 (no DB creds)` and reported `20 passed, 0 failed`. The suite had no
-   committed runner, so no session had ever passed it credentials.
+   committed runner, so no session had ever passed it credentials. See 3.20.
 
 **Proof.** The same query without the embed returned 206 with all 8 users, so
 the embed alone was the failure. After naming the FK: count 8, 8 rows, the
@@ -857,6 +857,87 @@ word on Y" needs a count, a uniqueness assertion, or a window with a defined
 end. Three sabotages that removed things were caught first time here; the one
 that added something was not.
 
+
+### 3.20 A live check that skips itself reports "passed", and a suite with no runner never gives it what it needs
+
+**Symptom.** `/admin/users` was blank in production for a full session. The
+verifier that would have caught it in one second, `verify-admin-users-cleanup`,
+runs the exact PostgREST embed the page depends on and compares it against a
+direct count. Its output during the outage:
+
+```
+  SKIP A4/A5 (no DB creds; run with --env-file=.env.local)
+20 passed, 0 failed
+```
+
+The suite total that session was reported, repeatedly, as **151 pass / 0 fail**.
+The check was correct, complete, committed, and had never once run.
+
+**Mechanism, and it is two failures that only matter together.**
+
+1. **The verifier degrades to a pass.** The idiom is reasonable in isolation:
+
+   ```ts
+   if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+     // ... the checks that actually touch the database
+   } else {
+     console.log('  SKIP A4/A5 (no DB creds; run with --env-file=.env.local)');
+   }
+   ```
+
+   Nobody wants a verifier to fail on a laptop with no secrets. But the
+   consequence is that ABSENCE OF COVERAGE and PROOF OF CORRECTNESS produce the
+   same exit code and nearly the same output. The skip line scrolls past; the
+   tally does not mention it.
+
+2. **Nothing ever supplied the credentials.** There was no committed suite
+   runner. Every session invented its own shell loop, and every one of them
+   wrote `npx tsx "$f"` rather than `npx tsx --env-file=.env.local "$f"`. So the
+   `else` branch was not an edge case, it was THE branch, every run, for as long
+   as the suite had existed.
+
+Fourteen verifiers had a live half. When they were finally run with
+credentials, two were losing real coverage, and both mattered: one had been
+sitting on the live outage, and the other immediately failed three checks and
+revealed a SECOND admin screen broken the same way that nobody had reported.
+
+**The third-order effect, which is the reason this is its own entry.** A skip
+that never fires is not merely untested, it ROTS, and it rots in the direction
+of a false pass. `verify-ai-admin` asserted that an unreadable usage store
+reports unavailable, and simulated "unreadable" by calling `loadAiUsage` with no
+client. That function falls back to `getServerClient()`, which SUCCEEDS whenever
+credentials are present. The check therefore passed only in an environment
+without credentials and inverted the moment the suite gained them. It had been
+green for weeks while asserting something that was true only by accident of the
+environment.
+
+**Fix.** Three parts, and the third is the one people skip.
+
+- A COMMITTED runner (`scripts/run-verifiers.ts`, `npm run verify:suite`) that
+  loads `.env.local` by default, so no session has to remember a flag. It
+  REFUSES to run without credentials unless `--allow-offline` is passed, and
+  then labels the result PARTIAL so the number cannot be quoted as the suite.
+- An unexpected skip FAILS the run. Known skips live in an `ACCEPTED_SKIPS` map
+  with a written reason each, so the runner can be legitimately green while a
+  NEW skip still breaks it. A permanently red runner is ignored within a week,
+  which recreates the original problem with extra steps.
+- Simulate a failure by CAUSING it, not by withholding something. Passing a
+  client whose reads fail exercises the unavailable path identically with and
+  without credentials. Withholding an argument tests your environment, not your
+  code.
+
+**Proof.** With credentials: 151 pass / 0 fail, 8858 individual checks, two
+accepted skips each named with a reason. Sabotage-tested by removing an entry
+from the allowlist, which flips the run to NOT CLEAN. And the same two
+verifiers, run both ways, now report identical tallies, which is the property
+that was missing all along.
+
+**The general rule.** A test that can decline to run must make declining
+LOUDER than passing, because the two are otherwise indistinguishable from the
+outside and only one of them is evidence. Any conditional coverage needs three
+outcomes, not two: passed, failed, and DID NOT RUN. If your harness has no way
+to express the third, it will report it as the first. See 2.14 for the outage
+this one concealed.
 
 ## 4. PDF export (pdf-lib)
 
