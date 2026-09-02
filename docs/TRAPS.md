@@ -357,6 +357,89 @@ A scalar composite, an empty array, a NULL and a zero-row result are four
 different absences, and client libraries flatten them differently.
 
 
+### 2.14 A new junction TABLE silently breaks an old PostgREST embed, with no code change
+
+**Symptom.** `/admin/users` showed "0 total users" and "No users found" in
+production. Every user was present in the database. Nothing in the route, the
+page or the query had been edited for months. `/admin/projects` was broken in
+exactly the same way and nobody had noticed at all.
+
+**Mechanism.** The route embedded a related table by name:
+
+```ts
+'id, email, ..., projects:refm_projects(count)'
+```
+
+PostgREST resolves `refm_projects` from `users` by INFERRING the relationship
+from foreign keys. For months there was exactly one: `refm_projects.user_id`.
+Then migration 231 added `refm_project_members`:
+
+```sql
+PRIMARY KEY (project_id, user_id)   -- an FK to each side
+```
+
+A table whose primary key is two foreign keys is a textbook many-to-many
+JUNCTION, and PostgREST duly offers it as a second path. With two candidates it
+refuses to guess and answers **HTTP 300, PGRST201**:
+
+```
+Could not embed because more than one relationship was found for 'users' and 'refm_projects'
+  - refm_projects_user_id_fkey using users(id) and refm_projects(user_id)
+  - refm_project_members using refm_project_members_user_id_fkey(user_id)
+                          and refm_project_members_project_id_fkey(project_id)
+```
+
+**The dangerous property is the ACTION AT A DISTANCE.** Adding a table is
+normally the safest migration there is: additive, no column touched, no
+existing row rewritten, and every verifier green. But a bare embed is not a
+query, it is a REQUEST FOR AN INFERENCE, and the inference is computed over the
+whole schema. Adding a table changes the answer to a question asked somewhere
+else entirely. Nothing in the diff of migration 231 points at `/admin/users`.
+
+Note which tables do and do not do this, because it decides how alarmed to be.
+Migrations 230, 233 and 234 also added tables with FKs to BOTH `users` and
+`refm_projects` (`refm_project_versions`, `_locks`, `_changes`) and NONE of them
+caused it: each has its own single-column primary key, so PostgREST does not
+read it as a junction. Only the table whose PK is exactly the two FKs did.
+
+**Fix.** Name the relationship. Never leave an embed to inference:
+
+```ts
+// by constraint name
+'projects:refm_projects!refm_projects_user_id_fkey(count)'
+// or by the FK column, which is better when the column is already declared
+`users!${source.ownerColumn}(email, name)`
+```
+
+The column form is preferable wherever a registry already declares the owner
+column, because each platform is then disambiguated by its own declaration
+rather than by a constraint name that only fits one of them.
+
+**How it stayed invisible, which is half the lesson.** Two independent
+swallows, and it needed both.
+
+1. The ROUTE was correct: it returned HTTP 500 with the PGRST201 message. The
+   PAGE did `.then(r => r.json())` with no `res.ok` check, so `j.users` was
+   `undefined`, `?? []` turned it into an empty array, and a hard server error
+   rendered as an ordinary empty table (the absent-value trap, 2.4).
+2. The VERIFIER that runs this exact embed and compares it against a direct
+   count was gated on credentials it was never given, so it printed
+   `SKIP A4/A5 (no DB creds)` and reported `20 passed, 0 failed`. The suite had no
+   committed runner, so no session had ever passed it credentials.
+
+**Proof.** The same query without the embed returned 206 with all 8 users, so
+the embed alone was the failure. After naming the FK: count 8, 8 rows, the
+embedded `deleted_at` filter still applied, and per-user counts matching a
+direct count exactly. A repo-wide sweep for bare embeds between the ambiguous
+pair found no third case, and the one candidate that looked like one
+(`trial_requests`) was TESTED live rather than reasoned about, and is genuinely
+unambiguous.
+
+**The standing rule.** Any `select()` string that names another table is a
+schema-wide inference with a stability you do not control. Name the constraint
+or the column. And when adding a join table, grep for bare embeds of BOTH
+tables it links before assuming the migration is additive.
+
 ## 3. Excel export (ExcelJS)
 
 ### 3.1 A column width of exactly 9 silently does not apply
