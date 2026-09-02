@@ -85,12 +85,20 @@ const VERSION_COLS_BASE =
 // auto-naming + required-comment flow. Folded into the same FULL tier + the
 // same m152Applied probe: if EITHER migration is unapplied the FULL select
 // fails and we fall back to BASE, synthesising null defaults via decorate.
+// Migration 230 (2026-09-01) adds created_by: WHO SAVED THIS VERSION. Folded
+// into the SAME m152Applied probe rather than given a third one. That is a
+// deliberate simplification and it costs something worth naming: on a database
+// with 152 and 153 but NOT 230, the FULL select fails and every version read
+// falls back to BASE, so version_label / task_name / comment read as null
+// until 230 is applied. The alternative is a third tier and eight states to
+// reason about. Since 230 is applied on production and the fallback is
+// degraded-but-correct rather than wrong, one probe is the better trade.
 const VERSION_COLS_FULL =
-  `${VERSION_COLS_BASE}, base_version_id, change_log, version_label, task_name, comment`;
+  `${VERSION_COLS_BASE}, base_version_id, change_log, version_label, task_name, comment, created_by`;
 const VERSION_LIST_COLS_BASE =
   'id, project_id, version_number, schema_version, label, created_at';
 const VERSION_LIST_COLS_FULL =
-  `${VERSION_LIST_COLS_BASE}, base_version_id, change_log, version_label, task_name, comment`;
+  `${VERSION_LIST_COLS_BASE}, base_version_id, change_log, version_label, task_name, comment, created_by`;
 
 // Cached after first successful query so each request doesn't probe twice.
 // Reset to undefined (= unknown) on module init; flipped to true once a
@@ -143,6 +151,12 @@ function decorateVersionRow<T extends Record<string, unknown>>(row: T | null): T
   for (const k of ['version_label', 'task_name', 'comment']) {
     if (!(k in row)) (row as Record<string, unknown>)[k] = null;
   }
+  // created_by (mig 230) decorates to NULL, which is the SAME value a real
+  // pre-230 row carries and the same value a deleted author leaves behind.
+  // One meaning, "author unknown", reached three ways, so no reader has to
+  // distinguish them. It is never decorated to the project owner: that is who
+  // owns the project TODAY, not who saved this version.
+  if (!('created_by' in row)) (row as Record<string, unknown>).created_by = null;
   return row;
 }
 
@@ -591,6 +605,51 @@ export async function listVersions(
 // the next monotonic save. The unique index
 // uniq_refm_versions_project_number guarantees no concurrent-save
 // collisions even if two browsers race.
+/**
+ * Display names for a set of author ids, as `{ id: label }`.
+ *
+ * ONE query for the whole page, not one per row. The version list is read
+ * newest-first and every row wants an author, so resolving per row would fire
+ * a query per version.
+ *
+ * An id that resolves to nothing is simply ABSENT from the map, and the caller
+ * renders that as an unknown author. It is never filled with the id itself or
+ * with the project owner: a uuid is not a name, and the owner is not the
+ * author. This is the same "author unknown" state a NULL created_by produces,
+ * reached from a different direction (a deleted user whose FK already nulled,
+ * or a read that raced a deletion).
+ *
+ * NEVER THROWS, and that is enforced rather than asserted. The first version
+ * took `sb: Db = getServerClient()` as a default parameter, which is evaluated
+ * AT CALL TIME and throws outright when SUPABASE_URL is absent: a missing env
+ * or a client-construction failure would have escaped the resolver, 500ed the
+ * whole versions GET, and taken version history down over a cosmetic
+ * decoration. The client is now built INSIDE the try, and every failure path
+ * returns an empty map. An author name is a nice-to-have; the list is not.
+ */
+export async function resolveAuthorNames(
+  ids: readonly string[],
+  client?: Db,
+): Promise<Record<string, string>> {
+  const unique = [...new Set(ids.filter((x): x is string => typeof x === 'string' && x.length > 0))];
+  if (unique.length === 0) return {};
+  try {
+    const sb = client ?? getServerClient();
+    const { data, error } = await sb.from('users').select('id, name, email').in('id', unique);
+    if (error || !data) return {};
+    const out: Record<string, string> = {};
+    for (const r of data as Array<{ id: string; name: string | null; email: string | null }>) {
+      // Name first, email as the fallback, and nothing at all if neither
+      // exists: a blank label is more honest than a uuid nobody can use.
+      const label = (r.name ?? '').trim() || (r.email ?? '').trim();
+      if (label) out[r.id] = label;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 export async function nextVersionNumber(
   projectId: string,
 ): Promise<{ next: number; error: string | null }> {
@@ -618,6 +677,9 @@ export async function insertVersion(insert: {
   version_label?:   string | null;
   task_name?:       string | null;
   comment?:         string | null;
+  /** WHO SAVED IT (mig 230). Undefined leaves it NULL, which reads as an
+   *  unknown author rather than being filled in from the project owner. */
+  created_by?:      string | null;
 }): Promise<{ row: RefmProjectVersionRow | null; error: string | null }> {
   const sb = getServerClient();
   const tryFull = m152Applied !== false;
@@ -637,8 +699,8 @@ export async function insertVersion(insert: {
     m152Applied = false;
   }
   // Strip migration-152 fields and retry with base SELECT.
-  const { base_version_id: _b, change_log: _c, version_label: _vl, task_name: _tn, comment: _cm, ...stripped } = insert;
-  void _b; void _c; void _vl; void _tn; void _cm;
+  const { base_version_id: _b, change_log: _c, version_label: _vl, task_name: _tn, comment: _cm, created_by: _cb, ...stripped } = insert;
+  void _b; void _c; void _vl; void _tn; void _cm; void _cb;
   const { data, error } = await sb
     .from('refm_project_versions')
     .insert(stripped)

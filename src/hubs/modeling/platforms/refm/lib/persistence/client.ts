@@ -33,6 +33,20 @@ export type RefmProjectSummary = RefmProjectListItem;
 // the client into ./types for its element shape.
 export type { RefmProjectVersionListItem };
 
+/**
+ * A version-list row as the VERSIONS ROUTE returns it: the stored row plus the
+ * author's resolved display NAME.
+ *
+ * `author` is decorated by the route, not stored, because `created_by` holds a
+ * uuid and a uuid is not something a reader can use. Null means the author is
+ * unknown, which covers all three ways that happens and deliberately does not
+ * distinguish them: the row predates migration 230, the author deleted their
+ * account (the FK nulls it), or the name could not be resolved. In every case
+ * the honest answer to "who saved this" is "we do not know", never the project
+ * owner.
+ */
+export type RefmVersionListRow = RefmProjectVersionListItem & { author?: string | null };
+
 export interface FetchResult<T> {
   data:  T | null;
   error: string | null;

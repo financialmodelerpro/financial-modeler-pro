@@ -410,6 +410,16 @@ export default function VersionModal({
                             )}
                             <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-muted)' }}>
                               {new Date(v.created_at).toLocaleString()}
+                              {/* WHO SAVED IT (mig 230). Rendered only when
+                                  known: an unknown author shows nothing rather
+                                  than "Unknown", which would add a word to
+                                  every pre-230 row without adding a fact. */}
+                              {(v as { author?: string | null }).author && (
+                                <span data-testid="version-author">
+                                  {' · '}
+                                  {(v as { author?: string | null }).author}
+                                </span>
+                              )}
                               {logCount > 0 && (
                                 <>
                                   {' · '}

@@ -57,6 +57,32 @@ Do not fold this into a collaboration step: it changes cost IDENTITY, which is
 engine-adjacent, and it deserves its own measurement on a live project.
 
 ---
+## OPEN, LOGGED NOT FIXED (2026-09-01): `verify-public-pages-api` is FLAKY
+
+Three identical runs on the same tree gave **fail, pass, fail**. It fails on a
+CLEAN tree too, so it is not a regression from any recent change, and it is why
+an earlier "145 / 0" reading was luck rather than a measurement.
+
+**Diagnosed, and it is a TEST defect, not a product one.** The route limits to
+`RATE_LIMIT = 60` requests per `RATE_WINDOW_MS = 60_000` per IP, and the window
+is wall-clock (`resetAt = now + windowMs`). Section 5 of the verifier fires
+**61 real requests in a loop**, each hitting the live handler with its DB
+queries, and expects the 61st to be refused. At roughly a second per request the
+loop takes about as long as the window it is testing, so it straddles the
+boundary: the counter resets mid-loop, the 61st is allowed, and three checks go
+red together ("first 429 at request -1", plus the two that inspect the 429
+body). **The limiter is correct; the test measures it with a stopwatch the same
+length as the thing being timed.**
+
+The fix is to inject the clock rather than race it: `checkRateLimit` already
+takes `now` as a parameter (`rateLimit.ts:40`), so the test can drive time
+itself and stop depending on how fast the machine is. Until that is done the
+suite count is unreliable by up to three checks.
+
+**Do not "fix" this by widening the limit or by retrying the loop.** Both hide a
+real property of the test rather than removing the race.
+
+---
 ## MODULE 10 COLLABORATION: the build plan (2026-09-01)
 
 **It is module 10, not 8**, settled from two independent live tables:
@@ -80,8 +106,8 @@ Decisions taken:
 | # | Step | Status |
 |---|------|--------|
 | 0 | Rename roles, move module visibility per platform, settle the number | **DONE 2026-09-01** |
-| 1 | `created_by` on `refm_project_versions` | next |
-| 2 | Membership table + registry columns + admin assign UI; `getProject` becomes a membership check; non-owners read-only | |
+| 1 | `created_by` on `refm_project_versions` | **DONE 2026-09-01** (mig 230 APPLIED, `verify-version-authorship` 23) |
+| 2 | Membership table + registry columns + admin assign UI; `getProject` becomes a membership check; non-owners read-only | next |
 | 3 | Move `sort_order` + `priority` to the membership row | |
 | 4 | Server-side role enforcement (`can()` reads the membership role) | |
 | 5 | Edit lock: table, heartbeat, atomic steal, request / accept / decline | |

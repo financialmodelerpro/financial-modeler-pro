@@ -125,6 +125,13 @@ export interface RefmProjectVersionRow {
   version_label:   string | null;   // major.minor, e.g. "1.5"
   task_name:       string | null;   // user task label embedded in the name
   comment:         string | null;   // required note describing the change
+  // Migration 230 (2026-09-01): WHO SAVED THIS VERSION. Null means the author
+  // is unknown, which is true three ways and means the same thing each time:
+  // the row predates the column, the server fell back to its BASE select, or
+   // the author deleted their account (the FK is ON DELETE SET NULL). It is
+  // NEVER the project owner: that is who owns the project today, a different
+  // claim, and filling it in would manufacture an audit trail.
+  created_by:      string | null;
 }
 
 // Mirrors src/hubs/modeling/platforms/refm/lib/persistence/snapshot-diff.ts

@@ -18,6 +18,7 @@ import {
   getProject,
   getVersionById,
   listVersions,
+  resolveAuthorNames,
   insertVersion,
   nextVersionNumber,
   setProjectCurrentVersion,
@@ -49,7 +50,15 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
   const { rows, error } = await listVersions(projectId);
   if (error) return serverError(error);
-  return NextResponse.json({ versions: rows });
+  // Decorate each version with its author's display name (mig 230). One query
+  // for the page. A version with no resolvable author carries `author: null`
+  // and the UI says so, rather than showing a uuid or assuming the owner.
+  const authors = await resolveAuthorNames(rows.map((r) => r.created_by).filter((x): x is string => !!x));
+  const versions = rows.map((r) => ({
+    ...r,
+    author: r.created_by ? (authors[r.created_by] ?? null) : null,
+  }));
+  return NextResponse.json({ versions });
 }
 
 // ── POST /api/refm/projects/[id]/versions ───────────────────────────────────
@@ -161,6 +170,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     version_label:   body.versionLabel?.trim() ? body.versionLabel.trim() : null,
     task_name:       body.taskName?.trim() ? body.taskName.trim() : null,
     comment:         body.comment?.trim() ? body.comment.trim() : null,
+    // WHO SAVED IT (mig 230). The session user, never the project owner: from
+    // Module 10 step 2 those differ, and the point of the column is to record
+    // which of them actually pressed save.
+    created_by:      userId,
   });
   if (insErr || !versionRow) return serverError(insErr ?? 'Failed to insert version.');
 

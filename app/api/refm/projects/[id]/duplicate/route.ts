@@ -101,6 +101,10 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
     version_number: 1,
     schema_version: source.schema_version,
     snapshot,
+    // The DUPLICATOR, not the author of the source version. This row is a new
+    // version that this user brought into being; copying the original author
+    // across would attribute a save they did not make.
+    created_by:     userId,
   });
   if (verErr || !cloneVersion) {
     await hardDeleteProject(userId, clone.id);

@@ -131,6 +131,7 @@ export async function POST(req: NextRequest) {
     version_number: 1,
     schema_version: SCHEMA_VERSION,
     snapshot:       body.snapshot,
+    created_by:     userId,
   });
   if (verErr || !versionRow) {
     await hardDeleteProject(userId, projectRow.id);
