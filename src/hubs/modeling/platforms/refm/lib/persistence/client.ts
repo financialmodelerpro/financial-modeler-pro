@@ -18,6 +18,7 @@ import type {
   RefmProjectListItem,
   RefmProjectVersionRow,
   RefmProjectVersionListItem,
+  ProjectChangeDTO,
 } from './types';
 import type { HydrateSnapshot } from '../state/module1-store';
 import type { Party } from '../parties';
@@ -189,6 +190,18 @@ export function listVersions(
   projectId: string,
 ): Promise<FetchResult<{ versions: RefmProjectVersionListItem[] }>> {
   return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/versions`, { method: 'GET' });
+}
+
+// ── Change log (append-only, migration 234) ─────────────────────────────────
+// Read only. There is no write helper on purpose: rows are appended by the
+// save path on the server, and a log a client can write into is not an audit
+// trail.
+export function listChanges(
+  projectId: string,
+  limit?: number,
+): Promise<FetchResult<{ available: boolean; changes: ProjectChangeDTO[]; limit: number; truncated: boolean }>> {
+  const q = limit ? `?limit=${encodeURIComponent(String(limit))}` : '';
+  return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/changes${q}`, { method: 'GET' });
 }
 
 export interface SaveVersionInput {

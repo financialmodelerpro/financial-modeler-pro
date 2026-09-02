@@ -17,7 +17,7 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import * as pclient from '../../lib/persistence/client';
-import type { RefmProjectVersionListItem, ChangeLogEntryDTO } from '../../lib/persistence/types';
+import type { RefmProjectVersionListItem, ChangeLogEntryDTO, ProjectChangeDTO } from '../../lib/persistence/types';
 
 interface VersionModalProps {
   open: boolean;
@@ -31,7 +31,7 @@ interface VersionModalProps {
   onLoadVersion: (versionId: string) => void;
   /** Tab to open on. Defaults to 'save' when create is available, else 'history'.
    *  The "edit a different version" flow forces 'history'. */
-  initialTab?: 'save' | 'history';
+  initialTab?: 'save' | 'history' | 'activity';
   /** Label for the per-version action button (default 'Load'). The "edit a
    *  different version" flow passes 'Edit this version'. */
   loadActionLabel?: string;
@@ -50,7 +50,25 @@ export default function VersionModal({
 }: VersionModalProps): React.JSX.Element | null {
   const [versions, setVersions] = useState<RefmProjectVersionListItem[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<'save' | 'history'>(initialTab ?? (onCreateVersion ? 'save' : 'history'));
+  const [tab, setTab] = useState<'save' | 'history' | 'activity'>(initialTab ?? (onCreateVersion ? 'save' : 'history'));
+  // ACTIVITY (Module 10 step 6): the append-only change log. Separate state
+  // from `versions` because it is a different question: History asks what the
+  // saved versions are, Activity asks who changed what and when.
+  //
+  // ONE piece of state, KEYED BY PROJECT, rather than a rows / available /
+  // loading trio. Two reasons. A separate loading flag has to be set
+  // synchronously in the effect body, which causes a cascading render; and
+  // three independent flags can disagree, which is how a previous project's log
+  // ends up on screen under a new project's heading. Loading is DERIVED: the
+  // answer we hold is either for this project or it is not.
+  //
+  // `available: false` means this database has no change log (pre-234). It is
+  // deliberately distinct from an EMPTY log, which is a real answer meaning
+  // nothing has been recorded, and must never read as "unavailable".
+  const [changesState, setChangesState] = useState<
+    { key: string; rows: ProjectChangeDTO[]; available: boolean } | null
+  >(null);
+  const changesReady = changesState !== null && changesState.key === projectId;
   // Phase M-Versioning (2026-05-31): which version's change log is
   // currently expanded in the history list. null = none expanded.
   const [expandedVersionId, setExpandedVersionId] = useState<string | null>(null);
@@ -79,6 +97,29 @@ export default function VersionModal({
       cancelled = true;
     };
   }, [open, projectId]);
+
+  // Loaded lazily, when the tab is actually opened: this is the largest read
+  // in the modal and most opens never reach it. Re-runs on tab change rather
+  // than caching, so a log opened twice in one session is current the second
+  // time, which matters when someone else is editing.
+  useEffect(() => {
+    if (!open || !projectId || tab !== 'activity') return;
+    let cancelled = false;
+    void (async () => {
+      const res = await pclient.listChanges(projectId);
+      if (cancelled) return;
+      if (res.error) setError(res.error);
+      // Stamped with the project it answers for, so a slow response that lands
+      // after the user has switched projects is ignored rather than rendered
+      // under the wrong name.
+      setChangesState({
+        key: projectId,
+        rows: res.data?.changes ?? [],
+        available: res.data?.available ?? false,
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [open, projectId, tab]);
 
   if (!open) return null;
   if (typeof document === 'undefined') return null;
@@ -133,7 +174,7 @@ export default function VersionModal({
             background: 'var(--color-row-alt)',
           }}
         >
-          {(['save', 'history'] as const).map((t) => (
+          {(['save', 'history', 'activity'] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -153,7 +194,9 @@ export default function VersionModal({
                 opacity: t === 'save' && !onCreateVersion ? 0.5 : 1,
               }}
             >
-              {t === 'save' ? 'Save Version' : `History (${versions.length})`}
+              {t === 'save' ? 'Save Version'
+                : t === 'history' ? `History (${versions.length})`
+                : 'Activity'}
             </button>
           ))}
         </div>
@@ -486,6 +529,15 @@ export default function VersionModal({
               })()}
             </div>
           )}
+
+          {tab === 'activity' && projectId && (
+            <ActivityPanel
+              changes={changesReady ? changesState.rows : []}
+              available={changesReady ? changesState.available : undefined}
+              loading={!changesReady}
+              versions={versions}
+            />
+          )}
         </div>
 
         <div className="pm-modal-footer">
@@ -641,4 +693,179 @@ function formatLogValue(raw: unknown): string {
     try { return JSON.stringify(raw); } catch { return '[object]'; }
   }
   return String(raw);
+}
+
+// ── Activity: the append-only change log (Module 10 step 6) ────────────────
+/**
+ * WHO changed WHAT, and WHEN. Reads /api/refm/projects/{id}/changes, which is
+ * fed by the save path and can never be written by a client.
+ *
+ * DELIBERATELY NOT THE SAME THING AS THE HISTORY TAB. History lists the saved
+ * versions of the model and, per version, a recomputed diff against its base.
+ * Activity is a ledger: one row per recorded change, in the order it happened,
+ * with an author and a timestamp that nothing recomputes. A version edited by
+ * three people over an afternoon is ONE row in History and many rows here.
+ *
+ * EVERY MEMBER SEES THE SAME ROWS. There is no per-role filtering in this
+ * component and none on the server: a Viewer's log is an Owner's log. An admin
+ * sees no more on a project they can open than a member does.
+ */
+function ActivityPanel({
+  changes, available, loading, versions,
+}: {
+  changes: ProjectChangeDTO[];
+  available: boolean | undefined;
+  loading: boolean;
+  versions: RefmProjectVersionListItem[];
+}): React.JSX.Element {
+  // Version id to a human label, so a row says which version a change landed in
+  // rather than showing a uuid. A version deleted since (FK SET NULL) has no
+  // label here, which reads as unknown rather than as some other version.
+  const versionLabel = React.useMemo(() => {
+    const m = new Map<string, string>();
+    for (const v of versions) {
+      m.set(v.id, v.version_label ?? v.label ?? `Version ${v.version_number}`);
+    }
+    return m;
+  }, [versions]);
+
+  if (loading) {
+    return <div className="alert-info" data-testid="activity-loading">Loading activity...</div>;
+  }
+  // "Not recorded" and "nothing happened" are different statements, and saying
+  // the wrong one would be a false claim about the project.
+  if (available === false) {
+    return (
+      <div className="alert-info" data-testid="activity-unavailable">
+        Activity tracking is not enabled on this database yet. Changes from here on will be recorded.
+      </div>
+    );
+  }
+  if (changes.length === 0) {
+    return (
+      <div className="alert-info" data-testid="activity-empty">
+        No activity recorded yet for this project. Edits are logged from the next save onwards.
+      </div>
+    );
+  }
+
+  // Grouped by calendar day, newest first. The server already returns newest
+  // first, so grouping preserves that order rather than re-sorting.
+  const days: Array<{ day: string; rows: ProjectChangeDTO[] }> = [];
+  for (const c of changes) {
+    const day = new Date(c.createdAt).toLocaleDateString(undefined, {
+      weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+    });
+    const last = days[days.length - 1];
+    if (last && last.day === day) last.rows.push(c);
+    else days.push({ day, rows: [c] });
+  }
+
+  return (
+    <div data-testid="activity-list">
+      <p style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', marginBottom: 'var(--sp-2)' }}>
+        Who changed what, and when. This record is append only: it is never
+        rewritten or recalculated, and everyone with access to the project sees
+        the same entries.
+      </p>
+      {days.map(({ day, rows }) => (
+        <div key={day} style={{ marginBottom: 'var(--sp-2)' }}>
+          <div
+            style={{
+              fontSize: '11px', fontWeight: 700, textTransform: 'uppercase',
+              letterSpacing: '0.05em', color: 'var(--color-meta)',
+              padding: '6px 0', borderBottom: '1px solid var(--color-border)',
+            }}
+          >
+            {day}
+          </div>
+          {rows.map((c) => (
+            <ActivityRow key={c.id} change={c} versionLabel={versionLabel} />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ActivityRow({
+  change, versionLabel,
+}: {
+  change: ProjectChangeDTO;
+  versionLabel: Map<string, string>;
+}): React.JSX.Element {
+  const time = new Date(change.createdAt).toLocaleTimeString(undefined, {
+    hour: '2-digit', minute: '2-digit',
+  });
+  const badge = activityBadge(change.action);
+  const bulk = change.action === 'bulk-change'
+    ? (change.after as { changedPaths?: number } | null)
+    : null;
+
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '58px 84px 1fr',
+        gap: 8,
+        alignItems: 'baseline',
+        padding: '6px 0',
+        borderBottom: '1px dashed var(--color-border)',
+        fontSize: '12px',
+      }}
+    >
+      <span style={{ color: 'var(--color-muted)', fontFamily: 'monospace' }}>{time}</span>
+      <span
+        style={{
+          fontSize: '10px', fontWeight: 700, padding: '1px 6px', borderRadius: 20,
+          background: badge.bg, color: badge.fg, width: 'max-content',
+          textTransform: 'uppercase', letterSpacing: '0.05em',
+        }}
+      >
+        {badge.label}
+      </span>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ color: 'var(--color-heading)' }}>
+          <strong>{change.userName ?? 'Unknown user'}</strong>
+          {change.versionId && versionLabel.get(change.versionId) && (
+            <span style={{ color: 'var(--color-muted)' }}>
+              {' in '}{versionLabel.get(change.versionId)}
+            </span>
+          )}
+        </div>
+        {change.path && (
+          <div style={{ fontFamily: 'monospace', color: 'var(--color-body)', wordBreak: 'break-all' }}>
+            {change.path}
+          </div>
+        )}
+        {bulk?.changedPaths !== undefined && (
+          <div style={{ color: 'var(--color-muted)' }}>
+            {bulk.changedPaths.toLocaleString()} fields changed in one save
+          </div>
+        )}
+        {(change.action === 'update' || change.action === 'add' || change.action === 'remove') && (
+          <div style={{ marginTop: 2, color: 'var(--color-muted)' }}>
+            <ValueChip raw={change.before} kind="before" />
+            <span style={{ margin: '0 6px' }}>&rarr;</span>
+            <ValueChip raw={change.after} kind="after" />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Free-text action to a badge. An UNRECOGNISED action renders as ITSELF
+ *  rather than being dropped or forced into a default: the column is free text
+ *  precisely so a new action needs no migration, and swallowing one here would
+ *  make it invisible in the one place it is meant to be seen. */
+function activityBadge(action: string): { label: string; bg: string; fg: string } {
+  switch (action) {
+    case 'add':             return { label: 'Added',   bg: '#d1fae5', fg: '#065f46' };
+    case 'remove':          return { label: 'Removed', bg: '#fee2e2', fg: '#991b1b' };
+    case 'update':          return { label: 'Updated', bg: '#e0f2fe', fg: '#0c4a6e' };
+    case 'bulk-change':     return { label: 'Bulk',    bg: '#ede9fe', fg: '#5b21b6' };
+    case 'version.created': return { label: 'Version', bg: '#fef3c7', fg: '#92400e' };
+    default:                return { label: action,    bg: 'var(--color-row-alt)', fg: 'var(--color-body)' };
+  }
 }

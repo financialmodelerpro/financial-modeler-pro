@@ -30,6 +30,7 @@ import { readLock } from '@/src/hubs/modeling/platforms/refm/lib/persistence/loc
 import { SCHEMA_VERSION } from '@/src/hubs/modeling/platforms/refm/lib/persistence/types';
 import type { HydrateSnapshot } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-store';
 import { diffSnapshots } from '@/src/hubs/modeling/platforms/refm/lib/persistence/snapshot-diff';
+import { appendChanges } from '@/src/hubs/modeling/platforms/refm/lib/persistence/changeLog';
 import { resolveUserGate } from '@/src/shared/entitlements/resolveUser';
 import { writeBlockReason } from '@/src/shared/entitlements/gate';
 
@@ -194,6 +195,19 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     created_by:      userId,
   });
   if (insErr || !versionRow) return serverError(insErr ?? 'Failed to insert version.');
+
+  // A NEW VERSION IS A LIFECYCLE EVENT, so the change log records it as one:
+  // path is null because it is not about a field. The FIELD deltas of this
+  // save are not logged here, because a new version has no stored predecessor
+  // to diff against on its own axis; the edits that follow it are logged by
+  // the version PATCH, one row per beat. Never fails the save.
+  await appendChanges([{
+    projectId, versionId: versionRow.id, userId,
+    action: 'version.created',
+    path: null,
+    before: null,
+    after: { versionNumber: next, label: versionRow.label ?? null, baseVersionId },
+  }]);
 
   // Bump current_version_id so the next load reads this version. Also
   // refresh asset_mix + schema_version on the project row in the same

@@ -31,6 +31,7 @@ import { readLock } from '@/src/hubs/modeling/platforms/refm/lib/persistence/loc
 import { SCHEMA_VERSION } from '@/src/hubs/modeling/platforms/refm/lib/persistence/types';
 import type { HydrateSnapshot } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-store';
 import { diffSnapshots } from '@/src/hubs/modeling/platforms/refm/lib/persistence/snapshot-diff';
+import { appendChanges, rowsForSave } from '@/src/hubs/modeling/platforms/refm/lib/persistence/changeLog';
 
 function unauthorized() { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
 function badRequest(msg: string) { return NextResponse.json({ error: msg }, { status: 400 }); }
@@ -137,8 +138,17 @@ export async function PATCH(
     version_label?: string | null; task_name?: string | null; comment?: string | null;
   } = {};
 
+  // What THIS save changed, for the append-only change log (migration 234).
+  // Deliberately diffed against the STORED snapshot rather than against
+  // base_version_id: the base diff below describes the whole session and is
+  // recomputed every time, so logging it would re-write the same edits on
+  // every autosave beat. Diffing against what is currently stored gives the
+  // delta of this beat alone, which is what "who changed what, when" means.
+  let saveDelta: ReturnType<typeof diffSnapshots> = [];
+
   if (body.snapshot !== undefined) {
     patch.snapshot = body.snapshot;
+    saveDelta = diffSnapshots(existing.snapshot, body.snapshot);
     // Recompute change_log against the row's existing
     // base_version_id, never against a client-supplied value. If the
     // base has been deleted (FK ON DELETE SET NULL), we fall back to
@@ -168,6 +178,13 @@ export async function PATCH(
   const { row: updatedVersion, error: updErr } = await updateVersion(versionId, patch);
   if (updErr) return serverError(updErr);
   if (!updatedVersion) return notFound();
+
+  // Append AFTER the write succeeds, so the log records changes that actually
+  // landed. appendChanges never throws and never fails this request: a gap in
+  // the history is better than losing the user's work (see changeLog.ts).
+  if (saveDelta.length > 0) {
+    await appendChanges(rowsForSave(projectId, versionId, userId, saveDelta));
+  }
 
   // If the caller also passed assetMix, refresh the parent project's
   // picker-tile cache. We do this AFTER the version update so a

@@ -155,6 +155,24 @@ export interface ChangeLogEntryDTO {
   kind:    'add' | 'remove' | 'update';
 }
 
+// ONE ENTRY IN THE APPEND-ONLY CHANGE LOG (migration 234). Distinct from
+// ChangeLogEntryDTO above, which is one line of a version-to-version DIFF
+// and carries no author and no time. This one is a recorded FACT: a person,
+// a moment, and what moved.
+export interface ProjectChangeDTO {
+  id:        string;
+  versionId: string | null;
+  userId:    string | null;
+  /** Display name of the author, or null when the account has been deleted.
+   *  NULL reads as unknown, never as somebody else. */
+  userName:  string | null;
+  action:    string;
+  path:      string | null;
+  before:    unknown;
+  after:     unknown;
+  createdAt: string;
+}
+
 // Version-list shape: snapshot omitted to keep the picker query light.
 // change_log is included so the history UI can render diffs without a
 // second round-trip; it's typically small (a few hundred bytes).

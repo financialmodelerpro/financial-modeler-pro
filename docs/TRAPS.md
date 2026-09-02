@@ -264,6 +264,56 @@ with a message saying what to use instead.
 **Proof.** Same string, one character removed: 28P01 becomes a connection, and
 `pg_constraint`, `pg_get_constraintdef` and transactional DDL all work.
 
+### 2.12 `ON DELETE SET NULL` is implemented AS AN UPDATE, so a blanket UPDATE ban breaks the cascade
+
+**Symptom.** An append-only audit table (`refm_project_changes`, migration 234)
+was given the obvious guard: a `BEFORE UPDATE` trigger that raises
+unconditionally, so nothing can ever rewrite a row. The table looked correct.
+Inserts worked. The guard fired on every rewrite attempt. Then the applier's
+delete probe reported:
+
+```
+version-delete probe skipped: refm_project_changes is APPEND ONLY: an audit row cannot be updated
+```
+
+Deleting a project VERSION had become impossible. So had closing a user account.
+
+**Mechanism.** Postgres implements a referential action of `SET NULL` (and
+`SET DEFAULT`) by issuing an ordinary `UPDATE` against the referencing row. It
+is not a special internal path and it is not exempt from user triggers. A
+trigger that refuses every UPDATE therefore refuses the cascade, and because the
+cascade is part of the parent's DELETE transaction, the PARENT delete fails too.
+The table protects itself by making its own foreign keys unusable.
+
+The same reasoning does not apply to `ON DELETE CASCADE`, which is a DELETE, so
+a table can safely block UPDATE and still be cleaned up by a cascading delete.
+That asymmetry is exactly why the bug is easy to miss: the parent-project
+cascade in the same migration worked perfectly, which read as evidence that the
+foreign keys were fine.
+
+**Fix.** Guard the CONTENT, not the operation. The trigger now rejects any
+change to the columns that carry the entry's meaning (id, project_id, action,
+path, before, after, created_at) and permits exactly one thing: a foreign key
+moving TO NULL. Re-pointing a foreign key at a different row stays refused,
+because that would silently re-attribute a recorded change to another person,
+which is the worst thing an audit row can do quietly.
+
+One consequence is worth stating rather than discovering: a no-op UPDATE that
+changes nothing is now allowed, since the rule tests what changed rather than
+what was attempted. That costs nothing, because a no-op leaves no trace.
+
+**Proof.** The applier dry run attempts, in one transaction it rolls back:
+a content rewrite (must fail), a re-attribution to a different user (must fail),
+deleting the referenced version (must succeed, and null the column while the row
+survives), deleting the author's account (same), and deleting the parent project
+(must remove the history). The first version of the migration passed the first
+probe and failed the third, which is the only reason it was caught.
+
+**The general lesson.** A guard that has only ever been seen to REJECT is half
+tested. The other half is attempting the things that MUST still work. Write the
+must-succeed probes first: a rule that forbids too much reports the same clean
+"guard fired" message as a rule that forbids exactly enough.
+
 ## 3. Excel export (ExcelJS)
 
 ### 3.1 A column width of exactly 9 silently does not apply
