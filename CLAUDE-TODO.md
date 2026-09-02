@@ -117,8 +117,8 @@ Decisions taken:
 | 2 | Membership table + registry columns + admin assign UI; `getProject` becomes a membership check; non-owners read-only | **DONE 2026-09-02** (mig 231 APPLIED, `verify-project-membership` 29) |
 | 3 | Move `sort_order` + `priority` to the membership row | **DONE 2026-09-02** (mig 232 APPLIED, `verify-member-ordering` 35) |
 | 4 | Server-side role enforcement (`can()` reads the membership role) | **DONE 2026-09-02** (`verify-role-enforcement` 37) |
-| 5 | Edit lock: table, heartbeat, atomic steal, request / accept / decline | next. **Removes `roleMayWrite`**, the temporary owner-only narrowing; the matrix then decides alone and an Editor can write. |
-| 6 | Append-only change-log table | |
+| 5 | Edit lock: table, heartbeat, atomic steal, request / accept / decline | **DONE 2026-09-02** (mig 233 APPLIED, `verify-edit-lock` 41). `roleMayWrite` retired; an Editor can write. |
+| 6 | Append-only change-log table | next |
 | 7 | Comments (project_id + nullable version_id + path) | |
 | 8 | Seat counting + enforcement | |
 | 9 | Delete requires admin approval | |

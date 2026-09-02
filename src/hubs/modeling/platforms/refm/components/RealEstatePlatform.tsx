@@ -31,6 +31,8 @@ import * as pclient from '../lib/persistence/client';
 import { refmRoleSeesModule } from '../lib/moduleVisibility';
 import type { ProjectStatus } from '@/src/shared/admin/projectStatus';
 import { roleCan, type ProjectRole } from '@/src/core/collab/projectRoles';
+import { useEditLock } from '../lib/persistence/useEditLock';
+import EditLockBanner from './EditLockBanner';
 // Reuse the table scrollbar styling so the workspace vertical scrollbar is the
 // same 14px thickness as the horizontal scrollbars inside the results tables.
 import scrollStyles from './modules/_shared/ScrollableTable.module.css';
@@ -489,6 +491,16 @@ export default function RealEstatePlatform(): React.JSX.Element {
     return r ?? ROLES.OWNER;
   }, [activeProjectId, serverProjects]);
   const currentUserRole = activeProjectRole;
+
+  // THE EDIT LOCK (Module 10 step 5). Acquires and heartbeats only while
+  // EDITING, so simply opening a project to read never takes a lock and
+  // never blocks a colleague. A single user acquires on entering edit mode,
+  // holds it uncontended, and sees nothing: the banner renders only when
+  // someone else holds the lock or someone is waiting on theirs.
+  const editLock = useEditLock(activeProjectId, editMode && !graceReadOnly);
+  const [lockRequested, setLockRequested] = useState(false);
+  // A fresh project clears any "I asked" state from the previous one.
+  useEffect(() => { setLockRequested(false); }, [activeProjectId]);
 
   // THE SHARED MATRIX, not a local lookup. `roleCan` is the same function the
   // SERVER gates on, so the control a user sees and the write the server
@@ -1685,6 +1697,29 @@ export default function RealEstatePlatform(): React.JSX.Element {
                 Dismiss
               </button>
             </div>
+          )}
+          {/* WHO IS EDITING (Module 10 step 5). Renders only when someone
+              ELSE holds the lock, or when someone is waiting on mine. A
+              single user editing alone sees nothing, which is why this is
+              not a permanent status strip. */}
+          {activeProjectId && (
+            <EditLockBanner
+              lockingAvailable={editLock.lockingAvailable}
+              holderName={editLock.holderName}
+              isMine={editLock.isMine}
+              releaseRequestedByName={editLock.releaseRequestedByName}
+              blockedBy={editLock.blockedBy}
+              requested={lockRequested}
+              onRequestRelease={() => { setLockRequested(true); void editLock.requestRelease(); }}
+              onRelease={() => {
+                // Accepting IS releasing. Leave edit mode too, so the user is
+                // not left with an editing UI over a project they no longer
+                // hold, which is exactly the confusion the lock exists to end.
+                void editLock.release();
+                setEditMode(false);
+              }}
+              onDecline={() => { void editLock.decline(); }}
+            />
           )}
           {graceReadOnly && (
             <div

@@ -96,9 +96,15 @@ console.log('\n=== B. Two gates, kept separate ===');
   const srv = strip(src(SRV));
   const write = (srv.split('export async function getProjectForWrite')[1] ?? '').split(/\nexport /)[0];
   check('B1 the write gate consults the MATRIX', /roleCan\(role, need\)/.test(write));
-  check('B2 the write gate ALSO applies the temporary narrowing',
-    /r\.mayWrite !== false/.test(write));
-  check('B3 both must pass', /if \(!permitted \|\| !unlocked\)/.test(write));
+  // GATE 2 CHANGED IDENTITY IN STEP 5, exactly as the design intended: the
+  // temporary owner-only narrowing came out and the EDIT LOCK took its
+  // place. Keeping the two gates separate is what made that a local swap,
+  // and these checks follow gate 2 to its new occupant rather than pinning
+  // the one that was always going to be removed.
+  check('B2 the write gate ALSO applies gate 2, now the edit lock',
+    /requiresLock\(need\)/.test(write) && /holdsLock\(/.test(write));
+  check('B3 both must pass: a role refusal and a lock refusal each deny',
+    /if \(!permitted\)/.test(write) && /if \(!held\)/.test(write));
   // They must remain distinguishable, so step 5 can remove one without
   // touching the other.
   check('B4 the narrowing is a NAMED, separate function',
@@ -120,8 +126,12 @@ console.log('\n=== C. Viewer and Reviewer genuinely cannot write ===');
   check('C3 an Editor IS granted the editing mutations by the matrix',
     roleCan('editor', 'canSave') && roleCan('editor', 'canEditInputs')
     && roleCan('editor', 'canManageVersions'));
-  check('C4 but an Editor is still held back by the temporary narrowing',
-    roleMayWrite('editor') === false && roleMayWrite('owner') === true);
+  // WAS "an Editor is still held back by the temporary narrowing". Step 5
+  // removed it, which is the whole point of that step, so the assertion
+  // flips: the matrix always allowed an Editor to save, and now nothing
+  // else stands in the way except holding the lock.
+  check('C4 an Editor is no longer held back by a role narrowing',
+    roleMayWrite('editor') === true && roleCan('editor', 'canSave'));
   check('C5 an Editor cannot delete, by the matrix, permanently',
     !roleCan('editor', 'canDeleteProject'));
   check('C6 a Reviewer may comment, a Viewer may not',

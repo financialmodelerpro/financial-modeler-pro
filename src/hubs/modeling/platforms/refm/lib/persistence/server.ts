@@ -15,6 +15,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getServerClient } from '@/src/core/db/supabase';
 import { isProjectRole, roleCan, type ProjectRole, type Permission } from '@/src/core/collab/projectRoles';
+import { holdsLock } from './lock';
 import type {
   RefmProjectRow,
   RefmProjectVersionRow,
@@ -516,24 +517,56 @@ export async function getProjectRole(
 }
 
 /**
- * MAY THIS ROLE WRITE? Until the edit lock ships (Module 10 step 5) the
- * answer is OWNER ONLY.
+ * RETIRED (Module 10 step 5). Kept as a permanent no-op with its history,
+ * because the question it answered is one a reader will ask again.
  *
- * This is not a placeholder for the permission matrix; it is a deliberate,
- * temporary narrowing that exists for one reason. There is no server-side
- * lock yet: `editMode` is React state and `editingVersionId` is a module
- * variable in module1-sync, both per browser tab, and the autosave PATCHes
- * the same version row every 1.5 seconds. Two people editing one project
- * today means last write wins, silently, with neither told. So membership
- * ships READ-ONLY for everyone who is not the owner, and the window where two
- * people can autosave over each other is never opened.
+ * Between steps 2 and 4 this returned `role === 'owner'`, and it was the
+ * reason an Editor could not write. That was never a statement about what an
+ * Editor may do; the MATRIX has always said an Editor may save. It was a
+ * statement about what the PLATFORM could safely allow, because there was no
+ * server-side edit lock and two people editing one project would have
+ * autosaved over each other silently.
  *
- * Step 4 replaces this with the real matrix (`roleCan`), and step 5 adds the
- * lock that makes an Editor safe. Widening it before then would be the one
- * mistake this sequencing exists to prevent.
+ * Migration 233 provides the lock, so the narrowing is gone and the matrix
+ * decides alone. `requiresLock` below is what replaced it, and it is a
+ * different kind of rule: not "who may write" but "which writes need the
+ * holder to be holding".
+ *
+ * DO NOT REINTRODUCE A ROLE TEST HERE. If a role should not write, say so in
+ * the matrix, which is the one place that decides it.
  */
-export function roleMayWrite(role: ProjectRole | null): boolean {
-  return role === 'owner';
+export function roleMayWrite(_role: ProjectRole | null): boolean {
+  return true;
+}
+
+/**
+ * WHICH PERMISSIONS NEED THE EDIT LOCK.
+ *
+ * Declared as data rather than scattered through the routes, so the answer
+ * is in one readable place and adding a permission forces a decision about
+ * it rather than inheriting one.
+ *
+ * The lock exists to stop two people MUTATING THE MODEL at once, because the
+ * autosave rewrites one version row every 1.5 seconds. So the model-editing
+ * permissions need it.
+ *
+ * PROJECT MANAGEMENT DELIBERATELY DOES NOT. Renaming, archiving, changing
+ * status or deleting are not edits to the model and do not collide with an
+ * autosave; requiring the lock for them would mean an owner could not
+ * archive their own project while a colleague had it open, which is a worse
+ * outcome than the collision it would prevent. `canExport` is absent for the
+ * same reason it is gated as a read: it writes nothing.
+ */
+const LOCK_REQUIRED: ReadonlySet<Permission> = new Set<Permission>([
+  'canSave',
+  'canEditInputs',
+  'canManageVersions',
+  'canImport',
+]);
+
+/** Whether a write of this kind needs the caller to hold the edit lock. */
+export function requiresLock(need: Permission): boolean {
+  return LOCK_REQUIRED.has(need);
 }
 
 /**
@@ -782,6 +815,11 @@ interface GatedProject {
    *  action, so a route can distinguish "no such project" from "not yours to
    *  change" in a log line without leaking the difference to the caller. */
   readOnly?: boolean;
+  /** Set when the refusal was the LOCK rather than the role: the caller may
+   *  normally do this, but someone else is editing. Routes turn this into a
+   *  409 naming the holder, because "someone else is editing" is actionable
+   *  and "not found" is not. */
+  lockedByOther?: boolean;
 }
 
 /**
@@ -819,14 +857,16 @@ export async function getProjectForAction(
  *      declares what it needs and the matrix answers, instead of every
  *      mutation sharing one blanket "may write".
  *
- *   2. THE OWNER-ONLY NARROWING (`roleMayWrite`). Temporary, and it exists
- *      for one reason: there is no server-side edit lock yet, so two people
- *      editing one project would autosave over each other silently. It comes
- *      out in step 5 when the lock lands, and the matrix alone will decide.
+ *   2. THE EDIT LOCK, for the permissions that mutate the model. One person
+ *      edits at a time, because the autosave rewrites one version row every
+ *      1.5 seconds and two writers would overwrite each other silently.
+ *      `requiresLock` says which permissions this applies to; project
+ *      management (rename, archive, delete) is deliberately exempt.
  *
- * Keeping them separate matters. If they were merged, removing the temporary
- * narrowing in step 5 would mean editing the permanent rule, and it would be
- * impossible to see which restriction was which.
+ * Gate 2 REPLACED the temporary owner-only narrowing that stood here between
+ * steps 2 and 4. Keeping the two gates separate is what made that swap a
+ * local change: the permanent rule was never touched, and an Editor can now
+ * write because the lock makes it safe, not because the matrix moved.
  */
 export async function getProjectForWrite(
   userId: string,
@@ -838,10 +878,15 @@ export async function getProjectForWrite(
   const role = r.role ?? null;
   // Gate 1: the matrix. A pre-231 owner (null role) holds everything.
   const permitted = role === null ? true : roleCan(role, need);
-  // Gate 2: the temporary owner-only narrowing, until the edit lock ships.
-  const unlocked = r.mayWrite !== false;
-  if (!permitted || !unlocked) {
-    return { row: null, error: null, role, readOnly: true };
+  if (!permitted) return { row: null, error: null, role, readOnly: true };
+
+  // Gate 2: the edit lock, for the permissions that mutate the model.
+  // `holdsLock` returns TRUE on a pre-233 database, so a platform without
+  // the lock table keeps working exactly as it did rather than refusing
+  // every save.
+  if (requiresLock(need)) {
+    const held = await holdsLock(projectId, userId);
+    if (!held) return { row: null, error: null, role, readOnly: true, lockedByOther: true };
   }
   return r;
 }

@@ -26,6 +26,7 @@ import {
   updateProject,
 } from '@/src/hubs/modeling/platforms/refm/lib/persistence/server';
 import { getRefmUserId, getRefmUserContext } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
+import { readLock } from '@/src/hubs/modeling/platforms/refm/lib/persistence/lock';
 import { SCHEMA_VERSION } from '@/src/hubs/modeling/platforms/refm/lib/persistence/types';
 import type { HydrateSnapshot } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-store';
 import { diffSnapshots } from '@/src/hubs/modeling/platforms/refm/lib/persistence/snapshot-diff';
@@ -124,7 +125,23 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (!body.snapshot) return badRequest('snapshot is required.');
 
   // Verify ownership of the parent project before writing.
-  const { row: project, error: projErr } = await getProjectForWrite(userId, projectId, 'canSave');
+  const { row: project, error: projErr, lockedByOther } = await getProjectForWrite(userId, projectId, 'canSave');
+  // A LOCK refusal is not a "not found". Someone else is editing, which the
+  // user can act on: wait, or ask them to release. Answering 404 here would
+  // send them looking for a project that is sitting in front of them.
+  if (lockedByOther) {
+    const { lock } = await readLock(projectId, userId);
+    return NextResponse.json(
+      {
+        error: lock?.holderName
+          ? `${lock.holderName} is editing this project. Ask them to release it, or wait.`
+          : 'Someone else is editing this project.',
+        code: 'LOCKED_BY_OTHER',
+        lock,
+      },
+      { status: 409 },
+    );
+  }
   if (projErr) return serverError(projErr);
   if (!project) return notFound();
 

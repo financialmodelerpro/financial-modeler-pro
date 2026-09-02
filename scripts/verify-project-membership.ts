@@ -26,7 +26,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { roleMayWrite } from '../src/hubs/modeling/platforms/refm/lib/persistence/server';
 import { PROJECT_SOURCES, hasMembership } from '../src/shared/admin/projectSources';
-import { PROJECT_ROLES } from '../src/core/collab/projectRoles';
+import { PROJECT_ROLES, roleCan } from '../src/core/collab/projectRoles';
 
 let passed = 0, failed = 0; const fails: string[] = [];
 function check(label: string, ok: boolean, detail = ''): void {
@@ -123,15 +123,16 @@ console.log('\n=== B. EVERY write handler gates on getProjectForWrite ===');
   check('B2 a meaningful number of write handlers are covered', covered.length >= 13,
     `covered=${covered.length}: ${covered.join(', ')}`);
   const srv = strip(src(SRV));
-  // Aimed at the DENY PATH, not at one spelling of the condition. This
-  // pinned `r.mayWrite === false`, which step 4 rewrote into
-  // `unlocked = r.mayWrite !== false` when it split the gate in two. The
-  // behaviour never changed: a caller who may not act gets no row.
+  // Aimed at the DENY PATH, and re-aimed twice as the mechanism behind it
+  // changed: `r.mayWrite === false` (step 2), then `mayWrite !== false`
+  // (step 4 split the gate), and now the matrix plus the edit lock (step 5
+  // retired mayWrite entirely). The BEHAVIOUR has never changed and is what
+  // this asserts: a caller who may not act gets no row back.
   const writeFn = (srv.split('export async function getProjectForWrite')[1] ?? '').split(/\nexport /)[0];
   check('B3 getProjectForWrite returns nothing to a caller who may not write',
     writeFn.length > 0
-    && /mayWrite/.test(writeFn)
-    && /row: null[\s\S]{0,80}readOnly: true/.test(writeFn));
+    && /roleCan\(role, need\)/.test(writeFn)
+    && /row: null[\s\S]{0,120}readOnly: true/.test(writeFn));
   check('B4 it is a SEPARATE function, not a flag, so it can be enumerated',
     /export async function getProjectForWrite/.test(srv));
 }
@@ -157,12 +158,17 @@ console.log('\n=== C. Reads still reach members ===');
 
 console.log('\n=== D. Owner only, and denial is the default ===');
 {
-  check('D1 only an owner may write, until the lock ships',
-    roleMayWrite('owner') === true
-    && roleMayWrite('editor') === false
-    && roleMayWrite('reviewer') === false
-    && roleMayWrite('viewer') === false
-    && roleMayWrite(null) === false);
+  // WAS "only an owner may write, until the lock ships". The lock shipped
+  // (step 5, migration 233), so `roleMayWrite` is retired and an Editor can
+  // write. What this check was really protecting is that a READ-ONLY ROLE
+  // cannot write, and that is asserted here against the MATRIX, which is
+  // where it always belonged and which step 5 did not touch.
+  check('D1 a read-only role still cannot write, now by the matrix',
+    !roleCan('viewer', 'canSave') && !roleCan('viewer', 'canEditInputs')
+    && !roleCan('reviewer', 'canSave') && !roleCan('reviewer', 'canEditInputs')
+    && roleCan('owner', 'canSave'));
+  check('D1b an Editor CAN now write, because the lock makes it safe',
+    roleCan('editor', 'canSave') && roleMayWrite('editor') === true);
   const srv = strip(src(SRV));
   check('D2 an unrecognised role resolves to null, never to a role',
     /isProjectRole\(raw\) \? raw : null/.test(srv));
