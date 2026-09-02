@@ -25,7 +25,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getProject } from '@/src/hubs/modeling/platforms/refm/lib/persistence/server';
+import { getProject, getProjectForWrite } from '@/src/hubs/modeling/platforms/refm/lib/persistence/server';
 import { getFundTerms, upsertFundTerms } from '@/src/hubs/modeling/platforms/refm/lib/persistence/fundTerms-server';
 import { getRefmUserId, getRefmUserContext } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
 import { resolveFundTerms } from '@/src/hubs/modeling/platforms/refm/lib/fundTerms';
@@ -40,6 +40,24 @@ async function requireOwnedProject(id: string): Promise<{ userId: string } | Nex
   const userId = await getRefmUserId();
   if (!userId) return unauthorized();
   const { row, error } = await getProject(userId, id);
+  if (error) return serverError(error);
+  if (!row) return notFound();
+  return { userId };
+}
+
+/**
+ * The WRITE variant (Module 10 step 2). Same shape, but resolved through
+ * `getProjectForWrite`, which returns nothing to a member who may only read,
+ * so a Reviewer gets the same 404 a stranger would.
+ *
+ * A SEPARATE helper rather than a flag on the one above, because both verbs
+ * share that one: narrowing it in place would have stopped a Reviewer reading
+ * a project they are legitimately a member of. Reads keep the old helper.
+ */
+async function requireWritableProject(id: string): Promise<{ userId: string } | NextResponse> {
+  const userId = await getRefmUserId();
+  if (!userId) return unauthorized();
+  const { row, error } = await getProjectForWrite(userId, id);
   if (error) return serverError(error);
   if (!row) return notFound();
   return { userId };
@@ -82,7 +100,7 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string 
   const { id } = await ctx.params;
   const blocked = await assertWriteAllowed();
   if (blocked) return blocked;
-  const owned = await requireOwnedProject(id);
+  const owned = await requireWritableProject(id);
   if (owned instanceof NextResponse) return owned;
 
   const body = await req.json().catch(() => null) as { terms?: unknown } | null;

@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   getProject,
+  getProjectForWrite,
   getVersionById,
   getLatestVersion,
   updateProject,
@@ -92,7 +93,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
   // Read the current row so we know the live archived state (the choke point
   // for both the archive toggle and the "archived = view-only" edit block).
-  const { row: current, error: curErr } = await getProject(userId, id);
+  const { row: current, error: curErr } = await getProjectForWrite(userId, id);
   if (curErr) return serverError(curErr);
   if (!current) return notFound();
 
@@ -169,7 +170,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
   if (Object.keys(update).length === 0) {
     // Read-back so the client gets a fresh (unchanged) row.
-    const { row, error } = await getProject(userId, id);
+    const { row, error } = await getProjectForWrite(userId, id);
     if (error) return serverError(error);
     if (!row) return notFound();
     const { user_id: _u, ...rest } = row;
@@ -198,7 +199,7 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
   if (!userId) return unauthorized();
   const { id } = await ctx.params;
 
-  const { row, error: ownerErr } = await getProject(userId, id);
+  const { row, error: ownerErr } = await getProjectForWrite(userId, id);
   if (ownerErr) return serverError(ownerErr);
   if (!row) return notFound();
 

@@ -35,7 +35,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getProject } from '@/src/hubs/modeling/platforms/refm/lib/persistence/server';
+import { getProject, getProjectForWrite } from '@/src/hubs/modeling/platforms/refm/lib/persistence/server';
 import { getRefmUserContext } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
 import { resolveUserGate } from '@/src/shared/entitlements/resolveUser';
 import { writeBlockReason } from '@/src/shared/entitlements/gate';
@@ -148,7 +148,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     }, { status: 403 });
   }
 
-  const { row: project, error: projErr } = await getProject(userId, projectId);
+  const { row: project, error: projErr } = await getProjectForWrite(userId, projectId);
   if (projErr) return NextResponse.json({ error: projErr }, { status: 500 });
   if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 

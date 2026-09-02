@@ -114,8 +114,8 @@ Decisions taken:
 |---|------|--------|
 | 0 | Rename roles, move module visibility per platform, settle the number | **DONE 2026-09-01** |
 | 1 | `created_by` on `refm_project_versions` | **DONE 2026-09-01** (mig 230 APPLIED, `verify-version-authorship` 23) |
-| 2 | Membership table + registry columns + admin assign UI; `getProject` becomes a membership check; non-owners read-only | next |
-| 3 | Move `sort_order` + `priority` to the membership row | |
+| 2 | Membership table + registry columns + admin assign UI; `getProject` becomes a membership check; non-owners read-only | **DONE 2026-09-02** (mig 231 APPLIED, `verify-project-membership` 29) |
+| 3 | Move `sort_order` + `priority` to the membership row | next |
 | 4 | Server-side role enforcement (`can()` reads the membership role) | |
 | 5 | Edit lock: table, heartbeat, atomic steal, request / accept / decline | |
 | 6 | Append-only change-log table | |

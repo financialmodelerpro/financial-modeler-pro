@@ -142,6 +142,7 @@ async function main() {
       ownerColumn: 'user_id', nameColumn: 'name', archivedColumn: null,
       deletedColumn: null, versionsTable: null, versionsFk: null,
       statusColumn: null, priorityColumn: null, sortOrderColumn: null,
+      membersTable: null, membersProjectColumn: null, membersUserColumn: null, membersRoleColumn: null,
     });
     const { sb, calls } = makeFake({ refm_projects: [] });
     const res = await purgeExpiredDeletedProjects(sb, NOW);

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import dynamic from 'next/dynamic';
 import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import type { Platform, PlatformStatus } from '@/src/hubs/modeling/config/platforms';
@@ -117,6 +118,12 @@ interface NavItem {
   disabled?: boolean;
 }
 
+// Admin-only collaboration panel. Hub level, not inside REFM: roles and
+// assignments are the same idea for every platform, and the panel reads the
+// platform list from the shared project-source registry, so a new platform
+// appears here by declaring its membership columns and nothing else.
+const TeamAccessPanel = dynamic(() => import('@/src/hubs/modeling/components/TeamAccessPanel'), { ssr: false });
+
 const NAV_ITEMS: NavItem[] = [
   { id: 'dashboard',    icon: '🏠', label: 'Dashboard' },
   { id: 'billing',      icon: '💳', label: 'Billing' },
@@ -127,7 +134,7 @@ const NAV_ITEMS: NavItem[] = [
 
 // In-page views the sidebar switches between (no separate route, so the shell is
 // not duplicated). Items with an href still navigate away.
-type DashView = 'dashboard' | 'billing';
+type DashView = 'dashboard' | 'billing' | 'team';
 
 /**
  * The access card at the top of the dashboard for a user with NO plan.
@@ -521,6 +528,11 @@ export default function ModelingDashboardPage() {
 
   const navItems: NavItem[] = [
     ...NAV_ITEMS,
+    // Assigning projects happens HERE, on the hub, before entering a
+    // platform. An in-page view rather than a link out to /admin, because
+    // it is about this hub and the admin reaches it where they already see
+    // the projects it governs.
+    ...(isAdmin ? [{ id: 'team', icon: '👥', label: 'Team access' }] : []),
     ...(isAdmin ? [{ id: 'admin', icon: '🛡️', label: 'Admin Panel', href: `${MAIN_URL}/admin` }] : []),
   ];
 
@@ -782,6 +794,11 @@ export default function ModelingDashboardPage() {
           {/* BILLING TAB: per-platform subscription management, source-driven
               (one section per live platform). Lives here, NOT on the main
               dashboard, which keeps only the platform cards. */}
+          {activeView === 'team' && isAdmin && (
+            <div style={{ maxWidth: 900 }}>
+              <TeamAccessPanel theme={theme} />
+            </div>
+          )}
           {activeView === 'billing' && (
             <BillingView platforms={livePlatforms.map((p) => ({ slug: p.slug, name: p.name }))} dark={darkMode} />
           )}

@@ -17,7 +17,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getProject } from '@/src/hubs/modeling/platforms/refm/lib/persistence/server';
+import { getProject, getProjectForWrite } from '@/src/hubs/modeling/platforms/refm/lib/persistence/server';
 import { getRefmUserId } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
 import { buildReportPptx } from '@/src/hubs/modeling/platforms/refm/lib/pptx/buildReportPptx';
 import { makeFmt } from '@/src/hubs/modeling/platforms/refm/components/modules/_shared/numberFmt';
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const { id } = await ctx.params;
   const userId = await getRefmUserId();
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const { row, error } = await getProject(userId, id);
+  const { row, error } = await getProjectForWrite(userId, id);
   if (error) return NextResponse.json({ error }, { status: 500 });
   if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 

@@ -14,6 +14,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getServerClient } from '@/src/core/db/supabase';
+import { isProjectRole, type ProjectRole } from '@/src/core/collab/projectRoles';
 import type {
   RefmProjectRow,
   RefmProjectVersionRow,
@@ -259,7 +260,45 @@ export async function listProjects(userId: string, sb: Db = getServerClient()): 
     data = r.rows.map((row) => decorateProjectRow(row)) as Array<Record<string, unknown>>;
   }
 
-  const projects = (data ?? []) as unknown as RefmProjectRow[];
+  let projects = (data ?? []) as unknown as RefmProjectRow[];
+
+  // ── Projects this user is a MEMBER of but does not own (mig 231). ──
+  //
+  // Fetched as a SECOND read and merged, rather than by widening the first
+  // query. PostgREST cannot express "owned OR joined via another table" in
+  // one filtered, paginated select without an embedded resource, and the
+  // paginated walk above exists because of the 1000-row cap (TRAPS 2.1); a
+  // rewrite would have to reproduce that walk for the join. Two reads and a
+  // merge is duller and cannot silently truncate.
+  //
+  // On a single-user account this second read returns the SAME ids the first
+  // one did (every owner is an Owner member), so the merge is a no-op and the
+  // list is byte-identical to the pre-231 list.
+  if (membersApplied !== false) {
+    try {
+      const owned = new Set(projects.map((p) => p.id));
+      const { data: mem, error: memErr } = await sb
+        .from('refm_project_members')
+        .select('project_id')
+        .eq('user_id', userId);
+      if (memErr) {
+        if (isMissingMembersTable(memErr)) membersApplied = false;
+        // Any other failure is swallowed: a membership read that fails must
+        // not remove the projects the user already owns. It denies the EXTRA
+        // rows, never the base list.
+      } else {
+        membersApplied = true;
+        const extraIds = (mem ?? [])
+          .map((r) => (r as { project_id: string }).project_id)
+          .filter((id) => !owned.has(id));
+        if (extraIds.length) {
+          const { rows: extras, error: exErr } = await listProjectRowsByIds(sb, extraIds, PROJECT_COLS_FULL);
+          if (!exErr) projects = projects.concat(extras as unknown as RefmProjectRow[]);
+        }
+      }
+    } catch { /* the base list stands */ }
+  }
+
   if (projects.length === 0) {
     return { rows: [], error: null };
   }
@@ -273,16 +312,170 @@ export async function listProjects(userId: string, sb: Db = getServerClient()): 
   };
 }
 
+// ── Membership (mig 231, Module 10 step 2) ────────────────────────────────
+//
+// Cached like every other migration probe: true once a membership read
+// succeeds, false once the table is observed absent. On a pre-231 database
+// every reader falls back to the OWNER check, which is exactly the pre-231
+// behaviour, so the platform keeps working un-migrated.
+let membersApplied: boolean | undefined;
+
+/** True when a PostgREST error means the membership table is not there. */
+function isMissingMembersTable(err: { message?: string; code?: string | null } | null): boolean {
+  if (!err) return false;
+  if (err.code === '42P01' || err.code === 'PGRST205') return true;
+  return /refm_project_members/i.test(String(err.message ?? ''));
+}
+
+/**
+ * This user's role on this project, or null when they have no membership.
+ *
+ * Returns null rather than throwing on any failure, and every caller treats
+ * null as NO ACCESS. That direction is deliberate: a membership read that
+ * fails must deny, never grant. The one exception is a database with no
+ * membership table at all, which is handled by the caller falling back to the
+ * owner check rather than by inventing a role here.
+ */
+/**
+ * Project rows by id, paginated.
+ *
+ * Paginated for the same reason the owner walk is: PostgREST silently
+ * truncates at its `max-rows` cap (TRAPS 2.1), and a member of more projects
+ * than the cap would simply stop seeing some of them, with no error anywhere.
+ * Soft-deleted rows are excluded here too, with the same drop-the-filter
+ * tolerance, so a shared project that its owner deleted disappears for the
+ * members as well.
+ */
+async function listProjectRowsByIds(
+  sb: Db,
+  ids: readonly string[],
+  cols: string,
+): Promise<{ rows: Array<Record<string, unknown>>; error: { message: string } | null }> {
+  const out: Array<Record<string, unknown>> = [];
+  for (let i = 0; i < ids.length; i += PAGE_SIZE) {
+    const slice = ids.slice(i, i + PAGE_SIZE);
+    const build = () => {
+      // EXPLICITLY BOUNDED. The slice can only match PAGE_SIZE rows because
+      // `id` is the primary key, but that bound is invisible at the query site
+      // and PostgREST silently truncates an unbounded read at its own cap
+      // (TRAPS 2.1). `verify-refm-version-reads` caught this: a read whose
+      // safety depends on an invariant a reader cannot see is the exact shape
+      // that check exists to reject. The limit states it.
+      const q = sb.from('refm_projects').select(cols).in('id', slice).limit(slice.length);
+      return deletedApplied === false ? q : q.is('deleted_at', null);
+    };
+    let { data, error } = await build();
+    if (error && isMissingDeletedColumn(error)) {
+      deletedApplied = false;
+      ({ data, error } = await build());
+    }
+    if (error) return { rows: out, error };
+    out.push(...((data ?? []) as unknown as Array<Record<string, unknown>>));
+  }
+  return { rows: out, error: null };
+}
+
+export async function getProjectRole(
+  userId: string,
+  projectId: string,
+  sb: Db = getServerClient(),
+): Promise<{ role: ProjectRole | null; tableMissing: boolean }> {
+  if (membersApplied === false) return { role: null, tableMissing: true };
+  try {
+    const { data, error } = await sb
+      .from('refm_project_members')
+      .select('role')
+      .eq('project_id', projectId)
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error) {
+      if (isMissingMembersTable(error)) { membersApplied = false; return { role: null, tableMissing: true }; }
+      return { role: null, tableMissing: false };
+    }
+    membersApplied = true;
+    const raw = (data as { role?: unknown } | null)?.role;
+    // An unrecognised role denies. A value this build does not know is not
+    // evidence of entitlement, and isProjectRole is the same test the UI uses.
+    return { role: isProjectRole(raw) ? raw : null, tableMissing: false };
+  } catch {
+    return { role: null, tableMissing: false };
+  }
+}
+
+/**
+ * MAY THIS ROLE WRITE? Until the edit lock ships (Module 10 step 5) the
+ * answer is OWNER ONLY.
+ *
+ * This is not a placeholder for the permission matrix; it is a deliberate,
+ * temporary narrowing that exists for one reason. There is no server-side
+ * lock yet: `editMode` is React state and `editingVersionId` is a module
+ * variable in module1-sync, both per browser tab, and the autosave PATCHes
+ * the same version row every 1.5 seconds. Two people editing one project
+ * today means last write wins, silently, with neither told. So membership
+ * ships READ-ONLY for everyone who is not the owner, and the window where two
+ * people can autosave over each other is never opened.
+ *
+ * Step 4 replaces this with the real matrix (`roleCan`), and step 5 adds the
+ * lock that makes an Editor safe. Widening it before then would be the one
+ * mistake this sequencing exists to prevent.
+ */
+export function roleMayWrite(role: ProjectRole | null): boolean {
+  return role === 'owner';
+}
+
+/**
+ * The project this user may reach, and THE ROLE THEY HOLD ON IT.
+ *
+ * THE ONE CHOKE POINT. Thirteen routes gate on this call and 404 when it
+ * returns nothing, and the version helpers below deliberately do NOT filter
+ * by user because they rely on it having run. That concentration is why the
+ * switch from ownership to membership is a small change, and it is also why a
+ * mistake here would be a large one.
+ *
+ * Before migration 231 this matched `user_id = me`. It now matches "I hold a
+ * membership", which is a SUPERSET: every owner was seeded as an Owner member
+ * (mig 231), so a single-user account sees exactly what it saw before.
+ *
+ * `role` comes back so a caller can gate a write without a second query. A
+ * caller that ignores it gets the pre-231 behaviour, which is safe for a READ
+ * and is why the reading routes needed no change.
+ *
+ * PRE-231 DATABASES fall back to the owner check. Not to an open one: with no
+ * membership table there is no membership to honour, and the owner check is
+ * exactly what the platform did before. Denial is the fallback direction
+ * throughout.
+ */
 export async function getProject(userId: string, projectId: string): Promise<{
   row: RefmProjectRow | null;
   error: string | null;
+  /** The caller's role. Null when the project was reached as its owner on a
+   *  pre-231 database, so a null role never means "no rights": it means "no
+   *  membership table". Callers gate writes with `mayWrite`, not with this. */
+  role?: ProjectRole | null;
+  /** Whether this caller may WRITE. Owner-only until the edit lock ships;
+   *  see roleMayWrite for why. */
+  mayWrite?: boolean;
 }> {
   const sb = getServerClient();
+
+  // Resolve membership FIRST. On a database with the table, this decides
+  // access; without it, we fall through to the historical owner check.
+  const { role, tableMissing } = await getProjectRole(userId, projectId, sb);
+  const byMembership = !tableMissing;
+  if (byMembership && role === null) {
+    // No membership: the project does not exist as far as this caller is
+    // concerned. Same answer the owner check gave a stranger.
+    return { row: null, error: null, role: null, mayWrite: false };
+  }
+
   // A soft-deleted project is gone from the user's world: it must not load,
   // open or accept writes. Same drop-the-filter tolerance as the list.
   const one = async (cols: string) => {
     const build = () => {
-      const q = sb.from('refm_projects').select(cols).eq('id', projectId).eq('user_id', userId);
+      // Scoped by MEMBERSHIP once 231 is applied (the role lookup above
+      // already proved it), and by OWNERSHIP before that.
+      let q = sb.from('refm_projects').select(cols).eq('id', projectId);
+      if (!byMembership) q = q.eq('user_id', userId);
       return (deletedApplied === false ? q : q.is('deleted_at', null)).maybeSingle();
     };
     let r = await build();
@@ -297,13 +490,13 @@ export async function getProject(userId: string, projectId: string): Promise<{
 
   if (archivedApplied !== false) {
     const r = await one(PROJECT_COLS_FULL);
-    if (!r.error) { archivedApplied = true; return { row: (r.data ?? null) as RefmProjectRow | null, error: null }; }
+    if (!r.error) { archivedApplied = true; return { row: (r.data ?? null) as RefmProjectRow | null, error: null, role, mayWrite: byMembership ? roleMayWrite(role) : true }; }
     if (!isMissingColumnError(r.error)) return { row: null, error: r.error.message };
     archivedApplied = false;
   }
   const { data, error } = await one(PROJECT_COLS_BASE);
   if (error) return { row: null, error: error.message };
-  return { row: decorateProjectRow(data as Record<string, unknown> | null) as RefmProjectRow | null, error: null };
+  return { row: decorateProjectRow(data as Record<string, unknown> | null) as RefmProjectRow | null, error: null, role, mayWrite: byMembership ? roleMayWrite(role) : true };
 }
 
 export async function insertProject(insert: {
@@ -399,6 +592,45 @@ export async function reorderProjects(
     if (data) updated++;
   }
   return { updated, error: null };
+}
+
+/**
+ * THE WRITE GATE. Same as getProject, but returns nothing to a caller who may
+ * not write, so the route 404s exactly as it would for a stranger.
+ *
+ * A SEPARATE FUNCTION, not a flag on getProject, and that is the whole point.
+ * A boolean option can be forgotten and the route still compiles, still runs,
+ * and silently lets a Viewer save. A distinct name can be ENUMERATED: every
+ * route file that exports a write verb must call this one, and
+ * `verify-project-membership` fails the build if any of them calls plain
+ * getProject on its write path. The check is what makes it unforgettable; the
+ * naming is what makes the check possible.
+ *
+ * WHY IT 404s RATHER THAN 403s. A Reviewer who can read the project already
+ * knows it exists, so hiding it would be pointless; but these routes are
+ * shared with callers who hold no membership at all, and answering 403 there
+ * would confirm the project exists to someone who should not know. One answer
+ * for both is the safer default, and it matches what every one of these
+ * routes already returned before membership existed.
+ *
+ * Until the edit lock ships (step 5) "may write" means OWNER. See
+ * roleMayWrite for why that narrowing is deliberate rather than provisional.
+ */
+export async function getProjectForWrite(userId: string, projectId: string): Promise<{
+  row: RefmProjectRow | null;
+  error: string | null;
+  role?: ProjectRole | null;
+  /** Set when a real project was found but this caller may only read it, so a
+   *  route can distinguish "no such project" from "not yours to change" in a
+   *  log line without leaking the difference to the caller. */
+  readOnly?: boolean;
+}> {
+  const r = await getProject(userId, projectId);
+  if (r.error || !r.row) return r;
+  if (r.mayWrite === false) {
+    return { row: null, error: null, role: r.role ?? null, readOnly: true };
+  }
+  return r;
 }
 
 // Used by the create flow to stamp current_version_id without going

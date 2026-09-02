@@ -57,6 +57,24 @@ export interface ProjectSource {
   /** Manual position within the status group. Nullable in the database:
    *  NULL means never dragged. */
   sortOrderColumn: string | null;
+
+  // ── Collaboration membership (mig 231 for REFM). A platform opts in by
+  //    naming its membership table and columns; the ROLES, the permission
+  //    matrix and the read-only rule are NOT restated per platform. They live
+  //    once in `src/core/collab/projectRoles.ts`.
+  //
+  //    Null means the platform has no membership concept, and its projects are
+  //    reachable by their owner alone. That is the pre-231 behaviour and it
+  //    stays correct: a platform without this is not broken, it is single-user.
+
+  /** Membership table, e.g. `refm_project_members`. */
+  membersTable: string | null;
+  /** Column joining a membership row to its project. */
+  membersProjectColumn: string | null;
+  /** Column naming the member. A real FK to users(id). */
+  membersUserColumn: string | null;
+  /** Column holding the role, validated against PROJECT_ROLES. */
+  membersRoleColumn: string | null;
 }
 
 /** THE retention window for a soft-deleted project, in days. One definition:
@@ -99,6 +117,10 @@ export const PROJECT_SOURCES: ProjectSource[] = [
     statusColumn: 'status',
     priorityColumn: 'priority',
     sortOrderColumn: 'sort_order',
+    membersTable: 'refm_project_members',
+    membersProjectColumn: 'project_id',
+    membersUserColumn: 'user_id',
+    membersRoleColumn: 'role',
   },
   // ERM / BVM: add one entry per platform when their project tables exist.
   // Card ordering comes with the entry: name the three columns and the
@@ -116,4 +138,17 @@ export function getProjectSource(key: string): ProjectSource | null {
  *  "partly" would ship a half-working card, so the answer is all or nothing. */
 export function hasCardOrdering(s: ProjectSource): boolean {
   return !!s.statusColumn && !!s.priorityColumn && !!s.sortOrderColumn;
+}
+
+/** Whether a platform has collaboration membership wired.
+ *
+ *  All four are required together, and for a sharper reason than card ordering:
+ *  a partially wired membership is an ACCESS CONTROL that half works. A table
+ *  without a role column cannot say what a member may do; a role column with no
+ *  user column cannot say whose role it is. Rather than guess, a platform that
+ *  answers "partly" is treated as having no membership at all, so access falls
+ *  back to the owner and nothing is accidentally opened up. */
+export function hasMembership(s: ProjectSource): boolean {
+  return !!s.membersTable && !!s.membersProjectColumn
+    && !!s.membersUserColumn && !!s.membersRoleColumn;
 }
