@@ -313,6 +313,49 @@ probe and failed the third, which is the only reason it was caught.
 tested. The other half is attempting the things that MUST still work. Write the
 must-succeed probes first: a rule that forbids too much reports the same clean
 "guard fired" message as a rule that forbids exactly enough.
+### 2.13 A PL/pgSQL function returning a composite gives a ROW OF NULLS when it matches nothing, so a refusal reads as a win
+
+**Symptom.** The edit lock (migration 233) is taken by one atomic statement:
+
+```sql
+INSERT INTO refm_project_locks ... ON CONFLICT (project_id) DO UPDATE SET ...
+  WHERE l.holder_user_id = p_user_id
+     OR l.heartbeat_at < clock_timestamp() - make_interval(secs => p_ttl_seconds)
+RETURNING *;
+```
+
+Declared `RETURNS refm_project_locks`. It worked in every hand test. The applier
+probe then showed a caller being granted a lock that somebody else already held,
+which is the exact failure the entire step exists to prevent.
+
+**Mechanism.** When the `WHERE` on the `DO UPDATE` excludes the conflicting row,
+the statement returns no rows, and the function's `RETURN` yields **NULL** for a
+composite type. `SELECT * FROM fn(...)` expands a NULL composite into **one row
+with every column NULL**, not zero rows. So a caller that decides "did I get the
+lock?" by counting rows, which is the obvious way to ask, sees one row and
+concludes it won. The refusal and the win are indistinguishable at the call site
+unless you also inspect a column for NULL, and nothing forces you to.
+
+This is the absent-value family (2.4) in a shape that is easy to miss, because
+here the collapse happens in the TRANSPORT rather than in a value: the function
+is correct, the SQL is correct, and the row count lies.
+
+**Fix.** `RETURNS SETOF refm_project_locks`. Then no match means zero rows, and
+`rows.length === 1` means exactly what it appears to mean. Note that
+`CREATE OR REPLACE FUNCTION` cannot change a return type, so the migration must
+`DROP FUNCTION IF EXISTS` first, which is easy to omit on a re-run and makes the
+migration look idempotent when it is not.
+
+**Proof.** Not argued, measured: 25 simultaneous acquires on two real
+connections produced exactly one winner every time, and both-winners zero times.
+A race is precisely the thing reasoning gets wrong, so it was run rather than
+reasoned about.
+
+**The general lesson.** Whenever a function can legitimately return "nothing",
+check what NOTHING LOOKS LIKE to the caller before trusting the caller's test.
+A scalar composite, an empty array, a NULL and a zero-row result are four
+different absences, and client libraries flatten them differently.
+
 
 ## 3. Excel export (ExcelJS)
 
@@ -683,6 +726,54 @@ most of a file is CRLF while a block edited by an earlier tool is LF. Detecting
 one EOL for a whole file and building every anchor with it silently matches
 nothing in the other blocks. Try both forms per anchor and adopt whichever one
 matched, so the surrounding block stays byte-consistent.
+### 3.19 The check asserted PRESENCE where the invariant was EXCLUSIVITY
+
+**Symptom.** The append-only change log must record the delta of THIS save, so
+the version PATCH computes it against the STORED snapshot rather than against
+the base version (diffing the base would re-log the whole session on every
+1.5-second autosave beat). The check that pinned it:
+
+```js
+check('D1 the logged delta is diffed against the STORED snapshot',
+  /saveDelta = diffSnapshots\(existing\.snapshot, body\.snapshot\)/.test(patch));
+```
+
+A sabotage that appended a SECOND assignment, overwriting the delta with the
+base diff, left the verifier fully green.
+
+**Mechanism.** The check was scoped correctly, read the right file, named the
+right thing, and was TRUE. It asserted that the correct assignment EXISTS. The
+invariant it was standing in for is that the correct assignment is the ONLY one.
+Adding a line cannot falsify an existence claim, so every sabotage of the form
+"leave the good code in place and override it afterwards" walks straight past
+it. Deleting code fails such a check; adding code never does.
+
+This is why it is distinct from 3.17. There the check read evidence from the
+wrong place. Here it read the right place and asked a question whose answer
+could not change.
+
+**Fix.** Assert the count, not the presence:
+
+```js
+const assigns = [...patch.matchAll(/(?<![\w.])saveDelta\s*=(?!=)/g)];
+check('D1 saveDelta is assigned EXACTLY ONCE, so nothing can overwrite it',
+  assigns.length === 1, `found ${assigns.length} assignments`);
+check('D2 and that one assignment is the STORED-snapshot diff',
+  /saveDelta = diffSnapshots\(existing\.snapshot, body\.snapshot\)/.test(patch)
+  && !/saveDelta[\s\S]{0,40}change_log/.test(patch));
+```
+
+Both sabotages then fail: the added assignment breaks the count, and swapping
+the source snapshot breaks the second.
+
+**The general form, and how to spot it before a sabotage does.** Ask what a
+check does when code is ADDED rather than removed. A check built from
+`.test(...)` or `.includes(...)` can only ever detect deletion. Any invariant of
+the form "X is the only thing that does Y", "X happens once", or "X is the last
+word on Y" needs a count, a uniqueness assertion, or a window with a defined
+end. Three sabotages that removed things were caught first time here; the one
+that added something was not.
+
 
 ## 4. PDF export (pdf-lib)
 
