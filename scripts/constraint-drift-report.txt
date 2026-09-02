@@ -1,14 +1,14 @@
 == A. FOREIGN KEY ON DELETE: declared vs live ==
-  59 FK columns after 12 superseding ALTER(s): 55 match, 0 differ, 2 missing, 2 skipped
+  63 FK columns after 12 superseding ALTER(s): 59 match, 0 differ, 2 missing, 2 skipped
 
 == B. UNIQUE: declared vs live ==
   25 declared column UNIQUEs: 21 present, 2 absent
 
 == C. CHECK: declared vs live ==
-  51 declared column CHECKs: 51 present, 0 absent
+  52 declared column CHECKs: 52 present, 0 absent
 
 == D. TABLE-LEVEL constraints: declared vs live ==
-  45 declared table-level constraints: 40 present, 1 not found
+  46 declared table-level constraints: 41 present, 1 not found
 
 ==============================================================================
 FINDINGS, RANKED
@@ -76,7 +76,7 @@ FINDINGS, RANKED
     ai_features.grounding: CHECK (((cardinality(grounding) >= 1) AND (grounding <@ ARRAY['model'::text, 'external'::text, 'context'::text])))
     ai_feature_caps.monthly_cap: CHECK ((monthly_cap >= 0))
     ai_usage_counters.used: CHECK ((used >= 0))
-    ... and 11 more (full list in the report file)
+    ... and 12 more (full list in the report file)
 
 -- 5. UNPARSED column definitions (not silently skipped) --
   0
@@ -133,6 +133,7 @@ FINDINGS, RANKED
     refm_cost_catalog.label: CHECK (((length(btrim(label)) >= 1) AND (length(btrim(label)) <= 80)))
     account_deletions.source: CHECK ((source = ANY (ARRAY['self'::text, 'admin'::text])))
     admin_campaign_sends.status: CHECK ((status = ANY (ARRAY['sent'::text, 'failed'::text, 'skipped_unsubscribed'::text])))
+    refm_project_members.role: CHECK ((role = ANY (ARRAY['owner'::text, 'editor'::text, 'reviewer'::text, 'viewer'::text])))
 
 == FULL SKIPPED LIST ==
 FK pricing_features.plan_id: table not live (018_pricing_initial_plans.sql)
