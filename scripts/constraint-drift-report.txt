@@ -1,5 +1,5 @@
 == A. FOREIGN KEY ON DELETE: declared vs live ==
-  63 FK columns after 12 superseding ALTER(s): 59 match, 0 differ, 2 missing, 2 skipped
+  66 FK columns after 12 superseding ALTER(s): 62 match, 0 differ, 2 missing, 2 skipped
 
 == B. UNIQUE: declared vs live ==
   25 declared column UNIQUEs: 21 present, 2 absent
