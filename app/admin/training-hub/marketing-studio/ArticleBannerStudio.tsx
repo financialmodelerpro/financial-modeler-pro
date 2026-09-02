@@ -12,6 +12,7 @@ import {
 } from './studio-shared';
 import { InstructorPicker } from './InstructorPicker';
 import { LayoutEditor } from './LayoutEditor';
+import { adminFetchJson } from '@/src/components/admin/adminFetch';
 
 interface ArticleRow {
   slug: string;
@@ -36,8 +37,7 @@ export function ArticleBannerStudio() {
   const { blobUrl, generating, error } = useAutoRender({ type: 'article-banner', content });
 
   useEffect(() => {
-    void fetch('/api/admin/training-hub/marketing-studio/articles')
-      .then(r => r.json())
+    void adminFetchJson('/api/admin/training-hub/marketing-studio/articles')
       .then((j: { articles: ArticleRow[] }) => setArticles(j.articles ?? []))
       .catch(() => {});
   }, []);

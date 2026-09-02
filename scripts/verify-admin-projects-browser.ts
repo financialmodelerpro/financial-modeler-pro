@@ -60,6 +60,18 @@ async function main() {
   check('A2 the route names NO project table of its own (resolves via the registry)',
     !routeCode.includes("'refm_projects'") && routeCode.includes('PROJECT_SOURCES')
     && /from\(source\.table\)/.test(routeCode));
+  // THE OWNER EMBED MUST NAME THE COLUMN IT TRAVELS. Migration 231 added
+  // refm_project_members, a two-FK junction between refm_projects and users,
+  // which made a bare `users(...)` embed ambiguous: PostgREST answered
+  // HTTP 300 PGRST201 and the entire Projects Browser went blank in production
+  // with every project present. No code here had changed; a new TABLE broke a
+  // query that had been correct for months. The hint must come from the
+  // SOURCE'S OWN ownerColumn so ERM and BVM are disambiguated by their own
+  // declaration rather than by a constraint name that only fits REFM.
+  check('A2b the owner embed names its FK column, so a junction table cannot break it',
+    /users!\$\{source\.ownerColumn\}\(/.test(routeCode));
+  check('A2c no BARE users( embed survives in the route',
+    !/(?<![!\w.])users\s*\(/.test(routeCode));
   check('A3 registry is pure data (no supabase import, client-safe)',
     !/@supabase|supabase-js|getServerClient/.test(registry));
   check('A4 CMS stat and profile count are registry-driven',
@@ -71,7 +83,7 @@ async function main() {
     const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
     const { data, error } = await sb
       .from(refm.table)
-      .select(`id, ${refm.nameColumn}, ${refm.ownerColumn}, ${refm.archivedColumn}, created_at, updated_at, users(email, name)`)
+      .select(`id, ${refm.nameColumn}, ${refm.ownerColumn}, ${refm.archivedColumn}, created_at, updated_at, users!${refm.ownerColumn}(email, name)`)
       .range(0, 199);
     const rows = (data ?? []) as unknown as Array<Record<string, unknown>>;
     check('A5 LIVE: the registry-driven list query works and returns real projects',

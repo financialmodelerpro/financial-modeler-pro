@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { adminFetchJson } from '@/src/components/admin/adminFetch';
 
 export interface InstructorRow {
   id: string;
@@ -32,8 +33,7 @@ export function InstructorPicker({ value, onChange, label = 'Instructors', hint 
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/admin/training-hub/marketing-studio/instructors')
-      .then(r => r.json())
+    adminFetchJson('/api/admin/training-hub/marketing-studio/instructors')
       .then((j: { instructors?: InstructorRow[] }) => setRows(j.instructors ?? []))
       .catch(() => {})
       .finally(() => setLoading(false));

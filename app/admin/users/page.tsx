@@ -6,6 +6,7 @@ import { useSession } from 'next-auth/react';
 import { useRequireAdmin } from '@/src/shared/hooks/useRequireAdmin';
 import { DeleteUserModal } from '@/src/components/admin/DeleteUserModal';
 import { UserProjectsModal } from '@/src/components/admin/UserProjectsModal';
+import { adminFetchJson, adminErrorMessage } from '@/src/components/admin/adminFetch';
 
 interface User {
   id: string;
@@ -103,6 +104,9 @@ export default function AdminUsersPage() {
   const [sortByRe, setSortByRe]             = useState(false);
   const [page, setPage]             = useState(0);
   const [total, setTotal]           = useState(0);
+  // A LOAD FAILURE IS ITS OWN STATE. Without it, a 500 and a genuinely
+  // empty result render identically, which is how an outage went unnoticed.
+  const [loadError, setLoadError]   = useState<string | null>(null);
   const [updating, setUpdating]     = useState<string | null>(null);
   const [toast, setToast]           = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
@@ -121,8 +125,7 @@ export default function AdminUsersPage() {
   // Live entitlement plans (trial/solo/pro/firm) for the inline plan control.
   const [entPlans, setEntPlans] = useState<{ plan_key: string; label: string }[]>([]);
   useEffect(() => {
-    fetch('/api/admin/entitlements?platform=real-estate')
-      .then(r => r.json())
+    adminFetchJson<{ plans?: { plan_key: string; label: string; active: boolean }[] }>('/api/admin/entitlements?platform=real-estate')
       .then(j => setEntPlans((j.plans ?? []).filter((p: { active: boolean }) => p.active).map((p: { plan_key: string; label: string }) => ({ plan_key: p.plan_key, label: p.label }))))
       .catch(() => setEntPlans([]));
   }, []);
@@ -170,10 +173,19 @@ export default function AdminUsersPage() {
     if (cancelFilter !== 'all') params.set('cancel', cancelFilter);
     if (reFilter !== 'all')     params.set('real_estate', reFilter);
     if (sortByRe)               params.set('sort', 'real_estate');
-    fetch(`/api/admin/users?${params}`)
-      .then(r => r.json())
+    // res.ok is checked INSIDE adminFetchJson. Defaulting `j.users` to [] on a
+    // 500 is what made the whole list read as "No users found" while every user
+    // was present: an error and an empty table looked identical. Now a failure
+    // reaches the catch, is stated on screen, and never becomes empty data.
+    setLoadError(null);
+    adminFetchJson<{ users?: User[]; total?: number }>(`/api/admin/users?${params}`)
       .then(j => { setUsers(j.users ?? []); setTotal(j.total ?? 0); setLoading(false); })
-      .catch(() => setLoading(false));
+      .catch(e => {
+        setUsers([]);
+        setTotal(0);
+        setLoadError(adminErrorMessage(e, 'Could not load users.'));
+        setLoading(false);
+      });
   }, [page, search, roleFilter, planFilter, cancelFilter, reFilter, sortByRe]);
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
@@ -237,7 +249,12 @@ export default function AdminUsersPage() {
       <CmsAdminNav active="/admin/users" />
       <main style={{ flex: 1, padding: 40, overflowY: 'auto' }}>
         <h1 style={{ fontSize: 24, fontWeight: 800, color: '#1B3A6B', marginBottom: 6 }}>User Management</h1>
-        <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 16 }}>{total} total users</p>
+        {/* A count is a CLAIM about the account, so it is not made when the load
+            failed. "0 total users" beside a server error is a false statement,
+            and it was the most alarming half of this defect. */}
+        <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 16 }}>
+          {loadError ? 'User count unavailable' : `${total} total users`}
+        </p>
 
         {/* Modeling Hub lockdown banner (migration 136): shown ONLY while a
             surface is actually closed, and worded for whichever one is. The
@@ -337,6 +354,18 @@ export default function AdminUsersPage() {
             <tbody>
               {loading ? (
                 <tr><td colSpan={colCount} style={{ padding: '40px 16px', textAlign: 'center', color: '#6B7280' }}>Loading…</td></tr>
+              ) : loadError ? (
+                // CHECKED BEFORE the empty case, deliberately. A failed load also
+                // leaves `users` empty, so testing emptiness first would print
+                // "No users found" over a server error, which is the exact
+                // confusion this state exists to end.
+                <tr><td colSpan={colCount} style={{ padding: '40px 16px', textAlign: 'center' }}>
+                  <div style={{ color: '#B91C1C', fontWeight: 700, marginBottom: 6 }}>Could not load users.</div>
+                  <div style={{ color: '#6B7280', fontSize: 12, marginBottom: 12, wordBreak: 'break-word' }}>{loadError}</div>
+                  <div style={{ color: '#6B7280', fontSize: 12 }}>
+                    This is a load failure, not an empty account list. No user data has been changed.
+                  </div>
+                </td></tr>
               ) : users.length === 0 ? (
                 <tr><td colSpan={colCount} style={{ padding: '40px 16px', textAlign: 'center', color: '#6B7280' }}>No users found.</td></tr>
               ) : users.map((u, i) => {

@@ -12,6 +12,7 @@ import {
 } from './studio-shared';
 import { InstructorPicker } from './InstructorPicker';
 import { LayoutEditor } from './LayoutEditor';
+import { adminFetchJson } from '@/src/components/admin/adminFetch';
 
 interface SessionRow {
   id: string;
@@ -37,8 +38,7 @@ export function YouTubeThumbnailStudio() {
   const { blobUrl, generating, error } = useAutoRender({ type: 'youtube-thumbnail', content });
 
   useEffect(() => {
-    void fetch('/api/admin/training-hub/marketing-studio/live-sessions')
-      .then(r => r.json())
+    void adminFetchJson('/api/admin/training-hub/marketing-studio/live-sessions')
       .then((j: { sessions: SessionRow[] }) => setSessions(j.sessions ?? []))
       .catch(() => {});
   }, []);

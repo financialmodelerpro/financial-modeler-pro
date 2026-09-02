@@ -44,8 +44,17 @@ async function main() {
   const pageCode = strip(page);
 
   console.log('A. Project count source');
+  // THE EMBED MUST NAME ITS FOREIGN KEY. Migration 231 added
+  // refm_project_members (PK project_id+user_id, an FK to each side), which
+  // PostgREST reads as a many-to-many junction, so `refm_projects` became an
+  // AMBIGUOUS embed target from `users` and the route began answering
+  // HTTP 300 PGRST201. The admin user list went blank in production with every
+  // user present in the database. Naming the constraint pins it to the owner
+  // relationship and survives any future join table.
   check('A1 count embeds refm_projects aliased to projects',
-    api.includes('projects:refm_projects(count)'));
+    api.includes('projects:refm_projects!refm_projects_user_id_fkey(count)'));
+  check('A1b the embed NAMES ITS FK, so a new join table cannot make it ambiguous',
+    !/refm_projects\(count\)/.test(apiCode));
   check('A2 the legacy bare projects(count) embed is gone',
     !/(?<![:\w])projects\(count\)/.test(apiCode));
   check('A3 page still reads the aliased shape', /u\.projects\?\.\[0\]\?\.count/.test(page));
@@ -53,7 +62,10 @@ async function main() {
   if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
     const { createClient } = await import('@supabase/supabase-js');
     const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
-    const { data, error } = await sb.from('users').select('id, email, projects:refm_projects(count)').range(0, 999);
+    // The SAME embed the route uses, FK named. Running the ambiguous form here
+    // would fail for a reason that has nothing to do with the count being right.
+    const { data, error } = await sb.from('users')
+      .select('id, email, projects:refm_projects!refm_projects_user_id_fkey(count)').range(0, 999);
     const { data: rp } = await sb.from('refm_projects').select('user_id').range(0, 4999);
     const direct = new Map<string, number>();
     for (const p of (rp ?? []) as Array<{ user_id: string }>) direct.set(p.user_id, (direct.get(p.user_id) ?? 0) + 1);

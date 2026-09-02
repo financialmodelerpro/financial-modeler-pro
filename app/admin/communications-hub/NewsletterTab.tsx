@@ -20,6 +20,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { RichTextEditor } from '@/src/components/admin/RichTextEditor';
+import { adminFetchJson } from '@/src/components/admin/adminFetch';
 
 const NAVY  = '#0D2E5A';
 const GREEN = '#2EAA4A';
@@ -316,8 +317,7 @@ function ComposeTab({ onSent }: { onSent: () => void }) {
 
   // Load templates + segments once
   useEffect(() => {
-    fetch('/api/admin/newsletter/templates')
-      .then(r => r.json())
+    adminFetchJson('/api/admin/newsletter/templates')
       .then((d: { templates: NewsletterTemplate[] }) => setTemplates(d.templates ?? []))
       .catch(() => setTemplates([]));
   }, []);
@@ -325,8 +325,7 @@ function ComposeTab({ onSent }: { onSent: () => void }) {
   // Recipient count refreshes whenever segment OR hub changes
   useEffect(() => {
     const params = new URLSearchParams({ segment, targetHub });
-    fetch(`/api/admin/newsletter/segments?${params}`)
-      .then(r => r.json())
+    adminFetchJson(`/api/admin/newsletter/segments?${params}`)
       .then((d: { count: number; segments: SegmentMeta[] }) => {
         setRecipientCount(d.count ?? 0);
         if (d.segments) setSegments(d.segments);
@@ -1003,8 +1002,7 @@ function AutoNotificationsTab() {
   const [toggling, setToggling] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/admin/newsletter/auto-settings')
-      .then(r => r.json())
+    adminFetchJson('/api/admin/newsletter/auto-settings')
       .then(d => { setSettings(d.settings ?? []); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);

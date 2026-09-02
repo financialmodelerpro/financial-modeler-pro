@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
+import { adminFetchJson } from '@/src/components/admin/adminFetch';
 
 interface CmsPage {
   id: string;
@@ -55,8 +56,7 @@ export default function PageBuilderListPage() {
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(''), 3000); }
 
   useEffect(() => {
-    fetch('/api/admin/page-sections')
-      .then(r => r.json())
+    adminFetchJson('/api/admin/page-sections')
       .then((d: { pages?: CmsPage[] }) => setPages(d.pages ?? []))
       .catch(() => {})
       .finally(() => setLoading(false));

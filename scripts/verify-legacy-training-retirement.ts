@@ -93,8 +93,14 @@ async function main() {
   }
   const editor = fs.readFileSync(path.join(ROOT, 'app/admin/training/[courseId]/page.tsx'), 'utf8');
   check('B1 admin course editor SURVIVES (Course Manager links to it)', editor.length > 0);
+  // Matches EITHER transport. The endpoint being called is the behaviour this
+  // check exists to protect; which helper issues the request is not. Pinned to
+  // the literal `fetch(`, it failed when the call moved to adminFetchJson (the
+  // res.ok-checking wrapper added 2026-09-02) even though the editor still
+  // requested exactly the same URL.
   check('B2 editor keeps its live fetches (lessons, attachments, session links)',
-    editor.includes("fetch(`/api/admin/training?courseId=") && editor.includes("'/api/admin/attachments'"));
+    /(fetch|adminFetchJson)\(`\/api\/admin\/training\?courseId=/.test(editor)
+    && editor.includes("'/api/admin/attachments'"));
   check('B3 editor has NO assessment tab left',
     !/activeTab/.test(editor) && !/api\/admin\/assessments/.test(strip(editor)));
   check('B4 the Course Manager index survives untouched', exists('app/admin/training/page.tsx'));

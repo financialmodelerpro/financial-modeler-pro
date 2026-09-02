@@ -1,5 +1,6 @@
 'use client';
 import React, { useState, useEffect, useCallback } from 'react';
+import { adminFetchJson } from '@/src/components/admin/adminFetch';
 
 interface StudentRow {
   registrationId: string; name: string; email: string; course: string;
@@ -415,8 +416,7 @@ export function CampaignsTab() {
             <div style={{ textAlign: 'center', padding: 40, color: '#6B7280' }}>
               {(() => {
                 if (!shareLoaded) {
-                  fetch('/api/admin/content')
-                    .then(r => r.json())
+                  adminFetchJson('/api/admin/content')
                     .then(j => {
                       for (const row of (j.rows ?? []) as { section: string; key: string; value: string }[]) {
                         if (row.section === 'training' && row.key === 'share_achievement_title') setShareTitle(row.value);

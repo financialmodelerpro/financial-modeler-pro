@@ -72,7 +72,15 @@ async function listSource(sb: ReturnType<typeof getServerClient>, source: Projec
     'created_at',
     'updated_at',
     ...(source.archivedColumn ? [source.archivedColumn] : []),
-    'users(email, name)',
+    // THE OWNER EMBED NAMES THE COLUMN IT TRAVELS, and it must. Migration 231
+    // added refm_project_members (PK project_id+user_id, an FK to each side),
+    // which PostgREST reads as a many-to-many junction, so a bare
+    // `users(email, name)` became AMBIGUOUS between "the owner" and "the
+    // members" and the whole Projects Browser answered HTTP 300 PGRST201.
+    // The hint is the source's OWN ownerColumn, so every platform in the
+    // registry (ERM, BVM) is disambiguated by its own declaration rather than
+    // by a hardcoded constraint name that only fits REFM.
+    `users!${source.ownerColumn}(email, name)`,
   ];
   // The soft-delete column is selected when the platform declares one, and
   // dropped on a database that does not have it yet (pre-224), where every

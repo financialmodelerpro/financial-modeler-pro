@@ -75,6 +75,31 @@ function exec(db: FakeDb, table: string, s: { op: string; filters: Pred[]; paylo
   return { data: null, error: { message: `unsupported op ${s.op}` } };
 }
 
+/**
+ * A client whose every read fails as "table does not exist".
+ *
+ * The unavailable path used to be simulated by calling `loadAiUsage` with NO
+ * client, on the assumption that meant "no store reachable". It does not:
+ * `loadAiUsage` falls back to `getServerClient()`, which SUCCEEDS whenever
+ * Supabase credentials are in the environment. So the check passed only in an
+ * environment without credentials, and inverted the moment the suite began
+ * running with them. The premise, not the product, was wrong.
+ *
+ * Driving the failure explicitly makes the check independent of the ambient
+ * environment, and exercises the more realistic case: a store that answers,
+ * with an error.
+ */
+function unreachableClient(): any {
+  const err = { message: 'relation "ai_features" does not exist', code: '42P01' };
+  const b: any = {
+    select() { return b; }, insert() { return b; }, update() { return b; },
+    upsert() { return b; }, eq() { return b; }, in() { return b; },
+    order() { return b; }, limit() { return b; }, range() { return b; },
+    then(res: (v: unknown) => unknown) { return Promise.resolve({ data: null, error: err }).then(res); },
+  };
+  return { from() { return b; } };
+}
+
 function fakeClient(db: FakeDb): any {
   return {
     from(table: string) {
@@ -209,8 +234,9 @@ async function main() {
   // Metering now exists (the counters land with migration 205), so the panel
   // CAN show real numbers. What must never regress is the unavailable path:
   // when usage cannot be read, the panel says so instead of rendering zeroes.
-  // Called with no client on purpose, which is the "no store reachable" case.
-  const usage = await loadAiUsage('real-estate');
+  // Driven through a client whose reads FAIL, so the unavailable path is
+  // exercised regardless of whether credentials happen to be present.
+  const usage = await loadAiUsage('real-estate', unreachableClient());
   eq('an unreadable usage store reports unavailable, and does NOT throw', usage.available, false);
   ok('and gives a reason', !usage.available && usage.reason.length > 30);
   ok('the reason explicitly denies that this means zero',

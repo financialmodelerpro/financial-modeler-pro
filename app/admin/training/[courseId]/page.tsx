@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { extractYouTubeId } from '@/src/shared/cms';
+import { adminFetchJson } from '@/src/components/admin/adminFetch';
 
 // ─── Lesson types ────────────────────────────────────────────────────────────
 
@@ -179,8 +180,7 @@ export default function AdminCourseLessonsPage() {
 
   const fetchCourseData = useCallback(() => {
     setLoading(true);
-    fetch(`/api/admin/training?courseId=${courseId}`)
-      .then(r => r.json())
+    adminFetchJson(`/api/admin/training?courseId=${courseId}`)
       .then(j => {
         setCourse(j.course);
         setLessons(j.lessons ?? []);

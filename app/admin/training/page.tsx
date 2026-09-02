@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import Link from 'next/link';
+import { adminFetchJson } from '@/src/components/admin/adminFetch';
 
 interface Course {
   id: string; title: string; description: string; category: string; status: string;
@@ -30,8 +31,7 @@ export default function AdminTrainingPage() {
 
   const fetchCourses = () => {
     setLoading(true);
-    fetch('/api/admin/training')
-      .then(r => r.json())
+    adminFetchJson('/api/admin/training')
       .then(j => {
         const courses: Course[] = j.courses ?? [];
         setCourses(courses);
@@ -43,8 +43,7 @@ export default function AdminTrainingPage() {
   };
 
   const fetchCertStats = () => {
-    fetch('/api/training?action=listCourses')
-      .then(r => r.json())
+    adminFetchJson('/api/training?action=listCourses')
       .then(j => {
         const list = Array.isArray(j.courses) ? j.courses : [];
         const total = list.reduce((s: number, c: any) => s + (c.certificatesIssued ?? c.certificates_issued ?? 0), 0);

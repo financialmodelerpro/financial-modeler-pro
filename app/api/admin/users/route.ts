@@ -73,7 +73,23 @@ export async function GET(req: NextRequest) {
     // in, FK mig 149), aliased to `projects` so the client shape is unchanged.
     // It used to embed the legacy `projects` table, which exists on prod with
     // ZERO rows, so every user read 0 regardless of their real projects.
-    const BASE = 'id, email, name, role, subscription_plan, subscription_status, created_at, trial_ends_at, projects:refm_projects(count)';
+    //
+    // THE FOREIGN KEY IS NAMED EXPLICITLY, AND IT MUST STAY NAMED. Migration
+    // 231 added `refm_project_members`, whose primary key is
+    // `(project_id, user_id)` with an FK to each side. That is a textbook
+    // many-to-many junction, so PostgREST began offering a SECOND path from
+    // `users` to `refm_projects` and refused to guess between them:
+    //
+    //   HTTP 300 PGRST201: Could not embed because more than one relationship
+    //   was found for 'users' and 'refm_projects'
+    //
+    // No code here changed. A new TABLE made a query that had been unambiguous
+    // for months ambiguous, and the whole admin user list went blank in
+    // production. Naming the constraint pins the meaning to the one we want,
+    // PROJECTS THIS USER OWNS, and makes the query immune to any future table
+    // that links these two. Any join table added later would break this again
+    // if the FK were left implicit.
+    const BASE = 'id, email, name, role, subscription_plan, subscription_status, created_at, trial_ends_at, projects:refm_projects!refm_projects_user_id_fkey(count)';
     const runQuery = async (cols: string) => {
       let q = sb.from('users').select(cols, { count: 'exact' });
       // Soft-deleted projects (mig 224) are out of the user's world, so they
