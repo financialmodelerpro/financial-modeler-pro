@@ -21,6 +21,19 @@
  * project is a different operation on a different column, and it is not this
  * one.
  *
+ * ── THE SEAT LIMIT IS ENFORCED IN THE POST BELOW, AND ONLY THERE ──────────
+ *
+ * This upsert is the ONLY insert into any membership table in the codebase.
+ * Project create and duplicate do not seed one; the other writes to
+ * `refm_project_members` update `priority` and `sort_order` on rows that
+ * already exist. So one check here is genuinely one enforcement point rather
+ * than the first of several, and step 8 does not add a second write path
+ * (there is deliberately no Owner-adding route yet).
+ *
+ * The counting itself is NOT here: it lives in `shared/admin/seats.ts` and
+ * iterates PROJECT_SOURCES, so ERM and BVM are counted the day they ship
+ * instead of quietly contributing nothing.
+ *
  * No em dashes in this file.
  */
 
@@ -30,6 +43,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { PROJECT_SOURCES, getProjectSource, hasMembership } from '@/src/shared/admin/projectSources';
 import { isProjectRole, PROJECT_ROLES } from '@/src/core/collab/projectRoles';
+import { checkSeatForMember, seatBlockMessage } from '@/src/shared/admin/seats';
 
 function badRequest(msg: string) { return NextResponse.json({ error: msg }, { status: 400 }); }
 function serverError(msg: string) { return NextResponse.json({ error: msg }, { status: 500 }); }
@@ -163,9 +177,39 @@ export async function POST(req: NextRequest) {
   }
 
   const { data: user, error: userErr } = await sb
-    .from('users').select('id').eq('id', body.userId).maybeSingle();
+    .from('users').select('id, email').eq('id', body.userId).maybeSingle();
   if (userErr) return serverError(userErr.message);
   if (!user) return badRequest('No such user.');
+
+  // ── SEATS (Module 10 step 8) ──────────────────────────────────────────
+  //
+  // AFTER the user lookup, so a seat is never refused for someone who does
+  // not exist, and BEFORE the upsert, so the refusal is a block and not a
+  // warning after the fact.
+  //
+  // The account is the project's OWNER, because the plan is theirs. A role
+  // change costs nothing: the decision asks whether this person already holds
+  // a seat anywhere on the account, not whether a row is about to be written.
+  let seat;
+  try {
+    seat = await checkSeatForMember(sb, ownerId, body.userId);
+  } catch (e) {
+    // A counting failure must not become an accidental grant. Refusing is the
+    // safe direction: an admin can retry, whereas a seat handed out by an
+    // errored read is invisible until someone audits it.
+    return serverError(`Seat check failed, nothing was changed: ${(e as Error).message}`);
+  }
+  if (!seat.allowed) {
+    const { data: holder } = await sb.from('users').select('email').eq('id', ownerId).maybeSingle();
+    return NextResponse.json({
+      error: seatBlockMessage(
+        seat,
+        (holder as { email?: string } | null)?.email ?? null,
+        (user as { email?: string } | null)?.email ?? null,
+      ),
+      seat: { used: seat.used, wouldUse: seat.wouldUse, limit: seat.limit, source: seat.limitSource },
+    }, { status: 409 });
+  }
 
   const { error } = await sb.from(source.membersTable!).upsert({
     [source.membersProjectColumn!]: body.projectId,

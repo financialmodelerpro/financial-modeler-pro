@@ -103,8 +103,13 @@ Decisions taken:
 - **Project cap counts against the ACCOUNT ADMIN only.** A member added to a
   shared project consumes none of their own allowance. Seats limit team size;
   the project cap does not police it a second time.
-- **Seats: the plan's stored count** (pro 3, firm 10), raisable per client via
+- **Seats: the plan's stored count** (**pro 1**, firm 10; trial and solo 1), raisable per client via
   `user_permissions`. No eleventh until raised.
+  **CORRECTED 2026-09-03**: this line said "pro 3", which was migration 158's seed. Pro was set
+  to 1 in the admin panel on 2026-09-01h because `rbac` and `module_10` (Collaborate) are both
+  Firm-only, so three seats bought no roles and no collaboration module. Migration 237 now
+  DECLARES trial 1 / solo 1 / pro 1 / firm 10 so the migration log and production agree.
+  THE OWNER CONSUMES A SEAT, so pro 1 means a single-person account. Enforced in step 8.
 - **Non-owners are READ-ONLY from step 2 until step 5 lands.** The window where
   two people can autosave over each other is never opened.
 - **`sort_order` and `priority` move to the membership row in step 3**, while
