@@ -293,6 +293,33 @@ export default function RealEstatePlatform(): React.JSX.Element {
   // Falls back to static MODULES list while in flight.
   const { modules: dynamicSidebarModules } = usePlatformModules(REFM_PLATFORM_SLUG);
 
+  // ── THE NAME OF A LOCKED FEATURE, DERIVED FOR MODULES ────────────────────
+  //
+  // A module's name AND its number come from the same nav list the sidebar
+  // renders, which `usePlatformModules` builds from the live platform_modules
+  // registry. So a lock says exactly what the sidebar beside it says, and it
+  // stays right when an admin reorders or hides a module.
+  //
+  // THIS REPLACES TWO HAND-WRITTEN MAPS THAT DISAGREED IN ONE MODAL. The
+  // shared UpgradePrompt's map supplied the heading and the platform's
+  // FEATURE_DISPLAY_LABELS supplied the sentence under it, and the shared one
+  // had module_4 crossed with module_5 and module_6 with module_7 (migration
+  // 157 swapped reports and scenarios; the map never followed), so a user
+  // clicking a locked Module 4 was offered a different module by name.
+  //
+  // NEVER EMPTY: usePlatformModules seeds this list from the static MODULES
+  // before the fetch resolves and keeps it on failure, so the lookup has an
+  // answer even with no network. Non-module keys (sensitivity, versioning,
+  // branding) are not in the nav list and fall through to the map that still
+  // owns them.
+  const lockedFeatureLabel = useCallback(
+    (featureKey: string): string =>
+      dynamicSidebarModules.find((m) => m.featureKey === featureKey)?.label
+      ?? FEATURE_DISPLAY_LABELS[featureKey]
+      ?? featureKey,
+    [dynamicSidebarModules],
+  );
+
   // Subscription / plan gating. Access is the user's RESOLVED effective
   // entitlements (plan + overrides, trial expiry, admin bypass), fetched
   // server-side via /api/refm/entitlements which reuses the Phase C resolver.
@@ -2050,9 +2077,10 @@ export default function RealEstatePlatform(): React.JSX.Element {
               <>
                 <UpgradePrompt
                   featureKey={upgradePrompt.featureKey}
+                  label={lockedFeatureLabel(upgradePrompt.featureKey)}
                   requiredPlan="professional"
                   variant="card"
-                  message={`${FEATURE_DISPLAY_LABELS[upgradePrompt.featureKey] ?? upgradePrompt.featureKey} is not included in your current plan. Upgrade to a higher plan to unlock it.`}
+                  message={`${lockedFeatureLabel(upgradePrompt.featureKey)} is not included in your current plan. Upgrade to a higher plan to unlock it.`}
                 />
                 <div style={{ textAlign: 'right', marginTop: 'var(--sp-2)' }}>
                   <button type="button" onClick={() => setUpgradePrompt(null)}>Close</button>

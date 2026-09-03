@@ -4,32 +4,27 @@ import React from 'react';
 
 type SubscriptionPlan = 'free' | 'professional' | 'enterprise';
 
-// ── Human-readable labels for every feature key ───────────────────────────────
+// ── Human-readable labels for NON-MODULE feature keys ────────────────────────
 //
-// A HAND-WRITTEN MAP, and the numbers in it are the SLUG-DERIVED IDENTITY
-// (module_8 is the portfolio module because SLUG_TO_COMPONENT_NUMBER says
-// portfolio is 8), NOT the number a user sees in the sidebar. Those differ:
-// the sidebar numbers modules by their position among the VISIBLE ones, so
-// with portfolio and market-data both hidden, module_10 renders as "Module 8,
-// Collaborate". See orderModulesForDisplay in shared/entitlements/moduleCatalog.
+// MODULE KEYS ARE DELIBERATELY ABSENT. They used to live here, hand-written,
+// and they went stale twice: migration 157 swapped reports and scenarios and
+// this map never followed, so it called module_4 "Returns & Valuation" and
+// module_5 "Financial Statements" when the registry says the opposite, and
+// module_6 / module_7 were crossed the same way. A user clicking a locked
+// Module 4 was told to buy a module that is not the one they clicked.
+//
+// A module's name and number now arrive as the `label` prop, resolved by the
+// platform from the LIVE platform_modules registry, so this file cannot fall
+// out of date a third time. It is not a shortcut: `shared` may import only
+// core / shared / integ (eslint boundaries), and the registry lives under
+// src/hubs/modeling/platforms/refm, so a shared component CANNOT read it. The
+// only correct direction is for the platform, which already holds the derived
+// list for its sidebar, to pass the answer in.
+//
+// module_8_full / module_9_full stay: they are separate entitlement keys, not
+// module rows (they do not match /^module_\d+$/), so the registry has no
+// opinion about them.
 const FEATURE_LABELS: Record<string, string> = {
-  module_1:           'Module 1 - Project Setup',
-  module_2:           'Module 2 - Revenue Analysis',
-  module_3:           'Module 3 - Operating Expenses',
-  module_4:           'Module 4 - Returns & Valuation',
-  module_5:           'Module 5 - Financial Statements',
-  module_6:           'Module 6 - Reports & Export',
-  module_7:           'Module 7 - Scenario Analysis',
-  // NOT "Portfolio Dashboard". That is the name of the FREE, ungated
-  // all-projects hub every signed-in user already has (STATIC_NAV key
-  // 'dashboard', featureKey null, fed by /api/refm/portfolio since
-  // 2026-08-30). Naming the LOCK after it told a user to buy a plan for a
-  // screen they were already looking at. module_8 is the unbuilt cross-project
-  // roll-up (platform_modules slug 'portfolio', status 'hidden').
-  module_8:           'Module 8 - Portfolio (cross-project roll-up)',
-  module_9:           'Module 9 - Market Data',
-  module_10:          'Module 10 - Collaboration',
-  module_11:          'Module 11 - API Access',
   module_8_full:      'Portfolio Full Edit',
   module_9_full:      'Market Data Full Metrics',
   ai_contextual:      'AI Contextual Assist',
@@ -58,6 +53,10 @@ const PLAN_COLOR: Record<SubscriptionPlan, string> = {
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 export interface UpgradePromptProps {
+  /** The resolved display label. For a MODULE this is derived from the live
+   *  registry by the platform and is the only correct source (see the map
+   *  above); for anything else the map below answers. */
+  label?: string;
   /** The feature key that is locked */
   featureKey: string;
   /** The minimum plan that unlocks it */
@@ -71,13 +70,16 @@ export interface UpgradePromptProps {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function UpgradePrompt({
+  label,
   featureKey,
   requiredPlan,
   variant = 'card',
   message,
   className,
 }: UpgradePromptProps) {
-  const featureLabel = FEATURE_LABELS[featureKey] ?? featureKey;
+  // The passed label WINS. A module always supplies one; the map is for the
+  // non-module keys it still owns, and the raw key is the last resort.
+  const featureLabel = label ?? FEATURE_LABELS[featureKey] ?? featureKey;
   const planLabel    = PLAN_LABELS[requiredPlan];
   const planColor    = PLAN_COLOR[requiredPlan];
 

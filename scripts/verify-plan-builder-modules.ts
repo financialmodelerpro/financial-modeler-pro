@@ -105,20 +105,42 @@ console.log('\n=== Position vs identity ===');
     !!collab2 && collab2.feature_key === 'module_10' && collab2.label === 'Module 9: Collaborate', collab2?.label);
 }
 
-// ── The upgrade prompt names the identity, not the free hub ─────────────────
-console.log('\n=== UpgradePrompt labels ===');
+// ── Module names are DERIVED, in every surface that names one ──────────────
+console.log('\n=== No hand-written module label survives ===');
 {
-  // That map is hand-written and keyed by IDENTITY. It must not name module_8
-  // after the free Portfolio Dashboard hub, which is ungated: doing so told a
-  // user to buy a plan for the screen they were already looking at.
+  // 2026-09-03: there were TWO hand-written module maps and they disagreed
+  // inside one modal. The shared UpgradePrompt supplied the heading and the
+  // platform's FEATURE_DISPLAY_LABELS the sentence under it, and the shared
+  // one had module_4 crossed with module_5 and module_6 with module_7 against
+  // the registry, ever since migration 157 moved reports and scenarios.
+  //
+  // The fix is not a corrected copy, which would go stale a third time. It is
+  // that NEITHER MAP MAY CONTAIN A MODULE KEY: the name and number come from
+  // the live registry through the nav list the sidebar already renders. These
+  // checks fail if a module key is ever typed back into either file.
   const up = readFileSync('src/shared/components/UpgradePrompt.tsx', 'utf8');
-  const m8 = /module_8:\s*'([^']*)'/.exec(up);
-  check('UpgradePrompt still labels module_8', !!m8);
-  check('module_8 is NOT called Portfolio Dashboard (that is the free hub)',
-    !!m8 && !/Portfolio Dashboard/.test(m8[1]), m8?.[1]);
-  check('module_8 still names Portfolio', !!m8 && /Portfolio/.test(m8[1]), m8?.[1]);
-  check('the identity / position split is written down beside the map',
-    /position among the VISIBLE ones/.test(up));
+  const fl = readFileSync('src/hubs/modeling/platforms/refm/lib/featureLabels.ts', 'utf8');
+  const platform = readFileSync('src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx', 'utf8');
+  const MODULE_ENTRY = /^\s*module_\d+:\s/m;
+
+  check('shared UpgradePrompt holds no module label', !MODULE_ENTRY.test(up));
+  check('platform FEATURE_DISPLAY_LABELS holds no module label', !MODULE_ENTRY.test(fl));
+  check('UpgradePrompt accepts a resolved label', /label\?: string;/.test(up));
+  check('the passed label WINS over the map',
+    /const featureLabel = label \?\? FEATURE_LABELS\[featureKey\] \?\? featureKey;/.test(up));
+  check('the platform resolves module labels from the live nav list',
+    /dynamicSidebarModules\.find\(\(m\) => m\.featureKey === featureKey\)\?\.label/.test(platform));
+  check('the heading and the sentence use the SAME resolution',
+    (platform.match(/lockedFeatureLabel\(upgradePrompt\.featureKey\)/g) ?? []).length === 2);
+  // shared/ CANNOT read the registry (eslint boundaries: shared imports only
+  // core, shared, integ), so passing the label in is the only correct
+  // direction, not a convenience. Pinned so a later reader does not "simplify"
+  // it back into the shared component.
+  check('the boundary reason is recorded where the map used to be',
+    /shared` may import only|shared may import only/.test(up) || /eslint boundaries/.test(up));
+  // The non-module keys the maps still own must survive.
+  check('non-module keys still resolve in the shared map', /ai_contextual:/.test(up) && /pdf_basic:/.test(up));
+  check('non-module keys still resolve in the platform map', /sensitivity:/.test(fl) && /versioning:/.test(fl));
 }
 
 // ── LIVE: storage carries no display number (migration 235) ─────────────────

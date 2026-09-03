@@ -1919,15 +1919,25 @@ Dashboard", telling a user to buy a plan for the screen they were already lookin
 **Fix.** Migration 235 removes the number from storage: `features_registry.label` holds the NAME
 only, and every surface derives the number through `orderModulesForDisplay`. The fallback path
 (live registry unreachable) now renders "Collaborate" with no number, which is the honest answer
-when the registry that owns the numbering is unavailable. `UpgradePrompt` names `module_8`
-"Portfolio (cross-project roll-up)". `verify-plan-builder-modules` 16 -> 26 pins the split: it
-asserts that hiding a module moves the position and never the key, that unhiding moves it back, and
-that no stored label carries a number.
+when the registry that owns the numbering is unavailable.
+
+**And then the same disease was found one layer up, in the NAMES.** Two hand-written module maps
+existed and disagreed inside a single modal: the shared `UpgradePrompt` supplied the heading and the
+platform's `FEATURE_DISPLAY_LABELS` the sentence under it. The shared one had `module_4` crossed
+with `module_5` and `module_6` with `module_7`, against the registry, ever since migration 157
+swapped reports and scenarios; `featureLabels.ts` even carried a header calling it "partly stale"
+and worked around it rather than fixing it. **The answer to a copy that drifts is not a corrected
+copy.** Both maps lost their module keys entirely; the platform resolves a module's name and number
+from the same nav list the sidebar renders, and passes it in. `shared` may import only core /
+shared / integ under the eslint boundaries rule, so it CANNOT read the registry: passing the label
+in is the only correct direction, not a convenience. `verify-plan-builder-modules` 16 -> 31 fails if
+a module key is typed back into either map.
 
 **Proof.** The applier read all 11 stored labels carrying a prefix before, 0 after, with
 `plan_permissions` byte-identical across the change (`module_8` still granted to solo/pro/firm,
-`module_10` still not). The UpgradePrompt check was sabotage-tested by restoring the old label: 25
-passed, 1 failed, naming the row.
+`module_10` still not). Both new guards were sabotage-tested: restoring the old `module_8` string
+gave 25 passed / 1 failed, and typing a `module_4:` entry back into the shared map gave 30 passed /
+1 failed, each naming the row.
 
 **The general rule.** When one fact has a stable form and a rendered form, store the stable one and
 derive the rendering at the point of use. If you must store the rendering, something has to own
