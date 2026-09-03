@@ -1945,6 +1945,55 @@ recomputing it, and here nothing did for six months.
 
 ---
 
+### 8.3 An enumerated allow-list, and the new entry that joins it somewhere else
+
+**Symptom.** The "Team access" button on the Modeling Hub dashboard did nothing. Not an error, not a
+blank screen, not a failed request: the click was swallowed. The item did not even take the active
+highlight. Everything behind it was finished and deployed.
+
+**Mechanism.** One sidebar click handler decided what to do by testing the item's id against a
+POSITIVE list:
+
+```ts
+if (item.disabled) return;
+if (item.href) { window.location.href = item.href; return; }
+if (item.id === 'dashboard' || item.id === 'billing') { setActiveView(item.id); }
+```
+
+`NavItem` was an optional-field bag (`href?`, `disabled?`), so `{ id: 'team', icon, label }` was a
+perfectly legal declaration that matched no branch. The handler ran to the end and returned.
+
+Two commits, months apart, and **neither was wrong on its own**. The billing commit wrote the
+allow-list when those two were the only in-page views. The Module 10 step 2 commit added the nav
+item, the `DashView` member, the render branch, the panel and the API route, and did not add the
+third id to a condition in a different part of the file.
+
+**Nothing could have caught it.** A positive allow-list means a new entry compiles clean: no type
+error (the union member existed), no lint error, no failing test, no runtime error. The failure mode
+of "not in the list" is silence. Same family as 8.1: a two-step registration where doing one step
+leaves no trace.
+
+**A third copy of the same fact was hiding beside it.** The hash written on click
+(`item.id === 'billing' ? '#billing' : ' '`) and the hash read on load (`hash === '#billing'`) were
+two more enumerations of "which views are deep-linkable", each maintained by hand.
+
+**Fix.** The allow-list is deleted rather than extended. `NavItem` became a DISCRIMINATED UNION
+(`view` / `link` / `soon`), so a dead entry cannot be declared: a new item must pick a kind, and
+every kind has a branch. For a `view` item the `id` IS the `DashView`, so the id and the view are
+one value that cannot drift, and the deep-link hash is a field on the item, read by both the writer
+and the restorer. `verify-dashboard-nav` (20 checks) covers the two holes the compiler still cannot
+see: a `DashView` with no render branch (the click works, the page goes blank), and the allow-list
+pattern creeping back in.
+
+**Proof.** Sabotage-tested: adding a fourth `DashView` with no render branch fails A5 by name, and
+restoring an id-list condition in the handler fails B3.
+
+**The general rule.** When a handler enumerates which values it handles, every future value is
+silently unhandled. Make the value carry what to do with it, so the handler has nothing to
+enumerate. If the enumeration must stay, something has to fail when it falls behind.
+
+---
+
 ## 9. Deployment
 
 ### 9.1 A sub-daily cron fails the WHOLE deploy with no deployment record

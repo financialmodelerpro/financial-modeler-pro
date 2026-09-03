@@ -109,14 +109,56 @@ function buildTheme(dark: boolean) {
       };
 }
 
-interface NavItem {
-  id: string;
-  icon: string;
-  label: string;
-  href?: string;
-  badge?: string;
-  disabled?: boolean;
-}
+// In-page views the sidebar switches between (no separate route, so the shell
+// is not duplicated).
+type DashView = 'dashboard' | 'billing' | 'team';
+
+const DEFAULT_VIEW: DashView = 'dashboard';
+
+/**
+ * A sidebar entry, AS A DISCRIMINATED UNION, so that a dead one cannot be
+ * declared.
+ *
+ * THE BUG THIS SHAPE EXISTS TO PREVENT (2026-09-03). NavItem used to be one
+ * optional-field bag, and the click handler decided what to do by testing the
+ * id against a positive allow-list:
+ *
+ *     if (item.id === 'dashboard' || item.id === 'billing') { setActiveView(...) }
+ *
+ * "Team access" was added months later with no href and no disabled flag. It
+ * matched no branch, so clicking it ran the handler to the end and did
+ * NOTHING: no navigation, no state change, no error, not even the active
+ * highlight. Everything behind it was finished and deployed (the panel, the
+ * DashView member, the render branch, the API route), and one `if` had never
+ * heard of it. Nothing could catch that: an enumerated allow-list plus a new
+ * entry elsewhere compiles clean and fails silently. Recorded as TRAPS 8.3.
+ *
+ * Now the item DECLARES what it is and the handler has nothing to enumerate:
+ *
+ *   view  switches an in-page view. `id` IS the DashView, so the id and the
+ *         view are one value and cannot drift apart.
+ *   link  navigates away.
+ *   soon  is visible, dimmed and inert on purpose.
+ *
+ * A new entry must pick one, because TypeScript will not let it do otherwise,
+ * and each kind has a branch. `verify-dashboard-nav` covers what the compiler
+ * still cannot see: that every DashView has somewhere to render.
+ */
+type NavItem =
+  | {
+      kind: 'view';
+      /** The view this switches to. Also the item's id: one value, one truth. */
+      id: DashView;
+      icon: string;
+      label: string;
+      /** Deep link for this view, e.g. '#billing'. Absent means the URL is
+       *  cleared instead, and the view is not restorable on load. Declared
+       *  HERE so the writer and the reader of the hash cannot disagree. */
+      hash?: string;
+      badge?: string;
+    }
+  | { kind: 'link'; id: string; icon: string; label: string; href: string; badge?: string }
+  | { kind: 'soon'; id: string; icon: string; label: string; badge?: string };
 
 // Admin-only collaboration panel. Hub level, not inside REFM: roles and
 // assignments are the same idea for every platform, and the panel reads the
@@ -125,16 +167,18 @@ interface NavItem {
 const TeamAccessPanel = dynamic(() => import('@/src/hubs/modeling/components/TeamAccessPanel'), { ssr: false });
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'dashboard',    icon: '🏠', label: 'Dashboard' },
-  { id: 'billing',      icon: '💳', label: 'Billing' },
-  { id: 'projects',     icon: '📁', label: 'My Projects',  disabled: true, badge: 'Soon' },
-  { id: 'certificates', icon: '🏆', label: 'Certificates', disabled: true, badge: 'Soon' },
-  { id: 'settings',     icon: '⚙️', label: 'Settings', href: '/settings' },
+  { kind: 'view', id: 'dashboard',    icon: '🏠', label: 'Dashboard' },
+  { kind: 'view', id: 'billing',      icon: '💳', label: 'Billing', hash: '#billing' },
+  { kind: 'soon', id: 'projects',     icon: '📁', label: 'My Projects',  badge: 'Soon' },
+  { kind: 'soon', id: 'certificates', icon: '🏆', label: 'Certificates', badge: 'Soon' },
+  { kind: 'link', id: 'settings',     icon: '⚙️', label: 'Settings', href: '/settings' },
 ];
 
-// In-page views the sidebar switches between (no separate route, so the shell is
-// not duplicated). Items with an href still navigate away.
-type DashView = 'dashboard' | 'billing' | 'team';
+/** Views that can be restored from the URL on load, from the ONE place the
+ *  hashes are declared. */
+const VIEW_BY_HASH: ReadonlyMap<string, DashView> = new Map(
+  NAV_ITEMS.flatMap((i) => (i.kind === 'view' && i.hash ? [[i.hash, i.id] as const] : [])),
+);
 
 /**
  * The access card at the top of the dashboard for a user with NO plan.
@@ -376,7 +420,7 @@ export default function ModelingDashboardPage() {
   const graceRenewHref = `/pricing/${platformPricingSegment(getPlatform('real-estate') ?? { slug: 'real-estate', shortName: 'REFM' })}`;
 
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<DashView>('dashboard');
+  const [activeView, setActiveView] = useState<DashView>(DEFAULT_VIEW);
   const [collapsed, setCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [profileDropdown, setProfileDropdown] = useState(false);
@@ -402,11 +446,17 @@ export default function ModelingDashboardPage() {
     redirectUrl: '/signin?reason=inactivity&bypass=true',
   });
 
-  // Open the Billing tab directly when linked with #billing (in-page tab).
+  // Open a view directly when it is linked with its hash. The map is built
+  // from NAV_ITEMS, so the hash written on click and the hash read here can
+  // never drift; a view with no declared hash is simply not restorable.
+  //
+  // Deliberately only the STATIC items: the admin-only entries are appended
+  // per session, and restoring one before the session has resolved would set
+  // a view this user may not be allowed to see.
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.location.hash === '#billing') {
-      setActiveView('billing');
-    }
+    if (typeof window === 'undefined') return;
+    const view = VIEW_BY_HASH.get(window.location.hash);
+    if (view) setActiveView(view);
   }, []);
 
   // Profile image: the session/JWT does not carry avatar_url, so fetch it for the
@@ -532,8 +582,8 @@ export default function ModelingDashboardPage() {
     // platform. An in-page view rather than a link out to /admin, because
     // it is about this hub and the admin reaches it where they already see
     // the projects it governs.
-    ...(isAdmin ? [{ id: 'team', icon: '👥', label: 'Team access' }] : []),
-    ...(isAdmin ? [{ id: 'admin', icon: '🛡️', label: 'Admin Panel', href: `${MAIN_URL}/admin` }] : []),
+    ...(isAdmin ? [{ kind: 'view' as const, id: 'team' as const, icon: '👥', label: 'Team access' }] : []),
+    ...(isAdmin ? [{ kind: 'link' as const, id: 'admin', icon: '🛡️', label: 'Admin Panel', href: `${MAIN_URL}/admin` }] : []),
   ];
 
   return (
@@ -687,7 +737,7 @@ export default function ModelingDashboardPage() {
             )}
 
             {navItems.map(item => {
-              const isActive = item.id === activeView;
+              const isActive = item.kind === 'view' && item.id === activeView;
               return (
                 <div
                   key={item.id}
@@ -701,21 +751,24 @@ export default function ModelingDashboardPage() {
                     borderRadius: 8, marginBottom: 4,
                     borderLeft: isActive ? '3px solid #3B82F6' : '3px solid transparent',
                     background: isActive ? 'rgba(255,255,255,0.1)' : 'transparent',
-                    cursor: item.disabled ? 'default' : 'pointer',
+                    cursor: item.kind === 'soon' ? 'default' : 'pointer',
                     transition: 'background 0.15s',
-                    opacity: item.disabled ? 0.5 : 1,
+                    opacity: item.kind === 'soon' ? 0.5 : 1,
                     textDecoration: 'none', color: 'inherit',
                   }}
                   onClick={() => {
-                    if (item.disabled) return;
-                    if (item.href) { window.location.href = item.href; return; }
-                    // In-page view switch (Dashboard / Billing): no navigation.
-                    if (item.id === 'dashboard' || item.id === 'billing') {
-                      setActiveView(item.id);
-                      setMobileSidebarOpen(false);
-                      if (typeof window !== 'undefined') {
-                        window.history.replaceState(null, '', item.id === 'billing' ? '#billing' : ' ');
-                      }
+                    // ONE BRANCH PER KIND, and the union guarantees there is a
+                    // kind. No id is tested against a list, so a new entry
+                    // cannot fall through the way "Team access" silently did.
+                    if (item.kind === 'soon') return;
+                    if (item.kind === 'link') { window.location.href = item.href; return; }
+                    setActiveView(item.id);
+                    setMobileSidebarOpen(false);
+                    if (typeof window !== 'undefined') {
+                      // The hash comes off the item, so the URL this writes and
+                      // the URL the restore effect reads are the same
+                      // declaration.
+                      window.history.replaceState(null, '', item.hash ?? ' ');
                     }
                   }}
                 >
