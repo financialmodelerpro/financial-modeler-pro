@@ -1949,6 +1949,10 @@ export default function RealEstatePlatform(): React.JSX.Element {
         initialTab={versionPickMode === 'edit' ? 'history' : undefined}
         loadActionLabel={versionPickMode === 'edit' ? 'Edit this version' : undefined}
         onCreateVersion={versionPickMode === 'edit' ? undefined : (can('canSave') ? handleSaveQuick : undefined)}
+        // Reading comments is not gated (every member sees the same thread);
+        // this only decides whether the composer and the controls render. The
+        // server checks canAddComments again on every write.
+        canComment={can('canAddComments')}
         onLoadVersion={(versionId) => {
           setVersionModalOpen(false);
           const mode = versionPickMode;

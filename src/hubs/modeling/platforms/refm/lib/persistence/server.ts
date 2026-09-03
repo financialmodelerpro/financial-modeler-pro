@@ -556,6 +556,12 @@ export function roleMayWrite(_role: ProjectRole | null): boolean {
  * archive their own project while a colleague had it open, which is a worse
  * outcome than the collision it would prevent. `canExport` is absent for the
  * same reason it is gated as a read: it writes nothing.
+ *
+ * `canAddComments` is absent too (Module 10 step 7), and deliberately: a
+ * comment is not a model edit. Two people commenting at once collide over
+ * nothing, and requiring the lock would mean a reviewer could not leave a
+ * note while the editor had the project open, which is precisely when a
+ * review happens.
  */
 const LOCK_REQUIRED: ReadonlySet<Permission> = new Set<Permission>([
   'canSave',

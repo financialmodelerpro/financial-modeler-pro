@@ -19,6 +19,7 @@ import type {
   RefmProjectVersionRow,
   RefmProjectVersionListItem,
   ProjectChangeDTO,
+  ProjectCommentDTO,
 } from './types';
 import type { HydrateSnapshot } from '../state/module1-store';
 import type { Party } from '../parties';
@@ -202,6 +203,68 @@ export function listChanges(
 ): Promise<FetchResult<{ available: boolean; changes: ProjectChangeDTO[]; limit: number; truncated: boolean }>> {
   const q = limit ? `?limit=${encodeURIComponent(String(limit))}` : '';
   return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/changes${q}`, { method: 'GET' });
+}
+
+// ── Comments (mig 236, Module 10 step 7) ───────────────────────────────────
+//
+// `viewerId` comes back with the list so the UI can tell whose comments carry
+// Edit and Delete without a second call and without guessing from a name.
+
+export function listComments(
+  projectId: string,
+  limit?: number,
+): Promise<FetchResult<{
+  available: boolean;
+  comments: ProjectCommentDTO[];
+  viewerId: string;
+  limit: number;
+  truncated: boolean;
+}>> {
+  const q = limit ? `?limit=${encodeURIComponent(String(limit))}` : '';
+  return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/comments${q}`, { method: 'GET' });
+}
+
+export function createComment(
+  projectId: string,
+  input: { body: string; parentId?: string | null; versionId?: string | null; path?: string | null },
+): Promise<FetchResult<{ comment: ProjectCommentDTO }>> {
+  return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/comments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export function editComment(
+  projectId: string,
+  commentId: string,
+  body: string,
+): Promise<FetchResult<{ comment: ProjectCommentDTO }>> {
+  return callJson(
+    `/api/refm/projects/${encodeURIComponent(projectId)}/comments/${encodeURIComponent(commentId)}`,
+    { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body }) },
+  );
+}
+
+export function setCommentResolved(
+  projectId: string,
+  commentId: string,
+  resolved: boolean,
+): Promise<FetchResult<{ comment: ProjectCommentDTO }>> {
+  return callJson(
+    `/api/refm/projects/${encodeURIComponent(projectId)}/comments/${encodeURIComponent(commentId)}`,
+    { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ resolved }) },
+  );
+}
+
+export function deleteComment(
+  projectId: string,
+  commentId: string,
+): Promise<FetchResult<{ deleted: boolean }>> {
+  return callJson(
+    `/api/refm/projects/${encodeURIComponent(projectId)}/comments/${encodeURIComponent(commentId)}`,
+    { method: 'DELETE' },
+  );
 }
 
 export interface SaveVersionInput {

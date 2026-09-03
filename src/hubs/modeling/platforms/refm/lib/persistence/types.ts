@@ -173,6 +173,40 @@ export interface ProjectChangeDTO {
   createdAt: string;
 }
 
+/**
+ * A comment on a project, a version, or a field (mig 236, Module 10 step 7).
+ *
+ * `body` is NULL when `deleted` is true: the server strips withdrawn text
+ * rather than trusting a client not to render it. A tombstone still arrives
+ * because a deleted root has to hold its replies together.
+ */
+export interface ProjectCommentDTO {
+  id:        string;
+  projectId: string;
+  /** The version it was written against, or null when that version has been
+   *  deleted. Nothing filters by it: a comment stays visible after a newer
+   *  version is saved. */
+  versionId: string | null;
+  /** Set on a reply. A reply carries no anchor of its own; its thread root
+   *  owns the version and the path. */
+  parentId:  string | null;
+  userId:    string | null;
+  /** Display name, or null when the account is gone. Null reads as unknown,
+   *  never as somebody else. */
+  userName:  string | null;
+  /** snapshot-diff grammar, e.g. assets[id=x].buaSqm. Null for a comment on
+   *  the project or the version as a whole. */
+  path:      string | null;
+  body:      string | null;
+  createdAt: string;
+  updatedAt: string | null;
+  edited:    boolean;
+  deleted:   boolean;
+  resolvedAt:     string | null;
+  resolvedBy:     string | null;
+  resolvedByName: string | null;
+}
+
 // Version-list shape: snapshot omitted to keep the picker query light.
 // change_log is included so the history UI can render diffs without a
 // second round-trip; it's typically small (a few hundred bytes).
