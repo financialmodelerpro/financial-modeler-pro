@@ -63,6 +63,17 @@ import type { ProjectStatus } from '@/src/shared/admin/projectStatus';
 import type { ProjectRole } from '@/src/core/collab/projectRoles';
 
 // ── refm_projects row shape ─────────────────────────────────────────────────
+/** The open or most recent delete request on a project, when there is one
+ *  (mig 238, Module 10 step 9). Carried on the LIST so a card can say what
+ *  happened without a query per card, and because there is no notification
+ *  system: this is how a requester learns the outcome. An APPROVED request is
+ *  deliberately not carried, since the project has left the list. */
+export interface ProjectDeleteRequestState {
+  status: 'pending' | 'declined';
+  declineReason: string | null;
+  createdAt: string;
+}
+
 export interface RefmProjectRow {
   id:                  string;
   user_id:             string;
@@ -97,6 +108,9 @@ export interface RefmProjectRow {
   // membership table", which grants everything. It never means "no rights":
   // a caller with no membership does not get the row at all.
   role?:               ProjectRole | null;
+  /** Set when a delete has been requested on this project and not yet
+   *  approved, or was declined. Absent otherwise. */
+  deleteRequest?:      ProjectDeleteRequestState | null;
 }
 
 // Picker-list shape (subset of RefmProjectRow excluding user_id, which

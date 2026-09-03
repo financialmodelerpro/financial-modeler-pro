@@ -12,6 +12,7 @@
  * bypasses it), so the application layer is the actual access boundary.
  */
 
+import { pendingByProject } from '@/src/shared/admin/deleteRequests';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getServerClient } from '@/src/core/db/supabase';
 import { isProjectRole, roleCan, type ProjectRole, type Permission } from '@/src/core/collab/projectRoles';
@@ -314,8 +315,19 @@ export async function listProjects(userId: string, sb: Db = getServerClient()): 
   const ordering = await memberOrdering(userId, projects.map((p) => p.id), sb);
   const ordered = applyMemberOrdering(projects, ordering);
 
+  // Delete requests (mig 238, step 9). ONE query for the whole list, like the
+  // ordering above. This is how a requester learns the outcome: there is no
+  // notification system, so the state rides on the card they already look at.
+  // A read failure leaves the field absent rather than failing the list: a
+  // missing badge is a smaller harm than a dashboard that will not load.
+  const requests = await pendingByProject(sb, 'refm', ordered.map((p) => p.id));
+
   return {
-    rows: ordered.map(p => ({ ...p, version_count: counts[p.id] ?? 0 })),
+    rows: ordered.map(p => ({
+      ...p,
+      version_count: counts[p.id] ?? 0,
+      deleteRequest: requests.get(p.id) ?? null,
+    })),
     error: null,
   };
 }

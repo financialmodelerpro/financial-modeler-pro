@@ -24,6 +24,11 @@ interface ProjectsScreenProps {
   onCloseProject: () => void;
   onEditProject?: (id: string) => void;
   onDeleteProject?: (id: string) => void;
+  /** PER CARD. `can()` reads the OPEN project's role, which is the wrong
+   *  question on a list of other projects. */
+  canDeleteCard?: (id: string) => boolean;
+  canRequestDeleteCard?: (id: string) => boolean;
+  onRequestDelete?: (id: string) => void;
   setActiveModule: (m: string) => void;
   can: (permission: keyof PermissionMap) => boolean;
 }
@@ -55,6 +60,9 @@ export default function ProjectsScreen({
   onCloseProject,
   onEditProject,
   onDeleteProject,
+  canDeleteCard,
+  canRequestDeleteCard,
+  onRequestDelete,
   setActiveModule,
   can,
 }: ProjectsScreenProps): React.JSX.Element {
@@ -268,7 +276,17 @@ export default function ProjectsScreen({
                       ✏️
                     </button>
                   )}
-                  {can('canDeleteProject') && onDeleteProject && (
+                  {onRequestDelete && canRequestDeleteCard?.(pid) && (
+                    <button
+                      className="btn-secondary"
+                      style={{ fontSize: '12px', padding: '5px 10px' }}
+                      title="You cannot delete this project yourself. This asks an admin to do it."
+                      onClick={(e) => { e.stopPropagation(); onRequestDelete(pid); }}
+                    >
+                      Request delete
+                    </button>
+                  )}
+                  {(canDeleteCard?.(pid) ?? can('canDeleteProject')) && onDeleteProject && (
                     <button
                       className="btn-danger"
                       style={{ fontSize: '12px', padding: '5px 10px' }}

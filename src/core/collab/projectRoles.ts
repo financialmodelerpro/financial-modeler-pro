@@ -73,7 +73,13 @@ export type Permission =
   | 'canCreateProject' | 'canEditProject' | 'canDeleteProject'
   | 'canManageVersions' | 'canEditInputs' | 'canSave'
   | 'canChangeBranding' | 'canViewReports' | 'canAddComments'
-  | 'canExport' | 'canImport';
+  | 'canExport' | 'canImport'
+  /** May ASK an admin to delete a project (Module 10 step 9). Deliberately
+   *  FALSE for the owner, which looks inverted and is not: an owner holds
+   *  `canDeleteProject` and deletes directly, so a request path would be a
+   *  slower road to the same place. This is the Editor's only route to a
+   *  delete, and Reviewers and Viewers have none. */
+  | 'canRequestDelete';
 
 export type PermissionMap = Record<Permission, boolean>;
 
@@ -89,6 +95,8 @@ export const PROJECT_ROLE_PERMISSIONS: Record<ProjectRole, PermissionMap> = {
     canCreateProject:  true,
     canEditProject:    true,
     canDeleteProject:  true,
+    // FALSE because canDeleteProject is TRUE: an owner deletes, never asks.
+    canRequestDelete:  false,
     canManageVersions: true,
     canEditInputs:     true,
     canSave:           true,
@@ -102,6 +110,8 @@ export const PROJECT_ROLE_PERMISSIONS: Record<ProjectRole, PermissionMap> = {
     canCreateProject:  true,
     canEditProject:    true,
     canDeleteProject:  false,
+    // The one role that gains something in step 9: it could not delete at all.
+    canRequestDelete:  true,
     canManageVersions: true,
     canEditInputs:     true,
     canSave:           true,
@@ -115,6 +125,7 @@ export const PROJECT_ROLE_PERMISSIONS: Record<ProjectRole, PermissionMap> = {
     canCreateProject:  false,
     canEditProject:    false,
     canDeleteProject:  false,
+    canRequestDelete:  false,
     canManageVersions: false,
     canEditInputs:     false,
     canSave:           false,
@@ -128,6 +139,7 @@ export const PROJECT_ROLE_PERMISSIONS: Record<ProjectRole, PermissionMap> = {
     canCreateProject:  false,
     canEditProject:    false,
     canDeleteProject:  false,
+    canRequestDelete:  false,
     canManageVersions: false,
     canEditInputs:     false,
     canSave:           false,

@@ -214,7 +214,31 @@ console.log('\n=== G. Nothing changes for a single-user account ===');
   // permission in the matrix, so every gate that now consults it lets them
   // through exactly as the blanket gate did.
   const all = Object.keys(PROJECT_ROLE_PERMISSIONS.owner) as Permission[];
-  check('G1 an owner holds every permission', all.every((p) => roleCan('owner', p)));
+  // RE-AIMED 2026-09-03 (step 9). This asserted `all.every(p => roleCan('owner', p))`,
+  // and step 9 added `canRequestDelete`, which is FALSE for an owner on
+  // purpose: it is the EDITOR'S ALTERNATIVE to a stronger permission the owner
+  // already holds. Read literally, the old check said a new capability for a
+  // lesser role must also be granted to the owner, which would have forced a
+  // pointless second delete path onto the person who can already delete.
+  //
+  // The invariant it actually protects is NARROWER and is preserved here: an
+  // owner is never BLOCKED from anything. So the owner may lack a permission
+  // only when it is an alternative route to something they already have, and
+  // that pairing is asserted rather than assumed.
+  const ALTERNATIVES: Partial<Record<Permission, Permission>> = {
+    // asking an admin to delete <- the owner simply deletes
+    canRequestDelete: 'canDeleteProject',
+  };
+  const missing = all.filter((p) => !roleCan('owner', p));
+  check('G1 an owner is blocked from nothing: every permission they lack is an alternative to one they hold',
+    missing.every((p) => {
+      const stronger = ALTERNATIVES[p];
+      return !!stronger && roleCan('owner', stronger);
+    }),
+    missing.length ? `owner lacks: ${missing.join(', ')}` : '');
+  check('G1b the only permission an owner lacks is the request path, and they hold the direct one',
+    missing.length === 1 && missing[0] === 'canRequestDelete' && roleCan('owner', 'canDeleteProject'),
+    missing.join(', '));
   check('G2 an owner passes the temporary narrowing too', roleMayWrite('owner'));
   check('G3 an owner sees every REFM module',
     REFM_MODULE_VISIBILITY.owner.length >= 10);

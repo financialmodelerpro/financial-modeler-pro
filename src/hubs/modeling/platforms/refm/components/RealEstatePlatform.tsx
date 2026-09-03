@@ -574,6 +574,59 @@ export default function RealEstatePlatform(): React.JSX.Element {
   // shown is a control that works.
   const canEnterEditMode = !!activeProjectId && !graceReadOnly && can('canSave');
 
+  // ── WHAT A PROJECT CARD MAY OFFER (2026-09-03, Module 10 step 9) ─────────
+  //
+  // ONE derivation per card, read by the Dashboard and the Projects screen, so
+  // the two lists cannot disagree about the same project.
+  //
+  // WHY IT IS PER CARD AND NOT `can()`. `can()` reads the OPEN project's role,
+  // and on the dashboard no project is open, so it falls back to Owner. That
+  // is deliberate for project-agnostic actions like Create, and it was wrong
+  // for Delete: the Dashboard rendered a Delete link on EVERY card regardless
+  // of role, and a Reviewer clicking it got a 404 from a server that was right
+  // all along. Same class as the Edit button and the Team Access button: a
+  // control shown by one rule and refused by another.
+  //
+  // `roleCan` is the same matrix the server gates on, so shown means allowed.
+  // A row with no role (a pre-231 database, where reaching it at all means
+  // owning it) keeps the owner's rights, which is the historical behaviour.
+  const cardRole = useCallback(
+    (pid: string): Role => (serverProjects.find((x) => x.id === pid)?.role ?? ROLES.OWNER) as Role,
+    [serverProjects],
+  );
+  const canDeleteCard = useCallback(
+    (pid: string): boolean => !graceReadOnly && roleCan(cardRole(pid), 'canDeleteProject'),
+    [graceReadOnly, cardRole],
+  );
+  /** An EDITOR cannot delete, but may ask. Owner is deliberately false in the
+   *  matrix: they delete directly, so offering both would be two roads to one
+   *  place with different waiting times. */
+  const canRequestDeleteCard = useCallback(
+    (pid: string): boolean => !graceReadOnly && roleCan(cardRole(pid), 'canRequestDelete'),
+    [graceReadOnly, cardRole],
+  );
+
+  /** The request state carried on the server list (mig 238). This is the ONLY
+   *  way a requester hears back: nothing emails or notifies them, so the
+   *  answer rides on the card they already look at. */
+  const deleteRequestFor = useCallback(
+    (pid: string) => serverProjects.find((x) => x.id === pid)?.deleteRequest ?? null,
+    [serverProjects],
+  );
+
+  const [requestDeleteBusy, setRequestDeleteBusy] = useState(false);
+  const handleRequestDelete = useCallback(async (pid: string): Promise<void> => {
+    if (requestDeleteBusy) return;
+    setRequestDeleteBusy(true);
+    const res = await pclient.requestProjectDelete(pid);
+    setRequestDeleteBusy(false);
+    if (res.error) { setLoadError(res.error); return; }
+    // Re-read rather than patching locally: the card's state is the server's
+    // answer, and a second editor may have asked first.
+    const listRes = await pclient.listProjects();
+    if (listRes.data?.projects) setServerProjects(listRes.data.projects);
+  }, [requestDeleteBusy]);
+
   // Boot: list projects from server
   //
   // 2026-05-31 BUG-B FIX: hydrate BEFORE flipping activeProjectId so
@@ -1178,6 +1231,10 @@ export default function RealEstatePlatform(): React.JSX.Element {
           onCreateProject={() => setWizardOpen(true)}
           onSelectProject={(id) => void handleSelectProject(id)}
           onDeleteProject={graceReadOnly ? undefined : (id) => requestDeleteProject(id)}
+          canDeleteCard={canDeleteCard}
+          canRequestDeleteCard={canRequestDeleteCard}
+          onRequestDelete={(id) => void handleRequestDelete(id)}
+          deleteRequestFor={deleteRequestFor}
           onArchiveProject={graceReadOnly ? undefined : (id, archived) => void handleArchiveProject(id, archived)}
           onSetProjectStatus={graceReadOnly ? undefined : (id, status) => void handleSetProjectStatus(id, status)}
           onSetProjectPriority={graceReadOnly ? undefined : (id, priority) => void handleSetProjectPriority(id, priority)}
@@ -1210,6 +1267,9 @@ export default function RealEstatePlatform(): React.JSX.Element {
           onCloseProject={handleCloseProject}
           onEditProject={handleEditProject}
           onDeleteProject={graceReadOnly ? undefined : (id) => requestDeleteProject(id)}
+          canDeleteCard={canDeleteCard}
+          canRequestDeleteCard={canRequestDeleteCard}
+          onRequestDelete={(id) => void handleRequestDelete(id)}
           setActiveModule={setActiveModule}
           can={can}
         />

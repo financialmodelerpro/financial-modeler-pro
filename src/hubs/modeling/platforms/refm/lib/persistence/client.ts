@@ -210,6 +210,17 @@ export function listChanges(
 // `viewerId` comes back with the list so the UI can tell whose comments carry
 // Edit and Delete without a second call and without guessing from a name.
 
+/**
+ * Ask an admin to delete a project (mig 238, step 9). EDITORS ONLY: an Owner
+ * deletes directly and the server refuses them this route, which is the
+ * matrix speaking, not a special case here.
+ */
+export function requestProjectDelete(
+  projectId: string,
+): Promise<FetchResult<{ ok: boolean; created: boolean; alreadyOpen: boolean; message: string }>> {
+  return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/delete-request`, { method: 'POST' });
+}
+
 export function listComments(
   projectId: string,
   limit?: number,

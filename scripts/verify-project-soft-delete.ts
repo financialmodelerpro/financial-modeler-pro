@@ -234,9 +234,18 @@ async function main() {
   check('H3 Delete is the quieter control (no button chrome, muted colour)',
     /dashboard-delete-[\s\S]{0,400}textDecoration: 'underline'/.test(dash)
     && !/dashboard-delete-[\s\S]{0,400}color: 'var\(--color-negative\)'/.test(dash));
+  // RE-AIMED 2026-09-03 (step 9). This matched the exact text
+  // `{onDeleteProject && (`, so adding the per-card role gate in front of the
+  // button broke it while the RULE it protects was untouched. The rule is that
+  // both controls are gated on the PROP EXISTING, and that the parent passes
+  // undefined in grace, so the control is WITHHELD rather than rendered dead.
+  // Extra conditions after the prop check (a role gate, a pending request) are
+  // not a violation of that, and pinning the punctuation made them look like
+  // one.
   check('H4 both actions are WITHHELD in grace, never rendered dead',
-    /\{onArchiveProject && \(/.test(dash) && /\{onDeleteProject && \(/.test(dash)
-    && /onArchiveProject=\{graceReadOnly \? undefined :/.test(platform));
+    /\{onArchiveProject &&/.test(dash) && /\{onDeleteProject &&/.test(dash)
+    && /onArchiveProject=\{graceReadOnly \? undefined :/.test(platform)
+    && /onDeleteProject=\{graceReadOnly \? undefined :/.test(platform));
   check('H5 ONE archive handler, reading the route code rather than its prose',
     (platform.match(/const handleArchiveProject = useCallback/g) ?? []).length === 1
     && /code === 'CAP_REACHED'/.test(platform) && /code === 'ARCHIVE_NOT_ALLOWED'/.test(platform));

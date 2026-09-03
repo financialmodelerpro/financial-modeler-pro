@@ -34,6 +34,19 @@ interface ProjectRow {
   daysLeft: number | null;
 }
 
+/** A pending delete request, as the queue shows it. */
+interface DeleteRequestRow {
+  id: string;
+  platform: string;
+  projectId: string;
+  projectName: string | null;
+  requesterName: string | null;
+  requesterEmail: string | null;
+  requesterStillMember: boolean;
+  createdAt: string;
+  projectDeletedAt: string | null;
+}
+
 interface SourceInfo { key: string; label: string; shortLabel: string; supportsArchive: boolean; supportsRestore: boolean; }
 
 export default function ProjectsBrowser() {
@@ -52,7 +65,41 @@ export default function ProjectsBrowser() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // DELETE REQUESTS (mig 238, Module 10 step 9). The queue lives HERE and not
+  // on the Plans page: approving a delete and restoring one from the Deleted
+  // bin are the same job on the same objects, and splitting them across two
+  // screens would have an admin approving on one page and undoing on another.
+  const [requests, setRequests] = useState<DeleteRequestRow[]>([]);
+  const [requestsAvailable, setRequestsAvailable] = useState(true);
+  const [declining, setDeclining] = useState<string | null>(null);
+  const [declineReason, setDeclineReason] = useState('');
+
   const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(''), 3000); };
+
+  const loadRequests = useCallback(async () => {
+    const res = await fetch('/api/admin/project-delete-requests');
+    if (!res.ok) return;
+    const j = await res.json();
+    setRequests(j.requests ?? []);
+    setRequestsAvailable(j.available !== false);
+  }, []);
+
+  /** Approve or decline. Both RE-READ the queue and the project list rather
+   *  than patching locally, because an approval changes a project's state and
+   *  the bin below has to agree with it. */
+  const decide = async (id: string, action: 'approve' | 'decline', reason?: string) => {
+    setBusy(true);
+    const res = await fetch('/api/admin/project-delete-requests', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, action, reason }),
+    });
+    const j = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) { showToast(j.error ?? 'Failed'); await loadRequests(); return; }
+    showToast(action === 'approve' ? `Deleted "${j.projectName ?? 'project'}", recoverable from the Deleted bin` : 'Request declined');
+    setDeclining(null); setDeclineReason('');
+    await Promise.all([loadRequests(), load()]);
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -68,6 +115,7 @@ export default function ProjectsBrowser() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { void loadRequests(); }, [loadRequests]);
 
   const setArchived = async (p: ProjectRow, archive: boolean) => {
     const res = await fetch('/api/admin/projects', {
@@ -162,6 +210,93 @@ export default function ProjectsBrowser() {
             {sources.map((s) => <option key={s.key} value={s.key}>{s.shortLabel}</option>)}
           </select>
         )}
+      {/* ── Delete requests (mig 238, step 9) ──────────────────────────────
+          Above the filters on purpose: it is a QUEUE, something waiting on a
+          person, and it should be the first thing an admin sees here rather
+          than something they have to go looking for. */}
+      {requestsAvailable && requests.length > 0 && (
+        <div
+          data-testid="delete-request-queue"
+          style={{
+            border: '1px solid var(--color-warning, #92400e)',
+            borderLeft: '4px solid var(--color-warning, #92400e)',
+            borderRadius: 8, padding: '12px 14px', marginBottom: 16,
+            background: 'rgba(146,64,14,0.04)',
+          }}
+        >
+          <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 8, color: 'var(--color-heading)' }}>
+            Delete requests awaiting a decision ({requests.length})
+          </div>
+          {requests.map((r) => (
+            <div
+              key={r.id}
+              data-testid={`delete-request-${r.id}`}
+              style={{ padding: '8px 0', borderTop: '1px solid var(--color-border)', fontSize: 13 }}
+            >
+              <div style={{ fontWeight: 700 }}>
+                {r.projectName ?? '(project name unavailable)'}
+                <span style={{ fontWeight: 400, color: 'var(--color-meta)' }}> on {r.platform}</span>
+              </div>
+              <div style={{ color: 'var(--color-meta)', fontSize: 12, marginTop: 2 }}>
+                Requested by {r.requesterName ?? r.requesterEmail ?? 'a user whose account has since been closed'}
+                {' on '}{new Date(r.createdAt).toLocaleString()}
+                {/* Losing membership does NOT withdraw a request, so the fact
+                    is shown rather than the row being hidden. */}
+                {r.requesterEmail || r.requesterName ? (r.requesterStillMember ? ' (still a member)' : ' (no longer a member of this project)') : ''}
+              </div>
+              {r.projectDeletedAt && (
+                <div
+                  data-testid={`delete-request-${r.id}-already-deleted`}
+                  style={{ color: 'var(--color-danger, #dc2626)', fontSize: 12, fontWeight: 700, marginTop: 4 }}
+                >
+                  This project was already deleted by another route. Approving would change nothing; decline it to close the loop.
+                </div>
+              )}
+              {declining === r.id ? (
+                <div style={{ marginTop: 6 }}>
+                  <input
+                    value={declineReason}
+                    onChange={(e) => setDeclineReason(e.target.value)}
+                    placeholder="Why? The requester sees this on their project card."
+                    data-testid={`decline-reason-${r.id}`}
+                    style={{ width: '100%', padding: '6px 8px', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: 13 }}
+                  />
+                  <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                    <button type="button" disabled={busy || !declineReason.trim()}
+                      onClick={() => void decide(r.id, 'decline', declineReason)}
+                      data-testid={`decline-confirm-${r.id}`}
+                      style={{ padding: '5px 12px', fontSize: 12, fontWeight: 700, borderRadius: 6, border: 'none', background: '#dc2626', color: '#fff', cursor: 'pointer', opacity: busy || !declineReason.trim() ? 0.5 : 1 }}>
+                      Decline
+                    </button>
+                    <button type="button" onClick={() => { setDeclining(null); setDeclineReason(''); }}
+                      style={{ padding: '5px 12px', fontSize: 12, borderRadius: 6, border: '1px solid var(--color-border)', background: 'transparent', cursor: 'pointer' }}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                  <button type="button" disabled={busy}
+                    onClick={() => void decide(r.id, 'approve')}
+                    data-testid={`approve-${r.id}`}
+                    style={{ padding: '5px 12px', fontSize: 12, fontWeight: 700, borderRadius: 6, border: 'none', background: 'var(--color-primary)', color: '#fff', cursor: 'pointer' }}>
+                    Approve and delete
+                  </button>
+                  <button type="button" onClick={() => { setDeclining(r.id); setDeclineReason(''); }}
+                    data-testid={`decline-open-${r.id}`}
+                    style={{ padding: '5px 12px', fontSize: 12, borderRadius: 6, border: '1px solid var(--color-border)', background: 'transparent', cursor: 'pointer' }}>
+                    Decline
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+          <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 8 }}>
+            Approving performs the same soft delete an owner performs: the project moves to the Deleted bin below and is recoverable there for {retentionDays} days.
+          </div>
+        </div>
+      )}
+
         <div style={{ display: 'flex', gap: 4 }}>
           {(['active', 'archived', 'all', 'deleted'] as const).map((f) => (
             <button key={f} onClick={() => setFilter(f)} style={{

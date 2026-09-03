@@ -35,6 +35,17 @@ interface DashboardProps {
   /** Absent in read-only grace, which hides the Delete control entirely
    *  rather than accepting a click and discarding it. */
   onDeleteProject?: (id: string) => void;
+  /** PER CARD, because a role is per project. Without this the Delete link
+   *  rendered on every card and a Reviewer got a 404 from the server, which
+   *  was right; the screen was not. */
+  canDeleteCard?: (id: string) => boolean;
+  /** An Editor cannot delete but may ASK an admin (mig 238). */
+  canRequestDeleteCard?: (id: string) => boolean;
+  /** The open or declined delete request on a card, if any. A LOOKUP rather
+   *  than a field, because these cards are built from local storage and this
+   *  state lives on the server list. */
+  deleteRequestFor?: (id: string) => { status: 'pending' | 'declined'; declineReason: string | null } | null;
+  onRequestDelete?: (id: string) => void;
   /** Archive / unarchive. Absent in read-only grace (the control is withheld
    *  rather than accepting a click and discarding it). */
   onArchiveProject?: (id: string, archived: boolean) => void;
@@ -120,6 +131,10 @@ export default function Dashboard({
   onCreateProject,
   onSelectProject,
   onDeleteProject,
+  canDeleteCard,
+  canRequestDeleteCard,
+  deleteRequestFor,
+  onRequestDelete,
   onArchiveProject,
   onSetProjectStatus,
   onSetProjectPriority,
@@ -386,7 +401,41 @@ export default function Dashboard({
                             {isArchived ? 'Unarchive' : 'Archive'}
                           </button>
                         )}
-                        {onDeleteProject && (
+                        {/* THE STATE OF A REQUEST WINS over any control: a
+                            project already waiting on an admin must not offer
+                            the button that got it there. This is also the only
+                            way a requester learns the outcome, since nothing
+                            notifies them. */}
+                        {deleteRequestFor?.(p.id)?.status === 'pending' && (
+                          <span
+                            data-testid={`dashboard-delete-pending-${p.id}`}
+                            title="An admin has been asked to delete this project."
+                            style={{ padding: '6px 10px', fontSize: 'var(--font-micro)', fontWeight: 700, color: 'var(--color-warning, #92400e)' }}
+                          >
+                            Delete requested, awaiting approval
+                          </span>
+                        )}
+                        {deleteRequestFor?.(p.id)?.status === 'declined' && (
+                          <span
+                            data-testid={`dashboard-delete-declined-${p.id}`}
+                            title={deleteRequestFor?.(p.id)?.declineReason ?? undefined}
+                            style={{ padding: '6px 10px', fontSize: 'var(--font-micro)', fontWeight: 700, color: 'var(--color-danger, #dc2626)' }}
+                          >
+                            Delete declined{deleteRequestFor?.(p.id)?.declineReason ? `: ${deleteRequestFor?.(p.id)?.declineReason}` : ''}
+                          </span>
+                        )}
+                        {onRequestDelete && !deleteRequestFor?.(p.id) && canRequestDeleteCard?.(p.id) && (
+                          <button
+                            type="button"
+                            onClick={() => onRequestDelete(p.id)}
+                            title="You cannot delete this project yourself. This asks an admin to do it."
+                            data-testid={`dashboard-request-delete-${p.id}`}
+                            style={{ padding: '6px 10px', fontSize: 'var(--font-micro)', fontWeight: 600, border: 'none', background: 'transparent', color: 'var(--color-meta)', textDecoration: 'underline', cursor: 'pointer' }}
+                          >
+                            Request delete
+                          </button>
+                        )}
+                        {onDeleteProject && !deleteRequestFor?.(p.id) && (canDeleteCard?.(p.id) ?? true) && (
                           <button
                             type="button"
                             onClick={() => onDeleteProject(p.id)}
