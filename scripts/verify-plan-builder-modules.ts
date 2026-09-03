@@ -6,9 +6,21 @@
  * tagged + still a gate row, reorder follows display_order, feature_key stays
  * stable (slug-derived) across reorder/renumber, and -1 formats as Unlimited.
  *
- * Run: npx tsx scripts/verify-plan-builder-modules.ts
+ * ALSO PINS THE POSITION / IDENTITY SPLIT (2026-09-03, migration 235). The
+ * number a user SEES is a POSITION among the visible modules; the number in
+ * feature_key is the slug-derived IDENTITY. They legitimately differ (with
+ * portfolio and market-data hidden, module_10 shows as "Module 8"), and the
+ * defect was never that they differ. It was that a THIRD copy of the number
+ * sat frozen in features_registry.label, agreeing with neither and tracking
+ * nothing. The live half at the end fails if a stored label carries one again.
+ *
+ * Run: npx tsx --env-file=.env.local scripts/verify-plan-builder-modules.ts
  */
+import { readFileSync } from 'node:fs';
 import { deriveModuleFeatureRows, moduleFeatureKey, formatLimit, type LiveModuleInput } from '../src/shared/entitlements/moduleCatalog';
+
+/** Any module label that still spells a number, in any separator style. */
+const NUMBER_IN_LABEL = /module\s*\d+/i;
 
 let pass = 0, fail = 0; const fails: string[] = [];
 const check = (name: string, ok: boolean, detail = ''): void => {
@@ -69,5 +81,72 @@ check('formatLimit(-1) = Unlimited', formatLimit(-1) === 'Unlimited');
 check('formatLimit(25) = 25', formatLimit(25) === '25');
 check('formatLimit(null) = empty', formatLimit(null) === '');
 
-console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
-if (fail) { console.log('Failures: ' + fails.join(' | ')); process.exit(1); }
+
+// ── Position is NOT identity, and the gap is the whole point ────────────────
+console.log('\n=== Position vs identity ===');
+{
+  // The live shape as of 2026-09-03: portfolio (8) and market-data (9) hidden.
+  // Collaborate is component 10 and the EIGHTH visible module. Both numbers
+  // are correct about different things, and this is the case that made a
+  // frozen stored label wrong.
+  const live: LiveModuleInput[] = base.map((m) =>
+    m.slug === 'portfolio' || m.slug === 'market-data'
+      ? { ...m, status: 'hidden' as const }
+      : { ...m, status: 'live' as const });
+  const lrows = deriveModuleFeatureRows(live);
+  const collab = lrows.find((r) => r.feature_key === 'module_10');
+  check('identity is the slug: collaborate keeps feature_key module_10', !!collab);
+  check('position is what shows: collaborate renders as Module 8',
+    !!collab && collab.label === 'Module 8: Collaborate', collab?.label);
+  // Unhide portfolio and the same row slides to 9 while its key never moves.
+  const unhidden = live.map((m) => (m.slug === 'portfolio' ? { ...m, status: 'coming_soon' as const } : m));
+  const collab2 = deriveModuleFeatureRows(unhidden).find((r) => r.feature_key === 'module_10');
+  check('unhiding a module moves the POSITION, never the key',
+    !!collab2 && collab2.feature_key === 'module_10' && collab2.label === 'Module 9: Collaborate', collab2?.label);
+}
+
+// ── The upgrade prompt names the identity, not the free hub ─────────────────
+console.log('\n=== UpgradePrompt labels ===');
+{
+  // That map is hand-written and keyed by IDENTITY. It must not name module_8
+  // after the free Portfolio Dashboard hub, which is ungated: doing so told a
+  // user to buy a plan for the screen they were already looking at.
+  const up = readFileSync('src/shared/components/UpgradePrompt.tsx', 'utf8');
+  const m8 = /module_8:\s*'([^']*)'/.exec(up);
+  check('UpgradePrompt still labels module_8', !!m8);
+  check('module_8 is NOT called Portfolio Dashboard (that is the free hub)',
+    !!m8 && !/Portfolio Dashboard/.test(m8[1]), m8?.[1]);
+  check('module_8 still names Portfolio', !!m8 && /Portfolio/.test(m8[1]), m8?.[1]);
+  check('the identity / position split is written down beside the map',
+    /position among the VISIBLE ones/.test(up));
+}
+
+// ── LIVE: storage carries no display number (migration 235) ─────────────────
+async function liveChecks(): Promise<void> {
+  const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    console.log('\n[SKIP] live label check (no DB credentials).');
+    return;
+  }
+  console.log('\n=== Live features_registry labels (migration 235) ===');
+  const res = await fetch(url + '/rest/v1/features_registry?feature_key=like.module_*&select=feature_key,label',
+    { headers: { apikey: key, Authorization: 'Bearer ' + key } });
+  const rows = (await res.json()) as Array<{ feature_key: string; label: string }>;
+  check('live: all 11 module rows found', Array.isArray(rows) && rows.length === 11, String(rows?.length));
+  const numbered = (rows ?? []).filter((x) => NUMBER_IN_LABEL.test(x.label));
+  check('live: no stored module label carries a number (mig 235 applied)',
+    numbered.length === 0, numbered.map((x) => x.feature_key + '=' + x.label).join('; '));
+  const collabRow = (rows ?? []).find((x) => x.feature_key === 'module_10');
+  check('live: module_10 is stored as the NAME only, no number to contradict the position',
+    !!collabRow && collabRow.label === 'Collaborate', collabRow?.label);
+}
+function report(): void {
+  console.log('');
+  console.log(`=== Result: ${pass} passed, ${fail} failed ===`);
+  if (fail) { console.log('Failures: ' + fails.join(' | ')); process.exit(1); }
+}
+
+// The live half is async, so the summary WAITS for it. Printing the total
+// before the live checks had run would report a pass for checks that had not
+// happened yet, which is the exact shape of TRAPS 3.20.
+void liveChecks().then(report);

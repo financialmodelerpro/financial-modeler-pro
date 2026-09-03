@@ -5,6 +5,13 @@ import React from 'react';
 type SubscriptionPlan = 'free' | 'professional' | 'enterprise';
 
 // ── Human-readable labels for every feature key ───────────────────────────────
+//
+// A HAND-WRITTEN MAP, and the numbers in it are the SLUG-DERIVED IDENTITY
+// (module_8 is the portfolio module because SLUG_TO_COMPONENT_NUMBER says
+// portfolio is 8), NOT the number a user sees in the sidebar. Those differ:
+// the sidebar numbers modules by their position among the VISIBLE ones, so
+// with portfolio and market-data both hidden, module_10 renders as "Module 8,
+// Collaborate". See orderModulesForDisplay in shared/entitlements/moduleCatalog.
 const FEATURE_LABELS: Record<string, string> = {
   module_1:           'Module 1 - Project Setup',
   module_2:           'Module 2 - Revenue Analysis',
@@ -13,7 +20,13 @@ const FEATURE_LABELS: Record<string, string> = {
   module_5:           'Module 5 - Financial Statements',
   module_6:           'Module 6 - Reports & Export',
   module_7:           'Module 7 - Scenario Analysis',
-  module_8:           'Module 8 - Portfolio Dashboard',
+  // NOT "Portfolio Dashboard". That is the name of the FREE, ungated
+  // all-projects hub every signed-in user already has (STATIC_NAV key
+  // 'dashboard', featureKey null, fed by /api/refm/portfolio since
+  // 2026-08-30). Naming the LOCK after it told a user to buy a plan for a
+  // screen they were already looking at. module_8 is the unbuilt cross-project
+  // roll-up (platform_modules slug 'portfolio', status 'hidden').
+  module_8:           'Module 8 - Portfolio (cross-project roll-up)',
   module_9:           'Module 9 - Market Data',
   module_10:          'Module 10 - Collaboration',
   module_11:          'Module 11 - API Access',

@@ -1887,6 +1887,54 @@ Any two-step registration contract needs an equivalent check.
 
 ---
 
+### 8.2 A DISPLAY number frozen into storage, beside the IDENTITY it is not
+
+**Symptom.** The workspace sidebar and the admin Plan Builder both said "Module 8, Collaborate".
+`features_registry.label` on the same row said "Module 10: Collaborate". Every doc, every verifier
+and the entitlement key said 10. Nothing was broken, nothing failed, and a reader had no way to tell
+which number was the defect.
+
+**Mechanism.** There are two legitimate numbers and they are not the same fact.
+
+- **IDENTITY** is the slug. `collaborate` maps to component 10 (`SLUG_TO_COMPONENT_NUMBER`), which
+  is why the entitlement key is `module_10` and why plan assignments survive any reorder. Immutable.
+- **POSITION** is what a user sees. `orderModulesForDisplay` drops hidden modules and numbers what
+  remains 1..N, so with `portfolio` (8) and `market-data` (9) both `status: 'hidden'`, Collaborate
+  is the eighth visible module and reads as 8. It moves whenever an admin hides or reorders.
+
+Neither is wrong. The defect was a THIRD copy: migration 158 seeded the rendered sentence
+`'Module 10: Collaborate'` into `features_registry.label`, and nothing ever recomputed it. It agreed
+with the identity by luck at seed time and diverged the moment a module was hidden. A derived value
+with a stored copy is a divergence waiting for the next edit, and this one had no owner: no code
+wrote it, so no code could keep it true.
+
+**The second-order cost.** The stale number was read as evidence. Module 10 Collaboration step 0
+justified its numbering partly on "8 is Portfolio, already shipped and sold". The numbering was
+right and `module_8` IS granted to solo/pro/firm, but Portfolio is `status: 'hidden'` and
+`build_status: 'needs_build'`: never shipped. What made it look shipped is that the sidebar's free
+all-projects hub is called **Portfolio Dashboard**, an entirely different, ungated surface. Two
+things sharing a word, and `UpgradePrompt` then labelled the `module_8` LOCK "Module 8 - Portfolio
+Dashboard", telling a user to buy a plan for the screen they were already looking at.
+
+**Fix.** Migration 235 removes the number from storage: `features_registry.label` holds the NAME
+only, and every surface derives the number through `orderModulesForDisplay`. The fallback path
+(live registry unreachable) now renders "Collaborate" with no number, which is the honest answer
+when the registry that owns the numbering is unavailable. `UpgradePrompt` names `module_8`
+"Portfolio (cross-project roll-up)". `verify-plan-builder-modules` 16 -> 26 pins the split: it
+asserts that hiding a module moves the position and never the key, that unhiding moves it back, and
+that no stored label carries a number.
+
+**Proof.** The applier read all 11 stored labels carrying a prefix before, 0 after, with
+`plan_permissions` byte-identical across the change (`module_8` still granted to solo/pro/firm,
+`module_10` still not). The UpgradePrompt check was sabotage-tested by restoring the old label: 25
+passed, 1 failed, naming the row.
+
+**The general rule.** When one fact has a stable form and a rendered form, store the stable one and
+derive the rendering at the point of use. If you must store the rendering, something has to own
+recomputing it, and here nothing did for six months.
+
+---
+
 ## 9. Deployment
 
 ### 9.1 A sub-daily cron fails the WHOLE deploy with no deployment record
