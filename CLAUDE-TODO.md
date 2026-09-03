@@ -3,6 +3,89 @@
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
 ---
+## START HERE 2026-09-03: MODULE 10 IS FEATURE COMPLETE (steps 0 to 9). FOUR THINGS ARE OPEN.
+
+Steps 0 to 9 all shipped and are live (migs 230 to 238, all APPLIED). Nothing in
+Module 10 is half-built. What follows is what the module UNCOVERED and what it
+deliberately did not do, in the order I would take them.
+
+### 1. THE ACCOUNT BOUNDARY. The next major item, and it is a schema question
+
+**There is no concept of an account, organisation or client team anywhere.**
+Diagnosed 2026-09-03 (report in that day's CHANGELOG entry, no code changed):
+the live schema has no org/tenant/team/workspace table, `users` has no parent
+column, and `users.company` is free text that cannot join (`"SFA"` and
+`"Synergistic Financial Advisors"` are plausibly one firm; four of eight users
+have NULL). **The platform's real model is one user = one account**, and
+`refm_project_members` was the first thing to cross that line without a
+boundary.
+
+**The symptom:** the Team access person dropdown lists EVERY user on the
+platform, so one client's project can be assigned to another client's user.
+**The boundary that matters is not the dropdown**: `POST /api/admin/project-members`
+validates only that the user EXISTS. A scope enforced in a `<select>` is not a
+scope.
+
+**It compromises seats (step 8) more than anything else.** `countAccountSeats`
+infers the account from `refm_projects.user_id`, which is sound for "who pays"
+(plans live on the user row) and unsound for "who is on the team": the set it
+counts has no boundary, so adding another client's user consumes YOUR seat and
+grants THEM access, while their own account is unaffected.
+
+**The decision that sizes the work** is whether one person may belong to
+several accounts. `users.account_id` makes it impossible (clean; a consultant
+serving two clients needs two logins). An `account_members` join table makes it
+possible and then every "which account am I acting in" question appears across
+the project list, the seat count, the plan gate and the dashboard.
+A self-referencing `users.account_owner_id` is the cheap option and is a TRAP:
+it makes an organisation's identity a person's row, the same mistake
+`refm_projects.user_id` already makes for projects.
+
+**There is also no invite path.** A user row is created in exactly ONE place,
+`app/api/auth/register/route.ts` (self-signup, scrypt, `email_confirmed:false`,
+`plan:'none'`); admins cannot create users. So a client's colleague can only be
+added if they self-registered first, which is WHY the dropdown is global. Any
+account model needs either an invites table plus a token-consuming registration
+path, or add-by-email of an existing user.
+
+**Does not block anything shipped.** Step 9's paths are admin-mediated or
+owner-scoped and neither create nor widen membership.
+
+### 2. IN-CONTEXT COMMENTING (the other half of step 7)
+
+Comments exist and are live, anchored to a project, a version or a snapshot
+PATH in the `snapshot-diff` grammar. What does NOT exist is commenting FROM the
+model: there is no way to select a field and comment on it, and no jump from a
+comment's path back to the screen that shows it.
+
+**The missing piece is a path-to-surface map, and nothing in the platform has
+one.** `lib/moduleTabs.ts` is the tab registry and `applyOverrides.getByPath`
+resolves a path to a VALUE, but nothing joins a path to a module and tab.
+`enumerateOverridableFields` already produces `{path, group, field}` for every
+scalar leaf and is the natural place to hang it. Deliberately out of scope in
+step 7 and stated as such in the verifier (E9).
+
+### 3. THE COST CATALOG IS PER USER (logged 2026-09-01, still open)
+
+`refm_cost_catalog` is keyed per USER, so two members of one project see
+different catalogs and a line can resolve to an unknown identity. **This is a
+MODELLING defect, not a collaboration step**, and it was named as the one
+blocker before sharing goes live. It is still open and now more reachable:
+steps 2 to 9 put several people on one project. Full logging further down this
+file.
+
+### 4. COST PER SQM ANALYSIS IN CAPEX (Module 1)
+
+Not started. The Capex tab reports totals and per-line amounts; there is no
+per-sqm normalisation, which is the number a developer actually benchmarks
+with (cost per sqm of BUA, per sqm of GFA, per unit). The inputs exist:
+`computeAssetCost` carries per-line and per-period cost, and the area
+denominators are on the asset and its sub-units, with `buaSqm` already the
+universal denominator used by the Module 2 block. Module 1 is CLOSED at M2.0
+Pass 58, so this is an ADDITIVE read-only surface or it is not this item.
+
+---
+
 ## OPEN FINDINGS FROM THE SCHEMA DRIFT AUDIT (2026-08-30, diagnosed, NOT fixed; full report `scripts/schema-drift-report.txt` + CHANGELOG 2026-08-30f)
 
 - **Training certificates page: CLOSED 2026-08-30g by RETIREMENT.** The legacy endpoint, its pages and the whole `/api/admin/assessments` family are deleted; the admin course editor survives lessons-only; the five legacy tables are deprecated in place (mig 223, APPLIED 2026-08-30). One certificate system remains: `student_certificates` + the `certificates` storage bucket. Pinned by `verify-legacy-training-retirement` 22 (its scan distinguishes table reads from bucket reads, TRAPS 2.10).

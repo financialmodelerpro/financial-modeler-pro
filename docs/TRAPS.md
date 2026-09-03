@@ -2080,6 +2080,67 @@ a GREEN run on restored code as the LAST command before `git add`, not a green r
 earlier. Related: the `>` inside `onClick={() =>` defeats any "slice the tag at the first >"
 bounding; bound at the next `<button` instead (found the same day in the pm-btn contrast sweep).
 
+### 10.13 A guard test that greps for the guard, and passes when the guard is dead
+
+**Symptom.** A whole verifier section, five checks, stayed GREEN after the guard it existed to
+protect was disabled. The sabotage was one word: the condition became `if (false)`.
+
+**Mechanism.** The checks read the source and asserted the guard's PARTS: that the project is read
+before deleting, that a `code: 'already_deleted'` branch exists, that the refusal leaves the request
+pending. Every one of those was still literally in the file. **Disabling a guard does not delete
+it**, so a presence grep cannot see the difference between a guard that fires and a guard that can
+never be reached. This is 10.1 stated sharply enough to act on: the failure is not "the text moved",
+it is "the text is exactly right and means nothing".
+
+It matters most for guards that only fire on a state you have to CREATE. The already-deleted refusal
+in `deleteRequests.ts` exists so that approving a request on a project somebody else already deleted
+cannot report success; there is no ordinary run in which it fires, so nothing else would have caught
+it either.
+
+**Fix.** Run it. `verify-delete-approval` now builds a real request against a real project, soft
+deletes the project by another route, calls `approveDeleteRequest`, and asserts the refusal and that
+the request is still pending. Re-running the same one-word sabotage fails it by name and prints the
+exact false success it was designed to prevent: `{"ok":true,"action":"approved"}`.
+
+**Proof.** Before: sabotage applied (confirmed by grep), 44 passed / 0 failed. After: 47 passed /
+2 failed, naming J1 and J2.
+
+**The general rule.** If a check would still pass with the code it guards replaced by `if (false)`,
+it is testing the file, not the behaviour. Ask that question of any check whose subject is a guard,
+a refusal, or an error path.
+
+---
+
+### 10.14 A check that pins exact source text fails a legitimate change and says nothing about the rule
+
+**Symptom.** Two unrelated verifiers went red on a change that broke neither of their rules.
+`verify-project-soft-delete` H4 matched `{onDeleteProject && (` and broke when a role gate was added
+in front of the button. `verify-role-enforcement` G1 asserted an owner holds EVERY permission and
+broke when a new permission was added that an owner deliberately lacks.
+
+**Mechanism.** Both pinned a SHAPE rather than the rule underneath it. H4's rule is "the control is
+WITHHELD in grace, not rendered dead", which is about the prop being undefined at the parent, not
+about the punctuation after `&&`. G1's rule is "an owner is blocked from nothing", which is not the
+same as "every boolean in the owner row is true": `canRequestDelete` is FALSE for an owner because
+they hold the stronger `canDeleteProject`, and read literally G1 demanded a pointless second delete
+path for the person who can already delete.
+
+**Why it is dangerous rather than merely annoying.** A check that fails for the wrong reason trains
+you to edit the check, and the next edit is the one that quietly removes the teeth. G1 could have
+been "fixed" by deleting it.
+
+**Fix.** Re-aim at the invariant and make the invariant explicit. H4 now asserts the prop-gating on
+both controls AND that the parent passes `undefined` in grace. G1 now asserts that every permission
+an owner lacks is an ALTERNATIVE to one they hold, with the pairing declared in a map, so a genuinely
+revoked owner permission still fails. Both were sabotage-tested after re-aiming: revoking
+`canExport` from the owner fails G1 by name, and dropping the grace withholding fails H4 and E2.
+
+**The general rule.** When a check breaks on a change you believe is correct, first decide whether
+the RULE was violated. If it was not, the check was measuring the wrong thing and re-aiming it is
+the fix, not loosening it.
+
+---
+
 ### 10.1 A grep proves a clause is PRESENT, never that it FIRES
 
 The `array_length` no-op (2.3) passed a verifier that asserted the constraint's TEXT via a regex over

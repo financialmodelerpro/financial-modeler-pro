@@ -67,7 +67,7 @@ Verifier reality + outstanding ops (migrations pending on prod) live in [CLAUDE-
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
 > - [CLAUDE-FEATURES.md](CLAUDE-FEATURES.md), Feature status, archived phase narratives (M1.R → M1.13d pre-M2.0 + M2.0 → M2.0i post-rebuild)
 > - [CLAUDE-ROUTES.md](CLAUDE-ROUTES.md), All page routes, API routes, components, lib structure
-> - [CLAUDE-TODO.md](CLAUDE-TODO.md), Pending work, backlog, legacy reference. **START HERE is current as of 2026-09-02: MODULE 10 COLLABORATION is the live thread, steps 0 to 6 of 9 DONE (migs 230 to 234 all APPLIED), steps 7 (comments), 8 (seat counting) and 9 (delete requires approval) still to come. THE ONE BLOCKER BEFORE SHARING GOES LIVE IS NOT A COLLABORATION STEP: `refm_cost_catalog` is keyed per USER, so two members of one project see different catalogs and a line can resolve to an unknown identity. It is a MODELLING defect, it is logged in full near the top of CLAUDE-TODO, and it needs its own pass. Below that: the schema-drift findings (2026-08-30, diagnosed not fixed) and the nine deliberately-open verifier fixtures. Much of the 2026-08-30 to 2026-09-02 work is verifier-proven but NOT browser-verified; each CHANGELOG entry states which. The `AI_REVIEW_GUIDE.md` audit (untracked, untrusted, per-finding status recorded) is parked further down.**
+> - [CLAUDE-TODO.md](CLAUDE-TODO.md), Pending work, backlog, legacy reference. **START HERE is current as of 2026-09-03: MODULE 10 COLLABORATION IS FEATURE COMPLETE, steps 0 to 9, migs 230 to 238 all APPLIED. FOUR THINGS ARE OPEN, in order: (1) THE ACCOUNT BOUNDARY, the next major item and a schema question, because no concept of an account, organisation or client team exists anywhere and the Team access picker therefore lists every user on the platform (diagnosed 2026-09-03, no code changed; it compromises SEATS more than anything else, since the account is inferred from the project owner and the set counted has no boundary); (2) IN-CONTEXT COMMENTING, the other half of step 7, which needs a path-to-surface map nothing in the platform has; (3) `refm_cost_catalog` keyed per USER, a MODELLING defect now more reachable because several people share a project; (4) COST PER SQM analysis in Capex, not started. Below those: the schema-drift findings (2026-08-30, diagnosed not fixed) and the nine deliberately-open verifier fixtures. Most 2026-09-03 work is verifier-proven but NOT browser-verified, except the reviewer visibility change which the user ran on live; each CHANGELOG entry states which.**
 > - [ARCHITECTURE.md](ARCHITECTURE.md), Three-tier folder rationale, alias guide, boundary rules
 > - [HANDOFF.md](HANDOFF.md), AUTO-GENERATED live status snapshot (commit, stack, latest migration, templates, verifiers, routes, env). Never hand-edit; regenerate with `npm run handoff` (`scripts/generate-handoff.ts` derives it from git + the repo, so it cannot go stale like the old PROJECT_HANDOFF.md did).
 
@@ -120,6 +120,22 @@ Em-dash sweep across `src/` + `scripts/` is complete (zero remaining as of 2026-
 | Navbar / layout | `src/components/layout/` |
 
 Read only the rows your task touches. Per-platform MD loads only when working on that platform; the global CLAUDE.md stays lean.
+
+### Verifier practice: AFFECTED before each commit, FULL SUITE once at session end
+
+**Adopted 2026-09-03.** Running all 155 verifiers before every commit costs about fifteen minutes
+and re-proves the same 130 untouched things several times a day. So:
+
+- **Before each commit: run the verifiers that READ A CHANGED FILE.** Select them mechanically, not
+  by judgement: for each file in the diff, grep every `scripts/verify-*.ts` for its FULL repo path.
+  A first pass on bare filenames matched 38 verifiers through prose mentions of `types.ts` and
+  `client.ts`; full paths gave the true set of 24. State the count and that they passed.
+- **At session end: run `npm run verify:suite` once, with credentials, and state the count.**
+
+The rules that already applied still apply: run the COMMITTED runner, never a hand-rolled loop
+(TRAPS 3.20), and state whether credentials were loaded. **The full-suite claim in this file is a
+SESSION-END measurement, not a per-commit one**, so do not cite it as evidence that an individual
+commit was fully checked.
 
 ### End-of-session rule: where every new entry goes
 **ALWAYS update the MD files at the end of every session**, using this placement rule so CLAUDE.md never grows back over its limit (it hit 166.8k of a 150k cap on 2026-08-30 and was restructured):
