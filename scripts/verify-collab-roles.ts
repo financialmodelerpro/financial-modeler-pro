@@ -116,12 +116,15 @@ console.log('\n=== D. Module visibility is per platform ===');
     !/MODULE_VISIBILITY/.test(coreState));
   check('D2 the REFM map lives with REFM and covers every role',
     PROJECT_ROLES.every((r) => Array.isArray(REFM_MODULE_VISIBILITY[r])));
-  // The AGREED map. Identical to the pre-move lists except for ONE
-  // deliberate change made in step 4: the editor regained module5.
+  // The AGREED map. Identical to the pre-move lists except for TWO deliberate
+  // changes: the editor regained module5 in step 4 (a renumbering omission),
+  // and the reviewer gained every module in step 7, because a reviewer who
+  // cannot open the module a comment points at cannot review it. The reviewer
+  // stays read-only through the MATRIX, not through this map.
   const EXPECT: Record<ProjectRole, string> = {
     owner:    'dashboard,projects,overview,module1,module2,module3,module4,module5,module6,module7',
     editor:   'dashboard,projects,overview,module1,module2,module3,module4,module5,module6,module7',
-    reviewer: 'dashboard,projects,module6,module7',
+    reviewer: 'dashboard,projects,overview,module1,module2,module3,module4,module5,module6,module7',
     viewer:   'dashboard,module6,module7',
   };
   let moved = '';
@@ -139,6 +142,18 @@ console.log('\n=== D. Module visibility is per platform ===');
   check('D4b the history of that omission is recorded, not just the fix',
     /OMISSION/i.test(src('src/hubs/modeling/platforms/refm/lib/moduleVisibility.ts'))
     && /renumber/i.test(src('src/hubs/modeling/platforms/refm/lib/moduleVisibility.ts')));
+  // Step 7. A reviewer is asked to comment on fields that live in Modules 1
+  // to 5, so hiding those screens made the role incoherent. WHAT KEEPS THEM
+  // READ-ONLY IS THE MATRIX, and that is asserted here beside the visibility
+  // so the two can never be confused for one another again.
+  check('D5 a reviewer can see every module an editor can',
+    REFM_MODULE_VISIBILITY.editor.every((m) => REFM_MODULE_VISIBILITY.reviewer.includes(m)));
+  check('D5b a reviewer is read-only through the MATRIX, not through visibility',
+    !roleCan('reviewer', 'canEditInputs') && !roleCan('reviewer', 'canSave')
+    && !roleCan('reviewer', 'canManageVersions') && roleCan('reviewer', 'canViewReports'));
+  check('D5c the viewer is UNCHANGED and still narrower than the reviewer',
+    REFM_MODULE_VISIBILITY.viewer.join(',') === 'dashboard,module6,module7'
+    && REFM_MODULE_VISIBILITY.viewer.length < REFM_MODULE_VISIBILITY.reviewer.length);
 }
 
 console.log('\n=== E. Unknown roles are denied ===');

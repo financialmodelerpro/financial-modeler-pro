@@ -518,6 +518,35 @@ export default function RealEstatePlatform(): React.JSX.Element {
     [currentUserRole],
   );
 
+  // ── MAY THIS USER ENTER EDIT MODE AT ALL (2026-09-03, Module 10 step 7) ──
+  //
+  // ONE derivation, read by every Edit affordance and by the handler behind
+  // them. Deliberately not a check repeated at each button: a role test written
+  // twice is a role test that will eventually disagree with itself, and the two
+  // Edit controls (the topbar button and the view-lock banner's) are exactly
+  // the pair that would drift.
+  //
+  // WHY IT EXISTS. The gate was `activeProjectId && !graceReadOnly`, with no
+  // role in it, so a REVIEWER saw a live Edit button, clicked it, and the shell
+  // unlocked every input. Nothing could actually be lost: the save routes gate
+  // on `getProjectForWrite(..., 'canSave')` and refuse a reviewer, so those
+  // writes 404. That is what made it bad rather than what made it safe. The
+  // user typed into Module 1, watched the numbers move, and learned at save
+  // time that none of it was ever going to land. THE SERVER WAS ALWAYS RIGHT
+  // AND THE SCREEN WAS LYING, which is the same failure as the silent store
+  // no-op that `data-view-locked` was introduced to end.
+  //
+  // It only became reachable when the reviewer gained Modules 1 to 5 in this
+  // same step (see moduleVisibility.ts): before that a reviewer had no model
+  // screen to open and type into.
+  //
+  // `canSave` IS THE RIGHT PERMISSION, not canEditInputs. Entering edit mode
+  // runs the edit-choice flow, and every branch of it (edit in place, save as
+  // a new version, edit a different version) ends at a route gated on canSave.
+  // The UI asks for exactly what the server will demand, so a control that is
+  // shown is a control that works.
+  const canEnterEditMode = !!activeProjectId && !graceReadOnly && can('canSave');
+
   // Boot: list projects from server
   //
   // 2026-05-31 BUG-B FIX: hydrate BEFORE flipping activeProjectId so
@@ -887,10 +916,13 @@ export default function RealEstatePlatform(): React.JSX.Element {
   // the "a new version on every Edit" churn: in-place reuses the loaded version,
   // create-new is the old behaviour, and nothing is written until the user picks.
   const handleEnableEditing = useCallback(() => {
-    // Read-only grace: editing is blocked (the renew banner is shown instead).
-    if (graceReadOnly) return;
+    // THE SAME condition the controls render on, not a second opinion beside
+    // it. Read-only grace is folded into it, so a lapsed account is still
+    // blocked here exactly as before (the renew banner shows instead), and a
+    // role that may not save is now blocked by the same line.
+    if (!canEnterEditMode) return;
     setEditChoiceOpen(true);
-  }, [graceReadOnly]);
+  }, [canEnterEditMode]);
 
   // Apply the UI edit-mode flags once the session has been pointed at a version
   // (used by in-place and load-for-edit). The sync layer has already enabled its
@@ -1539,7 +1571,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
         entitled={canAccess}
         onLockedFeature={(featureKey) => setUpgradePrompt({ kind: 'feature', featureKey })}
         editMode={editMode && !graceReadOnly}
-        canEnableEditing={!!activeProjectId && !graceReadOnly}
+        canEnableEditing={canEnterEditMode}
         onEnableEditing={handleEnableEditing}
         onSave={handleSaveQuick}
         onSaveAsNewVersion={handleSaveAsNewVersion}
@@ -1758,19 +1790,26 @@ export default function RealEstatePlatform(): React.JSX.Element {
                 borderRadius: 'var(--radius-sm)', padding: '8px var(--sp-2)', marginBottom: 'var(--sp-2)',
               }}
             >
+              {/* The sentence and the button move TOGETHER, off the one
+                  derivation above. Telling a reviewer to "click Edit" beside no
+                  Edit button would be the same lie relocated. */}
               <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-navy)' }}>
-                👁 View only. Click Edit to make changes; a new version is saved when you start.
+                {canEnterEditMode
+                  ? '👁 View only. Click Edit to make changes; a new version is saved when you start.'
+                  : '👁 View only. Your role on this project is read-only, so the model cannot be changed here.'}
               </span>
               <div style={{ flex: 1 }} />
-              <button
-                type="button"
-                onClick={handleEnableEditing}
-                data-testid="view-lock-edit-btn"
-                className="btn-primary"
-                style={{ padding: '5px 16px', fontWeight: 700, fontSize: 13 }}
-              >
-                ✏️ Edit
-              </button>
+              {canEnterEditMode && (
+                <button
+                  type="button"
+                  onClick={handleEnableEditing}
+                  data-testid="view-lock-edit-btn"
+                  className="btn-primary"
+                  style={{ padding: '5px 16px', fontWeight: 700, fontSize: 13 }}
+                >
+                  ✏️ Edit
+                </button>
+              )}
             </div>
           )}
           {/* View mode no longer blocks the whole panel (that killed collapsibles,

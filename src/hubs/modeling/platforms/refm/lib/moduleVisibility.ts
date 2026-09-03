@@ -43,6 +43,38 @@
  * this map, made in the step where a role is finally resolved from the server
  * and the effect is visible, rather than hidden inside a rename.
  *
+ * ── THE REVIEWER SEES EVERY MODULE (2026-09-03, Module 10 step 7) ─────────
+ *
+ * The reviewer's list was `dashboard, projects, module6, module7`: the
+ * dashboard, the scenario comparison and the IC deck, and nothing else. That
+ * hid Modules 1 to 5, which is every screen the model is actually built on.
+ *
+ * Comments (step 7) make that untenable rather than merely odd. A reviewer is
+ * the role whose whole purpose is to read the model and say something about
+ * it, and a comment anchors to a snapshot path such as
+ * `assets[id=x].buaSqm`, which lives on the Capex tab inside Module 1. A
+ * reviewer who cannot open Module 1 cannot see the field they are being asked
+ * to review, and the role's own description in PROJECT_ROLE_META already
+ * promises them "View the model and reports and leave comments for the
+ * editor". This map was the half of that promise nothing kept.
+ *
+ * SO THE REVIEWER NOW SEES WHAT AN EDITOR SEES. What separates the two is the
+ * PERMISSION MATRIX, not this map: `canEditInputs`, `canSave` and
+ * `canManageVersions` are all false for a reviewer, enforced server-side by
+ * `getProjectForWrite`, and the shell renders read-only through the same
+ * view-lock path a locked model already uses. Visibility answers "may I look
+ * at this screen"; it was never what stopped a reviewer writing, and leaning
+ * on it as a second, weaker write gate hid where the real one lives.
+ *
+ * THE VIEWER IS UNCHANGED, deliberately. A viewer reads the dashboard and the
+ * reports and does not comment (`canAddComments` is false), so there is no
+ * field they need to reach and no promise to keep.
+ *
+ * A CONSEQUENCE, STATED: visibility no longer narrows monotonically down the
+ * role order. Reviewer and editor see the same screens. That is the intended
+ * shape rather than a gap, and `verify-role-enforcement` F4 now pins the new
+ * rule instead of the old descending count.
+ *
  * No em dashes in this file.
  */
 import type { ProjectRole } from '@/src/core/collab/projectRoles';
@@ -54,7 +86,14 @@ export const REFM_MODULE_VISIBILITY: Record<ProjectRole, ModuleKey[]> = {
   // not by a decision: see the header. An editor who can change costs must be
   // able to see what that did to the returns.
   editor:   ['dashboard', 'projects', 'overview', 'module1', 'module2', 'module3', 'module4', 'module5', 'module6', 'module7'],
-  reviewer: ['dashboard', 'projects', 'module6', 'module7'],
+  // FULL READ ACCESS as of 2026-09-03 (Module 10 step 7): a reviewer who
+  // cannot open the module a comment points at cannot review it. The role is
+  // read-only through the MATRIX (canEditInputs / canSave / canManageVersions
+  // are all false) and the server enforces that in getProjectForWrite, never
+  // here. See the header.
+  reviewer: ['dashboard', 'projects', 'overview', 'module1', 'module2', 'module3', 'module4', 'module5', 'module6', 'module7'],
+  // UNCHANGED. A viewer reads the dashboard and the reports, does not comment,
+  // and so has no field to reach.
   viewer:   ['dashboard', 'module6', 'module7'],
 };
 

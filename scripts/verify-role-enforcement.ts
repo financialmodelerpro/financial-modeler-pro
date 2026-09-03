@@ -191,10 +191,21 @@ console.log('\n=== F. The editor / Returns omission is fixed ===');
     REFM_MODULE_VISIBILITY.owner.every((m) => REFM_MODULE_VISIBILITY.editor.includes(m)));
   check('F3 the history is recorded, so it cannot be "corrected" back',
     /OMISSION/i.test(src('src/hubs/modeling/platforms/refm/lib/moduleVisibility.ts')));
-  // A reviewer and viewer are still narrower, or the roles would be pointless.
-  check('F4 reviewer and viewer remain narrower than editor',
-    REFM_MODULE_VISIBILITY.reviewer.length < REFM_MODULE_VISIBILITY.editor.length
-    && REFM_MODULE_VISIBILITY.viewer.length < REFM_MODULE_VISIBILITY.reviewer.length);
+  // REWRITTEN 2026-09-03 (step 7). This asserted that visibility narrows
+  // monotonically down the role order, which stopped being true the moment
+  // the reviewer was given every module. THE OLD CHECK WAS MEASURING THE
+  // WRONG THING: it read a length as evidence that a role was restricted,
+  // when what restricts a reviewer is the permission matrix. A reviewer with
+  // full visibility and no write permission is MORE restricted in the way
+  // that counts than one with four screens and an unenforced matrix would be.
+  check('F4 a reviewer sees every module an editor sees',
+    REFM_MODULE_VISIBILITY.editor.every((m) => REFM_MODULE_VISIBILITY.reviewer.includes(m)));
+  check('F4b what makes a reviewer read-only is the MATRIX, not the map',
+    !roleCan('reviewer', 'canEditInputs') && !roleCan('reviewer', 'canSave')
+    && !roleCan('reviewer', 'canManageVersions') && !roleCan('reviewer', 'canDeleteProject'));
+  check('F4c the viewer is unchanged and still narrower than the reviewer',
+    REFM_MODULE_VISIBILITY.viewer.length < REFM_MODULE_VISIBILITY.reviewer.length
+    && !REFM_MODULE_VISIBILITY.viewer.includes('module1'));
 }
 
 console.log('\n=== G. Nothing changes for a single-user account ===');
