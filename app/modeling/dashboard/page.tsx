@@ -852,17 +852,27 @@ export default function ModelingDashboardPage() {
           {/* BILLING TAB: per-platform subscription management, source-driven
               (one section per live platform). Lives here, NOT on the main
               dashboard, which keeps only the platform cards. */}
-          {activeView === 'team' && isAdmin && (
-            <div style={{ maxWidth: 900 }}>
-              <TeamAccessPanel theme={theme} />
-            </div>
-          )}
-          {/* The CLIENT's team surface (moved off the main dashboard): the
-              holder manages invites, project access and delete requests on
-              their own tab, mirroring the admin's. */}
-          {activeView === 'team' && !isAdmin && (
+          {/* The Team tab (2026-09-04). EVERY holder gets their OWN team
+              surface here, the ADMIN INCLUDED: the admin is also an account
+              holder, and inviting is a holder action, so the operator panel
+              must not displace their own surface. For admins the operator
+              panel follows below, clearly separated, so both jobs live on
+              the one tab: my account's team, then everyone's. */}
+          {activeView === 'team' && (
             <div style={{ maxWidth: 900 }}>
               <TeamInvitesCard theme={theme} />
+              {isAdmin && (
+                <>
+                  <div data-testid="team-operator-divider" style={{ margin: '26px 0 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ flex: 1, height: 1, background: theme.border }} />
+                    <span style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: theme.muted }}>
+                      Operator panel · all accounts
+                    </span>
+                    <div style={{ flex: 1, height: 1, background: theme.border }} />
+                  </div>
+                  <TeamAccessPanel theme={theme} />
+                </>
+              )}
             </div>
           )}
           {activeView === 'billing' && (

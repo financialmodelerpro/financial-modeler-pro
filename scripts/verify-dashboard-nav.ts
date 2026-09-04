@@ -99,9 +99,12 @@ console.log('\n=== C. The hash is declared once ===');
 
 console.log('\n=== D. Team access reaches something real ===');
 {
-  check('D1 the team view renders the ADMIN panel for admins and the HOLDER panel for clients',
-    /activeView === 'team' && isAdmin/.test(code) && /<TeamAccessPanel/.test(code)
-    && /activeView === 'team' && !isAdmin/.test(code) && /<TeamInvitesCard/.test(code));
+  // Re-aimed again 2026-09-04: the admin is ALSO an account holder, so the
+  // team view renders the HOLDER surface for everyone and appends the
+  // operator panel, separated, for admins only.
+  check('D1 the team view renders the holder surface for all, plus the operator panel for admins',
+    /activeView === 'team'/.test(code) && /<TeamInvitesCard/.test(code)
+    && /<TeamAccessPanel/.test(code) && /team-operator-divider/.test(code));
   check('D2 the panel component exists',
     readFileSync('src/hubs/modeling/components/TeamAccessPanel.tsx', 'utf8').length > 1000);
   check('D3 its API route exists with a read and a write',

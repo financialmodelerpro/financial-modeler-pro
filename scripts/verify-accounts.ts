@@ -528,8 +528,15 @@ async function main() {
     const dash = src('app/modeling/dashboard/page.tsx');
     check('I2 the tab shows for admins and holders, never members, and the panel left the main view',
       /isAdmin \|\| \(ent\.loaded && !ent\.accountMember\)/.test(dash)
-      && /activeView === 'team' && !isAdmin/.test(dash)
+      && /activeView === 'team'/.test(dash)
       && (dash.match(/<TeamInvitesCard/g) ?? []).length === 1);
+    // The admin is ALSO a holder: their own team surface renders for them
+    // too, with the operator panel below a labelled divider, so the operator
+    // job never displaces their own account's team.
+    check('I5 the admin gets BOTH surfaces on the tab, clearly separated',
+      dash.indexOf('<TeamInvitesCard') < dash.indexOf('team-operator-divider')
+      && dash.indexOf('team-operator-divider') < dash.indexOf('<TeamAccessPanel')
+      && dash.indexOf('<TeamInvitesCard') > 0);
     check('I3 every holder is eligible; canInvite is the SAME seat arithmetic as the create',
       /eligible: true/.test(src('app/api/account/invites/route.ts'))
       && /seatsAllow\(seats\.used \+ seats\.reserved \+ 1, seats\.limit\)/.test(src('app/api/account/invites/route.ts')));
