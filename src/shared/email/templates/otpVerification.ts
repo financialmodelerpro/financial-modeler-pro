@@ -4,7 +4,7 @@
  *
  * A server-generated code and a number. Neither can carry markup.
  */
-import { baseLayoutBranded, h1, p, divider } from './_base';
+import { baseLayoutBranded, neutralFooter, h1, p, divider } from './_base';
 
 interface OtpVerificationData {
   code: string;
@@ -26,7 +26,11 @@ export async function otpVerificationTemplate({ code, expiresMinutes = 10 }: Otp
     ${p('If you did not request this code, you can safely ignore this email.')}
     ${divider()}
     ${p('Need help? Contact us at <a href="mailto:support@financialmodelerpro.com" style="color:#2E75B6;">support@financialmodelerpro.com</a>', 'font-size:13px;color:#64748B;')}
-  `);
+  `, {
+    // Sent to people from EITHER hub, so the reason is the verification
+    // itself, never one hub's tagline (2026-09-04).
+    footer_text: neutralFooter('You are receiving this because a sign-in to your Financial Modeler Pro account needed verification.'),
+  });
 
   const text = `Financial Modeler Pro - Email Verification\n\nYour verification code is: ${code}\n\nThis code expires in ${expiresMinutes} minutes.\n\nIf you did not request this, ignore this email.`;
 

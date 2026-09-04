@@ -67,6 +67,13 @@ async function projectName(sb: SupabaseClient, platformKey: string, projectId: s
   } catch { return null; }
 }
 
+/** The PLATFORM the project lives on, from the registry, never assumed: the
+ *  hub holds several platforms, so the email names the one this project is
+ *  actually on and ERM/BVM inherit correct naming from their own entries. */
+function platformLabel(platformKey: string): string {
+  return getProjectSource(platformKey)?.label ?? 'Financial Modeler Pro';
+}
+
 export interface AccessGrantArgs {
   platformKey: string;
   projectId: string;
@@ -100,6 +107,7 @@ export async function notifyAccessGranted(sb: SupabaseClient, args: AccessGrantA
         actorName: actor?.name ?? null,
         projectName: name ?? 'a project',
         roleLabel,
+        platformLabel: platformLabel(args.platformKey),
         openUrl: `${APP_URL}/dashboard`,
       });
       return (await sendEmail({ to: target.email, subject, html, from: FROM.noreply })).id;
@@ -141,6 +149,7 @@ export async function notifyAccessRemoved(sb: SupabaseClient, args: AccessRemova
       const { subject, html } = await accessRemovedEmail({
         actorName: actor?.name ?? null,
         projectName: name ?? 'a project',
+        platformLabel: platformLabel(args.platformKey),
       });
       return (await sendEmail({ to: target.email, subject, html, from: FROM.noreply })).id;
     });

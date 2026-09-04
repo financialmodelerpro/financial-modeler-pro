@@ -5,7 +5,7 @@
  * The verification code is generated server-side and is digits only; the
  * expiry is a number. Neither can carry markup. See verify-email-escaping.
  */
-import { baseLayoutBranded, h1, p, divider } from './_base';
+import { baseLayoutBranded, neutralFooter, h1, p, divider } from './_base';
 
 interface DeviceVerificationOptions {
   code: string;
@@ -28,7 +28,11 @@ export async function deviceVerificationTemplate({ code, expiryMinutes = 10 }: D
     ${divider()}
     ${p(`This code expires in <strong>${expiryMinutes} minutes</strong>.`, 'font-size:13px;color:#6B7280;')}
     ${p('If this was not you, change your password immediately and contact support.', 'font-size:13px;color:#DC2626;')}
-  `);
+  `, {
+    // Sent to people from EITHER hub, so the reason is the verification
+    // itself, never one hub's tagline (2026-09-04).
+    footer_text: neutralFooter('You are receiving this because a sign-in to your Financial Modeler Pro account needed verification.'),
+  });
 
   return {
     subject: 'New device sign-in - verification code',

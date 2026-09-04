@@ -6,7 +6,7 @@
  * The recipient NAME is user-supplied and is escaped below, at the one place
  * it enters the HTML.
  */
-import { baseLayoutBranded, h1, p, button, divider, escapeHtml } from './_base';
+import { fmpLayout, h1, p, button, divider, escapeHtml } from './_base';
 
 interface PasswordResetData {
   resetUrl: string;
@@ -19,7 +19,9 @@ export async function passwordResetTemplate({ resetUrl, expiresMinutes = 60, nam
   const subject = 'Reset Your Financial Modeler Pro Password';
   const greeting = name && name.trim() ? `Hi ${escapeHtml(name.trim().split(' ')[0])},` : 'Hi,';
 
-  const html = await baseLayoutBranded(`
+  // Modeling Hub only (the one caller is /api/auth/forgot-password), so the
+  // footer reason states the reset, never the training default (2026-09-04).
+  const html = await fmpLayout(`
     ${h1('Password Reset Request')}
     ${p(greeting)}
     ${p('We received a request to reset the password for your Financial Modeler Pro account. Click the button below to set a new password.')}
@@ -34,7 +36,7 @@ export async function passwordResetTemplate({ resetUrl, expiresMinutes = 60, nam
       If the button above does not work, copy and paste this URL into your browser:<br />
       <a href="${resetUrl}" style="color:#2E75B6;">${resetUrl}</a>
     </p>
-  `);
+  `, 'You are receiving this because a password reset was requested for your Financial Modeler Pro account.');
 
   const text = `Financial Modeler Pro - Password Reset\n\nWe received a request to reset your password.\n\nReset link (expires in ${expiresMinutes} minutes):\n${resetUrl}\n\nIf you did not request this, ignore this email.`;
 

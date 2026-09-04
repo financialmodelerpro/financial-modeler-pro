@@ -427,6 +427,31 @@ async function main() {
       && /roleLabel/.test(src('src/shared/email/templates/teamAccess.ts'))
       && /escapeHtml/.test(src('src/shared/email/templates/teamAccess.ts')));
 
+    // ── The footer says WHY, and the platform is carried, never assumed ──
+    {
+      const bare = (t: string) => /baseLayoutBranded\(`/.test(t) && !/footer_text/.test(t);
+      const teamT = src('src/shared/email/templates/teamAccess.ts');
+      const inviteT = src('src/shared/email/templates/accountInvite.ts');
+      const resetT = src('src/shared/email/templates/passwordReset.ts');
+      const confirmT = src('src/shared/email/templates/confirmEmail.ts');
+      check('H12 no Modeling Hub email inherits the training footer: each states its own reason',
+        /fmpLayout\(/.test(teamT) && /You are receiving this because/.test(teamT) && !bare(teamT)
+        && /fmpLayout\(/.test(inviteT) && /You are receiving this because/.test(inviteT) && !bare(inviteT)
+        && /fmpLayout\(/.test(resetT) && /You are receiving this because/.test(resetT) && !bare(resetT)
+        && /hub === 'modeling'/.test(confirmT) && /fmpLayout\(/.test(confirmT));
+      check('H12b the hub-shared and internal emails override the footer with a neutral reason',
+        /neutralFooter\(/.test(src('src/shared/email/templates/otpVerification.ts'))
+        && /neutralFooter\(/.test(src('src/shared/email/templates/deviceVerification.ts'))
+        && /neutralFooter\(/.test(src('src/shared/email/templates/newRegistrationAlert.ts')));
+      check('H13 the project-access emails carry the PLATFORM from the registry, never the hub',
+        /platformLabel/.test(teamT)
+        && !/on the Financial Modeler Pro Modeling Hub/.test(teamT)
+        && /\.label \?\?/.test(src('src/shared/email/teamAccessEmails.ts')));
+      check('H14 the invite deliberately names the hub (account-level), and training emails keep their line',
+        /Modeling Hub/.test(inviteT)
+        && bare(src('src/shared/email/templates/certificateIssued.ts')));
+    }
+
     // Behavioral, offline, against the REAL notifier with a recording client.
     const { notifyAccessGranted, notifyAccessRemoved } = await import('../src/shared/email/teamAccessEmails');
     const makeSb = (opts: { email: string; claimDuplicate?: boolean }) => {

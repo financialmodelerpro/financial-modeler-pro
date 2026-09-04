@@ -5,7 +5,7 @@
  * token. No user-supplied text reaches it, and escaping a URL would break the
  * link. See verify-email-escaping for the rule this declaration satisfies.
  */
-import { baseLayoutBranded, h1, p, button, divider } from './_base';
+import { baseLayoutBranded, fmpLayout, h1, p, button, divider } from './_base';
 
 interface ConfirmEmailOptions {
   confirmUrl: string;
@@ -18,7 +18,14 @@ export async function confirmEmailTemplate({ confirmUrl, hub }: ConfirmEmailOpti
 }> {
   const hubName = hub === 'training' ? 'Training Hub' : 'Modeling Hub';
 
-  const html = await baseLayoutBranded(`
+  // The footer reason follows the HUB (2026-09-04): the shared branding
+  // default says "you registered for our training program", which is true
+  // for a Training Hub confirmation and wrong for a Modeling Hub one.
+  const layout = (content: string) => hub === 'modeling'
+    ? fmpLayout(content, 'You are receiving this because an account was created on the Modeling Hub with this email address.')
+    : baseLayoutBranded(content);
+
+  const html = await layout(`
     ${h1('Confirm Your Email Address')}
     ${p(`Thank you for registering with the Financial Modeler Pro <strong>${hubName}</strong>.`)}
     ${p('Please click the button below to confirm your email address and activate your account.')}

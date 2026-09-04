@@ -5,7 +5,7 @@
  * user-supplied text reaches it, and escaping a URL would break the link.
  * The inviter and account names ARE user-supplied and are escaped here.
  */
-import { baseLayoutBranded, h1, p, button, divider, escapeHtml } from './_base';
+import { fmpLayout, h1, p, button, divider, escapeHtml } from './_base';
 
 interface AccountInviteOptions {
   inviterName: string | null;
@@ -21,7 +21,7 @@ export async function accountInviteEmail({ inviterName, accountName, inviteUrl, 
   const who = inviterName ? escapeHtml(inviterName) : 'Your colleague';
   const acct = escapeHtml(accountName);
 
-  const html = await baseLayoutBranded(`
+  const html = await fmpLayout(`
     ${h1('You are invited to join a team')}
     ${p(`<strong>${who}</strong> has invited you to join <strong>${acct}</strong> on the Financial Modeler Pro Modeling Hub.`)}
     ${p('Create your login through the button below. Your access is covered by the team’s subscription; there is nothing to buy.')}
@@ -33,7 +33,7 @@ export async function accountInviteEmail({ inviterName, accountName, inviteUrl, 
     ${divider()}
     ${p(`This invite expires in <strong>${expiresDays} days</strong> and can be used once, for this email address only.`, 'font-size:13px;color:#6B7280;')}
     ${p('If you were not expecting this, you can safely ignore this email.', 'font-size:13px;color:#6B7280;')}
-  `);
+  `, 'You are receiving this because a Financial Modeler Pro client invited you to join their team.');
 
   return {
     subject: `You’re invited to join ${accountName} on Financial Modeler Pro`,

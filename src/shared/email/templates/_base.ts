@@ -110,13 +110,33 @@ export const FMP_SIGNATURE_HTML = `<div style="margin-top:32px;padding-top:24px;
   <p style="margin:4px 0 0;font-size:13px;color:#6b7280;"><a href="https://financialmodelerpro.com" style="color:#2E75B6;">financialmodelerpro.com</a></p>
 </div>`;
 
-export const FMP_FOOTER_TEXT =
-  '© Financial Modeler Pro. A PaceMakers Business Consultants Platform. You are receiving this because you have an account with Financial Modeler Pro.';
+export const FMP_FOOTER_BASE = '© Financial Modeler Pro. A PaceMakers Business Consultants Platform.';
+export const FMP_FOOTER_DEFAULT_REASON = 'You are receiving this because you have an account with Financial Modeler Pro.';
+export const FMP_FOOTER_TEXT = `${FMP_FOOTER_BASE} ${FMP_FOOTER_DEFAULT_REASON}`;
 
-/** THE branded shell for a Modeling Hub email: the shared layout with the
- *  Modeling Hub signature and footer forced over the Training Hub defaults. */
-export function fmpLayout(content: string): Promise<string> {
-  return baseLayoutBranded(content, { signature_html: FMP_SIGNATURE_HTML, footer_text: FMP_FOOTER_TEXT });
+/**
+ * THE branded shell for a Modeling Hub email: the shared layout with the
+ * Modeling Hub signature and footer forced over the Training Hub defaults.
+ *
+ * `reason` is the footer's "You are receiving this because ..." sentence,
+ * PER EMAIL (2026-09-04): the shared branding row assumes ONE context (the
+ * training program) and that assumption reached a project-access email, so
+ * the reason now states why THIS email was sent. Omitted, the generic
+ * account line is used, which is what every existing caller already said.
+ */
+export function fmpLayout(content: string, reason?: string): Promise<string> {
+  return baseLayoutBranded(content, {
+    signature_html: FMP_SIGNATURE_HTML,
+    footer_text: `${FMP_FOOTER_BASE} ${reason ?? FMP_FOOTER_DEFAULT_REASON}`,
+  });
+}
+
+/** A footer for HUB-NEUTRAL emails (device / OTP verification, internal
+ *  alerts), which go to people from either hub: no training tagline, no
+ *  company line, just the true reason. Used as a `footer_text` override so
+ *  the template's signature block is left alone. */
+export function neutralFooter(reason: string): string {
+  return `© Financial Modeler Pro. ${reason}`;
 }
 
 /**

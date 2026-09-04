@@ -5,7 +5,7 @@
  * through encodeURIComponent. Every other field on this template goes
  * through escapeHtml or orNone.
  */
-import { baseLayoutBranded, h1, p, button, divider, escapeHtml, escapeHtmlMultiline } from './_base';
+import { baseLayoutBranded, neutralFooter, h1, p, button, divider, escapeHtml, escapeHtmlMultiline } from './_base';
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';
 
@@ -145,7 +145,11 @@ export async function newRegistrationAlertTemplate(d: NewRegistrationAlertData) 
 
     ${divider()}
     ${p('Sent automatically on every new registration. No action is required unless this person requests a trial.', 'font-size:12px;color:#94A3B8;')}
-  `);
+  `, {
+    // Internal alert about a MODELING signup; the training tagline that the
+    // shared branding default carries has no business here (2026-09-04).
+    footer_text: neutralFooter('You are receiving this because you receive new-registration alerts for Financial Modeler Pro.'),
+  });
 
   return { subject, html };
 }
