@@ -70,10 +70,15 @@ the holder's projects and calls the SHARED approve/decline engine verbatim
 answer for anything not theirs). Surface: a block on the dashboard team card
 (armed approve, reason-required decline). Admin queue untouched.
 
+**Team access notifications (2026-09-04, same session)**: all four membership
+write sites email the person on grant (who, project, role) and removal (who,
+project), after the write, never undoing it; dedupe = change detection +
+the lifecycle claim (exported `dispatch`); `.invalid` skipped pre-claim.
+
 **What remains:**
-1. **Founder click-test of the invite email** (Brevo delivery + rendering, the
-   one leg no verifier covers) and a browser pass over the team card
-   (invites, project access, delete requests).
+1. **Founder click-test of the emails** (invite + access granted/removed:
+   Brevo delivery + rendering, the one leg no verifier covers) and a browser
+   pass over the team card (invites, project access, delete requests).
 2. **Full suite run**: not run since the step-3 tree, per instruction; steps
    4-7 are covered by their direct verifiers only until it runs.
 

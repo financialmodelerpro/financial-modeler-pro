@@ -75,7 +75,7 @@ function parseMs(iso: string | null | undefined): number | null {
 }
 
 // ── Dedupe: claim a marker, release it if the send fails ────────────────────
-interface MarkerKey {
+export interface MarkerKey {
   user_id: string; platform_slug: string; email_type: string; threshold: string; anchor_day: string;
 }
 /** Claim a send. Returns true when THIS caller should send (marker newly written,
@@ -98,7 +98,7 @@ async function release(sb: SupabaseClient, key: MarkerKey): Promise<void> {
  *  (sent + id, skipped-duplicate, or FAILED + reason) so a real Brevo/contact
  *  failure is visible in the logs (greppable prefix "[sub-email]") and never a
  *  silent no-op. Returns true only when an email was actually sent. */
-async function dispatch(
+export async function dispatch(
   sb: SupabaseClient, key: MarkerKey, send: () => Promise<string | void>,
 ): Promise<boolean> {
   try {

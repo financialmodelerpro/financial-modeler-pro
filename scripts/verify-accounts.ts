@@ -396,6 +396,104 @@ async function main() {
       && /Confirm delete/.test(src('src/hubs/modeling/components/TeamInvitesCard.tsx')));
   }
 
+  console.log('H. Team access notifications');
+  {
+    const notif = src('src/shared/email/teamAccessEmails.ts');
+    const adminRoute = src('app/api/admin/project-members/route.ts');
+    const teamEngine = src('src/shared/account/team.ts');
+    check('H1 all four write sites notify: grant and removal, admin and holder',
+      /notifyAccessGranted\(/.test(adminRoute) && /notifyAccessRemoved\(/.test(adminRoute)
+      && /notifyAccessGranted\(/.test(teamEngine) && /notifyAccessRemoved\(/.test(teamEngine));
+    check('H2 the notification sits AFTER the successful write in every site',
+      adminRoute.indexOf('.upsert(') < adminRoute.indexOf('notifyAccessGranted(')
+      && adminRoute.indexOf(".delete({ count: 'exact' })") < adminRoute.indexOf('notifyAccessRemoved(')
+      && teamEngine.indexOf('.upsert(') < teamEngine.indexOf('notifyAccessGranted(')
+      && teamEngine.indexOf(".delete({ count: 'exact' })") < teamEngine.indexOf('notifyAccessRemoved('));
+    check('H3 the notifier NEVER throws, so a failed send cannot undo access',
+      /failed harmlessly/.test(notif) && (notif.match(/return 'failed';/g) ?? []).length === 2);
+    check('H4 dedupe is the lifecycle discipline, reused: the claim comes from dispatch',
+      /import \{ dispatch \} from '\.\/subscriptionEmails'/.test(notif)
+      && !/subscription_email_log/.test(notif.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')));
+    check('H5 change detection: a repeated action sends nothing, fed by real prior state',
+      /previousRole === args\.role\) return 'skipped_no_change'/.test(notif)
+      && /!args\.removed\) return 'skipped_no_change'/.test(notif)
+      && /previousRole/.test(adminRoute) && /previousRole/.test(teamEngine));
+    check('H6 an undeliverable (.invalid) address is skipped BEFORE any claim',
+      notif.indexOf("return 'skipped_undeliverable'") < notif.indexOf('await dispatch(')
+      && /\\.invalid\$/.test(notif));
+    check('H7 the emails name who did it, which project, and the role',
+      /actorName/.test(src('src/shared/email/templates/teamAccess.ts'))
+      && /projectName/.test(src('src/shared/email/templates/teamAccess.ts'))
+      && /roleLabel/.test(src('src/shared/email/templates/teamAccess.ts'))
+      && /escapeHtml/.test(src('src/shared/email/templates/teamAccess.ts')));
+
+    // Behavioral, offline, against the REAL notifier with a recording client.
+    const { notifyAccessGranted, notifyAccessRemoved } = await import('../src/shared/email/teamAccessEmails');
+    const makeSb = (opts: { email: string; claimDuplicate?: boolean }) => {
+      const calls: Array<{ table: string; op: string }> = [];
+      const builder = (table: string, op: string) => {
+        const resolveValue = () => {
+          if (op === 'select' && table === 'users') return { data: { email: opts.email, name: 'Someone' }, error: null };
+          if (op === 'select') return { data: { name: 'Probe Project' }, error: null };
+          if (op === 'insert' && table === 'subscription_email_log') {
+            return { data: null, error: opts.claimDuplicate ? { code: '23505', message: 'duplicate' } : null };
+          }
+          return { data: null, error: null };
+        };
+        const b: Record<string, unknown> = {};
+        for (const m of ['select', 'eq', 'match', 'maybeSingle']) {
+          b[m] = m === 'maybeSingle' ? () => Promise.resolve(resolveValue()) : () => b;
+        }
+        b.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => Promise.resolve(resolveValue()).then(res, rej);
+        return b;
+      };
+      const sbFake = {
+        from(table: string) {
+          return {
+            select: () => { calls.push({ table, op: 'select' }); return builder(table, 'select'); },
+            insert: (_v: unknown) => { calls.push({ table, op: 'insert' }); return builder(table, 'insert'); },
+            delete: (_o?: unknown) => { calls.push({ table, op: 'delete' }); return builder(table, 'delete'); },
+          };
+        },
+      } as unknown as SupabaseClient;
+      return { sbFake, calls };
+    };
+    {
+      const { sbFake, calls } = makeSb({ email: 'x@client.example.com' });
+      const out = await notifyAccessGranted(sbFake, {
+        platformKey: 'refm', projectId: 'p1', targetUserId: 'u1', actorUserId: 'a1',
+        role: 'editor', previousRole: 'editor',
+      });
+      check('H8 same role again -> skipped_no_change, zero reads', out === 'skipped_no_change' && calls.length === 0, out);
+    }
+    {
+      const { sbFake, calls } = makeSb({ email: 'probe@example.invalid' });
+      const out = await notifyAccessGranted(sbFake, {
+        platformKey: 'refm', projectId: 'p1', targetUserId: 'u1', actorUserId: 'a1',
+        role: 'editor', previousRole: null,
+      });
+      check('H9 an undeliverable target -> skipped, no claim row attempted',
+        out === 'skipped_undeliverable' && !calls.some((c) => c.table === 'subscription_email_log'), out);
+    }
+    {
+      const { sbFake, calls } = makeSb({ email: 'x@client.example.com' });
+      const out = await notifyAccessRemoved(sbFake, {
+        platformKey: 'refm', projectId: 'p1', targetUserId: 'u1', actorUserId: 'a1', removed: false,
+      });
+      check('H10 removing access nobody had -> skipped_no_change, zero reads', out === 'skipped_no_change' && calls.length === 0, out);
+    }
+    {
+      // The claim layer honoured: a duplicate marker means somebody already
+      // sent, so the notifier returns deduped WITHOUT reaching Brevo.
+      const { sbFake } = makeSb({ email: 'h11@dedupe-probe.example.com', claimDuplicate: true });
+      const out = await notifyAccessGranted(sbFake, {
+        platformKey: 'refm', projectId: 'p1', targetUserId: 'u1', actorUserId: 'a1',
+        role: 'editor', previousRole: null,
+      });
+      check('H11 a duplicate claim -> deduped, nothing sent', out === 'deduped', out);
+    }
+  }
+
   console.log('L. Live: the invariants over the real rows');
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -663,6 +761,14 @@ async function main() {
           const { count: leftRows } = await sb.from('refm_project_members')
             .select('user_id', { count: 'exact', head: true }).eq('project_id', project6!).eq('user_id', member6);
           check('L31 removing access deletes the membership row', rm.ok && (leftRows ?? 0) === 0);
+
+          // The assign and remove above traversed the LIVE notifier; the
+          // probe's .invalid address must have been skipped BEFORE any claim,
+          // so the suite never mails anyone and no marker rows exist.
+          const { count: logRows } = await sb.from('subscription_email_log')
+            .select('id', { count: 'exact', head: true }).eq('user_id', member6);
+          check('L31b the live notifier skipped the undeliverable probe before any claim',
+            (logRows ?? 0) === 0, `${logRows} marker rows`);
         }
       } finally {
         if (project6) await sb.from('refm_projects').delete().eq('id', project6);

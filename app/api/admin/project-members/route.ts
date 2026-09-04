@@ -55,6 +55,7 @@ import { PROJECT_SOURCES, getProjectSource, hasMembership } from '@/src/shared/a
 import { isProjectRole, PROJECT_ROLES } from '@/src/core/collab/projectRoles';
 import { checkSeatForMember, seatBlockMessage } from '@/src/shared/admin/seats';
 import { checkAccountBoundary, accountBoundaryMessage, listAccountCandidates } from '@/src/shared/admin/accountBoundary';
+import { notifyAccessGranted, notifyAccessRemoved } from '@/src/shared/email/teamAccessEmails';
 
 function badRequest(msg: string) { return NextResponse.json({ error: msg }, { status: 400 }); }
 function serverError(msg: string) { return NextResponse.json({ error: msg }, { status: 500 }); }
@@ -265,6 +266,17 @@ export async function POST(req: NextRequest) {
     }, { status: 409 });
   }
 
+  // What was true BEFORE the write, so the notification can tell a real
+  // change from a repeat (change detection is the first dedupe layer).
+  const { data: prior } = await sb.from(source.membersTable!)
+    .select(source.membersRoleColumn!)
+    .eq(source.membersProjectColumn!, body.projectId)
+    .eq(source.membersUserColumn!, body.userId)
+    .maybeSingle();
+  const previousRole = prior
+    ? String((prior as unknown as Record<string, unknown>)[source.membersRoleColumn!])
+    : null;
+
   const { error } = await sb.from(source.membersTable!).upsert({
     [source.membersProjectColumn!]: body.projectId,
     [source.membersUserColumn!]: body.userId,
@@ -272,13 +284,20 @@ export async function POST(req: NextRequest) {
     added_by: adminId,
   }, { onConflict: `${source.membersProjectColumn},${source.membersUserColumn}` });
   if (error) return serverError(error.message);
+
+  // AFTER the successful write, and the outcome never affects it: the
+  // notifier never throws, and a failed send costs a log line, not access.
+  await notifyAccessGranted(sb, {
+    platformKey: source.key, projectId: body.projectId, targetUserId: body.userId,
+    actorUserId: adminId ?? body.userId, role: body.role, previousRole,
+  });
   return NextResponse.json({ ok: true });
 }
 
 // ── DELETE ──────────────────────────────────────────────────────────────────
 // ?projectId=...&userId=...
 export async function DELETE(req: NextRequest) {
-  const { res: denied } = await guard();
+  const { res: denied, adminId } = await guard();
   if (denied) return denied;
 
   const url = new URL(req.url);
@@ -297,9 +316,15 @@ export async function DELETE(req: NextRequest) {
     );
   }
 
-  const { error } = await sb.from(source.membersTable!).delete()
+  const { error, count } = await sb.from(source.membersTable!).delete({ count: 'exact' })
     .eq(source.membersProjectColumn!, projectId)
     .eq(source.membersUserColumn!, userId);
   if (error) return serverError(error.message);
+
+  // AFTER the successful write; removing access nobody had sends nothing.
+  await notifyAccessRemoved(sb, {
+    platformKey: source.key, projectId, targetUserId: userId,
+    actorUserId: adminId ?? userId, removed: (count ?? 0) > 0,
+  });
   return NextResponse.json({ ok: true });
 }

@@ -34,6 +34,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getProjectSource, hasMembership, type ProjectSource } from '@/src/shared/admin/projectSources';
 import { isProjectRole, PROJECT_ROLES } from '@/src/core/collab/projectRoles';
 import { resolveAccountHolder, checkAccountBoundary, listAccountCandidates } from '@/src/shared/admin/accountBoundary';
+import { notifyAccessGranted, notifyAccessRemoved } from '@/src/shared/email/teamAccessEmails';
 
 export interface TeamProject { id: string; name: string; archived: boolean }
 export interface TeamPerson { id: string; name: string | null; email: string }
@@ -158,6 +159,16 @@ export async function assignTeamMember(sb: SupabaseClient, actorUserId: string, 
     return { ok: false, code: 'not_on_account', error: 'That person is not on your account. Invite them to your team first.' };
   }
 
+  // What was true BEFORE the write, for the notification's change detection.
+  const { data: prior } = await sb.from(source.membersTable!)
+    .select(source.membersRoleColumn!)
+    .eq(source.membersProjectColumn!, args.projectId)
+    .eq(source.membersUserColumn!, args.userId)
+    .maybeSingle();
+  const previousRole = prior
+    ? String((prior as unknown as Record<string, unknown>)[source.membersRoleColumn!])
+    : null;
+
   const { error } = await sb.from(source.membersTable!).upsert({
     [source.membersProjectColumn!]: args.projectId,
     [source.membersUserColumn!]: args.userId,
@@ -165,6 +176,13 @@ export async function assignTeamMember(sb: SupabaseClient, actorUserId: string, 
     added_by: actorUserId,
   }, { onConflict: `${source.membersProjectColumn},${source.membersUserColumn}` });
   if (error) return { ok: false, code: 'failed', error: error.message };
+
+  // AFTER the successful write; the notifier never throws and its outcome
+  // never affects the access change.
+  await notifyAccessGranted(sb, {
+    platformKey: source.key, projectId: args.projectId, targetUserId: args.userId,
+    actorUserId, role: args.role, previousRole,
+  });
   return { ok: true };
 }
 
@@ -177,9 +195,15 @@ export async function removeTeamMember(sb: SupabaseClient, actorUserId: string, 
   if (args.userId === holderUserId) {
     return { ok: false, code: 'owner_immutable', error: 'You own this project; the owner cannot be removed from it.' };
   }
-  const { error } = await sb.from(source.membersTable!).delete()
+  const { error, count } = await sb.from(source.membersTable!).delete({ count: 'exact' })
     .eq(source.membersProjectColumn!, args.projectId)
     .eq(source.membersUserColumn!, args.userId);
   if (error) return { ok: false, code: 'failed', error: error.message };
+
+  // AFTER the successful write; removing access nobody had sends nothing.
+  await notifyAccessRemoved(sb, {
+    platformKey: source.key, projectId: args.projectId, targetUserId: args.userId,
+    actorUserId, removed: (count ?? 0) > 0,
+  });
   return { ok: true };
 }
