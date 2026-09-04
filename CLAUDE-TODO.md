@@ -3,11 +3,57 @@
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
 ---
-## START HERE 2026-09-03: MODULE 10 IS FEATURE COMPLETE (steps 0 to 9). FOUR THINGS ARE OPEN.
+## START HERE 2026-09-05: THE ACCOUNT MODEL IS SHIPPED END TO END. WHAT IS OPEN, in order:
 
-Steps 0 to 9 all shipped and are live (migs 230 to 238, all APPLIED). Nothing in
-Module 10 is half-built. What follows is what the module UNCOVERED and what it
-deliberately did not do, in the order I would take them.
+Module 10 (steps 0-9, migs 230-238) and the account model (steps 1-7, migs
+239-241, plus notifications, the Team tab, the Collaborate screen and the
+account-scoped cost catalog) are ALL LIVE. Suite 156/0 (9171 checks) at close,
+measured over a mutating tree; quote the next clean-tree run forward.
+
+1. **IN-CONTEXT COMMENTING, steps 1-5** (diagnosed 2026-09-05, full report in
+   CHANGELOG; each step shippable alone): (1) the path-to-screen map
+   (`pathToScreen` in moduleTabs.ts: a prefix-rule table over the ~10 path
+   roots, with FIELD-prefix refinements where `assets[..]` spans M1 Assets vs
+   M2 Inputs, plus an exhaustive verifier: every `enumerateOverridableFields`
+   leaf resolves to exactly ONE (module, tab), no default bucket); (2) mig
+   242, nullable `tab_key` on comments (a tab is NOT in the path grammar;
+   CHECK at most one anchor; replies inherit); (3) per-tab open-comment
+   BADGES in the shell (one listComments per project open; refresh on tab
+   change/save, not push); (4) the on-tab comments DRAWER (the lifted
+   CommentsPanel filtered to this tab, composer defaulting tab_key); (5) the
+   tab-scoped FIELD PICKER + clickable paths jumping via `fmp:trace-to`
+   (re-aims verify-comments E9, recorded). RISK: the map's fidelity is the
+   whole game; a misfiled badge is a quiet lie.
+2. **THE MODULE RENUMBER, ON HOLD** (user hold 2026-09-04; diagnosis complete
+   in CHANGELOG): identity = display; Collaborate -> 8, Portfolio -> last
+   (paid add-on: remove module_8 grants from solo/pro/firm FIRST, which frees
+   the key), API Access and Market Data between (order undecided). The
+   silent-entitlement hazard and the one-transaction re-key plan are written
+   up; zero user_permissions overrides exist on the moving keys; the pinned
+   `verify-collab-roles` F1 reversal and mig-235 invariant exception must be
+   recorded when built.
+3. **COLLABORATE SCREEN USABILITY**, including the ACTIVITY LOG WORDING (raw
+   snapshot paths and action labels read like a debugger; the screen is now
+   client-facing and the rows should say what changed in words). Founder
+   browser pass still owed on the whole screen.
+4. **MODULE 1 LAND PLANNING: naming and FAR** (named 2026-09-05, not yet
+   specified: the land-planning vocabulary on the Land & Area program and a
+   FAR (floor-area-ratio) treatment).
+5. **MODULE 2: THE ESCALATED RATE TABLE** (named 2026-09-05, not yet
+   specified).
+6. **COST PER SQM ANALYSIS IN CAPEX** (Module 1 is CLOSED at M2.0 Pass 58, so
+   this is an ADDITIVE read-only surface or it is not this item; denominators
+   already exist on assets/sub-units).
+7. **THE FULL ALMA LAND STRUCTURE** (named 2026-09-05, not yet specified;
+   scope with the user before building).
+
+Standing, carried: **per-platform SEATS when a second platform ships**
+(decision recorded 2026-09-04 in seats.ts / inviteSeatState / CHANGELOG; must
+ride with per-platform PLAN resolution); **founder click-tests** owed on the
+invite email, the access granted/removed emails, the Team access tab, the
+Collaborate screen and the shared catalog picker.
+
+What follows is the shipped account-model record, kept for context.
 
 ### 1. THE ACCOUNT BOUNDARY. STEPS 1-7 SHIPPED 2026-09-04. THE ACCOUNT MODEL IS FEATURE COMPLETE FOR V1
 

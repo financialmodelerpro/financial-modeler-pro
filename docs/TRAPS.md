@@ -2293,6 +2293,46 @@ U+2013 en dash is deliberately in scope for nothing: it is legitimate in numeric
 Not in code, comments, identifiers, commit messages, docs, or test fixtures. Say "the reference
 model" or "the reference benchmark". The reference Excel files stay `.gitignore`-listed.
 
+### 11.3 The bare email layout IS the Training Hub, and a new template inherits it silently
+
+**Symptom (2026-09-04):** the project-access email, a Modeling Hub feature shipped that day,
+went out with the footer "You are receiving this because you registered for our training
+program."
+
+**Mechanism:** `baseLayoutBranded` fills the footer from the shared `email_branding` row, whose
+copy (and hardcoded fallback) is TRAINING HUB text. Any template that calls the bare layout
+inherits it. This had already bitten once (a campaign, 2026-08-30, which is why `fmpLayout`
+exists) and bit again the first time someone wrote new templates without knowing the history:
+the trap is that the bare call LOOKS neutral and is not.
+
+**Fix:** every Modeling Hub template goes through `fmpLayout(content, reason)` with a per-email
+"you are receiving this because..." reason; hub-shared emails (device/OTP verification) and
+internal alerts use `neutralFooter`. Genuine training emails keep the bare layout, where the
+default is true.
+
+**Proof:** `verify-accounts` H12/H12b fail on any modeling template calling the bare layout, and
+H14 pins that the training certificate template still uses it (the default is CORRECT there, so
+the check cannot be satisfied by banning the bare layout outright). Census of every affected
+template in CHANGELOG 2026-09-04; the modeling-path signup confirmation had carried the training
+line since it shipped.
+
+### 10.11 A verifier can flag the comment that explains the fix
+
+**Symptom (2026-09-04):** `verify-email-escaping` failed on `accountInvite.ts:11` and
+`teamAccess.ts:9`, which are COMMENT lines: the header explaining why a subject-only alias is
+declared safe contained the literal text of a template interpolation as an example, and the
+scanner read it as a real one.
+
+**Mechanism:** the scanner reads the FILE, and a `${param}` inside a block comment is
+indistinguishable from one inside a template literal to a regex that does not track context.
+Same family as 3.17 (evidence taken from prose): here the prose CREATED the evidence.
+
+**Fix:** explanatory comments describe interpolations in words ("a future raw interpolation of
+accountName"), never with the literal `${...}` syntax the scanner hunts.
+
+**Proof:** the reworded declarations pass 26/0; the entry exists so the next person whose
+explanation trips the scanner recognises the shape instead of weakening the check.
+
 ---
 
 ## Related
