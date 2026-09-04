@@ -117,14 +117,15 @@ resolves a path to a VALUE, but nothing joins a path to a module and tab.
 scalar leaf and is the natural place to hang it. Deliberately out of scope in
 step 7 and stated as such in the verifier (E9).
 
-### 3. THE COST CATALOG IS PER USER (logged 2026-09-01, still open)
+### 3. CLOSED 2026-09-05: THE COST CATALOG IS ACCOUNT-SCOPED (mig 241)
 
-`refm_cost_catalog` is keyed per USER, so two members of one project see
-different catalogs and a line can resolve to an unknown identity. **This is a
-MODELLING defect, not a collaboration step**, and it was named as the one
-blocker before sharing goes live. It is still open and now more reachable:
-steps 2 to 9 put several people on one project. Full logging further down this
-file.
+The per-USER key became per-ACCOUNT: one vocabulary per client firm, shared by
+every member across the firm's projects (correct by construction under the
+step-2 boundary). Author kept as `user_id` SET NULL; unique on
+`(account_id, entry_id)`; any member may add (the comments rule); zero rows
+existed so nothing migrated. `verify-cost-catalog` 210 (section G re-aimed).
+Residue accepted: a cross-account platform admin sees their own account's
+entries on a client project.
 
 ### 4. COST PER SQM ANALYSIS IN CAPEX (Module 1)
 

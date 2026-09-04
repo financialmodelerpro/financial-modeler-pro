@@ -1,13 +1,24 @@
 /**
- * /api/refm/cost-catalog (2026-08-17)
+ * /api/refm/cost-catalog (2026-08-17; ACCOUNT-SCOPED since 2026-09-05, mig 241)
  *
- *   GET  -> the calling user's own catalog entries. Built-ins are NOT returned:
- *           they live in code so the picker works with no round trip.
- *   POST -> add (or update) one entry, shared across that user's projects.
+ *   GET  -> the calling user's ACCOUNT catalog entries. Built-ins are NOT
+ *           returned: they live in code so the picker works with no round trip.
+ *   POST -> add (or update) one entry, shared by every member across the
+ *           account's projects. ANY member may add: this is naming
+ *           convenience, not entitlement, the same rule as comments.
  *
- * Auth: NextAuth session required, and every query is filtered by
- * `user_id = session.user.id` even though the SERVICE_ROLE client bypasses RLS.
- * The application layer is the access boundary, as everywhere else in REFM.
+ * WHY THE ACCOUNT: per-user was right before accounts existed, and became the
+ * defect once projects were shared. Two members of one project saw different
+ * pickers, and a line could stamp a catalogId its other readers did not hold.
+ * Since the step-2 boundary, everyone who can open a project is on the owning
+ * account, so account scope makes every member resolve the same identities by
+ * construction. The AUTHOR is still recorded per entry (user_id, SET NULL
+ * when they leave).
+ *
+ * Auth: NextAuth session required; every query is filtered by the caller's
+ * account (resolved through the one helper in accountBoundary.ts) even though
+ * the SERVICE_ROLE client bypasses RLS. The application layer is the access
+ * boundary, as everywhere else in REFM.
  *
  * FAILS SOFT, DELIBERATELY. Nothing here is on a calculation path: selecting an
  * entry stamps method / stage / phasing source onto the cost line, and the
@@ -40,6 +51,7 @@ import {
   normaliseCatalogId,
   type UserCostCatalogEntry,
 } from '@/src/hubs/modeling/platforms/refm/lib/state/costCatalog';
+import { resolveAccountId } from '@/src/shared/admin/accountBoundary';
 
 const TABLE = 'refm_cost_catalog';
 
@@ -77,10 +89,16 @@ export async function GET(): Promise<NextResponse> {
   if (!userId) return unauthorized();
   try {
     const sb = getServerClient();
+    const accountId = await resolveAccountId(sb, userId);
+    if (!accountId) {
+      // Pre-239 or a broken row: the built-ins still work, exactly the
+      // fail-soft posture the absent-table branch below takes.
+      return NextResponse.json({ entries: [], available: false, reason: 'no account' });
+    }
     const { data, error } = await sb
       .from(TABLE)
       .select('entry_id, label, method, stage, phasing_source, allocation_basis, scope, hint, created_at')
-      .eq('user_id', userId)
+      .eq('account_id', accountId)
       .order('label', { ascending: true });
     if (error) {
       // Absent table or any read failure: the built-ins still work.
@@ -129,9 +147,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   try {
     const sb = getServerClient();
+    const accountId = await resolveAccountId(sb, userId);
+    if (!accountId) {
+      return NextResponse.json({ error: 'Your account could not be resolved; the entry was not saved.' }, { status: 503 });
+    }
     const { data, error } = await sb
       .from(TABLE)
       .upsert({
+        account_id: accountId,
+        // The AUTHOR, for attribution; the entry belongs to the account and
+        // outlives this login (SET NULL on delete, mig 241).
         user_id: userId,
         entry_id: entryId,
         label,
@@ -142,7 +167,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         scope,
         hint: body.hint ? String(body.hint).slice(0, 200) : null,
         updated_at: new Date().toISOString(),
-      }, { onConflict: 'user_id,entry_id' })
+      }, { onConflict: 'account_id,entry_id' })
       .select('entry_id, label, method, stage, phasing_source, allocation_basis, scope, hint, created_at')
       .maybeSingle();
     if (error || !data) {

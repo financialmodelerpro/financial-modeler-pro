@@ -423,16 +423,35 @@ section('F. Copy reconciles by identity; undo restores at the index');
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-section('G. Storage: shared per user, and never on a calculation path');
+// RE-AIMED 2026-09-05 (mig 241): the catalog is SHARED PER ACCOUNT now, not
+// per user. Per-user was right before accounts existed and became the defect
+// once projects were shared: two members of one project saw different
+// pickers, and a line could stamp a catalogId its other readers did not
+// hold. The AUTHOR is still recorded (user_id, SET NULL when they leave),
+// and any member may add: naming convenience, not entitlement, the same
+// rule as comments. Never on a calculation path, unchanged.
+section('G. Storage: shared per ACCOUNT, and never on a calculation path');
 
 {
+  const MIGRATION_241 = read('supabase/migrations/241_cost_catalog_account_scope.sql');
   check('migration 214 creates the table', MIGRATION_214.includes('CREATE TABLE IF NOT EXISTS refm_cost_catalog'));
-  check('scoped to a user', MIGRATION_214.includes('user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE'));
-  check('one row per entry per user', MIGRATION_214.includes('UNIQUE (user_id, entry_id)'));
+  check('scoped to the ACCOUNT, dying with it (mig 241)',
+    MIGRATION_241.includes('REFERENCES accounts(id) ON DELETE CASCADE')
+    && MIGRATION_241.includes('ALTER COLUMN account_id SET NOT NULL'));
+  check('one row per entry per ACCOUNT', MIGRATION_241.includes('UNIQUE (account_id, entry_id)'));
+  check('the AUTHOR outlives nothing; the entry outlives the author',
+    MIGRATION_241.includes('FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL'));
   check('the id shape is enforced by the database', MIGRATION_214.includes("entry_id ~ '^[a-z0-9-]{1,48}$'"));
   check('RLS is on', MIGRATION_214.includes('ENABLE ROW LEVEL SECURITY'));
 
-  check('the route scopes every read to the caller', SRC_ROUTE.includes(".eq('user_id', userId)"));
+  check('the route scopes every read to the caller\'s ACCOUNT, through the one helper',
+    SRC_ROUTE.includes(".eq('account_id', accountId)")
+    && SRC_ROUTE.includes('resolveAccountId(sb, userId)')
+    && !SRC_ROUTE.includes(".eq('user_id', userId)"));
+  check('the write records the author and conflicts on the account key',
+    SRC_ROUTE.includes("onConflict: 'account_id,entry_id'") && SRC_ROUTE.includes('user_id: userId'));
+  check('an unresolvable account fails SOFT on read and refuses the write',
+    SRC_ROUTE.includes("reason: 'no account'") && SRC_ROUTE.includes('the entry was not saved'));
   check('it validates method and stage against the live unions',
     SRC_ROUTE.includes('COST_METHODS as readonly string[]') && SRC_ROUTE.includes('COST_STAGES as readonly string[]'));
   check('a user entry cannot shadow a built-in', SRC_ROUTE.includes('BUILT_IN_COST_CATALOG.some('));

@@ -139,6 +139,22 @@ export async function resolveAccountHolder(
 }
 
 /**
+ * The ACCOUNT this user is on (their own, or the one they were invited
+ * into). NULL only on a pre-239 database or a broken row; callers treat
+ * that as "no account scope" and fail soft. Account-scoped surfaces (the
+ * cost catalog) read the id through THIS helper so users.account_id keeps
+ * exactly one reading path per rule.
+ */
+export async function resolveAccountId(sb: SupabaseClient, userId: string): Promise<string | null> {
+  try {
+    const { data } = await sb.from('users').select('account_id').eq('id', userId).maybeSingle();
+    return ((data as { account_id?: string | null } | null)?.account_id) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Of these users, the ones who are MEMBERS of someone else's account: the
  * bulk form of the rule above, for email audiences. A member has no plan BY
  * DESIGN and must never be chased to request access or buy one.

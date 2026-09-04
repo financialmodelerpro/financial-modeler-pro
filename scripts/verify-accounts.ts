@@ -143,6 +143,9 @@ async function main() {
       'src/shared/admin/accountBoundary.ts',
       'src/shared/admin/seats.ts', // step 3: seats count the account's people
       'src/shared/account/invites.ts', // step 5: invites attach members to the account
+      // mig 241: the cost catalog's OWN account_id column (the route resolves
+      // the caller's account through the accountBoundary helper, never raw).
+      'app/api/refm/cost-catalog/route.ts',
     ]);
     const readers: string[] = [];
     for (const dir of ['src', 'app']) {

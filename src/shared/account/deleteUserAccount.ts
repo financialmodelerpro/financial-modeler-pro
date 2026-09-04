@@ -12,8 +12,11 @@
  *     - via existing FK cascades off users(id): the whole REFM project tree
  *       (refm_projects -> versions -> change_log, report decks + deck versions,
  *       fund terms, parties), user_permissions, trial_requests,
- *       ai_usage_counters, password_reset_tokens, refm_cost_catalog rows, and
- *       any enrollments / certificates / assessment_attempts keyed to this id;
+ *       ai_usage_counters, password_reset_tokens, and any enrollments /
+ *       certificates / assessment_attempts keyed to this id (refm_cost_catalog
+ *       entries SURVIVE since mig 241: they belong to the ACCOUNT and only
+ *       their author link goes NULL; a holder's deletion removes them via the
+ *       accounts cascade instead);
  *     - explicitly (no FK exists, they would otherwise orphan):
  *       user_platform_subscriptions, subscription_email_log rows,
  *       trusted_devices rows for the user's email, and the avatar file
