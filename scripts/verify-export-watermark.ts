@@ -364,11 +364,14 @@ section('C. The stamp is drawn, on every page, and a paid export is untouched');
       for (const p of ['trial', 'solo', 'pro', 'firm']) {
         check(`H: ${p} keeps PDF export`, inc(p, 'pdf_export') === true);
       }
-      // PowerPoint is Module 7, firm only. This is the gate the deck route now
-      // enforces server side.
-      check('H: Module 7 (PowerPoint) is firm only',
+      // PowerPoint is Module 7, PRO AND FIRM. Re-aimed 2026-09-04 on a user
+      // decision: the IC report is part of the Pro plan, so Pro includes the
+      // Presentation module and its PowerPoint export (the live grant moved
+      // that day and this check caught it, which is its job). Trial and Solo
+      // stay excluded; the deck route enforces the same key server side.
+      check('H: Module 7 (PowerPoint) is pro and firm (decided 2026-09-04)',
         inc('trial', 'module_7') === false && inc('solo', 'module_7') === false
-        && inc('pro', 'module_7') === false && inc('firm', 'module_7') === true);
+        && inc('pro', 'module_7') === true && inc('firm', 'module_7') === true);
 
       // The watermark default must line up with who actually has PDF: a plan
       // that cannot export cannot be watermarked, which would be a silent
