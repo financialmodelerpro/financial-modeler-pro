@@ -9,7 +9,7 @@ Steps 0 to 9 all shipped and are live (migs 230 to 238, all APPLIED). Nothing in
 Module 10 is half-built. What follows is what the module UNCOVERED and what it
 deliberately did not do, in the order I would take them.
 
-### 1. THE ACCOUNT BOUNDARY. STEPS 1-4 SHIPPED 2026-09-04; step 5 (invites) is the open work
+### 1. THE ACCOUNT BOUNDARY. STEPS 1-5 SHIPPED 2026-09-04; step 6+ (holder self-service) is the open work
 
 **Step 1 (mig 239 APPLIED)**: `accounts` is its own row (`kind`
 client|internal, exactly one internal = FMP's own), every user has one
@@ -46,14 +46,20 @@ false`, keeps the member's own role; members drop out of the access-reminder
 scan and `'none'`-plan campaign audiences (`membersExcluded` reported). Proven
 live with a probe member on the real pro plan; all 8 real users self-resolve.
 
+**Step 5 (2026-09-04, mig 240 APPLIED)**: invites. `account_invites` + the
+one-transaction `redeem_account_invite`; seat reserved at CREATE (people +
+open unexpired invites + 1), re-checked at accept; register fork after
+captcha, before the launch gate; redeemed email joins the signin whitelist;
+"Your team" card on the dashboard (server-decided eligibility). Engine:
+`src/shared/account/invites.ts`. NOT yet proven: Brevo delivery of the invite
+email itself (a founder send to a real inbox closes it), and no
+project-assignment path for the holder yet (the card says "ask us").
+
 **What remains, smallest first, each shippable alone:**
-1. **Step 5, INVITES**: `account_invites` (token hash, SEAT RESERVED AT
-   CREATE against `countAccountSeats` + open invites, consumed in the register
-   route's one new mode, bypassing the launch allowlist). The only path by
-   which a member can exist, since a user row is still born only in
-   self-signup.
-2. **Step 6+**: holder self-service member management; delete-request queue
-   scoped to the holder.
+1. **Step 6+**: holder self-service member management (assign own projects,
+   change roles, remove members: the client-side TeamAccessPanel, reusing the
+   admin route's rules under holder auth); delete-request queue scoped to the
+   holder.
 
 **Advisor future-proofing is two absences, both pinned**: no FK ties a project
 member's account to the project owner's account, and seats count ACCOUNT

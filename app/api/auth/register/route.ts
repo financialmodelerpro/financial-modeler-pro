@@ -7,6 +7,7 @@ import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
 import { confirmEmailTemplate } from '@/src/shared/email/templates/confirmEmail';
 import { sendNewRegistrationAlert } from '@/src/shared/email/newRegistrationAlert';
 import { canEmailRegisterModeling } from '@/src/hubs/modeling/lib/access';
+import { redeemAccountInvite } from '@/src/shared/account/invites';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com';
 
@@ -23,6 +24,9 @@ export async function POST(req: NextRequest) {
     captchaToken?: string;
     works_in_real_estate?: boolean | null;
     real_estate_role_note?: string;
+    /** Account invite token (account model step 5). Presence forks the flow
+     *  AFTER validation + captcha; absence leaves everything below untouched. */
+    inviteToken?: string;
   } | null;
 
   if (!body?.email || !body?.password) {
@@ -83,6 +87,71 @@ export async function POST(req: NextRequest) {
   }
 
   const email = (body.email as string).toLowerCase().trim();
+
+  // ── ACCOUNT INVITE (account model step 5) ────────────────────────────────
+  //
+  // The fork is HERE, after every shared validation (required fields,
+  // captcha) and before the launch gate: an invited person is paid for by
+  // the inviting client, so the pre-launch register gate does not apply to
+  // them. Everything below this block is the ordinary path, byte-identical
+  // for anyone arriving without a token.
+  if (typeof body.inviteToken === 'string' && body.inviteToken.trim() !== '') {
+    const password_hash = await hashPassword(body.password as string);
+    // Attach + consume in ONE transaction (redeem_account_invite, mig 240):
+    // a failure leaves neither the user nor the consumption behind.
+    const redeemed = await redeemAccountInvite(serverClient, {
+      rawToken: body.inviteToken.trim(),
+      email,
+      name: clean.name,
+      passwordHash: password_hash,
+      phone: clean.phone,
+      city: clean.city,
+      country: clean.country,
+      company: clean.company,
+      jobTitle: clean.job_title,
+      worksInRealEstate: body.works_in_real_estate,
+      roleNote: clean.real_estate_role_note,
+    });
+    if (!redeemed.ok) {
+      const status = redeemed.code === 'duplicate_email' ? 409
+        : redeemed.code === 'seat_limit' ? 409
+        : redeemed.code === 'failed' ? 500 : 400;
+      return NextResponse.json({ error: redeemed.error, code: redeemed.code }, { status });
+    }
+
+    // The signin gate shares the whitelist with the register gate; a paid
+    // team member must be able to SIGN IN even while the hub is gated, so
+    // the redeemed email joins the whitelist. Best effort: a failure here
+    // costs a support request, not the account.
+    await serverClient.from('modeling_access_whitelist')
+      .insert({ email, note: 'account invite (step 5)', added_by: 'invite-redemption' })
+      .then(() => null, () => null);
+
+    void (async () => {
+      await sendNewRegistrationAlert({
+        userId: redeemed.userId,
+        name: clean.name,
+        email,
+        phone: clean.phone,
+        city: clean.city,
+        country: clean.country,
+        company: clean.company,
+        jobTitle: clean.job_title,
+        worksInRealEstate: body.works_in_real_estate as boolean,
+        roleNote: clean.real_estate_role_note,
+        registeredAt: new Date().toISOString(),
+      });
+    })();
+
+    const token      = await createConfirmationToken(email, 'modeling');
+    const confirmUrl = `${APP_URL}/modeling/confirm-email?token=${token}`;
+    const { subject, html } = await confirmEmailTemplate({ confirmUrl, hub: 'modeling' });
+    await sendEmail({ to: email, subject, html, from: FROM.noreply });
+
+    return NextResponse.json({
+      message: 'Account created and linked to your team! Please check your email and click the confirmation link to activate it.',
+    }, { status: 201 });
+  }
 
   // Pre-launch gate (migration 136): when the register toggle is on, only
   // admins + whitelisted emails can create an account. Ordering matters -

@@ -26,6 +26,12 @@ interface RegisterFormProps {
    * input post-hydration.
    */
   invitedEmail?: string;
+  /** Account invite token (account model step 5). Included in the register
+   *  POST so the server redeems the invite and attaches the new user to the
+   *  inviting client's account. */
+  inviteToken?: string;
+  /** The inviting account's name, for the banner above the form. */
+  inviteAccountName?: string | null;
 }
 
 const NAVY = '#0D2E5A';
@@ -44,7 +50,7 @@ const labelStyle: React.CSSProperties = {
   color: '#374151', marginBottom: 6, letterSpacing: '0.03em',
 };
 
-function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProps) {
+function RegisterInner({ preLaunch, launchDate, invitedEmail, inviteToken, inviteAccountName }: RegisterFormProps) {
   const router = useRouter();
 
   const searchParams = useSearchParams();
@@ -121,6 +127,7 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProp
         city, country, captchaToken,
         works_in_real_estate: worksInRe,
         real_estate_role_note: reNote,
+        ...(inviteToken ? { inviteToken } : {}),
       }),
     });
     const json = await res.json().catch(() => ({})) as { error?: string; message?: string };
@@ -232,10 +239,12 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProp
             <div style={{ background: NAVY, padding: '28px 36px 24px', textAlign: 'center' }}>
               <div style={{ fontSize: 32, marginBottom: 8 }}>📐</div>
               <h1 style={{ fontSize: 20, fontWeight: 800, color: '#fff', margin: 0, marginBottom: 4 }}>
-                Create Your Account
+                {inviteToken ? 'Join Your Team' : 'Create Your Account'}
               </h1>
               <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.65)', margin: 0 }}>
-                Join Financial Modeler Pro · Choose a plan or start a free trial after sign-up
+                {inviteToken
+                  ? `You have been invited to join ${inviteAccountName ?? 'a team'} on Financial Modeler Pro. Access is covered by the team's subscription.`
+                  : 'Join Financial Modeler Pro · Choose a plan or start a free trial after sign-up'}
               </p>
             </div>
 
@@ -536,10 +545,13 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProp
   );
 }
 
-export function RegisterForm({ preLaunch = false, launchDate = null, invitedEmail }: RegisterFormProps = {}) {
+export function RegisterForm({ preLaunch = false, launchDate = null, invitedEmail, inviteToken, inviteAccountName }: RegisterFormProps = {}) {
   return (
     <Suspense>
-      <RegisterInner preLaunch={preLaunch} launchDate={launchDate} invitedEmail={invitedEmail} />
+      <RegisterInner
+        preLaunch={preLaunch} launchDate={launchDate} invitedEmail={invitedEmail}
+        inviteToken={inviteToken} inviteAccountName={inviteAccountName}
+      />
     </Suspense>
   );
 }

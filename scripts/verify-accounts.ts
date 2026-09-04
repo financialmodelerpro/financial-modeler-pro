@@ -142,6 +142,7 @@ async function main() {
       'src/shared/account/deleteUserAccount.ts',
       'src/shared/admin/accountBoundary.ts',
       'src/shared/admin/seats.ts', // step 3: seats count the account's people
+      'src/shared/account/invites.ts', // step 5: invites attach members to the account
     ]);
     const readers: string[] = [];
     for (const dir of ['src', 'app']) {
@@ -250,20 +251,28 @@ async function main() {
 
   console.log('D. Step 4: a member inherits the holder\'s plan, in ONE place');
   {
-    // The lookup lives in resolveAccountHolder and the gate is its only
-    // caller: no other surface may resolve member-vs-holder, because a call
-    // site that resolved the MEMBER would show a paying client's colleague
-    // the request-access storefront.
+    // The lookup lives in resolveAccountHolder, and its callers are an
+    // ALLOW-LIST grown consciously, like S10: the gate (the one place plan
+    // inheritance happens; a second inheritance site could resolve the
+    // MEMBER and show a paying client's colleague the request-access
+    // storefront) plus the invite engine and its route, which reuse the SAME
+    // rule to ask "is this caller the holder", the reuse the one-place
+    // principle exists for.
+    const CALLERS = new Set([
+      'src/shared/entitlements/resolveUser.ts', // step 4: plan inheritance, the one place
+      'src/shared/account/invites.ts',          // step 5: only the holder invites
+      'app/api/account/invites/route.ts',       // step 5: eligibility for the team card
+    ]);
     const callers: string[] = [];
     for (const dir of ['src', 'app']) {
       for (const f of walk(path.join(ROOT, dir))) {
         const rel = path.relative(ROOT, f).replace(/\\/g, '/');
         if (rel === 'src/shared/admin/accountBoundary.ts') continue;
-        if (/resolveAccountHolder\(/.test(fs.readFileSync(f, 'utf8'))) callers.push(rel);
+        if (/resolveAccountHolder\(/.test(fs.readFileSync(f, 'utf8')) && !CALLERS.has(rel)) callers.push(rel);
       }
     }
-    check('D1 resolveUserGate is the ONLY caller of resolveAccountHolder',
-      callers.length === 1 && callers[0] === 'src/shared/entitlements/resolveUser.ts', callers.join(', '));
+    check('D1 resolveAccountHolder has no caller outside the allow-list (plan inheritance stays in the gate)',
+      callers.length === 0, callers.join(', '));
 
     const gate = src('src/shared/entitlements/resolveUser.ts');
     check('D2 every plan-shaped read uses the billing identity',
@@ -282,6 +291,56 @@ async function main() {
     check('D7 a no-plan campaign audience drops members AND reports the count',
       /membersExcluded/.test(camp) && /accountMemberIds\(/.test(camp)
       && /includes\('none'\)/.test(camp));
+  }
+
+  console.log('E. Step 5: invites');
+  {
+    const mig = src('supabase/migrations/240_account_invites.sql');
+    check('E1 only a token HASH is stored, unique, with a hard expiry',
+      /token_hash\s+text NOT NULL UNIQUE/.test(mig) && /expires_at\s+timestamptz NOT NULL/.test(mig)
+      && !/raw_token|token\s+text/.test(mig));
+    check('E2 one OPEN invite per (account, email), case-insensitive',
+      /uniq_account_invites_open/.test(mig) && /lower\(email\)\) WHERE consumed_at IS NULL/.test(mig));
+    check('E3 redemption is ONE transaction: lock, match, attach, consume',
+      /FOR UPDATE/.test(mig) && /RAISE EXCEPTION 'invalid_invite'/.test(mig)
+      && /RAISE EXCEPTION 'email_mismatch'/.test(mig) && /v_invite\.account_id/.test(mig));
+
+    const inv = src('src/shared/account/invites.ts');
+    check('E4 the seat is reserved at CREATE: people + open invites + 1 vs the limit',
+      /seatsAllow\(seats\.used \+ seats\.reserved \+ 1, seats\.limit\)/.test(inv));
+    check('E4b ...and re-checked at ACCEPT with the reservation counted, not grown',
+      /seatsAllow\(seats\.used \+ seats\.reserved, seats\.limit\)/.test(inv));
+    check('E5 an unsendable invite email rolls the reservation back',
+      /await sb\.from\('account_invites'\)\.delete\(\)\.eq\('id',.*\n?.*email_send_failed/.test(inv)
+      || (/email_send_failed/.test(inv) && /account_invites'\)\.delete\(\)\.eq\('id'/.test(inv)));
+    check('E6 an existing user cannot be invited (one person, one account)',
+      /existing_user/.test(inv));
+    check('E7 only the holder invites; a member is refused',
+      /not_holder/.test(inv) && /resolveAccountHolder\(sb, inviterUserId\)/.test(inv));
+
+    const reg = src('app/api/auth/register/route.ts');
+    const forkAt = reg.indexOf('body.inviteToken');
+    const gateAt = reg.indexOf('await canEmailRegisterModeling(email)');
+    const captchaAt = reg.indexOf('await verifyCaptcha');
+    check('E8 the register fork sits AFTER captcha and BEFORE the launch gate (the client pays)',
+      captchaAt > 0 && forkAt > captchaAt && gateAt > forkAt,
+      `captcha=${captchaAt} fork=${forkAt} gate=${gateAt}`);
+    check('E9 the invite branch redeems through the ONE atomic rpc, never inserting a user itself',
+      /redeemAccountInvite\(serverClient/.test(reg)
+      && !/from\('users'\)\.insert/.test(reg.slice(forkAt, gateAt)));
+    check('E10 the redeemed email joins the signin whitelist (a paid member can log in)',
+      /modeling_access_whitelist/.test(reg.slice(forkAt, gateAt)));
+    check('E11 the ordinary path is untouched: gate, duplicate check and tiered insert all remain',
+      /await canEmailRegisterModeling\(email\)/.test(reg)
+      && /An account with that email already exists/.test(reg)
+      && /insert\(withQualification\)/.test(reg));
+
+    check('E12 the register page resolves the token server-side and locks the email',
+      /previewInviteByToken/.test(src('app/modeling/register/page.tsx'))
+      && /inviteToken/.test(src('app/modeling/register/RegisterForm.tsx')));
+    check('E13 the dashboard card decides nothing: eligibility comes from the server',
+      /\/api\/account\/invites/.test(src('src/hubs/modeling/components/TeamInvitesCard.tsx'))
+      && /eligible/.test(src('app/api/account/invites/route.ts')));
   }
 
   console.log('L. Live: the invariants over the real rows');
@@ -409,6 +468,78 @@ async function main() {
         if (memberId) await sb.from('users').delete().eq('id', memberId);
         if (holderId) await sb.from('users').delete().eq('id', holderId);
         await sb.from('users').delete().like('email', 'probe-accounts-%');
+      }
+    }
+
+    // ── Step 5 live: the invite cycle, end to end, no email sent ──────────
+    // The redemption goes through the REAL engine and the REAL rpc; the two
+    // refusal probes (seat limit, existing user) return BEFORE the email
+    // send, so the suite never mails anyone.
+    {
+      const { redeemAccountInvite, createAccountInvite, hashInviteToken } = await import('../src/shared/account/invites');
+      const stamp = Date.now();
+      let firmId: string | null = null;
+      let proId: string | null = null;
+      let joinedId: string | null = null;
+      try {
+        const { data: f } = await sb.from('users')
+          .insert({ email: `probe-accounts-firm${stamp}@example.invalid`, name: 'Probe Firm Holder', role: 'user', subscription_plan: 'firm', subscription_status: 'active' })
+          .select('id').single();
+        firmId = (f as { id: string } | null)?.id ?? null;
+        const { data: p } = await sb.from('users')
+          .insert({ email: `probe-accounts-pro${stamp}@example.invalid`, name: 'Probe Pro Holder', role: 'user', subscription_plan: 'pro', subscription_status: 'active' })
+          .select('id').single();
+        proId = (p as { id: string } | null)?.id ?? null;
+        if (!firmId || !proId) {
+          check('L20-L24 invite live probes have their holders', false, 'insert failed');
+        } else {
+          const { data: fAcct } = await sb.from('accounts').select('id').eq('owner_user_id', firmId).single();
+          const firmAcct = (fAcct as { id: string }).id;
+
+          // A pro holder (1 seat, owner in it) cannot reserve another.
+          const refused = await createAccountInvite(sb, proId, `probe-accounts-x${stamp}@example.invalid`, 'https://example.invalid');
+          check('L20 a one-seat holder cannot invite past their seats (refused at CREATE)',
+            !refused.ok && refused.code === 'seat_limit', refused.ok ? 'ALLOWED' : refused.code);
+
+          // An existing user cannot be invited (refused before any email).
+          const dup = await createAccountInvite(sb, firmId, uList[0] ? (await sb.from('users').select('email').eq('id', uList[0].id).single()).data!.email as string : 'x', 'https://example.invalid');
+          check('L21 an existing user cannot be invited', !dup.ok && dup.code === 'existing_user', dup.ok ? 'ALLOWED' : dup.code);
+
+          // A firm invite redeems through the REAL rpc into a MEMBER.
+          const token = `probe-accounts-tok-${stamp}`;
+          const joinEmail = `probe-accounts-join${stamp}@example.invalid`;
+          await sb.from('account_invites').insert({
+            account_id: firmAcct, email: joinEmail, token_hash: hashInviteToken(token),
+            invited_by: firmId, expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+          });
+          const red = await redeemAccountInvite(sb, {
+            rawToken: token, email: joinEmail, name: 'Probe Joined', passwordHash: 'x-hash',
+            phone: null, city: null, country: null, company: null, jobTitle: null,
+            worksInRealEstate: null, roleNote: null,
+          });
+          check('L22 redeeming attaches the person to the inviting account', red.ok, red.ok ? '' : `${red.code}: ${red.error}`);
+          if (red.ok) {
+            joinedId = red.userId;
+            const { data: joined } = await sb.from('users').select('account_id, subscription_plan').eq('id', joinedId).single();
+            const { count: ownAcct } = await sb.from('accounts').select('id', { count: 'exact', head: true }).eq('owner_user_id', joinedId);
+            check('L23 ...as a MEMBER: on the account, plan none, no account of their own',
+              (joined as { account_id: string }).account_id === firmAcct
+              && (joined as { subscription_plan: string }).subscription_plan === 'none'
+              && (ownAcct ?? 0) === 0);
+            const again = await redeemAccountInvite(sb, {
+              rawToken: token, email: joinEmail, name: 'X', passwordHash: 'x',
+              phone: null, city: null, country: null, company: null, jobTitle: null,
+              worksInRealEstate: null, roleNote: null,
+            });
+            check('L24 the invite is single use', !again.ok && again.code === 'invalid_invite', again.ok ? 'ALLOWED' : again.code);
+          }
+        }
+      } finally {
+        if (joinedId) await sb.from('users').delete().eq('id', joinedId);
+        if (firmId) await sb.from('users').delete().eq('id', firmId);
+        if (proId) await sb.from('users').delete().eq('id', proId);
+        await sb.from('users').delete().like('email', 'probe-accounts-%');
+        await sb.from('account_invites').delete().like('email', 'probe-accounts-%');
       }
     }
 

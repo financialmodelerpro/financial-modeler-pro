@@ -165,6 +165,7 @@ type NavItem =
 // platform list from the shared project-source registry, so a new platform
 // appears here by declaring its membership columns and nothing else.
 const TeamAccessPanel = dynamic(() => import('@/src/hubs/modeling/components/TeamAccessPanel'), { ssr: false });
+const TeamInvitesCard = dynamic(() => import('@/src/hubs/modeling/components/TeamInvitesCard'), { ssr: false });
 
 const NAV_ITEMS: NavItem[] = [
   { kind: 'view', id: 'dashboard',    icon: '🏠', label: 'Dashboard' },
@@ -893,6 +894,13 @@ export default function ModelingDashboardPage() {
               </a>
             </div>
           )}
+
+          {/* Your team (account model step 5): invite a colleague by email.
+              Server-decided visibility: the card fetches /api/account/invites
+              and renders NOTHING unless the caller is an account holder whose
+              plan carries seats to share (or who already has people/invites).
+              A member, a solo holder, or an error all show no card. */}
+          {!noPlan && <TeamInvitesCard theme={theme} />}
 
           {/* Grace banner: the plan expired but is inside the 1-month read-only
               window. Same message + renew link the platform shows, surfaced on

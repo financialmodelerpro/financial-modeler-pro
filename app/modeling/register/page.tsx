@@ -30,7 +30,7 @@ export const revalidate = 0;
  * the whitelist check so none of the above is a single point of failure.
  */
 interface PageProps {
-  searchParams: Promise<{ email?: string | string[]; bypass?: string | string[] }>;
+  searchParams: Promise<{ email?: string | string[]; bypass?: string | string[]; invite?: string | string[] }>;
 }
 
 export default async function ModelingRegisterPage({ searchParams }: PageProps) {
@@ -44,6 +44,33 @@ export default async function ModelingRegisterPage({ searchParams }: PageProps) 
   const session = await getServerSession(authOptions);
   if (session?.user) {
     redirect('/dashboard');
+  }
+
+  // ── ACCOUNT INVITE (account model step 5) ────────────────────────────────
+  // `?invite=<token>` resolves server-side: a valid open invite renders the
+  // form with the email prefilled and LOCKED (the redeem rpc enforces the
+  // match anyway; the lock just saves the person a dead end) and bypasses
+  // the Coming Soon wrapper, because the inviting client pays for this
+  // person. An invalid token falls through to the ordinary page.
+  const rawInvite = Array.isArray(sp.invite) ? sp.invite[0] : sp.invite;
+  if (rawInvite) {
+    const { previewInviteByToken } = await import('@/src/shared/account/invites');
+    const { getServerClient } = await import('@/src/core/db/supabase');
+    const preview = await previewInviteByToken(getServerClient(), rawInvite);
+    if (preview.valid && preview.email) {
+      return (
+        <>
+          <NavbarServer />
+          <RegisterForm
+            preLaunch={false}
+            launchDate={null}
+            invitedEmail={preview.email}
+            inviteToken={rawInvite}
+            inviteAccountName={preview.accountName}
+          />
+        </>
+      );
+    }
   }
 
   if (!state.enabled) {
