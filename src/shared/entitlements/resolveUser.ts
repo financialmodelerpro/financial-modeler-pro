@@ -22,6 +22,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getServerClient } from '@/src/core/db/supabase';
+import { resolveAccountHolder } from '@/src/shared/admin/accountBoundary';
 import { loadMergedFeatures } from './serverCatalog';
 import {
   computeGate,
@@ -132,7 +133,35 @@ export async function resolveUserGate(
 
     const role = (user.role as string) ?? 'user';
     const isAdmin = role === 'admin' || sessionIsAdmin;
-    const planKey = (user.subscription_plan as string) ?? '';
+
+    // ── ACCOUNT MODEL STEP 4: a MEMBER inherits the HOLDER's plan ─────────
+    //
+    // A member is not a client: their plan, lapse and grace are the account
+    // holder's, read from the holder's row; their ROLE stays their own. The
+    // indirection happens HERE and only here, so no call site can resolve
+    // the member instead of the holder (the failure that would show a paying
+    // client's colleague the request-access storefront). `billingUserId`
+    // feeds every plan-shaped read below: the subscription row, the plan
+    // cells, the overrides, the trial anchor.
+    const { holderUserId, isMember } = await resolveAccountHolder(sb, userId);
+    const billingUserId = isMember ? holderUserId : userId;
+    let planRow: { subscription_plan?: string | null; trial_ends_at?: string | null } = user;
+    if (isMember) {
+      const { data: holderRow, error: hErr } = await sb
+        .from('users')
+        .select('subscription_plan, trial_ends_at')
+        .eq('id', holderUserId)
+        .single();
+      if (hErr || !holderRow) {
+        // A member whose holder cannot be read has no billable identity to
+        // inherit; deciding on half the facts must deny, not guess.
+        console.error('[entitlements] resolveUserGate: holder load failed for member', { userId, holderUserId, error: hErr?.message });
+        return deniedGate(userId, isAdmin);
+      }
+      planRow = holderRow as typeof planRow;
+    }
+
+    const planKey = (planRow.subscription_plan as string) ?? '';
     const knownPlan = isKnownPlanKey(planKey);
 
     // 'none' is the deliberate no-access state, NOT an unknown plan: do not warn
@@ -145,7 +174,7 @@ export async function resolveUserGate(
     }
 
     const nowMs = Date.now();
-    const trialEndsAt = (user.trial_ends_at as string | null) ?? null;
+    const trialEndsAt = (planRow.trial_ends_at as string | null) ?? null;
     const trialEndsMs = trialEndsAt ? Date.parse(trialEndsAt) : null;
     const trialExpired = planKey === 'trial' && trialEndsMs != null && trialEndsMs < nowMs;
 
@@ -165,7 +194,7 @@ export async function resolveUserGate(
       const { data: subRow } = await sb
         .from('user_platform_subscriptions')
         .select('expires_at, current_period_end, status, source')
-        .eq('user_id', userId)
+        .eq('user_id', billingUserId)
         .eq('platform_slug', platform)
         .maybeSingle();
       const row = subRow as {
@@ -213,7 +242,7 @@ export async function resolveUserGate(
       const { data: ovs } = await sb
         .from('user_permissions')
         .select('feature_key, mode, override_value, reason, expires_at')
-        .eq('user_id', userId);
+        .eq('user_id', billingUserId);
       for (const o of (ovs ?? []) as UserOverride[]) overrides.push(o);
     }
 
@@ -234,6 +263,9 @@ export async function resolveUserGate(
 
     return {
       ...gate,
+      // A member gets NO project allowance of their own: they inherit the
+      // holder's features but never a slot to create or archive with.
+      ...(isMember ? { projectLimit: 0, archiveAllowed: false } : {}),
       userId,
       role,
       isAdmin,

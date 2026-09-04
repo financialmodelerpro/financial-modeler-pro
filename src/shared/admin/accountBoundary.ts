@@ -108,6 +108,69 @@ export function accountBoundaryMessage(
   );
 }
 
+/**
+ * THE one place that answers "whose plan pays for this person" (account model
+ * step 4). A MEMBER is a user whose account belongs to someone else: they
+ * inherit the HOLDER's plan, lapse and grace, and hold no project allowance
+ * of their own. Every surface that needs the billing identity goes through
+ * `resolveUserGate`, which calls THIS; no call site resolves the member
+ * instead of the holder, because that is the failure that shows a paying
+ * client's colleague the request-access storefront.
+ *
+ * Fails toward SELF: on a pre-239 database, a missing account row, or any
+ * read error, the person is their own billing identity, which is exactly
+ * pre-239 behaviour and denies rather than grants (a member misread as self
+ * has plan 'none').
+ */
+export async function resolveAccountHolder(
+  sb: SupabaseClient, userId: string,
+): Promise<{ holderUserId: string; isMember: boolean }> {
+  const self = { holderUserId: userId, isMember: false };
+  const { data: u, error: uErr } = await sb.from('users')
+    .select('account_id').eq('id', userId).maybeSingle();
+  if (uErr || !u) return self;
+  const accountId = (u as { account_id?: string | null }).account_id ?? null;
+  if (!accountId) return self;
+  const { data: acct, error: aErr } = await sb.from('accounts')
+    .select('owner_user_id').eq('id', accountId).maybeSingle();
+  if (aErr || !acct) return self;
+  const holder = (acct as { owner_user_id: string }).owner_user_id;
+  return { holderUserId: holder, isMember: holder !== userId };
+}
+
+/**
+ * Of these users, the ones who are MEMBERS of someone else's account: the
+ * bulk form of the rule above, for email audiences. A member has no plan BY
+ * DESIGN and must never be chased to request access or buy one.
+ *
+ * Fails toward EMPTY (nobody excluded), which is pre-239 behaviour; the cost
+ * of that direction is one unnecessary email, never a lost one.
+ */
+export async function accountMemberIds(
+  sb: SupabaseClient, userIds: string[],
+): Promise<Set<string>> {
+  const members = new Set<string>();
+  if (userIds.length === 0) return members;
+  const { data, error } = await sb.from('users')
+    .select('id, account_id').in('id', userIds).range(0, 4999);
+  if (error) return members;
+  const rows = (data ?? []) as Array<{ id: string; account_id: string | null }>;
+  const accountIds = [...new Set(rows.map((r) => r.account_id).filter((a): a is string => !!a))];
+  if (accountIds.length === 0) return members;
+  const { data: accts, error: aErr } = await sb.from('accounts')
+    .select('id, owner_user_id').in('id', accountIds).range(0, 4999);
+  if (aErr) return members;
+  const ownerByAccount = new Map((accts ?? []).map((a) => [
+    (a as { id: string }).id, (a as { owner_user_id: string }).owner_user_id,
+  ]));
+  for (const r of rows) {
+    if (!r.account_id) continue;
+    const owner = ownerByAccount.get(r.account_id);
+    if (owner && owner !== r.id) members.add(r.id);
+  }
+  return members;
+}
+
 export interface AccountCandidate {
   id: string;
   name: string | null;

@@ -9,7 +9,7 @@ Steps 0 to 9 all shipped and are live (migs 230 to 238, all APPLIED). Nothing in
 Module 10 is half-built. What follows is what the module UNCOVERED and what it
 deliberately did not do, in the order I would take them.
 
-### 1. THE ACCOUNT BOUNDARY. STEPS 1-3 SHIPPED 2026-09-04; steps 4+ are the open work
+### 1. THE ACCOUNT BOUNDARY. STEPS 1-4 SHIPPED 2026-09-04; step 5 (invites) is the open work
 
 **Step 1 (mig 239 APPLIED)**: `accounts` is its own row (`kind`
 client|internal, exactly one internal = FMP's own), every user has one
@@ -39,16 +39,20 @@ accounts identical. NOTE FOR STEP 5: invites must reserve a seat at CREATE
 (count open invites alongside account people), since the member-add route can
 no longer be the enforcement point for account joins.
 
+**Step 4 (2026-09-04, no migration)**: the member gate. `resolveUserGate`
+inherits the HOLDER's plan/lapse/grace for a member via `resolveAccountHolder`
+(its ONLY caller, D1-pinned), forces `projectLimit 0` and `archiveAllowed
+false`, keeps the member's own role; members drop out of the access-reminder
+scan and `'none'`-plan campaign audiences (`membersExcluded` reported). Proven
+live with a probe member on the real pro plan; all 8 real users self-resolve.
+
 **What remains, smallest first, each shippable alone:**
-1. **Step 4, MEMBER GATE**: `resolveUserGate` resolves plan/lapse from the
-   account HOLDER for a member, `projectLimit 0`; exclude members from the
-   no-plan email audiences (access-request reminder would otherwise hit them).
-2. **Step 5, INVITES**: `account_invites` (token hash, SEAT RESERVED AT
+1. **Step 5, INVITES**: `account_invites` (token hash, SEAT RESERVED AT
    CREATE against `countAccountSeats` + open invites, consumed in the register
    route's one new mode, bypassing the launch allowlist). The only path by
    which a member can exist, since a user row is still born only in
    self-signup.
-3. **Step 6+**: holder self-service member management; delete-request queue
+2. **Step 6+**: holder self-service member management; delete-request queue
    scoped to the holder.
 
 **Advisor future-proofing is two absences, both pinned**: no FK ties a project

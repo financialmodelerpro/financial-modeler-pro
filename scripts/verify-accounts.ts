@@ -248,6 +248,42 @@ async function main() {
     }
   }
 
+  console.log('D. Step 4: a member inherits the holder\'s plan, in ONE place');
+  {
+    // The lookup lives in resolveAccountHolder and the gate is its only
+    // caller: no other surface may resolve member-vs-holder, because a call
+    // site that resolved the MEMBER would show a paying client's colleague
+    // the request-access storefront.
+    const callers: string[] = [];
+    for (const dir of ['src', 'app']) {
+      for (const f of walk(path.join(ROOT, dir))) {
+        const rel = path.relative(ROOT, f).replace(/\\/g, '/');
+        if (rel === 'src/shared/admin/accountBoundary.ts') continue;
+        if (/resolveAccountHolder\(/.test(fs.readFileSync(f, 'utf8'))) callers.push(rel);
+      }
+    }
+    check('D1 resolveUserGate is the ONLY caller of resolveAccountHolder',
+      callers.length === 1 && callers[0] === 'src/shared/entitlements/resolveUser.ts', callers.join(', '));
+
+    const gate = src('src/shared/entitlements/resolveUser.ts');
+    check('D2 every plan-shaped read uses the billing identity',
+      /const billingUserId = isMember \? holderUserId : userId;/.test(gate)
+      && (gate.match(/eq\('user_id', billingUserId\)/g) ?? []).length === 2);
+    check('D3 a member gets no project allowance of their own',
+      /isMember \? \{ projectLimit: 0, archiveAllowed: false \}/.test(gate));
+    check('D4 the member\'s ROLE stays their own (only plan fields come from the holder)',
+      /select\('subscription_plan, trial_ends_at'\)/.test(gate)
+      && /const role = \(user\.role as string\)/.test(gate));
+    check('D5 an unreadable holder DENIES for a member, never guesses',
+      /holder load failed for member/.test(gate));
+    check('D6 the access-reminder scan drops members',
+      /accountMemberIds\(sb, ids\)/.test(src('src/shared/email/subscriptionEmails.ts')));
+    const camp = src('src/shared/email/campaigns.ts');
+    check('D7 a no-plan campaign audience drops members AND reports the count',
+      /membersExcluded/.test(camp) && /accountMemberIds\(/.test(camp)
+      && /includes\('none'\)/.test(camp));
+  }
+
   console.log('L. Live: the invariants over the real rows');
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -318,6 +354,75 @@ async function main() {
       check('L14 candidates for the admin owner = everyone (admin is never blocked)',
         l2.scoped && l2.candidates.length === uList.length,
         `${l2.candidates.length} of ${uList.length}`);
+    }
+
+    // ── Step 4 live: the member gate, end to end, with a probe pair ───────
+    // A probe holder on the REAL pro plan and a probe member wired into their
+    // account; resolveUserGate is the REAL resolver every gated surface
+    // reads. The feature ships dark (no members exist), so this is the only
+    // way to see it work before invites do.
+    {
+      const { resolveUserGate } = await import('../src/shared/entitlements/resolveUser');
+      const { resolveAccountHolder, accountMemberIds } = await import('../src/shared/admin/accountBoundary');
+      const stamp = Date.now();
+      let holderId: string | null = null;
+      let memberId: string | null = null;
+      try {
+        const { data: h } = await sb.from('users')
+          .insert({ email: `probe-accounts-h${stamp}@example.invalid`, name: 'Probe Holder', role: 'user', subscription_plan: 'pro', subscription_status: 'active' })
+          .select('id').single();
+        holderId = (h as { id: string } | null)?.id ?? null;
+        const { data: m } = await sb.from('users')
+          .insert({ email: `probe-accounts-m${stamp}@example.invalid`, name: 'Probe Member', role: 'user', subscription_plan: 'none', subscription_status: 'expired' })
+          .select('id').single();
+        memberId = (m as { id: string } | null)?.id ?? null;
+        if (!holderId || !memberId) {
+          check('L15-L18 member-gate probe pair created', false, 'insert failed');
+        } else {
+          const { data: hRow } = await sb.from('users').select('account_id').eq('id', holderId).single();
+          const holderAcct = (hRow as { account_id: string | null } | null)?.account_id;
+          await sb.from('users').update({ account_id: holderAcct }).eq('id', memberId);
+          await sb.from('accounts').delete().eq('owner_user_id', memberId);
+
+          const rh = await resolveAccountHolder(sb, memberId);
+          check('L15 the member resolves to the HOLDER as billing identity',
+            rh.isMember && rh.holderUserId === holderId, JSON.stringify(rh));
+
+          const memberGate = await resolveUserGate(memberId);
+          check('L16 the member INHERITS the holder\'s plan, lapse and grace',
+            memberGate.planKey === 'pro' && memberGate.knownPlan && memberGate.lapseState === 'active' && !memberGate.readOnly,
+            `plan=${memberGate.planKey} lapse=${memberGate.lapseState}`);
+          check('L16b ...with NO project allowance of their own, role their own',
+            memberGate.projectLimit === 0 && memberGate.archiveAllowed === false && memberGate.role === 'user',
+            `limit=${memberGate.projectLimit}`);
+
+          const holderGate = await resolveUserGate(holderId);
+          check('L17 the holder\'s own gate is untouched (a real allowance, same plan)',
+            holderGate.planKey === 'pro' && holderGate.projectLimit !== 0,
+            `plan=${holderGate.planKey} limit=${holderGate.projectLimit}`);
+
+          const mids = await accountMemberIds(sb, [holderId, memberId]);
+          check('L18 the audience rule sees exactly the member, never the holder',
+            mids.size === 1 && mids.has(memberId));
+        }
+      } finally {
+        if (memberId) await sb.from('users').delete().eq('id', memberId);
+        if (holderId) await sb.from('users').delete().eq('id', holderId);
+        await sb.from('users').delete().like('email', 'probe-accounts-%');
+      }
+    }
+
+    // Every REAL user is a holder today, so the gate resolves everyone to
+    // THEMSELVES: the step ships dark and nothing changed for anyone.
+    {
+      const { resolveAccountHolder } = await import('../src/shared/admin/accountBoundary');
+      let selfResolved = 0;
+      for (const u of uList) {
+        const r = await resolveAccountHolder(sb, u.id);
+        if (!r.isMember && r.holderUserId === u.id) selfResolved++;
+      }
+      check(`L19 all ${uList.length} real users resolve to themselves (ships dark, nothing changes)`,
+        selfResolved === uList.length, `${selfResolved} of ${uList.length}`);
     }
 
     // The trigger and the cascade, proven with one probe user, cleaned up in

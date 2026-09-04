@@ -23,6 +23,7 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { sendEmailPerRecipient, FROM } from './sendEmail';
+import { accountMemberIds } from '@/src/shared/admin/accountBoundary';
 import { fmpLayout, button, escapeHtml } from './templates/_base';
 
 /** Replies go to a person, while the send stays FROM no-reply. */
@@ -68,6 +69,10 @@ export interface RecipientResolution {
   unsubscribed: CampaignRecipient[];
   /** Admin accounts filtered out because they were not explicitly chosen. */
   adminsExcluded: number;
+  /** Account MEMBERS filtered out of a no-plan audience (account model step
+   *  4): a member has no plan BY DESIGN and is never chased to get one. Zero
+   *  unless the plan filter targets 'none'. */
+  membersExcluded: number;
 }
 
 const USER_COLS = 'id, email, name, company, role, subscription_plan, subscription_status, works_in_real_estate, campaign_unsubscribed_at';
@@ -101,6 +106,16 @@ export async function resolveCampaignRecipients(
   const recipients: CampaignRecipient[] = [];
   const unsubscribed: CampaignRecipient[] = [];
   let adminsExcluded = 0;
+  let membersExcluded = 0;
+
+  // A plan filter that targets 'none' sweeps in account MEMBERS, whose
+  // plan-less state is a design artifact of inheritance, not a segment. They
+  // are excluded and REPORTED, exactly like admins; an explicit pick still
+  // includes one deliberately.
+  const chasesNoPlan = explicit.length === 0 && (filters.planKeys ?? []).includes('none');
+  const memberSet = chasesNoPlan
+    ? await accountMemberIds(sb, rows.map((r) => String(r.id)))
+    : new Set<string>();
 
   for (const r of rows) {
     const email = String(r.email ?? '').trim();
@@ -114,10 +129,11 @@ export async function resolveCampaignRecipients(
     };
     // Admins are never swept in by a filter. Only an explicit pick includes one.
     if (person.role === 'admin' && explicit.length === 0) { adminsExcluded++; continue; }
+    if (memberSet.has(person.id)) { membersExcluded++; continue; }
     if (r.campaign_unsubscribed_at != null) { unsubscribed.push(person); continue; }
     recipients.push(person);
   }
-  return { recipients, unsubscribed, adminsExcluded };
+  return { recipients, unsubscribed, adminsExcluded, membersExcluded };
 }
 
 // ── Unsubscribe links (HMAC, nothing stored) ───────────────────────────────

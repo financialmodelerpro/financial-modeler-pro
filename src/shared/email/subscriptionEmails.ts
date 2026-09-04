@@ -30,6 +30,7 @@ import {
 } from '@/src/shared/payments/config';
 import { getSubscription, listSubscriptionInvoices, getInvoicePdfUrl } from '@/src/shared/payments/paddleApi';
 import { computeLapseState } from '@/src/shared/entitlements/gate';
+import { accountMemberIds } from '@/src/shared/admin/accountBoundary';
 // Pure presentation config (platform -> pricing URL segment) read to build the
 // per-platform /pricing links in emails; a read-only import of static config, no
 // runtime coupling to the modeling hub.
@@ -862,16 +863,20 @@ export async function runAccessReminderScan(sb: SupabaseClient, platform = PLATF
 
     const ids = candidates.map((u) => u.id);
     // A trial request of ANY status disqualifies (they engaged); so does any
-    // subscription row. Both loaded in bulk.
-    const [{ data: reqs }, { data: subs }] = await Promise.all([
+    // subscription row. Both loaded in bulk. So does being a MEMBER of
+    // someone else's account (account model step 4): a member has no plan BY
+    // DESIGN, inherits the holder's, and must never be chased to request one.
+    const [{ data: reqs }, { data: subs }, memberSet] = await Promise.all([
       sb.from('trial_requests').select('user_id').in('user_id', ids).range(0, 4999),
       sb.from('user_platform_subscriptions').select('user_id').in('user_id', ids).range(0, 4999),
+      accountMemberIds(sb, ids),
     ]);
     const requested = new Set(((reqs ?? []) as Array<{ user_id: string }>).map((r) => r.user_id));
     const subscribed = new Set(((subs ?? []) as Array<{ user_id: string }>).map((r) => r.user_id));
 
     for (const u of candidates) {
       scannedCandidates++;
+      if (memberSet.has(u.id)) continue;
       if (!isAccessReminderEligible(u, requested.has(u.id), subscribed.has(u.id), nowMs)) continue;
       const anchor = accessReminderAnchorMs(u)!;
       const key: MarkerKey = {
