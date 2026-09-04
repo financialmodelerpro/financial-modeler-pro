@@ -122,16 +122,18 @@ Em-dash sweep across `src/` + `scripts/` is complete (zero remaining as of 2026-
 
 Read only the rows your task touches. Per-platform MD loads only when working on that platform; the global CLAUDE.md stays lean.
 
-### Verifier practice: AFFECTED before each commit, FULL SUITE once at session end
+### Verifier practice: the DIRECT verifier before each commit, FULL SUITE once at session end
 
-**Adopted 2026-09-03.** Running all 155 verifiers before every commit costs about fifteen minutes
-and re-proves the same 130 untouched things several times a day. So:
+**Adopted 2026-09-03, narrowed 2026-09-04 (user decision).** Running all verifiers before every
+commit costs about fifteen minutes and re-proves untouched things several times a day; the
+read-a-changed-file selection still pulled in verifiers that merely mention a touched path. So:
 
-- **Before each commit: run the verifiers that READ A CHANGED FILE.** Select them mechanically, not
-  by judgement: for each file in the diff, grep every `scripts/verify-*.ts` for its FULL repo path.
-  A first pass on bare filenames matched 38 verifiers through prose mentions of `types.ts` and
-  `client.ts`; full paths gave the true set of 24. State the count and that they passed.
+- **Before each commit: run ONLY the verifier that DIRECTLY covers the change** (the one whose
+  subject is the thing you built or fixed, e.g. `verify-accounts` for an account-model change).
+  Name it and state that it passed. Everything else, including verifiers that happen to read a
+  changed file, waits for the session-end suite, which is what catches cross-cutting breakage.
 - **At session end: run `npm run verify:suite` once, with credentials, and state the count.**
+  (If the npm alias cannot resolve `tsx`, invoke `npx tsx scripts/run-verifiers.ts`, the same script.)
 
 The rules that already applied still apply: run the COMMITTED runner, never a hand-rolled loop
 (TRAPS 3.20), and state whether credentials were loaded. **The full-suite claim in this file is a
