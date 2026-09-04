@@ -39,12 +39,24 @@ interface TeamAccess {
   people?: TeamPerson[];
   memberships?: TeamMembership[];
 }
+interface DeleteRequestRow {
+  id: string;
+  projectName: string | null;
+  requesterName: string | null;
+  requesterEmail: string | null;
+  requesterStillMember: boolean;
+  createdAt: string;
+  projectDeletedAt: string | null;
+}
 
 export default function TeamInvitesCard({ theme }: {
   theme: { surface: string; border: string; body: string; heading: string; muted: string; bg: string };
 }): React.JSX.Element | null {
   const [state, setState] = useState<TeamState | null>(null);
   const [team, setTeam] = useState<TeamAccess | null>(null);
+  const [delReqs, setDelReqs] = useState<DeleteRequestRow[]>([]);
+  /** Which request is mid-decision: armed approve, or an open decline box. */
+  const [deciding, setDeciding] = useState<{ id: string; mode: 'approve' | 'decline'; reason: string } | null>(null);
   const [email, setEmail] = useState('');
   const [projectId, setProjectId] = useState('');
   const [personId, setPersonId] = useState('');
@@ -55,19 +67,27 @@ export default function TeamInvitesCard({ theme }: {
 
   const load = useCallback(async () => {
     try {
-      const [ri, rt] = await Promise.all([
+      const [ri, rt, rd] = await Promise.all([
         fetch('/api/account/invites', { credentials: 'include' }),
         fetch('/api/account/team?platform=refm', { credentials: 'include' }),
+        fetch('/api/account/delete-requests', { credentials: 'include' }),
       ]);
       setState(ri.ok ? (await ri.json() as TeamState) : { eligible: false });
       setTeam(rt.ok ? (await rt.json() as TeamAccess) : { eligible: false });
-    } catch { setState({ eligible: false }); setTeam({ eligible: false }); }
+      if (rd.ok) {
+        const j = await rd.json() as { rows?: DeleteRequestRow[] };
+        setDelReqs(j.rows ?? []);
+      } else setDelReqs([]);
+    } catch { setState({ eligible: false }); setTeam({ eligible: false }); setDelReqs([]); }
   }, []);
   useEffect(() => { void load(); }, [load]);
 
-  if (!state?.eligible) return null;
-  const seats = state.seats ?? { used: 0, reserved: 0, limit: null };
-  const invites = state.invites ?? [];
+  // A pending delete request must reach the holder even when the invites
+  // half says there is nothing to show (e.g. every member was removed from
+  // the account after asking).
+  if (!state?.eligible && delReqs.length === 0) return null;
+  const seats = state?.seats ?? { used: 0, reserved: 0, limit: null };
+  const invites = state?.invites ?? [];
   const limitLabel = seats.limit === -1 ? 'unlimited' : String(seats.limit ?? 0);
 
   async function invite(): Promise<void> {
@@ -98,6 +118,24 @@ export default function TeamInvitesCard({ theme }: {
       setMsg('Invite revoked; the seat is free again.');
       await load();
     } catch { setErr('Could not revoke.'); } finally { setBusy(false); }
+  }
+
+  async function decideRequest(id: string, action: 'approve' | 'decline', reason?: string): Promise<void> {
+    setBusy(true); setErr(null); setMsg(null);
+    try {
+      const r = await fetch('/api/account/delete-requests', {
+        method: 'POST', credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ requestId: id, action, ...(reason ? { reason } : {}) }),
+      });
+      const j = await r.json();
+      if (!r.ok) { setErr(j.error ?? 'Could not decide the request.'); return; }
+      setMsg(action === 'approve'
+        ? `Deleted${j.projectName ? ` "${j.projectName}"` : ''}. It can be restored within 30 days.`
+        : 'Request declined; the requester sees your reason on their project card.');
+      setDeciding(null);
+      await load();
+    } catch { setErr('Could not decide the request.'); } finally { setBusy(false); }
   }
 
   async function giveAccess(): Promise<void> {
@@ -137,11 +175,78 @@ export default function TeamInvitesCard({ theme }: {
     >
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
         <h2 style={{ fontSize: 16, fontWeight: 800, color: theme.heading, margin: 0 }}>Your team</h2>
-        <span data-testid="team-invites-seats" style={{ fontSize: 12.5, color: theme.muted }}>
-          {seats.used} of {limitLabel} seat{seats.limit === 1 ? '' : 's'} in use
-          {seats.reserved > 0 ? `, ${seats.reserved} reserved by open invite${seats.reserved === 1 ? '' : 's'}` : ''}
-        </span>
+        {state?.eligible && (
+          <span data-testid="team-invites-seats" style={{ fontSize: 12.5, color: theme.muted }}>
+            {seats.used} of {limitLabel} seat{seats.limit === 1 ? '' : 's'} in use
+            {seats.reserved > 0 ? `, ${seats.reserved} reserved by open invite${seats.reserved === 1 ? '' : 's'}` : ''}
+          </span>
+        )}
       </div>
+
+      {/* Delete requests (step 7): an Editor asked to delete one of YOUR
+          projects; you own it and hold the plan, so the decision is yours.
+          Approve is armed then confirmed; a decline REQUIRES a reason, which
+          is the only thing the requester will see. The admin queue still
+          shows everything, the operator fallback. */}
+      {delReqs.length > 0 && (
+        <div data-testid="team-delete-requests" style={{ margin: '10px 0 14px', border: '1px solid #C9A84C', background: '#FDF6E3', borderRadius: 10, padding: '10px 14px' }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#0D2E5A', marginBottom: 6 }}>
+            Delete request{delReqs.length === 1 ? '' : 's'} awaiting your decision
+          </div>
+          {delReqs.map((rq) => (
+            <div key={rq.id} data-testid={`team-delreq-${rq.id}`} style={{ padding: '7px 0', borderTop: '1px solid rgba(201,168,76,0.4)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <span style={{ flex: 1, minWidth: 200, fontSize: 12.5, color: '#0D2E5A' }}>
+                  <strong>{rq.projectName ?? 'Unknown project'}</strong>
+                  {' '}requested by {rq.requesterName ?? rq.requesterEmail ?? 'a former member'}
+                  {!rq.requesterStillMember && ' (no longer a member)'}
+                  {' '}on {new Date(rq.createdAt).toLocaleDateString()}
+                  {rq.projectDeletedAt && ' (project already deleted elsewhere; decline to close it)'}
+                </span>
+                {deciding?.id === rq.id && deciding.mode === 'approve' ? (
+                  <button type="button" disabled={busy} onClick={() => void decideRequest(rq.id, 'approve')}
+                    data-testid={`team-delreq-confirm-${rq.id}`}
+                    style={{ border: 'none', borderRadius: 7, padding: '7px 12px', fontSize: 12, fontWeight: 800, background: 'var(--color-negative, #dc2626)', color: '#fff', cursor: busy ? 'not-allowed' : 'pointer' }}>
+                    Confirm delete
+                  </button>
+                ) : (
+                  <button type="button" disabled={busy} onClick={() => setDeciding({ id: rq.id, mode: 'approve', reason: '' })}
+                    data-testid={`team-delreq-approve-${rq.id}`}
+                    style={{ border: '1px solid var(--color-negative, #dc2626)', borderRadius: 7, padding: '6px 12px', fontSize: 12, fontWeight: 700, background: 'transparent', color: 'var(--color-negative, #dc2626)', cursor: busy ? 'not-allowed' : 'pointer' }}>
+                    Approve
+                  </button>
+                )}
+                <button type="button" disabled={busy} onClick={() => setDeciding({ id: rq.id, mode: 'decline', reason: '' })}
+                  data-testid={`team-delreq-decline-${rq.id}`}
+                  style={{ border: `1px solid ${theme.border}`, borderRadius: 7, padding: '6px 12px', fontSize: 12, fontWeight: 700, background: theme.surface, color: theme.body, cursor: busy ? 'not-allowed' : 'pointer' }}>
+                  Decline
+                </button>
+              </div>
+              {deciding?.id === rq.id && deciding.mode === 'decline' && (
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                  <input
+                    type="text" value={deciding.reason} placeholder="Reason (the requester will see this)"
+                    onChange={(e) => setDeciding({ id: rq.id, mode: 'decline', reason: e.target.value })}
+                    data-testid={`team-delreq-reason-${rq.id}`}
+                    style={{ flex: 1, minWidth: 220, padding: '7px 10px', borderRadius: 7, border: `1px solid ${theme.border}`, background: theme.bg, color: theme.body, fontSize: 12.5 }}
+                  />
+                  <button type="button" disabled={busy || !deciding.reason.trim()}
+                    onClick={() => void decideRequest(rq.id, 'decline', deciding.reason.trim())}
+                    data-testid={`team-delreq-decline-send-${rq.id}`}
+                    style={{ border: 'none', borderRadius: 7, padding: '7px 12px', fontSize: 12, fontWeight: 800, background: busy || !deciding.reason.trim() ? theme.border : 'var(--color-navy, #0f2744)', color: '#fff', cursor: busy || !deciding.reason.trim() ? 'not-allowed' : 'pointer' }}>
+                    Send decline
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {err && <div data-testid="team-invites-error" style={{ color: 'var(--color-negative, #dc2626)', fontSize: 12.5, margin: '4px 0 8px' }}>{err}</div>}
+      {msg && <div data-testid="team-invites-msg" style={{ color: 'var(--color-green-dark, #15803d)', fontSize: 12.5, margin: '4px 0 8px' }}>{msg}</div>}
+
+      {state?.eligible && (<>
       <p style={{ fontSize: 12.5, color: theme.muted, margin: '0 0 12px' }}>
         Invite a colleague by email. They sign up through the invite and join your account; your
         subscription covers them. Once they join, give them access to your projects below.
@@ -170,9 +275,6 @@ export default function TeamInvitesCard({ theme }: {
         </button>
       </div>
 
-      {err && <div data-testid="team-invites-error" style={{ color: 'var(--color-negative, #dc2626)', fontSize: 12.5, marginTop: 8 }}>{err}</div>}
-      {msg && <div data-testid="team-invites-msg" style={{ color: 'var(--color-green-dark, #15803d)', fontSize: 12.5, marginTop: 8 }}>{msg}</div>}
-
       {invites.length > 0 && (
         <div style={{ borderTop: `1px solid ${theme.border}`, marginTop: 6 }}>
           {invites.map((inv) => (
@@ -195,6 +297,7 @@ export default function TeamInvitesCard({ theme }: {
           ))}
         </div>
       )}
+      </>)}
 
       {/* Project access (step 6): appears once the account has PEOPLE. The
           person list is the account's members only; the server refuses

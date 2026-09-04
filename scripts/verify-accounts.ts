@@ -263,6 +263,7 @@ async function main() {
       'src/shared/account/invites.ts',          // step 5: only the holder invites
       'app/api/account/invites/route.ts',       // step 5: eligibility for the team card
       'src/shared/account/team.ts',             // step 6: only the holder manages the team
+      'src/shared/account/deleteQueue.ts',      // step 7: only the holder decides delete requests
     ]);
     const callers: string[] = [];
     for (const dir of ['src', 'app']) {
@@ -368,6 +369,31 @@ async function main() {
       && !/api\/account\/team/.test(src('src/hubs/modeling/components/TeamAccessPanel.tsx')));
     check('F9 the card offers assignment through the holder route',
       /\/api\/account\/team/.test(src('src/hubs/modeling/components/TeamInvitesCard.tsx')));
+  }
+
+  console.log('G. Step 7: the delete-request queue reaches the holder');
+  {
+    const dq = src('src/shared/account/deleteQueue.ts');
+    check('G1 the decisions are the SHARED admin engine, never a second copy',
+      /approveDeleteRequest\(sb, requestId, actorUserId\)/.test(dq)
+      && /declineDeleteRequest\(sb, requestId, actorUserId, reason/.test(dq)
+      && !/status: 'approved'|status: 'declined'/.test(dq));
+    check('G2 the listing reuses the admin queue read and only FILTERS it',
+      /listPendingRequests\(sb\)/.test(dq) && /rows\.filter\(/.test(dq));
+    check('G3 only the holder decides; a member is refused',
+      /resolveAccountHolder\(sb, actorUserId\)/.test(dq) && /not_holder/.test(dq));
+    check('G4 ownership is the ONE rule this file adds, checked before the engine runs',
+      /owner === holderUserId/.test(dq));
+    check('G5 a foreign, missing or unknown request gets ONE answer (no existence leak)',
+      /no_request/.test(dq) && /No such request on a project of yours/.test(dq));
+    check('G6 the route is glue only: no table access outside the engine',
+      !/\.from\(/.test(src('app/api/account/delete-requests/route.ts')));
+    check('G7 the admin queue is untouched and still sees everything',
+      /listPendingRequests/.test(src('src/shared/admin/deleteRequests.ts'))
+      && !/listHolderDeleteRequests|deleteQueue/.test(src('src/components/admin/ProjectsBrowser.tsx')));
+    check('G8 the card requires a reason to decline and arms approve before confirming',
+      /Send decline/.test(src('src/hubs/modeling/components/TeamInvitesCard.tsx'))
+      && /Confirm delete/.test(src('src/hubs/modeling/components/TeamInvitesCard.tsx')));
   }
 
   console.log('L. Live: the invariants over the real rows');
@@ -643,6 +669,87 @@ async function main() {
         if (member6) await sb.from('users').delete().eq('id', member6);
         if (outsider6) await sb.from('users').delete().eq('id', outsider6);
         if (holder6) await sb.from('users').delete().eq('id', holder6);
+        await sb.from('users').delete().like('email', 'probe-accounts-%');
+      }
+    }
+
+    // ── Step 7 live: the holder decides delete requests, end to end ───────
+    {
+      const { listHolderDeleteRequests, decideHolderDeleteRequest } = await import('../src/shared/account/deleteQueue');
+      const stamp = Date.now();
+      let holder7: string | null = null;
+      let member7: string | null = null;
+      let outsider7: string | null = null;
+      let project7: string | null = null;
+      try {
+        const mkUser = async (tag: string, plan: string) => {
+          const { data } = await sb.from('users')
+            .insert({ email: `probe-accounts-${tag}${stamp}@example.invalid`, name: `Probe ${tag}`, role: 'user', subscription_plan: plan, subscription_status: 'active' })
+            .select('id').single();
+          return (data as { id: string } | null)?.id ?? null;
+        };
+        holder7 = await mkUser('t7h', 'firm');
+        member7 = await mkUser('t7m', 'none');
+        outsider7 = await mkUser('t7o', 'pro');
+        if (!holder7 || !member7 || !outsider7) {
+          check('L32-L36 delete-queue probes created', false, 'insert failed');
+        } else {
+          const { data: hRow } = await sb.from('users').select('account_id').eq('id', holder7).single();
+          await sb.from('users').update({ account_id: (hRow as { account_id: string }).account_id }).eq('id', member7);
+          await sb.from('accounts').delete().eq('owner_user_id', member7);
+          const { data: proj } = await sb.from('refm_projects')
+            .insert({ user_id: holder7, name: 'ZZ probe accounts step7', schema_version: 8 })
+            .select('id').single();
+          project7 = (proj as { id: string } | null)?.id ?? null;
+          const mkReq = async () => {
+            const { data } = await sb.from('project_delete_requests')
+              .insert({ platform: 'refm', project_id: project7!, requested_by: member7 })
+              .select('id').single();
+            return (data as { id: string } | null)?.id ?? null;
+          };
+          const req1 = await mkReq();
+
+          const mine = await listHolderDeleteRequests(sb, holder7);
+          const theirs = await listHolderDeleteRequests(sb, outsider7);
+          const asMember = await listHolderDeleteRequests(sb, member7);
+          check('L32 the request reaches the HOLDER and only the holder',
+            mine.rows.some((r) => r.id === req1)
+            && !theirs.rows.some((r) => r.id === req1)
+            && !asMember.eligible,
+            `mine=${mine.rows.length} theirs=${theirs.rows.length}`);
+
+          const noReason = await decideHolderDeleteRequest(sb, holder7, req1!, 'decline', '');
+          check('L33 a decline still REQUIRES a reason (the shared engine rule)',
+            !noReason.ok, noReason.ok ? 'ALLOWED' : '');
+          const declined = await decideHolderDeleteRequest(sb, holder7, req1!, 'decline', 'not yet, quarter close');
+          const { data: d1 } = await sb.from('project_delete_requests')
+            .select('status, decline_reason, decided_by').eq('id', req1!).single();
+          check('L34 the holder declines with the reason recorded, decided by THEM',
+            declined.ok && (d1 as { status: string }).status === 'declined'
+            && (d1 as { decline_reason: string }).decline_reason === 'not yet, quarter close'
+            && (d1 as { decided_by: string }).decided_by === holder7);
+
+          const req2 = await mkReq();
+          const foreign = await decideHolderDeleteRequest(sb, outsider7, req2!, 'approve');
+          check('L35 another holder cannot decide it (one answer, no existence leak)',
+            !foreign.ok && (foreign as { code: string }).code === 'no_request');
+
+          const approved = await decideHolderDeleteRequest(sb, holder7, req2!, 'approve');
+          const { data: pAfter } = await sb.from('refm_projects').select('deleted_at').eq('id', project7!).single();
+          const { data: d2 } = await sb.from('project_delete_requests').select('status, decided_by').eq('id', req2!).single();
+          check('L36 the holder approves: the project is soft-deleted, the request stamped by them',
+            approved.ok && (pAfter as { deleted_at: string | null }).deleted_at !== null
+            && (d2 as { status: string }).status === 'approved'
+            && (d2 as { decided_by: string }).decided_by === holder7);
+        }
+      } finally {
+        if (project7) {
+          await sb.from('project_delete_requests').delete().eq('project_id', project7);
+          await sb.from('refm_projects').delete().eq('id', project7);
+        }
+        if (member7) await sb.from('users').delete().eq('id', member7);
+        if (outsider7) await sb.from('users').delete().eq('id', outsider7);
+        if (holder7) await sb.from('users').delete().eq('id', holder7);
         await sb.from('users').delete().like('email', 'probe-accounts-%');
       }
     }

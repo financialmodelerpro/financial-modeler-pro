@@ -9,7 +9,7 @@ Steps 0 to 9 all shipped and are live (migs 230 to 238, all APPLIED). Nothing in
 Module 10 is half-built. What follows is what the module UNCOVERED and what it
 deliberately did not do, in the order I would take them.
 
-### 1. THE ACCOUNT BOUNDARY. STEPS 1-6 SHIPPED 2026-09-04; what remains is small
+### 1. THE ACCOUNT BOUNDARY. STEPS 1-7 SHIPPED 2026-09-04. THE ACCOUNT MODEL IS FEATURE COMPLETE FOR V1
 
 **Step 1 (mig 239 APPLIED)**: `accounts` is its own row (`kind`
 client|internal, exactly one internal = FMP's own), every user has one
@@ -63,11 +63,19 @@ owner immutable, foreign project = one `no_project` answer, seat-free by
 construction. "Project access" section on the dashboard team card. verify-seats
 G4 re-aimed (the "no owner-adding route" claim retired for the true invariant).
 
-**What remains, smallest first:**
-1. **Delete-request queue scoped to the holder** (an editor's request decided
-   by the client on their own dashboard; admin queue stays the fallback).
-2. **Founder click-test of the invite email** (Brevo delivery + rendering, the
-   one leg no verifier covers) and a browser pass over the team card.
+**Step 7 (2026-09-04, no migration)**: the delete-request queue reaches the
+holder. `src/shared/account/deleteQueue.ts` filters the admin queue read to
+the holder's projects and calls the SHARED approve/decline engine verbatim
+(one added rule: the actor must own the request's project; one `no_request`
+answer for anything not theirs). Surface: a block on the dashboard team card
+(armed approve, reason-required decline). Admin queue untouched.
+
+**What remains:**
+1. **Founder click-test of the invite email** (Brevo delivery + rendering, the
+   one leg no verifier covers) and a browser pass over the team card
+   (invites, project access, delete requests).
+2. **Full suite run**: not run since the step-3 tree, per instruction; steps
+   4-7 are covered by their direct verifiers only until it runs.
 
 **Advisor future-proofing is two absences, both pinned**: no FK ties a project
 member's account to the project owner's account, and seats count ACCOUNT
