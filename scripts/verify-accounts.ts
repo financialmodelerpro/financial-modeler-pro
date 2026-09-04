@@ -141,6 +141,7 @@ async function main() {
     const ALLOWED = new Set([
       'src/shared/account/deleteUserAccount.ts',
       'src/shared/admin/accountBoundary.ts',
+      'src/shared/admin/seats.ts', // step 3: seats count the account's people
     ]);
     const readers: string[] = [];
     for (const dir of ['src', 'app']) {

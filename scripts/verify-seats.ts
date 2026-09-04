@@ -1,18 +1,19 @@
 /**
  * verify-seats.ts
  *
- * Module 10 Collaboration, step 8: SEATS.
+ * Module 10 Collaboration step 8 (SEATS), recounted by ACCOUNT MODEL step 3.
  *
- * A seat is a DISTINCT PERSON ON AN ACCOUNT, counted across every project it
- * owns, on every platform. The owner uses one. Pro is 1, which means no
- * collaboration; Firm is 10; an admin raises a client with an override.
+ * A seat is a DISTINCT PERSON ON AN ACCOUNT, counted DIRECTLY from the
+ * account's people (users.account_id, mig 239), never by walking projects.
+ * The owner uses one. Pro is 1, which means no collaboration; Firm is 10; an
+ * admin raises a client with an override.
  *
  * Run: npx tsx --env-file=.env.local scripts/verify-seats.ts
  *
  * No em dashes in this file.
  */
 import { readFileSync } from 'node:fs';
-import { seatsAllow, UNLIMITED, SEATS_FEATURE_KEY } from '../src/shared/admin/seats';
+import { seatsAllow, UNLIMITED, SEATS_FEATURE_KEY, countAccountSeats } from '../src/shared/admin/seats';
 
 let pass = 0, fail = 0; const fails: string[] = [];
 const check = (name: string, ok: boolean, detail = ''): void => {
@@ -38,23 +39,23 @@ console.log('=== A. The rule, as pure arithmetic ===');
   check('A6 the feature key has one spelling', SEATS_FEATURE_KEY === 'seats');
 }
 
-console.log('\n=== B. Counted in the REGISTRY layer, not in REFM ===');
+console.log('\n=== B. Counted on the ACCOUNT, never by walking projects (step 3) ===');
 {
   const s = src(SEATS);
   const code = strip(s);
-  check('B1 the counter lives in shared/admin, beside the registry it reads',
-    /import \{ PROJECT_SOURCES, hasMembership/.test(code));
-  check('B2 it ITERATES the sources rather than naming one platform',
-    /for \(const source of PROJECT_SOURCES\)/.test(code));
-  // THE check that would catch the silent under-count: a hardcoded REFM table
-  // would keep returning a plausible number and stop being right when ERM
-  // ships.
-  check('B3 no platform table is hardcoded in the counter',
-    !/refm_project_members|refm_projects/.test(code), 'a platform table is named in code');
-  check('B4 a source with no membership is SKIPPED, not counted as zero members',
-    /if \(!hasMembership\(source\)\) continue;/.test(code));
+  check('B1 the account is resolved through accounts.owner_user_id, the holder pointer',
+    /\.from\('accounts'\)\.select\('id'\)\.eq\('owner_user_id', holderId\)/.test(code));
+  check('B2 the count is the account\'s PEOPLE (users.account_id), directly',
+    /\.eq\('account_id',/.test(code));
+  // THE step-8 defect, kept as a permanent tripwire: a counter that walks
+  // projects counts people REACHABLE, which is a set with no boundary.
+  check('B3 no project or membership table is read by the counter',
+    !/refm_project_members|refm_projects|membersTable|membersUserColumn|PROJECT_SOURCES/.test(code),
+    'the counter walks projects again');
+  check('B4 project membership never creates a seat (the point, stated in the file)',
+    /PROJECT membership never\s+\* creates a seat/i.test(s) || /PROJECT membership never creates a seat/i.test(s.replace(/\s*\n\s*\*\s*/g, ' ')));
   check('B5 a failed read THROWS rather than contributing zero',
-    /throw new Error\(`seat count failed on/.test(code));
+    /throw new Error\(`seat count failed/.test(code));
 }
 
 console.log('\n=== C. Who counts ===');
@@ -62,11 +63,10 @@ console.log('\n=== C. Who counts ===');
   const code = strip(src(SEATS));
   check('C1 the OWNER consumes a seat, unconditionally',
     /const userIds = new Set<string>\(\[holderId\]\);/.test(code));
-  check('C2 a soft-deleted project is excluded (its members cannot reach it)',
-    /if \(source\.deletedColumn\) q = q\.is\(source\.deletedColumn, null\)/.test(code));
-  // Archiving is visible, reversible and leaves the project openable, so its
-  // members still have access and still cost a seat.
-  check('C3 archived projects are NOT excluded', !/archivedColumn/.test(code));
+  check('C2 a holder with NO accounts row refuses (broken invariant, never a guess)',
+    /this holder has no accounts row/.test(code));
+  check('C3 a pre-239 database refuses, naming the migration',
+    /needs migration 239/.test(code));
   check('C4 the account is the plan holder, resolved from the users row',
     /\.from\('users'\)\.select\('subscription_plan, role'\)/.test(code));
 }
@@ -172,6 +172,26 @@ async function liveChecks(): Promise<void> {
   check('H8 the copy says the owner uses a seat and how to get more',
     /owner uses one seat/i.test(String(feat?.description ?? '')) && /contact us/i.test(String(feat?.description ?? '')));
   check('H9 it is visible to customers', feat?.visible === true);
+
+  // ── H10: the LIVE count agrees with an independent tally per account ──
+  // countAccountSeats is executed for every real holder and compared against
+  // a raw REST count of users on that account (holder included via the
+  // unconditional add). A divergence is either a broken invariant or the
+  // counter drifting, and both must be loud.
+  const { createClient } = await import('@supabase/supabase-js');
+  const sb = createClient(url, key);
+  const accounts = await q('accounts?select=id,owner_user_id');
+  let agree = 0;
+  const diffs: string[] = [];
+  for (const a of accounts) {
+    const { used } = await countAccountSeats(sb, String(a.owner_user_id));
+    const people = await q(`users?account_id=eq.${a.id}&select=id`);
+    const expected = new Set([String(a.owner_user_id), ...people.map((p) => String(p.id))]).size;
+    if (used === expected) agree++;
+    else diffs.push(`${a.id}: counted ${used}, expected ${expected}`);
+  }
+  check(`H10 the live count agrees with an independent tally on all ${accounts.length} accounts`,
+    accounts.length > 0 && diffs.length === 0, diffs.join('; '));
 }
 
 function report(): void {

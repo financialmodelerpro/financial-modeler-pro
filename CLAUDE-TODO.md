@@ -9,7 +9,7 @@ Steps 0 to 9 all shipped and are live (migs 230 to 238, all APPLIED). Nothing in
 Module 10 is half-built. What follows is what the module UNCOVERED and what it
 deliberately did not do, in the order I would take them.
 
-### 1. THE ACCOUNT BOUNDARY. STEPS 1 + 2 SHIPPED 2026-09-04; steps 3+ are the open work
+### 1. THE ACCOUNT BOUNDARY. STEPS 1-3 SHIPPED 2026-09-04; steps 4+ are the open work
 
 **Step 1 (mig 239 APPLIED)**: `accounts` is its own row (`kind`
 client|internal, exactly one internal = FMP's own), every user has one
@@ -29,18 +29,26 @@ blocked", per seats.ts); the Team access dropdown lists through the SAME rule
 the live refusal; the stale "read-only for now" note is gone (C4b pins its
 absence).
 
+**Step 3 (2026-09-04, no migration)**: seats count the ACCOUNT's people.
+`countAccountSeats` resolves the account via `accounts.owner_user_id` and
+counts `users.account_id`, never a project or membership table (`verify-seats`
+B3 is the tripwire; H10 cross-checks the live count on every account). PROJECT
+membership never creates a seat; the limit will bite where people JOIN the
+account. Parity with the old walk measured live before commit: 8 of 8
+accounts identical. NOTE FOR STEP 5: invites must reserve a seat at CREATE
+(count open invites alongside account people), since the member-add route can
+no longer be the enforcement point for account joins.
+
 **What remains, smallest first, each shippable alone:**
-1. **Step 3, SEATS BY ACCOUNT**: `countAccountSeats` becomes "user rows with
-   this `account_id` (+ open invites)" instead of inferring the team from
-   project reach; identical numbers on today's data.
-2. **Step 4, MEMBER GATE**: `resolveUserGate` resolves plan/lapse from the
+1. **Step 4, MEMBER GATE**: `resolveUserGate` resolves plan/lapse from the
    account HOLDER for a member, `projectLimit 0`; exclude members from the
    no-plan email audiences (access-request reminder would otherwise hit them).
-3. **Step 5, INVITES**: `account_invites` (token hash, seat reserved at
-   create, consumed in the register route's one new mode, bypassing the launch
-   allowlist). The only path by which a member can exist, since a user row is
-   still born only in self-signup.
-4. **Step 6+**: holder self-service member management; delete-request queue
+2. **Step 5, INVITES**: `account_invites` (token hash, SEAT RESERVED AT
+   CREATE against `countAccountSeats` + open invites, consumed in the register
+   route's one new mode, bypassing the launch allowlist). The only path by
+   which a member can exist, since a user row is still born only in
+   self-signup.
+3. **Step 6+**: holder self-service member management; delete-request queue
    scoped to the holder.
 
 **Advisor future-proofing is two absences, both pinned**: no FK ties a project

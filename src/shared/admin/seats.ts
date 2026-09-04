@@ -1,57 +1,54 @@
 /**
  * seats.ts
  *
- * SEATS. Module 10 Collaboration, step 8.
+ * SEATS. Module 10 Collaboration step 8; recounted by ACCOUNT MODEL step 3.
  *
- * A seat is A DISTINCT PERSON ON AN ACCOUNT, counted across every project that
- * account owns, on every platform. Not per project, and not per membership
- * row: one colleague added to four projects is one seat.
+ * A seat is A DISTINCT PERSON ON AN ACCOUNT. Since mig 239 an account is a
+ * ROW (`accounts`, holder = `owner_user_id`), so the count is its people
+ * DIRECTLY: `users.account_id = account`. Not per project, not per membership
+ * row, and no longer inferred by walking projects.
  *
- * ── IT LIVES HERE, NOT IN REFM, AND THAT IS THE POINT ─────────────────────
+ * ── WHY THE PROJECT WALK IS GONE (step 3, 2026-09-04) ─────────────────────
  *
- * The count iterates `PROJECT_SOURCES`. REFM is one entry today; ERM and BVM
- * join by declaring their membership columns, exactly as they do for card
- * ordering and the projects browser. A counter that read `refm_project_members`
- * directly would keep returning a correct-looking number and start UNDER
- * counting on the day a second platform shipped, which is the worst kind of
- * wrong: quiet, plausible, and in the customer's favour until someone notices.
+ * The step-8 counter collected whoever appeared in the membership rows of
+ * every project the holder owned. That arithmetic was right over a set with
+ * no boundary: it counted people REACHABLE THROUGH projects, which is why
+ * adding another client's user consumed YOUR seat while their own account
+ * was untouched. With the account boundary enforced (step 2), project
+ * membership can only name people already on the account (or a platform
+ * admin), so "who is on the account" is the whole question and the walk
+ * answered a different one. It also makes the count platform-agnostic for
+ * free: ERM and BVM projects can only ever be shared with account people,
+ * who are counted here whether or not those platforms exist yet.
  *
- * ── WHAT AN ACCOUNT IS ────────────────────────────────────────────────────
- *
- * The PLAN HOLDER, which today is `refm_projects.user_id`, the project owner.
- * There is no organisation table: plans live on `users.subscription_plan`, so
- * the person who owns the project is the person whose plan pays for it. When
- * an accounts concept arrives this is the one function that has to learn about
- * it.
+ * A consequence, stated because it is the point: PROJECT membership never
+ * creates a seat. A person occupies a seat by BEING ON THE ACCOUNT, and the
+ * paths that put someone on an account (signup today, invites in a later
+ * step) are where the limit will bite.
  *
  * ── THE OWNER CONSUMES A SEAT ─────────────────────────────────────────────
  *
- * Counted ALWAYS, whether or not a membership row happens to exist for them.
- * Migration 231 seeded one per project, but a project created before that seed
- * or through a path that does not write membership would otherwise make the
- * owner free, and "Pro is 1 seat, which means no collaboration" only holds if
- * the owner is that one. So the holder is added to the set unconditionally and
- * an account with no projects at all still uses its own seat.
+ * Counted ALWAYS, added to the set unconditionally: "Pro is 1 seat, which
+ * means no collaboration" only holds if the owner is that one, and an
+ * account with no other people still uses its own seat.
  *
- * ── A SOFT-DELETED PROJECT'S MEMBERS DO NOT COUNT ─────────────────────────
+ * ── A MISSING SCHEMA REFUSES, NEVER UNDER-COUNTS ──────────────────────────
  *
- * `deleted_at` makes a project unopenable (getProject filters on it), so its
- * members cannot reach anything and charging a seat for them would bill for
- * access that does not exist. ARCHIVED projects DO count: archiving is
- * visible, reversible and leaves the project openable, so its members still
- * have real access.
+ * On a pre-239 database there is no accounts table and the count THROWS,
+ * naming the migration; the route turns that into a refusal with the reason.
+ * Falling back to "just the owner" would quietly hand out seats, which is
+ * the same wrong the project walk risked in the other direction.
  *
  * ── COMPUTED LIVE, NEVER STORED ───────────────────────────────────────────
  *
  * Two indexed reads against small tables. A stored counter would have to be
- * corrected on add, remove, project delete, project purge, project transfer
- * and account deletion, and the first one anybody forgets is a customer either
- * blocked out of seats they paid for or handed seats they did not.
+ * corrected on add, remove, account join and account deletion, and the first
+ * one anybody forgets is a customer either blocked out of seats they paid
+ * for or handed seats they did not.
  *
  * No em dashes in this file.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { PROJECT_SOURCES, hasMembership, type ProjectSource } from './projectSources';
 import { resolveEffectiveFeatures, type ResolveFeature, type PlanCell, type UserOverride } from '@/src/shared/entitlements/resolveOverrides';
 
 /** The entitlement key. One spelling, shared with plan_permissions, the
@@ -75,63 +72,50 @@ export function seatsAllow(used: number, limit: number | null): boolean {
   return used <= limit;
 }
 
-/** Project ids owned by this account on one source, excluding soft-deleted. */
-async function ownedProjectIds(
-  sb: SupabaseClient, source: ProjectSource, holderId: string,
-): Promise<string[]> {
-  let q = sb.from(source.table).select('id').eq(source.ownerColumn, holderId);
-  if (source.deletedColumn) q = q.is(source.deletedColumn, null);
-  const { data, error } = await q;
-  if (error) {
-    // A platform whose table or soft-delete column is not there yet must not
-    // silently contribute zero: that would under-count and let a seat through.
-    throw new Error(`seat count failed on ${source.shortLabel}: ${error.message}`);
-  }
-  return (data ?? []).map((r) => String((r as { id: unknown }).id));
-}
-
 export interface SeatUsage {
-  /** Distinct people with access, INCLUDING the account owner. */
+  /** Distinct people on the account, INCLUDING the holder. */
   used: number;
   /** Their ids, so a caller can ask whether a candidate is already among them
    *  without a second query. */
   userIds: Set<string>;
-  /** Platforms actually counted, for the operator-facing message. */
-  sources: string[];
 }
 
 /**
- * Every distinct person who can reach anything this account owns.
- *
- * Iterates the registry, so a platform that declares membership is counted the
- * day it ships and one that does not is skipped without pretending it
- * contributed zero members (it genuinely has none: no membership table means
- * owner-only access, which the holder already occupies).
+ * Every distinct person ON this holder's account: the holder plus every user
+ * whose `account_id` points at the holder's `accounts` row. The account is
+ * resolved through `accounts.owner_user_id`, the authoritative holder pointer
+ * (mig 239), never through a project.
  */
 export async function countAccountSeats(
   sb: SupabaseClient, holderId: string,
 ): Promise<SeatUsage> {
-  // The owner, always, whether or not a membership row exists for them.
+  // The holder, always, added to the set unconditionally.
   const userIds = new Set<string>([holderId]);
-  const sources: string[] = [];
 
-  for (const source of PROJECT_SOURCES) {
-    if (!hasMembership(source)) continue;
-    sources.push(source.shortLabel);
-    const ids = await ownedProjectIds(sb, source, holderId);
-    if (ids.length === 0) continue;
-    const { data, error } = await sb
-      .from(source.membersTable!)
-      .select(source.membersUserColumn!)
-      .in(source.membersProjectColumn!, ids);
-    if (error) throw new Error(`seat count failed on ${source.shortLabel}: ${error.message}`);
-    for (const row of data ?? []) {
-      const uid = (row as unknown as Record<string, unknown>)[source.membersUserColumn!];
-      if (typeof uid === 'string' && uid) userIds.add(uid);
-    }
+  const { data: acct, error: acctErr } = await sb
+    .from('accounts').select('id').eq('owner_user_id', holderId).maybeSingle();
+  if (acctErr) {
+    // Pre-239 there is no denominator to count over; refusing loudly beats a
+    // quiet owner-only number that hands out seats.
+    throw new Error(`seat count failed: ${acctErr.message} (accounts needs migration 239)`);
+  }
+  if (!acct) {
+    // Post-239 every user holds an account; a holder without one is a broken
+    // invariant, and a count over half the facts must not decide anything.
+    throw new Error('seat count failed: this holder has no accounts row (invariant broken, see verify-accounts)');
   }
 
-  return { used: userIds.size, userIds, sources };
+  const { data: people, error: peopleErr } = await sb
+    .from('users').select('id')
+    .eq('account_id', (acct as { id: string }).id)
+    .range(0, 4999);
+  if (peopleErr) throw new Error(`seat count failed: ${peopleErr.message}`);
+  for (const row of people ?? []) {
+    const uid = (row as { id?: unknown }).id;
+    if (typeof uid === 'string' && uid) userIds.add(uid);
+  }
+
+  return { used: userIds.size, userIds };
 }
 
 /**
@@ -205,9 +189,10 @@ export interface SeatDecision {
  * NOT "will a row be inserted". The membership write is an UPSERT, so changing
  * someone from Viewer to Editor goes through the same call as adding them; a
  * check that counted rows-to-be-written would refuse to demote the tenth
- * member of a full Firm account. Adding an existing collaborator to a SECOND
- * project is free for the same reason, which is what "counted across all
- * projects" means.
+ * member of a full Firm account. Since step 3 the seat set IS the account's
+ * people, so anyone the boundary admits as same-account is already seated and
+ * adding them to any number of projects is free; the limit bites where people
+ * JOIN the account, not where projects are shared.
  *
  * ── THE LIMIT BELONGS TO THE ACCOUNT, NOT TO WHOEVER IS TYPING ────────────
  *
