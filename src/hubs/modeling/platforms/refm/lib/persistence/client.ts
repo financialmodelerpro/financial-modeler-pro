@@ -20,6 +20,7 @@ import type {
   RefmProjectVersionListItem,
   ProjectChangeDTO,
   ProjectCommentDTO,
+  ProjectMemberDTO,
 } from './types';
 import type { HydrateSnapshot } from '../state/module1-store';
 import type { Party } from '../parties';
@@ -219,6 +220,14 @@ export function requestProjectDelete(
   projectId: string,
 ): Promise<FetchResult<{ ok: boolean; created: boolean; alreadyOpen: boolean; message: string }>> {
   return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/delete-request`, { method: 'POST' });
+}
+
+/** Who has access to this project (Module 10 screen). Read only; served to
+ *  any member of the project. */
+export function listProjectMembers(
+  projectId: string,
+): Promise<FetchResult<{ available: boolean; members: ProjectMemberDTO[]; viewerId: string }>> {
+  return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/members`, { method: 'GET' });
 }
 
 export function listComments(

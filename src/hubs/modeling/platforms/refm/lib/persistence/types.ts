@@ -194,6 +194,17 @@ export interface ProjectChangeDTO {
  * rather than trusting a client not to render it. A tombstone still arrives
  * because a deleted root has to hold its replies together.
  */
+/** One row of "who has access" on the Collaborate screen (read only; the
+ *  writes live on the admin member route and the holder team engine). */
+export interface ProjectMemberDTO {
+  userId: string;
+  userName: string | null;
+  userEmail: string | null;
+  role: string;
+  isOwner: boolean;
+  addedAt: string | null;
+}
+
 export interface ProjectCommentDTO {
   id:        string;
   projectId: string;

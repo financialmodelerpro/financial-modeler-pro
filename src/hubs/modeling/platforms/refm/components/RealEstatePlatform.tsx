@@ -74,6 +74,7 @@ import Module4CashFlow from './modules/Module4CashFlow';
 import Module4BalanceSheet from './modules/Module4BalanceSheet';
 import Module5Returns from './modules/Module5Returns';
 import Module7Deck from './modules/Module7Deck';
+import Module10Collaborate from './modules/Module10Collaborate';
 import Module5Metrics from './modules/Module5Metrics';
 import Module5CaseComparison from './modules/Module5CaseComparison';
 import Module6Scenarios from './modules/Module6Scenarios';
@@ -1584,6 +1585,38 @@ export default function RealEstatePlatform(): React.JSX.Element {
             onDirtyChange={setDeckDirty}
           />
         </div>
+      );
+    }
+    if (activeModule === 'module10') {
+      if (!activeProjectId) {
+        return (
+          <div style={{ padding: 'var(--sp-3)' }} data-testid="module10-no-project">
+            No project selected.{' '}
+            <button type="button" onClick={() => setWizardOpen(true)} className="btn-primary" style={{ padding: 'var(--sp-1) var(--sp-2)' }}>
+              Create Project
+            </button>
+          </div>
+        );
+      }
+      // MODULE 10 GETS ITS SCREEN (2026-09-04): who has access, who is
+      // editing, comments, activity. The Comments and Activity panels are the
+      // SAME components the Version modal renders; the lock is the SAME state
+      // the topbar banner reads. This screen reads; membership writes stay on
+      // the hub Team tab and the admin panel.
+      return (
+        <Module10Collaborate
+          projectId={activeProjectId}
+          projectName={activeProjectData?.name ?? null}
+          role={currentUserRole}
+          canComment={can('canAddComments')}
+          activeVersionId={activeVersionId ?? null}
+          isHolderOrAdmin={currentUserRole === 'owner'}
+          lock={{
+            lockingAvailable: editLock.lockingAvailable,
+            holderName: editLock.holderName,
+            isMine: editLock.isMine,
+          }}
+        />
       );
     }
     return (

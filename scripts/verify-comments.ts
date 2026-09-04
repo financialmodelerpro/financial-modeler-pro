@@ -32,6 +32,12 @@ const HELPER = 'src/hubs/modeling/platforms/refm/lib/persistence/comments.ts';
 const ROUTE = 'app/api/refm/projects/[id]/comments/route.ts';
 const ONE = 'app/api/refm/projects/[id]/comments/[commentId]/route.ts';
 const MODAL = 'src/hubs/modeling/platforms/refm/components/modals/VersionModal.tsx';
+// RE-AIMED 2026-09-04: the CommentsPanel and the keyed-state fetch discipline
+// moved to the shared collab components when Module 10 got its screen. ONE
+// implementation, TWO doors: the modal tab and the Collaborate screen.
+const PANELS = 'src/hubs/modeling/platforms/refm/components/collab/CollabPanels.tsx';
+const HOOKS = 'src/hubs/modeling/platforms/refm/components/collab/useCollabData.ts';
+const SCREEN = 'src/hubs/modeling/platforms/refm/components/modules/Module10Collaborate.tsx';
 
 console.log('=== A. The migration ===');
 {
@@ -115,26 +121,32 @@ console.log('\n=== D. What the server refuses to send or accept ===');
 console.log('\n=== E. The surface ===');
 {
   const m = src(MODAL);
-  check('E1 Comments is a tab beside Activity',
-    /\['save', 'history', 'activity', 'comments'\] as const/.test(m));
-  check('E2 it lazy-loads on tab open, like Activity',
-    /if \(!open \|\| !projectId \|\| tab !== 'comments'\) return;/.test(m));
+  const p = src(PANELS);
+  const h = src(HOOKS);
+  check('E1 Comments is a tab beside Activity, and the SAME panel renders on the Module 10 screen',
+    /\['save', 'history', 'activity', 'comments'\] as const/.test(m)
+    && /<CommentsPanel/.test(m) && /<CommentsPanel/.test(src(SCREEN))
+    && /export function CommentsPanel/.test(p));
+  check('E2 the modal lazy-loads on tab open; the hook guards on active',
+    /useProjectComments\(projectId, open && tab === 'comments'\)/.test(m)
+    && /if \(!active \|\| !projectId\) return;/.test(h));
   check('E3 state is ONE object keyed by project, so a late response is discarded',
-    /commentsState[\s\S]{0,200}key: string; rows: ProjectCommentDTO\[\]/.test(m)
-    && /const commentsReady = commentsState !== null && commentsState\.key === projectId;/.test(m));
-  check('E4 loading is DERIVED, never a second flag', !/setCommentsLoading/.test(m));
+    /key: string; rows: ProjectCommentDTO\[\]/.test(h)
+    && /state !== null && state\.key === projectId/.test(h));
+  check('E4 loading is DERIVED, never a second flag',
+    !/setCommentsLoading/.test(m) && !/setLoading/.test(h));
   check('E5 the composer is gated on canComment, which the platform passes',
-    /canComment/.test(m) && /canComment=\{can\('canAddComments'\)\}/.test(src('src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx')));
+    /canComment/.test(p) && /canComment=\{can\('canAddComments'\)\}/.test(src('src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx')));
   check('E6 a read-only viewer is TOLD why, not just shown nothing',
-    /comments-read-only/.test(m));
+    /comments-read-only/.test(p));
   check('E7 a comment shows the version it was written against',
-    /on \{versionLabel\.get\(comment\.versionId\)/.test(m));
+    /on \{versionLabel\.get\(comment\.versionId\)/.test(p));
   check('E8 a deleted root with live replies leaves a tombstone',
-    /tombstone/.test(m) && /root\.deleted && liveReplies\.length === 0/.test(m));
+    /tombstone/.test(p) && /root\.deleted && liveReplies\.length === 0/.test(p));
   check('E9 a path renders as TEXT: no jump-to-field was built',
-    /monospace/.test(m) && !/onClick=\{\(\) => [^}]*path/.test(m));
+    /monospace/.test(p) && !/onClick=\{\(\) => [^}]*path/.test(p));
   check('E10 writes re-read from the server rather than patching locally',
-    /const refreshComments = async/.test(m));
+    /refresh: \(\) => load\(\)/.test(h) && /onChanged=\{commentsData\.refresh\}/.test(m));
 }
 
 console.log('\n=== F. Not built, and staying that way ===');
@@ -144,7 +156,7 @@ console.log('\n=== F. Not built, and staying that way ===');
   // unread count": the check matched the PROSE DESCRIBING THE ABSENCE it was
   // testing for. Same shape as TRAPS 3.17, evidence taken from the wrong
   // place. An assertion about what the code DOES must read only code.
-  const all = [HELPER, ROUTE, ONE, MODAL].map((f) => strip(src(f))).join('\n');
+  const all = [HELPER, ROUTE, ONE, MODAL, PANELS, HOOKS, SCREEN].map((f) => strip(src(f))).join('\n');
   check('F1 no notification or email path was added',
     !/sendEmail|sendTemplatedEmail|subscription_email_log|notify\(/.test(all));
   check('F2 no unread counter', !/unread/i.test(all));

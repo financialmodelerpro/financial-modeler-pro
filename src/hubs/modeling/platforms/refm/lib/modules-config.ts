@@ -165,15 +165,11 @@ export const MODULES: readonly ModuleConfig[] = [
     longLabel: 'Collaborate',
     featureKey: 'module_10',
     requiredPlan: 'professional',
+    // SHIPPED 2026-09-04: the per-project Collaborate screen (who has access,
+    // who is editing, comments, activity). Plan gating stays with the
+    // entitlement gate; this flag only stopped the sidebar opening it.
     status: 'pro',
-    disabled: true,
-    disabledReason: 'Requires Professional plan',
-    plannedContent: [
-      'Shared project access for teams',
-      'Comments and review workflow',
-      'Role-based permissions',
-      'Change notifications and activity log',
-    ],
+    disabled: false,
   },
   {
     num: 11,

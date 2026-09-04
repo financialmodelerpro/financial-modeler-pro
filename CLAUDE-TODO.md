@@ -84,6 +84,12 @@ resolution (`users.subscription_plan` is one global key), which it must ride
 with. Nothing blocks it; assessment in CHANGELOG 2026-09-04; recorded in
 `seats.ts` and `inviteSeatState`.
 
+**Module 10 screen (2026-09-04)**: the Collaborate sidebar row now opens
+`Module10Collaborate.tsx` (who has access via the new read-only members
+route, who is editing, comments, activity), with the Activity/Comments
+panels LIFTED to `components/collab/` and shared with the Version modal
+tabs (one implementation, two doors; verify-comments/change-log re-aimed).
+
 **What remains:**
 1. **Founder click-test of the emails** (invite + access granted/removed:
    Brevo delivery + rendering, the one leg no verifier covers) and a browser

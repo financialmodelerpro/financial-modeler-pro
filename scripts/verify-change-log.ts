@@ -76,6 +76,11 @@ const ROUTE  = 'app/api/refm/projects/[id]/changes/route.ts';
 const VPATCH = 'app/api/refm/projects/[id]/versions/[versionId]/route.ts';
 const VPOST  = 'app/api/refm/projects/[id]/versions/route.ts';
 const MODAL  = 'src/hubs/modeling/platforms/refm/components/modals/VersionModal.tsx';
+// RE-AIMED 2026-09-04: the ActivityPanel moved out of the modal into the
+// shared collab components when Module 10 got its screen. ONE implementation,
+// TWO doors: the modal tab and the Collaborate screen both render it.
+const PANELS = 'src/hubs/modeling/platforms/refm/components/collab/CollabPanels.tsx';
+const SCREEN = 'src/hubs/modeling/platforms/refm/components/modules/Module10Collaborate.tsx';
 const CLIENT = 'src/hubs/modeling/platforms/refm/lib/persistence/client.ts';
 
 console.log('=== A. Its own table, its own columns, enforced by the database ===');
@@ -201,14 +206,16 @@ console.log('\n=== E. It surfaces, read access is membership with no role narrow
     && !/refm\/projects\/\$\{[^}]+\}\/changes`, \{ method: 'POST'/.test(src(CLIENT)));
 
   const modal = src(MODAL);
-  check('E8 the user-facing surface is a tab in the version manager',
-    /'save', 'history', 'activity'/.test(modal) && /function ActivityPanel/.test(modal));
+  const panels = src(PANELS);
+  check('E8 ONE panel, TWO doors: the version-manager tab and the Collaborate screen',
+    /'save', 'history', 'activity'/.test(modal) && /<ActivityPanel/.test(modal)
+    && /export function ActivityPanel/.test(panels) && /<ActivityPanel/.test(src(SCREEN)));
   check('E9 it renders the author and the time, which is the whole point',
-    /change\.userName/.test(modal) && /toLocaleTimeString/.test(modal));
+    /change\.userName/.test(panels) && /toLocaleTimeString/.test(panels));
   check('E10 an unresolvable author reads as unknown, never as someone else',
-    /change\.userName \?\? 'Unknown user'/.test(modal));
+    /change\.userName \?\? 'Unknown user'/.test(panels));
   check('E11 an unrecognised action renders as itself rather than being swallowed',
-    /default:\s*return \{ label: action,/.test(modal));
+    /default:\s*return \{ label: action,/.test(panels));
   check('E12 the route STATES that an admin sees no more than a member',
     /ADMIN SEES NO MORE THAN A MEMBER/i.test(route));
 }
@@ -224,7 +231,7 @@ console.log('\n=== F. Nothing changes for a single-user account ===');
   check('F4 a pre-234 database degrades to not-logging, not to not-saving',
     /changesApplied = false/.test(body));
   check('F5 the UI distinguishes "not recorded" from "nothing happened"',
-    /activity-unavailable/.test(src(MODAL)) && /activity-empty/.test(src(MODAL)));
+    /activity-unavailable/.test(src(PANELS)) && /activity-empty/.test(src(PANELS)));
   check('F6 the API says which of the two it is',
     /available: !tableMissing/.test(src(ROUTE)));
   // The single-user consequence, stated as behaviour: one person's own edits
@@ -238,7 +245,7 @@ console.log('\n=== F. Nothing changes for a single-user account ===');
 
 console.log('\n=== G. House rules ===');
 {
-  for (const f of [MIG, APPLY, LIB, ROUTE, MODAL, CLIENT]) {
+  for (const f of [MIG, APPLY, LIB, ROUTE, MODAL, CLIENT, PANELS, SCREEN]) {
     check(`G ${f} has no em dashes`, !src(f).includes('—'));
   }
 }
