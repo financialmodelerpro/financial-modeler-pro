@@ -62,6 +62,7 @@ export async function GET() {
     trialRequestPending,
     trialRequestedAt,
     isAdmin: gate.isAdmin,
+    accountMember: gate.accountMember,
     fullAccess: gate.fullAccess,
     planKey: gate.planKey,
     knownPlan: gate.knownPlan,

@@ -24,6 +24,9 @@ export type LapseState = 'active' | 'grace' | 'lapsed';
 export interface EntitlementsState {
   loaded: boolean;
   isAdmin: boolean;
+  /** True when the user is a MEMBER of someone else's account: their plan is
+   *  inherited from the holder, and holder-only surfaces (the Team tab) hide. */
+  accountMember: boolean;
   fullAccess: boolean;
   planKey: string;
   knownPlan: boolean;
@@ -51,7 +54,7 @@ export interface EntitlementsState {
 }
 
 const INITIAL: EntitlementsState = {
-  loaded: false, isAdmin: false, fullAccess: false, planKey: '', knownPlan: false,
+  loaded: false, isAdmin: false, accountMember: false, fullAccess: false, planKey: '', knownPlan: false,
   trialExpired: false, trialEndsAt: null, lapseState: 'active', readOnly: false,
   accessExpiresAt: null, graceEndsAt: null, featureMap: {}, projectLimit: 0,
   archiveAllowed: false, activeProjectCount: 0,
@@ -79,6 +82,7 @@ export function useEntitlements(): UseEntitlements {
         setState({
           loaded: true,
           isAdmin: !!j.isAdmin,
+          accountMember: !!j.accountMember,
           fullAccess: !!j.fullAccess,
           planKey: j.planKey ?? '',
           knownPlan: !!j.knownPlan,

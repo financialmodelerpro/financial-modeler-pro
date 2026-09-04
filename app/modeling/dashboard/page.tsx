@@ -580,10 +580,14 @@ export default function ModelingDashboardPage() {
   const navItems: NavItem[] = [
     ...NAV_ITEMS,
     // Assigning projects happens HERE, on the hub, before entering a
-    // platform. An in-page view rather than a link out to /admin, because
-    // it is about this hub and the admin reaches it where they already see
-    // the projects it governs.
-    ...(isAdmin ? [{ kind: 'view' as const, id: 'team' as const, icon: '👥', label: 'Team access' }] : []),
+    // platform. The tab shows for the ADMIN (the operator panel) and for
+    // every ACCOUNT HOLDER, Pro included (their own team surface: invites,
+    // project access, delete requests; a one-seat holder sees it with the
+    // upgrade path instead of the invite box). A MEMBER never sees it: they
+    // hold no team of their own, and `accountMember` comes from the resolved
+    // gate, the same one-place member rule everything else reads.
+    ...(isAdmin || (ent.loaded && !ent.accountMember)
+      ? [{ kind: 'view' as const, id: 'team' as const, icon: '👥', label: 'Team access' }] : []),
     ...(isAdmin ? [{ kind: 'link' as const, id: 'admin', icon: '🛡️', label: 'Admin Panel', href: `${MAIN_URL}/admin` }] : []),
   ];
 
@@ -853,6 +857,14 @@ export default function ModelingDashboardPage() {
               <TeamAccessPanel theme={theme} />
             </div>
           )}
+          {/* The CLIENT's team surface (moved off the main dashboard): the
+              holder manages invites, project access and delete requests on
+              their own tab, mirroring the admin's. */}
+          {activeView === 'team' && !isAdmin && (
+            <div style={{ maxWidth: 900 }}>
+              <TeamInvitesCard theme={theme} />
+            </div>
+          )}
           {activeView === 'billing' && (
             <BillingView platforms={livePlatforms.map((p) => ({ slug: p.slug, name: p.name }))} dark={darkMode} />
           )}
@@ -894,13 +906,6 @@ export default function ModelingDashboardPage() {
               </a>
             </div>
           )}
-
-          {/* Your team (account model step 5): invite a colleague by email.
-              Server-decided visibility: the card fetches /api/account/invites
-              and renders NOTHING unless the caller is an account holder whose
-              plan carries seats to share (or who already has people/invites).
-              A member, a solo holder, or an error all show no card. */}
-          {!noPlan && <TeamInvitesCard theme={theme} />}
 
           {/* Grace banner: the plan expired but is inside the 1-month read-only
               window. Same message + renew link the platform shows, surfaced on

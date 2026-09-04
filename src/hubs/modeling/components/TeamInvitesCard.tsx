@@ -22,10 +22,14 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { PROJECT_ROLE_META, PROJECT_ROLES, type ProjectRole } from '@/src/core/collab/projectRoles';
+import { getPlatform, platformPricingSegment } from '@/src/hubs/modeling/config/platforms';
 
 interface OpenInvite { id: string; email: string; expires_at: string; expired: boolean }
 interface TeamState {
   eligible: boolean;
+  /** Server-computed with the SAME seat arithmetic the create enforces: a
+   *  Pro holder sees the tab but not the invite box. */
+  canInvite?: boolean;
   accountName?: string;
   seats?: { used: number; reserved: number; limit: number | null };
   invites?: OpenInvite[];
@@ -252,6 +256,7 @@ export default function TeamInvitesCard({ theme }: {
         subscription covers them. Once they join, give them access to your projects below.
       </p>
 
+      {state.canInvite ? (
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: invites.length ? 14 : 0 }}>
         <input
           type="email" value={email} placeholder="colleague@company.com"
@@ -274,6 +279,27 @@ export default function TeamInvitesCard({ theme }: {
           Send invite
         </button>
       </div>
+      ) : (seats.limit ?? 0) <= 1 && seats.limit !== -1 ? (
+        // A one-seat plan (Pro / Solo / Trial): the owner IS the seat. The
+        // path to a team is the SAME upgrade path used everywhere else, the
+        // source-derived per-platform pricing page.
+        <div data-testid="team-invites-upgrade" style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '12px 16px', borderRadius: 10, background: '#FDF6E3', border: '1px solid #C9A84C', marginBottom: invites.length ? 14 : 0 }}>
+          <span style={{ flex: 1, minWidth: 220, fontSize: 13, color: '#0D2E5A', fontWeight: 600 }}>
+            Your plan includes one seat, which you hold. Upgrade to Firm to add team members.
+          </span>
+          <a
+            href={`/pricing/${platformPricingSegment(getPlatform('real-estate') ?? { slug: 'real-estate', shortName: 'REFM' })}`}
+            data-testid="team-invites-upgrade-link"
+            style={{ background: '#C9A84C', color: '#0D2E5A', fontWeight: 800, fontSize: 13, padding: '9px 18px', borderRadius: 9, textDecoration: 'none', whiteSpace: 'nowrap' }}
+          >
+            Upgrade to Firm →
+          </a>
+        </div>
+      ) : (
+        <div data-testid="team-invites-full" style={{ fontSize: 12.5, color: theme.muted, marginBottom: invites.length ? 14 : 0 }}>
+          All seats are in use. Revoke an open invite or remove a member to free one, or contact us for more seats.
+        </div>
+      )}
 
       {invites.length > 0 && (
         <div style={{ borderTop: `1px solid ${theme.border}`, marginTop: 6 }}>

@@ -39,6 +39,10 @@ export interface ResolvedUserGate extends GateResult {
   userId: string;
   role: string;
   isAdmin: boolean;
+  /** True when this user is a MEMBER of someone else's account (step 4): the
+   *  plan above is inherited from the holder. Surfaces that are holder-only
+   *  (the Team tab) read this rather than re-deriving it. */
+  accountMember: boolean;
   planKey: string;
   knownPlan: boolean;
   trialEndsAt: string | null;
@@ -61,6 +65,7 @@ function deniedGate(userId: string, isAdmin: boolean): ResolvedUserGate {
     userId,
     role: isAdmin ? 'admin' : 'unknown',
     isAdmin,
+    accountMember: false,
     planKey: '',
     knownPlan: false,
     trialEndsAt: null,
@@ -269,6 +274,7 @@ export async function resolveUserGate(
       userId,
       role,
       isAdmin,
+      accountMember: isMember,
       planKey,
       knownPlan,
       trialEndsAt,

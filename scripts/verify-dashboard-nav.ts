@@ -99,15 +99,23 @@ console.log('\n=== C. The hash is declared once ===');
 
 console.log('\n=== D. Team access reaches something real ===');
 {
-  check('D1 the panel is rendered for the team view',
-    /activeView === 'team' && isAdmin/.test(code) && /<TeamAccessPanel/.test(code));
+  check('D1 the team view renders the ADMIN panel for admins and the HOLDER panel for clients',
+    /activeView === 'team' && isAdmin/.test(code) && /<TeamAccessPanel/.test(code)
+    && /activeView === 'team' && !isAdmin/.test(code) && /<TeamInvitesCard/.test(code));
   check('D2 the panel component exists',
     readFileSync('src/hubs/modeling/components/TeamAccessPanel.tsx', 'utf8').length > 1000);
   check('D3 its API route exists with a read and a write',
     /export async function GET/.test(readFileSync('app/api/admin/project-members/route.ts', 'utf8'))
     && /export async function POST/.test(readFileSync('app/api/admin/project-members/route.ts', 'utf8')));
-  check('D4 the item is admin-gated, as it was before',
-    /isAdmin \? \[\{ kind: 'view' as const, id: 'team' as const/.test(code));
+  // Re-aimed 2026-09-04: the tab was admin-only until the account model gave
+  // clients their own team surface. It now shows for the admin and for every
+  // ACCOUNT HOLDER, and never for a MEMBER (accountMember from the resolved
+  // gate, the one-place member rule).
+  check('D4 the item shows for admins and account holders, never for members',
+    /isAdmin \|\| \(ent\.loaded && !ent\.accountMember\)/.test(code)
+    && /id: 'team' as const/.test(code));
+  check('D5 the holder panel is OFF the main dashboard view (it lives on the tab)',
+    (code.match(/<TeamInvitesCard/g) ?? []).length === 1);
 }
 
 console.log('\n=== E. House rules ===');

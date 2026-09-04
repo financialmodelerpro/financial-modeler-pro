@@ -519,6 +519,26 @@ async function main() {
     }
   }
 
+  console.log('I. The Team tab: holders see it, members never, Pro sees the upgrade path');
+  {
+    check('I1 the gate carries accountMember from the one-place member rule, end to end',
+      /accountMember: isMember/.test(src('src/shared/entitlements/resolveUser.ts'))
+      && /accountMember: gate\.accountMember/.test(src('app/api/refm/entitlements/route.ts'))
+      && /accountMember: !!j\.accountMember/.test(src('src/hubs/modeling/platforms/refm/lib/useEntitlements.ts')));
+    const dash = src('app/modeling/dashboard/page.tsx');
+    check('I2 the tab shows for admins and holders, never members, and the panel left the main view',
+      /isAdmin \|\| \(ent\.loaded && !ent\.accountMember\)/.test(dash)
+      && /activeView === 'team' && !isAdmin/.test(dash)
+      && (dash.match(/<TeamInvitesCard/g) ?? []).length === 1);
+    check('I3 every holder is eligible; canInvite is the SAME seat arithmetic as the create',
+      /eligible: true/.test(src('app/api/account/invites/route.ts'))
+      && /seatsAllow\(seats\.used \+ seats\.reserved \+ 1, seats\.limit\)/.test(src('app/api/account/invites/route.ts')));
+    const card = src('src/hubs/modeling/components/TeamInvitesCard.tsx');
+    check('I4 a one-seat holder gets the Firm upgrade via the standard pricing path',
+      /Upgrade to Firm/.test(card) && /platformPricingSegment\(getPlatform\(/.test(card)
+      && /state\.canInvite \?/.test(card));
+  }
+
   console.log('L. Live: the invariants over the real rows');
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -630,10 +650,13 @@ async function main() {
           check('L16b ...with NO project allowance of their own, role their own',
             memberGate.projectLimit === 0 && memberGate.archiveAllowed === false && memberGate.role === 'user',
             `limit=${memberGate.projectLimit}`);
+          check('L16c ...and the gate NAMES them a member, so the Team tab hides',
+            memberGate.accountMember === true);
 
           const holderGate = await resolveUserGate(holderId);
           check('L17 the holder\'s own gate is untouched (a real allowance, same plan)',
-            holderGate.planKey === 'pro' && holderGate.projectLimit !== 0,
+            holderGate.planKey === 'pro' && holderGate.projectLimit !== 0
+            && holderGate.accountMember === false,
             `plan=${holderGate.planKey} limit=${holderGate.projectLimit}`);
 
           const mids = await accountMemberIds(sb, [holderId, memberId]);

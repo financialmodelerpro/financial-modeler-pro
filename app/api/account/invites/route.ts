@@ -20,6 +20,7 @@ import { resolveAccountHolder } from '@/src/shared/admin/accountBoundary';
 import {
   createAccountInvite, revokeAccountInvite, listOpenInvites, inviteSeatState,
 } from '@/src/shared/account/invites';
+import { seatsAllow } from '@/src/shared/admin/seats';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com';
 
@@ -52,13 +53,15 @@ export async function GET() {
       inviteSeatState(sb, holderUserId, accountId),
       listOpenInvites(sb, accountId),
     ]);
-    // Eligible to SEE the card: more than one seat, or people/invites already
-    // present (so a downgraded account still sees its team), or the admin.
-    const eligible = seats.isPlatformAdmin
-      || (seats.limit !== null && (seats.limit > 1 || seats.limit === -1))
-      || seats.used > 1 || invites.length > 0;
+    // EVERY holder is eligible to see their team surface (the Team tab shows
+    // for Pro too); only a member is not. Whether they can INVITE is the seat
+    // arithmetic, computed here with the SAME rule the create enforces, so
+    // the upgrade prompt and the 409 can never disagree.
+    const canInvite = seats.isPlatformAdmin
+      || seatsAllow(seats.used + seats.reserved + 1, seats.limit);
     return NextResponse.json({
-      eligible,
+      eligible: true,
+      canInvite,
       accountName: (acct as { name: string }).name,
       seats: { used: seats.used, reserved: seats.reserved, limit: seats.limit },
       invites,
