@@ -8,6 +8,17 @@
  * DIRECTLY: `users.account_id = account`. Not per project, not per membership
  * row, and no longer inferred by walking projects.
  *
+ * ── DECISION 2026-09-04: SEATS BECOME PER PLATFORM when a second platform
+ * ships. Platforms are sold and paid for separately (user_platform_
+ * subscriptions is already keyed by platform_slug), so a seat will be a
+ * person on an account ON A PLATFORM. Account-wide is CORRECT today, with
+ * REFM the only live platform, and the per-platform version is deliberately
+ * NOT built. When it is: the person-platform fact does not exist yet (a new
+ * table or a platform column on account_invites), the `seats` entitlement
+ * key has no platform dimension, and the split must ride with per-platform
+ * PLAN resolution (users.subscription_plan is one global key). Full
+ * assessment in CHANGELOG 2026-09-04. ──────────────────────────────────────
+ *
  * ── WHY THE PROJECT WALK IS GONE (step 3, 2026-09-04) ─────────────────────
  *
  * The step-8 counter collected whoever appeared in the membership rows of

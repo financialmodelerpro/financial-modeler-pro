@@ -87,6 +87,10 @@ export interface InviteSeatState {
   isPlatformAdmin: boolean;
 }
 
+/** DECISION 2026-09-04 (recorded, not built): seats become PER PLATFORM when
+ *  a second platform ships. This function is THE reservation arithmetic and
+ *  the one place that would re-key by platform; an invite would then carry a
+ *  platform_slug. See seats.ts and CHANGELOG 2026-09-04. */
 export async function inviteSeatState(sb: SupabaseClient, holderUserId: string, accountId: string): Promise<InviteSeatState> {
   const [{ used }, { limit, isPlatformAdmin }, reserved] = await Promise.all([
     countAccountSeats(sb, holderUserId),

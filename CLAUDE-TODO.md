@@ -75,6 +75,15 @@ write sites email the person on grant (who, project, role) and removal (who,
 project), after the write, never undoing it; dedupe = change detection +
 the lifecycle claim (exported `dispatch`); `.invalid` skipped pre-claim.
 
+**DECIDED 2026-09-04, NOT BUILT: seats become PER PLATFORM when ERFM or BVM
+ships** (platforms are sold separately; `user_platform_subscriptions` already
+keys billing by platform_slug). Account-wide stays correct while REFM is the
+only live platform. The split needs: a person-platform fact (none exists), a
+platform dimension on the `seats` entitlement, and, deepest, per-platform PLAN
+resolution (`users.subscription_plan` is one global key), which it must ride
+with. Nothing blocks it; assessment in CHANGELOG 2026-09-04; recorded in
+`seats.ts` and `inviteSeatState`.
+
 **What remains:**
 1. **Founder click-test of the emails** (invite + access granted/removed:
    Brevo delivery + rendering, the one leg no verifier covers) and a browser
