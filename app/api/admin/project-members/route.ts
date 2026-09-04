@@ -21,6 +21,16 @@
  * project is a different operation on a different column, and it is not this
  * one.
  *
+ * ── THE ACCOUNT BOUNDARY IS ENFORCED IN THE POST BELOW (step 2, mig 239) ──
+ *
+ * A candidate must be on the SAME ACCOUNT as the project's owner; a platform
+ * admin is exempt in both directions (an admin candidate can be added
+ * anywhere, and an admin-owned project accepts anyone, per the standing
+ * "admin is never blocked" rule). The rule lives ONCE in
+ * `shared/admin/accountBoundary.ts`; the GET's `candidatesFor` mode lists
+ * people through the SAME rule, so the dropdown never offers a person the
+ * write would refuse. The dropdown is a courtesy; THIS refusal is the scope.
+ *
  * ── THE SEAT LIMIT IS ENFORCED IN THE POST BELOW, AND ONLY THERE ──────────
  *
  * This upsert is the ONLY insert into any membership table in the codebase.
@@ -44,6 +54,7 @@ import { authOptions } from '@/src/shared/auth/nextauth';
 import { PROJECT_SOURCES, getProjectSource, hasMembership } from '@/src/shared/admin/projectSources';
 import { isProjectRole, PROJECT_ROLES } from '@/src/core/collab/projectRoles';
 import { checkSeatForMember, seatBlockMessage } from '@/src/shared/admin/seats';
+import { checkAccountBoundary, accountBoundaryMessage, listAccountCandidates } from '@/src/shared/admin/accountBoundary';
 
 function badRequest(msg: string) { return NextResponse.json({ error: msg }, { status: 400 }); }
 function serverError(msg: string) { return NextResponse.json({ error: msg }, { status: 500 }); }
@@ -76,9 +87,11 @@ function sourceFor(key: string | null) {
 }
 
 // ── GET ─────────────────────────────────────────────────────────────────────
-// ?projectId=...  members of that project
-// ?userId=...     memberships held by that user
-// (neither)       the platforms that support membership, for the picker
+// ?candidatesFor=... people offerable for that project (the account boundary
+//                    as a list, so the dropdown matches the write)
+// ?projectId=...     members of that project
+// ?userId=...        memberships held by that user
+// (none)             the platforms that support membership, for the picker
 export async function GET(req: NextRequest) {
   const { res: denied } = await guard();
   if (denied) return denied;
@@ -86,7 +99,24 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const projectId = url.searchParams.get('projectId');
   const userId = url.searchParams.get('userId');
+  const candidatesFor = url.searchParams.get('candidatesFor');
   const { source, error: srcErr } = sourceFor(url.searchParams.get('platform'));
+
+  if (candidatesFor) {
+    if (!source) return badRequest(srcErr!);
+    const sb = getServerClient();
+    const { data: proj, error: projErr } = await sb
+      .from(source.table).select(`id, ${source.ownerColumn}`).eq('id', candidatesFor).maybeSingle();
+    if (projErr) return serverError(projErr.message);
+    if (!proj) return badRequest('No such project.');
+    const ownerId = String((proj as unknown as Record<string, unknown>)[source.ownerColumn]);
+    try {
+      const { candidates, scoped } = await listAccountCandidates(sb, ownerId);
+      return NextResponse.json({ candidates, scoped });
+    } catch (e) {
+      return serverError((e as Error).message);
+    }
+  }
 
   if (!projectId && !userId) {
     return NextResponse.json({
@@ -180,6 +210,30 @@ export async function POST(req: NextRequest) {
     .from('users').select('id, email').eq('id', body.userId).maybeSingle();
   if (userErr) return serverError(userErr.message);
   if (!user) return badRequest('No such user.');
+
+  // ── ACCOUNT BOUNDARY (account model step 2) ───────────────────────────
+  //
+  // BEFORE the seat check: a cross-account candidate must hear "wrong
+  // account", never "no seats left", because the second message invites the
+  // operator to buy a seat for a grant that must not happen at any price.
+  // A failed read REFUSES for the same reason a failed seat count does: an
+  // unmeasurable boundary must not become an accidental grant.
+  let boundary;
+  try {
+    boundary = await checkAccountBoundary(sb, ownerId, body.userId);
+  } catch (e) {
+    return serverError(`Account boundary check failed, nothing was changed: ${(e as Error).message}`);
+  }
+  if (!boundary.allowed) {
+    const { data: holder } = await sb.from('users').select('email').eq('id', ownerId).maybeSingle();
+    return NextResponse.json({
+      error: accountBoundaryMessage(
+        (user as { email?: string } | null)?.email ?? null,
+        (holder as { email?: string } | null)?.email ?? null,
+      ),
+      boundary: { reason: boundary.reason },
+    }, { status: 403 });
+  }
 
   // ── SEATS (Module 10 step 8) ──────────────────────────────────────────
   //

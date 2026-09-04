@@ -13,14 +13,13 @@
  * appears here by declaring its membership columns in the registry, with no
  * change to this file.
  *
- * ── NON-OWNERS ARE READ-ONLY UNTIL THE EDIT LOCK SHIPS ────────────────────
+ * ── THE PERSON LIST IS SCOPED TO THE PROJECT OWNER'S ACCOUNT (step 2) ─────
  *
- * The panel says so, on screen, next to the role picker. Every role below Owner
- * currently grants READ access and nothing more, because there is no
- * server-side edit lock yet and two people autosaving one project would
- * overwrite each other silently. Showing four roles without saying that would
- * promise something the platform does not yet do. The note goes when step 5
- * lands.
+ * The dropdown asks `?candidatesFor=<projectId>`, which evaluates the SAME
+ * account-boundary rule the POST enforces (`shared/admin/accountBoundary.ts`),
+ * so it never offers a person the write would refuse. Until a project is
+ * chosen there is nobody to offer, because "who is eligible" depends on whose
+ * project it is. The dropdown is a courtesy; the server refusal is the scope.
  *
  * No em dashes in this file.
  */
@@ -46,7 +45,7 @@ export default function TeamAccessPanel({ theme }: {
   theme: { surface: string; border: string; body: string; heading: string; muted: string; bg: string };
 }): React.JSX.Element {
   const [projects, setProjects] = useState<AdminProject[]>([]);
-  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [candidates, setCandidates] = useState<AdminUser[]>([]);
   const [projectId, setProjectId] = useState('');
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [addUserId, setAddUserId] = useState('');
@@ -55,15 +54,12 @@ export default function TeamAccessPanel({ theme }: {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  // Projects + users, once.
+  // Projects, once.
   useEffect(() => {
     let alive = true;
     void (async () => {
       try {
-        const [pr, ur] = await Promise.all([
-          fetch('/api/admin/projects?platform=refm', { credentials: 'include' }),
-          fetch('/api/admin/users', { credentials: 'include' }),
-        ]);
+        const pr = await fetch('/api/admin/projects?platform=refm', { credentials: 'include' });
         if (!alive) return;
         if (pr.ok) {
           const j = await pr.json();
@@ -72,16 +68,31 @@ export default function TeamAccessPanel({ theme }: {
             name: String(p.name ?? ''), ownerEmail: (p.ownerEmail as string) ?? null,
           })));
         }
-        if (ur.ok) {
-          const j = await ur.json();
-          setUsers((j.users ?? []).map((u: Record<string, unknown>) => ({
-            id: String(u.id), name: (u.name as string) ?? null, email: String(u.email ?? ''),
-          })));
-        }
-      } catch { if (alive) setErr('Could not load projects and users.'); }
+      } catch { if (alive) setErr('Could not load projects.'); }
     })();
     return () => { alive = false; };
   }, []);
+
+  // Eligible people, per selected project: the account boundary as a list.
+  useEffect(() => {
+    let alive = true;
+    if (!projectId) { setCandidates([]); setAddUserId(''); return; }
+    void (async () => {
+      try {
+        const r = await fetch(
+          `/api/admin/project-members?platform=refm&candidatesFor=${encodeURIComponent(projectId)}`,
+          { credentials: 'include' });
+        const j = await r.json();
+        if (!alive) return;
+        if (!r.ok) { setErr(j.error ?? 'Could not load eligible people.'); return; }
+        setCandidates((j.candidates ?? []).map((u: Record<string, unknown>) => ({
+          id: String(u.id), name: (u.name as string) ?? null, email: String(u.email ?? ''),
+        })));
+        setAddUserId('');
+      } catch { if (alive) setErr('Could not load eligible people.'); }
+    })();
+    return () => { alive = false; };
+  }, [projectId]);
 
   const loadMembers = useCallback(async (pid: string) => {
     if (!pid) { setMembers([]); return; }
@@ -140,21 +151,6 @@ export default function TeamAccessPanel({ theme }: {
         Assign a project to a colleague. A person can only open a project that is assigned to them.
       </p>
 
-      {/* The honest note. Four roles are offered and only one of them can
-          currently write, so the screen says so rather than implying more. */}
-      <div
-        data-testid="team-access-readonly-note"
-        style={{
-          border: `1px solid ${theme.border}`, borderRadius: 8, padding: '10px 12px',
-          marginBottom: 16, fontSize: 12.5, color: theme.body, background: theme.bg,
-        }}
-      >
-        <strong>Everyone except the Owner has read-only access for now.</strong>{' '}
-        Editor, Reviewer and Viewer can all open the project and see the model; none of them can
-        change or save it yet. Editing by more than one person needs the edit lock, which is the
-        next piece of this feature. Assign roles now and they take effect when it lands.
-      </div>
-
       <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'minmax(0,2fr) minmax(0,2fr) minmax(0,1fr) auto', alignItems: 'end', marginBottom: 18 }}>
         <label style={{ display: 'grid', gap: 4, fontSize: 12, color: theme.muted }}>
           Project
@@ -167,9 +163,12 @@ export default function TeamAccessPanel({ theme }: {
         </label>
         <label style={{ display: 'grid', gap: 4, fontSize: 12, color: theme.muted }}>
           Person
-          <select value={addUserId} onChange={(e) => setAddUserId(e.target.value)} style={sel} data-testid="team-access-user">
-            <option value="">Select a person</option>
-            {users.map((u) => <option key={u.id} value={u.id}>{label(u)}</option>)}
+          <select
+            value={addUserId} onChange={(e) => setAddUserId(e.target.value)} style={sel}
+            disabled={!projectId} data-testid="team-access-user"
+          >
+            <option value="">{projectId ? 'Select a person' : 'Select a project first'}</option>
+            {candidates.map((u) => <option key={u.id} value={u.id}>{label(u)}</option>)}
           </select>
         </label>
         <label style={{ display: 'grid', gap: 4, fontSize: 12, color: theme.muted }}>

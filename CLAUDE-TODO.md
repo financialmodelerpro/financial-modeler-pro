@@ -9,37 +9,38 @@ Steps 0 to 9 all shipped and are live (migs 230 to 238, all APPLIED). Nothing in
 Module 10 is half-built. What follows is what the module UNCOVERED and what it
 deliberately did not do, in the order I would take them.
 
-### 1. THE ACCOUNT BOUNDARY. STEP 1 SHIPPED 2026-09-04 (mig 239 APPLIED); steps 2+ are the open work
+### 1. THE ACCOUNT BOUNDARY. STEPS 1 + 2 SHIPPED 2026-09-04; steps 3+ are the open work
 
-**Step 1 is live**: `accounts` is its own row (`kind` client|internal, exactly
-one internal = FMP's own), every user has one (backfilled + held by
-`trg_users_personal_account` for every future creation path), every holder
-points back at their own, and deleting a holder whose account still has members
-refuses (engine `account_has_members` 409 + DB backstop, `users.account_id` NO
-ACTION). **NOTHING reads `users.account_id` yet**: `verify-accounts` 25 pins
-the reader allow-list at one file (the deletion engine), so each later step
-amends it consciously. The sizing decision was taken: **one person, one
-account** (`users.account_id`, single-valued; a consultant serving two clients
-needs two logins). Full proposal in CHANGELOG 2026-09-04; build order there.
+**Step 1 (mig 239 APPLIED)**: `accounts` is its own row (`kind`
+client|internal, exactly one internal = FMP's own), every user has one
+(backfilled + held by `trg_users_personal_account` for every creation path),
+every holder points back at their own, and deleting a holder whose account
+still has members refuses (engine `account_has_members` 409 + DB backstop,
+`users.account_id` NO ACTION). The sizing decision was taken: **one person,
+one account** (`users.account_id`, single-valued; a consultant serving two
+clients needs two logins). Full proposal in CHANGELOG 2026-09-04.
+
+**Step 2 (same day, no migration)**: the boundary is ENFORCED. The rule lives
+once in `src/shared/admin/accountBoundary.ts`; `POST /api/admin/project-members`
+refuses a cross-account candidate with a 403 BEFORE the seat check; a platform
+admin is exempt as candidate (the advisor shape) and as owner ("admin is never
+blocked", per seats.ts); the Team access dropdown lists through the SAME rule
+(`?candidatesFor`). `verify-accounts` 41 pins the allow-list, the decision and
+the live refusal; the stale "read-only for now" note is gone (C4b pins its
+absence).
 
 **What remains, smallest first, each shippable alone:**
-1. **Step 2, THE BOUNDARY**: `POST /api/admin/project-members` must refuse a
-   candidate whose `account_id` differs from the project owner's (platform
-   admin exempt); the Team access dropdown then filters to the account. Today
-   it validates only that the user EXISTS; a scope enforced in a `<select>` is
-   not a scope. With all live memberships being owner self-seeds, shipping
-   strict changes nothing for anyone.
-2. **Step 3, SEATS BY ACCOUNT**: `countAccountSeats` becomes "user rows with
+1. **Step 3, SEATS BY ACCOUNT**: `countAccountSeats` becomes "user rows with
    this `account_id` (+ open invites)" instead of inferring the team from
    project reach; identical numbers on today's data.
-3. **Step 4, MEMBER GATE**: `resolveUserGate` resolves plan/lapse from the
+2. **Step 4, MEMBER GATE**: `resolveUserGate` resolves plan/lapse from the
    account HOLDER for a member, `projectLimit 0`; exclude members from the
    no-plan email audiences (access-request reminder would otherwise hit them).
-4. **Step 5, INVITES**: `account_invites` (token hash, seat reserved at
+3. **Step 5, INVITES**: `account_invites` (token hash, seat reserved at
    create, consumed in the register route's one new mode, bypassing the launch
    allowlist). The only path by which a member can exist, since a user row is
    still born only in self-signup.
-5. **Step 6+**: holder self-service member management; delete-request queue
+4. **Step 6+**: holder self-service member management; delete-request queue
    scoped to the holder.
 
 **Advisor future-proofing is two absences, both pinned**: no FK ties a project

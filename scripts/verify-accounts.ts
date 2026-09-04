@@ -1,7 +1,7 @@
 /**
  * scripts/verify-accounts.ts
  *
- * THE ACCOUNT BOUNDARY, step 1 (mig 239). Pins:
+ * THE ACCOUNT MODEL, steps 1 (mig 239) and 2 (the boundary). Pins:
  *
  *   S. SOURCE: the account is ITS OWN ROW (an accounts table with its own id),
  *      never a pointer to a person's row (no users.account_owner_id anywhere);
@@ -132,11 +132,15 @@ async function main() {
       /account_has_members' \? 409/.test(src('app/api/user/account/route.ts'))
       && /account_has_members' \? 409/.test(src('app/api/admin/users/[id]/route.ts')));
 
-    // NOTHING reads users.account_id yet. This list is the contract: each
-    // later step of the account model amends it consciously, here, so a
-    // surface can never start depending on the column by accident.
+    // The reader allow-list IS the contract: each step of the account model
+    // amends it consciously, here, so a surface can never start depending on
+    // the column by accident. Step 1: the deletion engine. Step 2: the
+    // boundary rule (the route enforces it THROUGH the helper and touches the
+    // column nowhere itself, which is why it is not listed: a raw account_id
+    // query appearing in the route should fail this check).
     const ALLOWED = new Set([
       'src/shared/account/deleteUserAccount.ts',
+      'src/shared/admin/accountBoundary.ts',
     ]);
     const readers: string[] = [];
     for (const dir of ['src', 'app']) {
@@ -145,7 +149,7 @@ async function main() {
         if (fs.readFileSync(f, 'utf8').includes('account_id') && !ALLOWED.has(rel)) readers.push(rel);
       }
     }
-    check('S10 nothing else reads users.account_id yet (the platform behaves exactly as before)',
+    check('S10 only the allow-listed account-model files read users.account_id',
       readers.length === 0, readers.join(', '));
   }
 
@@ -174,6 +178,73 @@ async function main() {
     const { sb } = makeFake({ accountRow: null, memberCount: 99 });
     const res = await deleteUserAccount(sb, { userId: 'u1', source: 'admin', deletedBy: 'adm', cancelPaddle: true });
     check('B5 no accounts row (pre-239): the delete proceeds unchanged', res.ok, res.ok ? '' : res.code);
+  }
+
+  console.log('C. Step 2: the account boundary on the member route');
+  {
+    const route = src('app/api/admin/project-members/route.ts');
+    const userLookupAt = route.indexOf("badRequest('No such user.')");
+    const boundaryAt = route.indexOf('checkAccountBoundary(');
+    const seatAt = route.indexOf('checkSeatForMember(');
+    check('C1 the POST checks the boundary AFTER the user lookup and BEFORE the seat check',
+      userLookupAt > 0 && boundaryAt > userLookupAt && seatAt > boundaryAt);
+    check('C2 a cross-account candidate is a 403, and a failed read refuses the write',
+      /status: 403/.test(route) && /Account boundary check failed, nothing was changed/.test(route));
+    check('C3 the candidates GET answers through the SAME rule (listAccountCandidates)',
+      /candidatesFor/.test(route) && /listAccountCandidates\(/.test(route));
+
+    const panel = src('src/hubs/modeling/components/TeamAccessPanel.tsx');
+    check('C4 the dropdown asks candidatesFor and no longer lists every user',
+      /candidatesFor=/.test(panel) && !/\/api\/admin\/users/.test(panel));
+    check('C4b the stale read-only note is gone (the edit lock shipped in step 5)',
+      !/read-only access for now/.test(panel) && !/team-access-readonly-note/.test(panel));
+
+    const { checkAccountBoundary } = await import('../src/shared/admin/accountBoundary');
+    const fakeUsers = (rows: Array<{ id: string; account_id: string | null; role: string | null }> | { errorMsg: string }) => ({
+      from: (_t: string) => ({
+        select: (_c?: string) => ({
+          in: (_col: string, _ids: string[]) => Promise.resolve(
+            'errorMsg' in rows
+              ? { data: null, error: { message: rows.errorMsg } }
+              : { data: rows, error: null },
+          ),
+        }),
+      }),
+    }) as unknown as SupabaseClient;
+
+    const OWNER = { id: 'own', account_id: 'acct-A', role: 'user' };
+    {
+      const d = await checkAccountBoundary(fakeUsers([OWNER, { id: 'cand', account_id: 'acct-A', role: 'user' }]), 'own', 'cand');
+      check('C5 same account -> allowed', d.allowed && d.reason === 'same_account', d.reason);
+    }
+    {
+      const d = await checkAccountBoundary(fakeUsers([OWNER, { id: 'cand', account_id: 'acct-B', role: 'user' }]), 'own', 'cand');
+      check('C6 cross account -> REFUSED', !d.allowed && d.reason === 'cross_account', d.reason);
+    }
+    {
+      const d = await checkAccountBoundary(fakeUsers([OWNER, { id: 'cand', account_id: 'acct-B', role: 'admin' }]), 'own', 'cand');
+      check('C7 a platform-admin candidate is exempt', d.allowed && d.reason === 'candidate_admin', d.reason);
+    }
+    {
+      const d = await checkAccountBoundary(fakeUsers([{ ...OWNER, role: 'admin' }, { id: 'cand', account_id: 'acct-B', role: 'user' }]), 'own', 'cand');
+      check('C8 an admin-owned project accepts anyone (admin is never blocked)', d.allowed && d.reason === 'owner_admin', d.reason);
+    }
+    {
+      const d = await checkAccountBoundary(fakeUsers({ errorMsg: 'column users.account_id does not exist' }), 'own', 'cand');
+      check('C9 pre-239 database -> allowed, flagged pre_migration (exactly pre-239 behaviour)',
+        d.allowed && d.reason === 'pre_migration', d.reason);
+    }
+    {
+      let threw = false;
+      try { await checkAccountBoundary(fakeUsers({ errorMsg: 'connection reset' }), 'own', 'cand'); }
+      catch { threw = true; }
+      check('C10 any OTHER read failure THROWS, so the route refuses the write', threw);
+    }
+    {
+      const d = await checkAccountBoundary(fakeUsers([{ ...OWNER, account_id: null }, { id: 'cand', account_id: null, role: 'user' }]), 'own', 'cand');
+      check('C11 a NULL account post-239 (broken invariant) refuses rather than matching NULL to NULL',
+        !d.allowed && d.reason === 'cross_account', d.reason);
+    }
   }
 
   console.log('L. Live: the invariants over the real rows');
@@ -209,6 +280,39 @@ async function main() {
     check('L6 exactly one internal account (FMP\'s own), held by the platform admin',
       internal.length === 1 && uList.find((u) => u.id === internal[0]?.owner_user_id)?.role === 'admin',
       `${internal.length} internal`);
+
+    // ── Step 2 live: the boundary decides over REAL rows, read-only ───────
+    const { checkAccountBoundary, listAccountCandidates } = await import('../src/shared/admin/accountBoundary');
+    const adminUser = uList.find((u) => u.role === 'admin');
+    const nonAdmins = uList.filter((u) => u.role !== 'admin' && u.account_id);
+    const crossPair = nonAdmins.length >= 2 && nonAdmins[0].account_id !== nonAdmins[1].account_id
+      ? [nonAdmins[0], nonAdmins[1]] : null;
+    if (!crossPair || !adminUser) {
+      check('L11-L14 boundary live checks have the rows they need', false,
+        `nonAdmins=${nonAdmins.length} admin=${!!adminUser}`);
+    } else {
+      const [a, b] = crossPair;
+      const d1 = await checkAccountBoundary(sb, a.id, b.id);
+      check('L11 two real users on different accounts -> REFUSED', !d1.allowed && d1.reason === 'cross_account', d1.reason);
+      const d2 = await checkAccountBoundary(sb, a.id, adminUser.id);
+      check('L12 the platform admin as candidate -> allowed on any project', d2.allowed && d2.reason === 'candidate_admin', d2.reason);
+
+      const l1 = await listAccountCandidates(sb, a.id);
+      const sameOrAdmin = (id: string) => {
+        const u = uList.find((x) => x.id === id);
+        return !!u && (u.role === 'admin' || u.account_id === a.account_id);
+      };
+      check('L13 candidates for a client owner = their account plus admins, nobody else',
+        l1.scoped && l1.candidates.length > 0
+        && l1.candidates.every((c) => sameOrAdmin(c.id))
+        && !l1.candidates.some((c) => c.id === b.id),
+        l1.candidates.map((c) => c.email).join(', '));
+
+      const l2 = await listAccountCandidates(sb, adminUser.id);
+      check('L14 candidates for the admin owner = everyone (admin is never blocked)',
+        l2.scoped && l2.candidates.length === uList.length,
+        `${l2.candidates.length} of ${uList.length}`);
+    }
 
     // The trigger and the cascade, proven with one probe user, cleaned up in
     // finally so a crash cannot strand it past the next run's sweep.
