@@ -116,13 +116,17 @@ export interface AccountCandidate {
 }
 
 /**
- * Who may be OFFERED for a project owned by this holder: the SAME rule as the
- * check above, evaluated as a list, so the dropdown never offers a person the
- * write would refuse.
+ * Who may be OFFERED for a project owned by this holder. Deliberately
+ * NARROWER than the check above: the write allows more than the dropdown
+ * offers, never the reverse.
  *
- *   - owner is a platform admin -> everyone (the owner_admin exemption);
- *   - otherwise the owner's account plus every platform admin (the
- *     candidate_admin exemption);
+ *   - owner is a platform admin -> everyone (the owner_admin exemption;
+ *     the operator's own workspace);
+ *   - otherwise the owner's account ONLY. Platform admins are NOT offered,
+ *     even though the write would accept one (the candidate_admin
+ *     exemption): attaching FMP staff to a client project is a deliberate
+ *     future service (the advisor), not a standing dropdown option, so the
+ *     exemption stays server-side and the list does not advertise it;
  *   - pre-239 database -> everyone, flagged `scoped: false`, which is exactly
  *     the pre-239 dropdown.
  */
@@ -150,13 +154,12 @@ export async function listAccountCandidates(
     return { candidates: (data ?? []) as AccountCandidate[], scoped: true };
   }
 
-  // account_id comes from the database row, never from user input, so the
-  // PostgREST or() filter is built from trusted values only.
-  const q = owner.account_id
-    ? sb.from('users').select('id, name, email, role')
-        .or(`account_id.eq.${owner.account_id},role.eq.admin`).order('email')
-    : sb.from('users').select('id, name, email, role').eq('role', 'admin').order('email');
-  const { data, error } = await q;
+  // A client owner with a NULL account (a broken invariant) is offered
+  // nobody, matching the boundary check, which refuses NULL rather than
+  // matching NULL to NULL.
+  if (!owner.account_id) return { candidates: [], scoped: true };
+  const { data, error } = await sb.from('users').select('id, name, email, role')
+    .eq('account_id', owner.account_id).order('email');
   if (error) throw new Error(`candidate listing failed: ${error.message}`);
   return { candidates: (data ?? []) as AccountCandidate[], scoped: true };
 }

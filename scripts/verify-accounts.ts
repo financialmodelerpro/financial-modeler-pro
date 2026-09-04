@@ -298,14 +298,19 @@ async function main() {
       check('L12 the platform admin as candidate -> allowed on any project', d2.allowed && d2.reason === 'candidate_admin', d2.reason);
 
       const l1 = await listAccountCandidates(sb, a.id);
-      const sameOrAdmin = (id: string) => {
+      const sameAccount = (id: string) => {
         const u = uList.find((x) => x.id === id);
-        return !!u && (u.role === 'admin' || u.account_id === a.account_id);
+        return !!u && u.account_id === a.account_id;
       };
-      check('L13 candidates for a client owner = their account plus admins, nobody else',
+      check('L13 candidates for a client owner = their account ONLY, nobody else',
         l1.scoped && l1.candidates.length > 0
-        && l1.candidates.every((c) => sameOrAdmin(c.id))
+        && l1.candidates.every((c) => sameAccount(c.id))
         && !l1.candidates.some((c) => c.id === b.id),
+        l1.candidates.map((c) => c.email).join(', '));
+      // The list is NARROWER than the write, never the reverse: the admin is
+      // accepted by the check (L12) but not OFFERED as a standing option.
+      check('L13b the platform admin is not offered, though the write would accept them',
+        !l1.candidates.some((c) => c.id === adminUser.id),
         l1.candidates.map((c) => c.email).join(', '));
 
       const l2 = await listAccountCandidates(sb, adminUser.id);
