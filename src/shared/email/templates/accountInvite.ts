@@ -1,9 +1,16 @@
 /*
  * html-safe: inviteUrl
+ * html-safe: expiresDays
+ * html-safe: subjectAccount
  *
- * Built by this codebase from APP_URL plus a server-generated token. No
- * user-supplied text reaches it, and escaping a URL would break the link.
- * The inviter and account names ARE user-supplied and are escaped here.
+ * inviteUrl is built by this codebase from APP_URL plus a server-generated
+ * token; expiresDays is a number. `subjectAccount` is the account name where
+ * it enters the SUBJECT, which is genuinely plain text (a JSON field to
+ * Brevo, never HTML): escaping there would print entities like &amp; to the
+ * reader. The declaration names the SUBJECT-ONLY alias, not the parameter,
+ * ON PURPOSE: a future raw interpolation of accountName into the HTML body
+ * is still flagged, so the escape-or-declare rule's intent holds. Every HTML
+ * use renders the escaped copies (acct, who).
  */
 import { fmpLayout, h1, p, button, divider, escapeHtml } from './_base';
 
@@ -35,8 +42,10 @@ export async function accountInviteEmail({ inviterName, accountName, inviteUrl, 
     ${p('If you were not expecting this, you can safely ignore this email.', 'font-size:13px;color:#6B7280;')}
   `, 'You are receiving this because a Financial Modeler Pro client invited you to join their team.');
 
+  // Plain text, not HTML: see the subjectAccount declaration above.
+  const subjectAccount = accountName;
   return {
-    subject: `You’re invited to join ${accountName} on Financial Modeler Pro`,
+    subject: `You’re invited to join ${subjectAccount} on Financial Modeler Pro`,
     html,
   };
 }

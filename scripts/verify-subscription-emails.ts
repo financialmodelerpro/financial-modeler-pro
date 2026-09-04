@@ -165,12 +165,20 @@ const lc = (s: string) => s.toLowerCase();
   const layoutFn = (subTpl.match(/const subLayout = (\w+)/) ?? [])[1] ?? '';
   check('and that helper is the FMP-branded layout, not the raw branded one',
     layoutFn === 'fmpLayout' && !/await baseLayoutBranded\(/.test(subTpl), layoutFn || 'none');
-  const fmpLayoutSrc = (baseTpl.match(/export function fmpLayout[\s\S]{0,400}/) ?? [''])[0];
+  // RE-AIMED 2026-09-04: fmpLayout gained a per-email footer REASON (the
+  // Training Hub tagline had reached a project-access email), so the footer
+  // is now COMPOSED: FMP_FOOTER_BASE + (reason or the default), with
+  // FMP_FOOTER_TEXT derived from the same two constants so the no-reason
+  // default is provably byte-identical to what these emails always said.
+  const fmpLayoutSrc = (baseTpl.match(/export function fmpLayout[\s\S]{0,600}/) ?? [''])[0];
   check('fmpLayout overrides BOTH the signature and the footer',
-    /signature_html:\s*FMP_SIGNATURE_HTML/.test(fmpLayoutSrc) && /footer_text:\s*FMP_FOOTER_TEXT/.test(fmpLayoutSrc));
+    /signature_html:\s*FMP_SIGNATURE_HTML/.test(fmpLayoutSrc)
+    && /footer_text:\s*`\$\{FMP_FOOTER_BASE\} \$\{reason \?\? FMP_FOOTER_DEFAULT_REASON\}`/.test(fmpLayoutSrc));
+  check('the default footer is DERIVED from the same constants (byte-identical default)',
+    /FMP_FOOTER_TEXT = `\$\{FMP_FOOTER_BASE\} \$\{FMP_FOOTER_DEFAULT_REASON\}`/.test(baseTpl));
   check('footer uses the PaceMakers company line',
     /FMP_SIGNATURE_HTML[\s\S]{0,400}A PaceMakers Business Consultants Platform/.test(baseTpl)
-    && /FMP_FOOTER_TEXT[\s\S]{0,200}A PaceMakers Business Consultants Platform/.test(baseTpl));
+    && /FMP_FOOTER_BASE = '© Financial Modeler Pro\. A PaceMakers Business Consultants Platform\.'/.test(baseTpl));
   check('footer drops the Training Hub tagline',
     !/FMP_SIGNATURE_HTML[\s\S]{0,400}(Professional Financial Modeling Training|training program)/.test(baseTpl)
     && !/FMP_FOOTER_TEXT[\s\S]{0,200}(Professional Financial Modeling Training|training program)/.test(baseTpl)

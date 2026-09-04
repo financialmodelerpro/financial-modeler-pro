@@ -1,9 +1,15 @@
 /*
  * html-safe: openUrl
+ * html-safe: subjectProject
  *
- * Built by this codebase from APP_URL; no user-supplied text reaches it. The
- * actor name, project name and role label ARE user-supplied and are escaped
- * here.
+ * openUrl is built by this codebase from APP_URL. `subjectProject` is the
+ * project name where it enters the SUBJECT, which is genuinely plain text
+ * (a JSON field to Brevo, never HTML): escaping there would print entities
+ * like &amp; to the reader. The declaration names the SUBJECT-ONLY alias,
+ * not the parameter, ON PURPOSE: a future raw interpolation of projectName
+ * into the HTML body is still flagged, so the escape-or-declare rule's
+ * intent holds. Every HTML use renders the escaped copies (proj, who, role,
+ * plat).
  */
 import { fmpLayout, h1, p, button, divider, escapeHtml } from './_base';
 
@@ -39,7 +45,9 @@ export async function accessGrantedEmail({ actorName, projectName, roleLabel, pl
     ${p('If you were not expecting this, contact the person named above or reply to this email.', 'font-size:13px;color:#6B7280;')}
   `, `You are receiving this because you were given access to a project on ${plat}.`);
 
-  return { subject: `You now have access to ${projectName}`, html };
+  // Plain text, not HTML: see the subjectProject declaration above.
+  const subjectProject = projectName;
+  return { subject: `You now have access to ${subjectProject}`, html };
 }
 
 interface AccessRemovedOptions {
@@ -65,5 +73,7 @@ export async function accessRemovedEmail({ actorName, projectName, platformLabel
     ${p('If you think this was a mistake, contact the person named above.', 'font-size:13px;color:#6B7280;')}
   `, `You are receiving this because your project access on ${plat} changed.`);
 
-  return { subject: `Your access to ${projectName} was removed`, html };
+  // Plain text, not HTML: see the subjectProject declaration above.
+  const subjectProject = projectName;
+  return { subject: `Your access to ${subjectProject} was removed`, html };
 }

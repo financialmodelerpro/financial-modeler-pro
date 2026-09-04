@@ -185,8 +185,22 @@ async function main(): Promise<void> {
       /void \(async \(\) => \{/.test(route) && route.includes('sendNewRegistrationAlert'));
     // Compare the CALL, not the import: indexOf finds the import statement at
     // the top of the file, which is of course before everything.
-    check('E: and only AFTER the insert has succeeded',
-      route.indexOf('void (async () => {') > route.indexOf('if (insertErr)'));
+    // RE-AIMED 2026-09-04: the account-invite branch (step 5) added a SECOND
+    // alert dispatch, so single-indexOf ordering found the earlier one and
+    // inverted. The property is per branch: EACH dispatch fires only after
+    // ITS OWN success guard (the invite branch after the atomic redeem is
+    // checked, the ordinary branch after the insert error is checked), and
+    // there are exactly the two known dispatch sites.
+    {
+      const dispatchAt = [...route.matchAll(/void \(async \(\) => \{/g)].map((m) => m.index ?? -1);
+      const inviteGuardAt = route.indexOf('if (!redeemed.ok)');
+      const ordinaryGuardAt = route.indexOf('if (insertErr)');
+      check('E: and only AFTER its insert has succeeded, in BOTH branches',
+        dispatchAt.length === 2
+        && inviteGuardAt > 0 && ordinaryGuardAt > 0
+        && dispatchAt[0] > inviteGuardAt && dispatchAt[0] < ordinaryGuardAt
+        && dispatchAt[1] > ordinaryGuardAt);
+    }
     check('E: the route does not build its own email',
       !route.includes('newRegistrationAlertTemplate'));
   }
