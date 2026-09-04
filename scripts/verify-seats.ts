@@ -142,8 +142,14 @@ console.log('\n=== G. Still not built, and staying that way ===');
     !/contact the team/i.test(all));
   check('G3 the block message is OPERATOR facing: it names the account and the fix',
     /Raise it in \/admin\/access/.test(src(SEATS)) && /invoiced manually/.test(src(SEATS)));
-  check('G4 adding members is still admin only: no owner-adding route exists',
-    !/refm\/projects\/\[id\]\/members/.test(all));
+  // Account model step 6 ADDED the holder path (/api/account/team), so the
+  // old claim "no owner-adding route exists" is retired. What must still
+  // hold: the holder path can only name people ALREADY ON THE ACCOUNT (its
+  // engine requires the boundary's same_account answer), so it can never
+  // consume a seat; seats are spent only where people JOIN the account.
+  check('G4 the holder path (step 6) assigns only account people, never a new seat',
+    /same_account/.test(src('src/shared/account/team.ts'))
+    && !/checkSeatForMember|countAccountSeats/.test(src('src/shared/account/team.ts')));
 }
 
 async function liveChecks(): Promise<void> {

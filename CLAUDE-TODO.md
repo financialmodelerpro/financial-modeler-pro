@@ -9,7 +9,7 @@ Steps 0 to 9 all shipped and are live (migs 230 to 238, all APPLIED). Nothing in
 Module 10 is half-built. What follows is what the module UNCOVERED and what it
 deliberately did not do, in the order I would take them.
 
-### 1. THE ACCOUNT BOUNDARY. STEPS 1-5 SHIPPED 2026-09-04; step 6+ (holder self-service) is the open work
+### 1. THE ACCOUNT BOUNDARY. STEPS 1-6 SHIPPED 2026-09-04; what remains is small
 
 **Step 1 (mig 239 APPLIED)**: `accounts` is its own row (`kind`
 client|internal, exactly one internal = FMP's own), every user has one
@@ -55,11 +55,19 @@ captcha, before the launch gate; redeemed email joins the signin whitelist;
 email itself (a founder send to a real inbox closes it), and no
 project-assignment path for the holder yet (the card says "ask us").
 
-**What remains, smallest first, each shippable alone:**
-1. **Step 6+**: holder self-service member management (assign own projects,
-   change roles, remove members: the client-side TeamAccessPanel, reusing the
-   admin route's rules under holder auth); delete-request queue scoped to the
-   holder.
+**Step 6 (2026-09-04, no migration)**: holder self-service. `/api/account/team`
+(engine `src/shared/account/team.ts`): the holder's projects, the account's
+people via the SAME `listAccountCandidates` rule, the same roles; member
+refused (`not_holder`), `candidate_admin` refused (FMP staff attached by FMP),
+owner immutable, foreign project = one `no_project` answer, seat-free by
+construction. "Project access" section on the dashboard team card. verify-seats
+G4 re-aimed (the "no owner-adding route" claim retired for the true invariant).
+
+**What remains, smallest first:**
+1. **Delete-request queue scoped to the holder** (an editor's request decided
+   by the client on their own dashboard; admin queue stays the fallback).
+2. **Founder click-test of the invite email** (Brevo delivery + rendering, the
+   one leg no verifier covers) and a browser pass over the team card.
 
 **Advisor future-proofing is two absences, both pinned**: no FK ties a project
 member's account to the project owner's account, and seats count ACCOUNT

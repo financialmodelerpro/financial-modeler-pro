@@ -262,6 +262,7 @@ async function main() {
       'src/shared/entitlements/resolveUser.ts', // step 4: plan inheritance, the one place
       'src/shared/account/invites.ts',          // step 5: only the holder invites
       'app/api/account/invites/route.ts',       // step 5: eligibility for the team card
+      'src/shared/account/team.ts',             // step 6: only the holder manages the team
     ]);
     const callers: string[] = [];
     for (const dir of ['src', 'app']) {
@@ -341,6 +342,32 @@ async function main() {
     check('E13 the dashboard card decides nothing: eligibility comes from the server',
       /\/api\/account\/invites/.test(src('src/hubs/modeling/components/TeamInvitesCard.tsx'))
       && /eligible/.test(src('app/api/account/invites/route.ts')));
+  }
+
+  console.log('F. Step 6: the holder manages their own team');
+  {
+    const team = src('src/shared/account/team.ts');
+    check('F1 only the holder: a member is refused by the one-place rule',
+      /resolveAccountHolder\(sb, actorUserId\)/.test(team) && /not_holder/.test(team));
+    check('F2 the boundary is REUSED and stricter: a candidate_admin is not pulled in by a client',
+      /checkAccountBoundary\(sb, holderUserId, args\.userId\)/.test(team)
+      && /reason === 'same_account' \|\| boundary\.reason === 'owner_admin' \|\| boundary\.reason === 'pre_migration'/.test(team)
+      && !/candidate_admin'/.test(team.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').match(/const admissible[\s\S]*?;/)?.[0] ?? ''));
+    check('F3 the owner is immutable in BOTH writes (assign and remove)',
+      /ownership is not a membership/.test(team) && /the owner cannot be removed/.test(team));
+    check('F4 the owner ROLE is refused on top of the shared validation',
+      /!isProjectRole\(args\.role\) \|\| args\.role === 'owner'/.test(team));
+    check('F5 a foreign or missing project gets ONE answer (no existence leak)',
+      /No such project of yours/.test(team) && /owner !== holderUserId/.test(team));
+    check('F6 the people offered come from the SAME candidates rule as the admin dropdown',
+      /listAccountCandidates\(sb, holderUserId\)/.test(team));
+    check('F7 the route is glue only: no table access outside the engine',
+      !/\.from\(/.test(src('app/api/account/team/route.ts')));
+    check('F8 the admin screen is untouched, the operator fallback',
+      /role !== 'admin'/.test(src('app/api/admin/project-members/route.ts'))
+      && !/api\/account\/team/.test(src('src/hubs/modeling/components/TeamAccessPanel.tsx')));
+    check('F9 the card offers assignment through the holder route',
+      /\/api\/account\/team/.test(src('src/hubs/modeling/components/TeamInvitesCard.tsx')));
   }
 
   console.log('L. Live: the invariants over the real rows');
@@ -540,6 +567,83 @@ async function main() {
         if (proId) await sb.from('users').delete().eq('id', proId);
         await sb.from('users').delete().like('email', 'probe-accounts-%');
         await sb.from('account_invites').delete().like('email', 'probe-accounts-%');
+      }
+    }
+
+    // ── Step 6 live: the holder manages their own team, end to end ────────
+    {
+      const { listTeam, assignTeamMember, removeTeamMember } = await import('../src/shared/account/team');
+      const stamp = Date.now();
+      let holder6: string | null = null;
+      let member6: string | null = null;
+      let outsider6: string | null = null;
+      let project6: string | null = null;
+      try {
+        const mkUser = async (tag: string, plan: string) => {
+          const { data } = await sb.from('users')
+            .insert({ email: `probe-accounts-${tag}${stamp}@example.invalid`, name: `Probe ${tag}`, role: 'user', subscription_plan: plan, subscription_status: 'active' })
+            .select('id').single();
+          return (data as { id: string } | null)?.id ?? null;
+        };
+        holder6 = await mkUser('t6h', 'firm');
+        member6 = await mkUser('t6m', 'none');
+        outsider6 = await mkUser('t6o', 'pro');
+        if (!holder6 || !member6 || !outsider6) {
+          check('L25-L31 team probes created', false, 'insert failed');
+        } else {
+          const { data: hRow } = await sb.from('users').select('account_id').eq('id', holder6).single();
+          const holderAcct = (hRow as { account_id: string }).account_id;
+          await sb.from('users').update({ account_id: holderAcct }).eq('id', member6);
+          await sb.from('accounts').delete().eq('owner_user_id', member6);
+          const { data: proj } = await sb.from('refm_projects')
+            .insert({ user_id: holder6, name: 'ZZ probe accounts step6', schema_version: 8 })
+            .select('id').single();
+          project6 = (proj as { id: string } | null)?.id ?? null;
+
+          const asMember = await listTeam(sb, member6);
+          check('L25 a MEMBER gets no team surface', !asMember.eligible && asMember.reason === 'member');
+
+          const view = await listTeam(sb, holder6);
+          check('L26 the holder sees their project and their person, nobody else',
+            view.eligible
+            && view.projects.some((p) => p.id === project6)
+            && view.people.some((p) => p.id === member6)
+            && !view.people.some((p) => p.id === holder6)
+            && !view.people.some((p) => p.id === outsider6),
+            JSON.stringify({ projects: view.projects.length, people: view.people.map((p) => p.email) }));
+
+          const asg = await assignTeamMember(sb, holder6, { projectId: project6!, userId: member6, role: 'editor' });
+          const { data: mrow } = await sb.from('refm_project_members')
+            .select('role, added_by').eq('project_id', project6!).eq('user_id', member6).maybeSingle();
+          check('L27 the holder assigns their member as editor (row written, authored)',
+            asg.ok && (mrow as { role?: string; added_by?: string } | null)?.role === 'editor'
+            && (mrow as { added_by?: string } | null)?.added_by === holder6,
+            asg.ok ? JSON.stringify(mrow) : (asg as { error: string }).error);
+
+          const badRole = await assignTeamMember(sb, holder6, { projectId: project6!, userId: member6, role: 'owner' });
+          const selfAsg = await assignTeamMember(sb, holder6, { projectId: project6!, userId: holder6, role: 'editor' });
+          check('L28 the owner role and the owner themselves are both refused',
+            !badRole.ok && badRole.code === 'bad_role' && !selfAsg.ok && selfAsg.code === 'owner_immutable');
+
+          const foreign = await assignTeamMember(sb, outsider6, { projectId: project6!, userId: member6, role: 'viewer' });
+          check('L29 another holder cannot touch this project (one answer, no existence leak)',
+            !foreign.ok && foreign.code === 'no_project', foreign.ok ? 'ALLOWED' : foreign.code);
+
+          const stranger = await assignTeamMember(sb, holder6, { projectId: project6!, userId: outsider6, role: 'viewer' });
+          check('L30 a person NOT on the account is refused (invite them first)',
+            !stranger.ok && stranger.code === 'not_on_account', stranger.ok ? 'ALLOWED' : stranger.code);
+
+          const rm = await removeTeamMember(sb, holder6, { projectId: project6!, userId: member6 });
+          const { count: leftRows } = await sb.from('refm_project_members')
+            .select('user_id', { count: 'exact', head: true }).eq('project_id', project6!).eq('user_id', member6);
+          check('L31 removing access deletes the membership row', rm.ok && (leftRows ?? 0) === 0);
+        }
+      } finally {
+        if (project6) await sb.from('refm_projects').delete().eq('id', project6);
+        if (member6) await sb.from('users').delete().eq('id', member6);
+        if (outsider6) await sb.from('users').delete().eq('id', outsider6);
+        if (holder6) await sb.from('users').delete().eq('id', holder6);
+        await sb.from('users').delete().like('email', 'probe-accounts-%');
       }
     }
 
