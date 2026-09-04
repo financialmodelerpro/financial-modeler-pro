@@ -76,6 +76,7 @@ export async function DELETE(
     const httpStatus =
       result.code === 'not_found' ? 404 :
       result.code === 'admin_account' ? 403 :
+      result.code === 'account_has_members' ? 409 :
       result.code === 'audit_unavailable' ? 503 : 500;
     return NextResponse.json({ error: result.error, code: result.code }, { status: httpStatus });
   }

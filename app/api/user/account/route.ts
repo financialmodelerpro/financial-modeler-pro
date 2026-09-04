@@ -52,6 +52,7 @@ export async function DELETE(req: NextRequest) {
   if (!result.ok) {
     const status =
       result.code === 'active_subscription' ? 409 :
+      result.code === 'account_has_members' ? 409 :
       result.code === 'admin_account' ? 403 :
       result.code === 'not_found' ? 404 : 500;
     return NextResponse.json({ error: result.error, code: result.code }, { status });

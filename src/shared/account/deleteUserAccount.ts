@@ -73,7 +73,7 @@ export interface DeletionPreview {
 
 export type DeleteAccountResult =
   | { ok: true; removed: RemovedSummary; messageEmailed: boolean; audited: boolean }
-  | { ok: false; code: 'not_found' | 'admin_account' | 'active_subscription' | 'paddle_cancel_failed' | 'audit_unavailable' | 'delete_failed'; error: string };
+  | { ok: false; code: 'not_found' | 'admin_account' | 'account_has_members' | 'active_subscription' | 'paddle_cancel_failed' | 'audit_unavailable' | 'delete_failed'; error: string };
 
 export interface RemovedSummary {
   projects: number;
@@ -152,6 +152,30 @@ export async function deleteUserAccount(sb: SupabaseClient, opts: DeleteAccountO
   if (!user) return { ok: false, code: 'not_found', error: 'User not found' };
   if (user.role === 'admin') {
     return { ok: false, code: 'admin_account', error: 'Admin accounts cannot be deleted. Change the role to user first.' };
+  }
+
+  // ── 0b. A HOLDER whose account still has members is refused (mig 239) ──────
+  // Placed BEFORE the Paddle handling and the audit write so the refusal has
+  // zero side effects. Schema-tolerant: pre-239 there is no accounts table and
+  // the read errors, which degrades to no refusal here; that is safe because
+  // the DB itself is the backstop (users.account_id is ON DELETE NO ACTION, so
+  // a member blocks the holder's delete inside Postgres regardless of what
+  // this code decides).
+  {
+    const { data: acct } = await sb.from('accounts')
+      .select('id, name').eq('owner_user_id', opts.userId).maybeSingle();
+    if (acct) {
+      const { count } = await sb.from('users')
+        .select('id', { count: 'exact', head: true })
+        .eq('account_id', (acct as { id: string }).id)
+        .neq('id', opts.userId);
+      if ((count ?? 0) > 0) {
+        return {
+          ok: false, code: 'account_has_members',
+          error: `This account ("${(acct as { name?: string }).name ?? 'unnamed'}") still has ${count} member${count === 1 ? '' : 's'}. Remove them from the account first; deleting the holder would strand them.`,
+        };
+      }
+    }
   }
 
   // ── 1. A live Paddle subscription is handled EXPLICITLY, never orphaned ────

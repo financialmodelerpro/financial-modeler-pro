@@ -9,47 +9,44 @@ Steps 0 to 9 all shipped and are live (migs 230 to 238, all APPLIED). Nothing in
 Module 10 is half-built. What follows is what the module UNCOVERED and what it
 deliberately did not do, in the order I would take them.
 
-### 1. THE ACCOUNT BOUNDARY. The next major item, and it is a schema question
+### 1. THE ACCOUNT BOUNDARY. STEP 1 SHIPPED 2026-09-04 (mig 239 APPLIED); steps 2+ are the open work
 
-**There is no concept of an account, organisation or client team anywhere.**
-Diagnosed 2026-09-03 (report in that day's CHANGELOG entry, no code changed):
-the live schema has no org/tenant/team/workspace table, `users` has no parent
-column, and `users.company` is free text that cannot join (`"SFA"` and
-`"Synergistic Financial Advisors"` are plausibly one firm; four of eight users
-have NULL). **The platform's real model is one user = one account**, and
-`refm_project_members` was the first thing to cross that line without a
-boundary.
+**Step 1 is live**: `accounts` is its own row (`kind` client|internal, exactly
+one internal = FMP's own), every user has one (backfilled + held by
+`trg_users_personal_account` for every future creation path), every holder
+points back at their own, and deleting a holder whose account still has members
+refuses (engine `account_has_members` 409 + DB backstop, `users.account_id` NO
+ACTION). **NOTHING reads `users.account_id` yet**: `verify-accounts` 25 pins
+the reader allow-list at one file (the deletion engine), so each later step
+amends it consciously. The sizing decision was taken: **one person, one
+account** (`users.account_id`, single-valued; a consultant serving two clients
+needs two logins). Full proposal in CHANGELOG 2026-09-04; build order there.
 
-**The symptom:** the Team access person dropdown lists EVERY user on the
-platform, so one client's project can be assigned to another client's user.
-**The boundary that matters is not the dropdown**: `POST /api/admin/project-members`
-validates only that the user EXISTS. A scope enforced in a `<select>` is not a
-scope.
+**What remains, smallest first, each shippable alone:**
+1. **Step 2, THE BOUNDARY**: `POST /api/admin/project-members` must refuse a
+   candidate whose `account_id` differs from the project owner's (platform
+   admin exempt); the Team access dropdown then filters to the account. Today
+   it validates only that the user EXISTS; a scope enforced in a `<select>` is
+   not a scope. With all live memberships being owner self-seeds, shipping
+   strict changes nothing for anyone.
+2. **Step 3, SEATS BY ACCOUNT**: `countAccountSeats` becomes "user rows with
+   this `account_id` (+ open invites)" instead of inferring the team from
+   project reach; identical numbers on today's data.
+3. **Step 4, MEMBER GATE**: `resolveUserGate` resolves plan/lapse from the
+   account HOLDER for a member, `projectLimit 0`; exclude members from the
+   no-plan email audiences (access-request reminder would otherwise hit them).
+4. **Step 5, INVITES**: `account_invites` (token hash, seat reserved at
+   create, consumed in the register route's one new mode, bypassing the launch
+   allowlist). The only path by which a member can exist, since a user row is
+   still born only in self-signup.
+5. **Step 6+**: holder self-service member management; delete-request queue
+   scoped to the holder.
 
-**It compromises seats (step 8) more than anything else.** `countAccountSeats`
-infers the account from `refm_projects.user_id`, which is sound for "who pays"
-(plans live on the user row) and unsound for "who is on the team": the set it
-counts has no boundary, so adding another client's user consumes YOUR seat and
-grants THEM access, while their own account is unaffected.
-
-**The decision that sizes the work** is whether one person may belong to
-several accounts. `users.account_id` makes it impossible (clean; a consultant
-serving two clients needs two logins). An `account_members` join table makes it
-possible and then every "which account am I acting in" question appears across
-the project list, the seat count, the plan gate and the dashboard.
-A self-referencing `users.account_owner_id` is the cheap option and is a TRAP:
-it makes an organisation's identity a person's row, the same mistake
-`refm_projects.user_id` already makes for projects.
-
-**There is also no invite path.** A user row is created in exactly ONE place,
-`app/api/auth/register/route.ts` (self-signup, scrypt, `email_confirmed:false`,
-`plan:'none'`); admins cannot create users. So a client's colleague can only be
-added if they self-registered first, which is WHY the dropdown is global. Any
-account model needs either an invites table plus a token-consuming registration
-path, or add-by-email of an existing user.
-
-**Does not block anything shipped.** Step 9's paths are admin-mediated or
-owner-scoped and neither create nor widen membership.
+**Advisor future-proofing is two absences, both pinned**: no FK ties a project
+member's account to the project owner's account, and seats count ACCOUNT
+membership, so an FMP advisor (internal account) on a client project consumes
+no client seat. Do not add a `member_kind` column; it would be a flag with no
+reader.
 
 ### 2. IN-CONTEXT COMMENTING (the other half of step 7)
 
