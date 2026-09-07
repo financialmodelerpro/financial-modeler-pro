@@ -45,8 +45,7 @@ import {
   ASSET_STRATEGIES,
   ASSET_STATUSES,
   ASSET_STATUS_LABELS,
-  assetTypeCatalogForProjectType,
-  SUGGESTED_CATEGORIES_BY_PROJECT_TYPE,
+  assetTypeCatalogForProjectType,
   SUB_UNIT_CATEGORIES,
   LAND_ALLOCATION_MODES,
   PARCEL_WEIGHTED_AVG,
@@ -62,8 +61,7 @@ import {
   computeLandReconciliation,
   computeOperatingEndDate,
   computeParcelNda,
-  computeSubUnitArea,
-  computePhaseTimeline,
+  computeSubUnitArea,
   formatOperatingEndDate,
   landRateIssueText,
   resolveAssetAreaMetrics,
@@ -78,6 +76,13 @@ import {
   type AssetTypeValues,
 } from '../../lib/state/assetTypeStandards';
 import LandChainSection from './_shared/LandChainSection';
+import {
+  assetParcelCount,
+  groupAssetsByPlot,
+  plotCheckText,
+  type AssetPlotGroup,
+} from './_shared/assetTableModel';
+import { computeLandChain } from '@/src/core/calculations/landChain';
 import type { LandChainInputs } from '@/src/core/calculations/landChain';
 import { currencyHeaderLine, formatArea, formatAccounting } from '@/src/core/formatters';
 
@@ -271,6 +276,9 @@ export default function Module1Assets(): React.JSX.Element {
     updateAsset,
     removeAsset,
     subUnits,
+    addSubUnit,
+    updateSubUnit,
+    removeSubUnit,
   } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
@@ -287,6 +295,9 @@ export default function Module1Assets(): React.JSX.Element {
       updateAsset: s.updateAsset,
       removeAsset: s.removeAsset,
       subUnits: s.subUnits,
+      addSubUnit: s.addSubUnit,
+      updateSubUnit: s.updateSubUnit,
+      removeSubUnit: s.removeSubUnit,
     })),
   );
 
@@ -331,20 +342,36 @@ export default function Module1Assets(): React.JSX.Element {
   }, []);
   useEffect(() => { void refreshAssetTypeRegistry(); }, [refreshAssetTypeRegistry]);
 
-  // Build per-phase asset groups, sorted by startDate / constructionStart
-  const phaseGroups = useMemo(() => {
-    return [...phases]
-      .sort((a, b) => {
-        const aDate = a.startDate ?? `period-${a.constructionStart}`;
-        const bDate = b.startDate ?? `period-${b.constructionStart}`;
-        return aDate < bDate ? -1 : aDate > bDate ? 1 : 0;
-      })
-      .map((p) => ({
-        phase: p,
-        timeline: computePhaseTimeline(p, project),
-        phaseAssets: assets.filter((a) => a.phaseId === p.id),
-      }));
-  }, [phases, assets, project]);
+  // THE TABLE'S GROUPING: assets under the plot they draw from, every parcel
+  // shown even when nothing draws from it, and a final group for assets that
+  // name no real plot (a weighted-average or custom-rate sentinel, or no land
+  // yet) so none is hidden.
+  const plotGroups = useMemo(
+    () => groupAssetsByPlot(assets, parcels),
+    [assets, parcels],
+  );
+
+  /** Add a sub-unit to a chosen parent, seeded exactly as the per-asset
+   *  button seeds one, so the two entry points cannot diverge. */
+  const handleAddSubUnitTo = (assetId: string): void => {
+    const asset = assets.find((a) => a.id === assetId);
+    if (!asset) return;
+    const isLease = asset.strategy === 'Lease';
+    addSubUnit({
+      id: `subunit_${Date.now()}`,
+      assetId,
+      name: '',
+      category: isLease ? 'Leasable' : asset.strategy === 'Operate' ? 'Operable' : 'Sellable',
+      metric: isLease ? 'area' : 'units',
+      metricValue: 0,
+      unitArea: isLease ? undefined : 0,
+      unitPrice: 0,
+    });
+  };
+
+  // (The per-phase grouping that fed the old card sections is gone with them:
+  // the table groups by PLOT, because the chain is per plot, and phase is a
+  // column on the row.)
 
   // M2.0h Fix 3: project-wide totals reflect the three-tier
   // hierarchy. nsa / bua / gfa aggregate from each visible asset's
@@ -768,25 +795,32 @@ export default function Module1Assets(): React.JSX.Element {
         </button>
       </div>
 
-      {/* Per-phase asset sections */}
-      {phaseGroups.map(({ phase, timeline, phaseAssets }) => (
-        <PhaseAssetSection
-          key={phase.id}
-          phase={phase}
-          phaseTimeline={timeline}
-          phaseAssets={phaseAssets}
-          allAssets={assets}
-          allPhases={phases}
-          parcels={parcels}
-          subUnits={subUnits}
-          project={project}
-          landAllocationMode={landAllocationMode}
-          assetTypeRegistry={assetTypeRegistry}
-          onUpdateAsset={updateAsset}
-          onRemoveAsset={removeAsset}
-          onAddAsset={() => handleAddAssetToPhase(phase.id)}
-        />
-      ))}
+      {/* THE ASSETS TABLE, grouped by plot (2026-09-07). Phase is a column
+          now: the chain is per plot, so the plot is what the rows group
+          under. Everything a row cannot hold opens in the drawer, which is
+          the asset card, unchanged. */}
+      <AssetTable
+        groups={plotGroups}
+        allAssets={assets}
+        allPhases={phases}
+        parcels={parcels}
+        subUnits={subUnits}
+        project={project}
+        landAllocationMode={landAllocationMode}
+        assetTypeRegistry={assetTypeRegistry}
+        onUpdateAsset={updateAsset}
+        onRemoveAsset={removeAsset}
+        onAddAsset={handleAddAssetToPhase}
+      />
+
+      <SubUnitsTable
+        assets={assets.filter((a) => a.isCompanion !== true)}
+        subUnits={subUnits}
+        project={project}
+        onAdd={handleAddSubUnitTo}
+        onUpdate={updateSubUnit}
+        onRemove={removeSubUnit}
+      />
 
       {/* Global totals (M2.0h Fix 3: three-tier hierarchy) */}
       <div style={{ ...sectionCardStyle, background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }} data-testid="assets-globals">
@@ -922,11 +956,71 @@ function ParcelRow({ parcel, onUpdate, onRemove, canRemove, scale, decimals }: P
   );
 }
 
-// ── PhaseAssetSection ──────────────────────────────────────────────────────
-interface PhaseAssetSectionProps {
-  phase: Phase;
-  phaseTimeline: { constructionStart: string; constructionEnd: string; operationsStart: string; operationsEnd: string };
-  phaseAssets: Asset[];
+
+// ── The Assets TABLE (2026-09-07, land planning step 3) ────────────────────
+//
+// One row per asset, grouped under the PLOT it draws from, following the
+// reference workbook's shape: identity, then land, then the chain's percent
+// inputs, then the derived cascade left to right ending at Total BUA.
+//
+// THE ROW IS THE ASSET. Everything scalar lives in a cell; the nine things a
+// row genuinely cannot hold (the multi-parcel split list, the derived-versus-
+// entered comparison, the area reconciliation, the standards read-out, the
+// parcel picker's rate-annotated options, the sub-unit count's four renders,
+// the strategy dialog, the banners, and the mode-dependent land fields) stay
+// in the expandable drawer below the row, which is the existing asset card.
+//
+// NOTHING HERE REACHES THE ENGINE. The derived columns come from
+// `computeLandChain`, which no calculation reads; the editable cells write
+// the same fields the card always wrote.
+
+const CELL: React.CSSProperties = { padding: '3px 5px', fontSize: 11, whiteSpace: 'nowrap' };
+const CELL_NUM: React.CSSProperties = { ...CELL, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
+const CELL_DERIVED: React.CSSProperties = { ...CELL_NUM, background: 'var(--color-grey-pale)', color: 'var(--color-heading)' };
+const TH_T: React.CSSProperties = { padding: '5px 6px', fontSize: 10, textAlign: 'left', fontWeight: 600, whiteSpace: 'nowrap' };
+const TH_N: React.CSSProperties = { ...TH_T, textAlign: 'right' };
+const TABLE_INPUT: React.CSSProperties = {
+  background: 'var(--color-navy-pale)', color: 'var(--color-navy)',
+  border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)',
+  padding: '2px 4px', fontSize: 11, width: '100%', fontFamily: 'inherit',
+};
+const TABLE_NUM_INPUT: React.CSSProperties = { ...TABLE_INPUT, textAlign: 'right' };
+
+/** A chain-input cell: blank means not set, a typed 0 is a real answer, and
+ *  every accepted keystroke writes straight through like any model input. */
+function ChainCell({
+  value, onCommit, testId, title,
+}: { value: number | undefined; onCommit: (v: number | undefined) => void; testId: string; title: string }): React.JSX.Element {
+  const [draft, setDraft] = useState<string | null>(null);
+  const stored = value !== undefined ? String(value) : '';
+  const parse = (s: string): number | undefined | 'bad' => {
+    const t = s.trim();
+    if (t === '') return undefined;
+    const n = Number(t);
+    return Number.isFinite(n) && n >= 0 ? n : 'bad';
+  };
+  const bad = draft !== null && parse(draft) === 'bad';
+  return (
+    <input
+      style={{ ...TABLE_NUM_INPUT, ...(bad ? { borderColor: 'var(--color-negative)' } : {}) }}
+      value={draft ?? stored}
+      inputMode="decimal"
+      placeholder="-"
+      title={title}
+      data-testid={testId}
+      onChange={(e) => {
+        const next = e.target.value;
+        setDraft(next);
+        const p = parse(next);
+        if (p !== 'bad') onCommit(p);
+      }}
+      onBlur={() => setDraft(null)}
+    />
+  );
+}
+
+interface AssetTableProps {
+  groups: AssetPlotGroup[];
   allAssets: Asset[];
   allPhases: Phase[];
   parcels: Parcel[];
@@ -936,111 +1030,416 @@ interface PhaseAssetSectionProps {
   assetTypeRegistry: { entries: AssetTypeStandard[]; available: boolean };
   onUpdateAsset: (id: string, patch: Partial<Asset>) => void;
   onRemoveAsset: (id: string) => void;
-  onAddAsset: () => void;
+  onAddAsset: (phaseId: string, parcelId?: string) => void;
 }
 
-function PhaseAssetSection({
-  phase, phaseTimeline, phaseAssets, allAssets, allPhases, parcels, subUnits, project,
+function AssetTable({
+  groups, allAssets, allPhases, parcels, subUnits, project,
   landAllocationMode, assetTypeRegistry, onUpdateAsset, onRemoveAsset, onAddAsset,
-}: PhaseAssetSectionProps): React.JSX.Element {
-  // P10-Fix 6 (2026-05-12): default-collapsed + localStorage persistence
-  // + bulk event listener. Tab 2 phase headers collapse by default so
-  // the user opens what they want to work on (clean default view per
-  // Pass 10 brief). Bulk event m20-tab2-collapse-bulk lets the top-of-
-  // tab Expand all / Collapse all buttons toggle every phase+asset card
-  // simultaneously by rewriting localStorage and dispatching the event.
-  const collapseKey = `m20-phase-collapsed-${phase.id}`;
-  const readCollapsed = (): boolean => {
-    if (typeof window === 'undefined') return true;
-    try {
-      const stored = window.localStorage.getItem(collapseKey);
-      return stored === null ? true : stored === 'true';
-    } catch { return true; }
-  };
-  const [collapsed, setCollapsed] = useState<boolean>(readCollapsed);
-  useEffect(() => {
-    try { window.localStorage.setItem(collapseKey, String(collapsed)); } catch { /* noop */ }
-  }, [collapsed, collapseKey]);
-  useEffect(() => {
-    const handler = (): void => setCollapsed(readCollapsed());
-    window.addEventListener('m20-tab2-collapse-bulk', handler);
-    return () => window.removeEventListener('m20-tab2-collapse-bulk', handler);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [collapseKey]);
-  const suggestions = SUGGESTED_CATEGORIES_BY_PROJECT_TYPE[project.projectType ?? 'Mixed-Use'] ?? [];
+}: AssetTableProps): React.JSX.Element {
+  const [openId, setOpenId] = useState<string | null>(null);
+  const scale = project.displayScale ?? 'full';
+  const decimals = project.displayDecimals ?? 2;
+  const COLS = 24;
 
   return (
-    <div data-testid={`phase-section-${phase.id}`} style={{ marginBottom: 'var(--sp-3)' }}>
-      <div style={phaseHeaderStyle} onClick={() => setCollapsed(!collapsed)}>
-        <div>
-          <strong style={{ fontSize: 14, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            {phase.name}
-          </strong>
-          <span style={{ marginLeft: 12, fontSize: 11, opacity: 0.85 }} data-testid={`phase-section-${phase.id}-timeline`}>
-            {phaseTimeline.constructionStart} to {phaseTimeline.operationsEnd} ({phase.constructionPeriods}p construction + {phase.operationsPeriods}p operations)
-          </span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 11, opacity: 0.85 }} data-testid={`phase-section-${phase.id}-asset-count`}>
-            {phaseAssets.length} asset{phaseAssets.length === 1 ? '' : 's'}
-          </span>
+    <div style={sectionCardStyle} data-testid="assets-table-section">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 'var(--sp-1)' }}>
+        <strong style={{ ...TABLE_TITLE, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Assets by plot</strong>
+        <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>
+          Derived columns are read only and reach no calculation. Open a row for anything a row cannot hold.
+        </span>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }} data-testid="assets-table">
+          <thead>
+            <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+              <th style={TH_T} colSpan={7}>Asset</th>
+              <th style={TH_T} colSpan={5}>Chain inputs</th>
+              <th style={TH_T} colSpan={11}>Derived (read only)</th>
+              <th style={TH_T}></th>
+            </tr>
+            <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+              <th style={TH_T}></th>
+              <th style={TH_T}>Plot</th>
+              <th style={TH_T}>Asset</th>
+              <th style={TH_T}>Type</th>
+              <th style={TH_T}>Strategy</th>
+              <th style={TH_T}>Phase</th>
+              <th style={TH_N}>Land area</th>
+              <th style={TH_N} title="Share of the plot that is developable.">Util %</th>
+              <th style={TH_N} title="Share of the utilised area the footprint covers.">Cov %</th>
+              <th style={TH_N} title="Total GFA = utilised land x FAR.">FAR</th>
+              <th style={TH_N} title="Share of the FOOTPRINT given to ground-floor retail.">Retail %</th>
+              <th style={TH_N} title="Service and back-of-house share off the main asset GFA.">Svc %</th>
+              <th style={TH_N}>Land utilised</th>
+              <th style={TH_N}>Footprint</th>
+              <th style={TH_N}>Landscape</th>
+              <th style={TH_N}>Retail GFA</th>
+              <th style={TH_N}>Lobby GFA</th>
+              <th style={TH_N}>Total GFA</th>
+              <th style={TH_N}>Main GFA</th>
+              <th style={TH_N}>Net saleable</th>
+              <th style={TH_N}>Units / keys</th>
+              <th style={TH_N}>Total slots</th>
+              <th style={TH_N}>Parking area</th>
+              <th style={TH_N} title="Reference BUA Area = Total GFA + parking. This platform calls this tier GFA.">Total BUA</th>
+              <th style={TH_T}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {groups.map((g) => {
+              const plotLabel = g.parcel ? g.parcel.name : 'No specific plot';
+              return (
+                <React.Fragment key={g.key}>
+                  <tr style={{ background: 'var(--color-primary-pale)' }} data-testid={`plot-group-${g.key}`}>
+                    <td style={{ ...CELL, fontWeight: 700 }} colSpan={6}>
+                      {plotLabel}
+                      <span style={{ fontWeight: 400, color: 'var(--color-meta)', marginLeft: 8 }}>
+                        {g.assets.length} asset{g.assets.length === 1 ? '' : 's'}
+                      </span>
+                    </td>
+                    <td style={{ ...CELL_NUM, fontWeight: 700 }} data-testid={`plot-group-${g.key}-area`}>
+                      {g.parcelAreaSqm !== undefined ? formatArea(g.parcelAreaSqm) : '-'}
+                    </td>
+                    <td style={CELL} colSpan={COLS - 7}>
+                      {g.status && (
+                        <span
+                          data-testid={`plot-group-${g.key}-check`}
+                          style={{
+                            fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 'var(--radius-sm)',
+                            background: g.status === 'ok'
+                              ? 'color-mix(in srgb, var(--color-positive, #15803d) 16%, transparent)'
+                              : 'color-mix(in srgb, var(--color-warning, #92400e) 18%, transparent)',
+                            color: g.status === 'ok' ? 'var(--color-positive, #15803d)' : 'var(--color-warning, #92400e)',
+                          }}
+                        >
+                          {g.status === 'ok' ? 'Assets sum to the plot' : g.status === 'under' ? 'Under-drawn' : 'Over-drawn'}
+                        </span>
+                      )}
+                      <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>
+                        {plotCheckText(g, (n) => formatArea(n))}
+                      </span>
+                      {g.parcel && (
+                        <button
+                          type="button"
+                          onClick={() => onAddAsset(g.parcel!.phaseId, g.parcel!.id)}
+                          data-testid={`plot-group-${g.key}-add-asset`}
+                          style={{
+                            marginLeft: 10, fontSize: 10, padding: '2px 8px', cursor: 'pointer',
+                            background: 'var(--color-surface)', border: '1px solid var(--color-navy)',
+                            color: 'var(--color-navy)', borderRadius: 'var(--radius-sm)', fontWeight: 600,
+                          }}
+                        >
+                          + Add asset here
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+
+                  {g.assets.length === 0 && (
+                    <tr data-testid={`plot-group-${g.key}-empty`}>
+                      <td style={{ ...CELL, color: 'var(--color-meta)', fontStyle: 'italic' }} colSpan={COLS}>
+                        No assets drawing from this plot yet.
+                      </td>
+                    </tr>
+                  )}
+
+                  {g.assets.map((asset) => {
+                    const breakdown = computeAssetLandBreakdown(asset, parcels, allAssets, subUnits, landAllocationMode);
+                    const typeValues = asset.assetTypeId ? project.assetTypeValues?.[asset.assetTypeId] : undefined;
+                    const areas = subUnits
+                      .filter((u) => u.assetId === asset.id && typeof u.unitArea === 'number' && u.unitArea > 0)
+                      .map((u) => u.unitArea);
+                    const unitSize = resolveAvgUnitSize(areas, typeValues);
+                    const chain = computeLandChain(
+                      breakdown.landSqm,
+                      asset.landChain,
+                      {
+                        avgUnitSizeSqm: unitSize.value,
+                        parkingRatio: typeValues?.parkingRatio,
+                        parkingRatioBasis: typeValues?.parkingRatioBasis,
+                        parkingAreaPerSlotSqm: project.parkingAreaPerSlotSqm,
+                      },
+                      computeAssetUnitCount(asset, subUnits),
+                    );
+                    const parcelCount = assetParcelCount(asset);
+                    const open = openId === asset.id;
+                    const d = (v: number | undefined): string => (v === undefined ? '-' : formatArea(v));
+                    const patchChain = (p: LandChainInputs): void =>
+                      onUpdateAsset(asset.id, { landChain: mergeLandChain(asset.landChain, p) });
+
+                    return (
+                      <React.Fragment key={asset.id}>
+                        <tr
+                          style={{ borderBottom: '1px solid var(--color-border)', opacity: asset.visible ? 1 : 0.55 }}
+                          data-testid={`asset-card-${asset.id}`}
+                        >
+                          <td style={CELL}>
+                            <button
+                              type="button"
+                              onClick={() => setOpenId(open ? null : asset.id)}
+                              data-testid={`asset-${asset.id}-expand`}
+                              title="Open everything a row cannot hold: the parcel split editor, the derived comparison, the reconciliation and the rest."
+                              style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 12, padding: 0 }}
+                            >
+                              {open ? 'v' : '>'}
+                            </button>
+                          </td>
+                          <td style={CELL}>
+                            {parcelCount > 1 ? (
+                              <button
+                                type="button"
+                                onClick={() => setOpenId(asset.id)}
+                                data-testid={`asset-${asset.id}-parcel-count`}
+                                title="This asset draws from more than one plot. Open the row to edit the split."
+                                style={{
+                                  fontSize: 10, padding: '1px 6px', cursor: 'pointer', fontWeight: 600,
+                                  background: 'var(--color-surface)', border: '1px solid var(--color-navy)',
+                                  color: 'var(--color-navy)', borderRadius: 'var(--radius-sm)',
+                                }}
+                              >
+                                {parcelCount} parcels
+                              </button>
+                            ) : (
+                              <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>
+                                {g.parcel ? g.parcel.name : 'none'}
+                              </span>
+                            )}
+                          </td>
+                          <td style={CELL}>
+                            <input
+                              style={TABLE_INPUT}
+                              value={asset.name}
+                              data-testid={`asset-row-${asset.id}-name`}
+                              onChange={(e) => onUpdateAsset(asset.id, { name: e.target.value })}
+                            />
+                          </td>
+                          <td style={CELL}>
+                            <input
+                              style={TABLE_INPUT}
+                              value={asset.type ?? ''}
+                              list={`asset-row-types-${asset.id}`}
+                              data-testid={`asset-row-${asset.id}-type`}
+                              onChange={(e) => onUpdateAsset(asset.id, { type: e.target.value })}
+                            />
+                            <datalist id={`asset-row-types-${asset.id}`}>
+                              {Array.from(new Set([
+                                ...assetTypeRegistry.entries.map((x) => x.label),
+                                ...resolveTypeCatalog(project),
+                              ])).map((t) => (<option key={t} value={t} />))}
+                            </datalist>
+                          </td>
+                          <td style={CELL}>
+                            <span style={{ fontSize: 10 }} data-testid={`asset-row-${asset.id}-strategy`}>{asset.strategy}</span>
+                          </td>
+                          <td style={CELL}>
+                            <select
+                              style={TABLE_INPUT}
+                              value={asset.phaseId}
+                              data-testid={`asset-row-${asset.id}-phase`}
+                              onChange={(e) => onUpdateAsset(asset.id, { phaseId: e.target.value })}
+                            >
+                              {allPhases.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+                            </select>
+                          </td>
+                          <td style={CELL_NUM} data-testid={`asset-row-${asset.id}-land`}>
+                            {formatArea(breakdown.landSqm)}
+                          </td>
+                          <td style={CELL}><ChainCell value={asset.landChain?.utilisationPct} testId={`asset-row-${asset.id}-utilisation`} title="Share of the plot that is developable." onCommit={(v) => patchChain({ utilisationPct: v })} /></td>
+                          <td style={CELL}><ChainCell value={asset.landChain?.coveragePct} testId={`asset-row-${asset.id}-coverage`} title="Share of the utilised area the footprint covers." onCommit={(v) => patchChain({ coveragePct: v })} /></td>
+                          <td style={CELL}><ChainCell value={asset.landChain?.farRatio} testId={`asset-row-${asset.id}-far`} title="Total GFA = utilised land x FAR." onCommit={(v) => patchChain({ farRatio: v })} /></td>
+                          <td style={CELL}><ChainCell value={asset.landChain?.retailPct} testId={`asset-row-${asset.id}-retail`} title="Share of the FOOTPRINT given to ground-floor retail." onCommit={(v) => patchChain({ retailPct: v })} /></td>
+                          <td style={CELL}><ChainCell value={asset.landChain?.servicePct} testId={`asset-row-${asset.id}-service`} title="Service share off the main asset GFA." onCommit={(v) => patchChain({ servicePct: v })} /></td>
+                          <td style={CELL_DERIVED} data-testid={`asset-row-${asset.id}-land-utilised`}>{d(chain.landUtilisedSqm)}</td>
+                          <td style={CELL_DERIVED}>{d(chain.footprintSqm)}</td>
+                          <td style={CELL_DERIVED}>{d(chain.landscapeSqm)}</td>
+                          <td style={CELL_DERIVED}>{d(chain.retailGfaSqm)}</td>
+                          <td style={CELL_DERIVED}>{d(chain.lobbyGfaSqm)}</td>
+                          <td style={CELL_DERIVED} data-testid={`asset-row-${asset.id}-total-gfa`}>{d(chain.totalGfaSqm)}</td>
+                          <td style={CELL_DERIVED}>{d(chain.mainAssetGfaSqm)}</td>
+                          <td style={CELL_DERIVED} data-testid={`asset-row-${asset.id}-net-saleable`}>{d(chain.netSaleableSqm)}</td>
+                          <td style={CELL_DERIVED} data-testid={`asset-row-${asset.id}-units`}>
+                            {chain.units === undefined ? '-' : chain.units.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                          </td>
+                          <td style={CELL_DERIVED}>
+                            {chain.totalParkingSlots === undefined ? '-' : chain.totalParkingSlots.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                          </td>
+                          <td style={CELL_DERIVED}>{d(chain.totalParkingAreaSqm)}</td>
+                          <td style={{ ...CELL_DERIVED, fontWeight: 700 }} data-testid={`asset-row-${asset.id}-total-bua`}>{d(chain.totalBuaSqm)}</td>
+                          <td style={CELL}>
+                            <button
+                              type="button"
+                              onClick={() => onRemoveAsset(asset.id)}
+                              data-testid={`asset-row-${asset.id}-remove`}
+                              style={{ background: 'transparent', border: '1px solid var(--color-negative)', color: 'var(--color-negative)', borderRadius: 'var(--radius-sm)', padding: '1px 6px', cursor: 'pointer', fontSize: 10 }}
+                            >
+                              x
+                            </button>
+                          </td>
+                        </tr>
+
+                        {open && (
+                          <tr data-testid={`asset-${asset.id}-drawer`}>
+                            <td colSpan={COLS} style={{ padding: 'var(--sp-1)', background: 'var(--color-surface)' }}>
+                              <AssetCard
+                                asset={asset}
+                                allAssets={allAssets}
+                                allPhases={allPhases}
+                                parcels={parcels}
+                                subUnits={subUnits}
+                                project={project}
+                                landAllocationMode={landAllocationMode}
+                                assetTypeRegistry={assetTypeRegistry}
+                                onUpdate={(patch) => onUpdateAsset(asset.id, patch)}
+                                onRemove={() => onRemoveAsset(asset.id)}
+                              />
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 6 }}>
+        Scale {scale}, {decimals} decimals. A plot header states whether its assets draw exactly its area.
+      </div>
+    </div>
+  );
+}
+
+// ── The sub-units TABLE ────────────────────────────────────────────────────
+//
+// Every sub-unit in the project in one table, with the PARENT ASSET picked on
+// the add row. The per-asset table inside the card stays for now (this commit
+// is additive); commit 2 removes it.
+
+function SubUnitsTable({
+  assets, subUnits, project, onAdd, onUpdate, onRemove,
+}: {
+  assets: Asset[];
+  subUnits: SubUnit[];
+  project: Project;
+  onAdd: (assetId: string) => void;
+  onUpdate: (id: string, patch: Partial<SubUnit>) => void;
+  onRemove: (id: string) => void;
+}): React.JSX.Element {
+  const [parentId, setParentId] = useState<string>(assets[0]?.id ?? '');
+  const byAsset = new Map(assets.map((a) => [a.id, a] as const));
+
+  return (
+    <div style={sectionCardStyle} data-testid="subunits-table-section">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-1)', gap: 'var(--sp-1)', flexWrap: 'wrap' }}>
+        <strong style={{ ...TABLE_TITLE, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Sub-units</strong>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <label style={{ fontSize: 10, color: 'var(--color-meta)' }} htmlFor="subunits-parent-pick">Add to</label>
+          <select
+            id="subunits-parent-pick"
+            style={{ ...TABLE_INPUT, width: 220 }}
+            value={parentId}
+            data-testid="subunits-parent-pick"
+            onChange={(e) => setParentId(e.target.value)}
+          >
+            {assets.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
+          </select>
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); onAddAsset(); }}
-            data-testid={`phase-section-${phase.id}-add-asset`}
-            style={{
-              background: 'var(--color-on-primary-navy)',
-              color: 'var(--color-navy)',
-              border: 'none',
-              borderRadius: 'var(--radius-sm)',
-              padding: '4px 10px',
-              cursor: 'pointer',
-              fontSize: 11,
-              fontWeight: 700,
-            }}
+            disabled={!parentId}
+            onClick={() => onAdd(parentId)}
+            data-testid="subunits-add-subunit"
+            className="btn-primary"
+            style={{ padding: '3px 10px', fontSize: 11 }}
           >
-            + Add Asset
+            + Sub-unit
           </button>
-          <span style={{ fontSize: 14, opacity: 0.85 }}>{collapsed ? '▶' : '▼'}</span>
         </div>
       </div>
-
-      {!collapsed && (
-        <>
-          {phaseAssets.length === 0 && (
-            <div
-              style={{
-                ...sectionCardStyle,
-                textAlign: 'center',
-                color: 'var(--color-meta)',
-                fontSize: 'var(--font-small)',
-              }}
-              data-testid={`phase-section-${phase.id}-empty`}
-            >
-              No assets yet in {phase.name}. {suggestions.length > 0 && (
-                <>
-                  Suggested for <strong>{project.projectType ?? 'Mixed-Use'}</strong>: {suggestions.join(', ')}.
-                </>
-              )}
-            </div>
-          )}
-          {phaseAssets.map((asset) => (
-            <AssetCard
-              key={asset.id}
-              asset={asset}
-              allAssets={allAssets}
-              allPhases={allPhases}
-              parcels={parcels}
-              subUnits={subUnits}
-              project={project}
-              landAllocationMode={landAllocationMode}
-              assetTypeRegistry={assetTypeRegistry}
-              onUpdate={(patch) => onUpdateAsset(asset.id, patch)}
-              onRemove={() => onRemoveAsset(asset.id)}
-            />
-          ))}
-        </>
+      {subUnits.length === 0 ? (
+        <div style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid="subunits-table-empty">
+          No sub-units yet. Pick an asset above and add one so revenue (Module 2) can attach.
+        </div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }} data-testid="subunits-table">
+            <thead>
+              <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+                <th style={TH_T}>Asset</th>
+                <th style={TH_T}>Sub-unit</th>
+                <th style={TH_T}>Category</th>
+                <th style={TH_N}>Area (sqm)</th>
+                <th style={TH_N}>Unit size (sqm)</th>
+                <th style={TH_N}>Count</th>
+                <th style={TH_N}>Rate ({project.currency})</th>
+                <th style={TH_T}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {subUnits.map((u) => {
+                const parent = byAsset.get(u.assetId);
+                const isUnits = (parent?.subUnitMetric ?? u.metric) === 'units';
+                const area = isUnits ? u.metricValue * Math.max(0, u.unitArea ?? 0) : u.metricValue;
+                const count = isUnits ? u.metricValue : (u.unitArea && u.unitArea > 0 ? u.metricValue / u.unitArea : 0);
+                return (
+                  <tr key={u.id} style={{ borderBottom: '1px solid var(--color-border)' }} data-testid={`subunits-row-${u.id}`}>
+                    <td style={CELL}>
+                      <span style={{ fontSize: 10, color: 'var(--color-meta)' }} data-testid={`subunits-row-${u.id}-parent`}>
+                        {parent?.name ?? 'unassigned'}
+                      </span>
+                    </td>
+                    <td style={CELL}>
+                      <input
+                        style={TABLE_INPUT}
+                        value={u.name}
+                        data-testid={`subunits-row-${u.id}-name`}
+                        onChange={(e) => onUpdate(u.id, { name: e.target.value })}
+                      />
+                    </td>
+                    <td style={CELL}>
+                      <select
+                        style={TABLE_INPUT}
+                        value={u.category}
+                        data-testid={`subunits-row-${u.id}-category`}
+                        onChange={(e) => onUpdate(u.id, { category: e.target.value as SubUnitCategory })}
+                      >
+                        {SUB_UNIT_CATEGORIES.map((c) => (<option key={c} value={c}>{c}</option>))}
+                      </select>
+                    </td>
+                    <td style={CELL_NUM} data-testid={`subunits-row-${u.id}-area`}>{formatArea(area)}</td>
+                    <td style={CELL_NUM} data-testid={`subunits-row-${u.id}-unit-size`}>
+                      {u.unitArea === undefined ? '-' : formatArea(u.unitArea)}
+                    </td>
+                    <td style={CELL_NUM} data-testid={`subunits-row-${u.id}-count`}>
+                      {count.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    </td>
+                    <td style={CELL_NUM} data-testid={`subunits-row-${u.id}-rate`}>
+                      {formatAccounting(u.unitPrice, project.displayScale ?? 'full', project.displayDecimals ?? 2)}
+                    </td>
+                    <td style={CELL}>
+                      <button
+                        type="button"
+                        onClick={() => onRemove(u.id)}
+                        data-testid={`subunits-row-${u.id}-remove`}
+                        style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '1px 6px', cursor: 'pointer', fontSize: 10 }}
+                      >
+                        x
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
+      <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 6 }}>
+        Area, unit size and count are one identity, so this table shows them and the per-asset editor in an
+        open row is where they are typed.
+      </div>
     </div>
   );
 }

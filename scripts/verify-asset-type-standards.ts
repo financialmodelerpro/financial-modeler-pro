@@ -76,6 +76,20 @@ const FORBIDDEN_TOKENS = [
 ];
 
 /**
+ * ONE exclusion, and it is not a hole.
+ *
+ * `landChain.ts` (land planning step 2) DECLARES a parameter shape that names
+ * `parkingRatio` and `parkingAreaPerSlotSqm`: the caller passes the resolved
+ * standards in, and the file itself reads no project, no asset and no table.
+ * Excluding it keeps the check aimed at what it means, which is "no engine
+ * file READS the standards", rather than at the spelling of a parameter.
+ *
+ * The exclusion is safe only while nothing in the engine calls that file, so
+ * A2 asserts exactly that here rather than relying on another verifier to.
+ */
+const CHAIN_DEFINITION = 'src/core/calculations/landChain.ts';
+
+/**
  * A minimal stand-in for the module 1 store's project slice, carrying the ONE
  * merge rule `setAssetTypeValue` implements. Mirrored deliberately rather than
  * imported: the store pulls in zustand and the whole snapshot type graph, and
@@ -141,6 +155,7 @@ function offlineChecks(): void {
   check('A0 the scan actually covers files (engine roots resolved)', files.length > 50, `only ${files.length} files`);
   const offenders: string[] = [];
   for (const f of files) {
+    if (f.replace(/\\/g, '/') === CHAIN_DEFINITION) continue;
     const src = readFileSync(f, 'utf8');
     for (const tok of FORBIDDEN_TOKENS) {
       if (src.includes(tok)) offenders.push(`${f} :: ${tok}`);
@@ -148,6 +163,13 @@ function offlineChecks(): void {
   }
   check('A1 zero references to the tables or stamp fields across the calculation and export surface',
     offenders.length === 0, offenders.slice(0, 5).join(' | '));
+  // The exclusion above is only safe while the excluded file is unreachable
+  // from the engine. Proven here, not assumed.
+  const chainCallers = files
+    .filter((f) => f.replace(/\\/g, '/') !== CHAIN_DEFINITION)
+    .filter((f) => readFileSync(f, 'utf8').includes('landChain'));
+  check('A2 the excluded chain file is called by NOTHING in the calculation or export surface',
+    chainCallers.length === 0, chainCallers.slice(0, 3).join(' | '));
 
   section('B. Blank and zero are different answers, in the PROJECT values');
   const blankValues: AssetTypeValues = {};
