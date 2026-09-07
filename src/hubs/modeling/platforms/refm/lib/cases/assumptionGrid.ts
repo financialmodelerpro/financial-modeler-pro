@@ -516,6 +516,12 @@ export function nonEconomicLeverReason(path: string, field: string): string | nu
   if (/^assets\[[^\]]+\]\.assetTypeStandards(\.|$)/.test(path)) {
     return 'a company-standards stamp copied from the firm asset type registry at selection time; the engine does not read it, so an override changes nothing';
   }
+  // The sub-unit parking ratio OVERRIDE (2026-09-07) is the same case: it
+  // states which parking ratio would apply to this row, and nothing in the
+  // engine reads it yet, so offering it as a lever would offer a dead dial.
+  if (/^subUnits\[[^\]]+\]\.parkingRatio$/.test(path)) {
+    return 'a parking ratio override on the sub-unit; the engine does not read it, so an override changes nothing';
+  }
   // Project-level revenue TEMPLATES seed NEW assets only; existing assets carry
   // their own values, so the template is never read for the live model.
   if (/^project\.revenueTemplates\./.test(path)) return 'a template default that only seeds new assets; existing assets carry their own values';

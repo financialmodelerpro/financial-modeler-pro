@@ -60,6 +60,7 @@ import ProjectsScreen from './ProjectsScreen';
 import Module1ProjectPhases from './modules/Module1ProjectPhases';
 import Module1Parties from './modules/Module1Parties';
 import Module1FundTerms from './modules/Module1FundTerms';
+import Module1AssetStandards from './modules/Module1AssetStandards';
 import Module1Assets from './modules/Module1Assets';
 import Module1Costs from './modules/Module1Costs';
 import Module1Financing from './modules/Module1Financing';
@@ -1326,6 +1327,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
           {activeTab === 'project-phases' && <Module1ProjectPhases />}
           {activeTab === 'parties' && <Module1Parties projectId={activeProjectId} />}
           {activeTab === 'fund-terms' && <Module1FundTerms projectId={activeProjectId} />}
+          {activeTab === 'asset-standards' && <Module1AssetStandards />}
           {activeTab === 'assets' && <Module1Assets />}
           {activeTab === 'costs' && <Module1Costs />}
           {activeTab === 'financing' && <Module1Financing projectId={activeProjectId} />}

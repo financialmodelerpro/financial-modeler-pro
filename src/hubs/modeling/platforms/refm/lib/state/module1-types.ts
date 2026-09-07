@@ -1048,6 +1048,20 @@ export interface SubUnit {
   // to the asset-level adrIndexation when this is undefined.
   parentSubUnitId?: string;
   startingAdr?: number;
+  /**
+   * Land planning (2026-09-07): PARKING RATIO OVERRIDE for this sub-unit.
+   *
+   * The asset type carries the firm's default (stamped onto the asset); a
+   * sub-unit that knows better states its own, and the detail wins wherever
+   * it lives. Same inherit-and-override shape the cost lines use, so ABSENT
+   * means inherit and a typed 0 is a real override (a villa row that needs
+   * no bay), never a blank. Resolved by `resolveParkingRatio` in
+   * lib/state/assetTypeStandards.ts.
+   *
+   * Additive, optional, and read by NOTHING in the calculation engine: the
+   * parking chain that will consume it is a later step.
+   */
+  parkingRatio?: number;
   hospitalityIndexation?: {
     method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
     rate?: number;

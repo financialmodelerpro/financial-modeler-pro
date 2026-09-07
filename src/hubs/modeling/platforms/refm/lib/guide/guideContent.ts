@@ -79,6 +79,17 @@ export const TAB_CONTENT: Record<string, GuideTabEntry> = {
     ],
     review: 'the three capital bases (total equity, debt facility, fund size, which is their sum) and the fee basis table that states what each fee is charged on.',
   },
+  'module1/asset-standards': {
+    intro: 'Your firm\'s asset type list and the standards each type carries: average unit size, parking ratio, construction cost per sqm, and a revenue rate. The list is shared across every project your firm opens, so it is written once and reused, and everything on it is yours to change.',
+    steps: [
+      'Start from the standard list, which adds the reference asset types with their categories, or type your own names in the add row. Every row can be renamed, re-categorised, reordered and removed afterwards; nothing here is fixed.',
+      'Fill in the standards per type. A blank cell means the standard is not set; a typed 0 is a real zero (a villa that needs no parking bay), and the two are kept apart everywhere.',
+      'The revenue rate has its own unit beside it, so one column serves a sale price per sqm, a price per unit, a lease rent per sqm per year, or a hospitality rate per key per night.',
+      'Set the parking area per slot once for the firm. It is the sqm one bay occupies, and it is stamped alongside the ratio.',
+      'Then pick a type on an asset in the next tab. Picking copies these values onto that asset at that moment, so editing this table afterwards changes only what future picks copy, and never changes a model you have already saved.',
+    ],
+    review: 'which values are blank rather than zero, because a blank says nobody has decided yet. Remember the unit size here is only a fallback: an asset whose sub-units carry their own unit areas uses those, and a sub-unit can override the parking ratio.',
+  },
   'module1/assets': {
     intro: 'Describe what is being built in each phase, and how each asset makes money.',
     steps: [

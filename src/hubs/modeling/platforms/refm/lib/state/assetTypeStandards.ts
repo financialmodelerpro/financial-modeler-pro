@@ -39,11 +39,42 @@ export const PARKING_RATIO_BASIS_LABELS: Record<ParkingRatioBasis, string> = {
   sqm_per_slot: 'sqm of GFA per slot',
 };
 
+/**
+ * What a revenue rate is PER (mig 243).
+ *
+ * ONE rate column with a unit beside it, rather than four half-empty columns:
+ * the unit NAMES the basis, so the same field carries a sale price per sqm, a
+ * price per unit, a lease rent per sqm per year and a hospitality ADR per key
+ * per night. Kept as a union in code and validated at the route (the mig 214
+ * rationale: a vocabulary change stays a code change).
+ */
+export type RevenueRateUnit = 'per_sqm' | 'per_unit' | 'per_sqm_year' | 'adr_per_key_night';
+
+export const REVENUE_RATE_UNITS: readonly RevenueRateUnit[] = [
+  'per_sqm', 'per_unit', 'per_sqm_year', 'adr_per_key_night',
+];
+
+export const REVENUE_RATE_UNIT_LABELS: Record<RevenueRateUnit, string> = {
+  per_sqm: 'per sqm (sale)',
+  per_unit: 'per unit (sale)',
+  per_sqm_year: 'per sqm per year (lease)',
+  adr_per_key_night: 'ADR, per key per night',
+};
+
+/** The compact form, for a caption or a table cell. */
+export const REVENUE_RATE_UNIT_SHORT: Record<RevenueRateUnit, string> = {
+  per_sqm: '/sqm',
+  per_unit: '/unit',
+  per_sqm_year: '/sqm/year',
+  adr_per_key_night: '/key/night',
+};
+
 /** One row of the firm's registry, as served by /api/refm/asset-types.
  *  A standards field that is ABSENT is blank in the firm's table (nobody has
  *  decided); a 0 is a decision. The API layer maps NULL to absent. */
 export interface AssetTypeStandard {
-  /** Stable id, [a-z0-9-], unique per account. */
+  /** Stable id, [a-z0-9-], unique per account. Survives a rename, so an
+   *  asset stamped from this entry keeps pointing at it. */
   id: string;
   label: string;
   /** Free-text grouping (Residential / Hospitality / Retail / ...). */
@@ -51,7 +82,32 @@ export interface AssetTypeStandard {
   avgUnitSizeSqm?: number;
   parkingRatio?: number;
   parkingRatioBasis: ParkingRatioBasis;
+  /** Build rate per sqm (mig 243). Absent = the firm has not decided. */
+  constructionCostPerSqm?: number;
+  /** Revenue rate in the unit named beside it (mig 243). */
+  revenueRate?: number;
+  revenueRateUnit?: RevenueRateUnit;
+  /** The firm's own position for this row. ABSENT means never reordered and
+   *  falls back to label order; 0 is a real first position (the mig 229
+   *  rule, so "unset" and "first" stay different answers). */
+  sortOrder?: number;
   createdAt?: string;
+}
+
+/**
+ * The firm's list in the firm's order: explicit positions first (ascending),
+ * then everything never reordered, alphabetically. ONE ordering rule, shared
+ * by the route, the tab and the verifier, so a reorder cannot mean one thing
+ * on screen and another on reload.
+ */
+export function sortAssetTypes(entries: readonly AssetTypeStandard[]): AssetTypeStandard[] {
+  return entries.slice().sort((a, b) => {
+    const ao = a.sortOrder, bo = b.sortOrder;
+    if (ao !== undefined && bo !== undefined && ao !== bo) return ao - bo;
+    if (ao !== undefined && bo === undefined) return -1;
+    if (ao === undefined && bo !== undefined) return 1;
+    return a.label.localeCompare(b.label);
+  });
 }
 
 /** Account-wide scalars (one row per account in refm_account_standards). */
@@ -79,6 +135,12 @@ export interface AssetTypeStandardsStamp {
   parkingRatio?: number;
   parkingRatioBasis?: ParkingRatioBasis;
   parkingAreaPerSlotSqm?: number;
+  /** The rates, stamped exactly like the area standards (mig 243). Carried,
+   *  not consumed: capex and revenue still take their rates where they always
+   *  did, so a firm editing its standards cannot move a saved model. */
+  constructionCostPerSqm?: number;
+  revenueRate?: number;
+  revenueRateUnit?: RevenueRateUnit;
   /** ISO timestamp of the selection that produced this stamp. */
   stampedAt: string;
 }
@@ -100,8 +162,87 @@ export function stampFromAssetType(
     ...(account.parkingAreaPerSlotSqm !== undefined
       ? { parkingAreaPerSlotSqm: account.parkingAreaPerSlotSqm }
       : {}),
+    ...(entry.constructionCostPerSqm !== undefined
+      ? { constructionCostPerSqm: entry.constructionCostPerSqm }
+      : {}),
+    ...(entry.revenueRate !== undefined && entry.revenueRateUnit !== undefined
+      ? { revenueRate: entry.revenueRate, revenueRateUnit: entry.revenueRateUnit }
+      : {}),
     stampedAt: now ?? new Date().toISOString(),
   };
+}
+
+// ── The two resolution rules ────────────────────────────────────────────────
+//
+// DISPLAY ONLY, TODAY. Nothing in the calculation engine calls either of
+// these: they state WHICH source a value would come from, so the Assets tab
+// can show it and a later step can wire it. Both are pure and both keep a
+// typed zero apart from a blank, because an override of 0 is an answer.
+
+/** Where a resolved standard came from. */
+export type StandardSource = 'sub_units' | 'sub_unit' | 'asset_type' | 'unset';
+
+export interface ResolvedStandard {
+  value?: number;
+  source: StandardSource;
+}
+
+/**
+ * THE UNIT SIZE RULE: sub-units first, the asset type average as the fallback.
+ *
+ * A sub-unit carries the area of ITS OWN unit, which is more precise than one
+ * average across a whole asset type, so any sub-unit that states a unit area
+ * wins. The returned value is then the OBSERVED average of those areas (a
+ * read-out; a consumer would use each sub-unit's own figure). With no
+ * sub-unit area anywhere, the asset type's stamped average is the fallback,
+ * which is what it is for.
+ *
+ * A sub-unit with no unit area, or an area of zero, carries no detail and
+ * does not displace the fallback.
+ */
+export function resolveAvgUnitSize(
+  subUnitAreas: readonly (number | undefined)[],
+  stamp: AssetTypeStandardsStamp | undefined,
+): ResolvedStandard {
+  const stated = subUnitAreas.filter((a): a is number => typeof a === 'number' && a > 0);
+  if (stated.length > 0) {
+    return { value: stated.reduce((s, a) => s + a, 0) / stated.length, source: 'sub_units' };
+  }
+  if (stamp?.avgUnitSizeSqm !== undefined) return { value: stamp.avgUnitSizeSqm, source: 'asset_type' };
+  return { source: 'unset' };
+}
+
+export interface ResolvedParkingRatio extends ResolvedStandard {
+  basis?: ParkingRatioBasis;
+}
+
+/**
+ * THE PARKING RULE: the asset type carries the default, a sub-unit may
+ * override it, and the detail wins wherever it lives. Same inherit-and-
+ * override shape the cost lines use, so an override of ZERO is an override
+ * (a villa row that needs no bay), never a blank.
+ */
+export function resolveParkingRatio(
+  subUnitOverride: number | undefined,
+  stamp: AssetTypeStandardsStamp | undefined,
+): ResolvedParkingRatio {
+  if (subUnitOverride !== undefined) {
+    return { value: subUnitOverride, source: 'sub_unit', ...(stamp?.parkingRatioBasis ? { basis: stamp.parkingRatioBasis } : {}) };
+  }
+  if (stamp?.parkingRatio !== undefined) {
+    return { value: stamp.parkingRatio, source: 'asset_type', ...(stamp.parkingRatioBasis ? { basis: stamp.parkingRatioBasis } : {}) };
+  }
+  return { source: 'unset' };
+}
+
+/** One phrase naming where a resolved standard came from, for a caption. */
+export function describeSource(source: StandardSource): string {
+  switch (source) {
+    case 'sub_units': return 'from sub-units';
+    case 'sub_unit':  return 'overridden here';
+    case 'asset_type': return 'from the asset type';
+    default: return 'not set';
+  }
 }
 
 /** Same shape rule as the cost catalog id: usable inside composed ids and
@@ -159,5 +300,9 @@ export function describeStamp(stamp: AssetTypeStandardsStamp): string {
   const ratioUnit = stamp.parkingRatioBasis === 'sqm_per_slot' ? 'sqm/slot' : 'slots/unit';
   parts.push(`Parking ${describeStandardValue(stamp.parkingRatio, ratioUnit)}`);
   parts.push(`Slot area ${describeStandardValue(stamp.parkingAreaPerSlotSqm, 'sqm')}`);
+  parts.push(`Build ${describeStandardValue(stamp.constructionCostPerSqm, 'per sqm')}`);
+  parts.push(`Revenue ${stamp.revenueRate !== undefined && stamp.revenueRateUnit
+    ? `${stamp.revenueRate} ${REVENUE_RATE_UNIT_SHORT[stamp.revenueRateUnit]}`
+    : 'not set'}`);
   return parts.join(' | ');
 }

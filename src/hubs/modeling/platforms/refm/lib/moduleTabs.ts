@@ -25,13 +25,21 @@ export type SidebarSubTab = { key: string; icon: string; label: string; step: nu
 // Module 1 tabs. Fund Terms (fund layer Step 2, 2026-08-03) sits at 3,
 // directly after Parties, because its fee share is split by PARTY ROLE and
 // reads better once the roles are in front of the user.
+//
+// Asset Types & Standards (land planning, 2026-09-07) sits at 4 for the SAME
+// reason, one step earlier in the chain: it is the firm's reference data that
+// the Assets tab draws on, so it reads in the order the work happens (set the
+// standards, then build the assets that copy them). Placing it after Assets
+// would put the source after its consumer. Its data is account-scoped rather
+// than per project, which is stated on the tab itself.
 export const m1Tabs: ReadonlyArray<SidebarSubTab> = [
   { key: 'project-phases', icon: '📅', label: '1. Project & Phases', step: 1 },
   { key: 'parties', icon: '🤝', label: '2. Parties', step: 2 },
   { key: 'fund-terms', icon: '🏛️', label: '3. Fund Terms', step: 3 },
-  { key: 'assets', icon: '🏗️', label: '4. Assets & Sub-units', step: 4 },
-  { key: 'costs', icon: '💸', label: '5. Capex', step: 5 },
-  { key: 'financing', icon: '🏦', label: '6. Financing', step: 6 },
+  { key: 'asset-standards', icon: '📐', label: '4. Asset Types & Standards', step: 4 },
+  { key: 'assets', icon: '🏗️', label: '5. Assets & Sub-units', step: 5 },
+  { key: 'costs', icon: '💸', label: '6. Capex', step: 6 },
+  { key: 'financing', icon: '🏦', label: '7. Financing', step: 7 },
 ];
 
 // Module 2 tabs (M2 Pass 9h): Inputs is the editable surface; the other four

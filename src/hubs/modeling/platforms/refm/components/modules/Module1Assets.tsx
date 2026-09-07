@@ -69,11 +69,13 @@ import {
   validateLandAllocation,
 } from '@/src/core/calculations';
 import {
+  describeSource,
   describeStamp,
+  resolveAvgUnitSize,
+  resolveParkingRatio,
   stampFromAssetType,
   type AssetTypeStandard,
 } from '../../lib/state/assetTypeStandards';
-import AssetTypeStandardsModal from '../modals/AssetTypeStandardsModal';
 import { currencyHeaderLine, formatArea, formatAccounting } from '@/src/core/formatters';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
@@ -298,7 +300,6 @@ export default function Module1Assets(): React.JSX.Element {
     parkingAreaPerSlot: number | null;
     available: boolean;
   }>({ entries: [], parkingAreaPerSlot: null, available: true });
-  const [standardsModalOpen, setStandardsModalOpen] = useState(false);
   const refreshAssetTypeRegistry = React.useCallback(async (): Promise<void> => {
     try {
       const res = await fetch('/api/refm/asset-types');
@@ -314,15 +315,6 @@ export default function Module1Assets(): React.JSX.Element {
     }
   }, []);
   useEffect(() => { void refreshAssetTypeRegistry(); }, [refreshAssetTypeRegistry]);
-
-  // Quick-add sources for the standards modal: the platform catalog for this
-  // project's type (the SAME rule as the Type dropdown, one implementation in
-  // module1-types), and the distinct types already used on this project.
-  const platformTypeCatalog = assetTypeCatalogForProjectType(project.projectType);
-  const projectTypesInUse = useMemo(
-    () => Array.from(new Set(assets.map((a) => (a.type ?? '').trim()).filter((t) => t !== ''))),
-    [assets],
-  );
 
   // Build per-phase asset groups, sorted by startDate / constructionStart
   const phaseGroups = useMemo(() => {
@@ -410,40 +402,15 @@ export default function Module1Assets(): React.JSX.Element {
     <div data-testid="tab-assets">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 'var(--sp-3)', flexWrap: 'wrap', gap: 'var(--sp-1)' }}>
         <h2 style={{ fontSize: 'var(--font-h2)', margin: 0 }}>
-          2. Assets &amp; Sub-units
+          5. Assets &amp; Sub-units
         </h2>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-2)' }}>
-          <button
-            type="button"
-            onClick={() => setStandardsModalOpen(true)}
-            data-testid="open-asset-type-standards"
-            style={{
-              border: '1px solid var(--color-border)', background: 'transparent', borderRadius: 'var(--radius-sm)',
-              padding: '4px 12px', cursor: 'pointer', fontSize: 'var(--font-small)',
-            }}
-            title="Your firm's asset type list with unit size and parking standards. Picking a type on an asset copies these values onto it."
-          >
-            Company standards
-          </button>
-          <div
-            style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', fontStyle: 'italic' }}
-            data-testid="currency-header-line"
-          >
-            {currencyHeaderLine(project.currency, project.displayScale ?? 'full')}
-          </div>
+        <div
+          style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', fontStyle: 'italic' }}
+          data-testid="currency-header-line"
+        >
+          {currencyHeaderLine(project.currency, project.displayScale ?? 'full')}
         </div>
       </div>
-
-      <AssetTypeStandardsModal
-        open={standardsModalOpen}
-        onClose={() => setStandardsModalOpen(false)}
-        entries={assetTypeRegistry.entries}
-        parkingAreaPerSlot={assetTypeRegistry.parkingAreaPerSlot}
-        available={assetTypeRegistry.available}
-        platformCatalog={platformTypeCatalog}
-        projectTypesInUse={projectTypesInUse}
-        onChanged={() => { void refreshAssetTypeRegistry(); }}
-      />
 
       <div
         style={{
@@ -458,10 +425,12 @@ export default function Module1Assets(): React.JSX.Element {
       >
         <strong>What goes here:</strong> Land parcels, then per-phase asset
         cards (areas, sub-units, status, useful life). Asset Type suggestions
-        come from the standard catalog plus your firm&apos;s Company standards;
-        a <strong>Residential</strong>, <strong>Hospitality</strong> or{' '}
+        come from the standard catalog plus your firm&apos;s list on the{' '}
+        <strong>Asset Types &amp; Standards</strong> tab; a{' '}
+        <strong>Residential</strong>, <strong>Hospitality</strong> or{' '}
         <strong>Retail</strong> project type narrows the catalog to its own
         category (yours: <strong>{project.projectType ?? 'Mixed-Use'}</strong>).
+        Picking a firm type copies its standards onto the asset.
       </div>
 
       {/* Land Parcels block */}
@@ -1255,6 +1224,14 @@ function AssetCard({
   };
   const status = asset.status ?? 'planned';
 
+  // THE UNIT SIZE RULE, as a read-out (nothing computes off it yet): the
+  // sub-units' own areas when any state one, the asset type average as the
+  // fallback. Resolved by the one pure function in assetTypeStandards.ts.
+  const assetSubUnitAreas = subUnits
+    .filter((u) => u.assetId === asset.id && typeof u.unitArea === 'number' && u.unitArea > 0)
+    .map((u) => u.unitArea);
+  const resolvedUnitSize = resolveAvgUnitSize(assetSubUnitAreas, asset.assetTypeStandards);
+
   return (
     <div
       style={{
@@ -1348,7 +1325,7 @@ function AssetCard({
                   value={asset.assetTypeId ?? ''}
                   onChange={(e) => pickAssetType(e.target.value)}
                   style={{ ...inputStyle, marginTop: 4, fontSize: 'var(--font-micro)' }}
-                  title="Pick from your firm's asset type registry. Selecting copies the company standards (unit size, parking ratio, area per slot) onto this asset at this moment; editing the registry later never changes a saved model. Choose the blank row to clear."
+                  title="Pick from your firm's list on the Asset Types and Standards tab. Selecting copies its standards (unit size, parking ratio, area per slot, construction cost, revenue rate) onto this asset at this moment; editing the list later never changes a saved model. Choose the blank row to clear."
                 >
                   <option value="">Company standard...</option>
                   {assetTypeRegistry.entries.map((e) => (
@@ -1360,9 +1337,23 @@ function AssetCard({
                 <div
                   data-testid={`asset-${asset.id}-standards-stamp`}
                   style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 2 }}
-                  title="Company standards copied onto this asset when its type was picked. 'not set' means the standard was blank in the firm's table, which is different from 0. Re-pick the type to refresh from the current registry."
+                  title="Company standards copied onto this asset when its type was picked. 'not set' means the standard was blank in the firm's table, which is different from 0. Re-pick the type to refresh from the current list."
                 >
                   {describeStamp(asset.assetTypeStandards)}
+                </div>
+              )}
+              {/* WHERE THE UNIT SIZE ACTUALLY COMES FROM. Sub-unit areas are
+                  more precise than one average per type, so they win; the
+                  asset type average is the fallback for an asset with none.
+                  A read-out only: nothing computes off it yet. */}
+              {(asset.assetTypeStandards || assetSubUnitAreas.length > 0) && (
+                <div
+                  data-testid={`asset-${asset.id}-unit-size-source`}
+                  style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 2 }}
+                  title="Sub-units carry their own unit areas and those are more precise, so they are used when present. The asset type average is the fallback for an asset with no sub-unit areas."
+                >
+                  Unit size {resolvedUnitSize.value !== undefined ? `${fmt(resolvedUnitSize.value)} sqm` : 'not set'}
+                  {' '}({describeSource(resolvedUnitSize.source)})
                 </div>
               )}
             </div>
@@ -1963,13 +1954,14 @@ function AssetCard({
                       data-testid={`asset-${asset.id}-subunit-table`}
                     >
                       <colgroup>
-                        <col style={{ width: '15%' }} />
-                        <col style={{ width: '12%' }} />
-                        <col style={{ width: '13%' }} />
-                        <col style={{ width: '12%' }} />
-                        <col style={{ width: '10%' }} />
                         <col style={{ width: '14%' }} />
-                        <col style={{ width: '19%' }} />
+                        <col style={{ width: '11%' }} />
+                        <col style={{ width: '12%' }} />
+                        <col style={{ width: '11%' }} />
+                        <col style={{ width: '9%' }} />
+                        <col style={{ width: '13%' }} />
+                        <col style={{ width: '16%' }} />
+                        <col style={{ width: '9%' }} />
                         <col style={{ width: '5%' }} />
                       </colgroup>
                       <thead>
@@ -1981,6 +1973,13 @@ function AssetCard({
                           <th style={{ padding: '4px 6px', textAlign: 'right' }} data-testid={`asset-${asset.id}-subunit-count-header`}>{dynamicCountHeader}</th>
                           <th style={{ padding: '4px 6px', textAlign: 'right' }}>Rate ({project.currency})</th>
                           <th style={{ padding: '4px 6px', textAlign: 'right' }} data-testid={`asset-${asset.id}-subunit-total-revenue-header`}>Total Revenue (No Indexation)</th>
+                          <th
+                            style={{ padding: '4px 6px', textAlign: 'right' }}
+                            data-testid={`asset-${asset.id}-subunit-parking-header`}
+                            title="Parking ratio. Inherited from the asset type by default; override it here when this unit type differs."
+                          >
+                            Parking
+                          </th>
                           <th></th>
                         </tr>
                       </thead>
@@ -1998,6 +1997,7 @@ function AssetCard({
                             assetStrategy={asset.strategy}
                             assetType={asset.type}
                             isCompanionSub={asset.isCompanion === true && !!u.parentSubUnitId}
+                            assetStandards={asset.assetTypeStandards}
                           />
                         ))}
                       </tbody>
@@ -2099,7 +2099,11 @@ function switchMetric(
   return { metric: 'area', metricValue: currentArea };
 }
 
-function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decimals, scale, assetStrategy, assetType, isCompanionSub }: SubUnitRowProps & { assetMetric: SubUnitMetric; decimals: import('../../lib/state/module1-types').DisplayDecimals; scale: import('../../lib/state/module1-types').DisplayScale; assetStrategy: AssetStrategy; assetType?: string; isCompanionSub?: boolean }): React.JSX.Element {
+function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decimals, scale, assetStrategy, assetType, isCompanionSub, assetStandards }: SubUnitRowProps & { assetMetric: SubUnitMetric; decimals: import('../../lib/state/module1-types').DisplayDecimals; scale: import('../../lib/state/module1-types').DisplayScale; assetStrategy: AssetStrategy; assetType?: string; isCompanionSub?: boolean; assetStandards?: import('../../lib/state/assetTypeStandards').AssetTypeStandardsStamp }): React.JSX.Element {
+  // The parking rule, resolved ONCE for this row: the sub-unit's own override
+  // when it has one (including a typed 0), else the asset type's default.
+  const parking = resolveParkingRatio(subUnit.parkingRatio, assetStandards);
+  const inherited = resolveParkingRatio(undefined, assetStandards);
   // An area typed while Unit Size is still zero. In Units mode the row stores a
   // COUNT, so an area with no unit size cannot be represented yet; holding it
   // is the difference between "not converted yet" and "thrown away".
@@ -2155,6 +2159,9 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
         <td style={{ padding: '4px 6px', textAlign: 'right', color: 'var(--color-heading)' }} data-testid={`subunit-${subUnit.id}-total-revenue`}>
           {formatAccounting(companionRevenue, scale, decimals)}
         </td>
+        {/* Parking: a mirrored companion row carries no override of its own,
+            it follows the parent it mirrors. */}
+        <td style={{ padding: '4px 6px' }} />
         <td style={{ padding: '4px 6px' }} />
       </tr>
     );
@@ -2453,6 +2460,52 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
       </td>
       <td style={{ padding: '4px 6px', textAlign: 'right', color: 'var(--color-heading)' }} data-testid={`subunit-${subUnit.id}-total-revenue`}>
         {formatAccounting(totalRevenueNoIdx, scale, decimals)}
+      </td>
+      {/* PARKING: inherit from the asset type, or override here. Absent means
+          inherit; a typed 0 is a real override, the cost-line rule. Both the
+          shown value and its source come from the ONE resolver. */}
+      <td style={{ padding: '4px 6px', textAlign: 'right' }}>
+        {parking.source !== 'sub_unit' ? (
+          <button
+            type="button"
+            onClick={() => onUpdate({ parkingRatio: inherited.value ?? 0 })}
+            data-testid={`subunit-${subUnit.id}-parking-override`}
+            style={{
+              background: 'transparent', border: '1px dashed var(--color-border)',
+              borderRadius: 'var(--radius-sm)', padding: '2px 6px', cursor: 'pointer',
+              fontSize: 9, color: 'var(--color-meta)', width: '100%',
+            }}
+            title={inherited.value !== undefined
+              ? `Inheriting ${inherited.value} ${inherited.basis === 'sqm_per_slot' ? 'sqm per slot' : 'slots per unit'} from the asset type. Click to set a different ratio for this row.`
+              : 'The asset type sets no parking ratio. Click to set one for this row.'}
+          >
+            {inherited.value !== undefined ? `Inherit ${inherited.value}` : 'Inherit (not set)'}
+          </button>
+        ) : (
+          <>
+            <AccountingNumberInput
+              value={parking.value ?? 0}
+              onChange={(n) => onUpdate({ parkingRatio: Math.max(0, n) })}
+              scale="full"
+              decimals={2}
+              min={0}
+              style={{ ...inputStyle, fontSize: 11 }}
+              data-testid={`subunit-${subUnit.id}-parking-ratio`}
+            />
+            <button
+              type="button"
+              onClick={() => onUpdate({ parkingRatio: undefined })}
+              data-testid={`subunit-${subUnit.id}-parking-inherit`}
+              style={{
+                background: 'transparent', border: 'none', cursor: 'pointer',
+                fontSize: 9, color: 'var(--color-meta)', textDecoration: 'underline', padding: '2px 0 0',
+              }}
+              title="Drop this override and go back to the asset type's ratio."
+            >
+              use default
+            </button>
+          </>
+        )}
       </td>
       <td style={{ padding: '4px 6px' }}>
         <button type="button" onClick={onRemove} data-testid={`subunit-${subUnit.id}-remove`} style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '2px 6px', cursor: 'pointer', fontSize: 'var(--font-micro)' }}>x</button>

@@ -45,11 +45,16 @@ measured over a mutating tree; quote the next clean-tree run forward.
    this is an ADDITIVE read-only surface or it is not this item; denominators
    already exist on assets/sub-units).
 7. **THE FULL ALMA LAND STRUCTURE** (diagnosed 2026-09-07, full seven-part
-   report delivered; **STEP 1 SHIPPED 2026-09-07** (mig 242 APPLIED): the
-   account-scoped asset type registry + company standards (avg unit size,
-   parking ratio + basis, parking area per slot), stamped onto the asset at
-   selection, engine never reads the tables, blank vs zero kept apart end to
-   end, `verify-asset-type-standards` 34/0. Remaining steps, smallest first,
+   report delivered; **STEP 1 SHIPPED 2026-09-07** (migs 242 + 243 APPLIED):
+   the account-scoped asset type registry + company standards on their OWN
+   Module 1 tab 4 (avg unit size, parking ratio + basis, parking area per
+   slot, construction cost per sqm, revenue rate + unit), the list fully
+   editable / extensible / reorderable with the ten reference types as a
+   seeded starting set, stamped onto the asset at selection, unit size
+   resolving sub-units first with the type average as fallback, parking
+   inheriting with a sub-unit override, engine never reads any of it, blank
+   vs zero kept apart end to end, `verify-asset-type-standards` 68/0.
+   Remaining steps, smallest first,
    per the diagnosis: chain fields + pure derivation as read-outs; opt-in
    engine wiring with a per-asset area source + per-plot sum check; computed
    units/parking for chain-active assets; matrix area entry; matrix cost +

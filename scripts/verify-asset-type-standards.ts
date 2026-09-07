@@ -27,7 +27,7 @@
  * No em dashes in this file.
  */
 
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   stampFromAssetType,
@@ -35,8 +35,14 @@ import {
   describeStandardValue,
   describeStamp,
   typesWithoutStandard,
+  sortAssetTypes,
+  resolveAvgUnitSize,
+  resolveParkingRatio,
+  REVENUE_RATE_UNITS,
   type AssetTypeStandard,
 } from '../src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards';
+import { m1Tabs } from '../src/hubs/modeling/platforms/refm/lib/moduleTabs';
+import { TAB_CONTENT } from '../src/hubs/modeling/platforms/refm/lib/guide/guideContent';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
 import {
   ASSET_TYPES_BY_CATEGORY,
@@ -58,7 +64,12 @@ const section = (t: string): void => { console.log(`\n== ${t} ==`); };
 // may mention the registry tables or the stamp fields. The Module 6 picker
 // gate (assumptionGrid) and the Assets tab UI are the DELIBERATE readers and
 // are excluded.
-const FORBIDDEN_TOKENS = ['refm_asset_types', 'refm_account_standards', 'assetTypeStandards', 'assetTypeId'];
+const FORBIDDEN_TOKENS = [
+  'refm_asset_types', 'refm_account_standards', 'assetTypeStandards', 'assetTypeId',
+  // The rates and the sub-unit parking override are carried state too: capex
+  // and revenue still take their rates where they always did.
+  'constructionCostPerSqm', 'revenueRateUnit', 'parkingRatio',
+];
 const ENGINE_ROOTS = [
   'src/core/calculations',
   'src/hubs/modeling/platforms/refm/lib/excel',
@@ -185,25 +196,23 @@ function offlineChecks(): void {
     route.includes('available: false'));
   check('D4 standards parse never coerces (null and absent mean blank, no Number() on body values)',
     route.includes('standardsNum') && !/Number\(body\./.test(route));
-  const modal = readFileSync('src/hubs/modeling/platforms/refm/components/modals/AssetTypeStandardsModal.tsx', 'utf8');
-  check('D5 every mutating standards button declares data-view-mutates',
-    (modal.match(/data-view-mutates="true"/g) ?? []).length >= 4);
+  const tab = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1AssetStandards.tsx', 'utf8');
+  const shell = readFileSync('src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx', 'utf8');
+  check('D5 every mutating standards control declares data-view-mutates',
+    (tab.match(/data-view-mutates="true"/g) ?? []).length >= 5);
   const assetsTab = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx', 'utf8');
   check('D6 the asset picker stamps through the ONE pure function',
     assetsTab.includes('stampFromAssetType(') && assetsTab.includes('assetTypeId: entry.id'));
-  check('D8 the modal offers BOTH quick-add sources through the one helper (platform catalog picker + project types missing a standard)',
-    (modal.match(/typesWithoutStandard\(/g) ?? []).length >= 2
-    && modal.includes('asset-type-catalog-picker')
-    && modal.includes('asset-type-project-missing')
-    && modal.includes('platformCatalog') && modal.includes('projectTypesInUse'));
+  check('D8 the tab offers BOTH quick-add sources through the one helper (platform catalog picker + project types missing a standard)',
+    (tab.match(/typesWithoutStandard\(/g) ?? []).length >= 3
+    && tab.includes('asset-type-catalog-picker')
+    && tab.includes('asset-type-project-missing')
+    && tab.includes('assetTypeCatalogForProjectType') && tab.includes('projectTypesInUse'));
   check('D9 quick-add only PREFILLS the add row (free text stays; no write fires on pick)',
-    modal.includes('prefillLabel')
-    && !/prefillLabel[\s\S]{0,200}?fetch\(/.test(modal.slice(modal.indexOf('const prefillLabel'), modal.indexOf('const prefillLabel') + 400)));
-  check('D10 the modal is wide enough for the table (1240px cap, old 880px gone)',
-    modal.includes('min(1240px') && !modal.includes('min(880px'));
-  check('D11 the parent feeds the catalog for the PROJECT TYPE and the distinct used types',
-    assetsTab.includes('platformTypeCatalog') && assetsTab.includes('projectTypesInUse')
-    && assetsTab.includes('assetTypeCatalogForProjectType'));
+    tab.includes('prefillLabel')
+    && !/prefillLabel[\s\S]{0,200}?fetch\(/.test(tab.slice(tab.indexOf('const prefillLabel'), tab.indexOf('const prefillLabel') + 400)));
+  check('D11 the tab reads the catalog for the PROJECT TYPE and the distinct used types',
+    tab.includes('assetTypeCatalogForProjectType(project.projectType)') && tab.includes('projectTypesInUse'));
   check('D7 the Module 6 picker drops the stamp and the registry pick (never a dead lever)',
     nonEconomicLeverReason('assets[asset_1].assetTypeStandards.avgUnitSizeSqm', 'assetTypeStandards.avgUnitSizeSqm') !== null
     && nonEconomicLeverReason('assets[asset_1].assetTypeId', 'assetTypeId') !== null
@@ -236,7 +245,99 @@ function offlineChecks(): void {
     && !assetsTab.includes('ASSET_TYPES_BY_STRATEGY'));
   check('G5 free text stays (the Type field is still a text input with suggestions) and a catalog pick prefills its category',
     /input[^>]*list=\{`asset-types-/.test(assetsTab.replace(/\n\s*/g, ' '))
-    && modal.includes('assetTypeCategory('));
+    && tab.includes('assetTypeCategory('));
+
+  section('H. The standards live on their OWN TAB, not in a dialog (2026-09-07d)');
+  const tabIdx = m1Tabs.findIndex((t) => t.key === 'asset-standards');
+  const assetsIdx = m1Tabs.findIndex((t) => t.key === 'assets');
+  check('H1 the tab is registered in m1Tabs, immediately BEFORE Assets (source before consumer)',
+    tabIdx >= 0 && assetsIdx === tabIdx + 1, `standards at ${tabIdx}, assets at ${assetsIdx}`);
+  check('H2 every Module 1 tab label is numbered by its own position, so the insert renumbered the rest',
+    m1Tabs.every((t, i) => t.label.startsWith(`${i + 1}. `) && t.step === i + 1),
+    m1Tabs.map((t) => t.label).join(' | '));
+  check('H3 the guide carries the new tab (verify-platform-guide fails without it)',
+    !!TAB_CONTENT['module1/asset-standards']
+    && TAB_CONTENT['module1/asset-standards'].intro.length > 40
+    && (TAB_CONTENT['module1/asset-standards'].steps ?? []).length >= 3);
+  check('H4 the shell renders it on its key',
+    shell.includes(`activeTab === 'asset-standards'`) && shell.includes('<Module1AssetStandards />'));
+  check('H5 the DIALOG is gone: no modal file, no importer, no opener',
+    !existsSync('src/hubs/modeling/platforms/refm/components/modals/AssetTypeStandardsModal.tsx')
+    && !assetsTab.includes('AssetTypeStandardsModal')
+    && !assetsTab.includes('open-asset-type-standards'));
+  check('H6 the tab follows the OpEx table pattern (navy header row, one editable row per type, an add row)',
+    tab.includes("background: 'var(--color-navy)'") && tab.includes('<thead>')
+    && tab.includes('std-add-save') && tab.includes('data-testid="asset-standards-table"'));
+
+  section('I. The list is the firm\'s: editable, extensible, orderable');
+  check('I1 a row can be renamed, re-categorised, removed and reordered from the tab',
+    tab.includes('-label') && tab.includes('-category') && tab.includes('-delete')
+    && tab.includes('-up') && tab.includes('-down') && tab.includes("method: 'PUT'"));
+  check('I2 the reference list is a STARTING SET offered by a button, never auto-written',
+    tab.includes('asset-type-seed-standard-list') && tab.includes('seedStandardList')
+    && !/useEffect\([^)]*seedStandardList/.test(tab));
+  check('I3 the route reorders with a whole-list dense write and refuses a stranger id',
+    route.includes('export async function PUT')
+    && route.includes('sort_order: i')
+    && route.includes('not in your list'));
+  check('I4 sortAssetTypes keeps "never reordered" (absent) apart from "first" (0)',
+    JSON.stringify(sortAssetTypes([
+      { id: 'c', label: 'C', parkingRatioBasis: 'slots_per_unit' },
+      { id: 'a', label: 'A', parkingRatioBasis: 'slots_per_unit', sortOrder: 0 },
+      { id: 'b', label: 'B', parkingRatioBasis: 'slots_per_unit', sortOrder: 1 },
+    ]).map((e) => e.id)) === JSON.stringify(['a', 'b', 'c']));
+
+  section('J. Rates carry a unit, and stamp exactly like the area standards');
+  const rated: AssetTypeStandard = {
+    id: 'hotel', label: 'Hotel', parkingRatioBasis: 'slots_per_unit',
+    constructionCostPerSqm: 0, revenueRate: 900, revenueRateUnit: 'adr_per_key_night',
+  };
+  const rateStamp = stampFromAssetType(rated, {});
+  check('J1 the rate and its unit stamp onto the asset, a zero cost stamping as a real 0',
+    rateStamp.revenueRate === 900 && rateStamp.revenueRateUnit === 'adr_per_key_night'
+    && rateStamp.constructionCostPerSqm === 0);
+  const unitlessRate: AssetTypeStandard = { id: 'x', label: 'X', parkingRatioBasis: 'slots_per_unit', revenueRate: 5 };
+  check('J2 a rate with no unit names no basis, so neither is stamped',
+    !('revenueRate' in stampFromAssetType(unitlessRate, {}))
+    && !('revenueRateUnit' in stampFromAssetType(unitlessRate, {})));
+  check('J3 the four units are the whole vocabulary, in code, the DB and the route',
+    REVENUE_RATE_UNITS.length === 4
+    && readFileSync('supabase/migrations/243_asset_type_rates_and_order.sql', 'utf8')
+      .includes("'per_sqm', 'per_unit', 'per_sqm_year', 'adr_per_key_night'")
+    && route.includes('REVENUE_RATE_UNITS'));
+  check('J4 the route requires a unit WITH a rate rather than guessing one',
+    route.includes('Pick what the revenue rate is per.'));
+  check('J5 the caption states the rates and keeps a blank apart from a zero',
+    describeStamp(rateStamp).includes('900 /key/night')
+    && describeStamp(rateStamp).includes('Build 0 per sqm')
+    && describeStamp(stampFromAssetType({ id: 'y', label: 'Y', parkingRatioBasis: 'slots_per_unit' }, {})).includes('Revenue not set'));
+
+  section('K. Unit size falls back; parking inherits and overrides');
+  const stampWithBoth = stampFromAssetType(
+    { id: 'apt', label: 'Apt', parkingRatioBasis: 'slots_per_unit', avgUnitSizeSqm: 120, parkingRatio: 1 }, {});
+  check('K1 sub-unit areas WIN over the asset type average (they are more precise)',
+    resolveAvgUnitSize([80, 120], stampWithBoth).source === 'sub_units'
+    && resolveAvgUnitSize([80, 120], stampWithBoth).value === 100);
+  check('K2 the asset type average is the FALLBACK when no sub-unit states one',
+    resolveAvgUnitSize([], stampWithBoth).source === 'asset_type'
+    && resolveAvgUnitSize([], stampWithBoth).value === 120
+    && resolveAvgUnitSize([undefined, 0], stampWithBoth).source === 'asset_type');
+  check('K3 with neither, the answer is "unset", never 0',
+    resolveAvgUnitSize([], undefined).source === 'unset'
+    && resolveAvgUnitSize([], undefined).value === undefined);
+  check('K4 a sub-unit parking override wins, and a typed ZERO is a real override',
+    resolveParkingRatio(2, stampWithBoth).source === 'sub_unit'
+    && resolveParkingRatio(0, stampWithBoth).source === 'sub_unit'
+    && resolveParkingRatio(0, stampWithBoth).value === 0);
+  check('K5 with no override the asset type default applies, and with neither it is "unset"',
+    resolveParkingRatio(undefined, stampWithBoth).source === 'asset_type'
+    && resolveParkingRatio(undefined, stampWithBoth).value === 1
+    && resolveParkingRatio(undefined, undefined).source === 'unset');
+  check('K6 the sub-unit row renders inherit / override through the ONE resolver',
+    assetsTab.includes('resolveParkingRatio(subUnit.parkingRatio, assetStandards)')
+    && assetsTab.includes('-parking-override') && assetsTab.includes('-parking-inherit'));
+  check('K7 the Module 6 picker drops the sub-unit override too (nothing reads it yet)',
+    nonEconomicLeverReason('subUnits[su_1].parkingRatio', 'parkingRatio') !== null);
 }
 
 // ── Live half ───────────────────────────────────────────────────────────────
@@ -313,6 +414,49 @@ async function liveChecks(): Promise<void> {
     }
     const leftover = await c.query(`SELECT count(*)::int AS n FROM refm_asset_types WHERE entry_id LIKE 'verify-probe-%'`);
     check('E8 the probe rolled back (no rows left)', Number(leftover.rows[0]?.n) === 0);
+
+    // Migration 243: the rates and the order.
+    const rateCols = await c.query(`
+      SELECT column_name, is_nullable FROM information_schema.columns
+       WHERE table_name = 'refm_asset_types'
+         AND column_name IN ('construction_cost_per_sqm', 'revenue_rate', 'revenue_rate_unit', 'sort_order')`);
+    check('E9 the rate and order columns are live and NULLABLE (mig 243)',
+      rateCols.rows.length === 4 && rateCols.rows.every((r) => r.is_nullable === 'YES'),
+      JSON.stringify(rateCols.rows));
+
+    await c.query('BEGIN');
+    try {
+      const anyAccount = await c.query(`SELECT id FROM accounts LIMIT 1`);
+      if (anyAccount.rows.length === 1) {
+        const accId = String(anyAccount.rows[0].id);
+        // The refusal probe sits behind a SAVEPOINT: a failed statement
+        // aborts the whole transaction in Postgres, so without one every
+        // later query in this block would error and the section would crash
+        // rather than report.
+        let refused = false;
+        await c.query('SAVEPOINT unit_probe');
+        try {
+          await c.query(
+            `INSERT INTO refm_asset_types (account_id, entry_id, label, revenue_rate, revenue_rate_unit)
+             VALUES ($1, 'verify-probe-unit', 'Verify Probe Unit', 10, 'per_furlong')`, [accId]);
+          await c.query('RELEASE SAVEPOINT unit_probe');
+        } catch {
+          refused = true;
+          await c.query('ROLLBACK TO SAVEPOINT unit_probe');
+        }
+        const ok = await c.query(
+          `INSERT INTO refm_asset_types (account_id, entry_id, label, revenue_rate, revenue_rate_unit, construction_cost_per_sqm, sort_order)
+           VALUES ($1, 'verify-probe-rate', 'Verify Probe Rate', 900, 'adr_per_key_night', 0, 0)
+           RETURNING revenue_rate_unit, construction_cost_per_sqm`, [accId]);
+        check('E10 live: the unit vocabulary is enforced, and a zero build cost stores as 0',
+          refused && ok.rows[0]?.revenue_rate_unit === 'adr_per_key_night'
+          && Number(ok.rows[0]?.construction_cost_per_sqm) === 0);
+      } else {
+        check('E10 live: the unit vocabulary is enforced, and a zero build cost stores as 0', false, 'no accounts row to probe against');
+      }
+    } finally {
+      await c.query('ROLLBACK');
+    }
   } finally {
     await c.end();
   }
