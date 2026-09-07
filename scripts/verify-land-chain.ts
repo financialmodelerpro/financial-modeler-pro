@@ -35,6 +35,13 @@ import {
   type ChainGap,
   type LandChainInputs,
 } from '../src/core/calculations/landChain';
+import {
+  assetParcelCount,
+  groupAssetsByPlot,
+  UNPLOTTED_GROUP,
+  type AssetPlotGroup,
+} from '../src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel';
+import type { Asset, Parcel } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
 import { buildExcelSampleState } from './excelSampleState';
@@ -216,6 +223,73 @@ function offlineChecks(): void {
     && panel.includes('reference Net Saleable / GLA = platform NSA'));
   check('C6 clearing every input returns the asset to carrying no chain at all',
     assetsTab.includes('Object.keys(next).length === 0 ? undefined'));
+
+  // ── T. The table surface ────────────────────────────────────────────────
+  section('T. Assets group under their plot, and the plot checks its own sum');
+  const mkAsset = (id: string, alloc: Record<string, unknown> | undefined, companion = false): Asset =>
+    ({ id, phaseId: 'phase_1', name: id, type: '', strategy: 'Sell', visible: true,
+      gfaSqm: 0, buaSqm: 0, sellableBuaSqm: 0, parkingBaysRequired: 0,
+      ...(alloc ? { landAllocation: alloc } : {}),
+      ...(companion ? { isCompanion: true } : {}) }) as unknown as Asset;
+  const mkParcel = (id: string, area: number): Parcel =>
+    ({ id, phaseId: 'phase_1', name: `Plot ${id}`, area, rate: 100, cashPct: 100, inKindPct: 0 }) as Parcel;
+
+  const parcelsT = [mkParcel('p1', 10000), mkParcel('p2', 5000), mkParcel('p3', 2000)];
+  const single = mkAsset('a1', { parcelId: 'p1', sqm: 6000 });
+  const multi = mkAsset('a2', { multiParcelSplits: [{ parcelId: 'p1', sqm: 1000 }, { parcelId: 'p2', sqm: 4000 }] });
+  const sentinel = mkAsset('a3', { parcelId: '__custom__', sqm: 900, customRate: 50 });
+  const nothing = mkAsset('a4', undefined);
+  const companion = mkAsset('a5', { parcelId: 'p1', sqm: 99999 }, true);
+  const grouped = groupAssetsByPlot([single, multi, sentinel, nothing, companion], parcelsT);
+
+  const byKey = (k: string): AssetPlotGroup | undefined => grouped.find((g) => g.key === k);
+  check('T1 a single-parcel asset is filed under its plot',
+    (byKey('p1')?.assets ?? []).map((a) => a.id).join(',') === 'a1');
+  check('T2 a multi-parcel asset files under the plot it draws MOST from, and its row can say how many',
+    (byKey('p2')?.assets ?? []).map((a) => a.id).join(',') === 'a2'
+    && assetParcelCount(multi) === 2 && assetParcelCount(single) === 1);
+  check('T3 an asset naming no real plot (a sentinel, or nothing) goes to the unplotted group',
+    (byKey(UNPLOTTED_GROUP)?.assets ?? []).map((a) => a.id).sort().join(',') === 'a3,a4');
+  check('T4 the plot sum counts EVERY draw on it, including a slice from an asset filed elsewhere',
+    byKey('p1')?.allocatedSqm === 7000 && byKey('p1')?.remainingSqm === 3000
+    && byKey('p1')?.status === 'under');
+  check('T5 a plot drawn exactly reads ok, and an over-drawn plot reads over',
+    groupAssetsByPlot([mkAsset('x', { parcelId: 'p2', sqm: 5000 })], [mkParcel('p2', 5000)])[0].status === 'ok'
+    && groupAssetsByPlot([mkAsset('x', { parcelId: 'p2', sqm: 6000 })], [mkParcel('p2', 5000)])[0].status === 'over');
+  check('T6 companions carry no land, so they never join a plot or its sum',
+    !(byKey('p1')?.assets ?? []).some((a) => a.id === 'a5')
+    && !(byKey(UNPLOTTED_GROUP)?.assets ?? []).some((a) => a.id === 'a5')
+    && byKey('p1')?.allocatedSqm === 7000);
+  check('T7 every parcel appears even with nothing on it; the unplotted group appears only when used',
+    !!byKey('p3') && (byKey('p3')?.assets ?? []).length === 0
+    && groupAssetsByPlot([single], parcelsT).every((g) => g.key !== UNPLOTTED_GROUP));
+
+  section('U. The row carries what a row can, the drawer the rest');
+  const tabSrc = readFileSync(
+    'src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx', 'utf8');
+  check('U1 the assets table exists, grouped by plot, with a per-plot check',
+    tabSrc.includes('data-testid="assets-table"') && tabSrc.includes('plot-group-${g.key}')
+    && tabSrc.includes('plotCheckText(') && tabSrc.includes('groupAssetsByPlot('));
+  check('U2 the row carries the chain inputs and the derived cascade through Total BUA',
+    ['-utilisation', '-coverage', '-far', '-retail', '-service'].every((k) => tabSrc.includes(`asset-row-\${asset.id}${k}`))
+    && tabSrc.includes('asset-row-${asset.id}-total-bua')
+    && tabSrc.includes('computeLandChain('));
+  check('U3 a multi-parcel asset shows its parcel count in the row and opens the editor',
+    tabSrc.includes('asset-${asset.id}-parcel-count') && tabSrc.includes('parcelCount > 1'));
+  check('U4 the sub-units table picks its parent asset when adding',
+    tabSrc.includes('data-testid="subunits-table"') && tabSrc.includes('subunits-parent-pick')
+    && tabSrc.includes('subunits-add-subunit'));
+  check('U5 NO field has two homes: name, phase, the free-text type and Delete live only in the row',
+    !tabSrc.includes('data-testid={`asset-${asset.id}-name`}')
+    && !tabSrc.includes('data-testid={`asset-${asset.id}-phase`}')
+    && !tabSrc.includes('data-testid={`asset-${asset.id}-type`}')
+    && !tabSrc.includes('data-testid={`asset-${asset.id}-remove`}')
+    && tabSrc.includes('asset-row-${asset.id}-name'));
+  check('U6 what a row CANNOT hold still has a home in the drawer',
+    ['-add-parcel-split', '-multi-parcel-section', '-area-reconciliation', '-land-rate-issue',
+      '-companion-badge', '-standards-values', '-land-allocation-block']
+      .every((k) => tabSrc.includes(`asset-\${asset.id}${k}`))
+    && tabSrc.includes('<LandChainSection'));
 
   // ── D. The engine does not move ─────────────────────────────────────────
   section('D. The engine is byte-identical with the chain inputs present');

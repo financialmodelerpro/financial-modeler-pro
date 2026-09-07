@@ -338,8 +338,15 @@ function offlineChecks(): void {
     && !typesSrc.includes('export const ASSET_TYPES_BY_STRATEGY')
     && !assetsTab.includes('ASSET_TYPES_BY_PROJECT_TYPE')
     && !assetsTab.includes('ASSET_TYPES_BY_STRATEGY'));
-  check('G5 free text stays (the Type field is still a text input with suggestions) and a catalog pick prefills its category',
-    /input[^>]*list=\{`asset-types-/.test(assetsTab.replace(/\n\s*/g, ' '))
+  // RE-AIMED 2026-09-07 (step 3 commit 2): the Type field moved out of the
+  // asset card and into the assets TABLE, so this now pins the row's input
+  // and its datalist. The invariant is unchanged (the type stays FREE TEXT
+  // with suggestions, rather than becoming a closed dropdown); only the
+  // element's home moved, and pinning the old home would have asserted the
+  // layout rather than the rule.
+  check('G5 free text stays (the Type cell is still a text input with suggestions) and a catalog pick prefills its category',
+    /input[^>]*list=\{`asset-row-types-/.test(assetsTab.replace(/\n\s*/g, ' '))
+    && assetsTab.includes('<datalist id={`asset-row-types-')
     && tab.includes('assetTypeCategory('));
 
   section('H. The standards live on their OWN TAB, not in a dialog (2026-09-07d)');

@@ -45,7 +45,7 @@ import {
   ASSET_STRATEGIES,
   ASSET_STATUSES,
   ASSET_STATUS_LABELS,
-  assetTypeCatalogForProjectType,
+  assetTypeCatalogForProjectType,
   SUB_UNIT_CATEGORIES,
   LAND_ALLOCATION_MODES,
   PARCEL_WEIGHTED_AVG,
@@ -61,7 +61,7 @@ import {
   computeLandReconciliation,
   computeOperatingEndDate,
   computeParcelNda,
-  computeSubUnitArea,
+  computeSubUnitArea,
   formatOperatingEndDate,
   landRateIssueText,
   resolveAssetAreaMetrics,
@@ -1686,22 +1686,9 @@ function AssetCard({
       {!collapsed && (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr) auto', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
-            <div>
-              <InputLabel label="Asset Name" help="Free-text label." inputId={`asset-${asset.id}-name`} />
-              <input id={`asset-${asset.id}-name`} data-testid={`asset-${asset.id}-name`} type="text" value={asset.name} onChange={(e) => onUpdate({ name: e.target.value })} style={inputStyle} />
-            </div>
-            <div>
-              <InputLabel label="Phase" help="Reassign this asset to another phase. The asset visually moves to that phase's section." inputId={`asset-${asset.id}-phase`} />
-              <select
-                id={`asset-${asset.id}-phase`}
-                data-testid={`asset-${asset.id}-phase`}
-                value={asset.phaseId}
-                onChange={(e) => onUpdate({ phaseId: e.target.value })}
-                style={inputStyle}
-              >
-                {allPhases.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
-              </select>
-            </div>
+            {/* Asset name, phase, the free-text type and Delete are COLUMNS
+                now, so they are not repeated here: one field, one home. What
+                stays is what a row cannot hold. */}
             <div>
               <InputLabel label="Strategy" help="Sell / Operate / Lease / Sell + Manage. Drives Tab 3 cost classification + future revenue logic." inputId={`asset-${asset.id}-strategy`} />
               {/* A strategy change is a model operation, so it is previewed and
@@ -1726,11 +1713,7 @@ function AssetCard({
                   datalist suggestions cover the project type's catalog
                   (Mixed-Use / Custom show the union of every catalog).
                   Type drives the Useful Life default suggestion only. */}
-              <InputLabel label="Type (optional)" help="Optional asset type. Suggestions come from the standard catalog (a Residential / Hospitality / Retail project type narrows to its own category) plus your firm's registry; free-text any other value or leave blank." inputId={`asset-${asset.id}-type`} />
-              <input id={`asset-${asset.id}-type`} data-testid={`asset-${asset.id}-type`} type="text" list={`asset-types-${asset.id}`} value={asset.type ?? ''} placeholder="e.g. Tower, Branded Apartments, Hotel..." onChange={(e) => onUpdate({ type: e.target.value })} style={inputStyle} />
-              <datalist id={`asset-types-${asset.id}`}>
-                {typeOptions.map((t) => (<option key={t} value={t} />))}
-              </datalist>
+              <InputLabel label="Company standard" help="Which of your firm's asset types this asset is. The free-text name is a column in the table; this records the type whose PROJECT values (unit size, parking ratio, build cost, revenue rate) the asset reads." inputId={`asset-${asset.id}-assetTypeId`} />
               {assetTypeRegistry.entries.length > 0 && (
                 <select
                   data-testid={`asset-${asset.id}-assetTypeId`}
@@ -1780,14 +1763,6 @@ function AssetCard({
                 <input type="checkbox" checked={asset.visible} data-testid={`asset-${asset.id}-visible`} onChange={(e) => onUpdate({ visible: e.target.checked })} />
                 Visible
               </label>
-              <button
-                type="button"
-                onClick={onRemove}
-                data-testid={`asset-${asset.id}-remove`}
-                style={{ background: 'transparent', border: '1px solid var(--color-negative)', color: 'var(--color-negative)', borderRadius: 'var(--radius-sm)', padding: '2px 8px', cursor: 'pointer', fontSize: 'var(--font-micro)' }}
-              >
-                Delete
-              </button>
             </div>
           </div>
 
