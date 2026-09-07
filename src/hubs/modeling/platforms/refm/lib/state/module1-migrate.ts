@@ -185,6 +185,30 @@ export function isPreV7Snapshot(s: unknown): boolean {
   return false;
 }
 
+/**
+ * 2026-09-07 (mig 244): drop the legacy company-standards STAMP off every
+ * asset.
+ *
+ * Asset type values moved onto the project, so a stamp is a second home for
+ * the same rule. Both hydrate paths must strip it or a v8 snapshot written by
+ * the previous build would carry it forever, unread and undiffed, and re-save
+ * it on every write. Measured before removal: exactly one live asset had one,
+ * holding a label and a category and no numbers, so nothing is lost.
+ * `assetTypeId` is untouched: it is the live key into the project's values.
+ */
+export function stripLegacyAssetTypeStamp(snap: HydrateSnapshot): HydrateSnapshot {
+  const assets = (snap.assets ?? []) as Asset[];
+  if (!assets.some((a) => 'assetTypeStandards' in (a as unknown as Record<string, unknown>))) return snap;
+  return {
+    ...snap,
+    assets: assets.map((a) => {
+      const next = { ...a } as Asset & { assetTypeStandards?: unknown };
+      delete next.assetTypeStandards;
+      return next as Asset;
+    }),
+  };
+}
+
 const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   const out: Partial<NewV8Snapshot> = { ...s };
   delete out.version;
@@ -207,7 +231,9 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // M2.0 Pass 56 (2026-05-16): split legacy historicalPreCapex into
   // Land + Building on each asset (outermost so it runs on the final
   // asset shape after every earlier-pass per-asset migration).
-  return migrateM2Pass9LBackfillByPhase(migrateM2Pass9kPruneByPhase(migrateM4Pass2hPeriodArrays(migrateM20pass56SplitPreCapex(migrateM20pass23TrancheSimplify(migrateM20pass20GraceRename(migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  // stripLegacyAssetTypeStamp is OUTERMOST so it sees the final asset shape,
+  // after every earlier per-asset migration has run.
+  return stripLegacyAssetTypeStamp(migrateM2Pass9LBackfillByPhase(migrateM2Pass9kPruneByPhase(migrateM4Pass2hPeriodArrays(migrateM20pass56SplitPreCapex(migrateM20pass23TrancheSimplify(migrateM20pass20GraceRename(migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -225,7 +251,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  )))))))))))))))))))));
+  ))))))))))))))))))))));
 };
 
 const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
@@ -248,7 +274,9 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // M2.0 Pass 56 (2026-05-16): split legacy historicalPreCapex into
   // Land + Building on each asset (outermost so it runs on the final
   // asset shape after every earlier-pass per-asset migration).
-  return migrateM2Pass9LBackfillByPhase(migrateM2Pass9kPruneByPhase(migrateM4Pass2hPeriodArrays(migrateM20pass56SplitPreCapex(migrateM20pass23TrancheSimplify(migrateM20pass20GraceRename(migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
+  // stripLegacyAssetTypeStamp is OUTERMOST so it sees the final asset shape,
+  // after every earlier per-asset migration has run.
+  return stripLegacyAssetTypeStamp(migrateM2Pass9LBackfillByPhase(migrateM2Pass9kPruneByPhase(migrateM4Pass2hPeriodArrays(migrateM20pass56SplitPreCapex(migrateM20pass23TrancheSimplify(migrateM20pass20GraceRename(migrateM20pass17MethodRenumber(migrateM20pass16LandFundingSimplify(migrateM20pass15GraceTreatment(migrateM20pass13DropMethod2(migrateT3ParcelSplitDefault(migrateT3DedupCustomLines(migrateT3ClampStartEnd(migrateT3DefaultCostLineSeed(migrateT3StripCompanionAndDedup(migrateT2P3CompanionType(migrateT2CompanionSubUnits(migrateM20costsPass10Hybrid(migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -266,7 +294,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  )))))))))))))))))))));
+  ))))))))))))))))))))));
 };
 
 // M2.0M Pass 7 (2026-05-11): Costs Architecture rewrite. Pass 4
@@ -1576,8 +1604,18 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
     : [makeDefaultParcel(undefined, firstPhaseId)];
 
   // Assets: rename legacy 'Hybrid' strategy to 'Sell + Manage'.
+  //
+  // 2026-09-07 (mig 244): STRIP the legacy company-standards stamp. Asset type
+  // values moved onto the project, so a stamp is a second home for the same
+  // rule; the spread below would otherwise carry it forever, unread and
+  // undiffed, and re-save it on every write. Measured before removal: exactly
+  // one live asset carried one, holding a label and a category and no numbers
+  // at all, so nothing is lost. `assetTypeId` stays and is the live key.
   const rawAssets = Array.isArray(o.assets) ? (o.assets as Partial<Asset>[]) : [];
-  const assets: Asset[] = rawAssets.map((a) => ({
+  const assets: Asset[] = rawAssets.map((raw) => {
+    const a = { ...raw } as Partial<Asset> & { assetTypeStandards?: unknown };
+    delete a.assetTypeStandards;
+    return {
     ...a,
     id: a.id ?? `asset_${Math.random().toString(36).slice(2, 8)}`,
     phaseId: a.phaseId ?? firstPhaseId,
@@ -1599,7 +1637,8 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
     usefulLifeYears: a.usefulLifeYears,
     status: a.status,
     historicalBaseline: a.historicalBaseline,
-  })) as Asset[];
+    };
+  }) as Asset[];
 
   const subUnits: SubUnit[] = Array.isArray(o.subUnits) ? (o.subUnits as SubUnit[]) : [];
 

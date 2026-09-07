@@ -1,28 +1,36 @@
 'use client';
 
 /**
- * Module1AssetStandards.tsx (REFM Module 1, tab 4, migs 242 + 243)
+ * Module1AssetStandards.tsx (REFM Module 1, tab 4, migs 242-244)
  *
- * LAND AND ASSET DATA MANAGEMENT: the firm's asset type list and the company
- * standards each type carries. Moved out of a dialog on 2026-09-07 because a
- * reference table people maintain is not a dialog's job, and it follows the
- * OpEx table pattern (navy header row, one editable row per record, an add
- * row at the foot, a remove control at the end of each row).
+ * LAND AND ASSET DATA MANAGEMENT, in two halves that live in two places:
  *
- * ACCOUNT SCOPED, so this is the same list on every project the firm opens,
- * and ANY member may edit it (vocabulary, not entitlement, the cost catalog
- * rule). The ten reference types are a STARTING SET offered by a button, not
- * a fixed list: every row can be renamed, re-categorised, reordered, removed
- * and added to.
+ *   THE NAMES ARE THE FIRM'S. Type, category and order are account-scoped
+ *   (`refm_asset_types`), shared across every project the firm opens, edited
+ *   by ANY member (vocabulary, not entitlement, the cost catalog rule), and
+ *   saved through /api/refm/asset-types with an explicit Save per row.
  *
- * NOTHING HERE IS READ BY THE CALCULATION ENGINE. Selecting a type on an
- * asset STAMPS the resolved values onto that asset, and the engine reads the
- * asset, so a firm editing this table can never change a saved model. Capex
- * and revenue keep taking their rates exactly where they do today.
+ *   THE VALUES ARE THE PROJECT'S. Unit size, parking ratio and its basis,
+ *   build cost per sqm and a revenue rate with its unit are assumptions of
+ *   THIS project, because a firm's schemes genuinely differ. They live in the
+ *   snapshot (`project.assetTypeValues`, keyed by the type's entry id, plus
+ *   `project.parkingAreaPerSlotSqm`) and are therefore ordinary model inputs:
+ *   typing one changes the model immediately, autosave persists it, the change
+ *   log records it and a version captures it, exactly like a cost rate. There
+ *   is deliberately NO Save button on that half, because nothing else in the
+ *   model has one.
  *
- * A BLANK AND A TYPED ZERO ARE DIFFERENT ANSWERS: every numeric cell is a
- * text field whose empty state means "not decided" (stored NULL) and whose
- * "0" is a real zero. Blanks render as a placeholder, never as 0.
+ * NOTHING IS STAMPED ONTO AN ASSET. That scheme existed only while the values
+ * sat on an account table the engine must never read. An asset now holds a
+ * REFERENCE (`assetTypeId`) and reads its values live, so editing a standard
+ * cannot leave a model stale and nobody has to re-pick a type.
+ *
+ * A BLANK AND A TYPED ZERO ARE DIFFERENT ANSWERS: an empty cell means "not
+ * decided" (the field is absent from the snapshot) and a 0 is a decision.
+ * Blanks render as a placeholder, never as 0.
+ *
+ * Table pattern follows Module 3 OpEx (navy header, one editable row per
+ * record, an add row at the foot, remove at the end of each row).
  *
  * No em dashes in this file.
  */
@@ -36,9 +44,11 @@ import {
   REVENUE_RATE_UNITS,
   REVENUE_RATE_UNIT_LABELS,
   normaliseAssetTypeId,
+  orphanedValueTypeIds,
   sortAssetTypes,
   typesWithoutStandard,
   type AssetTypeStandard,
+  type AssetTypeValues,
   type ParkingRatioBasis,
   type RevenueRateUnit,
 } from '../../lib/state/assetTypeStandards';
@@ -76,85 +86,99 @@ const SMALL_BTN: React.CSSProperties = {
   fontWeight: 600,
 };
 
-interface Draft {
-  entryId?: string;
-  label: string;
-  category: string;
-  avgUnitSize: string;
-  parkingRatio: string;
-  parkingRatioBasis: ParkingRatioBasis;
-  constructionCost: string;
-  revenueRate: string;
-  revenueRateUnit: RevenueRateUnit;
-}
-
-const EMPTY_DRAFT: Draft = {
-  label: '', category: '', avgUnitSize: '', parkingRatio: '',
-  parkingRatioBasis: 'slots_per_unit', constructionCost: '', revenueRate: '',
-  revenueRateUnit: 'per_sqm',
-};
-
-const toDraft = (e: AssetTypeStandard): Draft => ({
-  entryId: e.id,
-  label: e.label,
-  category: e.category ?? '',
-  avgUnitSize: e.avgUnitSizeSqm !== undefined ? String(e.avgUnitSizeSqm) : '',
-  parkingRatio: e.parkingRatio !== undefined ? String(e.parkingRatio) : '',
-  parkingRatioBasis: e.parkingRatioBasis,
-  constructionCost: e.constructionCostPerSqm !== undefined ? String(e.constructionCostPerSqm) : '',
-  revenueRate: e.revenueRate !== undefined ? String(e.revenueRate) : '',
-  revenueRateUnit: e.revenueRateUnit ?? 'per_sqm',
+/** The account half of a row, which needs an explicit Save. */
+interface NameDraft { entryId?: string; label: string; category: string }
+const EMPTY_NAME: NameDraft = { label: '', category: '' };
+const toNameDraft = (e: AssetTypeStandard): NameDraft => ({
+  entryId: e.id, label: e.label, category: e.category ?? '',
 });
 
-/** '' -> null (blank, not decided); otherwise a finite non-negative number. */
-function parseStandard(s: string): { ok: true; value: number | null } | { ok: false } {
+/** '' -> undefined (blank, not decided); otherwise a finite non-negative
+ *  number. Anything else is refused rather than coerced, so a typo can never
+ *  silently become a number nobody meant. */
+function parseValue(s: string): { ok: true; value: number | undefined } | { ok: false } {
   const t = s.trim();
-  if (t === '') return { ok: true, value: null };
+  if (t === '') return { ok: true, value: undefined };
   const n = Number(t);
   if (!Number.isFinite(n) || n < 0) return { ok: false };
   return { ok: true, value: n };
 }
 
-const bodyFor = (d: Draft, unit: number | null, ratio: number | null, cost: number | null, rate: number | null): Record<string, unknown> => ({
-  ...(d.entryId ? { entryId: d.entryId } : {}),
-  label: d.label.trim(),
-  category: d.category.trim(),
-  avgUnitSize: unit,
-  parkingRatio: ratio,
-  parkingRatioBasis: d.parkingRatioBasis,
-  constructionCostPerSqm: cost,
-  revenueRate: rate,
-  ...(rate !== null ? { revenueRateUnit: d.revenueRateUnit } : {}),
-});
+/**
+ * One numeric PROJECT value.
+ *
+ * Local text state so a half-typed entry and an empty cell both survive, and
+ * every accepted keystroke commits straight to the store, because these are
+ * model inputs and the model has no Save buttons.
+ */
+function ValueCell({
+  value, onCommit, testId, disabled, title,
+}: {
+  value: number | undefined;
+  onCommit: (v: number | undefined) => void;
+  testId: string;
+  disabled?: boolean;
+  title?: string;
+}): React.JSX.Element {
+  // DRAFT OR STORE, with no effect to keep them in step.
+  //
+  // `draft === null` means "follow the store", so an external change (a
+  // version load, an undo, another surface) shows immediately. While the user
+  // is typing, the draft wins, which is what lets a half-typed "1." and an
+  // empty cell both survive. Blur drops the draft, so anything that never
+  // parsed snaps back to the last value that did.
+  const [draft, setDraft] = useState<string | null>(null);
+  const stored = value !== undefined ? String(value) : '';
+  const text = draft ?? stored;
+  const bad = draft !== null && !parseValue(draft).ok;
+  return (
+    <input
+      style={{ ...FAST_INPUT, ...(bad ? { borderColor: 'var(--color-negative)' } : {}) }}
+      value={text}
+      inputMode="decimal"
+      placeholder="not set"
+      disabled={disabled}
+      title={title}
+      data-testid={testId}
+      onChange={(e) => {
+        const next = e.target.value;
+        setDraft(next);
+        const parsed = parseValue(next);
+        if (parsed.ok) onCommit(parsed.value);
+      }}
+      onBlur={() => setDraft(null)}
+    />
+  );
+}
 
-export default function Module1AssetStandards(): React.JSX.Element {
-  const { project, assets } = useModule1Store(
-    useShallow((s) => ({ project: s.project, assets: s.assets })),
+export default function Module1AssetStandards({ projectId }: { projectId: string | null }): React.JSX.Element {
+  const { project, assets, setProject, setAssetTypeValue } = useModule1Store(
+    useShallow((s) => ({
+      project: s.project,
+      assets: s.assets,
+      setProject: s.setProject,
+      setAssetTypeValue: s.setAssetTypeValue,
+    })),
   );
 
   const [entries, setEntries] = useState<AssetTypeStandard[]>([]);
-  const [parkingAreaPerSlot, setParkingAreaPerSlot] = useState<number | null>(null);
   const [available, setAvailable] = useState(true);
-  const [drafts, setDrafts] = useState<Draft[]>([]);
-  const [addDraft, setAddDraft] = useState<Draft>(EMPTY_DRAFT);
-  const [slotDraft, setSlotDraft] = useState('');
+  const [nameDrafts, setNameDrafts] = useState<NameDraft[]>([]);
+  const [addDraft, setAddDraft] = useState<NameDraft>(EMPTY_NAME);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  const values = project.assetTypeValues ?? {};
 
   const load = useCallback(async (): Promise<void> => {
     try {
       const res = await fetch('/api/refm/asset-types');
       if (!res.ok) { setAvailable(false); return; }
-      const body = await res.json() as {
-        entries?: AssetTypeStandard[]; parkingAreaPerSlot?: number | null; available?: boolean;
-      };
+      const body = await res.json() as { entries?: AssetTypeStandard[]; available?: boolean };
       const list = Array.isArray(body.entries) ? sortAssetTypes(body.entries) : [];
       setEntries(list);
-      setDrafts(list.map(toDraft));
-      const slot = typeof body.parkingAreaPerSlot === 'number' ? body.parkingAreaPerSlot : null;
-      setParkingAreaPerSlot(slot);
-      setSlotDraft(slot !== null ? String(slot) : '');
+      setNameDrafts(list.map(toNameDraft));
       setAvailable(body.available !== false);
     } catch {
       setAvailable(false);
@@ -171,31 +195,30 @@ export default function Module1AssetStandards(): React.JSX.Element {
   const catalogToAdd = typesWithoutStandard(platformCatalog, entries);
   const projectToAdd = typesWithoutStandard(projectTypesInUse, entries);
   const wholeCatalogToAdd = typesWithoutStandard(ASSET_TYPE_CATALOG, entries);
+  // Values this project holds for types the firm has since removed. Kept, not
+  // deleted: an account-level edit must not silently drop project numbers.
+  const orphans = orphanedValueTypeIds(project.assetTypeValues, entries);
 
   const flash = (msg: string): void => { setNotice(msg); setTimeout(() => setNotice(null), 3000); };
 
-  const saveEntry = async (d: Draft): Promise<void> => {
+  const saveName = async (d: NameDraft): Promise<void> => {
     setError(null);
     const label = d.label.trim();
     if (!label) { setError('Every asset type needs a name.'); return; }
-    const unit = parseStandard(d.avgUnitSize);
-    const ratio = parseStandard(d.parkingRatio);
-    const cost = parseStandard(d.constructionCost);
-    const rate = parseStandard(d.revenueRate);
-    if (!unit.ok) { setError(`"${label}": average unit size must be blank, zero or a positive number.`); return; }
-    if (!ratio.ok) { setError(`"${label}": parking ratio must be blank, zero or a positive number.`); return; }
-    if (!cost.ok) { setError(`"${label}": construction cost must be blank, zero or a positive number.`); return; }
-    if (!rate.ok) { setError(`"${label}": revenue rate must be blank, zero or a positive number.`); return; }
     setBusy(true);
     try {
       const res = await fetch('/api/refm/asset-types', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(bodyFor(d, unit.value, ratio.value, cost.value, rate.value)),
+        body: JSON.stringify({
+          ...(d.entryId ? { entryId: d.entryId } : {}),
+          label,
+          category: d.category.trim(),
+        }),
       });
       const body = await res.json() as { entry?: AssetTypeStandard; error?: string };
       if (!res.ok || !body.entry) throw new Error(body.error ?? 'Could not save the entry.');
-      if (!d.entryId) setAddDraft(EMPTY_DRAFT);
+      if (!d.entryId) setAddDraft(EMPTY_NAME);
       flash(d.entryId ? `Saved ${label}.` : `Added ${label}.`);
       await load();
     } catch (e) {
@@ -212,7 +235,7 @@ export default function Module1AssetStandards(): React.JSX.Element {
       const res = await fetch(`/api/refm/asset-types?entryId=${encodeURIComponent(entryId)}`, { method: 'DELETE' });
       const body = await res.json() as { ok?: boolean; error?: string };
       if (!res.ok || !body.ok) throw new Error(body.error ?? 'Could not delete the entry.');
-      flash(`Removed ${label}. Assets already stamped from it keep their values.`);
+      flash(`Removed ${label} from your firm's list. This project keeps the values it had for it.`);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -221,29 +244,7 @@ export default function Module1AssetStandards(): React.JSX.Element {
     }
   };
 
-  const saveSlotArea = async (): Promise<void> => {
-    setError(null);
-    const parsed = parseStandard(slotDraft);
-    if (!parsed.ok) { setError('Parking area per slot must be blank, zero or a positive number.'); return; }
-    setBusy(true);
-    try {
-      const res = await fetch('/api/refm/asset-types', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ parkingAreaPerSlot: parsed.value }),
-      });
-      const body = await res.json() as { ok?: boolean; error?: string };
-      if (!res.ok || !body.ok) throw new Error(body.error ?? 'Could not save.');
-      flash('Saved the parking area per slot.');
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  /** Move one row up or down and write the WHOLE list's order densely. */
+  /** Move one row and write the whole order in ONE batched request. */
   const move = async (index: number, delta: number): Promise<void> => {
     const next = entries.slice();
     const target = index + delta;
@@ -251,7 +252,7 @@ export default function Module1AssetStandards(): React.JSX.Element {
     const [row] = next.splice(index, 1);
     next.splice(target, 0, row);
     setEntries(next);
-    setDrafts(next.map(toDraft));
+    setNameDrafts(next.map(toNameDraft));
     setBusy(true);
     setError(null);
     try {
@@ -271,7 +272,7 @@ export default function Module1AssetStandards(): React.JSX.Element {
     }
   };
 
-  /** Seed every reference type not already covered, each with its category. */
+  /** Seed every reference type not already in the firm's list, with its category. */
   const seedStandardList = async (): Promise<void> => {
     setError(null);
     setBusy(true);
@@ -289,7 +290,7 @@ export default function Module1AssetStandards(): React.JSX.Element {
       });
       const body = await res.json() as { entries?: AssetTypeStandard[]; error?: string };
       if (!res.ok || !body.entries) throw new Error(body.error ?? 'Could not add the standard list.');
-      flash(`Added ${body.entries.length} asset types. Fill in your firm's standards on each row.`);
+      flash(`Added ${body.entries.length} asset types. Fill in this project's values on each row.`);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -304,44 +305,66 @@ export default function Module1AssetStandards(): React.JSX.Element {
     setError(null);
   };
 
-  const patchDraft = (i: number, patch: Partial<Draft>): void =>
-    setDrafts((prev) => prev.map((d, j) => (j === i ? { ...d, ...patch } : d)));
+  const patchName = (i: number, patch: Partial<NameDraft>): void =>
+    setNameDrafts((prev) => prev.map((d, j) => (j === i ? { ...d, ...patch } : d)));
 
-  const rowCells = (d: Draft, set: (patch: Partial<Draft>) => void, idPrefix: string): React.JSX.Element => (
+  const noProject = !projectId;
+
+  /** The five value cells for one type id. Disabled with no project open,
+   *  because a value without a project has nowhere to live. */
+  const valueCells = (id: string, v: AssetTypeValues | undefined): React.JSX.Element => (
     <>
       <td style={TD}>
-        <input style={TEXT_INPUT} value={d.label} data-testid={`${idPrefix}-label`}
-          placeholder="e.g. High End Apartments" onChange={(e) => set({ label: e.target.value })} />
+        <ValueCell
+          value={v?.avgUnitSizeSqm} disabled={noProject}
+          testId={`std-row-${id}-unit-size`}
+          title="Fallback only: an asset whose sub-units carry their own unit areas uses those instead."
+          onCommit={(n) => setAssetTypeValue(id, { avgUnitSizeSqm: n })}
+        />
       </td>
       <td style={TD}>
-        <input style={TEXT_INPUT} value={d.category} list="asset-standard-categories" data-testid={`${idPrefix}-category`}
-          placeholder="e.g. Residential" onChange={(e) => set({ category: e.target.value })} />
+        <ValueCell
+          value={v?.parkingRatio} disabled={noProject}
+          testId={`std-row-${id}-parking-ratio`}
+          title="The default for assets of this type. A sub-unit can override it."
+          onCommit={(n) => setAssetTypeValue(id, { parkingRatio: n })}
+        />
       </td>
       <td style={TD}>
-        <input style={FAST_INPUT} value={d.avgUnitSize} inputMode="decimal" data-testid={`${idPrefix}-unit-size`}
-          placeholder="not set" onChange={(e) => set({ avgUnitSize: e.target.value })} />
-      </td>
-      <td style={TD}>
-        <input style={FAST_INPUT} value={d.parkingRatio} inputMode="decimal" data-testid={`${idPrefix}-parking-ratio`}
-          placeholder="not set" onChange={(e) => set({ parkingRatio: e.target.value })} />
-      </td>
-      <td style={TD}>
-        <select style={TEXT_INPUT} value={d.parkingRatioBasis} data-testid={`${idPrefix}-basis`}
-          onChange={(e) => set({ parkingRatioBasis: e.target.value as ParkingRatioBasis })}>
+        <select
+          style={TEXT_INPUT}
+          value={v?.parkingRatioBasis ?? 'slots_per_unit'}
+          disabled={noProject}
+          data-testid={`std-row-${id}-basis`}
+          onChange={(e) => setAssetTypeValue(id, { parkingRatioBasis: e.target.value as ParkingRatioBasis })}
+        >
           {PARKING_RATIO_BASES.map((b) => (<option key={b} value={b}>{PARKING_RATIO_BASIS_LABELS[b]}</option>))}
         </select>
       </td>
       <td style={TD}>
-        <input style={FAST_INPUT} value={d.constructionCost} inputMode="decimal" data-testid={`${idPrefix}-build-cost`}
-          placeholder="not set" onChange={(e) => set({ constructionCost: e.target.value })} />
+        <ValueCell
+          value={v?.constructionCostPerSqm} disabled={noProject}
+          testId={`std-row-${id}-build-cost`}
+          title="Carried on the project; the Capex tab still takes its own rates."
+          onCommit={(n) => setAssetTypeValue(id, { constructionCostPerSqm: n })}
+        />
       </td>
       <td style={TD}>
-        <input style={FAST_INPUT} value={d.revenueRate} inputMode="decimal" data-testid={`${idPrefix}-revenue-rate`}
-          placeholder="not set" onChange={(e) => set({ revenueRate: e.target.value })} />
+        <ValueCell
+          value={v?.revenueRate} disabled={noProject}
+          testId={`std-row-${id}-revenue-rate`}
+          title="Carried on the project; Module 2 still takes its own rates."
+          onCommit={(n) => setAssetTypeValue(id, { revenueRate: n })}
+        />
       </td>
       <td style={TD}>
-        <select style={TEXT_INPUT} value={d.revenueRateUnit} data-testid={`${idPrefix}-revenue-unit`}
-          onChange={(e) => set({ revenueRateUnit: e.target.value as RevenueRateUnit })}>
+        <select
+          style={TEXT_INPUT}
+          value={v?.revenueRateUnit ?? 'per_sqm'}
+          disabled={noProject}
+          data-testid={`std-row-${id}-revenue-unit`}
+          onChange={(e) => setAssetTypeValue(id, { revenueRateUnit: e.target.value as RevenueRateUnit })}
+        >
           {REVENUE_RATE_UNITS.map((u) => (<option key={u} value={u}>{REVENUE_RATE_UNIT_LABELS[u]}</option>))}
         </select>
       </td>
@@ -353,7 +376,7 @@ export default function Module1AssetStandards(): React.JSX.Element {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 'var(--sp-3)', flexWrap: 'wrap', gap: 'var(--sp-1)' }}>
         <h2 style={{ fontSize: 'var(--font-h2)', margin: 0 }}>4. Asset Types &amp; Standards</h2>
         <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', fontStyle: 'italic' }}>
-          Shared across your firm&apos;s projects. Rates in {project.currency}.
+          Names shared across your firm. Values belong to this project. Rates in {project.currency}.
         </div>
       </div>
 
@@ -365,43 +388,51 @@ export default function Module1AssetStandards(): React.JSX.Element {
         }}
         data-testid="asset-standards-callout"
       >
-        <strong>What goes here:</strong> your firm&apos;s asset types and the standards each one
-        carries. Picking a type on an asset in the next tab <strong>copies these values onto that
-        asset</strong> at that moment, so editing this table changes what future picks copy and
-        never changes a saved model. A <strong>blank</strong> means the standard is not set; a
-        <strong> 0</strong> is a real zero. Unit size here is the <strong>fallback</strong>: an
-        asset whose sub-units carry their own unit areas uses those instead. The parking ratio is
-        the <strong>default</strong>, and a sub-unit can override it.
+        <strong>What goes here:</strong> your firm&apos;s asset types on the left, and{' '}
+        <strong>this project&apos;s values</strong> for each of them on the right. The names,
+        categories and order are shared across every project your firm opens; the values are
+        assumptions of this project, so they save, version and appear in the change log like any
+        other input, and an asset of that type reads them live. A <strong>blank</strong> means the
+        value is not set; a <strong>0</strong> is a real zero. Unit size here is the{' '}
+        <strong>fallback</strong>: an asset whose sub-units carry their own unit areas uses those.
+        The parking ratio is the <strong>default</strong>, and a sub-unit can override it.
       </div>
 
-      {!available && (
-        <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-negative)', marginBottom: 'var(--sp-2)' }} data-testid="asset-standards-unavailable">
-          The registry could not be reached, so the list below may be incomplete and saving may fail.
+      {noProject && (
+        <div
+          style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', marginBottom: 'var(--sp-2)' }}
+          data-testid="asset-standards-no-project"
+        >
+          Open a project to enter values. The type list below is your firm&apos;s and can be edited
+          without one.
         </div>
       )}
 
-      {/* Account-wide scalar. */}
+      {!available && (
+        <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-negative)', marginBottom: 'var(--sp-2)' }} data-testid="asset-standards-unavailable">
+          Your firm&apos;s type list could not be reached, so the names below may be incomplete and
+          saving them may fail. Any values you have already entered are part of this project and
+          are unaffected.
+        </div>
+      )}
+
+      {/* The project's one scalar. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', marginBottom: 'var(--sp-2)', flexWrap: 'wrap' }}>
         <label htmlFor="std-parking-area-per-slot" style={{ fontSize: 'var(--font-small)', fontWeight: 600 }}>
-          Parking area per slot (sqm), one figure for the whole firm:
+          Parking area per slot (sqm) for this project:
         </label>
-        <input
-          id="std-parking-area-per-slot"
-          data-testid="std-parking-area-per-slot"
-          style={{ ...FAST_INPUT, width: 120 }}
-          inputMode="decimal"
-          value={slotDraft}
-          placeholder="not set"
-          onChange={(e) => setSlotDraft(e.target.value)}
-        />
-        <button type="button" className="btn-primary" data-view-mutates="true" disabled={busy}
-          style={{ padding: '4px 12px', fontSize: 'var(--font-small)' }}
-          onClick={() => { void saveSlotArea(); }} data-testid="std-parking-area-per-slot-save">
-          Save
-        </button>
+        <div style={{ width: 120 }}>
+          <ValueCell
+            value={project.parkingAreaPerSlotSqm}
+            disabled={noProject}
+            testId="std-parking-area-per-slot"
+            title="Sqm one parking bay occupies. A project assumption: basement and surface parking differ."
+            onCommit={(n) => setProject({ parkingAreaPerSlotSqm: n })}
+          />
+        </div>
       </div>
 
-      {/* Quick-add sources. */}
+      {/* Quick-add sources for the firm's list. */}
       {(wholeCatalogToAdd.length > 0 || catalogToAdd.length > 0 || projectToAdd.length > 0) && (
         <div
           style={{
@@ -427,7 +458,7 @@ export default function Module1AssetStandards(): React.JSX.Element {
                 data-testid="asset-type-catalog-picker"
                 style={{ ...TEXT_INPUT, width: 260 }}
                 onChange={(e) => { if (e.target.value) prefillLabel(e.target.value); }}
-                title="The standard catalog for this project's type. Picking one fills the name into the add row below; enter your standards, then Add."
+                title="The standard catalog for this project's type. Picking one fills the name into the add row below."
               >
                 <option value="">One at a time ({catalogToAdd.length})...</option>
                 {catalogToAdd.map((t) => (<option key={t} value={t}>{t}</option>))}
@@ -440,7 +471,7 @@ export default function Module1AssetStandards(): React.JSX.Element {
           {projectToAdd.length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }} data-testid="asset-type-project-missing">
               <span style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)' }}>
-                Used in this project, no standard yet:
+                Used in this project, not in your firm&apos;s list:
               </span>
               {projectToAdd.map((t) => (
                 <button
@@ -449,7 +480,7 @@ export default function Module1AssetStandards(): React.JSX.Element {
                   onClick={() => prefillLabel(t)}
                   data-testid={`asset-type-missing-${normaliseAssetTypeId(t)}`}
                   style={{ ...SMALL_BTN, borderColor: 'var(--color-primary)', color: 'var(--color-primary)', fontSize: 'var(--font-micro)' }}
-                  title={`"${t}" is on an asset in this project but has no company standard. Click to fill it into the add row, then enter its standards.`}
+                  title={`"${t}" is on an asset in this project but is not one of your firm's types. Click to fill it into the add row.`}
                 >
                   + {t}
                 </button>
@@ -467,22 +498,36 @@ export default function Module1AssetStandards(): React.JSX.Element {
         <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }} data-testid="asset-standards-table">
           <thead>
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
-              <th style={{ ...TH, minWidth: 170 }}>Asset type</th>
-              <th style={{ ...TH, minWidth: 120 }}>Category</th>
-              <th style={{ ...TH, minWidth: 90, textAlign: 'right' }} title="Fallback only: an asset whose sub-units carry their own unit areas uses those instead.">Avg unit size (sqm)</th>
-              <th style={{ ...TH, minWidth: 80, textAlign: 'right' }} title="The default. A sub-unit can override it.">Parking ratio</th>
+              <th style={{ ...TH, minWidth: 160 }} colSpan={2}>Your firm&apos;s list</th>
+              <th style={{ ...TH, minWidth: 520 }} colSpan={6}>This project&apos;s values</th>
+              <th style={{ ...TH, minWidth: 170 }} colSpan={2}></th>
+            </tr>
+            <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+              <th style={{ ...TH, minWidth: 160 }}>Asset type</th>
+              <th style={{ ...TH, minWidth: 110 }}>Category</th>
+              <th style={{ ...TH, minWidth: 90, textAlign: 'right' }}>Avg unit size (sqm)</th>
+              <th style={{ ...TH, minWidth: 80, textAlign: 'right' }}>Parking ratio</th>
               <th style={{ ...TH, minWidth: 140 }}>Ratio basis</th>
-              <th style={{ ...TH, minWidth: 100, textAlign: 'right' }} title="Build rate per sqm. Carried onto the asset; capex still takes its rates on the Capex tab.">Construction cost / sqm</th>
-              <th style={{ ...TH, minWidth: 90, textAlign: 'right' }} title="Carried onto the asset; revenue still takes its rates in Module 2.">Revenue rate</th>
+              <th style={{ ...TH, minWidth: 100, textAlign: 'right' }}>Construction cost / sqm</th>
+              <th style={{ ...TH, minWidth: 90, textAlign: 'right' }}>Revenue rate</th>
               <th style={{ ...TH, minWidth: 150 }}>Rate unit</th>
-              <th style={{ ...TH, minWidth: 90, textAlign: 'center' }}>Order</th>
-              <th style={{ ...TH, minWidth: 90, textAlign: 'right' }}></th>
+              <th style={{ ...TH, minWidth: 80, textAlign: 'center' }}>Order</th>
+              <th style={{ ...TH, minWidth: 90, textAlign: 'right' }}>Name</th>
             </tr>
           </thead>
           <tbody>
-            {drafts.map((d, i) => (
+            {nameDrafts.map((d, i) => (
               <tr key={d.entryId ?? i} style={{ borderBottom: '1px solid var(--color-border)' }}>
-                {rowCells(d, (patch) => patchDraft(i, patch), `std-row-${d.entryId}`)}
+                <td style={TD}>
+                  <input style={TEXT_INPUT} value={d.label} data-testid={`std-row-${d.entryId}-label`}
+                    placeholder="e.g. High End Apartments" onChange={(e) => patchName(i, { label: e.target.value })} />
+                </td>
+                <td style={TD}>
+                  <input style={TEXT_INPUT} value={d.category} list="asset-standard-categories"
+                    data-testid={`std-row-${d.entryId}-category`}
+                    placeholder="e.g. Residential" onChange={(e) => patchName(i, { category: e.target.value })} />
+                </td>
+                {valueCells(d.entryId as string, values[d.entryId as string])}
                 <td style={{ ...TD, textAlign: 'center', whiteSpace: 'nowrap' }}>
                   <button type="button" style={{ ...SMALL_BTN, padding: '2px 6px' }} data-view-mutates="true"
                     disabled={busy || i === 0} onClick={() => { void move(i, -1); }}
@@ -490,34 +535,49 @@ export default function Module1AssetStandards(): React.JSX.Element {
                     ^
                   </button>{' '}
                   <button type="button" style={{ ...SMALL_BTN, padding: '2px 6px' }} data-view-mutates="true"
-                    disabled={busy || i === drafts.length - 1} onClick={() => { void move(i, 1); }}
+                    disabled={busy || i === nameDrafts.length - 1} onClick={() => { void move(i, 1); }}
                     data-testid={`std-row-${d.entryId}-down`} title="Move down">
                     v
                   </button>
                 </td>
                 <td style={{ ...TD, textAlign: 'right', whiteSpace: 'nowrap' }}>
                   <button type="button" style={SMALL_BTN} data-view-mutates="true" disabled={busy}
-                    onClick={() => { void saveEntry(d); }} data-testid={`std-row-${d.entryId}-save`}>
+                    onClick={() => { void saveName(d); }} data-testid={`std-row-${d.entryId}-save`}
+                    title="Saves the name and category to your firm's list. Values save themselves as you type, like every other model input.">
                     Save
                   </button>{' '}
                   <button type="button"
                     style={{ ...SMALL_BTN, color: 'var(--color-negative)', borderColor: 'var(--color-negative)' }}
                     data-view-mutates="true" disabled={busy}
                     onClick={() => { void deleteEntry(d.entryId!, d.label); }}
-                    data-testid={`std-row-${d.entryId}-delete`}>
+                    data-testid={`std-row-${d.entryId}-delete`}
+                    title="Removes the type from your firm's list. This project keeps any values it holds for it.">
                     Remove
                   </button>
                 </td>
               </tr>
             ))}
+            {/* The add row takes a NAME only: a type has to exist before this
+                project can hold values for it. */}
             <tr style={{ background: 'var(--color-grey-pale)' }}>
-              {rowCells(addDraft, (patch) => setAddDraft((prev) => ({ ...prev, ...patch })), 'std-add')}
+              <td style={TD}>
+                <input style={TEXT_INPUT} value={addDraft.label} data-testid="std-add-label"
+                  placeholder="e.g. High End Apartments" onChange={(e) => setAddDraft((p) => ({ ...p, label: e.target.value }))} />
+              </td>
+              <td style={TD}>
+                <input style={TEXT_INPUT} value={addDraft.category} list="asset-standard-categories"
+                  data-testid="std-add-category"
+                  placeholder="e.g. Residential" onChange={(e) => setAddDraft((p) => ({ ...p, category: e.target.value }))} />
+              </td>
+              <td style={{ ...TD, color: 'var(--color-meta)', fontSize: 10 }} colSpan={6}>
+                Add the type, then enter this project&apos;s values on its row.
+              </td>
               <td style={TD}></td>
               <td style={{ ...TD, textAlign: 'right' }}>
                 <button type="button" className="btn-primary" data-view-mutates="true"
                   disabled={busy || !addDraft.label.trim() || !normaliseAssetTypeId(addDraft.label)}
                   style={{ padding: '4px 12px', fontSize: 'var(--font-small)' }}
-                  onClick={() => { void saveEntry(addDraft); }} data-testid="std-add-save">
+                  onClick={() => { void saveName(addDraft); }} data-testid="std-add-save">
                   Add
                 </button>
               </td>
@@ -526,11 +586,25 @@ export default function Module1AssetStandards(): React.JSX.Element {
         </table>
       </div>
 
-      {drafts.length === 0 && (
+      {nameDrafts.length === 0 && (
         <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', marginTop: 'var(--sp-1)' }} data-testid="asset-standards-empty">
           No asset types yet. Start from the standard list above, or type your own in the add row.
-          There are no built-in numbers: unit sizes, parking ratios and rates are company decisions,
-          not platform defaults.
+          There are no built-in numbers: unit sizes, parking ratios and rates are decisions, not
+          platform defaults.
+        </div>
+      )}
+
+      {orphans.length > 0 && (
+        <div
+          style={{
+            marginTop: 'var(--sp-2)', border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-sm)', padding: 'var(--sp-1) var(--sp-2)', fontSize: 'var(--font-small)',
+          }}
+          data-testid="asset-standards-orphans"
+        >
+          <strong>Values for types no longer in your firm&apos;s list:</strong>{' '}
+          {orphans.join(', ')}. They are kept because removing a name from the firm&apos;s list must
+          not delete this project&apos;s numbers. Add the type back to edit them here.
         </div>
       )}
 

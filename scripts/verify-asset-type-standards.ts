@@ -30,16 +30,18 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  stampFromAssetType,
   normaliseAssetTypeId,
   describeStandardValue,
-  describeStamp,
+  describeValues,
   typesWithoutStandard,
   sortAssetTypes,
   resolveAvgUnitSize,
   resolveParkingRatio,
+  assetTypeValuesAreEmpty,
+  orphanedValueTypeIds,
   REVENUE_RATE_UNITS,
   type AssetTypeStandard,
+  type AssetTypeValues,
 } from '../src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards';
 import { m1Tabs } from '../src/hubs/modeling/platforms/refm/lib/moduleTabs';
 import { TAB_CONTENT } from '../src/hubs/modeling/platforms/refm/lib/guide/guideContent';
@@ -50,7 +52,7 @@ import {
   assetTypeCategory,
   assetTypeCatalogForProjectType,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
-import { nonEconomicLeverReason } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
+import { inactiveLeverReason, nonEconomicLeverReason } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
 
 let pass = 0, fail = 0;
 const check = (name: string, ok: boolean, detail = ''): void => {
@@ -66,10 +68,40 @@ const section = (t: string): void => { console.log(`\n== ${t} ==`); };
 // are excluded.
 const FORBIDDEN_TOKENS = [
   'refm_asset_types', 'refm_account_standards', 'assetTypeStandards', 'assetTypeId',
-  // The rates and the sub-unit parking override are carried state too: capex
-  // and revenue still take their rates where they always did.
-  'constructionCostPerSqm', 'revenueRateUnit', 'parkingRatio',
+  // The project's asset type values and the sub-unit parking override are
+  // model inputs that NOTHING calculates from yet: capex and revenue still
+  // take their rates where they always did.
+  'assetTypeValues', 'constructionCostPerSqm', 'revenueRateUnit', 'parkingRatio',
+  'parkingAreaPerSlotSqm',
 ];
+
+/**
+ * A minimal stand-in for the module 1 store's project slice, carrying the ONE
+ * merge rule `setAssetTypeValue` implements. Mirrored deliberately rather than
+ * imported: the store pulls in zustand and the whole snapshot type graph, and
+ * this verifier must stay loadable under tsx. Check S1 asserts the real store
+ * still implements the same three behaviours, so a drift here is caught.
+ */
+function makeStoreLike(initial: Record<string, AssetTypeValues>): {
+  project: { assetTypeValues?: Record<string, AssetTypeValues> };
+  setAssetTypeValue: (id: string, patch: Partial<AssetTypeValues>) => void;
+} {
+  const state = { project: { assetTypeValues: { ...initial } } as { assetTypeValues?: Record<string, AssetTypeValues> } };
+  return {
+    get project() { return state.project; },
+    setAssetTypeValue(id, patch) {
+      const all = { ...(state.project.assetTypeValues ?? {}) };
+      const next = { ...(all[id] ?? {}) } as Record<string, unknown>;
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === undefined) delete next[k];
+        else next[k] = v;
+      }
+      if (Object.keys(next).length === 0) delete all[id];
+      else all[id] = next as AssetTypeValues;
+      state.project = { ...state.project, assetTypeValues: all };
+    },
+  };
+}
 const ENGINE_ROOTS = [
   'src/core/calculations',
   'src/hubs/modeling/platforms/refm/lib/excel',
@@ -117,31 +149,37 @@ function offlineChecks(): void {
   check('A1 zero references to the tables or stamp fields across the calculation and export surface',
     offenders.length === 0, offenders.slice(0, 5).join(' | '));
 
-  section('B. Blank and zero are different answers, in the stamp');
-  const blankEntry: AssetTypeStandard = { id: 'commercial', label: 'Commercial', parkingRatioBasis: 'sqm_per_slot' };
-  const zeroEntry: AssetTypeStandard = { id: 'villas', label: 'Villas', avgUnitSizeSqm: 450, parkingRatio: 0, parkingRatioBasis: 'slots_per_unit' };
-  const sBlank = stampFromAssetType(blankEntry, {});
-  const sZero = stampFromAssetType(zeroEntry, { parkingAreaPerSlotSqm: 40 }, '2026-09-07T00:00:00.000Z');
-  check('B1 a blank standard OMITS its key (never null, never 0)',
-    !('avgUnitSizeSqm' in sBlank) && !('parkingRatio' in sBlank) && !('parkingAreaPerSlotSqm' in sBlank));
-  check('B2 a typed zero stamps as a real 0 with its basis',
-    sZero.parkingRatio === 0 && sZero.parkingRatioBasis === 'slots_per_unit' && sZero.avgUnitSizeSqm === 450 && sZero.parkingAreaPerSlotSqm === 40);
-  check('B3 the stamp survives a JSON round trip with blanks still absent',
-    !('parkingRatio' in (JSON.parse(JSON.stringify(sBlank)) as object))
-    && (JSON.parse(JSON.stringify(sZero)) as { parkingRatio: number }).parkingRatio === 0);
+  section('B. Blank and zero are different answers, in the PROJECT values');
+  const blankValues: AssetTypeValues = {};
+  const zeroValues: AssetTypeValues = { avgUnitSizeSqm: 450, parkingRatio: 0, parkingRatioBasis: 'slots_per_unit', constructionCostPerSqm: 0 };
+  check('B1 a blank value is an ABSENT key (never null, never 0)',
+    !('avgUnitSizeSqm' in blankValues) && !('parkingRatio' in blankValues)
+    && assetTypeValuesAreEmpty(blankValues) && !assetTypeValuesAreEmpty(zeroValues));
+  check('B2 a typed zero is a real 0 that survives a JSON round trip',
+    zeroValues.parkingRatio === 0 && zeroValues.constructionCostPerSqm === 0
+    && (JSON.parse(JSON.stringify(zeroValues)) as AssetTypeValues).parkingRatio === 0
+    && !('parkingRatio' in (JSON.parse(JSON.stringify(blankValues)) as object)));
+  check('B3 the store CLEARS a field with undefined rather than keeping the key',
+    (() => {
+      const st = makeStoreLike({ villas: { avgUnitSizeSqm: 200, parkingRatio: 0 } });
+      st.setAssetTypeValue('villas', { avgUnitSizeSqm: undefined });
+      const v = st.project.assetTypeValues?.villas ?? {};
+      return !('avgUnitSizeSqm' in v) && v.parkingRatio === 0;
+    })());
   check('B4 the caption never prints a blank as 0',
     describeStandardValue(undefined, 'sqm') === 'not set'
     && describeStandardValue(0, 'sqm') === '0 sqm'
-    && describeStamp(sBlank).includes('not set')
-    && describeStamp(sZero).includes('Parking 0 slots/unit'));
+    && describeValues(blankValues).includes('not set')
+    && describeValues(zeroValues).includes('Parking 0 slots/unit')
+    && describeValues(zeroValues).includes('Build 0 per sqm'));
   check('B5 id normalisation matches the catalog shape rule',
     normaliseAssetTypeId('High End Apartments') === 'high-end-apartments'
     && normaliseAssetTypeId('***') === '');
 
-  // Quick-add sources (2026-09-07b): ONE covered-already rule for both lists.
+  // Quick-add sources: ONE covered-already rule for both lists.
   const covered: AssetTypeStandard[] = [
-    { id: 'high-end-apartments', label: 'High End Apartments', parkingRatioBasis: 'slots_per_unit' },
-    { id: 'villas', label: 'Villas', parkingRatioBasis: 'slots_per_unit' },
+    { id: 'high-end-apartments', label: 'High End Apartments' },
+    { id: 'villas', label: 'Villas' },
   ];
   const offered = typesWithoutStandard(
     ['  ', 'Retail Mall', 'retail mall', 'Villas', 'High-End  Apartments', 'Hotel 4-star', 'Retail Mall'],
@@ -153,7 +191,7 @@ function offlineChecks(): void {
     !offered.includes('High-End  Apartments') && !offered.includes('Villas')
     && typesWithoutStandard(['Brand New Type'], covered).length === 1);
 
-  section('C. Additive schema: hydrate invents nothing and preserves the stamp');
+  section('C. Additive schema: hydrate invents nothing and carries the project values');
   const baseAsset = {
     id: 'asset_1', phaseId: 'phase_1', name: 'Tower', type: 'High-end Apartments',
     strategy: 'Sell', visible: true, gfaSqm: 0, buaSqm: 0, sellableBuaSqm: 0,
@@ -169,24 +207,54 @@ function offlineChecks(): void {
   });
   const plain = hydrationFromAnySnapshot(mkSnapshot({ ...baseAsset }));
   const plainAsset = plain.assets[0] as unknown as Record<string, unknown>;
-  check('C1 a legacy asset hydrates WITHOUT the new fields (nothing invented)',
+  check('C1 a legacy asset hydrates WITHOUT the type reference (nothing invented)',
     !('assetTypeId' in plainAsset) && !('assetTypeStandards' in plainAsset));
-  const stamped = hydrationFromAnySnapshot(mkSnapshot({
+
+  // THE VALUES RIDE IN THE SNAPSHOT, which is the whole point of the split:
+  // that is what makes them version, diff and change-log like any other input.
+  const withValues = hydrationFromAnySnapshot({
+    ...mkSnapshot({ ...baseAsset, assetTypeId: 'villas' }),
+    project: {
+      projectName: 'Probe', modelType: 'annual', currency: 'USD',
+      parkingAreaPerSlotSqm: 40,
+      assetTypeValues: { villas: { avgUnitSizeSqm: 450, parkingRatio: 0, parkingRatioBasis: 'slots_per_unit' } },
+    },
+  });
+  const carriedValues = (withValues.project as unknown as { assetTypeValues?: Record<string, AssetTypeValues> })
+    .assetTypeValues?.villas;
+  check('C2 project values survive hydrate VERBATIM (the project normaliser spreads, it does not whitelist)',
+    carriedValues?.avgUnitSizeSqm === 450 && carriedValues?.parkingRatio === 0
+    && (withValues.project as unknown as { parkingAreaPerSlotSqm?: number }).parkingAreaPerSlotSqm === 40
+    && (withValues.assets[0] as unknown as Record<string, unknown>).assetTypeId === 'villas');
+  check('C2b NOTHING is stamped onto the asset any more',
+    !('assetTypeStandards' in (withValues.assets[0] as unknown as Record<string, unknown>)));
+  // A snapshot written by the PREVIOUS build carries a stamp. Hydrate must
+  // STRIP it, or the spread would carry a dead second home for these values
+  // forever and re-save it on every write. One live asset had one.
+  const legacy = hydrationFromAnySnapshot(mkSnapshot({
     ...baseAsset,
-    assetTypeId: 'villas',
-    assetTypeStandards: { label: 'Villas', avgUnitSizeSqm: 450, parkingRatio: 0, parkingRatioBasis: 'slots_per_unit', stampedAt: '2026-09-07T00:00:00.000Z' },
+    assetTypeId: 'branded-apartments-high',
+    assetTypeStandards: { label: 'Branded Apartments High', category: 'Residential', stampedAt: '2026-09-07T11:14:31.688Z' },
   }));
-  const stampedAsset = stamped.assets[0] as unknown as Record<string, unknown>;
-  const carried = stampedAsset.assetTypeStandards as Record<string, unknown> | undefined;
-  check('C2 a stamped asset hydrates with the stamp VERBATIM (spread, not whitelist)',
-    stampedAsset.assetTypeId === 'villas' && !!carried && carried.avgUnitSizeSqm === 450 && carried.parkingRatio === 0
-    && !('parkingAreaPerSlotSqm' in (carried ?? {})));
+  const legacyAsset = legacy.assets[0] as unknown as Record<string, unknown>;
+  check('C2c a LEGACY stamp is stripped on hydrate, and the type reference survives',
+    !('assetTypeStandards' in legacyAsset) && legacyAsset.assetTypeId === 'branded-apartments-high');
   const areaKeys = ['gfaSqm', 'buaSqm', 'sellableBuaSqm', 'supportArea', 'parkingArea', 'parkingBaysRequired', 'type'] as const;
-  check('C3 the stamp changes NO area input on the same asset',
-    areaKeys.every((k) => JSON.stringify(plainAsset[k]) === JSON.stringify(stampedAsset[k])));
+  const valuedAsset = withValues.assets[0] as unknown as Record<string, unknown>;
+  check('C3 carrying values changes NO area input on the asset',
+    areaKeys.every((k) => JSON.stringify(plainAsset[k]) === JSON.stringify(valuedAsset[k])));
+  check('C4 values for a type the firm removed are KEPT and reported, not deleted',
+    JSON.stringify(orphanedValueTypeIds(
+      { villas: { avgUnitSizeSqm: 450 }, gone: { parkingRatio: 2 }, empty: {} },
+      [{ id: 'villas', label: 'Villas' }],
+    )) === JSON.stringify(['gone']));
 
   section('D. Route guard and picker gate (source-level)');
   const route = readFileSync('app/api/refm/asset-types/route.ts', 'utf8');
+  const tab = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1AssetStandards.tsx', 'utf8');
+  const shell = readFileSync('src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx', 'utf8');
+  const assetsTab = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx', 'utf8');
+  const storeSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8');
   check('D1 every method requires a session (4 getRefmUserId guards)',
     (route.match(/getRefmUserId/g) ?? []).length >= 5 && route.includes('unauthorized()'));
   check('D2 every query is account-filtered through resolveAccountId',
@@ -194,15 +262,18 @@ function offlineChecks(): void {
     && route.includes(`.eq('account_id', accountId)`));
   check('D3 GET fails soft with available:false (never a calculation-path error)',
     route.includes('available: false'));
-  check('D4 standards parse never coerces (null and absent mean blank, no Number() on body values)',
-    route.includes('standardsNum') && !/Number\(body\./.test(route));
-  const tab = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1AssetStandards.tsx', 'utf8');
-  const shell = readFileSync('src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx', 'utf8');
-  check('D5 every mutating standards control declares data-view-mutates',
+  check('D4 the tab parses values without coercing (blank stays blank, no Number(null))',
+    tab.includes('parseValue') && !/Number\(\s*null\s*\)/.test(tab));
+  check('D5 every mutating VOCABULARY control declares data-view-mutates',
     (tab.match(/data-view-mutates="true"/g) ?? []).length >= 5);
-  const assetsTab = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx', 'utf8');
-  check('D6 the asset picker stamps through the ONE pure function',
-    assetsTab.includes('stampFromAssetType(') && assetsTab.includes('assetTypeId: entry.id'));
+  check('D6 the asset picker records the REFERENCE and stamps nothing',
+    assetsTab.includes('assetTypeId: entry.id')
+    && !assetsTab.includes('stampFromAssetType')
+    // The FIELD, not the module path: the lib file is still imported by name.
+    && !/\.assetTypeStandards|assetTypeStandards\s*[:=]/.test(assetsTab));
+  check('D6b the asset card reads its values LIVE from the project',
+    assetsTab.includes('project.assetTypeValues?.[asset.assetTypeId]')
+    && assetsTab.includes('describeValues(typeValues, project.parkingAreaPerSlotSqm)'));
   check('D8 the tab offers BOTH quick-add sources through the one helper (platform catalog picker + project types missing a standard)',
     (tab.match(/typesWithoutStandard\(/g) ?? []).length >= 3
     && tab.includes('asset-type-catalog-picker')
@@ -213,10 +284,12 @@ function offlineChecks(): void {
     && !/prefillLabel[\s\S]{0,200}?fetch\(/.test(tab.slice(tab.indexOf('const prefillLabel'), tab.indexOf('const prefillLabel') + 400)));
   check('D11 the tab reads the catalog for the PROJECT TYPE and the distinct used types',
     tab.includes('assetTypeCatalogForProjectType(project.projectType)') && tab.includes('projectTypesInUse'));
-  check('D7 the Module 6 picker drops the stamp and the registry pick (never a dead lever)',
-    nonEconomicLeverReason('assets[asset_1].assetTypeStandards.avgUnitSizeSqm', 'assetTypeStandards.avgUnitSizeSqm') !== null
-    && nonEconomicLeverReason('assets[asset_1].assetTypeId', 'assetTypeId') !== null
-    && nonEconomicLeverReason('assets[asset_1].landAllocation.sqm', 'landAllocation.sqm') === null);
+  // (The old D7 asserted the STAMP was dropped from the Module 6 picker. The
+  // stamp no longer exists, so that check could only ever pass by accident;
+  // S4 and S5 state the live rule instead: the values are gated as INACTIVE
+  // and the type reference stays non-economic.)
+  check('D7 a real lever is still offered (the gate has not swallowed everything)',
+    nonEconomicLeverReason('assets[asset_1].landAllocation.sqm', 'landAllocation.sqm') === null);
 
   section('G. The asset type catalog IS the reference list (2026-09-07c)');
   check('G1 the catalog holds exactly the reference list, in category order',
@@ -260,7 +333,7 @@ function offlineChecks(): void {
     && TAB_CONTENT['module1/asset-standards'].intro.length > 40
     && (TAB_CONTENT['module1/asset-standards'].steps ?? []).length >= 3);
   check('H4 the shell renders it on its key',
-    shell.includes(`activeTab === 'asset-standards'`) && shell.includes('<Module1AssetStandards />'));
+    shell.includes(`activeTab === 'asset-standards'`) && shell.includes('<Module1AssetStandards projectId='));
   check('H5 the DIALOG is gone: no modal file, no importer, no opener',
     !existsSync('src/hubs/modeling/platforms/refm/components/modals/AssetTypeStandardsModal.tsx')
     && !assetsTab.includes('AssetTypeStandardsModal')
@@ -279,65 +352,83 @@ function offlineChecks(): void {
   check('I3 the route reorders with a whole-list dense write and refuses a stranger id',
     route.includes('export async function PUT')
     && route.includes('sort_order: i')
+    // ONE batched write, not a loop of one-per-row: a loop was ten sequential
+    // round trips and left a half-applied order when one failed midway.
+    && !route.includes('for (let i = 0; i < order.length')
     && route.includes('not in your list'));
   check('I4 sortAssetTypes keeps "never reordered" (absent) apart from "first" (0)',
     JSON.stringify(sortAssetTypes([
-      { id: 'c', label: 'C', parkingRatioBasis: 'slots_per_unit' },
-      { id: 'a', label: 'A', parkingRatioBasis: 'slots_per_unit', sortOrder: 0 },
-      { id: 'b', label: 'B', parkingRatioBasis: 'slots_per_unit', sortOrder: 1 },
+      { id: 'c', label: 'C' },
+      { id: 'a', label: 'A', sortOrder: 0 },
+      { id: 'b', label: 'B', sortOrder: 1 },
     ]).map((e) => e.id)) === JSON.stringify(['a', 'b', 'c']));
 
-  section('J. Rates carry a unit, and stamp exactly like the area standards');
-  const rated: AssetTypeStandard = {
-    id: 'hotel', label: 'Hotel', parkingRatioBasis: 'slots_per_unit',
-    constructionCostPerSqm: 0, revenueRate: 900, revenueRateUnit: 'adr_per_key_night',
-  };
-  const rateStamp = stampFromAssetType(rated, {});
-  check('J1 the rate and its unit stamp onto the asset, a zero cost stamping as a real 0',
-    rateStamp.revenueRate === 900 && rateStamp.revenueRateUnit === 'adr_per_key_night'
-    && rateStamp.constructionCostPerSqm === 0);
-  const unitlessRate: AssetTypeStandard = { id: 'x', label: 'X', parkingRatioBasis: 'slots_per_unit', revenueRate: 5 };
-  check('J2 a rate with no unit names no basis, so neither is stamped',
-    !('revenueRate' in stampFromAssetType(unitlessRate, {}))
-    && !('revenueRateUnit' in stampFromAssetType(unitlessRate, {})));
-  check('J3 the four units are the whole vocabulary, in code, the DB and the route',
+  section('J. Rates carry a unit, and live on the PROJECT');
+  check('J1 the values type holds the rate with its unit and the build cost',
+    (() => {
+      const st = makeStoreLike({});
+      st.setAssetTypeValue('hotel', { revenueRate: 900, revenueRateUnit: 'adr_per_key_night', constructionCostPerSqm: 0 });
+      const v = st.project.assetTypeValues?.hotel;
+      return v?.revenueRate === 900 && v?.revenueRateUnit === 'adr_per_key_night' && v?.constructionCostPerSqm === 0;
+    })());
+  check('J2 the four units are the whole vocabulary, in code and in the tab',
     REVENUE_RATE_UNITS.length === 4
-    && readFileSync('supabase/migrations/243_asset_type_rates_and_order.sql', 'utf8')
-      .includes("'per_sqm', 'per_unit', 'per_sqm_year', 'adr_per_key_night'")
-    && route.includes('REVENUE_RATE_UNITS'));
-  check('J4 the route requires a unit WITH a rate rather than guessing one',
-    route.includes('Pick what the revenue rate is per.'));
-  check('J5 the caption states the rates and keeps a blank apart from a zero',
-    describeStamp(rateStamp).includes('900 /key/night')
-    && describeStamp(rateStamp).includes('Build 0 per sqm')
-    && describeStamp(stampFromAssetType({ id: 'y', label: 'Y', parkingRatioBasis: 'slots_per_unit' }, {})).includes('Revenue not set'));
+    && REVENUE_RATE_UNITS.every((u) => tab.includes(u) || tab.includes('REVENUE_RATE_UNITS')));
+  check('J3 the caption states the rate with its unit and keeps a blank apart from a zero',
+    describeValues({ revenueRate: 900, revenueRateUnit: 'adr_per_key_night' }).includes('900 /key/night')
+    && describeValues({}).includes('Revenue not set'));
+  check('J4 the ACCOUNT route no longer carries any value: names, categories and order only',
+    !route.includes('avg_unit_size') && !route.includes('parking_ratio')
+    && !route.includes('construction_cost_per_sqm') && !route.includes('revenue_rate')
+    && !route.includes('refm_account_standards')
+    && route.includes("'entry_id, label, category, sort_order, created_at'"));
+  check('J5 the account-scalar PATCH is gone with the table it wrote to',
+    !route.includes('export async function PATCH'));
 
   section('K. Unit size falls back; parking inherits and overrides');
-  const stampWithBoth = stampFromAssetType(
-    { id: 'apt', label: 'Apt', parkingRatioBasis: 'slots_per_unit', avgUnitSizeSqm: 120, parkingRatio: 1 }, {});
+  const projectValues: AssetTypeValues = { avgUnitSizeSqm: 120, parkingRatio: 1, parkingRatioBasis: 'slots_per_unit' };
   check('K1 sub-unit areas WIN over the asset type average (they are more precise)',
-    resolveAvgUnitSize([80, 120], stampWithBoth).source === 'sub_units'
-    && resolveAvgUnitSize([80, 120], stampWithBoth).value === 100);
+    resolveAvgUnitSize([80, 120], projectValues).source === 'sub_units'
+    && resolveAvgUnitSize([80, 120], projectValues).value === 100);
   check('K2 the asset type average is the FALLBACK when no sub-unit states one',
-    resolveAvgUnitSize([], stampWithBoth).source === 'asset_type'
-    && resolveAvgUnitSize([], stampWithBoth).value === 120
-    && resolveAvgUnitSize([undefined, 0], stampWithBoth).source === 'asset_type');
+    resolveAvgUnitSize([], projectValues).source === 'asset_type'
+    && resolveAvgUnitSize([], projectValues).value === 120
+    && resolveAvgUnitSize([undefined, 0], projectValues).source === 'asset_type');
   check('K3 with neither, the answer is "unset", never 0',
     resolveAvgUnitSize([], undefined).source === 'unset'
     && resolveAvgUnitSize([], undefined).value === undefined);
   check('K4 a sub-unit parking override wins, and a typed ZERO is a real override',
-    resolveParkingRatio(2, stampWithBoth).source === 'sub_unit'
-    && resolveParkingRatio(0, stampWithBoth).source === 'sub_unit'
-    && resolveParkingRatio(0, stampWithBoth).value === 0);
+    resolveParkingRatio(2, projectValues).source === 'sub_unit'
+    && resolveParkingRatio(0, projectValues).source === 'sub_unit'
+    && resolveParkingRatio(0, projectValues).value === 0);
   check('K5 with no override the asset type default applies, and with neither it is "unset"',
-    resolveParkingRatio(undefined, stampWithBoth).source === 'asset_type'
-    && resolveParkingRatio(undefined, stampWithBoth).value === 1
+    resolveParkingRatio(undefined, projectValues).source === 'asset_type'
+    && resolveParkingRatio(undefined, projectValues).value === 1
     && resolveParkingRatio(undefined, undefined).source === 'unset');
-  check('K6 the sub-unit row renders inherit / override through the ONE resolver',
-    assetsTab.includes('resolveParkingRatio(subUnit.parkingRatio, assetStandards)')
+  check('K6 the sub-unit row renders inherit / override through the ONE resolver, against PROJECT values',
+    assetsTab.includes('resolveParkingRatio(subUnit.parkingRatio, assetTypeValues)')
     && assetsTab.includes('-parking-override') && assetsTab.includes('-parking-inherit'));
-  check('K7 the Module 6 picker drops the sub-unit override too (nothing reads it yet)',
-    nonEconomicLeverReason('subUnits[su_1].parkingRatio', 'parkingRatio') !== null);
+
+  section('S. The values are PROJECT INPUTS, gated as inactive until the engine reads them');
+  check('S1 the store owns the merge rule, clears with undefined and drops an emptied entry',
+    storeSrc.includes('setAssetTypeValue:')
+    && storeSrc.includes('if (v === undefined) delete next[k]')
+    && storeSrc.includes('if (Object.keys(next).length === 0) delete all[entryId]'));
+  check('S2 the tab writes values through that action (no hand-rolled setProject merge)',
+    tab.includes('setAssetTypeValue(') && !tab.includes('setProject({ assetTypeValues'));
+  check('S3 the values have NO Save button: they behave like every other model input',
+    !/std-row-\$\{id\}-values-save/.test(tab) && tab.includes('onCommit'));
+  check('S4 the Module 6 picker keeps them out, as INACTIVE (economic but unread), not non-economic',
+    inactiveLeverReason('project.assetTypeValues.villas.avgUnitSizeSqm', {} as never) !== null
+    && inactiveLeverReason('subUnits[su_1].parkingRatio', {} as never) !== null
+    && nonEconomicLeverReason('project.assetTypeValues.villas.avgUnitSizeSqm', 'assetTypeValues.villas.avgUnitSizeSqm') === null
+    && nonEconomicLeverReason('subUnits[su_1].parkingRatio', 'parkingRatio') === null);
+  check('S5 the type REFERENCE stays non-economic (it is an entity reference, not a dial)',
+    nonEconomicLeverReason('assets[asset_1].assetTypeId', 'assetTypeId') !== null);
+  check('S6 the tab needs a project for values and says so',
+    tab.includes('asset-standards-no-project') && tab.includes('disabled={noProject}'));
+  check('S7 a removed type keeps its values, and the tab surfaces them',
+    tab.includes('orphanedValueTypeIds') && tab.includes('asset-standards-orphans'));
 }
 
 // ── Live half ───────────────────────────────────────────────────────────────
@@ -366,97 +457,67 @@ async function liveChecks(): Promise<void> {
   await c.connect();
   try {
     const cols = await c.query(`
-      SELECT table_name, column_name, is_nullable FROM information_schema.columns
-       WHERE table_name IN ('refm_asset_types', 'refm_account_standards')`);
-    const has = (t: string, col: string): boolean => cols.rows.some((r) => r.table_name === t && r.column_name === col);
-    check('E1 refm_asset_types exists with the standards columns',
-      has('refm_asset_types', 'account_id') && has('refm_asset_types', 'avg_unit_size')
-      && has('refm_asset_types', 'parking_ratio') && has('refm_asset_types', 'parking_ratio_basis'));
-    check('E2 refm_account_standards exists with parking_area_per_slot',
-      has('refm_account_standards', 'parking_area_per_slot'));
-    check('E3 standards columns are NULLABLE (blank is representable)',
-      cols.rows.some((r) => r.table_name === 'refm_asset_types' && r.column_name === 'avg_unit_size' && r.is_nullable === 'YES')
-      && cols.rows.some((r) => r.table_name === 'refm_account_standards' && r.column_name === 'parking_area_per_slot' && r.is_nullable === 'YES'));
-    check('E4 author columns are NULLABLE (entry outlives the person)',
-      cols.rows.some((r) => r.table_name === 'refm_asset_types' && r.column_name === 'user_id' && r.is_nullable === 'YES'));
+      SELECT column_name, is_nullable FROM information_schema.columns
+       WHERE table_name = 'refm_asset_types'`);
+    const names = cols.rows.map((r) => String(r.column_name));
+    check('E1 the live table is a VOCABULARY table: names, category, order, author',
+      ['account_id', 'user_id', 'entry_id', 'label', 'category', 'sort_order'].every((k) => names.includes(k)),
+      names.join(','));
+    check('E2 NO value column survives on the account table (mig 244)',
+      !['avg_unit_size', 'parking_ratio', 'parking_ratio_basis', 'construction_cost_per_sqm',
+        'revenue_rate', 'revenue_rate_unit'].some((k) => names.includes(k)),
+      names.join(','));
+    const stdsTable = await c.query(`SELECT to_regclass('public.refm_account_standards') AS t`);
+    check('E3 refm_account_standards is gone (the scalar moved to the project)',
+      stdsTable.rows[0].t === null);
+    check('E4 the author column is NULLABLE (the entry outlives the person)',
+      cols.rows.some((r) => r.column_name === 'user_id' && r.is_nullable === 'YES'));
+    check('E5 sort_order is NULLABLE (never reordered stays apart from first)',
+      cols.rows.some((r) => r.column_name === 'sort_order' && r.is_nullable === 'YES'));
 
     const uniq = await c.query(`SELECT count(*)::int AS n FROM pg_constraint WHERE conname = 'refm_asset_types_account_entry_unique'`);
-    check('E5 one entry id per account (unique constraint live)', Number(uniq.rows[0]?.n) === 1);
+    check('E6 one entry id per account (unique constraint live)', Number(uniq.rows[0]?.n) === 1);
 
     const rls = await c.query(`
-      SELECT relname, relrowsecurity FROM pg_class
-       WHERE relname IN ('refm_asset_types', 'refm_account_standards')`);
-    check('E6 RLS enabled on both tables',
-      rls.rows.length === 2 && rls.rows.every((r) => r.relrowsecurity === true));
+      SELECT relrowsecurity FROM pg_class WHERE relname = 'refm_asset_types'`);
+    check('E7 RLS enabled on the vocabulary table', rls.rows[0]?.relrowsecurity === true);
 
-    // Rolled-back probe: NULL vs 0 store distinctly against the LIVE schema.
+    // Rolled-back probe: the vocabulary round-trips against the LIVE schema,
+    // and the account unique still refuses a duplicate. The refusal sits
+    // behind a SAVEPOINT because a failed statement aborts the whole
+    // transaction in Postgres (TRAPS 3.21).
     await c.query('BEGIN');
     try {
       const anyAccount = await c.query(`SELECT id FROM accounts LIMIT 1`);
       if (anyAccount.rows.length === 1) {
         const accId = String(anyAccount.rows[0].id);
-        await c.query(
-          `INSERT INTO refm_asset_types (account_id, entry_id, label, avg_unit_size, parking_ratio)
-           VALUES ($1, 'verify-probe-blank', 'Verify Probe Blank', NULL, NULL),
-                  ($1, 'verify-probe-zero', 'Verify Probe Zero', 0, 0)`, [accId]);
-        const back = await c.query(
-          `SELECT entry_id, avg_unit_size, parking_ratio FROM refm_asset_types
-            WHERE account_id = $1 AND entry_id LIKE 'verify-probe-%' ORDER BY entry_id`, [accId]);
-        const blank = back.rows.find((r) => r.entry_id === 'verify-probe-blank');
-        const zero = back.rows.find((r) => r.entry_id === 'verify-probe-zero');
-        check('E7 live round trip: NULL stays NULL and 0 stays 0, distinctly',
-          blank?.avg_unit_size === null && zero?.avg_unit_size !== null && Number(zero?.avg_unit_size) === 0);
+        const ins = await c.query(
+          `INSERT INTO refm_asset_types (account_id, entry_id, label, category, sort_order)
+           VALUES ($1, 'verify-probe-vocab', 'Verify Probe Vocab', 'Residential', 0)
+           RETURNING label, category, sort_order`, [accId]);
+        let refused = false;
+        await c.query('SAVEPOINT dup_probe');
+        try {
+          await c.query(
+            `INSERT INTO refm_asset_types (account_id, entry_id, label)
+             VALUES ($1, 'verify-probe-vocab', 'Verify Probe Vocab Again')`, [accId]);
+          await c.query('RELEASE SAVEPOINT dup_probe');
+        } catch {
+          refused = true;
+          await c.query('ROLLBACK TO SAVEPOINT dup_probe');
+        }
+        check('E8 live round trip: a type stores its name, category and position, and a duplicate id is refused',
+          ins.rows[0]?.label === 'Verify Probe Vocab' && ins.rows[0]?.category === 'Residential'
+          && Number(ins.rows[0]?.sort_order) === 0 && refused);
       } else {
-        check('E7 live round trip: NULL stays NULL and 0 stays 0, distinctly', false, 'no accounts row to probe against');
+        check('E8 live round trip: a type stores its name, category and position, and a duplicate id is refused',
+          false, 'no accounts row to probe against');
       }
     } finally {
       await c.query('ROLLBACK');
     }
     const leftover = await c.query(`SELECT count(*)::int AS n FROM refm_asset_types WHERE entry_id LIKE 'verify-probe-%'`);
-    check('E8 the probe rolled back (no rows left)', Number(leftover.rows[0]?.n) === 0);
-
-    // Migration 243: the rates and the order.
-    const rateCols = await c.query(`
-      SELECT column_name, is_nullable FROM information_schema.columns
-       WHERE table_name = 'refm_asset_types'
-         AND column_name IN ('construction_cost_per_sqm', 'revenue_rate', 'revenue_rate_unit', 'sort_order')`);
-    check('E9 the rate and order columns are live and NULLABLE (mig 243)',
-      rateCols.rows.length === 4 && rateCols.rows.every((r) => r.is_nullable === 'YES'),
-      JSON.stringify(rateCols.rows));
-
-    await c.query('BEGIN');
-    try {
-      const anyAccount = await c.query(`SELECT id FROM accounts LIMIT 1`);
-      if (anyAccount.rows.length === 1) {
-        const accId = String(anyAccount.rows[0].id);
-        // The refusal probe sits behind a SAVEPOINT: a failed statement
-        // aborts the whole transaction in Postgres, so without one every
-        // later query in this block would error and the section would crash
-        // rather than report.
-        let refused = false;
-        await c.query('SAVEPOINT unit_probe');
-        try {
-          await c.query(
-            `INSERT INTO refm_asset_types (account_id, entry_id, label, revenue_rate, revenue_rate_unit)
-             VALUES ($1, 'verify-probe-unit', 'Verify Probe Unit', 10, 'per_furlong')`, [accId]);
-          await c.query('RELEASE SAVEPOINT unit_probe');
-        } catch {
-          refused = true;
-          await c.query('ROLLBACK TO SAVEPOINT unit_probe');
-        }
-        const ok = await c.query(
-          `INSERT INTO refm_asset_types (account_id, entry_id, label, revenue_rate, revenue_rate_unit, construction_cost_per_sqm, sort_order)
-           VALUES ($1, 'verify-probe-rate', 'Verify Probe Rate', 900, 'adr_per_key_night', 0, 0)
-           RETURNING revenue_rate_unit, construction_cost_per_sqm`, [accId]);
-        check('E10 live: the unit vocabulary is enforced, and a zero build cost stores as 0',
-          refused && ok.rows[0]?.revenue_rate_unit === 'adr_per_key_night'
-          && Number(ok.rows[0]?.construction_cost_per_sqm) === 0);
-      } else {
-        check('E10 live: the unit vocabulary is enforced, and a zero build cost stores as 0', false, 'no accounts row to probe against');
-      }
-    } finally {
-      await c.query('ROLLBACK');
-    }
+    check('E9 the probe rolled back (no rows left)', Number(leftover.rows[0]?.n) === 0);
   } finally {
     await c.end();
   }
@@ -478,8 +539,10 @@ async function liveChecks(): Promise<void> {
     const rawAssets = (v.snapshot.assets ?? []) as Array<Record<string, unknown>>;
     const hydrated = hydrationFromAnySnapshot(v.snapshot);
     const hydAssets = hydrated.assets as unknown as Array<Record<string, unknown>>;
-    const noStamp = rawAssets.every((a) => !('assetTypeId' in a) && !('assetTypeStandards' in a))
-      && hydAssets.every((a) => !('assetTypeId' in a) && !('assetTypeStandards' in a));
+    // A type REFERENCE is a legitimate user choice and may be present. What
+    // must never survive is a STAMP: hydrate strips it, so no live project
+    // carries one after loading, whatever its stored snapshot holds.
+    const noStamp = hydAssets.every((a) => !('assetTypeStandards' in a));
     const ZERO_DEFAULTED = new Set(['gfaSqm', 'buaSqm', 'sellableBuaSqm', 'parkingBaysRequired']);
     const keys = ['gfaSqm', 'buaSqm', 'sellableBuaSqm', 'supportArea', 'parkingArea', 'parkingBaysRequired'] as const;
     const areasIntact = rawAssets.every((raw) => {

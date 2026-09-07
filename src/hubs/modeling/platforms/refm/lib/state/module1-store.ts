@@ -117,6 +117,20 @@ export interface Module1Store {
 
   // ── Setters ──
   setProject: (patch: Partial<Project>) => void;
+  /**
+   * Set (or clear) one field of one asset type's PROJECT values (mig 244).
+   *
+   * Its own action rather than a raw setProject so the merge happens in ONE
+   * place: patching `project.assetTypeValues` by hand from a component would
+   * clobber sibling types on every keystroke. Passing `undefined` for a field
+   * CLEARS it back to blank, which is different from 0, and an entry left with
+   * nothing stated is dropped rather than stored as an empty object that would
+   * read as "configured".
+   */
+  setAssetTypeValue: (
+    entryId: string,
+    patch: Partial<import('./assetTypeStandards').AssetTypeValues>,
+  ) => void;
   /** Module 6 "Use scenarios?" toggle, shared by the Module 6 tab + the topbar
    *  case switcher so they never diverge. Off forces the active case back to
    *  Management (a hidden scenario must never drive the financials) and remembers
@@ -442,6 +456,22 @@ export function createModule1Store() {
     setViewLocked: (locked) => set({ viewLocked: locked }),
 
     setProject: (patch) => set((s) => ({ project: { ...s.project, ...patch } })),
+
+    setAssetTypeValue: (entryId, patch) => set((s) => {
+      const all = { ...(s.project.assetTypeValues ?? {}) };
+      const next = { ...(all[entryId] ?? {}) } as Record<string, unknown>;
+      for (const [k, v] of Object.entries(patch)) {
+        // undefined CLEARS the field (blank), which a spread would not do:
+        // {...a, x: undefined} keeps the key with an undefined value, and a
+        // key that survives JSON as absent-but-present invites the same
+        // blank-versus-zero confusion the whole design keeps apart.
+        if (v === undefined) delete next[k];
+        else next[k] = v;
+      }
+      if (Object.keys(next).length === 0) delete all[entryId];
+      else all[entryId] = next as import('./assetTypeStandards').AssetTypeValues;
+      return { project: { ...s.project, assetTypeValues: all } };
+    }),
 
     // Single implementation of the "Use scenarios?" toggle, reused by the
     // Module 6 tab + the topbar so the flag + behaviour never diverge. Built on

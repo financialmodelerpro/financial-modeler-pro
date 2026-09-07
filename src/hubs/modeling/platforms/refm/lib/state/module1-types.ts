@@ -352,6 +352,30 @@ export const DEFAULT_COVENANTS: CovenantThreshold[] = [
 
 export interface Project {
   name: string;
+  /**
+   * THE PROJECT'S ASSET TYPE VALUES (2026-09-07, mig 244), keyed by the
+   * account vocabulary's entry id (`refm_asset_types.entry_id`, which is what
+   * `Asset.assetTypeId` holds).
+   *
+   * Unit size, parking ratio and its basis, build cost per sqm and a revenue
+   * rate with its unit are assumptions OF THIS PROJECT, because a firm's
+   * schemes genuinely differ. Living in the snapshot makes each one an
+   * ordinary input: it versions, it diffs, the change log records it, and
+   * nothing is copied anywhere so nothing can go stale. That is what replaced
+   * the stamping scheme.
+   *
+   * An ABSENT field inside an entry is the blank (not decided); a 0 is a
+   * decision. Values for a type the firm has since removed from its list are
+   * KEPT (an account-level edit must not delete a project's numbers) and are
+   * surfaced as belonging to a type no longer listed.
+   *
+   * NOT READ BY THE CALCULATION ENGINE YET; the area chain is a later step.
+   */
+  assetTypeValues?: import('./assetTypeStandards').AssetTypeValuesByType;
+  /** Sqm one parking slot occupies. A project assumption for the same reason
+   *  as the rest (basement against surface parking changes it); moved off the
+   *  account with mig 244. Absent = not decided, 0 is a decision. */
+  parkingAreaPerSlotSqm?: number;
   currency: string;          // ISO code (e.g. 'SAR', 'USD', 'AED')
   modelType: ModelGranularity;
   startDate: string;         // ISO 'YYYY-MM-DD'
@@ -1169,23 +1193,22 @@ export interface Asset {
   name: string;
   type: string;                  // free-text, optional from M2.0j Fix 2 ('' = unspecified); legacy snapshots set a default
   /**
-   * Land planning step 1 (2026-09-07): the firm's asset type registry.
+   * Land planning (2026-09-07): WHICH of the firm's asset types this is.
    *
-   * `assetTypeId` records WHICH account registry entry the user picked
-   * (refm_asset_types, mig 242); `assetTypeStandards` is the STAMP of the
-   * resolved company standards (avg unit size, parking ratio, area per slot)
-   * frozen at selection time, following the cost catalog rule: the engine,
-   * reports and exports never read the registry tables, and an old version
-   * recomputes identically after the firm edits its standards.
+   * A reference into the account vocabulary (`refm_asset_types`, mig 242) and,
+   * since mig 244, the KEY this project's values for that type are looked up
+   * by (`project.assetTypeValues[assetTypeId]`). Nothing is copied onto the
+   * asset: the values are project inputs, so they version and change-log
+   * themselves and can never go stale here.
    *
-   * BOTH OPTIONAL AND ADDITIVE: a snapshot without them behaves exactly as
-   * before, and NOTHING in the calculation engine reads them yet (the area
-   * chain that will consume the stamp is a later step). Inside the stamp a
-   * BLANK standard is an ABSENT key, never null and never 0: blank and zero
-   * are different answers.
+   * The stamp that used to sit beside this (`assetTypeStandards`) is DELETED
+   * with mig 244. It existed only because the values lived on an account
+   * table the engine must never read; holding a second copy inside the same
+   * snapshot would be one rule with two answers.
+   *
+   * Optional and additive: a snapshot without it behaves exactly as before.
    */
   assetTypeId?: string;
-  assetTypeStandards?: import('./assetTypeStandards').AssetTypeStandardsStamp;
   strategy: AssetStrategy;
   visible: boolean;
   // Land (legacy mirrors; kept for backward compat with v7 snapshots

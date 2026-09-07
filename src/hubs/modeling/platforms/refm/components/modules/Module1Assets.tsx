@@ -70,11 +70,11 @@ import {
 } from '@/src/core/calculations';
 import {
   describeSource,
-  describeStamp,
+  describeValues,
   resolveAvgUnitSize,
   resolveParkingRatio,
-  stampFromAssetType,
   type AssetTypeStandard,
+  type AssetTypeValues,
 } from '../../lib/state/assetTypeStandards';
 import { currencyHeaderLine, formatArea, formatAccounting } from '@/src/core/formatters';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
@@ -289,25 +289,22 @@ export default function Module1Assets(): React.JSX.Element {
     [parcels, assets, subUnits, landAllocationMode],
   );
 
-  // ── Land planning step 1 (2026-09-07): the firm's asset type registry ──
+  // ── Land planning (2026-09-07): the firm's asset type VOCABULARY ──
   //
-  // Account-scoped standards (mig 242), fetched once like the cost catalog.
-  // Nothing on a calculation path: picking a type STAMPS the resolved values
-  // onto the asset and the engine reads the asset, so a failed fetch just
-  // means an empty picker.
+  // Account-scoped names only (migs 242-244), fetched once like the cost
+  // catalog. The VALUES for each type live on the project, so a failed fetch
+  // costs a picker, never a number.
   const [assetTypeRegistry, setAssetTypeRegistry] = useState<{
     entries: AssetTypeStandard[];
-    parkingAreaPerSlot: number | null;
     available: boolean;
-  }>({ entries: [], parkingAreaPerSlot: null, available: true });
+  }>({ entries: [], available: true });
   const refreshAssetTypeRegistry = React.useCallback(async (): Promise<void> => {
     try {
       const res = await fetch('/api/refm/asset-types');
       if (!res.ok) { setAssetTypeRegistry((p) => ({ ...p, available: false })); return; }
-      const body = await res.json() as { entries?: AssetTypeStandard[]; parkingAreaPerSlot?: number | null; available?: boolean };
+      const body = await res.json() as { entries?: AssetTypeStandard[]; available?: boolean };
       setAssetTypeRegistry({
         entries: Array.isArray(body.entries) ? body.entries : [],
-        parkingAreaPerSlot: typeof body.parkingAreaPerSlot === 'number' ? body.parkingAreaPerSlot : null,
         available: body.available !== false,
       });
     } catch {
@@ -918,7 +915,7 @@ interface PhaseAssetSectionProps {
   subUnits: SubUnit[];
   project: Project;
   landAllocationMode: LandAllocationMode;
-  assetTypeRegistry: { entries: AssetTypeStandard[]; parkingAreaPerSlot: number | null; available: boolean };
+  assetTypeRegistry: { entries: AssetTypeStandard[]; available: boolean };
   onUpdateAsset: (id: string, patch: Partial<Asset>) => void;
   onRemoveAsset: (id: string) => void;
   onAddAsset: () => void;
@@ -1039,7 +1036,7 @@ interface AssetCardProps {
   subUnits: SubUnit[];
   project: Project;
   landAllocationMode: LandAllocationMode;
-  assetTypeRegistry: { entries: AssetTypeStandard[]; parkingAreaPerSlot: number | null; available: boolean };
+  assetTypeRegistry: { entries: AssetTypeStandard[]; available: boolean };
   onUpdate: (patch: Partial<Asset>) => void;
   onRemove: () => void;
 }
@@ -1195,34 +1192,32 @@ function AssetCard({
     setPendingSwitch(report);
   };
 
-  // Land planning step 1 (2026-09-07): the firm's registry labels join the
-  // datalist suggestions, and picking a registry entry STAMPS the resolved
-  // company standards onto the asset (see assetTypeStandards.ts). The stamp
-  // is carried state only; nothing downstream reads it yet.
+  // Land planning (2026-09-07): the firm's vocabulary labels join the datalist
+  // suggestions, and picking one records WHICH type this is. Nothing is copied
+  // onto the asset: the type's values live on the project (mig 244), so the
+  // caption below is a live read-out that follows the standards tab.
   const typeOptions = Array.from(new Set([
     ...assetTypeRegistry.entries.map((e) => e.label),
     ...resolveTypeCatalog(project),
   ]));
   const pickAssetType = (entryId: string): void => {
     if (!entryId) {
-      // Explicitly clearing the selection removes the stamp; the free-text
-      // type label stays whatever the user has typed.
-      onUpdate({ assetTypeId: undefined, assetTypeStandards: undefined });
+      // Clearing the selection drops the reference; the free-text type label
+      // stays whatever the user has typed, and the project keeps its values.
+      onUpdate({ assetTypeId: undefined });
       return;
     }
     const entry = assetTypeRegistry.entries.find((e) => e.id === entryId);
     if (!entry) return;
-    onUpdate({
-      type: entry.label,
-      assetTypeId: entry.id,
-      assetTypeStandards: stampFromAssetType(entry, {
-        ...(assetTypeRegistry.parkingAreaPerSlot !== null
-          ? { parkingAreaPerSlotSqm: assetTypeRegistry.parkingAreaPerSlot }
-          : {}),
-      }),
-    });
+    onUpdate({ type: entry.label, assetTypeId: entry.id });
   };
   const status = asset.status ?? 'planned';
+
+  // This asset's type values, straight from the project. Read live, never
+  // copied, so editing a standard is an input change like any other.
+  const typeValues: AssetTypeValues | undefined = asset.assetTypeId
+    ? project.assetTypeValues?.[asset.assetTypeId]
+    : undefined;
 
   // THE UNIT SIZE RULE, as a read-out (nothing computes off it yet): the
   // sub-units' own areas when any state one, the asset type average as the
@@ -1230,7 +1225,7 @@ function AssetCard({
   const assetSubUnitAreas = subUnits
     .filter((u) => u.assetId === asset.id && typeof u.unitArea === 'number' && u.unitArea > 0)
     .map((u) => u.unitArea);
-  const resolvedUnitSize = resolveAvgUnitSize(assetSubUnitAreas, asset.assetTypeStandards);
+  const resolvedUnitSize = resolveAvgUnitSize(assetSubUnitAreas, typeValues);
 
   return (
     <div
@@ -1325,7 +1320,7 @@ function AssetCard({
                   value={asset.assetTypeId ?? ''}
                   onChange={(e) => pickAssetType(e.target.value)}
                   style={{ ...inputStyle, marginTop: 4, fontSize: 'var(--font-micro)' }}
-                  title="Pick from your firm's list on the Asset Types and Standards tab. Selecting copies its standards (unit size, parking ratio, area per slot, construction cost, revenue rate) onto this asset at this moment; editing the list later never changes a saved model. Choose the blank row to clear."
+                  title="Pick from your firm's list on the Asset Types and Standards tab. This records WHICH type the asset is; its values (unit size, parking ratio, area per slot, construction cost, revenue rate) live on that tab as project inputs and are read live, so editing one there updates this asset with no re-picking. Choose the blank row to clear."
                 >
                   <option value="">Company standard...</option>
                   {assetTypeRegistry.entries.map((e) => (
@@ -1333,20 +1328,20 @@ function AssetCard({
                   ))}
                 </select>
               )}
-              {asset.assetTypeStandards && (
+              {asset.assetTypeId && (
                 <div
-                  data-testid={`asset-${asset.id}-standards-stamp`}
+                  data-testid={`asset-${asset.id}-standards-values`}
                   style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 2 }}
-                  title="Company standards copied onto this asset when its type was picked. 'not set' means the standard was blank in the firm's table, which is different from 0. Re-pick the type to refresh from the current list."
+                  title="This project's values for this asset type, read live from the Asset Types and Standards tab. 'not set' means nobody has decided, which is different from 0. Editing them there updates this line; nothing is copied onto the asset."
                 >
-                  {describeStamp(asset.assetTypeStandards)}
+                  {describeValues(typeValues, project.parkingAreaPerSlotSqm)}
                 </div>
               )}
               {/* WHERE THE UNIT SIZE ACTUALLY COMES FROM. Sub-unit areas are
                   more precise than one average per type, so they win; the
                   asset type average is the fallback for an asset with none.
                   A read-out only: nothing computes off it yet. */}
-              {(asset.assetTypeStandards || assetSubUnitAreas.length > 0) && (
+              {(typeValues || assetSubUnitAreas.length > 0) && (
                 <div
                   data-testid={`asset-${asset.id}-unit-size-source`}
                   style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 2 }}
@@ -1997,7 +1992,7 @@ function AssetCard({
                             assetStrategy={asset.strategy}
                             assetType={asset.type}
                             isCompanionSub={asset.isCompanion === true && !!u.parentSubUnitId}
-                            assetStandards={asset.assetTypeStandards}
+                            assetTypeValues={asset.assetTypeId ? project.assetTypeValues?.[asset.assetTypeId] : undefined}
                           />
                         ))}
                       </tbody>
@@ -2099,11 +2094,11 @@ function switchMetric(
   return { metric: 'area', metricValue: currentArea };
 }
 
-function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decimals, scale, assetStrategy, assetType, isCompanionSub, assetStandards }: SubUnitRowProps & { assetMetric: SubUnitMetric; decimals: import('../../lib/state/module1-types').DisplayDecimals; scale: import('../../lib/state/module1-types').DisplayScale; assetStrategy: AssetStrategy; assetType?: string; isCompanionSub?: boolean; assetStandards?: import('../../lib/state/assetTypeStandards').AssetTypeStandardsStamp }): React.JSX.Element {
+function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decimals, scale, assetStrategy, assetType, isCompanionSub, assetTypeValues }: SubUnitRowProps & { assetMetric: SubUnitMetric; decimals: import('../../lib/state/module1-types').DisplayDecimals; scale: import('../../lib/state/module1-types').DisplayScale; assetStrategy: AssetStrategy; assetType?: string; isCompanionSub?: boolean; assetTypeValues?: import('../../lib/state/assetTypeStandards').AssetTypeValues }): React.JSX.Element {
   // The parking rule, resolved ONCE for this row: the sub-unit's own override
   // when it has one (including a typed 0), else the asset type's default.
-  const parking = resolveParkingRatio(subUnit.parkingRatio, assetStandards);
-  const inherited = resolveParkingRatio(undefined, assetStandards);
+  const parking = resolveParkingRatio(subUnit.parkingRatio, assetTypeValues);
+  const inherited = resolveParkingRatio(undefined, assetTypeValues);
   // An area typed while Unit Size is still zero. In Units mode the row stores a
   // COUNT, so an area with no unit size cannot be represented yet; holding it
   // is the difference between "not converted yet" and "thrown away".

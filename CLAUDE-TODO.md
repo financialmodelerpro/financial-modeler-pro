@@ -46,14 +46,18 @@ measured over a mutating tree; quote the next clean-tree run forward.
    already exist on assets/sub-units).
 7. **THE FULL ALMA LAND STRUCTURE** (diagnosed 2026-09-07, full seven-part
    report delivered; **STEP 1 SHIPPED 2026-09-07** (migs 242 + 243 APPLIED):
-   the account-scoped asset type registry + company standards on their OWN
-   Module 1 tab 4 (avg unit size, parking ratio + basis, parking area per
-   slot, construction cost per sqm, revenue rate + unit), the list fully
-   editable / extensible / reorderable with the ten reference types as a
-   seeded starting set, stamped onto the asset at selection, unit size
-   resolving sub-units first with the type average as fallback, parking
-   inheriting with a sub-unit override, engine never reads any of it, blank
-   vs zero kept apart end to end, `verify-asset-type-standards` 68/0.
+   the asset type registry on its OWN Module 1 tab 4, SPLIT (mig 244) so the
+   NAMES / categories / order are the firm's (account) and the VALUES (avg
+   unit size, parking ratio + basis, build cost per sqm, revenue rate + unit,
+   parking area per slot) are the PROJECT'S, held in the snapshot so they
+   version, diff and change-log like any other input. **Stamping is deleted**
+   (`Asset.assetTypeStandards` gone and stripped on hydrate; `assetTypeId` is
+   the key). List fully editable / extensible / reorderable with the ten
+   reference types as a seeded starting set; unit size resolves sub-units
+   first with the type average as fallback; parking inherits with a sub-unit
+   override; removing a type keeps the project's values; blank vs zero kept
+   apart end to end; Module 6 gates the values as INACTIVE until the chain
+   reads them. `verify-asset-type-standards` 77/0.
    Remaining steps, smallest first,
    per the diagnosis: chain fields + pure derivation as read-outs; opt-in
    engine wiring with a per-asset area source + per-plot sum check; computed

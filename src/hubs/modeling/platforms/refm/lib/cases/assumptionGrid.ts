@@ -509,19 +509,6 @@ export function nonEconomicLeverReason(path: string, field: string): string | nu
   if (/^phases\[[^\]]+\]\.constructionStart$/.test(path)) {
     return 'an absolute period/position index; a value-only override does not re-derive the period axis (cascade not run)';
   }
-  // Land planning step 1 (2026-09-07): the company-standards stamp is carried
-  // metadata frozen at selection time (see assetTypeStandards.ts). NOTHING in
-  // the engine reads it yet, so a value-only override on any of its fields
-  // changes nothing. Dropped entirely, the same rule as the identity fields.
-  if (/^assets\[[^\]]+\]\.assetTypeStandards(\.|$)/.test(path)) {
-    return 'a company-standards stamp copied from the firm asset type registry at selection time; the engine does not read it, so an override changes nothing';
-  }
-  // The sub-unit parking ratio OVERRIDE (2026-09-07) is the same case: it
-  // states which parking ratio would apply to this row, and nothing in the
-  // engine reads it yet, so offering it as a lever would offer a dead dial.
-  if (/^subUnits\[[^\]]+\]\.parkingRatio$/.test(path)) {
-    return 'a parking ratio override on the sub-unit; the engine does not read it, so an override changes nothing';
-  }
   // Project-level revenue TEMPLATES seed NEW assets only; existing assets carry
   // their own values, so the template is never read for the live model.
   if (/^project\.revenueTemplates\./.test(path)) return 'a template default that only seeds new assets; existing assets carry their own values';
@@ -563,6 +550,21 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
   // ── Funding-method config blocks: only the active method's block is read.
   //    Method 1 = fixedRatio, 2 = netFundingConfig, 3 = cashDeficitConfig,
   //    4 = fixedAmountConfig. ──
+  // ── Land planning (2026-09-07): the asset type VALUES ──
+  //
+  // These are real project inputs (project.assetTypeValues, and the sub-unit
+  // parking override that refines one of them), so they are ECONOMIC levers
+  // and belong here rather than in nonEconomicLeverReason: the day the area
+  // chain reads them they become live dials, and the only thing that changes
+  // is that this branch stops firing. Until then, offering one would offer a
+  // control that moves nothing, which is what this curation exists to prevent.
+  if (/^project\.assetTypeValues(\.|\[)/.test(path)) {
+    return 'an asset type standard for this project; no calculation reads it yet (the area chain that will is a later step), so it moves nothing today';
+  }
+  if (/^subUnits\[[^\]]+\]\.parkingRatio$/.test(path)) {
+    return 'a parking ratio override on the sub-unit; no calculation reads it yet (the parking chain that will is a later step), so it moves nothing today';
+  }
+
   const FUNDING_BLOCK: Record<string, number> = { fixedRatio: 1, netFundingConfig: 2, cashDeficitConfig: 3, fixedAmountConfig: 4 };
   const fb = /^project\.financing\.(fixedRatio|netFundingConfig|cashDeficitConfig|fixedAmountConfig)\./.exec(path);
   if (fb) {
