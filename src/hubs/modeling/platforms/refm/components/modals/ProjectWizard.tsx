@@ -624,7 +624,7 @@ function Step2({
 
 // M2.0e: Step 3 collapses from full asset detail entry into a single
 // project-type pick. The user picks once; Tab 2 (Module1Assets) is the
-// canonical asset entry surface and uses ASSET_TYPES_BY_PROJECT_TYPE
+// canonical asset entry surface and uses assetTypeCatalogForProjectType
 // to filter the type catalog. No assets are auto-created; phase
 // headers in Tab 2 print SUGGESTED_CATEGORIES_BY_PROJECT_TYPE so the
 // user has direction without surprise content.

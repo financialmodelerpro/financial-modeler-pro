@@ -38,6 +38,12 @@ import {
   type AssetTypeStandard,
 } from '../src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
+import {
+  ASSET_TYPES_BY_CATEGORY,
+  ASSET_TYPE_CATALOG,
+  assetTypeCategory,
+  assetTypeCatalogForProjectType,
+} from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { nonEconomicLeverReason } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
 
 let pass = 0, fail = 0;
@@ -197,11 +203,40 @@ function offlineChecks(): void {
     modal.includes('min(1240px') && !modal.includes('min(880px'));
   check('D11 the parent feeds the catalog for the PROJECT TYPE and the distinct used types',
     assetsTab.includes('platformTypeCatalog') && assetsTab.includes('projectTypesInUse')
-    && assetsTab.includes('ASSET_TYPES_BY_PROJECT_TYPE'));
+    && assetsTab.includes('assetTypeCatalogForProjectType'));
   check('D7 the Module 6 picker drops the stamp and the registry pick (never a dead lever)',
     nonEconomicLeverReason('assets[asset_1].assetTypeStandards.avgUnitSizeSqm', 'assetTypeStandards.avgUnitSizeSqm') !== null
     && nonEconomicLeverReason('assets[asset_1].assetTypeId', 'assetTypeId') !== null
     && nonEconomicLeverReason('assets[asset_1].landAllocation.sqm', 'landAllocation.sqm') === null);
+
+  section('G. The asset type catalog IS the reference list (2026-09-07c)');
+  check('G1 the catalog holds exactly the reference list, in category order',
+    JSON.stringify(ASSET_TYPES_BY_CATEGORY.Residential)
+      === JSON.stringify(['Branded Villas', 'High End Apartments', 'Branded Apartments High', 'Branded Apartments Mid', 'Apartments', 'Residential'])
+    && JSON.stringify(ASSET_TYPES_BY_CATEGORY.Hospitality) === JSON.stringify(['Resort 5 Star', '4 Star Hotel'])
+    && JSON.stringify(ASSET_TYPES_BY_CATEGORY.Retail) === JSON.stringify(['Standalone Commercial', 'Retail combined'])
+    && ASSET_TYPE_CATALOG.length === 10);
+  check('G2 assetTypeCategory resolves catalog labels (trimmed, case-insensitive) and nothing else',
+    assetTypeCategory('High End Apartments') === 'Residential'
+    && assetTypeCategory(' resort 5 star ') === 'Hospitality'
+    && assetTypeCategory('Retail combined') === 'Retail'
+    && assetTypeCategory('Hotel 4-star') === undefined
+    && assetTypeCategory('') === undefined);
+  check('G3 category-named project types narrow to their category; everything else gets the full catalog, as STABLE references',
+    assetTypeCatalogForProjectType('Residential') === ASSET_TYPES_BY_CATEGORY.Residential
+    && assetTypeCatalogForProjectType('Retail') === ASSET_TYPES_BY_CATEGORY.Retail
+    && assetTypeCatalogForProjectType('Mixed-Use') === ASSET_TYPE_CATALOG
+    && assetTypeCatalogForProjectType(undefined) === ASSET_TYPE_CATALOG
+    && assetTypeCatalogForProjectType('Office') === ASSET_TYPE_CATALOG);
+  const typesSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-types.ts', 'utf8');
+  check('G4 the old per-project-type and per-strategy banks are REMOVED (no declaration, no consumer)',
+    !typesSrc.includes('export const ASSET_TYPES_BY_PROJECT_TYPE')
+    && !typesSrc.includes('export const ASSET_TYPES_BY_STRATEGY')
+    && !assetsTab.includes('ASSET_TYPES_BY_PROJECT_TYPE')
+    && !assetsTab.includes('ASSET_TYPES_BY_STRATEGY'));
+  check('G5 free text stays (the Type field is still a text input with suggestions) and a catalog pick prefills its category',
+    /input[^>]*list=\{`asset-types-/.test(assetsTab.replace(/\n\s*/g, ' '))
+    && modal.includes('assetTypeCategory('));
 }
 
 // ── Live half ───────────────────────────────────────────────────────────────

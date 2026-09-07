@@ -228,8 +228,9 @@ export const COST_INPUT_MODE_LABELS: Record<CostInputMode, string> = {
 // M2.0f Fix 3 (2026-05-06): catalog expanded from 6 -> 14 entries
 // restoring the pre-M2.0 breadth (Industrial, Data Center, Education,
 // Healthcare, Marina, Hospitality + Branded Residences, Senior Living,
-// Self-Storage). Each new type carries its own asset-type catalog
-// below in ASSET_TYPES_BY_PROJECT_TYPE.
+// Self-Storage). Since 2026-09-07 the ASSET TYPE suggestions no longer
+// vary per project type beyond the three category-named ones: see
+// ASSET_TYPES_BY_CATEGORY / assetTypeCatalogForProjectType below.
 export type ProjectType =
   | 'Residential'
   | 'Hospitality'
@@ -2802,123 +2803,67 @@ export const DEFAULT_PROJECT_FINANCING_CONFIG: ProjectFinancingConfig = {
   phaseFilter: PHASE_FILTER_ALL,
 };
 
-// ── M2.0e: Asset type bank by project type ────────────────────────────────
-// Tab 2's asset Type dropdown filters by Project.projectType, falling
-// back to ASSET_TYPES_BY_STRATEGY for legacy / Custom projects. Mixed-Use
-// surfaces the union; Custom returns the same union with the implicit
-// understanding the user types free-form. Each entry is a display label;
-// the stored Asset.type is the same string (no separate id).
-export const ASSET_TYPES_BY_PROJECT_TYPE: Record<ProjectType, readonly string[]> = {
+// ── The asset type catalog (2026-09-07, land planning) ────────────────────
+// THE reference land structure's list, replacing the invented M2.0e banks
+// (ASSET_TYPES_BY_PROJECT_TYPE and ASSET_TYPES_BY_STRATEGY, removed same
+// day: they fed ONLY the Type dropdown suggestions and the standards
+// modal's quick-add, nothing else, measured before removal). Each entry is
+// a display label; the stored Asset.type is the same string (no separate
+// id), the field stays FREE TEXT, and a firm layers its own types through
+// the account registry (refm_asset_types, mig 242), so values on live
+// projects that predate this list keep working unchanged.
+export type AssetTypeCategory = 'Residential' | 'Hospitality' | 'Retail';
+
+export const ASSET_TYPE_CATEGORIES: readonly AssetTypeCategory[] = ['Residential', 'Hospitality', 'Retail'];
+
+export const ASSET_TYPES_BY_CATEGORY: Record<AssetTypeCategory, readonly string[]> = {
   Residential: [
-    'High-end Apartments',
-    'Mid-tier Apartments',
-    'Affordable Housing',
-    'Branded Suites',
-    'Villas',
-    'Townhouses',
-    'Compounds',
+    'Branded Villas',
+    'High End Apartments',
+    'Branded Apartments High',
+    'Branded Apartments Mid',
+    'Apartments',
+    'Residential',
   ],
   Hospitality: [
-    'Hotel 5-star',
-    'Hotel 4-star',
-    'Hotel 3-star',
-    'Branded Residences',
-    'Serviced Apartments',
-    'Resort',
-    'Boutique Hotel',
+    'Resort 5 Star',
+    '4 Star Hotel',
   ],
   Retail: [
-    'Retail Mall',
-    'Strip Retail',
-    'F&B',
-    'Department Store',
-    'Showroom',
-    'Anchor Tenant',
-    'Outlet',
-  ],
-  Office: [
-    'Office Tower (Grade A)',
-    'Office Tower (Grade B)',
-    'Co-working',
-    'Business Park',
-    'Corporate HQ',
-  ],
-  Industrial: [
-    'Warehouse',
-    'Logistics Center',
-    'Light Industrial',
-    'Cold Storage',
-    'Distribution Hub',
-  ],
-  'Data Center': [
-    'Hyperscale',
-    'Edge Data Center',
-    'Co-location',
-    'Cloud Region',
-  ],
-  Education: [
-    'University Campus',
-    'Private School (K-12)',
-    'Vocational Institute',
-    'Training Center',
-  ],
-  Healthcare: [
-    'Hospital (Multi-specialty)',
-    'Specialty Clinic',
-    'Medical Office Building',
-    'Diagnostic Center',
-    'Pharmacy Hub',
-  ],
-  Marina: [
-    'Yacht Berths',
-    'Waterfront F&B',
-    'Marina Retail',
-    'Boat Maintenance Facility',
-  ],
-  'Hospitality + Branded Residences': [
-    'Hotel 5-star',
-    'Hotel 4-star',
-    'Branded Residences',
-    'Serviced Apartments',
-    'Resort',
-    'Branded Suites',
-  ],
-  'Senior Living': [
-    'Assisted Living',
-    'Memory Care',
-    'Independent Living',
-    'Nursing Home',
-  ],
-  'Self-Storage': [
-    'Climate-controlled',
-    'Standard',
-    'Mobile Storage',
-    'Drive-up Units',
-  ],
-  'Mixed-Use': [
-    'High-end Apartments',
-    'Branded Residences',
-    'Hotel 5-star',
-    'Hotel 4-star',
-    'Serviced Apartments',
-    'Retail Mall',
-    'F&B',
-    'Office Tower (Grade A)',
-    'Co-working',
-    'Branded Suites',
-    'Townhouses',
-  ],
-  Custom: [
-    'High-end Apartments',
-    'Hotel 5-star',
-    'Retail Mall',
-    'Office Tower (Grade A)',
-    'Branded Residences',
-    'Serviced Apartments',
-    'Co-working',
-    'Townhouses',
+    'Standalone Commercial',
+    'Retail combined',
   ],
 };
+
+/** The full catalog in category order. A stable reference (never rebuilt),
+ *  so React dependency arrays and memos keyed on it stay quiet. */
+export const ASSET_TYPE_CATALOG: readonly string[] = [
+  ...ASSET_TYPES_BY_CATEGORY.Residential,
+  ...ASSET_TYPES_BY_CATEGORY.Hospitality,
+  ...ASSET_TYPES_BY_CATEGORY.Retail,
+];
+
+/** The category a catalog label belongs to (trimmed, case-insensitive), or
+ *  undefined for anything outside the catalog (free text, firm additions). */
+export function assetTypeCategory(label: string): AssetTypeCategory | undefined {
+  const key = label.trim().toLowerCase();
+  if (!key) return undefined;
+  for (const cat of ASSET_TYPE_CATEGORIES) {
+    if (ASSET_TYPES_BY_CATEGORY[cat].some((t) => t.toLowerCase() === key)) return cat;
+  }
+  return undefined;
+}
+
+/** The catalog slice a project's Type dropdown suggests: the three
+ *  category-named project types narrow to their own category; every other
+ *  project type (Mixed-Use, Custom, Office, unset, ...) gets the full
+ *  catalog, since the list is short enough to read whole. */
+export function assetTypeCatalogForProjectType(pt: ProjectType | undefined): readonly string[] {
+  if (pt === 'Residential' || pt === 'Hospitality' || pt === 'Retail') {
+    return ASSET_TYPES_BY_CATEGORY[pt];
+  }
+  return ASSET_TYPE_CATALOG;
+}
 
 // Empty-state suggestions Tab 2 prints under each phase header when the
 // phase has no assets yet, e.g. "Suggested for Mixed-Use: Residential,
@@ -2938,45 +2883,6 @@ export const SUGGESTED_CATEGORIES_BY_PROJECT_TYPE: Record<ProjectType, readonly 
   'Self-Storage':                       ['Climate-controlled', 'Standard'],
   'Mixed-Use':                          ['Residential', 'Hospitality', 'Retail'],
   Custom:                               ['any combination'],
-};
-
-// ── Asset type bank ────────────────────────────────────────────────────────
-// Reference list of asset types per strategy. UI offers these as auto-
-// complete suggestions; user can free-text any other type.
-export const ASSET_TYPES_BY_STRATEGY: Record<AssetStrategy, readonly string[]> = {
-  Sell: [
-    'Branded Villas',
-    'Branded Apartments',
-    'High-end Villas',
-    'High-end Apartments',
-    'Class A Apartments',
-    'Class B Apartments',
-    'Townhouses',
-  ],
-  Operate: [
-    'Hotel 5-star',
-    'Hotel 4-star',
-    'Hotel 3-star',
-    'Resort',
-    'Serviced Apartments',
-    'Senior Living',
-    'Student Housing',
-  ],
-  Lease: [
-    'Retail',
-    'Office',
-    'Industrial',
-    'Healthcare',
-    'Self-Storage',
-    'Data Center',
-    'Mixed Retail / F&B',
-  ],
-  'Sell + Manage': [
-    'Branded Residences',
-    'Mixed-Use Tower',
-    'Lifestyle Cluster',
-    'Branded Apartments (managed)',
-  ],
 };
 
 // ── Default occupancy + operating margin per strategy (Module 2 seed) ──────

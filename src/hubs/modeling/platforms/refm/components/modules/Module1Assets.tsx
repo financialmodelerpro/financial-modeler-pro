@@ -45,8 +45,7 @@ import {
   ASSET_STRATEGIES,
   ASSET_STATUSES,
   ASSET_STATUS_LABELS,
-  ASSET_TYPES_BY_PROJECT_TYPE,
-  ASSET_TYPES_BY_STRATEGY,
+  assetTypeCatalogForProjectType,
   SUGGESTED_CATEGORIES_BY_PROJECT_TYPE,
   SUB_UNIT_CATEGORIES,
   LAND_ALLOCATION_MODES,
@@ -227,32 +226,12 @@ function countUnitLabel(
   return 'units';
 }
 
-// Type catalog for the asset Type dropdown. Project.projectType wins
-// when set; otherwise falls back to strategy-keyed catalog.
-//
-// M2.0j Fix 2: Mixed-Use and Custom return the UNION of all per-category
-// catalogs (deduped) so users on a Mixed-Use project can pick any asset
-// type from any sector. Specific project types still filter to their
-// own catalog.
-function resolveTypeCatalog(asset: Asset, project: Project): readonly string[] {
-  const pt = project.projectType;
-  if (pt === 'Mixed-Use' || pt === 'Custom') {
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const cat of Object.values(ASSET_TYPES_BY_PROJECT_TYPE)) {
-      for (const t of cat) {
-        if (!seen.has(t)) {
-          seen.add(t);
-          out.push(t);
-        }
-      }
-    }
-    return out;
-  }
-  if (pt && ASSET_TYPES_BY_PROJECT_TYPE[pt]) {
-    return ASSET_TYPES_BY_PROJECT_TYPE[pt];
-  }
-  return ASSET_TYPES_BY_STRATEGY[asset.strategy];
+// Type catalog for the asset Type dropdown. 2026-09-07: ONE list, the
+// reference land structure's catalog (module1-types), narrowed only for the
+// three category-named project types. The strategy-keyed fallback bank is
+// retired with the old per-project-type banks; the field stays free text.
+function resolveTypeCatalog(project: Project): readonly string[] {
+  return assetTypeCatalogForProjectType(project.projectType);
 }
 
 // ── Module1Assets root ────────────────────────────────────────────────────
@@ -337,20 +316,9 @@ export default function Module1Assets(): React.JSX.Element {
   useEffect(() => { void refreshAssetTypeRegistry(); }, [refreshAssetTypeRegistry]);
 
   // Quick-add sources for the standards modal: the platform catalog for this
-  // project's type (Mixed-Use / Custom / unset = the union, the same rule as
-  // resolveTypeCatalog), and the distinct types already used on this project.
-  const platformTypeCatalog = useMemo(() => {
-    const pt = project.projectType;
-    if (pt && pt !== 'Mixed-Use' && pt !== 'Custom' && ASSET_TYPES_BY_PROJECT_TYPE[pt]) {
-      return ASSET_TYPES_BY_PROJECT_TYPE[pt];
-    }
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const cat of Object.values(ASSET_TYPES_BY_PROJECT_TYPE)) {
-      for (const t of cat) { if (!seen.has(t)) { seen.add(t); out.push(t); } }
-    }
-    return out;
-  }, [project.projectType]);
+  // project's type (the SAME rule as the Type dropdown, one implementation in
+  // module1-types), and the distinct types already used on this project.
+  const platformTypeCatalog = assetTypeCatalogForProjectType(project.projectType);
   const projectTypesInUse = useMemo(
     () => Array.from(new Set(assets.map((a) => (a.type ?? '').trim()).filter((t) => t !== ''))),
     [assets],
@@ -489,10 +457,11 @@ export default function Module1Assets(): React.JSX.Element {
         data-testid="tab2-callout"
       >
         <strong>What goes here:</strong> Land parcels, then per-phase asset
-        cards (areas, sub-units, status, useful life). Asset Type dropdown
-        is filtered by your project type (
-        <strong>{project.projectType ?? 'Mixed-Use'}</strong>); pick a
-        narrower type in Step 3 of Create Project to narrow the catalog.
+        cards (areas, sub-units, status, useful life). Asset Type suggestions
+        come from the standard catalog plus your firm&apos;s Company standards;
+        a <strong>Residential</strong>, <strong>Hospitality</strong> or{' '}
+        <strong>Retail</strong> project type narrows the catalog to its own
+        category (yours: <strong>{project.projectType ?? 'Mixed-Use'}</strong>).
       </div>
 
       {/* Land Parcels block */}
@@ -1263,7 +1232,7 @@ function AssetCard({
   // is carried state only; nothing downstream reads it yet.
   const typeOptions = Array.from(new Set([
     ...assetTypeRegistry.entries.map((e) => e.label),
-    ...resolveTypeCatalog(asset, project),
+    ...resolveTypeCatalog(project),
   ]));
   const pickAssetType = (entryId: string): void => {
     if (!entryId) {
@@ -1368,7 +1337,7 @@ function AssetCard({
                   datalist suggestions cover the project type's catalog
                   (Mixed-Use / Custom show the union of every catalog).
                   Type drives the Useful Life default suggestion only. */}
-              <InputLabel label="Type (optional)" help={`Optional asset type. Suggestions filtered by Project Type (${project.projectType ?? 'Mixed-Use'}); free-text any other value or leave blank. Drives Useful Life default only.`} inputId={`asset-${asset.id}-type`} />
+              <InputLabel label="Type (optional)" help="Optional asset type. Suggestions come from the standard catalog (a Residential / Hospitality / Retail project type narrows to its own category) plus your firm's registry; free-text any other value or leave blank." inputId={`asset-${asset.id}-type`} />
               <input id={`asset-${asset.id}-type`} data-testid={`asset-${asset.id}-type`} type="text" list={`asset-types-${asset.id}`} value={asset.type ?? ''} placeholder="e.g. Tower, Branded Apartments, Hotel..." onChange={(e) => onUpdate({ type: e.target.value })} style={inputStyle} />
               <datalist id={`asset-types-${asset.id}`}>
                 {typeOptions.map((t) => (<option key={t} value={t} />))}

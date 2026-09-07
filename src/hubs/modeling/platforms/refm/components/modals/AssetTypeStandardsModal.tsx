@@ -28,6 +28,7 @@ import {
   type AssetTypeStandard,
   type ParkingRatioBasis,
 } from '../../lib/state/assetTypeStandards';
+import { assetTypeCategory } from '../../lib/state/module1-types';
 
 interface Props {
   open: boolean;
@@ -115,7 +116,10 @@ export default function AssetTypeStandardsModal({
   const catalogToAdd = typesWithoutStandard(platformCatalog, entries);
   const projectToAdd = typesWithoutStandard(projectTypesInUse, entries);
   const prefillLabel = (label: string): void => {
-    setAddDraft((prev) => ({ ...prev, label }));
+    // A catalog label carries its category too (Residential / Hospitality /
+    // Retail); anything outside the catalog leaves the category untouched.
+    const cat = assetTypeCategory(label);
+    setAddDraft((prev) => ({ ...prev, label, ...(cat ? { category: cat } : {}) }));
     setError(null);
   };
 
