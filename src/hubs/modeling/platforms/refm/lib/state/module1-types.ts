@@ -1209,6 +1209,22 @@ export interface Asset {
    * Optional and additive: a snapshot without it behaves exactly as before.
    */
   assetTypeId?: string;
+  /**
+   * Land planning step 2 (2026-09-07): the TOP-DOWN area chain's inputs.
+   *
+   * Utilisation, coverage, retail and service shares (0..100), a FAR multiple
+   * and the retail area per slot. Everything else the chain needs comes from
+   * the project's asset type values (tab 4) and the asset's own land
+   * allocation, so this holds only what is genuinely per asset.
+   *
+   * OPTIONAL AND INERT. `computeLandChain` (src/core/calculations/landChain.ts)
+   * turns these into a derived area set that ONE read-only panel renders
+   * beside the entered figures. Nothing in the engine, the reports or the
+   * exports reads either the inputs or the derivation, so an asset carrying
+   * them computes exactly the same model as one without them. An asset that
+   * states none of them shows no panel at all.
+   */
+  landChain?: import('@/src/core/calculations/landChain').LandChainInputs;
   strategy: AssetStrategy;
   visible: boolean;
   // Land (legacy mirrors; kept for backward compat with v7 snapshots

@@ -58,6 +58,11 @@ measured over a mutating tree; quote the next clean-tree run forward.
    override; removing a type keeps the project's values; blank vs zero kept
    apart end to end; Module 6 gates the values as INACTIVE until the chain
    reads them. `verify-asset-type-standards` 77/0.
+   **STEP 2 SHIPPED 2026-09-07**: the top-down chain as ONE pure function in
+   core (`landChain.ts`, imports nothing, read by nothing but a read-only
+   asset-card panel), pinned to the cent against two real workbook rows, with
+   per-asset optional inputs, blank-not-zero gaps, and the engine proven
+   byte-identical with a positive control. `verify-land-chain` 42/0.
    Remaining steps, smallest first,
    per the diagnosis: chain fields + pure derivation as read-outs; opt-in
    engine wiring with a per-asset area source + per-plot sum check; computed

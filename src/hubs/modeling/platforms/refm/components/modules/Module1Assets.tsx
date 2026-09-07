@@ -56,6 +56,7 @@ import {
 import {
   computeAssetAreaHierarchy,
   computeAssetLandBreakdown,
+  computeAssetUnitCount,
   computeAssetLandSqm,
   computeLandAggregate,
   computeLandReconciliation,
@@ -76,7 +77,24 @@ import {
   type AssetTypeStandard,
   type AssetTypeValues,
 } from '../../lib/state/assetTypeStandards';
+import LandChainSection from './_shared/LandChainSection';
+import type { LandChainInputs } from '@/src/core/calculations/landChain';
 import { currencyHeaderLine, formatArea, formatAccounting } from '@/src/core/formatters';
+
+/** Merge one chain-input patch, where `undefined` CLEARS a field rather than
+ *  leaving a dead key, and an entry left stating nothing becomes absent so the
+ *  asset returns to showing no derivation at all. */
+function mergeLandChain(
+  current: LandChainInputs | undefined,
+  patch: LandChainInputs,
+): LandChainInputs | undefined {
+  const next = { ...(current ?? {}) } as Record<string, number | undefined>;
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined) delete next[k];
+    else next[k] = v;
+  }
+  return Object.keys(next).length === 0 ? undefined : (next as LandChainInputs);
+}
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
 import InputLabel from '../ui/InputLabel';
@@ -1807,6 +1825,38 @@ function AssetCard({
                   <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>BUA + Parking ({fmt(hier.breakdown.parkingArea)})</div>
                 </div>
               </div>
+            );
+          })()}
+
+          {/* Land planning step 2 (2026-09-07): the TOP-DOWN derivation,
+              beside the bottom-up figures above. Read only, inert, and
+              hidden entirely on a companion (which has no land of its own).
+              Nothing it computes is written or read by any calculation. */}
+          {!asset.isCompanion && (() => {
+            const hier = computeAssetAreaHierarchy(asset, subUnits);
+            const gfaDisplay = asset.gfaSqm > 0 ? asset.gfaSqm : hier.gfa;
+            return (
+              <LandChainSection
+                assetId={asset.id}
+                inputs={asset.landChain}
+                onChange={(patch) => onUpdate({ landChain: mergeLandChain(asset.landChain, patch) })}
+                landAreaSqm={landBreakdown.landSqm}
+                standards={{
+                  avgUnitSizeSqm: resolvedUnitSize.value,
+                  parkingRatio: typeValues?.parkingRatio,
+                  parkingRatioBasis: typeValues?.parkingRatioBasis,
+                  parkingAreaPerSlotSqm: project.parkingAreaPerSlotSqm,
+                }}
+                subUnitUnits={computeAssetUnitCount(asset, subUnits)}
+                entered={{
+                  nsa: hier.nsa,
+                  bua: hier.bua,
+                  gfa: gfaDisplay,
+                  unitCount: computeAssetUnitCount(asset, subUnits),
+                  parkingArea: hier.breakdown.parkingArea,
+                }}
+                typeName={asset.type || undefined}
+              />
             );
           })()}
 
