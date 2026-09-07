@@ -44,8 +44,21 @@ measured over a mutating tree; quote the next clean-tree run forward.
 6. **COST PER SQM ANALYSIS IN CAPEX** (Module 1 is CLOSED at M2.0 Pass 58, so
    this is an ADDITIVE read-only surface or it is not this item; denominators
    already exist on assets/sub-units).
-7. **THE FULL ALMA LAND STRUCTURE** (named 2026-09-05, not yet specified;
-   scope with the user before building).
+7. **THE FULL ALMA LAND STRUCTURE** (diagnosed 2026-09-07, full seven-part
+   report delivered; **STEP 1 SHIPPED 2026-09-07** (mig 242 APPLIED): the
+   account-scoped asset type registry + company standards (avg unit size,
+   parking ratio + basis, parking area per slot), stamped onto the asset at
+   selection, engine never reads the tables, blank vs zero kept apart end to
+   end, `verify-asset-type-standards` 34/0. Remaining steps, smallest first,
+   per the diagnosis: chain fields + pure derivation as read-outs; opt-in
+   engine wiring with a per-asset area source + per-plot sum check; computed
+   units/parking for chain-active assets; matrix area entry; matrix cost +
+   revenue surfaces; the four adjacent defects (icReport raw BUA read at
+   icReport.ts:322, raw `gfaSqm` share allocation at calculations
+   index.ts:1235, opex leasable raw metricValue at opex-resolvers.ts:266,
+   dead `computeAssetAreaTotals`) before the wiring step. Alma "Total BUA" =
+   GFA + parking while the platform's GFA = BUA + parking: translate at the
+   entry layer, decided 2026-09-07.)
 
 Standing, carried: **per-platform SEATS when a second platform ships**
 (decision recorded 2026-09-04 in seats.ts / inviteSeatState / CHANGELOG; must

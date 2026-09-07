@@ -1153,6 +1153,24 @@ export interface Asset {
   phaseId: string;
   name: string;
   type: string;                  // free-text, optional from M2.0j Fix 2 ('' = unspecified); legacy snapshots set a default
+  /**
+   * Land planning step 1 (2026-09-07): the firm's asset type registry.
+   *
+   * `assetTypeId` records WHICH account registry entry the user picked
+   * (refm_asset_types, mig 242); `assetTypeStandards` is the STAMP of the
+   * resolved company standards (avg unit size, parking ratio, area per slot)
+   * frozen at selection time, following the cost catalog rule: the engine,
+   * reports and exports never read the registry tables, and an old version
+   * recomputes identically after the firm edits its standards.
+   *
+   * BOTH OPTIONAL AND ADDITIVE: a snapshot without them behaves exactly as
+   * before, and NOTHING in the calculation engine reads them yet (the area
+   * chain that will consume the stamp is a later step). Inside the stamp a
+   * BLANK standard is an ABSENT key, never null and never 0: blank and zero
+   * are different answers.
+   */
+  assetTypeId?: string;
+  assetTypeStandards?: import('./assetTypeStandards').AssetTypeStandardsStamp;
   strategy: AssetStrategy;
   visible: boolean;
   // Land (legacy mirrors; kept for backward compat with v7 snapshots

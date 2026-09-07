@@ -69,6 +69,12 @@ import {
   resolveAssetAreaMetrics,
   validateLandAllocation,
 } from '@/src/core/calculations';
+import {
+  describeStamp,
+  stampFromAssetType,
+  type AssetTypeStandard,
+} from '../../lib/state/assetTypeStandards';
+import AssetTypeStandardsModal from '../modals/AssetTypeStandardsModal';
 import { currencyHeaderLine, formatArea, formatAccounting } from '@/src/core/formatters';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
@@ -302,6 +308,34 @@ export default function Module1Assets(): React.JSX.Element {
     [parcels, assets, subUnits, landAllocationMode],
   );
 
+  // ── Land planning step 1 (2026-09-07): the firm's asset type registry ──
+  //
+  // Account-scoped standards (mig 242), fetched once like the cost catalog.
+  // Nothing on a calculation path: picking a type STAMPS the resolved values
+  // onto the asset and the engine reads the asset, so a failed fetch just
+  // means an empty picker.
+  const [assetTypeRegistry, setAssetTypeRegistry] = useState<{
+    entries: AssetTypeStandard[];
+    parkingAreaPerSlot: number | null;
+    available: boolean;
+  }>({ entries: [], parkingAreaPerSlot: null, available: true });
+  const [standardsModalOpen, setStandardsModalOpen] = useState(false);
+  const refreshAssetTypeRegistry = React.useCallback(async (): Promise<void> => {
+    try {
+      const res = await fetch('/api/refm/asset-types');
+      if (!res.ok) { setAssetTypeRegistry((p) => ({ ...p, available: false })); return; }
+      const body = await res.json() as { entries?: AssetTypeStandard[]; parkingAreaPerSlot?: number | null; available?: boolean };
+      setAssetTypeRegistry({
+        entries: Array.isArray(body.entries) ? body.entries : [],
+        parkingAreaPerSlot: typeof body.parkingAreaPerSlot === 'number' ? body.parkingAreaPerSlot : null,
+        available: body.available !== false,
+      });
+    } catch {
+      setAssetTypeRegistry((p) => ({ ...p, available: false }));
+    }
+  }, []);
+  useEffect(() => { void refreshAssetTypeRegistry(); }, [refreshAssetTypeRegistry]);
+
   // Build per-phase asset groups, sorted by startDate / constructionStart
   const phaseGroups = useMemo(() => {
     return [...phases]
@@ -390,13 +424,36 @@ export default function Module1Assets(): React.JSX.Element {
         <h2 style={{ fontSize: 'var(--font-h2)', margin: 0 }}>
           2. Assets &amp; Sub-units
         </h2>
-        <div
-          style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', fontStyle: 'italic' }}
-          data-testid="currency-header-line"
-        >
-          {currencyHeaderLine(project.currency, project.displayScale ?? 'full')}
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-2)' }}>
+          <button
+            type="button"
+            onClick={() => setStandardsModalOpen(true)}
+            data-testid="open-asset-type-standards"
+            style={{
+              border: '1px solid var(--color-border)', background: 'transparent', borderRadius: 'var(--radius-sm)',
+              padding: '4px 12px', cursor: 'pointer', fontSize: 'var(--font-small)',
+            }}
+            title="Your firm's asset type list with unit size and parking standards. Picking a type on an asset copies these values onto it."
+          >
+            Company standards
+          </button>
+          <div
+            style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', fontStyle: 'italic' }}
+            data-testid="currency-header-line"
+          >
+            {currencyHeaderLine(project.currency, project.displayScale ?? 'full')}
+          </div>
         </div>
       </div>
+
+      <AssetTypeStandardsModal
+        open={standardsModalOpen}
+        onClose={() => setStandardsModalOpen(false)}
+        entries={assetTypeRegistry.entries}
+        parkingAreaPerSlot={assetTypeRegistry.parkingAreaPerSlot}
+        available={assetTypeRegistry.available}
+        onChanged={() => { void refreshAssetTypeRegistry(); }}
+      />
 
       <div
         style={{
@@ -749,6 +806,7 @@ export default function Module1Assets(): React.JSX.Element {
           subUnits={subUnits}
           project={project}
           landAllocationMode={landAllocationMode}
+          assetTypeRegistry={assetTypeRegistry}
           onUpdateAsset={updateAsset}
           onRemoveAsset={removeAsset}
           onAddAsset={() => handleAddAssetToPhase(phase.id)}
@@ -900,6 +958,7 @@ interface PhaseAssetSectionProps {
   subUnits: SubUnit[];
   project: Project;
   landAllocationMode: LandAllocationMode;
+  assetTypeRegistry: { entries: AssetTypeStandard[]; parkingAreaPerSlot: number | null; available: boolean };
   onUpdateAsset: (id: string, patch: Partial<Asset>) => void;
   onRemoveAsset: (id: string) => void;
   onAddAsset: () => void;
@@ -907,7 +966,7 @@ interface PhaseAssetSectionProps {
 
 function PhaseAssetSection({
   phase, phaseTimeline, phaseAssets, allAssets, allPhases, parcels, subUnits, project,
-  landAllocationMode, onUpdateAsset, onRemoveAsset, onAddAsset,
+  landAllocationMode, assetTypeRegistry, onUpdateAsset, onRemoveAsset, onAddAsset,
 }: PhaseAssetSectionProps): React.JSX.Element {
   // P10-Fix 6 (2026-05-12): default-collapsed + localStorage persistence
   // + bulk event listener. Tab 2 phase headers collapse by default so
@@ -1000,6 +1059,7 @@ function PhaseAssetSection({
               subUnits={subUnits}
               project={project}
               landAllocationMode={landAllocationMode}
+              assetTypeRegistry={assetTypeRegistry}
               onUpdate={(patch) => onUpdateAsset(asset.id, patch)}
               onRemove={() => onRemoveAsset(asset.id)}
             />
@@ -1019,13 +1079,14 @@ interface AssetCardProps {
   subUnits: SubUnit[];
   project: Project;
   landAllocationMode: LandAllocationMode;
+  assetTypeRegistry: { entries: AssetTypeStandard[]; parkingAreaPerSlot: number | null; available: boolean };
   onUpdate: (patch: Partial<Asset>) => void;
   onRemove: () => void;
 }
 
 function AssetCard({
   asset, allAssets, allPhases, parcels, subUnits, project,
-  landAllocationMode, onUpdate, onRemove,
+  landAllocationMode, assetTypeRegistry, onUpdate, onRemove,
 }: AssetCardProps): React.JSX.Element {
   const { addSubUnit, updateSubUnit, removeSubUnit, dismissStrategyReview } = useModule1Store(
     useShallow((s) => ({
@@ -1174,7 +1235,33 @@ function AssetCard({
     setPendingSwitch(report);
   };
 
-  const typeOptions = resolveTypeCatalog(asset, project);
+  // Land planning step 1 (2026-09-07): the firm's registry labels join the
+  // datalist suggestions, and picking a registry entry STAMPS the resolved
+  // company standards onto the asset (see assetTypeStandards.ts). The stamp
+  // is carried state only; nothing downstream reads it yet.
+  const typeOptions = Array.from(new Set([
+    ...assetTypeRegistry.entries.map((e) => e.label),
+    ...resolveTypeCatalog(asset, project),
+  ]));
+  const pickAssetType = (entryId: string): void => {
+    if (!entryId) {
+      // Explicitly clearing the selection removes the stamp; the free-text
+      // type label stays whatever the user has typed.
+      onUpdate({ assetTypeId: undefined, assetTypeStandards: undefined });
+      return;
+    }
+    const entry = assetTypeRegistry.entries.find((e) => e.id === entryId);
+    if (!entry) return;
+    onUpdate({
+      type: entry.label,
+      assetTypeId: entry.id,
+      assetTypeStandards: stampFromAssetType(entry, {
+        ...(assetTypeRegistry.parkingAreaPerSlot !== null
+          ? { parkingAreaPerSlotSqm: assetTypeRegistry.parkingAreaPerSlot }
+          : {}),
+      }),
+    });
+  };
   const status = asset.status ?? 'planned';
 
   return (
@@ -1264,6 +1351,29 @@ function AssetCard({
               <datalist id={`asset-types-${asset.id}`}>
                 {typeOptions.map((t) => (<option key={t} value={t} />))}
               </datalist>
+              {assetTypeRegistry.entries.length > 0 && (
+                <select
+                  data-testid={`asset-${asset.id}-assetTypeId`}
+                  value={asset.assetTypeId ?? ''}
+                  onChange={(e) => pickAssetType(e.target.value)}
+                  style={{ ...inputStyle, marginTop: 4, fontSize: 'var(--font-micro)' }}
+                  title="Pick from your firm's asset type registry. Selecting copies the company standards (unit size, parking ratio, area per slot) onto this asset at this moment; editing the registry later never changes a saved model. Choose the blank row to clear."
+                >
+                  <option value="">Company standard...</option>
+                  {assetTypeRegistry.entries.map((e) => (
+                    <option key={e.id} value={e.id}>{e.label}</option>
+                  ))}
+                </select>
+              )}
+              {asset.assetTypeStandards && (
+                <div
+                  data-testid={`asset-${asset.id}-standards-stamp`}
+                  style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 2 }}
+                  title="Company standards copied onto this asset when its type was picked. 'not set' means the standard was blank in the firm's table, which is different from 0. Re-pick the type to refresh from the current registry."
+                >
+                  {describeStamp(asset.assetTypeStandards)}
+                </div>
+              )}
             </div>
             <div>
               <InputLabel label="Status" help="Lifecycle status. Planned, Construction, Operational." inputId={`asset-${asset.id}-status`} />

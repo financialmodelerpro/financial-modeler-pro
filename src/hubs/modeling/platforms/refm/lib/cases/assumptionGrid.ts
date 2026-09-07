@@ -413,6 +413,7 @@ const NON_ECONOMIC_LEAVES: Record<string, string> = {
   projectType: 'a project-type selector', phaseId: 'an entity reference', parentAssetId: 'an entity reference',
   companionType: 'a structural flag', isCompanion: 'a structural flag',
   subUnitMetric: 'a unit-of-measure selector', id: 'an identifier',
+  assetTypeId: 'an entity reference (the firm asset type registry pick)',
   projectNdaScope: 'a scope selector', modelType: 'a model-type selector',
   viewMode: 'a UI view setting', assetFilter: 'a UI filter', phaseFilter: 'a UI filter',
   resultsViewMode: 'a UI view setting', outputGranularity: 'an output-granularity setting',
@@ -507,6 +508,13 @@ export function nonEconomicLeverReason(path: string, field: string): string | nu
   if (/\.startDate$/.test(path) || path === 'project.startDate') return 'a calendar date; a value-only override does not re-derive the period axis (timeline cascade is not run)';
   if (/^phases\[[^\]]+\]\.constructionStart$/.test(path)) {
     return 'an absolute period/position index; a value-only override does not re-derive the period axis (cascade not run)';
+  }
+  // Land planning step 1 (2026-09-07): the company-standards stamp is carried
+  // metadata frozen at selection time (see assetTypeStandards.ts). NOTHING in
+  // the engine reads it yet, so a value-only override on any of its fields
+  // changes nothing. Dropped entirely, the same rule as the identity fields.
+  if (/^assets\[[^\]]+\]\.assetTypeStandards(\.|$)/.test(path)) {
+    return 'a company-standards stamp copied from the firm asset type registry at selection time; the engine does not read it, so an override changes nothing';
   }
   // Project-level revenue TEMPLATES seed NEW assets only; existing assets carry
   // their own values, so the template is never read for the live model.
