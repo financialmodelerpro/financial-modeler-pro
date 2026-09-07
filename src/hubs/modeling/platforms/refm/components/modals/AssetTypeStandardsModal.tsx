@@ -24,6 +24,7 @@ import {
   PARKING_RATIO_BASES,
   PARKING_RATIO_BASIS_LABELS,
   normaliseAssetTypeId,
+  typesWithoutStandard,
   type AssetTypeStandard,
   type ParkingRatioBasis,
 } from '../../lib/state/assetTypeStandards';
@@ -34,6 +35,13 @@ interface Props {
   entries: AssetTypeStandard[];
   parkingAreaPerSlot: number | null;
   available: boolean;
+  /** The platform's asset type catalog for this project's type (the same
+   *  list the asset card's Type field suggests). Quick-add source one. */
+  platformCatalog: readonly string[];
+  /** Distinct asset types already USED on the open project. The ones with no
+   *  standard yet surface as quick-add chips, so the user fills in what they
+   *  actually have rather than starting blank. Quick-add source two. */
+  projectTypesInUse: readonly string[];
   /** Re-fetch after any write so the pickers see the same list. */
   onChanged: () => void;
 }
@@ -68,7 +76,7 @@ function parseStandard(s: string): { ok: true; value: number | null } | { ok: fa
 }
 
 const cellInput: React.CSSProperties = {
-  width: '100%', padding: '4px 6px', border: '1px solid var(--color-border)',
+  width: '100%', padding: '6px 8px', border: '1px solid var(--color-border)',
   borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-small)', background: 'var(--color-input-bg, #fff)',
 };
 const th: React.CSSProperties = {
@@ -82,7 +90,7 @@ const smallBtn: React.CSSProperties = {
 };
 
 export default function AssetTypeStandardsModal({
-  open, onClose, entries, parkingAreaPerSlot, available, onChanged,
+  open, onClose, entries, parkingAreaPerSlot, available, platformCatalog, projectTypesInUse, onChanged,
 }: Props): React.JSX.Element | null {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [addDraft, setAddDraft] = useState<Draft>(EMPTY_DRAFT);
@@ -99,6 +107,17 @@ export default function AssetTypeStandardsModal({
   }, [open, entries, parkingAreaPerSlot]);
 
   if (!open) return null;
+
+  // The two quick-add sources, both filtered by the ONE covered-already rule:
+  // the platform's catalog for this project's type, and the types already
+  // used on the open project with no standard yet. Picking either only
+  // PREFILLS the add row (no write): the user still enters the standards.
+  const catalogToAdd = typesWithoutStandard(platformCatalog, entries);
+  const projectToAdd = typesWithoutStandard(projectTypesInUse, entries);
+  const prefillLabel = (label: string): void => {
+    setAddDraft((prev) => ({ ...prev, label }));
+    setError(null);
+  };
 
   const saveEntry = async (d: Draft): Promise<void> => {
     setError(null);
@@ -207,7 +226,7 @@ export default function AssetTypeStandardsModal({
     >
       <div
         style={{
-          background: 'var(--color-surface, #fff)', borderRadius: 'var(--radius)', width: 'min(880px, 96vw)',
+          background: 'var(--color-surface, #fff)', borderRadius: 'var(--radius)', width: 'min(1240px, 96vw)',
           maxHeight: '86vh', overflowY: 'auto', padding: 'var(--sp-3)', boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
         }}
         onClick={(e) => e.stopPropagation()}
@@ -249,7 +268,68 @@ export default function AssetTypeStandardsModal({
           </button>
         </div>
 
+        {(catalogToAdd.length > 0 || projectToAdd.length > 0) && (
+          <div
+            style={{
+              border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)',
+              padding: 'var(--sp-1) var(--sp-2)', marginBottom: 'var(--sp-2)',
+              display: 'flex', flexDirection: 'column', gap: 6,
+            }}
+            data-testid="asset-type-quick-add"
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 'var(--font-small)', fontWeight: 600 }}>Add a type without retyping it:</span>
+              {catalogToAdd.length > 0 && (
+                <select
+                  value=""
+                  data-testid="asset-type-catalog-picker"
+                  style={{ ...cellInput, width: 280 }}
+                  onChange={(e) => { if (e.target.value) prefillLabel(e.target.value); }}
+                  title="The platform's asset type catalog for this project's type. Picking one fills the name into the add row below; enter its standards, then Add."
+                >
+                  <option value="">Platform catalog ({catalogToAdd.length})...</option>
+                  {catalogToAdd.map((t) => (<option key={t} value={t}>{t}</option>))}
+                </select>
+              )}
+              <span style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)' }}>
+                or free-text any other name in the add row below.
+              </span>
+            </div>
+            {projectToAdd.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }} data-testid="asset-type-project-missing">
+                <span style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)' }}>
+                  Used in this project, no standard yet:
+                </span>
+                {projectToAdd.map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => prefillLabel(t)}
+                    data-testid={`asset-type-missing-${normaliseAssetTypeId(t)}`}
+                    style={{
+                      ...smallBtn,
+                      borderColor: 'var(--color-primary)', color: 'var(--color-primary)',
+                      fontSize: 'var(--font-micro)',
+                    }}
+                    title={`"${t}" is on an asset in this project but has no company standard. Click to fill it into the add row, then enter its standards.`}
+                  >
+                    + {t}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         <table style={{ width: '100%', borderCollapse: 'collapse' }} data-testid="asset-type-standards-table">
+          <colgroup>
+            <col style={{ width: '26%' }} />
+            <col style={{ width: '16%' }} />
+            <col style={{ width: '14%' }} />
+            <col style={{ width: '13%' }} />
+            <col style={{ width: '19%' }} />
+            <col style={{ width: '12%' }} />
+          </colgroup>
           <thead>
             <tr>
               <th style={th}>Asset type</th>

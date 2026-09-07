@@ -34,6 +34,7 @@ import {
   normaliseAssetTypeId,
   describeStandardValue,
   describeStamp,
+  typesWithoutStandard,
   type AssetTypeStandard,
 } from '../src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
@@ -120,6 +121,21 @@ function offlineChecks(): void {
     normaliseAssetTypeId('High End Apartments') === 'high-end-apartments'
     && normaliseAssetTypeId('***') === '');
 
+  // Quick-add sources (2026-09-07b): ONE covered-already rule for both lists.
+  const covered: AssetTypeStandard[] = [
+    { id: 'high-end-apartments', label: 'High End Apartments', parkingRatioBasis: 'slots_per_unit' },
+    { id: 'villas', label: 'Villas', parkingRatioBasis: 'slots_per_unit' },
+  ];
+  const offered = typesWithoutStandard(
+    ['  ', 'Retail Mall', 'retail mall', 'Villas', 'High-End  Apartments', 'Hotel 4-star', 'Retail Mall'],
+    covered,
+  );
+  check('B6 typesWithoutStandard drops blanks, dedupes case-insensitively (first spelling wins), keeps order',
+    JSON.stringify(offered) === JSON.stringify(['Retail Mall', 'Hotel 4-star']), JSON.stringify(offered));
+  check('B7 covered detection matches by normalised id AND case-insensitive label (a differently-spelled duplicate is never re-offered)',
+    !offered.includes('High-End  Apartments') && !offered.includes('Villas')
+    && typesWithoutStandard(['Brand New Type'], covered).length === 1);
+
   section('C. Additive schema: hydrate invents nothing and preserves the stamp');
   const baseAsset = {
     id: 'asset_1', phaseId: 'phase_1', name: 'Tower', type: 'High-end Apartments',
@@ -169,6 +185,19 @@ function offlineChecks(): void {
   const assetsTab = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx', 'utf8');
   check('D6 the asset picker stamps through the ONE pure function',
     assetsTab.includes('stampFromAssetType(') && assetsTab.includes('assetTypeId: entry.id'));
+  check('D8 the modal offers BOTH quick-add sources through the one helper (platform catalog picker + project types missing a standard)',
+    (modal.match(/typesWithoutStandard\(/g) ?? []).length >= 2
+    && modal.includes('asset-type-catalog-picker')
+    && modal.includes('asset-type-project-missing')
+    && modal.includes('platformCatalog') && modal.includes('projectTypesInUse'));
+  check('D9 quick-add only PREFILLS the add row (free text stays; no write fires on pick)',
+    modal.includes('prefillLabel')
+    && !/prefillLabel[\s\S]{0,200}?fetch\(/.test(modal.slice(modal.indexOf('const prefillLabel'), modal.indexOf('const prefillLabel') + 400)));
+  check('D10 the modal is wide enough for the table (1240px cap, old 880px gone)',
+    modal.includes('min(1240px') && !modal.includes('min(880px'));
+  check('D11 the parent feeds the catalog for the PROJECT TYPE and the distinct used types',
+    assetsTab.includes('platformTypeCatalog') && assetsTab.includes('projectTypesInUse')
+    && assetsTab.includes('ASSET_TYPES_BY_PROJECT_TYPE'));
   check('D7 the Module 6 picker drops the stamp and the registry pick (never a dead lever)',
     nonEconomicLeverReason('assets[asset_1].assetTypeStandards.avgUnitSizeSqm', 'assetTypeStandards.avgUnitSizeSqm') !== null
     && nonEconomicLeverReason('assets[asset_1].assetTypeId', 'assetTypeId') !== null

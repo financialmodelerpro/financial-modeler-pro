@@ -114,6 +114,37 @@ export function normaliseAssetTypeId(label: string): string {
     .slice(0, 48);
 }
 
+/**
+ * The labels from `labels` that have NO standard yet: not matching any
+ * registry entry by normalised id or by case-insensitive label.
+ *
+ * ONE rule for both quick-add lists in the standards modal (the platform
+ * catalog and the types already used on the open project), so "already
+ * covered" cannot mean two different things. Deduped case-insensitively,
+ * first spelling wins, blanks dropped, first-seen order preserved.
+ */
+export function typesWithoutStandard(
+  labels: readonly string[],
+  entries: readonly AssetTypeStandard[],
+): string[] {
+  const coveredIds = new Set(entries.map((e) => e.id));
+  const coveredLabels = new Set(entries.map((e) => e.label.trim().toLowerCase()));
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of labels) {
+    const label = raw.trim();
+    if (!label) continue;
+    const lower = label.toLowerCase();
+    if (seen.has(lower)) continue;
+    seen.add(lower);
+    const id = normaliseAssetTypeId(label);
+    if (coveredLabels.has(lower)) continue;
+    if (id && coveredIds.has(id)) continue;
+    out.push(label);
+  }
+  return out;
+}
+
 /** One phrase for a standards value, keeping blank and zero visibly apart.
  *  The UI must never print a blank as 0. */
 export function describeStandardValue(value: number | undefined, unit: string): string {

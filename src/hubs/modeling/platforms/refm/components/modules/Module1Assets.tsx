@@ -336,6 +336,26 @@ export default function Module1Assets(): React.JSX.Element {
   }, []);
   useEffect(() => { void refreshAssetTypeRegistry(); }, [refreshAssetTypeRegistry]);
 
+  // Quick-add sources for the standards modal: the platform catalog for this
+  // project's type (Mixed-Use / Custom / unset = the union, the same rule as
+  // resolveTypeCatalog), and the distinct types already used on this project.
+  const platformTypeCatalog = useMemo(() => {
+    const pt = project.projectType;
+    if (pt && pt !== 'Mixed-Use' && pt !== 'Custom' && ASSET_TYPES_BY_PROJECT_TYPE[pt]) {
+      return ASSET_TYPES_BY_PROJECT_TYPE[pt];
+    }
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const cat of Object.values(ASSET_TYPES_BY_PROJECT_TYPE)) {
+      for (const t of cat) { if (!seen.has(t)) { seen.add(t); out.push(t); } }
+    }
+    return out;
+  }, [project.projectType]);
+  const projectTypesInUse = useMemo(
+    () => Array.from(new Set(assets.map((a) => (a.type ?? '').trim()).filter((t) => t !== ''))),
+    [assets],
+  );
+
   // Build per-phase asset groups, sorted by startDate / constructionStart
   const phaseGroups = useMemo(() => {
     return [...phases]
@@ -452,6 +472,8 @@ export default function Module1Assets(): React.JSX.Element {
         entries={assetTypeRegistry.entries}
         parkingAreaPerSlot={assetTypeRegistry.parkingAreaPerSlot}
         available={assetTypeRegistry.available}
+        platformCatalog={platformTypeCatalog}
+        projectTypesInUse={projectTypesInUse}
         onChanged={() => { void refreshAssetTypeRegistry(); }}
       />
 
