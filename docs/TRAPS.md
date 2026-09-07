@@ -939,6 +939,87 @@ outcomes, not two: passed, failed, and DID NOT RUN. If your harness has no way
 to express the third, it will report it as the first. See 2.14 for the outage
 this one concealed.
 
+### 3.21 A swallowed refusal poisons the whole transaction, and a grep for failures turns the crash into a pass
+
+**Symptom.** Building the asset-standards tab (2026-09-07), I sabotage-tested a
+new check by deleting the tab from `m1Tabs` and running:
+
+```
+npx tsx --env-file=.env.local scripts/verify-asset-type-standards.ts 2>&1 \
+  | grep -E "^  \[FAIL\]" | head -4
+```
+
+Zero lines came back. The two readings available at that moment were "the
+sabotage did not apply" and "the check has no teeth", and both were wrong. The
+verifier had DIED, several sections before the one under test, and a filter
+looking only for failure lines cannot tell a dead process from a clean one.
+
+**Mechanism, and it is two failures that only matter together.**
+
+1. **A swallowed refusal poisons the rest of the transaction.** The new live
+   check proved the `revenue_rate_unit` CHECK by inserting an unknown unit and
+   expecting the insert to be refused:
+
+   ```ts
+   await c.query('BEGIN');
+   let refused = false;
+   try { await c.query(`INSERT ... 'per_furlong'`); } catch { refused = true; }
+   const ok = await c.query(`INSERT ... 'adr_per_key_night' RETURNING ...`); // dies here
+   ```
+
+   In PostgreSQL **the first failed statement aborts the entire transaction**.
+   The `catch` swallows the JavaScript error, so the code reads as if the probe
+   were contained, but the connection is now in a failed transaction block and
+   EVERY later statement returns `current transaction is aborted, commands
+   ignored until end of transaction block`. That second error is not caught, so
+   it escapes the section and kills the process. The bug is invisible in the
+   diff because the only thing wrong is what is MISSING: a savepoint.
+
+2. **The filter hid the evidence.** The crash printed a `pg` error dump, which
+   contains no `[FAIL]` line, so `grep "\[FAIL\]"` matched nothing and printed
+   nothing. Absence of failures is not presence of passes, but at a terminal
+   they look identical: an empty result.
+
+The two together produce the 3.20 shape exactly: a check that never ran,
+reported as a check that passed. The difference is only in the mechanism, a
+crash rather than a skip.
+
+**Fix.**
+
+- **Every expected-refusal probe gets a SAVEPOINT**, so a refusal rolls back to
+  a known-good point and the transaction survives to be measured:
+
+  ```ts
+  await c.query('SAVEPOINT probe');
+  try { await c.query(BAD); await c.query('RELEASE SAVEPOINT probe'); }
+  catch { refused = true; await c.query('ROLLBACK TO SAVEPOINT probe'); }
+  ```
+
+  The migration appliers already had this as a `refuses()` helper and had for
+  months; the verifier reimplemented the probe without it. Reuse the helper, or
+  copy the savepoint with it, but never write the bare try/catch.
+- **Judge a run by its TERMINATOR, never by the absence of failures.** Filter
+  with `grep -E "\[FAIL\]|passed,"` so the tally line is always in the output: a
+  run that cannot show `N passed, M failed` did not finish, whatever else it
+  printed. Better still, read the tail of the raw output when a result surprises
+  you.
+
+**A second hazard in the same procedure.** Reverting the sabotage with
+`git checkout <file>` restores the file to **HEAD**, not to its pre-sabotage
+state, so it silently destroyed the uncommitted edit the sabotage was testing
+(the tab registration itself). The check then "passed" for a new wrong reason.
+Copy the file first (`cp x x.bak`, restore, delete) or stage the work before
+sabotaging it.
+
+**Proof.** With the savepoint added, the same sabotage failed `H1` and `H2` BY
+NAME, and the unsabotaged run reported `68 passed, 0 failed` with the live
+refusal probe firing (`E10`).
+
+**The general rule.** Any probe that deliberately causes an error must contain
+that error at the same level the database does, and any command that summarises
+a run must include the line that proves the run ended. A pipeline that can only
+show you bad news will show you nothing at all when the news is worse than bad.
+
 ## 4. PDF export (pdf-lib)
 
 ### 4.1 PDF text is glyph ids, so a naive grep returns nothing
