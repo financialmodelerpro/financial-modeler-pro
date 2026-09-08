@@ -25,6 +25,16 @@
  * REFERENCE (`assetTypeId`) and reads its values live, so editing a standard
  * cannot leave a model stale and nobody has to re-pick a type.
  *
+ * THE PROJECT'S VIEW LOCK GOVERNS THE RIGHT HALF ONLY. A project opens
+ * read-only until Edit, which is right for the values: they are model inputs
+ * in the snapshot. It is NOT right for the firm's list, which is account data
+ * shared by every project and writable by any member; whether you happen to be
+ * viewing some project read-only says nothing about your firm's vocabulary. So
+ * the firm's controls declare no `data-view-mutates` and its text inputs
+ * declare `data-view-editable`, and the two halves lock differently on purpose.
+ * This is the one tab where account data and model data share a row, which is
+ * why the distinction shows up here and nowhere else.
+ *
  * A BLANK AND A TYPED ZERO ARE DIFFERENT ANSWERS: an empty cell means "not
  * decided" (the field is absent from the snapshot) and a 0 is a decision.
  * Blanks render as a placeholder, never as 0.
@@ -93,6 +103,10 @@ const SMALL_BTN: React.CSSProperties = {
   cursor: 'pointer',
   fontWeight: 600,
 };
+
+/** Busy keys for the two controls that are not a saved row. */
+const ADD_KEY = '__add__';
+const ORDER_KEY = '__order__';
 
 /** The account half of a row, which needs an explicit Save. */
 interface NameDraft { entryId?: string; label: string; category: string }
@@ -173,7 +187,13 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
   const [available, setAvailable] = useState(true);
   const [nameDrafts, setNameDrafts] = useState<NameDraft[]>([]);
   const [addDraft, setAddDraft] = useState<NameDraft>(EMPTY_NAME);
-  const [busy, setBusy] = useState(false);
+  // BUSY IS KEYED, not global. One boolean meant that saving row 3 greyed out
+  // row 7's buttons for the round trip, and a hung request disabled the whole
+  // tab. The key is the entry id for a row, ADD_KEY for the add row, and
+  // ORDER_KEY for a reorder, which really is list-wide because it rewrites
+  // every row's position and two of them at once would race.
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const rowBusy = (key: string): boolean => busyKey === key;
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -213,7 +233,8 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
     setError(null);
     const label = d.label.trim();
     if (!label) { setError('Every asset type needs a name.'); return; }
-    setBusy(true);
+    const key = d.entryId ?? ADD_KEY;
+    setBusyKey(key);
     try {
       const res = await fetch('/api/refm/asset-types', {
         method: 'POST',
@@ -232,13 +253,13 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false);
+      setBusyKey(null);
     }
   };
 
   const deleteEntry = async (entryId: string, label: string): Promise<void> => {
     setError(null);
-    setBusy(true);
+    setBusyKey(entryId);
     try {
       const res = await fetch(`/api/refm/asset-types?entryId=${encodeURIComponent(entryId)}`, { method: 'DELETE' });
       const body = await res.json() as { ok?: boolean; error?: string };
@@ -248,7 +269,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false);
+      setBusyKey(null);
     }
   };
 
@@ -261,7 +282,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
     next.splice(target, 0, row);
     setEntries(next);
     setNameDrafts(next.map(toNameDraft));
-    setBusy(true);
+    setBusyKey(ORDER_KEY);
     setError(null);
     try {
       const res = await fetch('/api/refm/asset-types', {
@@ -276,14 +297,14 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
       setError(e instanceof Error ? e.message : String(e));
       await load();
     } finally {
-      setBusy(false);
+      setBusyKey(null);
     }
   };
 
   /** Seed every reference type not already in the firm's list, with its category. */
   const seedStandardList = async (): Promise<void> => {
     setError(null);
-    setBusy(true);
+    setBusyKey(ADD_KEY);
     try {
       const res = await fetch('/api/refm/asset-types', {
         method: 'POST',
@@ -303,7 +324,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false);
+      setBusyKey(null);
     }
   };
 
@@ -438,7 +459,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
             <span style={{ fontSize: 'var(--font-small)', fontWeight: 600 }}>Add a type without retyping it:</span>
             {wholeCatalogToAdd.length > 0 && (
               <button type="button" style={{ ...SMALL_BTN, background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}
-                data-view-mutates="true" disabled={busy}
+                disabled={rowBusy(ADD_KEY)}
                 onClick={() => { void seedStandardList(); }} data-testid="asset-type-seed-standard-list"
                 title="Adds the standard reference types you do not already have, each with its category. They are a starting set: rename, edit, reorder or remove any of them afterwards.">
                 Add the standard list ({wholeCatalogToAdd.length})
@@ -447,6 +468,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
             {catalogToAdd.length > 0 && (
               <select
                 value=""
+                data-view-editable="true"
                 data-testid="asset-type-catalog-picker"
                 style={{ ...TEXT_INPUT, width: 260 }}
                 onChange={(e) => { if (e.target.value) prefillLabel(e.target.value); }}
@@ -514,35 +536,35 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
               <tr key={d.entryId ?? i} style={{ borderBottom: '1px solid var(--color-border)' }}>
                 {/* ── the firm's half: everything here needs Save ── */}
                 <td style={FIRM_CELL}>
-                  <input style={TEXT_INPUT} value={d.label} data-testid={`std-row-${d.entryId}-label`}
+                  <input style={TEXT_INPUT} value={d.label} data-view-editable="true" data-testid={`std-row-${d.entryId}-label`}
                     placeholder="e.g. High End Apartments" onChange={(e) => patchName(i, { label: e.target.value })} />
                 </td>
                 <td style={FIRM_CELL}>
                   <input style={TEXT_INPUT} value={d.category} list="asset-standard-categories"
-                    data-testid={`std-row-${d.entryId}-category`}
+                    data-view-editable="true" data-testid={`std-row-${d.entryId}-category`}
                     placeholder="e.g. Residential" onChange={(e) => patchName(i, { category: e.target.value })} />
                 </td>
                 <td style={{ ...FIRM_CELL, textAlign: 'center', whiteSpace: 'nowrap' }}>
-                  <button type="button" style={{ ...SMALL_BTN, padding: '2px 6px' }} data-view-mutates="true"
-                    disabled={busy || i === 0} onClick={() => { void move(i, -1); }}
+                  <button type="button" style={{ ...SMALL_BTN, padding: '2px 6px' }}
+                    disabled={rowBusy(ORDER_KEY) || i === 0} onClick={() => { void move(i, -1); }}
                     data-testid={`std-row-${d.entryId}-up`} title="Move up. Order is part of your firm's list and is saved immediately.">
                     ^
                   </button>{' '}
-                  <button type="button" style={{ ...SMALL_BTN, padding: '2px 6px' }} data-view-mutates="true"
-                    disabled={busy || i === nameDrafts.length - 1} onClick={() => { void move(i, 1); }}
+                  <button type="button" style={{ ...SMALL_BTN, padding: '2px 6px' }}
+                    disabled={rowBusy(ORDER_KEY) || i === nameDrafts.length - 1} onClick={() => { void move(i, 1); }}
                     data-testid={`std-row-${d.entryId}-down`} title="Move down. Order is part of your firm's list and is saved immediately.">
                     v
                   </button>
                 </td>
                 <td style={{ ...FIRM_CELL, whiteSpace: 'nowrap' }}>
-                  <button type="button" style={SMALL_BTN} data-view-mutates="true" disabled={busy}
+                  <button type="button" style={SMALL_BTN} disabled={rowBusy(d.entryId ?? ADD_KEY)}
                     onClick={() => { void saveName(d); }} data-testid={`std-row-${d.entryId}-save`}
                     title="Saves the NAME and CATEGORY to your firm's list, which every project sees. It does not save this project's values on the right: those save themselves as you type.">
                     Save
                   </button>{' '}
                   <button type="button"
                     style={{ ...SMALL_BTN, color: 'var(--color-negative)', borderColor: 'var(--color-negative)' }}
-                    data-view-mutates="true" disabled={busy}
+                    disabled={rowBusy(d.entryId!)}
                     onClick={() => { void deleteEntry(d.entryId!, d.label); }}
                     data-testid={`std-row-${d.entryId}-delete`}
                     title="Removes the type from your firm's list. This project keeps any values it holds for it.">
@@ -557,18 +579,18 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
                 project can hold values for it. */}
             <tr style={{ background: 'var(--color-grey-pale)' }}>
               <td style={FIRM_CELL}>
-                <input style={TEXT_INPUT} value={addDraft.label} data-testid="std-add-label"
+                <input style={TEXT_INPUT} value={addDraft.label} data-view-editable="true" data-testid="std-add-label"
                   placeholder="e.g. High End Apartments" onChange={(e) => setAddDraft((p) => ({ ...p, label: e.target.value }))} />
               </td>
               <td style={FIRM_CELL}>
                 <input style={TEXT_INPUT} value={addDraft.category} list="asset-standard-categories"
-                  data-testid="std-add-category"
+                  data-view-editable="true" data-testid="std-add-category"
                   placeholder="e.g. Residential" onChange={(e) => setAddDraft((p) => ({ ...p, category: e.target.value }))} />
               </td>
               <td style={FIRM_CELL}></td>
               <td style={FIRM_CELL}>
-                <button type="button" className="btn-primary" data-view-mutates="true"
-                  disabled={busy || !addDraft.label.trim() || !normaliseAssetTypeId(addDraft.label)}
+                <button type="button" className="btn-primary"
+                  disabled={rowBusy(ADD_KEY) || !addDraft.label.trim() || !normaliseAssetTypeId(addDraft.label)}
                   style={{ padding: '4px 12px', fontSize: 'var(--font-small)' }}
                   onClick={() => { void saveName(addDraft); }} data-testid="std-add-save">
                   Add

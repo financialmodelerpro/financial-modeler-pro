@@ -382,6 +382,35 @@ function offlineChecks(): void {
       body.length > 500 && all.every((v) => v > 0 && v === c.band),
       `band ${c.band}, headers ${c.head}, cells ${c.cells}, COLS ${c.group}, colgroup ${c.cols}`);
   }
+  // ── THE VOCABULARY. Reference BUA is the OUTERMOST tier; platform BUA is an
+  // inner one, and the two words invert exactly where it matters most. The
+  // columns take the PLATFORM's words, so that a column's name is the field it
+  // will feed and the wiring cannot be done on a shared word alone.
+  check('U17 the two contested columns carry the PLATFORM tier names, not the reference ones',
+    /<th style=\{TH_N\}[^>]*>BUA \(sqm\)<\/th>/.test(resultsBody)
+    && /<th style=\{TH_N\}[^>]*>GFA \(sqm\)<\/th>/.test(resultsBody)
+    && !/>Total GFA</.test(resultsBody)
+    && !/>Total BUA</.test(resultsBody));
+  check('U18 each contested column names its REFERENCE column and its DESTINATION field',
+    /title="[^"]*Reference: Total GFA\.[^"]*Asset\.buaSqm[^"]*"[^>]*>BUA \(sqm\)/.test(resultsBody)
+    && /title="[^"]*Reference: BUA Area\.[^"]*Asset\.gfaSqm[^"]*"[^>]*>GFA \(sqm\)/.test(resultsBody)
+    // The two rate methods those fields feed, named, because feeding the
+    // outermost tier to rate_per_bua is the exact mistake this guards.
+    && /rate_per_bua/.test(resultsBody) && /rate_per_gfa/.test(resultsBody));
+  check('U19 the table states which vocabulary is in force',
+    tabSrc.includes('data-testid="assets-results-vocabulary"')
+    && /NSA sits inside BUA sits inside GFA/.test(resultsBody));
+  check('U20 every area header states its unit, and the meaning-restoring labels are back',
+    // Areas say sqm; slot and unit counts say what they count in the name.
+    (resultsBody.match(/\(sqm\)</g) ?? []).length >= 12
+    && /<th style=\{TH_N\}>Land area \(sqm\)<\/th>/.test(inputsBody)
+    && /Net saleable \/ GLA \(sqm\)/.test(resultsBody)
+    && /Main asset cov %/.test(inputsBody)
+    && /Retail % \(ground floor\)/.test(inputsBody));
+  check('U21 the drawer panel uses the SAME words as the table it sits under',
+    panel.includes("'BUA (reference Total GFA)'")
+    && panel.includes("'GFA (reference BUA Area)'")
+    && panel.includes("'Net saleable / GLA'"));
   check('U16 the outermost tier is banded on its own, not filed under parking',
     /<th style=\{TH_N\}>Total<\/th>/.test(resultsBody)
     && /colSpan=\{7\}>Units and parking</.test(resultsBody));

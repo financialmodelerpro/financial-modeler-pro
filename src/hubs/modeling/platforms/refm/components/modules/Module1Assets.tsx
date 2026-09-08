@@ -959,7 +959,7 @@ function ParcelRow({ parcel, onUpdate, onRemove, canRemove, scale, decimals }: P
 //
 // One row per asset, grouped under the PLOT it draws from, following the
 // reference workbook's shape: identity, then land, then the chain's percent
-// inputs, then the derived cascade left to right ending at Total BUA.
+// inputs, then the derived cascade left to right ending at GFA, the outermost tier.
 //
 // THE ROW IS THE ASSET. Everything scalar lives in a cell; the nine things a
 // row genuinely cannot hold (the multi-parcel split list, the derived-versus-
@@ -1241,12 +1241,15 @@ function AssetInputsTable({
               <th style={TH_T}>Type</th>
               <th style={TH_T}>Strategy</th>
               <th style={TH_T}>Phase</th>
-              <th style={TH_N}>Land area</th>
-              <th style={TH_N} title="Share of the plot that is developable.">Util %</th>
-              <th style={TH_N} title="Share of the utilised area the footprint covers.">Cov %</th>
-              <th style={TH_N} title="Total GFA = utilised land x FAR.">FAR</th>
-              <th style={TH_N} title="Share of the FOOTPRINT given to ground-floor retail.">Retail %</th>
-              <th style={TH_N} title="Service and back-of-house share off the main asset GFA.">Svc %</th>
+              <th style={TH_N}>Land area (sqm)</th>
+              <th style={TH_N} title="Share of the plot that is developable. Reference: Land Utilization %.">Util %</th>
+              {/* The reference calls this "Main Asset Coverage % / Footprint",
+                  and the "main asset" half carries meaning: it is the MAIN
+                  asset's footprint on the utilised land, not the plot's. */}
+              <th style={TH_N} title="Share of the utilised area the MAIN ASSET's footprint covers. Reference: Main Asset Coverage % / Footprint.">Main asset cov %</th>
+              <th style={TH_N} title="Floor area ratio. BUA = utilised land x FAR (not the footprint, and not the gross plot).">FAR</th>
+              <th style={TH_N} title="Share of the FOOTPRINT given to GROUND-FLOOR retail. Reference: Retail % (Ground Floor).">Retail % (ground floor)</th>
+              <th style={TH_N} title="Service and back-of-house share off the main asset GFA. Reference: Service %.">Svc %</th>
               <th style={TH_T}></th>
             </tr>
           </thead>
@@ -1329,7 +1332,7 @@ function AssetInputsTable({
                         <td style={CELL_NUM} data-testid={`asset-row-${asset.id}-land`}>{formatArea(landSqm)}</td>
                         <td style={CELL}><ChainCell value={asset.landChain?.utilisationPct} testId={`asset-row-${asset.id}-utilisation`} title="Share of the plot that is developable." onCommit={(v) => patchChain({ utilisationPct: v })} /></td>
                         <td style={CELL}><ChainCell value={asset.landChain?.coveragePct} testId={`asset-row-${asset.id}-coverage`} title="Share of the utilised area the footprint covers." onCommit={(v) => patchChain({ coveragePct: v })} /></td>
-                        <td style={CELL}><ChainCell value={asset.landChain?.farRatio} testId={`asset-row-${asset.id}-far`} title="Total GFA = utilised land x FAR." onCommit={(v) => patchChain({ farRatio: v })} /></td>
+                        <td style={CELL}><ChainCell value={asset.landChain?.farRatio} testId={`asset-row-${asset.id}-far`} title="BUA = utilised land x FAR." onCommit={(v) => patchChain({ farRatio: v })} /></td>
                         <td style={CELL}><ChainCell value={asset.landChain?.retailPct} testId={`asset-row-${asset.id}-retail`} title="Share of the FOOTPRINT given to ground-floor retail." onCommit={(v) => patchChain({ retailPct: v })} /></td>
                         <td style={CELL}><ChainCell value={asset.landChain?.servicePct} testId={`asset-row-${asset.id}-service`} title="Service share off the main asset GFA." onCommit={(v) => patchChain({ servicePct: v })} /></td>
                         <td style={CELL}>
@@ -1399,6 +1402,15 @@ function AssetResultsTable({ rowGroups }: { rowGroups: RowGroup[] }): React.JSX.
           Read only, and read by no calculation. Same rows, same order as the table above.
         </span>
       </div>
+      {/* WHICH VOCABULARY IS IN FORCE, stated, because no reader can infer it.
+          The reference workbook's outermost tier is called BUA and its inner
+          one GFA; this platform's are the other way round, and the columns
+          here feed platform fields. */}
+      <div style={{ fontSize: 10, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }} data-testid="assets-results-vocabulary">
+        Columns use this platform&apos;s names: NSA sits inside BUA sits inside GFA, so GFA is the
+        outermost tier and includes parking. The reference workbook inverts the outer two, and each
+        column&apos;s tooltip gives its reference name.
+      </div>
       <div style={{ overflowX: 'auto' }}>
         {/* Identity cut to 88 and 150 (the results table needs only enough to
             say WHICH row this is; the input table above is where names are
@@ -1428,24 +1440,29 @@ function AssetResultsTable({ rowGroups }: { rowGroups: RowGroup[] }): React.JSX.
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
               <th style={TH_T}>Plot</th>
               <th style={TH_T}>Asset</th>
-              <th style={TH_N}>Land area</th>
-              <th style={TH_N}>Land utilised</th>
-              <th style={TH_N}>Footprint</th>
-              <th style={TH_N}>Landscape %</th>
-              <th style={TH_N}>Landscape area</th>
-              <th style={TH_N}>Retail GFA</th>
-              <th style={TH_N}>Lobby GFA</th>
-              <th style={TH_N} title="Utilised land x FAR.">Total GFA</th>
-              <th style={TH_N}>Main asset GFA</th>
-              <th style={TH_N} title="Reference Total GLA / Net Saleable = platform NSA.">Net saleable</th>
+              <th style={TH_N}>Land area (sqm)</th>
+              <th style={TH_N} title="Land area x utilisation. Reference: Land Utilized Area.">Land utilised (sqm)</th>
+              <th style={TH_N} title="Utilised land x main asset coverage. Reference: Total Used Footprint.">Footprint (sqm)</th>
+              <th style={TH_N} title="One minus coverage. The utilised land that the footprint does not cover.">Landscape %</th>
+              <th style={TH_N} title="Reference: Total Landscape Area.">Landscape area (sqm)</th>
+              <th style={TH_N} title="Footprint x ground-floor retail share. Reference: Retail GFA.">Retail GFA (sqm)</th>
+              <th style={TH_N} title="Footprint less retail. Reference: Lobby Area GFA.">Lobby GFA (sqm)</th>
+              {/* THE TWO CONTESTED TIERS CARRY THE PLATFORM'S WORDS, and each
+                  tooltip names both the reference column and the platform field
+                  it will feed, so the wiring cannot be done on the strength of a
+                  shared word. Reference BUA is the OUTERMOST tier; platform BUA
+                  is an inner one. */}
+              <th style={TH_N} title="Utilised land x FAR, the building with no parking. Reference: Total GFA. Feeds Asset.buaSqm, which is what rate_per_bua multiplies.">BUA (sqm)</th>
+              <th style={TH_N} title="Reference: Main Asset GFA.">Main asset GFA (sqm)</th>
+              <th style={TH_N} title="Main asset GFA x (1 - service %). Reference: Total GLA / Net Saleable. Feeds Asset.sellableBuaSqm.">Net saleable / GLA (sqm)</th>
               <th style={TH_N}>Units / keys</th>
               <th style={TH_N}>Parking slots</th>
               <th style={TH_N}>Retail slots</th>
               <th style={TH_N}>Total slots</th>
-              <th style={TH_N}>Parking area</th>
-              <th style={TH_N}>Retail parking area</th>
-              <th style={TH_N}>Total parking area</th>
-              <th style={TH_N} title="Reference BUA Area = Total GFA + parking. This platform calls this tier GFA.">Total BUA</th>
+              <th style={TH_N}>Parking area (sqm)</th>
+              <th style={TH_N}>Retail parking area (sqm)</th>
+              <th style={TH_N}>Total parking area (sqm)</th>
+              <th style={TH_N} title="BUA + total parking area, everything built. Reference: BUA Area. Feeds Asset.gfaSqm, which is what rate_per_gfa multiplies.">GFA (sqm)</th>
             </tr>
           </thead>
           <tbody>

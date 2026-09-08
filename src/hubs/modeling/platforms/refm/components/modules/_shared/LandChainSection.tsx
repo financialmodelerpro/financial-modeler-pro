@@ -130,7 +130,7 @@ export default function LandChainSection({
   const rows = [
     {
       key: 'nsa',
-      label: 'Net saleable',
+      label: 'Net saleable / GLA',
       both: 'reference Net Saleable / GLA = platform NSA',
       cmp: compareChainValue(chain.netSaleableSqm, entered.nsa),
     },
@@ -167,15 +167,18 @@ export default function LandChainSection({
     [`Landscape${chain.landscapePct !== undefined ? ` (${fmt(chain.landscapePct, 0)}%)` : ''}`, chain.landscapeSqm],
     ['Retail GFA', chain.retailGfaSqm],
     ['Lobby GFA', chain.lobbyGfaSqm],
-    ['Total GFA', chain.totalGfaSqm],
+    // PLATFORM WORDS, matching the results table column for column. The
+    // reference calls this tier Total GFA and the last one BUA Area; here BUA
+    // is the building and GFA is everything, parking included.
+    ['BUA (reference Total GFA)', chain.totalGfaSqm],
     ['Main asset GFA', chain.mainAssetGfaSqm],
-    ['Net saleable', chain.netSaleableSqm],
+    ['Net saleable / GLA', chain.netSaleableSqm],
     ['Units / keys', chain.units],
     ['Parking slots', chain.parkingSlots],
     ['Retail parking slots', chain.retailParkingSlots],
     ['Total parking slots', chain.totalParkingSlots],
     ['Total parking area', chain.totalParkingAreaSqm],
-    ['Total BUA (reference) = GFA (platform)', chain.totalBuaSqm],
+    ['GFA (reference BUA Area)', chain.totalBuaSqm],
   ];
 
   return (
@@ -208,7 +211,7 @@ export default function LandChainSection({
               testId={`asset-${assetId}-chain-coverage`}
               onCommit={(v) => onChange({ coveragePct: v })} />
             <ChainInput label="FAR" value={inputs?.farRatio} disabled={disabled}
-              hint="Floor area ratio. Total GFA = utilised land x FAR (not the footprint, and not the gross plot)."
+              hint="Floor area ratio. BUA = utilised land x FAR (not the footprint, and not the gross plot)."
               testId={`asset-${assetId}-chain-far`}
               onCommit={(v) => onChange({ farRatio: v })} />
             <ChainInput label="Retail % (ground)" value={inputs?.retailPct} disabled={disabled}

@@ -289,8 +289,37 @@ function offlineChecks(): void {
     route.includes('available: false'));
   check('D4 the tab parses values without coercing (blank stays blank, no Number(null))',
     tab.includes('parseValue') && !/Number\(\s*null\s*\)/.test(tab));
-  check('D5 every mutating VOCABULARY control declares data-view-mutates',
-    (tab.match(/data-view-mutates="true"/g) ?? []).length >= 5);
+  // D5 IS THE REVERSE OF WHAT IT USED TO ASSERT, and deliberately so. It
+  // required the firm's controls to opt INTO the project view lock, which
+  // greyed out an account-scoped shared vocabulary because some project
+  // happened to be open read-only. The lock belongs to model data. The firm's
+  // half is not model data, so it declares neither the button opt-in nor the
+  // input default, and D5b holds the other side: the project values must STILL
+  // lock, or this would have swapped one wrong answer for another.
+  const valueCell = tab.slice(tab.indexOf('function ValueCell('), tab.indexOf('export default function'));
+  check('D5 the FIRM half is free of the project view lock (buttons opt out, inputs opt out)',
+    // The ATTRIBUTE, not the word: the file's own docblock explains why the
+    // opt-in is absent, and a bare substring match reads that sentence as the
+    // very thing it says is gone.
+    !/data-view-mutates=/.test(tab)
+    && ['std-row-${d.entryId}-label', 'std-row-${d.entryId}-category', 'std-add-label', 'std-add-category']
+      .every((t) => {
+        const at = tab.indexOf(t);
+        return at > 0 && tab.lastIndexOf('data-view-editable="true"', at) > tab.lastIndexOf('<input', at);
+      }));
+  check('D5b the PROJECT values still lock with the project (no opt-out on any value control)',
+    valueCell.length > 200
+    && !valueCell.includes('data-view-editable')
+    && !tab.slice(tab.indexOf('std-row-${id}-basis') - 400, tab.indexOf('std-row-${id}-basis'))
+      .includes('data-view-editable'));
+  check('D5c busy is KEYED per row, so one in-flight request cannot disable another row',
+    tab.includes('const [busyKey')
+    && tab.includes('const rowBusy =')
+    && !/\bbusy\b/.test(tab)
+    && tab.includes('rowBusy(d.entryId ?? ADD_KEY)')
+    && tab.includes('rowBusy(d.entryId!)')
+    // The reorder is the ONE list-wide operation, and says so with its own key.
+    && (tab.match(/rowBusy\(ORDER_KEY\)/g) ?? []).length === 2);
   check('D6 the asset picker records the REFERENCE and stamps nothing',
     assetsTab.includes('assetTypeId: entry.id')
     && !assetsTab.includes('stampFromAssetType')
