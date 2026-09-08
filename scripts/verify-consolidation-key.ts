@@ -137,8 +137,26 @@ function offlineChecks(): void {
   const consumers = roots.flatMap((r) => walk(r))
     .filter((f) => !f.endsWith('calculations/consolidation.ts'))
     .filter((f) => /from '[^']*consolidation'|from "[^"]*consolidation"/.test(readFileSync(f, 'utf8')));
-  check('D1 no calculation, resolver, report, export or component imports it',
-    consumers.length === 0, consumers.join(' | '));
+  // D1 NARROWED WHEN STEP 2 LANDED, and the narrowing is the honest version of
+  // the invariant rather than a weakening of it. Step 1 said "nothing imports
+  // it" because nothing did. Step 2 adds exactly one consumer, the consolidated
+  // REPORT builder, which is a presentation layer read by one screen. What must
+  // stay true is that no CALCULATION and no RESOLVER touches it, because that is
+  // what would make the grouping key part of how money is computed.
+  const CONSOLIDATED_VIEW = 'src/hubs/modeling/platforms/refm/lib/reports/consolidatedReport.ts';
+  check('D1 the ONLY consumer is the consolidated view builder',
+    consumers.length === 1 && consumers[0] === CONSOLIDATED_VIEW, consumers.join(' | '));
+  const computeSurface = [
+    ...walk('src/core/calculations'),
+    'src/hubs/modeling/platforms/refm/lib/financials-resolvers.ts',
+    'src/hubs/modeling/platforms/refm/lib/revenue-resolvers.ts',
+    'src/hubs/modeling/platforms/refm/lib/opex-resolvers.ts',
+    'src/hubs/modeling/platforms/refm/lib/costOfSales.ts',
+  ].filter((f) => !f.endsWith('calculations/consolidation.ts'));
+  const computeReaders = computeSurface
+    .filter((f) => /from '[^']*consolidation'|from "[^"]*consolidation"/.test(readFileSync(f, 'utf8')));
+  check('D1b NOTHING that computes money reads the grouping key',
+    computeReaders.length === 0, computeReaders.join(' | '));
   const src = readFileSync('src/core/calculations/consolidation.ts', 'utf8');
   check('D2 the module imports NOTHING, so it cannot reach back into the model',
     !/^\s*import\s/m.test(src));

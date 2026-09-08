@@ -175,11 +175,28 @@ function offlineChecks(): void {
     offenders.length === 0, offenders.slice(0, 5).join(' | '));
   // Each exclusion above is only safe while the excluded file is unreachable
   // from the engine. Proven here, per file, not assumed.
+  // A2 CHECKS THE COMPUTE SURFACE, not every file in ENGINE_ROOTS.
+  //
+  // It used to check all of them, which was right while nothing called either
+  // excluded file. Consolidation step 2 added a presentation builder in
+  // lib/reports that calls the grouping key, and that is exactly what the
+  // grouping key is FOR. What the exclusion actually needs is that nothing
+  // which COMPUTES MONEY calls the excluded file, since the concern is an
+  // engine reading the asset type standards. A report labelling rows by type is
+  // not that. Narrowed deliberately, with the compute surface named here rather
+  // than inferred, so widening it back is a one-line decision.
+  const COMPUTE_SURFACE = files.filter((f) => {
+    const p = f.replace(/\\/g, '/');
+    return p.startsWith('src/core/calculations')
+      || /\/(financials|revenue|opex)-resolvers\.ts$/.test(p)
+      || p.endsWith('/costOfSales.ts');
+  });
+  check('A2a the compute surface was actually found', COMPUTE_SURFACE.length > 5, `${COMPUTE_SURFACE.length} files`);
   for (const d of DEFINITION_ONLY) {
-    const callers = files
+    const callers = COMPUTE_SURFACE
       .filter((f) => f.replace(/\\/g, '/') !== d.file)
       .filter((f) => readFileSync(f, 'utf8').includes(d.token));
-    check(`A2 the excluded file ${d.file.split('/').pop()} is called by NOTHING in the calculation or export surface`,
+    check(`A2 the excluded file ${d.file.split('/').pop()} is called by NOTHING that computes money`,
       callers.length === 0, callers.slice(0, 3).join(' | '));
   }
   check('A2b every excluded file exists (a renamed one would silently stop being checked)',

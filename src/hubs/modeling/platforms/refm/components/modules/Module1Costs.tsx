@@ -119,6 +119,8 @@ import {
 } from './_shared/tableStyles';
 import { buildResultsPeriodAxis } from './_shared/periodAxis';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
+import { buildConsolidatedReport } from '../../lib/reports/consolidatedReport';
+import { normaliseAssetTypeId } from '../../lib/state/assetTypeStandards';
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 const inputStyle: React.CSSProperties = {
@@ -2774,8 +2776,111 @@ function SummaryTables({
   // splits into Cash + In-Kind via metricsByAsset).
   const matrixRows = treatmentTable;  // same source as Table 3 minus cashFlow col
 
+  // CONSOLIDATED PREVIEW (consolidation step 2). Grouped by (phase, type,
+  // strategy), summing the SAME per-asset rows Table 3 shows, so the two totals
+  // agree by construction rather than by coincidence. Read only, and read by
+  // nothing: this is a view over the snapshot, not a second engine.
+  const consolidated = buildConsolidatedReport(
+    phaseAssets,
+    phases,
+    treatmentTable.map((r) => ({
+      assetId: r.id,
+      land: r.landCash + r.landInKind,
+      hard: r.hard,
+      soft: r.soft,
+      marketing: 0,
+      operating: r.operating,
+      total: r.total,
+    })),
+    normaliseAssetTypeId,
+  );
+
   return (
     <>
+      {/* CONSOLIDATION STEP 2: the same money, grouped the way a consolidated
+          schedule would group it. It sits ABOVE the per-asset tables because it
+          is the summary they detail, and it carries its own reconciliation
+          against them: a consolidated total that differs from the per-asset
+          total is worse than no table at all, since both are on screen and a
+          reader cannot tell which is wrong. */}
+      <div style={sectionCardStyle} data-testid="capex-consolidated">
+        <strong style={TABLE_TITLE} data-testid="capex-consolidated-title">
+          Consolidated by type, what a grouped schedule would show
+        </strong>
+        <div style={{ fontSize: 10, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
+          Grouped by phase, asset type and strategy. Preview only: every schedule and export below
+          is still per asset.{' '}
+          {consolidated.isRelabellingOnly
+            ? 'Nothing merges on this project, so each row is one asset under a different label.'
+            : `${consolidated.mergedRows.length} row${consolidated.mergedRows.length === 1 ? '' : 's'} merge more than one asset.`}
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ borderCollapse: 'collapse', width: '100%' }} data-testid="capex-consolidated-table">
+            <thead>
+              <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+                <th style={{ ...cellName, color: 'inherit' }}>Phase</th>
+                <th style={{ ...cellName, color: 'inherit' }}>Type</th>
+                <th style={{ ...cellName, color: 'inherit' }}>Strategy</th>
+                <th style={{ ...cellNum, color: 'inherit' }}>Assets</th>
+                <th style={{ ...cellNum, color: 'inherit' }}>Land</th>
+                <th style={{ ...cellNum, color: 'inherit' }}>Hard</th>
+                <th style={{ ...cellNum, color: 'inherit' }}>Soft</th>
+                <th style={{ ...cellNum, color: 'inherit' }}>Operating</th>
+                <th style={{ ...cellNum, color: 'inherit' }}>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {consolidated.rows.map((r) => (
+                <tr key={r.key} data-testid={`capex-consolidated-row-${r.key}`}
+                  style={{ borderBottom: '1px solid var(--color-border)' }}>
+                  <td style={cellName}>{r.phaseName}</td>
+                  <td style={cellName}
+                    title={r.assetCount > 1 ? `Merges: ${r.assetNames.join(', ')}` : r.assetNames[0]}>
+                    {r.typeLabel}
+                    {!r.typed && (
+                      <span style={{ fontSize: 9, color: 'var(--color-meta)', marginLeft: 6 }}>
+                        (untyped, so it groups alone)
+                      </span>
+                    )}
+                  </td>
+                  <td style={cellName}>{r.strategy}</td>
+                  <td style={cellNum} data-testid={`capex-consolidated-row-${r.key}-count`}>{r.assetCount}</td>
+                  <td style={cellNum}>{fmt(r.land)}</td>
+                  <td style={cellNum}>{fmt(r.hard)}</td>
+                  <td style={cellNum}>{fmt(r.soft)}</td>
+                  <td style={cellNum}>{fmt(r.operating)}</td>
+                  <td style={cellNum} data-testid={`capex-consolidated-row-${r.key}-total`}>{fmt(r.total)}</td>
+                </tr>
+              ))}
+              <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
+                <td style={cellName} colSpan={3}>Total</td>
+                <td style={cellNum}>{consolidated.rows.reduce((n, r) => n + r.assetCount, 0)}</td>
+                <td style={cellNum}>{fmt(consolidated.totals.land)}</td>
+                <td style={cellNum}>{fmt(consolidated.totals.hard)}</td>
+                <td style={cellNum}>{fmt(consolidated.totals.soft)}</td>
+                <td style={cellNum}>{fmt(consolidated.totals.operating)}</td>
+                <td style={cellNum} data-testid="capex-consolidated-total">{fmt(consolidated.totals.total)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        {/* THE CHECK, STATED. Not an assertion buried in a verifier: the reader
+            sees that this table and the per-asset tables below are the same
+            money. */}
+        <div style={{ fontSize: 10, marginTop: 6 }} data-testid="capex-consolidated-check">
+          {Math.abs(consolidated.difference) < 0.005 ? (
+            <span style={{ color: 'var(--color-positive, #15803d)', fontWeight: 700 }}>
+              Ties to the per-asset total below: {fmt(consolidated.perAssetTotal)}.
+            </span>
+          ) : (
+            <span style={{ color: 'var(--color-negative)', fontWeight: 700 }}>
+              Does NOT tie to the per-asset total below ({fmt(consolidated.perAssetTotal)}), out by{' '}
+              {fmt(consolidated.difference)}. Treat the per-asset tables as authoritative.
+            </span>
+          )}
+        </div>
+      </div>
+
       {/* M2.0g Fix 7a + 7d: Table 1 - Capex by Period (per cost-line
           breakdown). Asset rows are followed by per-cost-line nested
           rows so the user can audit each line's per-period spend. Total
