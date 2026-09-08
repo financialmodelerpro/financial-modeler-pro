@@ -815,10 +815,12 @@ function ParcelRow({ parcel, onUpdate, onRemove, canRemove, scale, decimals }: P
           style={inputStyle}
           data-testid={`parcel-${parcel.id}-rate`}
         />
-        {/* M2.0j Fix 5: rate respects Display Scale + Decimals (informational caption when scaled). */}
-        {scale !== 'full' && (
-          <div style={{ fontSize: 10, color: 'var(--color-meta)', textAlign: 'right' }} data-testid={`parcel-${parcel.id}-rate-fmt`}>{formatAccounting(parcel.rate, scale, decimals)}</div>
-        )}
+        {/* THE SCALED CAPTION IS GONE. It showed the rate divided by the
+            display scale, so 7,500 per sqm rendered "8" underneath an input
+            reading 7,500. It was the same confusion the totals row had, in
+            smaller type: a scale is for totals, and a per sqm rate is not a
+            total. There is no caption now, because the input above it already
+            shows the whole amount. */}
       </td>
       <td style={{ padding: 'var(--sp-1)' }}>
         <PercentageInput

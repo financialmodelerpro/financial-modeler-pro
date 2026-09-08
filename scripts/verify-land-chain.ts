@@ -712,6 +712,76 @@ function offlineChecks(): void {
       { id: 'l2', phaseId: 'p1', name: 'Land 2', area: 500, rate: 500, cashPct: 60, inKindPct: 40 },
     ] as Parcel[]).weightedRate - (180250000 / 24500)) < 1e-9);
 
+  // ── V15 IS A SWEEP, NOT A LINE. Three rate-vs-scale defects turned up on
+  // this tab one at a time (the sub-unit rate, the parcels totals rate, the
+  // per-parcel caption), each found by eye after shipping. A scale divides a
+  // figure for readability and belongs to TOTALS; a rate is per unit and must
+  // show the whole amount. So every money render on the tab is enumerated and
+  // any whose subject reads as a rate has to take 'full'.
+  const words = (ident: string): string[] =>
+    ident.replace(/([a-z0-9])([A-Z])/g, '$1 $2').split(/[^A-Za-z0-9]+/).map((w) => w.toLowerCase());
+  const isRate = (ident: string): boolean =>
+    words(ident).some((w) => w === 'rate' || w === 'price' || w === 'adr' || w === 'unitprice');
+  /** Split a call's arguments on TOP-LEVEL commas only. */
+  const splitArgs = (src: string): string[] => {
+    const out: string[] = [];
+    let depth = 0, start = 0;
+    for (let k = 0; k < src.length; k += 1) {
+      const c = src[k];
+      if (c === '(' || c === '[' || c === '{') depth += 1;
+      else if (c === ')' || c === ']' || c === '}') depth -= 1;
+      else if (c === ',' && depth === 0) { out.push(src.slice(start, k)); start = k + 1; }
+    }
+    out.push(src.slice(start));
+    return out.map((x) => x.trim());
+  };
+  /** The whole call text from the open paren, brackets balanced. */
+  const callArgs = (src: string, openParen: number): string => {
+    let depth = 0;
+    for (let k = openParen; k < src.length; k += 1) {
+      const c = src[k];
+      if (c === '(') depth += 1;
+      else if (c === ')') { depth -= 1; if (depth === 0) return src.slice(openParen + 1, k); }
+    }
+    return '';
+  };
+  // formatAccounting(value, scale, decimals) | fmtCurrency(value, currency,
+  // scale, decimals) | fmtMoney(value), which closes over the block's scale
+  // and therefore always scales.
+  const SCALE_ARG: Record<string, number> = { formatAccounting: 1, fmtCurrency: 2, fmtMoney: -1 };
+  const moneyCalls: { fn: string; args: string[] }[] = [];
+  for (const m of tabSrc.matchAll(/\b(formatAccounting|fmtCurrency|fmtMoney)\(/g)) {
+    const fn = m[1];
+    const args = splitArgs(callArgs(tabSrc, m.index + fn.length));
+    moneyCalls.push({ fn, args });
+  }
+  const scaledRates = moneyCalls.filter(({ fn, args }) => {
+    if (!isRate(args[0] ?? '')) return false;
+    const at = SCALE_ARG[fn];
+    if (at < 0) return true;
+    // THE SCALE ARGUMENT ITSELF, not the presence of the word 'full' anywhere
+    // in the call. The first cut tested the whole argument string, so
+    // `project.displayScale ?? 'full'` satisfied it and TWO sabotages walked
+    // straight through. Same family as every other match-the-prose miss today.
+    return (args[at] ?? '').trim() !== "'full'";
+  });
+  check('V15 no RATE on this tab takes the project display scale',
+    moneyCalls.length >= 6 && scaledRates.length === 0,
+    scaledRates.map((r) => `${r.fn}(${r.args.join(', ')})`).join(' | ') || `${moneyCalls.length} money renders scanned`);
+  check('V15b the sweep still SEES the scaled totals, so it cannot pass by finding nothing',
+    moneyCalls.some(({ fn, args }) => /totalValue|cashValue|inKindValue/.test(args[0] ?? '')
+      && (SCALE_ARG[fn] < 0 || (args[SCALE_ARG[fn]] ?? '').includes('displayScale'))));
+  const inputScales = [...tabSrc.matchAll(/<AccountingNumberInput\b([\s\S]{0,400}?)\/>/g)]
+    .map((m) => /scale=(\{[^}]*\}|"[^"]*")/.exec(m[1])?.[1] ?? '(none)');
+  check('V15d every AccountingNumberInput on this tab is FULL scale: areas, rates, counts and per-unit prices, never a total',
+    inputScales.length >= 10 && inputScales.every((v) => v === '"full"' || v === '(none)'),
+    `${inputScales.length} inputs: ${[...new Set(inputScales)].join(' | ')}`);
+  check('V15c the per-parcel scaled caption is gone',
+    !/parcel-\$\{parcel\.id\}-rate-fmt/.test(tabSrc)
+    && !/formatAccounting\(parcel\.rate, scale/.test(tabSrc)
+    // The parcel's own rate INPUT stays, at full scale.
+    && /data-testid=\{`parcel-\$\{parcel\.id\}-rate`\}/.test(tabSrc));
+
   check('U31 headers WRAP and are CENTRED in both tables',
     /textAlign: 'center'/.test(tabSrc.slice(tabSrc.indexOf('const TH_T'), tabSrc.indexOf('const TABLE_INPUT')))
     && /whiteSpace: 'normal'/.test(tabSrc.slice(tabSrc.indexOf('const TH_T'), tabSrc.indexOf('const TABLE_INPUT')))
