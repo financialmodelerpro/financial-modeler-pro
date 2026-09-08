@@ -76,18 +76,28 @@ const FORBIDDEN_TOKENS = [
 ];
 
 /**
- * ONE exclusion, and it is not a hole.
+ * TWO exclusions, and neither is a hole.
  *
- * `landChain.ts` (land planning step 2) DECLARES a parameter shape that names
- * `parkingRatio` and `parkingAreaPerSlotSqm`: the caller passes the resolved
- * standards in, and the file itself reads no project, no asset and no table.
- * Excluding it keeps the check aimed at what it means, which is "no engine
- * file READS the standards", rather than at the spelling of a parameter.
+ * Both are pure core files that DECLARE a shape naming a forbidden token and
+ * READ nothing: no project, no asset, no table. Excluding them keeps the check
+ * aimed at what it means, which is "no engine file READS the standards",
+ * rather than at the spelling of a parameter.
  *
- * The exclusion is safe only while nothing in the engine calls that file, so
- * A2 asserts exactly that here rather than relying on another verifier to.
+ *   landChain.ts        names `parkingRatio` and `parkingAreaPerSlotSqm` in the
+ *                       standards its CALLER resolves and passes in.
+ *   consolidation.ts    names `assetTypeId` in the asset shape its grouping key
+ *                       reads, and computes no money at all.
+ *
+ * An exclusion is safe only while nothing in the engine CALLS the excluded
+ * file, so A2 asserts exactly that for each of them here rather than relying on
+ * another verifier to. Adding a third without a matching A2 clause would be the
+ * hole; the list and the check are built from the same array so that cannot
+ * happen silently.
  */
-const CHAIN_DEFINITION = 'src/core/calculations/landChain.ts';
+const DEFINITION_ONLY: { file: string; token: string }[] = [
+  { file: 'src/core/calculations/landChain.ts', token: 'landChain' },
+  { file: 'src/core/calculations/consolidation.ts', token: 'consolidation' },
+];
 
 /**
  * A minimal stand-in for the module 1 store's project slice, carrying the ONE
@@ -155,7 +165,7 @@ function offlineChecks(): void {
   check('A0 the scan actually covers files (engine roots resolved)', files.length > 50, `only ${files.length} files`);
   const offenders: string[] = [];
   for (const f of files) {
-    if (f.replace(/\\/g, '/') === CHAIN_DEFINITION) continue;
+    if (DEFINITION_ONLY.some((d) => f.replace(/\\/g, '/') === d.file)) continue;
     const src = readFileSync(f, 'utf8');
     for (const tok of FORBIDDEN_TOKENS) {
       if (src.includes(tok)) offenders.push(`${f} :: ${tok}`);
@@ -163,13 +173,18 @@ function offlineChecks(): void {
   }
   check('A1 zero references to the tables or stamp fields across the calculation and export surface',
     offenders.length === 0, offenders.slice(0, 5).join(' | '));
-  // The exclusion above is only safe while the excluded file is unreachable
-  // from the engine. Proven here, not assumed.
-  const chainCallers = files
-    .filter((f) => f.replace(/\\/g, '/') !== CHAIN_DEFINITION)
-    .filter((f) => readFileSync(f, 'utf8').includes('landChain'));
-  check('A2 the excluded chain file is called by NOTHING in the calculation or export surface',
-    chainCallers.length === 0, chainCallers.slice(0, 3).join(' | '));
+  // Each exclusion above is only safe while the excluded file is unreachable
+  // from the engine. Proven here, per file, not assumed.
+  for (const d of DEFINITION_ONLY) {
+    const callers = files
+      .filter((f) => f.replace(/\\/g, '/') !== d.file)
+      .filter((f) => readFileSync(f, 'utf8').includes(d.token));
+    check(`A2 the excluded file ${d.file.split('/').pop()} is called by NOTHING in the calculation or export surface`,
+      callers.length === 0, callers.slice(0, 3).join(' | '));
+  }
+  check('A2b every excluded file exists (a renamed one would silently stop being checked)',
+    DEFINITION_ONLY.every((d) => { try { statSync(d.file); return true; } catch { return false; } }),
+    DEFINITION_ONLY.map((d) => d.file).join(', '));
 
   section('B. Blank and zero are different answers, in the PROJECT values');
   const blankValues: AssetTypeValues = {};
