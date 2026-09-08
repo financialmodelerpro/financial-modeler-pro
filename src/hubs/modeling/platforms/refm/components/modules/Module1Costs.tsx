@@ -4651,8 +4651,12 @@ export default function Module1Costs(): React.JSX.Element {
                       <strong data-testid={`costs-companion-info-${activeAsset.id}-units`}>{Math.round(totalUnits).toLocaleString()} (from parent)</strong>
                     </div>
                     <div>
+                      {/* AN ADR IS A RATE, so it never takes the project
+                          display scale: at thousands an ADR of 1,200 printed
+                          "1" beside a label reading SAR/night. Scales are for
+                          totals. verify-rate-scale sweeps for this. */}
                       <div style={{ color: 'var(--color-meta)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Avg Starting ADR</div>
-                      <strong data-testid={`costs-companion-info-${activeAsset.id}-adr`}>{formatAccounting(avgAdr, scale, decimals)} {project.currency}/night</strong>
+                      <strong data-testid={`costs-companion-info-${activeAsset.id}-adr`}>{formatAccounting(avgAdr, 'full', decimals)} {project.currency}/night</strong>
                       <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>(set in Tab 2)</div>
                     </div>
                     <div>
