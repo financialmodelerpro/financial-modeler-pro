@@ -53,6 +53,7 @@ import { PhaseSection, AssetSection } from './_shared/PhaseSection';
 import { AssetQuickNav } from './_shared/AssetQuickNav';
 import { PercentageInput } from '../ui/PercentageInput';
 import { FAST_INPUT } from './_shared/inputStyles';
+import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 
 interface Row {
   label: string;
@@ -219,7 +220,7 @@ function totalFATableRows(combinedOpening: number[], combinedClosing: number[], 
 }
 
 export default function Module4FixedAssets(): React.JSX.Element {
-  const { project, phases, assets, subUnits, parcels, costLines, costOverrides, landAllocationMode, financingTranches, equityContributions, updateAsset } = useModule1Store(
+  const { project, phases, assets: rawAssets, subUnits, parcels, costLines, costOverrides, landAllocationMode, financingTranches, equityContributions, updateAsset } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
       phases: s.phases,
@@ -234,6 +235,11 @@ export default function Module4FixedAssets(): React.JSX.Element {
       updateAsset: s.updateAsset,
     })),
   );
+  // The tab's asset list, with every name RESOLVED, so an asset the user has
+  // not named shows as its type here rather than as a blank option. The memo
+  // keeps the array stable: resolving inside the selector would hand
+  // useShallow a new array every render.
+  const assets = useMemo(() => withResolvedAssetNames(rawAssets), [rawAssets]);
 
   const snap: ProjectFixedAssetSnapshot = useMemo(
     () => computeAllFixedAssetResults({ project, phases, assets, subUnits, parcels, costLines, costOverrides, landAllocationMode }),

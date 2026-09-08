@@ -40,6 +40,7 @@ import { ScrollableTable } from './_shared/ScrollableTable';
 import { PhaseSection, AssetSection } from './_shared/PhaseSection';
 import { AssetQuickNav } from './_shared/AssetQuickNav';
 import type { OpexLineCategory } from '@/src/core/calculations/opex';
+import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 
 type Aggregation = 'sum' | 'last' | 'avg' | 'none';
 
@@ -195,7 +196,7 @@ function sumArrays(arrs: number[][], N: number): number[] {
 }
 
 export default function Module3OpexOutput(): React.JSX.Element {
-  const { project, phases, assets, subUnits } = useModule1Store(
+  const { project, phases, assets: rawAssets, subUnits } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
       phases: s.phases,
@@ -203,6 +204,11 @@ export default function Module3OpexOutput(): React.JSX.Element {
       subUnits: s.subUnits,
     })),
   );
+  // The tab's asset list, with every name RESOLVED, so an asset the user has
+  // not named shows as its type here rather than as a blank option. The memo
+  // keeps the array stable: resolving inside the selector would hand
+  // useShallow a new array every render.
+  const assets = useMemo(() => withResolvedAssetNames(rawAssets), [rawAssets]);
 
   const snap = useMemo(() => {
     const rev = computeAllSellResults({ project, phases, assets, subUnits });

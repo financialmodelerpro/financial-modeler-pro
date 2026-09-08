@@ -59,6 +59,7 @@ import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
 import { CELL_HEADER, CELL_HEADER_TOTAL, TABLE_TITLE, COLUMN_WIDTHS, nonLabelColumnPct, periodTableStyle, ROW_DATA, ROW_SUBTOTAL, ROW_GRAND_TOTAL } from './_shared/tableStyles';
 import { buildResultsPeriodAxis } from './_shared/periodAxis';
+import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 
 const inputStyle: React.CSSProperties = {
   background: 'var(--color-navy-pale)',
@@ -96,7 +97,7 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
   const [subTab, setSubTab] = useState<'inputs' | 'schedules' | 'fundingGap' | 'cashSweep'>('inputs');
 
   const {
-    project, phases, parcels, assets, subUnits,
+    project, phases, parcels, assets: rawAssets, subUnits,
     costLines, costOverrides, financingTranches,
     equityContributions, landAllocationMode,
     setProject, setFinancingTranches, addFinancingTranche,
@@ -124,6 +125,11 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
       updateAsset:            s.updateAsset,
     })),
   );
+  // The tab's asset list, with every name RESOLVED, so an asset the user has
+  // not named shows as its type here rather than as a blank option. The memo
+  // keeps the array stable: resolving inside the selector would hand
+  // useShallow a new array every render.
+  const assets = useMemo(() => withResolvedAssetNames(rawAssets), [rawAssets]);
 
   const financingConfig = useMemo(() => ensureConfig(project.financing), [project.financing]);
   const fundTermsResolved = useMemo(() => resolveFundTerms(project), [project]);

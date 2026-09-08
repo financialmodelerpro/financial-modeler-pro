@@ -35,6 +35,7 @@ import type { IndexationConfig } from '@/src/core/calculations/revenue/types';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
 import { AssetQuickNav } from './_shared/AssetQuickNav';
+import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 
 // ─── styling primitives (mirror M2) ───────────────────────────────
 const FAST_INPUT: React.CSSProperties = {
@@ -869,7 +870,7 @@ function OpexLineTable({
 
 // ─── main module surface ──────────────────────────────────────────
 export default function Module3Opex(): React.JSX.Element {
-  const { project, phases, assets, setProject, updateAsset } = useModule1Store(
+  const { project, phases, assets: rawAssets, setProject, updateAsset } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
       phases: s.phases,
@@ -878,6 +879,11 @@ export default function Module3Opex(): React.JSX.Element {
       updateAsset: s.updateAsset,
     })),
   );
+  // The tab's asset list, with every name RESOLVED, so an asset the user has
+  // not named shows as its type here rather than as a blank option. The memo
+  // keeps the array stable: resolving inside the selector would hand
+  // useShallow a new array every render.
+  const assets = useMemo(() => withResolvedAssetNames(rawAssets), [rawAssets]);
 
   // Per-asset + HQ collapse state.
   const [hqCollapsed, setHqCollapsed] = useState<boolean>(false);

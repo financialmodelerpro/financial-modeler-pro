@@ -157,6 +157,53 @@ function outputChecks(): void {
     !labels.some((l) => /^Asset \d+$/.test(l.trim())));
 }
 
+/**
+ * EVERY TAB THAT LISTS ASSETS RESOLVES THE NAMES, and the one tab that must not
+ * is named explicitly.
+ *
+ * The builders and the two exports were done first, which covered the printed
+ * output; the on-screen dropdowns and row labels were not, so a newly created
+ * asset would have appeared as a blank option in Costs, Revenue, Opex and Fixed
+ * Assets. This is structural rather than behavioural because a tab is a React
+ * component: rendering one in a verifier would cost a DOM and a store, and the
+ * property that matters is simply which array the file reads.
+ */
+function tabChecks(): void {
+  section('E. Every tab that lists assets resolves the names');
+  const DIR = 'src/hubs/modeling/platforms/refm/components/modules/';
+  const TABS = [
+    'Module1Costs.tsx', 'Module1Financing.tsx', 'Module2Revenue.tsx', 'Module2RevenueOutput.tsx',
+    'Module2Schedules.tsx', 'Module3Opex.tsx', 'Module3OpexOutput.tsx', 'Module4FixedAssets.tsx',
+  ];
+  const unresolved: string[] = [];
+  for (const t of TABS) {
+    const src = readFileSync(DIR + t, 'utf8');
+    // PLAIN STRING MATCHING, not a regex. The first cut built this pattern
+    // inside a template literal, which ate every backslash, so `\(` became `(`
+    // and the whole thing matched a group instead of a call. It failed all
+    // eight tabs on correct code. A literal needs no escaping.
+    const ok = src.includes('assets: rawAssets')
+      && src.includes('const assets = useMemo(() => withResolvedAssetNames(rawAssets), [rawAssets]);');
+    if (!ok) unresolved.push(t);
+  }
+  check('E1 every tab that lists assets binds the RAW list and resolves it',
+    unresolved.length === 0, unresolved.join(', '));
+  check('E2 the resolution is MEMOISED, not done inside the zustand selector',
+    TABS.every((t) => {
+      const src = readFileSync(DIR + t, 'utf8');
+      // Resolving inside the selector hands useShallow a new array every
+      // render, which is a re-render loop rather than a display fix.
+      return !src.includes('assets: withResolvedAssetNames(s.assets)');
+    }));
+  // THE NEGATIVE CONTROL, and it is the important one. The Assets tab owns the
+  // name INPUT, so it must keep reading the raw list: resolving there would
+  // make a blank name look filled in and leave no way to clear it.
+  const assetsTab = readFileSync(DIR + 'Module1Assets.tsx', 'utf8');
+  check('E3 the Assets tab does NOT resolve its own list, because it owns the raw input',
+    !/withResolvedAssetNames/.test(assetsTab)
+    && /value=\{asset\.name\}/.test(assetsTab));
+}
+
 async function liveChecks(): Promise<void> {
   section('D. Live: every existing name is untouched');
   const URL = process.env.SUPABASE_URL;
@@ -193,6 +240,7 @@ async function main(): Promise<void> {
   console.log('=== verify-asset-display-name ===');
   offlineChecks();
   outputChecks();
+  tabChecks();
   await liveChecks();
   console.log(`\n=== ${pass} passed, ${fail} failed ===`);
   process.exit(fail > 0 ? 1 : 0);

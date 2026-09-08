@@ -118,6 +118,7 @@ import {
   periodTableStyle,
 } from './_shared/tableStyles';
 import { buildResultsPeriodAxis } from './_shared/periodAxis';
+import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 const inputStyle: React.CSSProperties = {
@@ -3552,7 +3553,7 @@ function SameModeCostTable({
 // ── Main component ────────────────────────────────────────────────────────
 export default function Module1Costs(): React.JSX.Element {
   const {
-    project, phases, parcels, assets, subUnits,
+    project, phases, parcels, assets: rawAssets, subUnits,
     costLines, costOverrides,
     landAllocationMode,
     activePhaseId,
@@ -3567,6 +3568,11 @@ export default function Module1Costs(): React.JSX.Element {
     landAllocationMode: s.landAllocationMode,
     activePhaseId: s.activePhaseId,
   })));
+  // The tab's asset list, with every name RESOLVED, so an asset the user has
+  // not named shows as its type here rather than as a blank option. The memo
+  // keeps the array stable: resolving inside the selector would hand
+  // useShallow a new array every render.
+  const assets = useMemo(() => withResolvedAssetNames(rawAssets), [rawAssets]);
 
   const setActivePhaseId = useModule1Store((s) => s.setActivePhaseId);
   const setProject = useModule1Store((s) => s.setProject);

@@ -58,6 +58,7 @@ import {
 } from './_shared/tableStyles';
 import { ScrollableTable } from './_shared/ScrollableTable';
 import { PhaseSection } from './_shared/PhaseSection';
+import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 
 type Aggregation = 'sum' | 'last' | 'none';
 
@@ -193,7 +194,10 @@ export default function Module2Schedules(): React.JSX.Element {
       equityContributions: s.equityContributions,
     })),
   );
-  const { project, phases, assets } = state;
+  const { project, phases, assets: rawAssets } = state;
+  // Names resolved once, so a row for an unnamed asset is labelled by its type
+  // rather than by an empty string.
+  const assets = useMemo(() => withResolvedAssetNames(rawAssets), [rawAssets]);
   const snap = useMemo(
     () => computeAllSellResults({ project, phases, assets, subUnits: state.subUnits }),
     [project, phases, assets, state.subUnits],

@@ -36,6 +36,7 @@ import { PercentageInput } from '../ui/PercentageInput';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { CELL_HEADER } from './_shared/tableStyles';
 import { AssetQuickNav } from './_shared/AssetQuickNav';
+import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 
 const FAST_INPUT: React.CSSProperties = {
   background: 'var(--color-navy-pale)',
@@ -170,7 +171,7 @@ function SubUnitReferenceStrip({
 }
 
 export default function Module2Revenue(): React.JSX.Element {
-  const { project, phases, assets, subUnits, setProject } = useModule1Store(
+  const { project, phases, assets: rawAssets, subUnits, setProject } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
       phases: s.phases,
@@ -179,6 +180,11 @@ export default function Module2Revenue(): React.JSX.Element {
       setProject: s.setProject,
     })),
   );
+  // The tab's asset list, with every name RESOLVED, so an asset the user has
+  // not named shows as its type here rather than as a blank option. The memo
+  // keeps the array stable: resolving inside the selector would hand
+  // useShallow a new array every render.
+  const assets = useMemo(() => withResolvedAssetNames(rawAssets), [rawAssets]);
 
   const visibleAssets = useMemo(
     () => assets.filter((a) => a.visible !== false && a.isCompanion !== true),
