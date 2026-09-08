@@ -979,9 +979,11 @@ const CELL_DERIVED: React.CSSProperties = { ...CELL_NUM, background: 'var(--colo
 // truncated: a column whose label is cut is a column nobody can read. So the
 // header text wraps onto as many lines as it needs and the columns are sized
 // to their labels, while the numeric cells below stay on one line.
+// Padding and leading are deliberately tight: with twenty columns the header
+// is two lines whatever we do, and every extra pixel of padding is paid twice.
 const TH_T: React.CSSProperties = {
-  padding: '5px 6px', fontSize: 10, textAlign: 'left', fontWeight: 600,
-  whiteSpace: 'normal', overflowWrap: 'break-word', lineHeight: 1.2, verticalAlign: 'bottom',
+  padding: '4px 5px', fontSize: 10, textAlign: 'left', fontWeight: 600,
+  whiteSpace: 'normal', overflowWrap: 'break-word', lineHeight: 1.15, verticalAlign: 'bottom',
 };
 const TH_N: React.CSSProperties = { ...TH_T, textAlign: 'right' };
 const TABLE_INPUT: React.CSSProperties = {
@@ -1226,8 +1228,10 @@ function AssetInputsTable({
           </colgroup>
           <thead>
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
-              <th style={TH_T} colSpan={7}>Asset</th>
-              <th style={TH_T} colSpan={5}>Chain inputs</th>
+              {/* Land area moves under Chain inputs, where it belongs: it is
+                  step 0 of the chain, the figure every later step multiplies. */}
+              <th style={TH_T} colSpan={6}>Asset</th>
+              <th style={TH_T} colSpan={6}>Chain inputs</th>
               <th style={TH_T}></th>
             </tr>
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
@@ -1378,7 +1382,12 @@ function AssetInputsTable({
  * being readable.
  */
 function AssetResultsTable({ rowGroups }: { rowGroups: RowGroup[] }): React.JSX.Element {
-  const COLS = 19;
+  // TWENTY columns, and the count is stated once. It was 19 in three places
+  // (here, the colgroup and the band row) against 20 real columns, so the last
+  // one had no declared width under `table-layout: fixed` and no band above
+  // it: the outermost tier, the single most important figure in the table,
+  // rendered as a squeezed nameless strip at the right edge.
+  const COLS = 20;
   const d = (v: number | undefined): string => (v === undefined ? '-' : formatArea(v));
   const n = (v: number | undefined): string =>
     v === undefined ? '-' : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -1391,22 +1400,30 @@ function AssetResultsTable({ rowGroups }: { rowGroups: RowGroup[] }): React.JSX.
         </span>
       </div>
       <div style={{ overflowX: 'auto' }}>
-        {/* Identity cut to 100 and 168 (the results table needs only enough to
+        {/* Identity cut to 88 and 150 (the results table needs only enough to
             say WHICH row this is; the input table above is where names are
-            edited), which buys every derived column the width its wrapped
-            label needs. */}
-        <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1596 }} data-testid="assets-results-table">
+            edited), which buys every derived column 86px. That is the width at
+            which the longest label, "Retail parking area", wraps to TWO lines
+            rather than three, so the header band stops being taller than the
+            rows it labels. */}
+        <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1786 }} data-testid="assets-results-table">
           <colgroup>
-            <col style={{ width: 100 }} />
-            <col style={{ width: 168 }} />
-            {Array.from({ length: 17 }).map((_, i) => (<col key={`d-${i}`} style={{ width: 78 }} />))}
+            <col style={{ width: 88 }} />
+            <col style={{ width: 150 }} />
+            {Array.from({ length: 18 }).map((_, i) => (<col key={`d-${i}`} style={{ width: 86 }} />))}
           </colgroup>
           <thead>
+            {/* 2 + 5 + 5 + 7 + 1 = 20. Retail GFA sits in Floor area, not in
+                Land and footprint: it is the footprint's retail SHARE expressed
+                as floor area, and it pairs with Lobby GFA, which was already
+                there. The outermost tier gets its own band called "Total"
+                rather than joining Units and parking, which it is not. */}
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
               <th style={TH_T} colSpan={2}>Asset</th>
-              <th style={TH_T} colSpan={6}>Land and footprint</th>
-              <th style={TH_T} colSpan={4}>Floor area</th>
+              <th style={TH_T} colSpan={5}>Land and footprint</th>
+              <th style={TH_T} colSpan={5}>Floor area</th>
               <th style={TH_T} colSpan={7}>Units and parking</th>
+              <th style={TH_N}>Total</th>
             </tr>
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
               <th style={TH_T}>Plot</th>

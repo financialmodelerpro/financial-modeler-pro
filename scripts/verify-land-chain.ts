@@ -348,6 +348,43 @@ function offlineChecks(): void {
     && !resultsBody.includes('buildAssetRows(')
     && !resultsBody.includes('groupAssetsByPlot('),
     resultsBody.length === 0 ? 'could not isolate the results component body' : '');
+  // U15 EXISTS BECAUSE FOUR COUNTS DISAGREED AND NOTHING SAID SO. The results
+  // table declared 19 columns in its colgroup, banded 19 in its group row and
+  // set COLS = 19, while rendering 20 headers and 20 cells. Under
+  // `table-layout: fixed` the undeclared twentieth got no width and no band,
+  // so the outermost tier rendered as a nameless sliver. A colSpan is arithmetic
+  // no compiler checks, so it is checked here instead.
+  const countCols = (body: string): { band: number; head: number; cells: number; group: number; cols: number } => {
+    const thead = body.slice(body.indexOf('<thead>'), body.indexOf('</thead>'));
+    const rows = thead.split('<tr').slice(1);
+    const spanOf = (th: string): number => { const m = /colSpan=\{(\d+)\}/.exec(th); return m ? Number(m[1]) : 1; };
+    const cellsOf = (r: string): string[] => r.match(/<th\b[\s\S]*?(?:\/>|<\/th>)/g) ?? [];
+    const cg = body.slice(body.indexOf('<colgroup>'), body.indexOf('</colgroup>'));
+    const repeat = /length:\s*(\d+)\s*\}/.exec(cg);
+    const explicit = (cg.match(/<col style=\{\{ width/g) ?? []).length;
+    // The row rendering ONE asset: the widest <tr> in the tbody.
+    const tbody = body.slice(body.indexOf('<tbody>'));
+    const trs = tbody.split('<tr').map((t) => (t.match(/<td\b/g) ?? []).length);
+    return {
+      band: rows.length > 0 ? cellsOf(rows[0]).reduce((a, t) => a + spanOf(t), 0) : -1,
+      head: rows.length > 1 ? cellsOf(rows[1]).reduce((a, t) => a + spanOf(t), 0) : -1,
+      cells: Math.max(...trs),
+      group: Number(/const COLS = (\d+)/.exec(body)?.[1] ?? -1),
+      cols: explicit + (repeat ? Number(repeat[1]) : 0),
+    };
+  };
+  const inputsStart = tabSrc.indexOf('function AssetInputsTable(');
+  const inputsBody = inputsStart >= 0 ? tabSrc.slice(inputsStart, resultsStart) : '';
+  for (const [label, body] of [['input', inputsBody], ['results', resultsBody]] as const) {
+    const c = countCols(body);
+    const all = [c.band, c.head, c.cells, c.group, c.cols];
+    check(`U15 ${label} table: colgroup, both header rows, the body row and COLS all state the SAME column count`,
+      body.length > 500 && all.every((v) => v > 0 && v === c.band),
+      `band ${c.band}, headers ${c.head}, cells ${c.cells}, COLS ${c.group}, colgroup ${c.cols}`);
+  }
+  check('U16 the outermost tier is banded on its own, not filed under parking',
+    /<th style=\{TH_N\}>Total<\/th>/.test(resultsBody)
+    && /colSpan=\{7\}>Units and parking</.test(resultsBody));
   check('U14 the plot grouping is one shared header, and the CHECK is on the input table only',
     tabSrc.includes('function PlotHeaderRow(')
     && tabSrc.includes('showCheck onAddAsset={onAddAsset}')
