@@ -35,7 +35,7 @@ import {
   type ChainGap,
   type LandChainInputs,
 } from '../src/core/calculations/landChain';
-import { resolveAssetPlotDraw, computeAssetLandSqm, computeAssetLandBreakdown } from '../src/core/calculations';
+import { resolveAssetPlotDraw, computeAssetLandSqm, computeAssetLandBreakdown, computeLandAggregate } from '../src/core/calculations';
 import {
   groupAssetsByPlot,
   primaryParcelId,
@@ -689,6 +689,28 @@ function offlineChecks(): void {
     && inputsBody.includes('asset-row-${asset.id}-land')
     && /placeholder=\{formatArea\(landSqm\)\}/.test(inputsBody)
     && /Derived: the project allocates land by/.test(inputsBody));
+
+  // V13 AND V14 ARE THE TWO DEFECTS THAT SURVIVED V1-V12. Every one of those
+  // proved the RULE, and the rule was right: the engine and the plot check
+  // drew the whole plot. Neither of them looked at what the INPUT CELL renders,
+  // so a working default still read as 0 on screen. A rule proven in the engine
+  // is not a rule the user can see.
+  check('V13 the Plot Area cell follows the RULE, not the raw stored field',
+    /value=\{drawSource === 'whole_plot' \|\| drawSource === 'unset'\s*\n\s*\? undefined\s*\n\s*: asset\.landAllocation\?\.sqm\}/.test(inputsBody)
+    // A sentinel or unplotted asset has no rule, so its stored figure still
+    // shows: blanking those would hide a number the model is using.
+    && /drawSource\?: 'typed' \| 'whole_plot' \| 'unset';/.test(tabSrc));
+  check('V14 the parcels TOTAL rate is a rate: full scale, like every rate above it',
+    /data-testid="parcels-weighted-rate">\{formatAccounting\(aggregate\.weightedRate, 'full',/.test(tabSrc)
+    // The money totals beside it are totals and DO take the scale, or this
+    // check would pass on a table that simply stopped scaling anything.
+    && /data-testid="parcels-total-value">\{formatAccounting\(aggregate\.totalValue, project\.displayScale/.test(tabSrc)
+    && /data-testid="parcels-cash-value">\{formatAccounting\(aggregate\.cashValue, project\.displayScale/.test(tabSrc));
+  check('V14b the weighted rate ARITHMETIC was never the problem: total value over total area',
+    Math.abs(computeLandAggregate([
+      { id: 'l1', phaseId: 'p1', name: 'Land 1', area: 24000, rate: 7500, cashPct: 60, inKindPct: 40 },
+      { id: 'l2', phaseId: 'p1', name: 'Land 2', area: 500, rate: 500, cashPct: 60, inKindPct: 40 },
+    ] as Parcel[]).weightedRate - (180250000 / 24500)) < 1e-9);
 
   check('U31 headers WRAP and are CENTRED in both tables',
     /textAlign: 'center'/.test(tabSrc.slice(tabSrc.indexOf('const TH_T'), tabSrc.indexOf('const TABLE_INPUT')))

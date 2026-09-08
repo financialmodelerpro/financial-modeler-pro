@@ -538,7 +538,16 @@ export default function Module1Assets(): React.JSX.Element {
             <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 'var(--fw-bold)' }}>
               <td style={{ padding: 'var(--sp-1)' }}>Totals</td>
               <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-total-area">{formatArea(aggregate.totalAreaSqm, project.displayDecimals ?? 2)} sqm</td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-weighted-rate">{formatAccounting(aggregate.weightedRate, project.displayScale ?? 'full', project.displayDecimals ?? 2)} /sqm</td>
+              {/* THE WEIGHTED RATE IS A RATE, so it stays at full scale like
+                  every parcel's own rate input directly above it, which already
+                  carries the comment "Rate is per sqm; usually small enough we
+                  keep scale='full' so 500/sqm doesn't display as 0.50 K". The
+                  totals row never got that rule: at thousands with 0 decimals
+                  it divided 7,357.14 by 1,000 and rounded, printing "7" under a
+                  column of 7,500 and 500. The arithmetic was always right
+                  (180,250,000 / 24,500); only the formatting was not. The
+                  money totals beside it are totals and keep the scale. */}
+              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-weighted-rate">{formatAccounting(aggregate.weightedRate, 'full', project.displayDecimals ?? 2)} /sqm</td>
               <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-cash-value">{formatAccounting(aggregate.cashValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
               <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-inkind-value">{formatAccounting(aggregate.inKindValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
               <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-total-value">{formatAccounting(aggregate.totalValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
@@ -1292,7 +1301,19 @@ function AssetInputsTable({
                         >
                           {landAllocationMode === 'sqm' ? (
                             <ChainCell
-                              value={asset.landAllocation?.sqm}
+                              // THE CELL FOLLOWS THE RULE, NOT THE RAW FIELD.
+                              // It read landAllocation.sqm directly, and a
+                              // legacy seeded 0 is not undefined, so the input
+                              // rendered "0" and suppressed the placeholder.
+                              // The derivation was working the whole time: the
+                              // engine and the plot check both drew the plot's
+                              // full area while this cell said 0, which is a
+                              // worse failure than the default not firing,
+                              // because the row disagreed with itself. A stored
+                              // figure shows only when the rule counts one.
+                              value={drawSource === 'whole_plot' || drawSource === 'unset'
+                                ? undefined
+                                : asset.landAllocation?.sqm}
                               testId={`asset-row-${asset.id}-land`}
                               placeholder={formatArea(landSqm)}
                               title={drawSource === 'whole_plot'
