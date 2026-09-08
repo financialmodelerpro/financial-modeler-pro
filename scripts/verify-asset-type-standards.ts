@@ -471,6 +471,22 @@ function offlineChecks(): void {
     tab.includes('setAssetTypeValue(') && !tab.includes('setProject({ assetTypeValues'));
   check('S3 the values have NO Save button: they behave like every other model input',
     !/std-row-\$\{id\}-values-save/.test(tab) && tab.includes('onCommit'));
+  // THE TWO HALVES MUST BE TELLABLE APART (2026-09-08). The Save button used
+  // to sit at the END of the row, past the project values, so it read as
+  // saving the whole row. Everything it saves now sits beside it, left of a
+  // divider, with each half's saving behaviour stated in its own group header.
+  check('S3b every control that needs Save is LEFT of the divider, and the project values are right of it',
+    tab.includes('const DIVIDER') && tab.includes('TD_PROJECT_FIRST')
+    && tab.includes('std-group-firm') && tab.includes('std-group-project')
+    && tab.includes('Press Save to apply a change')
+    && tab.includes('Saves as you type')
+    // THE ORDER IS THE INVARIANT: Save is rendered BEFORE the project values,
+    // so it cannot read as saving them. (A first attempt also matched Save to
+    // Remove within 400 characters, which failed on the good layout because
+    // the tooltips are longer than that: it was asserting the length of a
+    // title attribute, not the arrangement of the row.)
+    && tab.indexOf('std-row-${d.entryId}-save') < tab.indexOf('{valueCells(d.entryId')
+    && tab.includes('the firm\'s half: everything here needs Save'));
   check('S4 the Module 6 picker keeps them out, as INACTIVE (economic but unread), not non-economic',
     inactiveLeverReason('project.assetTypeValues.villas.avgUnitSizeSqm', {} as never) !== null
     && inactiveLeverReason('subUnits[su_1].parkingRatio', {} as never) !== null

@@ -72,6 +72,17 @@ const FAST_INPUT: React.CSSProperties = {
 const TEXT_INPUT: React.CSSProperties = { ...FAST_INPUT, textAlign: 'left' };
 const TH: React.CSSProperties = { padding: '6px 8px', textAlign: 'left', fontWeight: 600 };
 const TD: React.CSSProperties = { padding: '4px 6px' };
+
+// THE TWO HALVES ARE SAVED DIFFERENTLY, SO THEY LOOK DIFFERENT.
+//
+// Left of the divider is the firm's list: an account record behind an
+// explicit Save. Right of it are this project's values, which autosave into
+// the snapshot like every other model input. The Save button used to sit at
+// the END of the row, past the project values, which made it look as though
+// it saved the whole row. Everything it does now sits beside it.
+const FIRM_CELL: React.CSSProperties = { ...TD, background: 'color-mix(in srgb, var(--color-navy) 5%, transparent)' };
+const DIVIDER: React.CSSProperties = { borderLeft: '3px solid var(--color-navy)' };
+const TD_PROJECT_FIRST: React.CSSProperties = { ...TD, ...DIVIDER };
 const SMALL_BTN: React.CSSProperties = {
   fontSize: 10,
   padding: '3px 8px',
@@ -311,7 +322,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
    *  because a value without a project has nowhere to live. */
   const valueCells = (id: string, v: AssetTypeValues | undefined): React.JSX.Element => (
     <>
-      <td style={TD}>
+      <td style={TD_PROJECT_FIRST}>
         <ValueCell
           value={v?.avgUnitSizeSqm} disabled={noProject}
           testId={`std-row-${id}-unit-size`}
@@ -367,14 +378,16 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
         }}
         data-testid="asset-standards-callout"
       >
-        <strong>What goes here:</strong> your firm&apos;s asset types on the left, and{' '}
-        <strong>this project&apos;s values</strong> for each of them on the right. The names,
-        categories and order are shared across every project your firm opens; the values are
-        assumptions of this project, so they save, version and appear in the change log like any
-        other input, and an asset of that type reads them live. A <strong>blank</strong> means the
-        value is not set; a <strong>0</strong> is a real zero. Unit size here is the{' '}
-        <strong>fallback</strong>: an asset whose sub-units carry their own unit areas uses those.
-        The parking ratio is the <strong>default</strong>, and a sub-unit can override it.
+        <strong>What goes here:</strong> your firm&apos;s asset types on the left of the divider,
+        and <strong>this project&apos;s values</strong> for each of them on the right.{' '}
+        <strong>The two halves save differently.</strong> The names, categories and order are one
+        shared list every project your firm opens will see, so a change there waits for{' '}
+        <strong>Save</strong>. The values are assumptions of this project, so they save themselves
+        as you type, version and appear in the change log like any other input, and an asset of
+        that type reads them live. A <strong>blank</strong> means the value is not set; a{' '}
+        <strong>0</strong> is a real zero. Unit size here is the <strong>fallback</strong>: an
+        asset whose sub-units carry their own unit areas uses those. The parking ratio is the{' '}
+        <strong>default</strong>, and a sub-unit can override it.
       </div>
 
       {noProject && (
@@ -477,49 +490,54 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
         <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }} data-testid="asset-standards-table">
           <thead>
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
-              <th style={{ ...TH, minWidth: 160 }} colSpan={2}>Your firm&apos;s list</th>
-              <th style={{ ...TH, minWidth: 320 }} colSpan={3}>This project&apos;s values</th>
-              <th style={{ ...TH, minWidth: 170 }} colSpan={2}></th>
+              <th style={{ ...TH, minWidth: 340 }} colSpan={4} data-testid="std-group-firm">
+                Your firm&apos;s list, shared across every project
+                <div style={{ fontSize: 9, fontWeight: 400, opacity: 0.85 }}>Press Save to apply a change</div>
+              </th>
+              <th style={{ ...TH, ...DIVIDER, minWidth: 320 }} colSpan={3} data-testid="std-group-project">
+                This project&apos;s values
+                <div style={{ fontSize: 9, fontWeight: 400, opacity: 0.85 }}>Saves as you type, like every other input</div>
+              </th>
             </tr>
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
               <th style={{ ...TH, minWidth: 160 }}>Asset type</th>
               <th style={{ ...TH, minWidth: 110 }}>Category</th>
-              <th style={{ ...TH, minWidth: 90, textAlign: 'right' }}>Avg unit size (sqm)</th>
+              <th style={{ ...TH, minWidth: 70, textAlign: 'center' }}>Order</th>
+              <th style={{ ...TH, minWidth: 130, textAlign: 'left' }}></th>
+              <th style={{ ...TH, ...DIVIDER, minWidth: 90, textAlign: 'right' }}>Avg unit size (sqm)</th>
               <th style={{ ...TH, minWidth: 80, textAlign: 'right' }}>Parking ratio</th>
               <th style={{ ...TH, minWidth: 140 }}>Ratio basis</th>
-              <th style={{ ...TH, minWidth: 80, textAlign: 'center' }}>Order</th>
-              <th style={{ ...TH, minWidth: 90, textAlign: 'right' }}>Name</th>
             </tr>
           </thead>
           <tbody>
             {nameDrafts.map((d, i) => (
               <tr key={d.entryId ?? i} style={{ borderBottom: '1px solid var(--color-border)' }}>
-                <td style={TD}>
+                {/* ── the firm's half: everything here needs Save ── */}
+                <td style={FIRM_CELL}>
                   <input style={TEXT_INPUT} value={d.label} data-testid={`std-row-${d.entryId}-label`}
                     placeholder="e.g. High End Apartments" onChange={(e) => patchName(i, { label: e.target.value })} />
                 </td>
-                <td style={TD}>
+                <td style={FIRM_CELL}>
                   <input style={TEXT_INPUT} value={d.category} list="asset-standard-categories"
                     data-testid={`std-row-${d.entryId}-category`}
                     placeholder="e.g. Residential" onChange={(e) => patchName(i, { category: e.target.value })} />
                 </td>
-                {valueCells(d.entryId as string, values[d.entryId as string])}
-                <td style={{ ...TD, textAlign: 'center', whiteSpace: 'nowrap' }}>
+                <td style={{ ...FIRM_CELL, textAlign: 'center', whiteSpace: 'nowrap' }}>
                   <button type="button" style={{ ...SMALL_BTN, padding: '2px 6px' }} data-view-mutates="true"
                     disabled={busy || i === 0} onClick={() => { void move(i, -1); }}
-                    data-testid={`std-row-${d.entryId}-up`} title="Move up">
+                    data-testid={`std-row-${d.entryId}-up`} title="Move up. Order is part of your firm's list and is saved immediately.">
                     ^
                   </button>{' '}
                   <button type="button" style={{ ...SMALL_BTN, padding: '2px 6px' }} data-view-mutates="true"
                     disabled={busy || i === nameDrafts.length - 1} onClick={() => { void move(i, 1); }}
-                    data-testid={`std-row-${d.entryId}-down`} title="Move down">
+                    data-testid={`std-row-${d.entryId}-down`} title="Move down. Order is part of your firm's list and is saved immediately.">
                     v
                   </button>
                 </td>
-                <td style={{ ...TD, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                <td style={{ ...FIRM_CELL, whiteSpace: 'nowrap' }}>
                   <button type="button" style={SMALL_BTN} data-view-mutates="true" disabled={busy}
                     onClick={() => { void saveName(d); }} data-testid={`std-row-${d.entryId}-save`}
-                    title="Saves the name and category to your firm's list. Values save themselves as you type, like every other model input.">
+                    title="Saves the NAME and CATEGORY to your firm's list, which every project sees. It does not save this project's values on the right: those save themselves as you type.">
                     Save
                   </button>{' '}
                   <button type="button"
@@ -531,31 +549,33 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
                     Remove
                   </button>
                 </td>
+                {/* ── this project's half: saves itself ── */}
+                {valueCells(d.entryId as string, values[d.entryId as string])}
               </tr>
             ))}
             {/* The add row takes a NAME only: a type has to exist before this
                 project can hold values for it. */}
             <tr style={{ background: 'var(--color-grey-pale)' }}>
-              <td style={TD}>
+              <td style={FIRM_CELL}>
                 <input style={TEXT_INPUT} value={addDraft.label} data-testid="std-add-label"
                   placeholder="e.g. High End Apartments" onChange={(e) => setAddDraft((p) => ({ ...p, label: e.target.value }))} />
               </td>
-              <td style={TD}>
+              <td style={FIRM_CELL}>
                 <input style={TEXT_INPUT} value={addDraft.category} list="asset-standard-categories"
                   data-testid="std-add-category"
                   placeholder="e.g. Residential" onChange={(e) => setAddDraft((p) => ({ ...p, category: e.target.value }))} />
               </td>
-              <td style={{ ...TD, color: 'var(--color-meta)', fontSize: 10 }} colSpan={3}>
-                Add the type, then enter this project&apos;s values on its row.
-              </td>
-              <td style={TD}></td>
-              <td style={{ ...TD, textAlign: 'right' }}>
+              <td style={FIRM_CELL}></td>
+              <td style={FIRM_CELL}>
                 <button type="button" className="btn-primary" data-view-mutates="true"
                   disabled={busy || !addDraft.label.trim() || !normaliseAssetTypeId(addDraft.label)}
                   style={{ padding: '4px 12px', fontSize: 'var(--font-small)' }}
                   onClick={() => { void saveName(addDraft); }} data-testid="std-add-save">
                   Add
                 </button>
+              </td>
+              <td style={{ ...TD_PROJECT_FIRST, color: 'var(--color-meta)', fontSize: 10 }} colSpan={3}>
+                Add the type first; its values are entered on its own row.
               </td>
             </tr>
           </tbody>
