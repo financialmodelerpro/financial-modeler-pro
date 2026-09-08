@@ -54,6 +54,7 @@ import {
 import {
   computeAssetAreaHierarchy,
   computeAssetLandBreakdown,
+  resolveAssetPlotDraw,
   computeAssetUnitCount,
   computeAssetLandSqm,
   computeLandAggregate,
@@ -439,7 +440,11 @@ export default function Module1Assets(): React.JSX.Element {
       sellableBuaSqm: 0,
       parkingBaysRequired: 0,
       status: 'planned',
-      landAllocation: fallbackParcel ? { parcelId: fallbackParcel.id, sqm: 0 } : undefined,
+      // NO SEEDED SQM. Writing `sqm: 0` made the platform's own seed
+      // indistinguishable from a person typing zero, and the two land
+      // resolvers then read it two different ways. Absent means "not decided",
+      // and a sole occupant draws its whole plot until someone says otherwise.
+      landAllocation: fallbackParcel ? { parcelId: fallbackParcel.id } : undefined,
     });
   };
 
@@ -886,8 +891,18 @@ const TABLE_NUM_INPUT: React.CSSProperties = { ...TABLE_INPUT, textAlign: 'right
 /** A chain-input cell: blank means not set, a typed 0 is a real answer, and
  *  every accepted keystroke writes straight through like any model input. */
 function ChainCell({
-  value, onCommit, testId, title,
-}: { value: number | undefined; onCommit: (v: number | undefined) => void; testId: string; title: string }): React.JSX.Element {
+  value, onCommit, testId, title, placeholder,
+}: {
+  value: number | undefined;
+  onCommit: (v: number | undefined) => void;
+  testId: string;
+  title: string;
+  /** Shown when the cell is EMPTY: the figure a derived default would use.
+   *  A placeholder cannot be mistaken for a stored value, which is the point:
+   *  the cell is empty because nothing was typed, and it still says what the
+   *  model is using. */
+  placeholder?: string;
+}): React.JSX.Element {
   const [draft, setDraft] = useState<string | null>(null);
   const stored = value !== undefined ? String(value) : '';
   const parse = (s: string): number | undefined | 'bad' => {
@@ -902,7 +917,7 @@ function ChainCell({
       style={{ ...TABLE_NUM_INPUT, ...(bad ? { borderColor: 'var(--color-negative)' } : {}) }}
       value={draft ?? stored}
       inputMode="decimal"
-      placeholder="-"
+      placeholder={placeholder ?? '-'}
       title={title}
       data-testid={testId}
       onChange={(e) => {
@@ -951,6 +966,9 @@ interface AssetRow {
   // reader could see 109 units and had no way to ask 109 of what size.
   unitSizeSqm?: number;
   unitSizeSource?: string;
+  /** Where landSqm came from, so the row can say why a blank cell is not
+   *  a zero. See resolveAssetPlotDraw. */
+  drawSource?: 'typed' | 'whole_plot' | 'unset';
   parkingRatio?: number;
   parkingRatioBasis?: 'slots_per_unit' | 'sqm_per_slot';
 }
@@ -999,6 +1017,7 @@ function buildAssetRows(
           asset,
           chain,
           landSqm: breakdown.landSqm,
+          drawSource: resolveAssetPlotDraw(asset, parcels, allAssets)?.source,
           unitSizeSqm: unitSize.value,
           unitSizeSource: unitSize.source,
           parkingRatio: typeValues?.parkingRatio,
@@ -1167,7 +1186,7 @@ function AssetInputsTable({
                     </td>
                   </tr>
                 )}
-                {rows.map(({ asset, landSqm, parcel }) => {
+                {rows.map(({ asset, landSqm, parcel, drawSource }) => {
                   const open = openId === asset.id;
                   const patchChain = (p: LandChainInputs): void =>
                     onUpdateAsset(asset.id, { landChain: mergeLandChain(asset.landChain, p) });
@@ -1254,7 +1273,39 @@ function AssetInputsTable({
                             {allPhases.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
                           </select>
                         </td>
-                        <td style={CELL_NUM} data-testid={`asset-row-${asset.id}-land`}>{formatArea(landSqm)}</td>
+                        {/* PLOT AREA IS TYPED HERE IN SQM MODE. It was a plain
+                            cell, so the only way to change an asset's draw was
+                            the drawer. In percent and auto modes the figure is
+                            DERIVED from the mode, so it stays read-only and says
+                            which mode owns it rather than accepting a keystroke
+                            it would silently discard.
+
+                            ONE <td>, with the content switching inside it. A
+                            ternary over two whole cells renders correctly but
+                            puts two of them in the source, and U15 counts the
+                            source: it caught this as a 15th column on a
+                            14-column table the moment it was written. */}
+                        <td
+                          style={landAllocationMode === 'sqm' ? CELL : CELL_NUM}
+                          title={landAllocationMode === 'sqm' ? undefined
+                            : `Derived: the project allocates land by ${landAllocationMode === 'percent' ? 'percent' : 'BUA share'}. Change the mode above the parcels table to type sqm directly.`}
+                        >
+                          {landAllocationMode === 'sqm' ? (
+                            <ChainCell
+                              value={asset.landAllocation?.sqm}
+                              testId={`asset-row-${asset.id}-land`}
+                              placeholder={formatArea(landSqm)}
+                              title={drawSource === 'whole_plot'
+                                ? `Blank, so this asset draws its whole plot: ${formatArea(landSqm)} sqm. Type a figure to draw less. Adding a second asset to this plot ends the default.`
+                                : 'Sqm this asset draws from its plot. Blank on a plot it shares with nothing draws the whole plot.'}
+                              onCommit={(v) => onUpdateAsset(asset.id, {
+                                landAllocation: { ...(asset.landAllocation ?? {}), sqm: v },
+                              })}
+                            />
+                          ) : (
+                            <span data-testid={`asset-row-${asset.id}-land`}>{formatArea(landSqm)}</span>
+                          )}
+                        </td>
                         <td style={CELL}><ChainCell value={asset.landChain?.utilisationPct} testId={`asset-row-${asset.id}-utilisation`} title="Share of the plot that is developable." onCommit={(v) => patchChain({ utilisationPct: v })} /></td>
                         <td style={CELL}><ChainCell value={asset.landChain?.coveragePct} testId={`asset-row-${asset.id}-coverage`} title="Share of the Net Developable Area the main asset's footprint covers." onCommit={(v) => patchChain({ coveragePct: v })} /></td>
                         <td style={CELL}><ChainCell value={asset.landChain?.farRatio} testId={`asset-row-${asset.id}-far`} title="Total GFA = Net Developable Area x FAR." onCommit={(v) => patchChain({ farRatio: v })} /></td>

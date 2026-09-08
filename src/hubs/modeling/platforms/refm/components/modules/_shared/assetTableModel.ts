@@ -31,6 +31,7 @@
  * No em dashes in this file.
  */
 
+import { resolveAssetPlotDraw } from '@/src/core/calculations';
 import type { Asset, Parcel } from '../../../lib/state/module1-types';
 import { isParcelSentinel } from '../../../lib/state/module1-types';
 
@@ -59,12 +60,25 @@ export interface AssetPlotGroup {
 /** How much of ONE parcel an asset draws: its explicit sqm when it names that
  *  parcel, and nothing otherwise. An asset naming no real parcel draws nothing
  *  FROM A NAMED PLOT, which is exactly what puts it in the unplotted group. */
-export function assetDrawFromParcel(asset: Asset, parcelId: string): number {
+/**
+ * THE CHECK MUST SUM WHAT THE ENGINE DRAWS, not the raw stored field.
+ *
+ * This read `landAllocation.sqm` directly, so it was a THIRD answer to "how
+ * much does this asset take from this plot", beside the two in the engine. It
+ * reported a plot as under-drawn while the engine drew the whole thing, which
+ * is worse than either number being wrong: the check that exists to catch a
+ * mismatch was itself the mismatch. It now delegates to the one rule.
+ */
+export function assetDrawFromParcel(
+  asset: Asset,
+  parcelId: string,
+  parcels: readonly Parcel[],
+  assets: readonly Asset[],
+): number {
   const named = asset.landAllocation?.parcelId;
-  if (named === parcelId && !isParcelSentinel(named)) {
-    return Math.max(0, asset.landAllocation?.sqm ?? asset.landAreaSqm ?? 0);
-  }
-  return 0;
+  if (named !== parcelId || isParcelSentinel(named)) return 0;
+  const draw = resolveAssetPlotDraw(asset, parcels as Parcel[], assets as Asset[]);
+  return draw ? draw.sqm : 0;
 }
 
 /** The plot an asset belongs to: the parcel it names, or the unplotted group. */
@@ -92,7 +106,7 @@ export function groupAssetsByPlot(
     const mine = real.filter((a) => primaryParcelId(a) === p.id);
     // A SIMPLE SUM OF THE ASSETS UNDER IT, now that an asset belongs to
     // exactly one plot: what is filed here is all that can draw from here.
-    const allocatedSqm = mine.reduce((sum, a) => sum + assetDrawFromParcel(a, p.id), 0);
+    const allocatedSqm = mine.reduce((sum, a) => sum + assetDrawFromParcel(a, p.id, parcels, assets), 0);
     const parcelAreaSqm = Math.max(0, p.area);
     const remainingSqm = parcelAreaSqm - allocatedSqm;
     const status: AssetPlotGroup['status'] =

@@ -35,6 +35,7 @@ import {
   type ChainGap,
   type LandChainInputs,
 } from '../src/core/calculations/landChain';
+import { resolveAssetPlotDraw, computeAssetLandSqm, computeAssetLandBreakdown } from '../src/core/calculations';
 import {
   groupAssetsByPlot,
   primaryParcelId,
@@ -232,6 +233,7 @@ function offlineChecks(): void {
     !/^\s*import\s/m.test(readFileSync(CHAIN_FILE, 'utf8')));
 
   const chainSrc = readFileSync(CHAIN_FILE, 'utf8');
+  const tableModelSrc = readFileSync('src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel.ts', 'utf8');
   const typesSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-types.ts', 'utf8');
   const costsSrc = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx', 'utf8');
   const panel = readFileSync(
@@ -388,7 +390,15 @@ function offlineChecks(): void {
   // `table-layout: fixed` the undeclared twentieth got no width and no band,
   // so the outermost tier rendered as a nameless sliver. A colSpan is arithmetic
   // no compiler checks, so it is checked here instead.
-  const countCols = (body: string): { band: number; head: number; cells: number; group: number; cols: number } => {
+  const countCols = (raw: string): { band: number; head: number; cells: number; group: number; cols: number } => {
+    // COMMENTS ARE STRIPPED FIRST. This counts <td and <th in the SOURCE, so a
+    // comment that mentions one is counted as one: a note reading "ONE <td>,
+    // with the content switching inside it" made a 14-column table read as 15.
+    // Same shape as U22 and D5, where prose about a thing matched as the thing.
+    const body = raw
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*$/gm, '');
     const thead = body.slice(body.indexOf('<thead>'), body.indexOf('</thead>'));
     const rows = thead.split('<tr').slice(1);
     const spanOf = (th: string): number => { const m = /colSpan=\{(\d+)\}/.exec(th); return m ? Number(m[1]) : 1; };
@@ -577,6 +587,108 @@ function offlineChecks(): void {
     && /const named = parcelId \? parcels\.find\(\(p\) => p\.id === parcelId\) : undefined;/.test(tabSrc)
     && /const fallbackParcel = named \?\? phaseParcels\[0\] \?\? parcels\[0\];/.test(tabSrc)
     && /onAddAsset\(g\.parcel!\.phaseId, g\.parcel!\.id\)/.test(tabSrc));
+
+  // ── THE PLOT DRAW. One rule, three former readers, and a sole occupant that
+  // draws its whole plot without anyone typing it.
+  section('V. The plot draw: one rule, and a sole occupant draws the whole plot');
+  const plot = (id: string, area: number): Parcel =>
+    ({ id, phaseId: 'p1', name: id, area, rate: 100, cashPct: 60, inKindPct: 40 } as Parcel);
+  const mkPlotAsset = (id: string, parcelId?: string, sqm?: number, extra: Partial<Asset> = {}): Asset =>
+    ({
+      id, phaseId: 'p1', name: id, type: '', strategy: 'Sell', visible: true,
+      gfaSqm: 0, buaSqm: 0, sellableBuaSqm: 0, parkingBaysRequired: 0, status: 'planned',
+      landAllocation: parcelId ? { parcelId, ...(sqm === undefined ? {} : { sqm }) } : undefined,
+      ...extra,
+    } as Asset);
+
+  const parcels = [plot('land1', 500), plot('land2', 900)];
+  {
+    const solo = mkPlotAsset('a1', 'land1');
+    const draw = resolveAssetPlotDraw(solo, parcels, [solo]);
+    check('V1 the ONLY asset on a plot draws the whole plot, with nothing typed',
+      draw?.source === 'whole_plot' && draw.sqm === 500, JSON.stringify(draw));
+  }
+  {
+    // A SEEDED ZERO IS NOT A DECISION. The factory used to write sqm: 0, which
+    // is exactly the state the reported defect was in.
+    const seeded = mkPlotAsset('a1', 'land1', 0);
+    const draw = resolveAssetPlotDraw(seeded, parcels, [seeded]);
+    check('V2 a stored ZERO reads as not decided, so the sole occupant still draws its plot',
+      draw?.source === 'whole_plot' && draw.sqm === 500, JSON.stringify(draw));
+  }
+  {
+    const typed = mkPlotAsset('a1', 'land1', 120);
+    const draw = resolveAssetPlotDraw(typed, parcels, [typed]);
+    check('V3 a TYPED figure wins and is never replaced by the whole plot',
+      draw?.source === 'typed' && draw.sqm === 120, JSON.stringify(draw));
+  }
+  {
+    // A second asset joins: the default stops for BOTH and the split is typed.
+    const a1 = mkPlotAsset('a1', 'land1');
+    const a2 = mkPlotAsset('a2', 'land1');
+    const d1 = resolveAssetPlotDraw(a1, parcels, [a1, a2]);
+    const d2 = resolveAssetPlotDraw(a2, parcels, [a1, a2]);
+    check('V4 a SECOND asset on the plot ends the default for both, so the split has to be typed',
+      d1?.source === 'unset' && d1.sqm === 0 && d2?.source === 'unset' && d2.sqm === 0);
+    const t1 = mkPlotAsset('a1', 'land1', 200);
+    check('V4b and a figure typed by then still wins',
+      resolveAssetPlotDraw(t1, parcels, [t1, a2])?.sqm === 200);
+  }
+  {
+    // MOVING RE-DEFAULTS BECAUSE NOTHING IS WRITTEN. The default is derived at
+    // read time, so an asset alone on its new plot draws that plot, and a typed
+    // figure survives the move untouched.
+    const moved = mkPlotAsset('a1', 'land2');
+    check('V5 an asset moved to a plot it is alone on re-defaults to THAT plot',
+      resolveAssetPlotDraw(moved, parcels, [moved])?.sqm === 900);
+    const movedTyped = mkPlotAsset('a1', 'land2', 120);
+    check('V5b a typed figure survives the move and is not overwritten',
+      resolveAssetPlotDraw(movedTyped, parcels, [movedTyped])?.sqm === 120);
+  }
+  {
+    const companion = mkPlotAsset('c1', 'land1', undefined, { isCompanion: true });
+    const hidden = mkPlotAsset('h1', 'land1', undefined, { visible: false });
+    const solo = mkPlotAsset('a1', 'land1');
+    check('V6 a companion carries no land and never counts as a sharer',
+      resolveAssetPlotDraw(companion, parcels, [companion]) === undefined
+      && resolveAssetPlotDraw(solo, parcels, [solo, companion, hidden])?.sqm === 500);
+    check('V7 an asset naming NO plot, or a sentinel, gets no default at all',
+      resolveAssetPlotDraw(mkPlotAsset('a1'), parcels, []) === undefined
+      && resolveAssetPlotDraw(mkPlotAsset('a1', '__custom__', 10), parcels, []) === undefined
+      && resolveAssetPlotDraw(mkPlotAsset('a1', '__weighted__', 10), parcels, []) === undefined);
+  }
+  {
+    // THE DEFECT THAT STARTED THIS: two engine functions and the plot check
+    // gave three answers for one asset. They are one rule now.
+    const solo = mkPlotAsset('a1', 'land1', 0);
+    const all = [solo];
+    const bd = computeAssetLandBreakdown(solo, parcels, all, [], 'sqm');
+    const sq = computeAssetLandSqm(solo, parcels, all, [], 'sqm');
+    const groups = groupAssetsByPlot(all, parcels);
+    const g = groups.find((x) => x.key === 'land1');
+    check('V8 breakdown, computeAssetLandSqm and the plot check all say 500',
+      Math.abs(bd.landSqm - 500) < 0.001 && Math.abs(sq - 500) < 0.001
+      && Math.abs((g?.allocatedSqm ?? -1) - 500) < 0.001 && g?.status === 'ok',
+      `bd=${bd.landSqm} sqm=${sq} group=${g?.allocatedSqm} status=${g?.status}`);
+  }
+  {
+    const a1 = mkPlotAsset('a1', 'land1', 200);
+    const a2 = mkPlotAsset('a2', 'land1', 200);
+    const g = groupAssetsByPlot([a1, a2], parcels).find((x) => x.key === 'land1');
+    check('V9 with two typed assets the check reports the gap rather than defaulting it away',
+      Math.abs((g?.allocatedSqm ?? -1) - 400) < 0.001 && g?.status === 'under');
+  }
+  check('V10 the plot check delegates to the ONE rule instead of reading the field raw',
+    /resolveAssetPlotDraw\(asset, parcels as Parcel\[\], assets as Asset\[\]\)/.test(tableModelSrc)
+    && !/landAllocation\?\.sqm \?\? asset\.landAreaSqm/.test(tableModelSrc));
+  check('V11 the factory seeds NO sqm, so absent means not decided',
+    /landAllocation: fallbackParcel \? \{ parcelId: fallbackParcel\.id \} : undefined/.test(tabSrc)
+    && !/parcelId: fallbackParcel\.id, sqm: 0/.test(tabSrc));
+  check('V12 Plot Area is TYPEABLE in sqm mode and read-only, with a reason, in the others',
+    /landAllocationMode === 'sqm' \? \(/.test(inputsBody)
+    && inputsBody.includes('asset-row-${asset.id}-land')
+    && /placeholder=\{formatArea\(landSqm\)\}/.test(inputsBody)
+    && /Derived: the project allocates land by/.test(inputsBody));
 
   check('U31 headers WRAP and are CENTRED in both tables',
     /textAlign: 'center'/.test(tabSrc.slice(tabSrc.indexOf('const TH_T'), tabSrc.indexOf('const TABLE_INPUT')))

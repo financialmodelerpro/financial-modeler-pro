@@ -258,6 +258,66 @@ export function computeAssetRevenue(asset: Asset, subUnits: SubUnit[]): number {
 // own rate (not the phase-weighted average). Falls back to the
 // project-wide allocation rules (sqm / percent / autoByBua) when
 // neither is set, so legacy v7 snapshots stay correct.
+/**
+ * How many sqm an asset draws from the plot it NAMES, and where that came
+ * from. `undefined` when the asset names no real plot (none, or one of the
+ * custom-rate / weighted-average sentinels), which is when the older
+ * phase-share rules still apply.
+ *
+ * THIS EXISTS BECAUSE TWO FUNCTIONS ANSWERED THE SAME QUESTION DIFFERENTLY.
+ * computeAssetLandBreakdown took the explicit sqm verbatim; computeAssetLandSqm
+ * required it to be > 0 and otherwise fell through to a phase-wide share. On a
+ * live project that split the answer in half: FMP RE HUB's Hotel Phase 1, the
+ * only asset on a 16,348 sqm plot with a seeded sqm of 0, resolved to 0 in the
+ * cost engine and to 16,348 in the reconciliation table, on the same screen.
+ * Both now call this.
+ *
+ * A SEEDED ZERO IS NOT A DECISION. The asset factory used to write
+ * `landAllocation: { parcelId, sqm: 0 }`, so a stored 0 is the platform's own
+ * seed rather than anything a person typed, and it is read here as "not
+ * decided". The factory no longer writes it. An asset that genuinely draws
+ * nothing from a plot is an asset with no plot, which the picker offers.
+ *
+ * SOLE OCCUPANT DRAWS THE WHOLE PLOT. One asset on a plot has nothing to split
+ * with, so typing its area is busywork and leaving it blank reads as an
+ * under-drawn plot that is not actually under-drawn. The default is DERIVED,
+ * never written: moving the asset to another plot re-derives it there, and a
+ * figure someone typed can never be overwritten because nothing is written at
+ * all. As soon as a second asset names the plot the default stops and the
+ * split has to be typed, which is what the plot check on the row above
+ * reports.
+ */
+export interface AssetPlotDraw {
+  sqm: number;
+  source: 'typed' | 'whole_plot' | 'unset';
+}
+
+export function resolveAssetPlotDraw(
+  asset: Asset,
+  parcels: Parcel[],
+  assets: Asset[],
+): AssetPlotDraw | undefined {
+  if (asset.isCompanion === true) return undefined;
+  const parcelId = asset.landAllocation?.parcelId;
+  if (!parcelId
+    || parcelId === PARCEL_CUSTOM_RATE
+    || parcelId === PARCEL_WEIGHTED_AVG
+    || parcelId === PARCEL_WEIGHTED_AVG_ALL) return undefined;
+  const typed = asset.landAllocation?.sqm ?? asset.landAreaSqm;
+  if (typeof typed === 'number' && typed > 0) return { sqm: Math.max(0, typed), source: 'typed' };
+  const parcel = parcels.find((p) => p.id === parcelId);
+  if (!parcel) return { sqm: 0, source: 'unset' };
+  // Everyone who NAMES this plot, companions excluded (they carry no land) and
+  // hidden assets excluded (they are not on the model).
+  const sharers = assets.filter((a) => a.isCompanion !== true
+    && a.visible !== false
+    && a.landAllocation?.parcelId === parcelId);
+  if (sharers.length === 1 && sharers[0].id === asset.id) {
+    return { sqm: Math.max(0, parcel.area), source: 'whole_plot' };
+  }
+  return { sqm: 0, source: 'unset' };
+}
+
 export function computeAssetLandSqm(
   asset: Asset,
   parcels: Parcel[],
@@ -295,7 +355,14 @@ export function computeAssetLandSqm(
   if (splits && splits.length > 0) {
     return splits.reduce((s, sp) => s + Math.max(0, sp.sqm), 0);
   }
-  // Rule 1: explicit sqm wins.
+  // Rule 1: the plot draw, when the asset names a real plot. Typed wins, a
+  // sole occupant takes the whole plot, and anything else is 0 with the plot
+  // check reporting the gap. Authoritative: falling through to a phase-wide
+  // share from here is what used to disagree with the breakdown.
+  if (mode === 'sqm') {
+    const draw = resolveAssetPlotDraw(asset, parcels, assets);
+    if (draw) return draw.sqm;
+  }
   const explicitSqm = asset.landAllocation?.sqm ?? asset.landAreaSqm ?? 0;
   if (mode === 'sqm' && explicitSqm > 0) {
     return Math.max(0, explicitSqm);
@@ -456,16 +523,19 @@ export function computeAssetLandBreakdown(
     return { landSqm: sqm, landValue: value, rate, splits: [], rateIssue };
   }
 
-  // Branch 2: single explicit parcel (mode A only).
+  // Branch 2: single explicit parcel (mode A only). The sqm comes from the ONE
+  // plot-draw rule, so this and computeAssetLandSqm cannot give two answers.
   if (mode === 'sqm' && singleParcelId) {
     const parcel = findParcel(singleParcelId);
     const rate = parcel ? Math.max(0, parcel.rate) : 0;
-    const value = sqm * rate;
+    const draw = resolveAssetPlotDraw(asset, parcels, assets);
+    const drawSqm = draw ? draw.sqm : sqm;
+    const value = drawSqm * rate;
     return {
-      landSqm: sqm,
+      landSqm: drawSqm,
       landValue: value,
       rate,
-      splits: [{ parcelId: singleParcelId, sqm, rate, value }],
+      splits: [{ parcelId: singleParcelId, sqm: drawSqm, rate, value }],
       rateIssue: parcel ? (rate > 0 ? undefined : 'zero_parcel_rate') : 'parcel_missing',
     };
   }
