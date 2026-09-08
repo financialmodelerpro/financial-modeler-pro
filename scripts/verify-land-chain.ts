@@ -270,9 +270,11 @@ function offlineChecks(): void {
   check('U1 the assets table exists, grouped by plot, with a per-plot check',
     tabSrc.includes('data-testid="assets-table"') && tabSrc.includes('plot-group-${g.key}')
     && tabSrc.includes('plotCheckText(') && tabSrc.includes('groupAssetsByPlot('));
-  check('U2 the row carries the chain inputs and the derived cascade through Total BUA',
+  // RE-AIMED 2026-09-08 with the split: the INPUT row carries the five chain
+  // percentages (U11 asserts it carries no derived column), and the derived
+  // cascade moved to the results table (U12).
+  check('U2 the input row carries the five chain inputs, and the chain is what feeds the results',
     ['-utilisation', '-coverage', '-far', '-retail', '-service'].every((k) => tabSrc.includes(`asset-row-\${asset.id}${k}`))
-    && tabSrc.includes('asset-row-${asset.id}-total-bua')
     && tabSrc.includes('computeLandChain('));
   check('U3 a multi-parcel asset shows its parcel count in the row and opens the editor',
     tabSrc.includes('asset-${asset.id}-parcel-count') && tabSrc.includes('parcelCount > 1'));
@@ -295,12 +297,47 @@ function offlineChecks(): void {
     && tabSrc.includes('count === undefined'));
   check('U9 a unit size of zero reads as not set, not as a real size of 0',
     tabSrc.includes("unitArea > 0 ? formatArea(unitArea) : '-'"));
-  check('U10 identity columns are given real width and only the six checkable derived columns are shown',
-    tabSrc.includes('tableLayout: \'fixed\'') && tabSrc.includes('<colgroup>')
-    && tabSrc.includes('const COLS = 19')
-    // The full cascade lives in the open row, where the chain lists every step.
-    && !tabSrc.includes('asset-row-${asset.id}-footprint')
-    && panel.includes('Every step of the derivation'));
+  // RE-AIMED 2026-09-08: the one table became TWO, stacked. What you type is
+  // table one; what the chain produces is table two, which can now carry the
+  // WHOLE cascade because it carries no input.
+  check('U10 both tables use a fixed layout with explicit column widths',
+    (tabSrc.match(/tableLayout: 'fixed'/g) ?? []).length >= 2
+    && (tabSrc.match(/<colgroup>/g) ?? []).length >= 2);
+  check('U11 the INPUT table holds no derived column, which is what lets identity be readable',
+    tabSrc.includes('data-testid="assets-table"')
+    && !/asset-row-\$\{asset\.id\}-(land-utilised|total-gfa|net-saleable|total-bua)/.test(tabSrc));
+  check('U12 the RESULTS table holds the WHOLE cascade through Total BUA, read only',
+    tabSrc.includes('data-testid="assets-results-table"')
+    && ['land-utilised', 'total-gfa', 'net-saleable', 'units', 'total-bua']
+      .every((k) => tabSrc.includes(`asset-result-\${asset.id}-${k}`))
+    && ['footprintSqm', 'landscapePct', 'landscapeSqm', 'retailGfaSqm', 'lobbyGfaSqm',
+      'mainAssetGfaSqm', 'parkingSlots', 'retailParkingSlots', 'totalParkingSlots',
+      'parkingAreaSqm', 'retailParkingAreaSqm', 'totalParkingAreaSqm']
+      .every((k) => tabSrc.includes(`chain.${k}`)));
+  // U13 IS SCOPED TO THE RESULTS COMPONENT'S OWN BODY, and it has to be.
+  // The first version asserted only that both tables were PASSED the same
+  // array, which a re-sort inside the results component satisfies happily: a
+  // sabotage that re-sorted the results rows passed it. The invariant is that
+  // the results table ORDERS NOTHING ITSELF, so that is what is checked.
+  const resultsStart = tabSrc.indexOf('function AssetResultsTable(');
+  const resultsEnd = tabSrc.indexOf('/** Both tables, stacked');
+  const resultsBody = resultsStart >= 0 && resultsEnd > resultsStart
+    ? tabSrc.slice(resultsStart, resultsEnd) : '';
+  check('U13 BOTH tables render from ONE resolved row list, and the results table re-orders nothing',
+    tabSrc.includes('function buildAssetRows(')
+    && (tabSrc.match(/buildAssetRows\(/g) ?? []).length === 2
+    && tabSrc.includes('<AssetInputsTable') && tabSrc.includes('<AssetResultsTable')
+    && resultsBody.length > 500
+    && !resultsBody.includes('.sort(')
+    && !resultsBody.includes('.filter(')
+    && !resultsBody.includes('buildAssetRows(')
+    && !resultsBody.includes('groupAssetsByPlot('),
+    resultsBody.length === 0 ? 'could not isolate the results component body' : '');
+  check('U14 the plot grouping is one shared header, and the CHECK is on the input table only',
+    tabSrc.includes('function PlotHeaderRow(')
+    && tabSrc.includes('showCheck onAddAsset={onAddAsset}')
+    && tabSrc.includes('showCheck={false}')
+    && tabSrc.includes('plot-group-${g.key}-check'));
   check('U6 what a row CANNOT hold still has a home in the drawer',
     ['-add-parcel-split', '-multi-parcel-section', '-area-reconciliation', '-land-rate-issue',
       '-companion-badge', '-standards-values', '-land-allocation-block']

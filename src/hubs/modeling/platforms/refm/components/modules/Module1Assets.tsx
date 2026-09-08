@@ -82,7 +82,7 @@ import {
   plotCheckText,
   type AssetPlotGroup,
 } from './_shared/assetTableModel';
-import { computeLandChain } from '@/src/core/calculations/landChain';
+import { computeLandChain, type ChainResult } from '@/src/core/calculations/landChain';
 import type { LandChainInputs } from '@/src/core/calculations/landChain';
 import { currencyHeaderLine, formatArea, formatAccounting } from '@/src/core/formatters';
 
@@ -799,7 +799,7 @@ export default function Module1Assets(): React.JSX.Element {
           now: the chain is per plot, so the plot is what the rows group
           under. Everything a row cannot hold opens in the drawer, which is
           the asset card, unchanged. */}
-      <AssetTable
+      <AssetTables
         groups={plotGroups}
         allAssets={assets}
         allPhases={phases}
@@ -1033,52 +1033,195 @@ interface AssetTableProps {
   onAddAsset: (phaseId: string, parcelId?: string) => void;
 }
 
-function AssetTable({
-  groups, allAssets, allPhases, parcels, subUnits, project,
-  landAllocationMode, assetTypeRegistry, onUpdateAsset, onRemoveAsset, onAddAsset,
-}: AssetTableProps): React.JSX.Element {
-  const [openId, setOpenId] = useState<string | null>(null);
-  const scale = project.displayScale ?? 'full';
-  const decimals = project.displayDecimals ?? 2;
-  // 19 columns: 7 identity and land, 5 chain inputs, 6 derived, 1 actions.
-  //
-  // ONLY THE SIX A USER CHECKS ARE COLUMNS. The full cascade (footprint,
-  // landscape, retail and lobby GFA, main asset GFA, the three slot counts and
-  // the two parking splits) is in the open row, where LandChainSection lists
-  // every step: eighteen derived columns fit nothing on screen, and the ones
-  // that earn their width are the ones a reader checks against the plan.
-  const COLS = 19;
+/**
+ * ONE row per asset, resolved ONCE.
+ *
+ * The two tables below are the same rows in the same order, one holding what
+ * the user types and one holding what the chain produces. Both render THIS
+ * array, so they cannot drift: a row in the results table is the row at the
+ * same position in the input table, by construction rather than by two
+ * matching sort calls that a later edit could separate.
+ */
+interface AssetRow {
+  groupKey: string;
+  plotLabel: string;
+  parcel?: Parcel;
+  asset: Asset;
+  chain: ChainResult;
+  landSqm: number;
+  parcelCount: number;
+}
 
+interface RowGroup {
+  group: AssetPlotGroup;
+  plotLabel: string;
+  rows: AssetRow[];
+}
+
+function buildAssetRows(
+  groups: AssetPlotGroup[],
+  allAssets: Asset[],
+  parcels: Parcel[],
+  subUnits: SubUnit[],
+  project: Project,
+  landAllocationMode: LandAllocationMode,
+): RowGroup[] {
+  return groups.map((g) => {
+    const plotLabel = g.parcel ? g.parcel.name : 'No specific plot';
+    return {
+      group: g,
+      plotLabel,
+      rows: g.assets.map((asset) => {
+        const breakdown = computeAssetLandBreakdown(asset, parcels, allAssets, subUnits, landAllocationMode);
+        const typeValues = asset.assetTypeId ? project.assetTypeValues?.[asset.assetTypeId] : undefined;
+        const areas = subUnits
+          .filter((u) => u.assetId === asset.id && typeof u.unitArea === 'number' && u.unitArea > 0)
+          .map((u) => u.unitArea);
+        const unitSize = resolveAvgUnitSize(areas, typeValues);
+        const chain = computeLandChain(
+          breakdown.landSqm,
+          asset.landChain,
+          {
+            avgUnitSizeSqm: unitSize.value,
+            parkingRatio: typeValues?.parkingRatio,
+            parkingRatioBasis: typeValues?.parkingRatioBasis,
+            parkingAreaPerSlotSqm: project.parkingAreaPerSlotSqm,
+          },
+          computeAssetUnitCount(asset, subUnits),
+        );
+        return {
+          groupKey: g.key,
+          plotLabel,
+          parcel: g.parcel,
+          asset,
+          chain,
+          landSqm: breakdown.landSqm,
+          parcelCount: assetParcelCount(asset),
+        };
+      }),
+    };
+  });
+}
+
+/** A plot header row, shared by both tables so the grouping is identical.
+ *  The CHECK belongs to the input table only: it is about what was entered. */
+function PlotHeaderRow({
+  g, plotLabel, colSpan, showCheck, onAddAsset,
+}: {
+  g: AssetPlotGroup;
+  plotLabel: string;
+  colSpan: number;
+  showCheck: boolean;
+  onAddAsset?: (phaseId: string, parcelId?: string) => void;
+}): React.JSX.Element {
+  return (
+    <tr style={{ background: 'var(--color-primary-pale)' }} data-testid={`plot-group-${g.key}${showCheck ? '' : '-results'}`}>
+      <td style={{ ...CELL, fontWeight: 700 }} colSpan={showCheck ? 6 : 2}>
+        {plotLabel}
+        <span style={{ fontWeight: 400, color: 'var(--color-meta)', marginLeft: 8 }}>
+          {g.assets.length} asset{g.assets.length === 1 ? '' : 's'}
+        </span>
+      </td>
+      {showCheck ? (
+        <>
+          <td style={{ ...CELL_NUM, fontWeight: 700 }} data-testid={`plot-group-${g.key}-area`}>
+            {g.parcelAreaSqm !== undefined ? formatArea(g.parcelAreaSqm) : '-'}
+          </td>
+          <td style={CELL} colSpan={colSpan - 7}>
+            {g.status && (
+              <span
+                data-testid={`plot-group-${g.key}-check`}
+                style={{
+                  fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 'var(--radius-sm)',
+                  background: g.status === 'ok'
+                    ? 'color-mix(in srgb, var(--color-positive, #15803d) 16%, transparent)'
+                    : 'color-mix(in srgb, var(--color-warning, #92400e) 18%, transparent)',
+                  color: g.status === 'ok' ? 'var(--color-positive, #15803d)' : 'var(--color-warning, #92400e)',
+                }}
+              >
+                {g.status === 'ok' ? 'Assets sum to the plot' : g.status === 'under' ? 'Under-drawn' : 'Over-drawn'}
+              </span>
+            )}
+            <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>
+              {plotCheckText(g, (n) => formatArea(n))}
+            </span>
+            {g.parcel && onAddAsset && (
+              <button
+                type="button"
+                onClick={() => onAddAsset(g.parcel!.phaseId, g.parcel!.id)}
+                data-testid={`plot-group-${g.key}-add-asset`}
+                style={{
+                  marginLeft: 10, fontSize: 10, padding: '2px 8px', cursor: 'pointer',
+                  background: 'var(--color-surface)', border: '1px solid var(--color-navy)',
+                  color: 'var(--color-navy)', borderRadius: 'var(--radius-sm)', fontWeight: 600,
+                }}
+              >
+                + Add asset here
+              </button>
+            )}
+          </td>
+        </>
+      ) : (
+        <td style={CELL} colSpan={colSpan - 2} />
+      )}
+    </tr>
+  );
+}
+
+/**
+ * TABLE ONE: what the user types.
+ *
+ * Identity, the plot it draws from, its land, and the five chain percentages.
+ * No derived column at all, which is what lets the identity columns be wide
+ * enough to read. The plot check lives here because it is about what was
+ * entered, and the expander opens the drawer holding everything a row cannot
+ * express.
+ */
+function AssetInputsTable({
+  rowGroups, allPhases, project, assetTypeRegistry,
+  allAssets, parcels, subUnits, landAllocationMode,
+  openId, setOpenId, onUpdateAsset, onRemoveAsset, onAddAsset,
+}: {
+  rowGroups: RowGroup[];
+  allPhases: Phase[];
+  project: Project;
+  assetTypeRegistry: { entries: AssetTypeStandard[]; available: boolean };
+  allAssets: Asset[];
+  parcels: Parcel[];
+  subUnits: SubUnit[];
+  landAllocationMode: LandAllocationMode;
+  openId: string | null;
+  setOpenId: (id: string | null) => void;
+  onUpdateAsset: (id: string, patch: Partial<Asset>) => void;
+  onRemoveAsset: (id: string) => void;
+  onAddAsset: (phaseId: string, parcelId?: string) => void;
+}): React.JSX.Element {
+  const COLS = 13;
   return (
     <div style={sectionCardStyle} data-testid="assets-table-section">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 'var(--sp-1)' }}>
-        <strong style={{ ...TABLE_TITLE, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Assets by plot</strong>
+        <strong style={{ ...TABLE_TITLE, textTransform: 'uppercase', letterSpacing: '0.05em' }}>1. Assets by plot, what you enter</strong>
         <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>
-          Derived columns are read only and reach no calculation. Open a row for anything a row cannot hold.
+          Type here and watch the results table below move. Open a row for anything a row cannot hold.
         </span>
       </div>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1560 }} data-testid="assets-table">
-          {/* IDENTITY GETS THE WIDTH. A name truncated to a few characters
-              makes the table unreadable, and the derived cells are short
-              numbers that do not need the room. */}
+        <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1180 }} data-testid="assets-table">
           <colgroup>
             <col style={{ width: 28 }} />
-            <col style={{ width: 120 }} />
-            <col style={{ width: 210 }} />
-            <col style={{ width: 190 }} />
-            <col style={{ width: 110 }} />
             <col style={{ width: 130 }} />
-            <col style={{ width: 96 }} />
-            {Array.from({ length: 5 }).map((_, i) => (<col key={`in-${i}`} style={{ width: 64 }} />))}
-            {Array.from({ length: 6 }).map((_, i) => (<col key={`dv-${i}`} style={{ width: 92 }} />))}
+            <col style={{ width: 240 }} />
+            <col style={{ width: 220 }} />
+            <col style={{ width: 120 }} />
+            <col style={{ width: 140 }} />
+            <col style={{ width: 110 }} />
+            {Array.from({ length: 5 }).map((_, i) => (<col key={`in-${i}`} style={{ width: 72 }} />))}
             <col style={{ width: 44 }} />
           </colgroup>
           <thead>
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
               <th style={TH_T} colSpan={7}>Asset</th>
-              <th style={TH_T} colSpan={5}>Chain inputs</th>
-              <th style={TH_T} colSpan={6}>Derived (read only)</th>
+              <th style={TH_T} colSpan={5}>Chain inputs (percent, and FAR as a multiple)</th>
               <th style={TH_T}></th>
             </tr>
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
@@ -1094,230 +1237,280 @@ function AssetTable({
               <th style={TH_N} title="Total GFA = utilised land x FAR.">FAR</th>
               <th style={TH_N} title="Share of the FOOTPRINT given to ground-floor retail.">Retail %</th>
               <th style={TH_N} title="Service and back-of-house share off the main asset GFA.">Svc %</th>
-              <th style={TH_N}>Land utilised</th>
-              <th style={TH_N} title="Utilised land x FAR. Every intermediate step is in the open row.">Total GFA</th>
-              <th style={TH_N}>Net saleable</th>
-              <th style={TH_N}>Units / keys</th>
-              <th style={TH_N}>Parking area</th>
-              <th style={TH_N} title="Reference BUA Area = Total GFA + parking. This platform calls this tier GFA.">Total BUA</th>
               <th style={TH_T}></th>
             </tr>
           </thead>
           <tbody>
-            {groups.map((g) => {
-              const plotLabel = g.parcel ? g.parcel.name : 'No specific plot';
-              return (
-                <React.Fragment key={g.key}>
-                  <tr style={{ background: 'var(--color-primary-pale)' }} data-testid={`plot-group-${g.key}`}>
-                    <td style={{ ...CELL, fontWeight: 700 }} colSpan={6}>
-                      {plotLabel}
-                      <span style={{ fontWeight: 400, color: 'var(--color-meta)', marginLeft: 8 }}>
-                        {g.assets.length} asset{g.assets.length === 1 ? '' : 's'}
-                      </span>
-                    </td>
-                    <td style={{ ...CELL_NUM, fontWeight: 700 }} data-testid={`plot-group-${g.key}-area`}>
-                      {g.parcelAreaSqm !== undefined ? formatArea(g.parcelAreaSqm) : '-'}
-                    </td>
-                    <td style={CELL} colSpan={COLS - 7}>
-                      {g.status && (
-                        <span
-                          data-testid={`plot-group-${g.key}-check`}
-                          style={{
-                            fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 'var(--radius-sm)',
-                            background: g.status === 'ok'
-                              ? 'color-mix(in srgb, var(--color-positive, #15803d) 16%, transparent)'
-                              : 'color-mix(in srgb, var(--color-warning, #92400e) 18%, transparent)',
-                            color: g.status === 'ok' ? 'var(--color-positive, #15803d)' : 'var(--color-warning, #92400e)',
-                          }}
-                        >
-                          {g.status === 'ok' ? 'Assets sum to the plot' : g.status === 'under' ? 'Under-drawn' : 'Over-drawn'}
-                        </span>
-                      )}
-                      <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>
-                        {plotCheckText(g, (n) => formatArea(n))}
-                      </span>
-                      {g.parcel && (
-                        <button
-                          type="button"
-                          onClick={() => onAddAsset(g.parcel!.phaseId, g.parcel!.id)}
-                          data-testid={`plot-group-${g.key}-add-asset`}
-                          style={{
-                            marginLeft: 10, fontSize: 10, padding: '2px 8px', cursor: 'pointer',
-                            background: 'var(--color-surface)', border: '1px solid var(--color-navy)',
-                            color: 'var(--color-navy)', borderRadius: 'var(--radius-sm)', fontWeight: 600,
-                          }}
-                        >
-                          + Add asset here
-                        </button>
-                      )}
+            {rowGroups.map(({ group, plotLabel, rows }) => (
+              <React.Fragment key={group.key}>
+                <PlotHeaderRow g={group} plotLabel={plotLabel} colSpan={COLS} showCheck onAddAsset={onAddAsset} />
+                {rows.length === 0 && (
+                  <tr data-testid={`plot-group-${group.key}-empty`}>
+                    <td style={{ ...CELL, color: 'var(--color-meta)', fontStyle: 'italic' }} colSpan={COLS}>
+                      No assets drawing from this plot yet.
                     </td>
                   </tr>
-
-                  {g.assets.length === 0 && (
-                    <tr data-testid={`plot-group-${g.key}-empty`}>
-                      <td style={{ ...CELL, color: 'var(--color-meta)', fontStyle: 'italic' }} colSpan={COLS}>
-                        No assets drawing from this plot yet.
-                      </td>
-                    </tr>
-                  )}
-
-                  {g.assets.map((asset) => {
-                    const breakdown = computeAssetLandBreakdown(asset, parcels, allAssets, subUnits, landAllocationMode);
-                    const typeValues = asset.assetTypeId ? project.assetTypeValues?.[asset.assetTypeId] : undefined;
-                    const areas = subUnits
-                      .filter((u) => u.assetId === asset.id && typeof u.unitArea === 'number' && u.unitArea > 0)
-                      .map((u) => u.unitArea);
-                    const unitSize = resolveAvgUnitSize(areas, typeValues);
-                    const chain = computeLandChain(
-                      breakdown.landSqm,
-                      asset.landChain,
-                      {
-                        avgUnitSizeSqm: unitSize.value,
-                        parkingRatio: typeValues?.parkingRatio,
-                        parkingRatioBasis: typeValues?.parkingRatioBasis,
-                        parkingAreaPerSlotSqm: project.parkingAreaPerSlotSqm,
-                      },
-                      computeAssetUnitCount(asset, subUnits),
-                    );
-                    const parcelCount = assetParcelCount(asset);
-                    const open = openId === asset.id;
-                    const d = (v: number | undefined): string => (v === undefined ? '-' : formatArea(v));
-                    const patchChain = (p: LandChainInputs): void =>
-                      onUpdateAsset(asset.id, { landChain: mergeLandChain(asset.landChain, p) });
-
-                    return (
-                      <React.Fragment key={asset.id}>
-                        <tr
-                          style={{ borderBottom: '1px solid var(--color-border)', opacity: asset.visible ? 1 : 0.55 }}
-                          data-testid={`asset-card-${asset.id}`}
-                        >
-                          <td style={CELL}>
+                )}
+                {rows.map(({ asset, landSqm, parcelCount, parcel }) => {
+                  const open = openId === asset.id;
+                  const patchChain = (p: LandChainInputs): void =>
+                    onUpdateAsset(asset.id, { landChain: mergeLandChain(asset.landChain, p) });
+                  return (
+                    <React.Fragment key={asset.id}>
+                      <tr
+                        style={{ borderBottom: '1px solid var(--color-border)', opacity: asset.visible ? 1 : 0.55 }}
+                        data-testid={`asset-card-${asset.id}`}
+                      >
+                        <td style={CELL}>
+                          <button
+                            type="button"
+                            onClick={() => setOpenId(open ? null : asset.id)}
+                            data-testid={`asset-${asset.id}-expand`}
+                            title="Open everything a row cannot hold: the parcel split editor, the derived comparison, the reconciliation and the rest."
+                            style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 12, padding: 0 }}
+                          >
+                            {open ? 'v' : '>'}
+                          </button>
+                        </td>
+                        <td style={CELL}>
+                          {parcelCount > 1 ? (
                             <button
                               type="button"
-                              onClick={() => setOpenId(open ? null : asset.id)}
-                              data-testid={`asset-${asset.id}-expand`}
-                              title="Open everything a row cannot hold: the parcel split editor, the derived comparison, the reconciliation and the rest."
-                              style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 12, padding: 0 }}
+                              onClick={() => setOpenId(asset.id)}
+                              data-testid={`asset-${asset.id}-parcel-count`}
+                              title="This asset draws from more than one plot. Open the row to edit the split."
+                              style={{
+                                fontSize: 10, padding: '1px 6px', cursor: 'pointer', fontWeight: 600,
+                                background: 'var(--color-surface)', border: '1px solid var(--color-navy)',
+                                color: 'var(--color-navy)', borderRadius: 'var(--radius-sm)',
+                              }}
                             >
-                              {open ? 'v' : '>'}
+                              {parcelCount} parcels
                             </button>
-                          </td>
-                          <td style={CELL}>
-                            {parcelCount > 1 ? (
-                              <button
-                                type="button"
-                                onClick={() => setOpenId(asset.id)}
-                                data-testid={`asset-${asset.id}-parcel-count`}
-                                title="This asset draws from more than one plot. Open the row to edit the split."
-                                style={{
-                                  fontSize: 10, padding: '1px 6px', cursor: 'pointer', fontWeight: 600,
-                                  background: 'var(--color-surface)', border: '1px solid var(--color-navy)',
-                                  color: 'var(--color-navy)', borderRadius: 'var(--radius-sm)',
-                                }}
-                              >
-                                {parcelCount} parcels
-                              </button>
-                            ) : (
-                              <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>
-                                {g.parcel ? g.parcel.name : 'none'}
-                              </span>
-                            )}
-                          </td>
-                          <td style={CELL}>
-                            <input
-                              style={TABLE_INPUT}
-                              value={asset.name}
-                              data-testid={`asset-row-${asset.id}-name`}
-                              onChange={(e) => onUpdateAsset(asset.id, { name: e.target.value })}
+                          ) : (
+                            <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>
+                              {parcel ? parcel.name : 'none'}
+                            </span>
+                          )}
+                        </td>
+                        <td style={CELL}>
+                          <input
+                            style={TABLE_INPUT}
+                            value={asset.name}
+                            data-testid={`asset-row-${asset.id}-name`}
+                            onChange={(e) => onUpdateAsset(asset.id, { name: e.target.value })}
+                          />
+                        </td>
+                        <td style={CELL}>
+                          <input
+                            style={TABLE_INPUT}
+                            value={asset.type ?? ''}
+                            list={`asset-row-types-${asset.id}`}
+                            data-testid={`asset-row-${asset.id}-type`}
+                            onChange={(e) => onUpdateAsset(asset.id, { type: e.target.value })}
+                          />
+                          <datalist id={`asset-row-types-${asset.id}`}>
+                            {Array.from(new Set([
+                              ...assetTypeRegistry.entries.map((x) => x.label),
+                              ...resolveTypeCatalog(project),
+                            ])).map((t) => (<option key={t} value={t} />))}
+                          </datalist>
+                        </td>
+                        <td style={CELL}>
+                          <span style={{ fontSize: 10 }} data-testid={`asset-row-${asset.id}-strategy`}>{asset.strategy}</span>
+                        </td>
+                        <td style={CELL}>
+                          <select
+                            style={TABLE_INPUT}
+                            value={asset.phaseId}
+                            data-testid={`asset-row-${asset.id}-phase`}
+                            onChange={(e) => onUpdateAsset(asset.id, { phaseId: e.target.value })}
+                          >
+                            {allPhases.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+                          </select>
+                        </td>
+                        <td style={CELL_NUM} data-testid={`asset-row-${asset.id}-land`}>{formatArea(landSqm)}</td>
+                        <td style={CELL}><ChainCell value={asset.landChain?.utilisationPct} testId={`asset-row-${asset.id}-utilisation`} title="Share of the plot that is developable." onCommit={(v) => patchChain({ utilisationPct: v })} /></td>
+                        <td style={CELL}><ChainCell value={asset.landChain?.coveragePct} testId={`asset-row-${asset.id}-coverage`} title="Share of the utilised area the footprint covers." onCommit={(v) => patchChain({ coveragePct: v })} /></td>
+                        <td style={CELL}><ChainCell value={asset.landChain?.farRatio} testId={`asset-row-${asset.id}-far`} title="Total GFA = utilised land x FAR." onCommit={(v) => patchChain({ farRatio: v })} /></td>
+                        <td style={CELL}><ChainCell value={asset.landChain?.retailPct} testId={`asset-row-${asset.id}-retail`} title="Share of the FOOTPRINT given to ground-floor retail." onCommit={(v) => patchChain({ retailPct: v })} /></td>
+                        <td style={CELL}><ChainCell value={asset.landChain?.servicePct} testId={`asset-row-${asset.id}-service`} title="Service share off the main asset GFA." onCommit={(v) => patchChain({ servicePct: v })} /></td>
+                        <td style={CELL}>
+                          <button
+                            type="button"
+                            onClick={() => onRemoveAsset(asset.id)}
+                            data-testid={`asset-row-${asset.id}-remove`}
+                            style={{ background: 'transparent', border: '1px solid var(--color-negative)', color: 'var(--color-negative)', borderRadius: 'var(--radius-sm)', padding: '1px 6px', cursor: 'pointer', fontSize: 10 }}
+                          >
+                            x
+                          </button>
+                        </td>
+                      </tr>
+                      {open && (
+                        <tr data-testid={`asset-${asset.id}-drawer`}>
+                          <td colSpan={COLS} style={{ padding: 'var(--sp-1)', background: 'var(--color-surface)' }}>
+                            <AssetCard
+                              asset={asset}
+                              allAssets={allAssets}
+                              allPhases={allPhases}
+                              parcels={parcels}
+                              subUnits={subUnits}
+                              project={project}
+                              landAllocationMode={landAllocationMode}
+                              assetTypeRegistry={assetTypeRegistry}
+                              onUpdate={(patch) => onUpdateAsset(asset.id, patch)}
+                              onRemove={() => onRemoveAsset(asset.id)}
                             />
-                          </td>
-                          <td style={CELL}>
-                            <input
-                              style={TABLE_INPUT}
-                              value={asset.type ?? ''}
-                              list={`asset-row-types-${asset.id}`}
-                              data-testid={`asset-row-${asset.id}-type`}
-                              onChange={(e) => onUpdateAsset(asset.id, { type: e.target.value })}
-                            />
-                            <datalist id={`asset-row-types-${asset.id}`}>
-                              {Array.from(new Set([
-                                ...assetTypeRegistry.entries.map((x) => x.label),
-                                ...resolveTypeCatalog(project),
-                              ])).map((t) => (<option key={t} value={t} />))}
-                            </datalist>
-                          </td>
-                          <td style={CELL}>
-                            <span style={{ fontSize: 10 }} data-testid={`asset-row-${asset.id}-strategy`}>{asset.strategy}</span>
-                          </td>
-                          <td style={CELL}>
-                            <select
-                              style={TABLE_INPUT}
-                              value={asset.phaseId}
-                              data-testid={`asset-row-${asset.id}-phase`}
-                              onChange={(e) => onUpdateAsset(asset.id, { phaseId: e.target.value })}
-                            >
-                              {allPhases.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
-                            </select>
-                          </td>
-                          <td style={CELL_NUM} data-testid={`asset-row-${asset.id}-land`}>
-                            {formatArea(breakdown.landSqm)}
-                          </td>
-                          <td style={CELL}><ChainCell value={asset.landChain?.utilisationPct} testId={`asset-row-${asset.id}-utilisation`} title="Share of the plot that is developable." onCommit={(v) => patchChain({ utilisationPct: v })} /></td>
-                          <td style={CELL}><ChainCell value={asset.landChain?.coveragePct} testId={`asset-row-${asset.id}-coverage`} title="Share of the utilised area the footprint covers." onCommit={(v) => patchChain({ coveragePct: v })} /></td>
-                          <td style={CELL}><ChainCell value={asset.landChain?.farRatio} testId={`asset-row-${asset.id}-far`} title="Total GFA = utilised land x FAR." onCommit={(v) => patchChain({ farRatio: v })} /></td>
-                          <td style={CELL}><ChainCell value={asset.landChain?.retailPct} testId={`asset-row-${asset.id}-retail`} title="Share of the FOOTPRINT given to ground-floor retail." onCommit={(v) => patchChain({ retailPct: v })} /></td>
-                          <td style={CELL}><ChainCell value={asset.landChain?.servicePct} testId={`asset-row-${asset.id}-service`} title="Service share off the main asset GFA." onCommit={(v) => patchChain({ servicePct: v })} /></td>
-                          <td style={CELL_DERIVED} data-testid={`asset-row-${asset.id}-land-utilised`}>{d(chain.landUtilisedSqm)}</td>
-                          <td style={CELL_DERIVED} data-testid={`asset-row-${asset.id}-total-gfa`}>{d(chain.totalGfaSqm)}</td>
-                          <td style={CELL_DERIVED} data-testid={`asset-row-${asset.id}-net-saleable`}>{d(chain.netSaleableSqm)}</td>
-                          <td style={CELL_DERIVED} data-testid={`asset-row-${asset.id}-units`}>
-                            {chain.units === undefined ? '-' : chain.units.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                          </td>
-                          <td style={CELL_DERIVED}>{d(chain.totalParkingAreaSqm)}</td>
-                          <td style={{ ...CELL_DERIVED, fontWeight: 700 }} data-testid={`asset-row-${asset.id}-total-bua`}>{d(chain.totalBuaSqm)}</td>
-                          <td style={CELL}>
-                            <button
-                              type="button"
-                              onClick={() => onRemoveAsset(asset.id)}
-                              data-testid={`asset-row-${asset.id}-remove`}
-                              style={{ background: 'transparent', border: '1px solid var(--color-negative)', color: 'var(--color-negative)', borderRadius: 'var(--radius-sm)', padding: '1px 6px', cursor: 'pointer', fontSize: 10 }}
-                            >
-                              x
-                            </button>
                           </td>
                         </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </React.Fragment>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
-                        {open && (
-                          <tr data-testid={`asset-${asset.id}-drawer`}>
-                            <td colSpan={COLS} style={{ padding: 'var(--sp-1)', background: 'var(--color-surface)' }}>
-                              <AssetCard
-                                asset={asset}
-                                allAssets={allAssets}
-                                allPhases={allPhases}
-                                parcels={parcels}
-                                subUnits={subUnits}
-                                project={project}
-                                landAllocationMode={landAllocationMode}
-                                assetTypeRegistry={assetTypeRegistry}
-                                onUpdate={(patch) => onUpdateAsset(asset.id, patch)}
-                                onRemove={() => onRemoveAsset(asset.id)}
-                              />
-                            </td>
-                          </tr>
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
-                </React.Fragment>
-              );
-            })}
+/**
+ * TABLE TWO: what the chain produces.
+ *
+ * The WHOLE cascade, in the reference workbook's order, read only. It can
+ * carry every step because it carries no input: with the derived columns out
+ * of the table above, neither table has to choose between being complete and
+ * being readable.
+ */
+function AssetResultsTable({ rowGroups }: { rowGroups: RowGroup[] }): React.JSX.Element {
+  const COLS = 19;
+  const d = (v: number | undefined): string => (v === undefined ? '-' : formatArea(v));
+  const n = (v: number | undefined): string =>
+    v === undefined ? '-' : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return (
+    <div style={sectionCardStyle} data-testid="assets-results-section">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 'var(--sp-1)' }}>
+        <strong style={{ ...TABLE_TITLE, textTransform: 'uppercase', letterSpacing: '0.05em' }}>2. Derived areas, what the chain produces</strong>
+        <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>
+          Read only, and read by no calculation. Same rows, same order as the table above.
+        </span>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1720 }} data-testid="assets-results-table">
+          <colgroup>
+            <col style={{ width: 130 }} />
+            <col style={{ width: 200 }} />
+            {Array.from({ length: 17 }).map((_, i) => (<col key={`d-${i}`} style={{ width: 82 }} />))}
+          </colgroup>
+          <thead>
+            <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+              <th style={TH_T} colSpan={2}>Asset</th>
+              <th style={TH_T} colSpan={6}>Land and footprint</th>
+              <th style={TH_T} colSpan={4}>Floor area</th>
+              <th style={TH_T} colSpan={7}>Units and parking</th>
+            </tr>
+            <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+              <th style={TH_T}>Plot</th>
+              <th style={TH_T}>Asset</th>
+              <th style={TH_N}>Land area</th>
+              <th style={TH_N}>Land utilised</th>
+              <th style={TH_N}>Footprint</th>
+              <th style={TH_N}>Landscape %</th>
+              <th style={TH_N}>Landscape area</th>
+              <th style={TH_N}>Retail GFA</th>
+              <th style={TH_N}>Lobby GFA</th>
+              <th style={TH_N} title="Utilised land x FAR.">Total GFA</th>
+              <th style={TH_N}>Main asset GFA</th>
+              <th style={TH_N} title="Reference Total GLA / Net Saleable = platform NSA.">Net saleable</th>
+              <th style={TH_N}>Units / keys</th>
+              <th style={TH_N}>Parking slots</th>
+              <th style={TH_N}>Retail slots</th>
+              <th style={TH_N}>Total slots</th>
+              <th style={TH_N}>Parking area</th>
+              <th style={TH_N}>Retail parking area</th>
+              <th style={TH_N}>Total parking area</th>
+              <th style={TH_N} title="Reference BUA Area = Total GFA + parking. This platform calls this tier GFA.">Total BUA</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rowGroups.map(({ group, plotLabel, rows }) => (
+              <React.Fragment key={group.key}>
+                <PlotHeaderRow g={group} plotLabel={plotLabel} colSpan={COLS} showCheck={false} />
+                {rows.length === 0 && (
+                  <tr data-testid={`plot-group-${group.key}-results-empty`}>
+                    <td style={{ ...CELL, color: 'var(--color-meta)', fontStyle: 'italic' }} colSpan={COLS}>
+                      No assets drawing from this plot yet.
+                    </td>
+                  </tr>
+                )}
+                {rows.map(({ asset, chain, landSqm, parcel }) => (
+                  <tr
+                    key={asset.id}
+                    style={{ borderBottom: '1px solid var(--color-border)', opacity: asset.visible ? 1 : 0.55 }}
+                    data-testid={`asset-result-${asset.id}`}
+                  >
+                    <td style={{ ...CELL, color: 'var(--color-meta)', fontSize: 10 }}>{parcel ? parcel.name : 'none'}</td>
+                    <td style={CELL}>{asset.name}</td>
+                    <td style={CELL_NUM}>{formatArea(landSqm)}</td>
+                    <td style={CELL_DERIVED} data-testid={`asset-result-${asset.id}-land-utilised`}>{d(chain.landUtilisedSqm)}</td>
+                    <td style={CELL_DERIVED}>{d(chain.footprintSqm)}</td>
+                    <td style={CELL_DERIVED}>{chain.landscapePct === undefined ? '-' : `${n(chain.landscapePct)}%`}</td>
+                    <td style={CELL_DERIVED}>{d(chain.landscapeSqm)}</td>
+                    <td style={CELL_DERIVED}>{d(chain.retailGfaSqm)}</td>
+                    <td style={CELL_DERIVED}>{d(chain.lobbyGfaSqm)}</td>
+                    <td style={CELL_DERIVED} data-testid={`asset-result-${asset.id}-total-gfa`}>{d(chain.totalGfaSqm)}</td>
+                    <td style={CELL_DERIVED}>{d(chain.mainAssetGfaSqm)}</td>
+                    <td style={CELL_DERIVED} data-testid={`asset-result-${asset.id}-net-saleable`}>{d(chain.netSaleableSqm)}</td>
+                    <td style={CELL_DERIVED} data-testid={`asset-result-${asset.id}-units`}>{n(chain.units)}</td>
+                    <td style={CELL_DERIVED}>{n(chain.parkingSlots)}</td>
+                    <td style={CELL_DERIVED}>{n(chain.retailParkingSlots)}</td>
+                    <td style={CELL_DERIVED}>{n(chain.totalParkingSlots)}</td>
+                    <td style={CELL_DERIVED}>{d(chain.parkingAreaSqm)}</td>
+                    <td style={CELL_DERIVED}>{d(chain.retailParkingAreaSqm)}</td>
+                    <td style={CELL_DERIVED}>{d(chain.totalParkingAreaSqm)}</td>
+                    <td style={{ ...CELL_DERIVED, fontWeight: 700 }} data-testid={`asset-result-${asset.id}-total-bua`}>{d(chain.totalBuaSqm)}</td>
+                  </tr>
+                ))}
+              </React.Fragment>
+            ))}
           </tbody>
         </table>
       </div>
       <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 6 }}>
-        Scale {scale}, {decimals} decimals. A plot header states whether its assets draw exactly its area.
+        A dash means a step could not be derived, which is not the same as zero. Open a row above to see why.
       </div>
     </div>
+  );
+}
+
+/** Both tables, stacked, from ONE resolved row list. */
+function AssetTables({
+  groups, allAssets, allPhases, parcels, subUnits, project,
+  landAllocationMode, assetTypeRegistry, onUpdateAsset, onRemoveAsset, onAddAsset,
+}: AssetTableProps): React.JSX.Element {
+  const [openId, setOpenId] = useState<string | null>(null);
+  const rowGroups = buildAssetRows(groups, allAssets, parcels, subUnits, project, landAllocationMode);
+  return (
+    <>
+      <AssetInputsTable
+        rowGroups={rowGroups}
+        allPhases={allPhases}
+        project={project}
+        assetTypeRegistry={assetTypeRegistry}
+        allAssets={allAssets}
+        parcels={parcels}
+        subUnits={subUnits}
+        landAllocationMode={landAllocationMode}
+        openId={openId}
+        setOpenId={setOpenId}
+        onUpdateAsset={onUpdateAsset}
+        onRemoveAsset={onRemoveAsset}
+        onAddAsset={onAddAsset}
+      />
+      <AssetResultsTable rowGroups={rowGroups} />
+    </>
   );
 }
 
