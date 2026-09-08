@@ -145,8 +145,8 @@ function basisLabel(method?: string): string {
   switch (method) {
     case 'fixed': return 'Fixed (lump sum)';
     case 'rate_per_land': return 'per Land sqm';
-    case 'rate_per_nda': return 'per NDA sqm';
-    case 'rate_per_roads': return 'per Roads sqm';
+    case 'rate_per_nda': return 'per Land sqm (legacy)';
+    case 'rate_per_roads': return 'per Roads sqm (retired, always 0)';
     case 'rate_per_gfa': return 'per GFA sqm';
     case 'rate_per_bua': return 'per BUA sqm';
     case 'rate_per_nsa': return 'per NSA sqm';
@@ -176,7 +176,7 @@ function percentBase(amount: number, value: number, label: string): { value: num
 function basisFor(method: string | undefined, m: AssetAreaMetrics, amount: number, value: number): { value: number | null; label: string; kind: MetricKind } {
   switch (method) {
     case 'rate_per_land': return { value: m.landSqm, label: 'Land sqm', kind: 'area' };
-    case 'rate_per_nda': return { value: m.ndaSqm, label: 'NDA sqm', kind: 'area' };
+    case 'rate_per_nda': return { value: m.ndaSqm, label: 'Land sqm', kind: 'area' };
     case 'rate_per_roads': return { value: m.roadsSqm, label: 'Roads sqm', kind: 'area' };
     case 'rate_per_gfa': return { value: m.gfa, label: 'GFA sqm', kind: 'area' };
     case 'rate_per_bua': return { value: m.bua, label: 'BUA sqm', kind: 'area' };

@@ -232,6 +232,8 @@ function offlineChecks(): void {
     !/^\s*import\s/m.test(readFileSync(CHAIN_FILE, 'utf8')));
 
   const chainSrc = readFileSync(CHAIN_FILE, 'utf8');
+  const typesSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-types.ts', 'utf8');
+  const costsSrc = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx', 'utf8');
   const panel = readFileSync(
     'src/hubs/modeling/platforms/refm/components/modules/_shared/LandChainSection.tsx', 'utf8');
   const assetsTab = readFileSync(
@@ -536,6 +538,46 @@ function offlineChecks(): void {
     subBody.includes('subunits-row-${u.id}-rate-basis')
     && /rateUnitLabel\(u\.category, isUnits \? 'units' : 'area'\)/.test(subBody)
     && subBody.includes('Rate Basis'));
+  // ── THE ROADS AND PARKS DEDUCTION IS RETIRED. It answered "how much of this
+  // land is developable" a second time, on the same screen as the chain's Land
+  // Utilisation %, which answers it at asset level.
+  const engineSrc = readFileSync('src/core/calculations/index.ts', 'utf8');
+  check('U32 the engine derives no deduction: developable land IS parcel land',
+    /const ndaSqm = landSqm;/.test(engineSrc)
+    && /const roadsSqm = 0;/.test(engineSrc)
+    // The four precedence branches are gone, and so is the fallback that
+    // applied projectRoadsPct even with the toggle OFF while ignoring parks.
+    && !/projectNdaEnabled/.test(engineSrc)
+    && !/parcel\.roadsPct|parcel\.parksPct|parcel\.hasNdaDeduction/.test(engineSrc)
+    && !/project\.projectRoadsPct|project\.projectParksPct/.test(engineSrc));
+  check('U33 both retired methods still RESOLVE, so no stored cost line is orphaned',
+    /case 'rate_per_nda':\s*\n\s*return safeV \* m\.ndaSqm;/.test(engineSrc)
+    && /case 'rate_per_roads':\s*\n\s*return safeV \* m\.roadsSqm;/.test(engineSrc)
+    // ... and are refused to NEW lines, which is the only way to retire a
+    // method without rewriting the two live lines that use it.
+    && /RETIRED_COST_METHODS/.test(typesSrc)
+    && /isRetiredCostMethod\(m\)/.test(costsSrc));
+  check('U34 rate_per_nda no longer CLAIMS to be net developable area',
+    /rate_per_nda:\s*'Rate . Land Area \(legacy\)'/.test(typesSrc)
+    && !/rate_per_nda:\s*'Rate . NDA'/.test(typesSrc));
+  check('U35 a roads line SAYS it charges nothing instead of printing a confident 0',
+    /the roads area is retired; this line charges nothing/.test(engineSrc));
+
+  // ── THE PLOT IS EDITABLE IN THE ROW, and both routes point at the plot the
+  // user actually meant.
+  check('U36 the Plot cell is a picker that writes the asset land allocation',
+    inputsBody.includes('asset-row-${asset.id}-plot')
+    && /<select[\s\S]{0,400}asset-row-\$\{asset\.id\}-plot/.test(inputsBody)
+    && /landAllocation: next === ''/.test(inputsBody)
+    // The sqm already drawn survives the move: reassigning a plot is not a
+    // reason to delete an input the user typed.
+    && /\.\.\.\(asset\.landAllocation \?\? \{ sqm: 0 \}\), parcelId: next/.test(inputsBody));
+  check('U37 "Add asset here" seeds the plot it was clicked on, not the phase first parcel',
+    /handleAddAssetToPhase = \(phaseId: string, parcelId\?: string\)/.test(tabSrc)
+    && /const named = parcelId \? parcels\.find\(\(p\) => p\.id === parcelId\) : undefined;/.test(tabSrc)
+    && /const fallbackParcel = named \?\? phaseParcels\[0\] \?\? parcels\[0\];/.test(tabSrc)
+    && /onAddAsset\(g\.parcel!\.phaseId, g\.parcel!\.id\)/.test(tabSrc));
+
   check('U31 headers WRAP and are CENTRED in both tables',
     /textAlign: 'center'/.test(tabSrc.slice(tabSrc.indexOf('const TH_T'), tabSrc.indexOf('const TABLE_INPUT')))
     && /whiteSpace: 'normal'/.test(tabSrc.slice(tabSrc.indexOf('const TH_T'), tabSrc.indexOf('const TABLE_INPUT')))

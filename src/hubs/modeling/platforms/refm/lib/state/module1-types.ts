@@ -391,7 +391,11 @@ export interface Project {
    *  EBIT are universal and unchanged. 'standard' uses Tax / EBITDA /
    *  EBIT / PBT / PAT. Defaults to 'standard'. */
   financialTerminology?: 'standard' | 'saudi';
-  projectRoadsPct?: number;  // 0..100, fraction of TOTAL land used for roads
+  /** DEPRECATED 2026-09-08, read by nothing. The roads and parks deduction is
+   *  retired: it modelled LAND development and this platform models VERTICAL
+   *  development, and the area chain's Land Utilisation % states the same thing
+   *  at asset level. Kept on the type so stored snapshots still parse. */
+  projectRoadsPct?: number;
   // M2.0M Pass 6 Fix 3 (2026-05-11): project-level NDA deduction. When
   // projectNdaEnabled is true, calc engine applies (projectRoadsPct +
   // projectParksPct) to the TOTAL phase land (sum across parcels) to
@@ -1705,8 +1709,13 @@ export function getAssetPreCapexTotal(a: Asset): number {
 export type CostMethod =
   | 'fixed'                    // lump sum currency amount
   | 'rate_per_land'            // value × resolved land area (sqm)
-  | 'rate_per_nda'             // value × net developable area (land × (1 - roads%))
-  | 'rate_per_roads'           // value × roads area
+  // RETIRED 2026-09-08 with the roads and parks deduction. Both stay in the
+  // union because stored lines must keep resolving, and both are hidden from
+  // the picker via RETIRED_COST_METHODS below. rate_per_nda now multiplies
+  // gross land, which is what it already computed on every live project
+  // (every roads share was zero), so no stored line changes value.
+  | 'rate_per_nda'             // value × land area. Was land × (1 - roads%).
+  | 'rate_per_roads'           // value × roads area, which is now always 0
   | 'rate_per_gfa'             // value × asset.gfaSqm
   | 'rate_per_bua'             // value × asset.buaSqm OR derived BUA total
   | 'rate_per_nsa'             // value × asset.sellableBuaSqm
@@ -1766,11 +1775,25 @@ export const COST_METHODS: readonly CostMethod[] = [
 export const PER_SUBUNIT_RATE_KEY_SUPPORT = '__support__';
 export const PER_SUBUNIT_RATE_KEY_PARKING = '__parking__';
 
+/**
+ * Methods a NEW line may not choose, while stored lines keep resolving.
+ *
+ * Removing a method outright would orphan real cost lines: FMP RE HUB carries
+ * an Infrastructure line at 250 and a Landscaping line at 75, both on
+ * rate_per_nda. Hiding is the only option that leaves those numbers untouched
+ * and still stops the vocabulary spreading.
+ */
+export const RETIRED_COST_METHODS: readonly CostMethod[] = ['rate_per_nda', 'rate_per_roads'] as const;
+
+export function isRetiredCostMethod(m: CostMethod): boolean {
+  return (RETIRED_COST_METHODS as readonly string[]).includes(m);
+}
+
 export const COST_METHOD_LABELS: Record<CostMethod, string> = {
   fixed:                   'Fixed Amount',
   rate_per_land:           'Rate × Land Area',
-  rate_per_nda:            'Rate × NDA',
-  rate_per_roads:          'Rate × Roads',
+  rate_per_nda:            'Rate × Land Area (legacy)',
+  rate_per_roads:          'Rate × Roads (retired)',
   rate_per_gfa:            'Rate × GFA',
   rate_per_bua:            'Rate × BUA Total',
   rate_per_nsa:            'Rate × Sellable BUA',

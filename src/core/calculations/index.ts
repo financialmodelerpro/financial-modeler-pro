@@ -752,26 +752,34 @@ export interface ParcelNda {
   effectiveNdaRate: number;
 }
 
+/**
+ * THE ROADS AND PARKS DEDUCTION IS RETIRED (2026-09-08, founder's decision).
+ *
+ * It carved roads and parks out of gross land to give a developable area. That
+ * is LAND development; this platform models VERTICAL development, and the area
+ * chain's Land Utilisation % now states the same thing at asset level. Two
+ * controls answering "how much of this land is developable" on one screen is
+ * one rule in two places, which is the shape of most defects in this codebase.
+ *
+ * The deduction is removed rather than defaulted, so a parcel's developable
+ * area IS its area. Parcel.hasNdaDeduction, roadsPct and parksPct stay on
+ * the type as deprecated and are no longer read: dropping stored fields would
+ * rewrite history, and every live version carries them as absent or zero.
+ *
+ * PROVED INERT BEFORE REMOVAL: 1,008 versions across all 6 projects scanned;
+ * no parcel or asset anywhere sets a non-zero roads or parks share, and the one
+ * project with the toggle on (archived) has both percentages at 0. So NDA
+ * already equalled gross land everywhere and this changes no number.
+ */
 export function computeParcelNda(parcel: Parcel): ParcelNda {
   const area = Math.max(0, parcel.area);
   const rate = Math.max(0, parcel.rate);
-  const totalCost = area * rate;
-  if (parcel.hasNdaDeduction === true) {
-    const roadsPct = Math.max(0, Math.min(100, parcel.roadsPct ?? 0));
-    const parksPct = Math.max(0, Math.min(100, parcel.parksPct ?? 0));
-    const totalDeductPct = Math.min(100, roadsPct + parksPct);
-    const roadsArea = area * (roadsPct / 100);
-    const parksArea = area * (parksPct / 100);
-    const nda = area * (1 - totalDeductPct / 100);
-    const effectiveNdaRate = nda > 0 ? totalCost / nda : 0;
-    return { area, roadsArea, parksArea, nda, totalCost, effectiveNdaRate };
-  }
   return {
     area,
     roadsArea: 0,
     parksArea: 0,
     nda: area,
-    totalCost,
+    totalCost: area * rate,
     effectiveNdaRate: rate,
   };
 }
@@ -790,63 +798,18 @@ export function resolveAssetAreaMetrics(
   const breakdown = computeAssetLandBreakdown(asset, parcels, assets, subUnits, mode);
   const landSqm = breakdown.landSqm;
   const landValue = breakdown.landValue;
-  // M2.0h Fix 4 (2026-05-07): NDA derives per-parcel via computeParcelNda
-  // when the parcel has the NDA toggle set. Land allocation references
-  // NDA (developable sqm) not gross parcel area; the per-asset effective
-  // share follows the parcel-level inflation. project.projectRoadsPct
-  // remains a project-wide knob for legacy snapshots that use the
-  // rate_per_nda / rate_per_roads cost methods without per-parcel NDA.
-  // When per-parcel NDA is set, m.ndaSqm reflects the parcel-derived
-  // value; otherwise we fall back to the project-wide roads%.
+  // NET DEVELOPABLE AREA IS GROSS LAND. The roads and parks deduction that
+  // used to reduce it is retired (see computeParcelNda above), so the four
+  // precedence branches that used to live here (project toggle, per-parcel
+  // toggle across splits, single parcel, and a fallback that applied
+  // projectRoadsPct even with the toggle OFF while silently ignoring parks)
+  // collapse to one statement. Nothing is left to disagree with.
+  const ndaSqm = landSqm;
+  const roadsSqm = 0;
+  // Still needed below by the cash / in-kind split, which was reading a
+  // binding the retired NDA block happened to declare.
   const phaseParcels = parcels.filter((p) => p.phaseId === asset.phaseId);
-  let assetNda = landSqm;
-  let assetRoads = 0;
-  // M2.0M Pass 6 Fix 3 (2026-05-11): project-level NDA wins when
-  // projectNdaEnabled is true. Apply (projectRoadsPct + projectParksPct)
-  // uniformly to landSqm. Per-parcel toggles are ignored in this mode.
-  const projectNda = project.projectNdaEnabled === true;
-  const anyParcelHasNda = phaseParcels.some((p) => p.hasNdaDeduction === true);
-  if (projectNda) {
-    const roadsPct = Math.max(0, Math.min(100, project.projectRoadsPct ?? 0));
-    const parksPct = Math.max(0, Math.min(100, project.projectParksPct ?? 0));
-    const totalDeductPct = Math.min(100, roadsPct + parksPct);
-    assetNda = landSqm * (1 - totalDeductPct / 100);
-    assetRoads = landSqm - assetNda;
-  } else if (anyParcelHasNda && breakdown.splits.length > 0) {
-    // Multi-parcel splits: derive NDA per slice using each parcel's own
-    // toggle. Asset's NDA = sum(slice.sqm × parcel.ndaFactor).
-    assetNda = 0;
-    for (const split of breakdown.splits) {
-      const parcel = phaseParcels.find((p) => p.id === split.parcelId);
-      if (!parcel) { assetNda += split.sqm; continue; }
-      const pn = computeParcelNda(parcel);
-      const ndaFactor = pn.area > 0 ? pn.nda / pn.area : 1;
-      assetNda += split.sqm * ndaFactor;
-    }
-    assetRoads = landSqm - assetNda;
-  } else if (anyParcelHasNda) {
-    // Single parcel allocation: derive from the resolved single parcel
-    // (or the asset's first phaseParcel as best-effort fallback).
-    const single = breakdown.splits[0]
-      ? phaseParcels.find((p) => p.id === breakdown.splits[0].parcelId)
-      : phaseParcels.find((p) => p.id === asset.landAllocation?.parcelId) ?? phaseParcels[0];
-    if (single && single.hasNdaDeduction) {
-      const pn = computeParcelNda(single);
-      const ndaFactor = pn.area > 0 ? pn.nda / pn.area : 1;
-      assetNda = landSqm * ndaFactor;
-      assetRoads = landSqm - assetNda;
-    } else {
-      const roadsPct = Math.max(0, Math.min(100, project.projectRoadsPct ?? 0));
-      assetNda = landSqm * (1 - roadsPct / 100);
-      assetRoads = landSqm - assetNda;
-    }
-  } else {
-    const roadsPct = Math.max(0, Math.min(100, project.projectRoadsPct ?? 0));
-    assetNda = landSqm * (1 - roadsPct / 100);
-    assetRoads = landSqm - assetNda;
-  }
-  const ndaSqm = assetNda;
-  const roadsSqm = assetRoads;
+
   // M2.0h Fix 3 (2026-05-07): BUA / NSA / GFA from the three-tier
   // hierarchy. NSA = revenue sub-units only; BUA = NSA + Support;
   // GFA = BUA + Parking. Replaces the M2.0g convention where BUA
@@ -977,6 +940,10 @@ export function calculateItemTotal(
       return safeV;
     case 'rate_per_land':
       return safeV * m.landSqm;
+    // LEGACY, KEPT RESOLVING. rate_per_nda now multiplies gross land, which
+    // is what it already did on every live project, so stored lines are
+    // unchanged to the cent. rate_per_roads multiplies a roads area that is
+    // now always zero; nothing uses it and the picker no longer offers it.
     case 'rate_per_nda':
       return safeV * m.ndaSqm;
     case 'rate_per_roads':
@@ -2636,9 +2603,14 @@ export function costLineCaption(input: CostLineCaptionInput): string {
     case 'rate_per_land':
       return metrics.landSqm > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.landSqm)} sqm Land` : noArea('Land area');
     case 'rate_per_nda':
-      return metrics.ndaSqm > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.ndaSqm)} sqm NDA` : noArea('NDA');
+      return metrics.ndaSqm > 0
+        ? `${fmt(value, 2)} x ${fmtArea(metrics.ndaSqm)} sqm Land (legacy NDA method)`
+        : noArea('Land area');
+    // SAYS SO RATHER THAN PRINTING A CONFIDENT ZERO. The roads area is retired,
+    // so this line charges nothing, and a reader is told why instead of being
+    // shown a 0 that looks like a rate nobody filled in.
     case 'rate_per_roads':
-      return metrics.roadsSqm > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.roadsSqm)} sqm Roads` : noArea('Roads area');
+      return `${fmt(value, 2)} x 0 (the roads area is retired; this line charges nothing)`;
     case 'rate_per_gfa':
       return metrics.gfa > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.gfa)} sqm GFA` : noArea('GFA');
     case 'rate_per_bua':

@@ -49,6 +49,7 @@ import {
   type CostCategory,
   type CostDriver,
   COST_METHODS,
+  isRetiredCostMethod,
   COST_METHOD_LABELS,
   COST_PHASING_OPTIONS,
   COST_STAGES,
@@ -366,7 +367,7 @@ function AddCatalogEntryForm({
       <div>
         <span style={labelStyle}>Method</span>
         <select value={method} onChange={(e) => setMethod(e.target.value as CostMethod)} style={fieldStyle} data-testid={`${testId}-method`}>
-          {COST_METHODS.filter((m) => m !== 'rate_per_parking_bay').map((m) => (
+          {COST_METHODS.filter((m) => m !== 'rate_per_parking_bay' && !isRetiredCostMethod(m)).map((m) => (
             <option key={m} value={m}>{COST_METHOD_LABELS[m]}</option>
           ))}
         </select>
@@ -522,7 +523,7 @@ function CustomCostPopup({ phaseId, assetId, constructionPeriods, onClose, onSav
               style={inputStyle}
               data-testid="custom-cost-method"
             >
-              {COST_METHODS.map((m) => (
+              {COST_METHODS.filter((m) => !isRetiredCostMethod(m)).map((m) => (
                 <option key={m} value={m}>{COST_METHOD_LABELS[m]}</option>
               ))}
             </select>

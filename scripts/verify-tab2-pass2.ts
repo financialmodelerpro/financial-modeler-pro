@@ -177,7 +177,6 @@ console.log('\n[3/5] Fix 2: companion guard sweep');
 {
   const gated: Array<[string, string]> = [
     ['Areas Row is companion-gated', '-areas-row'],
-    ['NDA row is companion-gated', "projectNdaScope === 'asset' && ("],
     ['Hierarchy chips are companion-gated', 'const gfaDisplay ='],
     ['Footer summary is companion-gated', 'const eff = hier.bua > 0'],
   ];
@@ -189,6 +188,17 @@ console.log('\n[3/5] Fix 2: companion guard sweep');
   const landReconFilters = (ASSETS_SRC.match(/a\.isCompanion !== true/g) ?? []).length;
   if (landReconFilters >= 1) pass('Land Recon excludes companions from its asset list');
   else fail('Land Recon companion exclusion', 'no companion filter found');
+  // THE PER-ASSET ROADS AND PARKS ROW USED TO BE CHECKED HERE, for a companion
+  // guard. The roads and parks deduction is retired (2026-09-08), so the
+  // stronger statement is that the row is GONE, along with every field it wrote
+  // and the project-level card that owned the same rule. A guard on a surface
+  // that no longer exists is not an invariant, it is a stale anchor.
+  const ndaGone = !/projectNdaScope/.test(ASSETS_SRC)
+    && !/assetRoadsPct|assetParksPct|assetNdaEnabled/.test(ASSETS_SRC)
+    && !/parcels-nda-|asset-\${asset\.id}-nda-/.test(ASSETS_SRC);
+  if (ndaGone) pass('the roads / parks deduction is gone from the assets tab (card, per-asset row and every field it wrote)');
+  else fail('roads / parks removal', 'a roads / parks surface or field write is still present on the assets tab');
+
   // A negative control: the companion-ONLY block must NOT be companion-gated,
   // or the check above would pass on a file where everything is hidden.
   if (/\{asset\.isCompanion && \(/.test(ASSETS_SRC)) pass('a companion-only block still exists (the gate cuts both ways)');

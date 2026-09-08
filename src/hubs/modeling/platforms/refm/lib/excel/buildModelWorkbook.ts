@@ -594,13 +594,9 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   addKV('Operating receivables, DSO (days)', p.operatingAr?.dsoDays ?? 0, NUMFMT.int, 'DsoDays');
   addKV('Opex payables, DPO (days)', p.opexAp?.defaultApDays ?? 0, NUMFMT.int, 'DpoDays');
   addKV('Pre-sales escrow held %', p.escrow?.heldPct ?? 0, NUMFMT.pct);
-  // Net Developable Area (NDA) deduction: roads + parks carved out of gross land
+  // The roads and parks deduction is retired (2026-09-08); nothing to emit.
   // before capacity calcs. Project-level here; per-asset values live on the
   // Assets table when the scope is 'asset'.
-  addKV('NDA deduction enabled (1 = yes)', p.projectNdaEnabled ? 1 : 0, NUMFMT.int);
-  addKV('NDA scope (project / asset)', String(p.projectNdaScope ?? 'project'), '@');
-  addKV('Project roads % (of total land)', (p.projectRoadsPct ?? 0) / 100, NUMFMT.pct);
-  addKV('Project parks % (of total land)', (p.projectParksPct ?? 0) / 100, NUMFMT.pct);
   void taxRow;
   // Financing raw inputs (funding method, debt/equity, min cash, IDC policy,
   // dividends) are grouped under the Financing divider below, not here, so the
@@ -635,7 +631,7 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   // Land parcels.
   if (opts.state.parcels.length) {
     setSectionHeader(ws.getRow(r), 'Land parcels', 9); r += 1;
-    ['Parcel', 'Area (sqm)', 'Rate /sqm', 'Cash %', 'In-kind %', 'Roads %', 'Parks %', 'Debt %', 'Equity %'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+    ['Parcel', 'Area (sqm)', 'Rate /sqm', 'Cash %', 'In-kind %', 'Debt %', 'Equity %'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
     r += 1;
     // Per-parcel land funding split (Financing Tab 4 "Land Funding" card): the
     // debt / equity share applied to the cash-funded slice of each parcel.
@@ -646,12 +642,12 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       setInput(ws.getCell(`C${r}`), pa.rate ?? 0, NUMFMT.rate); // /sqm rate, unscaled
       setInput(ws.getCell(`D${r}`), (pa.cashPct ?? 0) / 100, NUMFMT.pct);
       setInput(ws.getCell(`E${r}`), (pa.inKindPct ?? 0) / 100, NUMFMT.pct);
-      setInput(ws.getCell(`F${r}`), (pa.roadsPct ?? 0) / 100, NUMFMT.pct);
-      setInput(ws.getCell(`G${r}`), (pa.parksPct ?? 0) / 100, NUMFMT.pct);
+      // Roads % and Parks % used to sit in F and G; with the deduction retired
+      // the columns are gone and Debt / Equity move left to close the gap.
       const pf = parcelFunding.find((x) => x.parcelId === pa.id);
       const pDebt = pf?.debtPct ?? 0;
-      setInput(ws.getCell(`H${r}`), pDebt / 100, NUMFMT.pct);
-      setInput(ws.getCell(`I${r}`), (pf?.equityPct ?? (100 - pDebt)) / 100, NUMFMT.pct);
+      setInput(ws.getCell(`F${r}`), pDebt / 100, NUMFMT.pct);
+      setInput(ws.getCell(`G${r}`), (pf?.equityPct ?? (100 - pDebt)) / 100, NUMFMT.pct);
       parcelRefs.push({ id: pa.id, area: addr('B', r), rate: addr('C', r), cashPct: addr('D', r), inKindPct: addr('E', r) });
       r += 1;
     }
@@ -662,7 +658,7 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   const visibleAssets = opts.state.assets.filter((a) => a.visible !== false);
   if (visibleAssets.length) {
     setSectionHeader(ws.getRow(r), 'Assets', 14); r += 1;
-    ['Asset', 'Strategy', 'BUA (sqm)', 'NSA (sqm)', 'GFA (sqm)', 'Support (sqm)', 'Parking (sqm)', 'Parking bays', 'Land (sqm)', 'Land rate /sqm', 'Useful life (yrs)', 'Roads % (asset)', 'Parks % (asset)', 'NDA on (asset)'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+    ['Asset', 'Strategy', 'BUA (sqm)', 'NSA (sqm)', 'GFA (sqm)', 'Support (sqm)', 'Parking (sqm)', 'Parking bays', 'Land (sqm)', 'Land rate /sqm', 'Useful life (yrs)'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
     r += 1;
     for (const a of visibleAssets) {
       setLabel(ws.getCell(`A${r}`), a.name);
@@ -676,10 +672,6 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       setInput(ws.getCell(`I${r}`), a.landAllocation?.sqm ?? a.landAreaSqm ?? 0, NUMFMT.int);
       setInput(ws.getCell(`J${r}`), a.landAllocation?.customRate ?? 0, NUMFMT.rate); // /sqm rate, unscaled
       setInput(ws.getCell(`K${r}`), a.usefulLifeYears ?? 0, NUMFMT.int);
-      // Per-asset NDA deduction (consumed when project NDA scope = 'asset').
-      setInput(ws.getCell(`L${r}`), (a.assetRoadsPct ?? 0) / 100, NUMFMT.pct);
-      setInput(ws.getCell(`M${r}`), (a.assetParksPct ?? 0) / 100, NUMFMT.pct);
-      setInput(ws.getCell(`N${r}`), a.assetNdaEnabled ? 1 : 0, NUMFMT.int);
       assetRefs.push({
         id: a.id, name: a.name, phaseId: a.phaseId, strategy: a.strategy,
         bua: addr('C', r), nsa: addr('D', r), gfa: addr('E', r), support: addr('F', r), parking: addr('G', r),
