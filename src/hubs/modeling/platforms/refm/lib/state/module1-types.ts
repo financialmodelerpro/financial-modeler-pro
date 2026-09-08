@@ -1229,6 +1229,30 @@ export interface Asset {
    * states none of them shows no panel at all.
    */
   landChain?: import('@/src/core/calculations/landChain').LandChainInputs;
+  /**
+   * CONSOLIDATION LINE MEMBERSHIP (consolidation step 1, 2026-09-08).
+   *
+   * Which consolidated line this asset belongs to, and the (phase, type,
+   * strategy) key it had when that was decided.
+   *
+   * THE ID IS ASSIGNED ONCE AND THEN STICKS. A line has to be an IDENTITY
+   * before anything can point at it, and a key derived from three fields the
+   * user edits is not an identity: it changes under their hands. Marina Gate
+   * currently carries an asset typed "Bran", mid-word, which under a derived
+   * key would have been three different lines in three keystrokes. So the key
+   * decides membership ONCE and the id survives every later edit.
+   *
+   * `keyAtAssignment` is what makes that stickiness safe rather than a silent
+   * bug: when an asset is later retyped or moved, its key no longer matches
+   * the one recorded here, and that DRIFT is detectable. Whether membership
+   * then follows the new key is a later step's decision, taken visibly.
+   *
+   * ADDITIVE AND UNWRITTEN. Nothing assigns this yet, nothing reads it, and no
+   * stored snapshot carries it: `assignConsolidationIds` is a pure function
+   * with no caller. This step exists only to prove the id is stable before
+   * anything depends on it.
+   */
+  consolidation?: { id: string; keyAtAssignment: string };
   strategy: AssetStrategy;
   visible: boolean;
   // Land (legacy mirrors; kept for backward compat with v7 snapshots

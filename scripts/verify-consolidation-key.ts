@@ -28,15 +28,20 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  assignConsolidationIds,
+  consolidationDrift,
   consolidationKey,
   consolidationKeyParts,
+  withConsolidationIds,
   groupAssetsForConsolidation,
   mergingGroups,
   UNTYPED_KEY_PREFIX,
   UNTYPED_LABEL,
+  type AssignableAsset,
   type ConsolidatableAsset,
 } from '../src/core/calculations/consolidation';
 import { normaliseAssetTypeId } from '../src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards';
+import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
 
 let pass = 0, fail = 0;
 const check = (name: string, ok: boolean, detail = ''): void => {
@@ -119,6 +124,95 @@ function offlineChecks(): void {
   check('C6 mergingGroups returns only the groups that actually merge',
     mergingGroups(gs).length === 1 && mergingGroups(gs)[0].assets.length === 3);
 
+  // ── E. THE LINE'S DURABLE IDENTITY (consolidation step 1) ──────────────
+  //
+  // A line has to be an identity before a sub-unit can point at it, and a key
+  // built from phase, type and strategy is not one: the user edits all three.
+  // Marina Gate carries an asset typed "Bran" right now, mid-word, which under
+  // a derived key would have been three lines in three keystrokes.
+  section('E. The line id is assigned once and then survives every edit');
+  let seq = 0;
+  const mint = () => `line_${++seq}`;
+  const asg = (list: readonly AssignableAsset[]) => assignConsolidationIds(list, N, mint);
+  const withIds = (list: readonly AssignableAsset[]): AssignableAsset[] => withConsolidationIds(list, asg(list));
+
+  const villasA = a({ id: 'A', phaseId: 'p1', type: 'Branded Villas', strategy: 'Sell' });
+  const villasB = a({ id: 'B', phaseId: 'p1', type: 'Branded Villas', strategy: 'Sell' });
+  const apts = a({ id: 'C', phaseId: 'p1', type: 'Apartments', strategy: 'Sell' });
+
+  seq = 0;
+  const assigned = withIds([villasA, villasB, apts]) as AssignableAsset[];
+  const idOf = (list: readonly AssignableAsset[], id: string): string | undefined =>
+    list.find((x) => x.id === id)?.consolidation?.id;
+  check('E1 two assets that SHOULD share a line get the same id',
+    idOf(assigned, 'A') !== undefined && idOf(assigned, 'A') === idOf(assigned, 'B'),
+    JSON.stringify(assigned.map((x) => [x.id, x.consolidation?.id])));
+  check('E2 two that should NOT share a line get different ids',
+    idOf(assigned, 'A') !== idOf(assigned, 'C'));
+  check('E3 the second asset ADOPTS rather than minting, so a line is minted once',
+    asg([{ ...villasA, consolidation: { id: 'L1', keyAtAssignment: consolidationKey(villasA, N) } }, villasB])
+      .map((x) => x.source).join(',') === 'existing,adopted');
+
+  // THE THREE EDITS. Each takes an assigned asset, changes one part of the key,
+  // and re-runs assignment: the id must not move.
+  const reassign = (asset: AssignableAsset) => asg([asset])[0];
+  const seed = (asset: ConsolidatableAsset): AssignableAsset =>
+    ({ ...asset, consolidation: { id: 'L_SEED', keyAtAssignment: consolidationKey(asset, N) } });
+  const seeded = seed(villasA);
+  check('E4 a TYPE edit does not change the id',
+    reassign({ ...seeded, type: 'Apartments' }).id === 'L_SEED');
+  check('E5 a PHASE change does not change the id',
+    reassign({ ...seeded, phaseId: 'p9' }).id === 'L_SEED');
+  check('E6 a STRATEGY change does not change the id',
+    reassign({ ...seeded, strategy: 'Lease' }).id === 'L_SEED');
+  check('E7 mid-typing a type name never churns the id (the "Bran" case, live on Marina Gate)',
+    ['B', 'Br', 'Bra', 'Bran', 'Brand', 'Branded', 'Branded Villas']
+      .every((t) => reassign({ ...seeded, type: t }).id === 'L_SEED'));
+  check('E8 an assigned asset keeps its RECORDED key too, or the drift it exists to show is erased',
+    reassign({ ...seeded, type: 'Apartments' }).keyAtAssignment === consolidationKey(villasA, N));
+
+  // DRIFT: the price of a sticky id, made visible rather than hidden.
+  section('F. Drift is detectable, which is what makes a sticky id safe');
+  check('F1 an asset whose key still matches reports NO drift',
+    consolidationDrift([seeded], N).length === 0);
+  const drifted = { ...seeded, type: 'Apartments' };
+  const d = consolidationDrift([drifted], N);
+  check('F2 a retyped asset IS reported, with both keys named',
+    d.length === 1 && d[0].keyAtAssignment !== d[0].currentKey
+    && d[0].keyAtAssignment.includes('branded-villas') && d[0].currentKey.includes('apartments'),
+    JSON.stringify(d));
+  check('F3 an asset with no id at all is not drift, it is unassigned',
+    consolidationDrift([villasA], N).length === 0);
+
+  section('G. Assignment writes nothing and invents nothing');
+  const before = JSON.stringify([villasA, villasB, apts]);
+  asg([villasA, villasB, apts]);
+  check('G1 assignConsolidationIds MUTATES NOTHING it is given',
+    JSON.stringify([villasA, villasB, apts]) === before);
+  check('G2 withConsolidationIds returns a NEW list and leaves the input alone',
+    (() => {
+      seq = 0;
+      const out = withConsolidationIds([villasA as AssignableAsset], asg([villasA]));
+      return out[0] !== villasA && out[0].consolidation !== undefined
+        && (villasA as AssignableAsset).consolidation === undefined;
+    })());
+  check('G3 re-applying the SAME assignment returns the identical objects, so a no-op save is a no-op',
+    (() => {
+      seq = 0;
+      const once = withIds([villasA, villasB]);
+      const twice = withConsolidationIds(once, assignConsolidationIds(once, N, mint));
+      return twice[0] === once[0] && twice[1] === once[1];
+    })());
+  // A PRE-EXISTING ID CLAIMS ITS KEY BEFORE ANY MINTING, or an asset earlier in
+  // the array mints a second id for a line that already has one, splitting it.
+  check('G4 an unassigned asset ADOPTS a later sibling id rather than minting a rival',
+    (() => {
+      seq = 0;
+      const held = { ...villasB, consolidation: { id: 'HELD', keyAtAssignment: consolidationKey(villasB, N) } };
+      const res = asg([villasA, held]);
+      return res[0].id === 'HELD' && res[0].source === 'adopted' && res[1].source === 'existing';
+    })());
+
   // ── C. Nothing reads it ────────────────────────────────────────────────
   section('D. Nothing in the engine, reports or exports imports it');
   const roots = [
@@ -160,6 +254,32 @@ function offlineChecks(): void {
   const src = readFileSync('src/core/calculations/consolidation.ts', 'utf8');
   check('D2 the module imports NOTHING, so it cannot reach back into the model',
     !/^\s*import\s/m.test(src));
+  const consolidationSrc = readFileSync('src/core/calculations/consolidation.ts', 'utf8');
+  // COMMENTS STRIPPED FIRST. The Asset type's own docblock explains that
+  // `assignConsolidationIds` has no caller, and a bare name match reads that
+  // sentence as a call. Same shape as U22 and D5 elsewhere in this suite.
+  const stripComments = (t: string): string => t
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  const writers = roots.flatMap((r) => walk(r))
+    .filter((f) => !f.endsWith('calculations/consolidation.ts'))
+    .filter((f) => /assignConsolidationIds\(|withConsolidationIds\(|consolidationDrift\(/
+      .test(stripComments(readFileSync(f, 'utf8'))));
+  check('D2b NOTHING calls the assignment, the apply or the drift check',
+    writers.length === 0, writers.join(' | '));
+  // D2c ASKS THE QUESTION THAT MATTERS FOR "no existing project changes":
+  // does anything WRITE the field onto an asset?
+  //
+  // Its first cut checked the builder's own body for mutation shapes and
+  // included `.push(a)`, which matched `existing.assets.push(a)` in the
+  // GROUPING function, a line that has nothing to do with it. A proxy for
+  // purity is not purity; G1, G2 and G3 already prove that behaviourally by
+  // running the function and comparing the input. What is left to prove is that
+  // no persistence path sets the field, which is what this asks.
+  const persistence = walk('src/hubs/modeling/platforms/refm/lib/state')
+    .concat(walk('src/hubs/modeling/platforms/refm/lib/persistence'))
+    .filter((f) => /consolidation:\s*\{/.test(stripComments(readFileSync(f, 'utf8'))));
+  check('D2c no store, migration or persistence path writes the field onto an asset',
+    persistence.length === 0, persistence.join(' | '));
   check('D3 the type normaliser is INJECTED, not copied (one implementation, in the platform)',
     /normaliseTypeId: NormaliseTypeId/.test(src)
     && !/replace\(\/\[\^a-z0-9\]\+\/g/.test(src));
@@ -183,6 +303,8 @@ async function liveChecks(): Promise<void> {
   check('E1 every live project was reached', projects.length >= 6, `${projects.length} projects`);
 
   let totalAssets = 0, totalGroups = 0, totalMerges = 0, untypedLive = 0, projectsWithAssets = 0;
+  // Step 1 must leave every stored snapshot alone. Counted, not assumed.
+  let liveWithConsolidation = 0, hydrateInvented = 0, hydrateDropped = 0;
   // Groups the workbook's own key (type + plan, no phase) WOULD have merged and
   // ours deliberately does not. The count that proves the phase is load-bearing.
   let phaseSeparatedPairs = 0;
@@ -194,6 +316,21 @@ async function liveChecks(): Promise<void> {
     const phaseIds = (snap?.phases ?? []).map((f) => f.id);
     if (assets.length === 0) { console.log(`  ${p.name}: no assets`); continue; }
     projectsWithAssets += 1;
+    for (const x of assets) if ((x as AssignableAsset).consolidation) liveWithConsolidation += 1;
+    // HYDRATE IS THE ONLY PATH A STORED SNAPSHOT TAKES TO THE STORE. Run the
+    // real one over the real snapshot: the field must come out exactly as it
+    // went in, which today means absent on every asset.
+    try {
+      const hyd = hydrationFromAnySnapshot(vs[0].snapshot as never);
+      for (const h of hyd.assets) {
+        const raw = assets.find((x) => x.id === h.id) as AssignableAsset | undefined;
+        const hadIt = raw?.consolidation !== undefined;
+        const hasIt = (h as unknown as AssignableAsset).consolidation !== undefined;
+        if (!hadIt && hasIt) hydrateInvented += 1;
+        if (hadIt && !hasIt) hydrateDropped += 1;
+      }
+    } catch { /* a snapshot that will not hydrate is another verifier's problem */ }
+
     const groups = groupAssetsForConsolidation(assets, phaseIds, N);
     const merges = mergingGroups(groups);
     const untyped = groups.filter((g) => !g.typed);
@@ -251,6 +388,11 @@ async function liveChecks(): Promise<void> {
     `${totalMerges} merging groups, ${phaseSeparatedPairs} pairs separated by phase alone`);
   check('E7 no live asset is untyped today, so the untyped rule is a guard rather than a migration',
     untypedLive === 0, `${untypedLive} untyped`);
+  check('E8 NO live asset carries a consolidation id, so no existing project changed',
+    liveWithConsolidation === 0, `${liveWithConsolidation} assets carry one`);
+  check('E9 hydrate neither invents the field nor drops it',
+    hydrateInvented === 0 && hydrateDropped === 0,
+    `invented ${hydrateInvented}, dropped ${hydrateDropped}`);
 }
 
 async function main(): Promise<void> {

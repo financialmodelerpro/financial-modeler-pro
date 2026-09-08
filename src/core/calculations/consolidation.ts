@@ -196,3 +196,141 @@ export function groupAssetsForConsolidation(
 export function mergingGroups(groups: readonly ConsolidationGroup[]): ConsolidationGroup[] {
   return groups.filter((g) => g.assets.length > 1);
 }
+
+// ── Consolidation step 1: the line's durable identity ─────────────────────
+
+/**
+ * An asset's membership of a consolidated line, as stored on the asset.
+ *
+ * The shape is duplicated from `Asset.consolidation` deliberately: this file
+ * imports nothing, and the platform type structurally satisfies it.
+ */
+export interface ConsolidationMembership {
+  id: string;
+  keyAtAssignment: string;
+}
+
+export interface AssignableAsset extends ConsolidatableAsset {
+  consolidation?: ConsolidationMembership;
+}
+
+/** How an asset came by its line id, so a caller can report rather than guess. */
+export type AssignmentSource = 'existing' | 'adopted' | 'minted';
+
+export interface ConsolidationAssignment {
+  assetId: string;
+  id: string;
+  keyAtAssignment: string;
+  source: AssignmentSource;
+}
+
+/** Mints a new line id. Injected so this function is deterministic in a test
+ *  and so the id format is the caller's decision, not this file's. */
+export type MintLineId = (seed: { key: string; index: number }) => string;
+
+/**
+ * Decide a consolidated line id for every asset, ONCE.
+ *
+ * THE RULE, in three lines:
+ *   an asset that already has an id KEEPS it, whatever its key now says;
+ *   an asset without one ADOPTS the id of a same-key asset that has one;
+ *   otherwise it MINTS a new one, which the next same-key asset will adopt.
+ *
+ * WHY KEEPING WINS OVER MATCHING. A line has to be an identity before a
+ * sub-unit can point at it, and a key built from phase, type and strategy is
+ * not one: the user edits all three. Re-deriving on every read would re-parent
+ * sub-units while somebody types a type name, silently, with revenue landing on
+ * the wrong line and no error anywhere. So the key decides membership once and
+ * the id then survives every edit.
+ *
+ * THE COST OF THAT, STATED. An asset retyped after assignment keeps a line id
+ * that no longer matches its key. That is not an oversight, it is the trade:
+ * `keyAtAssignment` records what the key WAS, `consolidationDrift` finds every
+ * asset where the two disagree, and whether membership follows the new key is a
+ * later step's decision taken in the open. A silently correct answer that
+ * changes under a keystroke is worse than a stale one you can see.
+ *
+ * PURE, and callable with no side effects: it returns assignments and writes
+ * nothing. Nothing calls it yet.
+ */
+export function assignConsolidationIds(
+  assets: readonly AssignableAsset[],
+  normaliseTypeId: NormaliseTypeId,
+  mintLineId: MintLineId,
+): ConsolidationAssignment[] {
+  const byKey = new Map<string, string>();
+  // PRE-EXISTING IDS CLAIM THEIR KEY FIRST, in a separate pass. Doing it in one
+  // pass would let an asset earlier in the array mint a fresh id for a key that
+  // a later asset already holds one for, splitting a line in two.
+  for (const a of assets) {
+    if (!a.consolidation) continue;
+    const key = consolidationKey(a, normaliseTypeId);
+    if (!byKey.has(key)) byKey.set(key, a.consolidation.id);
+  }
+  const out: ConsolidationAssignment[] = [];
+  let minted = 0;
+  for (const a of assets) {
+    const key = consolidationKey(a, normaliseTypeId);
+    if (a.consolidation) {
+      // KEPT VERBATIM, including its recorded key: rewriting keyAtAssignment
+      // here would erase the drift this field exists to make visible.
+      out.push({ assetId: a.id, id: a.consolidation.id, keyAtAssignment: a.consolidation.keyAtAssignment, source: 'existing' });
+      continue;
+    }
+    const held = byKey.get(key);
+    if (held !== undefined) {
+      out.push({ assetId: a.id, id: held, keyAtAssignment: key, source: 'adopted' });
+      continue;
+    }
+    const id = mintLineId({ key, index: minted });
+    minted += 1;
+    byKey.set(key, id);
+    out.push({ assetId: a.id, id, keyAtAssignment: key, source: 'minted' });
+  }
+  return out;
+}
+
+export interface ConsolidationDrift {
+  assetId: string;
+  id: string;
+  keyAtAssignment: string;
+  currentKey: string;
+}
+
+/**
+ * Assets whose (phase, type, strategy) no longer matches the key their line id
+ * was assigned under.
+ *
+ * This is the whole safety net for a sticky id. An empty result means every
+ * line still describes its members; a non-empty one is a list of decisions
+ * somebody has to take, not a fault to hide.
+ */
+export function consolidationDrift(
+  assets: readonly AssignableAsset[],
+  normaliseTypeId: NormaliseTypeId,
+): ConsolidationDrift[] {
+  const out: ConsolidationDrift[] = [];
+  for (const a of assets) {
+    if (!a.consolidation) continue;
+    const currentKey = consolidationKey(a, normaliseTypeId);
+    if (currentKey === a.consolidation.keyAtAssignment) continue;
+    out.push({ assetId: a.id, id: a.consolidation.id, keyAtAssignment: a.consolidation.keyAtAssignment, currentKey });
+  }
+  return out;
+}
+
+/** Apply assignments to a list, returning a NEW list. Writes nothing to the
+ *  input, so a caller can diff before deciding to persist. */
+export function withConsolidationIds<T extends AssignableAsset>(
+  assets: readonly T[],
+  assignments: readonly ConsolidationAssignment[],
+): T[] {
+  const byAsset = new Map(assignments.map((x) => [x.assetId, x] as const));
+  return assets.map((a) => {
+    const x = byAsset.get(a.id);
+    if (!x) return a;
+    if (a.consolidation && a.consolidation.id === x.id
+      && a.consolidation.keyAtAssignment === x.keyAtAssignment) return a;
+    return { ...a, consolidation: { id: x.id, keyAtAssignment: x.keyAtAssignment } };
+  });
+}
