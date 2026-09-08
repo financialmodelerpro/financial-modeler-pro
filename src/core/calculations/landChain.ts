@@ -63,6 +63,17 @@ export interface LandChainInputs {
    * not derived, and the result says so rather than reporting zero slots.
    */
   retailAreaPerSlotSqm?: number;
+  /**
+   * Max floors, the reference's own column O.
+   *
+   * CARRIED, NOT COMPUTED WITH. Height is a planning constraint that FAR
+   * already expresses in area terms, so nothing in this chain divides or
+   * multiplies by it and adding it moves no derived figure. It is here because
+   * a planner reads it beside coverage and FAR, and because a later step that
+   * checks FAR against a height limit will need it stored rather than
+   * remembered.
+   */
+  maxFloors?: number;
 }
 
 /** The standards the chain draws from the project's asset type values. Passed
@@ -115,17 +126,28 @@ export interface ChainResult {
   mainAssetGfaSqm?: number;
   /** main x (1 - service). The platform calls this NSA. */
   netSaleableSqm?: number;
-  /** net saleable / unit size, or the sub-unit count when the caller supplied
-   *  one. NOT rounded: the reference carries fractional units (1221.5745
-   *  keys) and rounding here would silently change every downstream figure. */
+  /**
+   * Net saleable / unit size, or the sub-unit count when the caller supplied
+   * one, ROUNDED TO A WHOLE NUMBER.
+   *
+   * A DELIBERATE DIVERGENCE FROM THE REFERENCE (2026-09-08, founder's
+   * decision). The workbook carries fractional units and keys (1221.5745 on
+   * its first plot) and lets the fraction run through parking and BUA. You
+   * cannot build 0.57 of an apartment, so the count rounds here and
+   * EVERYTHING DOWNSTREAM FOLLOWS FROM THE ROUNDED FIGURE: slots come off the
+   * rounded count, parking area off the rounded slots, and Total BUA off that
+   * area. The consequence is that this chain no longer ties to the workbook to
+   * the cent past step 7, which is expected and is what the A-section pins.
+   */
   units?: number;
   /** Where `units` came from, so the panel can say. */
   unitsSource?: 'sub_units' | 'derived';
-  /** units x parking ratio (slots_per_unit), or main GFA / ratio
-   *  (sqm_per_slot). */
+  /** Rounded units x parking ratio (slots_per_unit), or main GFA / ratio
+   *  (sqm_per_slot). Whole slots: half a bay cannot be built either. */
   parkingSlots?: number;
-  /** retail GFA / retail area per slot. */
+  /** retail GFA / retail area per slot, whole slots. */
   retailParkingSlots?: number;
+  /** The two whole-slot figures added, so it is whole by construction. */
   totalParkingSlots?: number;
   parkingAreaSqm?: number;
   retailParkingAreaSqm?: number;
@@ -236,10 +258,10 @@ export function computeLandChain(
   // 7. Units. The sub-units win when they state a count; otherwise the
   //    division, which needs a unit size.
   if (num(subUnitUnits) && subUnitUnits > 0) {
-    out.units = subUnitUnits;
+    out.units = Math.round(subUnitUnits);
     out.unitsSource = 'sub_units';
   } else if (out.netSaleableSqm !== undefined && num(s.avgUnitSizeSqm) && s.avgUnitSizeSqm > 0) {
-    out.units = out.netSaleableSqm / s.avgUnitSizeSqm;
+    out.units = Math.round(out.netSaleableSqm / s.avgUnitSizeSqm);
     out.unitsSource = 'derived';
   } else if (out.netSaleableSqm !== undefined) {
     gaps.push('no_unit_size');
@@ -247,13 +269,14 @@ export function computeLandChain(
 
   // 8. Parking. Slots per unit is the common basis; sqm per slot divides the
   //    main asset GFA instead, which is what a retail-style ratio means.
+  //    Slots come off the ROUNDED unit count, per the counting rule above.
   if (num(s.parkingRatio)) {
     if (s.parkingRatioBasis === 'sqm_per_slot') {
       if (out.mainAssetGfaSqm !== undefined && s.parkingRatio > 0) {
-        out.parkingSlots = out.mainAssetGfaSqm / s.parkingRatio;
+        out.parkingSlots = Math.round(out.mainAssetGfaSqm / s.parkingRatio);
       }
     } else if (out.units !== undefined) {
-      out.parkingSlots = out.units * s.parkingRatio;
+      out.parkingSlots = Math.round(out.units * s.parkingRatio);
     }
   } else {
     gaps.push('no_parking_ratio');
@@ -263,7 +286,7 @@ export function computeLandChain(
   //    ONE company figure, never by the asset's own ratio.
   if (out.retailGfaSqm !== undefined && out.retailGfaSqm > 0) {
     if (num(i.retailAreaPerSlotSqm) && i.retailAreaPerSlotSqm > 0) {
-      out.retailParkingSlots = out.retailGfaSqm / i.retailAreaPerSlotSqm;
+      out.retailParkingSlots = Math.round(out.retailGfaSqm / i.retailAreaPerSlotSqm);
     } else {
       gaps.push('no_retail_area_per_slot');
     }

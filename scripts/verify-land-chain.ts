@@ -81,13 +81,22 @@ function offlineChecks(): void {
     near(resort.retailGfaSqm, 0) && near(resort.lobbyGfaSqm, 24431.49));
   check('A3 no-retail row: total GFA is UTILISED LAND x FAR, and the main asset keeps ALL of it',
     near(resort.totalGfaSqm, 146588.94) && near(resort.mainAssetGfaSqm, 146588.94));
-  check('A4 no-retail row: net saleable, keys and slots',
+  // A4 AND A5 CARRY THE DIVERGENCE. Net saleable still ties to the workbook to
+  // the cent, because rounding happens AFTER it. The count does not: the
+  // workbook keeps 1221.5745 keys and we keep 1222, by decision, and every
+  // figure below the count follows from the whole number.
+  check('A4 no-retail row: net saleable ties exactly; the count is WHOLE (workbook 1221.5745)',
     near(resort.netSaleableSqm, 146588.94)
-    && near(resort.units, 1221.5745, 0.0001) && resort.unitsSource === 'derived'
-    && near(resort.parkingSlots, 610.78725, 0.0001));
-  check('A5 no-retail row: parking area and BUA tie to the workbook exactly',
-    near(resort.parkingAreaSqm, 24431.49) && near(resort.totalParkingAreaSqm, 24431.49)
-    && near(resort.totalBuaSqm, 171020.43),
+    && resort.units === 1222 && resort.unitsSource === 'derived'
+    // 1222 x 0.5 slots per key, off the rounded count, not off 1221.5745.
+    && resort.parkingSlots === 611,
+    `units=${resort.units} slots=${resort.parkingSlots}`);
+  check('A5 no-retail row: parking area and BUA follow the ROUNDED slots (workbook 171020.43, ours 171028.94)',
+    near(resort.parkingAreaSqm, 24440) && near(resort.totalParkingAreaSqm, 24440)
+    && near(resort.totalBuaSqm, 171028.94)
+    // The whole divergence is the rounding and nothing else: 0.21275 of a
+    // slot at 40 sqm, which is 8.51 sqm on a 171,000 sqm asset.
+    && near((resort.totalBuaSqm ?? 0) - 171020.43, (611 - 610.78725) * 40, 0.01),
     `bua=${resort.totalBuaSqm}`);
 
   // Row 7: High End Apartments. WITH retail (50% of the footprint) and a 20%
@@ -104,18 +113,33 @@ function offlineChecks(): void {
   check('A7 retail row: the main asset gives up BOTH retail and lobby',
     near(apts.totalGfaSqm, 24507.792) && near(apts.mainAssetGfaSqm, 20423.16),
     `main=${apts.mainAssetGfaSqm}`);
-  check('A8 retail row: net saleable after the service share, and the unit count',
-    near(apts.netSaleableSqm, 16338.528) && near(apts.units, 108.92352, 0.0001));
-  check('A9 retail row: retail parking is on its OWN basis, not the asset ratio',
-    near(apts.parkingSlots, 108.92352, 0.0001) && near(apts.retailParkingSlots, 81.69264, 0.0001)
-    && near(apts.totalParkingSlots, 190.61616, 0.0001));
-  check('A10 retail row: parking areas and BUA tie to the workbook exactly',
-    near(apts.parkingAreaSqm, 4356.9408) && near(apts.retailParkingAreaSqm, 3267.7056)
-    && near(apts.totalParkingAreaSqm, 7624.6464) && near(apts.totalBuaSqm, 32132.4384),
+  check('A8 retail row: net saleable ties exactly; the count is WHOLE (workbook 108.92352)',
+    near(apts.netSaleableSqm, 16338.528) && apts.units === 109);
+  check('A9 retail row: retail parking is on its OWN basis, and every slot count is whole',
+    apts.parkingSlots === 109 && apts.retailParkingSlots === 82
+    && apts.totalParkingSlots === 191,
+    `${apts.parkingSlots}/${apts.retailParkingSlots}/${apts.totalParkingSlots}`);
+  check('A10 retail row: parking areas and BUA follow the ROUNDED slots (workbook 32132.4384, ours 32147.792)',
+    near(apts.parkingAreaSqm, 4360) && near(apts.retailParkingAreaSqm, 3280)
+    && near(apts.totalParkingAreaSqm, 7640) && near(apts.totalBuaSqm, 32147.792),
     `bua=${apts.totalBuaSqm}`);
-  check('A11 units are NOT rounded (the workbook carries fractional keys)',
-    resort.units !== Math.round(resort.units as number)
-    && apts.units !== Math.round(apts.units as number));
+  // A11 IS THE REVERSE OF WHAT IT ASSERTED, and the reversal is the decision.
+  // It used to pin "units are NOT rounded, the workbook carries fractional
+  // keys". You cannot build 0.57 of an apartment, so the count is now whole
+  // and everything downstream follows from the whole number rather than from
+  // the fraction. A5 and A10 measure exactly what that costs against the
+  // source.
+  const whole = (n: number | undefined): boolean => typeof n === 'number' && Number.isInteger(n);
+  check('A11 counts are WHOLE, and so is everything counted: units, slots, retail slots, totals',
+    [resort.units, resort.parkingSlots, resort.totalParkingSlots,
+      apts.units, apts.parkingSlots, apts.retailParkingSlots, apts.totalParkingSlots].every(whole));
+  check('A11b the AREAS are not rounded: only things you count are',
+    !Number.isInteger(apts.netSaleableSqm as number)
+    && !Number.isInteger(apts.totalBuaSqm as number)
+    && !Number.isInteger(apts.footprintSqm as number));
+  check('A11c a sub-unit count is rounded too, so both sources of a count agree in kind',
+    computeLandChain(6807.72, { utilisationPct: 100, coveragePct: 60, retailPct: 50, servicePct: 20, farRatio: 3.6 },
+      { avgUnitSizeSqm: 150 }, 12.4).units === 12);
 
   // ── B. Blank is not zero ────────────────────────────────────────────────
   section('B. A blank input stops the chain; a typed zero computes');
@@ -207,6 +231,7 @@ function offlineChecks(): void {
   check('C2 the chain imports NOTHING (it cannot reach back into the model)',
     !/^\s*import\s/m.test(readFileSync(CHAIN_FILE, 'utf8')));
 
+  const chainSrc = readFileSync(CHAIN_FILE, 'utf8');
   const panel = readFileSync(
     'src/hubs/modeling/platforms/refm/components/modules/_shared/LandChainSection.tsx', 'utf8');
   const assetsTab = readFileSync(
@@ -308,10 +333,17 @@ function offlineChecks(): void {
     && !/formatAccounting\(u\.unitPrice,\s*project\.displayScale/.test(tabSrc));
   check('U8 a count nobody can derive is a DASH, not a zero',
     tabSrc.includes('const count: number | undefined')
-    && tabSrc.includes('(unitArea > 0 ? u.metricValue / unitArea : undefined)')
+    && tabSrc.includes('(unitArea > 0 ? Math.round(u.metricValue / unitArea) : undefined)')
     && tabSrc.includes('count === undefined'));
-  check('U9 a unit size of zero reads as not set, not as a real size of 0',
-    tabSrc.includes("unitArea > 0 ? formatArea(unitArea) : '-'"));
+  // U9 MOVED WITH THE CELL. Unit size used to be a read-only figure, so the
+  // check was about how it PRINTED. It is now typed, so the distinction has to
+  // hold at the point of entry: an absent size shows the "not set" placeholder
+  // and a typed 0 shows 0, and only the absent one is silent.
+  check('U9 an ABSENT unit size is visibly not set, and a typed 0 is a real answer',
+    /value=\{draft \?\? stored\}/.test(tabSrc)
+    && /const stored = value !== undefined \? String\(Math\.round\(value \* 100\) \/ 100\) : '';/.test(tabSrc)
+    && /placeholder="not set"/.test(tabSrc)
+    && /onCommit=\{\(v\) => onUpdate\(u\.id, \{ unitArea: v \}\)\}/.test(tabSrc));
   // RE-AIMED 2026-09-08: the one table became TWO, stacked. What you type is
   // table one; what the chain produces is table two, which can now carry the
   // WHOLE cascade because it carries no input.
@@ -382,38 +414,132 @@ function offlineChecks(): void {
       body.length > 500 && all.every((v) => v > 0 && v === c.band),
       `band ${c.band}, headers ${c.head}, cells ${c.cells}, COLS ${c.group}, colgroup ${c.cols}`);
   }
-  // ── THE VOCABULARY. Reference BUA is the OUTERMOST tier; platform BUA is an
-  // inner one, and the two words invert exactly where it matters most. The
-  // columns take the PLATFORM's words, so that a column's name is the field it
-  // will feed and the wiring cannot be done on a shared word alone.
-  check('U17 the two contested columns carry the PLATFORM tier names, not the reference ones',
-    /<th style=\{TH_N\}[^>]*>BUA \(sqm\)<\/th>/.test(resultsBody)
-    && /<th style=\{TH_N\}[^>]*>GFA \(sqm\)<\/th>/.test(resultsBody)
-    && !/>Total GFA</.test(resultsBody)
-    && !/>Total BUA</.test(resultsBody));
-  check('U18 each contested column names its REFERENCE column and its DESTINATION field',
-    /title="[^"]*Reference: Total GFA\.[^"]*Asset\.buaSqm[^"]*"[^>]*>BUA \(sqm\)/.test(resultsBody)
-    && /title="[^"]*Reference: BUA Area\.[^"]*Asset\.gfaSqm[^"]*"[^>]*>GFA \(sqm\)/.test(resultsBody)
-    // The two rate methods those fields feed, named, because feeding the
-    // outermost tier to rate_per_bua is the exact mistake this guards.
-    && /rate_per_bua/.test(resultsBody) && /rate_per_gfa/.test(resultsBody));
-  check('U19 the table states which vocabulary is in force',
+  // ── THE VOCABULARY. The DISPLAY carries standard GCC development terms and
+  // the INTERNAL fields invert the outer two tiers, so a column can never be
+  // wired on the strength of a shared word: every tooltip names the field the
+  // column feeds and the cost method that reads it.
+  //
+  // U17 IS THE REVERSE OF ITS FIRST VERSION. That one put the platform's field
+  // names on the two contested columns. The founder's decision is the other
+  // way: industry words on the face, the mapping in the tooltip, because these
+  // tables are read by people who price plots, not by people who read our
+  // types.
+  check('U17 the two contested columns carry the INDUSTRY names, not our internal field names',
+    /<th style=\{TH_N\}[^>]*>Total GFA \(sqm\)<\/th>/.test(resultsBody)
+    && /<th style=\{TH_N\}[^>]*>Total BUA \(sqm\)<\/th>/.test(resultsBody)
+    && !/>BUA \(sqm\)</.test(resultsBody)
+    && !/>GFA \(sqm\)</.test(resultsBody));
+  check('U18 every column with an internal field names BOTH the field and the cost method that reads it',
+    [
+      [/Asset\.buaSqm[^"]*rate_per_bua/, 'Total GFA'],
+      [/Asset\.gfaSqm[^"]*rate_per_gfa/, 'Total BUA'],
+      [/Asset\.sellableBuaSqm[^"]*rate_per_nsa/, 'NSA or GLA'],
+      [/Asset\.parkingBaysRequired[^"]*rate_per_parking_bay/, 'Parking Slots'],
+      [/rate_per_land and rate_per_nda/, 'Plot Area'],
+      [/rate_per_unit/, 'Units or Keys'],
+    ].every(([re]) => (re as RegExp).test(resultsBody)));
+  check('U18b a column NO cost method reads says so, rather than staying silent',
+    (resultsBody.match(/Read by no cost method\./g) ?? []).length >= 10);
+  check('U19 the table states which vocabulary is in force AND that the fields invert',
     tabSrc.includes('data-testid="assets-results-vocabulary"')
-    && /NSA sits inside BUA sits inside GFA/.test(resultsBody));
-  check('U20 every area header states its unit, and the meaning-restoring labels are back',
-    // Areas say sqm; slot and unit counts say what they count in the name.
-    (resultsBody.match(/\(sqm\)</g) ?? []).length >= 12
-    && /<th style=\{TH_N\}>Land area \(sqm\)<\/th>/.test(inputsBody)
-    && /Net saleable \/ GLA \(sqm\)/.test(resultsBody)
-    && /Main asset cov %/.test(inputsBody)
-    && /Retail % \(ground floor\)/.test(inputsBody));
+    && /standard GCC development terms/.test(resultsBody)
+    && /NSA or GLA sits inside Total GFA sits inside\s*\n?\s*Total BUA/.test(resultsBody)
+    && /invert the outer two/.test(resultsBody));
+  check('U20 every area header states its unit, and every label is the industry term',
+    (resultsBody.match(/\(sqm\)</g) ?? []).length >= 14
+    && ['Plot Area (sqm)', 'Net Developable Area (sqm)', 'Building Footprint (sqm)',
+      'Landscape and Open Area (sqm)', 'Retail GFA (sqm)', 'Lobby and Circulation GFA (sqm)',
+      'Main Asset GFA (sqm)', 'NSA or GLA (sqm)', 'Average Unit Size (sqm)', 'Units or Keys',
+      'Parking Ratio', 'Parking Slots', 'Retail Parking Slots', 'Total Parking Slots',
+      'Parking Area (sqm)', 'Retail Parking Area (sqm)', 'Total Parking Area (sqm)']
+      .every((t) => resultsBody.includes(`>${t}</th>`))
+    && ['Plot Area (sqm)', 'Land Utilisation %', 'Ground Coverage %', 'FAR', 'Max Floors',
+      'Retail % (ground floor)', 'Service %']
+      .every((t) => inputsBody.includes(`>${t}</th>`)));
   check('U21 the drawer panel uses the SAME words as the table it sits under',
     panel.includes("'BUA (reference Total GFA)'")
     && panel.includes("'GFA (reference BUA Area)'")
     && panel.includes("'Net saleable / GLA'"));
-  check('U16 the outermost tier is banded on its own, not filed under parking',
-    /<th style=\{TH_N\}>Total<\/th>/.test(resultsBody)
-    && /colSpan=\{7\}>Units and parking</.test(resultsBody));
+  check('U22 MAX FLOORS is typed and carried, and the chain computes with it NOWHERE',
+    /maxFloors\?: number/.test(chainSrc)
+    && inputsBody.includes('asset-row-${asset.id}-max-floors')
+    && inputsBody.includes('patchChain({ maxFloors: v })')
+    // NAMED ONCE, IN THE DECLARATION, AND NOWHERE ELSE IN THE CODE. A single
+    // arithmetic use would make it a driver and move every derived figure on
+    // every project. Comments are stripped first: the field's own docblock
+    // says "CARRIED, NOT COMPUTED WITH", and the */ that closes it sits right
+    // above the declaration, which a naive operator match reads as a division.
+    && (chainSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+      .match(/maxFloors/g) ?? []).length === 1);
+  check('U23 the two standards that DRIVE the count and the slots are shown, not left invisible',
+    resultsBody.includes('asset-result-${asset.id}-unit-size')
+    && resultsBody.includes('asset-result-${asset.id}-parking-ratio')
+    && /unitSizeSqm/.test(tabSrc) && /parkingRatioBasis/.test(resultsBody));
+  check('U24 counts render WHOLE, through their own formatter, not through a 2-decimal one',
+    /const whole = \(v: number \| undefined\)/.test(resultsBody)
+    && /whole\(chain\.units\)/.test(resultsBody)
+    && /whole\(chain\.parkingSlots\)/.test(resultsBody)
+    && /whole\(chain\.retailParkingSlots\)/.test(resultsBody)
+    && /whole\(chain\.totalParkingSlots\)/.test(resultsBody)
+    && !/n\(chain\.(units|parkingSlots|retailParkingSlots|totalParkingSlots)\)/.test(resultsBody));
+  // U25 EXISTS BECAUSE PROJECT TOTALS CONTRADICTED THE TABLES ABOVE IT. It
+  // showed the same three quantities under our internal names, and the outer
+  // two of those invert, so its BUA tile was the tables' Total GFA.
+  check('U25 Project Totals uses the SAME words as the tables above it',
+    /Total GFA<\/div>\s*\n\s*<strong[^>]*data-testid="globals-bua"/.test(tabSrc)
+    && /Total BUA<\/div>\s*\n\s*<strong[^>]*data-testid="globals-gfa"/.test(tabSrc)
+    && /NSA or GLA<\/div>\s*\n\s*<strong[^>]*data-testid="globals-nsa"/.test(tabSrc)
+    && !/>BUA<\/div>/.test(tabSrc) && !/>GFA<\/div>/.test(tabSrc));
+
+  // ── SUB-UNITS. The table showed area, unit size and count and offered no way
+  // to type the unit size, so three of four live rows could not derive a count
+  // at all. The inputs the rule needs are now there.
+  const subStart = tabSrc.indexOf('function SubUnitsTable(');
+  const subEnd = tabSrc.indexOf('// ── AssetCard');
+  const subBody = subStart >= 0 && subEnd > subStart ? tabSrc.slice(subStart, subEnd) : '';
+  check('U26 unit size is TYPED per sub-unit, which is what makes a count derivable',
+    subBody.length > 500
+    && subBody.includes('subunits-row-${u.id}-unit-size')
+    && /onCommit=\{\(v\) => onUpdate\(u\.id, \{ unitArea: v \}\)\}/.test(subBody));
+  check('U27 share and area are ONE pair: typing either sets the other',
+    subBody.includes('subunits-row-${u.id}-share')
+    && /metricValue: v === undefined \? 0 : \(nsa \* v\) \/ 100/.test(subBody)
+    // In count mode the count is the input, so the share is shown derived
+    // rather than offered as a second way to say the same thing.
+    && /isUnits \|\| nsa <= 0 \?/.test(subBody));
+  check('U28 the count is NSA over unit size, rounded, and a missing size is a DASH not a zero',
+    /Math\.round\(u\.metricValue \/ unitArea\)/.test(subBody)
+    && /unitArea > 0 \?/.test(subBody)
+    && subBody.includes('This is not a count of zero.'));
+  const groupStart = tabSrc.indexOf('function groupSubUnitsByAsset(');
+  const groupBody = groupStart >= 0 ? tabSrc.slice(groupStart, subStart) : '';
+  check('U29 the parts are checked against the asset OWN entered NSA, per asset',
+    groupBody.length > 300
+    && /const nsa = Math\.max\(0, asset\?\.sellableBuaSqm \?\? 0\);/.test(groupBody)
+    // NEVER THE DERIVED CHAIN FIGURE. Sourcing the check from the chain would
+    // put the derivation into an editing surface, which is the one thing this
+    // step must not do. Both the grouping and the render are checked: the
+    // number is chosen in the first and only displayed by the second.
+    // The IDENTIFIER, not the word: both spans carry prose saying the chain is
+    // deliberately not consulted here, and a bare word match reads those
+    // sentences as the very thing they rule out. Second time this exact shape
+    // has bitten in one session (see D5 in verify-asset-type-standards), and
+    // `chain\.` alone was still not enough: it matched a sentence ENDING in
+    // the word. A property access needs a property.
+    && ![groupBody, subBody].some((b) => /netSaleableSqm|\bchain\.\w|computeLandChain/.test(b))
+    && subBody.includes('Sub-units sum to NSA')
+    && subBody.includes('Under-allocated') && subBody.includes('Over-allocated'));
+  check('U29b a sub-unit whose asset is gone is still listed, so no row becomes undeletable',
+    /const orphans = \[\.\.\.byAssetId\.values\(\)\]\.flat\(\)/.test(tabSrc)
+    && /if \(orphans\.length > 0\) emit\(undefined, orphans\)/.test(tabSrc));
+  check('U30 the rate column NAMES its basis, per row, through the one existing helper',
+    subBody.includes('subunits-row-${u.id}-rate-basis')
+    && /rateUnitLabel\(u\.category, isUnits \? 'units' : 'area'\)/.test(subBody)
+    && subBody.includes('Rate Basis'));
+  check('U31 headers WRAP and are CENTRED in both tables',
+    /textAlign: 'center'/.test(tabSrc.slice(tabSrc.indexOf('const TH_T'), tabSrc.indexOf('const TABLE_INPUT')))
+    && /whiteSpace: 'normal'/.test(tabSrc.slice(tabSrc.indexOf('const TH_T'), tabSrc.indexOf('const TABLE_INPUT')))
+    && /const TH_N: React\.CSSProperties = \{ \.\.\.TH_T \};/.test(tabSrc));
   check('U14 the plot grouping is one shared header, and the CHECK is on the input table only',
     tabSrc.includes('function PlotHeaderRow(')
     && tabSrc.includes('showCheck onAddAsset={onAddAsset}')

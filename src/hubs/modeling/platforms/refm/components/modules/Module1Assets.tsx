@@ -824,16 +824,16 @@ export default function Module1Assets(): React.JSX.Element {
       <div style={{ ...sectionCardStyle, background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }} data-testid="assets-globals">
         <h3 style={{ fontSize: 'var(--font-h3)', margin: 0, marginBottom: 'var(--sp-2)', color: 'var(--color-on-primary-navy)' }}>Project Totals</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--sp-2)', fontSize: 'var(--font-small)', marginBottom: 'var(--sp-2)' }}>
-          <div>
-            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>NSA</div>
+          <div title="Sum of every asset's NSA. INTERNAL FIELD: Asset.sellableBuaSqm, read by the cost method rate_per_nsa.">
+            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>NSA or GLA</div>
             <strong style={{ fontSize: 16 }} data-testid="globals-nsa">{fmt(globals.nsa)} sqm</strong>
           </div>
-          <div>
-            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>BUA</div>
+          <div title="Sum of every asset's building floor area, parking excluded. INTERNAL FIELD: Asset.buaSqm, read by the cost method rate_per_bua. The field name and the industry name invert here; the tables above use the same words as this tile.">
+            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total GFA</div>
             <strong style={{ fontSize: 16 }} data-testid="globals-bua">{fmt(globals.bua)} sqm</strong>
           </div>
-          <div>
-            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>GFA</div>
+          <div title="Sum of every asset's built area including parking. INTERNAL FIELD: Asset.gfaSqm, read by the cost method rate_per_gfa. The field name and the industry name invert here; the tables above use the same words as this tile.">
+            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total BUA</div>
             <strong style={{ fontSize: 16 }} data-testid="globals-gfa">{fmt(globals.gfa)} sqm</strong>
           </div>
           <div>
@@ -982,10 +982,13 @@ const CELL_DERIVED: React.CSSProperties = { ...CELL_NUM, background: 'var(--colo
 // Padding and leading are deliberately tight: with twenty columns the header
 // is two lines whatever we do, and every extra pixel of padding is paid twice.
 const TH_T: React.CSSProperties = {
-  padding: '4px 5px', fontSize: 10, textAlign: 'left', fontWeight: 600,
+  padding: '4px 5px', fontSize: 10, textAlign: 'center', fontWeight: 600,
   whiteSpace: 'normal', overflowWrap: 'break-word', lineHeight: 1.15, verticalAlign: 'bottom',
 };
-const TH_N: React.CSSProperties = { ...TH_T, textAlign: 'right' };
+// Numeric columns keep the SAME centred header. A right-aligned label over a
+// wrapped two-line head reads as ragged; the CELLS below stay right-aligned,
+// which is what makes a column of numbers scannable.
+const TH_N: React.CSSProperties = { ...TH_T };
 const TABLE_INPUT: React.CSSProperties = {
   background: 'var(--color-navy-pale)', color: 'var(--color-navy)',
   border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)',
@@ -1056,6 +1059,13 @@ interface AssetRow {
   asset: Asset;
   chain: ChainResult;
   landSqm: number;
+  // THE TWO STANDARDS THE CHAIN DIVIDED BY, carried on the row. The count and
+  // the slot count are meaningless without them, and they were invisible: a
+  // reader could see 109 units and had no way to ask 109 of what size.
+  unitSizeSqm?: number;
+  unitSizeSource?: string;
+  parkingRatio?: number;
+  parkingRatioBasis?: 'slots_per_unit' | 'sqm_per_slot';
 }
 
 interface RowGroup {
@@ -1102,6 +1112,10 @@ function buildAssetRows(
           asset,
           chain,
           landSqm: breakdown.landSqm,
+          unitSizeSqm: unitSize.value,
+          unitSizeSource: unitSize.source,
+          parkingRatio: typeValues?.parkingRatio,
+          parkingRatioBasis: typeValues?.parkingRatioBasis,
         };
       }),
     };
@@ -1201,7 +1215,8 @@ function AssetInputsTable({
   onRemoveAsset: (id: string) => void;
   onAddAsset: (phaseId: string, parcelId?: string) => void;
 }): React.JSX.Element {
-  const COLS = 13;
+  // 14 with Max Floors. Counts agree or U15 fails.
+  const COLS = 14;
   return (
     <div style={sectionCardStyle} data-testid="assets-table-section">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 'var(--sp-1)' }}>
@@ -1223,7 +1238,7 @@ function AssetInputsTable({
             <col style={{ width: 96 }} />
             <col style={{ width: 112 }} />
             <col style={{ width: 92 }} />
-            {Array.from({ length: 5 }).map((_, i) => (<col key={`in-${i}`} style={{ width: 90 }} />))}
+            {Array.from({ length: 6 }).map((_, i) => (<col key={`in-${i}`} style={{ width: 90 }} />))}
             <col style={{ width: 40 }} />
           </colgroup>
           <thead>
@@ -1231,7 +1246,7 @@ function AssetInputsTable({
               {/* Land area moves under Chain inputs, where it belongs: it is
                   step 0 of the chain, the figure every later step multiplies. */}
               <th style={TH_T} colSpan={6}>Asset</th>
-              <th style={TH_T} colSpan={6}>Chain inputs</th>
+              <th style={TH_T} colSpan={7}>Plot and massing inputs</th>
               <th style={TH_T}></th>
             </tr>
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
@@ -1241,15 +1256,16 @@ function AssetInputsTable({
               <th style={TH_T}>Type</th>
               <th style={TH_T}>Strategy</th>
               <th style={TH_T}>Phase</th>
-              <th style={TH_N}>Land area (sqm)</th>
-              <th style={TH_N} title="Share of the plot that is developable. Reference: Land Utilization %.">Util %</th>
+              <th style={TH_N} title="The asset's share of its plot. Feeds the land cost methods rate_per_land and rate_per_nda.">Plot Area (sqm)</th>
+              <th style={TH_N} title="Share of the plot that is developable. Reference: Land Utilization %.">Land Utilisation %</th>
               {/* The reference calls this "Main Asset Coverage % / Footprint",
                   and the "main asset" half carries meaning: it is the MAIN
                   asset's footprint on the utilised land, not the plot's. */}
-              <th style={TH_N} title="Share of the utilised area the MAIN ASSET's footprint covers. Reference: Main Asset Coverage % / Footprint.">Main asset cov %</th>
-              <th style={TH_N} title="Floor area ratio. BUA = utilised land x FAR (not the footprint, and not the gross plot).">FAR</th>
-              <th style={TH_N} title="Share of the FOOTPRINT given to GROUND-FLOOR retail. Reference: Retail % (Ground Floor).">Retail % (ground floor)</th>
-              <th style={TH_N} title="Service and back-of-house share off the main asset GFA. Reference: Service %.">Svc %</th>
+              <th style={TH_N} title="Share of the Net Developable Area the MAIN ASSET's footprint covers. Reference: Main Asset Coverage % / Footprint.">Ground Coverage %</th>
+              <th style={TH_N} title="Floor area ratio. Total GFA = Net Developable Area x FAR (not the footprint, and not the gross plot).">FAR</th>
+              <th style={TH_N} title="Height limit in storeys. Carried beside FAR for planning, and read by nothing: FAR already states the area this plot may build.">Max Floors</th>
+              <th style={TH_N} title="Share of the Building Footprint given to GROUND-FLOOR retail. Reference: Retail % (Ground Floor).">Retail % (ground floor)</th>
+              <th style={TH_N} title="Service and back-of-house share off Main Asset GFA. Reference: Service %.">Service %</th>
               <th style={TH_T}></th>
             </tr>
           </thead>
@@ -1331,10 +1347,11 @@ function AssetInputsTable({
                         </td>
                         <td style={CELL_NUM} data-testid={`asset-row-${asset.id}-land`}>{formatArea(landSqm)}</td>
                         <td style={CELL}><ChainCell value={asset.landChain?.utilisationPct} testId={`asset-row-${asset.id}-utilisation`} title="Share of the plot that is developable." onCommit={(v) => patchChain({ utilisationPct: v })} /></td>
-                        <td style={CELL}><ChainCell value={asset.landChain?.coveragePct} testId={`asset-row-${asset.id}-coverage`} title="Share of the utilised area the footprint covers." onCommit={(v) => patchChain({ coveragePct: v })} /></td>
-                        <td style={CELL}><ChainCell value={asset.landChain?.farRatio} testId={`asset-row-${asset.id}-far`} title="BUA = utilised land x FAR." onCommit={(v) => patchChain({ farRatio: v })} /></td>
+                        <td style={CELL}><ChainCell value={asset.landChain?.coveragePct} testId={`asset-row-${asset.id}-coverage`} title="Share of the Net Developable Area the main asset's footprint covers." onCommit={(v) => patchChain({ coveragePct: v })} /></td>
+                        <td style={CELL}><ChainCell value={asset.landChain?.farRatio} testId={`asset-row-${asset.id}-far`} title="Total GFA = Net Developable Area x FAR." onCommit={(v) => patchChain({ farRatio: v })} /></td>
+                        <td style={CELL}><ChainCell value={asset.landChain?.maxFloors} testId={`asset-row-${asset.id}-max-floors`} title="Height limit in storeys. Carried, not computed with." onCommit={(v) => patchChain({ maxFloors: v })} /></td>
                         <td style={CELL}><ChainCell value={asset.landChain?.retailPct} testId={`asset-row-${asset.id}-retail`} title="Share of the FOOTPRINT given to ground-floor retail." onCommit={(v) => patchChain({ retailPct: v })} /></td>
-                        <td style={CELL}><ChainCell value={asset.landChain?.servicePct} testId={`asset-row-${asset.id}-service`} title="Service share off the main asset GFA." onCommit={(v) => patchChain({ servicePct: v })} /></td>
+                        <td style={CELL}><ChainCell value={asset.landChain?.servicePct} testId={`asset-row-${asset.id}-service`} title="Service and back-of-house share off Main Asset GFA." onCommit={(v) => patchChain({ servicePct: v })} /></td>
                         <td style={CELL}>
                           <button
                             type="button"
@@ -1390,10 +1407,15 @@ function AssetResultsTable({ rowGroups }: { rowGroups: RowGroup[] }): React.JSX.
   // one had no declared width under `table-layout: fixed` and no band above
   // it: the outermost tier, the single most important figure in the table,
   // rendered as a squeezed nameless strip at the right edge.
-  const COLS = 20;
+  const COLS = 22;
   const d = (v: number | undefined): string => (v === undefined ? '-' : formatArea(v));
   const n = (v: number | undefined): string =>
     v === undefined ? '-' : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  // COUNTS PRINT WHOLE BECAUSE THEY ARE WHOLE. Rendering them through the
+  // 2-decimal formatter would hide a regression in the rounding rule behind a
+  // formatter that happens to round for display.
+  const whole = (v: number | undefined): string =>
+    v === undefined ? '-' : Math.round(v).toLocaleString();
   return (
     <div style={sectionCardStyle} data-testid="assets-results-section">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 'var(--sp-1)' }}>
@@ -1403,13 +1425,14 @@ function AssetResultsTable({ rowGroups }: { rowGroups: RowGroup[] }): React.JSX.
         </span>
       </div>
       {/* WHICH VOCABULARY IS IN FORCE, stated, because no reader can infer it.
-          The reference workbook's outermost tier is called BUA and its inner
-          one GFA; this platform's are the other way round, and the columns
-          here feed platform fields. */}
+          THE DISPLAY CARRIES INDUSTRY WORDS; the internal fields invert the
+          outer two tiers, so every tooltip names the field its column feeds
+          and the cost method that reads it. */}
       <div style={{ fontSize: 10, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }} data-testid="assets-results-vocabulary">
-        Columns use this platform&apos;s names: NSA sits inside BUA sits inside GFA, so GFA is the
-        outermost tier and includes parking. The reference workbook inverts the outer two, and each
-        column&apos;s tooltip gives its reference name.
+        Columns use standard GCC development terms: NSA or GLA sits inside Total GFA sits inside
+        Total BUA, so Total BUA is the outermost tier and includes parking. Our internal fields
+        invert the outer two (Asset.buaSqm is Total GFA and Asset.gfaSqm is Total BUA), so each
+        column&apos;s tooltip names the field it feeds and the cost method that reads it.
       </div>
       <div style={{ overflowX: 'auto' }}>
         {/* Identity cut to 88 and 150 (the results table needs only enough to
@@ -1418,11 +1441,11 @@ function AssetResultsTable({ rowGroups }: { rowGroups: RowGroup[] }): React.JSX.
             which the longest label, "Retail parking area", wraps to TWO lines
             rather than three, so the header band stops being taller than the
             rows it labels. */}
-        <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1786 }} data-testid="assets-results-table">
+        <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1958 }} data-testid="assets-results-table">
           <colgroup>
             <col style={{ width: 88 }} />
             <col style={{ width: 150 }} />
-            {Array.from({ length: 18 }).map((_, i) => (<col key={`d-${i}`} style={{ width: 86 }} />))}
+            {Array.from({ length: 20 }).map((_, i) => (<col key={`d-${i}`} style={{ width: 86 }} />))}
           </colgroup>
           <thead>
             {/* 2 + 5 + 5 + 7 + 1 = 20. Retail GFA sits in Floor area, not in
@@ -1434,35 +1457,37 @@ function AssetResultsTable({ rowGroups }: { rowGroups: RowGroup[] }): React.JSX.
               <th style={TH_T} colSpan={2}>Asset</th>
               <th style={TH_T} colSpan={5}>Land and footprint</th>
               <th style={TH_T} colSpan={5}>Floor area</th>
-              <th style={TH_T} colSpan={7}>Units and parking</th>
+              <th style={TH_T} colSpan={9}>Units and parking</th>
               <th style={TH_N}>Total</th>
             </tr>
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
               <th style={TH_T}>Plot</th>
               <th style={TH_T}>Asset</th>
-              <th style={TH_N}>Land area (sqm)</th>
-              <th style={TH_N} title="Land area x utilisation. Reference: Land Utilized Area.">Land utilised (sqm)</th>
-              <th style={TH_N} title="Utilised land x main asset coverage. Reference: Total Used Footprint.">Footprint (sqm)</th>
-              <th style={TH_N} title="One minus coverage. The utilised land that the footprint does not cover.">Landscape %</th>
-              <th style={TH_N} title="Reference: Total Landscape Area.">Landscape area (sqm)</th>
-              <th style={TH_N} title="Footprint x ground-floor retail share. Reference: Retail GFA.">Retail GFA (sqm)</th>
-              <th style={TH_N} title="Footprint less retail. Reference: Lobby Area GFA.">Lobby GFA (sqm)</th>
+              <th style={TH_N} title="The asset's share of its plot. Read by the land cost methods rate_per_land and rate_per_nda.">Plot Area (sqm)</th>
+              <th style={TH_N} title="Plot Area x Land Utilisation %. Reference: Land Utilized Area. NOTE: the cost method rate_per_nda computes its own net developable area from a roads share and does NOT read this column.">Net Developable Area (sqm)</th>
+              <th style={TH_N} title="Net Developable Area x Ground Coverage %. Reference: Total Used Footprint. Read by no cost method.">Building Footprint (sqm)</th>
+              <th style={TH_N} title="One minus Ground Coverage %. Derived, never typed: the developable land the footprint does not cover.">Landscape %</th>
+              <th style={TH_N} title="Net Developable Area x Landscape %. Reference: Total Landscape Area. Read by no cost method.">Landscape and Open Area (sqm)</th>
+              <th style={TH_N} title="Building Footprint x Retail % (ground floor). Reference: Retail GFA. Read by no cost method.">Retail GFA (sqm)</th>
+              <th style={TH_N} title="Building Footprint less Retail GFA. Reference: Lobby Area GFA. Read by no cost method.">Lobby and Circulation GFA (sqm)</th>
               {/* THE TWO CONTESTED TIERS CARRY THE PLATFORM'S WORDS, and each
                   tooltip names both the reference column and the platform field
                   it will feed, so the wiring cannot be done on the strength of a
                   shared word. Reference BUA is the OUTERMOST tier; platform BUA
                   is an inner one. */}
-              <th style={TH_N} title="Utilised land x FAR, the building with no parking. Reference: Total GFA. Feeds Asset.buaSqm, which is what rate_per_bua multiplies.">BUA (sqm)</th>
-              <th style={TH_N} title="Reference: Main Asset GFA.">Main asset GFA (sqm)</th>
-              <th style={TH_N} title="Main asset GFA x (1 - service %). Reference: Total GLA / Net Saleable. Feeds Asset.sellableBuaSqm.">Net saleable / GLA (sqm)</th>
-              <th style={TH_N}>Units / keys</th>
-              <th style={TH_N}>Parking slots</th>
-              <th style={TH_N}>Retail slots</th>
-              <th style={TH_N}>Total slots</th>
-              <th style={TH_N}>Parking area (sqm)</th>
-              <th style={TH_N}>Retail parking area (sqm)</th>
-              <th style={TH_N}>Total parking area (sqm)</th>
-              <th style={TH_N} title="BUA + total parking area, everything built. Reference: BUA Area. Feeds Asset.gfaSqm, which is what rate_per_gfa multiplies.">GFA (sqm)</th>
+              <th style={TH_N} title="Net Developable Area x FAR, the building with no parking. INTERNAL FIELD: Asset.buaSqm, which is what the cost method rate_per_bua multiplies. Our field names invert the outer two tiers; the display carries the industry word.">Total GFA (sqm)</th>
+              <th style={TH_N} title="Total GFA less Retail GFA and Lobby and Circulation GFA, or the whole of it when there is no retail. Read by no cost method.">Main Asset GFA (sqm)</th>
+              <th style={TH_N} title="Main Asset GFA x (1 - Service %). INTERNAL FIELD: Asset.sellableBuaSqm, read by the cost method rate_per_nsa.">NSA or GLA (sqm)</th>
+              <th style={TH_N} title="Sqm per unit or key. Sub-unit areas first, the asset type average as the fallback. From this project's asset type values on tab 4. Read by no cost method.">Average Unit Size (sqm)</th>
+              <th style={TH_N} title="NSA or GLA / Average Unit Size, ROUNDED to whole units. A sub-unit count wins when there is one. Read by the cost method rate_per_unit.">Units or Keys</th>
+              <th style={TH_N} title="Slots per unit, or sqm per slot on a retail basis. From this project's asset type values on tab 4. Read by no cost method.">Parking Ratio</th>
+              <th style={TH_N} title="Units or Keys x Parking Ratio, off the ROUNDED count. INTERNAL FIELD: Asset.parkingBaysRequired, read by the cost method rate_per_parking_bay.">Parking Slots</th>
+              <th style={TH_N} title="Retail GFA / Area per Slot for retail, on its OWN fixed figure and never the asset's own ratio. Read by no cost method.">Retail Parking Slots</th>
+              <th style={TH_N} title="Parking Slots + Retail Parking Slots. Whole by construction. Read by no cost method.">Total Parking Slots</th>
+              <th style={TH_N} title="Parking Slots x Area per Slot, the project figure on tab 4. Read by no cost method.">Parking Area (sqm)</th>
+              <th style={TH_N} title="Retail Parking Slots x Area per Slot. Read by no cost method.">Retail Parking Area (sqm)</th>
+              <th style={TH_N} title="Parking Area + Retail Parking Area. Read by no cost method.">Total Parking Area (sqm)</th>
+              <th style={TH_N} title="Total GFA + Total Parking Area, everything built. INTERNAL FIELD: Asset.gfaSqm, which is what the cost method rate_per_gfa multiplies. Our field names invert the outer two tiers; the display carries the industry word.">Total BUA (sqm)</th>
             </tr>
           </thead>
           <tbody>
@@ -1476,7 +1501,7 @@ function AssetResultsTable({ rowGroups }: { rowGroups: RowGroup[] }): React.JSX.
                     </td>
                   </tr>
                 )}
-                {rows.map(({ asset, chain, landSqm, parcel }) => (
+                {rows.map(({ asset, chain, landSqm, parcel, unitSizeSqm, unitSizeSource, parkingRatio, parkingRatioBasis }) => (
                   <tr
                     key={asset.id}
                     style={{ borderBottom: '1px solid var(--color-border)', opacity: asset.visible ? 1 : 0.55 }}
@@ -1494,10 +1519,14 @@ function AssetResultsTable({ rowGroups }: { rowGroups: RowGroup[] }): React.JSX.
                     <td style={CELL_DERIVED} data-testid={`asset-result-${asset.id}-total-gfa`}>{d(chain.totalGfaSqm)}</td>
                     <td style={CELL_DERIVED}>{d(chain.mainAssetGfaSqm)}</td>
                     <td style={CELL_DERIVED} data-testid={`asset-result-${asset.id}-net-saleable`}>{d(chain.netSaleableSqm)}</td>
-                    <td style={CELL_DERIVED} data-testid={`asset-result-${asset.id}-units`}>{n(chain.units)}</td>
-                    <td style={CELL_DERIVED}>{n(chain.parkingSlots)}</td>
-                    <td style={CELL_DERIVED}>{n(chain.retailParkingSlots)}</td>
-                    <td style={CELL_DERIVED}>{n(chain.totalParkingSlots)}</td>
+                    <td style={CELL_DERIVED} data-testid={`asset-result-${asset.id}-unit-size`}
+                      title={unitSizeSource ? `Source: ${unitSizeSource}` : undefined}>{d(unitSizeSqm)}</td>
+                    <td style={CELL_DERIVED} data-testid={`asset-result-${asset.id}-units`}>{whole(chain.units)}</td>
+                    <td style={CELL_DERIVED} data-testid={`asset-result-${asset.id}-parking-ratio`}
+                      title={parkingRatioBasis === 'sqm_per_slot' ? 'sqm per slot' : 'slots per unit'}>{n(parkingRatio)}</td>
+                    <td style={CELL_DERIVED}>{whole(chain.parkingSlots)}</td>
+                    <td style={CELL_DERIVED}>{whole(chain.retailParkingSlots)}</td>
+                    <td style={CELL_DERIVED}>{whole(chain.totalParkingSlots)}</td>
                     <td style={CELL_DERIVED}>{d(chain.parkingAreaSqm)}</td>
                     <td style={CELL_DERIVED}>{d(chain.retailParkingAreaSqm)}</td>
                     <td style={CELL_DERIVED}>{d(chain.totalParkingAreaSqm)}</td>
@@ -1551,6 +1580,83 @@ function AssetTables({
 // the add row. The per-asset table inside the card stays for now (this commit
 // is additive); commit 2 removes it.
 
+/** One editable number in the sub-unit table. Draft while typing so a
+ *  half-typed entry and an empty cell both survive; blank clears to absent. */
+function SubUnitNumber({
+  value, onCommit, testId, title,
+}: {
+  value: number | undefined;
+  onCommit: (v: number | undefined) => void;
+  testId: string;
+  title: string;
+}): React.JSX.Element {
+  const [draft, setDraft] = useState<string | null>(null);
+  const stored = value !== undefined ? String(Math.round(value * 100) / 100) : '';
+  const parsed = draft === null ? null : (draft.trim() === '' ? undefined : Number(draft));
+  const bad = parsed !== null && parsed !== undefined && (!Number.isFinite(parsed) || parsed < 0);
+  return (
+    <input
+      style={{ ...TABLE_NUM_INPUT, ...(bad ? { borderColor: 'var(--color-negative)' } : {}) }}
+      value={draft ?? stored}
+      inputMode="decimal"
+      placeholder="not set"
+      title={title}
+      data-testid={testId}
+      onChange={(e) => {
+        const next = e.target.value;
+        setDraft(next);
+        const t = next.trim();
+        if (t === '') { onCommit(undefined); return; }
+        const num = Number(t);
+        if (Number.isFinite(num) && num >= 0) onCommit(num);
+      }}
+      onBlur={() => setDraft(null)}
+    />
+  );
+}
+
+/** Sub-units under the asset they belong to, with that asset's own NSA and
+ *  the sum of its parts, so the check is beside the thing it checks. */
+interface SubUnitGroup {
+  asset?: Asset;
+  rows: SubUnit[];
+  nsa: number;
+  areaSum: number;
+  status?: 'ok' | 'under' | 'over';
+}
+
+function groupSubUnitsByAsset(assets: Asset[], subUnits: SubUnit[]): SubUnitGroup[] {
+  const byAssetId = new Map<string, SubUnit[]>();
+  for (const u of subUnits) {
+    const list = byAssetId.get(u.assetId) ?? [];
+    list.push(u);
+    byAssetId.set(u.assetId, list);
+  }
+  const out: SubUnitGroup[] = [];
+  const emit = (asset: Asset | undefined, rows: SubUnit[]): void => {
+    const areaSum = rows.reduce((t, u) => {
+      const unitArea = Math.max(0, u.unitArea ?? 0);
+      const isUnits = (asset?.subUnitMetric ?? u.metric) === 'units';
+      return t + (isUnits ? u.metricValue * unitArea : u.metricValue);
+    }, 0);
+    const nsa = Math.max(0, asset?.sellableBuaSqm ?? 0);
+    // A HUNDREDTH OF A SQM IS NOT A DISAGREEMENT. The tolerance is absolute
+    // and tiny, so a real gap always shows and float noise never does.
+    let status: SubUnitGroup['status'];
+    if (nsa > 0) status = Math.abs(areaSum - nsa) < 0.01 ? 'ok' : (areaSum < nsa ? 'under' : 'over');
+    out.push({ asset, rows, nsa, areaSum, status });
+  };
+  for (const a of assets) {
+    const rows = byAssetId.get(a.id);
+    if (rows && rows.length > 0) { emit(a, rows); byAssetId.delete(a.id); }
+  }
+  // Anything pointing at an asset that no longer exists still has to be
+  // reachable, or a row becomes invisible and undeletable.
+  const orphans = [...byAssetId.values()].flat();
+  if (orphans.length > 0) emit(undefined, orphans);
+  return out;
+}
+
 function SubUnitsTable({
   assets, subUnits, project, onAdd, onUpdate, onRemove,
 }: {
@@ -1562,7 +1668,7 @@ function SubUnitsTable({
   onRemove: (id: string) => void;
 }): React.JSX.Element {
   const [parentId, setParentId] = useState<string>(assets[0]?.id ?? '');
-  const byAsset = new Map(assets.map((a) => [a.id, a] as const));
+  const groupedSubUnits = groupSubUnitsByAsset(assets, subUnits);
 
   return (
     <div style={sectionCardStyle} data-testid="subunits-table-section">
@@ -1597,94 +1703,199 @@ function SubUnitsTable({
         </div>
       ) : (
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }} data-testid="subunits-table">
+          <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1180 }} data-testid="subunits-table">
+            <colgroup>
+              <col style={{ width: 210 }} />
+              <col style={{ width: 120 }} />
+              <col style={{ width: 96 }} />
+              <col style={{ width: 116 }} />
+              <col style={{ width: 116 }} />
+              <col style={{ width: 96 }} />
+              <col style={{ width: 130 }} />
+              <col style={{ width: 120 }} />
+              <col style={{ width: 40 }} />
+            </colgroup>
             <thead>
               <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
-                <th style={TH_T}>Asset</th>
                 <th style={TH_T}>Sub-unit</th>
                 <th style={TH_T}>Category</th>
-                <th style={TH_N}>Area (sqm)</th>
-                <th style={TH_N}>Unit size (sqm)</th>
-                <th style={TH_N}>Count</th>
+                <th style={TH_N} title="This sub-unit's share of its asset's NSA or GLA. Type this OR the area; the other one derives.">NSA Share %</th>
+                <th style={TH_N} title="Sqm this sub-unit occupies. Type this OR the share; the other one derives. In count mode it derives from Count x Average Unit Size.">Area (sqm)</th>
+                <th style={TH_N} title="Sqm of ONE unit or key in this sub-unit. Typed here, per sub-unit: without it there is nothing to divide the area by and the count cannot be derived.">Average Unit Size (sqm)</th>
+                <th style={TH_N} title="Area / Average Unit Size, rounded to whole units. You cannot build a fraction of an apartment.">Units or Keys</th>
                 <th style={TH_N}>Rate ({project.currency})</th>
+                <th style={TH_T} title="What the rate is charged ON. It differs by category and by whether the asset counts units or area, so per sqm, per unit, per key and per year all appear in this column and are not interchangeable.">Rate Basis</th>
                 <th style={TH_T}></th>
               </tr>
             </thead>
             <tbody>
-              {subUnits.map((u) => {
-                const parent = byAsset.get(u.assetId);
-                const isUnits = (parent?.subUnitMetric ?? u.metric) === 'units';
-                const unitArea = Math.max(0, u.unitArea ?? 0);
-                const area = isUnits ? u.metricValue * unitArea : u.metricValue;
-                // A COUNT NOBODY CAN DERIVE IS NOT ZERO. With no unit size
-                // there is nothing to divide the area by, so the cell says so.
-                // Printing 0 here asserted "this row has no units", which is a
-                // different claim and a false one.
-                const count: number | undefined = isUnits
-                  ? u.metricValue
-                  : (unitArea > 0 ? u.metricValue / unitArea : undefined);
-                return (
-                  <tr key={u.id} style={{ borderBottom: '1px solid var(--color-border)' }} data-testid={`subunits-row-${u.id}`}>
-                    <td style={CELL}>
-                      <span style={{ fontSize: 10, color: 'var(--color-meta)' }} data-testid={`subunits-row-${u.id}-parent`}>
-                        {parent?.name ?? 'unassigned'}
+              {groupedSubUnits.map(({ asset, rows, nsa, areaSum, status }) => (
+                <React.Fragment key={asset?.id ?? 'unassigned'}>
+                  {/* THE CHECK IS PER ASSET, because the rule it states is per
+                      asset: the parts have to sum to the whole they are parts
+                      of. It reads the asset's OWN entered NSA, never the
+                      derived chain figure, which is what keeps the derivation
+                      out of an editing surface. */}
+                  <tr style={{ background: 'var(--color-primary-pale)' }} data-testid={`subunits-group-${asset?.id ?? 'unassigned'}`}>
+                    <td style={{ ...CELL, fontWeight: 700 }} colSpan={2}>
+                      {asset ? asset.name : 'Unassigned'}
+                      <span style={{ fontWeight: 400, color: 'var(--color-meta)', marginLeft: 8 }}>
+                        {rows.length} sub-unit{rows.length === 1 ? '' : 's'}
                       </span>
                     </td>
-                    <td style={CELL}>
-                      <input
-                        style={TABLE_INPUT}
-                        value={u.name}
-                        placeholder="unnamed"
-                        data-testid={`subunits-row-${u.id}-name`}
-                        onChange={(e) => onUpdate(u.id, { name: e.target.value })}
-                      />
+                    <td style={CELL_NUM} data-testid={`subunits-group-${asset?.id ?? 'unassigned'}-nsa`}>
+                      {nsa > 0 ? formatArea(nsa) : '-'}
                     </td>
-                    <td style={CELL}>
-                      <select
-                        style={TABLE_INPUT}
-                        value={u.category}
-                        data-testid={`subunits-row-${u.id}-category`}
-                        onChange={(e) => onUpdate(u.id, { category: e.target.value as SubUnitCategory })}
-                      >
-                        {SUB_UNIT_CATEGORIES.map((c) => (<option key={c} value={c}>{c}</option>))}
-                      </select>
-                    </td>
-                    <td style={CELL_NUM} data-testid={`subunits-row-${u.id}-area`}>{formatArea(area)}</td>
-                    <td style={CELL_NUM} data-testid={`subunits-row-${u.id}-unit-size`}>
-                      {unitArea > 0 ? formatArea(unitArea) : '-'}
-                    </td>
-                    <td style={CELL_NUM} data-testid={`subunits-row-${u.id}-count`}>
-                      {count === undefined
-                        ? <span title="No unit size, so there is nothing to divide the area by. This is not a count of zero.">-</span>
-                        : count.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                    </td>
-                    {/* A RATE IS NOT A PROJECT TOTAL. It is a price per sqm or
-                        per unit, so it never takes the project's number scale:
-                        at 'thousands' a rate of 18,500 rendered as "19". The
-                        card always showed rates at full scale; so does this. */}
-                    <td style={CELL_NUM} data-testid={`subunits-row-${u.id}-rate`}>
-                      {formatAccounting(u.unitPrice, 'full', project.displayDecimals ?? 2)}
-                    </td>
-                    <td style={CELL}>
-                      <button
-                        type="button"
-                        onClick={() => onRemove(u.id)}
-                        data-testid={`subunits-row-${u.id}-remove`}
-                        style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '1px 6px', cursor: 'pointer', fontSize: 10 }}
-                      >
-                        x
-                      </button>
+                    <td style={CELL_NUM} data-testid={`subunits-group-${asset?.id ?? 'unassigned'}-sum`}>{formatArea(areaSum)}</td>
+                    <td style={CELL} colSpan={5}>
+                      {status && (
+                        <span
+                          data-testid={`subunits-group-${asset?.id ?? 'unassigned'}-check`}
+                          style={{
+                            fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 'var(--radius-sm)',
+                            background: status === 'ok'
+                              ? 'color-mix(in srgb, var(--color-positive, #15803d) 16%, transparent)'
+                              : 'color-mix(in srgb, var(--color-warning, #92400e) 18%, transparent)',
+                            color: status === 'ok' ? 'var(--color-positive, #15803d)' : 'var(--color-warning, #92400e)',
+                          }}
+                        >
+                          {status === 'ok' ? 'Sub-units sum to NSA' : status === 'under' ? 'Under-allocated' : 'Over-allocated'}
+                        </span>
+                      )}
+                      <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>
+                        {nsa <= 0
+                          ? 'This asset has no NSA entered, so there is nothing to check the parts against.'
+                          : `${formatArea(areaSum)} of ${formatArea(nsa)} sqm allocated (${((areaSum / nsa) * 100).toLocaleString(undefined, { maximumFractionDigits: 1 })}%).`}
+                      </span>
                     </td>
                   </tr>
-                );
-              })}
+                  {rows.map((u) => {
+                    const isUnits = (asset?.subUnitMetric ?? u.metric) === 'units';
+                    const unitArea = Math.max(0, u.unitArea ?? 0);
+                    const area = isUnits ? u.metricValue * unitArea : u.metricValue;
+                    // A COUNT NOBODY CAN DERIVE IS NOT ZERO. With no unit size
+                    // there is nothing to divide the area by, so the cell says
+                    // so. Printing 0 asserted "this row has no units", which is
+                    // a different claim and a false one.
+                    const count: number | undefined = isUnits
+                      ? u.metricValue
+                      : (unitArea > 0 ? Math.round(u.metricValue / unitArea) : undefined);
+                    const sharePct = nsa > 0 ? (area / nsa) * 100 : undefined;
+                    return (
+                      <tr key={u.id} style={{ borderBottom: '1px solid var(--color-border)' }} data-testid={`subunits-row-${u.id}`}>
+                        <td style={CELL}>
+                          <input
+                            style={TABLE_INPUT}
+                            value={u.name}
+                            placeholder="unnamed"
+                            data-testid={`subunits-row-${u.id}-name`}
+                            onChange={(e) => onUpdate(u.id, { name: e.target.value })}
+                          />
+                        </td>
+                        <td style={CELL}>
+                          <select
+                            style={TABLE_INPUT}
+                            value={u.category}
+                            data-testid={`subunits-row-${u.id}-category`}
+                            onChange={(e) => onUpdate(u.id, { category: e.target.value as SubUnitCategory })}
+                          >
+                            {SUB_UNIT_CATEGORIES.map((c) => (<option key={c} value={c}>{c}</option>))}
+                          </select>
+                        </td>
+                        {/* SHARE AND AREA ARE ONE PAIR: type either, the other
+                            follows. The share is only an INPUT in area mode,
+                            because in count mode the count is the input and a
+                            share typed there would have two ways to resolve. */}
+                        <td style={CELL}>
+                          {isUnits || nsa <= 0 ? (
+                            <span style={{ ...CELL_NUM, display: 'block' }} data-testid={`subunits-row-${u.id}-share`}
+                              title={nsa <= 0
+                                ? 'This asset has no NSA entered, so a share of it cannot be computed.'
+                                : 'This asset counts units, so the count is what you type and the share follows from it.'}>
+                              {sharePct === undefined ? '-' : `${sharePct.toLocaleString(undefined, { maximumFractionDigits: 1 })}%`}
+                            </span>
+                          ) : (
+                            <SubUnitNumber
+                              value={sharePct}
+                              testId={`subunits-row-${u.id}-share`}
+                              title="This sub-unit's share of the asset's NSA. Typing here sets the area."
+                              onCommit={(v) => onUpdate(u.id, { metricValue: v === undefined ? 0 : (nsa * v) / 100 })}
+                            />
+                          )}
+                        </td>
+                        <td style={CELL}>
+                          {isUnits ? (
+                            <span style={{ ...CELL_NUM, display: 'block' }} data-testid={`subunits-row-${u.id}-area`}
+                              title="Count x Average Unit Size. This asset counts units, so the area follows.">
+                              {formatArea(area)}
+                            </span>
+                          ) : (
+                            <SubUnitNumber
+                              value={u.metricValue}
+                              testId={`subunits-row-${u.id}-area`}
+                              title="Sqm this sub-unit occupies. Typing here sets the share."
+                              onCommit={(v) => onUpdate(u.id, { metricValue: v ?? 0 })}
+                            />
+                          )}
+                        </td>
+                        <td style={CELL}>
+                          <SubUnitNumber
+                            value={u.unitArea}
+                            testId={`subunits-row-${u.id}-unit-size`}
+                            title="Sqm of ONE unit or key here. The count below divides the area by it."
+                            onCommit={(v) => onUpdate(u.id, { unitArea: v })}
+                          />
+                        </td>
+                        <td style={CELL}>
+                          {isUnits ? (
+                            <SubUnitNumber
+                              value={u.metricValue}
+                              testId={`subunits-row-${u.id}-count`}
+                              title="Whole units or keys. This asset counts units, so this is what you type."
+                              onCommit={(v) => onUpdate(u.id, { metricValue: v === undefined ? 0 : Math.round(v) })}
+                            />
+                          ) : (
+                            <span style={{ ...CELL_NUM, display: 'block' }} data-testid={`subunits-row-${u.id}-count`}>
+                              {count === undefined
+                                ? <span title="No unit size, so there is nothing to divide the area by. This is not a count of zero.">-</span>
+                                : count.toLocaleString()}
+                            </span>
+                          )}
+                        </td>
+                        {/* A RATE IS NOT A PROJECT TOTAL. It is a price per sqm
+                            or per unit, so it never takes the project's number
+                            scale: at 'thousands' a rate of 18,500 rendered as
+                            "19". The card always showed rates at full scale; so
+                            does this. */}
+                        <td style={CELL_NUM} data-testid={`subunits-row-${u.id}-rate`}>
+                          {formatAccounting(u.unitPrice, 'full', project.displayDecimals ?? 2)}
+                        </td>
+                        <td style={{ ...CELL, fontSize: 10, color: 'var(--color-meta)' }} data-testid={`subunits-row-${u.id}-rate-basis`}>
+                          {rateUnitLabel(u.category, isUnits ? 'units' : 'area') || 'no rate'}
+                        </td>
+                        <td style={CELL}>
+                          <button
+                            type="button"
+                            onClick={() => onRemove(u.id)}
+                            data-testid={`subunits-row-${u.id}-remove`}
+                            style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '1px 6px', cursor: 'pointer', fontSize: 10 }}
+                          >
+                            x
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </React.Fragment>
+              ))}
             </tbody>
           </table>
         </div>
       )}
       <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 6 }}>
-        Area, unit size and count are one identity, so this table shows them and the per-asset editor in an
-        open row is where they are typed.
+        Share, area, unit size and count are one identity: type any two that make sense for the
+        asset and the rest follow. The check on each asset compares the parts against that
+        asset&apos;s own entered NSA, not against the derived area chain.
       </div>
     </div>
   );
