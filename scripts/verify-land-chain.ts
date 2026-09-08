@@ -36,8 +36,8 @@ import {
   type LandChainInputs,
 } from '../src/core/calculations/landChain';
 import {
-  assetParcelCount,
   groupAssetsByPlot,
+  primaryParcelId,
   UNPLOTTED_GROUP,
   type AssetPlotGroup,
 } from '../src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel';
@@ -236,30 +236,38 @@ function offlineChecks(): void {
 
   const parcelsT = [mkParcel('p1', 10000), mkParcel('p2', 5000), mkParcel('p3', 2000)];
   const single = mkAsset('a1', { parcelId: 'p1', sqm: 6000 });
-  const multi = mkAsset('a2', { multiParcelSplits: [{ parcelId: 'p1', sqm: 1000 }, { parcelId: 'p2', sqm: 4000 }] });
+  const second = mkAsset('a2', { parcelId: 'p2', sqm: 4000 });
   const sentinel = mkAsset('a3', { parcelId: '__custom__', sqm: 900, customRate: 50 });
   const nothing = mkAsset('a4', undefined);
   const companion = mkAsset('a5', { parcelId: 'p1', sqm: 99999 }, true);
-  const grouped = groupAssetsByPlot([single, multi, sentinel, nothing, companion], parcelsT);
+  const grouped = groupAssetsByPlot([single, second, sentinel, nothing, companion], parcelsT);
 
   const byKey = (k: string): AssetPlotGroup | undefined => grouped.find((g) => g.key === k);
-  check('T1 a single-parcel asset is filed under its plot',
-    (byKey('p1')?.assets ?? []).map((a) => a.id).join(',') === 'a1');
-  check('T2 a multi-parcel asset files under the plot it draws MOST from, and its row can say how many',
-    (byKey('p2')?.assets ?? []).map((a) => a.id).join(',') === 'a2'
-    && assetParcelCount(multi) === 2 && assetParcelCount(single) === 1);
+  check('T1 an asset is filed under the one plot it names',
+    (byKey('p1')?.assets ?? []).map((a) => a.id).join(',') === 'a1'
+    && (byKey('p2')?.assets ?? []).map((a) => a.id).join(',') === 'a2');
+  // RE-AIMED 2026-09-08: AN ASSET BELONGS TO EXACTLY ONE PLOT. The
+  // multi-parcel split is gone from the app (0 of 9399 stored asset rows ever
+  // used one), so there is no "draws most from" rule left to test; what
+  // matters now is that a LEGACY snapshot carrying a split is still filed
+  // somewhere visible rather than vanishing from the table.
+  const legacySplit = mkAsset('a6', { multiParcelSplits: [{ parcelId: 'p1', sqm: 1000 }, { parcelId: 'p2', sqm: 4000 }] });
+  check('T2 a legacy split names no single plot, so it is filed in the unplotted group, never hidden',
+    primaryParcelId(legacySplit) === UNPLOTTED_GROUP
+    && (groupAssetsByPlot([legacySplit], parcelsT).find((g) => g.key === UNPLOTTED_GROUP)?.assets ?? []).length === 1);
   check('T3 an asset naming no real plot (a sentinel, or nothing) goes to the unplotted group',
     (byKey(UNPLOTTED_GROUP)?.assets ?? []).map((a) => a.id).sort().join(',') === 'a3,a4');
-  check('T4 the plot sum counts EVERY draw on it, including a slice from an asset filed elsewhere',
-    byKey('p1')?.allocatedSqm === 7000 && byKey('p1')?.remainingSqm === 3000
-    && byKey('p1')?.status === 'under');
+  check('T4 the plot check is a SIMPLE SUM of the assets under it',
+    byKey('p1')?.allocatedSqm === 6000 && byKey('p1')?.remainingSqm === 4000
+    && byKey('p1')?.status === 'under'
+    && byKey('p2')?.allocatedSqm === 4000 && byKey('p2')?.status === 'under');
   check('T5 a plot drawn exactly reads ok, and an over-drawn plot reads over',
     groupAssetsByPlot([mkAsset('x', { parcelId: 'p2', sqm: 5000 })], [mkParcel('p2', 5000)])[0].status === 'ok'
     && groupAssetsByPlot([mkAsset('x', { parcelId: 'p2', sqm: 6000 })], [mkParcel('p2', 5000)])[0].status === 'over');
   check('T6 companions carry no land, so they never join a plot or its sum',
     !(byKey('p1')?.assets ?? []).some((a) => a.id === 'a5')
     && !(byKey(UNPLOTTED_GROUP)?.assets ?? []).some((a) => a.id === 'a5')
-    && byKey('p1')?.allocatedSqm === 7000);
+    && byKey('p1')?.allocatedSqm === 6000);
   check('T7 every parcel appears even with nothing on it; the unplotted group appears only when used',
     !!byKey('p3') && (byKey('p3')?.assets ?? []).length === 0
     && groupAssetsByPlot([single], parcelsT).every((g) => g.key !== UNPLOTTED_GROUP));
@@ -276,8 +284,15 @@ function offlineChecks(): void {
   check('U2 the input row carries the five chain inputs, and the chain is what feeds the results',
     ['-utilisation', '-coverage', '-far', '-retail', '-service'].every((k) => tabSrc.includes(`asset-row-\${asset.id}${k}`))
     && tabSrc.includes('computeLandChain('));
-  check('U3 a multi-parcel asset shows its parcel count in the row and opens the editor',
-    tabSrc.includes('asset-${asset.id}-parcel-count') && tabSrc.includes('parcelCount > 1'));
+  // RE-AIMED 2026-09-08: one asset, one plot. The count cell and the split
+  // editor are gone, and what is checked now is that they cannot come back by
+  // accident: no way to CREATE a split anywhere in the tab.
+  check('U3 nothing in the tab can create a multi-parcel split any more',
+    !tabSrc.includes('asset-${asset.id}-parcel-count')
+    && !tabSrc.includes('add-parcel-split')
+    && !tabSrc.includes('multi-parcel-section')
+    && !/setAllocation\(\{[^}]*multiParcelSplits/.test(tabSrc)
+    && !tabSrc.includes('const addSplit'));
   check('U4 the sub-units table picks its parent asset when adding',
     tabSrc.includes('data-testid="subunits-table"') && tabSrc.includes('subunits-parent-pick')
     && tabSrc.includes('subunits-add-subunit'));
@@ -338,9 +353,13 @@ function offlineChecks(): void {
     && tabSrc.includes('showCheck onAddAsset={onAddAsset}')
     && tabSrc.includes('showCheck={false}')
     && tabSrc.includes('plot-group-${g.key}-check'));
+  // The two split entries are dropped from this list with the feature (U3
+  // asserts they are gone); the rest of what a row cannot hold still has a
+  // home, and the rate-annotated parcel picker is now the reason the land
+  // block stays in the drawer at all.
   check('U6 what a row CANNOT hold still has a home in the drawer',
-    ['-add-parcel-split', '-multi-parcel-section', '-area-reconciliation', '-land-rate-issue',
-      '-companion-badge', '-standards-values', '-land-allocation-block']
+    ['-area-reconciliation', '-land-rate-issue', '-companion-badge',
+      '-standards-values', '-land-allocation-block', '-parcelId']
       .every((k) => tabSrc.includes(`asset-\${asset.id}${k}`))
     && tabSrc.includes('<LandChainSection'));
 
@@ -429,8 +448,27 @@ async function liveChecks(): Promise<void> {
       { headers: H })).json() as Array<{ snapshot: Record<string, unknown> }>;
     if (!arr[0]) continue;
     checked += 1;
-    const assets = (arr[0].snapshot.assets ?? []) as Array<Record<string, unknown>>;
-    check(`F2 ${p.name}: no asset carries chain inputs`, assets.every((a) => !('landChain' in a)));
+    // RE-AIMED 2026-09-08: chain inputs are now IN USE on live projects, which
+    // is the feature working, so "nobody has any" stopped being the invariant
+    // the moment it shipped. What still has to hold is that carrying them
+    // changes nothing the model computes: they round-trip verbatim through
+    // hydrate and no AREA input moves. (Section D proves the engine is
+    // byte-identical on a fixture; this proves the real snapshots survive.)
+    const stored = (arr[0].snapshot.assets ?? []) as Array<Record<string, unknown>>;
+    const hydrated = hydrationFromAnySnapshot(arr[0].snapshot).assets as unknown as Array<Record<string, unknown>>;
+    const areaKeys = ['gfaSqm', 'buaSqm', 'sellableBuaSqm', 'supportArea', 'parkingArea', 'parkingBaysRequired'] as const;
+    const intact = stored.every((raw) => {
+      const hyd = hydrated.find((h) => h.id === raw.id);
+      if (!hyd) return false;
+      const chainSame = JSON.stringify(raw.landChain ?? null) === JSON.stringify(hyd.landChain ?? null);
+      const ZERO_DEFAULTED = new Set(['gfaSqm', 'buaSqm', 'sellableBuaSqm', 'parkingBaysRequired']);
+      const areasSame = areaKeys.every((k) => {
+        const before = typeof raw[k] === 'number' ? raw[k] : (ZERO_DEFAULTED.has(k) ? 0 : raw[k]);
+        return JSON.stringify(hyd[k]) === JSON.stringify(before);
+      });
+      return chainSame && areasSame;
+    });
+    check(`F2 ${p.name}: chain inputs round-trip verbatim and no area input moves`, intact);
   }
   check('F3 every live project was actually checked', checked >= 4, `${checked} checked`);
 }

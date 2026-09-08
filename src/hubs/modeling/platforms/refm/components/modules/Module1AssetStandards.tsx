@@ -350,11 +350,18 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
         />
       </td>
       <td style={TD}>
+        {/* A RATE WITHOUT A UNIT NAMES NO BASIS, so entering one also commits
+            the unit shown beside it. Found on live data: a rate typed without
+            touching the unit dropdown stored a bare number, and every reader
+            that needs the pair (the asset card caption) then showed "not set"
+            even though a rate was there. */}
         <ValueCell
           value={v?.revenueRate} disabled={noProject}
           testId={`std-row-${id}-revenue-rate`}
           title="Carried on the project; Module 2 still takes its own rates."
-          onCommit={(n) => setAssetTypeValue(id, { revenueRate: n })}
+          onCommit={(n) => setAssetTypeValue(id, n === undefined
+            ? { revenueRate: undefined }
+            : { revenueRate: n, revenueRateUnit: v?.revenueRateUnit ?? 'per_sqm' })}
         />
       </td>
       <td style={TD}>

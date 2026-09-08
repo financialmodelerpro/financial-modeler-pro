@@ -32,7 +32,6 @@ import { useModule1Store } from '../../lib/state/module1-store';
 import {
   type Asset,
   type AssetLandAllocation,
-  type AssetParcelSplit,
   type AssetStrategy,
   type AssetStatus,
   type Parcel,
@@ -77,7 +76,6 @@ import {
 } from '../../lib/state/assetTypeStandards';
 import LandChainSection from './_shared/LandChainSection';
 import {
-  assetParcelCount,
   groupAssetsByPlot,
   plotCheckText,
   type AssetPlotGroup,
@@ -977,7 +975,14 @@ function ParcelRow({ parcel, onUpdate, onRemove, canRemove, scale, decimals }: P
 const CELL: React.CSSProperties = { padding: '3px 5px', fontSize: 11, whiteSpace: 'nowrap' };
 const CELL_NUM: React.CSSProperties = { ...CELL, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
 const CELL_DERIVED: React.CSSProperties = { ...CELL_NUM, background: 'var(--color-grey-pale)', color: 'var(--color-heading)' };
-const TH_T: React.CSSProperties = { padding: '5px 6px', fontSize: 10, textAlign: 'left', fontWeight: 600, whiteSpace: 'nowrap' };
+// HEADERS WRAP, CELLS DO NOT. A header is the one thing that must never be
+// truncated: a column whose label is cut is a column nobody can read. So the
+// header text wraps onto as many lines as it needs and the columns are sized
+// to their labels, while the numeric cells below stay on one line.
+const TH_T: React.CSSProperties = {
+  padding: '5px 6px', fontSize: 10, textAlign: 'left', fontWeight: 600,
+  whiteSpace: 'normal', overflowWrap: 'break-word', lineHeight: 1.2, verticalAlign: 'bottom',
+};
 const TH_N: React.CSSProperties = { ...TH_T, textAlign: 'right' };
 const TABLE_INPUT: React.CSSProperties = {
   background: 'var(--color-navy-pale)', color: 'var(--color-navy)',
@@ -1049,7 +1054,6 @@ interface AssetRow {
   asset: Asset;
   chain: ChainResult;
   landSqm: number;
-  parcelCount: number;
 }
 
 interface RowGroup {
@@ -1096,7 +1100,6 @@ function buildAssetRows(
           asset,
           chain,
           landSqm: breakdown.landSqm,
-          parcelCount: assetParcelCount(asset),
         };
       }),
     };
@@ -1206,22 +1209,25 @@ function AssetInputsTable({
         </span>
       </div>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1180 }} data-testid="assets-table">
+        {/* Identity trimmed to what the text needs, so the five numeric
+            columns can hold their wrapped labels ("Retail %", "Util %") at a
+            width that fits the numbers too. */}
+        <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1150 }} data-testid="assets-table">
           <colgroup>
-            <col style={{ width: 28 }} />
-            <col style={{ width: 130 }} />
-            <col style={{ width: 240 }} />
-            <col style={{ width: 220 }} />
-            <col style={{ width: 120 }} />
-            <col style={{ width: 140 }} />
-            <col style={{ width: 110 }} />
-            {Array.from({ length: 5 }).map((_, i) => (<col key={`in-${i}`} style={{ width: 72 }} />))}
-            <col style={{ width: 44 }} />
+            <col style={{ width: 26 }} />
+            <col style={{ width: 104 }} />
+            <col style={{ width: 196 }} />
+            <col style={{ width: 168 }} />
+            <col style={{ width: 96 }} />
+            <col style={{ width: 112 }} />
+            <col style={{ width: 92 }} />
+            {Array.from({ length: 5 }).map((_, i) => (<col key={`in-${i}`} style={{ width: 90 }} />))}
+            <col style={{ width: 40 }} />
           </colgroup>
           <thead>
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
               <th style={TH_T} colSpan={7}>Asset</th>
-              <th style={TH_T} colSpan={5}>Chain inputs (percent, and FAR as a multiple)</th>
+              <th style={TH_T} colSpan={5}>Chain inputs</th>
               <th style={TH_T}></th>
             </tr>
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
@@ -1251,7 +1257,7 @@ function AssetInputsTable({
                     </td>
                   </tr>
                 )}
-                {rows.map(({ asset, landSqm, parcelCount, parcel }) => {
+                {rows.map(({ asset, landSqm, parcel }) => {
                   const open = openId === asset.id;
                   const patchChain = (p: LandChainInputs): void =>
                     onUpdateAsset(asset.id, { landChain: mergeLandChain(asset.landChain, p) });
@@ -1273,25 +1279,12 @@ function AssetInputsTable({
                           </button>
                         </td>
                         <td style={CELL}>
-                          {parcelCount > 1 ? (
-                            <button
-                              type="button"
-                              onClick={() => setOpenId(asset.id)}
-                              data-testid={`asset-${asset.id}-parcel-count`}
-                              title="This asset draws from more than one plot. Open the row to edit the split."
-                              style={{
-                                fontSize: 10, padding: '1px 6px', cursor: 'pointer', fontWeight: 600,
-                                background: 'var(--color-surface)', border: '1px solid var(--color-navy)',
-                                color: 'var(--color-navy)', borderRadius: 'var(--radius-sm)',
-                              }}
-                            >
-                              {parcelCount} parcels
-                            </button>
-                          ) : (
-                            <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>
-                              {parcel ? parcel.name : 'none'}
-                            </span>
-                          )}
+                          {/* One asset, one plot. Which plot is chosen in the
+                              drawer, where the picker can show each option's
+                              resolved rate. */}
+                          <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>
+                            {parcel ? parcel.name : 'none'}
+                          </span>
                         </td>
                         <td style={CELL}>
                           <input
@@ -1398,11 +1391,15 @@ function AssetResultsTable({ rowGroups }: { rowGroups: RowGroup[] }): React.JSX.
         </span>
       </div>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1720 }} data-testid="assets-results-table">
+        {/* Identity cut to 100 and 168 (the results table needs only enough to
+            say WHICH row this is; the input table above is where names are
+            edited), which buys every derived column the width its wrapped
+            label needs. */}
+        <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1596 }} data-testid="assets-results-table">
           <colgroup>
-            <col style={{ width: 130 }} />
-            <col style={{ width: 200 }} />
-            {Array.from({ length: 17 }).map((_, i) => (<col key={`d-${i}`} style={{ width: 82 }} />))}
+            <col style={{ width: 100 }} />
+            <col style={{ width: 168 }} />
+            {Array.from({ length: 17 }).map((_, i) => (<col key={`d-${i}`} style={{ width: 78 }} />))}
           </colgroup>
           <thead>
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
@@ -1760,21 +1757,9 @@ function AssetCard({
     });
   };
 
-  const addSplit = (): void => {
-    const fallbackParcel = phaseParcels[0]?.id ?? parcels[0]?.id ?? '';
-    const newSplit: AssetParcelSplit = { parcelId: fallbackParcel, sqm: 0 };
-    setAllocation({
-      multiParcelSplits: [...(allocation.multiParcelSplits ?? []), newSplit],
-    });
-  };
-  const removeSplit = (idx: number): void => {
-    const next = (allocation.multiParcelSplits ?? []).filter((_, i) => i !== idx);
-    setAllocation({ multiParcelSplits: next.length > 0 ? next : undefined });
-  };
-  const updateSplit = (idx: number, patch: Partial<AssetParcelSplit>): void => {
-    const list = (allocation.multiParcelSplits ?? []).map((sp, i) => (i === idx ? { ...sp, ...patch } : sp));
-    setAllocation({ multiParcelSplits: list });
-  };
+  // (addSplit / removeSplit / updateSplit are gone with the editor they drove.
+  // Nothing in the app can create a multi-parcel split any more; the engine
+  // still reads one so a legacy snapshot computes rather than losing its land.)
 
   // 2026-08-15: a new sub-unit arrives EMPTY. It used to carry 50 units of
   // 100 sqm at 1,000,000 each, which is 5,000 sqm of BUA and 50m of revenue the
@@ -2063,86 +2048,16 @@ function AssetCard({
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-1)' }}>
               <strong style={{ fontSize: 'var(--font-small)' }}>Land Allocation</strong>
-              {landAllocationMode === 'sqm' && (
-                <button
-                  type="button"
-                  onClick={addSplit}
-                  data-testid={`asset-${asset.id}-add-parcel-split`}
-                  style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)', border: 'none', borderRadius: 'var(--radius-sm)', padding: '2px 10px', cursor: 'pointer', fontSize: 'var(--font-micro)' }}
-                >
-                  + Add Parcel Allocation
-                </button>
-              )}
+              {/* ONE ASSET, ONE PLOT (2026-09-08). The "+ Add Parcel
+                  Allocation" button is gone: two plots for one building is
+                  modelled by merging the plots or by splitting the asset. */}
             </div>
 
-            {(allocation.multiParcelSplits && allocation.multiParcelSplits.length > 0) ? (
-              // Multi-parcel split mode: each row picks a parcel + sqm. Land
-              // cost computes per-parcel using each parcel's own rate.
-              <div data-testid={`asset-${asset.id}-multi-parcel-section`}>
-                {allocation.multiParcelSplits.map((sp, idx) => {
-                  // 2026-08-17: project-wide, matching the engine.
-                  const parcel = parcels.find((p) => p.id === sp.parcelId);
-                  const rate = parcel ? parcel.rate : 0;
-                  const value = Math.max(0, sp.sqm) * rate;
-                  return (
-                    <div
-                      key={idx}
-                      style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 2fr auto', gap: 'var(--sp-1)', marginBottom: 'var(--sp-1)', alignItems: 'flex-end' }}
-                      data-testid={`asset-${asset.id}-split-${idx}`}
-                    >
-                      <div>
-                        <InputLabel label="Parcel" help="Source parcel; allocation uses that parcel's own rate." inputId={`asset-${asset.id}-split-${idx}-parcelId`} />
-                        <select
-                          id={`asset-${asset.id}-split-${idx}-parcelId`}
-                          data-testid={`asset-${asset.id}-split-${idx}-parcelId`}
-                          value={sp.parcelId}
-                          onChange={(e) => updateSplit(idx, { parcelId: e.target.value })}
-                          style={inputStyle}
-                        >
-                          {parcels.length === 0 && <option value="">(no parcels yet)</option>}
-                          {parcels.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.name} ({fmt(p.rate)} {project.currency}/sqm)
-                              {p.phaseId !== asset.phaseId ? ` · ${phaseNameById.get(p.phaseId) ?? 'other phase'}` : ''}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <InputLabel label="Sqm" help="Land area drawn from this parcel." inputId={`asset-${asset.id}-split-${idx}-sqm`} />
-                        <AccountingNumberInput
-                          id={`asset-${asset.id}-split-${idx}-sqm`}
-                          data-testid={`asset-${asset.id}-split-${idx}-sqm`}
-                          min={0}
-                          value={sp.sqm}
-                          onChange={(n) => updateSplit(idx, { sqm: Math.max(0, n) })}
-                          style={inputStyle}
-                        />
-                      </div>
-                      <div>
-                        <InputLabel label="Rate" help="Per-sqm rate of the selected parcel." inputId={`asset-${asset.id}-split-${idx}-rate`} />
-                        <div style={calcOutputStyle} data-testid={`asset-${asset.id}-split-${idx}-rate`}>{fmt(rate)}</div>
-                      </div>
-                      <div>
-                        <InputLabel label="Cost" help="sqm x rate for this parcel slice." inputId={`asset-${asset.id}-split-${idx}-cost`} />
-                        <div style={calcOutputStyle} data-testid={`asset-${asset.id}-split-${idx}-cost`}>{fmt(value)} {project.currency}</div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => removeSplit(idx)}
-                        data-testid={`asset-${asset.id}-split-${idx}-remove`}
-                        style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '2px 8px', cursor: 'pointer', fontSize: 'var(--font-micro)' }}
-                      >
-                        x
-                      </button>
-                    </div>
-                  );
-                })}
-                <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', marginTop: 'var(--sp-1)' }} data-testid={`asset-${asset.id}-multi-parcel-total`}>
-                  Total: <strong>{fmt(landBreakdown.landSqm)} sqm</strong> · weighted rate <strong>{fmt(landBreakdown.rate)} {project.currency}/sqm</strong> · cost <strong>{fmtCurrency(landCost, project.currency, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</strong>
-                </div>
-              </div>
-            ) : (
+            {/* The multi-parcel split branch is GONE with the button that
+                created it. The engine still reads a legacy split so a
+                snapshot carrying one computes rather than losing its land;
+                nothing stored ever had one (0 of 9399 asset rows across
+                1406 versions, measured before removal). */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--sp-2)' }}>
                 {landAllocationMode === 'sqm' && (
                   <>
@@ -2259,7 +2174,6 @@ function AssetCard({
                   </div>
                 )}
               </div>
-            )}
           </div>
           )}
 

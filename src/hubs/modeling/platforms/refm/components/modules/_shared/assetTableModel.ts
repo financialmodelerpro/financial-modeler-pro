@@ -14,14 +14,19 @@
  * draw from, which is the same information with the repetition removed, plus
  * the one thing the flat table cannot show: whether a plot is fully drawn.
  *
- * THREE THINGS AN ASSET CAN BE, and all three need a home:
- *   - drawn from ONE parcel: it sits under that plot.
- *   - drawn from SEVERAL (multiParcelSplits): it sits under the parcel it
- *     draws MOST from, and its row says how many parcels it spans, because
- *     the exception must not reshape the table.
+ * AN ASSET BELONGS TO EXACTLY ONE PLOT (2026-09-08). Two plots for one
+ * building is modelled by merging the plots or by splitting the building into
+ * two assets, which is the same model with one less special case. Measured
+ * before removing it: across 1406 stored versions and 9399 asset rows, ZERO
+ * used a multi-parcel split, so nothing live was lost.
+ *
+ * TWO THINGS AN ASSET CAN BE:
+ *   - drawn from ONE parcel: it sits under that plot, and the plot's check is
+ *     a simple sum of the assets under it.
  *   - drawn from NO specific parcel (a weighted-average or custom-rate
  *     sentinel, or nothing at all): it sits in a final group of its own
- *     rather than being hidden or silently attached to plot one.
+ *     rather than being hidden or silently attached to plot one. This is not
+ *     an edge case: 6860 of those 9399 rows are on a sentinel.
  *
  * No em dashes in this file.
  */
@@ -40,8 +45,8 @@ export interface AssetPlotGroup {
   assets: Asset[];
   /** The parcel's own area, when this group is a real parcel. */
   parcelAreaSqm?: number;
-  /** What this plot's assets draw FROM THIS PLOT, including the slice of any
-   *  multi-parcel asset that names it. */
+  /** What the assets under this plot draw from it. A plain sum, now that an
+   *  asset belongs to exactly one plot. */
   allocatedSqm: number;
   /** parcelArea - allocated. Positive means the plot is not fully drawn;
    *  negative means it is over-drawn. Absent for the unplotted group, which
@@ -51,16 +56,10 @@ export interface AssetPlotGroup {
   status?: 'ok' | 'under' | 'over';
 }
 
-/** How much of ONE parcel a single asset draws. Splits win when present, then
- *  an explicit sqm on a real parcel; anything else draws nothing FROM A NAMED
- *  PLOT, which is exactly what puts it in the unplotted group. */
+/** How much of ONE parcel an asset draws: its explicit sqm when it names that
+ *  parcel, and nothing otherwise. An asset naming no real parcel draws nothing
+ *  FROM A NAMED PLOT, which is exactly what puts it in the unplotted group. */
 export function assetDrawFromParcel(asset: Asset, parcelId: string): number {
-  const splits = asset.landAllocation?.multiParcelSplits;
-  if (splits && splits.length > 0) {
-    return splits
-      .filter((s) => s.parcelId === parcelId)
-      .reduce((sum, s) => sum + Math.max(0, s.sqm), 0);
-  }
   const named = asset.landAllocation?.parcelId;
   if (named === parcelId && !isParcelSentinel(named)) {
     return Math.max(0, asset.landAllocation?.sqm ?? asset.landAreaSqm ?? 0);
@@ -68,27 +67,8 @@ export function assetDrawFromParcel(asset: Asset, parcelId: string): number {
   return 0;
 }
 
-/** How many distinct parcels an asset draws from. 1 is the ordinary case; the
- *  row only says anything when this is more than 1. */
-export function assetParcelCount(asset: Asset): number {
-  const splits = asset.landAllocation?.multiParcelSplits;
-  if (splits && splits.length > 0) {
-    return new Set(splits.filter((s) => s.sqm > 0).map((s) => s.parcelId)).size;
-  }
-  const named = asset.landAllocation?.parcelId;
-  return named && !isParcelSentinel(named) ? 1 : 0;
-}
-
-/** The plot an asset is FILED under: its only parcel, or the one it draws
- *  most from, or the unplotted group. Ties break on the first split, so the
- *  grouping is stable rather than dependent on object order. */
+/** The plot an asset belongs to: the parcel it names, or the unplotted group. */
 export function primaryParcelId(asset: Asset): string {
-  const splits = asset.landAllocation?.multiParcelSplits;
-  if (splits && splits.length > 0) {
-    let best = splits[0];
-    for (const s of splits) if (s.sqm > best.sqm) best = s;
-    return best.sqm > 0 ? best.parcelId : UNPLOTTED_GROUP;
-  }
   const named = asset.landAllocation?.parcelId;
   if (named && !isParcelSentinel(named)) return named;
   return UNPLOTTED_GROUP;
@@ -110,9 +90,9 @@ export function groupAssetsByPlot(
   const real = assets.filter((a) => a.isCompanion !== true);
   const groups: AssetPlotGroup[] = parcels.map((p) => {
     const mine = real.filter((a) => primaryParcelId(a) === p.id);
-    // The DRAW is counted across every asset, not just the ones filed here,
-    // so a multi-parcel asset's slice still counts toward each plot it names.
-    const allocatedSqm = real.reduce((sum, a) => sum + assetDrawFromParcel(a, p.id), 0);
+    // A SIMPLE SUM OF THE ASSETS UNDER IT, now that an asset belongs to
+    // exactly one plot: what is filed here is all that can draw from here.
+    const allocatedSqm = mine.reduce((sum, a) => sum + assetDrawFromParcel(a, p.id), 0);
     const parcelAreaSqm = Math.max(0, p.area);
     const remainingSqm = parcelAreaSqm - allocatedSqm;
     const status: AssetPlotGroup['status'] =
