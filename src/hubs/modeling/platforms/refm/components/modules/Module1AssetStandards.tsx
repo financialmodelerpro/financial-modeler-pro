@@ -41,8 +41,6 @@ import { useModule1Store } from '../../lib/state/module1-store';
 import {
   PARKING_RATIO_BASES,
   PARKING_RATIO_BASIS_LABELS,
-  REVENUE_RATE_UNITS,
-  REVENUE_RATE_UNIT_LABELS,
   normaliseAssetTypeId,
   orphanedValueTypeIds,
   sortAssetTypes,
@@ -50,7 +48,6 @@ import {
   type AssetTypeStandard,
   type AssetTypeValues,
   type ParkingRatioBasis,
-  type RevenueRateUnit,
 } from '../../lib/state/assetTypeStandards';
 import {
   ASSET_TYPES_BY_CATEGORY,
@@ -341,40 +338,15 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
           {PARKING_RATIO_BASES.map((b) => (<option key={b} value={b}>{PARKING_RATIO_BASIS_LABELS[b]}</option>))}
         </select>
       </td>
-      <td style={TD}>
-        <ValueCell
-          value={v?.constructionCostPerSqm} disabled={noProject}
-          testId={`std-row-${id}-build-cost`}
-          title="Carried on the project; the Capex tab still takes its own rates."
-          onCommit={(n) => setAssetTypeValue(id, { constructionCostPerSqm: n })}
-        />
-      </td>
-      <td style={TD}>
-        {/* A RATE WITHOUT A UNIT NAMES NO BASIS, so entering one also commits
-            the unit shown beside it. Found on live data: a rate typed without
-            touching the unit dropdown stored a bare number, and every reader
-            that needs the pair (the asset card caption) then showed "not set"
-            even though a rate was there. */}
-        <ValueCell
-          value={v?.revenueRate} disabled={noProject}
-          testId={`std-row-${id}-revenue-rate`}
-          title="Carried on the project; Module 2 still takes its own rates."
-          onCommit={(n) => setAssetTypeValue(id, n === undefined
-            ? { revenueRate: undefined }
-            : { revenueRate: n, revenueRateUnit: v?.revenueRateUnit ?? 'per_sqm' })}
-        />
-      </td>
-      <td style={TD}>
-        <select
-          style={TEXT_INPUT}
-          value={v?.revenueRateUnit ?? 'per_sqm'}
-          disabled={noProject}
-          data-testid={`std-row-${id}-revenue-unit`}
-          onChange={(e) => setAssetTypeValue(id, { revenueRateUnit: e.target.value as RevenueRateUnit })}
-        >
-          {REVENUE_RATE_UNITS.map((u) => (<option key={u} value={u}>{REVENUE_RATE_UNIT_LABELS[u]}</option>))}
-        </select>
-      </td>
+      {/* CONSTRUCTION COST, REVENUE RATE AND ITS UNIT ARE NOT SHOWN
+          (2026-09-08). Nothing reads them yet, and a rate on screen invites
+          the question of where it applies, which today is nowhere. They are
+          HIDDEN, NOT DROPPED: the fields stay on `AssetTypeValues`, the store
+          action still merges them, the route still validates them, and any
+          value already entered is preserved untouched and will reappear with
+          these columns when Capex and revenue are wired to read from here.
+          Removed from the markup rather than gated behind a false condition,
+          which would still read as present to anything grepping this file. */}
     </>
   );
 
@@ -506,7 +478,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
           <thead>
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
               <th style={{ ...TH, minWidth: 160 }} colSpan={2}>Your firm&apos;s list</th>
-              <th style={{ ...TH, minWidth: 520 }} colSpan={6}>This project&apos;s values</th>
+              <th style={{ ...TH, minWidth: 320 }} colSpan={3}>This project&apos;s values</th>
               <th style={{ ...TH, minWidth: 170 }} colSpan={2}></th>
             </tr>
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
@@ -515,9 +487,6 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
               <th style={{ ...TH, minWidth: 90, textAlign: 'right' }}>Avg unit size (sqm)</th>
               <th style={{ ...TH, minWidth: 80, textAlign: 'right' }}>Parking ratio</th>
               <th style={{ ...TH, minWidth: 140 }}>Ratio basis</th>
-              <th style={{ ...TH, minWidth: 100, textAlign: 'right' }}>Construction cost / sqm</th>
-              <th style={{ ...TH, minWidth: 90, textAlign: 'right' }}>Revenue rate</th>
-              <th style={{ ...TH, minWidth: 150 }}>Rate unit</th>
               <th style={{ ...TH, minWidth: 80, textAlign: 'center' }}>Order</th>
               <th style={{ ...TH, minWidth: 90, textAlign: 'right' }}>Name</th>
             </tr>
@@ -576,7 +545,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
                   data-testid="std-add-category"
                   placeholder="e.g. Residential" onChange={(e) => setAddDraft((p) => ({ ...p, category: e.target.value }))} />
               </td>
-              <td style={{ ...TD, color: 'var(--color-meta)', fontSize: 10 }} colSpan={6}>
+              <td style={{ ...TD, color: 'var(--color-meta)', fontSize: 10 }} colSpan={3}>
                 Add the type, then enter this project&apos;s values on its row.
               </td>
               <td style={TD}></td>

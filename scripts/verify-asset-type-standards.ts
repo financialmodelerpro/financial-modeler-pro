@@ -192,8 +192,10 @@ function offlineChecks(): void {
     describeStandardValue(undefined, 'sqm') === 'not set'
     && describeStandardValue(0, 'sqm') === '0 sqm'
     && describeValues(blankValues).includes('not set')
-    && describeValues(zeroValues).includes('Parking 0 slots/unit')
-    && describeValues(zeroValues).includes('Build 0 per sqm'));
+    // The build cost line left the caption with its column (2026-09-08); the
+    // blank-versus-zero rule is asserted on a standard the caption still
+    // states, so this keeps testing the rule rather than a removed line.
+    && describeValues(zeroValues).includes('Parking 0 slots/unit'));
   check('B5 id normalisation matches the catalog shape rule',
     normaliseAssetTypeId('High End Apartments') === 'high-end-apartments'
     && normaliseAssetTypeId('***') === '');
@@ -277,6 +279,7 @@ function offlineChecks(): void {
   const shell = readFileSync('src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx', 'utf8');
   const assetsTab = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx', 'utf8');
   const storeSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8');
+  const lib = readFileSync('src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards.ts', 'utf8');
   check('D1 every method requires a session (4 getRefmUserId guards)',
     (route.match(/getRefmUserId/g) ?? []).length >= 5 && route.includes('unauthorized()'));
   check('D2 every query is account-filtered through resolveAccountId',
@@ -400,12 +403,33 @@ function offlineChecks(): void {
       const v = st.project.assetTypeValues?.hotel;
       return v?.revenueRate === 900 && v?.revenueRateUnit === 'adr_per_key_night' && v?.constructionCostPerSqm === 0;
     })());
-  check('J2 the four units are the whole vocabulary, in code and in the tab',
+  // ── HIDDEN, NOT DROPPED (2026-09-08) ────────────────────────────────────
+  //
+  // The construction cost, the revenue rate and its unit are no longer shown:
+  // nothing reads them, so a rate on screen invites the question of where it
+  // applies, and today the answer is nowhere. J2 and J3 used to assert those
+  // surfaces existed; they now assert the STORAGE survives their removal,
+  // which is the promise that matters, because the columns come back when
+  // Capex and revenue are wired to read from here.
+  check('J2 the rate vocabulary and the fields still EXIST in code, ready for the wiring',
     REVENUE_RATE_UNITS.length === 4
-    && REVENUE_RATE_UNITS.every((u) => tab.includes(u) || tab.includes('REVENUE_RATE_UNITS')));
-  check('J3 the caption states the rate with its unit and keeps a blank apart from a zero',
-    describeValues({ revenueRate: 900, revenueRateUnit: 'adr_per_key_night' }).includes('900 /key/night')
-    && describeValues({}).includes('Revenue not set'));
+    && lib.includes('constructionCostPerSqm?: number;')
+    && lib.includes('revenueRate?: number;')
+    && lib.includes('revenueRateUnit?: RevenueRateUnit;')
+    && storeSrc.includes('setAssetTypeValue:'));
+  check('J3 the three hidden values still round-trip through the store untouched',
+    (() => {
+      const st = makeStoreLike({ villas: { avgUnitSizeSqm: 260 } });
+      st.setAssetTypeValue('villas', { constructionCostPerSqm: 11000, revenueRate: 20000, revenueRateUnit: 'per_sqm' });
+      const v = st.project.assetTypeValues?.villas;
+      return v?.constructionCostPerSqm === 11000 && v?.revenueRate === 20000
+        && v?.revenueRateUnit === 'per_sqm' && v?.avgUnitSizeSqm === 260;
+    })());
+  check('J3b no COLUMN for them survives on the tab, and none is left behind a false condition',
+    !tab.includes('-build-cost') && !tab.includes('-revenue-rate') && !tab.includes('-revenue-unit')
+    && !tab.includes('Construction cost / sqm') && !tab.includes('Revenue rate') && !tab.includes('Rate unit')
+    && !/\{\s*false\s*&&/.test(tab)
+    && !describeValues({ revenueRate: 900, revenueRateUnit: 'adr_per_key_night' }).includes('900'));
   check('J4 the ACCOUNT route no longer carries any value: names, categories and order only',
     !route.includes('avg_unit_size') && !route.includes('parking_ratio')
     && !route.includes('construction_cost_per_sqm') && !route.includes('revenue_rate')

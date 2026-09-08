@@ -295,9 +295,12 @@ export function describeValues(
   const ratioUnit = v.parkingRatioBasis === 'sqm_per_slot' ? 'sqm/slot' : 'slots/unit';
   parts.push(`Parking ${describeStandardValue(v.parkingRatio, ratioUnit)}`);
   parts.push(`Slot area ${describeStandardValue(parkingAreaPerSlotSqm, 'sqm')}`);
-  parts.push(`Build ${describeStandardValue(v.constructionCostPerSqm, 'per sqm')}`);
-  parts.push(`Revenue ${v.revenueRate !== undefined && v.revenueRateUnit
-    ? `${v.revenueRate} ${REVENUE_RATE_UNIT_SHORT[v.revenueRateUnit]}`
-    : 'not set'}`);
+  // THE BUILD COST AND THE REVENUE RATE ARE NOT STATED (2026-09-08), for the
+  // same reason their columns are hidden on the standards tab: nothing reads
+  // them, so a figure here would invite the question of where it applies and
+  // the answer today is nowhere. Worse, this caption would be the ONLY place
+  // showing a value the user can no longer see or edit. The fields, the
+  // stored values and REVENUE_RATE_UNIT_SHORT all stay for when the wiring
+  // lands, and this line grows back with the columns.
   return parts.join(' | ');
 }
