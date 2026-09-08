@@ -285,6 +285,22 @@ function offlineChecks(): void {
     && !tabSrc.includes('data-testid={`asset-${asset.id}-type`}')
     && !tabSrc.includes('data-testid={`asset-${asset.id}-remove`}')
     && tabSrc.includes('asset-row-${asset.id}-name'));
+  // ── The two defects the first cut shipped, both found on live data ──────
+  check('U7 a RATE never takes the project number scale (18,500 per sqm read as "19" at thousands)',
+    tabSrc.includes("formatAccounting(u.unitPrice, 'full'")
+    && !/formatAccounting\(u\.unitPrice,\s*project\.displayScale/.test(tabSrc));
+  check('U8 a count nobody can derive is a DASH, not a zero',
+    tabSrc.includes('const count: number | undefined')
+    && tabSrc.includes('(unitArea > 0 ? u.metricValue / unitArea : undefined)')
+    && tabSrc.includes('count === undefined'));
+  check('U9 a unit size of zero reads as not set, not as a real size of 0',
+    tabSrc.includes("unitArea > 0 ? formatArea(unitArea) : '-'"));
+  check('U10 identity columns are given real width and only the six checkable derived columns are shown',
+    tabSrc.includes('tableLayout: \'fixed\'') && tabSrc.includes('<colgroup>')
+    && tabSrc.includes('const COLS = 19')
+    // The full cascade lives in the open row, where the chain lists every step.
+    && !tabSrc.includes('asset-row-${asset.id}-footprint')
+    && panel.includes('Every step of the derivation'));
   check('U6 what a row CANNOT hold still has a home in the drawer',
     ['-add-parcel-split', '-multi-parcel-section', '-area-reconciliation', '-land-rate-issue',
       '-companion-badge', '-standards-values', '-land-allocation-block']

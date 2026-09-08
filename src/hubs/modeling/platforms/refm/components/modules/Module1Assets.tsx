@@ -1040,7 +1040,14 @@ function AssetTable({
   const [openId, setOpenId] = useState<string | null>(null);
   const scale = project.displayScale ?? 'full';
   const decimals = project.displayDecimals ?? 2;
-  const COLS = 24;
+  // 19 columns: 7 identity and land, 5 chain inputs, 6 derived, 1 actions.
+  //
+  // ONLY THE SIX A USER CHECKS ARE COLUMNS. The full cascade (footprint,
+  // landscape, retail and lobby GFA, main asset GFA, the three slot counts and
+  // the two parking splits) is in the open row, where LandChainSection lists
+  // every step: eighteen derived columns fit nothing on screen, and the ones
+  // that earn their width are the ones a reader checks against the plan.
+  const COLS = 19;
 
   return (
     <div style={sectionCardStyle} data-testid="assets-table-section">
@@ -1051,12 +1058,27 @@ function AssetTable({
         </span>
       </div>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }} data-testid="assets-table">
+        <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1560 }} data-testid="assets-table">
+          {/* IDENTITY GETS THE WIDTH. A name truncated to a few characters
+              makes the table unreadable, and the derived cells are short
+              numbers that do not need the room. */}
+          <colgroup>
+            <col style={{ width: 28 }} />
+            <col style={{ width: 120 }} />
+            <col style={{ width: 210 }} />
+            <col style={{ width: 190 }} />
+            <col style={{ width: 110 }} />
+            <col style={{ width: 130 }} />
+            <col style={{ width: 96 }} />
+            {Array.from({ length: 5 }).map((_, i) => (<col key={`in-${i}`} style={{ width: 64 }} />))}
+            {Array.from({ length: 6 }).map((_, i) => (<col key={`dv-${i}`} style={{ width: 92 }} />))}
+            <col style={{ width: 44 }} />
+          </colgroup>
           <thead>
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
               <th style={TH_T} colSpan={7}>Asset</th>
               <th style={TH_T} colSpan={5}>Chain inputs</th>
-              <th style={TH_T} colSpan={11}>Derived (read only)</th>
+              <th style={TH_T} colSpan={6}>Derived (read only)</th>
               <th style={TH_T}></th>
             </tr>
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
@@ -1073,15 +1095,9 @@ function AssetTable({
               <th style={TH_N} title="Share of the FOOTPRINT given to ground-floor retail.">Retail %</th>
               <th style={TH_N} title="Service and back-of-house share off the main asset GFA.">Svc %</th>
               <th style={TH_N}>Land utilised</th>
-              <th style={TH_N}>Footprint</th>
-              <th style={TH_N}>Landscape</th>
-              <th style={TH_N}>Retail GFA</th>
-              <th style={TH_N}>Lobby GFA</th>
-              <th style={TH_N}>Total GFA</th>
-              <th style={TH_N}>Main GFA</th>
+              <th style={TH_N} title="Utilised land x FAR. Every intermediate step is in the open row.">Total GFA</th>
               <th style={TH_N}>Net saleable</th>
               <th style={TH_N}>Units / keys</th>
-              <th style={TH_N}>Total slots</th>
               <th style={TH_N}>Parking area</th>
               <th style={TH_N} title="Reference BUA Area = Total GFA + parking. This platform calls this tier GFA.">Total BUA</th>
               <th style={TH_T}></th>
@@ -1252,18 +1268,10 @@ function AssetTable({
                           <td style={CELL}><ChainCell value={asset.landChain?.retailPct} testId={`asset-row-${asset.id}-retail`} title="Share of the FOOTPRINT given to ground-floor retail." onCommit={(v) => patchChain({ retailPct: v })} /></td>
                           <td style={CELL}><ChainCell value={asset.landChain?.servicePct} testId={`asset-row-${asset.id}-service`} title="Service share off the main asset GFA." onCommit={(v) => patchChain({ servicePct: v })} /></td>
                           <td style={CELL_DERIVED} data-testid={`asset-row-${asset.id}-land-utilised`}>{d(chain.landUtilisedSqm)}</td>
-                          <td style={CELL_DERIVED}>{d(chain.footprintSqm)}</td>
-                          <td style={CELL_DERIVED}>{d(chain.landscapeSqm)}</td>
-                          <td style={CELL_DERIVED}>{d(chain.retailGfaSqm)}</td>
-                          <td style={CELL_DERIVED}>{d(chain.lobbyGfaSqm)}</td>
                           <td style={CELL_DERIVED} data-testid={`asset-row-${asset.id}-total-gfa`}>{d(chain.totalGfaSqm)}</td>
-                          <td style={CELL_DERIVED}>{d(chain.mainAssetGfaSqm)}</td>
                           <td style={CELL_DERIVED} data-testid={`asset-row-${asset.id}-net-saleable`}>{d(chain.netSaleableSqm)}</td>
                           <td style={CELL_DERIVED} data-testid={`asset-row-${asset.id}-units`}>
                             {chain.units === undefined ? '-' : chain.units.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                          </td>
-                          <td style={CELL_DERIVED}>
-                            {chain.totalParkingSlots === undefined ? '-' : chain.totalParkingSlots.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                           </td>
                           <td style={CELL_DERIVED}>{d(chain.totalParkingAreaSqm)}</td>
                           <td style={{ ...CELL_DERIVED, fontWeight: 700 }} data-testid={`asset-row-${asset.id}-total-bua`}>{d(chain.totalBuaSqm)}</td>
@@ -1382,8 +1390,15 @@ function SubUnitsTable({
               {subUnits.map((u) => {
                 const parent = byAsset.get(u.assetId);
                 const isUnits = (parent?.subUnitMetric ?? u.metric) === 'units';
-                const area = isUnits ? u.metricValue * Math.max(0, u.unitArea ?? 0) : u.metricValue;
-                const count = isUnits ? u.metricValue : (u.unitArea && u.unitArea > 0 ? u.metricValue / u.unitArea : 0);
+                const unitArea = Math.max(0, u.unitArea ?? 0);
+                const area = isUnits ? u.metricValue * unitArea : u.metricValue;
+                // A COUNT NOBODY CAN DERIVE IS NOT ZERO. With no unit size
+                // there is nothing to divide the area by, so the cell says so.
+                // Printing 0 here asserted "this row has no units", which is a
+                // different claim and a false one.
+                const count: number | undefined = isUnits
+                  ? u.metricValue
+                  : (unitArea > 0 ? u.metricValue / unitArea : undefined);
                 return (
                   <tr key={u.id} style={{ borderBottom: '1px solid var(--color-border)' }} data-testid={`subunits-row-${u.id}`}>
                     <td style={CELL}>
@@ -1395,6 +1410,7 @@ function SubUnitsTable({
                       <input
                         style={TABLE_INPUT}
                         value={u.name}
+                        placeholder="unnamed"
                         data-testid={`subunits-row-${u.id}-name`}
                         onChange={(e) => onUpdate(u.id, { name: e.target.value })}
                       />
@@ -1411,13 +1427,19 @@ function SubUnitsTable({
                     </td>
                     <td style={CELL_NUM} data-testid={`subunits-row-${u.id}-area`}>{formatArea(area)}</td>
                     <td style={CELL_NUM} data-testid={`subunits-row-${u.id}-unit-size`}>
-                      {u.unitArea === undefined ? '-' : formatArea(u.unitArea)}
+                      {unitArea > 0 ? formatArea(unitArea) : '-'}
                     </td>
                     <td style={CELL_NUM} data-testid={`subunits-row-${u.id}-count`}>
-                      {count.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      {count === undefined
+                        ? <span title="No unit size, so there is nothing to divide the area by. This is not a count of zero.">-</span>
+                        : count.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                     </td>
+                    {/* A RATE IS NOT A PROJECT TOTAL. It is a price per sqm or
+                        per unit, so it never takes the project's number scale:
+                        at 'thousands' a rate of 18,500 rendered as "19". The
+                        card always showed rates at full scale; so does this. */}
                     <td style={CELL_NUM} data-testid={`subunits-row-${u.id}-rate`}>
-                      {formatAccounting(u.unitPrice, project.displayScale ?? 'full', project.displayDecimals ?? 2)}
+                      {formatAccounting(u.unitPrice, 'full', project.displayDecimals ?? 2)}
                     </td>
                     <td style={CELL}>
                       <button
