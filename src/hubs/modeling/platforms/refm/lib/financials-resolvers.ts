@@ -53,6 +53,7 @@ import type { Asset, Phase, FinancingTranche } from './state/module1-types';
 import { DEFAULT_PROJECT_FINANCING_CONFIG } from './state/module1-types';
 import { resolveFundTerms } from './fundTerms';
 import { computeFundFeeSchedule, emptyFundFeeSchedule, resolveFacilityLimit, resolveFundSize, type FundFeeSchedule } from './fundFees';
+import { assetDisplayName } from '@/src/core/calculations/assetName';
 
 /** Lifetime sum of a per-period series. Local to the fund-size resolution. */
 const sumSeries = (a: readonly number[] | undefined): number =>
@@ -556,7 +557,7 @@ export function computeIdcSnapshot(
     const sqm = assetShare.get(a.id) ?? 0;
     byAssetIDC.set(a.id, {
       assetId: a.id,
-      assetName: a.name,
+      assetName: assetDisplayName(a),
       strategy: a.strategy,
       landSqm: sqm,
       shareOfTotalLand: totalShareDenom > 0 ? sqm / totalShareDenom : 0,
@@ -1807,7 +1808,7 @@ function computeFinancialsSnapshotOnce(
 
     perAssetPL.set(a.id, {
       assetId: a.id,
-      assetName: a.name,
+      assetName: assetDisplayName(a),
       strategy: a.strategy,
       revenuePerPeriod: revRow,
       cosPerPeriod: cosRow,
@@ -1850,7 +1851,7 @@ function computeFinancialsSnapshotOnce(
 
     perAssetCF.set(a.id, {
       assetId: a.id,
-      assetName: a.name,
+      assetName: assetDisplayName(a),
       strategy: a.strategy,
       revenueReceivedPerPeriod: revRcv,
       opexPaidPerPeriod: opexPaid,

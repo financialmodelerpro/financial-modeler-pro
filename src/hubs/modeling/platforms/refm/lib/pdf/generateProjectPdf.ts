@@ -62,6 +62,7 @@ import { buildCaseYoYReport, type CaseYoYReport } from '../reports/caseYoYReport
 import { formatAssumptionValue } from '../cases/assumptionGrid';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { MODULES, type ModuleConfig } from '../modules-config';
+import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 
 function b64ToBytes(b64: string): Uint8Array {
   if (typeof Buffer !== 'undefined') return new Uint8Array(Buffer.from(b64, 'base64'));
@@ -2577,6 +2578,10 @@ function renderSectionBreak(ctx: Ctx, mod: ModuleNav): void {
 
 // ── Public entry ─────────────────────────────────────────────────────────────
 export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promise<Uint8Array> {
+  // ASSET NAMES ARE RESOLVED AT THE FRONT DOOR, for the same reason as the
+  // workbook: this file reads state.assets from a dozen places rather than one,
+  // and a name resolved in some of them and not others is worse than either.
+  opts = { ...opts, state: { ...opts.state, assets: withResolvedAssetNames(opts.state.assets) } };
   const snap = computeFinancialsSnapshot(opts.state);
   let returns: ReturnsSnapshot | null = null;
   try { returns = computeReturnsSnapshot(snap, opts.state.project); } catch { returns = null; }

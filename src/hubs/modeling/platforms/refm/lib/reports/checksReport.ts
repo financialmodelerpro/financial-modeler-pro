@@ -1,4 +1,5 @@
 import { resolveAssetDownpaymentSource } from '../state/saleCohortResolution';
+import { assetDisplayName } from '@/src/core/calculations/assetName';
 /**
  * checksReport.ts (2026-08-12)
  *
@@ -131,7 +132,7 @@ export function buildRevenueBasisAdvisories(
     if (collections === undefined || gross <= 0) continue;
     const relative = collections / gross - 1;
     if (Math.abs(relative) <= BASIS_DIVERGENCE_TOL) continue;
-    out.push({ assetId: a.id, assetName: a.name, gross, collections, relative });
+    out.push({ assetId: a.id, assetName: assetDisplayName(a), gross, collections, relative });
   }
   return out;
 }
@@ -271,7 +272,7 @@ export function buildSaleCohortAdvisories(
     const sum = (s: number[] | undefined): number => (s ?? []).reduce((x, v) => x + (v ?? 0), 0);
     out.push({
       assetId: a.id,
-      assetName: a.name,
+      assetName: assetDisplayName(a),
       saleValue: sum(r.presalesRevenuePerPeriod) + sum(r.postSalesRevenuePerPeriod),
     });
   }

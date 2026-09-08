@@ -36,6 +36,7 @@
 import { costOfSalesBasisLabel, type AssetCostOfSales } from '../costOfSales';
 import type { ProjectFinancialsSnapshot, FinancialsResolverState } from '../financials-resolvers';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
+import { assetDisplayName } from '@/src/core/calculations/assetName';
 
 export interface ReportTable { title: string; rows: M4Row[] }
 
@@ -85,12 +86,12 @@ export function buildCostOfSalesReport(snap: ProjectFinancialsSnapshot, state: F
     if (a.visible === false) continue;
     const cos = snap.byAssetCostOfSales.get(a.id);
     if (!cos || !anyNonZero(cos.cos.perPeriod)) continue;
-    perAsset.push({ name: a.name, cos });
+    perAsset.push({ name: assetDisplayName(a), cos });
 
     // The build, year by year, ending on the check that foots it to the charge.
     // The basis sentence is the section header, so the table still states what
     // the charge is computed on, including the capitalised IDC inside it.
-    tables.push({ title: `Cost of Sales Build, ${a.name}`, rows: buildRows(cos, fmt, N) });
+    tables.push({ title: `Cost of Sales Build, ${assetDisplayName(a)}`, rows: buildRows(cos, fmt, N) });
 
     // Vintage matrix (capex period x recognition period), with a Total row.
     const vmRows: M4Row[] = cos.vintageMatrix
@@ -100,12 +101,12 @@ export function buildCostOfSalesReport(snap: ProjectFinancialsSnapshot, state: F
       const totals = new Array<number>(N).fill(0);
       for (const m of cos.vintageMatrix) for (let i = 0; i < N; i++) totals[i] += m[i] ?? 0;
       vmRows.push({ label: 'Total', values: totals, isTotal: true });
-      tables.push({ title: `Cost of Sales Vintage Matrix, ${a.name}`, rows: vmRows });
+      tables.push({ title: `Cost of Sales Vintage Matrix, ${assetDisplayName(a)}`, rows: vmRows });
     }
 
     // Summary. The split is by WHICH recognition drove the charge, and the two
     // rows sum to the total exactly; it is not a second computation.
-    tables.push({ title: `Cost of Sales Summary, ${a.name}`, rows: [
+    tables.push({ title: `Cost of Sales Summary, ${assetDisplayName(a)}`, rows: [
       { label: 'On pre-sales recognition', values: cos.cosPresalesPerPeriod },
       { label: 'On post-handover sales', values: cos.cosPostSalesPerPeriod },
       { label: 'Total Cost of Sales', values: cos.cos.perPeriod, isTotal: true },
@@ -114,7 +115,7 @@ export function buildCostOfSalesReport(snap: ProjectFinancialsSnapshot, state: F
     // Inventory roll-forward. THE SAME series the balance sheet carries.
     const opening = new Array<number>(N).fill(0);
     for (let t = 0; t < N; t++) opening[t] = t === 0 ? 0 : (cos.inventoryPerPeriod[t - 1] ?? 0);
-    tables.push({ title: `Inventory Roll-Forward, ${a.name}`, rows: [
+    tables.push({ title: `Inventory Roll-Forward, ${assetDisplayName(a)}`, rows: [
       { label: 'Opening balance', values: opening, totalOverride: fmt(0) },
       { label: '(+) Capex (incl. capitalised IDC)', values: cos.capexPerPeriod },
       { label: '(-) Cost of Sales', values: cos.cos.perPeriod.map((v) => -v) },

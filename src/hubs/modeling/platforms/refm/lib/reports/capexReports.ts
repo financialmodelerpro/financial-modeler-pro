@@ -15,6 +15,7 @@ import { computeAssetCost, deriveCostStage, resolveAssetAreaMetrics, type AssetA
 import { collectionsForAsset, phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
 import type { ProjectFinancialsSnapshot, FinancialsResolverState } from '../financials-resolvers';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
+import { assetDisplayName } from '@/src/core/calculations/assetName';
 
 export type MetricKind = 'area' | 'count' | 'money' | 'none';
 
@@ -292,7 +293,7 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
     }
     if (lines.length) {
       inputAssets.push({
-        assetId: a.id, assetName: a.name, phaseName: phase.name, lines,
+        assetId: a.id, assetName: assetDisplayName(a), phaseName: phase.name, lines,
         total: breakdown.total,
         subtotals: sumCapexStages(lines),
       });

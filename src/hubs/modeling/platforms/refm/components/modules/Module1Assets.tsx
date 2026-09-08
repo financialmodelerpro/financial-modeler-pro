@@ -105,6 +105,7 @@ import InputLabel from '../ui/InputLabel';
 import { CELL_HEADER, TABLE_TITLE } from './_shared/tableStyles';
 import { StrategyChangeConfirm, StrategyReviewBanner } from './_shared/StrategyChangeNotice';
 import { applyStrategySwitch, assetHasStrategyAssumptions, type StrategySwitchReport } from '../../lib/state/strategySwitch';
+import { assetDisplayName, assetNameIsDerived } from '@/src/core/calculations/assetName';
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 const inputStyle: React.CSSProperties = {
@@ -429,7 +430,10 @@ export default function Module1Assets(): React.JSX.Element {
     addAsset({
       id: `asset_${Date.now()}`,
       phaseId,
-      name: `Asset ${phaseAssetCount + 1}`,
+      // NO INVENTED NAME. "Asset 3" is not an identity, it is a placeholder a
+      // user then feels obliged to replace, and the schedules group by type and
+      // merge the replacements anyway. Blank means "called by its type".
+      name: '',
       // M2.0j Fix 2: default to empty string. Type is optional and the
       // user can leave it blank or pick / type any value.
       type: '',
@@ -451,9 +455,15 @@ export default function Module1Assets(): React.JSX.Element {
   return (
     <div data-testid="tab-assets">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 'var(--sp-3)', flexWrap: 'wrap', gap: 'var(--sp-1)' }}>
-        <h2 style={{ fontSize: 'var(--font-h2)', margin: 0 }}>
-          5. Assets &amp; Sub-units
-        </h2>
+        <div>
+          <h2 style={{ fontSize: 'var(--font-h2)', margin: 0 }}>
+            5. Assets &amp; Sub-units
+          </h2>
+          <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', marginTop: 2 }} data-testid="assets-name-note">
+            Schedules group by type, so the name is a label for entry only. Leave it blank and the
+            asset is called by its type.
+          </div>
+        </div>
         <div
           style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', fontStyle: 'italic' }}
           data-testid="currency-header-line"
@@ -1249,9 +1259,18 @@ function AssetInputsTable({
                           </select>
                         </td>
                         <td style={CELL}>
+                          {/* THE NAME IS OPTIONAL. Blank is a real answer, so
+                              the cell stays genuinely empty and shows what the
+                              asset will be CALLED as a placeholder. Binding the
+                              resolved name as the value would make a blank look
+                              filled in and there would be no way to leave it. */}
                           <input
                             style={TABLE_INPUT}
                             value={asset.name}
+                            placeholder={assetDisplayName(asset)}
+                            title={assetNameIsDerived(asset)
+                              ? `Unnamed, so it is called "${assetDisplayName(asset)}" everywhere. Name it only if the name earns its keep.`
+                              : 'Clear this to have the asset called by its type.'}
                             data-testid={`asset-row-${asset.id}-name`}
                             onChange={(e) => onUpdateAsset(asset.id, { name: e.target.value })}
                           />
@@ -1491,7 +1510,7 @@ function AssetResultsTable({ rowGroups }: { rowGroups: RowGroup[] }): React.JSX.
                     data-testid={`asset-result-${asset.id}`}
                   >
                     <td style={{ ...CELL, color: 'var(--color-meta)', fontSize: 10 }}>{parcel ? parcel.name : 'none'}</td>
-                    <td style={CELL}>{asset.name}</td>
+                    <td style={CELL}>{assetDisplayName(asset)}</td>
                     <td style={CELL_NUM}>{formatArea(landSqm)}</td>
                     <td style={CELL_DERIVED} data-testid={`asset-result-${asset.id}-land-utilised`}>{d(chain.landUtilisedSqm)}</td>
                     <td style={CELL_DERIVED}>{d(chain.footprintSqm)}</td>
@@ -1666,7 +1685,7 @@ function SubUnitsTable({
             data-testid="subunits-parent-pick"
             onChange={(e) => setParentId(e.target.value)}
           >
-            {assets.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
+            {assets.map((a) => (<option key={a.id} value={a.id}>{assetDisplayName(a)}</option>))}
           </select>
           <button
             type="button"
@@ -1721,7 +1740,7 @@ function SubUnitsTable({
                       out of an editing surface. */}
                   <tr style={{ background: 'var(--color-primary-pale)' }} data-testid={`subunits-group-${asset?.id ?? 'unassigned'}`}>
                     <td style={{ ...CELL, fontWeight: 700 }} colSpan={2}>
-                      {asset ? asset.name : 'Unassigned'}
+                      {asset ? assetDisplayName(asset) : 'Unassigned'}
                       <span style={{ fontWeight: 400, color: 'var(--color-meta)', marginLeft: 8 }}>
                         {rows.length} sub-unit{rows.length === 1 ? '' : 's'}
                       </span>
@@ -2102,7 +2121,7 @@ function AssetCard({
       {/* Header row */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-2)', cursor: 'pointer' }} onClick={() => setCollapsed(!collapsed)}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <strong style={{ fontSize: 14 }}>{asset.name || `(unnamed asset)`}</strong>
+          <strong style={{ fontSize: 14 }}>{assetDisplayName(asset)}</strong>
           <span style={statusBadgeStyle(status)} data-testid={`asset-card-${asset.id}-status-pill`}>
             {ASSET_STATUS_LABELS[status]}
           </span>
@@ -3450,7 +3469,7 @@ function LandReconciliationBlock({
                 const inkV = assetInKindValueByAssetId.get(a.id) ?? 0;
                 return (
                   <React.Fragment key={a.id}>
-                    <div>{a.name} ({phaseName})</div>
+                    <div>{assetDisplayName(a)} ({phaseName})</div>
                     <div data-testid={`recon-asset-${a.id}-sqm`} style={cellRight}>{fmtSqm(sqm)}</div>
                     <div data-testid={`recon-asset-${a.id}-value`} style={cellRight}>{fmtMoney(value)}</div>
                     <div data-testid={`recon-asset-${a.id}-cash`} style={cellRight}>{fmtMoney(cashV)}</div>

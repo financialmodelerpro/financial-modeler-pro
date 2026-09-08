@@ -14,6 +14,7 @@ import type { Project, Asset, Phase } from '../state/module1-types';
 import type { ReturnsSnapshot } from '../returns-resolvers';
 import type { ProjectFinancialsSnapshot } from '../financials-resolvers';
 import type { Party } from '../parties';
+import { assetDisplayName } from '@/src/core/calculations/assetName';
 
 export interface OnePagerPartyRef { name: string; identifier: string | null }
 
@@ -62,7 +63,7 @@ export function buildOnePagerReportModel(input: {
   const fm = rs.fundingMix;
   const startYear = rs.yearLabels[0] ?? input.snap.projectStartYear;
   const exitYear = rs.exitYearLabel;
-  const assetMix = assets.filter((a) => a.visible).map((a) => ({ name: a.name, strategy: String(a.strategy) }));
+  const assetMix = assets.filter((a) => a.visible).map((a) => ({ name: assetDisplayName(a), strategy: String(a.strategy) }));
   const equityPct = (fm.cashEquityPct ?? 0) + (fm.inKindEquityPct ?? 0);
 
   return {

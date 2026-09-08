@@ -20,6 +20,7 @@
 
 import { resolveDownpayment, hasAnyDownpayment, DEFAULT_INSTALMENT_YEARS } from '@/src/core/calculations/revenue/cohortTerms';
 import type { Asset, Phase } from '../state/module1-types';
+import { assetDisplayName } from '@/src/core/calculations/assetName';
 
 export interface SaleCohortDownpaymentCell {
   /** Absolute calendar year of the sale cohort. */
@@ -96,7 +97,7 @@ export function buildSaleCohortTermsBlock(
 
   return {
     assetId: asset.id,
-    assetName: asset.name,
+    assetName: assetDisplayName(asset),
     instalmentYears: sell.maxInstalmentYears ?? DEFAULT_INSTALMENT_YEARS,
     stopAtHandover: sell.instalmentsStopAtHandover ?? true,
     handoverYear,
@@ -243,7 +244,7 @@ export function buildSaleCohortGrid(
   const collectedTotal = columnTotals.reduce((a, b) => a + b, 0);
   return {
     assetId: asset.id,
-    assetName: asset.name,
+    assetName: assetDisplayName(asset),
     handoverYear,
     yearLabels,
     rows,

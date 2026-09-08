@@ -36,6 +36,7 @@ import {
   expandYearKeyedToAxis,
   type ProjectRevenueSnapshot,
 } from './revenue-resolvers';
+import { assetDisplayName } from '@/src/core/calculations/assetName';
 
 export interface ProjectOpexSnapshot {
   axisLength: number;
@@ -471,7 +472,7 @@ export function computeOpexApSnapshot(
     });
     byAsset.set(a.id, {
       assetId: a.id,
-      assetName: a.name,
+      assetName: assetDisplayName(a),
       effectiveApDays,
       opexIncurredPerPeriod: opexIncurred,
       result: ap,

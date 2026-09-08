@@ -49,6 +49,7 @@ import {
   ARGB, NUMFMT, BODY_SIZE, fcell, setInput, markInput, setFormula, setLabel, setTitle, setSectionHeader, setColHeader, colLetter,
   fillCell, fillRange, boxBorder, sheetRef, scaleMoneyFormats, scaleNote, defaultDecimals, setStaticMode, setNote, setBasis, setSectionSink, insertRowsAt, type DisplayScale, type DisplayDecimals,
 } from './styles';
+import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 
 export interface BuildModelOptions {
   state: FinancialsResolverState;
@@ -131,6 +132,12 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   // read all results and run their own scenarios manually; editing a cell does
   // NOT recalculate, the user re-exports from the platform after changing inputs.
   setStaticMode(true);
+  // ASSET NAMES ARE RESOLVED AT THE FRONT DOOR. This file reads an asset name
+  // in 26 places and several are MAP KEYS, not labels, so resolving the labels
+  // only would file a row under one name and look it up under another. Doing it
+  // once here keeps every key and every label the same string by construction,
+  // and an asset with no name is written out under its type.
+  opts = { ...opts, state: { ...opts.state, assets: withResolvedAssetNames(opts.state.assets) } };
   const snap = computeFinancialsSnapshot(opts.state);
   const capex = buildCapexReport(snap, opts.state);
   // The pure twin gives the row STRUCTURE + the few fields the snapshot does not

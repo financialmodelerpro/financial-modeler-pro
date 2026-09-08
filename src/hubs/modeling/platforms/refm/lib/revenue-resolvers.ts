@@ -899,6 +899,7 @@ export function computeAssetScheduleBundle(
 // ────────────────────────────────────────────────────────────────────
 
 import { computeEscrow, type EscrowAssetResult } from '@/src/core/calculations/revenue';
+import { assetDisplayName } from '@/src/core/calculations/assetName';
 
 export interface EscrowAssetRow {
   assetId: string;
@@ -1023,7 +1024,7 @@ export function computeEscrowSnapshot(
 
     byAsset.set(a.id, {
       assetId: a.id,
-      assetName: a.name,
+      assetName: assetDisplayName(a),
       phaseId: a.phaseId,
       effectiveHeldPct,
       effectiveReleaseYear,
