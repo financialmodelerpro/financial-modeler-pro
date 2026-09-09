@@ -245,8 +245,39 @@ function offlineChecks(): void {
         || /\bcomputeLandChain\s*\(/.test(src)
         || /:\s*LandChainInputs\b/.test(src);
     });
-  check('C1 no calculation, resolver, report or export file references the chain',
-    consumers.length === 0, consumers.slice(0, 5).join(' | '));
+  // C1 CHANGED ON 2026-09-09, AND THE CHANGE IS THE POINT OF STEP 5.
+  //
+  // "Nothing reads the chain" was true, deliberately, from the day it was
+  // written: the chain was a read-only panel and the engine was byte-identical
+  // with its inputs present. The retail land carve-out ENDS that, because the
+  // carve's share is retail GFA over total GFA and those are the chain's own
+  // figures. Restating the formula in the engine to keep this check green would
+  // have been the worst possible outcome: two definitions of retail GFA, which
+  // is the shape at the bottom of most defects in this codebase.
+  //
+  // So the invariant narrows rather than disappearing. ONE engine file may read
+  // the chain, for ONE purpose, and it is named here. A second consumer is a
+  // decision nobody has made.
+  const ALLOWED_CHAIN_CONSUMERS = ['src/core/calculations/index.ts'];
+  const unexpectedChain = consumers.filter((f) => !ALLOWED_CHAIN_CONSUMERS.includes(f.replace(/\\/g, '/')));
+  check('C1 only the ONE named engine file reads the chain, and only for the retail carve',
+    unexpectedChain.length === 0, unexpectedChain.slice(0, 5).join(' | '));
+  check('C1b that one reader consults it for the carve SHARE and nothing else',
+    (() => {
+      const eng = readFileSync('src/core/calculations/index.ts', 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+      // Exactly one call, inside the carve, reading exactly the two figures the
+      // share is made of.
+      return (eng.match(/computeLandChain\s*\(/g) ?? []).length === 1
+        && /const chain = computeLandChain\(grossSqm, h\.landChain, \{\}, undefined\);/.test(eng)
+        && /retailGfaSqm: chain\.retailGfaSqm/.test(eng)
+        && /totalGfaSqm: chain\.totalGfaSqm/.test(eng)
+        // No other chain figure reaches the engine: units, parking, landscape,
+        // NSA and the rest are still read by nothing that computes money.
+        && !/chain\.(units|parkingSlots|netSaleableSqm|landscapeSqm|footprintSqm|totalBuaSqm|mainAssetGfaSqm)/.test(eng);
+    })());
+  check('C1c and the chain is still the ONE definition of retail GFA, not restated in the engine',
+    !/retailPct[^\n]*\/[^\n]*farRatio/.test(readFileSync('src/core/calculations/index.ts', 'utf8')));
   check('C2 the chain imports NOTHING (it cannot reach back into the model)',
     !/^\s*import\s/m.test(readFileSync(CHAIN_FILE, 'utf8')));
 

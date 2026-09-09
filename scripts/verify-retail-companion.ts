@@ -32,6 +32,7 @@
 import { readFileSync } from 'node:fs';
 import {
   buildRetailCompanionSpecs,
+  carveRetailLand,
   isRetailCompanion,
   reconcileRetailCompanions,
   reconcileRetailSubUnits,
@@ -218,6 +219,87 @@ function offlineChecks(): void {
     && readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx', 'utf8')
       .includes('assets.filter((a) => a.isCompanion !== true || isRetailCompanion(a))'));
 
+
+  // ── H. THE LAND CARVE-OUT (step 5, the first step that moves money) ─────
+  //
+  // THE FAILURE MODE THIS IS SHAPED AGAINST: a project land total that still
+  // foots while the individual assets are wrong. A total is a weak check here
+  // BY CONSTRUCTION, because the carve moves land between assets and can only
+  // ever leave the total alone. So the reconciliation below is PER ASSET.
+  section('H. The carve: both halves from one function, reconciled per asset');
+  const carveHosts = [
+    // Land 1: 11,000 sqm at 7,500, coverage 60, retail 20, FAR 2.4181.
+    { assetId: 'h1', parcelId: 'p1', grossSqm: 11000, rate: 7500, retailGfaSqm: 1320, totalGfaSqm: 26599.1 },
+    // Land 2: 5,000 sqm at 7,500, coverage 60, retail 20, FAR 2.5.
+    { assetId: 'h2', parcelId: 'p2', grossSqm: 5000, rate: 7500, retailGfaSqm: 600, totalGfaSqm: 12500 },
+  ];
+  const carve = carveRetailLand(carveHosts);
+  check('H1 the share is retail GFA over total GFA, per host',
+    Math.abs(carve.hosts[0].share - 1320 / 26599.1) < 1e-12
+    && carve.hosts[1].share === 0.048,
+    `${carve.hosts[0].share} / ${carve.hosts[1].share}`);
+  check('H2 each host loses gross x share, and keeps the rest',
+    Math.abs(carve.hosts[0].carvedSqm - 545.8831) < 0.001
+    && carve.hosts[1].carvedSqm === 240
+    && Math.abs(carve.hosts[0].netSqm - (11000 - carve.hosts[0].carvedSqm)) < 1e-9,
+    `${carve.hosts[0].carvedSqm} / ${carve.hosts[1].carvedSqm}`);
+  // THE POINT OF THE SHAPE: the two halves are one arithmetic, measured
+  // separately here so this compares them rather than reading one twice.
+  check('H3 the companion gains EXACTLY what the hosts lost, in sqm and in value',
+    Math.abs(carve.companionSqm - carve.hostsLostSqm) < 1e-9
+    && Math.abs(carve.companionValue - carve.hostsLostValue) < 1e-9,
+    `${carve.companionSqm} vs ${carve.hostsLostSqm}`);
+  // TWO PLOTS AT TWO DIFFERENT RATES, so a blend is visibly wrong rather than
+  // coincidentally right: the first cut used one rate for both, and a sabotage
+  // that merged the plots into a single bucket went unnoticed because with one
+  // rate the merged answer equals the split one.
+  const twoRates = carveRetailLand([
+    { assetId: 'h1', parcelId: 'p1', grossSqm: 10000, rate: 7500, retailGfaSqm: 1200, totalGfaSqm: 24000 },
+    { assetId: 'h2', parcelId: 'p2', grossSqm: 10000, rate: 2500, retailGfaSqm: 1200, totalGfaSqm: 24000 },
+  ]);
+  check('H4 it carves PER PLOT at that plot\'s own rate, so a blended rate cannot distort it',
+    twoRates.companionSplits.length === 2
+    && twoRates.companionSplits.every((sp) => Math.abs(sp.value - sp.sqm * sp.rate) < 1e-9)
+    && new Set(twoRates.companionSplits.map((sp) => sp.rate)).size === 2
+    && new Set(twoRates.companionSplits.map((sp) => sp.parcelId)).size === 2
+    // 500 sqm from each plot, valued at ITS OWN rate.
+    && Math.abs((twoRates.companionSplits.find((x) => x.parcelId === 'p1')?.value ?? 0) - 500 * 7500) < 1e-6
+    && Math.abs((twoRates.companionSplits.find((x) => x.parcelId === 'p2')?.value ?? 0) - 500 * 2500) < 1e-6,
+    twoRates.companionSplits.map((x) => `${x.parcelId}@${x.rate}`).join(' '));
+  // LAND CANCELS OUT OF THE SHARE, since retail GFA and total GFA are both
+  // proportional to it. So the share is a property of the massing, and a plot
+  // twice the size gives up twice the land at the same percentage.
+  const doubled = carveRetailLand([{ ...carveHosts[0], grossSqm: 22000, retailGfaSqm: 2640, totalGfaSqm: 53198.2 }]);
+  check('H5 doubling a plot doubles what it gives up, at the same share',
+    Math.abs(doubled.hosts[0].share - carve.hosts[0].share) < 1e-12
+    && Math.abs(doubled.hosts[0].carvedSqm - 2 * carve.hosts[0].carvedSqm) < 1e-9);
+  // NO PLOT, NO CARVE. A host on a weighted average or a custom rate has no
+  // parcel for the companion to be credited against, so carving there would
+  // take land nobody receives and the two halves would stop matching.
+  const noPlot = carveRetailLand([{ assetId: 'x', grossSqm: 5000, rate: 0, retailGfaSqm: 600, totalGfaSqm: 12500 }]);
+  check('H6 a host with no resolvable plot gives up NOTHING, so the halves stay equal',
+    noPlot.hosts[0].share === 0.048 && noPlot.hosts[0].carvedSqm === 0
+    && noPlot.companionSqm === 0 && noPlot.hostsLostSqm === 0);
+  check('H7 a host whose chain derives no retail gives up nothing',
+    carveRetailLand([{ assetId: 'y', parcelId: 'p', grossSqm: 5000, rate: 100 }]).companionSqm === 0);
+  // ONE FUNCTION, TWO WRAPPERS. The engine must not restate the share.
+  const engineSrc2 = readFileSync('src/core/calculations/index.ts', 'utf8');
+  check('H8 the engine reads the carve through the ONE function and restates nothing',
+    (engineSrc2.match(/carveRetailLand\(/g) ?? []).length === 1
+    && /function retailCarveContext\(/.test(engineSrc2)
+    && /function retailCarveForHost\(/.test(engineSrc2)
+    // The share is never recomputed from coverage/retail/FAR anywhere else.
+    && !/retailPct[^\n]*\/[^\n]*farRatio/.test(engineSrc2)
+    // AND THE CARVE ACTUALLY CALLS THE GROSS ONE. Asserting the gross function
+    // merely EXISTS was too weak: it is also used by the breakdown's phase
+    // branch, so a sabotage pointing the carve back at the carving function
+    // (which recurses without terminating) left the existence check green.
+    && /function computeAssetLandSqmGross\(/.test(engineSrc2)
+    && /function computeAssetLandBreakdownGross\(/.test(engineSrc2)
+    && /const grossSqm = computeAssetLandSqmGross\(h, parcels, assets, subUnits, mode\);/.test(engineSrc2)
+    && /const gross = computeAssetLandSqmGross\(asset, parcels, assets, subUnits, mode\);/.test(engineSrc2)
+    && /const gross = computeAssetLandBreakdownGross\(asset, parcels, assets, subUnits, mode\);/.test(engineSrc2));
+
   section('C. A Lease companion with no land, and the engine keeps it free');
   const asset = makeRetailCompanionAsset(spec);
   check('C1 strategy is Lease, so it capitalises as a fixed asset and earns rent',
@@ -369,6 +451,99 @@ async function liveChecks(): Promise<void> {
     injected >= 1, `${injected} companions injected`);
   check('F3 EVERY project is byte-identical with its retail companions present',
     identical === projects, `${identical} of ${projects}`);
+
+  // ── I. LIVE: PER ASSET, NOT PER TOTAL ──────────────────────────────────
+  //
+  // The carve moves land BETWEEN assets, so the project total is unchanged by
+  // construction and a total-only check would pass however wrong the individual
+  // figures were. That is the stated failure mode, so every asset is compared
+  // against its own before-and-after.
+  section('I. Live: every host loses exactly what its companion gains');
+  let carveProjects = 0, carveMoved = 0, mismatched = 0, totalsMoved = 0;
+  for (const p of ps) {
+    const vs = await q(`refm_project_versions?project_id=eq.${p.id}&select=snapshot&order=created_at.desc&limit=1`) as { snapshot: Record<string, unknown> }[];
+    if (!vs[0]?.snapshot) continue;
+    let st: Record<string, unknown>;
+    try { st = hydrationFromAnySnapshot(vs[0].snapshot as never) as never; } catch { continue; }
+    const assets = (st.assets ?? []) as Asset[];
+    const parcels = (st.parcels ?? []) as never[];
+    const subUnits = (st.subUnits ?? []) as never[];
+    const mode = (st.landAllocationMode ?? 'sqm') as never;
+    if (!assets.some((a) => isRetailCompanion(a))) continue;
+    carveProjects += 1;
+    // BEFORE is the same engine with the host links stripped, so no carve can
+    // fire and everything else is identical.
+    const before = assets.map((a) => ({ ...a, retailHostAssetIds: undefined })) as Asset[];
+    const bySqm = new Map<string, number>();
+    const byVal = new Map<string, number>();
+    for (let i = 0; i < assets.length; i += 1) {
+      const b = computeAssetLandBreakdown(before[i], parcels, before, subUnits, mode);
+      bySqm.set(assets[i].id, b.landSqm);
+      byVal.set(assets[i].id, b.landValue);
+    }
+    let bTot = 0, aTot = 0, bVal = 0, aVal = 0;
+    for (const a of assets) {
+      const after = computeAssetLandBreakdown(a, parcels, assets, subUnits, mode);
+      const gross = bySqm.get(a.id) ?? 0;
+      const grossVal = byVal.get(a.id) ?? 0;
+      bTot += gross; aTot += after.landSqm; bVal += grossVal; aVal += after.landValue;
+      if (Math.abs(after.landSqm - gross) > 0.005 || Math.abs(after.landValue - grossVal) > 0.005) carveMoved += 1;
+      if (!isRetailCompanion(a)) continue;
+      // THE COMPANION'S GAIN IS ITS HOSTS' LOSSES, asset by asset.
+      let hostLostSqm = 0, hostLostVal = 0;
+      for (const hid of a.retailHostAssetIds ?? []) {
+        const h = assets.find((x) => x.id === hid);
+        if (!h) continue;
+        const hAfter = computeAssetLandBreakdown(h, parcels, assets, subUnits, mode);
+        hostLostSqm += (bySqm.get(hid) ?? 0) - hAfter.landSqm;
+        hostLostVal += (byVal.get(hid) ?? 0) - hAfter.landValue;
+      }
+      if (Math.abs(hostLostSqm - after.landSqm) > 0.005
+        || Math.abs(hostLostVal - after.landValue) > 0.005) mismatched += 1;
+      console.log(`  ${p.name} / ${String(a.name)}: hosts gave up ${hostLostSqm.toFixed(2)} sqm`
+        + ` / ${hostLostVal.toFixed(2)}, companion holds ${after.landSqm.toFixed(2)} sqm / ${after.landValue.toFixed(2)}`);
+    }
+    if (Math.abs(bTot - aTot) > 0.005 || Math.abs(bVal - aVal) > 0.005) totalsMoved += 1;
+  }
+  check('I1 at least one live project actually carves, so this is not a vacuous pass',
+    carveProjects >= 1 && carveMoved >= 2, `${carveProjects} projects, ${carveMoved} assets moved`);
+  check('I2 EVERY companion holds exactly what its hosts gave up, per asset',
+    mismatched === 0, `${mismatched} mismatched`);
+  // NECESSARY BUT NOT SUFFICIENT, and said so: the carve can only ever leave
+  // the total alone, so this passing proves nothing on its own. It is here to
+  // catch land being created or destroyed, not to check the carve.
+  // I4 THE TWO ENGINE ENTRY POINTS MUST AGREE, and nothing checked that until
+  // two sabotages walked through: one inflated the companion's sqm and one
+  // stopped the host losing it, both in computeAssetLandSqm, while every check
+  // here read computeAssetLandBreakdown. Two functions answering "how much land
+  // does this asset have" differently is the shape this codebase has been bitten
+  // by before (see resolveAssetPlotDraw's own header), and the carve doubled the
+  // number of places that answer it.
+  let disagreed = 0, compared = 0;
+  for (const p of ps) {
+    const vs = await q(`refm_project_versions?project_id=eq.${p.id}&select=snapshot&order=created_at.desc&limit=1`) as { snapshot: Record<string, unknown> }[];
+    if (!vs[0]?.snapshot) continue;
+    let st: Record<string, unknown>;
+    try { st = hydrationFromAnySnapshot(vs[0].snapshot as never) as never; } catch { continue; }
+    const assets = (st.assets ?? []) as Asset[];
+    const parcels = (st.parcels ?? []) as never[];
+    const subUnits = (st.subUnits ?? []) as never[];
+    const mode = (st.landAllocationMode ?? 'sqm') as never;
+    for (const a of assets) {
+      compared += 1;
+      const one = computeAssetLandSqm(a, parcels, assets, subUnits, mode);
+      const two = computeAssetLandBreakdown(a, parcels, assets, subUnits, mode).landSqm;
+      if (Math.abs(one - two) > 0.005) {
+        disagreed += 1;
+        console.log(`      DISAGREE ${p.name} / ${String(a.name)}: sqm ${one} vs breakdown ${two}`);
+      }
+    }
+  }
+  check('I4 computeAssetLandSqm and computeAssetLandBreakdown agree on EVERY live asset',
+    disagreed === 0 && compared >= 12, `${disagreed} disagreed of ${compared} compared`);
+  check('I3 and the project land total is unchanged (necessary, not sufficient)',
+    totalsMoved === 0, `${totalsMoved} projects whose total moved`);
+
 }
 
 async function main(): Promise<void> {

@@ -100,8 +100,23 @@ const FORBIDDEN_TOKENS = [
  * hole; the list and the check are built from the same array so that cannot
  * happen silently.
  */
-const DEFINITION_ONLY: { file: string; token: string }[] = [
-  { file: 'src/core/calculations/landChain.ts', token: 'landChain' },
+/**
+ * `allowedCallers` NARROWS AN EXCLUSION RATHER THAN DROPPING IT.
+ *
+ * landChain gained one on 2026-09-09, and the reason matters: consolidation
+ * step 5 carves retail land out of its hosts, and the carve's share is retail
+ * GFA over total GFA, which are the CHAIN's figures. Restating that formula in
+ * the engine to keep this check green would have bought a green tick with two
+ * definitions of retail GFA, which is the shape underneath most defects here.
+ * So the engine reads the chain, in ONE named file, and verify-land-chain C1b
+ * pins that it consults only those two figures and no other.
+ */
+const DEFINITION_ONLY: { file: string; token: string; allowedCallers?: string[] }[] = [
+  {
+    file: 'src/core/calculations/landChain.ts',
+    token: 'landChain',
+    allowedCallers: ['src/core/calculations/index.ts'],
+  },
   { file: 'src/core/calculations/consolidation.ts', token: 'consolidation' },
   { file: 'src/core/calculations/consolidationCollisions.ts', token: 'consolidationCollisions' },
 ];
@@ -206,9 +221,23 @@ function offlineChecks(): void {
       // as data ('landChain.farRatio', 'assetTypeId'), and a bare token match
       // read those strings as dependencies on the files those fields live in.
       .filter((f) => new RegExp(`from '[^']*${d.token}'|from "[^"]*${d.token}"`)
-        .test(readFileSync(f, 'utf8')));
-    check(`A2 the excluded file ${d.file.split('/').pop()} is called by NOTHING that computes money`,
+        .test(readFileSync(f, 'utf8')))
+      // NAMED CALLERS ONLY, never a count: an allowance is a decision about one
+      // file, so it is written down as that file.
+      .filter((f) => !(d.allowedCallers ?? []).includes(f.replace(/\\/g, '/')));
+    const allowed = d.allowedCallers?.length
+      ? ` (except ${d.allowedCallers.join(', ')})` : '';
+    check(`A2 the excluded file ${d.file.split('/').pop()} is called by NOTHING that computes money${allowed}`,
       callers.length === 0, callers.slice(0, 3).join(' | '));
+    // AN ALLOWANCE THAT STOPS BEING USED IS A STALE DECISION. If the named
+    // caller no longer reads it, the exclusion should go back to absolute.
+    if (d.allowedCallers?.length) {
+      const stillUsed = d.allowedCallers.filter((f) =>
+        new RegExp(`from '[^']*${d.token}'|from "[^"]*${d.token}"`).test(readFileSync(f, 'utf8')));
+      check(`A2c the allowance for ${d.file.split('/').pop()} is still in use, not a stale hole`,
+        stillUsed.length === d.allowedCallers.length,
+        `${stillUsed.length} of ${d.allowedCallers.length}`);
+    }
   }
   check('A2b every excluded file exists (a renamed one would silently stop being checked)',
     DEFINITION_ONLY.every((d) => { try { statSync(d.file); return true; } catch { return false; } }),

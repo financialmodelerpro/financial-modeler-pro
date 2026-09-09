@@ -276,3 +276,117 @@ export function reconcileRetailSubUnits<U extends ReconcilableSubUnit>(
   const changed = added.length > 0 || removed.length > 0 || updated.length > 0;
   return { subUnits: changed ? out : (subUnits as U[]), changed, added, removed, updated };
 }
+
+// ── THE LAND CARVE-OUT (step 5, the first step that moves money) ──────────
+
+/** One host, with the chain figures the carve needs and what it draws today. */
+export interface RetailLandHost {
+  assetId: string;
+  /** The plot it draws from, so the companion draws from the same one. */
+  parcelId?: string;
+  /** Sqm/rate as resolved BEFORE any carve. */
+  grossSqm: number;
+  rate: number;
+  /** From the chain, already computed: the share is retail over total. */
+  retailGfaSqm?: number;
+  totalGfaSqm?: number;
+}
+
+export interface RetailLandHostResult {
+  assetId: string;
+  /** retailGFA / totalGFA. Zero when the chain cannot derive both. */
+  share: number;
+  grossSqm: number;
+  carvedSqm: number;
+  netSqm: number;
+  rate: number;
+  carvedValue: number;
+  netValue: number;
+}
+
+export interface RetailLandCarve {
+  hosts: RetailLandHostResult[];
+  /** What the companion gains: exactly what the hosts lose. */
+  companionSqm: number;
+  companionValue: number;
+  /** One entry per contributing plot, which is what the engine's existing
+   *  multi-parcel branch reads. */
+  companionSplits: Array<{ parcelId: string; sqm: number; rate: number; value: number }>;
+  /** Sum of what the hosts lost, kept separately from what the companion
+   *  gained so a caller can compare the two rather than trust one. */
+  hostsLostSqm: number;
+  hostsLostValue: number;
+}
+
+/**
+ * BOTH HALVES OF THE CARVE, FROM ONE FUNCTION.
+ *
+ * The retail companion holds floor area that sits ON its hosts' land, so it
+ * must take a share of that land and every host must lose EXACTLY what it
+ * gains. Computing the two halves in two places is how a project total keeps
+ * footing while the individual assets are wrong, which is the failure mode this
+ * shape exists to prevent: the giving and the taking are one arithmetic.
+ *
+ * THE SHARE IS RETAIL GFA OVER TOTAL GFA, per host, which is the reference's
+ * own carve (plot land value x retail GFA / total GFA, pinned to the cent on
+ * two types). It is taken from the CHAIN RESULTS rather than restated as a
+ * formula here, so there is one definition of what retail GFA is. Note the land
+ * cancels out of that ratio, since both halves are proportional to it, so the
+ * share is a property of the plot's massing and not of its size.
+ *
+ * PER PLOT, AT THAT PLOT'S OWN RATE. A line pooling two plots at different
+ * rates carves from each at its own rate, which is why the companion gets
+ * SPLITS rather than a blended sqm: a blended rate would make the companion's
+ * value depend on which plot it was written against.
+ *
+ * A HOST WHOSE CHAIN CANNOT DERIVE RETAIL GIVES UP NOTHING, and its share is
+ * reported as 0 rather than omitted, so a caller can show a host that
+ * contributes no land beside one that does.
+ */
+export function carveRetailLand(hosts: readonly RetailLandHost[]): RetailLandCarve {
+  const results: RetailLandHostResult[] = [];
+  const byParcel = new Map<string, { sqm: number; rate: number; value: number }>();
+  for (const h of hosts) {
+    const retail = pos(h.retailGfaSqm);
+    const total = pos(h.totalGfaSqm);
+    const share = total > 0 ? retail / total : 0;
+    const gross = Math.max(0, Number.isFinite(h.grossSqm) ? h.grossSqm : 0);
+    const rate = Math.max(0, Number.isFinite(h.rate) ? h.rate : 0);
+    // NO PLOT, NO CARVE. A host drawing from a weighted average or a custom
+    // rate has no parcel for the companion to take a slice OF, so it gives up
+    // nothing: carving there would take land from a host that the companion
+    // could not be credited with, and the two halves would stop matching. That
+    // is the exact failure this function exists to make impossible.
+    const carvedSqm = h.parcelId ? gross * share : 0;
+    results.push({
+      assetId: h.assetId,
+      share,
+      grossSqm: gross,
+      carvedSqm,
+      netSqm: gross - carvedSqm,
+      rate,
+      carvedValue: carvedSqm * rate,
+      netValue: (gross - carvedSqm) * rate,
+    });
+    if (carvedSqm <= 0 || !h.parcelId) continue;
+    const cur = byParcel.get(h.parcelId) ?? { sqm: 0, rate, value: 0 };
+    byParcel.set(h.parcelId, {
+      sqm: cur.sqm + carvedSqm,
+      rate,
+      value: cur.value + carvedSqm * rate,
+    });
+  }
+  const companionSplits = [...byParcel.entries()]
+    .map(([parcelId, v]) => ({ parcelId, sqm: v.sqm, rate: v.rate, value: v.value }));
+  return {
+    hosts: results,
+    companionSqm: companionSplits.reduce((s, x) => s + x.sqm, 0),
+    companionValue: companionSplits.reduce((s, x) => s + x.value, 0),
+    companionSplits,
+    // MEASURED SEPARATELY, ON PURPOSE. A caller comparing these against the
+    // companion figures is checking the arithmetic rather than reading the same
+    // number twice under two names.
+    hostsLostSqm: results.reduce((s, r) => s + r.carvedSqm, 0),
+    hostsLostValue: results.reduce((s, r) => s + r.carvedValue, 0),
+  };
+}

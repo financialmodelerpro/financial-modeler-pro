@@ -89,6 +89,15 @@ import {
   type CapexPhasingContext,
 } from './capexPhasing';
 import { assetVisibleLines, allowedSelectedIds, deriveAssetScope } from './selectedBase';
+// Consolidation step 5: the retail land carve-out. Both halves come from ONE
+// function; the two wrappers below are the only places it reaches the engine.
+import {
+  carveRetailLand,
+  isRetailCompanion,
+  type RetailLandCarve,
+  type RetailLandHostResult,
+} from './retailCompanion';
+import { computeLandChain } from './landChain';
 import {
   resolveSellingCostBasis,
   sellingCostAmount,
@@ -108,6 +117,7 @@ import {
   PARCEL_WEIGHTED_AVG,
   PARCEL_WEIGHTED_AVG_ALL,
   PARCEL_CUSTOM_RATE,
+  isParcelSentinel,
 } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
 // ── Operating end date (T2P3 Fix 3) ───────────────────────────────────────
@@ -344,7 +354,15 @@ export function resolveAssetPlotDraw(
   return { sqm: 0, source: 'unset' };
 }
 
-export function computeAssetLandSqm(
+/**
+ * THE LAND AN ASSET DRAWS BEFORE ANY RETAIL CARVE-OUT.
+ *
+ * Split out on 2026-09-09 (consolidation step 5) so the carve has something to
+ * take a share OF without calling back into the function that applies it. The
+ * body below is unchanged; every rule, comment and precedence is the one that
+ * was there.
+ */
+function computeAssetLandSqmGross(
   asset: Asset,
   parcels: Parcel[],
   assets: Asset[],
@@ -479,7 +497,11 @@ export function landRateIssueText(issue: LandRateIssue): string {
   }
 }
 
-export function computeAssetLandBreakdown(
+/**
+ * The land breakdown BEFORE any retail carve-out, for the same reason as
+ * computeAssetLandSqmGross above. Body unchanged.
+ */
+function computeAssetLandBreakdownGross(
   asset: Asset,
   parcels: Parcel[],
   assets: Asset[],
@@ -568,7 +590,7 @@ export function computeAssetLandBreakdown(
 
   // Branch 3: legacy / mode B / mode C - phase aggregate weighted average.
   const agg = computeLandAggregate(phaseParcels);
-  const landSqm = computeAssetLandSqm(asset, parcels, assets, subUnits, mode);
+  const landSqm = computeAssetLandSqmGross(asset, parcels, assets, subUnits, mode);
   if (agg.totalAreaSqm <= 0 || landSqm <= 0) {
     // A zero here is only worth explaining when the asset HAS land to value.
     return {
@@ -582,6 +604,128 @@ export function computeAssetLandBreakdown(
   const rate = landSqm > 0 ? landValue / landSqm : 0;
   return { landSqm, landValue, rate, splits: [], rateIssue: rate > 0 ? undefined : 'zero_parcel_rate' };
 }
+
+// ── THE RETAIL LAND CARVE-OUT (2026-09-09, consolidation step 5) ──────────
+//
+// The retail companion holds floor area that sits ON its hosts' land, so it
+// takes a share of that land and every host loses EXACTLY what it gains. The
+// arithmetic is ONE function in `retailCompanion.ts` which returns both halves
+// together; these two wrappers are the only places it reaches the engine, and
+// each of them reads one side of the same result.
+//
+// THIS IS THE FIRST STEP THAT MOVES MONEY. A host's land value falls and the
+// companion's rises by the same amount, at the same plot's own rate, so the
+// project land total is unchanged by construction. That is exactly why the
+// reconciliation cannot live on a total: a total that still foots while two
+// assets are wrong is the failure this is shaped to prevent, so the per-asset
+// comparison is a verifier's job.
+
+/** Every retail companion, indexed by the hosts it carves from. */
+function retailCarveContext(
+  parcels: Parcel[],
+  assets: Asset[],
+  subUnits: SubUnit[],
+  mode: LandAllocationMode,
+  companion: Asset,
+): RetailLandCarve {
+  const hostIds = new Set(companion.retailHostAssetIds ?? []);
+  const hosts = assets.filter((a) => hostIds.has(a.id)).map((h) => {
+    const grossSqm = computeAssetLandSqmGross(h, parcels, assets, subUnits, mode);
+    // THE SHARE COMES FROM THE CHAIN, not from a formula restated here, so
+    // "what is retail GFA" has one definition. Only the massing inputs matter
+    // for the two figures it needs, so the standards are deliberately empty.
+    const chain = computeLandChain(grossSqm, h.landChain, {}, undefined);
+    const named = h.landAllocation?.parcelId;
+    const parcel = named && !isParcelSentinel(named) ? parcels.find((p) => p.id === named) : undefined;
+    return {
+      assetId: h.id,
+      parcelId: parcel?.id,
+      grossSqm,
+      rate: parcel ? Math.max(0, parcel.rate) : 0,
+      retailGfaSqm: chain.retailGfaSqm,
+      totalGfaSqm: chain.totalGfaSqm,
+    };
+  });
+  return carveRetailLand(hosts);
+}
+
+/** What THIS host gives up, or undefined when it hosts no retail companion. */
+function retailCarveForHost(
+  asset: Asset,
+  parcels: Parcel[],
+  assets: Asset[],
+  subUnits: SubUnit[],
+  mode: LandAllocationMode,
+): RetailLandHostResult | undefined {
+  if (asset.isCompanion === true) return undefined;
+  for (const c of assets) {
+    if (!isRetailCompanion(c)) continue;
+    if (!(c.retailHostAssetIds ?? []).includes(asset.id)) continue;
+    const carve = retailCarveContext(parcels, assets, subUnits, mode, c);
+    return carve.hosts.find((h) => h.assetId === asset.id);
+  }
+  return undefined;
+}
+
+export function computeAssetLandSqm(
+  asset: Asset,
+  parcels: Parcel[],
+  assets: Asset[],
+  subUnits: SubUnit[],
+  mode: LandAllocationMode,
+): number {
+  // A RETAIL COMPANION IS THE ONE COMPANION WITH LAND, and only what its hosts
+  // gave up. Rule 2 still holds for every other companion.
+  if (isRetailCompanion(asset)) {
+    return retailCarveContext(parcels, assets, subUnits, mode, asset).companionSqm;
+  }
+  const gross = computeAssetLandSqmGross(asset, parcels, assets, subUnits, mode);
+  const carved = retailCarveForHost(asset, parcels, assets, subUnits, mode);
+  return carved ? Math.max(0, gross - carved.carvedSqm) : gross;
+}
+
+export function computeAssetLandBreakdown(
+  asset: Asset,
+  parcels: Parcel[],
+  assets: Asset[],
+  subUnits: SubUnit[],
+  mode: LandAllocationMode,
+): AssetLandBreakdown {
+  if (isRetailCompanion(asset)) {
+    const carve = retailCarveContext(parcels, assets, subUnits, mode, asset);
+    const landSqm = carve.companionSqm;
+    const landValue = carve.companionValue;
+    return {
+      landSqm,
+      landValue,
+      // A BLENDED RATE, value over area, never an average of the plots' rates:
+      // the same rule the line's own land pooling uses.
+      rate: landSqm > 0 ? landValue / landSqm : 0,
+      splits: carve.companionSplits,
+      rateIssue: landSqm > 0 && landValue <= 0 ? 'zero_parcel_rate' : undefined,
+    };
+  }
+  const gross = computeAssetLandBreakdownGross(asset, parcels, assets, subUnits, mode);
+  const carved = retailCarveForHost(asset, parcels, assets, subUnits, mode);
+  if (!carved || carved.carvedSqm <= 0) return gross;
+  // THE HOST LOSES EXACTLY WHAT THE COMPANION GAINED, at the same plot's own
+  // rate, so the two subtractions above and here are one arithmetic and the
+  // project total cannot drift.
+  const landSqm = Math.max(0, gross.landSqm - carved.carvedSqm);
+  const landValue = Math.max(0, gross.landValue - carved.carvedValue);
+  return {
+    ...gross,
+    landSqm,
+    landValue,
+    rate: landSqm > 0 ? landValue / landSqm : gross.rate,
+    splits: gross.splits.map((sp) => {
+      const share = gross.landSqm > 0 ? sp.sqm / gross.landSqm : 0;
+      const sqm = Math.max(0, sp.sqm - carved.carvedSqm * share);
+      return { ...sp, sqm, value: sqm * sp.rate };
+    }),
+  };
+}
+
 
 // M2.0g Fix 2 (2026-05-06): project-level land reconciliation. Renders
 // at top of Tab 2 above the asset list.
