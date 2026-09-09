@@ -54,13 +54,23 @@ export interface LandChainInputs {
   /** Floor area ratio: total GFA per sqm of utilised land. */
   farRatio?: number;
   /**
-   * Sqm of retail GFA that requires one parking slot.
+   * RETIRED 2026-09-09. Sqm of retail GFA that requires one parking slot.
    *
-   * A SEPARATE INPUT ON PURPOSE. In the reference workbook every plot's
-   * retail parking divides by ONE fixed company figure (the "Retail
-   * (combined)" row), never by the plot's own asset type, so it cannot be
-   * read off the asset's own parking ratio. Absent means retail parking is
-   * not derived, and the result says so rather than reporting zero slots.
+   * It was a per-plot input and it should never have been: the reference
+   * divides every plot's retail parking by ONE fixed company figure, and the
+   * evidence agreed before it was moved. Across 1,406 stored versions the field
+   * appears on THREE assets, all in one version, all holding the same value
+   * (40): the only person who ever typed it typed it three times identically.
+   * Five rows holding one number are five chances to disagree about it.
+   *
+   * It now lives on the PROJECT, beside the parking area per slot, which is the
+   * same kind of quantity and was already a single value. A per-plot figure
+   * could in principle express two municipalities or two retail formats, but
+   * neither is sayable in this model (there is no per-plot jurisdiction and no
+   * retail sub-type), so it would be an answer to a question nobody can ask.
+   *
+   * The field stays DECLARED so a stored snapshot still types, and is read by
+   * NOTHING: hydrate lifts any stored value onto the project.
    */
   retailAreaPerSlotSqm?: number;
   /**
@@ -88,6 +98,16 @@ export interface LandChainStandards {
   parkingRatioBasis?: 'slots_per_unit' | 'sqm_per_slot';
   /** Sqm one parking slot occupies. */
   parkingAreaPerSlotSqm?: number;
+  /**
+   * Sqm of retail GFA that requires one parking slot.
+   *
+   * A PROJECT FIGURE, beside the area a slot occupies. Retail parking divides
+   * by THIS and never by the asset's own parking ratio, because a shop's
+   * parking is sized off floor area and an apartment's off units. Absent means
+   * retail parking is not derived, and the result SAYS so rather than reporting
+   * zero slots.
+   */
+  retailAreaPerSlotSqm?: number;
 }
 
 /** Why a figure could not be derived. Absent means it was. */
@@ -182,8 +202,10 @@ const num = (v: number | undefined): v is number => typeof v === 'number' && Num
 /** True when an asset states nothing the chain can use. */
 export function landChainIsEmpty(inputs: LandChainInputs | undefined): boolean {
   if (!inputs) return true;
+  // The retired per-plot retail figure is NOT consulted: a legacy snapshot
+  // carrying it must not make a chain look started when nothing else is set.
   return !num(inputs.utilisationPct) && !num(inputs.coveragePct) && !num(inputs.retailPct)
-    && !num(inputs.servicePct) && !num(inputs.farRatio) && !num(inputs.retailAreaPerSlotSqm);
+    && !num(inputs.servicePct) && !num(inputs.farRatio);
 }
 
 /**
@@ -285,8 +307,8 @@ export function computeLandChain(
   // 9. Retail parking, on its own basis. The reference divides retail GFA by
   //    ONE company figure, never by the asset's own ratio.
   if (out.retailGfaSqm !== undefined && out.retailGfaSqm > 0) {
-    if (num(i.retailAreaPerSlotSqm) && i.retailAreaPerSlotSqm > 0) {
-      out.retailParkingSlots = Math.round(out.retailGfaSqm / i.retailAreaPerSlotSqm);
+    if (num(s.retailAreaPerSlotSqm) && s.retailAreaPerSlotSqm > 0) {
+      out.retailParkingSlots = Math.round(out.retailGfaSqm / s.retailAreaPerSlotSqm);
     } else {
       gaps.push('no_retail_area_per_slot');
     }

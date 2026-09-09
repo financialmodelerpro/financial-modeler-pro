@@ -429,19 +429,41 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
         </div>
       )}
 
-      {/* The project's one scalar. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', marginBottom: 'var(--sp-2)', flexWrap: 'wrap' }}>
-        <label htmlFor="std-parking-area-per-slot" style={{ fontSize: 'var(--font-small)', fontWeight: 600 }}>
-          Parking area per slot (sqm) for this project:
-        </label>
-        <div style={{ width: 120 }}>
-          <ValueCell
-            value={project.parkingAreaPerSlotSqm}
-            disabled={noProject}
-            testId="std-parking-area-per-slot"
-            title="Sqm one parking bay occupies. A project assumption: basement and surface parking differ."
-            onCommit={(n) => setProject({ parkingAreaPerSlotSqm: n })}
-          />
+      {/* THE PROJECT'S PARKING STANDARDS, both of them.
+          The retail figure joined its sibling here on 2026-09-09. It was a
+          column on every plot row, which is five rows holding one number and
+          five chances to disagree about it: the reference divides every plot's
+          retail parking by ONE company figure, and the stored history agreed
+          before the move (three assets across 1,406 versions, all holding 40).
+          They are the same kind of quantity, so they sit together. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)' }}>
+          <label htmlFor="std-parking-area-per-slot" style={{ fontSize: 'var(--font-small)', fontWeight: 600 }}>
+            Parking area per slot (sqm) for this project:
+          </label>
+          <div style={{ width: 120 }}>
+            <ValueCell
+              value={project.parkingAreaPerSlotSqm}
+              disabled={noProject}
+              testId="std-parking-area-per-slot"
+              title="Sqm one parking bay occupies. A project assumption: basement and surface parking differ."
+              onCommit={(n) => setProject({ parkingAreaPerSlotSqm: n })}
+            />
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)' }}>
+          <label htmlFor="std-retail-area-per-slot" style={{ fontSize: 'var(--font-small)', fontWeight: 600 }}>
+            Retail GFA per slot (sqm) for this project:
+          </label>
+          <div style={{ width: 120 }}>
+            <ValueCell
+              value={project.retailAreaPerSlotSqm}
+              disabled={noProject}
+              testId="std-retail-area-per-slot"
+              title="Sqm of retail GFA that requires one parking slot. Retail parking divides by THIS, never by an asset's own parking ratio, because a shop's parking is sized off floor area and an apartment's off units. Leave it blank and Retail Parking Slots, Retail Parking Area and Total Parking Area cannot be derived on any plot."
+              onCommit={(n) => setProject({ retailAreaPerSlotSqm: n })}
+            />
+          </div>
         </div>
       </div>
 

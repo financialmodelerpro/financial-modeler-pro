@@ -115,8 +115,8 @@ function offlineChecks(): void {
   // 25 m2 of retail GFA per slot.
   const apts = computeLandChain(
     6807.72,
-    { utilisationPct: 100, coveragePct: 60, retailPct: 50, servicePct: 20, farRatio: 3.6, retailAreaPerSlotSqm: 25 },
-    { avgUnitSizeSqm: 150, parkingRatio: 1, parkingRatioBasis: 'slots_per_unit', parkingAreaPerSlotSqm: 40 },
+    { utilisationPct: 100, coveragePct: 60, retailPct: 50, servicePct: 20, farRatio: 3.6 },
+    { avgUnitSizeSqm: 150, parkingRatio: 1, parkingRatioBasis: 'slots_per_unit', parkingAreaPerSlotSqm: 40, retailAreaPerSlotSqm: 25 },
   );
   check('A6 retail row: footprint, landscape, retail and lobby',
     near(apts.footprintSqm, 4084.632) && near(apts.landscapeSqm, 2723.088)
@@ -808,9 +808,8 @@ function offlineChecks(): void {
   // five percentages, FAR and Max Floors deliberately omit it: none reaches a
   // thousand, and FAR is 2.4181 on a live plot, so a fixed two decimals would
   // show 2.42 for a figure that multiplies every area under it.
-  check('U29m3 the two AREAS in the inputs table opt in, and FAR and the percentages do not',
+  check('U29m3 the one AREA in the inputs table opts in, and FAR and the percentages do not',
     /decimals=\{AREA_DECIMALS\}\s*\n?\s*placeholder=\{areaText\(landSqm\)\}/.test(inputsBody.replace(/\r/g, ''))
-    && /<ChainCell decimals=\{AREA_DECIMALS\} value=\{asset\.landChain\?\.retailAreaPerSlotSqm\}/.test(inputsBody)
     && !/decimals=\{[^}]*\} value=\{asset\.landChain\?\.farRatio\}/.test(inputsBody)
     && !/decimals=\{[^}]*\} value=\{asset\.landChain\?\.utilisationPct\}/.test(inputsBody));
   check('U29m4 in the sub-unit table the area and the count are whole, the unit size and the rate keep decimals',
@@ -1039,25 +1038,69 @@ function offlineChecks(): void {
   // which is how a sabotage that renamed the test id walked through the first
   // cut. Every test id here is inside a template literal, so the closing
   // backtick is the anchor.
-  check('U43 retail GFA per slot is a COLUMN in the inputs table, beside the other chain inputs',
-    /asset-row-\$\{asset\.id\}-retail-slot`/.test(inputsBody)
-    && /patchChain\(\{ retailAreaPerSlotSqm: v \}\)/.test(inputsBody)
-    && inputsBody.includes('>Retail GFA / slot (sqm)</th>')
-    // AND IT READS WHAT IS STORED. A cell wired to write but not to read
-    // accepts the figure, saves it, and comes back blank on the next load,
-    // which is worse than no cell: it looks like the save failed. A sabotage
-    // that blanked the binding while leaving the id and the writer passed the
-    // first cut of this check.
-    && /value=\{asset\.landChain\?\.retailAreaPerSlotSqm\}/.test(inputsBody));
-  check('U43b the drawer field and the column are the SAME field under the SAME words',
-    panel.includes('retailAreaPerSlotSqm')
-    && panel.includes('label="Retail GFA / slot (sqm)"')
-    && !panel.includes('label="Retail sqm / slot"'));
+  // U43 MOVED WITH THE FIGURE (2026-09-09). It was a per-plot COLUMN for one
+  // commit; it is ONE COMPANY FIGURE and now sits on the standards tab beside
+  // the parking area per slot, which is the same kind of quantity and was
+  // already a single project value. Five plot rows holding one number are five
+  // chances to disagree about it, and the stored history agreed before the
+  // move: across 1,406 versions the per-plot field appears on three assets, all
+  // in one version, all holding 40.
+  const stdTab = readFileSync(
+    'src/hubs/modeling/platforms/refm/components/modules/Module1AssetStandards.tsx', 'utf8');
+  check('U43 retail GFA per slot is ONE PROJECT figure, on the standards tab beside its sibling',
+    // ValueCell takes a `testId` prop, not a raw data-testid, exactly as its
+    // sibling above it does.
+    stdTab.includes('testId="std-retail-area-per-slot"')
+    && /onCommit=\{\(n\) => setProject\(\{ retailAreaPerSlotSqm: n \}\)\}/.test(stdTab)
+    && /value=\{project\.retailAreaPerSlotSqm\}/.test(stdTab)
+    && stdTab.includes('Retail GFA per slot (sqm) for this project:')
+    // Beside the parking area per slot, not somewhere else on the tab.
+    && Math.abs(stdTab.indexOf('std-retail-area-per-slot') - stdTab.indexOf('std-parking-area-per-slot')) < 1400);
+  // U43d THE ONE HISTORICAL VALUE IS NOT LOST. Three assets in one stored
+  // version carry a per-plot 40. Retiring the field without lifting it would
+  // leave that version unable to derive retail parking at all, so hydrate
+  // lifts it, and ONLY into an absence: a figure typed on the standards tab
+  // outranks one left behind on a plot.
+  const lifted = hydrationFromAnySnapshot({
+    ...buildExcelSampleState(),
+    project: { ...(buildExcelSampleState() as unknown as { project: Record<string, unknown> }).project },
+    assets: (buildExcelSampleState() as unknown as { assets: Record<string, unknown>[] }).assets
+      .map((a, i) => (i === 0 ? { ...a, landChain: { retailAreaPerSlotSqm: 40 } } : a)),
+  }) as unknown as { project: { retailAreaPerSlotSqm?: number } };
+  const notOverridden = hydrationFromAnySnapshot({
+    ...buildExcelSampleState(),
+    project: { ...(buildExcelSampleState() as unknown as { project: Record<string, unknown> }).project, retailAreaPerSlotSqm: 25 },
+    assets: (buildExcelSampleState() as unknown as { assets: Record<string, unknown>[] }).assets
+      .map((a, i) => (i === 0 ? { ...a, landChain: { retailAreaPerSlotSqm: 40 } } : a)),
+  }) as unknown as { project: { retailAreaPerSlotSqm?: number } };
+  const noneAnywhere = hydrationFromAnySnapshot(buildExcelSampleState()) as unknown as
+    { project: { retailAreaPerSlotSqm?: number } };
+  check('U43d hydrate LIFTS a stored per-plot figure onto the project, and never over one already set',
+    lifted.project.retailAreaPerSlotSqm === 40
+    && notOverridden.project.retailAreaPerSlotSqm === 25
+    && noneAnywhere.project.retailAreaPerSlotSqm === undefined,
+    `${String(lifted.project.retailAreaPerSlotSqm)} / ${String(notOverridden.project.retailAreaPerSlotSqm)} / ${String(noneAnywhere.project.retailAreaPerSlotSqm)}`);
+  check('U43b NO per-plot surface offers it any more, in the table or the drawer',
+    !/asset-row-\$\{asset\.id\}-retail-slot/.test(tabSrc)
+    && !/patchChain\(\{ retailAreaPerSlotSqm: v \}\)/.test(tabSrc)
+    && !tabSrc.includes('>Retail GFA / slot (sqm)</th>')
+    && !panel.includes('retailAreaPerSlotSqm')
+    // And the tab feeds the chain the PROJECT figure.
+    && /retailAreaPerSlotSqm: project\.retailAreaPerSlotSqm/.test(tabSrc));
   // THE CHAIN ALREADY NAMES ITS OWN GAP. What was missing was a way to close
   // it, so the gap name and the input must stay wired to one field.
   check('U43c the chain reports the missing figure by name, and it is the field the column writes',
     chainSrc.includes("'no_retail_area_per_slot'")
-    && /out\.retailParkingSlots = Math\.round\(out\.retailGfaSqm \/ i\.retailAreaPerSlotSqm\)/.test(chainSrc));
+    && /out\.retailParkingSlots = Math\.round\(out\.retailGfaSqm \/ s\.retailAreaPerSlotSqm\)/.test(chainSrc)
+    // AND THE RETIRED PER-PLOT FIELD IS READ BY NOTHING, including the
+    // is-the-chain-started test: a legacy snapshot carrying it must not make a
+    // chain look started when nothing else is set. ASKED BY RUNNING IT, because
+    // the source ban was written for one of the two parameter names (`i` in the
+    // chain, `inputs` in the emptiness test) and a sabotage using the other
+    // walked straight through. Both spellings are banned now as well.
+    && landChainIsEmpty({ retailAreaPerSlotSqm: 40 } as never) === true
+    && landChainIsEmpty({ retailAreaPerSlotSqm: 40, farRatio: 2 } as never) === false
+    && !/\b(i|inputs)\.retailAreaPerSlotSqm/.test(chainSrc));
 
   // ── THE TYPE IS VISIBLE WHEREVER A ROW NAMES AN ASSET. ──────────────────
   //
@@ -1408,7 +1451,7 @@ function offlineChecks(): void {
   const withChain = buildExcelSampleState();
   const CHAIN: LandChainInputs = {
     utilisationPct: 95, coveragePct: 55, retailPct: 20, servicePct: 18,
-    farRatio: 3.2, retailAreaPerSlotSqm: 25,
+    farRatio: 3.2,
   };
   for (const a of withChain.assets as Array<Record<string, unknown>>) a.landChain = { ...CHAIN };
   const after = JSON.stringify(computeFinancialsSnapshot(withChain));
@@ -1458,7 +1501,7 @@ function offlineChecks(): void {
     .assets[0] as unknown as Record<string, unknown>;
   const carried = chainedAsset.landChain as LandChainInputs | undefined;
   check('E2 chain inputs survive hydrate VERBATIM',
-    carried?.utilisationPct === 95 && carried?.farRatio === 3.2 && carried?.retailAreaPerSlotSqm === 25);
+    carried?.utilisationPct === 95 && carried?.farRatio === 3.2);
   const areaKeys = ['gfaSqm', 'buaSqm', 'sellableBuaSqm', 'supportArea', 'parkingArea', 'parkingBaysRequired'] as const;
   check('E3 carrying chain inputs changes NO area input on the asset',
     areaKeys.every((k) => JSON.stringify(plainAsset[k]) === JSON.stringify(chainedAsset[k])));

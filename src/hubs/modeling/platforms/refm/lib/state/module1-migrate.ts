@@ -2143,6 +2143,41 @@ export function retireCountryGatedLines(snap: HydrateSnapshot): HydrateSnapshot 
  *  what every hydration path starts from. Only `phases` and `costLines` are
  *  read, and both live at the top level of every snapshot shape, so the
  *  wrapper's other fields pass through untouched. */
+/**
+ * LIFT THE RETIRED PER-PLOT RETAIL AREA-PER-SLOT ONTO THE PROJECT.
+ *
+ * The figure moved off the plot on 2026-09-09 because the reference divides
+ * every plot's retail parking by ONE company figure and the stored history
+ * agreed: across 1,406 versions the per-plot field appears on three assets, all
+ * in one version, all holding 40. Retiring it without this would leave that one
+ * version unable to derive retail parking at all, so its value is lifted.
+ *
+ * ONLY WHEN THE PROJECT HAS NONE. A figure someone typed on the standards tab
+ * outranks one left behind on a plot; this fills an absence, it never overrides
+ * a decision. Whitespace-free by construction: a stored 0 is not lifted either,
+ * because the chain requires a positive figure and a 0 there was never a usable
+ * answer.
+ *
+ * THE PLOT FIELDS ARE LEFT ALONE. Stripping them would rewrite every asset on
+ * load for no gain: nothing reads them any more (landChainIsEmpty no longer
+ * consults it either), and a snapshot that still carries one is evidence of
+ * where the number came from.
+ */
+function liftRetailAreaPerSlot(snapshot: unknown): unknown {
+  if (!snapshot || typeof snapshot !== 'object') return snapshot;
+  const s = snapshot as { project?: Record<string, unknown>; assets?: Record<string, unknown>[] };
+  if (!s.project || !Array.isArray(s.assets)) return snapshot;
+  const already = s.project.retailAreaPerSlotSqm;
+  if (typeof already === 'number' && Number.isFinite(already)) return snapshot;
+  let found: number | undefined;
+  for (const a of s.assets) {
+    const v = (a.landChain as { retailAreaPerSlotSqm?: unknown } | undefined)?.retailAreaPerSlotSqm;
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) { found = v; break; }
+  }
+  if (found === undefined) return snapshot;
+  return { ...s, project: { ...s.project, retailAreaPerSlotSqm: found } };
+}
+
 function repairRawSnapshot(snapshot: unknown): unknown {
   if (!snapshot || typeof snapshot !== 'object') return snapshot;
   const s = snapshot as { phases?: unknown; costLines?: unknown };
@@ -2153,7 +2188,8 @@ function repairRawSnapshot(snapshot: unknown): unknown {
   // LAST in the chain. It reads project.hqOpex and assets[].opex, which no
   // earlier repair touches, so the order is not load bearing; it is placed
   // here so the chain reads in the order the repairs were added.
-  return clearSeededDisabledOpexValues(gated) as unknown;
+  const opexed = clearSeededDisabledOpexValues(gated) as unknown;
+  return liftRetailAreaPerSlot(opexed);
 }
 
 export function hydrationFromAnySnapshotChecked(snapshot: unknown): CheckedHydration {

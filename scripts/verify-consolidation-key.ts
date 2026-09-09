@@ -389,8 +389,13 @@ async function liveChecks(): Promise<void> {
     // THE WORKBOOK'S KEY, run beside ours on the same rows. It drops the phase,
     // exactly as `Schedules - Cluster N` rows 9 to 20 do, and every extra merge
     // it makes is a phase collapse ours refuses.
+    // LIKE FOR LIKE. `groups` excludes companions; this did not, so the two
+    // keys were being compared on different row sets and the retail companions
+    // (2026-09-09) showed up as extra "flattened pairs" that our key had never
+    // been offered. A comparison between two rules has to run them on the same
+    // rows or it measures the difference in the inputs.
     const typeOnly = new Map<string, ConsolidatableAsset[]>();
-    for (const asset of assets) {
+    for (const asset of assets.filter((x) => x.isCompanion !== true)) {
       const parts = consolidationKeyParts(asset, N);
       const k = `${parts.typeKey} ${parts.strategy}`;
       typeOnly.set(k, [...(typeOnly.get(k) ?? []), asset]);
@@ -431,8 +436,14 @@ async function liveChecks(): Promise<void> {
   // check that fails when the feature is finally used is a check that has to be
   // deleted at the worst moment, so what it asserts now is the REASON the two
   // FMP RE HUB pairs stay apart, and the merging count is REPORTED, not pinned.
-  check('E6 the PHASE separates the pairs a type-only key would have flattened',
-    phaseSeparatedPairs === 2,
+  // THE COUNT IS REPORTED, NOT PINNED. It was 2 when written, then 4 when the
+  // founder added a phase-2 line, and a check that fails because the model grew
+  // is a check that gets deleted at the worst moment. What must hold is that
+  // the phase is doing REAL work on live rows: the workbook's type-only key
+  // would flatten pairs that ours keeps apart, and every one of them is
+  // separated by phase alone.
+  check('E6 the PHASE separates pairs a type-only key would have flattened, on live rows',
+    phaseSeparatedPairs >= 1,
     `${totalMerges} merging groups, ${phaseSeparatedPairs} pairs separated by phase alone`);
   // Every merging group is one phase and one type, however many plots it holds.
   check('E6b no merging group spans two phases or two types',

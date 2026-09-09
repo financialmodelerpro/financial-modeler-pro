@@ -1351,6 +1351,9 @@ function buildAssetRows(
             parkingRatio: typeValues?.parkingRatio,
             parkingRatioBasis: typeValues?.parkingRatioBasis,
             parkingAreaPerSlotSqm: project.parkingAreaPerSlotSqm,
+            // ONE COMPANY FIGURE, from the standards tab. It was a column on
+            // every plot row until 2026-09-09.
+            retailAreaPerSlotSqm: project.retailAreaPerSlotSqm,
           },
           computeAssetUnitCount(asset, subUnits),
         );
@@ -1498,8 +1501,10 @@ function AssetInputsTable({
   // adopted. A firm entry and a catalog label that mean the same type collapse
   // to one option, and only the firm's carries a reference.
   const typeChoices = buildTypeChoices(assetTypeRegistry.entries, resolveTypeCatalog(project));
-  // 15 with Retail GFA / slot. Counts agree or U15 fails.
-  const COLS = 15;
+  // 14. The Retail GFA / slot column left on 2026-09-09: it is one company
+  // figure and now lives on the standards tab beside the parking area per slot.
+  // Counts agree or U15 fails.
+  const COLS = 14;
   return (
     <div style={sectionCardStyle} data-testid="assets-table-section">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 'var(--sp-1)' }}>
@@ -1513,7 +1518,7 @@ function AssetInputsTable({
         {/* Identity trimmed to what the text needs, so the five numeric
             columns can hold their wrapped labels ("Retail %", "Util %") at a
             width that fits the numbers too. */}
-        <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1240 }} data-testid="assets-table">
+        <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1150 }} data-testid="assets-table">
           <colgroup>
             <col style={{ width: 26 }} />
             <col style={{ width: 104 }} />
@@ -1522,7 +1527,7 @@ function AssetInputsTable({
             <col style={{ width: 96 }} />
             <col style={{ width: 112 }} />
             <col style={{ width: 92 }} />
-            {Array.from({ length: 7 }).map((_, i) => (<col key={`in-${i}`} style={{ width: 90 }} />))}
+            {Array.from({ length: 6 }).map((_, i) => (<col key={`in-${i}`} style={{ width: 90 }} />))}
             <col style={{ width: 40 }} />
           </colgroup>
           <thead>
@@ -1530,7 +1535,7 @@ function AssetInputsTable({
               {/* Land area moves under Chain inputs, where it belongs: it is
                   step 0 of the chain, the figure every later step multiplies. */}
               <th style={TH_T} colSpan={6}>Asset</th>
-              <th style={TH_T} colSpan={8}>Plot and massing inputs</th>
+              <th style={TH_T} colSpan={7}>Plot and massing inputs</th>
               <th style={TH_T}></th>
             </tr>
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
@@ -1550,14 +1555,6 @@ function AssetInputsTable({
               <th style={TH_N} title="Height limit in storeys. Carried beside FAR for planning, and read by nothing: FAR already states the area this plot may build.">Max Floors</th>
               <th style={TH_N} title="Share of the Building Footprint given to GROUND-FLOOR retail. Reference: Retail % (Ground Floor).">Retail % (ground floor)</th>
               <th style={TH_N} title="Service and back-of-house share off Main Asset GFA. Reference: Service %.">Service %</th>
-              {/* RETAIL PARKING HAS ITS OWN FIGURE, and until now the only
-                  place to type it was inside a row's drawer, under the label
-                  "Retail sqm / slot", which named neither retail parking nor
-                  what it divides. It is a chain input, so it belongs with the
-                  other chain inputs. Without it Retail Parking Slots, Retail
-                  Parking Area and Total Parking Area are all dashes, on every
-                  asset, however much retail GFA the chain has just derived. */}
-              <th style={TH_N} title="Retail GFA per required parking slot. Retail parking divides by THIS, never by the asset's own parking ratio, because a shop's parking is sized off floor area and an apartment's off units. Leave it blank and Retail Parking Slots, Retail Parking Area and Total Parking Area cannot be derived.">Retail GFA / slot (sqm)</th>
               <th style={TH_T}></th>
             </tr>
           </thead>
@@ -1747,7 +1744,6 @@ function AssetInputsTable({
                         <td style={CELL}><ChainCell value={asset.landChain?.maxFloors} testId={`asset-row-${asset.id}-max-floors`} title="Height limit in storeys. Carried, not computed with." onCommit={(v) => patchChain({ maxFloors: v })} /></td>
                         <td style={CELL}><ChainCell value={asset.landChain?.retailPct} testId={`asset-row-${asset.id}-retail`} title="Share of the FOOTPRINT given to ground-floor retail." onCommit={(v) => patchChain({ retailPct: v })} /></td>
                         <td style={CELL}><ChainCell value={asset.landChain?.servicePct} testId={`asset-row-${asset.id}-service`} title="Service and back-of-house share off Main Asset GFA." onCommit={(v) => patchChain({ servicePct: v })} /></td>
-                        <td style={CELL}><ChainCell decimals={AREA_DECIMALS} value={asset.landChain?.retailAreaPerSlotSqm} testId={`asset-row-${asset.id}-retail-slot`} title="Retail GFA per required parking slot. Retail parking divides by THIS, never by the asset's own parking ratio." onCommit={(v) => patchChain({ retailAreaPerSlotSqm: v })} /></td>
                         <td style={CELL}>
                           <button
                             type="button"

@@ -113,7 +113,10 @@ export const PLOT_LEVEL_FIELDS = [
   'landChain.retailPct',
   'landChain.servicePct',
   'landChain.maxFloors',
-  'landChain.retailAreaPerSlotSqm',
+  // landChain.retailAreaPerSlotSqm LEFT THIS LIST on 2026-09-09. It is not a
+  // plot-level field any more, nor a line-level one: it is ONE PROJECT figure
+  // on the standards tab, so it belongs to neither side of a merge and two
+  // plots can no longer disagree about it.
 ] as const;
 
 function readPath(obj: unknown, path: string): unknown {

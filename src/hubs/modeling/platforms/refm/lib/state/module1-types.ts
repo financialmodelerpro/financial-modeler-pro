@@ -376,6 +376,21 @@ export interface Project {
    *  as the rest (basement against surface parking changes it); moved off the
    *  account with mig 244. Absent = not decided, 0 is a decision. */
   parkingAreaPerSlotSqm?: number;
+  /**
+   * Sqm of retail GFA that requires one parking slot.
+   *
+   * MOVED HERE FROM THE PLOT (2026-09-09), beside its sibling above, which is
+   * the same kind of quantity and was already a single value. The reference
+   * divides every plot's retail parking by ONE fixed company figure, and the
+   * stored history agreed before the move: across 1,406 versions the per-plot
+   * field appears on three assets, all in one version, all holding 40.
+   *
+   * Absent = not decided, and retail parking is then NOT derived, which the
+   * chain reports as a gap rather than as zero slots. A typed 0 would be a
+   * decision, and a nonsensical one (no area per slot means infinite slots), so
+   * the chain requires it to be greater than zero.
+   */
+  retailAreaPerSlotSqm?: number;
   currency: string;          // ISO code (e.g. 'SAR', 'USD', 'AED')
   modelType: ModelGranularity;
   startDate: string;         // ISO 'YYYY-MM-DD'
