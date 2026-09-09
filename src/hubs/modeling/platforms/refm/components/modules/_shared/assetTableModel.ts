@@ -249,6 +249,21 @@ export function resolveAssetNsa(
   return { value: 0, source: 'none' };
 }
 
+/**
+ * WHAT KIND OF PRICE A RATE IS, which is not the same question as what it is
+ * PER.
+ *
+ * A sale price is a CAPITAL value. A lease rate is a value PER YEAR. An ADR is
+ * a value PER NIGHT. Dividing any of them by an area gives a number, and only
+ * the first two are a thing anyone would call a rate per sqm.
+ *
+ * FOUND ON LIVE DATA: a hotel line of 140 keys at 850 per room per night
+ * blended to "9 per sqm". That is 119,000 a night over 13,300 sqm, so the
+ * figure is real and its label is a lie: it is per sqm per NIGHT, presented
+ * beside capital values per sqm as though the two could be compared.
+ */
+export type RateTimeBasis = 'capital' | 'year' | 'night';
+
 /** One sub-unit, reduced to what a total needs. */
 export interface SubUnitValueRow {
   areaSqm: number;
@@ -256,6 +271,8 @@ export interface SubUnitValueRow {
   rate?: number;
   /** True when the rate is charged per unit or key, false when per sqm. */
   perUnit: boolean;
+  /** Capital, per year or per night. Absent when the row carries no rate. */
+  timeBasis?: RateTimeBasis;
 }
 
 export interface PooledSubUnits {
@@ -265,11 +282,24 @@ export interface PooledSubUnits {
   /** Value over area. Zero when there is no area, never a division by zero. */
   blendedRate: number;
   /** True when the rows priced here are not all on the same basis, so the
-   *  blended rate mixes a price per unit with a price per sqm. */
+   *  blended rate mixes a price per unit with a price per sqm. That is fine:
+   *  both are values, and the pooled figure is a value per sqm either way. */
   mixedBasis: boolean;
   /** How many rows carried a rate at all, so a caption can say what the
    *  blended figure is actually made of. */
   pricedRows: number;
+  /** The one time basis every priced row shares, or undefined when they do not
+   *  share one. A blend across two of these is not a number. */
+  timeBasis?: RateTimeBasis;
+  /**
+   * Whether the blended figure may be SHOWN.
+   *
+   * False when there is no rate, no area to divide by, more than one time
+   * basis, or a per-NIGHT basis, which the founder ruled out explicitly: a line
+   * priced per room per night must not blend against sqm. The value is still
+   * computed and carried, so a caller can say WHY rather than showing nothing.
+   */
+  blendable: boolean;
 }
 
 /**
@@ -289,6 +319,7 @@ export interface PooledSubUnits {
 export function poolSubUnits(rows: readonly SubUnitValueRow[]): PooledSubUnits {
   let areaSqm = 0, units = 0, value = 0, pricedRows = 0;
   const bases = new Set<boolean>();
+  const times = new Set<RateTimeBasis>();
   for (const r of rows) {
     areaSqm += Number.isFinite(r.areaSqm) ? r.areaSqm : 0;
     if (typeof r.units === 'number' && Number.isFinite(r.units)) units += r.units;
@@ -299,7 +330,9 @@ export function poolSubUnits(rows: readonly SubUnitValueRow[]): PooledSubUnits {
     value += rate * qty;
     pricedRows += 1;
     bases.add(r.perUnit);
+    if (r.timeBasis) times.add(r.timeBasis);
   }
+  const timeBasis = times.size === 1 ? [...times][0] : undefined;
   return {
     areaSqm,
     units,
@@ -307,5 +340,38 @@ export function poolSubUnits(rows: readonly SubUnitValueRow[]): PooledSubUnits {
     blendedRate: areaSqm > 0 ? value / areaSqm : 0,
     mixedBasis: bases.size > 1,
     pricedRows,
+    timeBasis,
+    // A PER-NIGHT RATE IS NOT BLENDED AGAINST SQM. Nor are two time bases
+    // added together. Both produce a real number and a false label, which is
+    // worse than a dash because it invites a comparison that does not hold.
+    blendable: pricedRows > 0 && areaSqm > 0
+      && timeBasis !== undefined && timeBasis !== 'night',
   };
+}
+
+// ── MINTING AN ID THAT CANNOT COLLIDE ─────────────────────────────────────
+
+let lastMintedId = 0;
+
+/**
+ * A NEW ROW'S ID. Monotonic, never a duplicate, same `prefix_number` shape.
+ *
+ * Every add button on this tab minted `${prefix}_${Date.now()}`, which is
+ * MILLISECOND resolution. Two adds inside one millisecond, which a double-click
+ * on "+ Sub-unit" produces without trying, mint the SAME ID. Everything
+ * downstream keys on it, so from that moment the two rows are one row wearing
+ * two coats: `updateSubUnit(id, patch)` maps the whole array and patches BOTH,
+ * so a rate typed into one appears in the other; `removeSubUnit(id)` deletes
+ * both; and React renders duplicate keys. That is exactly the reported
+ * behaviour, two new sub-units always showing one rate, and nothing in the
+ * codebase copies a rate onto a new row, so a shared id is the only mechanism
+ * that produces it.
+ *
+ * The counter makes the value strictly increasing even when the clock does not
+ * move, so ids stay sortable and stay unique for the life of the tab.
+ */
+export function mintId(prefix: string): string {
+  const now = Date.now();
+  lastMintedId = now > lastMintedId ? now : lastMintedId + 1;
+  return `${prefix}_${lastMintedId}`;
 }

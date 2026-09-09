@@ -80,6 +80,7 @@ import {
 import LandChainSection from './_shared/LandChainSection';
 import {
   groupAssetsByPlot,
+  mintId,
   partitionSubUnitsByLine,
   plotCheckText,
   poolSubUnits,
@@ -87,6 +88,9 @@ import {
   resolveAssetNsa,
   type AssetPlotGroup,
   type NsaSource,
+  type PooledSubUnits,
+  type RateTimeBasis,
+  type SubUnitValueRow,
   type ResolvedNsa,
 } from './_shared/assetTableModel';
 import {
@@ -236,6 +240,29 @@ function rateUnitLabel(category: SubUnitCategory, metric: SubUnitMetric): string
   if (category === 'Sellable') return metric === 'units' ? 'per unit' : 'per sqm';
   if (category === 'Operable') return metric === 'units' ? 'per room/night' : 'per sqm/year';
   if (category === 'Leasable') return metric === 'units' ? 'per unit/year' : 'per sqm/year';
+  return '';
+}
+
+/**
+ * WHAT KIND OF PRICE THAT RATE IS, read off the SAME two inputs and kept
+ * directly beneath the label so the two cannot drift.
+ *
+ * The label above already carries the answer in words ("per room/night" is a
+ * nightly rate); this is the same fact in a form arithmetic can use, because a
+ * total that adds a capital price to a nightly one is not a number.
+ */
+function rateTimeBasis(category: SubUnitCategory, metric: SubUnitMetric): RateTimeBasis | undefined {
+  if (category === 'Support') return undefined;
+  if (category === 'Sellable') return 'capital';
+  if (category === 'Operable') return metric === 'units' ? 'night' : 'year';
+  if (category === 'Leasable') return 'year';
+  return undefined;
+}
+
+/** How a blended figure is labelled, given the one basis its rows share. */
+function blendedRateUnit(basis: RateTimeBasis | undefined): string {
+  if (basis === 'capital') return 'per sqm';
+  if (basis === 'year') return 'per sqm/year';
   return '';
 }
 
@@ -483,7 +510,7 @@ export default function Module1Assets(): React.JSX.Element {
     if (!asset) return;
     const isLease = asset.strategy === 'Lease';
     addSubUnit({
-      id: `subunit_${Date.now()}`,
+      id: mintId('subunit'),
       assetId,
       name: '',
       category: isLease ? 'Leasable' : asset.strategy === 'Operate' ? 'Operable' : 'Sellable',
@@ -524,7 +551,7 @@ export default function Module1Assets(): React.JSX.Element {
     // The cash / in-kind split routes value rather than creating it, so it
     // stays as it was and moves nothing at a zero rate.
     addParcel({
-      id: `parcel_${Date.now()}`,
+      id: mintId('parcel'),
       phaseId: phases[0].id,
       name: `Land ${parcels.length + 1}`,
       area: 0,
@@ -553,7 +580,7 @@ export default function Module1Assets(): React.JSX.Element {
     const named = parcelId ? parcels.find((p) => p.id === parcelId) : undefined;
     const fallbackParcel = named ?? phaseParcels[0] ?? parcels[0];
     addAsset({
-      id: `asset_${Date.now()}`,
+      id: mintId('asset'),
       phaseId,
       // NO INVENTED NAME. "Asset 3" is not an identity, it is a placeholder a
       // user then feels obliged to replace, and the schedules group by type and
@@ -2085,11 +2112,48 @@ function SubUnitNumber({
   );
 }
 
+/**
+ * WHY THE BLENDED RATE READS WHAT IT READS, in one sentence and one place.
+ *
+ * A dash is never left to speak for itself: every reason it can be a dash is
+ * named here, because "-" beside a column of real numbers is read as a defect
+ * until something says otherwise.
+ */
+function blendedBasisText(t: PooledSubUnits): string {
+  if (t.pricedRows === 0) return 'no rates';
+  if (t.areaSqm <= 0) return 'no area to divide by';
+  if (t.timeBasis === 'night') return 'per room/night, not blended against sqm';
+  if (t.timeBasis === undefined) return 'mixed time bases, not blendable';
+  return t.mixedBasis
+    ? `${blendedRateUnit(t.timeBasis)}, blended over per-unit and per-sqm rates`
+    : blendedRateUnit(t.timeBasis);
+}
+
 /** One sub-unit row, with the plot asset it still belongs to carried beside it
  *  so a line built from two plots can say which is which. */
 interface SubUnitRowRef {
   unit: SubUnit;
   asset?: Asset;
+}
+
+/**
+ * ONE SUB-UNIT, REDUCED TO WHAT A TOTAL NEEDS, in one place.
+ *
+ * The line total and the table foot both reduce the same rows, and they did it
+ * with two copies of this arithmetic. Two copies of a rule that decides what a
+ * row is WORTH is exactly the shape this codebase keeps finding at the bottom
+ * of its defects, so there is one.
+ */
+function subUnitValueRow(unit: SubUnit, asset?: Asset): SubUnitValueRow {
+  const isUnits = (asset?.subUnitMetric ?? unit.metric) === 'units';
+  const unitArea = Math.max(0, unit.unitArea ?? 0);
+  return {
+    areaSqm: isUnits ? unit.metricValue * unitArea : unit.metricValue,
+    units: isUnits ? unit.metricValue : (unitArea > 0 ? Math.round(unit.metricValue / unitArea) : undefined),
+    rate: unit.unitPrice,
+    perUnit: isUnits,
+    timeBasis: rateTimeBasis(unit.category, isUnits ? 'units' : 'area'),
+  };
 }
 
 /**
@@ -2161,16 +2225,7 @@ function groupSubUnitsByLine(
       if (r.source === 'entered') sawEntered = true;
     }
     const nsaSource: NsaSource = sawEntered ? 'entered' : (sawChain ? 'chain' : 'none');
-    const totals = poolSubUnits(rows.map(({ unit, asset }) => {
-      const isUnits = (asset?.subUnitMetric ?? unit.metric) === 'units';
-      const unitArea = Math.max(0, unit.unitArea ?? 0);
-      return {
-        areaSqm: isUnits ? unit.metricValue * unitArea : unit.metricValue,
-        units: isUnits ? unit.metricValue : (unitArea > 0 ? Math.round(unit.metricValue / unitArea) : undefined),
-        rate: unit.unitPrice,
-        perUnit: isUnits,
-      };
-    }));
+    const totals = poolSubUnits(rows.map(({ unit, asset }) => subUnitValueRow(unit, asset)));
     let status: 'ok' | 'under' | 'over' | undefined;
     // A HUNDREDTH OF A SQM IS NOT A DISAGREEMENT. The tolerance is absolute and
     // tiny, so a real gap always shows and float noise never does.
@@ -2296,12 +2351,12 @@ function SubUnitsTable({
             <tbody>
               {subUnitLines.flatMap((line) => {
                 const nsa = line.nsa;
-                // A BLENDED RATE NEEDS BOTH HALVES. A line that is priced but
-                // has no area (units entered with no unit size, which is real on
-                // live data) divides by zero, and printing the 0 that falls out
-                // asserts a rate of nothing. It is a dash, like every other
-                // figure here that cannot be derived.
-                const priced = line.totals.pricedRows > 0 && line.totals.areaSqm > 0;
+                // WHETHER A BLEND MAY BE SHOWN is decided in the pooling, on
+                // `blendable`, not here: a line priced but with no area divides
+                // by zero, and a line priced per NIGHT has no business being
+                // divided by sqm at all. Both were local conditions until they
+                // became a rule, and the reason for the dash is one sentence in
+                // blendedBasisText rather than a condition per surface.
                 return [
                 // ONE HEADER ROW, in the same pale style as the plot headers on
                 // tables 2 and 3. It was two: a navy line bar and a pale
@@ -2471,8 +2526,23 @@ function SubUnitsTable({
                           scale: at 'thousands' a rate of 18,500 rendered as
                           "19". The card always showed rates at full scale; so
                           does this. */}
-                      <td style={CELL_NUM} data-testid={`subunits-row-${u.id}-rate`}>
-                        {formatAccounting(u.unitPrice, 'full', project.displayDecimals ?? 2)}
+                      {/* EDITABLE, at last. This cell has been read-only text
+                          since the table was built, so the only place to set a
+                          rate was the drawer's own sub-unit table. A COMPANION
+                          MIRROR writes the ADR too, exactly as that drawer row
+                          does: the engine reads startingAdr for an Operate
+                          asset, and the mirror is rebuilt from the parent with
+                          startingAdr preserved, so writing only unitPrice there
+                          would be silently discarded on the next edit. */}
+                      <td style={CELL}>
+                        <SubUnitNumber
+                          value={u.unitPrice}
+                          testId={`subunits-row-${u.id}-rate`}
+                          title={`Price, ${rateUnitLabel(u.category, isUnits ? 'units' : 'area') || 'no rate for this category'}. Full scale always: a rate is a price, not a project total.`}
+                          onCommit={(v) => onUpdate(u.id, u.parentSubUnitId !== undefined
+                            ? { unitPrice: v ?? 0, startingAdr: v ?? 0 }
+                            : { unitPrice: v ?? 0 })}
+                        />
                       </td>
                       <td style={{ ...CELL, fontSize: 10, color: 'var(--color-meta)' }} data-testid={`subunits-row-${u.id}-rate-basis`}>
                         {rateUnitLabel(u.category, isUnits ? 'units' : 'area') || 'no rate'}
@@ -2494,7 +2564,8 @@ function SubUnitsTable({
                 // VALUE OVER AREA, never an average of rates: averaging weights
                 // a 200 sqm shop equally with a 20,000 sqm tower, so the answer
                 // would move when a row is split in two.
-                <tr key={`total-${line.key}`} style={{ borderBottom: '2px solid var(--color-navy)' }}
+                <tr key={`total-${line.key}`}
+                  style={{ background: 'var(--color-primary-pale)', borderBottom: '2px solid var(--color-navy)' }}
                   data-testid={`subunits-line-${line.key}-totals`}>
                   <td style={{ ...CELL, fontWeight: 700 }} colSpan={2}>Line total</td>
                   <td style={CELL_NUM} />
@@ -2505,13 +2576,11 @@ function SubUnitsTable({
                     {Math.round(line.totals.units).toLocaleString()}
                   </td>
                   <td style={{ ...CELL_NUM, fontWeight: 700 }} data-testid={`subunits-line-${line.key}-blended-rate`}
-                    title="Total value over total area. A row's value is its rate times what the rate is per: units for a per-unit or per-key price, area for a per-sqm one.">
-                    {priced ? formatAccounting(line.totals.blendedRate, 'full', project.displayDecimals ?? 2) : '-'}
+                    title="Total value over total area. A row's value is its rate times what the rate is per: units for a per-unit or per-key price, area for a per-sqm one. A nightly rate is not blended against sqm.">
+                    {line.totals.blendable ? formatAccounting(line.totals.blendedRate, 'full', project.displayDecimals ?? 2) : '-'}
                   </td>
                   <td style={{ ...CELL, fontSize: 10, color: 'var(--color-meta)' }} data-testid={`subunits-line-${line.key}-blended-basis`}>
-                    {line.totals.pricedRows === 0 ? 'no rates'
-                      : line.totals.areaSqm <= 0 ? 'no area to divide by'
-                        : line.totals.mixedBasis ? 'per sqm, blended over mixed bases' : 'per sqm'}
+                    {blendedBasisText(line.totals)}
                   </td>
                   <td style={CELL} />
                 </tr>,
@@ -2521,16 +2590,9 @@ function SubUnitsTable({
                   management can read the pooled price against the individual
                   ones without adding up the lines by hand. */}
               {subUnitLines.length > 0 && (() => {
-                const all = poolSubUnits(subUnitLines.flatMap((l) => l.rows.map(({ unit: u, asset }) => {
-                  const isUnits = (asset?.subUnitMetric ?? u.metric) === 'units';
-                  const unitArea = Math.max(0, u.unitArea ?? 0);
-                  return {
-                    areaSqm: isUnits ? u.metricValue * unitArea : u.metricValue,
-                    units: isUnits ? u.metricValue : (unitArea > 0 ? Math.round(u.metricValue / unitArea) : undefined),
-                    rate: u.unitPrice,
-                    perUnit: isUnits,
-                  };
-                })));
+                const all = poolSubUnits(
+                  subUnitLines.flatMap((l) => l.rows.map(({ unit, asset }) => subUnitValueRow(unit, asset))),
+                );
                 return (
                   <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}
                     data-testid="subunits-project-totals">
@@ -2540,14 +2602,11 @@ function SubUnitsTable({
                     <td style={{ ...CELL_NUM, color: 'inherit' }} />
                     <td style={{ ...CELL_NUM, fontWeight: 700, color: 'inherit' }} data-testid="subunits-project-total-units">{Math.round(all.units).toLocaleString()}</td>
                     <td style={{ ...CELL_NUM, fontWeight: 700, color: 'inherit' }} data-testid="subunits-project-blended-rate"
-                      title="Total value over total area, across every line.">
-                      {all.pricedRows > 0 && all.areaSqm > 0
-                        ? formatAccounting(all.blendedRate, 'full', project.displayDecimals ?? 2) : '-'}
+                      title="Total value over total area, across every line. Refused when the lines are not all priced on one time basis: a capital price and a nightly rate do not add up.">
+                      {all.blendable ? formatAccounting(all.blendedRate, 'full', project.displayDecimals ?? 2) : '-'}
                     </td>
                     <td style={{ ...CELL, fontSize: 10, color: 'inherit' }} data-testid="subunits-project-blended-basis">
-                      {all.pricedRows === 0 ? 'no rates'
-                        : all.areaSqm <= 0 ? 'no area to divide by'
-                          : all.mixedBasis ? 'per sqm, blended over mixed bases' : 'per sqm'}
+                      {blendedBasisText(all)}
                     </td>
                     <td style={{ ...CELL, color: 'inherit' }} />
                   </tr>
@@ -2684,7 +2743,7 @@ function AssetCard({
   const handleAddSubUnit = (): void => {
     const category = asset.strategy === 'Lease' ? 'Leasable' : asset.strategy === 'Operate' ? 'Operable' : 'Sellable';
     addSubUnit({
-      id: `subunit_${Date.now()}`,
+      id: mintId('subunit'),
       assetId: asset.id,
       name: 'Sub-unit',
       category,

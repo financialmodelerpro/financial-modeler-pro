@@ -38,6 +38,7 @@ import {
 import { resolveAssetPlotDraw, computeAssetLandSqm, computeAssetLandBreakdown, computeLandAggregate } from '../src/core/calculations';
 import {
   groupAssetsByPlot,
+  mintId,
   partitionSubUnitsByLine,
   poolSubUnits,
   primaryParcelId,
@@ -354,9 +355,23 @@ function offlineChecks(): void {
     && !tabSrc.includes('data-testid={`asset-${asset.id}-remove`}')
     && tabSrc.includes('asset-row-${asset.id}-name'));
   // ── The two defects the first cut shipped, both found on live data ──────
+  // U7 RE-AIMED 2026-09-09 WITH THE CELL. The rate was read-only text rendered
+  // at 'full'; it is an input now, so what must hold is the same rule at the
+  // point of entry: the number a user sees and types is the rate itself, never
+  // divided by the project's display scale. SubUnitNumber renders the raw
+  // value, which is stronger than passing 'full'.
   check('U7 a RATE never takes the project number scale (18,500 per sqm read as "19" at thousands)',
-    tabSrc.includes("formatAccounting(u.unitPrice, 'full'")
-    && !/formatAccounting\(u\.unitPrice,\s*project\.displayScale/.test(tabSrc));
+    /testId=\{`subunits-row-\$\{u\.id\}-rate`\}/.test(tabSrc)
+    && !/formatAccounting\(u\.unitPrice,\s*project\.displayScale/.test(tabSrc)
+    && !/formatAccounting\(u\.unitPrice, scale/.test(tabSrc));
+  // AND IT IS EDITABLE. Every other column on this table got an editor when the
+  // table was built and this one did not, so the only place to set a rate was
+  // the drawer. A column of numbers nobody can click is read as broken.
+  check('U7b the rate is an INPUT, and a companion mirror writes the ADR with it',
+    /<SubUnitNumber\s+value=\{u\.unitPrice\}/.test(tabSrc.replace(/\s*\n\s*/g, ' '))
+    && /u\.parentSubUnitId !== undefined/.test(tabSrc)
+    && /\{ unitPrice: v \?\? 0, startingAdr: v \?\? 0 \}/.test(tabSrc)
+    && /\{ unitPrice: v \?\? 0 \}/.test(tabSrc));
   check('U8 a count nobody can derive is a DASH, not a zero',
     tabSrc.includes('const count: number | undefined')
     && tabSrc.includes('(unitArea > 0 ? Math.round(u.metricValue / unitArea) : undefined)')
@@ -675,25 +690,81 @@ function offlineChecks(): void {
   check('U29c2 a rate is multiplied by WHAT IT IS PER, units for a per-unit price',
     perUnit.value === 200000 && perUnit.blendedRate === 200,
     `${perUnit.value} / ${perUnit.blendedRate}`);
-  check('U29d a blended rate over MIXED bases says so rather than reading clean',
-    /mixedBasis: bases\.size > 1/.test(modelSrc)
-    && subBody.includes('blended over mixed bases')
-    // No rate anywhere is a DASH, not a rate of zero.
-    && subBody.includes("'no rates'"));
+  // U29d IS RUN, NOT READ, and it grew a second half. A per-NIGHT rate must
+  // never be blended against sqm: a hotel line of 140 keys at 850 a night
+  // blended to "9 per sqm" on live data, which is 119,000 a night over 13,300
+  // sqm, a real number under a false label, sitting beside capital values per
+  // sqm as though the two could be compared.
+  const nightly = poolSubUnits([{ areaSqm: 13300, units: 140, rate: 850, perUnit: true, timeBasis: 'night' }]);
+  const yearly = poolSubUnits([{ areaSqm: 4275, units: 0, rate: 1400, perUnit: false, timeBasis: 'year' }]);
+  const mixedTime = poolSubUnits([
+    { areaSqm: 1000, units: 4, rate: 100, perUnit: false, timeBasis: 'capital' },
+    { areaSqm: 1000, units: 4, rate: 100, perUnit: false, timeBasis: 'year' },
+  ]);
+  check('U29d a per-NIGHT line is not blended against sqm, and two time bases are not added',
+    nightly.blendable === false && nightly.timeBasis === 'night'
+    && yearly.blendable === true && yearly.timeBasis === 'year'
+    && mixedTime.blendable === false && mixedTime.timeBasis === undefined
+    // The per-unit vs per-sqm mix is still only a NOTE: both are values, so the
+    // pooled figure is a value per sqm either way.
+    && poolSubUnits([
+      { areaSqm: 1000, units: 4, rate: 100, perUnit: false, timeBasis: 'capital' },
+      { areaSqm: 1000, units: 4, rate: 100, perUnit: true, timeBasis: 'capital' },
+    ]).blendable === true,
+    `night ${nightly.blendable} / year ${yearly.blendable} / mixed ${mixedTime.blendable}`);
+  check('U29d2 the time basis is read off the SAME two inputs as the rate label, right beside it',
+    /function rateTimeBasis\(category: SubUnitCategory, metric: SubUnitMetric\)/.test(tabSrc)
+    && tabSrc.indexOf('function rateTimeBasis(') - tabSrc.indexOf('function rateUnitLabel(') < 1200
+    && /if \(category === 'Operable'\) return metric === 'units' \? 'night' : 'year';/.test(tabSrc)
+    && /timeBasis: rateTimeBasis\(unit\.category, isUnits \? 'units' : 'area'\)/.test(tabSrc));
   // U29e FOUND ON LIVE DATA, not reasoned about. A line priced but with NO
   // AREA (units entered with no unit size, which two live lines have) divides
   // by zero, and the 0 that falls out prints as a rate of nothing. Absent is
-  // not zero, here as everywhere.
-  check('U29e a priced line with no area shows a DASH, not a rate of zero',
-    /const priced = line\.totals\.pricedRows > 0 && line\.totals\.areaSqm > 0;/.test(subBody)
-    && /all\.pricedRows > 0 && all\.areaSqm > 0/.test(subBody)
-    && subBody.includes('no area to divide by'));
+  // not zero, here as everywhere. EVERY reason for the dash is NAMED, because
+  // a dash beside a column of real numbers reads as a defect until something
+  // says otherwise.
+  const noArea = poolSubUnits([{ areaSqm: 0, units: 140, rate: 850, perUnit: true, timeBasis: 'capital' }]);
+  check('U29e a priced line with no area shows a DASH, not a rate of zero, and says why',
+    noArea.blendable === false
+    && poolSubUnits([]).blendable === false
+    && /function blendedBasisText\(t: PooledSubUnits\): string/.test(tabSrc)
+    && ['no rates', 'no area to divide by', 'per room/night, not blended against sqm',
+      'mixed time bases, not blendable']
+      .every((t) => tabSrc.includes(`'${t}'`))
+    // BOTH totals rows route through it, so the line and the foot cannot give
+    // two different reasons for the same dash.
+    && (subBody.match(/blendedBasisText\(/g) ?? []).length === 2
+    && /\{line\.totals\.blendable \?/.test(subBody)
+    && /\{all\.blendable \?/.test(subBody));
   // AND A COUNT TOTAL PRINTS WHOLE. Some stored counts are fractional
   // (309.9854 on a live line), and toLocaleString would have printed
   // "309.985" units.
   check('U29f the unit totals print WHOLE, like every other count on this tab',
     /Math\.round\(line\.totals\.units\)\.toLocaleString\(\)/.test(subBody)
     && /Math\.round\(all\.units\)\.toLocaleString\(\)/.test(subBody));
+  // U29h ONE BAND. The line total carried no background at all, so it rendered
+  // white directly above the navy project foot and the two read as a single
+  // half-and-half strip. It is the closing band of its own line, so it wears
+  // that line's pale header band.
+  check('U29h the line total is ONE band, the same pale one its line header wears',
+    /style=\{\{ background: 'var\(--color-primary-pale\)', borderBottom: '2px solid var\(--color-navy\)' \}\}/
+      .test(subBody)
+    && (subBody.match(/background: 'var\(--color-primary-pale\)'/g) ?? []).length === 2);
+  // ── U29i THE ID THAT COULD NOT BE UNIQUE. Every add button minted
+  // `${prefix}_${Date.now()}`, millisecond resolution, so a double-click made
+  // two rows share one id: an edit to either patched both, a delete removed
+  // both, and React saw duplicate keys. That is the reported "two sub-units,
+  // one rate" exactly, and nothing in the codebase copies a rate onto a new row.
+  const minted = Array.from({ length: 500 }, () => mintId('subunit'));
+  check('U29i a new row id is unique even when the clock does not move',
+    new Set(minted).size === 500
+    && minted.every((x) => /^subunit_\d+$/.test(x))
+    // Strictly increasing, so ids stay sortable.
+    && minted.every((x, i) => i === 0 || Number(x.slice(8)) > Number(minted[i - 1].slice(8))),
+    `${new Set(minted).size} distinct of 500`);
+  check('U29i2 NO add button mints an id from the clock alone any more',
+    !/Date\.now\(\)\}`/.test(tabSrc)
+    && (tabSrc.match(/id: mintId\('/g) ?? []).length === 4);
 
   // ── THE SUB-UNIT PARTITION. Checked by RUNNING it, not by reading it.
   //
