@@ -56,16 +56,22 @@ const a = (o: Partial<ConsolidatableAsset> & { id: string }): ConsolidatableAsse
 
 function offlineChecks(): void {
   // ── A. The key ─────────────────────────────────────────────────────────
-  section('A. The key is phase, type and strategy');
+  section('A. The key is phase and type');
   check('A1 two assets of the same type and strategy in the SAME phase share a key',
     consolidationKey(a({ id: 'x', type: 'Strip Retail', strategy: 'Lease' }), N)
     === consolidationKey(a({ id: 'y', type: 'Strip Retail', strategy: 'Lease' }), N));
   check('A2 the SAME type and strategy in a DIFFERENT phase does NOT merge',
     consolidationKey(a({ id: 'x', phaseId: 'p2', type: 'Strip Retail', strategy: 'Lease' }), N)
     !== consolidationKey(a({ id: 'y', phaseId: 'p3', type: 'Strip Retail', strategy: 'Lease' }), N));
-  check('A3 the same type on a DIFFERENT strategy does NOT merge',
+  // A3 IS THE REVERSE OF WHAT IT ASSERTED, and the reversal is the whole merge
+  // rule. Strategy used to split the key, so two plots of one type on two
+  // strategies were two lines. Strategy is now a property OF the line: the
+  // fields that collided between plots belong to the line, not the plot, so
+  // neither plot holds them and the merge is unconditional. Same type, same
+  // phase, one line. See resolveConsolidatedLine for how the value is taken.
+  check('A3 the same type on a DIFFERENT strategy now DOES merge, because the strategy is the line\'s',
     consolidationKey(a({ id: 'x', type: 'Strip Retail', strategy: 'Lease' }), N)
-    !== consolidationKey(a({ id: 'y', type: 'Strip Retail', strategy: 'Sell' }), N));
+    === consolidationKey(a({ id: 'y', type: 'Strip Retail', strategy: 'Sell' }), N));
   check('A4 free text and the registry id land in the SAME identity',
     consolidationKey(a({ id: 'x', type: 'Branded Villas' }), N)
     === consolidationKey(a({ id: 'y', assetTypeId: 'branded-villas' }), N));
@@ -107,16 +113,29 @@ function offlineChecks(): void {
     a({ id: '6', phaseId: 'p1' }),
   ];
   const gs = groupAssetsForConsolidation(many, ['p1', 'p2'], N);
-  check('C1 every asset lands in exactly one group and none is dropped',
-    gs.reduce((s, g) => s + g.assets.length, 0) === many.length
-    && new Set(gs.flatMap((g) => g.assets.map((x) => x.id))).size === many.length);
+  // COMPANIONS ARE EXCLUDED BY DESIGN, so "none is dropped" is now "every
+  // non-companion lands in exactly one group, and every companion in none".
+  // Stating both halves is what stops the exclusion widening quietly.
+  const real = many.filter((x) => x.isCompanion !== true);
+  check('C1 every NON-COMPANION asset lands in exactly one group, and no companion lands anywhere',
+    gs.reduce((s, g) => s + g.assets.length, 0) === real.length
+    && new Set(gs.flatMap((g) => g.assets.map((x) => x.id))).size === real.length
+    && gs.every((g) => g.assets.every((x) => x.isCompanion !== true)));
   check('C2 the three same-phase Apartments/Sell rows are ONE group',
     gs.some((g) => g.assets.length === 3 && g.typeLabel === 'Apartments' && g.strategy === 'Sell'));
-  check('C3 phase order leads the sort, then type, then strategy',
-    gs.map((g) => g.phaseId).join(',') === 'p1,p1,p2,p2', gs.map((g) => `${g.phaseId}/${g.typeLabel}`).join(' | '));
-  check('C4 companions and hidden members are COUNTED, not silently filtered',
-    gs.find((g) => g.assets.length === 3)?.hiddenCount === 1
-    && gs.find((g) => g.strategy === 'Operate')?.companionCount === 1);
+  check('C3 phase order leads the sort, then type',
+    gs.map((g) => g.phaseId).join(',') === 'p1,p1,p2',
+    gs.map((g) => `${g.phaseId}/${g.typeLabel}`).join(' | '));
+  // C4 REVERSED WHEN STRATEGY LEFT THE KEY, and the reversal is the decision.
+  // It asserted that companions were COUNTED rather than filtered, which was
+  // right while strategy was part of the key and a companion could not collide
+  // with its parent. Without strategy in the key it can and does: FMP RE HUB's
+  // "Residential Tower" (Sell + Manage) and its Operate companion share a phase
+  // and a type. A companion is not a plot, so it is excluded at the door, and a
+  // HIDDEN member is still counted because a hidden plot is still a plot.
+  check('C4 a companion is NOT a line member, and a hidden member still is',
+    gs.every((g) => g.assets.every((x) => x.isCompanion !== true))
+    && gs.find((g) => g.assets.length === 3)?.hiddenCount === 1);
   check('C5 a phase the caller did not list sorts LAST, never first',
     groupAssetsForConsolidation(
       [a({ id: 'z', phaseId: 'ghost', type: 'X' }), a({ id: 'y', phaseId: 'p1', type: 'X' })], ['p1'], N,
@@ -360,12 +379,14 @@ async function liveChecks(): Promise<void> {
     }
 
     // Per project, the invariants that make the view safe to build on.
-    check(`E2 ${p.name}: every asset lands in exactly one group, none dropped`,
-      groups.reduce((s, g) => s + g.assets.length, 0) === assets.length
-      && new Set(groups.flatMap((g) => g.assets.map((x) => x.id))).size === assets.length);
-    check(`E3 ${p.name}: no group spans two phases or two strategies`,
-      groups.every((g) => new Set(g.assets.map((x) => x.phaseId)).size === 1
-        && new Set(g.assets.map((x) => x.strategy)).size === 1));
+    const nonCompanion = assets.filter((x) => (x as { isCompanion?: boolean }).isCompanion !== true);
+    check(`E2 ${p.name}: every non-companion asset lands in exactly one group, none dropped`,
+      groups.reduce((s, g) => s + g.assets.length, 0) === nonCompanion.length
+      && new Set(groups.flatMap((g) => g.assets.map((x) => x.id))).size === nonCompanion.length);
+    // A GROUP MAY NOW SPAN TWO STRATEGIES, since strategy is the line's. It may
+    // never span two phases, which is still part of the key.
+    check(`E3 ${p.name}: no group spans two phases`,
+      groups.every((g) => new Set(g.assets.map((x) => x.phaseId)).size === 1));
     check(`E4 ${p.name}: every untyped group holds exactly one asset`,
       groups.filter((g) => !g.typed).every((g) => g.assets.length === 1));
   }

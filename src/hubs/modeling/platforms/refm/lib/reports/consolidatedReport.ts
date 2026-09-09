@@ -72,8 +72,7 @@ export interface ConsolidatedRow {
   assetCount: number;
   /** The names of those assets, so a merged row can still say what is in it. */
   assetNames: string[];
-  /** Members that carry no cost of their own (Operate siblings). */
-  companionCount: number;
+
   land: number;
   hard: number;
   soft: number;
@@ -147,7 +146,6 @@ export function buildConsolidatedReport(
       // The grouping key's asset shape has an optional name; the callers here
       // pass real assets, which always have one.
       assetNames: g.assets.map((a) => a.name ?? ''),
-      companionCount: g.companionCount,
       ...sums,
     };
   });

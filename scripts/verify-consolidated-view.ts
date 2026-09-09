@@ -176,8 +176,13 @@ async function liveChecks(): Promise<void> {
     check(`D1 ${p.name}: consolidated total ties to the per-asset total`,
       Math.abs(rep.difference) < 0.005,
       `${money(rep.totals.total)} vs ${money(rep.perAssetTotal)}`);
-    check(`D2 ${p.name}: every asset appears exactly once`,
-      rep.rows.reduce((s, r) => s + r.assetCount, 0) === state.assets.length);
+    // COMPANIONS ARE NOT LINE MEMBERS, so the count is of real assets. The
+    // TOTAL still ties (D1) because a companion carries no cost of its own: the
+    // engine short-circuits it to zero. That pair is the point, and it is why
+    // the count moving did not move any money.
+    const realAssets = state.assets.filter((x) => (x as { isCompanion?: boolean }).isCompanion !== true);
+    check(`${p.name}: every non-companion asset appears exactly once, and no companion appears`,
+      rep.rows.reduce((s, r) => s + r.assetCount, 0) === realAssets.length);
   }
   check('D3 the census covered the projects that have assets', withAssets >= 2, `${withAssets}`);
   check('D4 the worst reconciliation gap across the platform is zero to the cent',

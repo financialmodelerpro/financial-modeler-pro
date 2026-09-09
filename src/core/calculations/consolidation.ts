@@ -7,7 +7,21 @@
  * fails if that changes. So it can ship before anything consolidates, and an
  * asset's numbers are byte-identical with it present.
  *
- * THE KEY IS (PHASE, TYPE, STRATEGY), AND THE PHASE IS NOT OPTIONAL.
+ * THE KEY IS (PHASE, TYPE). THE PHASE IS NOT OPTIONAL AND THE STRATEGY IS NOT
+ * PART OF IT.
+ *
+ * Strategy left the key on 2026-09-09, and this is the design decision the rest
+ * of consolidation rests on: the fields that used to COLLIDE between two plots
+ * of one type belong to the LINE, not to the plot. Strategy, recognition,
+ * indexation, ADR, opex and its indexation, capex phasing and useful life are
+ * all properties of the thing being built, not of the ground it stands on. Once
+ * they live on the line, two plots cannot disagree about them, because neither
+ * plot holds them. The merge is therefore UNCONDITIONAL: same type, same phase,
+ * one line. A different phase is a different line.
+ *
+ * The plot keeps only what is genuinely per plot: its land area and rate, and
+ * the chain inputs describing that plot's own massing, coverage, FAR, retail
+ * share, service share, utilisation and floors. The line sums the derived areas.
  *
  * The reference workbook keys its roll-up on ASSET TYPE ALONE, then assumes the
  * type determines both the plan and the start year: its schedule takes
@@ -127,7 +141,11 @@ export function consolidationKey(
   normaliseTypeId: NormaliseTypeId,
 ): string {
   const p = consolidationKeyParts(asset, normaliseTypeId);
-  return `${p.phaseId}|${p.typeKey}|${p.strategy}`;
+  // STRATEGY IS CARRIED ON THE PARTS BUT NOT IN THE KEY. It is still read from
+  // the asset today, because that is where it is stored; it is the LINE that
+  // resolves it. Keeping it out of the key is what makes the merge
+  // unconditional.
+  return `${p.phaseId}|${p.typeKey}`;
 }
 
 export interface ConsolidationGroup {
@@ -139,10 +157,18 @@ export interface ConsolidationGroup {
   strategy: string;
   typed: boolean;
   assets: ConsolidatableAsset[];
-  /** Members that are auto-generated Operate siblings. Counted, not filtered:
-   *  which of them a consolidated NUMBER should include is the wiring step's
-   *  decision, and this step must not make it invisibly. */
-  companionCount: number;
+  /**
+   * GONE, and the reason is worth keeping.
+   *
+   * Step 1 counted companions rather than filtering them, on the principle that
+   * this layer should not decide invisibly which members a number includes.
+   * Dropping strategy from the key made that principle point the other way: a
+   * companion and its Sell + Manage parent share a phase and a type, so they
+   * would merge into one line carrying two strategies, which is the one thing a
+   * line cannot hold. A companion is not a plot. It is now excluded at the door,
+   * visibly, in one place, and the counter that would always read zero is gone
+   * rather than left behind to imply otherwise.
+   */
   /** Members not on the model. Counted for the same reason. */
   hiddenCount: number;
 }
@@ -159,12 +185,25 @@ export function groupAssetsForConsolidation(
 ): ConsolidationGroup[] {
   const byKey = new Map<string, ConsolidationGroup>();
   for (const a of assets) {
+    // A COMPANION IS NOT A PLOT AND SO IS NOT A LINE MEMBER.
+    //
+    // It is the Operate sibling of a Sell + Manage asset: the same building
+    // under a second treatment. It carries no land (the engine excludes it from
+    // land aggregation) and no cost (computeAssetCost short-circuits it to
+    // zero), and it exists only as a mirror of its parent's sub-units.
+    //
+    // MEASURED, NOT ASSUMED. Dropping strategy from the key merges FMP RE HUB's
+    // "Residential Tower" (Sell + Manage) with "Residential Tower - Operate"
+    // (Operate) into one phase_2 high-end-apartments line carrying TWO
+    // strategies, which is precisely what a line cannot hold. Excluding
+    // companions leaves every live line on both projects with exactly one
+    // member, which is the state this step has to preserve.
+    if (a.isCompanion === true) continue;
     const parts = consolidationKeyParts(a, normaliseTypeId);
     const key = `${parts.phaseId}|${parts.typeKey}|${parts.strategy}`;
     const existing = byKey.get(key);
     if (existing) {
       existing.assets.push(a);
-      if (a.isCompanion === true) existing.companionCount += 1;
       if (a.visible === false) existing.hiddenCount += 1;
       continue;
     }
@@ -176,7 +215,6 @@ export function groupAssetsForConsolidation(
       strategy: parts.strategy,
       typed: parts.typed,
       assets: [a],
-      companionCount: a.isCompanion === true ? 1 : 0,
       hiddenCount: a.visible === false ? 1 : 0,
     });
   }
