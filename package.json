@@ -10,7 +10,7 @@
     "type-check": "tsc --noEmit",
     "verify": "npm run type-check && npm run lint && npm run build",
     "handoff": "npx tsx scripts/generate-handoff.ts",
-    "verify:suite": "tsx scripts/run-verifiers.ts"
+    "verify:suite": "npx tsx scripts/run-verifiers.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

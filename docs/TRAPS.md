@@ -2500,6 +2500,40 @@ the verifier.
 
 ---
 
+### 10.21 The suite alias could not run at all, and backgrounding turned a hard failure into a finished run
+
+**Symptom (2026-09-09, session close).** `npm run verify:suite` was started in the background. The
+task notification said **"completed (exit code 0)"**, the output file was **empty**, and the obvious
+reading was a suite that had run and printed nothing. It had not run at all.
+
+**Mechanism, in two halves.**
+
+**(a) The alias could never work.** `package.json` had
+`"verify:suite": "tsx scripts/run-verifiers.ts"` with a BARE `tsx`. Measured: `tsx` is not on PATH
+and **is not a dependency of this repo at all** (neither `dependencies` nor `devDependencies`).
+Every other alias that needs it, `handoff` included, already said `npx tsx`. So the ONE command the
+standing verifier rule in CLAUDE.md points at was the one command that could not execute on this
+machine, while the fallback that rule names as a workaround was in fact the only working form.
+
+**(b) Backgrounding hid the failure.** Run in the FOREGROUND, npm fails loudly:
+`'tsx' is not recognized`, exit code **1** (measured twice, from cmd and from bash). Run in the
+BACKGROUND, output is buffered and what you are handed is the WRAPPER's completion, so a hard
+failure is indistinguishable from a long, quiet, successful run. My first report of this said "npm
+exited 0", which was wrong: npm exited 1 and I had read the wrapper's exit for the command's.
+
+**Fix.** `"verify:suite": "npx tsx scripts/run-verifiers.ts"`, matching every other alias, so the
+documented command and the documented fallback are the same thing.
+
+**Generalise, and this is the part that outlives the alias.** **A background task's completion is not
+a result.** Read its OUTPUT before believing anything about it, and treat an empty output file from a
+command that should have printed as evidence of failure, never of success. Same family as 3.20,
+where fourteen verifiers took a credential-gated `else` branch, printed a quiet SKIP and reported a
+pass: a runner that says nothing has not told you it passed.
+
+**Proof.** Measured, not inferred: `npm run verify:suite` exits 1 with the bare alias and resolves
+with `npx`; `which tsx` finds nothing; the package manifest lists no `tsx` in either dependency
+block.
+
 ## 11. Content and house style
 
 ### 11.1 The em-dash rule is unenforced in the database
