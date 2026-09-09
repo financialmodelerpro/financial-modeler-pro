@@ -312,9 +312,15 @@ function offlineChecks(): void {
   section('U. The row carries what a row can, the drawer the rest');
   const tabSrc = readFileSync(
     'src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx', 'utf8');
-  check('U1 the assets table exists, grouped by plot, with a per-plot check',
-    tabSrc.includes('data-testid="assets-table"') && tabSrc.includes('plot-group-${g.key}')
-    && tabSrc.includes('plotCheckText(') && tabSrc.includes('groupAssetsByPlot('));
+  // U1 MOVED FROM PLOT TO LINE. The tables group by the consolidated line now:
+  // a line is one type in one phase and pools land from however many plots feed
+  // it, so a plot cannot be the organising idea without splitting a line in two.
+  // The plots keep their own table above, which is land only.
+  check('U1 the assets table exists, grouped by LINE, with the pooled draw on the header',
+    tabSrc.includes('data-testid="assets-table"')
+    && tabSrc.includes('line-group-${g.key}')
+    && tabSrc.includes('groupAssetsForConsolidation(')
+    && !tabSrc.includes('groupAssetsByPlot('));
   // RE-AIMED 2026-09-08 with the split: the INPUT row carries the five chain
   // percentages (U11 asserts it carries no derived column), and the derived
   // cascade moved to the results table (U12).
@@ -365,14 +371,18 @@ function offlineChecks(): void {
   check('U11 the INPUT table holds no derived column, which is what lets identity be readable',
     tabSrc.includes('data-testid="assets-table"')
     && !/asset-row-\$\{asset\.id\}-(land-utilised|total-gfa|net-saleable|total-bua)/.test(tabSrc));
-  check('U12 the RESULTS table holds the WHOLE cascade through Total BUA, read only',
+  // U12 IS NOW KEYED ON THE LINE, and the cascade is POOLED across its plots
+  // rather than shown per plot. The field list is the same list the pooling
+  // walks, so a chain field added without being pooled fails here.
+  check('U12 the RESULTS table holds the WHOLE cascade through Total BUA, pooled per line, read only',
     tabSrc.includes('data-testid="assets-results-table"')
     && ['land-utilised', 'total-gfa', 'net-saleable', 'units', 'total-bua']
-      .every((k) => tabSrc.includes(`asset-result-\${asset.id}-${k}`))
-    && ['footprintSqm', 'landscapePct', 'landscapeSqm', 'retailGfaSqm', 'lobbyGfaSqm',
+      .every((k) => tabSrc.includes(`line-result-\${group.key}-${k}`))
+    && ['footprintSqm', 'landscapeSqm', 'retailGfaSqm', 'lobbyGfaSqm',
       'mainAssetGfaSqm', 'parkingSlots', 'retailParkingSlots', 'totalParkingSlots',
-      'parkingAreaSqm', 'retailParkingAreaSqm', 'totalParkingAreaSqm']
-      .every((k) => tabSrc.includes(`chain.${k}`)));
+      'parkingAreaSqm', 'retailParkingAreaSqm', 'totalParkingAreaSqm', 'totalBuaSqm']
+      .every((k) => tabSrc.includes(`'${k}'`))
+    && tabSrc.includes('poolLineAreas('));
   // U13 IS SCOPED TO THE RESULTS COMPONENT'S OWN BODY, and it has to be.
   // The first version asserted only that both tables were PASSED the same
   // array, which a re-sort inside the results component satisfies happily: a
@@ -491,17 +501,22 @@ function offlineChecks(): void {
     // above the declaration, which a naive operator match reads as a division.
     && (chainSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
       .match(/maxFloors/g) ?? []).length === 1);
+  // U23: still shown, now on the line row. With one plot they are that plot's;
+  // with several they read as a dash rather than an average, because a unit
+  // size averaged across plots is a number nobody entered.
   check('U23 the two standards that DRIVE the count and the slots are shown, not left invisible',
-    resultsBody.includes('asset-result-${asset.id}-unit-size')
-    && resultsBody.includes('asset-result-${asset.id}-parking-ratio')
-    && /unitSizeSqm/.test(tabSrc) && /parkingRatioBasis/.test(resultsBody));
+    /unitSizeSqm/.test(resultsBody) && /parkingRatio/.test(resultsBody)
+    && /rows\.length === 1 \? d\(first\.unitSizeSqm\) : '-'/.test(resultsBody)
+    && /rows\.length === 1 \? n\(first\.parkingRatio\) : '-'/.test(resultsBody));
+  // U24: the counts are pooled now, so they come through w(), which is whole()
+  // over the pooled value. The invariant is unchanged: a count never renders
+  // through the 2-decimal formatter, where a rounding regression could hide.
   check('U24 counts render WHOLE, through their own formatter, not through a 2-decimal one',
     /const whole = \(v: number \| undefined\)/.test(resultsBody)
-    && /whole\(chain\.units\)/.test(resultsBody)
-    && /whole\(chain\.parkingSlots\)/.test(resultsBody)
-    && /whole\(chain\.retailParkingSlots\)/.test(resultsBody)
-    && /whole\(chain\.totalParkingSlots\)/.test(resultsBody)
-    && !/n\(chain\.(units|parkingSlots|retailParkingSlots|totalParkingSlots)\)/.test(resultsBody));
+    && /const w = \(k: string\): string =>/.test(resultsBody)
+    && ["w('units')", "w('parkingSlots')", "w('retailParkingSlots')", "w('totalParkingSlots')"]
+      .every((k) => resultsBody.includes(k))
+    && !/p\('units'\)|p\('parkingSlots'\)/.test(resultsBody));
   // U25 EXISTS BECAUSE PROJECT TOTALS CONTRADICTED THE TABLES ABOVE IT. It
   // showed the same three quantities under our internal names, and the outer
   // two of those invert, so its BUA tile was the tables' Total GFA.
@@ -590,11 +605,18 @@ function offlineChecks(): void {
     // The sqm already drawn survives the move: reassigning a plot is not a
     // reason to delete an input the user typed.
     && /\.\.\.\(asset\.landAllocation \?\? \{ sqm: 0 \}\), parcelId: next/.test(inputsBody));
-  check('U37 "Add asset here" seeds the plot it was clicked on, not the phase first parcel',
+  // U37 CHANGED WITH THE HEADER. "+ Add asset here" sat on a PLOT header and
+  // had to seed that plot. The header is a LINE now, and a new plot on a line is
+  // by definition a plot it does not already draw from, so the button seeds the
+  // line's PHASE and leaves the plot to the row's own picker. The parcelId
+  // parameter stays and is still honoured, because the picker and the drawer
+  // both assign a plot and the resolution must not fork.
+  check('U37 the line add button seeds the PHASE, and the plot is chosen in the row',
     /handleAddAssetToPhase = \(phaseId: string, parcelId\?: string\)/.test(tabSrc)
     && /const named = parcelId \? parcels\.find\(\(p\) => p\.id === parcelId\) : undefined;/.test(tabSrc)
     && /const fallbackParcel = named \?\? phaseParcels\[0\] \?\? parcels\[0\];/.test(tabSrc)
-    && /onAddAsset\(g\.parcel!\.phaseId, g\.parcel!\.id\)/.test(tabSrc));
+    && /onAddAsset\(g\.phaseId\)/.test(tabSrc)
+    && inputsBody.includes('asset-row-${asset.id}-plot'));
 
   // ── THE PLOT DRAW. One rule, three former readers, and a sole occupant that
   // draws its whole plot without anyone typing it.
@@ -794,11 +816,21 @@ function offlineChecks(): void {
     /textAlign: 'center'/.test(tabSrc.slice(tabSrc.indexOf('const TH_T'), tabSrc.indexOf('const TABLE_INPUT')))
     && /whiteSpace: 'normal'/.test(tabSrc.slice(tabSrc.indexOf('const TH_T'), tabSrc.indexOf('const TABLE_INPUT')))
     && /const TH_N: React\.CSSProperties = \{ \.\.\.TH_T \};/.test(tabSrc));
-  check('U14 the plot grouping is one shared header, and the CHECK is on the input table only',
-    tabSrc.includes('function PlotHeaderRow(')
-    && tabSrc.includes('showCheck onAddAsset={onAddAsset}')
-    && tabSrc.includes('showCheck={false}')
-    && tabSrc.includes('plot-group-${g.key}-check'));
+  // U14: ONE shared header, still, but it is the LINE's and what it shows is
+  // the pooled DRAW rather than a per-plot sum check. The check moved with the
+  // land: a plot's own total is on the plots table, and what matters on a line
+  // is how much land it pools and from how many plots.
+  check('U14 the line grouping is one shared header, and the DRAW is on the input table only',
+    tabSrc.includes('function LineHeaderRow(')
+    // WHITESPACE-INSENSITIVE. The first cut matched 'showDraw' followed by a
+    // literal newline, which is false on a CRLF checkout: it then failed on
+    // THREE unrelated sabotages purely because git had converted the line
+    // endings between runs. A check that fires for the wrong reason is worse
+    // than no check, because it teaches you to ignore it. What is meant is that
+    // the one header is used BOTH ways, so that is what is asserted.
+    && /showDraw\s*$/m.test(tabSrc) && tabSrc.includes('showDraw={false}')
+    && tabSrc.includes('line-group-${g.key}-land')
+    && !tabSrc.includes('function PlotHeaderRow('));
   // The two split entries are dropped from this list with the feature (U3
   // asserts they are gone); the rest of what a row cannot hold still has a
   // home, and the rate-annotated parcel picker is now the reason the land

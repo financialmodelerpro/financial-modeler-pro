@@ -256,9 +256,22 @@ function offlineChecks(): void {
   // REPORT builder, which is a presentation layer read by one screen. What must
   // stay true is that no CALCULATION and no RESOLVER touches it, because that is
   // what would make the grouping key part of how money is computed.
-  const CONSOLIDATED_VIEW = 'src/hubs/modeling/platforms/refm/lib/reports/consolidatedReport.ts';
-  check('D1 the ONLY consumer is the consolidated view builder',
-    consumers.length === 1 && consumers[0] === CONSOLIDATED_VIEW, consumers.join(' | '));
+  // THE CONSUMERS ARE NAMED, not counted. Step 2 added the first, the
+  // consolidated view builder; the layout pass added the second, the Assets tab
+  // itself, which now groups its tables by line rather than by plot. Both are
+  // presentation. A THIRD appearing without a line here is a consumer nobody
+  // decided on, which is what this catches; D1b holds the line that matters,
+  // that nothing computing money reads the key at all.
+  const ALLOWED_CONSUMERS = [
+    'src/hubs/modeling/platforms/refm/lib/reports/consolidatedReport.ts',
+    'src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx',
+  ];
+  const unexpected = consumers.filter((f) => !ALLOWED_CONSUMERS.includes(f));
+  const missing = ALLOWED_CONSUMERS.filter((f) => !consumers.includes(f));
+  check('D1 the only consumers are the two named presentation surfaces',
+    unexpected.length === 0, unexpected.join(' | '));
+  check('D1c both named consumers still consume it (a stale name is a hole)',
+    missing.length === 0, missing.join(' | '));
   const computeSurface = [
     ...walk('src/core/calculations'),
     'src/hubs/modeling/platforms/refm/lib/financials-resolvers.ts',

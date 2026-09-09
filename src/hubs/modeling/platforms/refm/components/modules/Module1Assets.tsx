@@ -77,10 +77,15 @@ import {
 } from '../../lib/state/assetTypeStandards';
 import LandChainSection from './_shared/LandChainSection';
 import {
-  groupAssetsByPlot,
-  plotCheckText,
+  primaryParcelId,
   type AssetPlotGroup,
 } from './_shared/assetTableModel';
+import {
+  groupAssetsForConsolidation,
+  type ConsolidationGroup,
+} from '@/src/core/calculations/consolidation';
+import { poolLineAreas, poolLineLand, resolveConsolidatedLine } from '@/src/core/calculations/consolidatedLine';
+import { normaliseAssetTypeId } from '../../lib/state/assetTypeStandards';
 import { computeLandChain, type ChainResult } from '@/src/core/calculations/landChain';
 import type { LandChainInputs } from '@/src/core/calculations/landChain';
 import { currencyHeaderLine, formatArea, formatAccounting } from '@/src/core/formatters';
@@ -342,13 +347,18 @@ export default function Module1Assets(): React.JSX.Element {
   }, []);
   useEffect(() => { void refreshAssetTypeRegistry(); }, [refreshAssetTypeRegistry]);
 
-  // THE TABLE'S GROUPING: assets under the plot they draw from, every parcel
-  // shown even when nothing draws from it, and a final group for assets that
-  // name no real plot (a weighted-average or custom-rate sentinel, or no land
-  // yet) so none is hidden.
-  const plotGroups = useMemo(
-    () => groupAssetsByPlot(assets, parcels),
-    [assets, parcels],
+  // THE TABLE'S GROUPING IS THE CONSOLIDATED LINE (2026-09-09).
+  //
+  // It was the plot: assets filed under the parcel they draw from. A line is
+  // one type in one phase, and it POOLS land from however many plots feed it,
+  // so a plot can no longer be the organising idea without splitting a line in
+  // two. The plots keep their own table above, which is now land only.
+  //
+  // Companions are excluded by the grouping itself: a companion is the same
+  // building under a second treatment, not a plot.
+  const lineGroups = useMemo(
+    () => groupAssetsForConsolidation(assets, phases.map((p) => p.id), normaliseAssetTypeId),
+    [assets, phases],
   );
 
   /** Add a sub-unit to a chosen parent, seeded exactly as the per-asset
@@ -536,7 +546,7 @@ export default function Module1Assets(): React.JSX.Element {
                 onUpdate={(patch) => updateParcel(parcel.id, patch)}
                 onRemove={() => removeParcel(parcel.id)}
                 canRemove={parcels.length > 1}
-                scale={project.displayScale ?? 'full'}
+                phases={phases}
                 decimals={project.displayDecimals ?? 2}
               />
             ))}
@@ -709,7 +719,7 @@ export default function Module1Assets(): React.JSX.Element {
           under. Everything a row cannot hold opens in the drawer, which is
           the asset card, unchanged. */}
       <AssetTables
-        groups={plotGroups}
+        groups={lineGroups}
         allAssets={assets}
         allPhases={phases}
         parcels={parcels}
@@ -724,6 +734,7 @@ export default function Module1Assets(): React.JSX.Element {
 
       <SubUnitsTable
         assets={assets.filter((a) => a.isCompanion !== true)}
+        phases={phases}
         subUnits={subUnits}
         project={project}
         onAdd={handleAddSubUnitTo}
@@ -785,19 +796,31 @@ interface ParcelRowProps {
   onUpdate: (patch: Partial<Parcel>) => void;
   onRemove: () => void;
   canRemove: boolean;
-  // M2.0j Fix 5: thread project display preferences so the parcel rate,
-  // NDA, total value cells respect Display Scale + Decimals.
-  scale: import('../../lib/state/module1-types').DisplayScale;
+  /** For the phase picker: a plot is acquired in one phase. */
+  phases: Phase[];
   decimals: import('../../lib/state/module1-types').DisplayDecimals;
 }
 
-function ParcelRow({ parcel, onUpdate, onRemove, canRemove, scale, decimals }: ParcelRowProps): React.JSX.Element {
-  const total = parcel.area * parcel.rate;
+function ParcelRow({ parcel, phases, onUpdate, onRemove, canRemove, decimals }: ParcelRowProps): React.JSX.Element {
   // P7-Fix 1: per-parcel NDA cells removed; project-level NDA card owns this surface now.
   return (
     <tr data-testid={`parcel-row-${parcel.id}`}>
       <td style={{ padding: 'var(--sp-1)' }}>
         <input type="text" value={parcel.name} data-testid={`parcel-${parcel.id}-name`} onChange={(e) => onUpdate({ name: e.target.value })} style={inputStyle} />
+      </td>
+      {/* THE PHASE IS ENTRY, so it belongs on the plot row. It was only
+          editable in a wizard before, which meant a plot bought in the wrong
+          phase could not be corrected here. A plot stays PROJECT-WIDE: an asset
+          in any phase may draw from it, and the phase says when it is acquired. */}
+      <td style={{ padding: 'var(--sp-1)' }}>
+        <select
+          value={parcel.phaseId}
+          data-testid={`parcel-${parcel.id}-phase`}
+          onChange={(e) => onUpdate({ phaseId: e.target.value })}
+          style={inputStyle}
+        >
+          {phases.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+        </select>
       </td>
       <td style={{ padding: 'var(--sp-1)' }}>
         {/* P10-Fix 8 (2026-05-12): accounting format on blur. Parcel
@@ -857,7 +880,9 @@ function ParcelRow({ parcel, onUpdate, onRemove, canRemove, scale, decimals }: P
       {/* P7-Fix 1: NDA checkbox + Roads % + Parks % + NDA (sqm) +
           effective NDA rate cells dropped. The project-level NDA card
           below the parcels totals row owns these inputs now. */}
-      <td style={{ padding: 'var(--sp-1)', color: 'var(--color-heading)' }} data-testid={`parcel-${parcel.id}-total`}>{formatAccounting(total, scale, decimals)}</td>
+      {/* Total Value is DERIVED (area x rate) and left the row with the
+          demotion: the plots table is entry only. The footer still totals it,
+          because a total is what a footer is for. */}
       <td style={{ padding: 'var(--sp-1)', textAlign: 'right' }}>
         {canRemove && (
           <button type="button" onClick={onRemove} data-testid={`parcel-${parcel.id}-remove`} style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '2px 8px', cursor: 'pointer', fontSize: 'var(--font-micro)' }}>Remove</button>
@@ -953,7 +978,7 @@ function ChainCell({
 }
 
 interface AssetTableProps {
-  groups: AssetPlotGroup[];
+  groups: ConsolidationGroup[];
   allAssets: Asset[];
   allPhases: Phase[];
   parcels: Parcel[];
@@ -995,13 +1020,14 @@ interface AssetRow {
 }
 
 interface RowGroup {
-  group: AssetPlotGroup;
+  group: ConsolidationGroup;
+  /** The line's label: its type, or the untyped marker. */
   plotLabel: string;
   rows: AssetRow[];
 }
 
 function buildAssetRows(
-  groups: AssetPlotGroup[],
+  groups: ConsolidationGroup[],
   allAssets: Asset[],
   parcels: Parcel[],
   subUnits: SubUnit[],
@@ -1009,11 +1035,11 @@ function buildAssetRows(
   landAllocationMode: LandAllocationMode,
 ): RowGroup[] {
   return groups.map((g) => {
-    const plotLabel = g.parcel ? g.parcel.name : 'No specific plot';
+    const plotLabel = g.typeLabel;
     return {
       group: g,
       plotLabel,
-      rows: g.assets.map((asset) => {
+      rows: (g.assets as unknown as Asset[]).map((asset) => {
         const breakdown = computeAssetLandBreakdown(asset, parcels, allAssets, subUnits, landAllocationMode);
         const typeValues = asset.assetTypeId ? project.assetTypeValues?.[asset.assetTypeId] : undefined;
         const areas = subUnits
@@ -1034,7 +1060,7 @@ function buildAssetRows(
         return {
           groupKey: g.key,
           plotLabel,
-          parcel: g.parcel,
+          parcel: parcels.find((p) => p.id === primaryParcelId(asset)),
           asset,
           chain,
           landSqm: breakdown.landSqm,
@@ -1049,67 +1075,112 @@ function buildAssetRows(
   });
 }
 
-/** A plot header row, shared by both tables so the grouping is identical.
- *  The CHECK belongs to the input table only: it is about what was entered. */
-function PlotHeaderRow({
-  g, plotLabel, colSpan, showCheck, onAddAsset,
+/** The line's strategy, and whether its plots agree about it. Read from the
+ *  members because that is still where it is stored; the LINE is what owns it. */
+function lineStrategy(rows: readonly AssetRow[]): string {
+  const r = resolveConsolidatedLine(rows.map((x) => x.asset as never));
+  const v = String(r.fields.strategy?.value ?? '');
+  return r.fields.strategy?.source === 'conflict' ? `${v} (plots disagree)` : v;
+}
+
+/** Which LINE-level fields the plots disagree on. Empty on every live line. */
+function lineConflicts(rows: readonly AssetRow[]): string[] {
+  return resolveConsolidatedLine(rows.map((x) => x.asset as never)).conflicts;
+}
+
+/**
+ * A LINE header row, shared by the input and the derived tables so the grouping
+ * is identical.
+ *
+ * It replaced the PLOT header row on 2026-09-09. A line is one type in one
+ * phase and POOLS land from however many plots feed it, so a plot cannot be the
+ * organising idea without splitting a line in two. The plots have their own
+ * table above, which is now land only.
+ *
+ * The header states what the line IS (phase, type, strategy) and what it draws
+ * (how many plots, how much land, at what blended rate). The blended rate is
+ * value over area, never an average of rates.
+ */
+function LineHeaderRow({
+  g, rows, colSpan, showDraw, onAddAsset, phaseName, strategyLabel, conflicts,
 }: {
-  g: AssetPlotGroup;
-  plotLabel: string;
+  g: ConsolidationGroup;
+  rows: AssetRow[];
   colSpan: number;
-  showCheck: boolean;
+  showDraw: boolean;
   onAddAsset?: (phaseId: string, parcelId?: string) => void;
+  phaseName: string;
+  strategyLabel: string;
+  conflicts: string[];
 }): React.JSX.Element {
+  const land = poolLineLand(rows.map((r) => ({
+    assetId: r.asset.id,
+    parcelId: r.parcel?.id,
+    sqm: r.landSqm,
+    rate: r.parcel?.rate ?? 0,
+    value: r.landSqm * (r.parcel?.rate ?? 0),
+  })));
   return (
-    <tr style={{ background: 'var(--color-primary-pale)' }} data-testid={`plot-group-${g.key}${showCheck ? '' : '-results'}`}>
-      <td style={{ ...CELL, fontWeight: 700 }} colSpan={showCheck ? 6 : 2}>
-        {plotLabel}
+    <tr style={{ background: 'var(--color-primary-pale)' }} data-testid={`line-group-${g.key}${showDraw ? '' : '-results'}`}>
+      <td style={{ ...CELL, fontWeight: 700 }} colSpan={showDraw ? 4 : 2}>
+        {g.typeLabel}
+        <span style={{ fontWeight: 400, color: 'var(--color-meta)', marginLeft: 8 }}>{phaseName}</span>
+        <span style={{ fontWeight: 400, color: 'var(--color-meta)', marginLeft: 8 }}>{strategyLabel}</span>
         <span style={{ fontWeight: 400, color: 'var(--color-meta)', marginLeft: 8 }}>
-          {g.assets.length} asset{g.assets.length === 1 ? '' : 's'}
+          {rows.length} plot{rows.length === 1 ? '' : 's'}
         </span>
+        {!g.typed && (
+          <span style={{ fontSize: 9, color: 'var(--color-meta)', marginLeft: 8 }}>
+            (untyped, so it consolidates alone)
+          </span>
+        )}
       </td>
-      {showCheck ? (
-        <>
-          <td style={{ ...CELL_NUM, fontWeight: 700 }} data-testid={`plot-group-${g.key}-area`}>
-            {g.parcelAreaSqm !== undefined ? formatArea(g.parcelAreaSqm) : '-'}
-          </td>
-          <td style={CELL} colSpan={colSpan - 7}>
-            {g.status && (
+      <td style={{ ...CELL_NUM, fontWeight: 700 }} data-testid={`line-group-${g.key}-land`}>
+        {formatArea(land.totalSqm)}
+      </td>
+      <td style={CELL} colSpan={colSpan - (showDraw ? 5 : 3)}>
+        {showDraw && (
+          <>
+            <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>
+              {land.plotCount === 0
+                ? 'draws from no plot yet'
+                : `pooled from ${land.plotCount} plot${land.plotCount === 1 ? '' : 's'} at ${fmt(land.weightedRate)} /sqm`}
+            </span>
+            {/* THE CONFLICT IS SHOWN, NEVER RESOLVED SILENTLY. With one plot on
+                the line there is nothing to conflict; with several, the
+                line-level fields are read from the first member until they move
+                off the asset, and any disagreement says so here. */}
+            {conflicts.length > 0 && (
               <span
-                data-testid={`plot-group-${g.key}-check`}
+                data-testid={`line-group-${g.key}-conflict`}
                 style={{
-                  fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 'var(--radius-sm)',
-                  background: g.status === 'ok'
-                    ? 'color-mix(in srgb, var(--color-positive, #15803d) 16%, transparent)'
-                    : 'color-mix(in srgb, var(--color-warning, #92400e) 18%, transparent)',
-                  color: g.status === 'ok' ? 'var(--color-positive, #15803d)' : 'var(--color-warning, #92400e)',
+                  fontSize: 10, fontWeight: 700, marginLeft: 8, padding: '1px 6px',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'color-mix(in srgb, var(--color-warning, #92400e) 18%, transparent)',
+                  color: 'var(--color-warning, #92400e)',
                 }}
+                title={`These belong to the line, so the plots should not differ on them: ${conflicts.join(', ')}`}
               >
-                {g.status === 'ok' ? 'Assets sum to the plot' : g.status === 'under' ? 'Under-drawn' : 'Over-drawn'}
+                {conflicts.length} line field{conflicts.length === 1 ? '' : 's'} disagree between plots
               </span>
             )}
-            <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>
-              {plotCheckText(g, (n) => formatArea(n))}
-            </span>
-            {g.parcel && onAddAsset && (
+            {onAddAsset && (
               <button
                 type="button"
-                onClick={() => onAddAsset(g.parcel!.phaseId, g.parcel!.id)}
-                data-testid={`plot-group-${g.key}-add-asset`}
+                onClick={() => onAddAsset(g.phaseId)}
+                data-testid={`line-group-${g.key}-add-asset`}
                 style={{
                   marginLeft: 10, fontSize: 10, padding: '2px 8px', cursor: 'pointer',
                   background: 'var(--color-surface)', border: '1px solid var(--color-navy)',
                   color: 'var(--color-navy)', borderRadius: 'var(--radius-sm)', fontWeight: 600,
                 }}
               >
-                + Add asset here
+                + Add plot to this line
               </button>
             )}
-          </td>
-        </>
-      ) : (
-        <td style={CELL} colSpan={colSpan - 2} />
-      )}
+          </>
+        )}
+      </td>
     </tr>
   );
 }
@@ -1199,7 +1270,16 @@ function AssetInputsTable({
           <tbody>
             {rowGroups.map(({ group, plotLabel, rows }) => (
               <React.Fragment key={group.key}>
-                <PlotHeaderRow g={group} plotLabel={plotLabel} colSpan={COLS} showCheck onAddAsset={onAddAsset} />
+                <LineHeaderRow
+                  g={group}
+                  rows={rows}
+                  colSpan={COLS}
+                  showDraw
+                  onAddAsset={onAddAsset}
+                  phaseName={allPhases.find((p) => p.id === group.phaseId)?.name ?? group.phaseId}
+                  strategyLabel={lineStrategy(rows)}
+                  conflicts={lineConflicts(rows)}
+                />
                 {rows.length === 0 && (
                   <tr data-testid={`plot-group-${group.key}-empty`}>
                     <td style={{ ...CELL, color: 'var(--color-meta)', fontStyle: 'italic' }} colSpan={COLS}>
@@ -1403,6 +1483,15 @@ function AssetInputsTable({
  * of the table above, neither table has to choose between being complete and
  * being readable.
  */
+/** The chain fields a line sums. Listed rather than inferred, so a new chain
+ *  field is a deliberate addition here rather than a silent omission. */
+const POOLED_AREA_KEYS = [
+  'landUtilisedSqm', 'footprintSqm', 'landscapeSqm', 'retailGfaSqm', 'lobbyGfaSqm',
+  'totalGfaSqm', 'mainAssetGfaSqm', 'netSaleableSqm', 'units', 'parkingSlots',
+  'retailParkingSlots', 'totalParkingSlots', 'parkingAreaSqm', 'retailParkingAreaSqm',
+  'totalParkingAreaSqm', 'totalBuaSqm',
+] as const;
+
 function AssetResultsTable({ rowGroups }: { rowGroups: RowGroup[] }): React.JSX.Element {
   // TWENTY columns, and the count is stated once. It was 19 in three places
   // (here, the colgroup and the band row) against 20 real columns, so the last
@@ -1495,7 +1584,15 @@ function AssetResultsTable({ rowGroups }: { rowGroups: RowGroup[] }): React.JSX.
           <tbody>
             {rowGroups.map(({ group, plotLabel, rows }) => (
               <React.Fragment key={group.key}>
-                <PlotHeaderRow g={group} plotLabel={plotLabel} colSpan={COLS} showCheck={false} />
+                <LineHeaderRow
+                  g={group}
+                  rows={rows}
+                  colSpan={COLS}
+                  showDraw={false}
+                  phaseName={group.phaseId}
+                  strategyLabel={lineStrategy(rows)}
+                  conflicts={lineConflicts(rows)}
+                />
                 {rows.length === 0 && (
                   <tr data-testid={`plot-group-${group.key}-results-empty`}>
                     <td style={{ ...CELL, color: 'var(--color-meta)', fontStyle: 'italic' }} colSpan={COLS}>
@@ -1503,38 +1600,56 @@ function AssetResultsTable({ rowGroups }: { rowGroups: RowGroup[] }): React.JSX.
                     </td>
                   </tr>
                 )}
-                {rows.map(({ asset, chain, landSqm, parcel, unitSizeSqm, unitSizeSource, parkingRatio, parkingRatioBasis }) => (
-                  <tr
-                    key={asset.id}
-                    style={{ borderBottom: '1px solid var(--color-border)', opacity: asset.visible ? 1 : 0.55 }}
-                    data-testid={`asset-result-${asset.id}`}
-                  >
-                    <td style={{ ...CELL, color: 'var(--color-meta)', fontSize: 10 }}>{parcel ? parcel.name : 'none'}</td>
-                    <td style={CELL}>{assetDisplayName(asset)}</td>
-                    <td style={CELL_NUM}>{formatArea(landSqm)}</td>
-                    <td style={CELL_DERIVED} data-testid={`asset-result-${asset.id}-land-utilised`}>{d(chain.landUtilisedSqm)}</td>
-                    <td style={CELL_DERIVED}>{d(chain.footprintSqm)}</td>
-                    <td style={CELL_DERIVED}>{chain.landscapePct === undefined ? '-' : `${n(chain.landscapePct)}%`}</td>
-                    <td style={CELL_DERIVED}>{d(chain.landscapeSqm)}</td>
-                    <td style={CELL_DERIVED}>{d(chain.retailGfaSqm)}</td>
-                    <td style={CELL_DERIVED}>{d(chain.lobbyGfaSqm)}</td>
-                    <td style={CELL_DERIVED} data-testid={`asset-result-${asset.id}-total-gfa`}>{d(chain.totalGfaSqm)}</td>
-                    <td style={CELL_DERIVED}>{d(chain.mainAssetGfaSqm)}</td>
-                    <td style={CELL_DERIVED} data-testid={`asset-result-${asset.id}-net-saleable`}>{d(chain.netSaleableSqm)}</td>
-                    <td style={CELL_DERIVED} data-testid={`asset-result-${asset.id}-unit-size`}
-                      title={unitSizeSource ? `Source: ${unitSizeSource}` : undefined}>{d(unitSizeSqm)}</td>
-                    <td style={CELL_DERIVED} data-testid={`asset-result-${asset.id}-units`}>{whole(chain.units)}</td>
-                    <td style={CELL_DERIVED} data-testid={`asset-result-${asset.id}-parking-ratio`}
-                      title={parkingRatioBasis === 'sqm_per_slot' ? 'sqm per slot' : 'slots per unit'}>{n(parkingRatio)}</td>
-                    <td style={CELL_DERIVED}>{whole(chain.parkingSlots)}</td>
-                    <td style={CELL_DERIVED}>{whole(chain.retailParkingSlots)}</td>
-                    <td style={CELL_DERIVED}>{whole(chain.totalParkingSlots)}</td>
-                    <td style={CELL_DERIVED}>{d(chain.parkingAreaSqm)}</td>
-                    <td style={CELL_DERIVED}>{d(chain.retailParkingAreaSqm)}</td>
-                    <td style={CELL_DERIVED}>{d(chain.totalParkingAreaSqm)}</td>
-                    <td style={{ ...CELL_DERIVED, fontWeight: 700 }} data-testid={`asset-result-${asset.id}-total-bua`}>{d(chain.totalBuaSqm)}</td>
-                  </tr>
-                ))}
+                {/* ONE ROW PER LINE, pooled from its plots. The areas ADD,
+                    which is why pooling them needs no rule: a line of two
+                    Branded Villas plots builds the sum of what each plot
+                    builds. The unit size and parking ratio are the LINE's, read
+                    from its members while they still live on the asset. */}
+                {(() => {
+                  if (rows.length === 0) return null;
+                  const pooled = poolLineAreas(
+                    rows.map((r) => r.chain as unknown as Record<string, number | undefined>),
+                    POOLED_AREA_KEYS,
+                  );
+                  const landSqm = rows.reduce((t, r) => t + r.landSqm, 0);
+                  const first = rows[0];
+                  const p = (k: string): string => (k in pooled ? d(pooled[k]) : '-');
+                  const w = (k: string): string => (k in pooled ? whole(pooled[k]) : '-');
+                  return (
+                    <tr
+                      style={{ borderBottom: '1px solid var(--color-border)' }}
+                      data-testid={`line-result-${group.key}`}
+                    >
+                      <td style={{ ...CELL, color: 'var(--color-meta)', fontSize: 10 }}>
+                        {rows.length === 1 ? (first.parcel?.name ?? 'none') : `${rows.length} plots`}
+                      </td>
+                      <td style={CELL}>{group.typeLabel}</td>
+                      <td style={CELL_NUM}>{formatArea(landSqm)}</td>
+                      <td style={CELL_DERIVED} data-testid={`line-result-${group.key}-land-utilised`}>{p('landUtilisedSqm')}</td>
+                      <td style={CELL_DERIVED}>{p('footprintSqm')}</td>
+                      <td style={CELL_DERIVED}>
+                        {rows.length === 1 && first.chain.landscapePct !== undefined
+                          ? `${n(first.chain.landscapePct)}%` : '-'}
+                      </td>
+                      <td style={CELL_DERIVED}>{p('landscapeSqm')}</td>
+                      <td style={CELL_DERIVED}>{p('retailGfaSqm')}</td>
+                      <td style={CELL_DERIVED}>{p('lobbyGfaSqm')}</td>
+                      <td style={CELL_DERIVED} data-testid={`line-result-${group.key}-total-gfa`}>{p('totalGfaSqm')}</td>
+                      <td style={CELL_DERIVED}>{p('mainAssetGfaSqm')}</td>
+                      <td style={CELL_DERIVED} data-testid={`line-result-${group.key}-net-saleable`}>{p('netSaleableSqm')}</td>
+                      <td style={CELL_DERIVED}>{rows.length === 1 ? d(first.unitSizeSqm) : '-'}</td>
+                      <td style={CELL_DERIVED} data-testid={`line-result-${group.key}-units`}>{w('units')}</td>
+                      <td style={CELL_DERIVED}>{rows.length === 1 ? n(first.parkingRatio) : '-'}</td>
+                      <td style={CELL_DERIVED}>{w('parkingSlots')}</td>
+                      <td style={CELL_DERIVED}>{w('retailParkingSlots')}</td>
+                      <td style={CELL_DERIVED}>{w('totalParkingSlots')}</td>
+                      <td style={CELL_DERIVED}>{p('parkingAreaSqm')}</td>
+                      <td style={CELL_DERIVED}>{p('retailParkingAreaSqm')}</td>
+                      <td style={CELL_DERIVED}>{p('totalParkingAreaSqm')}</td>
+                      <td style={{ ...CELL_DERIVED, fontWeight: 700 }} data-testid={`line-result-${group.key}-total-bua`}>{p('totalBuaSqm')}</td>
+                    </tr>
+                  );
+                })()}
               </React.Fragment>
             ))}
           </tbody>
@@ -1627,6 +1742,46 @@ interface SubUnitGroup {
   status?: 'ok' | 'under' | 'over';
 }
 
+/**
+ * SUB-UNITS GROUP UNDER THE LINE, AND STILL BELONG TO THE PLOT ASSET.
+ *
+ * The grouping is presentation: a sub-unit assetId is untouched, and it
+ * re-parents in the next pass together with the engine's twelve lookup sites
+ * and the seventeen asset-keyed cost overrides, because a half-moved parent is
+ * two answers to one question.
+ *
+ * So the header is the LINE and each row still names the plot asset it hangs
+ * off. The NSA check sums the line's members, which with one member per line is
+ * exactly the per-asset check it replaced.
+ */
+function groupSubUnitsByLine(
+  assets: Asset[],
+  subUnits: SubUnit[],
+  phaseIds: string[],
+): { key: string; label: string; groups: SubUnitGroup[]; nsa: number; areaSum: number; status?: 'ok' | 'under' | 'over' }[] {
+  const lines = groupAssetsForConsolidation(assets, phaseIds, normaliseAssetTypeId);
+  const out: { key: string; label: string; groups: SubUnitGroup[]; nsa: number; areaSum: number; status?: 'ok' | 'under' | 'over' }[] = [];
+  const claimed = new Set<string>();
+  for (const line of lines) {
+    const members = line.assets as unknown as Asset[];
+    for (const m of members) claimed.add(m.id);
+    const groups = groupSubUnitsByAsset(members, subUnits);
+    const nsa = groups.reduce((t, g) => t + g.nsa, 0);
+    const areaSum = groups.reduce((t, g) => t + g.areaSum, 0);
+    let status: 'ok' | 'under' | 'over' | undefined;
+    if (nsa > 0) status = Math.abs(areaSum - nsa) < 0.01 ? 'ok' : (areaSum < nsa ? 'under' : 'over');
+    if (groups.some((g) => g.rows.length > 0)) out.push({ key: line.key, label: line.typeLabel, groups, nsa, areaSum, status });
+  }
+  // NO ORPHAN GROUP, and the reason is worth writing down. A companion is not a
+  // line member, so its sub-units would need somewhere to go, and a first cut
+  // gave them one. They never arrive: the caller has always filtered companions
+  // out of this table, because a companion's sub-units are MIRRORS of its
+  // parent's and are rebuilt by the store rather than edited here. A branch
+  // that cannot run is worse than no branch, so it is gone and this says why.
+  void claimed;
+  return out;
+}
+
 function groupSubUnitsByAsset(assets: Asset[], subUnits: SubUnit[]): SubUnitGroup[] {
   const byAssetId = new Map<string, SubUnit[]>();
   for (const u of subUnits) {
@@ -1660,9 +1815,10 @@ function groupSubUnitsByAsset(assets: Asset[], subUnits: SubUnit[]): SubUnitGrou
 }
 
 function SubUnitsTable({
-  assets, subUnits, project, onAdd, onUpdate, onRemove,
+  assets, phases, subUnits, project, onAdd, onUpdate, onRemove,
 }: {
   assets: Asset[];
+  phases: Phase[];
   subUnits: SubUnit[];
   project: Project;
   onAdd: (assetId: string) => void;
@@ -1670,7 +1826,7 @@ function SubUnitsTable({
   onRemove: (id: string) => void;
 }): React.JSX.Element {
   const [parentId, setParentId] = useState<string>(assets[0]?.id ?? '');
-  const groupedSubUnits = groupSubUnitsByAsset(assets, subUnits);
+  const subUnitLines = groupSubUnitsByLine(assets, subUnits, phases.map((p) => p.id));
 
   return (
     <div style={sectionCardStyle} data-testid="subunits-table-section">
@@ -1731,7 +1887,23 @@ function SubUnitsTable({
               </tr>
             </thead>
             <tbody>
-              {groupedSubUnits.map(({ asset, rows, nsa, areaSum, status }) => (
+              {subUnitLines.flatMap((line) => [
+                // THE LINE HEADER. One row per consolidated line, with the
+                // line's own NSA check above the assets that make it up.
+                <tr key={`line-${line.key}`} style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}
+                  data-testid={`subunits-line-${line.key}`}>
+                  <td style={{ ...CELL, fontWeight: 700, color: 'inherit' }} colSpan={2}>{line.label}</td>
+                  <td style={{ ...CELL_NUM, color: 'inherit' }}>{line.nsa > 0 ? formatArea(line.nsa) : '-'}</td>
+                  <td style={{ ...CELL_NUM, color: 'inherit' }} data-testid={`subunits-line-${line.key}-sum`}>{formatArea(line.areaSum)}</td>
+                  <td style={{ ...CELL, color: 'inherit', fontSize: 10 }} colSpan={5}>
+                    {line.status === undefined
+                      ? 'No NSA entered on this line, so there is nothing to check the parts against.'
+                      : line.status === 'ok' ? 'Sub-units sum to the line NSA'
+                        : line.status === 'under' ? 'Under-allocated against the line NSA'
+                          : 'Over-allocated against the line NSA'}
+                  </td>
+                </tr>,
+                ...line.groups.map(({ asset, rows, nsa, areaSum, status }) => (
                 <React.Fragment key={asset?.id ?? 'unassigned'}>
                   {/* THE CHECK IS PER ASSET, because the rule it states is per
                       asset: the parts have to sum to the whole they are parts
@@ -1889,7 +2061,8 @@ function SubUnitsTable({
                     );
                   })}
                 </React.Fragment>
-              ))}
+                )),
+              ])}
             </tbody>
           </table>
         </div>
