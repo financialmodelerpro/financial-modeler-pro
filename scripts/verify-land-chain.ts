@@ -669,6 +669,53 @@ function offlineChecks(): void {
     && twoPlot.lines[0].subUnits.length === 2
     && twoPlot.stray.length === 0,
     `${twoPlot.lines.length} lines`);
+  // ── RETAIL PARKING HAS AN INPUT A USER CAN FIND. ────────────────────────
+  //
+  // Retail GFA derived correctly on both live plots (1,320 and 600 sqm) while
+  // Retail Parking Slots, Retail Parking Area and Total Parking Area were
+  // dashes on every asset on the platform, because the one figure they divide
+  // by could only be typed inside a row's drawer, under a label ("Retail sqm /
+  // slot") that named neither retail parking nor what it divides. It is a chain
+  // input; it now sits with the other chain inputs.
+  // ANCHORED AT BOTH ENDS. A bare substring match passes on `-retail-slotX`,
+  // which is how a sabotage that renamed the test id walked through the first
+  // cut. Every test id here is inside a template literal, so the closing
+  // backtick is the anchor.
+  check('U43 retail GFA per slot is a COLUMN in the inputs table, beside the other chain inputs',
+    /asset-row-\$\{asset\.id\}-retail-slot`/.test(inputsBody)
+    && /patchChain\(\{ retailAreaPerSlotSqm: v \}\)/.test(inputsBody)
+    && inputsBody.includes('>Retail GFA / slot (sqm)</th>')
+    // AND IT READS WHAT IS STORED. A cell wired to write but not to read
+    // accepts the figure, saves it, and comes back blank on the next load,
+    // which is worse than no cell: it looks like the save failed. A sabotage
+    // that blanked the binding while leaving the id and the writer passed the
+    // first cut of this check.
+    && /value=\{asset\.landChain\?\.retailAreaPerSlotSqm\}/.test(inputsBody));
+  check('U43b the drawer field and the column are the SAME field under the SAME words',
+    panel.includes('retailAreaPerSlotSqm')
+    && panel.includes('label="Retail GFA / slot (sqm)"')
+    && !panel.includes('label="Retail sqm / slot"'));
+  // THE CHAIN ALREADY NAMES ITS OWN GAP. What was missing was a way to close
+  // it, so the gap name and the input must stay wired to one field.
+  check('U43c the chain reports the missing figure by name, and it is the field the column writes',
+    chainSrc.includes("'no_retail_area_per_slot'")
+    && /out\.retailParkingSlots = Math\.round\(out\.retailGfaSqm \/ i\.retailAreaPerSlotSqm\)/.test(chainSrc));
+
+  // ── THE TYPE IS VISIBLE WHEREVER A ROW NAMES AN ASSET. ──────────────────
+  //
+  // Everything downstream keys off type: the line, the schedules, the cost
+  // methods, the standards. A row labelled with an invented name says nothing
+  // about which of those it lands in.
+  check('U44 the type shows beside the name, and only when the name is hiding it',
+    /export function assetTypeSuffix/.test(readFileSync('src/core/calculations/assetName.ts', 'utf8'))
+    && /if \(assetNameIsDerived\(asset\)\) return undefined;/
+      .test(readFileSync('src/core/calculations/assetName.ts', 'utf8')));
+  check('U44b the sub-unit table, its parent picker and the per-plot results all show it',
+    /subunits-group-\$\{asset\.id\}-type`/.test(subBody)
+    && /assetDisplayName\(a\)\}\{assetTypeSuffix\(a\)/.test(tabSrc)
+    && /asset-result-\$\{asset\.id\}-label`/.test(resultsBody)
+    && resultsBody.includes('assetTypeSuffix(asset)'));
+
   check('U42 the tab reads the partition rather than re-deriving which sub-unit is whose',
     /const \{ lines, stray \} = partitionSubUnitsByLine\(assets, subUnits, phaseIds, normaliseAssetTypeId\);/.test(tabSrc)
     // groupSubUnitsByAsset is handed the LINE's own sub-units, never all of

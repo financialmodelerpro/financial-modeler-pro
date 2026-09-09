@@ -35,6 +35,8 @@ import {
   describeValues,
   typesWithoutStandard,
   sortAssetTypes,
+  resolveAssetTypeKey,
+  resolveAssetTypeValues,
   resolveAvgUnitSize,
   resolveParkingRatio,
   assetTypeValuesAreEmpty,
@@ -366,8 +368,8 @@ function offlineChecks(): void {
     && !assetsTab.includes('stampFromAssetType')
     // The FIELD, not the module path: the lib file is still imported by name.
     && !/\.assetTypeStandards|assetTypeStandards\s*[:=]/.test(assetsTab));
-  check('D6b the asset card reads its values LIVE from the project',
-    assetsTab.includes('project.assetTypeValues?.[asset.assetTypeId]')
+  check('D6b the asset card reads its values LIVE from the project, through the one resolver',
+    assetsTab.includes('resolveAssetTypeValues(asset, project.assetTypeValues)')
     && assetsTab.includes('describeValues(typeValues, project.parkingAreaPerSlotSqm)'));
   check('D8 the tab offers BOTH quick-add sources through the one helper (platform catalog picker + project types missing a standard)',
     (tab.match(/typesWithoutStandard\(/g) ?? []).length >= 3
@@ -411,16 +413,33 @@ function offlineChecks(): void {
     && !typesSrc.includes('export const ASSET_TYPES_BY_STRATEGY')
     && !assetsTab.includes('ASSET_TYPES_BY_PROJECT_TYPE')
     && !assetsTab.includes('ASSET_TYPES_BY_STRATEGY'));
-  // RE-AIMED 2026-09-07 (step 3 commit 2): the Type field moved out of the
-  // asset card and into the assets TABLE, so this now pins the row's input
-  // and its datalist. The invariant is unchanged (the type stays FREE TEXT
-  // with suggestions, rather than becoming a closed dropdown); only the
-  // element's home moved, and pinning the old home would have asserted the
-  // layout rather than the rule.
-  check('G5 free text stays (the Type cell is still a text input with suggestions) and a catalog pick prefills its category',
-    /input[^>]*list=\{`asset-row-types-/.test(assetsTab.replace(/\n\s*/g, ' '))
-    && assetsTab.includes('<datalist id={`asset-row-types-')
+  // G5 REVERSED 2026-09-09, on the founder's report, and the reversal is a
+  // decision worth recording rather than a tightening.
+  //
+  // It asserted that the Type cell stays FREE TEXT with suggestions. Free text
+  // is what produced the defect underneath all of this: a label with no
+  // reference to the firm's entry, on 11 of 12 live typed assets, so their unit
+  // size and parking ratio resolved to nothing. And a datalist is not a list at
+  // all: the browser filters it by what is already typed, so a row reading
+  // "Branded Villas" offered one option and a row with an unlisted label
+  // offered none, which is what a user sees as a broken dropdown.
+  //
+  // THE VOCABULARY IS THE FIRM'S AND IT IS EDITABLE (section I), so a type that
+  // is on neither list is what the standards tab exists for. An existing
+  // unlisted label stays selectable (T10) so nothing typed is lost.
+  check('G5 the Type cell is a CLOSED list: the firm\'s vocabulary plus the platform catalog, and a catalog pick prefills its category',
+    /<select[\s\S]{0,600}data-testid=\{`asset-row-\$\{asset\.id\}-type`\}/.test(assetsTab)
+    && assetsTab.includes('buildTypeChoices(assetTypeRegistry.entries, resolveTypeCatalog(project))')
+    && !assetsTab.includes('<datalist id={`asset-row-types-')
     && tab.includes('assetTypeCategory('));
+  // BOTH SOURCES REACH EVERY ROW, always, and a firm entry and a catalog label
+  // that mean the same type collapse to one option rather than offering a user
+  // two spellings that resolve their standards differently.
+  check('G5b the two sources are deduped by IDENTITY, not by spelling, and the firm\'s comes first',
+    /for \(const e of entries\)[\s\S]{0,400}fromFirm: true/.test(assetsTab)
+    && /for \(const label of catalog\)[\s\S]{0,300}fromFirm: false/.test(assetsTab)
+    && assetsTab.includes('const key = normaliseAssetTypeId(label);')
+    && /if \(key === '' \|\| seen\.has\(key\)\) continue;/.test(assetsTab));
 
   section('H. The standards live on their OWN TAB, not in a dialog (2026-09-07d)');
   const tabIdx = m1Tabs.findIndex((t) => t.key === 'asset-standards');
@@ -531,6 +550,63 @@ function offlineChecks(): void {
   check('K6 the sub-unit row renders inherit / override through the ONE resolver, against PROJECT values',
     assetsTab.includes('resolveParkingRatio(subUnit.parkingRatio, assetTypeValues)')
     && assetsTab.includes('-parking-override') && assetsTab.includes('-parking-inherit'));
+
+  // ── T. WHICH TYPE IS THIS ASSET? ONE ANSWER. ───────────────────────────
+  //
+  // The grouping key resolved a type two ways (stored reference, else the
+  // label normalised into the same id space); the VALUES lookup demanded the
+  // reference and nothing else. So an asset typed in the table row, which wrote
+  // the label and never the reference, found no standards and its chain stopped
+  // at NSA while its neighbour on the same type derived everything. Live: 11 of
+  // 12 typed assets carried a label with no reference.
+  section('T. The type resolves ONCE, by reference or by label');
+  const VALUES = { 'branded-villas': { avgUnitSizeSqm: 260, parkingRatio: 1 } };
+  check('T1 a stored reference resolves to itself',
+    resolveAssetTypeKey({ assetTypeId: 'branded-villas', type: 'Anything' }) === 'branded-villas');
+  check('T2 a LABEL with no reference resolves into the same id space the vocabulary mints',
+    resolveAssetTypeKey({ type: 'Branded Villas' }) === 'branded-villas'
+    && resolveAssetTypeKey({ type: '  branded   villas  ' }) === 'branded-villas');
+  check('T3 the label finds the project values, which is the whole reported defect',
+    resolveAssetTypeValues({ type: 'Branded Villas' }, VALUES)?.avgUnitSizeSqm === 260
+    && resolveAssetTypeValues({ assetTypeId: 'branded-villas' }, VALUES)?.parkingRatio === 1);
+  // THE STORED REFERENCE WINS even over a contradicting label, because a firm
+  // may rename or delete an entry and the project's values for it deliberately
+  // survive: a stale reference must still find them.
+  check('T4 the reference OUTRANKS the label, so a renamed type keeps its values',
+    resolveAssetTypeValues({ assetTypeId: 'branded-villas', type: 'Retail Mall' }, VALUES)?.avgUnitSizeSqm === 260);
+  check('T5 no type at all resolves to NOTHING, never to a fabricated id',
+    resolveAssetTypeKey({}) === undefined
+    && resolveAssetTypeKey({ type: '   ' }) === undefined
+    && resolveAssetTypeKey({ type: '---' }) === undefined
+    && resolveAssetTypeValues({}, VALUES) === undefined);
+  check('T6 an unknown type finds nothing rather than someone else\'s values',
+    resolveAssetTypeValues({ type: 'Nothing Like It' }, VALUES) === undefined);
+  // T7 IS A BAN ON THE SHAPE, not on one spelling of it. The first cut matched
+  // the exact expression that had been there, and a sabotage writing
+  // `assetTypeValues?.[asset.assetTypeId!]`, one character different, walked
+  // straight through. What must not happen is ANY hand-rolled index into the
+  // values map on a surface, so that is what is forbidden.
+  check('T7 the tab reads the ONE resolver, and indexes the values map NOWHERE by hand',
+    assetsTab.includes('resolveAssetTypeValues(asset, project.assetTypeValues)')
+    && !/assetTypeValues\s*\?\?\s*\{\}\s*\)?\s*\[/.test(assetsTab)
+    && !/assetTypeValues\s*\?\.\s*\[/.test(assetsTab)
+    && !/assetTypeValues\[/.test(assetsTab));
+  // THE ROW PICKER RECORDS WHICH TYPE, not just what it is called. Writing the
+  // label alone is what left the references absent in the first place.
+  check('T8 the row type cell is a real SELECT offering the whole list, not a filtering datalist',
+    /<select[\s\S]{0,600}data-testid=\{`asset-row-\$\{asset\.id\}-type`\}/.test(assetsTab)
+    && !/list=\{`asset-row-types-\$\{asset\.id\}`\}/.test(assetsTab)
+    && !assetsTab.includes('<datalist id={`asset-row-types-'));
+  check('T9 picking writes BOTH the label and the reference, so they cannot disagree',
+    /return \{ type: choice\.label, assetTypeId: choice\.fromFirm \? choice\.key : undefined \};/.test(assetsTab)
+    // A catalog-only label gets NO reference: there is no vocabulary entry to
+    // point at, and inventing one would put an id in the snapshot the standards
+    // tab cannot show.
+    && assetsTab.includes('fromFirm: false'));
+  check('T10 a stored label on neither list is still selectable, so nothing typed is lost',
+    assetsTab.includes("const UNLISTED_TYPE = '__unlisted__'")
+    && assetsTab.includes('(not in the list)')
+    && /if \(next === UNLISTED_TYPE\) return \{\};/.test(assetsTab));
 
   section('S. The values are PROJECT INPUTS, gated as inactive until the engine reads them');
   check('S1 the store owns the merge rule, clears with undefined and drops an emptied entry',

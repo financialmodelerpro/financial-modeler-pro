@@ -126,6 +126,55 @@ export function assetTypeValuesAreEmpty(v: AssetTypeValues | undefined): boolean
     && v.revenueRate === undefined;
 }
 
+/** The little of an asset this needs to say which type it is. */
+export interface TypedAsset {
+  assetTypeId?: string;
+  type?: string;
+}
+
+/**
+ * WHICH TYPE IS THIS ASSET? ONE ANSWER, and until 2026-09-09 there were two.
+ *
+ * The grouping key already resolved it both ways (`consolidationKeyParts`):
+ * the stored registry reference when there is one, and otherwise the type
+ * LABEL normalised into the same id space, because the vocabulary's entry ids
+ * are minted from labels by `normaliseAssetTypeId`, so a picked
+ * `branded-villas` and a typed "Branded Villas" are one type.
+ *
+ * The VALUES lookup did not. It read `project.assetTypeValues[asset.assetTypeId]`
+ * and nothing else, so an asset whose type was set in the table row (which
+ * wrote the label and never the reference) resolved to nothing. MEASURED on the
+ * live projects: 11 of 12 typed assets carried a label with no reference, and
+ * the one plot that had a reference derived its units and parking while its
+ * neighbour, same type, same firm standard, showed dashes from Average Unit
+ * Size onward. Two ways to answer one question, and the cheaper one lost.
+ *
+ * Identity resolves here, once. An absent answer is undefined, never a
+ * fabricated id, so an untyped asset finds no values rather than someone
+ * else's.
+ */
+export function resolveAssetTypeKey(asset: TypedAsset): string | undefined {
+  const ref = (asset.assetTypeId ?? '').trim();
+  // THE STORED REFERENCE WINS, even when the firm has since deleted that entry:
+  // the project's values for it deliberately survive the deletion, so a stale
+  // reference must still find them rather than falling back to a label that
+  // might now mean something else.
+  if (ref !== '') return ref;
+  const label = (asset.type ?? '').trim();
+  if (label === '') return undefined;
+  const id = normaliseAssetTypeId(label);
+  return id === '' ? undefined : id;
+}
+
+/** This asset's project values, resolved through the one identity rule. */
+export function resolveAssetTypeValues(
+  asset: TypedAsset,
+  valuesByType: AssetTypeValuesByType | undefined,
+): AssetTypeValues | undefined {
+  const key = resolveAssetTypeKey(asset);
+  return key === undefined ? undefined : valuesByType?.[key];
+}
+
 /**
  * The values a project holds for types that are NO LONGER in the firm's list.
  *

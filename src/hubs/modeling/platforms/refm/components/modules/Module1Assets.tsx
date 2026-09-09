@@ -70,6 +70,8 @@ import {
 import {
   describeSource,
   describeValues,
+  resolveAssetTypeKey,
+  resolveAssetTypeValues,
   resolveAvgUnitSize,
   resolveParkingRatio,
   type AssetTypeStandard,
@@ -113,7 +115,7 @@ import InputLabel from '../ui/InputLabel';
 import { CELL_HEADER, TABLE_TITLE } from './_shared/tableStyles';
 import { StrategyChangeConfirm, StrategyReviewBanner } from './_shared/StrategyChangeNotice';
 import { applyStrategySwitch, assetHasStrategyAssumptions, type StrategySwitchReport } from '../../lib/state/strategySwitch';
-import { assetDisplayName, assetNameIsDerived } from '@/src/core/calculations/assetName';
+import { assetDisplayName, assetNameIsDerived, assetTypeSuffix } from '@/src/core/calculations/assetName';
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 const inputStyle: React.CSSProperties = {
@@ -263,6 +265,84 @@ function countUnitLabel(
 // reference land structure's catalog (module1-types), narrowed only for the
 // three category-named project types. The strategy-keyed fallback bank is
 // retired with the old per-project-type banks; the field stays free text.
+/**
+ * ONE OPTION IN THE ASSET TYPE DROPDOWN.
+ *
+ * `key` is what the <select> carries, and it is the ENTRY ID for a firm type
+ * and the normalised label for a catalog-only one. Both live in the same id
+ * space (the vocabulary mints its entry ids with `normaliseAssetTypeId`), which
+ * is what lets a picked firm entry and a typed label be the same type rather
+ * than two.
+ */
+interface TypeChoice {
+  key: string;
+  label: string;
+  /** True when this is the firm's own entry, so picking it records a reference. */
+  fromFirm: boolean;
+}
+
+/** The sentinel for a stored label that is on neither list. It is not a key
+ *  anything can mint, so it can never collide with a real one. */
+const UNLISTED_TYPE = '__unlisted__';
+
+/**
+ * The firm's vocabulary first, in the firm's own order, then the platform
+ * catalog labels the firm has not adopted.
+ *
+ * DEDUPED BY IDENTITY, NOT BY SPELLING. "Branded Villas" from the firm and
+ * "Branded villas" from the catalog are one type, so offering both would ask a
+ * user to choose between two spellings of the same thing and then resolve their
+ * standards differently depending on which they picked.
+ */
+function buildTypeChoices(
+  entries: readonly AssetTypeStandard[],
+  catalog: readonly string[],
+): TypeChoice[] {
+  const out: TypeChoice[] = [];
+  const seen = new Set<string>();
+  for (const e of entries) {
+    const key = (e.id ?? '').trim() || normaliseAssetTypeId(e.label);
+    if (key === '' || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ key, label: e.label, fromFirm: true });
+  }
+  for (const label of catalog) {
+    const key = normaliseAssetTypeId(label);
+    if (key === '' || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ key, label, fromFirm: false });
+  }
+  return out;
+}
+
+/** Which option is selected: the asset's resolved type key when the list holds
+ *  it, the unlisted sentinel when it has a label the list does not, else none. */
+function assetTypeSelectValue(asset: Asset, choices: readonly TypeChoice[]): string {
+  const key = resolveAssetTypeKey(asset);
+  if (key === undefined) return '';
+  return choices.some((c) => c.key === key) ? key : UNLISTED_TYPE;
+}
+
+/**
+ * What picking an option writes.
+ *
+ * BOTH FIELDS, ALWAYS, so the label and the reference can never disagree. A
+ * firm entry writes its id; a catalog-only label writes NO id, because there is
+ * no vocabulary entry to point at and inventing one would put a reference in
+ * the snapshot that the standards tab cannot show. The label still resolves
+ * through the same normalisation, so its values are found either way.
+ *
+ * Re-selecting the unlisted sentinel is a no-op patch: it is a label the user
+ * typed before this list existed and choosing it must not rewrite it.
+ */
+function assetTypePatch(next: string, choices: readonly TypeChoice[]): Partial<Asset> {
+  if (next === UNLISTED_TYPE) return {};
+  if (next === '') return { type: '', assetTypeId: undefined };
+  const choice = choices.find((c) => c.key === next);
+  if (!choice) return {};
+  return { type: choice.label, assetTypeId: choice.fromFirm ? choice.key : undefined };
+}
+
 function resolveTypeCatalog(project: Project): readonly string[] {
   return assetTypeCatalogForProjectType(project.projectType);
 }
@@ -1082,7 +1162,12 @@ function buildAssetRows(
       plotLabel,
       rows: g.assets.map((asset) => {
         const breakdown = computeAssetLandBreakdown(asset, parcels, allAssets, subUnits, landAllocationMode);
-        const typeValues = asset.assetTypeId ? project.assetTypeValues?.[asset.assetTypeId] : undefined;
+        // THE TYPE RESOLVES ONCE, here as everywhere else: the stored
+        // reference when there is one, else the label normalised into the same
+        // id space. This read the reference alone, so an asset typed in the
+        // table row (which never wrote one) found no standards and the chain
+        // stopped dead at NSA.
+        const typeValues = resolveAssetTypeValues(asset, project.assetTypeValues);
         const areas = subUnits
           .filter((u) => u.assetId === asset.id && typeof u.unitArea === 'number' && u.unitArea > 0)
           .map((u) => u.unitArea);
@@ -1237,8 +1322,13 @@ function AssetInputsTable({
   onRemoveAsset: (id: string) => void;
   onAddAsset: (phaseId: string, parcelId?: string) => void;
 }): React.JSX.Element {
-  // 14 with Max Floors. Counts agree or U15 fails.
-  const COLS = 14;
+  // ONE list for every row, built once: the firm's vocabulary first, in the
+  // firm's own order, then the platform catalog labels the firm has not
+  // adopted. A firm entry and a catalog label that mean the same type collapse
+  // to one option, and only the firm's carries a reference.
+  const typeChoices = buildTypeChoices(assetTypeRegistry.entries, resolveTypeCatalog(project));
+  // 15 with Retail GFA / slot. Counts agree or U15 fails.
+  const COLS = 15;
   return (
     <div style={sectionCardStyle} data-testid="assets-table-section">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 'var(--sp-1)' }}>
@@ -1252,7 +1342,7 @@ function AssetInputsTable({
         {/* Identity trimmed to what the text needs, so the five numeric
             columns can hold their wrapped labels ("Retail %", "Util %") at a
             width that fits the numbers too. */}
-        <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1150 }} data-testid="assets-table">
+        <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1240 }} data-testid="assets-table">
           <colgroup>
             <col style={{ width: 26 }} />
             <col style={{ width: 104 }} />
@@ -1261,7 +1351,7 @@ function AssetInputsTable({
             <col style={{ width: 96 }} />
             <col style={{ width: 112 }} />
             <col style={{ width: 92 }} />
-            {Array.from({ length: 6 }).map((_, i) => (<col key={`in-${i}`} style={{ width: 90 }} />))}
+            {Array.from({ length: 7 }).map((_, i) => (<col key={`in-${i}`} style={{ width: 90 }} />))}
             <col style={{ width: 40 }} />
           </colgroup>
           <thead>
@@ -1269,7 +1359,7 @@ function AssetInputsTable({
               {/* Land area moves under Chain inputs, where it belongs: it is
                   step 0 of the chain, the figure every later step multiplies. */}
               <th style={TH_T} colSpan={6}>Asset</th>
-              <th style={TH_T} colSpan={7}>Plot and massing inputs</th>
+              <th style={TH_T} colSpan={8}>Plot and massing inputs</th>
               <th style={TH_T}></th>
             </tr>
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
@@ -1289,6 +1379,14 @@ function AssetInputsTable({
               <th style={TH_N} title="Height limit in storeys. Carried beside FAR for planning, and read by nothing: FAR already states the area this plot may build.">Max Floors</th>
               <th style={TH_N} title="Share of the Building Footprint given to GROUND-FLOOR retail. Reference: Retail % (Ground Floor).">Retail % (ground floor)</th>
               <th style={TH_N} title="Service and back-of-house share off Main Asset GFA. Reference: Service %.">Service %</th>
+              {/* RETAIL PARKING HAS ITS OWN FIGURE, and until now the only
+                  place to type it was inside a row's drawer, under the label
+                  "Retail sqm / slot", which named neither retail parking nor
+                  what it divides. It is a chain input, so it belongs with the
+                  other chain inputs. Without it Retail Parking Slots, Retail
+                  Parking Area and Total Parking Area are all dashes, on every
+                  asset, however much retail GFA the chain has just derived. */}
+              <th style={TH_N} title="Retail GFA per required parking slot. Retail parking divides by THIS, never by the asset's own parking ratio, because a shop's parking is sized off floor area and an apartment's off units. Leave it blank and Retail Parking Slots, Retail Parking Area and Total Parking Area cannot be derived.">Retail GFA / slot (sqm)</th>
               <th style={TH_T}></th>
             </tr>
           </thead>
@@ -1378,20 +1476,40 @@ function AssetInputsTable({
                             onChange={(e) => onUpdateAsset(asset.id, { name: e.target.value })}
                           />
                         </td>
+                        {/* A REAL DROPDOWN, NOT A DATALIST.
+                            A datalist is browser AUTOCOMPLETE: it filters its
+                            options by whatever is already in the box, so a row
+                            reading "Branded Villas" offered exactly one option
+                            and a row whose label is not in the list offered
+                            none at all. It looked like a list that had lost
+                            most of itself. Every row now offers the whole
+                            vocabulary, always, in one order.
+
+                            AND IT RECORDS WHICH TYPE, not just what it is
+                            called. Writing the label alone is what left 11 of
+                            12 live assets with no reference to the firm's
+                            entry, so their unit size and parking ratio
+                            resolved to nothing. Picking writes BOTH. */}
                         <td style={CELL}>
-                          <input
+                          <select
                             style={TABLE_INPUT}
-                            value={asset.type ?? ''}
-                            list={`asset-row-types-${asset.id}`}
+                            value={assetTypeSelectValue(asset, typeChoices)}
                             data-testid={`asset-row-${asset.id}-type`}
-                            onChange={(e) => onUpdateAsset(asset.id, { type: e.target.value })}
-                          />
-                          <datalist id={`asset-row-types-${asset.id}`}>
-                            {Array.from(new Set([
-                              ...assetTypeRegistry.entries.map((x) => x.label),
-                              ...resolveTypeCatalog(project),
-                            ])).map((t) => (<option key={t} value={t} />))}
-                          </datalist>
+                            title="The asset type. The firm's list from the standards tab first, then the platform catalog. Picking one records WHICH type this is, which is what lets its unit size and parking ratio resolve."
+                            onChange={(e) => onUpdateAsset(asset.id, assetTypePatch(e.target.value, typeChoices))}
+                          >
+                            <option value="">Not set</option>
+                            {typeChoices.map((c) => (
+                              <option key={c.key} value={c.key}>{c.label}{c.fromFirm ? '' : ' (catalog)'}</option>
+                            ))}
+                            {/* A LABEL THAT IS ON NEITHER LIST IS STILL AN
+                                OPTION, or selecting it would be impossible and
+                                the cell would silently show something else.
+                                Nothing a user typed is ever dropped. */}
+                            {assetTypeSelectValue(asset, typeChoices) === UNLISTED_TYPE && (
+                              <option value={UNLISTED_TYPE}>{(asset.type ?? '').trim()} (not in the list)</option>
+                            )}
+                          </select>
                         </td>
                         <td style={CELL}>
                           <span style={{ fontSize: 10 }} data-testid={`asset-row-${asset.id}-strategy`}>{asset.strategy}</span>
@@ -1457,6 +1575,7 @@ function AssetInputsTable({
                         <td style={CELL}><ChainCell value={asset.landChain?.maxFloors} testId={`asset-row-${asset.id}-max-floors`} title="Height limit in storeys. Carried, not computed with." onCommit={(v) => patchChain({ maxFloors: v })} /></td>
                         <td style={CELL}><ChainCell value={asset.landChain?.retailPct} testId={`asset-row-${asset.id}-retail`} title="Share of the FOOTPRINT given to ground-floor retail." onCommit={(v) => patchChain({ retailPct: v })} /></td>
                         <td style={CELL}><ChainCell value={asset.landChain?.servicePct} testId={`asset-row-${asset.id}-service`} title="Service and back-of-house share off Main Asset GFA." onCommit={(v) => patchChain({ servicePct: v })} /></td>
+                        <td style={CELL}><ChainCell value={asset.landChain?.retailAreaPerSlotSqm} testId={`asset-row-${asset.id}-retail-slot`} title="Retail GFA per required parking slot. Retail parking divides by THIS, never by the asset's own parking ratio." onCommit={(v) => patchChain({ retailAreaPerSlotSqm: v })} /></td>
                         <td style={CELL}>
                           <button
                             type="button"
@@ -1628,7 +1747,15 @@ function AssetResultsTable({ rowGroups }: { rowGroups: RowGroup[] }): React.JSX.
                     data-testid={`asset-result-${asset.id}`}
                   >
                     <td style={{ ...CELL, color: 'var(--color-meta)', fontSize: 10 }}>{parcel ? parcel.name : 'none'}</td>
-                    <td style={CELL}>{assetDisplayName(asset)}</td>
+                    {/* NAME AND TYPE, because the merged table below groups by
+                        TYPE and a reader tracing a row into it needs to see
+                        which one this is. */}
+                    <td style={CELL} data-testid={`asset-result-${asset.id}-label`}>
+                      {assetDisplayName(asset)}
+                      {assetTypeSuffix(asset) && (
+                        <div style={{ fontSize: 9, color: 'var(--color-meta)' }}>{assetTypeSuffix(asset)}</div>
+                      )}
+                    </td>
                     <td style={CELL_NUM}>{formatArea(landSqm)}</td>
                     <td style={CELL_DERIVED} data-testid={`asset-result-${asset.id}-land-utilised`}>{d(chain.landUtilisedSqm)}</td>
                     <td style={CELL_DERIVED}>{d(chain.footprintSqm)}</td>
@@ -2072,7 +2199,14 @@ function SubUnitsTable({
             data-testid="subunits-parent-pick"
             onChange={(e) => setParentId(e.target.value)}
           >
-            {assets.map((a) => (<option key={a.id} value={a.id}>{assetDisplayName(a)}</option>))}
+            {/* THE TYPE RIDES ALONG HERE TOO. Picking a parent by an invented
+                name is picking which consolidated line the sub-unit joins, so
+                the type is the half of the label that decides anything. */}
+            {assets.map((a) => (
+              <option key={a.id} value={a.id}>
+                {assetDisplayName(a)}{assetTypeSuffix(a) ? ` (${assetTypeSuffix(a)})` : ''}
+              </option>
+            ))}
           </select>
           <button
             type="button"
@@ -2149,8 +2283,21 @@ function SubUnitsTable({
                       derived chain figure, which is what keeps the derivation
                       out of an editing surface. */}
                   <tr style={{ background: 'var(--color-primary-pale)' }} data-testid={`subunits-group-${asset?.id ?? 'unassigned'}`}>
+                    {/* THE TYPE IS SHOWN BESIDE THE NAME, because everything
+                        downstream keys off the type and a row labelled with an
+                        invented name says nothing about which line it joins,
+                        which cost method reads it, or whose standards it uses.
+                        Omitted when the asset is already called by its type. */}
                     <td style={{ ...CELL, fontWeight: 700 }} colSpan={2}>
                       {asset ? assetDisplayName(asset) : 'Unassigned'}
+                      {asset && assetTypeSuffix(asset) && (
+                        <span
+                          style={{ fontWeight: 400, color: 'var(--color-meta)', marginLeft: 6 }}
+                          data-testid={`subunits-group-${asset.id}-type`}
+                        >
+                          {assetTypeSuffix(asset)}
+                        </span>
+                      )}
                       <span style={{ fontWeight: 400, color: 'var(--color-meta)', marginLeft: 8 }}>
                         {rows.length} sub-unit{rows.length === 1 ? '' : 's'}
                       </span>
@@ -2490,9 +2637,8 @@ function AssetCard({
 
   // This asset's type values, straight from the project. Read live, never
   // copied, so editing a standard is an input change like any other.
-  const typeValues: AssetTypeValues | undefined = asset.assetTypeId
-    ? project.assetTypeValues?.[asset.assetTypeId]
-    : undefined;
+  const typeValues: AssetTypeValues | undefined =
+    resolveAssetTypeValues(asset, project.assetTypeValues);
 
   // THE UNIT SIZE RULE, as a read-out (nothing computes off it yet): the
   // sub-units' own areas when any state one, the asset type average as the
@@ -3146,7 +3292,7 @@ function AssetCard({
                             assetStrategy={asset.strategy}
                             assetType={asset.type}
                             isCompanionSub={asset.isCompanion === true && !!u.parentSubUnitId}
-                            assetTypeValues={asset.assetTypeId ? project.assetTypeValues?.[asset.assetTypeId] : undefined}
+                            assetTypeValues={resolveAssetTypeValues(asset, project.assetTypeValues)}
                           />
                         ))}
                       </tbody>

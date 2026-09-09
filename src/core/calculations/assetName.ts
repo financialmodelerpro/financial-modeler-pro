@@ -52,6 +52,25 @@ export function assetNameIsDerived(asset: NameableAsset): boolean {
 }
 
 /**
+ * THE TYPE, WHEN THE NAME IS HIDING IT.
+ *
+ * Everything downstream keys off type: the consolidated line, the schedules,
+ * the cost methods, the standards. A row labelled "Marina Residences" says
+ * nothing about which of those it will land in, and a reader looking at four
+ * invented names has no way to tell that two of them merge and two do not.
+ *
+ * So a surface that names an asset shows the type BESIDE the name. This
+ * returns it only when it would add something: an asset already called by its
+ * type does not need to be told twice, which is the whole reason this is a
+ * function rather than a field read at each call site.
+ */
+export function assetTypeSuffix(asset: NameableAsset): string | undefined {
+  if (assetNameIsDerived(asset)) return undefined;
+  const type = (asset.type ?? '').trim();
+  return type === '' ? undefined : type;
+}
+
+/**
  * Every asset in a list, with its name RESOLVED.
  *
  * ONE CALL AT AN EXPORT'S FRONT DOOR beats editing every read behind it. The

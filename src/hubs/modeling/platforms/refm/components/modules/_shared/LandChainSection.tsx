@@ -222,8 +222,13 @@ export default function LandChainSection({
               hint="Service and back-of-house share taken off the main asset GFA to give net saleable."
               testId={`asset-${assetId}-chain-service`}
               onCommit={(v) => onChange({ servicePct: v })} />
-            <ChainInput label="Retail sqm / slot" value={inputs?.retailAreaPerSlotSqm} disabled={disabled}
-              hint="Sqm of retail GFA per parking slot. Its own input because the reference divides retail by one fixed company figure, never by this asset's own parking ratio."
+            {/* THE SAME FIELD AS THE TABLE COLUMN, and now the same words.
+                It was called "Retail sqm / slot" here and had no column at
+                all, so the one input that unlocks retail parking named neither
+                retail parking nor what it divides, and lived only inside a
+                drawer. */}
+            <ChainInput label="Retail GFA / slot (sqm)" value={inputs?.retailAreaPerSlotSqm} disabled={disabled}
+              hint="Retail GFA per required parking slot. Retail parking divides by this, never by the asset's own parking ratio, because a shop's parking is sized off floor area and an apartment's off units. Blank leaves Retail Parking Slots, Retail Parking Area and Total Parking Area underivable."
               testId={`asset-${assetId}-chain-retail-slot`}
               onCommit={(v) => onChange({ retailAreaPerSlotSqm: v })} />
           </div>

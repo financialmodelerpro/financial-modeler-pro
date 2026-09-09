@@ -179,8 +179,12 @@ async function liveChecks(): Promise<void> {
   // joins this list without a line here is a path nobody checked.
   const EXPECTED_UNSET: Record<string, string> = {
     depreciationMethod: 'Every live asset uses the default straight line; the field exists and nothing has overridden it.',
-    'landChain.retailPct': 'Only two live assets carry chain inputs at all, and neither has ground-floor retail.',
-    'landChain.servicePct': 'Same two assets, neither with a service deduction.',
+    // landChain.retailPct and landChain.servicePct LEFT THIS LIST on 2026-09-09,
+    // which is D2b doing its job: the founder has since typed a ground-floor
+    // retail share and a service deduction on the Marina plots, so both paths
+    // are now exercised by real data and no longer need excusing. An entry that
+    // stays here after its field comes into use is a blind spot pretending to
+    // be a decision.
     'revenue.sell.escrow.heldPctOverride': 'No live project overrides escrow at the asset level.',
   };
   const unexpected = unset.filter((u) => !(u.field in EXPECTED_UNSET));
