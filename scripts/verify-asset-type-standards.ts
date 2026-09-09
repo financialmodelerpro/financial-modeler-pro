@@ -87,6 +87,10 @@ const FORBIDDEN_TOKENS = [
  *                       standards its CALLER resolves and passes in.
  *   consolidation.ts    names `assetTypeId` in the asset shape its grouping key
  *                       reads, and computes no money at all.
+ *   consolidationCollisions.ts
+ *                       lists field PATHS as data, `assetTypeId` among them. It
+ *                       reads no asset and no table; the paths are the spec for
+ *                       what a merge rule would have to reconcile.
  *
  * An exclusion is safe only while nothing in the engine CALLS the excluded
  * file, so A2 asserts exactly that for each of them here rather than relying on
@@ -97,6 +101,7 @@ const FORBIDDEN_TOKENS = [
 const DEFINITION_ONLY: { file: string; token: string }[] = [
   { file: 'src/core/calculations/landChain.ts', token: 'landChain' },
   { file: 'src/core/calculations/consolidation.ts', token: 'consolidation' },
+  { file: 'src/core/calculations/consolidationCollisions.ts', token: 'consolidationCollisions' },
 ];
 
 /**
@@ -195,7 +200,11 @@ function offlineChecks(): void {
   for (const d of DEFINITION_ONLY) {
     const callers = COMPUTE_SURFACE
       .filter((f) => f.replace(/\\/g, '/') !== d.file)
-      .filter((f) => readFileSync(f, 'utf8').includes(d.token));
+      // AN IMPORT, NOT A MENTION. consolidationCollisions.ts holds field PATHS
+      // as data ('landChain.farRatio', 'assetTypeId'), and a bare token match
+      // read those strings as dependencies on the files those fields live in.
+      .filter((f) => new RegExp(`from '[^']*${d.token}'|from "[^"]*${d.token}"`)
+        .test(readFileSync(f, 'utf8')));
     check(`A2 the excluded file ${d.file.split('/').pop()} is called by NOTHING that computes money`,
       callers.length === 0, callers.slice(0, 3).join(' | '));
   }

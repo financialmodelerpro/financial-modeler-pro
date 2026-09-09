@@ -220,12 +220,20 @@ function offlineChecks(): void {
 
   // The DEFINITION is excluded: it is the chain, not a consumer. Everything
   // else in the calculation and export surface must not mention it.
+  // A PATH STRING IS NOT A REFERENCE, and this used to treat it as one.
+  // consolidationCollisions.ts lists 'landChain.farRatio' and four siblings as
+  // DATA, the field paths it compares members on; it imports nothing from the
+  // chain and calls none of it. A bare token match read that list as five
+  // dependencies. What "reads the chain" actually means is an import of the
+  // module or a call to its function, so that is what is looked for.
   const consumers = files
     .filter((f) => f !== CHAIN_FILE)
     .filter((f) => {
-      const src = readFileSync(f, 'utf8');
-      return src.includes('landChain') || src.includes('computeLandChain')
-        || src.includes('LandChainInputs') || src.includes('retailAreaPerSlotSqm');
+      const src = readFileSync(f, 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+      return /from '[^']*landChain'|from "[^"]*landChain"/.test(src)
+        || /\bcomputeLandChain\s*\(/.test(src)
+        || /:\s*LandChainInputs\b/.test(src);
     });
   check('C1 no calculation, resolver, report or export file references the chain',
     consumers.length === 0, consumers.slice(0, 5).join(' | '));
