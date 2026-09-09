@@ -674,16 +674,29 @@ function offlineChecks(): void {
     { areaSqm: 1000, units: 4, rate: 100, perUnit: false },
     { areaSqm: 3000, units: 6, rate: 200, perUnit: false },
   ]);
-  check('U29c each line and the table foot carry total area, total units and a BLENDED rate',
+  check('U29c each LINE carries total area, total units and a BLENDED rate',
     /export function poolSubUnits\(/.test(modelSrc)
     && pooled.areaSqm === 4000 && pooled.units === 10 && pooled.value === 700000
     // VALUE OVER AREA, never an average of rates: an average would be 150.
     && pooled.blendedRate === 175
     && ['total-area', 'total-units', 'blended-rate']
       .every((k) => subBody.includes(`subunits-line-\${line.key}-${k}\``))
-    && ['subunits-project-total-area', 'subunits-project-total-units', 'subunits-project-blended-rate']
-      .every((k) => subBody.includes(`"${k}"`)),
+    // The line total is named by WHAT IT POOLS, not by which row it is.
+    && subBody.includes('`Blended ${line.label}`'),
     `blended ${pooled.blendedRate} (an average of rates would be 150)`);
+  // U29c3 THE PROJECT FOOT ADDS ONLY WHAT ADDS. A line is one type, so pooling
+  // its rates answers a real question; this row spans every type, and
+  // residential sale prices, hotel keys and retail leases have no average
+  // between them. Sharing a time basis is not enough to make one meaningful, so
+  // the cell is GONE rather than gated: there is no condition under which it
+  // should print a figure.
+  check('U29c3 the project foot shows area and units only, and no rate at all',
+    ['subunits-project-total-area', 'subunits-project-total-units']
+      .every((k) => subBody.includes(`"${k}"`))
+    && !subBody.includes('"subunits-project-blended-rate"')
+    && !subBody.includes('"subunits-project-blended-basis"')
+    // And it SAYS why the column is empty, rather than leaving two blank cells.
+    && subBody.includes('rates blend per line, not across types'));
   // A PER-UNIT PRICE IS NOT MULTIPLIED BY AN AREA. 4 units at 50,000 is
   // 200,000 of value, not 1,000 sqm times 50,000.
   const perUnit = poolSubUnits([{ areaSqm: 1000, units: 4, rate: 50000, perUnit: true }]);
@@ -731,11 +744,10 @@ function offlineChecks(): void {
     && ['no rates', 'no area to divide by', 'per room/night, not blended against sqm',
       'mixed time bases, not blendable']
       .every((t) => tabSrc.includes(`'${t}'`))
-    // BOTH totals rows route through it, so the line and the foot cannot give
-    // two different reasons for the same dash.
-    && (subBody.match(/blendedBasisText\(/g) ?? []).length === 2
-    && /\{line\.totals\.blendable \?/.test(subBody)
-    && /\{all\.blendable \?/.test(subBody));
+    // ONE caller now, the line: the foot dropped its rate entirely (U29c3), so
+    // there is one place a blend can appear and one sentence explaining it.
+    && (subBody.match(/blendedBasisText\(/g) ?? []).length === 1
+    && /\{line\.totals\.blendable \?/.test(subBody));
   // AND A COUNT TOTAL PRINTS WHOLE. Some stored counts are fractional
   // (309.9854 on a live line), and toLocaleString would have printed
   // "309.985" units.

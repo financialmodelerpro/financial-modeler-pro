@@ -2567,7 +2567,13 @@ function SubUnitsTable({
                 <tr key={`total-${line.key}`}
                   style={{ background: 'var(--color-primary-pale)', borderBottom: '2px solid var(--color-navy)' }}
                   data-testid={`subunits-line-${line.key}-totals`}>
-                  <td style={{ ...CELL, fontWeight: 700 }} colSpan={2}>Line total</td>
+                  {/* NAMED BY WHAT IT POOLS. "Line total" said which ROW it
+                      was; "Blended Branded Villas" says what the figures beside
+                      it are a blend OF, which is the only thing a reader needs
+                      from a label sitting under four rows of the same type. */}
+                  <td style={{ ...CELL, fontWeight: 700 }} colSpan={2} data-testid={`subunits-line-${line.key}-total-label`}>
+                    {line.key === '__no_line__' ? 'Total, not on a line' : `Blended ${line.label}`}
+                  </td>
                   <td style={CELL_NUM} />
                   <td style={{ ...CELL_NUM, fontWeight: 700 }} data-testid={`subunits-line-${line.key}-total-area`}>{formatArea(line.totals.areaSqm)}</td>
                   <td style={CELL_NUM} />
@@ -2586,9 +2592,18 @@ function SubUnitsTable({
                 </tr>,
                 ];
               })}
-              {/* THE PROJECT FOOT. The same three figures over every line, so
-                  management can read the pooled price against the individual
-                  ones without adding up the lines by hand. */}
+              {/* THE PROJECT FOOT: AREA AND UNITS ONLY.
+
+                  IT CARRIED A BLENDED RATE AND SHOULD NOT HAVE. A line is one
+                  type, so pooling its rates answers a real question; this row
+                  spans every type on the project, and residential sale prices,
+                  hotel keys and retail leases have no average between them. The
+                  per-line refusal was not enough either: even where the lines
+                  happen to share one time basis, a value per sqm across a
+                  residential tower and a retail strip is a number with no
+                  meaning, so there is no condition under which this cell should
+                  print one and it is gone rather than gated. Area and units
+                  ADD across types; a price does not. */}
               {subUnitLines.length > 0 && (() => {
                 const all = poolSubUnits(
                   subUnitLines.flatMap((l) => l.rows.map(({ unit, asset }) => subUnitValueRow(unit, asset))),
@@ -2601,12 +2616,9 @@ function SubUnitsTable({
                     <td style={{ ...CELL_NUM, fontWeight: 700, color: 'inherit' }} data-testid="subunits-project-total-area">{formatArea(all.areaSqm)}</td>
                     <td style={{ ...CELL_NUM, color: 'inherit' }} />
                     <td style={{ ...CELL_NUM, fontWeight: 700, color: 'inherit' }} data-testid="subunits-project-total-units">{Math.round(all.units).toLocaleString()}</td>
-                    <td style={{ ...CELL_NUM, fontWeight: 700, color: 'inherit' }} data-testid="subunits-project-blended-rate"
-                      title="Total value over total area, across every line. Refused when the lines are not all priced on one time basis: a capital price and a nightly rate do not add up.">
-                      {all.blendable ? formatAccounting(all.blendedRate, 'full', project.displayDecimals ?? 2) : '-'}
-                    </td>
-                    <td style={{ ...CELL, fontSize: 10, color: 'inherit' }} data-testid="subunits-project-blended-basis">
-                      {blendedBasisText(all)}
+                    <td style={{ ...CELL_NUM, color: 'inherit' }} />
+                    <td style={{ ...CELL, fontSize: 10, color: 'inherit' }} data-testid="subunits-project-rate-note">
+                      rates blend per line, not across types
                     </td>
                     <td style={{ ...CELL, color: 'inherit' }} />
                   </tr>
