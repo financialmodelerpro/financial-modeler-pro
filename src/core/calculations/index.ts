@@ -225,12 +225,38 @@ export function computeAssetSellableBua(asset: Asset, subUnits: SubUnit[]): numb
   return sum > 0 ? sum : Math.max(0, asset.sellableBuaSqm ?? 0);
 }
 
-// Sum of Sellable / Operable / Leasable units where metric === 'units'.
-// Used by the rate_per_unit cost method. M2.0i Fix 6 (2026-05-07):
-// 'units' is the canonical name; legacy 'count' still resolves.
+/**
+ * Sum of Sellable / Operable / Leasable UNITS. Used by the rate_per_unit cost
+ * method and by the land chain, which takes it as a unit-count override.
+ *
+ * THE ASSET'S METRIC DECIDES, and until 2026-09-09 this asked the ROW.
+ *
+ * A sub-unit carries its own `metric`, but every surface on the assets tab
+ * resolves it as `asset.subUnitMetric ?? u.metric`: the asset wins, because the
+ * asset is what the column headings and the area sums are written against. This
+ * function asked `u.metric` alone, so a row whose own metric was left at 'units'
+ * while its asset counts AREA was an area on screen and a COUNT here.
+ *
+ * MEASURED, not reasoned about. Marina Residences counts area; its "2 BR" row
+ * still said 'units' and held 12,599.1, which is its area in sqm. This returned
+ * 12,599.1, the chain took it as a unit-count override and printed it verbatim
+ * in Units or Keys, so a line with 19,999 sqm of NSA at 170 sqm a unit reported
+ * 12,599 units instead of 118. Its neighbour, with no sub-units and so no
+ * override, reported 7,600 over 260 correctly.
+ *
+ * ONE ANSWER NOW: the same resolution the screen uses. Measured across all six
+ * live projects before changing it, exactly one count moves (that one, to 0, so
+ * the chain derives 118 instead), and NO live project carries a rate_per_unit
+ * cost line, so no money moves today.
+ *
+ * M2.0i Fix 6 (2026-05-07): 'units' is the canonical name; legacy 'count' still
+ * resolves, on the row and on the asset alike.
+ */
 export function computeAssetUnitCount(asset: Asset, subUnits: SubUnit[]): number {
+  const isUnitsMetric = (m: unknown): boolean => m === 'units' || m === 'count';
   return subUnits
-    .filter((u) => u.assetId === asset.id && (u.metric === 'units' || (u.metric as unknown as string) === 'count') && u.category !== 'Support')
+    .filter((u) => u.assetId === asset.id && u.category !== 'Support')
+    .filter((u) => isUnitsMetric(asset.subUnitMetric ?? u.metric))
     .reduce((s, u) => s + Math.max(0, u.metricValue), 0);
 }
 

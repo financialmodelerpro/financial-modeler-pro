@@ -117,7 +117,7 @@ function mergeLandChain(
   }
   return Object.keys(next).length === 0 ? undefined : (next as LandChainInputs);
 }
-import { AccountingNumberInput } from '../ui/AccountingNumberInput';
+import { AccountingNumberInput, formatFieldNumber, parseAccounting } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
 import InputLabel from '../ui/InputLabel';
 import { CELL_HEADER, TABLE_TITLE } from './_shared/tableStyles';
@@ -1106,7 +1106,7 @@ const TABLE_NUM_INPUT: React.CSSProperties = { ...TABLE_INPUT, textAlign: 'right
 /** A chain-input cell: blank means not set, a typed 0 is a real answer, and
  *  every accepted keystroke writes straight through like any model input. */
 function ChainCell({
-  value, onCommit, testId, title, placeholder,
+  value, onCommit, testId, title, placeholder, decimals,
 }: {
   value: number | undefined;
   onCommit: (v: number | undefined) => void;
@@ -1117,14 +1117,34 @@ function ChainCell({
    *  the cell is empty because nothing was typed, and it still says what the
    *  model is using. */
   placeholder?: string;
+  /**
+   * How many decimals to show when the cell is NOT being typed in, and the
+   * signal that this cell wants thousands separators at all.
+   *
+   * OMITTED MEANS UNCHANGED, deliberately. The five percentages never reach a
+   * thousand, so separators would add nothing, and FAR is 2.4181 on a live
+   * project: formatting it to a fixed two decimals would show 2.42 for a figure
+   * that multiplies every area on the plot. Only the two AREAS opt in.
+   */
+  decimals?: number;
 }): React.JSX.Element {
   const [draft, setDraft] = useState<string | null>(null);
-  const stored = value !== undefined ? String(value) : '';
+  const [focused, setFocused] = useState(false);
+  // RAW WHILE FOCUSED, GROUPED WHILE IDLE, which is the AccountingNumberInput
+  // pattern and the reason this reuses its formatter and its parser rather than
+  // growing a second set. A stored 16,559.46 reads "16,559" in the table and
+  // comes back exact the moment it is clicked, so nothing is lost by looking
+  // at it.
+  const stored = value === undefined
+    ? ''
+    : (decimals !== undefined && !focused ? formatFieldNumber(value, decimals) : String(value));
   const parse = (s: string): number | undefined | 'bad' => {
     const t = s.trim();
     if (t === '') return undefined;
-    const n = Number(t);
-    return Number.isFinite(n) && n >= 0 ? n : 'bad';
+    // THE SHARED PARSE, so a pasted "16,559" is a number here as it is
+    // everywhere else on the platform.
+    const n = parseAccounting(t);
+    return n !== null && Number.isFinite(n) && n >= 0 ? n : 'bad';
   };
   const bad = draft !== null && parse(draft) === 'bad';
   return (
@@ -1135,13 +1155,14 @@ function ChainCell({
       placeholder={placeholder ?? '-'}
       title={title}
       data-testid={testId}
+      onFocus={() => setFocused(true)}
       onChange={(e) => {
         const next = e.target.value;
         setDraft(next);
         const p = parse(next);
         if (p !== 'bad') onCommit(p);
       }}
-      onBlur={() => setDraft(null)}
+      onBlur={() => { setDraft(null); setFocused(false); }}
     />
   );
 }
@@ -1634,6 +1655,7 @@ function AssetInputsTable({
                                 ? undefined
                                 : asset.landAllocation?.sqm}
                               testId={`asset-row-${asset.id}-land`}
+                              decimals={AREA_DECIMALS}
                               placeholder={areaText(landSqm)}
                               title={drawSource === 'whole_plot'
                                 ? `Blank, so this asset draws its whole plot: ${areaText(landSqm)} sqm. Type a figure to draw less. Adding a second asset to this plot ends the default.`
@@ -1652,7 +1674,7 @@ function AssetInputsTable({
                         <td style={CELL}><ChainCell value={asset.landChain?.maxFloors} testId={`asset-row-${asset.id}-max-floors`} title="Height limit in storeys. Carried, not computed with." onCommit={(v) => patchChain({ maxFloors: v })} /></td>
                         <td style={CELL}><ChainCell value={asset.landChain?.retailPct} testId={`asset-row-${asset.id}-retail`} title="Share of the FOOTPRINT given to ground-floor retail." onCommit={(v) => patchChain({ retailPct: v })} /></td>
                         <td style={CELL}><ChainCell value={asset.landChain?.servicePct} testId={`asset-row-${asset.id}-service`} title="Service and back-of-house share off Main Asset GFA." onCommit={(v) => patchChain({ servicePct: v })} /></td>
-                        <td style={CELL}><ChainCell value={asset.landChain?.retailAreaPerSlotSqm} testId={`asset-row-${asset.id}-retail-slot`} title="Retail GFA per required parking slot. Retail parking divides by THIS, never by the asset's own parking ratio." onCommit={(v) => patchChain({ retailAreaPerSlotSqm: v })} /></td>
+                        <td style={CELL}><ChainCell decimals={AREA_DECIMALS} value={asset.landChain?.retailAreaPerSlotSqm} testId={`asset-row-${asset.id}-retail-slot`} title="Retail GFA per required parking slot. Retail parking divides by THIS, never by the asset's own parking ratio." onCommit={(v) => patchChain({ retailAreaPerSlotSqm: v })} /></td>
                         <td style={CELL}>
                           <button
                             type="button"
@@ -2106,17 +2128,40 @@ function AssetTables({
 /** One editable number in the sub-unit table. Draft while typing so a
  *  half-typed entry and an empty cell both survive; blank clears to absent. */
 function SubUnitNumber({
-  value, onCommit, testId, title,
+  value, onCommit, testId, title, decimals,
 }: {
   value: number | undefined;
   onCommit: (v: number | undefined) => void;
   testId: string;
   title: string;
+  /**
+   * Decimals while idle, and the signal that this field wants separators.
+   *
+   * PER FIELD, NOT PER TABLE. An area is a whole number of square metres and
+   * a count is a whole number of apartments, so both read 0; a rate is a price
+   * and keeps its decimals (a live ADR is 268.07); and AVERAGE UNIT SIZE keeps
+   * two as well, on the founder's call, because it is a measured average that
+   * DIVIDES INTO the unit count, so 73.13 rounded to 73 would move a figure
+   * rather than tidy one.
+   */
+  decimals?: number;
 }): React.JSX.Element {
   const [draft, setDraft] = useState<string | null>(null);
-  const stored = value !== undefined ? String(Math.round(value * 100) / 100) : '';
-  const parsed = draft === null ? null : (draft.trim() === '' ? undefined : Number(draft));
-  const bad = parsed !== null && parsed !== undefined && (!Number.isFinite(parsed) || parsed < 0);
+  const [focused, setFocused] = useState(false);
+  // RAW WHILE FOCUSED, GROUPED WHILE IDLE. The AccountingNumberInput pattern,
+  // reusing its formatter and its parser: a stored 16,559.46 reads "16,559"
+  // and comes back exact the moment the field is clicked, so a display rounding
+  // can never round-trip into storage.
+  const stored = value === undefined
+    ? ''
+    : (decimals !== undefined && !focused
+      ? formatFieldNumber(value, decimals)
+      : String(Math.round(value * 100) / 100));
+  const parsed = draft === null
+    ? null
+    : (draft.trim() === '' ? undefined : parseAccounting(draft));
+  const bad = parsed !== null && parsed !== undefined
+    && (parsed === null || !Number.isFinite(parsed) || parsed < 0);
   return (
     <input
       style={{ ...TABLE_NUM_INPUT, ...(bad ? { borderColor: 'var(--color-negative)' } : {}) }}
@@ -2125,15 +2170,16 @@ function SubUnitNumber({
       placeholder="not set"
       title={title}
       data-testid={testId}
+      onFocus={() => setFocused(true)}
       onChange={(e) => {
         const next = e.target.value;
         setDraft(next);
         const t = next.trim();
         if (t === '') { onCommit(undefined); return; }
-        const num = Number(t);
-        if (Number.isFinite(num) && num >= 0) onCommit(num);
+        const num = parseAccounting(t);
+        if (num !== null && Number.isFinite(num) && num >= 0) onCommit(num);
       }}
-      onBlur={() => setDraft(null)}
+      onBlur={() => { setDraft(null); setFocused(false); }}
     />
   );
 }
@@ -2518,6 +2564,7 @@ function SubUnitsTable({
                           </span>
                         ) : (
                           <SubUnitNumber
+                            decimals={AREA_DECIMALS}
                             value={u.metricValue}
                             testId={`subunits-row-${u.id}-area`}
                             title="Sqm this sub-unit occupies. Typing here sets the share."
@@ -2527,6 +2574,7 @@ function SubUnitsTable({
                       </td>
                       <td style={CELL}>
                         <SubUnitNumber
+                          decimals={2}
                           value={u.unitArea}
                           testId={`subunits-row-${u.id}-unit-size`}
                           title="Sqm of ONE unit or key here. The count below divides the area by it."
@@ -2536,6 +2584,7 @@ function SubUnitsTable({
                       <td style={CELL}>
                         {isUnits ? (
                           <SubUnitNumber
+                            decimals={0}
                             value={u.metricValue}
                             testId={`subunits-row-${u.id}-count`}
                             title="Whole units or keys. This asset counts units, so this is what you type."
@@ -2564,6 +2613,7 @@ function SubUnitsTable({
                           would be silently discarded on the next edit. */}
                       <td style={CELL}>
                         <SubUnitNumber
+                          decimals={project.displayDecimals ?? 2}
                           value={u.unitPrice}
                           testId={`subunits-row-${u.id}-rate`}
                           title={`Price, ${rateUnitLabel(u.category, isUnits ? 'units' : 'area') || 'no rate for this category'}. Full scale always: a rate is a price, not a project total.`}

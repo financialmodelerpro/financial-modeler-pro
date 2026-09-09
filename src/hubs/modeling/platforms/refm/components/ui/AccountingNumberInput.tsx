@@ -45,7 +45,7 @@ export interface AccountingNumberInputProps {
 // parentheses as a negative sign; trims whitespace. Returns null when
 // the string cannot be interpreted as a number; the caller falls back
 // to the prior value rather than mutating to NaN.
-function parseAccounting(raw: string): number | null {
+export function parseAccounting(raw: string): number | null {
   const trimmed = raw.trim();
   if (trimmed === '' || trimmed === '-') return 0;
   const negParen = /^\((.*)\)$/.exec(trimmed);
@@ -55,6 +55,28 @@ function parseAccounting(raw: string): number | null {
   const n = Number(core);
   if (!Number.isFinite(n)) return null;
   return sign * n;
+}
+
+/**
+ * THE SAME SEPARATORS, FOR A FIELD THAT CAN BE BLANK.
+ *
+ * formatAccounting renders 0 as "-", which is right for a report cell and
+ * wrong for an input: on this tab a typed 0 is a real answer and a BLANK is
+ * the absent one, and collapsing the two is the defect the whole blank-versus-
+ * zero rule exists to prevent. So the grouping is shared and the accounting
+ * dash is not.
+ *
+ * Exported so the table-cell inputs reuse this pattern rather than growing a
+ * second one: they keep their own blank semantics (AccountingNumberInput's
+ * value is a number and cannot express absence) and take the formatting and
+ * the comma-tolerant parse from here.
+ */
+export function formatFieldNumber(value: number, decimals: number): string {
+  if (!Number.isFinite(value)) return '';
+  return value.toLocaleString('en-US', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
 }
 
 function clamp(n: number, min?: number, max?: number): number {

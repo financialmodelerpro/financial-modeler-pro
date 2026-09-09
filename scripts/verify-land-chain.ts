@@ -35,7 +35,7 @@ import {
   type ChainGap,
   type LandChainInputs,
 } from '../src/core/calculations/landChain';
-import { resolveAssetPlotDraw, computeAssetLandSqm, computeAssetLandBreakdown, computeLandAggregate } from '../src/core/calculations';
+import { resolveAssetPlotDraw, computeAssetLandSqm, computeAssetLandBreakdown, computeLandAggregate, computeAssetUnitCount } from '../src/core/calculations';
 import {
   groupAssetsByPlot,
   mintId,
@@ -46,10 +46,11 @@ import {
   UNPLOTTED_GROUP,
   type AssetPlotGroup,
 } from '../src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel';
-import type { Asset, Parcel } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import type { Asset, Parcel, SubUnit } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
-import { formatArea } from '../src/core/formatters';
+import { formatArea, formatAccounting } from '../src/core/formatters';
+import { formatFieldNumber } from '../src/hubs/modeling/platforms/refm/components/ui/AccountingNumberInput';
 import { buildExcelSampleState } from './excelSampleState';
 
 // The tab's own area rule, restated here so the checks below RUN it rather
@@ -373,7 +374,8 @@ function offlineChecks(): void {
   // table was built and this one did not, so the only place to set a rate was
   // the drawer. A column of numbers nobody can click is read as broken.
   check('U7b the rate is an INPUT, and a companion mirror writes the ADR with it',
-    /<SubUnitNumber\s+value=\{u\.unitPrice\}/.test(tabSrc.replace(/\s*\n\s*/g, ' '))
+    /<SubUnitNumber decimals=\{project\.displayDecimals \?\? 2\} value=\{u\.unitPrice\}/
+      .test(tabSrc.replace(/\s*\n\s*/g, ' '))
     && /u\.parentSubUnitId !== undefined/.test(tabSrc)
     && /\{ unitPrice: v \?\? 0, startingAdr: v \?\? 0 \}/.test(tabSrc)
     && /\{ unitPrice: v \?\? 0 \}/.test(tabSrc));
@@ -385,11 +387,18 @@ function offlineChecks(): void {
   // check was about how it PRINTED. It is now typed, so the distinction has to
   // hold at the point of entry: an absent size shows the "not set" placeholder
   // and a typed 0 shows 0, and only the absent one is silent.
+  // U9 RE-AIMED WITH THE FORMATTING (2026-09-09) AND MADE BEHAVIOURAL. The
+  // rule is unchanged and is the one the separators could most easily have
+  // broken: ABSENT renders empty and shows the placeholder, a TYPED ZERO
+  // renders "0". formatAccounting would have printed that zero as "-", which
+  // is why these fields format through formatFieldNumber instead.
   check('U9 an ABSENT unit size is visibly not set, and a typed 0 is a real answer',
     /value=\{draft \?\? stored\}/.test(tabSrc)
-    && /const stored = value !== undefined \? String\(Math\.round\(value \* 100\) \/ 100\) : '';/.test(tabSrc)
+    && /const stored = value === undefined\s*\n?\s*\? ''/.test(tabSrc.replace(/\r/g, ''))
     && /placeholder="not set"/.test(tabSrc)
-    && /onCommit=\{\(v\) => onUpdate\(u\.id, \{ unitArea: v \}\)\}/.test(tabSrc));
+    && /onCommit=\{\(v\) => onUpdate\(u\.id, \{ unitArea: v \}\)\}/.test(tabSrc)
+    && formatFieldNumber(0, 0) === '0'
+    && formatFieldNumber(0, 2) === '0.00');
   // RE-AIMED 2026-09-08: the one table became TWO, stacked. What you type is
   // table one; what the chain produces is table two, which can now carry the
   // WHOLE cascade because it carries no input.
@@ -777,6 +786,45 @@ function offlineChecks(): void {
     && areaText(0) === '0'
     && areaText(undefined) === '0',
     `${areaText(27599.14)} / ${areaText(0)}`);
+  // ── U29m THOUSANDS SEPARATORS, AND THE PATTERN IS REUSED RATHER THAN
+  // REBUILT. Grouped while idle, RAW while focused, so a display rounding can
+  // never round-trip into storage: a stored 16,559.46 reads "16,559" and comes
+  // back exact the moment the field is clicked.
+  check('U29m the cell inputs reuse the AccountingNumberInput formatter and parser',
+    /import \{ AccountingNumberInput, formatFieldNumber, parseAccounting \}/.test(tabSrc)
+    // Both cell inputs go raw on focus and formatted on blur.
+    && (tabSrc.match(/onFocus=\{\(\) => setFocused\(true\)\}/g) ?? []).length === 2
+    && (tabSrc.match(/onBlur=\{\(\) => \{ setDraft\(null\); setFocused\(false\); \}\}/g) ?? []).length === 2
+    && (tabSrc.match(/decimals !== undefined && !focused/g) ?? []).length === 2
+    // A pasted "16,559" is a number, through the shared parse.
+    && (tabSrc.match(/parseAccounting\(/g) ?? []).length >= 3);
+  check('U29m2 a typed ZERO still renders as 0, which formatAccounting would have shown as a dash',
+    formatFieldNumber(0, 0) === '0' && formatFieldNumber(16559.46, 0) === '16,559'
+    && formatFieldNumber(268.07, 2) === '268.07' && formatFieldNumber(2590000, 2) === '2,590,000.00'
+    // The accounting formatter is what these fields must NOT use.
+    && formatAccounting(0, 'full', 0) === '-',
+    `${formatFieldNumber(0, 0)} / ${formatFieldNumber(16559.46, 0)}`);
+  // WHICH FIELDS OPT IN, NAMED. Omitting `decimals` means unchanged, and the
+  // five percentages, FAR and Max Floors deliberately omit it: none reaches a
+  // thousand, and FAR is 2.4181 on a live plot, so a fixed two decimals would
+  // show 2.42 for a figure that multiplies every area under it.
+  check('U29m3 the two AREAS in the inputs table opt in, and FAR and the percentages do not',
+    /decimals=\{AREA_DECIMALS\}\s*\n?\s*placeholder=\{areaText\(landSqm\)\}/.test(inputsBody.replace(/\r/g, ''))
+    && /<ChainCell decimals=\{AREA_DECIMALS\} value=\{asset\.landChain\?\.retailAreaPerSlotSqm\}/.test(inputsBody)
+    && !/decimals=\{[^}]*\} value=\{asset\.landChain\?\.farRatio\}/.test(inputsBody)
+    && !/decimals=\{[^}]*\} value=\{asset\.landChain\?\.utilisationPct\}/.test(inputsBody));
+  check('U29m4 in the sub-unit table the area and the count are whole, the unit size and the rate keep decimals',
+    /decimals=\{AREA_DECIMALS\}\s*\n?\s*value=\{u\.metricValue\}\s*\n?\s*testId=\{`subunits-row-\$\{u\.id\}-area`\}/
+      .test(subBody.replace(/\r/g, ''))
+    && /decimals=\{0\}\s*\n?\s*value=\{u\.metricValue\}\s*\n?\s*testId=\{`subunits-row-\$\{u\.id\}-count`\}/
+      .test(subBody.replace(/\r/g, ''))
+    // AVERAGE UNIT SIZE KEEPS TWO. It is a measured average that DIVIDES INTO
+    // the unit count, so 73.13 shown as 73 would move a figure, not tidy one.
+    && /decimals=\{2\}\s*\n?\s*value=\{u\.unitArea\}/.test(subBody.replace(/\r/g, ''))
+    && /decimals=\{project\.displayDecimals \?\? 2\}\s*\n?\s*value=\{u\.unitPrice\}/.test(subBody.replace(/\r/g, ''))
+    // NSA Share is left alone: a percent never reaches a thousand.
+    && !/decimals=\{[^}]*\}\s*\n?\s*value=\{sharePct\}/.test(subBody.replace(/\r/g, '')));
+
   check('U29j2 the rounding is DISPLAY only: the pooled total is the sum of the exact parts',
     // 100.4 + 100.4 is 200.8, which renders 201. Summing the ROUNDED parts
     // would give 200, and a total that disagrees with its own column by a whole
@@ -853,6 +901,43 @@ function offlineChecks(): void {
   check('U29i2 NO add button mints an id from the clock alone any more',
     !/Date\.now\(\)\}`/.test(tabSrc)
     && (tabSrc.match(/id: mintId\('/g) ?? []).length === 4);
+
+  // ── U29n THE UNIT COUNT ASKS THE ASSET, NOT THE ROW.
+  //
+  // Every surface resolves a sub-unit's metric as `asset.subUnitMetric ??
+  // u.metric`: the asset wins, because the asset is what the column headings
+  // and the area sums are written against. computeAssetUnitCount asked the ROW
+  // alone, so a row whose own metric was left at 'units' while its asset counts
+  // AREA was an area on screen and a COUNT in the engine. Live: Marina
+  // Residences returned 12,599.1, its "2 BR" row's AREA, the chain took it as a
+  // unit-count override and printed it verbatim, so 19,999 sqm of NSA at 170
+  // sqm a unit reported 12,599 units instead of 118.
+  const mkSub = (o: Record<string, unknown>): SubUnit =>
+    ({ id: 'u', assetId: 'a', name: '', category: 'Sellable', metric: 'area',
+      metricValue: 0, unitPrice: 0, ...o } as unknown as SubUnit);
+  const asAsset = (o: Record<string, unknown>): Asset => ({ id: 'a', ...o } as unknown as Asset);
+  const stale = [mkSub({ id: 'x', metric: 'area', metricValue: 15000, unitArea: 150 }),
+    mkSub({ id: 'y', metric: 'units', metricValue: 12599.1, unitArea: 190 })];
+  check('U29n an AREA asset counts no units, however a row\'s own stale metric reads',
+    computeAssetUnitCount(asAsset({ subUnitMetric: 'area' }), stale) === 0,
+    `${computeAssetUnitCount(asAsset({ subUnitMetric: 'area' }), stale)}`);
+  check('U29n2 a UNITS asset counts every row, however a row\'s own stale metric reads',
+    computeAssetUnitCount(asAsset({ subUnitMetric: 'units' }), stale) === 27599.1);
+  check('U29n3 with no asset metric the ROW still decides, so nothing legacy loses its count',
+    computeAssetUnitCount(asAsset({}), stale) === 12599.1
+    // Legacy 'count' still resolves, on the asset as on the row.
+    && computeAssetUnitCount(asAsset({ subUnitMetric: 'count' }), stale) === 27599.1);
+  check('U29n4 Support is still excluded, whatever the metric says',
+    computeAssetUnitCount(asAsset({ subUnitMetric: 'units' }),
+      [mkSub({ category: 'Support', metricValue: 99 })]) === 0);
+  // AND THE CHAIN FALLS THROUGH when the override is zero, which is what turns
+  // the corrected count into the derived one rather than into a zero.
+  check('U29n5 a zero override does not become a zero unit count: the chain derives instead',
+    /if \(num\(subUnitUnits\) && subUnitUnits > 0\)/.test(chainSrc)
+    && computeLandChain(0, undefined, { avgUnitSizeSqm: 170 }, 0).units === undefined
+    && computeLandChain(11000, { utilisationPct: 100, coveragePct: 60, farRatio: 2.4181, retailPct: 20 },
+      { avgUnitSizeSqm: 170 }, 0).units === 118,
+    `${computeLandChain(11000, { utilisationPct: 100, coveragePct: 60, farRatio: 2.4181, retailPct: 20 }, { avgUnitSizeSqm: 170 }, 0).units}`);
 
   // ── THE SUB-UNIT PARTITION. Checked by RUNNING it, not by reading it.
   //
