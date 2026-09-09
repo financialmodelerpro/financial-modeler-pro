@@ -3,7 +3,82 @@
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
 ---
-## START HERE 2026-09-05: THE ACCOUNT MODEL IS SHIPPED END TO END. WHAT IS OPEN, in order:
+## START HERE 2026-09-09: MODULE 1 LAND PLANNING + CONSOLIDATION STEPS 1-5 ARE LIVE. WHAT IS OPEN, in order:
+
+The assets tab is now FIVE tables (plots / assets by plot / derived areas per
+plot / merged by line / sub-units under the line), the chain runs per plot and
+the merge sums results, and consolidation has reached step 5. **Step 5 is the
+first step that moved money**: the retail companion carves land out of its
+hosts. Full dated narrative in [CHANGELOG.md](CHANGELOG.md) 2026-09-09.
+
+**NOT BROWSER-VERIFIED.** Everything on 2026-09-09 is verifier-proven and
+engine-proven against the six live projects, and NONE of it has had a founder
+click-test: the five tables, the standards tab's two parking figures, the type
+dropdown, the retail companion rows in tables 4 and 5, and the carve.
+
+### 1. Consolidation step 6, then step 7
+Step 5 gave the retail companion its land. Still open: the COST LINES (it takes
+none today, so it capitalises nothing) and whatever step 7 is decided to be.
+The founder's sequence has been one step per instruction; do not guess ahead.
+
+### 2. Sub-unit re-parenting to the LINE
+Sub-units GROUP under the line in table 5 but still BELONG to the plot asset:
+`SubUnit.assetId` is untouched. Re-parenting moves with the engine's lookup
+sites and the asset-keyed cost overrides TOGETHER, because a half-moved parent
+is two answers to one question. `partitionSubUnitsByLine` already states which
+sub-unit belongs to which line, so the presentation half is done.
+
+### 3. Wire the area chain to Capex
+The chain reaches the engine in exactly ONE place today (the retail carve's
+share, see CLAUDE.md's narrowed invariant). Its areas still feed no cost
+method: `rate_per_bua`, `rate_per_nsa`, `rate_per_gfa` and `rate_per_unit` read
+the asset's TYPED fields, so a plot whose chain derives 26,599 sqm of Total GFA
+charges on whatever `buaSqm` says. Deciding that the chain wins is a
+money-moving step of the same size as step 5 and needs the same treatment: a
+before/after per asset on both live projects.
+
+### 4. The IC report reads a RAW BUA where every other surface reads the resolved one
+`lib/reports/icReport.ts:323` is `const assetBua = (a) => (a.buaTotal ?? a.buaSqm ?? 0)`, used at
+402 and 408. The engine (`index.ts:1067`) and the assets tab both go through
+`computeAssetAreaHierarchy`, which is `Math.max(hierarchy.bua, asset.buaSqm)`.
+So an asset whose SUB-UNITS imply more BUA than its typed field reports a
+SMALLER figure in the IC deck than in the model, silently, and the deck is the
+surface a client sees. Confirmed by reading, not yet measured on live data.
+
+### 5. The Lease opex branch asks the ROW's metric, not the ASSET's
+`lib/opex-resolvers.ts` 263 and 267 read `u.metric === 'units'` / `=== 'area'`.
+That is the SAME defect class fixed in `computeAssetUnitCount` on 2026-09-09
+(TRAPS 7.32): every surface resolves it as `asset.subUnitMetric ?? u.metric`,
+the asset wins, and a row left at a stale metric is counted one way on screen
+and another in opex. On live data one Marina row is exactly that shape. Measure
+before changing: this one CAN move money, unlike the unit-count fix.
+
+### 6. `computeAssetAreaTotals` is dead code
+`src/core/calculations/index.ts:906`, exported, and called by NOTHING: two
+references in its own file (the declaration and a comment at 945) and one
+comment mention in `module1-types.ts:1290`. Deleting it is safe; it is listed
+here rather than done because a money-adjacent file should not be edited in
+passing at the end of a session.
+
+### 7. Assets minus Liabilities and Equity is NOT zero on both big live projects
+`bsReconciliation.bsDifferencePerPeriod` peaks at ~1.35bn on FMP RE HUB and
+~548m on FMP - MARINA GATE, **both before and after every change on
+2026-09-09**, while `unexplainedPerPeriod` is 0.0000 (the bridge explains every
+movement). The reference fixture balances to 0.0000, so the ENGINE is sound and
+this is the live data: both projects are mid-edit with assets carrying no
+revenue and sub-units with fractional counts. CLAUDE.md still claims "max
+|Assets - L&E| is 0.00 on both live projects", which is no longer true of the
+current snapshots. Diagnose before believing either statement.
+
+### Standing, unchanged from 2026-09-05
+Per-platform seats when a second platform ships (recorded, not built); the
+founder click-tests owed on the invite + access emails, Team tab, Collaborate
+screen and shared catalog picker; the schema-drift findings (2026-08-30,
+diagnosed not fixed); and the nine deliberately-open verifier fixtures.
+
+---
+
+## SUPERSEDED 2026-09-09 (kept for the account-model detail): START HERE 2026-09-05
 
 Module 10 (steps 0-9, migs 230-238) and the account model (steps 1-7, migs
 239-241, plus notifications, the Team tab, the Collaborate screen and the

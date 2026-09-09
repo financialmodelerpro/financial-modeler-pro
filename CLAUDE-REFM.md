@@ -1,6 +1,33 @@
 ﻿# Real Estate Financial Modeling (REFM), Claude Code Project Brief
-**Last updated: 2026-08-30. Lock status: M1 CLOSED 2026-08-17 (28 defects found in end-to-end use, all fixed and browser-verified; base lock unchanged at M2.0 Pass 58) + Parties tab (mig 190), M2 LOCKED (Pass 9N), M3 LOCKED (Pass 5d), M4 DONE, M5 DONE (Returns & RE Metrics + Lender Covenants + per-partner FCFE/DDM + M1-Parties link), M6 Scenario Analysis LIVE, M7 Reports LIVE (IC / Lender / One-Pager preview + PPT export, migs 191+192). Full verifier suite green via `npx tsx scripts/verify-*.ts`.**
+**Last updated: 2026-09-09 (Module 1 land planning + consolidation steps 1-5; see the dated section below). Lock status: M1 CLOSED 2026-08-17 (28 defects found in end-to-end use, all fixed and browser-verified; base lock unchanged at M2.0 Pass 58) + Parties tab (mig 190), M2 LOCKED (Pass 9N), M3 LOCKED (Pass 5d), M4 DONE, M5 DONE (Returns & RE Metrics + Lender Covenants + per-partner FCFE/DDM + M1-Parties link), M6 Scenario Analysis LIVE, M7 Reports LIVE (IC / Lender / One-Pager preview + PPT export, migs 191+192). Full verifier suite green via `npx tsx scripts/verify-*.ts`.**
 
+
+## 2026-09-09: the assets tab is five tables, and consolidation reaches step 5 (the first step that moves money)
+
+**Eleven commits, each deployed with the health SHA matched to HEAD. Full dated narrative in [CHANGELOG.md](CHANGELOG.md) 2026-09-09; the standing lessons in [docs/TRAPS.md](docs/TRAPS.md) 1.9, 6.4, 6.5, 6.6, 7.32, 7.33. NONE of it is browser-verified: a founder click-test is owed on every surface below.**
+
+**THE TAB.** Five tables in entry order: plots (land only), assets by plot, derived areas per plot, merged by line, sub-units under the merged line. **The chain runs PER PLOT and the merge SUMS RESULTS**, because massing belongs to a piece of ground and pooling before the chain ran left a merged row with no single answer to give.
+
+**CONSOLIDATION STEPS 4, 4b AND 5.** Ground-floor retail is now an ASSET: one pooled Lease companion per LINE, carrying the pooled retail GFA, a derived sub-unit so its rent can be set, and **a share of each host's land equal to retail GFA over that host's total GFA, per plot at that plot's own rate**. Both halves of the carve come from ONE function returning both; the reconciliation is PER ASSET, because the carve moves land between assets and a project total can only ever keep footing.
+
+**THE VERIFIERS COVERING THIS TAB** (run all ten for any tab-wide change; this is the set, with counts at 2026-09-09 close):
+
+| verifier | checks |
+|---|---|
+| `verify-land-chain` | 159 |
+| `verify-retail-companion` | 52 **NEW** |
+| `verify-asset-type-standards` | 98 |
+| `verify-consolidation-key` | 53 |
+| `verify-consolidated-line` | 38 |
+| `verify-consolidation-collisions` | 23 |
+| `verify-consolidated-view` | 21 |
+| `verify-asset-display-name` | 27 |
+| `verify-rate-scale` | 17 |
+| `verify-selling-cost-scope` | 91 (core change only) |
+
+**THE NARROWED CHAIN INVARIANT.** "The area chain is one pure function that NOTHING reads" was true until step 5 and is now false BY DESIGN: the carve's share is the chain's own retail GFA over total GFA, and restating that formula in the engine would have bought a green check with two definitions of retail GFA. One named engine file may read it, for those two figures only. `verify-land-chain` C1/C1b/C1c and `verify-asset-type-standards` A2/A2c hold the line.
+
+**FIVE CENSUS CHECKS WERE RE-AIMED**, not deleted, and the pattern is worth naming: `E6`, `G2`, `D3`, `B5` and `D2b` asserted facts about the live data on the day they were written ("nothing merges today", "no live group has more than one member", "these paths are not yet used"). The founder then built exactly the case each was written before. A check that fails because the model GREW is one that gets deleted at the worst moment, so each now asserts the REASON and reports the count.
 
 ## 2026-08-30: ONE cost-of-sales engine, the Portfolio Dashboard, and where the funding chart belongs
 

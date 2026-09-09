@@ -70,6 +70,24 @@ lines unstably.
 
 ---
 
+### 1.9 `Date.now()` is not an id: two clicks in one millisecond make one row wearing two coats
+
+**Symptom (2026-09-09).** "Two new sub-units both show 18,500, and one of them now shows blank."
+Nothing in the codebase copies a rate onto a new row: both add paths seed `unitPrice: 0`, which
+`formatAccounting` renders as `-`.
+
+**Mechanism.** Every add button minted `${prefix}_${Date.now()}`. That is MILLISECOND resolution, so
+two adds inside one millisecond (a double-click) mint the SAME id. Everything downstream keys on it,
+so from that moment the two rows are one row wearing two coats: `updateSubUnit(id, patch)` maps the
+whole array and patches BOTH, `removeSubUnit(id)` deletes both, and React renders duplicate keys.
+
+**Fix.** One monotonic minter (`mintId`) shared by all four mint sites on the tab, with a counter that
+makes the value strictly increasing even when the clock does not move, so ids stay sortable and stay
+unique for the life of the tab. Same `prefix_number` shape, since nothing parses these ids.
+
+**Proof.** `verify-land-chain` U29i mints 500 ids in one millisecond and asserts 500 distinct,
+strictly increasing values; U29i2 bans a clock-only mint anywhere on the tab.
+
 ## 2. Database and Supabase
 
 ### 2.1 PostgREST silently truncates at 1000 rows
@@ -1149,6 +1167,53 @@ before that last match: a lazy `[\s\S]*?` inside an optional comment group skipp
 lines to reach a `<td>` further down and flagged a `thead` row (same shape as 10.x "prose matched as
 the thing").
 
+### 6.5 A `<datalist>` FILTERS its own options, so a filled field looks like a broken dropdown
+
+**Symptom (2026-09-09, Module 1 asset type cell).** "The type dropdown does not offer the full list.
+On some rows it shows a single option and on others no dropdown at all."
+
+**Mechanism.** The cell was `<input list=...>` + `<datalist>`. A datalist is browser AUTOCOMPLETE, not
+a list: it filters its options by whatever is already in the box. A row reading "Branded Villas"
+therefore matches one option, and a row whose label is on neither list matches none. Nothing is
+wrong with the options; the element is doing what it does. Compare 6.3, which is the same element
+biting from the other direction.
+
+**The second half, and the worse one.** Free text writes a LABEL and no reference. The values lookup
+read `project.assetTypeValues[asset.assetTypeId]` and nothing else, while the grouping key had always
+resolved a type BOTH ways (reference, else the label normalised into the same id space). **Measured:
+11 of 12 live typed assets carried a label with no reference**, so one plot derived its units and
+parking while its neighbour on the SAME type showed dashes from Average Unit Size onward.
+
+**Fix.** A real `<select>` over the whole vocabulary, writing BOTH the label and the reference; an
+existing unlisted label stays selectable so nothing typed is lost. And identity resolves ONCE
+(`resolveAssetTypeKey`), with the stored reference outranking the label so a renamed or deleted firm
+entry keeps its project values.
+
+**Proof.** `verify-asset-type-standards` T1 to T10 and G5/G5b. T7 bans the SHAPE, not one spelling:
+its first cut matched the exact expression that had been there and a sabotage writing
+`assetTypeValues?.[asset.assetTypeId!]`, one character different, walked through.
+
+### 6.6 A rate is not a total, so it never takes the display scale
+
+**Symptom (2026-08-17 onward, found repeatedly).** A per-sqm rate of 18,500 renders as "19" when the
+project's Display Scale is thousands. A parcel rate shows a grey caption dividing itself by 1,000.
+
+**Mechanism.** `formatAccounting(n, scale)` divides by the scale divisor. That is right for a TOTAL
+and wrong for a RATE: a price per sqm is already per unit, so scaling it answers a question nobody
+asked. The two look identical at a call site, so the error spreads by copy.
+
+**Fix.** Rates render at `'full'`, always, wherever they appear: parcel rates, sub-unit rates, ADR,
+the blended land rate, the Excel `NUMFMT.rate` (only `NUMFMT.money` is touched by
+`scaleMoneyFormats`) and the PDF's `rateUnit()`. **Areas are the same argument with a different
+answer**: an area is a whole number of square metres, so `AREA_DECIMALS = 0` and decimals belong to
+money (2026-09-09).
+
+**Proof.** `verify-rate-scale` 17, a standing sweep over seven surfaces with a NAMED allow-list. Two
+refinements it needed: the first cut tested whether `'full'` appeared anywhere in the call (so
+`?? 'full'` passed), and the second used a non-letter boundary that camelCase defeated
+(`weightedRate`). The allow-list keys on the call text PLUS its preceding context, because keyed on
+the call alone it forgave both arms of a ternary.
+
 ### 6.1 The shell is zoomed, so `vh` and media queries LIE inside it
 
 **Symptom.** A full-height surface leaves ~345px of dead space, worsening on taller screens. A
@@ -1988,6 +2053,48 @@ outranking `stage` is how the 2026-08-16 marketing reclassification reached save
 migration, so a USER's choice needs its own field (`stageOverride`), not a write to `stage`.
 
 ---
+
+### 7.32 A sub-unit's metric is the ASSET's, and asking the row instead is an area read as a count
+
+**Symptom (2026-09-09).** Table 3 showed 12,599 units for an asset with 19,999 sqm of NSA at 170 sqm
+a unit, which is 118. Its neighbour, with no sub-units, was correct.
+
+**Mechanism.** Every surface resolves a sub-unit's metric as `asset.subUnitMetric ?? u.metric`: the
+ASSET wins, because the asset is what the column headings and the area sums are written against.
+`computeAssetUnitCount` asked `u.metric` alone. So a row whose own metric was left at `'units'` while
+its asset counts AREA was an area on screen and a COUNT in the engine: the row held 12,599.1, its
+area in sqm, and the chain took that as a unit-count OVERRIDE and printed it verbatim, so the
+division never ran.
+
+**Fix.** The same resolution the screen uses. Measured across all six live projects BEFORE changing:
+exactly one count moves, and no live project carries a `rate_per_unit` line (the only cost method
+that reads it), so all six engine snapshots hash byte-identical. **The same read is still open in
+`opex-resolvers.ts` 263/267 for the Lease branch** (CLAUDE-TODO).
+
+**Proof.** `verify-land-chain` U29n to U29n5, run rather than read, including that a zero override
+falls through to the division rather than becoming a zero count.
+
+### 7.33 "Companion" had become a synonym for "Operate", and a second kind broke seven classifiers
+
+**Symptom (2026-09-09, caught before shipping).** A Lease retail companion would have filed into
+hospitality revenue and hospitality opex the moment it existed.
+
+**Mechanism.** Seven predicates read `strategy === 'Operate' || isCompanion === true`. That second
+clause was written when a companion could ONLY be the Operate sibling of a Sell + Manage asset, so it
+was a synonym, not a rule. Adding a second kind of companion turned every one of them into a
+misclassification.
+
+**Fix.** Classify by STRATEGY. Measured first: every companion on every live project carries strategy
+`'Operate'`, so the clause was doing no work and all six snapshots hash byte-identical after removing
+it. **The EXCLUSIONS that make a companion free (no land, no cost, dropped from the groupings) are
+untouched**, which is a different question from what KIND of asset it is.
+
+**Generalise.** A flag that happens to coincide with a value is not a rule. When a second case for the
+flag arrives, every place that used it as a shorthand is already wrong; the grep for the shorthand is
+the migration.
+
+**Proof.** `verify-retail-companion` E1 to E3 (E1 bans the shape across four classifier files, E3
+pins that the exclusions survive).
 
 ## 8. Registries and two-step registration
 
