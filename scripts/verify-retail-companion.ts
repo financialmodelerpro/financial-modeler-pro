@@ -34,19 +34,38 @@ import {
   buildRetailCompanionSpecs,
   isRetailCompanion,
   reconcileRetailCompanions,
+  reconcileRetailSubUnits,
   retailCompanionId,
   type RetailCompanionSpec,
 } from '../src/core/calculations/retailCompanion';
 import { computeLandChain } from '../src/core/calculations/landChain';
 import { computeAssetLandBreakdown, computeAssetUnitCount, computeAssetLandSqm } from '../src/core/calculations';
 import { groupAssetsForConsolidation } from '../src/core/calculations/consolidation';
-import { makeRetailCompanionAsset } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
-import type { Asset } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import { makeRetailCompanionAsset, makeRetailCompanionSubUnit } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import type { Asset, SubUnit, SubUnitCategory, SubUnitMetric } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
 import {
   normaliseAssetTypeId, resolveAssetTypeValues, resolveAvgUnitSize,
 } from '../src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards';
+
+// THE TWO LABEL RULES, restated so G2 runs them rather than reading them. They
+// live beside each other in Module1Assets and are asserted in step with it by
+// verify-land-chain U29d2.
+const rateUnitLabel = (c: SubUnitCategory, m: SubUnitMetric): string => {
+  if (c === 'Support') return '';
+  if (c === 'Sellable') return m === 'units' ? 'per unit' : 'per sqm';
+  if (c === 'Operable') return m === 'units' ? 'per room/night' : 'per sqm/year';
+  if (c === 'Leasable') return m === 'units' ? 'per unit/year' : 'per sqm/year';
+  return '';
+};
+const rateTimeBasisOf = (c: SubUnitCategory, m: SubUnitMetric): string | undefined => {
+  if (c === 'Support') return undefined;
+  if (c === 'Sellable') return 'capital';
+  if (c === 'Operable') return m === 'units' ? 'night' : 'year';
+  if (c === 'Leasable') return 'year';
+  return undefined;
+};
 
 let pass = 0, fail = 0;
 const check = (name: string, ok: boolean, detail = ''): void => {
@@ -131,6 +150,74 @@ function offlineChecks(): void {
       [{ id: 'c', isCompanion: true, companionType: 'operate' } as unknown as Asset], [], mk, eq,
     ).assets.length === 1);
 
+  // ── G. THE STRIP CAN BE PRICED ─────────────────────────────────────────
+  //
+  // WHY DERIVED AND NOT USER-ADDED: its area is the pooled retail GFA, a figure
+  // the model already knows, so asking a user to retype it would put one fact
+  // in two places. The platform's existing answer to "a companion needs
+  // sub-units" is already a derivation. And without a row the asset cannot earn
+  // at all, so it would sit there as a half-built thing with nothing saying so.
+  section('G. The companion carries one derived sub-unit, so its rent can be set');
+  const su = (id: string, assetId: string, over: Record<string, unknown> = {}) =>
+    ({ id, assetId, name: '', category: 'Leasable', metric: 'area', metricValue: 0, unitPrice: 0, ...over } as unknown as SubUnit);
+  const buildSub = (companionId: string, gfa: number, existing?: SubUnit): SubUnit =>
+    makeRetailCompanionSubUnit(companionId, gfa, existing);
+  const eqSub = (a: SubUnit, b: SubUnit): boolean => JSON.stringify(a) === JSON.stringify(b);
+  const seeded = reconcileRetailSubUnits([], [spec], buildSub, eqSub);
+  const row = seeded.subUnits[0];
+  check('G1 a companion with no rows gets ONE derived row, at the pooled retail GFA',
+    seeded.changed && seeded.subUnits.length === 1
+    && row.assetId === spec.id && row.metricValue === 1320,
+    `${seeded.subUnits.length} rows`);
+  check('G2 it is Leasable on an AREA metric, which is what makes the rate per sqm per year',
+    row.category === 'Leasable' && row.metric === 'area'
+    // The basis falls out of the EXISTING rule rather than a new one.
+    && rateUnitLabel(row.category, row.metric) === 'per sqm/year'
+    && rateTimeBasisOf(row.category, row.metric) === 'year',
+    `${rateUnitLabel(row.category, row.metric)}`);
+  check('G3 the rate starts at ZERO, which is what keeps the engine byte-identical',
+    row.unitPrice === 0);
+  check('G4 running it twice changes nothing and returns the SAME array',
+    reconcileRetailSubUnits(seeded.subUnits, [spec], buildSub, eqSub).subUnits === seeded.subUnits);
+  const moved2 = reconcileRetailSubUnits(seeded.subUnits, [{ ...spec, retailGfaSqm: 2000 }], buildSub, eqSub);
+  check('G5 the AREA follows the line, because only the area is the line\'s to state',
+    moved2.changed && moved2.subUnits[0].metricValue === 2000);
+  // EVERY FIELD THE USER TOUCHED, not only the two this factory names. The
+  // first cut checked the rate and the name, and both are carried by their own
+  // `existing?.x ?? default`, so a sabotage removing the spread that carries
+  // EVERYTHING ELSE passed: a rent escalation the user had typed would have
+  // been silently dropped on the next re-derive. The check now uses a field
+  // only the spread preserves.
+  const priced = [{ ...row, unitPrice: 1400, name: 'Podium Shops', priceEscalationPct: 3 }];
+  const kept2 = reconcileRetailSubUnits(priced, [{ ...spec, retailGfaSqm: 2000 }], buildSub, eqSub);
+  check('G6 everything the user set survives a re-derive, not just the fields the factory names',
+    kept2.subUnits[0].unitPrice === 1400 && kept2.subUnits[0].name === 'Podium Shops'
+    && kept2.subUnits[0].priceEscalationPct === 3
+    && kept2.subUnits[0].metricValue === 2000,
+    `escalation ${String(kept2.subUnits[0].priceEscalationPct)}`);
+  // THE CONDITION THAT KEEPS THIS OUT OF THE USER'S WAY. A landlord splitting a
+  // strip into an anchor and four inline units is doing something no derivation
+  // can second-guess, so the moment a second row exists this steps back.
+  const split = [{ ...row, metricValue: 800 }, su('own', spec.id, { metricValue: 520 })];
+  const untouched = reconcileRetailSubUnits(split, [{ ...spec, retailGfaSqm: 5000 }], buildSub, eqSub);
+  check('G7 once the user adds a SECOND row the split is theirs and nothing is overwritten',
+    !untouched.changed && untouched.subUnits === split
+    && untouched.subUnits[0].metricValue === 800,
+    'a derivation that fights a user is a derivation they will turn off');
+  check('G8 a companion that already has the user\'s own rows is never seeded again',
+    !reconcileRetailSubUnits([su('own', spec.id)], [spec], buildSub, eqSub).changed);
+  check('G9 the derived row goes when its companion goes, and takes nothing else with it',
+    (() => {
+      const r = reconcileRetailSubUnits([row, su('elsewhere', 'other-asset')], [], buildSub, eqSub);
+      return r.changed && r.removed.length === 1 && r.subUnits.length === 1
+        && r.subUnits[0].id === 'elsewhere';
+    })());
+  check('G10 the row is SHOWN as its own Lease line in the sub-unit table, not in the leftover bucket',
+    /const retail = assets\.filter\(\(a\) => isRetailCompanion\(a\)\);/.test(
+      readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx', 'utf8'))
+    && readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx', 'utf8')
+      .includes('assets.filter((a) => a.isCompanion !== true || isRetailCompanion(a))'));
+
   section('C. A Lease companion with no land, and the engine keeps it free');
   const asset = makeRetailCompanionAsset(spec);
   check('C1 strategy is Lease, so it capitalises as a fixed asset and earns rent',
@@ -163,10 +250,16 @@ function offlineChecks(): void {
   check('D1 both Operate sync passes exclude a retail companion explicitly',
     (storeSrc.match(/a\.isCompanion && a\.parentAssetId && !isRetailCompanion\(a\)/g) ?? []).length === 2
     && /if \(!a\.isCompanion \|\| !a\.parentAssetId \|\| isRetailCompanion\(a\)\) return a;/.test(storeSrc));
-  check('D2 the store reconciles through the CORE rule and writes nothing when quiet',
+  check('D2 the store reconciles through the CORE rules and writes nothing when quiet',
     /syncRetailCompanions: \(specs\) => set\(\(s\) => \{/.test(storeSrc)
     && /reconcileRetailCompanions\(/.test(storeSrc)
-    && /return r\.changed \? \{ assets: r\.assets \} : \{\};/.test(storeSrc));
+    && /reconcileRetailSubUnits\(/.test(storeSrc)
+    // ONE quiet exit for BOTH halves: a pass that changed neither the assets
+    // nor the sub-units must write nothing at all, or opening a project marks
+    // it dirty.
+    && /if \(!r\.changed && !u\.changed\) return \{\};/.test(storeSrc)
+    && /\.\.\.\(r\.changed \? \{ assets: r\.assets \} : \{\}\),/.test(storeSrc)
+    && /\.\.\.\(u\.changed \? \{ subUnits: u\.subUnits \} : \{\}\),/.test(storeSrc));
   const coreSrc = readFileSync('src/core/calculations/retailCompanion.ts', 'utf8');
   check('D3 the rule is PURE and imports nothing, like every other core rule here',
     !/^\s*import\s/m.test(coreSrc)

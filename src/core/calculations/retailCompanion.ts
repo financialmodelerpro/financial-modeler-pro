@@ -194,3 +194,85 @@ export function reconcileRetailCompanions<T extends ReconcilableAsset>(
   const changed = added.length > 0 || removed.length > 0 || updated.length > 0;
   return { assets: changed ? out : (assets as T[]), changed, added, removed, updated };
 }
+
+// ── THE COMPANION'S OWN SUB-UNIT ──────────────────────────────────────────
+
+/** The little of a sub-unit this needs. Structural, so core stays import-free. */
+export interface ReconcilableSubUnit {
+  id: string;
+  assetId: string;
+}
+
+/** The derived row's id, from the companion's. Deterministic for the same
+ *  reason the companion's own id is: re-deriving must find the same row. */
+export function retailCompanionSubUnitId(companionId: string): string {
+  return `${companionId}__sub`;
+}
+
+export interface RetailSubUnitReconcile<U> {
+  subUnits: U[];
+  changed: boolean;
+  added: string[];
+  removed: string[];
+  updated: string[];
+}
+
+/**
+ * ONE DERIVED SUB-UNIT PER RETAIL COMPANION, so the strip can be priced.
+ *
+ * THE CONDITION THAT KEEPS THIS OUT OF THE USER'S WAY: the derived row is
+ * refreshed only while it is the companion's ONLY sub-unit. The moment someone
+ * adds a second row, the split becomes theirs and this stops touching any of
+ * them, because a landlord splitting a strip into an anchor and four inline
+ * units is doing something this rule cannot second-guess. It is the same
+ * principle as the companion's own name surviving a re-derive, applied to the
+ * one place a user would otherwise be fighting the model.
+ *
+ * A companion whose line stops building retail loses its companion, and the
+ * caller drops the orphaned rows with it; this function only removes the
+ * DERIVED row when its companion is gone, so a user's own rows are never
+ * deleted by a derivation.
+ */
+export function reconcileRetailSubUnits<U extends ReconcilableSubUnit>(
+  subUnits: readonly U[],
+  specs: readonly RetailCompanionSpec[],
+  build: (companionId: string, retailGfaSqm: number, existing: U | undefined) => U,
+  equal: (a: U, b: U) => boolean,
+): RetailSubUnitReconcile<U> {
+  const byCompanion = new Map<string, U[]>();
+  for (const u of subUnits) {
+    const list = byCompanion.get(u.assetId) ?? [];
+    list.push(u);
+    byCompanion.set(u.assetId, list);
+  }
+  const wanted = new Map(specs.map((s) => [s.id, s] as const));
+  const added: string[] = [];
+  const removed: string[] = [];
+  const updated: string[] = [];
+  const out: U[] = [];
+  for (const u of subUnits) {
+    const derivedId = retailCompanionSubUnitId(u.assetId);
+    if (u.id !== derivedId) { out.push(u); continue; }
+    const spec = wanted.get(u.assetId);
+    // THE DERIVED ROW GOES WHEN ITS COMPANION GOES, and only then.
+    if (!spec) { removed.push(u.id); continue; }
+    // THE USER HAS TAKEN OVER: more than one row on this companion means the
+    // split is theirs, so the derivation steps back rather than overwriting an
+    // area they have deliberately reduced.
+    if ((byCompanion.get(u.assetId) ?? []).length > 1) { out.push(u); continue; }
+    const next = build(u.assetId, spec.retailGfaSqm, u);
+    if (equal(u, next)) { out.push(u); continue; }
+    updated.push(u.id);
+    out.push(next);
+  }
+  for (const s of specs) {
+    const rows = byCompanion.get(s.id) ?? [];
+    // Nothing at all on this companion: seed the one derived row. A companion
+    // that already has rows (the user built their own) is left alone.
+    if (rows.length > 0) continue;
+    added.push(retailCompanionSubUnitId(s.id));
+    out.push(build(s.id, s.retailGfaSqm, undefined));
+  }
+  const changed = added.length > 0 || removed.length > 0 || updated.length > 0;
+  return { subUnits: changed ? out : (subUnits as U[]), changed, added, removed, updated };
+}

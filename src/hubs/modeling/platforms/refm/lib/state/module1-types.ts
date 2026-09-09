@@ -3628,3 +3628,44 @@ export function makeRetailCompanionAsset(spec: {
     retailHostAssetIds: [...spec.hostAssetIds],
   } as Asset;
 }
+
+/**
+ * THE RETAIL COMPANION'S SUB-UNIT (2026-09-09, consolidation step 4b).
+ *
+ * WHY IT IS DERIVED RATHER THAN ADDED BY HAND. Its area is "the pooled retail
+ * GFA", which is a figure the model already knows: asking a user to retype it
+ * would put one fact in two places, the exact defect that just moved the retail
+ * area-per-slot off the plot rows. The platform's existing answer to "a
+ * companion needs sub-units" is already a derivation (`syncCompanionSubUnits`
+ * mirrors the Operate companion's rows), so building this one by hand would be
+ * a second answer to a settled question. And without a sub-unit the asset
+ * cannot earn at all, so it would exist as a half-built thing a user has to
+ * know to finish, with nothing on screen saying so.
+ *
+ * RATE ZERO. It earns nothing until somebody prices it, which is what keeps the
+ * engine byte-identical while the row exists.
+ *
+ * PER SQM PER YEAR falls out of the existing rule rather than adding one:
+ * category Leasable on an area metric is what `rateUnitLabel` already reads as
+ * "per sqm/year", and `rateTimeBasis` already reads as a yearly flow, so the
+ * blended figures on table 5 label it correctly with no new case.
+ */
+export function makeRetailCompanionSubUnit(
+  companionAssetId: string,
+  retailGfaSqm: number,
+  existing?: SubUnit,
+): SubUnit {
+  return {
+    // WHAT THE USER OWNS survives a re-derive: the name they gave the tenancy
+    // and the RATE they set. Only the area follows the line, because only the
+    // area is the line's to state.
+    ...(existing ?? {}),
+    id: `${companionAssetId}__sub`,
+    assetId: companionAssetId,
+    name: existing?.name ?? 'Retail',
+    category: 'Leasable',
+    metric: 'area',
+    metricValue: Math.max(0, retailGfaSqm),
+    unitPrice: existing?.unitPrice ?? 0,
+  };
+}

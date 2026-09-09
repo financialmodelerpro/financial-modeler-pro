@@ -678,7 +678,12 @@ function offlineChecks(): void {
     // grouping was removed; the invariant did not move. What must stay true is
     // that a row pointing at no live asset still renders somewhere.
     /return \{ lines: out, stray: subUnits\.filter\(\(u\) => !claimed\.has\(u\.id\)\) \};/.test(modelSrc)
-    && /const strayLine = build\('__no_line__', 'Not on a line', \[\], stray\);/.test(tabSrc)
+    // The bucket now takes what is left after the RETAIL companions have
+    // claimed their own rows (they get lines of their own, since that is the
+    // only place a strip's rent can be set). Anything still unclaimed, an asset
+    // since deleted or an Operate mirror, lands here as before.
+    && /const strayLine = build\('__no_line__', 'Not on a line', \[\], leftover\);/.test(tabSrc)
+    && /const leftover = stray\.filter\(\(u\) => !claimed\.has\(u\.id\) && !retailIds\.has\(u\.assetId\)\);/.test(tabSrc)
     && /if \(strayLine\) out\.push\(strayLine\)/.test(tabSrc));
   // ── THE TOTALS. Value over area, never an average of rates.
   // THE POOLING IS RUN, NOT READ, and the test ids are ANCHORED at both ends:
@@ -1134,7 +1139,10 @@ function offlineChecks(): void {
     && !tabSrc.includes('function groupSubUnitsByAsset('));
 
   check('U42 the tab reads the partition rather than re-deriving which sub-unit is whose',
-    /const \{ lines, stray \} = partitionSubUnitsByLine\(assets, subUnits, phaseIds, normaliseAssetTypeId\);/.test(tabSrc)
+    // HOSTS, not every asset: the retail companions are pulled out first and
+    // given lines of their own, since a companion is not a plot and the
+    // consolidation grouping would drop it.
+    /const \{ lines, stray \} = partitionSubUnitsByLine\(hosts, subUnits, phaseIds, normaliseAssetTypeId\);/.test(tabSrc)
     // The rows a line renders are ITS OWN sub-units, never the project's. The
     // defect was one call handed the whole project once per line, so what is
     // pinned is that the line's own list is what reaches the rows.

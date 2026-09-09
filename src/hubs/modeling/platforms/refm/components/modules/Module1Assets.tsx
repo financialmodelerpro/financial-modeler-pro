@@ -544,8 +544,13 @@ export default function Module1Assets(): React.JSX.Element {
     for (const g of rowGroups) {
       for (const r of g.rows) out[r.asset.id] = resolveAssetNsa(r.asset.sellableBuaSqm, r.chain.netSaleableSqm);
     }
+    // A RETAIL COMPANION RUNS NO CHAIN OF ITS OWN: its leasable area is the
+    // pooled retail GFA the reconcile put on it, so it resolves as ENTERED.
+    for (const a of assets) {
+      if (isRetailCompanion(a)) out[a.id] = resolveAssetNsa(a.sellableBuaSqm, undefined);
+    }
     return out;
-  }, [rowGroups]);
+  }, [rowGroups, assets]);
 
   /** Add a sub-unit to a chosen parent, seeded exactly as the per-asset
    *  button seeds one, so the two entry points cannot diverge. */
@@ -923,7 +928,7 @@ export default function Module1Assets(): React.JSX.Element {
       />
 
       <SubUnitsTable
-        assets={assets.filter((a) => a.isCompanion !== true)}
+        assets={assets.filter((a) => a.isCompanion !== true || isRetailCompanion(a))}
         phases={phases}
         subUnits={subUnits}
         nsaByAsset={nsaByAsset}
@@ -2397,7 +2402,14 @@ function groupSubUnitsByLine(
   phases: Phase[],
   nsaByAsset: Record<string, ResolvedNsa>,
 ): SubUnitLine[] {
-  const { lines, stray } = partitionSubUnitsByLine(assets, subUnits, phaseIds, normaliseAssetTypeId);
+  // A RETAIL COMPANION IS ITS OWN LINE HERE. The consolidation grouping
+  // excludes companions, and rightly: a companion is not a plot. But this table
+  // is where a Lease asset is priced, and the strip has no other home, so it
+  // gets a line of its own rather than falling into the "not on a line" bucket
+  // where nobody would think to look for it.
+  const retail = assets.filter((a) => isRetailCompanion(a));
+  const hosts = assets.filter((a) => !isRetailCompanion(a));
+  const { lines, stray } = partitionSubUnitsByLine(hosts, subUnits, phaseIds, normaliseAssetTypeId);
   const byId = new Map(assets.map((a) => [a.id, a] as const));
   const build = (
     key: string,
@@ -2456,7 +2468,25 @@ function groupSubUnitsByLine(
   // companion's sub-units mirror its parent's), belongs to no line and would
   // otherwise be invisible and undeletable. ONE bucket at the end, holding only
   // what nothing else claimed, rather than one per line holding everything.
-  const strayLine = build('__no_line__', 'Not on a line', [], stray);
+  // The retail lines sit after the host lines, in the order the companions
+  // were created, which is the order of the lines that built them.
+  const retailIds = new Set(retail.map((a) => a.id));
+  const claimedByRetail: SubUnit[] = [];
+  for (const a of retail) {
+    const mine = stray.filter((u) => u.assetId === a.id);
+    claimedByRetail.push(...mine);
+    const built = build(
+      `retail__${a.id}`,
+      assetDisplayName(a),
+      [a],
+      mine,
+      phases.find((ph) => ph.id === a.phaseId)?.name,
+    );
+    if (built) out.push(built);
+  }
+  const claimed = new Set(claimedByRetail.map((u) => u.id));
+  const leftover = stray.filter((u) => !claimed.has(u.id) && !retailIds.has(u.assetId));
+  const strayLine = build('__no_line__', 'Not on a line', [], leftover);
   if (strayLine) out.push(strayLine);
   return out;
 }

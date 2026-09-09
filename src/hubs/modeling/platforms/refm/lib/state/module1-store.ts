@@ -38,11 +38,17 @@ import {
   makeBlankCostLines,
   makeCompanionSubUnit,
   makeRetailCompanionAsset,
+  makeRetailCompanionSubUnit,
   makeDefaultFinancingTranche,
   deriveCostWindow,
   deriveLineBaseId,
 } from './module1-types';
-import { isRetailCompanion, reconcileRetailCompanions, type RetailCompanionSpec } from '@/src/core/calculations/retailCompanion';
+import {
+  isRetailCompanion,
+  reconcileRetailCompanions,
+  reconcileRetailSubUnits,
+  type RetailCompanionSpec,
+} from '@/src/core/calculations/retailCompanion';
 import { applyStrategySwitch, assetHasStrategyAssumptions } from './strategySwitch';
 import {
   applyOverrides,
@@ -486,7 +492,22 @@ export function createModule1Store() {
         (spec, existing) => makeRetailCompanionAsset(spec, existing),
         (a, b) => JSON.stringify(a) === JSON.stringify(b),
       );
-      return r.changed ? { assets: r.assets } : {};
+      // THE STRIP NEEDS A ROW TO BE PRICED ON. Without one the asset exists and
+      // is structurally incapable of earning, which is a half-built thing a
+      // user would have to know to finish. The area is the line's, so it is
+      // derived; the RATE is the user's and starts at zero, which is what keeps
+      // the engine byte-identical while the row exists.
+      const u = reconcileRetailSubUnits(
+        s.subUnits,
+        specs,
+        (companionId, gfa, existing) => makeRetailCompanionSubUnit(companionId, gfa, existing),
+        (a, b) => JSON.stringify(a) === JSON.stringify(b),
+      );
+      if (!r.changed && !u.changed) return {};
+      return {
+        ...(r.changed ? { assets: r.assets } : {}),
+        ...(u.changed ? { subUnits: u.subUnits } : {}),
+      };
     }),
 
     setAssetTypeValue: (entryId, patch) => set((s) => {
