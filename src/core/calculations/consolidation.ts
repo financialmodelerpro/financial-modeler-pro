@@ -200,7 +200,18 @@ export function groupAssetsForConsolidation(
     // member, which is the state this step has to preserve.
     if (a.isCompanion === true) continue;
     const parts = consolidationKeyParts(a, normaliseTypeId);
-    const key = `${parts.phaseId}|${parts.typeKey}|${parts.strategy}`;
+    // THE GROUPING USES THE KEY FUNCTION, and until 2026-09-09 it did not.
+    //
+    // `consolidationKey` was changed to phase + type when the merge became
+    // unconditional, and this loop kept building its own `phase|type|strategy`
+    // string beside it. So there were two answers to "what is a line": the one
+    // every test asserted, and the one every screen actually used. The merge
+    // was not unconditional at all, quietly, on the only code path anyone runs.
+    //
+    // MEASURED BEFORE CHANGING IT, on both live projects: 7 lines stay 7 and 4
+    // stay 4, and the one real multi-plot line already had both plots on the
+    // same strategy. Nothing merged that was not merging, and nothing split.
+    const key = consolidationKey(a, normaliseTypeId);
     const existing = byKey.get(key);
     if (existing) {
       existing.assets.push(a);

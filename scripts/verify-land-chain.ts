@@ -38,6 +38,7 @@ import {
 import { resolveAssetPlotDraw, computeAssetLandSqm, computeAssetLandBreakdown, computeLandAggregate } from '../src/core/calculations';
 import {
   groupAssetsByPlot,
+  partitionSubUnitsByLine,
   primaryParcelId,
   UNPLOTTED_GROUP,
   type AssetPlotGroup,
@@ -316,11 +317,16 @@ function offlineChecks(): void {
   // a line is one type in one phase and pools land from however many plots feed
   // it, so a plot cannot be the organising idea without splitting a line in two.
   // The plots keep their own table above, which is land only.
-  check('U1 the assets table exists, grouped by LINE, with the pooled draw on the header',
+  // U1 RE-AIMED AGAIN, and the flip-flop is the finding. Entry and the chain
+  // group by PLOT, because massing belongs to a piece of ground; the MERGE by
+  // line is a separate table below them. Both groupings exist on the tab and
+  // neither replaces the other.
+  check('U1 the assets table exists, grouped by PLOT, with the merge in its own table',
     tabSrc.includes('data-testid="assets-table"')
-    && tabSrc.includes('line-group-${g.key}')
+    && tabSrc.includes('plot-group-${g.key}')
+    && tabSrc.includes('groupAssetsByPlot(')
     && tabSrc.includes('groupAssetsForConsolidation(')
-    && !tabSrc.includes('groupAssetsByPlot('));
+    && tabSrc.includes('data-testid="assets-merged-table"'));
   // RE-AIMED 2026-09-08 with the split: the INPUT row carries the five chain
   // percentages (U11 asserts it carries no derived column), and the derived
   // cascade moved to the results table (U12).
@@ -371,36 +377,67 @@ function offlineChecks(): void {
   check('U11 the INPUT table holds no derived column, which is what lets identity be readable',
     tabSrc.includes('data-testid="assets-table"')
     && !/asset-row-\$\{asset\.id\}-(land-utilised|total-gfa|net-saleable|total-bua)/.test(tabSrc));
-  // U12 IS NOW KEYED ON THE LINE, and the cascade is POOLED across its plots
-  // rather than shown per plot. The field list is the same list the pooling
-  // walks, so a chain field added without being pooled fails here.
-  check('U12 the RESULTS table holds the WHOLE cascade through Total BUA, pooled per line, read only',
+  // U12 IS BACK ON THE PLOT, and that is the point of the whole re-aim. The
+  // per-plot table shows the cascade the chain actually produced, one row per
+  // plot; the MERGE has its own table and its own check (U12b) below.
+  const mergedStart = tabSrc.indexOf('function MergedLineTable(');
+  const resultsStart = tabSrc.indexOf('function AssetResultsTable(');
+  const resultsEnd = mergedStart > 0 ? tabSrc.lastIndexOf('/**', mergedStart) : -1;
+  const resultsBody = resultsStart >= 0 && resultsEnd > resultsStart
+    ? tabSrc.slice(resultsStart, resultsEnd) : '';
+  const tablesStart = tabSrc.indexOf('function AssetTables(');
+  const mergedBody = mergedStart >= 0 && tablesStart > mergedStart
+    ? tabSrc.slice(mergedStart, tablesStart) : '';
+  check('U12 the PER-PLOT results table holds the WHOLE cascade through Total BUA, read only',
     tabSrc.includes('data-testid="assets-results-table"')
     && ['land-utilised', 'total-gfa', 'net-saleable', 'units', 'total-bua']
-      .every((k) => tabSrc.includes(`line-result-\${group.key}-${k}`))
+      .every((k) => resultsBody.includes(`asset-result-\${asset.id}-${k}`))
     && ['footprintSqm', 'landscapeSqm', 'retailGfaSqm', 'lobbyGfaSqm',
       'mainAssetGfaSqm', 'parkingSlots', 'retailParkingSlots', 'totalParkingSlots',
       'parkingAreaSqm', 'retailParkingAreaSqm', 'totalParkingAreaSqm', 'totalBuaSqm']
-      .every((k) => tabSrc.includes(`'${k}'`))
-    && tabSrc.includes('poolLineAreas('));
+      .every((k) => resultsBody.includes(`chain.${k}`))
+    // NOTHING IS POOLED HERE. Pooling before the chain ran is exactly the
+    // defect this table was rebuilt to undo.
+    && !resultsBody.includes('poolLineAreas('),
+    resultsBody.length === 0 ? 'could not isolate the results component body' : '');
+  // U12b THE MERGE SUMS RESULTS, and its three ratio columns are quotients of
+  // its OWN sums. A first cut merged at the entry table, so the chain ran on a
+  // pooled line and Landscape %, Average Unit Size and Parking Ratio had no
+  // single answer to give: they printed dashes on any two-plot line. Summing
+  // the per-plot results and dividing two of those sums is what gives a merged
+  // row a real blended figure, so a return to averaging the INPUTS fails here.
+  check('U12b the merged table SUMS the per-plot results and derives its ratios from those sums',
+    mergedBody.length > 500
+    && mergedBody.includes('poolLineAreas(')
+    && !mergedBody.includes('computeLandChain(')
+    && /const landscapePct = ratio\(g\('landscapeSqm'\), g\('landUtilisedSqm'\)\);/.test(mergedBody)
+    && /const avgUnitSize = ratio\(g\('netSaleableSqm'\), g\('units'\)\);/.test(mergedBody)
+    && /const parkingRatio = ratio\(g\('parkingSlots'\), g\('units'\)\);/.test(mergedBody)
+    // ABSENT, NEVER ZERO, when there is nothing to divide by.
+    && /b > 0\) \? a \/ b : undefined/.test(mergedBody),
+    mergedBody.length === 0 ? 'could not isolate the merged component body' : '');
+  // U12c THE MERGE HOLDS THE SAME ROWS TABLE 3 RENDERED. Running the chain a
+  // second time under a different grouping would give the merge its own copy of
+  // the arithmetic, and two copies are two answers waiting to diverge.
+  check('U12c the merged rows are the per-plot rows REGROUPED, not rebuilt',
+    /function buildLineRows\(rowGroups: RowGroup\[\], lineGroups: ConsolidationGroup\[\]\)/.test(tabSrc)
+    && /const lineRowGroups = buildLineRows\(rowGroups, lineGroups\);/.test(tabSrc)
+    && (tabSrc.match(/computeLandChain\(/g) ?? []).length === 1);
   // U13 IS SCOPED TO THE RESULTS COMPONENT'S OWN BODY, and it has to be.
   // The first version asserted only that both tables were PASSED the same
   // array, which a re-sort inside the results component satisfies happily: a
   // sabotage that re-sorted the results rows passed it. The invariant is that
   // the results table ORDERS NOTHING ITSELF, so that is what is checked.
-  const resultsStart = tabSrc.indexOf('function AssetResultsTable(');
-  const resultsEnd = tabSrc.indexOf('/** Both tables, stacked');
-  const resultsBody = resultsStart >= 0 && resultsEnd > resultsStart
-    ? tabSrc.slice(resultsStart, resultsEnd) : '';
-  check('U13 BOTH tables render from ONE resolved row list, and the results table re-orders nothing',
+  check('U13 ALL THREE asset tables render from ONE resolved row list, and none re-orders it',
     tabSrc.includes('function buildAssetRows(')
     && (tabSrc.match(/buildAssetRows\(/g) ?? []).length === 2
     && tabSrc.includes('<AssetInputsTable') && tabSrc.includes('<AssetResultsTable')
+    && tabSrc.includes('<MergedLineTable')
     && resultsBody.length > 500
-    && !resultsBody.includes('.sort(')
     && !resultsBody.includes('.filter(')
-    && !resultsBody.includes('buildAssetRows(')
-    && !resultsBody.includes('groupAssetsByPlot('),
+    && ![resultsBody, mergedBody].some((b) => b.includes('.sort(')
+      || b.includes('buildAssetRows(') || b.includes('groupAssetsByPlot(')
+      || b.includes('groupAssetsForConsolidation(')),
     resultsBody.length === 0 ? 'could not isolate the results component body' : '');
   // U15 EXISTS BECAUSE FOUR COUNTS DISAGREED AND NOTHING SAID SO. The results
   // table declared 19 columns in its colgroup, banded 19 in its group row and
@@ -437,7 +474,9 @@ function offlineChecks(): void {
   };
   const inputsStart = tabSrc.indexOf('function AssetInputsTable(');
   const inputsBody = inputsStart >= 0 ? tabSrc.slice(inputsStart, resultsStart) : '';
-  for (const [label, body] of [['input', inputsBody], ['results', resultsBody]] as const) {
+  for (const [label, body] of [
+    ['input', inputsBody], ['results', resultsBody], ['merged', mergedBody],
+  ] as const) {
     const c = countCols(body);
     const all = [c.band, c.head, c.cells, c.group, c.cols];
     check(`U15 ${label} table: colgroup, both header rows, the body row and COLS all state the SAME column count`,
@@ -504,19 +543,33 @@ function offlineChecks(): void {
   // U23: still shown, now on the line row. With one plot they are that plot's;
   // with several they read as a dash rather than an average, because a unit
   // size averaged across plots is a number nobody entered.
-  check('U23 the two standards that DRIVE the count and the slots are shown, not left invisible',
-    /unitSizeSqm/.test(resultsBody) && /parkingRatio/.test(resultsBody)
-    && /rows\.length === 1 \? d\(first\.unitSizeSqm\) : '-'/.test(resultsBody)
-    && /rows\.length === 1 \? n\(first\.parkingRatio\) : '-'/.test(resultsBody));
-  // U24: the counts are pooled now, so they come through w(), which is whole()
-  // over the pooled value. The invariant is unchanged: a count never renders
-  // through the 2-decimal formatter, where a rounding regression could hide.
+  // U23 IS THE REASON THE CHAIN RUNS PER PLOT. The count and the slot count
+  // are meaningless without the two standards they were divided by, and on a
+  // pooled row there was no single pair to show, so both cells printed a dash.
+  // Per plot each has one honest answer; on the merged row each is the quotient
+  // of that row's own sums, which is a real blended figure a reader can check
+  // against the two cells beside it. Neither may go back to a dash.
+  check('U23 the two standards that DRIVE the count and the slots are shown in BOTH tables',
+    /asset-result-\$\{asset\.id\}-unit-size/.test(resultsBody)
+    && /asset-result-\$\{asset\.id\}-parking-ratio/.test(resultsBody)
+    && /\{d\(unitSizeSqm\)\}/.test(resultsBody) && /\{n\(parkingRatio\)\}/.test(resultsBody)
+    && /line-result-\$\{group\.key\}-unit-size/.test(mergedBody)
+    && /line-result-\$\{group\.key\}-parking-ratio/.test(mergedBody)
+    // NEVER A DASH BY CONSTRUCTION on a multi-plot line. A conditional that
+    // gives up when there is more than one plot is what this replaced.
+    && !/rows\.length === 1 \?/.test(mergedBody));
+  // U24: a count never renders through the 2-decimal formatter, where a
+  // rounding regression could hide. Per plot it is whole(chain.x); on the merge
+  // it is whole() over the summed value.
   check('U24 counts render WHOLE, through their own formatter, not through a 2-decimal one',
-    /const whole = \(v: number \| undefined\)/.test(resultsBody)
-    && /const w = \(k: string\): string =>/.test(resultsBody)
+    [resultsBody, mergedBody].every((b) => /const whole = \(v: number \| undefined\)/.test(b))
+    && ['units', 'parkingSlots', 'retailParkingSlots', 'totalParkingSlots']
+      .every((k) => resultsBody.includes(`whole(chain.${k})`))
+    && /const w = \(k: string\): string =>/.test(mergedBody)
     && ["w('units')", "w('parkingSlots')", "w('retailParkingSlots')", "w('totalParkingSlots')"]
-      .every((k) => resultsBody.includes(k))
-    && !/p\('units'\)|p\('parkingSlots'\)/.test(resultsBody));
+      .every((k) => mergedBody.includes(k))
+    && !/p\('units'\)|p\('parkingSlots'\)/.test(mergedBody)
+    && !/n\(chain\.units\)|d\(chain\.units\)/.test(resultsBody));
   // U25 EXISTS BECAUSE PROJECT TOTALS CONTRADICTED THE TABLES ABOVE IT. It
   // showed the same three quantities under our internal names, and the outer
   // two of those invert, so its BUA tile was the tables' Total GFA.
@@ -567,6 +620,61 @@ function offlineChecks(): void {
   check('U29b a sub-unit whose asset is gone is still listed, so no row becomes undeletable',
     /const orphans = \[\.\.\.byAssetId\.values\(\)\]\.flat\(\)/.test(tabSrc)
     && /if \(orphans\.length > 0\) emit\(undefined, orphans\)/.test(tabSrc));
+
+  // ── THE SUB-UNIT PARTITION. Checked by RUNNING it, not by reading it.
+  //
+  // The defect it replaces could not have been caught by a source match: the
+  // markup was right, the grouping helper was right, and the call passed one
+  // wrong argument (this line's MEMBERS with the WHOLE project's sub-units).
+  // Every other line's rows came back as an "Unassigned" orphan group under
+  // every line, so four sub-units appeared under four headings and every line
+  // header printed the project's total area. The rule is a partition, so the
+  // checks are the two properties a partition has.
+  const su = (id: string, assetId: string): { id: string; assetId: string } => ({ id, assetId });
+  const asset = (id: string, phaseId: string, typeId: string): Asset =>
+    ({ id, phaseId, assetTypeId: typeId, name: id, strategy: 'Sell' } as unknown as Asset);
+  const pAssets = [
+    asset('a1', 'p1', 'residential'), asset('a2', 'p1', 'retail'),
+    asset('a3', 'p1', 'hotel'), asset('a4', 'p2', 'retail'),
+  ];
+  const pSubs = [su('u1', 'a1'), su('u2', 'a2'), su('u3', 'a3'), su('u4', 'a4')];
+  const part = partitionSubUnitsByLine(pAssets, pSubs, ['p1', 'p2'], (raw) => raw);
+  const seen = part.lines.flatMap((l) => l.subUnits.map((u) => u.id)).concat(part.stray.map((u) => u.id));
+  check('U38 every sub-unit lands in EXACTLY ONE bucket, and the buckets sum to the input',
+    seen.length === pSubs.length && new Set(seen).size === pSubs.length
+    && pSubs.every((u) => seen.includes(u.id)),
+    `${part.lines.length} lines, ${seen.length} placements for ${pSubs.length} sub-units`);
+  check('U39 a sub-unit sits under the line its asset is on, and under no other',
+    part.lines.every((l) => l.subUnits.every((u) => l.members.some((m) => m.id === u.assetId)))
+    && part.lines.filter((l) => l.subUnits.length > 0).length === 4
+    && part.stray.length === 0,
+    part.lines.map((l) => `${l.key}:${l.subUnits.length}`).join(' '));
+  // WHAT BELONGS TO NO LINE IS STILL A BUCKET, not a leftover: a row nothing
+  // shows is a row nobody can delete.
+  const strayPart = partitionSubUnitsByLine(
+    pAssets, [...pSubs, su('u5', 'deleted-asset')], ['p1', 'p2'], (raw) => raw,
+  );
+  check('U40 a sub-unit whose asset is on no line goes to STRAY, and only that one does',
+    strayPart.stray.length === 1 && strayPart.stray[0].id === 'u5'
+    && strayPart.lines.every((l) => !l.subUnits.some((u) => u.id === 'u5')),
+    `stray ${strayPart.stray.map((u) => u.id).join(',')}`);
+  // TWO PLOTS OF ONE TYPE IN ONE PHASE ARE ONE LINE, and their sub-units meet
+  // there. This is the case the merge exists for.
+  const twoPlot = partitionSubUnitsByLine(
+    [asset('b1', 'p1', 'villas'), asset('b2', 'p1', 'villas')],
+    [su('v1', 'b1'), su('v2', 'b2')], ['p1'], (raw) => raw,
+  );
+  check('U41 two plots of one type in one phase form ONE line holding both their sub-units',
+    twoPlot.lines.filter((l) => l.subUnits.length > 0).length === 1
+    && twoPlot.lines[0].subUnits.length === 2
+    && twoPlot.stray.length === 0,
+    `${twoPlot.lines.length} lines`);
+  check('U42 the tab reads the partition rather than re-deriving which sub-unit is whose',
+    /const \{ lines, stray \} = partitionSubUnitsByLine\(assets, subUnits, phaseIds, normaliseAssetTypeId\);/.test(tabSrc)
+    // groupSubUnitsByAsset is handed the LINE's own sub-units, never all of
+    // them. That single argument is the defect, so it is what is pinned.
+    && /groupSubUnitsByAsset\(line\.members, line\.subUnits\)/.test(tabSrc)
+    && !/groupSubUnitsByAsset\(members, subUnits\)/.test(tabSrc));
   check('U30 the rate column NAMES its basis, per row, through the one existing helper',
     subBody.includes('subunits-row-${u.id}-rate-basis')
     && /rateUnitLabel\(u\.category, isUnits \? 'units' : 'area'\)/.test(subBody)
@@ -605,17 +713,16 @@ function offlineChecks(): void {
     // The sqm already drawn survives the move: reassigning a plot is not a
     // reason to delete an input the user typed.
     && /\.\.\.\(asset\.landAllocation \?\? \{ sqm: 0 \}\), parcelId: next/.test(inputsBody));
-  // U37 CHANGED WITH THE HEADER. "+ Add asset here" sat on a PLOT header and
-  // had to seed that plot. The header is a LINE now, and a new plot on a line is
-  // by definition a plot it does not already draw from, so the button seeds the
-  // line's PHASE and leaves the plot to the row's own picker. The parcelId
-  // parameter stays and is still honoured, because the picker and the drawer
-  // both assign a plot and the resolution must not fork.
-  check('U37 the line add button seeds the PHASE, and the plot is chosen in the row',
+  // U37 IS BACK ON THE PLOT HEADER with the grouping. "+ Add asset here" must
+  // create an asset ALREADY POINTING AT THAT PLOT, which was the founder's
+  // original ask: a button on a plot that produces an asset on no plot is a
+  // button that lies about what it did. Both routes (this button and the row's
+  // own picker) write the same field, so the resolution cannot fork.
+  check('U37 the plot add button seeds THAT PLOT, and the plot is also chosen in the row',
     /handleAddAssetToPhase = \(phaseId: string, parcelId\?: string\)/.test(tabSrc)
     && /const named = parcelId \? parcels\.find\(\(p\) => p\.id === parcelId\) : undefined;/.test(tabSrc)
     && /const fallbackParcel = named \?\? phaseParcels\[0\] \?\? parcels\[0\];/.test(tabSrc)
-    && /onAddAsset\(g\.phaseId\)/.test(tabSrc)
+    && /onAddAsset\(g\.parcel!\.phaseId, g\.parcel!\.id\)/.test(tabSrc)
     && inputsBody.includes('asset-row-${asset.id}-plot'));
 
   // ── THE PLOT DRAW. One rule, three former readers, and a sole occupant that
@@ -816,21 +923,47 @@ function offlineChecks(): void {
     /textAlign: 'center'/.test(tabSrc.slice(tabSrc.indexOf('const TH_T'), tabSrc.indexOf('const TABLE_INPUT')))
     && /whiteSpace: 'normal'/.test(tabSrc.slice(tabSrc.indexOf('const TH_T'), tabSrc.indexOf('const TABLE_INPUT')))
     && /const TH_N: React\.CSSProperties = \{ \.\.\.TH_T \};/.test(tabSrc));
-  // U14: ONE shared header, still, but it is the LINE's and what it shows is
-  // the pooled DRAW rather than a per-plot sum check. The check moved with the
-  // land: a plot's own total is on the plots table, and what matters on a line
-  // is how much land it pools and from how many plots.
-  check('U14 the line grouping is one shared header, and the DRAW is on the input table only',
-    tabSrc.includes('function LineHeaderRow(')
-    // WHITESPACE-INSENSITIVE. The first cut matched 'showDraw' followed by a
+  // U14 IS BACK ON THE PLOT HEADER. It was re-aimed at a line header for one
+  // day; the line header merged one table too early, so entry and the chain
+  // both lost the ground they belong to. The plot header is shared by the two
+  // per-plot tables, and the CHECK (does this plot's area add up) belongs to
+  // the entry table only.
+  check('U14 the plot grouping is one shared header, and the CHECK is on the input table only',
+    tabSrc.includes('function PlotHeaderRow(')
+    // WHITESPACE-INSENSITIVE. An earlier cut matched a flag followed by a
     // literal newline, which is false on a CRLF checkout: it then failed on
     // THREE unrelated sabotages purely because git had converted the line
     // endings between runs. A check that fires for the wrong reason is worse
     // than no check, because it teaches you to ignore it. What is meant is that
     // the one header is used BOTH ways, so that is what is asserted.
-    && /showDraw\s*$/m.test(tabSrc) && tabSrc.includes('showDraw={false}')
-    && tabSrc.includes('line-group-${g.key}-land')
-    && !tabSrc.includes('function PlotHeaderRow('));
+    && /showCheck\s*$/m.test(tabSrc) && tabSrc.includes('showCheck={false}')
+    && tabSrc.includes('plot-group-${g.key}-area')
+    && !tabSrc.includes('function LineHeaderRow('));
+  // U14b THE HEADER PRINTS THE PHASE'S NAME. It printed `phase_1`, a storage
+  // key, at a reader who has seen "Phase 1" on every other screen in the
+  // platform. Both the plot header and the merged row resolve it through the
+  // phase list, and neither falls back to the raw key without trying.
+  check('U14b every phase shown on this tab is the phase NAME, resolved from the phase list',
+    /phaseName=\{group\.parcel \? \(allPhases\.find\(\(p\) => p\.id === group\.parcel!\.phaseId\)\?\.name \?\? undefined\) : undefined\}/.test(tabSrc)
+    && /allPhases\.find\(\(ph\) => ph\.id === group\.phaseId\)\?\.name \?\? group\.phaseId/.test(mergedBody)
+    && /phaseName: phases\.find\(\(p\) => p\.id === line\.phaseId\)\?\.name/.test(tabSrc)
+    // No surface may hand a raw phaseId straight to a phaseName prop.
+    && !/phaseName=\{group\.phaseId\}/.test(tabSrc));
+  // U14c FIVE TABLES, IN ENTRY ORDER, EACH NUMBERED ON ITS OWN FACE. The order
+  // is the argument: land, then what is entered on it, then what the chain
+  // makes of each plot, then the merge, then the parts of the merged line.
+  check('U14c the tab is five numbered tables in entry order',
+    [
+      '1. Plots, the land',
+      '2. Assets by plot, what you enter',
+      '3. Derived areas, per plot',
+      '4. Merged by line',
+      '5. Sub-units, under the merged line',
+    ].every((t, i, all) => {
+      const at = tabSrc.indexOf(`>${t}<`);
+      if (at < 0) return false;
+      return i === 0 || at > tabSrc.indexOf(`>${all[i - 1]}<`);
+    }));
   // The two split entries are dropped from this list with the feature (U3
   // asserts they are gone); the rest of what a row cannot hold still has a
   // home, and the rate-annotated parcel picker is now the reason the land

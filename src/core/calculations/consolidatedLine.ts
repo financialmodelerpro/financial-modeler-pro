@@ -135,12 +135,37 @@ function show(v: unknown): string {
 }
 
 /**
+ * IS THIS MEMBER SAYING ANYTHING? Absent, null and an all-whitespace string are
+ * all "nothing typed here"; a 0 and a `false` are real answers.
+ *
+ * This is the platform's standing blank-versus-typed-zero rule, applied to the
+ * one place it had been missed.
+ */
+function isStated(v: unknown): boolean {
+  if (v === undefined || v === null) return false;
+  if (typeof v === 'string' && v.trim() === '') return false;
+  return true;
+}
+
+/**
  * Resolve ONE line-level field across a line's members.
  *
  * WITH ONE MEMBER THE ANSWER IS THAT MEMBER'S VALUE, and `source` says
- * `single`, which is the whole of the "no number changes" promise: every live
- * line on both projects has exactly one member, so every line-level value is
- * its member's, unchanged, and nothing is merged, averaged or picked.
+ * `single`, which is the whole of the "no number changes" promise: a line with
+ * one plot is its plot, unchanged, and nothing is merged, averaged or picked.
+ *
+ * ABSENCE IS NOT DISAGREEMENT (2026-09-09), and this was found on live rows
+ * rather than reasoned about. The first live two-plot line, built by the
+ * founder to exercise the merge, reported FIVE conflicts, and every one of them
+ * read `<a value> vs null`: the second plot simply had nothing typed on those
+ * fields. Counting that as a disagreement puts an amber badge on a line that
+ * has exactly one answer, and it would have done so on the first line anyone
+ * merged, every time, because the second plot of a pair is usually the emptier
+ * one. Only two DIFFERENT STATED values are a conflict.
+ *
+ * The value returned is the first STATED one, not the first member's, so a line
+ * whose first plot is blank still shows the answer its other plot gives instead
+ * of an empty cell beside a filled one.
  */
 export function resolveLineField<T>(
   members: readonly LineMemberAsset[],
@@ -149,9 +174,12 @@ export function resolveLineField<T>(
   const values = members.map((m) => readPath(m, path));
   const first = values[0] as T;
   if (members.length <= 1) return { value: first, source: 'single' };
-  const distinct = [...new Set(values.map(show))];
-  if (distinct.length === 1) return { value: first, source: 'agreed' };
-  return { value: first, source: 'conflict', others: distinct };
+  const stated = values.filter(isStated);
+  // Nobody typed it. That is one answer (none), not a conflict.
+  if (stated.length === 0) return { value: first, source: 'agreed' };
+  const distinct = [...new Set(stated.map(show))];
+  if (distinct.length === 1) return { value: stated[0] as T, source: 'agreed' };
+  return { value: stated[0] as T, source: 'conflict', others: distinct };
 }
 
 export interface ConsolidatedLineFields {

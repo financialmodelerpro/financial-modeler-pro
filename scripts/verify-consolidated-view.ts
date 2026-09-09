@@ -85,8 +85,19 @@ function offlineChecks(): void {
       { assetId: 'M2', land: 20, hard: 200, soft: 40, marketing: 0, operating: 10, total: 270 }],
     normaliseAssetTypeId,
   );
-  check('B5 a different STRATEGY splits them again, and the total is unchanged',
-    split.rows.length === 2 && Math.abs(split.perAssetTotal - merged.perAssetTotal) < 0.005);
+  // B5 IS THE REVERSE OF WHAT IT SAID, and the reversal is the fix.
+  //
+  // It asserted that a different strategy SPLITS a line, which was true of the
+  // grouping and false of the rule: `consolidationKey` dropped strategy when
+  // the merge became unconditional, and the grouping loop kept its own
+  // `phase|type|strategy` string, so the two disagreed and this check was
+  // pinning the loop. A line is one type in one phase, full stop, and it HOLDS
+  // strategy rather than being keyed on it. What still has to hold either way
+  // is that the money does not move, so that half is unchanged.
+  check('B5 a different STRATEGY does NOT split a line, and the total is unchanged',
+    split.rows.length === 1 && split.rows[0].assetCount === 2
+    && Math.abs(split.perAssetTotal - merged.perAssetTotal) < 0.005,
+    `${split.rows.length} rows`);
 
   // An asset with no cost row at all must not silently vanish from the view.
   const orphan = buildConsolidatedReport(twin.assets, twin.phases, [

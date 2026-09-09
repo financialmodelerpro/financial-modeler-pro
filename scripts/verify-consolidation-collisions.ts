@@ -34,6 +34,7 @@ import {
   type CollidableAsset,
 } from '../src/core/calculations/consolidationCollisions';
 import { groupAssetsForConsolidation } from '../src/core/calculations/consolidation';
+import { resolveConsolidatedLine } from '../src/core/calculations/consolidatedLine';
 import { normaliseAssetTypeId } from '../src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards';
 
 let pass = 0, fail = 0;
@@ -133,7 +134,7 @@ async function liveChecks(): Promise<void> {
   };
   const ps = await q('refm_projects?select=id,name&deleted_at=is.null&order=created_at') as { id: string; name: string }[];
   const all: CollidableAsset[] = [];
-  let multiMemberGroups = 0, groups = 0;
+  let multiMemberGroups = 0, groups = 0, liveCollisions = 0, rawDifferences = 0;
   for (const p of ps) {
     const vs = await q(`refm_project_versions?project_id=eq.${p.id}&select=snapshot&order=created_at.desc&limit=1`) as
       { snapshot: { assets?: CollidableAsset[]; phases?: { id: string }[] } }[];
@@ -143,6 +144,23 @@ async function liveChecks(): Promise<void> {
     for (const g of groupAssetsForConsolidation(s.assets as never, (s.phases ?? []).map((f) => f.id), normaliseAssetTypeId)) {
       groups += 1;
       if (g.assets.length > 1) multiMemberGroups += 1;
+      // WHAT A REAL MERGE ACTUALLY COLLIDES ON. Zero is the claim, and it is
+      // the point of the merge rules: the fields that used to collide between
+      // two plots belong to the LINE, so neither plot holds them any more.
+      if (g.assets.length > 1) {
+        // TWO TOOLS, TWO JOBS, AND THE DIFFERENCE IS THE POINT.
+        //
+        // The DETECTOR reports absent-versus-set (B4), deliberately: it is the
+        // pre-merge diagnostic whose whole value was showing a human what two
+        // plots differ on, and hiding a blank there would have hidden the
+        // commonest shape. The LINE RESOLVER answers a different question,
+        // what the merged row SHOWS, and there a blank plot does not contest a
+        // filled one. So the raw count is reported and what is ASSERTED is the
+        // one that would be a defect: a line-level field with two STATED
+        // answers, which no live merge may have.
+        rawDifferences += collisionsForGroup(g.key, g.assets as never).fields.length;
+        liveCollisions += resolveConsolidatedLine(g.assets as never).conflicts.length;
+      }
     }
   }
   check('D1 the live rows were reached', all.length >= 13, `${all.length} assets, ${groups} groups`);
@@ -173,8 +191,16 @@ async function liveChecks(): Promise<void> {
   check('D2b the not-yet-used list has not gone stale (a path now in use must leave it)',
     goneStale.length === 0, goneStale.join(', '));
 
-  check('D3 no live group has more than one member, so no merge rule fires today',
-    multiMemberGroups === 0, `${multiMemberGroups} multi-member groups`);
+  // D3 RE-AIMED 2026-09-09. It read "no live group has more than one member, so
+  // no merge rule fires today", which was true when the detector was written
+  // and is a census, not an invariant. The founder has since built the first
+  // real two-plot line, which is the case the merge exists for, so what is
+  // asserted now is the property that matters: whatever merges live, it
+  // reports no COLLISION, because the fields that used to collide belong to the
+  // line rather than the plot. A count is reported, never pinned.
+  check('D3 no live merge has a LINE-LEVEL field with two stated answers',
+    liveCollisions === 0,
+    `${multiMemberGroups} multi-member groups, ${rawDifferences} raw differences, ${liveCollisions} line-level conflicts`);
 
   // THE PROXY. With no multi-member group live, the only real disagreements
   // available are between assets that share a type and strategy but sit in

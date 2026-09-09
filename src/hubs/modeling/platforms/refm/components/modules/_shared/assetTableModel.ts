@@ -32,6 +32,7 @@
  */
 
 import { resolveAssetPlotDraw } from '@/src/core/calculations';
+import { groupAssetsForConsolidation, type NormaliseTypeId } from '@/src/core/calculations/consolidation';
 import type { Asset, Parcel } from '../../../lib/state/module1-types';
 import { isParcelSentinel } from '../../../lib/state/module1-types';
 
@@ -130,4 +131,76 @@ export function plotCheckText(g: AssetPlotGroup, fmt: (n: number) => string): st
   if (g.status === 'ok') return 'Assets draw exactly this plot\'s area.';
   if (g.status === 'under') return `${fmt(g.remainingSqm ?? 0)} sqm of this plot is not drawn by any asset.`;
   return `Assets draw ${fmt(Math.abs(g.remainingSqm ?? 0))} sqm more than this plot holds.`;
+}
+
+/**
+ * WHICH SUB-UNITS BELONG TO WHICH CONSOLIDATED LINE.
+ *
+ * A PURE PARTITION, and it lives here rather than in the tab because the tab's
+ * first attempt was a defect that markup could not have shown. That version
+ * asked, once per line, "group these sub-units under these assets", handing it
+ * the LINE's members but the WHOLE PROJECT's sub-units. The grouping helper's
+ * contract is that anything left unmatched is an orphan the user must still be
+ * able to reach, so every other line's sub-units came back as an "Unassigned"
+ * group under every line: on one live project four sub-units repeated under
+ * four headings, on another twelve to fourteen under seven, and every line
+ * header printed the same NSA (the project total, 47,500 sqm) because named
+ * plus orphans is always the whole project. One wrong argument, three symptoms
+ * that each looked like a separate display bug.
+ *
+ * So the rule is stated once, as a partition: every sub-unit lands in exactly
+ * one bucket, the buckets sum to the input, and nothing can appear twice.
+ * `stray` holds what belongs to no line (an asset since deleted, or a
+ * companion, whose sub-units mirror its parent's and are filtered out by the
+ * caller). It is a real bucket, not a leftover: a row nothing shows is a row
+ * nobody can delete.
+ *
+ * PRESENTATION ONLY, like the rest of this file. A sub-unit's `assetId` is
+ * untouched; it re-parents onto the line in a later pass, together with the
+ * engine's lookup sites and the asset-keyed cost overrides, because a
+ * half-moved parent is two answers to one question.
+ */
+export interface SubUnitLinePartition {
+  /** The consolidation key: one type in one phase. */
+  key: string;
+  phaseId: string;
+  typeLabel: string;
+  typed: boolean;
+  members: Asset[];
+  subUnits: SubUnitLike[];
+}
+
+/** The little of a sub-unit this partition needs: which asset it hangs off. */
+export interface SubUnitLike {
+  id: string;
+  assetId: string;
+}
+
+export function partitionSubUnitsByLine<U extends SubUnitLike>(
+  assets: readonly Asset[],
+  subUnits: readonly U[],
+  phaseIds: readonly string[],
+  normaliseTypeId: NormaliseTypeId,
+): { lines: Array<SubUnitLinePartition & { subUnits: U[] }>; stray: U[] } {
+  const lines = groupAssetsForConsolidation(
+    assets as unknown as Parameters<typeof groupAssetsForConsolidation>[0],
+    phaseIds,
+    normaliseTypeId,
+  );
+  const claimed = new Set<string>();
+  const out = lines.map((line) => {
+    const members = line.assets as unknown as Asset[];
+    const memberIds = new Set(members.map((m) => m.id));
+    const mine = subUnits.filter((u) => memberIds.has(u.assetId));
+    for (const u of mine) claimed.add(u.id);
+    return {
+      key: line.key,
+      phaseId: line.phaseId,
+      typeLabel: line.typeLabel,
+      typed: line.typed,
+      members,
+      subUnits: mine,
+    };
+  });
+  return { lines: out, stray: subUnits.filter((u) => !claimed.has(u.id)) };
 }

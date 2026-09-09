@@ -258,19 +258,23 @@ function offlineChecks(): void {
   // what would make the grouping key part of how money is computed.
   // THE CONSUMERS ARE NAMED, not counted. Step 2 added the first, the
   // consolidated view builder; the layout pass added the second, the Assets tab
-  // itself, which now groups its tables by line rather than by plot. Both are
-  // presentation. A THIRD appearing without a line here is a consumer nobody
-  // decided on, which is what this catches; D1b holds the line that matters,
-  // that nothing computing money reads the key at all.
+  // itself, which merges by line in its fourth table; the five-table rebuild
+  // added the third, the tab's own pure table model, which is where the
+  // sub-unit partition lives (a rule that belongs beside the other grouping
+  // rules rather than inside a component). All three are presentation. A FOURTH
+  // appearing without a line here is a consumer nobody decided on, which is
+  // what this catches; D1b holds the line that matters, that nothing computing
+  // money reads the key at all.
   const ALLOWED_CONSUMERS = [
     'src/hubs/modeling/platforms/refm/lib/reports/consolidatedReport.ts',
     'src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx',
+    'src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel.ts',
   ];
   const unexpected = consumers.filter((f) => !ALLOWED_CONSUMERS.includes(f));
   const missing = ALLOWED_CONSUMERS.filter((f) => !consumers.includes(f));
-  check('D1 the only consumers are the two named presentation surfaces',
+  check('D1 the only consumers are the three named presentation surfaces',
     unexpected.length === 0, unexpected.join(' | '));
-  check('D1c both named consumers still consume it (a stale name is a hole)',
+  check('D1c all three named consumers still consume it (a stale name is a hole)',
     missing.length === 0, missing.join(' | '));
   const computeSurface = [
     ...walk('src/core/calculations'),
@@ -340,6 +344,7 @@ async function liveChecks(): Promise<void> {
   // Groups the workbook's own key (type + plan, no phase) WOULD have merged and
   // ours deliberately does not. The count that proves the phase is load-bearing.
   let phaseSeparatedPairs = 0;
+  let mergingSpans = 0;
   for (const p of projects) {
     const vs = await q(`refm_project_versions?project_id=eq.${p.id}&select=snapshot&order=created_at.desc&limit=1`) as
       { snapshot: { assets?: ConsolidatableAsset[]; phases?: { id: string }[] } }[];
@@ -368,6 +373,12 @@ async function liveChecks(): Promise<void> {
     const untyped = groups.filter((g) => !g.typed);
     totalAssets += assets.length; totalGroups += groups.length; totalMerges += merges.length;
     untypedLive += untyped.length;
+    // A MERGING GROUP IS ONE PHASE AND ONE TYPE, however many plots feed it.
+    for (const g of merges) {
+      const parts = g.assets.map((x) => consolidationKeyParts(x, N));
+      if (new Set(parts.map((k) => k.phaseId)).size > 1
+        || new Set(parts.map((k) => k.typeKey)).size > 1) mergingSpans += 1;
+    }
 
     console.log(`  ${p.name}: ${assets.length} assets -> ${groups.length} groups, ${merges.length} would merge, ${untyped.length} untyped`);
     for (const g of merges) {
@@ -410,16 +421,22 @@ async function liveChecks(): Promise<void> {
     + `${totalMerges} merging groups, ${untypedLive} untyped groups`);
   // MEASURED, AND IT CORRECTED THE DIAGNOSIS. The consolidation diagnosis
   // reported two merging pairs on FMP RE HUB, keying on type and strategy
-  // alone. Both pairs sit in DIFFERENT PHASES, so with the phase in the key
-  // nothing on the platform merges at all today: every group is one asset and
-  // a consolidated view would be a pure relabelling everywhere.
+  // alone. Both pairs sit in DIFFERENT PHASES, and the phase is what separates
+  // them. That part has not changed and is still measured on the live rows.
   //
-  // That makes the number a weak thing to assert, so what is asserted is the
-  // REASON. The two pairs still exist; the phase is what separates them, and
-  // this measures that on the live rows rather than trusting it.
-  check('E6 nothing merges today, because the PHASE separates the pairs a type-only key would have flattened',
-    totalMerges === 0 && phaseSeparatedPairs === 2,
+  // E6 RE-AIMED 2026-09-09. It also asserted `totalMerges === 0`, which was a
+  // census of the data on the day it was written rather than an invariant: the
+  // founder has since built the first real two-plot line (branded villas, Sell,
+  // phase 1 on the Marina project), which is the case the merge exists for. A
+  // check that fails when the feature is finally used is a check that has to be
+  // deleted at the worst moment, so what it asserts now is the REASON the two
+  // FMP RE HUB pairs stay apart, and the merging count is REPORTED, not pinned.
+  check('E6 the PHASE separates the pairs a type-only key would have flattened',
+    phaseSeparatedPairs === 2,
     `${totalMerges} merging groups, ${phaseSeparatedPairs} pairs separated by phase alone`);
+  // Every merging group is one phase and one type, however many plots it holds.
+  check('E6b no merging group spans two phases or two types',
+    mergingSpans === 0, `${mergingSpans} of ${totalMerges} merging groups span the key`);
   check('E7 no live asset is untyped today, so the untyped rule is a guard rather than a migration',
     untypedLive === 0, `${untypedLive} untyped`);
   check('E8 NO live asset carries a consolidation id, so no existing project changed',
