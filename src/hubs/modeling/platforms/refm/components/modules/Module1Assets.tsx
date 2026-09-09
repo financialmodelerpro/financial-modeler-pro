@@ -82,8 +82,12 @@ import {
   groupAssetsByPlot,
   partitionSubUnitsByLine,
   plotCheckText,
+  poolSubUnits,
   primaryParcelId,
+  resolveAssetNsa,
   type AssetPlotGroup,
+  type NsaSource,
+  type ResolvedNsa,
 } from './_shared/assetTableModel';
 import {
   groupAssetsForConsolidation,
@@ -454,6 +458,23 @@ export default function Module1Assets(): React.JSX.Element {
     () => groupAssetsForConsolidation(assets, phases.map((p) => p.id), normaliseAssetTypeId),
     [assets, phases],
   );
+  // THE CHAIN RUNS HERE, ONCE. Tables 2, 3 and 4 render these rows and so does
+  // the sub-unit check below, which needs each plot's net saleable area to know
+  // what its parts are parts of.
+  const rowGroups = useMemo(
+    () => buildAssetRows(plotGroups, assets, parcels, subUnits, project, landAllocationMode),
+    [plotGroups, assets, parcels, subUnits, project, landAllocationMode],
+  );
+  // WHAT THE PARTS ARE PARTS OF, per asset: the chain's NSA when the chain is
+  // running for that plot, the entered NSA when it is not. One rule, in
+  // assetTableModel, where its reversal is written down.
+  const nsaByAsset = useMemo(() => {
+    const out: Record<string, ResolvedNsa> = {};
+    for (const g of rowGroups) {
+      for (const r of g.rows) out[r.asset.id] = resolveAssetNsa(r.asset.sellableBuaSqm, r.chain.netSaleableSqm);
+    }
+    return out;
+  }, [rowGroups]);
 
   /** Add a sub-unit to a chosen parent, seeded exactly as the per-asset
    *  button seeds one, so the two entry points cannot diverge. */
@@ -812,7 +833,7 @@ export default function Module1Assets(): React.JSX.Element {
           LINE. Everything a row cannot hold opens in the drawer, which is the
           asset card, unchanged. */}
       <AssetTables
-        groups={plotGroups}
+        rowGroups={rowGroups}
         lineGroups={lineGroups}
         allAssets={assets}
         allPhases={phases}
@@ -830,6 +851,7 @@ export default function Module1Assets(): React.JSX.Element {
         assets={assets.filter((a) => a.isCompanion !== true)}
         phases={phases}
         subUnits={subUnits}
+        nsaByAsset={nsaByAsset}
         project={project}
         onAdd={handleAddSubUnitTo}
         onUpdate={updateSubUnit}
@@ -1072,8 +1094,10 @@ function ChainCell({
 }
 
 interface AssetTableProps {
-  /** Tables 2 and 3: entry and the chain, per plot. */
-  groups: AssetPlotGroup[];
+  /** Tables 2 and 3: entry and the chain, per plot. Built ONCE at the root,
+   *  because table 5 needs the same chain results and running it a second time
+   *  there would give the sub-unit check its own copy of the arithmetic. */
+  rowGroups: RowGroup[];
   /** Table 4: the merge, per line. */
   lineGroups: ConsolidationGroup[];
   allAssets: Asset[];
@@ -1990,11 +2014,10 @@ function MergedLineTable({
 
 /** The four asset tables, stacked, from ONE resolved row list. */
 function AssetTables({
-  groups, lineGroups, allAssets, allPhases, parcels, subUnits, project,
+  rowGroups, lineGroups, allAssets, allPhases, parcels, subUnits, project,
   landAllocationMode, assetTypeRegistry, onUpdateAsset, onRemoveAsset, onAddAsset,
 }: AssetTableProps): React.JSX.Element {
   const [openId, setOpenId] = useState<string | null>(null);
-  const rowGroups = buildAssetRows(groups, allAssets, parcels, subUnits, project, landAllocationMode);
   // The SAME rows, regrouped. Table 4 cannot disagree with table 3 because it
   // is not holding its own copy of them.
   const lineRowGroups = buildLineRows(rowGroups, lineGroups);
@@ -2062,24 +2085,34 @@ function SubUnitNumber({
   );
 }
 
-/** Sub-units under the asset they belong to, with that asset's own NSA and
- *  the sum of its parts, so the check is beside the thing it checks. */
-interface SubUnitGroup {
+/** One sub-unit row, with the plot asset it still belongs to carried beside it
+ *  so a line built from two plots can say which is which. */
+interface SubUnitRowRef {
+  unit: SubUnit;
   asset?: Asset;
-  rows: SubUnit[];
-  nsa: number;
-  areaSum: number;
-  status?: 'ok' | 'under' | 'over';
 }
 
+/**
+ * ONE HEADER ROW PER LINE, not two.
+ *
+ * It rendered a navy line bar and then a pale per-asset bar under it, so a line
+ * with one plot (which is nearly all of them) carried two headers saying the
+ * same thing, in two styles neither of which matched the four tables above. The
+ * asset each row belongs to moved INTO the row, where it costs nothing and is
+ * visible on every line rather than only at a group boundary.
+ */
 interface SubUnitLine {
   key: string;
   label: string;
   phaseName?: string;
-  groups: SubUnitGroup[];
+  /** The plots feeding this line, named, since the header no longer splits. */
+  assetNames: string[];
+  rows: SubUnitRowRef[];
   nsa: number;
+  nsaSource: NsaSource;
   areaSum: number;
   status?: 'ok' | 'under' | 'over';
+  totals: ReturnType<typeof poolSubUnits>;
 }
 
 /**
@@ -2101,90 +2134,99 @@ function groupSubUnitsByLine(
   subUnits: SubUnit[],
   phaseIds: string[],
   phases: Phase[],
+  nsaByAsset: Record<string, ResolvedNsa>,
 ): SubUnitLine[] {
   const { lines, stray } = partitionSubUnitsByLine(assets, subUnits, phaseIds, normaliseAssetTypeId);
+  const byId = new Map(assets.map((a) => [a.id, a] as const));
+  const build = (
+    key: string,
+    label: string,
+    members: Asset[],
+    units: SubUnit[],
+    phaseName?: string,
+  ): SubUnitLine | undefined => {
+    if (units.length === 0) return undefined;
+    const rows: SubUnitRowRef[] = units.map((u) => ({ unit: u, asset: byId.get(u.assetId) }));
+    // THE LINE'S NSA IS THE SUM OF ITS PLOTS', each resolved by the one rule:
+    // the chain's figure when the chain is running for that plot, the entered
+    // one when it is not. A line whose plots disagree about which is available
+    // reports the least specific of them, because a total is only as sourced as
+    // its weakest part.
+    let nsa = 0;
+    let sawChain = false, sawEntered = false;
+    for (const m of members) {
+      const r = nsaByAsset[m.id] ?? { value: 0, source: 'none' as const };
+      nsa += r.value;
+      if (r.source === 'chain') sawChain = true;
+      if (r.source === 'entered') sawEntered = true;
+    }
+    const nsaSource: NsaSource = sawEntered ? 'entered' : (sawChain ? 'chain' : 'none');
+    const totals = poolSubUnits(rows.map(({ unit, asset }) => {
+      const isUnits = (asset?.subUnitMetric ?? unit.metric) === 'units';
+      const unitArea = Math.max(0, unit.unitArea ?? 0);
+      return {
+        areaSqm: isUnits ? unit.metricValue * unitArea : unit.metricValue,
+        units: isUnits ? unit.metricValue : (unitArea > 0 ? Math.round(unit.metricValue / unitArea) : undefined),
+        rate: unit.unitPrice,
+        perUnit: isUnits,
+      };
+    }));
+    let status: 'ok' | 'under' | 'over' | undefined;
+    // A HUNDREDTH OF A SQM IS NOT A DISAGREEMENT. The tolerance is absolute and
+    // tiny, so a real gap always shows and float noise never does.
+    if (nsa > 0) status = Math.abs(totals.areaSqm - nsa) < 0.01 ? 'ok' : (totals.areaSqm < nsa ? 'under' : 'over');
+    return {
+      key,
+      label,
+      phaseName,
+      assetNames: members.filter((m) => units.some((u) => u.assetId === m.id)).map((m) => assetDisplayName(m)),
+      rows,
+      nsa,
+      nsaSource,
+      areaSum: totals.areaSqm,
+      status,
+      totals,
+    };
+  };
   const out: SubUnitLine[] = [];
   for (const line of lines) {
-    const groups = groupSubUnitsByAsset(line.members, line.subUnits);
-    const nsa = groups.reduce((t, g) => t + g.nsa, 0);
-    const areaSum = groups.reduce((t, g) => t + g.areaSum, 0);
-    let status: 'ok' | 'under' | 'over' | undefined;
-    if (nsa > 0) status = Math.abs(areaSum - nsa) < 0.01 ? 'ok' : (areaSum < nsa ? 'under' : 'over');
-    if (groups.some((g) => g.rows.length > 0)) {
-      out.push({
-        key: line.key,
-        label: line.typeLabel,
-        phaseName: phases.find((p) => p.id === line.phaseId)?.name,
-        groups,
-        nsa,
-        areaSum,
-        status,
-      });
-    }
+    const built = build(
+      line.key,
+      line.typeLabel,
+      line.members,
+      line.subUnits,
+      phases.find((p) => p.id === line.phaseId)?.name,
+    );
+    if (built) out.push(built);
   }
   // WHAT IS ON NO LINE STILL HAS TO BE REACHABLE. A sub-unit pointing at a
   // deleted asset, or at a companion (which the caller filters out, because a
   // companion's sub-units mirror its parent's), belongs to no line and would
   // otherwise be invisible and undeletable. ONE bucket at the end, holding only
   // what nothing else claimed, rather than one per line holding everything.
-  if (stray.length > 0) {
-    const groups = groupSubUnitsByAsset([], stray);
-    out.push({
-      key: '__no_line__',
-      label: 'Not on a line',
-      groups,
-      nsa: 0,
-      areaSum: groups.reduce((t, g) => t + g.areaSum, 0),
-    });
-  }
+  const strayLine = build('__no_line__', 'Not on a line', [], stray);
+  if (strayLine) out.push(strayLine);
   return out;
 }
 
-function groupSubUnitsByAsset(assets: Asset[], subUnits: SubUnit[]): SubUnitGroup[] {
-  const byAssetId = new Map<string, SubUnit[]>();
-  for (const u of subUnits) {
-    const list = byAssetId.get(u.assetId) ?? [];
-    list.push(u);
-    byAssetId.set(u.assetId, list);
-  }
-  const out: SubUnitGroup[] = [];
-  const emit = (asset: Asset | undefined, rows: SubUnit[]): void => {
-    const areaSum = rows.reduce((t, u) => {
-      const unitArea = Math.max(0, u.unitArea ?? 0);
-      const isUnits = (asset?.subUnitMetric ?? u.metric) === 'units';
-      return t + (isUnits ? u.metricValue * unitArea : u.metricValue);
-    }, 0);
-    const nsa = Math.max(0, asset?.sellableBuaSqm ?? 0);
-    // A HUNDREDTH OF A SQM IS NOT A DISAGREEMENT. The tolerance is absolute
-    // and tiny, so a real gap always shows and float noise never does.
-    let status: SubUnitGroup['status'];
-    if (nsa > 0) status = Math.abs(areaSum - nsa) < 0.01 ? 'ok' : (areaSum < nsa ? 'under' : 'over');
-    out.push({ asset, rows, nsa, areaSum, status });
-  };
-  for (const a of assets) {
-    const rows = byAssetId.get(a.id);
-    if (rows && rows.length > 0) { emit(a, rows); byAssetId.delete(a.id); }
-  }
-  // Anything pointing at an asset that no longer exists still has to be
-  // reachable, or a row becomes invisible and undeletable.
-  const orphans = [...byAssetId.values()].flat();
-  if (orphans.length > 0) emit(undefined, orphans);
-  return out;
-}
 
 function SubUnitsTable({
-  assets, phases, subUnits, project, onAdd, onUpdate, onRemove,
+  assets, phases, subUnits, nsaByAsset, project, onAdd, onUpdate, onRemove,
 }: {
   assets: Asset[];
   phases: Phase[];
   subUnits: SubUnit[];
+  /** What each plot's sub-units are parts of: the chain's NSA when the chain is
+   *  running for that plot, the entered NSA when it is not. Resolved at the
+   *  root, so the chain is not run a second time here. */
+  nsaByAsset: Record<string, ResolvedNsa>;
   project: Project;
   onAdd: (assetId: string) => void;
   onUpdate: (id: string, patch: Partial<SubUnit>) => void;
   onRemove: (id: string) => void;
 }): React.JSX.Element {
   const [parentId, setParentId] = useState<string>(assets[0]?.id ?? '');
-  const subUnitLines = groupSubUnitsByLine(assets, subUnits, phases.map((p) => p.id), phases);
+  const subUnitLines = groupSubUnitsByLine(assets, subUnits, phases.map((p) => p.id), phases, nsaByAsset);
 
   return (
     <div style={sectionCardStyle} data-testid="subunits-table-section">
@@ -2252,210 +2294,275 @@ function SubUnitsTable({
               </tr>
             </thead>
             <tbody>
-              {subUnitLines.flatMap((line) => [
-                // THE LINE HEADER. One row per consolidated line, with the
-                // line's own NSA check above the assets that make it up.
-                <tr key={`line-${line.key}`} style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}
-                  data-testid={`subunits-line-${line.key}`}>
-                  <td style={{ ...CELL, fontWeight: 700, color: 'inherit' }} colSpan={2}>
+              {subUnitLines.flatMap((line) => {
+                const nsa = line.nsa;
+                // A BLENDED RATE NEEDS BOTH HALVES. A line that is priced but
+                // has no area (units entered with no unit size, which is real on
+                // live data) divides by zero, and printing the 0 that falls out
+                // asserts a rate of nothing. It is a dash, like every other
+                // figure here that cannot be derived.
+                const priced = line.totals.pricedRows > 0 && line.totals.areaSqm > 0;
+                return [
+                // ONE HEADER ROW, in the same pale style as the plot headers on
+                // tables 2 and 3. It was two: a navy line bar and a pale
+                // per-asset bar under it, so a line with one plot (nearly all of
+                // them) said the same thing twice in two styles, neither
+                // matching the tables above.
+                <tr
+                  key={`line-${line.key}`}
+                  style={{ background: 'var(--color-primary-pale)' }}
+                  data-testid={`subunits-line-${line.key}`}
+                >
+                  <td style={{ ...CELL, fontWeight: 700 }} colSpan={2}>
                     {line.label}
                     {line.phaseName && (
-                      <span style={{ fontWeight: 400, opacity: 0.75, marginLeft: 8 }}>{line.phaseName}</span>
+                      <span style={{ fontWeight: 400, color: 'var(--color-meta)', marginLeft: 8 }}>{line.phaseName}</span>
                     )}
+                    {/* THE PLOTS FEEDING THE LINE, named here because the
+                        per-asset header row is gone. Each row names its own
+                        plot too, which is what a two-plot line needs. */}
+                    {line.assetNames.length > 0 && (
+                      <span style={{ fontWeight: 400, color: 'var(--color-meta)', marginLeft: 8 }}
+                        data-testid={`subunits-line-${line.key}-plots`}>
+                        {line.assetNames.join(', ')}
+                      </span>
+                    )}
+                    <span style={{ fontWeight: 400, color: 'var(--color-meta)', marginLeft: 8 }}>
+                      {line.rows.length} sub-unit{line.rows.length === 1 ? '' : 's'}
+                    </span>
                   </td>
-                  <td style={{ ...CELL_NUM, color: 'inherit' }}>{line.nsa > 0 ? formatArea(line.nsa) : '-'}</td>
-                  <td style={{ ...CELL_NUM, color: 'inherit' }} data-testid={`subunits-line-${line.key}-sum`}>{formatArea(line.areaSum)}</td>
-                  <td style={{ ...CELL, color: 'inherit', fontSize: 10 }} colSpan={5}>
-                    {line.key === '__no_line__'
-                      ? 'These point at an asset that is not on a line (deleted, or a companion whose sub-units mirror its parent).'
-                      : line.status === undefined
-                        ? 'No NSA entered on this line, so there is nothing to check the parts against.'
-                        : line.status === 'ok' ? 'Sub-units sum to the line NSA'
-                          : line.status === 'under' ? 'Under-allocated against the line NSA'
-                            : 'Over-allocated against the line NSA'}
+                  <td style={{ ...CELL_NUM, fontWeight: 700 }} data-testid={`subunits-line-${line.key}-nsa`}>
+                    {line.nsaSource === 'none' ? '-' : formatArea(nsa)}
+                  </td>
+                  <td style={{ ...CELL_NUM, fontWeight: 700 }} data-testid={`subunits-line-${line.key}-sum`}>{formatArea(line.areaSum)}</td>
+                  <td style={CELL} colSpan={5}>
+                    {line.status && (
+                      <span
+                        data-testid={`subunits-line-${line.key}-check`}
+                        style={{
+                          fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 'var(--radius-sm)',
+                          background: line.status === 'ok'
+                            ? 'color-mix(in srgb, var(--color-positive, #15803d) 16%, transparent)'
+                            : 'color-mix(in srgb, var(--color-warning, #92400e) 18%, transparent)',
+                          color: line.status === 'ok' ? 'var(--color-positive, #15803d)' : 'var(--color-warning, #92400e)',
+                        }}
+                      >
+                        {line.status === 'ok' ? 'Sub-units sum to NSA' : line.status === 'under' ? 'Under-allocated' : 'Over-allocated'}
+                      </span>
+                    )}
+                    {/* THE CHECK SAYS WHERE ITS NSA CAME FROM. A figure the
+                        chain derived and a figure someone typed are different
+                        kinds of answer, and a reader disagreeing with the check
+                        needs to know which one to go and change. */}
+                    <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}
+                      data-testid={`subunits-line-${line.key}-basis`}>
+                      {line.key === '__no_line__'
+                        ? 'These point at an asset that is not on a line (deleted, or a companion whose sub-units mirror its parent).'
+                        : line.nsaSource === 'none'
+                          ? 'No NSA on this line: the area chain is not running for its plots and none has an NSA entered, so there is nothing to check the parts against.'
+                          : `${formatArea(line.areaSum)} of ${formatArea(nsa)} sqm allocated`
+                            + `${nsa > 0 ? ` (${((line.areaSum / nsa) * 100).toLocaleString(undefined, { maximumFractionDigits: 1 })}%)` : ''}`
+                            + `, against the ${line.nsaSource === 'chain' ? 'area chain' : 'entered'} NSA.`}
+                    </span>
                   </td>
                 </tr>,
-                ...line.groups.map(({ asset, rows, nsa, areaSum, status }) => (
-                <React.Fragment key={asset?.id ?? 'unassigned'}>
-                  {/* THE CHECK IS PER ASSET, because the rule it states is per
-                      asset: the parts have to sum to the whole they are parts
-                      of. It reads the asset's OWN entered NSA, never the
-                      derived chain figure, which is what keeps the derivation
-                      out of an editing surface. */}
-                  <tr style={{ background: 'var(--color-primary-pale)' }} data-testid={`subunits-group-${asset?.id ?? 'unassigned'}`}>
-                    {/* THE TYPE IS SHOWN BESIDE THE NAME, because everything
-                        downstream keys off the type and a row labelled with an
-                        invented name says nothing about which line it joins,
-                        which cost method reads it, or whose standards it uses.
-                        Omitted when the asset is already called by its type. */}
-                    <td style={{ ...CELL, fontWeight: 700 }} colSpan={2}>
-                      {asset ? assetDisplayName(asset) : 'Unassigned'}
-                      {asset && assetTypeSuffix(asset) && (
-                        <span
-                          style={{ fontWeight: 400, color: 'var(--color-meta)', marginLeft: 6 }}
-                          data-testid={`subunits-group-${asset.id}-type`}
+                ...line.rows.map(({ unit: u, asset }) => {
+                  const isUnits = (asset?.subUnitMetric ?? u.metric) === 'units';
+                  const unitArea = Math.max(0, u.unitArea ?? 0);
+                  const area = isUnits ? u.metricValue * unitArea : u.metricValue;
+                  // A COUNT NOBODY CAN DERIVE IS NOT ZERO. With no unit size
+                  // there is nothing to divide the area by, so the cell says
+                  // so. Printing 0 asserted "this row has no units", which is
+                  // a different claim and a false one.
+                  const count: number | undefined = isUnits
+                    ? u.metricValue
+                    : (unitArea > 0 ? Math.round(u.metricValue / unitArea) : undefined);
+                  const sharePct = nsa > 0 ? (area / nsa) * 100 : undefined;
+                  return (
+                    <tr key={u.id} style={{ borderBottom: '1px solid var(--color-border)' }} data-testid={`subunits-row-${u.id}`}>
+                      <td style={CELL}>
+                        <input
+                          style={TABLE_INPUT}
+                          value={u.name}
+                          placeholder="unnamed"
+                          data-testid={`subunits-row-${u.id}-name`}
+                          onChange={(e) => onUpdate(u.id, { name: e.target.value })}
+                        />
+                        {/* WHICH PLOT THIS HANGS OFF. It was a group header;
+                            in the row it is visible on every line, which is
+                            what a line fed by two plots actually needs. */}
+                        <div style={{ fontSize: 9, color: 'var(--color-meta)' }} data-testid={`subunits-row-${u.id}-asset`}>
+                          {asset ? assetDisplayName(asset) : 'no asset'}
+                        </div>
+                      </td>
+                      <td style={CELL}>
+                        <select
+                          style={TABLE_INPUT}
+                          value={u.category}
+                          data-testid={`subunits-row-${u.id}-category`}
+                          onChange={(e) => onUpdate(u.id, { category: e.target.value as SubUnitCategory })}
                         >
-                          {assetTypeSuffix(asset)}
-                        </span>
-                      )}
-                      <span style={{ fontWeight: 400, color: 'var(--color-meta)', marginLeft: 8 }}>
-                        {rows.length} sub-unit{rows.length === 1 ? '' : 's'}
-                      </span>
-                    </td>
-                    <td style={CELL_NUM} data-testid={`subunits-group-${asset?.id ?? 'unassigned'}-nsa`}>
-                      {nsa > 0 ? formatArea(nsa) : '-'}
-                    </td>
-                    <td style={CELL_NUM} data-testid={`subunits-group-${asset?.id ?? 'unassigned'}-sum`}>{formatArea(areaSum)}</td>
-                    <td style={CELL} colSpan={5}>
-                      {status && (
-                        <span
-                          data-testid={`subunits-group-${asset?.id ?? 'unassigned'}-check`}
-                          style={{
-                            fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 'var(--radius-sm)',
-                            background: status === 'ok'
-                              ? 'color-mix(in srgb, var(--color-positive, #15803d) 16%, transparent)'
-                              : 'color-mix(in srgb, var(--color-warning, #92400e) 18%, transparent)',
-                            color: status === 'ok' ? 'var(--color-positive, #15803d)' : 'var(--color-warning, #92400e)',
-                          }}
-                        >
-                          {status === 'ok' ? 'Sub-units sum to NSA' : status === 'under' ? 'Under-allocated' : 'Over-allocated'}
-                        </span>
-                      )}
-                      <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>
-                        {nsa <= 0
-                          ? 'This asset has no NSA entered, so there is nothing to check the parts against.'
-                          : `${formatArea(areaSum)} of ${formatArea(nsa)} sqm allocated (${((areaSum / nsa) * 100).toLocaleString(undefined, { maximumFractionDigits: 1 })}%).`}
-                      </span>
-                    </td>
-                  </tr>
-                  {rows.map((u) => {
-                    const isUnits = (asset?.subUnitMetric ?? u.metric) === 'units';
-                    const unitArea = Math.max(0, u.unitArea ?? 0);
-                    const area = isUnits ? u.metricValue * unitArea : u.metricValue;
-                    // A COUNT NOBODY CAN DERIVE IS NOT ZERO. With no unit size
-                    // there is nothing to divide the area by, so the cell says
-                    // so. Printing 0 asserted "this row has no units", which is
-                    // a different claim and a false one.
-                    const count: number | undefined = isUnits
-                      ? u.metricValue
-                      : (unitArea > 0 ? Math.round(u.metricValue / unitArea) : undefined);
-                    const sharePct = nsa > 0 ? (area / nsa) * 100 : undefined;
-                    return (
-                      <tr key={u.id} style={{ borderBottom: '1px solid var(--color-border)' }} data-testid={`subunits-row-${u.id}`}>
-                        <td style={CELL}>
-                          <input
-                            style={TABLE_INPUT}
-                            value={u.name}
-                            placeholder="unnamed"
-                            data-testid={`subunits-row-${u.id}-name`}
-                            onChange={(e) => onUpdate(u.id, { name: e.target.value })}
-                          />
-                        </td>
-                        <td style={CELL}>
-                          <select
-                            style={TABLE_INPUT}
-                            value={u.category}
-                            data-testid={`subunits-row-${u.id}-category`}
-                            onChange={(e) => onUpdate(u.id, { category: e.target.value as SubUnitCategory })}
-                          >
-                            {SUB_UNIT_CATEGORIES.map((c) => (<option key={c} value={c}>{c}</option>))}
-                          </select>
-                        </td>
-                        {/* SHARE AND AREA ARE ONE PAIR: type either, the other
-                            follows. The share is only an INPUT in area mode,
-                            because in count mode the count is the input and a
-                            share typed there would have two ways to resolve. */}
-                        <td style={CELL}>
-                          {isUnits || nsa <= 0 ? (
-                            <span style={{ ...CELL_NUM, display: 'block' }} data-testid={`subunits-row-${u.id}-share`}
-                              title={nsa <= 0
-                                ? 'This asset has no NSA entered, so a share of it cannot be computed.'
-                                : 'This asset counts units, so the count is what you type and the share follows from it.'}>
-                              {sharePct === undefined ? '-' : `${sharePct.toLocaleString(undefined, { maximumFractionDigits: 1 })}%`}
-                            </span>
-                          ) : (
-                            <SubUnitNumber
-                              value={sharePct}
-                              testId={`subunits-row-${u.id}-share`}
-                              title="This sub-unit's share of the asset's NSA. Typing here sets the area."
-                              onCommit={(v) => onUpdate(u.id, { metricValue: v === undefined ? 0 : (nsa * v) / 100 })}
-                            />
-                          )}
-                        </td>
-                        <td style={CELL}>
-                          {isUnits ? (
-                            <span style={{ ...CELL_NUM, display: 'block' }} data-testid={`subunits-row-${u.id}-area`}
-                              title="Count x Average Unit Size. This asset counts units, so the area follows.">
-                              {formatArea(area)}
-                            </span>
-                          ) : (
-                            <SubUnitNumber
-                              value={u.metricValue}
-                              testId={`subunits-row-${u.id}-area`}
-                              title="Sqm this sub-unit occupies. Typing here sets the share."
-                              onCommit={(v) => onUpdate(u.id, { metricValue: v ?? 0 })}
-                            />
-                          )}
-                        </td>
-                        <td style={CELL}>
+                          {SUB_UNIT_CATEGORIES.map((c) => (<option key={c} value={c}>{c}</option>))}
+                        </select>
+                      </td>
+                      {/* SHARE AND AREA ARE ONE PAIR: type either, the other
+                          follows. The share is of the LINE's NSA, which is what
+                          the schedules read, and it is only an INPUT in area
+                          mode, because in count mode the count is the input and
+                          a share typed there would have two ways to resolve. */}
+                      <td style={CELL}>
+                        {isUnits || nsa <= 0 ? (
+                          <span style={{ ...CELL_NUM, display: 'block' }} data-testid={`subunits-row-${u.id}-share`}
+                            title={nsa <= 0
+                              ? 'This line has no NSA: the area chain is not running for its plots and none has an NSA entered, so a share of it cannot be computed.'
+                              : 'This asset counts units, so the count is what you type and the share follows from it.'}>
+                            {sharePct === undefined ? '-' : `${sharePct.toLocaleString(undefined, { maximumFractionDigits: 1 })}%`}
+                          </span>
+                        ) : (
                           <SubUnitNumber
-                            value={u.unitArea}
-                            testId={`subunits-row-${u.id}-unit-size`}
-                            title="Sqm of ONE unit or key here. The count below divides the area by it."
-                            onCommit={(v) => onUpdate(u.id, { unitArea: v })}
+                            value={sharePct}
+                            testId={`subunits-row-${u.id}-share`}
+                            title="This sub-unit's share of the LINE's NSA. Typing here sets the area."
+                            onCommit={(v) => onUpdate(u.id, { metricValue: v === undefined ? 0 : (nsa * v) / 100 })}
                           />
-                        </td>
-                        <td style={CELL}>
-                          {isUnits ? (
-                            <SubUnitNumber
-                              value={u.metricValue}
-                              testId={`subunits-row-${u.id}-count`}
-                              title="Whole units or keys. This asset counts units, so this is what you type."
-                              onCommit={(v) => onUpdate(u.id, { metricValue: v === undefined ? 0 : Math.round(v) })}
-                            />
-                          ) : (
-                            <span style={{ ...CELL_NUM, display: 'block' }} data-testid={`subunits-row-${u.id}-count`}>
-                              {count === undefined
-                                ? <span title="No unit size, so there is nothing to divide the area by. This is not a count of zero.">-</span>
-                                : count.toLocaleString()}
-                            </span>
-                          )}
-                        </td>
-                        {/* A RATE IS NOT A PROJECT TOTAL. It is a price per sqm
-                            or per unit, so it never takes the project's number
-                            scale: at 'thousands' a rate of 18,500 rendered as
-                            "19". The card always showed rates at full scale; so
-                            does this. */}
-                        <td style={CELL_NUM} data-testid={`subunits-row-${u.id}-rate`}>
-                          {formatAccounting(u.unitPrice, 'full', project.displayDecimals ?? 2)}
-                        </td>
-                        <td style={{ ...CELL, fontSize: 10, color: 'var(--color-meta)' }} data-testid={`subunits-row-${u.id}-rate-basis`}>
-                          {rateUnitLabel(u.category, isUnits ? 'units' : 'area') || 'no rate'}
-                        </td>
-                        <td style={CELL}>
-                          <button
-                            type="button"
-                            onClick={() => onRemove(u.id)}
-                            data-testid={`subunits-row-${u.id}-remove`}
-                            style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '1px 6px', cursor: 'pointer', fontSize: 10 }}
-                          >
-                            x
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </React.Fragment>
-                )),
-              ])}
+                        )}
+                      </td>
+                      <td style={CELL}>
+                        {isUnits ? (
+                          <span style={{ ...CELL_NUM, display: 'block' }} data-testid={`subunits-row-${u.id}-area`}
+                            title="Count x Average Unit Size. This asset counts units, so the area follows.">
+                            {formatArea(area)}
+                          </span>
+                        ) : (
+                          <SubUnitNumber
+                            value={u.metricValue}
+                            testId={`subunits-row-${u.id}-area`}
+                            title="Sqm this sub-unit occupies. Typing here sets the share."
+                            onCommit={(v) => onUpdate(u.id, { metricValue: v ?? 0 })}
+                          />
+                        )}
+                      </td>
+                      <td style={CELL}>
+                        <SubUnitNumber
+                          value={u.unitArea}
+                          testId={`subunits-row-${u.id}-unit-size`}
+                          title="Sqm of ONE unit or key here. The count below divides the area by it."
+                          onCommit={(v) => onUpdate(u.id, { unitArea: v })}
+                        />
+                      </td>
+                      <td style={CELL}>
+                        {isUnits ? (
+                          <SubUnitNumber
+                            value={u.metricValue}
+                            testId={`subunits-row-${u.id}-count`}
+                            title="Whole units or keys. This asset counts units, so this is what you type."
+                            onCommit={(v) => onUpdate(u.id, { metricValue: v === undefined ? 0 : Math.round(v) })}
+                          />
+                        ) : (
+                          <span style={{ ...CELL_NUM, display: 'block' }} data-testid={`subunits-row-${u.id}-count`}>
+                            {count === undefined
+                              ? <span title="No unit size, so there is nothing to divide the area by. This is not a count of zero.">-</span>
+                              : count.toLocaleString()}
+                          </span>
+                        )}
+                      </td>
+                      {/* A RATE IS NOT A PROJECT TOTAL. It is a price per sqm
+                          or per unit, so it never takes the project's number
+                          scale: at 'thousands' a rate of 18,500 rendered as
+                          "19". The card always showed rates at full scale; so
+                          does this. */}
+                      <td style={CELL_NUM} data-testid={`subunits-row-${u.id}-rate`}>
+                        {formatAccounting(u.unitPrice, 'full', project.displayDecimals ?? 2)}
+                      </td>
+                      <td style={{ ...CELL, fontSize: 10, color: 'var(--color-meta)' }} data-testid={`subunits-row-${u.id}-rate-basis`}>
+                        {rateUnitLabel(u.category, isUnits ? 'units' : 'area') || 'no rate'}
+                      </td>
+                      <td style={CELL}>
+                        <button
+                          type="button"
+                          onClick={() => onRemove(u.id)}
+                          data-testid={`subunits-row-${u.id}-remove`}
+                          style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '1px 6px', cursor: 'pointer', fontSize: 10 }}
+                        >
+                          x
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                }),
+                // THE LINE'S TOTALS. Area, units, and a blended rate that is
+                // VALUE OVER AREA, never an average of rates: averaging weights
+                // a 200 sqm shop equally with a 20,000 sqm tower, so the answer
+                // would move when a row is split in two.
+                <tr key={`total-${line.key}`} style={{ borderBottom: '2px solid var(--color-navy)' }}
+                  data-testid={`subunits-line-${line.key}-totals`}>
+                  <td style={{ ...CELL, fontWeight: 700 }} colSpan={2}>Line total</td>
+                  <td style={CELL_NUM} />
+                  <td style={{ ...CELL_NUM, fontWeight: 700 }} data-testid={`subunits-line-${line.key}-total-area`}>{formatArea(line.totals.areaSqm)}</td>
+                  <td style={CELL_NUM} />
+                  <td style={{ ...CELL_NUM, fontWeight: 700 }} data-testid={`subunits-line-${line.key}-total-units`}
+                    title="Whole units or keys. Some stored counts are fractional; the parts are shown as typed and the total is rounded, because nobody builds 309.985 apartments.">
+                    {Math.round(line.totals.units).toLocaleString()}
+                  </td>
+                  <td style={{ ...CELL_NUM, fontWeight: 700 }} data-testid={`subunits-line-${line.key}-blended-rate`}
+                    title="Total value over total area. A row's value is its rate times what the rate is per: units for a per-unit or per-key price, area for a per-sqm one.">
+                    {priced ? formatAccounting(line.totals.blendedRate, 'full', project.displayDecimals ?? 2) : '-'}
+                  </td>
+                  <td style={{ ...CELL, fontSize: 10, color: 'var(--color-meta)' }} data-testid={`subunits-line-${line.key}-blended-basis`}>
+                    {line.totals.pricedRows === 0 ? 'no rates'
+                      : line.totals.areaSqm <= 0 ? 'no area to divide by'
+                        : line.totals.mixedBasis ? 'per sqm, blended over mixed bases' : 'per sqm'}
+                  </td>
+                  <td style={CELL} />
+                </tr>,
+                ];
+              })}
+              {/* THE PROJECT FOOT. The same three figures over every line, so
+                  management can read the pooled price against the individual
+                  ones without adding up the lines by hand. */}
+              {subUnitLines.length > 0 && (() => {
+                const all = poolSubUnits(subUnitLines.flatMap((l) => l.rows.map(({ unit: u, asset }) => {
+                  const isUnits = (asset?.subUnitMetric ?? u.metric) === 'units';
+                  const unitArea = Math.max(0, u.unitArea ?? 0);
+                  return {
+                    areaSqm: isUnits ? u.metricValue * unitArea : u.metricValue,
+                    units: isUnits ? u.metricValue : (unitArea > 0 ? Math.round(u.metricValue / unitArea) : undefined),
+                    rate: u.unitPrice,
+                    perUnit: isUnits,
+                  };
+                })));
+                return (
+                  <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}
+                    data-testid="subunits-project-totals">
+                    <td style={{ ...CELL, fontWeight: 700, color: 'inherit' }} colSpan={2}>All lines</td>
+                    <td style={{ ...CELL_NUM, color: 'inherit' }} />
+                    <td style={{ ...CELL_NUM, fontWeight: 700, color: 'inherit' }} data-testid="subunits-project-total-area">{formatArea(all.areaSqm)}</td>
+                    <td style={{ ...CELL_NUM, color: 'inherit' }} />
+                    <td style={{ ...CELL_NUM, fontWeight: 700, color: 'inherit' }} data-testid="subunits-project-total-units">{Math.round(all.units).toLocaleString()}</td>
+                    <td style={{ ...CELL_NUM, fontWeight: 700, color: 'inherit' }} data-testid="subunits-project-blended-rate"
+                      title="Total value over total area, across every line.">
+                      {all.pricedRows > 0 && all.areaSqm > 0
+                        ? formatAccounting(all.blendedRate, 'full', project.displayDecimals ?? 2) : '-'}
+                    </td>
+                    <td style={{ ...CELL, fontSize: 10, color: 'inherit' }} data-testid="subunits-project-blended-basis">
+                      {all.pricedRows === 0 ? 'no rates'
+                        : all.areaSqm <= 0 ? 'no area to divide by'
+                          : all.mixedBasis ? 'per sqm, blended over mixed bases' : 'per sqm'}
+                    </td>
+                    <td style={{ ...CELL, color: 'inherit' }} />
+                  </tr>
+                );
+              })()}
             </tbody>
           </table>
         </div>
       )}
       <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 6 }}>
         Share, area, unit size and count are one identity: type any two that make sense for the
-        asset and the rest follow. The check on each asset compares the parts against that
-        asset&apos;s own entered NSA, not against the derived area chain.
+        asset and the rest follow. The check on each line compares the parts against the
+        line&apos;s NSA, which is the area chain&apos;s figure where the chain is running for its
+        plots and the entered NSA where it is not, the same opt-in rule as the rest of the chain.
+        A blended rate is total value over total area, never an average of rates.
       </div>
     </div>
   );

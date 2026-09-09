@@ -39,7 +39,9 @@ import { resolveAssetPlotDraw, computeAssetLandSqm, computeAssetLandBreakdown, c
 import {
   groupAssetsByPlot,
   partitionSubUnitsByLine,
+  poolSubUnits,
   primaryParcelId,
+  resolveAssetNsa,
   UNPLOTTED_GROUP,
   type AssetPlotGroup,
 } from '../src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel';
@@ -599,27 +601,99 @@ function offlineChecks(): void {
     /Math\.round\(u\.metricValue \/ unitArea\)/.test(subBody)
     && /unitArea > 0 \?/.test(subBody)
     && subBody.includes('This is not a count of zero.'));
-  const groupStart = tabSrc.indexOf('function groupSubUnitsByAsset(');
-  const groupBody = groupStart >= 0 ? tabSrc.slice(groupStart, subStart) : '';
-  check('U29 the parts are checked against the asset OWN entered NSA, per asset',
-    groupBody.length > 300
-    && /const nsa = Math\.max\(0, asset\?\.sellableBuaSqm \?\? 0\);/.test(groupBody)
-    // NEVER THE DERIVED CHAIN FIGURE. Sourcing the check from the chain would
-    // put the derivation into an editing surface, which is the one thing this
-    // step must not do. Both the grouping and the render are checked: the
-    // number is chosen in the first and only displayed by the second.
-    // The IDENTIFIER, not the word: both spans carry prose saying the chain is
-    // deliberately not consulted here, and a bare word match reads those
-    // sentences as the very thing they rule out. Second time this exact shape
-    // has bitten in one session (see D5 in verify-asset-type-standards), and
-    // `chain\.` alone was still not enough: it matched a sentence ENDING in
-    // the word. A property access needs a property.
-    && ![groupBody, subBody].some((b) => /netSaleableSqm|\bchain\.\w|computeLandChain/.test(b))
+  // U29 REVERSED 2026-09-09, and this is the second reversal in this file
+  // today, so the pattern is worth naming: a rule that sounds conservative and
+  // measures nothing is not conservative.
+  //
+  // It asserted that the check reads the asset's OWN ENTERED NSA and NEVER the
+  // chain, on the principle that a derivation has no business inside an editing
+  // surface. In practice every live asset has an entered NSA of 0, so the check
+  // NEVER FIRED ONCE on any project: every group printed "no NSA entered, so
+  // there is nothing to check the parts against" while the chain sat one table
+  // above holding the answer. The rule now matches the rest of the chain: opt
+  // in, and once you have, it is the reference.
+  const modelSrc = readFileSync(
+    'src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel.ts', 'utf8');
+  // CHECKED BY RUNNING IT. The first cut matched the source of the chain
+  // branch, and a sabotage that changed its `if` to `if (false)` left that
+  // source in place, dead, and passed. Same shape as the `false &&` trap
+  // already on record: a condition is not markup, and grep cannot see
+  // reachability. Only calling the function can.
+  check('U29 the parts are checked against the CHAIN NSA where the chain runs, the entered one where it does not',
+    /export function resolveAssetNsa\(/.test(modelSrc)
+    && resolveAssetNsa(0, 27599.1).source === 'chain'
+    && resolveAssetNsa(0, 27599.1).value === 27599.1
+    // A CHAIN ZERO IS STILL THE CHAIN SPEAKING: this plot builds nothing
+    // saleable, so parts against it are over-allocated. Falling back to the
+    // entered figure there answers a question the chain has already answered.
+    && resolveAssetNsa(500, 0).source === 'chain'
+    && resolveAssetNsa(500, undefined).source === 'entered'
+    && resolveAssetNsa(500, undefined).value === 500
+    && resolveAssetNsa(0, undefined).source === 'none'
+    && resolveAssetNsa(undefined, undefined).value === 0,
+    `${resolveAssetNsa(0, 27599.1).source} / ${resolveAssetNsa(500, 0).source} / ${resolveAssetNsa(500, undefined).source}`);
+  check('U29g the resolved NSA reaches the table from the ROOT, so the chain is not run twice',
+    /out\[r\.asset\.id\] = resolveAssetNsa\(r\.asset\.sellableBuaSqm, r\.chain\.netSaleableSqm\)/.test(tabSrc)
+    && (tabSrc.match(/computeLandChain\(/g) ?? []).length === 1
     && subBody.includes('Sub-units sum to NSA')
     && subBody.includes('Under-allocated') && subBody.includes('Over-allocated'));
+  // AND IT SAYS WHICH NSA IT USED. A figure the chain derived and a figure
+  // someone typed are different kinds of answer, and a reader who disagrees
+  // with the check needs to know which one to go and change.
+  check('U29a the check NAMES its source, so a disagreement has somewhere to go',
+    subBody.includes('subunits-line-${line.key}-basis')
+    && subBody.includes('area chain')
+    && /line\.nsaSource === 'chain' \? 'area chain' : 'entered'/.test(subBody));
   check('U29b a sub-unit whose asset is gone is still listed, so no row becomes undeletable',
-    /const orphans = \[\.\.\.byAssetId\.values\(\)\]\.flat\(\)/.test(tabSrc)
-    && /if \(orphans\.length > 0\) emit\(undefined, orphans\)/.test(tabSrc));
+    // The orphan bucket moved into the pure partition when the per-asset
+    // grouping was removed; the invariant did not move. What must stay true is
+    // that a row pointing at no live asset still renders somewhere.
+    /return \{ lines: out, stray: subUnits\.filter\(\(u\) => !claimed\.has\(u\.id\)\) \};/.test(modelSrc)
+    && /const strayLine = build\('__no_line__', 'Not on a line', \[\], stray\);/.test(tabSrc)
+    && /if \(strayLine\) out\.push\(strayLine\)/.test(tabSrc));
+  // ── THE TOTALS. Value over area, never an average of rates.
+  // THE POOLING IS RUN, NOT READ, and the test ids are ANCHORED at both ends:
+  // a bare substring passes on `-total-areaX`, which is how two sabotages that
+  // renamed a totals cell walked through the first cut of this.
+  const pooled = poolSubUnits([
+    { areaSqm: 1000, units: 4, rate: 100, perUnit: false },
+    { areaSqm: 3000, units: 6, rate: 200, perUnit: false },
+  ]);
+  check('U29c each line and the table foot carry total area, total units and a BLENDED rate',
+    /export function poolSubUnits\(/.test(modelSrc)
+    && pooled.areaSqm === 4000 && pooled.units === 10 && pooled.value === 700000
+    // VALUE OVER AREA, never an average of rates: an average would be 150.
+    && pooled.blendedRate === 175
+    && ['total-area', 'total-units', 'blended-rate']
+      .every((k) => subBody.includes(`subunits-line-\${line.key}-${k}\``))
+    && ['subunits-project-total-area', 'subunits-project-total-units', 'subunits-project-blended-rate']
+      .every((k) => subBody.includes(`"${k}"`)),
+    `blended ${pooled.blendedRate} (an average of rates would be 150)`);
+  // A PER-UNIT PRICE IS NOT MULTIPLIED BY AN AREA. 4 units at 50,000 is
+  // 200,000 of value, not 1,000 sqm times 50,000.
+  const perUnit = poolSubUnits([{ areaSqm: 1000, units: 4, rate: 50000, perUnit: true }]);
+  check('U29c2 a rate is multiplied by WHAT IT IS PER, units for a per-unit price',
+    perUnit.value === 200000 && perUnit.blendedRate === 200,
+    `${perUnit.value} / ${perUnit.blendedRate}`);
+  check('U29d a blended rate over MIXED bases says so rather than reading clean',
+    /mixedBasis: bases\.size > 1/.test(modelSrc)
+    && subBody.includes('blended over mixed bases')
+    // No rate anywhere is a DASH, not a rate of zero.
+    && subBody.includes("'no rates'"));
+  // U29e FOUND ON LIVE DATA, not reasoned about. A line priced but with NO
+  // AREA (units entered with no unit size, which two live lines have) divides
+  // by zero, and the 0 that falls out prints as a rate of nothing. Absent is
+  // not zero, here as everywhere.
+  check('U29e a priced line with no area shows a DASH, not a rate of zero',
+    /const priced = line\.totals\.pricedRows > 0 && line\.totals\.areaSqm > 0;/.test(subBody)
+    && /all\.pricedRows > 0 && all\.areaSqm > 0/.test(subBody)
+    && subBody.includes('no area to divide by'));
+  // AND A COUNT TOTAL PRINTS WHOLE. Some stored counts are fractional
+  // (309.9854 on a live line), and toLocaleString would have printed
+  // "309.985" units.
+  check('U29f the unit totals print WHOLE, like every other count on this tab',
+    /Math\.round\(line\.totals\.units\)\.toLocaleString\(\)/.test(subBody)
+    && /Math\.round\(all\.units\)\.toLocaleString\(\)/.test(subBody));
 
   // ── THE SUB-UNIT PARTITION. Checked by RUNNING it, not by reading it.
   //
@@ -710,18 +784,37 @@ function offlineChecks(): void {
     /export function assetTypeSuffix/.test(readFileSync('src/core/calculations/assetName.ts', 'utf8'))
     && /if \(assetNameIsDerived\(asset\)\) return undefined;/
       .test(readFileSync('src/core/calculations/assetName.ts', 'utf8')));
-  check('U44b the sub-unit table, its parent picker and the per-plot results all show it',
-    /subunits-group-\$\{asset\.id\}-type`/.test(subBody)
+  // U44b MOVED WITH THE HEADER. The sub-unit table used to carry a per-asset
+  // header row and the type sat on it; that row is gone (one header per line,
+  // matching the four tables above), and the LINE header is labelled with the
+  // type itself, so the type is on screen once rather than twice. Each row
+  // still names the plot it hangs off, which is what a two-plot line needs.
+  check('U44b the sub-unit line is labelled by TYPE, each row names its plot, and the pickers carry it',
+    subBody.includes('{line.label}')
+    && subBody.includes('subunits-line-${line.key}-plots')
+    && /subunits-row-\$\{u\.id\}-asset`/.test(subBody)
     && /assetDisplayName\(a\)\}\{assetTypeSuffix\(a\)/.test(tabSrc)
     && /asset-result-\$\{asset\.id\}-label`/.test(resultsBody)
     && resultsBody.includes('assetTypeSuffix(asset)'));
+  // ONE HEADER ROW PER GROUP, in the pale style the plot headers use. It
+  // rendered two, a navy bar and a pale bar, in styles matching nothing above.
+  check('U44c the sub-unit group has ONE header row, in the same style as the tables above',
+    (subBody.match(/data-testid=\{`subunits-line-\$\{line\.key\}`\}/g) ?? []).length === 1
+    && /<tr\s*\n?\s*key=\{`line-\$\{line\.key\}`\}\s*\n?\s*style=\{\{ background: 'var\(--color-primary-pale\)' \}\}/
+      .test(subBody.replace(/\r/g, ''))
+    // The per-asset second header is gone, and so is the grouping that fed it.
+    && !subBody.includes('subunits-group-${asset?.id ?? \'unassigned\'}')
+    && !tabSrc.includes('function groupSubUnitsByAsset('));
 
   check('U42 the tab reads the partition rather than re-deriving which sub-unit is whose',
     /const \{ lines, stray \} = partitionSubUnitsByLine\(assets, subUnits, phaseIds, normaliseAssetTypeId\);/.test(tabSrc)
-    // groupSubUnitsByAsset is handed the LINE's own sub-units, never all of
-    // them. That single argument is the defect, so it is what is pinned.
-    && /groupSubUnitsByAsset\(line\.members, line\.subUnits\)/.test(tabSrc)
-    && !/groupSubUnitsByAsset\(members, subUnits\)/.test(tabSrc));
+    // The rows a line renders are ITS OWN sub-units, never the project's. The
+    // defect was one call handed the whole project once per line, so what is
+    // pinned is that the line's own list is what reaches the rows.
+    && /const rows: SubUnitRowRef\[\] = units\.map/.test(tabSrc)
+    && /build\(\s*\n?\s*line\.key,/.test(tabSrc.replace(/\r/g, ''))
+    && /line\.members,\s*\n?\s*line\.subUnits,/.test(tabSrc.replace(/\r/g, ''))
+    && !/\bmembers, subUnits\)/.test(tabSrc));
   check('U30 the rate column NAMES its basis, per row, through the one existing helper',
     subBody.includes('subunits-row-${u.id}-rate-basis')
     && /rateUnitLabel\(u\.category, isUnits \? 'units' : 'area'\)/.test(subBody)
@@ -993,7 +1086,7 @@ function offlineChecks(): void {
   check('U14b every phase shown on this tab is the phase NAME, resolved from the phase list',
     /phaseName=\{group\.parcel \? \(allPhases\.find\(\(p\) => p\.id === group\.parcel!\.phaseId\)\?\.name \?\? undefined\) : undefined\}/.test(tabSrc)
     && /allPhases\.find\(\(ph\) => ph\.id === group\.phaseId\)\?\.name \?\? group\.phaseId/.test(mergedBody)
-    && /phaseName: phases\.find\(\(p\) => p\.id === line\.phaseId\)\?\.name/.test(tabSrc)
+    && /phases\.find\(\(p\) => p\.id === line\.phaseId\)\?\.name/.test(tabSrc)
     // No surface may hand a raw phaseId straight to a phaseName prop.
     && !/phaseName=\{group\.phaseId\}/.test(tabSrc));
   // U14c FIVE TABLES, IN ENTRY ORDER, EACH NUMBERED ON ITS OWN FACE. The order

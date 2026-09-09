@@ -204,3 +204,108 @@ export function partitionSubUnitsByLine<U extends SubUnitLike>(
   });
   return { lines: out, stray: subUnits.filter((u) => !claimed.has(u.id)) };
 }
+
+// ── WHAT THE SUB-UNITS ARE PARTS OF, and what they add up to ──────────────
+
+export type NsaSource = 'chain' | 'entered' | 'none';
+
+export interface ResolvedNsa {
+  value: number;
+  source: NsaSource;
+}
+
+/**
+ * THE WHOLE THAT THE PARTS ARE CHECKED AGAINST.
+ *
+ * OPT IN, LIKE THE REST OF THE CHAIN. When the area chain is running for a
+ * plot it has already worked out that plot's net saleable area, and that is the
+ * figure the sub-units are parts of; when it is not, the entered NSA stays the
+ * reference exactly as before. The chain is never forced on anyone and never
+ * ignored once someone has turned it on.
+ *
+ * THIS REVERSES A DELIBERATE RULE, so the reason is worth keeping. The check
+ * read the ENTERED NSA and nothing else, on the principle that a derivation has
+ * no business inside an editing surface. In practice every live asset has an
+ * entered NSA of 0, so the check never fired once, on any project: every group
+ * read "no NSA entered, so there is nothing to check the parts against" while
+ * the chain sat one table above with the answer. A check that cannot fire is
+ * not a conservative check, it is an absent one.
+ *
+ * A CHAIN NSA OF ZERO IS STILL THE CHAIN SPEAKING. It means this plot builds
+ * nothing saleable (a full service deduction, say), so parts allocated against
+ * it are over-allocated. Falling back to the entered figure there would answer
+ * a question the chain has already answered.
+ */
+export function resolveAssetNsa(
+  enteredSqm: number | undefined,
+  chainNsaSqm: number | undefined,
+): ResolvedNsa {
+  if (typeof chainNsaSqm === 'number' && Number.isFinite(chainNsaSqm)) {
+    return { value: Math.max(0, chainNsaSqm), source: 'chain' };
+  }
+  if (typeof enteredSqm === 'number' && Number.isFinite(enteredSqm) && enteredSqm > 0) {
+    return { value: enteredSqm, source: 'entered' };
+  }
+  return { value: 0, source: 'none' };
+}
+
+/** One sub-unit, reduced to what a total needs. */
+export interface SubUnitValueRow {
+  areaSqm: number;
+  units?: number;
+  rate?: number;
+  /** True when the rate is charged per unit or key, false when per sqm. */
+  perUnit: boolean;
+}
+
+export interface PooledSubUnits {
+  areaSqm: number;
+  units: number;
+  value: number;
+  /** Value over area. Zero when there is no area, never a division by zero. */
+  blendedRate: number;
+  /** True when the rows priced here are not all on the same basis, so the
+   *  blended rate mixes a price per unit with a price per sqm. */
+  mixedBasis: boolean;
+  /** How many rows carried a rate at all, so a caption can say what the
+   *  blended figure is actually made of. */
+  pricedRows: number;
+}
+
+/**
+ * TOTAL AREA, TOTAL UNITS, AND A BLENDED RATE THAT IS VALUE OVER AREA.
+ *
+ * NEVER AN AVERAGE OF RATES. The same rule as the line's blended land rate,
+ * for the same reason: averaging two prices weights a 200 sqm shop equally with
+ * a 20,000 sqm tower, so the answer moves when you split a row in two. Value
+ * over area does not.
+ *
+ * A row's value is its rate times WHAT THE RATE IS PER: units for a per-unit or
+ * per-key price, area for a per-sqm one. `mixedBasis` says when those two have
+ * been added together, because a pooled figure over rows priced differently is
+ * a real number that a reader should be told the shape of rather than handed
+ * flat.
+ */
+export function poolSubUnits(rows: readonly SubUnitValueRow[]): PooledSubUnits {
+  let areaSqm = 0, units = 0, value = 0, pricedRows = 0;
+  const bases = new Set<boolean>();
+  for (const r of rows) {
+    areaSqm += Number.isFinite(r.areaSqm) ? r.areaSqm : 0;
+    if (typeof r.units === 'number' && Number.isFinite(r.units)) units += r.units;
+    const rate = r.rate;
+    if (typeof rate !== 'number' || !Number.isFinite(rate) || rate === 0) continue;
+    const qty = r.perUnit ? (r.units ?? 0) : r.areaSqm;
+    if (!Number.isFinite(qty)) continue;
+    value += rate * qty;
+    pricedRows += 1;
+    bases.add(r.perUnit);
+  }
+  return {
+    areaSqm,
+    units,
+    value,
+    blendedRate: areaSqm > 0 ? value / areaSqm : 0,
+    mixedBasis: bases.size > 1,
+    pricedRows,
+  };
+}
