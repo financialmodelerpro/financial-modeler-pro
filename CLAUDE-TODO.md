@@ -70,6 +70,29 @@ revenue and sub-units with fractional counts. CLAUDE.md still claims "max
 |Assets - L&E| is 0.00 on both live projects", which is no longer true of the
 current snapshots. Diagnose before believing either statement.
 
+### 8. THE SUITE IS NOT CLEAN: five failures, all PRE-DATING 2026-09-09
+`npx tsx scripts/run-verifiers.ts` with credentials, 2026-09-09 close:
+**160 pass / 5 fail of 165, 9676 individual checks.** Do not quote "green".
+
+Every one of the five was MEASURED at `dcde1cd4` (the 2026-09-08 close, the last
+commit before this session) and fails there with **identical counts**, so none
+of the day's eleven commits introduced any of them:
+
+| verifier | at 2026-09-08 | now | the failing check |
+|---|---|---|---|
+| `verify-report-arithmetic` | 77/1 | 77/1 | per-asset cost never exceeds total development cost, **6262.9 vs 4912.2** on the FIXTURE, so this is code and not live data |
+| `verify-excel-export` | 309/3 | 309/3 | three, not yet read |
+| `verify-accounts` | 124/1 | 124/1 | S10: `app/api/refm/asset-types/route.ts` reads `users.account_id` outside the allow-list (the route arrived with mig 242 on 2026-09-07; either it should read through the helper or the allow-list should name it) |
+| `verify-view-lock` | 63/1 | 63/1 | the `data-view-editable` opt-out ceiling is 8 and there are **13**, six of them on the standards tab, which is a DELIBERATE founder decision (account data must stay editable under the project view lock). The ceiling is stale, not the code: prefer naming the files, as this codebase does elsewhere, over raising a number |
+| `verify-fund-e2e` | 86/1 | 86/1 | one, not yet read |
+
+**A CORRECTION WORTH KEEPING.** The first bisect used `7a15c8d9` as "session
+start" and implicated `src/core/calculations/index.ts`. That commit is
+**2026-09-05**, four days back, so the comparison spanned the whole land-planning
+week and pointed at the sole-occupant plot draw (2026-09-07/08), not at today.
+Re-measured against the true boundary, `dcde1cd4`, all five are unchanged. A
+before/after is only as good as its BEFORE (TRAPS 5.1, the same lesson).
+
 ### Standing, unchanged from 2026-09-05
 Per-platform seats when a second platform ships (recorded, not built); the
 founder click-tests owed on the invite + access emails, Team tab, Collaborate
