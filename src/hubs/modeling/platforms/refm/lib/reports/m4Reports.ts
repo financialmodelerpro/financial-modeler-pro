@@ -147,7 +147,7 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
   const negArr = (arr: number[]): number[] => arr.map((v) => -v);
   const matchesPhase = (a: { phaseId: string }): boolean => filterPhaseId === ALL || a.phaseId === filterPhaseId;
   const residentialAssets = visibleAssets.filter((a) => (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') && matchesPhase(a));
-  const hospitalityAssets = visibleAssets.filter((a) => (a.strategy === 'Operate' || a.isCompanion === true) && matchesPhase(a));
+  const hospitalityAssets = visibleAssets.filter((a) => a.strategy === 'Operate' && matchesPhase(a));
   const retailAssets = visibleAssets.filter((a) => a.strategy === 'Lease' && matchesPhase(a));
   const phaseFiltered = filterPhaseId !== ALL;
   const projTag = phaseFiltered ? ' (project)' : '';
@@ -595,7 +595,7 @@ function buildInvestmentRows(ctx: M4ReportCtx, capexSubtotal: number[], cfiSubto
   const phaseShort = (id: string): string => phaseShortName(state, id);
   const rows: M4Row[] = [];
   const residentialAssets = visibleAssets.filter((a) => (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') && matchesPhase(a));
-  const hospitalityAssets = visibleAssets.filter((a) => (a.strategy === 'Operate' || a.isCompanion === true) && matchesPhase(a));
+  const hospitalityAssets = visibleAssets.filter((a) => a.strategy === 'Operate' && matchesPhase(a));
   const retailAssets = visibleAssets.filter((a) => a.strategy === 'Lease' && matchesPhase(a));
   // The asset rows are the CASH capex and the land contributed IN KIND is its
   // own row beneath them, INSIDE the totals (2026-08-19, on instruction, like
@@ -759,7 +759,7 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
   const d = snap.directCF;
   const rows: M4Row[] = [];
   const residentialAssets = visibleAssets.filter((a) => (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') && matchesPhase(a));
-  const hospitalityAssets = visibleAssets.filter((a) => (a.strategy === 'Operate' || a.isCompanion === true) && matchesPhase(a));
+  const hospitalityAssets = visibleAssets.filter((a) => a.strategy === 'Operate' && matchesPhase(a));
   const retailAssets = visibleAssets.filter((a) => a.strategy === 'Lease' && matchesPhase(a));
 
   rows.push({ label: 'CASH FROM OPERATIONS', values: [], isSection: true });

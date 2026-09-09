@@ -1376,8 +1376,32 @@ export interface Asset {
   // removal is handled in module1-store.ts removeAsset.
   parentAssetId?: string;
   isCompanion?: boolean;
-  companionType?: 'operate';
+  /**
+   * WHICH KIND OF COMPANION, and it is load-bearing since step 4.
+   *
+   * 'operate' is the post-handover Operate sibling of a Sell + Manage asset:
+   * it mirrors the parent's Sellable sub-units and inherits its unit count.
+   * 'retail' is the pooled ground-floor retail of a consolidated LINE: strategy
+   * Lease, its own areas, no sub-unit mirror and no parent to inherit from.
+   *
+   * Both are companions to every engine, resolver, report and export, which is
+   * the point of reusing the flag. The TYPE is what stops the retail one
+   * picking up the Operate one's behaviour.
+   */
+  companionType?: 'operate' | 'retail';
   unitsFromParent?: number;
+  /**
+   * RETAIL COMPANION ONLY: the plots whose ground-floor retail it pools.
+   *
+   * A retail companion has MANY hosts, which is why it cannot use
+   * `parentAssetId`: that field is one asset, and a line is not. It is left
+   * absent on a retail companion deliberately, so the two Operate-companion
+   * sync passes (which both require a parentAssetId) skip it without needing to
+   * know it exists.
+   */
+  retailHostAssetIds?: string[];
+  /** RETAIL COMPANION ONLY: the consolidated line this belongs to. */
+  retailLineKey?: string;
   /**
    * 2026-08-11: per-strategy assumption sets that are NOT currently active.
    *
@@ -3527,4 +3551,65 @@ export function makeDefaultFinancingTranche(
     // if the facility funds a later phase.
     drawdownStartPeriod: 0,
   };
+}
+
+/**
+ * THE RETAIL COMPANION ASSET (2026-09-09, consolidation step 4).
+ *
+ * The Lease sibling that HOLDS the ground-floor retail a consolidated line
+ * builds, while the host stays Sell and its cost goes to cost of sales. One per
+ * line, pooled from every plot on it; the rule that decides what to pool is
+ * `src/core/calculations/retailCompanion.ts`, and this only turns a spec into
+ * an Asset.
+ *
+ * THE AREAS USE THE PLATFORM'S FIELD NAMES, which invert the outer two tiers of
+ * the industry vocabulary (CLAUDE.md), so this is worth stating rather than
+ * leaving to be inferred:
+ *   buaSqm        = Total GFA        = the retail floor area, parking excluded
+ *   gfaSqm        = Total BUA        = that plus its parking area
+ *   sellableBuaSqm= NSA or GLA       = the leasable area, which for a retail
+ *                                      strip is its floor area (the chain takes
+ *                                      no service deduction off retail)
+ *
+ * NO LAND AND NO COST. `landAllocation` is deliberately absent, the engine
+ * gives a companion no land (Rule 2) and `computeAssetCost` short-circuits it
+ * to an explicit empty breakdown, so this asset cannot charge anything. The
+ * land carve-out and the cost lines are later steps.
+ *
+ * NO parentAssetId: a line has many hosts, and leaving it absent is what makes
+ * the two Operate-companion sync passes skip this asset without either of them
+ * learning that a second kind of companion exists.
+ */
+export function makeRetailCompanionAsset(spec: {
+  id: string;
+  lineKey: string;
+  phaseId: string;
+  typeLabel: string;
+  hostAssetIds: string[];
+  retailGfaSqm: number;
+  retailParkingAreaSqm: number;
+  retailParkingSlots: number;
+}, existing?: Asset): Asset {
+  return {
+    // WHAT THE USER MAY OWN survives a re-derive: the name (they may rename the
+    // strip), whether it is visible, and its status. Everything else is derived
+    // from the line and is overwritten on every pass, which is what makes this
+    // self-healing rather than a one-time seed.
+    ...(existing ?? {}),
+    id: spec.id,
+    phaseId: spec.phaseId,
+    name: existing?.name ?? `${spec.typeLabel} - Retail`,
+    type: spec.typeLabel,
+    strategy: 'Lease',
+    visible: existing?.visible ?? true,
+    status: existing?.status ?? 'planned',
+    buaSqm: spec.retailGfaSqm,
+    gfaSqm: spec.retailGfaSqm + spec.retailParkingAreaSqm,
+    sellableBuaSqm: spec.retailGfaSqm,
+    parkingBaysRequired: spec.retailParkingSlots,
+    isCompanion: true,
+    companionType: 'retail',
+    retailLineKey: spec.lineKey,
+    retailHostAssetIds: [...spec.hostAssetIds],
+  } as Asset;
 }

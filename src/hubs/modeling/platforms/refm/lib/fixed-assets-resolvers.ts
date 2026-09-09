@@ -114,7 +114,11 @@ function zeros(n: number): number[] { return new Array<number>(n).fill(0); }
 
 function isDepreciableAsset(a: Asset): boolean {
   if (a.visible === false) return false;
-  if (a.isCompanion === true) return true; // companion strategy is always 'Operate'
+  // A COMPANION IS DEPRECIABLE BECAUSE OF ITS STRATEGY, not because it is a
+  // companion. The comment here said "companion strategy is always 'Operate'",
+  // which was true of the only kind that existed; a RETAIL companion is Lease,
+  // and the line below already returns true for both, so this shortcut answered
+  // nothing the next line does not answer better.
   return a.strategy === 'Operate' || a.strategy === 'Lease';
 }
 

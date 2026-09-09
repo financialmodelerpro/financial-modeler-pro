@@ -93,6 +93,7 @@ import {
   type SubUnitValueRow,
   type ResolvedNsa,
 } from './_shared/assetTableModel';
+import { buildRetailCompanionSpecs, isRetailCompanion } from '@/src/core/calculations/retailCompanion';
 import {
   groupAssetsForConsolidation,
   type ConsolidationGroup,
@@ -398,6 +399,7 @@ export default function Module1Assets(): React.JSX.Element {
     addSubUnit,
     updateSubUnit,
     removeSubUnit,
+    syncRetailCompanions,
   } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
@@ -416,6 +418,7 @@ export default function Module1Assets(): React.JSX.Element {
       subUnits: s.subUnits,
       addSubUnit: s.addSubUnit,
       updateSubUnit: s.updateSubUnit,
+      syncRetailCompanions: s.syncRetailCompanions,
       removeSubUnit: s.removeSubUnit,
     })),
   );
@@ -492,6 +495,47 @@ export default function Module1Assets(): React.JSX.Element {
     () => buildAssetRows(plotGroups, assets, parcels, subUnits, project, landAllocationMode),
     [plotGroups, assets, parcels, subUnits, project, landAllocationMode],
   );
+  // GROUND-FLOOR RETAIL IS AN ASSET (2026-09-09, consolidation step 4).
+  //
+  // ONE POOLED COMPANION PER LINE, built from the chain results computed above
+  // rather than from a second run of the chain: retail GFA and retail parking
+  // area are already on the row, so this only groups and adds them. The rule
+  // that decides what pools is core; the store reconciles; nothing here builds
+  // an asset or runs arithmetic of its own.
+  const retailSpecs = useMemo(() => buildRetailCompanionSpecs(
+    lineGroups.map((g) => {
+      const ids = new Set((g.assets as unknown as Asset[]).map((a) => a.id));
+      return {
+        key: g.key,
+        phaseId: g.phaseId,
+        typeLabel: g.typeLabel,
+        hosts: rowGroups.flatMap((rg) => rg.rows)
+          .filter((r) => ids.has(r.asset.id))
+          .map((r) => ({
+            assetId: r.asset.id,
+            retailGfaSqm: r.chain.retailGfaSqm,
+            retailParkingAreaSqm: r.chain.retailParkingAreaSqm,
+            retailParkingSlots: r.chain.retailParkingSlots,
+          })),
+      };
+    }),
+  ), [lineGroups, rowGroups]);
+  // THE STORE RETURNS THE SAME STATE WHEN NOTHING MOVED, which is what stops
+  // this from being a derive-on-render loop and what stops a project being
+  // marked dirty merely for being opened.
+  useEffect(() => { syncRetailCompanions(retailSpecs); }, [retailSpecs, syncRetailCompanions]);
+  // THE STORED COMPANIONS, indexed by their line. Read from the store rather
+  // than from the specs, so what the table shows is the ASSET that exists, not
+  // the description that asked for it: if the reconcile has not run, or a user
+  // has renamed the strip, the row says so.
+  const retailByLineKey = useMemo(() => {
+    const out: Record<string, Asset> = {};
+    for (const a of assets) {
+      if (isRetailCompanion(a) && a.retailLineKey) out[a.retailLineKey] = a;
+    }
+    return out;
+  }, [assets]);
+
   // WHAT THE PARTS ARE PARTS OF, per asset: the chain's NSA when the chain is
   // running for that plot, the entered NSA when it is not. One rule, in
   // assetTableModel, where its reversal is written down.
@@ -865,6 +909,7 @@ export default function Module1Assets(): React.JSX.Element {
       <AssetTables
         rowGroups={rowGroups}
         lineGroups={lineGroups}
+        retailByLineKey={retailByLineKey}
         allAssets={assets}
         allPhases={phases}
         parcels={parcels}
@@ -1198,6 +1243,8 @@ interface AssetTableProps {
    *  because table 5 needs the same chain results and running it a second time
    *  there would give the sub-unit check its own copy of the arithmetic. */
   rowGroups: RowGroup[];
+  /** The pooled retail companion each line holds, shown under its line. */
+  retailByLineKey: Record<string, Asset>;
   /** Table 4: the merge, per line. */
   lineGroups: ConsolidationGroup[];
   allAssets: Asset[];
@@ -1935,10 +1982,12 @@ function AssetResultsTable({ rowGroups }: { rowGroups: RowGroup[] }): React.JSX.
  * No sub-units here. They have their own table below, grouped under the line.
  */
 function MergedLineTable({
-  lineRowGroups, allPhases,
+  lineRowGroups, allPhases, retailByLineKey,
 }: {
   lineRowGroups: LineRowGroup[];
   allPhases: Phase[];
+  /** The pooled retail companion each line holds, when it builds any. */
+  retailByLineKey: Record<string, Asset>;
 }): React.JSX.Element {
   // 4 identity + 20 derived. Counts agree or U15 fails.
   const COLS = 24;
@@ -2103,6 +2152,60 @@ function MergedLineTable({
                 </tr>
               );
             })}
+            {/* THE RETAIL COMPANIONS, under the lines that build them.
+                A real asset, on Lease, holding the ground-floor retail its
+                hosts derive while the host stays Sell. It takes no land and
+                charges nothing: the engine short-circuits any companion before
+                a cost line is resolved, which is why it can exist here without
+                moving a number. Shown after the lines rather than interleaved,
+                because a line's own row is what its plots add up to and the
+                retail is a DIFFERENT asset, not a part of that total. */}
+            {live.some((l) => retailByLineKey[l.group.key]) && (
+              <tr data-testid="merged-retail-heading">
+                <td style={{ ...CELL, ...BAND, fontWeight: 700, fontSize: 10 }} colSpan={COLS}>
+                  Retail companions, held on Lease. Their area is already inside the Retail GFA
+                  above; this is the same floor space as its own asset, so it can capitalise and
+                  earn rent while its host sells. No land and no cost lines yet.
+                </td>
+              </tr>
+            )}
+            {live.map(({ group }) => {
+              const r = retailByLineKey[group.key];
+              if (!r) return null;
+              const retailGfa = r.buaSqm;
+              const parkingArea = Math.max(0, (r.gfaSqm ?? 0) - retailGfa);
+              return (
+                <tr key={`retail-${group.key}`} style={{ borderBottom: '1px solid var(--color-border)' }}
+                  data-testid={`retail-companion-${group.key}`}>
+                  <td style={{ ...CELL, fontWeight: 600 }}>{assetDisplayName(r)}</td>
+                  <td style={CELL}>{allPhases.find((ph) => ph.id === r.phaseId)?.name ?? r.phaseId}</td>
+                  <td style={CELL}>{r.strategy}</td>
+                  <td style={CELL_NUM} title="How many of the line's plots contribute ground-floor retail.">
+                    {(r.retailHostAssetIds ?? []).length}
+                  </td>
+                  <td style={CELL_NUM} title="A companion takes no land. The land carve-out is a later step.">-</td>
+                  <td style={CELL_DERIVED}>-</td>
+                  <td style={CELL_DERIVED}>-</td>
+                  <td style={CELL_DERIVED}>-</td>
+                  <td style={CELL_DERIVED}>-</td>
+                  <td style={CELL_DERIVED} data-testid={`retail-companion-${group.key}-gfa`}>{areaText(retailGfa)}</td>
+                  <td style={CELL_DERIVED}>-</td>
+                  <td style={CELL_DERIVED} title="INTERNAL FIELD: Asset.buaSqm. The retail floor area, parking excluded.">{areaText(retailGfa)}</td>
+                  <td style={CELL_DERIVED}>-</td>
+                  <td style={CELL_DERIVED} title="INTERNAL FIELD: Asset.sellableBuaSqm. A retail strip leases its floor area; the chain takes no service deduction off retail.">{areaText(retailGfa)}</td>
+                  <td style={CELL_DERIVED}>-</td>
+                  <td style={CELL_DERIVED}>-</td>
+                  <td style={CELL_DERIVED}>-</td>
+                  <td style={CELL_DERIVED}>-</td>
+                  <td style={CELL_DERIVED} data-testid={`retail-companion-${group.key}-slots`}>{whole(r.parkingBaysRequired)}</td>
+                  <td style={CELL_DERIVED}>-</td>
+                  <td style={CELL_DERIVED}>-</td>
+                  <td style={CELL_DERIVED} data-testid={`retail-companion-${group.key}-parking`}>{areaText(parkingArea)}</td>
+                  <td style={CELL_DERIVED}>{areaText(parkingArea)}</td>
+                  <td style={{ ...CELL_DERIVED, fontWeight: 700 }} data-testid={`retail-companion-${group.key}-total-bua`}>{areaText(r.gfaSqm)}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -2115,7 +2218,7 @@ function MergedLineTable({
 
 /** The four asset tables, stacked, from ONE resolved row list. */
 function AssetTables({
-  rowGroups, lineGroups, allAssets, allPhases, parcels, subUnits, project,
+  rowGroups, lineGroups, retailByLineKey, allAssets, allPhases, parcels, subUnits, project,
   landAllocationMode, assetTypeRegistry, onUpdateAsset, onRemoveAsset, onAddAsset,
 }: AssetTableProps): React.JSX.Element {
   const [openId, setOpenId] = useState<string | null>(null);
@@ -2140,7 +2243,7 @@ function AssetTables({
         onAddAsset={onAddAsset}
       />
       <AssetResultsTable rowGroups={rowGroups} />
-      <MergedLineTable lineRowGroups={lineRowGroups} allPhases={allPhases} />
+      <MergedLineTable lineRowGroups={lineRowGroups} allPhases={allPhases} retailByLineKey={retailByLineKey} />
     </>
   );
 }

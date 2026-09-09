@@ -37,10 +37,12 @@ import {
   makeDefaultParcel,
   makeBlankCostLines,
   makeCompanionSubUnit,
+  makeRetailCompanionAsset,
   makeDefaultFinancingTranche,
   deriveCostWindow,
   deriveLineBaseId,
 } from './module1-types';
+import { isRetailCompanion, reconcileRetailCompanions, type RetailCompanionSpec } from '@/src/core/calculations/retailCompanion';
 import { applyStrategySwitch, assetHasStrategyAssumptions } from './strategySwitch';
 import {
   applyOverrides,
@@ -156,6 +158,8 @@ export interface Module1Store {
   dismissStrategyReview: (id: string) => void;
 
   setSubUnits: (subUnits: SubUnit[]) => void;
+  /** Reconcile the pooled retail companions to the specs the assets tab derives. */
+  syncRetailCompanions: (specs: RetailCompanionSpec[]) => void;
   addSubUnit: (subUnit: SubUnit) => void;
   updateSubUnit: (id: string, patch: Partial<SubUnit>) => void;
   removeSubUnit: (id: string) => void;
@@ -337,11 +341,15 @@ export function modelFromSnapshot(snapshot: HydrateSnapshot): HydrateSnapshot {
 // companion needs updating; otherwise returns the input array
 // unchanged so React.memo / Zustand identity checks short-circuit.
 function syncCompanionUnits(assets: Asset[], subUnits: SubUnit[]): Asset[] {
-  const companions = assets.filter((a) => a.isCompanion && a.parentAssetId);
+  // OPERATE COMPANIONS ONLY. A retail companion pools a LINE's ground-floor
+  // retail: it mirrors no sub-units and inherits no unit count, and it carries
+  // no parentAssetId precisely so passes like this one skip it. The type is
+  // asked as well, so the reason is stated rather than implied by an absence.
+  const companions = assets.filter((a) => a.isCompanion && a.parentAssetId && !isRetailCompanion(a));
   if (companions.length === 0) return assets;
   let changed = false;
   const next = assets.map((a) => {
-    if (!a.isCompanion || !a.parentAssetId) return a;
+    if (!a.isCompanion || !a.parentAssetId || isRetailCompanion(a)) return a;
     const sellableUnits = subUnits
       .filter((u) => u.assetId === a.parentAssetId && u.category === 'Sellable')
       .reduce((sum, u) => sum + Math.max(0, u.metricValue), 0);
@@ -359,7 +367,9 @@ function syncCompanionUnits(assets: Asset[], subUnits: SubUnit[]): Asset[] {
 // rows for newly added parent Sellables get a fresh companion shadow.
 // Returns a new subUnits array only if a change is required.
 function syncCompanionSubUnits(assets: Asset[], subUnits: SubUnit[]): SubUnit[] {
-  const companions = assets.filter((a) => a.isCompanion && a.parentAssetId);
+  // OPERATE COMPANIONS ONLY, for the same reason as above: a retail companion
+  // has no parent Sellable rows to mirror.
+  const companions = assets.filter((a) => a.isCompanion && a.parentAssetId && !isRetailCompanion(a));
   if (companions.length === 0) return subUnits;
   let changed = false;
   let working = subUnits;
@@ -456,6 +466,28 @@ export function createModule1Store() {
     setViewLocked: (locked) => set({ viewLocked: locked }),
 
     setProject: (patch) => set((s) => ({ project: { ...s.project, ...patch } })),
+
+    /**
+     * RECONCILE THE RETAIL COMPANIONS to what the lines derive.
+     *
+     * The caller supplies SPECS, not a chain: the area chain runs once, in the
+     * assets tab, and running it a second time here would give the model its
+     * own copy of arithmetic the screen already did. This only decides what to
+     * add, drop and refresh, through the pure rule in core.
+     *
+     * IT RETURNS THE SAME STATE WHEN NOTHING MOVED, which is what stops a
+     * derive-on-render loop and what stops a project being marked dirty just
+     * for being opened.
+     */
+    syncRetailCompanions: (specs) => set((s) => {
+      const r = reconcileRetailCompanions(
+        s.assets,
+        specs,
+        (spec, existing) => makeRetailCompanionAsset(spec, existing),
+        (a, b) => JSON.stringify(a) === JSON.stringify(b),
+      );
+      return r.changed ? { assets: r.assets } : {};
+    }),
 
     setAssetTypeValue: (entryId, patch) => set((s) => {
       const all = { ...(s.project.assetTypeValues ?? {}) };

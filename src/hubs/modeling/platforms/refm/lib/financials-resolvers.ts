@@ -1722,7 +1722,7 @@ function computeFinancialsSnapshotOnce(
         }
       }
     }
-    if (a.strategy === 'Operate' || a.isCompanion === true) {
+    if (a.strategy === 'Operate') {
       const r = revenue.byHospitalityAsset.get(a.id);
       if (r) {
         for (let t = 0; t < N; t++) {
@@ -1769,7 +1769,7 @@ function computeFinancialsSnapshotOnce(
     // resolvers::projectOntoAxis: local i=0 -> projIdx=offset-1
     // (Y0 lump for new-construction land); local i>=1 -> projIdx=offset+i-1.
     const phase = phases.find((p) => p.id === a.phaseId);
-    if (phase && (a.strategy === 'Operate' || a.strategy === 'Lease' || a.isCompanion === true || a.strategy === 'Sell' || a.strategy === 'Sell + Manage')) {
+    if (phase && (a.strategy === 'Operate' || a.strategy === 'Lease' || a.strategy === 'Sell' || a.strategy === 'Sell + Manage')) {
       const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
       const offset = Math.max(0, phaseStartYear - projectStartYear);
       // 2026-08-16: routed through the shared helper. The offset arithmetic and
@@ -1877,7 +1877,7 @@ function computeFinancialsSnapshotOnce(
     if (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') {
       for (let t = 0; t < N; t++) residentialRev[t] += pl.revenuePerPeriod[t];
     }
-    if ((a.strategy === 'Operate' || a.isCompanion === true)) {
+    if (a.strategy === 'Operate') {
       for (let t = 0; t < N; t++) hospitalityRev[t] += pl.revenuePerPeriod[t];
       for (let t = 0; t < N; t++) hospOpex[t] += pl.opexPerPeriod[t];
     }
@@ -2010,7 +2010,7 @@ function computeFinancialsSnapshotOnce(
     // For Operate / Lease assets, replace asset-level revenue received
     // with their cash basis approximation; the project-level DSO
     // adjustment below corrects the operating-side cash.
-    if (a.strategy === 'Operate' || a.strategy === 'Lease' || a.isCompanion === true) continue;
+    if (a.strategy === 'Operate' || a.strategy === 'Lease') continue;
     for (let t = 0; t < N; t++) revRcvProject[t] += cf.revenueReceivedPerPeriod[t];
   }
   // Add DSO-adjusted operating revenue cash (hospitality + lease).

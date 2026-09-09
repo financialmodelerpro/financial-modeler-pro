@@ -31,7 +31,11 @@ function leaseBucketFor(category: string): LeaseBucket {
   return 'other_charges';
 }
 
-const isHospitality = (a: { strategy: string; isCompanion?: boolean }): boolean => a.strategy === 'Operate' || a.isCompanion === true;
+// HOSPITALITY IS A STRATEGY, NOT A FLAG. `|| isCompanion` was a synonym for
+// Operate back when that was the only kind of companion; a RETAIL companion
+// is Lease and must not file here. Every live companion is Operate, so the
+// clause was doing no work and its removal moves nothing.
+const isHospitality = (a: { strategy: string }): boolean => a.strategy === 'Operate';
 const anyNonZero = (a: number[] | undefined): boolean => !!a && a.some((v) => (v ?? 0) !== 0);
 
 export function buildOpexReport(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState): ReportTable[] {
