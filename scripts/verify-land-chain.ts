@@ -856,6 +856,46 @@ function offlineChecks(): void {
     // which spans two.
     && (subBody.match(/subunits-line-\$\{line\.key\}-totals`\}>[\s\S]*?<\/tr>/)?.[0]
       .match(/\.\.\.BAND/g) ?? []).length === 8);
+  // ── U29h3 THE ROOT CAUSE, PINNED ONCE FOR EVERY BANDED ROW ON THE TAB.
+  //
+  // app/globals.css carries an UNCLASSED, platform-wide rule:
+  //   td:first-child { position: sticky; left: 0; background: var(--color-surface); z-index: 1; }
+  // so the first cell of EVERY table in the application is a frozen column
+  // with its own opaque white background painted above the row. A <tr>
+  // background is therefore invisible on the first cell, always, and a banded
+  // row renders white at the left. That is the "half and half" reported three
+  // times on this tab, on three different rows, and it was never a row-specific
+  // bug. <th> is untouched by that rule, which is why the navy table headers
+  // have always looked right and only <td> bands broke.
+  //
+  // So the invariant is structural: no <td>-based banded row on this tab may
+  // state its colour on the <tr> alone. Each of the three bands is an object,
+  // spread onto every cell.
+  const globalsCss = readFileSync('app/globals.css', 'utf8');
+  check('U29h3 the global sticky first-cell rule is still there, so the per-cell band is REQUIRED',
+    // [^}] already spans newlines, so no dotAll flag is needed (and this
+    // project's tsconfig target refuses one).
+    /td:first-child \{[^}]*position: sticky;[^}]*background: var\(--color-surface\);/.test(globalsCss),
+    'if this rule ever goes, the per-cell bands become belt and braces rather than the fix');
+  check('U29h4 EVERY banded row on the tab paints its cells, not just its row',
+    ['BAND', 'FOOT_BAND', 'SUBTOTAL_BAND'].every((k) =>
+      new RegExp(`const ${k}: React\\.CSSProperties = \\{`).test(tabSrc))
+    // The grand-total foot and the plots subtotal, the two <td> rows that were
+    // still relying on the row alone.
+    && /<tr style=\{FOOT_BAND\} data-testid="subunits-project-totals">/.test(tabSrc)
+    && (tabSrc.match(/\.\.\.FOOT_BAND/g) ?? []).length === 8
+    && /<tr style=\{SUBTOTAL_BAND\}>/.test(tabSrc)
+    && (tabSrc.match(/\.\.\.SUBTOTAL_BAND/g) ?? []).length >= 6
+    // AND NO <td> ROW STATES A COLOUR ON THE ROW ALONE. The shape that breaks
+    // is a <tr> that bands and then opens a <td>; a <thead> row bands and opens
+    // a <th>, which the global rule does not touch, so those are left alone
+    // rather than swept up by a colour match that cannot tell them apart.
+    // COMMENTS ARE STRIPPED FIRST. A lazy [\s\S]*? inside an optional comment
+    // group happily skipped three <th> lines to reach a <td> further down and
+    // flagged a thead row: the same "prose matched as the thing" shape as U15
+    // and U22, so it gets the same treatment.
+    && !/<tr style=\{\{ background: '[^']+'[^}]*\}\}[^>]*>\s*<td/
+      .test(tabSrc.replace(/\r/g, '').replace(/\{\/\*[\s\S]*?\*\/\}/g, '')));
   check('U29h2 the line HEADER and the plot headers wear the same band the same way',
     // TWO CELLS NOW, not four: the header shed the two numeric cells that were
     // printing totals under the wrong headings (U29k).

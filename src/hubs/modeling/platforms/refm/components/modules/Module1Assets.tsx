@@ -697,9 +697,12 @@ export default function Module1Assets(): React.JSX.Element {
             {/* M2.0j Fix 5: totals row uses formatArea for sqm and
                 formatScaled (project displayScale + displayDecimals) for
                 rate / monetary cells. */}
-            <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 'var(--fw-bold)' }}>
-              <td style={{ padding: 'var(--sp-1)' }}>Totals</td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-total-area">{areaText(aggregate.totalAreaSqm)} sqm</td>
+            {/* THE SAME BAND RULE. This row is <td>, so its first cell is the
+                sticky frozen column with the global opaque background, and the
+                row band never reached it. */}
+            <tr style={SUBTOTAL_BAND}>
+              <td style={{ padding: 'var(--sp-1)', ...SUBTOTAL_BAND }}>Totals</td>
+              <td style={{ padding: 'var(--sp-1)', ...SUBTOTAL_BAND }} data-testid="parcels-total-area">{areaText(aggregate.totalAreaSqm)} sqm</td>
               {/* THE WEIGHTED RATE IS A RATE, so it stays at full scale like
                   every parcel's own rate input directly above it, which already
                   carries the comment "Rate is per sqm; usually small enough we
@@ -709,11 +712,11 @@ export default function Module1Assets(): React.JSX.Element {
                   column of 7,500 and 500. The arithmetic was always right
                   (180,250,000 / 24,500); only the formatting was not. The
                   money totals beside it are totals and keep the scale. */}
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-weighted-rate">{formatAccounting(aggregate.weightedRate, 'full', project.displayDecimals ?? 2)} /sqm</td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-cash-value">{formatAccounting(aggregate.cashValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-inkind-value">{formatAccounting(aggregate.inKindValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-total-value">{formatAccounting(aggregate.totalValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
-              <td></td>
+              <td style={{ padding: 'var(--sp-1)', ...SUBTOTAL_BAND }} data-testid="parcels-weighted-rate">{formatAccounting(aggregate.weightedRate, 'full', project.displayDecimals ?? 2)} /sqm</td>
+              <td style={{ padding: 'var(--sp-1)', ...SUBTOTAL_BAND }} data-testid="parcels-cash-value">{formatAccounting(aggregate.cashValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
+              <td style={{ padding: 'var(--sp-1)', ...SUBTOTAL_BAND }} data-testid="parcels-inkind-value">{formatAccounting(aggregate.inKindValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
+              <td style={{ padding: 'var(--sp-1)', ...SUBTOTAL_BAND }} data-testid="parcels-total-value">{formatAccounting(aggregate.totalValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
+              <td style={SUBTOTAL_BAND}></td>
             </tr>
           </tfoot>
         </table>
@@ -1070,14 +1073,37 @@ const AREA_DECIMALS = 0;
 const areaText = (n: number | null | undefined): string => formatArea(n, AREA_DECIMALS);
 
 /**
- * THE PALE BAND, ON THE CELLS.
+ * A BAND GOES ON THE CELLS, NEVER ON THE ROW, AND HERE IS WHY.
  *
- * It was on the <tr>, and a row background is not reliably painted behind
- * cells the way a cell background is: the band covered the left of the row and
- * left the rest white. A band is a property of every cell in the row, so it is
- * stated on every cell, once, from here.
+ * app/globals.css carries an UNCLASSED, platform-wide rule:
+ *
+ *     td:first-child { position: sticky; left: 0; background: var(--color-surface); z-index: 1; }
+ *
+ * Every first cell of every table in this application is a frozen column with
+ * its OWN OPAQUE WHITE background, painted above the row. So a <tr> background
+ * is invisible on the first cell, always, everywhere: the row renders banded
+ * from the second column on and white at the left. That is the "half and half"
+ * reported three times on this tab, on three different rows, and it was never
+ * a row-specific bug.
+ *
+ * It is not an override war: the global rule carries no !important, so an
+ * inline background on the cell wins cleanly, and the stickiness stays, which
+ * is what a frozen first column is for. <th> is untouched by that rule, which
+ * is why the navy table HEADERS have always looked right and only <td> bands
+ * broke.
+ *
+ * So: three band objects, spread onto EVERY cell of the rows that wear them,
+ * and no row on this tab states a band colour on a <tr> alone.
  */
 const BAND: React.CSSProperties = { background: 'var(--color-primary-pale)' };
+/** The navy foot: a table's own grand total, which is not any one line's. */
+const FOOT_BAND: React.CSSProperties = {
+  background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)',
+};
+/** The quiet subtotal band on the plots table. */
+const SUBTOTAL_BAND: React.CSSProperties = {
+  background: 'var(--color-grey-pale)', fontWeight: 'var(--fw-bold)',
+};
 
 const CELL: React.CSSProperties = { padding: '3px 5px', fontSize: 11, whiteSpace: 'nowrap' };
 const CELL_NUM: React.CSSProperties = { ...CELL, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
@@ -2700,18 +2726,17 @@ function SubUnitsTable({
                   subUnitLines.flatMap((l) => l.rows.map(({ unit, asset }) => subUnitValueRow(unit, asset))),
                 );
                 return (
-                  <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}
-                    data-testid="subunits-project-totals">
-                    <td style={{ ...CELL, fontWeight: 700, color: 'inherit' }} colSpan={2}>All lines</td>
-                    <td style={{ ...CELL_NUM, color: 'inherit' }} />
-                    <td style={{ ...CELL_NUM, fontWeight: 700, color: 'inherit' }} data-testid="subunits-project-total-area">{areaText(all.areaSqm)}</td>
-                    <td style={{ ...CELL_NUM, color: 'inherit' }} />
-                    <td style={{ ...CELL_NUM, fontWeight: 700, color: 'inherit' }} data-testid="subunits-project-total-units">{Math.round(all.units).toLocaleString()}</td>
-                    <td style={{ ...CELL_NUM, color: 'inherit' }} />
-                    <td style={{ ...CELL, fontSize: 10, color: 'inherit' }} data-testid="subunits-project-rate-note">
+                  <tr style={FOOT_BAND} data-testid="subunits-project-totals">
+                    <td style={{ ...CELL, ...FOOT_BAND, fontWeight: 700 }} colSpan={2}>All lines</td>
+                    <td style={{ ...CELL_NUM, ...FOOT_BAND }} />
+                    <td style={{ ...CELL_NUM, ...FOOT_BAND, fontWeight: 700 }} data-testid="subunits-project-total-area">{areaText(all.areaSqm)}</td>
+                    <td style={{ ...CELL_NUM, ...FOOT_BAND }} />
+                    <td style={{ ...CELL_NUM, ...FOOT_BAND, fontWeight: 700 }} data-testid="subunits-project-total-units">{Math.round(all.units).toLocaleString()}</td>
+                    <td style={{ ...CELL_NUM, ...FOOT_BAND }} />
+                    <td style={{ ...CELL, ...FOOT_BAND, fontSize: 10 }} data-testid="subunits-project-rate-note">
                       rates blend per line, not across types
                     </td>
-                    <td style={{ ...CELL, color: 'inherit' }} />
+                    <td style={{ ...CELL, ...FOOT_BAND }} />
                   </tr>
                 );
               })()}

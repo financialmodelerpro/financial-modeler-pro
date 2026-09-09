@@ -1109,6 +1109,46 @@ arrow/Enter/Escape, click-opens-full-list (`src/shared/components/CountryCombobo
 STORED value byte-identical to what the old path stored so existing rows keep working. If a
 datalist is doing anything more than throwaway suggestions, it is already the wrong element.
 
+### 6.4 A `<tr>` background is NEVER visible on the first cell, in any table on the platform
+
+**Symptom (2026-09-09, Module 1 assets tab).** A banded row renders "half and half": the band covers
+part of the row and the rest is the page white. Reported three times, on three different rows (a
+line header, a Blended subtotal, a navy grand total), each time looking like a fresh bug in that
+row. Fixing one did not fix the next.
+
+**Mechanism.** `app/globals.css` carries an **unclassed, platform-wide** rule:
+
+```css
+td:first-child {
+    position: sticky; left: 0;
+    background: var(--color-surface);   /* opaque */
+    z-index: 1;
+}
+```
+
+Every first cell of every table in the application is a frozen column with its **own opaque
+background painted above the row**, so a `<tr>` background is hidden behind it. The row bands from
+the second column on and stays white at the left. Which half looks wrong depends only on where that
+row's `colSpan` boundaries fall, which is why three instances read as three unrelated defects.
+
+`<th>` is untouched by the rule (`thead th:first-child` sets only `border-radius`), which is why
+navy table HEADERS have always looked correct and only `<td>` bands broke. That asymmetry is what
+makes the row-level style look like it works.
+
+**Fix.** Put the band on the CELLS, never on the row: one `React.CSSProperties` object per band,
+spread into every `<td>` of the rows that wear it. The global rule carries no `!important`, so an
+inline background wins cleanly and the stickiness survives, which is what a frozen first column is
+for. Do not "fix" it by weakening the global rule: every table on the platform depends on that
+frozen column being opaque, or content scrolls visibly underneath it.
+
+**Proof.** `verify-land-chain` U29h3 asserts the global rule still exists (so the per-cell band is
+the fix and not belt-and-braces), and U29h4 asserts every band on the tab is an object spread onto
+its cells and that **no `<tr>` that opens a `<td>` states a colour on the row alone**. Five
+sabotages, including removing the band from just the first cell, all caught. Strip JSX comments
+before that last match: a lazy `[\s\S]*?` inside an optional comment group skipped three `<th>`
+lines to reach a `<td>` further down and flagged a `thead` row (same shape as 10.x "prose matched as
+the thing").
+
 ### 6.1 The shell is zoomed, so `vh` and media queries LIE inside it
 
 **Symptom.** A full-height surface leaves ~345px of dead space, worsening on taller screens. A
