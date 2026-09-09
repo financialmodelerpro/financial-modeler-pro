@@ -699,7 +699,7 @@ export default function Module1Assets(): React.JSX.Element {
                 rate / monetary cells. */}
             <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 'var(--fw-bold)' }}>
               <td style={{ padding: 'var(--sp-1)' }}>Totals</td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-total-area">{formatArea(aggregate.totalAreaSqm, project.displayDecimals ?? 2)} sqm</td>
+              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-total-area">{areaText(aggregate.totalAreaSqm)} sqm</td>
               {/* THE WEIGHTED RATE IS A RATE, so it stays at full scale like
                   every parcel's own rate input directly above it, which already
                   carries the comment "Rate is per sqm; usually small enough we
@@ -1053,6 +1053,32 @@ function ParcelRow({ parcel, phases, onUpdate, onRemove, canRemove, decimals }: 
 // `computeLandChain`, which no calculation reads; the editable cells write
 // the same fields the card always wrote.
 
+/**
+ * AN AREA IS A WHOLE NUMBER OF SQUARE METRES.
+ *
+ * Decimals are for money, and `project.displayDecimals` is the control for
+ * money. An area carried two of them everywhere, so the same plot read
+ * "11,000.00" in one table and "11,000" in the next, and a reader matching a
+ * figure across five tables was chasing hundredths of a square metre that no
+ * one has ever entered or cared about.
+ *
+ * DISPLAY ONLY. Every stored value and every computed one is untouched and
+ * still exact; this is the last step before the text hits the cell, so a total
+ * is the sum of the exact parts rather than the sum of the rounded ones.
+ */
+const AREA_DECIMALS = 0;
+const areaText = (n: number | null | undefined): string => formatArea(n, AREA_DECIMALS);
+
+/**
+ * THE PALE BAND, ON THE CELLS.
+ *
+ * It was on the <tr>, and a row background is not reliably painted behind
+ * cells the way a cell background is: the band covered the left of the row and
+ * left the rest white. A band is a property of every cell in the row, so it is
+ * stated on every cell, once, from here.
+ */
+const BAND: React.CSSProperties = { background: 'var(--color-primary-pale)' };
+
 const CELL: React.CSSProperties = { padding: '3px 5px', fontSize: 11, whiteSpace: 'nowrap' };
 const CELL_NUM: React.CSSProperties = { ...CELL, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
 const CELL_DERIVED: React.CSSProperties = { ...CELL_NUM, background: 'var(--color-grey-pale)', color: 'var(--color-heading)' };
@@ -1290,8 +1316,8 @@ function PlotHeaderRow({
   onAddAsset?: (phaseId: string, parcelId?: string) => void;
 }): React.JSX.Element {
   return (
-    <tr style={{ background: 'var(--color-primary-pale)' }} data-testid={`plot-group-${g.key}${showCheck ? '' : '-results'}`}>
-      <td style={{ ...CELL, fontWeight: 700 }} colSpan={showCheck ? 6 : 2}>
+    <tr style={BAND} data-testid={`plot-group-${g.key}${showCheck ? '' : '-results'}`}>
+      <td style={{ ...CELL, ...BAND, fontWeight: 700 }} colSpan={showCheck ? 6 : 2}>
         {plotLabel}
         {phaseName && (
           <span style={{ fontWeight: 400, color: 'var(--color-meta)', marginLeft: 8 }}>{phaseName}</span>
@@ -1302,10 +1328,10 @@ function PlotHeaderRow({
       </td>
       {showCheck ? (
         <>
-          <td style={{ ...CELL_NUM, fontWeight: 700 }} data-testid={`plot-group-${g.key}-area`}>
-            {g.parcelAreaSqm !== undefined ? formatArea(g.parcelAreaSqm) : '-'}
+          <td style={{ ...CELL_NUM, ...BAND, fontWeight: 700 }} data-testid={`plot-group-${g.key}-area`}>
+            {g.parcelAreaSqm !== undefined ? areaText(g.parcelAreaSqm) : '-'}
           </td>
-          <td style={CELL} colSpan={colSpan - 7}>
+          <td style={{ ...CELL, ...BAND }} colSpan={colSpan - 7}>
             {g.status && (
               <span
                 data-testid={`plot-group-${g.key}-check`}
@@ -1321,7 +1347,7 @@ function PlotHeaderRow({
               </span>
             )}
             <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>
-              {plotCheckText(g, (n) => formatArea(n))}
+              {plotCheckText(g, (n) => areaText(n))}
             </span>
             {g.parcel && onAddAsset && (
               <button
@@ -1340,7 +1366,7 @@ function PlotHeaderRow({
           </td>
         </>
       ) : (
-        <td style={CELL} colSpan={colSpan - 2} />
+        <td style={{ ...CELL, ...BAND }} colSpan={colSpan - 2} />
       )}
     </tr>
   );
@@ -1608,16 +1634,16 @@ function AssetInputsTable({
                                 ? undefined
                                 : asset.landAllocation?.sqm}
                               testId={`asset-row-${asset.id}-land`}
-                              placeholder={formatArea(landSqm)}
+                              placeholder={areaText(landSqm)}
                               title={drawSource === 'whole_plot'
-                                ? `Blank, so this asset draws its whole plot: ${formatArea(landSqm)} sqm. Type a figure to draw less. Adding a second asset to this plot ends the default.`
+                                ? `Blank, so this asset draws its whole plot: ${areaText(landSqm)} sqm. Type a figure to draw less. Adding a second asset to this plot ends the default.`
                                 : 'Sqm this asset draws from its plot. Blank on a plot it shares with nothing draws the whole plot.'}
                               onCommit={(v) => onUpdateAsset(asset.id, {
                                 landAllocation: { ...(asset.landAllocation ?? {}), sqm: v },
                               })}
                             />
                           ) : (
-                            <span data-testid={`asset-row-${asset.id}-land`}>{formatArea(landSqm)}</span>
+                            <span data-testid={`asset-row-${asset.id}-land`}>{areaText(landSqm)}</span>
                           )}
                         </td>
                         <td style={CELL}><ChainCell value={asset.landChain?.utilisationPct} testId={`asset-row-${asset.id}-utilisation`} title="Share of the plot that is developable." onCommit={(v) => patchChain({ utilisationPct: v })} /></td>
@@ -1692,7 +1718,7 @@ function AssetResultsTable({ rowGroups }: { rowGroups: RowGroup[] }): React.JSX.
   // it: the outermost tier, the single most important figure in the table,
   // rendered as a squeezed nameless strip at the right edge.
   const COLS = 22;
-  const d = (v: number | undefined): string => (v === undefined ? '-' : formatArea(v));
+  const d = (v: number | undefined): string => (v === undefined ? '-' : areaText(v));
   const n = (v: number | undefined): string =>
     v === undefined ? '-' : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
   // COUNTS PRINT WHOLE BECAUSE THEY ARE WHOLE. Rendering them through the
@@ -1807,7 +1833,7 @@ function AssetResultsTable({ rowGroups }: { rowGroups: RowGroup[] }): React.JSX.
                         <div style={{ fontSize: 9, color: 'var(--color-meta)' }}>{assetTypeSuffix(asset)}</div>
                       )}
                     </td>
-                    <td style={CELL_NUM}>{formatArea(landSqm)}</td>
+                    <td style={CELL_NUM}>{areaText(landSqm)}</td>
                     <td style={CELL_DERIVED} data-testid={`asset-result-${asset.id}-land-utilised`}>{d(chain.landUtilisedSqm)}</td>
                     <td style={CELL_DERIVED}>{d(chain.footprintSqm)}</td>
                     <td style={CELL_DERIVED}>{chain.landscapePct === undefined ? '-' : `${n(chain.landscapePct)}%`}</td>
@@ -1868,7 +1894,7 @@ function MergedLineTable({
 }): React.JSX.Element {
   // 4 identity + 20 derived. Counts agree or U15 fails.
   const COLS = 24;
-  const d = (v: number | undefined): string => (v === undefined ? '-' : formatArea(v));
+  const d = (v: number | undefined): string => (v === undefined ? '-' : areaText(v));
   const n = (v: number | undefined): string =>
     v === undefined ? '-' : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
   const whole = (v: number | undefined): string =>
@@ -2004,7 +2030,7 @@ function MergedLineTable({
                   <td style={CELL_NUM} title={land.plotCount === 0 ? 'draws from no plot yet' : `blended land rate ${fmt(land.weightedRate)} /sqm`}>
                     {rows.length}
                   </td>
-                  <td style={CELL_NUM} data-testid={`line-result-${group.key}-land`}>{formatArea(landSqm)}</td>
+                  <td style={CELL_NUM} data-testid={`line-result-${group.key}-land`}>{areaText(landSqm)}</td>
                   <td style={CELL_DERIVED} data-testid={`line-result-${group.key}-land-utilised`}>{p('landUtilisedSqm')}</td>
                   <td style={CELL_DERIVED}>{p('footprintSqm')}</td>
                   <td style={CELL_DERIVED} data-testid={`line-result-${group.key}-landscape-pct`}>
@@ -2365,10 +2391,10 @@ function SubUnitsTable({
                 // matching the tables above.
                 <tr
                   key={`line-${line.key}`}
-                  style={{ background: 'var(--color-primary-pale)' }}
+                  style={BAND}
                   data-testid={`subunits-line-${line.key}`}
                 >
-                  <td style={{ ...CELL, fontWeight: 700 }} colSpan={2}>
+                  <td style={{ ...CELL, ...BAND, fontWeight: 700 }} colSpan={2}>
                     {line.label}
                     {line.phaseName && (
                       <span style={{ fontWeight: 400, color: 'var(--color-meta)', marginLeft: 8 }}>{line.phaseName}</span>
@@ -2386,11 +2412,13 @@ function SubUnitsTable({
                       {line.rows.length} sub-unit{line.rows.length === 1 ? '' : 's'}
                     </span>
                   </td>
-                  <td style={{ ...CELL_NUM, fontWeight: 700 }} data-testid={`subunits-line-${line.key}-nsa`}>
-                    {line.nsaSource === 'none' ? '-' : formatArea(nsa)}
-                  </td>
-                  <td style={{ ...CELL_NUM, fontWeight: 700 }} data-testid={`subunits-line-${line.key}-sum`}>{formatArea(line.areaSum)}</td>
-                  <td style={CELL} colSpan={5}>
+                  {/* THE CHECK, IN WORDS, ACROSS THE NUMERIC COLUMNS.
+                      Not IN them: the figures it quotes are a sentence about
+                      the line, not entries under "NSA Share %" and "Area",
+                      which is where they were and where they read as the wrong
+                      quantity. The columnar totals are on the Blended row at
+                      the foot, under the headings that name them. */}
+                  <td style={{ ...CELL, ...BAND }} colSpan={7}>
                     {line.status && (
                       <span
                         data-testid={`subunits-line-${line.key}-check`}
@@ -2415,7 +2443,7 @@ function SubUnitsTable({
                         ? 'These point at an asset that is not on a line (deleted, or a companion whose sub-units mirror its parent).'
                         : line.nsaSource === 'none'
                           ? 'No NSA on this line: the area chain is not running for its plots and none has an NSA entered, so there is nothing to check the parts against.'
-                          : `${formatArea(line.areaSum)} of ${formatArea(nsa)} sqm allocated`
+                          : `${areaText(line.areaSum)} of ${areaText(nsa)} sqm allocated`
                             + `${nsa > 0 ? ` (${((line.areaSum / nsa) * 100).toLocaleString(undefined, { maximumFractionDigits: 1 })}%)` : ''}`
                             + `, against the ${line.nsaSource === 'chain' ? 'area chain' : 'entered'} NSA.`}
                     </span>
@@ -2486,7 +2514,7 @@ function SubUnitsTable({
                         {isUnits ? (
                           <span style={{ ...CELL_NUM, display: 'block' }} data-testid={`subunits-row-${u.id}-area`}
                             title="Count x Average Unit Size. This asset counts units, so the area follows.">
-                            {formatArea(area)}
+                            {areaText(area)}
                           </span>
                         ) : (
                           <SubUnitNumber
@@ -2565,30 +2593,43 @@ function SubUnitsTable({
                 // a 200 sqm shop equally with a 20,000 sqm tower, so the answer
                 // would move when a row is split in two.
                 <tr key={`total-${line.key}`}
-                  style={{ background: 'var(--color-primary-pale)', borderBottom: '2px solid var(--color-navy)' }}
+                  style={{ ...BAND, borderBottom: '2px solid var(--color-navy)' }}
                   data-testid={`subunits-line-${line.key}-totals`}>
                   {/* NAMED BY WHAT IT POOLS. "Line total" said which ROW it
                       was; "Blended Branded Villas" says what the figures beside
                       it are a blend OF, which is the only thing a reader needs
-                      from a label sitting under four rows of the same type. */}
-                  <td style={{ ...CELL, fontWeight: 700 }} colSpan={2} data-testid={`subunits-line-${line.key}-total-label`}>
+                      from a label sitting under four rows of the same type.
+
+                      AND THE BAND IS ON EVERY CELL. On the <tr> alone it
+                      painted the left of the row and left the rest white. */}
+                  <td style={{ ...CELL, ...BAND, fontWeight: 700 }} colSpan={2} data-testid={`subunits-line-${line.key}-total-label`}>
                     {line.key === '__no_line__' ? 'Total, not on a line' : `Blended ${line.label}`}
                   </td>
-                  <td style={CELL_NUM} />
-                  <td style={{ ...CELL_NUM, fontWeight: 700 }} data-testid={`subunits-line-${line.key}-total-area`}>{formatArea(line.totals.areaSqm)}</td>
-                  <td style={CELL_NUM} />
-                  <td style={{ ...CELL_NUM, fontWeight: 700 }} data-testid={`subunits-line-${line.key}-total-units`}
+                  {/* THE SHARE OF THE LINE'S NSA THE PARTS TAKE UP. 100% is
+                      the whole point of the row: it says the sub-units allocate
+                      exactly what the line has, and any other figure says by
+                      how much they do not. A dash when the line has no NSA,
+                      never 0%, which would claim the parts allocate nothing. */}
+                  <td style={{ ...CELL_NUM, ...BAND, fontWeight: 700 }} data-testid={`subunits-line-${line.key}-total-share`}
+                    title="The parts as a share of the line's NSA. 100% means they allocate it exactly.">
+                    {nsa > 0
+                      ? `${((line.totals.areaSqm / nsa) * 100).toLocaleString(undefined, { maximumFractionDigits: 1 })}%`
+                      : '-'}
+                  </td>
+                  <td style={{ ...CELL_NUM, ...BAND, fontWeight: 700 }} data-testid={`subunits-line-${line.key}-total-area`}>{areaText(line.totals.areaSqm)}</td>
+                  <td style={{ ...CELL_NUM, ...BAND }} />
+                  <td style={{ ...CELL_NUM, ...BAND, fontWeight: 700 }} data-testid={`subunits-line-${line.key}-total-units`}
                     title="Whole units or keys. Some stored counts are fractional; the parts are shown as typed and the total is rounded, because nobody builds 309.985 apartments.">
                     {Math.round(line.totals.units).toLocaleString()}
                   </td>
-                  <td style={{ ...CELL_NUM, fontWeight: 700 }} data-testid={`subunits-line-${line.key}-blended-rate`}
+                  <td style={{ ...CELL_NUM, ...BAND, fontWeight: 700 }} data-testid={`subunits-line-${line.key}-blended-rate`}
                     title="Total value over total area. A row's value is its rate times what the rate is per: units for a per-unit or per-key price, area for a per-sqm one. A nightly rate is not blended against sqm.">
                     {line.totals.blendable ? formatAccounting(line.totals.blendedRate, 'full', project.displayDecimals ?? 2) : '-'}
                   </td>
-                  <td style={{ ...CELL, fontSize: 10, color: 'var(--color-meta)' }} data-testid={`subunits-line-${line.key}-blended-basis`}>
+                  <td style={{ ...CELL, ...BAND, fontSize: 10, color: 'var(--color-meta)' }} data-testid={`subunits-line-${line.key}-blended-basis`}>
                     {blendedBasisText(line.totals)}
                   </td>
-                  <td style={CELL} />
+                  <td style={{ ...CELL, ...BAND }} />
                 </tr>,
                 ];
               })}
@@ -2613,7 +2654,7 @@ function SubUnitsTable({
                     data-testid="subunits-project-totals">
                     <td style={{ ...CELL, fontWeight: 700, color: 'inherit' }} colSpan={2}>All lines</td>
                     <td style={{ ...CELL_NUM, color: 'inherit' }} />
-                    <td style={{ ...CELL_NUM, fontWeight: 700, color: 'inherit' }} data-testid="subunits-project-total-area">{formatArea(all.areaSqm)}</td>
+                    <td style={{ ...CELL_NUM, fontWeight: 700, color: 'inherit' }} data-testid="subunits-project-total-area">{areaText(all.areaSqm)}</td>
                     <td style={{ ...CELL_NUM, color: 'inherit' }} />
                     <td style={{ ...CELL_NUM, fontWeight: 700, color: 'inherit' }} data-testid="subunits-project-total-units">{Math.round(all.units).toLocaleString()}</td>
                     <td style={{ ...CELL_NUM, color: 'inherit' }} />

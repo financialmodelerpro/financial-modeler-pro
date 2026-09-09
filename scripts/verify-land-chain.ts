@@ -49,7 +49,12 @@ import {
 import type { Asset, Parcel } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
+import { formatArea } from '../src/core/formatters';
 import { buildExcelSampleState } from './excelSampleState';
+
+// The tab's own area rule, restated here so the checks below RUN it rather
+// than read it. U29j pins the tab to the same zero.
+const areaText = (n: number | null | undefined): string => formatArea(n, 0);
 
 let pass = 0, fail = 0;
 const check = (name: string, ok: boolean, detail = ''): void => {
@@ -604,10 +609,10 @@ function offlineChecks(): void {
   const subBody = subStart >= 0 && subEnd > subStart ? tabSrc.slice(subStart, subEnd) : '';
   check('U26 unit size is TYPED per sub-unit, which is what makes a count derivable',
     subBody.length > 500
-    && subBody.includes('subunits-row-${u.id}-unit-size')
+    && subBody.includes('subunits-row-${u.id}-unit-size`')
     && /onCommit=\{\(v\) => onUpdate\(u\.id, \{ unitArea: v \}\)\}/.test(subBody));
   check('U27 share and area are ONE pair: typing either sets the other',
-    subBody.includes('subunits-row-${u.id}-share')
+    subBody.includes('subunits-row-${u.id}-share`')
     && /metricValue: v === undefined \? 0 : \(nsa \* v\) \/ 100/.test(subBody)
     // In count mode the count is the input, so the share is shown derived
     // rather than offered as a second way to say the same thing.
@@ -656,7 +661,7 @@ function offlineChecks(): void {
   // someone typed are different kinds of answer, and a reader who disagrees
   // with the check needs to know which one to go and change.
   check('U29a the check NAMES its source, so a disagreement has somewhere to go',
-    subBody.includes('subunits-line-${line.key}-basis')
+    subBody.includes('subunits-line-${line.key}-basis`')
     && subBody.includes('area chain')
     && /line\.nsaSource === 'chain' \? 'area chain' : 'entered'/.test(subBody));
   check('U29b a sub-unit whose asset is gone is still listed, so no row becomes undeletable',
@@ -754,14 +759,85 @@ function offlineChecks(): void {
   check('U29f the unit totals print WHOLE, like every other count on this tab',
     /Math\.round\(line\.totals\.units\)\.toLocaleString\(\)/.test(subBody)
     && /Math\.round\(all\.units\)\.toLocaleString\(\)/.test(subBody));
+  // ── U29j AN AREA IS A WHOLE NUMBER OF SQUARE METRES.
+  //
+  // Decimals are for money, and displayDecimals is the control for money. Areas
+  // carried two of them, so the same plot read "11,000.00" in one table and
+  // "11,000" in the next and a reader matching a figure across five tables was
+  // chasing hundredths nobody has ever entered. ONE rule, at the last step
+  // before the text hits the cell, so a total is still the sum of the EXACT
+  // parts rather than the sum of the rounded ones.
+  check('U29j every area on the tab renders through ONE rule, at zero decimals',
+    /const AREA_DECIMALS = 0;/.test(tabSrc)
+    && /const areaText = \(n: number \| null \| undefined\): string => formatArea\(n, AREA_DECIMALS\);/.test(tabSrc)
+    // formatArea is called in exactly one place: inside that rule. Everything
+    // else on the tab goes through areaText.
+    && (tabSrc.match(/formatArea\(/g) ?? []).length === 1
+    && areaText(27599.14) === '27,599'
+    && areaText(0) === '0'
+    && areaText(undefined) === '0',
+    `${areaText(27599.14)} / ${areaText(0)}`);
+  check('U29j2 the rounding is DISPLAY only: the pooled total is the sum of the exact parts',
+    // 100.4 + 100.4 is 200.8, which renders 201. Summing the ROUNDED parts
+    // would give 200, and a total that disagrees with its own column by a whole
+    // unit is exactly what rounding early produces.
+    poolSubUnits([
+      { areaSqm: 100.4, perUnit: false }, { areaSqm: 100.4, perUnit: false },
+    ]).areaSqm === 200.8
+    && areaText(200.8) === '201'
+    && areaText(100.4) === '100');
   // U29h ONE BAND. The line total carried no background at all, so it rendered
   // white directly above the navy project foot and the two read as a single
   // half-and-half strip. It is the closing band of its own line, so it wears
   // that line's pale header band.
-  check('U29h the line total is ONE band, the same pale one its line header wears',
-    /style=\{\{ background: 'var\(--color-primary-pale\)', borderBottom: '2px solid var\(--color-navy\)' \}\}/
-      .test(subBody)
-    && (subBody.match(/background: 'var\(--color-primary-pale\)'/g) ?? []).length === 2);
+  // U29h THE BAND IS ON THE CELLS, and that is the fix rather than a detail.
+  // On the <tr> alone it painted the left of the row and left the rest white,
+  // twice: once when the row had no background at all and once when it had one
+  // the cells did not carry. A band is a property of every cell in the row, so
+  // every cell states it, from ONE object shared by all three banded rows on
+  // the tab, which is also what stops them drifting to three shades.
+  check('U29h the line total is ONE band across EVERY column, from the shared object',
+    /const BAND: React\.CSSProperties = \{ background: 'var\(--color-primary-pale\)' \}/.test(tabSrc)
+    // TWO USES OF THE COLOUR, BOTH NAMED: the BAND constant every banded table
+    // row spreads, and the standing callout div above the tables, which is not
+    // a row and shares nothing with them. A THIRD is a band nobody decided on,
+    // which is what this catches.
+    && (tabSrc.match(/'var\(--color-primary-pale\)'/g) ?? []).length === 2
+    && /style=\{\{ \.\.\.BAND, borderBottom: '2px solid var\(--color-navy\)' \}\}/.test(subBody)
+    // Every cell of the blended row carries it: 9 columns in 8 cells, one of
+    // which spans two.
+    && (subBody.match(/subunits-line-\$\{line\.key\}-totals`\}>[\s\S]*?<\/tr>/)?.[0]
+      .match(/\.\.\.BAND/g) ?? []).length === 8);
+  check('U29h2 the line HEADER and the plot headers wear the same band the same way',
+    // TWO CELLS NOW, not four: the header shed the two numeric cells that were
+    // printing totals under the wrong headings (U29k).
+    (subBody.match(/subunits-line-\$\{line\.key\}`\}[\s\S]*?<\/tr>/)?.[0]
+      .match(/\.\.\.BAND/g) ?? []).length === 2
+    && (tabSrc.slice(tabSrc.indexOf('function PlotHeaderRow('), tabSrc.indexOf('function AssetInputsTable('))
+      .match(/\.\.\.BAND/g) ?? []).length === 4);
+  // ── U29k THE HEADER SAYS WHICH LINE, THE FOOT SAYS HOW MUCH.
+  //
+  // The header printed the line's NSA under the "NSA Share %" heading and the
+  // parts sum under "Area", so a percent column read 27,599.10 and the same
+  // figure appeared twice in a row whose job is to say which line this is. A
+  // number under the wrong heading is worse than no number: it is read as the
+  // quantity the heading names.
+  check('U29k the header carries IDENTITY and the check in words, with no figure in a numeric column',
+    // Identity: the type, its phase, its plots, its count.
+    subBody.includes('{line.label}')
+    && subBody.includes('subunits-line-${line.key}-plots`')
+    && /\{line\.rows\.length\} sub-unit/.test(subBody)
+    // The check spans every numeric column rather than sitting inside two of
+    // them, and the two numeric header cells are gone.
+    && /<td style=\{\{ \.\.\.CELL, \.\.\.BAND \}\} colSpan=\{7\}>/.test(subBody)
+    && !subBody.includes('subunits-line-${line.key}-nsa`')
+    && !subBody.includes('subunits-line-${line.key}-sum`'));
+  check('U29k2 the Blended row carries the NSA share, 100% when the parts allocate it exactly',
+    subBody.includes('subunits-line-${line.key}-total-share`')
+    && /\(line\.totals\.areaSqm \/ nsa\) \* 100/.test(subBody)
+    // A DASH when the line has no NSA, never 0%, which would claim the parts
+    // allocate nothing rather than that there is nothing to allocate against.
+    && /nsa > 0\s*\n?\s*\? `\$\{\(\(line\.totals\.areaSqm \/ nsa\) \* 100\)/.test(subBody.replace(/\r/g, '')));
   // ── U29i THE ID THAT COULD NOT BE UNIQUE. Every add button minted
   // `${prefix}_${Date.now()}`, millisecond resolution, so a double-click made
   // two rows share one id: an edit to either patched both, a delete removed
@@ -874,7 +950,7 @@ function offlineChecks(): void {
   // still names the plot it hangs off, which is what a two-plot line needs.
   check('U44b the sub-unit line is labelled by TYPE, each row names its plot, and the pickers carry it',
     subBody.includes('{line.label}')
-    && subBody.includes('subunits-line-${line.key}-plots')
+    && subBody.includes('subunits-line-${line.key}-plots`')
     && /subunits-row-\$\{u\.id\}-asset`/.test(subBody)
     && /assetDisplayName\(a\)\}\{assetTypeSuffix\(a\)/.test(tabSrc)
     && /asset-result-\$\{asset\.id\}-label`/.test(resultsBody)
@@ -883,7 +959,7 @@ function offlineChecks(): void {
   // rendered two, a navy bar and a pale bar, in styles matching nothing above.
   check('U44c the sub-unit group has ONE header row, in the same style as the tables above',
     (subBody.match(/data-testid=\{`subunits-line-\$\{line\.key\}`\}/g) ?? []).length === 1
-    && /<tr\s*\n?\s*key=\{`line-\$\{line\.key\}`\}\s*\n?\s*style=\{\{ background: 'var\(--color-primary-pale\)' \}\}/
+    && /<tr\s*\n?\s*key=\{`line-\$\{line\.key\}`\}\s*\n?\s*style=\{BAND\}/
       .test(subBody.replace(/\r/g, ''))
     // The per-asset second header is gone, and so is the grouping that fed it.
     && !subBody.includes('subunits-group-${asset?.id ?? \'unassigned\'}')
@@ -899,7 +975,7 @@ function offlineChecks(): void {
     && /line\.members,\s*\n?\s*line\.subUnits,/.test(tabSrc.replace(/\r/g, ''))
     && !/\bmembers, subUnits\)/.test(tabSrc));
   check('U30 the rate column NAMES its basis, per row, through the one existing helper',
-    subBody.includes('subunits-row-${u.id}-rate-basis')
+    subBody.includes('subunits-row-${u.id}-rate-basis`')
     && /rateUnitLabel\(u\.category, isUnits \? 'units' : 'area'\)/.test(subBody)
     && subBody.includes('Rate Basis'));
   // ── THE ROADS AND PARKS DEDUCTION IS RETIRED. It answered "how much of this
@@ -1047,7 +1123,7 @@ function offlineChecks(): void {
   check('V12 Plot Area is TYPEABLE in sqm mode and read-only, with a reason, in the others',
     /landAllocationMode === 'sqm' \? \(/.test(inputsBody)
     && inputsBody.includes('asset-row-${asset.id}-land')
-    && /placeholder=\{formatArea\(landSqm\)\}/.test(inputsBody)
+    && /placeholder=\{areaText\(landSqm\)\}/.test(inputsBody)
     && /Derived: the project allocates land by/.test(inputsBody));
 
   // V13 AND V14 ARE THE TWO DEFECTS THAT SURVIVED V1-V12. Every one of those
@@ -1160,7 +1236,7 @@ function offlineChecks(): void {
     // than no check, because it teaches you to ignore it. What is meant is that
     // the one header is used BOTH ways, so that is what is asserted.
     && /showCheck\s*$/m.test(tabSrc) && tabSrc.includes('showCheck={false}')
-    && tabSrc.includes('plot-group-${g.key}-area')
+    && tabSrc.includes('plot-group-${g.key}-area`')
     && !tabSrc.includes('function LineHeaderRow('));
   // U14b THE HEADER PRINTS THE PHASE'S NAME. It printed `phase_1`, a storage
   // key, at a reader who has seen "Phase 1" on every other screen in the
