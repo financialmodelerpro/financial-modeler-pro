@@ -63,14 +63,20 @@ export interface LandChainInputs {
    * (40): the only person who ever typed it typed it three times identically.
    * Five rows holding one number are five chances to disagree about it.
    *
-   * It now lives on the PROJECT, beside the parking area per slot, which is the
-   * same kind of quantity and was already a single value. A per-plot figure
-   * could in principle express two municipalities or two retail formats, but
-   * neither is sayable in this model (there is no per-plot jurisdiction and no
-   * retail sub-type), so it would be an answer to a question nobody can ask.
+   * A per-plot figure could in principle express two municipalities or two
+   * retail formats, but neither is sayable in this model (there is no per-plot
+   * jurisdiction and no retail sub-type), so it would be an answer to a
+   * question nobody can ask.
+   *
+   * It moved to the PROJECT for a day and then, on 2026-09-10, to where it
+   * belonged all along: the ground-floor retail TYPE's own parking ratio, on
+   * the sqm-per-slot basis, which is the same cell every other type states its
+   * ratio in. See `LandChainStandards.retailAreaPerSlotSqm`.
    *
    * The field stays DECLARED so a stored snapshot still types, and is read by
-   * NOTHING: hydrate lifts any stored value onto the project.
+   * NOTHING. Its stored values are deliberately not carried across: the three
+   * assets that held one held 40, the area a slot occupies, where the reference
+   * divides retail GFA by 25.
    */
   retailAreaPerSlotSqm?: number;
   /**
@@ -93,7 +99,16 @@ export interface LandChainStandards {
   /** Sqm per unit or key. Resolved by the caller (sub-units first, the asset
    *  type average as the fallback), which is the step 1 rule. */
   avgUnitSizeSqm?: number;
-  /** Slots per unit, or sqm per slot, per `parkingRatioBasis`. */
+  /**
+   * Slots per unit, or sqm per slot, per `parkingRatioBasis`.
+   *
+   * THE BASIS IS STORED, NEVER INFERRED (2026-09-10). An absent basis still
+   * computes as slots per unit here, because that is what the standards tab
+   * showed for years and changing it would move stored numbers; but nothing
+   * live should reach this file without one, since hydrate stamps the default
+   * onto any type that states a ratio and the tab writes it with the ratio.
+   * The fallback is defence, not the rule.
+   */
   parkingRatio?: number;
   parkingRatioBasis?: 'slots_per_unit' | 'sqm_per_slot';
   /** Sqm one parking slot occupies. */
@@ -101,11 +116,18 @@ export interface LandChainStandards {
   /**
    * Sqm of retail GFA that requires one parking slot.
    *
-   * A PROJECT FIGURE, beside the area a slot occupies. Retail parking divides
-   * by THIS and never by the asset's own parking ratio, because a shop's
-   * parking is sized off floor area and an apartment's off units. Absent means
-   * retail parking is not derived, and the result SAYS so rather than reporting
-   * zero slots.
+   * THE GROUND-FLOOR RETAIL TYPE'S OWN PARKING RATIO (2026-09-10), resolved by
+   * `resolveRetailSlotArea` from the project's asset type values, and stated in
+   * exactly one place: the retail type's ratio cell, on the sqm-per-slot basis.
+   * It was a project field of its own until then, which put one number in two
+   * places that could disagree, and on the one live project holding retail the
+   * two HAD disagreed: it carried 40, the area a slot occupies, where the
+   * reference divides by 25.
+   *
+   * Retail parking divides by THIS and never by the HOST asset's own ratio,
+   * because a shop's parking is sized off floor area and an apartment's off
+   * units. Absent means retail parking is not derived, and the result SAYS so
+   * rather than reporting zero slots.
    */
   retailAreaPerSlotSqm?: number;
 }
@@ -163,7 +185,8 @@ export interface ChainResult {
   /** Where `units` came from, so the panel can say. */
   unitsSource?: 'sub_units' | 'derived';
   /** Rounded units x parking ratio (slots_per_unit), or main GFA / ratio
-   *  (sqm_per_slot). Whole slots: half a bay cannot be built either. */
+   *  (sqm_per_slot), or 0 when that ratio is a TYPED ZERO on either basis.
+   *  Whole slots: half a bay cannot be built either. */
   parkingSlots?: number;
   /** retail GFA / retail area per slot, whole slots. */
   retailParkingSlots?: number;
@@ -277,6 +300,14 @@ export function computeLandChain(
     out.netSaleableSqm = out.mainAssetGfaSqm * (1 - svc);
   }
 
+  // Does this asset's parking come off FLOOR AREA rather than off a count?
+  // Asked BEFORE the count, because it decides whether a missing unit size is
+  // a gap at all. The reference company table leaves the unit size of its two
+  // sqm-per-slot types blank ON PURPOSE (nobody sizes a shop in units), so
+  // reporting "the unit count cannot be derived" on those reads as a problem
+  // to fix when it is the standard working as intended.
+  const parkingFromArea = s.parkingRatioBasis === 'sqm_per_slot' && num(s.parkingRatio);
+
   // 7. Units. The sub-units win when they state a count; otherwise the
   //    division, which needs a unit size.
   if (num(subUnitUnits) && subUnitUnits > 0) {
@@ -285,17 +316,39 @@ export function computeLandChain(
   } else if (out.netSaleableSqm !== undefined && num(s.avgUnitSizeSqm) && s.avgUnitSizeSqm > 0) {
     out.units = Math.round(out.netSaleableSqm / s.avgUnitSizeSqm);
     out.unitsSource = 'derived';
-  } else if (out.netSaleableSqm !== undefined) {
+  } else if (out.netSaleableSqm !== undefined && !parkingFromArea) {
     gaps.push('no_unit_size');
   }
 
-  // 8. Parking. Slots per unit is the common basis; sqm per slot divides the
-  //    main asset GFA instead, which is what a retail-style ratio means.
+  // 8. Parking, on the basis the type's ratio is stated in.
+  //
+  //    SLOTS PER UNIT MULTIPLIES; SQM PER SLOT DIVIDES, and the second half is
+  //    a DELIBERATE DIVERGENCE FROM THE REFERENCE rather than a mirror of it.
+  //    The workbook's parking-slots column is `units x ratio` on EVERY row,
+  //    including the two types whose own standards table states their ratio in
+  //    m2 per slot, so a standalone commercial plot derives no parking there at
+  //    all: its unit size is deliberately blank, so the count is blank, so the
+  //    multiplication is zero (measured on 14 such plots, every one reading 0
+  //    slots and a BUA equal to its GFA). The only division the workbook
+  //    performs is for ground-floor retail, and that one does not read the
+  //    plot's basis either: it points at one fixed cell.
+  //
+  //    That is the workbook taking a shortcut, not a rule about parking. The
+  //    unit means what it says, so a ratio stated in m2 of floor area per slot
+  //    divides floor area here. Expect a m2-per-slot type to differ from the
+  //    workbook, and expect it to be the workbook that is short.
+  //
+  //    A TYPED ZERO IS A REAL ANSWER on either basis, the same rule the rest of
+  //    this tab keeps: 0 m2/slot says this type requires no parking, so it
+  //    derives ZERO SLOTS, not a blank cell with nothing to explain it.
+  //    (Dividing by it is the only other reading, and it has no answer.)
   //    Slots come off the ROUNDED unit count, per the counting rule above.
   if (num(s.parkingRatio)) {
     if (s.parkingRatioBasis === 'sqm_per_slot') {
-      if (out.mainAssetGfaSqm !== undefined && s.parkingRatio > 0) {
-        out.parkingSlots = Math.round(out.mainAssetGfaSqm / s.parkingRatio);
+      if (out.mainAssetGfaSqm !== undefined) {
+        out.parkingSlots = s.parkingRatio > 0
+          ? Math.round(out.mainAssetGfaSqm / s.parkingRatio)
+          : 0;
       }
     } else if (out.units !== undefined) {
       out.parkingSlots = Math.round(out.units * s.parkingRatio);
@@ -304,8 +357,11 @@ export function computeLandChain(
     gaps.push('no_parking_ratio');
   }
 
-  // 9. Retail parking, on its own basis. The reference divides retail GFA by
-  //    ONE company figure, never by the asset's own ratio.
+  // 9. Retail parking, on its own basis: the GROUND-FLOOR RETAIL TYPE's ratio,
+  //    never the host asset's own. The reference does the same thing, from the
+  //    same place: its retail-parking column divides retail GFA by the retail
+  //    row of the very parking-ratio table every other type reads, reached by a
+  //    fixed cell reference rather than a lookup.
   if (out.retailGfaSqm !== undefined && out.retailGfaSqm > 0) {
     if (num(s.retailAreaPerSlotSqm) && s.retailAreaPerSlotSqm > 0) {
       out.retailParkingSlots = Math.round(out.retailGfaSqm / s.retailAreaPerSlotSqm);
@@ -347,7 +403,7 @@ export function chainGapText(gap: ChainGap): string {
     case 'no_unit_size': return 'No average unit size for this asset type on the standards tab, and no sub-unit states one, so the unit count cannot be derived.';
     case 'no_parking_ratio': return 'No parking ratio for this asset type on the standards tab, so slots cannot be derived.';
     case 'no_parking_area_per_slot': return 'No parking area per slot on the standards tab, so slots cannot become an area.';
-    case 'no_retail_area_per_slot': return 'This asset has retail but no retail area per slot, so retail parking is not derived.';
+    case 'no_retail_area_per_slot': return 'This asset has ground-floor retail, but no retail parking ratio is set, so retail parking is not derived. State it on the retail asset type on the standards tab, as sqm of retail GFA per slot.';
     default: return '';
   }
 }

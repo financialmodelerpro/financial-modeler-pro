@@ -1254,6 +1254,38 @@ folder in the App Router (404), so name a temp harness route without the undersc
 
 ## 7. Engine and model
 
+### 7.32 A control that DISPLAYS a default it never stores, and a unit label the formula ignores
+
+**Symptom (2026-09-10, both found while reporting on parking, not while debugging it).** Two
+halves of one shape. (a) The standards tab's parking-basis dropdown rendered
+`value={v?.parkingRatioBasis ?? 'slots_per_unit'}` and only WROTE a basis if the user opened it and
+changed it, so a type could hold a ratio with NO basis at all; the chain read an absent basis as
+slots per unit, so the screen and the model agreed, by coincidence rather than by record. A ratio
+the user meant as sqm per slot would have multiplied a unit count instead of dividing an area, and
+nothing on either side could show the difference. Every live type carrying a ratio was in that
+state. (b) In the reference workbook the same figure has a UNIT column ("slots/unit", "m2/slot")
+that its parking formula never reads: it multiplies units by the ratio on all 117 rows, so its two
+m2/slot types derive no parking at all, on all 14 such plots.
+
+**Mechanism.** A default in the RENDER path is invisible to storage, so "what the user saw" and
+"what the file holds" are different facts that happen to agree until one of them moves. The
+agreement is what makes it undetectable: no screen is wrong, no number is wrong, and the defect is
+purely that nobody decided. The workbook half is the same thing one level up: a label states an
+intent that the formula does not implement, so the data documents a rule the code does not keep.
+
+**Fix.** Store the decision at the moment it is displayed: hydrate stamps the basis the chain was
+already assuming (so the migration MOVES NO NUMBER, proven by running both paths and comparing
+slots), and the ratio cell writes the basis alongside a newly typed ratio, so no new row can reach
+the unstamped state. The fallback stays as defence and is documented as unreachable for stored data
+(`verify-land-chain` E4 to E7). For a label the code ignores: either honour it or say at the branch
+that you do not. We honour it, and A14 requires the divergence to be stated INSIDE the step-8 slice,
+so a note elsewhere in a long file cannot satisfy it.
+
+**The general rule.** `value={stored ?? DEFAULT}` is a claim that the default was chosen. If nothing
+writes it, that claim is false, and the first reader to change the semantics of the field turns a
+cosmetic default into a wrong number. Ask of every default on screen: which write puts it in the
+file?
+
 ### 7.30 Two features sharing one stored blob need MERGING writes
 
 **Symptom (2026-08-20, caught in design, would have shipped).** The guided tour and the first-run

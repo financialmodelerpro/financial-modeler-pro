@@ -74,6 +74,7 @@ import {
   resolveAssetTypeValues,
   resolveAvgUnitSize,
   resolveParkingRatio,
+  resolveRetailSlotArea,
   type AssetTypeStandard,
   type AssetTypeValues,
 } from '../../lib/state/assetTypeStandards';
@@ -1331,6 +1332,11 @@ function buildAssetRows(
   project: Project,
   landAllocationMode: LandAllocationMode,
 ): RowGroup[] {
+  // ONE PROJECT-WIDE ANSWER, RESOLVED ONCE, from the retail TYPE's own ratio
+  // (2026-09-10). It was a project field until then; a plot column before that.
+  // Hoisted out of the row loop because it is the same for every plot and
+  // because a per-row resolve would invite a per-row answer.
+  const retailSlotAreaSqm = resolveRetailSlotArea(project.assetTypeValues);
   return groups.map((g) => {
     const plotLabel = g.parcel ? g.parcel.name : 'No specific plot';
     return {
@@ -1356,9 +1362,11 @@ function buildAssetRows(
             parkingRatio: typeValues?.parkingRatio,
             parkingRatioBasis: typeValues?.parkingRatioBasis,
             parkingAreaPerSlotSqm: project.parkingAreaPerSlotSqm,
-            // ONE COMPANY FIGURE, from the standards tab. It was a column on
-            // every plot row until 2026-09-09.
-            retailAreaPerSlotSqm: project.retailAreaPerSlotSqm,
+            // THE RETAIL TYPE'S OWN RATIO, stated in sqm per slot. A plot
+            // column until 2026-09-09, a project field until 2026-09-10, and
+            // in both shapes a second home for a number the type table already
+            // had a cell for.
+            retailAreaPerSlotSqm: retailSlotAreaSqm,
           },
           computeAssetUnitCount(asset, subUnits),
         );
@@ -3519,6 +3527,11 @@ function AssetCard({
                   parkingRatio: typeValues?.parkingRatio,
                   parkingRatioBasis: typeValues?.parkingRatioBasis,
                   parkingAreaPerSlotSqm: project.parkingAreaPerSlotSqm,
+                  // THE DRAWER WAS NOT PASSING THIS AT ALL (found 2026-09-10),
+                  // so the panel reported "no retail parking ratio" on a plot
+                  // whose own row three tables up derived retail parking fine.
+                  // Same resolve, same answer, both surfaces.
+                  retailAreaPerSlotSqm: resolveRetailSlotArea(project.assetTypeValues),
                 }}
                 subUnitUnits={computeAssetUnitCount(asset, subUnits)}
                 entered={{

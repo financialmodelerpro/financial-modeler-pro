@@ -2144,38 +2144,53 @@ export function retireCountryGatedLines(snap: HydrateSnapshot): HydrateSnapshot 
  *  read, and both live at the top level of every snapshot shape, so the
  *  wrapper's other fields pass through untouched. */
 /**
- * LIFT THE RETIRED PER-PLOT RETAIL AREA-PER-SLOT ONTO THE PROJECT.
+ * STAMP THE PARKING RATIO BASIS ONTO EVERY TYPE THAT STATES A RATIO.
  *
- * The figure moved off the plot on 2026-09-09 because the reference divides
- * every plot's retail parking by ONE company figure and the stored history
- * agreed: across 1,406 versions the per-plot field appears on three assets, all
- * in one version, all holding 40. Retiring it without this would leave that one
- * version unable to derive retail parking at all, so its value is lifted.
+ * THE BASIS WAS DISPLAYED BUT NOT STORED (fixed 2026-09-10). The standards tab
+ * showed "slots per unit" for any type whose basis was unset, and only WROTE
+ * one if the user opened the dropdown and changed it, so a type could hold a
+ * ratio with no basis at all. The chain reads an absent basis as slots per
+ * unit, so screen and model agreed, but by coincidence rather than by record: a
+ * ratio the user meant as sqm per slot multiplied a unit count instead of
+ * dividing an area, and nothing on screen could show the difference. Every live
+ * type carrying a ratio (measured: one, holding 1) was in that state.
  *
- * ONLY WHEN THE PROJECT HAS NONE. A figure someone typed on the standards tab
- * outranks one left behind on a plot; this fills an absence, it never overrides
- * a decision. Whitespace-free by construction: a stored 0 is not lifted either,
- * because the chain requires a positive figure and a 0 there was never a usable
- * answer.
+ * IT MOVES NO NUMBER. The stamped value is exactly the one the chain already
+ * assumed and the tab already showed, so this records a decision rather than
+ * changing one. A type that states NO ratio is left alone: there is nothing for
+ * a basis to describe, and stamping one would invent a decision nobody made.
  *
- * THE PLOT FIELDS ARE LEFT ALONE. Stripping them would rewrite every asset on
- * load for no gain: nothing reads them any more (landChainIsEmpty no longer
- * consults it either), and a snapshot that still carries one is evidence of
- * where the number came from.
+ * RETURNS THE SAME OBJECT WHEN NOTHING MOVED, so opening a project cannot mark
+ * it dirty.
+ *
+ * IT REPLACED `liftRetailAreaPerSlot`, which lifted a retired per-plot retail
+ * area-per-slot onto the project. That project field is retired in turn: the
+ * retail divisor is the retail TYPE's own ratio now. The lifted value is
+ * deliberately NOT carried into that type, because the three plots that held it
+ * held 40, which is the area a slot occupies and not the divisor (the reference
+ * divides retail GFA by 25). Carrying it would have moved a wrong number into
+ * the one place the right one now lives.
  */
-function liftRetailAreaPerSlot(snapshot: unknown): unknown {
+function stampParkingRatioBasis(snapshot: unknown): unknown {
   if (!snapshot || typeof snapshot !== 'object') return snapshot;
-  const s = snapshot as { project?: Record<string, unknown>; assets?: Record<string, unknown>[] };
-  if (!s.project || !Array.isArray(s.assets)) return snapshot;
-  const already = s.project.retailAreaPerSlotSqm;
-  if (typeof already === 'number' && Number.isFinite(already)) return snapshot;
-  let found: number | undefined;
-  for (const a of s.assets) {
-    const v = (a.landChain as { retailAreaPerSlotSqm?: unknown } | undefined)?.retailAreaPerSlotSqm;
-    if (typeof v === 'number' && Number.isFinite(v) && v > 0) { found = v; break; }
+  const s = snapshot as { project?: Record<string, unknown> };
+  const values = s.project?.assetTypeValues;
+  if (!values || typeof values !== 'object') return snapshot;
+  let changed = false;
+  const next: Record<string, unknown> = {};
+  for (const [id, raw] of Object.entries(values as Record<string, unknown>)) {
+    const v = raw as { parkingRatio?: unknown; parkingRatioBasis?: unknown } | undefined;
+    if (v && typeof v === 'object'
+      && typeof v.parkingRatio === 'number' && Number.isFinite(v.parkingRatio)
+      && typeof v.parkingRatioBasis !== 'string') {
+      next[id] = { ...v, parkingRatioBasis: 'slots_per_unit' };
+      changed = true;
+    } else {
+      next[id] = raw;
+    }
   }
-  if (found === undefined) return snapshot;
-  return { ...s, project: { ...s.project, retailAreaPerSlotSqm: found } };
+  if (!changed) return snapshot;
+  return { ...s, project: { ...s.project, assetTypeValues: next } };
 }
 
 function repairRawSnapshot(snapshot: unknown): unknown {
@@ -2189,7 +2204,7 @@ function repairRawSnapshot(snapshot: unknown): unknown {
   // earlier repair touches, so the order is not load bearing; it is placed
   // here so the chain reads in the order the repairs were added.
   const opexed = clearSeededDisabledOpexValues(gated) as unknown;
-  return liftRetailAreaPerSlot(opexed);
+  return stampParkingRatioBasis(opexed);
 }
 
 export function hydrationFromAnySnapshotChecked(snapshot: unknown): CheckedHydration {

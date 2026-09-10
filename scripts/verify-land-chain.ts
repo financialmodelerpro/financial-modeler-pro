@@ -47,6 +47,13 @@ import {
   type AssetPlotGroup,
 } from '../src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel';
 import type { Asset, Parcel, SubUnit } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import { ASSET_TYPES_BY_CATEGORY } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import {
+  GROUND_FLOOR_RETAIL_TYPE_LABEL,
+  normaliseAssetTypeId,
+  resolveRetailSlotArea,
+  type AssetTypeValuesByType,
+} from '../src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
 import { formatArea, formatAccounting } from '../src/core/formatters';
@@ -148,6 +155,58 @@ function offlineChecks(): void {
     !Number.isInteger(apts.netSaleableSqm as number)
     && !Number.isInteger(apts.totalBuaSqm as number)
     && !Number.isInteger(apts.footprintSqm as number));
+  // ── A12 to A15. THE SQM-PER-SLOT BASIS, where we deliberately go further
+  //    than the source. (2026-09-10)
+  //
+  // Row 209 of the reference plot table, a Standalone Commercial plot: land
+  // 2265.48, utilisation 100%, coverage 60%, retail 0, service 0, FAR 1.6. Its
+  // company standards state NO unit size and a parking ratio of 0 in m2/slot.
+  // The workbook derives GFA 3624.768 and then 0 units, 0 slots, 0 parking area
+  // and a BUA equal to its GFA, on all 14 such plots, because its parking
+  // column multiplies a unit count by a ratio on EVERY row and never divides.
+  const commercialInputs: LandChainInputs =
+    { utilisationPct: 100, coveragePct: 60, retailPct: 0, servicePct: 0, farRatio: 1.6 };
+  const commercialZero = computeLandChain(2265.48, commercialInputs,
+    { parkingRatio: 0, parkingRatioBasis: 'sqm_per_slot', parkingAreaPerSlotSqm: 40 });
+  check('A12 the reference commercial row: GFA ties, and a TYPED ZERO ratio derives ZERO slots, not a blank',
+    near(commercialZero.totalGfaSqm, 3624.768) && near(commercialZero.mainAssetGfaSqm, 3624.768)
+    && commercialZero.parkingSlots === 0 && commercialZero.totalParkingSlots === 0
+    && near(commercialZero.parkingAreaSqm, 0) && near(commercialZero.totalParkingAreaSqm, 0)
+    // BUA equal to GFA, exactly as the workbook has it for that plot.
+    && near(commercialZero.totalBuaSqm, 3624.768),
+    `slots=${String(commercialZero.parkingSlots)} bua=${String(commercialZero.totalBuaSqm)}`);
+  check('A12b a blank unit size is NOT reported as a gap when parking comes off area',
+    !commercialZero.gaps.includes('no_unit_size') && commercialZero.units === undefined
+    // ... and it still IS a gap on the count-based basis, where it stops parking dead.
+    && computeLandChain(2265.48, commercialInputs,
+      { parkingRatio: 1, parkingRatioBasis: 'slots_per_unit' }).gaps.includes('no_unit_size'),
+    commercialZero.gaps.join(','));
+  // A13 IS THE DIVERGENCE ITSELF. Same plot, same blank unit size, a POSITIVE
+  // m2/slot ratio: the workbook would still report zero (it multiplies a blank
+  // count), and we divide the floor area, because that is what the unit on the
+  // ratio says. 3624.768 / 25 = 144.99 -> 145 slots at 40 sqm = 5800.
+  const commercialDivides = computeLandChain(2265.48, commercialInputs,
+    { parkingRatio: 25, parkingRatioBasis: 'sqm_per_slot', parkingAreaPerSlotSqm: 40 });
+  check('A13 sqm per slot DIVIDES the main asset GFA, with no unit count anywhere in it',
+    commercialDivides.units === undefined && commercialDivides.parkingSlots === 145
+    && near(commercialDivides.parkingAreaSqm, 5800) && near(commercialDivides.totalBuaSqm, 9424.768),
+    `slots=${String(commercialDivides.parkingSlots)}`);
+  check('A13b the basis is what decides it: the SAME ratio on the count basis derives nothing here',
+    computeLandChain(2265.48, commercialInputs,
+      { parkingRatio: 25, parkingRatioBasis: 'slots_per_unit', parkingAreaPerSlotSqm: 40 })
+      .parkingSlots === undefined);
+  // A14. THE FILE SAYS SO. A reader who checks this behaviour against the
+  // workbook must find the divergence stated where the code diverges, not
+  // discover it by getting a different number. Scoped to the step 8 block, so
+  // the note has to be AT the branch rather than anywhere in a long file.
+  const chainFileSrc = readFileSync('src/core/calculations/landChain.ts', 'utf8');
+  const step8 = chainFileSrc.slice(
+    chainFileSrc.indexOf('// 8. Parking'), chainFileSrc.indexOf('// 9. Retail parking'));
+  check('A14 step 8 states the divergence at the branch, rather than reading as a mirror of the source',
+    step8.length > 400
+    && /DELIBERATE DIVERGENCE FROM THE REFERENCE/.test(step8)
+    && /TYPED ZERO/.test(step8),
+    `${step8.length} chars`);
   check('A11c a sub-unit count is rounded too, so both sources of a count agree in kind',
     computeLandChain(6807.72, { utilisationPct: 100, coveragePct: 60, retailPct: 50, servicePct: 20, farRatio: 3.6 },
       { avgUnitSizeSqm: 150 }, 12.4).units === 12);
@@ -1074,60 +1133,74 @@ function offlineChecks(): void {
   // which is how a sabotage that renamed the test id walked through the first
   // cut. Every test id here is inside a template literal, so the closing
   // backtick is the anchor.
-  // U43 MOVED WITH THE FIGURE (2026-09-09). It was a per-plot COLUMN for one
-  // commit; it is ONE COMPANY FIGURE and now sits on the standards tab beside
-  // the parking area per slot, which is the same kind of quantity and was
-  // already a single project value. Five plot rows holding one number are five
-  // chances to disagree about it, and the stored history agreed before the
-  // move: across 1,406 versions the per-plot field appears on three assets, all
-  // in one version, all holding 40.
+  // U43 MOVED TWICE, AND THE SECOND MOVE IS THE ONE THAT ENDS IT (2026-09-10).
+  // A per-plot COLUMN for one commit, then a PROJECT field for one day, and
+  // neither was its home: the retail divisor is a retail TYPE's parking ratio
+  // stated in sqm per slot, and the type table already had that cell. Both
+  // earlier shapes put one number where it could disagree with the table, and
+  // on the one live project holding retail they HAD disagreed: it carried 40,
+  // the area a slot occupies, where the reference divides retail GFA by 25.
+  // The reference does it from the type table too, dividing by the retail row
+  // of the very parking-ratio table every other type reads.
   const stdTab = readFileSync(
     'src/hubs/modeling/platforms/refm/components/modules/Module1AssetStandards.tsx', 'utf8');
-  check('U43 retail GFA per slot is ONE PROJECT figure, on the standards tab beside its sibling',
-    // ValueCell takes a `testId` prop, not a raw data-testid, exactly as its
-    // sibling above it does.
-    stdTab.includes('testId="std-retail-area-per-slot"')
-    && /onCommit=\{\(n\) => setProject\(\{ retailAreaPerSlotSqm: n \}\)\}/.test(stdTab)
-    && /value=\{project\.retailAreaPerSlotSqm\}/.test(stdTab)
-    && stdTab.includes('Retail GFA per slot (sqm) for this project:')
-    // Beside the parking area per slot, not somewhere else on the tab.
-    && Math.abs(stdTab.indexOf('std-retail-area-per-slot') - stdTab.indexOf('std-parking-area-per-slot')) < 1400);
-  // U43d THE ONE HISTORICAL VALUE IS NOT LOST. Three assets in one stored
-  // version carry a per-plot 40. Retiring the field without lifting it would
-  // leave that version unable to derive retail parking at all, so hydrate
-  // lifts it, and ONLY into an absence: a figure typed on the standards tab
-  // outranks one left behind on a plot.
-  const lifted = hydrationFromAnySnapshot({
-    ...buildExcelSampleState(),
-    project: { ...(buildExcelSampleState() as unknown as { project: Record<string, unknown> }).project },
-    assets: (buildExcelSampleState() as unknown as { assets: Record<string, unknown>[] }).assets
-      .map((a, i) => (i === 0 ? { ...a, landChain: { retailAreaPerSlotSqm: 40 } } : a)),
-  }) as unknown as { project: { retailAreaPerSlotSqm?: number } };
-  const notOverridden = hydrationFromAnySnapshot({
-    ...buildExcelSampleState(),
-    project: { ...(buildExcelSampleState() as unknown as { project: Record<string, unknown> }).project, retailAreaPerSlotSqm: 25 },
-    assets: (buildExcelSampleState() as unknown as { assets: Record<string, unknown>[] }).assets
-      .map((a, i) => (i === 0 ? { ...a, landChain: { retailAreaPerSlotSqm: 40 } } : a)),
-  }) as unknown as { project: { retailAreaPerSlotSqm?: number } };
-  const noneAnywhere = hydrationFromAnySnapshot(buildExcelSampleState()) as unknown as
-    { project: { retailAreaPerSlotSqm?: number } };
-  check('U43d hydrate LIFTS a stored per-plot figure onto the project, and never over one already set',
-    lifted.project.retailAreaPerSlotSqm === 40
-    && notOverridden.project.retailAreaPerSlotSqm === 25
-    && noneAnywhere.project.retailAreaPerSlotSqm === undefined,
-    `${String(lifted.project.retailAreaPerSlotSqm)} / ${String(notOverridden.project.retailAreaPerSlotSqm)} / ${String(noneAnywhere.project.retailAreaPerSlotSqm)}`);
+  check('U43 the retail divisor is a TYPE STANDARD: no project field for it anywhere',
+    !stdTab.includes('retailAreaPerSlotSqm')
+    && !stdTab.includes('std-retail-area-per-slot')
+    && !tabSrc.includes('project.retailAreaPerSlotSqm')
+    // The sibling that IS a project assumption stays: no type owns the area a
+    // bay occupies.
+    && stdTab.includes('testId="std-parking-area-per-slot"')
+    // And the tab says where the figure went, so its disappearance is not a
+    // mystery to anyone who used it yesterday.
+    && stdTab.includes('data-testid="std-retail-parking-note"'));
+  // U43d THE RULE THAT PICKS THE TYPE, run rather than read. Ambiguity is
+  // possible (a firm may hold several retail types) and must resolve the same
+  // way every time or the number moves under the user.
+  const retailId = normaliseAssetTypeId(GROUND_FLOOR_RETAIL_TYPE_LABEL);
+  const vals = (o: Record<string, unknown>): AssetTypeValuesByType => o as AssetTypeValuesByType;
+  check('U43d the ground-floor retail type WINS, a lone sqm-per-slot type serves, and a tie resolves to neither',
+    // 1. The named type, even with another candidate present.
+    resolveRetailSlotArea(vals({
+      [retailId]: { parkingRatio: 25, parkingRatioBasis: 'sqm_per_slot' },
+      'standalone-commercial': { parkingRatio: 30, parkingRatioBasis: 'sqm_per_slot' },
+    })) === 25
+    // 2. Exactly one candidate, under any name: a renamed list still derives.
+    && resolveRetailSlotArea(vals({
+      'shops': { parkingRatio: 30, parkingRatioBasis: 'sqm_per_slot' },
+      'apartments': { parkingRatio: 1, parkingRatioBasis: 'slots_per_unit' },
+    })) === 30
+    // 3. Two unnamed candidates: we cannot tell which is ground-floor retail,
+    //    so nothing, and the chain says so by name rather than picking one.
+    && resolveRetailSlotArea(vals({
+      'shops': { parkingRatio: 30, parkingRatioBasis: 'sqm_per_slot' },
+      'kiosks': { parkingRatio: 20, parkingRatioBasis: 'sqm_per_slot' },
+    })) === undefined
+    // 4. A TYPED ZERO is not a divisor, and neither is a count-based ratio.
+    && resolveRetailSlotArea(vals({ [retailId]: { parkingRatio: 0, parkingRatioBasis: 'sqm_per_slot' } })) === undefined
+    && resolveRetailSlotArea(vals({ [retailId]: { parkingRatio: 25, parkingRatioBasis: 'slots_per_unit' } })) === undefined
+    && resolveRetailSlotArea(undefined) === undefined
+    && resolveRetailSlotArea(vals({})) === undefined);
+  check('U43e the ground-floor retail label is a MIRRORED PAIR with the catalog, and the pair still agrees',
+    ASSET_TYPES_BY_CATEGORY.Retail.includes(GROUND_FLOOR_RETAIL_TYPE_LABEL),
+    `${GROUND_FLOOR_RETAIL_TYPE_LABEL} vs [${ASSET_TYPES_BY_CATEGORY.Retail.join(', ')}]`);
   check('U43b NO per-plot surface offers it any more, in the table or the drawer',
     !/asset-row-\$\{asset\.id\}-retail-slot/.test(tabSrc)
     && !/patchChain\(\{ retailAreaPerSlotSqm: v \}\)/.test(tabSrc)
     && !tabSrc.includes('>Retail GFA / slot (sqm)</th>')
     && !panel.includes('retailAreaPerSlotSqm')
-    // And the tab feeds the chain the PROJECT figure.
-    && /retailAreaPerSlotSqm: project\.retailAreaPerSlotSqm/.test(tabSrc));
+    // BOTH surfaces resolve it, and from the same rule. The drawer passed
+    // NOTHING until 2026-09-10, so its panel reported a missing retail ratio on
+    // a plot whose own row three tables up derived retail parking fine.
+    && (tabSrc.match(/resolveRetailSlotArea\(/g) ?? []).length === 2);
   // THE CHAIN ALREADY NAMES ITS OWN GAP. What was missing was a way to close
-  // it, so the gap name and the input must stay wired to one field.
-  check('U43c the chain reports the missing figure by name, and it is the field the column writes',
+  // it, so the gap name and the input must stay wired to one place.
+  check('U43c the chain reports the missing figure by name, and names where to set it',
     chainSrc.includes("'no_retail_area_per_slot'")
     && /out\.retailParkingSlots = Math\.round\(out\.retailGfaSqm \/ s\.retailAreaPerSlotSqm\)/.test(chainSrc)
+    // The sentence must send the reader to the type, not to the retired field.
+    && /retail asset type/.test(chainGapText('no_retail_area_per_slot'))
+    && !/project/i.test(chainGapText('no_retail_area_per_slot'))
     // AND THE RETIRED PER-PLOT FIELD IS READ BY NOTHING, including the
     // is-the-chain-started test: a legacy snapshot carrying it must not make a
     // chain look started when nothing else is set. ASKED BY RUNNING IT, because
@@ -1544,6 +1617,54 @@ function offlineChecks(): void {
   const areaKeys = ['gfaSqm', 'buaSqm', 'sellableBuaSqm', 'supportArea', 'parkingArea', 'parkingBaysRequired'] as const;
   check('E3 carrying chain inputs changes NO area input on the asset',
     areaKeys.every((k) => JSON.stringify(plainAsset[k]) === JSON.stringify(chainedAsset[k])));
+
+  // ── E4 to E6. THE BASIS IS STORED, NOT DISPLAYED (2026-09-10) ───────────
+  //
+  // The standards dropdown showed "slots per unit" for any type whose basis was
+  // unset and only WROTE one if the user changed it, so a type could hold a
+  // ratio with no basis at all and the chain would read it as a count-based
+  // ratio. Screen and model agreed by coincidence, not by record, and a ratio
+  // meant as sqm per slot silently multiplied a unit count. Hydrate stamps the
+  // basis the chain was already assuming, so it MOVES NO NUMBER.
+  const withValues = (assetTypeValues: Record<string, unknown>): Record<string, unknown> => ({
+    ...mk({ ...base }),
+    project: { projectName: 'Probe', modelType: 'annual', currency: 'USD', assetTypeValues },
+  });
+  const stamped = (hydrationFromAnySnapshot(withValues({
+    'high-end-apartments': { parkingRatio: 1 },
+    'branded-villas': { parkingRatio: 0 },
+  })) as unknown as { project: { assetTypeValues: AssetTypeValuesByType } }).project.assetTypeValues;
+  check('E4 hydrate stamps the basis onto every type that states a ratio, a TYPED ZERO included',
+    stamped['high-end-apartments']?.parkingRatioBasis === 'slots_per_unit'
+    && stamped['high-end-apartments']?.parkingRatio === 1
+    && stamped['branded-villas']?.parkingRatioBasis === 'slots_per_unit'
+    && stamped['branded-villas']?.parkingRatio === 0,
+    JSON.stringify(stamped));
+  const untouched = (hydrationFromAnySnapshot(withValues({
+    'retail-combined': { parkingRatio: 25, parkingRatioBasis: 'sqm_per_slot' },
+    'plots': { avgUnitSizeSqm: 200 },
+  })) as unknown as { project: { assetTypeValues: AssetTypeValuesByType } }).project.assetTypeValues;
+  check('E5 a stated basis is never overwritten, and a type with NO ratio never acquires one',
+    untouched['retail-combined']?.parkingRatioBasis === 'sqm_per_slot'
+    && untouched['retail-combined']?.parkingRatio === 25
+    && untouched['plots']?.parkingRatioBasis === undefined
+    && untouched['plots']?.avgUnitSizeSqm === 200,
+    JSON.stringify(untouched));
+  // AND THE STAMP IS WHAT THE CHAIN ALREADY ASSUMED, proven by running both:
+  // an absent basis and the stamped one derive the same slots.
+  const bare = computeLandChain(10000, { utilisationPct: 100, coveragePct: 50, farRatio: 2 },
+    { avgUnitSizeSqm: 100, parkingRatio: 1, parkingAreaPerSlotSqm: 40 });
+  const withBasis = computeLandChain(10000, { utilisationPct: 100, coveragePct: 50, farRatio: 2 },
+    { avgUnitSizeSqm: 100, parkingRatio: 1, parkingRatioBasis: 'slots_per_unit', parkingAreaPerSlotSqm: 40 });
+  check('E6 stamping moves NO number: the fallback and the stored basis derive the same slots',
+    bare.parkingSlots === withBasis.parkingSlots && bare.parkingSlots === 200
+    && bare.totalBuaSqm === withBasis.totalBuaSqm,
+    `${String(bare.parkingSlots)} vs ${String(withBasis.parkingSlots)}`);
+  // AND THE TAB WRITES IT WITH THE RATIO, so a type created after this cannot
+  // reach the stored state the stamp exists to repair.
+  check('E7 the standards tab writes the basis alongside a newly typed ratio',
+    /parkingRatioBasis: 'slots_per_unit' as ParkingRatioBasis/.test(stdTab)
+    && /v\?\.parkingRatioBasis === undefined/.test(stdTab));
 }
 
 async function liveChecks(): Promise<void> {

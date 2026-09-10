@@ -273,6 +273,66 @@ export function resolveParkingRatio(
   return { source: 'unset' };
 }
 
+/**
+ * THE PLATFORM'S GROUND-FLOOR RETAIL TYPE.
+ *
+ * The catalog in module1-types spells this label in its Retail category. It is
+ * declared HERE rather than imported from there because module1-types imports
+ * nothing at runtime and this file must stay leaf-level, so the two spellings
+ * are a MIRRORED PAIR: `verify-land-chain` fails if the catalog's Retail
+ * category stops containing this exact string, which is the only thing keeping
+ * a rename in one file from silently unhooking retail parking in the other.
+ */
+export const GROUND_FLOOR_RETAIL_TYPE_LABEL = 'Retail combined';
+
+/**
+ * SQM OF RETAIL GFA PER PARKING SLOT: the divisor a host plot's ground-floor
+ * retail uses, resolved from the project's asset type values (2026-09-10).
+ *
+ * IT IS A TYPE STANDARD, NOT A PROJECT FIELD. It lived on `project.
+ * retailAreaPerSlotSqm` for a day, and before that on every plot row, and both
+ * shapes put one number somewhere it could disagree with the type table that
+ * already had a cell for it: a retail type states its parking ratio in sqm per
+ * slot, which IS this figure. The reference agrees, and more directly than the
+ * intermediate design did: its retail-parking column divides by the retail row
+ * of the ordinary parking-ratio table. On the one live project holding retail
+ * the two places HAD disagreed, the project field carrying 40 (the area a slot
+ * occupies) where the reference divides by 25.
+ *
+ * THE RULE, in order:
+ *   1. The ground-floor retail type, when it states a POSITIVE sqm-per-slot
+ *      ratio. This is the workbook's fixed reference, and it is what makes the
+ *      answer deterministic when a firm's list holds several retail types.
+ *   2. Otherwise, the ONE type that states a positive sqm-per-slot ratio, when
+ *      exactly one does, so a firm that renamed or replaced the entry still
+ *      derives retail parking.
+ *   3. Otherwise nothing, and the chain reports `no_retail_area_per_slot` by
+ *      name. That covers both "nobody has said" and "two types claim it", and
+ *      the gap sentence names the ground-floor retail type as the place to
+ *      settle it, which resolves the second case the moment it is followed.
+ *
+ * A TYPED ZERO IS NOT A DIVISOR. "This type needs no parking" is a real answer
+ * for an asset's OWN parking (rule 8 of the chain derives zero slots from it),
+ * but it cannot size a shop's, so it does not make an entry a candidate here.
+ * A slots-per-unit ratio is not a candidate either: it counts a different
+ * thing.
+ */
+export function resolveRetailSlotArea(
+  valuesByType: AssetTypeValuesByType | undefined,
+): number | undefined {
+  if (!valuesByType) return undefined;
+  const candidates = Object.keys(valuesByType).sort().filter((id) => {
+    const v = valuesByType[id];
+    return v?.parkingRatioBasis === 'sqm_per_slot'
+      && typeof v.parkingRatio === 'number' && Number.isFinite(v.parkingRatio)
+      && v.parkingRatio > 0;
+  });
+  const named = normaliseAssetTypeId(GROUND_FLOOR_RETAIL_TYPE_LABEL);
+  if (candidates.includes(named)) return valuesByType[named]?.parkingRatio;
+  if (candidates.length === 1) return valuesByType[candidates[0]]?.parkingRatio;
+  return undefined;
+}
+
 /** One phrase naming where a resolved standard came from, for a caption. */
 export function describeSource(source: StandardSource): string {
   switch (source) {

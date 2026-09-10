@@ -47,7 +47,7 @@ import type { Asset, SubUnit, SubUnitCategory, SubUnitMetric } from '../src/hubs
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
 import {
-  normaliseAssetTypeId, resolveAssetTypeValues, resolveAvgUnitSize,
+  normaliseAssetTypeId, resolveAssetTypeValues, resolveAvgUnitSize, resolveRetailSlotArea,
 } from '../src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards';
 
 // THE TWO LABEL RULES, restated so G2 runs them rather than reading them. They
@@ -419,6 +419,11 @@ async function liveChecks(): Promise<void> {
         parkingRatio: tv?.parkingRatio,
         parkingRatioBasis: tv?.parkingRatioBasis,
         parkingAreaPerSlotSqm: project.parkingAreaPerSlotSqm as number | undefined,
+        // THE SAME RESOLVE THE TAB DOES (2026-09-10): the retail divisor is the
+        // retail TYPE's own sqm-per-slot ratio. This passed nothing at all
+        // before, so the live half of this verifier measured a companion whose
+        // retail parking was structurally absent.
+        retailAreaPerSlotSqm: resolveRetailSlotArea(project.assetTypeValues as never),
       }, computeAssetUnitCount(a, subUnits)));
     }
     const lines = groupAssetsForConsolidation(

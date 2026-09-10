@@ -355,13 +355,28 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
         <ValueCell
           value={v?.parkingRatio} disabled={noProject}
           testId={`std-row-${id}-parking-ratio`}
-          title="The default for assets of this type. A sub-unit can override it."
-          onCommit={(n) => setAssetTypeValue(id, { parkingRatio: n })}
+          title="The default for assets of this type. A sub-unit can override it. On the sqm-per-slot basis this is what a retail type's ground-floor parking divides by."
+          // THE BASIS IS STORED WITH THE RATIO (2026-09-10). The dropdown
+          // beside this cell DISPLAYED a default it never wrote, so a type
+          // could hold a ratio with no basis at all, and the chain then read it
+          // as slots per unit: the screen and the model agreed, but only by
+          // coincidence, and a ratio meant as sqm per slot multiplied a unit
+          // count instead of dividing an area, silently. A ratio now always
+          // arrives with the basis the user was shown when they typed it.
+          onCommit={(n) => setAssetTypeValue(id, {
+            parkingRatio: n,
+            ...(n !== undefined && v?.parkingRatioBasis === undefined
+              ? { parkingRatioBasis: 'slots_per_unit' as ParkingRatioBasis }
+              : {}),
+          })}
         />
       </td>
       <td style={TD}>
         <select
           style={TEXT_INPUT}
+          // Only ever a display default now for a row that states NO ratio, so
+          // it decides nothing: hydrate stamps the basis onto every stored type
+          // that has one, and the ratio cell writes it for every new one.
           value={v?.parkingRatioBasis ?? 'slots_per_unit'}
           disabled={noProject}
           data-testid={`std-row-${id}-basis`}
@@ -429,13 +444,17 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
         </div>
       )}
 
-      {/* THE PROJECT'S PARKING STANDARDS, both of them.
-          The retail figure joined its sibling here on 2026-09-09. It was a
-          column on every plot row, which is five rows holding one number and
-          five chances to disagree about it: the reference divides every plot's
-          retail parking by ONE company figure, and the stored history agreed
-          before the move (three assets across 1,406 versions, all holding 40).
-          They are the same kind of quantity, so they sit together. */}
+      {/* THE PROJECT'S ONE PARKING STANDARD.
+          THE RETAIL FIGURE LEFT THIS ROW ON 2026-09-10, having arrived from the
+          plot rows the day before. It is not a project assumption at all: it is
+          a retail type's parking ratio, stated in sqm per slot, and the table
+          below already has a cell for exactly that. A field here would be a
+          second home for one number, which is what the move off the plot rows
+          was correcting; the reference divides by the retail row of its own
+          parking-ratio table, not by a figure kept somewhere else. Set it on
+          the retail type below, on the sqm-per-slot basis.
+          The area a slot OCCUPIES stays, because that genuinely is one project
+          assumption: basement and surface parking differ, and no type owns it. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)' }}>
           <label htmlFor="std-parking-area-per-slot" style={{ fontSize: 'var(--font-small)', fontWeight: 600 }}>
@@ -451,19 +470,12 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
             />
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)' }}>
-          <label htmlFor="std-retail-area-per-slot" style={{ fontSize: 'var(--font-small)', fontWeight: 600 }}>
-            Retail GFA per slot (sqm) for this project:
-          </label>
-          <div style={{ width: 120 }}>
-            <ValueCell
-              value={project.retailAreaPerSlotSqm}
-              disabled={noProject}
-              testId="std-retail-area-per-slot"
-              title="Sqm of retail GFA that requires one parking slot. Retail parking divides by THIS, never by an asset's own parking ratio, because a shop's parking is sized off floor area and an apartment's off units. Leave it blank and Retail Parking Slots, Retail Parking Area and Total Parking Area cannot be derived on any plot."
-              onCommit={(n) => setProject({ retailAreaPerSlotSqm: n })}
-            />
-          </div>
+        <div
+          style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)' }}
+          data-testid="std-retail-parking-note"
+        >
+          Ground-floor retail parking divides retail GFA by the retail type&apos;s own parking
+          ratio below, set on the sqm-per-slot basis.
         </div>
       </div>
 

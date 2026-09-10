@@ -377,18 +377,21 @@ export interface Project {
    *  account with mig 244. Absent = not decided, 0 is a decision. */
   parkingAreaPerSlotSqm?: number;
   /**
-   * Sqm of retail GFA that requires one parking slot.
+   * RETIRED 2026-09-10. Sqm of retail GFA that requires one parking slot.
    *
-   * MOVED HERE FROM THE PLOT (2026-09-09), beside its sibling above, which is
-   * the same kind of quantity and was already a single value. The reference
-   * divides every plot's retail parking by ONE fixed company figure, and the
-   * stored history agreed before the move: across 1,406 versions the per-plot
-   * field appears on three assets, all in one version, all holding 40.
+   * It was a plot column, then this field for one day, and neither was its
+   * home: it is a retail TYPE's parking ratio on the sqm-per-slot basis, and
+   * `assetTypeValues` already had a cell for exactly that. Two homes for one
+   * number is what the move off the plot rows was correcting, and this field
+   * repeated the mistake one level up. The reference agrees more directly than
+   * either shape did: its retail-parking column divides by the retail row of
+   * the ordinary parking-ratio table.
    *
-   * Absent = not decided, and retail parking is then NOT derived, which the
-   * chain reports as a gap rather than as zero slots. A typed 0 would be a
-   * decision, and a nonsensical one (no area per slot means infinite slots), so
-   * the chain requires it to be greater than zero.
+   * `resolveRetailSlotArea` (lib/state/assetTypeStandards.ts) is the ONE reader
+   * of the figure now, and it reads the type values. Nothing reads this field:
+   * it stays DECLARED so a stored snapshot still types, and its stored value is
+   * deliberately not carried across, because the only project holding one held
+   * 40, the area a slot occupies, where the reference divides by 25.
    */
   retailAreaPerSlotSqm?: number;
   currency: string;          // ISO code (e.g. 'SAR', 'USD', 'AED')
