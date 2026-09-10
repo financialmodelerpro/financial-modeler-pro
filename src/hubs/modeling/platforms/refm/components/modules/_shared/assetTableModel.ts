@@ -33,6 +33,7 @@
 
 import { resolveAssetPlotDraw } from '@/src/core/calculations';
 import { groupAssetsForConsolidation, type NormaliseTypeId } from '@/src/core/calculations/consolidation';
+import { poolLineAreas } from '@/src/core/calculations/consolidatedLine';
 import type { Asset, Parcel } from '../../../lib/state/module1-types';
 import { isParcelSentinel } from '../../../lib/state/module1-types';
 
@@ -374,4 +375,70 @@ export function mintId(prefix: string): string {
   const now = Date.now();
   lastMintedId = now > lastMintedId ? now : lastMintedId + 1;
   return `${prefix}_${lastMintedId}`;
+}
+
+// ── THE TOTAL ROW, ONE RULE FOR TWO TABLES (2026-09-10) ────────────────────
+//
+// Tables 3 and 4 show the same assets under two groupings (by plot, by line),
+// so their totals must agree. That is guaranteed by writing the sum ONCE and
+// having both call it, not by writing it twice carefully. It lives here rather
+// than in the tab because a verifier must be able to RUN it: a check that reads
+// two JSX blocks and satisfies itself that they look alike proves nothing about
+// what they add up to.
+
+/** The chain fields a line or a total sums. Listed rather than inferred, so a
+ *  new chain field is a deliberate addition here rather than a silent
+ *  omission from every pooled figure on the tab. */
+export const POOLED_AREA_KEYS = [
+  'landUtilisedSqm', 'footprintSqm', 'landscapeSqm', 'retailGfaSqm', 'lobbyGfaSqm',
+  'totalGfaSqm', 'mainAssetGfaSqm', 'netSaleableSqm', 'units', 'parkingSlots',
+  'retailParkingSlots', 'totalParkingSlots', 'parkingAreaSqm', 'retailParkingAreaSqm',
+  'totalParkingAreaSqm', 'totalBuaSqm',
+] as const;
+
+/** All a total needs of a row: its land and its chain result. Structural, so
+ *  the tab's own richer row type satisfies it without this file learning it. */
+export interface TotalledRow {
+  landSqm: number;
+  chain: Partial<Record<string, number | undefined>>;
+}
+
+export interface AreaTotals {
+  landSqm: number;
+  pooled: Record<string, number>;
+  landscapePct?: number;
+  avgUnitSize?: number;
+  parkingRatio?: number;
+}
+
+/**
+ * Total the rows, and add the land the retail companions hold.
+ *
+ * THE COMPANION CONTRIBUTES LAND AND NOTHING ELSE, and that is not an
+ * omission. Its floor area IS its hosts' retail GFA, already inside their
+ * Retail GFA, Total GFA and Total BUA, so adding it again would double count
+ * the very area the carve exists to place. Its LAND is the opposite case: the
+ * hosts gave it up and their rows are already net of it, so leaving it out
+ * makes the Land column short by exactly the carve, which is how the carve
+ * managed to be invisible for a day.
+ *
+ * The three ratios are quotients of the SUMMED columns, never averages of the
+ * rows' own ratios, which is the rule table 4 already applies to a line built
+ * from several plots. Absent, never zero, when there is nothing to divide by.
+ */
+export function totalsFromRows(
+  rows: readonly TotalledRow[],
+  companionLandSqm: number,
+): AreaTotals {
+  const pooled = poolLineAreas(rows.map((r) => r.chain), POOLED_AREA_KEYS as unknown as string[]);
+  const q = (a: number | undefined, b: number | undefined): number | undefined =>
+    (typeof a === 'number' && typeof b === 'number' && b > 0) ? a / b : undefined;
+  return {
+    landSqm: rows.reduce((t, r) => t + (Number.isFinite(r.landSqm) ? r.landSqm : 0), 0)
+      + (Number.isFinite(companionLandSqm) ? companionLandSqm : 0),
+    pooled,
+    landscapePct: q(pooled.landscapeSqm, pooled.landUtilisedSqm),
+    avgUnitSize: q(pooled.netSaleableSqm, pooled.units),
+    parkingRatio: q(pooled.parkingSlots, pooled.units),
+  };
 }

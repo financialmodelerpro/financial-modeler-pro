@@ -87,6 +87,10 @@ import {
   poolSubUnits,
   primaryParcelId,
   resolveAssetNsa,
+  totalsFromRows,
+  POOLED_AREA_KEYS,
+  type AreaTotals,
+  type TotalledRow,
   type AssetPlotGroup,
   type NsaSource,
   type PooledSubUnits,
@@ -537,6 +541,46 @@ export default function Module1Assets(): React.JSX.Element {
     return out;
   }, [assets]);
 
+  /**
+   * THE CARVED LAND, PER COMPANION AND PER PLOT (2026-09-10).
+   *
+   * Step 5 gave the retail companion a share of each host's land, and every
+   * host row already showed its REDUCED figure, but nothing showed where that
+   * land went: table 3 excludes companions from its plot grouping and table 4
+   * printed a hardcoded dash left over from step 4, when a companion really did
+   * take no land. So a reader watched land leave the hosts and arrive nowhere,
+   * and the visible Land column stopped summing to the plot area (measured on
+   * Marina Gate: 545.88 + 240.00 + 216.00 sqm off screen).
+   *
+   * READ THROUGH THE ENGINE'S OWN FUNCTION, never re-derived here: this is the
+   * same `computeAssetLandBreakdown` the cost engine calls, so the table cannot
+   * hold a second opinion about the carve. The SPLITS are what table 3 needs,
+   * because a companion pools retail from hosts on DIFFERENT plots and a
+   * per-plot table has to place each piece under the plot it came from.
+   */
+  const retailLand = useMemo((): RetailLandView => {
+    const byAssetId: Record<string, number> = {};
+    const byParcelId: Record<string, { assetId: string; name: string; sqm: number }[]> = {};
+    let totalSqm = 0;
+    for (const a of assets) {
+      if (!isRetailCompanion(a)) continue;
+      const b = computeAssetLandBreakdown(a, parcels, assets, subUnits, landAllocationMode);
+      byAssetId[a.id] = b.landSqm;
+      totalSqm += b.landSqm;
+      for (const sp of b.splits) {
+        if (!sp.parcelId || sp.sqm <= 0) continue;
+        (byParcelId[sp.parcelId] ??= []).push({ assetId: a.id, name: assetDisplayName(a), sqm: sp.sqm });
+      }
+    }
+    return { byAssetId, byParcelId, totalSqm };
+  }, [assets, parcels, subUnits, landAllocationMode]);
+
+  /** Every plot's area, for the totals row's own reconciliation. */
+  const parcelsTotalSqm = useMemo(
+    () => parcels.reduce((s, p) => s + Math.max(0, p.area), 0),
+    [parcels],
+  );
+
   // WHAT THE PARTS ARE PARTS OF, per asset: the chain's NSA when the chain is
   // running for that plot, the entered NSA when it is not. One rule, in
   // assetTableModel, where its reversal is written down.
@@ -916,6 +960,8 @@ export default function Module1Assets(): React.JSX.Element {
         rowGroups={rowGroups}
         lineGroups={lineGroups}
         retailByLineKey={retailByLineKey}
+        retailLand={retailLand}
+        parcelsTotalSqm={parcelsTotalSqm}
         allAssets={assets}
         allPhases={phases}
         parcels={parcels}
@@ -1251,6 +1297,11 @@ interface AssetTableProps {
   rowGroups: RowGroup[];
   /** The pooled retail companion each line holds, shown under its line. */
   retailByLineKey: Record<string, Asset>;
+  /** What each retail companion holds in LAND, carved from its hosts, with the
+   *  per-plot splits table 3 files under each plot. */
+  retailLand: RetailLandView;
+  /** Every plot's area, so a total row can say whether the Land column foots. */
+  parcelsTotalSqm: number;
   /** Table 4: the merge, per line. */
   lineGroups: ConsolidationGroup[];
   allAssets: Asset[];
@@ -1481,6 +1532,101 @@ function PlotHeaderRow({
     </tr>
   );
 }
+/**
+ * THE TOTAL ROW IS ONE RULE, RENDERED BY BOTH TABLES (2026-09-10).
+ *
+ * Tables 3 and 4 show the same assets under two groupings, so their totals MUST
+ * agree, and the way to guarantee that is not to write the sum twice carefully:
+ * it is to write it once. `totalsFromRows` computes, `TotalCells` renders the
+ * twenty numeric cells in the order both tables declare their columns, and each
+ * table supplies only its own identity cells. A column added to one table and
+ * not the other now breaks the shared cell list rather than producing two
+ * totals that quietly differ.
+ *
+ * THE AREAS ARE POOLED BY THE LINE'S OWN RULE (`poolLineAreas`), so the total
+ * is the same arithmetic a line row does, over every row instead of one line's.
+ * The three ratios are quotients of the summed columns, never averages of the
+ * rows' own ratios, which is the rule table 4 already states for its lines.
+ *
+ * THE COMPANION CONTRIBUTES LAND AND NOTHING ELSE, and that is not an omission.
+ * Its floor area IS its hosts' retail GFA, already inside their Retail GFA,
+ * Total GFA and Total BUA; adding it again would double count the very area the
+ * carve exists to place. Its LAND is the opposite: the hosts gave it up, so
+ * without it the Land column is short by exactly the carve.
+ */
+/**
+ * THE CARVED LAND, ALREADY ARRANGED FOR THE TWO TABLES THAT SHOW IT.
+ *
+ * Resolved once in the root and handed over in the shape each table needs, so
+ * neither table filters, groups or sums a companion for itself. That is the
+ * same rule the rows follow (the chain runs once, in one place, and the tables
+ * render what it produced), and it is what keeps "the results table orders
+ * nothing itself" true.
+ */
+interface RetailLandView {
+  /** What each companion holds in total, for the merged table's Land cell. */
+  byAssetId: Record<string, number>;
+  /** The pieces each PLOT gave up, for the per-plot table. A companion pools
+   *  retail from hosts on different plots, so its land arrives in pieces and
+   *  each belongs under the plot it came from. */
+  byParcelId: Record<string, { assetId: string; name: string; sqm: number }[]>;
+  /** Every companion's land, which the totals add to the hosts' remainder. */
+  totalSqm: number;
+}
+
+function TotalCells({ totals, testId }: { totals: AreaTotals; testId: string }): React.JSX.Element {
+  const t = totals;
+  const g = (k: string): number | undefined => (k in t.pooled ? t.pooled[k] : undefined);
+  const d = (v: number | undefined): string => (v === undefined ? '-' : areaText(v));
+  const n = (v: number | undefined): string =>
+    v === undefined ? '-' : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const whole = (v: number | undefined): string =>
+    v === undefined ? '-' : Math.round(v).toLocaleString();
+  // THE BAND IS ON EVERY CELL, never on the <tr> alone: the platform-wide
+  // sticky first-cell rule paints its own opaque background above a row band,
+  // so a row-only colour renders white at the left (TRAPS 6.4, and U29h4 fails
+  // on it). FOOT_BAND is the navy foot the sub-units table already uses for a
+  // grand total that belongs to no single line.
+  const C: React.CSSProperties = { ...CELL_NUM, ...FOOT_BAND, fontWeight: 700 };
+  return (
+    <>
+      <td style={C} data-testid={`${testId}-land`}>{areaText(t.landSqm)}</td>
+      <td style={C} data-testid={`${testId}-land-utilised`}>{d(g('landUtilisedSqm'))}</td>
+      <td style={C}>{d(g('footprintSqm'))}</td>
+      <td style={C}>{t.landscapePct === undefined ? '-' : `${n(t.landscapePct * 100)}%`}</td>
+      <td style={C}>{d(g('landscapeSqm'))}</td>
+      <td style={C} data-testid={`${testId}-retail-gfa`}>{d(g('retailGfaSqm'))}</td>
+      <td style={C}>{d(g('lobbyGfaSqm'))}</td>
+      <td style={C} data-testid={`${testId}-total-gfa`}>{d(g('totalGfaSqm'))}</td>
+      <td style={C}>{d(g('mainAssetGfaSqm'))}</td>
+      <td style={C} data-testid={`${testId}-net-saleable`}>{d(g('netSaleableSqm'))}</td>
+      <td style={C}>{d(t.avgUnitSize)}</td>
+      <td style={C} data-testid={`${testId}-units`}>{whole(g('units'))}</td>
+      <td style={C}>{n(t.parkingRatio)}</td>
+      <td style={C} data-testid={`${testId}-parking-slots`}>{whole(g('parkingSlots'))}</td>
+      <td style={C}>{whole(g('retailParkingSlots'))}</td>
+      <td style={C}>{whole(g('totalParkingSlots'))}</td>
+      <td style={C}>{d(g('parkingAreaSqm'))}</td>
+      <td style={C}>{d(g('retailParkingAreaSqm'))}</td>
+      <td style={C} data-testid={`${testId}-total-parking-area`}>{d(g('totalParkingAreaSqm'))}</td>
+      <td style={C} data-testid={`${testId}-total-bua`}>{d(g('totalBuaSqm'))}</td>
+    </>
+  );
+}
+
+/** One sentence saying whether the Land column foots to the plots, so the
+ *  reader is not left subtracting two numbers. The carve makes this the check
+ *  that matters: it fails the moment a companion's share stops being shown. */
+function landFootsText(landTotalSqm: number, parcelsTotalSqm: number): string {
+  const diff = parcelsTotalSqm - landTotalSqm;
+  if (Math.abs(diff) < 0.5) {
+    return `Land totals ${areaText(landTotalSqm)} sqm against ${areaText(parcelsTotalSqm)} sqm of plots: it foots.`;
+  }
+  return diff > 0
+    ? `Land totals ${areaText(landTotalSqm)} sqm against ${areaText(parcelsTotalSqm)} sqm of plots: ${areaText(diff)} sqm is drawn by nothing shown here.`
+    : `Land totals ${areaText(landTotalSqm)} sqm against ${areaText(parcelsTotalSqm)} sqm of plots: ${areaText(-diff)} sqm more than the plots hold.`;
+}
+
 /**
  * TABLE ONE: what the user types.
  *
@@ -1806,16 +1952,12 @@ function AssetInputsTable({
  * of the table above, neither table has to choose between being complete and
  * being readable.
  */
-/** The chain fields a line sums. Listed rather than inferred, so a new chain
- *  field is a deliberate addition here rather than a silent omission. */
-const POOLED_AREA_KEYS = [
-  'landUtilisedSqm', 'footprintSqm', 'landscapeSqm', 'retailGfaSqm', 'lobbyGfaSqm',
-  'totalGfaSqm', 'mainAssetGfaSqm', 'netSaleableSqm', 'units', 'parkingSlots',
-  'retailParkingSlots', 'totalParkingSlots', 'parkingAreaSqm', 'retailParkingAreaSqm',
-  'totalParkingAreaSqm', 'totalBuaSqm',
-] as const;
 
-function AssetResultsTable({ rowGroups }: { rowGroups: RowGroup[] }): React.JSX.Element {
+function AssetResultsTable({ rowGroups, retailLand, parcelsTotalSqm }: {
+  rowGroups: RowGroup[];
+  retailLand: RetailLandView;
+  parcelsTotalSqm: number;
+}): React.JSX.Element {
   // TWENTY columns, and the count is stated once. It was 19 in three places
   // (here, the colgroup and the band row) against 20 real columns, so the last
   // one had no declared width under `table-layout: fixed` and no band above
@@ -1830,6 +1972,12 @@ function AssetResultsTable({ rowGroups }: { rowGroups: RowGroup[] }): React.JSX.
   // formatter that happens to round for display.
   const whole = (v: number | undefined): string =>
     v === undefined ? '-' : Math.round(v).toLocaleString();
+  // EVERY PLOT'S ROWS, IN ONE LIST, for the total. Table 4 totals the same rows
+  // under a different grouping and must land on the same figures.
+  const totals = totalsFromRows(
+    rowGroups.flatMap((g) => g.rows) as unknown as TotalledRow[],
+    retailLand.totalSqm,
+  );
   return (
     <div style={sectionCardStyle} data-testid="assets-results-section">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 'var(--sp-1)' }}>
@@ -1961,13 +2109,62 @@ function AssetResultsTable({ rowGroups }: { rowGroups: RowGroup[] }): React.JSX.
                     <td style={{ ...CELL_DERIVED, fontWeight: 700 }} data-testid={`asset-result-${asset.id}-total-bua`}>{d(chain.totalBuaSqm)}</td>
                   </tr>
                 ))}
+                {/* THE RETAIL COMPANION'S SHARE OF THIS PLOT (2026-09-10).
+                    A companion is not in `groupAssetsByPlot` (it is not a plot
+                    asset and it must not join the plot CHECK, which counts
+                    gross draws), but since step 5 it HOLDS land taken from the
+                    hosts above, so a per-plot table that omits it shows land
+                    leaving and never arriving. One row per companion drawing
+                    from THIS plot, at the split the engine computed: a
+                    companion pools retail from hosts on different plots, so its
+                    land arrives here in pieces, each under the plot it came
+                    from. Land only, because its floor area is already inside
+                    the hosts' Retail GFA above. */}
+                {(retailLand.byParcelId[group.parcel?.id ?? ''] ?? []).map((piece) => (
+                  <tr
+                    key={`${group.key}-${piece.assetId}`}
+                    style={{ borderBottom: '1px solid var(--color-border)' }}
+                    data-testid={`plot-${group.key}-retail-land-${piece.assetId}`}
+                  >
+                    <td style={{ ...CELL, color: 'var(--color-meta)', fontSize: 10 }}>{group.parcel?.name}</td>
+                    <td style={CELL}>
+                      {piece.name}
+                      <div style={{ fontSize: 9, color: 'var(--color-meta)' }}>
+                        retail companion, land carved from this plot&apos;s hosts
+                      </div>
+                    </td>
+                    <td style={CELL_NUM}
+                      title="The share of this plot its hosts gave up: retail GFA over total GFA, per host, at this plot's own rate. The host rows above are already net of it, so this plot still foots.">
+                      {areaText(piece.sqm)}
+                    </td>
+                    {/* The chain columns, all nineteen. A companion runs no
+                        chain of its own: its floor area is the Retail GFA of
+                        its hosts, already counted in their rows above, so
+                        repeating it here would double count the exact area the
+                        carve exists to place. */}
+                    {Array.from({ length: 19 }).map((_, i) => (
+                      <td key={`rc-${i}`} style={CELL_DERIVED}>-</td>
+                    ))}
+                  </tr>
+                ))}
               </React.Fragment>
             ))}
+            {/* THE TOTAL, over every plot and every companion. Rendered from
+                the SAME rule table 4's total uses, so the two can be read
+                against each other. */}
+            <tr style={FOOT_BAND} data-testid="assets-results-total">
+              <td style={{ ...CELL, ...FOOT_BAND, fontWeight: 700 }} colSpan={2}>TOTAL, all plots</td>
+              <TotalCells totals={totals} testId="assets-results-total" />
+            </tr>
           </tbody>
         </table>
       </div>
       <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 6 }}>
         A dash means a step could not be derived, which is not the same as zero. Open a row above to see why.
+      </div>
+      <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 2 }} data-testid="assets-results-total-check">
+        {landFootsText(totals.landSqm, parcelsTotalSqm)} The same totals appear under table 4, which
+        groups these rows by line instead of by plot, so the two must agree.
       </div>
     </div>
   );
@@ -1991,12 +2188,15 @@ function AssetResultsTable({ rowGroups }: { rowGroups: RowGroup[] }): React.JSX.
  * No sub-units here. They have their own table below, grouped under the line.
  */
 function MergedLineTable({
-  lineRowGroups, allPhases, retailByLineKey,
+  lineRowGroups, allPhases, retailByLineKey, retailLand, parcelsTotalSqm,
 }: {
   lineRowGroups: LineRowGroup[];
   allPhases: Phase[];
   /** The pooled retail companion each line holds, when it builds any. */
   retailByLineKey: Record<string, Asset>;
+  /** What each companion holds, carved from its hosts. */
+  retailLand: RetailLandView;
+  parcelsTotalSqm: number;
 }): React.JSX.Element {
   // 4 identity + 20 derived. Counts agree or U15 fails.
   const COLS = 24;
@@ -2010,6 +2210,12 @@ function MergedLineTable({
   const ratio = (a: number | undefined, b: number | undefined): number | undefined =>
     (typeof a === 'number' && typeof b === 'number' && b > 0) ? a / b : undefined;
   const live = lineRowGroups.filter((l) => l.rows.length > 0);
+  // THE SAME ROWS TABLE 3 TOTALS, regrouped by line, plus the same companion
+  // land. Both tables call one function, so agreement is structural.
+  const totals = totalsFromRows(
+    lineRowGroups.flatMap((l) => l.rows) as unknown as TotalledRow[],
+    retailLand.totalSqm,
+  );
   return (
     <div style={sectionCardStyle} data-testid="assets-merged-section">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 'var(--sp-1)' }}>
@@ -2163,18 +2369,20 @@ function MergedLineTable({
             })}
             {/* THE RETAIL COMPANIONS, under the lines that build them.
                 A real asset, on Lease, holding the ground-floor retail its
-                hosts derive while the host stays Sell. It takes no land and
-                charges nothing: the engine short-circuits any companion before
-                a cost line is resolved, which is why it can exist here without
-                moving a number. Shown after the lines rather than interleaved,
-                because a line's own row is what its plots add up to and the
-                retail is a DIFFERENT asset, not a part of that total. */}
+                hosts derive while the host stays Sell. Since step 5 it also
+                holds LAND, carved from those hosts, which is why the Land
+                column below is a figure and no longer a dash. Shown after the
+                lines rather than interleaved, because a line's own row is what
+                its plots add up to and the retail is a DIFFERENT asset, not a
+                part of that total. */}
             {live.some((l) => retailByLineKey[l.group.key]) && (
               <tr data-testid="merged-retail-heading">
                 <td style={{ ...CELL, ...BAND, fontWeight: 700, fontSize: 10 }} colSpan={COLS}>
-                  Retail companions, held on Lease. Their area is already inside the Retail GFA
+                  Retail companions, held on Lease. Their FLOOR AREA is already inside the Retail GFA
                   above; this is the same floor space as its own asset, so it can capitalise and
-                  earn rent while its host sells. No land and no cost lines yet.
+                  earn rent while its host sells. Their LAND is not double counted either: each host
+                  row above is already net of what it gave up, so the Land column here is the same
+                  land, moved. No cost lines yet.
                 </td>
               </tr>
             )}
@@ -2192,7 +2400,16 @@ function MergedLineTable({
                   <td style={CELL_NUM} title="How many of the line's plots contribute ground-floor retail.">
                     {(r.retailHostAssetIds ?? []).length}
                   </td>
-                  <td style={CELL_NUM} title="A companion takes no land. The land carve-out is a later step.">-</td>
+                  {/* THE CARVED LAND, NOT A DASH (2026-09-10). This cell was
+                      hardcoded to "-" with the note "the land carve-out is a
+                      later step", written during step 4 and never revisited
+                      when step 5 shipped the carve the next day. The land is
+                      real, the hosts' rows are already net of it, and printing
+                      a dash here was the last place claiming otherwise. */}
+                  <td style={CELL_NUM} data-testid={`retail-companion-${group.key}-land`}
+                    title="Its share of each host's land: retail GFA over total GFA, per host, at that host's own plot rate. The host rows above are already net of it, so the project total is unchanged.">
+                    {areaText(retailLand.byAssetId[r.id] ?? 0)}
+                  </td>
                   <td style={CELL_DERIVED}>-</td>
                   <td style={CELL_DERIVED}>-</td>
                   <td style={CELL_DERIVED}>-</td>
@@ -2215,11 +2432,22 @@ function MergedLineTable({
                 </tr>
               );
             })}
+            {/* THE SAME TOTAL AS TABLE 3, from the same function over the same
+                rows. The two tables group differently and must foot alike; if
+                they ever disagree, one of the groupings has lost a row. */}
+            <tr style={FOOT_BAND} data-testid="assets-merged-total">
+              <td style={{ ...CELL, ...FOOT_BAND, fontWeight: 700 }} colSpan={4}>TOTAL, all lines</td>
+              <TotalCells totals={totals} testId="assets-merged-total" />
+            </tr>
           </tbody>
         </table>
       </div>
       <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 6 }}>
         A dash means a step could not be derived on any of the line&apos;s plots, which is not the same as zero.
+      </div>
+      <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 2 }} data-testid="assets-merged-total-check">
+        {landFootsText(totals.landSqm, parcelsTotalSqm)} These are the same figures table 3 totals
+        by plot: the two group the same rows differently, so they must agree cell for cell.
       </div>
     </div>
   );
@@ -2227,7 +2455,8 @@ function MergedLineTable({
 
 /** The four asset tables, stacked, from ONE resolved row list. */
 function AssetTables({
-  rowGroups, lineGroups, retailByLineKey, allAssets, allPhases, parcels, subUnits, project,
+  rowGroups, lineGroups, retailByLineKey, retailLand, parcelsTotalSqm,
+  allAssets, allPhases, parcels, subUnits, project,
   landAllocationMode, assetTypeRegistry, onUpdateAsset, onRemoveAsset, onAddAsset,
 }: AssetTableProps): React.JSX.Element {
   const [openId, setOpenId] = useState<string | null>(null);
@@ -2251,8 +2480,18 @@ function AssetTables({
         onRemoveAsset={onRemoveAsset}
         onAddAsset={onAddAsset}
       />
-      <AssetResultsTable rowGroups={rowGroups} />
-      <MergedLineTable lineRowGroups={lineRowGroups} allPhases={allPhases} retailByLineKey={retailByLineKey} />
+      <AssetResultsTable
+        rowGroups={rowGroups}
+        retailLand={retailLand}
+        parcelsTotalSqm={parcelsTotalSqm}
+      />
+      <MergedLineTable
+        lineRowGroups={lineRowGroups}
+        allPhases={allPhases}
+        retailByLineKey={retailByLineKey}
+        retailLand={retailLand}
+        parcelsTotalSqm={parcelsTotalSqm}
+      />
     </>
   );
 }

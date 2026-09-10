@@ -42,6 +42,7 @@ import {
 import { computeLandChain } from '../src/core/calculations/landChain';
 import { computeAssetLandBreakdown, computeAssetUnitCount, computeAssetLandSqm } from '../src/core/calculations';
 import { groupAssetsForConsolidation } from '../src/core/calculations/consolidation';
+import { groupAssetsByPlot } from '../src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel';
 import { makeRetailCompanionAsset, makeRetailCompanionSubUnit } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import type { Asset, SubUnit, SubUnitCategory, SubUnitMetric } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
@@ -549,6 +550,58 @@ async function liveChecks(): Promise<void> {
   check('I3 and the project land total is unchanged (necessary, not sufficient)',
     totalsMoved === 0, `${totalsMoved} projects whose total moved`);
 
+  // ── I5. WHAT THE SCREEN SHOWS FOOTS, PER PLOT (2026-09-10) ──────────────
+  //
+  // The engine reconciled from the day the carve shipped; the SCREEN did not.
+  // Table 3 excludes companions from its plot grouping, so it showed each host
+  // net of the carve with nothing receiving it, and its Land column stopped
+  // summing to the plot area (measured: 545.88 + 240.00 + 216.00 sqm off screen
+  // on the one live project that carves). The fix files each companion's
+  // per-plot SPLIT under the plot it came from, so this asserts what a reader
+  // can now add up with their own eyes: for every plot, the carved host land
+  // plus the companion pieces equals the plot's area.
+  //
+  // AND IT IS A DIFFERENT QUANTITY FROM THE PLOT CHECK ABOVE IT, deliberately:
+  // that check sums `resolveAssetPlotDraw`, which is the GROSS draw and returns
+  // nothing for a companion. It kept reading "ok" throughout, which is exactly
+  // why nothing caught this: two quantities on one screen, one of them right.
+  //
+  // THIS CHECKS THE NUMBERS, NOT THE MARKUP. It recomputes from the engine what
+  // the table now renders; that the table actually renders it is a separate
+  // claim, pinned by `verify-land-chain` U12i. Neither covers the other, and a
+  // reader who assumes it does will be wrong in one direction or the other.
+  let plotsChecked = 0, plotsShort = 0;
+  for (const p of ps) {
+    const vs = await q(`refm_project_versions?project_id=eq.${p.id}&select=snapshot&order=created_at.desc&limit=1`) as { snapshot: Record<string, unknown> }[];
+    if (!vs[0]?.snapshot) continue;
+    let st: Record<string, unknown>;
+    try { st = hydrationFromAnySnapshot(vs[0].snapshot as never) as never; } catch { continue; }
+    const assets = (st.assets ?? []) as Asset[];
+    const parcels = (st.parcels ?? []) as never[];
+    const subUnits = (st.subUnits ?? []) as never[];
+    const mode = (st.landAllocationMode ?? 'sqm') as never;
+    if (!assets.some((a) => isRetailCompanion(a))) continue;
+    for (const g of groupAssetsByPlot(assets, parcels)) {
+      if (!g.parcel) continue;
+      plotsChecked += 1;
+      // What table 3 renders under this plot: its assets' carved land ...
+      let shown = (g.assets as Asset[]).reduce(
+        (acc: number, a: Asset) => acc + computeAssetLandBreakdown(a, parcels, assets, subUnits, mode).landSqm, 0);
+      // ... plus every companion piece filed under it.
+      for (const a of assets) {
+        if (!isRetailCompanion(a)) continue;
+        for (const sp of computeAssetLandBreakdown(a, parcels, assets, subUnits, mode).splits) {
+          if (sp.parcelId === g.parcel.id) shown += sp.sqm;
+        }
+      }
+      if (Math.abs(shown - (g.parcelAreaSqm ?? 0)) > 0.005) {
+        plotsShort += 1;
+        console.log(`      PLOT SHORT ${p.name} / ${g.parcel.name}: shown ${shown.toFixed(2)} vs area ${(g.parcelAreaSqm ?? 0).toFixed(2)}`);
+      }
+    }
+  }
+  check('I5 what table 3 SHOWS foots to the plot area, on every plot of every carving project',
+    plotsShort === 0 && plotsChecked >= 3, `${plotsShort} short of ${plotsChecked} plots`);
 }
 
 async function main(): Promise<void> {

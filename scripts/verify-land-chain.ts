@@ -43,8 +43,10 @@ import {
   poolSubUnits,
   primaryParcelId,
   resolveAssetNsa,
+  totalsFromRows,
   UNPLOTTED_GROUP,
   type AssetPlotGroup,
+  type TotalledRow,
 } from '../src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel';
 import type { Asset, Parcel, SubUnit } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { ASSET_TYPES_BY_CATEGORY } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
@@ -537,6 +539,67 @@ function offlineChecks(): void {
     // ABSENT, NEVER ZERO, when there is nothing to divide by.
     && /b > 0\) \? a \/ b : undefined/.test(mergedBody),
     mergedBody.length === 0 ? 'could not isolate the merged component body' : '');
+  // ── U12d to U12h. THE TOTAL ROW, ONE RULE FOR TWO TABLES (2026-09-10) ────
+  //
+  // Tables 3 and 4 show the same assets under two groupings, so their totals
+  // must agree. RUN, not read: a check that reads two JSX blocks and satisfies
+  // itself they look alike proves nothing about what they add up to.
+  const tRow = (landSqm: number, chain: Record<string, number | undefined>): TotalledRow =>
+    ({ landSqm, chain });
+  const sample: TotalledRow[] = [
+    tRow(1000, { landUtilisedSqm: 900, landscapeSqm: 360, netSaleableSqm: 800, units: 4, parkingSlots: 8, totalBuaSqm: 1200 }),
+    tRow(500, { landUtilisedSqm: 500, landscapeSqm: 140, netSaleableSqm: 400, units: 1, parkingSlots: 2, totalBuaSqm: 600 }),
+  ];
+  const straight = totalsFromRows(sample, 0);
+  const regrouped = totalsFromRows([sample[1], sample[0]], 0);
+  check('U12d the totals are order-independent, so two groupings of one row set agree',
+    JSON.stringify(straight) === JSON.stringify(regrouped)
+    && straight.landSqm === 1500 && straight.pooled.totalBuaSqm === 1800);
+  check('U12e the three ratios are quotients of the SUMS, never averages of the rows own ratios',
+    // Landscape: 500 / 1400, not the mean of 40% and 28%.
+    Math.abs((straight.landscapePct ?? 0) - (500 / 1400)) < 1e-12
+    // Unit size: 1200 / 5 = 240, not the mean of 200 and 400.
+    && straight.avgUnitSize === 240
+    && straight.parkingRatio === 2,
+    `${String(straight.landscapePct)} / ${String(straight.avgUnitSize)} / ${String(straight.parkingRatio)}`);
+  check('U12f a column no row could derive is ABSENT from the total, never a confident zero',
+    !('retailGfaSqm' in straight.pooled) && !('footprintSqm' in straight.pooled)
+    && totalsFromRows([tRow(0, {})], 0).avgUnitSize === undefined);
+  // U12g IS THE DEFECT THIS WHOLE ROW EXISTS FOR. The carve moves land from the
+  // hosts to the companion; the hosts' rows are already net of it, so a total
+  // that leaves the companion out is short by exactly the carve, which is how
+  // the carve managed to be invisible for a day.
+  const carved: TotalledRow[] = [tRow(10454.12, { totalBuaSqm: 100 }), tRow(4760, { totalBuaSqm: 50 })];
+  check('U12g the companion LAND is added to the total, and its floor area is NOT',
+    Math.abs(totalsFromRows(carved, 785.88).landSqm - 16000) < 0.005
+    // The companion contributes to LAND only: every pooled area is untouched,
+    // because its floor area is already inside its hosts' figures.
+    && totalsFromRows(carved, 785.88).pooled.totalBuaSqm === 150
+    && totalsFromRows(carved, 0).landSqm === 15214.12,
+    `${totalsFromRows(carved, 785.88).landSqm}`);
+  check('U12h BOTH tables render the total through the ONE shared rule and the ONE shared cell list',
+    // Imported from the shared model, so a verifier can run it; not redeclared
+    // in the tab, which would put the arithmetic back in the markup.
+    !/function totalsFromRows\(/.test(tabSrc)
+    && (tabSrc.match(/totalsFromRows\(/g) ?? []).length === 2
+    && (tabSrc.match(/<TotalCells totals=\{totals\}/g) ?? []).length === 2
+    && resultsBody.includes('<TotalCells totals={totals}')
+    && mergedBody.includes('<TotalCells totals={totals}')
+    // And each table states which grouping its total is over, so the two rows
+    // are readable side by side rather than looking like the same row twice.
+    && tabSrc.includes('TOTAL, all plots') && tabSrc.includes('TOTAL, all lines'));
+  // U12i THE COMPANION'S LAND IS ON SCREEN IN BOTH TABLES. Step 5 gave it land
+  // and neither table showed it: table 3 excludes companions from its plot
+  // grouping, and table 4 printed a hardcoded dash written during step 4, when
+  // a companion really did take none. A reader saw land leave the hosts and
+  // arrive nowhere.
+  check('U12i the carved land is SHOWN: per plot in table 3, per companion in table 4',
+    resultsBody.includes('retailLand.byParcelId[')
+    && resultsBody.includes('retail companion, land carved from')
+    && mergedBody.includes('{areaText(retailLand.byAssetId[r.id] ?? 0)}')
+    // The stale claim is gone from both the cell and the section caption.
+    && !tabSrc.includes('A companion takes no land')
+    && !tabSrc.includes('No land and no cost lines yet'));
   // U12c THE MERGE HOLDS THE SAME ROWS TABLE 3 RENDERED. Running the chain a
   // second time under a different grouping would give the merge its own copy of
   // the arithmetic, and two copies are two answers waiting to diverge.
@@ -977,7 +1040,17 @@ function offlineChecks(): void {
     // The grand-total foot and the plots subtotal, the two <td> rows that were
     // still relying on the row alone.
     && /<tr style=\{FOOT_BAND\} data-testid="subunits-project-totals">/.test(tabSrc)
-    && (tabSrc.match(/\.\.\.FOOT_BAND/g) ?? []).length === 8
+    // ELEVEN SPREADS, AND THE COUNT IS MADE OF THREE THINGS (2026-09-10):
+    // the sub-units foot row's own 8 cells, plus the two total rows added to
+    // tables 3 and 4, which contribute ONE identity cell each and share ONE
+    // cell style for all twenty numeric cells (`TotalCells`, the single
+    // definition both tables render). That is why three rows cost three
+    // spreads and not forty-eight: a missing band on any numeric cell is
+    // impossible by construction rather than by counting.
+    && (tabSrc.match(/\.\.\.FOOT_BAND/g) ?? []).length === 11
+    && /<tr style=\{FOOT_BAND\} data-testid="assets-results-total">/.test(tabSrc)
+    && /<tr style=\{FOOT_BAND\} data-testid="assets-merged-total">/.test(tabSrc)
+    && /const C: React\.CSSProperties = \{ \.\.\.CELL_NUM, \.\.\.FOOT_BAND/.test(tabSrc)
     && /<tr style=\{SUBTOTAL_BAND\}>/.test(tabSrc)
     && (tabSrc.match(/\.\.\.SUBTOTAL_BAND/g) ?? []).length >= 6
     // AND NO <td> ROW STATES A COLOUR ON THE ROW ALONE. The shape that breaks
