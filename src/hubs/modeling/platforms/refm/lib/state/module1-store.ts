@@ -49,6 +49,7 @@ import {
   reconcileRetailSubUnits,
   type RetailCompanionSpec,
 } from '@/src/core/calculations/retailCompanion';
+import type { LineSubUnitPlan } from '../../components/modules/_shared/assetTableModel';
 import { applyStrategySwitch, assetHasStrategyAssumptions } from './strategySwitch';
 import {
   applyOverrides,
@@ -166,6 +167,9 @@ export interface Module1Store {
   setSubUnits: (subUnits: SubUnit[]) => void;
   /** Reconcile the pooled retail companions to the specs the assets tab derives. */
   syncRetailCompanions: (specs: RetailCompanionSpec[]) => void;
+  /** Seed a line that has no sub-unit, and re-derive every area whose SHARE is
+   *  the statement, from the plan the assets tab derives. */
+  syncLineSubUnits: (plan: LineSubUnitPlan, mintSubUnitId: () => string) => void;
   addSubUnit: (subUnit: SubUnit) => void;
   updateSubUnit: (id: string, patch: Partial<SubUnit>) => void;
   removeSubUnit: (id: string) => void;
@@ -508,6 +512,59 @@ export function createModule1Store() {
         ...(r.changed ? { assets: r.assets } : {}),
         ...(u.changed ? { subUnits: u.subUnits } : {}),
       };
+    }),
+
+    /**
+     * SEED A LINE THAT HAS NOTHING TO PRICE, AND KEEP A TYPED SHARE HONEST.
+     *
+     * The caller supplies a PLAN, not a rule: the area chain runs once, in the
+     * assets tab, and the line NSA every figure here depends on comes from it.
+     * Deciding what to add and what to re-derive is a pure function in
+     * `_shared/assetTableModel`; this only applies it, exactly as
+     * `syncRetailCompanions` above only applies the companion specs.
+     *
+     * IT RETURNS THE SAME STATE WHEN NOTHING MOVED, which is what stops a
+     * derive-on-render loop and what stops a project being marked dirty for
+     * being opened. The plan itself is silent when a share's area is already
+     * within a hundredth of a sqm, so a settled model produces an empty plan.
+     *
+     * THE SEEDED ROW IS PRICED AT ZERO and states a 100% share, so it earns
+     * nothing until somebody prices it and its area follows the line's NSA for
+     * ever after. It is NOT free the way the retail companion's row is: a
+     * companion is short-circuited before any cost line resolves, while these
+     * sit on ordinary assets, so an asset that had no area now has one and
+     * every rate_per_nsa / rate_per_bua / rate_per_gfa line starts charging for
+     * it. That is the point (a line nobody can price also charges nothing), and
+     * it is measured in the CHANGELOG rather than left to be discovered.
+     */
+    syncLineSubUnits: (plan, mintSubUnitId) => set((s) => {
+      const seeds = plan.seeds.filter((seed) => s.assets.some((a) => a.id === seed.assetId));
+      const byId = new Map(plan.reallocations.map((r) => [r.subUnitId, r.areaSqm] as const));
+      let changed = seeds.length > 0;
+      const next = s.subUnits.map((u) => {
+        const areaSqm = byId.get(u.id);
+        if (areaSqm === undefined) return u;
+        changed = true;
+        return { ...u, metricValue: areaSqm };
+      });
+      if (!changed) return {};
+      for (const seed of seeds) {
+        next.push({
+          id: mintSubUnitId(),
+          assetId: seed.assetId,
+          name: seed.name,
+          category: seed.category,
+          metric: 'area',
+          metricValue: seed.areaSqm,
+          // THE WHOLE OF IT, STATED AS A SHARE, so the row follows the line's
+          // NSA from here on rather than freezing at the area it was born with.
+          nsaSharePct: 100,
+          // EARNS NOTHING UNTIL SOMEBODY PRICES IT, the same rule the retail
+          // companion's derived row follows.
+          unitPrice: 0,
+        });
+      }
+      return { subUnits: next };
     }),
 
     setAssetTypeValue: (entryId, patch) => set((s) => {

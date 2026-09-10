@@ -1095,6 +1095,30 @@ export interface SubUnit {
   parentSubUnitId?: string;
   startingAdr?: number;
   /**
+   * THE SHARE OF THE LINE'S NSA THIS ROW STATES (2026-09-10).
+   *
+   * SHARE AND AREA ARE ONE PAIR AND EITHER MAY BE THE STATEMENT. The area
+   * (`metricValue`) was the only stored quantity and the share was derived for
+   * display, so typing a share wrote an area ONCE: the moment land, coverage,
+   * FAR or the retail share moved the line's NSA, the share column still read
+   * 50% while the areas underneath added up to something else, and the line
+   * reported itself over or under allocated. Whichever the user typed is the
+   * statement, so a typed SHARE is stored here and its area is re-derived
+   * whenever the line's NSA moves.
+   *
+   * ABSENT MEANS THE AREA IS THE STATEMENT, which is every row that existed
+   * before this field and every row where someone typed a figure in sqm. So
+   * nothing stored changes meaning, and a row only starts following the NSA
+   * once a user says it should by typing a percentage.
+   *
+   * THE AREA IS STILL THE ONE QUANTITY EVERY READER USES. The engine, the
+   * reports and the exports read `metricValue` and know nothing about shares;
+   * the store writes the area back (`syncLineSubUnits`), exactly as the retail
+   * companion's own row is refreshed. Deriving at read time would be a second
+   * answer to "how big is this row".
+   */
+  nsaSharePct?: number;
+  /**
    * Land planning (2026-09-07): PARKING RATIO OVERRIDE for this sub-unit.
    *
    * The asset type carries the firm's default (stamped onto the asset); a

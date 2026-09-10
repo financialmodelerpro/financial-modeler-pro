@@ -86,6 +86,7 @@ import {
   plotCheckText,
   poolSubUnits,
   primaryParcelId,
+  planLineSubUnits,
   resolveAssetNsa,
   totalsFromRows,
   POOLED_AREA_KEYS,
@@ -321,6 +322,10 @@ interface TypeChoice {
 /** The sentinel for a stored label that is on neither list. It is not a key
  *  anything can mint, so it can never collide with a real one. */
 const UNLISTED_TYPE = '__unlisted__';
+/** The add picker's own escape hatch: create the asset and leave its type
+ *  blank. Distinct from UNLISTED_TYPE, which means 'it has a label the firm's
+ *  list does not hold', a different statement about an EXISTING asset. */
+const ADD_UNTYPED = '__add_untyped__';
 
 /**
  * The firm's vocabulary first, in the firm's own order, then the platform
@@ -405,6 +410,7 @@ export default function Module1Assets(): React.JSX.Element {
     updateSubUnit,
     removeSubUnit,
     syncRetailCompanions,
+    syncLineSubUnits,
   } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
@@ -424,6 +430,7 @@ export default function Module1Assets(): React.JSX.Element {
       addSubUnit: s.addSubUnit,
       updateSubUnit: s.updateSubUnit,
       syncRetailCompanions: s.syncRetailCompanions,
+      syncLineSubUnits: s.syncLineSubUnits,
       removeSubUnit: s.removeSubUnit,
     })),
   );
@@ -529,6 +536,7 @@ export default function Module1Assets(): React.JSX.Element {
   // this from being a derive-on-render loop and what stops a project being
   // marked dirty merely for being opened.
   useEffect(() => { syncRetailCompanions(retailSpecs); }, [retailSpecs, syncRetailCompanions]);
+
   // THE STORED COMPANIONS, indexed by their line. Read from the store rather
   // than from the specs, so what the table shows is the ASSET that exists, not
   // the description that asked for it: if the reconcile has not run, or a user
@@ -597,6 +605,30 @@ export default function Module1Assets(): React.JSX.Element {
     return out;
   }, [rowGroups, assets]);
 
+  /**
+   * A LINE ALWAYS HAS SOMETHING TO PRICE, AND A TYPED SHARE FOLLOWS ITS NSA.
+   *
+   * Table 5 lists SUB-UNITS, so a line whose assets have none has no row at all
+   * and cannot be priced however complete its areas are: two Standalone
+   * Commercial lines carrying 1,250 and 7,500 sqm of NSA were in exactly that
+   * state. The plan below says which lines need a row and which typed shares
+   * have gone stale against a moved NSA; the store applies it. Same shape as
+   * the retail companion reconcile above, and for the same reason: the chain
+   * runs HERE, once, so the line NSA every figure depends on is only available
+   * here.
+   */
+  const subUnitPlan = useMemo(() => planLineSubUnits(
+    assets.filter((a) => !isRetailCompanion(a)),
+    subUnits,
+    phases.map((p) => p.id),
+    nsaByAsset,
+    normaliseAssetTypeId,
+    assetDisplayName,
+  ), [assets, subUnits, phases, nsaByAsset]);
+  useEffect(() => {
+    syncLineSubUnits(subUnitPlan, () => mintId('subunit'));
+  }, [subUnitPlan, syncLineSubUnits]);
+
   /** Add a sub-unit to a chosen parent, seeded exactly as the per-asset
    *  button seeds one, so the two entry points cannot diverge. */
   const handleAddSubUnitTo = (assetId: string): void => {
@@ -655,7 +687,7 @@ export default function Module1Assets(): React.JSX.Element {
     });
   };
 
-  const handleAddAssetToPhase = (phaseId: string, parcelId?: string): void => {
+  const handleAddAssetToPhase = (phaseId: string, parcelId?: string, typePatch?: Partial<Asset>): void => {
     const phaseAssetCount = assets.filter((a) => a.phaseId === phaseId).length;
     // M2.0g Fix 2: default land allocation to the first phase parcel
     // (not "(weighted average)") so the asset's resolved rate matches
@@ -682,6 +714,11 @@ export default function Module1Assets(): React.JSX.Element {
       name: '',
       // M2.0j Fix 2: default to empty string. Type is optional and the
       // user can leave it blank or pick / type any value.
+      // TYPE IS OFFERED AT THE MOMENT OF ADDING (2026-09-10): the picker on the
+      // plot header passes what it resolved through assetTypePatch, the SAME
+      // rule the row's own dropdown uses, so a type set at creation and one set
+      // a second later are the same write. Blank stays available: an asset
+      // whose type is not yet decided is a real state.
       type: '',
       strategy: 'Sell',
       visible: true,
@@ -695,6 +732,7 @@ export default function Module1Assets(): React.JSX.Element {
       // resolvers then read it two different ways. Absent means "not decided",
       // and a sole occupant draws its whole plot until someone says otherwise.
       landAllocation: fallbackParcel ? { parcelId: fallbackParcel.id } : undefined,
+      ...(typePatch ?? {}),
     });
   };
 
@@ -1313,7 +1351,7 @@ interface AssetTableProps {
   assetTypeRegistry: { entries: AssetTypeStandard[]; available: boolean };
   onUpdateAsset: (id: string, patch: Partial<Asset>) => void;
   onRemoveAsset: (id: string) => void;
-  onAddAsset: (phaseId: string, parcelId?: string) => void;
+  onAddAsset: (phaseId: string, parcelId?: string, typePatch?: Partial<Asset>) => void;
 }
 
 /**
@@ -1465,7 +1503,7 @@ function lineConflicts(rows: readonly AssetRow[]): string[] {
  * The CHECK belongs to the entry table only: it is about what was entered.
  */
 function PlotHeaderRow({
-  g, plotLabel, phaseName, colSpan, showCheck, onAddAsset,
+  g, plotLabel, phaseName, colSpan, showCheck, onAddAsset, typeChoices = [],
 }: {
   g: AssetPlotGroup;
   plotLabel: string;
@@ -1474,7 +1512,9 @@ function PlotHeaderRow({
   phaseName?: string;
   colSpan: number;
   showCheck: boolean;
-  onAddAsset?: (phaseId: string, parcelId?: string) => void;
+  onAddAsset?: (phaseId: string, parcelId?: string, typePatch?: Partial<Asset>) => void;
+  /** The SAME list the row dropdown offers, so the two cannot diverge. */
+  typeChoices?: readonly TypeChoice[];
 }): React.JSX.Element {
   return (
     <tr style={BAND} data-testid={`plot-group-${g.key}${showCheck ? '' : '-results'}`}>
@@ -1510,19 +1550,45 @@ function PlotHeaderRow({
             <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>
               {plotCheckText(g, (n) => areaText(n))}
             </span>
+            {/* ADD AN ASSET AND SAY WHAT IT IS, IN ONE STEP (2026-09-10).
+                The button seeded a blank-typed row and left the type to a
+                second action on another table, which is the step everything
+                downstream depends on: the line, the schedules, the cost
+                methods and the standards all key off type. The picker offers
+                the SAME choices as the row's own dropdown, resolved through the
+                SAME `assetTypePatch`, so this is not a second way to set a type.
+                THE TYPE IS ON THE ASSET, NOT THE PLOT: this select chooses per
+                add, and one plot can hold as many differently typed assets as
+                someone adds to it. */}
             {g.parcel && onAddAsset && (
-              <button
-                type="button"
-                onClick={() => onAddAsset(g.parcel!.phaseId, g.parcel!.id)}
+              <select
+                value=""
                 data-testid={`plot-group-${g.key}-add-asset`}
+                title="Add an asset to this plot, as this type. A plot can hold several assets of different types."
+                onChange={(e) => {
+                  const next = e.target.value;
+                  if (next === '') return;
+                  onAddAsset(
+                    g.parcel!.phaseId,
+                    g.parcel!.id,
+                    next === ADD_UNTYPED ? undefined : assetTypePatch(next, typeChoices),
+                  );
+                  e.target.value = '';
+                }}
                 style={{
-                  marginLeft: 10, fontSize: 10, padding: '2px 8px', cursor: 'pointer',
+                  marginLeft: 10, fontSize: 10, padding: '2px 6px', cursor: 'pointer',
                   background: 'var(--color-surface)', border: '1px solid var(--color-navy)',
                   color: 'var(--color-navy)', borderRadius: 'var(--radius-sm)', fontWeight: 600,
                 }}
               >
-                + Add asset here
-              </button>
+                <option value="">+ Add asset here...</option>
+                {typeChoices.map((c) => (
+                  <option key={c.key} value={c.key}>
+                    {c.label}{c.fromFirm ? '' : ' (catalog)'}
+                  </option>
+                ))}
+                <option value={ADD_UNTYPED}>Type not decided yet</option>
+              </select>
             )}
           </td>
         </>
@@ -1653,7 +1719,7 @@ function AssetInputsTable({
   setOpenId: (id: string | null) => void;
   onUpdateAsset: (id: string, patch: Partial<Asset>) => void;
   onRemoveAsset: (id: string) => void;
-  onAddAsset: (phaseId: string, parcelId?: string) => void;
+  onAddAsset: (phaseId: string, parcelId?: string, typePatch?: Partial<Asset>) => void;
 }): React.JSX.Element {
   // ONE list for every row, built once: the firm's vocabulary first, in the
   // firm's own order, then the platform catalog labels the firm has not
@@ -1727,6 +1793,7 @@ function AssetInputsTable({
                   colSpan={COLS}
                   showCheck
                   onAddAsset={onAddAsset}
+                  typeChoices={typeChoices}
                 />
                 {rows.length === 0 && (
                   <tr data-testid={`plot-group-${group.key}-empty`}>
@@ -2951,10 +3018,21 @@ function SubUnitsTable({
                           </span>
                         ) : (
                           <SubUnitNumber
-                            value={sharePct}
+                            value={u.nsaSharePct ?? sharePct}
                             testId={`subunits-row-${u.id}-share`}
-                            title="This sub-unit's share of the LINE's NSA. Typing here sets the area."
-                            onCommit={(v) => onUpdate(u.id, { metricValue: v === undefined ? 0 : (nsa * v) / 100 })}
+                            title={u.nsaSharePct === undefined
+                              ? "This sub-unit's share of the LINE's NSA. Typing here makes the SHARE the statement: the area is set now and re-derived whenever the line's NSA moves."
+                              : "The SHARE is this row's statement, so its area follows the line's NSA. Type an area instead to make the area the statement."}
+                            /* THE SHARE IS STORED, NOT JUST APPLIED (2026-09-10).
+                               It used to write an area once and be forgotten, so
+                               the moment land, coverage, FAR or the retail share
+                               moved the line's NSA the areas went stale under a
+                               share column that still read what the user typed.
+                               Storing it makes the share the statement and the
+                               area the consequence; the store re-derives it. */
+                            onCommit={(v) => onUpdate(u.id, v === undefined
+                              ? { nsaSharePct: undefined }
+                              : { nsaSharePct: v, metricValue: (nsa * v) / 100 })}
                           />
                         )}
                       </td>
@@ -2969,8 +3047,14 @@ function SubUnitsTable({
                             decimals={AREA_DECIMALS}
                             value={u.metricValue}
                             testId={`subunits-row-${u.id}-area`}
-                            title="Sqm this sub-unit occupies. Typing here sets the share."
-                            onCommit={(v) => onUpdate(u.id, { metricValue: v ?? 0 })}
+                            title={u.nsaSharePct === undefined
+                              ? "Sqm this sub-unit occupies. The area is this row's statement and the share follows it."
+                              : "This row's SHARE is the statement, so this area is derived from it. Typing here takes the statement back: the area stops following the line's NSA."}
+                            /* TYPING AN AREA TAKES THE STATEMENT BACK, which is
+                               the other half of the pair: whichever the user
+                               typed last is what the row means, and the stored
+                               share is cleared so nothing re-derives over it. */
+                            onCommit={(v) => onUpdate(u.id, { metricValue: v ?? 0, nsaSharePct: undefined })}
                           />
                         )}
                       </td>

@@ -442,3 +442,143 @@ export function totalsFromRows(
     parkingRatio: q(pooled.parkingSlots, pooled.units),
   };
 }
+
+// ── A LINE ALWAYS HAS SOMETHING TO PRICE, AND A TYPED SHARE FOLLOWS ITS NSA ──
+//   (2026-09-10)
+//
+// Two rules that belong together because they are two halves of one sentence:
+// what a line's parts ARE, and what happens to them when the whole moves.
+//
+// 1. A LINE WITH NO SUB-UNIT GETS ONE. Table 5 lists sub-units, so a line whose
+//    assets have none has no row at all (`build()` returns undefined on an
+//    empty list), which means it cannot be priced and earns nothing however
+//    complete its areas are. Five live assets were in that state, two of them
+//    the Standalone Commercial lines carrying 1,250 and 7,500 sqm of NSA. The
+//    same answer the retail companion already gets: derive the row, because its
+//    area is a figure the model already knows and asking a user to retype it
+//    would put one fact in two places.
+//
+// 2. A TYPED SHARE IS A STATEMENT, AND THE AREA FOLLOWS IT. Until now the AREA
+//    was the only stored quantity and the share was derived for display, so
+//    typing a share wrote an area ONCE and the two drifted apart the moment
+//    land, coverage, FAR or the retail share moved the line's NSA: the share
+//    column kept reading 50% while the areas underneath added up to something
+//    else, and the line reported itself over or under allocated. Whichever the
+//    user typed is the statement and the other follows, so a share is STORED
+//    (`SubUnit.nsaSharePct`) and its area is re-derived here.
+//
+// THE AREA STAYS THE ONE STORED QUANTITY EVERY READER USES. The engine, the
+// reports and the exports all read `metricValue`, and none of them learns about
+// shares: the plan below is applied by the store, which writes the area back,
+// exactly as the retail companion's own sub-unit is refreshed. A share that
+// derived at read time would be a second answer to "how big is this row".
+
+export interface LineSubUnitSeed {
+  lineKey: string;
+  /** The line's first member. A line with several plots and NO sub-units at all
+   *  has nobody to say how the parts split, so the whole NSA lands on one of
+   *  them; every live line needing a seed has exactly one plot. */
+  assetId: string;
+  name: string;
+  category: 'Sellable' | 'Operable' | 'Leasable';
+  areaSqm: number;
+}
+
+export interface ShareRealloc {
+  subUnitId: string;
+  areaSqm: number;
+}
+
+export interface LineSubUnitPlan {
+  seeds: LineSubUnitSeed[];
+  reallocations: ShareRealloc[];
+}
+
+/** What one sub-unit needs to state for these two rules. */
+export interface PlannableSubUnit extends SubUnitLike {
+  metric: 'area' | 'units';
+  metricValue: number;
+  /** The STATEMENT, when the user typed a share rather than an area. */
+  nsaSharePct?: number;
+}
+
+/** The category a seeded row takes, from the asset's strategy. The same
+ *  mapping the Add button uses, so a derived row and a typed one are the same
+ *  kind of thing. */
+export function seedCategoryFor(strategy: string): 'Sellable' | 'Operable' | 'Leasable' {
+  if (strategy === 'Lease') return 'Leasable';
+  if (strategy === 'Operate') return 'Operable';
+  return 'Sellable';
+}
+
+/** A line's NSA: the sum of its plots', each resolved by the one rule. Shared
+ *  by the display grouping and the plan so they cannot disagree about the
+ *  whole that the parts are parts of. */
+export function lineNsaOf(
+  members: readonly Asset[],
+  nsaByAsset: Record<string, ResolvedNsa>,
+): { value: number; source: NsaSource } {
+  let value = 0;
+  let sawChain = false, sawEntered = false;
+  for (const m of members) {
+    const r = nsaByAsset[m.id] ?? { value: 0, source: 'none' as const };
+    value += r.value;
+    if (r.source === 'chain') sawChain = true;
+    if (r.source === 'entered') sawEntered = true;
+  }
+  return { value, source: sawEntered ? 'entered' : (sawChain ? 'chain' : 'none') };
+}
+
+/**
+ * What the store should add and what it should re-derive.
+ *
+ * PURE, AND IT DECIDES NOTHING IT CANNOT SEE. A line with no NSA gets no seed:
+ * a row of zero area is not something to price, it is a row nobody can fill in.
+ * A COUNT-METRIC ASSET GETS NO SEED EITHER, and that is deliberate rather than
+ * an oversight: on an asset whose parts are counted, "the whole NSA" is a
+ * number of keys, which needs a unit size nobody has necessarily stated, and
+ * inventing one would be the platform deciding how many apartments a tower has.
+ */
+export function planLineSubUnits(
+  assets: readonly Asset[],
+  subUnits: readonly PlannableSubUnit[],
+  phaseIds: readonly string[],
+  nsaByAsset: Record<string, ResolvedNsa>,
+  normaliseTypeId: NormaliseTypeId,
+  displayName: (a: Asset) => string,
+): LineSubUnitPlan {
+  const seeds: LineSubUnitSeed[] = [];
+  const reallocations: ShareRealloc[] = [];
+  const { lines } = partitionSubUnitsByLine(assets, subUnits, phaseIds, normaliseTypeId);
+  for (const line of lines) {
+    const nsa = lineNsaOf(line.members, nsaByAsset).value;
+    if (nsa <= 0) continue;
+    if (line.subUnits.length === 0) {
+      const host = line.members[0];
+      // An asset whose metric is COUNT states its parts as keys, not as an
+      // area, so there is nothing honest to seed.
+      if (!host || host.subUnitMetric === 'units') continue;
+      seeds.push({
+        lineKey: line.key,
+        assetId: host.id,
+        name: displayName(host),
+        category: seedCategoryFor(String(host.strategy ?? '')),
+        areaSqm: nsa,
+      });
+      continue;
+    }
+    for (const u of line.subUnits) {
+      // A COUNT ROW HAS NO SHARE TO FOLLOW: its count is the statement and its
+      // area derives from the count, which is the existing rule and stays.
+      if (u.metric === 'units') continue;
+      const share = u.nsaSharePct;
+      if (typeof share !== 'number' || !Number.isFinite(share)) continue;
+      const areaSqm = (nsa * share) / 100;
+      // A HUNDREDTH OF A SQM IS NOT A CHANGE, the same tolerance the line's own
+      // allocation check uses, so float noise cannot mark a project dirty.
+      if (Math.abs(areaSqm - u.metricValue) < 0.01) continue;
+      reallocations.push({ subUnitId: u.id, areaSqm });
+    }
+  }
+  return { seeds, reallocations };
+}

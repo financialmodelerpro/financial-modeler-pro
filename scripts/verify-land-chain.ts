@@ -40,12 +40,15 @@ import {
   groupAssetsByPlot,
   mintId,
   partitionSubUnitsByLine,
+  planLineSubUnits,
+  seedCategoryFor,
   poolSubUnits,
   primaryParcelId,
   resolveAssetNsa,
   totalsFromRows,
   UNPLOTTED_GROUP,
   type AssetPlotGroup,
+  type ResolvedNsa,
   type TotalledRow,
 } from '../src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel';
 import type { Asset, Parcel, SubUnit } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
@@ -773,9 +776,13 @@ function offlineChecks(): void {
     subBody.length > 500
     && subBody.includes('subunits-row-${u.id}-unit-size`')
     && /onCommit=\{\(v\) => onUpdate\(u\.id, \{ unitArea: v \}\)\}/.test(subBody));
-  check('U27 share and area are ONE pair: typing either sets the other',
+  // U27 GAINED A HALF ON 2026-09-10. The pair is the same pair; what changed
+  // is that the write now RECORDS WHICH ONE THE USER TYPED, because a share
+  // that only set an area once went stale the moment the line's NSA moved.
+  check('U27 share and area are ONE pair: typing either sets the other, and says which is the statement',
     subBody.includes('subunits-row-${u.id}-share`')
-    && /metricValue: v === undefined \? 0 : \(nsa \* v\) \/ 100/.test(subBody)
+    && subBody.includes(String.raw`{ nsaSharePct: v, metricValue: (nsa * v) / 100 }`)
+    && subBody.includes(String.raw`{ metricValue: v ?? 0, nsaSharePct: undefined }`)
     // In count mode the count is the input, so the share is shown derived
     // rather than offered as a second way to say the same thing.
     && /isUnits \|\| nsa <= 0 \?/.test(subBody));
@@ -1194,6 +1201,110 @@ function offlineChecks(): void {
     && twoPlot.lines[0].subUnits.length === 2
     && twoPlot.stray.length === 0,
     `${twoPlot.lines.length} lines`);
+  // ── U51 to U59. A LINE ALWAYS HAS SOMETHING TO PRICE, AND A TYPED SHARE
+  //     FOLLOWS ITS NSA (2026-09-10) ──────────────────────────────────────
+  //
+  // Table 5 lists SUB-UNITS, so a line whose assets have none has no row at all
+  // (`build()` returns undefined on an empty list) and cannot be priced however
+  // complete its areas are. Two live Standalone Commercial lines carrying 1,250
+  // and 7,500 sqm of NSA were in exactly that state, and nothing about the type
+  // was involved: five live assets, four different types, all invisible for the
+  // same reason.
+  const planAsset = (id: string, phaseId: string, typeId: string, extra: Record<string, unknown> = {}): Asset =>
+    ({ id, phaseId, assetTypeId: typeId, name: id, strategy: 'Sell', ...extra } as unknown as Asset);
+  const planSub = (id: string, assetId: string, extra: Record<string, unknown> = {}) =>
+    ({ id, assetId, metric: 'area' as const, metricValue: 0, ...extra });
+  const nsaOf = (m: Record<string, number>): Record<string, ResolvedNsa> => {
+    const out: Record<string, ResolvedNsa> = {};
+    for (const [k, v] of Object.entries(m)) out[k] = { value: v, source: 'chain' };
+    return out;
+  };
+  const label = (a: Asset): string => a.name;
+  const seedPlan = planLineSubUnits(
+    [planAsset('s1', 'p1', 'commercial'), planAsset('s2', 'p1', 'villas')],
+    [planSub('k1', 's2', { metricValue: 500 })],
+    ['p1'], nsaOf({ s1: 1250, s2: 500 }), (raw) => raw, label,
+  );
+  check('U51 a line with NO sub-unit is seeded with one; a line that has one is left alone',
+    seedPlan.seeds.length === 1 && seedPlan.seeds[0].assetId === 's1'
+    && seedPlan.seeds[0].areaSqm === 1250 && seedPlan.seeds[0].name === 's1',
+    `${seedPlan.seeds.length} seeds`);
+  check('U52 the seeded row takes the CATEGORY its asset s strategy implies',
+    seedCategoryFor('Sell') === 'Sellable' && seedCategoryFor('Lease') === 'Leasable'
+    && seedCategoryFor('Operate') === 'Operable'
+    // The same mapping the Add button uses, so a derived row and a typed one
+    // are the same kind of thing.
+    && seedCategoryFor('Sell + Manage') === 'Sellable');
+  check('U53 a line with NO NSA is NOT seeded: a row of zero area is not something to price',
+    planLineSubUnits([planAsset('z1', 'p1', 'x')], [], ['p1'], nsaOf({ z1: 0 }), (raw) => raw, label)
+      .seeds.length === 0);
+  // A COUNT-METRIC ASSET IS NOT SEEDED, and that is deliberate: "the whole NSA"
+  // on an asset whose parts are counted is a number of KEYS, which needs a unit
+  // size nobody has necessarily stated. Inventing one would be the platform
+  // deciding how many apartments a tower has.
+  check('U54 an asset whose parts are COUNTED is not seeded with an area row',
+    planLineSubUnits([planAsset('c1', 'p1', 'x', { subUnitMetric: 'units' })], [],
+      ['p1'], nsaOf({ c1: 9000 }), (raw) => raw, label).seeds.length === 0);
+  // THE REALLOCATION. A typed SHARE is the statement and its area follows the
+  // line's NSA; an AREA-stated row does not move, which is the other half of
+  // the same sentence and what keeps every row that existed before this field
+  // behaving exactly as it did.
+  const realloc = planLineSubUnits(
+    [planAsset('r1', 'p1', 'villas'), planAsset('r2', 'p1', 'villas')],
+    [
+      planSub('half', 'r1', { metricValue: 100, nsaSharePct: 50 }),
+      planSub('fixed', 'r2', { metricValue: 100 }),
+      planSub('counted', 'r1', { metric: 'units', metricValue: 4, nsaSharePct: 50 }),
+    ],
+    ['p1'], nsaOf({ r1: 600, r2: 400 }), (raw) => raw, label,
+  );
+  check('U55 a SHARE-stated row follows the line NSA; an AREA-stated row and a COUNT row do not',
+    realloc.reallocations.length === 1
+    && realloc.reallocations[0].subUnitId === 'half'
+    // 50% of the LINE's 1,000, not of one plot's 600.
+    && realloc.reallocations[0].areaSqm === 500
+    && realloc.seeds.length === 0,
+    JSON.stringify(realloc.reallocations));
+  check('U56 a share whose area is ALREADY right produces no write, so a settled model stays clean',
+    planLineSubUnits([planAsset('q1', 'p1', 'v')],
+      [planSub('ok', 'q1', { metricValue: 500, nsaSharePct: 50 })],
+      ['p1'], nsaOf({ q1: 1000 }), (raw) => raw, label).reallocations.length === 0
+    // ... and a hundredth of a sqm is not a change, the same tolerance the
+    // line's own allocation check uses, so float noise cannot mark a project
+    // dirty just for being opened.
+    && planLineSubUnits([planAsset('q2', 'p1', 'v')],
+      [planSub('noise', 'q2', { metricValue: 500.005, nsaSharePct: 50 })],
+      ['p1'], nsaOf({ q2: 1000 }), (raw) => raw, label).reallocations.length === 0);
+  // U57 THE PLAN SETTLES. A seed is itself a sub-unit, so re-planning the
+  // seeded state must ask for nothing: a plan that never settles is a
+  // derive-on-render loop that marks a project dirty for ever.
+  const settled = planLineSubUnits(
+    [planAsset('s1', 'p1', 'commercial')],
+    [planSub('seeded', 's1', { metricValue: 1250, nsaSharePct: 100 })],
+    ['p1'], nsaOf({ s1: 1250 }), (raw) => raw, label,
+  );
+  check('U57 re-planning a seeded line asks for nothing: the plan settles',
+    settled.seeds.length === 0 && settled.reallocations.length === 0);
+  check('U58 the tab stores the SHARE as the statement, and an area typed after it takes it back',
+    /nsaSharePct: v, metricValue: \(nsa \* v\) \/ 100/.test(tabSrc)
+    && /metricValue: v \?\? 0, nsaSharePct: undefined/.test(tabSrc)
+    // And the plan reaches the store through the same shape the retail
+    // companion reconcile uses, from the tab where the chain runs.
+    && /syncLineSubUnits\(subUnitPlan, \(\) => mintId\('subunit'\)\)/.test(tabSrc)
+    && /planLineSubUnits\(/.test(tabSrc));
+  // U59 THE TYPE IS OFFERED WHEN THE ASSET IS ADDED, through the SAME rule the
+  // row's own dropdown writes, so a type set at creation and one set a second
+  // later cannot mean different things.
+  check('U59 adding an asset offers the type, from the same choices and the same patch rule',
+    // The picker resolves through the SAME assetTypePatch the row dropdown
+    // uses, so a type set at creation and one set a second later are one write.
+    tabSrc.includes('next === ADD_UNTYPED ? undefined : assetTypePatch(next, typeChoices)')
+    && /typeChoices\?: readonly TypeChoice\[\];/.test(tabSrc)
+    && tabSrc.includes('<option value={ADD_UNTYPED}>Type not decided yet</option>')
+    // The blank state stays reachable: an asset whose type is not yet decided
+    // is a real answer, not a gap to be filled by a default.
+    && /ADD_UNTYPED = '__add_untyped__'/.test(tabSrc));
+
   // ── RETAIL PARKING HAS AN INPUT A USER CAN FIND. ────────────────────────
   //
   // Retail GFA derived correctly on both live plots (1,320 and 600 sqm) while
@@ -1371,10 +1482,13 @@ function offlineChecks(): void {
   // button that lies about what it did. Both routes (this button and the row's
   // own picker) write the same field, so the resolution cannot fork.
   check('U37 the plot add button seeds THAT PLOT, and the plot is also chosen in the row',
-    /handleAddAssetToPhase = \(phaseId: string, parcelId\?: string\)/.test(tabSrc)
+    tabSrc.includes('const handleAddAssetToPhase = (phaseId: string, parcelId?: string, typePatch?: Partial<Asset>)')
     && /const named = parcelId \? parcels\.find\(\(p\) => p\.id === parcelId\) : undefined;/.test(tabSrc)
     && /const fallbackParcel = named \?\? phaseParcels\[0\] \?\? parcels\[0\];/.test(tabSrc)
-    && /onAddAsset\(g\.parcel!\.phaseId, g\.parcel!\.id\)/.test(tabSrc)
+    // THE CONTROL IS A PICKER SINCE 2026-09-10 and passes a third argument;
+    // what U37 pins is unchanged: it names THAT PLOT, not the phase's first.
+    && tabSrc.includes('g.parcel!.phaseId,')
+    && tabSrc.includes('g.parcel!.id,')
     && inputsBody.includes('asset-row-${asset.id}-plot'));
 
   // ── THE PLOT DRAW. One rule, three former readers, and a sole occupant that
