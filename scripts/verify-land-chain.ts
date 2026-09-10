@@ -60,6 +60,7 @@ import {
   GROUND_FLOOR_RETAIL_TYPE_LABEL,
   normaliseAssetTypeId,
   resolveRetailSlotArea,
+  resolveChainDefaults,
   type AssetTypeValuesByType,
 } from '../src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
@@ -1386,6 +1387,45 @@ function offlineChecks(): void {
     assetId: 'a1', assetName: 'Tower', hasTypedSupport: false, hasDerivedRow: false,
     lobbyGfaSqm: 1000, mainAssetGfaSqm: 9000, netSaleableSqm: 7000, ...over,
   });
+  // ── U73 to U77. THE TYPE'S MASSING DEFAULTS (2026-09-10) ────────────────
+  //
+  // Coverage, FAR and the service share are typed PER PLOT and five plots of
+  // one type usually share them (the reference's fourteen Standalone
+  // Commercial rows all read FAR 1.6 and coverage 60%). They default from the
+  // type in the same inherit-and-override shape the parking ratio uses.
+  const cd = (plot: Parameters<typeof resolveChainDefaults>[0], vals: Parameters<typeof resolveChainDefaults>[1]) =>
+    resolveChainDefaults(plot, vals);
+  check('U73 the PLOT wins and the type fills in, per field independently',
+    cd({ coveragePct: 55 }, { coveragePct: 60, farRatio: 1.6, servicePct: 20 }).coveragePct === 55
+    && cd({ coveragePct: 55 }, { coveragePct: 60, farRatio: 1.6, servicePct: 20 }).farRatio === 1.6
+    && cd({ coveragePct: 55 }, { coveragePct: 60, farRatio: 1.6, servicePct: 20 }).servicePct === 20);
+  check('U74 a TYPED ZERO on the plot is an override, never a blank to be filled',
+    cd({ coveragePct: 0 }, { coveragePct: 60 }).coveragePct === 0
+    && cd({ servicePct: 0 }, { servicePct: 20 }).servicePct === 0
+    && cd({ farRatio: 0 }, { farRatio: 1.6 }).farRatio === 0);
+  check('U75 with nothing stated anywhere the field stays ABSENT, so the chain reports its gap',
+    cd(undefined, undefined).farRatio === undefined
+    && cd({}, {}).coveragePct === undefined
+    && cd(undefined, undefined).sources.farRatio === 'unset');
+  check('U76 the SOURCE is carried, which is what lets an inherited FAR show as inherited',
+    cd({ coveragePct: 55 }, { coveragePct: 60, farRatio: 1.6 }).sources.coveragePct === 'sub_unit'
+    && cd({ coveragePct: 55 }, { coveragePct: 60, farRatio: 1.6 }).sources.farRatio === 'asset_type');
+  const stdTabEarly = readFileSync(
+    'src/hubs/modeling/platforms/refm/components/modules/Module1AssetStandards.tsx', 'utf8');
+  check('U77 an inherited FAR is SHOWN on the plot row, and the retail share never defaults',
+    // The placeholder cannot be mistaken for a stored value, which is the point.
+    tabSrc.includes("massing?.sources.farRatio === 'asset_type' && massing.farRatio !== undefined")
+    && tabSrc.includes('(type)')
+    // COVERAGE AND SERVICE INHERIT SILENTLY, by decision: they are conventions
+    // of a building type, while FAR is a constraint of a piece of ground.
+    // RETAIL IS NOT DEFAULTABLE AT ALL: no field, no resolve, no column.
+    && !/retailPct?: number;/.test(readFileSync('src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards.ts', 'utf8'))
+    // NO RETAIL COLUMN: the test id a retail cell would carry does not exist.
+    && !/testId={`std-row-${id}-retail/.test(stdTabEarly)
+    // AND THE TAB SAYS AN EDIT HERE NOW MOVES THE MODEL, which it did not until
+    // today: every value on that tab was an input nothing read.
+    && stdTabEarly.includes('data-testid="asset-standards-moves-model"')
+    && stdTabEarly.includes('An edit here now moves the model'));
   check('U68 OFF derives nothing at all, which is what makes a live model safe to open',
     planDerivedSupport([drow()], false).writes.length === 0
     && planDerivedSupport([drow()], false).removeIds.length === 0);

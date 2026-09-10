@@ -73,10 +73,12 @@ import {
   resolveAssetTypeKey,
   resolveAssetTypeValues,
   resolveAvgUnitSize,
+  resolveChainDefaults,
   resolveParkingRatio,
   resolveRetailSlotArea,
   type AssetTypeStandard,
   type AssetTypeValues,
+  type ResolvedChainDefaults,
 } from '../../lib/state/assetTypeStandards';
 import LandChainSection from './_shared/LandChainSection';
 import {
@@ -1484,6 +1486,10 @@ interface AssetRow {
   drawSource?: 'typed' | 'whole_plot' | 'unset';
   parkingRatio?: number;
   parkingRatioBasis?: 'slots_per_unit' | 'sqm_per_slot';
+  /** Coverage, FAR and service after the type's defaults are applied, with
+   *  where each came from, so the FAR cell can show an inherited figure as
+   *  inherited rather than as blank. */
+  massing?: ResolvedChainDefaults;
 }
 
 interface RowGroup {
@@ -1547,9 +1553,13 @@ function buildAssetRows(
           .filter((u) => u.assetId === asset.id && typeof u.unitArea === 'number' && u.unitArea > 0)
           .map((u) => u.unitArea);
         const unitSize = resolveAvgUnitSize(areas, typeValues);
+        // THE TYPE FILLS IN WHAT THE PLOT DID NOT SAY (2026-09-10): coverage,
+        // FAR and the service share. The plot always wins, absent inherits, a
+        // typed 0 is an override. The retail share is never defaulted.
+        const massing = resolveChainDefaults(asset.landChain, typeValues);
         const chain = computeLandChain(
           breakdown.landSqm,
-          asset.landChain,
+          asset.landChain ? { ...asset.landChain, ...massing } : undefined,
           {
             avgUnitSizeSqm: unitSize.value,
             parkingRatio: typeValues?.parkingRatio,
@@ -1575,6 +1585,7 @@ function buildAssetRows(
           unitSizeSource: unitSize.source,
           parkingRatio: typeValues?.parkingRatio,
           parkingRatioBasis: typeValues?.parkingRatioBasis,
+          massing,
         };
       }),
     };
@@ -1909,7 +1920,7 @@ function AssetInputsTable({
                     </td>
                   </tr>
                 )}
-                {rows.map(({ asset, landSqm, parcel, drawSource }) => {
+                {rows.map(({ asset, landSqm, parcel, drawSource, massing }) => {
                   const open = openId === asset.id;
                   const patchChain = (p: LandChainInputs): void =>
                     onUpdateAsset(asset.id, { landChain: mergeLandChain(asset.landChain, p) });
@@ -2073,7 +2084,25 @@ function AssetInputsTable({
                         </td>
                         <td style={CELL}><ChainCell value={asset.landChain?.utilisationPct} testId={`asset-row-${asset.id}-utilisation`} title="Share of the plot that is developable." onCommit={(v) => patchChain({ utilisationPct: v })} /></td>
                         <td style={CELL}><ChainCell value={asset.landChain?.coveragePct} testId={`asset-row-${asset.id}-coverage`} title="Share of the Net Developable Area the main asset's footprint covers." onCommit={(v) => patchChain({ coveragePct: v })} /></td>
-                        <td style={CELL}><ChainCell value={asset.landChain?.farRatio} testId={`asset-row-${asset.id}-far`} title="Total GFA = Net Developable Area x FAR." onCommit={(v) => patchChain({ farRatio: v })} /></td>
+                        {/* AN INHERITED FAR IS SHOWN, NOT LEFT BLANK (2026-09-10).
+                            Coverage and the service share inherit from the type
+                            silently, because they are conventions of a building
+                            type. FAR is a planning constraint of a piece of
+                            GROUND: the reference's own FAR runs 1.2 to 5 WITHIN
+                            one type, so a default is a convenience and hiding
+                            that it applied would be a trap. The placeholder
+                            cannot be mistaken for a stored value, which is
+                            exactly the property wanted here. */}
+                        <td style={CELL}><ChainCell
+                          value={asset.landChain?.farRatio}
+                          testId={`asset-row-${asset.id}-far`}
+                          placeholder={massing?.sources.farRatio === 'asset_type' && massing.farRatio !== undefined
+                            ? `${massing.farRatio} (type)` : undefined}
+                          title={massing?.sources.farRatio === 'asset_type'
+                            ? `Total GFA = Net Developable Area x FAR. This plot states none, so it uses ${String(massing.farRatio)} from its asset type. Type here to override it.`
+                            : 'Total GFA = Net Developable Area x FAR.'}
+                          onCommit={(v) => patchChain({ farRatio: v })}
+                        /></td>
                         <td style={CELL}><ChainCell value={asset.landChain?.maxFloors} testId={`asset-row-${asset.id}-max-floors`} title="Height limit in storeys. Carried, not computed with." onCommit={(v) => patchChain({ maxFloors: v })} /></td>
                         <td style={CELL}><ChainCell value={asset.landChain?.retailPct} testId={`asset-row-${asset.id}-retail`} title="Share of the FOOTPRINT given to ground-floor retail." onCommit={(v) => patchChain({ retailPct: v })} /></td>
                         <td style={CELL}><ChainCell value={asset.landChain?.servicePct} testId={`asset-row-${asset.id}-service`} title="Service and back-of-house share off Main Asset GFA." onCommit={(v) => patchChain({ servicePct: v })} /></td>
@@ -3979,7 +4008,10 @@ function AssetCard({
             return (
               <LandChainSection
                 assetId={asset.id}
-                inputs={asset.landChain}
+                // THE SAME DEFAULTS THE ROW USES (2026-09-10): the type fills in
+                // coverage, FAR and the service share where the plot states none,
+                // or the panel would derive a different chain from the table.
+                inputs={asset.landChain ? { ...asset.landChain, ...resolveChainDefaults(asset.landChain, typeValues) } : undefined}
                 onChange={(patch) => onUpdate({ landChain: mergeLandChain(asset.landChain, patch) })}
                 landAreaSqm={landBreakdown.landSqm}
                 standards={{

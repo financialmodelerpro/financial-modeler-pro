@@ -111,6 +111,75 @@ export interface AssetTypeValues {
   constructionCostPerSqm?: number;
   revenueRate?: number;
   revenueRateUnit?: RevenueRateUnit;
+  /**
+   * THE MASSING A TYPE USUALLY BUILDS TO (2026-09-10).
+   *
+   * Coverage, FAR and the service share are typed PER PLOT, and five plots of
+   * one type usually share them: the reference workbook's fourteen Standalone
+   * Commercial rows all read FAR 1.6 and coverage 60%. Fifteen typed numbers
+   * where three would do, and each one a chance to mistype.
+   *
+   * SAME INHERIT-AND-OVERRIDE SHAPE AS THE PARKING RATIO: the type carries the
+   * default, the PLOT overrides where it differs, absent means inherit and a
+   * typed 0 is a real override. Resolved by `resolveChainDefaults` below.
+   *
+   * THE RETAIL SHARE IS DELIBERATELY NOT HERE. It is ground-floor retail on
+   * THIS plot, it drives which companion exists and how much land is carved,
+   * and it is the most plot-specific figure in the chain.
+   *
+   * FAR IS THE ONE TO WATCH, and the plot row shows it inherited rather than
+   * blank for that reason: it is a planning constraint of a piece of GROUND,
+   * not a preference of a building type, and the reference's own FAR varies
+   * 1.2 to 5 WITHIN one type. Offering a default is a convenience; hiding that
+   * it applied would be a trap.
+   */
+  coveragePct?: number;
+  farRatio?: number;
+  servicePct?: number;
+}
+
+/** What a plot states, structurally, so this file stays import-free. Matches
+ *  `LandChainInputs` on the three fields a type can default. */
+export interface ChainDefaultable {
+  coveragePct?: number;
+  farRatio?: number;
+  servicePct?: number;
+}
+
+export interface ResolvedChainDefaults extends ChainDefaultable {
+  /** Where each figure came from, so a cell can say "from the type". */
+  sources: { coveragePct: StandardSource; farRatio: StandardSource; servicePct: StandardSource };
+}
+
+/**
+ * THE PLOT WINS, THE TYPE FILLS IN. One rule for all three, so a reader cannot
+ * find coverage inheriting one way and FAR another.
+ *
+ * A TYPED ZERO IS AN OVERRIDE, never a blank: 0% coverage is a real statement
+ * (a plot left open) and must not be replaced by the type's 60%. Absent is the
+ * only thing that inherits, which is the same rule the parking ratio, the unit
+ * size and the cost catalog all keep.
+ */
+export function resolveChainDefaults(
+  plot: ChainDefaultable | undefined,
+  values: AssetTypeValues | undefined,
+): ResolvedChainDefaults {
+  const one = (
+    p2: number | undefined, t: number | undefined,
+  ): { value?: number; source: StandardSource } => {
+    if (typeof p2 === 'number' && Number.isFinite(p2)) return { value: p2, source: 'sub_unit' };
+    if (typeof t === 'number' && Number.isFinite(t)) return { value: t, source: 'asset_type' };
+    return { source: 'unset' };
+  };
+  const cov = one(plot?.coveragePct, values?.coveragePct);
+  const far = one(plot?.farRatio, values?.farRatio);
+  const svc = one(plot?.servicePct, values?.servicePct);
+  return {
+    ...(cov.value !== undefined ? { coveragePct: cov.value } : {}),
+    ...(far.value !== undefined ? { farRatio: far.value } : {}),
+    ...(svc.value !== undefined ? { servicePct: svc.value } : {}),
+    sources: { coveragePct: cov.source, farRatio: far.source, servicePct: svc.source },
+  };
 }
 
 /** Every type's values in one project, keyed by vocabulary entry id. */
@@ -123,7 +192,12 @@ export function assetTypeValuesAreEmpty(v: AssetTypeValues | undefined): boolean
   return v.avgUnitSizeSqm === undefined
     && v.parkingRatio === undefined
     && v.constructionCostPerSqm === undefined
-    && v.revenueRate === undefined;
+    && v.revenueRate === undefined
+    // THE MASSING DEFAULTS COUNT AS CONFIGURED TOO (2026-09-10), or an entry
+    // holding only a coverage would be dropped on the next write.
+    && v.coveragePct === undefined
+    && v.farRatio === undefined
+    && v.servicePct === undefined;
 }
 
 /** The little of an asset this needs to say which type it is. */

@@ -385,6 +385,36 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
           {PARKING_RATIO_BASES.map((b) => (<option key={b} value={b}>{PARKING_RATIO_BASIS_LABELS[b]}</option>))}
         </select>
       </td>
+      {/* THE MASSING A TYPE USUALLY BUILDS TO (2026-09-10). Five plots of one
+          type usually share these three, so they default here and a plot
+          overrides where it differs. The RETAIL SHARE is deliberately absent:
+          it is ground-floor retail on THIS plot, it decides which companion
+          exists and how much land is carved, and it is the most plot-specific
+          figure in the chain. */}
+      <td style={TD}>
+        <ValueCell
+          value={v?.coveragePct} disabled={noProject}
+          testId={`std-row-${id}-coverage`}
+          title="Ground coverage percent this type usually builds to. A plot that differs types its own; a typed 0 on the plot is a real override, not a blank."
+          onCommit={(n) => setAssetTypeValue(id, { coveragePct: n })}
+        />
+      </td>
+      <td style={TD}>
+        <ValueCell
+          value={v?.farRatio} disabled={noProject}
+          testId={`std-row-${id}-far`}
+          title="Floor area ratio this type usually builds to. OFFERED, NOT ASSUMED: FAR is a planning constraint of a piece of ground, and a plot inheriting this shows the figure greyed on its own row so nobody mistakes an inherited FAR for an unstated one."
+          onCommit={(n) => setAssetTypeValue(id, { farRatio: n })}
+        />
+      </td>
+      <td style={TD}>
+        <ValueCell
+          value={v?.servicePct} disabled={noProject}
+          testId={`std-row-${id}-service`}
+          title="Service and back-of-house percent this type usually takes off its main asset GFA. A plot that differs types its own."
+          onCommit={(n) => setAssetTypeValue(id, { servicePct: n })}
+        />
+      </td>
       {/* CONSTRUCTION COST, REVENUE RATE AND ITS UNIT ARE NOT SHOWN
           (2026-09-08). Nothing reads them yet, and a rate on screen invites
           the question of where it applies, which today is nowhere. They are
@@ -414,6 +444,26 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
         }}
         data-testid="asset-standards-callout"
       >
+        {/* SAY THAT AN EDIT HERE NOW MOVES THE MODEL (2026-09-10). It did not
+            until today: every value on this tab was an input nothing read.
+            Coverage, FAR and the service share feed the area chain, the chain
+            drives a share-stated sub-unit's area, and that area is what Capex
+            charges and revenue prices. A user who thinks they are editing a
+            reference table is entitled to be told otherwise. */}
+        <div
+          style={{
+            background: 'color-mix(in srgb, var(--color-warning, #92400e) 12%, transparent)',
+            border: '1px solid var(--color-warning, #92400e)',
+            borderRadius: 'var(--radius-sm)', padding: '4px 8px', marginBottom: 'var(--sp-2)',
+            fontSize: 'var(--font-small)',
+          }}
+          data-testid="asset-standards-moves-model"
+        >
+          <strong>An edit here now moves the model.</strong> Coverage, FAR and Service feed the
+          area chain on every plot that has not typed its own, and a plot&apos;s derived areas are
+          what construction charges on and what revenue prices. Changing one changes every
+          inheriting plot at once, and the change is versioned and logged like any other input.
+        </div>
         <strong>What goes here:</strong> your firm&apos;s asset types on the left of the divider,
         and <strong>this project&apos;s values</strong> for each of them on the right.{' '}
         <strong>The two halves save differently.</strong> The names, categories and order are one
@@ -550,7 +600,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
                 Your firm&apos;s list, shared across every project
                 <div style={{ fontSize: 9, fontWeight: 400, opacity: 0.85 }}>Press Save to apply a change</div>
               </th>
-              <th style={{ ...TH, ...DIVIDER, minWidth: 320 }} colSpan={3} data-testid="std-group-project">
+              <th style={{ ...TH, ...DIVIDER, minWidth: 320 }} colSpan={6} data-testid="std-group-project">
                 This project&apos;s values
                 <div style={{ fontSize: 9, fontWeight: 400, opacity: 0.85 }}>Saves as you type, like every other input</div>
               </th>
@@ -563,6 +613,9 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
               <th style={{ ...TH, ...DIVIDER, minWidth: 90, textAlign: 'right' }}>Avg unit size (sqm)</th>
               <th style={{ ...TH, minWidth: 80, textAlign: 'right' }}>Parking ratio</th>
               <th style={{ ...TH, minWidth: 140 }}>Ratio basis</th>
+              <th style={{ ...TH, minWidth: 90, textAlign: 'right' }}>Coverage %</th>
+              <th style={{ ...TH, minWidth: 80, textAlign: 'right' }}>FAR</th>
+              <th style={{ ...TH, minWidth: 90, textAlign: 'right' }}>Service %</th>
             </tr>
           </thead>
           <tbody>
