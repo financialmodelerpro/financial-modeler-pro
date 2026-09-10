@@ -1157,6 +1157,25 @@ export interface SubUnit {
   };
 }
 
+/**
+ * The chain's figures, in fields only the platform writes. Every one is
+ * optional and an ABSENT one means the chain did not derive it (or the project
+ * has not opted in), never zero.
+ */
+export interface DerivedAreas {
+  /** Chain parking area for THIS asset's own slots, retail parking excluded:
+   *  that belongs to the retail companion, which holds it in its own field. */
+  parkingAreaSqm?: number;
+  /** Chain parking slots, on the same basis. */
+  parkingBays?: number;
+  /** Net developable area: plot area x utilisation. */
+  netDevelopableSqm?: number;
+  /** Building footprint: net developable x ground coverage. */
+  footprintSqm?: number;
+  /** Landscape and open area: net developable x (1 - coverage). */
+  landscapeSqm?: number;
+}
+
 // ── Asset ──────────────────────────────────────────────────────────────────
 // Top-level revenue-producing entity beneath a phase.
 //
@@ -1334,6 +1353,27 @@ export interface Asset {
   // Parking should equal asset.buaTotal.
   buaTotal?: number;
   supportArea?: number;
+  /**
+   * WHAT THE CHAIN DERIVED, IN SPACE THE PLATFORM OWNS (2026-09-10).
+   *
+   * The chain derives a parking area, a slot count, a landscape area, a
+   * footprint and a net developable area, and until now none of them could
+   * reach a cost method: two methods existed and multiplied a field nothing
+   * wrote (`rate_per_parking_bay` reads `parkingBaysRequired`, which the
+   * factory seeds at 0 and only a retail companion ever updates), and three
+   * quantities had no method at all.
+   *
+   * THEY DO NOT GO IN THE USER'S FIELDS, which was the whole problem: a value
+   * the platform writes into `parkingArea` cannot afterwards be told from one
+   * the user typed, so "derive only while nobody has said otherwise" would have
+   * nothing to read and clearing it would be a one-way door. A separate bag
+   * makes the precedence a READ rule (`resolveAssetParkingArea` and friends,
+   * typed wins) rather than an invariant every write path must remember.
+   *
+   * WRITTEN ONLY BY THE ASSETS TAB'S CHAIN SYNC, and only while the project has
+   * opted in (`project.useDerivedAreas`). Absent on every project that has not.
+   */
+  derivedAreas?: DerivedAreas;
   parkingArea?: number;
   // Parking
   parkingBaysRequired: number;
@@ -1831,6 +1871,13 @@ export type CostMethod =
   | 'rate_x_support_area'      // value × asset.supportArea (asset-level)
   | 'rate_x_parking_area'      // value × asset.parkingArea (asset-level)
   | 'rate_x_specific_subunit'  // value × area of a specific sub-unit (line.subUnitId)
+  // 2026-09-10: three quantities the area chain derives that nothing could
+  // charge against. NOT a revival of rate_per_nda: that one is RETIRED and now
+  // multiplies GROSS land, and re-pointing it at the utilised area would change
+  // what every stored line means without anybody editing it.
+  | 'rate_x_net_developable_area' // value × chain net developable area (land x utilisation)
+  | 'rate_x_footprint_area'    // value × chain building footprint
+  | 'rate_x_landscape_area'    // value × chain landscape and open area
   // M2.0h Fix 5 (2026-05-07): per-sub-unit custom rates. line.perSubUnitRates
   // holds a rate per sub-unit id plus optional special keys '__support__' /
   // '__parking__' for the asset-level Support and Parking rows. Total =
@@ -1864,6 +1911,10 @@ export const COST_METHODS: readonly CostMethod[] = [
   'rate_x_support_area',
   'rate_x_parking_area',
   'rate_x_specific_subunit',
+  // 2026-09-10: the three chain quantities nothing could charge against.
+  'rate_x_net_developable_area',
+  'rate_x_footprint_area',
+  'rate_x_landscape_area',
   'per_sub_unit_custom_rates',
   'percent_of_selected',
   'percent_of_construction',
@@ -1908,6 +1959,9 @@ export const COST_METHOD_LABELS: Record<CostMethod, string> = {
   rate_x_support_area:     'Rate × Support Area',
   rate_x_parking_area:     'Rate × Parking Area',
   rate_x_specific_subunit: 'Rate × Specific Sub-unit',
+  rate_x_net_developable_area: 'Rate × Net Developable Area',
+  rate_x_footprint_area:   'Rate × Building Footprint',
+  rate_x_landscape_area:   'Rate × Landscape and Open Area',
   per_sub_unit_custom_rates: 'Per sub-unit custom rates',
   percent_of_selected:     '% of Selected Lines',
   percent_of_construction: '% of Construction',

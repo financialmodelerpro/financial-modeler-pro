@@ -668,6 +668,75 @@ export function derivedSupportId(assetId: string): string {
   return `support_derived_${assetId}`;
 }
 
+/**
+ * THE CHAIN'S OTHER FIGURES, FOR THE FIELDS ONLY THE PLATFORM WRITES.
+ *
+ * Parking area and slots, the net developable area, the footprint and the
+ * landscape area. Two cost methods already existed for the first two and
+ * multiplied a field nothing wrote for a host (`rate_per_parking_bay` reads
+ * `parkingBaysRequired`, which the factory seeds at 0 and only a retail
+ * companion updates), and the last three had no method at all until today.
+ *
+ * THEY GO IN `Asset.derivedAreas`, never in the user's own fields, so "typed
+ * wins" is a read rule rather than an invariant every write path must keep.
+ * RETAIL PARKING IS EXCLUDED: it belongs to the retail companion, which holds
+ * it in its own fields, and adding it here would charge it twice.
+ */
+export interface DerivedAreaWrite {
+  assetId: string;
+  areas: {
+    parkingAreaSqm?: number;
+    parkingBays?: number;
+    netDevelopableSqm?: number;
+    footprintSqm?: number;
+    landscapeSqm?: number;
+  };
+}
+
+export interface DerivedAreasPlan {
+  writes: DerivedAreaWrite[];
+  /** Assets whose derived bag should be cleared: the chain stopped deriving,
+   *  or the project opted out. A stale derived figure still charges. */
+  clearIds: string[];
+}
+
+/** What one row states for this rule. Structural, so the tab's richer row
+ *  satisfies it without this file learning the tab's types. */
+export interface DerivableAreaRow {
+  assetId: string;
+  hasDerivedAreas: boolean;
+  parkingAreaSqm?: number;
+  parkingSlots?: number;
+  landUtilisedSqm?: number;
+  footprintSqm?: number;
+  landscapeSqm?: number;
+}
+
+export function planDerivedAreas(
+  rows: readonly DerivableAreaRow[],
+  enabled: boolean,
+): DerivedAreasPlan {
+  const writes: DerivedAreaWrite[] = [];
+  const clearIds: string[] = [];
+  const num = (v: number | undefined): number | undefined =>
+    (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined);
+  for (const r of rows) {
+    const areas = {
+      ...(num(r.parkingAreaSqm) !== undefined ? { parkingAreaSqm: r.parkingAreaSqm } : {}),
+      ...(num(r.parkingSlots) !== undefined ? { parkingBays: r.parkingSlots } : {}),
+      ...(num(r.landUtilisedSqm) !== undefined ? { netDevelopableSqm: r.landUtilisedSqm } : {}),
+      ...(num(r.footprintSqm) !== undefined ? { footprintSqm: r.footprintSqm } : {}),
+      ...(num(r.landscapeSqm) !== undefined ? { landscapeSqm: r.landscapeSqm } : {}),
+    };
+    if (!enabled || Object.keys(areas).length === 0) {
+      if (r.hasDerivedAreas) clearIds.push(r.assetId);
+      continue;
+    }
+    writes.push({ assetId: r.assetId, areas });
+  }
+  return { writes, clearIds };
+}
+
 export interface DerivedSupportPlan {
   /** Rows to add or refresh: the chain's lobby plus service, per asset. */
   writes: Array<{ id: string; assetId: string; name: string; areaSqm: number }>;

@@ -36,7 +36,9 @@ import {
   type Asset, type CostLine, type Parcel, type Phase, type SubUnit, type Project,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import {
-  computeAssetCost, computeAssetLandBreakdown, computeSubUnitArea, resolveSubUnitMetric, deriveCostStage, landRateIssueText,
+  computeAssetCost, computeAssetLandBreakdown, computeSubUnitArea, resolveSubUnitMetric,
+  resolveAssetParkingArea, resolveAssetParkingBays, resolveAssetNetDevelopableArea,
+  resolveAssetFootprintArea, resolveAssetLandscapeArea, deriveCostStage, landRateIssueText,
 } from '../src/core/calculations';
 import { eligibleBaseLines, assetVisibleLines } from '../src/core/calculations/selectedBase';
 import { repairStaleWizardCostWindows } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
@@ -578,6 +580,63 @@ section('K. Area x unit size = count: only two of the three are inputs');
   // M5 THE RULE HAS ONE HOME. The platform's table rules kept a private copy
   // for one day, which is how the engine and the screen disagreed in the first
   // place; both read the core rule now.
+  // ── P1 to P6. THE CHAIN'S QUANTITIES REACH A COST METHOD (2026-09-10) ────
+  //
+  // Two methods already existed and multiplied a field nothing wrote for a
+  // host: `rate_per_parking_bay` reads `parkingBaysRequired`, which the asset
+  // factory seeds at 0 and only a retail companion ever updates. Three more
+  // quantities the chain derives had no method at all.
+  const withDerived = (over: Record<string, unknown>, derived: Record<string, number>): Asset =>
+    ({ id: 'a1', phaseId: 'p1', name: 'A', strategy: 'Sell', ...over, derivedAreas: derived } as unknown as Asset);
+  check('P1 TYPED WINS on parking, and a SEEDED ZERO is not typed',
+    // A typed area beats a derived one.
+    resolveAssetParkingArea(withDerived({ parkingArea: 2800 }, { parkingAreaSqm: 3560 })) === 2800
+    // A seeded 0 is not a decision: the factory writes it, so the derived
+    // figure stands (the same rule the seeded landAllocation.sqm taught).
+    && resolveAssetParkingArea(withDerived({ parkingArea: 0 }, { parkingAreaSqm: 3560 })) === 3560
+    && resolveAssetParkingBays(withDerived({ parkingBaysRequired: 0 }, { parkingBays: 89 })) === 89
+    && resolveAssetParkingBays(withDerived({ parkingBaysRequired: 12 }, { parkingBays: 89 })) === 12);
+  check('P2 with nothing derived and nothing typed the answer is ZERO, never a guess',
+    resolveAssetParkingArea({ id: 'a', phaseId: 'p' } as unknown as Asset) === 0
+    && resolveAssetLandscapeArea({ id: 'a', phaseId: 'p' } as unknown as Asset) === 0
+    && resolveAssetFootprintArea({ id: 'a', phaseId: 'p' } as unknown as Asset) === 0
+    && resolveAssetNetDevelopableArea({ id: 'a', phaseId: 'p' } as unknown as Asset) === 0);
+  check('P3 the three chain-only figures read the derived bag and have no typed counterpart',
+    resolveAssetNetDevelopableArea(withDerived({}, { netDevelopableSqm: 10454.12 })) === 10454.12
+    && resolveAssetFootprintArea(withDerived({}, { footprintSqm: 6272.47 })) === 6272.47
+    && resolveAssetLandscapeArea(withDerived({}, { landscapeSqm: 4181.65 })) === 4181.65);
+  // P4 A METHOD IS REGISTERED IN FIVE PLACES OR IT IS HALF ADDED. The union,
+  // the picker order, the label map, the unit label and the two report
+  // surfaces: miss one and the method exists and renders as a blank.
+  const NEW_METHODS = ['rate_x_net_developable_area', 'rate_x_footprint_area', 'rate_x_landscape_area'];
+  const typesSrc2 = fs.readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-types.ts', 'utf8');
+  const costsSrc2 = fs.readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx', 'utf8');
+  const capexSrc2 = fs.readFileSync('src/hubs/modeling/platforms/refm/lib/reports/capexReports.ts', 'utf8');
+  const engineSrc2 = fs.readFileSync('src/core/calculations/index.ts', 'utf8');
+  check('P4 each new method is in the union, the order, the labels, the unit and BOTH report surfaces',
+    NEW_METHODS.every((m) => (typesSrc2.match(new RegExp(m, 'g')) ?? []).length >= 3
+      && costsSrc2.includes(m)
+      && (capexSrc2.match(new RegExp(m, 'g')) ?? []).length === 2
+      && engineSrc2.includes(`case '${m}':`)),
+    NEW_METHODS.filter((m) => !engineSrc2.includes(`case '${m}':`)).join(',') || 'all registered');
+  // P5 THE RETIRED METHOD STAYS RETIRED. Re-pointing rate_per_nda at the
+  // chain's utilised land would change what every stored line means without
+  // anybody editing it, which is why the new method is a NEW one.
+  check('P5 rate_per_nda is still retired and still multiplies GROSS land',
+    typesSrc2.includes("RETIRED_COST_METHODS: readonly CostMethod[] = ['rate_per_nda', 'rate_per_roads']")
+    && !typesSrc2.includes("'rate_per_nda', 'rate_per_roads', 'rate_x_net_developable_area'")
+    && engineSrc2.includes("case 'rate_per_nda':")
+    && engineSrc2.includes('return safeV * m.ndaSqm;'));
+  // P6 THE PLATFORM NEVER WRITES A USER FIELD. The derived figures live in
+  // their own bag, so "typed wins" is a read rule and clearing is safe.
+  const modelSrc = fs.readFileSync('src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel.ts', 'utf8');
+  const storeSrc2 = fs.readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8');
+  check('P6 the derived figures go in their OWN bag, never into parkingArea or parkingBaysRequired',
+    modelSrc.includes('parkingAreaSqm?: number;')
+    && !/derivedAreas[sS]{0,400}parkingArea:/.test(storeSrc2)
+    && storeSrc2.includes('return { ...a, derivedAreas: next };')
+    // And it can be cleared, which a written-over user field could not be.
+    && storeSrc2.includes('const { derivedAreas: _drop, ...rest } = a;'));
   check('M5 the table rules read the CORE rule rather than a copy of it',
     fs.readFileSync('src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel.ts', 'utf8')
       .includes('return resolveSubUnitMetric(u as unknown as SubUnitForMetric, asset);'));

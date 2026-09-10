@@ -49,7 +49,7 @@ import {
   reconcileRetailSubUnits,
   type RetailCompanionSpec,
 } from '@/src/core/calculations/retailCompanion';
-import type { DerivedSupportPlan, LineSubUnitPlan } from '../../components/modules/_shared/assetTableModel';
+import type { DerivedAreasPlan, DerivedSupportPlan, LineSubUnitPlan } from '../../components/modules/_shared/assetTableModel';
 import { applyStrategySwitch, assetHasStrategyAssumptions } from './strategySwitch';
 import {
   applyOverrides,
@@ -173,6 +173,9 @@ export interface Module1Store {
   /** Add, refresh or remove the chain's derived SUPPORT row per asset. Opt-in
    *  per project; a project that never turns it on never sees a write. */
   syncDerivedSupport: (plan: DerivedSupportPlan) => void;
+  /** Write the chain's parking, net developable, footprint and landscape
+   *  figures into the fields only the platform owns. Same opt-in. */
+  syncDerivedAreas: (plan: DerivedAreasPlan) => void;
   addSubUnit: (subUnit: SubUnit) => void;
   updateSubUnit: (id: string, patch: Partial<SubUnit>) => void;
   removeSubUnit: (id: string) => void;
@@ -591,6 +594,37 @@ export function createModule1Store() {
      * The area tolerance is the same hundredth of a sqm the allocation check
      * uses, so float noise never counts as a change.
      */
+    /**
+     * THE CHAIN'S FIGURES, INTO THE PLATFORM'S OWN FIELDS.
+     *
+     * Never into `parkingArea` or `parkingBaysRequired`: a value written into
+     * a user's field cannot afterwards be told from one they typed, which is
+     * the one-way door this bag exists to avoid. Precedence is a READ rule
+     * (`resolveAssetParkingArea`, typed wins) and clearing is always safe.
+     *
+     * SAME STATE WHEN NOTHING MOVED, so opening a project cannot mark it dirty.
+     */
+    syncDerivedAreas: (plan) => set((s) => {
+      const byId = new Map(plan.writes.map((w) => [w.assetId, w.areas] as const));
+      const clear = new Set(plan.clearIds);
+      let changed = false;
+      const assets = s.assets.map((a) => {
+        if (clear.has(a.id)) {
+          if (a.derivedAreas === undefined) return a;
+          changed = true;
+          const { derivedAreas: _drop, ...rest } = a;
+          return rest as typeof a;
+        }
+        const next = byId.get(a.id);
+        if (next === undefined) return a;
+        if (JSON.stringify(a.derivedAreas ?? {}) === JSON.stringify(next)) return a;
+        changed = true;
+        return { ...a, derivedAreas: next };
+      });
+      if (!changed) return {};
+      return { assets };
+    }),
+
     syncDerivedSupport: (plan) => set((s) => {
       const byId = new Map(plan.writes.map((w) => [w.id, w] as const));
       const remove = new Set(plan.removeIds);

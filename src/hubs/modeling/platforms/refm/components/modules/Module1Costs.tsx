@@ -201,6 +201,10 @@ function valueUnitHint(method: CostMethod, currency: string): string {
     case 'rate_per_nsa':
     case 'rate_x_support_area':
     case 'rate_x_parking_area':
+    // The three chain areas are priced per sqm like every other area method.
+    case 'rate_x_net_developable_area':
+    case 'rate_x_footprint_area':
+    case 'rate_x_landscape_area':
       return `${currency}/sqm`;
     case 'rate_per_unit':
       return `${currency}/unit`;

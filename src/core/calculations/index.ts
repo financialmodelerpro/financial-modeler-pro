@@ -213,6 +213,45 @@ export function computeLandAggregate(parcels: Parcel[], phaseId?: string): LandA
  * (TRAPS 7.7), and making it required is what put every one of the twenty-odd
  * call sites in front of the compiler instead of in front of a reviewer.
  */
+/**
+ * THE PARKING AN ASSET HAS: what the user typed, else what the chain derived.
+ *
+ * TYPED WINS, and "typed" means GREATER THAN ZERO rather than "present". The
+ * asset factory seeds `parkingBaysRequired: 0` and an old migration wrote
+ * `parkingArea: 0` on assets that had none, so a stored zero is the platform's
+ * own seed and cannot be told from a decision. That is exactly the trap the
+ * seeded `landAllocation.sqm: 0` set (see `resolveAssetPlotDraw`), and it is
+ * read the same way here: zero means nobody has said.
+ *
+ * THE DERIVED FIGURES LIVE IN THEIR OWN BAG, never in the user's field, so this
+ * precedence is a READ rule rather than an invariant every write path has to
+ * remember. Clearing a derived value is safe; nothing the platform wrote can
+ * masquerade as something a person typed.
+ */
+export function resolveAssetParkingArea(asset: Asset): number {
+  const typed = Math.max(0, asset.parkingArea ?? 0);
+  if (typed > 0) return typed;
+  return Math.max(0, asset.derivedAreas?.parkingAreaSqm ?? 0);
+}
+
+export function resolveAssetParkingBays(asset: Asset): number {
+  const typed = Math.max(0, asset.parkingBaysRequired ?? 0);
+  if (typed > 0) return typed;
+  return Math.max(0, asset.derivedAreas?.parkingBays ?? 0);
+}
+
+/** The three the chain alone produces: there is no typed counterpart, so an
+ *  absent derivation is simply zero and the cost line charges nothing. */
+export function resolveAssetNetDevelopableArea(asset: Asset): number {
+  return Math.max(0, asset.derivedAreas?.netDevelopableSqm ?? 0);
+}
+export function resolveAssetFootprintArea(asset: Asset): number {
+  return Math.max(0, asset.derivedAreas?.footprintSqm ?? 0);
+}
+export function resolveAssetLandscapeArea(asset: Asset): number {
+  return Math.max(0, asset.derivedAreas?.landscapeSqm ?? 0);
+}
+
 export function resolveSubUnitMetric(u: SubUnit, asset: Asset | undefined): 'area' | 'units' {
   const fromAsset = asset?.subUnitMetric;
   const raw = fromAsset ?? u.metric;
@@ -857,6 +896,7 @@ export function aggregatePhaseMetrics(
     gfa: 0, bua: 0, nsa: 0,
     unitCount: 0, parkingBays: 0,
     supportArea: 0, parkingArea: 0,
+    netDevelopableArea: 0, footprintArea: 0, landscapeArea: 0,
     landValue: 0, cashLandValue: 0, inKindLandValue: 0,
     totalRevenue: 0,
   };
@@ -873,6 +913,9 @@ export function aggregatePhaseMetrics(
     agg.parkingBays += m.parkingBays;
     agg.supportArea += m.supportArea;
     agg.parkingArea += m.parkingArea;
+    agg.netDevelopableArea += m.netDevelopableArea;
+    agg.footprintArea += m.footprintArea;
+    agg.landscapeArea += m.landscapeArea;
     agg.landValue += m.landValue;
     agg.cashLandValue += m.cashLandValue;
     agg.inKindLandValue += m.inKindLandValue;
@@ -897,7 +940,13 @@ export interface AssetAreaMetrics {
   // M2.0g Fix 4 additions: kept for cost methods that target a specific
   // tier (rate_x_support_area / rate_x_parking_area).
   supportArea: number;         // sub-unit Support + asset.supportArea
-  parkingArea: number;         // asset.parkingArea (asset-level input)
+  parkingArea: number;         // typed, else the chain's derived figure
+  // 2026-09-10: the three the chain alone produces. Zero when it derived none
+  // (or the project has not opted in), so their methods charge nothing rather
+  // than guessing.
+  netDevelopableArea: number;
+  footprintArea: number;
+  landscapeArea: number;
   landValue: number;
   cashLandValue: number;
   inKindLandValue: number;
@@ -936,7 +985,7 @@ export function computeAssetAreaTotals(asset: Asset, subUnits: SubUnit[]): Asset
   const subUnitsSupport = my.filter((u) => u.category === 'Support').reduce((s, u) => s + computeSubUnitArea(u, asset), 0);
   const subUnitsRevenue = sellableBua + operableBua + leasableBua;
   const supportArea = Math.max(0, asset.supportArea ?? 0);
-  const parkingArea = Math.max(0, asset.parkingArea ?? 0);
+  const parkingArea = resolveAssetParkingArea(asset);
   const derivedTotal = subUnitsRevenue + subUnitsSupport + supportArea + parkingArea;
   const enteredTotal = Math.max(0, asset.buaTotal ?? 0);
   // Resolved BUA: explicit asset.buaTotal wins; otherwise derived sum.
@@ -991,7 +1040,7 @@ export function computeAssetAreaHierarchy(asset: Asset, subUnits: SubUnit[]): As
   const leasableArea = my.filter((u) => u.category === 'Leasable').reduce((s, u) => s + computeSubUnitArea(u, asset), 0);
   const subUnitSupport = my.filter((u) => u.category === 'Support').reduce((s, u) => s + computeSubUnitArea(u, asset), 0);
   const supportArea = subUnitSupport + Math.max(0, asset.supportArea ?? 0);
-  const parkingArea = Math.max(0, asset.parkingArea ?? 0);
+  const parkingArea = resolveAssetParkingArea(asset);
   const nsa = sellableArea + operableArea + leasableArea;
   const bua = nsa + supportArea;
   const gfa = bua + parkingArea;
@@ -1138,11 +1187,14 @@ export function resolveAssetAreaMetrics(
     landSqm,
     ndaSqm,
     roadsSqm,
+    netDevelopableArea: resolveAssetNetDevelopableArea(asset),
+    footprintArea: resolveAssetFootprintArea(asset),
+    landscapeArea: resolveAssetLandscapeArea(asset),
     gfa,
     bua,
     nsa,
     unitCount,
-    parkingBays: Math.max(0, asset.parkingBaysRequired ?? 0),
+    parkingBays: resolveAssetParkingBays(asset),
     supportArea: hierarchy.breakdown.supportArea,
     parkingArea: hierarchy.breakdown.parkingArea,
     landValue,
@@ -1227,6 +1279,15 @@ export function calculateItemTotal(
       return safeV * m.supportArea;
     case 'rate_x_parking_area':
       return safeV * m.parkingArea;
+    // THE THREE THE CHAIN ALONE PRODUCES (2026-09-10). Each multiplies a figure
+    // from the asset DERIVED bag, so a project that never opted in charges
+    // nothing on them rather than charging a guess.
+    case 'rate_x_net_developable_area':
+      return safeV * m.netDevelopableArea;
+    case 'rate_x_footprint_area':
+      return safeV * m.footprintArea;
+    case 'rate_x_landscape_area':
+      return safeV * m.landscapeArea;
     case 'rate_x_specific_subunit': {
       const target = (ctx.subUnits ?? []).find((u) => u.id === line.subUnitId);
       if (!target) return 0;
@@ -2904,8 +2965,20 @@ export function costLineCaption(input: CostLineCaptionInput): string {
       const sa = Math.max(0, metrics.supportArea > 0 ? metrics.supportArea : (asset.supportArea ?? 0));
       return sa > 0 ? `${fmt(value, 2)} x ${fmtArea(sa)} sqm Support` : noArea('Support area');
     }
+    case 'rate_x_net_developable_area':
+      return metrics.netDevelopableArea > 0
+        ? `${fmt(value, 2)} x ${fmtArea(metrics.netDevelopableArea)} sqm Net Developable Area`
+        : noArea('Net developable area');
+    case 'rate_x_footprint_area':
+      return metrics.footprintArea > 0
+        ? `${fmt(value, 2)} x ${fmtArea(metrics.footprintArea)} sqm Building Footprint`
+        : noArea('Building footprint');
+    case 'rate_x_landscape_area':
+      return metrics.landscapeArea > 0
+        ? `${fmt(value, 2)} x ${fmtArea(metrics.landscapeArea)} sqm Landscape and Open Area`
+        : noArea('Landscape area');
     case 'rate_x_parking_area': {
-      const pa = Math.max(0, metrics.parkingArea > 0 ? metrics.parkingArea : (asset.parkingArea ?? 0));
+      const pa = Math.max(0, metrics.parkingArea > 0 ? metrics.parkingArea : resolveAssetParkingArea(asset));
       return pa > 0 ? `${fmt(value, 2)} x ${fmtArea(pa)} sqm Parking` : noArea('Parking area');
     }
     case 'rate_x_specific_subunit':

@@ -89,6 +89,7 @@ import {
   poolSubUnits,
   primaryParcelId,
   derivedSupportId,
+  planDerivedAreas,
   planDerivedSupport,
   planLineSubUnits,
   resolveAssetNsa,
@@ -416,6 +417,7 @@ export default function Module1Assets(): React.JSX.Element {
     syncRetailCompanions,
     syncLineSubUnits,
     syncDerivedSupport,
+    syncDerivedAreas,
   } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
@@ -437,6 +439,7 @@ export default function Module1Assets(): React.JSX.Element {
       syncRetailCompanions: s.syncRetailCompanions,
       syncLineSubUnits: s.syncLineSubUnits,
       syncDerivedSupport: s.syncDerivedSupport,
+      syncDerivedAreas: s.syncDerivedAreas,
       removeSubUnit: s.removeSubUnit,
     })),
   );
@@ -682,6 +685,31 @@ export default function Module1Assets(): React.JSX.Element {
     project.useDerivedAreas === true,
   ), [rowGroups, subUnits, project.useDerivedAreas]);
   useEffect(() => { syncDerivedSupport(derivedSupportPlan); }, [derivedSupportPlan, syncDerivedSupport]);
+
+  /**
+   * THE CHAIN'S OTHER FIGURES, INTO THE PLATFORM'S OWN FIELDS (2026-09-10).
+   *
+   * Parking area and slots, which two cost methods already offered against a
+   * field nothing wrote for a host; and the net developable area, footprint and
+   * landscape area, which had no method at all until today. Same opt-in as the
+   * support row, because they add cost on the same live lines.
+   *
+   * RETAIL PARKING IS NOT HERE: the companion holds its own, and adding a
+   * host's share would charge it twice.
+   */
+  const derivedAreasPlan = useMemo(() => planDerivedAreas(
+    rowGroups.flatMap((g) => g.rows).map((r) => ({
+      assetId: r.asset.id,
+      hasDerivedAreas: r.asset.derivedAreas !== undefined,
+      parkingAreaSqm: r.chain.parkingAreaSqm,
+      parkingSlots: r.chain.parkingSlots,
+      landUtilisedSqm: r.chain.landUtilisedSqm,
+      footprintSqm: r.chain.footprintSqm,
+      landscapeSqm: r.chain.landscapeSqm,
+    })),
+    project.useDerivedAreas === true,
+  ), [rowGroups, project.useDerivedAreas]);
+  useEffect(() => { syncDerivedAreas(derivedAreasPlan); }, [derivedAreasPlan, syncDerivedAreas]);
 
   /** Add a sub-unit to a chosen parent, seeded exactly as the per-asset
    *  button seeds one, so the two entry points cannot diverge. */
