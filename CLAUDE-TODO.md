@@ -34,12 +34,38 @@ so it is its own step rather than a tail of step 6.
 **STEP 7 IS NOT DECIDED.** The founder's sequence has been one step per
 instruction; do not guess ahead.
 
-### 2. Sub-unit re-parenting to the LINE
-Sub-units GROUP under the line in table 5 but still BELONG to the plot asset:
-`SubUnit.assetId` is untouched. Re-parenting moves with the engine's lookup
-sites and the asset-keyed cost overrides TOGETHER, because a half-moved parent
-is two answers to one question. `partitionSubUnitsByLine` already states which
-sub-unit belongs to which line, so the presentation half is done.
+### 2. Sub-unit re-parenting to the LINE: CLOSED 2026-09-10, NOT NEEDED
+Reported before doing it, and the report killed it. Sub-units still BELONG to
+the plot asset and GROUP under the line in table 5, and that arrangement turns
+out to be the right one rather than a halfway house.
+
+**WHAT RE-PARENTING WOULD HAVE BOUGHT: almost nothing.** The merge already works
+without it (`partitionSubUnitsByLine` states which sub-unit belongs to which
+line and table 5 renders exactly that). Capex and revenue already agree on the
+priced area, measured on all thirteen live lines, because both read the SAME
+per-asset sub-unit areas and the line is a sum of sums. The two real gains, a
+sub-unit surviving its plot's deletion and a line holding one price, are already
+PRESENTED by table 5, which was the original complaint.
+
+**WHAT IT WOULD HAVE COST:** 15 asset-keyed sub-unit lookups (11 in
+`core/calculations/index.ts`, 3 in `revenue-resolvers`, 1 in `opex-resolvers`);
+the cost overrides, keyed `(assetId, lineId)` in two engine lookups with 27
+references across the codebase, where an override means "THIS ASSET charges THIS
+LINE differently"; and the five surfaces reading `byAssetCostOfSales`, a Map
+keyed by ASSET id (`Module2CostOfSales`, `Module2Schedules`,
+`financials-resolvers`, `consolidatedReport`, `cosReports`).
+
+**AND THE PART THAT DECIDED IT.** Land, the retail carve, depreciation life and
+method, opening NBV, IDC and the plot draw are all per ASSET, and a LINE has no
+answer for any of them (52 references in the engine and the fixed-asset resolver
+alone). Re-parenting would move the AREAS to the line while the MONEY stayed on
+the asset: a half-moved parent, which is the thing this item was written to
+avoid, made permanent instead of transitional.
+
+**WHAT WOULD REOPEN IT:** a sub-unit that genuinely needs to move between plots,
+or a line-level price that cannot be expressed as per-plot rows. Neither exists
+on the live data: every line needing a seeded row had exactly one plot, and the
+one real two-plot line prices correctly as two rows summing to the line.
 
 ### 3. Wire the area chain to Capex
 The chain reaches the engine in exactly ONE place today (the retail carve's
