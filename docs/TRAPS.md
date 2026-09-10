@@ -1254,7 +1254,51 @@ folder in the App Router (404), so name a temp harness route without the undersc
 
 ## 7. Engine and model
 
-### 7.32 A control that DISPLAYS a default it never stores, and a unit label the formula ignores
+### 7.35 One key, two vocabularies: the value is the project's, the list is the CALLER's
+
+**Symptom (2026-09-10, found while diagnosing an empty standards tab; diagnosed, NOT fixed).** A
+platform admin opens a client's project, goes to Module 1 tab 4, and sees THEIR OWN firm's asset
+type list, not the project owner's. Every value they type there is keyed by an id from their own
+vocabulary and stored in the client's project.
+
+**Mechanism.** `GET /api/refm/asset-types` scopes to `resolveAccountId(caller)`, which is a straight
+read of the caller's `users.account_id`; it never consults the project's owner. The tab renders
+value cells ONLY for rows of that list, and `project.assetTypeValues` is keyed by those rows' entry
+ids. Ids are label-derived (`normaliseAssetTypeId`), so two accounts holding the same label collide
+BENIGNLY and nothing is visibly wrong; the damage is confined to where the two lists differ, which
+is why this can sit unnoticed. Two concrete failures:
+
+  (a) A value typed under an id the owner's list lacks becomes an ORPHAN when the owner opens the
+      tab: kept (correctly, values are never deleted with a name), uneditable from any row, and the
+      banner explains it with a FALSE cause, "removing a name from the firm's list must not delete
+      project numbers", when nobody removed anything.
+
+  (b) Picking a type writes `asset.assetTypeId = entry.id` from the CALLER's registry, and
+      `resolveAssetTypeKey` makes a stored reference OUTRANK the label. So an admin can pin a
+      client's asset to an id from a vocabulary that client does not have, and the client cannot
+      reach those values from any row until the reference is cleared in the drawer.
+
+The numbers themselves are not corrupted: the chain resolves values by the ASSET's own key
+(`resolveAssetTypeValues`), which does not depend on who is looking. This is an editing-surface and
+identity hazard, not a wrong-number one.
+
+**Why the cost catalog does NOT have it**, despite the identical scoping call: selecting a catalog
+entry STAMPS behaviour onto the cost LINE, so the line carries what it needs and a foreign
+`catalogId` is inert for the engine. Asset types are deliberately the opposite (mig 244: "THAT IS
+WHY NOTHING IS STAMPED", so a firm editing its list can never leave a model stale), and it is
+exactly that choice which exposes them. Two designs, one scoping rule, and only one of them is safe
+under it.
+
+**Fix.** Open. The candidates and the decision they need are in CLAUDE-TODO.md; scoping the read to
+the PROJECT OWNER's account is the obvious one, but it forces a second decision (whose list does a
+type ADDED from inside a client's project join?) that is a product question, not a code one.
+
+**The general rule.** When a value is KEYED by a vocabulary, the vocabulary must be scoped the same
+way the value is. A project-scoped value keyed by an account-scoped id has to resolve that id
+against the PROJECT's account, never the reader's. Ask it of any id-keyed store: whose list minted
+this key, and is that the same "whose" that owns the value?
+
+### 7.34 A control that DISPLAYS a default it never stores, and a unit label the formula ignores
 
 **Symptom (2026-09-10, both found while reporting on parking, not while debugging it).** Two
 halves of one shape. (a) The standards tab's parking-basis dropdown rendered

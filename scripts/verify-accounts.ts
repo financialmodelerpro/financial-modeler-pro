@@ -146,6 +146,16 @@ async function main() {
       // mig 241: the cost catalog's OWN account_id column (the route resolves
       // the caller's account through the accountBoundary helper, never raw).
       'app/api/refm/cost-catalog/route.ts',
+      // mig 242: the asset type vocabulary's OWN account_id column, the same
+      // shape as the cost catalog above and admitted for the same reason. It
+      // was MISSED when 242 landed, so this check failed from 2026-09-07 and
+      // was carried as one of the five open suite failures until it was read
+      // on 2026-09-10: the route queries `refm_asset_types` alone and resolves
+      // the caller through `resolveAccountId`, so it reads no `users` row.
+      // A STALE ALLOW-LIST, not a boundary breach. The check is a coarse
+      // string match ON PURPOSE (a raw query would be caught with no help from
+      // the author), which is exactly why each entry states why it is here.
+      'app/api/refm/asset-types/route.ts',
     ]);
     const readers: string[] = [];
     for (const dir of ['src', 'app']) {

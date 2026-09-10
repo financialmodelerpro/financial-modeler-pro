@@ -70,7 +70,7 @@ revenue and sub-units with fractional counts. CLAUDE.md still claims "max
 |Assets - L&E| is 0.00 on both live projects", which is no longer true of the
 current snapshots. Diagnose before believing either statement.
 
-### 8. THE SUITE IS NOT CLEAN: five failures, all PRE-DATING 2026-09-09
+### 8. THE SUITE IS NOT CLEAN: five failures, all PRE-DATING 2026-09-09 (ONE CLOSED 2026-09-10, four left)
 `npx tsx scripts/run-verifiers.ts` with credentials, 2026-09-09 close:
 **160 pass / 5 fail of 165, 9676 individual checks.** Do not quote "green".
 
@@ -82,7 +82,7 @@ of the day's eleven commits introduced any of them:
 |---|---|---|---|
 | `verify-report-arithmetic` | 77/1 | 77/1 | per-asset cost never exceeds total development cost, **6262.9 vs 4912.2** on the FIXTURE, so this is code and not live data |
 | `verify-excel-export` | 309/3 | 309/3 | three, not yet read |
-| `verify-accounts` | 124/1 | 124/1 | S10: `app/api/refm/asset-types/route.ts` reads `users.account_id` outside the allow-list (the route arrived with mig 242 on 2026-09-07; either it should read through the helper or the allow-list should name it) |
+| `verify-accounts` | 124/1 | **CLOSED 2026-09-10, 125/0** | S10 was a STALE ALLOW-LIST, not a breach. The route queries `refm_asset_types` alone and resolves the caller through `resolveAccountId`, so it reads no `users` row: the check is a coarse string match on `account_id` and its own comment says each step amends the list consciously. Mig 241 added the cost-catalog route for exactly this reason; mig 242 added this route and did not. Admitted by name, with the reason. |
 | `verify-view-lock` | 63/1 | 63/1 | the `data-view-editable` opt-out ceiling is 8 and there are **13**, six of them on the standards tab, which is a DELIBERATE founder decision (account data must stay editable under the project view lock). The ceiling is stale, not the code: prefer naming the files, as this codebase does elsewhere, over raising a number |
 | `verify-fund-e2e` | 86/1 | 86/1 | one, not yet read |
 
@@ -92,6 +92,32 @@ start" and implicated `src/core/calculations/index.ts`. That commit is
 week and pointed at the sole-occupant plot draw (2026-09-07/08), not at today.
 Re-measured against the true boundary, `dcde1cd4`, all five are unchanged. A
 before/after is only as good as its BEFORE (TRAPS 5.1, the same lesson).
+
+### 9. THE STANDARDS TAB SHOWS THE CALLER'S FIRM LIST, THE VALUES BELONG TO THE PROJECT
+**Diagnosed 2026-09-10, not fixed. docs/TRAPS.md 7.35.** `GET /api/refm/asset-types` scopes to
+`resolveAccountId(caller)` (a straight read of the caller's `users.account_id`) and never consults
+the project's owner, while `project.assetTypeValues` is keyed by that list's entry ids. So a
+platform admin opening a client's project types values against their OWN vocabulary, into the
+client's project. Ids are label-derived, so matching labels collide benignly; the damage is where
+the lists differ. Two shapes, both verified by reading: a value under an id the owner lacks becomes
+an ORPHAN for the owner (kept, uneditable, and the banner blames a removal that never happened), and
+picking a type writes `asset.assetTypeId` from the caller's registry, which OUTRANKS the label in
+`resolveAssetTypeKey`, pinning a client's asset to a vocabulary the client does not have. Numbers
+are not corrupted: the chain resolves by the asset's own key.
+
+**THE FIX NEEDS A PRODUCT DECISION, which is why it is here and not done.** Scoping the READ to the
+project owner's account (`?projectId=`, falling back to the caller's account when none) is the
+obvious half. The other half is not: when someone adds or renames a type while inside a client's
+project, whose list does it join, the client's (the vocabulary they will keep seeing) or the
+caller's (the account that pays for it)? A third option is to make the values half READ-ONLY when
+the caller's account is not the owner's, with a banner naming the reason, which is honest and needs
+no new write path. Whichever wins, the values half and the list half must end up scoped the same
+way, which is the whole lesson of 7.35.
+
+**Reachable today?** Only for a platform admin, since no other cross-account read exists: membership
+is the access check and a member shares the owner's account by construction (`accountBoundary`).
+That is what makes it a hazard rather than an outage, and also what makes it easy to hit exactly
+once, on the first client project an admin enters values on.
 
 ### Standing, unchanged from 2026-09-05
 Per-platform seats when a second platform ships (recorded, not built); the
@@ -1197,12 +1223,12 @@ Current LIVE status. For per-pass narrative see [CLAUDE-REFM.md](CLAUDE-REFM.md)
 ## Remaining backlog
 
 **Module 1 financing:**
-- Funding Method 2 (Net Funding Requirement) + Method 3 (Cash Deficit Funding) — display-only Funding Gap sub-tab live; wire Net Cash Required output into actual debt drawdown sizing.
+- Funding Method 2 (Net Funding Requirement) + Method 3 (Cash Deficit Funding), display-only Funding Gap sub-tab live; wire Net Cash Required output into actual debt drawdown sizing.
 - True per-asset financing schedule breakdown across multi-asset phases.
 - DSCR breach alerts (M5 dependency).
 - Sharia Murabaha / Ijara product templates, multi-currency, refinancing flows.
 
-**Module 4 financial statements (remaining, non-blocking — BS balances + CF methods tie):**
+**Module 4 financial statements (remaining, non-blocking, BS balances + CF methods tie):**
 - **D-2** per-asset (phase-filtered) CF revenue ignores DSO (project-level CF correct).
 - **D-3** Cash Sweep interest savings full P&L mutation (ships memo-only; BS balances under sweep without it).
 - **D-6** P&L + CF phase-filter column (UI parity with BS).
