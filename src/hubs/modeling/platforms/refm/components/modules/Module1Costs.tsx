@@ -103,6 +103,7 @@ import {
   costLineProjectPeriodIndex,
   type AssetCostBreakdown,
 } from '@/src/core/calculations';
+import { isRetailCompanion } from '@/src/core/calculations/retailCompanion';
 import { currencyHeaderLine, formatAccounting } from '@/src/core/formatters';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
@@ -4723,7 +4724,14 @@ export default function Module1Costs(): React.JSX.Element {
                 The engine has already short-circuited to an empty
                 breakdown so Project Total + Asset Subtotal rollups
                 exclude the companion's burden. */}
-            {phaseHasAssets && activeAsset && activeAsset.isCompanion === true && (() => {
+            {/* CONSOLIDATION STEP 6 (2026-09-10): this panel is the OPERATE
+                companion's, and only its. A retail companion now costs like any
+                other asset, so showing it "No development costs apply here"
+                while the engine charged it would be a row that carries money
+                and says it does not, which is the trap this file has been bitten
+                by twice (a hidden country-gated line charging, then doubling). */}
+            {phaseHasAssets && activeAsset && activeAsset.isCompanion === true
+              && !isRetailCompanion(activeAsset) && (() => {
               const parent = assets.find((a) => a.id === activeAsset.parentAssetId);
               const phase = phases.find((p) => p.id === activeAsset.phaseId);
               const opEndYear = phase
@@ -4813,7 +4821,12 @@ export default function Module1Costs(): React.JSX.Element {
               </div>
             )}
 
-            {phaseHasAssets && activeAsset && activeAsset.isCompanion !== true && assetBreakdown && assetMetrics && (
+            {/* AND THE ORDINARY TABLE INCLUDES IT, which is where its OWN
+                rate goes: the existing per-asset override, the same cell every
+                other asset uses, rather than a second mechanism for retail. */}
+            {phaseHasAssets && activeAsset
+              && (activeAsset.isCompanion !== true || isRetailCompanion(activeAsset))
+              && assetBreakdown && assetMetrics && (
               <AssetCostSection
                 key={activeAsset.id}
                 asset={activeAsset}

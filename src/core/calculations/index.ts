@@ -1584,7 +1584,21 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
   // breakdown so downstream consumers (UI render, Project Total
   // rollup, financing engine) see explicit zeros instead of any
   // accidentally inherited master totals.
-  if (asset.isCompanion === true) {
+  //
+  // ── CONSOLIDATION STEP 6 (2026-09-10): A RETAIL COMPANION IS NOT ONE OF
+  //    THESE. It has land (step 5), floor area and parking of its own, it is
+  //    held on Lease, and it is the ONLY companion that is a building rather
+  //    than a second treatment of one. So it falls through to the ordinary
+  //    pipeline below and is costed exactly like any other asset: the same
+  //    phase lines, the same scope rule (a SELLING line drops out for a Lease
+  //    asset without anything here knowing about retail), the same soft
+  //    percentages, and its own rate through the ordinary per-asset override.
+  //    That is the whole of step 6 in this file: one predicate, narrowed.
+  //
+  //    The Operate companion is untouched. It carries NO physical attributes
+  //    and inherits its parent's revenue, so charging it any line would double
+  //    count the parent's building.
+  if (asset.isCompanion === true && !isRetailCompanion(asset)) {
     const cpZero = phase.constructionPeriods + 1;
     return {
       byLineId: {},

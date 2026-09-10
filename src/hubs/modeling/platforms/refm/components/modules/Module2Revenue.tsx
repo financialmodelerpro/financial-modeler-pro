@@ -37,6 +37,7 @@ import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { CELL_HEADER } from './_shared/tableStyles';
 import { AssetQuickNav } from './_shared/AssetQuickNav';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
+import { isRetailCompanion } from '@/src/core/calculations/retailCompanion';
 
 const FAST_INPUT: React.CSSProperties = {
   background: 'var(--color-navy-pale)',
@@ -186,8 +187,15 @@ export default function Module2Revenue(): React.JSX.Element {
   // useShallow a new array every render.
   const assets = useMemo(() => withResolvedAssetNames(rawAssets), [rawAssets]);
 
+  // CONSOLIDATION STEP 6 (2026-09-10): A RETAIL COMPANION IS PRICED HERE. The
+  // companion exclusion is the OPERATE companion s, which is priced inside its
+  // parent s Hospitality group with a linked-to chip rather than as an asset of
+  // its own. A retail companion has its own floor area, its own sub-unit and
+  // its own rent, and it now costs like any other asset, so a tab that hid it
+  // would leave a building that CHARGES with no way to price it.
   const visibleAssets = useMemo(
-    () => assets.filter((a) => a.visible !== false && a.isCompanion !== true),
+    () => assets.filter((a) => a.visible !== false
+      && (a.isCompanion !== true || isRetailCompanion(a))),
     [assets],
   );
 
@@ -663,7 +671,13 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   // Pass 8b (2026-05-18): Hospitality (Operate-strategy) input variant.
   // Pure Operate assets + every companion (companions are the operate
   // side of a Sell + Manage parent).
-  const isHospitality = asset.strategy === 'Operate' || asset.isCompanion === true;
+  // A RETAIL COMPANION IS NOT HOSPITALITY (2026-09-10). This read "or is a
+  // companion", true while every companion was the Operate side of a Sell +
+  // Manage parent; a Lease retail strip would have been handed ADR and
+  // occupancy-per-key inputs. The eighth of the classifiers step 4 swept,
+  // found when the strip was finally given a rate to earn on.
+  const isHospitality = asset.strategy === 'Operate'
+    && (asset.isCompanion !== true || !isRetailCompanion(asset));
   // Pass 9g (2026-05-18): Retail / Office Lease input variant.
   const isLease = asset.strategy === 'Lease';
 

@@ -3648,11 +3648,37 @@ export function makeRetailCompanionAsset(spec: {
     buaSqm: spec.retailGfaSqm,
     gfaSqm: spec.retailGfaSqm + spec.retailParkingAreaSqm,
     sellableBuaSqm: spec.retailGfaSqm,
+    // THE PARKING AREA GOES IN THE FIELD THE ENGINE READS (step 6, 2026-09-10).
+    // It was only ever inside `gfaSqm` (retail GFA plus parking), so the
+    // difference was visible on screen while `rate_x_parking_area`, the cost
+    // method whose whole job is to charge it, multiplied by an absent field and
+    // charged nothing. A figure the model knows, in a field nothing read.
+    parkingArea: spec.retailParkingAreaSqm,
     parkingBaysRequired: spec.retailParkingSlots,
     isCompanion: true,
     companionType: 'retail',
     retailLineKey: spec.lineKey,
     retailHostAssetIds: [...spec.hostAssetIds],
+    // A LEASE ASSET NEEDS ITS LEASE BLOCK (step 6, 2026-09-10), or
+    // `resolveLeaseConfig` returns null on the first line it reads and the
+    // strip earns nothing however it is priced. Every hand-made Lease asset
+    // carries one; it is created lazily by the Revenue tab the first time
+    // someone edits a lease field, which a derived asset nobody has visited
+    // never gets. SEEDED WITH THE TAB'S OWN DEFAULTS, nothing invented: rate 0,
+    // occupancy zeros, arDays 30, no indexation. So it earns nothing until
+    // somebody prices it, exactly like the sub-unit it reads, and setting a
+    // rate and an occupancy is the same two edits any Lease asset needs.
+    // WHAT THE USER OWNS SURVIVES a re-derive, like the name and the rate.
+    revenue: {
+      ...(existing?.revenue ?? {}),
+      lease: existing?.revenue?.lease ?? {
+        assetId: spec.id,
+        baseRate: 0,
+        rentIndexation: { method: 'none' as const },
+        occupancyPerPeriod: [],
+        arDays: 30,
+      },
+    },
   } as Asset;
 }
 

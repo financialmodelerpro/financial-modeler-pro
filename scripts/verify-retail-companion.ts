@@ -40,7 +40,7 @@ import {
   type RetailCompanionSpec,
 } from '../src/core/calculations/retailCompanion';
 import { computeLandChain } from '../src/core/calculations/landChain';
-import { computeAssetLandBreakdown, computeAssetUnitCount, computeAssetLandSqm } from '../src/core/calculations';
+import { computeAssetLandBreakdown, computeAssetUnitCount, computeAssetLandSqm, computeAssetCost } from '../src/core/calculations';
 import { groupAssetsForConsolidation } from '../src/core/calculations/consolidation';
 import { groupAssetsByPlot } from '../src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel';
 import { makeRetailCompanionAsset, makeRetailCompanionSubUnit } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
@@ -323,10 +323,21 @@ function offlineChecks(): void {
     // sync passes skip it without either learning a second kind exists.
     && asset.parentAssetId === undefined);
   const engineSrc = readFileSync('src/core/calculations/index.ts', 'utf8');
-  check('C6 the ENGINE is what makes it free, and both short-circuits are still there',
-    /if \(asset\.isCompanion === true\) \{\s*\n\s*const cpZero/.test(engineSrc.replace(/\r/g, ''))
-    && /\/\/ Rule 2: companion has no land\.\s*\n\s*if \(asset\.isCompanion === true\) return 0;/
-      .test(engineSrc.replace(/\r/g, '')));
+  // C6 REVERSED BY STEP 6 (2026-09-10), which is the whole of the step in the
+  // engine: a retail companion is no longer free. It has land (step 5), floor
+  // area and parking of its own and is held on Lease, so it is costed like any
+  // other asset. The OPERATE companion's short-circuit stays exactly where it
+  // was: that one carries no physical attributes and mirrors its parent's
+  // units, so charging it any line would count the parent building twice.
+  check('C6 the cost short-circuit is the OPERATE companion alone, and a retail companion falls through it',
+    engineSrc.includes('if (asset.isCompanion === true && !isRetailCompanion(asset)) {')
+    // The Operate half is still a short-circuit and still returns the canonical
+    // empty breakdown, so nothing about that asset changed.
+    && engineSrc.includes('byStage: { land: 0, hard: 0, soft: 0, marketing: 0, operating: 0 },')
+    // THE BEHAVIOUR IS PROVEN ON LIVE DATA in section F, on a real phase with a
+    // real period axis, rather than on a synthetic phase here: this fixture has
+    // no timeline and computeAssetCost needs one.
+    && true);
 
   section('D. The Operate mechanism is reused, not copied');
   const storeSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8');
@@ -395,7 +406,7 @@ async function liveChecks(): Promise<void> {
     return await r.json() as unknown[];
   };
   const ps = await q('refm_projects?select=id,name&deleted_at=is.null&order=created_at') as { id: string; name: string }[];
-  let projects = 0, injected = 0, identical = 0;
+  let projects = 0, injected = 0, identical = 0, withRetail = 0, hostsMoved = 0;
   for (const p of ps) {
     const vs = await q(`refm_project_versions?project_id=eq.${p.id}&select=snapshot&order=created_at.desc&limit=1`) as { snapshot: Record<string, unknown> }[];
     if (!vs[0]?.snapshot) continue;
@@ -448,6 +459,27 @@ async function liveChecks(): Promise<void> {
       { ...st, assets: [...assets, ...specs.map((sp) => makeRetailCompanionAsset(sp))] } as never,
     ));
     if (before === after) identical += 1;
+    if (specs.length > 0) withRetail += 1;
+    // PER ASSET, either side: a host's own development cost must not move
+    // because a companion beside it started costing.
+    if (specs.length > 0) {
+      const withCompanions = [...assets, ...specs.map((sp) => makeRetailCompanionAsset(sp))];
+      for (const h of assets) {
+        const ph = ((st.phases ?? []) as { id: string }[]).find((x) => x.id === h.phaseId);
+        if (!ph) continue;
+        const args = (list: Asset[]) => ({
+          asset: h, project: st.project, phase: ph, parcels, assets: list, subUnits,
+          costLines: st.costLines, costOverrides: st.costOverrides,
+          landAllocationMode: mode,
+        });
+        const b = computeAssetCost(args(assets as Asset[]) as never).total;
+        const a2 = computeAssetCost(args(withCompanions as Asset[]) as never).total;
+        if (Math.abs(a2 - b) > 0.005) {
+          hostsMoved += 1;
+          console.log(`      HOST MOVED ${p.name} / ${String(h.name)}: ${b} -> ${a2}`);
+        }
+      }
+    }
     console.log(`  ${p.name}: ${specs.length} companion(s)`
       + `${specs.length ? ` [${specs.map((x) => `${x.typeLabel} ${Math.round(x.retailGfaSqm)} sqm`).join('; ')}]` : ''}`
       + ` -> ${before === after ? 'identical' : 'MOVED'}`);
@@ -455,8 +487,23 @@ async function liveChecks(): Promise<void> {
   check('F1 the census reached the live projects', projects >= 5, `${projects}`);
   check('F2 at least one live line actually builds retail, so this is not a vacuous pass',
     injected >= 1, `${injected} companions injected`);
-  check('F3 EVERY project is byte-identical with its retail companions present',
-    identical === projects, `${identical} of ${projects}`);
+  // F3 REVERSED BY STEP 6 (2026-09-10). It pinned that injecting the companions
+  // moved NOTHING, which was the point while they were costed at zero: the
+  // asset existed and the model did not notice. Step 6 gives them cost lines
+  // and rent, so the claim inverts: a project that builds retail MUST move, and
+  // a project that builds none must still not. Keeping the old assertion would
+  // have meant deleting the step to keep a green tick.
+  check('F3 a project that builds NO retail is still byte-identical',
+    identical === projects - withRetail, `${identical} identical of ${projects}, ${withRetail} build retail`);
+  check('F3b and a project that DOES build retail moves, which is the step working',
+    withRetail === 0 || identical < projects,
+    `${withRetail} projects build retail`);
+  // F3c IS THE PART THAT MATTERS: what moved is the COMPANIONS' own cost and
+  // nothing else. A total that moved by the right amount would pass a weaker
+  // check while every host was wrong, which is the failure mode step 5 was
+  // shaped against and the same one applies here.
+  check('F3c ONLY the companions cost: no host asset changes by a cent',
+    hostsMoved === 0, `${hostsMoved} host assets moved`);
 
   // ── I. LIVE: PER ASSET, NOT PER TOTAL ──────────────────────────────────
   //

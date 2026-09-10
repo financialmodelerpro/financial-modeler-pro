@@ -16,10 +16,23 @@ engine-proven against the six live projects, and NONE of it has had a founder
 click-test: the five tables, the standards tab's two parking figures, the type
 dropdown, the retail companion rows in tables 4 and 5, and the carve.
 
-### 1. Consolidation step 6, then step 7
-Step 5 gave the retail companion its land. Still open: the COST LINES (it takes
-none today, so it capitalises nothing) and whatever step 7 is decided to be.
-The founder's sequence has been one step per instruction; do not guess ahead.
+### 1. Consolidation step 7, and the retail rate step 6 left to the user
+**STEP 6 IS DONE (2026-09-10).** The retail companion costs, capitalises,
+depreciates and can earn rent: CHANGELOG 2026-09-10. Two things it deliberately
+left:
+
+**THE RETAIL BUILD RATE IS NOT SEEDED.** The strip charges the phase's own BUA
+rate until someone types its own as an ordinary per-asset override. The natural
+source is the ground-floor retail type's `constructionCostPerSqm`, which
+already exists on `AssetTypeValues` and is HIDDEN on the standards tab because
+nothing read it. Wiring it means: unhide that column, resolve it the way
+`resolveRetailSlotArea` resolves the parking divisor, seed the override, and
+move `assetTypeValues` out of Module 6's INACTIVE gate for that one field. Four
+edits, each small, but it makes an asset-type value ECONOMIC for the first time,
+so it is its own step rather than a tail of step 6.
+
+**STEP 7 IS NOT DECIDED.** The founder's sequence has been one step per
+instruction; do not guess ahead.
 
 ### 2. Sub-unit re-parenting to the LINE
 Sub-units GROUP under the line in table 5 but still BELONG to the plot asset:

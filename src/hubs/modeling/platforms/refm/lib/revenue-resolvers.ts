@@ -18,6 +18,7 @@
  * imports from src/hubs (matches the M1.7 resolver pattern).
  */
 
+import { isRetailCompanion } from '@/src/core/calculations/retailCompanion';
 import { buildEngineDownpaymentAxis } from './state/saleCohortResolution';
 import {
   computeProjectTimeline,
@@ -806,7 +807,15 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
     perSubUnit: {},
   };
   for (const a of assets) {
-    if (a.visible === false || a.isCompanion === true) continue;
+    // CONSOLIDATION STEP 6 (2026-09-10): A RETAIL COMPANION EARNS ITS OWN RENT.
+    // The skip is the OPERATE companion's: that one has no area of its own and
+    // mirrors its parent's units, so pricing it here would count the parent's
+    // building twice. A retail companion is the opposite case, a building held
+    // on Lease with its own floor area and its own sub-unit, and the whole point
+    // of giving it a row to be priced on (step 4b) was that this loop would read
+    // it. The strategy test below already admits it; only the blanket companion
+    // skip stood in the way.
+    if (a.visible === false || (a.isCompanion === true && !isRetailCompanion(a))) continue;
     if (a.strategy !== 'Lease') continue;
     const phase = phases.find((p) => p.id === a.phaseId);
     if (!phase) continue;
