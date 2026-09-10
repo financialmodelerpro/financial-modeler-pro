@@ -583,6 +583,21 @@ export default function Module1Assets(): React.JSX.Element {
     return { byAssetId, byParcelId, totalSqm };
   }, [assets, parcels, subUnits, landAllocationMode]);
 
+  /**
+   * THE TYPE CHOICES, RESOLVED ONCE (2026-09-10).
+   *
+   * The firm's list in the firm's own order, then the platform catalog labels
+   * the firm has not adopted, deduped by identity. THREE surfaces offer it now
+   * (the land table's add picker, the plot band's, and the row's own dropdown),
+   * and they must offer the same list or "the type you can pick" depends on
+   * where you picked it. Was computed inside the assets table; lifted here when
+   * the land table gained its own picker.
+   */
+  const typeChoices = useMemo(
+    () => buildTypeChoices(assetTypeRegistry.entries, resolveTypeCatalog(project)),
+    [assetTypeRegistry.entries, project],
+  );
+
   /** Every plot's area, for the totals row's own reconciliation. */
   const parcelsTotalSqm = useMemo(
     () => parcels.reduce((s, p) => s + Math.max(0, p.area), 0),
@@ -822,6 +837,9 @@ export default function Module1Assets(): React.JSX.Element {
                 canRemove={parcels.length > 1}
                 phases={phases}
                 decimals={project.displayDecimals ?? 2}
+                onAddAsset={handleAddAssetToPhase}
+                typeChoices={typeChoices}
+                assetCount={assets.filter((a) => a.landAllocation?.parcelId === parcel.id).length}
               />
             ))}
           </tbody>
@@ -1007,6 +1025,7 @@ export default function Module1Assets(): React.JSX.Element {
         project={project}
         landAllocationMode={landAllocationMode}
         assetTypeRegistry={assetTypeRegistry}
+        typeChoices={typeChoices}
         onUpdateAsset={updateAsset}
         onRemoveAsset={removeAsset}
         onAddAsset={handleAddAssetToPhase}
@@ -1080,9 +1099,20 @@ interface ParcelRowProps {
   /** For the phase picker: a plot is acquired in one phase. */
   phases: Phase[];
   decimals: import('../../lib/state/module1-types').DisplayDecimals;
+  /** ADD AN ASSET FROM THE LAND TABLE (2026-09-10). The plot band in table 2
+   *  carries the same picker, and this is the second place a user looks: they
+   *  have just typed a plot and the next thing they want is something on it.
+   *  Same handler, same choices, same `assetTypePatch`, so it is one route
+   *  with two doors and not a second way to create an asset. */
+  onAddAsset?: (phaseId: string, parcelId?: string, typePatch?: Partial<Asset>) => void;
+  typeChoices?: readonly TypeChoice[];
+  /** How many assets already draw from this plot, so the row can say. */
+  assetCount?: number;
 }
 
-function ParcelRow({ parcel, phases, onUpdate, onRemove, canRemove, decimals }: ParcelRowProps): React.JSX.Element {
+function ParcelRow({
+  parcel, phases, onUpdate, onRemove, canRemove, decimals, onAddAsset, typeChoices = [], assetCount = 0,
+}: ParcelRowProps): React.JSX.Element {
   // P7-Fix 1: per-parcel NDA cells removed; project-level NDA card owns this surface now.
   return (
     <tr data-testid={`parcel-row-${parcel.id}`}>
@@ -1164,7 +1194,37 @@ function ParcelRow({ parcel, phases, onUpdate, onRemove, canRemove, decimals }: 
       {/* Total Value is DERIVED (area x rate) and left the row with the
           demotion: the plots table is entry only. The footer still totals it,
           because a total is what a footer is for. */}
-      <td style={{ padding: 'var(--sp-1)', textAlign: 'right' }}>
+      <td style={{ padding: 'var(--sp-1)', textAlign: 'right', whiteSpace: 'nowrap' }}>
+        {onAddAsset && (
+          <select
+            value=""
+            data-testid={`parcel-${parcel.id}-add-asset`}
+            title="Add an asset to this plot, as this type. The type belongs to the ASSET, so one plot can hold several of different types."
+            onChange={(e) => {
+              const next = e.target.value;
+              if (next === '') return;
+              onAddAsset(
+                parcel.phaseId,
+                parcel.id,
+                next === ADD_UNTYPED ? undefined : assetTypePatch(next, typeChoices),
+              );
+              e.target.value = '';
+            }}
+            style={{
+              marginRight: 6, fontSize: 'var(--font-micro)', padding: '2px 6px', cursor: 'pointer',
+              background: 'var(--color-surface)', border: '1px solid var(--color-navy)',
+              color: 'var(--color-navy)', borderRadius: 'var(--radius-sm)', fontWeight: 600,
+            }}
+          >
+            <option value="">+ Add asset{assetCount > 0 ? ` (${assetCount})` : ''}...</option>
+            {typeChoices.map((c) => (
+              <option key={c.key} value={c.key}>
+                {c.label}{c.fromFirm ? '' : ' (catalog)'}
+              </option>
+            ))}
+            <option value={ADD_UNTYPED}>Type not decided yet</option>
+          </select>
+        )}
         {canRemove && (
           <button type="button" onClick={onRemove} data-testid={`parcel-${parcel.id}-remove`} style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '2px 8px', cursor: 'pointer', fontSize: 'var(--font-micro)' }}>Remove</button>
         )}
@@ -1349,6 +1409,8 @@ interface AssetTableProps {
   project: Project;
   landAllocationMode: LandAllocationMode;
   assetTypeRegistry: { entries: AssetTypeStandard[]; available: boolean };
+  /** The ONE list all three type pickers offer. Resolved at the root. */
+  typeChoices: readonly TypeChoice[];
   onUpdateAsset: (id: string, patch: Partial<Asset>) => void;
   onRemoveAsset: (id: string) => void;
   onAddAsset: (phaseId: string, parcelId?: string, typePatch?: Partial<Asset>) => void;
@@ -1526,6 +1588,46 @@ function PlotHeaderRow({
         <span style={{ fontWeight: 400, color: 'var(--color-meta)', marginLeft: 8 }}>
           {g.assets.length} asset{g.assets.length === 1 ? '' : 's'}
         </span>
+          {/* ADD AN ASSET AND SAY WHAT IT IS, IN ONE STEP (2026-09-10).
+            The button seeded a blank-typed row and left the type to a
+            second action on another table, which is the step everything
+            downstream depends on: the line, the schedules, the cost
+            methods and the standards all key off type. The picker offers
+            the SAME choices as the row's own dropdown, resolved through the
+            SAME `assetTypePatch`, so this is not a second way to set a type.
+            THE TYPE IS ON THE ASSET, NOT THE PLOT: this select chooses per
+            add, and one plot can hold as many differently typed assets as
+            someone adds to it. */}
+        {g.parcel && onAddAsset && (
+          <select
+            value=""
+            data-testid={`plot-group-${g.key}-add-asset`}
+            title="Add an asset to this plot, as this type. A plot can hold several assets of different types."
+            onChange={(e) => {
+              const next = e.target.value;
+              if (next === '') return;
+              onAddAsset(
+                g.parcel!.phaseId,
+                g.parcel!.id,
+                next === ADD_UNTYPED ? undefined : assetTypePatch(next, typeChoices),
+              );
+              e.target.value = '';
+            }}
+            style={{
+              marginLeft: 8, fontSize: 10, padding: '2px 6px', cursor: 'pointer',
+              background: 'var(--color-surface)', border: '1px solid var(--color-navy)',
+              color: 'var(--color-navy)', borderRadius: 'var(--radius-sm)', fontWeight: 600,
+            }}
+          >
+            <option value="">+ Add asset here...</option>
+            {typeChoices.map((c) => (
+              <option key={c.key} value={c.key}>
+                {c.label}{c.fromFirm ? '' : ' (catalog)'}
+              </option>
+            ))}
+            <option value={ADD_UNTYPED}>Type not decided yet</option>
+          </select>
+        )}
       </td>
       {showCheck ? (
         <>
@@ -1550,46 +1652,6 @@ function PlotHeaderRow({
             <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>
               {plotCheckText(g, (n) => areaText(n))}
             </span>
-            {/* ADD AN ASSET AND SAY WHAT IT IS, IN ONE STEP (2026-09-10).
-                The button seeded a blank-typed row and left the type to a
-                second action on another table, which is the step everything
-                downstream depends on: the line, the schedules, the cost
-                methods and the standards all key off type. The picker offers
-                the SAME choices as the row's own dropdown, resolved through the
-                SAME `assetTypePatch`, so this is not a second way to set a type.
-                THE TYPE IS ON THE ASSET, NOT THE PLOT: this select chooses per
-                add, and one plot can hold as many differently typed assets as
-                someone adds to it. */}
-            {g.parcel && onAddAsset && (
-              <select
-                value=""
-                data-testid={`plot-group-${g.key}-add-asset`}
-                title="Add an asset to this plot, as this type. A plot can hold several assets of different types."
-                onChange={(e) => {
-                  const next = e.target.value;
-                  if (next === '') return;
-                  onAddAsset(
-                    g.parcel!.phaseId,
-                    g.parcel!.id,
-                    next === ADD_UNTYPED ? undefined : assetTypePatch(next, typeChoices),
-                  );
-                  e.target.value = '';
-                }}
-                style={{
-                  marginLeft: 10, fontSize: 10, padding: '2px 6px', cursor: 'pointer',
-                  background: 'var(--color-surface)', border: '1px solid var(--color-navy)',
-                  color: 'var(--color-navy)', borderRadius: 'var(--radius-sm)', fontWeight: 600,
-                }}
-              >
-                <option value="">+ Add asset here...</option>
-                {typeChoices.map((c) => (
-                  <option key={c.key} value={c.key}>
-                    {c.label}{c.fromFirm ? '' : ' (catalog)'}
-                  </option>
-                ))}
-                <option value={ADD_UNTYPED}>Type not decided yet</option>
-              </select>
-            )}
           </td>
         </>
       ) : (
@@ -1705,12 +1767,14 @@ function landFootsText(landTotalSqm: number, parcelsTotalSqm: number): string {
 function AssetInputsTable({
   rowGroups, allPhases, project, assetTypeRegistry,
   allAssets, parcels, subUnits, landAllocationMode,
-  openId, setOpenId, onUpdateAsset, onRemoveAsset, onAddAsset,
+  typeChoices, openId, setOpenId, onUpdateAsset, onRemoveAsset, onAddAsset,
 }: {
   rowGroups: RowGroup[];
   allPhases: Phase[];
   project: Project;
   assetTypeRegistry: { entries: AssetTypeStandard[]; available: boolean };
+  /** The ONE list all three type pickers offer. Resolved at the root. */
+  typeChoices: readonly TypeChoice[];
   allAssets: Asset[];
   parcels: Parcel[];
   subUnits: SubUnit[];
@@ -1725,7 +1789,8 @@ function AssetInputsTable({
   // firm's own order, then the platform catalog labels the firm has not
   // adopted. A firm entry and a catalog label that mean the same type collapse
   // to one option, and only the firm's carries a reference.
-  const typeChoices = buildTypeChoices(assetTypeRegistry.entries, resolveTypeCatalog(project));
+  // Resolved at the root and passed in: see the memo there for why three
+  // surfaces have to share one list.
   // 14. The Retail GFA / slot column left on 2026-09-09: it is one company
   // figure and now lives on the standards tab beside the parking area per slot.
   // Counts agree or U15 fails.
@@ -2524,7 +2589,7 @@ function MergedLineTable({
 function AssetTables({
   rowGroups, lineGroups, retailByLineKey, retailLand, parcelsTotalSqm,
   allAssets, allPhases, parcels, subUnits, project,
-  landAllocationMode, assetTypeRegistry, onUpdateAsset, onRemoveAsset, onAddAsset,
+  landAllocationMode, assetTypeRegistry, typeChoices, onUpdateAsset, onRemoveAsset, onAddAsset,
 }: AssetTableProps): React.JSX.Element {
   const [openId, setOpenId] = useState<string | null>(null);
   // The SAME rows, regrouped. Table 4 cannot disagree with table 3 because it
@@ -2537,6 +2602,7 @@ function AssetTables({
         allPhases={allPhases}
         project={project}
         assetTypeRegistry={assetTypeRegistry}
+        typeChoices={typeChoices}
         allAssets={allAssets}
         parcels={parcels}
         subUnits={subUnits}

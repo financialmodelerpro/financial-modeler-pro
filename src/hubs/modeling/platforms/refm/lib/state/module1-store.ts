@@ -540,12 +540,22 @@ export function createModule1Store() {
     syncLineSubUnits: (plan, mintSubUnitId) => set((s) => {
       const seeds = plan.seeds.filter((seed) => s.assets.some((a) => a.id === seed.assetId));
       const byId = new Map(plan.reallocations.map((r) => [r.subUnitId, r.areaSqm] as const));
+      // A CONVERSION WRITES THE SHARE AND NEVER THE AREA. The row already
+      // displays this figure (the share column divides its area by the line's
+      // NSA); storing it changes what the row MEANS, not what it measures, so
+      // no number moves and the conversion is safe to run over a whole model.
+      const convertTo = new Map(plan.conversions.map((c) => [c.subUnitId, c.nsaSharePct] as const));
       let changed = seeds.length > 0;
       const next = s.subUnits.map((u) => {
         const areaSqm = byId.get(u.id);
-        if (areaSqm === undefined) return u;
+        if (areaSqm !== undefined) {
+          changed = true;
+          return { ...u, metricValue: areaSqm };
+        }
+        const share = convertTo.get(u.id);
+        if (share === undefined || u.nsaSharePct !== undefined) return u;
         changed = true;
-        return { ...u, metricValue: areaSqm };
+        return { ...u, nsaSharePct: share };
       });
       if (!changed) return {};
       for (const seed of seeds) {

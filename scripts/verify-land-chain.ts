@@ -1295,6 +1295,68 @@ function offlineChecks(): void {
   // U59 THE TYPE IS OFFERED WHEN THE ASSET IS ADDED, through the SAME rule the
   // row's own dropdown writes, so a type set at creation and one set a second
   // later cannot mean different things.
+  // ── U60 to U64. A ROW THAT PREDATES SHARES (2026-09-10, founder's call:
+  //     convert everything with a resolvable NSA, stamping the share it
+  //     already shows) ────────────────────────────────────────────────────
+  //
+  // Every row DISPLAYED a share long before one could be stated, because the
+  // column divides the row's area by the line's NSA. So the share was always on
+  // screen and never in the file, and the two agreed only until the NSA moved.
+  // Conversion writes what the row already shows: it changes what the row
+  // MEANS, never what it measures, which is why it was chosen over rescaling.
+  const conv = planLineSubUnits(
+    [planAsset('c1', 'p1', 'villas')],
+    [
+      planSub('a', 'c1', { metricValue: 550 }),
+      planSub('b', 'c1', { metricValue: 450 }),
+    ],
+    ['p1'], nsaOf({ c1: 1000 }), (raw) => raw, label,
+  );
+  check('U60 an area-stated row is converted to the share it ALREADY shows, and its area is untouched',
+    conv.conversions.length === 2
+    // TO THE CENT, not to the bit: 550/1000 is 55.00000000000001 in binary
+    // floating point, and asserting exact equality would be testing IEEE 754
+    // rather than the rule.
+    && near(conv.conversions[0].nsaSharePct, 55) && near(conv.conversions[1].nsaSharePct, 45)
+    // NOTHING IS RESCALED: no reallocation accompanies a conversion, so the
+    // engine cannot move on the pass that converts.
+    && conv.reallocations.length === 0 && conv.seeds.length === 0,
+    JSON.stringify(conv.conversions));
+  check('U61 a SUPPORT row is left area-stated: it is not part of NSA, so a share of NSA is not its statement',
+    planLineSubUnits([planAsset('s1', 'p1', 'v')],
+      [planSub('sup', 's1', { metricValue: 200, category: 'Support' }),
+        planSub('sell', 's1', { metricValue: 800, category: 'Sellable' })],
+      ['p1'], nsaOf({ s1: 1000 }), (raw) => raw, label)
+      .conversions.map((c) => c.subUnitId).join(',') === 'sell');
+  // U62 IS TRAPS 7.32, IN THIS FILE'S OWN RULES. The metric is the ASSET's
+  // where it states one; asking the row alone would have left behind exactly
+  // the one live row that carries metric 'units' under an asset whose metric is
+  // 'area', which is the row the founder was looking at.
+  check('U62 the metric is the ASSET s where it states one, so a row s own metric cannot mislead it',
+    // Row says units, asset says area: it IS an area row and converts.
+    planLineSubUnits([planAsset('m1', 'p1', 'v', { subUnitMetric: 'area' })],
+      [planSub('rowUnits', 'm1', { metric: 'units', metricValue: 500 })],
+      ['p1'], nsaOf({ m1: 1000 }), (raw) => raw, label).conversions.length === 1
+    // Row says area, asset says units: it is a COUNT row and is left alone.
+    && planLineSubUnits([planAsset('m2', 'p1', 'v', { subUnitMetric: 'units' })],
+      [planSub('rowArea', 'm2', { metric: 'area', metricValue: 500 })],
+      ['p1'], nsaOf({ m2: 1000 }), (raw) => raw, label).conversions.length === 0);
+  check('U63 conversion SETTLES, and a line with no resolvable NSA converts nothing',
+    // A converted row has a stored share, so the next pass has nothing to say.
+    planLineSubUnits([planAsset('c2', 'p1', 'v')],
+      [planSub('done', 'c2', { metricValue: 550, nsaSharePct: 55 })],
+      ['p1'], nsaOf({ c2: 1000 }), (raw) => raw, label).conversions.length === 0
+    // NO NSA, NO STATEMENT: measured on the live project whose eight lines all
+    // report source 'none', where all twelve rows are left exactly as they are.
+    && planLineSubUnits([planAsset('n1', 'p1', 'v')],
+      [planSub('orphan', 'n1', { metricValue: 500 })],
+      ['p1'], nsaOf({ n1: 0 }), (raw) => raw, label).conversions.length === 0);
+  const storeSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8');
+  check('U64 the store writes a conversion as a SHARE only, so no area moves with it',
+    /const convertTo = new Map\(plan\.conversions/.test(storeSrc)
+    && /return \{ \.\.\.u, nsaSharePct: share \};/.test(storeSrc)
+    // And never over a share that is already stated.
+    && /if \(share === undefined \|\| u\.nsaSharePct !== undefined\) return u;/.test(storeSrc));
   check('U59 adding an asset offers the type, from the same choices and the same patch rule',
     // The picker resolves through the SAME assetTypePatch the row dropdown
     // uses, so a type set at creation and one set a second later are one write.
@@ -1304,6 +1366,30 @@ function offlineChecks(): void {
     // The blank state stays reachable: an asset whose type is not yet decided
     // is a real answer, not a gap to be filled by a default.
     && /ADD_UNTYPED = '__add_untyped__'/.test(tabSrc));
+  // U65 WHERE THE PICKER IS, which turned out to be the whole defect: it sat at
+  // the far end of a fourteen-column scrolling row, trailing a sentence, and a
+  // control nobody finds is a control that does not exist. It is now beside the
+  // plot NAME on the band, and the LAND table carries the same one, because
+  // that is where a user who has just typed a plot looks next.
+  check('U65 the picker sits beside the plot NAME, not trailing the check sentence',
+    // Inside the first cell, which is the one holding the label and the count.
+    /\{g\.assets\.length\} asset\{g\.assets\.length === 1 \? '' : 's'\}\s*<\/span>\s*\{\/\* ADD AN ASSET AND SAY WHAT IT IS/.test(tabSrc)
+    // ... and NOT in the trailing cell any more: the check text stands alone.
+    && !/plotCheckText\(g, \(n\) => areaText\(n\)\)\}\s*<\/span>\s*\{g\.parcel && onAddAsset/.test(tabSrc));
+  check('U66 the LAND table offers the same picker on every plot row, through the same rule',
+    tabSrc.includes('data-testid={`parcel-${parcel.id}-add-asset`}')
+    && tabSrc.includes('next === ADD_UNTYPED ? undefined : assetTypePatch(next, typeChoices)')
+    // Both pickers write through onAddAsset, so there is ONE creation path with
+    // two doors rather than a second way to make an asset.
+    && (tabSrc.match(/onAddAsset\(\n/g) ?? []).length === 2
+    && tabSrc.includes('onAddAsset={handleAddAssetToPhase}'));
+  check('U67 the three type pickers share ONE resolved list, built once at the root',
+    // Built in exactly one place, and passed down; a second buildTypeChoices
+    // call is a second list, and "which types can I pick" would then depend on
+    // where you picked.
+    (tabSrc.match(/buildTypeChoices\(/g) ?? []).length === 2
+    && /const typeChoices = useMemo\(\s*\(\) => buildTypeChoices\(assetTypeRegistry\.entries, resolveTypeCatalog\(project\)\),/.test(tabSrc)
+    && tabSrc.includes('typeChoices={typeChoices}'));
 
   // ── RETAIL PARKING HAS AN INPUT A USER CAN FIND. ────────────────────────
   //

@@ -489,17 +489,48 @@ export interface ShareRealloc {
   areaSqm: number;
 }
 
+/**
+ * A ROW THAT PREDATES SHARES, GIVEN THE SHARE IT ALREADY SHOWS.
+ *
+ * Every row rendered a share long before one could be stated: the column
+ * divides the row's area by the line's NSA. So the share was always on screen
+ * and never in the file, and the two only agreed until the NSA moved. A
+ * conversion writes the share the row is ALREADY displaying and touches no
+ * area, so it changes what the row MEANS and not what it measures.
+ */
+export interface ShareConversion {
+  subUnitId: string;
+  nsaSharePct: number;
+}
+
 export interface LineSubUnitPlan {
   seeds: LineSubUnitSeed[];
   reallocations: ShareRealloc[];
+  conversions: ShareConversion[];
 }
 
-/** What one sub-unit needs to state for these two rules. */
+/** What one sub-unit needs to state for these rules. */
 export interface PlannableSubUnit extends SubUnitLike {
+  /** The ROW's metric. Never read on its own: the ASSET's wins where it states
+   *  one (docs/TRAPS.md 7.32), which is why every rule below resolves it
+   *  through `effectiveMetric`. One live row carries metric 'units' under an
+   *  asset whose metric is 'area', and reading the row alone would have left
+   *  exactly that row behind on every rule here. */
   metric: 'area' | 'units';
   metricValue: number;
+  unitArea?: number;
+  /** Support is not part of NSA (NSA = Sellable + Operable + Leasable), so a
+   *  share of NSA is not a statement it can make. */
+  category?: string;
   /** The STATEMENT, when the user typed a share rather than an area. */
   nsaSharePct?: number;
+}
+
+/** THE METRIC IS THE ASSET'S where it states one (TRAPS 7.32). Asked in one
+ *  place so no rule below can accidentally ask the row instead. */
+function effectiveMetric(u: PlannableSubUnit, asset: Asset | undefined): 'area' | 'units' {
+  const fromAsset = (asset as unknown as { subUnitMetric?: 'area' | 'units' } | undefined)?.subUnitMetric;
+  return fromAsset ?? u.metric;
 }
 
 /** The category a seeded row takes, from the asset's strategy. The same
@@ -549,10 +580,18 @@ export function planLineSubUnits(
 ): LineSubUnitPlan {
   const seeds: LineSubUnitSeed[] = [];
   const reallocations: ShareRealloc[] = [];
+  const conversions: ShareConversion[] = [];
   const { lines } = partitionSubUnitsByLine(assets, subUnits, phaseIds, normaliseTypeId);
   for (const line of lines) {
     const nsa = lineNsaOf(line.members, nsaByAsset).value;
+    // A SHARE OF NOTHING IS NOT A STATEMENT. A line with no resolvable NSA
+    // (no chain running for its plots and none carrying an entered figure) has
+    // no whole for a part to be a share OF, so nothing here converts, seeds or
+    // re-derives. Measured before choosing this: every one of one live
+    // project's eight lines is in that state, twelve rows, and all twelve are
+    // left exactly as they are.
     if (nsa <= 0) continue;
+    const memberById = new Map(line.members.map((m) => [m.id, m] as const));
     if (line.subUnits.length === 0) {
       const host = line.members[0];
       // An asset whose metric is COUNT states its parts as keys, not as an
@@ -569,10 +608,26 @@ export function planLineSubUnits(
     }
     for (const u of line.subUnits) {
       // A COUNT ROW HAS NO SHARE TO FOLLOW: its count is the statement and its
-      // area derives from the count, which is the existing rule and stays.
-      if (u.metric === 'units') continue;
+      // area derives from the count, which is the existing rule and stays. The
+      // metric is the ASSET's where it states one, never the row's alone.
+      if (effectiveMetric(u, memberById.get(u.assetId)) === 'units') continue;
+      // SUPPORT IS NOT PART OF NSA (founder's decision, 2026-09-10), so a share
+      // of NSA is not a statement it can make: NSA is Sellable + Operable +
+      // Leasable, and a back-of-house row is none of those. It stays area
+      // stated, and a user who wants it to scale can still type a share, which
+      // is the same escape hatch in the other direction.
+      if (u.category === 'Support') continue;
       const share = u.nsaSharePct;
-      if (typeof share !== 'number' || !Number.isFinite(share)) continue;
+      if (typeof share !== 'number' || !Number.isFinite(share)) {
+        // NO STORED SHARE YET: this row predates the field, so it is converted
+        // to the share IT ALREADY SHOWS. The area is untouched, which is the
+        // whole point of choosing this over rescaling: conversion changes what
+        // the row MEANS, never what it measures. A share that cannot be
+        // computed is not invented.
+        if (!Number.isFinite(u.metricValue)) continue;
+        conversions.push({ subUnitId: u.id, nsaSharePct: (u.metricValue / nsa) * 100 });
+        continue;
+      }
       const areaSqm = (nsa * share) / 100;
       // A HUNDREDTH OF A SQM IS NOT A CHANGE, the same tolerance the line's own
       // allocation check uses, so float noise cannot mark a project dirty.
@@ -580,5 +635,5 @@ export function planLineSubUnits(
       reallocations.push({ subUnitId: u.id, areaSqm });
     }
   }
-  return { seeds, reallocations };
+  return { seeds, reallocations, conversions };
 }
