@@ -1376,6 +1376,13 @@ function offlineChecks(): void {
     /\{g\.assets\.length\} asset\{g\.assets\.length === 1 \? '' : 's'\}\s*<\/span>\s*\{\/\* ADD AN ASSET AND SAY WHAT IT IS/.test(tabSrc)
     // ... and NOT in the trailing cell any more: the check text stands alone.
     && !/plotCheckText\(g, \(n\) => areaText\(n\)\)\}\s*<\/span>\s*\{g\.parcel && onAddAsset/.test(tabSrc));
+  // U66b THE COUNT IN THE LABEL SAYS WHAT IT COUNTS. "+ Add asset (2)" reads as
+  // "add two assets"; it is how many are already on the plot, so the label says
+  // that in words. A number in a control's label is a claim about that control
+  // unless it is told otherwise.
+  check('U66b the picker label states what its number counts',
+    tabSrc.includes('already here')
+    && !/\+ Add asset\{assetCount > 0 \? ` \(\$\{assetCount\}\)` : ''\}/.test(tabSrc));
   check('U66 the LAND table offers the same picker on every plot row, through the same rule',
     tabSrc.includes('data-testid={`parcel-${parcel.id}-add-asset`}')
     && tabSrc.includes('next === ADD_UNTYPED ? undefined : assetTypePatch(next, typeChoices)')

@@ -1216,7 +1216,9 @@ function ParcelRow({
               color: 'var(--color-navy)', borderRadius: 'var(--radius-sm)', fontWeight: 600,
             }}
           >
-            <option value="">+ Add asset{assetCount > 0 ? ` (${assetCount})` : ''}...</option>
+            <option value="">
+              + Add asset to this plot{assetCount > 0 ? ` (${assetCount} already here)` : ''}...
+            </option>
             {typeChoices.map((c) => (
               <option key={c.key} value={c.key}>
                 {c.label}{c.fromFirm ? '' : ' (catalog)'}
