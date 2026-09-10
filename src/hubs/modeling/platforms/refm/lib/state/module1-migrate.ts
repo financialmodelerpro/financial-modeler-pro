@@ -1447,7 +1447,10 @@ function migrateM20gParkingSubUnits(snap: HydrateSnapshot): HydrateSnapshot {
     // string equality regardless of TS type.
     if ((u.category as unknown as string) === 'Parking') {
       hasParkingSubUnits = true;
-      const area = computeSubUnitArea(u);
+      // NO ASSET HERE, AND NONE IS NEEDED: this migration reads the RETIRED
+      // M2.0f "Parking" category on a snapshot that predates asset-level
+      // metrics entirely, so the row is the only statement there is.
+      const area = computeSubUnitArea(u, undefined);
       parkingAreaByAsset.set(u.assetId, (parkingAreaByAsset.get(u.assetId) ?? 0) + area);
     }
   }

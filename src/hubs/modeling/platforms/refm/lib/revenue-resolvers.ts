@@ -487,8 +487,10 @@ export function resolveLiteralRecognitionProfile(
   return { profile: out, mode: 'literal' };
 }
 
-function makeSubUnitMaterial(u: SubUnit): SubUnitMaterial {
-  const area = computeSubUnitArea(u);
+// THE ASSET COMES IN WITH THE ROW (2026-09-10): the metric is the asset s
+// where it states one, so a helper that took only the row could not resolve it.
+function makeSubUnitMaterial(u: SubUnit, asset: Asset | undefined): SubUnitMaterial {
+  const area = computeSubUnitArea(u, asset);
   if (u.metric === 'units') {
     const count = Math.max(0, u.metricValue);
     const unitArea = Math.max(0, u.unitArea ?? 0);
@@ -693,7 +695,7 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
     };
 
     const assetSubUnits = subUnits.filter((u) => u.assetId === a.id);
-    const subUnitMaterials = assetSubUnits.map(makeSubUnitMaterial);
+    const subUnitMaterials = assetSubUnits.map((u) => makeSubUnitMaterial(u, a));
 
     const result = computeSellAsset({
       config: cfg,

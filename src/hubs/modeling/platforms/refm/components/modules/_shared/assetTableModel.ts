@@ -31,7 +31,8 @@
  * No em dashes in this file.
  */
 
-import { resolveAssetPlotDraw } from '@/src/core/calculations';
+import { resolveAssetPlotDraw, resolveSubUnitMetric } from '@/src/core/calculations';
+import type { SubUnit as SubUnitForMetric } from '../../../lib/state/module1-types';
 import { groupAssetsForConsolidation, type NormaliseTypeId } from '@/src/core/calculations/consolidation';
 import { poolLineAreas } from '@/src/core/calculations/consolidatedLine';
 import type { Asset, Parcel } from '../../../lib/state/module1-types';
@@ -526,11 +527,14 @@ export interface PlannableSubUnit extends SubUnitLike {
   nsaSharePct?: number;
 }
 
-/** THE METRIC IS THE ASSET'S where it states one (TRAPS 7.32). Asked in one
- *  place so no rule below can accidentally ask the row instead. */
+/** THE METRIC IS THE ASSET'S where it states one (TRAPS 7.32). This was a
+ *  private copy here for one day; the ENGINE had the same rule wrong, so on
+ *  2026-09-10 the rule moved to core (`resolveSubUnitMetric`) and both the
+ *  engine and these table rules read that one. A local copy of a rule the
+ *  engine also holds is exactly how the two came to disagree in the first
+ *  place. */
 function effectiveMetric(u: PlannableSubUnit, asset: Asset | undefined): 'area' | 'units' {
-  const fromAsset = (asset as unknown as { subUnitMetric?: 'area' | 'units' } | undefined)?.subUnitMetric;
-  return fromAsset ?? u.metric;
+  return resolveSubUnitMetric(u as unknown as SubUnitForMetric, asset);
 }
 
 /** The category a seeded row takes, from the asset's strategy. The same

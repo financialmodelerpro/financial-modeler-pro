@@ -36,7 +36,7 @@ import {
   type Asset, type CostLine, type Parcel, type Phase, type SubUnit, type Project,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import {
-  computeAssetCost, computeAssetLandBreakdown, computeSubUnitArea, deriveCostStage, landRateIssueText,
+  computeAssetCost, computeAssetLandBreakdown, computeSubUnitArea, resolveSubUnitMetric, deriveCostStage, landRateIssueText,
 } from '../src/core/calculations';
 import { eligibleBaseLines, assetVisibleLines } from '../src/core/calculations/selectedBase';
 import { repairStaleWizardCostWindows } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
@@ -534,15 +534,53 @@ section('K. Area x unit size = count: only two of the three are inputs');
     id: 's1', assetId: 'a1', name: 'Keys', category: 'Operable', metric: 'units',
     metricValue, unitArea, unitPrice: 0,
   } as unknown as SubUnit);
-  check('area = count x unit size', computeSubUnitArea(mk(160, 83)) === 13280);
+  check('area = count x unit size', computeSubUnitArea(mk(160, 83), undefined) === 13280);
   const typedArea = 13300;
   const size = 83;
   const derivedCount = Math.round(typedArea / size);
   check('a typed area derives the count', derivedCount === 160, String(derivedCount));
   check('and the area it resolves to is the snapped one, which the row states',
-    computeSubUnitArea(mk(derivedCount, size)) === 13280);
+    computeSubUnitArea(mk(derivedCount, size), undefined) === 13280);
   check('a whole-number division does not snap at all',
-    computeSubUnitArea(mk(Math.round(13280 / 83), 83)) === 13280);
+    computeSubUnitArea(mk(Math.round(13280 / 83), 83), undefined) === 13280);
+
+  // ── THE METRIC IS THE ASSET'S (2026-09-10, docs/TRAPS.md 7.32) ───────────
+  //
+  // `Asset.subUnitMetric` is an asset-level override that says how THIS
+  // asset's parts are measured, and every surface has read it that way for
+  // months. The ENGINE asked the ROW alone, so where a user switched an asset
+  // from counting units to stating areas and the rows kept their old metric,
+  // the two disagreed. On the live reference project one row did exactly that:
+  // "2 BR", 10,098.23 sqm under an asset whose metric is 'area', read as a
+  // COUNT of 10,098 units at 190 sqm each. 1.93m sqm of BUA and 10.3bn of cost
+  // on one asset, while every screen showed the right area.
+  const areaAsset = { id: 'a1', subUnitMetric: 'area' } as unknown as Asset;
+  const unitsAsset = { id: 'a1', subUnitMetric: 'units' } as unknown as Asset;
+  const noStatement = { id: 'a1' } as unknown as Asset;
+  check('M1 the ASSET s metric wins over the row s, in the direction that bit',
+    // Row says units, asset says area: 10,098.23 is an AREA, not a count.
+    computeSubUnitArea(mk(10098.23, 190), areaAsset) === 10098.23
+    // ... and the old answer, which is what the engine used to return.
+    && Math.abs(computeSubUnitArea(mk(10098.23, 190), undefined) - 1918663.7) < 0.1,
+    String(computeSubUnitArea(mk(10098.23, 190), areaAsset)));
+  check('M2 and in the other direction too, so this is a rule and not a patch',
+    // Row says units and so does the asset: still a count.
+    computeSubUnitArea(mk(160, 83), unitsAsset) === 13280
+    // An area row under an asset that counts is read as a count.
+    && computeSubUnitArea({ ...mk(160, 83), metric: 'area' } as SubUnit, unitsAsset) === 13280);
+  check('M3 an asset that states NOTHING leaves the row s own metric standing',
+    computeSubUnitArea(mk(160, 83), noStatement) === 13280
+    && computeSubUnitArea(mk(160, 83), undefined) === 13280
+    && resolveSubUnitMetric(mk(160, 83), noStatement) === 'units');
+  check('M4 legacy count is units, on either statement',
+    resolveSubUnitMetric({ ...mk(1, 1), metric: 'count' } as unknown as SubUnit, undefined) === 'units'
+    && resolveSubUnitMetric(mk(1, 1), { id: 'a', subUnitMetric: 'count' } as unknown as Asset) === 'units');
+  // M5 THE RULE HAS ONE HOME. The platform's table rules kept a private copy
+  // for one day, which is how the engine and the screen disagreed in the first
+  // place; both read the core rule now.
+  check('M5 the table rules read the CORE rule rather than a copy of it',
+    fs.readFileSync('src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel.ts', 'utf8')
+      .includes('return resolveSubUnitMetric(u as unknown as SubUnitForMetric, asset);'));
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -576,8 +614,8 @@ section('L. Area mode has a unit size too, and its count is derived');
     metricValue: 4000, unitPrice: 12000, ...(unitArea === undefined ? {} : { unitArea }),
   } as unknown as SubUnit);
   check('the sub-unit area ignores a unit size in Area mode',
-    computeSubUnitArea(areaSub(200)) === computeSubUnitArea(areaSub(undefined))
-    && computeSubUnitArea(areaSub(200)) === 4000);
+    computeSubUnitArea(areaSub(200), undefined) === computeSubUnitArea(areaSub(undefined), undefined)
+    && computeSubUnitArea(areaSub(200), undefined) === 4000);
 
   const areaAsset = mkAsset('a1', 'phase_1', { parcelId: 'parcel_1', sqm: 4000 });
   const runWith = (u: SubUnit): string => JSON.stringify(computeAssetCost({

@@ -1100,7 +1100,7 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
     rows: assets.map((a) => {
       const ph = state.phases.find((x) => x.id === a.phaseId);
       const su = state.subUnits.filter((u) => u.assetId === a.id);
-      const bua = su.length ? su.reduce((s, u) => s + computeSubUnitArea(u), 0) : (a.buaSqm ?? 0);
+      const bua = su.length ? su.reduce((s, u) => s + computeSubUnitArea(u, a), 0) : (a.buaSqm ?? 0);
       const z = notes.hasBuaNote(a.id, bua);
       return row([ph?.name ?? '-', a.name, a.strategy, z ? structuralZeroCell(z) : fmt.area(bua), fmt.int(su.length)]);
     }),
@@ -1258,7 +1258,7 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       columns: ['Asset', 'Strategy', 'Type', 'BUA (sqm)', 'Land (sqm)'],
       rows: assets.map((a) => {
         const su = state.subUnits.filter((u) => u.assetId === a.id);
-        const bua = su.length ? su.reduce((s, u) => s + computeSubUnitArea(u), 0) : (a.buaSqm ?? 0);
+        const bua = su.length ? su.reduce((s, u) => s + computeSubUnitArea(u, a), 0) : (a.buaSqm ?? 0);
         const z = assetNotes.hasBuaNote(a.id, bua);
         return row([a.name, a.strategy, a.type || '-', z ? structuralZeroCell(z) : fmt.area(bua), fmt.area(a.landAllocation?.sqm ?? a.landAreaSqm ?? 0)]);
       }),
@@ -1285,7 +1285,7 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     const totalLand = state.parcels.reduce((a, pa) => a + (pa.area ?? 0), 0);
     const totalBua = state.assets.filter((a) => a.visible !== false).reduce((acc, a) => {
       const su = state.subUnits.filter((u) => u.assetId === a.id);
-      return acc + (su.length ? su.reduce((x, u) => x + computeSubUnitArea(u), 0) : (a.buaSqm ?? 0));
+      return acc + (su.length ? su.reduce((x, u) => x + computeSubUnitArea(u, a), 0) : (a.buaSqm ?? 0));
     }, 0);
     items.push(tTable('Tab 2: Assets & Sub-units', 'inputs', {
       title: 'Land & Area', kind: 'grid', align: 'data',
@@ -1294,7 +1294,7 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
         ...state.parcels.map((pa) => row([`Parcel: ${pa.name}`, fmt.area(pa.area), '', ''])),
         ...state.assets.filter((a) => a.visible !== false).map((a) => {
           const su = state.subUnits.filter((u) => u.assetId === a.id);
-          const bua = su.length ? su.reduce((x, u) => x + computeSubUnitArea(u), 0) : (a.buaSqm ?? 0);
+          const bua = su.length ? su.reduce((x, u) => x + computeSubUnitArea(u, a), 0) : (a.buaSqm ?? 0);
           const land = a.landAllocation?.sqm ?? a.landAreaSqm ?? 0;
           return row([a.name, fmt.area(land), fmt.area(bua), land > 0 ? (bua / land).toFixed(2) : '-']);
         }),

@@ -38,9 +38,9 @@
  */
 import { computeFinancialsSnapshot, computeFundingGap, type FinancialsResolverState } from '../financials-resolvers';
 import { computeReturnsSnapshot } from '../returns-resolvers';
-import { computeSubUnitArea } from '@/src/core/calculations';
+import { computeSubUnitArea, resolveSubUnitMetric } from '@/src/core/calculations';
 import { irr } from '@/src/core/calculations/returns/irr';
-import type { SubUnit } from '../state/module1-types';
+import type { Asset, SubUnit } from '../state/module1-types';
 
 export interface ProjectPortfolioMetrics {
   projectId: string;
@@ -123,8 +123,12 @@ export function projectPortfolioMetrics(
     let areaSqm = 0; let units = 0;
     for (const u of subUnits) {
       if (u.category !== 'Sellable') continue;
-      areaSqm += computeSubUnitArea(u);
-      const isUnitMode = u.metric === 'units' || (u.metric as unknown as string) === 'count';
+      // THE ASSET'S METRIC WINS (TRAPS 7.32), resolved ONCE for both figures:
+      // the area and the count below are two readings of one statement, and
+      // asking twice is how they would come to disagree.
+      const owner = (assets as Asset[]).find((a) => a.id === u.assetId);
+      areaSqm += computeSubUnitArea(u, owner);
+      const isUnitMode = resolveSubUnitMetric(u, owner) === 'units';
       units += isUnitMode ? Math.max(0, u.metricValue) : 0;
     }
 

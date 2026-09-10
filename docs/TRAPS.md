@@ -2150,6 +2150,19 @@ that reads it), so all six engine snapshots hash byte-identical. **The same read
 **Proof.** `verify-land-chain` U29n to U29n5, run rather than read, including that a zero override
 falls through to the division rather than becoming a zero count.
 
+**THE ENGINE HAD IT TOO, AND IT WAS WORTH 10.09bn (2026-09-10).** The 2026-09-09
+entry above fixed the SURFACES. `computeSubUnitArea` in `src/core/calculations`
+still asked the row, so the money half survived the sweep that fixed the display
+half: on the live reference project one row, 10,098.23 sqm under an asset whose
+metric is 'area', was read as 10,098 UNITS at 190 sqm each, giving 1.93m sqm of
+BUA and 10.3bn of development cost on a single plot while every screen showed
+23,840.50. The fix moved the rule into core as `resolveSubUnitMetric`, made the
+asset a REQUIRED parameter so the compiler enumerated all 37 call sites, and
+deleted the private copy the table rules had kept for a day. **The lesson is the
+sweep, not the rule**: when a predicate is found wrong on the surfaces, the
+engine is not "another surface to check later", it is the one that carries the
+money, and a fix that stops at the screens leaves the expensive half in place.
+
 ### 7.33 "Companion" had become a synonym for "Operate", and a second kind broke seven classifiers
 
 **Symptom (2026-09-09, caught before shipping).** A Lease retail companion would have filed into

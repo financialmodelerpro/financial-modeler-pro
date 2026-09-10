@@ -129,10 +129,13 @@ function resolveAssetMetric(units: Array<{ metric: 'units' | 'area' }>): {
  */
 function SubUnitReferenceStrip({
   units,
+  asset,
   currency,
   mode = 'sell',
 }: {
   units: SubUnit[];
+  /** The asset the rows hang off: its metric wins over theirs (TRAPS 7.32). */
+  asset: Asset | undefined;
   currency: string;
   // Pass 9g (2026-05-18): 'lease' shows rate as "/ sqm / yr" (annual
   // base rent). 'sell' (default) keeps the legacy "/ unit" or "/ sqm".
@@ -154,7 +157,7 @@ function SubUnitReferenceStrip({
         Sub-units (from M1)
       </span>
       {units.map((su) => {
-        const area = computeSubUnitArea(su);
+        const area = computeSubUnitArea(su, asset);
         const isUnitsMetric = su.metric === 'units';
         let rateLabel: string;
         if (mode === 'lease') {
@@ -692,7 +695,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
           meta={a.type ? `${a.type}` : undefined}
           storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
         >
-          <SubUnitReferenceStrip units={assetSubUnits} currency={currency} />
+          <SubUnitReferenceStrip units={assetSubUnits} asset={a} currency={currency} />
           <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
             No operate config yet. Enter ADR + Occupancy on the Inputs tab.
           </div>
@@ -826,7 +829,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
         meta={a.type ? `${a.type}` : undefined}
         storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
       >
-        <SubUnitReferenceStrip units={assetSubUnits} currency={currency} />
+        <SubUnitReferenceStrip units={assetSubUnits} asset={a} currency={currency} />
         <SectionHeading n="1" title="Operations Capacity" />
         <PeriodTable
           title="1. Drivers + Calculations"
@@ -942,7 +945,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
           meta={a.type ? `${a.type}` : undefined}
           storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
         >
-          <SubUnitReferenceStrip units={assetSubUnits} currency={currency} />
+          <SubUnitReferenceStrip units={assetSubUnits} asset={a} currency={currency} />
           <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
             No lease config yet. Enter Rent Indexation + Occupancy on the Inputs tab.
           </div>
@@ -969,7 +972,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
     // weighted-avg label still kicks in only when there are 2+ zones.
     const hasAnySubUnits = areaSubUnits.length > 0;
     const isWeightedAvg = areaSubUnits.length > 1;
-    const totalGla = areaSubUnits.reduce((s, u) => s + Math.max(0, computeSubUnitArea(u)), 0);
+    const totalGla = areaSubUnits.reduce((s, u) => s + Math.max(0, computeSubUnitArea(u, a)), 0);
     const lastNonZero = (arr: number[]): number => {
       for (let i = arr.length - 1; i >= 0; i--) if (arr[i] > 0) return arr[i];
       return 0;
@@ -1024,7 +1027,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
         meta={a.type ? `${a.type}` : undefined}
         storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
       >
-        <SubUnitReferenceStrip units={assetSubUnits} currency={currency} mode="lease" />
+        <SubUnitReferenceStrip units={assetSubUnits} asset={a} currency={currency} mode="lease" />
         <SectionHeading n="1" title="Lease Capacity" />
         <PeriodTable
           title="1. Drivers + Calculations"
@@ -1178,7 +1181,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
               const cfg = resolveSellConfig(a, project);
               const recProfile = cfg?.recognitionProfile;
               const indexation = cfg?.indexation;
-              const totalAreaPerSU = assetSubUnits.map((su) => computeSubUnitArea(su));
+              const totalAreaPerSU = assetSubUnits.map((su) => computeSubUnitArea(su, a));
               const assetBUA = totalAreaPerSU.reduce((s, v) => s + v, 0);
               // Pass 7y: metric-aware Block 1. Uniform-units asset shows
               // Block 1 in units (apartments / keys); uniform-sqm shows
@@ -1249,7 +1252,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
                   {/* Pass 7x: sub-unit reference strip so users can
                       verify the area + price they entered in M1 Tab 2
                       without switching back. */}
-                  <SubUnitReferenceStrip units={assetSubUnits} currency={currency} />
+                  <SubUnitReferenceStrip units={assetSubUnits} asset={a} currency={currency} />
 
                   {/* 1. Inventory Sold (metric-aware per Pass 7y) */}
                   <SectionHeading n="1" title={`${inventoryLabel} Sold`} />

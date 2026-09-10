@@ -3335,19 +3335,19 @@ function AssetCard({
   // M2.0f Fix 6: BUA totals derive from sub-units. Asset.buaSqm /
   // sellableBuaSqm fields stay on the schema for v7 compat but are
   // now read-only display lines (no longer hand-editable inputs).
-  const derivedBua = assetSubUnits.reduce((s, u) => s + computeSubUnitArea(u), 0);
+  const derivedBua = assetSubUnits.reduce((s, u) => s + computeSubUnitArea(u, asset), 0);
   const sellableSum = assetSubUnits
     .filter((u) => u.category === 'Sellable')
-    .reduce((s, u) => s + computeSubUnitArea(u), 0);
+    .reduce((s, u) => s + computeSubUnitArea(u, asset), 0);
   const operableSum = assetSubUnits
     .filter((u) => u.category === 'Operable')
-    .reduce((s, u) => s + computeSubUnitArea(u), 0);
+    .reduce((s, u) => s + computeSubUnitArea(u, asset), 0);
   const leasableSum = assetSubUnits
     .filter((u) => u.category === 'Leasable')
-    .reduce((s, u) => s + computeSubUnitArea(u), 0);
+    .reduce((s, u) => s + computeSubUnitArea(u, asset), 0);
   const supportSum = assetSubUnits
     .filter((u) => u.category === 'Support')
-    .reduce((s, u) => s + computeSubUnitArea(u), 0);
+    .reduce((s, u) => s + computeSubUnitArea(u, asset), 0);
   // M2.0g Fix 4: Parking moves to asset.parkingArea (asset-level
   // input). supportArea also gets an asset-level companion input;
   // the asset card prefers asset.parkingArea over the legacy

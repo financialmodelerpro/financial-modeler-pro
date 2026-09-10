@@ -26,7 +26,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import type { Asset, SubUnit, Phase, Project } from '../../lib/state/module1-types';
-import { computeProjectTimeline, computeSubUnitArea } from '@/src/core/calculations';
+import { computeProjectTimeline, computeSubUnitArea, resolveSubUnitMetric } from '@/src/core/calculations';
 import { formatArea, formatAccounting } from '@/src/core/formatters';
 import { DEFAULT_INSTALMENT_YEARS } from '@/src/core/calculations/revenue/cohortTerms';
 import {
@@ -77,12 +77,15 @@ function paddedArray(src: number[] | undefined, length: number): number[] {
   return out;
 }
 
-function subUnitSummary(units: SubUnit[]): string {
+// THE ASSET COMES IN WITH THE ROWS (2026-09-10, TRAPS 7.32): the metric is
+// the asset s where it states one, so a helper handed only the rows cannot
+// resolve it and would read an area as a count.
+function subUnitSummary(units: SubUnit[], asset: Asset | undefined): string {
   if (units.length === 0) return 'No sub-units yet';
   const totalCount = units
     .filter((u) => u.metric === 'units')
     .reduce((s, u) => s + Math.max(0, u.metricValue), 0);
-  const totalArea = units.reduce((s, u) => s + computeSubUnitArea(u), 0);
+  const totalArea = units.reduce((s, u) => s + computeSubUnitArea(u, asset), 0);
   const a = totalCount > 0 ? `${Math.round(totalCount).toLocaleString('en-US')} units` : null;
   const b = totalArea > 0 ? `${formatArea(totalArea, 0)} sqm` : null;
   return [a, b].filter(Boolean).join(' · ') || 'No measurements';
@@ -97,10 +100,13 @@ function subUnitSummary(units: SubUnit[]): string {
  */
 function SubUnitReferenceStrip({
   units,
+  asset,
   currency,
   mode = 'sell',
 }: {
   units: SubUnit[];
+  /** The asset the rows hang off: its metric wins over theirs (TRAPS 7.32). */
+  asset: Asset | undefined;
   currency: string;
   // Pass 9e (2026-05-18): 'operate' surfaces SubUnit.startingAdr as
   // "ADR / night" and labels the count as "keys". 'sell' (default)
@@ -125,7 +131,7 @@ function SubUnitReferenceStrip({
         Sub-units (from M1)
       </span>
       {units.map((su) => {
-        const area = computeSubUnitArea(su);
+        const area = computeSubUnitArea(su, asset);
         const isUnitsMetric = su.metric === 'units';
         const countNoun = mode === 'operate' && isUnitsMetric ? 'keys' : 'units';
         let rateLabel: string;
@@ -1472,13 +1478,13 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
           {phase.name}
         </span>
         <span style={{ fontSize: 11, color: 'var(--color-meta)' }}>
-          {subUnitSummary(subUnits)}
+          {subUnitSummary(subUnits, asset)}
         </span>
       </div>
 
       {isHospitality && !assetCollapsed && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
-          <SubUnitReferenceStrip units={subUnits} currency={project.currency || ''} mode="operate" />
+          <SubUnitReferenceStrip units={subUnits} asset={asset} currency={project.currency || ''} mode="operate" />
 
           {operationsWindow.length === 0 ? (
             <div style={{ padding: '6px 10px', background: 'var(--color-surface-alt, #f3f4f6)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
@@ -1931,7 +1937,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
 
       {isLease && !assetCollapsed && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
-          <SubUnitReferenceStrip units={subUnits} currency={project.currency || ''} mode="lease" />
+          <SubUnitReferenceStrip units={subUnits} asset={asset} currency={project.currency || ''} mode="lease" />
 
           {operationsWindow.length === 0 ? (
             <div style={{ padding: '6px 10px', background: 'var(--color-surface-alt, #f3f4f6)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
@@ -2164,7 +2170,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
           {/* Pass 7x: sub-unit reference strip so users can verify the
               area + price they entered in M1 Tab 2 without switching
               tabs. */}
-          <SubUnitReferenceStrip units={subUnits} currency={project.currency || ''} />
+          <SubUnitReferenceStrip units={subUnits} asset={asset} currency={project.currency || ''} />
 
           {/* Pass 7v: per-asset velocity view toggle. Default collapsed
               (lockstep across all sub-units); opt-in split exposes the
@@ -2203,7 +2209,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
               <InlineGrid
                 cells={constructionWindow}
                 rows={splitVelocity || subUnits.length === 1
-                  ? subUnits.map((su) => buildVelocityRow(su, sellConfig, project.currency, totalPeriods, 'pre', (suId, idx, pct) => setVelocity(suId, idx, pct, 'pre'), phaseOffset, constructionWindow, operationsWindow))
+                  ? subUnits.map((su) => buildVelocityRow(su, asset, sellConfig, project.currency, totalPeriods, 'pre', (suId, idx, pct) => setVelocity(suId, idx, pct, 'pre'), phaseOffset, constructionWindow, operationsWindow))
                   : [buildSharedVelocityRow(sellConfig, subUnits, totalPeriods, 'pre', (idx, pct) => setVelocityForAllSubUnits(idx, pct, 'pre'), phaseOffset, constructionWindow, operationsWindow)]}
               />
             </InlineSection>
@@ -2218,7 +2224,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
               <InlineGrid
                 cells={operationsWindow}
                 rows={splitVelocity || subUnits.length === 1
-                  ? subUnits.map((su) => buildVelocityRow(su, sellConfig, project.currency, totalPeriods, 'post', (suId, idx, pct) => setVelocity(suId, idx, pct, 'post'), phaseOffset, constructionWindow, operationsWindow))
+                  ? subUnits.map((su) => buildVelocityRow(su, asset, sellConfig, project.currency, totalPeriods, 'post', (suId, idx, pct) => setVelocity(suId, idx, pct, 'post'), phaseOffset, constructionWindow, operationsWindow))
                   : [buildSharedVelocityRow(sellConfig, subUnits, totalPeriods, 'post', (idx, pct) => setVelocityForAllSubUnits(idx, pct, 'post'), phaseOffset, constructionWindow, operationsWindow)]}
               />
             </InlineSection>
@@ -2539,6 +2545,9 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
 // so the user knows there is one canonical place to edit it.
 function buildVelocityRow(
   su: SubUnit,
+  /** The asset the row hangs off: its metric wins over the row own (TRAPS
+   *  7.32), so the hints below state an area as an area. */
+  asset: Asset | undefined,
   cfg: { subUnits: Array<{ subUnitId: string; preSalesVelocity: number[]; postSalesVelocity: number[]; preSalesVelocityByPhase?: number[]; postSalesVelocityByPhase?: number[] }> } | undefined,
   currency: string,
   totalPeriods: number,
@@ -2589,11 +2598,11 @@ function buildVelocityRow(
   const sumAll = preSum + postSum;
   const overall = sumAll > 1 + 1e-6;
 
-  const sizeHint = su.metric === 'units'
+  const sizeHint = resolveSubUnitMetric(su, asset) === 'units'
     ? `${Math.round(Math.max(0, su.metricValue)).toLocaleString()} units`
-    : `${formatArea(computeSubUnitArea(su), 0)} sqm`;
+    : `${formatArea(computeSubUnitArea(su, asset), 0)} sqm`;
   const priceHint = (su.unitPrice && su.unitPrice > 0)
-    ? (su.metric === 'units'
+    ? (resolveSubUnitMetric(su, asset) === 'units'
         ? `${currency} ${formatAccounting(su.unitPrice, 'full', 0)} / unit`
         : `${currency} ${formatAccounting(su.unitPrice, 'full', 0)} / sqm`)
     : 'no price set';

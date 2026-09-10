@@ -193,10 +193,35 @@ export function computeLandAggregate(parcels: Parcel[], phaseId?: string): LandA
 // When metric='area': metricValue is the total sqm directly. Legacy
 // snapshots with metric='count' continue to compute via the same
 // formula (the rename only affects the type name + UI label).
-export function computeSubUnitArea(u: SubUnit): number {
-  // Defensive: treat legacy 'count' the same as 'units'.
-  const isUnitMode = u.metric === 'units' || (u.metric as unknown as string) === 'count';
-  if (isUnitMode) {
+/**
+ * THE METRIC IS THE ASSET'S WHERE IT STATES ONE (docs/TRAPS.md 7.32).
+ *
+ * `Asset.subUnitMetric` is an asset-level override: it says how THIS asset's
+ * parts are measured, and the tab, the sub-unit table and the land-planning
+ * rules have all read it that way for months. `computeSubUnitArea` did not: it
+ * asked the ROW alone, so the two disagreed exactly where a user had switched
+ * an asset from counting units to stating areas and the rows kept their old
+ * metric. That is not hypothetical. On the live reference project one row, "2
+ * BR" on Marina Residences, carries `metric: 'units'` under an asset whose
+ * metric is 'area', so the engine read its 10,808.64 sqm as a COUNT of units
+ * and multiplied by the unit size: 1.84m sqm of BUA and 8.12bn of hard cost on
+ * one asset, while every screen showed the right area.
+ *
+ * ONE ANSWER, IN CORE, and the platform's own table rules import it rather than
+ * keeping the private copy they had. The asset is REQUIRED below rather than
+ * optional: an optional parameter is a defect waiting for one caller to forget
+ * (TRAPS 7.7), and making it required is what put every one of the twenty-odd
+ * call sites in front of the compiler instead of in front of a reviewer.
+ */
+export function resolveSubUnitMetric(u: SubUnit, asset: Asset | undefined): 'area' | 'units' {
+  const fromAsset = asset?.subUnitMetric;
+  const raw = fromAsset ?? u.metric;
+  // Defensive: legacy 'count' is 'units'.
+  return raw === 'units' || (raw as unknown as string) === 'count' ? 'units' : 'area';
+}
+
+export function computeSubUnitArea(u: SubUnit, asset: Asset | undefined): number {
+  if (resolveSubUnitMetric(u, asset) === 'units') {
     return Math.max(0, u.metricValue) * Math.max(0, u.unitArea ?? 0);
   }
   return Math.max(0, u.metricValue);
@@ -222,7 +247,7 @@ export function computeSubUnitArea(u: SubUnit): number {
 export function computeAssetBua(asset: Asset, subUnits: SubUnit[]): number {
   const phaseSubUnits = subUnits.filter((u) => u.assetId === asset.id);
   if (phaseSubUnits.length === 0) return Math.max(0, asset.buaSqm ?? 0);
-  const sum = phaseSubUnits.reduce((s, u) => s + computeSubUnitArea(u), 0);
+  const sum = phaseSubUnits.reduce((s, u) => s + computeSubUnitArea(u, asset), 0);
   return sum > 0 ? sum : Math.max(0, asset.buaSqm ?? 0);
 }
 
@@ -231,7 +256,7 @@ export function computeAssetSellableBua(asset: Asset, subUnits: SubUnit[]): numb
     (u) => u.assetId === asset.id && u.category !== 'Support',
   );
   if (phaseSubUnits.length === 0) return Math.max(0, asset.sellableBuaSqm ?? 0);
-  const sum = phaseSubUnits.reduce((s, u) => s + computeSubUnitArea(u), 0);
+  const sum = phaseSubUnits.reduce((s, u) => s + computeSubUnitArea(u, asset), 0);
   return sum > 0 ? sum : Math.max(0, asset.sellableBuaSqm ?? 0);
 }
 
@@ -905,10 +930,10 @@ export interface AssetAreaTotals {
 
 export function computeAssetAreaTotals(asset: Asset, subUnits: SubUnit[]): AssetAreaTotals {
   const my = subUnits.filter((u) => u.assetId === asset.id);
-  const sellableBua = my.filter((u) => u.category === 'Sellable').reduce((s, u) => s + computeSubUnitArea(u), 0);
-  const operableBua = my.filter((u) => u.category === 'Operable').reduce((s, u) => s + computeSubUnitArea(u), 0);
-  const leasableBua = my.filter((u) => u.category === 'Leasable').reduce((s, u) => s + computeSubUnitArea(u), 0);
-  const subUnitsSupport = my.filter((u) => u.category === 'Support').reduce((s, u) => s + computeSubUnitArea(u), 0);
+  const sellableBua = my.filter((u) => u.category === 'Sellable').reduce((s, u) => s + computeSubUnitArea(u, asset), 0);
+  const operableBua = my.filter((u) => u.category === 'Operable').reduce((s, u) => s + computeSubUnitArea(u, asset), 0);
+  const leasableBua = my.filter((u) => u.category === 'Leasable').reduce((s, u) => s + computeSubUnitArea(u, asset), 0);
+  const subUnitsSupport = my.filter((u) => u.category === 'Support').reduce((s, u) => s + computeSubUnitArea(u, asset), 0);
   const subUnitsRevenue = sellableBua + operableBua + leasableBua;
   const supportArea = Math.max(0, asset.supportArea ?? 0);
   const parkingArea = Math.max(0, asset.parkingArea ?? 0);
@@ -961,10 +986,10 @@ export interface AssetAreaHierarchy {
 
 export function computeAssetAreaHierarchy(asset: Asset, subUnits: SubUnit[]): AssetAreaHierarchy {
   const my = subUnits.filter((u) => u.assetId === asset.id);
-  const sellableArea = my.filter((u) => u.category === 'Sellable').reduce((s, u) => s + computeSubUnitArea(u), 0);
-  const operableArea = my.filter((u) => u.category === 'Operable').reduce((s, u) => s + computeSubUnitArea(u), 0);
-  const leasableArea = my.filter((u) => u.category === 'Leasable').reduce((s, u) => s + computeSubUnitArea(u), 0);
-  const subUnitSupport = my.filter((u) => u.category === 'Support').reduce((s, u) => s + computeSubUnitArea(u), 0);
+  const sellableArea = my.filter((u) => u.category === 'Sellable').reduce((s, u) => s + computeSubUnitArea(u, asset), 0);
+  const operableArea = my.filter((u) => u.category === 'Operable').reduce((s, u) => s + computeSubUnitArea(u, asset), 0);
+  const leasableArea = my.filter((u) => u.category === 'Leasable').reduce((s, u) => s + computeSubUnitArea(u, asset), 0);
+  const subUnitSupport = my.filter((u) => u.category === 'Support').reduce((s, u) => s + computeSubUnitArea(u, asset), 0);
   const supportArea = subUnitSupport + Math.max(0, asset.supportArea ?? 0);
   const parkingArea = Math.max(0, asset.parkingArea ?? 0);
   const nsa = sellableArea + operableArea + leasableArea;
@@ -1205,7 +1230,7 @@ export function calculateItemTotal(
     case 'rate_x_specific_subunit': {
       const target = (ctx.subUnits ?? []).find((u) => u.id === line.subUnitId);
       if (!target) return 0;
-      return safeV * computeSubUnitArea(target);
+      return safeV * computeSubUnitArea(target, ctx.asset);
     }
     case 'per_sub_unit_custom_rates': {
       // M2.0h Fix 5: sum of (sub-unit area × per-sub-unit rate) across
@@ -1218,7 +1243,7 @@ export function calculateItemTotal(
       let total = 0;
       for (const u of my) {
         const r = rates[u.id] ?? defaultRate;
-        total += Math.max(0, r) * computeSubUnitArea(u);
+        total += Math.max(0, r) * computeSubUnitArea(u, ctx.asset);
       }
       // Asset-level Support row (excluded if already covered by Support
       // sub-units; Support sub-unit areas are kept distinct from
@@ -2684,7 +2709,7 @@ export function computeCostLinePerSubUnit(
   const rows: CostLinePerSubUnitRow[] = [];
   // Sub-unit rows (in the order they appear in subUnits).
   for (const u of my) {
-    const area = computeSubUnitArea(u);
+    const area = computeSubUnitArea(u, asset);
     if (area <= 0) continue;
     const rate = Math.max(0, rates[u.id] ?? defaultRate);
     rows.push({
