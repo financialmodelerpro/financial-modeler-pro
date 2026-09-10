@@ -17,7 +17,7 @@ import type { ProjectFinancialsSnapshot, FinancialsResolverState } from '../fina
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { assetLabel } from '@/src/core/calculations/assetName';
 import { groupAssetsForConsolidation } from '@/src/core/calculations/consolidation';
-import { normaliseAssetTypeId } from '../state/assetTypeStandards';
+import { normaliseAssetTypeId } from '@/src/core/calculations/typeKey';
 
 export type MetricKind = 'area' | 'count' | 'money' | 'none';
 

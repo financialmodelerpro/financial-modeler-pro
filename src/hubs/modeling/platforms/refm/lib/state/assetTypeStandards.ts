@@ -38,6 +38,8 @@
  * types file can reference it without a cycle). No em dashes in this file.
  */
 
+import { normaliseAssetTypeId } from '@/src/core/calculations/typeKey';
+
 export type ParkingRatioBasis = 'slots_per_unit' | 'sqm_per_slot';
 
 export const PARKING_RATIO_BASES: readonly ParkingRatioBasis[] = ['slots_per_unit', 'sqm_per_slot'];
@@ -417,15 +419,15 @@ export function describeSource(source: StandardSource): string {
   }
 }
 
-/** Same shape rule as the cost catalog id: usable inside composed ids and
- *  file-ish keys. */
-export function normaliseAssetTypeId(label: string): string {
-  return label
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48);
-}
+/** THE ID FOR A TYPE LABEL, re-exported from its own leaf.
+ *
+ *  It moved to `core/calculations/typeKey.ts` on 2026-09-10 so a report that
+ *  needs only the mapping can import only the mapping: this file is on
+ *  `verify-asset-type-standards` A1's forbidden list, and rightly, because no
+ *  engine or export may read the standards. Re-exported rather than moved
+ *  outright so every existing caller is unchanged and there is still ONE
+ *  implementation. Same shape rule as the cost catalog id. */
+export { normaliseAssetTypeId };
 
 /**
  * The labels from `labels` that have NO standard yet: not matching any
