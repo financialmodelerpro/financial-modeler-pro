@@ -137,7 +137,7 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   // only would file a row under one name and look it up under another. Doing it
   // once here keeps every key and every label the same string by construction,
   // and an asset with no name is written out under its type.
-  opts = { ...opts, state: { ...opts.state, assets: withResolvedAssetNames(opts.state.assets) } };
+  opts = { ...opts, state: { ...opts.state, assets: withResolvedAssetNames(opts.state.assets, { parcels: opts.state.parcels, phases: opts.state.phases }) } };
   const snap = computeFinancialsSnapshot(opts.state);
   const capex = buildCapexReport(snap, opts.state);
   // The pure twin gives the row STRUCTURE + the few fields the snapshot does not
@@ -309,14 +309,12 @@ function prepareLiveModel(snap: ReturnType<typeof computeFinancialsSnapshot>, st
   const N = snap.axisLength;
   const padN = (a: number[] | undefined): number[] => { const o = (a ?? []).slice(0, N); while (o.length < N) o.push(0); return o; };
   const sum = (a: number[]): number => a.reduce((s, v) => s + (v ?? 0), 0);
-  const seriesByName = (title: string): Map<string, number[]> => {
-    const m = new Map<string, number[]>();
-    for (const rw of capex.results.find((t) => t.title === title)?.rows ?? []) if (!rw.isTotal) m.set(rw.label, rw.values.slice());
-    return m;
-  };
-  const inclByName = seriesByName('Total Capex (incl. all land)');
-  const exclInKindByName = seriesByName('Capex excl. Land In-Kind (cash-impact schedule)');
-  const exclAllByName = seriesByName('Capex excl. Total Land (pure development cost)');
+  // BY ASSET ID, NOT BY DISPLAY LABEL (2026-09-10). This dug the per-asset
+  // series out of a summary table by matching the row label to `asset.name`;
+  // the summary tables now consolidate by phase and type, and a label was never
+  // an identity in the first place. `assetSeries` is the report's own per-asset
+  // output, keyed by id.
+  const capexById = new Map(capex.assetSeries.map((x) => [x.assetId, x] as const));
 
   const metricsById = new Map<string, AssetAreaMetrics>();
   for (const a of state.assets.filter((x) => x.visible !== false)) {
@@ -331,9 +329,10 @@ function prepareLiveModel(snap: ReturnType<typeof computeFinancialsSnapshot>, st
     const phaseStartYear = phase?.startDate ? new Date(phase.startDate).getUTCFullYear() : snap.projectStartYear;
     const offset = Math.max(0, phaseStartYear - snap.projectStartYear);
     const m = metricsById.get(a.id);
-    const inclPer = padN(inclByName.get(a.name));
-    const exclInKindPer = padN(exclInKindByName.get(a.name));
-    const exclAllPer = padN(exclAllByName.get(a.name));
+    const cx = capexById.get(a.id);
+    const inclPer = padN(cx?.inclAll);
+    const exclInKindPer = padN(cx?.exclInKind);
+    const exclAllPer = padN(cx?.exclAll);
     const gdv = m?.totalRevenue ?? 0;
     const subs = state.subUnits.filter((s) => s.assetId === a.id);
     const annualBase = subs.reduce((s, su) => {
@@ -1585,14 +1584,12 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
 
   const cat = (assetId: string): string => strategyGroup(refs.assets.find((x) => x.id === assetId)?.strategy ?? '');
   // Cached engine series (per asset name) for the 4 result tables.
-  const seriesByName = (title: string): Map<string, number[]> => {
-    const m = new Map<string, number[]>();
-    for (const rw of capex.results.find((t) => t.title === title)?.rows ?? []) if (!rw.isTotal) m.set(rw.label, rw.values.slice());
-    return m;
-  };
-  const inclByName = seriesByName('Total Capex (incl. all land)');
-  const exclInKindByName = seriesByName('Capex excl. Land In-Kind (cash-impact schedule)');
-  const exclAllByName = seriesByName('Capex excl. Total Land (pure development cost)');
+  // BY ASSET ID, NOT BY DISPLAY LABEL (2026-09-10). This dug the per-asset
+  // series out of a summary table by matching the row label to `asset.name`;
+  // the summary tables now consolidate by phase and type, and a label was never
+  // an identity in the first place. `assetSeries` is the report's own per-asset
+  // output, keyed by id.
+  const capexById = new Map(capex.assetSeries.map((x) => [x.assetId, x] as const));
   const perPeriodByLine = new Map<string, number[]>();
   for (const ia of capex.inputAssets) for (const ln of ia.lines) perPeriodByLine.set(`${ia.assetId}|${ln.id}`, ln.perPeriod ?? []);
 
@@ -1751,10 +1748,11 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     fillRange(ws, inclRow, 1, inclRow, cLast, ARGB.subtotal);
     for (let c = 1; c <= cLast; c++) ws.getCell(inclRow, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
     assetInclRows.push(inclRow);
-    const m = inclByName.get(a.name) ?? inclYear;
+    const cx = capexById.get(a.assetId);
+    const m = cx?.inclAll ?? inclYear;
     assetMeta.push({
       assetId: a.assetId, name: a.name, category: cat(a.assetId), inclRow, landRows, nonLandRows,
-      exclAll: exclAllByName.get(a.name) ?? exclYear, exclInKind: exclInKindByName.get(a.name) ?? exclYear, incl: m,
+      exclAll: cx?.exclAll ?? exclYear, exclInKind: cx?.exclInKind ?? exclYear, incl: m,
     });
     r += 1;
   }
@@ -1793,7 +1791,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     (m) => ({ f: (col) => `${col}${m.inclRow}`, cached: m.incl }), sumSeries(assetMeta.map((m) => m.incl), N));
   const t3 = summaryTable('Table 3 - Capex Excluding Land In-Kind (cash-impact schedule)', 'Total Capex (excl. land in-kind)',
     (m) => {
-      const lnd = landAddrs.get(refs.capex.find((a) => a.name === m.name)?.assetId ?? '');
+      const lnd = landAddrs.get(m.assetId);
       const frac = lnd ? `IFERROR(${lnd.inKindLand}/${lnd.landValue},0)` : '0';
       const landSum = (col: string): string => (m.landRows.length ? colSum(col, m.landRows) : '0');
       const landTot = m.incl.map((v, t) => v - (m.exclAll[t] ?? 0));

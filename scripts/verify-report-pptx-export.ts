@@ -91,9 +91,9 @@ function makeInputs(): ReportInputs {
   return { ...d, executiveSummary: 'Prime asset with strong yield.', securityCollateral: 'First-ranking mortgage.', covenantCommentary: 'Headroom on LTV.', thesisLine: 'Buy: yield beats cost of debt.', recommendation: 'Approve the investment.', disclaimers: 'Model outputs only.', headerText: 'TEST HEADER BAND', footerText: 'TEST FOOTER LINE', fontBody: 'Verdana', fontHeading: 'Georgia' };
 }
 
-const ic = buildICReportModel({ project, phases, assets, rs, snap, parties, asOf, scenarios: null, cases: [{ id: 'base' } as any] });
+const ic = buildICReportModel({ project, phases, parcels: [], assets, rs, snap, parties, asOf, scenarios: null, cases: [{ id: 'base' } as any] });
 const lender = buildLenderReportModel({ project, financingTranches: tranches, rs, snap, parties, asOf });
-const onePager = buildOnePagerReportModel({ project, phases, assets, rs, snap, parties, thesisLine: 'Buy: yield beats cost of debt.', asOf });
+const onePager = buildOnePagerReportModel({ project, phases, parcels: [], assets, rs, snap, parties, thesisLine: 'Buy: yield beats cost of debt.', asOf });
 
 async function unzip(buf: Buffer): Promise<{ slideCount: number; allXml: string; tocRels: string }> {
   const z = await JSZip.loadAsync(buf);
@@ -163,7 +163,7 @@ async function main() {
 
   // ── IC with scenarios: scenario charts appear with the correct values ──
   {
-    const icS = buildICReportModel({ project, phases, assets, rs, snap, parties, asOf, scenarios: scenariosMock, cases: [{ id: 'base' }, { id: 'c1' }, { id: 'c2' }] as any });
+    const icS = buildICReportModel({ project, phases, parcels: [], assets, rs, snap, parties, asOf, scenarios: scenariosMock, cases: [{ id: 'base' }, { id: 'c1' }, { id: 'c2' }] as any });
     const pptx = buildReportPptx({ reportType: 'ic', projectName: project.name, inputs, fmt, currency: 'SAR', asOf, ic: icS, scenarios: scenariosMock });
     const { allXml } = await unzip(await pptx.write({ outputType: 'nodebuffer' }) as Buffer);
     check('IC scenario sections now render (Cases + Economics)', allXml.includes('Scenario Analysis: Cases') && allXml.includes('Scenario Analysis: Economics'));

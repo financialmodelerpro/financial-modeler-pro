@@ -182,9 +182,9 @@ export default function Module2Schedules(): React.JSX.Element {
     useShallow((s) => ({
       project: s.project,
       phases: s.phases,
+      parcels: s.parcels,
       assets: s.assets,
       subUnits: s.subUnits,
-      parcels: s.parcels,
       costLines: s.costLines,
       costOverrides: s.costOverrides,
       landAllocationMode: s.landAllocationMode,
@@ -194,10 +194,10 @@ export default function Module2Schedules(): React.JSX.Element {
       equityContributions: s.equityContributions,
     })),
   );
-  const { project, phases, assets: rawAssets } = state;
+  const { project, phases, parcels, assets: rawAssets } = state;
   // Names resolved once, so a row for an unnamed asset is labelled by its type
   // rather than by an empty string.
-  const assets = useMemo(() => withResolvedAssetNames(rawAssets), [rawAssets]);
+  const assets = useMemo(() => withResolvedAssetNames(rawAssets, { parcels, phases }), [rawAssets, parcels, phases]);
   const snap = useMemo(
     () => computeAllSellResults({ project, phases, assets, subUnits: state.subUnits }),
     [project, phases, assets, state.subUnits],

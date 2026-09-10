@@ -15,7 +15,9 @@ import { computeAssetCost, deriveCostStage, resolveAssetAreaMetrics, type AssetA
 import { collectionsForAsset, phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
 import type { ProjectFinancialsSnapshot, FinancialsResolverState } from '../financials-resolvers';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
-import { assetDisplayName } from '@/src/core/calculations/assetName';
+import { assetLabel } from '@/src/core/calculations/assetName';
+import { groupAssetsForConsolidation } from '@/src/core/calculations/consolidation';
+import { normaliseAssetTypeId } from '../state/assetTypeStandards';
 
 export type MetricKind = 'area' | 'count' | 'money' | 'none';
 
@@ -139,7 +141,33 @@ export function totalCapexStages(assets: Array<{ subtotals: CapexStageSubtotals 
   return out;
 }
 export interface CapexResultTable { title: string; rows: M4Row[] }
-export interface CapexReport { inputAssets: CapexInputAsset[]; results: CapexResultTable[] }
+/**
+ * ONE ASSET'S CAPEX SERIES, KEYED BY ID (2026-09-10).
+ *
+ * The Excel model needs the per-ASSET series (it writes one block per asset),
+ * while the result tables now consolidate by phase and type. It used to dig the
+ * per-asset series back out of a summary table by matching the row LABEL to
+ * `asset.name`, which was a lookup on a display string: it broke the moment a
+ * summary row stopped being one asset, and it would have broken anyway once
+ * two assets could share a label. The series are carried here instead, by id.
+ */
+export interface CapexAssetSeries {
+  assetId: string;
+  /** The label every surface calls this asset, resolved once. */
+  name: string;
+  phaseId: string;
+  phaseName: string;
+  inclAll: number[];
+  exclInKind: number[];
+  exclAll: number[];
+}
+
+export interface CapexReport {
+  inputAssets: CapexInputAsset[];
+  results: CapexResultTable[];
+  /** Per-asset series for the Excel model, which is per asset by design. */
+  assetSeries: CapexAssetSeries[];
+}
 
 /** Human label for a cost line's method = what its rate multiplies. */
 function basisLabel(method?: string): string {
@@ -230,7 +258,9 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
   const lineById = new Map(costLines.map((c) => [c.id, c] as const));
 
   interface AssetCapex {
+    assetId: string;
     name: string;
+    phaseId: string;
     phaseName: string;
     inclAll: number[];
     exclInKind: number[];
@@ -299,7 +329,7 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
     }
     if (lines.length) {
       inputAssets.push({
-        assetId: a.id, assetName: assetDisplayName(a), phaseName: phase.name, lines,
+        assetId: a.id, assetName: assetLabel(a, state), phaseName: phase.name, lines,
         total: breakdown.total,
         subtotals: sumCapexStages(lines),
       });
@@ -314,7 +344,14 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
     const perLine = Object.entries(breakdown.perLinePerPeriod ?? {})
       .map(([lineId, series]) => ({ name: lineById.get(lineId)?.name ?? lineId, values: projectOntoAxis(series, offset, N) }))
       .filter((r) => anyNonZero(r.values));
-    assetCapex.push({ name: a.name, phaseName: phase.name, inclAll, exclInKind, exclAll, perLine });
+    // THE OUTPUT USES THE INPUT'S LABEL (2026-09-10). This read `a.name`, the
+    // raw stored field, while the input table three lines up read
+    // `assetLabel(a, state)`, so the two halves of the same tab could call one
+    // asset two different things.
+    assetCapex.push({
+      assetId: a.id, name: assetLabel(a, state), phaseId: a.phaseId, phaseName: phase.name,
+      inclAll, exclInKind, exclAll, perLine,
+    });
   }
 
   // Project totals from the snapshot (authoritative; per-asset rows reconcile).
@@ -338,11 +375,61 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
     results.push({ title: 'Capex Schedule by Period (per cost line, per asset)', rows: t1Rows });
   }
 
-  // Tables 2-4: per-asset rows + project total.
+  /**
+   * TABLES 2-4 CONSOLIDATE BY PHASE AND TYPE (2026-09-10).
+   *
+   * They were per asset, so a phase holding four Branded Villas plots printed
+   * four rows here while table 4 of the assets tab printed ONE line, and the
+   * two could not be read against each other. The key is not recomputed: it is
+   * `groupAssetsForConsolidation`, the same function the assets tab groups by,
+   * so the summary and that table agree by construction.
+   *
+   * TABLE 1 STAYS PER ASSET. It is the cost-line schedule, and a cost line
+   * belongs to a plot: merging it would hide which plot carries which rate.
+   *
+   * AN ASSET IN NO GROUP KEEPS ITS OWN ROW. `groupAssetsForConsolidation`
+   * excludes companions by design (a companion is not a plot), and the retail
+   * companion has carried its own cost lines since consolidation step 6. It
+   * would otherwise vanish from the summary while still sitting in the total,
+   * which is the one failure this table exists to rule out.
+   */
+  const capexById = new Map(assetCapex.map((ac) => [ac.assetId, ac] as const));
+  const multiPhase = phases.length > 1;
+  const phaseNameOf = (id: string): string => phases.find((p) => p.id === id)?.name ?? '';
+  interface CapexLine { label: string; members: AssetCapex[] }
+  const capexLines: CapexLine[] = [];
+  const grouped = new Set<string>();
+  for (const g of groupAssetsForConsolidation(
+    assets as unknown as Parameters<typeof groupAssetsForConsolidation>[0],
+    phases.map((p) => p.id),
+    normaliseAssetTypeId,
+  )) {
+    const members = g.assets.map((a) => capexById.get(a.id)).filter((ac): ac is AssetCapex => ac !== undefined);
+    if (!members.length) continue;
+    for (const m of members) grouped.add(m.assetId);
+    const phaseName = phaseNameOf(g.phaseId);
+    capexLines.push({
+      label: multiPhase && phaseName !== '' ? `${g.typeLabel}, ${phaseName}` : g.typeLabel,
+      members,
+    });
+  }
+  for (const ac of assetCapex) {
+    if (grouped.has(ac.assetId)) continue;
+    capexLines.push({ label: ac.name, members: [ac] });
+  }
+
+  const sumOver = (members: readonly AssetCapex[], pick: (ac: AssetCapex) => number[]): number[] => {
+    const out = new Array<number>(N).fill(0);
+    for (const m of members) { const v = pick(m); for (let t = 0; t < N; t++) out[t] += v[t] ?? 0; }
+    return out;
+  };
+
   const summaryTable = (title: string, pick: (ac: AssetCapex) => number[], total: number[], totalLabel: string): CapexResultTable => ({
     title,
     rows: [
-      ...assetCapex.filter((ac) => anyNonZero(pick(ac))).map((ac): M4Row => ({ label: ac.name, values: pick(ac), indent: 1 })),
+      ...capexLines
+        .map((ln): M4Row => ({ label: ln.label, values: sumOver(ln.members, pick), indent: 1 }))
+        .filter((row) => anyNonZero(row.values)),
       { label: totalLabel, values: total, isTotal: true },
     ],
   });
@@ -350,5 +437,10 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
   results.push(summaryTable('Capex excl. Land In-Kind (cash-impact schedule)', (ac) => ac.exclInKind, totalExclInKind, 'Total Capex (excl. land in-kind)'));
   results.push(summaryTable('Capex excl. Total Land (pure development cost)', (ac) => ac.exclAll, totalExclAll, 'Total Capex (excl. all land)'));
 
-  return { inputAssets, results };
+  const assetSeries: CapexAssetSeries[] = assetCapex.map((ac) => ({
+    assetId: ac.assetId, name: ac.name, phaseId: ac.phaseId, phaseName: ac.phaseName,
+    inclAll: ac.inclAll, exclInKind: ac.exclInKind, exclAll: ac.exclAll,
+  }));
+
+  return { inputAssets, results, assetSeries };
 }

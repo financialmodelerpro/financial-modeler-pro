@@ -1,87 +1,132 @@
 /**
- * assetName.ts (2026-09-08)
+ * assetName.ts (2026-09-08, rewritten 2026-09-10)
  *
  * WHAT AN ASSET IS CALLED, in one place.
  *
- * THE NAME IS OPTIONAL AND FALLS BACK TO THE TYPE. Five plots of Branded Villas
- * with five invented names is a user typing five identities for one thing, and
- * the schedules group by type and merge them anyway, so those names vanish from
- * the output with nothing saying why. An asset with no name is called by its
- * type. The name stays available for the case where it earns its keep, a
- * landmark a client knows by name, and stops being a field anyone feels obliged
- * to fill in.
+ * THE MANUAL NAME IS RETIRED. It was optional and fell back to the type, which
+ * was already an admission that five plots of Branded Villas with five invented
+ * names is a user typing five identities for one thing. It went further than
+ * that: the schedules group by TYPE and merge those plots, so the names vanish
+ * from the output with nothing saying why, and two plots called different
+ * things read as two different buildings in a table that has already added them
+ * together. An asset is identified by WHERE it is and WHAT it is.
  *
- * NOTHING STORED IS REWRITTEN. This resolves at READ time. A name someone typed
- * is kept verbatim in the snapshot and still wins here; only a blank one falls
- * through to the type. That is also what lets a blank stay visibly blank in the
- * one place it should, the name input itself, which shows the resolved name as
- * a placeholder instead.
+ * SO THE LABEL IS DERIVED, and it is derived from four things:
+ *
+ *   THE PLOT, when the asset draws from one: "Land 1, Branded Villas". Three
+ *   plots of one type stay distinguishable because the plot distinguishes them.
+ *
+ *   THE PHASE, when it does not. Measured before choosing this: most assets
+ *   have NO plot. On one live project 7 of 8 draw from a weighted-average or
+ *   custom-rate sentinel, and `assetTableModel`'s own header records 6,860 of
+ *   9,399 historical rows in that state. A label of "(no plot)" repeated seven
+ *   times is not a label, so the phase takes the plot's place.
+ *
+ *   THE PHASE AGAIN, as a suffix, when the project has more than one and the
+ *   plot alone would not separate two assets. Two live collisions were exactly
+ *   this: Branded Residences in phases 2 and 3, Strip Retail in phases 2 and 3.
+ *
+ *   A COMPANION MARKER, because a Sell asset and its Operate companion share a
+ *   type, a phase and a plot and differ only in treatment. That was the fourth
+ *   live collision and the only one phase could not break.
+ *
+ * NOTHING STORED IS REWRITTEN. `Asset.name` stays declared and stored, and
+ * sixteen live assets still carry the name someone typed; nothing reads it.
+ * Retiring rather than deleting costs nothing and keeps the evidence.
  *
  * Pure. No imports. No em dashes in this file.
  */
 
-/** The last resort, when an asset has neither a name nor a type. */
+/** The last resort, when an asset has neither a plot, a phase nor a type. */
 export const UNNAMED_ASSET = 'Unnamed asset';
 
 /** The shape this needs. Structural, so core stays free of platform imports. */
 export interface NameableAsset {
+  /** RETIRED 2026-09-10: stored, never read. See the header. */
   name?: string;
   type?: string;
+  phaseId?: string;
+  landAllocation?: { parcelId?: string };
+  isCompanion?: boolean;
+  companionType?: string;
+  strategy?: string;
 }
 
 /**
- * What to CALL this asset: its name, else its type, else a last resort.
- *
- * Whitespace-only counts as blank, because a name of " " is not a name and the
- * alternative is a row labelled with a space.
+ * Where the label gets the plot and phase names. Passed IN rather than looked
+ * up, so this file stays pure and every caller states which project's plots it
+ * means. REQUIRED, deliberately: an optional context is a defect waiting for
+ * one caller to omit it and silently produce a shorter label than its
+ * neighbour (docs/TRAPS.md 7.7).
  */
-export function assetDisplayName(asset: NameableAsset): string {
-  const name = (asset.name ?? '').trim();
-  if (name !== '') return name;
-  const type = (asset.type ?? '').trim();
-  if (type !== '') return type;
-  // NEVER AN EMPTY STRING. A blank label in a schedule, an export or a deck is
-  // a row nobody can identify, which is worse than an ugly placeholder.
-  return UNNAMED_ASSET;
+export interface AssetLabelContext {
+  parcels: readonly { id: string; name?: string }[];
+  phases: readonly { id: string; name?: string }[];
 }
 
-/** True when the asset is being called by its type rather than a typed name, so
- *  a surface can show that as a placeholder rather than as a value. */
-export function assetNameIsDerived(asset: NameableAsset): boolean {
-  return (asset.name ?? '').trim() === '';
+/** A sentinel parcel id is not a plot: it says "weighted average" or "custom
+ *  rate", which is the absence of one. Kept here rather than imported so this
+ *  file has no dependencies; the platform's `isParcelSentinel` agrees. */
+function realParcelId(asset: NameableAsset): string | undefined {
+  const id = asset.landAllocation?.parcelId;
+  if (typeof id !== 'string' || id === '') return undefined;
+  return id.startsWith('__') ? undefined : id;
+}
+
+/** The marker that separates a companion from the asset it accompanies. */
+function companionMarker(asset: NameableAsset): string | undefined {
+  if (asset.isCompanion !== true) return undefined;
+  if (asset.companionType === 'retail') return 'Retail';
+  // The Operate companion of a Sell + Manage parent: same type, same phase,
+  // same plot, and only the treatment differs.
+  return 'Operate';
 }
 
 /**
- * THE TYPE, WHEN THE NAME IS HIDING IT.
+ * WHAT TO CALL THIS ASSET: where it is, then what it is, then what separates it
+ * from anything that would otherwise read the same.
  *
- * Everything downstream keys off type: the consolidated line, the schedules,
- * the cost methods, the standards. A row labelled "Marina Residences" says
- * nothing about which of those it will land in, and a reader looking at four
- * invented names has no way to tell that two of them merge and two do not.
- *
- * So a surface that names an asset shows the type BESIDE the name. This
- * returns it only when it would add something: an asset already called by its
- * type does not need to be told twice, which is the whole reason this is a
- * function rather than a field read at each call site.
+ * "Land 1, Branded Villas"
+ * "Phase 2, Branded Residences"          (no plot: a sentinel draw)
+ * "Land 1, Branded Villas, Phase 2"      (multi-phase project, plot reused)
+ * "Phase 2, High-end Apartments (Operate)"
  */
-export function assetTypeSuffix(asset: NameableAsset): string | undefined {
-  if (assetNameIsDerived(asset)) return undefined;
+export function assetLabel(asset: NameableAsset, ctx: AssetLabelContext): string {
   const type = (asset.type ?? '').trim();
-  return type === '' ? undefined : type;
+  const parcelId = realParcelId(asset);
+  const parcel = parcelId === undefined ? undefined : ctx.parcels.find((p) => p.id === parcelId);
+  const plotName = (parcel?.name ?? '').trim();
+  const phase = ctx.phases.find((p) => p.id === asset.phaseId);
+  const phaseName = (phase?.name ?? '').trim();
+  const multiPhase = ctx.phases.length > 1;
+
+  const head = plotName !== '' ? plotName : phaseName;
+  const parts: string[] = [];
+  if (head !== '') parts.push(head);
+  if (type !== '') parts.push(type);
+  // The phase EARNS its place only when it adds something: a project with one
+  // phase repeats it on every row for nothing, and an asset already led by its
+  // phase does not need it twice.
+  if (multiPhase && plotName !== '' && phaseName !== '') parts.push(phaseName);
+  if (parts.length === 0) return UNNAMED_ASSET;
+  const marker = companionMarker(asset);
+  return marker === undefined ? parts.join(', ') : `${parts.join(', ')} (${marker})`;
 }
 
 /**
- * Every asset in a list, with its name RESOLVED.
+ * Every asset in a list, with its label written into `name`.
  *
  * ONE CALL AT AN EXPORT'S FRONT DOOR beats editing every read behind it. The
- * Excel workbook alone reads an asset name in 26 places, and several of those
- * are MAP KEYS rather than labels: resolving the labels and not the keys would
- * put a row under one name and look it up under another. Rewriting the list
- * once keeps keys and labels the same string by construction.
+ * Excel workbook alone reads an asset name in 26 places, and several were MAP
+ * KEYS rather than labels; those move to `assetId` in the same change as this
+ * rewrite, because a label that can repeat is not an identity.
  *
- * The copy is shallow and the snapshot is untouched: this is a read-time view,
- * and nothing here is ever written back.
+ * The copy is shallow and the snapshot is untouched: a read-time view, never
+ * written back.
  */
-export function withResolvedAssetNames<T extends NameableAsset>(assets: readonly T[]): T[] {
-  return assets.map((a) => (assetNameIsDerived(a) ? { ...a, name: assetDisplayName(a) } : a));
+export function withResolvedAssetNames<T extends NameableAsset>(
+  assets: readonly T[],
+  ctx: AssetLabelContext,
+): T[] {
+  return assets.map((a) => ({ ...a, name: assetLabel(a, ctx) }));
 }

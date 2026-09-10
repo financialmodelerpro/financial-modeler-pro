@@ -223,7 +223,7 @@ const phases: any = [{ id: 'p1', name: 'Phase 1', startDate: '2026-01-01' }];
 const assets: any = [{ id: 'a1', name: 'Hotel', strategy: 'Operate', visible: true, phaseId: 'p1', buaTotal: 12083, landAreaSqm: 5000 }];
 const parties: any = [{ id: '1', name: 'PaceMakers', roles: ['Sponsor'] }];
 
-const m: ICReportModel = buildICReportModel({ project, phases, assets, subUnits: [], rs, snap, parties, asOf: '2026-07-27', cases: [{ id: 'base' } as any] });
+const m: ICReportModel = buildICReportModel({ project, phases, parcels: [], assets, subUnits: [], rs, snap, parties, asOf: '2026-07-27', cases: [{ id: 'base' } as any] });
 const fM = makeDeckFmt(icMoneyScaleSpec('millions', 'SAR'));
 const fK = makeDeckFmt(icMoneyScaleSpec('thousands', 'SAR'));
 const seed = { inputs: null };
@@ -399,7 +399,7 @@ check('section numbers stay contiguous across the expanded pages', (() => {
 // A model with no statements or streams must omit the families entirely.
 const deadSnap: any = { projectStartYear: START, yearLabels: [], pl: {}, directCF: {}, bs: {}, perAssetCF: new Map() };
 const deadRs: any = { ...rs, streamYearLabels: [], fcffPerPeriod: [], fcfePerPeriod: [], dividendStreamPerPeriod: [], buildup: {}, yearLabels: [], noiPerPeriod: [] };
-const mDead = buildICReportModel({ project, phases, assets, subUnits: [], rs: deadRs, snap: deadSnap, parties, asOf: '2026-07-27', cases: [{ id: 'base' } as any] });
+const mDead = buildICReportModel({ project, phases, parcels: [], assets, subUnits: [], rs: deadRs, snap: deadSnap, parties, asOf: '2026-07-27', cases: [{ id: 'base' } as any] });
 check('a model with no statements omits the statement schedules',
   !TEMPLATE_BY_ID['is_schedule'].available(mDead, seed) && !TEMPLATE_BY_ID['bs_schedule'].available(mDead, seed));
 check('a model with no streams omits the returns schedules',

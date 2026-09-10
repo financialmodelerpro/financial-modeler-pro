@@ -134,6 +134,7 @@ async function main() {
   const rs = computeReturnsSnapshot(snap, state.project);
   const model: ICReportModel = buildICReportModel({
     project: state.project, phases: state.phases, assets: state.assets, subUnits: state.subUnits,
+    parcels: state.parcels ?? [],
     rs, snap, parties: [], asOf: '2026-08-01',
   });
   ok('the engine produced a model for the end-to-end run', !!model?.headline);

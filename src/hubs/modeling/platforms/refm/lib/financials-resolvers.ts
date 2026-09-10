@@ -53,7 +53,7 @@ import type { Asset, Phase, FinancingTranche } from './state/module1-types';
 import { DEFAULT_PROJECT_FINANCING_CONFIG } from './state/module1-types';
 import { resolveFundTerms } from './fundTerms';
 import { computeFundFeeSchedule, emptyFundFeeSchedule, resolveFacilityLimit, resolveFundSize, type FundFeeSchedule } from './fundFees';
-import { assetDisplayName } from '@/src/core/calculations/assetName';
+import { assetLabel, withResolvedAssetNames } from '@/src/core/calculations/assetName';
 
 /** Lifetime sum of a per-period series. Local to the fund-size resolution. */
 const sumSeries = (a: readonly number[] | undefined): number =>
@@ -557,7 +557,7 @@ export function computeIdcSnapshot(
     const sqm = assetShare.get(a.id) ?? 0;
     byAssetIDC.set(a.id, {
       assetId: a.id,
-      assetName: assetDisplayName(a),
+      assetName: assetLabel(a, state),
       strategy: a.strategy,
       landSqm: sqm,
       shareOfTotalLand: totalShareDenom > 0 ? sqm / totalShareDenom : 0,
@@ -1585,8 +1585,8 @@ function computeFinancialsSnapshotOnce(
   // 1. Upstream snapshots (each pure function call already memoizes via React.useMemo at the call site)
   const revenue = computeAllSellResults({ project, phases, assets, subUnits });
   const opex = computeAllOpexResults({ project, phases, assets, subUnits }, revenue);
-  const ap = computeOpexApSnapshot({ project, assets }, opex);
-  const escrow = computeEscrowSnapshot({ project, phases, assets, subUnits }, revenue);
+  const ap = computeOpexApSnapshot({ project, phases, parcels, assets }, opex);
+  const escrow = computeEscrowSnapshot({ project, phases, parcels, assets, subUnits }, revenue);
   // 2026-08-16: `revenue` threaded so capitalised capex is built on the same
   // curve the P&L spends it, for any line that follows collections.
   const fixedAssets = computeAllFixedAssetResults({ project, phases, assets, subUnits, parcels, costLines, costOverrides, landAllocationMode, revenue });
@@ -1625,8 +1625,11 @@ function computeFinancialsSnapshotOnce(
   // The engine still computes. This says the model is INCOMPLETE, it does not
   // refuse to produce a number.
   {
+    // THE ADVISORY NAMES AN ASSET, so it takes the RESOLVED list. It took the
+    // raw one, which is the last place in the engine where the retired stored
+    // name still reached a sentence a user reads.
     const blocked = buildSaleCohortAdvisories(
-      assets, project.saleCohortDefaults?.downpayment, revenue,
+      withResolvedAssetNames(assets, state), project.saleCohortDefaults?.downpayment, revenue,
     );
     if (blocked.length > 0) {
       financing.reconciliation = {
@@ -1808,7 +1811,7 @@ function computeFinancialsSnapshotOnce(
 
     perAssetPL.set(a.id, {
       assetId: a.id,
-      assetName: assetDisplayName(a),
+      assetName: assetLabel(a, state),
       strategy: a.strategy,
       revenuePerPeriod: revRow,
       cosPerPeriod: cosRow,
@@ -1851,7 +1854,7 @@ function computeFinancialsSnapshotOnce(
 
     perAssetCF.set(a.id, {
       assetId: a.id,
-      assetName: assetDisplayName(a),
+      assetName: assetLabel(a, state),
       strategy: a.strategy,
       revenueReceivedPerPeriod: revRcv,
       opexPaidPerPeriod: opexPaid,

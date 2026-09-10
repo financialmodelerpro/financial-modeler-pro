@@ -453,12 +453,15 @@ function offlineChecks(): void {
   check('U4 the sub-units table picks its parent asset when adding',
     tabSrc.includes('data-testid="subunits-table"') && tabSrc.includes('subunits-parent-pick')
     && tabSrc.includes('subunits-add-subunit'));
-  check('U5 NO field has two homes: name, phase, the free-text type and Delete live only in the row',
+  // RE-AIMED 2026-09-10: the manual name has NO home now, not one. It was
+  // retired when the label became the plot plus the type, so the clause that
+  // required it in the row is inverted: it must be nowhere.
+  check('U5 NO field has two homes, and the RETIRED name has none at all',
     !tabSrc.includes('data-testid={`asset-${asset.id}-name`}')
     && !tabSrc.includes('data-testid={`asset-${asset.id}-phase`}')
     && !tabSrc.includes('data-testid={`asset-${asset.id}-type`}')
     && !tabSrc.includes('data-testid={`asset-${asset.id}-remove`}')
-    && tabSrc.includes('asset-row-${asset.id}-name'));
+    && !tabSrc.includes('asset-row-${asset.id}-name'));
   // ── The two defects the first cut shipped, both found on live data ──────
   // U7 RE-AIMED 2026-09-09 WITH THE CELL. The rate was read-only text rendered
   // at 'full'; it is an input now, so what must hold is the same rule at the
@@ -1576,10 +1579,17 @@ function offlineChecks(): void {
   // Everything downstream keys off type: the line, the schedules, the cost
   // methods, the standards. A row labelled with an invented name says nothing
   // about which of those it lands in.
-  check('U44 the type shows beside the name, and only when the name is hiding it',
-    /export function assetTypeSuffix/.test(readFileSync('src/core/calculations/assetName.ts', 'utf8'))
-    && /if \(assetNameIsDerived\(asset\)\) return undefined;/
-      .test(readFileSync('src/core/calculations/assetName.ts', 'utf8')));
+  // RE-AIMED 2026-09-10. The type used to be a SUFFIX printed beside an
+  // invented name, shown only when the name was hiding it. The name is retired
+  // and the type is part of the label itself now, on every surface, so the
+  // suffix has nothing left to do and what must hold is that the type is IN
+  // the label rather than beside it.
+  check('U44 the type is part of the label itself, not a suffix beside a name',
+    (() => {
+      const src = readFileSync('src/core/calculations/assetName.ts', 'utf8');
+      return !src.includes('assetTypeSuffix') && !src.includes('assetDisplayName')
+        && src.includes("if (type !== '') parts.push(type);");
+    })());
   // U44b MOVED WITH THE HEADER. The sub-unit table used to carry a per-asset
   // header row and the type sat on it; that row is gone (one header per line,
   // matching the four tables above), and the LINE header is labelled with the
@@ -1589,9 +1599,11 @@ function offlineChecks(): void {
     subBody.includes('{line.label}')
     && subBody.includes('subunits-line-${line.key}-plots`')
     && /subunits-row-\$\{u\.id\}-asset`/.test(subBody)
-    && /assetDisplayName\(a\)\}\{assetTypeSuffix\(a\)/.test(tabSrc)
+    // The pickers and the results row read the RESOLVED label, which already
+    // carries the type; appending a suffix to it would print the type twice.
     && /asset-result-\$\{asset\.id\}-label`/.test(resultsBody)
-    && resultsBody.includes('assetTypeSuffix(asset)'));
+    && !resultsBody.includes('assetTypeSuffix')
+    && !tabSrc.includes('assetTypeSuffix'));
   // ONE HEADER ROW PER GROUP, in the pale style the plot headers use. It
   // rendered two, a navy bar and a pale bar, in styles matching nothing above.
   check('U44c the sub-unit group has ONE header row, in the same style as the tables above',

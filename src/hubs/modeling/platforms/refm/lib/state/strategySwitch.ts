@@ -56,7 +56,6 @@ import {
   type SubUnit,
   type SubUnitCategory,
 } from './module1-types';
-import { assetDisplayName } from '@/src/core/calculations/assetName';
 
 /** The sub-unit category a strategy's revenue is measured in. Support rows are
  *  auxiliary (parking, back of house) and belong to no strategy, so they are
@@ -183,7 +182,7 @@ export function applyStrategySwitch(
   if (from === to) return empty(from);
 
   const report: StrategySwitchReport = {
-    assetId, assetName: assetDisplayName(asset), from, to,
+    assetId, assetName: asset.name ?? '', from, to,
     retained: [], restored: [], seeded: [], needsReview: [],
   };
 

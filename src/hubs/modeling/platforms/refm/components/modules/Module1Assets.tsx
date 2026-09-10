@@ -135,7 +135,7 @@ import InputLabel from '../ui/InputLabel';
 import { CELL_HEADER, TABLE_TITLE } from './_shared/tableStyles';
 import { StrategyChangeConfirm, StrategyReviewBanner } from './_shared/StrategyChangeNotice';
 import { applyStrategySwitch, assetHasStrategyAssumptions, type StrategySwitchReport } from '../../lib/state/strategySwitch';
-import { assetDisplayName, assetNameIsDerived, assetTypeSuffix } from '@/src/core/calculations/assetName';
+import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 const inputStyle: React.CSSProperties = {
@@ -406,7 +406,7 @@ export default function Module1Assets(): React.JSX.Element {
     removeParcel,
     landAllocationMode,
     setLandAllocationMode,
-    assets,
+    assets: rawAssets,
     addAsset,
     updateAsset,
     removeAsset,
@@ -442,6 +442,19 @@ export default function Module1Assets(): React.JSX.Element {
       syncDerivedAreas: s.syncDerivedAreas,
       removeSubUnit: s.removeSubUnit,
     })),
+  );
+
+  /**
+   * THE ASSET LABEL, RESOLVED ONCE AT THE FRONT DOOR (2026-09-10).
+   *
+   * The same memo the other eight module screens run. An asset is called by
+   * its plot and its type, so the label needs the plots and the phases, and
+   * resolving it here means every table, picker and card below reads a plain
+   * `a.name` and cannot disagree with any other surface.
+   */
+  const assets = useMemo(
+    () => withResolvedAssetNames(rawAssets, { parcels, phases }),
+    [rawAssets, parcels, phases],
   );
 
   // Aggregate land across all phases (M2.0e: parcels can spread across
@@ -586,7 +599,7 @@ export default function Module1Assets(): React.JSX.Element {
       totalSqm += b.landSqm;
       for (const sp of b.splits) {
         if (!sp.parcelId || sp.sqm <= 0) continue;
-        (byParcelId[sp.parcelId] ??= []).push({ assetId: a.id, name: assetDisplayName(a), sqm: sp.sqm });
+        (byParcelId[sp.parcelId] ??= []).push({ assetId: a.id, name: a.name, sqm: sp.sqm });
       }
     }
     return { byAssetId, byParcelId, totalSqm };
@@ -646,8 +659,7 @@ export default function Module1Assets(): React.JSX.Element {
     subUnits,
     phases.map((p) => p.id),
     nsaByAsset,
-    normaliseAssetTypeId,
-    assetDisplayName,
+    normaliseAssetTypeId,    (a) => a.name,
   ), [assets, subUnits, phases, nsaByAsset]);
   useEffect(() => {
     syncLineSubUnits(subUnitPlan, () => mintId('subunit'));
@@ -670,7 +682,7 @@ export default function Module1Assets(): React.JSX.Element {
   const derivedSupportPlan = useMemo(() => planDerivedSupport(
     rowGroups.flatMap((g) => g.rows).map((r) => ({
       assetId: r.asset.id,
-      assetName: assetDisplayName(r.asset),
+      assetName: r.asset.name,
       // TYPED WINS, in the field or in a row of the user's own. The derived row
       // is excluded from that test by its own id, or it would see itself and
       // stand down for ever.
@@ -1875,7 +1887,7 @@ function AssetInputsTable({
   // 14. The Retail GFA / slot column left on 2026-09-09: it is one company
   // figure and now lives on the standards tab beside the parking area per slot.
   // Counts agree or U15 fails.
-  const COLS = 14;
+  const COLS = 13;
   return (
     <div style={sectionCardStyle} data-testid="assets-table-section">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 'var(--sp-1)' }}>
@@ -1893,7 +1905,6 @@ function AssetInputsTable({
           <colgroup>
             <col style={{ width: 26 }} />
             <col style={{ width: 104 }} />
-            <col style={{ width: 196 }} />
             <col style={{ width: 168 }} />
             <col style={{ width: 96 }} />
             <col style={{ width: 112 }} />
@@ -1905,14 +1916,13 @@ function AssetInputsTable({
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
               {/* Land area moves under Chain inputs, where it belongs: it is
                   step 0 of the chain, the figure every later step multiplies. */}
-              <th style={TH_T} colSpan={6}>Asset</th>
+              <th style={TH_T} colSpan={5}>Asset</th>
               <th style={TH_T} colSpan={7}>Plot and massing inputs</th>
               <th style={TH_T}></th>
             </tr>
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
               <th style={TH_T}></th>
               <th style={TH_T}>Plot</th>
-              <th style={TH_T}>Asset</th>
               <th style={TH_T}>Type</th>
               <th style={TH_T}>Strategy</th>
               <th style={TH_T}>Phase</th>
@@ -1999,23 +2009,11 @@ function AssetInputsTable({
                             {parcels.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
                           </select>
                         </td>
-                        <td style={CELL}>
-                          {/* THE NAME IS OPTIONAL. Blank is a real answer, so
-                              the cell stays genuinely empty and shows what the
-                              asset will be CALLED as a placeholder. Binding the
-                              resolved name as the value would make a blank look
-                              filled in and there would be no way to leave it. */}
-                          <input
-                            style={TABLE_INPUT}
-                            value={asset.name}
-                            placeholder={assetDisplayName(asset)}
-                            title={assetNameIsDerived(asset)
-                              ? `Unnamed, so it is called "${assetDisplayName(asset)}" everywhere. Name it only if the name earns its keep.`
-                              : 'Clear this to have the asset called by its type.'}
-                            data-testid={`asset-row-${asset.id}-name`}
-                            onChange={(e) => onUpdateAsset(asset.id, { name: e.target.value })}
-                          />
-                        </td>
+                        {/* THE MANUAL NAME IS GONE (2026-09-10). An asset is
+                            called by its plot and its type on every surface,
+                            so a per-asset free-text name could only disagree
+                            with the label the rest of the model uses. The
+                            stored field is retired, not deleted. */}
                         {/* A REAL DROPDOWN, NOT A DATALIST.
                             A datalist is browser AUTOCOMPLETE: it filters its
                             options by whatever is already in the box, so a row
@@ -2334,14 +2332,11 @@ function AssetResultsTable({
                     data-testid={`asset-result-${asset.id}`}
                   >
                     <td style={{ ...CELL, color: 'var(--color-meta)', fontSize: 10 }}>{parcel ? parcel.name : 'none'}</td>
-                    {/* NAME AND TYPE, because the merged table below groups by
-                        TYPE and a reader tracing a row into it needs to see
-                        which one this is. */}
+                    {/* THE LABEL, which already carries the type: the merged
+                        table below groups by type, so a reader tracing a row
+                        into it can see which line this asset joins. */}
                     <td style={CELL} data-testid={`asset-result-${asset.id}-label`}>
-                      {assetDisplayName(asset)}
-                      {assetTypeSuffix(asset) && (
-                        <div style={{ fontSize: 9, color: 'var(--color-meta)' }}>{assetTypeSuffix(asset)}</div>
-                      )}
+                      {asset.name}
                     </td>
                     <td style={CELL_NUM}>{areaText(landSqm)}</td>
                     <td style={CELL_DERIVED} data-testid={`asset-result-${asset.id}-land-utilised`}>{d(chain.landUtilisedSqm)}</td>
@@ -2652,7 +2647,7 @@ function MergedLineTable({
               return (
                 <tr key={`retail-${group.key}`} style={{ borderBottom: '1px solid var(--color-border)' }}
                   data-testid={`retail-companion-${group.key}`}>
-                  <td style={{ ...CELL, fontWeight: 600 }}>{assetDisplayName(r)}</td>
+                  <td style={{ ...CELL, fontWeight: 600 }}>{r.name}</td>
                   <td style={CELL}>{allPhases.find((ph) => ph.id === r.phaseId)?.name ?? r.phaseId}</td>
                   <td style={CELL}>{r.strategy}</td>
                   <td style={CELL_NUM} title="How many of the line's plots contribute ground-floor retail.">
@@ -2951,7 +2946,7 @@ function groupSubUnitsByLine(
       key,
       label,
       phaseName,
-      assetNames: members.filter((m) => units.some((u) => u.assetId === m.id)).map((m) => assetDisplayName(m)),
+      assetNames: members.filter((m) => units.some((u) => u.assetId === m.id)).map((m) => m.name),
       rows,
       nsa,
       nsaSource,
@@ -2985,7 +2980,7 @@ function groupSubUnitsByLine(
     claimedByRetail.push(...mine);
     const built = build(
       `retail__${a.id}`,
-      assetDisplayName(a),
+      a.name,
       [a],
       mine,
       phases.find((ph) => ph.id === a.phaseId)?.name,
@@ -3036,7 +3031,7 @@ function SubUnitsTable({
                 the type is the half of the label that decides anything. */}
             {assets.map((a) => (
               <option key={a.id} value={a.id}>
-                {assetDisplayName(a)}{assetTypeSuffix(a) ? ` (${assetTypeSuffix(a)})` : ''}
+                {a.name}
               </option>
             ))}
           </select>
@@ -3184,7 +3179,7 @@ function SubUnitsTable({
                             in the row it is visible on every line, which is
                             what a line fed by two plots actually needs. */}
                         <div style={{ fontSize: 9, color: 'var(--color-meta)' }} data-testid={`subunits-row-${u.id}-asset`}>
-                          {asset ? assetDisplayName(asset) : 'no asset'}
+                          {asset ? asset.name : 'no asset'}
                         </div>
                       </td>
                       <td style={CELL}>
@@ -3626,7 +3621,7 @@ function AssetCard({
       {/* Header row */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-2)', cursor: 'pointer' }} onClick={() => setCollapsed(!collapsed)}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <strong style={{ fontSize: 14 }}>{assetDisplayName(asset)}</strong>
+          <strong style={{ fontSize: 14 }}>{asset.name}</strong>
           <span style={statusBadgeStyle(status)} data-testid={`asset-card-${asset.id}-status-pill`}>
             {ASSET_STATUS_LABELS[status]}
           </span>
@@ -4982,7 +4977,7 @@ function LandReconciliationBlock({
                 const inkV = assetInKindValueByAssetId.get(a.id) ?? 0;
                 return (
                   <React.Fragment key={a.id}>
-                    <div>{assetDisplayName(a)} ({phaseName})</div>
+                    <div>{a.name} ({phaseName})</div>
                     <div data-testid={`recon-asset-${a.id}-sqm`} style={cellRight}>{fmtSqm(sqm)}</div>
                     <div data-testid={`recon-asset-${a.id}-value`} style={cellRight}>{fmtMoney(value)}</div>
                     <div data-testid={`recon-asset-${a.id}-cash`} style={cellRight}>{fmtMoney(cashV)}</div>

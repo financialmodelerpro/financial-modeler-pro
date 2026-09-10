@@ -2581,7 +2581,7 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
   // ASSET NAMES ARE RESOLVED AT THE FRONT DOOR, for the same reason as the
   // workbook: this file reads state.assets from a dozen places rather than one,
   // and a name resolved in some of them and not others is worse than either.
-  opts = { ...opts, state: { ...opts.state, assets: withResolvedAssetNames(opts.state.assets) } };
+  opts = { ...opts, state: { ...opts.state, assets: withResolvedAssetNames(opts.state.assets, { parcels: opts.state.parcels, phases: opts.state.phases }) } };
   const snap = computeFinancialsSnapshot(opts.state);
   let returns: ReturnsSnapshot | null = null;
   try { returns = computeReturnsSnapshot(snap, opts.state.project); } catch { returns = null; }

@@ -870,10 +870,11 @@ function OpexLineTable({
 
 // ─── main module surface ──────────────────────────────────────────
 export default function Module3Opex(): React.JSX.Element {
-  const { project, phases, assets: rawAssets, setProject, updateAsset } = useModule1Store(
+  const { project, phases, parcels, assets: rawAssets, setProject, updateAsset } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
       phases: s.phases,
+      parcels: s.parcels,
       assets: s.assets,
       setProject: s.setProject,
       updateAsset: s.updateAsset,
@@ -883,7 +884,7 @@ export default function Module3Opex(): React.JSX.Element {
   // not named shows as its type here rather than as a blank option. The memo
   // keeps the array stable: resolving inside the selector would hand
   // useShallow a new array every render.
-  const assets = useMemo(() => withResolvedAssetNames(rawAssets), [rawAssets]);
+  const assets = useMemo(() => withResolvedAssetNames(rawAssets, { parcels, phases }), [rawAssets, parcels, phases]);
 
   // Per-asset + HQ collapse state.
   const [hqCollapsed, setHqCollapsed] = useState<boolean>(false);

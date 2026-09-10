@@ -21,7 +21,7 @@
 | `verify-consolidated-line` | 38 |
 | `verify-consolidation-collisions` | 23 |
 | `verify-consolidated-view` | 21 |
-| `verify-asset-display-name` | 27 |
+| `verify-asset-label` | 41 |
 | `verify-rate-scale` | 17 |
 | `verify-selling-cost-scope` | 91 (core change only) |
 

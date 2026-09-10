@@ -588,7 +588,8 @@ function buildProjectGroupedRows({
 export default function Module2RevenueOutput(): React.JSX.Element {
   const { project, phases, assets: rawAssets, subUnits, costLines, costOverrides, parcels, landAllocationMode } = useModule1Store(
     useShallow((s) => ({
-      project: s.project, phases: s.phases, assets: s.assets, subUnits: s.subUnits,
+      project: s.project, phases: s.phases,
+      assets: s.assets, subUnits: s.subUnits,
       costLines: s.costLines, costOverrides: s.costOverrides,
       parcels: s.parcels, landAllocationMode: s.landAllocationMode,
     })),
@@ -597,7 +598,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
   // not named shows as its type here rather than as a blank option. The memo
   // keeps the array stable: resolving inside the selector would hand
   // useShallow a new array every render.
-  const assets = useMemo(() => withResolvedAssetNames(rawAssets), [rawAssets]);
+  const assets = useMemo(() => withResolvedAssetNames(rawAssets, { parcels, phases }), [rawAssets, parcels, phases]);
 
   const snap = useMemo(
     () => computeAllSellResults({ project, phases, assets, subUnits }),

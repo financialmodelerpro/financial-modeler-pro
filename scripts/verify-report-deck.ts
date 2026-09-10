@@ -96,7 +96,7 @@ const parties: any = [
   { id: '3', name: 'Analyst', identifier: null, roles: ['Prepared-by', 'Contact'] },
 ];
 
-const m: ICReportModel = buildICReportModel({ project, phases, assets, subUnits, rs, snap, parties, asOf: '2026-07-16', cases: [{ id: 'base' } as any] });
+const m: ICReportModel = buildICReportModel({ project, phases, parcels: [], assets, subUnits, rs, snap, parties, asOf: '2026-07-16', cases: [{ id: 'base' } as any] });
 const fmtM = makeDeckFmt(icMoneyScaleSpec('millions', 'SAR'));
 const fmtK = makeDeckFmt(icMoneyScaleSpec('thousands', 'SAR'));
 
@@ -154,7 +154,7 @@ check('every table key resolves OR reports a clear reason', TABLE_KEYS.every((k)
 
 // ── No broken links: absent data yields the unlinked state, not a number ────
 console.log('\n== unlinked (no fabricated numbers) ==');
-const mNoDebt = buildICReportModel({ project: { ...project, financing: { fundingMethod: 1 } }, phases, assets, subUnits, rs: { ...rs, debtAnalytics: { peakDebt: 0, remainingDebtAtExit: 0, tenorYears: null, paydownPct: null }, sourcesUses: { ...rs.sourcesUses, existingDebt: 0, newDebt: 0 } }, snap, parties, asOf: '2026-07-16', cases: [{ id: 'base' } as any] });
+const mNoDebt = buildICReportModel({ project: { ...project, financing: { fundingMethod: 1 } }, phases, parcels: [], assets, subUnits, rs: { ...rs, debtAnalytics: { peakDebt: 0, remainingDebtAtExit: 0, tenorYears: null, paydownPct: null }, sourcesUses: { ...rs.sourcesUses, existingDebt: 0, newDebt: 0 } }, snap, parties, asOf: '2026-07-16', cases: [{ id: 'base' } as any] });
 const debtNo = resolveChart('chart.debtBalance', mNoDebt, fmtM);
 check('no-debt model: debt chart is unlinked (not a zero bar)', debtNo.available === false);
 check('no-debt model: unlinked carries a human reason', debtNo.available === false && /debt/i.test(debtNo.reason));
@@ -183,7 +183,7 @@ const chip = firstContent.objects.find((o) => o.name === 'Section number') as an
 check('first content slide chip reads 01', chip && chip.text === '01');
 
 // available() drops the right slides on a reduced model.
-const mSellOnly = buildICReportModel({ project, phases, assets: [{ id: 'a1', name: 'Plots', strategy: 'Sell', visible: true, phaseId: 'p1', buaTotal: 1000, landAreaSqm: 5000 }] as any, subUnits: [], rs: { ...rs, noiPerPeriod: [0, 0, 0, 0] }, snap: { ...snap, pl: { ebitdaPerPeriod: [0, 0, 0, 0] } }, parties, asOf: '2026-07-16', cases: [{ id: 'base' } as any] });
+const mSellOnly = buildICReportModel({ project, phases, parcels: [], assets: [{ id: 'a1', name: 'Plots', strategy: 'Sell', visible: true, phaseId: 'p1', buaTotal: 1000, landAreaSqm: 5000 }] as any, subUnits: [], rs: { ...rs, noiPerPeriod: [0, 0, 0, 0] }, snap: { ...snap, pl: { ebitdaPerPeriod: [0, 0, 0, 0] } }, parties, asOf: '2026-07-16', cases: [{ id: 'base' } as any] });
 check('pure-Sell model: operating template is NOT available', TEMPLATE_BY_ID['operating_performance'].available(mSellOnly, { inputs: null }) === false);
 check('single-case model: scenario template is NOT available', TEMPLATE_BY_ID['scenario_comparison'].available(m, { inputs: null }) === false);
 check('no-debt model: financing template is NOT available', TEMPLATE_BY_ID['financing_structure'].available(mNoDebt, { inputs: null }) === false);

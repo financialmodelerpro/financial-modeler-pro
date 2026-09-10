@@ -31,14 +31,14 @@ import {
   FUND_CAPITAL_BASES_NOTE,
 } from './m4Reports';
 import { resolveFundTerms } from '../fundTerms';
-import type { Project, Asset, Phase, ProjectCase, SubUnit } from '../state/module1-types';
+import type { Project, Asset, Phase, Parcel, ProjectCase, SubUnit } from '../state/module1-types';
 import { FUNDING_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
 import type { ReturnsSnapshot } from '../returns-resolvers';
 import type { ProjectFinancialsSnapshot } from '../financials-resolvers';
 import type { Party } from '../parties';
 import type { CaseComparisonReport } from './caseComparisonReport';
 import type { ReportInputs, ICSectionKey } from '../reportInputs';
-import { assetDisplayName } from '@/src/core/calculations/assetName';
+import { assetLabel } from '@/src/core/calculations/assetName';
 
 export interface ICPartyRef { name: string; identifier: string | null }
 export interface ICKeyValue { label: string; value: number }
@@ -367,6 +367,8 @@ const yearOf = (iso: string | undefined, fallback: number): number => {
 export function buildICReportModel(input: {
   project: Project;
   phases: Phase[];
+  /** The plots, for the asset label: an asset is called by where it is. */
+  parcels: Parcel[];
   assets: Asset[];
   subUnits?: SubUnit[];
   rs: ReturnsSnapshot;
@@ -376,7 +378,8 @@ export function buildICReportModel(input: {
   scenarios?: CaseComparisonReport | null;
   cases?: ProjectCase[];
 }): ICReportModel {
-  const { project, phases, assets, subUnits = [], rs, snap, parties, asOf } = input;
+  const { project, phases, parcels, assets, subUnits = [], rs, snap, parties, asOf } = input;
+  const labelCtx = { parcels, phases };
   const r = rs.result;
   const de = rs.developmentEconomics;
   const su = rs.sourcesUses;
@@ -396,7 +399,7 @@ export function buildICReportModel(input: {
 
   // ── Asset mix ──
   const assetRows: ICAssetRow[] = visibleAssets.map((a) => ({
-    name: assetDisplayName(a),
+    name: assetLabel(a, labelCtx),
     strategy: String(a.strategy),
     phaseName: phaseName(a.phaseId),
     bua: assetBua(a),
@@ -427,7 +430,7 @@ export function buildICReportModel(input: {
       name: ph.name,
       startYear: yearOf(ph.startDate, startYear + Math.max(0, (ph.constructionStart ?? 1) - 1)),
       strategies,
-      assetNames: phaseAssets.map((a) => assetDisplayName(a)),
+      assetNames: phaseAssets.map((a) => assetLabel(a, labelCtx)),
       assetCount: phaseAssets.length,
       capex: phaseAssets.reduce((s, a) => s + assetCapex(a.id), 0),
     };
@@ -900,7 +903,7 @@ export function buildICReportModel(input: {
       country: project.country ?? '',
       phaseCount: phases.length,
       phaseNames: phases.map((p) => p.name),
-      assetMix: visibleAssets.map((a) => ({ name: assetDisplayName(a), strategy: String(a.strategy) })),
+      assetMix: visibleAssets.map((a) => ({ name: assetLabel(a, labelCtx), strategy: String(a.strategy) })),
       startYear,
       exitYear,
       durationYears,

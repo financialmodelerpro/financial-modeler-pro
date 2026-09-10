@@ -103,7 +103,8 @@ async function main() {
   const snap = computeFinancialsSnapshot(state);
   const rs = computeReturnsSnapshot(snap, state.project);
   const model = buildICReportModel({
-    project: state.project, phases: state.phases, assets: state.assets, subUnits: state.subUnits,
+    project: state.project, phases: state.phases,
+    parcels: state.parcels, assets: state.assets, subUnits: state.subUnits,
     rs, snap, parties: [], asOf: '2026-07-31',
   });
 

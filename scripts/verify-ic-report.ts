@@ -78,7 +78,7 @@ const parties: any = [
   { id: '4', name: 'Bank', identifier: null, roles: ['Lender'] },
 ];
 
-const m = buildICReportModel({ project, phases, assets, subUnits, rs, snap, parties, asOf: '2026-07-12', cases: [{ id: 'base' } as any] });
+const m = buildICReportModel({ project, phases, parcels: [], assets, subUnits, rs, snap, parties, asOf: '2026-07-12', cases: [{ id: 'base' } as any] });
 
 // Headline maps to the exact snapshot fields (no placeholders).
 check('headline Project IRR = rs.result.fcff.irr', near(m.headline.projectIrr!, 0.119));
@@ -191,12 +191,12 @@ check('regulatory_tax shown when a row exists', icSectionOmitted('regulatory_tax
 
 // No-debt model => financing omitted.
 const noDebtRs = { ...rs, debtAnalytics: { peakDebt: 0, remainingDebtAtExit: 0, tenorYears: null, paydownPct: null }, sourcesUses: { ...rs.sourcesUses, existingDebt: 0, newDebt: 0 } };
-const mNoDebt = buildICReportModel({ project, phases, assets, subUnits, rs: noDebtRs, snap, parties, asOf: '2026-07-12', cases: [{ id: 'base' } as any] });
+const mNoDebt = buildICReportModel({ project, phases, parcels: [], assets, subUnits, rs: noDebtRs, snap, parties, asOf: '2026-07-12', cases: [{ id: 'base' } as any] });
 check('financing omitted when no debt', icSectionOmitted('financing_structure', mNoDebt, emptyInputs) === true);
 
 // Single exit row => exit_optionality omitted.
 const oneExitRs = { ...rs, exitYears: [rs.exitYears[1]] };
-const mOneExit = buildICReportModel({ project, phases, assets, subUnits, rs: oneExitRs, snap, parties, asOf: '2026-07-12', cases: [{ id: 'base' } as any] });
+const mOneExit = buildICReportModel({ project, phases, parcels: [], assets, subUnits, rs: oneExitRs, snap, parties, asOf: '2026-07-12', cases: [{ id: 'base' } as any] });
 check('exit_optionality omitted with a single exit row', icSectionOmitted('exit_optionality', mOneExit, emptyInputs) === true);
 
 // icVisibleSections excludes omitted sections but keeps AUTO ones.

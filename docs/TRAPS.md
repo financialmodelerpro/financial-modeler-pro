@@ -1254,6 +1254,18 @@ folder in the App Router (404), so name a temp harness route without the undersc
 
 ## 7. Engine and model
 
+### 7.36 An optional free-text name is a second identity, and the table it feeds has already merged it away
+
+**Symptom.** Five plots of one type, named "Branded Villas", "Branded  Villas", "Branded Apartments", "Residential Tower" and "Hotel 01", produced a capex summary with five rows and a consolidated line table with two. Two live projects showed four name collisions between them. The Capex tab called one asset two different things: the input table said "Land 1, Branded Villas" and the output table said "Branded Villas". The Excel model matched an asset by `a.name === m.name`.
+
+**Mechanism.** `Asset.name` was optional and fell back to the type, which was already an admission that the name is not identifying anything: a user typing five names for five plots of one type is inventing five identities for one thing, and every schedule downstream groups by TYPE, so those names are merged away with nothing on screen saying why. Once a display string is optional it also becomes ambiguous, and anything that keys on it (a map, a `find`, a join between two tables) breaks silently the day two rows agree. Nothing enforced uniqueness, because nothing could: the name is a label, and a label is allowed to repeat.
+
+**Fix.** The name is RETIRED (declared and stored, read by nothing) and the label is DERIVED from what actually distinguishes an asset: the plot where there is one, else the phase, then the type always, then the phase again on a multi-phase project where a plot could be reused, then a companion marker. `assetLabel(asset, ctx)` takes a REQUIRED context, so the compiler enumerates every reader rather than letting one caller quietly produce a shorter label than its neighbour. Every identity lookup moves to `assetId` in the same change, never after it.
+
+**The measurement that chose the rule.** "Plot plus type" was the obvious answer and it is not enough: FMP RE HUB has 1 of 8 assets with a plot, and `assetTableModel`'s own header records 6,860 of 9,399 historical rows drawing from a weighted-average or custom-rate sentinel. A label reading "(no plot), Branded Villas" seven times is not a label. The phase takes the plot's place, which resolves all four live collisions except the Sell + Manage companion, and the companion marker resolves that one.
+
+**Proof.** `verify-asset-label` renames every asset in the fixture and requires that no label anywhere in the engine snapshot, the capex report or the 16-tab workbook moves. That is what found the last reader: the sale-cohort advisory in `computeFinancialsSnapshot` was printing the raw stored name into the financing reconciliation. A structural grep would not have: the point of the test is that it does not know where the readers are.
+
 ### 7.35 One key, two vocabularies: the value is the project's, the list is the CALLER's
 
 **Symptom (2026-09-10, found while diagnosing an empty standards tab; diagnosed, NOT fixed).** A

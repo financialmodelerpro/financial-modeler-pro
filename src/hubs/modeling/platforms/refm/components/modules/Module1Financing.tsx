@@ -129,7 +129,7 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
   // not named shows as its type here rather than as a blank option. The memo
   // keeps the array stable: resolving inside the selector would hand
   // useShallow a new array every render.
-  const assets = useMemo(() => withResolvedAssetNames(rawAssets), [rawAssets]);
+  const assets = useMemo(() => withResolvedAssetNames(rawAssets, { parcels, phases }), [rawAssets, parcels, phases]);
 
   const financingConfig = useMemo(() => ensureConfig(project.financing), [project.financing]);
   const fundTermsResolved = useMemo(() => resolveFundTerms(project), [project]);
@@ -2878,9 +2878,9 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
     useShallow((s) => ({
       project: s.project,
       phases: s.phases,
+      parcels: s.parcels,
       assets: s.assets,
       subUnits: s.subUnits,
-      parcels: s.parcels,
       costLines: s.costLines,
       costOverrides: s.costOverrides,
       landAllocationMode: s.landAllocationMode,

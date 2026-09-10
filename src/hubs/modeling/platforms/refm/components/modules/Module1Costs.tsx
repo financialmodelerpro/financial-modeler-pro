@@ -3682,7 +3682,7 @@ export default function Module1Costs(): React.JSX.Element {
   // not named shows as its type here rather than as a blank option. The memo
   // keeps the array stable: resolving inside the selector would hand
   // useShallow a new array every render.
-  const assets = useMemo(() => withResolvedAssetNames(rawAssets), [rawAssets]);
+  const assets = useMemo(() => withResolvedAssetNames(rawAssets, { parcels, phases }), [rawAssets, parcels, phases]);
 
   const setActivePhaseId = useModule1Store((s) => s.setActivePhaseId);
   const setProject = useModule1Store((s) => s.setProject);

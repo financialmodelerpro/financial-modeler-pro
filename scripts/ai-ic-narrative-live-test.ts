@@ -103,6 +103,7 @@ async function main() {
   const model = buildICReportModel({
     project: snapshot.project,
     phases: snapshot.phases,
+    parcels: snapshot.parcels ?? [],
     assets: snapshot.assets,
     subUnits: snapshot.subUnits ?? [],
     rs,

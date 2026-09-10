@@ -188,7 +188,8 @@ export default function Module7Deck({ activeProjectId = null, onRegisterSave, on
     try {
       const snap = computeFinancialsSnapshot(sourceModel as never);
       const rs = computeReturnsSnapshot(snap, sourceModel.project);
-      return buildICReportModel({ project: sourceModel.project, phases: sourceModel.phases, assets: sourceModel.assets, subUnits: sourceModel.subUnits, rs, snap, parties, asOf, scenarios, cases: s.cases });
+      return buildICReportModel({ project: sourceModel.project, phases: sourceModel.phases,
+    parcels: sourceModel.parcels, assets: sourceModel.assets, subUnits: sourceModel.subUnits, rs, snap, parties, asOf, scenarios, cases: s.cases });
     } catch { return null; }
   }, [sourceModel, parties, asOf, scenarios, s.cases, s.project]);
 

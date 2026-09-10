@@ -80,7 +80,7 @@ check('covenant Debt Yield worst = 0.333 (NOI 100 / debt 300 at the income perio
 check('covenant unit: dscr = x, ltv = pct', dscrRow.unit === 'x' && ltvRow.unit === 'pct');
 
 // ── One-Pager ──
-const op = buildOnePagerReportModel({ project, phases, assets, rs, snap, parties: [{ id: '1', name: 'Analyst', identifier: 'a@x', roles: ['Prepared-by', 'Contact'] } as any], thesisLine: 'Prime asset, strong yield.', asOf: '2026-07-09' });
+const op = buildOnePagerReportModel({ project, phases, parcels: [], assets, rs, snap, parties: [{ id: '1', name: 'Analyst', identifier: 'a@x', roles: ['Prepared-by', 'Contact'] } as any], thesisLine: 'Prime asset, strong yield.', asOf: '2026-07-09' });
 check('one-pager Project IRR = rs.result.fcff.irr', near(op.headline.projectIrr!, 0.119));
 check('one-pager Equity IRR = rs.result.fcfe.irr', near(op.headline.equityIrr!, 0.083));
 check('one-pager MOIC = rs.result.realEstate.equityMultiple', near(op.headline.equityMultiple, 2.40));

@@ -127,10 +127,11 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, fmt }: {
 }
 
 export default function Module2Escrow(): React.JSX.Element {
-  const { project, phases, assets, subUnits, setProject, updateAsset } = useModule1Store(
+  const { project, phases, parcels, assets, subUnits, setProject, updateAsset } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
       phases: s.phases,
+      parcels: s.parcels,
       assets: s.assets,
       subUnits: s.subUnits,
       setProject: s.setProject,
@@ -140,7 +141,7 @@ export default function Module2Escrow(): React.JSX.Element {
 
   const snap = useMemo(() => {
     const rev = computeAllSellResults({ project, phases, assets, subUnits });
-    const escrow = computeEscrowSnapshot({ project, phases, assets, subUnits }, rev);
+    const escrow = computeEscrowSnapshot({ project, phases, parcels, assets, subUnits }, rev);
     return { rev, escrow };
   }, [project, phases, assets, subUnits]);
 

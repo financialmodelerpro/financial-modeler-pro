@@ -133,6 +133,7 @@ async function loadReal(): Promise<{ deck: Deck; model: ICReportModel; label: st
     const rs = computeReturnsSnapshot(snap as never, state.project as never);
     const model = buildICReportModel({
       project: state.project as never, phases: state.phases as never,
+      parcels: (state.parcels ?? []) as never,
       assets: state.assets as never, subUnits: state.subUnits as never,
       rs: rs as never, snap: snap as never, parties: [], asOf: '2026-08-15',
     });

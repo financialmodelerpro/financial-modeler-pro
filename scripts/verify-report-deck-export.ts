@@ -92,13 +92,14 @@ const parties: any = [
   { id: '3', name: 'Analyst', identifier: null, roles: ['Prepared-by', 'Contact'] },
 ];
 
-const model: ICReportModel = buildICReportModel({ project, phases, assets, subUnits, rs, snap, parties, asOf: '2026-07-16', cases: [{ id: 'base' } as any] });
+const model: ICReportModel = buildICReportModel({ project, phases, parcels: [], assets, subUnits, rs, snap, parties, asOf: '2026-07-16', cases: [{ id: 'base' } as any] });
 const fmtM = makeDeckFmt(icMoneyScaleSpec('millions', 'SAR'));
 
 // A reduced model: no debt + single case, so financing / scenario / debt objects
 // must resolve to the unlinked state, not a zero.
 const mNoDebt: ICReportModel = buildICReportModel({
   project: { ...project, financing: { fundingMethod: 1 } }, phases, assets, subUnits,
+  parcels: [],
   rs: { ...rs, debtAnalytics: { peakDebt: 0, remainingDebtAtExit: 0, tenorYears: null, paydownPct: null }, sourcesUses: { ...rs.sourcesUses, existingDebt: 0, newDebt: 0 } },
   snap, parties, asOf: '2026-07-16', cases: [{ id: 'base' } as any],
 });
@@ -165,7 +166,7 @@ const partiesNoPrep: any = [
   { id: '1', name: 'PaceMakers', identifier: null, roles: ['Sponsor', 'Developer'] },
   { id: '2', name: 'JV Investor Co', identifier: 'reg-1', roles: ['Investor/Equity Partner'] },
 ];
-const mNoPrep: ICReportModel = buildICReportModel({ project, phases, assets, subUnits, rs, snap, parties: partiesNoPrep, asOf: '2026-07-16', cases: [{ id: 'base' } as any] });
+const mNoPrep: ICReportModel = buildICReportModel({ project, phases, parcels: [], assets, subUnits, rs, snap, parties: partiesNoPrep, asOf: '2026-07-16', cases: [{ id: 'base' } as any] });
 const deckNoPrep = seedDeck('proj-3', mNoPrep, { inputs: null }, { asOf: '2026-07-16' });
 const exNoPrep = resolveDeckExport(deckNoPrep, mNoPrep, fmtM);
 const prepSrc = deckNoPrep.slides.flatMap((s) => s.objects).find((o) => (o as any).binding === 'cover.preparedBy');

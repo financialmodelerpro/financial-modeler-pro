@@ -36,7 +36,7 @@ import {
   expandYearKeyedToAxis,
   type ProjectRevenueSnapshot,
 } from './revenue-resolvers';
-import { assetDisplayName } from '@/src/core/calculations/assetName';
+import { assetLabel } from '@/src/core/calculations/assetName';
 
 export interface ProjectOpexSnapshot {
   axisLength: number;
@@ -438,7 +438,7 @@ export interface ProjectOpexApSnapshot {
 }
 
 export function computeOpexApSnapshot(
-  state: Pick<Module1Store, 'project' | 'assets'>,
+  state: Pick<Module1Store, 'project' | 'phases' | 'parcels' | 'assets'>,
   opexSnap: ProjectOpexSnapshot,
 ): ProjectOpexApSnapshot {
   const { project, assets } = state;
@@ -472,7 +472,7 @@ export function computeOpexApSnapshot(
     });
     byAsset.set(a.id, {
       assetId: a.id,
-      assetName: assetDisplayName(a),
+      assetName: assetLabel(a, state),
       effectiveApDays,
       opexIncurredPerPeriod: opexIncurred,
       result: ap,

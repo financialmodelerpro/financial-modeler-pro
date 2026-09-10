@@ -77,6 +77,7 @@ function model(mode: 'absent' | 'disabled' | 'on', o: { hurdle?: number } = {}):
   const rs: any = computeReturnsSnapshot(snap, st.project);
   const m = buildICReportModel({
     project: st.project, phases: st.phases, assets: st.assets, subUnits: st.subUnits,
+    parcels: st.parcels ?? [],
     rs, snap, parties: [], asOf: '2026-08-13', cases: [{ id: 'base' } as any],
   });
   return { m, snap, rs, st };

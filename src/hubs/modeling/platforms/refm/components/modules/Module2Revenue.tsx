@@ -178,10 +178,11 @@ function SubUnitReferenceStrip({
 }
 
 export default function Module2Revenue(): React.JSX.Element {
-  const { project, phases, assets: rawAssets, subUnits, setProject } = useModule1Store(
+  const { project, phases, parcels, assets: rawAssets, subUnits, setProject } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
       phases: s.phases,
+      parcels: s.parcels,
       assets: s.assets,
       subUnits: s.subUnits,
       setProject: s.setProject,
@@ -191,7 +192,7 @@ export default function Module2Revenue(): React.JSX.Element {
   // not named shows as its type here rather than as a blank option. The memo
   // keeps the array stable: resolving inside the selector would hand
   // useShallow a new array every render.
-  const assets = useMemo(() => withResolvedAssetNames(rawAssets), [rawAssets]);
+  const assets = useMemo(() => withResolvedAssetNames(rawAssets, { parcels, phases }), [rawAssets, parcels, phases]);
 
   // CONSOLIDATION STEP 6 (2026-09-10): A RETAIL COMPANION IS PRICED HERE. The
   // companion exclusion is the OPERATE companion s, which is priced inside its

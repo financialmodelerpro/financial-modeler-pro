@@ -22,7 +22,7 @@ import { getFinancialLabels } from '@/src/core/calculations/financials';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import type { FundFeeSchedule } from '../fundFees';
 import { FEE_BASE_LABELS, FEE_TIMING_LABELS } from '../fundTerms';
-import { assetDisplayName } from '@/src/core/calculations/assetName';
+import { assetLabel } from '@/src/core/calculations/assetName';
 
 type Labels = ReturnType<typeof getFinancialLabels>;
 
@@ -235,7 +235,7 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
     const series = pl[key];
     if (series.every((v) => v === 0)) return;
     rows.push({
-      label: assetDisplayName(a),
+      label: assetLabel(a, ctx.state),
       values: sign === 1 ? series : negArr(series),
       indent: 2,
       phaseLabel: phaseShort(a.phaseId),
@@ -627,7 +627,7 @@ function buildInvestmentRows(ctx: M4ReportCtx, capexSubtotal: number[], cfiSubto
     for (const a of list) {
       const series = assetCash(a.id);
       if (series.every((v) => v === 0)) continue;
-      rows.push({ label: assetDisplayName(a), values: series.map((v) => -v), indent: 2, phaseLabel: phaseShort(a.phaseId), collapseGroup: group, collapseRole: 'member' });
+      rows.push({ label: assetLabel(a, ctx.state), values: series.map((v) => -v), indent: 2, phaseLabel: phaseShort(a.phaseId), collapseGroup: group, collapseRole: 'member' });
     }
   };
   rows.push({ label: 'CASH FROM INVESTMENT', values: [], isSection: true });
@@ -768,7 +768,7 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
     if (!cf) return;
     const series = (cf[key] as number[] | undefined) ?? [];
     if (series.every((v) => v === 0)) return;
-    rows.push({ label: assetDisplayName(a), values: sign === 1 ? series : series.map((v) => -v), indent: 2, phaseLabel: phaseShort(a.phaseId), collapseGroup: group, collapseRole: 'member' });
+    rows.push({ label: assetLabel(a, ctx.state), values: sign === 1 ? series : series.map((v) => -v), indent: 2, phaseLabel: phaseShort(a.phaseId), collapseGroup: group, collapseRole: 'member' });
   };
   const sumAssetSeries = (list: Array<{ id: string }>, key: 'revenueReceivedPerPeriod' | 'opexPaidPerPeriod'): number[] => {
     const out = new Array<number>(N).fill(0);

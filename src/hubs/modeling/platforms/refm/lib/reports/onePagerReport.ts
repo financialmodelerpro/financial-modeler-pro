@@ -10,11 +10,11 @@
  * No em dashes in this file.
  */
 
-import type { Project, Asset, Phase } from '../state/module1-types';
+import type { Project, Asset, Phase , Parcel } from '../state/module1-types';
 import type { ReturnsSnapshot } from '../returns-resolvers';
 import type { ProjectFinancialsSnapshot } from '../financials-resolvers';
 import type { Party } from '../parties';
-import { assetDisplayName } from '@/src/core/calculations/assetName';
+import { assetLabel } from '@/src/core/calculations/assetName';
 
 export interface OnePagerPartyRef { name: string; identifier: string | null }
 
@@ -51,6 +51,8 @@ const byRole = (parties: Party[], role: string): OnePagerPartyRef[] =>
 export function buildOnePagerReportModel(input: {
   project: Project;
   phases: Phase[];
+  /** The plots, for the asset label: an asset is called by where it is. */
+  parcels: Parcel[];
   assets: Asset[];
   rs: ReturnsSnapshot;
   snap: ProjectFinancialsSnapshot;
@@ -58,12 +60,13 @@ export function buildOnePagerReportModel(input: {
   thesisLine: string;
   asOf: string;
 }): OnePagerReportModel {
-  const { project, phases, assets, rs, parties, thesisLine } = input;
+  const { project, phases, parcels, assets, rs, parties, thesisLine } = input;
+  const labelCtx = { parcels, phases };
   const r = rs.result;
   const fm = rs.fundingMix;
   const startYear = rs.yearLabels[0] ?? input.snap.projectStartYear;
   const exitYear = rs.exitYearLabel;
-  const assetMix = assets.filter((a) => a.visible).map((a) => ({ name: assetDisplayName(a), strategy: String(a.strategy) }));
+  const assetMix = assets.filter((a) => a.visible).map((a) => ({ name: assetLabel(a, labelCtx), strategy: String(a.strategy) }));
   const equityPct = (fm.cashEquityPct ?? 0) + (fm.inKindEquityPct ?? 0);
 
   return {

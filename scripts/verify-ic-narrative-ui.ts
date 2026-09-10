@@ -120,6 +120,7 @@ function buildModel(state: any, scenarios: any = null): ICReportModel {
   const rs = computeReturnsSnapshot(snap, state.project);
   return buildICReportModel({
     project: state.project, phases: state.phases, assets: state.assets, subUnits: state.subUnits,
+    parcels: state.parcels ?? [],
     rs, snap, parties: [], asOf: '2026-08-01', scenarios,
   });
 }
@@ -183,6 +184,7 @@ async function main() {
     const rsM = computeReturnsSnapshot(snapM, multiState.project);
     const multi = buildICReportModel({
       project: multiState.project, phases: multiState.phases, assets: multiState.assets,
+    parcels: [],
       subUnits: multiState.subUnits, rs: rsM, snap: snapM, parties: [], asOf: '2026-08-01',
       scenarios, cases: multiState.cases,
     });

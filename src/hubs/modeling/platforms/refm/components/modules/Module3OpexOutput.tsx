@@ -196,10 +196,11 @@ function sumArrays(arrs: number[][], N: number): number[] {
 }
 
 export default function Module3OpexOutput(): React.JSX.Element {
-  const { project, phases, assets: rawAssets, subUnits } = useModule1Store(
+  const { project, phases, parcels, assets: rawAssets, subUnits } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
       phases: s.phases,
+      parcels: s.parcels,
       assets: s.assets,
       subUnits: s.subUnits,
     })),
@@ -208,12 +209,12 @@ export default function Module3OpexOutput(): React.JSX.Element {
   // not named shows as its type here rather than as a blank option. The memo
   // keeps the array stable: resolving inside the selector would hand
   // useShallow a new array every render.
-  const assets = useMemo(() => withResolvedAssetNames(rawAssets), [rawAssets]);
+  const assets = useMemo(() => withResolvedAssetNames(rawAssets, { parcels, phases }), [rawAssets, parcels, phases]);
 
   const snap = useMemo(() => {
     const rev = computeAllSellResults({ project, phases, assets, subUnits });
     const opex = computeAllOpexResults({ project, phases, assets, subUnits }, rev);
-    const ap = computeOpexApSnapshot({ project, assets }, opex);
+    const ap = computeOpexApSnapshot({ project, phases, parcels, assets }, opex);
     return { rev, opex, ap };
   }, [project, phases, assets, subUnits]);
 

@@ -121,7 +121,8 @@ const phases: any = [{ id: 'p1', name: 'Phase 1', startDate: '2026-01-01' }];
 const assets: any = [{ id: 'a1', name: 'Hotel', strategy: 'Operate', visible: true, phaseId: 'p1', buaTotal: 12083, landAreaSqm: 5000 }];
 const parties: any = [{ id: '1', name: 'PaceMakers', roles: ['Sponsor'] }];
 
-const m: ICReportModel = buildICReportModel({ project, phases, assets, subUnits: [], rs, snap, parties, asOf: '2026-07-26', cases: [{ id: 'base' } as any] });
+const m: ICReportModel = buildICReportModel({ project, phases,
+    parcels: [], assets, subUnits: [], rs, snap, parties, asOf: '2026-07-26', cases: [{ id: 'base' } as any] });
 const f = makeDeckFmt(icMoneyScaleSpec('millions', 'SAR'));
 
 console.log('=== 1. Returns by cash-flow basis (field mapping) ===');
@@ -192,7 +193,8 @@ check('table.balanceSheet resolves', resolveTable('table.balanceSheet', m, f).av
 
 console.log('\n=== 7. Auto-omit: a model with no P&L activity drops the IS ===');
 const mDead: ICReportModel = buildICReportModel({
-  project, phases, assets, subUnits: [], parties, asOf: '2026-07-26', cases: [{ id: 'base' } as any],
+  project, phases,
+    parcels: [], assets, subUnits: [], parties, asOf: '2026-07-26', cases: [{ id: 'base' } as any],
   rs, snap: { ...snap, pl: { ...snap.pl, totalRevenuePerPeriod: [0, 0, 0, 0], ebitdaPerPeriod: [0, 0, 0, 0] } },
 });
 check('income statement hasData is false with no revenue/EBITDA', mDead.statements.incomeStatement.hasData === false);

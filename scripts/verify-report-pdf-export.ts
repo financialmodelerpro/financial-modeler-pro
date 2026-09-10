@@ -122,7 +122,7 @@ const assets: any = [
 ];
 const parties: any = [{ id: '1', name: 'PaceMakers', roles: ['Sponsor'] }];
 
-const model: ICReportModel = buildICReportModel({ project, phases, assets, subUnits: [], rs, snap, parties, asOf: '2026-07-28', cases: [{ id: 'base' } as any] });
+const model: ICReportModel = buildICReportModel({ project, phases, parcels: [], assets, subUnits: [], rs, snap, parties, asOf: '2026-07-28', cases: [{ id: 'base' } as any] });
 const fmt = makeDeckFmt(icMoneyScaleSpec('millions', 'SAR'));
 const seed = { inputs: null };
 const deck: Deck = seedDeck('proj-1', model, seed, { asOf: '2026-07-28' });

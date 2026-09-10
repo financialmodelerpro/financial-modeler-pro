@@ -910,7 +910,7 @@ export function computeAssetScheduleBundle(
 // ────────────────────────────────────────────────────────────────────
 
 import { computeEscrow, type EscrowAssetResult } from '@/src/core/calculations/revenue';
-import { assetDisplayName } from '@/src/core/calculations/assetName';
+import { assetLabel } from '@/src/core/calculations/assetName';
 
 export interface EscrowAssetRow {
   assetId: string;
@@ -952,7 +952,7 @@ export interface ProjectEscrowSnapshot {
 }
 
 export function computeEscrowSnapshot(
-  state: Pick<Module1Store, 'project' | 'phases' | 'assets' | 'subUnits'>,
+  state: Pick<Module1Store, 'project' | 'phases' | 'parcels' | 'assets' | 'subUnits'>,
   revenueSnap: ProjectRevenueSnapshot,
 ): ProjectEscrowSnapshot {
   const { project, phases, assets } = state;
@@ -1035,7 +1035,7 @@ export function computeEscrowSnapshot(
 
     byAsset.set(a.id, {
       assetId: a.id,
-      assetName: assetDisplayName(a),
+      assetName: assetLabel(a, state),
       phaseId: a.phaseId,
       effectiveHeldPct,
       effectiveReleaseYear,
