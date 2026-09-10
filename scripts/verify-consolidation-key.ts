@@ -261,7 +261,8 @@ function offlineChecks(): void {
   // itself, which merges by line in its fourth table; the five-table rebuild
   // added the third, the tab's own pure table model, which is where the
   // sub-unit partition lives (a rule that belongs beside the other grouping
-  // rules rather than inside a component). All three are presentation. A FOURTH
+  // rules rather than inside a component); the capex summary regroup added the
+  // fourth. All four are presentation. A FIFTH
   // appearing without a line here is a consumer nobody decided on, which is
   // what this catches; D1b holds the line that matters, that nothing computing
   // money reads the key at all.
@@ -269,10 +270,17 @@ function offlineChecks(): void {
     'src/hubs/modeling/platforms/refm/lib/reports/consolidatedReport.ts',
     'src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx',
     'src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel.ts',
+    // FOURTH, 2026-09-10: the capex REPORT builder, whose summary tables 2 to 4
+    // consolidate by phase and type so they and the assets tab's table 4 read the
+    // same lines. It calls the grouping function rather than restating what a
+    // line is, which is the whole reason that function is shared; it groups rows
+    // it has already computed and computes no money from the key. D1b still
+    // holds the line that matters.
+    'src/hubs/modeling/platforms/refm/lib/reports/capexReports.ts',
   ];
   const unexpected = consumers.filter((f) => !ALLOWED_CONSUMERS.includes(f));
   const missing = ALLOWED_CONSUMERS.filter((f) => !consumers.includes(f));
-  check('D1 the only consumers are the three named presentation surfaces',
+  check('D1 the only consumers are the named presentation surfaces',
     unexpected.length === 0, unexpected.join(' | '));
   check('D1c all three named consumers still consume it (a stale name is a hole)',
     missing.length === 0, missing.join(' | '));
