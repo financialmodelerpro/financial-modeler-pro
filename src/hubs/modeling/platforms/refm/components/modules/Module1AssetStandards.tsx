@@ -1,39 +1,45 @@
 'use client';
 
 /**
- * Module1AssetStandards.tsx (REFM Module 1, tab 4, migs 242-244)
+ * Module1AssetStandards.tsx (REFM Module 1, tab 4, migs 242-244; the list moved
+ * onto the project 2026-09-10)
  *
- * LAND AND ASSET DATA MANAGEMENT, in two halves that live in two places:
+ * LAND AND ASSET DATA MANAGEMENT, and BOTH HALVES ARE THIS PROJECT'S.
  *
- *   THE NAMES ARE THE FIRM'S. Type, category and order are account-scoped
- *   (`refm_asset_types`), shared across every project the firm opens, edited
- *   by ANY member (vocabulary, not entitlement, the cost catalog rule), and
- *   saved through /api/refm/asset-types with an explicit Save per row.
+ *   THE NAMES. Type, category and order live in the snapshot
+ *   (`project.assetTypes`). They were account-scoped until 2026-09-10, and the
+ *   split cost two things: a firm's projects come from different land owners
+ *   and developers, so each names its types as its own scheme requires, and an
+ *   edit made inside one project reached every other one, adding rows to their
+ *   tables or orphaning their values under a banner blaming a deletion nobody
+ *   made. See docs/TRAPS.md 7.35, which this closed.
  *
- *   THE VALUES ARE THE PROJECT'S. Unit size, parking ratio and its basis,
- *   build cost per sqm and a revenue rate with its unit are assumptions of
- *   THIS project, because a firm's schemes genuinely differ. They live in the
- *   snapshot (`project.assetTypeValues`, keyed by the type's entry id, plus
- *   `project.parkingAreaPerSlotSqm`) and are therefore ordinary model inputs:
- *   typing one changes the model immediately, autosave persists it, the change
- *   log records it and a version captures it, exactly like a cost rate. There
- *   is deliberately NO Save button on that half, because nothing else in the
- *   model has one.
+ *   THE VALUES. Unit size, parking ratio and its basis, coverage, FAR and the
+ *   service share are assumptions of THIS project (`project.assetTypeValues`,
+ *   keyed by the type's id, plus `project.parkingAreaPerSlotSqm`).
  *
- * NOTHING IS STAMPED ONTO AN ASSET. That scheme existed only while the values
- * sat on an account table the engine must never read. An asset now holds a
- * REFERENCE (`assetTypeId`) and reads its values live, so editing a standard
- * cannot leave a model stale and nobody has to re-pick a type.
+ * SO THERE IS NO SAVE BUTTON ANYWHERE ON THIS TAB. Both halves are ordinary
+ * model inputs: typing one changes the model immediately, autosave persists it,
+ * the change log records which type moved, and a version captures it, exactly
+ * like a cost rate. The names used to need one because they were an account
+ * record behind a round trip; they are not any more.
  *
- * THE PROJECT'S VIEW LOCK GOVERNS THE RIGHT HALF ONLY. A project opens
- * read-only until Edit, which is right for the values: they are model inputs
- * in the snapshot. It is NOT right for the firm's list, which is account data
- * shared by every project and writable by any member; whether you happen to be
- * viewing some project read-only says nothing about your firm's vocabulary. So
- * the firm's controls declare no `data-view-mutates` and its text inputs
- * declare `data-view-editable`, and the two halves lock differently on purpose.
- * This is the one tab where account data and model data share a row, which is
- * why the distinction shows up here and nowhere else.
+ * THE FIRM'S LIST SURVIVES AS A TEMPLATE, and it is the only thing here that is
+ * still a request. It is SEEDED FROM on demand (never at project creation:
+ * nobody knows what a project is when it is created) and PUSHED BACK
+ * explicitly, one way, by a button. Both ends are scoped to the account that
+ * OWNS this project, never the caller's, so a platform admin working inside a
+ * client's project seeds and pushes the client's names.
+ *
+ * NOTHING IS STAMPED ONTO AN ASSET. An asset holds a REFERENCE
+ * (`assetTypeId`) and reads its values live, so editing a standard cannot leave
+ * a model stale and nobody has to re-pick a type.
+ *
+ * THE PROJECT'S VIEW LOCK GOVERNS THE WHOLE TAB. It governed only the right
+ * half while the left one was account data, which was right then and is wrong
+ * now: a name in the snapshot is a model input like the number beside it. So
+ * every mutating button declares `data-view-mutates` (buttons are opt-IN) and
+ * not one input opts out of the lock.
  *
  * A BLANK AND A TYPED ZERO ARE DIFFERENT ANSWERS: an empty cell means "not
  * decided" (the field is absent from the snapshot) and a 0 is a decision.
@@ -104,16 +110,15 @@ const SMALL_BTN: React.CSSProperties = {
   fontWeight: 600,
 };
 
-/** Busy keys for the two controls that are not a saved row. */
-const ADD_KEY = '__add__';
-const ORDER_KEY = '__order__';
+/** The ONE busy key left: the firm template, which is the only thing on this
+ *  tab that is still a round trip. Every edit to the project's own list is a
+ *  store write and returns before the next render. */
+const TEMPLATE_KEY = '__template__';
 
-/** The account half of a row, which needs an explicit Save. */
+/** The add row's draft. The rows themselves need none: they write through.
+ *  A blank name is a real state while typing, so it lives here, not in the list. */
 interface NameDraft { entryId?: string; label: string; category: string }
 const EMPTY_NAME: NameDraft = { label: '', category: '' };
-const toNameDraft = (e: AssetTypeStandard): NameDraft => ({
-  entryId: e.id, label: e.label, category: e.category ?? '',
-});
 
 /** '' -> undefined (blank, not decided); otherwise a finite non-negative
  *  number. Anything else is refused rather than coerced, so a typo can never
@@ -174,47 +179,56 @@ function ValueCell({
 }
 
 export default function Module1AssetStandards({ projectId }: { projectId: string | null }): React.JSX.Element {
-  const { project, assets, setProject, setAssetTypeValue } = useModule1Store(
+  const { project, assets, setProject, setAssetTypeValue, setAssetTypes } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
       assets: s.assets,
       setProject: s.setProject,
       setAssetTypeValue: s.setAssetTypeValue,
+      setAssetTypes: s.setAssetTypes,
     })),
   );
 
-  const [entries, setEntries] = useState<AssetTypeStandard[]>([]);
-  const [available, setAvailable] = useState(true);
-  const [nameDrafts, setNameDrafts] = useState<NameDraft[]>([]);
+  // THE LIST IS THE PROJECT'S NOW (2026-09-10), so it comes from the store,
+  // not from a fetch. There is no loading state and no `available` for it: it
+  // is in the snapshot the screen already has.
+  const entries = useMemo(() => sortAssetTypes(project.assetTypes ?? []), [project.assetTypes]);
   const [addDraft, setAddDraft] = useState<NameDraft>(EMPTY_NAME);
-  // BUSY IS KEYED, not global. One boolean meant that saving row 3 greyed out
-  // row 7's buttons for the round trip, and a hung request disabled the whole
-  // tab. The key is the entry id for a row, ADD_KEY for the add row, and
-  // ORDER_KEY for a reorder, which really is list-wide because it rewrites
-  // every row's position and two of them at once would race.
+  // BUSY IS KEYED, not global, and only the TEMPLATE calls are ever busy now:
+  // every edit to the list itself is a store write and returns immediately.
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const rowBusy = (key: string): boolean => busyKey === key;
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  // THE FIRM'S TEMPLATE, fetched once and used for exactly two things: the
+  // count on the seed button and the seed itself. Scoped to the account that
+  // OWNS this project, never the caller's (docs/TRAPS.md 7.35): a platform
+  // admin seeding inside a client's project seeds the client's names.
+  const [template, setTemplate] = useState<{ entries: AssetTypeStandard[]; available: boolean }>({
+    entries: [], available: true,
+  });
+  const loadTemplate = useCallback(async (): Promise<void> => {
+    try {
+      const url = projectId
+        ? `/api/refm/asset-types?projectId=${encodeURIComponent(projectId)}`
+        : '/api/refm/asset-types';
+      const res = await fetch(url);
+      if (!res.ok) { setTemplate((p) => ({ ...p, available: false })); return; }
+      const body = await res.json() as { entries?: AssetTypeStandard[]; available?: boolean };
+      setTemplate({
+        entries: Array.isArray(body.entries) ? sortAssetTypes(body.entries) : [],
+        available: body.available !== false,
+      });
+    } catch {
+      setTemplate((p) => ({ ...p, available: false }));
+    }
+  }, [projectId]);
+  useEffect(() => { void loadTemplate(); }, [loadTemplate]);
+
   const values = project.assetTypeValues ?? {};
 
-  const load = useCallback(async (): Promise<void> => {
-    try {
-      const res = await fetch('/api/refm/asset-types');
-      if (!res.ok) { setAvailable(false); return; }
-      const body = await res.json() as { entries?: AssetTypeStandard[]; available?: boolean };
-      const list = Array.isArray(body.entries) ? sortAssetTypes(body.entries) : [];
-      setEntries(list);
-      setNameDrafts(list.map(toNameDraft));
-      setAvailable(body.available !== false);
-    } catch {
-      setAvailable(false);
-    }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
-
-  // The two quick-add sources, both through the ONE covered-already rule.
+  // The three quick-add sources, all through the ONE covered-already rule.
   const platformCatalog = assetTypeCatalogForProjectType(project.projectType);
   const projectTypesInUse = useMemo(
     () => Array.from(new Set(assets.map((a) => (a.type ?? '').trim()).filter((t) => t !== ''))),
@@ -223,104 +237,114 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
   const catalogToAdd = typesWithoutStandard(platformCatalog, entries);
   const projectToAdd = typesWithoutStandard(projectTypesInUse, entries);
   const wholeCatalogToAdd = typesWithoutStandard(ASSET_TYPE_CATALOG, entries);
-  // Values this project holds for types the firm has since removed. Kept, not
-  // deleted: an account-level edit must not silently drop project numbers.
+  const templateToAdd = useMemo(
+    () => template.entries.filter((t) => !entries.some((e) => e.id === t.id)),
+    [template.entries, entries],
+  );
+  // Values this project holds for a type that is not in ITS OWN list. The cause
+  // is honest now: somebody removed the name from THIS project, in this project.
+  // It used to say "the firm's list", which was a false explanation on any
+  // project whose values had been keyed by somebody else's vocabulary.
   const orphans = orphanedValueTypeIds(project.assetTypeValues, entries);
 
   const flash = (msg: string): void => { setNotice(msg); setTimeout(() => setNotice(null), 3000); };
 
-  const saveName = async (d: NameDraft): Promise<void> => {
+  // ── Editing the list: ordinary store writes, like every other model input ──
+  //
+  // NO SAVE BUTTON, and that is the point of the move: the names sit in the
+  // snapshot beside the values, so they autosave, version, diff and change-log
+  // the same way. A Save button here would be the only one in the model.
+  const writeTypes = (next: readonly AssetTypeStandard[]): void => {
     setError(null);
-    const label = d.label.trim();
+    setAssetTypes(next);
+  };
+
+  const renameType = (id: string, patch: Partial<Pick<AssetTypeStandard, 'label' | 'category'>>): void =>
+    writeTypes(entries.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+
+  const removeType = (id: string, label: string): void => {
+    writeTypes(entries.filter((e) => e.id !== id));
+    // THE VALUES ARE KEPT, exactly as they were when this deleted an account
+    // row: removing a name must not delete numbers as a side effect. They show
+    // below as belonging to a type this project no longer lists.
+    flash(`Removed ${label}. This project keeps the values it had for it.`);
+  };
+
+  const addType = (): void => {
+    const label = addDraft.label.trim();
     if (!label) { setError('Every asset type needs a name.'); return; }
-    const key = d.entryId ?? ADD_KEY;
-    setBusyKey(key);
-    try {
-      const res = await fetch('/api/refm/asset-types', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...(d.entryId ? { entryId: d.entryId } : {}),
-          label,
-          category: d.category.trim(),
-        }),
-      });
-      const body = await res.json() as { entry?: AssetTypeStandard; error?: string };
-      if (!res.ok || !body.entry) throw new Error(body.error ?? 'Could not save the entry.');
-      if (!d.entryId) setAddDraft(EMPTY_NAME);
-      flash(d.entryId ? `Saved ${label}.` : `Added ${label}.`);
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusyKey(null);
-    }
+    const id = normaliseAssetTypeId(label);
+    if (!id) { setError('That name has no letters or digits to build an id from.'); return; }
+    if (entries.some((e) => e.id === id)) { setError(`${label} is already in this project's list.`); return; }
+    writeTypes([...entries, { id, label, ...(addDraft.category.trim() ? { category: addDraft.category.trim() } : {}) }]);
+    setAddDraft(EMPTY_NAME);
+    flash(`Added ${label}.`);
   };
 
-  const deleteEntry = async (entryId: string, label: string): Promise<void> => {
-    setError(null);
-    setBusyKey(entryId);
-    try {
-      const res = await fetch(`/api/refm/asset-types?entryId=${encodeURIComponent(entryId)}`, { method: 'DELETE' });
-      const body = await res.json() as { ok?: boolean; error?: string };
-      if (!res.ok || !body.ok) throw new Error(body.error ?? 'Could not delete the entry.');
-      flash(`Removed ${label} from your firm's list. This project keeps the values it had for it.`);
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusyKey(null);
-    }
-  };
-
-  /** Move one row and write the whole order in ONE batched request. */
-  const move = async (index: number, delta: number): Promise<void> => {
+  /** Move one row. A REORDER IS THE USER ARRANGING THE LIST, so every row gets
+   *  an explicit position: unlike the hydrate backfill, which leaves them all
+   *  absent because nobody has arranged anything yet. */
+  const move = (index: number, delta: number): void => {
     const next = entries.slice();
     const target = index + delta;
     if (target < 0 || target >= next.length) return;
     const [row] = next.splice(index, 1);
     next.splice(target, 0, row);
-    setEntries(next);
-    setNameDrafts(next.map(toNameDraft));
-    setBusyKey(ORDER_KEY);
-    setError(null);
-    try {
-      const res = await fetch('/api/refm/asset-types', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order: next.map((e) => e.id) }),
-      });
-      const body = await res.json() as { ok?: boolean; error?: string };
-      if (!res.ok || !body.ok) throw new Error(body.error ?? 'Could not save the new order.');
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      await load();
-    } finally {
-      setBusyKey(null);
-    }
+    writeTypes(next.map((e, i) => ({ ...e, sortOrder: i })));
   };
 
-  /** Seed every reference type not already in the firm's list, with its category. */
-  const seedStandardList = async (): Promise<void> => {
+  /** Add labels that are not in the list yet, keeping what is there. */
+  const addLabels = (labels: readonly string[], what: string): void => {
+    const add: AssetTypeStandard[] = [];
+    for (const label of labels) {
+      const id = normaliseAssetTypeId(label);
+      if (!id || entries.some((e) => e.id === id) || add.some((e) => e.id === id)) continue;
+      const cat = assetTypeCategory(label);
+      add.push({ id, label, ...(cat ? { category: cat } : {}) });
+    }
+    if (add.length === 0) return;
+    writeTypes([...entries, ...add]);
+    flash(`Added ${add.length} asset type${add.length === 1 ? '' : 's'} from ${what}. Fill in this project's values on each row.`);
+  };
+
+  /** Seed from the FIRM'S TEMPLATE. Ids and categories come across verbatim, so
+   *  a value this project already holds under one of them stays attached. */
+  const seedFromTemplate = (): void => {
+    if (templateToAdd.length === 0) return;
+    writeTypes([...entries, ...templateToAdd.map((t) => ({ id: t.id, label: t.label, ...(t.category ? { category: t.category } : {}) }))]);
+    flash(`Seeded ${templateToAdd.length} asset type${templateToAdd.length === 1 ? '' : 's'} from the firm's template.`);
+  };
+
+  /**
+   * PUSH THIS PROJECT'S LIST BACK TO THE FIRM'S TEMPLATE.
+   *
+   * ONE WAY, and explicit every time. There is no sync, no watching and no
+   * automatic write-back: a project's list is its own, and the only way it
+   * reaches the template is somebody deciding it should. The template is
+   * ADDED TO rather than replaced, because a template is a starting point for
+   * every future project and this project is not the authority on all of them.
+   */
+  const pushToTemplate = async (): Promise<void> => {
+    if (!projectId || entries.length === 0) return;
     setError(null);
-    setBusyKey(ADD_KEY);
+    setBusyKey(TEMPLATE_KEY);
     try {
-      const res = await fetch('/api/refm/asset-types', {
+      const res = await fetch(`/api/refm/asset-types?projectId=${encodeURIComponent(projectId)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          entries: wholeCatalogToAdd.map((label, i) => ({
-            label,
-            category: assetTypeCategory(label) ?? '',
-            sortOrder: entries.length + i,
+          entries: entries.map((e, i) => ({
+            entryId: e.id,
+            label: e.label,
+            category: e.category ?? '',
+            sortOrder: i,
           })),
         }),
       });
       const body = await res.json() as { entries?: AssetTypeStandard[]; error?: string };
-      if (!res.ok || !body.entries) throw new Error(body.error ?? 'Could not add the standard list.');
-      flash(`Added ${body.entries.length} asset types. Fill in this project's values on each row.`);
-      await load();
+      if (!res.ok || !body.entries) throw new Error(body.error ?? 'Could not update the firm template.');
+      flash(`Saved ${body.entries.length} asset type${body.entries.length === 1 ? '' : 's'} to the firm template. Other projects are untouched.`);
+      await loadTemplate();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -333,9 +357,6 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
     setAddDraft((prev) => ({ ...prev, label, ...(cat ? { category: cat } : {}) }));
     setError(null);
   };
-
-  const patchName = (i: number, patch: Partial<NameDraft>): void =>
-    setNameDrafts((prev) => prev.map((d, j) => (j === i ? { ...d, ...patch } : d)));
 
   const noProject = !projectId;
 
@@ -481,16 +502,15 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
           style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', marginBottom: 'var(--sp-2)' }}
           data-testid="asset-standards-no-project"
         >
-          Open a project to enter values. The type list below is your firm&apos;s and can be edited
-          without one.
+          Open a project. The list below and the values beside it both belong to a project now,
+          so there is nothing on this tab to edit without one.
         </div>
       )}
 
-      {!available && (
+      {!template.available && (
         <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-negative)', marginBottom: 'var(--sp-2)' }} data-testid="asset-standards-unavailable">
-          Your firm&apos;s type list could not be reached, so the names below may be incomplete and
-          saving them may fail. Any values you have already entered are part of this project and
-          are unaffected.
+          The firm&apos;s template could not be reached, so seeding from it is unavailable. This
+          project&apos;s own list and values are in the model and are unaffected.
         </div>
       )}
 
@@ -529,8 +549,11 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
         </div>
       </div>
 
-      {/* Quick-add sources for the firm's list. */}
-      {(wholeCatalogToAdd.length > 0 || catalogToAdd.length > 0 || projectToAdd.length > 0) && (
+      {/* WHERE A TYPE COMES FROM, and where this list can be sent. The strip
+          holds the three ways to fill the project's list without retyping, and,
+          at its far end, the ONE control that leaves the project. */}
+      {(wholeCatalogToAdd.length > 0 || catalogToAdd.length > 0 || projectToAdd.length > 0
+        || templateToAdd.length > 0 || entries.length > 0) && (
         <div
           style={{
             border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)',
@@ -541,18 +564,25 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 'var(--font-small)', fontWeight: 600 }}>Add a type without retyping it:</span>
+            {templateToAdd.length > 0 && (
+              <button type="button" style={{ ...SMALL_BTN, background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}
+                data-view-mutates="true"
+                onClick={() => seedFromTemplate()} data-testid="asset-type-seed-from-template"
+                title="Copies the firm's template into THIS project's list, ids and categories included. It is a copy: editing it here changes nothing anywhere else, and the template is not watched for later changes.">
+                Seed from the firm&apos;s template ({templateToAdd.length})
+              </button>
+            )}
             {wholeCatalogToAdd.length > 0 && (
               <button type="button" style={{ ...SMALL_BTN, background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}
-                disabled={rowBusy(ADD_KEY)}
-                onClick={() => { void seedStandardList(); }} data-testid="asset-type-seed-standard-list"
-                title="Adds the standard reference types you do not already have, each with its category. They are a starting set: rename, edit, reorder or remove any of them afterwards.">
+                data-view-mutates="true"
+                onClick={() => addLabels(wholeCatalogToAdd, 'the standard list')} data-testid="asset-type-seed-standard-list"
+                title="Adds the standard reference types this project does not already have, each with its category. They are a starting set: rename, edit, reorder or remove any of them afterwards, and none of it reaches another project.">
                 Add the standard list ({wholeCatalogToAdd.length})
               </button>
             )}
             {catalogToAdd.length > 0 && (
               <select
                 value=""
-                data-view-editable="true"
                 data-testid="asset-type-catalog-picker"
                 style={{ ...TEXT_INPUT, width: 260 }}
                 onChange={(e) => { if (e.target.value) prefillLabel(e.target.value); }}
@@ -565,11 +595,19 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
             <span style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)' }}>
               or free-text any other name in the add row below.
             </span>
+            {projectId !== null && entries.length > 0 && (
+              <button type="button" style={{ ...SMALL_BTN, marginLeft: 'auto' }}
+                disabled={rowBusy(TEMPLATE_KEY)}
+                data-view-mutates="true" onClick={() => { void pushToTemplate(); }} data-testid="asset-type-push-to-template"
+                title="Adds this project's types to the firm's template, so the next project can start from them. ONE WAY and explicit: it never runs by itself, it does not remove anything from the template, and it changes no other project's list.">
+                {rowBusy(TEMPLATE_KEY) ? 'Saving...' : "Save this list to the firm's template"}
+              </button>
+            )}
           </div>
           {projectToAdd.length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }} data-testid="asset-type-project-missing">
               <span style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)' }}>
-                Used in this project, not in your firm&apos;s list:
+                On an asset in this project, not yet in its list:
               </span>
               {projectToAdd.map((t) => (
                 <button
@@ -578,7 +616,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
                   onClick={() => prefillLabel(t)}
                   data-testid={`asset-type-missing-${normaliseAssetTypeId(t)}`}
                   style={{ ...SMALL_BTN, borderColor: 'var(--color-primary)', color: 'var(--color-primary)', fontSize: 'var(--font-micro)' }}
-                  title={`"${t}" is on an asset in this project but is not one of your firm's types. Click to fill it into the add row.`}
+                  title={`"${t}" is on an asset in this project but is not in the project's type list. Click to fill it into the add row.`}
                 >
                   + {t}
                 </button>
@@ -596,9 +634,9 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
         <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }} data-testid="asset-standards-table">
           <thead>
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
-              <th style={{ ...TH, minWidth: 340 }} colSpan={4} data-testid="std-group-firm">
-                Your firm&apos;s list, shared across every project
-                <div style={{ fontSize: 9, fontWeight: 400, opacity: 0.85 }}>Press Save to apply a change</div>
+              <th style={{ ...TH, minWidth: 340 }} colSpan={3} data-testid="std-group-firm">
+                This project&apos;s asset types
+                <div style={{ fontSize: 9, fontWeight: 400, opacity: 0.85 }}>Saves as you type, and reaches no other project</div>
               </th>
               <th style={{ ...TH, ...DIVIDER, minWidth: 320 }} colSpan={6} data-testid="std-group-project">
                 This project&apos;s values
@@ -608,8 +646,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
               <th style={{ ...TH, minWidth: 160 }}>Asset type</th>
               <th style={{ ...TH, minWidth: 110 }}>Category</th>
-              <th style={{ ...TH, minWidth: 70, textAlign: 'center' }}>Order</th>
-              <th style={{ ...TH, minWidth: 130, textAlign: 'left' }}></th>
+              <th style={{ ...TH, minWidth: 70, textAlign: 'center' }}>Order and remove</th>
               <th style={{ ...TH, ...DIVIDER, minWidth: 90, textAlign: 'right' }}>Avg unit size (sqm)</th>
               <th style={{ ...TH, minWidth: 80, textAlign: 'right' }}>Parking ratio</th>
               <th style={{ ...TH, minWidth: 140 }}>Ratio basis</th>
@@ -619,71 +656,72 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
             </tr>
           </thead>
           <tbody>
-            {nameDrafts.map((d, i) => (
-              <tr key={d.entryId ?? i} style={{ borderBottom: '1px solid var(--color-border)' }}>
-                {/* ── the firm's half: everything here needs Save ── */}
+            {entries.map((e, i) => (
+              <tr key={e.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                {/* THE LIST HALF. It used to need a Save button, because it was
+                    an account record behind a round trip. It is part of the
+                    model now, so it writes through like everything else and the
+                    button is gone. */}
                 <td style={FIRM_CELL}>
-                  <input style={TEXT_INPUT} value={d.label} data-view-editable="true" data-testid={`std-row-${d.entryId}-label`}
-                    placeholder="e.g. High End Apartments" onChange={(e) => patchName(i, { label: e.target.value })} />
+                  <input style={TEXT_INPUT} value={e.label} data-testid={`std-row-${e.id}-label`}
+                    placeholder="e.g. High End Apartments"
+                    title="The name this project calls the type. Renaming keeps the id, so this project's values for it stay attached, and no other project sees the change."
+                    onChange={(ev) => renameType(e.id, { label: ev.target.value })} />
                 </td>
                 <td style={FIRM_CELL}>
-                  <input style={TEXT_INPUT} value={d.category} list="asset-standard-categories"
-                    data-view-editable="true" data-testid={`std-row-${d.entryId}-category`}
-                    placeholder="e.g. Residential" onChange={(e) => patchName(i, { category: e.target.value })} />
+                  <input style={TEXT_INPUT} value={e.category ?? ''} list="asset-standard-categories"
+                    data-testid={`std-row-${e.id}-category`}
+                    placeholder="e.g. Residential"
+                    onChange={(ev) => renameType(e.id, { category: ev.target.value })} />
                 </td>
                 <td style={{ ...FIRM_CELL, textAlign: 'center', whiteSpace: 'nowrap' }}>
                   <button type="button" style={{ ...SMALL_BTN, padding: '2px 6px' }}
-                    disabled={rowBusy(ORDER_KEY) || i === 0} onClick={() => { void move(i, -1); }}
-                    data-testid={`std-row-${d.entryId}-up`} title="Move up. Order is part of your firm's list and is saved immediately.">
+                    data-view-mutates="true"
+                    disabled={i === 0} onClick={() => move(i, -1)}
+                    data-testid={`std-row-${e.id}-up`} title="Move up. The order is this project's.">
                     ^
                   </button>{' '}
                   <button type="button" style={{ ...SMALL_BTN, padding: '2px 6px' }}
-                    disabled={rowBusy(ORDER_KEY) || i === nameDrafts.length - 1} onClick={() => { void move(i, 1); }}
-                    data-testid={`std-row-${d.entryId}-down`} title="Move down. Order is part of your firm's list and is saved immediately.">
+                    data-view-mutates="true"
+                    disabled={i === entries.length - 1} onClick={() => move(i, 1)}
+                    data-testid={`std-row-${e.id}-down`} title="Move down. The order is this project's.">
                     v
-                  </button>
-                </td>
-                <td style={{ ...FIRM_CELL, whiteSpace: 'nowrap' }}>
-                  <button type="button" style={SMALL_BTN} disabled={rowBusy(d.entryId ?? ADD_KEY)}
-                    onClick={() => { void saveName(d); }} data-testid={`std-row-${d.entryId}-save`}
-                    title="Saves the NAME and CATEGORY to your firm's list, which every project sees. It does not save this project's values on the right: those save themselves as you type.">
-                    Save
                   </button>{' '}
                   <button type="button"
                     style={{ ...SMALL_BTN, color: 'var(--color-negative)', borderColor: 'var(--color-negative)' }}
-                    disabled={rowBusy(d.entryId!)}
-                    onClick={() => { void deleteEntry(d.entryId!, d.label); }}
-                    data-testid={`std-row-${d.entryId}-delete`}
-                    title="Removes the type from your firm's list. This project keeps any values it holds for it.">
+                    data-view-mutates="true"
+                    onClick={() => removeType(e.id, e.label)}
+                    data-testid={`std-row-${e.id}-delete`}
+                    title="Removes the type from THIS project's list. Any values this project holds for it are kept and shown below; no other project is touched.">
                     Remove
                   </button>
                 </td>
-                {/* ── this project's half: saves itself ── */}
-                {valueCells(d.entryId as string, values[d.entryId as string])}
+                {/* ── this project's values ── */}
+                {valueCells(e.id, values[e.id])}
               </tr>
             ))}
             {/* The add row takes a NAME only: a type has to exist before this
                 project can hold values for it. */}
             <tr style={{ background: 'var(--color-grey-pale)' }}>
               <td style={FIRM_CELL}>
-                <input style={TEXT_INPUT} value={addDraft.label} data-view-editable="true" data-testid="std-add-label"
+                <input style={TEXT_INPUT} value={addDraft.label} data-testid="std-add-label"
                   placeholder="e.g. High End Apartments" onChange={(e) => setAddDraft((p) => ({ ...p, label: e.target.value }))} />
               </td>
               <td style={FIRM_CELL}>
                 <input style={TEXT_INPUT} value={addDraft.category} list="asset-standard-categories"
-                  data-view-editable="true" data-testid="std-add-category"
+                  data-testid="std-add-category"
                   placeholder="e.g. Residential" onChange={(e) => setAddDraft((p) => ({ ...p, category: e.target.value }))} />
               </td>
-              <td style={FIRM_CELL}></td>
-              <td style={FIRM_CELL}>
+              <td style={{ ...FIRM_CELL, whiteSpace: 'nowrap' }}>
                 <button type="button" className="btn-primary"
-                  disabled={rowBusy(ADD_KEY) || !addDraft.label.trim() || !normaliseAssetTypeId(addDraft.label)}
+                  data-view-mutates="true"
+                  disabled={!addDraft.label.trim() || !normaliseAssetTypeId(addDraft.label)}
                   style={{ padding: '4px 12px', fontSize: 'var(--font-small)' }}
-                  onClick={() => { void saveName(addDraft); }} data-testid="std-add-save">
+                  onClick={() => addType()} data-testid="std-add-save">
                   Add
                 </button>
               </td>
-              <td style={{ ...TD_PROJECT_FIRST, color: 'var(--color-meta)', fontSize: 10 }} colSpan={3}>
+              <td style={{ ...TD_PROJECT_FIRST, color: 'var(--color-meta)', fontSize: 10 }} colSpan={6}>
                 Add the type first; its values are entered on its own row.
               </td>
             </tr>
@@ -691,9 +729,10 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
         </table>
       </div>
 
-      {nameDrafts.length === 0 && (
+      {entries.length === 0 && (
         <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', marginTop: 'var(--sp-1)' }} data-testid="asset-standards-empty">
-          No asset types yet. Start from the standard list above, or type your own in the add row.
+          No asset types yet. Seed from the firm&apos;s template or the standard list above, or type
+          your own in the add row.
           There are no built-in numbers: unit sizes, parking ratios and rates are decisions, not
           platform defaults.
         </div>

@@ -286,6 +286,90 @@ export function sortAssetTypes(entries: readonly AssetTypeStandard[]): AssetType
   });
 }
 
+/**
+ * BACKFILLING A PROJECT'S LIST FROM WHAT THE PROJECT ALREADY REFERENCES
+ * (2026-09-10).
+ *
+ * Every project that predates the move carries no list, and it must not get one
+ * from an account: reading the owner's account here would reintroduce, at
+ * hydrate, exactly the cross-scope lookup the move is removing (docs/TRAPS.md
+ * 7.35). Everything needed is inside the snapshot already.
+ *
+ * THREE SOURCES, in order of how much each knows about the label:
+ *
+ *   1. AN ASSET'S OWN REFERENCE plus its own label. `assetTypeId` is the id and
+ *      `type` is what the user was shown when they picked it, so the pair is
+ *      the best recovery there is: it is what the account row said at the time.
+ *   2. AN ASSET WITH NO REFERENCE but a free-text label. Its values already
+ *      resolve by the label-derived id (`resolveAssetTypeKey`), so the type is
+ *      real whether or not anybody ever registered it.
+ *   3. A VALUE KEY WITH NO ASSET. The retail companion's type is the live case:
+ *      `retail-combined` carries the ground-floor retail divisor on a project
+ *      where no asset is of that type. Dropping it would orphan a value that is
+ *      in use.
+ *
+ * A LABEL IS RECOVERED, NEVER INVENTED: the asset's own text first, then the
+ * catalog entry with the same id, and only then the id with its hyphens opened
+ * out. That last case needs the account row deleted AND no asset carrying the
+ * type, which on both live projects is nobody.
+ *
+ * NO ORDER IS INVENTED EITHER. `sortOrder` stays absent on every backfilled
+ * row, which the shared ordering rule reads as "never reordered" and sorts
+ * alphabetically. Stamping 0..N would claim the user had arranged a list they
+ * have never seen (the mig 229 rule: unset and first are different answers).
+ *
+ * PURE, AND IT WRITES NO VALUES. It names types; the values keyed by those
+ * names are untouched, which is what makes it provably number-neutral.
+ */
+export function backfillAssetTypes(
+  assets: readonly { type?: string; assetTypeId?: string }[],
+  valueKeys: readonly string[],
+  catalog: readonly { label: string; category?: string }[],
+): AssetTypeStandard[] {
+  const catalogById = new Map<string, { label: string; category?: string }>();
+  for (const c of catalog) {
+    const id = normaliseAssetTypeId(c.label);
+    if (id !== '' && !catalogById.has(id)) catalogById.set(id, c);
+  }
+  const categoryOf = (id: string, label: string): string | undefined => {
+    const byId = catalogById.get(id)?.category;
+    if (byId) return byId;
+    return catalogById.get(normaliseAssetTypeId(label))?.category;
+  };
+
+  const out = new Map<string, AssetTypeStandard>();
+  // WHICH IDS HOLD A LABEL SOMEBODY ACTUALLY TYPED, as against one recovered
+  // from the catalog or opened out of the id. Tracked separately because the
+  // recovered label is never blank, so 'is it still empty' cannot tell them
+  // apart: an asset carrying the id and no type would otherwise pin the
+  // fallback and lock out the real name on the next asset.
+  const real = new Set<string>();
+  const add = (rawId: string, rawLabel: string | undefined): void => {
+    const id = rawId.trim();
+    if (id === '') return;
+    const label = (rawLabel ?? '').trim();
+    // FIRST REAL LABEL WINS, and a real one always beats a recovered one.
+    if (real.has(id)) return;
+    if (out.has(id) && label === '') return;
+    if (label !== '') real.add(id);
+    const recovered = label !== ''
+      ? label
+      : (catalogById.get(id)?.label ?? id.split('-').filter(Boolean).join(' '));
+    const category = categoryOf(id, recovered);
+    out.set(id, { id, label: recovered, ...(category ? { category } : {}) });
+  };
+
+  for (const a of assets) {
+    const ref = (a.assetTypeId ?? '').trim();
+    const label = (a.type ?? '').trim();
+    if (ref !== '') { add(ref, label); continue; }
+    if (label !== '') add(normaliseAssetTypeId(label), label);
+  }
+  for (const id of valueKeys) add(id, undefined);
+
+  return sortAssetTypes([...out.values()]);
+}
+
 // ── The two resolution rules ────────────────────────────────────────────────
 //
 // DISPLAY ONLY, TODAY. Nothing in the calculation engine calls either of

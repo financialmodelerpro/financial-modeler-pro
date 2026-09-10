@@ -497,6 +497,14 @@ export function nonEconomicLeverReason(path: string, field: string): string | nu
   for (const { re, why } of RETIRED_FIELD_PATTERNS) {
     if (re.test(path)) return why;
   }
+  // THE LIST ITSELF IS NOT A DIAL (2026-09-10). It moved into the snapshot, so
+  // every field on it became an overridable path: a scenario could rename an
+  // asset type or move it up the table. `name` and `id` were already covered as
+  // non-economic leaves; a type's label, category and position were not, because
+  // until today they were not in the model at all.
+  if (/^project\.assetTypes(\.|\[)/.test(path)) {
+    return 'a name, a grouping and a position in this project\'s asset type list; a scenario varies values, it does not rename things';
+  }
   for (const re of STRUCTURAL_SELECTOR_PATTERNS) {
     if (re.test(path)) return 'a structural selector (defines how the line / unit / facility is set up, not a numeric assumption)';
   }

@@ -1266,49 +1266,68 @@ folder in the App Router (404), so name a temp harness route without the undersc
 
 **Proof.** `verify-asset-label` renames every asset in the fixture and requires that no label anywhere in the engine snapshot, the capex report or the 16-tab workbook moves. That is what found the last reader: the sale-cohort advisory in `computeFinancialsSnapshot` was printing the raw stored name into the financing reconciliation. A structural grep would not have: the point of the test is that it does not know where the readers are.
 
-### 7.35 One key, two vocabularies: the value is the project's, the list is the CALLER's
+### 7.35 One key, two vocabularies: the value was the project's, the list was the CALLER's
 
-**Symptom (2026-09-10, found while diagnosing an empty standards tab; diagnosed, NOT fixed).** A
+**Symptom (2026-09-10, found while diagnosing an empty standards tab; FIXED the same day).** A
 platform admin opens a client's project, goes to Module 1 tab 4, and sees THEIR OWN firm's asset
 type list, not the project owner's. Every value they type there is keyed by an id from their own
 vocabulary and stored in the client's project.
 
-**Mechanism.** `GET /api/refm/asset-types` scopes to `resolveAccountId(caller)`, which is a straight
-read of the caller's `users.account_id`; it never consults the project's owner. The tab renders
-value cells ONLY for rows of that list, and `project.assetTypeValues` is keyed by those rows' entry
-ids. Ids are label-derived (`normaliseAssetTypeId`), so two accounts holding the same label collide
-BENIGNLY and nothing is visibly wrong; the damage is confined to where the two lists differ, which
-is why this can sit unnoticed. Two concrete failures:
+**Mechanism.** `GET /api/refm/asset-types` scoped to `resolveAccountId(caller)`, a straight read of
+the caller's `users.account_id`; it never consulted the project's owner. The tab rendered value
+cells ONLY for rows of that list, and `project.assetTypeValues` was keyed by those rows' entry ids.
+Ids are label-derived (`normaliseAssetTypeId`), so two accounts holding the same label collide
+BENIGNLY and nothing is visibly wrong; the damage was confined to where the two lists differ, which
+is why it could sit unnoticed. Two concrete failures:
 
-  (a) A value typed under an id the owner's list lacks becomes an ORPHAN when the owner opens the
+  (a) A value typed under an id the owner's list lacked became an ORPHAN when the owner opened the
       tab: kept (correctly, values are never deleted with a name), uneditable from any row, and the
-      banner explains it with a FALSE cause, "removing a name from the firm's list must not delete
-      project numbers", when nobody removed anything.
+      banner explained it with a FALSE cause, "removing a name from the firm's list must not delete
+      project numbers", when nobody had removed anything.
 
-  (b) Picking a type writes `asset.assetTypeId = entry.id` from the CALLER's registry, and
-      `resolveAssetTypeKey` makes a stored reference OUTRANK the label. So an admin can pin a
-      client's asset to an id from a vocabulary that client does not have, and the client cannot
-      reach those values from any row until the reference is cleared in the drawer.
+  (b) Picking a type wrote `asset.assetTypeId = entry.id` from the CALLER's registry, and
+      `resolveAssetTypeKey` makes a stored reference OUTRANK the label. So an admin could pin a
+      client's asset to an id from a vocabulary that client did not have, and the client could not
+      reach those values from any row until the reference was cleared in the drawer.
 
-The numbers themselves are not corrupted: the chain resolves values by the ASSET's own key
-(`resolveAssetTypeValues`), which does not depend on who is looking. This is an editing-surface and
+The numbers were never corrupted: the chain resolves values by the ASSET's own key
+(`resolveAssetTypeValues`), which does not depend on who is looking. It was an editing-surface and
 identity hazard, not a wrong-number one.
 
-**Why the cost catalog does NOT have it**, despite the identical scoping call: selecting a catalog
+**Why the cost catalog did NOT have it**, despite the identical scoping call: selecting a catalog
 entry STAMPS behaviour onto the cost LINE, so the line carries what it needs and a foreign
 `catalogId` is inert for the engine. Asset types are deliberately the opposite (mig 244: "THAT IS
-WHY NOTHING IS STAMPED", so a firm editing its list can never leave a model stale), and it is
-exactly that choice which exposes them. Two designs, one scoping rule, and only one of them is safe
+WHY NOTHING IS STAMPED", so a firm editing its list can never leave a model stale), and it was
+exactly that choice which exposed them. Two designs, one scoping rule, and only one of them safe
 under it.
 
-**Fix.** Open. The candidates and the decision they need are in CLAUDE-TODO.md; scoping the read to
-the PROJECT OWNER's account is the obvious one, but it forces a second decision (whose list does a
-type ADDED from inside a client's project join?) that is a product question, not a code one.
+**Fix (2026-09-10). THE LIST JOINED THE VALUES IN THE SNAPSHOT.** `project.assetTypes` holds the
+names, keyed in the same object as the values those names key, so there is no cross-scope lookup
+left to get wrong: failure (a) cannot happen because a value can only be orphaned by an edit made
+inside its own project, and failure (b) cannot happen because the only list in reach IS the
+project's. Scoping the read to the project OWNER was the other candidate, and it was rejected for a
+reason worth keeping: it fixes who a project asks, and leaves untouched the fact that an edit made
+inside one project still reaches every other project on the account.
 
-**The general rule.** When a value is KEYED by a vocabulary, the vocabulary must be scoped the same
-way the value is. A project-scoped value keyed by an account-scoped id has to resolve that id
-against the PROJECT's account, never the reader's. Ask it of any id-keyed store: whose list minted
-this key, and is that the same "whose" that owns the value?
+The firm's list survives as a TEMPLATE on the account table, seeded from on demand and pushed back
+explicitly, one way. Both ends are scoped to the account that OWNS the project, which is the half of
+the original bug that survived the move, and refusing rather than falling back to the caller's
+account is what keeps it closed: a fallback is how an admin ends up seeding their own vocabulary
+into a client's project with nothing on screen saying so.
+
+**What it cost, measured before building.** Nothing. All eleven vocabulary rows in the database are
+reproducible from the platform catalog (ten on one account, the catalog verbatim with one reorder;
+one on another). Projects that predate the move are backfilled at hydrate from WHAT THEY ALREADY
+REFERENCE (their assets' types plus any type their values hold numbers for), never from an account,
+so the backfill cannot reintroduce the bug it is repairing. Both live projects recovered five types
+each with every value key attached, and an engine fingerprint over both was byte-identical before
+and after: capex totals, per-asset series, consolidated lines, peak debt, equity and both IRRs.
+
+**The general rule, unchanged and now enforced.** When a value is KEYED by a vocabulary, the
+vocabulary must be scoped the same way the value is. A project-scoped value keyed by an
+account-scoped id has to resolve that id against the PROJECT's account, never the reader's, and the
+cheapest way to guarantee that is to put the two in the same object. Ask it of any id-keyed store:
+whose list minted this key, and is that the same "whose" that owns the value?
 
 ### 7.34 A control that DISPLAYS a default it never stores, and a unit label the formula ignores
 

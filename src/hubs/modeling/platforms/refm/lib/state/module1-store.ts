@@ -136,6 +136,21 @@ export interface Module1Store {
    * nothing stated is dropped rather than stored as an empty object that would
    * read as "configured".
    */
+  /**
+   * THE PROJECT'S OWN ASSET TYPE LIST (2026-09-10).
+   *
+   * One action taking the WHOLE list, not four (add / rename / remove /
+   * reorder). The tab holds the list in its own order and every edit is a
+   * replacement of it; four actions would each have to restate the ordering
+   * rule and the id-uniqueness rule, which is four places for them to differ.
+   * The action itself keeps the two rules that must not be restatable: an id
+   * appears at most once, and a row with no id is dropped rather than stored.
+   *
+   * VALUES ARE NEVER TOUCHED. Removing a name leaves `assetTypeValues` alone,
+   * exactly as deleting an account row used to: the tab surfaces the numbers as
+   * belonging to a type no longer listed, and the user decides.
+   */
+  setAssetTypes: (entries: readonly import('./assetTypeStandards').AssetTypeStandard[]) => void;
   setAssetTypeValue: (
     entryId: string,
     patch: Partial<import('./assetTypeStandards').AssetTypeValues>,
@@ -658,6 +673,24 @@ export function createModule1Store() {
       }
       if (!changed) return {};
       return { subUnits: next };
+    }),
+
+    setAssetTypes: (entries) => set((s) => {
+      const seen = new Set<string>();
+      const next: import('./assetTypeStandards').AssetTypeStandard[] = [];
+      for (const e of entries) {
+        const id = (e.id ?? '').trim();
+        const label = (e.label ?? '').trim();
+        if (id === '' || label === '' || seen.has(id)) continue;
+        seen.add(id);
+        next.push({
+          id,
+          label,
+          ...(e.category && e.category.trim() !== '' ? { category: e.category.trim() } : {}),
+          ...(typeof e.sortOrder === 'number' ? { sortOrder: e.sortOrder } : {}),
+        });
+      }
+      return { project: { ...s.project, assetTypes: next } };
     }),
 
     setAssetTypeValue: (entryId, patch) => set((s) => {

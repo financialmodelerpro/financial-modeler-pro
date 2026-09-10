@@ -76,6 +76,7 @@ import {
   resolveChainDefaults,
   resolveParkingRatio,
   resolveRetailSlotArea,
+  sortAssetTypes,
   type AssetTypeStandard,
   type AssetTypeValues,
   type ResolvedChainDefaults,
@@ -320,8 +321,10 @@ function countUnitLabel(
 interface TypeChoice {
   key: string;
   label: string;
-  /** True when this is the firm's own entry, so picking it records a reference. */
-  fromFirm: boolean;
+  /** True when the PROJECT's own list holds this type, so picking it records a
+   *  reference. False for a platform-catalog label the project has not adopted:
+   *  it is offered, and picking it writes the label alone. */
+  fromList: boolean;
 }
 
 /** The sentinel for a stored label that is on neither list. It is not a key
@@ -351,13 +354,13 @@ function buildTypeChoices(
     const key = (e.id ?? '').trim() || normaliseAssetTypeId(e.label);
     if (key === '' || seen.has(key)) continue;
     seen.add(key);
-    out.push({ key, label: e.label, fromFirm: true });
+    out.push({ key, label: e.label, fromList: true });
   }
   for (const label of catalog) {
     const key = normaliseAssetTypeId(label);
     if (key === '' || seen.has(key)) continue;
     seen.add(key);
-    out.push({ key, label, fromFirm: false });
+    out.push({ key, label, fromList: false });
   }
   return out;
 }
@@ -373,11 +376,17 @@ function assetTypeSelectValue(asset: Asset, choices: readonly TypeChoice[]): str
 /**
  * What picking an option writes.
  *
- * BOTH FIELDS, ALWAYS, so the label and the reference can never disagree. A
- * firm entry writes its id; a catalog-only label writes NO id, because there is
- * no vocabulary entry to point at and inventing one would put a reference in
- * the snapshot that the standards tab cannot show. The label still resolves
- * through the same normalisation, so its values are found either way.
+ * BOTH FIELDS, ALWAYS, so the label and the reference can never disagree. An
+ * entry in the project's own list writes its id; a catalog-only label writes NO
+ * id, because there is no entry to point at and inventing one would put a
+ * reference in the snapshot that the standards tab cannot show. The label still
+ * resolves through the same normalisation, so its values are found either way,
+ * and the standards tab offers to add it to the list in one click.
+ *
+ * PICKING A TYPE DOES NOT EDIT THE PROJECT'S LIST. It could now that the list
+ * is the project's, and it deliberately does not: a dropdown that quietly adds
+ * a row to a table on another tab is a change nobody asked for, and the tab
+ * already surfaces "on an asset in this project, not yet in its list".
  *
  * Re-selecting the unlisted sentinel is a no-op patch: it is a label the user
  * typed before this list existed and choosing it must not rewrite it.
@@ -387,7 +396,7 @@ function assetTypePatch(next: string, choices: readonly TypeChoice[]): Partial<A
   if (next === '') return { type: '', assetTypeId: undefined };
   const choice = choices.find((c) => c.key === next);
   if (!choice) return {};
-  return { type: choice.label, assetTypeId: choice.fromFirm ? choice.key : undefined };
+  return { type: choice.label, assetTypeId: choice.fromList ? choice.key : undefined };
 }
 
 function resolveTypeCatalog(project: Project): readonly string[] {
@@ -474,29 +483,19 @@ export default function Module1Assets(): React.JSX.Element {
     [parcels, assets, subUnits, landAllocationMode],
   );
 
-  // ── Land planning (2026-09-07): the firm's asset type VOCABULARY ──
+  // ── THE PROJECT'S ASSET TYPE LIST (2026-09-10) ──
   //
-  // Account-scoped names only (migs 242-244), fetched once like the cost
-  // catalog. The VALUES for each type live on the project, so a failed fetch
-  // costs a picker, never a number.
-  const [assetTypeRegistry, setAssetTypeRegistry] = useState<{
-    entries: AssetTypeStandard[];
-    available: boolean;
-  }>({ entries: [], available: true });
-  const refreshAssetTypeRegistry = React.useCallback(async (): Promise<void> => {
-    try {
-      const res = await fetch('/api/refm/asset-types');
-      if (!res.ok) { setAssetTypeRegistry((p) => ({ ...p, available: false })); return; }
-      const body = await res.json() as { entries?: AssetTypeStandard[]; available?: boolean };
-      setAssetTypeRegistry({
-        entries: Array.isArray(body.entries) ? body.entries : [],
-        available: body.available !== false,
-      });
-    } catch {
-      setAssetTypeRegistry((p) => ({ ...p, available: false }));
-    }
-  }, []);
-  useEffect(() => { void refreshAssetTypeRegistry(); }, [refreshAssetTypeRegistry]);
+  // It was the ACCOUNT'S and was fetched here like the cost catalog. It is the
+  // project's now, in the snapshot beside the values it keys, so there is no
+  // fetch, no loading state and no failure mode: a picker cannot be short of
+  // options because a request did not come back, and an edit made on the
+  // standards tab reaches these dropdowns on the next render rather than on the
+  // next reload. `available` is kept in the shape the three pickers already
+  // take, and is now always true; it described a request that no longer exists.
+  const assetTypeRegistry = useMemo(() => ({
+    entries: sortAssetTypes(project.assetTypes ?? []),
+    available: true,
+  }), [project.assetTypes]);
 
   // TWO GROUPINGS, AND THE ORDER BETWEEN THEM IS THE WHOLE POINT (2026-09-09).
   //
@@ -608,7 +607,7 @@ export default function Module1Assets(): React.JSX.Element {
   /**
    * THE TYPE CHOICES, RESOLVED ONCE (2026-09-10).
    *
-   * The firm's list in the firm's own order, then the platform catalog labels
+   * The project's list in its own order, then the platform catalog labels
    * the firm has not adopted, deduped by identity. THREE surfaces offer it now
    * (the land table's add picker, the plot band's, and the row's own dropdown),
    * and they must offer the same list or "the type you can pick" depends on
@@ -863,7 +862,7 @@ export default function Module1Assets(): React.JSX.Element {
       >
         <strong>What goes here:</strong> Land parcels, then per-phase asset
         cards (areas, sub-units, status, useful life). Asset Type suggestions
-        come from the standard catalog plus your firm&apos;s list on the{' '}
+        come from the standard catalog plus this project&apos;s list on the{' '}
         <strong>Asset Types &amp; Standards</strong> tab; a{' '}
         <strong>Residential</strong>, <strong>Hospitality</strong> or{' '}
         <strong>Retail</strong> project type narrows the catalog to its own
@@ -1301,7 +1300,7 @@ function ParcelRow({
             </option>
             {typeChoices.map((c) => (
               <option key={c.key} value={c.key}>
-                {c.label}{c.fromFirm ? '' : ' (catalog)'}
+                {c.label}{c.fromList ? '' : ' (catalog)'}
               </option>
             ))}
             <option value={ADD_UNTYPED}>Type not decided yet</option>
@@ -1715,7 +1714,7 @@ function PlotHeaderRow({
             <option value="">+ Add asset here...</option>
             {typeChoices.map((c) => (
               <option key={c.key} value={c.key}>
-                {c.label}{c.fromFirm ? '' : ' (catalog)'}
+                {c.label}{c.fromList ? '' : ' (catalog)'}
               </option>
             ))}
             <option value={ADD_UNTYPED}>Type not decided yet</option>
@@ -2033,12 +2032,12 @@ function AssetInputsTable({
                             style={TABLE_INPUT}
                             value={assetTypeSelectValue(asset, typeChoices)}
                             data-testid={`asset-row-${asset.id}-type`}
-                            title="The asset type. The firm's list from the standards tab first, then the platform catalog. Picking one records WHICH type this is, which is what lets its unit size and parking ratio resolve."
+                            title="The asset type. This project's list from the standards tab first, then the platform catalog. Picking one records WHICH type this is, which is what lets its unit size and parking ratio resolve."
                             onChange={(e) => onUpdateAsset(asset.id, assetTypePatch(e.target.value, typeChoices))}
                           >
                             <option value="">Not set</option>
                             {typeChoices.map((c) => (
-                              <option key={c.key} value={c.key}>{c.label}{c.fromFirm ? '' : ' (catalog)'}</option>
+                              <option key={c.key} value={c.key}>{c.label}{c.fromList ? '' : ' (catalog)'}</option>
                             ))}
                             {/* A LABEL THAT IS ON NEITHER LIST IS STILL AN
                                 OPTION, or selecting it would be impossible and
@@ -3660,14 +3659,14 @@ function AssetCard({
                   datalist suggestions cover the project type's catalog
                   (Mixed-Use / Custom show the union of every catalog).
                   Type drives the Useful Life default suggestion only. */}
-              <InputLabel label="Company standard" help="Which of your firm's asset types this asset is. The free-text name is a column in the table; this records the type whose PROJECT values (unit size, parking ratio, build cost, revenue rate) the asset reads." inputId={`asset-${asset.id}-assetTypeId`} />
+              <InputLabel label="Company standard" help="Which of this project's asset types this asset is. The free-text name is a column in the table; this records the type whose PROJECT values (unit size, parking ratio, build cost, revenue rate) the asset reads." inputId={`asset-${asset.id}-assetTypeId`} />
               {assetTypeRegistry.entries.length > 0 && (
                 <select
                   data-testid={`asset-${asset.id}-assetTypeId`}
                   value={asset.assetTypeId ?? ''}
                   onChange={(e) => pickAssetType(e.target.value)}
                   style={{ ...inputStyle, marginTop: 4, fontSize: 'var(--font-micro)' }}
-                  title="Pick from your firm's list on the Asset Types and Standards tab. This records WHICH type the asset is; its values (unit size, parking ratio, area per slot, construction cost, revenue rate) live on that tab as project inputs and are read live, so editing one there updates this asset with no re-picking. Choose the blank row to clear."
+                  title="Pick from this project's list on the Asset Types and Standards tab. This records WHICH type the asset is; its values (unit size, parking ratio, area per slot, construction cost, revenue rate) live on that tab as project inputs and are read live, so editing one there updates this asset with no re-picking. Choose the blank row to clear."
                 >
                   <option value="">Company standard...</option>
                   {assetTypeRegistry.entries.map((e) => (

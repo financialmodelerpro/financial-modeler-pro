@@ -41,6 +41,7 @@ import {
   resolveParkingRatio,
   assetTypeValuesAreEmpty,
   orphanedValueTypeIds,
+  backfillAssetTypes,
   REVENUE_RATE_UNITS,
   type AssetTypeStandard,
   type AssetTypeValues,
@@ -354,44 +355,62 @@ function offlineChecks(): void {
   const lib = readFileSync('src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards.ts', 'utf8');
   check('D1 every method requires a session (4 getRefmUserId guards)',
     (route.match(/getRefmUserId/g) ?? []).length >= 5 && route.includes('unauthorized()'));
-  check('D2 every query is account-filtered through resolveAccountId',
-    (route.match(/resolveAccountId/g) ?? []).length >= 5
-    && route.includes(`.eq('account_id', accountId)`));
+  // D2 RE-AIMED 2026-09-10. Each verb used to call `resolveAccountId` itself,
+  // which is exactly what made the scope the CALLER'S (docs/TRAPS.md 7.35).
+  // There is ONE resolver now and every verb goes through it, so a read and a
+  // write cannot disagree about which firm is meant.
+  check('D2 every query is scoped through the ONE resolver, and no verb resolves an account itself',
+    (route.match(/resolveTemplateScope/g) ?? []).length >= 5
+    && route.includes(`.eq('account_id', accountId)`)
+    // AND NO VERB RESOLVES ONE ITSELF. Counted structurally rather than by
+    // occurrence: the resolver holds the only two calls, so nothing from the
+    // first handler onward may name it at all.
+    && !route.slice(route.indexOf('export async function GET')).includes('resolveAccountId'));
+  check('D2b a projectId scopes the template to the PROJECT OWNER, not the caller',
+    route.includes('resolveAccountId(sb, r.row.user_id)')
+    && route.includes('getProjectForAction(userId, projectId,')
+    // NO FALLBACK to the caller's account when the project cannot be reached:
+    // falling back is how an admin seeds their own vocabulary into a client's
+    // project with nothing on screen saying so.
+    && route.includes('status: 404'));
   check('D3 GET fails soft with available:false (never a calculation-path error)',
     route.includes('available: false'));
   check('D4 the tab parses values without coercing (blank stays blank, no Number(null))',
     tab.includes('parseValue') && !/Number\(\s*null\s*\)/.test(tab));
-  // D5 IS THE REVERSE OF WHAT IT USED TO ASSERT, and deliberately so. It
-  // required the firm's controls to opt INTO the project view lock, which
-  // greyed out an account-scoped shared vocabulary because some project
-  // happened to be open read-only. The lock belongs to model data. The firm's
-  // half is not model data, so it declares neither the button opt-in nor the
-  // input default, and D5b holds the other side: the project values must STILL
-  // lock, or this would have swapped one wrong answer for another.
+  // D5 IS BACK TO ITS ORIGINAL SENSE (2026-09-10), and the flip-flop is the
+  // finding. It first required the firm's controls to opt INTO the project view
+  // lock; that was wrong while the list was an ACCOUNT record, because a shared
+  // vocabulary must not grey out just because some project is open read-only,
+  // so it was reversed. The list is the PROJECT's now, so both halves of the row
+  // are model data and both lock, and the reversal goes with the reason for it.
   const valueCell = tab.slice(tab.indexOf('function ValueCell('), tab.indexOf('export default function'));
-  check('D5 the FIRM half is free of the project view lock (buttons opt out, inputs opt out)',
-    // The ATTRIBUTE, not the word: the file's own docblock explains why the
-    // opt-in is absent, and a bare substring match reads that sentence as the
-    // very thing it says is gone.
-    !/data-view-mutates=/.test(tab)
-    && ['std-row-${d.entryId}-label', 'std-row-${d.entryId}-category', 'std-add-label', 'std-add-category']
-      .every((t) => {
-        const at = tab.indexOf(t);
-        return at > 0 && tab.lastIndexOf('data-view-editable="true"', at) > tab.lastIndexOf('<input', at);
-      }));
-  check('D5b the PROJECT values still lock with the project (no opt-out on any value control)',
+  check('D5 the WHOLE tab locks with the project, because every half of it is model data now',
+    // Every mutating BUTTON opts in (buttons are opt-IN under the view-lock
+    // rule), and NO input opts out.
+    (tab.match(/data-view-mutates=/g) ?? []).length >= 4
+    && !tab.includes('data-view-editable'));
+  check('D5b the values still lock too, so the row cannot half-lock',
     valueCell.length > 200
-    && !valueCell.includes('data-view-editable')
-    && !tab.slice(tab.indexOf('std-row-${id}-basis') - 400, tab.indexOf('std-row-${id}-basis'))
-      .includes('data-view-editable'));
-  check('D5c busy is KEYED per row, so one in-flight request cannot disable another row',
-    tab.includes('const [busyKey')
+    && !valueCell.includes('data-view-editable'));
+  // THE ONE CONTROL THAT LEAVES THE PROJECT, and it is a request, so it is
+  // still gated on the lock like every other write.
+  check('D5d the push to the firm template is a mutating control and declares it',
+    tab.includes('asset-type-push-to-template')
+    && tab.slice(tab.indexOf('asset-type-push-to-template') - 400, tab.indexOf('asset-type-push-to-template'))
+      .includes('data-view-mutates'));
+  // D5c RETIRED AND REPLACED 2026-09-10. Busy was keyed per row because every
+  // row edit was a round trip that could hang. The rows are store writes now
+  // and return before the next render, so there is no per-row busy left to key;
+  // what remains is the ONE request on the tab, and the property worth holding
+  // is that nothing else waits on it.
+  check('D5c the only round trip left is the firm template, and no row edit waits on one',
+    tab.includes('const TEMPLATE_KEY')
     && tab.includes('const rowBusy =')
-    && !/\bbusy\b/.test(tab)
-    && tab.includes('rowBusy(d.entryId ?? ADD_KEY)')
-    && tab.includes('rowBusy(d.entryId!)')
-    // The reorder is the ONE list-wide operation, and says so with its own key.
-    && (tab.match(/rowBusy\(ORDER_KEY\)/g) ?? []).length === 2);
+    && !tab.includes('ADD_KEY')
+    && !tab.includes('ORDER_KEY')
+    // Every list edit goes through the store action, never a fetch.
+    && (tab.match(/await fetch/g) ?? []).length === 2
+    && tab.includes('setAssetTypes(next)'));
   check('D6 the asset picker records the REFERENCE and stamps nothing',
     assetsTab.includes('assetTypeId: entry.id')
     && !assetsTab.includes('stampFromAssetType')
@@ -465,8 +484,8 @@ function offlineChecks(): void {
   // that mean the same type collapse to one option rather than offering a user
   // two spellings that resolve their standards differently.
   check('G5b the two sources are deduped by IDENTITY, not by spelling, and the firm\'s comes first',
-    /for \(const e of entries\)[\s\S]{0,400}fromFirm: true/.test(assetsTab)
-    && /for \(const label of catalog\)[\s\S]{0,300}fromFirm: false/.test(assetsTab)
+    /for \(const e of entries\)[\s\S]{0,400}fromList: true/.test(assetsTab)
+    && /for \(const label of catalog\)[\s\S]{0,300}fromList: false/.test(assetsTab)
     && assetsTab.includes('const key = normaliseAssetTypeId(label);')
     && /if \(key === '' \|\| seen\.has\(key\)\) continue;/.test(assetsTab));
 
@@ -492,13 +511,43 @@ function offlineChecks(): void {
     tab.includes("background: 'var(--color-navy)'") && tab.includes('<thead>')
     && tab.includes('std-add-save') && tab.includes('data-testid="asset-standards-table"'));
 
-  section('I. The list is the firm\'s: editable, extensible, orderable');
+  section('I. The list is the PROJECT\'s: editable, extensible, orderable, and reaches nobody else');
   check('I1 a row can be renamed, re-categorised, removed and reordered from the tab',
     tab.includes('-label') && tab.includes('-category') && tab.includes('-delete')
-    && tab.includes('-up') && tab.includes('-down') && tab.includes("method: 'PUT'"));
+    && tab.includes('-up') && tab.includes('-down')
+    // AND ALL FOUR ARE STORE WRITES. The reorder was a PUT to the account
+    // route; a list edit that leaves the project is exactly what moved.
+    && tab.includes('renameType(') && tab.includes('removeType(')
+    && tab.includes('const move = (index: number, delta: number): void =>')
+    && !tab.includes(`method: 'PUT'`));
+  check('I1b removing a NAME still keeps this project\'s numbers for it',
+    tab.includes('This project keeps the values it had for it.')
+    && tab.includes('orphanedValueTypeIds'));
+  check('I1c a list edit reaches no other project: it is a store write into the snapshot',
+    // The tab holds no writing call to the account route except the explicit
+    // push, which is the one thing that is meant to leave.
+    (tab.match(/method: 'POST'/g) ?? []).length === 1
+    && tab.slice(tab.indexOf(`method: 'POST'`) - 900, tab.indexOf(`method: 'POST'`))
+      .includes('pushToTemplate'));
   check('I2 the reference list is a STARTING SET offered by a button, never auto-written',
-    tab.includes('asset-type-seed-standard-list') && tab.includes('seedStandardList')
-    && !/useEffect\([^)]*seedStandardList/.test(tab));
+    tab.includes('asset-type-seed-standard-list')
+    && tab.includes('addLabels(wholeCatalogToAdd')
+    && !/useEffect\([^)]*addLabels/.test(tab));
+  // SEEDING IS ON DEMAND, NOT AT CREATION. Nobody knows what a project is when
+  // it is created, and seeding there would take the CREATOR's template, which
+  // is the scoping question 7.35 is about moved to a different moment.
+  check('I2b the firm template is seeded on demand, from the OWNER\'s account, and never at creation',
+    tab.includes('asset-type-seed-from-template')
+    && tab.includes('seedFromTemplate()')
+    && tab.includes('?projectId=')
+    && !/useEffect\([^)]*seedFromTemplate/.test(tab));
+  check('I2c the push to the template is ONE WAY, explicit, and adds rather than replaces',
+    tab.includes('pushToTemplate')
+    && tab.includes('asset-type-push-to-template')
+    // No automatic write-back anywhere: nothing watches the list.
+    && !/useEffect\([^)]*pushToTemplate/.test(tab)
+    // The route upserts; it never deletes what the template already holds.
+    && route.includes(`onConflict: 'account_id,entry_id'`));
   check('I3 the route reorders with a whole-list dense write and refuses a stranger id',
     route.includes('export async function PUT')
     && route.includes('sort_order: i')
@@ -512,6 +561,90 @@ function offlineChecks(): void {
       { id: 'a', label: 'A', sortOrder: 0 },
       { id: 'b', label: 'B', sortOrder: 1 },
     ]).map((e) => e.id)) === JSON.stringify(['a', 'b', 'c']));
+
+  section('N. The LIST is the project\'s too (2026-09-10), so nothing crosses a project boundary');
+  const migrateSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-migrate.ts', 'utf8');
+  const diffSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/persistence/snapshot-diff.ts', 'utf8');
+  const CAT = ASSET_TYPE_CATALOG.map((label) => ({ label, category: assetTypeCategory(label) }));
+
+  check('N1 the list lives in the SNAPSHOT, keyed in the same object as the values it keys',
+    /assetTypes\?: import\('\.\/assetTypeStandards'\)\.AssetTypeStandard\[\]/.test(typesSrc));
+  check('N2 the assets tab reads the list from the project, and fetches nothing',
+    assetsTab.includes('sortAssetTypes(project.assetTypes ?? [])')
+    // THE FETCH IS GONE. A picker cannot be short of options because a request
+    // did not come back, and a standards edit reaches these dropdowns on the
+    // next render rather than the next reload.
+    && !assetsTab.includes('/api/refm/asset-types'));
+  check('N3 the standards tab writes the list through the ONE store action',
+    tab.includes('setAssetTypes: s.setAssetTypes')
+    && storeSrc.includes('setAssetTypes: (entries) => set((s) =>')
+    && !tab.includes('setProject({ assetTypes'));
+
+  // ── The backfill: what a project that predates the move gets ────────────
+  //
+  // RUN, not read. The whole risk in a hydrate-time backfill is what it writes,
+  // so it is exercised on shapes rather than asserted about in prose.
+  const A = (type?: string, assetTypeId?: string) => ({ type, assetTypeId });
+  check('N4 an asset with a reference AND a label recovers the label the user picked',
+    JSON.stringify(backfillAssetTypes([A('Branded Villas', 'branded-villas')], [], CAT))
+      === JSON.stringify([{ id: 'branded-villas', label: 'Branded Villas', category: 'Residential' }]));
+  check('N5 an asset with no reference is recovered by its label, which is how its values already resolve',
+    JSON.stringify(backfillAssetTypes([A('Strip Retail')], [], CAT).map((e) => e.id))
+      === JSON.stringify(['strip-retail']));
+  check('N6 a VALUE KEY with no asset is kept: the retail companion type is the live case',
+    JSON.stringify(backfillAssetTypes([], ['retail-combined'], CAT))
+      === JSON.stringify([{ id: 'retail-combined', label: 'Retail combined', category: 'Retail' }]));
+  check('N7 a value key with no asset and no catalog entry still gets a readable name, never a blank',
+    backfillAssetTypes([], ['some-old-type'], CAT)[0].label === 'some old type');
+  check('N8 the FIRST real label wins, so a later blank cannot erase an earlier name',
+    backfillAssetTypes([A('Branded Villas', 'bv'), A('', 'bv')], [], CAT)[0].label === 'Branded Villas'
+    && backfillAssetTypes([A('', 'bv'), A('Branded Villas', 'bv')], [], CAT)[0].label === 'Branded Villas');
+  check('N9 it invents NO ORDER: every backfilled row is "never reordered", not "first"',
+    backfillAssetTypes([A('Branded Villas', 'branded-villas'), A('Apartments')], [], CAT)
+      .every((e) => e.sortOrder === undefined));
+  check('N10 it reads no account: the recovery takes assets, value keys and the catalog, nothing else',
+    /export function backfillAssetTypes\(\s*assets:[^)]*valueKeys:[^)]*catalog:[^)]*\):/.test(lib)
+    && !/backfillAssetTypes[\s\S]{0,900}account/i.test(lib));
+
+  // ── The hydrate step ───────────────────────────────────────────────────
+  check('N11 hydrate backfills a project that has no list',
+    (() => {
+      const h = hydrationFromAnySnapshot({
+        project: { name: 'P', assetTypeValues: { 'retail-combined': { parkingRatio: 25 } } },
+        phases: [], parcels: [], subUnits: [], costLines: [],
+        assets: [{ id: 'a1', phaseId: 'p1', name: 'X', type: 'Branded Villas', assetTypeId: 'branded-villas' }],
+      } as never) as { project?: { assetTypes?: AssetTypeStandard[] } };
+      const ids = (h.project?.assetTypes ?? []).map((e) => e.id);
+      return ids.length === 2 && ids.includes('branded-villas') && ids.includes('retail-combined');
+    })());
+  check('N12 it leaves a project that HAS a list alone, an empty list included',
+    (() => {
+      const base = {
+        project: { name: 'P', assetTypes: [] as AssetTypeStandard[] },
+        phases: [], parcels: [], subUnits: [], costLines: [],
+        assets: [{ id: 'a1', phaseId: 'p1', name: 'X', type: 'Branded Villas' }],
+      };
+      // AN EMPTY LIST IS A REAL ANSWER: a user who cleared it meant to.
+      const h = hydrationFromAnySnapshot(base as never) as { project?: { assetTypes?: AssetTypeStandard[] } };
+      return (h.project?.assetTypes ?? ['x']).length === 0;
+    })());
+  check('N13 it writes ONLY names: no value, no asset and no rate is touched, which is why it moves no number',
+    /function seedProjectAssetTypes[\s\S]{0,1400}assetTypes: list/.test(migrateSrc)
+    && !/function seedProjectAssetTypes[\s\S]{0,1400}assetTypeValues:/.test(migrateSrc));
+
+  // ── The store action's two rules ───────────────────────────────────────
+  check('N14 the store drops a row with no id or no label, and admits an id once',
+    storeSrc.includes("if (id === '' || label === '' || seen.has(id)) continue;"));
+
+  // ── What the move bought ───────────────────────────────────────────────
+  check('N15 the change log names WHICH type changed, not just "assetTypes"',
+    /assetTypes: 'id'/.test(diffSrc));
+  check('N16 a NAME is not a scenario dial: the list is gated out of the picker entirely',
+    nonEconomicLeverReason('project.assetTypes[id=villas].label', 'label') !== null
+    && nonEconomicLeverReason('project.assetTypes[id=villas].category', 'category') !== null
+    && nonEconomicLeverReason('project.assetTypes[id=villas].sortOrder', 'sortOrder') !== null
+    // The VALUES stay economic-but-inactive, which is a different gate.
+    && nonEconomicLeverReason('project.assetTypeValues.villas.avgUnitSizeSqm', 'avgUnitSizeSqm') === null);
 
   section('J. Rates carry a unit, and live on the PROJECT');
   check('J1 the values type holds the rate with its unit and the build cost',
@@ -627,11 +760,11 @@ function offlineChecks(): void {
     && !/list=\{`asset-row-types-\$\{asset\.id\}`\}/.test(assetsTab)
     && !assetsTab.includes('<datalist id={`asset-row-types-'));
   check('T9 picking writes BOTH the label and the reference, so they cannot disagree',
-    /return \{ type: choice\.label, assetTypeId: choice\.fromFirm \? choice\.key : undefined \};/.test(assetsTab)
+    /return \{ type: choice\.label, assetTypeId: choice\.fromList \? choice\.key : undefined \};/.test(assetsTab)
     // A catalog-only label gets NO reference: there is no vocabulary entry to
     // point at, and inventing one would put an id in the snapshot the standards
     // tab cannot show.
-    && assetsTab.includes('fromFirm: false'));
+    && assetsTab.includes('fromList: false'));
   check('T10 a stored label on neither list is still selectable, so nothing typed is lost',
     assetsTab.includes("const UNLISTED_TYPE = '__unlisted__'")
     && assetsTab.includes('(not in the list)')
@@ -650,18 +783,17 @@ function offlineChecks(): void {
   // to sit at the END of the row, past the project values, so it read as
   // saving the whole row. Everything it saves now sits beside it, left of a
   // divider, with each half's saving behaviour stated in its own group header.
-  check('S3b every control that needs Save is LEFT of the divider, and the project values are right of it',
+  // S3b RE-AIMED 2026-09-10. It held that everything needing Save sat LEFT of
+  // the divider so a Save button could not read as saving the values to its
+  // right. Nothing needs Save any more: the names joined the values in the
+  // snapshot, so the divider now separates two halves that behave IDENTICALLY,
+  // and what must hold is that no Save button came back.
+  check('S3b NOTHING on the tab has a Save button, and both halves say so',
     tab.includes('const DIVIDER') && tab.includes('TD_PROJECT_FIRST')
     && tab.includes('std-group-firm') && tab.includes('std-group-project')
-    && tab.includes('Press Save to apply a change')
-    && tab.includes('Saves as you type')
-    // THE ORDER IS THE INVARIANT: Save is rendered BEFORE the project values,
-    // so it cannot read as saving them. (A first attempt also matched Save to
-    // Remove within 400 characters, which failed on the good layout because
-    // the tooltips are longer than that: it was asserting the length of a
-    // title attribute, not the arrangement of the row.)
-    && tab.indexOf('std-row-${d.entryId}-save') < tab.indexOf('{valueCells(d.entryId')
-    && tab.includes('the firm\'s half: everything here needs Save'));
+    && !tab.includes('Press Save to apply a change')
+    && !/std-row-\$\{[a-zA-Z.]+}-save/.test(tab)
+    && (tab.match(/Saves as you type/g) ?? []).length === 2);
   check('S4 the Module 6 picker keeps them out, as INACTIVE (economic but unread), not non-economic',
     inactiveLeverReason('project.assetTypeValues.villas.avgUnitSizeSqm', {} as never) !== null
     && inactiveLeverReason('subUnits[su_1].parkingRatio', {} as never) !== null

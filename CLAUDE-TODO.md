@@ -148,31 +148,29 @@ week and pointed at the sole-occupant plot draw (2026-09-07/08), not at today.
 Re-measured against the true boundary, `dcde1cd4`, all five are unchanged. A
 before/after is only as good as its BEFORE (TRAPS 5.1, the same lesson).
 
-### 9. THE STANDARDS TAB SHOWS THE CALLER'S FIRM LIST, THE VALUES BELONG TO THE PROJECT
-**Diagnosed 2026-09-10, not fixed. docs/TRAPS.md 7.35.** `GET /api/refm/asset-types` scopes to
-`resolveAccountId(caller)` (a straight read of the caller's `users.account_id`) and never consults
-the project's owner, while `project.assetTypeValues` is keyed by that list's entry ids. So a
-platform admin opening a client's project types values against their OWN vocabulary, into the
-client's project. Ids are label-derived, so matching labels collide benignly; the damage is where
-the lists differ. Two shapes, both verified by reading: a value under an id the owner lacks becomes
-an ORPHAN for the owner (kept, uneditable, and the banner blames a removal that never happened), and
-picking a type writes `asset.assetTypeId` from the caller's registry, which OUTRANKS the label in
-`resolveAssetTypeKey`, pinning a client's asset to a vocabulary the client does not have. Numbers
-are not corrupted: the chain resolves by the asset's own key.
+### 9. CLOSED 2026-09-10: THE ASSET TYPE LIST MOVED ONTO THE PROJECT
+**Was: the standards tab shows the CALLER'S firm list while the values belong to the project.**
+Diagnosed and fixed the same day; docs/TRAPS.md 7.35 now records the fix.
 
-**THE FIX NEEDS A PRODUCT DECISION, which is why it is here and not done.** Scoping the READ to the
-project owner's account (`?projectId=`, falling back to the caller's account when none) is the
-obvious half. The other half is not: when someone adds or renames a type while inside a client's
-project, whose list does it join, the client's (the vocabulary they will keep seeing) or the
-caller's (the account that pays for it)? A third option is to make the values half READ-ONLY when
-the caller's account is not the owner's, with a banner naming the reason, which is honest and needs
-no new write path. Whichever wins, the values half and the list half must end up scoped the same
-way, which is the whole lesson of 7.35.
+**The decision this was waiting on was made by the founder, and it was neither of the two halves
+written up here.** Scoping the read to the project owner fixes WHO a project asks and leaves
+untouched the fact that an edit made inside one project still reaches every other project on the
+account. So the LIST moved into the snapshot beside the values it keys (`project.assetTypes`),
+which answers the second half by dissolving it: a type added or renamed inside a project joins
+THAT PROJECT's list and no other. The firm's list survives as a TEMPLATE on `refm_asset_types`,
+seeded from on demand and pushed back explicitly, one way, with both ends scoped to the account
+that OWNS the project and refusing rather than falling back to the caller's.
 
-**Reachable today?** Only for a platform admin, since no other cross-account read exists: membership
-is the access check and a member shares the owner's account by construction (`accountBoundary`).
-That is what makes it a hazard rather than an outage, and also what makes it easy to hit exactly
-once, on the first client project an admin enters values on.
+**What it cost: nothing.** All eleven vocabulary rows in the database are reproducible from the
+platform catalog. Projects that predate the move are backfilled at hydrate from what they already
+REFERENCE, never from an account; both live projects recovered five types each with every value
+key attached, and an engine fingerprint over both was byte-identical before and after.
+
+**Two defects the new checks caught in my own work**, both fixed before commit: the backfill's
+"first real label wins" rule pinned the RECOVERED fallback instead (an asset carrying the id with
+no type locked out the real name on the next asset), and the Module 6 gate for the list landed in
+`inactiveLeverReason` when a NAME must be REMOVED from the picker, not badged as inert.
+`verify-asset-type-standards` 99 -> 121.
 
 ### Standing, unchanged from 2026-09-05
 Per-platform seats when a second platform ships (recorded, not built); the

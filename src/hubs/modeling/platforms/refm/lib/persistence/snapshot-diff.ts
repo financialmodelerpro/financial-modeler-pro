@@ -86,6 +86,11 @@ function elementLabel(rec: Record<string, unknown>): string {
 export const PER_ELEMENT_ARRAYS: Record<string, string> = {
   // Per-parcel land funding split: parcelFunding[parcelId=P].debtPct / equityPct.
   parcelFunding: 'parcelId',
+  // The project's asset type list (2026-09-10). Without this the change log
+  // says only "assetTypes changed" when somebody renames one type of nine,
+  // which is the whole value of moving the list into the snapshot lost at the
+  // last step.
+  assetTypes: 'id',
 };
 
 /**

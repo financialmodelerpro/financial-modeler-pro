@@ -1,37 +1,38 @@
 /**
- * /api/refm/asset-types (2026-09-07, land planning step 1, mig 242)
+ * /api/refm/asset-types (2026-09-07, mig 242; the TEMPLATE since 2026-09-10)
  *
- *   GET    -> the calling user's ACCOUNT asset type vocabulary, in the firm's
- *             own order.
- *   POST   -> add or update ONE entry, or seed MANY ({ entries: [...] }, the
- *             "start from the standard list" button). ANY member may write:
- *             this is the firm's vocabulary, the same rule as the cost catalog.
+ * THIS IS A TEMPLATE, NOT THE LIST A PROJECT USES. The list moved into the
+ * project snapshot on 2026-09-10: a firm's projects come from different land
+ * owners and developers, each names its types as its own scheme requires, and
+ * an edit inside one project must never reach another. What survives here is
+ * the firm's STARTING POINT, seeded FROM on demand and pushed BACK explicitly,
+ * and it is read by nothing that computes anything.
+ *
+ *   GET    -> a template. WITHOUT `projectId`, the caller's own account's.
+ *             WITH one, the account that OWNS that project, which is the half
+ *             of docs/TRAPS.md 7.35 that survived the move: a platform admin
+ *             seeding inside a client's project must seed the CLIENT's names,
+ *             not their own. The caller must be able to reach the project.
+ *   POST   -> add or update ONE entry, or MANY ({ entries: [...] }), which is
+ *             what the tab's push writes. `projectId` scopes it the same way
+ *             the GET is scoped, deliberately: a seed that reads one account
+ *             and a push that writes another would be two firms behind one
+ *             word. Gated on `canEditInputs` when a project is named.
  *   PUT    -> reorder ({ order: [entryId, ...] }), ONE batched write.
- *   DELETE -> remove one entry (?entryId=...). A project's VALUES for that
- *             type are deliberately left alone: an account-level edit must not
- *             delete a project's numbers, and the standards tab shows them as
- *             belonging to a type no longer listed.
+ *   DELETE -> remove one entry (?entryId=...). Nothing else is touched: a
+ *             project holds its own copy, so a template edit cannot reach a
+ *             project's numbers at all any more.
  *
  * NAMES ONLY, SINCE MIG 244. The values (unit size, parking ratio and its
- * basis, build cost, revenue rate and its unit) moved into the project
- * snapshot, where they version, diff and change-log like any other input, so
- * this route no longer carries or validates them and nothing is stamped onto
- * an asset. The account-wide parking-area-per-slot PATCH went with them.
+ * basis, build cost, revenue rate and its unit) live in the project snapshot.
  *
- * A BLANK AND A TYPED ZERO ARE DIFFERENT ANSWERS. Standards arrive as
- * `number | null` in JSON: null (or an absent key) stores NULL, 0 stores 0.
- * The parser never coerces (no Number(null) collapse, docs/TRAPS.md 2.4),
- * and the GET response maps NULL back to an ABSENT field so client stamps
- * omit blanks.
- *
- * Auth: NextAuth session required; every query is filtered by the caller's
- * account (resolveAccountId) even though SERVICE_ROLE bypasses RLS. The
+ * Auth: NextAuth session required. Without `projectId` every query is filtered
+ * by the caller's own account (resolveAccountId); with one, the project's
+ * membership is the access check and the OWNER's account is the scope. The
  * application layer is the access boundary, as everywhere else in REFM.
  *
- * FAILS SOFT ON GET, like the cost catalog: nothing here is on a calculation
- * path (selecting a type stamps values onto the ASSET and any consumer reads
- * the asset), so an absent table or failed read returns an empty registry
- * with `available: false` rather than an error.
+ * FAILS SOFT ON GET: nothing here is on a calculation path, so an absent table
+ * or failed read returns an empty template with `available: false`.
  *
  * No em dashes in this file.
  */
@@ -45,6 +46,7 @@ import {
   type AssetTypeStandard,
 } from '@/src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards';
 import { resolveAccountId } from '@/src/shared/admin/accountBoundary';
+import { getProject, getProjectForAction } from '@/src/hubs/modeling/platforms/refm/lib/persistence/server';
 
 const TYPES_TABLE = 'refm_asset_types';
 
@@ -113,16 +115,60 @@ function parseEntry(body: Record<string, unknown>, accountId: string, userId: st
   };
 }
 
+/**
+ * WHOSE TEMPLATE THIS CALL MEANS.
+ *
+ * ONE resolver for all four verbs, so a read and a write can never disagree
+ * about which firm is being talked about. `projectId` names a project: the
+ * scope is its OWNER's account and the caller must be able to reach it (a
+ * write additionally needs `canEditInputs`, since pushing to a firm's template
+ * is a deliberate act and a Viewer does not make them). No `projectId` means
+ * the caller's own account, which is what every call meant before 2026-09-10.
+ *
+ * A project that cannot be reached returns null with a 404-shaped reason
+ * rather than falling back to the caller's account: falling back is how an
+ * admin ends up seeding their own vocabulary into a client's project without
+ * anything on screen saying so.
+ */
+type Scope =
+  | { ok: true; accountId: string }
+  | { ok: false; status: number; error: string };
+
+async function resolveTemplateScope(
+  sb: ReturnType<typeof getServerClient>,
+  userId: string,
+  projectId: string | null,
+  write: boolean,
+): Promise<Scope> {
+  if (projectId !== null && projectId !== '') {
+    const r = write
+      ? await getProjectForAction(userId, projectId, 'canEditInputs')
+      : await getProject(userId, projectId);
+    if (r.error) return { ok: false, status: 503, error: r.error };
+    if (!r.row) return { ok: false, status: 404, error: 'That project is not available to you.' };
+    const owned = await resolveAccountId(sb, r.row.user_id);
+    if (!owned) return { ok: false, status: 503, error: 'The account owning that project could not be resolved.' };
+    return { ok: true, accountId: owned };
+  }
+  const mine = await resolveAccountId(sb, userId);
+  if (!mine) return { ok: false, status: 503, error: 'Your account could not be resolved.' };
+  return { ok: true, accountId: mine };
+}
+
+const projectIdOf = (req: NextRequest): string | null =>
+  new URL(req.url).searchParams.get('projectId');
+
 // ── GET ─────────────────────────────────────────────────────────────────────
-export async function GET(): Promise<NextResponse> {
+export async function GET(req: NextRequest): Promise<NextResponse> {
   const userId = await getRefmUserId();
   if (!userId) return unauthorized();
   try {
     const sb = getServerClient();
-    const accountId = await resolveAccountId(sb, userId);
-    if (!accountId) {
-      return NextResponse.json({ entries: [], available: false, reason: 'no account' });
+    const scope = await resolveTemplateScope(sb, userId, projectIdOf(req), false);
+    if (!scope.ok) {
+      return NextResponse.json({ entries: [], available: false, reason: scope.error });
     }
+    const accountId = scope.accountId;
     const { data, error } = await sb
       .from(TYPES_TABLE)
       .select(ENTRY_COLS)
@@ -165,10 +211,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   try {
     const sb = getServerClient();
-    const accountId = await resolveAccountId(sb, userId);
-    if (!accountId) {
-      return NextResponse.json({ error: 'Your account could not be resolved; nothing was saved.' }, { status: 503 });
-    }
+    const scope = await resolveTemplateScope(sb, userId, projectIdOf(req), true);
+    if (!scope.ok) return NextResponse.json({ error: scope.error }, { status: scope.status });
+    const accountId = scope.accountId;
 
     const rows: Record<string, unknown>[] = [];
     for (const one of bulk ?? [body]) {
@@ -222,10 +267,9 @@ export async function PUT(req: NextRequest): Promise<NextResponse> {
 
   try {
     const sb = getServerClient();
-    const accountId = await resolveAccountId(sb, userId);
-    if (!accountId) {
-      return NextResponse.json({ error: 'Your account could not be resolved; nothing was saved.' }, { status: 503 });
-    }
+    const scope = await resolveTemplateScope(sb, userId, projectIdOf(req), true);
+    if (!scope.ok) return NextResponse.json({ error: scope.error }, { status: scope.status });
+    const accountId = scope.accountId;
     const { data: existing, error: readErr } = await sb
       .from(TYPES_TABLE)
       .select('entry_id, label')
@@ -278,10 +322,9 @@ export async function DELETE(req: NextRequest): Promise<NextResponse> {
 
   try {
     const sb = getServerClient();
-    const accountId = await resolveAccountId(sb, userId);
-    if (!accountId) {
-      return NextResponse.json({ error: 'Your account could not be resolved; nothing was deleted.' }, { status: 503 });
-    }
+    const scope = await resolveTemplateScope(sb, userId, projectIdOf(req), true);
+    if (!scope.ok) return NextResponse.json({ error: scope.error }, { status: scope.status });
+    const accountId = scope.accountId;
     const { error } = await sb
       .from(TYPES_TABLE)
       .delete()

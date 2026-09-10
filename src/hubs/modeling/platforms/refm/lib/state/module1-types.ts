@@ -353,6 +353,28 @@ export const DEFAULT_COVENANTS: CovenantThreshold[] = [
 export interface Project {
   name: string;
   /**
+   * THE PROJECT'S OWN ASSET TYPE LIST (2026-09-10).
+   *
+   * The names used to be the ACCOUNT'S (`refm_asset_types`, mig 242) while the
+   * values beside them were the project's (mig 244), and that split had two
+   * costs. A firm's projects come from different land owners and developers,
+   * so each names its types as its own scheme requires; and an edit inside one
+   * project reached every other, adding a row to their tables or orphaning
+   * their values with a banner that blamed a deletion nobody made.
+   *
+   * So the LIST joins the VALUES here. One scope, one snapshot: it versions,
+   * it diffs, the change log records it, a duplicate takes its own copy, and
+   * the id that keys `assetTypeValues` is minted by a list in the same object
+   * as the values (docs/TRAPS.md 7.35, which this closes).
+   *
+   * THE FIRM'S LIST SURVIVES AS A TEMPLATE, on the account table, seeded FROM
+   * on demand and pushed BACK explicitly. Never read to compute anything.
+   *
+   * ABSENT means a project that predates this; hydrate backfills it from what
+   * the project itself references, never from an account.
+   */
+  assetTypes?: import('./assetTypeStandards').AssetTypeStandard[];
+  /**
    * THE PROJECT'S ASSET TYPE VALUES (2026-09-07, mig 244), keyed by the
    * account vocabulary's entry id (`refm_asset_types.entry_id`, which is what
    * `Asset.assetTypeId` holds).

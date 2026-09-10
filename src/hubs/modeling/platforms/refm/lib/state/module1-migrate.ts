@@ -56,6 +56,8 @@ import {
 } from './module1-types';
 import type { RepaymentMethod } from './module1-types';
 import { resolveCatalogId, findCatalogEntry } from './costCatalog';
+import { backfillAssetTypes } from './assetTypeStandards';
+import { ASSET_TYPE_CATALOG, assetTypeCategory } from './module1-types';
 import { countryMatches } from '@/src/core/countries';
 
 export const SCHEMA_VERSION = 8;
@@ -2196,6 +2198,41 @@ function stampParkingRatioBasis(snapshot: unknown): unknown {
   return { ...s, project: { ...s.project, assetTypeValues: next } };
 }
 
+/**
+ * GIVE A PRE-EXISTING PROJECT ITS OWN ASSET TYPE LIST (2026-09-10).
+ *
+ * The list moved off the account and into the snapshot, so a project saved
+ * before that carries none. It gets one from WHAT IT ALREADY REFERENCES: the
+ * types its assets are, plus any type its `assetTypeValues` hold numbers for.
+ * Never from an account, which is the whole point of the move.
+ *
+ * IT MOVES NO NUMBER, and that is provable rather than argued: it writes only
+ * `project.assetTypes`, a list of names, and touches no value, no asset and no
+ * rate. Nothing in the engine reads it.
+ *
+ * RETURNS THE SAME OBJECT WHEN THERE IS NOTHING TO ADD, so opening a project
+ * cannot mark it dirty: a project that already has a list is left alone, and so
+ * is one with no types to recover at all (an empty project stays empty rather
+ * than gaining an invented list).
+ */
+function seedProjectAssetTypes(snapshot: unknown): unknown {
+  if (!snapshot || typeof snapshot !== 'object') return snapshot;
+  const s = snapshot as { project?: Record<string, unknown>; assets?: unknown };
+  if (!s.project || typeof s.project !== 'object') return snapshot;
+  // ALREADY DECIDED. An empty ARRAY is a real answer (a user who cleared the
+  // list meant to clear it), so only an absent field is backfilled.
+  if (Array.isArray(s.project.assetTypes)) return snapshot;
+
+  const assets = Array.isArray(s.assets)
+    ? (s.assets as { type?: string; assetTypeId?: string }[]) : [];
+  const values = s.project.assetTypeValues;
+  const valueKeys = values && typeof values === 'object' ? Object.keys(values as object) : [];
+  const catalog = ASSET_TYPE_CATALOG.map((label) => ({ label, category: assetTypeCategory(label) }));
+  const list = backfillAssetTypes(assets, valueKeys, catalog);
+  if (list.length === 0) return snapshot;
+  return { ...s, project: { ...s.project, assetTypes: list } };
+}
+
 function repairRawSnapshot(snapshot: unknown): unknown {
   if (!snapshot || typeof snapshot !== 'object') return snapshot;
   const s = snapshot as { phases?: unknown; costLines?: unknown };
@@ -2207,7 +2244,10 @@ function repairRawSnapshot(snapshot: unknown): unknown {
   // earlier repair touches, so the order is not load bearing; it is placed
   // here so the chain reads in the order the repairs were added.
   const opexed = clearSeededDisabledOpexValues(gated) as unknown;
-  return stampParkingRatioBasis(opexed);
+  const based = stampParkingRatioBasis(opexed);
+  // LAST, and it reads what every earlier repair has settled: the asset list
+  // and the value keys. Names only, so it can never disturb them.
+  return seedProjectAssetTypes(based);
 }
 
 export function hydrationFromAnySnapshotChecked(snapshot: unknown): CheckedHydration {
