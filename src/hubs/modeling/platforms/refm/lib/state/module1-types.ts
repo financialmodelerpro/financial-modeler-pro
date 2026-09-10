@@ -438,6 +438,22 @@ export interface Project {
   projectType?: ProjectType;
   // M2.0g (2026-05-06): display scale. Optional; defaults to 'full'
   // when undefined so v7 snapshots keep working unchanged.
+  /**
+   * USE THE AREA CHAIN'S DERIVED SUPPORT AREA (2026-09-10, opt-in per project).
+   *
+   * OFF BY DEFAULT, AND THAT IS THE WHOLE DESIGN. The chain knows an asset's
+   * lobby and service area; the engine only knows what somebody typed as rows
+   * or into `supportArea`, so it charges construction on a BUILT area that is
+   * short by exactly the part nobody typed (measured: 23,841 sqm of BUA on a
+   * Marina line the chain puts at 28,051 of main GFA). Closing that gap ADDS
+   * cost to assets that are already charging on a live model, which is the
+   * opposite of the seeded NSA row: that one corrected an asset charging
+   * NOTHING, and could fire on its own. This one changes numbers a user is
+   * already reading, so the user says when.
+   *
+   * A project that never turns it on is byte-identical for ever.
+   */
+  useDerivedAreas?: boolean;
   displayScale?: DisplayScale;
   // M2.0i Fix 3 (2026-05-07): decimal places for formatted numbers.
   // Optional; defaults to 2 when undefined. 0/1/2/3 are the only user-

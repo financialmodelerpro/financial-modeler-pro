@@ -49,7 +49,7 @@ import {
   reconcileRetailSubUnits,
   type RetailCompanionSpec,
 } from '@/src/core/calculations/retailCompanion';
-import type { LineSubUnitPlan } from '../../components/modules/_shared/assetTableModel';
+import type { DerivedSupportPlan, LineSubUnitPlan } from '../../components/modules/_shared/assetTableModel';
 import { applyStrategySwitch, assetHasStrategyAssumptions } from './strategySwitch';
 import {
   applyOverrides,
@@ -170,6 +170,9 @@ export interface Module1Store {
   /** Seed a line that has no sub-unit, and re-derive every area whose SHARE is
    *  the statement, from the plan the assets tab derives. */
   syncLineSubUnits: (plan: LineSubUnitPlan, mintSubUnitId: () => string) => void;
+  /** Add, refresh or remove the chain's derived SUPPORT row per asset. Opt-in
+   *  per project; a project that never turns it on never sees a write. */
+  syncDerivedSupport: (plan: DerivedSupportPlan) => void;
   addSubUnit: (subUnit: SubUnit) => void;
   updateSubUnit: (id: string, patch: Partial<SubUnit>) => void;
   removeSubUnit: (id: string) => void;
@@ -574,6 +577,52 @@ export function createModule1Store() {
           unitPrice: 0,
         });
       }
+      return { subUnits: next };
+    }),
+
+    /**
+     * THE CHAIN'S SUPPORT AREA, APPLIED.
+     *
+     * The caller supplies a PLAN, as with every other reconcile here: the chain
+     * runs once, in the assets tab, and the decision of what to derive is a
+     * pure function in `_shared/assetTableModel`. This only applies it.
+     *
+     * SAME STATE WHEN NOTHING MOVED, so opening a project cannot mark it dirty.
+     * The area tolerance is the same hundredth of a sqm the allocation check
+     * uses, so float noise never counts as a change.
+     */
+    syncDerivedSupport: (plan) => set((s) => {
+      const byId = new Map(plan.writes.map((w) => [w.id, w] as const));
+      const remove = new Set(plan.removeIds);
+      let changed = false;
+      const next = s.subUnits.filter((u) => {
+        if (!remove.has(u.id)) return true;
+        changed = true;
+        return false;
+      }).map((u) => {
+        const w = byId.get(u.id);
+        if (!w) return u;
+        byId.delete(u.id);
+        if (Math.abs(u.metricValue - w.areaSqm) < 0.01 && u.name === w.name) return u;
+        changed = true;
+        return { ...u, name: w.name, metricValue: w.areaSqm };
+      });
+      for (const w of byId.values()) {
+        if (!s.assets.some((a) => a.id === w.assetId)) continue;
+        changed = true;
+        next.push({
+          id: w.id,
+          assetId: w.assetId,
+          name: w.name,
+          category: 'Support',
+          metric: 'area',
+          metricValue: w.areaSqm,
+          // SUPPORT EARNS NOTHING, by definition: it is the part of the
+          // building that is not sold or let.
+          unitPrice: 0,
+        });
+      }
+      if (!changed) return {};
       return { subUnits: next };
     }),
 

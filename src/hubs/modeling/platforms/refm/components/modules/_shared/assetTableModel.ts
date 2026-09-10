@@ -641,3 +641,88 @@ export function planLineSubUnits(
   }
   return { seeds, reallocations, conversions };
 }
+
+// ── THE CHAIN'S SUPPORT AREA, AS A ROW (2026-09-10, opt-in per project) ────
+//
+// Capex charges construction on the BUILT area, which the engine reads as the
+// sub-unit areas plus the asset's own `supportArea` and `parkingArea`. The
+// chain knows more than that: it derives the lobby and the service share, and
+// on a live line the two differ by a quarter (engine BUA 23,841 against a chain
+// main GFA of 28,051). The gap is not an NSA problem, which the share rule
+// already keeps in step; it is the part of the building nobody types.
+//
+// IT ARRIVES AS A ROW, NOT AS A SECOND OPINION INSIDE A RATE. The chain still
+// reaches no cost method: it produces a Support sub-unit, which is a thing the
+// engine has always read and a user can see, edit and delete. That is what
+// keeps a project with no chain safe (RE HUB derives nothing and its typed
+// 130,874 sqm of BUA stands) rather than one forgotten guard away from charging
+// a zero.
+//
+// SUPPORT IS NOT PART OF NSA, so this moves BUA and GFA and leaves what revenue
+// prices exactly where it was.
+
+/** The deterministic id of an asset's derived support row. Derived, never
+ *  minted from a clock, so re-deriving finds the same row instead of making a
+ *  second one. Same rule the retail companion's id follows. */
+export function derivedSupportId(assetId: string): string {
+  return `support_derived_${assetId}`;
+}
+
+export interface DerivedSupportPlan {
+  /** Rows to add or refresh: the chain's lobby plus service, per asset. */
+  writes: Array<{ id: string; assetId: string; name: string; areaSqm: number }>;
+  /** Rows to remove: their asset now states its own support, or the chain
+   *  stopped deriving one. */
+  removeIds: string[];
+}
+
+/** What one row of the assets tab needs to state for this rule. */
+export interface DerivableRow {
+  assetId: string;
+  assetName: string;
+  /** Whether the asset states its own support area, in a field or a row. When
+   *  it does, nothing is derived: the typed figure stands. */
+  hasTypedSupport: boolean;
+  /** Whether a derived row already exists for this asset. */
+  hasDerivedRow: boolean;
+  /** The chain's own figures. Absent when the chain is not running here. */
+  lobbyGfaSqm?: number;
+  mainAssetGfaSqm?: number;
+  netSaleableSqm?: number;
+}
+
+/**
+ * DERIVE ONLY WHILE NOBODY HAS SAID OTHERWISE (founder's rule, the same one the
+ * retail companion's sub-unit follows).
+ *
+ * A typed support area, in the asset field or in a row of the user's own, wins
+ * and the derived row is REMOVED rather than left to double count. A chain that
+ * stops running removes it too: a stale figure is worse than none, because it
+ * looks derived.
+ */
+export function planDerivedSupport(
+  rows: readonly DerivableRow[],
+  enabled: boolean,
+): DerivedSupportPlan {
+  const writes: DerivedSupportPlan['writes'] = [];
+  const removeIds: string[] = [];
+  for (const r of rows) {
+    const id = derivedSupportId(r.assetId);
+    // LOBBY PLUS SERVICE. Retail has already left the asset entirely (it is its
+    // own companion since step 4), and the service share is what separates the
+    // main asset's floor area from its net saleable area.
+    const lobby = typeof r.lobbyGfaSqm === 'number' && Number.isFinite(r.lobbyGfaSqm) ? Math.max(0, r.lobbyGfaSqm) : undefined;
+    const service = (typeof r.mainAssetGfaSqm === 'number' && typeof r.netSaleableSqm === 'number'
+      && Number.isFinite(r.mainAssetGfaSqm) && Number.isFinite(r.netSaleableSqm))
+      ? Math.max(0, r.mainAssetGfaSqm - r.netSaleableSqm)
+      : undefined;
+    const derivable = enabled && !r.hasTypedSupport && (lobby !== undefined || service !== undefined);
+    const areaSqm = (lobby ?? 0) + (service ?? 0);
+    if (!derivable || areaSqm <= 0) {
+      if (r.hasDerivedRow) removeIds.push(id);
+      continue;
+    }
+    writes.push({ id, assetId: r.assetId, name: `${r.assetName} support and circulation`, areaSqm });
+  }
+  return { writes, removeIds };
+}

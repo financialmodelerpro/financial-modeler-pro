@@ -67,7 +67,23 @@ or a line-level price that cannot be expressed as per-plot rows. Neither exists
 on the live data: every line needing a seeded row had exactly one plot, and the
 one real two-plot line prices correctly as two rows summing to the line.
 
-### 3. Wire the area chain to Capex
+### 3. Wire the area chain to Capex: HALF DONE 2026-09-10, and the half left
+**THE SUPPORT HALF IS DONE, OPT-IN.** `project.useDerivedAreas` derives a
+Support row per asset from the chain's lobby plus service share, so Capex
+charges on the built area rather than only on what somebody typed. The chain
+still reaches NO cost method: it produces a ROW the engine already reads, which
+is what keeps a project with no chain safe (RE HUB derives nothing even with
+the toggle on). CHANGELOG 2026-09-10.
+
+**THE PARKING HALF IS NOT.** GFA is BUA plus `asset.parkingArea`, and the chain
+derives a parking area, but that is a FIELD and not a row: a value the platform
+writes into it cannot be told apart from one the user typed, so the rule
+"derive only while nobody has said otherwise" has nothing to read. It needs its
+own decision first: a provenance flag on the asset, a second opt-in, or a
+parking ROW (which the engine does not have, the M2.0g Parking category having
+been removed). Do not smuggle it in beside the support row.
+
+### The original note, still true of the parking half
 The chain reaches the engine in exactly ONE place today (the retail carve's
 share, see CLAUDE.md's narrowed invariant). Its areas still feed no cost
 method: `rate_per_bua`, `rate_per_nsa`, `rate_per_gfa` and `rate_per_unit` read

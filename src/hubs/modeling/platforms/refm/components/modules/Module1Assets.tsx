@@ -86,6 +86,8 @@ import {
   plotCheckText,
   poolSubUnits,
   primaryParcelId,
+  derivedSupportId,
+  planDerivedSupport,
   planLineSubUnits,
   resolveAssetNsa,
   totalsFromRows,
@@ -411,6 +413,7 @@ export default function Module1Assets(): React.JSX.Element {
     removeSubUnit,
     syncRetailCompanions,
     syncLineSubUnits,
+    syncDerivedSupport,
   } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
@@ -431,6 +434,7 @@ export default function Module1Assets(): React.JSX.Element {
       updateSubUnit: s.updateSubUnit,
       syncRetailCompanions: s.syncRetailCompanions,
       syncLineSubUnits: s.syncLineSubUnits,
+      syncDerivedSupport: s.syncDerivedSupport,
       removeSubUnit: s.removeSubUnit,
     })),
   );
@@ -643,6 +647,39 @@ export default function Module1Assets(): React.JSX.Element {
   useEffect(() => {
     syncLineSubUnits(subUnitPlan, () => mintId('subunit'));
   }, [subUnitPlan, syncLineSubUnits]);
+
+  /**
+   * THE CHAIN'S SUPPORT AREA, OPT-IN PER PROJECT (2026-09-10).
+   *
+   * Capex charges on the BUILT area, which the engine reads as the sub-unit
+   * areas plus the asset's own support and parking fields. The chain knows the
+   * lobby and the service share too, and on a live line the two differ by a
+   * quarter. This closes that gap the way everything else in this tab closes
+   * one: by deriving a ROW the engine already reads, never by letting the chain
+   * reach a cost method.
+   *
+   * OFF UNTIL THE USER SAYS SO, unlike the seeded NSA row. That one corrected an
+   * asset charging NOTHING; this one ADDS cost to assets already charging on a
+   * live model, so the user chooses when their numbers move.
+   */
+  const derivedSupportPlan = useMemo(() => planDerivedSupport(
+    rowGroups.flatMap((g) => g.rows).map((r) => ({
+      assetId: r.asset.id,
+      assetName: assetDisplayName(r.asset),
+      // TYPED WINS, in the field or in a row of the user's own. The derived row
+      // is excluded from that test by its own id, or it would see itself and
+      // stand down for ever.
+      hasTypedSupport: Math.max(0, r.asset.supportArea ?? 0) > 0
+        || subUnits.some((u) => u.assetId === r.asset.id && u.category === 'Support'
+          && u.id !== derivedSupportId(r.asset.id)),
+      hasDerivedRow: subUnits.some((u) => u.id === derivedSupportId(r.asset.id)),
+      lobbyGfaSqm: r.chain.lobbyGfaSqm,
+      mainAssetGfaSqm: r.chain.mainAssetGfaSqm,
+      netSaleableSqm: r.chain.netSaleableSqm,
+    })),
+    project.useDerivedAreas === true,
+  ), [rowGroups, subUnits, project.useDerivedAreas]);
+  useEffect(() => { syncDerivedSupport(derivedSupportPlan); }, [derivedSupportPlan, syncDerivedSupport]);
 
   /** Add a sub-unit to a chosen parent, seeded exactly as the per-asset
    *  button seeds one, so the two entry points cannot diverge. */
@@ -1018,6 +1055,7 @@ export default function Module1Assets(): React.JSX.Element {
         retailByLineKey={retailByLineKey}
         retailLand={retailLand}
         parcelsTotalSqm={parcelsTotalSqm}
+        onToggleDerivedAreas={(next) => setProject({ useDerivedAreas: next })}
         allAssets={assets}
         allPhases={phases}
         parcels={parcels}
@@ -1402,6 +1440,8 @@ interface AssetTableProps {
   retailLand: RetailLandView;
   /** Every plot's area, so a total row can say whether the Land column foots. */
   parcelsTotalSqm: number;
+  /** The opt-in that lets the chain's support area reach the model. */
+  onToggleDerivedAreas: (next: boolean) => void;
   /** Table 4: the merge, per line. */
   lineGroups: ConsolidationGroup[];
   allAssets: Asset[];
@@ -2087,10 +2127,15 @@ function AssetInputsTable({
  * being readable.
  */
 
-function AssetResultsTable({ rowGroups, retailLand, parcelsTotalSqm }: {
+function AssetResultsTable({
+  rowGroups, retailLand, parcelsTotalSqm, useDerivedAreas, onToggleDerivedAreas,
+}: {
   rowGroups: RowGroup[];
   retailLand: RetailLandView;
   parcelsTotalSqm: number;
+  /** Opt-in, per project: see the checkbox below and Project.useDerivedAreas. */
+  useDerivedAreas?: boolean;
+  onToggleDerivedAreas: (next: boolean) => void;
 }): React.JSX.Element {
   // TWENTY columns, and the count is stated once. It was 19 in three places
   // (here, the colgroup and the band row) against 20 real columns, so the last
@@ -2120,6 +2165,28 @@ function AssetResultsTable({ rowGroups, retailLand, parcelsTotalSqm }: {
           Read only, and read by no calculation. The chain runs once per plot. Same rows,
           same order as the table above.
         </span>
+        {/* THE ONE THING ON THIS TABLE THAT CHANGES A NUMBER (2026-09-10), and
+            it is off until someone turns it on. Capex charges on the BUILT
+            area, which the engine reads from the sub-unit rows plus the
+            asset's own support and parking; the chain also knows the lobby and
+            the service share, and where nobody has typed a support area the
+            engine is short by exactly that. Turning this on derives a Support
+            ROW per asset, which the engine has always read, so the chain still
+            reaches no cost method. It ADDS cost to assets already charging, so
+            it is the user's call and never automatic. */}
+        <label
+          style={{ fontSize: 10, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', whiteSpace: 'nowrap' }}
+          title="Derive a Support row from the chain's lobby and service area for any asset that has not typed one, so construction charges on the built area rather than only on what someone typed. A typed support area always wins. Off by default: this ADDS cost to assets that are already charging."
+        >
+          <input
+            type="checkbox"
+            data-view-editable="true"
+            data-testid="assets-use-derived-areas"
+            checked={useDerivedAreas === true}
+            onChange={(e) => onToggleDerivedAreas(e.target.checked)}
+          />
+          Use the chain&apos;s support area in the model
+        </label>
       </div>
       {/* WHICH VOCABULARY IS IN FORCE, stated, because no reader can infer it.
           THE DISPLAY CARRIES INDUSTRY WORDS; the internal fields invert the
@@ -2589,7 +2656,7 @@ function MergedLineTable({
 
 /** The four asset tables, stacked, from ONE resolved row list. */
 function AssetTables({
-  rowGroups, lineGroups, retailByLineKey, retailLand, parcelsTotalSqm,
+  rowGroups, lineGroups, retailByLineKey, retailLand, parcelsTotalSqm, onToggleDerivedAreas,
   allAssets, allPhases, parcels, subUnits, project,
   landAllocationMode, assetTypeRegistry, typeChoices, onUpdateAsset, onRemoveAsset, onAddAsset,
 }: AssetTableProps): React.JSX.Element {
@@ -2619,6 +2686,8 @@ function AssetTables({
         rowGroups={rowGroups}
         retailLand={retailLand}
         parcelsTotalSqm={parcelsTotalSqm}
+        useDerivedAreas={project.useDerivedAreas}
+        onToggleDerivedAreas={onToggleDerivedAreas}
       />
       <MergedLineTable
         lineRowGroups={lineRowGroups}

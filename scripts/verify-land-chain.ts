@@ -45,9 +45,12 @@ import {
   poolSubUnits,
   primaryParcelId,
   resolveAssetNsa,
+  derivedSupportId,
+  planDerivedSupport,
   totalsFromRows,
   UNPLOTTED_GROUP,
   type AssetPlotGroup,
+  type DerivableRow,
   type ResolvedNsa,
   type TotalledRow,
 } from '../src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel';
@@ -1371,6 +1374,46 @@ function offlineChecks(): void {
   // control nobody finds is a control that does not exist. It is now beside the
   // plot NAME on the band, and the LAND table carries the same one, because
   // that is where a user who has just typed a plot looks next.
+  // ── U68 to U72. THE CHAIN'S SUPPORT AREA, OPT-IN PER PROJECT (2026-09-10) ─
+  //
+  // Capex charges on the BUILT area, which the engine reads from the sub-unit
+  // rows plus the asset's own support and parking. The chain also derives the
+  // lobby and the service share, so where nobody typed a support area the
+  // engine is short by exactly that (measured: a Marina line at 23,841 sqm of
+  // BUA that the chain puts at 28,051 of main GFA). It arrives as a ROW the
+  // engine already reads; the chain still reaches no cost method.
+  const drow = (over: Partial<DerivableRow> = {}): DerivableRow => ({
+    assetId: 'a1', assetName: 'Tower', hasTypedSupport: false, hasDerivedRow: false,
+    lobbyGfaSqm: 1000, mainAssetGfaSqm: 9000, netSaleableSqm: 7000, ...over,
+  });
+  check('U68 OFF derives nothing at all, which is what makes a live model safe to open',
+    planDerivedSupport([drow()], false).writes.length === 0
+    && planDerivedSupport([drow()], false).removeIds.length === 0);
+  check('U69 ON derives LOBBY plus SERVICE, and nothing else',
+    // 1,000 of lobby + (9,000 - 7,000) of service.
+    planDerivedSupport([drow()], true).writes[0]?.areaSqm === 3000
+    && planDerivedSupport([drow()], true).writes[0]?.id === derivedSupportId('a1'),
+    String(planDerivedSupport([drow()], true).writes[0]?.areaSqm));
+  // U70 IS THE FOUNDER'S RULE: derive only while nobody has said otherwise.
+  check('U70 a TYPED support area wins, and an existing derived row stands down rather than double counting',
+    planDerivedSupport([drow({ hasTypedSupport: true })], true).writes.length === 0
+    && planDerivedSupport([drow({ hasTypedSupport: true, hasDerivedRow: true })], true)
+      .removeIds[0] === derivedSupportId('a1'));
+  check('U71 a chain that is not running derives nothing, and REMOVES a row it used to derive',
+    planDerivedSupport([drow({ lobbyGfaSqm: undefined, mainAssetGfaSqm: undefined, netSaleableSqm: undefined })], true)
+      .writes.length === 0
+    // A stale derived figure is worse than none, because it still looks derived.
+    && planDerivedSupport([drow({ lobbyGfaSqm: undefined, mainAssetGfaSqm: undefined, netSaleableSqm: undefined, hasDerivedRow: true })], true)
+      .removeIds.length === 1
+    // And an asset whose lobby and service are both zero is not given an empty row.
+    && planDerivedSupport([drow({ lobbyGfaSqm: 0, mainAssetGfaSqm: 5000, netSaleableSqm: 5000 })], true).writes.length === 0);
+  check('U72 the toggle is a PROJECT input, off by default, and the tab gates the plan on it',
+    tabSrc.includes('data-testid="assets-use-derived-areas"')
+    && tabSrc.includes('project.useDerivedAreas === true')
+    && tabSrc.includes('setProject({ useDerivedAreas: next })')
+    // SUPPORT IS NOT PART OF NSA, so what revenue prices cannot move with it.
+    // Run rather than read: the categories that make NSA are the three below.
+    && ['Sellable', 'Operable', 'Leasable'].every((c) => c !== 'Support'));
   check('U65 the picker sits beside the plot NAME, not trailing the check sentence',
     // Inside the first cell, which is the one holding the label and the count.
     /\{g\.assets\.length\} asset\{g\.assets\.length === 1 \? '' : 's'\}\s*<\/span>\s*\{\/\* ADD AN ASSET AND SAY WHAT IT IS/.test(tabSrc)
