@@ -1968,6 +1968,34 @@ export function isRetiredCostMethod(m: CostMethod): boolean {
   return (RETIRED_COST_METHODS as readonly string[]).includes(m);
 }
 
+/**
+ * WHAT A PICKER MAY OFFER, in ONE place (2026-09-11).
+ *
+ * Three pickers offered three different sets, each with its own inline filter,
+ * and all three had drifted:
+ *
+ *   The add-line picker and the per-asset row picker both hid
+ *   `rate_per_parking_bay`. That was right while the field it multiplies was
+ *   seeded at 0 and written by nothing, which is the state `assetTableModel`
+ *   recorded; the derived-areas change of 2026-09-10 gave it a real quantity
+ *   and neither filter was updated, so a method that exists and computes could
+ *   not be picked on the row where anyone would pick it.
+ *
+ *   The per-asset row picker ignored RETIRED_COST_METHODS entirely, so the two
+ *   methods the other pickers hide were offered there, which is the whole
+ *   point of retiring them lost on the one surface a user edits most.
+ *
+ * A RETIRED METHOD IS STILL OFFERED TO A LINE ALREADY ON IT, and that is not a
+ * loophole: a `<select>` whose value is absent from its options renders as the
+ * first option, so hiding it outright would make an Infrastructure line on
+ * `rate_per_nda` display as 'Fixed Amount' and rewrite itself on the next
+ * change event. RE HUB carries two such lines. `current` is how the row says
+ * what it already holds.
+ */
+export function selectableCostMethods(current?: CostMethod): readonly CostMethod[] {
+  return COST_METHODS.filter((m) => !isRetiredCostMethod(m) || m === current);
+}
+
 export const COST_METHOD_LABELS: Record<CostMethod, string> = {
   fixed:                   'Fixed Amount',
   rate_per_land:           'Rate × Land Area',

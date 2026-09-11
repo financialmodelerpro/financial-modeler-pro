@@ -48,8 +48,7 @@ import {
   type CostInputMode,
   type CostCategory,
   type CostDriver,
-  COST_METHODS,
-  isRetiredCostMethod,
+  selectableCostMethods,
   COST_METHOD_LABELS,
   COST_PHASING_OPTIONS,
   COST_STAGES,
@@ -375,7 +374,7 @@ function AddCatalogEntryForm({
       <div>
         <span style={labelStyle}>Method</span>
         <select value={method} onChange={(e) => setMethod(e.target.value as CostMethod)} style={fieldStyle} data-testid={`${testId}-method`}>
-          {COST_METHODS.filter((m) => m !== 'rate_per_parking_bay' && !isRetiredCostMethod(m)).map((m) => (
+          {selectableCostMethods(method).map((m) => (
             <option key={m} value={m}>{COST_METHOD_LABELS[m]}</option>
           ))}
         </select>
@@ -531,7 +530,7 @@ function CustomCostPopup({ phaseId, assetId, constructionPeriods, onClose, onSav
               style={inputStyle}
               data-testid="custom-cost-method"
             >
-              {COST_METHODS.filter((m) => !isRetiredCostMethod(m)).map((m) => (
+              {selectableCostMethods(method).map((m) => (
                 <option key={m} value={m}>{COST_METHOD_LABELS[m]}</option>
               ))}
             </select>
@@ -1305,7 +1304,7 @@ function CostRow({
           data-testid={`cost-${asset.id}-${line.id}-method`}
           title={COST_METHOD_LABELS[effMethod]}
         >
-          {COST_METHODS.filter((m) => m !== 'rate_per_parking_bay').map((m) => (
+          {selectableCostMethods(effMethod).map((m) => (
             <option key={m} value={m}>{COST_METHOD_LABELS[m]}</option>
           ))}
         </select>

@@ -41,6 +41,7 @@ import {
   resolveAssetFootprintArea, resolveAssetLandscapeArea, deriveCostStage, landRateIssueText,
 } from '../src/core/calculations';
 import { eligibleBaseLines, assetVisibleLines } from '../src/core/calculations/selectedBase';
+import { selectableCostMethods } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { repairStaleWizardCostWindows } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
 import { buildWizardSnapshot } from '../src/hubs/modeling/platforms/refm/lib/wizard/buildWizardSnapshot';
 import type { HydrateSnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-store';
@@ -619,6 +620,28 @@ section('K. Area x unit size = count: only two of the three are inputs');
       && (capexSrc2.match(new RegExp(m, 'g')) ?? []).length === 2
       && engineSrc2.includes(`case '${m}':`)),
     NEW_METHODS.filter((m) => !engineSrc2.includes(`case '${m}':`)).join(',') || 'all registered');
+  // P4b A PICKER OFFERS WHAT EXISTS, and all three pickers offer the SAME
+  // thing. Each had its own inline filter and all three had drifted: two hid
+  // `rate_per_parking_bay`, which was right while the field it multiplies was
+  // seeded at 0 and written by nothing and wrong the moment the derived bag
+  // gave it a quantity, and the per-asset row picker ignored the retired list
+  // altogether. There is ONE rule now and the pickers call it.
+  check('P4b the three cost-method pickers share ONE rule, so they cannot offer different sets',
+    (costsSrc2.match(/selectableCostMethods\(/g) ?? []).length === 3
+    && !costsSrc2.includes('COST_METHODS.filter')
+    && !costsSrc2.includes("m !== 'rate_per_parking_bay'"));
+  check('P4c every method that computes can be picked, the new three and the parking bay included',
+    [...NEW_METHODS, 'rate_per_parking_bay', 'rate_x_parking_area']
+      .every((m) => (selectableCostMethods() as readonly string[]).includes(m)));
+  check('P4d a RETIRED method is offered only to a line already on it, never to a new one',
+    !(selectableCostMethods() as readonly string[]).includes('rate_per_nda')
+    && (selectableCostMethods('rate_per_nda') as readonly string[]).includes('rate_per_nda')
+    // A select whose value is absent from its options renders as the FIRST
+    // option and rewrites itself on the next change event. RE HUB carries two
+    // rate_per_nda lines, so this is the difference between hiding a method
+    // and silently converting a live cost line to Fixed Amount.
+    && (selectableCostMethods('rate_per_nda') as readonly string[])[0] !== 'rate_per_nda');
+
   // P5 THE RETIRED METHOD STAYS RETIRED. Re-pointing rate_per_nda at the
   // chain's utilised land would change what every stored line means without
   // anybody editing it, which is why the new method is a NEW one.
