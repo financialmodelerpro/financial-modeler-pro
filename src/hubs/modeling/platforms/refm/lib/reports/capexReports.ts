@@ -476,30 +476,15 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
 
   const results: CapexResultTable[] = [];
 
-  // Table 1: per-cost-line, per-asset schedule.
-  const t1Rows: M4Row[] = [];
-  for (const ac of assetCapex) {
-    if (!anyNonZero(ac.inclAll)) continue;
-    t1Rows.push({ label: ac.name, values: [], isSection: true });
-    for (const ln of ac.perLine) t1Rows.push({ label: ln.name, values: ln.values, indent: 1 });
-    t1Rows.push({ label: `Subtotal, ${ac.name}`, values: ac.inclAll, isSubtotal: true });
-  }
-  if (t1Rows.length) {
-    t1Rows.push({ label: 'Project Total (incl. all land)', values: totalInclAll, isTotal: true });
-    results.push({ title: 'Capex Schedule by Period (per cost line, per asset)', rows: t1Rows });
-  }
-
   /**
-   * TABLES 2-4 CONSOLIDATE BY PHASE AND TYPE (2026-09-10).
+   * TABLES 1-4 ALL CONSOLIDATE BY PHASE AND TYPE (2026-09-10, table 1 joined
+   * them 2026-09-11).
    *
    * They were per asset, so a phase holding four Branded Villas plots printed
    * four rows here while table 4 of the assets tab printed ONE line, and the
    * two could not be read against each other. The key is not recomputed: it is
    * `groupAssetsForConsolidation`, the same function the assets tab groups by,
    * so the summary and that table agree by construction.
-   *
-   * TABLE 1 STAYS PER ASSET. It is the cost-line schedule, and a cost line
-   * belongs to a plot: merging it would hide which plot carries which rate.
    *
    * AN ASSET IN NO GROUP KEEPS ITS OWN ROW. `groupAssetsForConsolidation`
    * excludes companions by design (a companion is not a plot), and the retail
@@ -523,6 +508,54 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
     return out;
   };
 
+  const multiPhase = phases.length > 1;
+  /** The line's heading: its own label, with the phase in front where the
+   *  project has more than one. Tables 2-4 put the phase in its own COLUMN;
+   *  an M4Row has no column to spare, so it rides in the label here, once. */
+  const lineHeading = (ln: { label: string; phaseName: string }): string =>
+    multiPhase && ln.phaseName !== '' ? `${ln.phaseName}: ${ln.label}` : ln.label;
+
+  /**
+   * TABLE 1 IS THE LINE'S SCHEDULE, WITH ITS PLOTS INSIDE IT (2026-09-11).
+   *
+   * It was one block per plot, in asset order, so the two Phase 1 Branded
+   * Villas plots sat apart with a retail companion and another phase's plots
+   * between them, and a reader adding up what one LINE spends had to find its
+   * blocks first. The blocks are the same blocks and every number in them is
+   * unchanged; what moved is the order and the wrapper.
+   *
+   * THE WRAPPER IS RENDERED ONLY WHERE IT DOES WORK. A line holding ONE plot
+   * is that plot, so a heading naming the line above a heading naming the plot
+   * would say the same thing twice, and a line subtotal would repeat the plot
+   * subtotal one row above it. Measured: 12 of the 13 lines across the two live
+   * projects hold exactly one plot, so a blanket wrapper would have added two
+   * redundant rows to almost every block to serve the one that needs it.
+   */
+  const t1Rows: M4Row[] = [];
+  for (const ln of summaryLines) {
+    const members = ln.members.filter((ac) => anyNonZero(ac.inclAll));
+    if (members.length === 0) continue;
+    const wrapped = members.length > 1;
+    if (wrapped) t1Rows.push({ label: lineHeading(ln), values: [], isSection: true });
+    const depth = wrapped ? 1 : 0;
+    for (const ac of members) {
+      t1Rows.push({ label: ac.name, values: [], isSection: true, indent: depth });
+      for (const l of ac.perLine) t1Rows.push({ label: l.name, values: l.values, indent: depth + 1 });
+      t1Rows.push({ label: `Subtotal, ${ac.name}`, values: ac.inclAll, isSubtotal: true, indent: depth });
+    }
+    if (wrapped) {
+      t1Rows.push({
+        label: `Subtotal, ${lineHeading(ln)}`,
+        values: sumOver(members, (ac) => ac.inclAll),
+        isSubtotal: true,
+      });
+    }
+  }
+  if (t1Rows.length) {
+    t1Rows.push({ label: 'Project Total (incl. all land)', values: totalInclAll, isTotal: true });
+    results.push({ title: 'Capex Schedule by Period (per cost line, by line and plot)', rows: t1Rows });
+  }
+
   /**
    * A SUBTOTAL PER PHASE, INSIDE THE TABLE (2026-09-11).
    *
@@ -534,7 +567,6 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
    * subtotal would repeat the grand total one row above it, which says nothing
    * and invites the reader to wonder what the difference is.
    */
-  const multiPhase = phases.length > 1;
   const summaryTable = (title: string, pick: (ac: AssetCapex) => number[], total: number[], totalLabel: string): CapexResultTable => {
     const rows: M4Row[] = [];
     let phaseId: string | null = null;

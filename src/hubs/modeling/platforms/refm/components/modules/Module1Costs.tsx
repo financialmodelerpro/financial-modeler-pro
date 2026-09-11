@@ -2914,14 +2914,42 @@ function SummaryTables({
               </tr>
             </thead>
             <tbody>
-              {phaseAssets.map((a) => {
+              {(() => {
+                /**
+                 * TABLE 1 IS THE LINE'S SCHEDULE, WITH ITS PLOTS INSIDE IT
+                 * (2026-09-11), grouped through the SAME planner tables 2 to 4
+                 * and the exports use, so no two capex surfaces disagree about
+                 * what a row is. Every block below is the block it already was
+                 * and every number in it is unchanged; what moved is the ORDER
+                 * (a line's plots are adjacent, and a retail companion sits
+                 * under the line it carves from rather than wherever the asset
+                 * array happened to put it) and the WRAPPER.
+                 *
+                 * THE WRAPPER IS RENDERED ONLY WHERE IT DOES WORK. A line
+                 * holding one plot IS that plot, so a heading naming the line
+                 * above a heading naming the plot would say the same thing
+                 * twice, and a line subtotal would repeat the plot subtotal one
+                 * row above it.
+                 */
+                const plan = planCapexSummaryLines(
+                  phaseAssets as unknown as CapexPlannableAsset[],
+                  phases,
+                  (id) => phaseAssets.find((x) => x.id === id)?.name ?? id,
+                );
+                const manyPhases = phases.length > 1;
+                const lineHeading = (ln: { label: string; phaseName: string }): string =>
+                  manyPhases && ln.phaseName !== '' ? `${ln.phaseName}: ${ln.label}` : ln.label;
+                const projectStartYear = new Date(project.startDate).getUTCFullYear();
+                /** ONE asset on the project axis, incl. all land. Read twice:
+                 *  by the block that renders it and by the line subtotal that
+                 *  sums it, so the offset rule is stated once. */
+                const assetSeries = (a: Asset): { total: number; annual: number[] } => {
                 // Asset subtotal row + per-line nested rows. M2.0h Fix 6:
                 // annual values transformed to display granularity.
                 // M2.0j Fix 11 audit: phase perPeriod[i+1] now offsets
                 // by (phaseStartYear - projectStartYear) so Phase 2
                 // (start 2026) Y1 lands in project column "Dec 26",
                 // not "Dec 25".
-                const projectStartYear = new Date(project.startDate).getUTCFullYear();
                 const assetRowAnnual = new Array<number>(annualPeriodCount).fill(0);
                 let assetTotal = 0;
                 for (const pb of perPhaseBreakdowns) {
@@ -2962,6 +2990,10 @@ function SummaryTables({
                     assetRowAnnual[upfrontCol] += bd.perPeriod[0] ?? 0;
                   }
                 }
+                  return { total: assetTotal, annual: assetRowAnnual };
+                };
+                const renderAsset = (a: Asset, depth: number): React.JSX.Element | null => {
+                const { total: assetTotal, annual: assetRowAnnual } = assetSeries(a);
                 // M2.0j Fix 12: hide zero-value asset rows from Results.
                 if (assetTotal === 0) return null;
                 const assetRow = transformAnnualSeries(assetRowAnnual);
@@ -2988,7 +3020,7 @@ function SummaryTables({
                     {resultsView === 'combined' && (
                       <tr data-testid={`capex-period-asset-${a.id}`}>
                         <td
-                          style={{ ...ROW_ASSET_HEADING.name, padding: '6px 6px' }}
+                          style={{ ...ROW_ASSET_HEADING.name, padding: '6px 6px', paddingLeft: 6 + depth * 14 }}
                           colSpan={2 + periodAxis.count}
                           data-testid={`capex-period-asset-${a.id}-header`}
                         >
@@ -3041,7 +3073,7 @@ function SummaryTables({
                       const linePerPeriod = transformAnnualSeries(linePerPeriodAnnual);
                       return (
                         <tr key={`${a.id}-${line.id}`} data-testid={`capex-period-line-${a.id}-${line.id}`}>
-                          <td style={{ ...ROW_DATA.name, paddingLeft: 24, color: 'var(--color-meta)' }}>{line.name}</td>
+                          <td style={{ ...ROW_DATA.name, paddingLeft: 24 + depth * 14, color: 'var(--color-meta)' }}>{line.name}</td>
                           <td style={ROW_DATA.num}>{fmt(lineTotal)}</td>
                           <td style={ROW_DATA.num} data-testid={`capex-period-line-${a.id}-${line.id}-prior`}>{fmt(PRIOR_ZERO)}</td>
                           {cropRow(linePerPeriod).map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmt(v)}</td>))}
@@ -3050,7 +3082,7 @@ function SummaryTables({
                     })}
                     {resultsView === 'combined' ? (
                       <tr data-testid={`capex-period-asset-${a.id}-subtotal`}>
-                        <td style={ROW_SUBTOTAL.name}>
+                        <td style={{ ...ROW_SUBTOTAL.name, paddingLeft: depth > 0 ? 14 : undefined }}>
                           Subtotal - {a.name}
                         </td>
                         <td style={ROW_SUBTOTAL.num} data-testid={`capex-period-asset-${a.id}-total`}>{fmt(assetTotal)}</td>
@@ -3069,7 +3101,49 @@ function SummaryTables({
                     )}
                   </React.Fragment>
                 );
-              })}
+                };
+                const out: React.JSX.Element[] = [];
+                for (const ln of plan) {
+                  const members = ln.assetIds
+                    .map((id) => phaseAssets.find((x) => x.id === id))
+                    .filter((x): x is Asset => x !== undefined)
+                    .filter((x) => assetSeries(x).total !== 0);
+                  if (members.length === 0) continue;
+                  const wrapped = members.length > 1;
+                  if (wrapped) {
+                    out.push(
+                      <tr key={`capex-period-line-${ln.key}`} data-testid={`capex-period-line-${ln.key}`}>
+                        <td style={{ ...ROW_ASSET_HEADING.name, padding: '6px 6px' }} colSpan={2 + periodAxis.count}>
+                          {lineHeading(ln)}
+                        </td>
+                      </tr>,
+                    );
+                  }
+                  for (const a of members) {
+                    const block = renderAsset(a, wrapped ? 1 : 0);
+                    if (block) out.push(block);
+                  }
+                  if (wrapped) {
+                    let lineTotal = 0;
+                    const lineAnnual = new Array<number>(annualPeriodCount).fill(0);
+                    for (const a of members) {
+                      const s2 = assetSeries(a);
+                      lineTotal += s2.total;
+                      for (let i = 0; i < annualPeriodCount; i++) lineAnnual[i] += s2.annual[i] ?? 0;
+                    }
+                    const lineRow = transformAnnualSeries(lineAnnual);
+                    out.push(
+                      <tr key={`capex-period-line-${ln.key}-subtotal`} data-testid={`capex-period-line-${ln.key}-subtotal`}>
+                        <td style={ROW_SUBTOTAL.name}>Subtotal - {lineHeading(ln)}</td>
+                        <td style={ROW_SUBTOTAL.num} data-testid={`capex-period-line-${ln.key}-total`}>{fmt(lineTotal)}</td>
+                        <td style={ROW_SUBTOTAL.num}>{fmt(PRIOR_ZERO)}</td>
+                        {cropRow(lineRow).map((v, i) => (<td key={i} style={ROW_SUBTOTAL.num}>{fmt(v)}</td>))}
+                      </tr>,
+                    );
+                  }
+                }
+                return out;
+              })()}
               {resultsView === 'combined' && (() => {
                 // Project Total grand-total row: sum every visible asset's
                 // assetTotal + annual row using the SAME phase-offset

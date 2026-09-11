@@ -138,6 +138,67 @@ function main(): void {
   const t1 = rep.results.find((r) => r.title.startsWith('Capex Schedule by Period'));
   check('per-line schedule table present', !!t1);
 
+  /**
+   * TABLE 1 IS THE LINE'S SCHEDULE, WITH ITS PLOTS INSIDE IT (2026-09-11).
+   *
+   * It was one block per plot in ASSET ORDER, so a line's plots sat apart with
+   * other lines and another phase's plots between them, and a reader adding up
+   * what one line spends had to find its blocks first.
+   *
+   * THE WRAPPER IS CONDITIONAL, which is the half a shape check would miss: a
+   * line holding ONE plot is that plot, so a heading naming the line above a
+   * heading naming the plot, and a line subtotal repeating the plot subtotal
+   * one row above it, would be two redundant rows on almost every block. So
+   * this asserts BOTH directions, on two fixtures.
+   */
+  {
+    const two = buildState();
+    // A SECOND PLOT OF THE SAME TYPE IN THE SAME PHASE, which is the only shape
+    // that earns a wrapper. Both carry a type, because an untyped asset keys to
+    // a different line.
+    const first: any = two.assets[0];
+    first.type = 'Branded Villas';
+    const second: any = { ...first, id: 'R2', revenue: { sell: { ...first.revenue.sell, assetId: 'R2', subUnits: [{ ...first.revenue.sell.subUnits[0], subUnitId: 'rsu2' }] } } };
+    two.assets = [first, second, two.assets[1]];
+    two.subUnits = [...two.subUnits, { ...two.subUnits[0], id: 'rsu2', assetId: 'R2' }];
+    const snapTwo = computeFinancialsSnapshot(two);
+    const repTwo = buildCapexReport(snapTwo, two);
+    const tblTwo = repTwo.results.find((r) => r.title.startsWith('Capex Schedule by Period'));
+    const rowsTwo = tblTwo?.rows ?? [];
+    const wrappers = rowsTwo.filter((r) => r.isSection && (r.indent ?? 0) === 0 && rowsTwo.some((q) => q.isSection && (q.indent ?? 0) === 1));
+    const nested = rowsTwo.filter((r) => r.isSection && (r.indent ?? 0) === 1);
+    check('T1a a line holding two plots is wrapped, with both plots nested inside it',
+      nested.length === 2 && wrappers.length >= 1,
+      `nested=${nested.length} wrappers=${wrappers.length}`);
+    const lineSub = rowsTwo.find((r) => r.isSubtotal && (r.indent ?? 0) === 0 && r.label.includes('Branded Villas') && !r.label.includes('R1') && !r.label.includes('R2'));
+    const plotSubs = rowsTwo.filter((r) => r.isSubtotal && (r.indent ?? 0) === 1);
+    check('T1b the line subtotal is the sum of its plots, to the cent',
+      lineSub !== undefined && plotSubs.length === 2
+      && lineSub.values.every((v, i) => Math.abs(v - plotSubs.reduce((s, r) => s + (r.values[i] ?? 0), 0)) < 0.005),
+      `lineSub=${lineSub ? lineSub.label : 'none'} plotSubs=${plotSubs.length}`);
+    check('T1c and the schedule still foots to the project total',
+      (() => {
+        const total = rowsTwo.find((r) => r.isTotal)?.values ?? [];
+        const summed = A(N);
+        // Only the deepest rows, the cost lines: every subtotal above them
+        // repeats money that is already counted.
+        const deepest = rowsTwo.filter((r) => !r.isTotal && !r.isSection && !r.isSubtotal);
+        for (const r of deepest) for (let i = 0; i < N; i++) summed[i] += r.values[i] ?? 0;
+        return summed.every((v, i) => Math.abs(v - (total[i] ?? 0)) < 1);
+      })());
+    // THE OTHER DIRECTION. The one-plot fixture must gain NOTHING: no nested
+    // section, and no subtotal whose value repeats the row above it.
+    const rowsOne = (rep.results.find((r) => r.title.startsWith('Capex Schedule by Period'))?.rows ?? []);
+    check('T1d a line holding one plot is NOT wrapped, so no heading or subtotal repeats',
+      rowsOne.every((r) => (r.indent ?? 0) === 0 || !r.isSection)
+      && rowsOne.filter((r) => r.isSubtotal).every((r, i, arr) => {
+        const prev = arr[i - 1];
+        return prev === undefined || !prev.values.every((v, k) => Math.abs(v - (r.values[k] ?? 0)) < 0.005);
+      }),
+      rowsOne.filter((r) => r.isSection).map((r) => `${r.indent ?? 0}:${r.label}`).join(' | '));
+  }
+
+
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
   if (fail > 0) { console.log('Failures:', failures.join(', ')); process.exit(1); }
 }
