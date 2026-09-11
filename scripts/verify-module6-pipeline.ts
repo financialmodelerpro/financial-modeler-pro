@@ -18,7 +18,7 @@ import { buildCaseComparisonReport, CASE_KPIS } from '../src/hubs/modeling/platf
 import {
   enumerateOverridableFields, seedCases, buildOverrides, applyOverrides, getByPath,
 } from '../src/hubs/modeling/platforms/refm/lib/cases/applyOverrides';
-import { inactiveLeverReason } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
+import { inactiveLeverReason, nonEconomicLeverReason } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
 
 let passed = 0, failed = 0;
 const fails: string[] = [];
@@ -192,6 +192,44 @@ const mLease: any = { project: {}, subUnits: [{ id: 'u', assetId: 'L', unitPrice
 check('Lease base rate inactive when unit price is set', !!inactiveLeverReason('assets[id=L].revenue.lease.baseRate', mLease));
 const mPerp: any = { project: { returns: { terminalMethod: 'exit_multiple' } } };
 check('Perpetuity growth inactive under exit-multiple terminal', !!inactiveLeverReason('project.returns.perpetuityGrowth', mPerp));
+
+// ── THE ASSETS REWORK (2026-09-11): what it added, and what each one is ──
+//
+// Three fields the ASSETS TAB consumes, not the engine, and one pair whose
+// liveness depends on whether any cost line prices it. Run rather than read:
+// the whole point of the curation is that a lever either moves a number or
+// says why it cannot.
+const mPark: any = { project: {}, assets: [{ id: 'a' }], costLines: [{ method: 'rate_x_parking_area' }] };
+check('Parking AREA is live when a line prices it',
+  inactiveLeverReason('assets[id=a].parkingArea', mPark) === null);
+check('Parking BAYS is inactive on that same model, because nothing prices bays',
+  !!inactiveLeverReason('assets[id=a].parkingBaysRequired', mPark));
+const mBays: any = { project: {}, assets: [{ id: 'a' }], costLines: [{ method: 'rate_per_parking_bay' }] };
+check('and it becomes LIVE the moment a bay line exists, with no code change',
+  inactiveLeverReason('assets[id=a].parkingBaysRequired', mBays) === null);
+check('a per-asset METHOD OVERRIDE counts too, not just the master line',
+  inactiveLeverReason('assets[id=a].parkingBaysRequired',
+    { project: {}, assets: [{ id: 'a' }], costLines: [], costOverrides: [{ method: 'rate_per_parking_bay' }] } as any) === null);
+// THE USER'S FIELD IS NOT ENGINE-DERIVED. It sat in the non-economic leaf list
+// as 'engine-derived geometry', which was true while the factory seeded it at 0
+// and nothing wrote it. Since the derived-areas change it is the user's own
+// override and it OUTRANKS what the chain derived, so hiding it hid a dial.
+check('and it is never HIDDEN outright: it is the user field, not a derived one',
+  nonEconomicLeverReason('assets[id=a].parkingBaysRequired', 'parkingBaysRequired') === null
+  && nonEconomicLeverReason('assets[id=a].parkingArea', 'parkingArea') === null);
+// WHAT THE PLATFORM DERIVED IS REMOVED, because an override there would appear
+// to work and then be overwritten by the next sync of the assets tab.
+check('the derived bag is HIDDEN, every field of it',
+  ['parkingAreaSqm', 'parkingBays', 'netDevelopableSqm', 'footprintSqm', 'landscapeSqm']
+    .every((f) => nonEconomicLeverReason(`assets[id=a].derivedAreas.${f}`, f) !== null));
+// Three inputs the TAB reads. Inactive, not hidden: the day the derivation
+// moves into the engine they are live dials and only this branch stops firing.
+check('the share, the opt-in and the slot area are inactive, with a reason each',
+  [['subUnits[id=u].nsaSharePct', {}], ['project.useDerivedAreas', {}], ['project.parkingAreaPerSlotSqm', {}]]
+    .every(([p]) => !!inactiveLeverReason(p as string, { project: {} } as any)));
+check('and none of the three is hidden instead, which would take it off the picker',
+  ['subUnits[id=u].nsaSharePct', 'project.useDerivedAreas', 'project.parkingAreaPerSlotSqm']
+    .every((p) => nonEconomicLeverReason(p, p.split('.').pop() as string) === null));
 
 // ── 6. Comparison metrics: NPV row + explicit null-FCFF label. ───────────────
 console.log('\n[6] Comparison metrics (NPV row + null-FCFF label)');

@@ -20,7 +20,7 @@
  */
 import type { HydrateSnapshot } from '../state/module1-store';
 import { enumerateOverridableFields, type OverridableField } from './applyOverrides';
-import { deriveLineBaseId, assetStrategySells } from '../state/module1-types';
+import { deriveLineBaseId, assetStrategySells, COST_METHOD_LABELS } from '../state/module1-types';
 // The engine's OWN scope rule, not a restatement of it: the reason a user reads
 // and the test the engine applies must be the same function.
 import { deriveAssetScope } from '@/src/core/calculations';
@@ -423,7 +423,13 @@ const NON_ECONOMIC_LEAVES: Record<string, string> = {
   // engine-derived geometry: GFA / sellable BUA / parking bays / companion units
   // are computed (from sub-units or the parent), not a direct dial here.
   gfaSqm: 'engine-derived geometry', sellableBuaSqm: 'engine-derived geometry',
-  parkingBaysRequired: 'engine-derived geometry', unitsFromParent: 'engine-derived (from the parent asset)',
+  // `parkingBaysRequired` LEFT THIS LIST on 2026-09-11. It sat here as
+  // engine-derived geometry, which was true while the factory seeded it at 0
+  // and nothing wrote it; since the derived-areas change it is the USER's own
+  // override, it outranks what the chain derived, and `rate_per_parking_bay`
+  // prices it. Its sibling `parkingArea` was never on this list, so the two
+  // halves of one precedence rule were gated differently.
+  unitsFromParent: 'engine-derived (from the parent asset)',
 };
 
 // Structural SELECTORS: enum fields that define HOW an entity is set up (its
@@ -505,6 +511,16 @@ export function nonEconomicLeverReason(path: string, field: string): string | nu
   if (/^project\.assetTypes(\.|\[)/.test(path)) {
     return 'a name, a grouping and a position in this project\'s asset type list; a scenario varies values, it does not rename things';
   }
+  // WHAT THE PLATFORM DERIVED IS NOT AN ASSUMPTION (2026-09-11). `derivedAreas`
+  // holds the chain's own parking, footprint, landscape and net developable
+  // figures. The engine does read them, so an override would appear to work,
+  // and then the next sync of the assets tab would overwrite it: a dial that
+  // silently reverts is worse than one that does nothing. The USER's own fields
+  // beside them (`parkingArea`, `parkingBaysRequired`) are the dials, and they
+  // outrank the bag by the standing typed-wins rule.
+  if (/^assets\[[^\]]+\]\.derivedAreas\./.test(path)) {
+    return 'a figure the area chain derived, which the assets tab rewrites on its next sync; override the asset field beside it instead';
+  }
   for (const re of STRUCTURAL_SELECTOR_PATTERNS) {
     if (re.test(path)) return 'a structural selector (defines how the line / unit / facility is set up, not a numeric assumption)';
   }
@@ -548,7 +564,7 @@ const PER_PERIOD_INDEXATION_METHODS = new Set(['yoy_per_period']);
  * nonEconomicLeverReason (dropped entirely).
  */
 export function inactiveLeverReason(path: string, model: HydrateSnapshot): string | null {
-  const m = model as unknown as { project?: any; assets?: Asset[]; subUnits?: SubUnit[] };
+  const m = model as unknown as { project?: any; assets?: Asset[]; subUnits?: SubUnit[]; costLines?: CostLine[]; costOverrides?: CostOverride[] };
   const proj = m.project ?? {};
   const fundingMethod = Number(proj.financing?.fundingMethod ?? 1);
   const terminalMethod = proj.returns?.terminalMethod ?? 'exit_multiple';
@@ -566,6 +582,51 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
   // chain reads them they become live dials, and the only thing that changes
   // is that this branch stops firing. Until then, offering one would offer a
   // control that moves nothing, which is what this curation exists to prevent.
+  // ── A PARKING FIELD IS A DIAL ONLY WHERE SOMETHING PRICES IT (2026-09-11) ──
+  //
+  // `parkingArea` and `parkingBaysRequired` are the user's own overrides and
+  // they outrank whatever the chain derived, so they are real levers. Whether
+  // they MOVE anything depends on the cost lines: with no line on the matching
+  // method the number is stored, resolved and multiplied by nothing. The
+  // reference project is exactly that case for bays and not for area, which is
+  // why one rule has to cover both halves rather than a list naming one.
+  //
+  // CONFIG-DEPENDENT, so it belongs here and not in nonEconomicLeverReason: add
+  // a parking-bay line and the field becomes live with no code change.
+  const PARKING_METHOD: Record<string, string> = {
+    parkingArea: 'rate_x_parking_area',
+    parkingBaysRequired: 'rate_per_parking_bay',
+  };
+  const pk = /^assets\[[^\]]+\]\.(parkingArea|parkingBaysRequired)$/.exec(path);
+  if (pk) {
+    const want = PARKING_METHOD[pk[1]];
+    const priced = (m.costLines ?? []).some((l: any) => l.method === want)
+      || (m.costOverrides ?? []).some((o: any) => o.method === want);
+    if (!priced) {
+      return `no cost line prices this: nothing on the model uses ${COST_METHOD_LABELS[want as keyof typeof COST_METHOD_LABELS] ?? want}, so the figure is stored and multiplied by nothing`;
+    }
+  }
+
+  // ── The assets rework (2026-09-10/11): THREE FIELDS THAT MOVE NOTHING ──
+  //
+  // Each is a real input somebody types, and each is consumed by the ASSETS TAB
+  // rather than by the engine: the tab reads it, derives a row or a field from
+  // it, and the engine reads what the tab wrote. A case override is value-only
+  // and does not re-run the tab, so overriding any of these changes the stored
+  // number and nothing else. That is the exact shape this curation exists to
+  // catch, and it is INACTIVE rather than non-economic because the day the
+  // derivation moves into the engine they become live dials and the only thing
+  // that changes is that this branch stops firing.
+  if (/^subUnits\[[^\]]+\]\.nsaSharePct$/.test(path)) {
+    return 'the share of the line NSA this sub-unit states; the assets tab re-derives the row AREA from it and the engine prices the area, so a value-only override moves nothing';
+  }
+  if (path === 'project.useDerivedAreas') {
+    return 'the opt-in that lets the assets tab derive support and parking rows; the derivation runs on that tab, not in the engine, so switching it here derives nothing';
+  }
+  if (path === 'project.parkingAreaPerSlotSqm') {
+    return 'the sqm one parking slot occupies; it is read by the area chain on the assets tab and by no calculation, so it moves nothing today';
+  }
+
   if (/^project\.assetTypeValues(\.|\[)/.test(path)) {
     return 'an asset type standard for this project; no calculation reads it yet (the area chain that will is a later step), so it moves nothing today';
   }
