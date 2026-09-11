@@ -894,14 +894,29 @@ export default function Module1Assets(): React.JSX.Element {
         <table style={{ width: '100%', borderCollapse: 'collapse' }} data-testid="parcels-table">
           <thead>
             <tr>
-              <th style={tableHeaderStyle}><InputLabel label="Parcel Name" help="Free-text label." textStyle={tableHeaderLabelStyle} /></th>
-              <th style={tableHeaderStyle}><InputLabel label="Area (sqm)" help="Land area for this parcel." textStyle={tableHeaderLabelStyle} /></th>
+              {/* TEN COLUMNS, AND THE ROW BENEATH HAS TEN (2026-09-11).
+                  Every header used to sit one column LEFT of its data. The
+                  plot row gained a Phase select and the header did not, and
+                  Total Value left the row as derived while its header stayed,
+                  so "Area (sqm)" labelled the phase dropdown, "Cash %" labelled
+                  the rate input, and the blank header sat over the add-asset
+                  picker. The totals row was a THIRD arrangement again, putting
+                  cash and in-kind MONEY under the two percent headers. */}
+              <th style={tableHeaderStyle}><InputLabel label="Plot" help="Free-text label. A plot is project-wide: an asset in any phase may draw from it." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={tableHeaderStyle}><InputLabel label="Phase" help="When this plot is acquired. It does not restrict which assets may draw from it." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={tableHeaderStyle}><InputLabel label="Area (sqm)" help="Land area for this plot." textStyle={tableHeaderLabelStyle} /></th>
               {/* M2.0j Fix 3: Header is just `{currency}/sqm`. Tooltip explains the rate model. */}
-              <th style={tableHeaderStyle}><InputLabel label={`${project.currency}/sqm`} help="Per-sqm acquisition cost. Total parcel cost = Area x Rate. Asset land cost = asset's allocated sqm x parcel's rate (or weighted average / custom override at the asset level)." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={tableHeaderStyle}><InputLabel label={`${project.currency}/sqm`} help="Per-sqm acquisition cost. Total plot value = Area x Rate. Asset land cost = the asset's allocated sqm x this plot's rate (or weighted average / custom override at the asset level)." textStyle={tableHeaderLabelStyle} /></th>
               <th style={tableHeaderStyle}><InputLabel label="Cash %" help="Share paid in cash. Cash + In-kind = 100." textStyle={tableHeaderLabelStyle} /></th>
-              <th style={tableHeaderStyle}><InputLabel label="In-Kind %" help="Share paid in-kind (equity from landowner)." textStyle={tableHeaderLabelStyle} /></th>
-              {/* P7-Fix 1: per-parcel NDA / Roads % / Parks % / NDA (sqm) / {currency}/NDA sqm columns removed; project-level NDA card below owns this. */}
-              <th style={tableHeaderStyle}><InputLabel label="Total Value" help="Auto = Area x Rate." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={tableHeaderStyle}><InputLabel label="In-Kind %" help="Share paid in-kind (equity from the landowner)." textStyle={tableHeaderLabelStyle} /></th>
+              {/* THE THREE DERIVED VALUES, so a reader sees what a plot is
+                  worth and how it is paid for without doing the arithmetic.
+                  The row used to show the two percentages and nothing else,
+                  and the split was left to the reader while the footer showed
+                  it totalled. Read-only: the inputs are to the left. */}
+              <th style={tableHeaderStyle}><InputLabel label="Land Value" help="Area x Rate. Derived, not typed." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={tableHeaderStyle}><InputLabel label="Cash Value" help="Land Value x Cash %. What this plot costs in cash." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={tableHeaderStyle}><InputLabel label="In-Kind Value" help="Land Value x In-Kind %. What this plot settles as landowner equity." textStyle={tableHeaderLabelStyle} /></th>
               <th style={tableHeaderStyle}></th>
             </tr>
           </thead>
@@ -915,6 +930,7 @@ export default function Module1Assets(): React.JSX.Element {
                 canRemove={parcels.length > 1}
                 phases={phases}
                 decimals={project.displayDecimals ?? 2}
+                scale={project.displayScale ?? 'full'}
                 onAddAsset={handleAddAssetToPhase}
                 typeChoices={typeChoices}
                 assetCount={assets.filter((a) => a.landAllocation?.parcelId === parcel.id).length}
@@ -930,20 +946,26 @@ export default function Module1Assets(): React.JSX.Element {
                 row band never reached it. */}
             <tr style={SUBTOTAL_BAND}>
               <td style={{ padding: 'var(--sp-1)', ...SUBTOTAL_BAND }}>Totals</td>
+              {/* THE PHASE AND THE TWO PERCENTAGES HAVE NO TOTAL, and a blank
+                  cell is the honest way to say so. This row used to put the
+                  cash and in-kind MONEY under the two percent headers, which
+                  read as a total of the percentages and was the reason the
+                  footer looked misaligned even where the header was not. The
+                  money now sits under the money columns it totals. */}
+              <td style={{ padding: 'var(--sp-1)', ...SUBTOTAL_BAND }}></td>
               <td style={{ padding: 'var(--sp-1)', ...SUBTOTAL_BAND }} data-testid="parcels-total-area">{areaText(aggregate.totalAreaSqm)} sqm</td>
               {/* THE WEIGHTED RATE IS A RATE, so it stays at full scale like
-                  every parcel's own rate input directly above it, which already
-                  carries the comment "Rate is per sqm; usually small enough we
-                  keep scale='full' so 500/sqm doesn't display as 0.50 K". The
-                  totals row never got that rule: at thousands with 0 decimals
-                  it divided 7,357.14 by 1,000 and rounded, printing "7" under a
-                  column of 7,500 and 500. The arithmetic was always right
-                  (180,250,000 / 24,500); only the formatting was not. The
-                  money totals beside it are totals and keep the scale. */}
+                  every plot's own rate input directly above it. At thousands
+                  with 0 decimals it divided 7,357.14 by 1,000 and rounded,
+                  printing "7" under a column of 7,500 and 500. The arithmetic
+                  was always right; only the formatting was not. The money
+                  totals beside it are totals and keep the scale. */}
               <td style={{ padding: 'var(--sp-1)', ...SUBTOTAL_BAND }} data-testid="parcels-weighted-rate">{formatAccounting(aggregate.weightedRate, 'full', project.displayDecimals ?? 2)} /sqm</td>
+              <td style={{ padding: 'var(--sp-1)', ...SUBTOTAL_BAND }}></td>
+              <td style={{ padding: 'var(--sp-1)', ...SUBTOTAL_BAND }}></td>
+              <td style={{ padding: 'var(--sp-1)', ...SUBTOTAL_BAND }} data-testid="parcels-total-value">{formatAccounting(aggregate.totalValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
               <td style={{ padding: 'var(--sp-1)', ...SUBTOTAL_BAND }} data-testid="parcels-cash-value">{formatAccounting(aggregate.cashValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
               <td style={{ padding: 'var(--sp-1)', ...SUBTOTAL_BAND }} data-testid="parcels-inkind-value">{formatAccounting(aggregate.inKindValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
-              <td style={{ padding: 'var(--sp-1)', ...SUBTOTAL_BAND }} data-testid="parcels-total-value">{formatAccounting(aggregate.totalValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
               <td style={SUBTOTAL_BAND}></td>
             </tr>
           </tfoot>
@@ -1178,6 +1200,9 @@ interface ParcelRowProps {
   /** For the phase picker: a plot is acquired in one phase. */
   phases: Phase[];
   decimals: import('../../lib/state/module1-types').DisplayDecimals;
+  /** The project's money scale, for the three derived value cells. The RATE
+   *  input keeps full scale, as every rate on this tab does. */
+  scale: import('../../lib/state/module1-types').DisplayScale;
   /** ADD AN ASSET FROM THE LAND TABLE (2026-09-10). The plot band in table 2
    *  carries the same picker, and this is the second place a user looks: they
    *  have just typed a plot and the next thing they want is something on it.
@@ -1190,9 +1215,11 @@ interface ParcelRowProps {
 }
 
 function ParcelRow({
-  parcel, phases, onUpdate, onRemove, canRemove, decimals, onAddAsset, typeChoices = [], assetCount = 0,
+  parcel, phases, onUpdate, onRemove, canRemove, decimals, scale, onAddAsset, typeChoices = [], assetCount = 0,
 }: ParcelRowProps): React.JSX.Element {
   // P7-Fix 1: per-parcel NDA cells removed; project-level NDA card owns this surface now.
+  // THIS PLOT'S OWN FIGURES, through the function the footer totals with.
+  const own = computeLandAggregate([parcel]);
   return (
     <tr data-testid={`parcel-row-${parcel.id}`}>
       <td style={{ padding: 'var(--sp-1)' }}>
@@ -1270,9 +1297,23 @@ function ParcelRow({
       {/* P7-Fix 1: NDA checkbox + Roads % + Parks % + NDA (sqm) +
           effective NDA rate cells dropped. The project-level NDA card
           below the parcels totals row owns these inputs now. */}
-      {/* Total Value is DERIVED (area x rate) and left the row with the
-          demotion: the plots table is entry only. The footer still totals it,
-          because a total is what a footer is for. */}
+      {/* WHAT THIS PLOT IS WORTH, AND HOW IT IS PAID FOR (2026-09-11).
+
+          Derived, read-only, and computed by running `computeLandAggregate`
+          over this ONE plot rather than restating area x rate x pct: that is
+          the same function the footer totals with, so a row and the total
+          under it cannot disagree, including about how each clamps a negative
+          input. Nothing here reaches the engine; the engine reads the parcel
+          fields, which are the three inputs to the left. */}
+      <td style={{ padding: 'var(--sp-1)', textAlign: 'right', whiteSpace: 'nowrap' }} data-testid={`parcel-${parcel.id}-land-value`}>
+        {formatAccounting(own.totalValue, scale, decimals)}
+      </td>
+      <td style={{ padding: 'var(--sp-1)', textAlign: 'right', whiteSpace: 'nowrap' }} data-testid={`parcel-${parcel.id}-cash-value`}>
+        {formatAccounting(own.cashValue, scale, decimals)}
+      </td>
+      <td style={{ padding: 'var(--sp-1)', textAlign: 'right', whiteSpace: 'nowrap' }} data-testid={`parcel-${parcel.id}-inkind-value`}>
+        {formatAccounting(own.inKindValue, scale, decimals)}
+      </td>
       <td style={{ padding: 'var(--sp-1)', textAlign: 'right', whiteSpace: 'nowrap' }}>
         {onAddAsset && (
           <select

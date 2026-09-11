@@ -1812,6 +1812,80 @@ function offlineChecks(): void {
       { id: 'l2', phaseId: 'p1', name: 'Land 2', area: 500, rate: 500, cashPct: 60, inKindPct: 40 },
     ] as Parcel[]).weightedRate - (180250000 / 24500)) < 1e-9);
 
+  // ── V14c THE PLOTS TABLE LINES UP (2026-09-11) ──
+  //
+  // Header, body and footer were THREE different arrangements of the same
+  // table. The row gained a Phase select and the header did not; Total Value
+  // left the row when it became derived and its header stayed; so every header
+  // sat one column left of its data and "Cash %" labelled the rate input. The
+  // footer was different again, putting cash and in-kind MONEY under the two
+  // percent headers.
+  //
+  // COUNTED, not eyeballed, and counted in all three places, which is the only
+  // form of this check that can fail on the defect it is about.
+  const parcelsTable = tabSrc.slice(
+    tabSrc.indexOf('data-testid="parcels-table"'),
+    tabSrc.indexOf('</table>', tabSrc.indexOf('data-testid="parcels-table"')));
+  const parcelHead = parcelsTable.slice(parcelsTable.indexOf('<thead>'), parcelsTable.indexOf('</thead>'));
+  const parcelFoot = parcelsTable.slice(parcelsTable.indexOf('<tfoot>'));
+  const rowBody = tabSrc.slice(
+    tabSrc.indexOf('function ParcelRow('),
+    tabSrc.indexOf('function ChainCell('));
+  // COUNT THE MARKUP, NOT THE PROSE. The first cut counted `<td` anywhere in
+  // the slice and read 11 against 10, because the footer's own comment explains
+  // the band rule with the words "this row is <td>" in it and the row's comment
+  // quotes the tag too. A grep that counts a sentence is the failure this file
+  // records more than any other, so comments come out before anything is
+  // counted.
+  const stripComments = (src: string): string => src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/[^\n]*/g, '');
+  const countCells = (src: string, tag: string): number =>
+    (stripComments(src).match(new RegExp('<' + tag + '[ >]', 'g')) ?? []).length;
+  const headCells = countCells(parcelHead, 'th');
+  const footCells = countCells(parcelFoot, 'td');
+  const bodyCells = countCells(rowBody, 'td');
+  check('V14c the plots table has ONE column count: header, row and totals agree',
+    headCells === bodyCells && bodyCells === footCells && headCells === 10,
+    `header ${headCells}, row ${bodyCells}, totals ${footCells}`);
+
+  // WHAT A PLOT IS WORTH, ON THE PLOT'S OWN ROW. The row showed the two
+  // percentages and left the split to the reader while the footer showed it
+  // totalled, so the only way to see what one plot cost was to do the
+  // arithmetic.
+  check('V14d each plot row states its own land, cash and in-kind value',
+    ['parcel-${parcel.id}-land-value', 'parcel-${parcel.id}-cash-value', 'parcel-${parcel.id}-inkind-value']
+      .every((t) => rowBody.includes(t)),
+    rowBody.slice(0, 0));
+  // DERIVED THROUGH THE FUNCTION THE FOOTER TOTALS WITH, never restated. A row
+  // that multiplied area x rate x pct itself would be a second definition of
+  // land value, and the two would disagree about clamping first.
+  check('V14e the row derives through computeLandAggregate, not a formula of its own',
+    rowBody.includes('const own = computeLandAggregate([parcel]);')
+    && !rowBody.includes('parcel.area * parcel.rate'));
+  check('V14f so a row foots to the footer by construction, cash and in-kind included',
+    (() => {
+      const ps = [
+        { id: 'l1', phaseId: 'p1', name: 'Land 1', area: 11000, rate: 7500, cashPct: 50, inKindPct: 50 },
+        { id: 'l2', phaseId: 'p1', name: 'Land 2', area: 5000, rate: 7500, cashPct: 60, inKindPct: 40 },
+        { id: 'l3', phaseId: 'p2', name: 'Land 3', area: 3000, rate: 0, cashPct: 60, inKindPct: 40 },
+      ] as Parcel[];
+      const agg = computeLandAggregate(ps);
+      const rows = ps.map((p) => computeLandAggregate([p]));
+      const near = (a: number, b: number): boolean => Math.abs(a - b) < 1e-9;
+      return near(rows.reduce((s, r) => s + r.totalValue, 0), agg.totalValue)
+        && near(rows.reduce((s, r) => s + r.cashValue, 0), agg.cashValue)
+        && near(rows.reduce((s, r) => s + r.inKindValue, 0), agg.inKindValue)
+        // and each row's own two halves make its whole
+        && rows.every((r) => near(r.cashValue + r.inKindValue, r.totalValue));
+    })());
+  // THE SAME FORMATTING STANDARD AS THE OTHER FOUR TABLES: money takes the
+  // project scale, areas are whole, a RATE stays at full scale.
+  check('V14g the three derived cells take the project money scale, like every other total',
+    (rowBody.match(/formatAccounting\(own\.(totalValue|cashValue|inKindValue), scale, decimals\)/g) ?? []).length === 3);
+  check('V14h and the footer states no total for the phase or the two percentages',
+    (parcelFoot.match(/<td style={{ padding: 'var\(--sp-1\)', \.\..\SUBTOTAL_BAND }}><\/td>/g) ?? []).length === 3);
+
   // ── V15 IS A SWEEP, NOT A LINE. Three rate-vs-scale defects turned up on
   // this tab one at a time (the sub-unit rate, the parcels totals rate, the
   // per-parcel caption), each found by eye after shipping. A scale divides a
