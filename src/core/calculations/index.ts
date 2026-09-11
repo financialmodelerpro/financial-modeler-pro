@@ -2893,6 +2893,67 @@ export function computeOperationalRunRate(
   return { period: safePeriod, revenue, opex };
 }
 
+/**
+ * WHAT A RATE LINE CHARGES ON, WITHOUT THE RATE (2026-09-11).
+ *
+ * ONE definition, read twice: by the caption below, for the plot a user is
+ * looking at, and by the Costs screen for the CONSOLIDATION LINE's pooled
+ * figure beside it, so the two can never state the quantity two ways.
+ *
+ * A RATE IS NEVER APPLIED TO THE POOLED FIGURE, and this returns no rate so it
+ * cannot be. Two plots on one line can carry different per-asset overrides, so
+ * a pooled rate x quantity would name a number the engine never charged, which
+ * is the defect the revenue-basis captions were fixed for on 2026-08-19.
+ *
+ * THE TWO OUTER TIERS ARE THE ASSETS TAB'S, AND THEY CROSS. Platform gfa is
+ * nsa + support + parking, which that tab calls TOTAL BUA; platform bua is
+ * nsa + support, which it calls TOTAL GFA. The method labels and the export
+ * basis column were corrected on 2026-09-11 (06aded4c); this caption was a
+ * FOURTH surface and was missed, so until now the Costs screen called
+ * rate_per_gfa "Total GFA" while the picker directly above it called the same
+ * method "Rate x Total BUA" and charged the outermost tier.
+ * verify-capex-structure P4h proves the arithmetic; P4i ties this caption to
+ * the same sums.
+ *
+ * Returns null for a method with no quantity to state: a fixed lump, the
+ * percent family (whose basis is money, not an area), the retired roads area
+ * and the two sub-unit methods.
+ */
+export interface CostLineBasisQuantity {
+  /** What the rate multiplies. */
+  value: number;
+  /** The unit, in the words the assets tab uses. */
+  unit: string;
+  /** What to name when the quantity is zero. */
+  missing: string;
+  /** True for the three figures the area chain derives and no field holds, so
+   *  "not defined yet" would send a reader looking for an input that does not
+   *  exist. */
+  derived?: boolean;
+}
+export function costLineBasisQuantity(
+  method: CostMethod | undefined,
+  metrics: AssetAreaMetrics,
+  fallbacks: { parkingBays: number; supportArea?: number; parkingArea?: number },
+): CostLineBasisQuantity | null {
+  const or0 = (a: number, b: number | undefined): number => Math.max(0, a > 0 ? a : (b ?? 0));
+  switch (method) {
+    case 'rate_per_land': return { value: metrics.landSqm, unit: 'sqm Plot Area', missing: 'Plot area' };
+    case 'rate_per_nda': return { value: metrics.ndaSqm, unit: 'sqm Plot Area (legacy NDA method)', missing: 'Land area' };
+    case 'rate_per_gfa': return { value: metrics.gfa, unit: 'sqm Total BUA', missing: 'Total BUA' };
+    case 'rate_per_bua': return { value: metrics.bua, unit: 'sqm Total GFA', missing: 'Total GFA' };
+    case 'rate_per_nsa': return { value: metrics.nsa, unit: 'sqm NSA or GLA', missing: 'NSA or GLA' };
+    case 'rate_per_unit': return { value: metrics.unitCount, unit: 'units', missing: 'Unit count' };
+    case 'rate_per_parking_bay': return { value: Math.max(0, fallbacks.parkingBays), unit: 'parking bays', missing: 'Parking bays' };
+    case 'rate_x_support_area': return { value: or0(metrics.supportArea, fallbacks.supportArea), unit: 'sqm Support', missing: 'Support area' };
+    case 'rate_x_parking_area': return { value: or0(metrics.parkingArea, fallbacks.parkingArea), unit: 'sqm Parking', missing: 'Parking area' };
+    case 'rate_x_net_developable_area': return { value: metrics.netDevelopableArea, unit: 'sqm Net Developable Area', missing: 'Net developable area', derived: true };
+    case 'rate_x_footprint_area': return { value: metrics.footprintArea, unit: 'sqm Building Footprint', missing: 'Building footprint', derived: true };
+    case 'rate_x_landscape_area': return { value: metrics.landscapeArea, unit: 'sqm Landscape and Open Area', missing: 'Landscape and open area', derived: true };
+    default: return null;
+  }
+}
+
 // ── M2.0j Fix 8: Cost line caption ────────────────────────────────────────
 // Returns a human-readable formula caption describing how a cost line's
 // total resolves for a given asset. Renders inline below the value
@@ -2947,50 +3008,25 @@ export function costLineCaption(input: CostLineCaptionInput): string {
   // method says why it charges nothing.
   const noDerived = (label: string): string =>
     `${fmt(value, 2)} x - (${label} is derived by the area chain; switch on derived areas for this project on the assets tab)`;
+  // THE QUANTITY IS RESOLVED ONCE, by the shared rule above, so this caption
+  // and the pooled line figure beside it cannot name two different areas.
+  const q = costLineBasisQuantity(method, metrics, {
+    parkingBays,
+    supportArea: asset.supportArea,
+    parkingArea: resolveAssetParkingArea(asset),
+  });
+  if (q) {
+    if (q.value > 0) return fmt(value, 2) + ' x ' + fmtArea(q.value) + ' ' + q.unit;
+    return q.derived === true ? noDerived(q.missing) : noArea(q.missing);
+  }
   switch (method) {
     case 'fixed':
       return 'Fixed';
-    case 'rate_per_land':
-      return metrics.landSqm > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.landSqm)} sqm Plot Area` : noArea('Plot area');
-    case 'rate_per_nda':
-      return metrics.ndaSqm > 0
-        ? `${fmt(value, 2)} x ${fmtArea(metrics.ndaSqm)} sqm Plot Area (legacy NDA method)`
-        : noArea('Land area');
     // SAYS SO RATHER THAN PRINTING A CONFIDENT ZERO. The roads area is retired,
     // so this line charges nothing, and a reader is told why instead of being
     // shown a 0 that looks like a rate nobody filled in.
     case 'rate_per_roads':
       return `${fmt(value, 2)} x 0 (the roads area is retired; this line charges nothing)`;
-    case 'rate_per_gfa':
-      return metrics.gfa > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.gfa)} sqm Total GFA` : noArea('Total GFA');
-    case 'rate_per_bua':
-      return metrics.bua > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.bua)} sqm Total BUA` : noArea('Total BUA');
-    case 'rate_per_nsa':
-      return metrics.nsa > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.nsa)} sqm NSA or GLA` : noArea('NSA or GLA');
-    case 'rate_per_unit':
-      return metrics.unitCount > 0 ? `${fmt(value, 2)} x ${fmt(metrics.unitCount)} units` : noArea('Unit count');
-    case 'rate_per_parking_bay':
-      return parkingBays > 0 ? `${fmt(value, 2)} x ${fmt(parkingBays)} parking bays` : noArea('Parking bays');
-    case 'rate_x_support_area': {
-      const sa = Math.max(0, metrics.supportArea > 0 ? metrics.supportArea : (asset.supportArea ?? 0));
-      return sa > 0 ? `${fmt(value, 2)} x ${fmtArea(sa)} sqm Support` : noArea('Support area');
-    }
-    case 'rate_x_net_developable_area':
-      return metrics.netDevelopableArea > 0
-        ? `${fmt(value, 2)} x ${fmtArea(metrics.netDevelopableArea)} sqm Net Developable Area`
-        : noDerived('Net developable area');
-    case 'rate_x_footprint_area':
-      return metrics.footprintArea > 0
-        ? `${fmt(value, 2)} x ${fmtArea(metrics.footprintArea)} sqm Building Footprint`
-        : noDerived('Building footprint');
-    case 'rate_x_landscape_area':
-      return metrics.landscapeArea > 0
-        ? `${fmt(value, 2)} x ${fmtArea(metrics.landscapeArea)} sqm Landscape and Open Area`
-        : noDerived('Landscape and open area');
-    case 'rate_x_parking_area': {
-      const pa = Math.max(0, metrics.parkingArea > 0 ? metrics.parkingArea : resolveAssetParkingArea(asset));
-      return pa > 0 ? `${fmt(value, 2)} x ${fmtArea(pa)} sqm Parking` : noArea('Parking area');
-    }
     case 'rate_x_specific_subunit':
       return _resolvedTotal > 0 ? 'Rate x specific sub-unit' : noArea('selected sub-unit');
     case 'per_sub_unit_custom_rates':

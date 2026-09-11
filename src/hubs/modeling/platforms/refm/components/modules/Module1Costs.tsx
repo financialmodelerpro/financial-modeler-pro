@@ -100,6 +100,9 @@ import {
   distributeItemCost,
   generatePeriodLabels,
   costLineCaption,
+  costLineBasisQuantity,
+  resolveAssetParkingArea,
+  resolveAssetParkingBays,
   costLineProjectPeriodIndex,
   type AssetCostBreakdown,
 } from '@/src/core/calculations';
@@ -578,6 +581,31 @@ function CustomCostPopup({ phaseId, assetId, constructionPeriods, onClose, onSav
 }
 
 // ── Cost row (per asset section) ──────────────────────────────────────────
+/**
+ * THE CONSOLIDATION LINE A PLOT SITS ON, when that line holds more than one
+ * plot (2026-09-11). A cost line's caption states what THIS plot charges on;
+ * this is the same quantity pooled across every plot on the line, so a user
+ * can see what the line as a whole is being priced on without adding the
+ * plots up by eye.
+ *
+ * NO RATE AND NO MONEY. Two plots on one line can carry different per-asset
+ * overrides, so a pooled rate x quantity would name an amount the engine never
+ * charged. The quantity sums; the money does not.
+ *
+ * Absent on a line holding ONE plot, where the pooled figure IS the plot
+ * figure and repeating it says nothing.
+ */
+interface LineBasisContext {
+  /** How many plots the line holds. Always greater than one when present. */
+  plots: number;
+  /** The line's own label, as tables 1 to 4 print it. */
+  label: string;
+  /** Every plot on the line, summed. */
+  metrics: import('@/src/core/calculations').AssetAreaMetrics;
+  parkingBays: number;
+  supportArea: number;
+  parkingArea: number;
+}
 interface CostRowProps {
   asset: Asset;
   line: CostLine;
@@ -606,6 +634,9 @@ interface CostRowProps {
   // inline formula caption beneath the value cell. Required so the
   // caption can show "x 130,874 sqm BUA = 588,933,000 SAR".
   metrics: import('@/src/core/calculations').AssetAreaMetrics;
+  /** The consolidation line this plot sits on, only when it holds more than
+   *  one plot. See LineBasisContext. */
+  lineBasis?: LineBasisContext;
   // M2.0L Fix 2 (2026-05-11): when true, edits route to the cost line
   // directly (no per-asset overrides). Used by Same-mode rendering.
   editsGoToLine?: boolean;
@@ -650,7 +681,7 @@ function CostRow({
   asset, line, override, total, isLocked,
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
   currency, scale, decimals, periodLabel, constructionPeriods, subUnits,
-  metrics, editsGoToLine, revenue,
+  metrics, lineBasis, editsGoToLine, revenue,
   resolvedWindow, selectedBase, resolvedSchedule, visibleLines,
   phaseAssets = [], allOverrides = [],
   catalogEntries, onAddCatalogEntry,
@@ -1425,6 +1456,28 @@ function CostRow({
                 {costLineCaption({ line, override, asset, metrics, parkingBays: asset.parkingBaysRequired ?? 0, resolvedTotal: total, selectedTotal: selectedBase, revenue })}
               </div>
             )}
+            {(() => {
+              // WHAT THE LINE CHARGES ON, beside what this plot charges on.
+              // Same rule, called twice: costLineBasisQuantity returns the
+              // quantity and never a rate, so no pooled amount can be implied.
+              if (!lineBasis) return null;
+              const lq = costLineBasisQuantity(effMethod, lineBasis.metrics, {
+                parkingBays: lineBasis.parkingBays,
+                supportArea: lineBasis.supportArea,
+                parkingArea: lineBasis.parkingArea,
+              });
+              if (!lq || lq.value <= 0) return null;
+              const text = `line: ${lq.value.toLocaleString('en-US', { maximumFractionDigits: 0 })} ${lq.unit} across ${lineBasis.plots} plots`;
+              return (
+                <div
+                  style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontStyle: 'italic' }}
+                  data-testid={`cost-${asset.id}-${line.id}-line-basis`}
+                  title={`${lineBasis.label} pools ${lineBasis.plots} plots. This is what the whole line charges on; the rate above is charged plot by plot, because a plot can carry its own override.`}
+                >
+                  {text}
+                </div>
+              );
+            })()}
           </>
         )}
       </td>
@@ -2327,6 +2380,9 @@ interface AssetCostSectionProps {
   subUnits: SubUnit[];
   // M2.0j Fix 8: asset's resolved metrics for cost line caption rendering.
   metrics: import('@/src/core/calculations').AssetAreaMetrics;
+  /** The consolidation line this asset sits on, when it holds more than one
+   *  plot. Forwarded to every row. */
+  lineBasis?: LineBasisContext;
   onUpdateLine: (lineId: string, patch: Partial<CostLine>) => void;
   onUpdateOverride: (override: CostOverride) => void;
   onRemoveOverride: (assetId: string, lineId: string) => void;
@@ -2349,7 +2405,7 @@ interface AssetCostSectionProps {
 
 function AssetCostSection({
   asset, lines, costOverrides, phaseAssets, allOverrides, breakdown, currency, scale, decimals, periodLabel, constructionPeriods, subUnits,
-  metrics, revenue,
+  metrics, lineBasis, revenue,
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
   onAddCustom, onInsertNear, onMoveLine, onUpdateAsset,
   catalogEntries, onAddCatalogEntry,
@@ -2478,6 +2534,7 @@ function AssetCostSection({
                     constructionPeriods={constructionPeriods}
                     subUnits={subUnits}
                     metrics={metrics}
+                    lineBasis={lineBasis}
                     resolvedWindow={breakdown.resolvedWindowByLineId[line.id]}
                     selectedBase={breakdown.selectedBaseByLineId[line.id]}
                     resolvedSchedule={breakdown.perLinePerPeriod[line.id]}
@@ -4456,6 +4513,43 @@ export default function Module1Costs(): React.JSX.Element {
               ?.assetTotals[activeAsset.id]
           : undefined;
         const assetMetrics = activeAsset ? metricsByAsset.get(activeAsset.id) : undefined;
+        /**
+         * WHAT THE LINE CHARGES ON (2026-09-11). A cost row states the
+         * quantity for the PLOT a user is editing; where that plot's
+         * consolidation line pools more than one plot, the row also states
+         * the pooled quantity, so the line can be read without adding the
+         * plots up by eye.
+         *
+         * Undefined on a one-plot line, which is 12 of the 13 lines across
+         * the two live projects: there the pooled figure IS the plot figure
+         * and repeating it says nothing.
+         *
+         * The members come from planCapexSummaryLines, the same planner the
+         * capex tables and the exports group by, so a row can never claim a
+         * line the tables do not draw.
+         */
+        const lineBasis: LineBasisContext | undefined = (() => {
+          if (!activeAsset) return undefined;
+          const visible = assets.filter((a) => a.visible !== false);
+          const plan = planCapexSummaryLines(
+            visible as unknown as CapexPlannableAsset[],
+            phases,
+            (id) => visible.find((a) => a.id === id)?.name ?? id,
+          );
+          const ln = plan.find((l) => l.assetIds.includes(activeAsset.id));
+          if (!ln || ln.assetIds.length < 2) return undefined;
+          const members = ln.assetIds
+            .map((id) => visible.find((a) => a.id === id))
+            .filter((a): a is Asset => a !== undefined);
+          return {
+            plots: members.length,
+            label: phases.length > 1 && ln.phaseName !== '' ? `${ln.phaseName}: ${ln.label}` : ln.label,
+            metrics: aggregatePhaseMetrics(members, metricsByAsset),
+            parkingBays: members.reduce((t, a) => t + resolveAssetParkingBays(a), 0),
+            supportArea: members.reduce((t, a) => t + Math.max(0, a.supportArea ?? 0), 0),
+            parkingArea: members.reduce((t, a) => t + resolveAssetParkingArea(a), 0),
+          };
+        })();
 
         const pillStyle = (active: boolean): React.CSSProperties => ({
           fontSize: 11,
@@ -4998,6 +5092,7 @@ export default function Module1Costs(): React.JSX.Element {
                 constructionPeriods={assetPhase?.constructionPeriods ?? 1}
                 subUnits={subUnits}
                 metrics={assetMetrics}
+                lineBasis={lineBasis}
                 onUpdateLine={(lineId, patch) => updateCostLine(lineId, patch)}
                 onUpdateAsset={(assetId, patch) => updateAsset(assetId, patch)}
                 revenue={sellSnap}

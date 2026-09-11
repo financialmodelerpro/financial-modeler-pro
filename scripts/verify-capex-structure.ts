@@ -37,6 +37,7 @@ import {
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import {
   computeAssetCost, computeAssetLandBreakdown, computeSubUnitArea, resolveSubUnitMetric, calculateItemTotal,
+  costLineBasisQuantity, costLineCaption,
   resolveAssetParkingArea, resolveAssetParkingBays, resolveAssetNetDevelopableArea,
   resolveAssetFootprintArea, resolveAssetLandscapeArea, deriveCostStage, landRateIssueText,
 } from '../src/core/calculations';
@@ -644,19 +645,39 @@ section('K. Area x unit size = count: only two of the three are inputs');
 
   // P4e A CHAIN-ONLY METHOD SAYS WHY IT IS EMPTY. Landscape, footprint and net
   // developable area have NO typed counterpart: they reach the engine only
-  // through the derived bag, which a project writes when it opts in. Measured:
-  // all three are ZERO on every asset of both live projects, because neither
-  // has opted in, so the method is selectable and multiplies nothing. Saying
-  // 'no landscape area defined yet' sends a reader looking for a field that
-  // does not exist; the caption names the switch instead, the way the retired
-  // roads method says why it charges nothing.
-  check('P4e the three chain-only methods name the switch, not a field that does not exist',
-    engineSrc2.includes('const noDerived = (label: string): string =>')
-    && engineSrc2.includes('switch on derived areas for this project')
-    && ['Net developable area', 'Building footprint', 'Landscape and open area']
-      .every((l) => engineSrc2.includes(`noDerived('${l}')`))
+  // through the derived bag. Saying 'no landscape area defined yet' sends a
+  // reader looking for a field that does not exist; the caption names the
+  // switch instead, the way the retired roads method says why it charges
+  // nothing.
+  //
+  // RE-AIMED 2026-09-11: this read the ENGINE SOURCE for `noDerived('...')`
+  // call sites. The twelve quantity cases then moved behind one shared rule so
+  // the caption and the pooled line figure could not name two different areas,
+  // and the check failed on a refactor that changed no behaviour at all. It
+  // runs the caption now, which is what a user reads.
+  {
+    const emptyMetrics = {
+      landSqm: 0, ndaSqm: 0, roadsSqm: 0, nsa: 0, bua: 0, gfa: 0,
+      unitCount: 0, parkingBays: 0, supportArea: 0, parkingArea: 0,
+      netDevelopableArea: 0, footprintArea: 0, landscapeArea: 0,
+      landValue: 0, cashLandValue: 0, inKindLandValue: 0, totalRevenue: 0,
+    } as unknown as Parameters<typeof costLineCaption>[0]['metrics'];
+    const emptyCap = (m: string): string => costLineCaption({
+      line: { id: 'l', name: 'l', method: m, value: 1 } as unknown as Parameters<typeof costLineCaption>[0]['line'],
+      asset: { id: 'a', phaseId: 'p' } as unknown as Parameters<typeof costLineCaption>[0]['asset'],
+      metrics: emptyMetrics,
+      parkingBays: 0,
+      resolvedTotal: 0,
+    });
+    check('P4e the three chain-only methods name the switch, not a field that does not exist',
+      NEW_METHODS.every((m) => emptyCap(m).includes('switch on derived areas for this project'))
+      && NEW_METHODS.every((m) => !emptyCap(m).includes('defined yet')),
+      NEW_METHODS.map((m) => `${m}: ${emptyCap(m)}`).join(' | '));
     // And the ones that DO have a typed field keep the ordinary sentence.
-    && engineSrc2.includes("noArea('Plot area')"));
+    check('P4e-b a method with a real field still says the field is not defined yet',
+      emptyCap('rate_per_land').includes('no Plot area defined yet'),
+      emptyCap('rate_per_land'));
+  }
   // P4f ONE VOCABULARY, AND IT PROVES ONLY THAT THE WORDS ARE THE TAB'S. Which
   // quantity each word belongs to is P4h's job, because this check passed on an
   // inverted pair: both tiers have a name in both vocabularies, so swapping two
@@ -752,6 +773,59 @@ section('K. Area x unit size = count: only two of the three are inputs');
     check('P4h-e each outer tier states its arithmetic in the tooltip, not just a name',
       (COST_METHOD_BASIS_HELP[totalGfaMethod as CostMethod] ?? '').includes('NSA + Support, parking EXCLUDED')
       && (COST_METHOD_BASIS_HELP[totalBuaMethod as CostMethod] ?? '').includes('NSA + Support + Parking'));
+  }
+
+  // ── P4i THE CAPTION CHARGES WHAT IT SAYS, AND THE LINE FIGURE SUMS ────
+  //
+  // P4h pinned the PICKER's labels to the arithmetic. The Costs screen's row
+  // CAPTION was a fourth surface naming the same two tiers and 06aded4c did not
+  // reach it, so on 2026-09-11 the picker said "Rate x Total BUA" while the
+  // caption one cell to its right said "Total GFA" about the same method and the
+  // same number. Measured on the live projects: 16 captions, both directions,
+  // every figure unchanged and only the WORD wrong.
+  //
+  // So the caption now reads the quantity from ONE shared rule,
+  // `costLineBasisQuantity`, and this asks that rule and the caption itself what
+  // they multiply rather than what they are called.
+  {
+    const tiers = {
+      landSqm: 0, ndaSqm: 0, roadsSqm: 0,
+      nsa: 1000, bua: 1100, gfa: 1350,
+      unitCount: 0, parkingBays: 0,
+      supportArea: 100, parkingArea: 250,
+      netDevelopableArea: 0, footprintArea: 0, landscapeArea: 0,
+      landValue: 0, cashLandValue: 0, inKindLandValue: 0, totalRevenue: 0,
+    } as unknown as Parameters<typeof costLineBasisQuantity>[1];
+    const qty = (m: string): { value: number; unit: string } | null =>
+      costLineBasisQuantity(m as CostMethod, tiers, { parkingBays: 0 });
+    check('P4i the shared quantity rule returns the SUM, not a name',
+      qty('rate_per_nsa')?.value === 1000 && qty('rate_per_bua')?.value === 1100 && qty('rate_per_gfa')?.value === 1350,
+      `nsa=${qty('rate_per_nsa')?.value} bua=${qty('rate_per_bua')?.value} gfa=${qty('rate_per_gfa')?.value}`);
+    check('P4i-b the tier NAMED Total GFA is the one WITHOUT parking, and Total BUA the one with',
+      qty('rate_per_bua')?.unit === 'sqm Total GFA' && qty('rate_per_gfa')?.unit === 'sqm Total BUA',
+      `bua->${qty('rate_per_bua')?.unit} gfa->${qty('rate_per_gfa')?.unit}`);
+    // AND THE CAPTION A USER READS, not just the helper behind it.
+    const cap = (m: string): string => costLineCaption({
+      line: { id: 'l', name: 'l', method: m, value: 1 } as unknown as Parameters<typeof costLineCaption>[0]['line'],
+      asset: { id: 'a', phaseId: 'p' } as unknown as Parameters<typeof costLineCaption>[0]['asset'],
+      metrics: tiers as unknown as Parameters<typeof costLineCaption>[0]['metrics'],
+      parkingBays: 0,
+      resolvedTotal: 0,
+    });
+    check('P4i-c the caption prints the tier it actually multiplies',
+      cap('rate_per_gfa').includes('1,350') && cap('rate_per_gfa').includes('Total BUA')
+      && cap('rate_per_bua').includes('1,100') && cap('rate_per_bua').includes('Total GFA'),
+      `${cap('rate_per_gfa')} || ${cap('rate_per_bua')}`);
+    // THE POOLED LINE FIGURE IS A PLAIN SUM AND CARRIES NO RATE. Two plots on
+    // one consolidation line can hold different per-asset overrides, so a pooled
+    // rate x quantity would name an amount the engine never charged.
+    const half = { ...tiers, nsa: 400, bua: 440, gfa: 540, supportArea: 40, parkingArea: 100 } as typeof tiers;
+    const pooledGfa = (tiers as { gfa: number }).gfa + (half as { gfa: number }).gfa;
+    check('P4i-d the line figure is the plots summed, with no rate in it',
+      qty('rate_per_gfa')?.value !== undefined
+      && costLineBasisQuantity('rate_per_gfa' as CostMethod, { ...tiers, gfa: pooledGfa } as typeof tiers, { parkingBays: 0 })?.value === 1890
+      && Object.keys(costLineBasisQuantity('rate_per_gfa' as CostMethod, tiers, { parkingBays: 0 }) ?? {}).every((k) => k !== 'rate' && k !== 'amount'),
+      `pooled=${pooledGfa}`);
   }
 
   // P5 THE RETIRED METHOD STAYS RETIRED. Re-pointing rate_per_nda at the
