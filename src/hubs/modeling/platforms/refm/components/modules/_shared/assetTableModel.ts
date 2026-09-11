@@ -712,6 +712,29 @@ export interface DerivableAreaRow {
   landscapeSqm?: number;
 }
 
+/**
+ * THE OPT-IN GATES WHAT CAN MOVE MONEY BY ITSELF, AND ONLY THAT (2026-09-11).
+ *
+ * `useDerivedAreas` exists because the derived SUPPORT row adds cost to assets
+ * that are already charging, so the user chooses when their numbers move. Two
+ * of the five figures here are in that class and three are not:
+ *
+ *   PARKING AREA AND SLOTS move money on their own. `resolveAssetParkingArea`
+ *   falls back to the derived figure when nothing is typed, and BOTH live
+ *   projects already carry `rate_x_parking_area` lines, so deriving these
+ *   unasked would change a live model. They stay behind the opt-in.
+ *
+ *   NET DEVELOPABLE, FOOTPRINT AND LANDSCAPE cannot. Every reader was traced:
+ *   each is read by exactly ONE thing that computes money, its own cost method,
+ *   and a project only has one of those because somebody created it. Writing
+ *   the figure is therefore inert until that decision is made.
+ *
+ * GATING THEM ANYWAY MADE THEIR METHODS UNUSABLE. They have no typed
+ * counterpart, so with the toggle off `rate_x_landscape_area` was selectable,
+ * correct, and multiplied zero on every asset of both live projects. A method
+ * that cannot be used is not a method, and a toggle about support rows is not
+ * the place to say so.
+ */
 export function planDerivedAreas(
   rows: readonly DerivableAreaRow[],
   enabled: boolean,
@@ -721,14 +744,19 @@ export function planDerivedAreas(
   const num = (v: number | undefined): number | undefined =>
     (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined);
   for (const r of rows) {
-    const areas = {
-      ...(num(r.parkingAreaSqm) !== undefined ? { parkingAreaSqm: r.parkingAreaSqm } : {}),
-      ...(num(r.parkingSlots) !== undefined ? { parkingBays: r.parkingSlots } : {}),
+    // ALWAYS: the three the chain alone produces, read only by their own methods.
+    const always = {
       ...(num(r.landUtilisedSqm) !== undefined ? { netDevelopableSqm: r.landUtilisedSqm } : {}),
       ...(num(r.footprintSqm) !== undefined ? { footprintSqm: r.footprintSqm } : {}),
       ...(num(r.landscapeSqm) !== undefined ? { landscapeSqm: r.landscapeSqm } : {}),
     };
-    if (!enabled || Object.keys(areas).length === 0) {
+    // ON OPT-IN ONLY: the two that a live cost line is already pricing.
+    const gated = enabled ? {
+      ...(num(r.parkingAreaSqm) !== undefined ? { parkingAreaSqm: r.parkingAreaSqm } : {}),
+      ...(num(r.parkingSlots) !== undefined ? { parkingBays: r.parkingSlots } : {}),
+    } : {};
+    const areas = { ...always, ...gated };
+    if (Object.keys(areas).length === 0) {
       if (r.hasDerivedAreas) clearIds.push(r.assetId);
       continue;
     }

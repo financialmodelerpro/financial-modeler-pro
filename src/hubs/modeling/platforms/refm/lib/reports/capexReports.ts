@@ -179,8 +179,8 @@ function basisLabel(method?: string): string {
     case 'rate_per_land': return 'per Plot Area sqm';
     case 'rate_per_nda': return 'per Plot Area sqm (legacy)';
     case 'rate_per_roads': return 'per Roads sqm (retired, always 0)';
-    case 'rate_per_gfa': return 'per Total GFA sqm';
-    case 'rate_per_bua': return 'per Total BUA sqm';
+    case 'rate_per_gfa': return 'per Total BUA sqm';
+    case 'rate_per_bua': return 'per Total GFA sqm';
     case 'rate_per_nsa': return 'per NSA or GLA sqm';
     case 'rate_per_unit': return 'per Unit';
     case 'rate_per_parking_bay': return 'per Parking slot';
@@ -213,8 +213,8 @@ function basisFor(method: string | undefined, m: AssetAreaMetrics, amount: numbe
     case 'rate_per_land': return { value: m.landSqm, label: 'Land sqm', kind: 'area' };
     case 'rate_per_nda': return { value: m.ndaSqm, label: 'Land sqm', kind: 'area' };
     case 'rate_per_roads': return { value: m.roadsSqm, label: 'Roads sqm', kind: 'area' };
-    case 'rate_per_gfa': return { value: m.gfa, label: 'GFA sqm', kind: 'area' };
-    case 'rate_per_bua': return { value: m.bua, label: 'BUA sqm', kind: 'area' };
+    case 'rate_per_gfa': return { value: m.gfa, label: 'Total BUA sqm', kind: 'area' };
+    case 'rate_per_bua': return { value: m.bua, label: 'Total GFA sqm', kind: 'area' };
     case 'rate_per_nsa': return { value: m.nsa, label: 'NSA or GLA sqm', kind: 'area' };
     case 'rate_per_unit': return { value: m.unitCount, label: 'units', kind: 'count' };
     case 'rate_per_parking_bay': return { value: m.parkingBays, label: 'slots', kind: 'count' };

@@ -49,6 +49,7 @@ import {
   type CostCategory,
   type CostDriver,
   selectableCostMethods,
+  COST_METHOD_BASIS_HELP,
   COST_METHOD_LABELS,
   COST_PHASING_OPTIONS,
   COST_STAGES,
@@ -376,9 +377,12 @@ function AddCatalogEntryForm({
       </div>
       <div>
         <span style={labelStyle}>Method</span>
-        <select value={method} onChange={(e) => setMethod(e.target.value as CostMethod)} style={fieldStyle} data-testid={`${testId}-method`}>
+        {/* THE TOOLTIP STATES THE SUM, NOT THE NAME. Two labels shipped
+            inverted because each tier has a name in BOTH vocabularies and the
+            two cross at the outer end; an arithmetic tooltip cannot invert. */}
+        <select value={method} onChange={(e) => setMethod(e.target.value as CostMethod)} style={fieldStyle} title={COST_METHOD_BASIS_HELP[method] ?? COST_METHOD_LABELS[method]} data-testid={`${testId}-method`}>
           {selectableCostMethods(method).map((m) => (
-            <option key={m} value={m}>{COST_METHOD_LABELS[m]}</option>
+            <option key={m} value={m} title={COST_METHOD_BASIS_HELP[m]}>{COST_METHOD_LABELS[m]}</option>
           ))}
         </select>
       </div>
@@ -531,10 +535,11 @@ function CustomCostPopup({ phaseId, assetId, constructionPeriods, onClose, onSav
               value={method}
               onChange={(e) => setMethod(e.target.value as CostMethod)}
               style={inputStyle}
+              title={COST_METHOD_BASIS_HELP[method] ?? COST_METHOD_LABELS[method]}
               data-testid="custom-cost-method"
             >
               {selectableCostMethods(method).map((m) => (
-                <option key={m} value={m}>{COST_METHOD_LABELS[m]}</option>
+                <option key={m} value={m} title={COST_METHOD_BASIS_HELP[m]}>{COST_METHOD_LABELS[m]}</option>
               ))}
             </select>
           </div>
@@ -1305,10 +1310,10 @@ function CostRow({
           disabled={isValueLocked}
           style={{ ...inputStyle, fontSize: 11, width: '100%' }}
           data-testid={`cost-${asset.id}-${line.id}-method`}
-          title={COST_METHOD_LABELS[effMethod]}
+          title={COST_METHOD_BASIS_HELP[effMethod] ?? COST_METHOD_LABELS[effMethod]}
         >
           {selectableCostMethods(effMethod).map((m) => (
-            <option key={m} value={m}>{COST_METHOD_LABELS[m]}</option>
+            <option key={m} value={m} title={COST_METHOD_BASIS_HELP[m]}>{COST_METHOD_LABELS[m]}</option>
           ))}
         </select>
       </td>

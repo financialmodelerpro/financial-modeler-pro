@@ -1962,6 +1962,44 @@ export const PER_SUBUNIT_RATE_KEY_PARKING = '__parking__';
  * rate_per_nda. Hiding is the only option that leaves those numbers untouched
  * and still stops the vocabulary spreading.
  */
+/**
+ * WHAT EACH METHOD MULTIPLIES, AS ARITHMETIC (2026-09-11).
+ *
+ * The assets tab names an internal field in 13 of its tooltips
+ * ("INTERNAL FIELD: Asset.parkingBaysRequired"); this is the same contract from
+ * the other side, and it states the SUM rather than the name on purpose. Two
+ * labels were shipped inverted because both quantities have a name in each
+ * vocabulary and the two vocabularies cross at the outer tiers. A tooltip that
+ * says `nsa + support, parking excluded` cannot be inverted by anybody,
+ * including the next person to rename a column.
+ */
+export const COST_METHOD_BASIS_HELP: Partial<Record<CostMethod, string>> = {
+  rate_per_land:
+    "The tab's Plot Area column. INTERNAL FIELD: AssetAreaMetrics.landSqm, this asset's allocated share of its plot.",
+  rate_per_nda:
+    'LEGACY. Multiplies gross plot area, which is what every stored line already charged. INTERNAL FIELD: AssetAreaMetrics.ndaSqm.',
+  rate_per_gfa:
+    "The tab's TOTAL BUA column, the outermost tier. INTERNAL FIELD: AssetAreaMetrics.gfa = NSA + Support + Parking. The platform field is called gfa and the tab calls this tier BUA: the two vocabularies cross here.",
+  rate_per_bua:
+    "The tab's TOTAL GFA column, the built floor area. INTERNAL FIELD: AssetAreaMetrics.bua = NSA + Support, parking EXCLUDED. The platform field is called bua and the tab calls this tier GFA: the two vocabularies cross here.",
+  rate_per_nsa:
+    "The tab's NSA or GLA column. INTERNAL FIELD: AssetAreaMetrics.nsa = the sum of the Sellable, Operable and Leasable sub-units.",
+  rate_per_unit:
+    "The tab's Units or Keys column. INTERNAL FIELD: AssetAreaMetrics.unitCount.",
+  rate_per_parking_bay:
+    "The tab's Parking Slots column, this asset's own slots. INTERNAL FIELD: Asset.parkingBaysRequired when typed, else the chain's derived count.",
+  rate_x_parking_area:
+    "The tab's Parking Area column, this asset's own parking and not the line total. INTERNAL FIELD: Asset.parkingArea when typed, else the chain's derived area.",
+  rate_x_support_area:
+    'The Support sub-units plus Asset.supportArea. There is no tab column: support is a sub-unit CATEGORY, not a chain tier.',
+  rate_x_net_developable_area:
+    "The tab's Net Developable Area column. INTERNAL FIELD: Asset.derivedAreas.netDevelopableSqm = plot area x utilisation. Derived by the chain; there is no typed counterpart.",
+  rate_x_footprint_area:
+    "The tab's Building Footprint column. INTERNAL FIELD: Asset.derivedAreas.footprintSqm = net developable x ground coverage. Derived by the chain; there is no typed counterpart.",
+  rate_x_landscape_area:
+    "The tab's Landscape and Open Area column. INTERNAL FIELD: Asset.derivedAreas.landscapeSqm = net developable x (1 - ground coverage). Derived by the chain; there is no typed counterpart.",
+};
+
 export const RETIRED_COST_METHODS: readonly CostMethod[] = ['rate_per_nda', 'rate_per_roads'] as const;
 
 export function isRetiredCostMethod(m: CostMethod): boolean {
@@ -2008,6 +2046,23 @@ export function selectableCostMethods(current?: CostMethod): readonly CostMethod
  * choosing which column on the assets tab this rate multiplies, and a reader
  * could not do that by reading.
  *
+ * THE TWO OUTER TIERS CROSS, AND THE FIRST CUT OF THIS RENAME GOT THEM
+ * BACKWARDS (fixed 2026-09-11, hours after shipping). Proved by arithmetic on
+ * 17 of 17 live assets, not by reading a comment:
+ *
+ *   platform `nsa` = the sub-units                       = tab NSA or GLA
+ *   platform `bua` = nsa + support, parking EXCLUDED     = tab TOTAL GFA
+ *   platform `gfa` = bua + parking, the outermost tier   = tab TOTAL BUA
+ *
+ * and the chain agrees from its own side: `totalGfaSqm` is utilised x FAR with
+ * no parking in it, and `totalBuaSqm` is that plus parking. So `rate_per_gfa`
+ * charges the tier the tab calls Total BUA, and `rate_per_bua` charges the one
+ * it calls Total GFA. Naming each after the platform FIELD it reads was the
+ * trap: the field names are the reference's names for the other tier.
+ *
+ * A NAME CHECK CANNOT CATCH THIS, which is why the first cut passed its own new
+ * check. `verify-capex-structure` P4h runs the arithmetic instead.
+ *
  * The three chain methods added on 2026-09-10 already agreed, because they were
  * named from the tab. These bring the older seven into line. LABELS ONLY: the
  * stored `method` ids are untouched, so no line changes and no number moves.
@@ -2017,8 +2072,8 @@ export const COST_METHOD_LABELS: Record<CostMethod, string> = {
   rate_per_land:           'Rate × Plot Area',
   rate_per_nda:            'Rate × Plot Area (legacy)',
   rate_per_roads:          'Rate × Roads (retired)',
-  rate_per_gfa:            'Rate × Total GFA',
-  rate_per_bua:            'Rate × Total BUA',
+  rate_per_gfa:            'Rate × Total BUA',
+  rate_per_bua:            'Rate × Total GFA',
   rate_per_nsa:            'Rate × NSA or GLA',
   rate_per_unit:           'Rate × Units or Keys',
   rate_per_parking_bay:    'Rate × Parking Slots',

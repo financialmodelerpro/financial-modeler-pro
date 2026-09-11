@@ -36,12 +36,12 @@ import {
   type Asset, type CostLine, type Parcel, type Phase, type SubUnit, type Project,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import {
-  computeAssetCost, computeAssetLandBreakdown, computeSubUnitArea, resolveSubUnitMetric,
+  computeAssetCost, computeAssetLandBreakdown, computeSubUnitArea, resolveSubUnitMetric, calculateItemTotal,
   resolveAssetParkingArea, resolveAssetParkingBays, resolveAssetNetDevelopableArea,
   resolveAssetFootprintArea, resolveAssetLandscapeArea, deriveCostStage, landRateIssueText,
 } from '../src/core/calculations';
 import { eligibleBaseLines, assetVisibleLines } from '../src/core/calculations/selectedBase';
-import { selectableCostMethods, COST_METHOD_LABELS, type CostMethod } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import { selectableCostMethods, COST_METHOD_LABELS, COST_METHOD_BASIS_HELP, type CostMethod } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { repairStaleWizardCostWindows } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
 import { buildWizardSnapshot } from '../src/hubs/modeling/platforms/refm/lib/wizard/buildWizardSnapshot';
 import type { HydrateSnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-store';
@@ -657,7 +657,11 @@ section('K. Area x unit size = count: only two of the three are inputs');
       .every((l) => engineSrc2.includes(`noDerived('${l}')`))
     // And the ones that DO have a typed field keep the ordinary sentence.
     && engineSrc2.includes("noArea('Plot area')"));
-  // P4f ONE VOCABULARY. Picking a cost basis is choosing which column on the
+  // P4f ONE VOCABULARY, AND IT PROVES ONLY THAT THE WORDS ARE THE TAB'S. Which
+  // quantity each word belongs to is P4h's job, because this check passed on an
+  // inverted pair: both tiers have a name in both vocabularies, so swapping two
+  // labels leaves every name present and correctly spelled.
+  // Picking a cost basis is choosing which column on the
   // assets tab this rate multiplies, so the picker names the quantity the tab
   // names. Seven did not, 'Sellable BUA' for the column headed NSA or GLA being
   // the worst of them.
@@ -666,8 +670,12 @@ section('K. Area x unit size = count: only two of the three are inputs');
       const tabSrc2 = fs.readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx', 'utf8');
       const PAIRS: [string, string][] = [
         ['rate_per_land', 'Plot Area (sqm)'],
-        ['rate_per_gfa', 'Total GFA (sqm)'],
-        ['rate_per_bua', 'Total BUA (sqm)'],
+        // THE OUTER TWO CROSS, and this table had them backwards for the hours
+        // between the rename and its correction. The PAIRING is proven by the
+        // arithmetic in P4h; this only checks that the words on the label are
+        // words the tab actually heads a column with.
+        ['rate_per_gfa', 'Total BUA (sqm)'],
+        ['rate_per_bua', 'Total GFA (sqm)'],
         ['rate_per_nsa', 'NSA or GLA (sqm)'],
         ['rate_per_unit', 'Units or Keys'],
         ['rate_per_parking_bay', 'Parking Slots'],
@@ -688,6 +696,63 @@ section('K. Area x unit size = count: only two of the three are inputs');
   // the thing it says is gone.
   check('P4g and the old third name for NSA is gone from every label',
     !Object.values(COST_METHOD_LABELS).some((l) => l.includes('Sellable BUA')));
+
+  // ── P4h THE TIER ARITHMETIC, NOT THE TIER NAME (2026-09-11) ───────────
+  //
+  // Two labels shipped INVERTED on 2026-09-11 and passed P4f, which compared
+  // the label to the assets tab's column headers. It could not catch it: both
+  // quantities have a name in both vocabularies, and the two cross at the outer
+  // tiers, so swapping them leaves every name still present and still spelled
+  // correctly. A name check can only ever prove the words exist.
+  //
+  // So this runs the engine. One asset with three DIFFERENT numbers in it, so
+  // no two tiers can be confused by coincidence, and each method is asked what
+  // it actually multiplies:
+  //
+  //   nsa 1,000 + support 100 = bua 1,100          the tab's TOTAL GFA
+  //   bua 1,100 + parking 250 = gfa 1,350          the tab's TOTAL BUA
+  //
+  // If the labels are ever swapped again, the method labelled with the tab's
+  // Total GFA will return 1,350 here and this fails.
+  {
+    const tierMetrics = {
+      landSqm: 0, ndaSqm: 0, roadsSqm: 0,
+      nsa: 1000, bua: 1100, gfa: 1350,
+      unitCount: 0, parkingBays: 0,
+      supportArea: 100, parkingArea: 250,
+      netDevelopableArea: 0, footprintArea: 0, landscapeArea: 0,
+      landValue: 0, cashLandValue: 0, inKindLandValue: 0, totalRevenue: 0,
+    } as unknown as Parameters<typeof calculateItemTotal>[1]['metrics'];
+    const at = (method: string): number => calculateItemTotal(
+      { id: 'l', name: 'l', method, value: 1 } as unknown as Parameters<typeof calculateItemTotal>[0],
+      { asset: { id: 'a', phaseId: 'p' } as never, metrics: tierMetrics, resolvedDirectLineTotals: {} },
+    );
+    check('P4h the tiers are arithmetic: NSA is the sub-units, +support, +parking',
+      at('rate_per_nsa') === 1000 && at('rate_per_bua') === 1100 && at('rate_per_gfa') === 1350,
+      `nsa=${at('rate_per_nsa')} bua=${at('rate_per_bua')} gfa=${at('rate_per_gfa')}`);
+    // THE LABEL IS TIED TO THE SUM, which is the half P4f cannot do. The method
+    // the picker calls "Total GFA" must charge the floor area WITHOUT parking,
+    // and the one it calls "Total BUA" must charge the outermost tier.
+    const labelled = (tab: string): string | undefined =>
+      (Object.keys(COST_METHOD_LABELS) as CostMethod[])
+        .find((m) => COST_METHOD_LABELS[m] === `Rate ${String.fromCharCode(215)} ${tab}`);
+    const totalGfaMethod = labelled('Total GFA');
+    const totalBuaMethod = labelled('Total BUA');
+    check('P4h-b exactly one method is labelled with each outer tier',
+      totalGfaMethod !== undefined && totalBuaMethod !== undefined && totalGfaMethod !== totalBuaMethod,
+      `${totalGfaMethod} / ${totalBuaMethod}`);
+    check('P4h-c the method labelled TOTAL GFA charges NSA + support, parking EXCLUDED',
+      totalGfaMethod !== undefined && at(totalGfaMethod) === 1100,
+      `${totalGfaMethod} charges ${totalGfaMethod ? at(totalGfaMethod) : '-'}, expected 1100`);
+    check('P4h-d the method labelled TOTAL BUA charges NSA + support + parking',
+      totalBuaMethod !== undefined && at(totalBuaMethod) === 1350,
+      `${totalBuaMethod} charges ${totalBuaMethod ? at(totalBuaMethod) : '-'}, expected 1350`);
+    // AND THE TOOLTIP SAYS THE SUM. A label can be re-pointed; a tooltip that
+    // spells out "NSA + Support + Parking" is what makes the next rename safe.
+    check('P4h-e each outer tier states its arithmetic in the tooltip, not just a name',
+      (COST_METHOD_BASIS_HELP[totalGfaMethod as CostMethod] ?? '').includes('NSA + Support, parking EXCLUDED')
+      && (COST_METHOD_BASIS_HELP[totalBuaMethod as CostMethod] ?? '').includes('NSA + Support + Parking'));
+  }
 
   // P5 THE RETIRED METHOD STAYS RETIRED. Re-pointing rate_per_nda at the
   // chain's utilised land would change what every stored line means without

@@ -47,6 +47,7 @@ import {
   resolveAssetNsa,
   derivedSupportId,
   planDerivedSupport,
+  planDerivedAreas,
   totalsFromRows,
   UNPLOTTED_GROUP,
   type AssetPlotGroup,
@@ -1418,6 +1419,46 @@ function offlineChecks(): void {
     assetId: 'a1', assetName: 'Tower', hasTypedSupport: false, hasDerivedRow: false,
     lobbyGfaSqm: 1000, mainAssetGfaSqm: 9000, netSaleableSqm: 7000, ...over,
   });
+
+  // ── U78 to U80. THE OPT-IN GATES WHAT CAN MOVE MONEY, AND ONLY THAT ─────
+  //
+  // `useDerivedAreas` exists because the derived SUPPORT row adds cost to
+  // assets that are already charging. Gating the three chain-only AREAS behind
+  // it too made their cost methods unusable: they have no typed counterpart, so
+  // with the toggle off `rate_x_landscape_area` was selectable, correct, and
+  // multiplied ZERO on every asset of both live projects.
+  //
+  // The split is by what a figure can do on its own. Net developable, footprint
+  // and landscape are each read by exactly ONE thing that computes money, their
+  // own cost method, which exists only because somebody created it. Parking is
+  // not: `resolveAssetParkingArea` falls back to the derived figure when nothing
+  // is typed, and both live projects already carry `rate_x_parking_area` lines,
+  // so deriving it unasked would change a live model.
+  const arow = {
+    assetId: 'a1', hasDerivedAreas: false,
+    parkingAreaSqm: 2800, parkingSlots: 70,
+    landUtilisedSqm: 10000, footprintSqm: 6000, landscapeSqm: 4000,
+  };
+  const keysOff = Object.keys(planDerivedAreas([arow], false).writes[0]?.areas ?? {}).sort();
+  const keysOn = Object.keys(planDerivedAreas([arow], true).writes[0]?.areas ?? {}).sort();
+  check('U78 the three chain-only areas derive with the toggle OFF, so their methods work',
+    JSON.stringify(keysOff) === JSON.stringify(['footprintSqm', 'landscapeSqm', 'netDevelopableSqm']),
+    keysOff.join(','));
+  check('U79 parking stays behind the opt-in, because a live cost line already prices it',
+    !keysOff.includes('parkingAreaSqm') && !keysOff.includes('parkingBays')
+    && keysOn.includes('parkingAreaSqm') && keysOn.includes('parkingBays'),
+    `off=[${keysOff.join(',')}] on=[${keysOn.join(',')}]`);
+  // AN ASSET WITH NO CHAIN STILL DERIVES NOTHING, toggle or no toggle, so this
+  // cannot start writing a bag onto a project that has no massing at all.
+  check('U80 an asset the chain produced nothing for is cleared, not written',
+    (() => {
+      const bare = { assetId: 'a1', hasDerivedAreas: true };
+      const off = planDerivedAreas([bare], false);
+      const on = planDerivedAreas([bare], true);
+      return off.writes.length === 0 && off.clearIds[0] === 'a1'
+        && on.writes.length === 0 && on.clearIds[0] === 'a1';
+    })());
+
   // ── U73 to U77. THE TYPE'S MASSING DEFAULTS (2026-09-10) ────────────────
   //
   // Coverage, FAR and the service share are typed PER PLOT and five plots of
