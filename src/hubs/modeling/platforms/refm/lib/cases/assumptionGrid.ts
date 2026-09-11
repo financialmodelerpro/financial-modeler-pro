@@ -627,6 +627,44 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
     return 'the sqm one parking slot occupies; it is read by the area chain on the assets tab and by no calculation, so it moves nothing today';
   }
 
+  // ── THE AREA CHAIN'S OWN INPUTS (2026-09-11) ──────────────────────────
+  //
+  // MASSING IS DERIVED ON THE ASSETS TAB. The chain runs there and reaches the
+  // engine only through what it WRITES: the sub-unit areas a share reallocates,
+  // the derived support row, the derived parking bag. A case override is
+  // value-only and does not re-run the tab, so none of that is re-derived.
+  //
+  // AND THE REASON IS NOT "IT MOVES NOTHING", because that would be false and a
+  // false reason is worse than none. Measured, one input at a time, on the live
+  // project: utilisation and the service share move NOTHING, while coverage,
+  // FAR and the retail share each move the retail land CARVE, and only that.
+  // The engine reads the chain for one figure, the share of retail GFA in total
+  // GFA, so an override there reallocates land between a host and its companion
+  // and changes no built area, no capex and no revenue. A lever that moves a
+  // land allocation under a label reading "Ground Coverage %" is worse than one
+  // that does nothing, which is why the sentence says exactly what happens.
+  //
+  // INACTIVE, NOT HIDDEN, and the difference is the open door: if scenario
+  // massing ever matters, the answer is a case carrying its OWN derived rows by
+  // re-running the tab's planner, not moving the chain into the engine. That
+  // reuses the planner unchanged, keeps one definition of every area, and keeps
+  // prices where a user can type them. On the day that lands, this branch stops
+  // firing and nothing else changes.
+  if (/^assets\[[^\]]+\]\.landChain\./.test(path)) {
+    // The two that are retired or read by nothing say so plainly rather than
+    // borrowing the carve sentence, which would not be true of them.
+    if (/\.retailAreaPerSlotSqm$/.test(path)) {
+      return 'a retired per-plot retail area per slot; the divisor is the retail TYPE\'s own parking ratio now, and nothing reads this field';
+    }
+    if (/\.maxFloors$/.test(path)) {
+      return 'a massing note on the plot; no calculation reads it, on the assets tab or anywhere else';
+    }
+    const CARVE_INPUTS = /\.(coveragePct|farRatio|retailPct)$/.test(path);
+    return CARVE_INPUTS
+      ? 'massing is derived on the assets tab, so an override here re-derives nothing: it changes only the RETAIL LAND CARVE, moving land between a host and its companion, and no built area, capex or revenue with it'
+      : 'massing is derived on the assets tab and a value-only override does not re-run it, so this changes nothing at all (the engine reads the chain for one figure, the retail share, which this input does not affect)';
+  }
+
   if (/^project\.assetTypeValues(\.|\[)/.test(path)) {
     return 'an asset type standard for this project; no calculation reads it yet (the area chain that will is a later step), so it moves nothing today';
   }

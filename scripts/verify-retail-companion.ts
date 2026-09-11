@@ -700,6 +700,46 @@ async function liveChecks(): Promise<void> {
     MASSING_DOORS.every((f) => readFileSync(f, 'utf8').includes('withInheritedMassingAll(')),
     MASSING_DOORS.filter((f) => !readFileSync(f, 'utf8').includes('withInheritedMassingAll(')).join(', '));
 
+  // J6 THE MODULE 6 REASON STRING IS A CLAIM ABOUT THIS ENGINE, so it is
+  // checked against it. Massing is derived on the assets tab and a scenario
+  // override re-derives nothing, but THREE chain inputs still move the carve
+  // because the engine reads the chain for that one share, and two do not.
+  // The gate says which; if the engine ever changes, this is what catches the
+  // sentence going stale.
+  let carveClaimOk = 0, carveClaimTested = 0;
+  for (const p of ps) {
+    const vs = await q(`refm_project_versions?project_id=eq.${p.id}&select=snapshot&order=created_at.desc&limit=1`) as { snapshot: Record<string, unknown> }[];
+    if (!vs[0]?.snapshot) continue;
+    let st: Record<string, unknown>;
+    try { st = hydrationFromAnySnapshot(vs[0].snapshot as never) as never; } catch { continue; }
+    const assets = (st.assets ?? []) as Asset[];
+    if (!assets.some((a) => isRetailCompanion(a))) continue;
+    const host = assets.find((a) => !isRetailCompanion(a)
+      && (a as { landChain?: Record<string, number> }).landChain?.coveragePct !== undefined);
+    if (!host) continue;
+    carveClaimTested += 1;
+    const landSum = (s: Record<string, unknown>): string => {
+      const a2 = (s.assets ?? []) as Asset[];
+      return a2.map((a) => computeAssetLandBreakdown(a, (s.parcels ?? []) as never, a2, (s.subUnits ?? []) as never, (s.landAllocationMode ?? 'sqm') as never).landValue.toFixed(2)).join('|');
+    };
+    const base = landSum(st);
+    const bump = (field: string, mult: number): boolean => {
+      const m = JSON.parse(JSON.stringify(st)) as Record<string, unknown>;
+      const h = ((m.assets ?? []) as Asset[]).find((a) => a.id === host.id) as { landChain?: Record<string, number> };
+      const cur = h.landChain?.[field];
+      if (typeof cur !== 'number' || cur === 0) return false;
+      (h.landChain as Record<string, number>)[field] = cur * mult;
+      return landSum(m) !== base;
+    };
+    const moves = ['coveragePct', 'farRatio', 'retailPct'].every((f) => bump(f, 2));
+    const still = ['utilisationPct', 'servicePct'].every((f) => !bump(f, 0.5));
+    if (moves && still) carveClaimOk += 1;
+    console.log(`  ${p.name}: coverage/FAR/retail move the carve ${moves}, utilisation/service leave it alone ${still}`);
+  }
+  check('J6 the three chain inputs the Module 6 gate says move the CARVE actually do, and the other two do not',
+    carveClaimTested >= 1 && carveClaimOk === carveClaimTested,
+    `${carveClaimOk} of ${carveClaimTested}`);
+
   // ── I5. WHAT THE SCREEN SHOWS FOOTS, PER PLOT (2026-09-10) ──────────────
   //
   // The engine reconciled from the day the carve shipped; the SCREEN did not.

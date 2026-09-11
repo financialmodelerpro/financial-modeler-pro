@@ -231,6 +231,32 @@ check('and none of the three is hidden instead, which would take it off the pick
   ['subUnits[id=u].nsaSharePct', 'project.useDerivedAreas', 'project.parkingAreaPerSlotSqm']
     .every((p) => nonEconomicLeverReason(p, p.split('.').pop() as string) === null));
 
+// THE AREA CHAIN'S OWN INPUTS. Massing is derived on the assets tab, so an
+// override re-derives nothing; but three of the five DO move the retail land
+// carve, because the engine reads the chain for that one share. The reason
+// string has to say which, or it is a false statement dressed as curation.
+const mChain: any = { project: {}, assets: [{ id: 'a', landChain: { farRatio: 2 } }] };
+const chainReason = (f: string): string | null => inactiveLeverReason(`assets[id=a].landChain.${f}`, mChain);
+check('every chain input is inactive, none of them hidden',
+  ['coveragePct', 'farRatio', 'retailPct', 'utilisationPct', 'servicePct', 'maxFloors', 'retailAreaPerSlotSqm']
+    .every((f) => chainReason(f) !== null
+      && nonEconomicLeverReason(`assets[id=a].landChain.${f}`, f) === null));
+check('the three that move the CARVE say so, rather than claiming they move nothing',
+  ['coveragePct', 'farRatio', 'retailPct'].every((f) => {
+    const r = chainReason(f) ?? '';
+    return r.includes('RETAIL LAND CARVE') && !r.includes('nothing at all');
+  }));
+check('and the two that genuinely move nothing say THAT, rather than borrowing the carve sentence',
+  ['utilisationPct', 'servicePct'].every((f) => {
+    const r = chainReason(f) ?? '';
+    return r.includes('nothing at all') && !r.includes('RETAIL LAND CARVE');
+  }));
+// A RETIRED FIELD AND AN UNREAD ONE GET THEIR OWN SENTENCES, because neither
+// is a massing input that happens to be inert: one is retired and one is a note.
+check('the retired retail area per slot and the unread maxFloors are named for what they are',
+  (chainReason('retailAreaPerSlotSqm') ?? '').includes('retired')
+  && (chainReason('maxFloors') ?? '').includes('no calculation reads it'));
+
 // ── 6. Comparison metrics: NPV row + explicit null-FCFF label. ───────────────
 console.log('\n[6] Comparison metrics (NPV row + null-FCFF label)');
 check('comparison exposes an NPV (FCFF) row (so discount rate has a metric)', CASE_KPIS.some((k) => k.label === 'NPV (FCFF)'));
