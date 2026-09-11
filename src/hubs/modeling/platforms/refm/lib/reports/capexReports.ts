@@ -19,6 +19,8 @@ import { assetLabel } from '@/src/core/calculations/assetName';
 import { groupAssetsForConsolidation } from '@/src/core/calculations/consolidation';
 import { retailCompanionId } from '@/src/core/calculations/retailCompanion';
 import { normaliseAssetTypeId } from '@/src/core/calculations/typeKey';
+import { withInheritedMassingAll } from '@/src/core/calculations/landChain';
+import { chainMassingFor } from '../state/assetTypeStandards';
 
 export type MetricKind = 'area' | 'count' | 'money' | 'none';
 
@@ -357,7 +359,14 @@ export function planCapexSummaryLines(
 }
 
 export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState): CapexReport {
-  const { project, phases, assets, parcels, subUnits, costLines, costOverrides, landAllocationMode } = state;
+  const { project, phases, assets: rawAssets, parcels, subUnits, costLines, costOverrides, landAllocationMode } = state;
+  // THE TYPE'S MASSING, RESOLVED AT THIS DOOR TOO (2026-09-11). The engine reads
+  // the chain for the retail land carve and the plot may inherit its coverage,
+  // FAR or service share from the asset type. The composer resolves that for
+  // everything it computes; this builder is entered from the PDF and the
+  // workbook with the raw state, so it resolves for itself. Same call, same
+  // rule, and `verify-retail-companion` J5 fails if a door goes missing.
+  const assets = withInheritedMassingAll(rawAssets, (a) => chainMassingFor(a, project.assetTypeValues));
   const N = snap.yearLabels.length;
   const projectStartYear = snap.projectStartYear;
   const lineById = new Map(costLines.map((c) => [c.id, c] as const));

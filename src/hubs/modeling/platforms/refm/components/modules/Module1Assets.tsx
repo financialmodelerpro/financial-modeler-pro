@@ -137,6 +137,8 @@ import { CELL_HEADER, TABLE_TITLE } from './_shared/tableStyles';
 import { StrategyChangeConfirm, StrategyReviewBanner } from './_shared/StrategyChangeNotice';
 import { applyStrategySwitch, assetHasStrategyAssumptions, type StrategySwitchReport } from '../../lib/state/strategySwitch';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
+import { withInheritedMassingAll } from '@/src/core/calculations/landChain';
+import { chainMassingFor } from '../../lib/state/assetTypeStandards';
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 const inputStyle: React.CSSProperties = {
@@ -461,9 +463,17 @@ export default function Module1Assets(): React.JSX.Element {
    * resolving it here means every table, picker and card below reads a plain
    * `a.name` and cannot disagree with any other surface.
    */
+  // AND THE TYPE'S MASSING WITH IT (2026-09-11). This screen calls the land and
+  // capex engine directly, which reads the chain for the retail land carve, and
+  // a plot may inherit its coverage, FAR or service share from the asset type.
+  // Resolved in the same memo as the label so there is ONE place per screen
+  // where a raw asset becomes a readable one.
   const assets = useMemo(
-    () => withResolvedAssetNames(rawAssets, { parcels, phases }),
-    [rawAssets, parcels, phases],
+    () => withInheritedMassingAll(
+      withResolvedAssetNames(rawAssets, { parcels, phases }),
+      (a) => chainMassingFor(a, project.assetTypeValues),
+    ),
+    [rawAssets, parcels, phases, project.assetTypeValues],
   );
 
   // Aggregate land across all phases (M2.0e: parcels can spread across

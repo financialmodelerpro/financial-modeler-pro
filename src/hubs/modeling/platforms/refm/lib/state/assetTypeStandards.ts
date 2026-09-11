@@ -184,6 +184,26 @@ export function resolveChainDefaults(
   };
 }
 
+/**
+ * WHAT ONE ASSET INHERITS, in the shape the chain takes (2026-09-11).
+ *
+ * `resolveChainDefaults` answers the same question and also reports WHERE each
+ * figure came from, which the plot row needs so an inherited FAR can render
+ * greyed. A consumer that only wants the values should not have to carry the
+ * sources into a chain input object, so this is that one line, stated once:
+ * both the assets tab and the engine's front door call it, and the rule stays
+ * `resolveChainDefaults`.
+ */
+export function chainMassingFor(
+  asset: TypedAsset & { landChain?: { coveragePct?: number; farRatio?: number; servicePct?: number } },
+  valuesByType: AssetTypeValuesByType | undefined,
+): { coveragePct?: number; farRatio?: number; servicePct?: number } {
+  const { sources: _sources, ...values } = resolveChainDefaults(
+    asset.landChain, resolveAssetTypeValues(asset, valuesByType),
+  );
+  return values;
+}
+
 /** Every type's values in one project, keyed by vocabulary entry id. */
 export type AssetTypeValuesByType = Record<string, AssetTypeValues>;
 

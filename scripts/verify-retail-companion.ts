@@ -46,6 +46,7 @@ import { groupAssetsByPlot } from '../src/hubs/modeling/platforms/refm/component
 import { makeRetailCompanionAsset, makeRetailCompanionSubUnit } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import type { Asset, SubUnit, SubUnitCategory, SubUnitMetric } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import { buildCapexReport } from '../src/hubs/modeling/platforms/refm/lib/reports/capexReports';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
 import {
   normaliseAssetTypeId, resolveAssetTypeValues, resolveAvgUnitSize, resolveRetailSlotArea,
@@ -596,6 +597,108 @@ async function liveChecks(): Promise<void> {
     disagreed === 0 && compared >= 12, `${disagreed} disagreed of ${compared} compared`);
   check('I3 and the project land total is unchanged (necessary, not sufficient)',
     totalsMoved === 0, `${totalsMoved} projects whose total moved`);
+
+  // ── J. THE DOOR SECTION I DOES NOT WATCH (2026-09-11) ──────────────────
+  //
+  // Every check above calls `computeAssetLandBreakdown` DIRECTLY, which is the
+  // right way to compare a carve against itself and the wrong way to catch this:
+  // the chain's coverage, FAR and service share default from the asset TYPE
+  // since 2026-09-10, and the engine called the chain with the plot's own inputs
+  // alone. A plot inheriting its FAR produced an undefined total GFA, no
+  // derivable share, and the host kept land its companion should have carved,
+  // while the project total still footed. Measured on the live project before
+  // the fix: 4,094,123.49 of land value between two assets.
+  //
+  // The resolution is a FRONT DOOR in `computeFinancialsSnapshot`, so a check
+  // that does not go through the composer cannot see it. These do.
+  section('J. Live: the carve honours massing inherited from the asset type');
+  let inheritTested = 0, inheritMoved = 0, provedNotVacuous = 0;
+  for (const p of ps) {
+    const vs = await q(`refm_project_versions?project_id=eq.${p.id}&select=snapshot&order=created_at.desc&limit=1`) as { snapshot: Record<string, unknown> }[];
+    if (!vs[0]?.snapshot) continue;
+    let st: Record<string, unknown>;
+    try { st = hydrationFromAnySnapshot(vs[0].snapshot as never) as never; } catch { continue; }
+    const assets = (st.assets ?? []) as Asset[];
+    if (!assets.some((a) => isRetailCompanion(a))) continue;
+    // A HOST THAT STATES ITS OWN FAR, which is the figure to move onto its type.
+    const host = assets.find((a) => !isRetailCompanion(a)
+      && typeof (a as { landChain?: { farRatio?: number } }).landChain?.farRatio === 'number');
+    if (!host) continue;
+    const key = (host as { assetTypeId?: string }).assetTypeId ?? '';
+    if (key === '') continue;
+    inheritTested += 1;
+
+    // PER ASSET, THROUGH BOTH DOORS. The capex report's per-asset series is the
+    // observable: it is built from `computeAssetCost`, which is where the land
+    // carve lands, and reaching it exercises the composer AND the report
+    // builder. A project TOTAL would prove nothing here, because the carve can
+    // only ever move land between two assets.
+    const landOf = (s: Record<string, unknown>): Map<string, number> => {
+      const snap = computeFinancialsSnapshot(s as never);
+      const rep = buildCapexReport(snap, s as never);
+      return new Map(rep.assetSeries.map((x) => [x.assetId, x.inclAll.reduce((t, v) => t + (v ?? 0), 0)] as const));
+    };
+
+    const moved = JSON.parse(JSON.stringify(st)) as Record<string, unknown>;
+    const mAssets = (moved.assets ?? []) as Asset[];
+    const mHost = mAssets.find((a) => a.id === host.id) as { landChain?: { farRatio?: number } };
+    const far = mHost.landChain?.farRatio as number;
+    delete mHost.landChain?.farRatio;
+    const proj = moved.project as { assetTypeValues?: Record<string, Record<string, number>> };
+    proj.assetTypeValues = { ...(proj.assetTypeValues ?? {}), [key]: { ...(proj.assetTypeValues?.[key] ?? {}), farRatio: far } };
+
+    const before = landOf(st);
+    const after = landOf(moved);
+    let worst = 0;
+    for (const [id, v] of before) worst = Math.max(worst, Math.abs(v - (after.get(id) ?? 0)));
+    if (worst > 0.005) inheritMoved += 1;
+    console.log(`  ${p.name}: FAR ${far} moved from plot to type "${key}", max land-value difference ${worst.toFixed(2)}`);
+
+    // AND THE CHECK IS NOT VACUOUS: without the front door the same move DOES
+    // change the carve. Proven by calling the engine directly, which is what
+    // every other section does and precisely why they could not see this.
+    let rawWorst = 0;
+    for (const a of assets) {
+      const b = computeAssetLandBreakdown(a, (st.parcels ?? []) as never, assets, (st.subUnits ?? []) as never, (st.landAllocationMode ?? 'sqm') as never);
+      const ma = mAssets.find((x) => x.id === a.id) as Asset;
+      const c = computeAssetLandBreakdown(ma, (moved.parcels ?? []) as never, mAssets, (moved.subUnits ?? []) as never, (moved.landAllocationMode ?? 'sqm') as never);
+      rawWorst = Math.max(rawWorst, Math.abs(b.landValue - c.landValue));
+    }
+    if (rawWorst > 0.005) provedNotVacuous += 1;
+    console.log(`    without the front door the same move shifts ${rawWorst.toFixed(2)}`);
+  }
+  check('J1 a live project with a companion and a typed FAR was actually exercised',
+    inheritTested >= 1, `${inheritTested} exercised`);
+  check('J2 moving a FAR from the plot to its TYPE changes no land value, through the composer',
+    inheritMoved === 0, `${inheritMoved} projects moved`);
+  check('J3 and the same move DOES move it without the front door, so J2 is not vacuous',
+    provedNotVacuous === inheritTested, `${provedNotVacuous} of ${inheritTested} proved`);
+  // THE DOOR ITSELF, so a refactor cannot quietly remove it and leave J2 passing
+  // on a project where nothing happens to inherit.
+  check('J4 the composer resolves inherited massing before anything reads the chain',
+    (() => {
+      const src = readFileSync('src/hubs/modeling/platforms/refm/lib/financials-resolvers.ts', 'utf8');
+      const at = src.indexOf('withInheritedMassingAll(');
+      const firstOnce = src.indexOf('computeFinancialsSnapshotOnce(state, opts)');
+      return at > 0 && firstOnce > 0 && at < firstOnce;
+    })());
+  // EVERY DOOR IS NAMED. The composer covers everything it computes, because
+  // each engine consumer is called with the state it already resolved. What it
+  // cannot cover is a surface that enters the land or capex engine on its own,
+  // and there are four: the shared capex report (entered by the PDF and the
+  // workbook) and the three screens that price assets themselves. A fifth
+  // appearing without a line here is a surface nobody decided on, which is the
+  // same shape as the chain's own consumer list.
+  const MASSING_DOORS = [
+    'src/hubs/modeling/platforms/refm/lib/financials-resolvers.ts',
+    'src/hubs/modeling/platforms/refm/lib/reports/capexReports.ts',
+    'src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx',
+    'src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx',
+    'src/hubs/modeling/platforms/refm/components/modules/Module2RevenueOutput.tsx',
+  ];
+  check('J5 every surface that enters the land engine on its own resolves the massing first',
+    MASSING_DOORS.every((f) => readFileSync(f, 'utf8').includes('withInheritedMassingAll(')),
+    MASSING_DOORS.filter((f) => !readFileSync(f, 'utf8').includes('withInheritedMassingAll(')).join(', '));
 
   // ── I5. WHAT THE SCREEN SHOWS FOOTS, PER PLOT (2026-09-10) ──────────────
   //

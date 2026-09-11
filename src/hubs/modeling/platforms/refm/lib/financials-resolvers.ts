@@ -54,6 +54,8 @@ import { DEFAULT_PROJECT_FINANCING_CONFIG } from './state/module1-types';
 import { resolveFundTerms } from './fundTerms';
 import { computeFundFeeSchedule, emptyFundFeeSchedule, resolveFacilityLimit, resolveFundSize, type FundFeeSchedule } from './fundFees';
 import { assetLabel, withResolvedAssetNames } from '@/src/core/calculations/assetName';
+import { withInheritedMassingAll } from '@/src/core/calculations/landChain';
+import { chainMassingFor } from './state/assetTypeStandards';
 
 /** Lifetime sum of a per-period series. Local to the fund-size resolution. */
 const sumSeries = (a: readonly number[] | undefined): number =>
@@ -2757,6 +2759,26 @@ export function computeFinancialsSnapshot(
     fundFees?: FundFeeSchedule;
   },
 ): ProjectFinancialsSnapshot {
+  // ── THE FRONT DOOR FOR THE TYPE'S MASSING (2026-09-11) ──
+  //
+  // Coverage, FAR and the service share default from the asset type and are
+  // overridden per plot. The engine reads the chain in exactly one place, the
+  // retail land carve, and it read the PLOT's inputs alone: a plot inheriting
+  // its FAR produced an undefined total GFA, no derivable share, and the host
+  // silently kept land its companion should have carved. Measured at
+  // 4,094,123.49 of land value between two assets on the live project, with the
+  // project total still footing, which is the exact failure the per-asset
+  // reconciliation exists to catch arriving through a door it did not watch.
+  //
+  // RESOLVED ONCE, HERE, over copies: the same read-time view
+  // `withResolvedAssetNames` takes, so nothing is stamped and a type edit moves
+  // the model on the next compute. Every engine function below reads
+  // `state.assets`, so one call reaches all of them.
+  state = {
+    ...state,
+    assets: withInheritedMassingAll(state.assets, (a) => chainMassingFor(a, state.project.assetTypeValues)),
+  };
+
   // Explicit-opts call (e.g. a verifier feeding a fixed gap/budget): one pass.
   if (opts?.fundingGap || opts?.idcCashBudget || opts?.sweepBudget || opts?.fundFees) {
     return computeFinancialsSnapshotOnce(state, opts);

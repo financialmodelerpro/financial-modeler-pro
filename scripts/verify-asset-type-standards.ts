@@ -116,7 +116,20 @@ const DEFINITION_ONLY: { file: string; token: string; allowedCallers?: string[] 
   {
     file: 'src/core/calculations/landChain.ts',
     token: 'landChain',
-    allowedCallers: ['src/core/calculations/index.ts'],
+    // TWO MORE ON 2026-09-11, and only to pass the TYPE'S MASSING in. The
+    // chain's coverage, FAR and service share default from the asset type, and
+    // the carve read the plot's inputs alone: a plot inheriting its FAR
+    // produced an undefined total GFA and its host kept 4,094,123.49 of land
+    // its companion should have carved, with the project total still footing.
+    // The resolution has to happen where the project's values and the assets
+    // meet, which in a library is always this surface. `verify-land-chain` C1d
+    // holds the line that matters: neither of them runs a chain, and
+    // `computeLandChain` is still called in exactly one place.
+    allowedCallers: [
+      'src/core/calculations/index.ts',
+      'src/hubs/modeling/platforms/refm/lib/financials-resolvers.ts',
+      'src/hubs/modeling/platforms/refm/lib/reports/capexReports.ts',
+    ],
   },
   { file: 'src/core/calculations/consolidation.ts', token: 'consolidation' },
   { file: 'src/core/calculations/consolidationCollisions.ts', token: 'consolidationCollisions' },
@@ -186,14 +199,49 @@ function offlineChecks(): void {
     try { statSync(f); files.push(f); } catch { /* optional */ }
   }
   check('A0 the scan actually covers files (engine roots resolved)', files.length > 50, `only ${files.length} files`);
+  /**
+   * TWO FILES MAY NAME THE VALUES, FOR ONE LINE EACH (2026-09-11).
+   *
+   * The chain's coverage, FAR and service share default from the asset TYPE,
+   * and the retail land carve read the PLOT's inputs alone: a plot inheriting
+   * its FAR produced an undefined total GFA and its host kept 4,094,123.49 of
+   * land its companion should have carved, while the project total still
+   * footed. The resolution needs the project's values and the assets together,
+   * and in a library that is always this surface.
+   *
+   * SO THE ALLOWANCE IS BY LINE, NOT BY FILE. Each named file may mention the
+   * values ONLY through `chainMassingFor`, the one platform rule, and A1b
+   * fails if either starts reading a value for anything else. That keeps the
+   * meaning of this check intact: no engine file PRICES from the standards.
+   */
+  const MASSING_DOORS = [
+    'src/hubs/modeling/platforms/refm/lib/financials-resolvers.ts',
+    'src/hubs/modeling/platforms/refm/lib/reports/capexReports.ts',
+  ];
+  const isMassingDoorLine = (line: string): boolean =>
+    line.includes('chainMassingFor');
   const offenders: string[] = [];
   for (const f of files) {
-    if (DEFINITION_ONLY.some((d) => f.replace(/\\/g, '/') === d.file)) continue;
+    const rel = f.replace(/\\/g, '/');
+    if (DEFINITION_ONLY.some((d) => rel === d.file)) continue;
+    const door = MASSING_DOORS.includes(rel);
     const src = readFileSync(f, 'utf8');
     for (const tok of FORBIDDEN_TOKENS) {
-      if (src.includes(tok)) offenders.push(`${f} :: ${tok}`);
+      if (!src.includes(tok)) continue;
+      if (door) {
+        // Every mention on a door must be on a line that calls the one rule.
+        const bad = src.split('\n').filter((l) => l.includes(tok) && !isMassingDoorLine(l));
+        if (bad.length === 0) continue;
+      }
+      offenders.push(`${f} :: ${tok}`);
     }
   }
+  check('A1b a massing door mentions the values ONLY through the one platform rule',
+    MASSING_DOORS.every((f) => {
+      const src = readFileSync(f, 'utf8');
+      return src.includes('chainMassingFor(')
+        && src.split('\n').filter((l) => l.includes('assetTypeValues')).every(isMassingDoorLine);
+    }));
   check('A1 zero references to the tables or stamp fields across the calculation and export surface',
     offenders.length === 0, offenders.slice(0, 5).join(' | '));
   // Each exclusion above is only safe while the excluded file is unreachable

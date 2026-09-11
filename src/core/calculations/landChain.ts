@@ -95,6 +95,63 @@ export interface LandChainInputs {
 /** The standards the chain draws from the project's asset type values. Passed
  *  in rather than looked up, so this file stays pure and the caller states
  *  where each number came from. */
+/**
+ * THE MASSING AN ASSET INHERITS FROM ITS TYPE, resolved by the caller.
+ *
+ * Coverage, FAR and the service share default from the asset type and are
+ * overridden per plot (2026-09-10). The RULE lives in the platform, where the
+ * type values live, and the resolved answer is passed in here, so this file
+ * keeps its zero imports and the engine never has to read the standards.
+ * Same shape of decision as the type normaliser injected into the
+ * consolidation key: one implementation, supplied rather than copied.
+ */
+export type ChainMassing = Pick<LandChainInputs, 'coveragePct' | 'farRatio' | 'servicePct'>;
+
+/** What an asset's chain inputs become once the type has filled in what the
+ *  plot did not say. The resolved massing already holds the PLOT's value
+ *  wherever the plot states one, so spreading it last is the whole rule.
+ *
+ *  An asset with no chain at all inherits NOTHING: an empty chain must stay
+ *  empty, or a type standard would start a chain on a plot nobody has filled
+ *  in. That is the same guard `landChainIsEmpty` makes, kept here so every
+ *  caller gets it rather than remembering it. */
+export function withInheritedMassing(
+  inputs: LandChainInputs | undefined,
+  inherited: ChainMassing | undefined,
+): LandChainInputs | undefined {
+  if (inputs === undefined) return undefined;
+  if (inherited === undefined) return inputs;
+  return { ...inputs, ...inherited };
+}
+
+/**
+ * EVERY ASSET, WITH THE TYPE'S MASSING FILLED IN, at the front door.
+ *
+ * ONE CALL WHERE A MODEL IS ASSEMBLED beats a parameter on every function that
+ * touches land. The alternative was threading a resolver through
+ * `computeAssetLandSqm`, `computeAssetLandBreakdown`, `resolveAssetAreaMetrics`,
+ * `computeAssetCost`, `computeLandReconciliation` and both allocation-factor
+ * resolvers, which the compiler will happily enumerate and which spreads a
+ * plumbing argument across the whole engine for one share in one place.
+ *
+ * THE SAME SHAPE AS `withResolvedAssetNames`: a read-time view over copies, the
+ * snapshot untouched, so nothing is stamped and nothing can go stale. A type
+ * edit moves the model on the next compute, which is the point of not stamping.
+ *
+ * The COST of the front door is that a caller who skips it gets the old,
+ * wrong behaviour silently. That is why the composer's call is pinned by a
+ * verifier rather than left to memory.
+ */
+export function withInheritedMassingAll<T extends { id: string; landChain?: LandChainInputs }>(
+  assets: readonly T[],
+  massingFor: (asset: T) => ChainMassing | undefined,
+): T[] {
+  return assets.map((a) => {
+    const next = withInheritedMassing(a.landChain, massingFor(a));
+    return next === a.landChain ? a : { ...a, landChain: next };
+  });
+}
+
 export interface LandChainStandards {
   /** Sqm per unit or key. Resolved by the caller (sub-units first, the asset
    *  type average as the fallback), which is the step 1 rule. */

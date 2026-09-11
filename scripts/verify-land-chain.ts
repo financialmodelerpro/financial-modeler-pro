@@ -326,7 +326,35 @@ function offlineChecks(): void {
   // So the invariant narrows rather than disappearing. ONE engine file may read
   // the chain, for ONE purpose, and it is named here. A second consumer is a
   // decision nobody has made.
-  const ALLOWED_CHAIN_CONSUMERS = ['src/core/calculations/index.ts'];
+  // WIDENED ON 2026-09-11, AND ONLY BY ONE VERB.
+  //
+  // The chain's coverage, FAR and service share default from the asset TYPE
+  // (2026-09-10), and the carve read the PLOT's inputs alone: a plot inheriting
+  // its FAR produced an undefined total GFA and the host kept land its
+  // companion should have carved, 4,094,123.49 of it on the live project, while
+  // the project total still footed.
+  //
+  // The resolution has to happen where the project's type values and the assets
+  // meet, and every such place in a library is on this surface. So two more
+  // files may touch the chain module, for `withInheritedMassingAll` and nothing
+  // else. THE INVARIANT THAT MATTERS IS UNTOUCHED and C1b still proves it:
+  // `computeLandChain` is called in exactly ONE place, in index.ts, for the
+  // carve share. These two pass the type's massing in; they do not run a chain.
+  const ALLOWED_CHAIN_CONSUMERS = [
+    'src/core/calculations/index.ts',
+    'src/hubs/modeling/platforms/refm/lib/financials-resolvers.ts',
+    'src/hubs/modeling/platforms/refm/lib/reports/capexReports.ts',
+  ];
+  const stripSrc = (t: string): string =>
+    t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  const RUNS_A_CHAIN = /\bcomputeLandChain\s*\(/;
+  const MASSING_ONLY = ALLOWED_CHAIN_CONSUMERS.slice(1);
+  check('C1d the two massing doors pass the type in and never run a chain of their own',
+    MASSING_ONLY.every((f) => {
+      const src = stripSrc(readFileSync(f, 'utf8'));
+      return src.includes('withInheritedMassingAll(') && !RUNS_A_CHAIN.test(src);
+    }),
+    MASSING_ONLY.filter((f) => RUNS_A_CHAIN.test(stripSrc(readFileSync(f, 'utf8')))).join(', '));
   const unexpectedChain = consumers.filter((f) => !ALLOWED_CHAIN_CONSUMERS.includes(f.replace(/\\/g, '/')));
   check('C1 only the ONE named engine file reads the chain, and only for the retail carve',
     unexpectedChain.length === 0, unexpectedChain.slice(0, 5).join(' | '));

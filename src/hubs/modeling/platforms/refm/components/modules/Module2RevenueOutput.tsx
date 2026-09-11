@@ -79,6 +79,8 @@ import VintageMatrix from './_shared/VintageMatrix';
 import { makePctFmt } from './_shared/numberFmt';
 import { AssetQuickNav } from './_shared/AssetQuickNav';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
+import { withInheritedMassingAll } from '@/src/core/calculations/landChain';
+import { chainMassingFor } from '../../lib/state/assetTypeStandards';
 
 function makeCurrencyFmt(scale: DisplayScale, decimals: DisplayDecimals): (v: number) => string {
   return (v: number) => {
@@ -598,7 +600,18 @@ export default function Module2RevenueOutput(): React.JSX.Element {
   // not named shows as its type here rather than as a blank option. The memo
   // keeps the array stable: resolving inside the selector would hand
   // useShallow a new array every render.
-  const assets = useMemo(() => withResolvedAssetNames(rawAssets, { parcels, phases }), [rawAssets, parcels, phases]);
+  // AND THE TYPE'S MASSING WITH IT (2026-09-11). This screen calls the land and
+  // capex engine directly, which reads the chain for the retail land carve, and
+  // a plot may inherit its coverage, FAR or service share from the asset type.
+  // Resolved in the same memo as the label so there is ONE place per screen
+  // where a raw asset becomes a readable one.
+  const assets = useMemo(
+    () => withInheritedMassingAll(
+      withResolvedAssetNames(rawAssets, { parcels, phases }),
+      (a) => chainMassingFor(a, project.assetTypeValues),
+    ),
+    [rawAssets, parcels, phases, project.assetTypeValues],
+  );
 
   const snap = useMemo(
     () => computeAllSellResults({ project, phases, assets, subUnits }),
