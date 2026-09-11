@@ -55,7 +55,7 @@ import {
   type TotalledRow,
 } from '../src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel';
 import type { Asset, Parcel, SubUnit } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
-import { ASSET_TYPES_BY_CATEGORY } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import { ASSET_TYPES_BY_CATEGORY, selectableCostMethods } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import {
   GROUND_FLOOR_RETAIL_TYPE_LABEL,
   normaliseAssetTypeId,
@@ -1648,7 +1648,16 @@ function offlineChecks(): void {
     // ... and are refused to NEW lines, which is the only way to retire a
     // method without rewriting the two live lines that use it.
     && /RETIRED_COST_METHODS/.test(typesSrc)
-    && /isRetiredCostMethod\(m\)/.test(costsSrc));
+    // RE-AIMED 2026-09-11 FROM A FILE TO A BEHAVIOUR. This required the costs
+    // TAB to name `isRetiredCostMethod`, which it did while each of its three
+    // pickers carried its own inline filter. Those three had drifted apart and
+    // were replaced by one shared rule, so the tab no longer names the
+    // predicate and the check failed on correct code. What must hold is the
+    // OUTCOME: a new line cannot choose a retired method, and a line already on
+    // one still can, or the select would rewrite it to its first option.
+    && !(selectableCostMethods() as readonly string[]).includes('rate_per_nda')
+    && !(selectableCostMethods() as readonly string[]).includes('rate_per_roads')
+    && (selectableCostMethods('rate_per_nda') as readonly string[]).includes('rate_per_nda'));
   check('U34 rate_per_nda no longer CLAIMS to be net developable area',
     /rate_per_nda:\s*'Rate . Land Area \(legacy\)'/.test(typesSrc)
     && !/rate_per_nda:\s*'Rate . NDA'/.test(typesSrc));
