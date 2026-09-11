@@ -176,14 +176,14 @@ export interface CapexReport {
 function basisLabel(method?: string): string {
   switch (method) {
     case 'fixed': return 'Fixed (lump sum)';
-    case 'rate_per_land': return 'per Land sqm';
-    case 'rate_per_nda': return 'per Land sqm (legacy)';
+    case 'rate_per_land': return 'per Plot Area sqm';
+    case 'rate_per_nda': return 'per Plot Area sqm (legacy)';
     case 'rate_per_roads': return 'per Roads sqm (retired, always 0)';
-    case 'rate_per_gfa': return 'per GFA sqm';
-    case 'rate_per_bua': return 'per BUA sqm';
-    case 'rate_per_nsa': return 'per NSA sqm';
+    case 'rate_per_gfa': return 'per Total GFA sqm';
+    case 'rate_per_bua': return 'per Total BUA sqm';
+    case 'rate_per_nsa': return 'per NSA or GLA sqm';
     case 'rate_per_unit': return 'per Unit';
-    case 'rate_per_parking_bay': return 'per Parking bay';
+    case 'rate_per_parking_bay': return 'per Parking slot';
     case 'rate_x_parking_area': return 'per Parking area';
     case 'rate_x_net_developable_area': return 'per Net developable sqm';
     case 'rate_x_footprint_area': return 'per Footprint sqm';
@@ -215,9 +215,9 @@ function basisFor(method: string | undefined, m: AssetAreaMetrics, amount: numbe
     case 'rate_per_roads': return { value: m.roadsSqm, label: 'Roads sqm', kind: 'area' };
     case 'rate_per_gfa': return { value: m.gfa, label: 'GFA sqm', kind: 'area' };
     case 'rate_per_bua': return { value: m.bua, label: 'BUA sqm', kind: 'area' };
-    case 'rate_per_nsa': return { value: m.nsa, label: 'NSA sqm', kind: 'area' };
+    case 'rate_per_nsa': return { value: m.nsa, label: 'NSA or GLA sqm', kind: 'area' };
     case 'rate_per_unit': return { value: m.unitCount, label: 'units', kind: 'count' };
-    case 'rate_per_parking_bay': return { value: m.parkingBays, label: 'bays', kind: 'count' };
+    case 'rate_per_parking_bay': return { value: m.parkingBays, label: 'slots', kind: 'count' };
     case 'rate_x_parking_area': return { value: m.parkingArea, label: 'parking sqm', kind: 'area' };
     case 'rate_x_net_developable_area': return { value: m.netDevelopableArea, label: 'net developable sqm', kind: 'area' };
     case 'rate_x_footprint_area': return { value: m.footprintArea, label: 'footprint sqm', kind: 'area' };

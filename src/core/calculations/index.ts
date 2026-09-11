@@ -2937,14 +2937,24 @@ export function costLineCaption(input: CostLineCaptionInput): string {
   // knows to add sub-units / set the asset-level input rather than
   // wondering why the total is 0.
   const noArea = (label: string): string => `${fmt(value, 2)} x - (no ${label} defined yet)`;
+  // A CHAIN-ONLY FIGURE HAS NO FIELD TO DEFINE (2026-09-11), so 'not defined
+  // yet' sends a reader looking for an input that does not exist. Landscape,
+  // footprint and net developable area come from the area chain and reach the
+  // engine only through the derived bag, which is written when a project opts
+  // in. Measured: all three are ZERO on every asset of both live projects,
+  // because neither has opted in, so the method is selectable and multiplies
+  // nothing. The line says which switch to throw, the way the retired roads
+  // method says why it charges nothing.
+  const noDerived = (label: string): string =>
+    `${fmt(value, 2)} x - (${label} is derived by the area chain; switch on derived areas for this project on the assets tab)`;
   switch (method) {
     case 'fixed':
       return 'Fixed';
     case 'rate_per_land':
-      return metrics.landSqm > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.landSqm)} sqm Land` : noArea('Land area');
+      return metrics.landSqm > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.landSqm)} sqm Plot Area` : noArea('Plot area');
     case 'rate_per_nda':
       return metrics.ndaSqm > 0
-        ? `${fmt(value, 2)} x ${fmtArea(metrics.ndaSqm)} sqm Land (legacy NDA method)`
+        ? `${fmt(value, 2)} x ${fmtArea(metrics.ndaSqm)} sqm Plot Area (legacy NDA method)`
         : noArea('Land area');
     // SAYS SO RATHER THAN PRINTING A CONFIDENT ZERO. The roads area is retired,
     // so this line charges nothing, and a reader is told why instead of being
@@ -2952,11 +2962,11 @@ export function costLineCaption(input: CostLineCaptionInput): string {
     case 'rate_per_roads':
       return `${fmt(value, 2)} x 0 (the roads area is retired; this line charges nothing)`;
     case 'rate_per_gfa':
-      return metrics.gfa > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.gfa)} sqm GFA` : noArea('GFA');
+      return metrics.gfa > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.gfa)} sqm Total GFA` : noArea('Total GFA');
     case 'rate_per_bua':
-      return metrics.bua > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.bua)} sqm BUA` : noArea('BUA');
+      return metrics.bua > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.bua)} sqm Total BUA` : noArea('Total BUA');
     case 'rate_per_nsa':
-      return metrics.nsa > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.nsa)} sqm NSA` : noArea('NSA');
+      return metrics.nsa > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.nsa)} sqm NSA or GLA` : noArea('NSA or GLA');
     case 'rate_per_unit':
       return metrics.unitCount > 0 ? `${fmt(value, 2)} x ${fmt(metrics.unitCount)} units` : noArea('Unit count');
     case 'rate_per_parking_bay':
@@ -2968,15 +2978,15 @@ export function costLineCaption(input: CostLineCaptionInput): string {
     case 'rate_x_net_developable_area':
       return metrics.netDevelopableArea > 0
         ? `${fmt(value, 2)} x ${fmtArea(metrics.netDevelopableArea)} sqm Net Developable Area`
-        : noArea('Net developable area');
+        : noDerived('Net developable area');
     case 'rate_x_footprint_area':
       return metrics.footprintArea > 0
         ? `${fmt(value, 2)} x ${fmtArea(metrics.footprintArea)} sqm Building Footprint`
-        : noArea('Building footprint');
+        : noDerived('Building footprint');
     case 'rate_x_landscape_area':
       return metrics.landscapeArea > 0
         ? `${fmt(value, 2)} x ${fmtArea(metrics.landscapeArea)} sqm Landscape and Open Area`
-        : noArea('Landscape area');
+        : noDerived('Landscape and open area');
     case 'rate_x_parking_area': {
       const pa = Math.max(0, metrics.parkingArea > 0 ? metrics.parkingArea : resolveAssetParkingArea(asset));
       return pa > 0 ? `${fmt(value, 2)} x ${fmtArea(pa)} sqm Parking` : noArea('Parking area');

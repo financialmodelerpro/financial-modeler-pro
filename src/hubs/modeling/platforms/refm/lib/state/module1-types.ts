@@ -1996,16 +1996,32 @@ export function selectableCostMethods(current?: CostMethod): readonly CostMethod
   return COST_METHODS.filter((m) => !isRetiredCostMethod(m) || m === current);
 }
 
+/**
+ * THE PICKER NAMES THE QUANTITY THE ASSETS TAB NAMES (2026-09-11).
+ *
+ * Seven of these called a chain figure something the tab does not: 'Land Area'
+ * for the column headed Plot Area, 'GFA' for Total GFA, 'BUA Total' for Total
+ * BUA, 'Unit Count' for Units or Keys, 'Parking Bays' for Parking Slots, and
+ * worst of all 'Sellable BUA' for the column headed NSA or GLA, which is a
+ * THIRD name for a quantity whose two existing names already swap meaning
+ * between the platform and the reference workbook. Picking a cost basis is
+ * choosing which column on the assets tab this rate multiplies, and a reader
+ * could not do that by reading.
+ *
+ * The three chain methods added on 2026-09-10 already agreed, because they were
+ * named from the tab. These bring the older seven into line. LABELS ONLY: the
+ * stored `method` ids are untouched, so no line changes and no number moves.
+ */
 export const COST_METHOD_LABELS: Record<CostMethod, string> = {
   fixed:                   'Fixed Amount',
-  rate_per_land:           'Rate × Land Area',
-  rate_per_nda:            'Rate × Land Area (legacy)',
+  rate_per_land:           'Rate × Plot Area',
+  rate_per_nda:            'Rate × Plot Area (legacy)',
   rate_per_roads:          'Rate × Roads (retired)',
-  rate_per_gfa:            'Rate × GFA',
-  rate_per_bua:            'Rate × BUA Total',
-  rate_per_nsa:            'Rate × Sellable BUA',
-  rate_per_unit:           'Rate × Unit Count',
-  rate_per_parking_bay:    'Rate × Parking Bays',
+  rate_per_gfa:            'Rate × Total GFA',
+  rate_per_bua:            'Rate × Total BUA',
+  rate_per_nsa:            'Rate × NSA or GLA',
+  rate_per_unit:           'Rate × Units or Keys',
+  rate_per_parking_bay:    'Rate × Parking Slots',
   rate_x_support_area:     'Rate × Support Area',
   rate_x_parking_area:     'Rate × Parking Area',
   rate_x_specific_subunit: 'Rate × Specific Sub-unit',

@@ -41,7 +41,7 @@ import {
   resolveAssetFootprintArea, resolveAssetLandscapeArea, deriveCostStage, landRateIssueText,
 } from '../src/core/calculations';
 import { eligibleBaseLines, assetVisibleLines } from '../src/core/calculations/selectedBase';
-import { selectableCostMethods } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import { selectableCostMethods, COST_METHOD_LABELS, type CostMethod } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { repairStaleWizardCostWindows } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
 import { buildWizardSnapshot } from '../src/hubs/modeling/platforms/refm/lib/wizard/buildWizardSnapshot';
 import type { HydrateSnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-store';
@@ -641,6 +641,53 @@ section('K. Area x unit size = count: only two of the three are inputs');
     // rate_per_nda lines, so this is the difference between hiding a method
     // and silently converting a live cost line to Fixed Amount.
     && (selectableCostMethods('rate_per_nda') as readonly string[])[0] !== 'rate_per_nda');
+
+  // P4e A CHAIN-ONLY METHOD SAYS WHY IT IS EMPTY. Landscape, footprint and net
+  // developable area have NO typed counterpart: they reach the engine only
+  // through the derived bag, which a project writes when it opts in. Measured:
+  // all three are ZERO on every asset of both live projects, because neither
+  // has opted in, so the method is selectable and multiplies nothing. Saying
+  // 'no landscape area defined yet' sends a reader looking for a field that
+  // does not exist; the caption names the switch instead, the way the retired
+  // roads method says why it charges nothing.
+  check('P4e the three chain-only methods name the switch, not a field that does not exist',
+    engineSrc2.includes('const noDerived = (label: string): string =>')
+    && engineSrc2.includes('switch on derived areas for this project')
+    && ['Net developable area', 'Building footprint', 'Landscape and open area']
+      .every((l) => engineSrc2.includes(`noDerived('${l}')`))
+    // And the ones that DO have a typed field keep the ordinary sentence.
+    && engineSrc2.includes("noArea('Plot area')"));
+  // P4f ONE VOCABULARY. Picking a cost basis is choosing which column on the
+  // assets tab this rate multiplies, so the picker names the quantity the tab
+  // names. Seven did not, 'Sellable BUA' for the column headed NSA or GLA being
+  // the worst of them.
+  check('P4f the picker names the quantity the assets tab names',
+    (() => {
+      const tabSrc2 = fs.readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx', 'utf8');
+      const PAIRS: [string, string][] = [
+        ['rate_per_land', 'Plot Area (sqm)'],
+        ['rate_per_gfa', 'Total GFA (sqm)'],
+        ['rate_per_bua', 'Total BUA (sqm)'],
+        ['rate_per_nsa', 'NSA or GLA (sqm)'],
+        ['rate_per_unit', 'Units or Keys'],
+        ['rate_per_parking_bay', 'Parking Slots'],
+        ['rate_x_net_developable_area', 'Net Developable Area (sqm)'],
+        ['rate_x_footprint_area', 'Building Footprint (sqm)'],
+        ['rate_x_landscape_area', 'Landscape and Open Area (sqm)'],
+      ];
+      return PAIRS.every(([m, col]) => {
+        const bare = col.replace(' (sqm)', '');
+        // the tab really does head a column with it, and the picker really
+        // does name the quantity that way
+        return tabSrc2.includes('>' + col + '<') && COST_METHOD_LABELS[m as CostMethod].endsWith(bare);
+      });
+    })(),
+    'a method names a quantity the assets tab does not');
+  // ASKED OF THE MAP, NOT THE FILE: this file's own docblock quotes the old
+  // name to explain why it went, and a bare file scan read that sentence as
+  // the thing it says is gone.
+  check('P4g and the old third name for NSA is gone from every label',
+    !Object.values(COST_METHOD_LABELS).some((l) => l.includes('Sellable BUA')));
 
   // P5 THE RETIRED METHOD STAYS RETIRED. Re-pointing rate_per_nda at the
   // chain's utilised land would change what every stored line means without

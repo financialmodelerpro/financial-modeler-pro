@@ -1686,9 +1686,16 @@ function offlineChecks(): void {
     && !(selectableCostMethods() as readonly string[]).includes('rate_per_nda')
     && !(selectableCostMethods() as readonly string[]).includes('rate_per_roads')
     && (selectableCostMethods('rate_per_nda') as readonly string[]).includes('rate_per_nda'));
+  // U34 RE-AIMED 2026-09-11 WITH THE VOCABULARY. The label moved from "Land
+  // Area (legacy)" to "Plot Area (legacy)" when the picker was brought into
+  // line with the assets tab, which calls that column Plot Area. What must hold
+  // is unchanged: the legacy method must not claim to be the NET DEVELOPABLE
+  // area, which is a different figure with its own method since 2026-09-10.
   check('U34 rate_per_nda no longer CLAIMS to be net developable area',
-    /rate_per_nda:\s*'Rate . Land Area \(legacy\)'/.test(typesSrc)
-    && !/rate_per_nda:\s*'Rate . NDA'/.test(typesSrc));
+    /rate_per_nda:\s*'Rate . Plot Area \(legacy\)'/.test(typesSrc)
+    && !/rate_per_nda:\s*'Rate . (NDA|Net Developable)/.test(typesSrc)
+    // And it is still named as the LEGACY one, or the retirement is invisible.
+    && /rate_per_nda:[^\n]*\(legacy\)/.test(typesSrc));
   check('U35 a roads line SAYS it charges nothing instead of printing a confident 0',
     /the roads area is retired; this line charges nothing/.test(engineSrc));
 
