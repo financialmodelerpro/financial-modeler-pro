@@ -80,6 +80,36 @@ function paddedArray(src: number[] | undefined, length: number): number[] {
 // THE ASSET COMES IN WITH THE ROWS (2026-09-10, TRAPS 7.32): the metric is
 // the asset s where it states one, so a helper handed only the rows cannot
 // resolve it and would read an area as a count.
+/**
+ * WHAT THE ROW STATES, where it states a share (2026-09-11).
+ *
+ * A sub-unit's quantity has two possible statements on the assets tab: an AREA
+ * typed directly, or a SHARE of the line NSA that the tab derives the area
+ * from and re-derives whenever the line NSA moves. The two are stored side by
+ * side and the tab clears the share when a user types an area, which is how it
+ * records which one is in force.
+ *
+ * Only the derived AREA ever reached this tab, so a reader could not tell
+ * whether 12,342 sqm was typed or computed, and on a line whose NSA changes the
+ * figure moves here with nothing on screen to explain it.
+ *
+ * READ-ONLY, DELIBERATELY. One quantity keeps one editor and it stays the
+ * assets tab: an editable area here would write the area without clearing the
+ * share, and the next reallocation would silently put it back.
+ *
+ * EMPTY WHERE NO SHARE IS STATED, which is not a gap: the absence is the
+ * answer, and printing a computed share on an area-stated row would make every
+ * row look share-stated.
+ */
+function nsaShareNote(su: SubUnit): string {
+  const pct = su.nsaSharePct;
+  if (typeof pct !== 'number' || !Number.isFinite(pct)) return '';
+  // A share of 0 is a real statement (this row takes none of the line), so the
+  // test is for a NUMBER, never for truthiness.
+  const shown = Math.round(pct * 100) / 100;
+  return ` (${shown}% of line NSA)`;
+}
+
 function subUnitSummary(units: SubUnit[], asset: Asset | undefined): string {
   if (units.length === 0) return 'No sub-units yet';
   const totalCount = units
@@ -149,9 +179,20 @@ function SubUnitReferenceStrip({
                 : `${currency} ${formatAccounting(su.unitPrice, 'full', 0)} / sqm`)
             : 'no price';
         }
+        // THE SHARE, WHERE ONE IS STATED (2026-09-11).
+        //
+        // A sub-unit's quantity can be stated two ways on the assets tab: an
+        // AREA, or a SHARE of the line NSA that the tab re-derives the area
+        // from. Only the derived area reached this tab, so a reader could not
+        // tell which they were looking at, and on a line whose NSA moves the
+        // number here changes with no visible cause. Read-only on purpose:
+        // one quantity keeps one editor, and it stays the assets tab.
+        //
+        // NOTHING is printed where no share is stated, because that absence is
+        // itself the answer: the row was stated as an area.
         const sizeLabel = isUnitsMetric
-          ? `${Math.round(Math.max(0, su.metricValue)).toLocaleString('en-US')} ${countNoun} · ${formatArea(area, 0)} sqm`
-          : `${formatArea(area, 0)} sqm`;
+          ? `${Math.round(Math.max(0, su.metricValue)).toLocaleString('en-US')} ${countNoun} · ${formatArea(area, 0)} sqm${nsaShareNote(su)}`
+          : `${formatArea(area, 0)} sqm${nsaShareNote(su)}`;
         return (
           <span
             key={su.id}
@@ -2600,8 +2641,8 @@ function buildVelocityRow(
   const overall = sumAll > 1 + 1e-6;
 
   const sizeHint = resolveSubUnitMetric(su, asset) === 'units'
-    ? `${Math.round(Math.max(0, su.metricValue)).toLocaleString()} units`
-    : `${formatArea(computeSubUnitArea(su, asset), 0)} sqm`;
+    ? `${Math.round(Math.max(0, su.metricValue)).toLocaleString()} units${nsaShareNote(su)}`
+    : `${formatArea(computeSubUnitArea(su, asset), 0)} sqm${nsaShareNote(su)}`;
   const priceHint = (su.unitPrice && su.unitPrice > 0)
     ? (resolveSubUnitMetric(su, asset) === 'units'
         ? `${currency} ${formatAccounting(su.unitPrice, 'full', 0)} / unit`
