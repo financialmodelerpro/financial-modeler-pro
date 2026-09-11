@@ -120,6 +120,7 @@ import {
 import { buildResultsPeriodAxis } from './_shared/periodAxis';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 import { buildConsolidatedReport } from '../../lib/reports/consolidatedReport';
+import { planCapexSummaryLines, type CapexPlannableAsset } from '../../lib/reports/capexReports';
 import { normaliseAssetTypeId } from '../../lib/state/assetTypeStandards';
 
 // ── Styles ─────────────────────────────────────────────────────────────────
@@ -3183,13 +3184,35 @@ function SummaryTables({
           mode: 'exclAll' | 'exclInKind' | 'inclAll',
           testidKey: string,
         ): React.JSX.Element => {
-          const rows = phaseAssets
-            .map((a) => ({ asset: a, ...buildAssetRow(a, mode) }))
+          /**
+           * ONE ROW PER CONSOLIDATED LINE (2026-09-11), through the SAME
+           * planner the PDF and the workbook build these three tables with, so
+           * the screen and the exports cannot disagree about what a row is.
+           * They did: this printed one row per PLOT while the shared builder
+           * merged by line, and the same three tables had two shapes.
+           */
+          const plan = planCapexSummaryLines(
+            phaseAssets as unknown as CapexPlannableAsset[],
+            phases,
+            (id) => phaseAssets.find((a) => a.id === id)?.name ?? id,
+          );
+          const rows = plan
+            .map((ln) => {
+              const members = ln.assetIds
+                .map((id) => phaseAssets.find((a) => a.id === id))
+                .filter((a): a is Asset => a !== undefined)
+                .map((a) => buildAssetRow(a, mode));
+              const row = new Array<number>(annualPeriodCount).fill(0);
+              let total = 0;
+              for (const m of members) {
+                total += m.total;
+                for (let i = 0; i < row.length; i++) row[i] += m.row[i] ?? 0;
+              }
+              return { line: ln, row, total };
+            })
             // Hide zero rows (brief: hide rows with total = 0).
             .filter((r) => Math.abs(r.total) > 0.5);
-          // Universal formatting (2026-05-13): asset rows render as plain
-          // data (no "Subtotal - " prefix, no fill, regular weight) and a
-          // closing Grand Total row sums every visible asset.
+          const multiPhase = phases.length > 1;
           const grandTotalAmount = rows.reduce((s, r) => s + r.total, 0);
           const grandTotalRow = new Array<number>(croppedPeriodCount).fill(0);
           for (const r of rows) {
@@ -3198,6 +3221,23 @@ function SummaryTables({
               grandTotalRow[i] += cropped[i] ?? 0;
             }
           }
+          /**
+           * A SUBTOTAL PER PHASE, INSIDE THE TABLE, rather than a second one.
+           * Only where the project has more than one phase: on a single-phase
+           * project it would repeat the grand total one row above it.
+           */
+          interface Block { phaseId: string; phaseName: string; rows: typeof rows; total: number; series: number[] }
+          const blocks: Block[] = [];
+          for (const r of rows) {
+            const last = blocks[blocks.length - 1];
+            const b = last && last.phaseId === r.line.phaseId ? last : null;
+            const target = b ?? { phaseId: r.line.phaseId, phaseName: r.line.phaseName, rows: [] as typeof rows, total: 0, series: new Array<number>(croppedPeriodCount).fill(0) };
+            if (!b) blocks.push(target);
+            target.rows.push(r);
+            target.total += r.total;
+            const cropped = cropRow(r.row);
+            for (let i = 0; i < croppedPeriodCount; i++) target.series[i] += cropped[i] ?? 0;
+          }
           return (
             <div style={sectionCardStyle} data-testid={`capex-summary-${testidKey}`}>
               <h3 style={{ ...TABLE_TITLE, margin: 0 }}>{title}</h3>
@@ -3205,31 +3245,52 @@ function SummaryTables({
                 <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 11 }}>
                   <colgroup>
                     <col style={{ width: COLUMN_WIDTHS.label }} />
+                    {multiPhase && (<col style={{ width: 90 }} />)}
                     <col style={{ width: nonLabelPct }} />
                     {periodAxis.labels.map((_, i) => (<col key={i} style={{ width: nonLabelPct }} />))}
                   </colgroup>
                   <thead>
                     <tr>
-                      <th style={headLeftStyle}>Asset</th>
+                      {/* LINE, not Asset: the rows merge two plots of one type
+                          in one phase, exactly as table 4 of the assets tab
+                          does. The PHASE is its own column, so no label has to
+                          carry it. */}
+                      <th style={headLeftStyle}>Line</th>
+                      {multiPhase && (<th style={headLeftStyle}>Phase</th>)}
                       <th style={headStyle}>Total</th>
                       {periodAxis.labels.map((p, i) => (<th key={i} style={headStyle}>{p}</th>))}
                     </tr>
                   </thead>
                   <tbody>
                     {rows.length === 0 ? (
-                      <tr><td style={ROW_DATA.name} colSpan={2 + periodAxis.count}>No non-zero values for this view.</td></tr>
+                      <tr><td style={ROW_DATA.name} colSpan={(multiPhase ? 3 : 2) + periodAxis.count}>No non-zero values for this view.</td></tr>
                     ) : (
                       <>
-                        {rows.map((r) => (
-                          <tr key={r.asset.id} data-testid={`capex-summary-${testidKey}-${r.asset.id}`}>
-                            <td style={ROW_DATA.name}>{r.asset.name}</td>
-                            <td style={ROW_DATA.num} data-testid={`capex-summary-${testidKey}-${r.asset.id}-total`}>{fmt(r.total)}</td>
-                            <td style={ROW_DATA.num} data-testid={`capex-summary-${testidKey}-${r.asset.id}-prior`}>{fmt(PRIOR_ZERO)}</td>
-                            {cropRow(r.row).map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmt(v)}</td>))}
-                          </tr>
+                        {blocks.map((b) => (
+                          <React.Fragment key={b.phaseId}>
+                            {b.rows.map((r) => (
+                              <tr key={r.line.key} data-testid={`capex-summary-${testidKey}-${r.line.key}`}>
+                                <td style={ROW_DATA.name}>{r.line.label}</td>
+                                {multiPhase && (<td style={{ ...ROW_DATA.name, color: 'var(--color-meta)' }}>{r.line.phaseName}</td>)}
+                                <td style={ROW_DATA.num} data-testid={`capex-summary-${testidKey}-${r.line.key}-total`}>{fmt(r.total)}</td>
+                                <td style={ROW_DATA.num} data-testid={`capex-summary-${testidKey}-${r.line.key}-prior`}>{fmt(PRIOR_ZERO)}</td>
+                                {cropRow(r.row).map((v, i) => (<td key={i} style={ROW_DATA.num}>{fmt(v)}</td>))}
+                              </tr>
+                            ))}
+                            {multiPhase && (
+                              <tr data-testid={`capex-summary-${testidKey}-subtotal-${b.phaseId}`}>
+                                <td style={ROW_SUBTOTAL.name}>Subtotal, {b.phaseName}</td>
+                                <td style={ROW_SUBTOTAL.name}></td>
+                                <td style={ROW_SUBTOTAL.num} data-testid={`capex-summary-${testidKey}-subtotal-${b.phaseId}-amount`}>{fmt(b.total)}</td>
+                                <td style={ROW_SUBTOTAL.num}>{fmt(PRIOR_ZERO)}</td>
+                                {b.series.map((v, i) => (<td key={i} style={ROW_SUBTOTAL.num}>{fmt(v)}</td>))}
+                              </tr>
+                            )}
+                          </React.Fragment>
                         ))}
                         <tr data-testid={`capex-summary-${testidKey}-grand-total`}>
                           <td style={ROW_GRAND_TOTAL.name}>Total</td>
+                          {multiPhase && (<td style={ROW_GRAND_TOTAL.name}></td>)}
                           <td style={ROW_GRAND_TOTAL.num} data-testid={`capex-summary-${testidKey}-grand-total-amount`}>{fmt(grandTotalAmount)}</td>
                           <td style={ROW_GRAND_TOTAL.num} data-testid={`capex-summary-${testidKey}-grand-total-prior`}>{fmt(PRIOR_ZERO)}</td>
                           {grandTotalRow.map((v, i) => (<td key={i} style={ROW_GRAND_TOTAL.num}>{fmt(v)}</td>))}

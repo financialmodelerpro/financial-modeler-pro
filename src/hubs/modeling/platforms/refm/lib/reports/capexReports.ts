@@ -17,6 +17,7 @@ import type { ProjectFinancialsSnapshot, FinancialsResolverState } from '../fina
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { assetLabel } from '@/src/core/calculations/assetName';
 import { groupAssetsForConsolidation } from '@/src/core/calculations/consolidation';
+import { retailCompanionId } from '@/src/core/calculations/retailCompanion';
 import { normaliseAssetTypeId } from '@/src/core/calculations/typeKey';
 
 export type MetricKind = 'area' | 'count' | 'money' | 'none';
@@ -251,6 +252,110 @@ export function projectOntoAxis(perPeriod: number[], offset: number, N: number):
 
 const anyNonZero = (a: number[] | undefined): boolean => !!a && a.some((v) => (v ?? 0) !== 0);
 
+/**
+ * What the planner needs from an asset: EXACTLY what the grouping function
+ * needs, said by reference rather than copied.
+ *
+ * Copying the shape meant spelling out the type-reference field, and
+ * `verify-asset-type-standards` A1 forbids this surface from naming it at all,
+ * rightly: no report or export may read the asset type standards. Taking the
+ * shape from `groupAssetsForConsolidation` keeps one definition of what a
+ * groupable asset is and keeps the token where it belongs, in core.
+ */
+export type CapexPlannableAsset =
+  Parameters<typeof groupAssetsForConsolidation>[0][number] & { name?: string };
+/**
+ * THE ROWS OF A CAPEX SUMMARY, AND THEIR ORDER (2026-09-11).
+ *
+ * Exported because the same three tables are built twice: here, for the PDF and
+ * the workbook, and on the Costs screen, which has its own period axis and
+ * granularity and so cannot share the whole builder. What it CAN share is the
+ * answer to "what is a row and where does it sit", which is the part that was
+ * different: the screen printed one row per plot while these tables merged by
+ * line, so the same three tables disagreed about their own shape.
+ *
+ * ONE ROW PER CONSOLIDATED LINE, by `groupAssetsForConsolidation`, the same
+ * function the assets tab groups table 4 by. Two Branded Villas plots in one
+ * phase are one row.
+ *
+ * A COMPANION SITS WITH ITS OWN LINE, not at the end. `groupAssetsForConsolidation`
+ * excludes companions by design (a companion is not a plot), so a first cut
+ * appended them after every grouped line and phase 1's retail strip printed
+ * below phase 2's plots. The retail companion's id is DERIVED from the line key
+ * (`retailCompanionId`), so the line it belongs to is a lookup rather than a
+ * guess, and it renders immediately under its host line.
+ *
+ * THE PHASE IS NOT IN THE LABEL. It is its own column, and a label carrying it
+ * as well printed it twice on every row.
+ *
+ * AN ASSET IN NO LINE AND NO COMPANION SLOT STILL GETS A ROW, at the end of its
+ * own phase. Nothing produces one today; it exists so that an asset can never
+ * vanish from a table whose total still includes it, which is the one failure
+ * these tables exist to rule out.
+ */
+export interface CapexSummaryLine {
+  /** Stable across a render: the consolidation key, or the asset id. */
+  key: string;
+  /** The line's name WITHOUT its phase. */
+  label: string;
+  phaseId: string;
+  phaseName: string;
+  /** The assets whose figures this row sums, in the order they were grouped. */
+  assetIds: string[];
+  /** True for a row that is one companion standing beside its line. */
+  isCompanion: boolean;
+}
+
+export function planCapexSummaryLines(
+  assets: readonly CapexPlannableAsset[],
+  phases: readonly { id: string; name?: string }[],
+  labelOf: (assetId: string) => string,
+): CapexSummaryLine[] {
+  const byId = new Map(assets.map((a) => [a.id, a] as const));
+  const phaseName = (id: string): string => phases.find((p) => p.id === id)?.name ?? '';
+  const placed = new Set<string>();
+  const out: CapexSummaryLine[] = [];
+
+  for (const g of groupAssetsForConsolidation(
+    assets as unknown as Parameters<typeof groupAssetsForConsolidation>[0],
+    phases.map((p) => p.id),
+    normaliseAssetTypeId,
+  )) {
+    const ids = g.assets.map((a) => a.id).filter((id) => byId.has(id));
+    if (ids.length === 0) continue;
+    for (const id of ids) placed.add(id);
+    out.push({
+      key: g.key, label: g.typeLabel, phaseId: g.phaseId, phaseName: phaseName(g.phaseId),
+      assetIds: ids, isCompanion: false,
+    });
+    // ITS OWN COMPANION, IMMEDIATELY BELOW. Derived from the line key, never
+    // matched by name: the label is a display string and can repeat.
+    const cid = retailCompanionId(g.key);
+    const companion = byId.get(cid);
+    if (companion !== undefined) {
+      placed.add(cid);
+      out.push({
+        key: cid, label: `${g.typeLabel} (Retail)`, phaseId: g.phaseId, phaseName: phaseName(g.phaseId),
+        assetIds: [cid], isCompanion: true,
+      });
+    }
+  }
+
+  // Anything the grouping did not reach, kept in its own phase rather than
+  // dropped. Ordered by the phase list so an unknown phase sorts last.
+  const rank = new Map(phases.map((p, i) => [p.id, i] as const));
+  const strays = assets
+    .filter((a) => !placed.has(a.id))
+    .sort((x, y) => (rank.get(x.phaseId) ?? Number.MAX_SAFE_INTEGER) - (rank.get(y.phaseId) ?? Number.MAX_SAFE_INTEGER));
+  for (const a of strays) {
+    out.push({
+      key: a.id, label: labelOf(a.id), phaseId: a.phaseId, phaseName: phaseName(a.phaseId),
+      assetIds: [a.id], isCompanion: a.isCompanion === true,
+    });
+  }
+  return out;
+}
+
 export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState): CapexReport {
   const { project, phases, assets, parcels, subUnits, costLines, costOverrides, landAllocationMode } = state;
   const N = snap.yearLabels.length;
@@ -394,29 +499,14 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
    * which is the one failure this table exists to rule out.
    */
   const capexById = new Map(assetCapex.map((ac) => [ac.assetId, ac] as const));
-  const multiPhase = phases.length > 1;
-  const phaseNameOf = (id: string): string => phases.find((p) => p.id === id)?.name ?? '';
-  interface CapexLine { label: string; members: AssetCapex[] }
-  const capexLines: CapexLine[] = [];
-  const grouped = new Set<string>();
-  for (const g of groupAssetsForConsolidation(
-    assets as unknown as Parameters<typeof groupAssetsForConsolidation>[0],
-    phases.map((p) => p.id),
-    normaliseAssetTypeId,
-  )) {
-    const members = g.assets.map((a) => capexById.get(a.id)).filter((ac): ac is AssetCapex => ac !== undefined);
-    if (!members.length) continue;
-    for (const m of members) grouped.add(m.assetId);
-    const phaseName = phaseNameOf(g.phaseId);
-    capexLines.push({
-      label: multiPhase && phaseName !== '' ? `${g.typeLabel}, ${phaseName}` : g.typeLabel,
-      members,
-    });
-  }
-  for (const ac of assetCapex) {
-    if (grouped.has(ac.assetId)) continue;
-    capexLines.push({ label: ac.name, members: [ac] });
-  }
+  const summaryLines = planCapexSummaryLines(
+    assets as unknown as CapexPlannableAsset[],
+    phases,
+    (id) => capexById.get(id)?.name ?? id,
+  ).map((ln) => ({
+    ...ln,
+    members: ln.assetIds.map((id) => capexById.get(id)).filter((ac): ac is AssetCapex => ac !== undefined),
+  })).filter((ln) => ln.members.length > 0);
 
   const sumOver = (members: readonly AssetCapex[], pick: (ac: AssetCapex) => number[]): number[] => {
     const out = new Array<number>(N).fill(0);
@@ -424,15 +514,48 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
     return out;
   };
 
-  const summaryTable = (title: string, pick: (ac: AssetCapex) => number[], total: number[], totalLabel: string): CapexResultTable => ({
-    title,
-    rows: [
-      ...capexLines
-        .map((ln): M4Row => ({ label: ln.label, values: sumOver(ln.members, pick), indent: 1 }))
-        .filter((row) => anyNonZero(row.values)),
-      { label: totalLabel, values: total, isTotal: true },
-    ],
-  });
+  /**
+   * A SUBTOTAL PER PHASE, INSIDE THE TABLE (2026-09-11).
+   *
+   * A phase total used to mean opening a second table and adding rows up by
+   * eye. It sits under the phase it totals now, and the grand total still
+   * closes the table, so the two readings never need two places.
+   *
+   * ONLY WHERE THERE IS MORE THAN ONE PHASE. On a single-phase project the
+   * subtotal would repeat the grand total one row above it, which says nothing
+   * and invites the reader to wonder what the difference is.
+   */
+  const multiPhase = phases.length > 1;
+  const summaryTable = (title: string, pick: (ac: AssetCapex) => number[], total: number[], totalLabel: string): CapexResultTable => {
+    const rows: M4Row[] = [];
+    let phaseId: string | null = null;
+    let phaseRows: M4Row[] = [];
+    const closePhase = (): void => {
+      if (!multiPhase || phaseRows.length === 0 || phaseId === null) { rows.push(...phaseRows); phaseRows = []; return; }
+      const name = phases.find((p) => p.id === phaseId)?.name ?? phaseId;
+      const sub = new Array<number>(N).fill(0);
+      for (const r of phaseRows) for (let t = 0; t < N; t++) sub[t] += r.values[t] ?? 0;
+      rows.push(...phaseRows, { label: `Subtotal, ${name}`, values: sub, isSubtotal: true });
+      phaseRows = [];
+    };
+    for (const ln of summaryLines) {
+      const values = sumOver(ln.members, pick);
+      if (!anyNonZero(values)) continue;
+      if (phaseId !== null && ln.phaseId !== phaseId) closePhase();
+      phaseId = ln.phaseId;
+      // THE PHASE RIDES IN ITS OWN COLUMN on a surface that has one. An M4Row
+      // carries a label and numbers, so here the phase is prefixed onto the
+      // label instead, ONCE, and only where the project has more than one.
+      phaseRows.push({
+        label: multiPhase && ln.phaseName !== '' ? `${ln.phaseName}: ${ln.label}` : ln.label,
+        values,
+        indent: 1,
+      });
+    }
+    closePhase();
+    rows.push({ label: totalLabel, values: total, isTotal: true });
+    return { title, rows };
+  };
   results.push(summaryTable('Total Capex (incl. all land)', (ac) => ac.inclAll, totalInclAll, 'Total Capex (incl. all land)'));
   results.push(summaryTable('Capex excl. Land In-Kind (cash-impact schedule)', (ac) => ac.exclInKind, totalExclInKind, 'Total Capex (excl. land in-kind)'));
   results.push(summaryTable('Capex excl. Total Land (pure development cost)', (ac) => ac.exclAll, totalExclAll, 'Total Capex (excl. all land)'));
