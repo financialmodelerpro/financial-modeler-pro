@@ -50,7 +50,7 @@ import {
   type RetailCompanionSpec,
 } from '@/src/core/calculations/retailCompanion';
 import type { DerivedAreasPlan, DerivedSupportPlan, LineSubUnitPlan } from '../../components/modules/_shared/assetTableModel';
-import { applyStrategySwitch, assetHasStrategyAssumptions } from './strategySwitch';
+import { applyStrategySwitch, assetHasStrategyAssumptions, seedManageCompanion, needsManageCompanion } from './strategySwitch';
 import {
   applyOverrides,
   buildOverrides,
@@ -861,15 +861,29 @@ export function createModule1Store() {
     // asset's Total column has the standard rows from period 0. Rates are
     // ZERO (2026-08-15): the rows are a checklist to fill in, not costs the
     // user is opted into by adding an asset.
+    // THE ADD PATH RECONCILES THE COMPANION TOO (2026-09-11), through the same
+    // rule the switch uses. `updateAsset` has always created the Sell + Manage
+    // companion when a strategy CHANGES to it; an asset CREATED as Sell +
+    // Manage never passes through that, so it would have been a parent with no
+    // companion and no sign of one missing. Nothing writes a strategy at
+    // creation today, which is why the hole was invisible; a per-type default
+    // is exactly such a path, so the door is closed before it is opened.
     addAsset: (asset) => set((s) => {
+      const assets = [...s.assets, asset];
+      const withCompanion = needsManageCompanion(asset, assets)
+        ? [...assets, seedManageCompanion(asset, s.subUnits)]
+        : assets;
       const phaseHasLines = s.costLines.some((c) => c.phaseId === asset.phaseId);
       if (phaseHasLines) {
-        return { assets: [...s.assets, asset] };
+        return { assets: withCompanion };
       }
+      // A phase that has never held an asset seeds the master catalog, so the
+      // Total column carries the standard rows from period 0. Rates are ZERO
+      // (2026-08-15): a checklist to fill in, not costs the user is opted into.
       const phase = s.phases.find((p) => p.id === asset.phaseId);
       const seed = makeBlankCostLines(asset.phaseId, phase?.constructionPeriods ?? 24);
       return {
-        assets: [...s.assets, asset],
+        assets: withCompanion,
         costLines: [...s.costLines, ...seed],
       };
     }),

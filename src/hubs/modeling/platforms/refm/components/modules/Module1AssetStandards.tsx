@@ -69,6 +69,8 @@ import {
   ASSET_TYPES_BY_CATEGORY,
   ASSET_TYPE_CATEGORIES,
   ASSET_TYPE_CATALOG,
+  ASSET_STRATEGIES,
+  type AssetStrategy,
   assetTypeCatalogForProjectType,
   assetTypeCategory,
 } from '../../lib/state/module1-types';
@@ -364,7 +366,24 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
    *  because a value without a project has nowhere to live. */
   const valueCells = (id: string, v: AssetTypeValues | undefined): React.JSX.Element => (
     <>
+      {/* WHAT YOU DO WITH A BUILDING OF THIS TYPE. The CATEGORY on the left says
+          what kind of building it is; this says what you do with it, and they
+          are separate questions. A blank inherits nothing and leaves the add
+          path on its own default, which is what every project has today. */}
       <td style={TD_PROJECT_FIRST}>
+        <select
+          style={TEXT_INPUT}
+          value={v?.strategy ?? ''}
+          disabled={noProject}
+          data-testid={`std-row-${id}-strategy`}
+          title="The strategy a NEW asset of this type takes. A plot always overrides it, and nothing retro-applies: changing a strategy on an existing asset parks its sub-units, opex and companion, so it is a model operation and not a standard."
+          onChange={(e) => setAssetTypeValue(id, { strategy: (e.target.value || undefined) as AssetStrategy | undefined })}
+        >
+          <option value="">not set</option>
+          {ASSET_STRATEGIES.map((st) => (<option key={st} value={st}>{st}</option>))}
+        </select>
+      </td>
+      <td style={TD}>
         <ValueCell
           value={v?.avgUnitSizeSqm} disabled={noProject}
           testId={`std-row-${id}-unit-size`}
@@ -638,7 +657,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
                 This project&apos;s asset types
                 <div style={{ fontSize: 9, fontWeight: 400, opacity: 0.85 }}>Saves as you type, and reaches no other project</div>
               </th>
-              <th style={{ ...TH, ...DIVIDER, minWidth: 320 }} colSpan={6} data-testid="std-group-project">
+              <th style={{ ...TH, ...DIVIDER, minWidth: 320 }} colSpan={7} data-testid="std-group-project">
                 This project&apos;s values
                 <div style={{ fontSize: 9, fontWeight: 400, opacity: 0.85 }}>Saves as you type, like every other input</div>
               </th>
@@ -647,7 +666,12 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
               <th style={{ ...TH, minWidth: 160 }}>Asset type</th>
               <th style={{ ...TH, minWidth: 110 }}>Category</th>
               <th style={{ ...TH, minWidth: 70, textAlign: 'center' }}>Order and remove</th>
-              <th style={{ ...TH, ...DIVIDER, minWidth: 90, textAlign: 'right' }}>Avg unit size (sqm)</th>
+              {/* STRATEGY LEADS THE PROJECT HALF, because it is the one value
+                  here that decides what the others are FOR: a Sell type prices
+                  a unit, an Operate type prices a key. It governs NEW assets
+                  only, which the caption says. */}
+              <th style={{ ...TH, ...DIVIDER, minWidth: 150 }}>Strategy for new assets</th>
+              <th style={{ ...TH, minWidth: 90, textAlign: 'right' }}>Avg unit size (sqm)</th>
               <th style={{ ...TH, minWidth: 80, textAlign: 'right' }}>Parking ratio</th>
               <th style={{ ...TH, minWidth: 140 }}>Ratio basis</th>
               <th style={{ ...TH, minWidth: 90, textAlign: 'right' }}>Coverage %</th>

@@ -79,6 +79,7 @@ import {
   sortAssetTypes,
   type AssetTypeStandard,
   type AssetTypeValues,
+  type AssetTypeValuesByType,
   type ResolvedChainDefaults,
 } from '../../lib/state/assetTypeStandards';
 import LandChainSection from './_shared/LandChainSection';
@@ -393,12 +394,33 @@ function assetTypeSelectValue(asset: Asset, choices: readonly TypeChoice[]): str
  * Re-selecting the unlisted sentinel is a no-op patch: it is a label the user
  * typed before this list existed and choosing it must not rewrite it.
  */
-function assetTypePatch(next: string, choices: readonly TypeChoice[]): Partial<Asset> {
+function assetTypePatch(
+  next: string,
+  choices: readonly TypeChoice[],
+  valuesByType?: AssetTypeValuesByType,
+): Partial<Asset> {
   if (next === UNLISTED_TYPE) return {};
   if (next === '') return { type: '', assetTypeId: undefined };
   const choice = choices.find((c) => c.key === next);
   if (!choice) return {};
-  return { type: choice.label, assetTypeId: choice.fromList ? choice.key : undefined };
+  const assetTypeId = choice.fromList ? choice.key : undefined;
+  // THE TYPE'S OWN STRATEGY, WHERE IT STATES ONE (2026-09-11). Category says
+  // what kind of building it is; strategy says what you do with it, and the
+  // add path wrote a hardcoded 'Sell' for every asset whatever its type. A type
+  // that states none leaves that default alone, which is every project today.
+  //
+  // ON CREATION ONLY. `updateAsset` treats a strategy change as a model
+  // operation, so this patch deliberately carries the strategy for a NEW asset
+  // and the row picker below strips it: re-picking a type on a live asset must
+  // not park its sub-units as a side effect.
+  const strategy = valuesByType === undefined
+    ? undefined
+    : resolveAssetTypeValues({ type: choice.label, assetTypeId }, valuesByType)?.strategy;
+  return {
+    type: choice.label,
+    assetTypeId,
+    ...(strategy !== undefined ? { strategy } : {}),
+  };
 }
 
 function resolveTypeCatalog(project: Project): readonly string[] {
@@ -790,6 +812,57 @@ export default function Module1Assets(): React.JSX.Element {
     });
   };
 
+  /**
+   * THE ROW'S STRATEGY PICK, through the SAME preview the drawer runs.
+   *
+   * A strategy change parks the outgoing strategy's sub-units, opex and
+   * companion and seeds the incoming ones, so it is previewed and confirmed
+   * rather than written through. The dialog is a DRY RUN of the same pure
+   * `applyStrategySwitch` the store commits, so it cannot describe something
+   * else, and an asset with nothing to park is written straight through, which
+   * is the same predicate the drawer and the store's banner both use.
+   */
+  const [rowSwitch, setRowSwitch] = useState<StrategySwitchReport | null>(null);
+  const [rowSwitchId, setRowSwitchId] = useState<string | null>(null);
+  const pickRowStrategy = (id: string, to: AssetStrategy): void => {
+    const target = assets.find((a) => a.id === id);
+    if (!target || target.strategy === to) return;
+    const st = useModule1Store.getState();
+    const slice = { assets: st.assets, subUnits: st.subUnits, costLines: st.costLines, costOverrides: st.costOverrides };
+    if (!assetHasStrategyAssumptions(slice, id)) {
+      updateAsset(id, { strategy: to });
+      return;
+    }
+    setRowSwitchId(id);
+    setRowSwitch(applyStrategySwitch(slice, id, to).report);
+  };
+
+  /**
+   * ADDING AN ASSET THAT BRINGS A SECOND ONE WITH IT (2026-09-11).
+   *
+   * A type may state Sell + Manage, and that strategy carries an Operate
+   * COMPANION: the same building under a second treatment, with its own
+   * sub-units, its own cost lines and its own revenue. Creating two assets from
+   * one dropdown is a lot to happen silently, so the picker says so first, the
+   * way the strategy dropdown previews a switch rather than writing it through.
+   *
+   * Only Sell + Manage asks. Every other strategy creates one asset, and a
+   * confirm on that would be noise.
+   */
+  const [pendingAdd, setPendingAdd] = useState<
+    { phaseId: string; parcelId?: string; patch: Partial<Asset>; label: string } | null
+  >(null);
+  const requestAddAsset = (phaseId: string, parcelId?: string, typePatch?: Partial<Asset>): void => {
+    if (typePatch?.strategy === 'Sell + Manage') {
+      setPendingAdd({
+        phaseId, parcelId, patch: typePatch,
+        label: (typePatch.type ?? '').trim() || 'this type',
+      });
+      return;
+    }
+    handleAddAssetToPhase(phaseId, parcelId, typePatch);
+  };
+
   const handleAddAssetToPhase = (phaseId: string, parcelId?: string, typePatch?: Partial<Asset>): void => {
     const phaseAssetCount = assets.filter((a) => a.phaseId === phaseId).length;
     // M2.0g Fix 2: default land allocation to the first phase parcel
@@ -941,8 +1014,9 @@ export default function Module1Assets(): React.JSX.Element {
                 phases={phases}
                 decimals={project.displayDecimals ?? 2}
                 scale={project.displayScale ?? 'full'}
-                onAddAsset={handleAddAssetToPhase}
+                onAddAsset={requestAddAsset}
                 typeChoices={typeChoices}
+                typeValues={project.assetTypeValues}
                 assetCount={assets.filter((a) => a.landAllocation?.parcelId === parcel.id).length}
               />
             ))}
@@ -1122,6 +1196,57 @@ export default function Module1Assets(): React.JSX.Element {
       {/* THE ASSETS TABLES: entry and the chain by PLOT, then the merge by
           LINE. Everything a row cannot hold opens in the drawer, which is the
           asset card, unchanged. */}
+      {/* THE ROW'S OWN CONFIRM. Same component, same report, same pure dry run
+          as the drawer's: one dialog shape for one model operation, wherever
+          the user happens to be standing when they change a strategy. */}
+      {/* WHAT THIS PICK IS ABOUT TO DO. Stated before it happens, because one
+          dropdown creating two assets is the kind of thing a user should agree
+          to rather than discover in the table afterwards. */}
+      {pendingAdd && (
+        <div
+          role="alertdialog"
+          data-testid="add-asset-companion-confirm"
+          style={{
+            border: '1px solid var(--color-navy)', borderRadius: 'var(--radius-sm)',
+            padding: 'var(--sp-2)', marginBottom: 'var(--sp-2)',
+            background: 'color-mix(in srgb, var(--color-navy) 5%, transparent)',
+          }}
+        >
+          <div style={{ fontSize: 'var(--font-small)', fontWeight: 600, marginBottom: 4 }}>
+            {pendingAdd.label} is a Sell + Manage type, so this creates TWO assets
+          </div>
+          <div style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
+            The asset you are adding, which sells the units, and an Operate companion
+            carrying the operating side: the same building under a second treatment,
+            with its own sub-units, cost lines and revenue. You can change the
+            strategy on the row afterwards, which removes the companion again.
+          </div>
+          <button type="button" className="btn-primary" data-view-mutates="true"
+            style={{ padding: '4px 12px', fontSize: 'var(--font-small)' }}
+            data-testid="add-asset-companion-confirm-ok"
+            onClick={() => { handleAddAssetToPhase(pendingAdd.phaseId, pendingAdd.parcelId, pendingAdd.patch); setPendingAdd(null); }}
+          >
+            Add both
+          </button>{' '}
+          <button type="button" data-view-mutates="true"
+            style={{ padding: '4px 12px', fontSize: 'var(--font-small)' }}
+            data-testid="add-asset-companion-confirm-cancel"
+            onClick={() => setPendingAdd(null)}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+      {rowSwitch && rowSwitchId && (
+        <StrategyChangeConfirm
+          report={rowSwitch}
+          onCancel={() => { setRowSwitch(null); setRowSwitchId(null); }}
+          onConfirm={() => {
+            updateAsset(rowSwitchId, { strategy: rowSwitch.to });
+            setRowSwitch(null); setRowSwitchId(null);
+          }}
+        />
+      )}
       <AssetTables
         rowGroups={rowGroups}
         lineGroups={lineGroups}
@@ -1138,8 +1263,9 @@ export default function Module1Assets(): React.JSX.Element {
         assetTypeRegistry={assetTypeRegistry}
         typeChoices={typeChoices}
         onUpdateAsset={updateAsset}
+        onPickStrategy={pickRowStrategy}
         onRemoveAsset={removeAsset}
-        onAddAsset={handleAddAssetToPhase}
+        onAddAsset={requestAddAsset}
       />
 
       <SubUnitsTable
@@ -1220,12 +1346,16 @@ interface ParcelRowProps {
    *  with two doors and not a second way to create an asset. */
   onAddAsset?: (phaseId: string, parcelId?: string, typePatch?: Partial<Asset>) => void;
   typeChoices?: readonly TypeChoice[];
+  /** The project's type values, so a type that states a STRATEGY sets it at
+   *  creation. Passed beside the choices because it answers the same question:
+   *  what does picking this type mean. */
+  typeValues?: AssetTypeValuesByType;
   /** How many assets already draw from this plot, so the row can say. */
   assetCount?: number;
 }
 
 function ParcelRow({
-  parcel, phases, onUpdate, onRemove, canRemove, decimals, scale, onAddAsset, typeChoices = [], assetCount = 0,
+  parcel, phases, onUpdate, onRemove, canRemove, decimals, scale, onAddAsset, typeChoices = [], typeValues, assetCount = 0,
 }: ParcelRowProps): React.JSX.Element {
   // P7-Fix 1: per-parcel NDA cells removed; project-level NDA card owns this surface now.
   // THIS PLOT'S OWN FIGURES, through the function the footer totals with.
@@ -1336,7 +1466,7 @@ function ParcelRow({
               onAddAsset(
                 parcel.phaseId,
                 parcel.id,
-                next === ADD_UNTYPED ? undefined : assetTypePatch(next, typeChoices),
+                next === ADD_UNTYPED ? undefined : assetTypePatch(next, typeChoices, typeValues),
               );
               e.target.value = '';
             }}
@@ -1546,6 +1676,9 @@ interface AssetTableProps {
   /** The ONE list all three type pickers offer. Resolved at the root. */
   typeChoices: readonly TypeChoice[];
   onUpdateAsset: (id: string, patch: Partial<Asset>) => void;
+  /** A strategy change is a MODEL operation, so the row asks the root to run
+   *  the same preview the drawer does rather than writing through. */
+  onPickStrategy: (id: string, to: AssetStrategy) => void;
   onRemoveAsset: (id: string) => void;
   onAddAsset: (phaseId: string, parcelId?: string, typePatch?: Partial<Asset>) => void;
 }
@@ -1708,7 +1841,7 @@ function lineConflicts(rows: readonly AssetRow[]): string[] {
  * The CHECK belongs to the entry table only: it is about what was entered.
  */
 function PlotHeaderRow({
-  g, plotLabel, phaseName, colSpan, showCheck, onAddAsset, typeChoices = [],
+  g, plotLabel, phaseName, colSpan, showCheck, onAddAsset, typeChoices = [], typeValues,
 }: {
   g: AssetPlotGroup;
   plotLabel: string;
@@ -1720,6 +1853,10 @@ function PlotHeaderRow({
   onAddAsset?: (phaseId: string, parcelId?: string, typePatch?: Partial<Asset>) => void;
   /** The SAME list the row dropdown offers, so the two cannot diverge. */
   typeChoices?: readonly TypeChoice[];
+  /** The project's type values, so a type that states a STRATEGY sets it at
+   *  creation. Passed beside the choices because it answers the same question:
+   *  what does picking this type mean. */
+  typeValues?: AssetTypeValuesByType;
 }): React.JSX.Element {
   return (
     <tr style={BAND} data-testid={`plot-group-${g.key}${showCheck ? '' : '-results'}`}>
@@ -1752,7 +1889,7 @@ function PlotHeaderRow({
               onAddAsset(
                 g.parcel!.phaseId,
                 g.parcel!.id,
-                next === ADD_UNTYPED ? undefined : assetTypePatch(next, typeChoices),
+                next === ADD_UNTYPED ? undefined : assetTypePatch(next, typeChoices, typeValues),
               );
               e.target.value = '';
             }}
@@ -1910,7 +2047,7 @@ function landFootsText(landTotalSqm: number, parcelsTotalSqm: number): string {
 function AssetInputsTable({
   rowGroups, allPhases, project, assetTypeRegistry,
   allAssets, parcels, subUnits, landAllocationMode,
-  typeChoices, openId, setOpenId, onUpdateAsset, onRemoveAsset, onAddAsset,
+  typeChoices, openId, setOpenId, onUpdateAsset, onPickStrategy, onRemoveAsset, onAddAsset,
 }: {
   rowGroups: RowGroup[];
   allPhases: Phase[];
@@ -1925,6 +2062,9 @@ function AssetInputsTable({
   openId: string | null;
   setOpenId: (id: string | null) => void;
   onUpdateAsset: (id: string, patch: Partial<Asset>) => void;
+  /** A strategy change is a MODEL operation, so the row asks the root to run
+   *  the same preview the drawer does rather than writing through. */
+  onPickStrategy: (id: string, to: AssetStrategy) => void;
   onRemoveAsset: (id: string) => void;
   onAddAsset: (phaseId: string, parcelId?: string, typePatch?: Partial<Asset>) => void;
 }): React.JSX.Element {
@@ -2000,6 +2140,7 @@ function AssetInputsTable({
                   showCheck
                   onAddAsset={onAddAsset}
                   typeChoices={typeChoices}
+                  typeValues={project.assetTypeValues}
                 />
                 {rows.length === 0 && (
                   <tr data-testid={`plot-group-${group.key}-empty`}>
@@ -2099,8 +2240,32 @@ function AssetInputsTable({
                             )}
                           </select>
                         </td>
+                        {/* THE STRATEGY IS EDITABLE HERE (2026-09-11). It was a
+                            read-only span, so the one field a reader is most
+                            likely to find wrong in this table could only be
+                            corrected by opening the drawer. Every asset on a
+                            live project read 'Sell', including a hotel, because
+                            the add path writes that literal and the type picker
+                            never mentions the strategy.
+
+                            IT GOES THROUGH THE SAME PREVIEW AS THE DRAWER. A
+                            strategy change is a MODEL operation: it parks the
+                            outgoing strategy's sub-units, opex and companion
+                            and seeds the incoming ones. One dropdown that
+                            confirms and another that writes straight through
+                            would be two answers to the same question. */}
                         <td style={CELL}>
-                          <span style={{ fontSize: 10 }} data-testid={`asset-row-${asset.id}-strategy`}>{asset.strategy}</span>
+                          <select
+                            style={TABLE_INPUT}
+                            value={asset.strategy}
+                            data-testid={`asset-row-${asset.id}-strategy`}
+                            title={STRATEGY_TOOLTIPS[asset.strategy]}
+                            onChange={(e) => onPickStrategy(asset.id, e.target.value as AssetStrategy)}
+                          >
+                            {ASSET_STRATEGIES.map((s) => (
+                              <option key={s} value={s} title={STRATEGY_TOOLTIPS[s]}>{STRATEGY_LABELS[s]}</option>
+                            ))}
+                          </select>
                         </td>
                         <td style={CELL}>
                           <select
@@ -2760,7 +2925,7 @@ function MergedLineTable({
 function AssetTables({
   rowGroups, lineGroups, retailByLineKey, retailLand, parcelsTotalSqm, onToggleDerivedAreas,
   allAssets, allPhases, parcels, subUnits, project,
-  landAllocationMode, assetTypeRegistry, typeChoices, onUpdateAsset, onRemoveAsset, onAddAsset,
+  landAllocationMode, assetTypeRegistry, typeChoices, onUpdateAsset, onPickStrategy, onRemoveAsset, onAddAsset,
 }: AssetTableProps): React.JSX.Element {
   const [openId, setOpenId] = useState<string | null>(null);
   // The SAME rows, regrouped. Table 4 cannot disagree with table 3 because it
@@ -2781,6 +2946,7 @@ function AssetTables({
         openId={openId}
         setOpenId={setOpenId}
         onUpdateAsset={onUpdateAsset}
+        onPickStrategy={onPickStrategy}
         onRemoveAsset={onRemoveAsset}
         onAddAsset={onAddAsset}
       />

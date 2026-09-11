@@ -167,6 +167,43 @@ function ratesAreBlank(rows: SubUnit[], strategy: AssetStrategy): boolean {
  * actually changing or the asset does not exist, so a caller can invoke it
  * without guarding.
  */
+/**
+ * THE COMPANION A Sell + Manage PARENT MUST HAVE, seeded from the parent.
+ *
+ * ONE RULE, TWO DOORS (2026-09-11). This lived inside `applyStrategySwitch`, so
+ * a Sell + Manage asset only ever got its companion by CHANGING to that
+ * strategy. An asset CREATED as Sell + Manage never passes through the switch,
+ * and the store's add path reconciled nothing, so it would have been a parent
+ * with NO companion: the operating half of the asset simply absent, and nothing
+ * on screen saying so. No path writes a strategy at creation today, which is
+ * exactly why the hole was invisible; a per-type default is such a path.
+ *
+ * The unit count comes from the parent's OWN Sellable rows, so a parent with
+ * none yet seeds a companion of zero units, which is the honest answer and the
+ * same one the switch has always given.
+ */
+export function seedManageCompanion(
+  parent: Asset,
+  subUnits: readonly SubUnit[],
+): Asset {
+  const sellable = subUnits
+    .filter((u) => u.assetId === parent.id && u.category === 'Sellable')
+    .reduce((s, u) => s + Math.max(0, u.metricValue), 0);
+  return makeCompanionAsset(parent, sellable);
+}
+
+/** True when this asset is a Sell + Manage parent with no companion yet. Asked
+ *  in ONE place so the switch and the add path cannot disagree about what
+ *  "needs one" means. */
+export function needsManageCompanion(
+  asset: Asset,
+  assets: readonly Asset[],
+): boolean {
+  return asset.strategy === 'Sell + Manage'
+    && asset.isCompanion !== true
+    && !assets.some((a) => a.isCompanion === true && a.parentAssetId === asset.id);
+}
+
 export function applyStrategySwitch(
   state: StrategySwitchState,
   assetId: string,
@@ -269,10 +306,7 @@ export function applyStrategySwitch(
       nextCostOverrides = [...nextCostOverrides, ...clone(restored.costOverrides)];
       report.restored.push(`the "${restored.asset.name}" companion, exactly as it was`);
     } else {
-      const sellable = nextSubUnits
-        .filter((u) => u.assetId === assetId && u.category === 'Sellable')
-        .reduce((s, u) => s + Math.max(0, u.metricValue), 0);
-      const companion = makeCompanionAsset(patched, sellable);
+      const companion = seedManageCompanion(patched, nextSubUnits);
       nextAssets = [...nextAssets, companion];
       report.seeded.push(`the "${companion.name}" companion asset, which carries the operating side`);
       report.needsReview.push(`ADR and occupancy on "${companion.name}" (Module 2, Revenue)`);

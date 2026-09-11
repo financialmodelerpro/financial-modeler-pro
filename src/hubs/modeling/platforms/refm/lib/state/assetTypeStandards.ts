@@ -34,8 +34,13 @@
  * inputs that no calculation reads; the area chain that will consume them is a
  * later step, and until it lands the Module 6 picker keeps them out.
  *
- * Pure. No imports from module1-types (this file must stay leaf-level so the
- * types file can reference it without a cycle). No em dashes in this file.
+ * Pure. No RUNTIME imports from module1-types (this file must stay leaf-level so
+ * the types file can reference it without a cycle). A type-only inline
+ * `import('./module1-types').X` is fine and is used once, for AssetStrategy: it
+ * is erased entirely at compile time, so it creates no cycle, and the
+ * alternative is a second copy of a string union that would drift. module1-types
+ * already references this file the same way, in the other direction.
+ * No em dashes in this file.
  */
 
 import { normaliseAssetTypeId } from '@/src/core/calculations/typeKey';
@@ -135,6 +140,24 @@ export interface AssetTypeValues {
    * 1.2 to 5 WITHIN one type. Offering a default is a convenience; hiding that
    * it applied would be a trap.
    */
+  /**
+   * WHAT YOU DO WITH A BUILDING OF THIS TYPE (2026-09-11).
+   *
+   * CATEGORY SAYS WHAT KIND OF BUILDING IT IS; STRATEGY SAYS WHAT YOU DO WITH
+   * IT. They are separate fields because a firm's 4 Star Hotel is essentially
+   * always Operate and its Branded Villas essentially always Sell, and the
+   * add-asset picker offered the type while writing a hardcoded 'Sell' for the
+   * strategy. Every asset on a live project read Sell as a result, a hotel
+   * among them, which turns off its opex, its depreciation and its revenue at
+   * once.
+   *
+   * IT GOVERNS NEW ASSETS ONLY. Changing a strategy on an existing asset parks
+   * its sub-units, opex and companion and seeds the incoming set, so it is a
+   * MODEL operation that cannot be applied by editing a standard. Nothing
+   * retro-applies; the plot always wins and an absent value inherits, the same
+   * rule as every other standard here.
+   */
+  strategy?: import('./module1-types').AssetStrategy;
   coveragePct?: number;
   farRatio?: number;
   servicePct?: number;

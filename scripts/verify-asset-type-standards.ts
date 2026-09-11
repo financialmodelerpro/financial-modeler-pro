@@ -807,12 +807,26 @@ function offlineChecks(): void {
     /<select[\s\S]{0,600}data-testid=\{`asset-row-\$\{asset\.id\}-type`\}/.test(assetsTab)
     && !/list=\{`asset-row-types-\$\{asset\.id\}`\}/.test(assetsTab)
     && !assetsTab.includes('<datalist id={`asset-row-types-'));
+  // T9 RE-AIMED 2026-09-11. The patch gained a third field: a type may state a
+  // STRATEGY that a NEW asset takes, so the return is an object built in steps
+  // rather than one literal. What must hold is unchanged, and is now asked of
+  // the two fields rather than of the line that used to write them.
   check('T9 picking writes BOTH the label and the reference, so they cannot disagree',
-    /return \{ type: choice\.label, assetTypeId: choice\.fromList \? choice\.key : undefined \};/.test(assetsTab)
+    assetsTab.includes('const assetTypeId = choice.fromList ? choice.key : undefined;')
+    && assetsTab.includes('    type: choice.label,')
+    && assetsTab.includes('    assetTypeId,')
     // A catalog-only label gets NO reference: there is no vocabulary entry to
     // point at, and inventing one would put an id in the snapshot the standards
     // tab cannot show.
     && assetsTab.includes('fromList: false'));
+  // T9b THE STRATEGY RIDES ONLY WHERE THE TYPE STATES ONE, and only at CREATION.
+  // `updateAsset` treats a strategy change as a model operation that parks
+  // sub-units, opex and the companion, so re-picking a type on a LIVE asset must
+  // not carry one: the row picker passes no values and gets no strategy.
+  check('T9b a type strategy reaches the ADD pickers and never the row picker',
+    assetsTab.includes('assetTypePatch(next, typeChoices, typeValues)')
+    && assetsTab.includes('assetTypePatch(e.target.value, typeChoices)')
+    && !assetsTab.includes('assetTypePatch(e.target.value, typeChoices, '));
   check('T10 a stored label on neither list is still selectable, so nothing typed is lost',
     assetsTab.includes("const UNLISTED_TYPE = '__unlisted__'")
     && assetsTab.includes('(not in the list)')

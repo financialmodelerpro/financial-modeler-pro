@@ -65,6 +65,7 @@ import {
   type AssetTypeValuesByType,
 } from '../src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import { needsManageCompanion } from '../src/hubs/modeling/platforms/refm/lib/state/strategySwitch';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
 import { formatArea, formatAccounting } from '../src/core/formatters';
 import { formatFieldNumber } from '../src/hubs/modeling/platforms/refm/components/ui/AccountingNumberInput';
@@ -1396,7 +1397,7 @@ function offlineChecks(): void {
   check('U59 adding an asset offers the type, from the same choices and the same patch rule',
     // The picker resolves through the SAME assetTypePatch the row dropdown
     // uses, so a type set at creation and one set a second later are one write.
-    tabSrc.includes('next === ADD_UNTYPED ? undefined : assetTypePatch(next, typeChoices)')
+    tabSrc.includes('next === ADD_UNTYPED ? undefined : assetTypePatch(next, typeChoices, typeValues)')
     && /typeChoices\?: readonly TypeChoice\[\];/.test(tabSrc)
     && tabSrc.includes('<option value={ADD_UNTYPED}>Type not decided yet</option>')
     // The blank state stays reachable: an asset whose type is not yet decided
@@ -1419,6 +1420,59 @@ function offlineChecks(): void {
     assetId: 'a1', assetName: 'Tower', hasTypedSupport: false, hasDerivedRow: false,
     lobbyGfaSqm: 1000, mainAssetGfaSqm: 9000, netSaleableSqm: 7000, ...over,
   });
+
+  // ── U81 to U85. STRATEGY: THE TYPE'S DEFAULT AND THE COMPANION RULE ──
+  //
+  // Every asset on a live project read 'Sell', a 4 Star Hotel among them,
+  // because the add path writes that literal and the type picker never
+  // mentioned the strategy. A hotel marked Sell gets NO opex (the classifier
+  // takes Operate and Lease only), NO depreciation (isDepreciableAsset reads
+  // the same two) and no operating revenue, so it is 156m of capex attached to
+  // nothing.
+  check('U81 the strategy is editable in the ROW, not only in the drawer',
+    // A read-only span was the whole reason the wrong value could be seen and
+    // not corrected where it was seen.
+    inputsBody.includes('data-testid={`asset-row-${asset.id}-strategy`}')
+    && inputsBody.includes('onPickStrategy(asset.id, e.target.value as AssetStrategy)')
+    // PLAIN STRING MATCHING, not a regex: the markup is full of backticks,
+    // braces and slashes, and escaping them is how this file has broken itself
+    // before. The read-only span is what must be gone.
+    && !tabSrc.includes('-strategy`}>{asset.strategy}</span>'));
+  check('U82 and it goes through the SAME preview the drawer runs, not a write-through',
+    tabSrc.includes('const pickRowStrategy = (id: string, to: AssetStrategy): void =>')
+    && tabSrc.includes('setRowSwitch(applyStrategySwitch(slice, id, to).report)')
+    // An asset with nothing to park is written straight through, the same
+    // predicate the drawer and the store's banner both use.
+    && tabSrc.slice(tabSrc.indexOf('const pickRowStrategy'), tabSrc.indexOf('const pickRowStrategy') + 900)
+      .includes('assetHasStrategyAssumptions(slice, id)')
+    // One dialog component for one model operation.
+    && (tabSrc.match(/<StrategyChangeConfirm/g) ?? []).length === 2);
+  // U83 THE COMPANION RULE SERVES BOTH DOORS. `updateAsset` created the
+  // Sell + Manage companion on a CHANGE; an asset CREATED as Sell + Manage
+  // never passes through that, so it would have been a parent with none.
+  check('U83 a Sell + Manage asset needs a companion whichever door it came through',
+    needsManageCompanion(
+      { id: 'p1', strategy: 'Sell + Manage' } as never, [{ id: 'p1', strategy: 'Sell + Manage' }] as never,
+    ) === true
+    && needsManageCompanion(
+      { id: 'p1', strategy: 'Sell + Manage' } as never,
+      [{ id: 'p1' }, { id: 'c', isCompanion: true, parentAssetId: 'p1' }] as never,
+    ) === false
+    // A companion never asks for one of its own, or the seed would recurse.
+    && needsManageCompanion(
+      { id: 'c', strategy: 'Sell + Manage', isCompanion: true, parentAssetId: 'p1' } as never, [] as never,
+    ) === false);
+  check('U84 the add path calls that rule, so the two doors cannot drift',
+    storeSrc.includes('needsManageCompanion(asset, assets)')
+    && storeSrc.includes('seedManageCompanion(asset, s.subUnits)')
+    // and the switch calls the same seeding function rather than its own copy
+    && readFileSync('src/hubs/modeling/platforms/refm/lib/state/strategySwitch.ts', 'utf8')
+      .includes('seedManageCompanion(patched, nextSubUnits)'));
+  check('U85 one dropdown creating TWO assets says so first',
+    tabSrc.includes('data-testid="add-asset-companion-confirm"')
+    && tabSrc.includes("typePatch?.strategy === 'Sell + Manage'")
+    // and only that strategy asks: a confirm on every add would be noise
+    && tabSrc.includes('handleAddAssetToPhase(phaseId, parcelId, typePatch);'));
 
   // ── U78 to U80. THE OPT-IN GATES WHAT CAN MOVE MONEY, AND ONLY THAT ─────
   //
@@ -1540,11 +1594,15 @@ function offlineChecks(): void {
     && !/\+ Add asset\{assetCount > 0 \? ` \(\$\{assetCount\}\)` : ''\}/.test(tabSrc));
   check('U66 the LAND table offers the same picker on every plot row, through the same rule',
     tabSrc.includes('data-testid={`parcel-${parcel.id}-add-asset`}')
-    && tabSrc.includes('next === ADD_UNTYPED ? undefined : assetTypePatch(next, typeChoices)')
+    && tabSrc.includes('next === ADD_UNTYPED ? undefined : assetTypePatch(next, typeChoices, typeValues)')
     // Both pickers write through onAddAsset, so there is ONE creation path with
     // two doors rather than a second way to make an asset.
     && (tabSrc.match(/onAddAsset\(\n/g) ?? []).length === 2
-    && tabSrc.includes('onAddAsset={handleAddAssetToPhase}'));
+    // RE-AIMED 2026-09-11: the two doors now route through requestAddAsset,
+    // which previews a Sell + Manage pick before handleAddAssetToPhase creates
+    // anything. What matters is unchanged: ONE creation path, two doors.
+    && tabSrc.includes('onAddAsset={requestAddAsset}')
+    && tabSrc.includes('handleAddAssetToPhase(phaseId, parcelId, typePatch);'));
   check('U67 the three type pickers share ONE resolved list, built once at the root',
     // Built in exactly one place, and passed down; a second buildTypeChoices
     // call is a second list, and "which types can I pick" would then depend on
