@@ -2310,7 +2310,7 @@ function AssetPhasingControl({ asset, constructionPeriods, onChange }: AssetPhas
             data-testid={`asset-phasing-${asset.id}-toggle`}
             onChange={(e) => onChange(e.target.checked ? { phasing: 'even' } : undefined)}
           />
-          One phasing curve for this asset
+          One phasing curve for every asset in this phase
         </label>
         {on && (
           <>
@@ -2323,7 +2323,7 @@ function AssetPhasingControl({ asset, constructionPeriods, onChange }: AssetPhas
               {COST_PHASING_OPTIONS.map((p) => (<option key={p} value={p}>{PHASING_LABELS[p]}</option>))}
             </select>
             <span style={{ fontSize: 11, color: 'var(--color-meta)' }}>
-              Every cost line on this asset follows it, except lines set to their own curve, land cash or collections.
+              Every cost line on every asset of this phase follows it, except lines set to their own curve, land cash or collections.
             </span>
           </>
         )}
@@ -5107,7 +5107,17 @@ export default function Module1Costs(): React.JSX.Element {
                 subUnits={subUnits}
                 metrics={assetMetrics}
                 onUpdateLine={(lineId, patch) => updateCostLine(lineId, patch)}
-                onUpdateAsset={(_assetId, patch) => lineMembers.forEach((m) => updateAsset(m.id, patch))}
+                // ONE CURVE PER PHASE (2026-09-12, founder's direction): the
+                // phasing curve is written to EVERY visible asset of the phase,
+                // strips included, as the two live phases were set before the
+                // sections became per line. Any other asset patch stays on the
+                // line's own plots.
+                onUpdateAsset={(_assetId, patch) => {
+                  const targets = 'capexPhasing' in patch
+                    ? allVisibleAssets.filter((a) => a.phaseId === activeAsset.phaseId)
+                    : lineMembers;
+                  targets.forEach((m) => updateAsset(m.id, patch));
+                }}
                 displayName={activeLine?.label}
                 memberCount={lineMembers.length}
                 revenue={sellSnap}

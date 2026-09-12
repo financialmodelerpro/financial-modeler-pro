@@ -43,6 +43,7 @@ import {
 } from '../src/core/calculations';
 import { eligibleBaseLines, assetVisibleLines } from '../src/core/calculations/selectedBase';
 import { planRetailCompanionOverrides } from '../src/core/calculations/retailCompanion';
+import { applyReferenceCostBases } from '../src/core/calculations/costBases';
 import { selectableCostMethods, COST_METHOD_LABELS, COST_METHOD_BASIS_HELP, type CostMethod } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { repairStaleWizardCostWindows } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
 import { buildWizardSnapshot } from '../src/hubs/modeling/platforms/refm/lib/wizard/buildWizardSnapshot';
@@ -961,6 +962,60 @@ section('K. Area x unit size = count: only two of the three are inputs');
       costsSrc2.includes('const stripOwn = isRetailCompanion(asset);')
       && (costsSrc2.match(/\} else if \(stripOwn\) \{\s*onUpdateOverride\(\{ \.\.\.masterAsOverride\(\), (method|value|phasing|disabled) \}\);/g) ?? []).length === 4
       && costsSrc2.includes('const startOverride = (): void => { onUpdateOverride(masterAsOverride()); };'));
+
+    // ── P4n THE REFERENCE BASES ARE APPLIED ON LOAD AND SAVE ───────────
+    //
+    // A phase line on a strip-only basis prices every host at 0, a strip on
+    // a host basis prices the strip at 0, and Total GFA on the superstructure
+    // line is not the reference basis. The pass moves exactly those, seeds a
+    // strip with no override, leaves every other choice alone, and settles.
+    const bases = {
+      assets: [
+        { id: 'h1', phaseId: 'p' }, { id: 'h2', phaseId: 'p' },
+        { id: 'st', phaseId: 'p', isCompanion: true, companionType: 'retail' },
+        { id: 'h3', phaseId: 'q' },
+      ],
+      costLines: [
+        { id: 'construction-bua__p', phaseId: 'p', method: 'rate_x_retail_gfa', value: 4200, phasing: 'even' },
+        { id: 'construction-parking__p', phaseId: 'p', method: 'rate_x_retail_parking_area', value: 3000, phasing: 'even' },
+        { id: 'construction-bua__q', phaseId: 'q', method: 'rate_per_bua', value: 5800, phasing: 'even' },
+        { id: 'construction-parking__q', phaseId: 'q', method: 'rate_per_nsa', value: 25000, phasing: 'even' },
+        { id: 'custom-1__p', phaseId: 'p', method: 'rate_x_retail_gfa', value: 1, phasing: 'even' },
+      ],
+      costOverrides: [
+        { assetId: 'st', lineId: 'construction-bua__p', method: 'rate_x_main_asset_gfa' },
+        { assetId: 'h1', lineId: 'construction-parking__p', method: 'rate_x_retail_parking_area' },
+        { assetId: 'h2', lineId: 'construction-bua__p', method: 'rate_per_nsa' },
+      ],
+    };
+    const r1 = applyReferenceCostBases(bases);
+    const lineM = (id: string): string => String(r1.state.costLines.find((l) => l.id === id)?.method);
+    const ovM = (a: string, id: string): string | undefined => r1.state.costOverrides.find((o) => o.assetId === a && o.lineId === id)?.method;
+    check('P4n a phase line on a strip basis goes back to the host basis, and Total GFA on superstructure goes to Main Asset GFA',
+      lineM('construction-bua__p') === 'rate_x_main_asset_gfa' && lineM('construction-parking__p') === 'rate_x_parking_area'
+      && lineM('construction-bua__q') === 'rate_x_main_asset_gfa',
+      r1.moves.map((m) => `${m.kind}:${m.lineId}:${m.from ?? ''}>${m.to}`).join(' '));
+    check('P4n-b a parking line on slots, NSA or a lump sum is the user\'s choice and a custom line is never touched',
+      lineM('construction-parking__q') === 'rate_per_nsa' && lineM('custom-1__p') === 'rate_x_retail_gfa');
+    check('P4n-c a strip override on a host basis moves to the strip basis, a host override on a strip basis moves back, any other override stays',
+      ovM('st', 'construction-bua__p') === 'rate_x_retail_gfa'
+      && ovM('h1', 'construction-parking__p') === 'rate_x_parking_area'
+      && ovM('h2', 'construction-bua__p') === 'rate_per_nsa');
+    check('P4n-d a strip with no override on a line that exists is seeded at the line\'s rate',
+      ovM('st', 'construction-parking__p') === 'rate_x_retail_parking_area'
+      && (r1.state.costOverrides.find((o) => o.assetId === 'st' && o.lineId === 'construction-parking__p') as { value?: number } | undefined)?.value === 3000);
+    const r2 = applyReferenceCostBases(r1.state);
+    check('P4n-e the pass SETTLES: a second run returns the input object with no moves',
+      r2.state === r1.state && r2.changed === false && r2.moves.length === 0);
+    check('P4n-f the store runs it on load AND on save, after the integrity pass and the bridge',
+      (storeSrc2.match(/applyReferenceCostBases\(/g) ?? []).length === 2
+      && storeSrc2.indexOf('applyReferenceCostBases(bridgedModel)') > storeSrc2.indexOf('repairProjectIntegrity(merged)')
+      && storeSrc2.indexOf('applyReferenceCostBases(bridgedLiveModel)') > storeSrc2.indexOf('repairProjectIntegrity(pickModel('));
+    // ONE CURVE PER PHASE: the phasing curve patch reaches every visible
+    // asset of the phase; every other asset patch stays on the line's plots.
+    check('P4o the phasing curve is written to every visible asset of the phase, and only that patch',
+      /'capexPhasing' in patch\s*\? allVisibleAssets\.filter\(\(a\) => a\.phaseId === activeAsset\.phaseId\)\s*: lineMembers/.test(costsSrc2)
+      && costsSrc2.includes('One phasing curve for every asset in this phase'));
   }
 
   // P5 THE RETIRED METHOD STAYS RETIRED. Re-pointing rate_per_nda at the

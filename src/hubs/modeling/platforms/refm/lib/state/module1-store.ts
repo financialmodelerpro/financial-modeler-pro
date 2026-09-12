@@ -54,6 +54,7 @@ import { planDerivedAreasForModel, applyDerivedAreasPlan } from '../../component
 import { applyStrategySwitch, assetHasStrategyAssumptions, seedManageCompanion, needsManageCompanion } from './strategySwitch';
 import { assetsOnParcel, repairProjectIntegrity } from '@/src/core/calculations/projectIntegrity';
 import { planRetailCompanionOverrides } from '@/src/core/calculations/retailCompanion';
+import { applyReferenceCostBases } from '@/src/core/calculations/costBases';
 import {
   applyOverrides,
   buildOverrides,
@@ -1298,7 +1299,9 @@ export function createModule1Store() {
       const repairedLive = repairProjectIntegrity(pickModel(s as unknown as Record<string, unknown>)).state;
       // And on the way out, so a save never stores a bag older than its inputs.
       const bridgedLive = applyDerivedAreasPlan(repairedLive.assets, planDerivedAreasForModel(repairedLive));
-      const liveModel = bridgedLive.changed ? { ...repairedLive, assets: bridgedLive.assets } : repairedLive;
+      const bridgedLiveModel = bridgedLive.changed ? { ...repairedLive, assets: bridgedLive.assets } : repairedLive;
+      // And the bases on the way out, the same pure pass as on load.
+      const liveModel = applyReferenceCostBases(bridgedLiveModel).state;
       const baseId = baseCaseId(s.cases);
       let baseModel = s.baseSnapshot;
       let cases = s.cases;
@@ -1343,7 +1346,18 @@ export function createModule1Store() {
        * the object it always did.
        */
       const bridged = applyDerivedAreasPlan(repaired.state.assets, planDerivedAreasForModel(repaired.state));
-      const model = bridged.changed ? { ...repaired.state, assets: bridged.assets } : repaired.state;
+      const bridgedModel = bridged.changed ? { ...repaired.state, assets: bridged.assets } : repaired.state;
+      /**
+       * AND THE STANDARD CONSTRUCTION LINES ARE ON THE REFERENCE BASES
+       * (2026-09-12): hosts on Main Asset GFA and Parking Area, strips on
+       * Retail GFA and Retail Parking Area, a strip with no override seeded.
+       * Same door, same settle rule: the input object when nothing moves.
+       */
+      const based = applyReferenceCostBases(bridgedModel);
+      const model = based.state;
+      if (based.changed && typeof console !== 'undefined') {
+        console.warn(`[REFM] cost bases: ${based.moves.length} line(s)/override(s) moved to the reference basis on load`, based.moves);
+      }
       if (repaired.changed && typeof console !== 'undefined') {
         console.warn(`[REFM] integrity: ${repaired.repairs.length} dangling reference(s) cleared on load`, repaired.repairs);
       }
