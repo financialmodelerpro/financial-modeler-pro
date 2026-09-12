@@ -51,6 +51,7 @@ import {
 } from '@/src/core/calculations/retailCompanion';
 import type { DerivedAreasPlan, DerivedSupportPlan, LineSubUnitPlan } from '../../components/modules/_shared/assetTableModel';
 import { applyStrategySwitch, assetHasStrategyAssumptions, seedManageCompanion, needsManageCompanion } from './strategySwitch';
+import { assetsOnParcel, repairProjectIntegrity } from '@/src/core/calculations/projectIntegrity';
 import {
   applyOverrides,
   buildOverrides,
@@ -73,6 +74,14 @@ import {
 // explicit opt-in (button + diff preview), not an implicit setter cascade.
 
 // ── Store shape ─────────────────────────────────────────────────────────────
+/** What `removeParcel` did, so a caller can state a refusal rather than leave
+ *  a button that looks like it worked. */
+export interface ParcelRemoval {
+  removed: boolean;
+  /** How many assets draw from the plot. Zero when it was removed. */
+  assetCount: number;
+  assetIds: string[];
+}
 export interface Module1Store {
   // Project meta
   project: Project;
@@ -170,7 +179,22 @@ export interface Module1Store {
   setParcels: (parcels: Parcel[]) => void;
   addParcel: (parcel: Parcel) => void;
   updateParcel: (id: string, patch: Partial<Parcel>) => void;
-  removeParcel: (id: string) => void;
+  /**
+   * DELETING A PLOT THAT CARRIES ASSETS IS REFUSED, and the refusal says how
+   * many it carries.
+   *
+   * It used to be three lines that filtered the parcel out and cascaded to
+   * nothing, which made it the only delete in this store that cascaded to
+   * nothing at all. An asset created on that plot kept pointing at it, fell
+   * back to its phase for a label, and reappeared on every downstream surface
+   * under a new name (FMP - MARINA GATE, asset_1789041611899, 2026-09-10).
+   *
+   * THE ANSWER IS A REFUSAL, NOT A CASCADE. Deleting the assets with the plot
+   * would destroy sub-units, costs and revenue the user never asked to lose,
+   * and clearing their plot silently unmoors them from their land. So the
+   * plot stands until the assets on it are moved or removed.
+   */
+  removeParcel: (id: string) => ParcelRemoval;
 
   setAssets: (assets: Asset[]) => void;
   addAsset: (asset: Asset) => void;
@@ -845,9 +869,14 @@ export function createModule1Store() {
     updateParcel: (id, patch) => set((s) => ({
       parcels: s.parcels.map((p) => (p.id === id ? { ...p, ...patch } : p)),
     })),
-    removeParcel: (id) => set((s) => ({
-      parcels: s.parcels.filter((p) => p.id !== id),
-    })),
+    removeParcel: (id) => {
+      // THE SAME QUESTION THE INTEGRITY PASS ASKS, so a plot can never be
+      // refused for carrying an asset whose pointer that pass would clear.
+      const carried = assetsOnParcel(get().assets, id);
+      if (carried.length > 0) return { removed: false, assetCount: carried.length, assetIds: carried };
+      set((s) => ({ parcels: s.parcels.filter((p) => p.id !== id) }));
+      return { removed: true, assetCount: 0, assetIds: [] };
+    },
 
     setAssets: (assets) => set({ assets }),
     // P10-Fix 3 (2026-05-12): hybrid project-wide architecture.
@@ -1261,7 +1290,12 @@ export function createModule1Store() {
 
     extractPersistSnapshot: () => {
       const s = get();
-      const liveModel = pickModel(s as unknown as Record<string, unknown>);
+      // THE SAME CHECK ON THE WAY OUT, so a reference broken during a session
+      // is repaired before it reaches a stored snapshot rather than after.
+      // Idempotent: on a clean model this returns the object it was given, so
+      // the diff a save writes is unchanged and an untouched project still
+      // produces an empty change set.
+      const liveModel = repairProjectIntegrity(pickModel(s as unknown as Record<string, unknown>)).state;
       const baseId = baseCaseId(s.cases);
       let baseModel = s.baseSnapshot;
       let cases = s.cases;
@@ -1282,7 +1316,25 @@ export function createModule1Store() {
       // The persisted top-level fields ARE the base model.
       const baseModel = pickModel(snapshot as unknown as Record<string, unknown>);
       const active = cases.find((c) => c.id === activeCaseId)!;
-      const model = active.role === 'base' ? baseModel : applyOverrides(baseModel, active.overrides);
+      const merged = active.role === 'base' ? baseModel : applyOverrides(baseModel, active.overrides);
+      /**
+       * EVERY REFERENCE POINTS AT SOMETHING THAT EXISTS, CHECKED ON LOAD.
+       *
+       * This is the one door every load goes through: opening a project,
+       * restoring a version, switching a case, and the local-snapshot path the
+       * wizard uses. Putting the check on a TAB is what let a dangling plot
+       * reference live in a saved model for two days: the tab that could have
+       * repaired it was not the tab anybody was looking at.
+       *
+       * IT SETTLES. `repairProjectIntegrity` returns the INPUT OBJECT when
+       * nothing is wrong, so a clean project hydrates to the same object it
+       * always did and opening one can never mark it dirty.
+       */
+      const repaired = repairProjectIntegrity(merged);
+      const model = repaired.state;
+      if (repaired.changed && typeof console !== 'undefined') {
+        console.warn(`[REFM] integrity: ${repaired.repairs.length} dangling reference(s) cleared on load`, repaired.repairs);
+      }
       return {
         ...model,
         // Pass 43 (2026-05-14): coerce to array so legacy snapshots

@@ -28,7 +28,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { useModule1Store } from '../../lib/state/module1-store';
+import { useModule1Store, type ParcelRemoval } from '../../lib/state/module1-store';
 import {
   type Asset,
   type AssetLandAllocation,
@@ -1331,7 +1331,8 @@ export default function Module1Assets(): React.JSX.Element {
 interface ParcelRowProps {
   parcel: Parcel;
   onUpdate: (patch: Partial<Parcel>) => void;
-  onRemove: () => void;
+  /** Returns what the store did, so the row can state a refusal. */
+  onRemove: () => ParcelRemoval;
   canRemove: boolean;
   /** For the phase picker: a plot is acquired in one phase. */
   phases: Phase[];
@@ -1357,6 +1358,7 @@ interface ParcelRowProps {
 function ParcelRow({
   parcel, phases, onUpdate, onRemove, canRemove, decimals, scale, onAddAsset, typeChoices = [], typeValues, assetCount = 0,
 }: ParcelRowProps): React.JSX.Element {
+  const [refusal, setRefusal] = useState<number | null>(null);
   // P7-Fix 1: per-parcel NDA cells removed; project-level NDA card owns this surface now.
   // THIS PLOT'S OWN FIGURES, through the function the footer totals with.
   const own = computeLandAggregate([parcel]);
@@ -1488,7 +1490,46 @@ function ParcelRow({
           </select>
         )}
         {canRemove && (
-          <button type="button" onClick={onRemove} data-testid={`parcel-${parcel.id}-remove`} style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '2px 8px', cursor: 'pointer', fontSize: 'var(--font-micro)' }}>Remove</button>
+          /* A PLOT THAT CARRIES ASSETS IS NOT DELETABLE, and the button says so
+             rather than looking available and doing nothing. The store refuses
+             too, through the same rule, so this is a courtesy and not the
+             boundary: deleting the plot out from under an asset left that asset
+             pointing at nothing, and it then reappeared downstream under a
+             phase-derived name. */
+          <button
+            type="button"
+            onClick={() => {
+              // View mode no-ops every model mutator and returns undefined, so
+              // the result is optional by construction.
+              const r = onRemove() as ParcelRemoval | undefined;
+              if (r && !r.removed) setRefusal(r.assetCount);
+            }}
+            disabled={assetCount > 0}
+            data-view-mutates="true"
+            data-testid={`parcel-${parcel.id}-remove`}
+            title={assetCount > 0
+              ? `This plot carries ${assetCount} asset${assetCount === 1 ? '' : 's'}. Move or remove ${assetCount === 1 ? 'it' : 'them'} first, or the asset would be left pointing at a plot that no longer exists.`
+              : 'Remove this plot.'}
+            style={{
+              background: 'transparent',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '2px 8px',
+              cursor: assetCount > 0 ? 'not-allowed' : 'pointer',
+              fontSize: 'var(--font-micro)',
+              opacity: assetCount > 0 ? 0.45 : 1,
+            }}
+          >
+            Remove
+          </button>
+        )}
+        {refusal !== null && (
+          <div
+            data-testid={`parcel-${parcel.id}-remove-refused`}
+            style={{ fontSize: 9, color: 'var(--color-accent-warm)', marginTop: 2, lineHeight: 1.3, whiteSpace: 'normal' }}
+          >
+            Not removed: this plot carries {refusal} asset{refusal === 1 ? '' : 's'}.
+          </div>
         )}
       </td>
     </tr>
