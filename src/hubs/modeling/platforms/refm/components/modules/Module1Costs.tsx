@@ -2608,7 +2608,6 @@ interface SummaryTablesProps {
   /** The category a row files under (Residential / Hospitality / Retail / Other), resolved by the parent, which holds the project's type list. */
   categoryOf: (a: Asset) => string;
   perPhaseBreakdowns: Array<{ phaseId: string; cp: number; assetTotals: Record<string, AssetCostBreakdown> }>;
-  parcelsByPhase: Map<string, { cashLandValue: number; inKindLandValue: number }>;
   metricsByAsset: Map<string, ReturnType<typeof resolveAssetAreaMetrics>>;
   project: { currency: string; startDate: string; modelType: 'monthly' | 'annual'; displayScale: DisplayScale; displayDecimals: DisplayDecimals };
   totalConstructionPeriods: number;
@@ -2644,10 +2643,6 @@ function SummaryTables({
   // Results sub-tab header-line "All figures in SAR '000" via
   // currencyHeaderLine; cells stay clean and tabular.
   const fmt = (v: number): string => formatAccounting(v, scale, decimals);
-  // M2.0 Pass 14 (2026-05-13): annual-only basis until M5 Financial
-  // Statements. subPerYear collapses to 1; granularity prop kept on
-  // SummaryTablesProps for forward compatibility but always 'annual'.
-  const subPerYear = 1;
   // P11 Fix 13 (2026-05-13): universal period range rule. Scan every
   // in-scope asset's bd.perPeriod across every phase WITHOUT an upper
   // bound, applying the phase offset = phaseStartYear - projectStart
@@ -2717,15 +2712,14 @@ function SummaryTables({
   // offset across all phases, computed upstream in computeProjectTimeline
   // and threaded in via the SummaryTablesProps). 60-year clamp removed.
   const annualPeriodCount = Math.max(totalConstructionPeriods, activeLastAnnual + 1, 1);
-  const periodCount = annualPeriodCount * subPerYear;
-  // Period labels respect granularity: 'Dec 25' / 'Q1 25' / 'Jan 25'.
+  // Annual only (2026-05-13); the quarterly and monthly scaffolding that sat
+  // here was removed 2026-09-12 as dead, along with the identity transform.
   const periodLabels = generatePeriodLabels(project.startDate, annualPeriodCount, granularity);
-  const cropSubFirst = activeFirstAnnual * subPerYear;
-  const cropSubCount = (activeLastAnnual - activeFirstAnnual + 1) * subPerYear;
+  const cropSubFirst = activeFirstAnnual;
+  const cropSubCount = activeLastAnnual - activeFirstAnnual + 1;
   function cropRow<T>(arr: T[]): T[] {
     return arr.slice(cropSubFirst, cropSubFirst + cropSubCount);
   }
-  const croppedPeriodLabels = cropRow(periodLabels);
   const croppedPeriodCount = cropSubCount;
 
   // Universal prior-period column (2026-05-13): every period-axis
@@ -2744,10 +2738,6 @@ function SummaryTables({
   // 1 Total + N period columns -> equal-width percentage applied to all.
   const nonLabelPct = nonLabelColumnPct(1 + periodAxis.count);
 
-  // M2.0 Pass 14 (2026-05-13): annual-only basis. transformAnnualSeries
-  // is now identity; quarterly + monthly distribution branches deleted
-  // until M5 Financial Statements reintroduces them scoped to FS.
-  const transformAnnualSeries = (annual: number[]): number[] => [...annual];
   // P11 Fix 16 (2026-05-13): periodTable + periodTotals builders
   // removed - they fed only the now-deleted Project Total footer.
   // Per-asset rows + closing subtotal still compute inline below.
@@ -2779,11 +2769,11 @@ function SummaryTables({
     }
     annualStageRows.push({ land, hard, soft, marketing, operating });
   }
-  const landSeries = transformAnnualSeries(annualStageRows.map((r) => r.land));
-  const hardSeries = transformAnnualSeries(annualStageRows.map((r) => r.hard));
-  const softSeries = transformAnnualSeries(annualStageRows.map((r) => r.soft));
-  const marketingSeries = transformAnnualSeries(annualStageRows.map((r) => r.marketing));
-  const operatingSeries = transformAnnualSeries(annualStageRows.map((r) => r.operating));
+  const landSeries = annualStageRows.map((r) => r.land);
+  const hardSeries = annualStageRows.map((r) => r.hard);
+  const softSeries = annualStageRows.map((r) => r.soft);
+  const marketingSeries = annualStageRows.map((r) => r.marketing);
+  const operatingSeries = annualStageRows.map((r) => r.operating);
   const stageTable = periodLabels.map((p, idx) => ({
     period: p,
     land: landSeries[idx] ?? 0,
@@ -3136,7 +3126,7 @@ function SummaryTables({
                     lineTotal += s2.total;
                     for (let i = 0; i < annualPeriodCount; i++) lineAnnual[i] += s2.annual[i] ?? 0;
                   }
-                  const lineRow = transformAnnualSeries(lineAnnual);
+                  const lineRow = [...lineAnnual];
                   if (resultsView === 'combined') {
                     out.push(
                       <tr key={`capex-period-line-${ln.key}`} data-testid={`capex-period-line-${ln.key}`}>
@@ -3152,7 +3142,7 @@ function SummaryTables({
                   for (const line of linesForThisLine) {
                     const ser = lineSeries(line.id, members);
                     if (ser.total === 0) continue;
-                    const perPeriod = transformAnnualSeries(ser.annual);
+                    const perPeriod = [...ser.annual];
                     out.push(
                       <tr key={`${ln.key}-${line.id}`} data-testid={`capex-period-line-${ln.key}-${line.id}`}>
                         <td style={{ ...ROW_DATA.name, paddingLeft: 24, color: 'var(--color-meta)' }}>{line.name}</td>
@@ -3218,7 +3208,7 @@ function SummaryTables({
                   }
                 }
                 if (grandTotal === 0) return null;
-                const grandRow = transformAnnualSeries(grandAnnual);
+                const grandRow = [...grandAnnual];
                 return (
                   <tr data-testid="capex-period-project-total">
                     <td style={ROW_GRAND_TOTAL.name}>Project Total</td>
@@ -3291,7 +3281,7 @@ function SummaryTables({
               total += v;
             }
           }
-          return { row: transformAnnualSeries(annualRow), total };
+          return { row: [...annualRow], total };
         };
 
         /**
@@ -3365,7 +3355,7 @@ function SummaryTables({
                 }
               }
             }
-            return { row: transformAnnualSeries(annual), total };
+            return { row: [...annual], total };
           };
           const memoByPhase = blocks.map((b) => ({ phaseId: b.phaseId, phaseName: b.phaseName, memo: memoSeries(phaseAssets.filter((a) => a.phaseId === b.phaseId)) }))
             .filter((m) => Math.abs(m.memo.total) > 0.5);
@@ -5405,7 +5395,6 @@ export default function Module1Costs(): React.JSX.Element {
                   categoryOf={(a) => assetCapexCategory(a, project)}
                   perPhaseBreakdowns={perPhaseBreakdowns}
                   parcels={parcels}
-                  parcelsByPhase={new Map()}
                   metricsByAsset={metricsByAsset}
                   project={{ currency: project.currency, startDate: project.startDate, modelType: project.modelType, displayScale: scale, displayDecimals: decimals }}
                   totalConstructionPeriods={totalConstructionPeriods}

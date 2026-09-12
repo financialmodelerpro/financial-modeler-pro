@@ -41,6 +41,7 @@ import {
   makeRetailCompanionSubUnit,
   makeDefaultFinancingTranche,
   deriveCostWindow,
+  settleFollowingCostWindows,
   deriveLineBaseId,
 } from './module1-types';
 import {
@@ -1301,7 +1302,9 @@ export function createModule1Store() {
       const bridgedLive = applyDerivedAreasPlan(repairedLive.assets, planDerivedAreasForModel(repairedLive));
       const bridgedLiveModel = bridgedLive.changed ? { ...repairedLive, assets: bridgedLive.assets } : repairedLive;
       // And the bases on the way out, the same pure pass as on load.
-      const liveModel = applyReferenceCostBases(bridgedLiveModel).state;
+      const basedLive = applyReferenceCostBases(bridgedLiveModel).state;
+      const windowsLive = settleFollowingCostWindows(basedLive.costLines, basedLive.phases);
+      const liveModel = windowsLive.moved > 0 ? { ...basedLive, costLines: windowsLive.costLines } : basedLive;
       const baseId = baseCaseId(s.cases);
       let baseModel = s.baseSnapshot;
       let cases = s.cases;
@@ -1354,7 +1357,12 @@ export function createModule1Store() {
        * Same door, same settle rule: the input object when nothing moves.
        */
       const based = applyReferenceCostBases(bridgedModel);
-      const model = based.state;
+      // And a window that declares itself derived reads as derived.
+      const windows = settleFollowingCostWindows(based.state.costLines, based.state.phases);
+      const model = windows.moved > 0 ? { ...based.state, costLines: windows.costLines } : based.state;
+      if (windows.moved > 0 && typeof console !== 'undefined') {
+        console.warn(`[REFM] cost windows: ${windows.moved} following line(s) re-derived from their phase's construction length on load`);
+      }
       if (based.changed && typeof console !== 'undefined') {
         console.warn(`[REFM] cost bases: ${based.moves.length} line(s)/override(s) moved to the reference basis on load`, based.moves);
       }

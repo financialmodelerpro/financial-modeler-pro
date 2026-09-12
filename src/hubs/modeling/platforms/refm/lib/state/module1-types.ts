@@ -3545,6 +3545,35 @@ export type CostLineSeedValues = 'reference' | 'blank';
  * pre-operating in the last six periods) are the catalog's own shape and are
  * kept; they are what makes the default useful rather than uniform.
  */
+/**
+ * A FOLLOWING WINDOW IS A DERIVED VALUE, AND IT SETTLES ON LOAD (2026-09-12).
+ *
+ * `updatePhase` re-derives every line carrying `windowFollowsConstruction`
+ * when the construction length changes, and nothing else did. Measured on a
+ * live project: a three-period phase whose six following lines still ran 1 to
+ * 4, spreading a year of cost past the phase's own end. Whatever path left them
+ * there, a line that DECLARES its window derived must read as derived, so the
+ * store runs this at the same doors as the other settle passes. A line without
+ * the flag is the user's and is never touched. Returns the input array when
+ * nothing moves, so a clean project cannot be marked dirty by it.
+ */
+export function settleFollowingCostWindows(
+  costLines: readonly CostLine[],
+  phases: readonly Pick<Phase, 'id' | 'constructionPeriods'>[],
+): { costLines: CostLine[]; moved: number } {
+  let moved = 0;
+  const next = costLines.map((c) => {
+    if (c.windowFollowsConstruction !== true) return c;
+    const phase = phases.find((p) => p.id === c.phaseId);
+    if (!phase) return c;
+    const win = deriveCostWindow(deriveLineBaseId(c.id), phase.constructionPeriods);
+    if (c.startPeriod === win.startPeriod && c.endPeriod === win.endPeriod) return c;
+    moved += 1;
+    return { ...c, ...win };
+  });
+  return { costLines: moved > 0 ? next : (costLines as CostLine[]), moved };
+}
+
 export function deriveCostWindow(
   baseId: string,
   constructionPeriods: number,

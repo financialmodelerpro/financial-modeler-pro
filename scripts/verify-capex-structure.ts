@@ -31,7 +31,7 @@ import path from 'node:path';
 
 import {
   makeBlankCostLines, makeDefaultCostLines, makeDefaultPhase, makeDefaultProject,
-  deriveCostWindow, STANDARD_COST_LINE_IDS,
+  deriveCostWindow, settleFollowingCostWindows, STANDARD_COST_LINE_IDS,
   PARCEL_WEIGHTED_AVG, PARCEL_WEIGHTED_AVG_ALL, PARCEL_CUSTOM_RATE, isParcelSentinel,
   type Asset, type CostLine, type Parcel, type Phase, type SubUnit, type Project,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
@@ -1063,6 +1063,31 @@ section('K. Area x unit size = count: only two of the three are inputs');
           const body = at >= 0 ? costsSrc2.slice(at, costsSrc2.indexOf('</select>', at)) : '';
           return body.includes('{lineOptionLabel(ln)}') && !body.includes('{a.name}');
         })());
+
+    // ── P4s A FOLLOWING WINDOW SETTLES ON LOAD ──────────────────────────
+    //
+    // A line that declares its window derived must read as derived whatever
+    // path left it stale: measured, a three-period phase with six following
+    // lines still on 1 to 4. The user's own windows are never touched.
+    {
+      const lines = makeBlankCostLines('phase_1', 4).map((l) => ({ ...l, windowFollowsConstruction: true }));
+      const own = { ...lines[2], id: 'custom-7__phase_1', windowFollowsConstruction: false, startPeriod: 1, endPeriod: 4 } as CostLine;
+      const r = settleFollowingCostWindows([...lines, own], [{ id: 'phase_1', constructionPeriods: 3 }]);
+      const cbua = r.costLines.find((l) => l.id === 'construction-bua__phase_1')!;
+      check('P4s a following line on a stale window is re-derived from the phase length, the user\'s own line is not',
+        r.moved > 0 && cbua.endPeriod === 3 && r.costLines.find((l) => l.id === 'custom-7__phase_1')!.endPeriod === 4,
+        `moved ${r.moved} cbua ${cbua.startPeriod}-${cbua.endPeriod}`);
+      const again = settleFollowingCostWindows(r.costLines, [{ id: 'phase_1', constructionPeriods: 3 }]);
+      check('P4s-b it settles: the second run returns the input array and moves nothing',
+        again.moved === 0 && again.costLines === r.costLines);
+      check('P4s-c the store runs it on load and on save',
+        (storeSrc2.match(/settleFollowingCostWindows\(/g) ?? []).length === 2);
+    }
+    // DEAD SCAFFOLDING IS GONE from the results tables (2026-09-12 review):
+    // no empty-map prop, no unused metrics prop, no identity transform.
+    check('P4s-d the results tables carry no dead props or identity transforms',
+      !costsSrc2.includes('parcelsByPhase') && !costsSrc2.includes('transformAnnualSeries')
+      && !costsSrc2.includes('const subPerYear') && !costsSrc2.includes('const periodCount'));
 
     // ── P4r LAND VALUE IS THE TWO STANDARD LINES, NOT THE LAND STAGE ────
     //
