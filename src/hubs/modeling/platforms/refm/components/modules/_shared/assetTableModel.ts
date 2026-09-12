@@ -858,6 +858,31 @@ export interface ChainModel {
 }
 
 /**
+ * TABLE 5 READS IN ORDER: PHASE FIRST, THEN CATEGORY (2026-09-12, founder:
+ * "sort, do not split"). One table and one total, the lines sorted by the
+ * phase list, then Residential, Hospitality, Retail (the ground-floor strip
+ * before Standalone Commercial), then anything else, then by label. What is
+ * on no line closes the table. Stable, so two equal lines keep their order.
+ */
+export const SUB_UNIT_CATEGORY_ORDER: readonly string[] = ['Residential', 'Hospitality', 'Retail', 'Other'];
+export function orderSubUnitLines<T extends { key: string; label: string; phaseId?: string; category: string; isStrip: boolean }>(
+  lines: readonly T[],
+  phaseIds: readonly string[],
+): T[] {
+  const rank = (l: T): [number, number, number, string] => {
+    if (l.key === '__no_line__') return [Number.MAX_SAFE_INTEGER, 0, 0, ''];
+    const p = l.phaseId ? phaseIds.indexOf(l.phaseId) : -1;
+    const c = SUB_UNIT_CATEGORY_ORDER.indexOf(l.category);
+    return [p < 0 ? phaseIds.length : p, c < 0 ? SUB_UNIT_CATEGORY_ORDER.length : c, l.isStrip ? 0 : 1, l.label];
+  };
+  return lines.map((l, i) => ({ l, i, r: rank(l) })).sort((a, b) => {
+    for (let k = 0; k < 3; k++) { const d = (a.r[k] as number) - (b.r[k] as number); if (d !== 0) return d; }
+    const s = (a.r[3] as string).localeCompare(b.r[3] as string);
+    return s !== 0 ? s : a.i - b.i;
+  }).map((x) => x.l);
+}
+
+/**
  * THE ONE CALL SITE. The assets tab ran this inline in its row builder, and
  * the bridge to capex was filled by an effect on that tab, so a model was
  * only as current as the last visit there (docs/TRAPS.md 7.38). The store

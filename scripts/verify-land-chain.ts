@@ -57,6 +57,7 @@ import {
 } from '../src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel';
 import type { Asset, Parcel, SubUnit } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { ASSET_TYPES_BY_CATEGORY, selectableCostMethods, COST_METHOD_LABELS, isRetiredCostMethod, type CostMethod } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import { orderSubUnitLines } from '../src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel';
 import {
   GROUND_FLOOR_RETAIL_TYPE_LABEL,
   normaliseAssetTypeId,
@@ -763,6 +764,43 @@ function offlineChecks(): void {
       read.length >= 13 && read.every((t) => t.title.includes(String(methodFor(t.col)))),
       read.filter((t) => !t.title.includes(String(methodFor(t.col)))).map((t) => `${t.col} (${methodFor(t.col)})`).join(', ') || `${read.length} read`);
   }
+  // U18d TABLE 5 READS IN ORDER, ONE TABLE (2026-09-12, founder: "sort, do
+  // not split"): phase first, then Residential, Hospitality, Retail with the
+  // ground-floor strip before Standalone Commercial, then the rest, and what
+  // is on no line last. Run on the pure rule the table calls.
+  {
+    const mk = (key: string, label: string, phaseId: string | undefined, category: string, isStrip = false) => ({ key, label, phaseId, category, isStrip });
+    const shuffled = [
+      mk('__no_line__', 'Not on a line', undefined, 'Other'),
+      mk('p2|sc', 'Standalone Commercial', 'p2', 'Retail'),
+      mk('p1|sc', 'Standalone Commercial', 'p1', 'Retail'),
+      mk('retail__s1', 'Branded Villas (Retail)', 'p1', 'Retail', true),
+      mk('p2|hotel', '4 Star Hotel', 'p2', 'Hospitality'),
+      mk('p1|bv', 'Branded Villas', 'p1', 'Residential'),
+      mk('p2|bv', 'Branded Villas', 'p2', 'Residential'),
+      mk('p1|odd', 'Odd', 'p1', 'Other'),
+    ];
+    const ordered = orderSubUnitLines(shuffled, ['p1', 'p2']).map((l) => l.key);
+    check('U18d Table 5 lines sort by phase, then category, strip before Standalone Commercial, no-line last',
+      ordered.join(' ') === 'p1|bv retail__s1 p1|sc p1|odd p2|bv p2|hotel p2|sc __no_line__', ordered.join(' '));
+    check('U18e the table calls the rule and never splits into one table per phase or category',
+      tabSrc.includes('return orderSubUnitLines(out, phaseIds);')
+      && (tabSrc.match(/data-testid="subunits-table"/g) ?? []).length === 1);
+    // THE UNIT SIZE WHEN SWITCHING TO UNITS: one row takes the type's average
+    // by itself; several rows with a size missing are asked, never guessed.
+    check('U18f switching a line to Units fills a lone row from the type average and asks when several rows differ',
+      tabSrc.includes("resolveAssetTypeValues(owner, project.assetTypeValues)?.avgUnitSizeSqm")
+      && tabSrc.includes('Set a size on each row before switching to Units: each row can differ, so nothing is guessed for you.')
+      && tabSrc.includes("if (missing.length > 0 && rows.length > 1) {"));
+  }
+  // U18g THE ASSET IS NAMED ONCE PER GROUP (2026-09-12, founder): the header
+  // is the line; plots appear in the header and under a row only where the
+  // line pools more than one plot.
+  check('U18g Table 5 names the asset once: plots only on a pooled line, in the header and under each row',
+    tabSrc.includes('{line.assetIds.length > 1 && (')
+    && tabSrc.includes('{(line.assetIds.length > 1 || !asset) && (')
+    && tabSrc.includes("{asset ? (line.plotByAssetId[asset.id] ?? asset.name) : 'no asset'}")
+    && !tabSrc.includes("{line.assetNames.join(', ')}"));
   check('U19 the table states which vocabulary is in force AND that the fields invert',
     tabSrc.includes('data-testid="assets-results-vocabulary"')
     && /standard GCC development terms/.test(resultsBody)

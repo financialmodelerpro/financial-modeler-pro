@@ -115,6 +115,8 @@ import {
 } from '@/src/core/calculations/consolidation';
 import { poolLineAreas, poolLineLand, resolveConsolidatedLine } from '@/src/core/calculations/consolidatedLine';
 import { normaliseAssetTypeId } from '../../lib/state/assetTypeStandards';
+import { assetCapexCategory } from '../../lib/reports/capexReports';
+import { orderSubUnitLines } from './_shared/assetTableModel';
 import type { ChainResult } from '@/src/core/calculations/landChain';
 import type { LandChainInputs } from '@/src/core/calculations/landChain';
 import { currencyHeaderLine, formatArea, formatAccounting } from '@/src/core/formatters';
@@ -139,7 +141,7 @@ import InputLabel from '../ui/InputLabel';
 import { CELL_HEADER, TABLE_TITLE } from './_shared/tableStyles';
 import { StrategyChangeConfirm, StrategyReviewBanner } from './_shared/StrategyChangeNotice';
 import { applyStrategySwitch, assetHasStrategyAssumptions, type StrategySwitchReport } from '../../lib/state/strategySwitch';
-import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
+import { withResolvedAssetNames, assetPlotLabel } from '@/src/core/calculations/assetName';
 import { withInheritedMassingAll } from '@/src/core/calculations/landChain';
 import { chainMassingFor } from '../../lib/state/assetTypeStandards';
 
@@ -1282,23 +1284,45 @@ export default function Module1Assets(): React.JSX.Element {
         subUnits={subUnits}
         nsaByAsset={nsaByAsset}
         project={project}
+        parcels={parcels}
         onAdd={handleAddSubUnitTo}
         onUpdate={updateSubUnit}
         onRemove={removeSubUnit}
         onSetMetric={(assetIds, next) => {
-          // The same rule the per-asset drawer applies: every row must be
-          // convertible (a unit size before Units), then the asset's metric
-          // moves and every row converts, area preserved.
+          // THE UNIT SIZE WHEN SWITCHING TO UNITS (2026-09-12, founder): a line
+          // with ONE row (the seeded one, or the one main unit an asset carries)
+          // and no size takes the type's average unit size from tab 4 by itself;
+          // a line with SEVERAL rows and a size missing asks the user, because
+          // each row can differ and a guess would be wrong on at least one.
+          const say = (msg: string): void => { if (typeof window !== 'undefined' && typeof window.alert === 'function') window.alert(msg); };
           const rows = subUnits.filter((u) => assetIds.includes(u.assetId));
-          for (const u of rows) {
-            const chk = canSwitchMetric(u, next);
-            if (!chk.ok) {
-              if (typeof window !== 'undefined' && typeof window.alert === 'function') window.alert(`Sub-unit "${u.name || 'unnamed'}": ${chk.reason}`);
+          const sized = new Map<string, number>();
+          if (next === 'units') {
+            const missing = rows.filter((u) => !(Math.max(0, u.unitArea ?? 0) > 0));
+            if (missing.length > 0 && rows.length > 1) {
+              say(`This line has ${rows.length} sub-units and ${missing.length} of them ${missing.length === 1 ? 'has' : 'have'} no Unit Size. Set a size on each row before switching to Units: each row can differ, so nothing is guessed for you.`);
               return;
             }
+            if (missing.length === 1 && rows.length === 1) {
+              const owner = assets.find((a) => a.id === missing[0].assetId);
+              const typed = owner ? resolveAssetTypeValues(owner, project.assetTypeValues)?.avgUnitSizeSqm : undefined;
+              if (typed === undefined || !(typed > 0)) {
+                say('No Unit Size on this row and no average unit size for its asset type on tab 4. Set one of them before switching to Units.');
+                return;
+              }
+              sized.set(missing[0].id, typed);
+            }
+          }
+          const withSize = (u: SubUnit): SubUnit => (sized.has(u.id) ? { ...u, unitArea: sized.get(u.id) } : u);
+          for (const u of rows) {
+            const chk = canSwitchMetric(withSize(u), next);
+            if (!chk.ok) { say(`Sub-unit "${u.name || 'unnamed'}": ${chk.reason}`); return; }
           }
           for (const id of assetIds) updateAsset(id, { subUnitMetric: next });
-          for (const u of rows) updateSubUnit(u.id, switchMetric(u, next));
+          for (const u of rows) {
+            const row = withSize(u);
+            updateSubUnit(u.id, { ...(sized.has(u.id) ? { unitArea: row.unitArea } : {}), ...switchMetric(row, next) });
+          }
         }}
       />
 
@@ -3144,6 +3168,12 @@ interface SubUnitLine {
   key: string;
   /** The plots on the line, so a line-level control can write to every one. */
   assetIds: string[];
+  /** For the order the table reads in: phase first, then category. */
+  phaseId?: string;
+  /** The plot each member draws from, for a line that pools more than one. */
+  plotByAssetId: Record<string, string | undefined>;
+  category: string;
+  isStrip: boolean;
   label: string;
   phaseName?: string;
   /** The plots feeding this line, named, since the header no longer splits. */
@@ -3176,6 +3206,8 @@ function groupSubUnitsByLine(
   phaseIds: string[],
   phases: Phase[],
   nsaByAsset: Record<string, ResolvedNsa>,
+  project: Project,
+  parcels: Parcel[],
 ): SubUnitLine[] {
   // A RETAIL COMPANION IS ITS OWN LINE HERE. The consolidation grouping
   // excludes companions, and rightly: a companion is not a plot. But this table
@@ -3192,6 +3224,7 @@ function groupSubUnitsByLine(
     members: Asset[],
     units: SubUnit[],
     phaseName?: string,
+    phaseId?: string,
   ): SubUnitLine | undefined => {
     if (units.length === 0) return undefined;
     const rows: SubUnitRowRef[] = units.map((u) => ({ unit: u, asset: byId.get(u.assetId) }));
@@ -3218,6 +3251,10 @@ function groupSubUnitsByLine(
       key,
       label,
       phaseName,
+      phaseId,
+      plotByAssetId: Object.fromEntries(members.map((m) => [m.id, assetPlotLabel(m, { parcels, phases })])),
+      category: members[0] ? assetCapexCategory(members[0], project) : 'Other',
+      isStrip: members.length === 1 && isRetailCompanion(members[0]),
       assetIds: members.map((m) => m.id),
       assetNames: members.filter((m) => units.some((u) => u.assetId === m.id)).map((m) => m.name),
       rows,
@@ -3236,6 +3273,7 @@ function groupSubUnitsByLine(
       line.members,
       line.subUnits,
       phases.find((p) => p.id === line.phaseId)?.name,
+      line.phaseId,
     );
     if (built) out.push(built);
   }
@@ -3257,6 +3295,7 @@ function groupSubUnitsByLine(
       [a],
       mine,
       phases.find((ph) => ph.id === a.phaseId)?.name,
+      a.phaseId,
     );
     if (built) out.push(built);
   }
@@ -3264,12 +3303,14 @@ function groupSubUnitsByLine(
   const leftover = stray.filter((u) => !claimed.has(u.id) && !retailIds.has(u.assetId));
   const strayLine = build('__no_line__', 'Not on a line', [], leftover);
   if (strayLine) out.push(strayLine);
-  return out;
+  // ONE TABLE, ONE TOTAL, READ IN ORDER: phase first, then category, the
+  // ground-floor strip before Standalone Commercial, what is on no line last.
+  return orderSubUnitLines(out, phaseIds);
 }
 
 
 function SubUnitsTable({
-  assets, phases, subUnits, nsaByAsset, project, onAdd, onUpdate, onRemove, onSetMetric,
+  assets, phases, subUnits, nsaByAsset, project, parcels, onAdd, onUpdate, onRemove, onSetMetric,
 }: {
   assets: Asset[];
   phases: Phase[];
@@ -3279,6 +3320,7 @@ function SubUnitsTable({
    *  root, so the chain is not run a second time here. */
   nsaByAsset: Record<string, ResolvedNsa>;
   project: Project;
+  parcels: Parcel[];
   onAdd: (assetId: string) => void;
   onUpdate: (id: string, patch: Partial<SubUnit>) => void;
   onRemove: (id: string) => void;
@@ -3288,7 +3330,7 @@ function SubUnitsTable({
   onSetMetric: (assetIds: string[], next: SubUnitMetric) => void;
 }): React.JSX.Element {
   const [parentId, setParentId] = useState<string>(assets[0]?.id ?? '');
-  const subUnitLines = groupSubUnitsByLine(assets, subUnits, phases.map((p) => p.id), phases, nsaByAsset);
+  const subUnitLines = groupSubUnitsByLine(assets, subUnits, phases.map((p) => p.id), phases, nsaByAsset, project, parcels);
 
   return (
     <div style={sectionCardStyle} data-testid="subunits-table-section">
@@ -3380,13 +3422,13 @@ function SubUnitsTable({
                     {line.phaseName && (
                       <span style={{ fontWeight: 400, color: 'var(--color-meta)', marginLeft: 8 }}>{line.phaseName}</span>
                     )}
-                    {/* THE PLOTS FEEDING THE LINE, named here because the
-                        per-asset header row is gone. Each row names its own
-                        plot too, which is what a two-plot line needs. */}
-                    {line.assetNames.length > 0 && (
+                    {/* NAMED ONCE (2026-09-12, founder): the header is the line;
+                        the plots ride along only when the line POOLS more than
+                        one, and then each row names its own plot below. */}
+                    {line.assetIds.length > 1 && (
                       <span style={{ fontWeight: 400, color: 'var(--color-meta)', marginLeft: 8 }}
                         data-testid={`subunits-line-${line.key}-plots`}>
-                        {line.assetNames.join(', ')}
+                        {line.assetIds.length} plots: {line.assetIds.map((id) => line.plotByAssetId[id] ?? 'no plot').join(', ')}
                       </span>
                     )}
                     <span style={{ fontWeight: 400, color: 'var(--color-meta)', marginLeft: 8 }}>
@@ -3476,12 +3518,14 @@ function SubUnitsTable({
                           data-testid={`subunits-row-${u.id}-name`}
                           onChange={(e) => onUpdate(u.id, { name: e.target.value })}
                         />
-                        {/* WHICH PLOT THIS HANGS OFF. It was a group header;
-                            in the row it is visible on every line, which is
-                            what a line fed by two plots actually needs. */}
-                        <div style={{ fontSize: 9, color: 'var(--color-meta)' }} data-testid={`subunits-row-${u.id}-asset`}>
-                          {asset ? asset.name : 'no asset'}
-                        </div>
+                        {/* WHICH PLOT THIS HANGS OFF, only where it could be
+                            ambiguous: a line pooling more than one plot. On a
+                            one-plot line the header already said it. */}
+                        {(line.assetIds.length > 1 || !asset) && (
+                          <div style={{ fontSize: 9, color: 'var(--color-meta)' }} data-testid={`subunits-row-${u.id}-asset`}>
+                            {asset ? (line.plotByAssetId[asset.id] ?? asset.name) : 'no asset'}
+                          </div>
+                        )}
                       </td>
                       <td style={CELL}>
                         <select
