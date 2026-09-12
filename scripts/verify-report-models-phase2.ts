@@ -56,7 +56,10 @@ const project: any = {
   ],
 };
 const tranches: any = [{ name: 'Senior', interestRatePct: 6.3, ltvPct: 60, facilitySharePct: 100, sweepRatio: 100 }];
-const assets: any = [{ name: 'Hotel', strategy: 'Operate', visible: true }, { name: 'Hidden', strategy: 'Sell', visible: false }];
+// A TYPE, because `Asset.name` is retired (2026-09-10) and the label is
+// derived: plot or phase, then type. Without one both rows collapse to the
+// bare phase and a name-based check cannot tell them apart.
+const assets: any = [{ name: 'Hotel', type: 'Hotel', strategy: 'Operate', visible: true }, { name: 'Hidden', type: 'Hidden', strategy: 'Sell', visible: false }];
 const phases: any = [{ name: 'P1' }, { name: 'P2' }];
 
 // ── Lender ──
@@ -86,7 +89,8 @@ check('one-pager Equity IRR = rs.result.fcfe.irr', near(op.headline.equityIrr!, 
 check('one-pager MOIC = rs.result.realEstate.equityMultiple', near(op.headline.equityMultiple, 2.40));
 check('one-pager capital ask peak debt = rs.debtAnalytics.peakDebt', near(op.capitalAsk.peakDebt, 600));
 check('one-pager timeline 2024 to 2026 (3 yrs)', op.timeline.startYear === 2024 && op.timeline.exitYear === 2026 && op.timeline.durationYears === 3);
-check('one-pager asset mix excludes hidden assets', op.assetMix.length === 1 && op.assetMix[0].name === 'Hotel');
+check('one-pager asset mix excludes hidden assets',
+  op.assetMix.length === 1 && op.assetMix[0].name.includes('Hotel') && !op.assetMix[0].name.includes('Hidden'));
 check('one-pager thesis line passthrough', op.thesisLine === 'Prime asset, strong yield.');
 check('one-pager prepared-by + contact resolve by role', op.preparedBy[0]?.name === 'Analyst' && op.contacts[0]?.name === 'Analyst');
 

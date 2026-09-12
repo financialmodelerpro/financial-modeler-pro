@@ -164,9 +164,18 @@ console.log('\n[3/7] Fix 2 UI: CompanionInfoBlock branch in Module1Costs.tsx');
   else fail('companion render branch', 'missing');
   if (COSTS_SRC.includes('No development costs apply here')) pass('companion caption matches brief');
   else fail('companion caption', 'missing');
-  if (COSTS_SRC.includes('activeAsset.isCompanion !== true && assetBreakdown')) {
-    pass('cost-line table guarded against companion render');
-  } else fail('cost-table guard', 'missing isCompanion !== true');
+  // THE GUARD GAINED A CLAUSE, AND THIS PINNED THE OLD STRING. Consolidation
+  // step 6 (2026-09-10) gave the RETAIL companion real cost lines, so the
+  // table must render for it; the short-circuit that makes a companion cost
+  // nothing is the OPERATE companion's alone. The rule is two halves now, and
+  // both are asserted: an ordinary companion is excluded, a retail one is
+  // readmitted.
+  // ONE EXPRESSION, not two strings anywhere in a five-thousand-line file:
+  // both halves appear elsewhere for other reasons, so testing for their mere
+  // presence passed while the retail readmission had been removed.
+  if (COSTS_SRC.includes('activeAsset.isCompanion !== true || isRetailCompanion(activeAsset)')) {
+    pass('cost-line table excludes the Operate companion and readmits the retail one');
+  } else fail('cost-table guard', 'the two-part companion rule is not both present');
 }
 
 // ── Section 4: Fix 3 strip + dedup migration ─────────────────────────────

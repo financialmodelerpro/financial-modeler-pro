@@ -80,7 +80,10 @@ function main(): void {
     // A phase that starts WITH the project (offset 0), which is the case that
     // deleted the Y0 lump under the old hand-rolled rule.
     const phase = { id: 'ph', name: 'P1', startDate: '2026-01-01', constructionPeriods: 3 };
-    const asset = { id: 'a1', name: 'A', phaseId: 'ph', strategy: 'Sell', visible: true };
+    // A TYPE, because the label is derived from one. 'A' is the retired
+    // `Asset.name` and nothing reads it; without a type the label is the bare
+    // phase, or 'Unnamed asset' when the phase does not resolve either.
+    const asset = { id: 'a1', name: 'A', type: 'Apartments', phaseId: 'ph', strategy: 'Sell', visible: true };
     // The fixture carries a REAL cost line. It used to carry none, which made
     // the asset-capex half of the base identically zero: B2's "base = capex +
     // IDC" then held for the trivial reason that the capex was nothing, and any
@@ -164,12 +167,20 @@ function main(): void {
         yearLabels: [2026, 2027, 2028, 2029, 2030],
         byAssetCostOfSales: new Map([['a1', built]]),
       } as unknown as Parameters<typeof buildCostOfSalesReport>[0];
-      const stateStub = { assets: [asset] } as unknown as Parameters<typeof buildCostOfSalesReport>[1];
+      // THE STUB CARRIES THE LABEL CONTEXT, because an asset is called by
+      // where it is and what it is (2026-09-10) and `assetLabel` takes that
+      // context as a REQUIRED parameter for exactly this reason. This stub
+      // predates the change and passed neither, so the report crashed on
+      // `ctx.phases.find` and not one check in this file ran.
+      const stateStub = { assets: [asset], parcels: [], phases: [{ id: 'ph', name: 'Phase 1' }] } as unknown as Parameters<typeof buildCostOfSalesReport>[1];
       const money = (v: number): string => v.toFixed(2);
       const tables = buildCostOfSalesReport(snapStub, stateStub, money);
       const build = tables[0];
       check('E7 the FIRST table an asset shows is the build, not the charge',
-        !!build && build.title === 'Cost of Sales Build, A', build?.title ?? 'none');
+        // The title names the asset by its DERIVED label, never by the retired
+        // stored name. What this check is about is the ORDER of the tables.
+        !!build && build.title.startsWith('Cost of Sales Build, ')
+        && build.title.includes('Apartments'), build?.title ?? 'none');
       if (build) {
         const labels = build.rows.map((rr) => rr.label);
         check('E8 the build names the capex, the IDC and the total base, each as a YEAR series',

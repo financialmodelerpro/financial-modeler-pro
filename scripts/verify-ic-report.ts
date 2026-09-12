@@ -66,9 +66,9 @@ const snap: any = {
 const project: any = { name: 'FMP RE HUB', location: 'Riyadh', country: 'KSA', financing: { fundingMethod: 3, minimumCashReserve: 50 } };
 const phases: any = [{ id: 'p1', name: 'Phase 1', startDate: '2026-01-01' }, { id: 'p2', name: 'Phase 2', constructionStart: 1 }];
 const assets: any = [
-  { id: 'a1', name: 'Hotel', strategy: 'Operate', visible: true, phaseId: 'p1', buaTotal: 12083, landAreaSqm: 5000 },
-  { id: 'a2', name: 'Retail', strategy: 'Lease', visible: true, phaseId: 'p2', buaSqm: 2907, landAreaSqm: 3000 },
-  { id: 'a3', name: 'Hidden', strategy: 'Sell', visible: false, phaseId: 'p1' },
+  { id: 'a1', name: 'Hotel', type: 'Hotel', strategy: 'Operate', visible: true, phaseId: 'p1', buaTotal: 12083, landAreaSqm: 5000 },
+  { id: 'a2', name: 'Retail', type: 'Retail', strategy: 'Lease', visible: true, phaseId: 'p2', buaSqm: 2907, landAreaSqm: 3000 },
+  { id: 'a3', name: 'Hidden', type: 'Hidden', strategy: 'Sell', visible: false, phaseId: 'p1' },
 ];
 const subUnits: any = [{ assetId: 'a1' }, { assetId: 'a1' }, { assetId: 'a2' }];
 const parties: any = [
@@ -125,17 +125,19 @@ check('RE cap rate at exit = realEstate.capRateAtExit', near(m.reMetrics.capRate
 check('RE profit on cost = realEstate.profitOnCost', near(m.reMetrics.profitOnCost!, 1.861));
 
 // Asset mix (visible only; BUA + units aggregation).
-check('asset mix excludes hidden assets', m.assetMix.rows.length === 2 && m.assetMix.rows.every((r) => r.name !== 'Hidden'));
+// RE-AIMED 2026-09-12 with the fixture: a row is named by the DERIVED label
+// (plot or phase, then type), never by the retired `Asset.name`.
+check('asset mix excludes hidden assets', m.assetMix.rows.length === 2 && !m.assetMix.rows.some((r) => r.name.includes('Hidden')));
 check('asset mix total BUA = 12083 + 2907', near(m.assetMix.totalBua, 14990));
 check('asset mix units summed from sub-units (2 + 1)', m.assetMix.totalUnits === 3);
 check('asset mix by-strategy has Operate + Lease shares', m.assetMix.byStrategy.length === 2 && near(m.assetMix.byStrategy.reduce((s, x) => s + x.pct, 0), 1));
-check('asset row carries phase name', m.assetMix.rows.find((r) => r.name === 'Hotel')!.phaseName === 'Phase 1');
+check('asset row carries phase name', m.assetMix.rows.find((r) => r.name.includes('Hotel'))?.phaseName === 'Phase 1');
 
 // Phasing (per-phase capex from per-asset CF, abs cash).
 check('phasing has 2 phases', m.phasing.length === 2);
 check('phase 1 capex = |−100| + |−200| = 300', near(m.phasing[0].capex, 300));
 check('phase 1 start year from startDate', m.phasing[0].startYear === 2026);
-check('phase 1 lists its asset', m.phasing[0].assetNames.includes('Hotel'));
+check('phase 1 lists its asset', m.phasing[0].assetNames.some((n) => n.includes('Hotel')));
 
 // Exit-year optionality.
 check('exit years mapped (2 rows)', m.exitYears.length === 2);

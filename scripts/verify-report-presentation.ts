@@ -304,8 +304,16 @@ async function main(): Promise<void> {
     const laCol = sheetCol(wb.getWorksheet('Land & Area')!, 1);
     check('P3: the workbook Land & Area names its nil-area assets',
       laCol.some((v) => v.includes('Assets reporting nil built-up area')));
+    // RE-AIMED 2026-09-12: this matched the INVENTED names a user had typed
+    // into the retired `Asset.name`. An asset is called by where it is and
+    // what it is now, so the note reads "Phase 1, Hotel 4-star [a]" and
+    // "Phase 1, High-end Apartments (Operate) [b]". What the check is about
+    // is that each nil-area asset is NAMED and carries its own marker, and
+    // that a companion is still marked as one.
     check('P3: and lists them by name with their marker',
-      laCol.some((v) => /Legacy Hotel \[[a-z]\]/.test(v)) && laCol.some((v) => /Residences - Operate \[[a-z]\]/.test(v)));
+      laCol.some((v) => /Hotel 4-star \[[a-z]\]/.test(v))
+      && laCol.some((v) => /\(Operate\) \[[a-z]\]/.test(v)),
+      laCol.filter((v) => /\[[a-z]\]/.test(v)).slice(0, 4).join(' | '));
   }
 
   // ── P4: capital is not a fee ──────────────────────────────────────────────
