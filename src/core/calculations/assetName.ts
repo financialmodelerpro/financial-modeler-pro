@@ -114,6 +114,29 @@ export function assetLabel(asset: NameableAsset, ctx: AssetLabelContext): string
 }
 
 /**
+ * WHAT SEPARATES AN ASSET FROM THE LINE IT SITS ON (2026-09-12).
+ *
+ * A consolidated line already states the phase and the type, so an asset
+ * nested under it needs to say only what the line does not: which PLOT it
+ * draws from. Returns undefined when it has nothing to add, which is an asset
+ * with no plot, and a caller then has a heading it should not print: the full
+ * label there would repeat the line with a different separator ("Phase 2:
+ * Branded Residences" above "Phase 2, Branded Residences"), which is every
+ * block on a project whose assets draw from a sentinel.
+ *
+ * It reads the SAME plot the label reads, through the same sentinel rule, so
+ * the two can never disagree about whether an asset has one.
+ */
+export function assetPlotLabel(asset: NameableAsset, ctx: AssetLabelContext): string | undefined {
+  const parcelId = realParcelId(asset);
+  if (parcelId === undefined) return undefined;
+  const name = (ctx.parcels.find((p) => p.id === parcelId)?.name ?? '').trim();
+  if (name === '') return undefined;
+  const marker = companionMarker(asset);
+  return marker === undefined ? name : `${name} (${marker})`;
+}
+
+/**
  * Every asset in a list, with its label written into `name`.
  *
  * ONE CALL AT AN EXPORT'S FRONT DOOR beats editing every read behind it. The

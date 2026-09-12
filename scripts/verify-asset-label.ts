@@ -25,9 +25,10 @@ import {
   type AssetLabelContext,
 } from '../src/core/calculations/assetName';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
-import { buildCapexReport } from '../src/hubs/modeling/platforms/refm/lib/reports/capexReports';
+import { buildCapexReport, planCapexSummaryLines } from '../src/hubs/modeling/platforms/refm/lib/reports/capexReports';
 import { buildModelWorkbook } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
-import { groupAssetsForConsolidation } from '../src/core/calculations/consolidation';
+import { groupAssetsForConsolidation, consolidationKey } from '../src/core/calculations/consolidation';
+import { retailCompanionId } from '../src/core/calculations/retailCompanion';
 import { normaliseAssetTypeId } from '../src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards';
 import { buildExcelSampleState } from './excelSampleState';
 
@@ -218,12 +219,23 @@ function summaryChecks(): void {
   const summaries = capex.results.filter((t) => t.title.startsWith('Total Capex') || t.title.startsWith('Capex excl.'));
   check('E1 the three summary tables are present', summaries.length === 3, `${summaries.length}`);
 
-  const rowsOf = (t: { rows: { label: string; isTotal?: boolean; values: number[] }[] }) =>
-    t.rows.filter((r) => !r.isTotal);
+  // A BODY ROW IS NOT A SUBTOTAL (2026-09-12). These tables gained a per-phase
+  // subtotal on 2026-09-11 and every check below summed and inspected them as
+  // if they were rows, so E2 read a subtotal's label and E4 counted every
+  // phase twice. The same defect was found and fixed in verify-capex-report on
+  // the day the subtotals landed; this file was not re-aimed with it.
+  const rowsOf = (t: { rows: { label: string; isTotal?: boolean; isSubtotal?: boolean; values: number[] }[] }) =>
+    t.rows.filter((r) => !r.isTotal && !r.isSubtotal);
   const lineLabels = new Set(lines.map((g) => g.typeLabel));
+  // THE PHASE RIDES IN FRONT OF THE LABEL on a multi-phase project, because an
+  // M4Row has one label column and no room for a phase column.
+  const withoutPhase = (label: string): string => {
+    const i = label.indexOf(': ');
+    return i < 0 ? label : label.slice(i + 2);
+  };
   const first = summaries[0];
   check('E2 every summary row is a LINE label, not an asset label',
-    rowsOf(first).every((r) => lineLabels.has(r.label) || r.label.includes(', ')),
+    rowsOf(first).every((r) => lineLabels.has(withoutPhase(r.label)) || withoutPhase(r.label).endsWith('(Retail)')),
     rowsOf(first).map((r) => r.label).join(' | '));
   check('E3 no summary row repeats, so two lines cannot print as one',
     new Set(rowsOf(first).map((r) => r.label)).size === rowsOf(first).length);
@@ -242,12 +254,61 @@ function summaryChecks(): void {
   // THE ONE THING GROUPING COULD LOSE. `groupAssetsForConsolidation` excludes
   // companions by design, and the retail companion has carried its own cost
   // lines since consolidation step 6. If it were dropped it would still be in
-  // the total, so E4 above is what catches it, and this states the intent.
-  const src = readFileSync('src/hubs/modeling/platforms/refm/lib/reports/capexReports.ts', 'utf8');
-  check('E5 an asset in no consolidation group keeps its own row rather than vanishing',
-    src.includes('if (grouped.has(ac.assetId)) continue;'));
-  check('E6 table 1 stays PER ASSET, because a cost line belongs to a plot',
-    capex.results[0].title.includes('per cost line, per asset'));
+  // the total, so E4 above is what catches the money; this pins that every
+  // asset the report costed has somewhere to be.
+  //
+  // RE-AIMED 2026-09-12: it read the BUILDER'S SOURCE for one exact line,
+  // `if (grouped.has(ac.assetId)) continue;`, which stopped existing when the
+  // row planner was extracted, so it failed on a refactor that lost nothing.
+  {
+    // Nothing the report costed may be left out of the rows.
+    const costed = new Set(capex.inputAssets.map((a) => a.assetId));
+    const placed = new Set(
+      planCapexSummaryLines(state.assets as never, state.phases, (id) => id).flatMap((l) => l.assetIds),
+    );
+    const missing = [...costed].filter((id) => !placed.has(id));
+    check('E5 an asset in no consolidation group keeps its own row rather than vanishing',
+      missing.length === 0, missing.join(', '));
+    // AND THE COMPANION SPECIFICALLY, because the fixture has none and a check
+    // that cannot see the case it is about is not a check: removing the
+    // companion branch outright left this green until the case was built.
+    const host = state.assets[0] as { id: string; phaseId: string; type?: string };
+    const cid = retailCompanionId(consolidationKey(host as never, normaliseAssetTypeId));
+    const withCompanion = [
+      ...(state.assets as unknown as Record<string, unknown>[]),
+      { id: cid, phaseId: host.phaseId, type: host.type, strategy: 'Lease', visible: true, isCompanion: true, companionType: 'retail' },
+    ];
+    const plan = planCapexSummaryLines(withCompanion as never, state.phases, (id) => id);
+    const row = plan.find((l) => l.assetIds.includes(cid));
+    check('E5b the retail companion gets its own row, beside the line it carves from',
+      row !== undefined && row.isCompanion === true && row.assetIds.length === 1
+      && plan.findIndex((l) => l.key === cid) === plan.findIndex((l) => l.assetIds.includes(host.id)) + 1,
+      plan.map((l) => `${l.phaseName}:${l.label}`).join(' | '));
+  }
+
+  // TABLE 1 IS THE LINE'S SCHEDULE, WITH ITS PLOTS INSIDE IT (2026-09-12).
+  //
+  // RE-AIMED, and this one is today's: E6 asserted the TABLE'S TITLE STRING,
+  // "per cost line, per asset". Table 1 was grouped by line on 2026-09-11 and
+  // the title changed with it, so the check failed on a shape it was never
+  // asked about. It now reads the rows.
+  {
+    const t1 = capex.results[0];
+    const lineHeads = t1.rows.filter((r) => r.isSection && (r.indent ?? 0) === 0);
+    const lineSubs = t1.rows.filter((r) => r.isSubtotal && (r.indent ?? 0) === 0);
+    check('E6 table 1 is grouped by LINE, and every line heads and closes its own block',
+      lineHeads.length > 0 && lineHeads.length === lineSubs.length,
+      `${lineHeads.length} headings, ${lineSubs.length} line subtotals`);
+    // A PLOT NESTS UNDER ITS LINE, never beside it: nothing at indent 1 may
+    // appear before a line has opened.
+    let opened = false;
+    let orphan = false;
+    for (const r of t1.rows) {
+      if (r.isSection && (r.indent ?? 0) === 0) { opened = true; continue; }
+      if ((r.indent ?? 0) >= 1 && !opened) orphan = true;
+    }
+    check('E6b nothing is printed outside a line', !orphan);
+  }
 }
 
 /**

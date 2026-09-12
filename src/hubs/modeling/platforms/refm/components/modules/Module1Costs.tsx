@@ -44,6 +44,7 @@ import {
   type DisplayDecimals,
   type OutputGranularity,
   type Phase,
+  type Parcel,
   type SubUnit,
   type CostInputMode,
   type CostCategory,
@@ -122,7 +123,7 @@ import {
   periodTableStyle,
 } from './_shared/tableStyles';
 import { buildResultsPeriodAxis } from './_shared/periodAxis';
-import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
+import { withResolvedAssetNames, assetPlotLabel } from '@/src/core/calculations/assetName';
 import { withInheritedMassingAll } from '@/src/core/calculations/landChain';
 import { chainMassingFor } from '../../lib/state/assetTypeStandards';
 import { buildConsolidatedReport } from '../../lib/reports/consolidatedReport';
@@ -2608,6 +2609,9 @@ interface SummaryTablesProps {
   // M2.0j Fix 11 (2026-05-07): phase list for phase-start-aware
   // period allocation in Capex by Period.
   phases: Phase[];
+  /** The project plots, so a row nested under a line can be named by the one
+   *  thing the line does not already state. */
+  parcels: Parcel[];
   // P11 Fix 9 (2026-05-13): view mode. Combined view splits each
   // asset's Table 1 group into a header row (asset name only, full-
   // width highlight, no values) + per-line nested rows + an
@@ -2618,7 +2622,7 @@ interface SummaryTablesProps {
 
 function SummaryTables({
   phaseAssets, perPhaseBreakdowns, metricsByAsset,
-  project, totalConstructionPeriods, costLines, granularity, phases,
+  project, totalConstructionPeriods, costLines, granularity, phases, parcels,
   resultsView,
 }: SummaryTablesProps): React.JSX.Element {
   const scale = project.displayScale;
@@ -2982,11 +2986,16 @@ function SummaryTables({
                  * under the line it carves from rather than wherever the asset
                  * array happened to put it) and the WRAPPER.
                  *
-                 * THE WRAPPER IS RENDERED ONLY WHERE IT DOES WORK. A line
-                 * holding one plot IS that plot, so a heading naming the line
-                 * above a heading naming the plot would say the same thing
-                 * twice, and a line subtotal would repeat the plot subtotal one
-                 * row above it.
+                 * THE LINE HEADS EVERY BLOCK (2026-09-12). It headed only the
+                 * blocks whose line held more than one plot, which on the live
+                 * projects is one line in thirteen, so the tab still read plot
+                 * by plot and the consolidated line was invisible almost
+                 * everywhere. The line is what the model is built on, so it is
+                 * what a reader meets first, every time.
+                 *
+                 * WHAT IS STILL CONDITIONAL IS THE PLOT SUBTOTAL, and only
+                 * because two adjacent rows carrying the same number say
+                 * nothing: a line holding ONE plot closes once, on the line.
                  */
                 const plan = planCapexSummaryLines(
                   phaseAssets as unknown as CapexPlannableAsset[],
@@ -3049,7 +3058,17 @@ function SummaryTables({
                 }
                   return { total: assetTotal, annual: assetRowAnnual };
                 };
-                const renderAsset = (a: Asset, depth: number): React.JSX.Element | null => {
+                // THE NESTED HEADING IS THE PLOT, not the whole label. The line
+                // above already states the phase and the type, so the full label
+                // would print "Phase 2: Branded Residences" over "Phase 2, Branded
+                // Residences": the same words twice with a different separator, on
+                // every block of a project whose assets draw from a sentinel. An
+                // asset with no plot has nothing of its own to add and gets no
+                // heading, so its cost lines sit straight under the line.
+                const plotOf = (a: Asset): string | undefined => assetPlotLabel(a, { parcels, phases });
+                const renderAsset = (a: Asset, hideOwnSubtotal = false): React.JSX.Element | null => {
+                const plot = plotOf(a);
+                const depth = plot === undefined ? 0 : 1;
                 const { total: assetTotal, annual: assetRowAnnual } = assetSeries(a);
                 // M2.0j Fix 12: hide zero-value asset rows from Results.
                 if (assetTotal === 0) return null;
@@ -3074,14 +3093,14 @@ function SummaryTables({
                 // labelled "Total" (no asset heading, no subtotal label).
                 return (
                   <React.Fragment key={a.id}>
-                    {resultsView === 'combined' && (
+                    {resultsView === 'combined' && plot !== undefined && (
                       <tr data-testid={`capex-period-asset-${a.id}`}>
                         <td
-                          style={{ ...ROW_ASSET_HEADING.name, padding: '6px 6px', paddingLeft: 6 + depth * 14 }}
+                          style={{ ...ROW_ASSET_HEADING.name, padding: '6px 6px', paddingLeft: 6 + 14 }}
                           colSpan={2 + periodAxis.count}
                           data-testid={`capex-period-asset-${a.id}-header`}
                         >
-                          {a.name}
+                          {plot}
                         </td>
                       </tr>
                     )}
@@ -3137,10 +3156,14 @@ function SummaryTables({
                         </tr>
                       );
                     })}
-                    {resultsView === 'combined' ? (
+                    {/* A ONE-PLOT LINE CLOSES ONCE, on its line row below, so
+                        this renders nothing rather than falling through to the
+                        single-asset Total row. */}
+                    {resultsView === 'combined' && hideOwnSubtotal ? null
+                      : resultsView === 'combined' ? (
                       <tr data-testid={`capex-period-asset-${a.id}-subtotal`}>
                         <td style={{ ...ROW_SUBTOTAL.name, paddingLeft: depth > 0 ? 14 : undefined }}>
-                          Subtotal - {a.name}
+                          Subtotal - {plot ?? a.name}
                         </td>
                         <td style={ROW_SUBTOTAL.num} data-testid={`capex-period-asset-${a.id}-total`}>{fmt(assetTotal)}</td>
                         <td style={ROW_SUBTOTAL.num} data-testid={`capex-period-${a.id}-prior`}>{fmt(PRIOR_ZERO)}</td>
@@ -3166,7 +3189,7 @@ function SummaryTables({
                     .filter((x): x is Asset => x !== undefined)
                     .filter((x) => assetSeries(x).total !== 0);
                   if (members.length === 0) continue;
-                  const wrapped = members.length > 1;
+                  const wrapped = true;
                   if (wrapped) {
                     out.push(
                       <tr key={`capex-period-line-${ln.key}`} data-testid={`capex-period-line-${ln.key}`}>
@@ -3177,7 +3200,7 @@ function SummaryTables({
                     );
                   }
                   for (const a of members) {
-                    const block = renderAsset(a, wrapped ? 1 : 0);
+                    const block = renderAsset(a, members.length === 1);
                     if (block) out.push(block);
                   }
                   if (wrapped) {
@@ -5202,6 +5225,7 @@ export default function Module1Costs(): React.JSX.Element {
                   key={`summary-${granularity}-${resultsView}-${resultsAssetId ?? 'all'}`}
                   phaseAssets={filteredAssets}
                   perPhaseBreakdowns={perPhaseBreakdowns}
+                  parcels={parcels}
                   parcelsByPhase={new Map()}
                   metricsByAsset={metricsByAsset}
                   project={{ currency: project.currency, startDate: project.startDate, modelType: project.modelType, displayScale: scale, displayDecimals: decimals }}

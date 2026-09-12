@@ -159,17 +159,38 @@ function main(): void {
     const first: any = two.assets[0];
     first.type = 'Branded Villas';
     const second: any = { ...first, id: 'R2', revenue: { sell: { ...first.revenue.sell, assetId: 'R2', subUnits: [{ ...first.revenue.sell.subUnits[0], subUnitId: 'rsu2' }] } } };
+    // EACH PLOT DRAWS FROM A PLOT. A line names the phase and the type, so a
+    // row nested under it is named by its plot; an asset with none gets no
+    // nested heading at all, and a fixture without plots cannot see either rule.
+    two.parcels = [
+      { id: 'parcel1', phaseId: 'p1', name: 'Land 1', area: 6000, rate: 1000, cashPct: 100, inKindPct: 0 },
+      { id: 'parcel2', phaseId: 'p1', name: 'Land 2', area: 4000, rate: 1000, cashPct: 100, inKindPct: 0 },
+    ];
+    first.landAllocation = { parcelId: 'parcel1', sqm: 6000 };
+    second.landAllocation = { parcelId: 'parcel2', sqm: 4000 };
     two.assets = [first, second, two.assets[1]];
     two.subUnits = [...two.subUnits, { ...two.subUnits[0], id: 'rsu2', assetId: 'R2' }];
     const snapTwo = computeFinancialsSnapshot(two);
     const repTwo = buildCapexReport(snapTwo, two);
     const tblTwo = repTwo.results.find((r) => r.title.startsWith('Capex Schedule by Period'));
     const rowsTwo = tblTwo?.rows ?? [];
-    const wrappers = rowsTwo.filter((r) => r.isSection && (r.indent ?? 0) === 0 && rowsTwo.some((q) => q.isSection && (q.indent ?? 0) === 1));
-    const nested = rowsTwo.filter((r) => r.isSection && (r.indent ?? 0) === 1);
-    check('T1a a line holding two plots is wrapped, with both plots nested inside it',
-      nested.length === 2 && wrappers.length >= 1,
-      `nested=${nested.length} wrappers=${wrappers.length}`);
+    // The plots nested under ONE line, found by walking from that line's
+    // heading to the next one. Counting every nested section in the table
+    // would now count the single-plot lines' plots too.
+    const plotsUnder = (rows: typeof rowsTwo, headingHas: string): number => {
+      const i = rows.findIndex((r) => r.isSection && (r.indent ?? 0) === 0 && r.label.includes(headingHas));
+      if (i < 0) return -1;
+      let n = 0;
+      for (let k = i + 1; k < rows.length; k++) {
+        const r = rows[k];
+        if (r.isSection && (r.indent ?? 0) === 0) break;
+        if (r.isSection && (r.indent ?? 0) === 1) n++;
+      }
+      return n;
+    };
+    check('T1a a line holding two plots is headed once, with both plots nested inside it',
+      plotsUnder(rowsTwo, 'Branded Villas') === 2,
+      `plots under the line = ${plotsUnder(rowsTwo, 'Branded Villas')}`);
     const lineSub = rowsTwo.find((r) => r.isSubtotal && (r.indent ?? 0) === 0 && r.label.includes('Branded Villas') && !r.label.includes('R1') && !r.label.includes('R2'));
     const plotSubs = rowsTwo.filter((r) => r.isSubtotal && (r.indent ?? 0) === 1);
     check('T1b the line subtotal is the sum of its plots, to the cent',
@@ -186,16 +207,66 @@ function main(): void {
         for (const r of deepest) for (let i = 0; i < N; i++) summed[i] += r.values[i] ?? 0;
         return summed.every((v, i) => Math.abs(v - (total[i] ?? 0)) < 1);
       })());
-    // THE OTHER DIRECTION. The one-plot fixture must gain NOTHING: no nested
-    // section, and no subtotal whose value repeats the row above it.
+    // EVERY LINE HEADS ITS OWN BLOCK, one-plot lines included (2026-09-12).
+    // The wrapper used to appear only where a line held more than one plot,
+    // which on the live projects is one line in thirteen, so the table still
+    // read plot by plot. Both fixtures are checked, because the one-plot case
+    // is the one that regressed.
     const rowsOne = (rep.results.find((r) => r.title.startsWith('Capex Schedule by Period'))?.rows ?? []);
-    check('T1d a line holding one plot is NOT wrapped, so no heading or subtotal repeats',
-      rowsOne.every((r) => (r.indent ?? 0) === 0 || !r.isSection)
-      && rowsOne.filter((r) => r.isSubtotal).every((r, i, arr) => {
-        const prev = arr[i - 1];
-        return prev === undefined || !prev.values.every((v, k) => Math.abs(v - (r.values[k] ?? 0)) < 0.005);
-      }),
+    const headed = (rows: typeof rowsOne): boolean => {
+      // Every block opens with a line heading at indent 0, and nothing nested
+      // may appear before one has opened. A line whose asset draws from no plot
+      // nests nothing, which is right: the nested heading exists to name the
+      // plot, and repeating the line with a different separator names nothing.
+      let opened = false;
+      let heads = 0;
+      for (const r of rows) {
+        if (r.isSection && (r.indent ?? 0) === 0) { opened = true; heads++; continue; }
+        if (r.isTotal) continue;
+        if ((r.indent ?? 0) >= 1 && !opened) return false;
+      }
+      return heads > 0 && heads === rows.filter((r) => r.isSubtotal && (r.indent ?? 0) === 0).length;
+    };
+    check('T1d every line heads AND closes its own block, on both fixtures',
+      headed(rowsOne) && headed(rowsTwo),
       rowsOne.filter((r) => r.isSection).map((r) => `${r.indent ?? 0}:${r.label}`).join(' | '));
+    // AND NO NUMBER IS PRINTED TWICE IN A ROW. A one-plot line closes once, on
+    // the line; adding a plot subtotal above it would repeat the same figure.
+    const repeats = (rows: typeof rowsOne): string[] => {
+      const out: string[] = [];
+      for (let i = 1; i < rows.length; i++) {
+        const a = rows[i - 1], b = rows[i];
+        if (!a.isSubtotal || !b.isSubtotal) continue;
+        // A plot subtotal closing a block, then the line subtotal for the same
+        // block. Same numbers, one above the other, saying it twice.
+        if ((a.indent ?? 0) !== 1 || (b.indent ?? 0) !== 0) continue;
+        if (a.values.length && a.values.every((v, k) => Math.abs(v - (b.values[k] ?? 0)) < 0.005)) out.push(`${a.label} == ${b.label}`);
+      }
+      return out;
+    };
+    check('T1e no subtotal repeats the subtotal above it, on either fixture',
+      repeats(rowsOne).length === 0 && repeats(rowsTwo).length === 0,
+      [...repeats(rowsOne), ...repeats(rowsTwo)].join(' | '));
+    // A NESTED HEADING SAYS WHAT ITS LINE DOES NOT. The line states the phase
+    // and the type; the row under it states the PLOT. Printing the whole asset
+    // label there passed every check above while rendering "Phase 2: Branded
+    // Residences" directly over "Phase 2, Branded Residences", the same words
+    // twice with a different separator, on every block of a project whose
+    // assets draw from a sentinel. So this asks what the nested heading adds.
+    const echoes = (rows: typeof rowsOne): string[] => {
+      const out: string[] = [];
+      let head = '';
+      for (const r of rows) {
+        if (r.isSection && (r.indent ?? 0) === 0) { head = r.label; continue; }
+        if (!r.isSection || (r.indent ?? 0) !== 1) continue;
+        const type = head.includes(': ') ? head.slice(head.indexOf(': ') + 2) : head;
+        if (type !== '' && r.label.includes(type)) out.push(`${head} > ${r.label}`);
+      }
+      return out;
+    };
+    check('T1f a nested heading names the PLOT, never the line again',
+      echoes(rowsOne).length === 0 && echoes(rowsTwo).length === 0,
+      [...echoes(rowsOne), ...echoes(rowsTwo)].join(' | '));
   }
 
 

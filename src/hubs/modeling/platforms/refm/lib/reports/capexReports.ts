@@ -15,7 +15,7 @@ import { computeAssetCost, deriveCostStage, resolveAssetAreaMetrics, type AssetA
 import { collectionsForAsset, phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
 import type { ProjectFinancialsSnapshot, FinancialsResolverState } from '../financials-resolvers';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
-import { assetLabel } from '@/src/core/calculations/assetName';
+import { assetLabel, assetPlotLabel } from '@/src/core/calculations/assetName';
 import { groupAssetsForConsolidation } from '@/src/core/calculations/consolidation';
 import { retailCompanionId } from '@/src/core/calculations/retailCompanion';
 import { normaliseAssetTypeId } from '@/src/core/calculations/typeKey';
@@ -374,6 +374,8 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
   interface AssetCapex {
     assetId: string;
     name: string;
+    /** The plot this draws from, or undefined when it draws from none. */
+    plot: string | undefined;
     phaseId: string;
     phaseName: string;
     inclAll: number[];
@@ -463,7 +465,7 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
     // `assetLabel(a, state)`, so the two halves of the same tab could call one
     // asset two different things.
     assetCapex.push({
-      assetId: a.id, name: assetLabel(a, state), phaseId: a.phaseId, phaseName: phase.name,
+      assetId: a.id, name: assetLabel(a, state), plot: assetPlotLabel(a, state), phaseId: a.phaseId, phaseName: phase.name,
       inclAll, exclInKind, exclAll, perLine,
     });
   }
@@ -524,32 +526,41 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
    * blocks first. The blocks are the same blocks and every number in them is
    * unchanged; what moved is the order and the wrapper.
    *
-   * THE WRAPPER IS RENDERED ONLY WHERE IT DOES WORK. A line holding ONE plot
-   * is that plot, so a heading naming the line above a heading naming the plot
-   * would say the same thing twice, and a line subtotal would repeat the plot
-   * subtotal one row above it. Measured: 12 of the 13 lines across the two live
-   * projects hold exactly one plot, so a blanket wrapper would have added two
-   * redundant rows to almost every block to serve the one that needs it.
+   * THE LINE HEADS EVERY BLOCK (2026-09-12). It headed only the blocks whose
+   * line held more than one plot, which on the live projects is one line in
+   * thirteen, so the tab still read plot by plot and the consolidated line was
+   * invisible almost everywhere. The line is what the model is built on, so it
+   * is what a reader meets first, every time; its plots sit under it.
+   *
+   * WHAT IS STILL CONDITIONAL IS THE PLOT SUBTOTAL, and only because two
+   * adjacent rows carrying the same number say nothing. A line holding ONE
+   * plot closes once, on the line; a line holding several closes each plot and
+   * then the line.
    */
   const t1Rows: M4Row[] = [];
   for (const ln of summaryLines) {
     const members = ln.members.filter((ac) => anyNonZero(ac.inclAll));
     if (members.length === 0) continue;
-    const wrapped = members.length > 1;
-    if (wrapped) t1Rows.push({ label: lineHeading(ln), values: [], isSection: true });
-    const depth = wrapped ? 1 : 0;
+    const many = members.length > 1;
+    t1Rows.push({ label: lineHeading(ln), values: [], isSection: true });
     for (const ac of members) {
-      t1Rows.push({ label: ac.name, values: [], isSection: true, indent: depth });
-      for (const l of ac.perLine) t1Rows.push({ label: l.name, values: l.values, indent: depth + 1 });
-      t1Rows.push({ label: `Subtotal, ${ac.name}`, values: ac.inclAll, isSubtotal: true, indent: depth });
+      // THE NESTED HEADING IS THE PLOT, not the whole label. The line above
+      // already states the phase and the type, so repeating them would print
+      // "Phase 2: Branded Residences" over "Phase 2, Branded Residences", the
+      // same words twice with a different separator. An asset with no plot has
+      // nothing of its own to add and gets no heading at all, which is every
+      // asset on a project that draws from a sentinel.
+      const plot = ac.plot;
+      if (plot !== undefined) t1Rows.push({ label: plot, values: [], isSection: true, indent: 1 });
+      const depth = plot === undefined ? 1 : 2;
+      for (const l of ac.perLine) t1Rows.push({ label: l.name, values: l.values, indent: depth });
+      if (many) t1Rows.push({ label: `Subtotal, ${plot ?? ac.name}`, values: ac.inclAll, isSubtotal: true, indent: 1 });
     }
-    if (wrapped) {
-      t1Rows.push({
-        label: `Subtotal, ${lineHeading(ln)}`,
-        values: sumOver(members, (ac) => ac.inclAll),
-        isSubtotal: true,
-      });
-    }
+    t1Rows.push({
+      label: `Subtotal, ${lineHeading(ln)}`,
+      values: sumOver(members, (ac) => ac.inclAll),
+      isSubtotal: true,
+    });
   }
   if (t1Rows.length) {
     t1Rows.push({ label: 'Project Total (incl. all land)', values: totalInclAll, isTotal: true });
