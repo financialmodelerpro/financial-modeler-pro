@@ -2055,7 +2055,7 @@ export const COST_METHOD_BASIS_HELP: Partial<Record<CostMethod, string>> = {
   rate_x_landscape_area:
     "The tab's Landscape and Open Area column. INTERNAL FIELD: Asset.derivedAreas.landscapeSqm = net developable x (1 - ground coverage). Derived by the chain; there is no typed counterpart.",
   rate_x_main_asset_gfa:
-    "The tab's Main Asset GFA column, the reference basis for superstructure cost. INTERNAL FIELD: Asset.derivedAreas.mainAssetGfaSqm = Total GFA less Retail GFA less Lobby GFA (or Total GFA where there is no retail). Derived by the chain; there is no typed counterpart. Reads 0 on a retail strip, whose floor area is its Retail GFA.",
+    "The tab's Main Asset GFA column, the reference basis for superstructure cost. INTERNAL FIELD: Asset.derivedAreas.mainAssetGfaSqm = Total GFA less Retail GFA less Lobby GFA (or Total GFA where there is no retail). Derived by the chain; a plot with no chain inputs is priced on its Total GFA, which is the reference's own rule when retail is zero. Reads 0 on a retail strip, whose floor area is its Retail GFA.",
   rate_x_retail_parking_area:
     "The tab's Retail Parking Area column, charged on the RETAIL COMPANION and nowhere else: a host reads 0 here because its strip carries that parking. Rate x Parking Area charges a host's main parking and reads 0 on a strip, so each square metre of parking has exactly one method.",
   rate_x_retail_gfa:
@@ -3637,27 +3637,34 @@ export function makeDefaultCostLines(
     //
     // ── Construction (BUA + Parking) ────────────────────────────────────
     {
+      // THE REFERENCE BASES (2026-09-12, founder's decision): superstructure on
+      // Main Asset GFA, parking on its area, landscape on its area, and no line
+      // on a retired method (the two rate_per_nda lines seeded a method the
+      // picker refuses to offer a new line). Values stay what they were; the
+      // 'blank' mode every live caller uses zeroes them, so a new project
+      // seeds the LINES and the BASES and the user types the rates. A plot
+      // with no chain inputs derives no Main Asset GFA and its caption says so.
       id: id('construction-bua'), phaseId, name: 'Construction (BUA)',
-      method: 'rate_per_bua', value: 4500,
+      method: 'rate_x_main_asset_gfa', value: 4500,
       stage: 'hard', scope: 'direct', allocationBasis: 'bua_share',
       ...win('construction-bua'), phasing: 'even',
     },
     {
       id: id('construction-parking'), phaseId, name: 'Construction (Parking)',
-      method: 'rate_per_parking_bay', value: 25000,
+      method: 'rate_x_parking_area', value: 25000,
       stage: 'hard', scope: 'direct', allocationBasis: 'per_asset',
       ...win('construction-parking'), phasing: 'even',
     },
     // ── Infrastructure / Landscaping ────────────────────────────────────
     {
       id: id('infrastructure'), phaseId, name: 'Infrastructure',
-      method: 'rate_per_nda', value: 250,
+      method: 'rate_per_land', value: 250,
       stage: 'hard', scope: 'direct', allocationBasis: 'land_share',
       ...win('infrastructure'), phasing: 'even',
     },
     {
       id: id('landscaping'), phaseId, name: 'Landscaping',
-      method: 'rate_per_nda', value: 75,
+      method: 'rate_x_landscape_area', value: 75,
       stage: 'hard', scope: 'direct', allocationBasis: 'land_share',
       ...win('landscaping'), phasing: 'even',
     },

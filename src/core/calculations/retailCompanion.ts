@@ -277,6 +277,56 @@ export function reconcileRetailSubUnits<U extends ReconcilableSubUnit>(
   return { subUnits: changed ? out : (subUnits as U[]), changed, added, removed, updated };
 }
 
+// ── THE STRIP'S OWN COST BASES (2026-09-12) ──────────────────────────────
+//
+// The phase's construction lines are priced on Main Asset GFA and main parking,
+// and a strip reads 0 on both by design (its floor area is its Retail GFA, its
+// parking is retail parking). So a strip created with no override of its own
+// would charge nothing on either line, silently, until someone noticed. When
+// the store adds a companion it also gives it the two overrides the reference
+// prices a retail row on, at the LINE's rate and phasing (the rate is the
+// user's to change, as with every override), and never touches an override
+// that already exists. Pure, so a verifier can run it without the store.
+
+export interface CompanionCostLineRef {
+  id: string;
+  phaseId: string;
+  value: number;
+  phasing: string;
+}
+
+export interface CompanionOverrideSeed {
+  assetId: string;
+  lineId: string;
+  method: 'rate_x_retail_gfa' | 'rate_x_retail_parking_area';
+  value: number;
+  phasing: string;
+  overridden: true;
+}
+
+/** The two standard lines a strip is re-based on, by their base id. */
+export const RETAIL_COMPANION_BASES: ReadonlyArray<readonly [string, CompanionOverrideSeed['method']]> = [
+  ['construction-bua', 'rate_x_retail_gfa'],
+  ['construction-parking', 'rate_x_retail_parking_area'],
+];
+
+export function planRetailCompanionOverrides(
+  companions: readonly { id: string; phaseId: string }[],
+  lines: readonly CompanionCostLineRef[],
+  existing: readonly { assetId: string; lineId: string }[],
+): CompanionOverrideSeed[] {
+  const taken = new Set(existing.map((o) => `${o.assetId}::${o.lineId}`));
+  const out: CompanionOverrideSeed[] = [];
+  for (const c of companions) {
+    for (const [base, method] of RETAIL_COMPANION_BASES) {
+      const line = lines.find((l) => l.phaseId === c.phaseId && l.id === `${base}__${c.phaseId}`);
+      if (!line || taken.has(`${c.id}::${line.id}`)) continue;
+      out.push({ assetId: c.id, lineId: line.id, method, value: line.value, phasing: line.phasing, overridden: true });
+    }
+  }
+  return out;
+}
+
 // ── THE LAND CARVE-OUT (step 5, the first step that moves money) ──────────
 
 /** One host, with the chain figures the carve needs and what it draws today. */

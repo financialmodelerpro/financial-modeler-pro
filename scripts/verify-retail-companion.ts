@@ -352,7 +352,9 @@ function offlineChecks(): void {
     // ONE quiet exit for BOTH halves: a pass that changed neither the assets
     // nor the sub-units must write nothing at all, or opening a project marks
     // it dirty.
-    && /if \(!r\.changed && !u\.changed\) return \{\};/.test(storeSrc)
+    // A THIRD HALF SINCE 2026-09-12: a strip the pass ADDED gets its two cost
+    // overrides, so the quiet exit checks that nothing was seeded either.
+    && /if \(!r\.changed && !u\.changed && fresh\.length === 0\) return \{\};/.test(storeSrc)
     && /\.\.\.\(r\.changed \? \{ assets: r\.assets \} : \{\}\),/.test(storeSrc)
     && /\.\.\.\(u\.changed \? \{ subUnits: u\.subUnits \} : \{\}\),/.test(storeSrc));
   const coreSrc = readFileSync('src/core/calculations/retailCompanion.ts', 'utf8');

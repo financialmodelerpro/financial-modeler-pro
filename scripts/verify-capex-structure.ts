@@ -42,6 +42,7 @@ import {
   resolveAssetFootprintArea, resolveAssetLandscapeArea, deriveCostStage, landRateIssueText,
 } from '../src/core/calculations';
 import { eligibleBaseLines, assetVisibleLines } from '../src/core/calculations/selectedBase';
+import { planRetailCompanionOverrides } from '../src/core/calculations/retailCompanion';
 import { selectableCostMethods, COST_METHOD_LABELS, COST_METHOD_BASIS_HELP, type CostMethod } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { repairStaleWizardCostWindows } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
 import { buildWizardSnapshot } from '../src/hubs/modeling/platforms/refm/lib/wizard/buildWizardSnapshot';
@@ -290,7 +291,9 @@ section('E. Stage is a per-line choice with one derivation');
 
   // The engine's stage rollup must follow the derivation, not the raw field.
   const project: Project = { ...makeDefaultProject(), startDate: '2026-01-01' };
-  const asset = mkAsset('a1', 'phase_1', { parcelId: 'parcel_1', sqm: 10000 });
+  // The seed prices superstructure on Main Asset GFA since 2026-09-12, so the
+  // fixture states one: 1,000 sqm, the same figure its sub-units carry.
+  const asset = { ...mkAsset('a1', 'phase_1', { parcelId: 'parcel_1', sqm: 10000 }), derivedAreas: { mainAssetGfaSqm: 1000 } } as Asset;
   const subs: SubUnit[] = [{
     id: 's1', assetId: 'a1', name: 'Apts', category: 'Sellable', metric: 'units',
     metricValue: 10, unitArea: 100, unitPrice: 1_000_000,
@@ -407,13 +410,13 @@ section('H. The percent-of-selected base is reported');
 
 {
   const project: Project = { ...makeDefaultProject(), startDate: '2026-01-01' };
-  const asset = mkAsset('a1', 'phase_1', { parcelId: 'parcel_1', sqm: 10000 });
+  const asset = { ...mkAsset('a1', 'phase_1', { parcelId: 'parcel_1', sqm: 10000 }), derivedAreas: { mainAssetGfaSqm: 1000 } } as Asset;
   const subs: SubUnit[] = [{
     id: 's1', assetId: 'a1', name: 'Apts', category: 'Sellable', metric: 'units',
     metricValue: 10, unitArea: 100, unitPrice: 1_000_000,
   } as unknown as SubUnit];
   const lines = makeBlankCostLines('phase_1', 4).map((l) => {
-    if (base(l.id) === 'construction-bua') return { ...l, value: 1000 }; // 1000 x 1000 sqm BUA
+    if (base(l.id) === 'construction-bua') return { ...l, value: 1000 }; // 1000 x 1000 sqm Main Asset GFA
     if (base(l.id) === 'contingency') return { ...l, value: 10 };
     return l;
   });
@@ -902,6 +905,62 @@ section('K. Area x unit size = count: only two of the three are inputs');
       capOf(host, 'rate_x_retail_gfa').includes('charged on the retail strip, 0 on a host')
       && capOf({ id: 'x', phaseId: 'p', landAllocation: {} } as unknown as Asset, 'rate_x_main_asset_gfa').includes('states no chain inputs'),
       capOf(host, 'rate_x_retail_gfa'));
+    // THE CAPTION ON A STRIP CHARGES WHAT IT SAYS. The typed-parking fallback
+    // made it print the strip's retail parking beside an engine charging 0.
+    check('P4k-f a strip on Rate x Parking Area is told its parking is retail parking, and the quantity is the engine\'s 0',
+      capOf(strip, 'rate_x_parking_area').includes('reads 0 on a retail strip')
+      && capOf(strip, 'rate_x_parking_area').includes('Rate \u00d7 Retail Parking Area')
+      && costLineBasisQuantity('rate_x_parking_area' as CostMethod, mOf(strip), { parkingBays: 0 })?.value === 0
+      && at(strip, 'rate_x_parking_area', 1) === 0,
+      capOf(strip, 'rate_x_parking_area'));
+    // A NEW STRIP GETS ITS OWN BASES, an existing override is never touched.
+    const lines = [
+      { id: 'construction-bua__p', phaseId: 'p', value: 4200, phasing: 'even' },
+      { id: 'construction-parking__p', phaseId: 'p', value: 3000, phasing: 'even' },
+      { id: 'construction-bua__q', phaseId: 'q', value: 5800, phasing: 'even' },
+    ];
+    const seeded = planRetailCompanionOverrides([{ id: 's', phaseId: 'p' }], lines, []);
+    check('P4k-g a new strip is put on Rate x Retail GFA and Rate x Retail Parking Area at its own phase\'s line rates',
+      seeded.length === 2
+      && seeded.some((o) => o.lineId === 'construction-bua__p' && o.method === 'rate_x_retail_gfa' && o.value === 4200 && o.overridden === true)
+      && seeded.some((o) => o.lineId === 'construction-parking__p' && o.method === 'rate_x_retail_parking_area' && o.value === 3000),
+      JSON.stringify(seeded));
+    check('P4k-h an override that already exists is left alone, and a phase with no such line seeds nothing',
+      planRetailCompanionOverrides([{ id: 's', phaseId: 'p' }], lines, [{ assetId: 's', lineId: 'construction-bua__p' }]).length === 1
+      && planRetailCompanionOverrides([{ id: 's', phaseId: 'q' }], lines, []).length === 1
+      && planRetailCompanionOverrides([{ id: 's', phaseId: 'z' }], lines, []).length === 0);
+    const storeSrc2 = fs.readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8');
+    check('P4k-i the store seeds them for the companions it ADDED and only those',
+      storeSrc2.includes('planRetailCompanionOverrides(')
+      && /r\.added\.length > 0/.test(storeSrc2)
+      && /r\.assets\.filter\(\(a\) => r\.added\.includes\(a\.id\)\)/.test(storeSrc2));
+    // THE SEED IS ON THE REFERENCE BASES, RATES BLANK, NO RETIRED METHOD.
+    const seedLines = makeBlankCostLines('p', 12);
+    const methodOf = (base: string): string => String(seedLines.find((l) => l.id === `${base}__p`)?.method);
+    check('P4k-j a new phase seeds superstructure on Main Asset GFA, parking and landscape on their areas, infrastructure on plot area',
+      methodOf('construction-bua') === 'rate_x_main_asset_gfa'
+      && methodOf('construction-parking') === 'rate_x_parking_area'
+      && methodOf('landscaping') === 'rate_x_landscape_area'
+      && methodOf('infrastructure') === 'rate_per_land',
+      ['construction-bua', 'construction-parking', 'landscaping', 'infrastructure'].map((b) => `${b}=${methodOf(b)}`).join(' '));
+    check('P4k-k no seeded line is on a retired method, and every unlocked seeded rate is blank',
+      seedLines.every((l) => (selectableCostMethods() as readonly string[]).includes(String(l.method)))
+      && seedLines.filter((l) => l.isLocked !== true).every((l) => l.value === 0));
+    // DERIVED WINS, ABSENT FALLS BACK, for Main Asset GFA too: a plot the chain
+    // never ran on (typed areas, sub-units, no land planning) is priced on its
+    // Total GFA, the reference's own rule with zero retail, not on nothing.
+    const typedOnly = { id: 't', phaseId: 'p', visible: true, landAllocation: {}, buaSqm: 1300 } as unknown as Asset;
+    check('P4k-l a plot with no chain inputs reads Main Asset GFA = its Total GFA; one with a chain reads what the chain derived',
+      mOf(typedOnly).mainAssetGfa === 1300 && mOf(typedOnly).bua === 1300
+      && Math.abs(mOf(host).mainAssetGfa - 19006.63) < 1e-9 && Math.abs(mOf(host).bua - (25279.1 - 1254.49)) < 1e-6,
+      `typed ${mOf(typedOnly).mainAssetGfa} host ${mOf(host).mainAssetGfa}`);
+    // A STRIP'S ROW WRITES ITS OWN OVERRIDE, NEVER THE PHASE LINE. Method,
+    // rate, phasing and the on/off toggle all take the strip branch, and it is
+    // seeded from the master exactly as the Override button seeds.
+    check('P4k-m the strip branch is in every row writer, seeded from the master',
+      costsSrc2.includes('const stripOwn = isRetailCompanion(asset);')
+      && (costsSrc2.match(/\} else if \(stripOwn\) \{\s*onUpdateOverride\(\{ \.\.\.masterAsOverride\(\), (method|value|phasing|disabled) \}\);/g) ?? []).length === 4
+      && costsSrc2.includes('const startOverride = (): void => { onUpdateOverride(masterAsOverride()); };'));
   }
 
   // P5 THE RETIRED METHOD STAYS RETIRED. Re-pointing rate_per_nda at the

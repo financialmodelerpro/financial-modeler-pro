@@ -53,6 +53,7 @@ import type { DerivedAreasPlan, DerivedSupportPlan, LineSubUnitPlan } from '../.
 import { planDerivedAreasForModel, applyDerivedAreasPlan } from '../../components/modules/_shared/assetTableModel';
 import { applyStrategySwitch, assetHasStrategyAssumptions, seedManageCompanion, needsManageCompanion } from './strategySwitch';
 import { assetsOnParcel, repairProjectIntegrity } from '@/src/core/calculations/projectIntegrity';
+import { planRetailCompanionOverrides } from '@/src/core/calculations/retailCompanion';
 import {
   applyOverrides,
   buildOverrides,
@@ -553,10 +554,22 @@ export function createModule1Store() {
         (companionId, gfa, existing) => makeRetailCompanionSubUnit(companionId, gfa, existing),
         (a, b) => JSON.stringify(a) === JSON.stringify(b),
       );
-      if (!r.changed && !u.changed) return {};
+      // A NEW STRIP IS PUT ON ITS OWN BASES (2026-09-12): the phase's
+      // construction lines read 0 on a strip, so it gets the two overrides the
+      // reference prices a retail row on, at the line's rate. Only for a
+      // companion this call ADDED; an existing override is never touched.
+      const fresh = r.added.length > 0
+        ? planRetailCompanionOverrides(
+          r.assets.filter((a) => r.added.includes(a.id)).map((a) => ({ id: a.id, phaseId: a.phaseId })),
+          s.costLines,
+          s.costOverrides,
+        )
+        : [];
+      if (!r.changed && !u.changed && fresh.length === 0) return {};
       return {
         ...(r.changed ? { assets: r.assets } : {}),
         ...(u.changed ? { subUnits: u.subUnits } : {}),
+        ...(fresh.length > 0 ? { costOverrides: [...s.costOverrides, ...(fresh as unknown as CostOverride[])] } : {}),
       };
     }),
 

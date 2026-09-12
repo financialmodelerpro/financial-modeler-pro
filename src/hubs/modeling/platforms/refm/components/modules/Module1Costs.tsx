@@ -834,9 +834,33 @@ function CostRow({
   // The Override toggle (rendered below) explicitly creates / removes
   // the override entry, giving the user a clear visual cue when a
   // value diverges from the project-wide master.
+  // A STRIP NEVER OWNS THE PHASE LINE (2026-09-12). A retail companion has a
+  // section of its own on this tab, so its row reads as the strip's, and until
+  // this change an edit there with no override in place wrote the PHASE LINE,
+  // which every host in the phase shares: picking Rate x Retail GFA on the
+  // strip's row put the whole phase on it and every host read 0. Measured on
+  // FMP - MARINA GATE, both Phase 1 construction lines. A strip's edit is its
+  // own, always: the override is seeded from the master on the first edit,
+  // exactly as the Override button would have done.
+  const stripOwn = isRetailCompanion(asset);
+  const masterAsOverride = (): CostOverride => ({
+    assetId: asset.id,
+    lineId: line.id,
+    method: line.method,
+    value: line.value,
+    phasing: line.phasing,
+    distribution: line.distribution,
+    disabled: line.disabled === true ? true : undefined,
+    perSubUnitRates: line.perSubUnitRates,
+    startPeriod: line.startPeriod,
+    endPeriod: line.endPeriod,
+    overridden: true,
+  });
   const writeMethod = (method: CostMethod): void => {
     if (override) {
       onUpdateOverride({ assetId: asset.id, lineId: line.id, method, value: effValue, phasing: effPhasing, distribution: override.distribution, disabled: override.disabled, overridden: true });
+    } else if (stripOwn) {
+      onUpdateOverride({ ...masterAsOverride(), method });
     } else {
       onUpdateLine({ method });
     }
@@ -844,6 +868,8 @@ function CostRow({
   const writeValue = (value: number): void => {
     if (override) {
       onUpdateOverride({ assetId: asset.id, lineId: line.id, method: effMethod, value, phasing: effPhasing, distribution: override.distribution, disabled: override.disabled, overridden: true });
+    } else if (stripOwn) {
+      onUpdateOverride({ ...masterAsOverride(), value });
     } else {
       onUpdateLine({ value });
     }
@@ -851,6 +877,8 @@ function CostRow({
   const writePhasing = (phasing: CostPhasing): void => {
     if (override) {
       onUpdateOverride({ assetId: asset.id, lineId: line.id, method: effMethod, value: effValue, phasing, distribution: override.distribution, disabled: override.disabled, overridden: true });
+    } else if (stripOwn) {
+      onUpdateOverride({ ...masterAsOverride(), phasing });
     } else {
       onUpdateLine({ phasing });
     }
@@ -977,6 +1005,8 @@ function CostRow({
   const toggleDisabled = (disabled: boolean): void => {
     if (override) {
       onUpdateOverride({ assetId: asset.id, lineId: line.id, method: effMethod, value: effValue, phasing: effPhasing, distribution: override.distribution, disabled, overridden: true });
+    } else if (stripOwn) {
+      onUpdateOverride({ ...masterAsOverride(), disabled });
     } else {
       onUpdateLine({ disabled });
     }
@@ -988,21 +1018,7 @@ function CostRow({
   // with the master's current values so the user has a non-zero
   // starting point. Switching back to inherited master is a single
   // click on Revert (drops the override entry).
-  const startOverride = (): void => {
-    onUpdateOverride({
-      assetId: asset.id,
-      lineId: line.id,
-      method: line.method,
-      value: line.value,
-      phasing: line.phasing,
-      distribution: line.distribution,
-      disabled: line.disabled === true ? true : undefined,
-      perSubUnitRates: line.perSubUnitRates,
-      startPeriod: line.startPeriod,
-      endPeriod: line.endPeriod,
-      overridden: true,
-    });
-  };
+  const startOverride = (): void => { onUpdateOverride(masterAsOverride()); };
 
   // M2.0g Addendum 1: per-period % distribution editor (Manual % phasing).
   // The distribution array sits on either the line OR the per-asset

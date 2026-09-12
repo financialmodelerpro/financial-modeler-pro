@@ -119,9 +119,9 @@ export const BUILT_IN_COST_CATALOG: readonly CostCatalogEntry[] = [
   },
   // ── Hard cost ───────────────────────────────────────────────────────────
   {
-    id: 'construction-bua', label: 'Superstructure', method: 'rate_per_bua', stage: 'hard',
+    id: 'construction-bua', label: 'Superstructure', method: 'rate_x_main_asset_gfa', stage: 'hard',
     allocationBasis: 'bua_share', scope: 'direct', builtIn: true,
-    hint: 'Rate per sqm of built-up area.',
+    hint: 'Rate per sqm of Main Asset GFA, the reference basis for superstructure. A retail strip is priced on its Retail GFA instead.',
   },
   {
     id: 'construction-parking', label: 'Parking', method: 'rate_x_parking_area', stage: 'hard',
@@ -129,14 +129,14 @@ export const BUILT_IN_COST_CATALOG: readonly CostCatalogEntry[] = [
     hint: 'Rate per sqm of parking area.',
   },
   {
-    id: 'infrastructure', label: 'Infrastructure', method: 'rate_per_nda', stage: 'hard',
+    id: 'infrastructure', label: 'Infrastructure', method: 'rate_per_land', stage: 'hard',
     allocationBasis: 'land_share', scope: 'direct', builtIn: true,
-    hint: 'Rate per sqm of net developable area.',
+    hint: 'Rate per sqm of plot area.',
   },
   {
-    id: 'landscaping', label: 'Landscape', method: 'rate_per_nda', stage: 'hard',
+    id: 'landscaping', label: 'Landscape', method: 'rate_x_landscape_area', stage: 'hard',
     allocationBasis: 'land_share', scope: 'direct', builtIn: true,
-    hint: 'Rate per sqm of net developable area.',
+    hint: 'Rate per sqm of landscape and open area, the reference basis for landscape cost.',
   },
   // ── Soft cost ───────────────────────────────────────────────────────────
   {

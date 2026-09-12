@@ -1197,7 +1197,12 @@ export function resolveAssetAreaMetrics(
   const gfa = has(d?.totalGfaSqm)
     ? bua + mainParking + retailParkingArea
     : Math.max(hierarchy.gfa, Math.max(0, asset.gfaSqm ?? 0), bua);
-  const mainAssetGfa = companion ? 0 : (has(d?.mainAssetGfaSqm) ? d.mainAssetGfaSqm : 0);
+  // Main Asset GFA: the chain's where it derived one; where it derived nothing
+  // the reference's own rule with zero retail applies (IF retail = 0 THEN main
+  // = total GFA), so a plot with no chain inputs, typed areas or sub-units
+  // alone, is priced on its Total GFA and not on nothing. DERIVED WINS, ABSENT
+  // FALLS BACK, the same rule as every other figure here (2026-09-12).
+  const mainAssetGfa = companion ? 0 : (has(d?.mainAssetGfaSqm) ? d.mainAssetGfaSqm : bua);
   // Retail GFA: the strip's own floor area, which is the pooled retail GFA the
   // factory built it with (its Total GFA and its Retail GFA are ONE figure). A
   // host reads 0: its strip carries the retail, exactly as with parking.
@@ -2989,7 +2994,7 @@ export interface CostLineBasisQuantity {
 export function costLineBasisQuantity(
   method: CostMethod | undefined,
   metrics: AssetAreaMetrics,
-  fallbacks: { parkingBays: number; supportArea?: number; parkingArea?: number },
+  fallbacks: { parkingBays: number; supportArea?: number },
 ): CostLineBasisQuantity | null {
   const or0 = (a: number, b: number | undefined): number => Math.max(0, a > 0 ? a : (b ?? 0));
   switch (method) {
@@ -3001,7 +3006,11 @@ export function costLineBasisQuantity(
     case 'rate_per_unit': return { value: metrics.unitCount, unit: 'units', missing: 'Unit count' };
     case 'rate_per_parking_bay': return { value: Math.max(0, fallbacks.parkingBays), unit: 'parking bays', missing: 'Parking bays' };
     case 'rate_x_support_area': return { value: or0(metrics.supportArea, fallbacks.supportArea), unit: 'sqm Support', missing: 'Support area' };
-    case 'rate_x_parking_area': return { value: or0(metrics.parkingArea, fallbacks.parkingArea), unit: 'sqm Parking', missing: 'Parking area' };
+    // MAIN parking, the metric alone (2026-09-12). The typed fallback was the
+    // strip's stamped retail parking, so the caption said '2,920 sqm Parking'
+    // beside an engine that charged 0 on it; the metric is already the chain's
+    // figure or the typed one, so the fallback could only ever disagree.
+    case 'rate_x_parking_area': return { value: metrics.parkingArea, unit: 'sqm Parking', missing: 'Parking area' };
     case 'rate_x_net_developable_area': return { value: metrics.netDevelopableArea, unit: 'sqm Net Developable Area', missing: 'Net developable area', derived: true };
     case 'rate_x_footprint_area': return { value: metrics.footprintArea, unit: 'sqm Building Footprint', missing: 'Building footprint', derived: true };
     case 'rate_x_landscape_area': return { value: metrics.landscapeArea, unit: 'sqm Landscape and Open Area', missing: 'Landscape and open area', derived: true };
@@ -3071,13 +3080,15 @@ export function costLineCaption(input: CostLineCaptionInput): string {
   const q = costLineBasisQuantity(method, metrics, {
     parkingBays,
     supportArea: asset.supportArea,
-    parkingArea: resolveAssetParkingArea(asset),
   });
   if (q) {
     if (q.value > 0) return fmt(value, 2) + ' x ' + fmtArea(q.value) + ' ' + q.unit;
     // A RETAIL STRIP HAS NO CHAIN OF ITS OWN (2026-09-12), so 'states no chain
     // inputs' would send its reader to a plot row it does not have. Its floor
     // area is the Retail GFA its hosts derived, and that is the method to pick.
+    if (method === 'rate_x_parking_area' && isRetailCompanion(asset)) {
+      return `${fmt(value, 2)} x - (Parking area is main parking and reads 0 on a retail strip; its parking is priced by Rate \u00d7 Retail Parking Area)`;
+    }
     if (q.derived === true && isRetailCompanion(asset)) {
       return `${fmt(value, 2)} x - (${q.missing} is 0 on a retail strip, which has no chain of its own; its floor area is its Retail GFA, priced by Rate \u00d7 Retail GFA)`;
     }
