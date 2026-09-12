@@ -163,7 +163,8 @@ async function liveChecks(): Promise<void> {
       }
     }
   }
-  check('D1 the live rows were reached', all.length >= 13, `${all.length} assets, ${groups} groups`);
+  // RE-AIMED 2026-09-12: one live project carries assets since FMP RE HUB was deleted; eight is Marina Gate alone.
+  check('D1 the live rows were reached', all.length >= 6, `${all.length} assets, ${groups} groups`);
 
   // EVERY PATH PROVEN AGAINST REAL ROWS, not just against the type. A path
   // spelled correctly but written by nothing is still a blind spot, so the ones
@@ -186,6 +187,14 @@ async function liveChecks(): Promise<void> {
     // stays here after its field comes into use is a blind spot pretending to
     // be a decision.
     'revenue.sell.escrow.heldPctOverride': 'No live project overrides escrow at the asset level.',
+    // THESE FIVE JOINED ON 2026-09-12 WHEN FMP RE HUB WAS DELETED: each was exercised
+    // only by RE HUB's operating hotel and its management agreement. D2b takes them
+    // back out the day a live asset uses one, which is the honest shape.
+    'revenue.operate.startingADR': 'Exercised only by FMP RE HUB, deleted 2026-09-12; no live Operate asset states an ADR yet.',
+    'opex.defaultIndexation.method': 'Exercised only by FMP RE HUB, deleted 2026-09-12.',
+    usefulLifeYears: 'Exercised only by FMP RE HUB, deleted 2026-09-12.',
+    'managementAgreement.managementFeePct': 'Exercised only by FMP RE HUB, deleted 2026-09-12.',
+    'managementAgreement.ownerRevenueSharePct': 'Exercised only by FMP RE HUB, deleted 2026-09-12.',
   };
   const unexpected = unset.filter((u) => !(u.field in EXPECTED_UNSET));
   const goneStale = Object.keys(EXPECTED_UNSET).filter((f) => !unset.some((u) => u.field === f));

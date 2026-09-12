@@ -597,6 +597,23 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
     parkingArea: 'rate_x_parking_area',
     parkingBaysRequired: 'rate_per_parking_bay',
   };
+  // ── A STAGE OVERRIDE IS A DIAL ONLY WHERE THE ENGINE READS THE STAGE (2026-09-12) ──
+  //
+  // Since land VALUE follows the two standard land lines by identity
+  // (TRAPS 7.40), a line's stage no longer decides what is funded or
+  // capitalised as land. The engine reads the stage in exactly one place that
+  // moves money: the base of a '% of Construction' line, which sums the HARD
+  // stage. On a model with no such line a stage override moves the tiles, the
+  // stage subtotals and the report buckets, and no financial output, which is
+  // the definition of inactive here. Add a '% of Construction' line and the
+  // field is live again with no code change.
+  if (/^costLines\[[^\]]+\]\.stageOverride$/.test(path)) {
+    const readsStage = (m.costLines ?? []).some((l: any) => l.method === 'percent_of_construction')
+      || (m.costOverrides ?? []).some((o: any) => o.method === 'percent_of_construction');
+    if (!readsStage) {
+      return 'moves the stage tiles and the report buckets only: land value follows the two standard land lines, and no line on this model is priced as a percentage of the construction stage, so a reclassification changes no financial output';
+    }
+  }
   const pk = /^assets\[[^\]]+\]\.(parkingArea|parkingBaysRequired)$/.exec(path);
   if (pk) {
     const want = PARKING_METHOD[pk[1]];

@@ -3,53 +3,64 @@
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
 ---
-## START HERE 2026-09-12: WHAT IS OPEN, in order
+## START HERE 2026-09-12 (session close): MODULE 1 IS DONE. WHAT IS OPEN, in order
 
-Today's dated narrative is in [CHANGELOG.md](CHANGELOG.md) 2026-09-12; the two
-new standing lessons are [docs/TRAPS.md](docs/TRAPS.md) 7.37 and 7.38.
+Today's dated narrative is in [CHANGELOG.md](CHANGELOG.md) 2026-09-12 (one long day: the capex
+bases, the merged-line capex, cascading deletes, Tables 1 to 6, land per phase, the Module 1
+review); the standing lessons are [docs/TRAPS.md](docs/TRAPS.md) 3.22, 7.37 to 7.40, 9.6, 10.22
+and 10.23. **FMP RE HUB IS DELETED** (founder, 2026-09-12): one live project carries assets now,
+so every verifier or fixture that expected two was re-aimed to one (`verify-project-integrity`
+C2, `verify-consolidated-view` D3, `verify-consolidation-key`, `verify-asset-label` F1,
+`verify-retail-companion` I4); `scripts/fmpReHubSnapshot.json` stays as a FIXTURE and is not a
+live project. Findings that were RE HUB's alone (the operational phase double-listing its land,
+its facility shares summing to 33.33%) are closed with it.
 
-1. **MOVE THE REMAINING THREE ASSETS-TAB RECONCILIATIONS INTO THE STORE** (`syncDerivedAreas` moved on 2026-09-12 through `computeAssetChain`, and it is the one capex depends on; the three below are what is left). **HELD DELIBERATELY,
-   AND IT IS THE REAL ANSWER TO "A CHANGE MUST PROPAGATE EVERYWHERE".**
-   `syncRetailCompanions`, `syncLineSubUnits`, `syncDerivedSupport` and
-   `syncDerivedAreas` are `useEffect`s in `Module1Assets.tsx`, each with exactly
-   one caller, and all four write to the SHARED store. So every other module and
-   every export reads whatever the last visit to that ONE tab left behind, which
-   is how a stale row reached Capex (TRAPS 7.38). They are already the right
-   shape (a pure planner plus an applier that returns the same state when
-   nothing moved); what they depend on is the tab's own `rowGroups` /
-   `lineGroups`, which run the area chain, so moving them means lifting that
-   derivation into a selector the store can call. **It moves money**:
-   `syncLineSubUnits` seeds a row on an asset that had no area (Marina Gate: four
-   lines, debt +8.02bn when it shipped). Own step, own before and after.
+1. **MODULE 2 REVENUE, next.** (a) The founder flags a NAV MISCLASSIFICATION on the Revenue tab:
+   not yet diagnosed here; start by listing what the tab files where against the strategy each
+   asset carries (the tab's own `isHospitality` was the eighth classifier found in consolidation
+   step 6, and is the first suspect). (b) A switched Lease or Operate asset carries NO `revenue`
+   block, so its sub-unit rate earns nothing until the tab is opened on it (measured: 1,400 per
+   sqm gives 0.00 with no block, 75,600,000.00 once one exists); the two retail strips have a
+   block and no occupancy. Decide whether the switch should SEED an empty block.
+   (c) Hospitality now counts KEYS by default and is seeded with a keys row from the type's unit
+   size (2026-09-12): the revenue side must read keys x ADR x occupancy off that row.
 
-2. **THE REVENUE SIDE OF MARINA GATE'S STRATEGY FIX.** The seven assets are done
-   (the founder switched them in the browser; reversing each switch with the
-   pure function shows the whole effect was +86,818,210.38 of depreciation and
-   nothing else). What is left is that a switched Lease or Operate asset carries
-   NO `revenue` block, so the sub-unit rate earns nothing until Module 2 Revenue
-   is opened on it: measured, 1,400 per sqm gives 0.00 with no block and
-   75,600,000.00 once one exists. The two retail strips have a block and a rate
-   and no occupancy. `applyStrategySwitch` reports all of this as `needsReview`
-   by design; the question to settle is whether the switch should SEED an empty
-   block so the rate has somewhere to land.
+2. **THE PER-PLOT ENTRY QUESTION.** Sub-units are not mandatory and an asset may carry one main
+   unit (founder, 2026-09-12), so a line's NSA may sit on one of its plots (Marina Gate Phase 1
+   Branded Villas: all 22,440.50 sqm on Land 1's two rows, none on Land 2). Right per line, blank
+   per plot. Open: whether anything downstream needs per-plot revenue or sub-units, or whether the
+   line is the unit of pricing everywhere and the plot only the unit of land.
 
-3. **DIRTY ON OPEN, THE PART THAT IS NOT THE INTEGRITY PASS.** Opening
-   FMP - MARINA GATE and saving with no edit writes two changes,
-   `cases[case_downside]` and `cases[case_upside]`, auto-seeded by
-   `normaliseCases` in `hydrate`. Pre-dates 2026-09-12 and is unrelated to the
-   integrity pass (RE HUB writes zero). Diagnosed here, not fixed.
+3. **MOVE THE REMAINING THREE ASSETS-TAB RECONCILIATIONS INTO THE STORE.** `syncDerivedAreas`
+   moved on 2026-09-12; `syncRetailCompanions`, `syncLineSubUnits` and `syncDerivedSupport` are
+   still `useEffect`s in `Module1Assets.tsx`, so a model is only as reconciled as the last visit
+   to that tab (TRAPS 7.38). They are the right shape already (a pure planner plus a settling
+   applier); what they need is the tab's chain derivation lifted into a selector the store can
+   call. `syncLineSubUnits` MOVES MONEY (it seeds rows): own step, own before and after.
 
-4. **RE HUB'S INCL-ALL-LAND CAPEX TABLE HAS NEVER FOOTED**, short by
-   1,350,682,386.20, its Phase 1 Hotel whose capex is all in-kind land.
-   Pre-existing, diagnosed, unfixed.
+4. **THE THREE LONG-STANDING SUITE FAILURES**: `verify-excel-export`, `verify-fund-e2e`,
+   `verify-report-arithmetic` (per-asset cost exceeds total development cost on the FIXTURE, so
+   code not data). Diagnosed as pre-existing at every count this month; not yet fixed.
 
-5. **THE IC REPORT, THE DECK AND THE EXPORTS**, still held behind "the model is
-   finalised": `icReport.ts:323` BUA = 0; the deck's "Units" column is a row
-   count and companions are double-listed; the Excel parking Inputs diverge and
-   the landscape / footprint / NDA columns are missing.
+5. **THE IC REPORT, THE DECK AND THE EXPORTS**, still behind "the model is finalised":
+   `icReport.ts:323` BUA = 0; the deck's "Units" column is a row count and companions are
+   double-listed; the Excel parking Inputs diverge and the landscape / footprint / NDA columns are
+   missing. The capex report now carries per-line Table 1, category tables and the land series;
+   the workbook and deck have not been re-checked against them.
 
-6. **A PRE-EXISTING EM DASH IN `CLAUDE-ROUTES.md`** (the 2026-06-22 entitlements
-   line). The completed sweep covered `src/` and `scripts/` only.
+6. **CANDIDATES FROM THE MODULE 1 REVIEW, LEFT AS THEY ARE:** the `granularity` prop on the
+   results tables (always annual); Financing "6. Capex Breakdown", which now mirrors capex Tables
+   3 and 5 on the financing axis; six copies of the phase-offset rule inside the Costs tab (one
+   helper would do). Pure refactors.
+
+7. **DIRTY ON OPEN, THE PART THAT IS NOT THE INTEGRITY PASS.** Opening Marina Gate and saving
+   with no edit writes `cases[case_downside]` and `cases[case_upside]`, auto-seeded by
+   `normaliseCases` in `hydrate`. Diagnosed, not fixed.
+
+8. **THE HIGH END APARTMENTS HUSK** on Marina Gate is the founder's one click on table 2; that
+   click now takes everything of the asset's own with it (cascade, 2026-09-12).
+
+9. **A PRE-EXISTING EM DASH IN `CLAUDE-ROUTES.md`** (the 2026-06-22 entitlements line).
 
 Everything from the 2026-09-09 list below that is still open remains open.
 

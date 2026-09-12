@@ -1038,6 +1038,24 @@ that error at the same level the database does, and any command that summarises
 a run must include the line that proves the run ended. A pipeline that can only
 show you bad news will show you nothing at all when the news is worse than bad.
 
+### 3.22 A replacement string containing `$'` splices the target file in two
+
+**Symptom (2026-09-12):** a patch script inserting a verifier block with `s.replace(anchor, block + anchor)`
+produced a file whose second half sat AFTER `void main();`, with the block's own text cut at
+`Remove ' + '`. The type-check failed with a dozen "Expression expected" errors that named
+nothing in the block.
+
+**Mechanism:** `String.prototype.replace` treats `$'` in a STRING replacement as "the part of the
+subject after the match" (and `$&`, `$\``, `$1` likewise). The block contained the two characters
+`'$' + '{`, which is `$'` once the quotes are read past, so the tail of the file was inserted where
+the block should have continued.
+
+**Fix:** pass a FUNCTION as the replacement (`s.replace(anchor, () => block + anchor)`), which
+takes the text verbatim. Every patch helper in this repo's scratch scripts now does.
+
+**Proof:** the same block, function replacer, produced the intended file; `git checkout` of the
+spliced verifier and a re-run were byte-identical to the hand-written version.
+
 ## 4. PDF export (pdf-lib)
 
 ### 4.1 PDF text is glyph ids, so a naive grep returns nothing
@@ -2286,6 +2304,41 @@ The other three reconciliations (`syncRetailCompanions`, `syncLineSubUnits`,
 
 ---
 
+### 7.39 A per-line section whose row wrote the phase line
+
+**Symptom (2026-09-12):** the founder picked "Rate x Retail GFA" on the retail strip's own capex
+section and every host in the phase read 0: both Phase 1 construction lines had moved to the
+strip-only basis and the project fell from 808m to 663m. No override existed anywhere.
+
+**Mechanism:** the capex tab became per merged LINE, so a strip has a section that reads as its
+own, but the row's writer kept the older rule: with no override in place an edit writes the
+PHASE LINE, which every asset in the phase shares. The "Override" button that would have made it
+per asset was one click nobody knew to make.
+
+**Fix:** a strip's row always writes its own override (`stripOwn` in the row writers, seeded from
+the master exactly as the button seeds), and a load-and-save pass puts the standard construction
+lines back on the reference bases whatever a stray edit did (`applyReferenceCostBases`).
+
+**Proof:** `verify-capex-structure` P4k-m (every writer takes the strip branch), P4n to P4n-e (the
+pass moves exactly the strip-only and Total GFA cases, leaves a parking line on slots or NSA
+alone, and settles).
+
+### 7.40 A land STAGE is not a land VALUE
+
+**Symptom (2026-09-12):** the capex land total read 246,787,500.00 where the assets tab said
+240,000,000.00, and Financing funded the larger number.
+
+**Mechanism:** the engine's land series summed every line in the land STAGE, and the RETT line
+(5% of cash land, the user's own and correct classification for the stage tiles) sat there. A
+classification made for one purpose (stage totals) was read for another (land value).
+
+**Fix:** land VALUE is the two standard land lines by identity (`isLandValueLine`: the
+`land-cash` / `land-inkind` base id or catalog stamp); the stage keeps RETT, the value does not,
+and Table 5 carries the difference as a memo so the two tie by eye.
+
+**Proof:** `verify-capex-structure` P4r (RETT in the stage, out of the value), P4r-c (the memo
+closes on the stage total); Marina Gate 240,000,000.00 + 6,787,500.00 = 246,787,500.00.
+
 ## 8. Registries and two-step registration
 
 ### 8.1 A template registered in one place and not the other fails silently and permanently
@@ -2761,6 +2814,40 @@ pass: a runner that says nothing has not told you it passed.
 **Proof.** Measured, not inferred: `npm run verify:suite` exits 1 with the bare alias and resolves
 with `npx`; `which tsx` finds nothing; the package manifest lists no `tsx` in either dependency
 block.
+
+### 10.22 A verifier that CRASHES counts as one failure, and its checks run nowhere
+
+**Symptom (2026-09-12):** `verify-cost-of-sales` (53 checks) and `verify-ic-report` (82) had run
+nowhere for two days. The suite listed each as a single failing file, in a list of five where
+three were long-standing, so the two looked like more of the same.
+
+**Mechanism:** both read `Asset.name`, retired on 2026-09-10, and threw before their first
+`check()`. A thrown verifier and a verifier with one red check are the same line in the summary.
+Nothing distinguished "135 checks did not run" from "one check failed".
+
+**Fix:** restored and re-aimed at behaviour (`assetLabel`); and the rule that found them: STATE
+THE COUNT EVERY SESSION AND COMPARE IT WITH THE LAST ONE. A suite whose individual-check total
+drops while its file count barely moves has lost a file whole.
+
+**Proof:** 9854 checks after the restore against 9676 the session before, with both files green.
+
+### 10.23 A suite count taken while the tree moves is not a count
+
+**Symptom (2026-09-12):** two full-suite runs reported 143 / 23 and 161 / 5 of 166. Neither was
+true of any commit: the first ran across a window in which one file briefly held a duplicate
+export (every verifier compiled after that moment failed to load, alphabetically from `r` on);
+the second straddled a re-aim of a live census.
+
+**Mechanism:** the runner reads each verifier's source and the code under test as it reaches
+them, so an edit mid-run produces a count that belongs to no tree. Backgrounding the suite while
+continuing to edit makes this the normal case, not the exception.
+
+**Fix:** the session-end count is taken on a CLEAN, COMMITTED tree with nothing else running;
+if an edit is needed before it finishes, stop the run and start it again. The count in CLAUDE.md
+names the commit it was measured at.
+
+**Proof:** the same day's clean-tree runs at `4b711b4a` and `b90470ca` gave 163 / 3 of 166 with
+the same three long-standing failures both times.
 
 ## 11. Content and house style
 

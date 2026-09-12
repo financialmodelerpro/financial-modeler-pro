@@ -265,7 +265,8 @@ async function liveChecks(): Promise<void> {
       }
     }
   }
-  check('G1 both projects with assets were reached', projects === 2, `${projects}`);
+  // RE-AIMED 2026-09-12: the founder deleted FMP RE HUB, so one live project carries assets.
+  check('G1 the projects with assets were reached', projects >= 1, `${projects}`);
   // G2 RE-AIMED 2026-09-09, and the reason is that the founder built the case.
   // It read "EVERY live line has exactly one member, so nothing merges", which
   // was a census of the data on the day it was written, not an invariant. There
