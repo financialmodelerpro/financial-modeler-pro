@@ -2524,11 +2524,11 @@ function AssetResultsTable({
               <th style={TH_T}>Plot</th>
               <th style={TH_T}>Asset</th>
               <th style={TH_N} title="The asset's share of its plot. Read by the land cost methods rate_per_land and rate_per_nda.">Plot Area (sqm)</th>
-              <th style={TH_N} title="Plot Area x Land Utilisation %. Reference: Land Utilized Area. NOTE: the cost method rate_per_nda computes its own net developable area from a roads share and does NOT read this column.">Net Developable Area (sqm)</th>
-              <th style={TH_N} title="Net Developable Area x Ground Coverage %. Reference: Total Used Footprint. Read by no cost method.">Building Footprint (sqm)</th>
+              <th style={TH_N} title="Plot Area x Land Utilisation %. Reference: Land Utilized Area. Read by the cost method rate_x_net_developable_area; the retired rate_per_nda multiplies the gross plot area and does NOT read this column.">Net Developable Area (sqm)</th>
+              <th style={TH_N} title="Net Developable Area x Ground Coverage %. Reference: Total Used Footprint. Read by the cost method rate_x_footprint_area.">Building Footprint (sqm)</th>
               <th style={TH_N} title="One minus Ground Coverage %. Derived, never typed: the developable land the footprint does not cover.">Landscape %</th>
-              <th style={TH_N} title="Net Developable Area x Landscape %. Reference: Total Landscape Area. Read by no cost method.">Landscape and Open Area (sqm)</th>
-              <th style={TH_N} title="Building Footprint x Retail % (ground floor). Reference: Retail GFA. Read by no cost method.">Retail GFA (sqm)</th>
+              <th style={TH_N} title="Net Developable Area x Landscape %. Reference: Total Landscape Area. Read by the cost method rate_x_landscape_area, the reference basis for landscape cost.">Landscape and Open Area (sqm)</th>
+              <th style={TH_N} title="Building Footprint x Retail % (ground floor). Reference: Retail GFA. Read by the cost method rate_x_retail_gfa, on the retail strip that carries it; a host reads 0 there.">Retail GFA (sqm)</th>
               <th style={TH_N} title="Building Footprint less Retail GFA. Reference: Lobby Area GFA. Read by no cost method.">Lobby and Circulation GFA (sqm)</th>
               {/* THE TWO CONTESTED TIERS CARRY THE PLATFORM'S WORDS, and each
                   tooltip names both the reference column and the platform field
@@ -2536,7 +2536,7 @@ function AssetResultsTable({
                   shared word. Reference BUA is the OUTERMOST tier; platform BUA
                   is an inner one. */}
               <th style={TH_N} title="Net Developable Area x FAR, the building with no parking. INTERNAL FIELD: Asset.buaSqm, which is what the cost method rate_per_bua multiplies. Our field names invert the outer two tiers; the display carries the industry word.">Total GFA (sqm)</th>
-              <th style={TH_N} title="Total GFA less Retail GFA and Lobby and Circulation GFA, or the whole of it when there is no retail. Read by no cost method.">Main Asset GFA (sqm)</th>
+              <th style={TH_N} title="Total GFA less Retail GFA and Lobby and Circulation GFA, or the whole of it when there is no retail. Read by the cost method rate_x_main_asset_gfa, the reference basis for superstructure cost.">Main Asset GFA (sqm)</th>
               <th style={TH_N} title="Main Asset GFA x (1 - Service %). INTERNAL FIELD: Asset.sellableBuaSqm, read by the cost method rate_per_nsa.">NSA or GLA (sqm)</th>
               <th style={TH_N} title="Sqm per unit or key. Sub-unit areas first, the asset type average as the fallback. From this project's asset type values on tab 4. Read by no cost method.">Average Unit Size (sqm)</th>
               <th style={TH_N} title="NSA or GLA / Average Unit Size, ROUNDED to whole units. A sub-unit count wins when there is one. Read by the cost method rate_per_unit.">Units or Keys</th>
@@ -2544,8 +2544,8 @@ function AssetResultsTable({
               <th style={TH_N} title="Units or Keys x Parking Ratio, off the ROUNDED count. INTERNAL FIELD: Asset.parkingBaysRequired, read by the cost method rate_per_parking_bay.">Parking Slots</th>
               <th style={TH_N} title="Retail GFA / Area per Slot for retail, on its OWN fixed figure and never the asset's own ratio. Read by no cost method.">Retail Parking Slots</th>
               <th style={TH_N} title="Parking Slots + Retail Parking Slots. Whole by construction. Read by no cost method.">Total Parking Slots</th>
-              <th style={TH_N} title="Parking Slots x Area per Slot, the project figure on tab 4. Read by no cost method.">Parking Area (sqm)</th>
-              <th style={TH_N} title="Retail Parking Slots x Area per Slot. Read by no cost method.">Retail Parking Area (sqm)</th>
+              <th style={TH_N} title="Parking Slots x Area per Slot, the project figure on tab 4. Read by the cost method rate_x_parking_area, the reference basis for parking cost.">Parking Area (sqm)</th>
+              <th style={TH_N} title="Retail Parking Slots x Area per Slot. Read by the cost method rate_x_retail_parking_area, on the retail strip that carries it; a host reads 0 there.">Retail Parking Area (sqm)</th>
               <th style={TH_N} title="Parking Area + Retail Parking Area. Read by no cost method.">Total Parking Area (sqm)</th>
               <th style={TH_N} title="Total GFA + Total Parking Area, everything built. INTERNAL FIELD: Asset.gfaSqm, which is what the cost method rate_per_gfa multiplies. Our field names invert the outer two tiers; the display carries the industry word.">Total BUA (sqm)</th>
             </tr>

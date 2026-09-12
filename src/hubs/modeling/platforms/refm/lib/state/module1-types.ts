@@ -1935,6 +1935,7 @@ export type CostMethod =
   | 'rate_x_landscape_area'    // value × chain landscape and open area
   | 'rate_x_main_asset_gfa'    // value × chain main asset GFA (total less retail and lobby)
   | 'rate_x_retail_parking_area' // value × the retail companion's parking area
+  | 'rate_x_retail_gfa'        // value × the retail companion's ground-floor retail GFA; 0 on a host, whose strip carries it
   // M2.0h Fix 5 (2026-05-07): per-sub-unit custom rates. line.perSubUnitRates
   // holds a rate per sub-unit id plus optional special keys '__support__' /
   // '__parking__' for the asset-level Support and Parking rows. Total =
@@ -1955,26 +1956,44 @@ export type CostMethod =
   | 'percent_of_revenue_cash'  // value% × revenue collected per period (cash basis)
   | 'percent_of_revenue_sale'; // value% × revenue recognised per period (sale basis)
 
+/**
+ * THE PICKER FOLLOWS TABLE 4 (2026-09-12, founder's request). Picking a basis
+ * is choosing which column on the assets tab this rate multiplies, so the
+ * area methods are offered in the ORDER the tab lists its columns: land and
+ * footprint, then floor area outermost-in, then units and parking, then the
+ * total. The lump sum leads, the two non-column area methods and the
+ * per-sub-unit modes follow the columns, and the percentage methods close.
+ * `verify-capex-structure` P4j fails if an area method steps out of that
+ * order. The retired two stay in the list so a line already on one can still
+ * render (P4d), and are never offered to a new line.
+ */
 export const COST_METHODS: readonly CostMethod[] = [
   'fixed',
+  // Land and footprint, as the tab lists them.
   'rate_per_land',
-  'rate_per_nda',
-  'rate_per_roads',
-  'rate_per_gfa',
-  'rate_per_bua',
-  'rate_per_nsa',
-  'rate_per_unit',
-  'rate_per_parking_bay',
-  'rate_x_support_area',
-  'rate_x_parking_area',
-  'rate_x_specific_subunit',
-  // 2026-09-10: the three chain quantities nothing could charge against.
   'rate_x_net_developable_area',
   'rate_x_footprint_area',
   'rate_x_landscape_area',
+  // Floor area, outermost in: retail (the strip's), total, main, NSA.
+  'rate_x_retail_gfa',
+  'rate_per_bua',
   'rate_x_main_asset_gfa',
+  'rate_per_nsa',
+  // Units and parking.
+  'rate_per_unit',
+  'rate_per_parking_bay',
+  'rate_x_parking_area',
   'rate_x_retail_parking_area',
+  // The total.
+  'rate_per_gfa',
+  // Not a tab column.
+  'rate_x_support_area',
+  'rate_x_specific_subunit',
   'per_sub_unit_custom_rates',
+  // Retired: offered only to a line already on them.
+  'rate_per_nda',
+  'rate_per_roads',
+  // Percentages.
   'percent_of_selected',
   'percent_of_construction',
   'percent_of_total_land',
@@ -2018,7 +2037,7 @@ export const COST_METHOD_BASIS_HELP: Partial<Record<CostMethod, string>> = {
   rate_per_gfa:
     "The tab's TOTAL BUA column, the outermost tier. INTERNAL FIELD: AssetAreaMetrics.gfa = NSA + Support + Parking. The platform field is called gfa and the tab calls this tier BUA: the two vocabularies cross here.",
   rate_per_bua:
-    "The tab's TOTAL GFA column, the built floor area. INTERNAL FIELD: AssetAreaMetrics.bua = NSA + Support, parking EXCLUDED. The platform field is called bua and the tab calls this tier GFA: the two vocabularies cross here.",
+    "The tab's TOTAL GFA column, the built floor area. INTERNAL FIELD: AssetAreaMetrics.bua = NSA + Support, parking EXCLUDED. The platform field is called bua and the tab calls this tier GFA: the two vocabularies cross here. On a host with a retail strip this EXCLUDES the retail GFA the strip carries, and it still includes the lobby and service floors: the reference prices superstructure on Main Asset GFA, not on this tier.",
   rate_per_nsa:
     "The tab's NSA or GLA column. INTERNAL FIELD: AssetAreaMetrics.nsa = the sum of the Sellable, Operable and Leasable sub-units.",
   rate_per_unit:
@@ -2036,9 +2055,11 @@ export const COST_METHOD_BASIS_HELP: Partial<Record<CostMethod, string>> = {
   rate_x_landscape_area:
     "The tab's Landscape and Open Area column. INTERNAL FIELD: Asset.derivedAreas.landscapeSqm = net developable x (1 - ground coverage). Derived by the chain; there is no typed counterpart.",
   rate_x_main_asset_gfa:
-    "The tab's Main Asset GFA column. INTERNAL FIELD: Asset.derivedAreas.mainAssetGfaSqm = Total GFA less Retail GFA less Lobby GFA (or Total GFA where there is no retail). Derived by the chain; there is no typed counterpart.",
+    "The tab's Main Asset GFA column, the reference basis for superstructure cost. INTERNAL FIELD: Asset.derivedAreas.mainAssetGfaSqm = Total GFA less Retail GFA less Lobby GFA (or Total GFA where there is no retail). Derived by the chain; there is no typed counterpart. Reads 0 on a retail strip, whose floor area is its Retail GFA.",
   rate_x_retail_parking_area:
     "The tab's Retail Parking Area column, charged on the RETAIL COMPANION and nowhere else: a host reads 0 here because its strip carries that parking. Rate x Parking Area charges a host's main parking and reads 0 on a strip, so each square metre of parking has exactly one method.",
+  rate_x_retail_gfa:
+    "The tab's Retail GFA column, charged on the RETAIL COMPANION and nowhere else: the strip's floor area IS the ground-floor retail its hosts derived, and a host reads 0 here because its strip carries it. The reference prices the retail strip on this figure at its own rate, separately from the hosts' superstructure.",
 };
 
 export const RETIRED_COST_METHODS: readonly CostMethod[] = ['rate_per_nda', 'rate_per_roads'] as const;
@@ -2126,6 +2147,7 @@ export const COST_METHOD_LABELS: Record<CostMethod, string> = {
   rate_x_landscape_area:   'Rate × Landscape and Open Area',
   rate_x_main_asset_gfa:   'Rate × Main Asset GFA',
   rate_x_retail_parking_area: 'Rate × Retail Parking Area',
+  rate_x_retail_gfa:       'Rate × Retail GFA',
   per_sub_unit_custom_rates: 'Per sub-unit custom rates',
   percent_of_selected:     '% of Selected Lines',
   percent_of_construction: '% of Construction',

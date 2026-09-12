@@ -37,7 +37,7 @@ import {
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import {
   computeAssetCost, computeAssetLandBreakdown, computeSubUnitArea, resolveSubUnitMetric, calculateItemTotal,
-  costLineBasisQuantity, costLineCaption,
+  costLineBasisQuantity, costLineCaption, resolveAssetAreaMetrics,
   resolveAssetParkingArea, resolveAssetParkingBays, resolveAssetNetDevelopableArea,
   resolveAssetFootprintArea, resolveAssetLandscapeArea, deriveCostStage, landRateIssueText,
 } from '../src/core/calculations';
@@ -611,7 +611,7 @@ section('K. Area x unit size = count: only two of the three are inputs');
   // the picker order, the label map, the unit label and the two report
   // surfaces: miss one and the method exists and renders as a blank.
   const NEW_METHODS = ['rate_x_net_developable_area', 'rate_x_footprint_area', 'rate_x_landscape_area',
-    'rate_x_main_asset_gfa', 'rate_x_retail_parking_area'];
+    'rate_x_main_asset_gfa', 'rate_x_retail_parking_area', 'rate_x_retail_gfa'];
   const typesSrc2 = fs.readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-types.ts', 'utf8');
   const costsSrc2 = fs.readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx', 'utf8');
   const capexSrc2 = fs.readFileSync('src/hubs/modeling/platforms/refm/lib/reports/capexReports.ts', 'utf8');
@@ -672,7 +672,7 @@ section('K. Area x unit size = count: only two of the three are inputs');
     });
     // Retail parking is NOT chain-only: a strip reads its stamped figure, so it
     // keeps the ordinary 'not defined yet' sentence and is tested by P4e-b.
-    const CHAIN_ONLY = NEW_METHODS.filter((m) => m !== 'rate_x_retail_parking_area');
+    const CHAIN_ONLY = NEW_METHODS.filter((m) => m !== 'rate_x_retail_parking_area' && m !== 'rate_x_retail_gfa');
     check('P4e a chain-only method says the plot states no chain inputs, not a field that does not exist',
       CHAIN_ONLY.every((m) => emptyCap(m).includes('states no chain inputs'))
       && CHAIN_ONLY.every((m) => !emptyCap(m).includes('defined yet')),
@@ -709,6 +709,7 @@ section('K. Area x unit size = count: only two of the three are inputs');
         ['rate_x_landscape_area', 'Landscape and Open Area (sqm)'],
         ['rate_x_main_asset_gfa', 'Main Asset GFA (sqm)'],
         ['rate_x_retail_parking_area', 'Retail Parking Area (sqm)'],
+        ['rate_x_retail_gfa', 'Retail GFA (sqm)'],
       ];
       return PAIRS.every(([m, col]) => {
         const bare = col.replace(' (sqm)', '');
@@ -832,6 +833,75 @@ section('K. Area x unit size = count: only two of the three are inputs');
       && costLineBasisQuantity('rate_per_gfa' as CostMethod, { ...tiers, gfa: pooledGfa } as typeof tiers, { parkingBays: 0 })?.value === 1890
       && Object.keys(costLineBasisQuantity('rate_per_gfa' as CostMethod, tiers, { parkingBays: 0 }) ?? {}).every((k) => k !== 'rate' && k !== 'amount'),
       `pooled=${pooledGfa}`);
+  }
+
+  // ── P4j THE PICKER FOLLOWS TABLE 4 (2026-09-12) ──────────────────────
+  //
+  // Picking a basis is choosing a column on the assets tab, so the picker
+  // offers the area methods in the order the tab lists its columns. Read from
+  // the tab's own header row, so a column added or moved there moves this.
+  {
+    const tabSrc3 = fs.readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx', 'utf8');
+    const rs = tabSrc3.indexOf('function AssetResultsTable(');
+    const re = tabSrc3.indexOf('function MergedLineTable(');
+    const results = rs >= 0 && re > rs ? tabSrc3.slice(rs, re) : '';
+    const headers = [...results.matchAll(/<th style=\{TH_N\}[^>]*>([^<]+)<\/th>/g)].map((m) => m[1].replace(' (sqm)', '').trim());
+    const colIndex = (m: CostMethod): number => headers.indexOf(COST_METHOD_LABELS[m].replace(/^Rate \u00d7 /, ''));
+    const offered = selectableCostMethods().filter((m) => colIndex(m) >= 0);
+    const seq = offered.map(colIndex);
+    check('P4j every area method the picker offers is in the order the assets tab lists its columns',
+      headers.length >= 20 && offered.length >= 13 && seq.every((v, i) => i === 0 || v >= seq[i - 1]),
+      offered.map((m) => `${COST_METHOD_LABELS[m]}@${colIndex(m)}`).join(' > '));
+    check('P4j-b the lump sum leads and the percentages close',
+      selectableCostMethods()[0] === 'fixed'
+      && selectableCostMethods().slice(-8).every((m) => m.startsWith('percent_')));
+  }
+
+  // ── P4k A STRIP IS PRICED ON ITS RETAIL GFA, A HOST ON ITS MAIN GFA ───
+  //
+  // The reference prices a host's superstructure on Main Asset GFA and the
+  // retail strip on Retail GFA at its own rate, so the two methods are
+  // MIRRORS across a host and its strip, like the two parking methods: each
+  // reads its own figure on one side and 0 on the other, so no square metre
+  // is priced twice and none is priced by nothing. Run against the engine.
+  {
+    const strip = {
+      id: 's', phaseId: 'p', isCompanion: true, companionType: 'retail', strategy: 'Lease', visible: true,
+      buaSqm: 1825.69, sellableBuaSqm: 1825.69, parkingArea: 2920, parkingBaysRequired: 73, landAllocation: {},
+    } as unknown as Asset;
+    const host = {
+      id: 'h', phaseId: 'p', visible: true, landAllocation: {},
+      derivedAreas: { totalGfaSqm: 25279.1, retailGfaSqm: 1254.49, mainAssetGfaSqm: 19006.63, parkingAreaSqm: 3560, retailParkingAreaSqm: 2000 },
+    } as unknown as Asset;
+    const project = makeDefaultProject();
+    const mOf = (a: Asset) => resolveAssetAreaMetrics(a, project, [], [strip, host], [], 'sqm');
+    const ms = mOf(strip), mh = mOf(host);
+    check('P4k the strip\'s Retail GFA is its own floor area and a host\'s is 0',
+      Math.abs(ms.retailGfa - 1825.69) < 1e-9 && mh.retailGfa === 0, `strip ${ms.retailGfa} host ${mh.retailGfa}`);
+    check('P4k-b Main Asset GFA is the chain\'s on a host and 0 on the strip; parking mirrors the same way',
+      Math.abs(mh.mainAssetGfa - 19006.63) < 1e-9 && ms.mainAssetGfa === 0
+      && mh.parkingArea === 3560 && ms.parkingArea === 0
+      && mh.retailParkingArea === 0 && ms.retailParkingArea === 2920,
+      `host main ${mh.mainAssetGfa} strip main ${ms.mainAssetGfa}`);
+    const at = (a: Asset, m: string, v: number): number => calculateItemTotal(
+      { id: 'l', name: 'l', method: m, value: v } as unknown as Parameters<typeof calculateItemTotal>[0],
+      { asset: a, metrics: mOf(a), resolvedDirectLineTotals: {} });
+    check('P4k-c Rate x Retail GFA charges the strip and nothing on the host; Rate x Main Asset GFA the reverse',
+      Math.abs(at(strip, 'rate_x_retail_gfa', 2200) - 1825.69 * 2200) < 1e-6 && at(host, 'rate_x_retail_gfa', 2200) === 0
+      && Math.abs(at(host, 'rate_x_main_asset_gfa', 11000) - 19006.63 * 11000) < 1e-6 && at(strip, 'rate_x_main_asset_gfa', 11000) === 0);
+    const capOf = (a: Asset, m: string): string => costLineCaption({
+      line: { id: 'l', name: 'l', method: m, value: 1 } as unknown as Parameters<typeof costLineCaption>[0]['line'],
+      asset: a, metrics: mOf(a), parkingBays: 0, resolvedTotal: 0,
+    });
+    check('P4k-d a strip on Main Asset GFA is told its floor area is Retail GFA, never sent to a plot row it does not have',
+      capOf(strip, 'rate_x_main_asset_gfa').includes('0 on a retail strip')
+      && capOf(strip, 'rate_x_main_asset_gfa').includes('Rate \u00d7 Retail GFA')
+      && !capOf(strip, 'rate_x_main_asset_gfa').includes('states no chain inputs'),
+      capOf(strip, 'rate_x_main_asset_gfa'));
+    check('P4k-e a host on Retail GFA is told the strip carries it, and a plot with no chain keeps the chain sentence',
+      capOf(host, 'rate_x_retail_gfa').includes('charged on the retail strip, 0 on a host')
+      && capOf({ id: 'x', phaseId: 'p', landAllocation: {} } as unknown as Asset, 'rate_x_main_asset_gfa').includes('states no chain inputs'),
+      capOf(host, 'rate_x_retail_gfa'));
   }
 
   // P5 THE RETIRED METHOD STAYS RETIRED. Re-pointing rate_per_nda at the

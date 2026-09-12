@@ -897,7 +897,7 @@ export function aggregatePhaseMetrics(
     unitCount: 0, parkingBays: 0,
     supportArea: 0, parkingArea: 0,
     netDevelopableArea: 0, footprintArea: 0, landscapeArea: 0,
-    mainAssetGfa: 0, retailParkingArea: 0,
+    mainAssetGfa: 0, retailParkingArea: 0, retailGfa: 0,
     landValue: 0, cashLandValue: 0, inKindLandValue: 0,
     totalRevenue: 0,
   };
@@ -919,6 +919,7 @@ export function aggregatePhaseMetrics(
     agg.landscapeArea += m.landscapeArea;
     agg.mainAssetGfa += m.mainAssetGfa;
     agg.retailParkingArea += m.retailParkingArea;
+    agg.retailGfa += m.retailGfa;
     agg.landValue += m.landValue;
     agg.cashLandValue += m.cashLandValue;
     agg.inKindLandValue += m.inKindLandValue;
@@ -947,6 +948,7 @@ export interface AssetAreaMetrics {
   // 2026-09-12: two more of the tab's columns, each charged by one method.
   mainAssetGfa: number;        // the chain's main asset GFA; nothing typed stands in for it
   retailParkingArea: number;   // the retail COMPANION's parking; ZERO on a host, whose strip carries it
+  retailGfa: number;           // the retail COMPANION's ground-floor GFA, the floor area it was built with; ZERO on a host
   // 2026-09-10: the three the chain alone produces. Zero when it derived none
   // (or the project has not opted in), so their methods charge nothing rather
   // than guessing.
@@ -1196,6 +1198,10 @@ export function resolveAssetAreaMetrics(
     ? bua + mainParking + retailParkingArea
     : Math.max(hierarchy.gfa, Math.max(0, asset.gfaSqm ?? 0), bua);
   const mainAssetGfa = companion ? 0 : (has(d?.mainAssetGfaSqm) ? d.mainAssetGfaSqm : 0);
+  // Retail GFA: the strip's own floor area, which is the pooled retail GFA the
+  // factory built it with (its Total GFA and its Retail GFA are ONE figure). A
+  // host reads 0: its strip carries the retail, exactly as with parking.
+  const retailGfa = companion ? bua : 0;
   const unitCount = computeAssetUnitCount(asset, subUnits);
 
   // T3-edit-runtime v7 (2026-05-13): per-asset cash / in-kind split.
@@ -1239,6 +1245,7 @@ export function resolveAssetAreaMetrics(
     parkingArea: mainParking,
     mainAssetGfa,
     retailParkingArea,
+    retailGfa,
     landValue,
     cashLandValue,
     inKindLandValue,
@@ -1334,6 +1341,8 @@ export function calculateItemTotal(
       return safeV * m.mainAssetGfa;
     case 'rate_x_retail_parking_area':
       return safeV * m.retailParkingArea;
+    case 'rate_x_retail_gfa':
+      return safeV * m.retailGfa;
     case 'rate_x_specific_subunit': {
       const target = (ctx.subUnits ?? []).find((u) => u.id === line.subUnitId);
       if (!target) return 0;
@@ -2998,6 +3007,7 @@ export function costLineBasisQuantity(
     case 'rate_x_landscape_area': return { value: metrics.landscapeArea, unit: 'sqm Landscape and Open Area', missing: 'Landscape and open area', derived: true };
     case 'rate_x_main_asset_gfa': return { value: metrics.mainAssetGfa, unit: 'sqm Main Asset GFA', missing: 'Main asset GFA', derived: true };
     case 'rate_x_retail_parking_area': return { value: metrics.retailParkingArea, unit: 'sqm Retail Parking', missing: 'Retail parking (charged on the retail strip, 0 on a host)' };
+    case 'rate_x_retail_gfa': return { value: metrics.retailGfa, unit: 'sqm Retail GFA', missing: 'Retail GFA (charged on the retail strip, 0 on a host)' };
     default: return null;
   }
 }
@@ -3065,6 +3075,12 @@ export function costLineCaption(input: CostLineCaptionInput): string {
   });
   if (q) {
     if (q.value > 0) return fmt(value, 2) + ' x ' + fmtArea(q.value) + ' ' + q.unit;
+    // A RETAIL STRIP HAS NO CHAIN OF ITS OWN (2026-09-12), so 'states no chain
+    // inputs' would send its reader to a plot row it does not have. Its floor
+    // area is the Retail GFA its hosts derived, and that is the method to pick.
+    if (q.derived === true && isRetailCompanion(asset)) {
+      return `${fmt(value, 2)} x - (${q.missing} is 0 on a retail strip, which has no chain of its own; its floor area is its Retail GFA, priced by Rate \u00d7 Retail GFA)`;
+    }
     return q.derived === true ? noDerived(q.missing) : noArea(q.missing);
   }
   switch (method) {

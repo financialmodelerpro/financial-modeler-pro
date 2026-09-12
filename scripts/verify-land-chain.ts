@@ -56,7 +56,7 @@ import {
   type TotalledRow,
 } from '../src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel';
 import type { Asset, Parcel, SubUnit } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
-import { ASSET_TYPES_BY_CATEGORY, selectableCostMethods } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import { ASSET_TYPES_BY_CATEGORY, selectableCostMethods, COST_METHOD_LABELS, isRetiredCostMethod, type CostMethod } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import {
   GROUND_FLOOR_RETAIL_TYPE_LABEL,
   normaliseAssetTypeId,
@@ -741,8 +741,28 @@ function offlineChecks(): void {
       [/rate_per_land and rate_per_nda/, 'Plot Area'],
       [/rate_per_unit/, 'Units or Keys'],
     ].every(([re]) => (re as RegExp).test(resultsBody)));
-  check('U18b a column NO cost method reads says so, rather than staying silent',
-    (resultsBody.match(/Read by no cost method\./g) ?? []).length >= 10);
+  // U18b RE-AIMED 2026-09-12. It counted 'Read by no cost method.' and asked
+  // for at least ten, which was true only while most of the chain's columns
+  // were read by nothing. Seven of them are priced now (footprint, landscape,
+  // retail GFA, main asset GFA, both parking areas, net developable area), so
+  // the sentence had gone FALSE on those columns while the count still
+  // passed. Now each column's tooltip is checked against the picker itself:
+  // a column that says no method reads it must have no method labelled with
+  // its name, and a column a method is labelled with must name that method.
+  {
+    const ths = [...resultsBody.matchAll(/<th style=\{TH_N\} title="([^"]*)">([^<]+)<\/th>/g)]
+      .map((m) => ({ title: m[1], col: m[2].replace(' (sqm)', '').trim() }));
+    const methodFor = (col: string): CostMethod | undefined => (Object.keys(COST_METHOD_LABELS) as CostMethod[])
+      .find((m) => !isRetiredCostMethod(m) && COST_METHOD_LABELS[m] === `Rate \u00d7 ${col}`);
+    const silent = ths.filter((t) => t.title.includes('Read by no cost method.'));
+    check('U18b a column NO cost method reads says so, and ONLY such a column says so',
+      ths.length >= 20 && silent.length >= 5 && silent.every((t) => methodFor(t.col) === undefined),
+      silent.filter((t) => methodFor(t.col) !== undefined).map((t) => `${t.col} is read by ${methodFor(t.col)}`).join(', ') || `${silent.length} silent of ${ths.length}`);
+    const read = ths.filter((t) => methodFor(t.col) !== undefined);
+    check('U18c every column a cost method is labelled with names that method in its tooltip',
+      read.length >= 13 && read.every((t) => t.title.includes(String(methodFor(t.col)))),
+      read.filter((t) => !t.title.includes(String(methodFor(t.col)))).map((t) => `${t.col} (${methodFor(t.col)})`).join(', ') || `${read.length} read`);
+  }
   check('U19 the table states which vocabulary is in force AND that the fields invert',
     tabSrc.includes('data-testid="assets-results-vocabulary"')
     && /standard GCC development terms/.test(resultsBody)

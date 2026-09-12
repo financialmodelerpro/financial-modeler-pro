@@ -190,6 +190,7 @@ function basisLabel(method?: string): string {
     case 'rate_x_landscape_area': return 'per Landscape sqm';
     case 'rate_x_main_asset_gfa': return 'per Main Asset GFA sqm';
     case 'rate_x_retail_parking_area': return 'per Retail Parking sqm';
+    case 'rate_x_retail_gfa': return 'per Retail GFA sqm';
     case 'rate_x_support_area': return 'per Support area';
     case 'rate_x_specific_subunit': return 'per Sub-unit area';
     case 'percent_of_construction': return '% of Construction';
@@ -226,6 +227,7 @@ function basisFor(method: string | undefined, m: AssetAreaMetrics, amount: numbe
     case 'rate_x_landscape_area': return { value: m.landscapeArea, label: 'landscape sqm', kind: 'area' };
     case 'rate_x_main_asset_gfa': return { value: m.mainAssetGfa, label: 'main asset GFA sqm', kind: 'area' };
     case 'rate_x_retail_parking_area': return { value: m.retailParkingArea, label: 'retail parking sqm', kind: 'area' };
+    case 'rate_x_retail_gfa': return { value: m.retailGfa, label: 'retail GFA sqm', kind: 'area' };
     case 'rate_x_support_area': return { value: m.supportArea, label: 'support sqm', kind: 'area' };
     case 'percent_of_total_land': return percentBase(amount, value, 'of total land');
     case 'percent_of_cash_land': return percentBase(amount, value, 'of cash land');
@@ -452,14 +454,24 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
       if (!amount) continue;
       const cl = lineById.get(lineId);
       if (!cl) continue;
-      const b = basisFor(cl.method, metrics, amount, cl.value);
-      // Effective phasing window + method for THIS asset: an active per-asset
-      // override (overridden !== false) wins field-by-field, otherwise the
-      // master line. Mirrors the calc engine's resolution.
+      // Effective method, rate and phasing window for THIS asset: an active
+      // per-asset override (overridden !== false) wins field-by-field, otherwise
+      // the master line. Mirrors the calc engine's resolution.
+      //
+      // THE METHOD AND RATE TOO (2026-09-12). This read the window from the
+      // override and the METHOD and RATE from the master line, so a retail
+      // strip priced by its own override on Rate x Retail GFA reported
+      // "4,200.00 x 0.00 main asset GFA sqm = 7,667,914.90": the engine's amount
+      // beside the master line's basis, which is what a strip has to be on
+      // once the phase line moves to Main Asset GFA. The report states what
+      // was charged, so it states the basis the engine used.
       const ov = costOverrides.find((o) => o.assetId === a.id && o.lineId === lineId && o.overridden !== false);
+      const method = ov?.method ?? cl.method;
+      const value = ov?.value ?? cl.value;
+      const b = basisFor(method, metrics, amount, value);
       lines.push({
         id: lineId,
-        method: String(cl.method ?? ''),
+        method: String(method ?? ''),
         selectedLineIds: cl.selectedLineIds ?? [],
         name: cl.name,
         // deriveCostStage, not the stored field: a standard line's stage is
@@ -467,10 +479,10 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
         // disagree with the screen tiles and the engine for any line whose
         // stored stage was never updated.
         stage: String(deriveCostStage(cl) ?? cl.stage ?? '-'),
-        basis: basisLabel(cl.method),
-        rate: cl.value,
-        isFixed: cl.method === 'fixed',
-        isPercent: isPercentMethod(cl.method),
+        basis: basisLabel(method),
+        rate: value,
+        isFixed: method === 'fixed',
+        isPercent: isPercentMethod(method),
         metricValue: b.value,
         metricLabel: b.label,
         metricKind: b.kind,
@@ -479,7 +491,7 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
         startPeriod: ov?.startPeriod ?? cl.startPeriod,
         endPeriod: ov?.endPeriod ?? cl.endPeriod,
         phasing: String(ov?.phasing ?? cl.phasing ?? 'even'),
-        perSubUnitRates: cl.method === 'per_sub_unit_custom_rates' ? (ov?.perSubUnitRates ?? cl.perSubUnitRates) : undefined,
+        perSubUnitRates: method === 'per_sub_unit_custom_rates' ? (ov?.perSubUnitRates ?? cl.perSubUnitRates) : undefined,
       });
     }
     if (lines.length) {

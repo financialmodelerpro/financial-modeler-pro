@@ -248,6 +248,7 @@ function valueUnitHint(method: CostMethod, currency: string): string {
     case 'rate_x_landscape_area':
     case 'rate_x_main_asset_gfa':
     case 'rate_x_retail_parking_area':
+    case 'rate_x_retail_gfa':
       return `${currency}/sqm`;
     case 'rate_per_unit':
       return `${currency}/unit`;
