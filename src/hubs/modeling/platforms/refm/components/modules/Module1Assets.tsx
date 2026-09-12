@@ -97,6 +97,7 @@ import {
   resolveAssetNsa,
   totalsFromRows,
   POOLED_AREA_KEYS,
+  computeAssetChain,
   type AreaTotals,
   type TotalledRow,
   type AssetPlotGroup,
@@ -113,7 +114,7 @@ import {
 } from '@/src/core/calculations/consolidation';
 import { poolLineAreas, poolLineLand, resolveConsolidatedLine } from '@/src/core/calculations/consolidatedLine';
 import { normaliseAssetTypeId } from '../../lib/state/assetTypeStandards';
-import { computeLandChain, type ChainResult } from '@/src/core/calculations/landChain';
+import type { ChainResult } from '@/src/core/calculations/landChain';
 import type { LandChainInputs } from '@/src/core/calculations/landChain';
 import { currencyHeaderLine, formatArea, formatAccounting } from '@/src/core/formatters';
 
@@ -744,14 +745,20 @@ export default function Module1Assets(): React.JSX.Element {
     rowGroups.flatMap((g) => g.rows).map((r) => ({
       assetId: r.asset.id,
       hasDerivedAreas: r.asset.derivedAreas !== undefined,
-      parkingAreaSqm: r.chain.parkingAreaSqm,
-      parkingSlots: r.chain.parkingSlots,
       landUtilisedSqm: r.chain.landUtilisedSqm,
       footprintSqm: r.chain.footprintSqm,
       landscapeSqm: r.chain.landscapeSqm,
+      totalGfaSqm: r.chain.totalGfaSqm,
+      mainAssetGfaSqm: r.chain.mainAssetGfaSqm,
+      retailGfaSqm: r.chain.retailGfaSqm,
+      lobbyGfaSqm: r.chain.lobbyGfaSqm,
+      netSaleableSqm: r.chain.netSaleableSqm,
+      parkingAreaSqm: r.chain.parkingAreaSqm,
+      parkingSlots: r.chain.parkingSlots,
+      retailParkingAreaSqm: r.chain.retailParkingAreaSqm,
+      retailParkingSlots: r.chain.retailParkingSlots,
     })),
-    project.useDerivedAreas === true,
-  ), [rowGroups, project.useDerivedAreas]);
+  ), [rowGroups]);
   useEffect(() => { syncDerivedAreas(derivedAreasPlan); }, [derivedAreasPlan, syncDerivedAreas]);
 
   /** Add a sub-unit to a chosen parent, seeded exactly as the per-asset
@@ -1806,37 +1813,14 @@ function buildAssetRows(
       group: g,
       plotLabel,
       rows: g.assets.map((asset) => {
-        const breakdown = computeAssetLandBreakdown(asset, parcels, allAssets, subUnits, landAllocationMode);
-        // THE TYPE RESOLVES ONCE, here as everywhere else: the stored
-        // reference when there is one, else the label normalised into the same
-        // id space. This read the reference alone, so an asset typed in the
-        // table row (which never wrote one) found no standards and the chain
-        // stopped dead at NSA.
-        const typeValues = resolveAssetTypeValues(asset, project.assetTypeValues);
-        const areas = subUnits
-          .filter((u) => u.assetId === asset.id && typeof u.unitArea === 'number' && u.unitArea > 0)
-          .map((u) => u.unitArea);
-        const unitSize = resolveAvgUnitSize(areas, typeValues);
-        // THE TYPE FILLS IN WHAT THE PLOT DID NOT SAY (2026-09-10): coverage,
-        // FAR and the service share. The plot always wins, absent inherits, a
-        // typed 0 is an override. The retail share is never defaulted.
-        const massing = resolveChainDefaults(asset.landChain, typeValues);
-        const chain = computeLandChain(
-          breakdown.landSqm,
-          asset.landChain ? { ...asset.landChain, ...massing } : undefined,
-          {
-            avgUnitSizeSqm: unitSize.value,
-            parkingRatio: typeValues?.parkingRatio,
-            parkingRatioBasis: typeValues?.parkingRatioBasis,
-            parkingAreaPerSlotSqm: project.parkingAreaPerSlotSqm,
-            // THE RETAIL TYPE'S OWN RATIO, stated in sqm per slot. A plot
-            // column until 2026-09-09, a project field until 2026-09-10, and
-            // in both shapes a second home for a number the type table already
-            // had a cell for.
-            retailAreaPerSlotSqm: retailSlotAreaSqm,
-          },
-          computeAssetUnitCount(asset, subUnits),
+        // ONE CHAIN CALL SITE, shared with the store (2026-09-12). The block
+        // that ran here is `computeAssetChain` in the shared model, so the
+        // bag capex reads is filled by the same rule on load and on save as
+        // it is on this tab.
+        const { chain, typeValues, unitSize, massing, landSqm: chainLandSqm } = computeAssetChain(
+          asset, { assets: allAssets, parcels, subUnits, project, landAllocationMode }, retailSlotAreaSqm,
         );
+        const breakdown = { landSqm: chainLandSqm };
         return {
           groupKey: g.key,
           plotLabel,

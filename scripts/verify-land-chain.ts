@@ -459,6 +459,16 @@ function offlineChecks(): void {
   // group by PLOT, because massing belongs to a piece of ground; the MERGE by
   // line is a separate table below them. Both groupings exist on the tab and
   // neither replaces the other.
+  // THE CHAIN IS RUN IN ONE PLACE OUTSIDE THE ENGINE (2026-09-12), and that
+  // place is the shared model, not the tab: `computeAssetChain` is called by
+  // the row builder AND by the store on load and save, so the bag capex reads
+  // is filled by one rule wherever the user is. Three checks below pinned the
+  // tab as the site; they pin the site itself now.
+  const modelChainSrc = readFileSync('src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel.ts', 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  const oneChainSite = (modelChainSrc.match(/computeLandChain\(/g) ?? []).length === 1
+    && (tabSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '').match(/computeLandChain\(/g) ?? []).length === 0
+    && tabSrc.includes('computeAssetChain(');
   check('U1 the assets table exists, grouped by PLOT, with the merge in its own table',
     tabSrc.includes('data-testid="assets-table"')
     && tabSrc.includes('plot-group-${g.key}')
@@ -470,7 +480,7 @@ function offlineChecks(): void {
   // cascade moved to the results table (U12).
   check('U2 the input row carries the five chain inputs, and the chain is what feeds the results',
     ['-utilisation', '-coverage', '-far', '-retail', '-service'].every((k) => tabSrc.includes(`asset-row-\${asset.id}${k}`))
-    && tabSrc.includes('computeLandChain('));
+    && oneChainSite);
   // RE-AIMED 2026-09-08: one asset, one plot. The count cell and the split
   // editor are gone, and what is checked now is that they cannot come back by
   // accident: no way to CREATE a split anywhere in the tab.
@@ -646,7 +656,7 @@ function offlineChecks(): void {
   check('U12c the merged rows are the per-plot rows REGROUPED, not rebuilt',
     /function buildLineRows\(rowGroups: RowGroup\[\], lineGroups: ConsolidationGroup\[\]\)/.test(tabSrc)
     && /const lineRowGroups = buildLineRows\(rowGroups, lineGroups\);/.test(tabSrc)
-    && (tabSrc.match(/computeLandChain\(/g) ?? []).length === 1);
+    && oneChainSite);
   // U13 IS SCOPED TO THE RESULTS COMPONENT'S OWN BODY, and it has to be.
   // The first version asserted only that both tables were PASSED the same
   // array, which a re-sort inside the results component satisfies happily: a
@@ -860,7 +870,7 @@ function offlineChecks(): void {
     `${resolveAssetNsa(0, 27599.1).source} / ${resolveAssetNsa(500, 0).source} / ${resolveAssetNsa(500, undefined).source}`);
   check('U29g the resolved NSA reaches the table from the ROOT, so the chain is not run twice',
     /out\[r\.asset\.id\] = resolveAssetNsa\(r\.asset\.sellableBuaSqm, r\.chain\.netSaleableSqm\)/.test(tabSrc)
-    && (tabSrc.match(/computeLandChain\(/g) ?? []).length === 1
+    && oneChainSite
     && subBody.includes('Sub-units sum to NSA')
     && subBody.includes('Under-allocated') && subBody.includes('Over-allocated'));
   // AND IT SAYS WHICH NSA IT USED. A figure the chain derived and a figure
@@ -1474,43 +1484,43 @@ function offlineChecks(): void {
     // and only that strategy asks: a confirm on every add would be noise
     && tabSrc.includes('handleAddAssetToPhase(phaseId, parcelId, typePatch);'));
 
-  // ── U78 to U80. THE OPT-IN GATES WHAT CAN MOVE MONEY, AND ONLY THAT ─────
+  // ── U78 to U80. EVERY FIGURE TABLE 4 SHOWS CROSSES TO CAPEX, UNGATED ────
   //
-  // `useDerivedAreas` exists because the derived SUPPORT row adds cost to
-  // assets that are already charging. Gating the three chain-only AREAS behind
-  // it too made their cost methods unusable: they have no typed counterpart, so
-  // with the toggle off `rate_x_landscape_area` was selectable, correct, and
-  // multiplied ZERO on every asset of both live projects.
-  //
-  // The split is by what a figure can do on its own. Net developable, footprint
-  // and landscape are each read by exactly ONE thing that computes money, their
-  // own cost method, which exists only because somebody created it. Parking is
-  // not: `resolveAssetParkingArea` falls back to the derived figure when nothing
-  // is typed, and both live projects already carry `rate_x_parking_area` lines,
-  // so deriving it unasked would change a live model.
+  // RE-AIMED 2026-09-12. Until today the bridge carried five figures and
+  // gated two of them behind `useDerivedAreas`, on the reasoning that
+  // deriving parking unasked would change a live model. It did, and the
+  // founder asked for exactly that: the assets tab is the ONE source of
+  // area, and a hand-typed parking figure is no longer a statement. So the
+  // whole of what the chain produced for a plot crosses, and the opt-in now
+  // governs only the derived SUPPORT ROW in table 5.
   const arow = {
     assetId: 'a1', hasDerivedAreas: false,
-    parkingAreaSqm: 2800, parkingSlots: 70,
     landUtilisedSqm: 10000, footprintSqm: 6000, landscapeSqm: 4000,
+    totalGfaSqm: 20000, mainAssetGfaSqm: 15000, retailGfaSqm: 3000, lobbyGfaSqm: 2000,
+    netSaleableSqm: 12000, parkingAreaSqm: 2800, parkingSlots: 70,
+    retailParkingAreaSqm: 1000, retailParkingSlots: 25,
   };
-  const keysOff = Object.keys(planDerivedAreas([arow], false).writes[0]?.areas ?? {}).sort();
-  const keysOn = Object.keys(planDerivedAreas([arow], true).writes[0]?.areas ?? {}).sort();
-  check('U78 the three chain-only areas derive with the toggle OFF, so their methods work',
-    JSON.stringify(keysOff) === JSON.stringify(['footprintSqm', 'landscapeSqm', 'netDevelopableSqm']),
-    keysOff.join(','));
-  check('U79 parking stays behind the opt-in, because a live cost line already prices it',
-    !keysOff.includes('parkingAreaSqm') && !keysOff.includes('parkingBays')
-    && keysOn.includes('parkingAreaSqm') && keysOn.includes('parkingBays'),
-    `off=[${keysOff.join(',')}] on=[${keysOn.join(',')}]`);
-  // AN ASSET WITH NO CHAIN STILL DERIVES NOTHING, toggle or no toggle, so this
-  // cannot start writing a bag onto a project that has no massing at all.
+  const areas = planDerivedAreas([arow]).writes[0]?.areas ?? {};
+  const keys = Object.keys(areas).sort();
+  check('U78 the full Table 4 set crosses, with no toggle to leave any of it behind',
+    JSON.stringify(keys) === JSON.stringify(['footprintSqm', 'landscapeSqm', 'lobbyGfaSqm', 'mainAssetGfaSqm',
+      'netDevelopableSqm', 'netSaleableSqm', 'parkingAreaSqm', 'parkingBays', 'retailGfaSqm',
+      'retailParkingAreaSqm', 'retailParkingSlots', 'serviceAreaSqm', 'totalGfaSqm']),
+    keys.join(','));
+  // SERVICE AREA IS THE SUM THE SUPPORT ROW STATES: lobby plus (main less net
+  // saleable). One definition, so the row and the method cannot disagree.
+  check('U79 service area is lobby plus the main asset\'s service share, the support row\'s own sum',
+    areas.serviceAreaSqm === 2000 + (15000 - 12000),
+    `serviceAreaSqm=${areas.serviceAreaSqm}`);
+  // AN ASSET WITH NO CHAIN STILL DERIVES NOTHING, so this cannot start
+  // writing a bag onto a project that has no massing at all; and one that
+  // HAD a bag and now has no chain has it cleared, so a stale figure cannot
+  // outlive the inputs that produced it.
   check('U80 an asset the chain produced nothing for is cleared, not written',
     (() => {
       const bare = { assetId: 'a1', hasDerivedAreas: true };
-      const off = planDerivedAreas([bare], false);
-      const on = planDerivedAreas([bare], true);
-      return off.writes.length === 0 && off.clearIds[0] === 'a1'
-        && on.writes.length === 0 && on.clearIds[0] === 'a1';
+      const plan = planDerivedAreas([bare]);
+      return plan.writes.length === 0 && plan.clearIds[0] === 'a1';
     })());
 
   // ── U73 to U77. THE TYPE'S MASSING DEFAULTS (2026-09-10) ────────────────

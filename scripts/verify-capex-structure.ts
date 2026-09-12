@@ -610,7 +610,8 @@ section('K. Area x unit size = count: only two of the three are inputs');
   // P4 A METHOD IS REGISTERED IN FIVE PLACES OR IT IS HALF ADDED. The union,
   // the picker order, the label map, the unit label and the two report
   // surfaces: miss one and the method exists and renders as a blank.
-  const NEW_METHODS = ['rate_x_net_developable_area', 'rate_x_footprint_area', 'rate_x_landscape_area'];
+  const NEW_METHODS = ['rate_x_net_developable_area', 'rate_x_footprint_area', 'rate_x_landscape_area',
+    'rate_x_main_asset_gfa', 'rate_x_retail_parking_area'];
   const typesSrc2 = fs.readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-types.ts', 'utf8');
   const costsSrc2 = fs.readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx', 'utf8');
   const capexSrc2 = fs.readFileSync('src/hubs/modeling/platforms/refm/lib/reports/capexReports.ts', 'utf8');
@@ -669,10 +670,13 @@ section('K. Area x unit size = count: only two of the three are inputs');
       parkingBays: 0,
       resolvedTotal: 0,
     });
-    check('P4e the three chain-only methods name the switch, not a field that does not exist',
-      NEW_METHODS.every((m) => emptyCap(m).includes('switch on derived areas for this project'))
-      && NEW_METHODS.every((m) => !emptyCap(m).includes('defined yet')),
-      NEW_METHODS.map((m) => `${m}: ${emptyCap(m)}`).join(' | '));
+    // Retail parking is NOT chain-only: a strip reads its stamped figure, so it
+    // keeps the ordinary 'not defined yet' sentence and is tested by P4e-b.
+    const CHAIN_ONLY = NEW_METHODS.filter((m) => m !== 'rate_x_retail_parking_area');
+    check('P4e a chain-only method says the plot states no chain inputs, not a field that does not exist',
+      CHAIN_ONLY.every((m) => emptyCap(m).includes('states no chain inputs'))
+      && CHAIN_ONLY.every((m) => !emptyCap(m).includes('defined yet')),
+      CHAIN_ONLY.map((m) => `${m}: ${emptyCap(m)}`).join(' | '));
     // And the ones that DO have a typed field keep the ordinary sentence.
     check('P4e-b a method with a real field still says the field is not defined yet',
       emptyCap('rate_per_land').includes('no Plot area defined yet'),
@@ -703,6 +707,8 @@ section('K. Area x unit size = count: only two of the three are inputs');
         ['rate_x_net_developable_area', 'Net Developable Area (sqm)'],
         ['rate_x_footprint_area', 'Building Footprint (sqm)'],
         ['rate_x_landscape_area', 'Landscape and Open Area (sqm)'],
+        ['rate_x_main_asset_gfa', 'Main Asset GFA (sqm)'],
+        ['rate_x_retail_parking_area', 'Retail Parking Area (sqm)'],
       ];
       return PAIRS.every(([m, col]) => {
         const bare = col.replace(' (sqm)', '');
@@ -842,10 +848,17 @@ section('K. Area x unit size = count: only two of the three are inputs');
   const storeSrc2 = fs.readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8');
   check('P6 the derived figures go in their OWN bag, never into parkingArea or parkingBaysRequired',
     modelSrc.includes('parkingAreaSqm?: number;')
-    && !/derivedAreas[sS]{0,400}parkingArea:/.test(storeSrc2)
-    && storeSrc2.includes('return { ...a, derivedAreas: next };')
+    // [sS] was a typo for the any-character class and matched nothing, so this
+    // term was always true; it says what it meant now.
+    && !/derivedAreas[\s\S]{0,400}parkingArea:/.test(storeSrc2)
+    // The applier lives in the shared model since 2026-09-12 (load, save and
+    // the tab apply one rule) and the store calls it; the bag is still its own.
+    && modelSrc.includes('return { ...a, derivedAreas: areas };')
+    // The SYNC ACTION itself goes through the applier: load and save also call
+    // it, so a bare includes() stayed true when the sync wrote a user field.
+    && /syncDerivedAreas: \(plan\) => set\(\(s\) => \{\s*const r = applyDerivedAreasPlan\(s\.assets, plan\);/.test(storeSrc2)
     // And it can be cleared, which a written-over user field could not be.
-    && storeSrc2.includes('const { derivedAreas: _drop, ...rest } = a;'));
+    && modelSrc.includes('const { derivedAreas: _drop, ...rest } = a;'));
   check('M5 the table rules read the CORE rule rather than a copy of it',
     fs.readFileSync('src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel.ts', 'utf8')
       .includes('return resolveSubUnitMetric(u as unknown as SubUnitForMetric, asset);'));

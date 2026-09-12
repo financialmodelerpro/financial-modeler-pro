@@ -8,7 +8,7 @@
 Today's dated narrative is in [CHANGELOG.md](CHANGELOG.md) 2026-09-12; the two
 new standing lessons are [docs/TRAPS.md](docs/TRAPS.md) 7.37 and 7.38.
 
-1. **MOVE THE FOUR ASSETS-TAB RECONCILIATIONS INTO THE STORE. HELD DELIBERATELY,
+1. **MOVE THE REMAINING THREE ASSETS-TAB RECONCILIATIONS INTO THE STORE** (`syncDerivedAreas` moved on 2026-09-12 through `computeAssetChain`, and it is the one capex depends on; the three below are what is left). **HELD DELIBERATELY,
    AND IT IS THE REAL ANSWER TO "A CHANGE MUST PROPAGATE EVERYWHERE".**
    `syncRetailCompanions`, `syncLineSubUnits`, `syncDerivedSupport` and
    `syncDerivedAreas` are `useEffect`s in `Module1Assets.tsx`, each with exactly

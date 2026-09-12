@@ -1184,18 +1184,51 @@ export interface SubUnit {
  * optional and an ABSENT one means the chain did not derive it (or the project
  * has not opted in), never zero.
  */
+/**
+ * WHAT THE AREA CHAIN DERIVED FOR THIS PLOT, written by the assets tab, read
+ * by capex (2026-09-12: widened from five figures to the full Table 4 set).
+ *
+ * THIS IS THE ONE BRIDGE between the chain and the engine. The chain runs on
+ * the assets tab and nowhere else; capex reads what it WROTE here and never
+ * runs a chain of its own, so the two tabs cannot hold two answers for the
+ * same area. Until 2026-09-12 only five figures crossed and two of those
+ * only behind an opt-in, so Table 4 showed one building and capex priced
+ * another: on one live plot 25,279 sqm of Total GFA against 23,841, and
+ * 3,560 sqm of parking against a hand-typed 2,800.
+ *
+ * ABSENT MEANS THE CHAIN SAID NOTHING, never zero. A project with no chain
+ * inputs (every asset on one live project) writes no bag at all, and capex
+ * then reads the sub-units and typed fields exactly as it always did.
+ */
 export interface DerivedAreas {
-  /** Chain parking area for THIS asset's own slots, retail parking excluded:
-   *  that belongs to the retail companion, which holds it in its own field. */
-  parkingAreaSqm?: number;
-  /** Chain parking slots, on the same basis. */
-  parkingBays?: number;
   /** Net developable area: plot area x utilisation. */
   netDevelopableSqm?: number;
   /** Building footprint: net developable x ground coverage. */
   footprintSqm?: number;
   /** Landscape and open area: net developable x (1 - coverage). */
   landscapeSqm?: number;
+  /** Total GFA: net developable x FAR. The whole building, retail included. */
+  totalGfaSqm?: number;
+  /** Main asset GFA: total less retail and lobby (or total, with no retail). */
+  mainAssetGfaSqm?: number;
+  /** Retail GFA: what the retail companion carries. */
+  retailGfaSqm?: number;
+  /** Lobby and circulation GFA. */
+  lobbyGfaSqm?: number;
+  /** Service area: lobby plus the main asset's service share, the same sum the
+   *  derived support row states. */
+  serviceAreaSqm?: number;
+  /** Net saleable: main x (1 - service). The chain's NSA; capex prices the
+   *  SUB-UNITS' NSA, which the store keeps equal to the line's. */
+  netSaleableSqm?: number;
+  /** Chain parking area for THIS asset's own slots, retail parking excluded. */
+  parkingAreaSqm?: number;
+  /** Chain parking slots, on the same basis. */
+  parkingBays?: number;
+  /** Retail parking: charged on the retail COMPANION, which holds a stamped
+   *  copy; carried here so the host line can state it. */
+  retailParkingAreaSqm?: number;
+  retailParkingSlots?: number;
 }
 
 // ── Asset ──────────────────────────────────────────────────────────────────
@@ -1900,6 +1933,8 @@ export type CostMethod =
   | 'rate_x_net_developable_area' // value × chain net developable area (land x utilisation)
   | 'rate_x_footprint_area'    // value × chain building footprint
   | 'rate_x_landscape_area'    // value × chain landscape and open area
+  | 'rate_x_main_asset_gfa'    // value × chain main asset GFA (total less retail and lobby)
+  | 'rate_x_retail_parking_area' // value × the retail companion's parking area
   // M2.0h Fix 5 (2026-05-07): per-sub-unit custom rates. line.perSubUnitRates
   // holds a rate per sub-unit id plus optional special keys '__support__' /
   // '__parking__' for the asset-level Support and Parking rows. Total =
@@ -1937,6 +1972,8 @@ export const COST_METHODS: readonly CostMethod[] = [
   'rate_x_net_developable_area',
   'rate_x_footprint_area',
   'rate_x_landscape_area',
+  'rate_x_main_asset_gfa',
+  'rate_x_retail_parking_area',
   'per_sub_unit_custom_rates',
   'percent_of_selected',
   'percent_of_construction',
@@ -1998,6 +2035,10 @@ export const COST_METHOD_BASIS_HELP: Partial<Record<CostMethod, string>> = {
     "The tab's Building Footprint column. INTERNAL FIELD: Asset.derivedAreas.footprintSqm = net developable x ground coverage. Derived by the chain; there is no typed counterpart.",
   rate_x_landscape_area:
     "The tab's Landscape and Open Area column. INTERNAL FIELD: Asset.derivedAreas.landscapeSqm = net developable x (1 - ground coverage). Derived by the chain; there is no typed counterpart.",
+  rate_x_main_asset_gfa:
+    "The tab's Main Asset GFA column. INTERNAL FIELD: Asset.derivedAreas.mainAssetGfaSqm = Total GFA less Retail GFA less Lobby GFA (or Total GFA where there is no retail). Derived by the chain; there is no typed counterpart.",
+  rate_x_retail_parking_area:
+    "The tab's Retail Parking Area column, charged on the RETAIL COMPANION and nowhere else: a host reads 0 here because its strip carries that parking. Rate x Parking Area charges a host's main parking and reads 0 on a strip, so each square metre of parking has exactly one method.",
 };
 
 export const RETIRED_COST_METHODS: readonly CostMethod[] = ['rate_per_nda', 'rate_per_roads'] as const;
@@ -2083,6 +2124,8 @@ export const COST_METHOD_LABELS: Record<CostMethod, string> = {
   rate_x_net_developable_area: 'Rate × Net Developable Area',
   rate_x_footprint_area:   'Rate × Building Footprint',
   rate_x_landscape_area:   'Rate × Landscape and Open Area',
+  rate_x_main_asset_gfa:   'Rate × Main Asset GFA',
+  rate_x_retail_parking_area: 'Rate × Retail Parking Area',
   per_sub_unit_custom_rates: 'Per sub-unit custom rates',
   percent_of_selected:     '% of Selected Lines',
   percent_of_construction: '% of Construction',

@@ -2275,6 +2275,15 @@ derivation into a selector the store can call, and `syncLineSubUnits` moves mone
 on every load cannot mark a project dirty: measured on both live projects by opening and saving
 with no edit.
 
+**Fix, second half (2026-09-12):** the derived-areas reconciliation, the one capex depends on, is
+no longer a tab effect. The chain call the row builder ran inline moved to `computeAssetChain`
+in `_shared/assetTableModel.ts`, and `hydrate` and `extractPersistSnapshot` run
+`planDerivedAreasForModel` through it, so the bag capex reads is filled on every load and every
+save whatever tab is open. Proved by adding an asset through the store with no tab mounted: its
+bag was filled by the save, capex priced its chain GFA, and a second hydrate changed nothing.
+The other three reconciliations (`syncRetailCompanions`, `syncLineSubUnits`,
+`syncDerivedSupport`) still live on the tab.
+
 ---
 
 ## 8. Registries and two-step registration

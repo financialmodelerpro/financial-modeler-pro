@@ -50,6 +50,7 @@ import {
   type RetailCompanionSpec,
 } from '@/src/core/calculations/retailCompanion';
 import type { DerivedAreasPlan, DerivedSupportPlan, LineSubUnitPlan } from '../../components/modules/_shared/assetTableModel';
+import { planDerivedAreasForModel, applyDerivedAreasPlan } from '../../components/modules/_shared/assetTableModel';
 import { applyStrategySwitch, assetHasStrategyAssumptions, seedManageCompanion, needsManageCompanion } from './strategySwitch';
 import { assetsOnParcel, repairProjectIntegrity } from '@/src/core/calculations/projectIntegrity';
 import {
@@ -643,25 +644,11 @@ export function createModule1Store() {
      *
      * SAME STATE WHEN NOTHING MOVED, so opening a project cannot mark it dirty.
      */
+    // ONE APPLIER, shared with load and save (2026-09-12): the rule that was
+    // written here is `applyDerivedAreasPlan` in the shared model.
     syncDerivedAreas: (plan) => set((s) => {
-      const byId = new Map(plan.writes.map((w) => [w.assetId, w.areas] as const));
-      const clear = new Set(plan.clearIds);
-      let changed = false;
-      const assets = s.assets.map((a) => {
-        if (clear.has(a.id)) {
-          if (a.derivedAreas === undefined) return a;
-          changed = true;
-          const { derivedAreas: _drop, ...rest } = a;
-          return rest as typeof a;
-        }
-        const next = byId.get(a.id);
-        if (next === undefined) return a;
-        if (JSON.stringify(a.derivedAreas ?? {}) === JSON.stringify(next)) return a;
-        changed = true;
-        return { ...a, derivedAreas: next };
-      });
-      if (!changed) return {};
-      return { assets };
+      const r = applyDerivedAreasPlan(s.assets, plan);
+      return r.changed ? { assets: r.assets } : {};
     }),
 
     syncDerivedSupport: (plan) => set((s) => {
@@ -1295,7 +1282,10 @@ export function createModule1Store() {
       // Idempotent: on a clean model this returns the object it was given, so
       // the diff a save writes is unchanged and an untouched project still
       // produces an empty change set.
-      const liveModel = repairProjectIntegrity(pickModel(s as unknown as Record<string, unknown>)).state;
+      const repairedLive = repairProjectIntegrity(pickModel(s as unknown as Record<string, unknown>)).state;
+      // And on the way out, so a save never stores a bag older than its inputs.
+      const bridgedLive = applyDerivedAreasPlan(repairedLive.assets, planDerivedAreasForModel(repairedLive));
+      const liveModel = bridgedLive.changed ? { ...repairedLive, assets: bridgedLive.assets } : repairedLive;
       const baseId = baseCaseId(s.cases);
       let baseModel = s.baseSnapshot;
       let cases = s.cases;
@@ -1331,7 +1321,16 @@ export function createModule1Store() {
        * always did and opening one can never mark it dirty.
        */
       const repaired = repairProjectIntegrity(merged);
-      const model = repaired.state;
+      /**
+       * THE BRIDGE TO CAPEX IS FILLED ON LOAD (2026-09-12). Until today it was
+       * filled by an effect on the assets tab and nowhere else, so capex priced
+       * whatever the last visit to that tab had left behind. The chain runs
+       * here through the SAME function the tab calls, and the applier returns
+       * the input array when nothing moved, so a settled project hydrates to
+       * the object it always did.
+       */
+      const bridged = applyDerivedAreasPlan(repaired.state.assets, planDerivedAreasForModel(repaired.state));
+      const model = bridged.changed ? { ...repaired.state, assets: bridged.assets } : repaired.state;
       if (repaired.changed && typeof console !== 'undefined') {
         console.warn(`[REFM] integrity: ${repaired.repairs.length} dangling reference(s) cleared on load`, repaired.repairs);
       }

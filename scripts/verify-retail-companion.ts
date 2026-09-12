@@ -363,7 +363,10 @@ function offlineChecks(): void {
   const tabSrc = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx', 'utf8');
   check('D4 the tab feeds it the chain it ALREADY ran, rather than running a second one',
     /buildRetailCompanionSpecs\(/.test(tabSrc)
-    && (tabSrc.match(/computeLandChain\(/g) ?? []).length === 1
+    // The one chain call site moved to the shared model on 2026-09-12 so the
+    // store can run it too; the tab runs none of its own.
+    && (readFileSync('src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel.ts', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '').match(/computeLandChain\(/g) ?? []).length === 1
+    && (tabSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '').match(/computeLandChain\(/g) ?? []).length === 0
     && /retailGfaSqm: r\.chain\.retailGfaSqm/.test(tabSrc));
   check('D5 the companion is SHOWN, under the line that builds it',
     tabSrc.includes('retail-companion-${group.key}')

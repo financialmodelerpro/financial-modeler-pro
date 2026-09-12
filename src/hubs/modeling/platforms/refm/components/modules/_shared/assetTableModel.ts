@@ -31,12 +31,19 @@
  * No em dashes in this file.
  */
 
-import { resolveAssetPlotDraw, resolveSubUnitMetric } from '@/src/core/calculations';
+import { resolveAssetPlotDraw, resolveSubUnitMetric, computeAssetLandBreakdown, computeAssetUnitCount } from '@/src/core/calculations';
+import { computeLandChain, type ChainResult } from '@/src/core/calculations/landChain';
+import {
+  resolveAssetTypeValues, resolveChainDefaults, resolveRetailSlotArea, resolveAvgUnitSize,
+  type AssetTypeValues, type ResolvedChainDefaults,
+} from '../../../lib/state/assetTypeStandards';
+import type { LandAllocationMode, Project, SubUnit } from '../../../lib/state/module1-types';
 import type { SubUnit as SubUnitForMetric } from '../../../lib/state/module1-types';
 import { groupAssetsForConsolidation, type NormaliseTypeId } from '@/src/core/calculations/consolidation';
 import { poolLineAreas } from '@/src/core/calculations/consolidatedLine';
 import type { Asset, Parcel } from '../../../lib/state/module1-types';
-import { isParcelSentinel } from '../../../lib/state/module1-types';
+import {
+  type DerivedAreas, isParcelSentinel } from '../../../lib/state/module1-types';
 
 /** The bucket for assets that name no real parcel. Not a parcel id, and
  *  deliberately not a valid one, so it can never collide. */
@@ -684,13 +691,8 @@ export function derivedSupportId(assetId: string): string {
  */
 export interface DerivedAreaWrite {
   assetId: string;
-  areas: {
-    parkingAreaSqm?: number;
-    parkingBays?: number;
-    netDevelopableSqm?: number;
-    footprintSqm?: number;
-    landscapeSqm?: number;
-  };
+  /** The bag itself: ONE type, declared with the asset, never restated here. */
+  areas: DerivedAreas;
 }
 
 export interface DerivedAreasPlan {
@@ -702,60 +704,72 @@ export interface DerivedAreasPlan {
 
 /** What one row states for this rule. Structural, so the tab's richer row
  *  satisfies it without this file learning the tab's types. */
+/** The chain figures a row states for the bridge. Structural: the tab passes
+ *  its ChainResult fields by name and this file never learns the tab's row. */
 export interface DerivableAreaRow {
   assetId: string;
   hasDerivedAreas: boolean;
-  parkingAreaSqm?: number;
-  parkingSlots?: number;
   landUtilisedSqm?: number;
   footprintSqm?: number;
   landscapeSqm?: number;
+  totalGfaSqm?: number;
+  mainAssetGfaSqm?: number;
+  retailGfaSqm?: number;
+  lobbyGfaSqm?: number;
+  netSaleableSqm?: number;
+  parkingAreaSqm?: number;
+  parkingSlots?: number;
+  retailParkingAreaSqm?: number;
+  retailParkingSlots?: number;
 }
 
 /**
- * THE OPT-IN GATES WHAT CAN MOVE MONEY BY ITSELF, AND ONLY THAT (2026-09-11).
+ * EVERY FIGURE TABLE 4 SHOWS CROSSES TO CAPEX, UNGATED (2026-09-12).
  *
- * `useDerivedAreas` exists because the derived SUPPORT row adds cost to assets
- * that are already charging, so the user chooses when their numbers move. Two
- * of the five figures here are in that class and three are not:
+ * Until today five figures crossed and two of those only behind
+ * `useDerivedAreas`, with the reasoning that deriving parking unasked would
+ * change a live model. It did, and the founder asked for exactly that: the
+ * assets tab is the one source of truth for area, a hand-typed parking figure
+ * is no longer a statement, and capex may not hold a competing figure. So the
+ * bag carries the whole of what the chain produced for the plot, and the
+ * opt-in now governs only the derived SUPPORT ROW in table 5, which is a row
+ * a user sees and prices, not a bridge.
  *
- *   PARKING AREA AND SLOTS move money on their own. `resolveAssetParkingArea`
- *   falls back to the derived figure when nothing is typed, and BOTH live
- *   projects already carry `rate_x_parking_area` lines, so deriving these
- *   unasked would change a live model. They stay behind the opt-in.
+ * SERVICE AREA IS THE SUM THE SUPPORT ROW STATES: lobby plus the main
+ * asset's service share (main less net saleable). One definition, in one
+ * place, so the row and the method cannot disagree.
  *
- *   NET DEVELOPABLE, FOOTPRINT AND LANDSCAPE cannot. Every reader was traced:
- *   each is read by exactly ONE thing that computes money, its own cost method,
- *   and a project only has one of those because somebody created it. Writing
- *   the figure is therefore inert until that decision is made.
- *
- * GATING THEM ANYWAY MADE THEIR METHODS UNUSABLE. They have no typed
- * counterpart, so with the toggle off `rate_x_landscape_area` was selectable,
- * correct, and multiplied zero on every asset of both live projects. A method
- * that cannot be used is not a method, and a toggle about support rows is not
- * the place to say so.
+ * ABSENT STAYS ABSENT. A figure the chain did not produce is not written,
+ * and an asset the chain produced nothing for has its bag CLEARED, so an
+ * asset with no chain reads its sub-units and typed fields exactly as before
+ * and a project with no chain at all is untouched.
  */
-export function planDerivedAreas(
-  rows: readonly DerivableAreaRow[],
-  enabled: boolean,
-): DerivedAreasPlan {
+export function planDerivedAreas(rows: readonly DerivableAreaRow[]): DerivedAreasPlan {
   const writes: DerivedAreaWrite[] = [];
   const clearIds: string[] = [];
   const num = (v: number | undefined): number | undefined =>
-    (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined);
+    (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined);
+  const put = (o: Record<string, number>, k: string, v: number | undefined): void => {
+    const n = num(v);
+    if (n !== undefined) o[k] = n;
+  };
   for (const r of rows) {
-    // ALWAYS: the three the chain alone produces, read only by their own methods.
-    const always = {
-      ...(num(r.landUtilisedSqm) !== undefined ? { netDevelopableSqm: r.landUtilisedSqm } : {}),
-      ...(num(r.footprintSqm) !== undefined ? { footprintSqm: r.footprintSqm } : {}),
-      ...(num(r.landscapeSqm) !== undefined ? { landscapeSqm: r.landscapeSqm } : {}),
-    };
-    // ON OPT-IN ONLY: the two that a live cost line is already pricing.
-    const gated = enabled ? {
-      ...(num(r.parkingAreaSqm) !== undefined ? { parkingAreaSqm: r.parkingAreaSqm } : {}),
-      ...(num(r.parkingSlots) !== undefined ? { parkingBays: r.parkingSlots } : {}),
-    } : {};
-    const areas = { ...always, ...gated };
+    const areas: Record<string, number> = {};
+    put(areas, 'netDevelopableSqm', r.landUtilisedSqm);
+    put(areas, 'footprintSqm', r.footprintSqm);
+    put(areas, 'landscapeSqm', r.landscapeSqm);
+    put(areas, 'totalGfaSqm', r.totalGfaSqm);
+    put(areas, 'mainAssetGfaSqm', r.mainAssetGfaSqm);
+    put(areas, 'retailGfaSqm', r.retailGfaSqm);
+    put(areas, 'lobbyGfaSqm', r.lobbyGfaSqm);
+    put(areas, 'netSaleableSqm', r.netSaleableSqm);
+    if (num(r.lobbyGfaSqm) !== undefined && num(r.mainAssetGfaSqm) !== undefined && num(r.netSaleableSqm) !== undefined) {
+      put(areas, 'serviceAreaSqm', (r.lobbyGfaSqm as number) + Math.max(0, (r.mainAssetGfaSqm as number) - (r.netSaleableSqm as number)));
+    }
+    put(areas, 'parkingAreaSqm', r.parkingAreaSqm);
+    put(areas, 'parkingBays', r.parkingSlots);
+    put(areas, 'retailParkingAreaSqm', r.retailParkingAreaSqm);
+    put(areas, 'retailParkingSlots', r.retailParkingSlots);
     if (Object.keys(areas).length === 0) {
       if (r.hasDerivedAreas) clearIds.push(r.assetId);
       continue;
@@ -764,7 +778,6 @@ export function planDerivedAreas(
   }
   return { writes, clearIds };
 }
-
 export interface DerivedSupportPlan {
   /** Rows to add or refresh: the chain's lobby plus service, per asset. */
   writes: Array<{ id: string; assetId: string; name: string; areaSqm: number }>;
@@ -822,4 +835,125 @@ export function planDerivedSupport(
     writes.push({ id, assetId: r.assetId, name: `${r.assetName} support and circulation`, areaSqm });
   }
   return { writes, removeIds };
+}
+
+// ── THE CHAIN, RUN IN ONE PLACE (2026-09-12) ──────────────────────────────
+
+/** Everything one row of the assets tab derives for a plot, resolved once. */
+export interface AssetChainResult {
+  chain: ChainResult;
+  landSqm: number;
+  typeValues: AssetTypeValues | undefined;
+  unitSize: ReturnType<typeof resolveAvgUnitSize>;
+  massing: ResolvedChainDefaults;
+}
+
+/** The model the chain needs, structural, so the store and the tab both fit. */
+export interface ChainModel {
+  assets: readonly Asset[];
+  parcels: readonly Parcel[];
+  subUnits: readonly SubUnit[];
+  project: Project;
+  landAllocationMode: LandAllocationMode;
+}
+
+/**
+ * THE ONE CALL SITE. The assets tab ran this inline in its row builder, and
+ * the bridge to capex was filled by an effect on that tab, so a model was
+ * only as current as the last visit there (docs/TRAPS.md 7.38). The store
+ * needs the same derivation on load and on save, and two copies of the
+ * chain call would be two answers one edit apart. So the tab calls this and
+ * so does the store.
+ *
+ * Unit size resolves from the sub-units FIRST, the type average is the
+ * fallback; coverage, FAR and service default from the type; the retail
+ * slot ratio is the retail TYPE's own, resolved once per model by the
+ * caller. Exactly the row builder's rule, moved, not restated.
+ */
+export function computeAssetChain(
+  asset: Asset,
+  model: ChainModel,
+  retailSlotAreaSqm: number | undefined,
+): AssetChainResult {
+  const breakdown = computeAssetLandBreakdown(asset, model.parcels as Parcel[], model.assets as Asset[], model.subUnits as SubUnit[], model.landAllocationMode);
+  const typeValues = resolveAssetTypeValues(asset, model.project.assetTypeValues);
+  const areas = model.subUnits
+    .filter((u) => u.assetId === asset.id && typeof u.unitArea === 'number' && u.unitArea > 0)
+    .map((u) => u.unitArea as number);
+  const unitSize = resolveAvgUnitSize(areas, typeValues);
+  const massing = resolveChainDefaults(asset.landChain, typeValues);
+  const chain = computeLandChain(
+    breakdown.landSqm,
+    asset.landChain ? { ...asset.landChain, ...massing } : undefined,
+    {
+      avgUnitSizeSqm: unitSize.value,
+      parkingRatio: typeValues?.parkingRatio,
+      parkingRatioBasis: typeValues?.parkingRatioBasis,
+      parkingAreaPerSlotSqm: model.project.parkingAreaPerSlotSqm,
+      retailAreaPerSlotSqm: retailSlotAreaSqm,
+    },
+    computeAssetUnitCount(asset, model.subUnits as SubUnit[]),
+  );
+  return { chain, landSqm: breakdown.landSqm, typeValues, unitSize, massing };
+}
+
+/**
+ * THE BRIDGE, PLANNED FROM THE MODEL rather than from the tab's rows, so the
+ * store can fill it on load and on save. Companions are skipped: a companion
+ * has no chain of its own and reads the retail figures stamped onto it.
+ */
+export function planDerivedAreasForModel(model: ChainModel): DerivedAreasPlan {
+  const slot = resolveRetailSlotArea(model.project.assetTypeValues);
+  const rows: DerivableAreaRow[] = [];
+  for (const a of model.assets) {
+    if (a.isCompanion === true) continue;
+    const { chain } = computeAssetChain(a, model, slot);
+    rows.push({
+      assetId: a.id,
+      hasDerivedAreas: a.derivedAreas !== undefined,
+      landUtilisedSqm: chain.landUtilisedSqm,
+      footprintSqm: chain.footprintSqm,
+      landscapeSqm: chain.landscapeSqm,
+      totalGfaSqm: chain.totalGfaSqm,
+      mainAssetGfaSqm: chain.mainAssetGfaSqm,
+      retailGfaSqm: chain.retailGfaSqm,
+      lobbyGfaSqm: chain.lobbyGfaSqm,
+      netSaleableSqm: chain.netSaleableSqm,
+      parkingAreaSqm: chain.parkingAreaSqm,
+      parkingSlots: chain.parkingSlots,
+      retailParkingAreaSqm: chain.retailParkingAreaSqm,
+      retailParkingSlots: chain.retailParkingSlots,
+    });
+  }
+  return planDerivedAreas(rows);
+}
+
+/**
+ * Apply a plan to an asset list. PURE, and it returns the INPUT ARRAY when
+ * nothing moved, which is what lets a load run it without marking a clean
+ * project dirty. Lifted from the store's applier so load, save and the tab
+ * apply one rule.
+ */
+export function applyDerivedAreasPlan<T extends { id: string; derivedAreas?: DerivedAreas }>(
+  assets: readonly T[],
+  plan: DerivedAreasPlan,
+): { assets: T[]; changed: boolean } {
+  const byId = new Map(plan.writes.map((w) => [w.assetId, w.areas] as const));
+  const clear = new Set(plan.clearIds);
+  let changed = false;
+  const next = assets.map((a) => {
+    if (clear.has(a.id)) {
+      if (a.derivedAreas === undefined) return a;
+      changed = true;
+      const { derivedAreas: _drop, ...rest } = a;
+      void _drop;
+      return rest as T;
+    }
+    const areas = byId.get(a.id);
+    if (areas === undefined) return a;
+    if (JSON.stringify(a.derivedAreas ?? {}) === JSON.stringify(areas)) return a;
+    changed = true;
+    return { ...a, derivedAreas: areas };
+  });
+  return { assets: changed ? next : (assets as T[]), changed };
 }

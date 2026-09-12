@@ -212,6 +212,8 @@ function valueUnitHint(method: CostMethod, currency: string): string {
     case 'rate_x_net_developable_area':
     case 'rate_x_footprint_area':
     case 'rate_x_landscape_area':
+    case 'rate_x_main_asset_gfa':
+    case 'rate_x_retail_parking_area':
       return `${currency}/sqm`;
     case 'rate_per_unit':
       return `${currency}/unit`;
@@ -3985,6 +3987,10 @@ export default function Module1Costs(): React.JSX.Element {
   // per-asset sections to just that one and reflects its 3 summary
   // cards (Excl. Land / Excl. Land In-Kind / Incl. Land In-Kind).
   const [selectedCostAssetId, setSelectedCostAssetId] = useState<string | null>(null);
+  /** The consolidated LINE the inputs are open on (2026-09-12). The asset is
+   *  still the unit of edit, because overrides are per asset; the line is the
+   *  unit of navigation, because that is how the assets tab reads the project. */
+  const [selectedCostLineKey, setSelectedCostLineKey] = useState<string | null>(null);
   // P11 Fix 1 (2026-05-13): "Copy to other assets" panel state. Lets the
   // user push the active asset's cost configuration (method, value, start,
   // end, phasing, perSubUnitRates, disabled, debt/equity ratios) onto a
@@ -4491,8 +4497,30 @@ export default function Module1Costs(): React.JSX.Element {
         const firstPhaseWithAssets = phases.find((p) => allVisibleAssets.some((a) => a.phaseId === p.id))?.id;
         const effectivePhaseId = inputsPhaseFilter || firstPhaseWithAssets || phases[0]?.id || '';
         const visiblePillAssets = allVisibleAssets.filter((a) => a.phaseId === effectivePhaseId);
-        const activeAsset = visiblePillAssets.find((a) => a.id === selectedCostAssetId)
-          ?? visiblePillAssets[0];
+        /**
+         * THE INPUTS READ BY LINE, WITH THE PLOTS UNDERNEATH (2026-09-12).
+         *
+         * One pill per consolidated line, through the SAME planner the four
+         * capex tables and both exports order their rows by, so the inputs
+         * and the results cannot disagree about what a row is. A line holding
+         * more than one plot shows its plots on a second row, because the
+         * OVERRIDE is per asset and the user must be able to reach each one.
+         * A line holding one plot shows no second row: there is nothing to
+         * choose. Rates are the phase's and were never per plot.
+         */
+        const linePills = planCapexSummaryLines(
+          visiblePillAssets as unknown as CapexPlannableAsset[],
+          phases,
+          (id) => visiblePillAssets.find((a) => a.id === id)?.name ?? id,
+        );
+        const activeLine = linePills.find((l) => l.key === selectedCostLineKey)
+          ?? linePills.find((l) => l.assetIds.includes(selectedCostAssetId ?? ''))
+          ?? linePills[0];
+        const plotPills = (activeLine?.assetIds ?? [])
+          .map((id) => visiblePillAssets.find((a) => a.id === id))
+          .filter((a): a is Asset => a !== undefined);
+        const activeAsset = plotPills.find((a) => a.id === selectedCostAssetId)
+          ?? plotPills[0];
         const assetPhase = activeAsset ? phases.find((p) => p.id === activeAsset.phaseId) : undefined;
         const phaseStart = assetPhase?.startDate && assetPhase.startDate.length === 10
           ? assetPhase.startDate
@@ -4941,27 +4969,46 @@ export default function Module1Costs(): React.JSX.Element {
                     permanently"), so the bulk toggle had nothing to
                     flip; clicks were silent no-ops. */}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap' }} data-testid="costs-inputs-asset-pills">
-                <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>Asset:</strong>
-                {phaseHasAssets ? visiblePillAssets.map((a) => {
-                  const ph = phases.find((p) => p.id === a.phaseId);
-                  const isActive = a.id === activeAsset?.id;
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap' }} data-testid="costs-inputs-line-pills">
+                <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>Line:</strong>
+                {phaseHasAssets ? linePills.map((ln) => {
+                  const isActive = ln.key === activeLine?.key;
                   return (
                     <button
-                      key={a.id}
+                      key={ln.key}
                       type="button"
-                      onClick={() => setSelectedCostAssetId(a.id)}
+                      onClick={() => { setSelectedCostLineKey(ln.key); setSelectedCostAssetId(ln.assetIds[0] ?? null); }}
                       style={pillStyle(isActive)}
-                      data-testid={`costs-inputs-asset-pill-${a.id}`}
+                      data-testid={`costs-inputs-line-pill-${ln.key}`}
+                      title={ln.assetIds.length > 1 ? `${ln.assetIds.length} plots on this line` : undefined}
                     >
-                      {a.name}
-                      <span style={{ marginLeft: 6, opacity: 0.7, fontSize: 9 }}>{ph?.name ?? ''}</span>
+                      {ln.label}
+                      {ln.assetIds.length > 1 && (<span style={{ marginLeft: 6, opacity: 0.7, fontSize: 9 }}>{ln.assetIds.length} plots</span>)}
                     </button>
                   );
                 }) : (
                   <span style={{ fontSize: 11, color: 'var(--color-meta)', fontStyle: 'italic' }}>(none)</span>
                 )}
               </div>
+              {plotPills.length > 1 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap', marginTop: 6 }} data-testid="costs-inputs-asset-pills">
+                  <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>Plot:</strong>
+                  {plotPills.map((a) => {
+                    const isActive = a.id === activeAsset?.id;
+                    return (
+                      <button
+                        key={a.id}
+                        type="button"
+                        onClick={() => setSelectedCostAssetId(a.id)}
+                        style={pillStyle(isActive)}
+                        data-testid={`costs-inputs-asset-pill-${a.id}`}
+                      >
+                        {assetPlotLabel(a, { parcels, phases }) ?? a.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* P8-Fix 3 (2026-05-12): empty-phase helpful message. When

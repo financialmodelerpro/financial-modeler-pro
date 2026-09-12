@@ -897,6 +897,7 @@ export function aggregatePhaseMetrics(
     unitCount: 0, parkingBays: 0,
     supportArea: 0, parkingArea: 0,
     netDevelopableArea: 0, footprintArea: 0, landscapeArea: 0,
+    mainAssetGfa: 0, retailParkingArea: 0,
     landValue: 0, cashLandValue: 0, inKindLandValue: 0,
     totalRevenue: 0,
   };
@@ -916,6 +917,8 @@ export function aggregatePhaseMetrics(
     agg.netDevelopableArea += m.netDevelopableArea;
     agg.footprintArea += m.footprintArea;
     agg.landscapeArea += m.landscapeArea;
+    agg.mainAssetGfa += m.mainAssetGfa;
+    agg.retailParkingArea += m.retailParkingArea;
     agg.landValue += m.landValue;
     agg.cashLandValue += m.cashLandValue;
     agg.inKindLandValue += m.inKindLandValue;
@@ -939,8 +942,11 @@ export interface AssetAreaMetrics {
   parkingBays: number;         // M2.0d: drives rate_per_parking_bay
   // M2.0g Fix 4 additions: kept for cost methods that target a specific
   // tier (rate_x_support_area / rate_x_parking_area).
-  supportArea: number;         // sub-unit Support + asset.supportArea
-  parkingArea: number;         // typed, else the chain's derived figure
+  supportArea: number;         // the chain's service area, else sub-unit Support + asset.supportArea
+  parkingArea: number;         // MAIN parking: the chain's, else typed; ZERO on a retail companion
+  // 2026-09-12: two more of the tab's columns, each charged by one method.
+  mainAssetGfa: number;        // the chain's main asset GFA; nothing typed stands in for it
+  retailParkingArea: number;   // the retail COMPANION's parking; ZERO on a host, whose strip carries it
   // 2026-09-10: the three the chain alone produces. Zero when it derived none
   // (or the project has not opted in), so their methods charge nothing rather
   // than guessing.
@@ -1153,9 +1159,43 @@ export function resolveAssetAreaMetrics(
   // the asset-level input is filled, asset wins. If both, the larger
   // wins (sub-unit total typically dominates once rows are complete).
   // GFA cascades through bua so it never reads smaller than BUA.
-  const bua = Math.max(hierarchy.bua, Math.max(0, asset.buaSqm ?? 0));
+  /**
+   * THE ASSETS TAB IS THE ONE SOURCE OF AREA (2026-09-12). Where the chain
+   * derived a figure, that figure is priced; where it derived nothing (an
+   * asset with no chain inputs, which is every asset on one live project),
+   * the sub-units and typed fields stand exactly as they did. So a hand-typed
+   * parking area no longer outranks the chain, and a project with no chain is
+   * untouched.
+   *
+   * NSA IS THE SUB-UNITS' (table 5), not the chain's. The store keeps a
+   * line's sub-unit areas equal to the line's NSA through their shares, so the
+   * sub-units ARE the NSA statement, and pricing the chain's own figure here
+   * would be a second copy of the same number one edit away from disagreeing.
+   *
+   * EACH FIGURE IS CHARGED ONCE ACROSS A HOST AND ITS RETAIL STRIP. The
+   * host's Total GFA excludes the retail GFA its companion carries, and its
+   * parking excludes the retail parking its companion carries, exactly as the
+   * land carve already splits the plot. A companion has no chain of its own;
+   * it reads the retail figures the factory stamped onto it.
+   */
+  const d = asset.derivedAreas;
+  const companion = isRetailCompanion(asset);
+  const has = (v: number | undefined): v is number => typeof v === 'number' && Number.isFinite(v);
   const nsa = Math.max(hierarchy.nsa, Math.max(0, asset.sellableBuaSqm ?? 0));
-  const gfa = Math.max(hierarchy.gfa, Math.max(0, asset.gfaSqm ?? 0), bua);
+  const supportArea = has(d?.serviceAreaSqm) ? d.serviceAreaSqm : hierarchy.breakdown.supportArea;
+  // Main parking: the chain's, else typed; a strip's parking is retail parking.
+  const mainParking = companion ? 0 : (has(d?.parkingAreaSqm) ? d.parkingAreaSqm : resolveAssetParkingArea(asset));
+  // Retail parking: the strip's stamped figure. A host reads 0: its strip carries it.
+  const retailParkingArea = companion ? resolveAssetParkingArea(asset) : 0;
+  // Total GFA (platform bua): the chain's less the retail its strip carries, else the hierarchy.
+  const bua = has(d?.totalGfaSqm)
+    ? Math.max(0, d.totalGfaSqm - (has(d?.retailGfaSqm) ? d.retailGfaSqm : 0))
+    : Math.max(hierarchy.bua, Math.max(0, asset.buaSqm ?? 0));
+  // Total BUA (platform gfa): that plus the parking this asset itself carries.
+  const gfa = has(d?.totalGfaSqm)
+    ? bua + mainParking + retailParkingArea
+    : Math.max(hierarchy.gfa, Math.max(0, asset.gfaSqm ?? 0), bua);
+  const mainAssetGfa = companion ? 0 : (has(d?.mainAssetGfaSqm) ? d.mainAssetGfaSqm : 0);
   const unitCount = computeAssetUnitCount(asset, subUnits);
 
   // T3-edit-runtime v7 (2026-05-13): per-asset cash / in-kind split.
@@ -1194,9 +1234,11 @@ export function resolveAssetAreaMetrics(
     bua,
     nsa,
     unitCount,
-    parkingBays: resolveAssetParkingBays(asset),
-    supportArea: hierarchy.breakdown.supportArea,
-    parkingArea: hierarchy.breakdown.parkingArea,
+    parkingBays: companion ? 0 : (has(d?.parkingBays) ? d.parkingBays : resolveAssetParkingBays(asset)),
+    supportArea,
+    parkingArea: mainParking,
+    mainAssetGfa,
+    retailParkingArea,
     landValue,
     cashLandValue,
     inKindLandValue,
@@ -1288,6 +1330,10 @@ export function calculateItemTotal(
       return safeV * m.footprintArea;
     case 'rate_x_landscape_area':
       return safeV * m.landscapeArea;
+    case 'rate_x_main_asset_gfa':
+      return safeV * m.mainAssetGfa;
+    case 'rate_x_retail_parking_area':
+      return safeV * m.retailParkingArea;
     case 'rate_x_specific_subunit': {
       const target = (ctx.subUnits ?? []).find((u) => u.id === line.subUnitId);
       if (!target) return 0;
@@ -2950,6 +2996,8 @@ export function costLineBasisQuantity(
     case 'rate_x_net_developable_area': return { value: metrics.netDevelopableArea, unit: 'sqm Net Developable Area', missing: 'Net developable area', derived: true };
     case 'rate_x_footprint_area': return { value: metrics.footprintArea, unit: 'sqm Building Footprint', missing: 'Building footprint', derived: true };
     case 'rate_x_landscape_area': return { value: metrics.landscapeArea, unit: 'sqm Landscape and Open Area', missing: 'Landscape and open area', derived: true };
+    case 'rate_x_main_asset_gfa': return { value: metrics.mainAssetGfa, unit: 'sqm Main Asset GFA', missing: 'Main asset GFA', derived: true };
+    case 'rate_x_retail_parking_area': return { value: metrics.retailParkingArea, unit: 'sqm Retail Parking', missing: 'Retail parking (charged on the retail strip, 0 on a host)' };
     default: return null;
   }
 }
@@ -3007,7 +3055,7 @@ export function costLineCaption(input: CostLineCaptionInput): string {
   // nothing. The line says which switch to throw, the way the retired roads
   // method says why it charges nothing.
   const noDerived = (label: string): string =>
-    `${fmt(value, 2)} x - (${label} is derived by the area chain; switch on derived areas for this project on the assets tab)`;
+    `${fmt(value, 2)} x - (${label} is derived by the area chain on the assets tab; this plot states no chain inputs, so there is nothing to derive it from)`;
   // THE QUANTITY IS RESOLVED ONCE, by the shared rule above, so this caption
   // and the pooled line figure beside it cannot name two different areas.
   const q = costLineBasisQuantity(method, metrics, {

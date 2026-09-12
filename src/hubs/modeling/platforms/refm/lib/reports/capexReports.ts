@@ -188,6 +188,8 @@ function basisLabel(method?: string): string {
     case 'rate_x_net_developable_area': return 'per Net developable sqm';
     case 'rate_x_footprint_area': return 'per Footprint sqm';
     case 'rate_x_landscape_area': return 'per Landscape sqm';
+    case 'rate_x_main_asset_gfa': return 'per Main Asset GFA sqm';
+    case 'rate_x_retail_parking_area': return 'per Retail Parking sqm';
     case 'rate_x_support_area': return 'per Support area';
     case 'rate_x_specific_subunit': return 'per Sub-unit area';
     case 'percent_of_construction': return '% of Construction';
@@ -222,6 +224,8 @@ function basisFor(method: string | undefined, m: AssetAreaMetrics, amount: numbe
     case 'rate_x_net_developable_area': return { value: m.netDevelopableArea, label: 'net developable sqm', kind: 'area' };
     case 'rate_x_footprint_area': return { value: m.footprintArea, label: 'footprint sqm', kind: 'area' };
     case 'rate_x_landscape_area': return { value: m.landscapeArea, label: 'landscape sqm', kind: 'area' };
+    case 'rate_x_main_asset_gfa': return { value: m.mainAssetGfa, label: 'main asset GFA sqm', kind: 'area' };
+    case 'rate_x_retail_parking_area': return { value: m.retailParkingArea, label: 'retail parking sqm', kind: 'area' };
     case 'rate_x_support_area': return { value: m.supportArea, label: 'support sqm', kind: 'area' };
     case 'percent_of_total_land': return percentBase(amount, value, 'of total land');
     case 'percent_of_cash_land': return percentBase(amount, value, 'of cash land');
