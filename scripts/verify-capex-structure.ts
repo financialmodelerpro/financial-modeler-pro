@@ -1085,6 +1085,14 @@ section('K. Area x unit size = count: only two of the three are inputs');
         isLandValueLine({ id: 'land-cash__p' }) && isLandValueLine({ id: 'land-inkind__p' })
         && isLandValueLine({ id: 'custom-1__p', catalogId: 'land-cash' })
         && !isLandValueLine({ id: 'custom-1__p', catalogId: 'rett' }) && !isLandValueLine({ id: 'infrastructure__p' }));
+      // THE MEMO MAKES IT VERIFIABLE: Table 5 lists every land-stage line that
+      // is not land value, per phase and in total, and closes with land value
+      // + memo = the land stage, the figure the tiles show.
+      check('P4r-c Table 5 carries the memo from the same rule, and closes on the land stage total',
+        costsSrc2.includes("const memoLines = costLines.filter((c) => deriveCostStage(c) === 'land' && !isLandValueLine(c));")
+        && costsSrc2.includes("'memo-total'")
+        && costsSrc2.includes("'stage-total'")
+        && costsSrc2.includes('land value + memo = the land stage total'));
     }
 
     // ── P4q TABLE 1 IS PER LINE, AND THE CATEGORY SUMMARY FOOTS ─────────

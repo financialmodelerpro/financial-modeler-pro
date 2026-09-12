@@ -96,6 +96,7 @@ import {
   computeCashFlowImpact,
   resolveUsefulLifeYears,
   deriveCostStage,
+  isLandValueLine,
   deriveAssetScope,
   distribute,
   distributeItemCost,
@@ -3332,6 +3333,46 @@ function SummaryTables({
           };
           const gCash = grand('cash');
           const gInKind = grand('inKind');
+          /**
+           * THE MEMO (2026-09-12, founder: 'if the difference is RETT only,
+           * show it as a memo so it is verifiable'). Every line in the land
+           * STAGE that is not land VALUE (RETT, a transfer fee), per phase,
+           * from the engine's own per-line schedules, so land value + memo =
+           * the land stage total the tiles show, and the reader can tie the
+           * assets tab's figure to capex by eye.
+           */
+          const memoLines = costLines.filter((c) => deriveCostStage(c) === 'land' && !isLandValueLine(c));
+          const memoSeries = (list: Asset[]): { row: number[]; total: number } => {
+            const projectStartYear = new Date(project.startDate).getUTCFullYear();
+            const annual = new Array<number>(annualPeriodCount).fill(0);
+            let total = 0;
+            for (const a of list) {
+              for (const pb of perPhaseBreakdowns) {
+                const bd = pb.assetTotals[a.id];
+                if (!bd) continue;
+                const phaseObj = phases.find((p) => p.id === pb.phaseId);
+                const phaseStartIso = phaseObj?.startDate && phaseObj.startDate.length === 10 ? phaseObj.startDate : project.startDate;
+                const offset = Math.max(0, new Date(phaseStartIso).getUTCFullYear() - projectStartYear);
+                for (const line of memoLines) {
+                  if (line.phaseId !== a.phaseId) continue;
+                  const pp = bd.perLinePerPeriod[line.id] ?? [];
+                  for (let i = 1; i < pp.length; i++) {
+                    const dest = offset + i - 1;
+                    if (dest >= 0 && dest < annualPeriodCount) { annual[dest] += pp[i] ?? 0; total += pp[i] ?? 0; }
+                  }
+                  const up = phaseLocalToProjectIndex(0, offset);
+                  if (up >= 0 && up < annualPeriodCount) { annual[up] += pp[0] ?? 0; total += pp[0] ?? 0; }
+                }
+              }
+            }
+            return { row: transformAnnualSeries(annual), total };
+          };
+          const memoByPhase = blocks.map((b) => ({ phaseId: b.phaseId, phaseName: b.phaseName, memo: memoSeries(phaseAssets.filter((a) => a.phaseId === b.phaseId)) }))
+            .filter((m) => Math.abs(m.memo.total) > 0.5);
+          const gMemo = memoSeries(phaseAssets.filter((a) => blocks.some((b) => b.phaseId === a.phaseId)));
+          const memoLabel = memoLines.length > 0
+            ? `Memo: ${[...new Set(memoLines.map((c) => c.name))].join(', ')} (land stage, not land value)`
+            : 'Memo: land-stage costs not in land value';
           const cell = (label: string, r: { row: number[]; total: number }, key: string, style: { name: React.CSSProperties; num: React.CSSProperties }, phaseName?: string): React.JSX.Element => (
             <tr key={key} data-testid={`capex-summary-land-${key}`}>
               <td style={style.name}>{label}</td>
@@ -3346,7 +3387,8 @@ function SummaryTables({
               <h3 style={{ ...TABLE_TITLE, margin: 0 }}>Table 5 - Land: Cash and In-Kind (what Financing funds)</h3>
               <div style={{ fontSize: 11, color: 'var(--color-meta)', margin: '4px 0 6px' }}>
                 The land inside Table 2, split into the cash the project pays and the value contributed in kind, per phase.
-                Cash + in-kind = Table 2 less Table 4. The Financing tab reads these phase figures.
+                Cash + in-kind = Table 2 less Table 4, and equals the land value on the assets tab. The Financing tab reads these phase figures.
+                A memo below lists what else sits in the land stage (RETT and the like), so land value + memo = the land stage total.
               </div>
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 11 }}>
@@ -3379,6 +3421,9 @@ function SummaryTables({
                         {cell('Total land, cash', gCash, 'total-cash', ROW_GRAND_TOTAL)}
                         {cell('Total land, in-kind', gInKind, 'total-inkind', ROW_GRAND_TOTAL)}
                         {cell('Total land', { row: gCash.row.map((v, i) => v + (gInKind.row[i] ?? 0)), total: gCash.total + gInKind.total }, 'total', ROW_GRAND_TOTAL)}
+                        {memoByPhase.map((m) => cell(memoLabel, m.memo, `${m.phaseId}-memo`, ROW_DATA, m.phaseName))}
+                        {Math.abs(gMemo.total) > 0.5 && cell(`${memoLabel}, total`, gMemo, 'memo-total', ROW_SUBTOTAL)}
+                        {Math.abs(gMemo.total) > 0.5 && cell('Land stage total (land value + memo, as the tiles show)', { row: gCash.row.map((v, i) => v + (gInKind.row[i] ?? 0) + (gMemo.row[i] ?? 0)), total: gCash.total + gInKind.total + gMemo.total }, 'stage-total', ROW_GRAND_TOTAL)}
                       </>
                     )}
                   </tbody>
