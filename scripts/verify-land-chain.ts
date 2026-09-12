@@ -823,6 +823,13 @@ function offlineChecks(): void {
     && resultsBody.includes('{asset.type || asset.name}')
     && /phaseName=\{group\.parcel \? \((allPhases|phases)\.find/.test(resultsBody)
     && !resultsBody.includes("{parcel ? parcel.name : 'none'}"));
+  // U18j THE STRIP'S LINE READS ITS TYPE and the basis control is worded for
+  // the strategy (2026-09-12): the choice is meaningful on Sell, Lease and
+  // Operate alike (units or area, so per unit or per sqm), only the verb moves.
+  check('U18j Table 5 names the strip by type and words the basis control by strategy',
+    tabSrc.includes("`${a.type || 'Retail'} (Retail)`")
+    && tabSrc.includes("{line.strategy === 'Lease' ? 'Lets by' : line.strategy === 'Operate' ? 'Operates by' : 'Sells by'}")
+    && !tabSrc.includes(">Sells by</span>"));
   check('U19 the table states which vocabulary is in force AND that the fields invert',
     tabSrc.includes('data-testid="assets-results-vocabulary"')
     && /standard GCC development terms/.test(resultsBody)

@@ -3153,6 +3153,8 @@ interface SubUnitLine {
   assetIds: string[];
   /** For the order the table reads in: phase first, then category. */
   phaseId?: string;
+  /** The line's strategy, for the wording of the basis control. */
+  strategy?: AssetStrategy;
   /** The plot each member draws from, for a line that pools more than one. */
   plotByAssetId: Record<string, string | undefined>;
   category: string;
@@ -3235,6 +3237,7 @@ function groupSubUnitsByLine(
       label,
       phaseName,
       phaseId,
+      strategy: members[0]?.strategy,
       plotByAssetId: Object.fromEntries(members.map((m) => [m.id, assetPlotLabel(m, { parcels, phases })])),
       category: members[0] ? assetCapexCategory(members[0], project) : 'Other',
       isStrip: members.length === 1 && isRetailCompanion(members[0]),
@@ -3274,7 +3277,9 @@ function groupSubUnitsByLine(
     claimedByRetail.push(...mine);
     const built = build(
       `retail__${a.id}`,
-      a.name,
+      // THE TYPE, like every other line (2026-09-12): the resolved name carries
+      // the phase, and the phase is already beside the label.
+      `${a.type || 'Retail'} (Retail)`,
       [a],
       mine,
       phases.find((ph) => ph.id === a.phaseId)?.name,
@@ -3424,7 +3429,14 @@ function SubUnitsTable({
                         ?? ((firstRow?.metric === 'units' || (firstRow?.metric as unknown as string) === 'count') ? 'units' : 'area');
                       return (
                         <span style={{ fontWeight: 400, marginLeft: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }} data-testid={`subunits-line-${line.key}-basis-pick`}>
-                          <span style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Sells by</span>
+                          {/* WORDED FOR THE STRATEGY (2026-09-12). The choice is the
+                              same on all three: whether the rows count units or
+                              area, and so whether the rate is per unit or per sqm
+                              (per key per night or per sqm per year on Operate).
+                              Only the verb changes. */}
+                          <span style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }} data-testid={`subunits-line-${line.key}-basis-word`}>
+                            {line.strategy === 'Lease' ? 'Lets by' : line.strategy === 'Operate' ? 'Operates by' : 'Sells by'}
+                          </span>
                           {(['area', 'units'] as const).map((m) => (
                             <label key={m} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, cursor: 'pointer' }}>
                               <input
