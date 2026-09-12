@@ -826,10 +826,36 @@ function offlineChecks(): void {
   // U18j THE STRIP'S LINE READS ITS TYPE and the basis control is worded for
   // the strategy (2026-09-12): the choice is meaningful on Sell, Lease and
   // Operate alike (units or area, so per unit or per sqm), only the verb moves.
-  check('U18j Table 5 names the strip by type and words the basis control by strategy',
+  // RE-AIMED 2026-09-12 (same evening): the founder's rule is by CATEGORY,
+  // not by strategy. Only a Residential line chooses area or units;
+  // hospitality counts keys and retail counts area, with a one-click fix
+  // where a line is not on its category's basis.
+  check('U18j Table 5 names the strip by type, and only a Residential line offers the area / units choice',
     tabSrc.includes("`${a.type || 'Retail'} (Retail)`")
-    && tabSrc.includes("{line.strategy === 'Lease' ? 'Lets by' : line.strategy === 'Operate' ? 'Operates by' : 'Sells by'}")
-    && !tabSrc.includes(">Sells by</span>"));
+    && tabSrc.includes("if (line.category === 'Residential') {")
+    && tabSrc.includes("const fixed: SubUnitMetric = line.category === 'Hospitality' ? 'units' : 'area';")
+    && tabSrc.includes("{fixed === 'units' ? 'Count keys' : 'Count area'}")
+    && !tabSrc.includes("'Lets by'"));
+  check('U18k a new hospitality asset counts keys from creation, and the row picker carries no such default',
+    tabSrc.includes("const hospitality = valuesByType !== undefined && assetCapexCategory({ type: choice.label }, {}) === 'Hospitality';")
+    && tabSrc.includes("...(hospitality ? { subUnitMetric: 'units' as const } : {}),"));
+  {
+    // THE SEED: a keys-counting host with a type unit size is seeded with a
+    // keys row (count = NSA over the size, rounded); without a size, nothing.
+    const host = { id: 'h', phaseId: 'p', type: '4 Star Hotel', strategy: 'Operate', subUnitMetric: 'units', visible: true, landAllocation: {} } as unknown as Parameters<typeof planLineSubUnits>[0][number];
+    const nsa = { h: { value: 18750, source: 'entered' as const } };
+    const withSize = planLineSubUnits([host], [], ['p'], nsa, normaliseAssetTypeId, (a) => a.id, () => 130);
+    const noSize = planLineSubUnits([host], [], ['p'], nsa, normaliseAssetTypeId, (a) => a.id, () => undefined);
+    const seed = withSize.seeds[0];
+    check('U18l a keys-counting host with a type unit size is seeded with a keys row, 18,750 sqm at 130 sqm a key = 144 keys',
+      withSize.seeds.length === 1 && seed.metric === 'units' && seed.units === 144 && seed.unitArea === 130 && seed.category === 'Operable'
+      && noSize.seeds.length === 0,
+      JSON.stringify(withSize.seeds));
+    const storeSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8');
+    check('U18m the store materialises a keys seed as a COUNT with its unit size',
+      storeSrc.includes("metricValue: seed.metric === 'units' ? (seed.units ?? 0) : seed.areaSqm,")
+      && storeSrc.includes("...(seed.unitArea !== undefined ? { unitArea: seed.unitArea } : {}),"));
+  }
   check('U19 the table states which vocabulary is in force AND that the fields invert',
     tabSrc.includes('data-testid="assets-results-vocabulary"')
     && /standard GCC development terms/.test(resultsBody)

@@ -490,6 +490,11 @@ export interface LineSubUnitSeed {
   name: string;
   category: 'Sellable' | 'Operable' | 'Leasable';
   areaSqm: number;
+  /** 'units' when the host counts keys and its type states a unit size
+   *  (2026-09-12): the row is seeded as a COUNT, area derived. Else area. */
+  metric: 'area' | 'units';
+  units?: number;
+  unitArea?: number;
 }
 
 export interface ShareRealloc {
@@ -588,6 +593,9 @@ export function planLineSubUnits(
   nsaByAsset: Record<string, ResolvedNsa>,
   normaliseTypeId: NormaliseTypeId,
   displayName: (a: Asset) => string,
+  /** The unit size the host's TYPE states (tab 4), so a count-metric host can
+   *  be seeded with a keys row. Absent, a count-metric host is not seeded. */
+  unitSizeFor?: (a: Asset) => number | undefined,
 ): LineSubUnitPlan {
   const seeds: LineSubUnitSeed[] = [];
   const reallocations: ShareRealloc[] = [];
@@ -605,15 +613,35 @@ export function planLineSubUnits(
     const memberById = new Map(line.members.map((m) => [m.id, m] as const));
     if (line.subUnits.length === 0) {
       const host = line.members[0];
-      // An asset whose metric is COUNT states its parts as keys, not as an
-      // area, so there is nothing honest to seed.
-      if (!host || host.subUnitMetric === 'units') continue;
+      if (!host) continue;
+      if (host.subUnitMetric === 'units') {
+        // A COUNT-METRIC HOST IS SEEDED WITH A KEYS ROW WHEN ITS TYPE STATES A
+        // UNIT SIZE (2026-09-12, founder: hospitality counts keys by default).
+        // The size is the type's own on tab 4, a stated figure, so the count
+        // is NSA over it, rounded as every count here is. With no size there
+        // is still nothing honest to seed, as before.
+        const size = unitSizeFor?.(host);
+        if (size === undefined || !(size > 0)) continue;
+        const units = Math.max(1, Math.round(nsa / size));
+        seeds.push({
+          lineKey: line.key,
+          assetId: host.id,
+          name: displayName(host),
+          category: seedCategoryFor(String(host.strategy ?? '')),
+          areaSqm: units * size,
+          metric: 'units',
+          units,
+          unitArea: size,
+        });
+        continue;
+      }
       seeds.push({
         lineKey: line.key,
         assetId: host.id,
         name: displayName(host),
         category: seedCategoryFor(String(host.strategy ?? '')),
         areaSqm: nsa,
+        metric: 'area',
       });
       continue;
     }

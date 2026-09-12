@@ -628,8 +628,9 @@ export function createModule1Store() {
           assetId: seed.assetId,
           name: seed.name,
           category: seed.category,
-          metric: 'area',
-          metricValue: seed.areaSqm,
+          metric: seed.metric,
+          metricValue: seed.metric === 'units' ? (seed.units ?? 0) : seed.areaSqm,
+          ...(seed.unitArea !== undefined ? { unitArea: seed.unitArea } : {}),
           // THE WHOLE OF IT, STATED AS A SHARE, so the row follows the line's
           // NSA from here on rather than freezing at the area it was born with.
           nsaSharePct: 100,

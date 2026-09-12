@@ -420,10 +420,15 @@ function assetTypePatch(
   const strategy = valuesByType === undefined
     ? undefined
     : resolveAssetTypeValues({ type: choice.label, assetTypeId }, valuesByType)?.strategy;
+  // HOSPITALITY COUNTS KEYS BY DEFAULT (2026-09-12, founder): a new hotel
+  // or resort asset states its parts as keys. Creation only, like the
+  // strategy: the row picker passes no values and so carries neither.
+  const hospitality = valuesByType !== undefined && assetCapexCategory({ type: choice.label }, {}) === 'Hospitality';
   return {
     type: choice.label,
     assetTypeId,
     ...(strategy !== undefined ? { strategy } : {}),
+    ...(hospitality ? { subUnitMetric: 'units' as const } : {}),
   };
 }
 
@@ -694,8 +699,11 @@ export default function Module1Assets(): React.JSX.Element {
     subUnits,
     phases.map((p) => p.id),
     nsaByAsset,
-    normaliseAssetTypeId,    (a) => a.name,
-  ), [assets, subUnits, phases, nsaByAsset]);
+    normaliseAssetTypeId,
+    (a) => a.name,
+    // The type's unit size, so a keys-counting host is seeded with a keys row.
+    (a) => resolveAssetTypeValues(a, project.assetTypeValues)?.avgUnitSizeSqm,
+  ), [assets, subUnits, phases, nsaByAsset, project.assetTypeValues]);
   useEffect(() => {
     syncLineSubUnits(subUnitPlan, () => mintId('subunit'));
   }, [subUnitPlan, syncLineSubUnits]);
@@ -3427,30 +3435,47 @@ function SubUnitsTable({
                       const firstRow = line.rows[0]?.unit;
                       const current: SubUnitMetric = first?.subUnitMetric
                         ?? ((firstRow?.metric === 'units' || (firstRow?.metric as unknown as string) === 'count') ? 'units' : 'area');
-                      return (
-                        <span style={{ fontWeight: 400, marginLeft: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }} data-testid={`subunits-line-${line.key}-basis-pick`}>
-                          {/* WORDED FOR THE STRATEGY (2026-09-12). The choice is the
-                              same on all three: whether the rows count units or
-                              area, and so whether the rate is per unit or per sqm
-                              (per key per night or per sqm per year on Operate).
-                              Only the verb changes. */}
-                          <span style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }} data-testid={`subunits-line-${line.key}-basis-word`}>
-                            {line.strategy === 'Lease' ? 'Lets by' : line.strategy === 'Operate' ? 'Operates by' : 'Sells by'}
+                      // THE BASIS FOLLOWS THE CATEGORY (2026-09-12, founder): only a
+                      // RESIDENTIAL line chooses between selling by area and by unit.
+                      // Hospitality counts keys; retail and commercial count area.
+                      // Where a line is not on its category's basis, one click puts
+                      // it there through the same rule the radio uses (a lone row
+                      // takes the type's unit size, several rows are asked).
+                      if (line.category === 'Residential') {
+                        return (
+                          <span style={{ fontWeight: 400, marginLeft: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }} data-testid={`subunits-line-${line.key}-basis-pick`}>
+                            <span style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }} data-testid={`subunits-line-${line.key}-basis-word`}>Sells by</span>
+                            {(['area', 'units'] as const).map((m) => (
+                              <label key={m} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, cursor: 'pointer' }}>
+                                <input
+                                  type="radio"
+                                  name={`subunits-line-${line.key}-basis`}
+                                  value={m}
+                                  checked={current === m}
+                                  data-testid={`subunits-line-${line.key}-basis-${m}`}
+                                  onChange={() => onSetMetric(line.assetIds, m)}
+                                />
+                                {m === 'area' ? 'Area (sqm)' : 'Units'}
+                              </label>
+                            ))}
                           </span>
-                          {(['area', 'units'] as const).map((m) => (
-                            <label key={m} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, cursor: 'pointer' }}>
-                              <input
-                                type="radio"
-                                name={`subunits-line-${line.key}-basis`}
-                                value={m}
-                                checked={current === m}
-                                data-testid={`subunits-line-${line.key}-basis-${m}`}
-                                onChange={() => onSetMetric(line.assetIds, m)}
-                              />
-                              {m === 'area' ? 'Area (sqm)' : 'Units'}
-                            </label>
-                          ))}
-                        </span>
+                        );
+                      }
+                      const fixed: SubUnitMetric = line.category === 'Hospitality' ? 'units' : 'area';
+                      if (current === fixed) return null;
+                      return (
+                        <button
+                          type="button"
+                          data-testid={`subunits-line-${line.key}-basis-fix`}
+                          data-view-mutates="true"
+                          onClick={() => onSetMetric(line.assetIds, fixed)}
+                          title={fixed === 'units'
+                            ? 'A hospitality line counts keys. This converts the rows to a count, area preserved.'
+                            : 'A retail or commercial line counts area. This converts the rows to sqm, area preserved.'}
+                          style={{ marginLeft: 12, fontSize: 10, padding: '1px 6px', cursor: 'pointer', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', background: 'transparent' }}
+                        >
+                          {fixed === 'units' ? 'Count keys' : 'Count area'}
+                        </button>
                       );
                     })()}
                   </td>
