@@ -44,6 +44,8 @@ import {
 import { eligibleBaseLines, assetVisibleLines } from '../src/core/calculations/selectedBase';
 import { planRetailCompanionOverrides } from '../src/core/calculations/retailCompanion';
 import { applyReferenceCostBases } from '../src/core/calculations/costBases';
+import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import { buildExcelSampleState } from './excelSampleState';
 import { selectableCostMethods, COST_METHOD_LABELS, COST_METHOD_BASIS_HELP, type CostMethod } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { repairStaleWizardCostWindows } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
 import { buildWizardSnapshot } from '../src/hubs/modeling/platforms/refm/lib/wizard/buildWizardSnapshot';
@@ -1016,6 +1018,51 @@ section('K. Area x unit size = count: only two of the three are inputs');
     check('P4o the phasing curve is written to every visible asset of the phase, and only that patch',
       /'capexPhasing' in patch\s*\? allVisibleAssets\.filter\(\(a\) => a\.phaseId === activeAsset\.phaseId\)\s*: lineMembers/.test(costsSrc2)
       && costsSrc2.includes('One phasing curve for every asset in this phase'));
+
+    // ── P4p LAND CASH AND IN-KIND PER PHASE, ONE SERIES FOR TWO TABS ─────
+    //
+    // The financing engine carries the land split per phase now, on the
+    // project axis. Results Table 5 shows it, Financing section 4 reads it,
+    // and the phases must SUM to the project-wide series the year-on-year
+    // financing tables already consume, or the two tabs would drift apart.
+    {
+      const ref = buildExcelSampleState() as unknown as Parameters<typeof computeFinancialsSnapshot>[0];
+      const fin = (computeFinancialsSnapshot(ref) as unknown as { financing: { capex: { perPeriod: { landCash: number[]; landInKind: number[] }; landByPhase?: Array<{ phaseId: string; landCash: number[]; landInKind: number[]; landCashTotal: number; landInKindTotal: number }> } } }).financing.capex;
+      const byPhase = fin.landByPhase ?? [];
+      const sumAt = (k: 'landCash' | 'landInKind', i: number): number => byPhase.reduce((t, p) => t + (p[k][i] ?? 0), 0);
+      const N = fin.perPeriod.landCash.length;
+      const cashTies = Array.from({ length: N }, (_, i) => Math.abs(sumAt('landCash', i) - fin.perPeriod.landCash[i]) < 1e-6).every(Boolean);
+      const inKindTies = Array.from({ length: N }, (_, i) => Math.abs(sumAt('landInKind', i) - fin.perPeriod.landInKind[i]) < 1e-6).every(Boolean);
+      check('P4p the per-phase land series sum to the project-wide landCash and landInKind, period by period',
+        byPhase.length >= 1 && cashTies && inKindTies, `phases ${byPhase.length}`);
+      check('P4p-b each phase\'s totals are its own series summed, and the reference fixture carries land',
+        byPhase.every((p) => Math.abs(p.landCashTotal - p.landCash.reduce((a, b) => a + b, 0)) < 1e-6
+          && Math.abs(p.landInKindTotal - p.landInKind.reduce((a, b) => a + b, 0)) < 1e-6)
+        && byPhase.reduce((t, p) => t + p.landCashTotal + p.landInKindTotal, 0) > 0);
+      check('P4p-c Results Table 5 reads the two halves off the SAME series as tables 2 to 4',
+        costsSrc2.includes("mode === 'landCash' ? Math.max(0, landAll - landInKind)")
+        && costsSrc2.includes("mode === 'landInKind' ? landInKind")
+        && costsSrc2.includes('Table 5 - Land: Cash and In-Kind')
+        && costsSrc2.includes('{renderLandTable()}'));
+      const finSrc = fs.readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Financing.tsx', 'utf8');
+      check('P4p-d Financing section 4 reads the engine\'s per-phase land and never computes plot x rate for itself',
+        finSrc.includes('4. Land Funding (per phase, from the Capex results)')
+        && finSrc.includes('result.capex.landByPhase')
+        && !finSrc.includes('const cashValue = p.area * p.rate')
+        && !finSrc.includes('const inKindValue = p.area * p.rate'));
+      check('P4p-e the debt and equity split is written to every parcel of the phase',
+        /phaseParcels\.forEach\(\(p\) => setParcelFundingPatch\(p\.id, patch\)\)/.test(finSrc));
+      check('P4p-f the Results picker offers merged LINES through the one planner, labelled as table 4 labels them',
+        costsSrc2.includes('const resultLines = planCapexSummaryLines(')
+        && costsSrc2.includes("resultLines.find((ln) => ln.assetIds.includes(stored))")
+        && (() => {
+          // THE RESULTS SELECT ITSELF, not the whole file: another picker on
+          // this tab lists assets by name and is meant to.
+          const at = costsSrc2.indexOf('data-testid="costs-results-single-asset-select"');
+          const body = at >= 0 ? costsSrc2.slice(at, costsSrc2.indexOf('</select>', at)) : '';
+          return body.includes('{lineOptionLabel(ln)}') && !body.includes('{a.name}');
+        })());
+    }
   }
 
   // P5 THE RETIRED METHOD STAYS RETIRED. Re-pointing rate_per_nda at the

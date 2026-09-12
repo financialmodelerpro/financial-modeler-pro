@@ -780,12 +780,22 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
           })()}
 
           <section style={sectionStyle}>
-            <div style={sectionTitle}>4. Land Funding (per parcel, project-wide)</div>
-            {parcels.length === 0 && (
-              <div style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>No parcels defined yet.</div>
+            <div style={sectionTitle}>4. Land Funding (per phase, from the Capex results)</div>
+            {/* PER PHASE, FROM THE ENGINE (2026-09-12, founder's direction). This
+                block used to compute plot x rate x cash % for itself, one row
+                per plot, which is not what the capex tab charges (it carries
+                the RETT and the retail carve, and it is per phase). The cash
+                and in-kind figures here are the capex engine's own per-phase
+                series, the ones Results Table 5 shows, so what is funded is
+                what was priced. The debt and equity split stays STORED per
+                parcel (`parcelFunding`, the funding engine's input), written
+                to every parcel of the phase; a legacy split that differs
+                between a phase's parcels shows as mixed until it is retyped. */}
+            {(result.capex.landByPhase ?? []).length === 0 && (
+              <div style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>No phases with land yet.</div>
             )}
-            {parcels.length > 0 && (
-              <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+            {(result.capex.landByPhase ?? []).length > 0 && (
+              <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }} data-testid="financing-land-funding-by-phase">
                 <colgroup>
                   <col style={{ width: '30%' }} />
                   <col style={{ width: '20%' }} />
@@ -795,43 +805,52 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
                 </colgroup>
                 <thead>
                   <tr>
-                    <th style={CELL_HEADER}>Parcel</th>
-                    <th style={CELL_HEADER}>Cash Value</th>
-                    <th style={CELL_HEADER}>In-Kind Value</th>
+                    <th style={CELL_HEADER}>Phase</th>
+                    <th style={CELL_HEADER}>Land Cash (Capex Table 5)</th>
+                    <th style={CELL_HEADER}>Land In-Kind (Capex Table 5)</th>
                     <th style={CELL_HEADER}>Debt %</th>
                     <th style={CELL_HEADER}>Equity %</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {parcels.map((p) => {
-                    const cfg = (financingConfig.parcelFunding ?? []).find((x) => x.parcelId === p.id);
-                    const cashPct = Math.max(0, Math.min(100, p.cashPct ?? 0));
-                    const cashValue = p.area * p.rate * (cashPct / 100);
-                    const inKindValue = p.area * p.rate * (1 - cashPct / 100);
-                    const debtPct = cfg?.debtPct ?? 0;
-                    const equityPct = cfg?.equityPct ?? (100 - debtPct);
+                  {(result.capex.landByPhase ?? []).map((lp) => {
+                    const phaseParcels = parcels.filter((p) => p.phaseId === lp.phaseId);
+                    const cfgs = phaseParcels.map((p) => (financingConfig.parcelFunding ?? []).find((x) => x.parcelId === p.id));
+                    const debts = cfgs.map((c) => c?.debtPct ?? 0);
+                    const equities = cfgs.map((c, i) => c?.equityPct ?? (100 - debts[i]));
+                    const mixed = debts.some((d) => d !== debts[0]) || equities.some((e) => e !== equities[0]);
+                    const debtPct = debts[0] ?? 0;
+                    const equityPct = equities[0] ?? (100 - debtPct);
+                    const writeAll = (patch: Partial<ParcelFundingConfig>): void => { phaseParcels.forEach((p) => setParcelFundingPatch(p.id, patch)); };
                     return (
-                      <tr key={p.id}>
-                        <td style={ROW_DATA.name}>{p.name}</td>
-                        <td style={ROW_DATA.num}>{fmt(cashValue)}</td>
-                        <td style={ROW_DATA.num}>{fmt(inKindValue)}</td>
+                      <tr key={lp.phaseId} data-testid={`financing-land-funding-${lp.phaseId}`}>
+                        <td style={ROW_DATA.name}>{lp.phaseName}{mixed ? ' (mixed split across its plots, retype to unify)' : ''}</td>
+                        <td style={ROW_DATA.num} data-testid={`financing-land-funding-${lp.phaseId}-cash`}>{fmt(lp.landCashTotal)}</td>
+                        <td style={ROW_DATA.num} data-testid={`financing-land-funding-${lp.phaseId}-inkind`}>{fmt(lp.landInKindTotal)}</td>
                         <td style={ROW_DATA.num}>
                           <PercentageInput
                             value={debtPct}
                             style={{ ...inputStyle, padding: '3px 4px', fontSize: 11, textAlign: 'right' }}
-                            onChange={(v) => setParcelFundingPatch(p.id, { debtPct: v, equityPct: Math.max(0, 100 - v) })}
+                            onChange={(v) => writeAll({ debtPct: v, equityPct: Math.max(0, 100 - v) })}
                           />
                         </td>
                         <td style={ROW_DATA.num}>
                           <PercentageInput
                             value={equityPct}
                             style={{ ...inputStyle, padding: '3px 4px', fontSize: 11, textAlign: 'right' }}
-                            onChange={(v) => setParcelFundingPatch(p.id, { equityPct: v, debtPct: Math.max(0, 100 - v) })}
+                            onChange={(v) => writeAll({ equityPct: v, debtPct: Math.max(0, 100 - v) })}
                           />
                         </td>
                       </tr>
                     );
                   })}
+                  <tr data-testid="financing-land-funding-total">
+                    <td style={ROW_GRAND_TOTAL.name}>Total</td>
+                    <td style={ROW_GRAND_TOTAL.num}>{fmt((result.capex.landByPhase ?? []).reduce((t, lp) => t + lp.landCashTotal, 0))}</td>
+                    <td style={ROW_GRAND_TOTAL.num}>{fmt((result.capex.landByPhase ?? []).reduce((t, lp) => t + lp.landInKindTotal, 0))}</td>
+                    <td style={ROW_GRAND_TOTAL.num}></td>
+                    <td style={ROW_GRAND_TOTAL.num}></td>
+                  </tr>
                 </tbody>
               </table>
             )}

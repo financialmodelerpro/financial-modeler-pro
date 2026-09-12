@@ -3300,7 +3300,17 @@ function SummaryTables({
       {(() => {
         // Helper: build per-asset period series + totals for a given
         // land filter ('exclAll' | 'exclInKind' | 'inclAll').
-        const buildAssetRow = (asset: Asset, mode: 'exclAll' | 'exclInKind' | 'inclAll'): { row: number[]; total: number } => {
+        // 'landCash' and 'landInKind' (2026-09-12) are the two halves of the land
+        // that tables 2 to 4 add or drop, read off the SAME per-period series, so
+        // Table 5 cannot disagree with them: cash + in-kind = table 2 less table 4.
+        type RowMode = 'exclAll' | 'exclInKind' | 'inclAll' | 'landCash' | 'landInKind';
+        const pickMode = (mode: RowMode, tot: number, landAll: number, landInKind: number): number =>
+          mode === 'exclAll' ? tot - landAll
+          : mode === 'exclInKind' ? tot - landInKind
+          : mode === 'landCash' ? Math.max(0, landAll - landInKind)
+          : mode === 'landInKind' ? landInKind
+          : tot;
+        const buildAssetRow = (asset: Asset, mode: RowMode): { row: number[]; total: number } => {
           const projectStartYear = new Date(project.startDate).getUTCFullYear();
           const annualRow = new Array<number>(annualPeriodCount).fill(0);
           let total = 0;
@@ -3316,13 +3326,7 @@ function SummaryTables({
             for (let i = 1; i < bd.perPeriod.length; i++) {
               const dest = offset + i - 1;
               if (dest < 0 || dest >= annualPeriodCount) continue;
-              const tot = bd.perPeriod[i] ?? 0;
-              const landAll = bd.perPeriodLandTotal[i] ?? 0;
-              const landInKind = bd.perPeriodLandInKind[i] ?? 0;
-              const v =
-                mode === 'exclAll' ? tot - landAll
-                : mode === 'exclInKind' ? tot - landInKind
-                : tot;
+              const v = pickMode(mode, bd.perPeriod[i] ?? 0, bd.perPeriodLandTotal[i] ?? 0, bd.perPeriodLandInKind[i] ?? 0);
               annualRow[dest] += v;
               total += v;
             }
@@ -3334,18 +3338,107 @@ function SummaryTables({
             // the money in the wrong place, it was reporting a smaller number.
             const stageUpfrontCol = phaseLocalToProjectIndex(0, offset);
             if (stageUpfrontCol >= 0 && stageUpfrontCol < annualPeriodCount) {
-              const tot = bd.perPeriod[0] ?? 0;
-              const landAll = bd.perPeriodLandTotal[0] ?? 0;
-              const landInKind = bd.perPeriodLandInKind[0] ?? 0;
-              const v =
-                mode === 'exclAll' ? tot - landAll
-                : mode === 'exclInKind' ? tot - landInKind
-                : tot;
+              const v = pickMode(mode, bd.perPeriod[0] ?? 0, bd.perPeriodLandTotal[0] ?? 0, bd.perPeriodLandInKind[0] ?? 0);
               annualRow[stageUpfrontCol] += v;
               total += v;
             }
           }
           return { row: transformAnnualSeries(annualRow), total };
+        };
+
+        /**
+         * TABLE 5, LAND: CASH AND IN-KIND, PER PHASE (2026-09-12, founder's
+         * request). The two halves of the land tables 2 to 4 add or drop, one
+         * block per phase, from the same per-asset series, so the Financing
+         * tab's land funding block can read the phase figures the capex tab
+         * priced instead of computing plot x rate for itself.
+         */
+        const renderLandTable = (): React.JSX.Element => {
+          const sumRows = (list: Asset[], mode: RowMode): { row: number[]; total: number } => {
+            const row = new Array<number>(annualPeriodCount).fill(0);
+            let total = 0;
+            for (const a of list) {
+              const r = buildAssetRow(a, mode);
+              total += r.total;
+              for (let i = 0; i < row.length; i++) row[i] += r.row[i] ?? 0;
+            }
+            return { row, total };
+          };
+          const multiPhase = phases.length > 1;
+          const blocks = phases
+            .map((ph) => {
+              const list = phaseAssets.filter((a) => a.phaseId === ph.id);
+              const cash = sumRows(list, 'landCash');
+              const inKind = sumRows(list, 'landInKind');
+              return { phaseId: ph.id, phaseName: ph.name, cash, inKind, total: cash.total + inKind.total };
+            })
+            .filter((b) => Math.abs(b.total) > 0.5);
+          const grand = (pick: 'cash' | 'inKind'): { row: number[]; total: number } => {
+            const row = new Array<number>(croppedPeriodCount).fill(0);
+            let total = 0;
+            for (const b of blocks) {
+              const src = cropRow(b[pick].row);
+              total += b[pick].total;
+              for (let i = 0; i < croppedPeriodCount; i++) row[i] += src[i] ?? 0;
+            }
+            return { row, total };
+          };
+          const gCash = grand('cash');
+          const gInKind = grand('inKind');
+          const cell = (label: string, r: { row: number[]; total: number }, key: string, style: { name: React.CSSProperties; num: React.CSSProperties }, phaseName?: string): React.JSX.Element => (
+            <tr key={key} data-testid={`capex-summary-land-${key}`}>
+              <td style={style.name}>{label}</td>
+              {multiPhase && (<td style={{ ...style.name, color: 'var(--color-meta)' }}>{phaseName ?? ''}</td>)}
+              <td style={style.num} data-testid={`capex-summary-land-${key}-total`}>{fmt(r.total)}</td>
+              <td style={style.num}>{fmt(PRIOR_ZERO)}</td>
+              {(r.row.length === croppedPeriodCount ? r.row : cropRow(r.row)).map((v, i) => (<td key={i} style={style.num}>{fmt(v)}</td>))}
+            </tr>
+          );
+          return (
+            <div style={sectionCardStyle} data-testid="capex-summary-land">
+              <h3 style={{ ...TABLE_TITLE, margin: 0 }}>Table 5 - Land: Cash and In-Kind (what Financing funds)</h3>
+              <div style={{ fontSize: 11, color: 'var(--color-meta)', margin: '4px 0 6px' }}>
+                The land inside Table 2, split into the cash the project pays and the value contributed in kind, per phase.
+                Cash + in-kind = Table 2 less Table 4. The Financing tab reads these phase figures.
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 11 }}>
+                  <colgroup>
+                    <col style={{ width: COLUMN_WIDTHS.label }} />
+                    {multiPhase && (<col style={{ width: 90 }} />)}
+                    <col style={{ width: nonLabelPct }} />
+                    {periodAxis.labels.map((_, i) => (<col key={i} style={{ width: nonLabelPct }} />))}
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th style={headLeftStyle}>Land</th>
+                      {multiPhase && (<th style={headLeftStyle}>Phase</th>)}
+                      <th style={headStyle}>Total</th>
+                      {periodAxis.labels.map((p, i) => (<th key={i} style={headStyle}>{p}</th>))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {blocks.length === 0 ? (
+                      <tr><td style={ROW_DATA.name} colSpan={(multiPhase ? 3 : 2) + periodAxis.count}>No land value in this view.</td></tr>
+                    ) : (
+                      <>
+                        {blocks.map((b) => (
+                          <React.Fragment key={b.phaseId}>
+                            {cell('Land, cash', b.cash, `${b.phaseId}-cash`, ROW_DATA, b.phaseName)}
+                            {cell('Land, in-kind', b.inKind, `${b.phaseId}-inkind`, ROW_DATA, b.phaseName)}
+                            {multiPhase && cell(`Subtotal, ${b.phaseName}`, { row: b.cash.row.map((v, i) => v + (b.inKind.row[i] ?? 0)), total: b.total }, `${b.phaseId}-subtotal`, ROW_SUBTOTAL)}
+                          </React.Fragment>
+                        ))}
+                        {cell('Total land, cash', gCash, 'total-cash', ROW_GRAND_TOTAL)}
+                        {cell('Total land, in-kind', gInKind, 'total-inkind', ROW_GRAND_TOTAL)}
+                        {cell('Total land', { row: gCash.row.map((v, i) => v + (gInKind.row[i] ?? 0)), total: gCash.total + gInKind.total }, 'total', ROW_GRAND_TOTAL)}
+                      </>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
         };
 
         const renderSummary = (
@@ -3489,6 +3582,7 @@ function SummaryTables({
             {renderSummary('Table 2 - Total Capex Including Land Value', 'inclAll', 'total-capex-incl-land')}
             {renderSummary('Table 3 - Capex Excluding Land In-Kind (cash-impact schedule)', 'exclInKind', 'capex-excl-land-inkind')}
             {renderSummary('Table 4 - Capex Excluding Total Land (pure development cost)', 'exclAll', 'capex-excl-total-land')}
+            {renderLandTable()}
           </>
         );
       })()}
@@ -5168,11 +5262,27 @@ export default function Module1Costs(): React.JSX.Element {
               resultsSelectedAssetId so it survives reload. */}
           {(() => {
             const resultsView: 'combined' | 'single_asset' = project.resultsViewMode ?? 'combined';
-            const resultsAssetId = project.resultsSelectedAssetId
-              ?? (resultsView === 'single_asset' ? allVisibleAssets[0]?.id : undefined);
-            const filteredAssets = resultsView === 'single_asset' && resultsAssetId
-              ? allVisibleAssets.filter((a) => a.id === resultsAssetId)
+            // A LINE PICKER (2026-09-12): the results tables are per merged
+            // line, so the picker offers lines, labelled as table 4 labels
+            // them. `resultsSelectedAssetId` keeps its name and now holds a
+            // line KEY; a stored asset id (the old meaning) resolves to the
+            // line that asset belongs to, so nothing is migrated.
+            const resultLines = planCapexSummaryLines(
+              allVisibleAssets as unknown as CapexPlannableAsset[],
+              phases,
+              (id) => allVisibleAssets.find((x) => x.id === id)?.name ?? id,
+            );
+            const stored = project.resultsSelectedAssetId;
+            const storedLine = stored === undefined ? undefined
+              : (resultLines.find((ln) => ln.key === stored) ?? resultLines.find((ln) => ln.assetIds.includes(stored)));
+            const resultsAssetId = storedLine?.key
+              ?? (resultsView === 'single_asset' ? resultLines[0]?.key : undefined);
+            const activeResultLine = resultLines.find((ln) => ln.key === resultsAssetId);
+            const filteredAssets = resultsView === 'single_asset' && activeResultLine
+              ? allVisibleAssets.filter((a) => activeResultLine.assetIds.includes(a.id))
               : allVisibleAssets;
+            const lineOptionLabel = (ln: { label: string; phaseName: string }): string =>
+              phases.length > 1 && ln.phaseName !== '' ? `${ln.phaseName}: ${ln.label}` : ln.label;
             return (
               <>
                 <div
@@ -5208,9 +5318,9 @@ export default function Module1Costs(): React.JSX.Element {
                       value="single_asset"
                       data-testid="costs-results-view-single"
                       checked={resultsView === 'single_asset'}
-                      onChange={() => setProject({ resultsViewMode: 'single_asset', resultsSelectedAssetId: allVisibleAssets[0]?.id })}
+                      onChange={() => setProject({ resultsViewMode: 'single_asset', resultsSelectedAssetId: resultLines[0]?.key })}
                     />
-                    Single Asset
+                    Single Line
                   </label>
                   {resultsView === 'single_asset' && (
                     <select
@@ -5219,8 +5329,8 @@ export default function Module1Costs(): React.JSX.Element {
                       style={{ ...inputStyle, width: 'auto', minWidth: 200 }}
                       data-testid="costs-results-single-asset-select"
                     >
-                      {allVisibleAssets.map((a) => (
-                        <option key={a.id} value={a.id}>{a.name}</option>
+                      {resultLines.map((ln) => (
+                        <option key={ln.key} value={ln.key}>{lineOptionLabel(ln)}</option>
                       ))}
                     </select>
                   )}

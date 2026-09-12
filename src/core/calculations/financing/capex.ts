@@ -13,7 +13,7 @@ import type {
 import { COST_STAGES } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { computeAssetCost, deriveCostStage } from '../index';
 import { collectionsForAssetAtOffset, phaseLocalToProjectIndex, type CollectionsSource } from '../capexPhasing';
-import type { CapexAggregate, ProjectAxis } from './types';
+import type { CapexAggregate, CapexLandByPhase, ProjectAxis } from './types';
 
 export interface CapexInputs {
   project: Project;
@@ -85,10 +85,14 @@ export function aggregateProjectCapex(inputs: CapexInputs, axis: ProjectAxis): C
   const perStagePerPeriod: Record<string, number[]> = {};
   for (const s of COST_STAGES) perStagePerPeriod[s] = new Array<number>(N).fill(0);
 
+  const landByPhase: CapexLandByPhase[] = [];
   for (const phase of inputs.phases) {
     if (phase.status === 'operational') continue;
     const offset = axis.phaseOffsets.get(phase.id) ?? 0;
     const phaseAssets = inputs.assets.filter((a) => a.phaseId === phase.id && a.visible);
+    // The phase's own land, cash and in-kind, on the project axis (2026-09-12).
+    const phaseLandTotal = new Array<number>(N).fill(0);
+    const phaseLandInKind = new Array<number>(N).fill(0);
     for (const asset of phaseAssets) {
       const breakdown = computeAssetCost({
         asset,
@@ -148,8 +152,21 @@ export function aggregateProjectCapex(inputs: CapexInputs, axis: ProjectAxis): C
         inclAllLand[projIdx] += perAll[i] ?? 0;
         landTotal[projIdx]   += perLand[i] ?? 0;
         landInKind[projIdx]  += perInK[i]  ?? 0;
+        phaseLandTotal[projIdx]  += perLand[i] ?? 0;
+        phaseLandInKind[projIdx] += perInK[i]  ?? 0;
       }
     }
+    // Cash is total less in-kind, floored at zero per period exactly as the
+    // project-wide series below, so the phases SUM to it.
+    const phaseLandCash = phaseLandTotal.map((v, i) => Math.max(0, v - phaseLandInKind[i]));
+    landByPhase.push({
+      phaseId: phase.id,
+      phaseName: phase.name,
+      landCash: phaseLandCash,
+      landInKind: phaseLandInKind,
+      landCashTotal: sum(phaseLandCash),
+      landInKindTotal: sum(phaseLandInKind),
+    });
   }
 
   const landCash       = new Array<number>(N).fill(0);
@@ -174,6 +191,7 @@ export function aggregateProjectCapex(inputs: CapexInputs, axis: ProjectAxis): C
     perPeriod: { exclAllLand, exclLandInKind, inclAllLand, landCash, landInKind, nonLand },
     perLineTotals,
     perStagePerPeriod,
+    landByPhase,
   };
 }
 

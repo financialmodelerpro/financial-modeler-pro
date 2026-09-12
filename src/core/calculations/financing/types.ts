@@ -43,6 +43,23 @@ export interface CapexAggregate {
   perLineTotals?: Record<string, number>;
   /** Per construction stage, per project-period currency schedule (length = axis.totalPeriods). */
   perStagePerPeriod?: Record<string, number[]>;
+  /**
+   * LAND CASH AND IN-KIND PER PHASE (2026-09-12), on the project axis, the
+   * same figures `perPeriod.landCash` / `landInKind` sum across phases. The
+   * Costs tab's Results Table 5 shows them and the Financing tab's land
+   * funding block reads them, so what is funded is what the capex tab
+   * priced. Optional for the same reason as the two above.
+   */
+  landByPhase?: CapexLandByPhase[];
+}
+
+export interface CapexLandByPhase {
+  phaseId: string;
+  phaseName: string;
+  landCash: number[];
+  landInKind: number[];
+  landCashTotal: number;
+  landInKindTotal: number;
 }
 
 export interface FundingRequirement {
