@@ -101,9 +101,6 @@ import {
   distributeItemCost,
   generatePeriodLabels,
   costLineCaption,
-  costLineBasisQuantity,
-  resolveAssetParkingArea,
-  resolveAssetParkingBays,
   costLineProjectPeriodIndex,
   type AssetCostBreakdown,
 } from '@/src/core/calculations';
@@ -128,6 +125,7 @@ import { withInheritedMassingAll } from '@/src/core/calculations/landChain';
 import { chainMassingFor } from '../../lib/state/assetTypeStandards';
 import { buildConsolidatedReport } from '../../lib/reports/consolidatedReport';
 import { planCapexSummaryLines, type CapexPlannableAsset } from '../../lib/reports/capexReports';
+import { assetHasSubstance } from './_shared/assetTableModel';
 import { normaliseAssetTypeId } from '../../lib/state/assetTypeStandards';
 
 // ── Styles ─────────────────────────────────────────────────────────────────
@@ -196,6 +194,42 @@ const PHASING_LABELS: Record<CostPhasing, string> = {
 // Reactive to method dropdown changes. Renders next to the value input
 // so user immediately sees what they're entering (SAR/sqm vs SAR/unit
 // vs % vs flat amount).
+/**
+ * A LINE'S BREAKDOWN IS ITS PLOTS' BREAKDOWNS SUMMED (2026-09-12). Numbers add,
+ * per-period arrays add element by element, id-keyed records add per key, and
+ * anything else (a resolved window) is taken from the first plot, where every
+ * plot on a line resolves the same window because the lines are the phase's.
+ * Generic over the shape so a field added to the breakdown is summed rather
+ * than silently dropped.
+ */
+function mergeBreakdowns(parts: readonly AssetCostBreakdown[]): AssetCostBreakdown {
+  if (parts.length === 1) return parts[0];
+  const out: Record<string, unknown> = {};
+  const addArr = (a: number[], b: number[]): number[] => {
+    const n = Math.max(a.length, b.length); const r = new Array<number>(n).fill(0);
+    for (let i = 0; i < n; i++) r[i] = (a[i] ?? 0) + (b[i] ?? 0);
+    return r;
+  };
+  for (const part of parts) {
+    for (const [k, v] of Object.entries(part as unknown as Record<string, unknown>)) {
+      const cur = out[k];
+      if (typeof v === 'number') out[k] = (typeof cur === 'number' ? cur : 0) + v;
+      else if (Array.isArray(v) && v.every((x) => typeof x === 'number')) out[k] = addArr((cur as number[] | undefined) ?? [], v as number[]);
+      else if (v && typeof v === 'object') {
+        const target = (cur as Record<string, unknown> | undefined) ?? {};
+        for (const [kk, vv] of Object.entries(v as Record<string, unknown>)) {
+          const t = target[kk];
+          if (typeof vv === 'number') target[kk] = (typeof t === 'number' ? t : 0) + vv;
+          else if (Array.isArray(vv) && vv.every((x) => typeof x === 'number')) target[kk] = addArr((t as number[] | undefined) ?? [], vv as number[]);
+          else if (t === undefined) target[kk] = vv;
+        }
+        out[k] = target;
+      } else if (cur === undefined) out[k] = v;
+    }
+  }
+  return out as unknown as AssetCostBreakdown;
+}
+
 function valueUnitHint(method: CostMethod, currency: string): string {
   switch (method) {
     case 'fixed':
@@ -584,31 +618,6 @@ function CustomCostPopup({ phaseId, assetId, constructionPeriods, onClose, onSav
 }
 
 // ── Cost row (per asset section) ──────────────────────────────────────────
-/**
- * THE CONSOLIDATION LINE A PLOT SITS ON, when that line holds more than one
- * plot (2026-09-11). A cost line's caption states what THIS plot charges on;
- * this is the same quantity pooled across every plot on the line, so a user
- * can see what the line as a whole is being priced on without adding the
- * plots up by eye.
- *
- * NO RATE AND NO MONEY. Two plots on one line can carry different per-asset
- * overrides, so a pooled rate x quantity would name an amount the engine never
- * charged. The quantity sums; the money does not.
- *
- * Absent on a line holding ONE plot, where the pooled figure IS the plot
- * figure and repeating it says nothing.
- */
-interface LineBasisContext {
-  /** How many plots the line holds. Always greater than one when present. */
-  plots: number;
-  /** The line's own label, as tables 1 to 4 print it. */
-  label: string;
-  /** Every plot on the line, summed. */
-  metrics: import('@/src/core/calculations').AssetAreaMetrics;
-  parkingBays: number;
-  supportArea: number;
-  parkingArea: number;
-}
 interface CostRowProps {
   asset: Asset;
   line: CostLine;
@@ -637,9 +646,6 @@ interface CostRowProps {
   // inline formula caption beneath the value cell. Required so the
   // caption can show "x 130,874 sqm BUA = 588,933,000 SAR".
   metrics: import('@/src/core/calculations').AssetAreaMetrics;
-  /** The consolidation line this plot sits on, only when it holds more than
-   *  one plot. See LineBasisContext. */
-  lineBasis?: LineBasisContext;
   // M2.0L Fix 2 (2026-05-11): when true, edits route to the cost line
   // directly (no per-asset overrides). Used by Same-mode rendering.
   editsGoToLine?: boolean;
@@ -684,7 +690,7 @@ function CostRow({
   asset, line, override, total, isLocked,
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
   currency, scale, decimals, periodLabel, constructionPeriods, subUnits,
-  metrics, lineBasis, editsGoToLine, revenue,
+  metrics, editsGoToLine, revenue,
   resolvedWindow, selectedBase, resolvedSchedule, visibleLines,
   phaseAssets = [], allOverrides = [],
   catalogEntries, onAddCatalogEntry,
@@ -1459,28 +1465,6 @@ function CostRow({
                 {costLineCaption({ line, override, asset, metrics, parkingBays: asset.parkingBaysRequired ?? 0, resolvedTotal: total, selectedTotal: selectedBase, revenue })}
               </div>
             )}
-            {(() => {
-              // WHAT THE LINE CHARGES ON, beside what this plot charges on.
-              // Same rule, called twice: costLineBasisQuantity returns the
-              // quantity and never a rate, so no pooled amount can be implied.
-              if (!lineBasis) return null;
-              const lq = costLineBasisQuantity(effMethod, lineBasis.metrics, {
-                parkingBays: lineBasis.parkingBays,
-                supportArea: lineBasis.supportArea,
-                parkingArea: lineBasis.parkingArea,
-              });
-              if (!lq || lq.value <= 0) return null;
-              const text = `line: ${lq.value.toLocaleString('en-US', { maximumFractionDigits: 0 })} ${lq.unit} across ${lineBasis.plots} plots`;
-              return (
-                <div
-                  style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontStyle: 'italic' }}
-                  data-testid={`cost-${asset.id}-${line.id}-line-basis`}
-                  title={`${lineBasis.label} pools ${lineBasis.plots} plots. This is what the whole line charges on; the rate above is charged plot by plot, because a plot can carry its own override.`}
-                >
-                  {text}
-                </div>
-              );
-            })()}
           </>
         )}
       </td>
@@ -2383,9 +2367,6 @@ interface AssetCostSectionProps {
   subUnits: SubUnit[];
   // M2.0j Fix 8: asset's resolved metrics for cost line caption rendering.
   metrics: import('@/src/core/calculations').AssetAreaMetrics;
-  /** The consolidation line this asset sits on, when it holds more than one
-   *  plot. Forwarded to every row. */
-  lineBasis?: LineBasisContext;
   onUpdateLine: (lineId: string, patch: Partial<CostLine>) => void;
   onUpdateOverride: (override: CostOverride) => void;
   onRemoveOverride: (assetId: string, lineId: string) => void;
@@ -2404,11 +2385,16 @@ interface AssetCostSectionProps {
   /** The revenue snapshot (2026-08-19), passed to each row so it names what its
    *  percentage is charged ON and can say when the cash and sale bases differ. */
   revenue?: RevenueSource;
+  /** THE SECTION IS A LINE (2026-09-12): its heading, and how many plots it
+   *  merges. `asset` is the line's representative plot, used for identity
+   *  and strategy; the breakdown and metrics passed in are the LINE's. */
+  displayName?: string;
+  memberCount?: number;
 }
 
 function AssetCostSection({
   asset, lines, costOverrides, phaseAssets, allOverrides, breakdown, currency, scale, decimals, periodLabel, constructionPeriods, subUnits,
-  metrics, lineBasis, revenue,
+  metrics, revenue, displayName, memberCount,
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
   onAddCustom, onInsertNear, onMoveLine, onUpdateAsset,
   catalogEntries, onAddCatalogEntry,
@@ -2444,7 +2430,12 @@ function AssetCostSection({
             badge only); the accounting treatment is one hover away.
             Cost line rows below carry no strategy/destination text. */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 14, fontWeight: 700 }}>{asset.name}</span>
+          <span style={{ fontSize: 14, fontWeight: 700 }}>{displayName ?? asset.name}</span>
+          {(memberCount ?? 1) > 1 && (
+            <span style={{ fontSize: 10, color: 'var(--color-meta)' }} data-testid={`asset-section-${asset.id}-plots`}>
+              {memberCount} plots merged, as in table 4
+            </span>
+          )}
           <span style={strategyBadgeStyle(asset.strategy)} data-testid={`asset-section-${asset.id}-strategy`}>
             {asset.strategy}
           </span>
@@ -2537,7 +2528,6 @@ function AssetCostSection({
                     constructionPeriods={constructionPeriods}
                     subUnits={subUnits}
                     metrics={metrics}
-                    lineBasis={lineBasis}
                     resolvedWindow={breakdown.resolvedWindowByLineId[line.id]}
                     selectedBase={breakdown.selectedBaseByLineId[line.id]}
                     resolvedSchedule={breakdown.perLinePerPeriod[line.id]}
@@ -4081,7 +4071,13 @@ export default function Module1Costs(): React.JSX.Element {
   }, [phases, assets, project, parcels, subUnits, costLines, costOverrides, landAllocationMode, parcelFunding,
       sellSnap, projectStartYearForCollections]);
 
-  const allVisibleAssets = useMemo(() => assets.filter((a) => a.visible), [assets]);
+  // WHAT THIS TAB PRICES: visible, and with something to price. An asset that
+  // has no plot, no sub-units, no chain and no typed area is a row on table 2
+  // only, through the same rule table 4 reads (2026-09-12).
+  const allVisibleAssets = useMemo(
+    () => assets.filter((a) => a.visible && assetHasSubstance(a, subUnits)),
+    [assets, subUnits],
+  );
 
   // Stage totals across project (for top tile bar)
   const stageTotals = useMemo(() => {
@@ -4498,15 +4494,13 @@ export default function Module1Costs(): React.JSX.Element {
         const effectivePhaseId = inputsPhaseFilter || firstPhaseWithAssets || phases[0]?.id || '';
         const visiblePillAssets = allVisibleAssets.filter((a) => a.phaseId === effectivePhaseId);
         /**
-         * THE INPUTS READ BY LINE, WITH THE PLOTS UNDERNEATH (2026-09-12).
-         *
-         * One pill per consolidated line, through the SAME planner the four
-         * capex tables and both exports order their rows by, so the inputs
-         * and the results cannot disagree about what a row is. A line holding
-         * more than one plot shows its plots on a second row, because the
-         * OVERRIDE is per asset and the user must be able to reach each one.
-         * A line holding one plot shows no second row: there is nothing to
-         * choose. Rates are the phase's and were never per plot.
+         * THE LINE IS THE UNIT OF INPUT (2026-09-12). From table 4 onwards the
+         * model reads merged lines, so the inputs do too: one section per
+         * consolidated line, its metrics the line's pooled areas, its totals
+         * the sum of its plots, and a rate or override typed here written to
+         * every plot on the line. Rates were always the phase's; the override
+         * stays keyed per asset in storage (no migration) and is fanned out.
+         * `activeAsset` is the line's representative plot, for identity.
          */
         const linePills = planCapexSummaryLines(
           visiblePillAssets as unknown as CapexPlannableAsset[],
@@ -4516,11 +4510,10 @@ export default function Module1Costs(): React.JSX.Element {
         const activeLine = linePills.find((l) => l.key === selectedCostLineKey)
           ?? linePills.find((l) => l.assetIds.includes(selectedCostAssetId ?? ''))
           ?? linePills[0];
-        const plotPills = (activeLine?.assetIds ?? [])
+        const lineMembers = (activeLine?.assetIds ?? [])
           .map((id) => visiblePillAssets.find((a) => a.id === id))
           .filter((a): a is Asset => a !== undefined);
-        const activeAsset = plotPills.find((a) => a.id === selectedCostAssetId)
-          ?? plotPills[0];
+        const activeAsset = lineMembers[0];
         const assetPhase = activeAsset ? phases.find((p) => p.id === activeAsset.phaseId) : undefined;
         const phaseStart = assetPhase?.startDate && assetPhase.startDate.length === 10
           ? assetPhase.startDate
@@ -4557,49 +4550,13 @@ export default function Module1Costs(): React.JSX.Element {
           ? assetVisibleLines(costLines, activeAsset.phaseId, activeAsset.id)
               .filter((c) => !assetVisibleLines(costLines, activeAsset.phaseId, activeAsset.id, activeAsset.strategy).some((v) => v.id === c.id))
           : [];
-        const assetBreakdown = activeAsset
-          ? perPhaseBreakdowns
-              .find((pb) => pb.phaseId === activeAsset.phaseId)
-              ?.assetTotals[activeAsset.id]
-          : undefined;
-        const assetMetrics = activeAsset ? metricsByAsset.get(activeAsset.id) : undefined;
-        /**
-         * WHAT THE LINE CHARGES ON (2026-09-11). A cost row states the
-         * quantity for the PLOT a user is editing; where that plot's
-         * consolidation line pools more than one plot, the row also states
-         * the pooled quantity, so the line can be read without adding the
-         * plots up by eye.
-         *
-         * Undefined on a one-plot line, which is 12 of the 13 lines across
-         * the two live projects: there the pooled figure IS the plot figure
-         * and repeating it says nothing.
-         *
-         * The members come from planCapexSummaryLines, the same planner the
-         * capex tables and the exports group by, so a row can never claim a
-         * line the tables do not draw.
-         */
-        const lineBasis: LineBasisContext | undefined = (() => {
-          if (!activeAsset) return undefined;
-          const visible = assets.filter((a) => a.visible !== false);
-          const plan = planCapexSummaryLines(
-            visible as unknown as CapexPlannableAsset[],
-            phases,
-            (id) => visible.find((a) => a.id === id)?.name ?? id,
-          );
-          const ln = plan.find((l) => l.assetIds.includes(activeAsset.id));
-          if (!ln || ln.assetIds.length < 2) return undefined;
-          const members = ln.assetIds
-            .map((id) => visible.find((a) => a.id === id))
-            .filter((a): a is Asset => a !== undefined);
-          return {
-            plots: members.length,
-            label: phases.length > 1 && ln.phaseName !== '' ? `${ln.phaseName}: ${ln.label}` : ln.label,
-            metrics: aggregatePhaseMetrics(members, metricsByAsset),
-            parkingBays: members.reduce((t, a) => t + resolveAssetParkingBays(a), 0),
-            supportArea: members.reduce((t, a) => t + Math.max(0, a.supportArea ?? 0), 0),
-            parkingArea: members.reduce((t, a) => t + resolveAssetParkingArea(a), 0),
-          };
-        })();
+        // THE LINE'S BREAKDOWN AND METRICS: its plots' breakdowns summed, its
+        // plots' areas pooled. Nothing is recomputed; the engine ran per plot.
+        const memberBreakdowns = lineMembers
+          .map((m) => perPhaseBreakdowns.find((pb) => pb.phaseId === m.phaseId)?.assetTotals[m.id])
+          .filter((b): b is AssetCostBreakdown => b !== undefined);
+        const assetBreakdown = memberBreakdowns.length ? mergeBreakdowns(memberBreakdowns) : undefined;
+        const assetMetrics = lineMembers.length ? aggregatePhaseMetrics(lineMembers, metricsByAsset) : undefined;
 
         const pillStyle = (active: boolean): React.CSSProperties => ({
           fontSize: 11,
@@ -4945,70 +4902,41 @@ export default function Module1Costs(): React.JSX.Element {
                 (inputsPhaseFilter) and the same downstream filter
                 logic; only the control type changes. */}
             <div style={{ ...sectionCardStyle, padding: 'var(--sp-1) var(--sp-2)' }} data-testid="costs-inputs-asset-nav">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--sp-1)', flexWrap: 'wrap', marginBottom: 6 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap' }} data-testid="costs-inputs-phase-pills">
-                  <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>Phase:</strong>
-                  {phases.map((p) => {
-                    const isActive = p.id === effectivePhaseId;
-                    return (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => setInputsPhaseFilter(p.id)}
-                        style={pillStyle(isActive)}
-                        data-testid={`costs-inputs-phase-pill-${p.id}`}
-                      >
-                        {p.name}
-                      </button>
-                    );
-                  })}
-                </div>
-                {/* P11 Fix 3 (2026-05-13): top-of-tab Expand all /
-                    Collapse all removed. Per-row collapse state was
-                    deleted in T3-edit-runtime v4 ("remove that layer
-                    permanently"), so the bulk toggle had nothing to
-                    flip; clicks were silent no-ops. */}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap' }} data-testid="costs-inputs-line-pills">
-                <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>Line:</strong>
-                {phaseHasAssets ? linePills.map((ln) => {
-                  const isActive = ln.key === activeLine?.key;
-                  return (
-                    <button
-                      key={ln.key}
-                      type="button"
-                      onClick={() => { setSelectedCostLineKey(ln.key); setSelectedCostAssetId(ln.assetIds[0] ?? null); }}
-                      style={pillStyle(isActive)}
-                      data-testid={`costs-inputs-line-pill-${ln.key}`}
-                      title={ln.assetIds.length > 1 ? `${ln.assetIds.length} plots on this line` : undefined}
-                    >
-                      {ln.label}
-                      {ln.assetIds.length > 1 && (<span style={{ marginLeft: 6, opacity: 0.7, fontSize: 9 }}>{ln.assetIds.length} plots</span>)}
-                    </button>
-                  );
-                }) : (
-                  <span style={{ fontSize: 11, color: 'var(--color-meta)', fontStyle: 'italic' }}>(none)</span>
-                )}
-              </div>
-              {plotPills.length > 1 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap', marginTop: 6 }} data-testid="costs-inputs-asset-pills">
-                  <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>Plot:</strong>
-                  {plotPills.map((a) => {
-                    const isActive = a.id === activeAsset?.id;
-                    return (
-                      <button
-                        key={a.id}
-                        type="button"
-                        onClick={() => setSelectedCostAssetId(a.id)}
-                        style={pillStyle(isActive)}
-                        data-testid={`costs-inputs-asset-pill-${a.id}`}
-                      >
-                        {assetPlotLabel(a, { parcels, phases }) ?? a.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+              {/* ONE ROW PER PHASE, ITS LINES BESIDE IT (2026-09-12): one click
+                  opens a line, instead of a phase and then an asset. The lines
+                  come from the same planner the capex tables use. */}
+              {phases.map((p) => {
+                const inPhase = allVisibleAssets.filter((a) => a.phaseId === p.id);
+                const lines = planCapexSummaryLines(
+                  inPhase as unknown as CapexPlannableAsset[],
+                  phases,
+                  (id) => inPhase.find((a) => a.id === id)?.name ?? id,
+                );
+                return (
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-1)', flexWrap: 'wrap', marginBottom: 4 }} data-testid={`costs-inputs-phase-row-${p.id}`}>
+                    <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: p.id === effectivePhaseId ? 'var(--color-navy)' : 'var(--color-meta)', minWidth: 70 }}>{p.name}:</strong>
+                    {lines.length === 0 && (
+                      <span style={{ fontSize: 11, color: 'var(--color-meta)', fontStyle: 'italic' }}>(no lines to price)</span>
+                    )}
+                    {lines.map((ln) => {
+                      const isActive = p.id === effectivePhaseId && ln.key === activeLine?.key;
+                      return (
+                        <button
+                          key={ln.key}
+                          type="button"
+                          onClick={() => { setInputsPhaseFilter(p.id); setSelectedCostLineKey(ln.key); setSelectedCostAssetId(ln.assetIds[0] ?? null); }}
+                          style={pillStyle(isActive)}
+                          data-testid={`costs-inputs-line-pill-${ln.key}`}
+                          title={ln.assetIds.length > 1 ? `${ln.assetIds.length} plots merged into this line, as in table 4` : undefined}
+                        >
+                          {ln.label}
+                          {ln.assetIds.length > 1 && (<span style={{ marginLeft: 6, opacity: 0.7, fontSize: 9 }}>{ln.assetIds.length} plots</span>)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })}
             </div>
 
             {/* P8-Fix 3 (2026-05-12): empty-phase helpful message. When
@@ -5161,12 +5089,15 @@ export default function Module1Costs(): React.JSX.Element {
                 constructionPeriods={assetPhase?.constructionPeriods ?? 1}
                 subUnits={subUnits}
                 metrics={assetMetrics}
-                lineBasis={lineBasis}
                 onUpdateLine={(lineId, patch) => updateCostLine(lineId, patch)}
-                onUpdateAsset={(assetId, patch) => updateAsset(assetId, patch)}
+                onUpdateAsset={(_assetId, patch) => lineMembers.forEach((m) => updateAsset(m.id, patch))}
+                displayName={activeLine?.label}
+                memberCount={lineMembers.length}
                 revenue={sellSnap}
-                onUpdateOverride={(override) => setCostOverride(override)}
-                onRemoveOverride={(assetId, lineId) => removeCostOverride(assetId, lineId)}
+                // ONE LINE, EVERY PLOT: an override typed on the line lands on each of
+                // its plots, so the engine (per plot) and the input (per line) agree.
+                onUpdateOverride={(override) => lineMembers.forEach((m) => setCostOverride({ ...override, assetId: m.id }))}
+                onRemoveOverride={(_assetId, lineId) => lineMembers.forEach((m) => removeCostOverride(m.id, lineId))}
                 onRemoveLine={(lineId) => {
                   // 2026-08-17: no confirm dialog. The line, its index and its
                   // overrides are held so Undo puts it back exactly where it

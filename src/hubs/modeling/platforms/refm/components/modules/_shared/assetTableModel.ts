@@ -957,3 +957,34 @@ export function applyDerivedAreasPlan<T extends { id: string; derivedAreas?: Der
   });
   return { assets: changed ? next : (assets as T[]), changed };
 }
+
+// ── AN ASSET WITH NOTHING TO PRICE IS NO ROW DOWNSTREAM (2026-09-12) ─────
+
+/**
+ * Table 2 lists what the user ENTERS, so an asset stays there until it is
+ * deleted. Everything from table 4 onwards lists what the model PRICES, and
+ * an asset with no plot, no sub-units, no chain inputs and no typed area has
+ * nothing to price: it would print a blank merged line and a blank capex
+ * input. One such husk exists on a live project, left behind when its plot
+ * was deleted before `removeParcel` learned to refuse. This is the one rule,
+ * read by table 4 and by the capex tab, so the two cannot disagree about
+ * which assets exist for pricing.
+ *
+ * A companion is always substantive: its figures are stamped onto it.
+ */
+export function assetHasSubstance(
+  asset: Pick<Asset, 'id' | 'isCompanion' | 'landAllocation' | 'landChain' | 'buaSqm' | 'gfaSqm' | 'sellableBuaSqm' | 'supportArea' | 'parkingArea' | 'parkingBaysRequired' | 'derivedAreas'>,
+  subUnits: readonly Pick<SubUnit, 'assetId'>[],
+): boolean {
+  if (asset.isCompanion === true) return true;
+  if (subUnits.some((u) => u.assetId === asset.id)) return true;
+  const draw = asset.landAllocation;
+  if (draw && typeof draw.parcelId === 'string' && draw.parcelId !== '') return true;
+  if (draw && typeof draw.sqm === 'number' && draw.sqm > 0) return true;
+  if (asset.landChain && Object.values(asset.landChain).some((v) => typeof v === 'number')) return true;
+  if (asset.derivedAreas && Object.keys(asset.derivedAreas).length > 0) return true;
+  for (const v of [asset.buaSqm, asset.gfaSqm, asset.sellableBuaSqm, asset.supportArea, asset.parkingArea, asset.parkingBaysRequired]) {
+    if (typeof v === 'number' && v > 0) return true;
+  }
+  return false;
+}

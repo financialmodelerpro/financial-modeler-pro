@@ -98,6 +98,7 @@ import {
   totalsFromRows,
   POOLED_AREA_KEYS,
   computeAssetChain,
+  assetHasSubstance,
   type AreaTotals,
   type TotalledRow,
   type AssetPlotGroup,
@@ -2681,9 +2682,11 @@ function AssetResultsTable({
  * No sub-units here. They have their own table below, grouped under the line.
  */
 function MergedLineTable({
-  lineRowGroups, allPhases, retailByLineKey, retailLand, parcelsTotalSqm,
+  lineRowGroups, allPhases, retailByLineKey, retailLand, parcelsTotalSqm, subUnits,
 }: {
   lineRowGroups: LineRowGroup[];
+  /** So the table can leave out an asset with nothing to price (one rule, shared with capex). */
+  subUnits: SubUnit[];
   allPhases: Phase[];
   /** The pooled retail companion each line holds, when it builds any. */
   retailByLineKey: Record<string, Asset>;
@@ -2702,7 +2705,12 @@ function MergedLineTable({
    *  zero would read as "this line has no landscape", a different claim. */
   const ratio = (a: number | undefined, b: number | undefined): number | undefined =>
     (typeof a === 'number' && typeof b === 'number' && b > 0) ? a / b : undefined;
-  const live = lineRowGroups.filter((l) => l.rows.length > 0);
+  // AN ASSET WITH NOTHING TO PRICE IS NO LINE HERE. Table 2 above still lists
+  // it, which is where it is deleted or filled in; from here on the model
+  // reads only what it can price, through the same rule the capex tab uses.
+  const live = lineRowGroups
+    .map((l) => ({ ...l, rows: l.rows.filter((r) => assetHasSubstance(r.asset, subUnits)) }))
+    .filter((l) => l.rows.length > 0);
   // THE SAME ROWS TABLE 3 TOTALS, regrouped by line, plus the same companion
   // land. Both tables call one function, so agreement is structural.
   const totals = totalsFromRows(
@@ -2984,6 +2992,7 @@ function AssetTables({
       />
       <MergedLineTable
         lineRowGroups={lineRowGroups}
+        subUnits={subUnits}
         allPhases={allPhases}
         retailByLineKey={retailByLineKey}
         retailLand={retailLand}
