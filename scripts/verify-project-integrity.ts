@@ -18,7 +18,8 @@
  * No em dashes in this file.
  */
 /* eslint-disable no-console */
-import { repairProjectIntegrity, assetsOnParcel, describeRepairs } from '../src/core/calculations/projectIntegrity';
+import { readFileSync } from 'node:fs';
+import { cascadeAssetRemoval,  repairProjectIntegrity, assetsOnParcel, describeRepairs } from '../src/core/calculations/projectIntegrity';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
 
 let pass = 0, fail = 0;
@@ -81,6 +82,75 @@ function offline(): void {
       repairProjectIntegrity(none).changed === false);
   }
 
+  section('D. Deletes cascade, orphans are repaired');
+  {
+    const model = {
+      assets: [
+        { id: 'h1', landAllocation: { parcelId: 'p1', sqm: 500 } },
+        { id: 'h2', landAllocation: { parcelId: 'p2', sqm: 300 } },
+        { id: 'op', parentAssetId: 'h1', isCompanion: true },
+        { id: 'strip', isCompanion: true, companionType: 'retail', retailHostAssetIds: ['h1', 'h2'] },
+      ],
+      parcels: [{ id: 'p1' }, { id: 'p2' }],
+      subUnits: [{ id: 'u1', assetId: 'h1' }, { id: 'u2', assetId: 'h2' }, { id: 'us', assetId: 'strip' }, { id: 'uo', assetId: 'op' }],
+      costLines: [{ id: 'construction-bua__p', targetAssetId: undefined }, { id: 'custom-1__p', targetAssetId: 'h1' }],
+      costOverrides: [{ assetId: 'h1', lineId: 'construction-bua__p' }, { assetId: 'strip', lineId: 'construction-bua__p' }, { assetId: 'h2', lineId: 'construction-bua__p' }],
+      financingTranches: [{ assetId: 'h1' }, { assetId: undefined }],
+      equityContributions: [{ assetId: 'h2' }],
+      cases: [{ overrides: { 'assets[id=h1].buaSqm': 1, 'subUnits[id=u1].unitPrice': 2, 'assets[id=h2].buaSqm': 3, 'phases[id=p].name': 'x' } }],
+    };
+    const r = cascadeAssetRemoval(model, ['h1']);
+    const ids = new Set(r.state.assets.map((a) => a.id));
+    check('D1 removing a host takes its Operate companion, its sub-units, its per-asset line, its overrides and its scenario overrides',
+      !ids.has('h1') && !ids.has('op') && ids.has('h2') && ids.has('strip')
+      && r.state.subUnits!.map((u) => u.id).join() === 'u2,us'
+      && r.state.costLines!.length === 1 && r.state.costOverrides!.map((o) => o.assetId).join() === 'strip,h2'
+      && Object.keys(r.state.cases![0].overrides!).join() === 'assets[id=h2].buaSqm,phases[id=p].name',
+      JSON.stringify(r.report));
+    check('D2 the strip is DETACHED from a removed host and kept while another host remains; a tranche scoped to the host now finances its phase',
+      r.state.assets.find((a) => a.id === 'strip')!.retailHostAssetIds!.join() === 'h2'
+      && r.state.financingTranches![0].assetId === undefined && r.report.tranchesRescoped === 1 && r.report.stripsDetached.join() === 'strip');
+    const r2 = cascadeAssetRemoval(r.state, ['h2']);
+    check('D3 removing the last host removes the strip, its sub-unit and its override, and clears the equity scope',
+      r2.state.assets.length === 0 && r2.state.subUnits!.length === 0 && r2.state.costOverrides!.length === 0
+      && r2.report.stripsRemoved.join() === 'strip' && r2.state.equityContributions![0].assetId === undefined,
+      JSON.stringify(r2.report));
+    // A plot delete is the same rule on the plot's assets.
+    const plot = cascadeAssetRemoval(model, assetsOnParcel(model.assets, 'p1'));
+    check('D4 a plot delete cascades through the same rule: the assets on the plot and everything of theirs',
+      plot.report.assetIds.sort().join() === 'h1,op' && plot.state.subUnits!.length === 2);
+    // Orphans left by any older path are repaired on load, and the repair settles.
+    const orphaned = {
+      assets: [{ id: 'h2', landAllocation: { parcelId: 'p2', sqm: 300 } }, { id: 'strip', isCompanion: true, companionType: 'retail', retailHostAssetIds: ['gone'] }],
+      parcels: [{ id: 'p2' }],
+      subUnits: [{ id: 'u2', assetId: 'h2' }, { id: 'ux', assetId: 'gone' }, { id: 'us', assetId: 'strip' }],
+      costOverrides: [{ assetId: 'gone', lineId: 'l' }, { assetId: 'h2', lineId: 'l' }],
+      costLines: [{ id: 'custom-2__p', targetAssetId: 'gone' }, { id: 'construction-bua__p' }],
+      financingTranches: [{ assetId: 'gone' }],
+      equityContributions: [{ assetId: 'h2' }],
+    };
+    const rep = repairProjectIntegrity(orphaned);
+    check('D5 the load repair drops an orphan sub-unit, override and per-asset line, clears an orphan tranche scope, and removes a strip with no host',
+      rep.changed && rep.state.subUnits!.map((u) => u.id).join() === 'u2'
+      && rep.state.costOverrides!.length === 1 && rep.state.costLines!.length === 1
+      && rep.state.financingTranches![0].assetId === undefined
+      && rep.state.equityContributions![0].assetId === 'h2'
+      && !rep.state.assets.some((a) => a.id === 'strip'),
+      rep.repairs.map((x) => x.kind).join(','));
+    const again = repairProjectIntegrity(rep.state);
+    check('D6 and it settles', again.changed === false && again.state === rep.state);
+    const storeSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8');
+    check('D7 the store deletes an asset and a plot through the ONE cascade rule',
+      (storeSrc.match(/cascadeAssetRemoval\(/g) ?? []).length === 2
+      && !storeSrc.includes("return { removed: false, assetCount: carried.length, assetIds: carried };"));
+    const tabSrc = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx', 'utf8');
+    check('D8 the plot Remove button confirms and cascades instead of refusing, and Table 5 offers the sell basis per line',
+      !tabSrc.includes('disabled={assetCount > 0}')
+      && tabSrc.includes('window.confirm(' + String.fromCharCode(96) + 'Remove ' + '$' + '{parcel.name')
+      && tabSrc.includes('onSetMetric(line.assetIds, m)')
+      && tabSrc.includes("for (const id of assetIds) updateAsset(id, { subUnitMetric: next });"));
+  }
+
   section('B. The refusal reads the same rule');
   {
     const assets: A[] = [
@@ -124,7 +194,8 @@ async function live(): Promise<void> {
     const again = repairProjectIntegrity(r.state);
     check(`C1 ${p.name}: the repair settles`, again.changed === false, JSON.stringify(again.repairs));
   }
-  check('C2 the census reached the projects that have assets', checked >= 2, `${checked}`);
+  // RE-AIMED 2026-09-12: the founder deleted FMP RE HUB, so one live project carries assets; the census asks for at least one.
+  check('C2 the census reached the projects that have assets', checked >= 1, `${checked}`);
   console.log(`  (${repaired} of ${checked} carried a dangling reference before the pass)`);
 }
 

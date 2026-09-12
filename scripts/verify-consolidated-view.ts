@@ -229,7 +229,8 @@ async function liveChecks(): Promise<void> {
       compRows.every((r) => r.strategy === 'Lease' || r.strategy === 'Operate'),
       compRows.map((r) => `${r.typeLabel}=${r.strategy}`).join(' | '));
   }
-  check('D3 the census covered the projects that have assets', withAssets >= 2, `${withAssets}`);
+  // RE-AIMED 2026-09-12: the founder deleted FMP RE HUB, so one live project carries assets; the census asks for at least one.
+  check('D3 the census covered the projects that have assets', withAssets >= 1, `${withAssets}`);
   check('D4 the worst reconciliation gap across the platform is zero to the cent',
     worst < 0.005, `worst ${money(worst)}`);
 }

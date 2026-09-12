@@ -1285,6 +1285,21 @@ export default function Module1Assets(): React.JSX.Element {
         onAdd={handleAddSubUnitTo}
         onUpdate={updateSubUnit}
         onRemove={removeSubUnit}
+        onSetMetric={(assetIds, next) => {
+          // The same rule the per-asset drawer applies: every row must be
+          // convertible (a unit size before Units), then the asset's metric
+          // moves and every row converts, area preserved.
+          const rows = subUnits.filter((u) => assetIds.includes(u.assetId));
+          for (const u of rows) {
+            const chk = canSwitchMetric(u, next);
+            if (!chk.ok) {
+              if (typeof window !== 'undefined' && typeof window.alert === 'function') window.alert(`Sub-unit "${u.name || 'unnamed'}": ${chk.reason}`);
+              return;
+            }
+          }
+          for (const id of assetIds) updateAsset(id, { subUnitMetric: next });
+          for (const u of rows) updateSubUnit(u.id, switchMetric(u, next));
+        }}
       />
 
       {/* Global totals (M2.0h Fix 3: three-tier hierarchy) */}
@@ -1507,25 +1522,30 @@ function ParcelRow({
           <button
             type="button"
             onClick={() => {
+              // THE DELETE CASCADES (2026-09-12): the plot's assets go with it,
+              // through the store's one cascade rule, and the confirm names
+              // them first so nothing is hunted for afterwards.
+              if (assetCount > 0 && typeof window !== 'undefined' && typeof window.confirm === 'function') {
+                const ok = window.confirm(`Remove ${parcel.name || 'this plot'} and the ${assetCount} asset${assetCount === 1 ? '' : 's'} drawing from it? Their sub-units, cost overrides, per-asset lines and scenario overrides go too, and a retail strip left with no host is removed.`);
+                if (!ok) return;
+              }
               // View mode no-ops every model mutator and returns undefined, so
               // the result is optional by construction.
               const r = onRemove() as ParcelRemoval | undefined;
-              if (r && !r.removed) setRefusal(r.assetCount);
+              if (r && r.report && r.assetCount > 0) setRefusal(r.assetCount);
             }}
-            disabled={assetCount > 0}
             data-view-mutates="true"
             data-testid={`parcel-${parcel.id}-remove`}
             title={assetCount > 0
-              ? `This plot carries ${assetCount} asset${assetCount === 1 ? '' : 's'}. Move or remove ${assetCount === 1 ? 'it' : 'them'} first, or the asset would be left pointing at a plot that no longer exists.`
+              ? `Remove this plot and the ${assetCount} asset${assetCount === 1 ? '' : 's'} drawing from it, with everything that depends on them.`
               : 'Remove this plot.'}
             style={{
               background: 'transparent',
               border: '1px solid var(--color-border)',
               borderRadius: 'var(--radius-sm)',
               padding: '2px 8px',
-              cursor: assetCount > 0 ? 'not-allowed' : 'pointer',
+              cursor: 'pointer',
               fontSize: 'var(--font-micro)',
-              opacity: assetCount > 0 ? 0.45 : 1,
             }}
           >
             Remove
@@ -1536,7 +1556,7 @@ function ParcelRow({
             data-testid={`parcel-${parcel.id}-remove-refused`}
             style={{ fontSize: 9, color: 'var(--color-accent-warm)', marginTop: 2, lineHeight: 1.3, whiteSpace: 'normal' }}
           >
-            Not removed: this plot carries {refusal} asset{refusal === 1 ? '' : 's'}.
+            Removed with {refusal} asset{refusal === 1 ? '' : 's'} and everything that depended on {refusal === 1 ? 'it' : 'them'}.
           </div>
         )}
       </td>
@@ -3122,6 +3142,8 @@ function subUnitValueRow(unit: SubUnit, asset?: Asset): SubUnitValueRow {
  */
 interface SubUnitLine {
   key: string;
+  /** The plots on the line, so a line-level control can write to every one. */
+  assetIds: string[];
   label: string;
   phaseName?: string;
   /** The plots feeding this line, named, since the header no longer splits. */
@@ -3196,6 +3218,7 @@ function groupSubUnitsByLine(
       key,
       label,
       phaseName,
+      assetIds: members.map((m) => m.id),
       assetNames: members.filter((m) => units.some((u) => u.assetId === m.id)).map((m) => m.name),
       rows,
       nsa,
@@ -3246,7 +3269,7 @@ function groupSubUnitsByLine(
 
 
 function SubUnitsTable({
-  assets, phases, subUnits, nsaByAsset, project, onAdd, onUpdate, onRemove,
+  assets, phases, subUnits, nsaByAsset, project, onAdd, onUpdate, onRemove, onSetMetric,
 }: {
   assets: Asset[];
   phases: Phase[];
@@ -3259,6 +3282,10 @@ function SubUnitsTable({
   onAdd: (assetId: string) => void;
   onUpdate: (id: string, patch: Partial<SubUnit>) => void;
   onRemove: (id: string) => void;
+  /** THE SELL BASIS, per line (2026-09-12): Area or Units, written to every
+   *  plot on the line and converting its rows. It lived only in the per-asset
+   *  drawer after this table replaced the cards, so the table read as sqm-only. */
+  onSetMetric: (assetIds: string[], next: SubUnitMetric) => void;
 }): React.JSX.Element {
   const [parentId, setParentId] = useState<string>(assets[0]?.id ?? '');
   const subUnitLines = groupSubUnitsByLine(assets, subUnits, phases.map((p) => p.id), phases, nsaByAsset);
@@ -3365,6 +3392,30 @@ function SubUnitsTable({
                     <span style={{ fontWeight: 400, color: 'var(--color-meta)', marginLeft: 8 }}>
                       {line.rows.length} sub-unit{line.rows.length === 1 ? '' : 's'}
                     </span>
+                    {line.key !== '__no_line__' && line.assetIds.length > 0 && (() => {
+                      const first = assets.find((a) => a.id === line.assetIds[0]);
+                      const firstRow = line.rows[0]?.unit;
+                      const current: SubUnitMetric = first?.subUnitMetric
+                        ?? ((firstRow?.metric === 'units' || (firstRow?.metric as unknown as string) === 'count') ? 'units' : 'area');
+                      return (
+                        <span style={{ fontWeight: 400, marginLeft: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }} data-testid={`subunits-line-${line.key}-basis-pick`}>
+                          <span style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Sells by</span>
+                          {(['area', 'units'] as const).map((m) => (
+                            <label key={m} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, cursor: 'pointer' }}>
+                              <input
+                                type="radio"
+                                name={`subunits-line-${line.key}-basis`}
+                                value={m}
+                                checked={current === m}
+                                data-testid={`subunits-line-${line.key}-basis-${m}`}
+                                onChange={() => onSetMetric(line.assetIds, m)}
+                              />
+                              {m === 'area' ? 'Area (sqm)' : 'Units'}
+                            </label>
+                          ))}
+                        </span>
+                      );
+                    })()}
                   </td>
                   {/* THE CHECK, IN WORDS, ACROSS THE NUMERIC COLUMNS.
                       Not IN them: the figures it quotes are a sentence about

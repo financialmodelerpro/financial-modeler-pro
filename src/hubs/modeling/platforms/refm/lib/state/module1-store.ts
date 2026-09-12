@@ -53,7 +53,7 @@ import {
 import type { DerivedAreasPlan, DerivedSupportPlan, LineSubUnitPlan } from '../../components/modules/_shared/assetTableModel';
 import { planDerivedAreasForModel, applyDerivedAreasPlan } from '../../components/modules/_shared/assetTableModel';
 import { applyStrategySwitch, assetHasStrategyAssumptions, seedManageCompanion, needsManageCompanion } from './strategySwitch';
-import { assetsOnParcel, repairProjectIntegrity } from '@/src/core/calculations/projectIntegrity';
+import { assetsOnParcel, repairProjectIntegrity, cascadeAssetRemoval, type CascadeReport } from '@/src/core/calculations/projectIntegrity';
 import { planRetailCompanionOverrides } from '@/src/core/calculations/retailCompanion';
 import { applyReferenceCostBases } from '@/src/core/calculations/costBases';
 import {
@@ -82,9 +82,12 @@ import {
  *  a button that looks like it worked. */
 export interface ParcelRemoval {
   removed: boolean;
-  /** How many assets draw from the plot. Zero when it was removed. */
+  /** How many assets drew from the plot and went with it (2026-09-12: the
+   *  delete CASCADES; the refusal of the same morning is retired). */
   assetCount: number;
   assetIds: string[];
+  /** Everything the cascade touched, so the screen can say so. */
+  report?: CascadeReport;
 }
 export interface Module1Store {
   // Project meta
@@ -871,13 +874,25 @@ export function createModule1Store() {
     updateParcel: (id, patch) => set((s) => ({
       parcels: s.parcels.map((p) => (p.id === id ? { ...p, ...patch } : p)),
     })),
+    // DELETING A PLOT CASCADES (2026-09-12, founder's direction, replacing the
+    // refusal of the same morning): every asset drawing from it goes through
+    // the ONE cascade rule removeAsset uses, then the plot. The screen confirms
+    // first, naming what goes; the store returns what went.
     removeParcel: (id) => {
-      // THE SAME QUESTION THE INTEGRITY PASS ASKS, so a plot can never be
-      // refused for carrying an asset whose pointer that pass would clear.
       const carried = assetsOnParcel(get().assets, id);
-      if (carried.length > 0) return { removed: false, assetCount: carried.length, assetIds: carried };
-      set((s) => ({ parcels: s.parcels.filter((p) => p.id !== id) }));
-      return { removed: true, assetCount: 0, assetIds: [] };
+      let report: CascadeReport | undefined;
+      set((s) => {
+        const c = cascadeAssetRemoval(s, carried);
+        report = c.report;
+        const st = c.state as typeof s;
+        return {
+          parcels: s.parcels.filter((p) => p.id !== id),
+          assets: st.assets, subUnits: st.subUnits, costLines: st.costLines, costOverrides: st.costOverrides,
+          financingTranches: st.financingTranches, equityContributions: st.equityContributions, cases: st.cases,
+          activeAssetId: s.activeAssetId && c.report.assetIds.includes(s.activeAssetId) ? null : s.activeAssetId,
+        };
+      });
+      return { removed: true, assetCount: carried.length, assetIds: carried, report };
     },
 
     setAssets: (assets) => set({ assets }),
@@ -999,15 +1014,17 @@ export function createModule1Store() {
     // this, costLines accumulate orphans (targetAssetId pointing at an
     // asset that no longer exists) and re-adding an asset with the same
     // id resurrects stale lines.
+    // ONE CASCADE RULE (2026-09-12): the Operate companion, the sub-units, the
+    // per-asset lines and overrides, the retail strip's host list (the strip
+    // itself when this was its last host), a tranche or equity scope naming
+    // it, and the scenario overrides written against it. Same rule as a plot.
     removeAsset: (id) => set((s) => {
-      const companionIds = s.assets.filter((a) => a.parentAssetId === id).map((a) => a.id);
-      const removedIds = new Set<string>([id, ...companionIds]);
+      const c = cascadeAssetRemoval(s, [id]);
+      const st = c.state as typeof s;
       return {
-        assets: s.assets.filter((a) => !removedIds.has(a.id)),
-        subUnits: s.subUnits.filter((u) => !removedIds.has(u.assetId)),
-        costLines: s.costLines.filter((c) => !c.targetAssetId || !removedIds.has(c.targetAssetId)),
-        costOverrides: s.costOverrides.filter((o) => !removedIds.has(o.assetId)),
-        activeAssetId: s.activeAssetId && removedIds.has(s.activeAssetId) ? null : s.activeAssetId,
+        assets: st.assets, subUnits: st.subUnits, costLines: st.costLines, costOverrides: st.costOverrides,
+        financingTranches: st.financingTranches, equityContributions: st.equityContributions, cases: st.cases,
+        activeAssetId: s.activeAssetId && c.report.assetIds.includes(s.activeAssetId) ? null : s.activeAssetId,
       };
     }),
 

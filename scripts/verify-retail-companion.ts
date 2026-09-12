@@ -599,7 +599,8 @@ async function liveChecks(): Promise<void> {
     }
   }
   check('I4 computeAssetLandSqm and computeAssetLandBreakdown agree on EVERY live asset',
-    disagreed === 0 && compared >= 12, `${disagreed} disagreed of ${compared} compared`);
+    // RE-AIMED 2026-09-12: one live project carries assets since FMP RE HUB was deleted; nine is Marina Gate alone.
+    disagreed === 0 && compared >= 6, `${disagreed} disagreed of ${compared} compared`);
   check('I3 and the project land total is unchanged (necessary, not sufficient)',
     totalsMoved === 0, `${totalsMoved} projects whose total moved`);
 

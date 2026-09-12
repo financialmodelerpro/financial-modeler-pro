@@ -429,7 +429,8 @@ async function liveChecks(): Promise<void> {
   }
 
   check('E5 the census actually covered projects that have assets',
-    projectsWithAssets >= 2, `${projectsWithAssets} with assets`);
+    // RE-AIMED 2026-09-12: one live project carries assets since FMP RE HUB was deleted.
+    projectsWithAssets >= 1, `${projectsWithAssets} with assets`);
   console.log(`\n  census: ${totalAssets} assets across ${projectsWithAssets} projects -> ${totalGroups} groups, `
     + `${totalMerges} merging groups, ${untypedLive} untyped groups`);
   // MEASURED, AND IT CORRECTED THE DIAGNOSIS. The consolidation diagnosis

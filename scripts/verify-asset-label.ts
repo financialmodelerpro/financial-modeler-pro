@@ -342,7 +342,8 @@ async function liveChecks(): Promise<void> {
     }
     for (const [l, n] of seen) if (n > 1) { collisions += 1; console.log(`     collision on ${p.name}: ${n} x "${l}"`); }
   }
-  check('F1 the census reached the live assets', assets >= 13, `${assets} assets`);
+  // RE-AIMED 2026-09-12: the founder deleted FMP RE HUB, so one live project carries assets; the census asks for at least one.
+  check('F1 the census reached the live assets', assets >= 6, `${assets} assets`);
   check('F2 no live asset resolves to nothing', empty === 0, `${empty} unnamed`);
   check('F3 no two assets on one project are called the same thing', collisions === 0, `${collisions} collisions`);
 }
