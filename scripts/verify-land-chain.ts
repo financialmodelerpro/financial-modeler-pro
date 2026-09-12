@@ -2106,7 +2106,9 @@ function offlineChecks(): void {
   check('V14g the three derived cells take the project money scale, like every other total',
     (rowBody.match(/formatAccounting\(own\.(totalValue|cashValue|inKindValue), scale, decimals\)/g) ?? []).length === 3);
   check('V14h and the footer states no total for the phase or the two percentages',
-    (parcelFoot.match(/<td style={{ padding: 'var\(--sp-1\)', \.\..\SUBTOTAL_BAND }}><\/td>/g) ?? []).length === 3);
+    // The footer cells took the shared CELL scale on 2026-09-12 (Table 1 on the
+    // same scale as the others); the empty ones are still exactly three.
+    (parcelFoot.match(/<td style={{ \.\.\.CELL, \.\.\.SUBTOTAL_BAND }}><\/td>/g) ?? []).length === 3);
 
   // ── V15 IS A SWEEP, NOT A LINE. Three rate-vs-scale defects turned up on
   // this tab one at a time (the sub-unit rate, the parcels totals rate, the
