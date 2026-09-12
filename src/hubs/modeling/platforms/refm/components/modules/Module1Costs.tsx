@@ -2865,7 +2865,6 @@ function SummaryTables({
       operating: r.operating,
       total: r.total,
     })),
-    normaliseAssetTypeId,
   );
 
   return (

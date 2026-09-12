@@ -306,6 +306,11 @@ export interface CapexSummaryLine {
   assetIds: string[];
   /** True for a row that is one companion standing beside its line. */
   isCompanion: boolean;
+  /** The strategy the line holds. A line holds exactly one, which is why the
+   *  grouping key excludes companions. */
+  strategy: string;
+  /** False when the row stands for assets with no type. */
+  typed: boolean;
 }
 
 export function planCapexSummaryLines(
@@ -328,7 +333,7 @@ export function planCapexSummaryLines(
     for (const id of ids) placed.add(id);
     out.push({
       key: g.key, label: g.typeLabel, phaseId: g.phaseId, phaseName: phaseName(g.phaseId),
-      assetIds: ids, isCompanion: false,
+      assetIds: ids, isCompanion: false, strategy: g.strategy, typed: g.typed,
     });
     // ITS OWN COMPANION, IMMEDIATELY BELOW. Derived from the line key, never
     // matched by name: the label is a display string and can repeat.
@@ -339,7 +344,36 @@ export function planCapexSummaryLines(
       out.push({
         key: cid, label: `${g.typeLabel} (Retail)`, phaseId: g.phaseId, phaseName: phaseName(g.phaseId),
         assetIds: [cid], isCompanion: true,
+        // ITS OWN STRATEGY, not its hosts'. A Lease strip filed under a Sell
+        // line is how seven classifiers came to read the wrong revenue.
+        strategy: String((companion as { strategy?: string }).strategy ?? 'Lease'), typed: g.typed,
       });
+    }
+    /**
+     * AND THE OPERATE COMPANIONS OF THIS LINE (2026-09-12).
+     *
+     * A Sell + Manage asset has an Operate sibling carrying `parentAssetId`,
+     * and the grouping excludes it for the same reason it excludes the retail
+     * strip: a line holds one strategy. The retail companion was given its
+     * place beside its line on 2026-09-11; this one was left to the stray
+     * branch, which appends after EVERY grouped line, so FMP RE HUB printed
+     * "Phase 2, High-end Apartments (Operate)" below phase 3.
+     *
+     * Its parent is on this line, so its place is a lookup rather than a guess,
+     * exactly as the retail companion's is.
+     */
+    for (const host of ids) {
+      for (const a of assets) {
+        if (a.isCompanion !== true) continue;
+        if ((a as { parentAssetId?: string }).parentAssetId !== host) continue;
+        if (placed.has(a.id)) continue;
+        placed.add(a.id);
+        out.push({
+          key: a.id, label: labelOf(a.id), phaseId: g.phaseId, phaseName: phaseName(g.phaseId),
+          assetIds: [a.id], isCompanion: true,
+          strategy: String((a as { strategy?: string }).strategy ?? 'Operate'), typed: g.typed,
+        });
+      }
     }
   }
 
@@ -353,6 +387,7 @@ export function planCapexSummaryLines(
     out.push({
       key: a.id, label: labelOf(a.id), phaseId: a.phaseId, phaseName: phaseName(a.phaseId),
       assetIds: [a.id], isCompanion: a.isCompanion === true,
+      strategy: String((a as { strategy?: string }).strategy ?? ''), typed: (a.type ?? '').trim() !== '',
     });
   }
   return out;

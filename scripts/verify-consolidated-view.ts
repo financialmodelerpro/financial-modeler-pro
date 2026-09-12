@@ -22,6 +22,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildConsolidatedReport, perAssetCostsFromCapexReport } from '../src/hubs/modeling/platforms/refm/lib/reports/consolidatedReport';
+import { withResolvedAssetNames } from '../src/core/calculations/assetName';
 import { buildCapexReport } from '../src/hubs/modeling/platforms/refm/lib/reports/capexReports';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
@@ -41,7 +42,7 @@ function offlineChecks(): void {
   const state = buildExcelSampleState();
   const snap = computeFinancialsSnapshot(state);
   const capex = buildCapexReport(snap, state);
-  const rep = buildConsolidatedReport(state.assets, state.phases, perAssetCostsFromCapexReport(capex.inputAssets), normaliseAssetTypeId);
+  const rep = buildConsolidatedReport(state.assets, state.phases, perAssetCostsFromCapexReport(capex.inputAssets));
 
   check('A0 the fixture produced per-asset capex to consolidate',
     capex.inputAssets.length >= 2 && rep.perAssetTotal > 0, `${capex.inputAssets.length} assets`);
@@ -68,7 +69,7 @@ function offlineChecks(): void {
   const merged = buildConsolidatedReport(twin.assets, twin.phases, [
     { assetId: 'M1', land: 10, hard: 100, soft: 20, marketing: 0, operating: 5, total: 135 },
     { assetId: 'M2', land: 20, hard: 200, soft: 40, marketing: 0, operating: 10, total: 270 },
-  ], normaliseAssetTypeId);
+  ]);
   check('B1 two assets of one type and strategy in one phase become ONE row',
     merged.rows.length === 1 && merged.rows[0].assetCount === 2);
   check('B2 the merged row SUMS its members, and the total still reconciles',
@@ -83,7 +84,6 @@ function offlineChecks(): void {
     twin.phases,
     [{ assetId: 'M1', land: 10, hard: 100, soft: 20, marketing: 0, operating: 5, total: 135 },
       { assetId: 'M2', land: 20, hard: 200, soft: 40, marketing: 0, operating: 10, total: 270 }],
-    normaliseAssetTypeId,
   );
   // B5 IS THE REVERSE OF WHAT IT SAID, and the reversal is the fix.
   //
@@ -102,7 +102,7 @@ function offlineChecks(): void {
   // An asset with no cost row at all must not silently vanish from the view.
   const orphan = buildConsolidatedReport(twin.assets, twin.phases, [
     { assetId: 'M1', land: 0, hard: 100, soft: 0, marketing: 0, operating: 0, total: 100 },
-  ], normaliseAssetTypeId);
+  ]);
   check('B6 an asset with NO cost row still appears, contributing zero',
     orphan.rows[0].assetCount === 2 && orphan.rows[0].total === 100
     && Math.abs(orphan.difference) < 0.005);
@@ -120,7 +120,7 @@ function offlineChecks(): void {
     { assetId: 'M1', land: 0, hard: 100, soft: 0, marketing: 0, operating: 0, total: 100 },
     { assetId: 'M2', land: 0, hard: 200, soft: 0, marketing: 0, operating: 0, total: 200 },
     { assetId: 'GONE', land: 0, hard: 999, soft: 0, marketing: 0, operating: 0, total: 999 },
-  ], normaliseAssetTypeId);
+  ]);
   check('B7 money belonging to an asset the view does not show BREAKS the reconciliation',
     Math.abs(ghost.difference - 999) < 0.005,
     `difference ${money(ghost.difference)}, expected 999`);
@@ -180,20 +180,54 @@ async function liveChecks(): Promise<void> {
     withAssets += 1;
     const snap = computeFinancialsSnapshot(state as never);
     const capex = buildCapexReport(snap, state as never);
-    const rep = buildConsolidatedReport(state.assets, state.phases, perAssetCostsFromCapexReport(capex.inputAssets), normaliseAssetTypeId);
+    const labelled = withResolvedAssetNames(state.assets, { parcels: state.parcels, phases: state.phases }) as typeof state.assets;
+    const rep = buildConsolidatedReport(labelled, state.phases, perAssetCostsFromCapexReport(capex.inputAssets));
     worst = Math.max(worst, Math.abs(rep.difference));
     console.log(`  ${p.name}: ${state.assets.length} assets -> ${rep.rows.length} rows, `
       + `${rep.mergedRows.length} merged, total ${money(rep.totals.total)}, out by ${money(rep.difference)}`);
     check(`D1 ${p.name}: consolidated total ties to the per-asset total`,
       Math.abs(rep.difference) < 0.005,
       `${money(rep.totals.total)} vs ${money(rep.perAssetTotal)}`);
-    // COMPANIONS ARE NOT LINE MEMBERS, so the count is of real assets. The
-    // TOTAL still ties (D1) because a companion carries no cost of its own: the
-    // engine short-circuits it to zero. That pair is the point, and it is why
-    // the count moving did not move any money.
-    const realAssets = state.assets.filter((x) => (x as { isCompanion?: boolean }).isCompanion !== true);
-    check(`${p.name}: every non-companion asset appears exactly once, and no companion appears`,
-      rep.rows.reduce((s, r) => s + r.assetCount, 0) === realAssets.length);
+    // EVERY COSTED ASSET APPEARS EXACTLY ONCE, COMPANIONS INCLUDED.
+    //
+    // RE-AIMED 2026-09-12. This read 'and no companion appears', which was
+    // right while a companion cost nothing: the grouping key excludes them by
+    // design because a line holds one strategy, and the total still tied
+    // because the engine short-circuited them to zero. Consolidation step 6
+    // gave the retail companion real cost, so excluding it from the rows
+    // stopped being harmless and started being a 50,142,866.82 hole on
+    // FMP - MARINA GATE. A companion is a ROW now, beside the line it carves
+    // from, through the same planner the capex tables order their rows by.
+    const placed = rep.rows.flatMap((r) => r.assetNames);
+    check(`${p.name}: every asset appears exactly once, companions included`,
+      rep.rows.reduce((s, r) => s + r.assetCount, 0) === state.assets.length
+      && new Set(placed).size === placed.length,
+      `${rep.rows.reduce((s, r) => s + r.assetCount, 0)} placed vs ${state.assets.length} assets`);
+    // A COMPANION HAS A ROW, AND IT SITS WITH ITS LINE.
+    //
+    // Read from LABELLED assets, which is how the screen calls this. Matching
+    // the RETIRED `Asset.name` instead found nothing, so the strategy check
+    // below passed vacuously on an empty list, which is the failure mode a
+    // check about companions must not have.
+    const companionLabels = labelled
+      .filter((a) => (a as { isCompanion?: boolean }).isCompanion === true)
+      .map((a) => (a as { name?: string }).name ?? '');
+    const compRows = rep.rows.filter((r) => r.assetCount === 1 && companionLabels.includes(r.assetNames[0]));
+    check(`${p.name}: every companion has a row of its own`,
+      compRows.length === companionLabels.length,
+      `${compRows.length} rows for ${companionLabels.length} companions`);
+    // BESIDE THE LINE IT CARVES FROM, not appended after every grouped line.
+    check(`${p.name}: a companion row sits inside its own phase, never after the others`,
+      compRows.every((r) => {
+        const i = rep.rows.indexOf(r);
+        return i > 0 && rep.rows[i - 1].phaseId === r.phaseId;
+      }),
+      compRows.map((r) => `${r.phaseName}:${r.typeLabel}@${rep.rows.indexOf(r)}`).join(' | '));
+    // AND IT KEEPS ITS OWN STRATEGY. A Lease strip filed under a Sell line is
+    // how seven classifiers came to read the wrong revenue.
+    check(`${p.name}: a companion row carries its own strategy, not its hosts'`,
+      compRows.every((r) => r.strategy === 'Lease' || r.strategy === 'Operate'),
+      compRows.map((r) => `${r.typeLabel}=${r.strategy}`).join(' | '));
   }
   check('D3 the census covered the projects that have assets', withAssets >= 2, `${withAssets}`);
   check('D4 the worst reconciliation gap across the platform is zero to the cent',

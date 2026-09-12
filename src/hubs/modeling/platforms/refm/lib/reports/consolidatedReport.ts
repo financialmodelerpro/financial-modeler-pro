@@ -24,12 +24,10 @@
  */
 
 import {
-  groupAssetsForConsolidation,
   UNTYPED_LABEL,
   type ConsolidatableAsset,
-  type NormaliseTypeId,
 } from '@/src/core/calculations/consolidation';
-import type { CapexInputAsset } from './capexReports';
+import { planCapexSummaryLines, type CapexInputAsset, type CapexPlannableAsset } from './capexReports';
 
 /**
  * What this view needs to know about one asset's cost. Minimal on purpose: the
@@ -113,20 +111,45 @@ export function buildConsolidatedReport(
   assets: readonly AssetLike[],
   phases: readonly { id: string; name: string }[],
   capexByAsset: readonly PerAssetCost[],
-  // INJECTED, like the grouping key's own normaliser and for the same two
-  // reasons: there is ONE implementation of type identity and it lives in the
-  // platform, and importing it here would make this file read as an engine file
-  // that consults the asset type standards, which it does not.
-  normaliseTypeId: NormaliseTypeId,
+  // THE NORMALISER IS NO LONGER INJECTED (2026-09-12). It was, so that type
+  // identity had one implementation and this file did not read as an engine
+  // file consulting the asset type standards. The rows come from
+  // `planCapexSummaryLines` now, which owns that call, so passing one here
+  // would be a parameter nothing uses.
 ): ConsolidatedReport {
-  const phaseName = new Map(phases.map((p) => [p.id, p.name] as const));
   const capex = new Map(capexByAsset.map((c) => [c.assetId, c] as const));
-  const groups = groupAssetsForConsolidation(assets, phases.map((p) => p.id), normaliseTypeId);
-
-  const rows: ConsolidatedRow[] = groups.map((g) => {
+  /**
+   * A COMPANION IS A ROW, NOT A GAP (2026-09-12).
+   *
+   * This walked `groupAssetsForConsolidation` directly, which excludes
+   * companions BY DESIGN because a line holds one strategy. That was correct
+   * and harmless while a companion cost nothing: the engine short-circuited
+   * it to zero and the totals still tied. Consolidation step 6 (5ad4518e,
+   * 2026-09-10) narrowed the short-circuit to the OPERATE companion alone, so
+   * the retail strips began carrying real capex that no row could hold, and
+   * this view has not tied since. Measured on FMP - MARINA GATE the day it
+   * broke and again today: the gap is the two strips, to the cent.
+   *
+   *   Phase 1, Branded Villas (Retail)   31,143,760.84
+   *   Phase 2, Branded Villas (Retail)   18,999,105.98
+   *                                      -------------
+   *                                      50,142,866.82   = the gap
+   *
+   * The rows come from `planCapexSummaryLines` now, the SAME planner the four
+   * capex tables and both exports order their rows by, so a companion sits
+   * beside the line it carves from and this view cannot disagree with them
+   * about what a row is. Its own reconciliation is what caught this, and it
+   * is kept: a view that can tell you it does not tie is worth more than one
+   * that cannot.
+   */
+  const rows: ConsolidatedRow[] = planCapexSummaryLines(
+    assets as unknown as CapexPlannableAsset[],
+    phases,
+    (id) => assets.find((a) => a.id === id)?.name ?? id,
+  ).map((ln) => {
     const sums = { ...ZERO };
-    for (const a of g.assets) {
-      const c = capex.get(a.id);
+    for (const id of ln.assetIds) {
+      const c = capex.get(id);
       if (!c) continue;
       sums.land += c.land;
       sums.hard += c.hard;
@@ -136,20 +159,17 @@ export function buildConsolidatedReport(
       sums.total += c.total;
     }
     return {
-      key: g.key,
-      phaseId: g.phaseId,
-      phaseName: phaseName.get(g.phaseId) ?? g.phaseId,
-      typeLabel: g.typed ? g.typeLabel : UNTYPED_LABEL,
-      strategy: g.strategy,
-      typed: g.typed,
-      assetCount: g.assets.length,
-      // The grouping key's asset shape has an optional name; the callers here
-      // pass real assets, which always have one.
-      assetNames: g.assets.map((a) => a.name ?? ''),
+      key: ln.key,
+      phaseId: ln.phaseId,
+      phaseName: ln.phaseName,
+      typeLabel: ln.typed ? ln.label : UNTYPED_LABEL,
+      strategy: ln.strategy,
+      typed: ln.typed,
+      assetCount: ln.assetIds.length,
+      assetNames: ln.assetIds.map((id) => assets.find((a) => a.id === id)?.name ?? id),
       ...sums,
     };
   });
-
   const totals = rows.reduce((acc, r) => ({
     land: acc.land + r.land,
     hard: acc.hard + r.hard,
