@@ -188,15 +188,26 @@ function main(): void {
       }
       return n;
     };
-    check('T1a a line holding two plots is headed once, with both plots nested inside it',
-      plotsUnder(rowsTwo, 'Branded Villas') === 2,
-      `plots under the line = ${plotsUnder(rowsTwo, 'Branded Villas')}`);
-    const lineSub = rowsTwo.find((r) => r.isSubtotal && (r.indent ?? 0) === 0 && r.label.includes('Branded Villas') && !r.label.includes('R1') && !r.label.includes('R2'));
-    const plotSubs = rowsTwo.filter((r) => r.isSubtotal && (r.indent ?? 0) === 1);
-    check('T1b the line subtotal is the sum of its plots, to the cent',
-      lineSub !== undefined && plotSubs.length === 2
-      && lineSub.values.every((v, i) => Math.abs(v - plotSubs.reduce((s, r) => s + (r.values[i] ?? 0), 0)) < 0.005),
-      `lineSub=${lineSub ? lineSub.label : 'none'} plotSubs=${plotSubs.length}`);
+    // RE-AIMED 2026-09-12: the inputs are per merged line, so the schedule is
+    // too. A line holding two plots is headed ONCE, names both plots in that
+    // heading, and nests NOTHING under it: each cost line is one row, the
+    // plots' schedules added.
+    const twoHeading = rowsTwo.find((r) => r.isSection && (r.indent ?? 0) === 0 && r.label.includes('Branded Villas'));
+    check('T1a a line holding two plots is headed once, names both plots, and nests no plot under it',
+      twoHeading !== undefined && twoHeading.label.includes('Land 1') && twoHeading.label.includes('Land 2')
+      && plotsUnder(rowsTwo, 'Branded Villas') === 0,
+      `heading=${twoHeading?.label ?? 'none'} plots under the line = ${plotsUnder(rowsTwo, 'Branded Villas')}`);
+    const lineSubIdx = rowsTwo.findIndex((r) => r.isSubtotal && (r.indent ?? 0) === 0 && r.label.includes('Branded Villas'));
+    const lineSub = lineSubIdx >= 0 ? rowsTwo[lineSubIdx] : undefined;
+    // The cost-line rows between the line's heading and its subtotal.
+    const headIdx = rowsTwo.findIndex((r) => r.isSection && (r.indent ?? 0) === 0 && r.label.includes('Branded Villas'));
+    const lineRows = headIdx >= 0 && lineSubIdx > headIdx ? rowsTwo.slice(headIdx + 1, lineSubIdx).filter((r) => !r.isSection && !r.isSubtotal) : [];
+    const bothPlotsLand = 6000 * 1000 + 4000 * 1000;
+    check('T1b the line subtotal is its cost-line rows summed, and the land row carries BOTH plots',
+      lineSub !== undefined && lineRows.length > 0
+      && lineSub.values.every((v, i) => Math.abs(v - lineRows.reduce((s2, r) => s2 + (r.values[i] ?? 0), 0)) < 0.005)
+      && Math.abs((lineRows.find((r) => r.label === 'Land (Cash)')?.values ?? []).reduce((s2, v) => s2 + v, 0) - bothPlotsLand) < 0.005,
+      `lineSub=${lineSub ? lineSub.label : 'none'} rows=${lineRows.length}`);
     check('T1c and the schedule still foots to the project total',
       (() => {
         const total = rowsTwo.find((r) => r.isTotal)?.values ?? [];

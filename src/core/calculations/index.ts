@@ -2192,8 +2192,14 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
       );
     }
     perLinePerPeriod[r.line.id] = dist;
-    const isLand = deriveCostStage(r.line) === 'land';
-    const isInKindLand = r.method === 'percent_of_inkind_land';
+    // LAND VALUE, NOT THE LAND STAGE (2026-09-12). The stage holds every
+    // land-related cost the user files there, RETT included, and the tab's
+    // land value is the plots' value alone: 240,000,000 on the assets tab was
+    // 246,787,500 here, the 5% transfer tax on the cash half. The two standard
+    // land lines ARE the land value; anything else in the stage is a cost the
+    // project pays on top of it and stays in the development cost tables.
+    const isLand = isLandValueLine(r.line);
+    const isInKindLand = isLand && r.method === 'percent_of_inkind_land';
     // GROW the aggregate to fit the line, never truncate it to the window.
     //
     // `periodSlots` is sized from constructionPeriods and the latest cost-line
@@ -2367,6 +2373,18 @@ const STANDARD_STAGE_BY_ID: Record<string, CostStage> = {
   'developer-fee':        'soft',
   'contingency':          'soft',
 };
+
+/**
+ * THE TWO LINES THAT ARE THE LAND'S VALUE: the standard cash and in-kind
+ * lines, by identity (base id, or the catalog entry a custom line was stamped
+ * from). A line in the land STAGE that is not one of these (RETT, a transfer
+ * fee) is a cost on the land, priced by the engine like any other line, and
+ * never part of the value the assets tab states.
+ */
+export function isLandValueLine(line: Pick<CostLine, 'id' | 'catalogId'>): boolean {
+  const id = line.catalogId ?? deriveLineBaseId(line.id);
+  return id === 'land-cash' || id === 'land-inkind';
+}
 
 export function deriveCostStage(line: CostLine): CostStage {
   // 2026-08-17: the USER'S OWN classification outranks everything. Rows can be

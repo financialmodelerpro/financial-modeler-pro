@@ -21,8 +21,44 @@ import { retailCompanionId } from '@/src/core/calculations/retailCompanion';
 import { normaliseAssetTypeId } from '@/src/core/calculations/typeKey';
 import { withInheritedMassingAll } from '@/src/core/calculations/landChain';
 import { chainMassingFor } from '../state/assetTypeStandards';
+import { ASSET_TYPES_BY_CATEGORY, ASSET_TYPE_CATEGORIES, type AssetTypeCategory } from '../state/module1-types';
 
 export type MetricKind = 'area' | 'count' | 'money' | 'none';
+
+/**
+ * THE CATEGORY A CAPEX ROW FILES UNDER (2026-09-12): Residential, Hospitality
+ * or Retail, the three the founder reads the summary by, else Other. A retail
+ * strip is Retail whatever its hosts are. Otherwise the asset's type LABEL
+ * resolves against the project's own type list (its category, when the firm
+ * set one of the three) and then the built-in category lists; nothing here
+ * reads the standards or a stamped id, which is what keeps this file off the
+ * forbidden-reader list.
+ */
+export type CapexCategory = AssetTypeCategory | 'Other';
+export const CAPEX_CATEGORIES: readonly CapexCategory[] = [...ASSET_TYPE_CATEGORIES, 'Other'];
+export function assetCapexCategory(
+  asset: { type?: string; isCompanion?: boolean; companionType?: string },
+  project: { assetTypes?: ReadonlyArray<{ id: string; label: string; category?: string }> },
+): CapexCategory {
+  if (asset.isCompanion === true && asset.companionType === 'retail') return 'Retail';
+  const label = (asset.type ?? '').trim();
+  if (label === '') return 'Other';
+  const key = normaliseAssetTypeId(label);
+  const entry = (project.assetTypes ?? []).find((t) => t.id === key || t.label.trim() === label);
+  const declared = entry?.category?.trim();
+  if (declared && (ASSET_TYPE_CATEGORIES as readonly string[]).includes(declared)) return declared as AssetTypeCategory;
+  for (const cat of ASSET_TYPE_CATEGORIES) {
+    if (ASSET_TYPES_BY_CATEGORY[cat].some((l) => l === label || normaliseAssetTypeId(l) === key)) return cat;
+  }
+  // A firm's own label, not in the built-in lists and with no category set on
+  // tab 4: read the word. 'Hotel 5-star', 'Branded Residences', 'Strip Retail'
+  // all say what they are. Setting the category on tab 4 outranks this.
+  const lower = label.toLowerCase();
+  if (/hotel|resort|hospitality|serviced/.test(lower)) return 'Hospitality';
+  if (/retail|commercial|mall|shop/.test(lower)) return 'Retail';
+  if (/villa|apartment|residen|townhouse|condo|home/.test(lower)) return 'Residential';
+  return 'Other';
+}
 
 export interface CapexInputLine {
   /** Cost-line id (phase-scoped). Lets the Excel build-up map each line to its
@@ -422,7 +458,8 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
     inclAll: number[];
     exclInKind: number[];
     exclAll: number[];
-    perLine: Array<{ name: string; values: number[] }>;
+    perLine: Array<{ lineId: string; name: string; values: number[] }>;
+    category: CapexCategory;
   }
   const inputAssets: CapexInputAsset[] = [];
   const assetCapex: AssetCapex[] = [];
@@ -509,7 +546,7 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
     const exclInKind = inclAll.map((v, i) => v - (landInKind[i] ?? 0));
     const exclAll = inclAll.map((v, i) => v - (landTotal[i] ?? 0));
     const perLine = Object.entries(breakdown.perLinePerPeriod ?? {})
-      .map(([lineId, series]) => ({ name: lineById.get(lineId)?.name ?? lineId, values: projectOntoAxis(series, offset, N) }))
+      .map(([lineId, series]) => ({ lineId, name: lineById.get(lineId)?.name ?? lineId, values: projectOntoAxis(series, offset, N) }))
       .filter((r) => anyNonZero(r.values));
     // THE OUTPUT USES THE INPUT'S LABEL (2026-09-10). This read `a.name`, the
     // raw stored field, while the input table three lines up read
@@ -517,6 +554,7 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
     // asset two different things.
     assetCapex.push({
       assetId: a.id, name: assetLabel(a, state), plot: assetPlotLabel(a, state), phaseId: a.phaseId, phaseName: phase.name,
+      category: assetCapexCategory(a, project),
       inclAll, exclInKind, exclAll, perLine,
     });
   }
@@ -588,25 +626,29 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
    * plot closes once, on the line; a line holding several closes each plot and
    * then the line.
    */
+  /**
+   * ONE BLOCK PER LINE, THE COST LINES SUMMED ACROSS ITS PLOTS (2026-09-12,
+   * founder: the inputs are per asset type now, so the results are too). The
+   * plot nesting of 2026-09-11 is gone: a line's plots are named once in its
+   * heading, and each cost line is one row, the plots' schedules added. The
+   * screen's Table 1 does the same from the same per-asset series.
+   */
   const t1Rows: M4Row[] = [];
   for (const ln of summaryLines) {
     const members = ln.members.filter((ac) => anyNonZero(ac.inclAll));
     if (members.length === 0) continue;
-    const many = members.length > 1;
-    t1Rows.push({ label: lineHeading(ln), values: [], isSection: true });
+    const plots = members.map((ac) => ac.plot).filter((p): p is string => p !== undefined);
+    t1Rows.push({ label: plots.length > 0 ? `${lineHeading(ln)} (${plots.join(' + ')})` : lineHeading(ln), values: [], isSection: true });
+    const order: string[] = [];
+    const byLine = new Map<string, { name: string; values: number[] }>();
     for (const ac of members) {
-      // THE NESTED HEADING IS THE PLOT, not the whole label. The line above
-      // already states the phase and the type, so repeating them would print
-      // "Phase 2: Branded Residences" over "Phase 2, Branded Residences", the
-      // same words twice with a different separator. An asset with no plot has
-      // nothing of its own to add and gets no heading at all, which is every
-      // asset on a project that draws from a sentinel.
-      const plot = ac.plot;
-      if (plot !== undefined) t1Rows.push({ label: plot, values: [], isSection: true, indent: 1 });
-      const depth = plot === undefined ? 1 : 2;
-      for (const l of ac.perLine) t1Rows.push({ label: l.name, values: l.values, indent: depth });
-      if (many) t1Rows.push({ label: `Subtotal, ${plot ?? ac.name}`, values: ac.inclAll, isSubtotal: true, indent: 1 });
+      for (const l of ac.perLine) {
+        const cur = byLine.get(l.lineId);
+        if (!cur) { order.push(l.lineId); byLine.set(l.lineId, { name: l.name, values: [...l.values] }); continue; }
+        for (let t = 0; t < N; t++) cur.values[t] = (cur.values[t] ?? 0) + (l.values[t] ?? 0);
+      }
     }
+    for (const id of order) { const r = byLine.get(id)!; if (anyNonZero(r.values)) t1Rows.push({ label: r.name, values: r.values, indent: 1 }); }
     t1Rows.push({
       label: `Subtotal, ${lineHeading(ln)}`,
       values: sumOver(members, (ac) => ac.inclAll),
@@ -615,7 +657,7 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
   }
   if (t1Rows.length) {
     t1Rows.push({ label: 'Project Total (incl. all land)', values: totalInclAll, isTotal: true });
-    results.push({ title: 'Capex Schedule by Period (per cost line, by line and plot)', rows: t1Rows });
+    results.push({ title: 'Capex Schedule by Period (per cost line, by line)', rows: t1Rows });
   }
 
   /**
@@ -662,6 +704,31 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
   results.push(summaryTable('Total Capex (incl. all land)', (ac) => ac.inclAll, totalInclAll, 'Total Capex (incl. all land)'));
   results.push(summaryTable('Capex excl. Land In-Kind (cash-impact schedule)', (ac) => ac.exclInKind, totalExclInKind, 'Total Capex (excl. land in-kind)'));
   results.push(summaryTable('Capex excl. Total Land (pure development cost)', (ac) => ac.exclAll, totalExclAll, 'Total Capex (excl. all land)'));
+  /**
+   * CAPEX BY CATEGORY (2026-09-12, founder's request): Residential,
+   * Hospitality, Retail (and Other where a type fits none), so the reader
+   * sees which section carries the cost. Two readings, each footing to the
+   * matching summary table above.
+   */
+  const categoryTable = (title: string, pick: (ac: AssetCapex) => number[], total: number[], totalLabel: string): CapexResultTable => {
+    const rows: M4Row[] = [];
+    for (const cat of CAPEX_CATEGORIES) {
+      const members = assetCapex.filter((ac) => ac.category === cat);
+      if (members.length === 0) continue;
+      const values = sumOver(members, pick);
+      if (!anyNonZero(values)) continue;
+      rows.push({ label: cat, values, indent: 1 });
+    }
+    // The total is the rows above SUMMED, so this table always foots to itself;
+    // on a project with no operational phase it equals the engine series too.
+    const own = new Array<number>(N).fill(0);
+    for (const r of rows) for (let t = 0; t < N; t++) own[t] += r.values[t] ?? 0;
+    void total;
+    rows.push({ label: totalLabel, values: own, isTotal: true });
+    return { title, rows };
+  };
+  results.push(categoryTable('Capex by Category (incl. all land)', (ac) => ac.inclAll, totalInclAll, 'Total Capex (incl. all land)'));
+  results.push(categoryTable('Capex by Category (excl. total land)', (ac) => ac.exclAll, totalExclAll, 'Total Capex (excl. all land)'));
 
   const assetSeries: CapexAssetSeries[] = assetCapex.map((ac) => ({
     assetId: ac.assetId, name: ac.name, phaseId: ac.phaseId, phaseName: ac.phaseName,

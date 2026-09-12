@@ -39,12 +39,13 @@ import {
   computeAssetCost, computeAssetLandBreakdown, computeSubUnitArea, resolveSubUnitMetric, calculateItemTotal,
   costLineBasisQuantity, costLineCaption, resolveAssetAreaMetrics,
   resolveAssetParkingArea, resolveAssetParkingBays, resolveAssetNetDevelopableArea,
-  resolveAssetFootprintArea, resolveAssetLandscapeArea, deriveCostStage, landRateIssueText,
+  resolveAssetFootprintArea, resolveAssetLandscapeArea, deriveCostStage, landRateIssueText, isLandValueLine,
 } from '../src/core/calculations';
 import { eligibleBaseLines, assetVisibleLines } from '../src/core/calculations/selectedBase';
 import { planRetailCompanionOverrides } from '../src/core/calculations/retailCompanion';
 import { applyReferenceCostBases } from '../src/core/calculations/costBases';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import { buildCapexReport, assetCapexCategory } from '../src/hubs/modeling/platforms/refm/lib/reports/capexReports';
 import { buildExcelSampleState } from './excelSampleState';
 import { selectableCostMethods, COST_METHOD_LABELS, COST_METHOD_BASIS_HELP, type CostMethod } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { repairStaleWizardCostWindows } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
@@ -1062,6 +1063,87 @@ section('K. Area x unit size = count: only two of the three are inputs');
           const body = at >= 0 ? costsSrc2.slice(at, costsSrc2.indexOf('</select>', at)) : '';
           return body.includes('{lineOptionLabel(ln)}') && !body.includes('{a.name}');
         })());
+
+    // ── P4r LAND VALUE IS THE TWO STANDARD LINES, NOT THE LAND STAGE ────
+    //
+    // RETT sits in the land stage (the user's classification, and right for
+    // the stage tiles), but it is a tax on the land, not the land's value:
+    // the assets tab states 240,000,000 where Table 5 showed 246,787,500.
+    {
+      const project = { ...makeDefaultProject(), startDate: '2026-01-01' };
+      const asset = mkAsset('a1', 'phase_1', { parcelId: 'parcel_1', sqm: 10000 });
+      const rett = { id: 'custom-9__phase_1', phaseId: 'phase_1', name: 'RETT', catalogId: 'rett', method: 'percent_of_cash_land', value: 5, stage: 'land', scope: 'indirect', allocationBasis: 'land_share', startPeriod: 1, endPeriod: 1, phasing: 'even' } as unknown as CostLine;
+      const lines = [...makeBlankCostLines('phase_1', 4), rett];
+      const bd = computeAssetCost({ asset, project, phase: PHASE1, parcels: PARCELS, assets: [asset], subUnits: [], costLines: lines, costOverrides: [], landAllocationMode: 'sqm' });
+      const landValue = (bd.byLineId['land-cash__phase_1'] ?? 0) + (bd.byLineId['land-inkind__phase_1'] ?? 0);
+      const rettAmt = bd.byLineId['custom-9__phase_1'] ?? 0;
+      const landSeries = bd.perPeriodLandTotal.reduce((a, b) => a + b, 0);
+      check('P4r the land series is the two land lines alone; RETT is in the land STAGE but not in the land VALUE',
+        rettAmt > 0 && Math.abs(landSeries - landValue) < 1e-6 && Math.abs(bd.byStage.land - (landValue + rettAmt)) < 1e-6,
+        `land value ${landValue} series ${landSeries} rett ${rettAmt} stage ${bd.byStage.land}`);
+      check('P4r-b identity, not method or stage: the standard ids and a catalog stamp count, a RETT line does not',
+        isLandValueLine({ id: 'land-cash__p' }) && isLandValueLine({ id: 'land-inkind__p' })
+        && isLandValueLine({ id: 'custom-1__p', catalogId: 'land-cash' })
+        && !isLandValueLine({ id: 'custom-1__p', catalogId: 'rett' }) && !isLandValueLine({ id: 'infrastructure__p' }));
+    }
+
+    // ── P4q TABLE 1 IS PER LINE, AND THE CATEGORY SUMMARY FOOTS ─────────
+    //
+    // The inputs are per merged line, so Table 1 is too: one block per line,
+    // each cost line ONE row with its plots' schedules added, no plot
+    // nesting. And a summary by Residential / Hospitality / Retail that foots
+    // to the incl-land and excl-land totals. Report and screen alike.
+    {
+      const refState = buildExcelSampleState() as unknown as Parameters<typeof computeFinancialsSnapshot>[0];
+      const refSnap = computeFinancialsSnapshot(refState);
+      const rep = buildCapexReport(refSnap, refState as never);
+      const t1 = rep.results.find((t) => t.title.startsWith('Capex Schedule by Period'));
+      const sumRow = (vals: number[]): number => vals.reduce((a, b) => a + b, 0);
+      check('P4q report Table 1 has no plot rows: sections are lines, rows are cost lines, nothing nests deeper than one',
+        t1 !== undefined && t1.title.endsWith('(per cost line, by line)')
+        && t1.rows.every((r) => (r.indent ?? 0) <= 1)
+        && !t1.rows.some((r) => r.isSection && (r.indent ?? 0) > 0));
+      check('P4q-b every line subtotal equals its cost-line rows summed',
+        (() => {
+          if (!t1) return false;
+          let ok = true; let blockSum = 0; let seenRows = 0;
+          for (const r of t1.rows) {
+            if (r.isSection) { blockSum = 0; seenRows = 0; continue; }
+            if (r.isSubtotal) { ok = ok && seenRows > 0 && Math.abs(blockSum - sumRow(r.values)) < 1e-6; continue; }
+            if (r.isTotal) continue;
+            blockSum += sumRow(r.values); seenRows += 1;
+          }
+          return ok;
+        })());
+      const cat = rep.results.find((t) => t.title === 'Capex by Category (incl. all land)');
+      const catX = rep.results.find((t) => t.title === 'Capex by Category (excl. total land)');
+      const incl = rep.results.find((t) => t.title === 'Total Capex (incl. all land)');
+      const excl = rep.results.find((t) => t.title === 'Capex excl. Total Land (pure development cost)');
+      const catSum = (t?: { rows: { values: number[]; isTotal?: boolean }[] }): number => (t?.rows ?? []).filter((r) => !r.isTotal).reduce((a, r) => a + sumRow(r.values), 0);
+      const totalOf = (t?: { rows: { values: number[]; isTotal?: boolean }[] }): number => sumRow(t?.rows.find((r) => r.isTotal)?.values ?? []);
+      check('P4q-c the category tables foot to the incl-land and excl-land totals',
+        cat !== undefined && catX !== undefined && catSum(cat) > 0
+        && Math.abs(catSum(cat) - totalOf(incl)) < 1e-6 && Math.abs(catSum(catX) - totalOf(excl)) < 1e-6,
+        `incl ${catSum(cat)} vs ${totalOf(incl)}; excl ${catSum(catX)} vs ${totalOf(excl)}`);
+      const proj = { assetTypes: [{ id: 'my-hotel', label: 'My Hotel', category: 'Hospitality' }, { id: 'odd', label: 'Odd Thing', category: 'Parking' }] };
+      check('P4q-d a category resolves from the strip, the project type list, then the built-in lists, else Other',
+        assetCapexCategory({ type: 'Branded Villas', isCompanion: true, companionType: 'retail' }, proj) === 'Retail'
+        && assetCapexCategory({ type: 'My Hotel' }, proj) === 'Hospitality'
+        && assetCapexCategory({ type: 'Branded Villas' }, proj) === 'Residential'
+        && assetCapexCategory({ type: '4 Star Hotel' }, proj) === 'Hospitality'
+        && assetCapexCategory({ type: 'Standalone Commercial' }, proj) === 'Retail'
+        && assetCapexCategory({ type: 'Hotel 5-star' }, proj) === 'Hospitality'
+        && assetCapexCategory({ type: 'Branded Residences' }, proj) === 'Residential'
+        && assetCapexCategory({ type: 'Strip Retail' }, proj) === 'Retail'
+        && assetCapexCategory({ type: 'Odd Thing' }, proj) === 'Other'
+        && assetCapexCategory({}, proj) === 'Other');
+      check('P4q-e the screen renders Table 1 per line and Table 6 by category, from the same series',
+        !costsSrc2.includes('const renderAsset = (')
+        && costsSrc2.includes('const lineSeries = (lineId: string, members: Asset[])')
+        && costsSrc2.includes('data-testid={' + String.fromCharCode(96) + 'capex-period-line-' + '$' + '{ln.key}-' + '$' + '{line.id}' + String.fromCharCode(96) + '}')
+        && costsSrc2.includes('Table 6 - Capex by Category')
+        && costsSrc2.includes('categoryOf={(a) => assetCapexCategory(a, project)}'));
+    }
     }
   }
 
