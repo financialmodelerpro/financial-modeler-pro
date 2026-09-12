@@ -2451,6 +2451,44 @@ A live client token under sandbox (or the reverse). `paddleEnv.paddleEnvMismatch
 
 ---
 
+### 9.6 Eight commits sat local for a day, and nothing anywhere looked wrong
+
+**Symptom (2026-09-12):** the founder was clicking through the live site and reasoning about
+what he saw while the deployed build was 17 hours and eight commits old. He found a real defect
+(parking charged twice) in code that had already been corrected locally, and every conclusion he
+drew about the tab came from a build that did not contain the day's work. He noticed only because
+he checked the Vercel dashboard himself.
+
+**Mechanism:** `git commit` was run eight times and `git push` zero times. Vercel builds on push,
+so it never attempted anything: there was no failed deployment, no red cross, no alert. The
+assistant reported "seven commits today" after each one and the reports were TRUE, which is
+exactly what made this invisible. Both sides had a consistent and complete picture and the two
+pictures were of different code.
+
+This is worse than a failed deploy, and the difference is the whole entry. A failed deploy is
+loud: it appears in the dashboard, it sends mail, the SHA stops moving and somebody asks why.
+A deploy that was never requested produces no signal of any kind at either end.
+
+**The three places the truth was available and unread:**
+- `git status -sb` prints `## main...origin/main [ahead 8]` on every call. It was never run.
+- `git push` prints a ref-update line, `40221720..6eb0a6f1  main -> main`, and its absence from
+  the transcript is the positive evidence that nothing was pushed.
+- `GET /api/health` returns the deployed `commit`, which is comparable to `git rev-parse HEAD`
+  in one line. CLAUDE.md already documents it for exactly this, and it was used to date a
+  deployment only AFTER the founder asked.
+
+**Fix:** commit and push are ONE step, and the ref-update line is the confirmation. Where work is
+deliberately held back from production, say so in the same message as the commit, so "not pushed"
+is a stated decision and never a silent default. When any conclusion depends on what the live
+site shows, compare the health commit to HEAD FIRST and say which build was being looked at.
+
+**Proof:** eight commits pushed as `40221720..6eb0a6f1`, Vercel created
+`dpl_7W4dkDHfxTx4wLdLEKLafKVkrLhR` for `6eb0a6f1` within seconds, and the health commit was
+polled until it equalled HEAD. Before the push, the newest deployment in the project was
+`40221720`, created 2026-09-11 17:21:49 UTC: not failed, not queued, simply never asked for.
+
+---
+
 ## 10. Verifier discipline
 
 ### 10.11 Markup greps as present while `false &&` keeps it from ever rendering
