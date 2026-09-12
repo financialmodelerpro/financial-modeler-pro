@@ -2216,6 +2216,67 @@ the migration.
 **Proof.** `verify-retail-companion` E1 to E3 (E1 bans the shape across four classifier files, E3
 pins that the exclusions survive).
 
+### 7.37 A delete that cascades to nothing leaves a reference pointing at a corpse, and the row comes back wearing a different name
+
+**Symptom (2026-09-12):** the founder deleted a plot and a row they believed gone kept appearing
+on the Capex tab, under a name they did not recognise. Nothing on that tab creates assets, and
+comparing the raw stored snapshot against the hydrated state showed 9 assets in and 9 out, so
+nothing was synthesised at read time either.
+
+**Mechanism:** `removeParcel` was three lines, `parcels.filter(...)`, and cascaded to nothing. It
+was the ONLY delete in the store that cascaded to nothing at all: `removePhase` drops assets,
+sub-units, parcels, cost lines, tranches and equity; `removeAsset` drops sub-units, targeted cost
+lines and overrides; `removeCostLine` drops overrides. An asset created ON the deleted plot kept
+`landAllocation.parcelId` pointing at it. The label resolver then did exactly what it is supposed
+to do: it could not find the parcel, so it fell back to the phase, and the row stopped reading
+"Land 7, High End Apartments" and started reading "Phase 1, High End Apartments". A survivor
+renamed reads as a stranger arriving.
+
+The append-only change log is what settled it, and it is worth remembering as the tool for this
+class: one `add` row for that asset in 446 entries and no `remove` anywhere, with the plot's own
+removal timestamped an hour later and carrying NOTHING ELSE in that save.
+
+**Fix:** the delete REFUSES and says how many assets the plot carries, rather than cascading
+(which would destroy sub-units, costs and revenue nobody asked to lose) or clearing the pointer
+(which silently unmoors an asset from its land). `removeParcel` returns a result rather than
+void, because a refusal a caller cannot see is a silent lock. Behind it,
+`repairProjectIntegrity` clears any reference that resolves to nothing, and it runs in the
+PERSISTENCE layer, in `hydrate` and `extractPersistSnapshot`, not on a tab.
+
+**Proof:** `verify-project-integrity` 13/0 with credentials; one dangling reference across every
+live project, and it was this one. Open a live project and save it with no edit: RE HUB 0 changes
+before and after, Marina Gate 2 before and 3 after, the addition being the repair itself.
+
+---
+
+### 7.38 Reconciliation that lives in a tab's useEffect is only as current as the last tab you opened
+
+**Symptom (2026-09-12):** a stale row survived into Capex because the pass that would have
+removed it runs on the Assets tab, and the founder was not on the Assets tab.
+
+**Mechanism:** every reconciliation this platform has (`syncRetailCompanions`,
+`syncLineSubUnits`, `syncDerivedSupport`, `syncDerivedAreas`) is a `useEffect` in
+`Module1Assets.tsx`, and each has exactly one caller. All four write to the SHARED store, so
+every other module reads whatever the last visit to that one tab left behind. `Module1Costs` has
+a single effect and it fetches the cost catalog; it reconciles nothing. So the repair for a stale
+row is not "somewhere in the app", it is "on one tab, while you are looking at it".
+
+This is not the same as a copy of state. The engine holds no copy (`computeFinancialsSnapshot`
+derives per render), Module 7 slides hold binding keys, and Modules 2 and 3 store their state ON
+the asset. The staleness is entirely in WHEN the derivation runs.
+
+**Fix (partial, and the rest is recorded not built):** the integrity pass moved to the
+persistence layer, where every load and every save goes through it regardless of tab. Moving the
+four reconciliations themselves is the real answer and is HELD: they depend on the assets tab's
+own `rowGroups` and `lineGroups`, which run the area chain, so lifting them means lifting that
+derivation into a selector the store can call, and `syncLineSubUnits` moves money.
+
+**Proof:** the integrity pass settles (returns the input object on a clean model), so running it
+on every load cannot mark a project dirty: measured on both live projects by opening and saving
+with no edit.
+
+---
+
 ## 8. Registries and two-step registration
 
 ### 8.1 A template registered in one place and not the other fails silently and permanently
