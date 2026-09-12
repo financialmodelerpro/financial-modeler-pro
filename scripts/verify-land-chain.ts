@@ -801,6 +801,20 @@ function offlineChecks(): void {
     && tabSrc.includes('{(line.assetIds.length > 1 || !asset) && (')
     && tabSrc.includes("{asset ? (line.plotByAssetId[asset.id] ?? asset.name) : 'no asset'}")
     && !tabSrc.includes("{line.assetNames.join(', ')}"));
+  // U18h TABLE 1 SITS ON THE SAME SCALE as tables 2 to 5 (2026-09-12,
+  // founder): the shared cell, header and input constants, not the FAST
+  // input style and the 8px-grid padding it used to carry alone.
+  {
+    const t1s = tabSrc.indexOf('data-testid="parcels-table"');
+    const t1 = t1s >= 0 ? tabSrc.slice(t1s, tabSrc.indexOf('</table>', t1s)) : '';
+    const rs = tabSrc.indexOf('function ParcelRow(');
+    const prow = rs >= 0 ? tabSrc.slice(rs, tabSrc.indexOf('\nfunction ', rs + 10)) : '';
+    check('U18h Table 1 uses the shared TH_T / CELL / TABLE_INPUT scale and none of the larger FAST styling',
+      t1.length > 0 && prow.length > 0
+      && !t1.includes('tableHeaderStyle') && !t1.includes("padding: 'var(--sp-1)'")
+      && !prow.includes('style={inputStyle}') && !prow.includes("padding: 'var(--sp-1)'")
+      && (prow.match(/style=\{TABLE_INPUT\}/g) ?? []).length >= 5 && prow.includes('<td style={CELL}'));
+  }
   check('U19 the table states which vocabulary is in force AND that the fields invert',
     tabSrc.includes('data-testid="assets-results-vocabulary"')
     && /standard GCC development terms/.test(resultsBody)
@@ -1868,13 +1882,19 @@ function offlineChecks(): void {
 
   // ── THE PLOT IS EDITABLE IN THE ROW, and both routes point at the plot the
   // user actually meant.
-  check('U36 the Plot cell is a picker that writes the asset land allocation',
-    inputsBody.includes('asset-row-${asset.id}-plot')
-    && /<select[\s\S]{0,400}asset-row-\$\{asset\.id\}-plot/.test(inputsBody)
-    && /landAllocation: next === ''/.test(inputsBody)
-    // The sqm already drawn survives the move: reassigning a plot is not a
-    // reason to delete an input the user typed.
-    && /\.\.\.\(asset\.landAllocation \?\? \{ sqm: 0 \}\), parcelId: next/.test(inputsBody));
+  // RE-AIMED 2026-09-12: the plot picker moved from the row to the asset's
+  // DRAWER (the row repeated the group header). Same field, same write rule.
+  const cardStart = tabSrc.indexOf('function AssetCard(');
+  const cardBody = cardStart >= 0 ? tabSrc.slice(cardStart, tabSrc.indexOf('\nfunction ', cardStart + 10)) : '';
+  check('U36 the Plot picker lives in the drawer and writes the asset land allocation, sqm kept',
+    cardBody.includes('asset-row-${asset.id}-plot')
+    && /<select[\s\S]{0,400}asset-row-\$\{asset\.id\}-plot/.test(cardBody)
+    && /landAllocation: next === ''/.test(cardBody)
+    && /\.\.\.\(asset\.landAllocation \?\? \{ sqm: 0 \}\), parcelId: next/.test(cardBody)
+    // AND THE ROW NO LONGER REPEATS THE HEADER: no plot or phase column.
+    && !inputsBody.includes('asset-row-${asset.id}-plot') && !inputsBody.includes('asset-row-${asset.id}-phase\`}')
+    && !inputsBody.includes('<th style={TH_T}>Plot</th>') && !inputsBody.includes('<th style={TH_T}>Phase</th>')
+    && inputsBody.includes('const COLS = 11;'));
   // U37 IS BACK ON THE PLOT HEADER with the grouping. "+ Add asset here" must
   // create an asset ALREADY POINTING AT THAT PLOT, which was the founder's
   // original ask: a button on a plot that produces an asset on no plot is a
@@ -1888,7 +1908,7 @@ function offlineChecks(): void {
     // what U37 pins is unchanged: it names THAT PLOT, not the phase's first.
     && tabSrc.includes('g.parcel!.phaseId,')
     && tabSrc.includes('g.parcel!.id,')
-    && inputsBody.includes('asset-row-${asset.id}-plot'));
+    && cardBody.includes('asset-row-${asset.id}-plot'));
 
   // ── THE PLOT DRAW. One rule, three former readers, and a sole occupant that
   // draws its whole plot without anyone typing it.

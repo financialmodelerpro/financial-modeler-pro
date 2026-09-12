@@ -84,7 +84,7 @@ import {
 } from '../../lib/state/assetTypeStandards';
 import LandChainSection from './_shared/LandChainSection';
 import {
-  groupAssetsByPlot,
+  groupAssetsByPlot, UNPLOTTED_GROUP,
   mintId,
   partitionSubUnitsByLine,
   plotCheckText,
@@ -995,22 +995,22 @@ export default function Module1Assets(): React.JSX.Element {
                   the rate input, and the blank header sat over the add-asset
                   picker. The totals row was a THIRD arrangement again, putting
                   cash and in-kind MONEY under the two percent headers. */}
-              <th style={tableHeaderStyle}><InputLabel label="Plot" help="Free-text label. A plot is project-wide: an asset in any phase may draw from it." textStyle={tableHeaderLabelStyle} /></th>
-              <th style={tableHeaderStyle}><InputLabel label="Phase" help="When this plot is acquired. It does not restrict which assets may draw from it." textStyle={tableHeaderLabelStyle} /></th>
-              <th style={tableHeaderStyle}><InputLabel label="Area (sqm)" help="Land area for this plot." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={TH_T}><InputLabel label="Plot" help="Free-text label. A plot is project-wide: an asset in any phase may draw from it." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={TH_T}><InputLabel label="Phase" help="When this plot is acquired. It does not restrict which assets may draw from it." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={TH_T}><InputLabel label="Area (sqm)" help="Land area for this plot." textStyle={tableHeaderLabelStyle} /></th>
               {/* M2.0j Fix 3: Header is just `{currency}/sqm`. Tooltip explains the rate model. */}
-              <th style={tableHeaderStyle}><InputLabel label={`${project.currency}/sqm`} help="Per-sqm acquisition cost. Total plot value = Area x Rate. Asset land cost = the asset's allocated sqm x this plot's rate (or weighted average / custom override at the asset level)." textStyle={tableHeaderLabelStyle} /></th>
-              <th style={tableHeaderStyle}><InputLabel label="Cash %" help="Share paid in cash. Cash + In-kind = 100." textStyle={tableHeaderLabelStyle} /></th>
-              <th style={tableHeaderStyle}><InputLabel label="In-Kind %" help="Share paid in-kind (equity from the landowner)." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={TH_T}><InputLabel label={`${project.currency}/sqm`} help="Per-sqm acquisition cost. Total plot value = Area x Rate. Asset land cost = the asset's allocated sqm x this plot's rate (or weighted average / custom override at the asset level)." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={TH_T}><InputLabel label="Cash %" help="Share paid in cash. Cash + In-kind = 100." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={TH_T}><InputLabel label="In-Kind %" help="Share paid in-kind (equity from the landowner)." textStyle={tableHeaderLabelStyle} /></th>
               {/* THE THREE DERIVED VALUES, so a reader sees what a plot is
                   worth and how it is paid for without doing the arithmetic.
                   The row used to show the two percentages and nothing else,
                   and the split was left to the reader while the footer showed
                   it totalled. Read-only: the inputs are to the left. */}
-              <th style={tableHeaderStyle}><InputLabel label="Land Value" help="Area x Rate. Derived, not typed." textStyle={tableHeaderLabelStyle} /></th>
-              <th style={tableHeaderStyle}><InputLabel label="Cash Value" help="Land Value x Cash %. What this plot costs in cash." textStyle={tableHeaderLabelStyle} /></th>
-              <th style={tableHeaderStyle}><InputLabel label="In-Kind Value" help="Land Value x In-Kind %. What this plot settles as landowner equity." textStyle={tableHeaderLabelStyle} /></th>
-              <th style={tableHeaderStyle}></th>
+              <th style={TH_T}><InputLabel label="Land Value" help="Area x Rate. Derived, not typed." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={TH_T}><InputLabel label="Cash Value" help="Land Value x Cash %. What this plot costs in cash." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={TH_T}><InputLabel label="In-Kind Value" help="Land Value x In-Kind %. What this plot settles as landowner equity." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={TH_T}></th>
             </tr>
           </thead>
           <tbody>
@@ -1039,27 +1039,27 @@ export default function Module1Assets(): React.JSX.Element {
                 sticky frozen column with the global opaque background, and the
                 row band never reached it. */}
             <tr style={SUBTOTAL_BAND}>
-              <td style={{ padding: 'var(--sp-1)', ...SUBTOTAL_BAND }}>Totals</td>
+              <td style={{ ...CELL, ...SUBTOTAL_BAND }}>Totals</td>
               {/* THE PHASE AND THE TWO PERCENTAGES HAVE NO TOTAL, and a blank
                   cell is the honest way to say so. This row used to put the
                   cash and in-kind MONEY under the two percent headers, which
                   read as a total of the percentages and was the reason the
                   footer looked misaligned even where the header was not. The
                   money now sits under the money columns it totals. */}
-              <td style={{ padding: 'var(--sp-1)', ...SUBTOTAL_BAND }}></td>
-              <td style={{ padding: 'var(--sp-1)', ...SUBTOTAL_BAND }} data-testid="parcels-total-area">{areaText(aggregate.totalAreaSqm)} sqm</td>
+              <td style={{ ...CELL, ...SUBTOTAL_BAND }}></td>
+              <td style={{ ...CELL, ...SUBTOTAL_BAND }} data-testid="parcels-total-area">{areaText(aggregate.totalAreaSqm)} sqm</td>
               {/* THE WEIGHTED RATE IS A RATE, so it stays at full scale like
                   every plot's own rate input directly above it. At thousands
                   with 0 decimals it divided 7,357.14 by 1,000 and rounded,
                   printing "7" under a column of 7,500 and 500. The arithmetic
                   was always right; only the formatting was not. The money
                   totals beside it are totals and keep the scale. */}
-              <td style={{ padding: 'var(--sp-1)', ...SUBTOTAL_BAND }} data-testid="parcels-weighted-rate">{formatAccounting(aggregate.weightedRate, 'full', project.displayDecimals ?? 2)} /sqm</td>
-              <td style={{ padding: 'var(--sp-1)', ...SUBTOTAL_BAND }}></td>
-              <td style={{ padding: 'var(--sp-1)', ...SUBTOTAL_BAND }}></td>
-              <td style={{ padding: 'var(--sp-1)', ...SUBTOTAL_BAND }} data-testid="parcels-total-value">{formatAccounting(aggregate.totalValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
-              <td style={{ padding: 'var(--sp-1)', ...SUBTOTAL_BAND }} data-testid="parcels-cash-value">{formatAccounting(aggregate.cashValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
-              <td style={{ padding: 'var(--sp-1)', ...SUBTOTAL_BAND }} data-testid="parcels-inkind-value">{formatAccounting(aggregate.inKindValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
+              <td style={{ ...CELL, ...SUBTOTAL_BAND }} data-testid="parcels-weighted-rate">{formatAccounting(aggregate.weightedRate, 'full', project.displayDecimals ?? 2)} /sqm</td>
+              <td style={{ ...CELL, ...SUBTOTAL_BAND }}></td>
+              <td style={{ ...CELL, ...SUBTOTAL_BAND }}></td>
+              <td style={{ ...CELL, ...SUBTOTAL_BAND }} data-testid="parcels-total-value">{formatAccounting(aggregate.totalValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
+              <td style={{ ...CELL, ...SUBTOTAL_BAND }} data-testid="parcels-cash-value">{formatAccounting(aggregate.cashValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
+              <td style={{ ...CELL, ...SUBTOTAL_BAND }} data-testid="parcels-inkind-value">{formatAccounting(aggregate.inKindValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
               <td style={SUBTOTAL_BAND}></td>
             </tr>
           </tfoot>
@@ -1411,24 +1411,24 @@ function ParcelRow({
   const own = computeLandAggregate([parcel]);
   return (
     <tr data-testid={`parcel-row-${parcel.id}`}>
-      <td style={{ padding: 'var(--sp-1)' }}>
-        <input type="text" value={parcel.name} data-testid={`parcel-${parcel.id}-name`} onChange={(e) => onUpdate({ name: e.target.value })} style={inputStyle} />
+      <td style={CELL}>
+        <input type="text" value={parcel.name} data-testid={`parcel-${parcel.id}-name`} onChange={(e) => onUpdate({ name: e.target.value })} style={TABLE_INPUT} />
       </td>
       {/* THE PHASE IS ENTRY, so it belongs on the plot row. It was only
           editable in a wizard before, which meant a plot bought in the wrong
           phase could not be corrected here. A plot stays PROJECT-WIDE: an asset
           in any phase may draw from it, and the phase says when it is acquired. */}
-      <td style={{ padding: 'var(--sp-1)' }}>
+      <td style={CELL}>
         <select
           value={parcel.phaseId}
           data-testid={`parcel-${parcel.id}-phase`}
           onChange={(e) => onUpdate({ phaseId: e.target.value })}
-          style={inputStyle}
+          style={TABLE_INPUT}
         >
           {phases.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
         </select>
       </td>
-      <td style={{ padding: 'var(--sp-1)' }}>
+      <td style={CELL}>
         {/* P10-Fix 8 (2026-05-12): accounting format on blur. Parcel
             area is sqm; large enough that thousand separators help. */}
         <AccountingNumberInput
@@ -1437,11 +1437,11 @@ function ParcelRow({
           scale="full"
           decimals={0}
           min={0}
-          style={inputStyle}
+          style={TABLE_INPUT}
           data-testid={`parcel-${parcel.id}-area`}
         />
       </td>
-      <td style={{ padding: 'var(--sp-1)' }}>
+      <td style={CELL}>
         {/* M2.0j Fix 7: accounting format on blur. Raw number on focus.
             Rate is per sqm; usually small enough we keep scale='full'
             so 500/sqm doesn't display as 0.50 K. */}
@@ -1451,7 +1451,7 @@ function ParcelRow({
           scale="full"
           decimals={decimals}
           min={0}
-          style={inputStyle}
+          style={TABLE_INPUT}
           data-testid={`parcel-${parcel.id}-rate`}
         />
         {/* THE SCALED CAPTION IS GONE. It showed the rate divided by the
@@ -1461,7 +1461,7 @@ function ParcelRow({
             total. There is no caption now, because the input above it already
             shows the whole amount. */}
       </td>
-      <td style={{ padding: 'var(--sp-1)' }}>
+      <td style={CELL}>
         <PercentageInput
           min={0} max={100} value={parcel.cashPct}
           data-testid={`parcel-${parcel.id}-cashPct`}
@@ -1469,10 +1469,10 @@ function ParcelRow({
             const v = Math.max(0, Math.min(100, n));
             onUpdate({ cashPct: v, inKindPct: 100 - v });
           }}
-          style={inputStyle}
+          style={TABLE_INPUT}
         />
       </td>
-      <td style={{ padding: 'var(--sp-1)' }}>
+      <td style={CELL}>
         <PercentageInput
           min={0} max={100} value={parcel.inKindPct}
           data-testid={`parcel-${parcel.id}-inKindPct`}
@@ -1480,7 +1480,7 @@ function ParcelRow({
             const v = Math.max(0, Math.min(100, n));
             onUpdate({ inKindPct: v, cashPct: 100 - v });
           }}
-          style={inputStyle}
+          style={TABLE_INPUT}
         />
       </td>
       {/* P7-Fix 1: NDA checkbox + Roads % + Parks % + NDA (sqm) +
@@ -1494,16 +1494,16 @@ function ParcelRow({
           under it cannot disagree, including about how each clamps a negative
           input. Nothing here reaches the engine; the engine reads the parcel
           fields, which are the three inputs to the left. */}
-      <td style={{ padding: 'var(--sp-1)', textAlign: 'right', whiteSpace: 'nowrap' }} data-testid={`parcel-${parcel.id}-land-value`}>
+      <td style={{ ...CELL, textAlign: 'right' }} data-testid={`parcel-${parcel.id}-land-value`}>
         {formatAccounting(own.totalValue, scale, decimals)}
       </td>
-      <td style={{ padding: 'var(--sp-1)', textAlign: 'right', whiteSpace: 'nowrap' }} data-testid={`parcel-${parcel.id}-cash-value`}>
+      <td style={{ ...CELL, textAlign: 'right' }} data-testid={`parcel-${parcel.id}-cash-value`}>
         {formatAccounting(own.cashValue, scale, decimals)}
       </td>
-      <td style={{ padding: 'var(--sp-1)', textAlign: 'right', whiteSpace: 'nowrap' }} data-testid={`parcel-${parcel.id}-inkind-value`}>
+      <td style={{ ...CELL, textAlign: 'right' }} data-testid={`parcel-${parcel.id}-inkind-value`}>
         {formatAccounting(own.inKindValue, scale, decimals)}
       </td>
-      <td style={{ padding: 'var(--sp-1)', textAlign: 'right', whiteSpace: 'nowrap' }}>
+      <td style={{ ...CELL, textAlign: 'right' }}>
         {onAddAsset && (
           <select
             value=""
@@ -1930,7 +1930,7 @@ function PlotHeaderRow({
 }): React.JSX.Element {
   return (
     <tr style={BAND} data-testid={`plot-group-${g.key}${showCheck ? '' : '-results'}`}>
-      <td style={{ ...CELL, ...BAND, fontWeight: 700 }} colSpan={showCheck ? 6 : 2}>
+      <td style={{ ...CELL, ...BAND, fontWeight: 700 }} colSpan={showCheck ? 4 : 2}>
         {plotLabel}
         {phaseName && (
           <span style={{ fontWeight: 400, color: 'var(--color-meta)', marginLeft: 8 }}>{phaseName}</span>
@@ -2147,7 +2147,9 @@ function AssetInputsTable({
   // 14. The Retail GFA / slot column left on 2026-09-09: it is one company
   // figure and now lives on the standards tab beside the parking area per slot.
   // Counts agree or U15 fails.
-  const COLS = 13;
+  // ELEVEN since 2026-09-12: the plot and the phase columns are gone, the
+  // group header names both once and the drawer holds the two pickers.
+  const COLS = 11;
   return (
     <div style={sectionCardStyle} data-testid="assets-table-section">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 'var(--sp-1)' }}>
@@ -2164,10 +2166,8 @@ function AssetInputsTable({
         <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1150 }} data-testid="assets-table">
           <colgroup>
             <col style={{ width: 26 }} />
-            <col style={{ width: 104 }} />
             <col style={{ width: 168 }} />
             <col style={{ width: 96 }} />
-            <col style={{ width: 112 }} />
             <col style={{ width: 92 }} />
             {Array.from({ length: 6 }).map((_, i) => (<col key={`in-${i}`} style={{ width: 90 }} />))}
             <col style={{ width: 40 }} />
@@ -2176,16 +2176,14 @@ function AssetInputsTable({
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
               {/* Land area moves under Chain inputs, where it belongs: it is
                   step 0 of the chain, the figure every later step multiplies. */}
-              <th style={TH_T} colSpan={5}>Asset</th>
+              <th style={TH_T} colSpan={3}>Asset</th>
               <th style={TH_T} colSpan={7}>Plot and massing inputs</th>
               <th style={TH_T}></th>
             </tr>
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
               <th style={TH_T}></th>
-              <th style={TH_T}>Plot</th>
               <th style={TH_T}>Type</th>
               <th style={TH_T}>Strategy</th>
-              <th style={TH_T}>Phase</th>
               <th style={TH_N} title="The asset's share of its plot. Feeds the land cost methods rate_per_land and rate_per_nda.">Plot Area (sqm)</th>
               <th style={TH_N} title="Share of the plot that is developable. Reference: Land Utilization %.">Land Utilisation %</th>
               {/* The reference calls this "Main Asset Coverage % / Footprint",
@@ -2248,28 +2246,6 @@ function AssetInputsTable({
                             each option's resolved rate and the weighted-average
                             options, so it is the richer surface, not a
                             duplicate rule. Both write the same field. */}
-                        <td style={CELL}>
-                          <select
-                            style={{ ...TABLE_INPUT, fontSize: 10 }}
-                            value={parcel ? parcel.id : ''}
-                            data-testid={`asset-row-${asset.id}-plot`}
-                            title="The plot this asset draws its land from. Changing it moves the row to that plot's group."
-                            onChange={(e) => {
-                              const next = e.target.value;
-                              onUpdateAsset(asset.id, {
-                                landAllocation: next === ''
-                                  ? undefined
-                                  // The sqm the asset already draws is KEPT: moving a
-                                  // row between plots is a reassignment, not a reset,
-                                  // and silently zeroing it would delete an input.
-                                  : { ...(asset.landAllocation ?? { sqm: 0 }), parcelId: next },
-                              });
-                            }}
-                          >
-                            <option value="">no plot</option>
-                            {parcels.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
-                          </select>
-                        </td>
                         {/* THE MANUAL NAME IS GONE (2026-09-10). An asset is
                             called by its plot and its type on every surface,
                             so a per-asset free-text name could only disagree
@@ -2309,6 +2285,13 @@ function AssetInputsTable({
                               <option value={UNLISTED_TYPE}>{(asset.type ?? '').trim()} (not in the list)</option>
                             )}
                           </select>
+                          {/* NO PLOT HEADER TO CARRY THE PHASE: an unplotted
+                              row says its own, once, here. */}
+                          {group.key === UNPLOTTED_GROUP && (
+                            <div style={{ fontSize: 9, color: 'var(--color-meta)' }} data-testid={`asset-row-${asset.id}-phase-note`}>
+                              {allPhases.find((p) => p.id === asset.phaseId)?.name ?? asset.phaseId}
+                            </div>
+                          )}
                         </td>
                         {/* THE STRATEGY IS EDITABLE HERE (2026-09-11). It was a
                             read-only span, so the one field a reader is most
@@ -2335,16 +2318,6 @@ function AssetInputsTable({
                             {ASSET_STRATEGIES.map((s) => (
                               <option key={s} value={s} title={STRATEGY_TOOLTIPS[s]}>{STRATEGY_LABELS[s]}</option>
                             ))}
-                          </select>
-                        </td>
-                        <td style={CELL}>
-                          <select
-                            style={TABLE_INPUT}
-                            value={asset.phaseId}
-                            data-testid={`asset-row-${asset.id}-phase`}
-                            onChange={(e) => onUpdateAsset(asset.id, { phaseId: e.target.value })}
-                          >
-                            {allPhases.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
                           </select>
                         </td>
                         {/* PLOT AREA IS TYPED HERE IN SQM MODE. It was a plain
@@ -3948,6 +3921,44 @@ function AssetCard({
       }}
       data-testid={`asset-card-${asset.id}`}
     >
+      {/* PLACEMENT (2026-09-12): the plot and the phase moved here from the
+          row, where they repeated the group header. Both write the same
+          fields the row used to; moving a row between plots KEEPS the sqm it
+          draws, a reassignment is not a reset. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 'var(--sp-1)', fontSize: 11 }} data-testid={`asset-card-${asset.id}-placement`}>
+        <span style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Placement</span>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          Plot
+          <select
+            style={{ ...TABLE_INPUT, width: 160 }}
+            value={asset.landAllocation?.parcelId && !asset.landAllocation.parcelId.startsWith('__') ? asset.landAllocation.parcelId : ''}
+            data-testid={`asset-row-${asset.id}-plot`}
+            title="The plot this asset draws its land from. Changing it moves the row to that plot's group."
+            onChange={(e) => {
+              const next = e.target.value;
+              onUpdate({
+                landAllocation: next === ''
+                  ? undefined
+                  : { ...(asset.landAllocation ?? { sqm: 0 }), parcelId: next },
+              });
+            }}
+          >
+            <option value="">no plot</option>
+            {parcels.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+          </select>
+        </label>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          Phase
+          <select
+            style={{ ...TABLE_INPUT, width: 120 }}
+            value={asset.phaseId}
+            data-testid={`asset-row-${asset.id}-phase`}
+            onChange={(e) => onUpdate({ phaseId: e.target.value })}
+          >
+            {allPhases.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+          </select>
+        </label>
+      </div>
       {pendingSwitch && (
         <StrategyChangeConfirm
           report={pendingSwitch}
