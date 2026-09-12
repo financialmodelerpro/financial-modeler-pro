@@ -815,6 +815,14 @@ function offlineChecks(): void {
       && !prow.includes('style={inputStyle}') && !prow.includes("padding: 'var(--sp-1)'")
       && (prow.match(/style=\{TABLE_INPUT\}/g) ?? []).length >= 5 && prow.includes('<td style={CELL}'));
   }
+  // U18i TABLE 3 NAMES THE PLOT AND THE PHASE ONCE, like table 2 (2026-09-12):
+  // no Plot column, the group header carries both, the label is the type.
+  check('U18i Table 3 has no Plot column, its header names the phase, and its label is the type alone',
+    !resultsBody.includes('<th style={TH_T}>Plot</th>')
+    && resultsBody.includes('const COLS = 21;')
+    && resultsBody.includes('{asset.type || asset.name}')
+    && /phaseName=\{group\.parcel \? \((allPhases|phases)\.find/.test(resultsBody)
+    && !resultsBody.includes("{parcel ? parcel.name : 'none'}"));
   check('U19 the table states which vocabulary is in force AND that the fields invert',
     tabSrc.includes('data-testid="assets-results-vocabulary"')
     && /standard GCC development terms/.test(resultsBody)

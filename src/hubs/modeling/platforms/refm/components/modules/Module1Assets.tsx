@@ -1930,7 +1930,7 @@ function PlotHeaderRow({
 }): React.JSX.Element {
   return (
     <tr style={BAND} data-testid={`plot-group-${g.key}${showCheck ? '' : '-results'}`}>
-      <td style={{ ...CELL, ...BAND, fontWeight: 700 }} colSpan={showCheck ? 4 : 2}>
+      <td style={{ ...CELL, ...BAND, fontWeight: 700 }} colSpan={showCheck ? 4 : 1}>
         {plotLabel}
         {phaseName && (
           <span style={{ fontWeight: 400, color: 'var(--color-meta)', marginLeft: 8 }}>{phaseName}</span>
@@ -2441,9 +2441,11 @@ function AssetInputsTable({
  */
 
 function AssetResultsTable({
-  rowGroups, retailLand, parcelsTotalSqm, useDerivedAreas, onToggleDerivedAreas,
+  rowGroups, allPhases, retailLand, parcelsTotalSqm, useDerivedAreas, onToggleDerivedAreas,
 }: {
   rowGroups: RowGroup[];
+  /** For the group header, which names the plot's phase once (2026-09-12). */
+  allPhases: Phase[];
   retailLand: RetailLandView;
   parcelsTotalSqm: number;
   /** Opt-in, per project: see the checkbox below and Project.useDerivedAreas. */
@@ -2455,7 +2457,9 @@ function AssetResultsTable({
   // one had no declared width under `table-layout: fixed` and no band above
   // it: the outermost tier, the single most important figure in the table,
   // rendered as a squeezed nameless strip at the right edge.
-  const COLS = 22;
+  // TWENTY-ONE since 2026-09-12: the Plot column is gone, the group header
+  // names the plot and the phase once, and the label is the type alone.
+  const COLS = 21;
   const d = (v: number | undefined): string => (v === undefined ? '-' : areaText(v));
   const n = (v: number | undefined): string =>
     v === undefined ? '-' : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -2520,7 +2524,6 @@ function AssetResultsTable({
             rows it labels. */}
         <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1958 }} data-testid="assets-results-table">
           <colgroup>
-            <col style={{ width: 88 }} />
             <col style={{ width: 150 }} />
             {Array.from({ length: 20 }).map((_, i) => (<col key={`d-${i}`} style={{ width: 86 }} />))}
           </colgroup>
@@ -2531,14 +2534,13 @@ function AssetResultsTable({
                 there. The outermost tier gets its own band called "Total"
                 rather than joining Units and parking, which it is not. */}
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
-              <th style={TH_T} colSpan={2}>Asset</th>
+              <th style={TH_T} colSpan={1}>Asset</th>
               <th style={TH_T} colSpan={5}>Land and footprint</th>
               <th style={TH_T} colSpan={5}>Floor area</th>
               <th style={TH_T} colSpan={9}>Units and parking</th>
               <th style={TH_N}>Total</th>
             </tr>
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
-              <th style={TH_T}>Plot</th>
               <th style={TH_T}>Asset</th>
               <th style={TH_N} title="The asset's share of its plot. Read by the land cost methods rate_per_land and rate_per_nda.">Plot Area (sqm)</th>
               <th style={TH_N} title="Plot Area x Land Utilisation %. Reference: Land Utilized Area. Read by the cost method rate_x_net_developable_area; the retired rate_per_nda multiplies the gross plot area and does NOT read this column.">Net Developable Area (sqm)</th>
@@ -2570,7 +2572,13 @@ function AssetResultsTable({
           <tbody>
             {rowGroups.map(({ group, plotLabel, rows }) => (
               <React.Fragment key={group.key}>
-                <PlotHeaderRow g={group} plotLabel={plotLabel} colSpan={COLS} showCheck={false} />
+                <PlotHeaderRow
+                  g={group}
+                  plotLabel={plotLabel}
+                  phaseName={group.parcel ? (allPhases.find((p) => p.id === group.parcel!.phaseId)?.name ?? undefined) : undefined}
+                  colSpan={COLS}
+                  showCheck={false}
+                />
                 {rows.length === 0 && (
                   <tr data-testid={`plot-group-${group.key}-results-empty`}>
                     <td style={{ ...CELL, color: 'var(--color-meta)', fontStyle: 'italic' }} colSpan={COLS}>
@@ -2583,18 +2591,20 @@ function AssetResultsTable({
                     utilisation, coverage and FAR, so this is the only place
                     those percentages have a single honest answer; the merge
                     below adds up what they produced. */}
-                {rows.map(({ asset, chain, landSqm, parcel, unitSizeSqm, unitSizeSource, parkingRatio, parkingRatioBasis }) => (
+                {rows.map(({ asset, chain, landSqm, unitSizeSqm, unitSizeSource, parkingRatio, parkingRatioBasis }) => (
                   <tr
                     key={asset.id}
                     style={{ borderBottom: '1px solid var(--color-border)', opacity: asset.visible ? 1 : 0.55 }}
                     data-testid={`asset-result-${asset.id}`}
                   >
-                    <td style={{ ...CELL, color: 'var(--color-meta)', fontSize: 10 }}>{parcel ? parcel.name : 'none'}</td>
-                    {/* THE LABEL, which already carries the type: the merged
-                        table below groups by type, so a reader tracing a row
-                        into it can see which line this asset joins. */}
+                    {/* THE LABEL IS THE TYPE ALONE (2026-09-12): the plot and the
+                        phase are named once, in the group header above. An
+                        unplotted row has no such header and says its phase. */}
                     <td style={CELL} data-testid={`asset-result-${asset.id}-label`}>
-                      {asset.name}
+                      {asset.type || asset.name}
+                      {group.key === UNPLOTTED_GROUP && (
+                        <div style={{ fontSize: 9, color: 'var(--color-meta)' }}>{allPhases.find((p) => p.id === asset.phaseId)?.name ?? asset.phaseId}</div>
+                      )}
                     </td>
                     <td style={CELL_NUM}>{areaText(landSqm)}</td>
                     <td style={CELL_DERIVED} data-testid={`asset-result-${asset.id}-land-utilised`}>{d(chain.landUtilisedSqm)}</td>
@@ -2637,7 +2647,6 @@ function AssetResultsTable({
                     style={{ borderBottom: '1px solid var(--color-border)' }}
                     data-testid={`plot-${group.key}-retail-land-${piece.assetId}`}
                   >
-                    <td style={{ ...CELL, color: 'var(--color-meta)', fontSize: 10 }}>{group.parcel?.name}</td>
                     <td style={CELL}>
                       {piece.name}
                       <div style={{ fontSize: 9, color: 'var(--color-meta)' }}>
@@ -2664,7 +2673,7 @@ function AssetResultsTable({
                 the SAME rule table 4's total uses, so the two can be read
                 against each other. */}
             <tr style={FOOT_BAND} data-testid="assets-results-total">
-              <td style={{ ...CELL, ...FOOT_BAND, fontWeight: 700 }} colSpan={2}>TOTAL, all plots</td>
+              <td style={{ ...CELL, ...FOOT_BAND, fontWeight: 700 }} colSpan={1}>TOTAL, all plots</td>
               <TotalCells totals={totals} testId="assets-results-total" />
             </tr>
           </tbody>
@@ -3002,6 +3011,7 @@ function AssetTables({
       />
       <AssetResultsTable
         rowGroups={rowGroups}
+        allPhases={allPhases}
         retailLand={retailLand}
         parcelsTotalSqm={parcelsTotalSqm}
         useDerivedAreas={project.useDerivedAreas}
