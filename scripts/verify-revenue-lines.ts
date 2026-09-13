@@ -40,7 +40,7 @@ import { keysFromArea, isRevenueSubUnit, resolveSubUnitAdr } from '../src/core/c
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { buildExcelSampleState } from './excelSampleState';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
-import { settleSubUnitPrices, activePriceKey, rowsWithoutPriceIn } from '../src/hubs/modeling/platforms/refm/lib/state/subUnitPrices';
+import { settleSubUnitPrices, activePriceKey, rowsWithoutPriceIn, hasDualPrice } from '../src/hubs/modeling/platforms/refm/lib/state/subUnitPrices';
 
 let passed = 0;
 const failures: string[] = [];
@@ -395,7 +395,17 @@ section('N. A sub-unit carries a price per sqm and a price per unit; unitPrice i
   check('N7 the store settles prices on BOTH doors', (store.match(/settleSubUnitPrices\(/g) ?? []).length >= 2);
   const t5 = readFileSync(join(process.cwd(), 'src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx'), 'utf8');
   check('N8 Table 5 has the other-basis price cell, writes both on the Rate cell, and the switch names unpriced rows',
-    t5.includes('-rate-other') && t5.includes("[isUnits ? 'pricePerUnit' : 'pricePerSqm']: v ?? 0") && t5.includes('rowsWithoutPriceIn(rows, entering)'));
+    t5.includes('-rate-other') && t5.includes("[priceKeyFor(u.category, isUnits ? 'units' : 'area')]: v ?? 0") && t5.includes('rowsWithoutPriceIn(dual, entering)'));
+  // ONLY A SELLABLE ROW HAS TWO PRICES (2026-09-13, the founder's hotel): an
+  // Operable row's rate is the ADR per room per night whatever the count, a
+  // Leasable row's is per sqm per year, so neither follows a metric switch.
+  const opRow = mkSu({ id: 'op', assetId: 'pa', category: 'Operable', metric: 'area', metricValue: 18750, unitPrice: 850 });
+  check('N9 an Operable row states its price as the ADR (pricePerUnit) even when counted in sqm, and keeps it across a switch',
+    activePriceKey(opRow, areaAsset) === 'pricePerUnit' && activePriceKey(opRow, unitsAsset) === 'pricePerUnit'
+    && settleSubUnitPrices([opRow], [areaAsset]).subUnits[0].pricePerUnit === 850 && !hasDualPrice(opRow) && hasDualPrice(row));
+  check('N10 Table 5 labels an Operable rate per room/night and a Leasable rate per sqm/year whatever the count',
+    /if \(category === 'Operable'\) return 'per room\/night';/.test(t5) && /if \(category === 'Leasable'\) return 'per sqm\/year';/.test(t5)
+    && /if \(category === 'Operable'\) return 'night';/.test(t5) && t5.includes('hasDualPrice(u) ? ('));
 }
 
 // ── O. The surfaces, statically ─────────────────────────────────────────────

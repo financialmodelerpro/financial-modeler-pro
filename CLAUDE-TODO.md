@@ -28,6 +28,12 @@ Ground Floor (Table 5 still sorts the strip BEFORE Standalone Commercial, left a
    occupancy) and ties everywhere; two defects found and fixed (a stored ADR of 0 shadowing the
    Table 5 price; a row-less plot of a merged line never releasing its cost of sales). The probe
    lives in the session scratchpad only; a committed version is worth adding to the suite.
+   **HOSPITALITY (same evening):** the hotel's 0.00 on production was the ADR shadow (fixed
+   `e1abe143`); underneath, Table 5 labelled its rate "per sqm/year" while the engine sells it
+   per room per night (label now follows the category, TRAPS 7.45) and opex counted keys by the
+   row's metric (now the shared `resolveAssetKeys`). The founder should re-read the hotel's 850
+   as an ADR per night, which is what it has always been sold as, and the two `per_room_year`
+   opex lines (technology fee, rent and insurance) are typed 0 and drive on 144 keys once typed.
 
 2. **THE P&L REVENUE ROWS STILL FILE BY STRATEGY.** `financials-resolvers` (`residentialRev` /
    `hospitalityRev` / `retailRev`) and `m4Reports` ("Residential Revenue" and its capex buckets)

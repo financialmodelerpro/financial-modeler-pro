@@ -2434,6 +2434,24 @@ statement it is not.
 zero) is the one rule and every reader calls it; `verify-revenue-lines` Q3 fails on any surface
 that coalesces the two on its own again.
 
+### 7.45 A rate label that follows the row's metric while the engine follows the category
+
+**Symptom (2026-09-13):** the live hotel row, counted in sqm, showed its Rate as "per sqm/year"
+on Table 5; the hospitality engine sold 144 keys at that figure per room per night.
+
+**Mechanism:** `rateUnitLabel` and `rateTimeBasis` were written from the row's METRIC (units:
+per room/night, area: per sqm/year). The engine never reads an Operable rate that way: it sells
+keys x ADR x occupancy, and an area row's keys are its area over the unit size. So the label and
+the multiplication disagreed on what one number meant, and the disagreement only showed once a
+hotel was stated in sqm, which is how a hotel arrives before its type states a unit size.
+
+**Fix:** the label follows the CATEGORY: an Operable rate is always the ADR per room per night, a
+Leasable rate always per sqm per year, whatever the row is counted in; only a Sellable row sells
+by area or by unit and only it carries two prices (`hasDualPrice`, `priceKeyFor`). The opex
+resolver got the same treatment for keys and leasable area (`resolveAssetKeys`,
+`resolveAssetLeasableSqm`, shared with revenue), since it had counted keys by the row's metric
+too. `verify-revenue-lines` N9, N10; `verify-land-chain` U29d2.
+
 ## 8. Registries and two-step registration
 
 ### 8.1 A template registered in one place and not the other fails silently and permanently

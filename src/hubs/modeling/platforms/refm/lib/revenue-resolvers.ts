@@ -219,6 +219,35 @@ export function resolveSellConfig(asset: Asset, _project: Project): AssetSellCon
  * (operationsStart..operationsEnd, inclusive). Returns null when the
  * asset has no operate config yet.
  */
+/**
+ * THE KEYS AN OPERATE ASSET HOLDS, AND THE AREA A LEASE ASSET LETS, stated
+ * once for revenue AND opex (2026-09-13). The opex resolver counted keys as
+ * `u.metric === 'units'` and leasable sqm as `u.metric === 'area'`, the row's
+ * own metric, so the live hotel (stated in sqm) drove every per-room opex line
+ * on ZERO keys while revenue, reading the asset's metric and the type's unit
+ * size, sold 144. A count row is its count; an area row holds area over the
+ * unit size (sub-units first, the type second); Support is never counted.
+ */
+export function resolveAssetKeys(asset: Asset, subUnits: readonly SubUnit[], typeValues: AssetTypeValues | undefined): { keys: number; perRow: Map<string, number> } {
+  const rows = subUnits.filter((u) => u.assetId === asset.id && isRevenueSubUnit(u));
+  const unitSize = resolveAvgUnitSize(rows.map((u) => u.unitArea), typeValues).value;
+  const perRow = new Map<string, number>();
+  let keys = 0;
+  for (const u of rows) {
+    const k = resolveSubUnitMetric(u, asset) === 'units'
+      ? Math.max(0, Math.round(u.metricValue))
+      : keysFromArea(computeSubUnitArea(u, asset), unitSize);
+    perRow.set(u.id, k);
+    keys += k;
+  }
+  return { keys, perRow };
+}
+export function resolveAssetLeasableSqm(asset: Asset, subUnits: readonly SubUnit[]): number {
+  return subUnits
+    .filter((u) => u.assetId === asset.id && isRevenueSubUnit(u))
+    .reduce((s, u) => s + computeSubUnitArea(u, asset), 0);
+}
+
 export function resolveHospitalityConfig(
   asset: Asset,
   phase: Phase,
@@ -237,16 +266,13 @@ export function resolveHospitalityConfig(
   // filter read the ROW's, so a keys row stored as 'area' under a hotel that
   // counts keys was dropped and the hotel had no rooms.
   const assetSubUnits = subUnits.filter((u) => u.assetId === asset.id && isRevenueSubUnit(u));
-  // KEYS PER ROW. A count row IS the keys (rounded: keys are whole). An AREA
-  // row under a hospitality asset holds keys the way Table 5 seeds them,
-  // area over the unit size, resolved sub-units first and the type second
-  // by the one rule tab 4 states; with no size to divide by it holds none,
-  // and the card says so rather than inventing a hotel.
-  const unitSize = resolveAvgUnitSize(assetSubUnits.map((u) => u.unitArea), typeValues).value;
-  const keysOf = (u: SubUnit): number => resolveSubUnitMetric(u, asset) === 'units'
-    ? Math.max(0, Math.round(u.metricValue))
-    : keysFromArea(computeSubUnitArea(u, asset), unitSize);
-  const keys = assetSubUnits.reduce((s, u) => s + keysOf(u), 0);
+  // KEYS PER ROW, by the ONE rule revenue and opex share (`resolveAssetKeys`):
+  // a count row IS the keys; an area row holds area over the unit size,
+  // sub-units first and the type second; with no size it holds none and the
+  // card says so rather than inventing a hotel.
+  const resolvedKeys = resolveAssetKeys(asset, subUnits, typeValues);
+  const keysOf = (u: SubUnit): number => resolvedKeys.perRow.get(u.id) ?? 0;
+  const keys = resolvedKeys.keys;
   const phaseStartYear = phase.startDate
     ? new Date(phase.startDate).getUTCFullYear()
     : projectStartYear;
@@ -378,7 +404,7 @@ export function resolveLeaseConfig(
   // derived support row never reads as leasable. Fractional areas are kept
   // (sqm is a continuous measure unlike hospitality keys).
   const assetSubUnits = subUnits.filter((u) => u.assetId === asset.id && isRevenueSubUnit(u));
-  const totalGla = assetSubUnits.reduce((s, u) => s + computeSubUnitArea(u, asset), 0);
+  const totalGla = resolveAssetLeasableSqm(asset, subUnits);
   const phaseStartYear = phase.startDate
     ? new Date(phase.startDate).getUTCFullYear()
     : projectStartYear;

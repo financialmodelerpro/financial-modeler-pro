@@ -142,7 +142,7 @@ import InputLabel from '../ui/InputLabel';
 import { CELL_HEADER, TABLE_TITLE } from './_shared/tableStyles';
 import { StrategyChangeConfirm, StrategyReviewBanner } from './_shared/StrategyChangeNotice';
 import { applyStrategySwitch, assetHasStrategyAssumptions, type StrategySwitchReport } from '../../lib/state/strategySwitch';
-import { rowsWithoutPriceIn } from '../../lib/state/subUnitPrices';
+import { rowsWithoutPriceIn, hasDualPrice, priceKeyFor } from '../../lib/state/subUnitPrices';
 import { withResolvedAssetNames, assetPlotLabel } from '@/src/core/calculations/assetName';
 import { withInheritedMassingAll } from '@/src/core/calculations/landChain';
 import { chainMassingFor } from '../../lib/state/assetTypeStandards';
@@ -260,8 +260,14 @@ function statusBadgeStyle(status: AssetStatus): React.CSSProperties {
 function rateUnitLabel(category: SubUnitCategory, metric: SubUnitMetric): string {
   if (category === 'Support') return '';
   if (category === 'Sellable') return metric === 'units' ? 'per unit' : 'per sqm';
-  if (category === 'Operable') return metric === 'units' ? 'per room/night' : 'per sqm/year';
-  if (category === 'Leasable') return metric === 'units' ? 'per unit/year' : 'per sqm/year';
+  // AN OPERABLE ROW'S RATE IS ALWAYS THE ADR, PER ROOM PER NIGHT (2026-09-13):
+  // the hospitality engine sells keys x ADR x occupancy whatever the row is
+  // stated in (an area row's keys are its area over the unit size), and this
+  // label said "per sqm/year" on an area row, so the live hotel's 850 was typed
+  // as one thing and sold as another. A LEASABLE row's rate is always per sqm
+  // per year: the lease engine lets AREA (a units row lets count x unit size).
+  if (category === 'Operable') return 'per room/night';
+  if (category === 'Leasable') return 'per sqm/year';
   return '';
 }
 
@@ -276,7 +282,8 @@ function rateUnitLabel(category: SubUnitCategory, metric: SubUnitMetric): string
 function rateTimeBasis(category: SubUnitCategory, metric: SubUnitMetric): RateTimeBasis | undefined {
   if (category === 'Support') return undefined;
   if (category === 'Sellable') return 'capital';
-  if (category === 'Operable') return metric === 'units' ? 'night' : 'year';
+  // Nightly whatever the row is stated in: see rateUnitLabel.
+  if (category === 'Operable') return 'night';
   if (category === 'Leasable') return 'year';
   return undefined;
 }
@@ -1335,12 +1342,20 @@ export default function Module1Assets(): React.JSX.Element {
           // the basis being entered switches at zero and is named in the alert,
           // because a price carried across unchanged (18,500 a sqm read as
           // 18,500 a unit) is the silent version of the same mistake.
+          // ONLY A SELLABLE ROW'S PRICE FOLLOWS THE BASIS: an Operable row's rate
+          // is the ADR and a Leasable row's is per sqm per year whatever the
+          // count, so those keep their price across the switch.
           const leaving: 'pricePerSqm' | 'pricePerUnit' = next === 'units' ? 'pricePerSqm' : 'pricePerUnit';
           const entering: 'pricePerSqm' | 'pricePerUnit' = next === 'units' ? 'pricePerUnit' : 'pricePerSqm';
-          const unpriced = rowsWithoutPriceIn(rows, entering);
+          const dual = rows.filter((u) => hasDualPrice(u));
+          const unpriced = rowsWithoutPriceIn(dual, entering);
           for (const id of assetIds) updateAsset(id, { subUnitMetric: next });
           for (const u of rows) {
             const row = withSize(u);
+            if (!hasDualPrice(u)) {
+              updateSubUnit(u.id, { ...(sized.has(u.id) ? { unitArea: row.unitArea } : {}), ...switchMetric(row, next) });
+              continue;
+            }
             const kept = u[leaving] === undefined ? { [leaving]: Math.max(0, u.unitPrice ?? 0) } : {};
             const priceIn = Math.max(0, u[entering] ?? 0);
             updateSubUnit(u.id, {
@@ -3686,7 +3701,7 @@ function SubUnitsTable({
                             // THE ACTIVE PRICE AND ITS STATEMENT, TOGETHER (2026-09-13):
                             // the basis the row is on is the one this cell prices.
                             unitPrice: v ?? 0,
-                            [isUnits ? 'pricePerUnit' : 'pricePerSqm']: v ?? 0,
+                            [priceKeyFor(u.category, isUnits ? 'units' : 'area')]: v ?? 0,
                             ...(u.parentSubUnitId !== undefined ? { startingAdr: v ?? 0 } : {}),
                           })}
                         />
@@ -3699,16 +3714,27 @@ function SubUnitsTable({
                           to units (or back) prices at what was typed here rather than
                           carrying the per-sqm figure across as a per-unit one. */}
                       <td style={CELL}>
-                        <SubUnitNumber
-                          decimals={project.displayDecimals ?? 2}
-                          value={isUnits ? u.pricePerSqm : u.pricePerUnit}
-                          testId={`subunits-row-${u.id}-rate-other`}
-                          title={`Price per ${isUnits ? 'sqm' : 'unit'}, the basis this line is not on. Used the moment the line switches to ${isUnits ? 'area' : 'units'}.`}
-                          onCommit={(v) => onUpdate(u.id, { [isUnits ? 'pricePerSqm' : 'pricePerUnit']: v ?? 0 })}
-                        />
-                        <div style={{ fontSize: 9, color: 'var(--color-meta)', textAlign: 'right' }} data-testid={`subunits-row-${u.id}-rate-other-basis`}>
-                          per {isUnits ? 'sqm' : 'unit'}
-                        </div>
+                        {/* ONLY A SELLABLE ROW HAS TWO PRICES: a hospitality rate is
+                            the ADR whatever the row is counted in, a lease rate is per
+                            sqm per year (hasDualPrice). */}
+                        {hasDualPrice(u) ? (
+                          <>
+                            <SubUnitNumber
+                              decimals={project.displayDecimals ?? 2}
+                              value={isUnits ? u.pricePerSqm : u.pricePerUnit}
+                              testId={`subunits-row-${u.id}-rate-other`}
+                              title={`Price per ${isUnits ? 'sqm' : 'unit'}, the basis this line is not on. Used the moment the line switches to ${isUnits ? 'area' : 'units'}.`}
+                              onCommit={(v) => onUpdate(u.id, { [isUnits ? 'pricePerSqm' : 'pricePerUnit']: v ?? 0 })}
+                            />
+                            <div style={{ fontSize: 9, color: 'var(--color-meta)', textAlign: 'right' }} data-testid={`subunits-row-${u.id}-rate-other-basis`}>
+                              per {isUnits ? 'sqm' : 'unit'}
+                            </div>
+                          </>
+                        ) : (
+                          <div style={{ fontSize: 9, color: 'var(--color-meta)', textAlign: 'right' }} data-testid={`subunits-row-${u.id}-rate-other-basis`}>
+                            {u.category === 'Operable' ? 'ADR, whatever the count' : u.category === 'Leasable' ? 'per sqm/year, whatever the count' : ''}
+                          </div>
+                        )}
                       </td>
                       <td style={CELL}>
                         <button
@@ -5142,7 +5168,7 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
         {/* The active price AND its statement in the row's basis (2026-09-13). */}
         <AccountingNumberInput
           value={subUnit.unitPrice}
-          onChange={(n) => onUpdate({ unitPrice: Math.max(0, n), [isUnits ? 'pricePerUnit' : 'pricePerSqm']: Math.max(0, n) })}
+          onChange={(n) => onUpdate({ unitPrice: Math.max(0, n), [priceKeyFor(subUnit.category, isUnits ? 'units' : 'area')]: Math.max(0, n) })}
           scale="full"
           decimals={decimals}
           min={0}

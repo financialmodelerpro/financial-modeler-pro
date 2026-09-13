@@ -236,7 +236,13 @@ function offlineChecks(): void {
   // and a revenue side that read the row alone left the live hotel with no
   // rooms. Every mention on this door must be the lookup of the project's
   // values by the asset's type id, or the one resolver call, or its import.
-  const KEYS_DOORS = ['src/hubs/modeling/platforms/refm/lib/revenue-resolvers.ts'];
+  // TWO DOORS: the revenue resolver, which owns the rule (`resolveAssetKeys`),
+  // and the opex resolver, which calls that rule so per-room opex lines count
+  // the same keys revenue sells (2026-09-13).
+  const KEYS_DOORS = [
+    'src/hubs/modeling/platforms/refm/lib/revenue-resolvers.ts',
+    'src/hubs/modeling/platforms/refm/lib/opex-resolvers.ts',
+  ];
   const isKeysDoorLine = (line: string): boolean =>
     line.includes('resolveAvgUnitSize')
     || line.includes('project.assetTypeValues?.[a.assetTypeId]')
@@ -262,10 +268,12 @@ function offlineChecks(): void {
       offenders.push(`${f} :: ${tok}`);
     }
   }
-  check('A1c the keys door reads the unit size through the one rule, and still does (not a stale hole)',
+  check('A1c each keys door reads the unit size through the one rule (owns resolveAssetKeys, or calls it), and still does (not a stale hole)',
     KEYS_DOORS.every((f) => {
       const src = readFileSync(f, 'utf8');
-      return src.includes('resolveAvgUnitSize(') && src.includes('keysFromArea(')
+      const owns = src.includes('export function resolveAssetKeys(') && src.includes('resolveAvgUnitSize(') && src.includes('keysFromArea(');
+      const calls = /resolveAssetKeys\(a, subUnits, /.test(src);
+      return (owns || calls)
         && src.split('\n').filter((l) => l.includes('assetTypeValues')).every(isKeysDoorLine);
     }));
   check('A1b a massing door mentions the values ONLY through the one platform rule',

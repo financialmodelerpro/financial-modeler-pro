@@ -19,9 +19,27 @@ import type { Asset, SubUnit } from './module1-types';
 
 export type PriceBasis = 'pricePerSqm' | 'pricePerUnit';
 
-/** The stored price field a row's metric makes active. */
+/** The stored price field a row's basis makes active. ONLY A SELLABLE ROW
+ *  FOLLOWS ITS METRIC: an Operable row's rate is always the ADR per room per
+ *  night (`pricePerUnit`) and a Leasable row's is always per sqm per year
+ *  (`pricePerSqm`), whatever the row is counted in, because that is what the
+ *  hospitality and lease engines read them as (2026-09-13). */
 export function activePriceKey(u: SubUnit, asset: Asset | undefined): PriceBasis {
-  return resolveSubUnitMetric(u, asset) === 'units' ? 'pricePerUnit' : 'pricePerSqm';
+  return priceKeyFor(u.category, resolveSubUnitMetric(u, asset));
+}
+
+/** The same rule from a category and an already-resolved metric, for a cell
+ *  that has the metric in hand and no asset. */
+export function priceKeyFor(category: string | undefined, metric: 'units' | 'area'): PriceBasis {
+  if (category === 'Operable') return 'pricePerUnit';
+  if (category === 'Leasable') return 'pricePerSqm';
+  return metric === 'units' ? 'pricePerUnit' : 'pricePerSqm';
+}
+
+/** Whether a row carries TWO prices at all: only a Sellable row sells by area
+ *  or by unit, so only it has an "other basis" to state. */
+export function hasDualPrice(u: Pick<SubUnit, 'category'>): boolean {
+  return u.category === 'Sellable';
 }
 
 /** The other one. */

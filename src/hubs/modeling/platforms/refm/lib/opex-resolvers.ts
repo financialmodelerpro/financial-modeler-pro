@@ -34,6 +34,8 @@ import type { Asset, Phase, Project } from './state/module1-types';
 import {
   expandPhaseLocalToAxis,
   expandYearKeyedToAxis,
+  resolveAssetKeys,
+  resolveAssetLeasableSqm,
   type ProjectRevenueSnapshot,
 } from './revenue-resolvers';
 import { assetLabel } from '@/src/core/calculations/assetName';
@@ -253,19 +255,17 @@ export function computeAllOpexResults(
       return next;
     });
 
-    // Driver quantities: total keys for hospitality, total leasable
-    // sqm for lease. Pull from M1 sub-units of this asset.
-    const myUnits = subUnits.filter((u) => u.assetId === a.id);
+    // Driver quantities: total keys for hospitality, total leasable sqm for
+    // lease, BY THE SAME RULE REVENUE USES (2026-09-13, founder: "fix the
+    // opex based on the revenue fix"). This read the ROW's metric, so the
+    // live hotel, stated in sqm, drove every per-room line on ZERO keys while
+    // revenue sold 144 (docs/TRAPS.md 7.32).
     let keys = 0;
     let leasableSqm = 0;
     if (a.strategy === 'Operate') {
-      for (const u of myUnits) {
-        if (u.metric === 'units') keys += Math.max(0, u.metricValue);
-      }
+      keys = resolveAssetKeys(a, subUnits, a.assetTypeId ? project.assetTypeValues?.[a.assetTypeId] : undefined).keys;
     } else if (a.strategy === 'Lease') {
-      for (const u of myUnits) {
-        if (u.metric === 'area') leasableSqm += Math.max(0, u.metricValue);
-      }
+      leasableSqm = resolveAssetLeasableSqm(a, subUnits);
     }
 
     const revenue = buildAssetRevenueContext(a, revenueSnap, N);

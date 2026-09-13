@@ -524,7 +524,9 @@ function offlineChecks(): void {
     // statement in the row's basis (per sqm or per unit), and the ADR on a
     // companion mirror, in one patch.
     && /unitPrice: v \?\? 0,/.test(tabSrc)
-    && tabSrc.includes("[isUnits ? 'pricePerUnit' : 'pricePerSqm']: v ?? 0")
+    // THE BASIS THE ROW'S CATEGORY MAKES ACTIVE (2026-09-13): an Operable rate
+    // is the ADR and a Leasable rate per sqm/year whatever the count.
+    && tabSrc.includes("[priceKeyFor(u.category, isUnits ? 'units' : 'area')]: v ?? 0")
     && /\.\.\.\(u\.parentSubUnitId !== undefined \? \{ startingAdr: v \?\? 0 \} : \{\}\)/.test(tabSrc));
   check('U8 a count nobody can derive is a DASH, not a zero',
     tabSrc.includes('const count: number | undefined')
@@ -1070,8 +1072,12 @@ function offlineChecks(): void {
     `night ${nightly.blendable} / year ${yearly.blendable} / mixed ${mixedTime.blendable}`);
   check('U29d2 the time basis is read off the SAME two inputs as the rate label, right beside it',
     /function rateTimeBasis\(category: SubUnitCategory, metric: SubUnitMetric\)/.test(tabSrc)
-    && tabSrc.indexOf('function rateTimeBasis(') - tabSrc.indexOf('function rateUnitLabel(') < 1200
-    && /if \(category === 'Operable'\) return metric === 'units' \? 'night' : 'year';/.test(tabSrc)
+    && tabSrc.indexOf('function rateTimeBasis(') - tabSrc.indexOf('function rateUnitLabel(') < 2000
+    // NIGHTLY WHATEVER THE COUNT since 2026-09-13: the hospitality engine sells
+    // keys x ADR on an area row too (keys = area over unit size), so the label
+    // and the basis stopped depending on the metric for an Operable row.
+    && /if \(category === 'Operable'\) return 'night';/.test(tabSrc)
+    && /if \(category === 'Operable'\) return 'per room\/night';/.test(tabSrc)
     && /timeBasis: rateTimeBasis\(unit\.category, isUnits \? 'units' : 'area'\)/.test(tabSrc));
   // U29e FOUND ON LIVE DATA, not reasoned about. A line priced but with NO
   // AREA (units entered with no unit size, which two live lines have) divides
