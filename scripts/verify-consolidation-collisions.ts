@@ -187,10 +187,13 @@ async function liveChecks(): Promise<void> {
     // stays here after its field comes into use is a blind spot pretending to
     // be a decision.
     'revenue.sell.escrow.heldPctOverride': 'No live project overrides escrow at the asset level.',
-    // THESE FIVE JOINED ON 2026-09-12 WHEN FMP RE HUB WAS DELETED: each was exercised
+    // THESE JOINED ON 2026-09-12 WHEN FMP RE HUB WAS DELETED: each was exercised
     // only by RE HUB's operating hotel and its management agreement. D2b takes them
     // back out the day a live asset uses one, which is the honest shape.
-    'revenue.operate.startingADR': 'Exercised only by FMP RE HUB, deleted 2026-09-12; no live Operate asset states an ADR yet.',
+    // revenue.operate.startingADR LEFT ON 2026-09-13, D2b doing its job again:
+    // every Operate asset now carries its operate block from load and save
+    // (revenueSeeds.ts seeds startingADR: 0, the tab's own default), so the
+    // path is set on the live hotel and needs no excusing.
     'opex.defaultIndexation.method': 'Exercised only by FMP RE HUB, deleted 2026-09-12.',
     usefulLifeYears: 'Exercised only by FMP RE HUB, deleted 2026-09-12.',
     'managementAgreement.managementFeePct': 'Exercised only by FMP RE HUB, deleted 2026-09-12.',

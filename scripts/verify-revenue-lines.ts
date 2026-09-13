@@ -402,7 +402,7 @@ section('O. The Output tab, the Inputs card and the selling costs read per line,
   const out = readFileSync(join(process.cwd(), 'src/hubs/modeling/platforms/refm/components/modules/Module2RevenueOutput.tsx'), 'utf8');
   const inp = readFileSync(join(process.cwd(), 'src/hubs/modeling/platforms/refm/components/modules/Module2Revenue.tsx'), 'utf8');
   check('O1 blocks 1 and 2 are ONE table each, banded pre-sales and sales during operation, with the two totals at the foot',
-    out.includes('bands={saleBands}') && out.includes('buildPrePostRows(') && /label: 'Pre-sales'/.test(out) && /label: 'Sales during operation'/.test(out)
+    out.includes('bands={saleBands}') && out.includes('buildPrePostRows(') && out.includes("label: 'Pre-sales (construction)'") && out.includes("tone: 'pre' as const") && out.includes("tone: 'post' as const") && /label: 'Sales during operation'/.test(out)
     && !out.includes('1a. Pre-Sales') && !out.includes('2a. Pre-Sales Revenue') && !out.includes('2b. Sales During Operation Revenue'));
   check('O2 the share sold per year is the first table of block 1, per sub-unit, pre and post in one row',
     out.includes('buildShareSoldRows(') && out.includes('1a. Share of inventory sold per year'));

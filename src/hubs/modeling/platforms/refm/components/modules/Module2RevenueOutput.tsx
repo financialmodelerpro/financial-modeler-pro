@@ -280,7 +280,7 @@ function PeriodTable({
   /** A BAND OVER THE YEAR COLUMNS (2026-09-13): which years are pre-sales
    *  and which are sales during operation, stated once in the header so one
    *  table can carry both halves. Indices are project-axis, inclusive. */
-  bands?: Array<{ label: string; from: number; to: number }>;
+  bands?: Array<{ label: string; from: number; to: number; tone?: 'pre' | 'post' }>;
 }): React.JSX.Element {
   // Universal prior-year column: defaults to (first year - 1) so every
   // table on the platform leads with the year before project start.
@@ -319,9 +319,11 @@ function PeriodTable({
                     cells.push(
                       <th key={`band-${i}`} colSpan={j - i + 1} data-testid={band ? `m2-band-${band.label.replace(/[^a-z]+/gi, '-').toLowerCase()}` : undefined} style={{
                         ...CELL_HEADER, textAlign: 'center', fontSize: 10, letterSpacing: '0.05em', textTransform: 'uppercase',
-                        background: band ? 'color-mix(in srgb, var(--color-navy) 14%, transparent)' : 'transparent',
-                        color: band ? 'var(--color-heading)' : 'var(--color-meta)',
-                        borderBottom: band ? '2px solid var(--color-navy)' : 'none',
+                        // TWO TONES, so the two halves read apart at a glance (founder,
+                        // 2026-09-13): pre-sales in navy, sales during operation in green.
+                        background: band ? (band.tone === 'post' ? 'color-mix(in srgb, var(--color-success, #166534) 16%, transparent)' : 'color-mix(in srgb, var(--color-navy) 16%, transparent)') : 'transparent',
+                        color: band ? (band.tone === 'post' ? 'var(--color-success, #166534)' : 'var(--color-navy)') : 'var(--color-meta)',
+                        borderBottom: band ? (band.tone === 'post' ? '3px solid var(--color-success, #166534)' : '3px solid var(--color-navy)') : 'none',
                       }}>
                         {band ? band.label : ''}
                       </th>,
@@ -1140,9 +1142,9 @@ export default function Module2RevenueOutput(): React.JSX.Element {
     const ovN = Math.max(0, p.overlapPeriods ?? 0);
     const postFrom = Math.max(phaseStartIdx, Math.min(snap.axisLength - 1, handoverYearIdx + 1 - ovN));
     const postTo = Math.max(postFrom, Math.min(snap.axisLength - 1, postFrom + opN - 1));
-    const saleBands: Array<{ label: string; from: number; to: number }> = [
-      ...(cpN > 0 ? [{ label: 'Pre-sales', from: phaseStartIdx, to: handoverYearIdx }] : []),
-      ...(opN > 0 ? [{ label: 'Sales during operation', from: postFrom, to: postTo }] : []),
+    const saleBands: Array<{ label: string; from: number; to: number; tone: 'pre' | 'post' }> = [
+      ...(cpN > 0 ? [{ label: 'Pre-sales (construction)', from: phaseStartIdx, to: handoverYearIdx, tone: 'pre' as const }] : []),
+      ...(opN > 0 ? [{ label: 'Sales during operation', from: postFrom, to: postTo, tone: 'post' as const }] : []),
     ];
     const pctFmt1 = (v: number): string => `${(v * 100).toFixed(decimals)}%`;
     const r = lineResults.get(line.key)?.sell;

@@ -17,8 +17,12 @@ Ground Floor (Table 5 still sorts the strip BEFORE Standalone Commercial, left a
    Phase 1 Branded Villas sells nothing until a velocity is typed or the line is combined (one
    click on the card: "Combine sub-units" writes the line pace to every row); the hotel now counts
    144 keys but has no occupancy ramp; the two strips and the two commercial lines have rates and
-   no occupancy; Phase 2 Branded Villas has a priced row and no velocity. Founder's inputs, not
-   code. The grid says "NO VELOCITY: sells nothing until one is typed" on each such row.
+   no occupancy; Phase 2 Branded Villas has a priced row and no velocity, and its card now has
+   "Copy assumptions to…" from Phase 1. Founder's inputs, not code. The grid says "NO VELOCITY:
+   sells nothing until one is typed" on each such row. **The founder's seven Sell-side items of
+   2026-09-13 are DONE** (`4175e91b`: both prices on Table 5, copy assumptions, selling costs per
+   line, exact remainder, banded pre/post tables, share sold per year, indexed price on the card)
+   and owed a click-test on the live tabs; the Chrome extension blocks the app domain here.
 
 2. **THE P&L REVENUE ROWS STILL FILE BY STRATEGY.** `financials-resolvers` (`residentialRev` /
    `hospitalityRev` / `retailRev`) and `m4Reports` ("Residential Revenue" and its capex buckets)
