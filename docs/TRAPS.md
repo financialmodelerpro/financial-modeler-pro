@@ -1056,6 +1056,26 @@ takes the text verbatim. Every patch helper in this repo's scratch scripts now d
 **Proof:** the same block, function replacer, produced the intended file; `git checkout` of the
 spliced verifier and a re-run were byte-identical to the hand-written version.
 
+### 3.23 A gitignored fixture that a verifier depends on goes stale silently, and the suite stays green on data that no longer exists
+
+**Symptom (2026-09-13):** `verify-module6-field-census` had passed at every suite count since
+2026-09-01. Refreshed for an unrelated diagnosis, its fixture (`scripts/marinaGateSnapshot.json`,
+gitignored, fetched by `fetch-census-fixture.ts`) turned five of its seventeen checks red at once:
+the `derivedAreas` bag of 2026-09-12 hidden from the picker while it moves nine KPIs, twelve
+picker strings with no override domain, sixty-one ungated dead levers, a cap-rate terminal driver
+reading zero.
+
+**Mechanism:** the census measures the REFERENCE PROJECT, and the reference project is a local
+file nothing refreshes. The live project moved for twelve days (the type standards, the area
+chain, the derived-areas bridge) and the file did not, so the verifier kept certifying a model
+that had been overwritten. The count was steady BECAUSE the input was frozen.
+
+**Fix:** none in code today; the finding is open in CLAUDE-TODO. The rule: a verifier that reads
+a fixture nothing regenerates is measuring the day the fixture was written. Refresh it at the
+start of any session that touches what it measures, and treat "still green after a big change"
+on such a verifier as a question, not an answer. Reproduced with the day's code changes stashed:
+the same five, so the fixture and not the change is what moved.
+
 ## 4. PDF export (pdf-lib)
 
 ### 4.1 PDF text is glyph ids, so a naive grep returns nothing
@@ -2338,6 +2358,46 @@ and Table 5 carries the difference as a memo so the two tie by eye.
 
 **Proof:** `verify-capex-structure` P4r (RETT in the stage, out of the value), P4r-c (the memo
 closes on the stage total); Marina Gate 240,000,000.00 + 6,787,500.00 = 246,787,500.00.
+
+### 7.41 A per-row config list snapshotted at edit time is a second registry of rows, and a row added later is invisible to it
+
+**Symptom (2026-09-13):** on the live project the "2 BR" row of a villas line (10,098 sqm at
+16,500, 45% of the line) earned nothing while the "1 BR" row beside it earned 267m. Both were on
+Table 5 with a price; both were under the same asset; the Revenue tab showed both.
+
+**Mechanism:** `revenue.sell.subUnits` was a LIST OF ROW IDS with a velocity each, built from the
+store's rows at the FIRST velocity edit and rebuilt only by the NEXT one. The engine walked that
+list (`if (!cfg) continue`), so a sub-unit that arrived afterwards (seeded by the Table 5 planner,
+or typed by hand) had no entry and did not exist as far as revenue was concerned. Nothing said so:
+the row rendered in the grid with zeros, which reads as "no velocity yet", not "unreachable".
+The same shape as TRAPS 7.25: two identity rules for one entity, and the second one is a copy.
+
+**Fix:** the STORE's rows are the list (`resolveRowVelocity`): each is looked up by id, a row
+with no entry reads the line's `velocityDefault` (the lockstep statement, now model state rather
+than a localStorage flag), a row with neither sells nothing and its own grid row says so. The
+resolver derives the config from the rows on every run; the stored list is a cache of typed
+values, never a registry. `verify-revenue-lines` C1 to C7.
+
+### 7.42 A section is not a strategy: filing rows by the inputs they take gave eight classifiers three answers
+
+**Symptom (2026-09-13):** a retail ground-floor strip appeared twice in the Revenue quick nav
+(under Hospitality and under Retail), rendered as a "No operate config yet" card under Hospitality
+on the Output tab while missing from that tab's Retail total, and was dropped from the Schedules
+feed altogether. Every surface was internally consistent; they disagreed with each other.
+
+**Mechanism:** each surface decided a section from `strategy` and `isCompanion` in its own words:
+`strategy === 'Operate' || isCompanion` (any companion is a hotel), `strategy === 'Lease' &&
+!isCompanion` (a strip is not a lease), and so on. A strategy says which INPUTS a row takes
+(velocity, or keys and occupancy, or rent); it does not say what the building is, and a companion
+flag does not say which kind. The Operate companion was the only companion for four months, so
+"companion means hotel" was true until the strip existed (TRAPS 7.33 is the engine-side twin).
+
+**Fix:** ONE filing rule (`revenueSection` in `lib/revenueLines.ts`): the category, from the same
+rule Table 6 files capex by, with two NAMED exceptions decided by the founder (a strip is its own
+section; the Operate companion files under Hospitality). The strategy decides the FORM
+(`revenueFormFor`) and nothing else. Every Module 2 surface and the shared quick nav import it;
+`verify-revenue-lines` K1 to K7 fail on a surface that names a strategy section or tests the bare
+companion flag again.
 
 ## 8. Registries and two-step registration
 

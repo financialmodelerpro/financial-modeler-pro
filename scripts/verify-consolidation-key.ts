@@ -277,6 +277,13 @@ function offlineChecks(): void {
     // it has already computed and computes no money from the key. D1b still
     // holds the line that matters.
     'src/hubs/modeling/platforms/refm/lib/reports/capexReports.ts',
+    // FIFTH, 2026-09-13: the revenue LINE planner, which is what makes the line
+    // the unit of revenue on every Module 2 tab (one card per consolidated
+    // line, sub-units pooled across its plots, terms written to every member).
+    // It groups assets and addresses them; the engine still runs per asset and
+    // a line's result is the SUM of its plots'. Presentation and addressing
+    // only, like the four above; D1b still holds the line that matters.
+    'src/hubs/modeling/platforms/refm/lib/revenueLines.ts',
   ];
   const unexpected = consumers.filter((f) => !ALLOWED_CONSUMERS.includes(f));
   const missing = ALLOWED_CONSUMERS.filter((f) => !consumers.includes(f));

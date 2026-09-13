@@ -3,7 +3,53 @@
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
 ---
-## START HERE 2026-09-12 (session close): MODULE 1 IS DONE. WHAT IS OPEN, in order
+## START HERE 2026-09-13 (session close): MODULE 2 RESTRUCTURE STEP 1 IS LIVE. WHAT IS OPEN, in order
+
+Today's dated narrative is in [CHANGELOG.md](CHANGELOG.md) 2026-09-13; the standing lessons are
+[docs/TRAPS.md](docs/TRAPS.md) 3.23, 7.41 and 7.42. The line is the unit of revenue on every
+Module 2 tab, filed by the one rule in `lib/revenueLines.ts`; the resolver reads the store's rows
+through the asset's metric; revenue blocks are seeded on load and save. Engine byte-identical on
+FMP - MARINA GATE (267,141,975.51). Founder's decisions taken today: the Operate companion files
+under Hospitality; the section order is Residential, Hospitality, Standalone Commercial, Retail
+Ground Floor (Table 5 still sorts the strip BEFORE Standalone Commercial, left as it was).
+
+1. **MARINA GATE STILL EARNS ON ONE ROW, AND THE REST ARE ONE INPUT EACH.** The "2 BR" row on
+   Phase 1 Branded Villas sells nothing until a velocity is typed or the line is combined (one
+   click on the card: "Combine sub-units" writes the line pace to every row); the hotel now counts
+   144 keys but has no occupancy ramp; the two strips and the two commercial lines have rates and
+   no occupancy; Phase 2 Branded Villas has a priced row and no velocity. Founder's inputs, not
+   code. The grid says "NO VELOCITY: sells nothing until one is typed" on each such row.
+
+2. **THE P&L REVENUE ROWS STILL FILE BY STRATEGY.** `financials-resolvers` (`residentialRev` /
+   `hospitalityRev` / `retailRev`) and `m4Reports` ("Residential Revenue" and its capex buckets)
+   test `strategy`, so a hotel sold off plan books under "Residential Revenue". A shared statement
+   label with the export verifiers behind it; the live project's strategies match its categories,
+   so nothing shows today. Move it to `revenueSection` in one step with `verify-report-consistency`
+   re-aimed, or decide the statement stays by strategy and say so on the row.
+
+3. **THE ESCROW TAB, MODULE 3 OPEX AND FIXED ASSETS ARE STILL PER ASSET** (plot). They read the
+   fixed `AssetQuickNav`, which now buckets by the one rule, but their cards are one per asset.
+   Same conversion as the Module 2 tabs when they are next opened; opex FORMS stay by strategy.
+
+4. **`verify-module6-field-census` FAILS 5 OF 17 ON THE REFRESHED FIXTURE** (TRAPS 3.23), and
+   the failures pre-date today (reproduced with the day's changes stashed): the `derivedAreas`
+   bag is HIDDEN by `nonEconomicLeverReason` while it moves nine KPIs; `strategyReview.*`,
+   `retailLineKey` and `parkingRatioBasis` have no declared override domain; 61 ungated dead
+   levers including `project.returns.*` and `parcels[].area`; the cap-rate terminal driver reads
+   0 on this project. The fixture was 2026-09-01 until today and the suite counted the census as
+   green against a project that no longer existed. Gate the derivedAreas bag as INACTIVE with a
+   reason (it is engine-read now), declare the string domains, then re-measure.
+
+5. **`velocityDefault` IS A NEW SNAPSHOT FIELD**: the Module 6 lever catalog does not know it.
+   It should gate as non-economic per row entry or be offered as a curated lever; decide with 4.
+
+6. Everything from the 2026-09-12 list below that is still open remains open: the three
+   long-standing suite failures, the IC report and exports, the review's refactor candidates,
+   dirty-on-open from the auto-seeded cases, the husk on table 2, the em dash in CLAUDE-ROUTES.
+
+---
+
+## SUPERSEDED 2026-09-13 (still current where noted): START HERE 2026-09-12 (session close): MODULE 1 IS DONE. WHAT IS OPEN, in order
 
 Today's dated narrative is in [CHANGELOG.md](CHANGELOG.md) 2026-09-12 (one long day: the capex
 bases, the merged-line capex, cascading deletes, Tables 1 to 6, land per phase, the Module 1

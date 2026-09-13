@@ -220,11 +220,25 @@ function offlineChecks(): void {
   ];
   const isMassingDoorLine = (line: string): boolean =>
     line.includes('chainMassingFor');
+  // THE KEYS DOOR (2026-09-13): the hospitality revenue resolver reads the
+  // type's UNIT SIZE, and nothing else, so a hotel whose row is still stated
+  // in sqm counts keys the way Table 5 seeds them (area over unit size, the
+  // one rule `keysFromArea`, sub-units first and the type second through
+  // `resolveAvgUnitSize`). The founder's rule is that hospitality counts keys,
+  // and a revenue side that read the row alone left the live hotel with no
+  // rooms. Every mention on this door must be the lookup of the project's
+  // values by the asset's type id, or the one resolver call, or its import.
+  const KEYS_DOORS = ['src/hubs/modeling/platforms/refm/lib/revenue-resolvers.ts'];
+  const isKeysDoorLine = (line: string): boolean =>
+    line.includes('resolveAvgUnitSize')
+    || line.includes('project.assetTypeValues?.[a.assetTypeId]')
+    || /^\s*\*|^\s*\/\//.test(line);
   const offenders: string[] = [];
   for (const f of files) {
     const rel = f.replace(/\\/g, '/');
     if (DEFINITION_ONLY.some((d) => rel === d.file)) continue;
     const door = MASSING_DOORS.includes(rel);
+    const keysDoor = KEYS_DOORS.includes(rel);
     const src = readFileSync(f, 'utf8');
     for (const tok of FORBIDDEN_TOKENS) {
       if (!src.includes(tok)) continue;
@@ -233,9 +247,19 @@ function offlineChecks(): void {
         const bad = src.split('\n').filter((l) => l.includes(tok) && !isMassingDoorLine(l));
         if (bad.length === 0) continue;
       }
+      if (keysDoor) {
+        const bad = src.split('\n').filter((l) => l.includes(tok) && !isKeysDoorLine(l));
+        if (bad.length === 0) continue;
+      }
       offenders.push(`${f} :: ${tok}`);
     }
   }
+  check('A1c the keys door reads the unit size through the one rule, and still does (not a stale hole)',
+    KEYS_DOORS.every((f) => {
+      const src = readFileSync(f, 'utf8');
+      return src.includes('resolveAvgUnitSize(') && src.includes('keysFromArea(')
+        && src.split('\n').filter((l) => l.includes('assetTypeValues')).every(isKeysDoorLine);
+    }));
   check('A1b a massing door mentions the values ONLY through the one platform rule',
     MASSING_DOORS.every((f) => {
       const src = readFileSync(f, 'utf8');
@@ -856,10 +880,17 @@ function offlineChecks(): void {
     && !tab.includes('Press Save to apply a change')
     && !/std-row-\$\{[a-zA-Z.]+}-save/.test(tab)
     && (tab.match(/Saves as you type/g) ?? []).length === 2);
-  check('S4 the Module 6 picker keeps them out, as INACTIVE (economic but unread), not non-economic',
-    inactiveLeverReason('project.assetTypeValues.villas.avgUnitSizeSqm', {} as never) !== null
+  // S4 RE-AIMED 2026-09-13: the UNIT SIZE is engine-read now (the hospitality
+  // revenue resolver counts keys on a row stated in sqm as area over it), so
+  // it is a LIVE lever and must not be gated; the other values and the
+  // sub-unit parking override are still read by nothing that computes and stay
+  // INACTIVE; none of them is non-economic.
+  check('S4 the Module 6 picker offers the unit size (engine-read for hospitality keys) and keeps the unread values INACTIVE, never non-economic',
+    inactiveLeverReason('project.assetTypeValues.villas.avgUnitSizeSqm', {} as never) === null
+    && inactiveLeverReason('project.assetTypeValues.villas.constructionCostPerSqm', {} as never) !== null
     && inactiveLeverReason('subUnits[su_1].parkingRatio', {} as never) !== null
     && nonEconomicLeverReason('project.assetTypeValues.villas.avgUnitSizeSqm', 'assetTypeValues.villas.avgUnitSizeSqm') === null
+    && nonEconomicLeverReason('project.assetTypeValues.villas.constructionCostPerSqm', 'assetTypeValues.villas.constructionCostPerSqm') === null
     && nonEconomicLeverReason('subUnits[su_1].parkingRatio', 'parkingRatio') === null);
   check('S5 the type REFERENCE stays non-economic (it is an entity reference, not a dial)',
     nonEconomicLeverReason('assets[asset_1].assetTypeId', 'assetTypeId') !== null);

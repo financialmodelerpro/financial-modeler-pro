@@ -683,7 +683,14 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
   }
 
   if (/^project\.assetTypeValues(\.|\[)/.test(path)) {
-    return 'an asset type standard for this project; no calculation reads it yet (the area chain that will is a later step), so it moves nothing today';
+    // THE UNIT SIZE IS ENGINE-READ SINCE 2026-09-13: the hospitality revenue
+    // resolver counts keys on a row stated in sqm as area over the unit size
+    // (sub-units first, the type second), so on a hotel with such a row this
+    // value moves rooms, revenue and everything after it. It is therefore a
+    // live lever and is NOT gated. The other values on the type are still
+    // read by nothing that computes.
+    if (/\.avgUnitSizeSqm$/.test(path)) return null;
+    return 'an asset type standard for this project; no calculation reads it yet (the area chain that will is a later step), so it moves nothing today. The unit size beside it IS read, for hospitality keys, and is offered';
   }
   if (/^subUnits\[[^\]]+\]\.parkingRatio$/.test(path)) {
     return 'a parking ratio override on the sub-unit; no calculation reads it yet (the parking chain that will is a later step), so it moves nothing today';
