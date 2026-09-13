@@ -38,6 +38,7 @@ import { seedRevenueBlocks } from '../src/hubs/modeling/platforms/refm/lib/state
 import { sumAssetCostOfSales, type AssetCostOfSales } from '../src/hubs/modeling/platforms/refm/lib/costOfSales';
 import { keysFromArea, isRevenueSubUnit } from '../src/core/calculations';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
+import { settleSubUnitPrices, activePriceKey, rowsWithoutPriceIn } from '../src/hubs/modeling/platforms/refm/lib/state/subUnitPrices';
 
 let passed = 0;
 const failures: string[] = [];
@@ -342,6 +343,80 @@ section('K. The surfaces read the rule');
   check('K7 the resolver reads no row metric on its own (u.metric === )', !/\bu\.metric === '/.test(resolver));
 }
 
+// ── M. The last step sells the exact remainder ───────────────────────────────
+section('M. A schedule typed to 100% sells 100%: the last step takes the exact remainder');
+{
+  const mk = (metricValue: number, unitArea: number | undefined, vel: number[], metric: 'area' | 'units' = 'area') => {
+    const a = mkAsset({ id: 'rm', phaseId: 'p1', type: 'Branded Villas', strategy: 'Sell', subUnitMetric: metric,
+      revenue: { sell: sellBlock('rm', [{ id: 'sr', pre: vel }]) } });
+    const su = mkSu({ id: 'sr', assetId: 'rm', metric, metricValue, unitArea, unitPrice: 10000 });
+    return computeAllSellResults({ project, phases, assets: [a], subUnits: [su] } as never).bySellAsset.get('rm')!;
+  };
+  const full = mk(12342.277146685417, undefined, [0.05, 0.05, 0.4, 0.5]);
+  check('M1 12,342.28 sqm at 5/5/40/50 sells exactly 12,342.28 (was 12,342, a fraction unsold for ever)',
+    near(sum(full.presalesAreaPerPeriod), 12342.277146685417, 1e-9), String(sum(full.presalesAreaPerPeriod)));
+  check('M2 the earlier steps still round to whole sqm; only the last takes the remainder',
+    Number.isInteger(full.presalesAreaPerPeriod[0]) && Number.isInteger(full.presalesAreaPerPeriod[2]) && !Number.isInteger(full.presalesAreaPerPeriod[3]));
+  const units = mk(143.6, 100, [0.5, 0.5, 0, 0], 'units');
+  check('M3 143.6 units at 50/50 sells 143.6 units and 14,360 sqm exactly',
+    near(sum(units.presalesUnitsPerPeriod), 143.6, 1e-9) && near(sum(units.presalesAreaPerPeriod), 14360, 1e-6));
+  const short = mk(12342.28, undefined, [0.3, 0.3, 0.3, 0]);
+  check('M4 a schedule that stops at 90% still leaves 10% unsold, as it says',
+    sum(short.presalesAreaPerPeriod) < 12342.28 * 0.9 + 1 && sum(short.presalesAreaPerPeriod) > 12342.28 * 0.9 - 2);
+  const over = mk(1000, undefined, [0.6, 0.6, 0, 0]);
+  check('M5 a schedule past 100% is capped at the inventory, exactly', near(sum(over.presalesAreaPerPeriod), 1000, 1e-9));
+}
+
+// ── N. Both prices, stored; the active one follows the basis ────────────────
+section('N. A sub-unit carries a price per sqm and a price per unit; unitPrice is the active one');
+{
+  const areaAsset = mkAsset({ id: 'pa', phaseId: 'p1', type: 'Branded Villas', strategy: 'Sell', subUnitMetric: 'area' });
+  const unitsAsset = { ...areaAsset, subUnitMetric: 'units' } as Asset;
+  const row = mkSu({ id: 'pr', assetId: 'pa', metric: 'area', metricValue: 1000, unitArea: 100, unitPrice: 18500 });
+  const first = settleSubUnitPrices([row], [areaAsset]);
+  check('N1 a row that predates the pair takes its price as the per-sqm statement, unitPrice unchanged',
+    first.changed && first.subUnits[0].pricePerSqm === 18500 && first.subUnits[0].unitPrice === 18500 && first.subUnits[0].pricePerUnit === undefined);
+  const second = settleSubUnitPrices(first.subUnits, [areaAsset]);
+  check('N2 it settles: the second pass returns the input array', !second.changed && second.subUnits === first.subUnits);
+  const withUnit = { ...first.subUnits[0], pricePerUnit: 2_500_000 };
+  const switched = settleSubUnitPrices([withUnit], [unitsAsset]);
+  check('N3 the asset switched to units: unitPrice follows the per-unit statement, the per-sqm one is kept',
+    switched.changed && switched.subUnits[0].unitPrice === 2_500_000 && switched.subUnits[0].pricePerSqm === 18500);
+  const back = settleSubUnitPrices(switched.subUnits, [areaAsset]);
+  check('N4 and back to area: unitPrice is the per-sqm price again, nothing lost',
+    back.subUnits[0].unitPrice === 18500 && back.subUnits[0].pricePerUnit === 2_500_000);
+  check('N5 activePriceKey reads the ASSET\'s metric (TRAPS 7.32)',
+    activePriceKey(row, unitsAsset) === 'pricePerUnit' && activePriceKey(row, areaAsset) === 'pricePerSqm');
+  check('N6 rowsWithoutPriceIn names the rows with no price in the basis being entered',
+    rowsWithoutPriceIn([first.subUnits[0]], 'pricePerUnit').length === 1 && rowsWithoutPriceIn([withUnit], 'pricePerUnit').length === 0);
+  const store = readFileSync(join(process.cwd(), 'src/hubs/modeling/platforms/refm/lib/state/module1-store.ts'), 'utf8');
+  check('N7 the store settles prices on BOTH doors', (store.match(/settleSubUnitPrices\(/g) ?? []).length >= 2);
+  const t5 = readFileSync(join(process.cwd(), 'src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx'), 'utf8');
+  check('N8 Table 5 has the other-basis price cell, writes both on the Rate cell, and the switch names unpriced rows',
+    t5.includes('-rate-other') && t5.includes("[isUnits ? 'pricePerUnit' : 'pricePerSqm']: v ?? 0") && t5.includes('rowsWithoutPriceIn(rows, entering)'));
+}
+
+// ── O. The surfaces, statically ─────────────────────────────────────────────
+section('O. The Output tab, the Inputs card and the selling costs read per line, pre and post in one table');
+{
+  const out = readFileSync(join(process.cwd(), 'src/hubs/modeling/platforms/refm/components/modules/Module2RevenueOutput.tsx'), 'utf8');
+  const inp = readFileSync(join(process.cwd(), 'src/hubs/modeling/platforms/refm/components/modules/Module2Revenue.tsx'), 'utf8');
+  check('O1 blocks 1 and 2 are ONE table each, banded pre-sales and sales during operation, with the two totals at the foot',
+    out.includes('bands={saleBands}') && out.includes('buildPrePostRows(') && /label: 'Pre-sales'/.test(out) && /label: 'Sales during operation'/.test(out)
+    && !out.includes('1a. Pre-Sales') && !out.includes('2a. Pre-Sales Revenue') && !out.includes('2b. Sales During Operation Revenue'));
+  check('O2 the share sold per year is the first table of block 1, per sub-unit, pre and post in one row',
+    out.includes('buildShareSoldRows(') && out.includes('1a. Share of inventory sold per year'));
+  check('O3 the selling costs table and its year-on-year schedule file per LINE, the plots of a line added',
+    /const display = useMemo/.test(out) && out.includes('lineForAsset(lines, r.assetId)') && out.includes('groupOf(r.assetId)') && !out.includes('data-testid={`m2-selling-cost-${r.assetId}-${r.lineId}`}'));
+  check('O4 the Inputs card shows the sale price per year after indexation, through the engine\'s own applyIndexation',
+    inp.includes('-indexed-price') && inp.includes('applyIndexation(base, c.idx, idxAxis)') && inp.includes('expandIndexationToAxis(idxConfig'));
+  check('O5 the Inputs card can copy its terms to every other line of the same form, writing every member of every target',
+    inp.includes('copyTermsTo') && inp.includes('-copy-apply') && /for \(const m of target\.members\)/.test(inp)
+    && /drop = new Set\(\['assetId', 'subUnits', 'escrow', 'handoverYearOverride', 'operationsStartYearOverride'\]\)/.test(inp));
+  check('O6 the copy carries the pace as the target\'s line default and onto every target row, phase-local only',
+    /velocityDefault: p2,/.test(inp) && /preSalesVelocity: \[\], postSalesVelocity: \[\],/.test(inp));
+}
+
 // ── L. Live ─────────────────────────────────────────────────────────────────
 async function live(): Promise<void> {
   section('L. Live: every project partitions into lines, sums agree, seeding settles');
@@ -354,7 +429,7 @@ async function live(): Promise<void> {
     return await r.json() as unknown[];
   };
   const ps = await q('refm_projects?select=id,name&deleted_at=is.null&order=created_at') as { id: string; name: string }[];
-  let projects = 0, partitioned = 0, summed = 0, settled = 0, identical = 0, noStripInHosp = 0;
+  let projects = 0, partitioned = 0, summed = 0, settled = 0, identical = 0, noStripInHosp = 0, priced = 0, priceMoved = 0;
   for (const p of ps) {
     const vs = await q(`refm_project_versions?project_id=eq.${p.id}&select=snapshot&order=created_at.desc&limit=1`) as { snapshot: Record<string, unknown> }[];
     if (!vs[0]?.snapshot) continue;
@@ -373,6 +448,11 @@ async function live(): Promise<void> {
       && near(totalHosp, sum(snap.hospitalityProjectTotals.totalRevenuePerPeriod), 1e-3)
       && near(totalLease, sum(snap.leaseProjectTotals.totalRevenuePerPeriod), 1e-3)) summed += 1;
     if (![...snap.byHospitalityAsset.keys()].some((id) => st.assets.find((a) => a.id === id)?.companionType === 'retail')) noStripInHosp += 1;
+    // P: the price settle backfills and then settles, and never moves a unitPrice on load.
+    const pr1 = settleSubUnitPrices(st.subUnits ?? [], st.assets ?? []);
+    const pr2 = settleSubUnitPrices(pr1.subUnits, st.assets ?? []);
+    if (!pr2.changed) priced += 1;
+    if (pr1.moved.length === 0) priceMoved += 1;
     const seeded = seedRevenueBlocks(st.assets ?? []);
     const again = seedRevenueBlocks(seeded.assets);
     if (!again.changed) settled += 1;
@@ -386,6 +466,8 @@ async function live(): Promise<void> {
   check(`L4 no retail strip is in the hospitality loop, on any project (${noStripInHosp}/${projects})`, noStripInHosp === projects);
   check(`L5 seeding settles on the second pass, on every project (${settled}/${projects})`, settled === projects);
   check(`L6 seeding leaves the project totals byte-identical, on every project (${identical}/${projects})`, identical === projects);
+  check(`P1 the sub-unit price settle settles on the second pass, on every project (${priced}/${projects})`, priced === projects);
+  check(`P2 and moves no unitPrice on load: every existing row keeps its price (${priceMoved}/${projects})`, priceMoved === projects);
 }
 
 live().then(() => {

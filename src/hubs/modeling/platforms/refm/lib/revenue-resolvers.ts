@@ -154,7 +154,7 @@ export function expandYearKeyedToAxis(
 /** Indexation config helper: returns a new IndexationConfig where
  *  growthPerPeriod is the expanded axis-indexed array. Preserves all
  *  other fields (method, rate, startYear, steps). */
-function expandIndexationToAxis(
+export function expandIndexationToAxis(
   ix: IndexationConfig | undefined,
   byPhase: number[] | undefined,
   phaseOffset: number,

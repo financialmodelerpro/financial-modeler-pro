@@ -69,6 +69,8 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
     const postUnitsSU = postSalesUnitsPerSU[su.id] ?? new Array<number>(N).fill(0);
 
     let cumShare = cumulativeShareBySubUnit.get(su.id) ?? 0;
+    let soldArea = 0;
+    let soldUnits = 0;
 
     // Pass 7j (2026-05-17): apply whole-unit YoY rounding on the sold
     // quantity BEFORE revenue is derived, so revenue is computed from
@@ -76,7 +78,29 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
     // Units-metric sub-units round to whole units; sqm-metric round to
     // whole sqm. cumShare advances by the rounded share so subsequent
     // periods cap correctly against remaining unsold area.
-    const stepRounded = (cappedV: number): { roundedArea: number; roundedUnits: number; actualV: number } => {
+    //
+    // THE LAST STEP SELLS THE EXACT REMAINDER (2026-09-13, founder: "we need
+    // to ensure 100% inventory sold"). Rounding every step to whole sqm or
+    // whole units left the fraction of the inventory that no whole step could
+    // reach (12,342.28 sqm sold 12,342 and carried 0.28 sqm for ever; a row of
+    // 143.6 units kept 0.6 of one), so a schedule typed to 100% closed at
+    // 99.99% and the closing inventory never read zero. When the step's share
+    // reaches whatever is still unsold, it takes exactly that, unrounded, so
+    // sold equals inventory to the last decimal. A schedule that stops short
+    // of 100% still leaves the remainder unsold, which is what it says.
+    // `exhaust` is decided on the TYPED schedule: once the typed velocities
+    // reach 100%, this step takes whatever is still unsold, however the
+    // earlier steps rounded. Deciding it on the rounded cumulative would miss
+    // by the rounding itself (the earlier steps sold 6,171 of 6,171.14, so the
+    // last 50% step saw 50.001% remaining and rounded again).
+    let typedCumShare = 0;
+    const stepRounded = (cappedV: number, exhaust: boolean): { roundedArea: number; roundedUnits: number; actualV: number } => {
+      const remainingShare = Math.max(0, 1 - cumShare);
+      if ((exhaust || cappedV >= remainingShare - 1e-9) && remainingShare > 0) {
+        const roundedArea = Math.max(0, totalArea - soldArea);
+        const roundedUnits = areaPerUnit > 0 ? Math.max(0, totalUnits - soldUnits) : 0;
+        return { roundedArea, roundedUnits, actualV: remainingShare };
+      }
       const targetArea = totalArea * cappedV;
       if (areaPerUnit > 0) {
         const roundedUnits = Math.round(targetArea / areaPerUnit);
@@ -92,11 +116,14 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
     for (let yr = 0; yr < N; yr++) {
       const v = Math.max(0, cfg.preSalesVelocity[yr] ?? 0);
       if (v === 0) continue;
+      typedCumShare += v;
       const cappedV = Math.min(v, Math.max(0, 1 - cumShare));
       if (cappedV === 0) continue;
-      const { roundedArea, roundedUnits, actualV } = stepRounded(cappedV);
+      const { roundedArea, roundedUnits, actualV } = stepRounded(cappedV, typedCumShare >= 1 - 1e-9);
       if (roundedArea === 0) continue;
       cumShare += actualV;
+      soldArea += roundedArea;
+      soldUnits += roundedUnits;
       const indexedRate = applyIndexation(baseRate, yr, config.indexation);
       const value = roundedArea * indexedRate;
       presalesArea[yr] += roundedArea;
@@ -110,11 +137,14 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
     for (let yr = 0; yr < N; yr++) {
       const v = Math.max(0, cfg.postSalesVelocity[yr] ?? 0);
       if (v === 0) continue;
+      typedCumShare += v;
       const cappedV = Math.min(v, Math.max(0, 1 - cumShare));
       if (cappedV === 0) continue;
-      const { roundedArea, roundedUnits, actualV } = stepRounded(cappedV);
+      const { roundedArea, roundedUnits, actualV } = stepRounded(cappedV, typedCumShare >= 1 - 1e-9);
       if (roundedArea === 0) continue;
       cumShare += actualV;
+      soldArea += roundedArea;
+      soldUnits += roundedUnits;
       const indexedRate = applyIndexation(baseRate, yr, config.indexation);
       const value = roundedArea * indexedRate;
       postSalesArea[yr] += roundedArea;

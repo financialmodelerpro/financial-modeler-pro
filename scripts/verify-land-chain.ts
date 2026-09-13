@@ -520,8 +520,12 @@ function offlineChecks(): void {
     /<SubUnitNumber decimals=\{project\.displayDecimals \?\? 2\} value=\{u\.unitPrice\}/
       .test(tabSrc.replace(/\s*\n\s*/g, ' '))
     && /u\.parentSubUnitId !== undefined/.test(tabSrc)
-    && /\{ unitPrice: v \?\? 0, startingAdr: v \?\? 0 \}/.test(tabSrc)
-    && /\{ unitPrice: v \?\? 0 \}/.test(tabSrc));
+    // RE-AIMED 2026-09-13: the Rate cell writes the active price AND its
+    // statement in the row's basis (per sqm or per unit), and the ADR on a
+    // companion mirror, in one patch.
+    && /unitPrice: v \?\? 0,/.test(tabSrc)
+    && tabSrc.includes("[isUnits ? 'pricePerUnit' : 'pricePerSqm']: v ?? 0")
+    && /\.\.\.\(u\.parentSubUnitId !== undefined \? \{ startingAdr: v \?\? 0 \} : \{\}\)/.test(tabSrc));
   check('U8 a count nobody can derive is a DASH, not a zero',
     tabSrc.includes('const count: number | undefined')
     && tabSrc.includes('(unitArea > 0 ? Math.round(u.metricValue / unitArea) : undefined)')
@@ -1176,10 +1180,10 @@ function offlineChecks(): void {
     // which is what this catches.
     && (tabSrc.match(/'var\(--color-primary-pale\)'/g) ?? []).length === 2
     && /style=\{\{ \.\.\.BAND, borderBottom: '2px solid var\(--color-navy\)' \}\}/.test(subBody)
-    // Every cell of the blended row carries it: 9 columns in 8 cells, one of
-    // which spans two.
+    // Every cell of the blended row carries it: 10 columns in 9 cells, one of
+    // which spans two (the tenth column, the other-basis price, 2026-09-13).
     && (subBody.match(/subunits-line-\$\{line\.key\}-totals`\}>[\s\S]*?<\/tr>/)?.[0]
-      .match(/\.\.\.BAND/g) ?? []).length === 8);
+      .match(/\.\.\.BAND/g) ?? []).length === 9);
   // ── U29h3 THE ROOT CAUSE, PINNED ONCE FOR EVERY BANDED ROW ON THE TAB.
   //
   // app/globals.css carries an UNCLASSED, platform-wide rule:
@@ -1214,7 +1218,9 @@ function offlineChecks(): void {
     // definition both tables render). That is why three rows cost three
     // spreads and not forty-eight: a missing band on any numeric cell is
     // impossible by construction rather than by counting.
-    && (tabSrc.match(/\.\.\.FOOT_BAND/g) ?? []).length === 11
+    // TWELVE since 2026-09-13: the sub-units foot gained the other-basis
+    // price cell, banded like the rest.
+    && (tabSrc.match(/\.\.\.FOOT_BAND/g) ?? []).length === 12
     && /<tr style=\{FOOT_BAND\} data-testid="assets-results-total">/.test(tabSrc)
     && /<tr style=\{FOOT_BAND\} data-testid="assets-merged-total">/.test(tabSrc)
     && /const C: React\.CSSProperties = \{ \.\.\.CELL_NUM, \.\.\.FOOT_BAND/.test(tabSrc)
@@ -1251,7 +1257,8 @@ function offlineChecks(): void {
     && /\{line\.rows\.length\} sub-unit/.test(subBody)
     // The check spans every numeric column rather than sitting inside two of
     // them, and the two numeric header cells are gone.
-    && /<td style=\{\{ \.\.\.CELL, \.\.\.BAND \}\} colSpan=\{7\}>/.test(subBody)
+    // EIGHT numeric columns since 2026-09-13 (the other-basis price).
+    && /<td style=\{\{ \.\.\.CELL, \.\.\.BAND \}\} colSpan=\{8\}>/.test(subBody)
     && !subBody.includes('subunits-line-${line.key}-nsa`')
     && !subBody.includes('subunits-line-${line.key}-sum`'));
   check('U29k2 the Blended row carries the NSA share, 100% when the parts allocate it exactly',

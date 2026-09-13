@@ -3,16 +3,16 @@
 /**
  * Module2RevenueOutput.tsx (M2 Pass 7s, per-asset narrative)
  *
- * One residential-first narrative per asset, in this order:
+ * One residential-first narrative per LINE (2026-09-13: one type in one
+ * phase across its plots, the sum of those plots), in this order:
  *
- *   1. SQM Sold
- *      1a. Pre-Sales SQM, per sub-unit
- *      1b. Sales During Operation SQM, per sub-unit
- *      1c. Total SQM + reconciliation (cum % of BUA per sub-unit)
- *   2. Revenue (Sales Value)
- *      2a. Pre-Sales Revenue, per sub-unit
- *      2b. Sales During Operation Revenue, per sub-unit
- *      2c. Total Revenue, per sub-unit
+ *   1. SQM (or Units) Sold
+ *      1a. Share of inventory sold per year, per sub-unit (pre and post in
+ *          one row, the years banded in the header)
+ *      1b. Sold per sub-unit, pre-sales and sales during operation in ONE
+ *          table, banded, with the two totals at the foot
+ *      1c. Closing inventory (unsold)
+ *   2. Revenue (Sales Value): one banded table, the two totals at the foot
  *   3. Revenue Recognised
  *      3a. Pre-Sales Recognition vintage matrix (per recognition profile)
  *      3b. Recognition Summary per period: Pre + SDO + Total
@@ -82,7 +82,7 @@ import { withResolvedAssetNames, assetPlotLabel } from '@/src/core/calculations/
 import { resolveSubUnitMetric } from '@/src/core/calculations';
 import { lineRevenueResults } from '../../lib/revenue-resolvers';
 import {
-  planRevenueLines, groupRevenueLines, REVENUE_SECTION_KEY, REVENUE_SECTION_META, type RevenueLine,
+  planRevenueLines, groupRevenueLines, lineForAsset, REVENUE_SECTION_KEY, REVENUE_SECTION_META, type RevenueLine,
 } from '../../lib/revenueLines';
 import { withInheritedMassingAll } from '@/src/core/calculations/landChain';
 import { chainMassingFor } from '../../lib/state/assetTypeStandards';
@@ -259,6 +259,7 @@ function PeriodTable({
   fmt,
   trailingHeader,
   priorYearLabel,
+  bands,
 }: {
   title: string;
   formula: string;
@@ -276,6 +277,10 @@ function PeriodTable({
    * pre-axis activity, so the prior cells are blank.
    */
   priorYearLabel?: number;
+  /** A BAND OVER THE YEAR COLUMNS (2026-09-13): which years are pre-sales
+   *  and which are sales during operation, stated once in the header so one
+   *  table can carry both halves. Indices are project-axis, inclusive. */
+  bands?: Array<{ label: string; from: number; to: number }>;
 }): React.JSX.Element {
   // Universal prior-year column: defaults to (first year - 1) so every
   // table on the platform leads with the year before project start.
@@ -301,6 +306,32 @@ function PeriodTable({
             {yearLabels.map((y) => (<col key={y} style={{ width: nonLabelPct }} />))}
           </colgroup>
           <thead>
+            {bands && bands.length > 0 && (
+              <tr>
+                <th colSpan={2 + (trailingHeader ? 1 : 0) + priorCols} style={{ ...CELL_HEADER, background: 'transparent', borderBottom: 'none' }} />
+                {(() => {
+                  const cells: React.JSX.Element[] = [];
+                  let i = 0;
+                  while (i < yearLabels.length) {
+                    const band = bands.find((b) => i >= b.from && i <= b.to);
+                    let j = i;
+                    while (j + 1 < yearLabels.length && bands.find((b) => j + 1 >= b.from && j + 1 <= b.to) === band) j += 1;
+                    cells.push(
+                      <th key={`band-${i}`} colSpan={j - i + 1} data-testid={band ? `m2-band-${band.label.replace(/[^a-z]+/gi, '-').toLowerCase()}` : undefined} style={{
+                        ...CELL_HEADER, textAlign: 'center', fontSize: 10, letterSpacing: '0.05em', textTransform: 'uppercase',
+                        background: band ? 'color-mix(in srgb, var(--color-navy) 14%, transparent)' : 'transparent',
+                        color: band ? 'var(--color-heading)' : 'var(--color-meta)',
+                        borderBottom: band ? '2px solid var(--color-navy)' : 'none',
+                      }}>
+                        {band ? band.label : ''}
+                      </th>,
+                    );
+                    i = j + 1;
+                  }
+                  return cells;
+                })()}
+              </tr>
+            )}
             <tr>
               <th style={{ ...CELL_HEADER, ...freezeCol(0) }}>Line</th>
               <th style={{ ...CELL_HEADER_TOTAL, ...freezeCol(PERIOD_LABEL_PX) }}>Total</th>
@@ -369,70 +400,87 @@ function PeriodTable({
 }
 
 /**
- * Per-sub-unit block: builds an "id -> per-period array" map into rows
- * keyed by sub-unit name + a closing asset-total row. Used by both the
- * SQM blocks (1a / 1b / 1c) and the Revenue blocks (2a / 2b / 2c).
+ * ONE TABLE FOR PRE AND POST (2026-09-13, founder). A sell line's pre-sales
+ * and sales-during-operation halves used to be three tables each (pre, post,
+ * total). They are one schedule: each row is pre + post per year, a band over
+ * the year columns says which years are which, and the two totals sit at the
+ * foot with the grand total, so the split is still stated without a second
+ * and third table saying it.
  */
-function buildPerSubUnitRows(
+function buildPrePostRows(
   subUnits: Array<{ id: string; name: string }>,
-  perSU: Record<string, number[]>,
-  totalAcrossSU: number[],
-  totalLabel: string,
+  preSU: Record<string, number[]>,
+  postSU: Record<string, number[]>,
+  preTotal: number[],
+  postTotal: number[],
+  axisLength: number,
+  opts: {
+    preLabel: string;
+    postLabel: string;
+    grandLabel: string;
+    /** A trailing cell per sub-unit row, given its index and lifetime sold. */
+    trailingOf?: (index: number, sold: number) => string;
+    grandTrailing?: string;
+  },
 ): PeriodRow[] {
+  const N = axisLength;
   const rows: PeriodRow[] = [];
-  for (const su of subUnits) {
-    rows.push({ label: su.name || 'sub-unit', values: perSU[su.id] ?? [] });
-  }
-  rows.push({ label: totalLabel, values: totalAcrossSU, kind: 'grand' });
+  subUnits.forEach((su, idx) => {
+    const pre = preSU[su.id] ?? [];
+    const post = postSU[su.id] ?? [];
+    const combined = new Array<number>(N).fill(0);
+    let sold = 0;
+    for (let i = 0; i < N; i++) { combined[i] = (pre[i] ?? 0) + (post[i] ?? 0); sold += combined[i]; }
+    rows.push({ label: su.name || 'sub-unit', values: combined, trailing: opts.trailingOf?.(idx, sold) });
+  });
+  rows.push({ label: opts.preLabel, values: preTotal.slice(0, N), kind: 'subtotal' });
+  rows.push({ label: opts.postLabel, values: postTotal.slice(0, N), kind: 'subtotal' });
+  const grand = new Array<number>(N).fill(0);
+  for (let i = 0; i < N; i++) grand[i] = (preTotal[i] ?? 0) + (postTotal[i] ?? 0);
+  rows.push({ label: opts.grandLabel, values: grand, kind: 'grand', trailing: opts.grandTrailing });
   return rows;
 }
 
 /**
- * Total Sold block (1c) with reconciliation. Generic across metrics:
- * pass per-sub-unit denominator (total area when metric='sqm', total
- * units when metric='units') + the matching pre/post arrays.
- *
- * Pass 7y (2026-05-18): renamed from buildTotalSqmReconciledRows; the
- * math is identical for both metrics, the math just divides sold by
- * total inventory.
+ * THE PACE THE ENGINE SOLD AT (2026-09-13, founder: "show the % sold per
+ * year before the sqm / unit working"). Sold over total inventory per row and
+ * per year, pre and post in one row, which is the typed velocity after the
+ * cap at what was still unsold and the rounding, so a reader can check the
+ * input against its result on the same axis.
  */
-function buildTotalSoldReconciledRows(
+function buildShareSoldRows(
   subUnits: Array<{ id: string; name: string }>,
-  totalInventoryPerSU: number[],
+  inventoryPerSU: number[],
   preSU: Record<string, number[]>,
   postSU: Record<string, number[]>,
-  totalAcrossSU: number[],
   assetInventory: number,
-  decimals: DisplayDecimals = 0,
+  axisLength: number,
+  decimals: number,
 ): PeriodRow[] {
+  const N = axisLength;
   const rows: PeriodRow[] = [];
+  const assetSold = new Array<number>(N).fill(0);
   subUnits.forEach((su, idx) => {
-    const inv = Math.max(0, totalInventoryPerSU[idx] ?? 0);
+    const inv = Math.max(0, inventoryPerSU[idx] ?? 0);
     const pre = preSU[su.id] ?? [];
     const post = postSU[su.id] ?? [];
-    const N = Math.max(pre.length, post.length);
-    const combined: number[] = new Array(N).fill(0);
+    const share = new Array<number>(N).fill(0);
     let sold = 0;
     for (let i = 0; i < N; i++) {
       const v = (pre[i] ?? 0) + (post[i] ?? 0);
-      combined[i] = v;
+      assetSold[i] += v;
       sold += v;
+      share[i] = inv > 0 ? v / inv : 0;
     }
-    const cumPct = inv > 0 ? sold / inv : 0;
-    const pctLabel = `${(cumPct * 100).toFixed(decimals)}%`;
-    rows.push({ label: su.name || 'sub-unit', values: combined, trailing: pctLabel });
+    rows.push({ label: su.name || 'sub-unit', values: share, trailing: inv > 0 ? `${((sold / inv) * 100).toFixed(decimals)}%` : '', totalOverride: inv > 0 ? `${((sold / inv) * 100).toFixed(decimals)}%` : '' });
   });
-  const assetCumPct = assetInventory > 0
-    ? totalAcrossSU.reduce((s, v) => s + v, 0) / assetInventory
-    : 0;
-  rows.push({
-    label: 'Asset Total',
-    values: totalAcrossSU,
-    kind: 'grand',
-    trailing: `${(assetCumPct * 100).toFixed(decimals)}%`,
-  });
+  const assetShare = assetSold.map((v) => (assetInventory > 0 ? v / assetInventory : 0));
+  const assetSoldTotal = assetSold.reduce((s, v) => s + v, 0);
+  const assetPct = assetInventory > 0 ? `${((assetSoldTotal / assetInventory) * 100).toFixed(decimals)}%` : '';
+  rows.push({ label: 'Asset Total', values: assetShare, kind: 'grand', trailing: assetPct, totalOverride: assetPct });
   return rows;
 }
+
 
 /**
  * Pass 7s (2026-05-18): Project Total breakdown grouped by strategy.
@@ -1083,7 +1131,20 @@ export default function Module2RevenueOutput(): React.JSX.Element {
     const handoverYearIdx = Math.max(0, Math.min(snap.axisLength - 1,
       (p.startDate ? new Date(p.startDate).getUTCFullYear() : projectStartYear)
         + (p.constructionPeriods ?? 0) - 1 - projectStartYear));
-    void handoverYearIdx;
+    // THE TWO HALVES OF THE SALE, AS A BAND (2026-09-13): the pre-sales years
+    // are the phase's construction window, the sales-during-operation years
+    // its operations window, the same rule the Inputs tab draws its grids on.
+    const phaseStartIdx = Math.max(0, (p.startDate ? new Date(p.startDate).getUTCFullYear() : projectStartYear) - projectStartYear);
+    const cpN = Math.max(0, p.constructionPeriods ?? 0);
+    const opN = Math.max(0, p.operationsPeriods ?? 0);
+    const ovN = Math.max(0, p.overlapPeriods ?? 0);
+    const postFrom = Math.max(phaseStartIdx, Math.min(snap.axisLength - 1, handoverYearIdx + 1 - ovN));
+    const postTo = Math.max(postFrom, Math.min(snap.axisLength - 1, postFrom + opN - 1));
+    const saleBands: Array<{ label: string; from: number; to: number }> = [
+      ...(cpN > 0 ? [{ label: 'Pre-sales', from: phaseStartIdx, to: handoverYearIdx }] : []),
+      ...(opN > 0 ? [{ label: 'Sales during operation', from: postFrom, to: postTo }] : []),
+    ];
+    const pctFmt1 = (v: number): string => `${(v * 100).toFixed(decimals)}%`;
     const r = lineResults.get(line.key)?.sell;
     // Pass 9e-7 (2026-05-18): for Sell + Manage parents with
     // no revenue.sell config yet, render a placeholder so the
@@ -1187,7 +1248,13 @@ export default function Module2RevenueOutput(): React.JSX.Element {
             without switching back. */}
         <SubUnitReferenceStrip units={assetSubUnits} asset={a} assetFor={ownerOf} currency={currency} />
 
-        {/* 1. Inventory Sold (metric-aware per Pass 7y) */}
+        {/* 1. Inventory Sold (metric-aware per Pass 7y).
+            ONE TABLE FOR PRE AND POST (2026-09-13, founder): the pre-sales
+            and sales-during-operation halves are one schedule with a band
+            over the years saying which is which, and the two totals at the
+            foot, rather than three tables saying the same thing twice. The
+            first table is the PACE the engine actually sold at, per row and
+            per year, so the input can be read against its result. */}
         <SectionHeading n="1" title={`${inventoryLabel} Sold`} />
         {!metricUniform && (
           <div style={{ fontSize: 10, color: 'var(--color-meta)', fontStyle: 'italic', marginBottom: 6 }}>
@@ -1195,44 +1262,30 @@ export default function Module2RevenueOutput(): React.JSX.Element {
           </div>
         )}
         <PeriodTable
-          title={`1a. Pre-Sales ${inventoryLabel} (per sub-unit)`}
-          formula={`Pre-Sales ${inventoryLabel}[su, y] = preSalesVelocity[su, y] x sub-unit total inventory (capped at remaining unsold inventory). Engine rounds to whole ${inventoryLabelLower} per sub-unit before deriving revenue.`}
+          title="1a. Share of inventory sold per year (per sub-unit)"
+          formula={`Sold[su, y] / total inventory[su]: the pace the engine sold at after capping at what was still unsold and rounding to whole ${inventoryLabelLower}. Pre-sales and sales during operation are marked in the header; a row that ends short of 100% still holds inventory.`}
           yearLabels={snap.yearLabels}
-          rows={buildPerSubUnitRows(
-            assetSubUnits,
-            preInventoryPerSU,
-            preInventoryTotal,
-            `Asset Pre-Sales ${inventoryLabel}`,
-          )}
-          fmt={inventoryFmt}
+          bands={saleBands}
+          rows={buildShareSoldRows(assetSubUnits, inventoryDenomPerSU, preInventoryPerSU, postInventoryPerSU, inventoryDenomAsset, snap.axisLength, decimals)}
+          fmt={pctFmt1}
+          trailingHeader="Sold"
         />
         <PeriodTable
-          title={`1b. Sales During Operation ${inventoryLabel} (per sub-unit)`}
-          formula={`Post-Sales ${inventoryLabel}[su, y] = postSalesVelocity[su, y] x sub-unit total inventory (capped at remaining unsold inventory).`}
+          title={`1b. ${inventoryLabel} Sold (per sub-unit, pre-sales and sales during operation)`}
+          formula={`Sold[su, y] = velocity[su, y] x sub-unit total inventory, capped at what is still unsold; whole ${inventoryLabelLower} per step and the exact remainder on the last. The header marks the pre-sales years (construction) and the sales-during-operation years; the two totals are at the foot.`}
           yearLabels={snap.yearLabels}
-          rows={buildPerSubUnitRows(
-            assetSubUnits,
-            postInventoryPerSU,
-            postInventoryTotal,
-            `Asset Post-Sales ${inventoryLabel}`,
-          )}
+          bands={saleBands}
+          rows={buildPrePostRows(assetSubUnits, preInventoryPerSU, postInventoryPerSU, preInventoryTotal, postInventoryTotal, snap.axisLength, {
+            preLabel: `Total pre-sales ${inventoryLabelLower}`, postLabel: `Total sales during operation ${inventoryLabelLower}`, grandLabel: `Asset Total ${inventoryLabel} Sold`,
+            trailingOf: (i, sold) => { const inv = inventoryDenomPerSU[i] ?? 0; return inv > 0 ? `${((sold / inv) * 100).toFixed(decimals)}%` : ''; },
+            grandTrailing: inventoryDenomAsset > 0
+              ? `${((preInventoryTotal.reduce((s, v) => s + v, 0) + postInventoryTotal.reduce((s, v) => s + v, 0)) / inventoryDenomAsset * 100).toFixed(decimals)}%`
+              : '',
+          })}
           fmt={inventoryFmt}
+          trailingHeader="Sold"
         />
-        <PeriodTable
-          title={`1c. Total ${inventoryLabel} Sold`}
-          formula={`Total ${inventoryLabel}[su, y] = Pre + Post. Engine caps each sub-unit at 100% of its total inventory.`}
-          yearLabels={snap.yearLabels}
-          rows={buildTotalSoldReconciledRows(
-            assetSubUnits,
-            inventoryDenomPerSU,
-            preInventoryPerSU,
-            postInventoryPerSU,
-            preInventoryTotal.map((v, i) => v + (postInventoryTotal[i] ?? 0)),
-            inventoryDenomAsset,
-          )}
-          fmt={inventoryFmt}
-        />
-        {/* 1d. CLOSING INVENTORY (2026-08-20, restructure Step 5).
+        {/* 1c. CLOSING INVENTORY (2026-08-20, restructure Step 5).
             The one quantity the Module 2 diagnosis found genuinely
             missing: inventory existed only as a VALUE (cumulative
             capex less cumulative cost of sales), never as the area
@@ -1247,7 +1300,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
           );
           return (
             <PeriodTable
-              title={`1d. Closing Inventory (unsold ${inventoryLabelLower})`}
+              title={`1c. Closing Inventory (unsold ${inventoryLabelLower})`}
               formula={t.caption}
               yearLabels={snap.yearLabels}
               rows={rollRowsToPeriodRows(t)}
@@ -1256,56 +1309,16 @@ export default function Module2RevenueOutput(): React.JSX.Element {
           );
         })()}
 
-        {/* 2. Revenue */}
+        {/* 2. Revenue: one table, pre and post banded, totals at the foot. */}
         <SectionHeading n="2" title="Revenue (Sales Value)" />
         <PeriodTable
-          title="2a. Pre-Sales Revenue (per sub-unit)"
-          formula={`Pre-Sales Revenue[su, y] = Pre-Sales ${inventoryLabel}[su, y] x base rate (M1 Tab 2) x indexation factor at year y (indexation: ${indexLabel}).`}
+          title="2. Revenue (per sub-unit, pre-sales and sales during operation)"
+          formula={`Revenue[su, y] = ${inventoryLabel} sold[su, y] x base rate (M1 Tab 2) x indexation factor at year y (indexation: ${indexLabel}). The header marks the pre-sales years and the sales-during-operation years; the two totals are at the foot.`}
           yearLabels={snap.yearLabels}
-          rows={buildPerSubUnitRows(
-            assetSubUnits,
-            r.presalesRevenuePerPeriodPerSubUnit,
-            r.presalesRevenuePerPeriod,
-            'Asset Pre-Sales Revenue',
-          )}
-          unit={currency}
-          fmt={fmt}
-        />
-        <PeriodTable
-          title="2b. Sales During Operation Revenue (per sub-unit)"
-          formula={`Post-Sales Revenue[su, y] = Post-Sales ${inventoryLabel}[su, y] x base rate x indexation factor at y (indexation: ${indexLabel}).`}
-          yearLabels={snap.yearLabels}
-          rows={buildPerSubUnitRows(
-            assetSubUnits,
-            r.postSalesRevenuePerPeriodPerSubUnit,
-            r.postSalesRevenuePerPeriod,
-            'Asset Post-Sales Revenue',
-          )}
-          unit={currency}
-          fmt={fmt}
-        />
-        <PeriodTable
-          title="2c. Total Revenue (per sub-unit)"
-          formula="Total Revenue[su, y] = Pre-Sales Revenue + Post-Sales Revenue."
-          yearLabels={snap.yearLabels}
-          rows={(() => {
-            const totalPerSU: Record<string, number[]> = {};
-            for (const su of assetSubUnits) {
-              const pre = r.presalesRevenuePerPeriodPerSubUnit[su.id] ?? [];
-              const post = r.postSalesRevenuePerPeriodPerSubUnit[su.id] ?? [];
-              const N = Math.max(pre.length, post.length);
-              const arr = new Array<number>(N).fill(0);
-              for (let i = 0; i < N; i++) arr[i] = (pre[i] ?? 0) + (post[i] ?? 0);
-              totalPerSU[su.id] = arr;
-            }
-            const totalAcross = r.presalesRevenuePerPeriod.map((v, i) => v + (r.postSalesRevenuePerPeriod[i] ?? 0));
-            return buildPerSubUnitRows(
-              assetSubUnits,
-              totalPerSU,
-              totalAcross,
-              'Asset Total Revenue',
-            );
-          })()}
+          bands={saleBands}
+          rows={buildPrePostRows(assetSubUnits, r.presalesRevenuePerPeriodPerSubUnit, r.postSalesRevenuePerPeriodPerSubUnit, r.presalesRevenuePerPeriod, r.postSalesRevenuePerPeriod, snap.axisLength, {
+            preLabel: 'Total pre-sales revenue', postLabel: 'Total sales during operation revenue', grandLabel: 'Asset Total Revenue',
+          })}
           unit={currency}
           fmt={fmt}
         />
@@ -1647,6 +1660,38 @@ function SellingCostsSection(props: {
     },
   }), [revenue, assets, costLines, costOverrides, subUnits]);
 
+  // PER LINE ON SCREEN (2026-09-13, founder: "shows the blank Land 2, which is
+  // wrong as our asset is merged"). The engine charges a selling cost per
+  // asset (plot), and a plot with no sub-units earned nothing and printed an
+  // empty row beside its line's other plot. The screen reads per LINE: the
+  // plots of one line share the phase's cost line, so their basis amounts and
+  // charges add, and a line reads as one row named as Table 5 names it.
+  const lines = useMemo(() => planRevenueLines(assets, subUnits, phases, project), [assets, subUnits, phases, project]);
+  const lineOfAsset = (assetId: string): RevenueLine | undefined => lineForAsset(lines, assetId);
+  const display = useMemo(() => {
+    const out = new Map<string, { key: string; lineKey: string; label: string; phaseId: string; strategy: string; lineId: string; lineName: string; ratePct: number; basisLabel: string; basisAmount: number; amount: number; notes: string[] }>();
+    for (const r of result.rows) {
+      const line = lineForAsset(lines, r.assetId);
+      const lineKey = line?.key ?? r.assetId;
+      const key = `${lineKey}::${r.lineId}`;
+      const cur = out.get(key);
+      if (cur) {
+        cur.basisAmount += r.basis.amount;
+        cur.amount += r.amount;
+        if (r.note) cur.notes.push(r.note);
+        continue;
+      }
+      out.set(key, {
+        key, lineKey,
+        label: line ? (line.phaseName ? `${line.label}, ${line.phaseName}` : line.label) : r.assetName,
+        phaseId: r.phaseId, strategy: r.strategy, lineId: r.lineId, lineName: r.lineName,
+        ratePct: r.ratePct, basisLabel: r.basis.label, basisAmount: r.basis.amount, amount: r.amount,
+        notes: r.note ? [r.note] : [],
+      });
+    }
+    return [...out.values()];
+  }, [result, lines]);
+
   if (result.rows.length === 0) return null;
 
   const phaseName = (id: string): string => phases.find((p) => p.id === id)?.name ?? id;
@@ -1691,24 +1736,24 @@ function SellingCostsSection(props: {
             </tr>
           </thead>
           <tbody>
-            {result.rows.map((r) => (
-              <tr key={`${r.assetId}::${r.lineId}`} data-testid={`m2-selling-cost-${r.assetId}-${r.lineId}`}>
-                <td style={tdL}>{r.assetName}</td>
+            {display.map((r) => (
+              <tr key={r.key} data-testid={`m2-selling-cost-${r.lineKey}-${r.lineId}`}>
+                <td style={tdL}>{r.label}</td>
                 <td style={tdL}>{phaseName(r.phaseId)}</td>
                 <td style={tdL}>{r.strategy}</td>
                 <td style={tdL}>{r.lineName}</td>
                 <td style={td}>{r.ratePct.toFixed(2)}%</td>
-                <td style={tdL}>{r.basis.label}</td>
-                <td style={td}>{fmt(r.basis.amount)}</td>
+                <td style={tdL}>{r.basisLabel}</td>
+                <td style={td}>{fmt(r.basisAmount)}</td>
                 <td style={{ ...td, fontWeight: 700 }}>{fmt(r.amount)}</td>
               </tr>
             ))}
-            {result.rows.some((r) => r.note) && (
+            {display.some((r) => r.amount === 0 && r.notes.length > 0) && (
               <tr>
                 <td colSpan={8} style={{ ...tdL, background: 'var(--color-bg)', fontStyle: 'italic', color: 'var(--color-meta)' }}>
-                  {result.rows.filter((r) => r.note).map((r) => (
-                    <div key={`${r.assetId}::${r.lineId}::note`} data-testid={`m2-selling-cost-note-${r.assetId}-${r.lineId}`}>
-                      <strong>{r.assetName} / {r.lineName}:</strong> {r.note}
+                  {display.filter((r) => r.amount === 0 && r.notes.length > 0).map((r) => (
+                    <div key={`${r.key}::note`} data-testid={`m2-selling-cost-note-${r.lineKey}-${r.lineId}`}>
+                      <strong>{r.label} / {r.lineName}:</strong> {r.notes[0]}
                     </div>
                   ))}
                 </td>
@@ -1725,7 +1770,8 @@ function SellingCostsSection(props: {
       </div>
       <div style={{ fontSize: 10, color: 'var(--color-meta)', padding: '6px 12px', fontStyle: 'italic' }}>
         {Array.from(byName.keys()).length} selling cost {Array.from(byName.keys()).length === 1 ? 'line' : 'lines'} across{' '}
-        {new Set(result.rows.map((r) => r.assetId)).size} asset{new Set(result.rows.map((r) => r.assetId)).size === 1 ? '' : 's'}.
+        {new Set(display.map((r) => r.lineKey)).size} revenue line{new Set(display.map((r) => r.lineKey)).size === 1 ? '' : 's'}
+        {' '}({new Set(result.rows.map((r) => r.assetId)).size} plot{new Set(result.rows.map((r) => r.assetId)).size === 1 ? '' : 's'}, each line the sum of its plots).
         These are the same figures the Capex tab charges: one calculation, read by both.
       </div>
 
@@ -1745,6 +1791,12 @@ function SellingCostsSection(props: {
         fmt={fmt}
         currency={currency}
         scale={scale}
+        groupOf={(assetId) => {
+          const line = lineOfAsset(assetId);
+          return line
+            ? { key: line.key, label: line.phaseName ? `${line.label}, ${line.phaseName}` : line.label }
+            : { key: assetId, label: assets.find((a) => a.id === assetId)?.name ?? assetId };
+        }}
       />
     </section>
   );
@@ -1782,10 +1834,12 @@ function SellingCostSchedule(props: {
   fmt: (n: number) => string;
   currency: string;
   scale: DisplayScale;
+  /** The LINE a plot belongs to, for the row it files under (2026-09-13). */
+  groupOf: (assetId: string) => { key: string; label: string };
 }): React.JSX.Element | null {
   const {
     rows, assets, phases, costLines, costOverrides, parcels, landAllocationMode,
-    project, subUnits, revenue, yearLabels, projectStartYear, fmt, currency, scale,
+    project, subUnits, revenue, yearLabels, projectStartYear, fmt, currency, scale, groupOf,
   } = props;
 
   const N = yearLabels.length;
@@ -1819,16 +1873,26 @@ function SellingCostSchedule(props: {
         const idx = phaseLocalToProjectIndex(i, offset);
         if (idx >= 0 && idx < N) values[idx] += local[i] ?? 0;
       }
+      // PER LINE (2026-09-13): the plots of one line share the cost line, so
+      // their per-period charges add into one row named as Table 5 names it.
+      const group = groupOf(r.assetId);
+      const key = `${group.key}::${r.lineId}`;
+      const existing = out.find((o) => o.key === key);
+      if (existing) {
+        for (let t = 0; t < N; t++) existing.values[t] += values[t] ?? 0;
+        existing.total = existing.values.reduce((x, v) => x + v, 0);
+        continue;
+      }
       out.push({
-        key: `${r.assetId}::${r.lineId}`,
-        assetName: r.assetName,
+        key,
+        assetName: group.label,
         lineName: r.lineName,
         values,
         total: values.reduce((x, v) => x + v, 0),
       });
     }
     return out;
-  }, [rows, assets, phases, costLines, costOverrides, parcels, landAllocationMode, project, subUnits, revenue, N, projectStartYear]);
+  }, [rows, assets, phases, costLines, costOverrides, parcels, landAllocationMode, project, subUnits, revenue, N, projectStartYear, groupOf]);
 
   if (schedule.length === 0) return null;
 

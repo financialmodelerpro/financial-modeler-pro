@@ -57,6 +57,7 @@ import { assetsOnParcel, repairProjectIntegrity, cascadeAssetRemoval, type Casca
 import { planRetailCompanionOverrides } from '@/src/core/calculations/retailCompanion';
 import { applyReferenceCostBases } from '@/src/core/calculations/costBases';
 import { seedRevenueBlocks } from './revenueSeeds';
+import { settleSubUnitPrices } from './subUnitPrices';
 import {
   applyOverrides,
   buildOverrides,
@@ -1326,7 +1327,10 @@ export function createModule1Store() {
       const windowedLive = windowsLive.moved > 0 ? { ...basedLive, costLines: windowsLive.costLines } : basedLive;
       // And every asset carries the revenue block its strategy reads (2026-09-13).
       const seededLive = seedRevenueBlocks(windowedLive.assets);
-      const liveModel = seededLive.changed ? { ...windowedLive, assets: seededLive.assets } : windowedLive;
+      const seededLiveModel = seededLive.changed ? { ...windowedLive, assets: seededLive.assets } : windowedLive;
+      // And every sub-unit's active price is the one its basis states (2026-09-13).
+      const pricedLive = settleSubUnitPrices(seededLiveModel.subUnits, seededLiveModel.assets);
+      const liveModel = pricedLive.changed ? { ...seededLiveModel, subUnits: pricedLive.subUnits } : seededLiveModel;
       const baseId = baseCaseId(s.cases);
       let baseModel = s.baseSnapshot;
       let cases = s.cases;
@@ -1390,7 +1394,19 @@ export function createModule1Store() {
        * nothing; the input array comes back when nothing was missing.
        */
       const seeded = seedRevenueBlocks(windowed.assets);
-      const model = seeded.changed ? { ...windowed, assets: seeded.assets } : windowed;
+      const seededModel = seeded.changed ? { ...windowed, assets: seeded.assets } : windowed;
+      /**
+       * AND EVERY SUB-UNIT'S ACTIVE PRICE IS THE ONE ITS BASIS STATES
+       * (2026-09-13, subUnitPrices.ts): a row carries a price per sqm and a
+       * price per unit, `unitPrice` is whichever its metric makes active, and
+       * a row that predates the pair takes its price as the statement in its
+       * active basis. Settles like the rest.
+       */
+      const priced = settleSubUnitPrices(seededModel.subUnits, seededModel.assets);
+      const model = priced.changed ? { ...seededModel, subUnits: priced.subUnits } : seededModel;
+      if (priced.moved.length > 0 && typeof console !== 'undefined') {
+        console.warn(`[REFM] sub-unit prices: ${priced.moved.length} row(s) took the price their basis states on load`, priced.moved);
+      }
       if (seeded.changed && typeof console !== 'undefined') {
         console.warn(`[REFM] revenue blocks: ${seeded.seeded.length} asset(s) seeded with the block their strategy reads on load`, seeded.seeded);
       }

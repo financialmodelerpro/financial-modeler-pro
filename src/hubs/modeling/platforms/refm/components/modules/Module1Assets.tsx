@@ -141,6 +141,7 @@ import InputLabel from '../ui/InputLabel';
 import { CELL_HEADER, TABLE_TITLE } from './_shared/tableStyles';
 import { StrategyChangeConfirm, StrategyReviewBanner } from './_shared/StrategyChangeNotice';
 import { applyStrategySwitch, assetHasStrategyAssumptions, type StrategySwitchReport } from '../../lib/state/strategySwitch';
+import { rowsWithoutPriceIn } from '../../lib/state/subUnitPrices';
 import { withResolvedAssetNames, assetPlotLabel } from '@/src/core/calculations/assetName';
 import { withInheritedMassingAll } from '@/src/core/calculations/landChain';
 import { chainMassingFor } from '../../lib/state/assetTypeStandards';
@@ -1326,10 +1327,31 @@ export default function Module1Assets(): React.JSX.Element {
             const chk = canSwitchMetric(withSize(u), next);
             if (!chk.ok) { say(`Sub-unit "${u.name || 'unnamed'}": ${chk.reason}`); return; }
           }
+          // THE PRICE FOLLOWS THE BASIS (2026-09-13, founder): a row carries a
+          // price per sqm and a price per unit, and the switch makes the other
+          // one active. The current price is kept as the statement in the basis
+          // being left, so switching back restores it; a row with NO price in
+          // the basis being entered switches at zero and is named in the alert,
+          // because a price carried across unchanged (18,500 a sqm read as
+          // 18,500 a unit) is the silent version of the same mistake.
+          const leaving: 'pricePerSqm' | 'pricePerUnit' = next === 'units' ? 'pricePerSqm' : 'pricePerUnit';
+          const entering: 'pricePerSqm' | 'pricePerUnit' = next === 'units' ? 'pricePerUnit' : 'pricePerSqm';
+          const unpriced = rowsWithoutPriceIn(rows, entering);
           for (const id of assetIds) updateAsset(id, { subUnitMetric: next });
           for (const u of rows) {
             const row = withSize(u);
-            updateSubUnit(u.id, { ...(sized.has(u.id) ? { unitArea: row.unitArea } : {}), ...switchMetric(row, next) });
+            const kept = u[leaving] === undefined ? { [leaving]: Math.max(0, u.unitPrice ?? 0) } : {};
+            const priceIn = Math.max(0, u[entering] ?? 0);
+            updateSubUnit(u.id, {
+              ...(sized.has(u.id) ? { unitArea: row.unitArea } : {}),
+              ...switchMetric(row, next),
+              ...kept,
+              unitPrice: priceIn,
+              ...(u.parentSubUnitId !== undefined ? { startingAdr: priceIn } : {}),
+            });
+          }
+          if (unpriced.length > 0) {
+            say(`${unpriced.length === 1 ? 'This row has' : `${unpriced.length} rows have`} no price per ${next === 'units' ? 'unit' : 'sqm'} yet: ${unpriced.map((u) => u.name || 'unnamed').join(', ')}. The line now sells by ${next === 'units' ? 'units' : 'area'} at a price of 0 on ${unpriced.length === 1 ? 'that row' : 'those rows'}. Add the price per ${next === 'units' ? 'unit' : 'sqm'} in the Rate column.`);
           }
         }}
       />
@@ -3378,6 +3400,7 @@ function SubUnitsTable({
               <col style={{ width: 96 }} />
               <col style={{ width: 130 }} />
               <col style={{ width: 120 }} />
+              <col style={{ width: 110 }} />
               <col style={{ width: 40 }} />
             </colgroup>
             <thead>
@@ -3390,6 +3413,7 @@ function SubUnitsTable({
                 <th style={TH_N} title="Area / Average Unit Size, rounded to whole units. You cannot build a fraction of an apartment.">Units or Keys</th>
                 <th style={TH_N}>Rate ({project.currency})</th>
                 <th style={TH_T} title="What the rate is charged ON. It differs by category and by whether the asset counts units or area, so per sqm, per unit, per key and per year all appear in this column and are not interchangeable.">Rate Basis</th>
+                <th style={TH_N} title="The price in the OTHER basis: per unit on a line that sells by area, per sqm on a line that sells by units. Kept so switching the line's basis prices at what is typed here, not at the old figure carried across.">Rate, other basis</th>
                 <th style={TH_T}></th>
               </tr>
             </thead>
@@ -3485,7 +3509,7 @@ function SubUnitsTable({
                       which is where they were and where they read as the wrong
                       quantity. The columnar totals are on the Blended row at
                       the foot, under the headings that name them. */}
-                  <td style={{ ...CELL, ...BAND }} colSpan={7}>
+                  <td style={{ ...CELL, ...BAND }} colSpan={8}>
                     {line.status && (
                       <span
                         data-testid={`subunits-line-${line.key}-check`}
@@ -3657,13 +3681,33 @@ function SubUnitsTable({
                           value={u.unitPrice}
                           testId={`subunits-row-${u.id}-rate`}
                           title={`Price, ${rateUnitLabel(u.category, isUnits ? 'units' : 'area') || 'no rate for this category'}. Full scale always: a rate is a price, not a project total.`}
-                          onCommit={(v) => onUpdate(u.id, u.parentSubUnitId !== undefined
-                            ? { unitPrice: v ?? 0, startingAdr: v ?? 0 }
-                            : { unitPrice: v ?? 0 })}
+                          onCommit={(v) => onUpdate(u.id, {
+                            // THE ACTIVE PRICE AND ITS STATEMENT, TOGETHER (2026-09-13):
+                            // the basis the row is on is the one this cell prices.
+                            unitPrice: v ?? 0,
+                            [isUnits ? 'pricePerUnit' : 'pricePerSqm']: v ?? 0,
+                            ...(u.parentSubUnitId !== undefined ? { startingAdr: v ?? 0 } : {}),
+                          })}
                         />
                       </td>
                       <td style={{ ...CELL, fontSize: 10, color: 'var(--color-meta)' }} data-testid={`subunits-row-${u.id}-rate-basis`}>
                         {rateUnitLabel(u.category, isUnits ? 'units' : 'area') || 'no rate'}
+                      </td>
+                      {/* THE OTHER PRICE (2026-09-13, founder): the price in the basis
+                          the row is NOT on, kept so that switching the line from area
+                          to units (or back) prices at what was typed here rather than
+                          carrying the per-sqm figure across as a per-unit one. */}
+                      <td style={CELL}>
+                        <SubUnitNumber
+                          decimals={project.displayDecimals ?? 2}
+                          value={isUnits ? u.pricePerSqm : u.pricePerUnit}
+                          testId={`subunits-row-${u.id}-rate-other`}
+                          title={`Price per ${isUnits ? 'sqm' : 'unit'}, the basis this line is not on. Used the moment the line switches to ${isUnits ? 'area' : 'units'}.`}
+                          onCommit={(v) => onUpdate(u.id, { [isUnits ? 'pricePerSqm' : 'pricePerUnit']: v ?? 0 })}
+                        />
+                        <div style={{ fontSize: 9, color: 'var(--color-meta)', textAlign: 'right' }} data-testid={`subunits-row-${u.id}-rate-other-basis`}>
+                          per {isUnits ? 'sqm' : 'unit'}
+                        </div>
                       </td>
                       <td style={CELL}>
                         <button
@@ -3720,6 +3764,7 @@ function SubUnitsTable({
                     {blendedBasisText(line.totals)}
                   </td>
                   <td style={{ ...CELL, ...BAND }} />
+                  <td style={{ ...CELL, ...BAND }} />
                 </tr>,
                 ];
               })}
@@ -3750,6 +3795,7 @@ function SubUnitsTable({
                     <td style={{ ...CELL, ...FOOT_BAND, fontSize: 10 }} data-testid="subunits-project-rate-note">
                       rates blend per line, not across types
                     </td>
+                    <td style={{ ...CELL, ...FOOT_BAND }} />
                     <td style={{ ...CELL, ...FOOT_BAND }} />
                   </tr>
                 );
@@ -5092,9 +5138,10 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
         )}
       </td>
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
+        {/* The active price AND its statement in the row's basis (2026-09-13). */}
         <AccountingNumberInput
           value={subUnit.unitPrice}
-          onChange={(n) => onUpdate({ unitPrice: Math.max(0, n) })}
+          onChange={(n) => onUpdate({ unitPrice: Math.max(0, n), [isUnits ? 'pricePerUnit' : 'pricePerSqm']: Math.max(0, n) })}
           scale="full"
           decimals={decimals}
           min={0}

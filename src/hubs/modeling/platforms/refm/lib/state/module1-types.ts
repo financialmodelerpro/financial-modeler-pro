@@ -1157,6 +1157,25 @@ export interface SubUnit {
    */
   nsaSharePct?: number;
   /**
+   * BOTH PRICES, STORED (2026-09-13, founder: "when we change from area to
+   * units it needs the price per unit; have both so both work").
+   *
+   * `unitPrice` is the price in the row's ACTIVE basis and stays what every
+   * engine, report and export reads (per sqm on an area row, per unit on a
+   * count row). Switching a line from area to units used to carry the number
+   * across unchanged, so 18,500 a sqm became 18,500 a unit without a word.
+   * These two are the STATEMENTS: the price per sqm and the price per unit,
+   * each typed on Table 5 in its own cell; the store keeps `unitPrice` equal
+   * to whichever the row's metric makes active (`settleSubUnitPrices`, on
+   * load and save and on every switch), and a switch to a basis with no
+   * price stated says so rather than pricing at zero in silence.
+   *
+   * ABSENT means never stated in that basis; a backfill on load takes the
+   * active one from `unitPrice`, so every existing row keeps its price.
+   */
+  pricePerSqm?: number;
+  pricePerUnit?: number;
+  /**
    * Land planning (2026-09-07): PARKING RATIO OVERRIDE for this sub-unit.
    *
    * The asset type carries the firm's default (stamped onto the asset); a

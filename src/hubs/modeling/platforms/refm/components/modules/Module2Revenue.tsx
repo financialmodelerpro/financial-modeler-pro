@@ -40,7 +40,8 @@ import { withResolvedAssetNames, assetPlotLabel } from '@/src/core/calculations/
 import { isRetailCompanion } from '@/src/core/calculations/retailCompanion';
 import { keysFromArea } from '@/src/core/calculations';
 import { resolveAvgUnitSize } from '../../lib/state/assetTypeStandards';
-import { resolveRowVelocity } from '../../lib/revenue-resolvers';
+import { resolveRowVelocity, expandIndexationToAxis } from '../../lib/revenue-resolvers';
+import { applyIndexation } from '@/src/core/calculations/revenue';
 import {
   planRevenueLines, groupRevenueLines, REVENUE_SECTION_KEY, REVENUE_SECTION_META,
   type RevenueLine, type RevenueSection,
@@ -521,6 +522,7 @@ function SectionGroup({ section, lines, allLines, project, phases, parcels }: Se
                 )}
                 <AssetCard
                   line={line}
+                  allLines={allLines}
                   phase={phase}
                   project={project}
                   phases={phases}
@@ -543,13 +545,16 @@ interface AssetCardProps {
    *  every plot the terms are written to, its sub-units are Table 5's rows
    *  pooled across those plots. */
   line: RevenueLine;
+  /** Every line on the tab, so this card can copy its terms to the others
+   *  that take the same inputs (2026-09-13). */
+  allLines: RevenueLine[];
   phase: Phase;
   project: Project;
   phases: Phase[];
   parcels: Parcel[];
 }
 
-function AssetCard({ line, phase, project, phases, parcels }: AssetCardProps): React.JSX.Element {
+function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCardProps): React.JSX.Element {
   const asset = line.host;
   const subUnits = line.subUnits;
   const updateAsset = useModule1Store((s) => s.updateAsset);
@@ -565,6 +570,68 @@ function AssetCard({ line, phase, project, phases, parcels }: AssetCardProps): R
     for (const m of line.members) {
       updateAsset(m.id, { revenue: { ...(m.revenue ?? {}), [form]: { ...next, assetId: m.id } } } as Partial<Asset>);
     }
+  };
+  /**
+   * COPY THIS LINE'S TERMS TO OTHER LINES (2026-09-13, founder: "duplicate one
+   * asset's input to the others of the same category and strategy, phase
+   * skipped, so the user can then override what differs").
+   *
+   * WHAT IS COPIED is the line's SHARED terms: for a Sell line the pace
+   * (as the target's line default, written to every target row), the
+   * indexation, the recognition profile and the sale cohort terms; for an
+   * Operate line the occupancy ramp, ADR indexation, guests, F&B, other and
+   * DSO; for a Lease line the rent indexation, occupancy and receivable days.
+   * WHAT IS NOT: anything that names THIS asset (ids, a per-asset escrow
+   * override, a start-year override in absolute years, a handover override).
+   * Phase-local arrays copy as phase-local, so a Phase 2 line receiving a
+   * Phase 1 pace sells in ITS first year what Phase 1 sold in its first.
+   * Every target member is written, stamped with its own id, like any edit.
+   */
+  const copyTermsTo = (targetKeys: readonly string[]): void => {
+    const source = asset.revenue?.[line.form] as Record<string, unknown> | undefined;
+    if (!source) return;
+    const drop = new Set(['assetId', 'subUnits', 'escrow', 'handoverYearOverride', 'operationsStartYearOverride']);
+    const shared: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(source)) if (!drop.has(k)) shared[k] = v;
+    // The pace a Sell line hands over: its stored default, else its first row's.
+    let pace: { preSalesVelocityByPhase: number[]; postSalesVelocityByPhase: number[] } | undefined;
+    if (line.form === 'sell') {
+      const dflt = sellConfig?.velocityDefault;
+      if (dflt) pace = dflt;
+      else if (subUnits[0]) {
+        const v = resolveRowVelocity(sellConfig, subUnits[0].id);
+        pace = { preSalesVelocityByPhase: v.pre ?? [], postSalesVelocityByPhase: v.post ?? [] };
+      }
+    }
+    let written = 0;
+    for (const key of targetKeys) {
+      const target = allLines.find((l) => l.key === key);
+      if (!target || target.form !== line.form) continue;
+      for (const m of target.members) {
+        const existing = (m.revenue?.[line.form] ?? {}) as Record<string, unknown>;
+        let next: Record<string, unknown> = { ...existing, ...shared, assetId: m.id };
+        if (line.form === 'sell' && pace) {
+          // PHASE-LOCAL ONLY: the resolver reads the phase-local strip first
+          // and the legacy axis twin only where that strip does not reach, so
+          // an empty twin here is exact on a target in any phase.
+          const p2 = pace;
+          next = {
+            ...next,
+            velocityDefault: p2,
+            subUnits: target.subUnits.filter((u) => u.assetId === m.id).map((u) => ({
+              subUnitId: u.id,
+              preSalesVelocity: [], postSalesVelocity: [],
+              preSalesVelocityByPhase: p2.preSalesVelocityByPhase, postSalesVelocityByPhase: p2.postSalesVelocityByPhase,
+            })),
+          };
+        }
+        updateAsset(m.id, { revenue: { ...(m.revenue ?? {}), [line.form]: next } } as Partial<Asset>);
+        written += 1;
+      }
+    }
+    setCopyDone(`Copied to ${targetKeys.length} line${targetKeys.length === 1 ? '' : 's'} (${written} plot${written === 1 ? '' : 's'}). Each can still be edited on its own card.`);
+    setCopyOpen(false);
+    setCopyTargets(new Set());
   };
   const strategyMeta = STRATEGY_BADGE[asset.strategy ?? ''] ?? { bg: 'var(--color-surface)', fg: 'var(--color-meta)', label: asset.strategy ?? '?' };
   // Pass 7w (2026-05-18): Sell + Manage parents get full Sell-side
@@ -593,6 +660,12 @@ function AssetCard({ line, phase, project, phases, parcels }: AssetCardProps): R
     catch { return false; }
   };
   const [assetCollapsed, setAssetCollapsed] = useState<boolean>(readAssetCollapsed);
+  // COPY THIS LINE'S TERMS TO OTHERS (2026-09-13, founder): the panel's open
+  // state and the lines ticked in it. Candidates are every other line that
+  // takes the SAME inputs (the same form), in any section and any phase.
+  const [copyOpen, setCopyOpen] = useState<boolean>(false);
+  const [copyTargets, setCopyTargets] = useState<Set<string>>(() => new Set());
+  const [copyDone, setCopyDone] = useState<string>('');
   useEffect(() => {
     try { window.localStorage.setItem(assetCollapseKey, String(assetCollapsed)); } catch { /* noop */ }
   }, [assetCollapsed, assetCollapseKey]);
@@ -1394,6 +1467,83 @@ function AssetCard({ line, phase, project, phases, parcels }: AssetCardProps): R
             {line.members.map((m) => assetPlotLabel(m, { parcels, phases })).join(' + ')}
           </span>
         )}
+        {/* COPY TO OTHER LINES (2026-09-13). Offered only where there is another
+         *  line that takes the same inputs; the panel lists them by section and
+         *  phase, and the copy writes every plot of every ticked line. */}
+        {(() => {
+          const candidates = allLines.filter((l) => l.key !== line.key && l.form === line.form);
+          if (candidates.length === 0 || !asset.revenue?.[line.form]) return null;
+          return (
+            <span style={{ marginLeft: 'auto', position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              {copyDone && !copyOpen && (
+                <span style={{ fontSize: 10, color: 'var(--color-success, #166534)' }} data-testid={`m2-input-line-${line.key}-copy-done`}>{copyDone}</span>
+              )}
+              <button
+                type="button"
+                data-view-mutates="true"
+                data-testid={`m2-input-line-${line.key}-copy-toggle`}
+                onClick={(e) => { e.stopPropagation(); setCopyOpen(!copyOpen); setCopyDone(''); }}
+                title="Copy this line's velocity, indexation, terms and recognition to other lines that take the same inputs. Each can be changed afterwards."
+                style={{ fontSize: 10, padding: '2px 8px', cursor: 'pointer', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', background: copyOpen ? 'var(--color-navy-pale)' : 'var(--color-surface)', color: 'var(--color-navy)', fontWeight: 600 }}
+              >
+                {copyOpen ? 'Close' : 'Copy assumptions to…'}
+              </button>
+              {copyOpen && (
+                <div
+                  data-testid={`m2-input-line-${line.key}-copy-panel`}
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ position: 'absolute', right: 0, top: '110%', zIndex: 6, minWidth: 320, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', boxShadow: '0 4px 12px color-mix(in srgb, var(--color-text, #000) 12%, transparent)', padding: 10 }}
+                >
+                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)', marginBottom: 6 }}>
+                    Copy this line&apos;s assumptions to
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--color-meta)', marginBottom: 8 }}>
+                    {line.form === 'sell'
+                      ? 'Sales pace, price indexation, recognition and the sale cohort terms. Prices stay each line’s own (Table 5).'
+                      : line.form === 'operate'
+                        ? 'Occupancy ramp, ADR indexation, guests, F&B, other revenue and receivable days. ADR stays each line’s own (Table 5).'
+                        : 'Occupancy ramp, rent indexation and receivable days. Rent stays each line’s own (Table 5).'}
+                  </div>
+                  {candidates.map((l) => (
+                    <label key={l.key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, padding: '2px 0', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        data-testid={`m2-input-line-${line.key}-copy-target-${l.key}`}
+                        checked={copyTargets.has(l.key)}
+                        onChange={(e) => {
+                          const next = new Set(copyTargets);
+                          if (e.target.checked) next.add(l.key); else next.delete(l.key);
+                          setCopyTargets(next);
+                        }}
+                      />
+                      <span>{l.label}{l.phaseName ? `, ${l.phaseName}` : ''}</span>
+                      <span style={{ fontSize: 9, color: 'var(--color-meta)' }}>{l.section}</span>
+                    </label>
+                  ))}
+                  <div style={{ display: 'flex', gap: 6, marginTop: 8, justifyContent: 'flex-end' }}>
+                    <button
+                      type="button"
+                      style={{ fontSize: 10, padding: '2px 8px', cursor: 'pointer', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', background: 'transparent' }}
+                      onClick={() => setCopyTargets(new Set(candidates.map((l) => l.key)))}
+                    >
+                      Select all
+                    </button>
+                    <button
+                      type="button"
+                      data-view-mutates="true"
+                      data-testid={`m2-input-line-${line.key}-copy-apply`}
+                      disabled={copyTargets.size === 0}
+                      onClick={() => copyTermsTo([...copyTargets])}
+                      style={{ fontSize: 10, padding: '2px 10px', cursor: copyTargets.size === 0 ? 'default' : 'pointer', border: '1px solid var(--color-navy)', borderRadius: 'var(--radius-sm)', background: copyTargets.size === 0 ? 'var(--color-surface)' : 'var(--color-navy)', color: copyTargets.size === 0 ? 'var(--color-meta)' : 'var(--color-on-primary-navy)', fontWeight: 700 }}
+                    >
+                      Copy to {copyTargets.size} line{copyTargets.size === 1 ? '' : 's'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </span>
+          );
+        })()}
         <span style={{
           fontSize: 10,
           fontWeight: 700,
@@ -2343,6 +2493,69 @@ function AssetCard({ line, phase, project, phases, parcels }: AssetCardProps): R
               </div>
             )}
           </InlineSection>
+          {/* THE PRICE THE ENGINE SELLS AT, YEAR BY YEAR (2026-09-13, founder:
+           *  "we don't have any sale price showing; the user never sees it").
+           *  Base rate from Table 5 times the indexation factor at each year,
+           *  through the SAME `applyIndexation` the engine multiplies with, on
+           *  the same axis expansion the resolver hands it, so the figure here
+           *  is the one inside the revenue and never a second reading of it. */}
+          {cashWindow.length > 0 && (
+            <InlineSection
+              title="Sale price per year, after indexation"
+              hint="Read-only. Base price per sub-unit (Table 5) x the indexation factor above at each year. This is the rate the engine multiplies the sold area or units by; the handover column is marked with *."
+            >
+              {(() => {
+                const idxAxis = expandIndexationToAxis(idxConfig, sellConfig?.indexation?.growthPerPeriodByPhase, phaseOffset, totalPeriods);
+                const priceFmt = (v: number): string => formatAccounting(v, 'full', project.displayDecimals ?? 2);
+                const HEAD: React.CSSProperties = { ...CELL_HEADER, textAlign: 'left', position: 'sticky', left: 0, minWidth: 220, zIndex: 1 };
+                const YEAR: React.CSSProperties = { ...CELL_HEADER, minWidth: 72 };
+                const CELLN: React.CSSProperties = { padding: '3px 6px', textAlign: 'right', fontSize: 10, whiteSpace: 'nowrap', borderBottom: '1px solid var(--color-border)' };
+                return (
+                  <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }} data-testid={`m2-line-${line.key}-indexed-price`}>
+                    <table style={{ width: '100%', fontSize: 10, borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr>
+                          <th style={HEAD}>Sub-unit · base price</th>
+                          <th style={{ ...CELL_HEADER, minWidth: 60 }}>Factor</th>
+                          {cashWindow.map((c) => (
+                            <th key={c.idx} style={c.isHandover ? { ...YEAR, borderBottom: '2px solid var(--color-warning, #f59e0b)' } : YEAR}>{c.year}{c.isHandover ? '*' : ''}</th>
+                          ))}
+                        </tr>
+                        <tr>
+                          <th style={{ ...HEAD, fontWeight: 400, fontStyle: 'italic', color: 'var(--color-meta)' }}>Indexation factor</th>
+                          <th style={{ ...CELL_HEADER, minWidth: 60 }}>x</th>
+                          {cashWindow.map((c) => (
+                            <th key={c.idx} style={{ ...YEAR, fontWeight: 400, fontStyle: 'italic' }}>{applyIndexation(1, c.idx, idxAxis).toFixed(4)}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {subUnits.map((su) => {
+                          const owner = assetFor(su);
+                          const perUnit = resolveSubUnitMetric(su, owner) === 'units';
+                          const base = Math.max(0, su.unitPrice ?? 0);
+                          return (
+                            <tr key={su.id} data-testid={`m2-line-${line.key}-indexed-price-${su.id}`}>
+                              <td style={{ ...CELLN, textAlign: 'left', position: 'sticky', left: 0, background: 'var(--color-surface)' }}>
+                                <strong>{su.name || 'sub-unit'}</strong>
+                                <span style={{ color: 'var(--color-meta)', marginLeft: 6 }}>
+                                  {base > 0 ? `${project.currency || ''} ${priceFmt(base)} / ${perUnit ? 'unit' : 'sqm'}` : 'no price on Table 5'}
+                                </span>
+                              </td>
+                              <td style={CELLN} />
+                              {cashWindow.map((c) => (
+                                <td key={c.idx} style={CELLN}>{base > 0 ? priceFmt(applyIndexation(base, c.idx, idxAxis)) : ''}</td>
+                              ))}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
+            </InlineSection>
+          )}
 
           {/* Revenue Recognition (full row, ABOVE Cash) */}
           <InlineSection
