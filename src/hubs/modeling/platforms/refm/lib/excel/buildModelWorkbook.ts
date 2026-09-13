@@ -33,7 +33,7 @@ import { formatAssumptionValue } from '../cases/assumptionGrid';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 import { computeReturnsSnapshot, type ReturnsSnapshot } from '../returns-resolvers';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
-import { resolveAssetAreaMetrics, computePhaseTimeline, computeProjectTimeline, type AssetAreaMetrics } from '@/src/core/calculations';
+import { resolveAssetAreaMetrics, computePhaseTimeline, computeProjectTimeline, resolveSubUnitAdr, type AssetAreaMetrics } from '@/src/core/calculations';
 import { FUNDING_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
 import { resolveFundTerms } from '../fundTerms';
 import {
@@ -336,7 +336,7 @@ function prepareLiveModel(snap: ReturnType<typeof computeFinancialsSnapshot>, st
     const gdv = m?.totalRevenue ?? 0;
     const subs = state.subUnits.filter((s) => s.assetId === a.id);
     const annualBase = subs.reduce((s, su) => {
-      const val = su.metricValue ?? 0; const price = su.startingAdr ?? su.unitPrice ?? 0;
+      const val = su.metricValue ?? 0; const price = resolveSubUnitAdr(su);
       return s + (su.metric === 'units' ? val * price * 365 : val * price);
     }, 0);
     const revKind: 'gdv' | 'annual' = group === 'Residential' ? 'gdv' : 'annual';
@@ -720,7 +720,7 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       setInput(ws.getCell(`D${r}`), String(u.metric), '@');
       setInput(ws.getCell(`E${r}`), u.metricValue ?? 0, NUMFMT.int);
       setInput(ws.getCell(`F${r}`), u.unitArea ?? 0, NUMFMT.int);
-      setInput(ws.getCell(`G${r}`), u.startingAdr ?? u.unitPrice ?? 0, NUMFMT.rate); // price / ADR per unit, unscaled
+      setInput(ws.getCell(`G${r}`), resolveSubUnitAdr(u), NUMFMT.rate); // price / ADR per unit, unscaled
       setInput(ws.getCell(`H${r}`), (u.occupancyPct ?? 0) / 100, NUMFMT.pct);
       setInput(ws.getCell(`I${r}`), (u.operatingMargin ?? 0) / 100, NUMFMT.pct);
       subUnitRefs.push({ id: u.id, assetId: u.assetId, category: addr('C', r), metric: addr('D', r), value: addr('E', r), unitArea: addr('F', r), price: addr('G', r) });

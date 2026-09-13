@@ -131,7 +131,15 @@ const DEFINITION_ONLY: { file: string; token: string; allowedCallers?: string[] 
       'src/hubs/modeling/platforms/refm/lib/reports/capexReports.ts',
     ],
   },
-  { file: 'src/core/calculations/consolidation.ts', token: 'consolidation' },
+  {
+    file: 'src/core/calculations/consolidation.ts',
+    token: 'consolidation',
+    // ONE MONEY CALLER SINCE 2026-09-13: the financials composer groups a
+    // merged line's plots so each releases its cost of sales on the LINE's
+    // recognition (a plot with capex and no rows otherwise charged nothing for
+    // ever). `verify-consolidation-key` D1b and D1d pin it to that one call.
+    allowedCallers: ['src/hubs/modeling/platforms/refm/lib/financials-resolvers.ts'],
+  },
   { file: 'src/core/calculations/consolidationCollisions.ts', token: 'consolidationCollisions' },
 ];
 

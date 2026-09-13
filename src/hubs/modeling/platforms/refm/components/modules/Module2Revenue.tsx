@@ -38,7 +38,7 @@ import { CELL_HEADER } from './_shared/tableStyles';
 import { RevenueLineNav } from './_shared/RevenueLineNav';
 import { withResolvedAssetNames, assetPlotLabel } from '@/src/core/calculations/assetName';
 import { isRetailCompanion } from '@/src/core/calculations/retailCompanion';
-import { keysFromArea } from '@/src/core/calculations';
+import { keysFromArea, resolveSubUnitAdr } from '@/src/core/calculations';
 import { resolveAvgUnitSize } from '../../lib/state/assetTypeStandards';
 import { resolveRowVelocity, expandIndexationToAxis } from '../../lib/revenue-resolvers';
 import { applyIndexation } from '@/src/core/calculations/revenue';
@@ -181,7 +181,7 @@ function SubUnitReferenceStrip({
         const countNoun = mode === 'operate' && isUnitsMetric ? 'keys' : 'units';
         let rateLabel: string;
         if (mode === 'operate' && isUnitsMetric) {
-          const adr = su.startingAdr ?? su.unitPrice ?? 0;
+          const adr = resolveSubUnitAdr(su);
           rateLabel = adr > 0 ? `${currency} ${formatAccounting(adr, 'full', 0)} / night (ADR)` : 'no ADR';
         } else if (mode === 'lease') {
           rateLabel = (su.unitPrice && su.unitPrice > 0)

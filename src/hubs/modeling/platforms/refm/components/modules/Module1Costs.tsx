@@ -29,6 +29,7 @@
  * because the calc engine doesn't know the role of an arbitrary user line.
  */
 
+import { resolveSubUnitAdr } from '@/src/core/calculations';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
@@ -5155,7 +5156,7 @@ export default function Module1Costs(): React.JSX.Element {
               const opEndLabel = opEndYear !== null && Number.isFinite(opEndYear) ? `Dec ${opEndYear}` : '-';
               const companionSubs = subUnits.filter((u) => u.assetId === activeAsset.id);
               const totalUnits = companionSubs.reduce((s, u) => s + Math.max(0, u.metricValue), 0);
-              const adrSum = companionSubs.reduce((s, u) => s + Math.max(0, u.startingAdr ?? u.unitPrice ?? 0), 0);
+              const adrSum = companionSubs.reduce((s, u) => s + resolveSubUnitAdr(u), 0);
               const avgAdr = companionSubs.length > 0 ? adrSum / companionSubs.length : 0;
               return (
                 <div

@@ -2399,6 +2399,41 @@ section; the Operate companion files under Hospitality). The strategy decides th
 `verify-revenue-lines` K1 to K7 fail on a surface that names a strategy section or tests the bare
 companion flag again.
 
+### 7.43 A plot with capex and no rows spreads its cost on its own recognition, which is zero for ever
+
+**Symptom (2026-09-13):** on a fully priced copy of the live project every line sold 100% of its
+inventory, yet cost of sales charged 82.12% of the capex bases and 101,803,664.02 of inventory
+never left the balance sheet.
+
+**Mechanism:** a merged line pools its sub-units across its plots (all of "Branded Villas, Phase
+1" sits on Land 1's rows; Land 2 carries land and construction cost and no row). Cost of sales
+is built PER PLOT and spreads the plot's base on the plot's OWN recognition. Land 2 recognised
+nothing, so its base was never released. Every total still footed: the line's revenue was right,
+the line's capex was right, and the charge was short by exactly one plot's worth, which reads as
+a margin rather than a hole.
+
+**Fix:** `buildAssetCostOfSales` takes the LINE's recognition (`lineRecognition`) for a plot on a
+line of more than one; the base stays the plot's and the timing is the line's, so each plot's
+charge is `base x line share`. The financials composer supplies it and is the one named money
+reader of the consolidation grouping (`verify-consolidation-key` D1b, D1d). Proven on the sample
+state with a cloned row-less plot (`verify-revenue-lines` R1: same share, same timing, and a
+clone on another type still charges nothing, R2).
+
+### 7.44 A stored zero shadows a typed price through `??`
+
+**Symptom (2026-09-13):** the live hotel, 144 keys, a Rate of 850 a night on Table 5 and an
+occupancy ramp, earned 0.00.
+
+**Mechanism:** eight readers coalesced `startingAdr ?? unitPrice`. The row's `startingAdr` was
+0, not absent: the drawer writes both fields on an Operate row, so a row edited there once
+carries a stored zero for ever, and `??` treats 0 as an answer. The same family as TRAPS 2.4
+(an absent value collapsed into a real one) in the other direction: a real zero taken for the
+statement it is not.
+
+**Fix:** `resolveSubUnitAdr` in core (the first POSITIVE of `startingAdr` and `unitPrice`, else
+zero) is the one rule and every reader calls it; `verify-revenue-lines` Q3 fails on any surface
+that coalesces the two on its own again.
+
 ## 8. Registries and two-step registration
 
 ### 8.1 A template registered in one place and not the other fails silently and permanently

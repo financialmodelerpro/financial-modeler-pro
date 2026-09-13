@@ -26,6 +26,7 @@
  * + Asset card footer (BUA reconciliation + Land Cost + Capex preview).
  */
 
+import { resolveSubUnitAdr } from '@/src/core/calculations';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store, type ParcelRemoval } from '../../lib/state/module1-store';
@@ -4811,7 +4812,7 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
   // Sellable is removed). Total Revenue = count * startingAdr.
   if (isCompanionSub) {
     const companionCount = Math.max(0, Math.round(subUnit.metricValue));
-    const adr = subUnit.startingAdr ?? subUnit.unitPrice;
+    const adr = resolveSubUnitAdr(subUnit);
     const countLabel = countUnitLabel('Operable', assetStrategy, assetType);
     const companionRevenue = companionCount * Math.max(0, adr);
     return (

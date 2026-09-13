@@ -12,6 +12,8 @@
  * the asset-filter logic and the strategy-grouping in one place.
  */
 
+import { groupAssetsForConsolidation } from '@/src/core/calculations/consolidation';
+import { normaliseAssetTypeId } from '@/src/core/calculations/typeKey';
 import { buildSaleCohortAdvisories, saleCohortAdvisoryIssue } from './reports/checksReport';
 import {
   computeAllSellResults,
@@ -1674,7 +1676,38 @@ function computeFinancialsSnapshotOnce(
   // which was then thrown away and rebuilt here, and a SECOND engine
   // (costOfSalesV2) produced different figures for the screen and the exports.
   const byAssetCostOfSales = new Map<string, AssetCostOfSales>();
+  // A PLOT OF A MERGED LINE RELEASES ITS COST AS THE LINE SELLS (2026-09-13).
+  // This is the ONE place money is computed from the consolidation grouping,
+  // and the reason is on `lineRecognition` in costOfSales.ts: a line's rows
+  // are pooled across its plots, so a plot that carries capex and no row
+  // (Land 2 on the live project) charged nothing on its own zero recognition
+  // and 101,803,664.02 of inventory never left the balance sheet. The base
+  // stays the plot's; the timing is the line's. A line of one plot is
+  // unchanged, since the two series are the same.
+  const lineMembers = new Map<string, string[]>();
+  for (const g of groupAssetsForConsolidation(
+    assets.filter((a) => a.visible !== false && a.isCompanion !== true) as never,
+    phases.map((p) => p.id),
+    normaliseAssetTypeId,
+  )) {
+    const ids = g.assets.map((m) => m.id);
+    for (const id of ids) lineMembers.set(id, ids);
+  }
   for (const [assetId, sellResult] of revenue.bySellAsset) {
+    const members = (lineMembers.get(assetId) ?? [assetId]).filter((id) => revenue.bySellAsset.has(id));
+    let lineRecognition: { total: number[]; pre: number[]; post: number[]; lineLabel: string } | undefined;
+    if (members.length > 1) {
+      const total = zeros(N), pre = zeros(N), post = zeros(N);
+      for (const id of members) {
+        const r = revenue.bySellAsset.get(id)!;
+        for (let t = 0; t < N; t++) {
+          total[t] += r.recognitionPerPeriod[t] ?? 0;
+          pre[t] += r.presalesRecognitionPerPeriod[t] ?? 0;
+          post[t] += r.postSalesRecognitionPerPeriod[t] ?? 0;
+        }
+      }
+      lineRecognition = { total, pre, post, lineLabel: `${members.length} plots of one line` };
+    }
     const built = buildAssetCostOfSales({
       state: { project, phases, assets, subUnits, parcels, costLines, costOverrides, landAllocationMode },
       sellResult,
@@ -1682,6 +1715,7 @@ function computeFinancialsSnapshotOnce(
       idcPerPeriod: byAssetIDC.get(assetId)?.idcPerPeriod ?? zeros(N),
       axisLength: N,
       projectStartYear,
+      lineRecognition,
     });
     if (built) byAssetCostOfSales.set(assetId, built);
   }

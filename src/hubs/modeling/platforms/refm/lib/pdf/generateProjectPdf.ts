@@ -22,6 +22,7 @@
  * by default, user-selectable in the Export modal) so large figures stay
  * readable. The renderer is pure (state in, bytes out).
  */
+import { resolveSubUnitAdr } from '@/src/core/calculations';
 import { buildReceivablesRollForward, buildUnearnedRollForward } from '../reports/saleRollForwardReports';
 import { applyExportWatermark } from './drawWatermark';
 import type { WatermarkSpec } from '@/src/shared/entitlements/exportWatermark';
@@ -1270,7 +1271,7 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       items.push(tTable('Tab 2: Assets & Sub-units', 'inputs', {
         title: `Sub-units, ${a.name}`, kind: 'grid', align: 'data',
         columns: ['Sub-unit', 'Category', 'Metric', 'Qty', `Unit price / ADR ${rateUnit(p.currency ?? 'SAR')}`],
-        rows: su.map((u) => row([u.name, u.category, u.metric, u.metric === 'area' ? fmt.area(u.metricValue) : fmt.int(u.metricValue), fmt.int(u.startingAdr ?? u.unitPrice ?? 0)])),
+        rows: su.map((u) => row([u.name, u.category, u.metric, u.metric === 'area' ? fmt.area(u.metricValue) : fmt.int(u.metricValue), fmt.int(resolveSubUnitAdr(u))])),
       }));
     }
   }

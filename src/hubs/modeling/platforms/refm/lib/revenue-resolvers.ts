@@ -26,6 +26,7 @@ import {
   resolveSubUnitMetric,
   keysFromArea,
   isRevenueSubUnit,
+  resolveSubUnitAdr,
 } from '@/src/core/calculations';
 import { resolveAvgUnitSize, type AssetTypeValues } from './state/assetTypeStandards';
 import { type CollectionsSource } from '@/src/core/calculations/capexPhasing';
@@ -286,7 +287,7 @@ export function resolveHospitalityConfig(
     .map((u) => ({
       id: u.id,
       keys: keysOf(u),
-      startingADR: u.startingAdr ?? u.unitPrice ?? cfg.startingADR ?? 0,
+      startingADR: resolveSubUnitAdr(u) > 0 ? resolveSubUnitAdr(u) : (cfg.startingADR ?? 0),
       adrIndexation: u.hospitalityIndexation,
     }));
 

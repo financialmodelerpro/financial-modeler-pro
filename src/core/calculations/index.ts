@@ -288,6 +288,19 @@ export function isRevenueSubUnit(u: { category?: string }): boolean {
   return u.category !== 'Support';
 }
 
+/**
+ * THE ADR A HOSPITALITY ROW SELLS AT, stated once (2026-09-13). A row carries
+ * `startingAdr` (the companion mirror's own field, also written by the drawer
+ * on an Operate row) and `unitPrice` (Table 5's Rate, the active price). Eight
+ * readers coalesced `startingAdr ?? unitPrice`, so a stored ADR of ZERO
+ * shadowed a typed price of 850 and the live hotel earned nothing however it
+ * was occupied. The rule: the first POSITIVE of the two, else zero.
+ */
+export function resolveSubUnitAdr(u: { startingAdr?: number; unitPrice?: number }): number {
+  if (typeof u.startingAdr === 'number' && u.startingAdr > 0) return u.startingAdr;
+  return Math.max(0, u.unitPrice ?? 0);
+}
+
 // M2.0f Fix 6 (2026-05-06): asset BUA = sum of sub-unit areas. The
 // asset.buaSqm field stays on the schema for v7 compat (legacy
 // snapshots may have a hand-typed value) but the calc engine now

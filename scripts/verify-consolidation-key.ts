@@ -284,6 +284,10 @@ function offlineChecks(): void {
     // a line's result is the SUM of its plots'. Presentation and addressing
     // only, like the four above; D1b still holds the line that matters.
     'src/hubs/modeling/platforms/refm/lib/revenueLines.ts',
+    // SIXTH, 2026-09-13, AND THE ONLY ONE THAT COMPUTES MONEY: the financials
+    // composer, for the cost of sales TIMING of a plot on a merged line (see
+    // D1b and D1d below, which pin it to that one call).
+    'src/hubs/modeling/platforms/refm/lib/financials-resolvers.ts',
   ];
   const unexpected = consumers.filter((f) => !ALLOWED_CONSUMERS.includes(f));
   const missing = ALLOWED_CONSUMERS.filter((f) => !consumers.includes(f));
@@ -298,10 +302,25 @@ function offlineChecks(): void {
     'src/hubs/modeling/platforms/refm/lib/opex-resolvers.ts',
     'src/hubs/modeling/platforms/refm/lib/costOfSales.ts',
   ].filter((f) => !f.endsWith('calculations/consolidation.ts'));
+  // ONE NAMED MONEY READER SINCE 2026-09-13: the financials composer reads the
+  // grouping for ONE purpose, the cost of sales TIMING of a plot that is one
+  // of several on a merged line (its base stays its own, its recognition is
+  // the line's, because the line's rows are pooled across its plots and a
+  // plot with capex and no row otherwise charged nothing for ever: Land 2 on
+  // the live project, 101,803,664.02 of inventory that never left the balance
+  // sheet). D1d pins that the read serves that one call and nothing else.
+  const MONEY_READERS = ['src/hubs/modeling/platforms/refm/lib/financials-resolvers.ts'];
   const computeReaders = computeSurface
-    .filter((f) => /from '[^']*consolidation'|from "[^"]*consolidation"/.test(readFileSync(f, 'utf8')));
-  check('D1b NOTHING that computes money reads the grouping key',
+    .filter((f) => /from '[^']*consolidation'|from "[^"]*consolidation"/.test(readFileSync(f, 'utf8')))
+    .filter((f) => !MONEY_READERS.includes(f));
+  check('D1b NOTHING that computes money reads the grouping key, except the ONE named cost-of-sales timing reader',
     computeReaders.length === 0, computeReaders.join(' | '));
+  const composer = readFileSync(MONEY_READERS[0], 'utf8');
+  check('D1d the composer calls the grouping exactly once, feeding lineRecognition into buildAssetCostOfSales and nothing else',
+    (composer.match(/groupAssetsForConsolidation\(/g) ?? []).length === 1
+    && /lineMembers\.set\(id, ids\)/.test(composer)
+    && /lineRecognition,\n\s*\}\);/.test(composer.replace(/\r/g, ''))
+    && (composer.match(/lineMembers\.get\(/g) ?? []).length === 1);
   const src = readFileSync('src/core/calculations/consolidation.ts', 'utf8');
   check('D2 the module imports NOTHING, so it cannot reach back into the model',
     !/^\s*import\s/m.test(src));

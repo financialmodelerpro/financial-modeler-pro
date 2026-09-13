@@ -23,6 +23,11 @@ Ground Floor (Table 5 still sorts the strip BEFORE Standalone Commercial, left a
    2026-09-13 are DONE** (`4175e91b`: both prices on Table 5, copy assumptions, selling costs per
    line, exact remainder, banded pre/post tables, share sold per year, indexed price on the card)
    and owed a click-test on the live tabs; the Chrome extension blocks the app domain here.
+   **END-TO-END VERIFIED IN CODE (same day):** the whole chain from inputs to Module 6 and both
+   exports was run on the live model and on a fully priced copy (every line given a pace or an
+   occupancy) and ties everywhere; two defects found and fixed (a stored ADR of 0 shadowing the
+   Table 5 price; a row-less plot of a merged line never releasing its cost of sales). The probe
+   lives in the session scratchpad only; a committed version is worth adding to the suite.
 
 2. **THE P&L REVENUE ROWS STILL FILE BY STRATEGY.** `financials-resolvers` (`residentialRev` /
    `hospitalityRev` / `retailRev`) and `m4Reports` ("Residential Revenue" and its capex buckets)

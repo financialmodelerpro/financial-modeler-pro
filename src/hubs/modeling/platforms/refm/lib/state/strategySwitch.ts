@@ -47,6 +47,7 @@
  *
  * No em dashes in this file.
  */
+import { resolveSubUnitAdr } from '@/src/core/calculations';
 import {
   makeCompanionAsset,
   type Asset,
@@ -156,7 +157,7 @@ function seedRows(from: SubUnit[], to: AssetStrategy): SubUnit[] {
 function ratesAreBlank(rows: SubUnit[], strategy: AssetStrategy): boolean {
   const own = strategyRows(rows, strategy);
   if (own.length === 0) return true;
-  if (strategy === 'Operate') return own.every((u) => !(u.startingAdr ?? u.unitPrice ?? 0));
+  if (strategy === 'Operate') return own.every((u) => resolveSubUnitAdr(u) === 0);
   return own.every((u) => !(u.unitPrice ?? 0));
 }
 

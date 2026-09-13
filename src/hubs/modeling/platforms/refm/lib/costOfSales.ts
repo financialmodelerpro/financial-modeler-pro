@@ -156,13 +156,25 @@ export interface BuildAssetCostOfSalesInput {
   idcPerPeriod: number[];
   axisLength: number;
   projectStartYear: number;
+  /**
+   * THE LINE'S RECOGNITION, when the asset is one plot of a merged line
+   * (2026-09-13). A line is one type in one phase across its plots, and its
+   * sub-units are pooled: on the live project every row of "Branded Villas,
+   * Phase 1" sits on Land 1, and Land 2 carries land and construction cost
+   * with no row at all. Spread on its OWN recognition, Land 2 charged nothing
+   * and 101,803,664.02 of inventory never left the balance sheet while the
+   * line's units were all sold. The base stays this PLOT's; the timing is the
+   * LINE's, so every plot of a line releases its cost as the line sells.
+   * Absent on a line of one plot, where the two are the same series.
+   */
+  lineRecognition?: { total: number[]; pre: number[]; post: number[]; lineLabel: string };
 }
 
 /**
  * Build the ONE cost-of-sales result for one Sell asset.
  */
 export function buildAssetCostOfSales(input: BuildAssetCostOfSalesInput): AssetCostOfSales | null {
-  const { state, sellResult, revenue, idcPerPeriod, axisLength: N, projectStartYear } = input;
+  const { state, sellResult, revenue, idcPerPeriod, axisLength: N, projectStartYear, lineRecognition } = input;
   const asset = state.assets.find((a) => a.id === sellResult.assetId);
   if (!asset) return null;
   const phase = state.phases.find((p) => p.id === asset.phaseId);
@@ -202,7 +214,11 @@ export function buildAssetCostOfSales(input: BuildAssetCostOfSalesInput): AssetC
   const capexBase = capexPerPeriod.reduce((s, v) => s + v, 0);
 
   // The ONE engine, on the ONE base.
-  const recognitionPerPeriod = sellResult.recognitionPerPeriod ?? [];
+  // THE LINE'S RECOGNITION WHERE THE ASSET IS ONE PLOT OF A MERGED LINE (see
+  // the input comment): the timing every plot of a line releases its cost on.
+  const recognitionPerPeriod = lineRecognition ? lineRecognition.total : (sellResult.recognitionPerPeriod ?? []);
+  const preRecognition = lineRecognition ? lineRecognition.pre : (sellResult.presalesRecognitionPerPeriod ?? []);
+  const postRecognition = lineRecognition ? lineRecognition.post : (sellResult.postSalesRecognitionPerPeriod ?? []);
   const cos = buildCostOfSales(recognitionPerPeriod, capexBase, N);
 
   // The pre / post split is the SAME spread, attributed to whichever half of
@@ -223,8 +239,8 @@ export function buildAssetCostOfSales(input: BuildAssetCostOfSalesInput): AssetC
   const cosPostSalesPerPeriod = new Array<number>(N).fill(0);
   if (totalRecognition > 0) {
     for (let t = 0; t < N; t++) {
-      const pre = Math.max(0, sellResult.presalesRecognitionPerPeriod?.[t] ?? 0);
-      const post = Math.max(0, sellResult.postSalesRecognitionPerPeriod?.[t] ?? 0);
+      const pre = Math.max(0, preRecognition[t] ?? 0);
+      const post = Math.max(0, postRecognition[t] ?? 0);
       cosPresalesPerPeriod[t] = capexBase * (pre / totalRecognition);
       cosPostSalesPerPeriod[t] = capexBase * (post / totalRecognition);
     }

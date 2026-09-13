@@ -36,7 +36,9 @@ import {
 } from '../src/hubs/modeling/platforms/refm/lib/revenueLines';
 import { seedRevenueBlocks } from '../src/hubs/modeling/platforms/refm/lib/state/revenueSeeds';
 import { sumAssetCostOfSales, type AssetCostOfSales } from '../src/hubs/modeling/platforms/refm/lib/costOfSales';
-import { keysFromArea, isRevenueSubUnit } from '../src/core/calculations';
+import { keysFromArea, isRevenueSubUnit, resolveSubUnitAdr } from '../src/core/calculations';
+import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import { buildExcelSampleState } from './excelSampleState';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
 import { settleSubUnitPrices, activePriceKey, rowsWithoutPriceIn } from '../src/hubs/modeling/platforms/refm/lib/state/subUnitPrices';
 
@@ -423,6 +425,65 @@ section('O. The Output tab, the Inputs card and the selling costs read per line,
     (out.match(/bands=\{saleBands\}/g) ?? []).length >= 10 && vm.includes('bands?:') && vm.includes("band?.tone === 'post'"));
   check('O8 the Output sell block shows the sale price per year after indexation, per sub-unit, through applyIndexation on the resolver\'s axis',
     out.includes('2b. Sale price per year, after indexation') && out.includes('applyIndexation(base, i, idxAxis)') && out.includes('expandIndexationToAxis(indexation'));
+}
+
+// ── Q. A stored ADR of zero does not shadow the Table 5 price ────────────────
+section('Q. The ADR is the first POSITIVE of startingAdr and unitPrice (the live hotel had startingAdr 0 and earned nothing)');
+{
+  check('Q1 resolveSubUnitAdr: startingAdr 0 falls through to unitPrice; a positive startingAdr wins; neither gives 0',
+    resolveSubUnitAdr({ startingAdr: 0, unitPrice: 850 }) === 850 && resolveSubUnitAdr({ startingAdr: 900, unitPrice: 850 }) === 900
+    && resolveSubUnitAdr({ unitPrice: 850 }) === 850 && resolveSubUnitAdr({ startingAdr: 0, unitPrice: 0 }) === 0);
+  const h = mkAsset({ id: 'hz', phaseId: 'p2', type: '4 Star Hotel', assetTypeId: '4-star-hotel', strategy: 'Operate', subUnitMetric: 'units',
+    revenue: { operate: { assetId: 'hz', startingADR: 0, adrIndexation: { method: 'none' }, occupancyPerPeriod: [], occupancyPerPeriodByPhase: [0, 0, 0, 1, 1, 1, 1, 1, 1], fb: { mode: 'percent_of_rooms', percentOfRooms: 0 }, otherRevenue: { mode: 'percent_of_rooms', percentOfRooms: 0 } } } });
+  const row = mkSu({ id: 'hzr', assetId: 'hz', category: 'Operable', metric: 'units', metricValue: 100, unitPrice: 850, startingAdr: 0 });
+  const r = computeAllSellResults({ project, phases, assets: [h], subUnits: [row] } as never).byHospitalityAsset.get('hz')!;
+  check('Q2 a hotel row with startingAdr 0 and a price of 850 earns 100 x 850 x 365 x 6', near(sum(r.totalRevenuePerPeriod), 100 * 850 * 365 * 6, 1e-3), String(sum(r.totalRevenuePerPeriod)));
+  const src = (p: string): string => readFileSync(join(process.cwd(), p), 'utf8');
+  const readers = [
+    'src/hubs/modeling/platforms/refm/lib/revenue-resolvers.ts', 'src/hubs/modeling/platforms/refm/components/modules/Module2Revenue.tsx',
+    'src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx', 'src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx',
+    'src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts', 'src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf.ts',
+    'src/hubs/modeling/platforms/refm/lib/state/strategySwitch.ts',
+  ];
+  check('Q3 no surface coalesces startingAdr ?? unitPrice on its own any more: every reader goes through the one rule',
+    readers.every((p) => !/startingAdr \?\? \w+\.unitPrice/.test(src(p)) && src(p).includes('resolveSubUnitAdr(')));
+}
+
+// ── R. A plot of a merged line releases its cost as the line sells ──────────
+section('R. Cost of sales on a merged line: the plot with capex and no rows charges on the LINE\'s recognition');
+{
+  // The shared sample state, with its Sell asset cloned onto a second plot of
+  // the SAME type and phase: the clone carries capex (the same typed BUA, priced
+  // by the standard lines) and no row at all, which is the live Land 2 shape.
+  const base = buildExcelSampleState() as unknown as { assets: Asset[]; subUnits: SubUnit[] } & Record<string, unknown>;
+  const r1 = base.assets.find((a) => a.id === 'R1')!;
+  const typed = { ...r1, type: 'Branded Villas' } as Asset;
+  const clone = { ...typed, id: 'R1b', revenue: { sell: sellBlock('R1b', []) } } as Asset;
+  const st = { ...base, assets: [typed, clone, ...base.assets.filter((a) => a.id !== 'R1')] } as never;
+  let ok = false; let detail = '';
+  try {
+    const fs2 = computeFinancialsSnapshot(st);
+    const a = fs2.byAssetCostOfSales.get('R1'), b = fs2.byAssetCostOfSales.get('R1b');
+    const recA = a?.recognitionPerPeriod ?? [];
+    const totalRecA = sum(recA);
+    const chargedA = sum(a?.cos.perPeriod), chargedB = sum(b?.cos.perPeriod);
+    detail = `A base ${a?.capexBase.toFixed(2)} charged ${chargedA.toFixed(2)}; B base ${b?.capexBase.toFixed(2)} charged ${chargedB.toFixed(2)}`;
+    // B charged the same SHARE of its base as A did of A's, on A's timing.
+    ok = !!a && !!b && b.capexBase > 0 && totalRecA > 0 && chargedB > 0
+      && near(chargedB / b.capexBase, chargedA / a.capexBase, 1e-9)
+      && b.cos.perPeriod.every((v, t) => near(v, b.capexBase * ((recA[t] ?? 0) / totalRecA), 1e-6));
+  } catch (e) { detail = (e as Error).message; }
+  check('R1 the row-less plot charges its base on the line\'s recognition, the same share and the same timing as the plot with the rows', ok, detail);
+  // Sabotage: the same clone on ANOTHER type is a line of its own and charges nothing.
+  let alone = false;
+  try {
+    const other = { ...clone, type: 'High End Apartments' } as Asset;
+    const fs3 = computeFinancialsSnapshot({ ...base, assets: [typed, other, ...base.assets.filter((a) => a.id !== 'R1')] } as never);
+    alone = sum(fs3.byAssetCostOfSales.get('R1b')?.cos.perPeriod) === 0;
+  } catch { alone = false; }
+  check('R2 a row-less plot on a line of its own still charges nothing (no recognition of its own to spread on)', alone);
+  const composer = readFileSync(join(process.cwd(), 'src/hubs/modeling/platforms/refm/lib/financials-resolvers.ts'), 'utf8');
+  check('R3 a line of ONE plot passes no line series (its own recognition is the line\'s)', /if \(members\.length > 1\)/.test(composer));
 }
 
 // ── L. Live ─────────────────────────────────────────────────────────────────
