@@ -56,6 +56,7 @@ import { applyStrategySwitch, assetHasStrategyAssumptions, seedManageCompanion, 
 import { assetsOnParcel, repairProjectIntegrity, cascadeAssetRemoval, type CascadeReport } from '@/src/core/calculations/projectIntegrity';
 import { planRetailCompanionOverrides } from '@/src/core/calculations/retailCompanion';
 import { applyReferenceCostBases } from '@/src/core/calculations/costBases';
+import { seedRevenueBlocks } from './revenueSeeds';
 import {
   applyOverrides,
   buildOverrides,
@@ -1322,7 +1323,10 @@ export function createModule1Store() {
       // And the bases on the way out, the same pure pass as on load.
       const basedLive = applyReferenceCostBases(bridgedLiveModel).state;
       const windowsLive = settleFollowingCostWindows(basedLive.costLines, basedLive.phases);
-      const liveModel = windowsLive.moved > 0 ? { ...basedLive, costLines: windowsLive.costLines } : basedLive;
+      const windowedLive = windowsLive.moved > 0 ? { ...basedLive, costLines: windowsLive.costLines } : basedLive;
+      // And every asset carries the revenue block its strategy reads (2026-09-13).
+      const seededLive = seedRevenueBlocks(windowedLive.assets);
+      const liveModel = seededLive.changed ? { ...windowedLive, assets: seededLive.assets } : windowedLive;
       const baseId = baseCaseId(s.cases);
       let baseModel = s.baseSnapshot;
       let cases = s.cases;
@@ -1377,7 +1381,19 @@ export function createModule1Store() {
       const based = applyReferenceCostBases(bridgedModel);
       // And a window that declares itself derived reads as derived.
       const windows = settleFollowingCostWindows(based.state.costLines, based.state.phases);
-      const model = windows.moved > 0 ? { ...based.state, costLines: windows.costLines } : based.state;
+      const windowed = windows.moved > 0 ? { ...based.state, costLines: windows.costLines } : based.state;
+      /**
+       * AND EVERY ASSET CARRIES THE REVENUE BLOCK ITS STRATEGY READS
+       * (2026-09-13, revenueSeeds.ts). The tab created it lazily on the first
+       * edit, so five of eight live assets had none and every rate typed on
+       * Table 5 reached nothing. The seed is the tab's own default and earns
+       * nothing; the input array comes back when nothing was missing.
+       */
+      const seeded = seedRevenueBlocks(windowed.assets);
+      const model = seeded.changed ? { ...windowed, assets: seeded.assets } : windowed;
+      if (seeded.changed && typeof console !== 'undefined') {
+        console.warn(`[REFM] revenue blocks: ${seeded.seeded.length} asset(s) seeded with the block their strategy reads on load`, seeded.seeded);
+      }
       if (windows.moved > 0 && typeof console !== 'undefined') {
         console.warn(`[REFM] cost windows: ${windows.moved} following line(s) re-derived from their phase's construction length on load`);
       }

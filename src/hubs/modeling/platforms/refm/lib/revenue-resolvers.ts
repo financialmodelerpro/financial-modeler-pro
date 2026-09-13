@@ -23,7 +23,11 @@ import { buildEngineDownpaymentAxis } from './state/saleCohortResolution';
 import {
   computeProjectTimeline,
   computeSubUnitArea,
+  resolveSubUnitMetric,
+  keysFromArea,
+  isRevenueSubUnit,
 } from '@/src/core/calculations';
+import { resolveAvgUnitSize, type AssetTypeValues } from './state/assetTypeStandards';
 import { type CollectionsSource } from '@/src/core/calculations/capexPhasing';
 import {
   computeSellAsset,
@@ -220,17 +224,28 @@ export function resolveHospitalityConfig(
   subUnits: SubUnit[],
   projectStartYear: number,
   axisLength: number,
+  /** The project's values for the asset's type (tab 4), so a row still stated
+   *  in sqm can be read as keys through the type's unit size. Absent, an area
+   *  row counts no keys. */
+  typeValues?: AssetTypeValues,
 ): HospitalityConfig | null {
   const cfg = asset.revenue?.operate;
   if (!cfg) return null;
-  const assetSubUnits = subUnits.filter((u) => u.assetId === asset.id);
-  // Pass 9e (2026-05-18): hospitality keys are integer counts. Round
-  // each sub-unit's metricValue at the resolver boundary so any
-  // fractional rounding from velocity / scaling math in M1 doesn't
-  // leak into ADR × keys revenue calculations.
-  const keys = assetSubUnits
-    .filter((u) => u.metric === 'units')
-    .reduce((s, u) => s + Math.max(0, Math.round(u.metricValue)), 0);
+  // THE ROWS REVENUE PRICES: the asset's, less Support (2026-09-13). The
+  // metric is the ASSET's where it states one (docs/TRAPS.md 7.32); this
+  // filter read the ROW's, so a keys row stored as 'area' under a hotel that
+  // counts keys was dropped and the hotel had no rooms.
+  const assetSubUnits = subUnits.filter((u) => u.assetId === asset.id && isRevenueSubUnit(u));
+  // KEYS PER ROW. A count row IS the keys (rounded: keys are whole). An AREA
+  // row under a hospitality asset holds keys the way Table 5 seeds them,
+  // area over the unit size, resolved sub-units first and the type second
+  // by the one rule tab 4 states; with no size to divide by it holds none,
+  // and the card says so rather than inventing a hotel.
+  const unitSize = resolveAvgUnitSize(assetSubUnits.map((u) => u.unitArea), typeValues).value;
+  const keysOf = (u: SubUnit): number => resolveSubUnitMetric(u, asset) === 'units'
+    ? Math.max(0, Math.round(u.metricValue))
+    : keysFromArea(computeSubUnitArea(u, asset), unitSize);
+  const keys = assetSubUnits.reduce((s, u) => s + keysOf(u), 0);
   const phaseStartYear = phase.startDate
     ? new Date(phase.startDate).getUTCFullYear()
     : projectStartYear;
@@ -268,10 +283,9 @@ export function resolveHospitalityConfig(
   // the user actually entered, matching the sub-unit chip strip which
   // already does the same fallback.
   const hospSubUnits: HospitalityConfig['subUnits'] = assetSubUnits
-    .filter((u) => u.metric === 'units')
     .map((u) => ({
       id: u.id,
-      keys: Math.max(0, Math.round(u.metricValue)),
+      keys: keysOf(u),
       startingADR: u.startingAdr ?? u.unitPrice ?? cfg.startingADR ?? 0,
       adrIndexation: u.hospitalityIndexation,
     }));
@@ -356,13 +370,14 @@ export function resolveLeaseConfig(
 ): LeaseConfig | null {
   const cfg = asset.revenue?.lease;
   if (!cfg) return null;
-  const assetSubUnits = subUnits.filter((u) => u.assetId === asset.id);
-  // Lease assets carry their GLA on sub-units with metric='area'.
-  // Fractional areas are kept (sqm is a continuous measure unlike
-  // hospitality keys which are integer counts).
-  const totalGla = assetSubUnits
-    .filter((u) => u.metric === 'area')
-    .reduce((s, u) => s + Math.max(0, u.metricValue), 0);
+  // THE ROWS REVENUE PRICES: the asset's, less Support (2026-09-13). GLA is
+  // each row's AREA by the one rule (`computeSubUnitArea`, the ASSET's metric
+  // where it states one, docs/TRAPS.md 7.32), so a row counted in units under
+  // a Lease asset leases count x unit size rather than being dropped, and a
+  // derived support row never reads as leasable. Fractional areas are kept
+  // (sqm is a continuous measure unlike hospitality keys).
+  const assetSubUnits = subUnits.filter((u) => u.assetId === asset.id && isRevenueSubUnit(u));
+  const totalGla = assetSubUnits.reduce((s, u) => s + computeSubUnitArea(u, asset), 0);
   const phaseStartYear = phase.startDate
     ? new Date(phase.startDate).getUTCFullYear()
     : projectStartYear;
@@ -383,10 +398,9 @@ export function resolveLeaseConfig(
   // LeaseSubUnitConfig with its own GLA + base rate. Asset-level
   // cfg.baseRate is the fallback when a sub-unit has no unitPrice set.
   const leaseSubUnits: LeaseConfig['subUnits'] = assetSubUnits
-    .filter((u) => u.metric === 'area')
     .map((u) => ({
       id: u.id,
-      gla: Math.max(0, u.metricValue),
+      gla: computeSubUnitArea(u, asset),
       baseRate: u.unitPrice > 0 ? u.unitPrice : (cfg.baseRate ?? 0),
     }));
 
@@ -489,15 +503,48 @@ export function resolveLiteralRecognitionProfile(
 
 // THE ASSET COMES IN WITH THE ROW (2026-09-10): the metric is the asset s
 // where it states one, so a helper that took only the row could not resolve it.
+// AND THE METRIC IS THE ASSET'S HERE TOO (2026-09-13). The area on the line
+// above already resolved it, but the count and the rate below read the ROW's
+// metric, so a row stored as 'units' under an asset that counts area (one live
+// row, 10,098 sqm at 16,500) was priced at 16,500 over its 190 sqm unit size,
+// about 86.84 a sqm: 876,951 where the row is worth 166.6m.
 function makeSubUnitMaterial(u: SubUnit, asset: Asset | undefined): SubUnitMaterial {
   const area = computeSubUnitArea(u, asset);
-  if (u.metric === 'units') {
+  const metric = resolveSubUnitMetric(u, asset);
+  if (metric === 'units') {
     const count = Math.max(0, u.metricValue);
     const unitArea = Math.max(0, u.unitArea ?? 0);
     const ratePerArea = unitArea > 0 ? u.unitPrice / unitArea : 0;
-    return { id: u.id, area, count, ratePerArea, ratePerUnit: u.unitPrice, metric: u.metric };
+    return { id: u.id, area, count, ratePerArea, ratePerUnit: u.unitPrice, metric };
   }
-  return { id: u.id, area, count: 0, ratePerArea: u.unitPrice, ratePerUnit: 0, metric: u.metric };
+  return { id: u.id, area, count: 0, ratePerArea: u.unitPrice, ratePerUnit: 0, metric };
+}
+
+/**
+ * THE ROW LIST THE ENGINE SELLS, DERIVED FROM THE STORE (2026-09-13).
+ *
+ * `revenue.sell.subUnits` was the list: taken from the store at the first
+ * velocity edit and refreshed only by the next, so a row added afterwards had
+ * no entry and the engine skipped it. The store's rows are the list now; each
+ * is looked up by id, a row with no entry reads the line's `velocityDefault`,
+ * and a row with neither sells nothing until a velocity is typed. Exported so
+ * the screen can state which of the three a row is on.
+ */
+export type VelocitySource = 'own' | 'default' | 'none';
+export function resolveRowVelocity(
+  sell: NonNullable<Asset['revenue']>['sell'] | undefined,
+  subUnitId: string,
+): { pre: number[] | undefined; post: number[] | undefined; preLegacy?: number[]; postLegacy?: number[]; source: VelocitySource } {
+  const own = sell?.subUnits?.find((s) => s.subUnitId === subUnitId);
+  if (own) {
+    return {
+      pre: own.preSalesVelocityByPhase, post: own.postSalesVelocityByPhase,
+      preLegacy: own.preSalesVelocity, postLegacy: own.postSalesVelocity, source: 'own',
+    };
+  }
+  const dflt = sell?.velocityDefault;
+  if (dflt) return { pre: dflt.preSalesVelocityByPhase, post: dflt.postSalesVelocityByPhase, source: 'default' };
+  return { pre: undefined, post: undefined, source: 'none' };
 }
 
 export interface ProjectRevenueSnapshot {
@@ -518,6 +565,157 @@ export interface ProjectRevenueSnapshot {
   leaseProjectTotals: LeaseAssetResult;
 }
 
+// ────────────────────────────────────────────────────────────────────
+// SUMMING RESULTS (2026-09-13). A LINE'S RESULT IS THE SUM OF ITS MEMBERS'
+// and the PROJECT total is the sum of every result, and both are these three
+// functions, so a line total and the project total cannot disagree about what
+// a sum is. Flows add; the per-sub-unit maps merge by id (ids are unique
+// across the project); the vintage matrices add cell by cell. Rates (ADR,
+// occupancy, an indexed rent) are weighted by the flow that explains them
+// when `rates` is asked for, so a one-member line reads exactly as the
+// member does; the project totals never carried rates and still do not.
+// ────────────────────────────────────────────────────────────────────
+
+const addInto = (dst: number[], src: number[] | undefined, N: number): void => {
+  for (let i = 0; i < N; i++) dst[i] += src?.[i] ?? 0;
+};
+const mergeMaps = (dst: Record<string, number[]>, src: Record<string, number[]> | undefined, N: number): void => {
+  for (const [id, arr] of Object.entries(src ?? {})) {
+    if (!dst[id]) dst[id] = new Array<number>(N).fill(0);
+    addInto(dst[id], arr, N);
+  }
+};
+const emptySell = (assetId: string, N: number): SellAssetResult => {
+  const z = (): number[] => new Array<number>(N).fill(0);
+  const m = (): number[][] => { const out: number[][] = []; for (let i = 0; i < N; i++) out.push(new Array<number>(N).fill(0)); return out; };
+  return {
+    assetId, axisLength: N,
+    presalesUnitsPerPeriod: z(), presalesAreaPerPeriod: z(), presalesRevenuePerPeriod: z(),
+    postSalesUnitsPerPeriod: z(), postSalesAreaPerPeriod: z(), postSalesRevenuePerPeriod: z(),
+    presalesAreaPerPeriodPerSubUnit: {}, presalesRevenuePerPeriodPerSubUnit: {}, presalesUnitsPerPeriodPerSubUnit: {},
+    postSalesAreaPerPeriodPerSubUnit: {}, postSalesRevenuePerPeriodPerSubUnit: {}, postSalesUnitsPerPeriodPerSubUnit: {},
+    cashCollectedPerPeriod: z(), presalesCashPerPeriod: z(), postSalesCashPerPeriod: z(),
+    recognitionPerPeriod: z(), presalesRecognitionPerPeriod: z(), postSalesRecognitionPerPeriod: z(),
+    presalesSalesValuePerPeriod: z(), cashVintageMatrix: m(), recognitionVintageMatrix: m(),
+  };
+};
+
+export function sumSellResults(results: readonly SellAssetResult[], N: number, assetId: string): SellAssetResult {
+  const t = emptySell(assetId, N);
+  const flows: Array<keyof SellAssetResult> = [
+    'presalesUnitsPerPeriod', 'presalesAreaPerPeriod', 'presalesRevenuePerPeriod',
+    'postSalesUnitsPerPeriod', 'postSalesAreaPerPeriod', 'postSalesRevenuePerPeriod',
+    'cashCollectedPerPeriod', 'presalesCashPerPeriod', 'postSalesCashPerPeriod',
+    'recognitionPerPeriod', 'presalesRecognitionPerPeriod', 'postSalesRecognitionPerPeriod',
+    'presalesSalesValuePerPeriod',
+  ];
+  const maps: Array<keyof SellAssetResult> = [
+    'presalesAreaPerPeriodPerSubUnit', 'presalesRevenuePerPeriodPerSubUnit', 'presalesUnitsPerPeriodPerSubUnit',
+    'postSalesAreaPerPeriodPerSubUnit', 'postSalesRevenuePerPeriodPerSubUnit', 'postSalesUnitsPerPeriodPerSubUnit',
+  ];
+  for (const r of results) {
+    for (const k of flows) addInto(t[k] as number[], r[k] as number[], N);
+    for (const k of maps) mergeMaps(t[k] as Record<string, number[]>, r[k] as Record<string, number[]>, N);
+    for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
+      t.cashVintageMatrix[i][j] += r.cashVintageMatrix[i]?.[j] ?? 0;
+      t.recognitionVintageMatrix[i][j] += r.recognitionVintageMatrix[i]?.[j] ?? 0;
+    }
+  }
+  return t;
+}
+
+export function sumHospitalityResults(
+  results: readonly HospitalityAssetResult[], N: number, assetId: string, rates = false,
+): HospitalityAssetResult {
+  const z = (): number[] => new Array<number>(N).fill(0);
+  const t: HospitalityAssetResult = {
+    assetId, axisLength: N,
+    availableRoomNightsPerPeriod: z(), occupiedRoomNightsPerPeriod: z(), occupancyPerPeriod: z(),
+    adrPerPeriod: z(), adrIndexationFactorPerPeriod: z(), guestsPerPeriod: z(),
+    roomsRevenuePerPeriod: z(), fbRevenuePerPeriod: z(), otherRevenuePerPeriod: z(), totalRevenuePerPeriod: z(),
+    perSubUnit: {}, keysParticipationPerPeriod: z(), effectiveKeysPerPeriod: z(),
+  };
+  const factorWeighted = z();
+  let staticKeys = 0;
+  for (const r of results) {
+    addInto(t.availableRoomNightsPerPeriod, r.availableRoomNightsPerPeriod, N);
+    addInto(t.occupiedRoomNightsPerPeriod, r.occupiedRoomNightsPerPeriod, N);
+    addInto(t.guestsPerPeriod, r.guestsPerPeriod, N);
+    addInto(t.roomsRevenuePerPeriod, r.roomsRevenuePerPeriod, N);
+    addInto(t.fbRevenuePerPeriod, r.fbRevenuePerPeriod, N);
+    addInto(t.otherRevenuePerPeriod, r.otherRevenuePerPeriod, N);
+    addInto(t.totalRevenuePerPeriod, r.totalRevenuePerPeriod, N);
+    addInto(t.effectiveKeysPerPeriod, r.effectiveKeysPerPeriod, N);
+    for (let i = 0; i < N; i++) factorWeighted[i] += (r.adrIndexationFactorPerPeriod[i] ?? 0) * (r.availableRoomNightsPerPeriod[i] ?? 0);
+    for (const [id, su] of Object.entries(r.perSubUnit ?? {})) {
+      // The per-row map is a LINE's to show; the project total never carried
+      // one and still does not (rates = false), so it stays byte-identical.
+      if (rates) t.perSubUnit[id] = su;
+      staticKeys += Math.max(0, su.keys);
+    }
+  }
+  if (rates) {
+    for (let i = 0; i < N; i++) {
+      const arn = t.availableRoomNightsPerPeriod[i];
+      const orn = t.occupiedRoomNightsPerPeriod[i];
+      t.occupancyPerPeriod[i] = arn > 0 ? orn / arn : 0;
+      t.adrPerPeriod[i] = orn > 0 ? t.roomsRevenuePerPeriod[i] / orn : 0;
+      t.adrIndexationFactorPerPeriod[i] = arn > 0 ? factorWeighted[i] / arn : 0;
+      t.keysParticipationPerPeriod[i] = staticKeys > 0 ? t.effectiveKeysPerPeriod[i] / staticKeys : (arn > 0 ? 1 : 0);
+    }
+  }
+  return t;
+}
+
+export function sumLeaseResults(
+  results: readonly LeaseAssetResult[], N: number, assetId: string, rates = false,
+): LeaseAssetResult {
+  const z = (): number[] => new Array<number>(N).fill(0);
+  const t: LeaseAssetResult = {
+    assetId, axisLength: N,
+    occupiedAreaPerPeriod: z(), occupancyPerPeriod: z(), indexedRatePerPeriod: z(),
+    rentIndexationFactorPerPeriod: z(), totalRevenuePerPeriod: z(), perSubUnit: {},
+  };
+  const factorWeighted = z();
+  let gla = 0;
+  for (const r of results) {
+    addInto(t.occupiedAreaPerPeriod, r.occupiedAreaPerPeriod, N);
+    addInto(t.totalRevenuePerPeriod, r.totalRevenuePerPeriod, N);
+    let rGla = 0;
+    for (const [id, su] of Object.entries(r.perSubUnit ?? {})) { if (rates) t.perSubUnit[id] = su; rGla += Math.max(0, su.gla); }
+    gla += rGla;
+    for (let i = 0; i < N; i++) factorWeighted[i] += (r.rentIndexationFactorPerPeriod[i] ?? 0) * rGla;
+  }
+  if (rates) {
+    for (let i = 0; i < N; i++) {
+      const occ = t.occupiedAreaPerPeriod[i];
+      t.occupancyPerPeriod[i] = gla > 0 ? occ / gla : 0;
+      t.indexedRatePerPeriod[i] = occ > 0 ? t.totalRevenuePerPeriod[i] / occ : 0;
+      t.rentIndexationFactorPerPeriod[i] = gla > 0 ? factorWeighted[i] / gla : 0;
+    }
+  }
+  return t;
+}
+
+/** A LINE'S RESULTS: the sum over its members of whatever the engine produced
+ *  for them, per strategy. Absent when no member produced one, which is what
+ *  "no revenue block yet" looks like from here. */
+export function lineRevenueResults(
+  memberIds: readonly string[],
+  snap: ProjectRevenueSnapshot,
+  lineKey: string,
+): { sell?: SellAssetResult; hospitality?: HospitalityAssetResult; lease?: LeaseAssetResult } {
+  const N = snap.axisLength;
+  const sells = memberIds.map((id) => snap.bySellAsset.get(id)).filter((r): r is SellAssetResult => !!r);
+  const hosps = memberIds.map((id) => snap.byHospitalityAsset.get(id)).filter((r): r is HospitalityAssetResult => !!r);
+  const leases = memberIds.map((id) => snap.byLeaseAsset.get(id)).filter((r): r is LeaseAssetResult => !!r);
+  return {
+    sell: sells.length ? sumSellResults(sells, N, lineKey) : undefined,
+    hospitality: hosps.length ? sumHospitalityResults(hosps, N, lineKey, true) : undefined,
+    lease: leases.length ? sumLeaseResults(leases, N, lineKey, true) : undefined,
+  };
+}
+
 export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'phases' | 'assets' | 'subUnits'>): ProjectRevenueSnapshot {
   const { project, phases, assets, subUnits } = state;
   const timeline = computeProjectTimeline(project, phases);
@@ -536,34 +734,6 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
   const yearLabels = Array.from({ length: N }, (_, i) => projectStartYear + i);
 
   const bySellAsset = new Map<string, SellAssetResult>();
-  const emptyArr = (): number[] => new Array<number>(N).fill(0);
-  const emptyMatrix = (): number[][] => { const m: number[][] = []; for (let i = 0; i < N; i++) m.push(new Array<number>(N).fill(0)); return m; };
-
-  const projectTotals: SellAssetResult = {
-    assetId: '__project__',
-    axisLength: N,
-    presalesUnitsPerPeriod: emptyArr(),
-    presalesAreaPerPeriod: emptyArr(),
-    presalesRevenuePerPeriod: emptyArr(),
-    postSalesUnitsPerPeriod: emptyArr(),
-    postSalesAreaPerPeriod: emptyArr(),
-    postSalesRevenuePerPeriod: emptyArr(),
-    presalesAreaPerPeriodPerSubUnit: {},
-    presalesRevenuePerPeriodPerSubUnit: {},
-    presalesUnitsPerPeriodPerSubUnit: {},
-    postSalesAreaPerPeriodPerSubUnit: {},
-    postSalesRevenuePerPeriodPerSubUnit: {},
-    postSalesUnitsPerPeriodPerSubUnit: {},
-    cashCollectedPerPeriod: emptyArr(),
-    presalesCashPerPeriod: emptyArr(),
-    postSalesCashPerPeriod: emptyArr(),
-    recognitionPerPeriod: emptyArr(),
-    presalesRecognitionPerPeriod: emptyArr(),
-    postSalesRecognitionPerPeriod: emptyArr(),
-    presalesSalesValuePerPeriod: emptyArr(),
-    cashVintageMatrix: emptyMatrix(),
-    recognitionVintageMatrix: emptyMatrix(),
-  };
 
   for (const a of assets) {
     if (a.visible === false || a.isCompanion === true) continue;
@@ -594,14 +764,18 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
     // before the engine sees them. The engine type still expects
     // project-axis arrays; storage holds phase-local now.
     const storedSell = a.revenue?.sell;
+    // THE ROWS ARE THE STORE'S, less Support, each looked up by id (see
+    // resolveRowVelocity). The stored list is no longer walked, so a row it
+    // never learned about is priced the moment it exists on Table 5.
+    const assetSubUnits = subUnits.filter((u) => u.assetId === a.id && isRevenueSubUnit(u));
     const cfg: AssetSellConfig = {
       ...cfgRaw,
-      subUnits: cfgRaw.subUnits.map((su, idx) => {
-        const stored = storedSell?.subUnits?.[idx];
+      subUnits: assetSubUnits.map((u) => {
+        const v = resolveRowVelocity(storedSell, u.id);
         return {
-          subUnitId: su.subUnitId,
-          preSalesVelocity: expandPhaseLocalToAxis(stored?.preSalesVelocityByPhase, stored?.preSalesVelocity, phaseOffset, N),
-          postSalesVelocity: expandPhaseLocalToAxis(stored?.postSalesVelocityByPhase, stored?.postSalesVelocity, phaseOffset, N),
+          subUnitId: u.id,
+          preSalesVelocity: expandPhaseLocalToAxis(v.pre, v.preLegacy, phaseOffset, N),
+          postSalesVelocity: expandPhaseLocalToAxis(v.post, v.postLegacy, phaseOffset, N),
         };
       }),
       // Sale cohort downpayment: phase-local in storage, project axis for the
@@ -694,7 +868,6 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
       indexation: expandIndexationToAxis(cfgRaw.indexation, storedSell?.indexation?.growthPerPeriodByPhase, phaseOffset, N),
     };
 
-    const assetSubUnits = subUnits.filter((u) => u.assetId === a.id);
     const subUnitMaterials = assetSubUnits.map((u) => makeSubUnitMaterial(u, a));
 
     const result = computeSellAsset({
@@ -705,109 +878,36 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
       projectStartYear,
     });
     bySellAsset.set(a.id, result);
-
-    const acc = (key: keyof SellAssetResult): void => {
-      const src = result[key] as number[];
-      const dst = projectTotals[key] as number[];
-      for (let i = 0; i < N; i++) dst[i] += src[i] ?? 0;
-    };
-    acc('presalesUnitsPerPeriod');
-    acc('presalesAreaPerPeriod');
-    acc('presalesRevenuePerPeriod');
-    acc('postSalesUnitsPerPeriod');
-    acc('postSalesAreaPerPeriod');
-    acc('postSalesRevenuePerPeriod');
-    acc('cashCollectedPerPeriod');
-    acc('presalesCashPerPeriod');
-    acc('postSalesCashPerPeriod');
-    acc('recognitionPerPeriod');
-    acc('presalesRecognitionPerPeriod');
-    acc('postSalesRecognitionPerPeriod');
-    acc('presalesSalesValuePerPeriod');
-    // Per-sub-unit maps: merge by sub-unit id (sub-unit ids are unique
-    // across the project so cross-asset collisions cannot happen).
-    const mergeSU = (src: Record<string, number[]>, dst: Record<string, number[]>): void => {
-      for (const [id, arr] of Object.entries(src)) {
-        if (!dst[id]) dst[id] = new Array<number>(N).fill(0);
-        for (let i = 0; i < N; i++) dst[id][i] += arr[i] ?? 0;
-      }
-    };
-    mergeSU(result.presalesAreaPerPeriodPerSubUnit, projectTotals.presalesAreaPerPeriodPerSubUnit);
-    mergeSU(result.presalesRevenuePerPeriodPerSubUnit, projectTotals.presalesRevenuePerPeriodPerSubUnit);
-    mergeSU(result.presalesUnitsPerPeriodPerSubUnit, projectTotals.presalesUnitsPerPeriodPerSubUnit);
-    mergeSU(result.postSalesAreaPerPeriodPerSubUnit, projectTotals.postSalesAreaPerPeriodPerSubUnit);
-    mergeSU(result.postSalesRevenuePerPeriodPerSubUnit, projectTotals.postSalesRevenuePerPeriodPerSubUnit);
-    mergeSU(result.postSalesUnitsPerPeriodPerSubUnit, projectTotals.postSalesUnitsPerPeriodPerSubUnit);
-    // Vintage matrices accumulate by 2D sum
-    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
-      projectTotals.cashVintageMatrix[r][c] += result.cashVintageMatrix[r]?.[c] ?? 0;
-      projectTotals.recognitionVintageMatrix[r][c] += result.recognitionVintageMatrix[r]?.[c] ?? 0;
-    }
   }
+  // THE PROJECT TOTAL IS THE ONE SUM (see sumSellResults above).
+  const projectTotals = sumSellResults([...bySellAsset.values()], N, '__project__');
 
   // Pass 8b (2026-05-18): Hospitality compute loop. Operate-strategy
-  // parents + every companion (companions are the operate side of a
-  // Sell + Manage parent, regardless of their own strategy field).
+  // parents, which include the Operate companion of a Sell + Manage parent.
   const byHospitalityAsset = new Map<string, HospitalityAssetResult>();
-  const hospitalityProjectTotals: HospitalityAssetResult = {
-    assetId: '__project__',
-    axisLength: N,
-    availableRoomNightsPerPeriod: emptyArr(),
-    occupiedRoomNightsPerPeriod: emptyArr(),
-    occupancyPerPeriod: emptyArr(),
-    adrPerPeriod: emptyArr(),
-    adrIndexationFactorPerPeriod: emptyArr(),
-    guestsPerPeriod: emptyArr(),
-    roomsRevenuePerPeriod: emptyArr(),
-    fbRevenuePerPeriod: emptyArr(),
-    otherRevenuePerPeriod: emptyArr(),
-    totalRevenuePerPeriod: emptyArr(),
-    perSubUnit: {},
-    keysParticipationPerPeriod: emptyArr(),
-    effectiveKeysPerPeriod: emptyArr(),
-  };
 
   for (const a of assets) {
     if (a.visible === false) continue;
-    const isOperate = a.strategy === 'Operate' || a.isCompanion === true;
-    if (!isOperate) continue;
+    // THE STRATEGY, NOT THE COMPANION FLAG (2026-09-13). "Or is a companion"
+    // admitted the retail strip, a Lease asset, which then fell out on its
+    // missing operate block; the Operate companion carries strategy Operate
+    // and is admitted by that. One classifier fewer (docs/TRAPS.md 7.33).
+    if (a.strategy !== 'Operate') continue;
     const phase = phases.find((p) => p.id === a.phaseId);
     if (!phase) continue;
-    const cfg = resolveHospitalityConfig(a, phase, subUnits, projectStartYear, N);
+    const typeValues = a.assetTypeId ? project.assetTypeValues?.[a.assetTypeId] : undefined;
+    const cfg = resolveHospitalityConfig(a, phase, subUnits, projectStartYear, N, typeValues);
     if (!cfg) continue;
     const result = computeHospitalityAsset({ config: cfg, axisLength: N });
     byHospitalityAsset.set(a.id, result);
-    const accH = (key: keyof HospitalityAssetResult): void => {
-      const src = result[key] as number[];
-      const dst = hospitalityProjectTotals[key] as number[];
-      for (let i = 0; i < N; i++) dst[i] += src[i] ?? 0;
-    };
-    accH('availableRoomNightsPerPeriod');
-    accH('occupiedRoomNightsPerPeriod');
-    accH('guestsPerPeriod');
-    accH('roomsRevenuePerPeriod');
-    accH('fbRevenuePerPeriod');
-    accH('otherRevenuePerPeriod');
-    accH('totalRevenuePerPeriod');
-    // occupancyPerPeriod + adrPerPeriod don't sum meaningfully across
-    // assets (they're rates, not flows), so leave the project totals
-    // at 0 for those two fields. Consumers should not read project-
-    // level occupancy / ADR.
   }
+  // Rates (occupancy, ADR) are left at 0 on the project total, as before:
+  // they do not sum, and no consumer reads them at project level.
+  const hospitalityProjectTotals = sumHospitalityResults([...byHospitalityAsset.values()], N, '__project__');
 
   // Pass 9g (2026-05-18): Retail / Office Lease compute loop. One entry
   // per Lease-strategy parent. Companions stay in hospitality.
   const byLeaseAsset = new Map<string, LeaseAssetResult>();
-  const leaseProjectTotals: LeaseAssetResult = {
-    assetId: '__project__',
-    axisLength: N,
-    occupiedAreaPerPeriod: emptyArr(),
-    occupancyPerPeriod: emptyArr(),
-    indexedRatePerPeriod: emptyArr(),
-    rentIndexationFactorPerPeriod: emptyArr(),
-    totalRevenuePerPeriod: emptyArr(),
-    perSubUnit: {},
-  };
   for (const a of assets) {
     // CONSOLIDATION STEP 6 (2026-09-10): A RETAIL COMPANION EARNS ITS OWN RENT.
     // The skip is the OPERATE companion's: that one has no area of its own and
@@ -825,17 +925,8 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
     if (!cfg) continue;
     const result = computeLeaseAsset({ config: cfg, axisLength: N });
     byLeaseAsset.set(a.id, result);
-    const accL = (key: keyof LeaseAssetResult): void => {
-      const src = result[key] as number[];
-      const dst = leaseProjectTotals[key] as number[];
-      for (let i = 0; i < N; i++) dst[i] += src[i] ?? 0;
-    };
-    accL('occupiedAreaPerPeriod');
-    accL('totalRevenuePerPeriod');
-    // occupancyPerPeriod + indexedRatePerPeriod + factor are rates, not
-    // flows, leave project totals at 0 for those, consumers should
-    // read per-asset values only.
   }
+  const leaseProjectTotals = sumLeaseResults([...byLeaseAsset.values()], N, '__project__');
 
   return {
     axisLength: N,

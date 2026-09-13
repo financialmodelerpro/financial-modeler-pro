@@ -1675,6 +1675,26 @@ export interface Asset {
       maxInstalmentYears?: number;
       instalmentsStopAtHandover?: boolean;
       /**
+       * THE LINE'S VELOCITY, STATED ONCE (2026-09-13).
+       *
+       * The row list in `subUnits` above was a SNAPSHOT taken at the first
+       * velocity edit and refreshed only by the next one, so a sub-unit added
+       * afterwards (a row seeded on Table 5, a row typed later) had no entry
+       * and the engine sold none of it: on one live line the second row,
+       * 10,098 sqm at 16,500, earned nothing while the first row earned
+       * 267m. The engine now walks the STORE's rows and looks each one up
+       * here by id; a row with no entry of its own reads THIS default; a row
+       * with neither sells nothing until a velocity is typed.
+       *
+       * Present means "every row on this line sells at this pace" (the tab's
+       * lockstep view); absent means the rows state their own pace. Phase-local
+       * like every velocity strip, fractions, no legacy twin.
+       */
+      velocityDefault?: {
+        preSalesVelocityByPhase: number[];
+        postSalesVelocityByPhase: number[];
+      };
+      /**
        * M2 Pass 9h (2026-05-19): per-asset escrow override. Either
        * field can be set independently; unset fields fall back to the
        * project default (Project.escrow.heldPct / defaultReleaseYear)

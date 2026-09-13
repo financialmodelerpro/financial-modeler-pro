@@ -172,7 +172,13 @@ function main(): void {
       // context as a REQUIRED parameter for exactly this reason. This stub
       // predates the change and passed neither, so the report crashed on
       // `ctx.phases.find` and not one check in this file ran.
-      const stateStub = { assets: [asset], parcels: [], phases: [{ id: 'ph', name: 'Phase 1' }] } as unknown as Parameters<typeof buildCostOfSalesReport>[1];
+      // AND THE LINE CONTEXT (2026-09-13): the report reads per LINE through
+      // `planRevenueLines`, which files by the project's type list and pools
+      // the sub-units, so the stub carries a project and a sub-unit list too.
+      const stateStub = {
+        assets: [asset], parcels: [], subUnits: [], project: { assetTypes: [] },
+        phases: [{ id: 'ph', name: 'Phase 1' }],
+      } as unknown as Parameters<typeof buildCostOfSalesReport>[1];
       const money = (v: number): string => v.toFixed(2);
       const tables = buildCostOfSalesReport(snapStub, stateStub, money);
       const build = tables[0];

@@ -45,7 +45,10 @@ import {
 } from './_shared/tableStyles';
 import { ScrollableTable } from './_shared/ScrollableTable';
 import { PhaseSection } from './_shared/PhaseSection';
-import { AssetQuickNav } from './_shared/AssetQuickNav';
+import { RevenueLineNav } from './_shared/RevenueLineNav';
+import {
+  planRevenueLines, REVENUE_SECTIONS, REVENUE_SECTION_KEY, REVENUE_SECTION_META,
+} from '../../lib/revenueLines';
 import { makeFmt, makePctFmt } from './_shared/numberFmt';
 import type { M4Row } from './_shared/m4Table';
 
@@ -161,6 +164,10 @@ export default function Module2CostOfSales(): React.JSX.Element {
     () => (finSnap ? buildCostOfSalesReport(finSnap, state, fmt) : []),
     [finSnap, state, fmt],
   );
+  const lines = useMemo(
+    () => planRevenueLines(state.assets, state.subUnits, state.phases, state.project),
+    [state.assets, state.subUnits, state.phases, state.project],
+  );
 
   if (tables.length === 0) {
     return (
@@ -193,13 +200,59 @@ export default function Module2CostOfSales(): React.JSX.Element {
         </p>
       </div>
 
-      <AssetQuickNav assets={state.assets} idPrefix="m2-cos-asset" testidPrefix="m2-cos-nav" />
+      {/* ONE PILL PER LINE, filed by the one rule (2026-09-13). Only lines the
+       *  engine charged a cost of sales on have tables here; the nav lists
+       *  those, so no pill points at nothing. */}
+      <RevenueLineNav
+        lines={lines.filter((l) => tables.some((t) => t.lineKey === l.key))}
+        idPrefix="m2-cos-line"
+        testidPrefix="m2-cos-nav"
+      />
+
+      {/* PER LINE, FILED BY SECTION: each section holds its lines' four tables
+       *  (build, vintage matrix, summary, inventory), each line the sum of its
+       *  plots; the project roll-ups close the page. */}
+      {REVENUE_SECTIONS.map((section) => {
+        const sectionTables = tables.filter((t) => t.section === section);
+        if (sectionTables.length === 0) return null;
+        const lineKeys = Array.from(new Set(sectionTables.map((t) => t.lineKey ?? '')));
+        const sectionKey = REVENUE_SECTION_KEY[section];
+        return (
+          <PhaseSection
+            key={section}
+            phaseId={`section-${sectionKey}-cos`}
+            title={section}
+            meta={REVENUE_SECTION_META[section]}
+            countLabel={`${lineKeys.length} line${lineKeys.length === 1 ? '' : 's'}`}
+            storageKey={`fmp:m2:cos:section:${sectionKey}:collapsed`}
+            assetIds={lineKeys}
+          >
+            {lineKeys.map((key) => (
+              <div key={key} id={`m2-cos-line-${key}`} data-testid={`m2-cos-line-${key}`} style={{ scrollMarginTop: 70 }}>
+                {sectionTables.filter((t) => t.lineKey === key).map((t) => (
+                  <PeriodTable
+                    key={t.title}
+                    title={t.title}
+                    yearLabels={yearLabels}
+                    rows={t.rows}
+                    currency={currencyHeaderLine(currency, scale)}
+                    fmt={fmt}
+                    pctFmt={pctFmt}
+                  />
+                ))}
+              </div>
+            ))}
+          </PhaseSection>
+        );
+      })}
 
       <PhaseSection
-        phaseId="strategy-sell-cos"
-        title="Residential / Sell"
+        phaseId="__project__-cos"
+        title="Project Total"
+        meta="every line, filed by section"
+        storageKey="fmp:m2:cos:phase:__project__:collapsed"
       >
-        {tables.map((t) => (
+        {tables.filter((t) => !t.lineKey).map((t) => (
           <PeriodTable
             key={t.title}
             title={t.title}

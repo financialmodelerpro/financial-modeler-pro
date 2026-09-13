@@ -77,8 +77,13 @@ import { ScrollableTable } from './_shared/ScrollableTable';
 import { PhaseSection, AssetSection } from './_shared/PhaseSection';
 import VintageMatrix from './_shared/VintageMatrix';
 import { makePctFmt } from './_shared/numberFmt';
-import { AssetQuickNav } from './_shared/AssetQuickNav';
-import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
+import { RevenueLineNav } from './_shared/RevenueLineNav';
+import { withResolvedAssetNames, assetPlotLabel } from '@/src/core/calculations/assetName';
+import { resolveSubUnitMetric } from '@/src/core/calculations';
+import { lineRevenueResults } from '../../lib/revenue-resolvers';
+import {
+  planRevenueLines, groupRevenueLines, REVENUE_SECTION_KEY, REVENUE_SECTION_META, type RevenueLine,
+} from '../../lib/revenueLines';
 import { withInheritedMassingAll } from '@/src/core/calculations/landChain';
 import { chainMassingFor } from '../../lib/state/assetTypeStandards';
 
@@ -132,12 +137,16 @@ function resolveAssetMetric(units: Array<{ metric: 'units' | 'area' }>): {
 function SubUnitReferenceStrip({
   units,
   asset,
+  assetFor,
   currency,
   mode = 'sell',
 }: {
   units: SubUnit[];
   /** The asset the rows hang off: its metric wins over theirs (TRAPS 7.32). */
   asset: Asset | undefined;
+  /** THE ROW'S OWN PLOT (2026-09-13): rows are pooled across a line's plots,
+   *  and each resolves its metric against its own. Falls back to `asset`. */
+  assetFor?: (u: SubUnit) => Asset | undefined;
   currency: string;
   // Pass 9g (2026-05-18): 'lease' shows rate as "/ sqm / yr" (annual
   // base rent). 'sell' (default) keeps the legacy "/ unit" or "/ sqm".
@@ -159,8 +168,9 @@ function SubUnitReferenceStrip({
         Sub-units (from M1)
       </span>
       {units.map((su) => {
-        const area = computeSubUnitArea(su, asset);
-        const isUnitsMetric = su.metric === 'units';
+        const owner = assetFor?.(su) ?? asset;
+        const area = computeSubUnitArea(su, owner);
+        const isUnitsMetric = resolveSubUnitMetric(su, owner) === 'units';
         let rateLabel: string;
         if (mode === 'lease') {
           rateLabel = (su.unitPrice && su.unitPrice > 0)
@@ -460,130 +470,82 @@ function sumArrays(arrs: number[][], axisLength: number): number[] {
 
 function buildProjectGroupedRows({
   view,
-  assets,
-  snap,
+  lines,
+  lineResults,
+  axisLength,
 }: {
   view: RevenueView;
-  assets: Asset[];
-  snap: ProjectRevenueSnapshot;
+  lines: readonly RevenueLine[];
+  lineResults: ReadonlyMap<string, ReturnType<typeof lineRevenueResults>>;
+  axisLength: number;
 }): PeriodRow[] {
   const rows: PeriodRow[] = [];
-  const N = snap.axisLength;
+  const N = axisLength;
   const zeros = (): number[] => new Array<number>(N).fill(0);
+  const grand: number[][] = [];
 
-  const visibleParents = assets.filter((a) => a.visible !== false && a.isCompanion !== true);
-  const companions = assets.filter((a) => a.visible !== false && a.isCompanion === true);
+  // ONE FILING RULE (2026-09-13): sections in the founder's order, each the
+  // sum of its lines, each line the sum of its plots. A Sell line carries the
+  // Pre-Sales / Sales During Operation split on the recognition and cash
+  // views; an Operate or Lease line recognises and collects as it earns.
+  for (const g of groupRevenueLines(lines)) {
+    rows.push({ label: g.section, values: [], kind: 'section', indent: 0 });
+    const sectionSeries: number[][] = [];
+    const sellLines = g.lines.filter((l) => l.form === 'sell');
+    const operatingLines = g.lines.filter((l) => l.form !== 'sell');
+    const lineLabel = (l: RevenueLine): string => l.phaseName ? `${l.label} · ${l.phaseName}` : l.label;
+    const operatingValues = (l: RevenueLine): number[] => {
+      const res = lineResults.get(l.key);
+      return res?.hospitality?.totalRevenuePerPeriod ?? res?.lease?.totalRevenuePerPeriod ?? zeros();
+    };
 
-  // Sell group: pure Sell + Sell + Manage parents (both have Pre-Sales
-  // + Sales During Operation phases).
-  const sellAssets = visibleParents.filter(
-    (a) => a.strategy === 'Sell' || a.strategy === 'Sell + Manage',
-  );
-  // Operate group: pure Operate + every companion (companions are the
-  // operate-side of a Sell + Manage parent).
-  const operateAssets = [
-    ...visibleParents.filter((a) => a.strategy === 'Operate'),
-    ...companions,
-  ];
-  const leaseAssets = visibleParents.filter((a) => a.strategy === 'Lease');
-
-  if (sellAssets.length > 0) {
-    rows.push({ label: 'Residential / Sell', values: [], kind: 'section', indent: 0 });
-
-    if (view === 'revenue') {
-      // Pass 7u: Revenue (Sales Value) is timing-agnostic, sale value
-      // is sale value when the sale happens. Flat per-asset rows
-      // (combined Pre + Post) suffice; the Pre/Post split is reserved
-      // for Recognition + Cash where timing differs.
-      const series: number[][] = [];
-      for (const a of sellAssets) {
-        const r = snap.bySellAsset.get(a.id);
+    if (sellLines.length > 0 && view === 'revenue') {
+      for (const l of sellLines) {
+        const r = lineResults.get(l.key)?.sell;
         const pre = r ? pickSegment(r, 'revenue', 'pre') : zeros();
         const post = r ? pickSegment(r, 'revenue', 'post') : zeros();
         const combined = pre.map((v, i) => v + (post[i] ?? 0));
-        rows.push({ label: a.name || 'Sell asset', values: combined, indent: 1 });
-        series.push(combined);
+        rows.push({ label: lineLabel(l), values: combined, indent: 1 });
+        sectionSeries.push(combined);
       }
-      rows.push({
-        label: 'Total Residential / Sell',
-        values: sumArrays(series, N),
-        kind: 'grand',
-        indent: 0,
-      });
-    } else {
+    } else if (sellLines.length > 0) {
       rows.push({ label: 'Pre-Sales', values: [], kind: 'section', indent: 1 });
       const preSeries: number[][] = [];
-      for (const a of sellAssets) {
-        const r = snap.bySellAsset.get(a.id);
+      for (const l of sellLines) {
+        const r = lineResults.get(l.key)?.sell;
         const vals = r ? pickSegment(r, view, 'pre') : zeros();
-        rows.push({ label: a.name || 'Sell asset', values: vals, indent: 2 });
+        rows.push({ label: lineLabel(l), values: vals, indent: 2 });
         preSeries.push(vals);
       }
       const preTotal = sumArrays(preSeries, N);
       rows.push({ label: 'Total Pre-Sales', values: preTotal, kind: 'subtotal', indent: 1 });
-
       rows.push({ label: 'Sales During Operation', values: [], kind: 'section', indent: 1 });
       const postSeries: number[][] = [];
-      for (const a of sellAssets) {
-        const r = snap.bySellAsset.get(a.id);
+      for (const l of sellLines) {
+        const r = lineResults.get(l.key)?.sell;
         const vals = r ? pickSegment(r, view, 'post') : zeros();
-        rows.push({ label: a.name || 'Sell asset', values: vals, indent: 2 });
+        rows.push({ label: lineLabel(l), values: vals, indent: 2 });
         postSeries.push(vals);
       }
       const postTotal = sumArrays(postSeries, N);
       rows.push({ label: 'Total Sales During Operation', values: postTotal, kind: 'subtotal', indent: 1 });
-
-      rows.push({
-        label: 'Total Residential / Sell',
-        values: preTotal.map((v, i) => v + (postTotal[i] ?? 0)),
-        kind: 'grand',
-        indent: 0,
-      });
+      sectionSeries.push(preTotal, postTotal);
     }
+
+    for (const l of operatingLines) {
+      const vals = operatingValues(l);
+      rows.push({ label: lineLabel(l), values: vals, indent: 1 });
+      sectionSeries.push(vals);
+    }
+
+    const sectionTotal = sumArrays(sectionSeries, N);
+    rows.push({ label: `Total ${g.section}`, values: sectionTotal, kind: 'grand', indent: 0 });
+    grand.push(sectionTotal);
   }
 
-  if (operateAssets.length > 0) {
-    rows.push({ label: 'Hospitality / Operations', values: [], kind: 'section', indent: 0 });
-    const series: number[][] = [];
-    for (const a of operateAssets) {
-      // Pass 8b (2026-05-18): real engine values for Operate + Sell +
-      // Manage companions. Revenue / Recognition / Cash all read
-      // totalRevenuePerPeriod (operating-sales convention: rec = cash
-      // = revenue same period). Companion engine still wires in at
-      // Pass 10; meanwhile companions without operate config are zero.
-      const hospResult = snap.byHospitalityAsset.get(a.id);
-      const vals = hospResult ? hospResult.totalRevenuePerPeriod : zeros();
-      rows.push({ label: a.name || 'Operate asset', values: vals, indent: 1 });
-      series.push(vals);
-    }
-    rows.push({
-      label: 'Total Hospitality / Operations',
-      values: sumArrays(series, N),
-      kind: 'grand',
-      indent: 0,
-    });
+  if (grand.length > 0) {
+    rows.push({ label: 'Total Project', values: sumArrays(grand, N), kind: 'grand', indent: 0 });
   }
-
-  if (leaseAssets.length > 0) {
-    rows.push({ label: 'Retail / Lease', values: [], kind: 'section', indent: 0 });
-    const series: number[][] = [];
-    for (const a of leaseAssets) {
-      // Pass 9g (2026-05-18): real engine values. Revenue / Recognition
-      // / Cash all read totalRevenuePerPeriod (operating-sales convention:
-      // rec = cash = revenue same period; AR delay handled on Schedules).
-      const leaseResult = snap.byLeaseAsset.get(a.id);
-      const vals = leaseResult ? leaseResult.totalRevenuePerPeriod : zeros();
-      rows.push({ label: a.name || 'Lease asset', values: vals, indent: 1 });
-      series.push(vals);
-    }
-    rows.push({
-      label: 'Total Retail / Lease',
-      values: sumArrays(series, N),
-      kind: 'grand',
-      indent: 0,
-    });
-  }
-
   return rows;
 }
 
@@ -617,6 +579,24 @@ export default function Module2RevenueOutput(): React.JSX.Element {
     () => computeAllSellResults({ project, phases, assets, subUnits }),
     [project, phases, assets, subUnits],
   );
+  // THE LINES AND THEIR SUMMED RESULTS (2026-09-13): the one planner every
+  // Module 2 tab reads, and the one sum the project total is built from.
+  const lines = useMemo(
+    () => planRevenueLines(assets, subUnits, phases, project),
+    [assets, subUnits, phases, project],
+  );
+  const lineResults = useMemo(
+    () => new Map(lines.map((l) => [l.key, lineRevenueResults(l.members.map((m) => m.id), snap, l.key)] as const)),
+    [lines, snap],
+  );
+  // What a line's section header says under its label: its phase and the
+  // plots it pools, or what kind of companion it is.
+  const lineMeta = (l: RevenueLine): string => {
+    if (l.isStrip) return `${l.phaseName ?? ''} · ground-floor retail strip carved from its hosts`.replace(/^ · /, '');
+    if (l.isOperateCompanion) return `${l.phaseName ?? ''} · Operate companion`.replace(/^ · /, '');
+    const plots = l.members.map((m) => assetPlotLabel(m, { parcels, phases })).join(' + ');
+    return [l.phaseName, plots].filter(Boolean).join(' · ');
+  };
   const currency = project.currency || '';
   const scale: DisplayScale = project.displayScale ?? 'full';
   const decimals: DisplayDecimals = project.displayDecimals ?? 2;
@@ -628,19 +608,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
   // Pass 7w (2026-05-18): Sell + Manage parents render the same
   // per-asset narrative (Blocks 1-6) as pure Sell. Companions live
   // in Hospitality / Operations (Pass 10).
-  const sellAssets = assets.filter(
-    (a) => a.visible !== false
-      && a.isCompanion !== true
-      && (a.strategy === 'Sell' || a.strategy === 'Sell + Manage'),
-  );
-  // Pass 8c (2026-05-18): Hospitality-only projects no longer hit the
-  // "no Sell assets" placeholder. The output surface now serves both
-  // Sell narratives + Hospitality narratives.
-  const operateAssetsAny = assets.some(
-    (a) => a.visible !== false && (a.strategy === 'Operate' || a.isCompanion === true),
-  );
-
-  if (sellAssets.length === 0 && !operateAssetsAny) {
+  if (lines.length === 0) {
     return (
       <div data-testid="m2-revenue-output" style={{ padding: 'var(--sp-3)' }}>
         <h1 style={{ fontSize: 'var(--font-h2)', color: 'var(--color-heading)', margin: 0 }}>Module 2 · Revenue (Output)</h1>
@@ -667,14 +635,19 @@ export default function Module2RevenueOutput(): React.JSX.Element {
   // The `inline` flag wraps the section in a left-border + label
   // chip ("↳ Manage / Operate") to make the parent-child link
   // visible. Standalone callers pass inline=false.
-  const renderHospitalityAssetSection = (a: Asset, inline: boolean): React.JSX.Element => {
-    const r = snap.byHospitalityAsset.get(a.id);
-    const assetSubUnits = subUnits.filter((u) => u.assetId === a.id);
+  const renderHospitalityAssetSection = (line: RevenueLine, inline: boolean): React.JSX.Element => {
+    const a = line.host;
+    // THE ROW'S OWN PLOT, for its metric (TRAPS 7.32): rows are pooled across
+    // the line's plots and a row's metric is its own plot's, not the host's.
+    const memberById = new Map(line.members.map((m) => [m.id, m] as const));
+    const ownerOf = (u: SubUnit): Asset | undefined => memberById.get(u.assetId) ?? a;
+    const r = lineResults.get(line.key)?.hospitality;
+    const assetSubUnits = line.subUnits;
     const wrap = (inner: React.JSX.Element): React.JSX.Element => {
       if (!inline) return inner;
       return (
         <div
-          key={a.id}
+          key={line.key}
           style={{
             marginLeft: 20,
             marginTop: -6,
@@ -702,14 +675,14 @@ export default function Module2RevenueOutput(): React.JSX.Element {
     if (!r) {
       return wrap(
         <AssetSection
-          key={a.id}
-          assetId={a.id}
-          domId={`m2-out-asset-${a.id}`}
-          title={a.name}
-          meta={a.type ? `${a.type}` : undefined}
-          storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
+          key={line.key}
+          assetId={line.key}
+          domId={`m2-out-line-${line.key}`}
+          title={line.label}
+          meta={lineMeta(line)}
+          storageKey={`fmp:m2:revenue:line:${line.key}:collapsed`}
         >
-          <SubUnitReferenceStrip units={assetSubUnits} asset={a} currency={currency} />
+          <SubUnitReferenceStrip units={assetSubUnits} asset={a} assetFor={ownerOf} currency={currency} />
           <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
             No operate config yet. Enter ADR + Occupancy on the Inputs tab.
           </div>
@@ -730,9 +703,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
     const adrDecimals = Math.max(1, decimals) as DisplayDecimals;
     const adrFmt = makeCurrencyFmt('full', adrDecimals);
     const opCfg = a.revenue?.operate;
-    const opKeys = assetSubUnits
-      .filter((u) => u.metric === 'units')
-      .reduce((s, u) => s + Math.max(0, Math.round(u.metricValue)), 0);
+    const opKeys = Object.values(r.perSubUnit ?? {}).reduce((s, su) => s + Math.max(0, su.keys), 0);
     const opDaysPerYear = opCfg?.daysPerYear ?? 365;
     const opGuestsPerOR = opCfg?.guestsPerOccupiedRoom ?? 1.5;
     const opFbMode = opCfg?.fb?.mode ?? 'percent_of_rooms';
@@ -773,7 +744,9 @@ export default function Module2RevenueOutput(): React.JSX.Element {
     })();
     const occNonZero = r.occupancyPerPeriod.filter((v) => v > 0);
     const occAvg = occNonZero.length > 0 ? occNonZero.reduce((s, v) => s + v, 0) / occNonZero.length : 0;
-    const unitSubUnits = assetSubUnits.filter((u) => u.metric === 'units');
+    // THE ROWS THE ENGINE COUNTED KEYS ON (2026-09-13): a count row, or an area
+    // row read through the type's unit size; never the row's own metric.
+    const unitSubUnits = assetSubUnits.filter((u) => (r.perSubUnit?.[u.id]?.keys ?? 0) > 0);
     const showPerSuBreakdown = unitSubUnits.length > 1;
     const lastNonZero = (arr: number[]): number => {
       for (let i = arr.length - 1; i >= 0; i--) if (arr[i] > 0) return arr[i];
@@ -836,14 +809,14 @@ export default function Module2RevenueOutput(): React.JSX.Element {
       : [];
     return wrap(
       <AssetSection
-        key={a.id}
-        assetId={a.id}
-        domId={`m2-out-asset-${a.id}`}
-        title={a.name}
-        meta={a.type ? `${a.type}` : undefined}
-        storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
+        key={line.key}
+        assetId={line.key}
+        domId={`m2-out-line-${line.key}`}
+        title={line.label}
+        meta={lineMeta(line)}
+        storageKey={`fmp:m2:revenue:line:${line.key}:collapsed`}
       >
-        <SubUnitReferenceStrip units={assetSubUnits} asset={a} currency={currency} />
+        <SubUnitReferenceStrip units={assetSubUnits} asset={a} assetFor={ownerOf} currency={currency} />
         <SectionHeading n="1" title="Operations Capacity" />
         <PeriodTable
           title="1. Drivers + Calculations"
@@ -946,20 +919,25 @@ export default function Module2RevenueOutput(): React.JSX.Element {
   //   1. Drivers + Calculations (GLA, Occupancy, Rent Indexation
   //      Factor, Indexed Rate → Occupied Lease Area)
   //   2. Revenue (per-sub-unit Rent Revenue → asset total)
-  const renderLeaseAssetSection = (a: Asset): React.JSX.Element => {
-    const r = snap.byLeaseAsset.get(a.id);
-    const assetSubUnits = subUnits.filter((u) => u.assetId === a.id);
+  const renderLeaseAssetSection = (line: RevenueLine): React.JSX.Element => {
+    const a = line.host;
+    // THE ROW'S OWN PLOT, for its metric (TRAPS 7.32): rows are pooled across
+    // the line's plots and a row's metric is its own plot's, not the host's.
+    const memberById = new Map(line.members.map((m) => [m.id, m] as const));
+    const ownerOf = (u: SubUnit): Asset | undefined => memberById.get(u.assetId) ?? a;
+    const r = lineResults.get(line.key)?.lease;
+    const assetSubUnits = line.subUnits;
     if (!r) {
       return (
         <AssetSection
-          key={a.id}
-          assetId={a.id}
-          domId={`m2-out-asset-${a.id}`}
-          title={a.name}
-          meta={a.type ? `${a.type}` : undefined}
-          storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
+          key={line.key}
+          assetId={line.key}
+          domId={`m2-out-line-${line.key}`}
+          title={line.label}
+          meta={lineMeta(line)}
+          storageKey={`fmp:m2:revenue:line:${line.key}:collapsed`}
         >
-          <SubUnitReferenceStrip units={assetSubUnits} asset={a} currency={currency} />
+          <SubUnitReferenceStrip units={assetSubUnits} asset={a} assetFor={ownerOf} currency={currency} />
           <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
             No lease config yet. Enter Rent Indexation + Occupancy on the Inputs tab.
           </div>
@@ -978,7 +956,9 @@ export default function Module2RevenueOutput(): React.JSX.Element {
     const rateFmt = makeCurrencyFmt('full', rateDecimals);
     const opsMask = r.occupiedAreaPerPeriod.map((v) => (v > 0 ? 1 : 0));
     const broadcastIfOps = (v: number): number[] => opsMask.map((m) => (m > 0 ? v : 0));
-    const areaSubUnits = assetSubUnits.filter((u) => u.metric === 'area');
+    // EVERY REVENUE ROW LEASES (2026-09-13): its area by the one rule, whatever
+    // metric it is stated in. Support was never in the list.
+    const areaSubUnits = assetSubUnits;
     // Pass 9g-D-fix2 (2026-05-18): always render per-sub-unit calculated
     // rows above the grand total, even with a single sub-unit. The
     // breakdown (rate / occupied area / revenue) is the work-shown for
@@ -986,7 +966,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
     // weighted-avg label still kicks in only when there are 2+ zones.
     const hasAnySubUnits = areaSubUnits.length > 0;
     const isWeightedAvg = areaSubUnits.length > 1;
-    const totalGla = areaSubUnits.reduce((s, u) => s + Math.max(0, computeSubUnitArea(u, a)), 0);
+    const totalGla = areaSubUnits.reduce((s, u) => s + Math.max(0, computeSubUnitArea(u, ownerOf(u))), 0);
     const lastNonZero = (arr: number[]): number => {
       for (let i = arr.length - 1; i >= 0; i--) if (arr[i] > 0) return arr[i];
       return 0;
@@ -1034,14 +1014,14 @@ export default function Module2RevenueOutput(): React.JSX.Element {
       : [];
     return (
       <AssetSection
-        key={a.id}
-        assetId={a.id}
-        domId={`m2-out-asset-${a.id}`}
-        title={a.name}
-        meta={a.type ? `${a.type}` : undefined}
-        storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
+        key={line.key}
+        assetId={line.key}
+        domId={`m2-out-line-${line.key}`}
+        title={line.label}
+        meta={lineMeta(line)}
+        storageKey={`fmp:m2:revenue:line:${line.key}:collapsed`}
       >
-        <SubUnitReferenceStrip units={assetSubUnits} asset={a} currency={currency} mode="lease" />
+        <SubUnitReferenceStrip units={assetSubUnits} asset={a} assetFor={ownerOf} currency={currency} mode="lease" />
         <SectionHeading n="1" title="Lease Capacity" />
         <PeriodTable
           title="1. Drivers + Calculations"
@@ -1092,6 +1072,344 @@ export default function Module2RevenueOutput(): React.JSX.Element {
     );
   };
 
+  // THE SELL NARRATIVE, PER LINE (2026-09-13): Blocks 1 to 6 over the line's
+  // pooled rows and the SUM of its plots' engine results (lineRevenueResults).
+  const renderSellLineSection = (line: RevenueLine, p: Phase): React.JSX.Element | null => {
+    const a = line.host;
+    // THE ROW'S OWN PLOT, for its metric (TRAPS 7.32): rows are pooled across
+    // the line's plots and a row's metric is its own plot's, not the host's.
+    const memberById = new Map(line.members.map((m) => [m.id, m] as const));
+    const ownerOf = (u: SubUnit): Asset | undefined => memberById.get(u.assetId) ?? a;
+    const handoverYearIdx = Math.max(0, Math.min(snap.axisLength - 1,
+      (p.startDate ? new Date(p.startDate).getUTCFullYear() : projectStartYear)
+        + (p.constructionPeriods ?? 0) - 1 - projectStartYear));
+    void handoverYearIdx;
+    const r = lineResults.get(line.key)?.sell;
+    // Pass 9e-7 (2026-05-18): for Sell + Manage parents with
+    // no revenue.sell config yet, render a placeholder so the
+    // asset still appears in the Sell section. The companion
+    // is no longer nested here, it shows in the standalone
+    // Hospitality / Operations section per user direction
+    // (same treatment as other hospitality assets).
+    if (!r) {
+      if (a.strategy === 'Sell + Manage') {
+        return (
+          <AssetSection
+            key={line.key}
+            assetId={line.key}
+            domId={`m2-out-line-${line.key}`}
+            title={line.label}
+            meta={lineMeta(line)}
+            storageKey={`fmp:m2:revenue:line:${line.key}:collapsed`}
+          >
+            <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
+              No Sell-side revenue config yet. Enter velocity / cash / recognition on the Inputs tab to populate Blocks 1-6. The Manage / Operate half shows under Hospitality / Operations below.
+            </div>
+          </AssetSection>
+        );
+      }
+      return null;
+    }
+    const assetSubUnits = line.subUnits;
+    const cfg = resolveSellConfig(a, project);
+    const recProfile = cfg?.recognitionProfile;
+    const indexation = cfg?.indexation;
+    const totalAreaPerSU = assetSubUnits.map((su) => computeSubUnitArea(su, ownerOf(su)));
+    const assetBUA = totalAreaPerSU.reduce((s, v) => s + v, 0);
+    // Pass 7y: metric-aware Block 1. Uniform-units asset shows
+    // Block 1 in units (apartments / keys); uniform-sqm shows
+    // in sqm; mixed-asset falls back to sqm (universal).
+    const { metric: assetMetric, uniform: metricUniform } = resolveAssetMetric(assetSubUnits.map((su) => ({ metric: resolveSubUnitMetric(su, ownerOf(su)) })));
+    const useUnits = assetMetric === 'units';
+    const totalUnitsPerSU = assetSubUnits.map((su) => resolveSubUnitMetric(su, ownerOf(su)) === 'units' ? Math.max(0, su.metricValue) : 0);
+    const assetTotalUnits = totalUnitsPerSU.reduce((s, v) => s + v, 0);
+    const inventoryLabel = useUnits ? 'Units' : 'SQM';
+    const inventoryLabelLower = useUnits ? 'units' : 'sqm';
+    const inventoryFmt = useUnits ? unitsFmt : areaFmt;
+    const preInventoryPerSU = useUnits ? r.presalesUnitsPerPeriodPerSubUnit : r.presalesAreaPerPeriodPerSubUnit;
+    const postInventoryPerSU = useUnits ? r.postSalesUnitsPerPeriodPerSubUnit : r.postSalesAreaPerPeriodPerSubUnit;
+    const preInventoryTotal = useUnits ? r.presalesUnitsPerPeriod : r.presalesAreaPerPeriod;
+    const postInventoryTotal = useUnits ? r.postSalesUnitsPerPeriod : r.postSalesAreaPerPeriod;
+    const inventoryDenomPerSU = useUnits ? totalUnitsPerSU : totalAreaPerSU;
+    const inventoryDenomAsset = useUnits ? assetTotalUnits : assetBUA;
+
+    // 5 + 6: AR + Unearned per asset (Pass 7q sale-value driven).
+    // AR  = Pre-Sales Sale Value - Cash Received
+    // UR  = Pre-Sales Sale Value - Revenue Recognised
+    const ar = buildAccountsReceivable(
+      r.presalesRevenuePerPeriod,
+      r.presalesCashPerPeriod,
+      r.axisLength,
+    );
+    const ur = buildUnearnedRevenue(
+      r.presalesRecognitionPerPeriod,
+      r.presalesRevenuePerPeriod,
+      r.axisLength,
+    );
+    // Roll-forward PRESENTATION from the shared builders (2026-08-20,
+    // restructure Step 5). The engine results above are unchanged and
+    // are still what the statements read; these only lay them out,
+    // and add the check row the tables never carried.
+    const arRoll = buildReceivablesRollForward(
+      ar, r.presalesRevenuePerPeriod, r.presalesCashPerPeriod, r.axisLength, ar.changePerPeriod,
+    );
+    const unRoll = buildUnearnedRollForward(
+      ur, r.presalesRevenuePerPeriod, r.presalesRecognitionPerPeriod, r.axisLength, ur.changePerPeriod,
+    );
+
+    // Captions
+    const indexLabel = indexation?.method === 'yoy_compound'
+      ? `YoY ${((indexation.rate ?? 0) * 100).toFixed(2)}%`
+      : indexation?.method === 'single_rate'
+        ? `single rate ${((indexation.rate ?? 0) * 100).toFixed(2)}%`
+        : indexation?.method === 'step'
+          ? 'step schedule'
+          : 'none';
+    const recLabel = recProfile?.method === 'point_in_time'
+      ? `Point-in-Time at ${recProfile.pointInTimeYear ?? 'handover'}`
+      : 'Over-Time profile';
+
+    // Pass 9e-7 (2026-05-18): companion no longer rendered
+    // inline in the Sell section. It shows under Hospitality
+    // / Operations as a separate asset, mirroring the Inputs
+    // tab's separate-collapsible treatment.
+    return (
+      <AssetSection
+        key={line.key}
+        assetId={line.key}
+        domId={`m2-out-line-${line.key}`}
+        title={line.label}
+        meta={lineMeta(line)}
+        storageKey={`fmp:m2:revenue:line:${line.key}:collapsed`}
+      >
+        {/* Pass 7x: sub-unit reference strip so users can
+            verify the area + price they entered in M1 Tab 2
+            without switching back. */}
+        <SubUnitReferenceStrip units={assetSubUnits} asset={a} assetFor={ownerOf} currency={currency} />
+
+        {/* 1. Inventory Sold (metric-aware per Pass 7y) */}
+        <SectionHeading n="1" title={`${inventoryLabel} Sold`} />
+        {!metricUniform && (
+          <div style={{ fontSize: 10, color: 'var(--color-meta)', fontStyle: 'italic', marginBottom: 6 }}>
+            Note: sub-units use mixed metrics. Block 1 shown in sqm (the universal denominator). Per-sub-unit native metrics still apply for rounding.
+          </div>
+        )}
+        <PeriodTable
+          title={`1a. Pre-Sales ${inventoryLabel} (per sub-unit)`}
+          formula={`Pre-Sales ${inventoryLabel}[su, y] = preSalesVelocity[su, y] x sub-unit total inventory (capped at remaining unsold inventory). Engine rounds to whole ${inventoryLabelLower} per sub-unit before deriving revenue.`}
+          yearLabels={snap.yearLabels}
+          rows={buildPerSubUnitRows(
+            assetSubUnits,
+            preInventoryPerSU,
+            preInventoryTotal,
+            `Asset Pre-Sales ${inventoryLabel}`,
+          )}
+          fmt={inventoryFmt}
+        />
+        <PeriodTable
+          title={`1b. Sales During Operation ${inventoryLabel} (per sub-unit)`}
+          formula={`Post-Sales ${inventoryLabel}[su, y] = postSalesVelocity[su, y] x sub-unit total inventory (capped at remaining unsold inventory).`}
+          yearLabels={snap.yearLabels}
+          rows={buildPerSubUnitRows(
+            assetSubUnits,
+            postInventoryPerSU,
+            postInventoryTotal,
+            `Asset Post-Sales ${inventoryLabel}`,
+          )}
+          fmt={inventoryFmt}
+        />
+        <PeriodTable
+          title={`1c. Total ${inventoryLabel} Sold`}
+          formula={`Total ${inventoryLabel}[su, y] = Pre + Post. Engine caps each sub-unit at 100% of its total inventory.`}
+          yearLabels={snap.yearLabels}
+          rows={buildTotalSoldReconciledRows(
+            assetSubUnits,
+            inventoryDenomPerSU,
+            preInventoryPerSU,
+            postInventoryPerSU,
+            preInventoryTotal.map((v, i) => v + (postInventoryTotal[i] ?? 0)),
+            inventoryDenomAsset,
+          )}
+          fmt={inventoryFmt}
+        />
+        {/* 1d. CLOSING INVENTORY (2026-08-20, restructure Step 5).
+            The one quantity the Module 2 diagnosis found genuinely
+            missing: inventory existed only as a VALUE (cumulative
+            capex less cumulative cost of sales), never as the area
+            or units still unsold. Rows come from the shared builder
+            both exports also render. */}
+        {(() => {
+          const t = buildInventoryRollForward(
+            inventoryDenomAsset,
+            preInventoryTotal.map((v, i) => v + (postInventoryTotal[i] ?? 0)),
+            snap.yearLabels.length,
+            inventoryLabelLower,
+          );
+          return (
+            <PeriodTable
+              title={`1d. Closing Inventory (unsold ${inventoryLabelLower})`}
+              formula={t.caption}
+              yearLabels={snap.yearLabels}
+              rows={rollRowsToPeriodRows(t)}
+              fmt={inventoryFmt}
+            />
+          );
+        })()}
+
+        {/* 2. Revenue */}
+        <SectionHeading n="2" title="Revenue (Sales Value)" />
+        <PeriodTable
+          title="2a. Pre-Sales Revenue (per sub-unit)"
+          formula={`Pre-Sales Revenue[su, y] = Pre-Sales ${inventoryLabel}[su, y] x base rate (M1 Tab 2) x indexation factor at year y (indexation: ${indexLabel}).`}
+          yearLabels={snap.yearLabels}
+          rows={buildPerSubUnitRows(
+            assetSubUnits,
+            r.presalesRevenuePerPeriodPerSubUnit,
+            r.presalesRevenuePerPeriod,
+            'Asset Pre-Sales Revenue',
+          )}
+          unit={currency}
+          fmt={fmt}
+        />
+        <PeriodTable
+          title="2b. Sales During Operation Revenue (per sub-unit)"
+          formula={`Post-Sales Revenue[su, y] = Post-Sales ${inventoryLabel}[su, y] x base rate x indexation factor at y (indexation: ${indexLabel}).`}
+          yearLabels={snap.yearLabels}
+          rows={buildPerSubUnitRows(
+            assetSubUnits,
+            r.postSalesRevenuePerPeriodPerSubUnit,
+            r.postSalesRevenuePerPeriod,
+            'Asset Post-Sales Revenue',
+          )}
+          unit={currency}
+          fmt={fmt}
+        />
+        <PeriodTable
+          title="2c. Total Revenue (per sub-unit)"
+          formula="Total Revenue[su, y] = Pre-Sales Revenue + Post-Sales Revenue."
+          yearLabels={snap.yearLabels}
+          rows={(() => {
+            const totalPerSU: Record<string, number[]> = {};
+            for (const su of assetSubUnits) {
+              const pre = r.presalesRevenuePerPeriodPerSubUnit[su.id] ?? [];
+              const post = r.postSalesRevenuePerPeriodPerSubUnit[su.id] ?? [];
+              const N = Math.max(pre.length, post.length);
+              const arr = new Array<number>(N).fill(0);
+              for (let i = 0; i < N; i++) arr[i] = (pre[i] ?? 0) + (post[i] ?? 0);
+              totalPerSU[su.id] = arr;
+            }
+            const totalAcross = r.presalesRevenuePerPeriod.map((v, i) => v + (r.postSalesRevenuePerPeriod[i] ?? 0));
+            return buildPerSubUnitRows(
+              assetSubUnits,
+              totalPerSU,
+              totalAcross,
+              'Asset Total Revenue',
+            );
+          })()}
+          unit={currency}
+          fmt={fmt}
+        />
+
+        {/* 3. Revenue Recognised */}
+        <SectionHeading n="3" title="Revenue Recognised" />
+        <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, fontStyle: 'italic', lineHeight: 1.4 }}>
+          Formula: rows = cohort sale year, columns = year recognised. {recLabel}.
+          {recProfile?.method === 'point_in_time' && (recProfile.pointInTimeYear ?? 'handover') === 'handover' && (
+            <> <strong>Handover</strong> resolves to <strong>{snap.yearLabels[handoverYearIdx] ?? '?'}</strong> (last construction year, marked <strong>*</strong> in the matrix below). Every pre-sales cohort lumps 100% there.</>
+          )}
+          {' '}Sum across each row = cohort total sales value; sum down each column = P&amp;L recognition per year (Pre-Sales only).
+        </div>
+        <VintageMatrix
+          title="3a. Pre-Sales Recognition Vintage Matrix"
+          yearLabels={snap.yearLabels}
+          matrix={r.recognitionVintageMatrix}
+          currency={currency}
+          handoverYearIdx={handoverYearIdx}
+          fmt={fmt}
+        />
+        <PeriodTable
+          title="3b. Recognition Summary (per period)"
+          formula="Pre-Sales Recognised = column-sum of 3a (per recognition profile). Sales During Operation Recognised = post-sales revenue recognised same period (operating sales, no deferral). Total = Pre + Post = P&L revenue per year."
+          yearLabels={snap.yearLabels}
+          rows={[
+            { label: 'Pre-Sales Recognised', values: r.presalesRecognitionPerPeriod },
+            { label: 'Sales During Operation Recognised', values: r.postSalesRecognitionPerPeriod },
+            { label: 'Total Revenue Recognised', values: r.recognitionPerPeriod, kind: 'grand' },
+          ]}
+          unit={currency}
+          fmt={fmt}
+        />
+
+        {/* 4. Cash Collected */}
+        <SectionHeading n="4" title="Cash Collected" />
+        <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, fontStyle: 'italic' }}>
+          {/* CAPTION CORRECTED 2026-08-20: this said each cohort
+              "cascades through the cash payment profile", which has
+              been false since restructure Step 3 retired that
+              profile as the driver of collections. */}
+          Rows are sale years, columns are the years that cohort pays. Each sale year is its own cohort on its own terms: a downpayment in the year it sells, then the balance in equal instalments, cut off at handover. A cohort selling at or after handover pays in full in its own year. Sum down each column = cash collected per year (Pre-Sales only).
+        </div>
+        {(() => {
+          const grid = buildSaleCohortGrid(
+            a, phases.find((ph) => ph.id === a.phaseId), snap.projectStartYear,
+            snap.yearLabels, project.saleCohortDefaults?.downpayment, r,
+          );
+          return grid ? (
+            <SaleCohortGridTable
+              grid={grid}
+              title="4a. Sale Cohort Grid (pre-sales cash)"
+              currency={currency}
+              fmt={fmt}
+            />
+          ) : (
+            <VintageMatrix
+              title="4a. Pre-Sales Cash Vintage Matrix"
+              yearLabels={snap.yearLabels}
+              matrix={r.cashVintageMatrix}
+              currency={currency}
+              handoverYearIdx={handoverYearIdx}
+              fmt={fmt}
+            />
+          );
+        })()}
+        <PeriodTable
+          title="4b. Cash Summary (per period)"
+          formula="Pre-Sales Cash = column-sum of 4a (per cash payment profile). Sales During Operation Cash = post-sales revenue collected same period (operating sales, no deferral). Total = Pre + Post = cash flow from revenue per year."
+          yearLabels={snap.yearLabels}
+          rows={[
+            { label: 'Pre-Sales Cash', values: r.presalesCashPerPeriod },
+            { label: 'Sales During Operation Cash', values: r.postSalesCashPerPeriod },
+            { label: 'Total Cash Collected', values: r.cashCollectedPerPeriod, kind: 'grand' },
+          ]}
+          unit={currency}
+          fmt={fmt}
+        />
+
+        {/* 5. Accounts Receivable, sale-value driven roll-forward */}
+        <SectionHeading n="5" title="Accounts Receivable" />
+        <PeriodTable
+          title="5. Accounts Receivable (Sales Receivable roll-forward)"
+          formula={`${arRoll.caption} The rows come from the shared builder both exports also render, and the check row must read zero in every year.`}
+          yearLabels={snap.yearLabels}
+          rows={rollRowsToPeriodRows(arRoll)}
+          unit={currency}
+          fmt={fmt}
+        />
+
+        {/* 6. Unearned Revenue, sale-value driven roll-forward */}
+        <SectionHeading n="6" title="Unearned Revenue" />
+        <PeriodTable
+          title="6. Unearned Revenue (Contract Liability roll-forward)"
+          formula={`${unRoll.caption} The rows come from the shared builder both exports also render, and the check row must read zero in every year.`}
+          yearLabels={snap.yearLabels}
+          rows={rollRowsToPeriodRows(unRoll)}
+          unit={currency}
+          fmt={fmt}
+        />
+      </AssetSection>
+    );
+  };
+
   return (
     <div data-testid="m2-revenue-output" style={{ padding: 'var(--sp-3)' }}>
       <div style={{ marginBottom: 'var(--sp-3)' }}>
@@ -1105,7 +1423,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
       </div>
 
       {/* M2 Pass 9M (2026-05-21): asset quick-nav strip at top of Output. */}
-      <AssetQuickNav assets={assets} idPrefix="m2-out-asset" testidPrefix="m2-out-nav" />
+      <RevenueLineNav lines={lines} idPrefix="m2-out-line" testidPrefix="m2-out-nav" />
 
       {/* SELLING COSTS, OWNED BY REVENUE (2026-08-19, Pass C).
 
@@ -1131,485 +1449,80 @@ export default function Module2RevenueOutput(): React.JSX.Element {
         scale={scale}
       />
 
-      {/* Pass 9e-8 (2026-05-18): strategy-first grouping per user.
-          Outer sections are Residential / Sell, Hospitality / Operations,
-          Retail / Lease. Inside each, phases are nested as smaller
-          subheadings. Asset cards (AssetSection) keep their own
-          per-card collapse, so a 10-asset, 3-phase project still feels
-          tidy. */}
-      <PhaseSection
-        phaseId="strategy-sell"
-        title="Residential / Sell"
-        meta="Sell + Sell + Manage parents across all phases"
-        countLabel={`${sellAssets.length} asset${sellAssets.length === 1 ? '' : 's'}`}
-        storageKey="fmp:m2:revenue:strategy:sell:collapsed"
-        assetIds={sellAssets.map((a) => a.id)}
-      >
-      {sellAssets.length === 0 && (
-        <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
-          No Sell or Sell + Manage assets configured yet.
-        </div>
-      )}
-      {phases.map((p) => {
-        const phaseAssets = sellAssets.filter((a) => a.phaseId === p.id);
-        if (phaseAssets.length === 0) return null;
-        const handoverYearIdx = Math.max(0, Math.min(snap.axisLength - 1,
-          (p.startDate ? new Date(p.startDate).getUTCFullYear() : projectStartYear)
-            + (p.constructionPeriods ?? 0) - 1 - projectStartYear));
-
+      {/* ONE FILING RULE, ONE ORDER (2026-09-13): sections are the founder's
+          Residential, Hospitality, Standalone Commercial, Retail Ground Floor
+          from lib/revenueLines.ts; inside each, phases, then LINES (one type in
+          one phase across its plots, the same grouping Table 5 and the capex
+          input use). A line renders the narrative its STRATEGY calls for, so a
+          hotel sold off plan sits under Hospitality with the sell blocks. */}
+      {groupRevenueLines(lines).map((g) => {
+        const sectionKey = REVENUE_SECTION_KEY[g.section];
         return (
-          <div key={p.id} style={{ marginBottom: 'var(--sp-2)' }}>
-            <PhaseDivider
-              title={p.name}
-              meta={`${p.status ?? 'planning'} · handover ${snap.yearLabels[handoverYearIdx] ?? '?'}`}
-              count={`${phaseAssets.length} Sell asset${phaseAssets.length === 1 ? '' : 's'}`}
-            />
-            {phaseAssets.map((a) => {
-              const r = snap.bySellAsset.get(a.id);
-              // Pass 9e-7 (2026-05-18): for Sell + Manage parents with
-              // no revenue.sell config yet, render a placeholder so the
-              // asset still appears in the Sell section. The companion
-              // is no longer nested here, it shows in the standalone
-              // Hospitality / Operations section per user direction
-              // (same treatment as other hospitality assets).
-              if (!r) {
-                if (a.strategy === 'Sell + Manage') {
-                  return (
-                    <AssetSection
-                      key={a.id}
-                      assetId={a.id}
-                      domId={`m2-out-asset-${a.id}`}
-                      title={a.name}
-                      meta={a.type ? `${a.type}` : undefined}
-                      storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
-                    >
-                      <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
-                        No Sell-side revenue config yet. Enter velocity / cash / recognition on the Inputs tab to populate Blocks 1-6. The Manage / Operate half shows under Hospitality / Operations below.
-                      </div>
-                    </AssetSection>
-                  );
-                }
-                return null;
-              }
-              const assetSubUnits = subUnits.filter((u) => u.assetId === a.id);
-              const cfg = resolveSellConfig(a, project);
-              const recProfile = cfg?.recognitionProfile;
-              const indexation = cfg?.indexation;
-              const totalAreaPerSU = assetSubUnits.map((su) => computeSubUnitArea(su, a));
-              const assetBUA = totalAreaPerSU.reduce((s, v) => s + v, 0);
-              // Pass 7y: metric-aware Block 1. Uniform-units asset shows
-              // Block 1 in units (apartments / keys); uniform-sqm shows
-              // in sqm; mixed-asset falls back to sqm (universal).
-              const { metric: assetMetric, uniform: metricUniform } = resolveAssetMetric(assetSubUnits);
-              const useUnits = assetMetric === 'units';
-              const totalUnitsPerSU = assetSubUnits.map((su) => su.metric === 'units' ? Math.max(0, su.metricValue) : 0);
-              const assetTotalUnits = totalUnitsPerSU.reduce((s, v) => s + v, 0);
-              const inventoryLabel = useUnits ? 'Units' : 'SQM';
-              const inventoryLabelLower = useUnits ? 'units' : 'sqm';
-              const inventoryFmt = useUnits ? unitsFmt : areaFmt;
-              const preInventoryPerSU = useUnits ? r.presalesUnitsPerPeriodPerSubUnit : r.presalesAreaPerPeriodPerSubUnit;
-              const postInventoryPerSU = useUnits ? r.postSalesUnitsPerPeriodPerSubUnit : r.postSalesAreaPerPeriodPerSubUnit;
-              const preInventoryTotal = useUnits ? r.presalesUnitsPerPeriod : r.presalesAreaPerPeriod;
-              const postInventoryTotal = useUnits ? r.postSalesUnitsPerPeriod : r.postSalesAreaPerPeriod;
-              const inventoryDenomPerSU = useUnits ? totalUnitsPerSU : totalAreaPerSU;
-              const inventoryDenomAsset = useUnits ? assetTotalUnits : assetBUA;
-
-              // 5 + 6: AR + Unearned per asset (Pass 7q sale-value driven).
-              // AR  = Pre-Sales Sale Value - Cash Received
-              // UR  = Pre-Sales Sale Value - Revenue Recognised
-              const ar = buildAccountsReceivable(
-                r.presalesRevenuePerPeriod,
-                r.presalesCashPerPeriod,
-                r.axisLength,
-              );
-              const ur = buildUnearnedRevenue(
-                r.presalesRecognitionPerPeriod,
-                r.presalesRevenuePerPeriod,
-                r.axisLength,
-              );
-              // Roll-forward PRESENTATION from the shared builders (2026-08-20,
-              // restructure Step 5). The engine results above are unchanged and
-              // are still what the statements read; these only lay them out,
-              // and add the check row the tables never carried.
-              const arRoll = buildReceivablesRollForward(
-                ar, r.presalesRevenuePerPeriod, r.presalesCashPerPeriod, r.axisLength, ar.changePerPeriod,
-              );
-              const unRoll = buildUnearnedRollForward(
-                ur, r.presalesRevenuePerPeriod, r.presalesRecognitionPerPeriod, r.axisLength, ur.changePerPeriod,
-              );
-
-              // Captions
-              const indexLabel = indexation?.method === 'yoy_compound'
-                ? `YoY ${((indexation.rate ?? 0) * 100).toFixed(2)}%`
-                : indexation?.method === 'single_rate'
-                  ? `single rate ${((indexation.rate ?? 0) * 100).toFixed(2)}%`
-                  : indexation?.method === 'step'
-                    ? 'step schedule'
-                    : 'none';
-              const recLabel = recProfile?.method === 'point_in_time'
-                ? `Point-in-Time at ${recProfile.pointInTimeYear ?? 'handover'}`
-                : 'Over-Time profile';
-
-              // Pass 9e-7 (2026-05-18): companion no longer rendered
-              // inline in the Sell section. It shows under Hospitality
-              // / Operations as a separate asset, mirroring the Inputs
-              // tab's separate-collapsible treatment.
+          <PhaseSection
+            key={g.section}
+            phaseId={`section-${sectionKey}`}
+            title={g.section}
+            meta={REVENUE_SECTION_META[g.section]}
+            countLabel={`${g.lines.length} line${g.lines.length === 1 ? '' : 's'}`}
+            storageKey={`fmp:m2:revenue:section:${sectionKey}:collapsed`}
+            assetIds={g.lines.map((l) => l.key)}
+          >
+            {phases.map((p) => {
+              const phaseLines = g.lines.filter((l) => l.phaseId === p.id);
+              if (phaseLines.length === 0) return null;
+              const handoverYearIdx = Math.max(0, Math.min(snap.axisLength - 1,
+                (p.startDate ? new Date(p.startDate).getUTCFullYear() : projectStartYear)
+                  + (p.constructionPeriods ?? 0) - 1 - projectStartYear));
               return (
-                <AssetSection
-                  key={a.id}
-                  assetId={a.id}
-                  domId={`m2-out-asset-${a.id}`}
-                  title={a.name}
-                  meta={a.type ? `${a.type}` : undefined}
-                  storageKey={`fmp:m2:revenue:asset:${a.id}:collapsed`}
-                >
-                  {/* Pass 7x: sub-unit reference strip so users can
-                      verify the area + price they entered in M1 Tab 2
-                      without switching back. */}
-                  <SubUnitReferenceStrip units={assetSubUnits} asset={a} currency={currency} />
-
-                  {/* 1. Inventory Sold (metric-aware per Pass 7y) */}
-                  <SectionHeading n="1" title={`${inventoryLabel} Sold`} />
-                  {!metricUniform && (
-                    <div style={{ fontSize: 10, color: 'var(--color-meta)', fontStyle: 'italic', marginBottom: 6 }}>
-                      Note: sub-units use mixed metrics. Block 1 shown in sqm (the universal denominator). Per-sub-unit native metrics still apply for rounding.
-                    </div>
-                  )}
-                  <PeriodTable
-                    title={`1a. Pre-Sales ${inventoryLabel} (per sub-unit)`}
-                    formula={`Pre-Sales ${inventoryLabel}[su, y] = preSalesVelocity[su, y] x sub-unit total inventory (capped at remaining unsold inventory). Engine rounds to whole ${inventoryLabelLower} per sub-unit before deriving revenue.`}
-                    yearLabels={snap.yearLabels}
-                    rows={buildPerSubUnitRows(
-                      assetSubUnits,
-                      preInventoryPerSU,
-                      preInventoryTotal,
-                      `Asset Pre-Sales ${inventoryLabel}`,
-                    )}
-                    fmt={inventoryFmt}
+                <div key={`${sectionKey}-${p.id}`} style={{ marginBottom: 'var(--sp-2)' }}>
+                  <PhaseDivider
+                    title={p.name}
+                    meta={`${p.status ?? 'planning'} · handover ${snap.yearLabels[handoverYearIdx] ?? '?'}`}
+                    count={`${phaseLines.length} line${phaseLines.length === 1 ? '' : 's'}`}
                   />
-                  <PeriodTable
-                    title={`1b. Sales During Operation ${inventoryLabel} (per sub-unit)`}
-                    formula={`Post-Sales ${inventoryLabel}[su, y] = postSalesVelocity[su, y] x sub-unit total inventory (capped at remaining unsold inventory).`}
-                    yearLabels={snap.yearLabels}
-                    rows={buildPerSubUnitRows(
-                      assetSubUnits,
-                      postInventoryPerSU,
-                      postInventoryTotal,
-                      `Asset Post-Sales ${inventoryLabel}`,
-                    )}
-                    fmt={inventoryFmt}
-                  />
-                  <PeriodTable
-                    title={`1c. Total ${inventoryLabel} Sold`}
-                    formula={`Total ${inventoryLabel}[su, y] = Pre + Post. Engine caps each sub-unit at 100% of its total inventory.`}
-                    yearLabels={snap.yearLabels}
-                    rows={buildTotalSoldReconciledRows(
-                      assetSubUnits,
-                      inventoryDenomPerSU,
-                      preInventoryPerSU,
-                      postInventoryPerSU,
-                      preInventoryTotal.map((v, i) => v + (postInventoryTotal[i] ?? 0)),
-                      inventoryDenomAsset,
-                    )}
-                    fmt={inventoryFmt}
-                  />
-                  {/* 1d. CLOSING INVENTORY (2026-08-20, restructure Step 5).
-                      The one quantity the Module 2 diagnosis found genuinely
-                      missing: inventory existed only as a VALUE (cumulative
-                      capex less cumulative cost of sales), never as the area
-                      or units still unsold. Rows come from the shared builder
-                      both exports also render. */}
-                  {(() => {
-                    const t = buildInventoryRollForward(
-                      inventoryDenomAsset,
-                      preInventoryTotal.map((v, i) => v + (postInventoryTotal[i] ?? 0)),
-                      snap.yearLabels.length,
-                      inventoryLabelLower,
-                    );
-                    return (
-                      <PeriodTable
-                        title={`1d. Closing Inventory (unsold ${inventoryLabelLower})`}
-                        formula={t.caption}
-                        yearLabels={snap.yearLabels}
-                        rows={rollRowsToPeriodRows(t)}
-                        fmt={inventoryFmt}
-                      />
-                    );
-                  })()}
-
-                  {/* 2. Revenue */}
-                  <SectionHeading n="2" title="Revenue (Sales Value)" />
-                  <PeriodTable
-                    title="2a. Pre-Sales Revenue (per sub-unit)"
-                    formula={`Pre-Sales Revenue[su, y] = Pre-Sales ${inventoryLabel}[su, y] x base rate (M1 Tab 2) x indexation factor at year y (indexation: ${indexLabel}).`}
-                    yearLabels={snap.yearLabels}
-                    rows={buildPerSubUnitRows(
-                      assetSubUnits,
-                      r.presalesRevenuePerPeriodPerSubUnit,
-                      r.presalesRevenuePerPeriod,
-                      'Asset Pre-Sales Revenue',
-                    )}
-                    unit={currency}
-                    fmt={fmt}
-                  />
-                  <PeriodTable
-                    title="2b. Sales During Operation Revenue (per sub-unit)"
-                    formula={`Post-Sales Revenue[su, y] = Post-Sales ${inventoryLabel}[su, y] x base rate x indexation factor at y (indexation: ${indexLabel}).`}
-                    yearLabels={snap.yearLabels}
-                    rows={buildPerSubUnitRows(
-                      assetSubUnits,
-                      r.postSalesRevenuePerPeriodPerSubUnit,
-                      r.postSalesRevenuePerPeriod,
-                      'Asset Post-Sales Revenue',
-                    )}
-                    unit={currency}
-                    fmt={fmt}
-                  />
-                  <PeriodTable
-                    title="2c. Total Revenue (per sub-unit)"
-                    formula="Total Revenue[su, y] = Pre-Sales Revenue + Post-Sales Revenue."
-                    yearLabels={snap.yearLabels}
-                    rows={(() => {
-                      const totalPerSU: Record<string, number[]> = {};
-                      for (const su of assetSubUnits) {
-                        const pre = r.presalesRevenuePerPeriodPerSubUnit[su.id] ?? [];
-                        const post = r.postSalesRevenuePerPeriodPerSubUnit[su.id] ?? [];
-                        const N = Math.max(pre.length, post.length);
-                        const arr = new Array<number>(N).fill(0);
-                        for (let i = 0; i < N; i++) arr[i] = (pre[i] ?? 0) + (post[i] ?? 0);
-                        totalPerSU[su.id] = arr;
-                      }
-                      const totalAcross = r.presalesRevenuePerPeriod.map((v, i) => v + (r.postSalesRevenuePerPeriod[i] ?? 0));
-                      return buildPerSubUnitRows(
-                        assetSubUnits,
-                        totalPerSU,
-                        totalAcross,
-                        'Asset Total Revenue',
-                      );
-                    })()}
-                    unit={currency}
-                    fmt={fmt}
-                  />
-
-                  {/* 3. Revenue Recognised */}
-                  <SectionHeading n="3" title="Revenue Recognised" />
-                  <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, fontStyle: 'italic', lineHeight: 1.4 }}>
-                    Formula: rows = cohort sale year, columns = year recognised. {recLabel}.
-                    {recProfile?.method === 'point_in_time' && (recProfile.pointInTimeYear ?? 'handover') === 'handover' && (
-                      <> <strong>Handover</strong> resolves to <strong>{snap.yearLabels[handoverYearIdx] ?? '?'}</strong> (last construction year, marked <strong>*</strong> in the matrix below). Every pre-sales cohort lumps 100% there.</>
-                    )}
-                    {' '}Sum across each row = cohort total sales value; sum down each column = P&amp;L recognition per year (Pre-Sales only).
-                  </div>
-                  <VintageMatrix
-                    title="3a. Pre-Sales Recognition Vintage Matrix"
-                    yearLabels={snap.yearLabels}
-                    matrix={r.recognitionVintageMatrix}
-                    currency={currency}
-                    handoverYearIdx={handoverYearIdx}
-                    fmt={fmt}
-                  />
-                  <PeriodTable
-                    title="3b. Recognition Summary (per period)"
-                    formula="Pre-Sales Recognised = column-sum of 3a (per recognition profile). Sales During Operation Recognised = post-sales revenue recognised same period (operating sales, no deferral). Total = Pre + Post = P&L revenue per year."
-                    yearLabels={snap.yearLabels}
-                    rows={[
-                      { label: 'Pre-Sales Recognised', values: r.presalesRecognitionPerPeriod },
-                      { label: 'Sales During Operation Recognised', values: r.postSalesRecognitionPerPeriod },
-                      { label: 'Total Revenue Recognised', values: r.recognitionPerPeriod, kind: 'grand' },
-                    ]}
-                    unit={currency}
-                    fmt={fmt}
-                  />
-
-                  {/* 4. Cash Collected */}
-                  <SectionHeading n="4" title="Cash Collected" />
-                  <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, fontStyle: 'italic' }}>
-                    {/* CAPTION CORRECTED 2026-08-20: this said each cohort
-                        "cascades through the cash payment profile", which has
-                        been false since restructure Step 3 retired that
-                        profile as the driver of collections. */}
-                    Rows are sale years, columns are the years that cohort pays. Each sale year is its own cohort on its own terms: a downpayment in the year it sells, then the balance in equal instalments, cut off at handover. A cohort selling at or after handover pays in full in its own year. Sum down each column = cash collected per year (Pre-Sales only).
-                  </div>
-                  {(() => {
-                    const grid = buildSaleCohortGrid(
-                      a, phases.find((ph) => ph.id === a.phaseId), snap.projectStartYear,
-                      snap.yearLabels, project.saleCohortDefaults?.downpayment, r,
-                    );
-                    return grid ? (
-                      <SaleCohortGridTable
-                        grid={grid}
-                        title="4a. Sale Cohort Grid (pre-sales cash)"
-                        currency={currency}
-                        fmt={fmt}
-                      />
-                    ) : (
-                      <VintageMatrix
-                        title="4a. Pre-Sales Cash Vintage Matrix"
-                        yearLabels={snap.yearLabels}
-                        matrix={r.cashVintageMatrix}
-                        currency={currency}
-                        handoverYearIdx={handoverYearIdx}
-                        fmt={fmt}
-                      />
-                    );
-                  })()}
-                  <PeriodTable
-                    title="4b. Cash Summary (per period)"
-                    formula="Pre-Sales Cash = column-sum of 4a (per cash payment profile). Sales During Operation Cash = post-sales revenue collected same period (operating sales, no deferral). Total = Pre + Post = cash flow from revenue per year."
-                    yearLabels={snap.yearLabels}
-                    rows={[
-                      { label: 'Pre-Sales Cash', values: r.presalesCashPerPeriod },
-                      { label: 'Sales During Operation Cash', values: r.postSalesCashPerPeriod },
-                      { label: 'Total Cash Collected', values: r.cashCollectedPerPeriod, kind: 'grand' },
-                    ]}
-                    unit={currency}
-                    fmt={fmt}
-                  />
-
-                  {/* 5. Accounts Receivable, sale-value driven roll-forward */}
-                  <SectionHeading n="5" title="Accounts Receivable" />
-                  <PeriodTable
-                    title="5. Accounts Receivable (Sales Receivable roll-forward)"
-                    formula={`${arRoll.caption} The rows come from the shared builder both exports also render, and the check row must read zero in every year.`}
-                    yearLabels={snap.yearLabels}
-                    rows={rollRowsToPeriodRows(arRoll)}
-                    unit={currency}
-                    fmt={fmt}
-                  />
-
-                  {/* 6. Unearned Revenue, sale-value driven roll-forward */}
-                  <SectionHeading n="6" title="Unearned Revenue" />
-                  <PeriodTable
-                    title="6. Unearned Revenue (Contract Liability roll-forward)"
-                    formula={`${unRoll.caption} The rows come from the shared builder both exports also render, and the check row must read zero in every year.`}
-                    yearLabels={snap.yearLabels}
-                    rows={rollRowsToPeriodRows(unRoll)}
-                    unit={currency}
-                    fmt={fmt}
-                  />
-                </AssetSection>
+                  {phaseLines.map((l) => (
+                    <React.Fragment key={l.key}>
+                      {l.form === 'sell'
+                        ? renderSellLineSection(l, p)
+                        : l.form === 'operate'
+                          ? renderHospitalityAssetSection(l, false)
+                          : renderLeaseAssetSection(l)}
+                    </React.Fragment>
+                  ))}
+                </div>
               );
             })}
-          </div>
+          </PhaseSection>
         );
       })}
-      </PhaseSection>
-
-      {/* Pass 9e-8 (2026-05-18): Hospitality / Operations strategy
-          section with phases nested inside. Includes pure Operate +
-          every companion (Operate-side of Sell+Manage parents). */}
-      <PhaseSection
-        phaseId="strategy-hospitality"
-        title="Hospitality / Operations"
-        meta="Operate assets + Sell + Manage operate companions across all phases"
-        countLabel={(() => {
-          const n = assets.filter((a) => a.visible !== false && (a.strategy === 'Operate' || a.isCompanion === true)).length;
-          return `${n} asset${n === 1 ? '' : 's'}`;
-        })()}
-        storageKey="fmp:m2:revenue:strategy:hospitality:collapsed"
-        assetIds={assets.filter((a) => a.visible !== false && (a.strategy === 'Operate' || a.isCompanion === true)).map((a) => a.id)}
-      >
-      {(() => {
-        const anyHosp = assets.some((a) => a.visible !== false && (a.strategy === 'Operate' || a.isCompanion === true));
-        if (!anyHosp) {
-          return (
-            <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
-              No Operate or Sell + Manage assets configured yet.
-            </div>
-          );
-        }
-        return null;
-      })()}
-      {phases.map((p) => {
-        const phaseHospitalityAssets = assets.filter((a) => {
-          if (a.phaseId !== p.id || a.visible === false) return false;
-          return a.strategy === 'Operate' || a.isCompanion === true;
-        });
-        if (phaseHospitalityAssets.length === 0) return null;
-        return (
-          <div key={`hosp-${p.id}`} style={{ marginBottom: 'var(--sp-2)' }}>
-            <PhaseDivider
-              title={p.name}
-              meta={`${p.status ?? 'planning'}`}
-              count={`${phaseHospitalityAssets.length} hospitality asset${phaseHospitalityAssets.length === 1 ? '' : 's'}`}
-            />
-            {phaseHospitalityAssets.map((a) => renderHospitalityAssetSection(a, false))}
-          </div>
-        );
-      })}
-      </PhaseSection>
-
-      {/* Pass 9g (2026-05-18): Retail / Lease engine wired. Per-phase
-          grouped, each lease asset renders its own Drivers + Calculations
-          + Revenue narrative. */}
-      <PhaseSection
-        phaseId="strategy-retail"
-        title="Retail / Lease"
-        meta="Lease assets across all phases"
-        countLabel={(() => {
-          const n = assets.filter((a) => a.visible !== false && a.strategy === 'Lease').length;
-          return `${n} asset${n === 1 ? '' : 's'}`;
-        })()}
-        storageKey="fmp:m2:revenue:strategy:retail:collapsed"
-        assetIds={assets.filter((a) => a.visible !== false && a.strategy === 'Lease').map((a) => a.id)}
-      >
-        {(() => {
-          const anyLease = assets.some((a) => a.visible !== false && a.strategy === 'Lease');
-          if (!anyLease) {
-            return (
-              <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
-                No Lease assets configured yet.
-              </div>
-            );
-          }
-          return null;
-        })()}
-        {phases.map((p) => {
-          const phaseLeaseAssets = assets.filter((a) => {
-            if (a.phaseId !== p.id || a.visible === false) return false;
-            return a.strategy === 'Lease';
-          });
-          if (phaseLeaseAssets.length === 0) return null;
-          return (
-            <div key={`lease-${p.id}`} style={{ marginBottom: 'var(--sp-2)' }}>
-              <PhaseDivider
-                title={p.name}
-                meta={`${p.status ?? 'planning'}`}
-                count={`${phaseLeaseAssets.length} lease asset${phaseLeaseAssets.length === 1 ? '' : 's'}`}
-              />
-              {phaseLeaseAssets.map((a) => renderLeaseAssetSection(a))}
-            </div>
-          );
-        })}
-      </PhaseSection>
 
       <PhaseSection
         phaseId="__project__"
         title="Project Total"
-        meta="all phases combined, grouped by strategy"
+        meta="all phases combined, grouped by section"
         storageKey="fmp:m2:revenue:phase:__project__:collapsed"
       >
         <PeriodTable
           title="Project Revenue (Sales Value year-on-year)"
-          formula="Per-asset breakdown grouped by strategy. Sell shows Pre-Sales + Sales During Operation. Hospitality / Lease / Sell+Manage placeholder zeros wire in at Pass 8 / 9 / 10."
+          formula="Per-line breakdown grouped by section. A Sell line shows Pre-Sales + Sales During Operation combined; an Operate or Lease line its total revenue. Every line is the sum of its plots."
           yearLabels={snap.yearLabels}
-          rows={buildProjectGroupedRows({ view: 'revenue', assets, snap })}
+          rows={buildProjectGroupedRows({ view: 'revenue', lines, lineResults, axisLength: snap.axisLength })}
           unit={currency}
           fmt={fmt}
         />
         <PeriodTable
           title="Project Revenue Recognised"
-          formula="Per-asset breakdown grouped by strategy. Sell Pre-Sales = recognition profile spread; Sales During Operation = same-period (operating). Hospitality / Lease / Sell+Manage placeholder zeros wire in at Pass 8 / 9 / 10."
+          formula="Per-line breakdown grouped by section. Sell Pre-Sales = recognition profile spread; Sales During Operation = same-period (operating); Operate and Lease lines recognise as earned."
           yearLabels={snap.yearLabels}
-          rows={buildProjectGroupedRows({ view: 'recognition', assets, snap })}
+          rows={buildProjectGroupedRows({ view: 'recognition', lines, lineResults, axisLength: snap.axisLength })}
           unit={currency}
           fmt={fmt}
         />
         <PeriodTable
           title="Project Cash Collected"
-          formula="Per-asset breakdown grouped by strategy. Sell Pre-Sales = cash payment profile; Sales During Operation = same-period (operating). Hospitality / Lease / Sell+Manage placeholder zeros wire in at Pass 8 / 9 / 10."
+          formula="Per-line breakdown grouped by section. Sell Pre-Sales = sale cohort terms; Sales During Operation = same-period (operating); Operate and Lease lines collect as earned (receivable days apply on Schedules)."
           yearLabels={snap.yearLabels}
-          rows={buildProjectGroupedRows({ view: 'cash', assets, snap })}
+          rows={buildProjectGroupedRows({ view: 'cash', lines, lineResults, axisLength: snap.axisLength })}
           unit={currency}
           fmt={fmt}
         />

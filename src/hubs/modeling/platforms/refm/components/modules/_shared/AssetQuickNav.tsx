@@ -13,6 +13,8 @@
 
 import React from 'react';
 import type { Asset } from '../../../lib/state/module1-types';
+import { useModule1Store } from '../../../lib/state/module1-store';
+import { revenueSection, REVENUE_SECTIONS, REVENUE_SECTION_KEY, type RevenueSection } from '../../../lib/revenueLines';
 
 interface BucketCfg {
   key: string;
@@ -31,21 +33,27 @@ interface AssetQuickNavProps {
   testidPrefix?: string;
 }
 
-export function AssetQuickNav({ assets, idPrefix, testidPrefix = 'm2-asset-nav' }: AssetQuickNavProps): React.JSX.Element | null {
-  const visible = assets.filter((a) => a.visible !== false);
-  const residential = visible.filter(
-    (a) => (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') && a.isCompanion !== true,
-  );
-  const hospitality = visible.filter(
-    (a) => a.strategy === 'Operate' || a.isCompanion === true,
-  );
-  const retail = visible.filter((a) => a.strategy === 'Lease');
+const BUCKET_STYLE: Record<RevenueSection, { color: string; background: string }> = {
+  'Residential': { color: 'var(--color-navy, #0f2e4c)', background: 'color-mix(in srgb, var(--color-navy, #0f2e4c) 12%, transparent)' },
+  'Hospitality': { color: 'var(--color-success, #166534)', background: 'color-mix(in srgb, var(--color-success, #166534) 12%, transparent)' },
+  'Standalone Commercial': { color: 'var(--color-warning, #92400e)', background: 'color-mix(in srgb, var(--color-warning, #92400e) 12%, transparent)' },
+  'Retail Ground Floor': { color: 'var(--color-info, #1d4ed8)', background: 'color-mix(in srgb, var(--color-info, #1d4ed8) 12%, transparent)' },
+  'Other': { color: 'var(--color-meta)', background: 'color-mix(in srgb, var(--color-meta) 12%, transparent)' },
+};
 
-  const buckets: BucketCfg[] = [
-    { key: 'residential', label: 'Residential', color: 'var(--color-navy, #0f2e4c)', background: 'color-mix(in srgb, var(--color-navy, #0f2e4c) 12%, transparent)', assets: residential },
-    { key: 'hospitality', label: 'Hospitality', color: 'var(--color-success, #166534)', background: 'color-mix(in srgb, var(--color-success, #166534) 12%, transparent)', assets: hospitality },
-    { key: 'retail', label: 'Retail', color: 'var(--color-warning, #92400e)', background: 'color-mix(in srgb, var(--color-warning, #92400e) 12%, transparent)', assets: retail },
-  ].filter((b) => b.assets.length > 0);
+export function AssetQuickNav({ assets, idPrefix, testidPrefix = 'm2-asset-nav' }: AssetQuickNavProps): React.JSX.Element | null {
+  // THE ONE FILING RULE (2026-09-13). This bucketed by strategy and by the
+  // bare companion flag, so a retail strip (a Lease companion) was listed
+  // under Hospitality AND Retail: two pills for one card. Every asset now
+  // lands in exactly one bucket, the one `revenueSection` names.
+  const project = useModule1Store((s) => s.project);
+  const visible = assets.filter((a) => a.visible !== false);
+  const buckets: BucketCfg[] = REVENUE_SECTIONS.map((section) => ({
+    key: REVENUE_SECTION_KEY[section],
+    label: section,
+    ...BUCKET_STYLE[section],
+    assets: visible.filter((a) => revenueSection(a, project) === section),
+  })).filter((b) => b.assets.length > 0);
 
   if (buckets.length === 0) return null;
 

@@ -35,8 +35,10 @@
 import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
-import { computeAllSellResults } from '../../lib/revenue-resolvers';
+import { computeAllSellResults, lineRevenueResults } from '../../lib/revenue-resolvers';
 import { computeFinancialsSnapshot } from '../../lib/financials-resolvers';
+import { sumAssetCostOfSales } from '../../lib/costOfSales';
+import { planRevenueLines, REVENUE_SECTIONS, type RevenueSection } from '../../lib/revenueLines';
 import {
   buildAccountsReceivable,
   buildUnearnedRevenue,
@@ -162,7 +164,10 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, totalLabel = 
 }
 
 interface PerAssetFeed {
+  /** The LINE key (2026-09-13): one entry per revenue line, the sum of its plots. */
   assetId: string;
+  lineKey: string;
+  section: RevenueSection;
   name: string;
   strategy: 'Sell' | 'Sell + Manage' | 'Operate' | 'Lease' | string;
   isCompanion: boolean;
@@ -215,46 +220,53 @@ export default function Module2Schedules(): React.JSX.Element {
   const decimals: DisplayDecimals = project.displayDecimals ?? 2;
   const fmt = useMemo(() => makeFmt(scale, decimals), [scale, decimals]);
 
+  // THE FEED IS PER LINE, FILED BY SECTION (2026-09-13). One entry per revenue
+  // line from the one planner every Module 2 tab reads; a line's revenue,
+  // cash and cost of sales are the SUM of its plots'. The strategy decides
+  // which schedules a line carries (a Sell line: recognition, cohort cash,
+  // cost of sales, inventory, receivables and unearned; an Operate or Lease
+  // line: revenue and receivable-days cash); the section decides where it
+  // files. Until this the retail strip was skipped here outright (admitted to
+  // Hospitality by the companion flag, then dropped on its missing operate
+  // block, and excluded from Lease as a companion).
+  const lines = useMemo(
+    () => planRevenueLines(assets, state.subUnits, phases, project),
+    [assets, state.subUnits, phases, project],
+  );
   const perAssetFeed = useMemo<PerAssetFeed[]>(() => {
     const N = snap.axisLength;
     const zeros = (): number[] => new Array<number>(N).fill(0);
-    const projectStartYearLocal = snap.yearLabels[0] ?? 0;
     const out: PerAssetFeed[] = [];
 
-    for (const a of assets) {
-      if (a.visible === false) continue;
+    for (const line of lines) {
+      const a = line.host;
+      const memberIds = line.members.map((m) => m.id);
+      const res = lineRevenueResults(memberIds, snap, line.key);
+      const name = line.phaseName ? `${line.label} · ${line.phaseName}` : line.label;
+      const base = { assetId: line.key, lineKey: line.key, name, section: line.section, strategy: a.strategy, isCompanion: a.isCompanion === true };
 
-      // Sell + Sell+Manage parents (revenue + CoS + inventory + AR + UR)
-      if ((a.strategy === 'Sell' || a.strategy === 'Sell + Manage') && a.isCompanion !== true) {
-        const r = snap.bySellAsset.get(a.id);
+      if (line.form === 'sell') {
+        const r = res.sell;
         if (!r) continue;
-        const phase = phases.find((p) => p.id === a.phaseId);
-        if (!phase) continue;
 
-        // THE one result. No base assembled here, no second engine.
-        const cosResult = finSnap?.byAssetCostOfSales.get(a.id) ?? null;
+        // THE one result per plot, summed for the line. No base assembled
+        // here, no second engine.
+        const cosResult = finSnap
+          ? sumAssetCostOfSales(
+              memberIds.map((id) => finSnap.byAssetCostOfSales.get(id)).filter((c): c is NonNullable<typeof c> => !!c),
+              line.key, N,
+            )
+          : null;
         const capexPerPeriod = cosResult ? cosResult.capexPerPeriod.slice(0, N) : zeros();
         const inventory = cosResult ? cosResult.inventoryPerPeriod.slice(0, N) : zeros();
 
         // Pass 9g-I (2026-05-18): correct engine args.
         //   AR = Pre-Sales Sale Value (signing) - Pre-Sales Cash Received
         //   UR = Pre-Sales Sale Value (signing) - Pre-Sales Recognised
-        // Was passing recognition+cash to AR (negative when cash > rec)
-        // and recognition+cash to UR (negative when cash > rec).
-        const ar = buildAccountsReceivable(
-          r.presalesRevenuePerPeriod,
-          r.presalesCashPerPeriod,
-          N,
-        );
-        const ur = buildUnearnedRevenue(
-          r.presalesRecognitionPerPeriod,
-          r.presalesRevenuePerPeriod,
-          N,
-        );
+        const ar = buildAccountsReceivable(r.presalesRevenuePerPeriod, r.presalesCashPerPeriod, N);
+        const ur = buildUnearnedRevenue(r.presalesRecognitionPerPeriod, r.presalesRevenuePerPeriod, N);
 
         // Revenue = total recognition; Cash = total cash collected.
-        // Operating-sales convention: SDO recognition = SDO cash same
-        // period, so totalRecognition + totalCash both feed cleanly.
         const revenue = r.recognitionPerPeriod.slice();
         const cashCollected = r.cashCollectedPerPeriod.slice();
 
@@ -263,10 +275,7 @@ export default function Module2Schedules(): React.JSX.Element {
         const urSnapped = ur.perPeriod.map((v) => Math.abs(v) < 1 ? 0 : Math.max(0, v));
 
         out.push({
-          assetId: a.id,
-          name: a.name || 'Sell asset',
-          strategy: a.strategy,
-          isCompanion: false,
+          ...base,
           revenue,
           cashCollected,
           cosConstr: cosResult ? cosResult.cosPresalesPerPeriod.slice(0, N) : zeros(),
@@ -277,11 +286,11 @@ export default function Module2Schedules(): React.JSX.Element {
           ur: urSnapped,
           capex: capexPerPeriod,
         });
+        continue;
       }
 
-      // Hospitality (Operate parents + every companion)
-      if (a.strategy === 'Operate' || a.isCompanion === true) {
-        const r = snap.byHospitalityAsset.get(a.id);
+      if (line.form === 'operate') {
+        const r = res.hospitality;
         if (!r) continue;
         const dso = a.revenue?.operate?.dso ?? 30;
         const arH = buildAccountsReceivableDSO({
@@ -291,57 +300,43 @@ export default function Module2Schedules(): React.JSX.Element {
           axisLength: N,
         });
         out.push({
-          assetId: a.id,
-          name: a.name || 'Hospitality asset',
-          strategy: a.strategy,
-          isCompanion: a.isCompanion === true,
+          ...base,
           revenue: r.totalRevenuePerPeriod.slice(),
           cashCollected: arH.cashReceivedPerPeriod.slice(),
-          cosConstr: zeros(),
-          cosOps: zeros(),
-          totalCos: zeros(),
-          inventory: zeros(),
+          cosConstr: zeros(), cosOps: zeros(), totalCos: zeros(), inventory: zeros(),
           ar: arH.perPeriod.map((v) => Math.abs(v) < 1 ? 0 : Math.max(0, v)),
           ur: zeros(),
           capex: zeros(),
         });
+        continue;
       }
 
-      // Lease parents
-      if (a.strategy === 'Lease' && a.isCompanion !== true) {
-        const r = snap.byLeaseAsset.get(a.id);
-        if (!r) continue;
-        const arDays = a.revenue?.lease?.arDays ?? 30;
-        const arL = buildAccountsReceivableDSO({
-          revenuePerPeriod: r.totalRevenuePerPeriod,
-          dsoDays: arDays,
-          daysPerYear: 365,
-          axisLength: N,
-        });
-        out.push({
-          assetId: a.id,
-          name: a.name || 'Lease asset',
-          strategy: a.strategy,
-          isCompanion: false,
-          revenue: r.totalRevenuePerPeriod.slice(),
-          cashCollected: arL.cashReceivedPerPeriod.slice(),
-          cosConstr: zeros(),
-          cosOps: zeros(),
-          totalCos: zeros(),
-          inventory: zeros(),
-          ar: arL.perPeriod.map((v) => Math.abs(v) < 1 ? 0 : Math.max(0, v)),
-          ur: zeros(),
-          capex: zeros(),
-        });
-      }
+      const r = res.lease;
+      if (!r) continue;
+      const arDays = a.revenue?.lease?.arDays ?? 30;
+      const arL = buildAccountsReceivableDSO({
+        revenuePerPeriod: r.totalRevenuePerPeriod,
+        dsoDays: arDays,
+        daysPerYear: 365,
+        axisLength: N,
+      });
+      out.push({
+        ...base,
+        revenue: r.totalRevenuePerPeriod.slice(),
+        cashCollected: arL.cashReceivedPerPeriod.slice(),
+        cosConstr: zeros(), cosOps: zeros(), totalCos: zeros(), inventory: zeros(),
+        ar: arL.perPeriod.map((v) => Math.abs(v) < 1 ? 0 : Math.max(0, v)),
+        ur: zeros(),
+        capex: zeros(),
+      });
     }
     return out;
-  }, [snap, assets, phases, project, state.subUnits, state.parcels, state.costLines, state.costOverrides, state.landAllocationMode]);
+  }, [snap, lines, finSnap]);
 
-  // ─ Bucket assets by strategy group for the rendered tables ─
-  const sellAssets = perAssetFeed.filter((a) => (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') && !a.isCompanion);
-  const hospAssets = perAssetFeed.filter((a) => a.strategy === 'Operate' || a.isCompanion);
-  const leaseAssets = perAssetFeed.filter((a) => a.strategy === 'Lease' && !a.isCompanion);
+  // ─ Lines file by SECTION, in the one reading order (2026-09-13) ─
+  const bySection = REVENUE_SECTIONS
+    .map((section) => ({ section, lines: perAssetFeed.filter((a) => a.section === section) }))
+    .filter((g) => g.lines.length > 0);
 
   const N = snap.axisLength;
   const zeros = (): number[] => new Array<number>(N).fill(0);
@@ -420,9 +415,7 @@ export default function Module2Schedules(): React.JSX.Element {
         aggregation: aggForTotal,
       });
     };
-    pushGroup('Residential / Sell', sellAssets);
-    pushGroup('Hospitality / Operations', hospAssets);
-    pushGroup('Retail / Lease', leaseAssets);
+    for (const g of bySection) pushGroup(g.section, g.lines);
     // Grand row across all assets (still uses ALL assets so totals reconcile).
     const allSeries = perAssetFeed.map((a) => a[field] as number[]);
     const grandTotal = sumArrays(allSeries);
@@ -440,16 +433,32 @@ export default function Module2Schedules(): React.JSX.Element {
   // For CoS we only show Sell assets (other strategies have no CoS).
   // Filter out Sell assets that produced zero CoS (degenerate configs).
   const cosRows: Row[] = [];
-  const activeCosSellAssets = sellAssets.filter((a) => hasAnyValue(a.totalCos));
-  if (activeCosSellAssets.length > 0) {
-    cosRows.push({ label: 'Residential / Sell', values: [], isSection: true });
-    for (const a of activeCosSellAssets) {
-      cosRows.push({ label: `${a.name} · CoS during construction`, values: a.cosConstr, indent: 1, aggregation: 'sum' });
-      cosRows.push({ label: `${a.name} · CoS during operations`, values: a.cosOps, indent: 1, aggregation: 'sum' });
-      cosRows.push({ label: `${a.name} · Total Cost of Sales`, values: a.totalCos, indent: 1, isSubtotal: true, aggregation: 'sum' });
+  const cosSections = bySection
+    .map((g) => ({ section: g.section, lines: g.lines.filter((a) => hasAnyValue(a.totalCos)) }))
+    .filter((g) => g.lines.length > 0);
+  if (cosSections.length > 0) {
+    for (const g of cosSections) {
+      cosRows.push({ label: g.section, values: [], isSection: true });
+      for (const a of g.lines) {
+        cosRows.push({ label: `${a.name} · CoS during construction`, values: a.cosConstr, indent: 1, aggregation: 'sum' });
+        cosRows.push({ label: `${a.name} · CoS during operations`, values: a.cosOps, indent: 1, aggregation: 'sum' });
+        cosRows.push({ label: `${a.name} · Total Cost of Sales`, values: a.totalCos, indent: 1, isSubtotal: true, aggregation: 'sum' });
+      }
     }
     cosRows.push({ label: 'Total Cost of Sales', values: totalCoS, isTotal: true, aggregation: 'sum' });
   }
+
+  // A stock or capex table's rows, filed by section, lines with nothing hidden.
+  const sectionedRows = (field: 'inventory' | 'ur' | 'capex', agg: Aggregation, labelOf: (a: PerAssetFeed) => string): Row[] => {
+    const rows: Row[] = [];
+    for (const g of bySection) {
+      const active = g.lines.filter((a) => hasAnyValue(a[field]));
+      if (active.length === 0) continue;
+      rows.push({ label: g.section, values: [], isSection: true });
+      for (const a of active) rows.push({ label: labelOf(a), values: a[field], indent: 1, aggregation: agg });
+    }
+    return rows;
+  };
 
   return (
     <div data-testid="m2-schedules" style={{ padding: 'var(--sp-3)' }}>
@@ -459,7 +468,7 @@ export default function Module2Schedules(): React.JSX.Element {
           {currencyHeaderLine(currency, scale)} ({decimals} dp)
         </div>
         <p style={{ color: 'var(--color-meta)', marginTop: 4, fontSize: 'var(--font-small)' }}>
-          Per-asset feed grouped by strategy. Only assets with non-zero values for a given line appear; zero rows are hidden so the
+          Per-line feed (one type in one phase across its plots, the sum of those plots) grouped by section. Only lines with non-zero values for a given row appear; zero rows are hidden so the
           feed stays compact. Flow lines (Revenue, CoS, Cash) show <strong>sum</strong> in the Total column; stock lines
           (Inventory, AR, UR) show <strong>closing balance</strong>. Schedules surfaces only raw line items here, Direct /
           Indirect cash-flow reconciliation, Net Working Capital, and the full P&amp;L / BS / CF statements compose in Module 3.
@@ -514,16 +523,15 @@ export default function Module2Schedules(): React.JSX.Element {
         storageKey="fmp:m2:schedules:bs:collapsed"
       >
         {(() => {
-          const activeInvAssets = sellAssets.filter((a) => hasAnyValue(a.inventory));
-          if (activeInvAssets.length === 0) return null;
+          const invRows = sectionedRows('inventory', 'last', (a) => a.name);
+          if (invRows.length === 0) return null;
           return (
             <PeriodTable
               title="Inventory (closing balances)"
               caption="Sell-strategy work-in-progress + completed-but-unsold inventory. Settles to 0 once cumulative CoS recognises 100% of capex."
               yearLabels={snap.yearLabels}
               rows={[
-                { label: 'Residential / Sell', values: [], isSection: true },
-                ...activeInvAssets.map((a) => ({ label: a.name, values: a.inventory, indent: 1, aggregation: 'last' as Aggregation })),
+                ...invRows,
                 { label: 'Total Inventory', values: totalInventory, isTotal: true, aggregation: 'last' as Aggregation },
               ]}
               currency={currency}
@@ -542,16 +550,15 @@ export default function Module2Schedules(): React.JSX.Element {
           fmt={fmt}
         />
         {(() => {
-          const activeUrAssets = sellAssets.filter((a) => hasAnyValue(a.ur));
-          if (activeUrAssets.length === 0) return null;
+          const urRows = sectionedRows('ur', 'last', (a) => a.name);
+          if (urRows.length === 0) return null;
           return (
             <PeriodTable
               title="Unearned Revenue (closing balances)"
               caption="Pre-sales sale value not yet recognised. Sell-strategy only, Hospitality + Lease recognise revenue in the same period it's earned, no deferral. Settles to 0 once cumulative recognition equals cumulative sale value."
               yearLabels={snap.yearLabels}
               rows={[
-                { label: 'Residential / Sell', values: [], isSection: true },
-                ...activeUrAssets.map((a) => ({ label: a.name, values: a.ur, indent: 1, aggregation: 'last' as Aggregation })),
+                ...urRows,
                 { label: 'Total Unearned Revenue', values: totalUR, isTotal: true, aggregation: 'last' as Aggregation },
               ]}
               currency={currency}
@@ -585,16 +592,15 @@ export default function Module2Schedules(): React.JSX.Element {
           fmt={fmt}
         />
         {(() => {
-          const activeCapexAssets = sellAssets.filter((a) => hasAnyValue(a.capex));
-          if (activeCapexAssets.length === 0) return null;
+          const capexRows = sectionedRows('capex', 'sum', (a) => `${a.name} · Capex`);
+          if (capexRows.length === 0) return null;
           return (
             <PeriodTable
-              title="Capex (per Sell asset)"
-              caption="Construction capex from Module 1 cost engine, project-axis-aligned. Lease + Hospitality capex shows here too once those asset types wire in M3 (currently zero in this projection)."
+              title="Capex (per Sell line)"
+              caption="Construction capex from Module 1 cost engine, project-axis-aligned, the base cost of sales is spread on. Lease + Hospitality capex shows here too once those asset types wire in M3 (currently zero in this projection)."
               yearLabels={snap.yearLabels}
               rows={[
-                { label: 'Residential / Sell', values: [], isSection: true },
-                ...activeCapexAssets.map((a) => ({ label: `${a.name} · Capex`, values: a.capex, indent: 1, aggregation: 'sum' as Aggregation })),
+                ...capexRows,
                 { label: 'Total Capex', values: totalCapex, isTotal: true, aggregation: 'sum' as Aggregation },
               ]}
               currency={currency}

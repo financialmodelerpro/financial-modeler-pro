@@ -25,7 +25,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
-import type { Asset, SubUnit, Phase, Project } from '../../lib/state/module1-types';
+import type { Asset, SubUnit, Phase, Project, Parcel } from '../../lib/state/module1-types';
 import { computeProjectTimeline, computeSubUnitArea, resolveSubUnitMetric } from '@/src/core/calculations';
 import { formatArea, formatAccounting } from '@/src/core/formatters';
 import { DEFAULT_INSTALMENT_YEARS } from '@/src/core/calculations/revenue/cohortTerms';
@@ -35,9 +35,16 @@ import {
 import { PercentageInput } from '../ui/PercentageInput';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { CELL_HEADER } from './_shared/tableStyles';
-import { AssetQuickNav } from './_shared/AssetQuickNav';
-import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
+import { RevenueLineNav } from './_shared/RevenueLineNav';
+import { withResolvedAssetNames, assetPlotLabel } from '@/src/core/calculations/assetName';
 import { isRetailCompanion } from '@/src/core/calculations/retailCompanion';
+import { keysFromArea } from '@/src/core/calculations';
+import { resolveAvgUnitSize } from '../../lib/state/assetTypeStandards';
+import { resolveRowVelocity } from '../../lib/revenue-resolvers';
+import {
+  planRevenueLines, groupRevenueLines, REVENUE_SECTION_KEY, REVENUE_SECTION_META,
+  type RevenueLine, type RevenueSection,
+} from '../../lib/revenueLines';
 
 const FAST_INPUT: React.CSSProperties = {
   background: 'var(--color-navy-pale)',
@@ -64,9 +71,10 @@ const phaseHeaderStyle: React.CSSProperties = {
 };
 
 const STRATEGY_BADGE: Record<string, { bg: string; fg: string; label: string }> = {
-  'Sell': { bg: 'color-mix(in srgb, var(--color-navy, #0f2e4c) 14%, transparent)', fg: 'var(--color-navy, #0f2e4c)', label: 'Residential / Sell' },
-  'Operate': { bg: 'color-mix(in srgb, var(--color-success, #166534) 14%, transparent)', fg: 'var(--color-success, #166534)', label: 'Hospitality / Operate' },
-  'Lease': { bg: 'color-mix(in srgb, var(--color-warning, #92400e) 14%, transparent)', fg: 'var(--color-warning, #92400e)', label: 'Retail / Office / Lease' },
+  // THE BADGE SAYS THE STRATEGY, the section says the building (2026-09-13).
+  'Sell': { bg: 'color-mix(in srgb, var(--color-navy, #0f2e4c) 14%, transparent)', fg: 'var(--color-navy, #0f2e4c)', label: 'Sell' },
+  'Operate': { bg: 'color-mix(in srgb, var(--color-success, #166534) 14%, transparent)', fg: 'var(--color-success, #166534)', label: 'Operate' },
+  'Lease': { bg: 'color-mix(in srgb, var(--color-warning, #92400e) 14%, transparent)', fg: 'var(--color-warning, #92400e)', label: 'Lease' },
   'Sell + Manage': { bg: 'color-mix(in srgb, var(--color-info, #1d4ed8) 14%, transparent)', fg: 'var(--color-info, #1d4ed8)', label: 'Sell + Manage' },
 };
 
@@ -110,12 +118,12 @@ function nsaShareNote(su: SubUnit): string {
   return ` (${shown}% of line NSA)`;
 }
 
-function subUnitSummary(units: SubUnit[], asset: Asset | undefined): string {
+function subUnitSummary(units: SubUnit[], assetFor: (u: SubUnit) => Asset | undefined): string {
   if (units.length === 0) return 'No sub-units yet';
   const totalCount = units
-    .filter((u) => u.metric === 'units')
+    .filter((u) => resolveSubUnitMetric(u, assetFor(u)) === 'units')
     .reduce((s, u) => s + Math.max(0, u.metricValue), 0);
-  const totalArea = units.reduce((s, u) => s + computeSubUnitArea(u, asset), 0);
+  const totalArea = units.reduce((s, u) => s + computeSubUnitArea(u, assetFor(u)), 0);
   const a = totalCount > 0 ? `${Math.round(totalCount).toLocaleString('en-US')} units` : null;
   const b = totalArea > 0 ? `${formatArea(totalArea, 0)} sqm` : null;
   return [a, b].filter(Boolean).join(' · ') || 'No measurements';
@@ -131,12 +139,16 @@ function subUnitSummary(units: SubUnit[], asset: Asset | undefined): string {
 function SubUnitReferenceStrip({
   units,
   asset,
+  assetFor,
   currency,
   mode = 'sell',
 }: {
   units: SubUnit[];
   /** The asset the rows hang off: its metric wins over theirs (TRAPS 7.32). */
   asset: Asset | undefined;
+  /** THE ROW'S OWN PLOT (2026-09-13): rows are pooled across a line's plots,
+   *  and each resolves its metric against its own. Falls back to `asset`. */
+  assetFor?: (u: SubUnit) => Asset | undefined;
   currency: string;
   // Pass 9e (2026-05-18): 'operate' surfaces SubUnit.startingAdr as
   // "ADR / night" and labels the count as "keys". 'sell' (default)
@@ -146,6 +158,7 @@ function SubUnitReferenceStrip({
   mode?: 'sell' | 'operate' | 'lease';
 }): React.JSX.Element | null {
   if (units.length === 0) return null;
+  const ownerOf = (u: SubUnit): Asset | undefined => assetFor?.(u) ?? asset;
   return (
     <div style={{
       display: 'flex',
@@ -161,8 +174,9 @@ function SubUnitReferenceStrip({
         Sub-units (from M1)
       </span>
       {units.map((su) => {
-        const area = computeSubUnitArea(su, asset);
-        const isUnitsMetric = su.metric === 'units';
+        const owner = ownerOf(su);
+        const area = computeSubUnitArea(su, owner);
+        const isUnitsMetric = resolveSubUnitMetric(su, owner) === 'units';
         const countNoun = mode === 'operate' && isUnitsMetric ? 'keys' : 'units';
         let rateLabel: string;
         if (mode === 'operate' && isUnitsMetric) {
@@ -246,6 +260,11 @@ export default function Module2Revenue(): React.JSX.Element {
       && (a.isCompanion !== true || isRetailCompanion(a))),
     [assets],
   );
+  // THE LINES, from the one planner every Module 2 tab reads (2026-09-13).
+  const lines = useMemo(
+    () => planRevenueLines(assets, subUnits, phases, project),
+    [assets, subUnits, phases, project],
+  );
 
   // Project-wide sale cohort defaults. Written like the escrow defaults on
   // Module 2 Escrow: spread the existing object so a sibling field added later
@@ -284,7 +303,7 @@ export default function Module2Revenue(): React.JSX.Element {
           Module 2 · Revenue
         </h1>
         <p style={{ color: 'var(--color-meta)', marginTop: 4, fontSize: 'var(--font-small)', maxWidth: 800 }}>
-          Configure revenue per phase. Each asset owns its own velocity, indexation, cash profile, and recognition method. Phase 1 (Residential / Sell) is live; other strategies follow.
+          One card per line (one type in one phase across its plots, as on Table 5), filed under Residential, Hospitality, Standalone Commercial and Retail Ground Floor. The sub-units of a line are pooled across its plots; velocity, indexation, terms and recognition are typed once and apply to every plot on the line.
         </p>
       </div>
 
@@ -390,87 +409,48 @@ export default function Module2Revenue(): React.JSX.Element {
        *  Pills grouped by strategy bucket scroll the page to the
        *  matching asset card so users don't have to hunt for a
        *  specific asset in long projects. */}
-      <AssetQuickNav assets={assets} idPrefix="m2-input-asset" testidPrefix="m2-input-nav" />
+      <RevenueLineNav lines={lines} idPrefix="m2-input-line" testidPrefix="m2-input-nav" />
 
-      {/* M2 Pass 9i (2026-05-20) + Pass 9L (2026-05-21): grouped by
-       *  strategy (Residential -> Hospitality -> Retail) instead of by
-       *  phase. Each asset shows its phase as a small badge on the
-       *  card. Sell + Manage PARENTS stay in Residential with their
-       *  Sell-side inputs; their Operate COMPANIONS render in
-       *  Hospitality (with a "linked to {parent}" chip) so each
-       *  strategy bucket only carries inputs for that strategy. */}
-      {(() => {
-        const residentialAssets = visibleAssets.filter(
-          (a) => (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') && a.isCompanion !== true,
-        );
-        const operateCompanions = assets.filter(
-          (a) => a.visible !== false && a.isCompanion === true && a.strategy === 'Operate',
-        );
-        const hospitalityAssets = [
-          ...visibleAssets.filter((a) => a.strategy === 'Operate' && a.isCompanion !== true),
-          ...operateCompanions,
-        ];
-        const retailAssets = visibleAssets.filter((a) => a.strategy === 'Lease');
-        return (
-          <>
-            {residentialAssets.length > 0 && (
-              <StrategyGroup
-                strategyKey="residential"
-                title="Residential"
-                assets={residentialAssets}
-                allAssets={assets}
-                subUnits={subUnits}
-                project={project}
-                phases={phases}
-              />
-            )}
-            {hospitalityAssets.length > 0 && (
-              <StrategyGroup
-                strategyKey="hospitality"
-                title="Hospitality"
-                assets={hospitalityAssets}
-                allAssets={assets}
-                subUnits={subUnits}
-                project={project}
-                phases={phases}
-              />
-            )}
-            {retailAssets.length > 0 && (
-              <StrategyGroup
-                strategyKey="retail"
-                title="Retail / Lease"
-                assets={retailAssets}
-                allAssets={assets}
-                subUnits={subUnits}
-                project={project}
-                phases={phases}
-              />
-            )}
-          </>
-        );
-      })()}
+      {/* THE LINE IS THE CARD (2026-09-13). One card per consolidated line
+       *  (one type in one phase across its plots, the same grouping Table 5
+       *  and the capex input use), its sub-units pooled across the plots,
+       *  its terms typed once and written to every plot. Sections are the
+       *  founder's reading order from the ONE filing rule in
+       *  lib/revenueLines.ts: Residential, Hospitality, Standalone
+       *  Commercial, Retail Ground Floor. A retail strip is its own line in
+       *  its own section; an Operate companion files under Hospitality with
+       *  a chip naming the line it mirrors. */}
+      {groupRevenueLines(lines).map((g) => (
+        <SectionGroup
+          key={g.section}
+          section={g.section}
+          lines={g.lines}
+          allLines={lines}
+          project={project}
+          phases={phases}
+          parcels={parcels}
+        />
+      ))}
     </div>
   );
 }
 
-// ── Strategy group section (M2 Pass 9i, 2026-05-20) ──────────────────
-// Replaces the legacy phase-grouped layout. Each strategy bucket
-// (Residential / Hospitality / Retail) renders as a single collapsible
-// section, with the assets in entry order. Each asset card carries a
-// small "Phase X" badge so the user can still see phase context.
+// ── Section group (2026-09-13, replacing the strategy group of Pass 9i) ──
+// One collapsible section per revenue section, the lines in reading order.
+// Each card carries its phase as a small badge and names its plots once.
 
-interface StrategyGroupProps {
-  strategyKey: 'residential' | 'hospitality' | 'retail';
-  title: string;
-  assets: Asset[];
-  allAssets: Asset[];
-  subUnits: SubUnit[];
+interface SectionGroupProps {
+  section: RevenueSection;
+  lines: RevenueLine[];
+  allLines: RevenueLine[];
   project: Project;
   phases: Phase[];
+  parcels: Parcel[];
 }
 
-function StrategyGroup({ strategyKey, title, assets, allAssets, subUnits, project, phases }: StrategyGroupProps): React.JSX.Element {
-  const collapseKey = `fmp:m2:inputs:strategy:${strategyKey}:collapsed`;
+function SectionGroup({ section, lines, allLines, project, phases, parcels }: SectionGroupProps): React.JSX.Element {
+  const sectionKey = REVENUE_SECTION_KEY[section];
+  const collapseKey = `fmp:m2:inputs:section:${sectionKey}:collapsed`;
   const readCollapsed = (): boolean => {
     if (typeof window === 'undefined') return false;
     try { return window.localStorage.getItem(collapseKey) === 'true'; }
@@ -480,36 +460,29 @@ function StrategyGroup({ strategyKey, title, assets, allAssets, subUnits, projec
   useEffect(() => {
     try { window.localStorage.setItem(collapseKey, String(collapsed)); } catch { /* noop */ }
   }, [collapsed, collapseKey]);
-  // M4 Pass 2N-Fix (2026-05-21): expand only if the clicked asset
-  // belongs to this strategy bucket.
-  const ownAssetIds = useMemo(
-    () => new Set([
-      ...assets.map((a) => a.id),
-      // also cover companions when the bucket renders a Sell+Manage parent.
-      ...allAssets.filter((a) => a.isCompanion === true && assets.some((p) => p.id === a.parentAssetId)).map((a) => a.id),
-    ]),
-    [assets, allAssets],
-  );
+  // Expand only when the nav targets a line in this section.
+  const ownLineKeys = useMemo(() => new Set(lines.map((l) => l.key)), [lines]);
   useEffect(() => {
     const handler = (e: Event): void => {
       const detail = (e as CustomEvent<{ assetId?: string }>).detail;
-      if (detail?.assetId && ownAssetIds.has(detail.assetId)) setCollapsed(false);
+      if (detail?.assetId && ownLineKeys.has(detail.assetId)) setCollapsed(false);
     };
     window.addEventListener('fmp:asset-nav-expand', handler);
     return () => window.removeEventListener('fmp:asset-nav-expand', handler);
-  }, [ownAssetIds]);
+  }, [ownLineKeys]);
 
   const phaseById = new Map(phases.map((p) => [p.id, p] as const));
 
   return (
-    <div data-testid={`m2-strategy-${strategyKey}`} style={{ marginBottom: 'var(--sp-3)' }}>
+    <div data-testid={`m2-section-${sectionKey}`} style={{ marginBottom: 'var(--sp-3)' }}>
       <div style={phaseHeaderStyle} onClick={() => setCollapsed(!collapsed)}>
         <div>
-          <strong style={{ fontSize: 14, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{title}</strong>
+          <strong style={{ fontSize: 14, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{section}</strong>
+          <span style={{ marginLeft: 12, fontSize: 11, opacity: 0.85 }}>{REVENUE_SECTION_META[section]}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 11, opacity: 0.85 }} data-testid={`m2-strategy-${strategyKey}-asset-count`}>
-            {assets.length} asset{assets.length === 1 ? '' : 's'}
+          <span style={{ fontSize: 11, opacity: 0.85 }} data-testid={`m2-section-${sectionKey}-line-count`}>
+            {lines.length} line{lines.length === 1 ? '' : 's'}
           </span>
           <span style={{ fontSize: 14, opacity: 0.85 }}>{collapsed ? '▶' : '▼'}</span>
         </div>
@@ -517,18 +490,16 @@ function StrategyGroup({ strategyKey, title, assets, allAssets, subUnits, projec
 
       {!collapsed && (
         <>
-          {assets.map((a) => {
-            const phase = phaseById.get(a.phaseId);
+          {lines.map((line) => {
+            const phase = phaseById.get(line.phaseId);
             if (!phase) return null;
-            // Pass 9L (2026-05-21): companions (Operate side of a Sell +
-            // Manage parent) now render in the Hospitality bucket. Show
-            // a small "linked to {parent}" chip so the relationship to
-            // the Sell side (in Residential) stays visible.
-            const parent = a.isCompanion === true && a.parentAssetId
-              ? allAssets.find((p) => p.id === a.parentAssetId)
+            // An Operate companion files here, under Hospitality, beside a chip
+            // naming the Residential line whose units it mirrors.
+            const parent = line.isOperateCompanion && line.parentLineKey
+              ? allLines.find((l) => l.key === line.parentLineKey)
               : undefined;
             return (
-              <React.Fragment key={a.id}>
+              <React.Fragment key={line.key}>
                 {parent && (
                   <div
                     style={{
@@ -545,15 +516,15 @@ function StrategyGroup({ strategyKey, title, assets, allAssets, subUnits, projec
                       marginBottom: 0,
                     }}
                   >
-                    ↳ Manage / Operate · linked to {parent.name} (Sell side in Residential)
+                    ↳ Manage / Operate · linked to {parent.label}{parent.phaseName ? `, ${parent.phaseName}` : ''} (Sell side in {parent.section})
                   </div>
                 )}
                 <AssetCard
-                  asset={a}
-                  subUnits={subUnits.filter((u) => u.assetId === a.id)}
+                  line={line}
                   phase={phase}
                   project={project}
                   phases={phases}
+                  parcels={parcels}
                 />
               </React.Fragment>
             );
@@ -564,153 +535,37 @@ function StrategyGroup({ strategyKey, title, assets, allAssets, subUnits, projec
   );
 }
 
-// ── Phase section (legacy, kept for back-compat if anyone imports it) ──
-
-interface PhaseSectionProps {
-  phase: Phase;
-  assets: Asset[];
-  allAssets: Asset[];
-  subUnits: SubUnit[];
-  project: Project;
-  phases: Phase[];
-}
-
-function PhaseSection({ phase, assets, allAssets, subUnits, project, phases }: PhaseSectionProps): React.JSX.Element {
-  const collapseKey = `fmp:m2:inputs:phase:${phase.id}:collapsed`;
-  const readCollapsed = (): boolean => {
-    if (typeof window === 'undefined') return false;
-    try { return window.localStorage.getItem(collapseKey) === 'true'; }
-    catch { return false; }
-  };
-  const [collapsed, setCollapsed] = useState<boolean>(readCollapsed);
-  useEffect(() => {
-    try { window.localStorage.setItem(collapseKey, String(collapsed)); } catch { /* noop */ }
-  }, [collapsed, collapseKey]);
-
-  return (
-    <div data-testid={`m2-phase-${phase.id}`} style={{ marginBottom: 'var(--sp-3)' }}>
-      <div style={phaseHeaderStyle} onClick={() => setCollapsed(!collapsed)}>
-        <div>
-          <strong style={{ fontSize: 14, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{phase.name}</strong>
-          <span style={{ marginLeft: 12, fontSize: 11, opacity: 0.85 }}>
-            {phase.status ?? 'planning'} · {phase.constructionPeriods}p construction + {phase.operationsPeriods}p operations
-          </span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 11, opacity: 0.85 }} data-testid={`m2-phase-${phase.id}-asset-count`}>
-            {assets.length} asset{assets.length === 1 ? '' : 's'}
-          </span>
-          <span style={{ fontSize: 14, opacity: 0.85 }}>{collapsed ? '▶' : '▼'}</span>
-        </div>
-      </div>
-
-      {!collapsed && (
-        <>
-          {assets.length === 0 && (
-            <div
-              style={{
-                background: 'var(--color-surface)',
-                border: '1px dashed var(--color-border)',
-                borderRadius: 'var(--radius-sm)',
-                padding: 'var(--sp-2)',
-                color: 'var(--color-text-muted)',
-                fontSize: 'var(--font-small)',
-                fontStyle: 'italic',
-              }}
-            >
-              No assets in {phase.name} yet. Add them on Module 1 · Tab 2.
-            </div>
-          )}
-          {assets.map((a) => {
-            // Pass 9d (2026-05-18): when a Sell + Manage parent is
-            // rendered, also surface its companion's Hospitality
-            // inputs as a SIBLING card so the user has somewhere to
-            // enter ADR / occupancy / F&B / Other for the manage half.
-            // Pass 9e-6 (2026-05-18): per user feedback, the companion
-            // is no longer visually nested inside the parent's card, // it renders as its own collapsible sibling, with a small
-            // "Linked to {parent}" reference chip on top to preserve
-            // the relationship.
-            const companion = a.strategy === 'Sell + Manage'
-              ? allAssets.find((c) => c.parentAssetId === a.id && c.isCompanion === true && c.visible !== false)
-              : undefined;
-            return (
-              <React.Fragment key={a.id}>
-                {companion && (
-                  <div
-                    style={{
-                      fontSize: 10,
-                      color: 'var(--color-info, #1d4ed8)',
-                      fontWeight: 700,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.04em',
-                      padding: '4px 10px',
-                      background: 'color-mix(in srgb, var(--color-info, #1d4ed8) 8%, transparent)',
-                      borderLeft: '3px solid var(--color-info, #1d4ed8)',
-                      borderTopLeftRadius: 'var(--radius-sm)',
-                      borderTopRightRadius: 'var(--radius-sm)',
-                      marginBottom: 0,
-                    }}
-                  >
-                    ↑ Sell · linked to {companion.name} (Manage / Operate companion below)
-                  </div>
-                )}
-                <AssetCard
-                  asset={a}
-                  subUnits={subUnits.filter((u) => u.assetId === a.id)}
-                  phase={phase}
-                  project={project}
-                  phases={phases}
-                />
-                {companion && (
-                  <div style={{ marginBottom: 'var(--sp-2)' }}>
-                    <div
-                      style={{
-                        fontSize: 10,
-                        color: 'var(--color-info, #1d4ed8)',
-                        fontWeight: 700,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.04em',
-                        padding: '4px 10px',
-                        background: 'color-mix(in srgb, var(--color-info, #1d4ed8) 8%, transparent)',
-                        borderLeft: '3px solid var(--color-info, #1d4ed8)',
-                        borderTopLeftRadius: 'var(--radius-sm)',
-                        borderTopRightRadius: 'var(--radius-sm)',
-                        marginBottom: 0,
-                      }}
-                    >
-                      ↳ Manage / Operate · linked to {a.name} (Sell side above)
-                    </div>
-                    <AssetCard
-                      asset={companion}
-                      subUnits={subUnits.filter((u) => u.assetId === companion.id)}
-                      phase={phase}
-                      project={project}
-                      phases={phases}
-                    />
-                  </div>
-                )}
-              </React.Fragment>
-            );
-          })}
-        </>
-      )}
-    </div>
-  );
-}
 
 // ── Asset card with inline revenue inputs ─────────────────────────────
 
 interface AssetCardProps {
-  asset: Asset;
-  subUnits: SubUnit[];
+  /** THE LINE: its host carries the terms this card reads, its members are
+   *  every plot the terms are written to, its sub-units are Table 5's rows
+   *  pooled across those plots. */
+  line: RevenueLine;
   phase: Phase;
   project: Project;
   phases: Phase[];
+  parcels: Parcel[];
 }
 
-function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps): React.JSX.Element {
+function AssetCard({ line, phase, project, phases, parcels }: AssetCardProps): React.JSX.Element {
+  const asset = line.host;
+  const subUnits = line.subUnits;
   const updateAsset = useModule1Store((s) => s.updateAsset);
-  const updateSubUnit = useModule1Store((s) => s.updateSubUnit);
+  // THE ROW'S OWN ASSET, for its metric (TRAPS 7.32): rows are pooled across
+  // the line's plots, and a row's metric is its own plot's, not the host's.
+  const memberById = useMemo(() => new Map(line.members.map((m) => [m.id, m] as const)), [line.members]);
+  const assetFor = (u: SubUnit): Asset | undefined => memberById.get(u.assetId) ?? asset;
+  // ONE OBJECT, EVERY MEMBER (2026-09-13). The line's terms are written to
+  // each plot on the line, stamped with that plot's own id, so the engine,
+  // which still runs per asset, reads the same terms on every plot and a
+  // line kept in step can never carry two answers.
+  const writeForm = (form: 'sell' | 'operate' | 'lease', next: Record<string, unknown>): void => {
+    for (const m of line.members) {
+      updateAsset(m.id, { revenue: { ...(m.revenue ?? {}), [form]: { ...next, assetId: m.id } } } as Partial<Asset>);
+    }
+  };
   const strategyMeta = STRATEGY_BADGE[asset.strategy ?? ''] ?? { bg: 'var(--color-surface)', fg: 'var(--color-meta)', label: asset.strategy ?? '?' };
   // Pass 7w (2026-05-18): Sell + Manage parents get full Sell-side
   // treatment (velocity grid, indexation, cash profile, recognition
@@ -729,8 +584,9 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   // Pass 9g (2026-05-18): Retail / Office Lease input variant.
   const isLease = asset.strategy === 'Lease';
 
-  // Asset-level collapse per [[feedback_ui_universal_defaults]] rule 4.
-  const assetCollapseKey = `fmp:m2:inputs:asset:${asset.id}:collapsed`;
+  // Line-level collapse per [[feedback_ui_universal_defaults]] rule 4, keyed
+  // by the line so it survives a plot being added to the line.
+  const assetCollapseKey = `fmp:m2:inputs:line:${line.key}:collapsed`;
   const readAssetCollapsed = (): boolean => {
     if (typeof window === 'undefined') return false;
     try { return window.localStorage.getItem(assetCollapseKey) === 'true'; }
@@ -745,27 +601,22 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
   useEffect(() => {
     const handler = (e: Event): void => {
       const detail = (e as CustomEvent<{ assetId?: string }>).detail;
-      if (detail?.assetId === asset.id) setAssetCollapsed(false);
+      if (detail?.assetId === line.key) setAssetCollapsed(false);
     };
     window.addEventListener('fmp:asset-nav-expand', handler);
     return () => window.removeEventListener('fmp:asset-nav-expand', handler);
-  }, [asset.id]);
+  }, [line.key]);
 
-  // Pass 7v (2026-05-18): velocity grid defaults to a single shared row
-  // across all sub-units. User toggles "Split per sub-unit" to expose
-  // the per-sub-unit editor when 1BR / Penthouse really do absorb at
-  // different rates. Storage stays per-sub-unit so the engine is
-  // untouched; collapsed-mode writes propagate to every sub-unit.
-  const splitVelocityKey = `fmp:m2:inputs:asset:${asset.id}:velocity:split`;
-  const readSplitVelocity = (): boolean => {
-    if (typeof window === 'undefined') return false;
-    try { return window.localStorage.getItem(splitVelocityKey) === 'true'; }
-    catch { return false; }
-  };
-  const [splitVelocity, setSplitVelocity] = useState<boolean>(readSplitVelocity);
-  useEffect(() => {
-    try { window.localStorage.setItem(splitVelocityKey, String(splitVelocity)); } catch { /* noop */ }
-  }, [splitVelocity, splitVelocityKey]);
+  // WHETHER THE ROWS SHARE ONE PACE IS MODEL STATE, NOT A BROWSER FLAG
+  // (2026-09-13). The lockstep view used to be a localStorage toggle over a
+  // per-row list, so "all sub-units sell at this pace" was never stored and a
+  // row added later inherited nothing. Now a stored `velocityDefault` IS the
+  // lockstep statement, read by the engine for any row without an entry of
+  // its own; its absence, on a line that has row entries, is the split
+  // statement. A line with no config yet reads as lockstep, as it always did.
+  const splitVelocity = asset.revenue?.sell !== undefined
+    && asset.revenue.sell.velocityDefault === undefined
+    && (asset.revenue.sell.subUnits?.length ?? 0) > 0;
 
   const timeline = useMemo(() => computeProjectTimeline(project, phases), [project, phases]);
   const projectStartYear = new Date(timeline.startDate).getUTCFullYear();
@@ -882,7 +733,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
       handoverYearOverride: sellConfig?.handoverYearOverride,
       ...patch,
     };
-    updateAsset(asset.id, { revenue: { ...(asset.revenue ?? {}), sell: nextSell } });
+    writeForm('sell', nextSell);
   };
 
   // M4 Pass 2h: write a value to BOTH the legacy axis-indexed array
@@ -939,20 +790,74 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
     return { legacy, byPhase };
   };
 
-  const setVelocity = (subUnitId: string, periodIdx: number, pct: number, kind: 'pre' | 'post'): void => {
-    const value = Math.max(0, Math.min(1, pct / 100));
-    const valid = buildVelocityValidWindow(kind);
-    const baseSubs = subUnits.map((su) => {
+  // A ROW'S CURRENT PACE, on the project axis, from wherever it comes
+  // (its own entry, the line default, or nothing): the one read the engine
+  // does, so what the grid shows is what the engine sells.
+  const expandToAxisLocal = (arr: number[] | undefined): number[] => {
+    const axis = new Array<number>(Math.max(0, totalPeriods)).fill(0);
+    if (!arr) return axis;
+    for (let i = 0; i < arr.length; i++) {
+      const j = phaseOffset + i;
+      if (j >= 0 && j < axis.length) axis[j] = arr[i] ?? 0;
+    }
+    return axis;
+  };
+  const rowVelocityAxis = (subUnitId: string, kind: 'pre' | 'post'): number[] => {
+    const v = resolveRowVelocity(sellConfig, subUnitId);
+    const byPhase = kind === 'pre' ? v.pre : v.post;
+    const legacy = kind === 'pre' ? v.preLegacy : v.postLegacy;
+    return byPhase !== undefined ? expandToAxisLocal(byPhase) : paddedArray(legacy, totalPeriods);
+  };
+  // EVERY ROW ON THE LINE gets an entry, seeded from its current pace, so a
+  // split write never leaves a sibling on an implicit default it can no longer
+  // see.
+  const materialiseRows = (): Array<{ subUnitId: string; preSalesVelocity: number[]; postSalesVelocity: number[]; preSalesVelocityByPhase?: number[]; postSalesVelocityByPhase?: number[] }> =>
+    subUnits.map((su) => {
       const existing = sellConfig?.subUnits.find((s) => s.subUnitId === su.id);
       return {
         subUnitId: su.id,
-        preSalesVelocity: paddedArray(existing?.preSalesVelocity, totalPeriods),
-        postSalesVelocity: paddedArray(existing?.postSalesVelocity, totalPeriods),
-        preSalesVelocityByPhase: existing?.preSalesVelocityByPhase,
-        postSalesVelocityByPhase: existing?.postSalesVelocityByPhase,
+        preSalesVelocity: rowVelocityAxis(su.id, 'pre'),
+        postSalesVelocity: rowVelocityAxis(su.id, 'post'),
+        preSalesVelocityByPhase: existing?.preSalesVelocityByPhase ?? sellConfig?.velocityDefault?.preSalesVelocityByPhase,
+        postSalesVelocityByPhase: existing?.postSalesVelocityByPhase ?? sellConfig?.velocityDefault?.postSalesVelocityByPhase,
       };
     });
-    const nextSubs = baseSubs.map((s) => {
+  // A LINE PACE from the first row's current schedule, dual-written on both
+  // windows, for the two lockstep writers below.
+  const linePaceFrom = (periodIdx: number | null, value: number, kind: 'pre' | 'post' | null): { pre: ReturnType<typeof dualWriteVelocity>; post: ReturnType<typeof dualWriteVelocity> } => {
+    const first = subUnits[0];
+    const preAxis = first ? rowVelocityAxis(first.id, 'pre') : new Array<number>(totalPeriods).fill(0);
+    const postAxis = first ? rowVelocityAxis(first.id, 'post') : new Array<number>(totalPeriods).fill(0);
+    if (kind === 'pre' && periodIdx !== null) preAxis[periodIdx] = value;
+    if (kind === 'post' && periodIdx !== null) postAxis[periodIdx] = value;
+    return {
+      pre: dualWriteVelocity(preAxis, undefined, 0, preAxis[0] ?? 0, buildVelocityValidWindow('pre')),
+      post: dualWriteVelocity(postAxis, undefined, 0, postAxis[0] ?? 0, buildVelocityValidWindow('post')),
+    };
+  };
+  const writeLinePace = (pace: ReturnType<typeof linePaceFrom>): void => {
+    updateSellInline({
+      subUnits: subUnits.map((su) => ({
+        subUnitId: su.id,
+        preSalesVelocity: pace.pre.legacy, postSalesVelocity: pace.post.legacy,
+        preSalesVelocityByPhase: pace.pre.byPhase, postSalesVelocityByPhase: pace.post.byPhase,
+      })),
+      velocityDefault: { preSalesVelocityByPhase: pace.pre.byPhase, postSalesVelocityByPhase: pace.post.byPhase },
+    });
+  };
+  // SPLIT WRITE: the rows now speak for themselves, so the line default, if
+  // any, is withdrawn (its content already lives on every row).
+  const writeRowsOwnPace = (rows: ReturnType<typeof materialiseRows>): void => {
+    const { velocityDefault: _dropped, ...rest } = sellConfig ?? {};
+    void _dropped;
+    updateSellInline({ ...rest, subUnits: rows, velocityDefault: undefined });
+  };
+
+  // SPLIT: this row states its own pace.
+  const setVelocity = (subUnitId: string, periodIdx: number, pct: number, kind: 'pre' | 'post'): void => {
+    const value = Math.max(0, Math.min(1, pct / 100));
+    const valid = buildVelocityValidWindow(kind);
+    const nextSubs = materialiseRows().map((s) => {
       if (s.subUnitId !== subUnitId) return s;
       if (kind === 'pre') {
         const w = dualWriteVelocity(s.preSalesVelocity, s.preSalesVelocityByPhase, periodIdx, value, valid);
@@ -961,35 +866,22 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
       const w = dualWriteVelocity(s.postSalesVelocity, s.postSalesVelocityByPhase, periodIdx, value, valid);
       return { ...s, postSalesVelocity: w.legacy, postSalesVelocityByPhase: w.byPhase };
     });
-    updateSellInline({ subUnits: nextSubs });
+    writeRowsOwnPace(nextSubs);
   };
 
-  // Pass 7v: collapsed-mode setter. Writes the same pct to every
-  // sub-unit's velocity slot for `periodIdx`. Engine still reads
-  // per-sub-unit; this just keeps every sub-unit in lockstep when the
-  // user is in "All sub-units" view.
+  // LOCKSTEP: the LINE states one pace. It is stored as the default, which is
+  // what a row added tomorrow reads, AND written to every row today, so a
+  // reader of either shape sees the same schedule.
   const setVelocityForAllSubUnits = (periodIdx: number, pct: number, kind: 'pre' | 'post'): void => {
-    const value = Math.max(0, Math.min(1, pct / 100));
-    const valid = buildVelocityValidWindow(kind);
-    const baseSubs = subUnits.map((su) => {
-      const existing = sellConfig?.subUnits.find((s) => s.subUnitId === su.id);
-      return {
-        subUnitId: su.id,
-        preSalesVelocity: paddedArray(existing?.preSalesVelocity, totalPeriods),
-        postSalesVelocity: paddedArray(existing?.postSalesVelocity, totalPeriods),
-        preSalesVelocityByPhase: existing?.preSalesVelocityByPhase,
-        postSalesVelocityByPhase: existing?.postSalesVelocityByPhase,
-      };
-    });
-    const nextSubs = baseSubs.map((s) => {
-      if (kind === 'pre') {
-        const w = dualWriteVelocity(s.preSalesVelocity, s.preSalesVelocityByPhase, periodIdx, value, valid);
-        return { ...s, preSalesVelocity: w.legacy, preSalesVelocityByPhase: w.byPhase };
-      }
-      const w = dualWriteVelocity(s.postSalesVelocity, s.postSalesVelocityByPhase, periodIdx, value, valid);
-      return { ...s, postSalesVelocity: w.legacy, postSalesVelocityByPhase: w.byPhase };
-    });
-    updateSellInline({ subUnits: nextSubs });
+    writeLinePace(linePaceFrom(periodIdx, Math.max(0, Math.min(1, pct / 100)), kind));
+  };
+
+  // THE TOGGLE WRITES THE MODEL. Combining copies the first row's pace to the
+  // default and to every row; splitting withdraws the default and leaves each
+  // row on the pace it showed.
+  const setSplitVelocity = (next: boolean): void => {
+    if (next) writeRowsOwnPace(materialiseRows());
+    else writeLinePace(linePaceFrom(null, 0, null));
   };
 
   // THE CASH PAYMENT PROFILE HAS NO EDITOR (2026-08-20). It stopped driving
@@ -1239,7 +1131,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
       otherRevenue: merged.otherRevenue ?? opOther,
       dso: merged.dso ?? opDSO,
     };
-    updateAsset(asset.id, { revenue: { ...(asset.revenue ?? {}), operate: next } });
+    writeForm('operate', next as unknown as Record<string, unknown>);
   };
   const setOperateADR = (n: number): void => updateOperateInline({ startingADR: Math.max(0, n) });
   const setOperateOccupancy = (idx: number, pct: number): void => {
@@ -1397,7 +1289,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
       occupancyPerPeriod: paddedArray(merged.occupancyPerPeriod ?? leaseOccupancy, totalPeriods),
       arDays: merged.arDays ?? leaseArDays,
     };
-    updateAsset(asset.id, { revenue: { ...(asset.revenue ?? {}), lease: next } });
+    writeForm('lease', next as unknown as Record<string, unknown>);
   };
   // M2 Fix (2026-05-20): mirror writes to occupancyPerPeriodByPhase
   // for the same reason as setOperateOccupancy (engine reads ByPhase).
@@ -1469,8 +1361,9 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
 
   return (
     <div
-      id={`m2-input-asset-${asset.id}`}
-      data-testid={`m2-asset-${asset.id}`}
+      id={`m2-input-line-${line.key}`}
+      data-testid={`m2-line-${line.key}`}
+      data-line-members={line.members.map((m) => m.id).join(',')}
       style={{
         background: 'var(--color-surface)',
         border: '1px solid var(--color-border)',
@@ -1484,7 +1377,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
         <span
           onClick={() => setAssetCollapsed(!assetCollapsed)}
           style={{ cursor: 'pointer', fontSize: 12, color: 'var(--color-meta)', marginRight: 4 }}
-          data-testid={`m2-input-asset-${asset.id}-toggle`}
+          data-testid={`m2-input-line-${line.key}-toggle`}
         >
           {assetCollapsed ? '▶' : '▼'}
         </span>
@@ -1492,8 +1385,15 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
           style={{ fontSize: 14, color: 'var(--color-heading)', cursor: 'pointer' }}
           onClick={() => setAssetCollapsed(!assetCollapsed)}
         >
-          {asset.name}
+          {line.label}
         </strong>
+        {/* THE PLOTS, NAMED ONCE (2026-09-13), as the capex input heads its
+         *  merged line: the terms below are written to every one of them. */}
+        {!line.isStrip && !line.isOperateCompanion && (
+          <span style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`m2-input-line-${line.key}-plots`}>
+            {line.members.map((m) => assetPlotLabel(m, { parcels, phases })).join(' + ')}
+          </span>
+        )}
         <span style={{
           fontSize: 10,
           fontWeight: 700,
@@ -1520,13 +1420,40 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
           {phase.name}
         </span>
         <span style={{ fontSize: 11, color: 'var(--color-meta)' }}>
-          {subUnitSummary(subUnits, asset)}
+          {subUnitSummary(subUnits, assetFor)}
         </span>
       </div>
 
       {isHospitality && !assetCollapsed && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
-          <SubUnitReferenceStrip units={subUnits} asset={asset} currency={project.currency || ''} mode="operate" />
+          <SubUnitReferenceStrip units={subUnits} asset={asset} assetFor={assetFor} currency={project.currency || ''} mode="operate" />
+          {/* THE KEYS THE ENGINE COUNTS (2026-09-13), by the same rule the
+           *  resolver applies: a count row is its count; an area row holds
+           *  area over the unit size (sub-units first, the type second);
+           *  with no size it holds none, and this line says so instead of
+           *  a hotel quietly earning nothing. */}
+          {(() => {
+            const typeValues = asset.assetTypeId ? project.assetTypeValues?.[asset.assetTypeId] : undefined;
+            const unitSize = resolveAvgUnitSize(subUnits.map((u) => u.unitArea), typeValues);
+            const perRow = subUnits.map((u) => {
+              const owner = assetFor(u);
+              const counted = resolveSubUnitMetric(u, owner) === 'units';
+              const keys = counted ? Math.max(0, Math.round(u.metricValue)) : keysFromArea(computeSubUnitArea(u, owner), unitSize.value);
+              return { u, counted, keys };
+            });
+            const total = perRow.reduce((s, r) => s + r.keys, 0);
+            const areaRows = perRow.filter((r) => !r.counted);
+            const sizeNote = areaRows.length === 0
+              ? ''
+              : unitSize.value !== undefined && unitSize.value > 0
+                ? ` · ${areaRows.length} row${areaRows.length === 1 ? '' : 's'} stated in sqm, read as keys at ${formatArea(unitSize.value, 0)} sqm a key (${unitSize.source === 'sub_units' ? 'from the sub-units' : 'the type on tab 4'})`
+                : ` · ${areaRows.length} row${areaRows.length === 1 ? '' : 's'} stated in sqm with NO unit size: they hold no keys. Set the type's unit size on Module 1 tab 4, or count keys on Table 5.`;
+            return (
+              <div data-testid={`m2-line-${line.key}-keys`} style={{ fontSize: 11, color: total > 0 ? 'var(--color-meta)' : 'var(--color-danger, #b91c1c)', padding: '2px 4px' }}>
+                Keys the engine counts: <strong>{total.toLocaleString('en-US')}</strong>{sizeNote}
+              </div>
+            );
+          })()}
 
           {operationsWindow.length === 0 ? (
             <div style={{ padding: '6px 10px', background: 'var(--color-surface-alt, #f3f4f6)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
@@ -1979,7 +1906,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
 
       {isLease && !assetCollapsed && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
-          <SubUnitReferenceStrip units={subUnits} asset={asset} currency={project.currency || ''} mode="lease" />
+          <SubUnitReferenceStrip units={subUnits} asset={asset} assetFor={assetFor} currency={project.currency || ''} mode="lease" />
 
           {operationsWindow.length === 0 ? (
             <div style={{ padding: '6px 10px', background: 'var(--color-surface-alt, #f3f4f6)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
@@ -2212,7 +2139,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
           {/* Pass 7x: sub-unit reference strip so users can verify the
               area + price they entered in M1 Tab 2 without switching
               tabs. */}
-          <SubUnitReferenceStrip units={subUnits} asset={asset} currency={project.currency || ''} />
+          <SubUnitReferenceStrip units={subUnits} asset={asset} assetFor={assetFor} currency={project.currency || ''} />
 
           {/* Pass 7v: per-asset velocity view toggle. Default collapsed
               (lockstep across all sub-units); opt-in split exposes the
@@ -2251,7 +2178,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
               <InlineGrid
                 cells={constructionWindow}
                 rows={splitVelocity || subUnits.length === 1
-                  ? subUnits.map((su) => buildVelocityRow(su, asset, sellConfig, project.currency, totalPeriods, 'pre', (suId, idx, pct) => setVelocity(suId, idx, pct, 'pre'), phaseOffset, constructionWindow, operationsWindow))
+                  ? subUnits.map((su) => buildVelocityRow(su, assetFor(su), sellConfig, project.currency, totalPeriods, 'pre', (suId, idx, pct) => setVelocity(suId, idx, pct, 'pre'), phaseOffset, constructionWindow, operationsWindow))
                   : [buildSharedVelocityRow(sellConfig, subUnits, totalPeriods, 'pre', (idx, pct) => setVelocityForAllSubUnits(idx, pct, 'pre'), phaseOffset, constructionWindow, operationsWindow)]}
               />
             </InlineSection>
@@ -2266,7 +2193,7 @@ function AssetCard({ asset, subUnits, phase, project, phases }: AssetCardProps):
               <InlineGrid
                 cells={operationsWindow}
                 rows={splitVelocity || subUnits.length === 1
-                  ? subUnits.map((su) => buildVelocityRow(su, asset, sellConfig, project.currency, totalPeriods, 'post', (suId, idx, pct) => setVelocity(suId, idx, pct, 'post'), phaseOffset, constructionWindow, operationsWindow))
+                  ? subUnits.map((su) => buildVelocityRow(su, assetFor(su), sellConfig, project.currency, totalPeriods, 'post', (suId, idx, pct) => setVelocity(suId, idx, pct, 'post'), phaseOffset, constructionWindow, operationsWindow))
                   : [buildSharedVelocityRow(sellConfig, subUnits, totalPeriods, 'post', (idx, pct) => setVelocityForAllSubUnits(idx, pct, 'post'), phaseOffset, constructionWindow, operationsWindow)]}
               />
             </InlineSection>
@@ -2599,7 +2526,16 @@ function buildVelocityRow(
   preWindow: WindowCell[] = [],
   postWindow: WindowCell[] = [],
 ): InlineGridRow {
-  const cfgSU = cfg?.subUnits.find((s) => s.subUnitId === su.id);
+  // THE ONE READ THE ENGINE DOES (2026-09-13): the row's own entry, else the
+  // line default, else nothing. The hint says which, so a row that is
+  // selling at the line's pace, or at none, says so on its own row.
+  const resolved = resolveRowVelocity(cfg as Parameters<typeof resolveRowVelocity>[0], su.id);
+  const cfgSU = resolved.source === 'own'
+    ? { preSalesVelocityByPhase: resolved.pre, postSalesVelocityByPhase: resolved.post, preSalesVelocity: resolved.preLegacy, postSalesVelocity: resolved.postLegacy }
+    : resolved.source === 'default'
+      ? { preSalesVelocityByPhase: resolved.pre, postSalesVelocityByPhase: resolved.post, preSalesVelocity: undefined, postSalesVelocity: undefined }
+      : undefined;
+  const sourceHint = resolved.source === 'default' ? ' · at the line pace' : resolved.source === 'none' ? ' · NO VELOCITY: sells nothing until one is typed' : '';
   // M4 Pass 2h: prefer ByPhase (phase-local) when present; expand to
   // axis view for the grid. Fall back to legacy axis-indexed array.
   const byPhaseArr = kind === 'pre' ? cfgSU?.preSalesVelocityByPhase : cfgSU?.postSalesVelocityByPhase;
@@ -2653,7 +2589,7 @@ function buildVelocityRow(
     id: su.id,
     label: su.name || 'sub-unit',
     priceHint,
-    hint: `${su.category} · ${sizeHint}${sumSelf > 0 ? ` · ${kind === 'pre' ? 'pre' : 'post'} ${(sumSelf * 100).toFixed(0)}%` : ''}${sumAll > 0 && kind === 'pre' ? ` · total ${(sumAll * 100).toFixed(0)}%` : ''}`,
+    hint: `${su.category} · ${sizeHint}${sumSelf > 0 ? ` · ${kind === 'pre' ? 'pre' : 'post'} ${(sumSelf * 100).toFixed(0)}%` : ''}${sumAll > 0 && kind === 'pre' ? ` · total ${(sumAll * 100).toFixed(0)}%` : ''}${sourceHint}`,
     sumOver: overall,
     values,
     onChange: (idx, pct) => onChange(su.id, idx, pct),
@@ -2683,27 +2619,30 @@ function buildSharedVelocityRow(
     }
     return axis;
   };
-  const arrays = subUnitsInAsset.map((su) => {
-    const cfgSU = cfg?.subUnits.find((s) => s.subUnitId === su.id);
-    const byPhaseArr = kind === 'pre' ? cfgSU?.preSalesVelocityByPhase : cfgSU?.postSalesVelocityByPhase;
-    const legacyArr = kind === 'pre' ? cfgSU?.preSalesVelocity : cfgSU?.postSalesVelocity;
+  // EVERY ROW READ THE WAY THE ENGINE READS IT (own entry, line default,
+  // nothing), so the divergence check compares what actually sells.
+  const axisOf = (suId: string, k: 'pre' | 'post'): number[] => {
+    const v = resolveRowVelocity(cfg as Parameters<typeof resolveRowVelocity>[0], suId);
+    const byPhaseArr = k === 'pre' ? v.pre : v.post;
+    const legacyArr = k === 'pre' ? v.preLegacy : v.postLegacy;
     if (byPhaseArr !== undefined) return expandToAxis(byPhaseArr);
     return paddedArray(legacyArr, totalPeriods);
-  });
-  const first = arrays[0] ?? new Array<number>(totalPeriods).fill(0);
+  };
+  const arrays = subUnitsInAsset.map((su) => axisOf(su.id, kind));
+  // THE LINE DEFAULT IS THE REPRESENTATIVE where one is stored; the first
+  // row stands in where the rows still speak for themselves.
+  const dflt = (cfg as { velocityDefault?: { preSalesVelocityByPhase: number[]; postSalesVelocityByPhase: number[] } } | undefined)?.velocityDefault;
+  const first = dflt
+    ? expandToAxis(kind === 'pre' ? dflt.preSalesVelocityByPhase : dflt.postSalesVelocityByPhase)
+    : (arrays[0] ?? new Array<number>(totalPeriods).fill(0));
   const divergent = arrays.length > 1
     && arrays.some((arr) => arr.some((v, i) => Math.abs(v - first[i]) > 1e-9));
   // M2 Pass 9j-Fix (2026-05-20): sums use the row's visible window
   // cells only, so the hint can never show a value that doesn't appear
   // in some cell on the row. Pre uses preWindow, post uses postWindow.
-  // Reads from sub-unit[0] which is the lockstep representative.
-  const su0 = cfg?.subUnits[0];
-  const preFirstAxis = su0?.preSalesVelocityByPhase !== undefined
-    ? expandToAxis(su0.preSalesVelocityByPhase)
-    : paddedArray(su0?.preSalesVelocity, totalPeriods);
-  const postFirstAxis = su0?.postSalesVelocityByPhase !== undefined
-    ? expandToAxis(su0.postSalesVelocityByPhase)
-    : paddedArray(su0?.postSalesVelocity, totalPeriods);
+  const su0Id = subUnitsInAsset[0]?.id;
+  const preFirstAxis = dflt ? expandToAxis(dflt.preSalesVelocityByPhase) : (su0Id ? axisOf(su0Id, 'pre') : new Array<number>(totalPeriods).fill(0));
+  const postFirstAxis = dflt ? expandToAxis(dflt.postSalesVelocityByPhase) : (su0Id ? axisOf(su0Id, 'post') : new Array<number>(totalPeriods).fill(0));
   const preSumFirst = preWindow.reduce((s, c) => s + (preFirstAxis[c.idx] ?? 0), 0);
   const postSumFirst = postWindow.reduce((s, c) => s + (postFirstAxis[c.idx] ?? 0), 0);
   const sumSelf = kind === 'pre' ? preSumFirst : postSumFirst;

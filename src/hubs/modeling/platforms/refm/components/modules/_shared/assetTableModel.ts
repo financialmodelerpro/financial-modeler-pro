@@ -31,7 +31,7 @@
  * No em dashes in this file.
  */
 
-import { resolveAssetPlotDraw, resolveSubUnitMetric, computeAssetLandBreakdown, computeAssetUnitCount } from '@/src/core/calculations';
+import { resolveAssetPlotDraw, resolveSubUnitMetric, keysFromArea, computeAssetLandBreakdown, computeAssetUnitCount } from '@/src/core/calculations';
 import { computeLandChain, type ChainResult } from '@/src/core/calculations/landChain';
 import {
   resolveAssetTypeValues, resolveChainDefaults, resolveRetailSlotArea, resolveAvgUnitSize,
@@ -622,7 +622,9 @@ export function planLineSubUnits(
         // is still nothing honest to seed, as before.
         const size = unitSizeFor?.(host);
         if (size === undefined || !(size > 0)) continue;
-        const units = Math.max(1, Math.round(nsa / size));
+        // THE ONE ROUNDING, shared with the hospitality revenue resolver, which
+        // reads an area row through the same rule (2026-09-13).
+        const units = keysFromArea(nsa, size);
         seeds.push({
           lineKey: line.key,
           assetId: host.id,

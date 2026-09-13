@@ -266,6 +266,28 @@ export function computeSubUnitArea(u: SubUnit, asset: Asset | undefined): number
   return Math.max(0, u.metricValue);
 }
 
+/**
+ * HOW MANY KEYS AN AREA HOLDS, stated once (2026-09-13). The Table 5 seed
+ * (a keys row for a hospitality line, count = NSA over the type's unit size)
+ * and the hospitality revenue resolver (a hotel whose row is still stated in
+ * sqm) both need the same answer, and two roundings one file apart is how a
+ * hotel comes to have 144 keys on one tab and 143 on another. Rounded to a
+ * whole key, never below one where there is any area at all; zero where
+ * there is no area or no size to divide by.
+ */
+export function keysFromArea(areaSqm: number, unitSizeSqm: number | undefined): number {
+  if (!(areaSqm > 0) || unitSizeSqm === undefined || !(unitSizeSqm > 0)) return 0;
+  return Math.max(1, Math.round(areaSqm / unitSizeSqm));
+}
+
+/** A sub-unit that revenue prices: Support (parking, back of house) is not
+ *  part of NSA and so not a row a strategy earns on. ONE filter for the three
+ *  revenue resolvers, so a derived support row can never read as leasable
+ *  area or as a key. */
+export function isRevenueSubUnit(u: { category?: string }): boolean {
+  return u.category !== 'Support';
+}
+
 // M2.0f Fix 6 (2026-05-06): asset BUA = sum of sub-unit areas. The
 // asset.buaSqm field stays on the schema for v7 compat (legacy
 // snapshots may have a hand-typed value) but the calc engine now

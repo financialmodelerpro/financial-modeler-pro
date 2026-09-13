@@ -264,3 +264,52 @@ export function buildAssetCostOfSales(input: BuildAssetCostOfSalesInput): AssetC
     basis: { assetCost, idc, capexBase, label: costOfSalesBasisLabel((v) => Math.round(v).toLocaleString(), assetCost, idc) },
   };
 }
+
+/**
+ * A LINE'S COST OF SALES IS THE SUM OF ITS PLOTS' (2026-09-13). The engine
+ * still charges per asset; the Module 2 screens, the Schedules feed and both
+ * exports read per LINE, so this is the one place a line total is assembled.
+ * Every series is additive; the recognition share is re-stated as the line's
+ * recognition over the line's total, so it sums to one again; the basis
+ * label is re-stated on the summed figures. Null where there is nothing.
+ */
+export function sumAssetCostOfSales(
+  parts: readonly AssetCostOfSales[],
+  id: string,
+  axisLength: number,
+): AssetCostOfSales | null {
+  if (parts.length === 0) return null;
+  if (parts.length === 1) return { ...parts[0], assetId: id };
+  const N = Math.max(0, axisLength);
+  const z = (): number[] => new Array<number>(N).fill(0);
+  const add = (dst: number[], src: number[] | undefined): void => { for (let t = 0; t < N; t++) dst[t] += src?.[t] ?? 0; };
+  const capexPerPeriod = z(), assetCapexPerPeriod = z(), idcCapitalisedPerPeriod = z(), recognitionPerPeriod = z();
+  const cosPerPeriod = z(), cosPresalesPerPeriod = z(), cosPostSalesPerPeriod = z(), inventoryPerPeriod = z();
+  const vintageMatrix: number[][] = [];
+  for (let i = 0; i < N; i++) vintageMatrix.push(z());
+  let assetCost = 0, idc = 0, capexBase = 0, totalRecognition = 0, totalCapex = 0;
+  for (const p of parts) {
+    assetCost += p.assetCost; idc += p.idc; capexBase += p.capexBase;
+    totalRecognition += p.totalRecognition; totalCapex += p.cos.totalCapex;
+    add(capexPerPeriod, p.capexPerPeriod); add(assetCapexPerPeriod, p.assetCapexPerPeriod);
+    add(idcCapitalisedPerPeriod, p.idcCapitalisedPerPeriod); add(recognitionPerPeriod, p.recognitionPerPeriod);
+    add(cosPerPeriod, p.cos.perPeriod); add(cosPresalesPerPeriod, p.cosPresalesPerPeriod);
+    add(cosPostSalesPerPeriod, p.cosPostSalesPerPeriod); add(inventoryPerPeriod, p.inventoryPerPeriod);
+    for (let i = 0; i < N; i++) add(vintageMatrix[i], p.vintageMatrix[i]);
+  }
+  const cumulativePerPeriod = z(); const grossMarginPerPeriod = z(); const recognitionSharePerPeriod = z();
+  let running = 0;
+  for (let t = 0; t < N; t++) {
+    running += cosPerPeriod[t]; cumulativePerPeriod[t] = running;
+    grossMarginPerPeriod[t] = recognitionPerPeriod[t] - cosPerPeriod[t];
+    recognitionSharePerPeriod[t] = totalRecognition > 0 ? Math.max(0, recognitionPerPeriod[t]) / totalRecognition : 0;
+  }
+  return {
+    assetId: id,
+    assetCost, idc, capexBase, capexPerPeriod, assetCapexPerPeriod, idcCapitalisedPerPeriod,
+    recognitionPerPeriod, recognitionSharePerPeriod, totalRecognition,
+    cos: { perPeriod: cosPerPeriod, cumulativePerPeriod, grossMarginPerPeriod, totalCapex, totalRecognition },
+    cosPresalesPerPeriod, cosPostSalesPerPeriod, inventoryPerPeriod, vintageMatrix,
+    basis: { assetCost, idc, capexBase, label: costOfSalesBasisLabel((v) => Math.round(v).toLocaleString(), assetCost, idc) },
+  };
+}
