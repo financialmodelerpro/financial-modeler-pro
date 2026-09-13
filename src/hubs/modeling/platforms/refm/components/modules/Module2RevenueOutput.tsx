@@ -41,10 +41,11 @@ import { buildSaleCohortGrid } from '../../lib/reports/saleCohortReports';
 import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
-import { computeAllSellResults, resolveSellConfig, type ProjectRevenueSnapshot } from '../../lib/revenue-resolvers';
+import { computeAllSellResults, resolveSellConfig, expandIndexationToAxis, type ProjectRevenueSnapshot } from '../../lib/revenue-resolvers';
 import {
   buildAccountsReceivable,
   buildUnearnedRevenue,
+  applyIndexation,
   type SellAssetResult,
 } from '@/src/core/calculations/revenue';
 import type { Asset, SubUnit } from '../../lib/state/module1-types';
@@ -1325,6 +1326,45 @@ export default function Module2RevenueOutput(): React.JSX.Element {
           fmt={fmt}
         />
 
+        {/* 2b. THE PRICE THE ENGINE SOLD AT, YEAR BY YEAR (2026-09-13, founder:
+            the escalated price belongs on the output too). Base price per
+            sub-unit from Table 5 times the indexation factor at each year,
+            through the engine's own applyIndexation on the resolver's own
+            axis expansion, so it is the figure inside the revenue above. */}
+        {(() => {
+          const phaseOffsetForIdx = Math.max(0, (p.startDate ? new Date(p.startDate).getUTCFullYear() : projectStartYear) - projectStartYear);
+          const idxAxis = expandIndexationToAxis(indexation, a.revenue?.sell?.indexation?.growthPerPeriodByPhase, phaseOffsetForIdx, snap.axisLength);
+          const priceFmt = makeCurrencyFmt('full', Math.max(1, decimals) as DisplayDecimals);
+          const N2 = snap.axisLength;
+          const factorRow: PeriodRow = {
+            label: 'Indexation factor',
+            values: Array.from({ length: N2 }, (_, i) => applyIndexation(1, i, idxAxis)),
+            rowFmt: (v) => `${v.toFixed(4)}x`,
+            totalOverride: '',
+          };
+          const priceRows: PeriodRow[] = assetSubUnits.map((su) => {
+            const owner = ownerOf(su);
+            const perUnit = resolveSubUnitMetric(su, owner) === 'units';
+            const base = Math.max(0, su.unitPrice ?? 0);
+            return {
+              label: `${su.name || 'sub-unit'} (${currency} ${priceFmt(base)} / ${perUnit ? 'unit' : 'sqm'})`,
+              values: Array.from({ length: N2 }, (_, i) => (base > 0 ? applyIndexation(base, i, idxAxis) : 0)),
+              rowFmt: priceFmt,
+              totalOverride: '',
+            };
+          });
+          return (
+            <PeriodTable
+              title="2b. Sale price per year, after indexation (per sub-unit)"
+              formula={`Price[su, y] = base price (Table 5) x indexation factor at year y (indexation: ${indexLabel}). This is the rate the sold area or units are multiplied by in the table above. Rates are at full scale; the Total column is blank because a price does not sum.`}
+              yearLabels={snap.yearLabels}
+              bands={saleBands}
+              rows={[factorRow, ...priceRows]}
+              fmt={priceFmt}
+            />
+          );
+        })()}
+
         {/* 3. Revenue Recognised */}
         <SectionHeading n="3" title="Revenue Recognised" />
         <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, fontStyle: 'italic', lineHeight: 1.4 }}>
@@ -1336,6 +1376,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
         </div>
         <VintageMatrix
           title="3a. Pre-Sales Recognition Vintage Matrix"
+          bands={saleBands}
           yearLabels={snap.yearLabels}
           matrix={r.recognitionVintageMatrix}
           currency={currency}
@@ -1344,6 +1385,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
         />
         <PeriodTable
           title="3b. Recognition Summary (per period)"
+          bands={saleBands}
           formula="Pre-Sales Recognised = column-sum of 3a (per recognition profile). Sales During Operation Recognised = post-sales revenue recognised same period (operating sales, no deferral). Total = Pre + Post = P&L revenue per year."
           yearLabels={snap.yearLabels}
           rows={[
@@ -1379,6 +1421,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
           ) : (
             <VintageMatrix
               title="4a. Pre-Sales Cash Vintage Matrix"
+          bands={saleBands}
               yearLabels={snap.yearLabels}
               matrix={r.cashVintageMatrix}
               currency={currency}
@@ -1389,6 +1432,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
         })()}
         <PeriodTable
           title="4b. Cash Summary (per period)"
+          bands={saleBands}
           formula="Pre-Sales Cash = column-sum of 4a (per cash payment profile). Sales During Operation Cash = post-sales revenue collected same period (operating sales, no deferral). Total = Pre + Post = cash flow from revenue per year."
           yearLabels={snap.yearLabels}
           rows={[
@@ -1404,6 +1448,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
         <SectionHeading n="5" title="Accounts Receivable" />
         <PeriodTable
           title="5. Accounts Receivable (Sales Receivable roll-forward)"
+          bands={saleBands}
           formula={`${arRoll.caption} The rows come from the shared builder both exports also render, and the check row must read zero in every year.`}
           yearLabels={snap.yearLabels}
           rows={rollRowsToPeriodRows(arRoll)}
@@ -1415,6 +1460,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
         <SectionHeading n="6" title="Unearned Revenue" />
         <PeriodTable
           title="6. Unearned Revenue (Contract Liability roll-forward)"
+          bands={saleBands}
           formula={`${unRoll.caption} The rows come from the shared builder both exports also render, and the check row must read zero in every year.`}
           yearLabels={snap.yearLabels}
           rows={rollRowsToPeriodRows(unRoll)}

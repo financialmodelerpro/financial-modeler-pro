@@ -33,6 +33,10 @@ interface VintageMatrixProps {
    * 2dp accounting if omitted.
    */
   fmt?: (v: number) => string;
+  /** A BAND OVER THE YEAR COLUMNS (2026-09-13): which years are pre-sales
+   *  and which are sales during operation, two tones, the same band the
+   *  period tables carry. Indices are project-axis, inclusive. */
+  bands?: Array<{ label: string; from: number; to: number; tone?: 'pre' | 'post' }>;
   /**
    * Pass 9g-D-fix4 (2026-05-18): optional row labels for non-sales
    * matrices. CoS vintage matrix uses "Capex spent in" instead of
@@ -72,6 +76,7 @@ export default function VintageMatrix({
   rowLabelPrefix = 'Sold in',
   emptyMessage = 'No cohorts yet, enter pre-sales velocity in Tab 1 Inputs.',
   priorYearLabel,
+  bands,
 }: VintageMatrixProps): React.JSX.Element {
   const N = yearLabels.length;
   // Universal prior-year column: defaults to (first year - 1) so every
@@ -110,6 +115,33 @@ export default function VintageMatrix({
               {yearLabels.map((y) => (<col key={y} style={{ width: nonLabelPct }} />))}
             </colgroup>
             <thead>
+              {bands && bands.length > 0 && (
+                <tr>
+                  <th colSpan={2 + (hasPrior ? 1 : 0)} style={{ ...CELL_HEADER, background: 'transparent', borderBottom: 'none' }} />
+                  {(() => {
+                    const cells: React.JSX.Element[] = [];
+                    let i = 0;
+                    while (i < N) {
+                      const band = bands.find((b) => i >= b.from && i <= b.to);
+                      let j = i;
+                      while (j + 1 < N && bands.find((b) => j + 1 >= b.from && j + 1 <= b.to) === band) j += 1;
+                      const post = band?.tone === 'post';
+                      cells.push(
+                        <th key={`band-${i}`} colSpan={j - i + 1} style={{
+                          ...CELL_HEADER, textAlign: 'center', fontSize: 10, letterSpacing: '0.05em', textTransform: 'uppercase',
+                          background: band ? (post ? 'color-mix(in srgb, var(--color-success, #166534) 16%, transparent)' : 'color-mix(in srgb, var(--color-navy) 16%, transparent)') : 'transparent',
+                          color: band ? (post ? 'var(--color-success, #166534)' : 'var(--color-navy)') : 'var(--color-meta)',
+                          borderBottom: band ? (post ? '3px solid var(--color-success, #166534)' : '3px solid var(--color-navy)') : 'none',
+                        }}>
+                          {band ? band.label : ''}
+                        </th>,
+                      );
+                      i = j + 1;
+                    }
+                    return cells;
+                  })()}
+                </tr>
+              )}
               <tr>
                 <th style={{ ...CELL_HEADER, ...freezeCol(0) }}>{rowAxisHeader}</th>
                 <th style={{ ...CELL_HEADER_TOTAL, ...freezeCol(PERIOD_LABEL_PX) }}>{rowTotalHeader}</th>

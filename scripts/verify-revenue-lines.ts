@@ -415,6 +415,14 @@ section('O. The Output tab, the Inputs card and the selling costs read per line,
     && /drop = new Set\(\['assetId', 'subUnits', 'escrow', 'handoverYearOverride', 'operationsStartYearOverride'\]\)/.test(inp));
   check('O6 the copy carries the pace as the target\'s line default and onto every target row, phase-local only',
     /velocityDefault: p2,/.test(inp) && /preSalesVelocity: \[\], postSalesVelocity: \[\],/.test(inp));
+  // THE FOUNDER'S TWO FOLLOW-UPS (2026-09-13): every table in the sell block
+  // wears the band, the matrices included, and the indexed price is on the
+  // Output tab too.
+  const vm = readFileSync(join(process.cwd(), 'src/hubs/modeling/platforms/refm/components/modules/_shared/VintageMatrix.tsx'), 'utf8');
+  check('O7 recognition, cash, receivables and unearned wear the same band as blocks 1 and 2, the vintage matrices included',
+    (out.match(/bands=\{saleBands\}/g) ?? []).length >= 10 && vm.includes('bands?:') && vm.includes("band?.tone === 'post'"));
+  check('O8 the Output sell block shows the sale price per year after indexation, per sub-unit, through applyIndexation on the resolver\'s axis',
+    out.includes('2b. Sale price per year, after indexation') && out.includes('applyIndexation(base, i, idxAxis)') && out.includes('expandIndexationToAxis(indexation'));
 }
 
 // ── L. Live ─────────────────────────────────────────────────────────────────
