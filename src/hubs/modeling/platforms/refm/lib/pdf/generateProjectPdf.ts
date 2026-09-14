@@ -727,8 +727,29 @@ function m4RowsToPeriodTable(title: string, priorYear: number, yearLabels: numbe
       return {
         cells: [
           indentLabel(r),
-          r.totalOverride !== undefined ? r.totalOverride : M4_PCT.pct(values.reduce((s, v) => s + (v ?? 0), 0), 1),
+          // A ratio's lifetime figure is stated by the builder where a sum would
+          // be wrong (an occupancy, a margin), 2026-09-14.
+          r.totalOverride !== undefined ? r.totalOverride : M4_PCT.pct(r.totalValue !== undefined ? r.totalValue : values.reduce((s, v) => s + (v ?? 0), 0), 1),
           prior === null ? null : M4_PCT.pct(prior, 1),
+          ...strs,
+        ],
+        emphasis,
+      };
+    }
+    // A COUNT OR A RATE (2026-09-14): keys, room nights, ADR, RevPAR. Full
+    // scale, as strings, for the same reason as a ratio: the period renderer
+    // scales every numeric cell as money, so 850 a night printed as "1" at
+    // thousands. The lifetime figure is the builder's where a sum is wrong.
+    if (r.valueKind === 'count' || r.valueKind === 'rate') {
+      const dp = r.valueKind === 'count' ? 0 : 2;
+      const f = (v: number): string => formatAccounting(v, 'full', dp);
+      const strs: Array<string | null> = values.map(f);
+      while (strs.length < N) strs.push(null);
+      return {
+        cells: [
+          indentLabel(r),
+          r.totalOverride !== undefined ? r.totalOverride : f(r.totalValue !== undefined ? r.totalValue : values.reduce((s, v) => s + (v ?? 0), 0)),
+          prior === null ? null : f(prior),
           ...strs,
         ],
         emphasis,

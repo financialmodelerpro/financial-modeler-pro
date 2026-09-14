@@ -21,6 +21,7 @@ import {
   nonLabelColumnPct, periodTableStyle, PERIOD_PHASE_PX, PERIOD_LABEL_PX,
 } from './tableStyles';
 import { ScrollableTable } from './ScrollableTable';
+import { formatAccounting } from '@/src/core/formatters';
 // The leading column's heading is derived from the rows, by the SAME rule the
 // PDF exports and the workbook use, so the four surfaces cannot disagree about
 // whether that column is a lifetime sum or a closing balance. m4Reports imports
@@ -63,6 +64,21 @@ export interface M4Row {
    * renderer reads the flag and picks its own percentage rendering.
    */
   isPercent?: boolean;
+  /**
+   * A COUNT or a RATE rather than money (2026-09-14): hotel keys and room
+   * nights ('count'), an ADR or a RevPAR ('rate'). Like `isPercent`, a flag
+   * rather than a formatter, because a function cannot cross into the PDF or
+   * an Excel number format: every renderer reads it and prints the value at
+   * FULL scale, never the project's money scale (850 a night read as "1" at
+   * thousands).
+   */
+  valueKind?: 'count' | 'rate';
+  /**
+   * The row's LIFETIME figure where a sum across periods is not a number: an
+   * occupancy, a margin, an ADR, a key count (2026-09-14). A number, formatted
+   * by each renderer as the row's kind. A `totalOverride` string still wins.
+   */
+  totalValue?: number;
   rowFmt?: (v: number) => string;
   /** M4 Pass 2j: prior-year column value for stock lines. */
   priorValue?: number;
@@ -180,7 +196,16 @@ export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt,
               const colSpan = 1 + (hasPhase ? 1 : 0) + 1 + (hasPrior ? 1 : 0) + yearLabels.length;
               const isCollapsibleHeader = r.collapseRole === 'header' && r.collapseGroup;
               const isCollapsed = isCollapsibleHeader && collapsed.has(r.collapseGroup!);
-              const cellFmt = r.rowFmt ?? fmt;
+              // THE ROW'S KIND PICKS THE FORMAT (2026-09-14): a ratio as a percent, a
+              // count or a rate at full scale, money at the table's scale.
+              const cellFmt = r.rowFmt
+                ?? (r.isPercent
+                  ? (v: number): string => (v === 0 ? '-' : `${(v * 100).toFixed(1)}%`)
+                  : r.valueKind === 'count'
+                    ? (v: number): string => formatAccounting(v, 'full', 0)
+                    : r.valueKind === 'rate'
+                      ? (v: number): string => formatAccounting(v, 'full', 2)
+                      : fmt);
 
               // M4 Pass 2N (2026-05-21): collapsible headers that carry
               // inline subtotal values render as a subtotal-styled row
@@ -228,7 +253,7 @@ export function M4PeriodTable({ title, caption, yearLabels, rows, currency, fmt,
               // their token, so leave those untouched (undefined).
               const stickyBg = (r.isSubtotal || isCollapsibleHeader) ? STICKY_SUBTOTAL_BG : r.isTotal ? undefined : STICKY_DATA_BG;
               const indent = r.indent ?? 0;
-              const total = r.totalOverride ?? cellFmt(r.values.reduce((s, v) => s + (v ?? 0), 0));
+              const total = r.totalOverride ?? cellFmt(r.totalValue !== undefined ? r.totalValue : r.values.reduce((s, v) => s + (v ?? 0), 0));
               const priorCellStyle = { ...tokens.num, color: 'var(--color-meta)', fontStyle: 'italic' as const };
               const trace = r.trace;
               const onTrace = trace

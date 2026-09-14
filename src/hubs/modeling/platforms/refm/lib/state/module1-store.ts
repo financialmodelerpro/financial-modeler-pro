@@ -502,7 +502,8 @@ export const DEFAULT_MODULE1_STATE: HydrateSnapshot = {
   project: makeDefaultProject(),
   phases: [defaultPhase],
   parcels: [defaultParcel],
-  landAllocationMode: 'autoByBua',
+  // Land is allocated by sqm only (2026-09-14); see module1-migrate.
+  landAllocationMode: 'sqm',
   assets: [],
   subUnits: [],
   costLines: defaultCostLines,
@@ -1330,7 +1331,9 @@ export function createModule1Store() {
       const seededLiveModel = seededLive.changed ? { ...windowedLive, assets: seededLive.assets } : windowedLive;
       // And every sub-unit's active price is the one its basis states (2026-09-13).
       const pricedLive = settleSubUnitPrices(seededLiveModel.subUnits, seededLiveModel.assets);
-      const liveModel = pricedLive.changed ? { ...seededLiveModel, subUnits: pricedLive.subUnits } : seededLiveModel;
+      const pricedLiveModel = pricedLive.changed ? { ...seededLiveModel, subUnits: pricedLive.subUnits } : seededLiveModel;
+      // And land is allocated by sqm only (2026-09-14): the snapshot written says so.
+      const liveModel = pricedLiveModel.landAllocationMode === 'sqm' ? pricedLiveModel : { ...pricedLiveModel, landAllocationMode: 'sqm' as const };
       const baseId = baseCaseId(s.cases);
       let baseModel = s.baseSnapshot;
       let cases = s.cases;
@@ -1349,7 +1352,9 @@ export function createModule1Store() {
         ? snapshot.activeCaseId
         : baseId;
       // The persisted top-level fields ARE the base model.
-      const baseModel = pickModel(snapshot as unknown as Record<string, unknown>);
+      // LAND IS ALLOCATED BY SQM ONLY (2026-09-14): pinned on the base model, so
+      // the active case merges onto it and no case override can carry a mode.
+      const baseModel = { ...pickModel(snapshot as unknown as Record<string, unknown>), landAllocationMode: 'sqm' as const };
       const active = cases.find((c) => c.id === activeCaseId)!;
       const merged = active.role === 'base' ? baseModel : applyOverrides(baseModel, active.overrides);
       /**

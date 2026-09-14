@@ -1583,12 +1583,16 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
 
   const firstPhaseId = phases[0].id;
 
-  // Land allocation. Default 'autoByBua' is the safest fallback because
-  // it derives from BUA share without needing explicit sqm/pct inputs.
-  const landAllocationMode: LandAllocationMode =
-    o.landAllocationMode === 'sqm' || o.landAllocationMode === 'percent' || o.landAllocationMode === 'autoByBua'
-      ? o.landAllocationMode
-      : 'autoByBua';
+  // LAND IS ALLOCATED BY SQM, AND ONLY BY SQM (2026-09-14, founder: "land is
+  // feeding by sqm, so percent or BUA is not applicable"). Every asset draws
+  // its land from a named plot in sqm on the Assets tab, so the percent split
+  // and the auto-by-BUA weighting are retired and every snapshot loads on
+  // 'sqm'. Measured before the change: 996 of 1,000 stored versions were
+  // already 'sqm', and the four on 'autoByBua' belong to projects with no
+  // assets, so no land figure moves. The engine keeps its other branches for
+  // the fixtures that call it with a mode directly.
+  const landAllocationMode: LandAllocationMode = 'sqm';
+  void o.landAllocationMode;
 
   // Parcels: at least one, so the Land tab has something to render.
   const rawParcels = Array.isArray(o.parcels) ? (o.parcels as Partial<Parcel>[]) : [];
@@ -2251,6 +2255,18 @@ function repairRawSnapshot(snapshot: unknown): unknown {
 }
 
 export function hydrationFromAnySnapshotChecked(snapshot: unknown): CheckedHydration {
+  const checked = hydrationFromAnySnapshotUnpinned(snapshot);
+  // LAND IS ALLOCATED BY SQM ONLY (2026-09-14), ON EVERY LOAD PATH. The pin
+  // sat in the legacy normaliser alone, so a v8 snapshot loaded inside its
+  // version wrapper kept a stored 'autoByBua' while the same snapshot loaded
+  // bare read 'sqm' (verify-snapshot-field-survival caught it). This is the
+  // one exit all four shapes leave through, so the rule is stated here.
+  return checked.snapshot.landAllocationMode === 'sqm'
+    ? checked
+    : { ...checked, snapshot: { ...checked.snapshot, landAllocationMode: 'sqm' } };
+}
+
+function hydrationFromAnySnapshotUnpinned(snapshot: unknown): CheckedHydration {
   // Before anything else: see the header on repairStaleWizardCostWindows.
   snapshot = repairRawSnapshot(snapshot);
   if (isV8Snapshot(snapshot)) {

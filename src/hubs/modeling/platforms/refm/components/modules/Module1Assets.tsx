@@ -47,7 +47,6 @@ import {
   ASSET_STATUS_LABELS,
   assetTypeCatalogForProjectType,
   SUB_UNIT_CATEGORIES,
-  LAND_ALLOCATION_MODES,
   PARCEL_WEIGHTED_AVG,
   PARCEL_WEIGHTED_AVG_ALL,
   PARCEL_CUSTOM_RATE,
@@ -456,7 +455,6 @@ export default function Module1Assets(): React.JSX.Element {
     updateParcel,
     removeParcel,
     landAllocationMode,
-    setLandAllocationMode,
     assets: rawAssets,
     addAsset,
     updateAsset,
@@ -479,7 +477,6 @@ export default function Module1Assets(): React.JSX.Element {
       updateParcel: s.updateParcel,
       removeParcel: s.removeParcel,
       landAllocationMode: s.landAllocationMode,
-      setLandAllocationMode: s.setLandAllocationMode,
       assets: s.assets,
       addAsset: s.addAsset,
       updateAsset: s.updateAsset,
@@ -1145,20 +1142,17 @@ export default function Module1Assets(): React.JSX.Element {
         totalInKindValue={parcels.reduce((s, p) => s + Math.max(0, p.area) * Math.max(0, p.rate) * (Math.max(0, p.inKindPct) / 100), 0)}
       />
 
-      {/* Land Allocation Mode (unchanged) */}
+      {/* LAND ALLOCATION IS BY SQM ONLY (2026-09-14, founder: "land is feeding
+          by sqm, so percent or BUA is not applicable"). The A / B / C mode
+          selector is gone: every asset draws its land from a named plot in sqm
+          on Table 2, every project loads and saves on 'sqm', and the check that
+          the plots are fully drawn stays. */}
       <div style={sectionCardStyle} data-testid="land-allocation-section">
-        <h3 style={{ fontSize: 'var(--font-h3)', margin: 0, marginBottom: 'var(--sp-2)' }}>Land Allocation Mode</h3>
-        <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
-          {LAND_ALLOCATION_MODES.map((mode) => (
-            <label key={mode} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 'var(--font-small)' }} data-testid={`land-mode-${mode}`}>
-              <input type="radio" name="land-allocation-mode" value={mode} checked={landAllocationMode === mode} onChange={() => setLandAllocationMode(mode)} />
-              {mode === 'sqm' && 'A. Direct sqm per asset'}
-              {mode === 'percent' && 'B. Percent split per asset'}
-              {mode === 'autoByBua' && 'C. Auto, weight by BUA'}
-            </label>
-          ))}
+        <h3 style={{ fontSize: 'var(--font-h3)', margin: 0, marginBottom: 'var(--sp-2)' }}>Land allocation</h3>
+        <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)' }} data-testid="land-allocation-rule">
+          Each asset draws its land from its plot in sqm, typed on Table 2. A blank on a plot the asset shares with nothing draws the whole plot.
         </div>
-        {landAllocationMode === 'sqm' && landValidation.status !== 'ok' && (
+        {landValidation.status !== 'ok' && (
           <div
             style={{
               marginTop: 'var(--sp-2)',
@@ -2378,12 +2372,8 @@ function AssetInputsTable({
                             puts two of them in the source, and U15 counts the
                             source: it caught this as a 15th column on a
                             14-column table the moment it was written. */}
-                        <td
-                          style={landAllocationMode === 'sqm' ? CELL : CELL_NUM}
-                          title={landAllocationMode === 'sqm' ? undefined
-                            : `Derived: the project allocates land by ${landAllocationMode === 'percent' ? 'percent' : 'BUA share'}. Change the mode above the parcels table to type sqm directly.`}
-                        >
-                          {landAllocationMode === 'sqm' ? (
+                        <td style={CELL}>
+                          {(
                             <ChainCell
                               // THE CELL FOLLOWS THE RULE, NOT THE RAW FIELD.
                               // It read landAllocation.sqm directly, and a
@@ -2408,8 +2398,6 @@ function AssetInputsTable({
                                 landAllocation: { ...(asset.landAllocation ?? {}), sqm: v },
                               })}
                             />
-                          ) : (
-                            <span data-testid={`asset-row-${asset.id}-land`}>{areaText(landSqm)}</span>
                           )}
                         </td>
                         <td style={CELL}><ChainCell value={asset.landChain?.utilisationPct} testId={`asset-row-${asset.id}-utilisation`} title="Share of the plot that is developable." onCommit={(v) => patchChain({ utilisationPct: v })} /></td>
@@ -4282,7 +4270,6 @@ function AssetCard({
                 nothing stored ever had one (0 of 9399 asset rows across
                 1406 versions, measured before removal). */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--sp-2)' }}>
-                {landAllocationMode === 'sqm' && (
                   <>
                     <div>
                       <InputLabel label="Parcel" help="Source parcel for this asset's land draw. Every parcel in the project can be picked, not just the ones bought in this phase: land is often acquired once and built on across several phases. The two weighted options blend the parcels in this phase, or every parcel in the project; each option shows the rate it resolves to." inputId={`asset-${asset.id}-parcelId`} />
@@ -4356,19 +4343,6 @@ function AssetCard({
                       </div>
                     )}
                   </>
-                )}
-                {landAllocationMode === 'percent' && (
-                  <div>
-                    <InputLabel label="Land Allocation (%)" help="Share of total land value attributed to this asset." inputId={`asset-${asset.id}-landAreaPct`} />
-                    <PercentageInput id={`asset-${asset.id}-landAreaPct`} data-testid={`asset-${asset.id}-landAreaPct`} min={0} max={100} value={allocation.pct ?? asset.landAreaPct ?? 0} onChange={(n) => setAllocation({ pct: Math.max(0, Math.min(100, n)) })} style={inputStyle} />
-                  </div>
-                )}
-                {landAllocationMode === 'autoByBua' && (
-                  <div>
-                    <InputLabel label="Land (auto by BUA)" help="Auto-allocated land share = this asset's BUA / total project BUA." inputId={`asset-${asset.id}-land-auto`} />
-                    <div style={calcOutputStyle} data-testid={`asset-${asset.id}-land-auto`}>{fmt(landBreakdown.landSqm)} sqm</div>
-                  </div>
-                )}
                 <div>
                   <InputLabel label="Land Cost" help="Resolved land area x parcel rate." inputId={`asset-${asset.id}-land-cost-display`} />
                   <div style={calcOutputStyle} data-testid={`asset-${asset.id}-land-cost-display`}>{fmtCurrency(landCost, project.currency, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</div>

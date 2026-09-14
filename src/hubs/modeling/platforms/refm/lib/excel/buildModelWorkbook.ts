@@ -2003,8 +2003,12 @@ function m4RowOpts(row: M4Row): M4RowOpts {
     // The builders are handed String as their formatter on this surface, so an
     // override parses back to its exact number. A non-numeric one (a label, a
     // dash) falls through to the summed Total rather than writing NaN.
-    totalValue: tv !== undefined && Number.isFinite(tv) ? tv : undefined,
-    numFmt: row.isPercent ? NUMFMT.pct : undefined,
+    // A builder-stated lifetime figure (an occupancy, an ADR, a key count) wins
+    // over the summed Total, since a sum of those is not a number (2026-09-14).
+    totalValue: row.totalValue !== undefined ? row.totalValue : (tv !== undefined && Number.isFinite(tv) ? tv : undefined),
+    // Counts and rates never take the display scale: `int` and `rate` are left
+    // alone by scaleMoneyFormats, which sweeps money formats only.
+    numFmt: row.isPercent ? NUMFMT.pct : row.valueKind === 'count' ? NUMFMT.int : row.valueKind === 'rate' ? NUMFMT.rate : undefined,
   };
 }
 

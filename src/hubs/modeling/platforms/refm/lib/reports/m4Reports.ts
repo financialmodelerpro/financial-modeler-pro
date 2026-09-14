@@ -17,6 +17,7 @@
  * Pure: no React, no hooks, no DOM. Reads the financials snapshot + project
  * state only.
  */
+import { hospitalityStatementsByLine, hospitalityRevenueParts, hospitalityCostParts } from './hospitalityStatement';
 import type { ProjectFinancialsSnapshot, FinancialsResolverState } from '../financials-resolvers';
 import { getFinancialLabels } from '@/src/core/calculations/financials';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
@@ -248,9 +249,31 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
     rows.push({ label: 'Residential Revenue', values: resRev, isSection: true, collapseGroup: 'pl-rev-res', collapseRole: 'header', defaultCollapsed: false });
     for (const a of residentialAssets) pushAssetPL(a, 'revenuePerPeriod', 'pl-rev-res');
   }
+  // HOSPITALITY BY DEPARTMENT AND BY EXPENSE GROUP, PER LINE (2026-09-14,
+  // founder: "show hospitality properly"). A hotel was one revenue row and one
+  // opex row; it now reads Rooms / F&B / Other revenue and departmental,
+  // undistributed, management and fixed charges, from the SAME statement the
+  // Opex Output tab renders (lib/reports/hospitalityStatement). The members of
+  // each header still sum to it: the departments add to the engine's revenue
+  // and the four groups to its total opex, so nothing below moves. The GOP and
+  // EBITDA of a hotel read on the Opex Output tab's operating statement.
+  const hospLines = hospitalityStatementsByLine(snap, state, new Set(hospitalityAssets.map((a) => a.id)));
+  const pushHospParts = (parts: Array<{ label: string; values: number[] }>, prefix: string, phaseId: string, group: string, sign: 1 | -1): void => {
+    for (const part of parts) {
+      if (part.values.every((v) => v === 0)) continue;
+      rows.push({
+        label: `${prefix}: ${part.label}`,
+        values: sign === 1 ? part.values : negArr(part.values),
+        indent: 2,
+        phaseLabel: phaseShort(phaseId),
+        collapseGroup: group,
+        collapseRole: 'member',
+      });
+    }
+  };
   if (hospitalityAssets.length > 0 && hospRev.some((v) => v !== 0)) {
     rows.push({ label: 'Hospitality Revenue', values: hospRev, isSection: true, collapseGroup: 'pl-rev-hosp', collapseRole: 'header', defaultCollapsed: false });
-    for (const a of hospitalityAssets) pushAssetPL(a, 'revenuePerPeriod', 'pl-rev-hosp');
+    for (const h of hospLines) pushHospParts(hospitalityRevenueParts(h.statement), h.line.label, h.line.phaseId, 'pl-rev-hosp', 1);
   }
   if (retailAssets.length > 0 && retailRev.some((v) => v !== 0)) {
     rows.push({ label: 'Retail Revenue', values: retailRev, isSection: true, collapseGroup: 'pl-rev-ret', collapseRole: 'header', defaultCollapsed: false });
@@ -269,7 +292,7 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
   rows.push({ label: 'OPERATING EXPENSES', values: [], isSection: true });
   if (hospitalityAssets.length > 0 && hospOpex.some((v) => v !== 0)) {
     rows.push({ label: 'Hospitality operating expenses', values: negArr(hospOpex), isSection: true, collapseGroup: 'pl-opex-hosp', collapseRole: 'header', defaultCollapsed: false });
-    for (const a of hospitalityAssets) pushAssetPL(a, 'opexPerPeriod', 'pl-opex-hosp', -1);
+    for (const h of hospLines) pushHospParts(hospitalityCostParts(h.statement), h.line.label, h.line.phaseId, 'pl-opex-hosp', -1);
   }
   if (retailAssets.length > 0 && retailOpex.some((v) => v !== 0)) {
     rows.push({ label: 'Retail operating expenses', values: negArr(retailOpex), isSection: true, collapseGroup: 'pl-opex-ret', collapseRole: 'header', defaultCollapsed: false });

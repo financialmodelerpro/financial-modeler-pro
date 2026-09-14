@@ -3,7 +3,24 @@
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
 ---
-## START HERE 2026-09-13 (session close): MODULE 2 RESTRUCTURE STEP 1 IS LIVE. WHAT IS OPEN, in order
+## START HERE 2026-09-14: WHAT CHANGED SINCE 2026-09-13, THEN THE 2026-09-13 LIST BELOW
+
+Detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-14. **DONE today:** the hotel operating statement on the
+Opex Output tab and in the P&L (per line, GOP and EBITDA on the engine's own categories, the retail
+strips no longer double-counted under Hospitality, lease property management no longer dropped),
+and land allocation by sqm only (selector retired, every load and save pinned).
+
+1. **CLICK-TEST OWED:** Module 3 Opex Output (sections, the hotel statement, the lease tables), the P&L
+   hospitality rows, and the Assets tab and Project Wizard without the land mode selector. The Chrome
+   extension blocks the app domain from this machine.
+2. **GOP IS NOT A LINE IN THE CONSOLIDATED P&L** by choice: the P&L members foot to their headers and GOP
+   reads on the Opex Output statement. If the founder wants a hospitality GOP memo inside the P&L, it
+   must sit outside the collapse groups so no header stops footing.
+3. The 2026-09-13 list below still stands, item 2 (the P&L revenue rows file by strategy) included.
+
+---
+
+## SUPERSEDED 2026-09-14 (still current where noted): START HERE 2026-09-13 (session close): MODULE 2 RESTRUCTURE STEP 1 IS LIVE. WHAT IS OPEN, in order
 
 Today's dated narrative is in [CHANGELOG.md](CHANGELOG.md) 2026-09-13; the standing lessons are
 [docs/TRAPS.md](docs/TRAPS.md) 3.23, 7.41 and 7.42. The line is the unit of revenue on every

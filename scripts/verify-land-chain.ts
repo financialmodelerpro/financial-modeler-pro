@@ -2060,11 +2060,14 @@ function offlineChecks(): void {
   check('V11 the factory seeds NO sqm, so absent means not decided',
     /landAllocation: fallbackParcel \? \{ parcelId: fallbackParcel\.id \} : undefined/.test(tabSrc)
     && !/parcelId: fallbackParcel\.id, sqm: 0/.test(tabSrc));
-  check('V12 Plot Area is TYPEABLE in sqm mode and read-only, with a reason, in the others',
-    /landAllocationMode === 'sqm' \? \(/.test(inputsBody)
+  // V12 RE-AIMED 2026-09-14: land is allocated by sqm ONLY (the A / B / C mode
+  // selector is retired, verify-land-allocation-sqm), so Plot Area is always
+  // the typed sqm and no mode branch or "derived" reason is left to test.
+  check('V12 Plot Area is always TYPEABLE in sqm, with no land allocation mode branch left',
+    !/landAllocationMode === 'sqm' \? \(/.test(inputsBody)
     && inputsBody.includes('asset-row-${asset.id}-land')
     && /placeholder=\{areaText\(landSqm\)\}/.test(inputsBody)
-    && /Derived: the project allocates land by/.test(inputsBody));
+    && !/Derived: the project allocates land by/.test(inputsBody));
 
   // V13 AND V14 ARE THE TWO DEFECTS THAT SURVIVED V1-V12. Every one of those
   // proved the RULE, and the rule was right: the engine and the plot check

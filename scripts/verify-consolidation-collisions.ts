@@ -194,7 +194,9 @@ async function liveChecks(): Promise<void> {
     // every Operate asset now carries its operate block from load and save
     // (revenueSeeds.ts seeds startingADR: 0, the tab's own default), so the
     // path is set on the live hotel and needs no excusing.
-    'opex.defaultIndexation.method': 'Exercised only by FMP RE HUB, deleted 2026-09-12.',
+    // opex.defaultIndexation.method LEFT ON 2026-09-14, D2b doing its job once
+    // more: the founder has since set an opex indexation default on a live
+    // asset, so the path is exercised by real data and needs no excusing.
     usefulLifeYears: 'Exercised only by FMP RE HUB, deleted 2026-09-12.',
     'managementAgreement.managementFeePct': 'Exercised only by FMP RE HUB, deleted 2026-09-12.',
     'managementAgreement.ownerRevenueSharePct': 'Exercised only by FMP RE HUB, deleted 2026-09-12.',

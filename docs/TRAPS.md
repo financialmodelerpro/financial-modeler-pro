@@ -2452,6 +2452,25 @@ resolver got the same treatment for keys and leasable area (`resolveAssetKeys`,
 `resolveAssetLeasableSqm`, shared with revenue), since it had counted keys by the row's metric
 too. `verify-revenue-lines` N9, N10; `verify-land-chain` U29d2.
 
+### 7.46 A load-time rule placed on one of several load paths makes the same snapshot load two ways
+
+**Symptom (2026-09-14):** `verify-snapshot-field-survival` failed "a snapshot hydrates identically
+with and without a version wrapper", first difference at `"landAllocationMode":"sqm"`.
+
+**Mechanism:** retiring the percent and auto-by-BUA land modes, the pin to `'sqm'` went into the
+legacy normaliser, which is the function that already defaulted the mode. But
+`hydrationFromAnySnapshotChecked` routes four snapshot shapes down four branches (v8 wrapper, v7,
+pre-v7 or loose, empty), and only the pre-v7 branch runs that normaliser. A v8 snapshot, which is
+every saved project, left through `stripV8Wrapper` with its stored mode intact. The same project
+loaded one way read `'sqm'` and the other way `'autoByBua'`. The same shape as TRAPS 7.12: one rule,
+one of its copies fixed.
+
+**Fix:** the pin sits at the ONE exit every branch leaves through
+(`hydrationFromAnySnapshotChecked` wraps an unpinned inner function and pins its result), and the
+store also pins the base model on hydrate and the live model on save. A rule that must hold for
+every loaded model belongs where every load passes, not in the branch that happened to hold the old
+default.
+
 ## 8. Registries and two-step registration
 
 ### 8.1 A template registered in one place and not the other fails silently and permanently

@@ -27,12 +27,10 @@ import {
   makeDefaultWizardDraft,
 } from '../../lib/wizard/buildWizardSnapshot';
 import {
-  type LandAllocationMode,
   type ProjectType,
   type DisplayScale,
   PROJECT_TYPES,
   SUGGESTED_CATEGORIES_BY_PROJECT_TYPE,
-  LAND_ALLOCATION_MODES,
   DISPLAY_SCALES,
   DISPLAY_SCALE_LABELS,
 } from '../../lib/state/module1-types';
@@ -599,25 +597,8 @@ function Step2({
         + Add Parcel
       </button>
 
-      <div style={{ marginBottom: 'var(--sp-2)' }}>
-        <label style={labelStyle} htmlFor="wiz-landAllocationMode">Land Allocation Mode</label>
-        <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
-          {LAND_ALLOCATION_MODES.map((mode) => (
-            <label key={mode} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }} data-testid={`wiz-land-mode-${mode}`}>
-              <input
-                type="radio"
-                name="wiz-land-allocation-mode"
-                value={mode}
-                checked={draft.landAllocationMode === mode}
-                onChange={() => onUpdate({ landAllocationMode: mode as LandAllocationMode })}
-              />
-              {mode === 'sqm' && 'A. Direct sqm'}
-              {mode === 'percent' && 'B. Percent split'}
-              {mode === 'autoByBua' && 'C. Auto by BUA'}
-            </label>
-          ))}
-        </div>
-      </div>
+      {/* NO LAND ALLOCATION MODE (2026-09-14): land is allocated by sqm only,
+          typed per asset on the Assets tab, so a new project starts on 'sqm'. */}
     </div>
   );
 }
