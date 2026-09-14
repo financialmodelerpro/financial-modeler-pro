@@ -2297,7 +2297,7 @@ interface AssetPhasingControlProps {
   onChange: (p: AssetCapexPhasing | undefined) => void;
 }
 
-function AssetPhasingControl({ asset, constructionPeriods, onChange }: AssetPhasingControlProps): React.JSX.Element {
+export function AssetPhasingControl({ asset, constructionPeriods, onChange }: AssetPhasingControlProps): React.JSX.Element {
   const curve = asset.capexPhasing;
   const on = !!curve;
   const slots = Math.max(1, constructionPeriods + 1);

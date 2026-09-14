@@ -493,6 +493,45 @@ export default function RealEstatePlatform(): React.JSX.Element {
   // module auto-creates a session on first edit). null = hidden.
   const [sessionStartedToast, setSessionStartedToast] = useState<string | null>(null);
   const sessionToastTimerRef = useRef<number>(0);
+  /**
+   * EVERY TAB COMES BACK WHERE IT WAS LEFT (2026-09-14, founder: reviewing the
+   * middle of a tab, checking an assumption on another and coming back put the
+   * view at the top). The workspace is one scrolling <main>, so its position is
+   * remembered per project, module and tab and restored once the tab has laid
+   * out; scroll events fired while restoring are not recorded, so the clamp a
+   * shorter tab causes cannot overwrite the position being restored.
+   */
+  const mainScrollRef = useRef<HTMLElement | null>(null);
+  const scrollMemoRef = useRef(new Map<string, number>());
+  const restoringScrollRef = useRef(false);
+  const scrollKey = `${activeProjectId ?? ''}:${activeModule}:${activeTab}`;
+  useEffect(() => {
+    const el = mainScrollRef.current;
+    if (!el) return;
+    const target = scrollMemoRef.current.get(scrollKey) ?? 0;
+    restoringScrollRef.current = true;
+    let tries = 0;
+    let raf = 0;
+    const apply = (): void => {
+      el.scrollTop = target;
+      if (Math.abs(el.scrollTop - target) > 2 && tries < 90) {
+        tries += 1;
+        raf = requestAnimationFrame(apply);
+      } else {
+        restoringScrollRef.current = false;
+      }
+    };
+    raf = requestAnimationFrame(apply);
+    const onScroll = (): void => {
+      if (!restoringScrollRef.current) scrollMemoRef.current.set(scrollKey, el.scrollTop);
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      cancelAnimationFrame(raf);
+      restoringScrollRef.current = false;
+      el.removeEventListener('scroll', onScroll);
+    };
+  }, [scrollKey]);
 
   // Permissions / visibility helpers
   // RBAC, RESOLVED FROM THE SERVER (Module 10 step 4). No longer pinned.
@@ -1734,6 +1773,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
             what left a large blank band under the deck. Modules 1 to 6 keep the
             original block-flow scrolling untouched. */}
         <main
+          ref={mainScrollRef}
           data-testid="platform-main"
           className={scrollStyles.scroll}
           style={{

@@ -55,6 +55,7 @@ import { assetVisibleLines } from '@/src/core/calculations/selectedBase';
 import { collectionsForAsset, phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
 import { assetStrategySells, type CostLine, type CostOverride, type LandAllocationMode, type Parcel, type Phase, type Project } from '../../lib/state/module1-types';
 import { resolveCatalogId } from '../../lib/state/costCatalog';
+import { deriveCostStage } from '@/src/core/calculations';
 import {
   formatAccounting,
   formatArea,
@@ -1314,19 +1315,8 @@ export default function Module2RevenueOutput(): React.JSX.Element {
 
         {/* 2. Revenue: one table, pre and post banded, totals at the foot. */}
         <SectionHeading n="2" title="Revenue (Sales Value)" />
-        <PeriodTable
-          title="2. Revenue (per sub-unit, pre-sales and sales during operation)"
-          formula={`Revenue[su, y] = ${inventoryLabel} sold[su, y] x base rate (M1 Tab 2) x indexation factor at year y (indexation: ${indexLabel}). The header marks the pre-sales years and the sales-during-operation years; the two totals are at the foot.`}
-          yearLabels={snap.yearLabels}
-          bands={saleBands}
-          rows={buildPrePostRows(assetSubUnits, r.presalesRevenuePerPeriodPerSubUnit, r.postSalesRevenuePerPeriodPerSubUnit, r.presalesRevenuePerPeriod, r.postSalesRevenuePerPeriod, snap.axisLength, {
-            preLabel: 'Total pre-sales revenue', postLabel: 'Total sales during operation revenue', grandLabel: 'Asset Total Revenue',
-          })}
-          unit={currency}
-          fmt={fmt}
-        />
-
-        {/* 2b. THE PRICE THE ENGINE SOLD AT, YEAR BY YEAR (2026-09-13, founder:
+        {/* 2a. THE PRICE THE ENGINE SOLD AT, YEAR BY YEAR, BEFORE THE REVENUE IT
+            MAKES (2026-09-14, founder: units and price, then revenue). (2026-09-13, founder:
             the escalated price belongs on the output too). Base price per
             sub-unit from Table 5 times the indexation factor at each year,
             through the engine's own applyIndexation on the resolver's own
@@ -1355,8 +1345,8 @@ export default function Module2RevenueOutput(): React.JSX.Element {
           });
           return (
             <PeriodTable
-              title="2b. Sale price per year, after indexation (per sub-unit)"
-              formula={`Price[su, y] = base price (Table 5) x indexation factor at year y (indexation: ${indexLabel}). This is the rate the sold area or units are multiplied by in the table above. Rates are at full scale; the Total column is blank because a price does not sum.`}
+              title="2a. Sale price per year, after indexation (per sub-unit)"
+              formula={`Price[su, y] = base price (Table 5) x indexation factor at year y (indexation: ${indexLabel}). This is the rate the sold area or units are multiplied by in the revenue table below, so units sold x price = revenue. Rates are at full scale; the Total column is blank because a price does not sum.`}
               yearLabels={snap.yearLabels}
               bands={saleBands}
               rows={[factorRow, ...priceRows]}
@@ -1364,6 +1354,18 @@ export default function Module2RevenueOutput(): React.JSX.Element {
             />
           );
         })()}
+
+        <PeriodTable
+          title="2b. Revenue (per sub-unit, pre-sales and sales during operation)"
+          formula={`Revenue[su, y] = ${inventoryLabel} sold[su, y] x base rate (M1 Tab 2) x indexation factor at year y (indexation: ${indexLabel}). The header marks the pre-sales years and the sales-during-operation years; the two totals are at the foot.`}
+          yearLabels={snap.yearLabels}
+          bands={saleBands}
+          rows={buildPrePostRows(assetSubUnits, r.presalesRevenuePerPeriodPerSubUnit, r.postSalesRevenuePerPeriodPerSubUnit, r.presalesRevenuePerPeriod, r.postSalesRevenuePerPeriod, snap.axisLength, {
+            preLabel: 'Total pre-sales revenue', postLabel: 'Total sales during operation revenue', grandLabel: 'Asset Total Revenue',
+          })}
+          unit={currency}
+          fmt={fmt}
+        />
 
         {/* 3. Revenue Recognised */}
         <SectionHeading n="3" title="Revenue Recognised" />
@@ -1659,6 +1661,14 @@ function PhaseDivider({ title, meta, count }: { title: string; meta?: string; co
 // genuinely zero, where the old basis charged it on one night's ADR.
 // ════════════════════════════════════════════════════════════════════════════
 
+/** What a selling cost is called on this tab: marketing by its stage, commission
+ *  by its identity, anything else by its own name. */
+function sellingCostName(line: CostLine): string {
+  if (deriveCostStage(line) === 'marketing' || line.stage === 'marketing' || line.stageOverride === 'marketing') return 'Marketing';
+  if (resolveCatalogId(line) === 'commission') return 'Commission';
+  return line.name;
+}
+
 function SellingCostsSection(props: {
   revenue: ProjectRevenueSnapshot;
   assets: Asset[];
@@ -1690,7 +1700,10 @@ function SellingCostsSection(props: {
       const a = assets.find((x) => x.id === assetId);
       if (!a) return [];
       return assetVisibleLines(costLines, a.phaseId, a.id, a.strategy).map((l) => ({
-        id: l.id, name: l.name, method: l.method, value: l.value, catalogId: resolveCatalogId(l),
+        // ONE WORDING PER SELLING COST (2026-09-14, founder: phase 1 read
+        // "Marketing Cost" and phase 2 "Marketing"). The row is named by what
+        // the line IS, so every phase reads the same.
+        id: l.id, name: sellingCostName(l), method: l.method, value: l.value, catalogId: resolveCatalogId(l),
       }));
     },
     // The per-asset override wins exactly as it does in the engine.

@@ -15,6 +15,10 @@ per capex line, reaching the engine as standard-sourced overrides the Capex tab 
 override), Table 2 massing filled back to the type when every plot agrees, active rows only on the Opex
 Output, and the Standards paragraph font.
 
+0a. **CLICK-TEST OWED (round two):** the one cost table and the per-phase curve on Types and Standards, the minted
+   lines on Capex, the Revenue Output order, the lease operating statements, and the scroll memory across tabs.
+   **DATA FIX FOR THE FOUNDER:** the phase 2 line `commission__phase_2` (named Marketing) is classified as a soft
+   cost by its id and so sits inside construction cost; re-pick it as Marketing on its Capex row.
 0. **NEXT, in the founder's order:** verify the financial statements, Returns and Scenario tabs; make sure
    the scenario levers cover sales rate, ADR, construction costs and soft cost % (a type cost rate is
    gated inactive, the override value is the dial); then update the Excel and PDF exports. **CLICK-TEST

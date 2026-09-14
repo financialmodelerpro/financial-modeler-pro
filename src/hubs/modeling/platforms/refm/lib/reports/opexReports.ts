@@ -62,6 +62,7 @@ export function buildOpexReport(snap: OpexReportSnap, state: OpexReportState): R
   const z = (): number[] => new Array<number>(N).fill(0);
   const tables: ReportTable[] = [];
   const hospitalitySummary: Array<{ name: string; revenue: number[]; gop: number[]; ebitda: number[] }> = [];
+  const leaseSummary: Array<{ name: string; revenue: number[]; ebitda: number[] }> = [];
 
   for (const line of planRevenueLines(state.assets, state.subUnits, state.phases, state.project)) {
     const name = line.phaseName ? `${line.label}, ${line.phaseName}` : line.label;
@@ -108,33 +109,43 @@ export function buildOpexReport(snap: OpexReportSnap, state: OpexReportState): R
       });
     }
     if (!anyNonZero(revenue) && !anyNonZero(totalOpex)) continue;
-    tables.push({ ...tag, title: `${name}: Revenue breakdown`, rows: [
-      { label: 'Lease revenue', values: revenue, indent: 1 },
-      { label: 'Total revenue', values: revenue, isTotal: true },
-    ] });
+    // ONE OPERATING STATEMENT PER LINE (2026-09-14, founder: the hospitality
+    // statement reads well, so the standalone and retail lines take the same
+    // shape, revenue down to EBITDA in one table, instead of four tables).
+    // Active rows only; the check row states any cost the groups do not hold.
+    const rows: M4Row[] = [];
+    const revTotal = revenue.reduce((x, v) => x + v, 0);
+    rows.push({ label: 'Revenue', values: [], isSection: true });
+    rows.push({ label: 'Lease revenue', values: revenue, indent: 1 });
+    rows.push({ label: 'Total revenue', values: revenue, isSubtotal: true });
     const defs: Array<[LeaseCostBucket, string, string]> = [
       ['operating', 'Property operating costs', 'Total property operating costs'],
-      ['recoveries', 'Pass-through and recoveries, memo', 'Total recoveries'],
+      ['recoveries', 'Service charge and recoverable costs', 'Total service charge and recoverable costs'],
       ['other_charges', 'Other charges', 'Total other charges'],
     ];
+    const grouped = z();
     for (const [bucket, title, totalLabel] of defs) {
-      // ACTIVE ROWS ONLY (2026-09-14, founder): a lease line with no value in any
-      // period is not shown, and a bucket with none is left out.
       const entries = [...buckets[bucket].entries()].filter(([, values]) => values.some((v) => v !== 0));
       if (entries.length === 0) continue;
       const subtotal = z();
-      const rows: M4Row[] = entries.map(([label, values]) => {
+      rows.push({ label: title, values: [], isSection: true });
+      for (const [label, values] of entries) {
         for (let t = 0; t < N; t++) subtotal[t] += values[t] ?? 0;
-        return { label, values, indent: 1 };
-      });
-      rows.push({ label: totalLabel, values: subtotal, isTotal: true });
-      tables.push({ ...tag, title: `${name}: ${title}`, rows });
+        rows.push({ label, values, indent: 1 });
+      }
+      for (let t = 0; t < N; t++) grouped[t] += subtotal[t];
+      rows.push({ label: totalLabel, values: subtotal, isSubtotal: true });
     }
-    tables.push({ ...tag, title: `${name}: Operating summary`, rows: [
-      { label: 'Total revenue', values: revenue, indent: 1 },
-      { label: 'Total operating expenses', values: totalOpex, indent: 1 },
-      { label: 'Net operating income', values: revenue.map((v, t) => v - (totalOpex[t] ?? 0)), isTotal: true },
-    ] });
+    const ebitda = revenue.map((v, t) => v - (totalOpex[t] ?? 0));
+    rows.push({ label: 'Total operating expenses', values: totalOpex, isSubtotal: true });
+    rows.push({ label: 'EBITDA, net operating income', values: ebitda, isTotal: true });
+    rows.push({
+      label: 'EBITDA margin', values: revenue.map((v, t) => (v !== 0 ? (ebitda[t] ?? 0) / v : 0)), isPercent: true,
+      totalValue: revTotal !== 0 ? ebitda.reduce((x, v) => x + v, 0) / revTotal : 0,
+    });
+    rows.push({ label: 'Check, total opex less the expense groups', values: totalOpex.map((v, t) => v - (grouped[t] ?? 0)) });
+    tables.push({ ...tag, title: `${name}: Operating statement`, rows });
+    leaseSummary.push({ name, revenue, ebitda });
   }
 
   // ── Project rollup ─────────────────────────────────────────────────────────
@@ -154,6 +165,23 @@ export function buildOpexReport(snap: OpexReportSnap, state: OpexReportState): R
     block('Gross operating profit, GOP', 'Hospitality GOP', (s) => s.gop);
     block('EBITDA, net operating income', 'Hospitality EBITDA', (s) => s.ebitda);
     tables.push({ title: 'Hospitality operating summary', rows });
+  }
+
+  if (leaseSummary.length > 0) {
+    const rows: M4Row[] = [];
+    const block = (label: string, totalLabel: string, pick: (s: typeof leaseSummary[number]) => number[]): void => {
+      rows.push({ label, values: [], isSection: true });
+      const total = z();
+      for (const s of leaseSummary) {
+        const v = pick(s);
+        for (let t = 0; t < N; t++) total[t] += v[t] ?? 0;
+        rows.push({ label: s.name, values: v, indent: 1 });
+      }
+      rows.push({ label: totalLabel, values: total, isSubtotal: true });
+    };
+    block('Total revenue', 'Leasing total revenue', (s) => s.revenue);
+    block('EBITDA, net operating income', 'Leasing EBITDA', (s) => s.ebitda);
+    tables.push({ title: 'Leasing operating summary', rows });
   }
 
   const hqLines = state.project.hqOpex?.lines ?? [];

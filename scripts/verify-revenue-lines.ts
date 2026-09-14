@@ -434,7 +434,7 @@ section('O. The Output tab, the Inputs card and the selling costs read per line,
   check('O7 recognition, cash, receivables and unearned wear the same band as blocks 1 and 2, the vintage matrices included',
     (out.match(/bands=\{saleBands\}/g) ?? []).length >= 10 && vm.includes('bands?:') && vm.includes("band?.tone === 'post'"));
   check('O8 the Output sell block shows the sale price per year after indexation, per sub-unit, through applyIndexation on the resolver\'s axis',
-    out.includes('2b. Sale price per year, after indexation') && out.includes('applyIndexation(base, i, idxAxis)') && out.includes('expandIndexationToAxis(indexation'));
+    out.includes('2a. Sale price per year, after indexation') && out.indexOf('2a. Sale price per year') < out.indexOf('2b. Revenue (per sub-unit') && out.includes('applyIndexation(base, i, idxAxis)') && out.includes('expandIndexationToAxis(indexation'));
 }
 
 // ── Q. A stored ADR of zero does not shadow the Table 5 price ────────────────

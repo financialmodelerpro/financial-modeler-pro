@@ -547,7 +547,7 @@ export function createModule1Store() {
       }
       const s = get();
       const r = settleStandardCostOverrides(s);
-      if (r.changed) set({ costOverrides: r.state.costOverrides });
+      if (r.changed) set({ costLines: r.state.costLines as CostLine[], costOverrides: r.state.costOverrides });
     };
     const api: Module1Store = {
     ...DEFAULT_MODULE1_STATE,

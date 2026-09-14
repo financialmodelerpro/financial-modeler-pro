@@ -18,7 +18,7 @@ import {
   makeBlankCostLines, DEFAULT_PHASE_ID, type Asset, type CostOverride,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { planTypeMassingWriteBack, resolveChainDefaults } from '../src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards';
-import { settleStandardCostOverrides, standardCostColumns } from '../src/hubs/modeling/platforms/refm/lib/state/costStandards';
+import { settleStandardCostOverrides, standardCostRows } from '../src/hubs/modeling/platforms/refm/lib/state/costStandards';
 import { inactiveLeverReason, nonEconomicLeverReason } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
 import type { HydrateSnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-store';
 
@@ -154,33 +154,108 @@ section('T. a retail strip keeps its basis and gets its seed back');
   check('T4 a strip override the user typed is left alone', !kept.changed);
 }
 
-// ── G. gating and screens ───────────────────────────────────────────────────
-section('G. the columns, the scenario gate and the screens');
+// ── G. the table, minting lines, gating and screens ─────────────────────────
+section('G. one cost table, lines minted where a standard needs one, the gate and the screens');
 {
-  const cols = standardCostColumns(makeBlankCostLines(P));
-  const ids = cols.map((c) => c.catalogId);
-  check('G1 construction, parking, landscaping and contingency are columns',
-    ['construction-bua', 'construction-parking', 'landscaping', 'contingency'].every((i) => ids.includes(i)), ids.join(','));
-  check('G2 land, marketing and commission are not', !ids.some((i) => /land|marketing|commission/.test(i) && i !== 'landscaping'), ids.join(','));
-  const firstSoft = cols.findIndex((c) => c.stage === 'soft');
-  check('G3 hard columns come first', firstSoft > 0 && cols.slice(firstSoft).every((c) => c.stage === 'soft'));
-  check('G4 a contingency column is stated in percent', cols.find((c) => c.catalogId === 'contingency')?.unit === 'percent');
+  const rows = standardCostRows(makeBlankCostLines(P));
+  const ids = rows.map((r) => r.catalogId);
+  check('G1 construction, parking, landscape, contingency, transfer tax and marketing are rows',
+    ['construction-bua', 'construction-parking', 'landscaping', 'contingency', 'rett', 'marketing'].every((i) => ids.includes(i)), ids.join(','));
+  check('G2 the two land value rows are not offered', !ids.includes('land-cash') && !ids.includes('land-inkind'));
+  const groups = rows.map((r) => r.group);
+  const order = ['hard', 'soft', 'land', 'selling'];
+  check('G3 rows run hard, soft, land charges, selling', groups.every((x, i) => i === 0 || order.indexOf(x) >= order.indexOf(groups[i - 1])));
+  check('G4 marketing and commission are selling only; contingency is a percent',
+    rows.find((r) => r.catalogId === 'marketing')?.sellingOnly === true
+    && rows.find((r) => r.catalogId === 'commission')?.sellingOnly === true
+    && rows.find((r) => r.catalogId === 'contingency')?.unit === 'percent');
+
+  // A standard for an item the phase has no line for MINTS the line.
+  const seed = makeBlankCostLines(P).filter((l) => !l.id.startsWith('landscaping'));
+  const villa = asset('m1', 'villa');
+  const hotel = asset('m2', 'hotel', { strategy: 'Operate' } as Partial<Asset>);
+  const res = settleStandardCostOverrides({
+    assets: [villa, hotel], costLines: seed, costOverrides: [] as CostOverride[],
+    phases: [{ id: P, constructionPeriods: 3 }],
+    project: { assetTypeValues: {
+      villa: { costRates: { landscaping: 1200, 'design-consultancy': 3, marketing: 3.5 } },
+      hotel: { costRates: { marketing: 2, landscaping: 800 } },
+    } },
+  });
+  const lines = res.state.costLines;
+  const at = (id: string): number => lines.findIndex((l) => l.id === id);
+  const land = lines.find((l) => l.id === `landscaping__${P}`);
+  check('G5 a landscape standard mints the landscape line, once, at a zero master rate',
+    !!land && land.value === 0 && lines.filter((l) => l.id.startsWith('landscaping')).length === 1, JSON.stringify(land));
+  check('G6 the minted line sits at its catalog position, after infrastructure',
+    at(`landscaping__${P}`) === at(`infrastructure__${P}`) + 1);
+  const design = lines.find((l) => l.id === `design-consultancy__${P}`);
+  check('G7 a minted percentage charges the construction lines above it',
+    !!design && ['construction-bua', 'construction-parking', 'infrastructure', 'landscaping'].every((b) => design.selectedLineIds?.includes(`${b}__${P}`)),
+    JSON.stringify(design?.selectedLineIds));
+  const ovs = res.state.costOverrides;
+  const ov = (a: string, l: string): CostOverride | undefined => ovs.find((o) => o.assetId === a && o.lineId === l);
+  check('G8 each type carries its own landscape rate on the one line',
+    ov('m1', `landscaping__${P}`)?.value === 1200 && ov('m2', `landscaping__${P}`)?.value === 800);
+  check('G9 marketing reaches the selling villa and never the operated hotel',
+    ov('m1', `marketing__${P}`)?.value === 3.5 && ov('m2', `marketing__${P}`) === undefined);
+  // A line on the marketing stage under the commission id IS marketing.
+  const renamed = makeBlankCostLines(P).map((l) => (l.id === `marketing__${P}`
+    ? { ...l, id: `commission-x__${P}` }
+    : l)).filter((l) => l.id !== `commission__${P}`).map((l) => (l.id === `commission-x__${P}` ? { ...l, id: `commission__${P}`, name: 'Marketing' } : l));
+  const mk = settleStandardCostOverrides({
+    assets: [villa], costLines: renamed, costOverrides: [] as CostOverride[], phases: [{ id: P, constructionPeriods: 3 }],
+    project: { assetTypeValues: { villa: { costRates: { marketing: 3.5 } } } },
+  });
+  check('G9b a marketing standard reaches a marketing-stage line under the commission id, and mints no second marketing line',
+    mk.linesAdded === 0 && mk.state.costOverrides.some((o) => o.lineId === `commission__${P}` && o.value === 3.5));
+  const again = settleStandardCostOverrides(res.state);
+  check('G10 the minted state settles', !again.changed && again.state === res.state);
 
   const model = createModule1Store().getState().extractPersistSnapshot() as unknown as HydrateSnapshot;
   const why = inactiveLeverReason('project.assetTypeValues.villa.costRates.construction-bua', model);
-  check('G5 a type cost rate is shown inactive in Module 6, with a reason that names the override', !!why && /override/.test(why), String(why));
-  check('G6 the override origin flag is not a scenario lever', nonEconomicLeverReason('costOverrides[a::l].origin', 'origin') !== null);
+  check('G11 a type cost rate is shown inactive in Module 6, with a reason that names the override', !!why && /override/.test(why), String(why));
+  check('G12 the override origin flag is not a scenario lever', nonEconomicLeverReason('costOverrides[a::l].origin', 'origin') !== null);
 
   const capex = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx', 'utf8');
-  check('G7 Capex marks a standard override and offers no revert for it',
+  check('G13 Capex marks a standard override and offers no revert for it',
     capex.includes("override.origin === 'standard'") && capex.includes('-from-standard'));
   const tab = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1AssetStandards.tsx', 'utf8');
-  check('G8 the Standards tab has the cost standards table and a utilisation column',
-    tab.includes('asset-cost-standards-table') && tab.includes('-utilisation') && tab.includes('standardCostColumns('));
-  check('G9 the callout paragraph is 11px, as the other tabs', /data-testid="asset-standards-callout"/.test(tab) && tab.includes('fontSize: 11, lineHeight: 1.45'));
+  check('G14 the Standards tab has one cost table (rows are items, columns are types) and a utilisation column',
+    tab.includes('asset-cost-standards-table') && tab.includes('std-cost-row-') && tab.includes('standardCostRows(') && tab.includes('-utilisation'));
+  check('G15 the Standards tab sets one phasing curve per phase through the Capex control',
+    tab.includes('asset-phase-phasing') && tab.includes('<AssetPhasingControl') && tab.includes('updateAsset(x.id, { capexPhasing })'));
+  check('G16 the callout paragraph is 11px, as the other tabs', tab.includes('fontSize: 11, lineHeight: 1.45'));
+  {
+    const st = createModule1Store();
+    st.getState().addAsset(asset('e1', 'villa'));
+    const before = st.getState().costLines.filter((l) => l.id.startsWith('design-consultancy')).length;
+    st.getState().setAssetTypeValue('villa', { costRates: { 'design-consultancy': 3 } });
+    const after = st.getState().costLines.filter((l) => l.id.startsWith('design-consultancy')).length;
+    check('G9c on the EDIT path the minted line is stored with its override',
+      before === 0 && after === 1 && st.getState().costOverrides.some((o) => o.lineId.startsWith('design-consultancy') && o.value === 3));
+  }
   const store = readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8');
-  check('G10 load and save both run the write-back and the settle',
+  check('G17 load and save both run the write-back and the settle',
     (store.match(/planTypeMassingWriteBack\(/g) ?? []).length >= 3 && (store.match(/settleStandardCostOverrides\(/g) ?? []).length >= 3);
+}
+
+// ── R. the other founder items of the same round ────────────────────────────
+section('R. revenue order, selling cost wording, lease statement, scroll memory');
+{
+  const rev = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module2RevenueOutput.tsx', 'utf8');
+  const iPrice = rev.indexOf('2a. Sale price per year, after indexation');
+  const iRevenue = rev.indexOf('2b. Revenue (per sub-unit');
+  check('R1 the indexed price table comes before the revenue table', iPrice > 0 && iRevenue > iPrice);
+  check('R2 a selling cost is named by what it is, so every phase reads the same',
+    rev.includes('name: sellingCostName(l)') && rev.includes("return 'Marketing'"));
+  const opex = readFileSync('src/hubs/modeling/platforms/refm/lib/reports/opexReports.ts', 'utf8');
+  check('R3 a lease line is ONE operating statement down to EBITDA, with a leasing summary',
+    opex.includes(': Operating statement`, rows });') && opex.includes("'Leasing operating summary'")
+    && !opex.includes('Revenue breakdown') && opex.includes("'EBITDA, net operating income'"));
+  const shell = readFileSync('src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx', 'utf8');
+  check('R4 the workspace remembers its scroll position per project, module and tab',
+    shell.includes('ref={mainScrollRef}') && shell.includes('scrollMemoRef.current.set(scrollKey') && shell.includes('[scrollKey]'));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

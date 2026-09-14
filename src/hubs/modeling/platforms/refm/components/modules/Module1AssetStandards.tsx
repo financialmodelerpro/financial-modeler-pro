@@ -65,7 +65,9 @@ import {
   type AssetTypeValues,
   type ParkingRatioBasis,
 } from '../../lib/state/assetTypeStandards';
-import { standardCostColumns, type StandardCostColumn } from '../../lib/state/costStandards';
+import { standardCostRows, STANDARD_COST_GROUP_LABEL, type StandardCostRow } from '../../lib/state/costStandards';
+import { assetStrategySells } from '../../lib/state/module1-types';
+import { AssetPhasingControl } from './Module1Costs';
 import {
   ASSET_TYPES_BY_CATEGORY,
   ASSET_TYPE_CATEGORIES,
@@ -182,9 +184,9 @@ function ValueCell({
 }
 
 /** What a cost standard is stated in, from its line's method. */
-function costUnitLabel(c: StandardCostColumn): string {
+function costUnitLabel(c: StandardCostRow): string {
   if (c.unit === 'percent') return '%';
-  if (c.unit === 'amount') return 'amount';
+  if (c.unit === 'amount') return 'amount per asset';
   if (c.method.includes('bay')) return 'per bay';
   if (c.method.includes('unit')) return 'per unit';
   if (c.method.includes('key')) return 'per key';
@@ -192,11 +194,13 @@ function costUnitLabel(c: StandardCostColumn): string {
 }
 
 export default function Module1AssetStandards({ projectId }: { projectId: string | null }): React.JSX.Element {
-  const { project, assets, costLines, setProject, setAssetTypeValue, setAssetTypes } = useModule1Store(
+  const { project, assets, costLines, phases, updateAsset, setProject, setAssetTypeValue, setAssetTypes } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
       assets: s.assets,
       costLines: s.costLines,
+      phases: s.phases,
+      updateAsset: s.updateAsset,
       setProject: s.setProject,
       setAssetTypeValue: s.setAssetTypeValue,
       setAssetTypes: s.setAssetTypes,
@@ -241,9 +245,10 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
   useEffect(() => { void loadTemplate(); }, [loadTemplate]);
 
   const values = project.assetTypeValues ?? {};
-  // THE COST STANDARD COLUMNS are the project's own hard and soft capex lines,
-  // so a line added on the Capex tab is a column here with no code change.
-  const costColumns = useMemo(() => standardCostColumns(costLines), [costLines]);
+  // THE COST STANDARD ROWS (2026-09-14, founder: one table, as the reference
+  // model states its costs): every cost item a type can carry a rate for, hard,
+  // soft, land charges and selling costs, one column per type.
+  const costRows = useMemo(() => standardCostRows(costLines), [costLines]);
   const setCostRate = (typeId: string, catalogId: string, n: number | undefined): void => {
     const cur = { ...(values[typeId]?.costRates ?? {}) };
     if (n === undefined) delete cur[catalogId];
@@ -785,49 +790,103 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
         </table>
       </div>
 
-      {entries.length > 0 && costColumns.length > 0 && (
+      {entries.length > 0 && (
         <div style={{ marginTop: 'var(--sp-3)' }} data-testid="asset-cost-standards">
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-navy)', marginBottom: 4 }}>Cost standards per asset type</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-navy)', marginBottom: 4 }}>Cost standards</div>
           <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, lineHeight: 1.45 }}>
-            A rate here is the default for every asset of the type on that capex line, in the line&apos;s own units.
-            The Capex tab marks it as from the type standard, and typing a value there overrides it for that line.
-            A blank leaves the line&apos;s own rate. A hard or soft cost line added on the Capex tab appears here as a column.
+            One table for every cost item, one column per asset type, each in its line&apos;s own units. A rate typed here fills the
+            Capex tab for every asset of the type: a phase with no line for the item gets one, and each asset carries the rate marked
+            as from the type standard. Typing a value on the Capex tab overrides it for that line. A blank applies nothing. A selling
+            cost applies only to a type whose strategy sells.
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }} data-testid="asset-cost-standards-table">
               <thead>
                 <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
-                  <th style={{ ...TH, minWidth: 160 }}>Asset type</th>
-                  {costColumns.map((c, i) => (
-                    <th key={c.catalogId}
-                      style={{ ...TH, minWidth: 100, textAlign: 'right', ...(i === 0 || (c.stage === 'soft' && costColumns[i - 1]?.stage === 'hard') ? DIVIDER : {}) }}
-                      data-testid={`std-cost-col-${c.catalogId}`}>
-                      {c.label}
-                      <div style={{ fontSize: 9, fontWeight: 400, opacity: 0.85 }}>{c.stage === 'hard' ? 'Hard' : 'Soft'}, {costUnitLabel(c)}</div>
+                  <th style={{ ...TH, minWidth: 220 }}>Cost item</th>
+                  <th style={{ ...TH, minWidth: 100 }}>Unit</th>
+                  {entries.map((e, i) => (
+                    <th key={e.id} style={{ ...TH, minWidth: 110, textAlign: 'right', ...(i === 0 ? DIVIDER : {}) }} data-testid={`std-cost-col-${e.id}`}>
+                      {e.label}
+                      <div style={{ fontSize: 9, fontWeight: 400, opacity: 0.85 }}>
+                        {[e.category, values[e.id]?.strategy].filter(Boolean).join(', ') || 'no category'}
+                      </div>
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {entries.map((e) => (
-                  <tr key={e.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
-                    <td style={FIRM_CELL}>{e.label}</td>
-                    {costColumns.map((c, i) => (
-                      <td key={c.catalogId} style={{ ...TD, ...(i === 0 || (c.stage === 'soft' && costColumns[i - 1]?.stage === 'hard') ? DIVIDER : {}) }}>
-                        <ValueCell
-                          value={values[e.id]?.costRates?.[c.catalogId]}
-                          disabled={noProject}
-                          testId={`std-cost-${e.id}-${c.catalogId}`}
-                          title={`${c.label} for every asset of this type, ${costUnitLabel(c)}. Blank leaves the capex line's own rate.`}
-                          onCommit={(n) => setCostRate(e.id, c.catalogId, n)}
-                        />
-                      </td>
-                    ))}
-                  </tr>
-                ))}
+                {(['hard', 'soft', 'land', 'selling'] as const).map((g) => {
+                  const rows = costRows.filter((r) => r.group === g);
+                  if (rows.length === 0) return null;
+                  return (
+                    <React.Fragment key={g}>
+                      <tr style={{ background: 'var(--color-grey-pale)' }}>
+                        <td colSpan={2 + entries.length} style={{ ...TD, fontWeight: 700, color: 'var(--color-navy)' }}>
+                          {STANDARD_COST_GROUP_LABEL[g]}
+                        </td>
+                      </tr>
+                      {rows.map((r) => (
+                        <tr key={r.catalogId} style={{ borderBottom: '1px solid var(--color-border)' }} data-testid={`std-cost-row-${r.catalogId}`}>
+                          <td style={FIRM_CELL}>{r.label}</td>
+                          <td style={{ ...TD, color: 'var(--color-meta)' }}>{costUnitLabel(r)}</td>
+                          {entries.map((e, i) => {
+                            const strategy = values[e.id]?.strategy;
+                            const na = r.sellingOnly && strategy !== undefined && !assetStrategySells(strategy);
+                            return (
+                              <td key={e.id} style={{ ...TD, ...(i === 0 ? DIVIDER : {}) }}>
+                                {na ? (
+                                  <span style={{ fontSize: 10, color: 'var(--color-meta)' }}
+                                    title={`${e.label} is ${strategy}, and a selling cost applies only to a type that sells.`}>
+                                    n/a
+                                  </span>
+                                ) : (
+                                  <ValueCell
+                                    value={values[e.id]?.costRates?.[r.catalogId]}
+                                    disabled={noProject}
+                                    testId={`std-cost-${e.id}-${r.catalogId}`}
+                                    title={`${r.label} for every asset of ${e.label}, ${costUnitLabel(r)}.`}
+                                    onCommit={(n) => setCostRate(e.id, r.catalogId, n)}
+                                  />
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {entries.length > 0 && (
+        <div style={{ marginTop: 'var(--sp-3)' }} data-testid="asset-phase-phasing">
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-navy)', marginBottom: 4 }}>Construction phasing curve per phase</div>
+          <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, lineHeight: 1.45 }}>
+            One curve per phase, which every capex line of every asset in the phase follows by default. The Capex tab shows the same
+            curve, and a line can still take its own phasing there.
+          </div>
+          {phases.map((ph) => {
+            const phaseAssets = assets.filter((x) => x.phaseId === ph.id && x.visible !== false);
+            if (phaseAssets.length === 0) return null;
+            return (
+              <div key={ph.id} data-testid={`std-phasing-${ph.id}`} style={{ marginBottom: 6 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 2 }}>
+                  {ph.name}: {ph.constructionPeriods ?? 1} construction periods, {phaseAssets.length} {phaseAssets.length === 1 ? 'asset' : 'assets'}
+                </div>
+                <AssetPhasingControl
+                  asset={phaseAssets[0]}
+                  constructionPeriods={ph.constructionPeriods ?? 1}
+                  scale={'full' as never}
+                  onChange={(capexPhasing) => phaseAssets.forEach((x) => updateAsset(x.id, { capexPhasing }))}
+                />
+              </div>
+            );
+          })}
         </div>
       )}
 
