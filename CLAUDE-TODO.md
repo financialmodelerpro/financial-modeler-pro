@@ -10,6 +10,17 @@ Opex Output tab and in the P&L (per line, GOP and EBITDA on the engine's own cat
 strips no longer double-counted under Hospitality, lease property management no longer dropped),
 and land allocation by sqm only (selector retired, every load and save pinned).
 
+**ALSO DONE (later the same day):** cost standards per asset type (construction and soft cost rates
+per capex line, reaching the engine as standard-sourced overrides the Capex tab marks and the user can
+override), Table 2 massing filled back to the type when every plot agrees, active rows only on the Opex
+Output, and the Standards paragraph font.
+
+0. **NEXT, in the founder's order:** verify the financial statements, Returns and Scenario tabs; make sure
+   the scenario levers cover sales rate, ADR, construction costs and soft cost % (a type cost rate is
+   gated inactive, the override value is the dial); then update the Excel and PDF exports. **CLICK-TEST
+   OWED** on the Standards tab cost table and the "From type standard" note on Capex. **DECISION OWED:**
+   the villas type still holds a legacy construction cost per sqm of 11,000 that nothing reads; copying it
+   into the new column would move development cost, so it was left for the founder.
 1. **CLICK-TEST OWED:** Module 3 Opex Output (sections, the hotel statement, the lease tables), the P&L
    hospitality rows, and the Assets tab and Project Wizard without the land mode selector. The Chrome
    extension blocks the app domain from this machine.

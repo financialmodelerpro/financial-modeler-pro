@@ -56,6 +56,8 @@ import { applyStrategySwitch, assetHasStrategyAssumptions, seedManageCompanion, 
 import { assetsOnParcel, repairProjectIntegrity, cascadeAssetRemoval, type CascadeReport } from '@/src/core/calculations/projectIntegrity';
 import { planRetailCompanionOverrides } from '@/src/core/calculations/retailCompanion';
 import { applyReferenceCostBases } from '@/src/core/calculations/costBases';
+import { settleStandardCostOverrides } from './costStandards';
+import { planTypeMassingWriteBack } from './assetTypeStandards';
 import { seedRevenueBlocks } from './revenueSeeds';
 import { settleSubUnitPrices } from './subUnitPrices';
 import {
@@ -516,6 +518,37 @@ export const DEFAULT_MODULE1_STATE: HydrateSnapshot = {
 // ── Store factory ──────────────────────────────────────────────────────────
 export function createModule1Store() {
   return create<Module1Store>((set, get) => {
+    /**
+     * TYPE STANDARDS STAY IN STEP ON EVERY EDIT THAT CAN MOVE THEM (2026-09-14).
+     *
+     * Two follow-ups run after the actions that change an asset, a cost line,
+     * an override or a type value: the massing write-back (a plot edit reaches
+     * its type when every plot of the type agrees) and the cost standards
+     * settle (a type's rate becomes a standard-sourced override on each of its
+     * assets). Both settle, so an edit that moves neither writes nothing more.
+     * Load and save run the same two in hydrate and extractPersistSnapshot.
+     */
+    const setAndSettle = (fn: (s: Module1Store) => Partial<Module1Store>): void => {
+      const before = get().assets;
+      set(fn);
+      const after = get();
+      if (after.assets !== before) {
+        const prior = new Map(before.map((a) => [a.id, a]));
+        const typeIds = new Set<string>();
+        for (const a of after.assets) {
+          if (!a.assetTypeId) continue;
+          const p = prior.get(a.id);
+          if (!p || p.landChain !== a.landChain || p.assetTypeId !== a.assetTypeId) typeIds.add(a.assetTypeId);
+        }
+        if (typeIds.size > 0) {
+          const wb = planTypeMassingWriteBack(after.assets, after.project.assetTypeValues, { overwrite: true, typeIds });
+          if (wb.changed) set({ project: { ...after.project, assetTypeValues: wb.values } });
+        }
+      }
+      const s = get();
+      const r = settleStandardCostOverrides(s);
+      if (r.changed) set({ costOverrides: r.state.costOverrides });
+    };
     const api: Module1Store = {
     ...DEFAULT_MODULE1_STATE,
 
@@ -726,7 +759,7 @@ export function createModule1Store() {
       return { project: { ...s.project, assetTypes: next } };
     }),
 
-    setAssetTypeValue: (entryId, patch) => set((s) => {
+    setAssetTypeValue: (entryId, patch) => setAndSettle((s) => {
       const all = { ...(s.project.assetTypeValues ?? {}) };
       const next = { ...(all[entryId] ?? {}) } as Record<string, unknown>;
       for (const [k, v] of Object.entries(patch)) {
@@ -918,7 +951,7 @@ export function createModule1Store() {
     // companion and no sign of one missing. Nothing writes a strategy at
     // creation today, which is why the hole was invisible; a per-type default
     // is exactly such a path, so the door is closed before it is opened.
-    addAsset: (asset) => set((s) => {
+    addAsset: (asset) => setAndSettle((s) => {
       const assets = [...s.assets, asset];
       const withCompanion = needsManageCompanion(asset, assets)
         ? [...assets, seedManageCompanion(asset, s.subUnits)]
@@ -945,7 +978,7 @@ export function createModule1Store() {
     // Sell + Manage, cascade-remove the companion + its cost lines.
     // Direct edits on a companion (e.g. unitsFromParent override) flow
     // through unchanged.
-    updateAsset: (id, patch) => set((s) => {
+    updateAsset: (id, patch) => setAndSettle((s) => {
       let next = s.assets.map((a) => (a.id === id ? { ...a, ...patch } : a));
       // T2P3 Fix 2 (2026-05-12): when the parent's `type` changes,
       // propagate to every companion whose parentAssetId matches so the
@@ -1057,8 +1090,8 @@ export function createModule1Store() {
     }),
 
     setCostLines: (costLines) => set({ costLines }),
-    addCostLine: (costLine) => set((s) => ({ costLines: [...s.costLines, costLine] })),
-    insertCostLineNear: (costLine, anchorLineId, position) => set((s) => {
+    addCostLine: (costLine) => setAndSettle((s) => ({ costLines: [...s.costLines, costLine] })),
+    insertCostLineNear: (costLine, anchorLineId, position) => setAndSettle((s) => {
       const idx = s.costLines.findIndex((c) => c.id === anchorLineId);
       // Unknown anchor appends, which is the old behaviour and never loses the
       // line.
@@ -1097,14 +1130,14 @@ export function createModule1Store() {
       next[partner] = line;
       return { costLines: next };
     }),
-    updateCostLine: (id, patch) => set((s) => ({
+    updateCostLine: (id, patch) => setAndSettle((s) => ({
       costLines: s.costLines.map((c) => (c.id === id ? { ...c, ...patch } : c)),
     })),
     removeCostLine: (id) => set((s) => ({
       costLines: s.costLines.filter((c) => c.id !== id),
       costOverrides: s.costOverrides.filter((o) => o.lineId !== id),
     })),
-    restoreCostLine: (line, index, overrides) => set((s) => {
+    restoreCostLine: (line, index, overrides) => setAndSettle((s) => {
       if (s.costLines.some((c) => c.id === line.id)) return {}; // already back
       const next = [...s.costLines];
       next.splice(Math.max(0, Math.min(index, next.length)), 0, line);
@@ -1122,7 +1155,7 @@ export function createModule1Store() {
       );
       return { costOverrides: [...filtered, override] };
     }),
-    removeCostOverride: (assetId, lineId) => set((s) => ({
+    removeCostOverride: (assetId, lineId) => setAndSettle((s) => ({
       costOverrides: s.costOverrides.filter(
         (o) => !(o.assetId === assetId && o.lineId === lineId),
       ),
@@ -1327,8 +1360,12 @@ export function createModule1Store() {
       const windowsLive = settleFollowingCostWindows(basedLive.costLines, basedLive.phases);
       const windowedLive = windowsLive.moved > 0 ? { ...basedLive, costLines: windowsLive.costLines } : basedLive;
       // And every asset carries the revenue block its strategy reads (2026-09-13).
-      const seededLive = seedRevenueBlocks(windowedLive.assets);
-      const seededLiveModel = seededLive.changed ? { ...windowedLive, assets: seededLive.assets } : windowedLive;
+      // And the type standards (2026-09-14): absent massing filled from unanimous plots, cost rates as standard overrides.
+      const massedLive = planTypeMassingWriteBack(windowedLive.assets, windowedLive.project.assetTypeValues, { overwrite: false });
+      const massedLiveModel = massedLive.changed ? { ...windowedLive, project: { ...windowedLive.project, assetTypeValues: massedLive.values } } : windowedLive;
+      const standardLive = settleStandardCostOverrides(massedLiveModel).state;
+      const seededLive = seedRevenueBlocks(standardLive.assets);
+      const seededLiveModel = seededLive.changed ? { ...standardLive, assets: seededLive.assets } : standardLive;
       // And every sub-unit's active price is the one its basis states (2026-09-13).
       const pricedLive = settleSubUnitPrices(seededLiveModel.subUnits, seededLiveModel.assets);
       const pricedLiveModel = pricedLive.changed ? { ...seededLiveModel, subUnits: pricedLive.subUnits } : seededLiveModel;
@@ -1398,8 +1435,18 @@ export function createModule1Store() {
        * Table 5 reached nothing. The seed is the tab's own default and earns
        * nothing; the input array comes back when nothing was missing.
        */
-      const seeded = seedRevenueBlocks(windowed.assets);
-      const seededModel = seeded.changed ? { ...windowed, assets: seeded.assets } : windowed;
+      /**
+       * AND THE TYPE STANDARDS (2026-09-14): a type's absent utilisation,
+       * coverage, FAR or service share is filled when every plot of the type
+       * states the same figure (never overwriting one the user typed there),
+       * and a type's cost rates become standard-sourced overrides on its
+       * assets. Both settle.
+       */
+      const massed = planTypeMassingWriteBack(windowed.assets, windowed.project.assetTypeValues, { overwrite: false });
+      const massedModel = massed.changed ? { ...windowed, project: { ...windowed.project, assetTypeValues: massed.values } } : windowed;
+      const standardModel = settleStandardCostOverrides(massedModel).state;
+      const seeded = seedRevenueBlocks(standardModel.assets);
+      const seededModel = seeded.changed ? { ...standardModel, assets: seeded.assets } : standardModel;
       /**
        * AND EVERY SUB-UNIT'S ACTIVE PRICE IS THE ONE ITS BASIS STATES
        * (2026-09-13, subUnitPrices.ts): a row carries a price per sqm and a

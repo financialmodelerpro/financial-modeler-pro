@@ -118,7 +118,9 @@ export function buildOpexReport(snap: OpexReportSnap, state: OpexReportState): R
       ['other_charges', 'Other charges', 'Total other charges'],
     ];
     for (const [bucket, title, totalLabel] of defs) {
-      const entries = [...buckets[bucket].entries()];
+      // ACTIVE ROWS ONLY (2026-09-14, founder): a lease line with no value in any
+      // period is not shown, and a bucket with none is left out.
+      const entries = [...buckets[bucket].entries()].filter(([, values]) => values.some((v) => v !== 0));
       if (entries.length === 0) continue;
       const subtotal = z();
       const rows: M4Row[] = entries.map(([label, values]) => {

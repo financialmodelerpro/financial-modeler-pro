@@ -2545,6 +2545,14 @@ export interface CostOverride {
   //   true       -> override is active; each defined field overrides
   //                 master, undefined fields fall back to master.
   overridden?: boolean;
+  /**
+   * 2026-09-14: WHERE THE OVERRIDE CAME FROM. 'standard' means the store wrote
+   * it from the asset type's cost rate (lib/state/costStandards.ts) and will
+   * keep it in step with the type and the line. Absent means the user's own,
+   * which nothing automatic ever touches. Every Capex editor builds an override
+   * field by field, so an edit drops the flag and the value becomes the user's.
+   */
+  origin?: 'standard';
   // M2.0L Pass 4 (2026-05-11): optional per-asset timing override. When
   // either is set AND overridden !== false, the calc engine substitutes
   // these for the master line's startPeriod / endPeriod when computing

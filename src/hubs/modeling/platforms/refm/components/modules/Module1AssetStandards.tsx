@@ -65,6 +65,7 @@ import {
   type AssetTypeValues,
   type ParkingRatioBasis,
 } from '../../lib/state/assetTypeStandards';
+import { standardCostColumns, type StandardCostColumn } from '../../lib/state/costStandards';
 import {
   ASSET_TYPES_BY_CATEGORY,
   ASSET_TYPE_CATEGORIES,
@@ -180,11 +181,22 @@ function ValueCell({
   );
 }
 
+/** What a cost standard is stated in, from its line's method. */
+function costUnitLabel(c: StandardCostColumn): string {
+  if (c.unit === 'percent') return '%';
+  if (c.unit === 'amount') return 'amount';
+  if (c.method.includes('bay')) return 'per bay';
+  if (c.method.includes('unit')) return 'per unit';
+  if (c.method.includes('key')) return 'per key';
+  return 'per sqm';
+}
+
 export default function Module1AssetStandards({ projectId }: { projectId: string | null }): React.JSX.Element {
-  const { project, assets, setProject, setAssetTypeValue, setAssetTypes } = useModule1Store(
+  const { project, assets, costLines, setProject, setAssetTypeValue, setAssetTypes } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
       assets: s.assets,
+      costLines: s.costLines,
       setProject: s.setProject,
       setAssetTypeValue: s.setAssetTypeValue,
       setAssetTypes: s.setAssetTypes,
@@ -229,6 +241,15 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
   useEffect(() => { void loadTemplate(); }, [loadTemplate]);
 
   const values = project.assetTypeValues ?? {};
+  // THE COST STANDARD COLUMNS are the project's own hard and soft capex lines,
+  // so a line added on the Capex tab is a column here with no code change.
+  const costColumns = useMemo(() => standardCostColumns(costLines), [costLines]);
+  const setCostRate = (typeId: string, catalogId: string, n: number | undefined): void => {
+    const cur = { ...(values[typeId]?.costRates ?? {}) };
+    if (n === undefined) delete cur[catalogId];
+    else cur[catalogId] = n;
+    setAssetTypeValue(typeId, { costRates: Object.keys(cur).length > 0 ? cur : undefined });
+  };
 
   // The three quick-add sources, all through the ONE covered-already rule.
   const platformCatalog = assetTypeCatalogForProjectType(project.projectType);
@@ -433,6 +454,14 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
           figure in the chain. */}
       <td style={TD}>
         <ValueCell
+          value={v?.utilisationPct} disabled={noProject}
+          testId={`std-row-${id}-utilisation`}
+          title="Share of the plot this type usually develops. A plot that differs types its own; a plot left blank inherits this. Filled back from the assets tab when every plot of the type states the same figure."
+          onCommit={(n) => setAssetTypeValue(id, { utilisationPct: n })}
+        />
+      </td>
+      <td style={TD}>
+        <ValueCell
           value={v?.coveragePct} disabled={noProject}
           testId={`std-row-${id}-coverage`}
           title="Ground coverage percent this type usually builds to. A plot that differs types its own; a typed 0 on the plot is a real override, not a blank."
@@ -480,7 +509,9 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
         style={{
           background: 'var(--color-primary-pale)', border: '1px solid var(--color-primary)',
           borderRadius: 'var(--radius)', padding: 'var(--sp-2)', marginBottom: 'var(--sp-3)',
-          fontSize: 'var(--font-small)',
+          // 11px, as every other explanatory block on these tabs (2026-09-14,
+          // founder: the paragraph read larger than the rest of the platform).
+          fontSize: 11, lineHeight: 1.45,
         }}
         data-testid="asset-standards-callout"
       >
@@ -657,9 +688,9 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
                 This project&apos;s asset types
                 <div style={{ fontSize: 9, fontWeight: 400, opacity: 0.85 }}>Saves as you type, and reaches no other project</div>
               </th>
-              <th style={{ ...TH, ...DIVIDER, minWidth: 320 }} colSpan={7} data-testid="std-group-project">
+              <th style={{ ...TH, ...DIVIDER, minWidth: 320 }} colSpan={8} data-testid="std-group-project">
                 This project&apos;s values
-                <div style={{ fontSize: 9, fontWeight: 400, opacity: 0.85 }}>Saves as you type, like every other input</div>
+                <div style={{ fontSize: 9, fontWeight: 400, opacity: 0.85 }}>Saves as you type. Utilisation, coverage, FAR and service fill back from the assets tab when every plot of the type states the same figure</div>
               </th>
             </tr>
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
@@ -674,6 +705,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
               <th style={{ ...TH, minWidth: 90, textAlign: 'right' }}>Avg unit size (sqm)</th>
               <th style={{ ...TH, minWidth: 80, textAlign: 'right' }}>Parking ratio</th>
               <th style={{ ...TH, minWidth: 140 }}>Ratio basis</th>
+              <th style={{ ...TH, minWidth: 90, textAlign: 'right' }}>Utilisation %</th>
               <th style={{ ...TH, minWidth: 90, textAlign: 'right' }}>Coverage %</th>
               <th style={{ ...TH, minWidth: 80, textAlign: 'right' }}>FAR</th>
               <th style={{ ...TH, minWidth: 90, textAlign: 'right' }}>Service %</th>
@@ -745,13 +777,59 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
                   Add
                 </button>
               </td>
-              <td style={{ ...TD_PROJECT_FIRST, color: 'var(--color-meta)', fontSize: 10 }} colSpan={6}>
+              <td style={{ ...TD_PROJECT_FIRST, color: 'var(--color-meta)', fontSize: 10 }} colSpan={7}>
                 Add the type first; its values are entered on its own row.
               </td>
             </tr>
           </tbody>
         </table>
       </div>
+
+      {entries.length > 0 && costColumns.length > 0 && (
+        <div style={{ marginTop: 'var(--sp-3)' }} data-testid="asset-cost-standards">
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-navy)', marginBottom: 4 }}>Cost standards per asset type</div>
+          <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, lineHeight: 1.45 }}>
+            A rate here is the default for every asset of the type on that capex line, in the line&apos;s own units.
+            The Capex tab marks it as from the type standard, and typing a value there overrides it for that line.
+            A blank leaves the line&apos;s own rate. A hard or soft cost line added on the Capex tab appears here as a column.
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }} data-testid="asset-cost-standards-table">
+              <thead>
+                <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+                  <th style={{ ...TH, minWidth: 160 }}>Asset type</th>
+                  {costColumns.map((c, i) => (
+                    <th key={c.catalogId}
+                      style={{ ...TH, minWidth: 100, textAlign: 'right', ...(i === 0 || (c.stage === 'soft' && costColumns[i - 1]?.stage === 'hard') ? DIVIDER : {}) }}
+                      data-testid={`std-cost-col-${c.catalogId}`}>
+                      {c.label}
+                      <div style={{ fontSize: 9, fontWeight: 400, opacity: 0.85 }}>{c.stage === 'hard' ? 'Hard' : 'Soft'}, {costUnitLabel(c)}</div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((e) => (
+                  <tr key={e.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                    <td style={FIRM_CELL}>{e.label}</td>
+                    {costColumns.map((c, i) => (
+                      <td key={c.catalogId} style={{ ...TD, ...(i === 0 || (c.stage === 'soft' && costColumns[i - 1]?.stage === 'hard') ? DIVIDER : {}) }}>
+                        <ValueCell
+                          value={values[e.id]?.costRates?.[c.catalogId]}
+                          disabled={noProject}
+                          testId={`std-cost-${e.id}-${c.catalogId}`}
+                          title={`${c.label} for every asset of this type, ${costUnitLabel(c)}. Blank leaves the capex line's own rate.`}
+                          onCommit={(n) => setCostRate(e.id, c.catalogId, n)}
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {entries.length === 0 && (
         <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', marginTop: 'var(--sp-1)' }} data-testid="asset-standards-empty">

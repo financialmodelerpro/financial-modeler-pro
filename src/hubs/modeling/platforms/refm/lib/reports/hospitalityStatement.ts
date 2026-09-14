@@ -179,7 +179,11 @@ export function hospitalityStatementRows(st: HospitalityStatement): M4Row[] {
   rows.push({ label: 'Total revenue', values: r.totalRevenuePerPeriod, isSubtotal: true });
 
   const group = (g: HospitalityCostGroup, totalLabel: string): void => {
-    const lines = st.costLines.filter((l) => l.group === g);
+    // ACTIVE ROWS ONLY (2026-09-14, founder): the seeded opex list carries every
+    // line and most of them are blank, so only a line with a value in some
+    // period is shown, and a group with none is left out with its zero total.
+    // The group totals, GOP and EBITDA are unchanged: a blank line adds zero.
+    const lines = st.costLines.filter((l) => l.group === g && l.values.some((v) => v !== 0));
     if (lines.length === 0) return;
     rows.push({ label: HOSPITALITY_COST_GROUP_LABEL[g], values: [], isSection: true });
     for (const l of lines) rows.push({ label: l.name, values: l.values, indent: 1 });

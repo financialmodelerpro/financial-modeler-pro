@@ -488,7 +488,7 @@ const RETIRED_FIELD_PATTERNS: ReadonlyArray<{ re: RegExp; why: string }> = [
 
 const STRUCTURAL_SELECTOR_PATTERNS: ReadonlyArray<RegExp> = [
   /^costLines\[[^\]]+\]\.(costCategory|scope|stage|allocationBasis|method|phasing)$/,
-  /^costOverrides\[[^\]]+\]\.(phasing|method)$/,
+  /^costOverrides\[[^\]]+\]\.(phasing|method|origin)$/,
   /^subUnits\[[^\]]+\]\.(metric|category|parentSubUnitId)$/,
   /^financingTranches\[[^\]]+\]\.(origin|scope|scopeId|interestRateType|graceInterestTreatment|equalRepaymentSubMethod|repaymentSubMethod|repaymentMethod|drawdownMethod)$/,
 ];
@@ -690,6 +690,13 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
     // live lever and is NOT gated. The other values on the type are still
     // read by nothing that computes.
     if (/\.avgUnitSizeSqm$/.test(path)) return null;
+    // COST STANDARDS (2026-09-14) reach the model as standard-sourced cost
+    // overrides, written by the store when a type's rate is edited. A value-only
+    // case override on the type never runs that store step, so it moves
+    // nothing; the override itself (costOverrides[...].value) is the dial.
+    if (/\.costRates(\.|\[)/.test(path)) {
+      return 'a cost rate standard on the asset type; the store writes it onto each asset of the type as a capex override, and a scenario does not re-run that step, so change the capex override value for this asset and line instead';
+    }
     return 'an asset type standard for this project; no calculation reads it yet (the area chain that will is a later step), so it moves nothing today. The unit size beside it IS read, for hospitality keys, and is offered';
   }
   if (/^subUnits\[[^\]]+\]\.parkingRatio$/.test(path)) {

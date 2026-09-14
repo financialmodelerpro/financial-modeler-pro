@@ -1685,7 +1685,19 @@ function CostRow({
           </div>
         )}
         {isProjectWide && !isLocked && !isCustom && (
-          override ? (
+          override ? (override.origin === 'standard' ? (
+            // FROM THE TYPE STANDARD (2026-09-14): the store wrote this override
+            // from the asset type's cost rate and keeps it in step. There is no
+            // revert: removing it would only bring the standard back. Typing a
+            // value here makes it this line's own override.
+            <div
+              data-testid={`cost-${asset.id}-${line.id}-from-standard`}
+              style={{ fontSize: 9, color: 'var(--color-navy)', marginTop: 4, lineHeight: 1.4, fontWeight: 600 }}
+              title="Set on the Asset Types and Standards tab for this asset type. Type a value here to override it for this line."
+            >
+              From type standard
+            </div>
+          ) : (
             <button
               type="button"
               onClick={reset}
@@ -1705,7 +1717,7 @@ function CostRow({
             >
               ↺ Inherit master
             </button>
-          ) : (
+          )) : (
             <button
               type="button"
               onClick={startOverride}

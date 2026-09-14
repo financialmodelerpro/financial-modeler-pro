@@ -161,11 +161,26 @@ export interface AssetTypeValues {
   coveragePct?: number;
   farRatio?: number;
   servicePct?: number;
+  /**
+   * UTILISATION DEFAULTS FROM THE TYPE TOO (2026-09-14), on the same
+   * inherit-and-override rule as coverage: the plot wins, absent inherits, a
+   * typed 0 is an override. It is filled back from the assets tab when every
+   * plot of the type states the same figure (planTypeMassingWriteBack).
+   */
+  utilisationPct?: number;
+  /**
+   * COST RATES PER CAPEX LINE (2026-09-14), keyed by the line's catalog id and
+   * stated in the line's own units. The store turns each into a per-asset
+   * override flagged as standard-sourced (lib/state/costStandards.ts), so the
+   * engine reads it through the override it already prices.
+   */
+  costRates?: Record<string, number>;
 }
 
 /** What a plot states, structurally, so this file stays import-free. Matches
  *  `LandChainInputs` on the three fields a type can default. */
 export interface ChainDefaultable {
+  utilisationPct?: number;
   coveragePct?: number;
   farRatio?: number;
   servicePct?: number;
@@ -173,7 +188,7 @@ export interface ChainDefaultable {
 
 export interface ResolvedChainDefaults extends ChainDefaultable {
   /** Where each figure came from, so a cell can say "from the type". */
-  sources: { coveragePct: StandardSource; farRatio: StandardSource; servicePct: StandardSource };
+  sources: { utilisationPct: StandardSource; coveragePct: StandardSource; farRatio: StandardSource; servicePct: StandardSource };
 }
 
 /**
@@ -196,14 +211,16 @@ export function resolveChainDefaults(
     if (typeof t === 'number' && Number.isFinite(t)) return { value: t, source: 'asset_type' };
     return { source: 'unset' };
   };
+  const util = one(plot?.utilisationPct, values?.utilisationPct);
   const cov = one(plot?.coveragePct, values?.coveragePct);
   const far = one(plot?.farRatio, values?.farRatio);
   const svc = one(plot?.servicePct, values?.servicePct);
   return {
+    ...(util.value !== undefined ? { utilisationPct: util.value } : {}),
     ...(cov.value !== undefined ? { coveragePct: cov.value } : {}),
     ...(far.value !== undefined ? { farRatio: far.value } : {}),
     ...(svc.value !== undefined ? { servicePct: svc.value } : {}),
-    sources: { coveragePct: cov.source, farRatio: far.source, servicePct: svc.source },
+    sources: { utilisationPct: util.source, coveragePct: cov.source, farRatio: far.source, servicePct: svc.source },
   };
 }
 
@@ -218,9 +235,9 @@ export function resolveChainDefaults(
  * `resolveChainDefaults`.
  */
 export function chainMassingFor(
-  asset: TypedAsset & { landChain?: { coveragePct?: number; farRatio?: number; servicePct?: number } },
+  asset: TypedAsset & { landChain?: { utilisationPct?: number; coveragePct?: number; farRatio?: number; servicePct?: number } },
   valuesByType: AssetTypeValuesByType | undefined,
-): { coveragePct?: number; farRatio?: number; servicePct?: number } {
+): { utilisationPct?: number; coveragePct?: number; farRatio?: number; servicePct?: number } {
   const { sources: _sources, ...values } = resolveChainDefaults(
     asset.landChain, resolveAssetTypeValues(asset, valuesByType),
   );
@@ -242,7 +259,9 @@ export function assetTypeValuesAreEmpty(v: AssetTypeValues | undefined): boolean
     // holding only a coverage would be dropped on the next write.
     && v.coveragePct === undefined
     && v.farRatio === undefined
-    && v.servicePct === undefined;
+    && v.servicePct === undefined
+    && v.utilisationPct === undefined
+    && (v.costRates === undefined || Object.keys(v.costRates).length === 0);
 }
 
 /** The little of an asset this needs to say which type it is. */
@@ -615,4 +634,62 @@ export function describeValues(
   // stored values and REVENUE_RATE_UNIT_SHORT all stay for when the wiring
   // lands, and this line grows back with the columns.
   return parts.join(' | ');
+}
+
+// ── THE MASSING FILLS BACK FROM THE ASSETS TAB (2026-09-14) ─────────────────
+
+export const MASSING_WRITE_BACK_FIELDS = ['utilisationPct', 'coveragePct', 'farRatio', 'servicePct'] as const;
+export type MassingWriteBackField = typeof MASSING_WRITE_BACK_FIELDS[number];
+
+/**
+ * WHEN EVERY PLOT OF A TYPE STATES THE SAME FIGURE, THE TYPE SAYS SO.
+ *
+ * Founder's direction: utilisation, coverage, FAR and the service share are
+ * typed on the assets tab, and the Types and Standards tab should show them so
+ * a user can see and verify what the type builds to. The rule is unanimity:
+ * every visible, non-companion asset of the type states the field and all of
+ * them state the same number. A plot left blank breaks it, because a blank
+ * inherits the type and writing the type would move that plot.
+ *
+ * TWO MODES. `overwrite` is the edit path: an asset was just changed, so its
+ * type follows the plots even where the type already held a figure. Without it
+ * (load and save) only an ABSENT type value is filled, so a figure the user
+ * typed on the Standards tab is never reverted by opening the project.
+ *
+ * Settles: `changed` is false and `values` is the input when nothing moves.
+ */
+export function planTypeMassingWriteBack(
+  assets: ReadonlyArray<TypedAsset & {
+    isCompanion?: boolean;
+    visible?: boolean;
+    landChain?: { utilisationPct?: number; coveragePct?: number; farRatio?: number; servicePct?: number };
+  }>,
+  values: AssetTypeValuesByType | undefined,
+  opts: { overwrite: boolean; typeIds?: ReadonlySet<string> },
+): { values: AssetTypeValuesByType; changed: boolean; written: Array<{ typeId: string; field: MassingWriteBackField; value: number }> } {
+  const byType = new Map<string, typeof assets[number][]>();
+  for (const a of assets) {
+    if (!a.assetTypeId || a.isCompanion === true || a.visible === false) continue;
+    if (opts.typeIds && !opts.typeIds.has(a.assetTypeId)) continue;
+    const list = byType.get(a.assetTypeId) ?? [];
+    list.push(a);
+    byType.set(a.assetTypeId, list);
+  }
+  const written: Array<{ typeId: string; field: MassingWriteBackField; value: number }> = [];
+  let next: AssetTypeValuesByType | undefined;
+  for (const [typeId, members] of byType) {
+    for (const field of MASSING_WRITE_BACK_FIELDS) {
+      const stated = members.map((a) => a.landChain?.[field]);
+      const first = stated[0];
+      if (typeof first !== 'number' || !Number.isFinite(first)) continue;
+      if (!stated.every((v) => v === first)) continue;
+      const current = (next ?? values)?.[typeId]?.[field];
+      if (current === first) continue;
+      if (!opts.overwrite && current !== undefined) continue;
+      next = next ?? { ...(values ?? {}) };
+      next[typeId] = { ...(next[typeId] ?? {}), [field]: first };
+      written.push({ typeId, field, value: first });
+    }
+  }
+  return next ? { values: next, changed: true, written } : { values: values ?? {}, changed: false, written };
 }
