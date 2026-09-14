@@ -233,6 +233,8 @@ async function runFor(tag: string, state: any): Promise<void> {
   const da = rowTotal(sumTxt, 'Depreciation & amortization');
   const ebit = rowTotal(sumTxt, 'EBIT');
   const interest = rowTotal(sumTxt, 'Interest expense');
+  // Printed only when a disposal is booked at the exit (2026-09-14).
+  const gain = rowTotal(sumTxt, 'Gain on disposal of operating assets');
   const pbt = rowTotal(sumTxt, 'Profit before tax');
   const tax = rowTotal(sumTxt, 'Tax / Zakat');
   const pat = rowTotal(sumTxt, 'Profit after tax');
@@ -243,7 +245,7 @@ async function runFor(tag: string, state: any): Promise<void> {
     check('revenue + cost of sales + opex + fund fee == EBITDA (as printed)',
       Math.abs((rev! + cos! + opex! + (fee ?? 0)) - ebitda!) < 0.2, `${rev} ${cos} ${opex} ${fee} -> ${ebitda}`);
     check('EBITDA + D&A == EBIT (as printed)', Math.abs((ebitda! + da!) - ebit!) < 0.2, `${ebitda} ${da} -> ${ebit}`);
-    check('EBIT + interest == PBT (as printed)', Math.abs((ebit! + interest!) - pbt!) < 0.2, `${ebit} ${interest} -> ${pbt}`);
+    check('EBIT + interest + gain on disposal == PBT (as printed)', Math.abs((ebit! + interest! + (gain ?? 0)) - pbt!) < 0.2, `${ebit} ${interest} ${gain} -> ${pbt}`);
     check('PBT + tax == PAT (as printed)', Math.abs((pbt! + tax!) - pat!) < 0.2, `${pbt} ${tax} -> ${pat}`);
     check('deductions print NEGATIVE, matching the full report',
       cos! <= 0 && opex! <= 0 && da! <= 0 && interest! <= 0 && tax! <= 0,

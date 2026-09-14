@@ -40,7 +40,11 @@ export function summariseStream(stream: CashFlowStream, discountRate: number): S
 function buildRealEstateMetrics(input: ReturnsInput): RealEstateMetrics {
   const m = input.metrics;
   const yoc = yieldOnCost(m.stabilisedNOI, m.totalDevelopmentCost);
-  const cap = capRate(m.exitNOI, m.exitEnterpriseValue);
+  // THE CAPITALISED INCOME over the value (2026-09-14): `stabilisedNOI` is now
+  // the income the terminal value capitalised (the year before the exit by
+  // default), so this reads back the cap rate the model used. Exit-year NOI
+  // over a value built on the prior year would not.
+  const cap = capRate(m.stabilisedNOI, m.exitEnterpriseValue);
   const dscr = dscrSeries(m.cfadsPerPeriod, m.debtServicePerPeriod);
   const icr = icrSeries(m.ebitdaPerPeriod, m.interestPerPeriod);
   const coc = cashOnCashSeries(m.distributionPerPeriod, m.cumulativeEquityPerPeriod);
@@ -77,6 +81,8 @@ export function computeReturns(input: ReturnsInput): ReturnsResult {
 
 export { npv, irr, moic, paybackPeriod, peakExposure } from './irr';
 export { terminalEnterpriseValue, terminalEquityValue, resolveCapRate, resolveApplyGrowth } from './terminalValue';
+export { valueAtExit, writeOffAtExit, terminalMetricIndex, DEFAULT_TERMINAL_VALUE_BASIS } from './disposal';
+export type { TerminalValueBasis, TerminalValuation, WriteOff } from './disposal';
 export {
   developmentEconomics, exitAnalysis, sourcesUses, fundingMix,
   equityExposure, stabilizationMetrics, debtAnalytics,

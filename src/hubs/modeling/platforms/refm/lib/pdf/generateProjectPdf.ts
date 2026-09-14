@@ -2891,6 +2891,10 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
     periodRow('Depreciation & amortization', negate(pl.daPerPeriod), 'sum'),
     periodRow('EBIT', pl.ebitPerPeriod, 'sum', 'subtotal'),
     periodRow('Interest expense', negate(pl.interestExpensePerPeriod), 'sum'),
+    // The exit booked as a disposal (2026-09-14): below interest, above zakat.
+    ...((pl.gainOnDisposalPerPeriod ?? []).some((v) => v !== 0)
+      ? [periodRow('Gain on disposal of operating assets', pl.gainOnDisposalPerPeriod, 'sum')]
+      : []),
     periodRow('Profit before tax', pl.pbtPerPeriod, 'sum', 'subtotal'),
     periodRow('Tax / Zakat', negate(pl.taxPerPeriod), 'sum'),
     periodRow('Profit after tax', pl.patPerPeriod, 'sum', 'total'),

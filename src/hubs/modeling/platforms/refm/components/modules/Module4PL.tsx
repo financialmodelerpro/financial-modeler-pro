@@ -156,6 +156,25 @@ export default function Module4PL(): React.JSX.Element {
               Applied to max({labels.pbt}, 0) each period. 0 = no tax.
             </div>
           </div>
+          {/* ZAKAT ON THE DISPOSAL GAIN (2026-09-14, founder). Off by default. */}
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
+              {labels.tax} on the disposal gain<OverrideBadge path="project.tax.applyToDisposalGain" />
+            </label>
+            <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 12 }}>
+              <input
+                type="checkbox"
+                checked={project.tax?.applyToDisposalGain === true}
+                onChange={(e) => state.setProject({ tax: { ...(project.tax ?? {}), applyToDisposalGain: e.target.checked } })}
+                data-testid="m4-pl-tax-on-disposal-gain"
+              />
+              Charge it on the gain at exit
+            </label>
+            <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
+              Off by default: zakat is assessed on a base, not on accounting profit, so the gain on disposal of the
+              held assets is excluded unless your treatment says otherwise.
+            </div>
+          </div>
         </div>
       </PhaseSection>
 

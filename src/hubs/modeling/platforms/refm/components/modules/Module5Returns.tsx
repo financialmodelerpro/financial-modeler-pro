@@ -96,6 +96,7 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
     capRateDerivedPct: cfg.capRateDerived * 100,
     capRateOverride: cfg.capRateSource === 'manual',
     applyGrowthToTerminal: cfg.applyGrowthToTerminal,
+    terminalValueBasis: cfg.terminalValueBasis,
   };
   const onAssumptions = (patch: Partial<AssumptionsValue>): void => {
     const next = { ...assumptions, ...patch };
@@ -112,6 +113,7 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
         capRateOverride: next.capRateOverride,
         capRate: next.capRateOverride ? Math.max(0, next.capRatePct / 100) : undefined,
         applyGrowthToTerminal: next.applyGrowthToTerminal,
+        terminalValueBasis: next.terminalValueBasis,
       },
     });
   };

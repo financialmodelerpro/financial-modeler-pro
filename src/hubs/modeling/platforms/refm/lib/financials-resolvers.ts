@@ -58,6 +58,8 @@ import { computeFundFeeSchedule, emptyFundFeeSchedule, resolveFacilityLimit, res
 import { assetLabel, withResolvedAssetNames } from '@/src/core/calculations/assetName';
 import { withInheritedMassingAll } from '@/src/core/calculations/landChain';
 import { chainMassingFor } from './state/assetTypeStandards';
+import { valueAtExit, writeOffAtExit, type TerminalValueBasis } from '@/src/core/calculations/returns/disposal';
+import { resolveReturnsConfig } from './returns-resolvers';
 
 /** Lifetime sum of a per-period series. Local to the fund-size resolution. */
 const sumSeries = (a: readonly number[] | undefined): number =>
@@ -156,7 +158,11 @@ export interface ProjectPL {
   daPerPeriod: number[];
   ebitPerPeriod: number[];
   interestExpensePerPeriod: number[];
-  interestIncomePerPeriod: number[];   // reserved for future cash-balance interest; zeros today
+  interestIncomePerPeriod: number[];
+  /** Gain on disposal of the held assets at the exit (2026-09-14): proceeds less
+   *  the net book value disposed, below interest and above zakat. Zero in every
+   *  other period, and everywhere when no terminal value is set. */
+  gainOnDisposalPerPeriod: number[];   // reserved for future cash-balance interest; zeros today
   pbtPerPeriod: number[];
   taxRate: number;
   taxPerPeriod: number[];
@@ -207,6 +213,9 @@ export interface ProjectDirectCF {
   /** True when `fundTerms.managementFeeFunding === 'equity'`. */
   managementFeeFundedByEquity: boolean;
   cashFromInvestmentPerPeriod: number[];
+  /** Proceeds from disposing of the held assets at the exit (2026-09-14),
+   *  positive, INSIDE cashFromInvestmentPerPeriod. */
+  proceedsFromDisposalPerPeriod: number[];
   // Financing
   /** M4 Pass 2P (2026-05-24): cash equity only, what actually moves
    *  through CF. In-kind equity is captured in equityInKindDrawdownPerPeriod
@@ -232,7 +241,10 @@ export interface ProjectIndirectCF {
   daPerPeriod: number[];                   // add-back
   interestExpensePerPeriod: number[];      // add-back (then subtract Interest Paid)
   changeInArPerPeriod: number[];           // -ΔAR (asset = subtract increase)
-  costOfSalesAddBackPerPeriod: number[];   // +CoS add-back (capex funded via investing CFI, so CoS is non-cash in operations)
+  costOfSalesAddBackPerPeriod: number[];
+  /** Less the gain on disposal (2026-09-14): non-cash in operations, since the
+   *  proceeds are in investing. Negative. */
+  gainOnDisposalPerPeriod: number[];   // +CoS add-back (capex funded via investing CFI, so CoS is non-cash in operations)
   changeInApPerPeriod: number[];           // +ΔAP
   changeInUnearnedPerPeriod: number[];     // +ΔUnearned (liability)
   changeInEscrowPerPeriod: number[];       // −ΔEscrow (restricted-cash asset build consumes cash)
@@ -256,6 +268,9 @@ export interface ProjectIndirectCF {
   /** True when `fundTerms.managementFeeFunding === 'equity'`. */
   managementFeeFundedByEquity: boolean;
   cashFromInvestmentPerPeriod: number[];
+  /** Proceeds from disposing of the held assets at the exit (2026-09-14),
+   *  positive, INSIDE cashFromInvestmentPerPeriod. */
+  proceedsFromDisposalPerPeriod: number[];
   /** M4 Pass 2P (2026-05-24): cash equity only, what actually moves
    *  through CF. In-kind equity is captured in equityInKindDrawdownPerPeriod
    *  as a memo (NOT included in cashFromFinancingPerPeriod). */
@@ -449,6 +464,28 @@ export interface BsReconciliation {
   unexplainedPerPeriod: number[];
 }
 
+/**
+ * THE EXIT AS A DISPOSAL (2026-09-14). What was sold, for how much, and what the
+ * statements booked. The held assets are exactly the fixed asset balance: the
+ * visible Operate and Lease assets, each with its own land and capitalised
+ * interest. Sold residential left through cost of sales and carries none.
+ */
+export interface TerminalDisposal {
+  /** False when the terminal method is 'none': nothing is sold or written off. */
+  booked: boolean;
+  exitIdx: number;
+  basis: TerminalValueBasis;
+  metricIdx: number;
+  exitMetric: number;
+  proceeds: number;
+  netBookValue: { building: number; land: number; capitalisedInterest: number; total: number };
+  gain: number;
+  gainTaxed: boolean;
+  taxOnGainPerPeriod: number[];
+  debtRepaidPerPeriod: number[];
+  byAsset: Array<{ assetId: string; building: number; land: number; capitalisedInterest: number }>;
+}
+
 export interface ProjectFinancialsSnapshot {
   axisLength: number;
   projectStartYear: number;
@@ -476,6 +513,8 @@ export interface ProjectFinancialsSnapshot {
   directCF: ProjectDirectCF;
   indirectCF: ProjectIndirectCF;
   bs: ProjectBS;
+  /** The exit booked as a disposal (2026-09-14). */
+  disposal: TerminalDisposal;
   /** Fund layer Step 3 (2026-08-04): the per-fee schedule this snapshot was
    *  computed with, including the basis each fee charged on. `active: false`
    *  on every standalone project, with every array zero. Surfaced so a reader
@@ -1994,6 +2033,7 @@ function computeFinancialsSnapshotOnce(
     pat[t] = pbt[t] - taxArr[t];
   }
 
+  const gainOnDisposal = zeros(N);
   const pl: ProjectPL = {
     residentialRevenuePerPeriod: residentialRev,
     hospitalityRevenuePerPeriod: hospitalityRev,
@@ -2012,6 +2052,7 @@ function computeFinancialsSnapshotOnce(
     ebitPerPeriod: ebit,
     interestExpensePerPeriod: interestExpense,
     interestIncomePerPeriod: zeros(N),
+    gainOnDisposalPerPeriod: gainOnDisposal,
     pbtPerPeriod: pbt,
     taxRate,
     taxPerPeriod: taxArr,
@@ -2068,6 +2109,62 @@ function computeFinancialsSnapshotOnce(
   }
 
   // Tax paid (cash basis: paid in the period tax is incurred)
+  // ── THE EXIT IS A DISPOSAL (2026-09-14, founder, matching the reference) ──
+  //
+  // The terminal value becomes PROCEEDS FROM DISPOSAL in the exit year, the P&L
+  // carries a GAIN ON DISPOSAL (proceeds less the net book value disposed) below
+  // interest and above zakat, and the held assets' building, land and
+  // capitalised interest go to zero from the exit. The value is the SAME
+  // `valueAtExit` the Returns streams call, on the same basis, so the proceeds
+  // booked here and the terminal value Returns reports are one number.
+  //
+  // It sits HERE because the gain must reach profit before tax before tax is
+  // charged, and the perpetuity metric needs the operating cash flow before
+  // that tax, both of which exist at this point and nowhere later.
+  const returnsCfg = resolveReturnsConfig(project, N);
+  const exitIdx = returnsCfg.exitYearOffset;
+  const disposalBooked = returnsCfg.terminalMethod !== 'none' && N > 0;
+  const noiForExit = zeros(N);
+  for (let t = 0; t < N; t++) noiForExit[t] = hospitalityRev[t] + retailRev[t] - hospOpex[t] - retailOpex[t];
+  const capexCashForExit = financing.capex.perPeriod.exclLandInKind;
+  const inKindForExit = financing.equity.inKindPerPeriod;
+  const fcffForExit = zeros(N);
+  for (let t = 0; t < N; t++) {
+    const cfoBeforeGainTax = revRcvProject[t] + netRevAdj[t] - opexPaidProject[t] - hqOpexPaid[t] - fundFees[t] - taxArr[t];
+    fcffForExit[t] = cfoBeforeGainTax - (capexCashForExit[t] ?? 0) - (inKindForExit[t] ?? 0);
+  }
+  const exitValuation = valueAtExit({
+    exitIdx, basis: returnsCfg.terminalValueBasis, method: returnsCfg.terminalMethod,
+    noiPerPeriod: noiForExit, fcffPerPeriod: fcffForExit,
+    exitMultiple: returnsCfg.exitMultiple, perpetuityGrowth: returnsCfg.perpetuityGrowth,
+    discountRate: returnsCfg.discountRate, capRate: returnsCfg.capRate, applyGrowth: returnsCfg.applyGrowthToTerminal,
+  });
+  const buildingWriteOff = writeOffAtExit(fixedAssets.projectTotals.depreciable.closingNBVPerPeriod, fixedAssets.projectTotals.depreciable.depreciationPerPeriod, exitIdx, N);
+  const landWriteOff = writeOffAtExit(fixedAssets.projectTotals.land.closingPerPeriod, undefined, exitIdx, N);
+  const idcWriteOff = writeOffAtExit(idcSnapshot.idcNbvPerPeriod, idcSnapshot.idcDepreciationPerPeriod, exitIdx, N);
+  const nbvDisposed = buildingWriteOff.disposedAtExit + landWriteOff.disposedAtExit + idcWriteOff.disposedAtExit;
+  const proceedsFromDisposal = zeros(N);
+  const taxOnGain = zeros(N);
+  const gainTaxed = project.tax?.applyToDisposalGain === true;
+  if (disposalBooked) {
+    proceedsFromDisposal[exitIdx] = exitValuation.enterpriseValue;
+    gainOnDisposal[exitIdx] = exitValuation.enterpriseValue - nbvDisposed;
+    // No depreciation on what has been sold.
+    for (let t = exitIdx + 1; t < N; t++) {
+      const removed = (buildingWriteOff.depreciationRemovedPerPeriod[t] ?? 0) + (idcWriteOff.depreciationRemovedPerPeriod[t] ?? 0);
+      da[t] -= removed;
+      ebit[t] += removed;
+      pbt[t] += removed;
+    }
+    pbt[exitIdx] += gainOnDisposal[exitIdx];
+    for (let t = exitIdx; t < N; t++) {
+      const withoutGain = Math.max(0, pbt[t] - gainOnDisposal[t]) * taxRate;
+      taxArr[t] = gainTaxed ? Math.max(0, pbt[t]) * taxRate : withoutGain;
+      taxOnGain[t] = taxArr[t] - withoutGain;
+      pat[t] = pbt[t] - taxArr[t];
+    }
+  }
+
   const taxPaidArr = taxArr.slice();
 
   // HOW THE MANAGEMENT FEE IS FUNDED (2026-08-18f, rebuilt AT THE ENGINE).
@@ -2112,7 +2209,7 @@ function computeFinancialsSnapshotOnce(
   const capexFull = financing.capex.perPeriod.exclLandInKind; // length = totalPeriods
   const capexProj = capexFull.slice(0, N);
   while (capexProj.length < N) capexProj.push(0);
-  const cashFromInv = capexProj.map((v) => -v);
+  const cashFromInv = capexProj.map((v, t) => -v + (proceedsFromDisposal[t] ?? 0));
 
   // Financing flows from M1 (combined + equity).
   // M4 Pass 2P (2026-05-24): cash CF uses CASH equity only; in-kind
@@ -2152,6 +2249,17 @@ function computeFinancialsSnapshotOnce(
   const debtDraws = capexDrawArr.map((v, i) => v + (idcDrawArr[i] ?? 0));
   const debtRepays = financing.combined.totalPrincipalRepaid.slice(0, N);
   while (debtRepays.length < N) debtRepays.push(0);
+  // THE DEBT IS REPAID OUT OF THE PROCEEDS AT THE EXIT (2026-09-14). A buyer takes
+  // the assets clear, so whatever is outstanding at the close of the exit year is
+  // repaid in that year, and nothing is scheduled after it.
+  const debtRepaidAtExit = zeros(N);
+  if (disposalBooked) {
+    let outstandingAtExit = 0;
+    for (const fac of financing.facilities.values()) outstandingAtExit += Math.max(0, fac.outstanding[exitIdx] ?? 0);
+    debtRepays[exitIdx] += outstandingAtExit;
+    debtRepaidAtExit[exitIdx] = outstandingAtExit;
+    for (let t = exitIdx + 1; t < N; t++) debtRepays[t] = 0;
+  }
   // 2026-08-18: read the SUMMED cash interest rather than backing it out of
   // debt service. The old derivation (`debtServiceCash - principal`) equalled
   // accrued less capitalised, which was right only while capitalised interest
@@ -2246,7 +2354,7 @@ function computeFinancialsSnapshotOnce(
 
   const cashFromOpsIndirect = zeros(N);
   for (let t = 0; t < N; t++) {
-    cashFromOpsIndirect[t] = pat[t] + da[t] + interestExpense[t] + cosTotal[t]
+    cashFromOpsIndirect[t] = pat[t] + da[t] + interestExpense[t] + cosTotal[t] - gainOnDisposal[t]
       - arOperatingChange[t] - residentialArChange[t]
       + apChange[t] + unearnedChange[t] - escrowChange[t];
     // Interest is a FINANCING item in this model: the Direct CF shows interest
@@ -2284,6 +2392,10 @@ function computeFinancialsSnapshotOnce(
   for (const [trancheId, fac] of financing.facilities) {
     facilityOutstandingForSweep.set(trancheId, fac.outstanding.slice(0, N));
     if (engineSweepByTranche) engineSweepByTranche.set(trancheId, fac.sweepRepaid.slice(0, N));
+  }
+  // Repaid at the exit, so there is nothing left for a sweep to find.
+  if (disposalBooked) {
+    for (const arr of facilityOutstandingForSweep.values()) for (let t = exitIdx; t < N; t++) arr[t] = 0;
   }
   // M4 Pass 2T-Fix (2026-05-24): per-phase EBITDA = sum across assets in
   // the phase. Caps cumulative dividends per phase at cumulative EBITDA.
@@ -2373,6 +2485,7 @@ function computeFinancialsSnapshotOnce(
     equityManagementFeeDrawdownPerPeriod: equityManagementFeeArr,
     managementFeeFundedByEquity: feeFundedByEquity,
     cashFromInvestmentPerPeriod: cashFromInv,
+    proceedsFromDisposalPerPeriod: proceedsFromDisposal,
     equityDrawdownPerPeriod: equityCashArr,
     equityInKindDrawdownPerPeriod: equityInKindArr,
     debtDrawdownPerPeriod: debtDraws,
@@ -2413,6 +2526,7 @@ function computeFinancialsSnapshotOnce(
     interestExpensePerPeriod: interestExpense,
     changeInArPerPeriod: arOperatingChange.map((v, i) => -(v + residentialArChange[i])),
     costOfSalesAddBackPerPeriod: cosTotal.slice(),
+    gainOnDisposalPerPeriod: gainOnDisposal.map((v) => -v),
     changeInApPerPeriod: apChange,
     changeInUnearnedPerPeriod: unearnedChange,
     changeInEscrowPerPeriod: escrowChange.map((v) => -v),
@@ -2427,6 +2541,7 @@ function computeFinancialsSnapshotOnce(
     equityManagementFeeDrawdownPerPeriod: equityManagementFeeArr,
     managementFeeFundedByEquity: feeFundedByEquity,
     cashFromInvestmentPerPeriod: cashFromInv,
+    proceedsFromDisposalPerPeriod: proceedsFromDisposal,
     // CASH equity only on CF. In-kind kept as a memo field.
     equityDrawdownPerPeriod: equityCashArr,
     equityInKindDrawdownPerPeriod: equityInKindArr,
@@ -2452,14 +2567,17 @@ function computeFinancialsSnapshotOnce(
       residentialReceivables[t] += bundle.ar.perPeriod[t] ?? 0;
     }
   }
-  const nbvArr = fixedAssets.projectTotals.depreciable.closingNBVPerPeriod.slice(0, N);
-  const landArr = fixedAssets.projectTotals.land.closingPerPeriod.slice(0, N);
+  // The held assets are written off at the exit (2026-09-14); before it, and on a
+  // project with no terminal value, these are the engine's own balances.
+  const nbvArr = disposalBooked ? buildingWriteOff.adjustedPerPeriod : fixedAssets.projectTotals.depreciable.closingNBVPerPeriod.slice(0, N);
+  const landArr = disposalBooked ? landWriteOff.adjustedPerPeriod : fixedAssets.projectTotals.land.closingPerPeriod.slice(0, N);
+  const idcNbvForBs = disposalBooked ? idcWriteOff.adjustedPerPeriod : idcSnapshot.idcNbvPerPeriod.slice(0, N);
   const totalFA = zeros(N);
   // BS Fixed Assets = Land + Depreciable NBV + Capitalised IDC NBV.
   // IDC NBV picks up the depreciation lifecycle for Operate/Lease assets
   // (Sell IDC flows through CoS and lands in Inventory before being
   // released, so it's already in inventoryArr below).
-  for (let t = 0; t < N; t++) totalFA[t] = nbvArr[t] + landArr[t] + (idcSnapshot.idcNbvPerPeriod[t] ?? 0);
+  for (let t = 0; t < N; t++) totalFA[t] = nbvArr[t] + landArr[t] + (idcNbvForBs[t] ?? 0);
   // Escrow = restricted cash (asset). Operating cash (cashPerPeriod) was
   // already reduced by escrow held via the CF; the held amount now sits
   // here as a restricted-cash asset, so total cash-side assets are
@@ -2488,6 +2606,7 @@ function computeFinancialsSnapshotOnce(
       for (let t = 0; t < N; t++) debtOutstanding[t] += fac.outstanding[t] ?? 0;
     }
   }
+  if (disposalBooked) for (let t = exitIdx; t < N; t++) debtOutstanding[t] = 0;
   const totalCL = zeros(N);
   for (let t = 0; t < N; t++) totalCL[t] = apClosing[t] + unearnedClosing[t];
   const totalLiab = zeros(N);
@@ -2587,7 +2706,7 @@ function computeFinancialsSnapshotOnce(
   const landAdd0 = fixedAssets.projectTotals.land.additionsPerPeriod[0] ?? 0;
   const openNbv = (nbvArr[0] ?? 0) - depAdd0 + depDep0; // pre-axis opening NBV
   const openLand = (landArr[0] ?? 0) - landAdd0;          // pre-axis opening Land
-  const idcNbvP = idcSnapshot.idcNbvPerPeriod;
+  const idcNbvP = idcNbvForBs;
   const deltaWithOpen = (arr: number[], t: number, open: number): number =>
     (arr[t] ?? 0) - (t === 0 ? open : (arr[t - 1] ?? 0));
   const recoNetCf = directCF.netCashFlowPerPeriod.slice(0, N);
@@ -2634,6 +2753,31 @@ function computeFinancialsSnapshotOnce(
     unexplainedPerPeriod: unexplained,
   };
 
+  const disposal: TerminalDisposal = {
+    booked: disposalBooked,
+    exitIdx,
+    basis: returnsCfg.terminalValueBasis,
+    metricIdx: exitValuation.metricIdx,
+    exitMetric: exitValuation.exitMetric,
+    proceeds: proceedsFromDisposal[exitIdx] ?? 0,
+    netBookValue: {
+      building: buildingWriteOff.disposedAtExit,
+      land: landWriteOff.disposedAtExit,
+      capitalisedInterest: idcWriteOff.disposedAtExit,
+      total: nbvDisposed,
+    },
+    gain: gainOnDisposal[exitIdx] ?? 0,
+    gainTaxed,
+    taxOnGainPerPeriod: taxOnGain,
+    debtRepaidPerPeriod: debtRepaidAtExit,
+    byAsset: [...fixedAssets.byAsset.values()].map((row) => ({
+      assetId: row.assetId,
+      building: row.depreciable.closingNBVPerPeriod[exitIdx] ?? 0,
+      land: row.land.closingPerPeriod[exitIdx] ?? 0,
+      capitalisedInterest: idcSnapshot.byAsset.get(row.assetId)?.closingNbvPerPeriod[exitIdx] ?? 0,
+    })),
+  };
+
   const snapResult: ProjectFinancialsSnapshot = {
     axisLength: N,
     projectStartYear,
@@ -2657,6 +2801,7 @@ function computeFinancialsSnapshotOnce(
     cashSweep,
     dividends,
     bsReconciliation,
+    disposal,
   };
 
   return snapResult;

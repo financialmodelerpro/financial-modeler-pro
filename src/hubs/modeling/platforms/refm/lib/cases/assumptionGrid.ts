@@ -96,6 +96,8 @@ const FIELD_LABELS: Record<string, string> = {
   'returns.perpetuityGrowth': 'Perpetuity growth rate',
   'returns.exitYearOffset': 'Exit year (offset)',
   'tax.rate': 'Tax / Zakat rate',
+  'tax.applyToDisposalGain': 'Zakat on the disposal gain',
+  'returns.terminalValueBasis': 'Terminal value basis',
   'operatingAr.dsoDays': 'Receivable days (DSO)',
   'shareCapital': 'Share capital',
   'statutoryReserve.transferRate': 'Statutory reserve transfer rate',

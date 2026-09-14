@@ -54,6 +54,8 @@ export interface StreamBuildupSource {
     interestPaidPerPeriod: number[];
     terminalEnterprisePerPeriod: number[];
     terminalEquityPerPeriod: number[];
+    /** Terminal equity NOT already paid out in the exit dividend (2026-09-14). */
+    terminalEquityDistributedPerPeriod: number[];
     equityCashPerPeriod: number[];
     equityInKindPerPeriod: number[];
     dividendsDistributedPerPeriod: number[];
@@ -125,7 +127,7 @@ const DIVIDEND_ROWS: readonly BuildupRowDef[] = [
   { label: '(-) New Cash Equity Investment', pick: 'equityCashPerPeriod' },
   { label: '(-) In-Kind Equity Investment', pick: 'equityInKindPerPeriod' },
   { label: '(+) Dividends Distributed (cash-sweep waterfall)', pick: 'dividendsDistributedPerPeriod' },
-  { label: '(+) Terminal Equity Value', pick: 'terminalEquityPerPeriod' },
+  { label: '(+) Terminal Equity Value', pick: 'terminalEquityDistributedPerPeriod' },
 ];
 
 /** Row labels, exported so a verifier can pin the ORDER without rendering. */

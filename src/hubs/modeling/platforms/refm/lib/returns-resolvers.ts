@@ -61,6 +61,7 @@ import type {
   WaterfallSnapshot, FeeEarnersSnapshot,
 } from '@/src/core/calculations/returns';
 import type { ProjectFinancialsSnapshot } from './financials-resolvers';
+import type { TerminalValueBasis } from '@/src/core/calculations/returns/disposal';
 import type { Project } from './state/module1-types';
 import { resolveFundTerms, resolveFeeEarners } from './fundTerms';
 
@@ -79,6 +80,9 @@ export interface ReturnsConfig {
   capRateSource: 'manual' | 'derived';
   /** Whether the exit metric is grown by (1 + g) before capitalising. */
   applyGrowthToTerminal: boolean;
+  /** Which year's income is capitalised (2026-09-14): the year before the exit
+   *  by default, as the reference does, or the exit year. */
+  terminalValueBasis: TerminalValueBasis;
 }
 
 export const DEFAULT_RETURNS_CONFIG: Omit<ReturnsConfig, 'exitYearOffset'> = {
@@ -95,6 +99,7 @@ export const DEFAULT_RETURNS_CONFIG: Omit<ReturnsConfig, 'exitYearOffset'> = {
   // exit_multiple does not grow the metric, so the default leaves every existing
   // project exactly where it was.
   applyGrowthToTerminal: false,
+  terminalValueBasis: 'prior_year',
 };
 
 /** Resolve the stored project config + defaults into a concrete config. */
@@ -116,6 +121,7 @@ export function resolveReturnsConfig(project: Project, axisLength: number): Retu
     discountRate,
     exitYearOffset: exit,
     terminalMethod,
+    terminalValueBasis: r.terminalValueBasis === 'exit_year' ? 'exit_year' : 'prior_year',
     exitMultiple: Math.max(0, r.exitMultiple ?? DEFAULT_RETURNS_CONFIG.exitMultiple),
     perpetuityGrowth,
     capRate: cap.rate,
@@ -157,6 +163,8 @@ export interface ReturnsBuildup {
   principalRepayPerPeriod: number[];    // (-) principal repaid (already negative)
 
   terminalEquityPerPeriod: number[];    // (+) terminal value less closing debt (exit only)
+  /** The same, less anything the exit dividend already paid out (2026-09-14). */
+  terminalEquityDistributedPerPeriod: number[];
   // Dividend (realised equity) build-up
   equityCashPerPeriod: number[];        // (-) cash equity contributed
   equityInKindPerPeriod: number[];      // (-) in-kind equity contributed
@@ -251,7 +259,7 @@ export interface ReturnsSnapshot {
  *  a snapshot, for the sensitivity grid (resolver default + UI re-runs). */
 function sponsorInputsFromSnap(snap: ProjectFinancialsSnapshot, project: Project): {
   inputs: SponsorStreamInputs; exitIdx: number; discountRate: number;
-  terminal: { method: TerminalMethod; exitMultiple: number; perpetuityGrowth: number; discountRate: number };
+  terminal: { method: TerminalMethod; exitMultiple: number; perpetuityGrowth: number; discountRate: number; capRate?: number; applyGrowth?: boolean; basis?: TerminalValueBasis };
 } {
   const N = snap.axisLength;
   const cfg = resolveReturnsConfig(project, N);
@@ -265,7 +273,8 @@ function sponsorInputsFromSnap(snap: ProjectFinancialsSnapshot, project: Project
   return {
     inputs: {
       cfoAxis: sl(dcf.cashFromOperationsPerPeriod),
-      cfiAxis: sl(dcf.cashFromInvestmentPerPeriod),
+      cfiAxis: sl(dcf.cashFromInvestmentPerPeriod.map((v, i) => (v ?? 0) - (dcf.proceedsFromDisposalPerPeriod?.[i] ?? 0))),
+      gainTaxAxis: sl(snap.disposal.taxOnGainPerPeriod),
       inKindAxis: sl(fin.equity.inKindPerPeriod),
       financeCostAxis: sl(dcf.operatingInterestPaidPerPeriod).map((v, i) => v + (dcf.idcAccruedPerPeriod[i] ?? 0)),
       debtDrawAxis: sl(dcf.capexDrawdownPerPeriod),
@@ -278,7 +287,7 @@ function sponsorInputsFromSnap(snap: ProjectFinancialsSnapshot, project: Project
     },
     exitIdx: cfg.exitYearOffset,
     discountRate: cfg.discountRate,
-    terminal: { method: cfg.terminalMethod, exitMultiple: cfg.exitMultiple, perpetuityGrowth: cfg.perpetuityGrowth, discountRate: cfg.discountRate },
+    terminal: { method: cfg.terminalMethod, exitMultiple: cfg.exitMultiple, perpetuityGrowth: cfg.perpetuityGrowth, discountRate: cfg.discountRate, capRate: cfg.capRate, applyGrowth: cfg.applyGrowthToTerminal, basis: cfg.terminalValueBasis },
   };
 }
 
@@ -327,7 +336,8 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   const exitNOI = noiPerPeriod[exit] ?? 0;
   // Stabilised NOI = the larger of exit-year NOI and the max NOI achieved
   // (so an exit during a dip still reports a sensible stabilised figure).
-  const stabilisedNOI = Math.max(exitNOI, ...noiPerPeriod.slice(0, E), 0);
+  // Stabilised NOI is the income the terminal value capitalised, read from the
+  // stream builder below (2026-09-14), not the best year to date.
 
   // ── Sponsor-IRR inception view (2026-06-02) ─────────────────────────
   // Existing operations already in the ground at project start (the prior
@@ -351,7 +361,9 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   // Axis-period (2026 onward) component slices.
   const sliceE = (arr: number[]): number[] => arr.slice(0, E).map((v) => v ?? 0);
   const cfoAxis = sliceE(dcf.cashFromOperationsPerPeriod);
-  const cfiAxis = sliceE(dcf.cashFromInvestmentPerPeriod);  // new construction capex (cash)
+  // Construction capex (cash) BEFORE the disposal proceeds: the streams add the
+  // terminal value themselves, so reading the proceeds too would count the exit twice.
+  const cfiAxis = sliceE(dcf.cashFromInvestmentPerPeriod.map((v, i) => (v ?? 0) - (dcf.proceedsFromDisposalPerPeriod?.[i] ?? 0)));
   const inKindAxis = sliceE(equityInKind);                  // in-kind land contributed
   // 2026-08-18: the two drawdowns and the two halves of the finance cost are
   // carried separately, because FCFF now absorbs the IDC half as capex and
@@ -389,6 +401,7 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   // capex (cash + in-kind land + IDC) and FCFE inherits all three through it. ─────────────────────────
   const sponsorInputs = {
     cfoAxis, cfiAxis, inKindAxis, financeCostAxis, debtDrawAxis, idcDrawAxis, principalAxis,
+    gainTaxAxis: sliceE(snap.disposal.taxOnGainPerPeriod),
     noiPerPeriod, debtOutstandingPerPeriod: bs.debtOutstandingPerPeriod,
     existingPreCapex, existingDebtOpening,
   };
@@ -396,8 +409,14 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     method: cfg.terminalMethod, exitMultiple: cfg.exitMultiple,
     perpetuityGrowth: cfg.perpetuityGrowth, discountRate: cfg.discountRate,
     capRate: cfg.capRate, applyGrowth: cfg.applyGrowthToTerminal,
+    basis: cfg.terminalValueBasis,
   };
   const streams = buildSponsorStreamsForExit(sponsorInputs, exit, terminalCfg);
+  const stabilisedNOI = streams.stabilisedNOI;
+  // THE PROCEEDS ARE ALREADY DISTRIBUTED when the disposal is booked and the
+  // project pays dividends: the exit year's liquidating payout carries them. The
+  // distributed-equity stream then must not add the terminal equity on top.
+  const proceedsDistributed = snap.disposal.booked && snap.dividends.enabled;
   const tvEnterprise = streams.terminalEnterpriseValue;
   const tvEquity = streams.terminalEquityValue;
   const debtAtExit = bs.debtOutstandingPerPeriod[exit] ?? 0;
@@ -412,7 +431,7 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   // so it flows through both the stream and the build-up consistently.
   const dividendAxis = equityCashAxis.map((v, t) =>
     -(v + (inKindAxis[t] ?? 0)) + (divPaidAxis[t] ?? 0));
-  dividendAxis[exit] = (dividendAxis[exit] ?? 0) + tvEquity;
+  dividendAxis[exit] = (dividendAxis[exit] ?? 0) + (proceedsDistributed ? 0 : tvEquity);
   const dividendStream = incep(-existingEquity, dividendAxis);
 
   // ── Fund layer Step 4 (2026-08-05): the distribution waterfall ──────────
@@ -451,7 +470,7 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     bookEquityDrawn(t + 1, (equityCashAxis[t] ?? 0) + (inKindAxis[t] ?? 0));
     bookDistribution(t + 1, divPaidAxis[t] ?? 0);
   }
-  bookDistribution(exit + 1, tvEquity);
+  bookDistribution(exit + 1, proceedsDistributed ? 0 : tvEquity);
 
   const waterfall = computeDistributionWaterfall({
     equityDrawnPerPeriod: wfEquityDrawn,
@@ -527,6 +546,10 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     principalRepayPerPeriod: incep(0, principalAxis),
 
     terminalEquityPerPeriod: incep(0, atExitAxis(tvEquity)),
+    // THE DISTRIBUTED-EQUITY BUILD-UP'S TERMINAL ROW (2026-09-14): zero when the
+    // disposal is booked and the exit dividend already paid the proceeds out, so
+    // the rows still sum to the stream. FCFE keeps the full terminal equity.
+    terminalEquityDistributedPerPeriod: incep(0, atExitAxis(proceedsDistributed ? 0 : tvEquity)),
     equityCashPerPeriod: incep(0, equityCashAxis.map((v) => -v)),
     equityInKindPerPeriod: incep(0, inKindAxis.map((v) => -v)),
     dividendsDistributedPerPeriod: incep(0, divPaidAxis),
@@ -559,7 +582,7 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
       exitEnterpriseValue: tvEnterprise,
       debtOutstandingAtExit: debtAtExit,
       totalEquityInvested,
-      totalEquityDistributions: totalDividends + tvEquity,
+      totalEquityDistributions: totalDividends + (proceedsDistributed ? 0 : tvEquity),
       cfadsPerPeriod: pl.ebitdaPerPeriod.slice(0, N),
       debtServicePerPeriod,
       ebitdaPerPeriod: pl.ebitdaPerPeriod.slice(0, N),
@@ -662,7 +685,9 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     cashAxisPerPeriod: equityCashAxis,
     inKindAxisPerPeriod: inKindAxis,
     dividendsPerPeriod: divPaidAxis,
-    terminalEquityValue: tvEquity,
+    // Not paid twice: with the disposal booked and dividends on, the exit
+    // dividend in dividendsPerPeriod already carries the proceeds (2026-09-14).
+    terminalEquityValue: proceedsDistributed ? 0 : tvEquity,
     exitIdx: exit,
     streamYearLabels,
     // Consolidated FCFE stream (E+1, index 0 = inception) so each partner gets
@@ -686,7 +711,8 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   if (!candidateExitIdxs.includes(exit)) candidateExitIdxs.push(exit);
   const sponsorInputsFull: SponsorStreamInputs = {
     cfoAxis: dcf.cashFromOperationsPerPeriod.slice(0, N).map((v) => v ?? 0),
-    cfiAxis: dcf.cashFromInvestmentPerPeriod.slice(0, N).map((v) => v ?? 0),
+    cfiAxis: dcf.cashFromInvestmentPerPeriod.slice(0, N).map((v, i) => (v ?? 0) - (dcf.proceedsFromDisposalPerPeriod?.[i] ?? 0)),
+    gainTaxAxis: snap.disposal.taxOnGainPerPeriod.slice(0, N),
     inKindAxis: equityInKind.slice(0, N).map((v) => v ?? 0),
     financeCostAxis: dcf.operatingInterestPaidPerPeriod.slice(0, N).map((v, i) => (v ?? 0) + (dcf.idcAccruedPerPeriod[i] ?? 0)),
     idcDrawAxis: dcf.idcDrawdownPerPeriod.slice(0, N).map((v) => v ?? 0),

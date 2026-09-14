@@ -178,7 +178,7 @@ check('computeReturns: FCFE MOIC = 750/400', near(res.fcfe.moic, 750 / 400));
 check('computeReturns: dividends payback present', res.dividends.paybackPeriod !== null);
 check('computeReturns: equityMultiple = 2.5x', near(res.realEstate.equityMultiple, 2.5));
 check('computeReturns: yieldOnCost = 9%', near(res.realEstate.yieldOnCost, 0.09));
-check('computeReturns: developmentSpread = YoC - cap', res.realEstate.developmentSpread !== null && near(res.realEstate.developmentSpread, 0.09 - 95 / 1583, 1e-4));
+check('computeReturns: developmentSpread = YoC - cap', res.realEstate.developmentSpread !== null && near(res.realEstate.developmentSpread, 0.09 - 90 / 1583, 1e-4)); // cap = capitalised income (stabilisedNOI) over value, 2026-09-14
 check('computeReturns: dscrMin = 1.5', near(res.realEstate.dscrMin, 1.5));
 check('summariseStream matches computeReturns', summariseStream(input.fcff, 0.1).npv === res.fcff.npv);
 

@@ -583,6 +583,10 @@ export function buildICReportModel(input: {
       line('Depreciation & amortization', plS?.daPerPeriod, { neg: true }),
       line('EBIT', plS?.ebitPerPeriod, { emphasis: true }),
       line('Interest & financing cost', plS?.interestExpensePerPeriod, { neg: true }),
+      // The exit booked as a disposal (2026-09-14): below interest, above tax.
+      ...(Math.abs(sumArr(plS?.gainOnDisposalPerPeriod)) > 0.5
+        ? [line('Gain on disposal of operating assets', plS?.gainOnDisposalPerPeriod)]
+        : []),
       line('Profit before tax', plS?.pbtPerPeriod),
       line('Tax', plS?.taxPerPeriod, { neg: true }),
       line('Net income', plS?.patPerPeriod, { emphasis: true }),

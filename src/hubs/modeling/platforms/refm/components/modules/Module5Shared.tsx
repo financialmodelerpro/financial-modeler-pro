@@ -125,6 +125,8 @@ export interface AssumptionsValue {
   capRateOverride: boolean;
   /** Grow the exit metric by (1 + g) before capitalising. */
   applyGrowthToTerminal: boolean;
+  /** Which year's income the terminal value capitalises (2026-09-14). */
+  terminalValueBasis: 'prior_year' | 'exit_year';
 }
 
 /** Returns assumptions panel (discount rate / exit year / terminal value). */
@@ -194,6 +196,30 @@ export function AssumptionsPanel(props: {
           <div>
             <label style={labelStyle}>Growth g (%)<OverrideBadge path="project.returns.perpetuityGrowth" /></label>
             {numInput(value.perpetuityGrowthPct, (n) => onChange({ perpetuityGrowthPct: n }), 0.25)}
+          </div>
+        )}
+        {/* THE TERMINAL VALUE BASIS (2026-09-14, founder). The value is booked as
+            proceeds from disposal in the exit year; this says whose income it
+            capitalises. The year before the exit is the reference's convention. */}
+        {value.terminalMethod !== 'none' && (
+          <div>
+            <label style={labelStyle}>
+              Terminal value basis<OverrideBadge path="project.returns.terminalValueBasis" />
+            </label>
+            <select
+              value={value.terminalValueBasis}
+              data-testid="returns-terminal-basis"
+              onChange={(e) => onChange({ terminalValueBasis: e.target.value as AssumptionsValue['terminalValueBasis'] })}
+              style={selectStyle}
+            >
+              <option value="prior_year">Year before exit</option>
+              <option value="exit_year">Exit year</option>
+            </select>
+            <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 2 }}>
+              {value.terminalValueBasis === 'exit_year'
+                ? 'Capitalises the exit year income. Booked as proceeds from disposal in the exit year.'
+                : 'Capitalises the income of the year before the exit. Booked as proceeds from disposal in the exit year.'}
+            </div>
           </div>
         )}
         {/* THE EXIT CAP RATE (2026-08-19). Derived as WACC less growth unless the

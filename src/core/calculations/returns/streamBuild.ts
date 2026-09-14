@@ -33,7 +33,8 @@
  * − principal + capexDraw, which is the equity holder's actual net cash.
  * `verify-returns-buildup` asserts exactly that.
  */
-import { terminalEnterpriseValue, terminalEquityValue } from './terminalValue';
+import { terminalEquityValue } from './terminalValue';
+import { valueAtExit, type TerminalValueBasis } from './disposal';
 import type { TerminalMethod } from './types';
 
 export interface SponsorStreamInputs {
@@ -56,6 +57,9 @@ export interface SponsorStreamInputs {
   debtOutstandingPerPeriod: number[];
   existingPreCapex: number;
   existingDebtOpening: number;
+  /** Tax charged on a disposal gain, per period (2026-09-14). Added back to the
+   *  perpetuity metric, which the composer values before that tax exists. */
+  gainTaxAxis?: number[];
 }
 
 export interface TerminalConfig {
@@ -67,6 +71,9 @@ export interface TerminalConfig {
   capRate?: number;
   /** Grow the exit metric by (1 + g) before capitalising. */
   applyGrowth?: boolean;
+  /** Which year's income the terminal value capitalises (2026-09-14). Absent
+   *  means the year before the exit, as the financials composer books it. */
+  basis?: TerminalValueBasis;
   /** When set (> 0), FORCES the cap-rate valuation whatever the method. Used by
    *  the exit-cap-rate sensitivity axis, which sweeps the rate on a model whose
    *  own method may be something else. It routes through the SAME
@@ -99,26 +106,31 @@ export function buildSponsorStreamsForExit(
   const E = exit + 1;
   const noi = inp.noiPerPeriod;
   const exitNOI = noi[exit] ?? 0;
-  const stabilisedNOI = Math.max(exitNOI, ...noi.slice(0, E), 0);
 
   // Capex INCLUDING in-kind land. No IDC: FCFF is unlevered.
   const fullCapexAt = (t: number): number =>
     (inp.cfiAxis[t] ?? 0) - (inp.inKindAxis[t] ?? 0);
-  const exitFcff = (inp.cfoAxis[exit] ?? 0) + fullCapexAt(exit);
   // The sensitivity axis forces the cap-rate method; everything else follows the
   // model's own. ONE call either way, so the swept value and the model value are
   // the same calculation.
   const sweeping = term.capRateOverride !== undefined && term.capRateOverride > 0;
   const method = sweeping ? 'cap_rate' : term.method;
-  const tvEnterprise = terminalEnterpriseValue({
-    method,
-    exitMetric: method === 'perpetuity' ? exitFcff : stabilisedNOI,
-    exitMultiple: term.exitMultiple,
-    perpetuityGrowth: term.perpetuityGrowth,
-    discountRate: term.discountRate,
-    capRate: sweeping ? term.capRateOverride : term.capRate,
-    applyGrowth: term.applyGrowth,
+  // THE TERMINAL VALUE IS THE DISPOSAL PROCEEDS (2026-09-14): the SAME rule the
+  // financials composer books as proceeds from disposal, on the same basis (the
+  // year before the exit by default). The perpetuity metric is that year's FCFF
+  // before any tax on the disposal gain, which is added back because the
+  // composer valued it before that tax existed.
+  const fcffForMetric = inp.cfoAxis.map((v, t) => (v ?? 0) + (inp.gainTaxAxis?.[t] ?? 0) + fullCapexAt(t));
+  const valuation = valueAtExit({
+    exitIdx: exit, basis: term.basis, method, noiPerPeriod: noi, fcffPerPeriod: fcffForMetric,
+    exitMultiple: term.exitMultiple, perpetuityGrowth: term.perpetuityGrowth, discountRate: term.discountRate,
+    capRate: sweeping ? term.capRateOverride : term.capRate, applyGrowth: term.applyGrowth,
   });
+  const tvEnterprise = valuation.enterpriseValue;
+  // The income that was capitalised, so the implied cap rate is the one used. It
+  // was the higher of the exit year and the best year before it, a third
+  // convention nobody chose; retired.
+  const stabilisedNOI = noi[valuation.metricIdx] ?? 0;
   const debtAtExit = inp.debtOutstandingPerPeriod[exit] ?? 0;
   const tvEquity = terminalEquityValue(tvEnterprise, debtAtExit, 0);
 

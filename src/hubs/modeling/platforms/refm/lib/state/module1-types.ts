@@ -643,6 +643,13 @@ export interface Project {
     rate?: number;
     /** Tax paid timing in days from incurrence. 0 = same-year (cash basis). */
     paymentDays?: number;
+    /**
+     * CHARGE IT ON A DISPOSAL GAIN (2026-09-14, founder). Off by default: zakat
+     * is assessed on a base rather than on accounting profit, so the gain on
+     * disposal of the held assets at the exit is excluded from the charge
+     * unless a client's treatment says otherwise.
+     */
+    applyToDisposalGain?: boolean;
   };
   /**
    * M4 Pass 2e (2026-05-20): statutory reserve transfer (Saudi
@@ -757,6 +764,12 @@ export interface Project {
      * resolve to false. Writing a value overrides that.
      */
     applyGrowthToTerminal?: boolean;
+    /**
+     * WHICH YEAR'S INCOME THE TERMINAL VALUE CAPITALISES (2026-09-14, founder).
+     * 'prior_year' (the default, as the reference model does) or 'exit_year'.
+     * The value is booked as proceeds from disposal in the exit year.
+     */
+    terminalValueBasis?: 'prior_year' | 'exit_year';
   };
   /**
    * Fund layer, Step 1 (2026-08-03): the standalone-vs-fund toggle, and

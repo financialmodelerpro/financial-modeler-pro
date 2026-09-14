@@ -85,7 +85,8 @@ console.log('=== M5 Returns snapshot integration ===');
   check('stabilised NOI > 0 (hotel produces income)', rs.stabilisedNOI > 0);
 
   // FCFF at exit = CFO + CFI (no in-kind) + terminal EV.
-  const preExitFcff = (snap.directCF.cashFromOperationsPerPeriod[exit] ?? 0) + (snap.directCF.cashFromInvestmentPerPeriod[exit] ?? 0);
+  // CFI before the disposal proceeds (2026-09-14): the stream adds the terminal value itself.
+  const preExitFcff = (snap.directCF.cashFromOperationsPerPeriod[exit] ?? 0) + (snap.directCF.cashFromInvestmentPerPeriod[exit] ?? 0) - (snap.directCF.proceedsFromDisposalPerPeriod[exit] ?? 0);
   check('FCFF[exit] = CFO + CFI + terminal EV (no in-kind)', near(rs.fcffPerPeriod[xi], preExitFcff + rs.terminalEnterpriseValue));
 
   // FCFE at exit includes terminal equity value.
@@ -100,7 +101,7 @@ console.log('=== M5 Returns snapshot integration ===');
   check('FCFF MOIC > 0', rs.result.fcff.moic > 0);
   check('equity multiple >= 0', rs.result.realEstate.equityMultiple >= 0);
   check('yieldOnCost present', rs.result.realEstate.yieldOnCost !== null && rs.result.realEstate.yieldOnCost! > 0);
-  check('cap rate at exit = 1/multiple', rs.result.realEstate.capRateAtExit !== null && near(rs.result.realEstate.capRateAtExit!, rs.exitNOI / rs.terminalEnterpriseValue, 1e-4));
+  check('cap rate at exit = 1/multiple (capitalised income over value)', rs.result.realEstate.capRateAtExit !== null && near(rs.result.realEstate.capRateAtExit!, rs.stabilisedNOI / rs.terminalEnterpriseValue, 1e-4));
   check('dscr series length = N', rs.result.realEstate.dscrPerPeriod.length === N);
   check('LTV at exit in [0,2]', rs.result.realEstate.ltvAtExit === null || (rs.result.realEstate.ltvAtExit! >= 0 && rs.result.realEstate.ltvAtExit! < 2));
   check('total development cost > 0', rs.totalDevelopmentCost > 0);
@@ -133,7 +134,8 @@ console.log('=== M5 Returns snapshot integration ===');
       + bld.financeCostPerPeriod[t]
       + bld.terminalEquityPerPeriod[t];
     if (Math.abs(fcfeSum - rs.fcfePerPeriod[t]) > 0.01) fcfeOk = false;
-    const divSum = bld.existingEquityPerPeriod[t] + bld.equityCashPerPeriod[t] + bld.equityInKindPerPeriod[t] + bld.dividendsDistributedPerPeriod[t] + bld.terminalEquityPerPeriod[t];
+    // The terminal row of THIS build-up is zero when the exit dividend already paid the proceeds (2026-09-14).
+    const divSum = bld.existingEquityPerPeriod[t] + bld.equityCashPerPeriod[t] + bld.equityInKindPerPeriod[t] + bld.dividendsDistributedPerPeriod[t] + bld.terminalEquityDistributedPerPeriod[t];
     if (Math.abs(divSum - rs.dividendStreamPerPeriod[t]) > 0.01) divOk = false;
   }
   check('FCFF build-up components sum to FCFF every period', fcffOk);
@@ -163,9 +165,11 @@ console.log('=== M5 Returns snapshot integration ===');
   const snapP = computeFinancialsSnapshot(stateP);
   const rsP = computeReturnsSnapshot(snapP, stateP.project);
   const exit = rsP.config.exitYearOffset;
-  const exitFcff = (snapP.directCF.cashFromOperationsPerPeriod[exit] ?? 0) + (snapP.directCF.cashFromInvestmentPerPeriod[exit] ?? 0);
+  // The year before the exit is the default basis (2026-09-14).
+  const mi = Math.max(0, exit - 1);
+  const exitFcff = (snapP.directCF.cashFromOperationsPerPeriod[mi] ?? 0) + (snapP.directCF.cashFromInvestmentPerPeriod[mi] ?? 0) - (snapP.directCF.proceedsFromDisposalPerPeriod[mi] ?? 0);
   const expectedTv = terminalEnterpriseValue({ method: 'perpetuity', exitMetric: exitFcff, perpetuityGrowth: 0.02, discountRate: 0.10 });
-  check('perpetuity TV = exitFCFF x (1+g)/(r-g)', near(rsP.terminalEnterpriseValue, expectedTv), `got ${rsP.terminalEnterpriseValue} exp ${expectedTv}`);
+  check('perpetuity TV = prior-year FCFF x (1+g)/(r-g)', near(rsP.terminalEnterpriseValue, expectedTv), `got ${rsP.terminalEnterpriseValue} exp ${expectedTv}`);
 }
 
 // ── M5 Pass 1 analytics wired onto the snapshot (2026-06-02) ──────────

@@ -347,6 +347,11 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
   if (p.interestIncomePerPeriod.some((v) => v !== 0)) {
     rows.push({ label: 'Interest income / other', values: p.interestIncomePerPeriod, indent: 1 });
   }
+  // BELOW INTEREST, ABOVE ZAKAT (2026-09-14): the exit booked as a disposal.
+  const gainOnDisposal = p.gainOnDisposalPerPeriod ?? [];
+  if (gainOnDisposal.some((v) => v !== 0)) {
+    rows.push({ label: 'Gain on Disposal of Operating Assets', values: gainOnDisposal, indent: 1 });
+  }
   rows.push({ label: labels.pbt, values: pbt, isSubtotal: true });
 
   rows.push({ label: `${labels.tax} (${(p.taxRate * 100).toFixed(2)}%)`, values: negArr(taxArr), indent: 1 });
@@ -693,6 +698,12 @@ function buildInvestmentRows(ctx: M4ReportCtx, capexSubtotal: number[], cfiSubto
     rows.push({ label: 'Land In-Kind (non-cash, matched by In-Kind Equity below)', values: inKindAll.map((v) => -v), indent: 1 });
   }
   rows.push({ label: 'Total Capex', values: capexShown, isSubtotal: true, priorValue: -priorPreCapex });
+  // The held assets sold at the exit (2026-09-14). Project level, so a phase
+  // filter, whose subtotal is built from the rows above, does not show it.
+  const proceedsShown = scoped ? new Array<number>(N).fill(0) : (snap.directCF.proceedsFromDisposalPerPeriod ?? []);
+  if (proceedsShown.some((v) => v !== 0)) {
+    rows.push({ label: 'Proceeds from Disposal of Operating Assets', values: proceedsShown, indent: 1 });
+  }
   rows.push({ label: 'Cash Flow from Investment', values: cfiShown, isTotal: true, priorValue: -priorPreCapex });
   return rows;
 }
@@ -1003,7 +1014,8 @@ export function buildIndirectCFRows(ctx: M4ReportCtx): M4Row[] {
   const cffFiltered = zerosN();
   for (let t = 0; t < N; t++) {
     cfoFiltered[t] = (patPhase[t] ?? 0) + (daPhase[t] ?? 0) + (intExpPhase[t] ?? 0) - (changeArPhase[t] ?? 0)
-      + cosAddBackPhase[t] + changeInAp[t] + changeInUnearned[t] + changeInEscrow[t];
+      + cosAddBackPhase[t] + changeInAp[t] + changeInUnearned[t] + changeInEscrow[t]
+      + (ic.gainOnDisposalPerPeriod?.[t] ?? 0);
     cffFiltered[t] = (equityDrawPhase[t] ?? 0) + debtDrawFiltered[t] + debtRepayFiltered[t] + interestPaidFiltered[t];
   }
   const netCfFiltered = zerosN();
@@ -1026,6 +1038,10 @@ export function buildIndirectCFRows(ctx: M4ReportCtx): M4Row[] {
   rows.push({ label: `(+) Interest expense (add back)${projTag}`, values: intExpPhase, indent: 1 });
   rows.push({ label: `(−) Change in AR${projTag}`, values: changeArPhase, indent: 1 });
   rows.push({ label: '(+) Cost of sales (add back; capex in investing)', values: cosAdd, indent: 1 });
+  const gainBack = ic.gainOnDisposalPerPeriod ?? [];
+  if (gainBack.some((v) => v !== 0)) {
+    rows.push({ label: '(−) Gain on disposal (non-cash; proceeds in investing)', values: gainBack, indent: 1 });
+  }
   rows.push({ label: '(+) Change in AP', values: ap, indent: 1 });
   rows.push({ label: '(+) Change in Unearned Revenue', values: un, indent: 1 });
   rows.push({ label: '(+) Change in Escrow balance', values: esc, indent: 1 });
@@ -1072,15 +1088,19 @@ export function buildBSRows(ctx: M4ReportCtx): BSRowsResult {
     return out;
   };
 
-  const land = sumAssetsBy((id) => snap.fixedAssets.byAsset.get(id)?.land.closingPerPeriod);
-  const nbv = sumAssetsBy((id) => snap.fixedAssets.byAsset.get(id)?.depreciable.closingNBVPerPeriod);
+  // THE BALANCES THE STATEMENT CARRIES (2026-09-14): the held assets are written
+  // off at the exit, which the engine's own roll-forward does not know, so the
+  // rows read the balance sheet's land and building rather than re-summing the
+  // schedule. Before the exit, and with no terminal value, they are the same sums.
+  const land = bs.landPerPeriod.slice(0, N);
+  const nbv = bs.nbvPerPeriod.slice(0, N);
   const inventory = sumAssetsBy((id) => snap.perAssetCF.get(id)?.inventoryPerPeriod);
   const resReceivables = sumAssetsBy((id) => snap.byAssetSchedules.get(id)?.ar.perPeriod);
   const unearned = sumAssetsBy((id) => snap.byAssetSchedules.get(id)?.unearned.perPeriod);
   // AP links to the canonical project-wide total (includes HQ AP).
   const ap = snap.ap.projectTotals.closingApPerPeriod.slice(0, N);
   const escrow = sumAssetsBy((id) => snap.escrow.byAsset.get(id)?.result.cumulativeBalancePerPeriod);
-  const idcNbv = snap.idc.idcNbvPerPeriod;
+  const idcNbv = bs.totalFixedAssetsPerPeriod.slice(0, N).map((v, t) => v - (land[t] ?? 0) - (nbv[t] ?? 0));
   const debt = bs.debtOutstandingPerPeriod;
   const cash = bs.cashPerPeriod;
   const arOperating = bs.arPerPeriod;

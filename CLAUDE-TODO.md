@@ -15,6 +15,11 @@ per capex line, reaching the engine as standard-sourced overrides the Capex tab 
 override), Table 2 massing filled back to the type when every plot agrees, active rows only on the Opex
 Output, and the Standards paragraph font.
 
+0b. **THE EXIT IS A DISPOSAL (built 2026-09-14).** Click-test the P&L gain row, the investing proceeds row, the
+   zakat-on-gain toggle on the P&L tab and the terminal value basis on Returns. **Open follow-ups:** an exit before
+   the last axis year still runs the held assets' revenue, opex and interest afterwards; the fixed asset and
+   capitalised interest roll-forward schedules have no disposal row yet; the Excel live-formula twin keeps its own
+   terminal value.
 0a. **CLICK-TEST OWED (round two):** the one cost table and the per-phase curve on Types and Standards, the minted
    lines on Capex, the Revenue Output order, the lease operating statements, and the scroll memory across tabs.
    **DATA FIX FOR THE FOUNDER:** the phase 2 line `commission__phase_2` (named Marketing) is classified as a soft
