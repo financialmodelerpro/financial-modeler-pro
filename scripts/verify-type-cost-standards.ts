@@ -20,7 +20,7 @@ import {
 import { planTypeMassingWriteBack, resolveChainDefaults } from '../src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards';
 import { settleStandardCostOverrides, standardCostColumns } from '../src/hubs/modeling/platforms/refm/lib/state/costStandards';
 import { inactiveLeverReason, nonEconomicLeverReason } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
-import type { HydrateSnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import type { HydrateSnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-store';
 
 let pass = 0, fail = 0;
 const check = (name: string, ok: boolean, detail = ''): void => {
@@ -116,8 +116,8 @@ section('S. a type cost rate becomes a standard override on each of its assets')
   check('S8 removing the user override brings the standard back', find('v2', BUA)?.value === 12000 && find('v2', BUA)?.origin === 'standard');
 
   // The override follows the line in everything but the value.
-  s.updateCostLine(BUA, { phasing: 'front' as typeof buaLine.phasing });
-  check('S9 a phasing edit on the line reaches the standard override', find('v1', BUA)?.phasing === 'front');
+  s.updateCostLine(BUA, { phasing: 'manual' });
+  check('S9 a phasing edit on the line reaches the standard override', find('v1', BUA)?.phasing === 'manual');
 
   s.setAssetTypeValue('villa', { costRates: { contingency: 5 } });
   check('S10 removing the rate removes the standard override', find('v1', BUA) === undefined && find('v2', BUA) === undefined);
