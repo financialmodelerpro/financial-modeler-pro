@@ -142,6 +142,7 @@ import { CELL_HEADER, TABLE_TITLE } from './_shared/tableStyles';
 import { StrategyChangeConfirm, StrategyReviewBanner } from './_shared/StrategyChangeNotice';
 import { applyStrategySwitch, assetHasStrategyAssumptions, type StrategySwitchReport } from '../../lib/state/strategySwitch';
 import { rowsWithoutPriceIn, hasDualPrice, priceKeyFor } from '../../lib/state/subUnitPrices';
+import { typePriceDefaultFor, describeTypePrices, type TypePriceDefault } from '../../lib/state/subUnitPriceDefaults';
 import { withResolvedAssetNames, assetPlotLabel } from '@/src/core/calculations/assetName';
 import { withInheritedMassingAll } from '@/src/core/calculations/landChain';
 import { chainMassingFor } from '../../lib/state/assetTypeStandards';
@@ -3695,6 +3696,23 @@ function SubUnitsTable({
                             ...(u.parentSubUnitId !== undefined ? { startingAdr: v ?? 0 } : {}),
                           })}
                         />
+                        {/* THE WAY BACK TO THE TYPE (2026-09-15): a typed price detaches the
+                            row; this hands it back, and the row follows the type again. */}
+                        {u.priceStated === true && (() => {
+                          const def = typePriceDefaultFor(u, assets.find((a) => a.id === u.assetId), project.assetTypes ?? [], project.assetTypeValues);
+                          return def ? (
+                            <button
+                              type="button"
+                              data-view-mutates="true"
+                              style={{ display: 'block', marginLeft: 'auto', marginTop: 2, fontSize: 9, padding: '1px 6px', background: 'transparent', color: 'var(--color-navy)', border: '1px solid var(--color-navy)', borderRadius: 3, cursor: 'pointer' }}
+                              data-testid={`subunits-row-${u.id}-use-type-price`}
+                              title={`Use the ${def.label} price from Types and Standards (${describeTypePrices(def)}). The price typed here is replaced, and the row follows its type from then on.`}
+                              onClick={() => onUpdate(u.id, { priceStated: false })}
+                            >
+                              Use type price
+                            </button>
+                          ) : null;
+                        })()}
                       </td>
                       <td style={{ ...CELL, fontSize: 10, color: 'var(--color-meta)' }} data-testid={`subunits-row-${u.id}-rate-basis`}>
                         {rateUnitLabel(u.category, isUnits ? 'units' : 'area') || 'no rate'}
@@ -4696,6 +4714,7 @@ function AssetCard({
                             assetType={asset.type}
                             isCompanionSub={asset.isCompanion === true && !!u.parentSubUnitId}
                             assetTypeValues={resolveAssetTypeValues(asset, project.assetTypeValues)}
+                            typeDefault={typePriceDefaultFor(u, asset, project.assetTypes ?? [], project.assetTypeValues)}
                           />
                         ))}
                       </tbody>
@@ -4797,7 +4816,7 @@ function switchMetric(
   return { metric: 'area', metricValue: currentArea };
 }
 
-function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decimals, scale, assetStrategy, assetType, isCompanionSub, assetTypeValues }: SubUnitRowProps & { assetMetric: SubUnitMetric; decimals: import('../../lib/state/module1-types').DisplayDecimals; scale: import('../../lib/state/module1-types').DisplayScale; assetStrategy: AssetStrategy; assetType?: string; isCompanionSub?: boolean; assetTypeValues?: import('../../lib/state/assetTypeStandards').AssetTypeValues }): React.JSX.Element {
+function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decimals, scale, assetStrategy, assetType, isCompanionSub, assetTypeValues, typeDefault }: SubUnitRowProps & { typeDefault?: TypePriceDefault | null; assetMetric: SubUnitMetric; decimals: import('../../lib/state/module1-types').DisplayDecimals; scale: import('../../lib/state/module1-types').DisplayScale; assetStrategy: AssetStrategy; assetType?: string; isCompanionSub?: boolean; assetTypeValues?: import('../../lib/state/assetTypeStandards').AssetTypeValues }): React.JSX.Element {
   // The parking rule, resolved ONCE for this row: the sub-unit's own override
   // when it has one (including a typed 0), else the asset type's default.
   const parking = resolveParkingRatio(subUnit.parkingRatio, assetTypeValues);
@@ -5151,6 +5170,18 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
           style={{ ...inputStyle, fontSize: 11 }}
           data-testid={`subunit-${subUnit.id}-rate`}
         />
+        {subUnit.priceStated === true && typeDefault && (
+          <button
+            type="button"
+            data-view-mutates="true"
+            style={{ display: 'block', marginLeft: 'auto', marginTop: 2, fontSize: 9, padding: '1px 6px', background: 'transparent', color: 'var(--color-navy)', border: '1px solid var(--color-navy)', borderRadius: 3, cursor: 'pointer' }}
+            data-testid={`subunit-${subUnit.id}-use-type-price`}
+            title={`Use the ${typeDefault.label} price from Types and Standards (${describeTypePrices(typeDefault)}). The price typed here is replaced, and the row follows its type from then on.`}
+            onClick={() => onUpdate({ priceStated: false })}
+          >
+            Use type price
+          </button>
+        )}
         {rateUnit && (
           <div style={{ fontSize: 9, color: 'var(--color-meta)', textAlign: 'right', marginTop: 2, fontStyle: 'italic' }} data-testid={`subunit-${subUnit.id}-rate-unit`}>
             {currency} {rateUnit}

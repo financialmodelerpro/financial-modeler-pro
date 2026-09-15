@@ -20,6 +20,14 @@ Output, and the Standards paragraph font.
    rate. The platform escalates only sale prices, ADR and rents; a capex rate is flat whatever year it is spent. A
    real missing input: a project escalation rate and base year, applied to capex by the year of spend, with the
    Module 6 lever and the exports following.
+0h. **OPEN, A SCENARIO CANNOT VARY A PRICE AT TYPE LEVEL (logged 2026-09-15).** The sale prices, ADR and lease rate
+   per type on Types and Standards reach the model only through the store, which writes them onto each Table 5 row with
+   no price of its own. A scenario override is value-only and never re-runs that step, so Module 6 shows the four type
+   prices as inactive. A scenario can vary a price only row by row (`subUnits[...].unitPrice`): to move one price on a
+   line with several rows it needs one override per row, and a row that follows its type in the base carries a fixed
+   figure into the case, so a later type edit in the base does not reach an overridden row. The fix would be the case
+   pipeline running the same settle (type prices onto unstated rows) before the engine, which would make the four
+   type prices live levers; the same shape applies to the cost standard defaults, which Module 6 also shows as inactive.
 0g. **OPEN (found 2026-09-15):** a loose legacy snapshot with no assets loses its project cost lines in the legacy
    conversion (they are rebuilt from assets) and the phase is re-seeded. Affects only unversioned legacy imports with no
    assets; decide whether such lines should survive.

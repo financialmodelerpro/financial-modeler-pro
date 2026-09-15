@@ -77,3 +77,39 @@ export function settleSubUnitPriceDefaults(
   });
   return changed ? { subUnits: next, changed } : { subUnits: subUnits as SubUnit[], changed: false };
 }
+
+/**
+ * THE WAY BACK (2026-09-15, founder: "once a row is typed there is no way back,
+ * so a mistyped price detaches that row from its type permanently"). What the
+ * row's type would price it at, for the "Use type price" control on Table 5.
+ * Null where the settle would leave the row alone (Support, a companion mirror,
+ * no asset or type) or where the type states no price for the row's category,
+ * so the control never offers to price a row at nothing.
+ */
+export interface TypePriceDefault {
+  typeId: string;
+  label: string;
+  prices: Partial<Record<'pricePerUnit' | 'pricePerSqm', number>>;
+}
+
+export function typePriceDefaultFor(
+  u: SubUnit,
+  asset: Asset | undefined,
+  assetTypes: readonly AssetTypeStandard[],
+  values: Record<string, AssetTypeValues> | undefined,
+): TypePriceDefault | null {
+  if (!asset || u.category === 'Support' || u.parentSubUnitId !== undefined) return null;
+  const typeId = standardTypeIdFor(asset, assetTypes);
+  if (typeId === undefined) return null;
+  const prices = typePricesFor(u.category, values?.[typeId]);
+  if (!Object.values(prices).some((p) => (p ?? 0) > 0)) return null;
+  return { typeId, label: assetTypes.find((t) => t.id === typeId)?.label ?? typeId, prices };
+}
+
+/** "per unit 4,000,000, per sqm 12,000", for the control's title. */
+export function describeTypePrices(def: TypePriceDefault): string {
+  const parts: string[] = [];
+  if ((def.prices.pricePerUnit ?? 0) > 0) parts.push(`per unit ${def.prices.pricePerUnit!.toLocaleString()}`);
+  if ((def.prices.pricePerSqm ?? 0) > 0) parts.push(`per sqm ${def.prices.pricePerSqm!.toLocaleString()}`);
+  return parts.join(', ');
+}

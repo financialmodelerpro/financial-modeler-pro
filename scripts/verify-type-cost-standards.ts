@@ -11,6 +11,7 @@
  *   M  lines: an unpriced phase takes the whole list, a priced phase only rows
  *      a user added or edited, and an added row creates its line
  *   G  the store, Module 6 and the screens
+ *   U  a price typed on Table 5 can be handed back to its type
  *   S  a type's sale prices, ADR and lease rate price the Table 5 rows with none of their own
  *
  * Offline: the store and the pure functions, no database.
@@ -27,7 +28,7 @@ import {
 } from '../src/hubs/modeling/platforms/refm/lib/state/costStandards';
 import { inactiveLeverReason, nonEconomicLeverReason } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
 import type { SubUnit } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
-import { settleSubUnitPriceDefaults, settleSubUnitPriceStated } from '../src/hubs/modeling/platforms/refm/lib/state/subUnitPriceDefaults';
+import { settleSubUnitPriceDefaults, settleSubUnitPriceStated, typePriceDefaultFor } from '../src/hubs/modeling/platforms/refm/lib/state/subUnitPriceDefaults';
 
 let pass = 0, fail = 0;
 const check = (name: string, ok: boolean, detail = ''): void => {
@@ -481,6 +482,34 @@ section('S. a type states its sale prices, ADR and lease rate, and a Table 5 row
     tab.includes("'Construction cost, sale price and ADR'") && tab.includes('std-price-${typeId}-${c.key}')
     && (assetsSrc.match(/priceStated: true/g) ?? []).length >= 3);
   check('S14 edits, load and save all run the defaults', (storeSrc.match(/settleSubUnitPriceDefaults\(/g) ?? []).length >= 3);
+}
+
+// ── U. the way back to the type ─────────────────────────────────────────────
+section('U. a price typed on Table 5 can be handed back to its type');
+{
+  const st = createModule1Store();
+  const g = st.getState;
+  g().addAsset(asset('uv', 'branded-villas'));
+  g().setAssetTypeValue('branded-villas', { salePricePerUnit: 4000000 });
+  g().addSubUnit({ id: 'u-a', assetId: 'uv', name: 'u-a', category: 'Sellable', metric: 'units', metricValue: 10, unitPrice: 0 } as SubUnit);
+  const row = (): SubUnit => g().subUnits.find((u) => u.id === 'u-a')!;
+  const uv = (): Asset | undefined => g().assets.find((a) => a.id === 'uv');
+  g().updateSubUnit('u-a', { unitPrice: 40000000, pricePerUnit: 40000000, priceStated: true });
+  const def = typePriceDefaultFor(row(), uv(), [], g().project.assetTypeValues);
+  check('U1 a mistyped row is detached, and still knows what its type would price it at',
+    row().unitPrice === 40000000 && def?.prices.pricePerUnit === 4000000, JSON.stringify(def));
+  g().updateSubUnit('u-a', { priceStated: false });
+  check('U2 using the type price restores it', row().unitPrice === 4000000 && row().priceStated === false, JSON.stringify(row()));
+  g().setAssetTypeValue('branded-villas', { salePricePerUnit: 4200000 });
+  check('U3 and the row follows the type again', row().unitPrice === 4200000);
+  check('U4 nothing is offered where the type states no price for the row, or the row is Support',
+    typePriceDefaultFor({ ...row(), category: 'Leasable' } as SubUnit, uv(), [], g().project.assetTypeValues) === null
+    && typePriceDefaultFor({ ...row(), category: 'Support' } as SubUnit, uv(), [], g().project.assetTypeValues) === null);
+  const src = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx', 'utf8');
+  check('U5 both Table 5 price cells offer it, as a control view mode locks',
+    (src.match(/use-type-price`\}/g) ?? []).length >= 2
+    && (src.match(/onUpdate\((u\.id, )?\{ priceStated: false \}\)/g) ?? []).length >= 2
+    && (src.match(/data-view-mutates="true"[\s\S]{0,400}?use-type-price/g) ?? []).length >= 2);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
