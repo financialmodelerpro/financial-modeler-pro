@@ -19,6 +19,7 @@
 import type { HydrateSnapshot } from '../state/module1-store';
 import type { ProjectCase } from '../state/module1-types';
 import { diffSnapshots, PER_ELEMENT_ARRAYS } from '../persistence/snapshot-diff';
+import { activePriceKey } from '../state/subUnitPrices';
 
 // Entity identity / reference fields a case must never override (doing so would
 // break the very path the override is addressed by, or a cross-entity link).
@@ -110,6 +111,33 @@ export function applyOverrides(base: HydrateSnapshot, overrides: Record<string, 
   if (!overrides) return out;
   for (const [path, value] of Object.entries(overrides)) {
     setByPath(out as unknown as Indexable, path, value);
+  }
+  /**
+   * A PRICE OVERRIDE STATES THE PRICE ITS BASIS READS (2026-09-15). A row keeps
+   * two stated prices and `unitPrice` is only whichever the basis makes active,
+   * so the load and save settle puts `unitPrice` back to the stated price. An
+   * override on `unitPrice` alone (the Module 6 lever) is therefore written to
+   * the active basis too, unless the case names that price itself, the same
+   * rule the settle applies to a row with no stated price. AND A PRICE A CASE
+   * STATES IS A STATED PRICE: a row priced from its type carries
+   * `priceStated: false`, which the settle re-prices from the type, so every
+   * price override marks the row stated unless the case names the marker.
+   */
+  const head = 'subUnits[id=';
+  for (const path of Object.keys(overrides)) {
+    if (!path.startsWith(head)) continue;
+    const field = ['unitPrice', 'pricePerSqm', 'pricePerUnit'].find((f) => path.endsWith(`].${f}`));
+    if (!field) continue;
+    const id = path.slice(head.length, -(field.length + 2));
+    const u = (out.subUnits ?? []).find((x) => x.id === id);
+    if (!u) continue;
+    const row = u as unknown as Record<string, unknown>;
+    if (!(`${head}${id}].priceStated` in overrides)) row.priceStated = true;
+    if (field !== 'unitPrice') continue;
+    const key = activePriceKey(u, (out.assets ?? []).find((a) => a.id === u.assetId));
+    if (`${head}${id}].${key}` in overrides) continue;
+    const value = overrides[path];
+    if (typeof value === 'number') row[key] = value;
   }
   return out;
 }

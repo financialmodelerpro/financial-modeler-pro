@@ -17,9 +17,9 @@ Output, and the Standards paragraph font.
 
 **PER-LINE PRESENTATION PASS DONE (2026-09-15)**: every surface after the assets tab (IDC, escrow, AP, fixed assets, opex
 inputs, statement members, disposal working, IC report, one-pager, PDF and Excel) groups by `planCapexSummaryLines` through
-`lib/reports/lineRows.ts`; land funding stays per plot by decision. **OPEN, reported separately and NOT fixed**: saving while a
-scenario is active writes spurious overrides (the store keeps an unsettled `baseSnapshot` from hydrate and `buildOverrides`
-diffs it against the settled live model); diagnosis first, per the founder.
+`lib/reports/lineRows.ts`; land funding stays per plot by decision. **FIXED THE SAME DAY**: the store keeps the SETTLED base as its copy and the deck reads
+`managementModelOf`, so deck, comparison and screen agree and a scenario save writes no spurious overrides; Module 6 price
+levers, which never worked on a live project, now hold (TRAPS 7.47, 7.48; `verify-management-model`).
 
 **REVIEW OF MODULES 1 TO 6 (2026-09-15), FIX ORDER.** Steps 1 to 5 DONE the same day (verifiers re-aimed, Excel
 and PDF returns labels, docs, the no-override scenario note, saved versions read through the store for the Portfolio

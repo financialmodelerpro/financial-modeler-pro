@@ -1441,7 +1441,19 @@ export function createModule1Store() {
       // the active case merges onto it and no case override can carry a mode.
       const baseModel = { ...pickModel(snapshot as unknown as Record<string, unknown>), landAllocationMode: 'sqm' as const };
       const active = cases.find((c) => c.id === activeCaseId)!;
-      const merged = active.role === 'base' ? baseModel : applyOverrides(baseModel, active.overrides);
+      /**
+       * THE BASE COPY IS KEPT SETTLED (2026-09-15). Every pass below runs on
+       * the BASE first and the store keeps that result as `baseSnapshot`; a
+       * scenario is then applied over the settled base and settled again.
+       * The copy used to be the base as stored, before these passes, while the
+       * screen showed the base after them. Three things read the difference:
+       * a save with a scenario active wrote every load-time settle into the
+       * scenario as an override (69 on the live project) and the unsettled
+       * base to the top level; the comparison showed a Management column the
+       * screen never did; and the IC deck read the copy as its Management case
+       * (equity IRR 22.36% against 21.07% on screen).
+       */
+      const settleOnLoad = (merged: HydrateSnapshot) => {
       /**
        * EVERY REFERENCE POINTS AT SOMETHING THAT EXISTS, CHECKED ON LOAD.
        *
@@ -1517,6 +1529,12 @@ export function createModule1Store() {
       const defaultedRows = settleSubUnitPriceDefaults(settleSubUnitPriceStated(valuedModel.subUnits).subUnits, valuedModel.assets, valuedModel.project.assetTypes ?? [], valuedModel.project.assetTypeValues);
       const priced = settleSubUnitPrices(defaultedRows.subUnits, valuedModel.assets);
       const model = priced.subUnits !== valuedModel.subUnits ? { ...valuedModel, subUnits: priced.subUnits } : valuedModel;
+      return { model, priced, seeded, windows, based, repaired };
+      };
+      const settledBase = settleOnLoad(baseModel);
+      const { model, priced, seeded, windows, based, repaired } = active.role === 'base'
+        ? settledBase
+        : settleOnLoad(applyOverrides(settledBase.model, active.overrides));
       if (priced.moved.length > 0 && typeof console !== 'undefined') {
         console.warn(`[REFM] sub-unit prices: ${priced.moved.length} row(s) took the price their basis states on load`, priced.moved);
       }
@@ -1537,7 +1555,7 @@ export function createModule1Store() {
         // Pass 43 (2026-05-14): coerce to array so legacy snapshots
         // without the marker field still satisfy the store contract.
         migrationsApplied: model.migrationsApplied ?? [],
-        baseSnapshot: baseModel,
+        baseSnapshot: settledBase.model,
         cases,
         activeCaseId,
         activePhaseId: model.phases[0]?.id ?? DEFAULT_PHASE_ID,

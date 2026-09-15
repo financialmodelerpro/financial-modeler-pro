@@ -41,6 +41,7 @@ import { computeFinancialsSnapshot } from '../../lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../../lib/returns-resolvers';
 import { buildICReportModel, type ICReportModel } from '../../lib/reports/icReport';
 import { buildCaseComparisonReport } from '../../lib/reports/caseComparisonReport';
+import { managementModelOf } from '../../lib/cases/managementModel';
 import { getReportInputs, getReportDeck, saveReportDeck, resetReportDeck, listParties, exportReportDeck, getIcNarrativeStatus, updateReportDeckVersion, saveReportDeckVersion, type DeckVersionListItem } from '../../lib/persistence/client';
 import { NarrativeAiBoundary, NarrativeAiPanel, NarrativeReviewModal, type NarrativeAiStatus, type NarrativeDraft } from './deck/NarrativeAi';
 import { buildNarrativePatch } from '../../lib/reports/deck/narrativeTargets';
@@ -174,7 +175,12 @@ export default function Module7Deck({ activeProjectId = null, onRegisterSave, on
     financingTranches: s.financingTranches, equityContributions: s.equityContributions,
     migrationsApplied: s.migrationsApplied, cases: s.cases, activeCaseId: s.activeCaseId,
   }) as HydrateSnapshot, [s]);
-  const baseModel = useMemo<HydrateSnapshot>(() => (s.baseSnapshot ?? liveModel) as HydrateSnapshot, [s.baseSnapshot, liveModel]);
+  // The Management case is the LIVE model while the base is active (edits
+  // included), the stored base copy only while a scenario is (2026-09-15).
+  const baseModel = useMemo<HydrateSnapshot>(
+    () => managementModelOf({ cases: s.cases, activeCaseId: s.activeCaseId, baseSnapshot: (s.baseSnapshot ?? liveModel) as HydrateSnapshot }, liveModel),
+    [s.cases, s.activeCaseId, s.baseSnapshot, liveModel],
+  );
   const deckCase = deck?.settings.deckCase ?? 'management';
   const sourceModel = deckCase === 'active' ? liveModel : baseModel;
 

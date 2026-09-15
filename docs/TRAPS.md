@@ -2471,6 +2471,61 @@ store also pins the base model on hydrate and the live model on save. A rule tha
 every loaded model belongs where every load passes, not in the branch that happened to hold the old
 default.
 
+### 7.47 A defect hidden by a second defect: fixing one exposes the other, and the first fix looks like the regression
+
+**Symptom (2026-09-15):** fixing the store's base copy (TRAPS entry below, same day) turned
+`verify-module6-scenarios` red, 3 of 130: a scenario override on `subUnits[id=rsu1].unitPrice` no longer
+survived a load or a save. The obvious reading was "the fix broke scenario price levers". It had not:
+**on every live project those levers had never worked.** On FMP - MARINA GATE a Villa price override of
+44,000 came back 40,000 on every load and every save, before the fix as well as after.
+
+**Mechanism:** two defects, each masking the other.
+1. The store kept its base copy (`baseSnapshot`) UNSETTLED, the base as stored, while the screen showed the
+   base after the load-time settles. A save with a scenario active diffed the settled live model against that
+   copy, so every settle difference was written into the scenario (69 spurious overrides on the live project),
+   and the IC deck read the copy as its Management case (equity IRR 22.36% against 21.07% on screen).
+2. A row carries two stated prices and `unitPrice` is only the one its basis makes active; a row priced from its
+   type carries `priceStated: false`. The load and save settle puts `unitPrice` back to the stated price, and
+   re-prices an unstated row from its type. So an override on `unitPrice` alone, the Module 6 lever, was undone
+   by the settle on every load and save.
+
+The verifier fixture is an OLD-SHAPE model: its rows carry `unitPrice` and no stated prices. Defect 1 kept the
+fixture's base copy in that old shape, so the settle BACKFILLED the stated price from the overridden `unitPrice`
+and the lever appeared to hold. Live snapshots already carry the stated prices and `priceStated: false`, so on
+live data defect 2 always won. The one check that covered the lever passed only because of defect 1, and only on
+data no live project has.
+
+**Fix:** a price a case states is a stated price. `applyOverrides` marks the row `priceStated: true` for any
+override on `unitPrice`, `pricePerSqm` or `pricePerUnit` (unless the case names the marker), and writes a
+`unitPrice`-only override to the price field the row's basis reads (unless the case names that field). The
+lesson for next time: **when a correct fix turns a check red, find out what the check was passing on before
+reverting the fix.** Stash the fix and run the SAME scenario on LIVE data, not the fixture; if it fails there
+too, the check was green by accident and the red is the truth.
+
+**Proof:** `verify-management-model` F1/F2 on live Marina Gate: before the `applyOverrides` change the lever
+read 40000 against 44000 (F1 FAIL), after it holds 44000 through a load and a save (16/0).
+`verify-module6-scenarios` 130/0 on the fixture with both fixes; 127/3 with only the base copy fix.
+
+### 7.48 A copy of the model kept from BEFORE the load-time settles is a second model
+
+**Symptom (2026-09-15):** the IC deck's Management case read equity IRR 22.36%, capex 1,312.2m and PAT 705.3m
+while the screen read 21.07%, 1,336.7m and 675.0m, on a project nobody had saved a scenario on; opened with a
+scenario active, the comparison's Management column showed the same wrong figures; a save with a scenario active
+wrote 69 overrides nobody typed into it and pinned it against later Types and Standards edits.
+
+**Mechanism:** `hydrate` settled the ACTIVE model (repair, derived areas, cost bases, standards, revenue seeds,
+prices) but stored `baseSnapshot` as the raw stored base. Every later reader that took the copy (the deck always,
+the comparison while a scenario was open, `buildOverrides` on save) was reading a model the screen never showed.
+The deck also read the copy while the BASE was active, so it went stale after any base edit.
+
+**Fix:** `hydrate` settles the base first and keeps THAT as the copy, then applies a scenario over it and settles
+again; every surface takes the Management model through `managementModelOf` (the live model while the base is
+active, the copy only while a scenario is).
+
+**Proof:** census of every live version before and after: 24 figures identical (base open, base save, every
+scenario's screen) and 12 moved, all of them what a save writes with a scenario active (Marina Gate 69 spurious
+overrides to 0, ABC and Jadan Maroom 1 to 0). `verify-management-model` B to E.
+
 ## 8. Registries and two-step registration
 
 ### 8.1 A template registered in one place and not the other fails silently and permanently
