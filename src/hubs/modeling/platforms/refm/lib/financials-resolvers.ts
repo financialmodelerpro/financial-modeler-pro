@@ -162,7 +162,7 @@ export interface ProjectPL {
   /** Gain on disposal of the held assets at the exit (2026-09-14): proceeds less
    *  the net book value disposed, below interest and above zakat. Zero in every
    *  other period, and everywhere when no terminal value is set. */
-  gainOnDisposalPerPeriod: number[];   // reserved for future cash-balance interest; zeros today
+  gainOnDisposalPerPeriod: number[];   // the gain on disposal in the exit year (2026-09-14); zero in every other year
   pbtPerPeriod: number[];
   taxRate: number;
   taxPerPeriod: number[];
@@ -241,10 +241,10 @@ export interface ProjectIndirectCF {
   daPerPeriod: number[];                   // add-back
   interestExpensePerPeriod: number[];      // add-back (then subtract Interest Paid)
   changeInArPerPeriod: number[];           // -ΔAR (asset = subtract increase)
-  costOfSalesAddBackPerPeriod: number[];
+  costOfSalesAddBackPerPeriod: number[];   // +CoS add-back (capex funded via investing CFI, so CoS is non-cash in operations)
   /** Less the gain on disposal (2026-09-14): non-cash in operations, since the
    *  proceeds are in investing. Negative. */
-  gainOnDisposalPerPeriod: number[];   // +CoS add-back (capex funded via investing CFI, so CoS is non-cash in operations)
+  gainOnDisposalPerPeriod: number[];
   changeInApPerPeriod: number[];           // +ΔAP
   changeInUnearnedPerPeriod: number[];     // +ΔUnearned (liability)
   changeInEscrowPerPeriod: number[];       // −ΔEscrow (restricted-cash asset build consumes cash)
