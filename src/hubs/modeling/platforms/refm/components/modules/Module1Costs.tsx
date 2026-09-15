@@ -33,6 +33,7 @@ import { resolveSubUnitAdr } from '@/src/core/calculations';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
+import { standardIdentity } from '../../lib/state/costStandards';
 import {
   type Asset,
   type AssetStrategy,
@@ -845,6 +846,8 @@ function CostRow({
   // own, always: the override is seeded from the master on the first edit,
   // exactly as the Override button would have done.
   const stripOwn = isRetailCompanion(asset);
+  // A Types and Standards default exists for this line's item (2026-09-14).
+  const hasStandardDefault = useModule1Store((s) => (s.project.costStandardRows ?? []).some((r) => r.catalogId === standardIdentity(line)));
   const masterAsOverride = (): CostOverride => ({
     assetId: asset.id,
     lineId: line.id,
@@ -1475,6 +1478,20 @@ function CostRow({
             >
               {valueUnitHint(effMethod, currency)}
             </div>
+            {/* THE PHASE LINE'S OWN RATE WINS OVER THE DEFAULT (2026-09-14), so
+                clearing it is how a phase goes back to Types and Standards. */}
+            {!override && !stripOwn && !isValueLocked && line.rateStated === true && hasStandardDefault && (
+              <button
+                type="button"
+                data-view-mutates="true"
+                data-testid={`cost-${asset.id}-${line.id}-use-standard`}
+                onClick={() => onUpdateLine({ value: 0, rateStated: false })}
+                title="Clear this phase's own rate, so each asset takes its default from Types and Standards."
+                style={{ background: 'transparent', border: 'none', padding: 0, marginTop: 2, fontSize: 9, color: 'var(--color-navy)', textDecoration: 'underline', cursor: 'pointer', display: 'block', marginLeft: 'auto' }}
+              >
+                Use the Types and Standards default
+              </button>
+            )}
             {(effValue !== 0 || total !== 0) && (
               <div
                 style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
@@ -1695,7 +1712,7 @@ function CostRow({
               style={{ fontSize: 9, color: 'var(--color-navy)', marginTop: 4, lineHeight: 1.4, fontWeight: 600 }}
               title="Set on the Asset Types and Standards tab for this asset type. Type a value here to override it for this line."
             >
-              From type standard
+              From Types and Standards
             </div>
           ) : (
             <button

@@ -1712,6 +1712,8 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
       // fix; the explicit names below stay because they carry defaults or
       // normalisation, and the ones that carry neither are harmless.
       windowFollowsConstruction: c.windowFollowsConstruction,
+      // 2026-09-14: whether the phase line states a rate of its own (Types and Standards defaults).
+      rateStated: c.rateStated,
       stageOverride: c.stageOverride,
       assetScopeOverride: c.assetScopeOverride,
       phasingSource: c.phasingSource,

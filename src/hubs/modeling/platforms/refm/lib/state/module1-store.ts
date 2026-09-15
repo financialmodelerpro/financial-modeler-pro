@@ -56,7 +56,7 @@ import { applyStrategySwitch, assetHasStrategyAssumptions, seedManageCompanion, 
 import { assetsOnParcel, repairProjectIntegrity, cascadeAssetRemoval, type CascadeReport } from '@/src/core/calculations/projectIntegrity';
 import { planRetailCompanionOverrides } from '@/src/core/calculations/retailCompanion';
 import { applyReferenceCostBases } from '@/src/core/calculations/costBases';
-import { settleStandardCostOverrides } from './costStandards';
+import { settleStandardCostOverrides, seedCostStandardRows, settleLineRateStated, followStripSeeds } from './costStandards';
 import { planTypeMassingWriteBack } from './assetTypeStandards';
 import { seedRevenueBlocks } from './revenueSeeds';
 import { settleSubUnitPrices } from './subUnitPrices';
@@ -175,6 +175,8 @@ export interface Module1Store {
     entryId: string,
     patch: Partial<import('./assetTypeStandards').AssetTypeValues>,
   ) => void;
+  /** The cost standards lists (2026-09-14). Settles the Capex defaults after. */
+  setCostStandardRows: (rows: import('./costStandards').CostStandardRow[]) => void;
   /** Module 6 "Use scenarios?" toggle, shared by the Module 6 tab + the topbar
    *  case switcher so they never diverge. Off forces the active case back to
    *  Management (a hidden scenario must never drive the financials) and remembers
@@ -775,6 +777,8 @@ export function createModule1Store() {
       return { project: { ...s.project, assetTypeValues: all } };
     }),
 
+    setCostStandardRows: (rows) => setAndSettle((s) => ({ project: { ...s.project, costStandardRows: rows } })),
+
     // Single implementation of the "Use scenarios?" toggle, reused by the
     // Module 6 tab + the topbar so the flag + behaviour never diverge. Built on
     // the existing setActiveCase / setProject actions (no engine change).
@@ -1130,9 +1134,18 @@ export function createModule1Store() {
       next[partner] = line;
       return { costLines: next };
     }),
-    updateCostLine: (id, patch) => setAndSettle((s) => ({
-      costLines: s.costLines.map((c) => (c.id === id ? { ...c, ...patch } : c)),
-    })),
+    updateCostLine: (id, patch) => setAndSettle((s) => {
+      // A rate typed on the line states it (2026-09-14), a typed 0 included;
+      // "use the default" passes rateStated: false explicitly.
+      const before = s.costLines.find((c) => c.id === id);
+      const costLines = s.costLines.map((c) => (c.id === id
+        ? { ...c, ...patch, rateStated: patch.rateStated ?? ('value' in patch ? true : c.rateStated) }
+        : c));
+      const after = costLines.find((c) => c.id === id);
+      // A retail strip's seed mirrors its line, so it follows the new rate.
+      const costOverrides = before && after ? followStripSeeds(s.costOverrides, s.assets, before, after) : s.costOverrides;
+      return costOverrides === s.costOverrides ? { costLines } : { costLines, costOverrides };
+    }),
     removeCostLine: (id) => set((s) => ({
       costLines: s.costLines.filter((c) => c.id !== id),
       costOverrides: s.costOverrides.filter((o) => o.lineId !== id),
@@ -1361,8 +1374,14 @@ export function createModule1Store() {
       const windowedLive = windowsLive.moved > 0 ? { ...basedLive, costLines: windowsLive.costLines } : basedLive;
       // And every asset carries the revenue block its strategy reads (2026-09-13).
       // And the type standards (2026-09-14): absent massing filled from unanimous plots, cost rates as standard overrides.
-      const massedLive = planTypeMassingWriteBack(windowedLive.assets, windowedLive.project.assetTypeValues, { overwrite: false });
-      const massedLiveModel = massedLive.changed ? { ...windowedLive, project: { ...windowedLive.project, assetTypeValues: massedLive.values } } : windowedLive;
+      // The cost standards lists are seeded once, and every line says whether it states a rate (2026-09-14).
+      const rowsLive = windowedLive.project.costStandardRows === undefined
+        ? { ...windowedLive, project: { ...windowedLive.project, costStandardRows: seedCostStandardRows(windowedLive.project.assetTypes ?? [], windowedLive.project.assetTypeValues) } }
+        : windowedLive;
+      const statedLive = settleLineRateStated(rowsLive.costLines);
+      const ratedLive = statedLive.changed ? { ...rowsLive, costLines: statedLive.costLines } : rowsLive;
+      const massedLive = planTypeMassingWriteBack(ratedLive.assets, ratedLive.project.assetTypeValues, { overwrite: false });
+      const massedLiveModel = massedLive.changed ? { ...ratedLive, project: { ...ratedLive.project, assetTypeValues: massedLive.values } } : ratedLive;
       const standardLive = settleStandardCostOverrides(massedLiveModel).state;
       const seededLive = seedRevenueBlocks(standardLive.assets);
       const seededLiveModel = seededLive.changed ? { ...standardLive, assets: seededLive.assets } : standardLive;
@@ -1442,8 +1461,13 @@ export function createModule1Store() {
        * and a type's cost rates become standard-sourced overrides on its
        * assets. Both settle.
        */
-      const massed = planTypeMassingWriteBack(windowed.assets, windowed.project.assetTypeValues, { overwrite: false });
-      const massedModel = massed.changed ? { ...windowed, project: { ...windowed.project, assetTypeValues: massed.values } } : windowed;
+      const rowsModel = windowed.project.costStandardRows === undefined
+        ? { ...windowed, project: { ...windowed.project, costStandardRows: seedCostStandardRows(windowed.project.assetTypes ?? [], windowed.project.assetTypeValues) } }
+        : windowed;
+      const stated = settleLineRateStated(rowsModel.costLines);
+      const ratedModel = stated.changed ? { ...rowsModel, costLines: stated.costLines } : rowsModel;
+      const massed = planTypeMassingWriteBack(ratedModel.assets, ratedModel.project.assetTypeValues, { overwrite: false });
+      const massedModel = massed.changed ? { ...ratedModel, project: { ...ratedModel.project, assetTypeValues: massed.values } } : ratedModel;
       const standardModel = settleStandardCostOverrides(massedModel).state;
       const seeded = seedRevenueBlocks(standardModel.assets);
       const seededModel = seeded.changed ? { ...standardModel, assets: seeded.assets } : standardModel;
@@ -1501,7 +1525,7 @@ export function createModule1Store() {
       'setSubUnits', 'addSubUnit', 'updateSubUnit', 'removeSubUnit',
       'setCostLines', 'addCostLine', 'insertCostLineNear', 'moveCostLine',
       'updateCostLine', 'removeCostLine', 'restoreCostLine',
-      'setCostOverride', 'removeCostOverride',
+      'setCostOverride', 'removeCostOverride', 'setCostStandardRows',
       'setFinancingTranches', 'addFinancingTranche', 'updateFinancingTranche', 'removeFinancingTranche',
       'setEquityContributions', 'addEquityContribution', 'updateEquityContribution', 'removeEquityContribution',
       'addCase', 'renameCase', 'removeCase', 'clearCaseOverrides',

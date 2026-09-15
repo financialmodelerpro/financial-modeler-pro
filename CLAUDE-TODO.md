@@ -15,6 +15,14 @@ per capex line, reaching the engine as standard-sourced overrides the Capex tab 
 override), Table 2 massing filled back to the type when every plot agrees, active rows only on the Opex
 Output, and the Standards paragraph font.
 
+0c. **CONSTRUCTION COST ESCALATION IS MISSING (logged 2026-09-15, its own item, not part of the cost standards).** The
+   reference escalates construction cost 5% a year from a 2027 base year, so a later phase costs more from the same
+   rate. The platform escalates only sale prices, ADR and rents; a capex rate is flat whatever year it is spent. A
+   real missing input: a project escalation rate and base year, applied to capex by the year of spend, with the
+   Module 6 lever and the exports following.
+0d. **CLICK-TEST OWED (cost standards lists, 2026-09-15):** the two lists, an added row creating its Capex line, a
+   phase rate, the villa scope, and "Use the Types and Standards default" on a Capex line. **FOUNDER NOTE:** the
+   4 Star Hotel row is blank, so clearing the hotel phase's superstructure line would price the hotel at zero.
 0b. **THE EXIT IS A DISPOSAL (built 2026-09-14).** Click-test the P&L gain row, the investing proceeds row, the
    zakat-on-gain toggle on the P&L tab and the terminal value basis on Returns. **Open follow-ups:** an exit before
    the last axis year still runs the held assets' revenue, opex and interest afterwards; the fixed asset and

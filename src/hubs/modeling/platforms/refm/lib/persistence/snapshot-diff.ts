@@ -91,6 +91,8 @@ export const PER_ELEMENT_ARRAYS: Record<string, string> = {
   // which is the whole value of moving the list into the snapshot lost at the
   // last step.
   assetTypes: 'id',
+  // The cost standards lists (2026-09-14): "Villas Landscape rate changed", not "rows changed".
+  costStandardRows: 'id',
 };
 
 /**

@@ -394,6 +394,14 @@ export interface Project {
    * NOT READ BY THE CALCULATION ENGINE YET; the area chain is a later step.
    */
   assetTypeValues?: import('./assetTypeStandards').AssetTypeValuesByType;
+  /**
+   * THE COST STANDARDS (2026-09-14): the Construction Cost and Soft Cost lists
+   * on the Types and Standards tab, in the reference model's shape. Defaults
+   * that a rate typed on a Capex phase line overrides. Absent until the first
+   * load seeds the shipped list; an empty array is a user's decision and is
+   * never reseeded. See lib/state/costStandards.ts.
+   */
+  costStandardRows?: import('./costStandards').CostStandardRow[];
   /** Sqm one parking slot occupies. A project assumption for the same reason
    *  as the rest (basement against surface parking changes it); moved off the
    *  account with mig 244. Absent = not decided, 0 is a decision. */
@@ -2389,6 +2397,14 @@ export interface CostLine {
   phasingSource?: CapexPhasingSource;
   selectedLineIds?: string[];
   isLocked?: boolean;
+  /**
+   * 2026-09-14: THIS PHASE LINE STATES A RATE OF ITS OWN. Set when a rate is
+   * typed on the line (a typed 0 included), cleared by "use the default". A line
+   * that states a rate wins over the Types and Standards default; a line that
+   * does not takes the default. Set on load for older lines: a non-zero value
+   * states a rate, a zero is the blank every seeded line starts as.
+   */
+  rateStated?: boolean;
   /**
    * DEPRECATED and RETIRED (2026-08-17c). Nothing reads this any more.
    *

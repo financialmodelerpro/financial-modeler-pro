@@ -491,6 +491,8 @@ const RETIRED_FIELD_PATTERNS: ReadonlyArray<{ re: RegExp; why: string }> = [
 const STRUCTURAL_SELECTOR_PATTERNS: ReadonlyArray<RegExp> = [
   /^costLines\[[^\]]+\]\.(costCategory|scope|stage|allocationBasis|method|phasing)$/,
   /^costOverrides\[[^\]]+\]\.(phasing|method|origin)$/,
+  /^costLines\[[^\]]+\]\.rateStated$/,
+  /^project\.costStandardRows\[[^\]]+\]\.(id|list|label|catalogId|method|assetTypeId|linked|custom|appliesToTypeIds.*)$/,
   /^subUnits\[[^\]]+\]\.(metric|category|parentSubUnitId)$/,
   /^financingTranches\[[^\]]+\]\.(origin|scope|scopeId|interestRateType|graceInterestTreatment|equalRepaymentSubMethod|repaymentSubMethod|repaymentMethod|drawdownMethod)$/,
 ];
@@ -684,6 +686,12 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
       : 'massing is derived on the assets tab and a value-only override does not re-run it, so this changes nothing at all (the engine reads the chain for one figure, the retail share, which this input does not affect)';
   }
 
+  // THE COST STANDARDS (2026-09-14) reach the model as standard-sourced capex
+  // overrides, written by the store. A value-only case override on a row never
+  // runs that step, so it moves nothing; the Capex line or override is the dial.
+  if (/^project\.costStandardRows\[/.test(path)) {
+    return 'a cost standard default; the store writes it onto each asset as a capex override where the phase line has no rate of its own, and a scenario does not re-run that step, so change the capex line rate or the override instead';
+  }
   if (/^project\.assetTypeValues(\.|\[)/.test(path)) {
     // THE UNIT SIZE IS ENGINE-READ SINCE 2026-09-13: the hospitality revenue
     // resolver counts keys on a row stated in sqm as area over the unit size

@@ -65,8 +65,11 @@ import {
   type AssetTypeValues,
   type ParkingRatioBasis,
 } from '../../lib/state/assetTypeStandards';
-import { standardCostRows, STANDARD_COST_GROUP_LABEL, type StandardCostRow } from '../../lib/state/costStandards';
-import { assetStrategySells } from '../../lib/state/module1-types';
+import {
+  constructionRowsForView, upsertCostStandardRow, newCustomRow, costStandardBasisLabel,
+  type CostStandardRow, type CostStandardList,
+} from '../../lib/state/costStandards';
+import type { CostMethod } from '../../lib/state/module1-types';
 import { AssetPhasingControl } from './Module1Costs';
 import {
   ASSET_TYPES_BY_CATEGORY,
@@ -183,23 +186,13 @@ function ValueCell({
   );
 }
 
-/** What a cost standard is stated in, from its line's method. */
-function costUnitLabel(c: StandardCostRow): string {
-  if (c.unit === 'percent') return '%';
-  if (c.unit === 'amount') return 'amount per asset';
-  if (c.method.includes('bay')) return 'per bay';
-  if (c.method.includes('unit')) return 'per unit';
-  if (c.method.includes('key')) return 'per key';
-  return 'per sqm';
-}
-
 export default function Module1AssetStandards({ projectId }: { projectId: string | null }): React.JSX.Element {
-  const { project, assets, costLines, phases, updateAsset, setProject, setAssetTypeValue, setAssetTypes } = useModule1Store(
+  const { project, assets, phases, updateAsset, setProject, setAssetTypeValue, setAssetTypes, setCostStandardRows } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
       assets: s.assets,
-      costLines: s.costLines,
       phases: s.phases,
+      setCostStandardRows: s.setCostStandardRows,
       updateAsset: s.updateAsset,
       setProject: s.setProject,
       setAssetTypeValue: s.setAssetTypeValue,
@@ -245,15 +238,38 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
   useEffect(() => { void loadTemplate(); }, [loadTemplate]);
 
   const values = project.assetTypeValues ?? {};
-  // THE COST STANDARD ROWS (2026-09-14, founder: one table, as the reference
-  // model states its costs): every cost item a type can carry a rate for, hard,
-  // soft, land charges and selling costs, one column per type.
-  const costRows = useMemo(() => standardCostRows(costLines), [costLines]);
-  const setCostRate = (typeId: string, catalogId: string, n: number | undefined): void => {
-    const cur = { ...(values[typeId]?.costRates ?? {}) };
-    if (n === undefined) delete cur[catalogId];
-    else cur[catalogId] = n;
-    setAssetTypeValue(typeId, { costRates: Object.keys(cur).length > 0 ? cur : undefined });
+  // THE COST STANDARDS (2026-09-14, founder: the reference model's two lists).
+  const storedRows = useMemo(() => project.costStandardRows ?? [], [project.costStandardRows]);
+  const constructionRows = useMemo(() => constructionRowsForView(storedRows, entries), [storedRows, entries]);
+  const softRows = useMemo(() => storedRows.filter((r) => r.list === 'soft'), [storedRows]);
+  const [phaseOpen, setPhaseOpen] = useState<Record<string, boolean>>({});
+  const [draft, setDraft] = useState<Record<CostStandardList, { label: string; method: CostMethod }>>({
+    construction: { label: '', method: 'rate_x_main_asset_gfa' },
+    soft: { label: '', method: 'percent_of_selected' },
+  });
+  const currency = project.currency ?? '';
+  /** Any edit on a row LINKS it: from then on it creates its line in every phase it applies to. */
+  const writeRow = (row: CostStandardRow, patch: Partial<CostStandardRow>): void => {
+    const { stored: _stored, ...clean } = row as CostStandardRow & { stored?: boolean };
+    const next: Record<string, unknown> = { ...clean, ...patch, linked: true };
+    for (const [k, v] of Object.entries(patch)) if (v === undefined) delete next[k];
+    setCostStandardRows(upsertCostStandardRow(storedRows, next as unknown as CostStandardRow));
+  };
+  const writePhaseRate = (row: CostStandardRow, phaseId: string, n: number | undefined): void => {
+    const byPhase = { ...(row.byPhase ?? {}) };
+    if (n === undefined) delete byPhase[phaseId]; else byPhase[phaseId] = n;
+    writeRow(row, { byPhase: Object.keys(byPhase).length > 0 ? byPhase : undefined });
+  };
+  const toggleType = (row: CostStandardRow, typeId: string): void => {
+    const cur = new Set(row.appliesToTypeIds ?? []);
+    if (cur.has(typeId)) cur.delete(typeId); else cur.add(typeId);
+    writeRow(row, { appliesToTypeIds: cur.size > 0 ? [...cur] : undefined });
+  };
+  const addRow = (list: CostStandardList): void => {
+    const d = draft[list];
+    if (!d.label.trim()) return;
+    setCostStandardRows([...storedRows, newCustomRow(list, d.label, d.method)]);
+    setDraft((p) => ({ ...p, [list]: { ...p[list], label: '' } }));
   };
 
   // The three quick-add sources, all through the ONE covered-already rule.
@@ -790,78 +806,140 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
         </table>
       </div>
 
-      {entries.length > 0 && (
-        <div style={{ marginTop: 'var(--sp-3)' }} data-testid="asset-cost-standards">
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-navy)', marginBottom: 4 }}>Cost standards</div>
-          <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, lineHeight: 1.45 }}>
-            One table for every cost item, one column per asset type, each in its line&apos;s own units. A rate typed here fills the
-            Capex tab for every asset of the type: a phase with no line for the item gets one, and each asset carries the rate marked
-            as from the type standard. Typing a value on the Capex tab overrides it for that line. A blank applies nothing. A selling
-            cost applies only to a type whose strategy sells.
-          </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }} data-testid="asset-cost-standards-table">
-              <thead>
-                <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
-                  <th style={{ ...TH, minWidth: 220 }}>Cost item</th>
-                  <th style={{ ...TH, minWidth: 100 }}>Unit</th>
-                  {entries.map((e, i) => (
-                    <th key={e.id} style={{ ...TH, minWidth: 110, textAlign: 'right', ...(i === 0 ? DIVIDER : {}) }} data-testid={`std-cost-col-${e.id}`}>
-                      {e.label}
-                      <div style={{ fontSize: 9, fontWeight: 400, opacity: 0.85 }}>
-                        {[e.category, values[e.id]?.strategy].filter(Boolean).join(', ') || 'no category'}
-                      </div>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {(['hard', 'soft', 'land', 'selling'] as const).map((g) => {
-                  const rows = costRows.filter((r) => r.group === g);
-                  if (rows.length === 0) return null;
-                  return (
-                    <React.Fragment key={g}>
-                      <tr style={{ background: 'var(--color-grey-pale)' }}>
-                        <td colSpan={2 + entries.length} style={{ ...TD, fontWeight: 700, color: 'var(--color-navy)' }}>
-                          {STANDARD_COST_GROUP_LABEL[g]}
-                        </td>
-                      </tr>
-                      {rows.map((r) => (
-                        <tr key={r.catalogId} style={{ borderBottom: '1px solid var(--color-border)' }} data-testid={`std-cost-row-${r.catalogId}`}>
-                          <td style={FIRM_CELL}>{r.label}</td>
-                          <td style={{ ...TD, color: 'var(--color-meta)' }}>{costUnitLabel(r)}</td>
-                          {entries.map((e, i) => {
-                            const strategy = values[e.id]?.strategy;
-                            const na = r.sellingOnly && strategy !== undefined && !assetStrategySells(strategy);
-                            return (
-                              <td key={e.id} style={{ ...TD, ...(i === 0 ? DIVIDER : {}) }}>
-                                {na ? (
-                                  <span style={{ fontSize: 10, color: 'var(--color-meta)' }}
-                                    title={`${e.label} is ${strategy}, and a selling cost applies only to a type that sells.`}>
-                                    n/a
-                                  </span>
-                                ) : (
-                                  <ValueCell
-                                    value={values[e.id]?.costRates?.[r.catalogId]}
-                                    disabled={noProject}
-                                    testId={`std-cost-${e.id}-${r.catalogId}`}
-                                    title={`${r.label} for every asset of ${e.label}, ${costUnitLabel(r)}.`}
-                                    onCommit={(n) => setCostRate(e.id, r.catalogId, n)}
-                                  />
-                                )}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
-                    </React.Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+      {/* THE COST STANDARDS (2026-09-14, founder): two short lists in the
+          reference model's shape. Defaults only: a rate typed on a Capex phase
+          line wins, a phase rate here wins over the row's own, and a row scoped
+          to asset types (the villa landscape rate) wins over a row for all. */}
+      <div style={{ marginTop: 'var(--sp-3)' }} data-testid="asset-cost-standards">
+        <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, lineHeight: 1.45 }}>
+          Cost defaults for this project. Each asset takes the default for its type where its Capex phase line has no rate of
+          its own; a rate typed on the phase line in Capex wins. A phase rate here wins over the row&apos;s rate in that phase.
+          A row you add creates the matching line in Capex.
         </div>
-      )}
+        {([
+          ['construction', 'Construction cost', constructionRows, 'std-construction-table'],
+          ['soft', 'Soft costs', softRows.map((r) => ({ ...r, stored: true })), 'std-soft-table'],
+        ] as const).map(([list, title, listRows, testId]) => (
+          <div key={list} style={{ marginBottom: 'var(--sp-3)' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-navy)', marginBottom: 4 }}>{title}</div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ fontSize: 11, borderCollapse: 'collapse', minWidth: 520 }} data-testid={testId}>
+                <thead>
+                  <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+                    <th style={{ ...TH, minWidth: 200 }}>Item</th>
+                    <th style={{ ...TH, minWidth: 170 }}>{list === 'construction' ? 'Applies to' : 'Basis'}</th>
+                    <th style={{ ...TH, minWidth: 110, textAlign: 'right' }}>Rate</th>
+                    {phases.length > 1 && <th style={{ ...TH, minWidth: 90 }}>By phase</th>}
+                    <th style={{ ...TH, minWidth: 60 }} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {listRows.map((row) => {
+                    const typeMissing = row.assetTypeId !== undefined && !entries.some((e) => e.id === row.assetTypeId);
+                    const open = phaseOpen[row.id] === true;
+                    return (
+                      <React.Fragment key={row.id}>
+                        <tr style={{ borderBottom: '1px solid var(--color-border)', opacity: typeMissing ? 0.6 : 1 }} data-testid={`std-cost-row-${row.id}`}>
+                          <td style={FIRM_CELL}>
+                            {row.label}
+                            {typeMissing && <div style={{ fontSize: 9, color: 'var(--color-meta)' }}>No asset type of this name in the project</div>}
+                          </td>
+                          <td style={TD}>
+                            {list === 'soft' || row.assetTypeId !== undefined ? (
+                              <span style={{ color: 'var(--color-meta)' }}>
+                                {row.assetTypeId !== undefined ? 'Assets of this type' : costStandardBasisLabel(row.method, currency)}
+                              </span>
+                            ) : (
+                              <details data-testid={`std-cost-${row.id}-types`}>
+                                <summary style={{ cursor: 'pointer', color: 'var(--color-navy)' }}>
+                                  {(row.appliesToTypeIds ?? []).length > 0
+                                    ? (row.appliesToTypeIds ?? []).map((id) => entries.find((e) => e.id === id)?.label ?? id).join(', ')
+                                    : 'All assets'}
+                                </summary>
+                                {entries.map((e) => (
+                                  <label key={e.id} style={{ display: 'block', fontSize: 10 }}>
+                                    <input type="checkbox" disabled={noProject}
+                                      checked={(row.appliesToTypeIds ?? []).includes(e.id)}
+                                      onChange={() => toggleType(row, e.id)} /> {e.label}
+                                  </label>
+                                ))}
+                              </details>
+                            )}
+                          </td>
+                          <td style={TD}>
+                            <ValueCell value={row.rate} disabled={noProject}
+                              testId={`std-cost-${row.id}-rate`}
+                              title={`${row.label}: ${costStandardBasisLabel(row.method, currency)}. Blank applies nothing.`}
+                              onCommit={(n) => writeRow(row, { rate: n })} />
+                          </td>
+                          {phases.length > 1 && (
+                            <td style={TD}>
+                              <button type="button" style={SMALL_BTN} data-testid={`std-cost-${row.id}-phases`}
+                                onClick={() => setPhaseOpen((p) => ({ ...p, [row.id]: !open }))}>
+                                {open ? 'Hide' : Object.keys(row.byPhase ?? {}).length > 0 ? `${Object.keys(row.byPhase ?? {}).length} set` : 'Set'}
+                              </button>
+                            </td>
+                          )}
+                          <td style={TD}>
+                            {row.custom && (
+                              <button type="button" data-view-mutates="true"
+                                style={{ ...SMALL_BTN, color: 'var(--color-negative)', borderColor: 'var(--color-negative)' }}
+                                data-testid={`std-cost-${row.id}-remove`}
+                                title="Removes the row. The Capex lines it created stay, with their own rates."
+                                onClick={() => setCostStandardRows(storedRows.filter((r) => r.id !== row.id))}>
+                                Remove
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                        {open && phases.map((ph) => (
+                          <tr key={`${row.id}-${ph.id}`} style={{ background: 'var(--color-grey-pale)' }} data-testid={`std-cost-${row.id}-phase-${ph.id}`}>
+                            <td style={{ ...TD, paddingLeft: 24, color: 'var(--color-meta)' }} colSpan={2}>{ph.name}</td>
+                            <td style={TD}>
+                              <ValueCell value={row.byPhase?.[ph.id]} disabled={noProject}
+                                testId={`std-cost-${row.id}-phase-${ph.id}-rate`}
+                                title={`${row.label} in ${ph.name} only. Blank takes the row's rate.`}
+                                onCommit={(n) => writePhaseRate(row, ph.id, n)} />
+                            </td>
+                            <td style={TD} colSpan={2} />
+                          </tr>
+                        ))}
+                      </React.Fragment>
+                    );
+                  })}
+                  <tr style={{ background: 'var(--color-grey-pale)' }}>
+                    <td style={FIRM_CELL}>
+                      <input style={TEXT_INPUT} value={draft[list].label} disabled={noProject}
+                        placeholder={list === 'construction' ? 'e.g. Facade' : 'e.g. Legal fees'}
+                        data-testid={`std-cost-add-${list}-label`}
+                        onChange={(e) => setDraft((p) => ({ ...p, [list]: { ...p[list], label: e.target.value } }))} />
+                    </td>
+                    <td style={TD}>
+                      <select style={TEXT_INPUT} value={draft[list].method} disabled={noProject}
+                        data-testid={`std-cost-add-${list}-method`}
+                        onChange={(e) => setDraft((p) => ({ ...p, [list]: { ...p[list], method: e.target.value as CostMethod } }))}>
+                        {(list === 'construction'
+                          ? ['rate_x_main_asset_gfa', 'rate_x_parking_area', 'rate_x_landscape_area', 'rate_per_land', 'rate_x_retail_gfa', 'fixed']
+                          : ['percent_of_selected', 'percent_of_cash_land', 'percent_of_revenue_sale']
+                        ).map((m) => (<option key={m} value={m}>{costStandardBasisLabel(m, currency)}</option>))}
+                      </select>
+                    </td>
+                    <td style={TD} colSpan={phases.length > 1 ? 3 : 2}>
+                      <button type="button" className="btn-primary" data-view-mutates="true"
+                        disabled={noProject || !draft[list].label.trim()}
+                        style={{ padding: '4px 12px', fontSize: 11 }}
+                        data-testid={`std-cost-add-${list}`}
+                        onClick={() => addRow(list)}>
+                        Add row
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
+      </div>
 
       {entries.length > 0 && (
         <div style={{ marginTop: 'var(--sp-3)' }} data-testid="asset-phase-phasing">
