@@ -242,8 +242,10 @@ function main() {
     check('F4 archiving is still the separate boolean (unchanged)',
       /archived:\s+boolean;/.test(src('src/hubs/modeling/platforms/refm/lib/persistence/types.ts')));
     const route = src('app/api/refm/portfolio/route.ts');
-    check('F5 the route uses the BASE case, never the active case',
-      /hydrationFromAnySnapshot/.test(route) && !/modelFromSnapshot/.test(strip(route))
+    // RE-AIMED 2026-09-15: the route loads through the store (loadStoredModel, base
+    // case active), since migration alone dropped the Types and Standards defaults.
+    check('F5 the route uses the BASE case through the store\'s load, never the active case',
+      /loadStoredModel\(raw\)/.test(route) && !/hydrationFromAnySnapshot/.test(strip(route)) && !/modelFromSnapshot/.test(strip(route))
       && /management-base-case/.test(route));
     check('F6 archived projects are excluded from the portfolio',
       /rows\.filter\(\(p\) => !p\.archived\)/.test(route));

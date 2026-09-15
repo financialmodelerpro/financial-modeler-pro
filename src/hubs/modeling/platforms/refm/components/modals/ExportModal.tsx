@@ -25,7 +25,7 @@ import { REFM_PLATFORM_SLUG } from '../../lib/usePlatformModules';
 import { moduleComponentNumber } from '@/src/shared/entitlements/moduleCatalog';
 import type { WatermarkSpec } from '@/src/shared/entitlements/exportWatermark';
 import { useModule1Store, modelFromSnapshot, pickModel } from '../../lib/state/module1-store';
-import { hydrationFromAnySnapshot } from '../../lib/state/module1-migrate';
+import { loadStoredModel } from '../../lib/state/loadStoredModel';
 import { applyOverrides, buildOverrides, baseCaseId, normaliseCases } from '../../lib/cases/applyOverrides';
 import { PDF_MODULE_TABS } from '../../lib/pdf/pdfModuleTabs';
 import { listVersions, loadVersion } from '../../lib/persistence/client';
@@ -359,10 +359,11 @@ export default function ExportModal({
         const res = await loadVersion(projectId, selectedVersionId);
         if (res.error || !res.data?.version) throw new Error(res.error || 'Could not load the selected version.');
         const row = res.data.version;
-        // Migrate the persisted snapshot to the current schema (same pipeline
-        // the store uses on load). Its top-level fields are the base model; cases
-        // carry the scenario overrides.
-        const migrated = hydrationFromAnySnapshot(row.snapshot);
+        // THROUGH THE STORE (2026-09-15), the same load the screen uses. Migration
+        // alone dropped the Types and Standards defaults, so an exported saved
+        // version priced a different model from the one on screen. Top level is
+        // the settled base case; the version's own active case id is kept.
+        const migrated = loadStoredModel(row.snapshot).snapshot;
         const vCases = normaliseCases(migrated.cases);
         const vActiveId = migrated.activeCaseId && vCases.some((c) => c.id === migrated.activeCaseId) ? migrated.activeCaseId : baseCaseId(vCases);
         const vBase = pickModel(migrated as unknown as Record<string, unknown>);

@@ -12,11 +12,14 @@
  * thread and cacheable. The engine is already proven to run headless in node
  * (scripts/verify-fund-e2e.ts computes from a live snapshot).
  *
- * THE BASE CASE, DELIBERATELY: each project is hydrated with
- * hydrationFromAnySnapshot and used AS IS, which is the Management base model.
- * modelFromSnapshot would apply the project's active case, so a sensitivity
- * somebody left selected inside one project would silently move the whole
- * portfolio. The response says which basis it used.
+ * THE BASE CASE, THROUGH THE STORE (2026-09-15): each project is loaded with
+ * `loadStoredModel`, the same load the screen uses, with the Management base
+ * case active. Migration alone (the route's first cut) stopped before the
+ * store's load steps and dropped the Types and Standards defaults, which read
+ * the live project's development cost as 1,313.13m against the screen's
+ * 1,337.57m. modelFromSnapshot would apply the project's active case, so a
+ * sensitivity somebody left selected inside one project would silently move
+ * the whole portfolio. The response says which basis it used.
  *
  * SCOPE: live projects only. Archived projects are excluded (they are shelved,
  * and no shelved total is shown), and soft-deleted ones are already invisible
@@ -29,7 +32,7 @@
 import { NextResponse } from 'next/server';
 import { getRefmUserId } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
 import { listProjects, getVersionById, getLatestVersion } from '@/src/hubs/modeling/platforms/refm/lib/persistence/server';
-import { hydrationFromAnySnapshot } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
+import { loadStoredModel } from '@/src/hubs/modeling/platforms/refm/lib/state/loadStoredModel';
 import {
   projectPortfolioMetrics, aggregatePortfolio, type ProjectPortfolioMetrics,
 } from '@/src/hubs/modeling/platforms/refm/lib/portfolio/portfolioMetrics';
@@ -85,9 +88,8 @@ export async function GET() {
       });
       continue;
     }
-    // Hydrate through the SAME migration chain the store uses, then use the
-    // model as saved: that is the base case, with no case overrides applied.
-    const model = hydrationFromAnySnapshot(raw) as unknown as FinancialsResolverState;
+    // The screen's load, base case active (loadStoredModel): the settled model.
+    const model = loadStoredModel(raw).snapshot as unknown as FinancialsResolverState;
     metrics.push(projectPortfolioMetrics(p.id, p.name, model));
   }
 
