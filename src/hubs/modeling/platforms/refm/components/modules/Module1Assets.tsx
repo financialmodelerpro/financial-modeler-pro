@@ -3690,6 +3690,8 @@ function SubUnitsTable({
                             // the basis the row is on is the one this cell prices.
                             unitPrice: v ?? 0,
                             [priceKeyFor(u.category, isUnits ? 'units' : 'area')]: v ?? 0,
+                            // A typed price is the user's: the type's price no longer applies (2026-09-15).
+                            priceStated: true,
                             ...(u.parentSubUnitId !== undefined ? { startingAdr: v ?? 0 } : {}),
                           })}
                         />
@@ -3712,7 +3714,7 @@ function SubUnitsTable({
                               value={isUnits ? u.pricePerSqm : u.pricePerUnit}
                               testId={`subunits-row-${u.id}-rate-other`}
                               title={`Price per ${isUnits ? 'sqm' : 'unit'}, the basis this line is not on. Used the moment the line switches to ${isUnits ? 'area' : 'units'}.`}
-                              onCommit={(v) => onUpdate(u.id, { [isUnits ? 'pricePerSqm' : 'pricePerUnit']: v ?? 0 })}
+                              onCommit={(v) => onUpdate(u.id, { [isUnits ? 'pricePerSqm' : 'pricePerUnit']: v ?? 0, priceStated: true })}
                             />
                             <div style={{ fontSize: 9, color: 'var(--color-meta)', textAlign: 'right' }} data-testid={`subunits-row-${u.id}-rate-other-basis`}>
                               per {isUnits ? 'sqm' : 'unit'}
@@ -5142,7 +5144,7 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
         {/* The active price AND its statement in the row's basis (2026-09-13). */}
         <AccountingNumberInput
           value={subUnit.unitPrice}
-          onChange={(n) => onUpdate({ unitPrice: Math.max(0, n), [priceKeyFor(subUnit.category, isUnits ? 'units' : 'area')]: Math.max(0, n) })}
+          onChange={(n) => onUpdate({ unitPrice: Math.max(0, n), [priceKeyFor(subUnit.category, isUnits ? 'units' : 'area')]: Math.max(0, n), priceStated: true })}
           scale="full"
           decimals={decimals}
           min={0}

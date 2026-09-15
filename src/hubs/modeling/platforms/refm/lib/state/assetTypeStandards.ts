@@ -169,6 +169,18 @@ export interface AssetTypeValues {
    */
   utilisationPct?: number;
   /**
+   * THE PRICES A TYPE USUALLY SELLS, OPERATES OR LEASES AT (2026-09-15, founder),
+   * typed on the type's row of the construction list on Types and Standards.
+   * Each is a DEFAULT for a Table 5 row of the type that has no price of its
+   * own (SubUnit.priceStated): a Sellable row takes both sale prices, an
+   * Operable row the ADR, a Leasable row the lease rate
+   * (lib/state/subUnitPriceDefaults.ts). Blank prices nothing.
+   */
+  salePricePerUnit?: number;
+  salePricePerSqm?: number;
+  adrPerKeyNight?: number;
+  leaseRatePerSqmYear?: number;
+  /**
    * COST RATES PER CAPEX LINE (2026-09-14), keyed by the line's catalog id and
    * stated in the line's own units. The store turns each into a per-asset
    * override flagged as standard-sourced (lib/state/costStandards.ts), so the

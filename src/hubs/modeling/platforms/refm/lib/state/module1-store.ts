@@ -59,6 +59,7 @@ import { settleStandardCostOverrides, seedCostStandardRows, settleLineRateStated
 import { planTypeMassingWriteBack, resolveAssetTypeKey } from './assetTypeStandards';
 import { seedRevenueBlocks } from './revenueSeeds';
 import { settleSubUnitPrices } from './subUnitPrices';
+import { settleSubUnitPriceDefaults, settleSubUnitPriceStated } from './subUnitPriceDefaults';
 import {
   applyOverrides,
   buildOverrides,
@@ -556,6 +557,13 @@ export function createModule1Store() {
       const s = get();
       const r = settleStandardCostOverrides(s);
       if (r.changed) set({ costLines: r.state.costLines as CostLine[], costOverrides: r.state.costOverrides });
+      // AND THE TYPE'S PRICES on every Table 5 row with none of its own (2026-09-15),
+      // then each row's active price from its basis. All three settle.
+      const t = get();
+      const stated = settleSubUnitPriceStated(t.subUnits);
+      const defaulted = settleSubUnitPriceDefaults(stated.subUnits, t.assets, t.project.assetTypes ?? [], t.project.assetTypeValues);
+      const priced = settleSubUnitPrices(defaulted.subUnits, t.assets);
+      if (priced.subUnits !== t.subUnits) set({ subUnits: priced.subUnits });
     };
     const api: Module1Store = {
     ...DEFAULT_MODULE1_STATE,
@@ -645,7 +653,7 @@ export function createModule1Store() {
      * it. That is the point (a line nobody can price also charges nothing), and
      * it is measured in the CHANGELOG rather than left to be discovered.
      */
-    syncLineSubUnits: (plan, mintSubUnitId) => set((s) => {
+    syncLineSubUnits: (plan, mintSubUnitId) => setAndSettle((s) => {
       const seeds = plan.seeds.filter((seed) => s.assets.some((a) => a.id === seed.assetId));
       const byId = new Map(plan.reallocations.map((r) => [r.subUnitId, r.areaSqm] as const));
       // A CONVERSION WRITES THE SHARE AND NEVER THE AREA. The row already
@@ -1078,24 +1086,24 @@ export function createModule1Store() {
       };
     }),
 
-    setSubUnits: (subUnits) => set({ subUnits }),
+    setSubUnits: (subUnits) => setAndSettle(() => ({ subUnits })),
     // P10-Fix 4 (2026-05-12): sub-unit mutations sync the unitsFromParent
     // field on any companion whose parent owns the affected sub-unit.
     // Sellable categories drive the keys count. Helper closed over the
     // next subUnits array + assets array; idempotent.
-    addSubUnit: (subUnit) => set((s) => {
+    addSubUnit: (subUnit) => setAndSettle((s) => {
       const draftSubs = [...s.subUnits, subUnit];
       const nextAssets = syncCompanionUnits(s.assets, draftSubs);
       const nextSubUnits = syncCompanionSubUnits(nextAssets, draftSubs);
       return { subUnits: nextSubUnits, assets: nextAssets };
     }),
-    updateSubUnit: (id, patch) => set((s) => {
+    updateSubUnit: (id, patch) => setAndSettle((s) => {
       const draftSubs = s.subUnits.map((u) => (u.id === id ? { ...u, ...patch } : u));
       const nextAssets = syncCompanionUnits(s.assets, draftSubs);
       const nextSubUnits = syncCompanionSubUnits(nextAssets, draftSubs);
       return { subUnits: nextSubUnits, assets: nextAssets };
     }),
-    removeSubUnit: (id) => set((s) => {
+    removeSubUnit: (id) => setAndSettle((s) => {
       const draftSubs = s.subUnits.filter((u) => u.id !== id);
       const nextAssets = syncCompanionUnits(s.assets, draftSubs);
       const nextSubUnits = syncCompanionSubUnits(nextAssets, draftSubs);
@@ -1402,8 +1410,10 @@ export function createModule1Store() {
       const seededLive = seedRevenueBlocks(standardLive.assets);
       const seededLiveModel = seededLive.changed ? { ...standardLive, assets: seededLive.assets } : standardLive;
       // And every sub-unit's active price is the one its basis states (2026-09-13).
-      const pricedLive = settleSubUnitPrices(seededLiveModel.subUnits, seededLiveModel.assets);
-      const pricedLiveModel = pricedLive.changed ? { ...seededLiveModel, subUnits: pricedLive.subUnits } : seededLiveModel;
+      // The type's prices first, on rows with none of their own (2026-09-15).
+      const defaultedLive = settleSubUnitPriceDefaults(settleSubUnitPriceStated(seededLiveModel.subUnits).subUnits, seededLiveModel.assets, seededLiveModel.project.assetTypes ?? [], seededLiveModel.project.assetTypeValues);
+      const pricedLive = settleSubUnitPrices(defaultedLive.subUnits, seededLiveModel.assets);
+      const pricedLiveModel = pricedLive.subUnits !== seededLiveModel.subUnits ? { ...seededLiveModel, subUnits: pricedLive.subUnits } : seededLiveModel;
       // And land is allocated by sqm only (2026-09-14): the snapshot written says so.
       const liveModel = pricedLiveModel.landAllocationMode === 'sqm' ? pricedLiveModel : { ...pricedLiveModel, landAllocationMode: 'sqm' as const };
       const baseId = baseCaseId(s.cases);
@@ -1496,8 +1506,11 @@ export function createModule1Store() {
        * a row that predates the pair takes its price as the statement in its
        * active basis. Settles like the rest.
        */
-      const priced = settleSubUnitPrices(seededModel.subUnits, seededModel.assets);
-      const model = priced.changed ? { ...seededModel, subUnits: priced.subUnits } : seededModel;
+      // THE TYPE'S PRICES FIRST (2026-09-15, subUnitPriceDefaults.ts): a row with no
+      // marker and a positive price is the user's; a row with none takes its type's.
+      const defaultedRows = settleSubUnitPriceDefaults(settleSubUnitPriceStated(seededModel.subUnits).subUnits, seededModel.assets, seededModel.project.assetTypes ?? [], seededModel.project.assetTypeValues);
+      const priced = settleSubUnitPrices(defaultedRows.subUnits, seededModel.assets);
+      const model = priced.subUnits !== seededModel.subUnits ? { ...seededModel, subUnits: priced.subUnits } : seededModel;
       if (priced.moved.length > 0 && typeof console !== 'undefined') {
         console.warn(`[REFM] sub-unit prices: ${priced.moved.length} row(s) took the price their basis states on load`, priced.moved);
       }

@@ -1197,6 +1197,13 @@ export interface SubUnit {
   pricePerSqm?: number;
   pricePerUnit?: number;
   /**
+   * WHETHER THIS ROW'S PRICE IS THE USER'S (2026-09-15). Typing a price on
+   * Table 5 sets it; false means the row follows its asset type's prices on
+   * Types and Standards (lib/state/subUnitPriceDefaults.ts). Absent is settled
+   * on load: a row carrying any positive price counts as stated.
+   */
+  priceStated?: boolean;
+  /**
    * Land planning (2026-09-07): PARKING RATIO OVERRIDE for this sub-unit.
    *
    * The asset type carries the firm's default (stamped onto the asset); a

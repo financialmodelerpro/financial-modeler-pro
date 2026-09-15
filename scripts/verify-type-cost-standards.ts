@@ -11,6 +11,7 @@
  *   M  lines: an unpriced phase takes the whole list, a priced phase only rows
  *      a user added or edited, and an added row creates its line
  *   G  the store, Module 6 and the screens
+ *   S  a type's sale prices, ADR and lease rate price the Table 5 rows with none of their own
  *
  * Offline: the store and the pure functions, no database.
  */
@@ -25,6 +26,8 @@ import {
   constructionRowsForView, pickStandardRate, costStandardBasisLabel, derivedSelection, settleLineSelectionStated, standardTypeIdFor, type CostStandardRow,
 } from '../src/hubs/modeling/platforms/refm/lib/state/costStandards';
 import { inactiveLeverReason, nonEconomicLeverReason } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
+import type { SubUnit } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import { settleSubUnitPriceDefaults, settleSubUnitPriceStated } from '../src/hubs/modeling/platforms/refm/lib/state/subUnitPriceDefaults';
 
 let pass = 0, fail = 0;
 const check = (name: string, ok: boolean, detail = ''): void => {
@@ -413,6 +416,71 @@ section('O. every path builds a phase the same way: the standards list, in order
     && tabSrc.includes('value.toFixed(decimals)')
     && ['utilisationPct', 'coveragePct', 'servicePct'].every((k) => tabSrc.includes(`value={v?.${k}} disabled={noProject} decimals={2}`))
     && tabSrc.includes("value={row.rate} disabled={noProject} decimals={list === 'soft' ? 2 : undefined}"));
+}
+
+// ── S. prices from the type ─────────────────────────────────────────────────
+section('S. a type states its sale prices, ADR and lease rate, and a Table 5 row with no price of its own takes them');
+{
+  const st = createModule1Store();
+  const g = st.getState;
+  g().addAsset(asset('sv', 'branded-villas'));
+  g().addAsset(asset('sh', '4-star-hotel', { strategy: 'Operate' } as Partial<Asset>));
+  g().addAsset(asset('sl', 'standalone', { strategy: 'Lease' } as Partial<Asset>));
+  const sub = (id: string, assetId: string, category: SubUnit['category'], metric: SubUnit['metric']): SubUnit =>
+    ({ id, assetId, name: id, category, metric, metricValue: 100, unitPrice: 0 }) as SubUnit;
+  g().addSubUnit(sub('v-a', 'sv', 'Sellable', 'area'));
+  g().addSubUnit(sub('v-b', 'sv', 'Sellable', 'units'));
+  g().addSubUnit(sub('h-a', 'sh', 'Operable', 'units'));
+  g().addSubUnit(sub('l-a', 'sl', 'Leasable', 'area'));
+  g().addSubUnit(sub('s-a', 'sv', 'Support', 'area'));
+  const row = (id: string): SubUnit => g().subUnits.find((u) => u.id === id)!;
+  check('S1 a row added with no price is not stated', row('v-a').priceStated === false && row('v-b').priceStated === false);
+  g().setAssetTypeValue('branded-villas', { salePricePerSqm: 12000, salePricePerUnit: 5000000 });
+  check('S2 a Sellable row takes both sale prices, and its basis picks the active one',
+    row('v-a').pricePerSqm === 12000 && row('v-a').pricePerUnit === 5000000 && row('v-a').unitPrice === 12000 && row('v-b').unitPrice === 5000000,
+    JSON.stringify([row('v-a'), row('v-b')]));
+  g().setAssetTypeValue('4-star-hotel', { adrPerKeyNight: 850 });
+  g().setAssetTypeValue('standalone', { leaseRatePerSqmYear: 1400 });
+  check('S3 an Operable row takes the ADR, a Leasable row the lease rate',
+    row('h-a').unitPrice === 850 && row('h-a').pricePerUnit === 850 && row('l-a').unitPrice === 1400 && row('l-a').pricePerSqm === 1400,
+    JSON.stringify([row('h-a'), row('l-a')]));
+  check('S4 a Support row is never priced', row('s-a').unitPrice === 0 && (row('s-a').pricePerSqm ?? 0) === 0, JSON.stringify(row('s-a')));
+  g().updateSubUnit('v-b', { unitPrice: 6000000, pricePerUnit: 6000000, priceStated: true });
+  g().setAssetTypeValue('branded-villas', { salePricePerUnit: 5500000 });
+  check('S5 a price typed on Table 5 wins, and the row beside it still follows the type',
+    row('v-b').unitPrice === 6000000 && row('v-a').pricePerUnit === 5500000 && row('v-a').unitPrice === 12000);
+  g().setAssetTypeValue('branded-villas', { salePricePerSqm: undefined });
+  check('S6 blanking the type price prices a following row at nothing', row('v-a').unitPrice === 0 && row('v-a').pricePerSqm === 0);
+  g().updateSubUnit('v-a', { metric: 'units', unitPrice: row('v-a').pricePerUnit ?? 0 });
+  check('S7 a metric switch is not a statement: the row keeps following, now on its per unit price',
+    row('v-a').priceStated === false && row('v-a').unitPrice === 5500000, JSON.stringify(row('v-a')));
+  const saved = g().extractPersistSnapshot() as unknown as HydrateSnapshot & { subUnits: SubUnit[] };
+  check('S8 a saved snapshot carries the marker on every row', saved.subUnits.every((u) => typeof u.priceStated === 'boolean'));
+  const fresh = createModule1Store();
+  fresh.getState().hydrate({
+    ...saved,
+    subUnits: saved.subUnits.map((u) => {
+      if (u.id === 'h-a') return { ...u, priceStated: undefined, unitPrice: 900, pricePerUnit: 900 };
+      if (u.id === 'l-a') return { ...u, priceStated: undefined, unitPrice: 0, pricePerSqm: 0 };
+      return u;
+    }),
+  } as unknown as HydrateSnapshot);
+  const frow = (id: string): SubUnit => fresh.getState().subUnits.find((u) => u.id === id)!;
+  check('S9 on load a priced row with no marker keeps its price as the user\'s', frow('h-a').priceStated === true && frow('h-a').unitPrice === 900, JSON.stringify(frow('h-a')));
+  check('S10 and an unpriced one takes its type', frow('l-a').priceStated === false && frow('l-a').unitPrice === 1400, JSON.stringify(frow('l-a')));
+  const same = settleSubUnitPriceDefaults(g().subUnits, g().assets, [], g().project.assetTypeValues);
+  check('S11 the settle returns its input when nothing moves', same.subUnits === g().subUnits && settleSubUnitPriceStated(g().subUnits).subUnits === g().subUnits);
+  const model = createModule1Store().getState().extractPersistSnapshot() as unknown as HydrateSnapshot;
+  const why = inactiveLeverReason('project.assetTypeValues.branded-villas.salePricePerSqm', model);
+  check('S12 Module 6 names the sub-unit price as the dial and hides the marker',
+    !!why && /Table 5/.test(why) && nonEconomicLeverReason('subUnits[id=x].priceStated', 'priceStated') !== null, String(why));
+  const tab = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1AssetStandards.tsx', 'utf8');
+  const assetsSrc = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx', 'utf8');
+  const storeSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8');
+  check('S13 the list is named for its prices, and every Table 5 price cell states the price',
+    tab.includes("'Construction cost, sale price and ADR'") && tab.includes('std-price-${typeId}-${c.key}')
+    && (assetsSrc.match(/priceStated: true/g) ?? []).length >= 3);
+  check('S14 edits, load and save all run the defaults', (storeSrc.match(/settleSubUnitPriceDefaults\(/g) ?? []).length >= 3);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

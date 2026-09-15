@@ -147,6 +147,24 @@ function parseValue(s: string): { ok: true; value: number | undefined } | { ok: 
  * every accepted keystroke commits straight to the store, because these are
  * model inputs and the model has no Save buttons.
  */
+/**
+ * THE PRICES A TYPE STATES (2026-09-15, founder), shown on the type rows of the
+ * construction list. Every Table 5 row of the type with no price of its own
+ * takes them (lib/state/subUnitPriceDefaults.ts). A column that does not fit the
+ * type's strategy is dimmed, never hidden: a type with no strategy shows all four.
+ */
+const PRICE_COLUMNS: ReadonlyArray<{
+  key: 'salePricePerUnit' | 'salePricePerSqm' | 'adrPerKeyNight' | 'leaseRatePerSqmYear';
+  label: string;
+  what: string;
+  fits: (strategy: string | undefined) => boolean;
+}> = [
+  { key: 'salePricePerUnit', label: 'Sale price per unit', what: 'the price per unit of a Sellable row', fits: (st) => !st || st.startsWith('Sell') },
+  { key: 'salePricePerSqm', label: 'Sale price per sqm', what: 'the price per sqm of a Sellable row', fits: (st) => !st || st.startsWith('Sell') },
+  { key: 'adrPerKeyNight', label: 'ADR per key night', what: 'the rate of an Operable row', fits: (st) => !st || st === 'Operate' || st === 'Sell + Manage' },
+  { key: 'leaseRatePerSqmYear', label: 'Lease rate per sqm per year', what: 'the rate of a Leasable row', fits: (st) => !st || st === 'Lease' },
+];
+
 function ValueCell({
   value, onCommit, testId, disabled, title, decimals,
 }: {
@@ -817,10 +835,11 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
         <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, lineHeight: 1.45 }}>
           Cost defaults for this project. Each asset takes the default for its type where its Capex phase line has no rate of
           its own; a rate typed on the phase line in Capex wins. A phase rate here wins over the row&apos;s rate in that phase.
-          A row you add creates the matching line in Capex.
+          A row you add creates the matching line in Capex. The sale prices, ADR and lease rate on a type&apos;s row are the price
+          every Table 5 row of that type takes on the Assets tab until a price is typed there.
         </div>
         {([
-          ['construction', 'Construction cost', constructionRows, 'std-construction-table'],
+          ['construction', 'Construction cost, sale price and ADR', constructionRows, 'std-construction-table'],
           ['soft', 'Soft costs', softRows.map((r) => ({ ...r, stored: true })), 'std-soft-table'],
         ] as const).map(([list, title, listRows, testId]) => (
           <div key={list} style={{ marginBottom: 'var(--sp-3)' }}>
@@ -833,6 +852,9 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
                     <th style={{ ...TH, minWidth: 170 }}>{list === 'construction' ? 'Applies to' : 'Basis'}</th>
                     <th style={{ ...TH, minWidth: 110 }}>Rate</th>
                     {phases.length > 1 && <th style={{ ...TH, minWidth: 90 }}>By phase</th>}
+                    {list === 'construction' && PRICE_COLUMNS.map((c) => (
+                      <th key={c.key} style={{ ...TH, minWidth: 100 }} data-testid={`std-price-head-${c.key}`}>{c.label}</th>
+                    ))}
                     <th style={{ ...TH, minWidth: 60 }} />
                   </tr>
                 </thead>
@@ -895,6 +917,19 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
                               </button>
                             </td>
                           )}
+                          {list === 'construction' && PRICE_COLUMNS.map((c) => {
+                            const typeId = row.assetTypeId;
+                            if (typeId === undefined) return <td key={c.key} style={TD} />;
+                            const tv = values[typeId];
+                            return (
+                              <td key={c.key} style={{ ...TD, opacity: c.fits(tv?.strategy) ? 1 : 0.5 }}>
+                                <ValueCell value={tv?.[c.key]} disabled={noProject || typeMissing}
+                                  testId={`std-price-${typeId}-${c.key}`}
+                                  title={`${row.label}: ${c.label}${currency ? ` (${currency})` : ''}. The default for ${c.what} of this type on the Assets tab, Table 5, until a price is typed there. Blank prices nothing.`}
+                                  onCommit={(n) => setAssetTypeValue(typeId, { [c.key]: n } as Partial<AssetTypeValues>)} />
+                              </td>
+                            );
+                          })}
                           <td style={TD}>
                             {row.custom && (
                               <button type="button" data-view-mutates="true"
@@ -916,7 +951,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
                                 title={`${row.label} in ${ph.name} only. Blank takes the row's rate.`}
                                 onCommit={(n) => writePhaseRate(row, ph.id, n)} />
                             </td>
-                            <td style={TD} colSpan={2} />
+                            <td style={TD} colSpan={2 + (list === 'construction' ? PRICE_COLUMNS.length : 0)} />
                           </tr>
                         ))}
                       </React.Fragment>
@@ -939,7 +974,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
                         ).map((m) => (<option key={m} value={m}>{m === 'percent_of_selected:hard_and_soft' ? '% of hard and soft costs' : costStandardBasisLabel(m, currency)}</option>))}
                       </select>
                     </td>
-                    <td style={TD} colSpan={phases.length > 1 ? 3 : 2}>
+                    <td style={TD} colSpan={(phases.length > 1 ? 3 : 2) + (list === 'construction' ? PRICE_COLUMNS.length : 0)}>
                       <button type="button" className="btn-primary" data-view-mutates="true"
                         disabled={noProject || !draft[list].label.trim()}
                         style={{ padding: '4px 12px', fontSize: 11 }}

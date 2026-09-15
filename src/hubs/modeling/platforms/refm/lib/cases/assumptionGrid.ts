@@ -493,7 +493,7 @@ const STRUCTURAL_SELECTOR_PATTERNS: ReadonlyArray<RegExp> = [
   /^costOverrides\[[^\]]+\]\.(phasing|method|origin)$/,
   /^costLines\[[^\]]+\]\.(rateStated|selectionStated)$/,
   /^project\.costStandardRows\[[^\]]+\]\.(id|list|label|catalogId|method|assetTypeId|linked|custom|chargesOn|appliesToTypeIds.*)$/,
-  /^subUnits\[[^\]]+\]\.(metric|category|parentSubUnitId)$/,
+  /^subUnits\[[^\]]+\]\.(metric|category|parentSubUnitId|priceStated)$/,
   /^financingTranches\[[^\]]+\]\.(origin|scope|scopeId|interestRateType|graceInterestTreatment|equalRepaymentSubMethod|repaymentSubMethod|repaymentMethod|drawdownMethod)$/,
 ];
 
@@ -704,6 +704,11 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
     // overrides, written by the store when a type's rate is edited. A value-only
     // case override on the type never runs that store step, so it moves
     // nothing; the override itself (costOverrides[...].value) is the dial.
+    // THE TYPE'S PRICES (2026-09-15) reach the model as the price of each Table 5
+    // row of the type that has none of its own, written by the store.
+    if (/\.(salePricePerUnit|salePricePerSqm|adrPerKeyNight|leaseRatePerSqmYear)$/.test(path)) {
+      return 'a sale price, ADR or lease rate default on the asset type; the store writes it onto each Table 5 row of the type with no price of its own, and a scenario does not re-run that step, so change the sub-unit price instead';
+    }
     if (/\.costRates(\.|\[)/.test(path)) {
       return 'a cost rate standard on the asset type; the store writes it onto each asset of the type as a capex override, and a scenario does not re-run that step, so change the capex override value for this asset and line instead';
     }
