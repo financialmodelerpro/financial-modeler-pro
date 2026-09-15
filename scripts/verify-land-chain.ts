@@ -450,8 +450,10 @@ function offlineChecks(): void {
     && groupAssetsByPlot([single], parcelsT).every((g) => g.key !== UNPLOTTED_GROUP));
 
   section('U. The row carries what a row can, the drawer the rest');
+  // Line endings normalised (2026-09-15): the tab source is CRLF on disk, and the
+  // patterns below match \n.
   const tabSrc = readFileSync(
-    'src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx', 'utf8');
+    'src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx', 'utf8').replace(/\r\n/g, '\n');
   // U1 MOVED FROM PLOT TO LINE. The tables group by the consolidated line now:
   // a line is one type in one phase and pools land from however many plots feed
   // it, so a plot cannot be the organising idea without splitting a line in two.

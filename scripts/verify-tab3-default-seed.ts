@@ -32,9 +32,9 @@ import {
   makeDefaultPhase,
   makeDefaultProject,
   STANDARD_COST_LINE_IDS,
-  SEEDED_COST_LINE_IDS,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
+import { buildPhaseCostLines } from '../src/hubs/modeling/platforms/refm/lib/state/costStandards';
 
 // 2026-08-15: the catalog size is DERIVED, not hardcoded. It was written as a
 // literal 10 (and 30 for three phases), so adding `rett` and `marketing` broke
@@ -42,27 +42,15 @@ import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/li
 // the catalog is not the invariant; "the seed emits exactly the registered
 // catalog" is, and that survives the next addition.
 /**
- * WHAT THE SEED EMITS, not what the platform recognises (2026-08-31).
- *
- * This counted `STANDARD_COST_LINE_IDS`, which is the IDENTITY REGISTRY: every
- * id the platform knows, what an existing line resolves its behaviour through,
- * and what the row picker can offer. The SEED set is a different thing, and
- * conflating the two is what this file was doing. It expected 13 and the seeder
- * correctly produces 12.
- *
- * The difference is exactly `rett`, which is REGISTERED BUT NOT SEEDED since
- * 2026-08-17c. It used to be seeded and country gated, so on most projects it
- * was present but invisible, which let the engine charge a row nobody could see
- * and later let selecting a country double a cost the user had already entered.
- * A transfer tax is now added from the catalog like any other cost.
- *
- * `SEEDED_COST_LINE_IDS` is DERIVED from the seed, and verify-no-hidden-cost-lines
- * pins that it equals what the seeder actually emits, so this constant cannot
- * drift from the seeder the way a hand-kept number would. The three other
- * verifiers that count seeded lines (capex-phasing, new-project-defaults,
- * no-hidden-cost-lines) already use it; this file was the one holdout.
+ * WHAT THE SEED EMITS (re-aimed 2026-09-15). A phase with no lines is seeded by
+ * `buildPhaseCostLines`, the one phase builder: the Types and Standards list in
+ * its order (land, the transfer tax, the construction list, the soft list). The
+ * old catalog seed (infrastructure, pre-operating, professional fee,
+ * commission) is retired, and `SEEDED_COST_LINE_IDS` still describes it, so
+ * this reads the set from the builder itself rather than from that constant.
  */
-const CATALOG = SEEDED_COST_LINE_IDS.length;
+const SEED_IDS: string[] = buildPhaseCostLines('probe', 1).map((l) => l.id.split('__')[0]);
+const CATALOG = SEED_IDS.length;
 const REPO_ROOT = resolve(__dirname, '..');
 let passed = 0;
 let failed = 0;
@@ -114,24 +102,25 @@ console.log('\n[2/7] Empty single-phase snapshot seeds 10 default lines');
   // marketing, so either could have stopped seeding without this file noticing.
   // Reading the set from the same constant the count uses also means a line
   // added to the catalog cannot pass here by being absent from a literal.
-  if (JSON.stringify(phaseLines.map((c) => c.id.split('__')[0])) === JSON.stringify([...SEEDED_COST_LINE_IDS])) {
+  if (JSON.stringify(phaseLines.map((c) => c.id.split('__')[0])) === JSON.stringify(SEED_IDS)) {
     pass(`phase-1 seeds the whole seed set, in order (${CATALOG} lines)`);
   } else {
     fail('phase-1 seed set',
-      `${phaseLines.map((c) => c.id.split('__')[0]).join(',')} vs ${SEEDED_COST_LINE_IDS.join(',')}`);
+      `${phaseLines.map((c) => c.id.split('__')[0]).join(',')} vs ${SEED_IDS.join(',')}`);
   }
-  // The transfer tax is REGISTERED but must never arrive by seeding: that is
-  // the present-but-invisible row this whole arrangement exists to prevent.
+  // THE TRANSFER TAX IS A STANDARDS LINE NOW (2026-09-15): seeded with the list,
+  // visible and ordinary, never the country-gated hidden row this check guarded.
+  const rettLine = phaseLines.find((c) => c.id.split('__')[0] === 'rett');
   if ((STANDARD_COST_LINE_IDS as readonly string[]).includes('rett')
-    && !phaseLines.some((c) => c.id.split('__')[0] === 'rett')) {
-    pass('the transfer tax stays a known id that is NOT seeded');
-  } else fail('transfer tax', 'either it is no longer registered, or it was seeded');
+    && rettLine !== undefined && !(rettLine as { requiresCountry?: unknown }).requiresCountry) {
+    pass('the transfer tax is seeded as an ordinary standards line, never country gated');
+  } else fail('transfer tax', 'either it is no longer registered, missing from the seed, or gated by country');
 
   // Spot-check each expected base id.
   const expectedBaseIds = [
-    'land-cash', 'land-inkind', 'construction-bua', 'construction-parking',
-    'infrastructure', 'landscaping', 'pre-operating', 'professional-fee',
-    'commission', 'contingency',
+    'land-cash', 'land-inkind', 'rett', 'construction-bua', 'construction-parking',
+    'landscaping', 'engineering-supervision', 'design-consultancy', 'permits-approvals',
+    'developer-fee', 'contingency', 'marketing',
   ];
   for (const baseId of expectedBaseIds) {
     const composedId = `${baseId}__phase-1`;
