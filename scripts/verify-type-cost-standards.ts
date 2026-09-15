@@ -22,7 +22,7 @@ import {
 import { planTypeMassingWriteBack, resolveChainDefaults } from '../src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards';
 import {
   seedCostStandardRows, settleStandardCostOverrides, settleLineRateStated, newCustomRow,
-  constructionRowsForView, pickStandardRate, costStandardBasisLabel, derivedSelection, settleLineSelectionStated, type CostStandardRow,
+  constructionRowsForView, pickStandardRate, costStandardBasisLabel, derivedSelection, settleLineSelectionStated, standardTypeIdFor, type CostStandardRow,
 } from '../src/hubs/modeling/platforms/refm/lib/state/costStandards';
 import { inactiveLeverReason, nonEconomicLeverReason } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
 
@@ -279,6 +279,9 @@ section('R. reset to Types and Standards, the basis label and the headers');
   const tab = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1AssetStandards.tsx', 'utf8');
   check('R8 the Standards headers are centred both ways, with no header overriding it',
     tab.includes("textAlign: 'center', verticalAlign: 'middle'") && !tab.split('\n').some((l) => l.includes('<th style={{ ...TH') && /textAlign: /.test(l)));
+  const order = g().costLines.filter((l) => l.phaseId === P).map((l) => l.id.replace(`__${P}`, ''));
+  // Captured before the undo below: re-run a reset for the order check.
+  void order;
   const shown = constructionRowsForView(seedCostStandardRows([] as never, undefined), [
     { id: 'standalone-commercial', label: 'Standalone Commercial' }, { id: 'branded-villas', label: 'Branded Villas' },
   ] as never);
@@ -345,6 +348,43 @@ section('B. a soft percentage charges on what its Types and Standards row states
   const capex = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx', 'utf8');
   check('B11 the tab states the basis per row; Capex shows where it comes from and the way back',
     tab.includes('-charges-on') && capex.includes('-pct-basis') && capex.includes('-pct-use-standard') && capex.includes('selectionStated: true'));
+}
+
+// ── Z. the four fixes of 2026-09-15 ─────────────────────────────────────────
+section('Z. one type lookup, the reset in list order, no pointers to nothing, the tab text');
+{
+  const labelOnly = asset('lab1', undefined, { type: 'Branded Villas' } as Partial<Asset>);
+  const labelStrip = asset('ls1', undefined, { type: 'Branded Villas', isCompanion: true, companionType: 'retail', strategy: 'Lease' } as Partial<Asset>);
+  check('Z1 a plot typed by label prices as its type, as table 4 merges it', standardTypeIdFor(labelOnly, TYPES) === 'branded-villas');
+  check('Z2 a retail strip carrying its hosts\' label still prices as ground-floor retail', standardTypeIdFor(labelStrip, TYPES) === 'retail-ground-floor');
+  const rz = settleStandardCostOverrides({
+    assets: [labelOnly], costLines: unpriced(), costOverrides: [] as CostOverride[], phases: [{ id: P, constructionPeriods: 3 }],
+    project: { costStandardRows: ROWS, assetTypes: TYPES },
+  });
+  check('Z3 so it takes the villas superstructure default', rz.state.costOverrides.some((o) => o.assetId === 'lab1' && o.lineId === BUA && o.value === 11000));
+  const wb = planTypeMassingWriteBack(
+    [asset('w1', 'branded-villas', { landChain: { coveragePct: 60 } }), asset('w2', undefined, { type: 'Branded Villas', landChain: { coveragePct: 55 } } as Partial<Asset>)],
+    {}, { overwrite: true },
+  );
+  check('Z4 the fill-back counts a label-typed plot towards its type (so a disagreement blocks it)', wb.values['branded-villas']?.coveragePct === undefined);
+
+  const st = createModule1Store();
+  const gz = st.getState;
+  gz().setProject({ assetTypes: [{ id: 'branded-villas', label: 'Branded Villas' }] } as never);
+  gz().addAsset(asset('z1', 'branded-villas'));
+  gz().setCostStandardRows(seedCostStandardRows([{ id: 'branded-villas', label: 'Branded Villas' }] as never, undefined));
+  gz().resetCapexToStandards([P]);
+  const ids = gz().costLines.filter((l) => l.phaseId === P).map((l) => l.id.replace(`__${P}`, ''));
+  check('Z5 the reset produces exactly the list, in the list order, the transfer tax after land',
+    ids.join(',') === 'land-cash,land-inkind,rett,construction-bua,construction-parking,landscaping,engineering-supervision,design-consultancy,permits-approvals,developer-fee,contingency,marketing',
+    ids.join(','));
+  const devz = gz().costLines.find((l) => l.id === `developer-fee__${P}`);
+  check('Z6 after the reset the developer fee charges the soft lines above it',
+    ['engineering-supervision', 'design-consultancy', 'permits-approvals', 'construction-bua'].every((b) => (devz?.selectedLineIds ?? []).includes(`${b}__${P}`)),
+    JSON.stringify(devz?.selectedLineIds));
+
+  const tab = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1AssetStandards.tsx', 'utf8');
+  check('Z7 the tab no longer says type names wait for Save', !tab.includes('waits for') && tab.includes('Both halves save as you type'));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

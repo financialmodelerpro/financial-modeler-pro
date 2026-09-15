@@ -204,6 +204,20 @@ async function main(): Promise<void> {
   offline();
   await live();
   console.log(`\n=== ${pass} passed, ${fail} failed ===`);
-  if (fail > 0) { console.log('Failures:', failures.join(', ')); process.exit(1); }
+  if (fail > 0) { // ── Dangling selections (2026-09-15) ──
+{
+  const base = { assets: [{ id: 'a1' }], parcels: [], costLines: [
+    { id: 'x1', selectedLineIds: ['x0', 'gone-marketing', 'gone-commission'] },
+    { id: 'x0' },
+  ] } as unknown as Parameters<typeof repairProjectIntegrity>[0];
+  const res = repairProjectIntegrity(base);
+  const sel = (res.state.costLines ?? []).find((c) => c.id === 'x1')?.selectedLineIds;
+  check('D1 a selection naming deleted lines keeps only the lines that exist',
+    res.changed && JSON.stringify(sel) === '["x0"]' && res.repairs.filter((r) => r.kind === 'dangling-selection').length === 2);
+  const again = repairProjectIntegrity(res.state);
+  check('D2 and the repaired state settles', !again.changed && again.state === res.state);
+}
+
+console.log('Failures:', failures.join(', ')); process.exit(1); }
 }
 void main();

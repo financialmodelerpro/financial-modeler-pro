@@ -669,11 +669,14 @@ export function planTypeMassingWriteBack(
 ): { values: AssetTypeValuesByType; changed: boolean; written: Array<{ typeId: string; field: MassingWriteBackField; value: number }> } {
   const byType = new Map<string, typeof assets[number][]>();
   for (const a of assets) {
-    if (!a.assetTypeId || a.isCompanion === true || a.visible === false) continue;
-    if (opts.typeIds && !opts.typeIds.has(a.assetTypeId)) continue;
-    const list = byType.get(a.assetTypeId) ?? [];
+    // THE MERGE'S LOOKUP (2026-09-15): the type id, else the type label, so a plot
+    // typed by label counts towards its type exactly as table 4 merges it.
+    const key = resolveAssetTypeKey(a);
+    if (!key || a.isCompanion === true || a.visible === false) continue;
+    if (opts.typeIds && !opts.typeIds.has(key)) continue;
+    const list = byType.get(key) ?? [];
     list.push(a);
-    byType.set(a.assetTypeId, list);
+    byType.set(key, list);
   }
   const written: Array<{ typeId: string; field: MassingWriteBackField; value: number }> = [];
   let next: AssetTypeValuesByType | undefined;

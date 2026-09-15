@@ -50,7 +50,7 @@ import {
   type Asset, type CostLine, type CostMethod, type CostOverride, type CostStage,
 } from './module1-types';
 import {
-  normaliseAssetTypeId,
+  normaliseAssetTypeId, resolveAssetTypeKey,
   type AssetTypeStandard, type AssetTypeValuesByType,
 } from './assetTypeStandards';
 
@@ -327,15 +327,22 @@ export function settleLineRateStated(costLines: readonly CostLine[]): { costLine
   return { costLines: changed ? next : (costLines as CostLine[]), changed };
 }
 
-/** The type an asset prices as. A retail strip carries no type of its own and
- *  prices as the project's ground-floor retail type. */
+/**
+ * The type an asset prices as. THE MERGE'S LOOKUP (2026-09-15): the type id,
+ * else the type label, the rule table 4 consolidates by, so a plot typed by
+ * label takes its type's defaults. A RETAIL STRIP carries its hosts' label
+ * ("Branded Villas") but is ground-floor retail, so it prices as the project's
+ * ground-floor retail type unless it states a type id of its own.
+ */
 export function standardTypeIdFor(
-  asset: Pick<Asset, 'assetTypeId' | 'isCompanion' | 'companionType'>,
+  asset: Pick<Asset, 'assetTypeId' | 'type' | 'isCompanion' | 'companionType'>,
   assetTypes: readonly AssetTypeStandard[],
 ): string | undefined {
-  if (asset.assetTypeId) return asset.assetTypeId;
-  if (!isRetailCompanion(asset)) return undefined;
-  return assetTypes.find((t) => /ground[\s-]*floor/i.test(t.label) || t.id.includes('ground-floor'))?.id;
+  if (isRetailCompanion(asset)) {
+    if (asset.assetTypeId) return asset.assetTypeId;
+    return assetTypes.find((t) => /ground[\s-]*floor/i.test(t.label) || t.id.includes('ground-floor'))?.id;
+  }
+  return resolveAssetTypeKey(asset);
 }
 
 const appliesTo = (row: CostStandardRow, typeId: string | undefined): 'type' | 'scoped' | 'open' | null => {
@@ -652,11 +659,45 @@ export function settleStandardCostOverrides<T extends StandardsState>(state: T):
  * that follows sees an unpriced phase, so it creates the rest of the standard
  * list and gives every asset its default. Pure; the store keeps an undo.
  */
+/**
+ * THE STANDARDS LIST, AS A PHASE'S LINES (2026-09-15, founder: "the reset
+ * should produce exactly the items in the standards list, in the order the list
+ * states them"). The locked land lines first, then any land charge in the list
+ * (the transfer tax, which belongs after land), then the Construction Cost list
+ * in its order (one superstructure line for all type rows, one landscape line
+ * for both landscape rows), then the Soft Costs list in its order. Nothing that
+ * is not in the list.
+ */
+function standardPhaseLines(
+  rows: readonly CostStandardRow[],
+  phaseId: string,
+  constructionPeriods: number,
+  landLines: readonly CostLine[],
+): CostLine[] {
+  const ordered: CostStandardRow[] = [];
+  const seen = new Set<string>();
+  const take = (r: CostStandardRow): void => {
+    if (seen.has(r.catalogId)) return;
+    seen.add(r.catalogId);
+    ordered.push(r);
+  };
+  rows.filter((r) => entryForRow(r).stage === 'land').forEach(take);
+  rows.filter((r) => r.list === 'construction').forEach(take);
+  rows.filter((r) => r.list === 'soft').forEach(take);
+  const lines: CostLine[] = [...landLines];
+  for (const row of ordered) {
+    const minted = mintLine(entryForRow(row), phaseId, lines, constructionPeriods, lines.map((l) => l.id));
+    lines.push(minted.line);
+  }
+  return lines;
+}
+
 export function planCapexReset(
   costLines: readonly CostLine[],
   costOverrides: readonly CostOverride[],
   phases: readonly { id: string; constructionPeriods?: number }[],
   phaseIds: readonly string[],
+  rows?: readonly CostStandardRow[],
 ): { costLines: CostLine[]; costOverrides: CostOverride[] } {
   const target = new Set(phaseIds);
   const keeps = (l: CostLine): boolean => !target.has(l.phaseId) || l.isLocked === true || l.targetAssetId !== undefined;
@@ -665,6 +706,12 @@ export function planCapexReset(
   for (const phaseId of phaseIds) {
     const cp = phases.find((p) => p.id === phaseId)?.constructionPeriods ?? 1;
     const kept = costLines.filter((l) => l.phaseId === phaseId && keeps(l));
+    if (rows && rows.length > 0) {
+      const keptLand = kept.filter((l) => l.isLocked === true);
+      const land = keptLand.length > 0 ? keptLand : makeBlankCostLines(phaseId, cp).filter((l) => l.isLocked === true);
+      next.push(...standardPhaseLines(rows, phaseId, cp, land), ...kept.filter((l) => l.isLocked !== true));
+      continue;
+    }
     const keptIds = new Set(kept.map((l) => l.id));
     for (const seed of makeBlankCostLines(phaseId, cp)) {
       const own = kept.find((l) => l.id === seed.id);

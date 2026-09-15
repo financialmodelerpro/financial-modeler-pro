@@ -51,7 +51,7 @@ export interface IntegrityState {
   /** The dependents (2026-09-12). Optional so the two-array fixture and any
    *  caller that only has plots and assets still type-check. */
   subUnits?: readonly { id: string; assetId: string }[];
-  costLines?: readonly { id: string; targetAssetId?: string }[];
+  costLines?: readonly { id: string; targetAssetId?: string; selectedLineIds?: readonly string[] }[];
   costOverrides?: readonly { assetId: string; lineId: string }[];
   financingTranches?: readonly IntegrityScoped[];
   equityContributions?: readonly IntegrityScoped[];
@@ -61,7 +61,7 @@ export interface IntegrityState {
 /** One thing that was pointing at nothing, named so a caller can say what it
  *  repaired rather than reporting a count. */
 export interface IntegrityRepair {
-  kind: 'asset-plot' | 'orphan-sub-unit' | 'orphan-override' | 'orphan-line' | 'orphan-strip' | 'tranche-scope' | 'equity-scope';
+  kind: 'asset-plot' | 'orphan-sub-unit' | 'orphan-override' | 'orphan-line' | 'orphan-strip' | 'tranche-scope' | 'equity-scope' | 'dangling-selection';
   /** The entity that held the dangling reference. */
   ownerId: string;
   /** What it pointed at, which no longer exists. */
@@ -126,6 +126,17 @@ export function repairProjectIntegrity<T extends IntegrityState>(state: T): Inte
     const hosts = a.retailHostAssetIds ?? [];
     if (hosts.length > 0 && hosts.every((h) => !assetIds.has(h))) repairs.push({ kind: 'orphan-strip', ownerId: a.id, missingId: hosts.join(',') });
   }
+  // A LINE THAT CHARGES ON A LINE WHICH NO LONGER EXISTS (2026-09-15): a
+  // percentage's selection naming a deleted line. It charges nothing, and it is
+  // still a pointer to nothing, so the id is dropped from the selection.
+  const survivingLineIds = new Set((state.costLines ?? [])
+    .filter((c) => c.targetAssetId === undefined || assetIds.has(c.targetAssetId))
+    .map((c) => c.id));
+  for (const c of state.costLines ?? []) {
+    for (const id of c.selectedLineIds ?? []) {
+      if (!survivingLineIds.has(id)) repairs.push({ kind: 'dangling-selection', ownerId: c.id, missingId: id });
+    }
+  }
   if (repairs.length === 0) return { state, repairs, changed: false };
 
   const broken = new Set(repairs.filter((r) => r.kind === 'asset-plot').map((r) => r.ownerId));
@@ -145,7 +156,15 @@ export function repairProjectIntegrity<T extends IntegrityState>(state: T): Inte
   const next: T = { ...state, assets };
   if (state.subUnits) next.subUnits = state.subUnits.filter((u) => !gone(u.assetId));
   if (state.costOverrides) next.costOverrides = state.costOverrides.filter((o) => !gone(o.assetId));
-  if (state.costLines) next.costLines = state.costLines.filter((cl) => cl.targetAssetId === undefined || !gone(cl.targetAssetId));
+  if (state.costLines) {
+    const kept = state.costLines.filter((cl) => cl.targetAssetId === undefined || !gone(cl.targetAssetId));
+    const keptIds = new Set(kept.map((cl) => cl.id));
+    next.costLines = kept.map((cl) => {
+      const sel = cl.selectedLineIds;
+      if (!sel || sel.every((id) => keptIds.has(id))) return cl;
+      return { ...cl, selectedLineIds: sel.filter((id) => keptIds.has(id)) };
+    });
+  }
   if (state.financingTranches) next.financingTranches = state.financingTranches.map((t) => (t.assetId !== undefined && gone(t.assetId) ? { ...t, assetId: undefined } : t));
   if (state.equityContributions) next.equityContributions = state.equityContributions.map((e) => (e.assetId !== undefined && gone(e.assetId) ? { ...e, assetId: undefined } : e));
   return { state: next, repairs, changed: true };
@@ -246,6 +265,7 @@ export function describeRepairs(repairs: readonly IntegrityRepair[]): string[] {
       case 'orphan-line': return `cost line ${r.ownerId} targeted asset ${r.missingId}, which no longer exists; it was removed`;
       case 'orphan-strip': return `retail strip ${r.ownerId} had no host left (${r.missingId}); it was removed`;
       case 'tranche-scope': return `facility ${r.ownerId} was scoped to asset ${r.missingId}, which no longer exists; it finances its phase now`;
+      case 'dangling-selection': return `cost line ${r.ownerId} no longer charges on the deleted line ${r.missingId}`;
       case 'equity-scope': return `equity contribution ${r.ownerId} was scoped to asset ${r.missingId}, which no longer exists; it is phase-wide now`;
       default: return `${r.kind} ${r.ownerId} -> ${r.missingId}`;
     }

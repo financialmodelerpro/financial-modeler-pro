@@ -57,7 +57,7 @@ import { assetsOnParcel, repairProjectIntegrity, cascadeAssetRemoval, type Casca
 import { planRetailCompanionOverrides } from '@/src/core/calculations/retailCompanion';
 import { applyReferenceCostBases } from '@/src/core/calculations/costBases';
 import { settleStandardCostOverrides, seedCostStandardRows, settleLineRateStated, settleLineSelectionStated, followStripSeeds, planCapexReset } from './costStandards';
-import { planTypeMassingWriteBack } from './assetTypeStandards';
+import { planTypeMassingWriteBack, resolveAssetTypeKey } from './assetTypeStandards';
 import { seedRevenueBlocks } from './revenueSeeds';
 import { settleSubUnitPrices } from './subUnitPrices';
 import {
@@ -542,9 +542,11 @@ export function createModule1Store() {
         const prior = new Map(before.map((a) => [a.id, a]));
         const typeIds = new Set<string>();
         for (const a of after.assets) {
-          if (!a.assetTypeId) continue;
+          // The merge's lookup: the type id, else the type label (2026-09-15).
+          const key = resolveAssetTypeKey(a);
+          if (!key) continue;
           const p = prior.get(a.id);
-          if (!p || p.landChain !== a.landChain || p.assetTypeId !== a.assetTypeId) typeIds.add(a.assetTypeId);
+          if (!p || p.landChain !== a.landChain || resolveAssetTypeKey(p) !== key) typeIds.add(key);
         }
         if (typeIds.size > 0) {
           const wb = planTypeMassingWriteBack(after.assets, after.project.assetTypeValues, { overwrite: true, typeIds });
@@ -782,7 +784,7 @@ export function createModule1Store() {
     }),
 
     setCostStandardRows: (rows) => setAndSettle((s) => ({ project: { ...s.project, costStandardRows: rows } })),
-    resetCapexToStandards: (phaseIds) => setAndSettle((s) => planCapexReset(s.costLines, s.costOverrides, s.phases, phaseIds)),
+    resetCapexToStandards: (phaseIds) => setAndSettle((s) => planCapexReset(s.costLines, s.costOverrides, s.phases, phaseIds, s.project.costStandardRows)),
     setCapexState: (costLines, costOverrides) => setAndSettle(() => ({ costLines, costOverrides })),
 
     // Single implementation of the "Use scenarios?" toggle, reused by the

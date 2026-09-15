@@ -98,13 +98,13 @@ const TEXT_INPUT: React.CSSProperties = { ...FAST_INPUT, textAlign: 'left' };
 const TH: React.CSSProperties = { padding: '6px 8px', textAlign: 'center', verticalAlign: 'middle', fontWeight: 600 };
 const TD: React.CSSProperties = { padding: '4px 6px' };
 
-// THE TWO HALVES ARE SAVED DIFFERENTLY, SO THEY LOOK DIFFERENT.
+// THE TWO HALVES LOOK DIFFERENT BUT SAVE THE SAME WAY (2026-09-15).
 //
-// Left of the divider is the firm's list: an account record behind an
-// explicit Save. Right of it are this project's values, which autosave into
-// the snapshot like every other model input. The Save button used to sit at
-// the END of the row, past the project values, which made it look as though
-// it saved the whole row. Everything it does now sits beside it.
+// Left of the divider is this project's list of types (names, categories and
+// order), right of it this project's values for each. Both have lived in the
+// snapshot and saved as you type since 2026-09-10; the tint only separates what
+// a type IS from the numbers this project gives it. The one explicit save on
+// the tab is "Save this list to the firm's template".
 const FIRM_CELL: React.CSSProperties = { ...TD, background: 'color-mix(in srgb, var(--color-navy) 5%, transparent)' };
 const DIVIDER: React.CSSProperties = { borderLeft: '3px solid var(--color-navy)' };
 const TD_PROJECT_FIRST: React.CSSProperties = { ...TD, ...DIVIDER };
@@ -558,13 +558,12 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
           what construction charges on and what revenue prices. Changing one changes every
           inheriting plot at once, and the change is versioned and logged like any other input.
         </div>
-        <strong>What goes here:</strong> your firm&apos;s asset types on the left of the divider,
+        <strong>What goes here:</strong> this project&apos;s asset types on the left of the divider,
         and <strong>this project&apos;s values</strong> for each of them on the right.{' '}
-        <strong>The two halves save differently.</strong> The names, categories and order are one
-        shared list every project your firm opens will see, so a change there waits for{' '}
-        <strong>Save</strong>. The values are assumptions of this project, so they save themselves
-        as you type, version and appear in the change log like any other input, and an asset of
-        that type reads them live. A <strong>blank</strong> means the value is not set; a{' '}
+        <strong>Both halves save as you type</strong>, version and appear in the change log like any
+        other input, and an asset of that type reads them live. The one explicit save on this tab is{' '}
+        <strong>Save this list to the firm&apos;s template</strong>, which copies the names to your
+        firm&apos;s template for future projects. A <strong>blank</strong> means the value is not set; a{' '}
         <strong>0</strong> is a real zero. Unit size here is the <strong>fallback</strong>: an
         asset whose sub-units carry their own unit areas uses those. The parking ratio is the{' '}
         <strong>default</strong>, and a sub-unit can override it.
