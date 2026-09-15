@@ -32,6 +32,7 @@
 import React, { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
+import { planReportLines, lineTitle, poolResults, type LineState } from '../../lib/reports/lineRows';
 import {
   type FinancingTranche,
   type ProjectFinancingConfig,
@@ -961,6 +962,7 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
           currency={currency}
           cropProject={cropProject}
           idc={idcSnapshot}
+          lineState={{ assets, phases, parcels }}
         />
       )}
 
@@ -2256,6 +2258,8 @@ interface SchedulesProps {
   /** M4 Pass 2O: IDC snapshot computed at parent, drives the per-asset
    *  allocation Summary + routed-to-CoS / routed-to-FA sub-tables. */
   idc: import('../../lib/financials-resolvers').ProjectIDCSnapshot;
+  /** The assets, phases and plots the IDC allocation groups by line through (2026-09-15). */
+  lineState: LineState;
 }
 
 function SchedulesView(p: SchedulesProps): React.JSX.Element {
@@ -2673,7 +2677,14 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
           </div>
         );
 
-        const assetRows = Array.from(idc.byAsset.values());
+        // ONE ROW PER CONSOLIDATED LINE (2026-09-15, founder: Land 2 read as its
+        // own row with BUA 0 taking a 13.31% IDC share while it is part of the
+        // same Branded Villas line as Land 1). The engine allocates per asset;
+        // the rows pool a line's plots, so their shares, areas and interest add.
+        const assetRows = planReportLines(p.lineState, (a) => idc.byAsset.has(a.id)).map((line) => {
+          const members = line.assetIds.map((id) => idc.byAsset.get(id)).filter((r): r is NonNullable<typeof r> => !!r);
+          return { ...poolResults(members), assetId: line.key, assetName: lineTitle(line, p.lineState), strategy: members[0].strategy };
+        });
         const sellRows = assetRows.filter((r) => r.strategy === 'Sell' || r.strategy === 'Sell + Manage');
         const opLeaseRows = assetRows.filter((r) => r.strategy === 'Operate' || r.strategy === 'Lease');
         const grandTotal = idc.totalIdcPerPeriod.reduce((s, v) => s + v, 0);
@@ -2688,7 +2699,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
 
         return (
           <section style={sectionStyle}>
-            <div style={TABLE_TITLE}>IDC Allocation, by Asset (YoY + Total)</div>
+            <div style={TABLE_TITLE}>IDC Allocation, by Line (YoY + Total)</div>
             {policyChips}
 
             {/* Summary table: per-asset IDC YoY + Total + share %. Always
@@ -3396,7 +3407,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
           {/* Per-tranche sweep / outstanding breakdown (supporting detail) */}
           {sweep.enabled && (
             <section style={sectionStyle}>
-              <div style={TABLE_TITLE}>Per-Tranche Debt &mdash; Sweep &amp; Outstanding</div>
+              <div style={TABLE_TITLE}>Per-Tranche Debt: Sweep &amp; Outstanding</div>
               <div style={{ overflowX: 'auto' }}>
                 <table style={periodTbl}>
                   {colgroup}

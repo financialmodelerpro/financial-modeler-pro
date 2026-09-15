@@ -23,6 +23,7 @@
 import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
+import { planReportLines, lineTitle, poolResults } from '../../lib/reports/lineRows';
 import { computeAllSellResults } from '../../lib/revenue-resolvers';
 import { computeAllOpexResults, computeOpexApSnapshot } from '../../lib/opex-resolvers';
 import { currencyHeaderLine, formatAccounting, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
@@ -205,7 +206,13 @@ export default function Module3OpexOutput(): React.JSX.Element {
   // the DPO-driven AP roll-forward per asset / HQ / project total.
 
   const renderAccountsPayableSection = (): React.JSX.Element => {
-    const apAssetRows = Array.from(snap.ap.byAsset.values());
+    // One AP roll-forward per consolidated line (2026-09-15), its plots pooled;
+    // the DPO reads from the line's first plot.
+    const apLineState = { assets, phases, parcels };
+    const apAssetRows = planReportLines(apLineState, (a) => snap.ap.byAsset.has(a.id)).map((line) => {
+      const members = line.assetIds.map((id) => snap.ap.byAsset.get(id)).filter((r): r is NonNullable<typeof r> => !!r);
+      return { ...poolResults(members), assetId: members[0].assetId, assetName: lineTitle(line, apLineState), effectiveApDays: members[0].effectiveApDays };
+    });
     const projectTotalAp = snap.ap.projectTotals;
 
     return (

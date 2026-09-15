@@ -12,6 +12,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
+import { planReportLines, lineTitle, type LineState } from '../../lib/reports/lineRows';
 import { listParties } from '../../lib/persistence/client';
 import { isEquityParty, type Party } from '../../lib/parties';
 import { computeFinancialsSnapshot, type ProjectFinancialsSnapshot } from '../../lib/financials-resolvers';
@@ -354,6 +355,7 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
 
       {/* ── The exit, worked through (2026-09-15, founder) ── */}
       <DisposalWorkingSection
+        lineState={state}
         snap={snap}
         rs={rs}
         fmt={fmt}
@@ -1185,9 +1187,18 @@ function DisposalWorkingSection(props: {
   fmt: (n: number) => string;
   currency: string;
   labelOf: (assetId: string) => string;
+  /** The assets, phases and plots the rows group by line through (2026-09-15). */
+  lineState: LineState;
 }): React.JSX.Element {
-  const { snap, rs, fmt, currency, labelOf } = props;
-  const working = useMemo(() => buildDisposalWorking(snap, rs, labelOf), [snap, rs, labelOf]);
+  const { snap, rs, fmt, currency, labelOf, lineState } = props;
+  const groupOf = useMemo(() => {
+    const lines = planReportLines(lineState);
+    return (assetId: string): { key: string; label: string } | undefined => {
+      const line = lines.find((l) => l.assetIds.includes(assetId));
+      return line ? { key: line.key, label: lineTitle(line, lineState) } : undefined;
+    };
+  }, [lineState]);
+  const working = useMemo(() => buildDisposalWorking(snap, rs, labelOf, groupOf), [snap, rs, labelOf, groupOf]);
   const show = (row: DisposalWorkingRow): string => {
     if (row.format === 'text' || row.value === undefined) return row.text ?? '';
     if (row.format === 'pct') return fmtPct(row.value, 2);
@@ -1233,7 +1244,7 @@ function DisposalWorkingSection(props: {
             <table style={{ width: '100%', borderCollapse: 'collapse' }} data-testid="m5-disposal-by-asset">
               <thead>
                 <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
-                  <th style={th}>Held asset sold</th>
+                  <th style={th}>Held line sold</th>
                   <th style={th}>Building</th>
                   <th style={th}>Land</th>
                   <th style={th}>Capitalised interest</th>

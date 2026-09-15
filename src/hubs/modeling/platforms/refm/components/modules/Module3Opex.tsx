@@ -20,6 +20,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
+import { planReportLines, lineTitle } from '../../lib/reports/lineRows';
 import type { Asset } from '../../lib/state/module1-types';
 import {
   defaultHospitalityOpexLines,
@@ -870,7 +871,7 @@ function OpexLineTable({
 
 // ─── main module surface ──────────────────────────────────────────
 export default function Module3Opex(): React.JSX.Element {
-  const { project, phases, parcels, assets: rawAssets, setProject, updateAsset } = useModule1Store(
+  const { project, phases, parcels, assets: rawAssets, setProject, updateAsset: updateOneAsset } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
       phases: s.phases,
@@ -922,13 +923,29 @@ export default function Module3Opex(): React.JSX.Element {
   // Revenue Inputs layout. Companions (Operate side of a Sell + Manage
   // parent) render in Hospitality with a "linked to {parent}" chip
   // pointing back at the Sell side (which lives in M2 Residential).
+  // ONE CARD PER CONSOLIDATED LINE (2026-09-15, founder: every surface after
+  // the assets tab presents by line). A line's card reads its first plot, and
+  // every edit on it is written to every plot on the line, as the capex and
+  // revenue line cards already do; the engine stays per asset.
+  const opexLines = useMemo(
+    () => planReportLines({ assets, phases, parcels }, (a) => a.strategy === 'Operate' || a.strategy === 'Lease'),
+    [assets, phases, parcels],
+  );
+  const lineHosts = useMemo(
+    () => opexLines.map((line) => ({ ...assets.find((a) => a.id === line.assetIds[0])!, name: lineTitle(line, { assets, phases, parcels }) })),
+    [opexLines, assets, phases, parcels],
+  );
+  const updateAsset = (assetId: string, patch: Parameters<typeof updateOneAsset>[1]): void => {
+    const line = opexLines.find((l) => l.assetIds.includes(assetId));
+    for (const id of line?.assetIds ?? [assetId]) updateOneAsset(id, patch);
+  };
   const hospitalityAssets = useMemo(
-    () => assets.filter((a) => a.strategy === 'Operate'),
-    [assets],
+    () => lineHosts.filter((a) => a.strategy === 'Operate'),
+    [lineHosts],
   );
   const leaseAssets = useMemo(
-    () => assets.filter((a) => a.strategy === 'Lease'),
-    [assets],
+    () => lineHosts.filter((a) => a.strategy === 'Lease'),
+    [lineHosts],
   );
   const opexAssets = useMemo(
     () => [...hospitalityAssets, ...leaseAssets],
@@ -1174,7 +1191,7 @@ export default function Module3Opex(): React.JSX.Element {
       </div>
 
       {/* M2 Pass 9M (2026-05-21): asset quick-nav strip. */}
-      <AssetQuickNav assets={assets} idPrefix="m3-opex-input-asset" testidPrefix="m3-opex-input-nav" />
+      <AssetQuickNav assets={lineHosts} idPrefix="m3-opex-input-asset" testidPrefix="m3-opex-input-nav" />
 
       {/* HQ / project-wide opex */}
       <AssetCard

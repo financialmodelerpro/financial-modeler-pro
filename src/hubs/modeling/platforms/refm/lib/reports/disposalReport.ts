@@ -54,6 +54,8 @@ export function buildDisposalWorking(
   snap: Pick<ProjectFinancialsSnapshot, 'disposal' | 'pl' | 'directCF' | 'bs' | 'yearLabels'>,
   rs: Pick<ReturnsSnap, 'config' | 'terminalEnterpriseValue'>,
   labelOf: (assetId: string) => string,
+  /** The line an asset belongs to (2026-09-15). Absent, each asset is its own row. */
+  groupOf?: (assetId: string) => { key: string; label: string } | undefined,
 ): DisposalWorking {
   const d = snap.disposal;
   const years = snap.yearLabels;
@@ -132,15 +134,19 @@ export function buildDisposalWorking(
     value: Math.abs(plGain - d.gain) + Math.abs(cfProceeds - d.proceeds) + Math.abs(rs.terminalEnterpriseValue - d.proceeds) + Math.abs(snap.bs.totalFixedAssetsPerPeriod[X] ?? 0),
   });
 
-  const byAsset = d.byAsset
-    .map((a) => ({
-      assetId: a.assetId,
-      label: labelOf(a.assetId),
-      building: a.building,
-      land: a.land,
-      capitalisedInterest: a.capitalisedInterest,
-      total: a.building + a.land + a.capitalisedInterest,
-    }))
-    .filter((a) => Math.abs(a.total) > 0.005);
+  // ONE ROW PER CONSOLIDATED LINE (2026-09-15): the plots of a line pool. Keyed
+  // by the line, so `assetId` on a pooled row carries the line key.
+  const pooled = new Map<string, DisposalAssetRow>();
+  for (const a of d.byAsset) {
+    const g = groupOf?.(a.assetId);
+    const key = g?.key ?? a.assetId;
+    const row = pooled.get(key) ?? { assetId: key, label: g?.label ?? labelOf(a.assetId), building: 0, land: 0, capitalisedInterest: 0, total: 0 };
+    row.building += a.building;
+    row.land += a.land;
+    row.capitalisedInterest += a.capitalisedInterest;
+    row.total = row.building + row.land + row.capitalisedInterest;
+    pooled.set(key, row);
+  }
+  const byAsset = [...pooled.values()].filter((a) => Math.abs(a.total) > 0.005);
   return { booked: true, rows, byAsset };
 }

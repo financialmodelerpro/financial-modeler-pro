@@ -59,6 +59,7 @@ import { buildCapexReport } from '../reports/capexReports';
 import { buildFinancingScheduleTables, buildCashSweepTables } from '../reports/financingReports';
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildCaseComparisonReport, type CaseComparisonInput, type CaseComparisonReport } from '../reports/caseComparisonReport';
+import { poolMapByLine, poolCapexByLine, poolReturnRows, lineHosts, fixHospitalityRates, fixLeaseRates, type PooledCapexInputLine } from '../reports/lineRows';
 import { buildCaseYoYReport, type CaseYoYReport } from '../reports/caseYoYReport';
 import { formatAssumptionValue } from '../cases/assumptionGrid';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
@@ -1337,8 +1338,10 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     return `${fmt.money(l.metricValue)} ${l.metricLabel}`; // money basis (percent lines)
   };
   const rateCell = (l: typeof capexReport.inputAssets[number]['lines'][number]): string =>
-    l.isFixed ? fmt.money(l.rate) : l.isPercent ? `${l.rate}%` : fmt.int(l.rate);
-  for (const ia of capexReport.inputAssets) {
+    (l as PooledCapexInputLine).rateVaries ? 'varies by plot'
+      : l.isFixed ? fmt.money(l.rate) : l.isPercent ? `${l.rate}%` : fmt.int(l.rate);
+  // ONE COST LINE TABLE PER CONSOLIDATED LINE (2026-09-15), its plots pooled.
+  for (const ia of poolCapexByLine(capexReport, state).report.inputAssets) {
     items.push(tTable('Tab 3: Capex', 'inputs', {
       title: `Cost Lines, ${ia.assetName} (${ia.phaseName})`, kind: 'grid', align: 'data',
       columns: ['Cost line', 'Stage', 'Basis (multiplier)', `Rate / Value ${rateUnit(p.currency ?? 'SAR')}`, 'Quantity / Basis', 'Amount'],
@@ -1504,15 +1507,15 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
 function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: Fmt, py: number): ModuleContent {
   const yl = snap.yearLabels;
   const rev = snap.revenue;
-  const assetName = (id: string): string => state.assets.find((a) => a.id === id)?.name ?? id;
   const cur = state.project.currency ?? 'SAR';
   const items: ModuleContent = [];
 
   // Tab 1: Revenue Inputs.
   items.push(tTable('Tab 1: Revenue Inputs', 'inputs', {
-    title: 'Revenue Configuration by Asset', kind: 'grid', align: 'data',
-    columns: ['Asset', 'Strategy', 'Key driver', 'Indexation'],
-    rows: state.assets.filter((a) => a.visible !== false).map((a) => {
+    title: 'Revenue Configuration by Line', kind: 'grid', align: 'data',
+    columns: ['Line', 'Strategy', 'Key driver', 'Indexation'],
+    // One row per consolidated line (2026-09-15): a line's terms are written to every plot on it.
+    rows: lineHosts(state).map((a) => {
       const r = a.revenue ?? {};
       if (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') {
         const s = r.sell;
@@ -1523,7 +1526,7 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       return row([a.name, 'Lease', `Base rate ${fmt.int(a.revenue?.lease?.baseRate ?? 0)} ${rateUnit(cur, 'sqm')}`, indexLabel(a.revenue?.lease?.rentIndexation)]);
     }),
   }));
-  for (const a of state.assets) {
+  for (const a of lineHosts(state)) {
     const s = a.revenue?.sell;
     if (!s) continue;
     const recogPct = s.recognitionProfile?.percentages ?? [];
@@ -1581,7 +1584,10 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     periodRow('Retail revenue', pl.retailRevenuePerPeriod, 'sum'),
     periodRow('Total revenue', pl.totalRevenuePerPeriod, 'sum', 'total'),
   ])));
-  for (const [id, r] of rev.bySellAsset) {
+  // ONE BLOCK PER CONSOLIDATED LINE (2026-09-15): the plots of a line pool.
+  const pooledSell = poolMapByLine(rev.bySellAsset, state);
+  const pooledSellById = new Map(pooledSell.map(([k, v]) => [k, v] as const));
+  for (const [id, r, lineName] of pooledSell) {
     if (!anyNonZero(r.presalesRevenuePerPeriod) && !anyNonZero(r.postSalesRevenuePerPeriod)) continue;
     const totalSaleValue = r.presalesRevenuePerPeriod.map((v, i) => v + (r.postSalesRevenuePerPeriod[i] ?? 0));
     // Volume row respects the asset's native metric: unit counts for
@@ -1593,7 +1599,7 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     const postVol = useUnits ? r.postSalesUnitsPerPeriod : r.postSalesAreaPerPeriod;
     const volFmt = useUnits ? (v: number) => fmt.int(v) : (v: number) => fmt.area(v);
     const volSuffix = useUnits ? 'units' : 'sqm';
-    items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable(`Residential (Sell), ${assetName(id)}`, py, yl, [
+    items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable(`Residential (Sell), ${lineName}`, py, yl, [
       strPeriodRow(`Pre-sales ${volSuffix}`, preVol.map(volFmt)),
       strPeriodRow(`Post-sales ${volSuffix}`, postVol.map(volFmt)),
       periodRow('Pre-sales revenue (sale value)', r.presalesRevenuePerPeriod, 'sum'),
@@ -1627,11 +1633,11 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
         cr.cells, 'sum',
       ));
       items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable(
-        `Sale Cohort Grid, ${assetName(id)} (handover ${cohortGrid.handoverYear})`,
+        `Sale Cohort Grid, ${lineName} (handover ${cohortGrid.handoverYear})`,
         py, yl, [...gridRows, periodRow('Total collected', cohortGrid.columnTotals, 'sum', 'total')],
       )));
       items.push(tTable('Tab 2: Revenue Output', 'outputs', {
-        title: `Sale Cohort Grid check, ${assetName(id)}`, kind: 'grid', align: 'data',
+        title: `Sale Cohort Grid check, ${lineName}`, kind: 'grid', align: 'data',
         columns: ['Sale year', 'Down %', 'In force from', 'Sale value', 'Collected', 'Check'],
         rows: [
           ...cohortGrid.rows.map((cr) => row([
@@ -1650,11 +1656,11 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       }));
     }
     const recRows = r.recognitionVintageMatrix.map((m, i) => periodRow(`FY ${yl[i] ?? i}`, m, 'sum')).filter((rr) => (rr.cells[1] as number) !== 0);
-    if (recRows.length) items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable(`Recognition Vintage Matrix, ${assetName(id)}`, py, yl, [...recRows, vintageTotalRow(r.recognitionVintageMatrix, yl.length)])));
+    if (recRows.length) items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable(`Recognition Vintage Matrix, ${lineName}`, py, yl, [...recRows, vintageTotalRow(r.recognitionVintageMatrix, yl.length)])));
   }
-  for (const [id, r] of rev.byHospitalityAsset) {
+  for (const [, r, lineName] of poolMapByLine(rev.byHospitalityAsset, state, fixHospitalityRates)) {
     if (!anyNonZero(r.totalRevenuePerPeriod)) continue;
-    items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable(`Hospitality, ${assetName(id)}`, py, yl, [
+    items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable(`Hospitality, ${lineName}`, py, yl, [
       strPeriodRow('Available room nights', r.availableRoomNightsPerPeriod.map((v) => fmt.int(v))),
       strPeriodRow('Occupied room nights', r.occupiedRoomNightsPerPeriod.map((v) => fmt.int(v))),
       strPeriodRow('Occupancy %', r.occupancyPerPeriod.map((v) => fmt.pct(v, 1))),
@@ -1665,9 +1671,9 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       periodRow('Total revenue', r.totalRevenuePerPeriod, 'sum', 'total'),
     ])));
   }
-  for (const [id, r] of rev.byLeaseAsset) {
+  for (const [, r, lineName] of poolMapByLine(rev.byLeaseAsset, state, fixLeaseRates)) {
     if (!anyNonZero(r.totalRevenuePerPeriod)) continue;
-    items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable(`Lease, ${assetName(id)}`, py, yl, [
+    items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable(`Lease, ${lineName}`, py, yl, [
       strPeriodRow('Occupied area (sqm)', r.occupiedAreaPerPeriod.map((v) => fmt.area(v))),
       strPeriodRow('Occupancy %', r.occupancyPerPeriod.map((v) => fmt.pct(v, 1))),
       strPeriodRow(`Indexed rate ${rateUnit(cur, 'sqm')}`, r.indexedRatePerPeriod.map((v) => fmt.int(v))),
@@ -1684,13 +1690,13 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
   }
 
   // Tab 4: Schedules (AR / Unearned / Escrow).
-  for (const [id, b] of snap.byAssetSchedules) {
+  for (const [id, b, lineName] of poolMapByLine(snap.byAssetSchedules, state)) {
     if (!anyNonZero(b.ar.perPeriod) && !anyNonZero(b.unearned.perPeriod)) continue;
     // FULL ROLL-FORWARDS from the shared builders (2026-08-20, Step 5). This
     // used to print opening / change / closing only, which is a balance moving
     // with no statement of WHY, and no check. The screen and the workbook
     // render the same rows.
-    const sr = snap.revenue.bySellAsset.get(id);
+    const sr = pooledSellById.get(id);
     const arRoll = buildReceivablesRollForward(
       b.ar, sr?.presalesRevenuePerPeriod ?? [], sr?.presalesCashPerPeriod ?? [], yl.length, b.ar.changePerPeriod,
     );
@@ -1699,7 +1705,7 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     );
     for (const t of [arRoll, unRoll]) {
       items.push(tTable('Tab 4: Schedules', 'schedules', periodTable(
-        `${t.title}, ${assetName(id)}`, py, yl,
+        `${t.title}, ${lineName}`, py, yl,
         t.rows.map((rw) => periodRow(
           rw.label, rw.values.slice(0, yl.length),
           rw.totalIsBalance ? 'last' : 'sum',
@@ -1712,10 +1718,10 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
   // (A: Pre-Sales Cash by Asset / B: Balance Roll-Forward / C: Cash Flow Impact).
   const esc = snap.escrow.projectTotals;
   if (anyNonZero(esc.heldPerPeriod) || anyNonZero(esc.releasePerPeriod)) {
-    const escAssets = [...snap.escrow.byAsset.entries()].filter(([, a]) => anyNonZero(a.preSalesCashPerPeriod));
+    const escAssets = poolMapByLine(snap.escrow.byAsset, state).filter(([, a]) => anyNonZero(a.preSalesCashPerPeriod));
     // A. Pre-Sales Cash by Asset.
     items.push(tTable('Tab 5: Escrow', 'schedules', periodTable('A. Pre-Sales Cash by Asset (subject to escrow)', py, yl,
-      escAssets.map(([id, a]) => periodRow(assetName(id), a.preSalesCashPerPeriod.slice(0, yl.length), 'sum'))
+      escAssets.map(([, a, name]) => periodRow(name, a.preSalesCashPerPeriod.slice(0, yl.length), 'sum'))
         .concat([periodRow('Total Pre-Sales Cash (all assets)', esc.preSalesCashPerPeriod.slice(0, yl.length), 'sum', 'total')]))));
     // B. Escrow Balance Roll-Forward (opening + per-asset additions + total / release / closing).
     const N = yl.length;
@@ -1723,7 +1729,7 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     for (let t = 1; t < N; t++) opening[t] = esc.cumulativeBalancePerPeriod[t - 1] ?? 0;
     const rollRows: PdfTableRow[] = [periodRow('Opening Balance', opening, 'none', 'subtotal')];
     rollRows.push(row(['Additions:', null, null, ...new Array<null>(N).fill(null)], 'heading'));
-    for (const [id, a] of escAssets) rollRows.push(periodRow(`   ${assetName(id)}`, a.result.heldPerPeriod.slice(0, N), 'sum'));
+    for (const [, a, name] of escAssets) rollRows.push(periodRow(`   ${name}`, a.result.heldPerPeriod.slice(0, N), 'sum'));
     rollRows.push(periodRow('Total Additions', esc.heldPerPeriod.slice(0, N), 'sum', 'subtotal'));
     rollRows.push(periodRow('Less: Release of Locked Funds', esc.releasePerPeriod.slice(0, N).map((v) => -v), 'sum'));
     rollRows.push(periodRow('Closing Balance', esc.cumulativeBalancePerPeriod.slice(0, N), 'last', 'total'));
@@ -1747,7 +1753,6 @@ const opexValueDisplay = (mode: string, value: number, fmt: Fmt): string =>
 
 function buildModule3(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: Fmt, py: number): ModuleContent {
   const yl = snap.yearLabels;
-  const assetName = (id: string): string => state.assets.find((a) => a.id === id)?.name ?? id;
   const items: ModuleContent = [];
 
   // Tab 1: Opex Inputs.
@@ -1782,9 +1787,9 @@ function buildModule3(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
 
   // Tab 3: AP Schedules.
   const ap = snap.ap;
-  for (const [id, r] of ap.byAsset) {
+  for (const [, r, lineName] of poolMapByLine(ap.byAsset, state, (p, ms) => ({ ...p, effectiveApDays: ms[0].effectiveApDays }))) {
     if (!anyNonZero(r.opexIncurredPerPeriod)) continue;
-    items.push(tTable('Tab 3: Schedules', 'schedules', periodTable(`Accounts Payable, ${assetName(id)} (DPO ${r.effectiveApDays})`, py, yl, [
+    items.push(tTable('Tab 3: Schedules', 'schedules', periodTable(`Accounts Payable, ${lineName} (DPO ${r.effectiveApDays})`, py, yl, [
       periodRow('Opex incurred', r.opexIncurredPerPeriod.slice(0, yl.length), 'sum'),
       periodRow('Opening AP', r.result.openingPerPeriod.slice(0, yl.length), 'none'),
       periodRow('Closing AP', r.result.perPeriod.slice(0, yl.length), 'last', 'subtotal'),
@@ -1807,7 +1812,6 @@ function buildModule3(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
 function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: Fmt, py: number): ModuleContent {
   const yl = snap.yearLabels;
   const { bs, fixedAssets: fa } = snap;
-  const assetName = (id: string): string => state.assets.find((a) => a.id === id)?.name ?? id;
   const items: ModuleContent = [];
 
   // P&L / CF / BS render from the SHARED platform row-builders
@@ -1848,10 +1852,10 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
   items.push(tTable('Tab 1: Schedules', 'schedules', m4RowsToPeriodTable('Balance Check, Reconciliation Bridge (per period)', py, yl, buildBsReconciliationRows(feederCtx))));
 
   // Tab 2: Fixed Assets.
-  for (const [id, r] of fa.byAsset) {
+  for (const [, r, lineName] of poolMapByLine(fa.byAsset, state)) {
     const dep = r.depreciable;
     if (!anyNonZero(dep.closingNBVPerPeriod) && !anyNonZero(r.land.closingPerPeriod)) continue;
-    items.push(tTable('Tab 2: Fixed Assets', 'outputs', periodTable(`Fixed Assets, ${assetName(id)}`, py, yl, [
+    items.push(tTable('Tab 2: Fixed Assets', 'outputs', periodTable(`Fixed Assets, ${lineName}`, py, yl, [
       periodRow('Land opening', r.land.openingPerPeriod.slice(0, yl.length), 'none', undefined, r.land.openingAtAxisStart),
       periodRow('Land additions', r.land.additionsPerPeriod.slice(0, yl.length), 'sum'),
       periodRow('Land closing', r.land.closingPerPeriod.slice(0, yl.length), 'last', 'subtotal'),
@@ -2136,9 +2140,9 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
     // cost sits on the parent). Same markers and footnotes as the composition
     // table, so a reader who met "[a]" on page 2 does not have to relearn it.
     items.push(tTable(m5Tab('RE Metrics'), 'outputs', {
-      title: 'Per-Asset Economics', kind: 'grid', align: 'data',
-      columns: ['Asset', 'Strategy', 'Revenue', 'Cost', 'Profit', 'Margin', 'Yield on Cost'],
-      rows: returns.perAsset.rows.map((a) => {
+      title: 'Per-Line Economics', kind: 'grid', align: 'data',
+      columns: ['Line', 'Strategy', 'Revenue', 'Cost', 'Profit', 'Margin', 'Yield on Cost'],
+      rows: poolReturnRows(returns.perAsset.rows, state).map((a) => {
         const z = assetNotes.hasCostNote(a.assetId, a.totalCost);
         const nil = z ? structuralZeroCell(z) : null;
         return row([

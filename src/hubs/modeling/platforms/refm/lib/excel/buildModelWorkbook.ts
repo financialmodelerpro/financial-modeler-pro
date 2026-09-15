@@ -21,6 +21,7 @@ import { buildSaleCohortTermsBlock, saleCohortRuleText, buildSaleCohortGrid, sal
 import JSZip from 'jszip';
 import { computeFinancialsSnapshot, computeFundingGap, type FinancialsResolverState } from '../financials-resolvers';
 import { buildCapexReport, type CapexReport } from '../reports/capexReports';
+import { poolMapByLine, poolCapexByLine, poolReturnRows, poolResults, lineHosts, fixHospitalityRates, fixLeaseRates } from '../reports/lineRows';
 import { buildFinancingScheduleTables, buildCashSweepTables, type ReportTable } from '../reports/financingReports';
 import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup, m4StreamRow } from '../reports/streamReports';
 import { buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
@@ -163,10 +164,22 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   const coverWs = wb.addWorksheet(SHEETS.cover, { properties: { tabColor: { argb: ARGB.navy } }, views: [{ showGridLines: false }] });
   const guideWs = wb.addWorksheet(SHEETS.guide, { properties: { tabColor: { argb: ARGB.navy } }, views: [{ showGridLines: false }] });
   addSummary(wb, snap, opts, lm); // third tab; one-page executive summary
-  const refs = addAssumptions(wb, snap, opts, capex);
+  // THE CAPEX INPUTS AND SCHEDULE BY CONSOLIDATED LINE (2026-09-15): a line's
+  // plots pool into one block; each pooled line's bases sum its plots' Land &
+  // Area cells. The live twin above keeps the per-asset report.
+  const capexByLine = poolCapexByLine(capex, opts.state);
+  const refs = addAssumptions(wb, snap, opts, capexByLine.report);
+  refs.capexMembers = capexByLine.members;
   addTimeline(wb, snap, refs, opts.state);
   const landAddrs = addLandArea(wb, opts.state, refs);
-  const capexAddrs = addCapex(wb, snap, capex, refs, landAddrs);
+  const lineLandAddrs = new Map(landAddrs);
+  for (const [host, ids] of capexByLine.members) {
+    const parts = ids.map((id) => landAddrs.get(id)).filter((x): x is LandAreaAssetAddrs => !!x);
+    if (parts.length < 2) continue;
+    const join = (k: keyof LandAreaAssetAddrs): string => `(${parts.map((x) => x[k]).join('+')})`;
+    lineLandAddrs.set(host, { landValue: join('landValue'), cashLand: join('cashLand'), inKindLand: join('inKindLand'), unitCount: join('unitCount'), revenue: join('revenue') });
+  }
+  const capexAddrs = addCapex(wb, snap, capexByLine.report, refs, lineLandAddrs);
 
   // Excel base-cell formula per asset: Sell links the Land & Area GDV cell;
   // Operate / Lease build the stabilised annual revenue from the sub-unit inputs.
@@ -547,6 +560,8 @@ interface AssumptionRefs {
   startYearName: string;
   axisLength: number;
   capex: CapexAssetRef[];
+  /** A pooled capex line's plots, by its first plot's id (2026-09-15). */
+  capexMembers?: Map<string, string[]>;
   assets: AssetInputRef[];
   subUnits: SubUnitInputRef[];
   parcels: ParcelInputRef[];
@@ -981,7 +996,8 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   inputDivider('REVENUE INPUTS');
   setSectionHeader(ws.getRow(r), 'Revenue configuration by asset (unit prices / ADR + occupancy are in the Sub-units table above)', 7); r += 1;
   ['Asset', 'Strategy', 'Recognition', 'PIT year', 'ADR / Base rate', 'Indexation', 'Index rate %'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
-  for (const a of visibleAssets) {
+  // One row per consolidated line (2026-09-15): a line's terms are written to every plot on it.
+  for (const a of lineHosts({ assets: visibleAssets, phases: opts.state.phases, parcels: opts.state.parcels })) {
     const rc = a.revenue ?? {};
     setLabel(ws.getCell(`A${r}`), a.name);
     setInput(ws.getCell(`B${r}`), a.strategy, '@');
@@ -1039,7 +1055,7 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   // Sub-units table above). ──────────────────────────────────────────────────
   inputDivider('OPEX INPUTS');
   let anyOpex = false;
-  for (const a of visibleAssets) {
+  for (const a of lineHosts({ assets: visibleAssets, phases: opts.state.phases, parcels: opts.state.parcels })) {
     const lines = (a.opex?.lines ?? []).filter((l) => !l.disabled);
     if (!lines.length) continue;
     anyOpex = true;
@@ -1350,7 +1366,7 @@ function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs:
   // GDV is shown for residential assets; also kept for any asset whose capex has a
   // percent-of-revenue line (the build-up base links to the GDV cell).
   const revenueLinked = new Set(
-    refs.capex.filter((a) => a.lines.some((l) => /revenue/.test(l.method))).map((a) => a.assetId),
+    refs.capex.filter((a) => a.lines.some((l) => /revenue/.test(l.method))).flatMap((a) => refs.capexMembers?.get(a.assetId) ?? [a.assetId]),
   );
   const needsGdv = (ar: AssetInputRef): boolean => catOf(ar.strategy) === 'Residential' || revenueLinked.has(ar.id);
 
@@ -2099,7 +2115,6 @@ function buildBSFeederGroups(snap: ReturnType<typeof computeFinancialsSnapshot>,
   const N = snap.axisLength;
   const fmt = (v: number): string => String(v);
   const zeros = (): number[] => new Array<number>(N).fill(0);
-  const assetName = (id: string): string => state.assets.find((a) => a.id === id)?.name ?? id;
   const sellEntries = Array.from(snap.byAssetSchedules.entries()).filter(([id]) => snap.revenue.bySellAsset.has(id));
 
   // A1. Residential Sales Receivables.
@@ -2121,8 +2136,8 @@ function buildBSFeederGroups(snap: ReturnType<typeof computeFinancialsSnapshot>,
       { label: 'Closing AR (project total)', values: closing, isSubtotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
     ];
     if (sellEntries.length) {
-      rows.push({ label: 'Closing AR by asset', values: [], isSection: true });
-      for (const [assetId, bundle] of sellEntries) rows.push({ label: assetName(assetId), values: bundle.ar.perPeriod.slice(0, N), indent: 1, totalOverride: fmt(bundle.ar.perPeriod[N - 1] ?? 0) });
+      rows.push({ label: 'Closing AR by line', values: [], isSection: true });
+      for (const [, bundle, lineName] of poolMapByLine(new Map(sellEntries), state)) rows.push({ label: lineName, values: bundle.ar.perPeriod.slice(0, N), indent: 1, totalOverride: fmt(bundle.ar.perPeriod[N - 1] ?? 0) });
       rows.push({ label: 'Total Closing AR', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) });
     }
     return rows;
@@ -2201,8 +2216,8 @@ function buildBSFeederGroups(snap: ReturnType<typeof computeFinancialsSnapshot>,
       { label: 'Closing unearned revenue (project total)', values: closing, isSubtotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
     ];
     if (sellEntries.length) {
-      rows.push({ label: 'Closing unearned revenue by asset', values: [], isSection: true });
-      for (const [assetId, bundle] of sellEntries) rows.push({ label: assetName(assetId), values: bundle.unearned.perPeriod.slice(0, N), indent: 1, totalOverride: fmt(bundle.unearned.perPeriod[N - 1] ?? 0) });
+      rows.push({ label: 'Closing unearned revenue by line', values: [], isSection: true });
+      for (const [, bundle, lineName] of poolMapByLine(new Map(sellEntries), state)) rows.push({ label: lineName, values: bundle.unearned.perPeriod.slice(0, N), indent: 1, totalOverride: fmt(bundle.unearned.perPeriod[N - 1] ?? 0) });
       rows.push({ label: 'Total Closing Unearned Revenue', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) });
     }
     return rows;
@@ -2314,7 +2329,6 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
   const ws = wb.addWorksheet(SHEETS.revenue, { properties: { tabColor: { argb: ARGB.navy } } });
   writeSheetHeader(ws, snap, N, 'Revenue', 'Full step-by-step mirror of the platform Revenue module, all five sub-tabs in sequence: 1. Inputs (revenue config + cash / recognition profiles), 2. Output (per-asset narrative + vintage matrices), 3. Cost of Sales, 4. Schedules (AR + unearned), 5. Escrow.', { label: 'Line', feeds: 'Sourced from Inputs (sub-unit prices / areas, recognition + cash profiles) and the platform revenue engine. Feeds P&L, the Balance Sheet (inventory, AR, unearned) and Returns.' });
   let r = 5;
-  const assetName = (id: string): string => state.assets.find((a) => a.id === id)?.name ?? id;
   const A = (a: number[] | undefined): number[] => (a ?? []).slice(0, N);
   const anyNonZero = (a: number[] | undefined): boolean => (a ?? []).some((v) => (v ?? 0) !== 0);
   const metricOf = (units: Array<{ metric: 'units' | 'area' }>): 'units' | 'area' => (units.length && units.every((u) => u.metric === units[0].metric) ? units[0].metric : 'area');
@@ -2384,10 +2398,11 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
 
   // ── 1. Revenue Inputs ────────────────────────────────────────────────────────
   section('1. Revenue Inputs (raw inputs are on the Inputs tab under REVENUE INPUTS; echoed here)');
-  subTitle('Revenue Configuration by Asset');
-  ['Asset', '', '', 'Strategy', 'Key driver', 'Indexation'].forEach((h, i) => { if (h) setColHeader(ws.getCell(r, i === 0 ? LBL_COL : OPEN_COL + (i - 3)), h, i === 0 ? 'left' : 'left'); });
+  subTitle('Revenue Configuration by Line');
+  ['Line', '', '', 'Strategy', 'Key driver', 'Indexation'].forEach((h, i) => { if (h) setColHeader(ws.getCell(r, i === 0 ? LBL_COL : OPEN_COL + (i - 3)), h, i === 0 ? 'left' : 'left'); });
   r += 1;
-  for (const a of state.assets.filter((x) => x.visible !== false)) {
+  // One row per consolidated line (2026-09-15): a line's terms are written to every plot on it.
+  for (const a of lineHosts({ assets: state.assets.filter((x) => x.visible !== false), phases: state.phases, parcels: state.parcels })) {
     const rc = a.revenue ?? {};
     let strategy = a.strategy; let driver = ''; let indexation = '';
     if (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') {
@@ -2423,14 +2438,15 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
   const totalRow = moneyRow('Total revenue', pl.totalRevenuePerPeriod, { style: 'total', basis: 'Residential + Hospitality + Retail' });
   r += 1;
   const byAssetRow = new Map<string, number>();
-  for (const [id, rr] of snap.revenue.bySellAsset) {
+  // ONE BLOCK PER CONSOLIDATED LINE (2026-09-15): the plots of a line pool.
+  for (const [id, rr, lineName] of poolMapByLine(snap.revenue.bySellAsset, state)) {
     if (!anyNonZero(rr.presalesRevenuePerPeriod) && !anyNonZero(rr.postSalesRevenuePerPeriod)) continue;
     const totalSaleValue = A(rr.presalesRevenuePerPeriod).map((v, i) => v + (rr.postSalesRevenuePerPeriod[i] ?? 0));
     const useUnits = metricOf(state.subUnits.filter((u) => u.assetId === id)) === 'units';
     const preVol = useUnits ? rr.presalesUnitsPerPeriod : rr.presalesAreaPerPeriod;
     const postVol = useUnits ? rr.postSalesUnitsPerPeriod : rr.postSalesAreaPerPeriod;
     const volSuffix = useUnits ? 'units' : 'sqm';
-    subTitle(`Residential (Sell), ${assetName(id)}`);
+    subTitle(`Residential (Sell), ${lineName}`);
     statRow(`Pre-sales ${volSuffix}`, preVol, NUMFMT.int);
     statRow(`Post-sales ${volSuffix}`, postVol, NUMFMT.int);
     moneyRow('Pre-sales revenue (sale value)', rr.presalesRevenuePerPeriod, { indent: 1 });
@@ -2454,7 +2470,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
           Number(yl[0]) || 0, yl, state.project.saleCohortDefaults?.downpayment, rr)
         : null;
       if (grid && grid.rows.length) {
-        subTitle(`Sale Cohort Grid, ${assetName(id)} (handover ${grid.handoverYear})`);
+        subTitle(`Sale Cohort Grid, ${lineName} (handover ${grid.handoverYear})`);
         for (const cr of grid.rows) {
           moneyRow(
             cr.paysInFull
@@ -2467,7 +2483,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
         r += 1;
         // The check, as its own small block: the period grid has one Total
         // column and cannot carry a per-row sale value beside it.
-        subTitle(`Sale Cohort Grid check, ${assetName(id)}`);
+        subTitle(`Sale Cohort Grid check, ${lineName}`);
         setColHeader(ws.getCell(r, 1), 'Sale year', 'left');
         setColHeader(ws.getCell(r, 2), 'Down %', 'right');
         setColHeader(ws.getCell(r, 3), 'In force from', 'left');
@@ -2488,14 +2504,14 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
         setLabel(ws.getCell(`A${r}`), saleCohortGridCaption(grid));
         r += 2;
       } else {
-        vintage(`Cash Vintage Matrix, ${assetName(id)}`, rr.cashVintageMatrix);
+        vintage(`Cash Vintage Matrix, ${lineName}`, rr.cashVintageMatrix);
       }
     }
-    vintage(`Recognition Vintage Matrix, ${assetName(id)}`, rr.recognitionVintageMatrix);
+    vintage(`Recognition Vintage Matrix, ${lineName}`, rr.recognitionVintageMatrix);
   }
-  for (const [id, rr] of snap.revenue.byHospitalityAsset) {
+  for (const [, rr, lineName] of poolMapByLine(snap.revenue.byHospitalityAsset, state, fixHospitalityRates)) {
     if (!anyNonZero(rr.totalRevenuePerPeriod)) continue;
-    subTitle(`Hospitality, ${assetName(id)}`);
+    subTitle(`Hospitality, ${lineName}`);
     statRow('Available room nights', rr.availableRoomNightsPerPeriod, NUMFMT.int);
     statRow('Occupied room nights', rr.occupiedRoomNightsPerPeriod, NUMFMT.int);
     statRow('Occupancy %', rr.occupancyPerPeriod, NUMFMT.pct);
@@ -2506,9 +2522,9 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
     moneyRow('Total revenue', rr.totalRevenuePerPeriod, { style: 'total' });
     r += 1;
   }
-  for (const [id, rr] of snap.revenue.byLeaseAsset) {
+  for (const [, rr, lineName] of poolMapByLine(snap.revenue.byLeaseAsset, state, fixLeaseRates)) {
     if (!anyNonZero(rr.totalRevenuePerPeriod)) continue;
-    subTitle(`Lease, ${assetName(id)}`);
+    subTitle(`Lease, ${lineName}`);
     statRow('Occupied area (sqm)', rr.occupiedAreaPerPeriod, NUMFMT.int);
     statRow('Occupancy %', rr.occupancyPerPeriod, NUMFMT.pct);
     statRow('Indexed rate', rr.indexedRatePerPeriod, NUMFMT.rate);
@@ -2527,20 +2543,22 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
   }
 
   // ── 4. Schedules (Accounts Receivable + Unearned revenue roll-forward) ───────
-  section('4. Schedules (Accounts Receivable + Unearned revenue roll-forward, per asset)');
-  for (const [id, b] of snap.byAssetSchedules) {
+  section('4. Schedules (Accounts Receivable + Unearned revenue roll-forward, per line)');
+  // One roll-forward per consolidated line (2026-09-15), its plots pooled.
+  for (const [, b, lineName, memberIds] of poolMapByLine(snap.byAssetSchedules, state)) {
     if (!anyNonZero(b.ar.perPeriod) && !anyNonZero(b.unearned.perPeriod)) continue;
     // FULL ROLL-FORWARDS from the shared builders (2026-08-20, Step 5). This
     // used to print opening / change / closing only, which is a balance moving
     // with no statement of why, and no check row.
     {
-      const sr = snap.revenue.bySellAsset.get(id);
+      const srs = memberIds.map((m) => snap.revenue.bySellAsset.get(m)).filter((x): x is NonNullable<typeof x> => !!x);
+      const sr = srs.length ? poolResults(srs) : undefined;
       const tables = [
         buildReceivablesRollForward(b.ar, sr?.presalesRevenuePerPeriod ?? [], sr?.presalesCashPerPeriod ?? [], N, b.ar.changePerPeriod),
         buildUnearnedRollForward(b.unearned, sr?.presalesRevenuePerPeriod ?? [], sr?.presalesRecognitionPerPeriod ?? [], N, b.unearned.changePerPeriod),
       ];
       for (const t of tables) {
-        subTitle(`${t.title}, ${assetName(id)}`);
+        subTitle(`${t.title}, ${lineName}`);
         for (const rw of t.rows) {
           moneyRow(rw.label, A(rw.values), {
             indent: rw.isTotal ? 0 : 1,
@@ -2559,9 +2577,9 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
   const esc = snap.escrow.projectTotals;
   if (anyNonZero(esc.heldPerPeriod) || anyNonZero(esc.releasePerPeriod)) {
     section('5. Escrow (pre-sales cash subject to escrow, balance roll-forward, cash flow impact)');
-    const escAssets = [...snap.escrow.byAsset.entries()].filter(([, a]) => anyNonZero(a.preSalesCashPerPeriod));
+    const escAssets = poolMapByLine(snap.escrow.byAsset, state).filter(([, a]) => anyNonZero(a.preSalesCashPerPeriod));
     subTitle('A. Pre-Sales Cash by Asset (subject to escrow)');
-    for (const [id, a] of escAssets) moneyRow(assetName(id), a.preSalesCashPerPeriod, { indent: 1 });
+    for (const [, a, name] of escAssets) moneyRow(name, a.preSalesCashPerPeriod, { indent: 1 });
     moneyRow('Total Pre-Sales Cash (all assets)', esc.preSalesCashPerPeriod, { style: 'total' });
     r += 1;
     subTitle('B. Escrow Balance Roll-Forward');
@@ -2569,7 +2587,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
     for (let t = 1; t < N; t++) opening[t] = esc.cumulativeBalancePerPeriod[t - 1] ?? 0;
     moneyRow('Opening Balance', opening, { style: 'subtotal', noTotal: true });
     setLabel(ws.getCell(r, LBL_COL), 'Additions:', { bold: true }); r += 1;
-    for (const [id, a] of escAssets) moneyRow(assetName(id), a.result.heldPerPeriod, { indent: 2 });
+    for (const [, a, name] of escAssets) moneyRow(name, a.result.heldPerPeriod, { indent: 2 });
     moneyRow('Total Additions', esc.heldPerPeriod, { style: 'subtotal' });
     moneyRow('Less: Release of Locked Funds', A(esc.releasePerPeriod).map((v) => -v), { indent: 1 });
     moneyRow('Closing Balance', esc.cumulativeBalancePerPeriod, { style: 'total', totalLast: true });
@@ -2598,7 +2616,6 @@ function addOpex(ctx: EmitCtx): OpexLinks {
   const ws = wb.addWorksheet(SHEETS.opex, { properties: { tabColor: { argb: ARGB.navy } } });
   writeSheetHeader(ws, snap, N, 'Operating Expenses', 'Full step-by-step mirror of the platform Opex module, all three sub-tabs in sequence: 1. Inputs (per-asset + HQ opex lines), 2. Output (revenue breakdown + per-category cost tables + project rollup), 3. Schedules (accounts payable roll-forward).', { label: 'Line', feeds: 'Sourced from Inputs (opex lines) and Revenue (operating revenue). Feeds P&L, Cash Flow (opex paid) and the Returns NOI.' });
   let r = 5;
-  const assetName = (id: string): string => state.assets.find((a) => a.id === id)?.name ?? id;
   const anyNonZero = (a: number[] | undefined): boolean => (a ?? []).some((v) => (v ?? 0) !== 0);
   const idxLabel = (ix?: { method?: string; rate?: number }): string => {
     if (!ix || !ix.method || ix.method === 'none') return 'None';
@@ -2693,10 +2710,10 @@ function addOpex(ctx: EmitCtx): OpexLinks {
   const hospRow = totalRow; const retailRow = totalRow;
 
   // ── 3. Schedules (Accounts Payable roll-forward) ─────────────────────────────
-  section('3. Schedules (Accounts Payable roll-forward, per asset + project total)');
-  for (const [id, apr] of snap.ap.byAsset) {
+  section('3. Schedules (Accounts Payable roll-forward, per line + project total)');
+  for (const [, apr, lineName] of poolMapByLine(snap.ap.byAsset, state, (p, ms) => ({ ...p, effectiveApDays: ms[0].effectiveApDays }))) {
     if (!anyNonZero(apr.opexIncurredPerPeriod)) continue;
-    subTitle(`Accounts Payable, ${assetName(id)} (DPO ${apr.effectiveApDays})`);
+    subTitle(`Accounts Payable, ${lineName} (DPO ${apr.effectiveApDays})`);
     moneyRow('Opex incurred', apr.opexIncurredPerPeriod, { indent: 1 });
     moneyRow('Opening AP', apr.result.openingPerPeriod, { indent: 1, noTotal: true });
     moneyRow('Closing AP', apr.result.perPeriod, { style: 'subtotal', totalLast: true });
@@ -3014,16 +3031,15 @@ function addSchedules(ctx: EmitCtx): void {
   // (not through the shared M4Row model), so the heading is named here.
   writeSheetHeader(ws, snap, N, 'Schedules', 'Full mirror of the platform Module 4 Schedules, both sub-tabs in sequence: 1. Fixed Assets & D&A (land + depreciable NBV roll-forward), 2. BS Schedules (balance-sheet feeder roll-forwards ordered ASSETS / LIABILITIES / EQUITY).', { label: 'Line', totalLabel: TOTAL_COLUMN_HEADINGS.mixed, feeds: `Sourced from Capex, depreciation, Modules 1-3 and the financing recurrence. Supports the Balance Sheet. ${TOTAL_COLUMN_NOTES.mixed}` });
   const E = makeEmitters(ws, N);
-  const assetName = (id: string): string => state.assets.find((a) => a.id === id)?.name ?? id;
   const nz = (a?: number[]): boolean => (a ?? []).some((v) => (v ?? 0) !== 0);
 
   // ── 1. Fixed Assets & D&A ────────────────────────────────────────────────────
-  E.section('1. Fixed Assets & D&A (land + depreciable NBV roll-forward, per asset + project total)');
+  E.section('1. Fixed Assets & D&A (land + depreciable NBV roll-forward, per line + project total)');
   const fa = snap.fixedAssets;
-  for (const [id, ra] of fa.byAsset) {
+  for (const [, ra, lineName] of poolMapByLine(fa.byAsset, state)) {
     const dep = ra.depreciable;
     if (!nz(dep.closingNBVPerPeriod) && !nz(ra.land.closingPerPeriod)) continue;
-    E.subTitle(`Fixed Assets, ${assetName(id)}`);
+    E.subTitle(`Fixed Assets, ${lineName}`);
     E.moneyRow('Land opening', ra.land.openingPerPeriod, { indent: 1, prior: ra.land.openingAtAxisStart, noTotal: true });
     E.moneyRow('Land additions', ra.land.additionsPerPeriod, { indent: 1 });
     E.moneyRow('Land closing', ra.land.closingPerPeriod, { style: 'subtotal', totalLast: true });
@@ -3530,8 +3546,8 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
       // (the cost sits on the parent). Marked and footnoted rather than left as
       // a bare zero, from the SAME shared rule both PDFs use.
       const assetNotes = buildAssetNotes(state, cMoney);
-      gridTable('Per-Asset Economics', ['Asset', 'Strategy', 'Revenue', 'Cost', 'Profit', 'Margin', 'Yield on Cost'],
-        rs.perAsset.rows.map((a) => {
+      gridTable('Per-Line Economics', ['Line', 'Strategy', 'Revenue', 'Cost', 'Profit', 'Margin', 'Yield on Cost'],
+        poolReturnRows(rs.perAsset.rows, state).map((a) => {
           const z = assetNotes.hasCostNote(a.assetId, a.totalCost);
           const nil = z ? structuralZeroCell(z) : null;
           return [a.assetName, a.strategy, cMoney(a.totalRevenue), nil ?? cMoney(a.totalCost), cMoney(a.profit),

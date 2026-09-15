@@ -38,7 +38,7 @@ import type { ProjectFinancialsSnapshot } from '../financials-resolvers';
 import type { Party } from '../parties';
 import type { CaseComparisonReport } from './caseComparisonReport';
 import type { ReportInputs, ICSectionKey } from '../reportInputs';
-import { assetLabel } from '@/src/core/calculations/assetName';
+import { planReportLines, lineRowLabel } from './lineRows';
 
 export interface ICPartyRef { name: string; identifier: string | null }
 export interface ICKeyValue { label: string; value: number }
@@ -379,7 +379,6 @@ export function buildICReportModel(input: {
   cases?: ProjectCase[];
 }): ICReportModel {
   const { project, phases, parcels, assets, subUnits = [], rs, snap, parties, asOf } = input;
-  const labelCtx = { parcels, phases };
   const r = rs.result;
   const de = rs.developmentEconomics;
   const su = rs.sourcesUses;
@@ -398,13 +397,21 @@ export function buildICReportModel(input: {
   const subUnitsForAsset = (assetId: string): number => subUnits.filter((su2) => su2.assetId === assetId).length;
 
   // ── Asset mix ──
-  const assetRows: ICAssetRow[] = visibleAssets.map((a) => ({
-    name: assetLabel(a, labelCtx),
-    strategy: String(a.strategy),
-    phaseName: phaseName(a.phaseId),
-    bua: assetBua(a),
-    units: subUnitsForAsset(a.id),
-  }));
+  // ONE ROW PER CONSOLIDATED LINE (2026-09-15): a line of several plots is one
+  // row of the asset schedule, its area and units summed, as on the capex tables.
+  const lineState = { assets: visibleAssets, phases, parcels };
+  const mixLines = planReportLines(lineState);
+  const membersOf = (ids: readonly string[]): Asset[] => ids.map((id) => visibleAssets.find((a) => a.id === id)).filter((a): a is Asset => !!a);
+  const assetRows: ICAssetRow[] = mixLines.map((line) => {
+    const members = membersOf(line.assetIds);
+    return {
+      name: lineRowLabel(line, lineState),
+      strategy: line.strategy,
+      phaseName: line.phaseName || phaseName(line.phaseId),
+      bua: members.reduce((s, a) => s + assetBua(a), 0),
+      units: members.reduce((s, a) => s + subUnitsForAsset(a.id), 0),
+    };
+  });
   const totalBua = assetRows.reduce((s, x) => s + x.bua, 0);
   const totalUnits = assetRows.reduce((s, x) => s + x.units, 0);
   const stratMap = new Map<string, number>();
@@ -430,8 +437,8 @@ export function buildICReportModel(input: {
       name: ph.name,
       startYear: yearOf(ph.startDate, startYear + Math.max(0, (ph.constructionStart ?? 1) - 1)),
       strategies,
-      assetNames: phaseAssets.map((a) => assetLabel(a, labelCtx)),
-      assetCount: phaseAssets.length,
+      assetNames: mixLines.filter((l) => l.phaseId === ph.id).map((l) => lineRowLabel(l, lineState)),
+      assetCount: mixLines.filter((l) => l.phaseId === ph.id).length,
       capex: phaseAssets.reduce((s, a) => s + assetCapex(a.id), 0),
     };
   });
@@ -907,7 +914,7 @@ export function buildICReportModel(input: {
       country: project.country ?? '',
       phaseCount: phases.length,
       phaseNames: phases.map((p) => p.name),
-      assetMix: visibleAssets.map((a) => ({ name: assetLabel(a, labelCtx), strategy: String(a.strategy) })),
+      assetMix: mixLines.map((l) => ({ name: lineRowLabel(l, lineState), strategy: l.strategy })),
       startYear,
       exitYear,
       durationYears,

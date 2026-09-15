@@ -23,7 +23,7 @@ import { getFinancialLabels } from '@/src/core/calculations/financials';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import type { FundFeeSchedule } from '../fundFees';
 import { FEE_BASE_LABELS, FEE_TIMING_LABELS } from '../fundTerms';
-import { assetLabel } from '@/src/core/calculations/assetName';
+import { planReportLines, lineRowLabel, sumLine, poolMapByLine } from './lineRows';
 
 type Labels = ReturnType<typeof getFinancialLabels>;
 
@@ -230,24 +230,28 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
 
   // ── REVENUE ──────────────────────────────────────────────────────────────
   rows.push({ label: 'REVENUE', values: [], isSection: true });
-  const pushAssetPL = (a: { id: string; name: string; phaseId: string }, key: 'revenuePerPeriod' | 'cosPerPeriod' | 'opexPerPeriod', group: string, sign = 1): void => {
-    const pl = snap.perAssetPL.get(a.id);
-    if (!pl) return;
-    const series = pl[key];
-    if (series.every((v) => v === 0)) return;
-    rows.push({
-      label: assetLabel(a, ctx.state),
-      values: sign === 1 ? series : negArr(series),
-      indent: 2,
-      phaseLabel: phaseShort(a.phaseId),
-      collapseGroup: group,
-      collapseRole: 'member',
-    });
+  // ONE MEMBER ROW PER CONSOLIDATED LINE (2026-09-15): the plots of a line are
+  // summed, so the members still add to their header and a line of two plots
+  // is one row, as it is on the capex tables and table 4.
+  const pushLinesPL = (list: ReadonlyArray<{ id: string }>, key: 'revenuePerPeriod' | 'cosPerPeriod' | 'opexPerPeriod', group: string, sign = 1): void => {
+    const ids = new Set(list.map((a) => a.id));
+    for (const line of planReportLines(state, (a) => ids.has(a.id))) {
+      const series = sumLine(line, (id) => snap.perAssetPL.get(id)?.[key], N);
+      if (series.every((v) => v === 0)) continue;
+      rows.push({
+        label: lineRowLabel(line, state),
+        values: sign === 1 ? series : negArr(series),
+        indent: 2,
+        phaseLabel: phaseShort(line.phaseId),
+        collapseGroup: group,
+        collapseRole: 'member',
+      });
+    }
   };
 
   if (residentialAssets.length > 0 && resRev.some((v) => v !== 0)) {
     rows.push({ label: 'Residential Revenue', values: resRev, isSection: true, collapseGroup: 'pl-rev-res', collapseRole: 'header', defaultCollapsed: false });
-    for (const a of residentialAssets) pushAssetPL(a, 'revenuePerPeriod', 'pl-rev-res');
+    pushLinesPL(residentialAssets, 'revenuePerPeriod', 'pl-rev-res');
   }
   // HOSPITALITY BY DEPARTMENT AND BY EXPENSE GROUP, PER LINE (2026-09-14,
   // founder: "show hospitality properly"). A hotel was one revenue row and one
@@ -277,7 +281,7 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
   }
   if (retailAssets.length > 0 && retailRev.some((v) => v !== 0)) {
     rows.push({ label: 'Retail Revenue', values: retailRev, isSection: true, collapseGroup: 'pl-rev-ret', collapseRole: 'header', defaultCollapsed: false });
-    for (const a of retailAssets) pushAssetPL(a, 'revenuePerPeriod', 'pl-rev-ret');
+    pushLinesPL(retailAssets, 'revenuePerPeriod', 'pl-rev-ret');
   }
   rows.push({ label: 'Total Revenue', values: totalRev, isTotal: true });
 
@@ -285,7 +289,7 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
   if (cosTotal.some((v) => v !== 0)) {
     rows.push({ label: 'COST OF SALES', values: [], isSection: true });
     rows.push({ label: 'Residential cost of sales', values: negArr(cosTotal), isSection: true, collapseGroup: 'pl-cos', collapseRole: 'header', defaultCollapsed: false });
-    for (const a of residentialAssets) pushAssetPL(a, 'cosPerPeriod', 'pl-cos', -1);
+    pushLinesPL(residentialAssets, 'cosPerPeriod', 'pl-cos', -1);
   }
 
   // ── OPERATING EXPENSES ──────────────────────────────────────────────────
@@ -296,7 +300,7 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
   }
   if (retailAssets.length > 0 && retailOpex.some((v) => v !== 0)) {
     rows.push({ label: 'Retail operating expenses', values: negArr(retailOpex), isSection: true, collapseGroup: 'pl-opex-ret', collapseRole: 'header', defaultCollapsed: false });
-    for (const a of retailAssets) pushAssetPL(a, 'opexPerPeriod', 'pl-opex-ret', -1);
+    pushLinesPL(retailAssets, 'opexPerPeriod', 'pl-opex-ret', -1);
   }
   if (hqOpex.some((v) => v !== 0)) {
     rows.push({ label: `HQ Expenses${projTag}`, values: negArr(hqOpex), indent: 1 });
@@ -652,10 +656,12 @@ function buildInvestmentRows(ctx: M4ReportCtx, capexSubtotal: number[], cfiSubto
     const total = seriesTotal(list, assetCash);
     if (!total.some((v) => v !== 0)) return;
     rows.push({ label, values: total.map((v) => -v), isSection: true, collapseGroup: group, collapseRole: 'header', defaultCollapsed: false });
-    for (const a of list) {
-      const series = assetCash(a.id);
+    // One member row per consolidated line (2026-09-15).
+    const ids = new Set(list.map((a) => a.id));
+    for (const line of planReportLines(state, (a) => ids.has(a.id))) {
+      const series = sumLine(line, assetCash, N);
       if (series.every((v) => v === 0)) continue;
-      rows.push({ label: assetLabel(a, ctx.state), values: series.map((v) => -v), indent: 2, phaseLabel: phaseShort(a.phaseId), collapseGroup: group, collapseRole: 'member' });
+      rows.push({ label: lineRowLabel(line, state), values: series.map((v) => -v), indent: 2, phaseLabel: phaseShort(line.phaseId), collapseGroup: group, collapseRole: 'member' });
     }
   };
   rows.push({ label: 'CASH FROM INVESTMENT', values: [], isSection: true });
@@ -797,12 +803,14 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
   const retailAssets = visibleAssets.filter((a) => a.strategy === 'Lease' && matchesPhase(a));
 
   rows.push({ label: 'CASH FROM OPERATIONS', values: [], isSection: true });
-  const pushAssetRow = (a: { id: string; name: string; phaseId: string }, key: 'revenueReceivedPerPeriod' | 'opexPaidPerPeriod', group: string, sign = 1): void => {
-    const cf = snap.perAssetCF.get(a.id);
-    if (!cf) return;
-    const series = (cf[key] as number[] | undefined) ?? [];
-    if (series.every((v) => v === 0)) return;
-    rows.push({ label: assetLabel(a, ctx.state), values: sign === 1 ? series : series.map((v) => -v), indent: 2, phaseLabel: phaseShort(a.phaseId), collapseGroup: group, collapseRole: 'member' });
+  // One member row per consolidated line (2026-09-15).
+  const pushLineRows = (list: ReadonlyArray<{ id: string }>, key: 'revenueReceivedPerPeriod' | 'opexPaidPerPeriod', group: string, sign = 1): void => {
+    const ids = new Set(list.map((a) => a.id));
+    for (const line of planReportLines(state, (a) => ids.has(a.id))) {
+      const series = sumLine(line, (id) => (snap.perAssetCF.get(id)?.[key] as number[] | undefined), N);
+      if (series.every((v) => v === 0)) continue;
+      rows.push({ label: lineRowLabel(line, state), values: sign === 1 ? series : series.map((v) => -v), indent: 2, phaseLabel: phaseShort(line.phaseId), collapseGroup: group, collapseRole: 'member' });
+    }
   };
   const sumAssetSeries = (list: Array<{ id: string }>, key: 'revenueReceivedPerPeriod' | 'opexPaidPerPeriod'): number[] => {
     const out = new Array<number>(N).fill(0);
@@ -819,21 +827,21 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
     const resRev = sumAssetSeries(residentialAssets, 'revenueReceivedPerPeriod');
     if (resRev.some((v) => v !== 0)) {
       rows.push({ label: 'Residential revenue received', values: resRev, isSection: true, collapseGroup: 'cf-rev-res', collapseRole: 'header', defaultCollapsed: false });
-      for (const a of residentialAssets) pushAssetRow(a, 'revenueReceivedPerPeriod', 'cf-rev-res');
+      pushLineRows(residentialAssets, 'revenueReceivedPerPeriod', 'cf-rev-res');
     }
   }
   if (hospitalityAssets.length > 0) {
     const hospRev = sumAssetSeries(hospitalityAssets, 'revenueReceivedPerPeriod');
     if (hospRev.some((v) => v !== 0)) {
       rows.push({ label: 'Hospitality revenue received', values: hospRev, isSection: true, collapseGroup: 'cf-rev-hosp', collapseRole: 'header', defaultCollapsed: false });
-      for (const a of hospitalityAssets) pushAssetRow(a, 'revenueReceivedPerPeriod', 'cf-rev-hosp');
+      pushLineRows(hospitalityAssets, 'revenueReceivedPerPeriod', 'cf-rev-hosp');
     }
   }
   if (retailAssets.length > 0) {
     const retRev = sumAssetSeries(retailAssets, 'revenueReceivedPerPeriod');
     if (retRev.some((v) => v !== 0)) {
       rows.push({ label: 'Retail revenue received', values: retRev, isSection: true, collapseGroup: 'cf-rev-ret', collapseRole: 'header', defaultCollapsed: false });
-      for (const a of retailAssets) pushAssetRow(a, 'revenueReceivedPerPeriod', 'cf-rev-ret');
+      pushLineRows(retailAssets, 'revenueReceivedPerPeriod', 'cf-rev-ret');
     }
   }
   rows.push({ label: 'Total Revenue Received', values: d.revenueReceivedPerPeriod, isSubtotal: true });
@@ -847,14 +855,14 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
     const hospOpex = sumAssetSeries(hospitalityAssets, 'opexPaidPerPeriod');
     if (hospOpex.some((v) => v !== 0)) {
       rows.push({ label: 'Hospitality operating expenses paid', values: hospOpex.map((v) => -v), isSection: true, collapseGroup: 'cf-opex-hosp', collapseRole: 'header', defaultCollapsed: false });
-      for (const a of hospitalityAssets) pushAssetRow(a, 'opexPaidPerPeriod', 'cf-opex-hosp', -1);
+      pushLineRows(hospitalityAssets, 'opexPaidPerPeriod', 'cf-opex-hosp', -1);
     }
   }
   if (retailAssets.length > 0) {
     const retOpex = sumAssetSeries(retailAssets, 'opexPaidPerPeriod');
     if (retOpex.some((v) => v !== 0)) {
       rows.push({ label: 'Retail operating expenses paid', values: retOpex.map((v) => -v), isSection: true, collapseGroup: 'cf-opex-ret', collapseRole: 'header', defaultCollapsed: false });
-      for (const a of retailAssets) pushAssetRow(a, 'opexPaidPerPeriod', 'cf-opex-ret', -1);
+      pushLineRows(retailAssets, 'opexPaidPerPeriod', 'cf-opex-ret', -1);
     }
   }
   if (d.hqOpexPaidPerPeriod.some((v) => v !== 0)) {
@@ -1234,10 +1242,10 @@ export function buildResidentialReceivablesRows(ctx: M4FeederCtx): M4Row[] {
   rows.push({ label: '(−) Pre-Sales Cash Collected', values: cashCollected.map((v) => -v), indent: 1 });
   rows.push({ label: 'Closing AR (project total)', values: closing, isSubtotal: true, totalIsBalance: true, totalOverride: fmt(closing[N - 1] ?? 0) });
   if (sellEntries.length > 0) {
-    rows.push({ label: 'Closing AR by asset', values: [], isSection: true });
-    for (const [assetId, bundle] of sellEntries) {
-      const asset = state.assets.find((a) => a.id === assetId);
-      rows.push({ label: asset?.name ?? assetId, values: bundle.ar.perPeriod.slice(0, N), indent: 1, totalIsBalance: true, totalOverride: fmt(bundle.ar.perPeriod[N - 1] ?? 0) });
+    // One row per consolidated line (2026-09-15).
+    rows.push({ label: 'Closing AR by line', values: [], isSection: true });
+    for (const [, bundle, lineName] of poolMapByLine(new Map(sellEntries), state)) {
+      rows.push({ label: lineName, values: bundle.ar.perPeriod.slice(0, N), indent: 1, totalIsBalance: true, totalOverride: fmt(bundle.ar.perPeriod[N - 1] ?? 0) });
     }
     rows.push({ label: 'Total Closing AR', values: closing, isTotal: true, totalIsBalance: true, totalOverride: fmt(closing[N - 1] ?? 0) });
   }
@@ -1334,10 +1342,10 @@ export function buildUnearnedRows(ctx: M4FeederCtx): M4Row[] {
   rows.push({ label: '(−) Revenue recognized (at handover)', values: recognized.map((v) => -v), indent: 1 });
   rows.push({ label: 'Closing unearned revenue (project total)', values: closing, isSubtotal: true, totalIsBalance: true, totalOverride: fmt(closing[N - 1] ?? 0) });
   if (sellEntries.length > 0) {
-    rows.push({ label: 'Closing unearned revenue by asset', values: [], isSection: true });
-    for (const [assetId, bundle] of sellEntries) {
-      const asset = state.assets.find((a) => a.id === assetId);
-      rows.push({ label: asset?.name ?? assetId, values: bundle.unearned.perPeriod.slice(0, N), indent: 1, totalIsBalance: true, totalOverride: fmt(bundle.unearned.perPeriod[N - 1] ?? 0) });
+    // One row per consolidated line (2026-09-15).
+    rows.push({ label: 'Closing unearned revenue by line', values: [], isSection: true });
+    for (const [, bundle, lineName] of poolMapByLine(new Map(sellEntries), state)) {
+      rows.push({ label: lineName, values: bundle.unearned.perPeriod.slice(0, N), indent: 1, totalIsBalance: true, totalOverride: fmt(bundle.unearned.perPeriod[N - 1] ?? 0) });
     }
     rows.push({ label: 'Total Closing Unearned Revenue', values: closing, isTotal: true, totalIsBalance: true, totalOverride: fmt(closing[N - 1] ?? 0) });
   }

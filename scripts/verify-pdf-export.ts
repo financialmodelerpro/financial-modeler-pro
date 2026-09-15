@@ -477,8 +477,8 @@ async function main(): Promise<void> {
     assets: [], subUnits: [], parcels: [], costLines: makeDefaultCostLines('p1', 2), costOverrides: [], landAllocationMode: 'autoByBua', financingTranches: [], equityContributions: [],
   };
   const minItems = collectModuleItems(minimal);
-  const revCfg = minItems.find((i) => i.title === 'Revenue Configuration by Asset');
-  check('empty "Revenue Configuration by Asset" (no assets) is a 0-row table -> suppressed', !!revCfg && !revCfg.hasData, `found=${!!revCfg} hasData=${revCfg?.hasData}`);
+  const revCfg = minItems.find((i) => i.title === 'Revenue Configuration by Line');
+  check('empty "Revenue Configuration by Line" (no assets) is a 0-row table -> suppressed', !!revCfg && !revCfg.hasData, `found=${!!revCfg} hasData=${revCfg?.hasData}`);
   const lev = minItems.find((i) => i.title === 'Leverage & Coverage');
   check('empty "Leverage & Coverage" cards (no debt) are all-n/a -> suppressed', !!lev && !lev.hasData, `found=${!!lev} hasData=${lev?.hasData}`);
   // The suppressed items must NOT survive into the rendered content (dropEmptyItems).

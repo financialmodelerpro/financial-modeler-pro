@@ -15,6 +15,12 @@ per capex line, reaching the engine as standard-sourced overrides the Capex tab 
 override), Table 2 massing filled back to the type when every plot agrees, active rows only on the Opex
 Output, and the Standards paragraph font.
 
+**PER-LINE PRESENTATION PASS DONE (2026-09-15)**: every surface after the assets tab (IDC, escrow, AP, fixed assets, opex
+inputs, statement members, disposal working, IC report, one-pager, PDF and Excel) groups by `planCapexSummaryLines` through
+`lib/reports/lineRows.ts`; land funding stays per plot by decision. **OPEN, reported separately and NOT fixed**: saving while a
+scenario is active writes spurious overrides (the store keeps an unsettled `baseSnapshot` from hydrate and `buildOverrides`
+diffs it against the settled live model); diagnosis first, per the founder.
+
 **REVIEW OF MODULES 1 TO 6 (2026-09-15), FIX ORDER.** Steps 1 to 5 DONE the same day (verifiers re-aimed, Excel
 and PDF returns labels, docs, the no-override scenario note, saved versions read through the store for the Portfolio
 dashboard and the saved-version export). HELD, in order:

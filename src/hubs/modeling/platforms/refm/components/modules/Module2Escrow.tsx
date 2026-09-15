@@ -23,6 +23,7 @@
 import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
+import { planReportLines, lineTitle, poolResults } from '../../lib/reports/lineRows';
 import {
   computeAllSellResults,
   computeEscrowSnapshot,
@@ -127,7 +128,7 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, fmt }: {
 }
 
 export default function Module2Escrow(): React.JSX.Element {
-  const { project, phases, parcels, assets, subUnits, setProject, updateAsset } = useModule1Store(
+  const { project, phases, parcels, assets, subUnits, setProject, updateAsset: updateOneAsset } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
       phases: s.phases,
@@ -153,10 +154,34 @@ export default function Module2Escrow(): React.JSX.Element {
   const N = yearLabels.length;
   const projectStartYear = snap.escrow.projectStartYear;
 
-  const escrowAssetRows = useMemo(
-    () => Array.from(snap.escrow.byAsset.values()),
-    [snap.escrow.byAsset],
+  // ONE ROW PER CONSOLIDATED LINE (2026-09-15, founder: every surface after
+  // the assets tab presents by line). The engine stays per asset; the rows pool
+  // a line's plots, the effective percentages and years read from its first
+  // plot, and an override typed on a line is written to every plot on it, as
+  // the capex and revenue line cards already do.
+  const escrowLines = useMemo(
+    () => planReportLines({ assets, phases, parcels }, (a) => snap.escrow.byAsset.has(a.id)),
+    [assets, phases, parcels, snap.escrow.byAsset],
   );
+  const escrowAssetRows = useMemo(
+    () => escrowLines.map((line) => {
+      const members = line.assetIds.map((id) => snap.escrow.byAsset.get(id)).filter((r): r is NonNullable<typeof r> => !!r);
+      const host = members[0];
+      return {
+        ...poolResults(members),
+        assetId: host.assetId,
+        assetName: lineTitle(line, { assets, phases, parcels }),
+        effectiveHeldPct: host.effectiveHeldPct,
+        effectiveHeldUntilYear: host.effectiveHeldUntilYear,
+        effectiveReleaseYear: host.effectiveReleaseYear,
+      };
+    }),
+    [escrowLines, snap.escrow.byAsset, assets, phases, parcels],
+  );
+  const updateAsset = (assetId: string, patch: Parameters<typeof updateOneAsset>[1]): void => {
+    const line = escrowLines.find((l) => l.assetIds.includes(assetId));
+    for (const id of line?.assetIds ?? [assetId]) updateOneAsset(id, patch);
+  };
 
   const projectHeldPct = project.escrow?.heldPct ?? 0;
   const projectDefaultReleaseYear = project.escrow?.defaultReleaseYear;
@@ -440,7 +465,7 @@ export default function Module2Escrow(): React.JSX.Element {
           <>
             <PeriodTable
               title="A. Pre-Sales Cash by Asset (subject to escrow)"
-              caption="Pre-sales cash collected per period, per asset. Drives the Held calculation below: Held[t] = Pre-Sales Cash[t] × effective held %, only through each asset's Held Until Year."
+              caption="Pre-sales cash collected per period, per line (its plots pooled). Drives the Held calculation below: Held[t] = Pre-Sales Cash[t] × effective held %, only through each line's Held Until Year."
               yearLabels={yearLabels}
               currency={currency}
               fmt={fmt}

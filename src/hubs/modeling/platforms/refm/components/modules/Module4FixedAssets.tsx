@@ -29,6 +29,7 @@
 import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
+import { planReportLines, lineTitle, poolResults } from '../../lib/reports/lineRows';
 import {
   computeAllFixedAssetResults,
   type AssetFixedAssetRow,
@@ -220,7 +221,7 @@ function totalFATableRows(combinedOpening: number[], combinedClosing: number[], 
 }
 
 export default function Module4FixedAssets(): React.JSX.Element {
-  const { project, phases, assets: rawAssets, subUnits, parcels, costLines, costOverrides, landAllocationMode, financingTranches, equityContributions, updateAsset } = useModule1Store(
+  const { project, phases, assets: rawAssets, subUnits, parcels, costLines, costOverrides, landAllocationMode, financingTranches, equityContributions, updateAsset: updateOneAsset } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
       phases: s.phases,
@@ -280,7 +281,31 @@ export default function Module4FixedAssets(): React.JSX.Element {
   const priorYear = snap.projectStartYear - 1;
 
   // Strategy groups (mirrors Module3OpexOutput).
-  const faAssets = useMemo(() => assets.filter((a) => snap.byAsset.has(a.id)), [assets, snap.byAsset]);
+  // ONE CARD AND ONE INPUT ROW PER CONSOLIDATED LINE (2026-09-15). The engine
+  // stays per asset: a line's plots pool into its card, the method and life
+  // read from its first plot, and an input typed on a line is written to every
+  // plot on it, as the capex and revenue line cards already do.
+  const faLines = useMemo(
+    () => planReportLines({ assets, phases, parcels }, (a) => snap.byAsset.has(a.id)),
+    [assets, phases, parcels, snap.byAsset],
+  );
+  const faAssets = useMemo(
+    () => faLines.map((line) => ({ ...assets.find((a) => a.id === line.assetIds[0])!, name: lineTitle(line, { assets, phases, parcels }) })),
+    [faLines, assets, phases, parcels],
+  );
+  const membersOf = (hostId: string): readonly string[] => faLines.find((l) => l.assetIds[0] === hostId)?.assetIds ?? [hostId];
+  const faRowOf = (hostId: string): ReturnType<typeof snap.byAsset.get> => {
+    const rows = membersOf(hostId).map((id) => snap.byAsset.get(id)).filter((r): r is NonNullable<typeof r> => !!r);
+    if (rows.length === 0) return undefined;
+    return { ...poolResults(rows), usefulLifeYears: rows[0].usefulLifeYears };
+  };
+  const idcRowOf = (hostId: string): ReturnType<typeof idcSnap.byAsset.get> => {
+    const rows = membersOf(hostId).map((id) => idcSnap.byAsset.get(id)).filter((r): r is NonNullable<typeof r> => !!r);
+    return rows.length === 0 ? undefined : poolResults(rows);
+  };
+  const updateAsset = (assetId: string, patch: Parameters<typeof updateOneAsset>[1]): void => {
+    for (const id of membersOf(assetId)) updateOneAsset(id, patch);
+  };
   const hospitalityAssets = useMemo(
     () => faAssets.filter((a) => a.strategy === 'Operate' || a.isCompanion === true),
     [faAssets],
@@ -301,7 +326,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
   };
 
   const renderAssetBody = (a: typeof assets[number]): React.JSX.Element | null => {
-    const row = snap.byAsset.get(a.id);
+    const row = faRowOf(a.id);
     if (!row) return null;
     // M4 Pass 2i (2026-05-20): per-asset inputs panel removed from the
     // card body and consolidated into a single inputs table at the top
@@ -347,7 +372,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
           currency={currency}
           fmt={fmt}
           priorYearLabel={priorYear}
-          rows={depreciableTableRows(row, idcSnap.byAsset.get(a.id))}
+          rows={depreciableTableRows(row, idcRowOf(a.id))}
         />
 
         <PeriodTable
@@ -405,7 +430,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
       )}
 
       {/* M2 Pass 9M (2026-05-21): asset quick-nav strip. */}
-      <AssetQuickNav assets={assets} idPrefix="m4-fa-asset" testidPrefix="m4-fa-nav" />
+      <AssetQuickNav assets={faAssets} idPrefix="m4-fa-asset" testidPrefix="m4-fa-nav" />
 
       {/* M4 Pass 2i (2026-05-20): consolidated Inputs table at the top
        *  of the tab. Per Ahmad: every asset's Method / Useful Life /
@@ -435,7 +460,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
               </thead>
               <tbody>
                 {faAssets.map((a) => {
-                  const row = snap.byAsset.get(a.id);
+                  const row = faRowOf(a.id);
                   if (!row) return null;
                   const lifeStored = a.usefulLifeYears;
                   const lifeEffective = row.usefulLifeYears;

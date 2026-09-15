@@ -296,8 +296,8 @@ async function main(): Promise<void> {
       check(`P3: the ${doc} carries the existing-operations footnote`, flat(txt).includes('Existing operational asset: there is no new build'));
       check(`P3: the ${doc} carries the companion footnote`, flat(txt).includes('Companion asset: it runs a second strategy'));
     }
-    check('P3: the full report marks per-asset economics too',
-      flat(full).includes('Per-Asset Economics'));
+    check('P3: the full report marks per-line economics too',
+      flat(full).includes('Per-Line Economics'));
     const retCol = sheetCol(wb.getWorksheet('Returns')!, 1);
     check('P3: the workbook carries both footnotes on Returns',
       retCol.some((v) => v.includes('Existing operational asset')) && retCol.some((v) => v.includes('Companion asset')));

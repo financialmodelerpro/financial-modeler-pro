@@ -14,7 +14,7 @@ import type { Project, Asset, Phase , Parcel } from '../state/module1-types';
 import type { ReturnsSnapshot } from '../returns-resolvers';
 import type { ProjectFinancialsSnapshot } from '../financials-resolvers';
 import type { Party } from '../parties';
-import { assetLabel } from '@/src/core/calculations/assetName';
+import { planReportLines, lineRowLabel } from './lineRows';
 
 export interface OnePagerPartyRef { name: string; identifier: string | null }
 
@@ -61,12 +61,13 @@ export function buildOnePagerReportModel(input: {
   asOf: string;
 }): OnePagerReportModel {
   const { project, phases, parcels, assets, rs, parties, thesisLine } = input;
-  const labelCtx = { parcels, phases };
   const r = rs.result;
   const fm = rs.fundingMix;
   const startYear = rs.yearLabels[0] ?? input.snap.projectStartYear;
   const exitYear = rs.exitYearLabel;
-  const assetMix = assets.filter((a) => a.visible).map((a) => ({ name: assetLabel(a, labelCtx), strategy: String(a.strategy) }));
+  // One entry per consolidated line (2026-09-15), as the asset schedule reads.
+  const lineState = { assets: assets.filter((a) => a.visible), phases, parcels };
+  const assetMix = planReportLines(lineState).map((l) => ({ name: lineRowLabel(l, lineState), strategy: l.strategy }));
   const equityPct = (fm.cashEquityPct ?? 0) + (fm.inKindEquityPct ?? 0);
 
   return {
