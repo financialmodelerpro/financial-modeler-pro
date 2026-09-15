@@ -15,6 +15,31 @@ per capex line, reaching the engine as standard-sourced overrides the Capex tab 
 override), Table 2 massing filled back to the type when every plot agrees, active rows only on the Opex
 Output, and the Standards paragraph font.
 
+**REVIEW OF MODULES 1 TO 6 (2026-09-15), FIX ORDER.** Steps 1 to 5 DONE the same day (verifiers re-aimed, Excel
+and PDF returns labels, docs, the no-override scenario note, saved versions read through the store for the Portfolio
+dashboard and the saved-version export). HELD, in order:
+6. **EVERY SAVED PROJECT LOADS THROUGH THE LEGACY ROUTE** (measured on all six live projects and every version). Saves
+   write no version marker and the v7 fingerprint matches exact base ids while saved ids carry a phase suffix, so
+   `migrateLegacyToV8` runs the whole old chain on every open: Pass 7 spreads the phase lines over every asset, the
+   companion strip removes the strips' copies (the "removed 24" log), Pass 10 folds the rest back, and the banner
+   "Project updated to latest schema" is set every time. **MEASURED EFFECT**: (a) migration alone drops the 69 Types and
+   Standards default overrides on Marina Gate and changes no field of the 9 user overrides; the store's load puts all 78
+   back, so the screen holds exactly what is stored; (b) **A SAVED SCENARIO IS DROPPED ON EVERY LOAD**: the legacy
+   route's rebuilt snapshot has no `cases` or `activeCaseId`, and the store seeds fresh default cases, so a Downside
+   override saved as the active case comes back as Management active with zero overrides (no live project carries
+   an override today, so nothing is lost yet); (c) the empty projects (XYZ, ORA East, ABC, Jadan Maroom, Musoma)
+   have their old catalog lines replaced by the standards list on load; (d) the old FMP RE HUB fixture takes the v7
+   route and loses 3 user overrides (phase 2 parking) on load, PAT 2,367.6m stored against 2,375.8m loaded. Before the
+   fix: prove every live project and every fixture loads identically before and after.
+7. An exit before the last axis year keeps the sold assets trading (measured on a copy, exit 2035: revenue 196.0m,
+   opex 112.2m, PAT +70.7m after the sale). Latent on live (exit is the last year).
+8. Scenario levers: no sales pace lever exists at all, occupancy is not a curated lever, then item 0h.
+9. P&L revenue rows by section; Opex, Fixed Assets and Escrow per line.
+10. Disposal rows in the fixed asset and capitalised interest schedules; construction cost escalation (0c).
+**ALSO FOUND**: `verify-asset-type-mix` failed once inside the suite and passes alone and through the runner filter
+(not reproduced); `SEEDED_COST_LINE_IDS` still describes the retired catalog seed; the Excel live twin still
+computes its own terminal value internally before it is overwritten.
+
 0c. **CONSTRUCTION COST ESCALATION IS MISSING (logged 2026-09-15, its own item, not part of the cost standards).** The
    reference escalates construction cost 5% a year from a 2027 base year, so a later phase costs more from the same
    rate. The platform escalates only sale prices, ADR and rents; a capex rate is flat whatever year it is spent. A
