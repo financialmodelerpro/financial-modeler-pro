@@ -31,6 +31,7 @@ import { groupAssetsForConsolidation, consolidationKey } from '../src/core/calcu
 import { retailCompanionId } from '../src/core/calculations/retailCompanion';
 import { normaliseAssetTypeId } from '../src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards';
 import { buildExcelSampleState } from './excelSampleState';
+import { projectAssetTypeMix } from '../src/hubs/modeling/platforms/refm/lib/state/assetTypeMix';
 
 let pass = 0, fail = 0;
 const check = (name: string, ok: boolean, detail = ''): void => {
@@ -129,6 +130,25 @@ function outputChecks(): void {
     assets: base.assets.map((a: { name?: string }) => ({ ...a, name: `ZZ ${a.name ?? ''} ZZ` })),
   };
 
+  // THE SAVED CARD LIST (2026-09-15). Renaming every asset was meant to prove
+  // nothing depends on the stored name, and it missed refm_projects.asset_mix,
+  // which the save paths built from that name. It is built from the types now.
+  // The sample fixture's assets carry no type, which would give an empty list on
+  // both sides and prove nothing, so this copy states a type on each first.
+  const typed = (m: typeof base): typeof base => ({
+    ...m,
+    assets: m.assets.map((a: { id: string }, i: number) => ({ ...a, type: i % 2 === 0 ? 'Branded Villas' : 'Retail Ground Floor' })),
+  });
+  const mixBase = projectAssetTypeMix(typed(base) as never);
+  const mixRenamed = projectAssetTypeMix(typed(renamed) as never);
+  check('C0 the saved project card list does not move when every asset is renamed, and never carries the name',
+    mixBase.length > 0 && JSON.stringify(mixBase) === JSON.stringify(mixRenamed) && !mixRenamed.some((l) => l.includes('ZZ')),
+    JSON.stringify([mixBase, mixRenamed]));
+  const syncSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/persistence/module1-sync.ts', 'utf8');
+  const shellSrc = readFileSync('src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx', 'utf8');
+  check('C0b every save path builds that list through the one function, and none maps asset names',
+    (syncSrc.match(/assetMix:\s*projectAssetTypeMix\(/g) ?? []).length === 3 && /assetMix:\s*projectAssetTypeMix\(/.test(shellSrc)
+    && !syncSrc.includes('computeAssetMix') && !/assetMix:[^\n]*\.name\b/.test(syncSrc + shellSrc));
   const snapBase = computeFinancialsSnapshot(base);
   const snapRenamed = computeFinancialsSnapshot(renamed);
   const ser = (x: unknown): string =>

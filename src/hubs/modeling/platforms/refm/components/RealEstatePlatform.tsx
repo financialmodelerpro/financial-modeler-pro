@@ -50,6 +50,7 @@ import {
   type ActiveVersionInfo,
 } from '../lib/persistence/module1-sync';
 import { resolveVersionDisplayName } from '../lib/persistence/versionNaming';
+import { projectAssetTypeMix } from '../lib/state/assetTypeMix';
 import { writeActiveProjectId, clearCachedSnapshot } from '../lib/persistence/cache';
 
 import Topbar from './Topbar';
@@ -837,7 +838,8 @@ export default function RealEstatePlatform(): React.JSX.Element {
         snapshot,
         location: snapshot.project.location,
         status: 'Draft',
-        assetMix: snapshot.assets.filter((a) => a.visible).map((a) => a.name),
+        // The project's asset types once each, the one function every save path calls (2026-09-15).
+        assetMix: projectAssetTypeMix(snapshot),
       });
       if (res.error || !res.data) {
         // Server-side cap rejection (race or stale client gate): show the prompt.

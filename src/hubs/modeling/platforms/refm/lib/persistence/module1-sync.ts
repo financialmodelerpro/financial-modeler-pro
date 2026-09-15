@@ -79,6 +79,8 @@ import {
 } from './cache';
 import { snapshotsEqual } from './snapshot-diff';
 import { resolveVersionDisplayName } from './versionNaming';
+// The saved card list is the project's asset types once each, from ONE function (2026-09-15).
+import { projectAssetTypeMix } from '../state/assetTypeMix';
 
 const DEBOUNCE_MS = 1500;
 
@@ -147,10 +149,6 @@ function dirtyJson(s: HydrateSnapshot): string {
 }
 function dirtyEqual(a: HydrateSnapshot, b: HydrateSnapshot | null): boolean {
   return snapshotsEqual(stripVolatile(a) as HydrateSnapshot, stripVolatile(b) as HydrateSnapshot | null);
-}
-
-function computeAssetMix(snapshot: HydrateSnapshot): string[] {
-  return snapshot.assets.filter(a => a.visible).map(a => a.name);
 }
 
 // ── attach / detach ─────────────────────────────────────────────────────────
@@ -439,7 +437,7 @@ export async function startEditSession(
   const res = await saveVersion(activeProjectId, {
     snapshot,
     label:         label.trim() || null,
-    assetMix:      computeAssetMix(snapshot),
+    assetMix:      projectAssetTypeMix(snapshot),
     baseVersionId: sessionBaseVersionId,
     versionLabel:  meta?.versionLabel ?? null,
     taskName:      meta?.taskName ?? null,
@@ -502,7 +500,7 @@ export async function saveAsNewVersion(
   const res = await saveVersion(activeProjectId, {
     snapshot,
     label:         label.trim() || null,
-    assetMix:      computeAssetMix(snapshot),
+    assetMix:      projectAssetTypeMix(snapshot),
     baseVersionId,
     versionLabel:  meta?.versionLabel ?? null,
     taskName:      meta?.taskName ?? null,
@@ -626,7 +624,7 @@ async function runAutoSave(): Promise<void> {
 
   const res = await patchVersion(projectId, versionId, {
     snapshot,
-    assetMix: computeAssetMix(snapshot),
+    assetMix: projectAssetTypeMix(snapshot),
   });
 
   // Cross-project save guard (see commit ca5c152). If the user
