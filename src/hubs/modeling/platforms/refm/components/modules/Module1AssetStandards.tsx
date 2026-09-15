@@ -148,13 +148,15 @@ function parseValue(s: string): { ok: true; value: number | undefined } | { ok: 
  * model inputs and the model has no Save buttons.
  */
 function ValueCell({
-  value, onCommit, testId, disabled, title,
+  value, onCommit, testId, disabled, title, decimals,
 }: {
   value: number | undefined;
   onCommit: (v: number | undefined) => void;
   testId: string;
   disabled?: boolean;
   title?: string;
+  /** Fixed decimals when not being typed in: two for every percentage (2026-09-15). */
+  decimals?: number;
 }): React.JSX.Element {
   // DRAFT OR STORE, with no effect to keep them in step.
   //
@@ -164,7 +166,7 @@ function ValueCell({
   // empty cell both survive. Blur drops the draft, so anything that never
   // parsed snaps back to the last value that did.
   const [draft, setDraft] = useState<string | null>(null);
-  const stored = value !== undefined ? String(value) : '';
+  const stored = value !== undefined ? (decimals !== undefined ? value.toFixed(decimals) : String(value)) : '';
   const text = draft ?? stored;
   const bad = draft !== null && !parseValue(draft).ok;
   return (
@@ -477,7 +479,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
           figure in the chain. */}
       <td style={TD}>
         <ValueCell
-          value={v?.utilisationPct} disabled={noProject}
+          value={v?.utilisationPct} disabled={noProject} decimals={2}
           testId={`std-row-${id}-utilisation`}
           title="Share of the plot this type usually develops. A plot that differs types its own; a plot left blank inherits this. Filled back from the assets tab when every plot of the type states the same figure."
           onCommit={(n) => setAssetTypeValue(id, { utilisationPct: n })}
@@ -485,7 +487,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
       </td>
       <td style={TD}>
         <ValueCell
-          value={v?.coveragePct} disabled={noProject}
+          value={v?.coveragePct} disabled={noProject} decimals={2}
           testId={`std-row-${id}-coverage`}
           title="Ground coverage percent this type usually builds to. A plot that differs types its own; a typed 0 on the plot is a real override, not a blank."
           onCommit={(n) => setAssetTypeValue(id, { coveragePct: n })}
@@ -501,7 +503,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
       </td>
       <td style={TD}>
         <ValueCell
-          value={v?.servicePct} disabled={noProject}
+          value={v?.servicePct} disabled={noProject} decimals={2}
           testId={`std-row-${id}-service`}
           title="Service and back-of-house percent this type usually takes off its main asset GFA. A plot that differs types its own."
           onCommit={(n) => setAssetTypeValue(id, { servicePct: n })}
@@ -880,7 +882,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
                             )}
                           </td>
                           <td style={TD}>
-                            <ValueCell value={row.rate} disabled={noProject}
+                            <ValueCell value={row.rate} disabled={noProject} decimals={list === 'soft' ? 2 : undefined}
                               testId={`std-cost-${row.id}-rate`}
                               title={`${row.label}: ${costStandardBasisLabel(row.method, currency, row.catalogId, rowChargesOn(row))}. Blank applies nothing.`}
                               onCommit={(n) => writeRow(row, { rate: n })} />
@@ -909,7 +911,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
                           <tr key={`${row.id}-${ph.id}`} style={{ background: 'var(--color-grey-pale)' }} data-testid={`std-cost-${row.id}-phase-${ph.id}`}>
                             <td style={{ ...TD, paddingLeft: 24, color: 'var(--color-meta)' }} colSpan={2}>{ph.name}</td>
                             <td style={TD}>
-                              <ValueCell value={row.byPhase?.[ph.id]} disabled={noProject}
+                              <ValueCell value={row.byPhase?.[ph.id]} disabled={noProject} decimals={list === 'soft' ? 2 : undefined}
                                 testId={`std-cost-${row.id}-phase-${ph.id}-rate`}
                                 title={`${row.label} in ${ph.name} only. Blank takes the row's rate.`}
                                 onCommit={(n) => writePhaseRate(row, ph.id, n)} />

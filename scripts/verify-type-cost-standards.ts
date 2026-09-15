@@ -387,5 +387,33 @@ section('Z. one type lookup, the reset in list order, no pointers to nothing, th
   check('Z7 the tab no longer says type names wait for Save', !tab.includes('waits for') && tab.includes('Both halves save as you type'));
 }
 
+// ── O. one way to build a phase ─────────────────────────────────────────────
+section('O. every path builds a phase the same way: the standards list, in order');
+{
+  const LIST = 'land-cash,land-inkind,rett,construction-bua,construction-parking,landscaping,engineering-supervision,design-consultancy,permits-approvals,developer-fee,contingency,marketing';
+  const idsOf = (lines: CostLine[], phaseId: string): string => lines.filter((l) => l.phaseId === phaseId).map((l) => l.id.replace(`__${phaseId}`, '')).join(',');
+  const def = createModule1Store();
+  check('O1 the store\'s empty default is the list', idsOf(def.getState().costLines, P) === LIST, idsOf(def.getState().costLines, P));
+  def.getState().addPhase({ ...def.getState().phases[0], id: 'phase_9', name: 'Phase 9', constructionPeriods: 3 });
+  def.getState().addAsset(asset('n9', 'villa', { phaseId: 'phase_9' } as Partial<Asset>));
+  check('O2 the first asset of a new phase gets the list', idsOf(def.getState().costLines, 'phase_9') === LIST, idsOf(def.getState().costLines, 'phase_9'));
+  def.getState().resetCapexToStandards(['phase_9']);
+  check('O3 and a reset of that phase produces the same lines', idsOf(def.getState().costLines, 'phase_9') === LIST);
+  const wizard = readFileSync('src/hubs/modeling/platforms/refm/lib/wizard/buildWizardSnapshot.ts', 'utf8');
+  const migrate = readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-migrate.ts', 'utf8');
+  const storeSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8');
+  check('O4 the wizard, the load seeds and the store all call the one builder, and none seeds the old catalog',
+    wizard.includes('buildPhaseCostLines(') && (migrate.match(/buildPhaseCostLines\(/g) ?? []).length >= 2
+    && (storeSrc.match(/buildPhaseCostLines\(/g) ?? []).length >= 2
+    && !/makeBlankCostLines\(/.test(wizard) && !/makeBlankCostLines\(/.test(migrate) && !/makeBlankCostLines\(/.test(storeSrc));
+  const capexSrc = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx', 'utf8');
+  const tabSrc = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1AssetStandards.tsx', 'utf8');
+  check('O5 every percentage input shows two decimals, in Capex and on Types and Standards',
+    capexSrc.includes("decimals={effMethod.startsWith('percent') ? (2 as DisplayDecimals) : decimals}")
+    && tabSrc.includes('value.toFixed(decimals)')
+    && ['utilisationPct', 'coveragePct', 'servicePct'].every((k) => tabSrc.includes(`value={v?.${k}} disabled={noProject} decimals={2}`))
+    && tabSrc.includes("value={row.rate} disabled={noProject} decimals={list === 'soft' ? 2 : undefined}"));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

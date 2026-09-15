@@ -20,6 +20,9 @@ Output, and the Standards paragraph font.
    rate. The platform escalates only sale prices, ADR and rents; a capex rate is flat whatever year it is spent. A
    real missing input: a project escalation rate and base year, applied to capex by the year of spend, with the
    Module 6 lever and the exports following.
+0g. **OPEN (found 2026-09-15):** a loose legacy snapshot with no assets loses its project cost lines in the legacy
+   conversion (they are rebuilt from assets) and the phase is re-seeded. Affects only unversioned legacy imports with no
+   assets; decide whether such lines should survive.
 0f. **FIXED 2026-09-15 (was reported earlier the same day):** (1) Land 2 has no `assetTypeId` but its free-text
    type is "Branded Villas"; the consolidation key and `resolveAssetTypeKey` fall back to the normalised label, so it
    merges into the villas line, while `standardTypeIdFor` (cost standards) and `planTypeMassingWriteBack` read the id

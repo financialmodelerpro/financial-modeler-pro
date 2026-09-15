@@ -386,7 +386,8 @@ export function assetHasStrategyAssumptions(
   if (rev && (rev.sell || rev.operate || rev.lease)) return true;
   if (asset.retainedByStrategy && Object.keys(asset.retainedByStrategy).length > 0) return true;
   if (state.assets.some((a) => a.parentAssetId === assetId)) return true;
-  if (state.costOverrides.some((o) => o.assetId === assetId)) return true;
+  // A default written from Types and Standards is not the user's assumption (2026-09-15).
+  if (state.costOverrides.some((o) => o.assetId === assetId && (o as { origin?: string }).origin !== 'standard')) return true;
   if (state.costLines.some((c) => c.targetAssetId === assetId)) return true;
   return false;
 }

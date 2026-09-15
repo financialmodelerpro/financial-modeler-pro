@@ -193,7 +193,7 @@ section('C. The period window follows the construction window');
 
   // THE WIZARD IS THE DEFECT'S ORIGIN. It must pass the phase length.
   check('the wizard passes the phase construction length',
-    /makeBlankCostLines\(p\.id, p\.constructionPeriods\)/.test(SRC_WIZARD));
+    /buildPhaseCostLines\(p\.id, p\.constructionPeriods\)/.test(SRC_WIZARD)); // the one phase builder, 2026-09-15
   const draft: Parameters<typeof buildWizardSnapshot>[0] = {
     projectName: 'T', currency: 'SAR', modelType: 'annual', outputGranularity: 'annual',
     startDate: '2026-01-01', location: '', displayScale: 'full', projectType: 'Mixed-Use',

@@ -28,9 +28,9 @@ import {
   type SubUnit,
   type FinancingTranche,
   type LandAllocationMode,
-  makeBlankCostLines,
   makeDefaultFinancingTranche,
 } from '../state/module1-types';
+import { buildPhaseCostLines } from '../state/costStandards';
 
 export interface WizardDraftPhase {
   name: string;
@@ -176,7 +176,9 @@ export function buildWizardSnapshot(draft: WizardDraft): HydrateSnapshot {
   // created and every seeded line was born running periods 1 to 25 whatever the
   // user had typed. The store and the hydrate-time seeder both passed it
   // correctly, so this one call site was the whole of the defect.
-  const costLines = phases.flatMap((p) => makeBlankCostLines(p.id, p.constructionPeriods));
+  // THE STANDARDS LIST (2026-09-15): the one phase builder, the same lines a new
+  // phase's first asset and a reset get.
+  const costLines = phases.flatMap((p) => buildPhaseCostLines(p.id, p.constructionPeriods));
 
   // ── ONE facility for the project, not one per phase (2026-08-17) ────────
   //

@@ -149,8 +149,14 @@ section('B. A stripped phasing source is restored, a chosen one is not');
     JSON.stringify(restoreStrippedPhasingSource(stripped)) === JSON.stringify(stripped));
 
   // End to end: it survives a full hydration, which is where it was being lost.
+  // WITH AN ASSET (2026-09-15). A loose legacy snapshot with no assets has its
+  // project lines rebuilt from assets, so it keeps none and the phase is
+  // re-seeded. Until the phase builder became the standards list, that seed
+  // carried a commission line of its own with the collections source, which is
+  // what this check was finding. It now hydrates a snapshot that keeps the line.
   const hydrated = hydrationFromAnySnapshotChecked({
     ...snapOf([mk({ phasingSource: undefined })]),
+    assets: [{ id: 'a1', phaseId: 'phase_1', name: 'A', type: 'Branded Villas', strategy: 'Sell', visible: true }],
   } as unknown);
   const line = hydrated.snapshot.costLines.find((c) => c.id === 'commission__phase_1');
   check('and it survives a full hydration', line?.phasingSource === 'collections', String(line?.phasingSource));

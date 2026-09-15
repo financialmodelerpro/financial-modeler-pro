@@ -210,12 +210,12 @@ check('A14 the store default state seeds zero rates',
 }
 
 // Source level: no product path may reach for the reference catalog.
-check('A19 the wizard imports the blank seed, not the reference one',
-  /makeBlankCostLines/.test(SRC_WIZARD) && !/makeDefaultCostLines/.test(SRC_WIZARD));
-check('A20 the store imports the blank seed, not the reference one',
-  /makeBlankCostLines/.test(SRC_STORE) && !/makeDefaultCostLines/.test(SRC_STORE));
-check('A21 the migrator imports the blank seed, not the reference one',
-  /makeBlankCostLines/.test(SRC_MIGRATE) && !/makeDefaultCostLines/.test(SRC_MIGRATE));
+check('A19 the wizard builds a phase with the one standards builder, never the reference catalog',
+  /buildPhaseCostLines/.test(SRC_WIZARD) && !/makeDefaultCostLines/.test(SRC_WIZARD));
+check('A20 the store builds a phase with the one standards builder, never the reference catalog',
+  /buildPhaseCostLines/.test(SRC_STORE) && !/makeDefaultCostLines/.test(SRC_STORE));
+check('A21 the migrator builds a phase with the one standards builder, never the reference catalog',
+  /buildPhaseCostLines/.test(SRC_MIGRATE) && !/makeDefaultCostLines/.test(SRC_MIGRATE));
 check('A22 the seed values mode is a named type, not a bare boolean',
   /CostLineSeedValues/.test(SRC_TYPES) && /'reference' \| 'blank'/.test(SRC_TYPES));
 // isLocked is the discriminator on purpose: a rule written against the two land

@@ -692,6 +692,25 @@ function standardPhaseLines(
   return lines;
 }
 
+/**
+ * ONE WAY TO BUILD A PHASE'S COST LINES (2026-09-15, founder: "two ways to build
+ * a phase's lines is how they drift apart"). The first asset of a new phase, the
+ * new project wizard, the store's empty default, the load-time seed for a phase
+ * with no lines and the reset all call this: the standards list, in its order,
+ * after the locked land lines. A project with no stored list yet takes the
+ * shipped list, which is what its first load would store.
+ */
+export function buildPhaseCostLines(
+  phaseId: string,
+  constructionPeriods: number,
+  rows?: readonly CostStandardRow[],
+): CostLine[] {
+  const cp = Math.max(1, constructionPeriods || 1);
+  const list = rows ?? seedCostStandardRows([], undefined);
+  const land = makeBlankCostLines(phaseId, cp).filter((l) => l.isLocked === true);
+  return standardPhaseLines(list, phaseId, cp, land);
+}
+
 export function planCapexReset(
   costLines: readonly CostLine[],
   costOverrides: readonly CostOverride[],
@@ -706,20 +725,10 @@ export function planCapexReset(
   for (const phaseId of phaseIds) {
     const cp = phases.find((p) => p.id === phaseId)?.constructionPeriods ?? 1;
     const kept = costLines.filter((l) => l.phaseId === phaseId && keeps(l));
-    if (rows && rows.length > 0) {
-      const keptLand = kept.filter((l) => l.isLocked === true);
-      const land = keptLand.length > 0 ? keptLand : makeBlankCostLines(phaseId, cp).filter((l) => l.isLocked === true);
-      next.push(...standardPhaseLines(rows, phaseId, cp, land), ...kept.filter((l) => l.isLocked !== true));
-      continue;
-    }
-    const keptIds = new Set(kept.map((l) => l.id));
-    for (const seed of makeBlankCostLines(phaseId, cp)) {
-      const own = kept.find((l) => l.id === seed.id);
-      if (own) next.push(own);
-      else next.push(seed.isLocked ? seed : { ...seed, value: 0, rateStated: false });
-    }
-    const seedIds = new Set(makeBlankCostLines(phaseId, cp).map((l) => l.id));
-    for (const l of kept) if (!seedIds.has(l.id) && keptIds.has(l.id)) next.push(l);
+    // The same builder a new phase uses; the phase's own land lines are kept.
+    const built = buildPhaseCostLines(phaseId, cp, rows);
+    const keptLand = new Map(kept.filter((l) => l.isLocked === true).map((l) => [l.id, l]));
+    next.push(...built.map((l) => keptLand.get(l.id) ?? l), ...kept.filter((l) => l.isLocked !== true));
   }
   return {
     costLines: next,

@@ -35,7 +35,6 @@ import {
   makeDefaultProject,
   makeDefaultPhase,
   makeDefaultParcel,
-  makeBlankCostLines,
   makeCompanionSubUnit,
   makeRetailCompanionAsset,
   makeRetailCompanionSubUnit,
@@ -56,7 +55,7 @@ import { applyStrategySwitch, assetHasStrategyAssumptions, seedManageCompanion, 
 import { assetsOnParcel, repairProjectIntegrity, cascadeAssetRemoval, type CascadeReport } from '@/src/core/calculations/projectIntegrity';
 import { planRetailCompanionOverrides } from '@/src/core/calculations/retailCompanion';
 import { applyReferenceCostBases } from '@/src/core/calculations/costBases';
-import { settleStandardCostOverrides, seedCostStandardRows, settleLineRateStated, settleLineSelectionStated, followStripSeeds, planCapexReset } from './costStandards';
+import { settleStandardCostOverrides, seedCostStandardRows, settleLineRateStated, settleLineSelectionStated, followStripSeeds, planCapexReset, buildPhaseCostLines } from './costStandards';
 import { planTypeMassingWriteBack, resolveAssetTypeKey } from './assetTypeStandards';
 import { seedRevenueBlocks } from './revenueSeeds';
 import { settleSubUnitPrices } from './subUnitPrices';
@@ -504,7 +503,8 @@ const defaultParcel = makeDefaultParcel(undefined, defaultPhase.id);
 const defaultTranche = makeDefaultFinancingTranche('tranche_1', defaultPhase.id);
 // 2026-08-15: the catalog, with every editable rate at zero. Nothing enters the
 // costing that the user did not type. See CostLineSeedValues in module1-types.
-const defaultCostLines = makeBlankCostLines(defaultPhase.id, defaultPhase.constructionPeriods);
+// The one phase builder (2026-09-15), so the empty default matches a new phase and a reset.
+const defaultCostLines = buildPhaseCostLines(defaultPhase.id, defaultPhase.constructionPeriods);
 
 export const DEFAULT_MODULE1_STATE: HydrateSnapshot = {
   project: makeDefaultProject(),
@@ -976,7 +976,8 @@ export function createModule1Store() {
       // Total column carries the standard rows from period 0. Rates are ZERO
       // (2026-08-15): a checklist to fill in, not costs the user is opted into.
       const phase = s.phases.find((p) => p.id === asset.phaseId);
-      const seed = makeBlankCostLines(asset.phaseId, phase?.constructionPeriods ?? 24);
+      // THE STANDARDS LIST, the same builder the reset uses (2026-09-15).
+      const seed = buildPhaseCostLines(asset.phaseId, phase?.constructionPeriods ?? 24, s.project.costStandardRows);
       return {
         assets: withCompanion,
         costLines: [...s.costLines, ...seed],

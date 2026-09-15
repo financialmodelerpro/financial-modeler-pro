@@ -1469,7 +1469,9 @@ function CostRow({
               value={effValue}
               onChange={writeValue}
               scale="full"
-              decimals={decimals}
+              // A PERCENTAGE SHOWS TWO DECIMALS (2026-09-15, founder: a 3.5%
+              // marketing rate read as 4% at the project's display decimals).
+              decimals={effMethod.startsWith('percent') ? (2 as DisplayDecimals) : decimals}
               disabled={isValueLocked}
               style={inputStyle}
               data-testid={`cost-${asset.id}-${line.id}-value`}
