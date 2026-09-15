@@ -492,7 +492,7 @@ const STRUCTURAL_SELECTOR_PATTERNS: ReadonlyArray<RegExp> = [
   /^costLines\[[^\]]+\]\.(costCategory|scope|stage|allocationBasis|method|phasing)$/,
   /^costOverrides\[[^\]]+\]\.(phasing|method|origin)$/,
   /^costLines\[[^\]]+\]\.(rateStated|selectionStated)$/,
-  /^project\.costStandardRows\[[^\]]+\]\.(id|list|label|catalogId|method|assetTypeId|linked|custom|chargesOn|appliesToTypeIds.*)$/,
+  /^project\.costStandardRows\[[^\]]+\]\.(id|list|label|catalogId|method|assetTypeId|linked|custom|chargesOn|baseIds.*|appliesToTypeIds.*)$/,
   /^subUnits\[[^\]]+\]\.(metric|category|parentSubUnitId|priceStated)$/,
   /^financingTranches\[[^\]]+\]\.(origin|scope|scopeId|interestRateType|graceInterestTreatment|equalRepaymentSubMethod|repaymentSubMethod|repaymentMethod|drawdownMethod)$/,
 ];

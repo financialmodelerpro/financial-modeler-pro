@@ -66,7 +66,7 @@ import {
   type ParkingRatioBasis,
 } from '../../lib/state/assetTypeStandards';
 import {
-  constructionRowsForView, upsertCostStandardRow, newCustomRow, costStandardBasisLabel, rowChargesOn,
+  constructionRowsForView, upsertCostStandardRow, newCustomRow, costStandardBasisLabel, baseOptionsFor, rowBaseIds, rowBasisLabel,
   type CostStandardRow, type CostStandardList,
 } from '../../lib/state/costStandards';
 import { typePriceColumns } from '../../lib/state/subUnitPriceDefaults';
@@ -205,11 +205,12 @@ function ValueCell({
 }
 
 export default function Module1AssetStandards({ projectId }: { projectId: string | null }): React.JSX.Element {
-  const { project, assets, phases, updateAsset, setProject, setAssetTypeValue, setAssetTypes, setCostStandardRows } = useModule1Store(
+  const { project, assets, phases, costLines, updateAsset, setProject, setAssetTypeValue, setAssetTypes, setCostStandardRows } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
       assets: s.assets,
       phases: s.phases,
+      costLines: s.costLines,
       setCostStandardRows: s.setCostStandardRows,
       updateAsset: s.updateAsset,
       setProject: s.setProject,
@@ -868,20 +869,38 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
                           </td>
                           <td style={TD}>
                             {list === 'soft' && row.method === 'percent_of_selected' ? (
-                              <select
-                                style={TEXT_INPUT}
-                                disabled={noProject}
-                                value={rowChargesOn(row)}
-                                data-testid={`std-cost-${row.id}-charges-on`}
-                                title="What this percentage is charged on, stated once for every phase. A phase that genuinely differs can pick its own lines in Capex."
-                                onChange={(e) => writeRow(row, { chargesOn: e.target.value as 'hard' | 'hard_and_soft' })}
-                              >
-                                <option value="hard">% of hard cost</option>
-                                <option value="hard_and_soft">% of hard and soft costs</option>
-                              </select>
+                              (() => {
+                                const options = baseOptionsFor(row, storedRows, costLines);
+                                const chosen = new Set(rowBaseIds(row, storedRows, costLines));
+                                const toggleBase = (id: string): void => {
+                                  const next = new Set(chosen);
+                                  if (next.has(id)) next.delete(id); else next.add(id);
+                                  writeRow(row, { baseIds: options.filter((o) => next.has(o.id)).map((o) => o.id), chargesOn: undefined });
+                                };
+                                return (
+                                  <>
+                                    <details data-testid={`std-cost-${row.id}-base`}
+                                      title="The lines this percentage is charged on, chosen once for every phase: each phase charges its own lines of these kinds that sit above this one. A phase that genuinely differs can pick its own lines in Capex.">
+                                      <summary style={{ cursor: 'pointer', color: 'var(--color-navy)' }} data-testid={`std-cost-${row.id}-base-summary`}>
+                                        Select lines ({chosen.size} selected)
+                                      </summary>
+                                      {options.map((o) => (
+                                        <label key={o.id} style={{ display: 'block', fontSize: 10 }}>
+                                          <input type="checkbox" disabled={noProject} checked={chosen.has(o.id)}
+                                            data-testid={`std-cost-${row.id}-base-${o.id}`}
+                                            onChange={() => toggleBase(o.id)} /> {o.label}
+                                        </label>
+                                      ))}
+                                    </details>
+                                    <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2 }} data-testid={`std-cost-${row.id}-base-label`}>
+                                      {rowBasisLabel(row, storedRows, costLines)}
+                                    </div>
+                                  </>
+                                );
+                              })()
                             ) : list === 'soft' || row.assetTypeId !== undefined ? (
                               <span style={{ color: 'var(--color-meta)' }}>
-                                {row.assetTypeId !== undefined ? 'Assets of this type' : costStandardBasisLabel(row.method, currency, row.catalogId, rowChargesOn(row))}
+                                {row.assetTypeId !== undefined ? 'Assets of this type' : (row.method === 'percent_of_selected' ? rowBasisLabel(row, storedRows, costLines) : costStandardBasisLabel(row.method, currency, row.catalogId))}
                               </span>
                             ) : (
                               <details data-testid={`std-cost-${row.id}-types`}>
@@ -903,7 +922,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
                           <td style={TD}>
                             <ValueCell value={row.rate} disabled={noProject} decimals={list === 'soft' ? 2 : undefined}
                               testId={`std-cost-${row.id}-rate`}
-                              title={`${row.label}: ${costStandardBasisLabel(row.method, currency, row.catalogId, rowChargesOn(row))}. Blank applies nothing.`}
+                              title={`${row.label}: ${(row.method === 'percent_of_selected' ? rowBasisLabel(row, storedRows, costLines) : costStandardBasisLabel(row.method, currency, row.catalogId))}. Blank applies nothing.`}
                               onCommit={(n) => writeRow(row, { rate: n })} />
                           </td>
                           {phases.length > 1 && (
@@ -980,8 +999,8 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
                         onChange={(e) => setDraft((p) => ({ ...p, [list]: { ...p[list], method: e.target.value as CostMethod } }))}>
                         {(list === 'construction'
                           ? ['rate_x_main_asset_gfa', 'rate_x_parking_area', 'rate_x_landscape_area', 'rate_per_land', 'rate_x_retail_gfa', 'fixed']
-                          : ['percent_of_selected', 'percent_of_selected:hard_and_soft', 'percent_of_cash_land', 'percent_of_revenue_sale']
-                        ).map((m) => (<option key={m} value={m}>{m === 'percent_of_selected:hard_and_soft' ? '% of hard and soft costs' : costStandardBasisLabel(m, currency)}</option>))}
+                          : ['percent_of_selected', 'percent_of_cash_land', 'percent_of_revenue_sale']
+                        ).map((m) => (<option key={m} value={m}>{costStandardBasisLabel(m, currency)}</option>))}
                       </select>
                     </td>
                     <td style={TD} colSpan={(phases.length > 1 ? 3 : 2) + (list === 'construction' ? PRICE_COLUMNS.length : 0)}>

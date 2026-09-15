@@ -11,6 +11,7 @@
  *   M  lines: an unpriced phase takes the whole list, a priced phase only rows
  *      a user added or edited, and an added row creates its line
  *   G  the store, Module 6 and the screens
+ *   V  a soft percentage charges on lines picked on the tab
  *   T  two price columns, read by the type's strategy
  *   U  a price typed on Table 5 can be handed back to its type
  *   S  a type's sale prices, ADR and lease rate price the Table 5 rows with none of their own
@@ -25,7 +26,7 @@ import {
 import { planTypeMassingWriteBack, resolveChainDefaults } from '../src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards';
 import {
   seedCostStandardRows, settleStandardCostOverrides, settleLineRateStated, newCustomRow,
-  constructionRowsForView, pickStandardRate, costStandardBasisLabel, derivedSelection, settleLineSelectionStated, standardTypeIdFor, type CostStandardRow,
+  constructionRowsForView, pickStandardRate, costStandardBasisLabel, derivedSelection, settleLineSelectionStated, standardTypeIdFor, baseOptionsFor, rowBaseIds, rowBasisLabel, type CostStandardRow,
 } from '../src/hubs/modeling/platforms/refm/lib/state/costStandards';
 import { inactiveLeverReason, nonEconomicLeverReason } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
 import type { SubUnit } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
@@ -352,7 +353,7 @@ section('B. a soft percentage charges on what its Types and Standards row states
   const tab = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1AssetStandards.tsx', 'utf8');
   const capex = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx', 'utf8');
   check('B11 the tab states the basis per row; Capex shows where it comes from and the way back',
-    tab.includes('-charges-on') && capex.includes('-pct-basis') && capex.includes('-pct-use-standard') && capex.includes('selectionStated: true'));
+    tab.includes('-base-summary') && capex.includes('-pct-basis') && capex.includes('-pct-use-standard') && capex.includes('selectionStated: true'));
 }
 
 // ── Z. the four fixes of 2026-09-15 ─────────────────────────────────────────
@@ -547,6 +548,42 @@ section('T. a type carries two prices, and its strategy says what each means');
     tab.includes("label: 'Price per unit'") && tab.includes("label: 'Price per sqm'") && tab.includes('-${c.key}-unit`}')
     && !/adrPerKeyNight|leaseRatePerSqmYear|salePricePer|c\.fits/.test(tab));
   check('T8 load and save both fold the old fields', (storeSrc.match(/settleTypePriceFields\(/g) ?? []).length >= 2);
+}
+
+// ── V. the basis is picked by line ──────────────────────────────────────────
+section('V. a soft percentage charges on the lines picked for it on Types and Standards');
+{
+  const lines = run(ROWS, unpriced()).state.costLines;
+  const devRow = ROWS.find((r) => r.id === 'cat:developer-fee')!;
+  const engRow = ROWS.find((r) => r.id === 'cat:engineering-supervision')!;
+  const opts = baseOptionsFor(devRow, ROWS, lines).map((o) => o.id);
+  check('V1 the tab offers the construction list, the soft rows above and the phase lines above; never land, selling, itself or below',
+    ['construction-bua', 'construction-parking', 'landscaping', 'engineering-supervision', 'design-consultancy', 'permits-approvals', 'infrastructure'].every((id) => opts.includes(id))
+    && !['rett', 'marketing', 'contingency', 'developer-fee'].some((id) => opts.includes(id)), opts.join(','));
+  check('V2 a row that predates the pick ticks what its old basis selected',
+    rowBaseIds(engRow, ROWS, lines).includes('construction-bua') && !rowBaseIds(engRow, ROWS, lines).includes('design-consultancy')
+    && rowBaseIds(devRow, ROWS, lines).includes('engineering-supervision'));
+  const picked = ROWS.map((r) => (r.id === devRow.id ? { ...r, baseIds: ['construction-bua', 'engineering-supervision'], chargesOn: undefined } : r));
+  const rp = run(picked, unpriced());
+  const devLine = rp.state.costLines.find((l) => l.id === `developer-fee__${P}`);
+  check('V3 lines picked on the tab are exactly the phase selection',
+    JSON.stringify([...(devLine?.selectedLineIds ?? [])].sort()) === JSON.stringify([BUA, `engineering-supervision__${P}`].sort()), JSON.stringify(devLine?.selectedLineIds));
+  const label = rowBasisLabel(picked.find((r) => r.id === devRow.id)!, picked, rp.state.costLines);
+  check('V4 the basis reads as the lines picked', label === '% of Construction (by asset type), Engineering Supervision', label);
+  const own = rp.state.costLines.map((l) => (l.id === `developer-fee__${P}` ? { ...l, selectedLineIds: [BUA], selectionStated: true } : l));
+  check('V5 a phase that picked its own lines in Capex keeps them',
+    JSON.stringify(settleStandardCostOverrides({ ...rp.state, costLines: own }).state.costLines.find((l) => l.id === `developer-fee__${P}`)?.selectedLineIds) === JSON.stringify([BUA]));
+  const st = createModule1Store();
+  st.getState().addAsset(asset('vb1', 'villa'));
+  st.getState().setCostStandardRows(seedCostStandardRows([] as never, undefined)
+    .map((r) => (r.id === 'cat:contingency' ? { ...r, baseIds: ['construction-bua'], chargesOn: undefined } : r)));
+  const cont = st.getState().costLines.find((l) => l.id === `contingency__${P}`);
+  check('V6 a pick on the tab reaches the phase at once', JSON.stringify(cont?.selectedLineIds) === JSON.stringify([BUA]), JSON.stringify(cont?.selectedLineIds));
+  const tab = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1AssetStandards.tsx', 'utf8');
+  const capex = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx', 'utf8');
+  check('V7 the tab picks lines, no basket dropdown remains, and Capex names the lines picked',
+    tab.includes('std-cost-${row.id}-base-${o.id}') && !tab.includes('-charges-on') && !tab.includes('percent_of_selected:hard_and_soft')
+    && capex.includes('rowBasisLabel('));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

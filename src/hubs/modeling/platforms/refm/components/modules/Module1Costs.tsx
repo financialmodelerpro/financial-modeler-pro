@@ -33,7 +33,7 @@ import { resolveSubUnitAdr } from '@/src/core/calculations';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
-import { standardIdentity, standardBasisRowFor, costStandardBasisLabel } from '../../lib/state/costStandards';
+import { standardIdentity, standardBasisRowFor, rowBasisLabel } from '../../lib/state/costStandards';
 import {
   type Asset,
   type AssetStrategy,
@@ -850,6 +850,11 @@ function CostRow({
   const hasStandardDefault = useModule1Store((s) => (s.project.costStandardRows ?? []).some((r) => r.catalogId === standardIdentity(line)));
   // The Types and Standards row that states this soft percentage's basis (2026-09-15).
   const standardBasisRow = useModule1Store((s) => standardBasisRowFor(s.project.costStandardRows ?? [], line));
+  // THE LINES TYPES AND STANDARDS PICKS for this percentage, named (2026-09-15).
+  const standardBasisNote = useModule1Store((s) => {
+    const row = standardBasisRowFor(s.project.costStandardRows ?? [], line);
+    return row ? rowBasisLabel(row, s.project.costStandardRows ?? [], s.costLines) : undefined;
+  });
   const masterAsOverride = (): CostOverride => ({
     assetId: asset.id,
     lineId: line.id,
@@ -1983,7 +1988,7 @@ function CostRow({
         scale={scale}
         decimals={decimals}
         onChangeSelected={(ids) => onUpdateLine({ selectedLineIds: ids, selectionStated: true })}
-        basisNote={standardBasisRow ? costStandardBasisLabel('percent_of_selected', '', standardBasisRow.catalogId, standardBasisRow.chargesOn) : undefined}
+        basisNote={standardBasisNote}
         basisStated={line.selectionStated === true}
         onUseStandardBasis={() => onUpdateLine({ selectionStated: false })}
       />
