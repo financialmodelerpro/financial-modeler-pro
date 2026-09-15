@@ -266,3 +266,34 @@ export function poolReturnRows<T extends { assetId: string; assetName: string; t
   }
   return out;
 }
+
+/** An advisory per asset, pooled per consolidated line (2026-09-15, step 9): the
+ *  amounts add and the row is named for the line. `merge` folds the next member in. */
+function poolAdvisories<T extends { assetId: string; assetName: string }>(items: readonly T[], state: LineState, merge: (acc: T, next: T) => T): T[] {
+  const byId = new Map(items.map((x) => [x.assetId, x] as const));
+  const out: T[] = [];
+  const placed = new Set<string>();
+  for (const line of planReportLines(state, (a) => byId.has(a.id))) {
+    const members = line.assetIds.map((id) => byId.get(id)).filter((x): x is T => !!x);
+    if (members.length === 0) continue;
+    members.forEach((m) => placed.add(m.assetId));
+    const pooled = members.slice(1).reduce(merge, { ...members[0] });
+    out.push({ ...pooled, assetId: members[0].assetId, assetName: lineTitle(line, state) });
+  }
+  for (const x of items) if (!placed.has(x.assetId)) out.push(x);
+  return out;
+}
+
+/** The revenue basis advisory per line: gross and collections add, the divergence is struck on the sums. */
+export function poolRevenueBasisByLine<T extends { assetId: string; assetName: string; gross: number; collections: number; relative: number }>(items: readonly T[], state: LineState): T[] {
+  return poolAdvisories(items, state, (acc, next) => {
+    const gross = acc.gross + next.gross;
+    const collections = acc.collections + next.collections;
+    return { ...acc, gross, collections, relative: gross > 0 ? collections / gross - 1 : 0 };
+  });
+}
+
+/** The missing-downpayment advisory per line: the sale value at stake adds. */
+export function poolSaleCohortByLine<T extends { assetId: string; assetName: string; saleValue: number }>(items: readonly T[], state: LineState): T[] {
+  return poolAdvisories(items, state, (acc, next) => ({ ...acc, saleValue: acc.saleValue + next.saleValue }));
+}

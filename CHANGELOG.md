@@ -4,6 +4,16 @@
 
 Entries are grouped by their most recent date. Fuller per-day narrative for REFM platform work lives in [CLAUDE-REFM.md](CLAUDE-REFM.md); per-route and migration detail in [CLAUDE-ROUTES.md](CLAUDE-ROUTES.md) and [CLAUDE-DB.md](CLAUDE-DB.md); the general lessons in [docs/TRAPS.md](docs/TRAPS.md); fund-layer standing rules in [docs/FUND_LAYER_GUIDELINE.md](docs/FUND_LAYER_GUIDELINE.md). This file is loaded on demand only and has no size limit.
 
+## 2026-09-16
+
+- **STEP 9: THE READER RESTRUCTURES.**
+  - **WHAT STILL PRESENTED PER PLOT after the per-line pass, measured by surveying every surface after the assets tab**: the revenue basis and missing-downpayment advisories (workbook and PDF checks, and the reconciliation warning), the IC report's strategy mix (it counted plots), and the workbook's recognition profile tables (one per asset). Everything else was already by line or a total that names no plot. All three now read per consolidated line: the advisories pool their amounts (`poolRevenueBasisByLine`, `poolSaleCohortByLine` in `lib/reports/lineRows.ts`), the strategy mix counts lines, the recognition profile follows `lineHosts`.
+  - **THE P&L REVENUE ROWS FILE BY CATEGORY, NEVER BY STRATEGY**: `revenueBySection` (`lib/reports/revenueSections.ts`) sums each asset's own revenue under `revenueSection`, the Revenue tab's filing rule, for the P&L headers (screen, PDF, workbook, every phase) and the revenue summaries in the workbook, the PDF and the IC schedule. A hotel still reads by department under its section. The engine's strategy buckets are untouched: Returns reads them as income from held assets (NOI, the terminal value).
+  - **WHAT MOVED ON THE LIVE MODEL (no money)**: "Retail Revenue" 103.00m splits into Standalone Commercial Revenue 75.12m and Retail Ground Floor Revenue 27.88m, on the project and each phase P&L and in the three summaries; the IC strategy mix reads "2 Sell, 4 Lease, 1 Operate" (was 3 Sell, Land 1 + Land 2 being one line); the check advisories name "Phase 1, Branded Villas" rather than "Land 1, Branded Villas, Phase 1". Revenue 2,162.71m, PAT and equity IRR identical. **The latent case, measured on a copy**: a standalone commercial Lease line typed Branded Villas filed its 10.73m under Retail Revenue before and under Residential Revenue after, as the Revenue tab files it, with total revenue and returns unchanged.
+  - **STILL BY STRATEGY, deliberately**: the P&L operating expense rows (a hotel's costs read from its operating statement).
+  - **Module 1's "no further changes before launch" line in CLAUDE.md was stale** (Module 1 was reopened deliberately and rebuilt); corrected at the founder's direction.
+  - **STANDING RULE (founder, 2026-09-16): never hold work for a background run.** The full suite reports, it does not gate.
+
 ## 2026-09-15
 
 - **STEP 8: THE SCENARIO LEVERS (review gaps: no sales pace lever, occupancy out of the defaults, type prices and cost defaults inactive).**

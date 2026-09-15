@@ -59,7 +59,8 @@ import { buildCapexReport } from '../reports/capexReports';
 import { buildFinancingScheduleTables, buildCashSweepTables } from '../reports/financingReports';
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildCaseComparisonReport, type CaseComparisonInput, type CaseComparisonReport } from '../reports/caseComparisonReport';
-import { poolMapByLine, poolCapexByLine, poolReturnRows, lineHosts, fixHospitalityRates, fixLeaseRates, type PooledCapexInputLine } from '../reports/lineRows';
+import { poolMapByLine, poolCapexByLine, poolReturnRows, lineHosts, fixHospitalityRates, fixLeaseRates, poolRevenueBasisByLine, poolSaleCohortByLine, type PooledCapexInputLine } from '../reports/lineRows';
+import { revenueBySection } from '../reports/revenueSections';
 import { buildCaseYoYReport, type CaseYoYReport } from '../reports/caseYoYReport';
 import { formatAssumptionValue } from '../cases/assumptionGrid';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
@@ -874,7 +875,7 @@ function checksTable(
   // would cry wolf. They appear here because this is where a reader looks for
   // model caveats, and only when a divergence actually exists.
   const advisories = state
-    ? buildRevenueBasisAdvisoriesFor(state.assets, state.subUnits, snap.revenue)
+    ? poolRevenueBasisByLine(buildRevenueBasisAdvisoriesFor(state.assets, state.subUnits, snap.revenue), state)
     : [];
   // Option B Step 3 (2026-08-20): a sell asset with no downpayment on itself
   // and no project default to fall back on. Same NOTE treatment and the same
@@ -882,7 +883,7 @@ function checksTable(
   // coloured as a failed check, but it must be visible where the number is
   // read and not only where it is entered.
   const cohortAdvisories = state
-    ? buildSaleCohortAdvisories(state.assets, state.project.saleCohortDefaults?.downpayment, snap.revenue)
+    ? poolSaleCohortByLine(buildSaleCohortAdvisories(state.assets, state.project.saleCohortDefaults?.downpayment, snap.revenue), state)
     : [];
   return {
     title: 'Model Integrity Checks', kind: 'grid', align: 'data',
@@ -1579,9 +1580,8 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
   // Tab 2: Revenue Output.
   const pl = snap.pl;
   items.push(tTable('Tab 2: Revenue Output', 'outputs', periodTable('Project Revenue Summary', py, yl, [
-    periodRow('Residential revenue', pl.residentialRevenuePerPeriod, 'sum'),
-    periodRow('Hospitality revenue', pl.hospitalityRevenuePerPeriod, 'sum'),
-    periodRow('Retail revenue', pl.retailRevenuePerPeriod, 'sum'),
+    // By revenue section, the Revenue tab's filing (2026-09-15, step 9).
+    ...revenueBySection(snap, state).map((sec) => periodRow(sec.label, sec.values, 'sum')),
     periodRow('Total revenue', pl.totalRevenuePerPeriod, 'sum', 'total'),
   ])));
   // ONE BLOCK PER CONSOLIDATED LINE (2026-09-15): the plots of a line pool.

@@ -39,6 +39,7 @@ import type { Party } from '../parties';
 import type { CaseComparisonReport } from './caseComparisonReport';
 import type { ReportInputs, ICSectionKey } from '../reportInputs';
 import { planReportLines, lineRowLabel } from './lineRows';
+import { revenueBySection } from './revenueSections';
 
 export interface ICPartyRef { name: string; identifier: string | null }
 export interface ICKeyValue { label: string; value: number }
@@ -421,7 +422,8 @@ export function buildICReportModel(input: {
     .sort((x, y) => y.bua - x.bua);
   // Strategy mix summary string "3 Operate, 2 Sell, ...".
   const stratCount = new Map<string, number>();
-  for (const a of visibleAssets) stratCount.set(String(a.strategy), (stratCount.get(String(a.strategy)) ?? 0) + 1);
+  // Counted by consolidated line (2026-09-15, step 9), as the asset schedule reads.
+  for (const l of mixLines) stratCount.set(String(l.strategy), (stratCount.get(String(l.strategy)) ?? 0) + 1);
   const strategyMix = [...stratCount.entries()].map(([s, n]) => `${n} ${s}`).join(', ');
 
   // ── Phasing (per-phase capex from per-asset CF, abs cash) ──
@@ -665,9 +667,8 @@ export function buildICReportModel(input: {
     hasInception: false,
     showTotal: true,
     rows: [
-      flowRow('Residential revenue', plS?.residentialRevenuePerPeriod, { indent: 1 }),
-      flowRow('Hospitality revenue', plS?.hospitalityRevenuePerPeriod, { indent: 1 }),
-      flowRow('Retail revenue', plS?.retailRevenuePerPeriod, { indent: 1 }),
+      // By revenue section, the Revenue tab's filing (2026-09-15, step 9).
+      ...(snap.perAssetPL ? revenueBySection(snap, { assets, project }).map((sec) => flowRow(sec.label, sec.values, { indent: 1 })) : []),
       flowRow('Total revenue', plS?.totalRevenuePerPeriod, { emphasis: true }),
       flowRow('Cost of sales', plS?.cosPerPeriod, { neg: true, indent: 1 }),
       flowRow('Hospitality opex', plS?.hospitalityOpexPerPeriod, { neg: true, indent: 1 }),

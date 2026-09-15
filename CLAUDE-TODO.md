@@ -15,6 +15,10 @@ per capex line, reaching the engine as standard-sourced overrides the Capex tab 
 override), Table 2 massing filled back to the type when every plot agrees, active rows only on the Opex
 Output, and the Standards paragraph font.
 
+**STEP 9 DONE (2026-09-16)**: the remaining per-plot surfaces (advisories, IC strategy mix, workbook recognition profiles) read per line, and
+the P&L revenue rows and revenue summaries file by category (`revenueBySection`); P&L opex rows stay by strategy. Step 10 (disposal
+rows, then construction cost escalation as its own commit) is next.
+
 **STEP 8 DONE (2026-09-15)**: sales pace and occupancy levers (pace says on its row that slower can raise profit and lower IRR),
 type prices and cost defaults apply inside a scenario through `caseModelOf`, derived values never saved as overrides; type prices
 are the largest single dial on the live model (-6.99 points of equity IRR at -10%). Steps 9 and 10 stay held.

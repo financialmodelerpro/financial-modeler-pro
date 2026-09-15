@@ -21,7 +21,8 @@ import { buildSaleCohortTermsBlock, saleCohortRuleText, buildSaleCohortGrid, sal
 import JSZip from 'jszip';
 import { computeFinancialsSnapshot, computeFundingGap, type FinancialsResolverState } from '../financials-resolvers';
 import { buildCapexReport, type CapexReport } from '../reports/capexReports';
-import { poolMapByLine, poolCapexByLine, poolReturnRows, poolResults, lineHosts, fixHospitalityRates, fixLeaseRates } from '../reports/lineRows';
+import { poolMapByLine, poolCapexByLine, poolReturnRows, poolResults, lineHosts, fixHospitalityRates, fixLeaseRates, poolRevenueBasisByLine, poolSaleCohortByLine } from '../reports/lineRows';
+import { revenueBySection } from '../reports/revenueSections';
 import { buildFinancingScheduleTables, buildCashSweepTables, type ReportTable } from '../reports/financingReports';
 import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup, m4StreamRow } from '../reports/streamReports';
 import { buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
@@ -2418,7 +2419,8 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
   r += 1;
   // Per-asset cash + recognition profiles (relative to the sale year: the first
   // period column is Year 1 from sale, not the absolute axis year).
-  for (const a of state.assets) {
+  // One profile per consolidated line (2026-09-15, step 9): a line's terms are written to every plot on it.
+  for (const a of lineHosts({ assets: state.assets.filter((x) => x.visible !== false), phases: state.phases, parcels: state.parcels })) {
     const s = a.revenue?.sell; if (!s) continue;
     // Recognition only; see the note on the Inputs tab block above.
     const recogPct = s.recognitionProfile?.percentages ?? [];
@@ -2432,10 +2434,11 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
   section('2. Revenue Output (project summary, then per-asset narrative + vintage matrices)');
   const pl = snap.pl;
   subTitle('Project Revenue Summary');
-  const residentialRow = moneyRow('Residential revenue', pl.residentialRevenuePerPeriod, { style: 'subtotal', basis: 'Sum of Residential / Sell recognised revenue' });
-  const hospitalityRow = moneyRow('Hospitality revenue', pl.hospitalityRevenuePerPeriod, { style: 'subtotal', basis: 'Sum of Hospitality / Operate revenue' });
-  const retailRow = moneyRow('Retail revenue', pl.retailRevenuePerPeriod, { style: 'subtotal', basis: 'Sum of Retail / Lease revenue' });
-  const totalRow = moneyRow('Total revenue', pl.totalRevenuePerPeriod, { style: 'total', basis: 'Residential + Hospitality + Retail' });
+  // By revenue section, the Revenue tab's filing (2026-09-15, step 9), never by strategy.
+  const sectionRows = revenueBySection(snap, state).map((sec) => moneyRow(sec.label, sec.values, { style: 'subtotal', basis: `Sum of ${sec.section} line revenue` }));
+  // The three strategy links are read by nothing (addReturns voids revLinks); they keep the first section row.
+  const residentialRow = sectionRows[0] ?? r; const hospitalityRow = residentialRow; const retailRow = residentialRow;
+  const totalRow = moneyRow('Total revenue', pl.totalRevenuePerPeriod, { style: 'total', basis: 'Sum of the revenue sections' });
   r += 1;
   const byAssetRow = new Map<string, number>();
   // ONE BLOCK PER CONSOLIDATED LINE (2026-09-15): the plots of a line pool.
@@ -3890,7 +3893,7 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
   // a broken identity, so it must not be coloured as a pass or a failure. Only
   // rendered when a divergence exists, which on a fully-collected project is
   // never, so the tab is unchanged for most models.
-  for (const a of buildRevenueBasisAdvisoriesFor(ctx.state.assets, ctx.state.subUnits, snap.revenue)) {
+  for (const a of poolRevenueBasisByLine(buildRevenueBasisAdvisoriesFor(ctx.state.assets, ctx.state.subUnits, snap.revenue), ctx.state)) {
     setLabel(ws.getCell(`A${r}`), `Revenue basis, ${a.assetName}`);
     const s2 = ws.getCell(`B${r}`); s2.value = 'NOTE'; s2.numFmt = '@';
     s2.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
@@ -3904,7 +3907,7 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
   // and no project default. NOTE, not OK or CHECK, for the same reason as the
   // basis advisory above: a missing input is not a broken identity, and a
   // check that cries wolf on correct arithmetic gets ignored.
-  for (const a of buildSaleCohortAdvisories(ctx.state.assets, ctx.state.project.saleCohortDefaults?.downpayment, snap.revenue)) {
+  for (const a of poolSaleCohortByLine(buildSaleCohortAdvisories(ctx.state.assets, ctx.state.project.saleCohortDefaults?.downpayment, snap.revenue), ctx.state)) {
     setLabel(ws.getCell(`A${r}`), `Downpayment not stated, ${a.assetName}`);
     const s3 = ws.getCell(`B${r}`); s3.value = 'NOTE'; s3.numFmt = '@';
     s3.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };

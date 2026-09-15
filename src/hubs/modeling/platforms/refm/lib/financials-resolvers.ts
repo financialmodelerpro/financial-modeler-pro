@@ -15,6 +15,7 @@
 import { groupAssetsForConsolidation } from '@/src/core/calculations/consolidation';
 import { normaliseAssetTypeId } from '@/src/core/calculations/typeKey';
 import { buildSaleCohortAdvisories, saleCohortAdvisoryIssue } from './reports/checksReport';
+import { poolSaleCohortByLine } from './reports/lineRows';
 import {
   computeAllSellResults,
   computeAssetScheduleBundle,
@@ -1725,9 +1726,10 @@ function computeFinancialsSnapshotOnce(
     // THE ADVISORY NAMES AN ASSET, so it takes the RESOLVED list. It took the
     // raw one, which is the last place in the engine where the retired stored
     // name still reached a sentence a user reads.
-    const blocked = buildSaleCohortAdvisories(
+    // One warning per consolidated line (2026-09-15, step 9): its terms are written to every plot.
+    const blocked = poolSaleCohortByLine(buildSaleCohortAdvisories(
       withResolvedAssetNames(assets, state), project.saleCohortDefaults?.downpayment, revenue,
-    );
+    ), state);
     if (blocked.length > 0) {
       financing.reconciliation = {
         ok: false,

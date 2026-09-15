@@ -24,6 +24,7 @@ import type { M4Row } from '../../components/modules/_shared/m4Table';
 import type { FundFeeSchedule } from '../fundFees';
 import { FEE_BASE_LABELS, FEE_TIMING_LABELS } from '../fundTerms';
 import { planReportLines, lineRowLabel, sumLine, poolMapByLine } from './lineRows';
+import { revenueBySection } from './revenueSections';
 
 type Labels = ReturnType<typeof getFinancialLabels>;
 
@@ -249,18 +250,6 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
     }
   };
 
-  if (residentialAssets.length > 0 && resRev.some((v) => v !== 0)) {
-    rows.push({ label: 'Residential Revenue', values: resRev, isSection: true, collapseGroup: 'pl-rev-res', collapseRole: 'header', defaultCollapsed: false });
-    pushLinesPL(residentialAssets, 'revenuePerPeriod', 'pl-rev-res');
-  }
-  // HOSPITALITY BY DEPARTMENT AND BY EXPENSE GROUP, PER LINE (2026-09-14,
-  // founder: "show hospitality properly"). A hotel was one revenue row and one
-  // opex row; it now reads Rooms / F&B / Other revenue and departmental,
-  // undistributed, management and fixed charges, from the SAME statement the
-  // Opex Output tab renders (lib/reports/hospitalityStatement). The members of
-  // each header still sum to it: the departments add to the engine's revenue
-  // and the four groups to its total opex, so nothing below moves. The GOP and
-  // EBITDA of a hotel read on the Opex Output tab's operating statement.
   const hospLines = hospitalityStatementsByLine(snap, state, new Set(hospitalityAssets.map((a) => a.id)));
   const pushHospParts = (parts: Array<{ label: string; values: number[] }>, prefix: string, phaseId: string, group: string, sign: 1 | -1): void => {
     for (const part of parts) {
@@ -275,13 +264,19 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
       });
     }
   };
-  if (hospitalityAssets.length > 0 && hospRev.some((v) => v !== 0)) {
-    rows.push({ label: 'Hospitality Revenue', values: hospRev, isSection: true, collapseGroup: 'pl-rev-hosp', collapseRole: 'header', defaultCollapsed: false });
-    for (const h of hospLines) pushHospParts(hospitalityRevenueParts(h.statement), h.line.label, h.line.phaseId, 'pl-rev-hosp', 1);
-  }
-  if (retailAssets.length > 0 && retailRev.some((v) => v !== 0)) {
-    rows.push({ label: 'Retail Revenue', values: retailRev, isSection: true, collapseGroup: 'pl-rev-ret', collapseRole: 'header', defaultCollapsed: false });
-    pushLinesPL(retailAssets, 'revenuePerPeriod', 'pl-rev-ret');
+  // REVENUE FILES BY CATEGORY, NEVER BY STRATEGY (2026-09-15, step 9): one header
+  // per revenue section, the Revenue tab's own filing rule, in its order. A hotel's
+  // revenue still reads by department under its section; every other line is one
+  // member row. The headers add to Total Revenue, which is unchanged.
+  for (const sec of revenueBySection(snap, state, matchesPhase)) {
+    if (sec.values.every((v) => v === 0)) continue;
+    const group = `pl-rev-${sec.key}`;
+    rows.push({ label: `${sec.section} Revenue`, values: sec.values, isSection: true, collapseGroup: group, collapseRole: 'header', defaultCollapsed: false });
+    const inSection = new Set(sec.assetIds);
+    for (const h of hospLines) {
+      if (h.line.members.some((m) => inSection.has(m.id))) pushHospParts(hospitalityRevenueParts(h.statement), h.line.label, h.line.phaseId, group, 1);
+    }
+    pushLinesPL(visibleAssets.filter((a) => inSection.has(a.id) && a.strategy !== 'Operate'), 'revenuePerPeriod', group);
   }
   rows.push({ label: 'Total Revenue', values: totalRev, isTotal: true });
 
