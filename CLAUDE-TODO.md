@@ -18,7 +18,8 @@ Output, and the Standards paragraph font.
 **REVIEW OF MODULES 1 TO 6 (2026-09-15), FIX ORDER.** Steps 1 to 5 DONE the same day (verifiers re-aimed, Excel
 and PDF returns labels, docs, the no-override scenario note, saved versions read through the store for the Portfolio
 dashboard and the saved-version export). HELD, in order:
-6. **EVERY SAVED PROJECT LOADS THROUGH THE LEGACY ROUTE** (measured on all six live projects and every version). Saves
+6. **STEP 6 DONE IN PART (2026-09-15)**: saved cases now survive the legacy route (shipped, 12 of 12 load identically). **STILL OPEN, measured and withheld**: Pass 7 honouring its marker (1 of 12 identical: zeroes Marina Gate's phase line values, drops its 3 user marketing overrides) and routing a current snapshot to v8 (11 of 12: adds a zeroed `percentagesByPhase`, swaps one stale notice for another), so the "latest schema" notice still shows on every open and migration alone still drops the standard overrides the store restores. **DECISION OWED**: the five empty projects' stored retired-catalog lines are replaced by the standards list on every load (unchanged by the fix). **ALSO OPEN**: saving with a scenario active writes load-time settle differences into that scenario as overrides. Original finding:
+   **EVERY SAVED PROJECT LOADS THROUGH THE LEGACY ROUTE** (measured on all six live projects and every version). Saves
    write no version marker and the v7 fingerprint matches exact base ids while saved ids carry a phase suffix, so
    `migrateLegacyToV8` runs the whole old chain on every open: Pass 7 spreads the phase lines over every asset, the
    companion strip removes the strips' copies (the "removed 24" log), Pass 10 folds the rest back, and the banner

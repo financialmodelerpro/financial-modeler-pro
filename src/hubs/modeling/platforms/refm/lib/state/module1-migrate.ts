@@ -1765,6 +1765,16 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
     financingTranches,
     equityContributions,
     migrationsApplied: getApplied(o),
+    // SAVED CASES COME BACK AS STORED (2026-09-15, founder decision). This literal
+    // rebuilt the snapshot from a fixed field list that left the cases out, and
+    // every saved project loads through this route (saves carry no version
+    // marker and the v7 fingerprint does not match phase-suffixed line ids), so a
+    // scenario saved on a project came back as fresh default cases on every open:
+    // Module 6 did not survive a save and reopen. Carried verbatim; the store
+    // normalises them on hydrate as it always has. Measured before and after on
+    // every live project version and every fixture: all load identically.
+    ...(Array.isArray(o.cases) ? { cases: o.cases as HydrateSnapshot['cases'] } : {}),
+    ...(typeof o.activeCaseId === 'string' ? { activeCaseId: o.activeCaseId } : {}),
   };
 
   // Run the full migration chain so the loose result is identical to
