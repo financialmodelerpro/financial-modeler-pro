@@ -11,6 +11,7 @@
  *   M  lines: an unpriced phase takes the whole list, a priced phase only rows
  *      a user added or edited, and an added row creates its line
  *   G  the store, Module 6 and the screens
+ *   T  two price columns, read by the type's strategy
  *   U  a price typed on Table 5 can be handed back to its type
  *   S  a type's sale prices, ADR and lease rate price the Table 5 rows with none of their own
  *
@@ -28,7 +29,7 @@ import {
 } from '../src/hubs/modeling/platforms/refm/lib/state/costStandards';
 import { inactiveLeverReason, nonEconomicLeverReason } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
 import type { SubUnit } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
-import { settleSubUnitPriceDefaults, settleSubUnitPriceStated, typePriceDefaultFor } from '../src/hubs/modeling/platforms/refm/lib/state/subUnitPriceDefaults';
+import { settleSubUnitPriceDefaults, settleSubUnitPriceStated, typePriceDefaultFor, typePriceColumns, typePricesFor, settleTypePriceFields } from '../src/hubs/modeling/platforms/refm/lib/state/subUnitPriceDefaults';
 
 let pass = 0, fail = 0;
 const check = (name: string, ok: boolean, detail = ''): void => {
@@ -436,21 +437,21 @@ section('S. a type states its sale prices, ADR and lease rate, and a Table 5 row
   g().addSubUnit(sub('s-a', 'sv', 'Support', 'area'));
   const row = (id: string): SubUnit => g().subUnits.find((u) => u.id === id)!;
   check('S1 a row added with no price is not stated', row('v-a').priceStated === false && row('v-b').priceStated === false);
-  g().setAssetTypeValue('branded-villas', { salePricePerSqm: 12000, salePricePerUnit: 5000000 });
+  g().setAssetTypeValue('branded-villas', { pricePerSqm: 12000, pricePerUnit: 5000000 });
   check('S2 a Sellable row takes both sale prices, and its basis picks the active one',
     row('v-a').pricePerSqm === 12000 && row('v-a').pricePerUnit === 5000000 && row('v-a').unitPrice === 12000 && row('v-b').unitPrice === 5000000,
     JSON.stringify([row('v-a'), row('v-b')]));
-  g().setAssetTypeValue('4-star-hotel', { adrPerKeyNight: 850 });
-  g().setAssetTypeValue('standalone', { leaseRatePerSqmYear: 1400 });
+  g().setAssetTypeValue('4-star-hotel', { pricePerUnit: 850 });
+  g().setAssetTypeValue('standalone', { pricePerSqm: 1400 });
   check('S3 an Operable row takes the ADR, a Leasable row the lease rate',
     row('h-a').unitPrice === 850 && row('h-a').pricePerUnit === 850 && row('l-a').unitPrice === 1400 && row('l-a').pricePerSqm === 1400,
     JSON.stringify([row('h-a'), row('l-a')]));
   check('S4 a Support row is never priced', row('s-a').unitPrice === 0 && (row('s-a').pricePerSqm ?? 0) === 0, JSON.stringify(row('s-a')));
   g().updateSubUnit('v-b', { unitPrice: 6000000, pricePerUnit: 6000000, priceStated: true });
-  g().setAssetTypeValue('branded-villas', { salePricePerUnit: 5500000 });
+  g().setAssetTypeValue('branded-villas', { pricePerUnit: 5500000 });
   check('S5 a price typed on Table 5 wins, and the row beside it still follows the type',
     row('v-b').unitPrice === 6000000 && row('v-a').pricePerUnit === 5500000 && row('v-a').unitPrice === 12000);
-  g().setAssetTypeValue('branded-villas', { salePricePerSqm: undefined });
+  g().setAssetTypeValue('branded-villas', { pricePerSqm: undefined });
   check('S6 blanking the type price prices a following row at nothing', row('v-a').unitPrice === 0 && row('v-a').pricePerSqm === 0);
   g().updateSubUnit('v-a', { metric: 'units', unitPrice: row('v-a').pricePerUnit ?? 0 });
   check('S7 a metric switch is not a statement: the row keeps following, now on its per unit price',
@@ -472,7 +473,7 @@ section('S. a type states its sale prices, ADR and lease rate, and a Table 5 row
   const same = settleSubUnitPriceDefaults(g().subUnits, g().assets, [], g().project.assetTypeValues);
   check('S11 the settle returns its input when nothing moves', same.subUnits === g().subUnits && settleSubUnitPriceStated(g().subUnits).subUnits === g().subUnits);
   const model = createModule1Store().getState().extractPersistSnapshot() as unknown as HydrateSnapshot;
-  const why = inactiveLeverReason('project.assetTypeValues.branded-villas.salePricePerSqm', model);
+  const why = inactiveLeverReason('project.assetTypeValues.branded-villas.pricePerSqm', model);
   check('S12 Module 6 names the sub-unit price as the dial and hides the marker',
     !!why && /Table 5/.test(why) && nonEconomicLeverReason('subUnits[id=x].priceStated', 'priceStated') !== null, String(why));
   const tab = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1AssetStandards.tsx', 'utf8');
@@ -490,7 +491,7 @@ section('U. a price typed on Table 5 can be handed back to its type');
   const st = createModule1Store();
   const g = st.getState;
   g().addAsset(asset('uv', 'branded-villas'));
-  g().setAssetTypeValue('branded-villas', { salePricePerUnit: 4000000 });
+  g().setAssetTypeValue('branded-villas', { pricePerUnit: 4000000 });
   g().addSubUnit({ id: 'u-a', assetId: 'uv', name: 'u-a', category: 'Sellable', metric: 'units', metricValue: 10, unitPrice: 0 } as SubUnit);
   const row = (): SubUnit => g().subUnits.find((u) => u.id === 'u-a')!;
   const uv = (): Asset | undefined => g().assets.find((a) => a.id === 'uv');
@@ -500,7 +501,7 @@ section('U. a price typed on Table 5 can be handed back to its type');
     row().unitPrice === 40000000 && def?.prices.pricePerUnit === 4000000, JSON.stringify(def));
   g().updateSubUnit('u-a', { priceStated: false });
   check('U2 using the type price restores it', row().unitPrice === 4000000 && row().priceStated === false, JSON.stringify(row()));
-  g().setAssetTypeValue('branded-villas', { salePricePerUnit: 4200000 });
+  g().setAssetTypeValue('branded-villas', { pricePerUnit: 4200000 });
   check('U3 and the row follows the type again', row().unitPrice === 4200000);
   check('U4 nothing is offered where the type states no price for the row, or the row is Support',
     typePriceDefaultFor({ ...row(), category: 'Leasable' } as SubUnit, uv(), [], g().project.assetTypeValues) === null
@@ -510,6 +511,42 @@ section('U. a price typed on Table 5 can be handed back to its type');
     (src.match(/use-type-price`\}/g) ?? []).length >= 2
     && (src.match(/onUpdate\((u\.id, )?\{ priceStated: false \}\)/g) ?? []).length >= 2
     && (src.match(/data-view-mutates="true"[\s\S]{0,400}?use-type-price/g) ?? []).length >= 2);
+}
+
+// ── T. two price columns, read by the type's strategy ───────────────────────
+section('T. a type carries two prices, and its strategy says what each means');
+{
+  const sell = typePriceColumns('Sell'), op = typePriceColumns('Operate'), lease = typePriceColumns('Lease');
+  check('T1 the unit label follows the strategy: sale prices, the ADR per key night, the rent per sqm per year',
+    sell.unit === 'sale price per unit' && sell.sqm === 'sale price per sqm'
+    && op.unit === 'ADR per key night' && op.sqm === null
+    && lease.unit === null && lease.sqm === 'rent per sqm per year', JSON.stringify([sell, op, lease]));
+  const hotelV = { strategy: 'Operate', pricePerUnit: 850, pricePerSqm: 99 } as never;
+  const retailV = { strategy: 'Lease', pricePerUnit: 5, pricePerSqm: 1400 } as never;
+  check('T2 an Operate type prices its keys at the ADR and nothing else from its columns',
+    typePricesFor('Operable', hotelV).pricePerUnit === 850 && Object.keys(typePricesFor('Sellable', hotelV)).length === 0
+    && Object.keys(typePricesFor('Leasable', hotelV)).length === 0);
+  check('T3 a Lease type prices its leasable rows at the rent and nothing else',
+    typePricesFor('Leasable', retailV).pricePerSqm === 1400 && Object.keys(typePricesFor('Operable', retailV)).length === 0
+    && Object.keys(typePricesFor('Sellable', retailV)).length === 0);
+  check('T4 a type with no strategy prices each row by its category',
+    typePricesFor('Sellable', { pricePerUnit: 1, pricePerSqm: 2 }).pricePerSqm === 2
+    && typePricesFor('Operable', { pricePerUnit: 1, pricePerSqm: 2 }).pricePerUnit === 1
+    && typePricesFor('Leasable', { pricePerUnit: 1, pricePerSqm: 2 }).pricePerSqm === 2);
+  const legacy = { h: { adrPerKeyNight: 850 }, r: { leaseRatePerSqmYear: 1400 }, v: { salePricePerUnit: 10, salePricePerSqm: 20, pricePerSqm: 30 } } as never;
+  const folded = settleTypePriceFields(legacy).values as Record<string, Record<string, unknown>>;
+  check('T5 the four first-cut fields fold into the two on load, a value already on the two winning',
+    folded.h.pricePerUnit === 850 && folded.r.pricePerSqm === 1400 && folded.v.pricePerUnit === 10 && folded.v.pricePerSqm === 30
+    && !Object.values(folded).some((x) => 'adrPerKeyNight' in x || 'leaseRatePerSqmYear' in x || 'salePricePerUnit' in x || 'salePricePerSqm' in x),
+    JSON.stringify(folded));
+  const clean = { v: { pricePerUnit: 1 } };
+  check('T6 and settles', settleTypePriceFields(clean).values === clean);
+  const tab = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1AssetStandards.tsx', 'utf8');
+  const storeSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8');
+  check('T7 the tab has two price columns carrying their unit per row, and no dimmed columns',
+    tab.includes("label: 'Price per unit'") && tab.includes("label: 'Price per sqm'") && tab.includes('-${c.key}-unit`}')
+    && !/adrPerKeyNight|leaseRatePerSqmYear|salePricePer|c\.fits/.test(tab));
+  check('T8 load and save both fold the old fields', (storeSrc.match(/settleTypePriceFields\(/g) ?? []).length >= 2);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

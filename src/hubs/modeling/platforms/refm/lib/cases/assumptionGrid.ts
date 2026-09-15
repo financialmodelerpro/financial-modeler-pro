@@ -706,8 +706,8 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
     // nothing; the override itself (costOverrides[...].value) is the dial.
     // THE TYPE'S PRICES (2026-09-15) reach the model as the price of each Table 5
     // row of the type that has none of its own, written by the store.
-    if (/\.(salePricePerUnit|salePricePerSqm|adrPerKeyNight|leaseRatePerSqmYear)$/.test(path)) {
-      return 'a sale price, ADR or lease rate default on the asset type; the store writes it onto each Table 5 row of the type with no price of its own, and a scenario does not re-run that step, so change the sub-unit price instead';
+    if (/\.(pricePerUnit|pricePerSqm)$/.test(path)) {
+      return 'a price per unit or per sqm default on the asset type (a sale price, an ADR or a rent, by its strategy); the store writes it onto each Table 5 row of the type with no price of its own, and a scenario does not re-run that step, so change the sub-unit price instead';
     }
     if (/\.costRates(\.|\[)/.test(path)) {
       return 'a cost rate standard on the asset type; the store writes it onto each asset of the type as a capex override, and a scenario does not re-run that step, so change the capex override value for this asset and line instead';

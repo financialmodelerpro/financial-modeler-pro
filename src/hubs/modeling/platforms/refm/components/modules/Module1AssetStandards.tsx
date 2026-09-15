@@ -69,6 +69,7 @@ import {
   constructionRowsForView, upsertCostStandardRow, newCustomRow, costStandardBasisLabel, rowChargesOn,
   type CostStandardRow, type CostStandardList,
 } from '../../lib/state/costStandards';
+import { typePriceColumns } from '../../lib/state/subUnitPriceDefaults';
 import type { CostMethod } from '../../lib/state/module1-types';
 import { AssetPhasingControl } from './Module1Costs';
 import {
@@ -148,21 +149,17 @@ function parseValue(s: string): { ok: true; value: number | undefined } | { ok: 
  * model inputs and the model has no Save buttons.
  */
 /**
- * THE PRICES A TYPE STATES (2026-09-15, founder), shown on the type rows of the
- * construction list. Every Table 5 row of the type with no price of its own
- * takes them (lib/state/subUnitPriceDefaults.ts). A column that does not fit the
- * type's strategy is dimmed, never hidden: a type with no strategy shows all four.
+ * TWO PRICE COLUMNS, READ BY THE TYPE'S STRATEGY (2026-09-15, founder: "the rate
+ * column carries its own unit per row"). A Sell type reads both as sale prices,
+ * an Operate type reads the per-unit price as the ADR per key night, a Lease type
+ * reads the per-sqm price as the rent per sqm per year; the unit label under each
+ * cell says which (`typePriceColumns`, the rule the Table 5 default follows too).
+ * A column the strategy does not use shows a dash. Every Table 5 row of the type
+ * with no price of its own takes these (lib/state/subUnitPriceDefaults.ts).
  */
-const PRICE_COLUMNS: ReadonlyArray<{
-  key: 'salePricePerUnit' | 'salePricePerSqm' | 'adrPerKeyNight' | 'leaseRatePerSqmYear';
-  label: string;
-  what: string;
-  fits: (strategy: string | undefined) => boolean;
-}> = [
-  { key: 'salePricePerUnit', label: 'Sale price per unit', what: 'the price per unit of a Sellable row', fits: (st) => !st || st.startsWith('Sell') },
-  { key: 'salePricePerSqm', label: 'Sale price per sqm', what: 'the price per sqm of a Sellable row', fits: (st) => !st || st.startsWith('Sell') },
-  { key: 'adrPerKeyNight', label: 'ADR per key night', what: 'the rate of an Operable row', fits: (st) => !st || st === 'Operate' || st === 'Sell + Manage' },
-  { key: 'leaseRatePerSqmYear', label: 'Lease rate per sqm per year', what: 'the rate of a Leasable row', fits: (st) => !st || st === 'Lease' },
+const PRICE_COLUMNS: ReadonlyArray<{ key: 'pricePerUnit' | 'pricePerSqm'; label: string; column: 'unit' | 'sqm' }> = [
+  { key: 'pricePerUnit', label: 'Price per unit', column: 'unit' },
+  { key: 'pricePerSqm', label: 'Price per sqm', column: 'sqm' },
 ];
 
 function ValueCell({
@@ -835,8 +832,8 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
         <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, lineHeight: 1.45 }}>
           Cost defaults for this project. Each asset takes the default for its type where its Capex phase line has no rate of
           its own; a rate typed on the phase line in Capex wins. A phase rate here wins over the row&apos;s rate in that phase.
-          A row you add creates the matching line in Capex. The sale prices, ADR and lease rate on a type&apos;s row are the price
-          every Table 5 row of that type takes on the Assets tab until a price is typed there.
+          A row you add creates the matching line in Capex. A type&apos;s price per unit and per sqm (a sale price, an ADR or a rent,
+          as the unit label under each says) are the price every Table 5 row of that type takes on the Assets tab until a price is typed there.
         </div>
         {([
           ['construction', 'Construction cost, sale price and ADR', constructionRows, 'std-construction-table'],
@@ -921,12 +918,25 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
                             const typeId = row.assetTypeId;
                             if (typeId === undefined) return <td key={c.key} style={TD} />;
                             const tv = values[typeId];
+                            const unitLabel = typePriceColumns(tv?.strategy)[c.column];
+                            if (unitLabel === null) {
+                              return (
+                                <td key={c.key} style={{ ...TD, textAlign: 'center', color: 'var(--color-meta)' }}
+                                  data-testid={`std-price-${typeId}-${c.key}-unused`}
+                                  title={`A ${tv?.strategy} type does not use a ${c.column === 'unit' ? 'per unit' : 'per sqm'} price.`}>
+                                  -
+                                </td>
+                              );
+                            }
                             return (
-                              <td key={c.key} style={{ ...TD, opacity: c.fits(tv?.strategy) ? 1 : 0.5 }}>
+                              <td key={c.key} style={TD}>
                                 <ValueCell value={tv?.[c.key]} disabled={noProject || typeMissing}
                                   testId={`std-price-${typeId}-${c.key}`}
-                                  title={`${row.label}: ${c.label}${currency ? ` (${currency})` : ''}. The default for ${c.what} of this type on the Assets tab, Table 5, until a price is typed there. Blank prices nothing.`}
+                                  title={`${row.label}: ${unitLabel}${currency ? ` (${currency})` : ''}. The default for every Table 5 row of this type on the Assets tab until a price is typed there. Blank prices nothing.`}
                                   onCommit={(n) => setAssetTypeValue(typeId, { [c.key]: n } as Partial<AssetTypeValues>)} />
+                                <div style={{ fontSize: 9, color: 'var(--color-meta)', textAlign: 'right' }} data-testid={`std-price-${typeId}-${c.key}-unit`}>
+                                  {unitLabel}
+                                </div>
                               </td>
                             );
                           })}

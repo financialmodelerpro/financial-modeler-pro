@@ -59,7 +59,7 @@ import { settleStandardCostOverrides, seedCostStandardRows, settleLineRateStated
 import { planTypeMassingWriteBack, resolveAssetTypeKey } from './assetTypeStandards';
 import { seedRevenueBlocks } from './revenueSeeds';
 import { settleSubUnitPrices } from './subUnitPrices';
-import { settleSubUnitPriceDefaults, settleSubUnitPriceStated } from './subUnitPriceDefaults';
+import { settleSubUnitPriceDefaults, settleSubUnitPriceStated, settleTypePriceFields } from './subUnitPriceDefaults';
 import {
   applyOverrides,
   buildOverrides,
@@ -1411,9 +1411,12 @@ export function createModule1Store() {
       const seededLiveModel = seededLive.changed ? { ...standardLive, assets: seededLive.assets } : standardLive;
       // And every sub-unit's active price is the one its basis states (2026-09-13).
       // The type's prices first, on rows with none of their own (2026-09-15).
-      const defaultedLive = settleSubUnitPriceDefaults(settleSubUnitPriceStated(seededLiveModel.subUnits).subUnits, seededLiveModel.assets, seededLiveModel.project.assetTypes ?? [], seededLiveModel.project.assetTypeValues);
-      const pricedLive = settleSubUnitPrices(defaultedLive.subUnits, seededLiveModel.assets);
-      const pricedLiveModel = pricedLive.subUnits !== seededLiveModel.subUnits ? { ...seededLiveModel, subUnits: pricedLive.subUnits } : seededLiveModel;
+      // The first cut's four type price fields fold into the two (2026-09-15).
+      const foldedLive = settleTypePriceFields(seededLiveModel.project.assetTypeValues);
+      const valuesLive = foldedLive.changed ? { ...seededLiveModel, project: { ...seededLiveModel.project, assetTypeValues: foldedLive.values } } : seededLiveModel;
+      const defaultedLive = settleSubUnitPriceDefaults(settleSubUnitPriceStated(valuesLive.subUnits).subUnits, valuesLive.assets, valuesLive.project.assetTypes ?? [], valuesLive.project.assetTypeValues);
+      const pricedLive = settleSubUnitPrices(defaultedLive.subUnits, valuesLive.assets);
+      const pricedLiveModel = pricedLive.subUnits !== valuesLive.subUnits ? { ...valuesLive, subUnits: pricedLive.subUnits } : valuesLive;
       // And land is allocated by sqm only (2026-09-14): the snapshot written says so.
       const liveModel = pricedLiveModel.landAllocationMode === 'sqm' ? pricedLiveModel : { ...pricedLiveModel, landAllocationMode: 'sqm' as const };
       const baseId = baseCaseId(s.cases);
@@ -1508,9 +1511,12 @@ export function createModule1Store() {
        */
       // THE TYPE'S PRICES FIRST (2026-09-15, subUnitPriceDefaults.ts): a row with no
       // marker and a positive price is the user's; a row with none takes its type's.
-      const defaultedRows = settleSubUnitPriceDefaults(settleSubUnitPriceStated(seededModel.subUnits).subUnits, seededModel.assets, seededModel.project.assetTypes ?? [], seededModel.project.assetTypeValues);
-      const priced = settleSubUnitPrices(defaultedRows.subUnits, seededModel.assets);
-      const model = priced.subUnits !== seededModel.subUnits ? { ...seededModel, subUnits: priced.subUnits } : seededModel;
+      // The first cut's four type price fields fold into the two (2026-09-15).
+      const foldedValues = settleTypePriceFields(seededModel.project.assetTypeValues);
+      const valuedModel = foldedValues.changed ? { ...seededModel, project: { ...seededModel.project, assetTypeValues: foldedValues.values } } : seededModel;
+      const defaultedRows = settleSubUnitPriceDefaults(settleSubUnitPriceStated(valuedModel.subUnits).subUnits, valuedModel.assets, valuedModel.project.assetTypes ?? [], valuedModel.project.assetTypeValues);
+      const priced = settleSubUnitPrices(defaultedRows.subUnits, valuedModel.assets);
+      const model = priced.subUnits !== valuedModel.subUnits ? { ...valuedModel, subUnits: priced.subUnits } : valuedModel;
       if (priced.moved.length > 0 && typeof console !== 'undefined') {
         console.warn(`[REFM] sub-unit prices: ${priced.moved.length} row(s) took the price their basis states on load`, priced.moved);
       }
