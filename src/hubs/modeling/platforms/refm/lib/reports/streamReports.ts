@@ -127,7 +127,9 @@ const DIVIDEND_ROWS: readonly BuildupRowDef[] = [
   { label: '(-) New Cash Equity Investment', pick: 'equityCashPerPeriod' },
   { label: '(-) In-Kind Equity Investment', pick: 'equityInKindPerPeriod' },
   { label: '(+) Dividends Distributed (cash-sweep waterfall)', pick: 'dividendsDistributedPerPeriod' },
-  { label: '(+) Terminal Equity Value', pick: 'terminalEquityDistributedPerPeriod' },
+  // Zero whenever the exit dividend already distributed the terminal equity, so
+  // the label says what it carries (2026-09-15); the value itself is unchanged.
+  { label: '(+) Terminal Equity Value (not already paid as a dividend)', pick: 'terminalEquityDistributedPerPeriod' },
 ];
 
 /** Row labels, exported so a verifier can pin the ORDER without rendering. */

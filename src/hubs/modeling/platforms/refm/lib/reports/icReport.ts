@@ -769,7 +769,7 @@ export function buildICReportModel(input: {
     '(+) Debt Drawdown (cash)': '(+) Debt drawdown',
     '(-) Principal Repayment': '(-) Principal repayment',
     '(-) Interest Paid': '(-) Interest paid',
-    '(+) Terminal Equity Value': '(+) Terminal equity value',
+    '(+) Terminal Equity Value (not already paid as a dividend)': '(+) Terminal equity value, not already paid as a dividend',
     '= FCFE (levered equity)': '= FCFE, levered equity',
     '(-) New Cash Equity Investment': '(-) New cash equity investment',
     '(+) Dividends Distributed (cash-sweep waterfall)': '(+) Dividends distributed (cash-sweep waterfall)',

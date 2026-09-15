@@ -1956,18 +1956,24 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
   const streamYears = syl.slice(1);
 
   // Tab 1: Returns (KPI cards + tables).
-  // TERMINAL VALUE: show the parameter that is LIVE, and say the other is not.
-  // Printing 'method: perpetuity' beside both an exit multiple and a perpetuity
-  // growth rate left a reader unable to tell which one drove the number.
-  const isPerp = String(cfg.terminalMethod) === 'perpetuity';
+  // TERMINAL VALUE: show only the parameter the method uses (2026-09-15). This
+  // tested "perpetuity or not", so a cap rate method printed "Exit multiple" with
+  // the exit multiple "applied", which is not what struck the terminal value.
+  const tm = String(cfg.terminalMethod);
+  const capCfg = cfg as { capRate?: number; capRateDerived?: number; capRateSource?: string };
+  const capDerived = capCfg.capRateSource === 'derived';
+  const methodRows: Array<[string, string]> = tm === 'perpetuity'
+    ? [['Terminal value method', 'Perpetuity growth (Gordon)'], ['Perpetuity growth', fmt.pct(cfg.perpetuityGrowth, 2)]]
+    : tm === 'cap_rate'
+      ? [['Terminal value method', 'Cap rate on stabilised NOI'],
+        [capDerived ? 'Cap rate (derived from the model)' : 'Cap rate (typed)', fmt.pct((capDerived ? capCfg.capRateDerived : capCfg.capRate) ?? 0, 2)]]
+      : tm === 'none'
+        ? [['Terminal value method', 'None']]
+        : [['Terminal value method', 'Exit multiple'], ['Exit multiple', `${(cfg.exitMultiple ?? 0).toFixed(2)}x`]];
   items.push(tTable(m5Tab('Returns'), 'inputs', kvTable('Returns Assumptions', [
     ['Discount rate', fmt.pct(cfg.discountRate, 2)],
     ['Exit year', String(returns.exitYearLabel)],
-    ['Terminal value method', isPerp ? 'Perpetuity growth (Gordon)' : 'Exit multiple'],
-    [isPerp ? 'Perpetuity growth (applied)' : 'Exit multiple (applied)',
-      isPerp ? fmt.pct(cfg.perpetuityGrowth, 2) : `${(cfg.exitMultiple ?? 0).toFixed(2)}x`],
-    [isPerp ? 'Exit multiple (not applied)' : 'Perpetuity growth (not applied)',
-      isPerp ? `${(cfg.exitMultiple ?? 0).toFixed(2)}x` : fmt.pct(cfg.perpetuityGrowth, 2)],
+    ...methodRows,
   ])));
 
   items.push(tCards(m5Tab('Returns'), 'outputs', 'Headline Returns', headlineReturnCards(returns, fmt)));
@@ -2228,7 +2234,7 @@ function buildModule6(caseReport: CaseComparisonReport | null, caseYoY: CaseYoYR
       title: 'Cases', kind: 'grid', align: 'data',
       columns: ['Case', 'Type', 'Active', 'Overrides'],
       rows: cols.map((c) => row(
-        [c.name, c.role === 'base' ? 'Management (base)' : 'Scenario', c.isActive ? 'Yes' : '', c.role === 'base' ? '-' : fmt.int(c.overrideCount)],
+        [c.name, c.role === 'base' ? 'Management (base)' : 'Scenario', c.isActive ? 'Yes' : '', c.role === 'base' ? '-' : (c.overrideCount === 0 ? '0 (same as Management)' : fmt.int(c.overrideCount))],
         c.role === 'base' ? 'subtotal' : undefined,
       )),
     }));

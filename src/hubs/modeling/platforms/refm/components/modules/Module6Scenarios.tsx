@@ -31,7 +31,7 @@ import {
   ASSUMPTION_CATEGORY_ORDER, ASSUMPTION_CATEGORY_LABELS,
   type AssumptionCategory, type AssumptionFormat, type GridContext, type GridRowLite,
 } from '../../lib/cases/assumptionGrid';
-import { buildCaseComparisonReport, CASE_KPIS, type CaseKpiKind } from '../../lib/reports/caseComparisonReport';
+import { buildCaseComparisonReport, CASE_KPIS, type CaseKpiKind, caseOverridesNote } from '../../lib/reports/caseComparisonReport';
 import { buildCaseYoYReport, type YoYBlock } from '../../lib/reports/caseYoYReport';
 import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import { makeFmt } from './_shared/numberFmt';
@@ -579,7 +579,7 @@ export default function Module6Scenarios(): React.JSX.Element {
                       title={c.id === s.activeCaseId ? 'Active case' : 'Switch to this case'}>
                       {c.role === 'base' ? '★ ' : '◆ '}{c.name}
                     </button>
-                    <div style={{ fontSize: 10, fontWeight: 400, opacity: 0.8 }}>{c.role === 'base' ? 'base' : `${c.overrideCount} override${c.overrideCount === 1 ? '' : 's'}`}</div>
+                    <div style={{ fontSize: 10, fontWeight: 400, opacity: 0.8 }}>{caseOverridesNote(c)}</div>
                   </th>
                 ))}
               </tr>

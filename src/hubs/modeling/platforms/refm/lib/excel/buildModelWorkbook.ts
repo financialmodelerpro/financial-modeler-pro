@@ -735,8 +735,15 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   addKV('Discount rate', cfg?.discountRate ?? 0.1, NUMFMT.pct, 'DiscountRate');
   addKV('Exit year (offset from start, 0-based)', cfg?.exitYearOffset ?? (snap.axisLength - 1), NUMFMT.int, 'ExitYearOffset');
   setLabel(ws.getCell(`A${r}`), 'Terminal value method'); setInput(ws.getCell(`B${r}`), String(cfg?.terminalMethod ?? 'exit_multiple'), '@'); r += 1;
-  addKV('Exit multiple (x stabilised NOI)', cfg?.exitMultiple ?? 8, NUMFMT.mult, 'ExitMultiple');
-  addKV('Perpetuity growth', cfg?.perpetuityGrowth ?? 0.02, NUMFMT.pct, 'PerpetuityGrowth');
+  // ONLY THE INPUT THE METHOD USES (2026-09-15): an exit multiple printed beside
+  // a cap rate method reads as the figure the terminal value was struck on.
+  {
+    const tmIn = String(cfg?.terminalMethod ?? 'exit_multiple');
+    const rc = cfg as { capRate?: number; capRateSource?: string } | undefined;
+    if (tmIn === 'exit_multiple') addKV('Exit multiple (x stabilised NOI)', cfg?.exitMultiple ?? 8, NUMFMT.mult, 'ExitMultiple');
+    if (tmIn === 'perpetuity') addKV('Perpetuity growth', cfg?.perpetuityGrowth ?? 0.02, NUMFMT.pct, 'PerpetuityGrowth');
+    if (tmIn === 'cap_rate') addKV(`Cap rate (${rc?.capRateSource === 'manual' ? 'typed' : 'derived from the model; the typed rate if set'})`, rc?.capRate ?? 0.08, NUMFMT.pct, 'CapRate');
+  }
   r += 1;
 
   // Capex cost lines: PURE INPUTS only (method + rate / %, plus a physical
@@ -3336,8 +3343,13 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     scalarRow('Discount rate', rs.config.discountRate, NUMFMT.pct2);
     scalarRow('Exit year', rs.exitYearLabel, NUMFMT.year);
     scalarRow('Terminal value method', String(rs.config.terminalMethod), '@');
-    scalarRow('Exit multiple (x stabilised NOI)', rs.config.exitMultiple, NUMFMT.mult);
-    scalarRow('Perpetuity growth', rs.config.perpetuityGrowth, NUMFMT.pct2);
+    // Only the input the method uses (2026-09-15).
+    if (rs.config.terminalMethod === 'exit_multiple') scalarRow('Exit multiple (x stabilised NOI)', rs.config.exitMultiple, NUMFMT.mult);
+    if (rs.config.terminalMethod === 'perpetuity') scalarRow('Perpetuity growth', rs.config.perpetuityGrowth, NUMFMT.pct2);
+    if (rs.config.terminalMethod === 'cap_rate') {
+      const derived = rs.config.capRateSource === 'derived';
+      scalarRow(derived ? 'Cap rate (derived from the model)' : 'Cap rate (typed)', derived ? rs.config.capRateDerived : rs.config.capRate, NUMFMT.pct2);
+    }
     r += 1;
     kpiStrip('Development Economics', [
       { label: 'Total Development Cost', value: cMoney(de.totalDevelopmentCost), sub: 'incl. land' },
@@ -3749,7 +3761,7 @@ function addScenarios(ctx: EmitCtx): void {
   section('1. Cases & Assumptions (every case + the assumptions that differ across scenarios)');
   if (cols.length) {
     gridTable('Cases', ['Case', 'Type', 'Active', 'Overrides'],
-      cols.map((c) => [c.name, c.role === 'base' ? 'Management (base)' : 'Scenario', c.isActive ? 'Yes' : '', c.role === 'base' ? '-' : String(c.overrideCount)]));
+      cols.map((c) => [c.name, c.role === 'base' ? 'Management (base)' : 'Scenario', c.isActive ? 'Yes' : '', c.role === 'base' ? '-' : (c.overrideCount === 0 ? '0 (same as Management)' : String(c.overrideCount))]));
   }
   if (caseYoY && caseYoY.blocks.length) {
     const order = caseYoY.blocks[0].inputs[0]?.byCase.map((v) => ({ id: v.id, name: v.name })) ?? [];

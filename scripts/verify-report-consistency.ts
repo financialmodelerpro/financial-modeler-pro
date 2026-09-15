@@ -150,8 +150,12 @@ async function main(): Promise<void> {
   check('F4: the bridge names the excluded items', /operating expenses \(/.test(full) && flat(full).includes('which an appraisal does not deduct'));
 
   console.log('\n-- F5: only the live terminal-value parameter is presented as live --');
-  check('F5: the applied parameter is marked applied', /\(applied\)/.test(full));
-  check('F5: the unused parameter is marked not applied', /\(not applied\)/.test(full));
+  // RE-AIMED 2026-09-15: the table printed every parameter and marked the unused
+  // ones "(not applied)", and tested "perpetuity or not", so a cap rate method read
+  // "Exit multiple (applied)". It now prints only the input the method uses.
+  check('F5: no unused parameter is printed beside the live one', !/\(not applied\)/.test(full) && !/\(applied\)/.test(full));
+  check('F5: the PDF builder prints the input per method, cap rate included',
+    /tm === 'cap_rate'/.test(readFileSync('src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf.ts', 'utf8')));
   check('F5: the method reads as a name, not a raw enum', full.includes('Perpetuity growth (Gordon)') || full.includes('Exit multiple'));
 
   console.log('\n-- G1: both documents carry the integrity checks --');

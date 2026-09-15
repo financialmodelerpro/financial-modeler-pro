@@ -17,7 +17,7 @@ import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import { buildOverrides, baseCaseId } from '../../lib/cases/applyOverrides';
-import { buildCaseComparisonReport, CASE_KPIS, type CaseKpiKind } from '../../lib/reports/caseComparisonReport';
+import { buildCaseComparisonReport, CASE_KPIS, type CaseKpiKind, caseOverridesNote } from '../../lib/reports/caseComparisonReport';
 import type { HydrateSnapshot } from '../../lib/state/module1-store';
 import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import { makeFmt } from './_shared/numberFmt';
@@ -118,7 +118,7 @@ export default function Module5CaseComparison(): React.JSX.Element {
                     {c.id === s.activeCaseId && <span style={{ fontSize: 9, marginLeft: 4 }}>(active)</span>}
                   </button>
                   <div style={{ fontSize: 10, fontWeight: 400, opacity: 0.8 }}>
-                    {c.role === 'base' ? 'base' : `${c.overrideCount} override${c.overrideCount === 1 ? '' : 's'}`}
+                    {caseOverridesNote(c)}
                   </div>
                 </th>
               ))}

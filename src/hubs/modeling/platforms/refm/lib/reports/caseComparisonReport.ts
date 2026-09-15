@@ -76,6 +76,18 @@ export interface CaseComparisonColumn {
   drivers: CaseDriverRow[];
 }
 
+/**
+ * HOW A CASE COLUMN DESCRIBES ITS ASSUMPTIONS (2026-09-15). A scenario with no
+ * overrides computes exactly the Management case, so three identical columns
+ * read as three views of the project unless the column says so. One wording
+ * for the screens, the workbook and the PDF.
+ */
+export function caseOverridesNote(c: Pick<CaseComparisonColumn, 'role' | 'overrideCount'>): string {
+  if (c.role === 'base') return 'base';
+  if (c.overrideCount === 0) return 'no overrides: same as Management';
+  return `${c.overrideCount} override${c.overrideCount === 1 ? '' : 's'}`;
+}
+
 export interface CaseComparisonReport {
   baseId: string;
   columns: CaseComparisonColumn[];
