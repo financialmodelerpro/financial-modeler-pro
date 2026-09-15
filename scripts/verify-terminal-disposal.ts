@@ -17,7 +17,7 @@
 import { readFileSync } from 'node:fs';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/returns-resolvers';
-import { terminalMetricIndex, valueAtExit, writeOffAtExit } from '../src/core/calculations/returns/disposal';
+import { terminalMetricIndex, valueAtExit, writeOffAtExit, stopAfterExit } from '../src/core/calculations/returns/disposal';
 import { buildDisposalWorking } from '../src/hubs/modeling/platforms/refm/lib/reports/disposalReport';
 import { makeDefaultPhase, makeDefaultProject, makeDefaultCostLines, makeDefaultFinancingTranche } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
@@ -160,6 +160,39 @@ section('E. an exit before the last year');
   check('E4 the balance sheet balances and every movement is bridged',
     maxAbs(s.bs.bsDifferencePerPeriod) < 0.01 && maxAbs(s.bsReconciliation.unexplainedPerPeriod) < 0.01);
   check('E5 no debt after the exit', s.bs.debtOutstandingPerPeriod.slice(7).every((v) => v === 0));
+
+  // A SOLD ASSET STOPS TRADING AFTER THE EXIT (2026-09-15, step 7).
+  const full = computeFinancialsSnapshot(buildState({ exitYearOffset: 9 }));
+  const after = (a: number[]): number => maxAbs(a.slice(8));
+  check('E6 no revenue after the exit', after(s.pl.totalRevenuePerPeriod) === 0 && after(s.pl.hospitalityRevenuePerPeriod) === 0, s.pl.totalRevenuePerPeriod.slice(8).join(','));
+  check('E7 no opex after the exit', after(s.pl.totalOpexPerPeriod) === 0 && after(s.opex.byAsset.get('H1')!.totalOpexPerPeriod) === 0);
+  check('E8 no interest charged or paid after the exit on the debt repaid at it',
+    after(s.pl.interestExpensePerPeriod) === 0 && after(s.directCF.interestPaidPerPeriod) === 0 && after(full.pl.interestExpensePerPeriod) > 0);
+  check('E9 the asset row depreciates nothing after the exit either', after(s.perAssetPL.get('H1')!.daPerPeriod) === 0);
+  check('E10 no profit after the exit', after(s.pl.patPerPeriod) < 0.01, s.pl.patPerPeriod.slice(8).join(','));
+  check('E11 the exit year trades in full', near(s.pl.totalRevenuePerPeriod[7], full.pl.totalRevenuePerPeriod[7]) && near(s.pl.totalOpexPerPeriod[7], full.pl.totalOpexPerPeriod[7]));
+  check('E12 the direct and indirect cash flows still close at the same cash',
+    maxAbs(s.directCF.closingCashPerPeriod.map((c, i) => c - s.indirectCF.closingCashPerPeriod[i])) < 0.01);
+  check('E13 a last-year exit is untouched: the series are the engine\'s own', after(full.pl.totalRevenuePerPeriod) > 0);
+  // THE FUND STOPS CHARGING AT THE EXIT (2026-09-15).
+  const withFund = (st: any): any => ({ ...st, project: { ...st.project, fundTerms: { enabled: true, fundManagementFeePct: 0.02, otherExpensesPerAnnum: 1_500_000 } } });
+  const fundEarly = computeFinancialsSnapshot(withFund(buildState({ exitYearOffset: 7 })));
+  const fundFull = computeFinancialsSnapshot(withFund(buildState({ exitYearOffset: 9 })));
+  check('E16 a fund charges no fee after the exit, on every fee line and in the P&L',
+    after(fundEarly.fundFees.totalPerPeriod) === 0 && after(fundEarly.pl.fundFeesPerPeriod) === 0
+    && fundEarly.fundFees.lines.every((l) => after(l.amountPerPeriod) === 0), fundEarly.fundFees.totalPerPeriod.join(','));
+  check('E17 and charges through the exit year, while a last-year exit charges in every year',
+    fundEarly.fundFees.totalPerPeriod[7] > 0 && after(fundFull.fundFees.totalPerPeriod) > 0);
+  check('E18 the fund project with an early exit ends with no negative cash from post-exit fees and still balances',
+    fundEarly.bs.cashPerPeriod[9] >= fundEarly.bs.cashPerPeriod[7] - 0.01 && maxAbs(fundEarly.bs.bsDifferencePerPeriod) < 0.01,
+    `${fundEarly.bs.cashPerPeriod.slice(7).join(',')}`);
+  const rsEarly = computeReturnsSnapshot(s, early.project);
+  check('E15 the exit-year analysis offers candidates only up to the chosen exit',
+    rsEarly.exitYears.length > 0 && rsEarly.exitYears.every((row) => row.exitIdx <= 7) && rsEarly.exitYears.some((row) => row.isSelected && row.exitIdx === 7));
+  const obj = { a: [1, 2, 3], m: [[1, 1, 1], [2, 2, 2]], k: 'x', short: [5, 6] };
+  const cut = stopAfterExit(obj, 0, 3);
+  check('E14 the pure cut zeroes axis series and matrix rows after the exit only, and returns the input for a last-year exit',
+    cut.a.join(',') === '1,0,0' && cut.m[1].join(',') === '2,0,0' && cut.short.join(',') === '5,6' && obj.a.join(',') === '1,2,3' && stopAfterExit(obj, 2, 3) === obj);
 }
 
 // ── F ───────────────────────────────────────────────────────────────────────

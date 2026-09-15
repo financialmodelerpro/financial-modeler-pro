@@ -118,3 +118,36 @@ export function writeOffAtExit(
   }
   return { adjustedPerPeriod: adjusted, disposedAtExit: disposed, depreciationRemovedPerPeriod: removed };
 }
+
+/**
+ * A SOLD ASSET STOPS TRADING AFTER THE EXIT (2026-09-15, step 7).
+ *
+ * Returns a copy of an engine result with every project-axis series (a number
+ * array of exactly `axisLength` cells, at any depth, including the rows of a
+ * per-line or per-sub-unit matrix) zeroed in the periods AFTER the exit. The
+ * exit year itself is untouched: the asset trades through the year it is sold.
+ * Anything that is not an axis series (ids, keys, counts, config arrays of
+ * another length) is copied as it is.
+ *
+ * Pure. Nothing is mutated; with the exit on or past the last period the input
+ * object itself comes back, so a project exiting in its last year is
+ * byte-identical.
+ */
+export function stopAfterExit<T>(result: T, exitIdx: number, axisLength: number): T {
+  const N = Math.max(0, axisLength);
+  const X = Math.round(exitIdx);
+  if (N === 0 || X >= N - 1) return result;
+  const walk = (v: unknown): unknown => {
+    if (Array.isArray(v)) {
+      if (v.length === N && v.every((x) => typeof x === 'number')) return v.map((x, t) => (t > X ? 0 : x));
+      return v.map(walk);
+    }
+    if (v !== null && typeof v === 'object' && !(v instanceof Map) && !(v instanceof Set)) {
+      const out: Record<string, unknown> = {};
+      for (const [k, x] of Object.entries(v as Record<string, unknown>)) out[k] = walk(x);
+      return out;
+    }
+    return v;
+  };
+  return walk(result) as T;
+}

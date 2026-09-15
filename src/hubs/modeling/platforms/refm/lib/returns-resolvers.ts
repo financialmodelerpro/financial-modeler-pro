@@ -706,8 +706,13 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   // selected exit. Each row rebuilds the streams via the same shared builder.
   const firstOpsIdx = noiPerPeriod.findIndex((v) => (v ?? 0) > 0);
   const startIdx = firstOpsIdx >= 0 ? firstOpsIdx : Math.min(N - 1, Math.max(0, Math.floor(N / 2)));
+  // CANDIDATES RUN ONLY UP TO THE CHOSEN EXIT (2026-09-15, founder): the
+  // snapshot sells the held assets at the chosen exit and they stop trading
+  // after it, so a later candidate would be valued on income that no longer
+  // exists (and was already read with the sale and repayment booked). Valuing
+  // later exits would need a second engine run for a number nobody can act on.
   const candidateExitIdxs: number[] = [];
-  for (let i = startIdx; i < N; i++) candidateExitIdxs.push(i);
+  for (let i = startIdx; i <= exit && i < N; i++) candidateExitIdxs.push(i);
   if (!candidateExitIdxs.includes(exit)) candidateExitIdxs.push(exit);
   const sponsorInputsFull: SponsorStreamInputs = {
     cfoAxis: dcf.cashFromOperationsPerPeriod.slice(0, N).map((v) => v ?? 0),

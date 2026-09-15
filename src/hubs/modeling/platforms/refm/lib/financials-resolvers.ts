@@ -58,7 +58,7 @@ import { computeFundFeeSchedule, emptyFundFeeSchedule, resolveFacilityLimit, res
 import { assetLabel, withResolvedAssetNames } from '@/src/core/calculations/assetName';
 import { withInheritedMassingAll } from '@/src/core/calculations/landChain';
 import { chainMassingFor } from './state/assetTypeStandards';
-import { valueAtExit, writeOffAtExit, type TerminalValueBasis } from '@/src/core/calculations/returns/disposal';
+import { valueAtExit, writeOffAtExit, stopAfterExit, type TerminalValueBasis } from '@/src/core/calculations/returns/disposal';
 import { resolveReturnsConfig } from './returns-resolvers';
 
 /** Lifetime sum of a per-period series. Local to the fund-size resolution. */
@@ -1454,7 +1454,9 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
   // Since 2026-08-18 the full interest charge is paid in cash and the
   // capitalised figure is the drawdown funding it, so the cash finance cost is
   // the summed interest paid, the same series the Direct CF carries.
-  const financeCostPaidPerPeriod = (fin.combined.totalInterestPaid ?? new Array<number>(N).fill(0)).slice(0, N).map((v) => -(v ?? 0));
+  // READ FROM THE DIRECT CASH FLOW (2026-09-15), the series it was defined to
+  // equal, so interest stopped after an exit is stopped here too.
+  const financeCostPaidPerPeriod = (snap.directCF.interestPaidPerPeriod ?? new Array<number>(N).fill(0)).slice(0, N).map((v) => v ?? 0);
   while (financeCostPaidPerPeriod.length < N) financeCostPaidPerPeriod.push(0);
   const capitalizedArr = fin.combined.totalInterestCapitalized ?? new Array<number>(N).fill(0);
   // IDC drawdown: capitalised interest growing debt (funded by drawing).
@@ -1626,8 +1628,60 @@ function computeFinancialsSnapshotOnce(
   const { project, phases, assets, subUnits, parcels, costLines, costOverrides, landAllocationMode, financingTranches, equityContributions } = state;
 
   // 1. Upstream snapshots (each pure function call already memoizes via React.useMemo at the call site)
-  const revenue = computeAllSellResults({ project, phases, assets, subUnits });
-  const opex = computeAllOpexResults({ project, phases, assets, subUnits }, revenue);
+  const revenueAsComputed = computeAllSellResults({ project, phases, assets, subUnits });
+  /**
+   * A SOLD ASSET STOPS TRADING AFTER THE EXIT (2026-09-15, step 7). The exit
+   * sells the held assets (every Operate and Lease asset, the ones written off
+   * below), so from the year after it they earn nothing, cost nothing,
+   * depreciate nothing, and the debt repaid at the exit charges no interest.
+   * Until this change an exit before the last year kept trading: on the live
+   * project with the exit moved to 2035 the sold assets booked 196.0m of
+   * revenue, 112.2m of opex and 70.9m of profit after the sale. The results
+   * are cut HERE, where they are made, so AP, the P&L, both cash flows, the
+   * balance sheet, the Module 2 and 3 screens and Returns all read one stopped
+   * series. The exit year itself trades in full. With no terminal value
+   * nothing is sold, and with the exit in the last year nothing is cut.
+   */
+  const exitAxisLength = revenueAsComputed.axisLength;
+  const exitCfgAtSource = resolveReturnsConfig(project, exitAxisLength);
+  const heldStopIdx = exitCfgAtSource.terminalMethod !== 'none' && exitAxisLength > 0 ? exitCfgAtSource.exitYearOffset : Number.POSITIVE_INFINITY;
+  const stopsHeld = heldStopIdx < exitAxisLength - 1;
+  function stopHeld<T>(r: T): T { return stopsHeld ? stopAfterExit(r, heldStopIdx, exitAxisLength) : r; }
+  const isHeldAsset = (id: string): boolean => {
+    const a = assets.find((x) => x.id === id);
+    return a !== undefined && (a.strategy === 'Operate' || a.strategy === 'Lease');
+  };
+  const revenue = stopsHeld
+    ? {
+      ...revenueAsComputed,
+      byHospitalityAsset: new Map([...revenueAsComputed.byHospitalityAsset].map(([k, v]) => [k, stopHeld(v)] as const)),
+      hospitalityProjectTotals: stopHeld(revenueAsComputed.hospitalityProjectTotals),
+      byLeaseAsset: new Map([...revenueAsComputed.byLeaseAsset].map(([k, v]) => [k, stopHeld(v)] as const)),
+      leaseProjectTotals: stopHeld(revenueAsComputed.leaseProjectTotals),
+    }
+    : revenueAsComputed;
+  const opexAsComputed = computeAllOpexResults({ project, phases, assets, subUnits }, revenue);
+  const opex = (() => {
+    if (!stopsHeld) return opexAsComputed;
+    const byAsset = new Map([...opexAsComputed.byAsset].map(([k, v]) => [k, isHeldAsset(k) ? stopHeld(v) : v] as const));
+    const n = opexAsComputed.axisLength;
+    const add = (pick: (r: import('@/src/core/calculations/opex/types').AssetOpexResult) => readonly number[]): number[] => {
+      const out = new Array<number>(n).fill(0);
+      for (const r of byAsset.values()) { const arr = pick(r); for (let t = 0; t < n; t++) out[t] += arr[t] ?? 0; }
+      return out;
+    };
+    const projectTotals = {
+      directCostsPerPeriod: add((r) => r.directCostsPerPeriod),
+      indirectCostsPerPeriod: add((r) => r.indirectCostsPerPeriod),
+      managementFeePerPeriod: add((r) => r.managementFeePerPeriod),
+      otherOpexPerPeriod: add((r) => r.otherOpexPerPeriod),
+      totalOpexPerPeriod: add((r) => r.totalOpexPerPeriod),
+      gopPerPeriod: add((r) => r.gopPerPeriod),
+      noiPerPeriod: add((r) => r.noiPerPeriod),
+    };
+    const totalOpexPerPeriodInclHQ = projectTotals.totalOpexPerPeriod.map((v, t) => v + (opexAsComputed.hq.totalOpexPerPeriod[t] ?? 0));
+    return { ...opexAsComputed, byAsset, projectTotals: { ...opexAsComputed.projectTotals, ...projectTotals }, totalOpexPerPeriodInclHQ };
+  })();
   const ap = computeOpexApSnapshot({ project, phases, parcels, assets }, opex);
   const escrow = computeEscrowSnapshot({ project, phases, parcels, assets, subUnits }, revenue);
   // 2026-08-16: `revenue` threaded so capitalised capex is built on the same
@@ -1836,6 +1890,9 @@ function computeFinancialsSnapshotOnce(
     if (idcRow) {
       for (let t = 0; t < N; t++) daRow[t] += idcRow.depreciationPerPeriod[t] ?? 0;
     }
+    // A sold asset depreciates nothing after the exit (2026-09-15), as the
+    // project D&A already reads through the write-off below.
+    if (stopsHeld && isHeldAsset(a.id)) for (let t = heldStopIdx + 1; t < N; t++) daRow[t] = 0;
     // Capex per asset, per period. M4 Pass 2R-Fix (2026-05-24): switch
     // from uniform spread across construction window to the actual cost-
     // line distribution via computeAssetCost.breakdown.perPeriod.
@@ -1981,6 +2038,9 @@ function computeFinancialsSnapshotOnce(
   // arr[0] = year 0. The prior slice(1, 1+N) was dropping year-0 data.
   const interestExpense = financing.combined.totalInterestExpensed.slice(0, N);
   while (interestExpense.length < N) interestExpense.push(0);
+  // The debt is repaid out of the proceeds at the exit, so it charges nothing
+  // after it (2026-09-15); the financing engine's schedule runs to its tenor.
+  if (stopsHeld) for (let t = heldStopIdx + 1; t < N; t++) interestExpense[t] = 0;
 
   // Fund fees (Step 3). A FROZEN input: the schedule was computed once, before
   // the iterative solver, from a fee-free snapshot, so it cannot move while the
@@ -2268,6 +2328,8 @@ function computeFinancialsSnapshotOnce(
   // have understated the outflow by exactly the IDC drawdown.
   const interestPaidArr = financing.combined.totalInterestPaid.slice(0, N);
   while (interestPaidArr.length < N) interestPaidArr.push(0);
+  // And pays nothing after it (2026-09-15), the same cut as the charge.
+  if (stopsHeld) for (let t = heldStopIdx + 1; t < N; t++) interestPaidArr[t] = 0;
 
   // The IDC charge is PAID IN FULL, so accrued and paid are the same series.
   // Both names are kept because the FCFE chain reads the charge and the cash
@@ -3038,7 +3100,31 @@ export function computeFinancialsSnapshot(
         explanation: `From your model: the debt share (${feeFree.financing.funding.debtPct.toFixed(0)}%) of the selected method's funding requirement, frozen before the solve. Not the facility ceiling.`,
       },
     });
-    return computeFinancialsSnapshotSolved(state, schedule);
+    /**
+     * THE FUND STOPS CHARGING AT THE EXIT (2026-09-15, founder: "the fund has
+     * sold what it managed"). The held assets are sold in the exit year and
+     * trade no more after it, so the frozen schedule charges nothing after that
+     * year either: every fee's amount, its total and the schedule total. The
+     * basis each fee was measured on is left as it is. Cut here, before the
+     * solver, so the P&L, the cash flow, the fee basis, fee income and the
+     * waterfall all read the one stopped schedule. Before this, on the live
+     * project with the exit moved to 2035, 3.67m a year was charged in 2036 to
+     * 2038 with nothing left to pay it, and closing cash ended at -11.01m.
+     */
+    const feeExitCfg = resolveReturnsConfig(state.project, feeFree.axisLength);
+    const feeStopIdx = feeExitCfg.terminalMethod !== 'none' ? feeExitCfg.exitYearOffset : Number.POSITIVE_INFINITY;
+    const cutFees = (arr: number[]): number[] => arr.map((v, t) => (t > feeStopIdx ? 0 : v));
+    const stoppedSchedule: FundFeeSchedule = feeStopIdx < feeFree.axisLength - 1
+      ? (() => {
+        const lines = schedule.lines.map((l) => {
+          const amountPerPeriod = cutFees(l.amountPerPeriod);
+          return { ...l, amountPerPeriod, total: amountPerPeriod.reduce((t, v) => t + v, 0) };
+        });
+        const totalPerPeriod = cutFees(schedule.totalPerPeriod);
+        return { ...schedule, lines, totalPerPeriod, total: totalPerPeriod.reduce((t, v) => t + v, 0) };
+      })()
+      : schedule;
+    return computeFinancialsSnapshotSolved(state, stoppedSchedule);
   }
 
   return computeFinancialsSnapshotSolved(state, undefined);

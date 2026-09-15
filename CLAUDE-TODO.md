@@ -15,6 +15,9 @@ per capex line, reaching the engine as standard-sourced overrides the Capex tab 
 override), Table 2 massing filled back to the type when every plot agrees, active rows only on the Opex
 Output, and the Standards paragraph font.
 
+**STEP 7 DONE (2026-09-15)**: an exit before the last year stops the held assets trading (revenue, opex, depreciation, interest)
+and the fund fees after it, and exit-year candidates run only to the chosen exit; latent on every live model. Steps 8 to 10 stay held.
+
 **PER-LINE PRESENTATION PASS DONE (2026-09-15)**: every surface after the assets tab (IDC, escrow, AP, fixed assets, opex
 inputs, statement members, disposal working, IC report, one-pager, PDF and Excel) groups by `planCapexSummaryLines` through
 `lib/reports/lineRows.ts`; land funding stays per plot by decision. **FIXED THE SAME DAY**: the store keeps the SETTLED base as its copy and the deck reads
