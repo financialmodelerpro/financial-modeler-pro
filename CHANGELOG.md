@@ -6,6 +6,7 @@ Entries are grouped by their most recent date. Fuller per-day narrative for REFM
 
 ## 2026-09-15
 
+- **CAPEX INPUTS OPEN BY DEFAULT** (founder): each line's cost section on the Capex inputs starts expanded (it started collapsed from 2026-05-13); the header still collapses it.
 - **ONE WAY TO BUILD A PHASE'S COST LINES, AND PERCENTAGES AT TWO DECIMALS (founder: "two ways to build a phase's lines is how they drift apart"; "marketing showing rounded at 4% in capex input").**
   - **`buildPhaseCostLines`** (`lib/state/costStandards.ts`) is now the only builder: the first asset of a new phase, the new project wizard, the store's empty default, the load-time seed for a phase with no lines, the legacy snapshot seed and the reset all call it. It produces the standards list in order (land, the transfer tax, the Construction Cost list, the Soft Costs list); a project with no stored list takes the shipped one. `makeBlankCostLines` survives only as the source of the two locked land lines.
   - **THE STRATEGY REVIEW IGNORES DEFAULTS**: `assetHasStrategyAssumptions` counted every override on an asset as the user's assumption, so a new asset carrying Types and Standards defaults raised the review banner on its first strategy pick. Standard-sourced overrides are now excluded.

@@ -2482,12 +2482,11 @@ function AssetCostSection({
   catalogEntries, onAddCatalogEntry,
 }: AssetCostSectionProps): React.JSX.Element {
   const cp = constructionPeriods;
-  // Default-collapsed (2026-05-13): every per-asset cost section in
-  // Tab 3 Inputs starts closed; user expands when ready to edit. Matches
-  // Tab 2's default-collapsed convention. Per-session re-open is the
-  // user's normal interaction; no localStorage persistence on this one
-  // since the inputs are scoped to the active asset pill.
-  const [collapsed, setCollapsed] = useState(true);
+  // OPEN BY DEFAULT (2026-09-15, founder: the capex inputs should show
+  // uncollapsed, and a user can collapse a section if they want). It started
+  // closed from 2026-05-13, which put a click between the tab and every rate.
+  // No localStorage persistence, since the inputs are scoped to the active line.
+  const [collapsed, setCollapsed] = useState(false);
   const dest = accountingDestination(asset);
   const subtotal = breakdown.total;
 
