@@ -1737,6 +1737,10 @@ export interface Asset {
        * lockstep view); absent means the rows state their own pace. Phase-local
        * like every velocity strip, fractions, no legacy twin.
        */
+      /** SCENARIO LEVER (2026-09-15): a pace factor that stretches time on the
+       *  line's cumulative sales curve (0.8 sells the same total later). Absent on
+       *  the base; read by the revenue resolver through scaleSalesPace. */
+      paceFactor?: number;
       velocityDefault?: {
         preSalesVelocityByPhase: number[];
         postSalesVelocityByPhase: number[];
@@ -1787,6 +1791,9 @@ export interface Asset {
       occupancyPerPeriod: number[];
       /** M4 Pass 2h: phase-local occupancy ramp (0..1 per period). */
       occupancyPerPeriodByPhase?: number[];
+      /** SCENARIO LEVER (2026-09-15): percentage points added to every operating
+       *  period of the occupancy ramp, held within 0 to 100%. Absent on the base. */
+      occupancyShiftPts?: number;
       guestsPerOccupiedRoom?: number;
       fb: {
         mode: 'percent_of_rooms' | 'per_guest' | 'fixed_amount';
@@ -1872,6 +1879,9 @@ export interface Asset {
       occupancyPerPeriod: number[];
       /** M4 Pass 2h: phase-local occupancy ramp (0..1 per period). */
       occupancyPerPeriodByPhase?: number[];
+      /** SCENARIO LEVER (2026-09-15): percentage points added to every operating
+       *  period of the occupancy ramp, held within 0 to 100%. Absent on the base. */
+      occupancyShiftPts?: number;
       /** Days Sales Outstanding for AR roll-forward. Default 30. */
       arDays?: number;
     };

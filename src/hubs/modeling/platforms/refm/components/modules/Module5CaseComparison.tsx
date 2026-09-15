@@ -17,6 +17,7 @@ import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import { buildOverrides, baseCaseId } from '../../lib/cases/applyOverrides';
+import { withoutDerivedOverrides } from '../../lib/cases/caseModel';
 import { buildCaseComparisonReport, CASE_KPIS, type CaseKpiKind, caseOverridesNote } from '../../lib/reports/caseComparisonReport';
 import type { HydrateSnapshot } from '../../lib/state/module1-store';
 import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
@@ -57,7 +58,7 @@ export default function Module5CaseComparison(): React.JSX.Element {
     } as HydrateSnapshot;
     const activeIsBase = s.activeCaseId === baseId;
     const baseModel: HydrateSnapshot = activeIsBase ? liveModel : s.baseSnapshot;
-    const activeOverrideCount = activeIsBase ? 0 : Object.keys(buildOverrides(s.baseSnapshot, liveModel)).length;
+    const activeOverrideCount = activeIsBase ? 0 : Object.keys(withoutDerivedOverrides(buildOverrides(s.baseSnapshot, liveModel), liveModel)).length;
     return buildCaseComparisonReport({
       baseModel, cases: s.cases, activeCaseId: s.activeCaseId,
       liveActiveModel: liveModel, activeOverrideCount,

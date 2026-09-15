@@ -24,10 +24,11 @@ import React, { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store, type HydrateSnapshot } from '../../lib/state/module1-store';
 import { buildOverrides, applyOverrides, getByPath, baseCaseId, enumerateOverridableFields } from '../../lib/cases/applyOverrides';
+import { withoutDerivedOverrides } from '../../lib/cases/caseModel';
 import {
   curatedDefaultFields, describeAssumption, assumptionFor, buildGridContext,
   formatAssumptionValue, parseAssumptionInput, assumptionUnitSuffix,
-  isAppliedValue, groupAssumptionRows, inactiveLeverReason, isPerPeriodLever, nonEconomicLeverReason,
+  isAppliedValue, groupAssumptionRows, inactiveLeverReason, isPerPeriodLever, nonEconomicLeverReason, leverNote,
   ASSUMPTION_CATEGORY_ORDER, ASSUMPTION_CATEGORY_LABELS,
   type AssumptionCategory, type AssumptionFormat, type GridContext, type GridRowLite,
 } from '../../lib/cases/assumptionGrid';
@@ -170,7 +171,7 @@ export default function Module6Scenarios(): React.JSX.Element {
   // Live overrides for the active scenario (the diff vs base, including the
   // explicit picker writes which land in this same map).
   const overrides = useMemo(
-    () => (isScenario ? buildOverrides(s.baseSnapshot, liveModel) : {}),
+    () => (isScenario ? withoutDerivedOverrides(buildOverrides(s.baseSnapshot, liveModel), liveModel) : {}),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [isScenario, s.baseSnapshot, s.project, s.phases, s.parcels, s.landAllocationMode, s.assets, s.subUnits, s.costLines, s.costOverrides, s.financingTranches, s.equityContributions],
   );
@@ -529,6 +530,12 @@ export default function Module6Scenarios(): React.JSX.Element {
                                       <div title={inactive} data-testid={`m6-inactive-${p}`}
                                         style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-gold-dark)', background: 'var(--color-gold-light)', borderRadius: 4, padding: '1px 6px', marginTop: 2, display: 'inline-block' }}>
                                         not used under current settings
+                                      </div>
+                                    )}
+                                    {leverNote(p) && (
+                                      <div data-testid={`m6-lever-note-${p}`}
+                                        style={{ fontSize: 10, color: 'var(--color-muted)', marginTop: 2, maxWidth: 320, whiteSpace: 'normal', lineHeight: 1.35 }}>
+                                        {leverNote(p)}
                                       </div>
                                     )}
                                   </div>

@@ -21,6 +21,7 @@ import React, { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../lib/state/module1-store';
 import { buildOverrides, getByPath, baseCaseId } from '../lib/cases/applyOverrides';
+import { withoutDerivedOverrides } from '../lib/cases/caseModel';
 import { FAST_INPUT } from './modules/_shared/inputStyles';
 
 // Compact value formatter for the override list (raw, not currency-scaled).
@@ -79,7 +80,7 @@ export default function CaseSwitcher(): React.JSX.Element {
     financingTranches: s.financingTranches, equityContributions: s.equityContributions, migrationsApplied: s.migrationsApplied,
   };
   const overrides = useMemo(
-    () => (isScenario ? buildOverrides(s.baseSnapshot, liveModel) : {}),
+    () => (isScenario ? withoutDerivedOverrides(buildOverrides(s.baseSnapshot, liveModel), liveModel) : {}),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [isScenario, s.baseSnapshot, s.project, s.phases, s.parcels, s.landAllocationMode, s.assets, s.subUnits, s.costLines, s.costOverrides, s.financingTranches, s.equityContributions],
   );

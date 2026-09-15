@@ -14,6 +14,7 @@
 import { computeFinancialsSnapshot } from '../financials-resolvers';
 import { computeReturnsSnapshot } from '../returns-resolvers';
 import { applyOverrides, baseCaseId, buildOverrides, getByPath, enumerateOverridableFields } from '../cases/applyOverrides';
+import { caseModelOf } from '../cases/caseModel';
 import { buildGridContext, describeAssumption, assumptionFor, formatAssumptionValue } from '../cases/assumptionGrid';
 import type { HydrateSnapshot } from '../state/module1-store';
 import type { ProjectCase } from '../state/module1-types';
@@ -140,7 +141,7 @@ export function buildCaseComparisonReport(input: CaseComparisonInput): CaseCompa
     let model: HydrateSnapshot;
     if (c.id === activeCaseId && liveActiveModel) model = liveActiveModel;
     else if (c.role === 'base') model = baseModel;
-    else model = applyOverrides(baseModel, c.overrides);
+    else model = caseModelOf(baseModel, c.overrides);
 
     const values: Record<string, number | null> = {};
     try {

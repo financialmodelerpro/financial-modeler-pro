@@ -58,6 +58,8 @@ import { applyReferenceCostBases } from '@/src/core/calculations/costBases';
 import { settleStandardCostOverrides, seedCostStandardRows, settleLineRateStated, settleLineSelectionStated, followStripSeeds, planCapexReset, buildPhaseCostLines } from './costStandards';
 import { planTypeMassingWriteBack, resolveAssetTypeKey } from './assetTypeStandards';
 import { seedRevenueBlocks } from './revenueSeeds';
+import { settleModel } from './settleModel';
+import { caseModelOf, withoutDerivedOverrides } from '../cases/caseModel';
 import { settleSubUnitPrices } from './subUnitPrices';
 import { settleSubUnitPriceDefaults, settleSubUnitPriceStated, settleTypePriceFields } from './subUnitPriceDefaults';
 import {
@@ -404,7 +406,7 @@ export function modelFromSnapshot(snapshot: HydrateSnapshot): HydrateSnapshot {
     : baseCaseId(cases);
   const baseModel = pickModel(snapshot as unknown as Record<string, unknown>);
   const active = cases.find((c) => c.id === activeCaseId);
-  return active && active.role !== 'base' ? applyOverrides(baseModel, active.overrides) : baseModel;
+  return active && active.role !== 'base' ? caseModelOf(baseModel, active.overrides) : baseModel;
 }
 
 // P10-Fix 4 (2026-05-12): sub-unit -> companion bookkeeper. Recomputes
@@ -1237,10 +1239,10 @@ export function createModule1Store() {
       if (s.activeCaseId === baseId) {
         baseSnapshot = liveModel;
       } else {
-        cases = s.cases.map((c) => c.id === s.activeCaseId ? { ...c, overrides: buildOverrides(s.baseSnapshot, liveModel) } : c);
+        cases = s.cases.map((c) => c.id === s.activeCaseId ? { ...c, overrides: withoutDerivedOverrides(buildOverrides(s.baseSnapshot, liveModel), liveModel) } : c);
       }
       const target = cases.find((c) => c.id === caseId) ?? cases.find((c) => c.id === baseId)!;
-      const model = target.role === 'base' ? baseSnapshot : applyOverrides(baseSnapshot, target.overrides);
+      const model = target.role === 'base' ? baseSnapshot : caseModelOf(baseSnapshot, target.overrides);
       return {
         ...model,
         migrationsApplied: model.migrationsApplied ?? [],
@@ -1302,10 +1304,10 @@ export function createModule1Store() {
       const baseId = baseCaseId(s.cases);
       if (s.activeCaseId === baseId) return {}; // base has no overrides
       const liveModel = pickModel(s as unknown as Record<string, unknown>);
-      const current = buildOverrides(s.baseSnapshot, liveModel);
+      const current = withoutDerivedOverrides(buildOverrides(s.baseSnapshot, liveModel), liveModel);
       deleteWithSplitPair(current, path);
       const cases = s.cases.map((c) => c.id === s.activeCaseId ? { ...c, overrides: current } : c);
-      const model = applyOverrides(s.baseSnapshot, current);
+      const model = caseModelOf(s.baseSnapshot, current);
       return { ...model, migrationsApplied: model.migrationsApplied ?? [], cases, activePhaseId: model.phases[0]?.id ?? DEFAULT_PHASE_ID, activeAssetId: null };
     }),
 
@@ -1318,9 +1320,9 @@ export function createModule1Store() {
       const baseId = baseCaseId(s.cases);
       if (s.activeCaseId === baseId) return {};
       const liveModel = pickModel(s as unknown as Record<string, unknown>);
-      const current = { ...buildOverrides(s.baseSnapshot, liveModel), ...withSplitPair(path, value) };
+      const current = { ...withoutDerivedOverrides(buildOverrides(s.baseSnapshot, liveModel), liveModel), ...withSplitPair(path, value) };
       const cases = s.cases.map((c) => c.id === s.activeCaseId ? { ...c, overrides: current } : c);
-      const model = applyOverrides(s.baseSnapshot, current);
+      const model = caseModelOf(s.baseSnapshot, current);
       return { ...model, migrationsApplied: model.migrationsApplied ?? [], cases, activePhaseId: model.phases[0]?.id ?? DEFAULT_PHASE_ID, activeAssetId: null };
     }),
 
@@ -1340,17 +1342,17 @@ export function createModule1Store() {
       const pair = withSplitPair(path, value); // auto-derives the equity/debt half
       if (caseId === baseId) {
         if (s.activeCaseId === baseId) {
-          return reseat(applyOverrides(liveModel, pair));
+          return reseat(caseModelOf(liveModel, pair));
         }
-        const baseSnapshot = applyOverrides(s.baseSnapshot, pair);
+        const baseSnapshot = caseModelOf(s.baseSnapshot, pair);
         const activeCase = s.cases.find((c) => c.id === s.activeCaseId);
-        const model = applyOverrides(baseSnapshot, activeCase?.overrides);
+        const model = caseModelOf(baseSnapshot, activeCase?.overrides);
         return reseat(model, { baseSnapshot });
       }
       if (caseId === s.activeCaseId) {
-        const current = { ...buildOverrides(s.baseSnapshot, liveModel), ...pair };
+        const current = { ...withoutDerivedOverrides(buildOverrides(s.baseSnapshot, liveModel), liveModel), ...pair };
         const cases = s.cases.map((c) => c.id === caseId ? { ...c, overrides: current } : c);
-        return reseat(applyOverrides(s.baseSnapshot, current), { cases });
+        return reseat(caseModelOf(s.baseSnapshot, current), { cases });
       }
       const cases = s.cases.map((c) => c.id === caseId ? { ...c, overrides: { ...(c.overrides ?? {}), ...pair } } : c);
       return { cases };
@@ -1364,10 +1366,10 @@ export function createModule1Store() {
       if (caseId === baseId) return {};
       if (caseId === s.activeCaseId) {
         const liveModel = pickModel(s as unknown as Record<string, unknown>);
-        const current = buildOverrides(s.baseSnapshot, liveModel);
+        const current = withoutDerivedOverrides(buildOverrides(s.baseSnapshot, liveModel), liveModel);
         deleteWithSplitPair(current, path);
         const cases = s.cases.map((c) => c.id === caseId ? { ...c, overrides: current } : c);
-        const model = applyOverrides(s.baseSnapshot, current);
+        const model = caseModelOf(s.baseSnapshot, current);
         return { ...model, migrationsApplied: model.migrationsApplied ?? [], cases, activePhaseId: model.phases[0]?.id ?? DEFAULT_PHASE_ID, activeAssetId: null };
       }
       const cases = s.cases.map((c) => {
@@ -1425,7 +1427,7 @@ export function createModule1Store() {
       if (s.activeCaseId === baseId) {
         baseModel = liveModel;
       } else {
-        cases = s.cases.map((c) => c.id === s.activeCaseId ? { ...c, overrides: buildOverrides(s.baseSnapshot, liveModel) } : c);
+        cases = s.cases.map((c) => c.id === s.activeCaseId ? { ...c, overrides: withoutDerivedOverrides(buildOverrides(s.baseSnapshot, liveModel), liveModel) } : c);
       }
       return { ...baseModel, cases, activeCaseId: s.activeCaseId };
     },
@@ -1453,84 +1455,7 @@ export function createModule1Store() {
        * screen never did; and the IC deck read the copy as its Management case
        * (equity IRR 22.36% against 21.07% on screen).
        */
-      const settleOnLoad = (merged: HydrateSnapshot) => {
-      /**
-       * EVERY REFERENCE POINTS AT SOMETHING THAT EXISTS, CHECKED ON LOAD.
-       *
-       * This is the one door every load goes through: opening a project,
-       * restoring a version, switching a case, and the local-snapshot path the
-       * wizard uses. Putting the check on a TAB is what let a dangling plot
-       * reference live in a saved model for two days: the tab that could have
-       * repaired it was not the tab anybody was looking at.
-       *
-       * IT SETTLES. `repairProjectIntegrity` returns the INPUT OBJECT when
-       * nothing is wrong, so a clean project hydrates to the same object it
-       * always did and opening one can never mark it dirty.
-       */
-      const repaired = repairProjectIntegrity(merged);
-      /**
-       * THE BRIDGE TO CAPEX IS FILLED ON LOAD (2026-09-12). Until today it was
-       * filled by an effect on the assets tab and nowhere else, so capex priced
-       * whatever the last visit to that tab had left behind. The chain runs
-       * here through the SAME function the tab calls, and the applier returns
-       * the input array when nothing moved, so a settled project hydrates to
-       * the object it always did.
-       */
-      const bridged = applyDerivedAreasPlan(repaired.state.assets, planDerivedAreasForModel(repaired.state));
-      const bridgedModel = bridged.changed ? { ...repaired.state, assets: bridged.assets } : repaired.state;
-      /**
-       * AND THE STANDARD CONSTRUCTION LINES ARE ON THE REFERENCE BASES
-       * (2026-09-12): hosts on Main Asset GFA and Parking Area, strips on
-       * Retail GFA and Retail Parking Area, a strip with no override seeded.
-       * Same door, same settle rule: the input object when nothing moves.
-       */
-      const based = applyReferenceCostBases(bridgedModel);
-      // And a window that declares itself derived reads as derived.
-      const windows = settleFollowingCostWindows(based.state.costLines, based.state.phases);
-      const windowed = windows.moved > 0 ? { ...based.state, costLines: windows.costLines } : based.state;
-      /**
-       * AND EVERY ASSET CARRIES THE REVENUE BLOCK ITS STRATEGY READS
-       * (2026-09-13, revenueSeeds.ts). The tab created it lazily on the first
-       * edit, so five of eight live assets had none and every rate typed on
-       * Table 5 reached nothing. The seed is the tab's own default and earns
-       * nothing; the input array comes back when nothing was missing.
-       */
-      /**
-       * AND THE TYPE STANDARDS (2026-09-14): a type's absent utilisation,
-       * coverage, FAR or service share is filled when every plot of the type
-       * states the same figure (never overwriting one the user typed there),
-       * and a type's cost rates become standard-sourced overrides on its
-       * assets. Both settle.
-       */
-      const rowsModel = windowed.project.costStandardRows === undefined
-        ? { ...windowed, project: { ...windowed.project, costStandardRows: seedCostStandardRows(windowed.project.assetTypes ?? [], windowed.project.assetTypeValues) } }
-        : windowed;
-      const stated = settleLineRateStated(rowsModel.costLines);
-      const ratedModel0 = stated.changed ? { ...rowsModel, costLines: stated.costLines } : rowsModel;
-      const selStated = settleLineSelectionStated(ratedModel0.costLines, ratedModel0.project.costStandardRows ?? []);
-      const ratedModel = selStated.changed ? { ...ratedModel0, costLines: selStated.costLines } : ratedModel0;
-      const massed = planTypeMassingWriteBack(ratedModel.assets, ratedModel.project.assetTypeValues, { overwrite: false });
-      const massedModel = massed.changed ? { ...ratedModel, project: { ...ratedModel.project, assetTypeValues: massed.values } } : ratedModel;
-      const standardModel = settleStandardCostOverrides(massedModel).state;
-      const seeded = seedRevenueBlocks(standardModel.assets);
-      const seededModel = seeded.changed ? { ...standardModel, assets: seeded.assets } : standardModel;
-      /**
-       * AND EVERY SUB-UNIT'S ACTIVE PRICE IS THE ONE ITS BASIS STATES
-       * (2026-09-13, subUnitPrices.ts): a row carries a price per sqm and a
-       * price per unit, `unitPrice` is whichever its metric makes active, and
-       * a row that predates the pair takes its price as the statement in its
-       * active basis. Settles like the rest.
-       */
-      // THE TYPE'S PRICES FIRST (2026-09-15, subUnitPriceDefaults.ts): a row with no
-      // marker and a positive price is the user's; a row with none takes its type's.
-      // The first cut's four type price fields fold into the two (2026-09-15).
-      const foldedValues = settleTypePriceFields(seededModel.project.assetTypeValues);
-      const valuedModel = foldedValues.changed ? { ...seededModel, project: { ...seededModel.project, assetTypeValues: foldedValues.values } } : seededModel;
-      const defaultedRows = settleSubUnitPriceDefaults(settleSubUnitPriceStated(valuedModel.subUnits).subUnits, valuedModel.assets, valuedModel.project.assetTypes ?? [], valuedModel.project.assetTypeValues);
-      const priced = settleSubUnitPrices(defaultedRows.subUnits, valuedModel.assets);
-      const model = priced.subUnits !== valuedModel.subUnits ? { ...valuedModel, subUnits: priced.subUnits } : valuedModel;
-      return { model, priced, seeded, windows, based, repaired };
-      };
+      const settleOnLoad = settleModel;
       const settledBase = settleOnLoad(baseModel);
       const { model, priced, seeded, windows, based, repaired } = active.role === 'base'
         ? settledBase

@@ -139,6 +139,22 @@ export function applyOverrides(base: HydrateSnapshot, overrides: Record<string, 
     const value = overrides[path];
     if (typeof value === 'number') row[key] = value;
   }
+  /**
+   * AND A WINDOW A CASE STATES IS A STATED WINDOW (2026-09-15, step 8). A line
+   * carrying `windowFollowsConstruction` has its start and end re-derived from
+   * the phase by the settle, so a scenario's window override was overwritten the
+   * moment the case model was settled (22 window levers on the pipeline fixture
+   * went dead when every case model began to settle, and on reopening a project
+   * with that scenario active they already had). The override therefore marks the
+   * line's window as the user's, unless the case names the flag itself.
+   */
+  for (const path of Object.keys(overrides)) {
+    if (!path.startsWith('costLines[id=') || !(path.endsWith('].startPeriod') || path.endsWith('].endPeriod'))) continue;
+    const id = path.slice('costLines[id='.length, path.lastIndexOf(']'));
+    if (`costLines[id=${id}].windowFollowsConstruction` in overrides) continue;
+    const line = (out.costLines ?? []).find((l) => l.id === id) as unknown as Record<string, unknown> | undefined;
+    if (line && line.windowFollowsConstruction === true) line.windowFollowsConstruction = false;
+  }
   return out;
 }
 
@@ -235,6 +251,32 @@ export function enumerateOverridableFields(model: HydrateSnapshot): OverridableF
       const id = rec['id'];
       if (typeof id !== 'string') continue;
       collectScalarLeaves(`${key}[id=${id}]`, '', rec, `${kind}: ${entityLabel(rec, id)}`, out);
+    }
+  }
+  // THE SCENARIO LEVERS (2026-09-15, step 8): sales pace and occupancy are one
+  // number on the asset's revenue block, absent on the base, so each is offered
+  // at its neutral value (a pace factor of 1, a shift of 0 points) until set.
+  // Only on an asset that owns a revenue row: one with none sells and lets
+  // nothing, so a lever on it would move nothing (a live Sell asset whose stored
+  // pace row points at another asset's sub-unit is exactly that).
+  const assetsArr = m['assets'];
+  const ownsRevenueRow = new Set(((m['subUnits'] ?? []) as Indexable[])
+    .filter((u) => u && u['category'] !== 'Support')
+    .map((u) => String(u['assetId'] ?? '')));
+  if (Array.isArray(assetsArr)) {
+    for (const rec of assetsArr as Indexable[]) {
+      const id = rec['id'];
+      const rev = rec['revenue'] as Indexable | undefined;
+      if (typeof id !== 'string' || !rev || typeof rev !== 'object' || rec['visible'] === false || !ownsRevenueRow.has(id)) continue;
+      const group = `Asset: ${entityLabel(rec, id)}`;
+      const offer = (blk: string, leaf: string, neutral: number): void => {
+        const b = rev[blk] as Indexable | undefined;
+        if (!b || typeof b !== 'object' || b[leaf] !== undefined) return;
+        out.push({ path: `assets[id=${id}].revenue.${blk}.${leaf}`, group, field: `revenue.${blk}.${leaf}`, value: neutral, type: 'number' });
+      };
+      if (rec['strategy'] === 'Sell' || rec['strategy'] === 'Sell + Manage') offer('sell', 'paceFactor', 1);
+      if (rec['strategy'] === 'Operate') offer('operate', 'occupancyShiftPts', 0);
+      if (rec['strategy'] === 'Lease') offer('lease', 'occupancyShiftPts', 0);
     }
   }
   const cos = m['costOverrides'];

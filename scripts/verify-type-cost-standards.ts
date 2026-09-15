@@ -235,7 +235,8 @@ section('G. the store, Module 6 and the screens');
 
   const model = createModule1Store().getState().extractPersistSnapshot() as unknown as HydrateSnapshot;
   const why = inactiveLeverReason('project.costStandardRows[id=type:branded-villas].rate', model);
-  check('G7 a cost standard is shown inactive in Module 6, naming the Capex line as the dial', !!why && /capex line/.test(why), String(why));
+  // Since 2026-09-15 (step 8) a cost standard applies inside a scenario: caseModelOf settles every case model.
+  check('G7 a cost standard is a live Module 6 lever, not marked inactive', why === null, String(why));
   check('G8 the line marker and the row structure are not scenario levers',
     nonEconomicLeverReason('costLines[id=x].rateStated', 'rateStated') !== null
     && nonEconomicLeverReason('project.costStandardRows[id=x].label', 'label') !== null);
@@ -246,7 +247,10 @@ section('G. the store, Module 6 and the screens');
   const capex = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx', 'utf8');
   check('G11 Capex names the default and offers the way back to it',
     capex.includes('From Types and Standards') && capex.includes('-use-standard') && capex.includes('rateStated: false'));
-  const storeSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8');
+  // Since 2026-09-15 (step 8) the load-time passes live in settleModel.ts, which hydrate calls
+  // (settleOnLoad = settleModel) and every scenario model settles through, so count both files.
+  const storeSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8')
+    + readFileSync('src/hubs/modeling/platforms/refm/lib/state/settleModel.ts', 'utf8');
   check('G12 load and save both seed the lists, mark the lines and settle',
     (storeSrc.match(/seedCostStandardRows\(/g) ?? []).length >= 2 && (storeSrc.match(/settleLineRateStated\(/g) ?? []).length >= 2
     && (storeSrc.match(/settleStandardCostOverrides\(/g) ?? []).length >= 3);
@@ -407,7 +411,8 @@ section('O. every path builds a phase the same way: the standards list, in order
   check('O3 and a reset of that phase produces the same lines', idsOf(def.getState().costLines, 'phase_9') === LIST);
   const wizard = readFileSync('src/hubs/modeling/platforms/refm/lib/wizard/buildWizardSnapshot.ts', 'utf8');
   const migrate = readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-migrate.ts', 'utf8');
-  const storeSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8');
+  const storeSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8')
+    + readFileSync('src/hubs/modeling/platforms/refm/lib/state/settleModel.ts', 'utf8'); // the settle moved to settleModel.ts (2026-09-15)
   check('O4 the wizard, the load seeds and the store all call the one builder, and none seeds the old catalog',
     wizard.includes('buildPhaseCostLines(') && (migrate.match(/buildPhaseCostLines\(/g) ?? []).length >= 2
     && (storeSrc.match(/buildPhaseCostLines\(/g) ?? []).length >= 2
@@ -475,11 +480,13 @@ section('S. a type states its sale prices, ADR and lease rate, and a Table 5 row
   check('S11 the settle returns its input when nothing moves', same.subUnits === g().subUnits && settleSubUnitPriceStated(g().subUnits).subUnits === g().subUnits);
   const model = createModule1Store().getState().extractPersistSnapshot() as unknown as HydrateSnapshot;
   const why = inactiveLeverReason('project.assetTypeValues.branded-villas.pricePerSqm', model);
-  check('S12 Module 6 names the sub-unit price as the dial and hides the marker',
-    !!why && /Table 5/.test(why) && nonEconomicLeverReason('subUnits[id=x].priceStated', 'priceStated') !== null, String(why));
+  // Since 2026-09-15 (step 8) a type price applies inside a scenario, so it is a live lever.
+  check('S12 a type price is a live Module 6 lever and the marker stays hidden',
+    why === null && nonEconomicLeverReason('subUnits[id=x].priceStated', 'priceStated') !== null, String(why));
   const tab = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1AssetStandards.tsx', 'utf8');
   const assetsSrc = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx', 'utf8');
-  const storeSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8');
+  const storeSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8')
+    + readFileSync('src/hubs/modeling/platforms/refm/lib/state/settleModel.ts', 'utf8'); // the settle moved to settleModel.ts (2026-09-15)
   check('S13 the list is named for its prices, and every Table 5 price cell states the price',
     tab.includes("'Construction cost, sale price and ADR'") && tab.includes('std-price-${typeId}-${c.key}')
     && (assetsSrc.match(/priceStated: true/g) ?? []).length >= 3);
@@ -543,7 +550,8 @@ section('T. a type carries two prices, and its strategy says what each means');
   const clean = { v: { pricePerUnit: 1 } };
   check('T6 and settles', settleTypePriceFields(clean).values === clean);
   const tab = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1AssetStandards.tsx', 'utf8');
-  const storeSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8');
+  const storeSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8')
+    + readFileSync('src/hubs/modeling/platforms/refm/lib/state/settleModel.ts', 'utf8'); // the settle moved to settleModel.ts (2026-09-15)
   check('T7 the tab has two price columns carrying their unit per row, and no dimmed columns',
     tab.includes("label: 'Price per unit'") && tab.includes("label: 'Price per sqm'") && tab.includes('-${c.key}-unit`}')
     && !/adrPerKeyNight|leaseRatePerSqmYear|salePricePer|c\.fits/.test(tab));

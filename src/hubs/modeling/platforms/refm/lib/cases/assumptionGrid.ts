@@ -109,6 +109,9 @@ const FIELD_LABELS: Record<string, string> = {
   'unitPrice': 'Unit price / rate',
   'startingAdr': 'Starting ADR',
   'occupancyPct': 'Occupancy %',
+  'revenue.sell.paceFactor': 'Sales pace (x plan)',
+  'revenue.operate.occupancyShiftPts': 'Occupancy shift (pts)',
+  'revenue.lease.occupancyShiftPts': 'Occupancy shift (pts)',
   'revenue.operate.startingADR': 'Starting ADR',
   'revenue.operate.adrIndexation.rate': 'ADR indexation',
   'revenue.sell.indexation.rate': 'Sales price indexation',
@@ -119,6 +122,9 @@ const FIELD_LABELS: Record<string, string> = {
 };
 
 const SUFFIX_LABELS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^assetTypeValues\.[^.]+\.pricePerSqm$/, 'Type price per sqm'],
+  [/^assetTypeValues\.[^.]+\.pricePerUnit$/, 'Type price per unit'],
+  [/^costStandardRows\[[^\]]+\]\.rate$/, 'Cost standard rate'],
   [/debtPct$/, 'Debt %'],
   [/equityPct$/, 'Equity %'],
   [/interbankRatePct$/, 'Interest rate (interbank)'],
@@ -133,6 +139,21 @@ const SUFFIX_LABELS: ReadonlyArray<readonly [RegExp, string]> = [
 // cannot work as a single-value scenario override and only caused dead-lever
 // confusion. Excluded from BOTH the curated view and the add-row picker.
 const PER_PERIOD_GRID_LEAVES = new Set<string>(['occupancyPct']);
+/**
+ * A LEVER THAT MOVES THE MODEL THE WAY A READER WOULD NOT EXPECT SAYS SO ON ITS
+ * ROW (2026-09-15, founder). Shown as visible text under the label in Module 6,
+ * not as a tooltip. Null for every other lever.
+ *
+ * Sales pace: measured on the live project, 0.8x raised revenue by 69.56m and
+ * profit by 24.60m while equity IRR fell 4.31 points and NPV 46.63m.
+ */
+export function leverNote(path: string): string | null {
+  if (/\.revenue\.sell\.paceFactor$/.test(path)) {
+    return 'A slower pace can RAISE revenue and profit while LOWERING IRR and NPV: the same units sell later at indexed prices, so they earn more, but the cash arrives later. A faster pace does the opposite.';
+  }
+  return null;
+}
+
 export function isPerPeriodLever(field: string): boolean {
   return PER_PERIOD_GRID_LEAVES.has(field);
 }
@@ -146,6 +167,8 @@ const CURATED_LEAVES = new Set<string>([
   'revenue.operate.startingADR', 'revenue.operate.adrIndexation.rate',
   'revenue.sell.indexation.rate', 'revenue.lease.baseRate', 'revenue.lease.rentIndexation.rate',
   'opex.defaultIndexation.rate',
+  // The scenario levers (2026-09-15, step 8).
+  'revenue.sell.paceFactor', 'revenue.operate.occupancyShiftPts', 'revenue.lease.occupancyShiftPts',
 ]);
 
 // Money / rate amounts that render in accounting format.
@@ -249,6 +272,8 @@ function formatForField(f: OverridableField, costBaseId?: string): AssumptionFor
   if (f.type === 'boolean') return 'boolean';
   if (f.type === 'string') return 'text';
   if (costBaseId !== undefined) return PERCENT_COST_LEVER_IDS.has(costBaseId) ? 'percent-whole' : 'accounting';
+  if (/^costStandardRows\[/.test(f.field)) return 'number';
+  if (/^assetTypeValues\.[^.]+\.(pricePerSqm|pricePerUnit)$/.test(f.field)) return 'accounting';
   const leaf = f.field;
   if (PERCENT_FRACTION_LEAVES.has(leaf) || /\.rate$/.test(leaf)) return 'percent-fraction';
   if (/Pct$/.test(leaf) || leaf === 'payoutRatio') return 'percent-whole';
@@ -345,6 +370,11 @@ export function describeAssumption(f: OverridableField, ctx?: GridContext): Assu
     }
   }
 
+  // A type value or a cost standard names its type or its row (2026-09-15).
+  const typeValue = /^project\.assetTypeValues\.([^.]+)\./.exec(f.path);
+  if (typeValue) context = humanizeLeaf(typeValue[1]);
+  const standardRow = /^project\.costStandardRows\[id=([^\]]+)\]/.exec(f.path);
+  if (standardRow) context = humanizeLeaf(standardRow[1].replace(/^(type|cat):/, ''));
   let label = FIELD_LABELS[f.field];
   if (!label) { for (const [re, l] of SUFFIX_LABELS) if (re.test(f.field)) { label = l; break; } }
   if (!label) label = humanizeLeaf(f.field);
@@ -378,6 +408,17 @@ export function curatedDefaultFields(model: HydrateSnapshot): OverridableField[]
   for (const f of all) {
     if (f.path.startsWith('costLines[') || f.path.startsWith('costOverrides[')) continue;
     if (isCuratedField(f)) out.push(f);
+  }
+
+  // 1b. The type prices and construction cost standards of the types the model uses (2026-09-15):
+  //     both apply inside a scenario now, and a price at type level is the biggest single dial.
+  const usedTypes = new Set(((model as unknown as { assets?: Array<{ assetTypeId?: string; visible?: boolean }> }).assets ?? [])
+    .filter((a) => a.visible !== false && a.assetTypeId).map((a) => a.assetTypeId as string));
+  for (const f of all) {
+    const tv = /^project\.assetTypeValues\.([^.]+)\.(pricePerUnit|pricePerSqm)$/.exec(f.path);
+    if (tv && usedTypes.has(tv[1]) && Number(f.value) > 0) { out.push(f); continue; }
+    const sr = /^project\.costStandardRows\[id=type:([^\]]+)\]\.rate$/.exec(f.path);
+    if (sr && usedTypes.has(sr[1]) && Number(f.value) > 0) out.push(f);
   }
 
   // 2. Construction cost levers, sourced per asset where overrides exist.
@@ -686,12 +727,9 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
       : 'massing is derived on the assets tab and a value-only override does not re-run it, so this changes nothing at all (the engine reads the chain for one figure, the retail share, which this input does not affect)';
   }
 
-  // THE COST STANDARDS (2026-09-14) reach the model as standard-sourced capex
-  // overrides, written by the store. A value-only case override on a row never
-  // runs that step, so it moves nothing; the Capex line or override is the dial.
-  if (/^project\.costStandardRows\[/.test(path)) {
-    return 'a cost standard default; the store writes it onto each asset as a capex override where the phase line has no rate of its own, and a scenario does not re-run that step, so change the capex line rate or the override instead';
-  }
+  // THE COST STANDARDS APPLY INSIDE A SCENARIO (2026-09-15, step 8): every case model is
+  // settled through caseModelOf, which writes a row onto its assets as it does on load, so
+  // a cost standard is a live lever and is not gated here any more.
   if (/^project\.assetTypeValues(\.|\[)/.test(path)) {
     // THE UNIT SIZE IS ENGINE-READ SINCE 2026-09-13: the hospitality revenue
     // resolver counts keys on a row stated in sqm as area over the unit size
@@ -706,9 +744,8 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
     // nothing; the override itself (costOverrides[...].value) is the dial.
     // THE TYPE'S PRICES (2026-09-15) reach the model as the price of each Table 5
     // row of the type that has none of its own, written by the store.
-    if (/\.(pricePerUnit|pricePerSqm)$/.test(path)) {
-      return 'a price per unit or per sqm default on the asset type (a sale price, an ADR or a rent, by its strategy); the store writes it onto each Table 5 row of the type with no price of its own, and a scenario does not re-run that step, so change the sub-unit price instead';
-    }
+    // AND SO DOES A TYPE'S PRICE (2026-09-15, step 8): caseModelOf settles the type's rows.
+    if (/\.(pricePerUnit|pricePerSqm)$/.test(path)) return null;
     if (/\.costRates(\.|\[)/.test(path)) {
       return 'a cost rate standard on the asset type; the store writes it onto each asset of the type as a capex override, and a scenario does not re-run that step, so change the capex override value for this asset and line instead';
     }

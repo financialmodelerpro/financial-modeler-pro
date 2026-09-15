@@ -26,6 +26,7 @@
  */
 import { computeFinancialsSnapshot, type ProjectFinancialsSnapshot } from '../financials-resolvers';
 import { applyOverrides, baseCaseId, buildOverrides, enumerateOverridableFields, getByPath } from '../cases/applyOverrides';
+import { caseModelOf } from '../cases/caseModel';
 import { describeAssumption, assumptionFor, buildGridContext, type AssumptionCategory, type AssumptionFormat } from '../cases/assumptionGrid';
 import type { HydrateSnapshot } from '../state/module1-store';
 import type { ProjectCase } from '../state/module1-types';
@@ -234,7 +235,7 @@ export function buildCaseYoYReport(input: CaseComparisonInput): CaseYoYReport {
     let model: HydrateSnapshot;
     if (c.id === activeCaseId && liveActiveModel) model = liveActiveModel;
     else if (c.role === 'base') model = baseModel;
-    else model = applyOverrides(baseModel, c.overrides);
+    else model = caseModelOf(baseModel, c.overrides);
     let snap: ProjectFinancialsSnapshot | null = null;
     try { snap = computeFinancialsSnapshot(model as never); } catch { snap = null; }
     return { c, model, snap };

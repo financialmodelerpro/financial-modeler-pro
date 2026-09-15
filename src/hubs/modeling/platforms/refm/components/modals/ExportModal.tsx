@@ -27,6 +27,7 @@ import type { WatermarkSpec } from '@/src/shared/entitlements/exportWatermark';
 import { useModule1Store, modelFromSnapshot, pickModel } from '../../lib/state/module1-store';
 import { loadStoredModel } from '../../lib/state/loadStoredModel';
 import { applyOverrides, buildOverrides, baseCaseId, normaliseCases } from '../../lib/cases/applyOverrides';
+import { caseModelOf, withoutDerivedOverrides } from '../../lib/cases/caseModel';
 import { PDF_MODULE_TABS } from '../../lib/pdf/pdfModuleTabs';
 import { listVersions, loadVersion } from '../../lib/persistence/client';
 import type { RefmProjectVersionListItem } from '../../lib/persistence/types';
@@ -371,7 +372,7 @@ export default function ExportModal({
         // Picker untouched / case not in this version -> the version's own active
         // model (original behaviour); otherwise the chosen case's model.
         state = (chosen
-          ? (chosen.role === 'base' ? vBase : applyOverrides(vBase, chosen.overrides))
+          ? (chosen.role === 'base' ? vBase : caseModelOf(vBase, chosen.overrides))
           : modelFromSnapshot(migrated)) as typeof state;
         caseComparison = { baseModel: vBase, cases: vCases, activeCaseId: vActiveId };
         const vName = versionDisplayName(row);
@@ -386,11 +387,11 @@ export default function ExportModal({
         const activeId = st.activeCaseId;
         const activeIsBase = activeId === baseCaseId(storeCases);
         const baseModel: HydrateSnapshot = activeIsBase ? live : (st.baseSnapshot as HydrateSnapshot);
-        const activeOverrideCount = activeIsBase ? 0 : Object.keys(buildOverrides(st.baseSnapshot, live)).length;
+        const activeOverrideCount = activeIsBase ? 0 : Object.keys(withoutDerivedOverrides(buildOverrides(st.baseSnapshot, live), live)).length;
         const chosen = storeCases.find((c) => c.id === selectedCaseId) ?? storeCases.find((c) => c.role === 'base');
         state = (!chosen || chosen.id === activeId
           ? live
-          : chosen.role === 'base' ? baseModel : applyOverrides(baseModel, chosen.overrides)) as typeof state;
+          : chosen.role === 'base' ? baseModel : caseModelOf(baseModel, chosen.overrides)) as typeof state;
         caseComparison = { baseModel, cases: storeCases, activeCaseId: activeId, liveActiveModel: live, activeOverrideCount };
       }
       const dateLabel = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });

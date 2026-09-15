@@ -18,6 +18,7 @@
  * imports from src/hubs (matches the M1.7 resolver pattern).
  */
 
+import { shiftOccupancy, scaleSalesPace } from '@/src/core/calculations/revenue/scenarioLevers';
 import { isRetailCompanion } from '@/src/core/calculations/retailCompanion';
 import { buildEngineDownpaymentAxis } from './state/saleCohortResolution';
 import {
@@ -370,7 +371,8 @@ export function resolveHospitalityConfig(
     // non-ADR field first; cfg.startingADR is undefined in that case.
     startingADR: cfg.startingADR ?? 0,
     adrIndexation: expandIndexationToAxis(cfg.adrIndexation, cfg.adrIndexation?.growthPerPeriodByPhase, phaseOffset, axisLength),
-    occupancyPerPeriod: expandPhaseLocalToAxis(cfg.occupancyPerPeriodByPhase, cfg.occupancyPerPeriod, phaseOffset, axisLength),
+    // The occupancy scenario lever shifts the ramp before it reaches the axis (2026-09-15).
+    occupancyPerPeriod: expandPhaseLocalToAxis(shiftOccupancy(cfg.occupancyPerPeriodByPhase, cfg.occupancyShiftPts), shiftOccupancy(cfg.occupancyPerPeriod, cfg.occupancyShiftPts), phaseOffset, axisLength),
     guestsPerOccupiedRoom: cfg.guestsPerOccupiedRoom ?? 1.5,
     fb: fbExpanded,
     otherRevenue: orExpanded,
@@ -440,7 +442,8 @@ export function resolveLeaseConfig(
     gla: totalGla,
     baseRate: cfg.baseRate ?? 0,
     rentIndexation: expandIndexationToAxis(cfg.rentIndexation, cfg.rentIndexation?.growthPerPeriodByPhase, phaseOffset, axisLength),
-    occupancyPerPeriod: expandPhaseLocalToAxis(cfg.occupancyPerPeriodByPhase, cfg.occupancyPerPeriod, phaseOffset, axisLength),
+    // The occupancy scenario lever shifts the ramp before it reaches the axis (2026-09-15).
+    occupancyPerPeriod: expandPhaseLocalToAxis(shiftOccupancy(cfg.occupancyPerPeriodByPhase, cfg.occupancyShiftPts), shiftOccupancy(cfg.occupancyPerPeriod, cfg.occupancyShiftPts), phaseOffset, axisLength),
     opsStartIdx,
     opsEndIdx,
     arDays: cfg.arDays ?? 30,
@@ -798,7 +801,10 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
     const cfg: AssetSellConfig = {
       ...cfgRaw,
       subUnits: assetSubUnits.map((u) => {
-        const v = resolveRowVelocity(storedSell, u.id);
+        const rowPace = resolveRowVelocity(storedSell, u.id);
+        // The sales pace scenario lever stretches the row's strips (2026-09-15).
+        const paced = scaleSalesPace(rowPace.pre, rowPace.post, storedSell?.paceFactor);
+        const v = { ...rowPace, pre: paced.pre, post: paced.post };
         return {
           subUnitId: u.id,
           preSalesVelocity: expandPhaseLocalToAxis(v.pre, v.preLegacy, phaseOffset, N),

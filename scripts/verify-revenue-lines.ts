@@ -291,7 +291,9 @@ section('I. Revenue blocks are seeded in the persistence layer and the seed sett
   check('I6 but the seeded assets now have a result the tabs can show (a zero line, not an absent one)',
     after.bySellAsset.has('s1') && after.byHospitalityAsset.has('o1') && after.byLeaseAsset.has('l1') && !before.bySellAsset.has('s1'));
   const store = readFileSync(join(process.cwd(), 'src/hubs/modeling/platforms/refm/lib/state/module1-store.ts'), 'utf8');
-  check('I7 the store seeds on BOTH doors, load and save', (store.match(/seedRevenueBlocks\(/g) ?? []).length >= 2 && /hydrate: \(snapshot\)[\s\S]*seedRevenueBlocks\(/.test(store) && /extractPersistSnapshot: \(\)[\s\S]*seedRevenueBlocks\(/.test(store));
+  // The load door's passes moved to settleModel.ts (2026-09-15, step 8); hydrate calls it.
+  const settleSrc = readFileSync(join(process.cwd(), 'src/hubs/modeling/platforms/refm/lib/state/settleModel.ts'), 'utf8');
+  check('I7 the store seeds on BOTH doors, load and save', /seedRevenueBlocks\(/.test(settleSrc) && /settleOnLoad = settleModel/.test(store) && /extractPersistSnapshot: \(\)[\s\S]*seedRevenueBlocks\(/.test(store));
 }
 
 // ── J. Cost of sales per line ──────────────────────────────────────────────
