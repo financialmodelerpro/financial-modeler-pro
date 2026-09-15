@@ -18,6 +18,7 @@ import { readFileSync } from 'node:fs';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/returns-resolvers';
 import { terminalMetricIndex, valueAtExit, writeOffAtExit } from '../src/core/calculations/returns/disposal';
+import { buildDisposalWorking } from '../src/hubs/modeling/platforms/refm/lib/reports/disposalReport';
 import { makeDefaultPhase, makeDefaultProject, makeDefaultCostLines, makeDefaultFinancingTranche } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
 let pass = 0, fail = 0;
@@ -174,6 +175,30 @@ section('F. the rows and the screens');
   check('F3 the P&L inputs carry the zakat-on-gain setting', pl.includes('m4-pl-tax-on-disposal-gain') && pl.includes('applyToDisposalGain'));
   const shared = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module5Shared.tsx', 'utf8');
   check('F4 the Returns assumptions carry the terminal value basis', shared.includes('returns-terminal-basis') && shared.includes("value=\"prior_year\""));
+}
+
+// ── G ───────────────────────────────────────────────────────────────────────
+section('G. the Returns working reads the booked disposal');
+{
+  const rs = computeReturnsSnapshot(snap, state.project);
+  const w = buildDisposalWorking(snap, rs, (id) => id);
+  const val = (label: string): number | undefined => w.rows.find((r) => r.label === label)?.value;
+  check('G1 the terminal value row is the proceeds booked', w.booked && val('Terminal value, booked as proceeds from disposal') === snap.disposal.proceeds);
+  check('G2 the income capitalised is the basis year income', val('Income capitalised') === snap.disposal.exitMetric);
+  check('G3 gain = proceeds less net book value, as the P&L books it',
+    val('Gain on disposal') === snap.disposal.gain && val('P&L: Gain on Disposal of Operating Assets') === snap.pl.gainOnDisposalPerPeriod[X]);
+  check('G4 every booking ties to the working', (w.rows.find((r) => r.kind === 'check')?.value ?? 1) < 0.01);
+  check('G5 the per-asset split foots to the net book value',
+    Math.abs(w.byAsset.reduce((s, a) => s + a.total, 0) - snap.disposal.netBookValue.total) < 0.01);
+  const exitBasis = buildState({ terminalValueBasis: 'exit_year' });
+  const snapE = computeFinancialsSnapshot(exitBasis);
+  const wE = buildDisposalWorking(snapE, computeReturnsSnapshot(snapE, exitBasis.project), (id) => id);
+  check('G6 the working follows the basis setting', /Exit year income/.test(wE.rows.find((r) => r.label === 'Basis')?.text ?? ''));
+  const none = computeFinancialsSnapshot(buildState({ terminalMethod: 'none' }));
+  check('G7 with no terminal value the working says nothing is sold', !buildDisposalWorking(none, computeReturnsSnapshot(none, buildState({ terminalMethod: 'none' }).project), (id) => id).booked);
+  const tab = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module5Returns.tsx', 'utf8');
+  check('G8 the Returns tab renders the working before the sensitivity section',
+    tab.indexOf('<DisposalWorkingSection') > 0 && tab.indexOf('<DisposalWorkingSection') < tab.indexOf('<SensitivitySection'));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

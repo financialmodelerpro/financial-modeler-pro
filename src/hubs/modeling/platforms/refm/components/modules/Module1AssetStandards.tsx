@@ -94,7 +94,8 @@ const FAST_INPUT: React.CSSProperties = {
   width: '100%',
 };
 const TEXT_INPUT: React.CSSProperties = { ...FAST_INPUT, textAlign: 'left' };
-const TH: React.CSSProperties = { padding: '6px 8px', textAlign: 'left', fontWeight: 600 };
+// Headers centred both ways (2026-09-15, founder).
+const TH: React.CSSProperties = { padding: '6px 8px', textAlign: 'center', verticalAlign: 'middle', fontWeight: 600 };
 const TD: React.CSSProperties = { padding: '4px 6px' };
 
 // THE TWO HALVES ARE SAVED DIFFERENTLY, SO THEY LOOK DIFFERENT.
@@ -717,19 +718,19 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
             <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
               <th style={{ ...TH, minWidth: 160 }}>Asset type</th>
               <th style={{ ...TH, minWidth: 110 }}>Category</th>
-              <th style={{ ...TH, minWidth: 70, textAlign: 'center' }}>Order and remove</th>
+              <th style={{ ...TH, minWidth: 70 }}>Order and remove</th>
               {/* STRATEGY LEADS THE PROJECT HALF, because it is the one value
                   here that decides what the others are FOR: a Sell type prices
                   a unit, an Operate type prices a key. It governs NEW assets
                   only, which the caption says. */}
               <th style={{ ...TH, ...DIVIDER, minWidth: 150 }}>Strategy for new assets</th>
-              <th style={{ ...TH, minWidth: 90, textAlign: 'right' }}>Avg unit size (sqm)</th>
-              <th style={{ ...TH, minWidth: 80, textAlign: 'right' }}>Parking ratio</th>
+              <th style={{ ...TH, minWidth: 90 }}>Avg unit size (sqm)</th>
+              <th style={{ ...TH, minWidth: 80 }}>Parking ratio</th>
               <th style={{ ...TH, minWidth: 140 }}>Ratio basis</th>
-              <th style={{ ...TH, minWidth: 90, textAlign: 'right' }}>Utilisation %</th>
-              <th style={{ ...TH, minWidth: 90, textAlign: 'right' }}>Coverage %</th>
-              <th style={{ ...TH, minWidth: 80, textAlign: 'right' }}>FAR</th>
-              <th style={{ ...TH, minWidth: 90, textAlign: 'right' }}>Service %</th>
+              <th style={{ ...TH, minWidth: 90 }}>Utilisation %</th>
+              <th style={{ ...TH, minWidth: 90 }}>Coverage %</th>
+              <th style={{ ...TH, minWidth: 80 }}>FAR</th>
+              <th style={{ ...TH, minWidth: 90 }}>Service %</th>
             </tr>
           </thead>
           <tbody>
@@ -828,7 +829,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
                   <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
                     <th style={{ ...TH, minWidth: 200 }}>Item</th>
                     <th style={{ ...TH, minWidth: 170 }}>{list === 'construction' ? 'Applies to' : 'Basis'}</th>
-                    <th style={{ ...TH, minWidth: 110, textAlign: 'right' }}>Rate</th>
+                    <th style={{ ...TH, minWidth: 110 }}>Rate</th>
                     {phases.length > 1 && <th style={{ ...TH, minWidth: 90 }}>By phase</th>}
                     <th style={{ ...TH, minWidth: 60 }} />
                   </tr>
@@ -847,7 +848,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
                           <td style={TD}>
                             {list === 'soft' || row.assetTypeId !== undefined ? (
                               <span style={{ color: 'var(--color-meta)' }}>
-                                {row.assetTypeId !== undefined ? 'Assets of this type' : costStandardBasisLabel(row.method, currency)}
+                                {row.assetTypeId !== undefined ? 'Assets of this type' : costStandardBasisLabel(row.method, currency, row.catalogId)}
                               </span>
                             ) : (
                               <details data-testid={`std-cost-${row.id}-types`}>
@@ -869,7 +870,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
                           <td style={TD}>
                             <ValueCell value={row.rate} disabled={noProject}
                               testId={`std-cost-${row.id}-rate`}
-                              title={`${row.label}: ${costStandardBasisLabel(row.method, currency)}. Blank applies nothing.`}
+                              title={`${row.label}: ${costStandardBasisLabel(row.method, currency, row.catalogId)}. Blank applies nothing.`}
                               onCommit={(n) => writeRow(row, { rate: n })} />
                           </td>
                           {phases.length > 1 && (

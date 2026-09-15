@@ -56,7 +56,7 @@ import { applyStrategySwitch, assetHasStrategyAssumptions, seedManageCompanion, 
 import { assetsOnParcel, repairProjectIntegrity, cascadeAssetRemoval, type CascadeReport } from '@/src/core/calculations/projectIntegrity';
 import { planRetailCompanionOverrides } from '@/src/core/calculations/retailCompanion';
 import { applyReferenceCostBases } from '@/src/core/calculations/costBases';
-import { settleStandardCostOverrides, seedCostStandardRows, settleLineRateStated, followStripSeeds } from './costStandards';
+import { settleStandardCostOverrides, seedCostStandardRows, settleLineRateStated, followStripSeeds, planCapexReset } from './costStandards';
 import { planTypeMassingWriteBack } from './assetTypeStandards';
 import { seedRevenueBlocks } from './revenueSeeds';
 import { settleSubUnitPrices } from './subUnitPrices';
@@ -177,6 +177,10 @@ export interface Module1Store {
   ) => void;
   /** The cost standards lists (2026-09-14). Settles the Capex defaults after. */
   setCostStandardRows: (rows: import('./costStandards').CostStandardRow[]) => void;
+  /** Rebuild the capex lines of these phases as a new project gets them (2026-09-15, a testing aid). */
+  resetCapexToStandards: (phaseIds: string[]) => void;
+  /** Put the capex lines and overrides back exactly: the reset's undo. */
+  setCapexState: (costLines: CostLine[], costOverrides: CostOverride[]) => void;
   /** Module 6 "Use scenarios?" toggle, shared by the Module 6 tab + the topbar
    *  case switcher so they never diverge. Off forces the active case back to
    *  Management (a hidden scenario must never drive the financials) and remembers
@@ -778,6 +782,8 @@ export function createModule1Store() {
     }),
 
     setCostStandardRows: (rows) => setAndSettle((s) => ({ project: { ...s.project, costStandardRows: rows } })),
+    resetCapexToStandards: (phaseIds) => setAndSettle((s) => planCapexReset(s.costLines, s.costOverrides, s.phases, phaseIds)),
+    setCapexState: (costLines, costOverrides) => setAndSettle(() => ({ costLines, costOverrides })),
 
     // Single implementation of the "Use scenarios?" toggle, reused by the
     // Module 6 tab + the topbar so the flag + behaviour never diverge. Built on
@@ -1525,7 +1531,7 @@ export function createModule1Store() {
       'setSubUnits', 'addSubUnit', 'updateSubUnit', 'removeSubUnit',
       'setCostLines', 'addCostLine', 'insertCostLineNear', 'moveCostLine',
       'updateCostLine', 'removeCostLine', 'restoreCostLine',
-      'setCostOverride', 'removeCostOverride', 'setCostStandardRows',
+      'setCostOverride', 'removeCostOverride', 'setCostStandardRows', 'resetCapexToStandards', 'setCapexState',
       'setFinancingTranches', 'addFinancingTranche', 'updateFinancingTranche', 'removeFinancingTranche',
       'setEquityContributions', 'addEquityContribution', 'updateEquityContribution', 'removeEquityContribution',
       'addCase', 'renameCase', 'removeCase', 'clearCaseOverrides',

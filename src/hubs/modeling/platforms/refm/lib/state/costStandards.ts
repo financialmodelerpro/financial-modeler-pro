@@ -46,7 +46,7 @@ import {
   type CostCatalogEntry,
 } from './costCatalog';
 import {
-  assetStrategySells, deriveCostWindow,
+  assetStrategySells, deriveCostWindow, makeBlankCostLines,
   type Asset, type CostLine, type CostMethod, type CostOverride, type CostStage,
 } from './module1-types';
 import {
@@ -176,21 +176,24 @@ const rowHasAnyRate = (row: CostStandardRow): boolean =>
   finite(row.rate) || Object.values(row.byPhase ?? {}).some(finite);
 
 /**
- * THE CONSTRUCTION LIST AS SHOWN: the stored type rows in order, a blank type
- * row for any project type the list does not yet hold (writing a rate stores
- * it), then the other construction rows.
+ * THE CONSTRUCTION LIST AS SHOWN (2026-09-15, founder: only the types this
+ * project lists): one type row per asset type in the project's own list, in
+ * that list's order, the stored row where there is one and a blank row where
+ * there is not (writing a rate stores it), then the other construction rows. A
+ * shipped default for a type the project does not list stays stored, hidden,
+ * and applies the day that type is added.
  */
 export function constructionRowsForView(
   rows: readonly CostStandardRow[],
   assetTypes: readonly AssetTypeStandard[],
 ): Array<CostStandardRow & { stored: boolean }> {
   const construction = rows.filter((r) => r.list === 'construction');
-  const typeRows = construction.filter((r) => r.assetTypeId !== undefined).map((r) => ({ ...r, stored: true }));
-  const held = new Set(typeRows.map((r) => r.assetTypeId));
-  for (const t of assetTypes) {
-    if (held.has(t.id)) continue;
-    typeRows.push({ id: `type:${t.id}`, list: 'construction', label: t.label, catalogId: 'construction-bua', method: 'rate_x_main_asset_gfa', assetTypeId: t.id, stored: false });
-  }
+  const typeRows: Array<CostStandardRow & { stored: boolean }> = assetTypes.map((t) => {
+    const stored = construction.find((r) => r.assetTypeId === t.id);
+    return stored
+      ? { ...stored, label: t.label, stored: true }
+      : { id: `type:${t.id}`, list: 'construction', label: t.label, catalogId: 'construction-bua', method: 'rate_x_main_asset_gfa', assetTypeId: t.id, stored: false };
+  });
   const others = construction.filter((r) => r.assetTypeId === undefined).map((r) => ({ ...r, stored: true }));
   return [...typeRows, ...others];
 }
@@ -433,6 +436,25 @@ export function settleStandardCostOverrides<T extends StandardsState>(state: T):
       const at = anchor ? next.findIndex((l) => l.id === anchor) : -1;
       if (at < 0) next.push(minted.line);
       else next.splice(minted.afterId ? at + 1 : at, 0, minted.line);
+      // A CREATED LINE JOINS THE PERCENTAGES BELOW IT (2026-09-15, found on the
+      // live reset): the seeded developer fee and contingency select the lines
+      // that existed when the phase was seeded, so a created engineering,
+      // design or permits line was charged on by nothing. A created hard line
+      // joins every soft percentage below it; a created soft line joins the
+      // developer fee and contingency, which charge hard and soft costs.
+      const insertedAt = next.indexOf(minted.line);
+      const mintedStage = deriveCostStage(minted.line);
+      if (deriveAssetScope(minted.line) !== 'selling' && (mintedStage === 'hard' || mintedStage === 'soft')) {
+        for (let i = insertedAt + 1; i < next.length; i++) {
+          const l = next[i];
+          if (l.phaseId !== phaseId || l.targetAssetId || l.method !== 'percent_of_selected' || !l.selectedLineIds) continue;
+          if (deriveAssetScope(l) === 'selling') continue;
+          const takes = mintedStage === 'hard' || CHARGES_SOFT_TOO.has(standardIdentity(l) ?? '');
+          if (takes && !l.selectedLineIds.includes(minted.line.id)) {
+            next[i] = { ...l, selectedLineIds: [...l.selectedLineIds, minted.line.id] };
+          }
+        }
+      }
       costLines = next;
       linesAdded += 1;
     }
@@ -521,8 +543,52 @@ export function settleStandardCostOverrides<T extends StandardsState>(state: T):
   };
 }
 
+/**
+ * RESET TO TYPES AND STANDARDS (2026-09-15, founder: "refresh the capex table so
+ * it gets all the capex lines and input numbers as per the standard", to test
+ * what a new project gets). The capex lines of the chosen phases are rebuilt as
+ * a new phase seeds them: the standard catalog list at no rate of its own. Rates
+ * typed on those phase lines, per-asset overrides on them and lines added there
+ * go; the locked land lines and lines targeted at one asset stay. The settle
+ * that follows sees an unpriced phase, so it creates the rest of the standard
+ * list and gives every asset its default. Pure; the store keeps an undo.
+ */
+export function planCapexReset(
+  costLines: readonly CostLine[],
+  costOverrides: readonly CostOverride[],
+  phases: readonly { id: string; constructionPeriods?: number }[],
+  phaseIds: readonly string[],
+): { costLines: CostLine[]; costOverrides: CostOverride[] } {
+  const target = new Set(phaseIds);
+  const keeps = (l: CostLine): boolean => !target.has(l.phaseId) || l.isLocked === true || l.targetAssetId !== undefined;
+  const removedIds = new Set(costLines.filter((l) => !keeps(l)).map((l) => l.id));
+  const next: CostLine[] = costLines.filter((l) => !target.has(l.phaseId));
+  for (const phaseId of phaseIds) {
+    const cp = phases.find((p) => p.id === phaseId)?.constructionPeriods ?? 1;
+    const kept = costLines.filter((l) => l.phaseId === phaseId && keeps(l));
+    const keptIds = new Set(kept.map((l) => l.id));
+    for (const seed of makeBlankCostLines(phaseId, cp)) {
+      const own = kept.find((l) => l.id === seed.id);
+      if (own) next.push(own);
+      else next.push(seed.isLocked ? seed : { ...seed, value: 0, rateStated: false });
+    }
+    const seedIds = new Set(makeBlankCostLines(phaseId, cp).map((l) => l.id));
+    for (const l of kept) if (!seedIds.has(l.id) && keptIds.has(l.id)) next.push(l);
+  }
+  return {
+    costLines: next,
+    costOverrides: costOverrides.filter((o) => !removedIds.has(o.lineId)),
+  };
+}
+
+/** Percentages that charge the soft lines above them too, as the seed selects them. */
+const HARD_AND_SOFT_BASIS = new Set(['developer-fee', 'contingency']);
+
 /** What a basis reads as beside a rate. */
-export function costStandardBasisLabel(method: string, currency: string): string {
+export function costStandardBasisLabel(method: string, currency: string, catalogId?: string): string {
+  if (method === 'percent_of_selected' && catalogId !== undefined && HARD_AND_SOFT_BASIS.has(catalogId)) {
+    return '% of hard and soft costs';
+  }
   switch (method) {
     case 'percent_of_selected': return '% of hard cost';
     case 'percent_of_cash_land': return '% of land value, cash';

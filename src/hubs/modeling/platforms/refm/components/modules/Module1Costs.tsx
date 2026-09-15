@@ -4067,6 +4067,79 @@ function SameModeCostTable({
   );
 }
 
+/**
+ * RESET TO TYPES AND STANDARDS (2026-09-15, founder: to test what a new project
+ * gets). Rebuilds every phase's capex lines as a new phase seeds them, so each
+ * asset takes its default from Types and Standards. Two clicks to run, and the
+ * previous lines and overrides are held so Undo puts them back exactly.
+ */
+function CapexResetCard(): React.JSX.Element | null {
+  const { phases, assets, costLines, costOverrides, resetCapexToStandards, setCapexState } = useModule1Store(useShallow((s) => ({
+    phases: s.phases,
+    assets: s.assets,
+    costLines: s.costLines,
+    costOverrides: s.costOverrides,
+    resetCapexToStandards: s.resetCapexToStandards,
+    setCapexState: s.setCapexState,
+  })));
+  const [confirming, setConfirming] = useState(false);
+  const [undo, setUndo] = useState<{ costLines: CostLine[]; costOverrides: CostOverride[]; count: number } | null>(null);
+  const phaseIds = phases.filter((p) => assets.some((a) => a.phaseId === p.id && a.visible !== false)).map((p) => p.id);
+  if (phaseIds.length === 0) return null;
+  const btn: React.CSSProperties = { fontSize: 11, padding: '4px 10px', background: 'var(--color-surface)', border: '1px solid var(--color-navy)', color: 'var(--color-navy)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontWeight: 600 };
+  return (
+    <div
+      data-testid="costs-reset-standards"
+      style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', padding: 'var(--sp-1) var(--sp-2)', marginBottom: 'var(--sp-2)', background: 'var(--color-surface)' }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--sp-1)', flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 11, color: 'var(--color-meta)', lineHeight: 1.45 }}>
+          <strong style={{ color: 'var(--color-body)', fontSize: 12 }}>Reset to Types and Standards</strong>
+          <span style={{ marginLeft: 8 }}>
+            Rebuilds each phase&apos;s capex lines the way a new project gets them, so every asset takes its default from Types and
+            Standards. Rates typed on the phase lines, per-asset overrides and added lines in those phases are removed; land lines stay.
+          </span>
+        </div>
+        {!confirming && !undo && (
+          <button type="button" data-view-mutates="true" style={btn} data-testid="costs-reset-standards-start" onClick={() => setConfirming(true)}>
+            Reset to standards...
+          </button>
+        )}
+      </div>
+      {confirming && (
+        <div style={{ marginTop: 6, fontSize: 11, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }} data-testid="costs-reset-standards-confirm">
+          <span>This replaces the capex lines of {phaseIds.length} phase{phaseIds.length === 1 ? '' : 's'}. Undo is offered straight after.</span>
+          <button
+            type="button" data-view-mutates="true"
+            style={{ ...btn, background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}
+            data-testid="costs-reset-standards-run"
+            onClick={() => {
+              setUndo({ costLines, costOverrides, count: phaseIds.length });
+              resetCapexToStandards(phaseIds);
+              setConfirming(false);
+            }}
+          >
+            Reset now
+          </button>
+          <button type="button" style={btn} data-testid="costs-reset-standards-cancel" onClick={() => setConfirming(false)}>Cancel</button>
+        </div>
+      )}
+      {undo && (
+        <div style={{ marginTop: 6, fontSize: 11, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }} data-testid="costs-reset-standards-done">
+          <span>Reset {undo.count} phase{undo.count === 1 ? '' : 's'} to Types and Standards.</span>
+          <button
+            type="button" data-view-mutates="true" style={btn} data-testid="costs-reset-standards-undo"
+            onClick={() => { setCapexState(undo.costLines, undo.costOverrides); setUndo(null); }}
+          >
+            Undo
+          </button>
+          <button type="button" style={btn} data-testid="costs-reset-standards-dismiss" onClick={() => setUndo(null)}>Dismiss</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────
 export default function Module1Costs(): React.JSX.Element {
   const {
@@ -4664,6 +4737,7 @@ export default function Module1Costs(): React.JSX.Element {
           + per-asset resolved replicas (read-only by default; each row
           carries an Override toggle that activates a CostOverride entry
           for that asset+line). */}
+      {subTab === 'inputs' && <CapexResetCard />}
       {subTab === 'inputs' && (() => {
         // P7-Fix 5b + 6 (2026-05-11): per-asset Inputs view.
         // The master + replicas + Override inheritance surface from Pass 4

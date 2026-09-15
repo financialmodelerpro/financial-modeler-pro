@@ -18,6 +18,8 @@ import { computeFinancialsSnapshot, type ProjectFinancialsSnapshot } from '../..
 import { computeReturnsSnapshot, computeReturnsSensitivity } from '../../lib/returns-resolvers';
 import type { SensitivityVariable } from '@/src/core/calculations/returns';
 import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup } from '../../lib/reports/streamReports';
+import { buildDisposalWorking, type DisposalWorkingRow } from '../../lib/reports/disposalReport';
+import { assetLabel } from '@/src/core/calculations/assetName';
 import { currencyHeaderLine, formatScaledForExport, SCALE_DIVISOR, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import { makeFmt } from './_shared/numberFmt';
 import { M4PeriodTable, type M4Row } from './_shared/m4Table';
@@ -349,6 +351,18 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
           fmt={fmt}
         />
       )}
+
+      {/* ── The exit, worked through (2026-09-15, founder) ── */}
+      <DisposalWorkingSection
+        snap={snap}
+        rs={rs}
+        fmt={fmt}
+        currency={currency}
+        labelOf={(id) => {
+          const a = state.assets.find((x) => x.id === id);
+          return a ? assetLabel(a, { parcels: state.parcels, phases: state.phases }) : id;
+        }}
+      />
 
       {/* ── Two-way Sensitivity (Equity IRR), moved to the bottom of the tab. ── */}
       <SensitivitySection snap={snap} project={project} />
@@ -1156,6 +1170,99 @@ function AmountInput(props: {
       onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
       style={{ ...FAST_INPUT, width: '100%', textAlign: 'right' }} title="Amount"
     />
+  );
+}
+
+/**
+ * THE EXIT, WORKED THROUGH (2026-09-15, founder): the terminal value from the
+ * basis year's income, what was sold, the gain or loss, and where each figure is
+ * booked. Every number is read from the disposal the statements booked
+ * (lib/reports/disposalReport), so it moves with the basis and the cap rate.
+ */
+function DisposalWorkingSection(props: {
+  snap: ProjectFinancialsSnapshot;
+  rs: ReturnType<typeof computeReturnsSnapshot>;
+  fmt: (n: number) => string;
+  currency: string;
+  labelOf: (assetId: string) => string;
+}): React.JSX.Element {
+  const { snap, rs, fmt, currency, labelOf } = props;
+  const working = useMemo(() => buildDisposalWorking(snap, rs, labelOf), [snap, rs, labelOf]);
+  const show = (row: DisposalWorkingRow): string => {
+    if (row.format === 'text' || row.value === undefined) return row.text ?? '';
+    if (row.format === 'pct') return fmtPct(row.value, 2);
+    if (row.format === 'mult') return fmtX(row.value);
+    return fmt(row.value);
+  };
+  const th: React.CSSProperties = { padding: '6px 10px', textAlign: 'center', verticalAlign: 'middle', fontWeight: 700, fontSize: 12 };
+  const td: React.CSSProperties = { padding: '5px 10px', fontSize: 12, borderBottom: '1px solid var(--color-border)' };
+  return (
+    <section data-testid="m5-disposal-working" style={{ margin: 'var(--sp-3) 0' }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', marginBottom: 4 }}>
+        Exit: terminal value and gain on disposal
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, lineHeight: 1.45 }}>
+        The held assets are sold at the exit for the terminal value. Each figure below is the one booked in the P&amp;L, the cash flow, the
+        balance sheet and the Returns streams, so changing the basis, the method or the cap rate above moves all of them together. {currency}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 'var(--sp-2)', alignItems: 'start' }}>
+        <div style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md, 10px)', overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }} data-testid="m5-disposal-working-table">
+            <tbody>
+              {working.rows.map((row, i) => {
+                if (row.kind === 'section') {
+                  return (
+                    <tr key={i} style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+                      <td colSpan={2} style={{ ...th, textAlign: 'left' }}>{row.label}</td>
+                    </tr>
+                  );
+                }
+                const strong = row.kind === 'total' || row.kind === 'subtotal';
+                return (
+                  <tr key={i} style={{ background: row.kind === 'total' ? 'var(--color-grey-pale, #f3f4f6)' : undefined }}>
+                    <td style={{ ...td, paddingLeft: 10 + (row.indent ?? 0) * 14, fontWeight: strong ? 700 : 400, color: row.kind === 'check' ? 'var(--color-meta)' : 'var(--color-heading)' }}>{row.label}</td>
+                    <td style={{ ...td, textAlign: 'right', fontWeight: strong ? 700 : 400, whiteSpace: row.format === 'text' ? 'normal' : 'nowrap' }}>{show(row)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {working.byAsset.length > 0 && (
+          <div style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md, 10px)', overflow: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }} data-testid="m5-disposal-by-asset">
+              <thead>
+                <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+                  <th style={th}>Held asset sold</th>
+                  <th style={th}>Building</th>
+                  <th style={th}>Land</th>
+                  <th style={th}>Capitalised interest</th>
+                  <th style={th}>Net book value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {working.byAsset.map((a) => (
+                  <tr key={a.assetId}>
+                    <td style={td}>{a.label}</td>
+                    <td style={{ ...td, textAlign: 'right' }}>{fmt(a.building)}</td>
+                    <td style={{ ...td, textAlign: 'right' }}>{fmt(a.land)}</td>
+                    <td style={{ ...td, textAlign: 'right' }}>{fmt(a.capitalisedInterest)}</td>
+                    <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{fmt(a.total)}</td>
+                  </tr>
+                ))}
+                <tr style={{ background: 'var(--color-grey-pale, #f3f4f6)' }}>
+                  <td style={{ ...td, fontWeight: 800 }}>Total</td>
+                  <td style={{ ...td, textAlign: 'right', fontWeight: 800 }}>{fmt(working.byAsset.reduce((s, a) => s + a.building, 0))}</td>
+                  <td style={{ ...td, textAlign: 'right', fontWeight: 800 }}>{fmt(working.byAsset.reduce((s, a) => s + a.land, 0))}</td>
+                  <td style={{ ...td, textAlign: 'right', fontWeight: 800 }}>{fmt(working.byAsset.reduce((s, a) => s + a.capitalisedInterest, 0))}</td>
+                  <td style={{ ...td, textAlign: 'right', fontWeight: 800 }}>{fmt(working.byAsset.reduce((s, a) => s + a.total, 0))}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 

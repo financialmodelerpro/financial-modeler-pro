@@ -22,7 +22,7 @@ import {
 import { planTypeMassingWriteBack, resolveChainDefaults } from '../src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards';
 import {
   seedCostStandardRows, settleStandardCostOverrides, settleLineRateStated, newCustomRow,
-  constructionRowsForView, pickStandardRate, type CostStandardRow,
+  constructionRowsForView, pickStandardRate, costStandardBasisLabel, type CostStandardRow,
 } from '../src/hubs/modeling/platforms/refm/lib/state/costStandards';
 import { inactiveLeverReason, nonEconomicLeverReason } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
 
@@ -161,6 +161,15 @@ section('M. which rows create Capex lines');
     permits?.method === 'percent_of_selected' && permits?.value === 0 && permits?.rateStated === false, JSON.stringify(permits));
   check('M3 the created engineering line carries the list default on each asset', ov(r, 'v1', `engineering-supervision__${P}`)?.value === 3.5);
 
+  const created = ['engineering-supervision', 'design-consultancy', 'permits-approvals'].map((c) => `${c}__${P}`);
+  const devFee = r.state.costLines.find((l) => l.id === `developer-fee__${P}`);
+  const contingency = r.state.costLines.find((l) => l.id === `contingency__${P}`);
+  check('M3b developer fee and contingency charge the soft lines the list created',
+    created.every((id) => devFee?.selectedLineIds?.includes(id) && contingency?.selectedLineIds?.includes(id)),
+    JSON.stringify({ dev: devFee?.selectedLineIds, cont: contingency?.selectedLineIds }));
+  const engineering = r.state.costLines.find((l) => l.id === `engineering-supervision__${P}`);
+  check('M3c a created soft line charges the construction lines above it, landscape included',
+    ['construction-bua', 'construction-parking', 'landscaping'].every((b) => engineering?.selectedLineIds?.includes(`${b}__${P}`)));
   const priced = unpriced().map((l) => (l.id === BUA ? { ...l, value: 4200, rateStated: true } : l));
   const rp = run(ROWS, priced);
   check('M4 a priced phase gets no line from a row nobody touched', !rp.state.costLines.some((l) => l.id.startsWith('engineering-supervision')));
@@ -235,6 +244,51 @@ section('G. the store, Module 6 and the screens');
   check('G12 load and save both seed the lists, mark the lines and settle',
     (storeSrc.match(/seedCostStandardRows\(/g) ?? []).length >= 2 && (storeSrc.match(/settleLineRateStated\(/g) ?? []).length >= 2
     && (storeSrc.match(/settleStandardCostOverrides\(/g) ?? []).length >= 3);
+}
+
+// ── R. reset to standards, the basis label, the headers ─────────────────────
+section('R. reset to Types and Standards, the basis label and the headers');
+{
+  const st = createModule1Store();
+  const g = st.getState;
+  g().setProject({ assetTypes: [{ id: 'branded-villas', label: 'Branded Villas' }] } as never);
+  g().addAsset(asset('r1', 'branded-villas'));
+  g().setCostStandardRows(seedCostStandardRows([{ id: 'branded-villas', label: 'Branded Villas' }] as never, undefined));
+  g().updateCostLine(BUA, { value: 4200 });
+  g().setCostOverride({ assetId: 'r1', lineId: PARK, method: 'rate_x_parking_area' as CostOverride['method'], value: 999, phasing: 'even', overridden: true });
+  g().addCostLine({ ...makeBlankCostLines(P)[3], id: `custom-x__${P}`, name: 'Custom', value: 50, rateStated: true });
+  const beforeLines = g().costLines;
+  const beforeOverrides = g().costOverrides;
+  g().resetCapexToStandards([P]);
+  const lines = g().costLines;
+  const find = (a: string, l: string): CostOverride | undefined => g().costOverrides.find((o) => o.assetId === a && o.lineId === l);
+  check('R1 the phase is rebuilt: the added line is gone and the superstructure line states no rate',
+    !lines.some((l) => l.id === `custom-x__${P}`) && lines.find((l) => l.id === BUA)?.rateStated === false && lines.find((l) => l.id === BUA)?.value === 0);
+  check('R2 the land lines stay', lines.filter((l) => l.phaseId === P && l.isLocked).length === beforeLines.filter((l) => l.phaseId === P && l.isLocked).length);
+  check('R3 the per-asset override is gone and the default takes its place', find('r1', PARK)?.value === 2800 && find('r1', PARK)?.origin === 'standard');
+  check('R4 the type default reaches the superstructure line', find('r1', BUA)?.value === 11000);
+  check('R5 the whole standard list is in Capex, as a new project gets it',
+    ['engineering-supervision', 'design-consultancy', 'permits-approvals', 'rett'].every((c) => lines.some((l) => l.id === `${c}__${P}`)));
+  g().setCapexState(beforeLines, beforeOverrides);
+  check('R6 undo puts the lines and overrides back exactly',
+    JSON.stringify(g().costLines) === JSON.stringify(beforeLines) && JSON.stringify(g().costOverrides) === JSON.stringify(beforeOverrides));
+  check('R7 developer fee and contingency read as a percentage of hard and soft costs; the other soft items of hard cost',
+    costStandardBasisLabel('percent_of_selected', '', 'developer-fee') === '% of hard and soft costs'
+    && costStandardBasisLabel('percent_of_selected', '', 'contingency') === '% of hard and soft costs'
+    && costStandardBasisLabel('percent_of_selected', '', 'engineering-supervision') === '% of hard cost');
+  const tab = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1AssetStandards.tsx', 'utf8');
+  check('R8 the Standards headers are centred both ways, with no header overriding it',
+    tab.includes("textAlign: 'center', verticalAlign: 'middle'") && !tab.split('\n').some((l) => l.includes('<th style={{ ...TH') && /textAlign: /.test(l)));
+  const shown = constructionRowsForView(seedCostStandardRows([] as never, undefined), [
+    { id: 'standalone-commercial', label: 'Standalone Commercial' }, { id: 'branded-villas', label: 'Branded Villas' },
+  ] as never);
+  const shownTypes = shown.filter((r) => r.assetTypeId !== undefined).map((r) => `${r.label}=${r.rate ?? ''}`);
+  check('R10 the construction list shows only the types this project lists, in its order, with their stored defaults',
+    shownTypes.join('|') === 'Standalone Commercial=3000|Branded Villas=11000', shownTypes.join('|'));
+  check('R11 the other construction rows follow the types', shown.slice(2).map((r) => r.label).join('|') === 'Parking|Landscape|Villas Landscape');
+  const capex = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx', 'utf8');
+  check('R9 the Capex inputs carry the reset, behind a confirm and with an undo',
+    capex.includes('<CapexResetCard />') && capex.includes('costs-reset-standards-run') && capex.includes('costs-reset-standards-undo'));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

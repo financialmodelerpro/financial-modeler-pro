@@ -20,6 +20,9 @@ Output, and the Standards paragraph font.
    rate. The platform escalates only sale prices, ADR and rents; a capex rate is flat whatever year it is spent. A
    real missing input: a project escalation rate and base year, applied to capex by the year of spend, with the
    Module 6 lever and the exports following.
+0e. **CLICK-TEST OWED (2026-09-15, later):** "Reset to standards" and Undo on the Capex inputs, the exit working at the foot
+   of Returns (change the basis and the cap rate and watch it move), the project-types-only construction list and the
+   centred headers. **DATA NOTES:** Land 2 (Phase 1 villas) has no asset type, so no type default reaches it.
 0d. **CLICK-TEST OWED (cost standards lists, 2026-09-15):** the two lists, an added row creating its Capex line, a
    phase rate, the villa scope, and "Use the Types and Standards default" on a Capex line. **FOUNDER NOTE:** the
    4 Star Hotel row is blank, so clearing the hotel phase's superstructure line would price the hotel at zero.
