@@ -2406,6 +2406,14 @@ export interface CostLine {
    */
   rateStated?: boolean;
   /**
+   * 2026-09-15: THIS PHASE LINE PICKS ITS OWN LINES TO CHARGE ON. Set when the
+   * selection is changed in Capex, cleared by "use the Types and Standards
+   * basis". A soft percentage whose selection is not its own charges on what
+   * its Types and Standards row states. Set on load for older lines: a selection
+   * that differs from the stated basis is kept as the line's own.
+   */
+  selectionStated?: boolean;
+  /**
    * DEPRECATED and RETIRED (2026-08-17c). Nothing reads this any more.
    *
    * It gated a line on `project.country`, which meant a line could be PRESENT

@@ -33,7 +33,7 @@ import { resolveSubUnitAdr } from '@/src/core/calculations';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
-import { standardIdentity } from '../../lib/state/costStandards';
+import { standardIdentity, standardBasisRowFor, costStandardBasisLabel } from '../../lib/state/costStandards';
 import {
   type Asset,
   type AssetStrategy,
@@ -848,6 +848,8 @@ function CostRow({
   const stripOwn = isRetailCompanion(asset);
   // A Types and Standards default exists for this line's item (2026-09-14).
   const hasStandardDefault = useModule1Store((s) => (s.project.costStandardRows ?? []).some((r) => r.catalogId === standardIdentity(line)));
+  // The Types and Standards row that states this soft percentage's basis (2026-09-15).
+  const standardBasisRow = useModule1Store((s) => standardBasisRowFor(s.project.costStandardRows ?? [], line));
   const masterAsOverride = (): CostOverride => ({
     assetId: asset.id,
     lineId: line.id,
@@ -1978,7 +1980,10 @@ function CostRow({
         selectedBase={selectedBase}
         scale={scale}
         decimals={decimals}
-        onChangeSelected={(ids) => onUpdateLine({ selectedLineIds: ids })}
+        onChangeSelected={(ids) => onUpdateLine({ selectedLineIds: ids, selectionStated: true })}
+        basisNote={standardBasisRow ? costStandardBasisLabel('percent_of_selected', '', standardBasisRow.catalogId, standardBasisRow.chargesOn) : undefined}
+        basisStated={line.selectionStated === true}
+        onUseStandardBasis={() => onUpdateLine({ selectionStated: false })}
       />
     )}
     {/* M2.0h Fix 5 (2026-05-07): Per-sub-unit custom rates sub-row.
@@ -2059,6 +2064,7 @@ function CostRow({
 // the line.selectedLineIds array.
 function PercentOfSelectedPicker({
   line, asset, isLocked, selectedBase, scale, decimals, onChangeSelected,
+  basisNote, basisStated, onUseStandardBasis,
 }: {
   line: CostLine;
   asset: Asset;
@@ -2068,6 +2074,11 @@ function PercentOfSelectedPicker({
   scale: DisplayScale;
   decimals: DisplayDecimals;
   onChangeSelected: (ids: string[]) => void;
+  /** The basis Types and Standards states for this line, when a row states one. */
+  basisNote?: string;
+  /** The line picks its own lines here rather than taking that basis. */
+  basisStated?: boolean;
+  onUseStandardBasis?: () => void;
 }): React.JSX.Element {
   // M2.0M Pass 6 Fix 6 (2026-05-11): rebuilt as a dropdown button +
   // chip strip. The button shows "{N} lines selected"; clicking opens
@@ -2170,6 +2181,27 @@ function PercentOfSelectedPicker({
           <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)', paddingTop: 6 }}>
             Apply to:
           </strong>
+          {basisNote && (
+            <div style={{ fontSize: 10, color: 'var(--color-meta)', paddingTop: 7 }} data-testid={`cost-${asset.id}-${line.id}-pct-basis`}>
+              {basisStated ? (
+                <>
+                  This phase picks its own lines.{' '}
+                  <button
+                    type="button"
+                    data-view-mutates="true"
+                    disabled={isLocked}
+                    onClick={onUseStandardBasis}
+                    data-testid={`cost-${asset.id}-${line.id}-pct-use-standard`}
+                    style={{ background: 'transparent', border: 'none', padding: 0, fontSize: 10, color: 'var(--color-navy)', textDecoration: 'underline', cursor: 'pointer' }}
+                  >
+                    Use Types and Standards ({basisNote})
+                  </button>
+                </>
+              ) : (
+                <>From Types and Standards: {basisNote}. Picking lines here makes it this phase&apos;s own.</>
+              )}
+            </div>
+          )}
           <div style={{ position: 'relative', flex: 1, minWidth: 240 }}>
             <button
               ref={triggerRef}

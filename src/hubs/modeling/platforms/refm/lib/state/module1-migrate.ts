@@ -1714,6 +1714,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
       windowFollowsConstruction: c.windowFollowsConstruction,
       // 2026-09-14: whether the phase line states a rate of its own (Types and Standards defaults).
       rateStated: c.rateStated,
+      selectionStated: c.selectionStated,
       stageOverride: c.stageOverride,
       assetScopeOverride: c.assetScopeOverride,
       phasingSource: c.phasingSource,

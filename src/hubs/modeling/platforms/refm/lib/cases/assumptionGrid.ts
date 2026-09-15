@@ -491,8 +491,8 @@ const RETIRED_FIELD_PATTERNS: ReadonlyArray<{ re: RegExp; why: string }> = [
 const STRUCTURAL_SELECTOR_PATTERNS: ReadonlyArray<RegExp> = [
   /^costLines\[[^\]]+\]\.(costCategory|scope|stage|allocationBasis|method|phasing)$/,
   /^costOverrides\[[^\]]+\]\.(phasing|method|origin)$/,
-  /^costLines\[[^\]]+\]\.rateStated$/,
-  /^project\.costStandardRows\[[^\]]+\]\.(id|list|label|catalogId|method|assetTypeId|linked|custom|appliesToTypeIds.*)$/,
+  /^costLines\[[^\]]+\]\.(rateStated|selectionStated)$/,
+  /^project\.costStandardRows\[[^\]]+\]\.(id|list|label|catalogId|method|assetTypeId|linked|custom|chargesOn|appliesToTypeIds.*)$/,
   /^subUnits\[[^\]]+\]\.(metric|category|parentSubUnitId)$/,
   /^financingTranches\[[^\]]+\]\.(origin|scope|scopeId|interestRateType|graceInterestTreatment|equalRepaymentSubMethod|repaymentSubMethod|repaymentMethod|drawdownMethod)$/,
 ];

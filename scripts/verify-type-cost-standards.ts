@@ -22,7 +22,7 @@ import {
 import { planTypeMassingWriteBack, resolveChainDefaults } from '../src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards';
 import {
   seedCostStandardRows, settleStandardCostOverrides, settleLineRateStated, newCustomRow,
-  constructionRowsForView, pickStandardRate, costStandardBasisLabel, type CostStandardRow,
+  constructionRowsForView, pickStandardRate, costStandardBasisLabel, derivedSelection, settleLineSelectionStated, type CostStandardRow,
 } from '../src/hubs/modeling/platforms/refm/lib/state/costStandards';
 import { inactiveLeverReason, nonEconomicLeverReason } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
 
@@ -289,6 +289,62 @@ section('R. reset to Types and Standards, the basis label and the headers');
   const capex = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx', 'utf8');
   check('R9 the Capex inputs carry the reset, behind a confirm and with an undo',
     capex.includes('<CapexResetCard />') && capex.includes('costs-reset-standards-run') && capex.includes('costs-reset-standards-undo'));
+}
+
+// ── B. the soft cost basis is stated once ───────────────────────────────────
+section('B. a soft percentage charges on what its Types and Standards row states');
+{
+  const at = (r: ReturnType<typeof run>, id: string): CostLine | undefined => r.state.costLines.find((l) => l.id === `${id}__${P}`);
+  const r = run(ROWS, unpriced());
+  const ids = (l: CostLine | undefined): string[] => (l?.selectedLineIds ?? []).map((x) => x.replace(`__${P}`, ''));
+  check('B1 engineering supervision charges the hard lines above it and nothing soft',
+    ['construction-bua', 'construction-parking', 'infrastructure', 'landscaping'].every((b) => ids(at(r, 'engineering-supervision')).includes(b))
+    && !ids(at(r, 'engineering-supervision')).includes('design-consultancy'), ids(at(r, 'engineering-supervision')).join(','));
+  check('B2 developer fee charges hard and soft above it, the created soft lines included',
+    ['construction-bua', 'engineering-supervision', 'design-consultancy', 'permits-approvals', 'pre-operating'].every((b) => ids(at(r, 'developer-fee')).includes(b))
+    && !ids(at(r, 'developer-fee')).includes('marketing') && !ids(at(r, 'developer-fee')).includes('rett'), ids(at(r, 'developer-fee')).join(','));
+  check('B3 contingency charges the developer fee too', ids(at(r, 'contingency')).includes('developer-fee'));
+
+  const soft = ROWS.map((row) => (row.id === 'cat:engineering-supervision' ? { ...row, chargesOn: 'hard_and_soft' as const } : row));
+  check('B4 changing the basis on the tab changes the selection in every phase',
+    ids(at(run(soft, unpriced()), 'engineering-supervision')).includes('design-consultancy'));
+
+  const own = r.state.costLines.map((l) => (l.id === `developer-fee__${P}` ? { ...l, selectedLineIds: [BUA], selectionStated: true } : l));
+  const keep = settleStandardCostOverrides({ ...r.state, costLines: own });
+  check('B5 a phase that picked its own lines keeps them', JSON.stringify(keep.state.costLines.find((l) => l.id === `developer-fee__${P}`)?.selectedLineIds) === JSON.stringify([BUA]));
+
+  const lines = r.state.costLines;
+  const dev = lines.find((l) => l.id === `developer-fee__${P}`)!;
+  const same = settleLineSelectionStated(lines.map((l) => (l.id === dev.id ? { ...l, selectionStated: undefined } : l)), ROWS);
+  const differs = settleLineSelectionStated(lines.map((l) => (l.id === dev.id ? { ...l, selectionStated: undefined, selectedLineIds: [BUA] } : l)), ROWS);
+  check('B6 on load a selection matching the basis takes the basis; a different one stays the line\'s own',
+    same.costLines.find((l) => l.id === dev.id)?.selectionStated === false && differs.costLines.find((l) => l.id === dev.id)?.selectionStated === true);
+  const dangling = settleLineSelectionStated(lines.map((l) => (l.id === dev.id
+    ? { ...l, selectionStated: undefined, selectedLineIds: [...(l.selectedLineIds ?? []), 'deleted-line__x'] }
+    : l)), ROWS);
+  check('B6b a reference to a line that no longer exists is not a difference', dangling.costLines.find((l) => l.id === dev.id)?.selectionStated === false);
+  check('B7 the derivation is positional: nothing below the line is charged', !derivedSelection(dev, lines, 'hard_and_soft').includes(`contingency__${P}`));
+  check('B8 the tab states the basis with the percentage',
+    costStandardBasisLabel('percent_of_selected', '', 'engineering-supervision', 'hard_and_soft') === '% of hard and soft costs'
+    && ROWS.find((row) => row.id === 'cat:developer-fee')?.chargesOn === 'hard_and_soft'
+    && ROWS.find((row) => row.id === 'cat:engineering-supervision')?.chargesOn === 'hard');
+
+  const st = createModule1Store();
+  st.getState().addAsset(asset('b1', 'villa'));
+  st.getState().setCostStandardRows(seedCostStandardRows([] as never, undefined));
+  const devId = `developer-fee__${P}`;
+  st.getState().updateCostLine(devId, { selectedLineIds: [BUA] });
+  check('B9 picking lines in Capex makes the selection the phase\'s own',
+    st.getState().costLines.find((l) => l.id === devId)?.selectionStated === true
+    && JSON.stringify(st.getState().costLines.find((l) => l.id === devId)?.selectedLineIds) === JSON.stringify([BUA]));
+  st.getState().updateCostLine(devId, { selectionStated: false });
+  check('B10 "Use Types and Standards" hands the line back to the stated basis',
+    (st.getState().costLines.find((l) => l.id === devId)?.selectedLineIds ?? []).length > 1);
+
+  const tab = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1AssetStandards.tsx', 'utf8');
+  const capex = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx', 'utf8');
+  check('B11 the tab states the basis per row; Capex shows where it comes from and the way back',
+    tab.includes('-charges-on') && capex.includes('-pct-basis') && capex.includes('-pct-use-standard') && capex.includes('selectionStated: true'));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

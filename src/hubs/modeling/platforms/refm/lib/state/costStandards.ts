@@ -78,6 +78,13 @@ export interface CostStandardRow {
   linked?: boolean;
   /** Added on this tab rather than shipped with the list. */
   custom?: boolean;
+  /**
+   * WHAT A SOFT PERCENTAGE IS CHARGED ON (2026-09-15, founder): stated once here,
+   * as the reference does, instead of lines ticked phase by phase in Capex. The
+   * settle derives each phase line's selection from it; a phase whose selection
+   * is picked in Capex keeps its own (`CostLine.selectionStated`).
+   */
+  chargesOn?: 'hard' | 'hard_and_soft';
 }
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -133,7 +140,10 @@ export function seedCostStandardRows(
   rows.push({ id: 'cat:landscaping', list: 'construction', label: 'Landscape', catalogId: 'landscaping', method: 'rate_x_landscape_area', rate: 800 });
   rows.push({ id: 'cat:landscaping:villas', list: 'construction', label: 'Villas Landscape', catalogId: 'landscaping', method: 'rate_x_landscape_area', appliesToTypeIds: villaTypes, rate: 1200 });
   for (const [catalogId, label, method, rate] of SOFT_DEFAULTS) {
-    rows.push({ id: `cat:${catalogId}`, list: 'soft', label, catalogId, method, rate });
+    rows.push({
+      id: `cat:${catalogId}`, list: 'soft', label, catalogId, method, rate,
+      ...(method === 'percent_of_selected' ? { chargesOn: CHARGES_SOFT_TOO.has(catalogId) ? 'hard_and_soft' as const : 'hard' as const } : {}),
+    });
   }
 
   // Carry the rates of the table this replaces, unchanged in effect.
@@ -213,9 +223,82 @@ export function upsertCostStandardRow(rows: readonly CostStandardRow[], row: Cos
 }
 
 /** A row a user adds. Its identity is its name, unless the name IS a catalog item. */
-export function newCustomRow(list: CostStandardList, label: string, method: CostMethod): CostStandardRow {
+export function newCustomRow(
+  list: CostStandardList,
+  label: string,
+  method: CostMethod,
+  chargesOn?: 'hard' | 'hard_and_soft',
+): CostStandardRow {
   const catalogId = normaliseCatalogId(label) || `item-${label.length}`;
-  return { id: `custom:${catalogId}`, list, label: label.trim(), catalogId, method, linked: true, custom: true };
+  return {
+    id: `custom:${catalogId}`, list, label: label.trim(), catalogId, method, linked: true, custom: true,
+    ...(method === 'percent_of_selected' ? { chargesOn: chargesOn ?? 'hard' } : {}),
+  };
+}
+
+/** What a soft percentage row charges on, its own statement or the shipped default. */
+export function rowChargesOn(row: Pick<CostStandardRow, 'chargesOn' | 'catalogId'>): 'hard' | 'hard_and_soft' {
+  return row.chargesOn ?? (CHARGES_SOFT_TOO.has(row.catalogId) ? 'hard_and_soft' : 'hard');
+}
+
+/** The soft percentage row that states a line's basis, if any. */
+export function standardBasisRowFor(rows: readonly CostStandardRow[], line: CostLine): CostStandardRow | undefined {
+  if (line.method !== 'percent_of_selected' || line.targetAssetId) return undefined;
+  const identity = standardIdentity(line);
+  return rows.find((r) => r.list === 'soft' && r.method === 'percent_of_selected' && r.catalogId === identity);
+}
+
+/**
+ * THE SELECTION A BASIS STATES, for one line of one phase: every line above it
+ * in the phase (the positional rule the engine enforces), not a land line, not a
+ * selling cost, on the hard stage, or on the hard or soft stage for a basis of
+ * hard and soft costs.
+ */
+export function derivedSelection(
+  line: CostLine,
+  costLines: readonly CostLine[],
+  chargesOn: 'hard' | 'hard_and_soft',
+): string[] {
+  const phaseLines = costLines.filter((l) => l.phaseId === line.phaseId && !l.targetAssetId);
+  const at = phaseLines.findIndex((l) => l.id === line.id);
+  if (at < 0) return [];
+  return phaseLines.slice(0, at)
+    .filter((l) => !l.isLocked && deriveAssetScope(l) !== 'selling')
+    .filter((l) => {
+      const stage = deriveCostStage(l);
+      return stage === 'hard' || (chargesOn === 'hard_and_soft' && stage === 'soft');
+    })
+    .map((l) => l.id);
+}
+
+const sameIds = (a: readonly string[] | undefined, b: readonly string[]): boolean => {
+  const x = new Set(a ?? []);
+  return x.size === b.length && b.every((id) => x.has(id));
+};
+
+/**
+ * THE SELECTION MARKER, SET ON LOAD. A soft percentage line that predates it
+ * keeps its selection as its OWN when that selection differs from what its
+ * basis states, and takes the basis when it already matches, so opening a
+ * project moves no number.
+ */
+export function settleLineSelectionStated(
+  costLines: readonly CostLine[],
+  rows: readonly CostStandardRow[],
+): { costLines: CostLine[]; changed: boolean } {
+  let changed = false;
+  const next = costLines.map((c) => {
+    if (c.selectionStated !== undefined) return c;
+    const row = standardBasisRowFor(rows, c);
+    if (!row) return c;
+    changed = true;
+    // A reference to a line that no longer exists charges nothing, so it is not
+    // a difference (the live Phase 1 developer fee and contingency still named a
+    // deleted marketing and commission line).
+    const live = (c.selectedLineIds ?? []).filter((id) => costLines.some((l) => l.id === id));
+    return { ...c, selectionStated: !sameIds(live, derivedSelection(c, costLines, rowChargesOn(row))) };
+  });
+  return { costLines: changed ? next : (costLines as CostLine[]), changed };
 }
 
 /** What a line IS, for a standard: marketing by its stage whatever its id. */
@@ -342,6 +425,7 @@ function mintLine(
     name: entry.label,
     value: 0,
     rateStated: false,
+    selectionStated: false,
     ...deriveCostWindow(entry.id, constructionPeriods),
     windowFollowsConstruction: true,
     phasing: 'even',
@@ -460,6 +544,21 @@ export function settleStandardCostOverrides<T extends StandardsState>(state: T):
     }
   }
 
+  // ── 1b. each soft percentage charges on what its row states ──
+  let selectionsMoved = 0;
+  if (rows.length > 0) {
+    const next = costLines.map((l) => {
+      if (l.selectionStated === true || deriveAssetScope(l) === 'selling') return l;
+      const row = standardBasisRowFor(rows, l);
+      if (!row) return l;
+      const want = derivedSelection(l, costLines, rowChargesOn(row));
+      if (sameIds(l.selectedLineIds, want)) return l;
+      selectionsMoved += 1;
+      return { ...l, selectedLineIds: want };
+    });
+    if (selectionsMoved > 0) costLines = next;
+  }
+
   // ── 2. the standard overrides ──
   const key = (assetId: string, lineId: string): string => `${assetId}::${lineId}`;
   const existing = new Map(state.costOverrides.map((o) => [key(o.assetId, o.lineId), o]));
@@ -523,7 +622,7 @@ export function settleStandardCostOverrides<T extends StandardsState>(state: T):
     }
   }
 
-  if (add.length === 0 && replace.size === 0 && linesAdded === 0) {
+  if (add.length === 0 && replace.size === 0 && linesAdded === 0 && selectionsMoved === 0) {
     return { state, changed: false, written: 0, removed: 0, linesAdded: 0 };
   }
   const costOverrides: CostOverride[] = [];
@@ -585,9 +684,15 @@ export function planCapexReset(
 const HARD_AND_SOFT_BASIS = new Set(['developer-fee', 'contingency']);
 
 /** What a basis reads as beside a rate. */
-export function costStandardBasisLabel(method: string, currency: string, catalogId?: string): string {
-  if (method === 'percent_of_selected' && catalogId !== undefined && HARD_AND_SOFT_BASIS.has(catalogId)) {
-    return '% of hard and soft costs';
+export function costStandardBasisLabel(
+  method: string,
+  currency: string,
+  catalogId?: string,
+  chargesOn?: 'hard' | 'hard_and_soft',
+): string {
+  if (method === 'percent_of_selected') {
+    const basis = chargesOn ?? (catalogId !== undefined && HARD_AND_SOFT_BASIS.has(catalogId) ? 'hard_and_soft' : 'hard');
+    return basis === 'hard_and_soft' ? '% of hard and soft costs' : '% of hard cost';
   }
   switch (method) {
     case 'percent_of_selected': return '% of hard cost';

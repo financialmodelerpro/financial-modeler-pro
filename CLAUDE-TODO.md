@@ -20,6 +20,13 @@ Output, and the Standards paragraph font.
    rate. The platform escalates only sale prices, ADR and rents; a capex rate is flat whatever year it is spent. A
    real missing input: a project escalation rate and base year, applied to capex by the year of spend, with the
    Module 6 lever and the exports following.
+0f. **REPORTED 2026-09-15, NOT YET FIXED (founder asked for a report):** (1) Land 2 has no `assetTypeId` but its free-text
+   type is "Branded Villas"; the consolidation key and `resolveAssetTypeKey` fall back to the normalised label, so it
+   merges into the villas line, while `standardTypeIdFor` (cost standards) and `planTypeMassingWriteBack` read the id
+   alone, so no type default reaches it and it is left out of the massing write-back. The fix is to call
+   `resolveAssetTypeKey` in both. (2) The Standards tab's explanatory paragraph still says the type names "wait for
+   Save"; the names have saved as you type since 2026-09-10, and the only explicit save on the tab is "Save this list to
+   the firm's template". **CLICK-TEST OWED:** the soft cost basis selector and the Capex picker's basis note.
 0e. **CLICK-TEST OWED (2026-09-15, later):** "Reset to standards" and Undo on the Capex inputs, the exit working at the foot
    of Returns (change the basis and the cap rate and watch it move), the project-types-only construction list and the
    centred headers. **DATA NOTES:** Land 2 (Phase 1 villas) has no asset type, so no type default reaches it.

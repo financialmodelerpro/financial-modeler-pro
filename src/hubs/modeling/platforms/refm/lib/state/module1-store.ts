@@ -56,7 +56,7 @@ import { applyStrategySwitch, assetHasStrategyAssumptions, seedManageCompanion, 
 import { assetsOnParcel, repairProjectIntegrity, cascadeAssetRemoval, type CascadeReport } from '@/src/core/calculations/projectIntegrity';
 import { planRetailCompanionOverrides } from '@/src/core/calculations/retailCompanion';
 import { applyReferenceCostBases } from '@/src/core/calculations/costBases';
-import { settleStandardCostOverrides, seedCostStandardRows, settleLineRateStated, followStripSeeds, planCapexReset } from './costStandards';
+import { settleStandardCostOverrides, seedCostStandardRows, settleLineRateStated, settleLineSelectionStated, followStripSeeds, planCapexReset } from './costStandards';
 import { planTypeMassingWriteBack } from './assetTypeStandards';
 import { seedRevenueBlocks } from './revenueSeeds';
 import { settleSubUnitPrices } from './subUnitPrices';
@@ -1145,7 +1145,12 @@ export function createModule1Store() {
       // "use the default" passes rateStated: false explicitly.
       const before = s.costLines.find((c) => c.id === id);
       const costLines = s.costLines.map((c) => (c.id === id
-        ? { ...c, ...patch, rateStated: patch.rateStated ?? ('value' in patch ? true : c.rateStated) }
+        ? {
+          ...c, ...patch,
+          rateStated: patch.rateStated ?? ('value' in patch ? true : c.rateStated),
+          // A selection picked in Capex is the line's own (2026-09-15).
+          selectionStated: patch.selectionStated ?? ('selectedLineIds' in patch ? true : c.selectionStated),
+        }
         : c));
       const after = costLines.find((c) => c.id === id);
       // A retail strip's seed mirrors its line, so it follows the new rate.
@@ -1385,7 +1390,9 @@ export function createModule1Store() {
         ? { ...windowedLive, project: { ...windowedLive.project, costStandardRows: seedCostStandardRows(windowedLive.project.assetTypes ?? [], windowedLive.project.assetTypeValues) } }
         : windowedLive;
       const statedLive = settleLineRateStated(rowsLive.costLines);
-      const ratedLive = statedLive.changed ? { ...rowsLive, costLines: statedLive.costLines } : rowsLive;
+      const ratedLive0 = statedLive.changed ? { ...rowsLive, costLines: statedLive.costLines } : rowsLive;
+      const selLive = settleLineSelectionStated(ratedLive0.costLines, ratedLive0.project.costStandardRows ?? []);
+      const ratedLive = selLive.changed ? { ...ratedLive0, costLines: selLive.costLines } : ratedLive0;
       const massedLive = planTypeMassingWriteBack(ratedLive.assets, ratedLive.project.assetTypeValues, { overwrite: false });
       const massedLiveModel = massedLive.changed ? { ...ratedLive, project: { ...ratedLive.project, assetTypeValues: massedLive.values } } : ratedLive;
       const standardLive = settleStandardCostOverrides(massedLiveModel).state;
@@ -1471,7 +1478,9 @@ export function createModule1Store() {
         ? { ...windowed, project: { ...windowed.project, costStandardRows: seedCostStandardRows(windowed.project.assetTypes ?? [], windowed.project.assetTypeValues) } }
         : windowed;
       const stated = settleLineRateStated(rowsModel.costLines);
-      const ratedModel = stated.changed ? { ...rowsModel, costLines: stated.costLines } : rowsModel;
+      const ratedModel0 = stated.changed ? { ...rowsModel, costLines: stated.costLines } : rowsModel;
+      const selStated = settleLineSelectionStated(ratedModel0.costLines, ratedModel0.project.costStandardRows ?? []);
+      const ratedModel = selStated.changed ? { ...ratedModel0, costLines: selStated.costLines } : ratedModel0;
       const massed = planTypeMassingWriteBack(ratedModel.assets, ratedModel.project.assetTypeValues, { overwrite: false });
       const massedModel = massed.changed ? { ...ratedModel, project: { ...ratedModel.project, assetTypeValues: massed.values } } : ratedModel;
       const standardModel = settleStandardCostOverrides(massedModel).state;
