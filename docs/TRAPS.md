@@ -2554,6 +2554,34 @@ stated values, and remember the dismissal against the version it was read on.
 silent and eight still speak, each for a named reason. And the check that would have caught the original: load
 what the load produced, and it has nothing left to say, 9 of 9. `verify-migration-banner` A to D.
 
+### 7.50 A migration whose gate reads SHAPE runs for ever, and a later migration that restores that shape makes it permanent
+
+**Symptom (2026-09-16):** every project opened dirty. A cost line stored at 0 came back carrying 11,000, and 36 stored
+cost lines across six of the nine live versions were silently replaced by lines from the current catalog on
+every open. No number moved, so nothing ever caught it.
+
+**Mechanism:** `migrateM20costsPass7PerAsset` (Pass 7, 2026-05-11) converted master lines plus overrides into
+per-asset lines, and its gate asks "is there a master line, or any override" rather than "have I run". Pass 10
+REVERSED that architecture the next day, restoring master plus overrides as the platform's shape. From then on
+every save wrote the exact shape Pass 7 calls work, so Pass 7 re-ran on every load, and Pass 10 re-collapsed it
+every time. The round trip is lossy: Pass 7 copies only the override fields it names, so `origin` (added years
+later) was destroyed, and Pass 10 rebuilds the master from the FIRST asset's replica, hoisting that asset's
+derived rate onto the shared line. Worse, Pass 7 drops every master line in a phase with no visible asset, after
+which the default seeder finds the phase empty and re-seeds it from today's catalog.
+
+**The trap to avoid:** a pair of migrations that undo each other is a NO-OP in intent and a rewrite in practice.
+Also: the marker existed. `migrationsApplied` recorded `m20costs-pass7` on every live version and the BANNER
+check honoured it, while the migration that writes the marker ignored it. When a system already records that a
+step has run, the step must read that record; deciding from shape means it can never be finished.
+
+**Fix:** `if (alreadyApplied(snap, MIGRATION_KEY_PASS7)) return snap;`. With no replicas made, Pass 10 finds no
+work either, so the pair goes inert on modern snapshots.
+
+**Proof:** revenue, PAT and capex base identical on the only live project with money; its moved paths fall 61 to
+20 and its cost line values 30,460.10 to 400.00; overrides round-trip exactly (78 with 69 standard, to 75 with 75
+standard). `verify-load-route` E2 fails if a load drops or replaces any stored cost line, and was sabotage tested
+against the unfixed migration.
+
 ## 8. Registries and two-step registration
 
 ### 8.1 A template registered in one place and not the other fails silently and permanently

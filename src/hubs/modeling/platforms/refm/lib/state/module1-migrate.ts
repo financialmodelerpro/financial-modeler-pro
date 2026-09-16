@@ -309,6 +309,35 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
 // CostOverride[] entries are dropped after the walk (schema retained
 // for snapshot compat, UI no longer reads or writes).
 function migrateM20costsPass7PerAsset(snap: HydrateSnapshot): HydrateSnapshot {
+  /**
+   * A MIGRATION THAT RECORDS ITSELF APPLIED MUST NOT RUN AGAIN (2026-09-16).
+   *
+   * THIS IS THE DIRTY-ON-OPEN CAUSE. The gate below reads SHAPE, and the shape
+   * it counts as work ("any master line, OR any override entry") is the shape
+   * Pass 10 restored the next day and that every modern save has written since.
+   * So this ran on every load of every live project: it exploded each master
+   * into one replica per asset, folded each override's value into its replica,
+   * dropped `costOverrides` wholesale (taking `origin` with them, a field it
+   * predates and does not copy), and Pass 10 then rebuilt a master from the
+   * FIRST asset's replica.
+   *
+   * Measured on FMP - MARINA GATE 1.0: a construction line stored at 0 came
+   * back carrying 11,000, the rate its first asset's STANDARD override holds,
+   * its 69 standard-origin overrides were destroyed and then re-derived by the
+   * load-time settle, and the project opened dirty every single time. It stayed
+   * out of the money only because `rateStated` was already false, so the
+   * standards still outranked the line; a snapshot whose marker was absent
+   * would have had that hoisted 11,000 read back as a rate the USER stated.
+   *
+   * `migrationsApplied` already carries `m20costs-pass7` on every live version,
+   * and `snapshotNeedsPass7Migration` already honours it. Only the migration
+   * that writes the marker ignored it. Honoured here too, which makes the pair
+   * inert on a modern snapshot: with no replicas made, Pass 10 finds no work,
+   * the master keeps the value it was stored with, and the stored overrides
+   * survive to be re-derived identically. The orphan case this gate also
+   * caught is handled by `repairProjectIntegrity`, which runs on every load.
+   */
+  if (alreadyApplied(snap, MIGRATION_KEY_PASS7)) return snap;
   const lines = (snap.costLines as CostLine[]) ?? [];
   const overrides = (snap.costOverrides as CostOverride[]) ?? [];
   const assets = (snap.assets as Asset[]) ?? [];

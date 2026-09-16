@@ -133,6 +133,42 @@ async function live(): Promise<void> {
   }
   check('D1 the census reached versions that store cases', withCases >= 1, String(withCases));
   check('D2 every stored case set comes back exactly', wrong.length === 0, wrong.join(' | '));
+
+  section('E. a load keeps the project\'s own cost lines');
+  /**
+   * A LOAD NEVER REPLACES A STORED COST LINE WITH A DIFFERENT ONE (2026-09-16).
+   *
+   * Pass 7 re-ran on every load because its gate read SHAPE, and the shape it
+   * counted as work is the one every modern save writes. On a phase with no
+   * VISIBLE asset it dropped every master line in that phase, after which the
+   * default seeder found the phase empty and re-seeded it from today's catalog.
+   * Measured on a real stored version: eight of the project's own lines
+   * (infrastructure, pre-operating, professional fee, commission, both phases)
+   * were swapped for eight catalog lines on open, and nothing said so.
+   *
+   * THE ONE REMOVAL THAT IS ALLOWED is the country gate's: a line the project's
+   * country does not match is hidden and charges nothing, and
+   * `retireCountryGatedLines` retires it by design (2026-08-17c).
+   */
+  let withLines = 0;
+  const replaced: string[] = [];
+  for (const p of ps) {
+    const vs = await get(`refm_project_versions?project_id=eq.${p.id}&select=id,version_label,snapshot`);
+    for (const v of vs) {
+      const raw = v.snapshot as HydrateSnapshot | null;
+      if (!raw || !Array.isArray(raw.costLines) || raw.costLines.length === 0) continue;
+      withLines += 1;
+      const outIds = new Set((fullLoad(raw).costLines ?? []).map((l) => l.id));
+      for (const l of raw.costLines) {
+        if (outIds.has(l.id)) continue;
+        if ((l as { requiresCountry?: string }).requiresCountry) continue;
+        replaced.push(`${p.name} ${l.id}`);
+      }
+    }
+  }
+  check('E1 the census reached versions that store cost lines', withLines >= 1, String(withLines));
+  check('E2 no stored cost line is dropped or replaced by a load', replaced.length === 0,
+    `${replaced.length} line(s) across ${new Set(replaced.map((r) => r.split(' ')[0])).size} project(s): ${replaced.slice(0, 6).join(' | ')}`);
 }
 
 live().then(() => {
