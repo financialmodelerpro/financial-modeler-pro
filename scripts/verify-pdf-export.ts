@@ -516,6 +516,34 @@ async function main(): Promise<void> {
   check('no-project guard: empty / missing project blocks export', payloadHasActiveProject({ projectName: '' }) === false && payloadHasActiveProject({ projectName: '   ' }) === false && payloadHasActiveProject({}) === false && payloadHasActiveProject(null) === false, '');
   check('no-project guard: an open project passes', payloadHasActiveProject({ projectName: 'Riverside Mixed-Use' }) === true, '');
 
+  // ── The report reads the platform's area and land rules, it computes neither ──
+  //
+  // THE CHECKS ABOVE ARE STRUCTURAL AND ASSERT NO FIGURE, which is how the
+  // report came to print its own built area and land for months. It used "the
+  // sub-units, else the typed BUA" and the raw stored land allocation, both of
+  // which predate the Module 1 restructure: a plot whose area the chain derives
+  // read ZERO, every host kept the gross plot its retail strip had carved from,
+  // and the strips read no land at all. The land TOTAL footed at 37,000 sqm the
+  // whole time, so nothing on a total could see it (TRAPS 7.52).
+  //
+  // Source-level, deliberately: the emitted items carry no values (ModuleItemInfo
+  // is metadata) and decoding the rendered text needs the PUA glyph map
+  // (TRAPS 4.1), so the thing worth pinning is that no site re-derives these.
+  const pdfSrc = readFileSync(path.join(process.cwd(), 'src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf.ts'), 'utf8');
+  check('area/land: the report imports the platform rules',
+    /resolveAssetAreaMetrics/.test(pdfSrc) && /computeAssetLandBreakdown/.test(pdfSrc));
+  check('area/land: one helper resolves both, and every asset figure goes through it',
+    /const pdfAreaOf\s*=/.test(pdfSrc) && (pdfSrc.match(/pdfAreaOf\(/g) ?? []).length >= 5,
+    `${(pdfSrc.match(/pdfAreaOf\(/g) ?? []).length} call sites`);
+  const handRolled = [
+    ['typed BUA fallback', /buaSqm \?\? 0/],
+    ['raw land allocation', /landAllocation\?\.sqm \?\?/],
+    ['raw land area field', /landAreaSqm \?\? 0/],
+  ] as const;
+  for (const [what, re] of handRolled) {
+    check(`area/land: the report never hand-rolls the ${what}`, !re.test(pdfSrc), 'found a re-derivation');
+  }
+
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
   if (fail > 0) { console.log('Failures:\n' + failures.map((f) => '  - ' + f).join('\n')); process.exit(1); }
 }

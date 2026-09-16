@@ -22,7 +22,33 @@
  * by default, user-selectable in the Export modal) so large figures stay
  * readable. The renderer is pure (state in, bytes out).
  */
-import { resolveSubUnitAdr } from '@/src/core/calculations';
+import { resolveSubUnitAdr, resolveAssetAreaMetrics, computeAssetLandBreakdown } from '@/src/core/calculations';
+
+/**
+ * AREA AND LAND COME FROM THE PLATFORM'S RULES, NEVER FROM THIS FILE (2026-09-16).
+ *
+ * The report used to compute both itself: built area as "the sub-units, else the
+ * typed BUA", and land as the raw stored allocation. Both predate the Module 1
+ * restructure, so a plot whose area the chain derives read ZERO (Land 2: 0
+ * against 11,329) and every host kept the gross plot its retail strip had
+ * carved from, while the strips themselves read no land at all. The land TOTAL
+ * still footed at 37,000, which is what hid it: each row was wrong and the
+ * column added up (TRAPS 7.52).
+ *
+ * `resolveAssetAreaMetrics` and `computeAssetLandBreakdown` are the same two the
+ * Assets tab and the workbook's Land & Area sheet call, with the same argument
+ * list, so the three cannot disagree.
+ */
+const pdfAreaOf = (
+  a: Asset,
+  state: Pick<FinancialsResolverState, 'project' | 'parcels' | 'assets' | 'subUnits' | 'landAllocationMode'>,
+): { bua: number; land: number } => {
+  const visible = state.assets.filter((x) => x.visible !== false);
+  const inPhase = visible.filter((x) => x.phaseId === a.phaseId);
+  const m = resolveAssetAreaMetrics(a, state.project, state.parcels, inPhase, state.subUnits, state.landAllocationMode);
+  const bd = computeAssetLandBreakdown(a, state.parcels, visible, state.subUnits, state.landAllocationMode);
+  return { bua: m.bua, land: bd.landSqm };
+};
 import { buildReceivablesRollForward, buildUnearnedRollForward } from '../reports/saleRollForwardReports';
 import { applyExportWatermark } from './drawWatermark';
 import type { WatermarkSpec } from '@/src/shared/entitlements/exportWatermark';
@@ -31,7 +57,7 @@ import { buildSaleCohortTermsBlock, saleCohortRuleText, buildSaleCohortGrid, sal
 import fontkit from '@pdf-lib/fontkit';
 import { formatAccounting, formatArea, formatInteger, type DisplayScale } from '@/src/core/formatters';
 import { computeSubUnitArea, computePhaseTimeline, computeProjectTimeline } from '@/src/core/calculations';
-import { FUNDING_METHOD_LABELS, DEFAULT_COVENANTS, type FundingMethodId } from '../state/module1-types';
+import { FUNDING_METHOD_LABELS, DEFAULT_COVENANTS, type FundingMethodId, type Asset } from '../state/module1-types';
 import { resolveFundTerms } from '../fundTerms';
 import {
   isFundActive, hasFundFeeIncome, buildFundWaterfallRows, buildFundFeeIncomeRows,
@@ -1064,9 +1090,12 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
   const endYear = startYear + snap.axisLength - 1;
   const fin = snap.financing;
   const assets = state.assets.filter((a) => a.visible !== false);
+  // The parcels ARE the project's land, so their sum leads; the per-asset
+  // fallback goes through the platform's land rule rather than the raw stored
+  // field, so a project with no parcels still reads what the Assets tab shows.
   const landSqm = state.parcels.length
     ? state.parcels.reduce((s, pa) => s + (pa.area ?? 0), 0)
-    : assets.reduce((s, a) => s + (a.landAllocation?.sqm ?? a.landAreaSqm ?? 0), 0);
+    : assets.reduce((s, a) => s + pdfAreaOf(a, state).land, 0);
   const byStrategy = new Map<string, number>();
   for (const a of assets) byStrategy.set(a.strategy, (byStrategy.get(a.strategy) ?? 0) + 1);
   const compStr = [...byStrategy.entries()].map(([s, n]) => `${n} ${s}`).join(', ');
@@ -1125,7 +1154,7 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
     rows: assets.map((a) => {
       const ph = state.phases.find((x) => x.id === a.phaseId);
       const su = state.subUnits.filter((u) => u.assetId === a.id);
-      const bua = su.length ? su.reduce((s, u) => s + computeSubUnitArea(u, a), 0) : (a.buaSqm ?? 0);
+      const bua = pdfAreaOf(a, state).bua;
       const z = notes.hasBuaNote(a.id, bua);
       return row([ph?.name ?? '-', a.name, a.strategy, z ? structuralZeroCell(z) : fmt.area(bua), fmt.int(su.length)]);
     }),
@@ -1282,10 +1311,9 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       title: `Assets, ${ph.name}`, kind: 'grid', align: 'data',
       columns: ['Asset', 'Strategy', 'Type', 'BUA (sqm)', 'Land (sqm)'],
       rows: assets.map((a) => {
-        const su = state.subUnits.filter((u) => u.assetId === a.id);
-        const bua = su.length ? su.reduce((s, u) => s + computeSubUnitArea(u, a), 0) : (a.buaSqm ?? 0);
+        const { bua, land } = pdfAreaOf(a, state);
         const z = assetNotes.hasBuaNote(a.id, bua);
-        return row([a.name, a.strategy, a.type || '-', z ? structuralZeroCell(z) : fmt.area(bua), fmt.area(a.landAllocation?.sqm ?? a.landAreaSqm ?? 0)]);
+        return row([a.name, a.strategy, a.type || '-', z ? structuralZeroCell(z) : fmt.area(bua), fmt.area(land)]);
       }),
     }));
     for (const fn of assetNotes.takeFootnotes()) items.push(tItem('Tab 2: Assets & Sub-units', 'inputs', { type: 'paragraph', text: fn.text }));
@@ -1308,19 +1336,15 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
   // land efficiency is legible without cross-referencing three tables.
   if (state.parcels.length || state.assets.length) {
     const totalLand = state.parcels.reduce((a, pa) => a + (pa.area ?? 0), 0);
-    const totalBua = state.assets.filter((a) => a.visible !== false).reduce((acc, a) => {
-      const su = state.subUnits.filter((u) => u.assetId === a.id);
-      return acc + (su.length ? su.reduce((x, u) => x + computeSubUnitArea(u, a), 0) : (a.buaSqm ?? 0));
-    }, 0);
+    const totalBua = state.assets.filter((a) => a.visible !== false)
+      .reduce((acc, a) => acc + pdfAreaOf(a, state).bua, 0);
     items.push(tTable('Tab 2: Assets & Sub-units', 'inputs', {
       title: 'Land & Area', kind: 'grid', align: 'data',
       columns: ['Item', 'Land (sqm)', 'Built area (sqm)', 'Plot ratio'],
       rows: [
         ...state.parcels.map((pa) => row([`Parcel: ${pa.name}`, fmt.area(pa.area), '', ''])),
         ...state.assets.filter((a) => a.visible !== false).map((a) => {
-          const su = state.subUnits.filter((u) => u.assetId === a.id);
-          const bua = su.length ? su.reduce((x, u) => x + computeSubUnitArea(u, a), 0) : (a.buaSqm ?? 0);
-          const land = a.landAllocation?.sqm ?? a.landAreaSqm ?? 0;
+          const { bua, land } = pdfAreaOf(a, state);
           return row([a.name, fmt.area(land), fmt.area(bua), land > 0 ? (bua / land).toFixed(2) : '-']);
         }),
         row(['Total', fmt.area(totalLand), fmt.area(totalBua), totalLand > 0 ? (totalBua / totalLand).toFixed(2) : '-'], 'total'),

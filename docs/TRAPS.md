@@ -2608,6 +2608,30 @@ The phase view returns above it and is untouched.
 exactly the 22,210,730 gain, with EBITDA, EBIT, Tax and every revenue line unchanged. `verify-m4-reports` 19,
 and `verify-excel-export` loses its `P&L PAT == snapshot PAT` failure.
 
+### 7.52 A column that adds up while every row in it is wrong
+
+**Symptom (2026-09-16):** the PDF's land column totalled 37,000 sqm, exactly right, on a project where not one
+per-asset land figure was right. Hosts showed the gross plot their retail strip had already carved from, and the
+strips showed no land at all. Built area was 68,093 against the platform's 89,380, with one plot reading ZERO.
+
+**Mechanism:** the report computed both quantities itself, from rules that predate the Module 1 restructure:
+built area as "the sub-units, else the typed BUA", and land as the raw stored allocation. Where the AREA CHAIN
+derives the area rather than the sub-units carrying it, the first rule returns zero; where a retail companion
+carves land from its hosts, the second returns the pre-carve figure. The carve moves land BETWEEN assets, so the
+project total is unchanged by construction, and a total is the one thing anybody checks.
+
+**The trap to avoid:** a reconciliation on a TOTAL cannot see a transfer between rows. Where a rule moves a
+quantity from one asset to another (a land carve, an allocation, a pooled line), the check has to be per asset
+or it proves nothing. This is the same reason `verify-retail-companion` I2 reconciles per asset and I4 pins that
+the two land functions never disagree.
+
+**Fix:** one helper calling `resolveAssetAreaMetrics` and `computeAssetLandBreakdown` with the same argument list
+the Assets tab and the workbook use, at all five sites.
+
+**Proof:** built area 68,093 to 89,380; the two strips 0 to 768 and 0 to 480; Land 2 0 to 11,329; plot ratio
+corrected on five of eight rows and defined on both strips. The three assets that were already right do not
+move. Guarded in `verify-pdf-export`: the report may not hand-roll area or land.
+
 ## 8. Registries and two-step registration
 
 ### 8.1 A template registered in one place and not the other fails silently and permanently
