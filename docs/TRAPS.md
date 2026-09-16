@@ -2582,6 +2582,32 @@ work either, so the pair goes inert on modern snapshots.
 standard). `verify-load-route` E2 fails if a load drops or replaces any stored cost line, and was sabotage tested
 against the unfixed migration.
 
+### 7.51 A builder that PRINTS a row and then leaves it out of the total beneath it
+
+**Symptom (2026-09-16):** the income statement showed a Gain on Disposal row and a PAT that did not include it.
+PAT was understated by the whole gain on the Module 4 screen, in the Excel workbook and in the PDF at once, while
+the balance sheet beside it used the engine's PAT and therefore disagreed. No verifier caught it for two days;
+`verify-excel-export` had the failure and it read as one of the long-standing four.
+
+**Mechanism:** `buildPLRows` re-derived everything below EBITDA rather than reading what the engine publishes:
+`pbt = ebit - interest`, `tax = max(0, pbt) x rate`, `pat = pbt - tax`. When the exit became a disposal
+(2026-09-14) the gain was added as a DISPLAY row above PBT, which is the correct position, and nothing added it
+to the total below it, because that total was a local recomputation that knew only the rows it had been written
+against. The recomputation also carried a second tax rule: the engine excludes the gain from tax unless
+`tax.applyToDisposalGain`.
+
+**The trap to avoid:** a statement row added for presentation is invisible to any total that is recomputed rather
+than read. Where the engine publishes the subtotal (`pbtPerPeriod`, `taxPerPeriod`, `patPerPeriod`), the
+statement must read it, and then a new line between two of them cannot silently fail to land. The same reasoning
+is why one builder feeds the screen and both exports: it is also why ONE defect reached all three.
+
+**Fix:** read `p.ebitPerPeriod`, `p.pbtPerPeriod`, `p.taxPerPeriod`, `p.patPerPeriod` in the consolidated path.
+The phase view returns above it and is untouched.
+
+**Proof:** on the live model PBT 669,922,229 to 692,132,959 and PAT 652,740,937 to 674,951,668, each moving by
+exactly the 22,210,730 gain, with EBITDA, EBIT, Tax and every revenue line unchanged. `verify-m4-reports` 19,
+and `verify-excel-export` loses its `P&L PAT == snapshot PAT` failure.
+
 ## 8. Registries and two-step registration
 
 ### 8.1 A template registered in one place and not the other fails silently and permanently

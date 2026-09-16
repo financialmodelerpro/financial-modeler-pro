@@ -224,10 +224,32 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
   const ebitdaBefore = totalRev.map((v, i) => v - (cosTotal[i] ?? 0) - (totalOpex[i] ?? 0));
   const fundFeesLocal = (p.fundFeesPerPeriod ?? []).slice(0, ebitdaBefore.length);
   const ebitda = ebitdaBefore.map((v, i) => v - (fundFeesLocal[i] ?? 0));
-  const ebit = ebitda.map((v, i) => v - (da[i] ?? 0));
-  const pbt = ebit.map((v, i) => v - (interestExpense[i] ?? 0));
-  const taxArr = pbt.map((v) => Math.max(0, v) * p.taxRate);
-  const pat = pbt.map((v, i) => v - (taxArr[i] ?? 0));
+  /**
+   * THE ENGINE PUBLISHES THESE, SO THE STATEMENT READS THEM (2026-09-16).
+   *
+   * They used to be re-derived here (`ebit - interest`, then `max(0, pbt) x
+   * rate`), which printed the Gain on Disposal row immediately above PBT and
+   * then left the gain OUT of it. Every surface that renders this builder
+   * understated PAT by the whole gain, and that is all three of them: the
+   * Module 4 screen, the workbook and the PDF. The engine's own `patPerPeriod`
+   * carries the gain, and the balance sheet's retained earnings, the indirect
+   * cash flow and Returns all use it, so the statement disagreed with the
+   * balance sheet standing beside it.
+   *
+   * The re-derivation also held a SECOND tax rule: the engine excludes the gain
+   * from tax unless `tax.applyToDisposalGain`, which nothing here knew.
+   *
+   * Measured on FMP - MARINA GATE: PBT 669,922,229 to 692,132,959 and PAT
+   * 652,740,937 to 674,951,668, each short by exactly the 22,210,730 gain.
+   *
+   * The phase view returns above this (it stops at EBITDA, because D&A,
+   * interest and tax are project level), so these are the consolidated series
+   * and no phase figure reads them.
+   */
+  const ebit = (p.ebitPerPeriod ?? []).slice(0, N);
+  const pbt = (p.pbtPerPeriod ?? []).slice(0, N);
+  const taxArr = (p.taxPerPeriod ?? []).slice(0, N);
+  const pat = (p.patPerPeriod ?? []).slice(0, N);
 
   // ── REVENUE ──────────────────────────────────────────────────────────────
   rows.push({ label: 'REVENUE', values: [], isSection: true });
