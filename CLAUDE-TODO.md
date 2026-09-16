@@ -15,6 +15,11 @@ per capex line, reaching the engine as standard-sourced overrides the Capex tab 
 override), Table 2 massing filled back to the type when every plot agrees, active rows only on the Opex
 Output, and the Standards paragraph font.
 
+**STEP 10a DONE (2026-09-16)**: the fixed asset and capitalised interest schedules show the disposal the balance sheet booked (a
+"Disposed at exit" row, no depreciation after the sale, closing tied to the balance sheet). **NEXT**: construction cost escalation as its
+own commit (one project rate, base year the project start, all rates base-year money, lump sums and land or revenue charged lines
+exempt, percentage lines on the escalated base, a Module 6 lever, and the base year shown beside the Standards rate columns).
+
 **STEP 9 DONE (2026-09-16)**: the remaining per-plot surfaces (advisories, IC strategy mix, workbook recognition profiles) read per line, and
 the P&L revenue rows and revenue summaries file by category (`revenueBySection`); P&L opex rows stay by strategy. Step 10 (disposal
 rows, then construction cost escalation as its own commit) is next.

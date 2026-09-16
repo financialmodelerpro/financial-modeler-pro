@@ -30,6 +30,8 @@ import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import { planReportLines, lineTitle, poolResults } from '../../lib/reports/lineRows';
+import { scheduleWithDisposal, idcWithDisposal, type DisposalContext } from '../../lib/reports/disposalSchedules';
+import { resolveReturnsConfig } from '../../lib/returns-resolvers';
 import {
   computeAllFixedAssetResults,
   type AssetFixedAssetRow,
@@ -149,18 +151,22 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, fmt, priorYea
   );
 }
 
-function landTableRows(land: LandRollForward): Row[] {
+function landTableRows(land: LandRollForward, dCtx: DisposalContext): Row[] {
   // M4 Pass 2X (2026-05-24): opening at t=0 represents pre-axis Land
   // carry (operational phase historicalPreCapexLand). Show in prior col.
   const openingAtZero = land.openingPerPeriod[0] ?? 0;
+  // THE EXIT SELLS THE LAND TOO (2026-09-16, step 10): the balance sheet takes it
+  // to zero in the exit year, so the schedule shows the disposal that did it.
+  const w = scheduleWithDisposal({ ...land }, dCtx);
   return [
-    { label: 'Opening Land', values: land.openingPerPeriod, indent: 1, aggregation: 'last', priorValue: openingAtZero },
-    { label: '(+) Land Additions', values: land.additionsPerPeriod, indent: 1, priorValue: 0 },
-    { label: 'Closing Land', values: land.closingPerPeriod, isTotal: true, aggregation: 'last', priorValue: openingAtZero },
+    { label: 'Opening Land', values: w.openingPerPeriod, indent: 1, aggregation: 'last', priorValue: openingAtZero },
+    { label: '(+) Land Additions', values: w.additionsPerPeriod, indent: 1, priorValue: 0 },
+    ...(w.disposed ? [{ label: '(−) Land Disposed at Exit', values: w.disposalPerPeriod.map((v) => -v), indent: 1, priorValue: 0 }] : []),
+    { label: 'Closing Land', values: w.closingPerPeriod, isTotal: true, aggregation: 'last', priorValue: openingAtZero },
   ];
 }
 
-function depreciableTableRows(row: AssetFixedAssetRow, idc?: AssetIDCRow): Row[] {
+function depreciableTableRows(row: AssetFixedAssetRow, dCtx: DisposalContext, idc?: AssetIDCRow): Row[] {
   const d = row.depreciable;
   // M4 Pass 2Q (2026-05-24): integrate IDC into the depreciable roll-
   // forward when it's nonzero for this asset. Layout per user:
@@ -169,9 +175,15 @@ function depreciableTableRows(row: AssetFixedAssetRow, idc?: AssetIDCRow): Row[]
   // shown as memo splits beneath so the user can see the source of the
   // closing balance.
   const N = d.openingNBVPerPeriod.length;
-  const idcAdditions = idc ? idc.idcPerPeriod.slice(0, N) : new Array<number>(N).fill(0);
-  const idcDep = idc ? idc.depreciationPerPeriod.slice(0, N) : new Array<number>(N).fill(0);
-  const idcNbv = idc ? idc.closingNbvPerPeriod.slice(0, N) : new Array<number>(N).fill(0);
+  // The sold asset stops depreciating at the exit and leaves the schedule there,
+  // on the capex basis and the capitalised interest alike (2026-09-16, step 10).
+  const capexD = scheduleWithDisposal({ openingPerPeriod: d.openingNBVPerPeriod, additionsPerPeriod: d.additionsPerPeriod, depreciationPerPeriod: d.depreciationPerPeriod, closingPerPeriod: d.closingNBVPerPeriod, accumDepPerPeriod: d.accumDepPerPeriod }, dCtx);
+  const idcD = idc ? idcWithDisposal(idc, dCtx) : undefined;
+  const idcAdditions = idcD ? idcD.additionsPerPeriod.slice(0, N) : new Array<number>(N).fill(0);
+  const idcDep = idcD ? idcD.depreciationPerPeriod.slice(0, N) : new Array<number>(N).fill(0);
+  const idcNbv = idcD ? idcD.closingPerPeriod.slice(0, N) : new Array<number>(N).fill(0);
+  const disposalCombined = capexD.disposalPerPeriod.map((v, t) => v + (idcD?.disposalPerPeriod[t] ?? 0));
+  const anyDisposed = capexD.disposed || (idcD?.disposed ?? false);
   const hasIdc = (idc?.totalIdc ?? 0) > 0;
 
   const combinedOpening = new Array<number>(N).fill(0);
@@ -181,9 +193,9 @@ function depreciableTableRows(row: AssetFixedAssetRow, idc?: AssetIDCRow): Row[]
     // Combined opening at t = capex opening + IDC opening.
     // IDC opening = previous-period IDC closing (zero at t=0).
     const idcOpening = t === 0 ? 0 : (idcNbv[t - 1] ?? 0);
-    combinedOpening[t] = (d.openingNBVPerPeriod[t] ?? 0) + idcOpening;
-    combinedClosing[t] = (d.closingNBVPerPeriod[t] ?? 0) + (idcNbv[t] ?? 0);
-    combinedDep[t] = (d.depreciationPerPeriod[t] ?? 0) + (idcDep[t] ?? 0);
+    combinedOpening[t] = (capexD.openingPerPeriod[t] ?? 0) + idcOpening;
+    combinedClosing[t] = (capexD.closingPerPeriod[t] ?? 0) + (idcNbv[t] ?? 0);
+    combinedDep[t] = (capexD.depreciationPerPeriod[t] ?? 0) + (idcDep[t] ?? 0);
   }
 
   // M4 Pass 2X (2026-05-24): opening NBV at t=0 = pre-axis carry
@@ -192,11 +204,12 @@ function depreciableTableRows(row: AssetFixedAssetRow, idc?: AssetIDCRow): Row[]
   const openingAtZeroCombined = combinedOpening[0] ?? 0;
   if (!hasIdc) {
     return [
-      { label: 'Opening NBV', values: d.openingNBVPerPeriod, indent: 1, aggregation: 'last', priorValue: openingAtZeroCapex },
-      { label: '(+) Capex Additions', values: d.additionsPerPeriod, indent: 1, priorValue: 0 },
-      { label: '(−) Depreciation', values: d.depreciationPerPeriod.map((v) => -v), indent: 1, priorValue: 0 },
-      { label: 'Closing NBV', values: d.closingNBVPerPeriod, isTotal: true, aggregation: 'last', priorValue: openingAtZeroCapex },
-      { label: 'Accumulated Depreciation (memo)', values: d.accumDepPerPeriod, indent: 1, aggregation: 'last', priorValue: 0 },
+      { label: 'Opening NBV', values: capexD.openingPerPeriod, indent: 1, aggregation: 'last', priorValue: openingAtZeroCapex },
+      { label: '(+) Capex Additions', values: capexD.additionsPerPeriod, indent: 1, priorValue: 0 },
+      { label: '(−) Depreciation', values: capexD.depreciationPerPeriod.map((v) => -v), indent: 1, priorValue: 0 },
+      ...(capexD.disposed ? [{ label: '(−) Disposed at Exit (net book value)', values: capexD.disposalPerPeriod.map((v) => -v), indent: 1, priorValue: 0 }] : []),
+      { label: 'Closing NBV', values: capexD.closingPerPeriod, isTotal: true, aggregation: 'last', priorValue: openingAtZeroCapex },
+      { label: 'Accumulated Depreciation (memo)', values: capexD.accumDepPerPeriod, indent: 1, aggregation: 'last', priorValue: 0 },
     ];
   }
   return [
@@ -204,10 +217,11 @@ function depreciableTableRows(row: AssetFixedAssetRow, idc?: AssetIDCRow): Row[]
     { label: '(+) Capex Additions', values: d.additionsPerPeriod, indent: 1, priorValue: 0 },
     { label: '(+) IDC Additions (capitalised interest)', values: idcAdditions, indent: 1, priorValue: 0 },
     { label: '(−) Depreciation (on Capex + IDC)', values: combinedDep.map((v) => -v), indent: 1, priorValue: 0 },
+    ...(anyDisposed ? [{ label: '(−) Disposed at Exit (net book value)', values: disposalCombined.map((v) => -v), indent: 1, priorValue: 0 }] : []),
     { label: 'Closing NBV (Capex + IDC)', values: combinedClosing, isTotal: true, aggregation: 'last', priorValue: openingAtZeroCombined },
-    { label: '   of which: Capex NBV', values: d.closingNBVPerPeriod, indent: 2, aggregation: 'last', priorValue: openingAtZeroCapex },
+    { label: '   of which: Capex NBV', values: capexD.closingPerPeriod, indent: 2, aggregation: 'last', priorValue: openingAtZeroCapex },
     { label: '   of which: IDC NBV', values: idcNbv, indent: 2, aggregation: 'last', priorValue: 0 },
-    { label: 'Accumulated Capex Depreciation (memo)', values: d.accumDepPerPeriod, indent: 1, aggregation: 'last', priorValue: 0 },
+    { label: 'Accumulated Capex Depreciation (memo)', values: capexD.accumDepPerPeriod, indent: 1, aggregation: 'last', priorValue: 0 },
   ];
 }
 
@@ -269,6 +283,13 @@ export default function Module4FixedAssets(): React.JSX.Element {
     [project, phases, assets, subUnits, parcels, landAllocationMode, financing, snap.axisLength, snap.projectStartYear],
   );
 
+  // THE DISPOSAL THE BALANCE SHEET BOOKED (2026-09-16, step 10). This tab computes
+  // its own fixed asset and IDC snapshots, so it resolves the exit the same way the
+  // composer does: the terminal method decides whether anything is sold at all.
+  const disposalCtx: DisposalContext = useMemo(() => {
+    const cfg = resolveReturnsConfig(project, snap.axisLength);
+    return { booked: cfg.terminalMethod !== 'none', exitIdx: cfg.exitYearOffset, axisLength: snap.axisLength };
+  }, [project, snap.axisLength]);
   const scale: DisplayScale = (project.displayScale ?? 'thousands');
   const decimals: DisplayDecimals = (project.displayDecimals ?? 0) as DisplayDecimals;
   const fmt = makeFmt(scale, decimals);
@@ -344,13 +365,16 @@ export default function Module4FixedAssets(): React.JSX.Element {
     // Total FA rows: prefer using engine-derived openings + closings
     // directly so we don't reconstruct Land vs Depreciable from
     // closing balances (which can drift after a depreciation step).
+    const landD = scheduleWithDisposal({ ...row.land }, disposalCtx);
+    const depD = scheduleWithDisposal({ openingPerPeriod: row.depreciable.openingNBVPerPeriod, additionsPerPeriod: row.depreciable.additionsPerPeriod, depreciationPerPeriod: row.depreciable.depreciationPerPeriod, closingPerPeriod: row.depreciable.closingNBVPerPeriod }, disposalCtx);
     const totalFA: Row[] = [
-      { label: 'Opening Land', values: row.land.openingPerPeriod, indent: 1, aggregation: 'last' },
-      { label: 'Opening Depreciable NBV', values: row.depreciable.openingNBVPerPeriod, indent: 1, aggregation: 'last' },
-      { label: 'Opening Fixed Assets', values: row.combinedOpeningPerPeriod, isSubtotal: true, aggregation: 'last' },
-      { label: 'Closing Land', values: row.land.closingPerPeriod, indent: 1, aggregation: 'last' },
-      { label: 'Closing Depreciable NBV', values: row.depreciable.closingNBVPerPeriod, indent: 1, aggregation: 'last' },
-      { label: 'Closing Fixed Assets', values: row.combinedClosingPerPeriod, isTotal: true, aggregation: 'last' },
+      { label: 'Opening Land', values: landD.openingPerPeriod, indent: 1, aggregation: 'last' },
+      { label: 'Opening Depreciable NBV', values: depD.openingPerPeriod, indent: 1, aggregation: 'last' },
+      { label: 'Opening Fixed Assets', values: landD.openingPerPeriod.map((v, t) => v + (depD.openingPerPeriod[t] ?? 0)), isSubtotal: true, aggregation: 'last' },
+      ...(landD.disposed || depD.disposed ? [{ label: '(−) Disposed at Exit (land and net book value)', values: landD.disposalPerPeriod.map((v, t) => -(v + (depD.disposalPerPeriod[t] ?? 0))), indent: 1 }] : []),
+      { label: 'Closing Land', values: landD.closingPerPeriod, indent: 1, aggregation: 'last' },
+      { label: 'Closing Depreciable NBV', values: depD.closingPerPeriod, indent: 1, aggregation: 'last' },
+      { label: 'Closing Fixed Assets', values: landD.closingPerPeriod.map((v, t) => v + (depD.closingPerPeriod[t] ?? 0)), isTotal: true, aggregation: 'last' },
     ];
 
     return (
@@ -362,7 +386,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
           currency={currency}
           fmt={fmt}
           priorYearLabel={priorYear}
-          rows={landTableRows(row.land)}
+          rows={landTableRows(row.land, disposalCtx)}
         />
 
         <PeriodTable
@@ -372,7 +396,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
           currency={currency}
           fmt={fmt}
           priorYearLabel={priorYear}
-          rows={depreciableTableRows(row, idcRowOf(a.id))}
+          rows={depreciableTableRows(row, disposalCtx, idcRowOf(a.id))}
         />
 
         <PeriodTable
@@ -392,13 +416,16 @@ export default function Module4FixedAssets(): React.JSX.Element {
   // and Combined Total Fixed Assets.
   const projectLand = snap.projectTotals.land;
   const projectDep = snap.projectTotals.depreciable;
+  const projectLandD = scheduleWithDisposal({ ...projectLand }, disposalCtx);
+  const projectDepD = scheduleWithDisposal({ openingPerPeriod: projectDep.openingNBVPerPeriod, additionsPerPeriod: projectDep.additionsPerPeriod, depreciationPerPeriod: projectDep.depreciationPerPeriod, closingPerPeriod: projectDep.closingNBVPerPeriod, accumDepPerPeriod: projectDep.accumDepPerPeriod }, disposalCtx);
   const projectTotalRows: Row[] = [
-    { label: 'Opening Land', values: projectLand.openingPerPeriod, indent: 1, aggregation: 'last' },
-    { label: 'Opening Depreciable NBV', values: projectDep.openingNBVPerPeriod, indent: 1, aggregation: 'last' },
-    { label: 'Opening Fixed Assets', values: snap.projectTotals.combinedOpeningPerPeriod, isSubtotal: true, aggregation: 'last' },
-    { label: 'Closing Land', values: projectLand.closingPerPeriod, indent: 1, aggregation: 'last' },
-    { label: 'Closing Depreciable NBV', values: projectDep.closingNBVPerPeriod, indent: 1, aggregation: 'last' },
-    { label: 'Closing Fixed Assets', values: snap.projectTotals.combinedClosingPerPeriod, isTotal: true, aggregation: 'last' },
+    { label: 'Opening Land', values: projectLandD.openingPerPeriod, indent: 1, aggregation: 'last' },
+    { label: 'Opening Depreciable NBV', values: projectDepD.openingPerPeriod, indent: 1, aggregation: 'last' },
+    { label: 'Opening Fixed Assets', values: projectLandD.openingPerPeriod.map((v, t) => v + (projectDepD.openingPerPeriod[t] ?? 0)), isSubtotal: true, aggregation: 'last' },
+    ...(projectLandD.disposed || projectDepD.disposed ? [{ label: '(−) Disposed at Exit (land and net book value)', values: projectLandD.disposalPerPeriod.map((v, t) => -(v + (projectDepD.disposalPerPeriod[t] ?? 0))), indent: 1 }] : []),
+    { label: 'Closing Land', values: projectLandD.closingPerPeriod, indent: 1, aggregation: 'last' },
+    { label: 'Closing Depreciable NBV', values: projectDepD.closingPerPeriod, indent: 1, aggregation: 'last' },
+    { label: 'Closing Fixed Assets', values: projectLandD.closingPerPeriod.map((v, t) => v + (projectDepD.closingPerPeriod[t] ?? 0)), isTotal: true, aggregation: 'last' },
   ];
 
   return (
@@ -610,13 +637,14 @@ export default function Module4FixedAssets(): React.JSX.Element {
           currency={currency}
           fmt={fmt}
           priorYearLabel={priorYear}
-          rows={landTableRows(projectLand)}
+          rows={landTableRows(projectLand, disposalCtx)}
         />
         {(() => {
           const Nproj = projectDep.openingNBVPerPeriod.length;
-          const idcAddProj = idcSnap.totalIdcPerPeriod.slice(0, Nproj);
-          const idcDepProj = idcSnap.idcDepreciationPerPeriod.slice(0, Nproj);
-          const idcNbvProj = idcSnap.idcNbvPerPeriod.slice(0, Nproj);
+          const idcProjD = idcWithDisposal(idcSnap, disposalCtx);
+          const idcAddProj = idcProjD.additionsPerPeriod.slice(0, Nproj);
+          const idcDepProj = idcProjD.depreciationPerPeriod.slice(0, Nproj);
+          const idcNbvProj = idcProjD.closingPerPeriod.slice(0, Nproj);
           const hasIdcProj = idcAddProj.some((v) => Math.abs(v) > 0.5);
           const combinedOpening = new Array<number>(Nproj).fill(0);
           const combinedClosing = new Array<number>(Nproj).fill(0);
@@ -633,17 +661,19 @@ export default function Module4FixedAssets(): React.JSX.Element {
                 { label: '(+) Capex Additions', values: projectDep.additionsPerPeriod, indent: 1 },
                 { label: '(+) IDC Additions (capitalised interest)', values: idcAddProj, indent: 1 },
                 { label: '(−) Depreciation (on Capex + IDC)', values: combinedDep.map((v) => -v), indent: 1 },
+                ...(projectDepD.disposed || idcProjD.disposed ? [{ label: '(−) Disposed at Exit (net book value)', values: projectDepD.disposalPerPeriod.map((v, t) => -(v + (idcProjD.disposalPerPeriod[t] ?? 0))), indent: 1 }] : []),
                 { label: 'Closing NBV (Capex + IDC)', values: combinedClosing, isTotal: true, aggregation: 'last' },
-                { label: '   of which: Capex NBV', values: projectDep.closingNBVPerPeriod, indent: 2, aggregation: 'last' },
+                { label: '   of which: Capex NBV', values: projectDepD.closingPerPeriod, indent: 2, aggregation: 'last' },
                 { label: '   of which: IDC NBV', values: idcNbvProj, indent: 2, aggregation: 'last' },
                 { label: 'Accumulated Capex Depreciation (memo)', values: projectDep.accumDepPerPeriod, indent: 1, aggregation: 'last' },
               ]
             : [
-                { label: 'Opening NBV', values: projectDep.openingNBVPerPeriod, indent: 1, aggregation: 'last' },
-                { label: '(+) Capex Additions', values: projectDep.additionsPerPeriod, indent: 1 },
-                { label: '(−) Depreciation', values: projectDep.depreciationPerPeriod.map((v) => -v), indent: 1 },
-                { label: 'Closing NBV', values: projectDep.closingNBVPerPeriod, isTotal: true, aggregation: 'last' },
-                { label: 'Accumulated Depreciation (memo)', values: projectDep.accumDepPerPeriod, indent: 1, aggregation: 'last' },
+                { label: 'Opening NBV', values: projectDepD.openingPerPeriod, indent: 1, aggregation: 'last' },
+                { label: '(+) Capex Additions', values: projectDepD.additionsPerPeriod, indent: 1 },
+                { label: '(−) Depreciation', values: projectDepD.depreciationPerPeriod.map((v) => -v), indent: 1 },
+                ...(projectDepD.disposed ? [{ label: '(−) Disposed at Exit (net book value)', values: projectDepD.disposalPerPeriod.map((v) => -v), indent: 1 }] : []),
+                { label: 'Closing NBV', values: projectDepD.closingPerPeriod, isTotal: true, aggregation: 'last' },
+                { label: 'Accumulated Depreciation (memo)', values: projectDepD.accumDepPerPeriod, indent: 1, aggregation: 'last' },
               ];
           return (
             <PeriodTable

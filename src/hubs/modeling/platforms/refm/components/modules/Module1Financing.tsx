@@ -33,6 +33,8 @@ import React, { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import { planReportLines, lineTitle, poolResults, type LineState } from '../../lib/reports/lineRows';
+import { idcWithDisposal, type DisposalContext } from '../../lib/reports/disposalSchedules';
+import { resolveReturnsConfig } from '../../lib/returns-resolvers';
 import {
   type FinancingTranche,
   type ProjectFinancingConfig,
@@ -212,6 +214,11 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
     ),
     [project, phases, assets, subUnits, parcels, landAllocationMode, result],
   );
+
+  // THE EXIT THAT SELLS THE HELD ASSETS (2026-09-16, step 10), resolved the way the
+  // composer does, so the capitalised interest schedule shows the disposal the
+  // balance sheet booked rather than a balance that outlives the sale.
+  const returnsCfg = useMemo(() => resolveReturnsConfig(project, result.axis.totalPeriods), [project, result.axis.totalPeriods]);
 
   const setParcelFundingPatch = (parcelId: string, patch: Partial<ParcelFundingConfig>) => {
     const list = financingConfig.parcelFunding ?? [];
@@ -963,6 +970,7 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
           cropProject={cropProject}
           idc={idcSnapshot}
           lineState={{ assets, phases, parcels }}
+          disposal={{ booked: returnsCfg.terminalMethod !== 'none', exitIdx: returnsCfg.exitYearOffset, axisLength: result.axis.totalPeriods }}
         />
       )}
 
@@ -2260,6 +2268,9 @@ interface SchedulesProps {
   idc: import('../../lib/financials-resolvers').ProjectIDCSnapshot;
   /** The assets, phases and plots the IDC allocation groups by line through (2026-09-15). */
   lineState: LineState;
+  /** The exit that sells the held assets, so the capitalised interest schedule
+   *  shows the disposal the balance sheet booked (2026-09-16, step 10). */
+  disposal: DisposalContext;
 }
 
 function SchedulesView(p: SchedulesProps): React.JSX.Element {
@@ -2818,12 +2829,17 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                       {/* Lifecycle: depreciation per period + closing NBV */}
                       {renderFlowRow(
                         'Operate/Lease IDC Depreciation (charge to D&A)',
-                        idc.idcDepreciationPerPeriod.map((v) => -v),
+                        idcWithDisposal(idc, p.disposal).depreciationPerPeriod.map((v) => -v),
+                        { negative: true },
+                      )}
+                      {idcWithDisposal(idc, p.disposal).disposed && renderFlowRow(
+                        'Disposed at Exit (capitalised interest sold with the asset)',
+                        idcWithDisposal(idc, p.disposal).disposalPerPeriod.map((v) => -v),
                         { negative: true },
                       )}
                       {renderStateRow(
                         'Operate/Lease IDC NBV (closing, sits on BS Fixed Assets)',
-                        idc.idcNbvPerPeriod,
+                        idcWithDisposal(idc, p.disposal).closingPerPeriod,
                         { bold: true },
                       )}
                     </tbody>

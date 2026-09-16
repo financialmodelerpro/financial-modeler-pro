@@ -61,6 +61,7 @@ import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildCaseComparisonReport, type CaseComparisonInput, type CaseComparisonReport } from '../reports/caseComparisonReport';
 import { poolMapByLine, poolCapexByLine, poolReturnRows, lineHosts, fixHospitalityRates, fixLeaseRates, poolRevenueBasisByLine, poolSaleCohortByLine, type PooledCapexInputLine } from '../reports/lineRows';
 import { revenueBySection } from '../reports/revenueSections';
+import { scheduleWithDisposal, idcWithDisposal, disposalContextOf } from '../reports/disposalSchedules';
 import { buildCaseYoYReport, type CaseYoYReport } from '../reports/caseYoYReport';
 import { formatAssumptionValue } from '../cases/assumptionGrid';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
@@ -1491,8 +1492,9 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
   items.push(tTable('Tab 4: Financing / Schedules', 'schedules', periodTable('IDC Summary', py, yl, [
     periodRow('Construction interest', idc.totalConstructionInterestPerPeriod.slice(0, yl.length), 'sum'),
     periodRow('IDC capitalised to assets', idc.totalIdcPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('IDC depreciation', idc.idcDepreciationPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('IDC NBV (closing)', idc.idcNbvPerPeriod.slice(0, yl.length), 'last', 'total'),
+    periodRow('IDC depreciation', idcWithDisposal(idc, disposalContextOf(snap)).depreciationPerPeriod.slice(0, yl.length), 'sum'),
+    ...(idcWithDisposal(idc, disposalContextOf(snap)).disposed ? [periodRow('Disposed at exit (capitalised interest)', idcWithDisposal(idc, disposalContextOf(snap)).disposalPerPeriod.slice(0, yl.length).map((v) => -v), 'sum')] : []),
+    periodRow('IDC NBV (closing)', idcWithDisposal(idc, disposalContextOf(snap)).closingPerPeriod.slice(0, yl.length), 'last', 'total'),
   ])));
 
   // Tab 4: Financing / Cash Sweep. Mirrors the platform Cash Sweep tab (full
@@ -1828,8 +1830,9 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
   items.push(tTable('Tab 1: Schedules', 'schedules', periodTable('IDC Pool', py, yl, [
     periodRow('Construction interest', idc.totalConstructionInterestPerPeriod.slice(0, yl.length), 'sum'),
     periodRow('Capitalised to assets', idc.totalIdcPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('IDC depreciation', idc.idcDepreciationPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('IDC NBV closing', idc.idcNbvPerPeriod.slice(0, yl.length), 'last', 'total'),
+    periodRow('IDC depreciation', idcWithDisposal(idc, disposalContextOf(snap)).depreciationPerPeriod.slice(0, yl.length), 'sum'),
+    ...(idcWithDisposal(idc, disposalContextOf(snap)).disposed ? [periodRow('Disposed at exit (capitalised interest)', idcWithDisposal(idc, disposalContextOf(snap)).disposalPerPeriod.slice(0, yl.length).map((v) => -v), 'sum')] : []),
+    periodRow('IDC NBV closing', idcWithDisposal(idc, disposalContextOf(snap)).closingPerPeriod.slice(0, yl.length), 'last', 'total'),
   ])));
   const apt = snap.ap.projectTotals;
   items.push(tTable('Tab 1: Schedules', 'schedules', periodTable('Working Capital', py, yl, [
@@ -1852,18 +1855,24 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
   items.push(tTable('Tab 1: Schedules', 'schedules', m4RowsToPeriodTable('Balance Check, Reconciliation Bridge (per period)', py, yl, buildBsReconciliationRows(feederCtx))));
 
   // Tab 2: Fixed Assets.
+  // THE DISPOSAL THE BALANCE SHEET BOOKED SHOWS IN THE SCHEDULE (2026-09-16, step 10).
+  const dCtx = disposalContextOf(snap);
   for (const [, r, lineName] of poolMapByLine(fa.byAsset, state)) {
     const dep = r.depreciable;
     if (!anyNonZero(dep.closingNBVPerPeriod) && !anyNonZero(r.land.closingPerPeriod)) continue;
+    const landD = scheduleWithDisposal({ ...r.land }, dCtx);
+    const depD = scheduleWithDisposal({ openingPerPeriod: dep.openingNBVPerPeriod, additionsPerPeriod: dep.additionsPerPeriod, depreciationPerPeriod: dep.depreciationPerPeriod, closingPerPeriod: dep.closingNBVPerPeriod, accumDepPerPeriod: dep.accumDepPerPeriod }, dCtx);
     items.push(tTable('Tab 2: Fixed Assets', 'outputs', periodTable(`Fixed Assets, ${lineName}`, py, yl, [
-      periodRow('Land opening', r.land.openingPerPeriod.slice(0, yl.length), 'none', undefined, r.land.openingAtAxisStart),
-      periodRow('Land additions', r.land.additionsPerPeriod.slice(0, yl.length), 'sum'),
-      periodRow('Land closing', r.land.closingPerPeriod.slice(0, yl.length), 'last', 'subtotal'),
-      periodRow('Depreciable opening NBV', dep.openingNBVPerPeriod.slice(0, yl.length), 'none'),
-      periodRow('Additions', dep.additionsPerPeriod.slice(0, yl.length), 'sum'),
-      periodRow('Depreciation', dep.depreciationPerPeriod.slice(0, yl.length), 'sum'),
-      periodRow('Depreciable closing NBV', dep.closingNBVPerPeriod.slice(0, yl.length), 'last', 'subtotal'),
-      periodRow('Combined closing (Land + NBV)', r.combinedClosingPerPeriod.slice(0, yl.length), 'last', 'total'),
+      periodRow('Land opening', landD.openingPerPeriod.slice(0, yl.length), 'none', undefined, r.land.openingAtAxisStart),
+      periodRow('Land additions', landD.additionsPerPeriod.slice(0, yl.length), 'sum'),
+      ...(landD.disposed ? [periodRow('Land disposed at exit', landD.disposalPerPeriod.slice(0, yl.length).map((v) => -v), 'sum')] : []),
+      periodRow('Land closing', landD.closingPerPeriod.slice(0, yl.length), 'last', 'subtotal'),
+      periodRow('Depreciable opening NBV', depD.openingPerPeriod.slice(0, yl.length), 'none'),
+      periodRow('Additions', depD.additionsPerPeriod.slice(0, yl.length), 'sum'),
+      periodRow('Depreciation', depD.depreciationPerPeriod.slice(0, yl.length), 'sum'),
+      ...(depD.disposed ? [periodRow('Disposed at exit (net book value)', depD.disposalPerPeriod.slice(0, yl.length).map((v) => -v), 'sum')] : []),
+      periodRow('Depreciable closing NBV', depD.closingPerPeriod.slice(0, yl.length), 'last', 'subtotal'),
+      periodRow('Combined closing (Land + NBV)', landD.closingPerPeriod.slice(0, yl.length).map((v, t) => v + (depD.closingPerPeriod[t] ?? 0)), 'last', 'total'),
     ])));
   }
   const fpt = fa.projectTotals;

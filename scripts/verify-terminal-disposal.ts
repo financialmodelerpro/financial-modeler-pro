@@ -18,6 +18,7 @@ import { readFileSync } from 'node:fs';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/returns-resolvers';
 import { terminalMetricIndex, valueAtExit, writeOffAtExit, stopAfterExit } from '../src/core/calculations/returns/disposal';
+import { scheduleWithDisposal, idcWithDisposal, disposalContextOf } from '../src/hubs/modeling/platforms/refm/lib/reports/disposalSchedules';
 import { buildDisposalWorking } from '../src/hubs/modeling/platforms/refm/lib/reports/disposalReport';
 import { makeDefaultPhase, makeDefaultProject, makeDefaultCostLines, makeDefaultFinancingTranche } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
@@ -189,6 +190,34 @@ section('E. an exit before the last year');
   const rsEarly = computeReturnsSnapshot(s, early.project);
   check('E15 the exit-year analysis offers candidates only up to the chosen exit',
     rsEarly.exitYears.length > 0 && rsEarly.exitYears.every((row) => row.exitIdx <= 7) && rsEarly.exitYears.some((row) => row.isSelected && row.exitIdx === 7));
+  // THE SCHEDULES SHOW THE DISPOSAL (2026-09-16, step 10).
+  const ctx = disposalContextOf(s);
+  const fpt = s.fixedAssets.projectTotals;
+  const landS = scheduleWithDisposal({ ...fpt.land }, ctx);
+  const depS = scheduleWithDisposal({ openingPerPeriod: fpt.depreciable.openingNBVPerPeriod, additionsPerPeriod: fpt.depreciable.additionsPerPeriod, depreciationPerPeriod: fpt.depreciable.depreciationPerPeriod, closingPerPeriod: fpt.depreciable.closingNBVPerPeriod, accumDepPerPeriod: fpt.depreciable.accumDepPerPeriod }, ctx);
+  const idcS = idcWithDisposal(s.idc, ctx);
+  const foots = (x: { openingPerPeriod: number[]; additionsPerPeriod: number[]; depreciationPerPeriod: number[]; disposalPerPeriod: number[]; closingPerPeriod: number[] }): boolean =>
+    x.closingPerPeriod.every((c, t) => near(c, (x.openingPerPeriod[t] ?? 0) + (x.additionsPerPeriod[t] ?? 0) - (x.depreciationPerPeriod[t] ?? 0) - (x.disposalPerPeriod[t] ?? 0)));
+  check('E19 every schedule foots: closing = opening + additions - depreciation - disposal', foots(landS) && foots(depS) && foots(idcS));
+  check('E20 the disposal is the exit year balance, and only the exit year', landS.disposalPerPeriod.filter((v) => v !== 0).length <= 1 && depS.disposalPerPeriod[7] > 0
+    && near(depS.disposalPerPeriod[7] + landS.disposalPerPeriod[7] + idcS.disposalPerPeriod[7], s.disposal.netBookValue.total), `${depS.disposalPerPeriod[7] + landS.disposalPerPeriod[7] + idcS.disposalPerPeriod[7]} vs ${s.disposal.netBookValue.total}`);
+  check('E21 the schedules close where the balance sheet does, from the exit on',
+    landS.closingPerPeriod.slice(7).every((v, i) => near(v + (depS.closingPerPeriod[7 + i] ?? 0) + (idcS.closingPerPeriod[7 + i] ?? 0), s.bs.totalFixedAssetsPerPeriod[7 + i] ?? 0)),
+    `${landS.closingPerPeriod[7]} + ${depS.closingPerPeriod[7]} + ${idcS.closingPerPeriod[7]} vs ${s.bs.totalFixedAssetsPerPeriod[7]}`);
+  check('E22 no depreciation on what was sold after the exit, and the memo accumulated depreciation goes with it',
+    depS.depreciationPerPeriod.slice(8).every((v) => near(v, 0)) && idcS.depreciationPerPeriod.slice(8).every((v) => near(v, 0)) && depS.accumDepPerPeriod.slice(7).every((v) => v === 0));
+  const noneSnap = computeFinancialsSnapshot(buildState({ terminalMethod: 'none' }));
+  const noneDep = scheduleWithDisposal({ openingPerPeriod: noneSnap.fixedAssets.projectTotals.depreciable.openingNBVPerPeriod, additionsPerPeriod: noneSnap.fixedAssets.projectTotals.depreciable.additionsPerPeriod, depreciationPerPeriod: noneSnap.fixedAssets.projectTotals.depreciable.depreciationPerPeriod, closingPerPeriod: noneSnap.fixedAssets.projectTotals.depreciable.closingNBVPerPeriod }, disposalContextOf(noneSnap));
+  check('E23 with no terminal value the schedule is the engine\'s own and the disposal row is empty',
+    !noneDep.disposed && noneDep.closingPerPeriod.join(',') === noneSnap.fixedAssets.projectTotals.depreciable.closingNBVPerPeriod.join(',') && noneDep.disposalPerPeriod.every((v) => v === 0));
+  const screens = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module4FixedAssets.tsx', 'utf8');
+  const fin = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Financing.tsx', 'utf8');
+  const xl = readFileSync('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts', 'utf8');
+  const pdfSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf.ts', 'utf8');
+  check('E24 every schedule surface reads the shared builder, so none can drift from the balance sheet',
+    /scheduleWithDisposal\(/.test(screens) && /Disposed at Exit/.test(screens) && /idcWithDisposal\(/.test(fin)
+    && /scheduleWithDisposal\(/.test(xl) && /Disposed at exit/.test(xl) && /scheduleWithDisposal\(/.test(pdfSrc) && /Disposed at exit/.test(pdfSrc));
+
   const obj = { a: [1, 2, 3], m: [[1, 1, 1], [2, 2, 2]], k: 'x', short: [5, 6] };
   const cut = stopAfterExit(obj, 0, 3);
   check('E14 the pure cut zeroes axis series and matrix rows after the exit only, and returns the input for a last-year exit',

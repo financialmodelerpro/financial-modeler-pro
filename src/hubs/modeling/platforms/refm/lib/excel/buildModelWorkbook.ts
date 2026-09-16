@@ -23,6 +23,7 @@ import { computeFinancialsSnapshot, computeFundingGap, type FinancialsResolverSt
 import { buildCapexReport, type CapexReport } from '../reports/capexReports';
 import { poolMapByLine, poolCapexByLine, poolReturnRows, poolResults, lineHosts, fixHospitalityRates, fixLeaseRates, poolRevenueBasisByLine, poolSaleCohortByLine } from '../reports/lineRows';
 import { revenueBySection } from '../reports/revenueSections';
+import { scheduleWithDisposal, idcWithDisposal, disposalContextOf } from '../reports/disposalSchedules';
 import { buildFinancingScheduleTables, buildCashSweepTables, type ReportTable } from '../reports/financingReports';
 import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup, m4StreamRow } from '../reports/streamReports';
 import { buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
@@ -3039,35 +3040,46 @@ function addSchedules(ctx: EmitCtx): void {
   // ── 1. Fixed Assets & D&A ────────────────────────────────────────────────────
   E.section('1. Fixed Assets & D&A (land + depreciable NBV roll-forward, per line + project total)');
   const fa = snap.fixedAssets;
+  // THE DISPOSAL THE BALANCE SHEET BOOKED SHOWS IN THE SCHEDULE (2026-09-16, step 10).
+  const dCtx = disposalContextOf(snap);
   for (const [, ra, lineName] of poolMapByLine(fa.byAsset, state)) {
     const dep = ra.depreciable;
     if (!nz(dep.closingNBVPerPeriod) && !nz(ra.land.closingPerPeriod)) continue;
+    const landD = scheduleWithDisposal({ ...ra.land, closingPerPeriod: ra.land.closingPerPeriod }, dCtx);
+    const depD = scheduleWithDisposal({ openingPerPeriod: dep.openingNBVPerPeriod, additionsPerPeriod: dep.additionsPerPeriod, depreciationPerPeriod: dep.depreciationPerPeriod, closingPerPeriod: dep.closingNBVPerPeriod, accumDepPerPeriod: dep.accumDepPerPeriod }, dCtx);
     E.subTitle(`Fixed Assets, ${lineName}`);
-    E.moneyRow('Land opening', ra.land.openingPerPeriod, { indent: 1, prior: ra.land.openingAtAxisStart, noTotal: true });
-    E.moneyRow('Land additions', ra.land.additionsPerPeriod, { indent: 1 });
-    E.moneyRow('Land closing', ra.land.closingPerPeriod, { style: 'subtotal', totalLast: true });
-    E.moneyRow('Depreciable opening NBV', dep.openingNBVPerPeriod, { indent: 1, noTotal: true });
-    E.moneyRow('Additions', dep.additionsPerPeriod, { indent: 1 });
-    E.moneyRow('Depreciation', dep.depreciationPerPeriod, { indent: 1 });
-    E.moneyRow('Depreciable closing NBV', dep.closingNBVPerPeriod, { style: 'subtotal', totalLast: true });
-    E.moneyRow('Combined closing (Land + NBV)', ra.combinedClosingPerPeriod, { style: 'total', totalLast: true });
+    E.moneyRow('Land opening', landD.openingPerPeriod, { indent: 1, prior: ra.land.openingAtAxisStart, noTotal: true });
+    E.moneyRow('Land additions', landD.additionsPerPeriod, { indent: 1 });
+    if (landD.disposed) E.moneyRow('Land disposed at exit', landD.disposalPerPeriod.map((v) => -v), { indent: 1 });
+    E.moneyRow('Land closing', landD.closingPerPeriod, { style: 'subtotal', totalLast: true });
+    E.moneyRow('Depreciable opening NBV', depD.openingPerPeriod, { indent: 1, noTotal: true });
+    E.moneyRow('Additions', depD.additionsPerPeriod, { indent: 1 });
+    E.moneyRow('Depreciation', depD.depreciationPerPeriod, { indent: 1 });
+    if (depD.disposed) E.moneyRow('Disposed at exit (net book value)', depD.disposalPerPeriod.map((v) => -v), { indent: 1 });
+    E.moneyRow('Depreciable closing NBV', depD.closingPerPeriod, { style: 'subtotal', totalLast: true });
+    E.moneyRow('Combined closing (Land + NBV)', landD.closingPerPeriod.map((v, t) => v + (depD.closingPerPeriod[t] ?? 0)), { style: 'total', totalLast: true });
     E.gap();
   }
   const fpt = fa.projectTotals;
+  const landTot = scheduleWithDisposal({ ...fpt.land }, dCtx);
+  const depTot = scheduleWithDisposal({ openingPerPeriod: fpt.depreciable.openingNBVPerPeriod, additionsPerPeriod: fpt.depreciable.additionsPerPeriod, depreciationPerPeriod: fpt.depreciable.depreciationPerPeriod, closingPerPeriod: fpt.depreciable.closingNBVPerPeriod, accumDepPerPeriod: fpt.depreciable.accumDepPerPeriod }, dCtx);
   E.subTitle('Fixed Assets (project total)');
-  E.moneyRow('Land closing', fpt.land.closingPerPeriod, { indent: 1, totalLast: true });
-  E.moneyRow('Depreciation', fpt.depreciable.depreciationPerPeriod, { indent: 1 });
-  E.moneyRow('Depreciable closing NBV', fpt.depreciable.closingNBVPerPeriod, { style: 'subtotal', totalLast: true });
-  E.moneyRow('Combined closing', fpt.combinedClosingPerPeriod, { style: 'total', totalLast: true });
+  E.moneyRow('Land closing', landTot.closingPerPeriod, { indent: 1, totalLast: true });
+  E.moneyRow('Depreciation', depTot.depreciationPerPeriod, { indent: 1 });
+  if (landTot.disposed || depTot.disposed) E.moneyRow('Disposed at exit (land and net book value)', landTot.disposalPerPeriod.map((v, t) => -(v + (depTot.disposalPerPeriod[t] ?? 0))), { indent: 1 });
+  E.moneyRow('Depreciable closing NBV', depTot.closingPerPeriod, { style: 'subtotal', totalLast: true });
+  E.moneyRow('Combined closing', landTot.closingPerPeriod.map((v, t) => v + (depTot.closingPerPeriod[t] ?? 0)), { style: 'total', totalLast: true });
   // IDC pool (capitalised construction interest depreciates through D&A).
   const idc = snap.idc;
   if (nz(idc.totalIdcPerPeriod) || nz(idc.idcNbvPerPeriod)) {
     E.gap();
+    const idcD = idcWithDisposal(idc, dCtx);
     E.subTitle('IDC Pool (capitalised construction interest)');
     E.moneyRow('Construction interest', idc.totalConstructionInterestPerPeriod, { indent: 1 });
-    E.moneyRow('Capitalised to assets', idc.totalIdcPerPeriod, { indent: 1 });
-    E.moneyRow('IDC depreciation', idc.idcDepreciationPerPeriod, { indent: 1 });
-    E.moneyRow('IDC NBV closing', idc.idcNbvPerPeriod, { style: 'total', totalLast: true });
+    E.moneyRow('Capitalised to assets', idcD.additionsPerPeriod, { indent: 1 });
+    E.moneyRow('IDC depreciation', idcD.depreciationPerPeriod, { indent: 1 });
+    if (idcD.disposed) E.moneyRow('Disposed at exit (capitalised interest)', idcD.disposalPerPeriod.map((v) => -v), { indent: 1 });
+    E.moneyRow('IDC NBV closing', idcD.closingPerPeriod, { style: 'total', totalLast: true });
   }
   E.gap();
 

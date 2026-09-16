@@ -1191,7 +1191,10 @@ section('K. Area x unit size = count: only two of the three are inputs');
   // P6 THE PLATFORM NEVER WRITES A USER FIELD. The derived figures live in
   // their own bag, so "typed wins" is a read rule and clearing is safe.
   const modelSrc = fs.readFileSync('src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel.ts', 'utf8');
-  const storeSrc2 = fs.readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8');
+  // The load door's settle passes moved to settleModel.ts (2026-09-15, step 8), which hydrate
+  // calls; the save door's stayed in the store. Both files are the store's settle, so read both.
+  const storeSrc2 = fs.readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8')
+    + fs.readFileSync('src/hubs/modeling/platforms/refm/lib/state/settleModel.ts', 'utf8');
   check('P6 the derived figures go in their OWN bag, never into parkingArea or parkingBaysRequired',
     modelSrc.includes('parkingAreaSqm?: number;')
     // [sS] was a typo for the any-character class and matched nothing, so this
