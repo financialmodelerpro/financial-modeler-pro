@@ -15,6 +15,9 @@ per capex line, reaching the engine as standard-sourced overrides the Capex tab 
 override), Table 2 massing filled back to the type when every plot agrees, active rows only on the Opex
 Output, and the Standards paragraph font.
 
+**PROJECT OVERVIEW REWORKED (2026-09-16)**: three return pairs, DSCR and ICR off the surface, cost per sqm in its own band, and
+project detail (scheme, land and build by type, revenue mix, phases, exit and cash) through one builder that ties to the tabs.
+
 **STEP 10b DONE (2026-09-16)**: construction cost escalation, one project rate from the project start year, weighted by each line's
 spend profile (so phasing and escalation interact by design); lump sums, land value lines and revenue-charged lines exempt; soft
 percentages on the escalated base; Module 6 lever and the base year on Types and Standards. Inert until a rate is typed. **Steps 7 to 10

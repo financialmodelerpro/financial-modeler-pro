@@ -933,7 +933,11 @@ section('K. Area x unit size = count: only two of the three are inputs');
       planRetailCompanionOverrides([{ id: 's', phaseId: 'p' }], lines, [{ assetId: 's', lineId: 'construction-bua__p' }]).length === 1
       && planRetailCompanionOverrides([{ id: 's', phaseId: 'q' }], lines, []).length === 1
       && planRetailCompanionOverrides([{ id: 's', phaseId: 'z' }], lines, []).length === 0);
-    const storeSrc2 = fs.readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8');
+    // The load door's settle passes moved to settleModel.ts (2026-09-15, step 8), which
+    // hydrate calls; the save door's stayed in the store. Both files are the store's
+    // settle, so read both. (This file declares storeSrc2 twice, in two block scopes.)
+    const storeSrc2 = fs.readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8')
+      + fs.readFileSync('src/hubs/modeling/platforms/refm/lib/state/settleModel.ts', 'utf8');
     check('P4k-i the store seeds them for the companions it ADDED and only those',
       storeSrc2.includes('planRetailCompanionOverrides(')
       && /r\.added\.length > 0/.test(storeSrc2)

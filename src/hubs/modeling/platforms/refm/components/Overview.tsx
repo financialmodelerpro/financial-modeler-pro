@@ -22,6 +22,7 @@ import { useModule1Store } from '../lib/state/module1-store';
 import { computeFinancialsSnapshot } from '../lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../lib/returns-resolvers';
 import { fundingChartPoints, type FundingYearPoint } from '../lib/portfolio/fundingSeries';
+import { buildOverviewReport, type OverviewReport } from '../lib/reports/overviewReport';
 
 interface OverviewProps {
   projectName: string | null;
@@ -35,6 +36,9 @@ const sectionLabel: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 8,
 };
 const accentDot = (color: string): React.CSSProperties => ({ width: 8, height: 8, borderRadius: 2, background: color });
+
+const th: React.CSSProperties = { padding: '8px 10px', fontSize: 'var(--font-micro)', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', whiteSpace: 'nowrap' };
+const td: React.CSSProperties = { padding: '7px 10px', textAlign: 'right', color: 'var(--color-body)', whiteSpace: 'nowrap' };
 
 const sectionGrid: React.CSSProperties = {
   display: 'grid', gap: 'var(--sp-2)', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', marginBottom: 'var(--sp-3)',
@@ -94,12 +98,23 @@ export default function Overview({ projectName, status }: OverviewProps): React.
     v == null || !Number.isFinite(v) ? 'n/a' : `${(v * 100).toFixed(1)}%`;
   const mult = (v: number | null | undefined): string =>
     v == null || !Number.isFinite(v) ? 'n/a' : `${v.toFixed(2)}x`;
+  /** An area or a count: never scaled, because 37,000 sqm is 37,000 sqm. */
+  const area = (v: number | null | undefined): string =>
+    v == null || !Number.isFinite(v) ? 'n/a' : Math.round(v).toLocaleString('en-US');
+  /** A rate per sqm: full units, the way a developer quotes it. */
+  const rate = (v: number | null | undefined): string =>
+    v == null || !Number.isFinite(v) ? 'n/a' : Math.round(v).toLocaleString('en-US');
 
   const computed = useMemo(() => {
     try {
       const snap = computeFinancialsSnapshot(state as never);
+      const rs = computeReturnsSnapshot(snap, project);
       return {
-        rs: computeReturnsSnapshot(snap, project),
+        rs,
+        // EVERY FIGURE ON THIS PAGE COMES FROM ONE BUILDER (2026-09-16), so the
+        // overview cannot hold a different definition of land, area or cost per
+        // sqm from the tabs it summarises.
+        ov: buildOverviewReport(snap, rs, state as never),
         // Funding by year comes from the SHARED rule, so this chart cannot hold
         // a different definition of the requirement than the Financing tab's
         // Funding Gap sub-tab and the portfolio tile do.
@@ -110,9 +125,10 @@ export default function Overview({ projectName, status }: OverviewProps): React.
     }
   }, [state, project]);
   const rs = computed?.rs ?? null;
+  const ov: OverviewReport | null = computed?.ov ?? null;
   const funding: FundingYearPoint[] = computed?.funding ?? [];
 
-  if (!rs) {
+  if (!rs || !ov) {
     return (
       <div style={{ padding: 'var(--sp-3)' }} data-testid="overview">
         <h1 style={{ fontSize: 'var(--font-h1)', fontWeight: 700, color: 'var(--color-heading)', margin: 0 }}>{projectName ?? 'Project'} overview</h1>
@@ -146,7 +162,6 @@ export default function Overview({ projectName, status }: OverviewProps): React.
   const chips: { kind: ChipKind; label: string }[] = [
     { kind: (de.profitAfterFinancing ?? 0) >= 0 ? 'ok' : 'err', label: `Profit after financing ${(de.profitAfterFinancing ?? 0) >= 0 ? 'positive' : 'negative'}` },
     { kind: (de.developmentMargin ?? 0) >= 0.15 ? 'ok' : (de.developmentMargin ?? 0) >= 0 ? 'warn' : 'err', label: `Margin ${pct(de.developmentMargin)}` },
-    { kind: re.dscrMin == null ? 'warn' : re.dscrMin >= 1.2 ? 'ok' : re.dscrMin >= 1.0 ? 'warn' : 'err', label: re.dscrMin == null ? 'No debt service' : `Min DSCR ${mult(re.dscrMin)}` },
   ];
 
   const heroItem = (label: string, value: string): React.JSX.Element => (
@@ -242,11 +257,42 @@ export default function Overview({ projectName, status }: OverviewProps): React.
         <div style={{ fontSize: 'var(--font-micro)', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--color-gold)', marginBottom: 'var(--sp-2)' }}>
           Headline returns
         </div>
-        <div style={{ display: 'grid', gap: 'var(--sp-3)', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
-          {heroItem('Project IRR (FCFF)', pct(rs.result.fcff.irr))}
-          {heroItem('Equity IRR (FCFE)', pct(rs.result.fcfe.irr))}
-          {heroItem('Equity MOIC', mult(rs.result.fcfe.moic))}
-          {heroItem('Equity Multiple', mult(re.equityMultiple))}
+        <div style={{ display: 'grid', gap: 'var(--sp-3)', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))' }}>
+          {ov.returns.map((r) => (
+            <div key={r.key} style={{ minWidth: 0 }} data-testid={`overview-return-${r.key}`}>
+              <div style={{ fontSize: 'var(--font-micro)', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.66)', marginBottom: 6 }}>{r.label}</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 34, fontWeight: 800, color: '#fff', lineHeight: 1, letterSpacing: '-0.02em' }}>{pct(r.irr)}</span>
+                <span style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-gold)', lineHeight: 1 }}>{mult(r.moic)}</span>
+              </div>
+              <div style={{ fontSize: 'var(--font-micro)', color: 'rgba(255,255,255,0.6)', marginTop: 4 }}>
+                {r.preFeeIrr !== undefined
+                  ? `IRR and MOIC after the performance fee; pre-fee ${pct(r.preFeeIrr)} and ${mult(r.preFeeMoic ?? null)}`
+                  : 'IRR and MOIC'}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── COST PER SQM (2026-09-16, founder: "the first number a developer
+          quotes and it is nowhere today"), its own band rather than a tile in a
+          group. Development cost is land and capex; construction excludes land. ── */}
+      <div className="card" style={{ padding: 'var(--sp-3)', marginBottom: 'var(--sp-3)', borderLeft: '4px solid var(--color-gold)' }} data-testid="overview-cost-per-sqm">
+        <div style={{ ...sectionLabel, margin: '0 0 var(--sp-2)' }}><span style={accentDot('var(--color-gold)')} />Cost per sqm</div>
+        <div style={{ display: 'grid', gap: 'var(--sp-3)', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' }}>
+          {[
+            ['Development cost / GFA', ov.costPerSqm.developmentCostPerGfa, `${money(ov.costPerSqm.totalDevelopmentCost)} over ${area(ov.costPerSqm.gfaSqm)} sqm`],
+            ['Construction cost / GFA', ov.costPerSqm.constructionCostPerGfa, 'excludes land'],
+            ['Development cost / saleable', ov.costPerSqm.developmentCostPerSaleable, `over ${area(ov.costPerSqm.saleableSqm)} sqm`],
+            ['Revenue / saleable', ov.costPerSqm.revenuePerSaleable, 'what it sells or lets for'],
+          ].map(([label, value, sub]) => (
+            <div key={String(label)} style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 'var(--font-micro)', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--color-meta)', marginBottom: 4 }}>{label}</div>
+              <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--color-heading)', lineHeight: 1 }}>{rate(value as number | null)}</div>
+              <div style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)', marginTop: 3 }}>{sub}</div>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -297,7 +343,111 @@ export default function Overview({ projectName, status }: OverviewProps): React.
         <Kpi label="Start year" value={startYear != null ? String(startYear) : 'n/a'} accent="var(--color-navy-mid)" />
         <Kpi label="Model horizon" value={`${horizon} yr`} sub={`to ${rs.exitYearLabel}`} accent="var(--color-navy-mid)" />
         <Kpi label="Phases" value={String(state.phases.length)} accent="var(--color-navy-mid)" />
-        <Kpi label="Assets" value={String(state.assets.length)} accent="var(--color-navy-mid)" />
+        <Kpi label="Lines" value={String(ov.scheme.lines)} sub="consolidated" accent="var(--color-navy-mid)" />
+      </div>
+
+      {/* ── The scheme: what is being built, before what it earns ── */}
+      <div style={sectionLabel}><span style={accentDot('var(--color-navy)')} />Scheme</div>
+      <div style={sectionGrid}>
+        <Kpi label="Total land area" value={`${area(ov.scheme.landSqm)} sqm`} sub={money(ov.scheme.landValue)} accent="var(--color-navy)" />
+        <Kpi label="Total GFA" value={`${area(ov.scheme.gfaSqm)} sqm`} sub={`BUA ${area(ov.scheme.buaSqm)}`} accent="var(--color-navy)" />
+        <Kpi label="Plot ratio" value={ov.scheme.plotRatio == null ? 'n/a' : `${ov.scheme.plotRatio.toFixed(2)}x`} sub="GFA / land" accent="var(--color-navy)" />
+        <Kpi label="Saleable and leasable" value={`${area(ov.scheme.saleableSqm)} sqm`} sub={`${area(ov.scheme.units)} units, ${area(ov.scheme.keys)} keys, ${area(ov.scheme.leasableSqm)} sqm let`} accent="var(--color-navy)" />
+      </div>
+
+      {/* ── Land and what it carries, by the types actually in use ── */}
+      <div style={sectionLabel}><span style={accentDot('var(--color-gold)')} />Land and build, by asset type</div>
+      <div className="card" style={{ padding: 0, marginBottom: 'var(--sp-3)', overflowX: 'auto' }} data-testid="overview-by-type">
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--font-meta)' }}>
+          <thead>
+            <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+              {['Asset type', 'Land (sqm)', 'Share of land', 'GFA (sqm)', 'Units', 'Keys', 'Leasable (sqm)'].map((h, i) => (
+                <th key={h} style={{ ...th, textAlign: i === 0 ? 'left' : 'right' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {ov.byType.map((t) => (
+              <tr key={t.typeId} style={{ borderBottom: '1px solid var(--color-border)' }} data-testid={`overview-type-${t.typeId}`}>
+                <td style={{ ...td, textAlign: 'left', fontWeight: 600 }}>{t.label}</td>
+                <td style={td}>{area(t.landSqm)}</td>
+                <td style={td}>{pct(t.landPct)}</td>
+                <td style={td}>{area(t.gfaSqm)}</td>
+                <td style={td}>{t.units > 0 ? area(t.units) : '-'}</td>
+                <td style={td}>{t.keys > 0 ? area(t.keys) : '-'}</td>
+                <td style={td}>{t.leasableSqm > 0 ? area(t.leasableSqm) : '-'}</td>
+              </tr>
+            ))}
+            <tr style={{ borderTop: '2px solid var(--color-navy)' }}>
+              <td style={{ ...td, textAlign: 'left', fontWeight: 800 }}>Total</td>
+              <td style={{ ...td, fontWeight: 800 }}>{area(ov.scheme.landSqm)}</td>
+              <td style={{ ...td, fontWeight: 800 }}>100.0%</td>
+              <td style={{ ...td, fontWeight: 800 }}>{area(ov.scheme.gfaSqm)}</td>
+              <td style={{ ...td, fontWeight: 800 }}>{ov.scheme.units > 0 ? area(ov.scheme.units) : '-'}</td>
+              <td style={{ ...td, fontWeight: 800 }}>{ov.scheme.keys > 0 ? area(ov.scheme.keys) : '-'}</td>
+              <td style={{ ...td, fontWeight: 800 }}>{ov.scheme.leasableSqm > 0 ? area(ov.scheme.leasableSqm) : '-'}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── Where the revenue comes from, by the Revenue tab's own sections ── */}
+      {ov.revenueMix.length > 0 && (
+        <>
+          <div style={sectionLabel}><span style={accentDot('var(--color-navy-mid)')} />Revenue mix</div>
+          <div className="card" style={{ padding: 'var(--sp-3)', marginBottom: 'var(--sp-3)' }} data-testid="overview-revenue-mix">
+            {ov.revenueMix.map((r) => (
+              <div key={r.label} style={{ marginBottom: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-meta)', marginBottom: 3 }}>
+                  <span style={{ color: 'var(--color-body)' }}>{r.label}</span>
+                  <span style={{ fontWeight: 700, color: 'var(--color-heading)' }}>{money(r.value)} <span style={{ color: 'var(--color-meta)', fontWeight: 600 }}>{pct(r.pct)}</span></span>
+                </div>
+                <div style={{ height: 8, background: 'var(--color-navy-light)', borderRadius: 4, overflow: 'hidden' }}>
+                  <div style={{ width: `${Math.max(1, r.pct * 100)}%`, height: '100%', background: 'var(--color-navy)' }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* ── Phase by phase ── */}
+      <div style={sectionLabel}><span style={accentDot('var(--color-navy)')} />Phases</div>
+      <div className="card" style={{ padding: 0, marginBottom: 'var(--sp-3)', overflowX: 'auto' }} data-testid="overview-phases">
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--font-meta)' }}>
+          <thead>
+            <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+              {['Phase', 'Construction', 'Operations from', 'Lines', 'Land (sqm)', 'GFA (sqm)', 'Capex', 'Revenue', 'EBITDA'].map((h, i) => (
+                <th key={h} style={{ ...th, textAlign: i <= 2 ? 'left' : 'right' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {ov.phases.map((ph) => (
+              <tr key={ph.id} style={{ borderBottom: '1px solid var(--color-border)' }} data-testid={`overview-phase-${ph.id}`}>
+                <td style={{ ...td, textAlign: 'left', fontWeight: 600 }}>{ph.name}</td>
+                <td style={{ ...td, textAlign: 'left' }}>{ph.startYear ?? 'n/a'} to {ph.constructionEndYear ?? 'n/a'}</td>
+                <td style={{ ...td, textAlign: 'left' }}>{ph.operationsStartYear ?? 'n/a'}</td>
+                <td style={td}>{ph.lines}</td>
+                <td style={td}>{area(ph.landSqm)}</td>
+                <td style={td}>{area(ph.gfaSqm)}</td>
+                <td style={td}>{money(ph.capex)}</td>
+                <td style={td}>{money(ph.revenue)}</td>
+                <td style={td}>{money(ph.ebitda)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── The exit, and the tightest the cash gets ── */}
+      <div style={sectionLabel}><span style={accentDot('var(--color-gold)')} />Exit and cash</div>
+      <div style={sectionGrid}>
+        <Kpi label="Exit year" value={String(ov.exit.year)} sub={ov.exit.booked ? 'held assets sold' : 'no terminal value'} accent="var(--color-gold)" />
+        <Kpi label="Terminal value" value={money(ov.exit.terminalValue)} sub="proceeds from disposal" accent="var(--color-gold)" />
+        <Kpi label="Gain on disposal" value={money(ov.exit.gainOnDisposal)} sub="proceeds less book value" accent="var(--color-gold)" />
+        <Kpi label="Peak debt" value={money(ov.exit.peakDebt)} accent="var(--color-gold)" />
+        <Kpi label="Cash low point" value={money(ov.exit.cashLow)} sub={ov.exit.cashLowYear == null ? undefined : `in ${ov.exit.cashLowYear}`} accent="var(--color-gold)" />
       </div>
     </div>
   );
