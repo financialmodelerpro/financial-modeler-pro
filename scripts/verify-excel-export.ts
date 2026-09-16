@@ -208,8 +208,17 @@ async function main(): Promise<void> {
   check('Inputs domains ordered Capex -> Financing -> Revenue -> Opex', rowByLabel(inp, /^Capex cost lines/) < rowByLabel(inp, /^FINANCING INPUTS$/) && rowByLabel(inp, /^FINANCING INPUTS$/) < rowByLabel(inp, /^REVENUE INPUTS$/) && rowByLabel(inp, /^REVENUE INPUTS$/) < rowByLabel(inp, /^OPEX INPUTS$/));
   // Module 1 input completeness (gaps closed 2026-06-14): per-parcel land
   // funding split, selected funding-method config, per-facility timing + share.
+  // BY HEADER NAME, NEVER BY COLUMN INDEX (2026-09-16). This asserted columns 8
+  // and 9; the split is emitted at 6 and 7, so the check failed while the data
+  // was present and correct. A fixed index turns any column edit into a false
+  // failure, which is indistinguishable from a real one until someone looks.
   const parcelsHdr = rowByLabel(inp, /^Land parcels$/);
-  if (parcelsHdr > 0) check('Land parcels carry Debt % / Equity % funding split', String(inp.getCell(parcelsHdr + 1, 8).value) === 'Debt %' && String(inp.getCell(parcelsHdr + 1, 9).value) === 'Equity %');
+  if (parcelsHdr > 0) {
+    const hdr: string[] = [];
+    for (let c = 1; c <= 16; c++) hdr.push(String(inp.getCell(parcelsHdr + 1, c).value ?? ''));
+    check('Land parcels carry Debt % / Equity % funding split',
+      hdr.includes('Debt %') && hdr.includes('Equity %'), hdr.filter((h) => h).join(' | '));
+  }
   const facHdr = rowByLabel(inp, /Financing facilities/);
   if (facHdr > 0) check('Financing facilities carry timing + share columns', String(inp.getCell(facHdr + 1, 9).value) === 'Repay start year' && String(inp.getCell(facHdr + 1, 12).value) === 'Facility share %');
   const selMethod = snap.financing.funding.selectedMethodId;
@@ -217,11 +226,26 @@ async function main(): Promise<void> {
   // Capex cost lines carry Stage + phasing window (start / end period, even/manual).
   const capHdr = rowByLabel(inp, /^Capex cost lines/);
   if (capHdr > 0) check('Capex cost lines carry Stage + phasing-window columns', String(inp.getCell(capHdr + 1, 5).value) === 'Stage' && String(inp.getCell(capHdr + 1, 6).value) === 'Start period' && String(inp.getCell(capHdr + 1, 8).value) === 'Phasing');
-  // Project NDA deduction settings present.
-  check('Project NDA deduction settings emitted', rowByLabel(inp, /^NDA deduction enabled/) > 0 && rowByLabel(inp, /^Project roads %/) > 0);
-  // Assets table carries per-asset NDA columns.
+  // THE NDA DEDUCTION IS RETIRED, SO THE WORKBOOK MUST NOT CARRY IT (2026-09-16).
+  //
+  // These two used to assert the OPPOSITE, and they were the last thing still
+  // asking for it. The roads and parks deduction modelled LAND development while
+  // this platform models VERTICAL development, and the area chain's Land
+  // Utilisation % states the same thing at asset level, so it was retired on
+  // 2026-09-08: `projectRoadsPct` is marked read by nothing, no engine or
+  // resolver file touches `projectNdaEnabled` / `projectParksPct` /
+  // `hasNdaDeduction`, and the screens keep only historical markers saying where
+  // the card used to live. An input the model does not read must not appear in a
+  // workbook that claims to be a copy of the model.
+  check('NDA is retired: the workbook does not emit the project deduction rows',
+    rowByLabel(inp, /^NDA deduction enabled/) < 0 && rowByLabel(inp, /^Project roads %/) < 0);
   const astHdr = rowByLabel(inp, /^Assets$/);
-  if (astHdr > 0) check('Assets carry per-asset NDA columns', String(inp.getCell(astHdr + 1, 12).value) === 'Roads % (asset)' && String(inp.getCell(astHdr + 1, 14).value) === 'NDA on (asset)');
+  if (astHdr > 0) {
+    const hdrRow: string[] = [];
+    for (let c = 1; c <= 16; c++) hdrRow.push(String(inp.getCell(astHdr + 1, c).value ?? ''));
+    check('NDA is retired: the Assets table carries no per-asset NDA columns',
+      !hdrRow.some((h) => /NDA|Roads %|Parks %/i.test(h)), hdrRow.filter((h) => h).join(' | '));
+  }
 
   // ── Guidance "Basis / Calculation" column on every output tab ───────────────
   const hasBasisCol = (sheet: string): boolean => { const ws = wb.getWorksheet(sheet)!; return String(ws.getCell(4, 2).value ?? '').includes('Basis'); };
