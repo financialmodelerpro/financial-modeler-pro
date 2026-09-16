@@ -247,12 +247,30 @@ function offlineChecks(): void {
     line.includes('resolveAvgUnitSize')
     || line.includes('project.assetTypeValues?.[a.assetTypeId]')
     || /^\s*\*|^\s*\/\//.test(line);
+  /**
+   * THE TYPE ROLL-UP DOOR (2026-09-16): the project overview reports land and
+   * build BY THE TYPES IN USE, which means resolving which registered entry an
+   * asset belongs to (the grouping key, exactly what A2 narrowed the compute
+   * surface for) and counting keys through the one keys rule. It PRICES
+   * NOTHING: no construction rate, no revenue rate, no parking ratio, which is
+   * what this check is actually about. So the allowance is BY LINE like the
+   * others: a mention must be the registry lookup that groups a row, or the
+   * keys door's own lookup, or the call to the one rule.
+   */
+  const TYPE_ROLLUP_DOORS = [
+    'src/hubs/modeling/platforms/refm/lib/reports/overviewReport.ts',
+  ];
+  const isTypeRollupLine = (line: string): boolean =>
+    isKeysDoorLine(line)
+    || line.includes('resolveAssetKeys(')
+    || /assetTypes \?\? \[\]\)\.find\(/.test(line);
   const offenders: string[] = [];
   for (const f of files) {
     const rel = f.replace(/\\/g, '/');
     if (DEFINITION_ONLY.some((d) => rel === d.file)) continue;
     const door = MASSING_DOORS.includes(rel);
     const keysDoor = KEYS_DOORS.includes(rel);
+    const rollupDoor = TYPE_ROLLUP_DOORS.includes(rel);
     const src = readFileSync(f, 'utf8');
     for (const tok of FORBIDDEN_TOKENS) {
       if (!src.includes(tok)) continue;
@@ -263,6 +281,10 @@ function offlineChecks(): void {
       }
       if (keysDoor) {
         const bad = src.split('\n').filter((l) => l.includes(tok) && !isKeysDoorLine(l));
+        if (bad.length === 0) continue;
+      }
+      if (rollupDoor) {
+        const bad = src.split('\n').filter((l) => l.includes(tok) && !isTypeRollupLine(l));
         if (bad.length === 0) continue;
       }
       offenders.push(`${f} :: ${tok}`);
@@ -281,6 +303,15 @@ function offlineChecks(): void {
       const src = readFileSync(f, 'utf8');
       return src.includes('chainMassingFor(')
         && src.split('\n').filter((l) => l.includes('assetTypeValues')).every(isMassingDoorLine);
+    }));
+  check('A1d the type roll-up door groups by the registry and counts keys through the one rule, and prices nothing (not a stale hole)',
+    TYPE_ROLLUP_DOORS.every((f) => {
+      const src = readFileSync(f, 'utf8');
+      return src.includes('resolveAssetKeys(')
+        && !src.includes('constructionCostPerSqm')
+        && !src.includes('revenueRateUnit')
+        && !src.includes('assetTypeStandards')
+        && src.split('\n').filter((l) => FORBIDDEN_TOKENS.some((t) => l.includes(t))).every(isTypeRollupLine);
     }));
   check('A1 zero references to the tables or stamp fields across the calculation and export surface',
     offenders.length === 0, offenders.slice(0, 5).join(' | '));
