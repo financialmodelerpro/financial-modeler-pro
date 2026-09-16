@@ -26,7 +26,7 @@ import {
 } from '@/src/hubs/modeling/platforms/refm/lib/persistence/server';
 import { getRefmUserId, getRefmUserContext } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
 import { resolveUserGate } from '@/src/shared/entitlements/resolveUser';
-import { writeBlockReason } from '@/src/shared/entitlements/gate';
+import { canAddActiveProject, writeBlockReason } from '@/src/shared/entitlements/gate';
 
 function unauthorized() { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
 function notFound() { return NextResponse.json({ error: 'Not found' }, { status: 404 }); }
@@ -50,6 +50,26 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
         code: writeBlock,
         accessExpiresAt: gate.accessExpiresAt,
         graceEndsAt: gate.graceEndsAt,
+        planKey: gate.planKey,
+      },
+      { status: 403 },
+    );
+  }
+
+  // A DUPLICATE IS A NEW PROJECT, SO IT COSTS A SLOT (2026-09-16). The create
+  // route has always gated on the cap and this one never did, which did not
+  // matter while nothing in the UI could reach it. Wiring Duplicate onto the
+  // project card makes it reachable, so the same gate applies here, in the same
+  // shape and with the same code, or the card becomes the way past the plan's
+  // project limit.
+  if (!canAddActiveProject(gate.activeProjectCount, gate.projectLimit)) {
+    return NextResponse.json(
+      {
+        error: 'Project limit reached for your plan. Archive a project or upgrade to add another.',
+        code: 'CAP_REACHED',
+        projectLimit: gate.projectLimit,
+        activeProjectCount: gate.activeProjectCount,
+        archiveAllowed: gate.archiveAllowed,
         planKey: gate.planKey,
       },
       { status: 403 },

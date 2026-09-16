@@ -917,6 +917,48 @@ export default function RealEstatePlatform(): React.JSX.Element {
     ent.refresh();
   }, [ent, graceReadOnly]);
 
+  /**
+   * DUPLICATE A PROJECT, SO ONE CAN BE VARIED WITHOUT REBUILDING IT (2026-09-16).
+   *
+   * The route has existed since M1.6/3 and NOTHING called it: the API shipped
+   * and was unreachable from the UI. What it copies is the current snapshot as
+   * version 1, so the scenarios, the project's own asset types and their values,
+   * the cost lines and overrides, the assets and the financing all come with it;
+   * the version history does not, and neither does anything kept outside the
+   * snapshot (the durable fund terms row, decks, comments, members, activity).
+   *
+   * A DUPLICATE IS A CREATE, so it costs a slot: the client checks the cap the
+   * way the wizard does and the route checks it again, authoritatively.
+   *
+   * IT DOES NOT OPEN THE COPY. The wizard opens what it just built because the
+   * user is mid-flow; a duplicate is started from a card, and someone copying a
+   * project to vary it may copy more than one, or rename first. The new card
+   * appears in the list and the user chooses.
+   */
+  const handleDuplicateProject = useCallback(async (projectId: string): Promise<void> => {
+    if (graceReadOnly) return;
+    if (ent.loaded && !ent.isAdmin && ent.projectLimit !== -1 && ent.activeProjectCount >= ent.projectLimit) {
+      setUpgradePrompt({ kind: 'cap', archiveAllowed: ent.archiveAllowed, projectLimit: ent.projectLimit });
+      return;
+    }
+    const res = await pclient.duplicateProject(projectId);
+    if (res.error || !res.data) {
+      const msg = res.error ?? '';
+      // The route's machine code is authoritative; the sentence match stays as a
+      // fallback for an older response, exactly as the archive path reads it.
+      const code = res.code ?? '';
+      if (code === 'CAP_REACHED' || /CAP_REACHED/i.test(msg) || /limit reached/i.test(msg)) {
+        setUpgradePrompt({ kind: 'cap', archiveAllowed: ent.archiveAllowed, projectLimit: ent.projectLimit });
+        return;
+      }
+      setLoadError(msg || 'Failed to duplicate project');
+      return;
+    }
+    // A slot has been consumed, so the gate is refreshed with the new card.
+    ent.refresh();
+    setServerProjects((prev) => [...prev, res.data!.project]);
+  }, [ent, graceReadOnly]);
+
   // ── Card status / urgent / manual order ──
   //
   // All three are OPTIMISTIC: the card updates immediately and the write is
@@ -1287,6 +1329,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
           onRequestDelete={(id) => void handleRequestDelete(id)}
           deleteRequestFor={deleteRequestFor}
           onArchiveProject={graceReadOnly ? undefined : (id, archived) => void handleArchiveProject(id, archived)}
+          onDuplicateProject={graceReadOnly ? undefined : (id) => void handleDuplicateProject(id)}
           onSetProjectStatus={graceReadOnly ? undefined : (id, status) => void handleSetProjectStatus(id, status)}
           onSetProjectPriority={graceReadOnly ? undefined : (id, priority) => void handleSetProjectPriority(id, priority)}
           onReorderProjects={graceReadOnly ? undefined : (order) => void handleReorderProjects(order)}

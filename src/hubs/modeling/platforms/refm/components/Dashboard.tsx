@@ -49,6 +49,9 @@ interface DashboardProps {
   /** Archive / unarchive. Absent in read-only grace (the control is withheld
    *  rather than accepting a click and discarding it). */
   onArchiveProject?: (id: string, archived: boolean) => void;
+  /** Copy a project so a user can vary it. A duplicate is a NEW project, so it
+   *  costs a slot and is withheld in read-only grace like every other create. */
+  onDuplicateProject?: (id: string) => void;
   /** Set the lifecycle status from the card, without opening the project.
    *  Absent in read-only grace, like every other mutating control here. */
   onSetProjectStatus?: (id: string, status: ProjectStatus) => void;
@@ -136,6 +139,7 @@ export default function Dashboard({
   deleteRequestFor,
   onRequestDelete,
   onArchiveProject,
+  onDuplicateProject,
   onSetProjectStatus,
   onSetProjectPriority,
   onReorderProjects,
@@ -385,6 +389,21 @@ export default function Dashboard({
                         )}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        {/* DUPLICATE CREATES AND NEVER TOUCHES THIS PROJECT, so it
+                            reads before the shelf and carries no warning. The copy
+                            opens as its own project, named "Copy of ...". Offered on
+                            an archived card too: copying one does not disturb it. */}
+                        {onDuplicateProject && (
+                          <button
+                            type="button"
+                            onClick={() => onDuplicateProject(p.id)}
+                            title="Copy this project to vary it: its scenarios, asset types, cost lines and financing come with it, its version history does not"
+                            data-testid={`dashboard-duplicate-${p.id}`}
+                            style={{ padding: '6px 12px', fontSize: 'var(--font-meta)', fontWeight: 600, border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', background: 'var(--color-grey-white)', color: 'var(--color-heading)', cursor: 'pointer' }}
+                          >
+                            Duplicate
+                          </button>
+                        )}
                         {/* Archive is the SAFE shelf and reads first: reversible,
                             view-only, frees a project slot, never expires. Delete
                             follows it, deliberately quieter. */}
