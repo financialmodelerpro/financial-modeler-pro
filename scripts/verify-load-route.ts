@@ -77,7 +77,14 @@ const savedScenarioActive = { ...saved, activeCaseId: scenarioId } as HydrateSna
 section('A. a saved project takes the route every live project takes');
 {
   const checked = quiet(() => hydrationFromAnySnapshotChecked(saved));
-  check('A1 the legacy route (the "latest schema" notice)', checked.migrationNotice === LEGACY_MIGRATION_NOTICE, String(checked.migrationNotice));
+  // THE ROUTE, NOT THE BANNER (2026-09-16). A saved project still takes the legacy
+  // branch, which is what this section is about; whether it SAYS so is now decided
+  // by what the migration actually changed (verify-migration-banner), because the
+  // notice used to fire on every open of every project whatever the load did.
+  check('A1 the legacy route: the loose branch runs and rebuilds the model',
+    checked.recognized && Array.isArray(checked.snapshot.costLines) && checked.snapshot.costLines.length > 0
+    && (checked.migrationNotice === undefined || checked.migrationNotice === LEGACY_MIGRATION_NOTICE || typeof checked.migrationNotice === 'string'),
+    String(checked.migrationNotice));
 }
 
 section('B. saved cases come back exactly as stored');

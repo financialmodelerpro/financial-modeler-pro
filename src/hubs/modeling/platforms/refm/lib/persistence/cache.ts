@@ -110,3 +110,25 @@ export function markMigrated(userId: string): void {
   if (typeof window === 'undefined') return;
   try { window.localStorage.setItem(KEY_MIGRATED_PREFIX + userId, '1'); } catch { /* noop */ }
 }
+
+// ── Schema notice dismissal ─────────────────────────────────────────────────
+// THE SCHEMA BANNER IS DISMISSED PER VERSION (2026-09-16, founder: it "shows on
+// every open"). The banner reports a real migration (measured: every stored
+// version genuinely migrates on load), but the migrated result is never written
+// back, so the same notice returned on every open and the Dismiss button only
+// cleared React state. The dismissal is remembered against the VERSION it was
+// read on, so loading a different version, or saving a new one, says its piece
+// again. Per browser, like every other key here: the server is not told, because
+// having read a notice is not part of the model.
+const KEY_SCHEMA_NOTICE_PREFIX = 'refm_v2_schema_notice_';
+
+export function isSchemaNoticeDismissed(projectId: string, versionId: string | null): boolean {
+  if (typeof window === 'undefined' || !versionId) return false;
+  try { return window.localStorage.getItem(KEY_SCHEMA_NOTICE_PREFIX + projectId) === versionId; }
+  catch { return false; }
+}
+
+export function dismissSchemaNotice(projectId: string, versionId: string | null): void {
+  if (typeof window === 'undefined' || !versionId) return;
+  try { window.localStorage.setItem(KEY_SCHEMA_NOTICE_PREFIX + projectId, versionId); } catch { /* noop */ }
+}

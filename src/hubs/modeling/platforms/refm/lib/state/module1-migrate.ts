@@ -31,7 +31,8 @@
 
 import { isLegacySeedValue } from '@/src/core/calculations/opex/defaults';
 import type { HydrateSnapshot } from './module1-store';
-import { DEFAULT_MODULE1_STATE } from './module1-store';
+import { DEFAULT_MODULE1_STATE, pickModel } from './module1-store';
+import { diffSnapshots, type ChangeLogEntry } from '../persistence/snapshot-diff';
 import { computeSubUnitArea } from '@/src/core/calculations';
 import type {
   SubUnit, Asset, Project, Phase, Parcel,
@@ -2280,6 +2281,78 @@ export function hydrationFromAnySnapshotChecked(snapshot: unknown): CheckedHydra
     : { ...checked, snapshot: { ...checked.snapshot, landAllocationMode: 'sqm' } };
 }
 
+/** The price fields a row takes from its type when it states none of its own. */
+const DERIVED_PRICE_FIELDS: readonly string[] = ['unitPrice', 'pricePerSqm', 'pricePerUnit', 'startingAdr', 'rentPerSqm'];
+
+/**
+ * Is this difference a DEFAULT being supplied rather than a value being
+ * reinterpreted? Only the second is worth a banner telling the user to verify
+ * their inputs.
+ *
+ * Measured on all nine stored versions (2026-09-16): a load moves between 61 and
+ * 145 paths, and most of them are the model filling in what the stored snapshot
+ * never carried. An `add` is exactly that, a field that was absent. The rest are
+ * the same idea in the platform's existing vocabulary, which already marks what
+ * a user typed: `CostLine.rateStated`, `SubUnit.priceStated` and a cost override
+ * whose origin is a standard. Marina Gate 1.0 moves 61 paths and states NONE of
+ * them, so it is silent; the genuinely old-shape snapshots keep line renames,
+ * method rewrites, repaired windows and removed lines, and still speak.
+ *
+ * This is the rule `withoutDerivedOverrides` applies to scenario overrides, in
+ * the diff grammar rather than an override map; the two cannot share a function
+ * because that one keys on override paths, but they must not disagree, so a
+ * change to either belongs with a look at the other.
+ */
+function isDerivedFill(e: ChangeLogEntry, raw: Record<string, unknown>): boolean {
+  if (e.kind === 'add') return true;
+  const lineValue = /^costLines\[id=(.+)\]\.value$/.exec(e.path);
+  if (lineValue) {
+    const rows = (raw.costLines as Array<{ id: string; rateStated?: boolean }> | undefined) ?? [];
+    if (rows.find((l) => l.id === lineValue[1])?.rateStated !== true) return true;
+  }
+  const price = /^subUnits\[id=(.+)\]\.([A-Za-z]+)$/.exec(e.path);
+  if (price && DERIVED_PRICE_FIELDS.includes(price[2])) {
+    const rows = (raw.subUnits as Array<{ id: string; priceStated?: boolean }> | undefined) ?? [];
+    if (rows.find((u) => u.id === price[1])?.priceStated !== true) return true;
+  }
+  const override = /^costOverrides\[(.+?)\]/.exec(e.path);
+  if (override) {
+    const [assetId, lineId] = override[1].split('::');
+    const rows = (raw.costOverrides as Array<{ assetId: string; lineId: string; origin?: string }> | undefined) ?? [];
+    if (rows.find((x) => x.assetId === assetId && x.lineId === lineId)?.origin === 'standard') return true;
+  }
+  return false;
+}
+
+/**
+ * Did anything move between a stored snapshot and the model that came out of it?
+ *
+ * Asked of the MIGRATION here, and of the whole LOAD in `attachToProject`, which
+ * is the level the schema banner is decided at: the migration on its own drops
+ * the standard-origin cost overrides that the store's load puts straight back,
+ * so it reports a change on every live project while the model came back the
+ * same. One rule, asked at two levels, rather than two rules.
+ *
+ * The comparison runs through the ONE diff grammar (`diffSnapshots`), on a
+ * SAFE view of the input: that diff walks the model's arrays, and a legacy
+ * snapshot can be missing them entirely. Anything it cannot compare counts as
+ * changed, so the banner fails towards being shown rather than being swallowed.
+ */
+export function snapshotMovedSomething(raw: unknown, migrated: HydrateSnapshot): boolean {
+  try {
+    const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+    const before = pickModel(o) as unknown as Record<string, unknown>;
+    for (const [k, v] of Object.entries(migrated as unknown as Record<string, unknown>)) {
+      if (Array.isArray(v) && !Array.isArray(before[k])) before[k] = [];
+      if (v !== null && typeof v === 'object' && !Array.isArray(v) && (before[k] === undefined || before[k] === null)) before[k] = {};
+    }
+    return diffSnapshots(before as unknown as HydrateSnapshot, migrated)
+      .some((e) => e.path !== '<root>' && !isDerivedFill(e, o));
+  } catch {
+    return true;
+  }
+}
+
 function hydrationFromAnySnapshotUnpinned(snapshot: unknown): CheckedHydration {
   // Before anything else: see the header on repairStaleWizardCostWindows.
   snapshot = repairRawSnapshot(snapshot);
@@ -2302,10 +2375,28 @@ function hydrationFromAnySnapshotUnpinned(snapshot: unknown): CheckedHydration {
   // optional field with safe defaults and pipes through the full
   // migration chain so the user keeps their data.
   if (isPreV7Snapshot(snapshot) || isLooseSnapshot(snapshot)) {
+    const migrated = migrateLegacyToV8(snapshot);
+    /**
+     * THE BANNER REPORTS A CHANGE, NOT A ROUTE (2026-09-16, founder: it "shows on
+     * every open, because every saved project takes the legacy migration route").
+     *
+     * Every saved project lands here: a save writes no version marker and the v7
+     * fingerprint matches exact base line ids while saved ids carry a phase
+     * suffix, so the loose branch runs on every open and announced itself every
+     * time, whether or not it touched anything. Two earlier attempts moved the
+     * ROUTE and both changed numbers, so neither shipped.
+     *
+     * This changes no route and no number: it runs the same migration and then
+     * asks whether the result differs from what it was given, through the ONE
+     * diff grammar the platform already uses for case overrides and the change
+     * log. A no-op load says nothing; a migration that really moved a field
+     * still says so, and an unparseable snapshot below still does too.
+     */
+    const moved = snapshotMovedSomething(snapshot, migrated);
     return {
-      snapshot: migrateLegacyToV8(snapshot),
+      snapshot: migrated,
       recognized: true,
-      migrationNotice: LEGACY_MIGRATION_NOTICE,
+      migrationNotice: moved ? (resolveBanner(snapshot) ?? LEGACY_MIGRATION_NOTICE) : undefined,
     };
   }
   // Last-resort: nothing usable. Fall back to defaults but still

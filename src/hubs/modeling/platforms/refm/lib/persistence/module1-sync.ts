@@ -63,8 +63,13 @@
  *     pollute the new project's no-op detection.
  */
 
-import { useModule1Store, type HydrateSnapshot } from '../state/module1-store';
-import { hydrationFromAnySnapshot, hydrationFromAnySnapshotChecked } from '../state/module1-migrate';
+import { useModule1Store, pickModel, type HydrateSnapshot } from '../state/module1-store';
+import {
+  hydrationFromAnySnapshot,
+  hydrationFromAnySnapshotChecked,
+  snapshotMovedSomething,
+  LEGACY_MIGRATION_NOTICE,
+} from '../state/module1-migrate';
 import {
   loadProject,
   loadVersion,
@@ -212,6 +217,17 @@ async function mergeFundTerms(projectId: string, snapshot: HydrateSnapshot): Pro
   }
 }
 
+/**
+ * Did the load change the model the user stored? The stored snapshot against the
+ * model the store holds after hydrate, through the ONE diff grammar, so the
+ * settle chain putting back exactly what the migration dropped reads as what it
+ * is: nothing moved. Anything uncomparable counts as changed, so the banner
+ * fails towards being shown.
+ */
+function loadChangedTheModel(stored: unknown, state: unknown): boolean {
+  return snapshotMovedSomething(stored, pickModel(state as Record<string, unknown>));
+}
+
 export async function attachToProject(projectId: string): Promise<AttachResult> {
   // Tear down any previous project's subscription first.
   detach();
@@ -247,7 +263,21 @@ export async function attachToProject(projectId: string): Promise<AttachResult> 
       createdAt: serverRes.data.version.created_at,
     };
     loaded = 'server';
-    migrationNotice = checked.migrationNotice;
+    /**
+     * THE BANNER REPORTS WHAT THE LOAD CHANGED (2026-09-16, founder: it "shows on
+     * every open, because every saved project takes the legacy migration route").
+     *
+     * It is decided HERE, not in the migration, because the migration alone is the
+     * wrong level: it drops the standard-origin cost overrides that the store's own
+     * load puts straight back, so it "changed something" on every live project
+     * while the model the user sees came back identical. What a reader can verify
+     * is the LOAD: the stored snapshot against the model the store now holds. A
+     * load that lands where it started says nothing; one that really moved a field
+     * still says so.
+     */
+    migrationNotice = loadChangedTheModel(serverRes.data.version.snapshot, useModule1Store.getState())
+      ? (checked.migrationNotice ?? LEGACY_MIGRATION_NOTICE)
+      : undefined;
     if (checked.error) error = checked.error;
   } else {
     // Server miss / network error, fall back to cache.

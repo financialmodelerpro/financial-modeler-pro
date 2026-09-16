@@ -2526,6 +2526,34 @@ active, the copy only while a scenario is).
 scenario's screen) and 12 moved, all of them what a save writes with a scenario active (Marina Gate 69 spurious
 overrides to 0, ABC and Jadan Maroom 1 to 0). `verify-management-model` B to E.
 
+### 7.49 A notice set by the ROUTE, over a migration whose result is never written back, can never be cleared
+
+**Symptom (2026-09-16):** "Project updated to latest schema, please verify your inputs" on every open of every
+saved project, for months. Two attempts to fix it by changing which load route a snapshot takes both moved live
+numbers, so neither shipped.
+
+**Mechanism:** two independent faults wearing one symptom. The notice was set by the BRANCH: every saved project
+takes the loose legacy route (a save writes no version marker, and the v7 fingerprint matches exact base line ids
+while saved ids carry a phase suffix), so it announced itself whether or not the migration touched anything. But
+it was ALSO true, which is why the obvious fix finds nothing: measured, every stored version really does migrate
+on load, 61 to 145 paths each. It never cleared because **nothing persists the migrated result**. The load
+migrates, says so, throws it away, and the next open does it again. `migrationsApplied` exists for exactly this
+and only one pass of eight ever wrote to it, so the ledger could not settle anything either.
+
+**The trap to avoid:** "only warn when something changed" sounds like the whole answer and is not, because a
+load-time settle chain always changes something. The useful question is what KIND of thing moved: a field the
+snapshot never carried is a default being supplied, and a value the user stated being reinterpreted is the only
+one worth a warning. The platform already marked which is which (`rateStated`, `priceStated`, an override's
+`origin`), so the rule was vocabulary that existed, not a new concept.
+
+**Fix:** decide at the LOAD, not in the migration (the migration alone drops standard-origin overrides the store
+immediately re-adds, so it reports a change on every project while the model came back identical), count only
+stated values, and remember the dismissal against the version it was read on.
+
+**Proof:** no number moves (the route is untouched, the notice is a string). Of nine stored versions one goes
+silent and eight still speak, each for a named reason. And the check that would have caught the original: load
+what the load produced, and it has nothing left to say, 9 of 9. `verify-migration-banner` A to D.
+
 ## 8. Registries and two-step registration
 
 ### 8.1 A template registered in one place and not the other fails silently and permanently

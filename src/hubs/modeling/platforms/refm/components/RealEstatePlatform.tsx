@@ -51,7 +51,9 @@ import {
 } from '../lib/persistence/module1-sync';
 import { resolveVersionDisplayName } from '../lib/persistence/versionNaming';
 import { projectAssetTypeMix } from '../lib/state/assetTypeMix';
-import { writeActiveProjectId, clearCachedSnapshot } from '../lib/persistence/cache';
+import {
+  writeActiveProjectId, clearCachedSnapshot, isSchemaNoticeDismissed, dismissSchemaNotice,
+} from '../lib/persistence/cache';
 
 import Topbar from './Topbar';
 import Sidebar from './Sidebar';
@@ -472,7 +474,10 @@ export default function RealEstatePlatform(): React.JSX.Element {
   const [isSwitchingProject, setIsSwitchingProject] = useState(false);
   // M2.0h Fix 1 (2026-05-07): one-shot banner shown after a v7 -> v8
   // migration. Cleared by the user via the dismiss button.
-  const [migrationNotice, setMigrationNotice] = useState<string | null>(null);
+  // The notice carries WHERE it was read, so dismissing it can be remembered
+  // against that version rather than only clearing React state, which is why it
+  // came back on every open.
+  const [migrationNotice, setMigrationNotice] = useState<{ text: string; projectId: string; versionId: string | null } | null>(null);
 
   // Modal state
   const [projectModalOpen, setProjectModalOpen] = useState(false);
@@ -792,7 +797,10 @@ export default function RealEstatePlatform(): React.JSX.Element {
       setIsSwitchingProject(false);
       return;
     }
-    if (res.migrationNotice) setMigrationNotice(res.migrationNotice);
+    const noticeVersionId = res.versionId ?? null;
+    if (res.migrationNotice && !isSchemaNoticeDismissed(projectId, noticeVersionId)) {
+      setMigrationNotice({ text: res.migrationNotice, projectId, versionId: noticeVersionId });
+    }
 
     // Step 4: flip the UI now that the store is correct.
     setActiveProjectId(projectId);
@@ -1883,10 +1891,13 @@ export default function RealEstatePlatform(): React.JSX.Element {
                 gap: 'var(--sp-2)',
               }}
             >
-              <span style={{ fontSize: 'var(--font-small)' }}>{migrationNotice}</span>
+              <span style={{ fontSize: 'var(--font-small)' }}>{migrationNotice.text}</span>
               <button
                 type="button"
-                onClick={() => setMigrationNotice(null)}
+                onClick={() => {
+                  dismissSchemaNotice(migrationNotice.projectId, migrationNotice.versionId);
+                  setMigrationNotice(null);
+                }}
                 data-testid="m20h-migration-banner-dismiss"
                 style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '4px 10px', cursor: 'pointer', fontSize: 11 }}
               >
