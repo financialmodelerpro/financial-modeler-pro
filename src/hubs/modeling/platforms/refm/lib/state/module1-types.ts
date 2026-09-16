@@ -698,6 +698,16 @@ export interface Project {
    * All three default to current behaviour (land / true / debt_drawdown)
    * so legacy snapshots are unchanged.
    */
+  /**
+   * CONSTRUCTION COST ESCALATION (2026-09-16, step 10b): one annual rate for the
+   * project, as a WHOLE PERCENT (4 = 4% a year). Every cost rate typed anywhere is
+   * money of the project start year, and escalates into the years its line spends.
+   * A lump sum, the land VALUE lines and anything charged on land or revenue are
+   * exempt; a percentage line charges on the escalated base and is not escalated
+   * twice. Absent or zero means no escalation, which is every project until it is
+   * typed on Types and Standards.
+   */
+  costEscalationPct?: number;
   idcConfig?: {
     allocationBasis?: 'land' | 'bua';
     capitalize?: boolean;

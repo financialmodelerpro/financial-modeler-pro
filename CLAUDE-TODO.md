@@ -15,6 +15,11 @@ per capex line, reaching the engine as standard-sourced overrides the Capex tab 
 override), Table 2 massing filled back to the type when every plot agrees, active rows only on the Opex
 Output, and the Standards paragraph font.
 
+**STEP 10b DONE (2026-09-16)**: construction cost escalation, one project rate from the project start year, weighted by each line's
+spend profile (so phasing and escalation interact by design); lump sums, land value lines and revenue-charged lines exempt; soft
+percentages on the escalated base; Module 6 lever and the base year on Types and Standards. Inert until a rate is typed. **Steps 7 to 10
+of the review are now done.**
+
 **STEP 10a DONE (2026-09-16)**: the fixed asset and capitalised interest schedules show the disposal the balance sheet booked (a
 "Disposed at exit" row, no depreciation after the sale, closing tied to the balance sheet). **NEXT**: construction cost escalation as its
 own commit (one project rate, base year the project start, all rates base-year money, lump sums and land or revenue charged lines

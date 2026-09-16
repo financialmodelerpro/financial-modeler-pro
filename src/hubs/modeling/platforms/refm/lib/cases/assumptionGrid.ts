@@ -109,6 +109,7 @@ const FIELD_LABELS: Record<string, string> = {
   'unitPrice': 'Unit price / rate',
   'startingAdr': 'Starting ADR',
   'occupancyPct': 'Occupancy %',
+  'costEscalationPct': 'Construction cost escalation',
   'revenue.sell.paceFactor': 'Sales pace (x plan)',
   'revenue.operate.occupancyShiftPts': 'Occupancy shift (pts)',
   'revenue.lease.occupancyShiftPts': 'Occupancy shift (pts)',
@@ -167,6 +168,8 @@ const CURATED_LEAVES = new Set<string>([
   'revenue.operate.startingADR', 'revenue.operate.adrIndexation.rate',
   'revenue.sell.indexation.rate', 'revenue.lease.baseRate', 'revenue.lease.rentIndexation.rate',
   'opex.defaultIndexation.rate',
+  // One project rate carrying every cost rate forward (2026-09-16, step 10b).
+  'costEscalationPct',
   // The scenario levers (2026-09-15, step 8).
   'revenue.sell.paceFactor', 'revenue.operate.occupancyShiftPts', 'revenue.lease.occupancyShiftPts',
 ]);

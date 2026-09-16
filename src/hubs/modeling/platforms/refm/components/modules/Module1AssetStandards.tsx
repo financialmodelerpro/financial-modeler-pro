@@ -223,6 +223,9 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
   // not from a fetch. There is no loading state and no `available` for it: it
   // is in the snapshot the screen already has.
   const entries = useMemo(() => sortAssetTypes(project.assetTypes ?? []), [project.assetTypes]);
+  // EVERY RATE ON THIS TAB IS BASE-YEAR MONEY (2026-09-16, step 10b): the project
+  // start year, which the escalation rate beside the lists carries forward.
+  const baseYear = useMemo(() => new Date(project.startDate).getUTCFullYear(), [project.startDate]);
   const [addDraft, setAddDraft] = useState<NameDraft>(EMPTY_NAME);
   // BUSY IS KEYED, not global, and only the TEMPLATE calls are ever busy now:
   // every edit to the list itself is a store write and returns immediately.
@@ -830,9 +833,26 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
           line wins, a phase rate here wins over the row's own, and a row scoped
           to asset types (the villa landscape rate) wins over a row for all. */}
       <div style={{ marginTop: 'var(--sp-3)' }} data-testid="asset-cost-standards">
+        {/* ONE PROJECT ESCALATION RATE (2026-09-16, step 10b, founder). Every rate on
+            this tab and in Capex is {baseYear} money; this is what carries it forward. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-navy)' }}>Construction cost escalation</span>
+          <input
+            type="number"
+            step="0.1"
+            value={project.costEscalationPct ?? ''}
+            placeholder="0"
+            data-testid="std-cost-escalation"
+            onChange={(e) => setProject({ costEscalationPct: e.target.value === '' ? undefined : Number(e.target.value) })}
+            style={{ ...FAST_INPUT, width: 90, textAlign: 'right' }}
+            title={`Annual escalation on every cost RATE, applied from ${baseYear} to the years each line spends. A lump sum, the land value lines and anything charged on land or revenue do not escalate; a soft percentage charges on the escalated base.`}
+          />
+          <span style={{ fontSize: 11, color: 'var(--color-meta)' }}>% a year, from {baseYear}</span>
+        </div>
         <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, lineHeight: 1.45 }}>
-          Cost defaults for this project. Each asset takes the default for its type where its Capex phase line has no rate of
+          Cost defaults for this project, in {baseYear} money. Each asset takes the default for its type where its Capex phase line has no rate of
           its own; a rate typed on the phase line in Capex wins. A phase rate here wins over the row&apos;s rate in that phase.
+          Every rate below escalates at the project rate into the years its line spends, so a later phase costs more at the same rate.
           A row you add creates the matching line in Capex. A type&apos;s price per unit and per sqm (a sale price, an ADR or a rent,
           as the unit label under each says) are the price every Table 5 row of that type takes on the Assets tab until a price is typed there.
         </div>
@@ -848,7 +868,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
                   <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
                     <th style={{ ...TH, minWidth: 200 }}>Item</th>
                     <th style={{ ...TH, minWidth: 170 }}>{list === 'construction' ? 'Applies to' : 'Basis'}</th>
-                    <th style={{ ...TH, minWidth: 110 }}>Rate</th>
+                    <th style={{ ...TH, minWidth: 110 }} data-testid="std-rate-head">Rate ({baseYear} money)</th>
                     {phases.length > 1 && <th style={{ ...TH, minWidth: 90 }}>By phase</th>}
                     {list === 'construction' && PRICE_COLUMNS.map((c) => (
                       <th key={c.key} style={{ ...TH, minWidth: 100 }} data-testid={`std-price-head-${c.key}`}>{c.label}</th>

@@ -87,7 +87,9 @@ import {
   resolveLinePhasing,
   isParcelDrivenLandLine,
   type CapexPhasingContext,
+  phaseLocalToProjectIndex,
 } from './capexPhasing';
+import { lineEscalates, escalationFactorAt, weightedEscalation } from './costEscalation';
 import { assetVisibleLines, allowedSelectedIds, deriveAssetScope } from './selectedBase';
 // Consolidation step 5: the retail land carve-out. Both halves come from ONE
 // function; the two wrappers below are the only places it reaches the engine.
@@ -1950,6 +1952,38 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
     directTotals[r.line.id] = lineTotal * allocFactor;
   }
 
+  /**
+   * CONSTRUCTION COST ESCALATION (2026-09-16, step 10b). Every rate is BASE-YEAR
+   * money (the project start), so a line is escalated into the years it spends:
+   * its own spend profile weighted by the factor of each period. A lump sum, the
+   * land VALUE lines and anything charged on land or on revenue are exempt, and a
+   * percentage line is not escalated here at all: it charges on the escalated base
+   * below and inherits the effect exactly once.
+   *
+   * At a zero rate every factor is 1 and nothing moves, which is every project
+   * until a rate is typed.
+   */
+  const escalationRatePct = project.costEscalationPct ?? 0;
+  const escPhaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : new Date(project.startDate).getUTCFullYear();
+  const escOffset = Math.max(0, escPhaseStartYear - new Date(project.startDate).getUTCFullYear());
+  const escFactorByLineId: Record<string, number> = {};
+  if (escalationRatePct !== 0) {
+    for (const r of resolved) {
+      const base = directTotals[r.line.id];
+      if (base === undefined || base === 0) continue;
+      if (!lineEscalates({ method: r.method, isLandValue: isLandValueLine(r.line) })) continue;
+      const weights = distributeItemCost(
+        { ...r.line, phasing: r.phasing, distribution: r.distribution, startPeriod: r.startPeriod, endPeriod: r.endPeriod },
+        1,
+        phase.constructionPeriods,
+      );
+      const factor = weightedEscalation(weights, (i) => phaseLocalToProjectIndex(i, escOffset), escalationRatePct);
+      if (factor === 1) continue;
+      escFactorByLineId[r.line.id] = factor;
+      directTotals[r.line.id] = base * factor;
+    }
+  }
+
   // Pass 2: percent_of_construction = % × sum of stage='hard' direct totals.
   const constructionBase = resolved
     // 2026-08-17: derived stage, so a line the user has reclassified as hard
@@ -2182,6 +2216,10 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
     const t = byLineId[r.line.id] ?? 0;
     if (t === 0) continue;
     let dist: number[];
+    // The escalated line's periods each carry their OWN year's factor (2026-09-16).
+    // The weighted factor above is the average of exactly these, so the periods sum
+    // to the total rather than drifting from it.
+    const escFactor = escFactorByLineId[r.line.id];
     // M2.0 Pass 14 (2026-05-13): percent_of_cash_land lines decompose
     // by parcel so deferred-payment parcels can spread via
     // expandDeferredSchedule. Non-deferred parcel slices fall back to
@@ -2225,6 +2263,9 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
         t,
         cp,
       );
+    }
+    if (escFactor !== undefined && escFactor !== 0) {
+      dist = dist.map((v, i) => (v / escFactor) * escalationFactorAt(phaseLocalToProjectIndex(i, escOffset), escalationRatePct));
     }
     perLinePerPeriod[r.line.id] = dist;
     // LAND VALUE, NOT THE LAND STAGE (2026-09-12). The stage holds every
