@@ -128,13 +128,17 @@ export function buildFinancingScheduleTables(snap: ProjectFinancialsSnapshot, st
   for (const t of fresh) financeCost(t, 'Finance Cost - New Facilities');
   if (existing.length + fresh.length > 1) {
     const accrued = sliceN(c.totalInterestAccrued, N);
-    const expensed = sliceN(c.totalInterestExpensed, N);
-    const { opening, closing } = ledger(accrued, expensed);
+    // PAID, not EXPENSED (2026-09-17). The combined ledger read the P&L
+    // expensed interest as the payment, which leaves out the IDC that was paid
+    // in cash, so its closing walked up by the capitalised interest and never
+    // settled while every per-facility ledger closed at zero.
+    const paid = sliceN(c.totalInterestPaid, N);
+    const { opening, closing } = ledger(accrued, paid);
     tables.push({ title: 'Combined Finance Cost (all facilities)', rows: [
       { label: 'Opening', values: opening, totalOverride: fmt(last(opening)) },
       { label: 'Charge (Accrued, all debts)', values: accrued },
-      { label: 'Capitalized', values: neg(sliceN(c.totalInterestCapitalized, N)) },
-      { label: 'Paid', values: neg(expensed) },
+      { label: 'Paid', values: neg(paid) },
+      { label: '(memo) of which funded by drawing debt', values: sliceN(c.totalInterestCapitalized, N), indent: 1 },
       { label: 'Closing', values: closing, isTotal: true, totalOverride: fmt(last(closing)) },
     ] });
   }

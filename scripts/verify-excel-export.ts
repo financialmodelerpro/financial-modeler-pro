@@ -21,6 +21,7 @@ import { buildModelWorkbook, generateModelWorkbookBuffer } from '../src/hubs/mod
 import { computeFinancialsSnapshot, computeFundingGap } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { buildCostOfSalesReport } from '../src/hubs/modeling/platforms/refm/lib/reports/cosReports';
 import * as FinancingReports from '../src/hubs/modeling/platforms/refm/lib/reports/financingReports';
+import { computeFundingBasis } from '../src/hubs/modeling/platforms/refm/lib/reports/fundingBasis';
 import { readFileSync as fsReadFileSync } from 'fs';
 import { buildExcelSampleState } from './excelSampleState';
 import { ARGB, ALLOWED_FILLS } from '../src/hubs/modeling/platforms/refm/lib/excel/styles';
@@ -710,6 +711,40 @@ async function main(): Promise<void> {
   // ── Commit 3: no-project export guard (the route rejects an empty payload) ──
   check('no-project guard: empty / missing project blocks Excel export', payloadHasActiveProject({ projectName: '' }) === false && payloadHasActiveProject({}) === false && payloadHasActiveProject(null) === false, '');
   check('no-project guard: an open project passes', payloadHasActiveProject({ projectName: 'Riverside Mixed-Use' }) === true, '');
+
+  // ── Funding basis: sources are tested against the SELECTED method's need ────
+  // Methods 2 and 3 size debt + equity net of the project's own cash, so the
+  // old comparison with all of capex read a false "Gap". One rule for the
+  // Financing screen and the workbook (lib/reports/fundingBasis.ts).
+  for (const m of [1, 2, 3]) {
+    const st: any = { ...state, project: { ...state.project, financing: { ...(state.project.financing ?? {}), fundingMethod: m } } };
+    const fb = computeFundingBasis(computeFinancialsSnapshot(st).financing);
+    check(`funding basis: Method ${m} sources match its funding need`, fb.ok, `sources=${Math.round(fb.sources)} need=${Math.round(fb.fundingNeed)}`);
+    check(`funding basis: Method ${m} uses = sources + funded from project cash`, Math.abs(fb.uses - fb.sources - fb.fundedFromProjectCash) < 1);
+    if (m === 1) check('funding basis: Method 1 leaves nothing to project cash', Math.abs(fb.fundedFromProjectCash) < 1, `fromCash=${Math.round(fb.fundedFromProjectCash)}`);
+  }
+  {
+    const finWs = wb.getWorksheet('Financing')!;
+    const R = rowByLabel(finWs, /^Sources vs Uses$/);
+    let txt = '';
+    finWs.getRow(R).eachCell((c) => { if (typeof c.value === 'string' && /^(Match|Gap)/.test(c.value)) txt = c.value; });
+    check('Financing: Sources vs Uses reads Match on the selected method', /^Match/.test(txt), txt);
+    check('Financing: "Funded from Project Cash" is shown beside the funding need', rowByLabel(finWs, /^Funded from Project Cash$/) > 0);
+  }
+
+  // ── Combined finance cost: Opening + Charge - Paid closes at zero ───────────
+  // The sample carries two facilities, so the combined ledger is emitted. It
+  // read the P&L expensed interest as the payment and never settled the IDC.
+  {
+    const tables = FinancingReports.buildFinancingScheduleTables(snap, state, String);
+    const comb = tables.find((t) => /^Combined Finance Cost/.test(t.title));
+    check('combined finance cost table present with two facilities', !!comb);
+    if (comb) {
+      const closing = comb.rows.find((r) => r.label === 'Closing')!.values;
+      check('combined finance cost closes at zero every period', closing.every((v) => Math.abs(v) < 1), `max=${Math.max(...closing.map(Math.abs))}`);
+      check('combined finance cost: capitalised interest is a memo, not a deduction', !comb.rows.some((r) => r.label === 'Capitalized') && comb.rows.some((r) => /^\(memo\) of which funded by drawing debt$/.test(r.label)));
+    }
+  }
 
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
   if (fail > 0) { console.log('Failures:', failures.join(', ')); process.exit(1); }

@@ -55,6 +55,7 @@ import {
 import { computeFinancingResult } from '@/src/core/calculations/financing';
 import { facilityShareTotal, facilityShareSumIsValid } from '@/src/core/calculations/financing/shares';
 import { computeIdcSnapshot, computeFundingGap, computeFinancialsSnapshot } from '../../lib/financials-resolvers';
+import { computeFundingBasis } from '../../lib/reports/fundingBasis';
 import { resolveFundTerms, toFundTermsPatch } from '../../lib/fundTerms';
 import { saveFundTerms } from '../../lib/persistence/client';
 import { currencyHeaderLine, formatAccounting } from '@/src/core/formatters';
@@ -740,24 +741,24 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
           )}
 
           {(() => {
-            const totalCapex = result.capex.totals.exclLandInKind;
-            // Pass 26 (2026-05-14): include Min Cash Reserve in the
-            // Sources vs Uses identity since debt + equity now size
-            // for capex + min-cash buffer together.
-            const fundingNeed = result.funding.selectedWithMinCash;
+            // ONE RULE (lib/reports/fundingBasis.ts, 2026-09-17): sources are
+            // tested against the SELECTED method's funding need. Methods 2 and 3
+            // size debt + equity net of the project's own cash, so comparing
+            // them with all of capex read a false "Gap" (-509.5m on the live
+            // project); that share is now shown as its own figure.
+            const basis = computeFundingBasis(result);
+            const totalCapex = basis.capexExclInKind;
+            const fundingNeed = basis.fundingNeed;
             const drawdownBasis = FUNDING_METHOD_DESCRIPTIONS[financingConfig.fundingMethod];
-            const totalDebt   = result.debtEquitySplit.debt.reduce((s, v) => s + v, 0);
-            const totalEquity = result.debtEquitySplit.equity.reduce((s, v) => s + v, 0);
-            const sources = totalDebt + totalEquity;
-            const usesTarget = totalCapex + (result.funding.minCashReserve ?? 0);
-            const sourcesUsesOk = Math.abs(sources - usesTarget) < 1;
+            const sources = basis.sources;
+            const sourcesUsesOk = basis.ok;
             return (
               <section style={sectionStyle}>
                 <div style={sectionTitle}>3. Funding Basis</div>
                 <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 'var(--sp-1)' }}>
                   <strong style={{ color: 'var(--color-heading)' }}>Drawdown Basis:</strong> {drawdownBasis}
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, alignItems: 'end' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, alignItems: 'end' }}>
                   <div>
                     <div style={{ fontSize: 11, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Total Capex (excl Land In-Kind)</div>
                     <div style={{ fontWeight: 700, fontSize: 14 }}>{fmt(totalCapex)}</div>
@@ -765,6 +766,10 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
                   <div>
                     <div style={{ fontSize: 11, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Total Funding Need</div>
                     <div style={{ fontWeight: 700, fontSize: 14 }}>{fmt(fundingNeed)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Funded from Project Cash</div>
+                    <div style={{ fontWeight: 700, fontSize: 14 }} title="Capex (excl. land in-kind) plus the minimum cash, less the funding need: the share the selected method leaves to pre-sales and operating cash.">{fmt(basis.fundedFromProjectCash)}</div>
                   </div>
                   <div
                     style={{
@@ -780,7 +785,7 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
                   >
                     {sourcesUsesOk
                       ? `Sources vs Uses: Match (${fmt(sources)})`
-                      : `Sources vs Uses: Gap ${fmt(sources - usesTarget)}`}
+                      : `Sources vs Uses: Gap ${fmt(basis.gap)}`}
                   </div>
                 </div>
               </section>
@@ -2621,7 +2626,9 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
           );
         };
         const c = p.result.combined;
-        const { opening: combOpen, closing: combClose } = buildFinanceCostBalances(c.totalInterestAccrued, c.totalInterestCapitalized, c.totalInterestExpensed);
+        // Paid is the interest PAID in cash (incl. IDC), as on each facility's
+        // ledger; the expensed figure left the capitalised interest unsettled.
+        const { opening: combOpen, closing: combClose } = buildFinanceCostBalances(c.totalInterestAccrued, c.totalInterestCapitalized, c.totalInterestPaid);
         return (
           <>
             {hasActiveExisting && (
@@ -2646,8 +2653,8 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                     <tbody>
                       {renderStateRow('Opening', combOpen)}
                       {renderFlowRow('Charge (Accrued, all debts)', c.totalInterestAccrued)}
-                      {renderFlowRow('Capitalized', c.totalInterestCapitalized, { negative: true })}
-                      {renderFlowRow('Paid', c.totalInterestExpensed, { negative: true })}
+                      {renderFlowRow('Paid', c.totalInterestPaid, { negative: true })}
+                      {renderFlowRow('  (memo) of which funded by drawing debt', c.totalInterestCapitalized)}
                       {renderStateRow('Closing', combClose, { bold: true })}
                     </tbody>
                   </table>

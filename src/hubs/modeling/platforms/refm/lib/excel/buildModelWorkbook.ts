@@ -88,6 +88,7 @@ import { assetPlotLabel } from '@/src/core/calculations/assetName';
 import { deriveCostStage, isLandValueLine } from '@/src/core/calculations';
 import { CAPEX_PHASING_SOURCE_LABELS, FUNDING_METHOD_DESCRIPTIONS, REPAYMENT_METHOD_LABELS, DEFAULT_PROJECT_FINANCING_CONFIG } from '../state/module1-types';
 import { buildIdcAllocationTables } from '../reports/financingReports';
+import { computeFundingBasis } from '../reports/fundingBasis';
 
 export interface BuildModelOptions {
   state: FinancialsResolverState;
@@ -3054,12 +3055,12 @@ function addFinancing(ctx: EmitCtx): FinLinks {
   r += 1;
 
   subTitle('3. Funding Basis');
-  const usesTarget = fin.capex.totals.exclLandInKind + (fnd.minCashReserve ?? 0);
-  const sources = totalDebtSized + totalEquitySized;
+  const fb = computeFundingBasis(fin);
   scalar('Drawdown Basis', FUNDING_METHOD_DESCRIPTIONS[selId], '@', '');
-  scalar('Total Capex (excl Land In-Kind)', fin.capex.totals.exclLandInKind, NUMFMT.money, 'Capex Table 3 total');
-  scalar('Total Funding Need', fnd.selectedWithMinCash, NUMFMT.money, 'Selected method + minimum cash');
-  scalar('Sources vs Uses', Math.abs(sources - usesTarget) < 1 ? `Match (${Math.round(sources).toLocaleString('en-US')})` : `Gap ${Math.round(sources - usesTarget).toLocaleString('en-US')}`, '@', 'Debt + equity against capex (excl. land in-kind) + minimum cash');
+  scalar('Total Capex (excl Land In-Kind)', fb.capexExclInKind, NUMFMT.money, 'Capex Table 3 total');
+  scalar('Total Funding Need', fb.fundingNeed, NUMFMT.money, 'Selected method + minimum cash');
+  scalar('Funded from Project Cash', fb.fundedFromProjectCash, NUMFMT.money, 'Capex (excl. land in-kind) + minimum cash - funding need: pre-sales and operating cash');
+  scalar('Sources vs Uses', fb.ok ? `Match (${Math.round(fb.sources).toLocaleString('en-US')})` : `Gap ${Math.round(fb.gap).toLocaleString('en-US')}`, '@', 'Debt + equity against the funding need of the selected method');
   r += 1;
 
   // 4. Land funding, per phase, from the capex engine's own per-phase series.
