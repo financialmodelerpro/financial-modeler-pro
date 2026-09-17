@@ -1593,9 +1593,11 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   setColHeader(ws.getCell(4, C_TOT), 'Total', 'right');
   setColHeader(ws.getCell(4, cChk), 'Check', 'center');
   for (let c = C_OPEN; c <= cLast; c++) {
-    const cl = colLetter(c);
+    // The Capex opening column is F, one column right of the shared geometry
+    // (the extra Quantity column), so its year is read one column to the left.
+    const cl = colLetter(c - 1);
     const d = ws.getCell(3, c);
-    setFormula(d, fcell(sheetRef(SHEETS.timeline, `${cl}3`), colYear(snap, c)), NUMFMT.date, true);
+    setFormula(d, fcell(sheetRef(SHEETS.timeline, `${cl}3`), colYear(snap, c - 1)), NUMFMT.date, true);
     d.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
     d.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ARGB.grey } };
     d.alignment = { horizontal: 'right' };

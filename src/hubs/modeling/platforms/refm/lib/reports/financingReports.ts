@@ -66,13 +66,16 @@ export function buildFinancingScheduleTables(snap: ProjectFinancialsSnapshot, st
     const closing = new Array<number>(N).fill(0);
     for (let i = 0; i < N; i++) {
       opening[i] = i === 0 ? 0 : closing[i - 1];
-      closing[i] = opening[i] + (accrued[i] ?? 0) - (capitalized[i] ?? 0) - (paid[i] ?? 0);
+      // Opening + Charge - Paid = Closing, as on the Financing screen. The
+      // capitalised figure FUNDS the payment by drawing debt; deducting it as a
+      // second settlement walked the balance to a stuck negative.
+      closing[i] = opening[i] + (accrued[i] ?? 0) - (paid[i] ?? 0);
     }
     tables.push({ title: `Finance Cost, ${trName(id)}${tr(id)?.origin === 'existing' ? ' (existing)' : ''}`, rows: [
       { label: 'Opening', values: opening, totalOverride: fmt(0) },
       { label: 'Charge (Accrued)', values: accrued },
-      { label: 'Capitalized', values: neg(capitalized) },
       { label: 'Paid', values: neg(paid) },
+      { label: '(memo) of which funded by drawing debt', values: capitalized, indent: 1 },
       { label: 'Closing', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
     ] });
   }
