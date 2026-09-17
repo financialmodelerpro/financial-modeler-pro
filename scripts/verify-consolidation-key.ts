@@ -288,6 +288,11 @@ function offlineChecks(): void {
     // composer, for the cost of sales TIMING of a plot on a merged line (see
     // D1b and D1d below, which pin it to that one call).
     'src/hubs/modeling/platforms/refm/lib/financials-resolvers.ts',
+    // SEVENTH, 2026-09-17: the assets-tab input VIEW the Excel workbook prints
+    // (Land & Area Table 4, areas by line). It groups rows the chain already
+    // computed into the same lines the assets tab's table 4 shows, and pools
+    // areas only; it computes no money from the key.
+    'src/hubs/modeling/platforms/refm/components/modules/_shared/assetInputsView.ts',
   ];
   const unexpected = consumers.filter((f) => !ALLOWED_CONSUMERS.includes(f));
   const missing = ALLOWED_CONSUMERS.filter((f) => !consumers.includes(f));

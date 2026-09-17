@@ -242,6 +242,11 @@ function offlineChecks(): void {
   const KEYS_DOORS = [
     'src/hubs/modeling/platforms/refm/lib/revenue-resolvers.ts',
     'src/hubs/modeling/platforms/refm/lib/opex-resolvers.ts',
+    // The Excel Revenue tab (2026-09-17) prints "Keys the engine counts" and the
+    // unit size behind a line's sub-units, so it reads the type values only on
+    // the lines that hand them to resolveAssetKeys / resolveAvgUnitSize, the
+    // same by-line allowance as the two resolvers above.
+    'src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts',
   ];
   const isKeysDoorLine = (line: string): boolean =>
     line.includes('resolveAvgUnitSize')
@@ -294,7 +299,9 @@ function offlineChecks(): void {
     KEYS_DOORS.every((f) => {
       const src = readFileSync(f, 'utf8');
       const owns = src.includes('export function resolveAssetKeys(') && src.includes('resolveAvgUnitSize(') && src.includes('keysFromArea(');
-      const calls = /resolveAssetKeys\(a, subUnits, /.test(src);
+      // A caller hands the one rule an asset and the sub-unit list, whatever the
+      // local names (the resolvers say `a, subUnits`, the workbook `m, state.subUnits`).
+      const calls = /resolveAssetKeys\(\w+, [\w.]*subUnits, /.test(src);
       return (owns || calls)
         && src.split('\n').filter((l) => l.includes('assetTypeValues')).every(isKeysDoorLine);
     }));

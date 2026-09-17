@@ -108,7 +108,7 @@ async function runFor(tag: string, state: any): Promise<void> {
         full.split('\n').filter((l) => l.includes('Shaded cells')).join(' | '));
       for (const l of ['(memo) Minimum Cash Requirement (reserved, not spent)',
         '(memo) Headroom above the minimum reserve',
-        '= Closing Cash (ties to CF + BS)']) {
+        '= Closing Cash (ties to Cash Flow tab + Balance Sheet)']) {
         check(`E3: label survives whole: ${l}`, full.includes(l));
       }
       const cur = state.project.currency ?? 'SAR';

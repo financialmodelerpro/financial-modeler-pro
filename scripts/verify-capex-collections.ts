@@ -338,7 +338,9 @@ check('A5 the financing path uses the AXIS offset, not a date-derived one',
   // It must read as a NOTE on every surface. Colouring it as a pass or a
   // failure would make a legitimate model state look like a verdict.
   check('E4 the PDF marks it NOTE, not OK or CHECK', /'NOTE'/.test(pdf));
-  check('E5 the workbook marks it NOTE too', /= 'NOTE'/.test(xlsx));
+  // The Checks tab writes every row through one checkRow(label, status, ...),
+  // so an advisory is marked by passing 'NOTE' as that row's status.
+  check('E5 the workbook marks it NOTE too', /= 'NOTE'/.test(xlsx) || /checkRow\(`Revenue basis, [^\n]*'NOTE'/.test(xlsx));
   check('E6 the shared wrapper filters to sell assets',
     /a.strategy === 'Sell' || a.strategy === 'Sell + Manage'/.test(checks));
   // Empty on a fully-collected project, so most exports are unchanged.
