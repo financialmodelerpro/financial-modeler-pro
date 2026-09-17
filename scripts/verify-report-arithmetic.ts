@@ -132,7 +132,7 @@ async function runFor(tag: string, state: any): Promise<void> {
     const byLabel = (l: string) => wf.rows.find((r) => r.label === l);
     const avail = byLabel('= Cash Available');
     const forDiv = byLabel('= Cash Available for Dividend');
-    const closing = byLabel('= Closing Cash (ties to CF + BS)');
+    const closing = byLabel('= Closing Cash (ties to Cash Flow tab + Balance Sheet)');
     check('builder: "= Cash Available" matches the engine period by period', !!avail
       && avail.values.every((v, i) => near(v, (opening[i] ?? 0) + (dcf.cashFromOperationsPerPeriod[i] ?? 0) + (dcf.cashFromInvestmentPerPeriod[i] ?? 0)
         + (dcf.equityDrawdownPerPeriod[i] ?? 0) + (dcf.debtDrawdownPerPeriod[i] ?? 0) + (dcf.interestPaidPerPeriod[i] ?? 0), peakCash)));
@@ -151,7 +151,7 @@ async function runFor(tag: string, state: any): Promise<void> {
     // ── C1 + C2: no stock summed across periods ─────────────────────────────
     console.log('-- C1/C2: no stock is summed across periods --');
     const STOCKS = ['Opening Cash', '= Cash Available', '(memo) Minimum Cash Requirement (reserved, not spent)',
-      '(memo) Headroom above the minimum reserve', '= Cash Available for Dividend', '= Closing Cash (ties to CF + BS)'];
+      '(memo) Headroom above the minimum reserve', '= Cash Available for Dividend', '= Closing Cash (ties to Cash Flow tab + Balance Sheet)'];
     for (const l of STOCKS) {
       const row = byLabel(l);
       check(`stock row carries an explicit Total, never a period sum: ${l}`,

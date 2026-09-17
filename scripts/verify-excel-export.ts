@@ -74,11 +74,23 @@ async function main(): Promise<void> {
   // ── Capex grand + the 4 tables tie to the snapshot ──────────────────────────
   const cap = wb.getWorksheet('Capex')!;
   const totCapexD = (re: RegExp): number => { const R = rowByLabel(cap, re); return R > 0 ? num(cap.getCell(R, 5).value) : NaN; }; // Capex Total col = E (5)
+  // The platform labels (2026-09-17): Table 1 closes on "Project Total" and each
+  // summary table on "Total", so a table's total is the first matching row
+  // BELOW its own title, never the first match on the sheet.
+  const totAfter = (title: RegExp, re: RegExp): number => {
+    const T = rowByLabel(cap, title); if (T < 0) return NaN;
+    let row = -1; cap.eachRow((_r, R) => { if (row < 0 && R > T && re.test(labelOf(cap, R))) row = R; });
+    return row > 0 ? num(cap.getCell(row, 5).value) : NaN;
+  };
   const snapGrand = snap.financing.capex.totals.inclAllLand;
-  check('Capex Project Total (incl. all land) == snapshot grand', close(totCapexD(/^Project Total \(incl\. all land\)$/), snapGrand, 1e-6), `wb=${Math.round(totCapexD(/^Project Total \(incl\. all land\)$/))} snap=${Math.round(snapGrand)}`);
-  check('Capex Table 2 (incl. all land) total ties', close(totCapexD(/^Total Capex \(incl\. all land\)$/), snapGrand, 1e-6));
-  check('Capex Table 3 (excl. land in-kind) total present', Number.isFinite(totCapexD(/^Total Capex \(excl\. land in-kind\)$/)));
-  check('Capex Table 4 (excl. all land) total present', Number.isFinite(totCapexD(/^Total Capex \(excl\. all land\)$/)));
+  const capTot = snap.financing.capex.totals;
+  check('Capex Project Total (incl. all land) == snapshot grand', close(totCapexD(/^Project Total$/), snapGrand, 1e-6), `wb=${Math.round(totCapexD(/^Project Total$/))} snap=${Math.round(snapGrand)}`);
+  check('Capex Table 2 (incl. all land) total ties', close(totAfter(/^Table 2 - /, /^Total$/), snapGrand, 1e-6));
+  check('Capex Table 3 (excl. land in-kind) total ties', close(totAfter(/^Table 3 - /, /^Total$/), capTot.exclLandInKind, 1e-6));
+  check('Capex Table 4 (excl. all land) total ties', close(totAfter(/^Table 4 - /, /^Total$/), capTot.exclAllLand, 1e-6));
+  check('Capex Table 5 total land == Table 2 less Table 4', close(totAfter(/^Table 5 - /, /^Total land$/), capTot.inclAllLand - capTot.exclAllLand, 1e-6), `wb=${totAfter(/^Table 5 - /, /^Total land$/)}`);
+  check('Capex Table 6 both category blocks foot to Tables 2 and 4', close(totCapexD(/^Including all land, total$/), snapGrand, 1e-6) && close(totCapexD(/^Excluding total land, total$/), capTot.exclAllLand, 1e-6));
+  check('Capex UOM reads the platform method label, never a raw method id', (() => { let raw = false; cap.eachRow((row) => { const b = row.getCell(2).value; if (typeof b === 'string' && /^(percent_of|rate_|per_sub)/.test(b)) raw = true; }); return !raw; })());
 
   // ── Statements tie EXACTLY to the platform snapshot (constants) ─────────────
   const totD = (sheet: string, re: RegExp): number => { const ws = wb.getWorksheet(sheet)!; const R = rowByLabel(ws, re); return R > 0 ? num(ws.getCell(R, 4).value) : NaN; }; // period-sheet Total col = D (4)
@@ -146,7 +158,9 @@ async function main(): Promise<void> {
   check('Schedules: per-facility Finance Cost present', finRow(/^Finance Cost,/) > 0);
   check('Schedules: Combined Debt Service present', finRow(/^Combined Debt Service$/) > 0);
   check('Schedules: Equity Movement present', finRow(/^Equity Movement$/) > 0);
-  check('Schedules: Capital Stack + movement present', finRow(/^Capital Stack \(period-end\)$/) > 0 && finRow(/^Capital Stack Movement/) > 0);
+  // The platform has no Capital Stack table, so the workbook shows none (2026-09-17).
+  check('Schedules: no Capital Stack table (not on the platform)', finRow(/^Capital Stack/) < 0);
+  check('Schedules: IDC Allocation by Line present (as on the platform)', finRow(/^IDC Allocation, by Line/) > r2 && finRow(/^IDC Allocation, by Line/) < r3);
   // Combined Debt Service ties to the combined snapshot.
   const cmb = snap.financing.combined;
   check('Combined Total Principal Repaid ties to snapshot', close(Math.abs(totD('Financing', /^Total Principal Repaid$/)), sumA(cmb.totalPrincipalRepaid, N)));
@@ -155,20 +169,25 @@ async function main(): Promise<void> {
   // Equity Movement closing == existing + cumulative cash + in-kind.
   const eqClosingLast = snap.financing.existing.equityTotal + sumA(snap.financing.equity.cashPerPeriod, N) + sumA(snap.financing.equity.inKindPerPeriod, N);
   check('Equity Movement closing (last) == cumulative equity', close(finLast(/^Closing \(cumulative equity\)$/), eqClosingLast));
-  // Capital stack last == debt closing + equity closing.
-  check('Capital Stack total (last) == debt + equity closing', close(finLast(/^Total capital$/), (snap.bs.debtOutstandingPerPeriod[N - 1] ?? 0) + eqClosingLast));
+  // Total Debt Required (Inputs 8) == the combined capex + IDC drawdown.
+  check('Total Debt Required (new draws + IDC) == combined drawdown', close(totD('Financing', /^Total Debt Required \(new draws \+ IDC\)$/), sumA(cmb.totalDrawdown, N) + sumA(cmb.totalInterestCapitalized, N)));
   // Sub-tab 3 Funding Gap: Method 2 gap ties; Method 3 present.
   const gapSnap = computeFundingGap(snap);
   check('Funding Gap Method 2 total gap ties to snapshot', close(totD('Financing', /^Funding gap = MAX/), gapSnap.methodATotalGap));
   check('Funding Gap Method 3 (Cash Deficit Funding) present', finRow(/^Method 3, Cash Deficit Funding/) > 0);
-  check('Funding Gap Method 3 Net Cash Required present', finRow(/^Net Cash Required/) > 0);
+  check('Funding Gap Method 3 development funding need present', finRow(/^Development funding need/) > r3);
+  check('Method 3 closing cash is the engine series (closingCashAfterFundingPerPeriod)', close(finLast(/^Closing cash \(after funding/), gapSnap.method3Waterfall.closingCashAfterFundingPerPeriod[N - 1] ?? 0));
   // Sub-tab 4 Cash Sweep: closing cash ties to Direct CF closing.
   check('Cash Sweep closing cash (last) == Direct CF closing', close(finLast(/^= Closing Cash/), snap.directCF.closingCashPerPeriod[N - 1] ?? 0));
   // Inputs sub-tab echoes raw inputs (from Assumptions) inline.
-  check('Financing Inputs echoes raw inputs (Funding method, Debt share)', finRow(/^Funding method$/) > r1 && finRow(/^Debt share$/) > r1);
-  // Inputs sub-tab Funding Requirement block (the schedule starting point):
+  // The screen's own section labels and inputs, input-shaded (2026-09-17).
+  const minCashRow = finRow(/^Minimum Cash Reserve$/);
+  check('Financing Inputs carries the platform inputs (Minimum Cash Reserve, Selected method), shaded as inputs', minCashRow > r1 && finRow(/^Selected method$/) > r1
+    && (finWs.getCell(minCashRow, 4).fill as any)?.fgColor?.argb === ARGB.inputFill);
+  check('Financing Inputs has no echo of the removed IDC toggles', finRow(/^IDC capitalize$/) < 0 && finRow(/^IDC funding$/) < 0 && finRow(/^Blended interest rate$/) < 0);
+  // Inputs sub-tab Funding Requirement block (section 7 on the screen):
   // method-by-method requirement + Selected row, all above the Schedules header.
-  const frReq = finRow(/^Funding Requirement \(schedule starting point/);
+  const frReq = finRow(/^7\. Funding Requirement$/);
   check('Financing Inputs shows the Funding Requirement (schedule starting point)', frReq > r1 && frReq < r2);
   check('Funding Requirement lists all four methods + Selected', finRow(/^Method 1, Fixed Debt-to-Equity Ratio$/) > r1 && finRow(/^Method 4, Specified Debt \+ Equity \(manual\)$/) > r1 && finRow(/^Selected \(Method /) > r1);
   // Method 1 requirement total ties to the snapshot funding need (total capex excl land in-kind).
@@ -589,10 +608,10 @@ async function main(): Promise<void> {
     // THE BLANK-OVERRIDE SENTINEL, pinned separately. The check above SKIPS
     // blank overrides, so it cannot see the opposite mistake: reading '' as a
     // value. Number('') is 0 and finite, so a naive parse prints 0.00 for a
-    // closing balance. The Financing tab passes totalOverride: '' with
-    // stateRow: true on exactly these two rows, and they must show the LAST
-    // period.
-    for (const label of ['Debt (closing)', 'Equity (closing, cumulative)']) {
+    // closing balance. The Financing tab emits these balance rows with no
+    // override as state rows, and they must show the LAST period. (The two
+    // Capital Stack rows this pinned are gone: the platform has no such table.)
+    for (const label of ['Cumulative Funding Gap (A)', 'Closing cash (after funding, before finance cost, sweep and dividends)']) {
       let printed: number | null = null; const series: number[] = [];
       fin?.eachRow((row) => {
         if (String(row.getCell(1).value ?? '').trim() !== label) return;

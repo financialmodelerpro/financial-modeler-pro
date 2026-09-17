@@ -100,6 +100,17 @@ export interface CapexInputLine {
    *  '__support__' / '__parking__' rows. Lets the Inputs tab show the rate
    *  sheet that a single Rate cell would otherwise collapse to one number. */
   perSubUnitRates?: Record<string, number>;
+  /**
+   * WHERE THE LINE'S TIMING CAME FROM (2026-09-17), as the engine resolved it:
+   * the stored source (inherit, own, land cash, collections) and the window the
+   * engine actually spent in, which for a followed source is not the stored
+   * one. The workbook states it beside the allocation profile, so a reader can
+   * see why a marketing line spends after the build.
+   */
+  phasingSource?: string;
+  resolvedWindow?: { startPeriod: number; endPeriod: number; source: string; degraded: boolean; reason: string };
+  /** True when the rate is a Types and Standards default (override origin 'standard'). */
+  rateFromStandards?: boolean;
 }
 /**
  * Hard / soft / land subtotals for one asset (2026-08-15).
@@ -235,6 +246,9 @@ function basisLabel(method?: string): string {
     case 'percent_of_cash_land': return '% of Cash land';
     case 'percent_of_inkind_land': return '% of In-kind land';
     case 'percent_of_total_revenue': return '% of Total revenue';
+    case 'percent_of_revenue_cash': return '% of Total revenue (cash basis)';
+    case 'percent_of_revenue_sale': return '% of Total revenue (sale basis)';
+    case 'per_sub_unit_custom_rates': return 'per Sub-unit custom rates';
     default: return method ?? '-';
   }
 }
@@ -529,6 +543,9 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
         endPeriod: ov?.endPeriod ?? cl.endPeriod,
         phasing: String(ov?.phasing ?? cl.phasing ?? 'even'),
         perSubUnitRates: method === 'per_sub_unit_custom_rates' ? (ov?.perSubUnitRates ?? cl.perSubUnitRates) : undefined,
+        phasingSource: String(ov?.phasingSource ?? cl.phasingSource ?? 'inherit'),
+        resolvedWindow: breakdown.resolvedWindowByLineId?.[lineId],
+        rateFromStandards: ov?.origin === 'standard',
       });
     }
     if (lines.length) {
