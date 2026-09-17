@@ -261,22 +261,37 @@ async function main(): Promise<void> {
   // can not take a per-row Basis column).
   check('Land & Area has a Basis / Calculation legend', rowByLabel(wb.getWorksheet('Land & Area')!, /^Basis \/ Calculation \(per column\)$/) > 0);
 
-  // ── Returns: IRR is a finite constant (not a live formula) ──────────────────
-  // Label gained its basis on 2026-08-11 ("Project IRR (FCFF, unlevered)") when
-  // this row moved off liveModel onto the platform returns engine, so the
-  // Summary tab and this one could stop disagreeing. The regex allows the
-  // qualifier but still requires the FCFF basis to be named.
-  const ret = wb.getWorksheet('Returns')!; const irrRow = rowByLabel(ret, /^Project IRR \(FCFF[^)]*\)$/);
-  const irrCell: any = irrRow > 0 ? ret.getCell(irrRow, 4).value : null;
-  check('Returns Project IRR is a finite constant (not a formula)', irrRow > 0 && !isFormula(irrCell) && Number.isFinite(num(irrCell)), `irr=${num(irrCell)}`);
-  // Module 5 mirror: the Returns tab reproduces the platform Returns + RE Metrics
-  // tabs in order, with the platform's KPI strips, sources & uses, funding mix,
-  // returns-by-basis table and the FCFF / FCFE / Distributed build-ups.
+  // ── Returns: the headline IRR is a finite constant (not a live formula) ─────
+  // The Returns tab mirrors the screen, whose IRRs are card values, so the
+  // numeric constant now lives on the Checks tab's headline pairs (2026-09-17),
+  // read from the same returns engine the Returns cards print.
+  const ret = wb.getWorksheet('Returns')!;
+  const chk = wb.getWorksheet('Checks')!; const irrRow = rowByLabel(chk, /^Project IRR \(FCFF\)$/);
+  const irrCell: any = irrRow > 0 ? chk.getCell(irrRow, 3).value : null;
+  check('Headline Project IRR is a finite constant (not a formula)', irrRow > 0 && !isFormula(irrCell) && Number.isFinite(num(irrCell)), `irr=${num(irrCell)}`);
+  // Module 5 mirror: the Returns tab reproduces the platform's three Module 5
+  // sub-tabs in order (Returns, RE Metrics, Case Comparison), each section in
+  // its screen order, under the screen's own titles.
   const m5 = (re: RegExp): number => rowByLabel(ret, re);
-  check('Returns mirrors Module 5 tabs in order (1. Returns -> 2. RE Metrics)', m5(/^1\. Returns/) > 0 && m5(/^2\. RE Metrics/) > m5(/^1\. Returns/));
-  check('Returns carries the platform KPI strips', m5(/^Headline Returns$/) > 0 && m5(/^Development Economics$/) > 0 && m5(/^Funding Mix$/) > 0 && m5(/^Equity Exposure$/) > 0 && m5(/^Debt Analytics$/) > 0);
-  check('Returns has Sources & Uses + Returns by Cash-Flow Basis + Leverage & Coverage', m5(/^Sources & Uses of Capital$/) > 0 && m5(/^Returns by Cash-Flow Basis$/) > 0 && m5(/^Leverage & Coverage$/) > 0);
-  check('Returns has the FCFF / FCFE / Distributed build-ups', m5(/^FCFF Build-Up/) > 0 && m5(/^FCFE Build-Up/) > 0 && m5(/^Distributed Equity Build-Up/) > 0);
+  check('Returns mirrors Module 5 sub-tabs in order (1. Returns -> 2. RE Metrics -> 3. Case Comparison)', m5(/^1\. Returns$/) > 0 && m5(/^2\. RE Metrics$/) > m5(/^1\. Returns$/) && m5(/^3\. Case Comparison$/) > m5(/^2\. RE Metrics$/));
+  check('Returns carries the Returns sub-tab sections in screen order', (() => {
+    const order = [/^Returns Assumptions$/, /^Headline Returns$/, /^Development Economics$/, /^Equity Partners$/, /^Sources & Uses of Capital$/, /^Returns by Cash-Flow Basis$/, /^Return Cash-Flow Streams/, /^FCFF Build-Up/, /^FCFE Build-Up/, /^(Distributed Equity Build-Up|Dividend Discount Model \(DDM\), before performance fee)/, /^Exit: terminal value and gain on disposal$/, /^Sensitivity, Equity IRR \(FCFE\)$/].map(m5);
+    return order.every((v, i) => v > 0 && (i === 0 || v > order[i - 1]) && v < m5(/^2\. RE Metrics$/));
+  })());
+  check('Returns carries the RE Metrics sections in screen order', (() => {
+    const order = [/^2\. RE Metrics$/, /^Lender Covenants$/, /^Exit-Year Analysis \(hold vs sell timing\)$/, /^Coverage and profitability detail$/, /^Development economics$/, /^Income and exit profile$/, /^Funding mix$/].map(m5);
+    return order.every((v, i) => v > 0 && (i === 0 || v > order[i - 1]));
+  })());
+  check('Returns prints no block the platform does not show (no NPV rows, no Debt Analytics / Equity Exposure / Exit Analysis strips)',
+    m5(/NPV \(FC/) < 0 && m5(/^Debt Analytics$/) < 0 && m5(/^Equity Exposure$/) < 0 && m5(/^Exit Analysis/) < 0 && m5(/^Per-Line Economics$/) < 0);
+  check('Returns assumptions are shaded as inputs under the panel labels', (() => {
+    const R = m5(/^Discount Rate \(%\)$/);
+    return R > 0 && (ret.getCell(R, 4).fill as any)?.fgColor?.argb === ARGB.inputFill && m5(/^Terminal Value Method$/) > 0;
+  })());
+  check('Returns Memo NOI is on the stream basis (the opening column carries no NOI)', (() => {
+    const R = m5(/^Memo: NOI \(recurring\)$/);
+    return R > 0 && num(ret.getCell(R, 5).value) === 0;
+  })());
 
   // ── LOCKED palette: every fill comes from the one sanctioned set ─────────────
   // ALLOWED_FILLS is exported from styles.ts, so this check tracks the single
@@ -457,7 +472,7 @@ async function main(): Promise<void> {
   // Without a caseComparison bundle the tab is present but shows a note.
   const scnNote = wb.getWorksheet('Scenarios')!;
   check('Scenarios tab present after Returns, before Checks', actualOrder.indexOf('Scenarios') === actualOrder.indexOf('Returns') + 1 && actualOrder.indexOf('Checks') === actualOrder.indexOf('Scenarios') + 1);
-  check('Scenarios (no cases) shows the section 1 header + a no-scenarios note', rowByLabel(scnNote, /^1\. Cases & Assumptions/) > 0 && rowByLabel(scnNote, /No scenario cases are defined/) > 0);
+  check('Scenarios (no cases) shows the section 1 header + a no-scenarios note', rowByLabel(scnNote, /^1\. Cases$/) > 0 && rowByLabel(scnNote, /No scenario cases are defined/) > 0);
   // With a base + one scenario (a tax-rate change) the full comparison renders.
   const cmpCases = [
     { id: 'base', name: 'Management', role: 'base', overrides: {} },
@@ -466,10 +481,24 @@ async function main(): Promise<void> {
   const wbS = buildModelWorkbook({ state, projectName: 'X', dateLabel: 'd', caseComparison: { baseModel: state, cases: cmpCases as any, activeCaseId: 'base' } });
   const scn = wbS.getWorksheet('Scenarios')!;
   const s6 = (re: RegExp): number => rowByLabel(scn, re);
-  check('Scenarios mirrors Module 6 sections in order (Cases -> Comparison -> Year-on-Year)', s6(/^1\. Cases & Assumptions/) > 0 && s6(/^2\. Scenario Comparison/) > s6(/^1\. Cases & Assumptions/) && s6(/^3\. Year-on-Year Impact/) > s6(/^2\. Scenario Comparison/));
-  check('Scenarios lists every case + the differing assumptions', s6(/^Cases$/) > 0 && s6(/^Assumptions that differ across scenarios$/) > 0);
-  check('Scenarios comparison matrix carries headline KPIs (Equity IRR, NPV)', s6(/^Case Comparison, headline KPIs/) > 0 && s6(/^Equity IRR \(FCFE\)$/) > 0);
-  check('Scenarios Year-on-Year Impact renders a per-period driven output', s6(/Tax$/) > s6(/^3\. Year-on-Year Impact/) || s6(/base\)$/) > s6(/^3\. Year-on-Year Impact/));
+  check('Scenarios mirrors Module 6 sections in order (1. Cases -> 2. Assumptions by case -> 3. Comparison -> 4. Year-on-Year Impact)',
+    s6(/^1\. Cases$/) > 0 && s6(/^2\. Assumptions by case$/) > s6(/^1\. Cases$/) && s6(/^3\. Comparison$/) > s6(/^2\. Assumptions by case$/) && s6(/^4\. Year-on-Year Impact$/) > s6(/^3\. Comparison$/));
+  check('Scenarios lists every case (Management + the scenario)', s6(/^★ Management$/) > s6(/^1\. Cases$/) && s6(/^◆ Downside$/) > s6(/^1\. Cases$/));
+  check('Scenarios assumptions grid carries the overridden field', s6(/^Assumption$/) > s6(/^2\. Assumptions by case$/) && s6(/tax/i) > s6(/^2\. Assumptions by case$/) && s6(/tax/i) < s6(/^3\. Comparison$/));
+  // With ZERO overrides the curated key drivers still show their Management
+  // values, as on the screen (they used to vanish with the year-on-year blocks).
+  const wbZ = buildModelWorkbook({ state, projectName: 'X', dateLabel: 'd', caseComparison: { baseModel: state, cases: [cmpCases[0], { ...cmpCases[1], overrides: {} }] as any, activeCaseId: 'base' } });
+  const scnZ = wbZ.getWorksheet('Scenarios')!;
+  check('Scenarios assumptions grid shows the curated drivers with zero overrides', (() => {
+    const hdr = rowByLabel(scnZ, /^Assumption$/), r3 = rowByLabel(scnZ, /^3\. Comparison$/);
+    return hdr > rowByLabel(scnZ, /^2\. Assumptions by case$/) && r3 > hdr + 2;
+  })());
+  check('Scenarios comparison matrix carries headline KPIs (Equity IRR)', s6(/^Comparison$/) > s6(/^3\. Comparison$/) && s6(/^Equity IRR \(FCFE\)$/) > 0);
+  check('Scenarios Year-on-Year Impact renders each case row and the delta row', (() => {
+    const r4 = s6(/^4\. Year-on-Year Impact$/); let base = -1, sc = -1, delta = -1;
+    scn.eachRow((_r, R) => { if (R <= r4) return; const l = labelOf(scn, R); if (base < 0 && l === '★ Management') base = R; if (sc < 0 && l === '◆ Downside') sc = R; if (delta < 0 && l === 'Downside delta vs Management') delta = R; });
+    return r4 > 0 && base > r4 && sc > base && delta > sc;
+  })());
   // The Scenarios tab stays hardcoded (no formula cells) at both display scales.
   let scnFormulas = 0; for (const w of wbS.worksheets) w.eachRow((row) => row.eachCell((c) => { if (isFormula(c.value)) scnFormulas++; }));
   check('Scenarios workbook is also fully hardcoded (zero formula cells)', scnFormulas === 0, `formulaCells=${scnFormulas}`);
@@ -486,12 +515,17 @@ async function main(): Promise<void> {
   let tocLinks = 0; cov.eachRow((row) => row.eachCell((c) => { const v: any = c.value; if (v && typeof v === 'object' && typeof v.hyperlink === 'string' && v.hyperlink.startsWith('#')) tocLinks++; }));
   check('Cover ToC has internal sheet hyperlinks', tocLinks >= 14, `links=${tocLinks}`);
   const sum = wb.getWorksheet('Summary')!;
-  check('Summary has the executive-summary sections (Key facts, Headline metrics, Financial highlights)', rowByColB(sum, /^Key facts$/) > 0 && rowByColB(sum, /^Headline metrics$/) > 0 && rowByColB(sum, /^Financial highlights$/) > 0);
+  check('Summary mirrors the Project Overview sections in order', (() => {
+    const order = [/^Key facts$/, /^Headline returns$/, /^Cost per sqm$/, /^Key economics$/, /^Cost & capital structure$/, /^Timeline & structure$/, /^Scheme$/, /^Land and build, by asset type$/, /^Phases$/, /^Exit and cash$/].map((re) => rowByColB(sum, re));
+    return order.every((v, i) => v > 0 && (i === 0 || v > order[i - 1]));
+  })());
+  check('Summary headline returns are three pairs, each IRR beside its MOIC', ['Project (FCFF)', 'Equity (FCFE)', 'Distributed (DDM)'].every((l) => { let hit = false; sum.eachRow((row) => row.eachCell((c) => { if (c.value === l) hit = true; })); return hit; }));
   // The two highlight tables sit side by side: dev economics header in col B, the
   // returns/leverage header in col E.
   const colE = (ws: ExcelJS.Worksheet, R: number): string => { const v = ws.getCell(R, 5).value; return typeof v === 'string' ? v : ''; };
   const hasColE = (ws: ExcelJS.Worksheet, re: RegExp): boolean => { let hit = false; ws.eachRow((_r, R) => { if (re.test(colE(ws, R))) hit = true; }); return hit; };
-  check('Summary carries the two highlight tables (Development economics, Returns & leverage)', rowByColB(sum, /^Development economics$/) > 0 && hasColE(sum, /^Returns & leverage$/));
+  void hasColE;
+  check('Summary carries no DSCR or ICR (the overview does not)', (() => { let hit = false; sum.eachRow((row) => row.eachCell((c) => { if (typeof c.value === 'string' && /DSCR|Interest Cover|\bICR\b/.test(c.value)) hit = true; })); return !hit; })());
   // Summary stays on the palette + hardcoded (no formulas).
   let sumFormulas = 0; sum.eachRow((row) => row.eachCell((c) => { if (isFormula(c.value)) sumFormulas++; }));
   check('Summary is fully hardcoded (zero formula cells)', sumFormulas === 0, `formulaCells=${sumFormulas}`);
@@ -499,7 +533,10 @@ async function main(): Promise<void> {
   // ── Print setup: every sheet is print-ready (fit-to-width, oriented) ─────────
   const allPrintReady = wb.worksheets.every((ws) => { const ps: any = ws.pageSetup ?? {}; return ps.fitToPage === true && ps.fitToWidth === 1 && (ps.orientation === 'portrait' || ps.orientation === 'landscape'); });
   check('every sheet has a print-ready page layout (fit to width + orientation)', allPrintReady);
-  check('Cover + Summary print centred portrait on one page', ['Cover', 'Summary'].every((n) => { const ps: any = wb.getWorksheet(n)!.pageSetup ?? {}; return ps.orientation === 'portrait' && ps.fitToHeight === 1 && ps.horizontalCentered === true; }));
+  check('Cover prints centred portrait on one page', ['Cover'].every((n) => { const ps: any = wb.getWorksheet(n)!.pageSetup ?? {}; return ps.orientation === 'portrait' && ps.fitToHeight === 1 && ps.horizontalCentered === true; }));
+  // The Summary mirrors the whole Project Overview, which is longer than one
+  // page, so it prints portrait at full width and flows to a second page.
+  check('Summary prints portrait, fit to width', (() => { const ps: any = wb.getWorksheet('Summary')!.pageSetup ?? {}; return ps.orientation === 'portrait' && ps.fitToWidth === 1; })());
   check('wide period tabs repeat the header rows when printed', ['P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Scenarios'].every((n) => { const ps: any = wb.getWorksheet(n)!.pageSetup ?? {}; return ps.orientation === 'landscape' && ps.printTitlesRow === '1:4'; }));
 
   // ── Table of Contents: second-level clickable section sub-entries (2026-07-26) ─

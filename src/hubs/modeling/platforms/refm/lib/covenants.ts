@@ -66,6 +66,16 @@ export interface CovenantEval {
 
 const EPS = 1e-9;
 
+/** The metric names a covenant row shows, in picker order. ONE list, read by the
+ *  RE Metrics tab and the Excel workbook, so the two name a covenant alike. */
+export const COVENANT_METRIC_LABELS: ReadonlyArray<{ v: CovenantMetric; label: string }> = [
+  { v: 'dscr', label: 'DSCR' },
+  { v: 'icr', label: 'Interest Cover (ICR)' },
+  { v: 'ltv', label: 'LTV (peak debt)' },
+  { v: 'debt_yield', label: 'Debt Yield' },
+  { v: 'custom', label: 'Custom' },
+];
+
 export function covenantUnit(metric: CovenantMetric): 'x' | 'pct' {
   return metric === 'ltv' || metric === 'debt_yield' ? 'pct' : 'x';
 }

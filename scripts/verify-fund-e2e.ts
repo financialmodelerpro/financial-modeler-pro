@@ -461,6 +461,13 @@ async function main(): Promise<void> {
     const rowOf = (ws: ExcelJS.Worksheet, label: string): number => {
       let hit = -1; ws.eachRow((_r, R) => { if (hit < 0 && labelOf(ws, R) === label) hit = R; }); return hit;
     };
+    // The Returns tab follows the screen's order, where the Fee Income block
+    // (with its own "Performance Fee" row) precedes the waterfall, so a
+    // waterfall row is read below the waterfall's own heading (2026-09-17).
+    const wf0 = rowOf(ret, 'Performance Fee (hurdle waterfall) and DDM after fee');
+    const rowAfterWf = (label: string): number => {
+      let hit = -1; ret.eachRow((_r, R) => { if (hit < 0 && R > wf0 && labelOf(ret, R) === label) hit = R; }); return wf0 > 0 ? hit : -1;
+    };
 
     // Row ORDER identical on all four surfaces.
     check('the waterfall row order matches on the screen builder', wfRows.map((r) => r.label).join('|') === FUND_WATERFALL_ROW_ORDER.join('|'));
@@ -475,7 +482,7 @@ async function main(): Promise<void> {
     check('the waterfall row order matches in the full PDF', orderIn(full));
     check('the waterfall row order matches in the summary PDF', orderIn(summary));
     check('the waterfall row order matches in Excel', (() => {
-      const rows = FUND_WATERFALL_ROW_ORDER.map((l) => rowOf(ret, l));
+      const rows = FUND_WATERFALL_ROW_ORDER.map((l) => rowAfterWf(l));
       return rows.every((v, i) => v > 0 && (i === 0 || v > rows[i - 1]));
     })());
 
@@ -485,7 +492,7 @@ async function main(): Promise<void> {
     let cellsOk = true, cellDetail = '';
     for (const row of wfRows) {
       if (row.totalOverride === '') continue; // balances carry no total anywhere
-      const R = rowOf(ret, row.label);
+      const R = rowAfterWf(row.label);
       const cell = R > 0 ? ret.getCell(R, 4).value : null;
       const got = typeof cell === 'number' ? cell : NaN;
       if (!near(got, Number(row.totalOverride), 1)) { cellsOk = false; cellDetail = `${row.label}: excel=${got} builder=${row.totalOverride}`; break; }

@@ -21,38 +21,47 @@ import { buildSaleCohortTermsBlock, saleCohortRuleText, buildSaleCohortGrid, sal
 import JSZip from 'jszip';
 import { computeFinancialsSnapshot, computeFundingGap, type FinancialsResolverState } from '../financials-resolvers';
 import { buildCapexReport, type CapexReport } from '../reports/capexReports';
-import { poolMapByLine, poolCapexByLine, poolReturnRows, poolResults, lineHosts, fixHospitalityRates, fixLeaseRates, poolRevenueBasisByLine, poolSaleCohortByLine } from '../reports/lineRows';
+import { poolMapByLine, poolCapexByLine, poolResults, lineHosts, fixHospitalityRates, fixLeaseRates, poolRevenueBasisByLine, poolSaleCohortByLine, planReportLines, lineTitle } from '../reports/lineRows';
+import { buildDisposalWorking } from '../reports/disposalReport';
+import { buildOverviewReport } from '../reports/overviewReport';
+import { buildOperatingKpis } from '../reports/operatingKpis';
+import { fundingChartPoints } from '../portfolio/fundingSeries';
+import { evaluateCovenant, covenantUnit, covenantSeries, reduceWorst, reduceAvg, COVENANT_METRIC_LABELS, type CovenantInputs } from '../covenants';
+import { DEFAULT_COVENANTS } from '../state/module1-types';
+import { enumerateOverridableFields, getByPath } from '../cases/applyOverrides';
+import type { SensitivityVariable } from '@/src/core/calculations/returns';
+import { countryLabel } from '@/src/core/countries';
 import { revenueBySection } from '../reports/revenueSections';
 import { scheduleWithDisposal, idcWithDisposal, disposalContextOf } from '../reports/disposalSchedules';
 import { buildFinancingScheduleTables, buildCashSweepTables, type ReportTable } from '../reports/financingReports';
 import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup, m4StreamRow } from '../reports/streamReports';
-import { buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
+import { buildIntegrityChecks, checkDetail, relativeCheckOk, worstDivergence, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildOpexReport } from '../reports/opexReports';
-import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, totalColumnHeading, totalColumnNote, TOTAL_COLUMN_HEADINGS, TOTAL_COLUMN_NOTES, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, FUND_CAPITAL_BASE_TAG, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
-import { buildCaseComparisonReport, type CaseComparisonInput, type CaseComparisonReport, type CaseKpiKind } from '../reports/caseComparisonReport';
+import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsReconciliationRows, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, totalColumnHeading, totalColumnNote, TOTAL_COLUMN_HEADINGS, TOTAL_COLUMN_NOTES, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, FUND_CAPITAL_BASE_TAG, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
+import { buildCaseComparisonReport, caseOverridesNote, type CaseComparisonInput, type CaseComparisonReport, type CaseKpiKind } from '../reports/caseComparisonReport';
 import { buildCaseYoYReport, type CaseYoYReport } from '../reports/caseYoYReport';
-import { formatAssumptionValue } from '../cases/assumptionGrid';
+import { formatAssumptionValue, assumptionUnitSuffix, curatedDefaultFields, inactiveLeverReason, nonEconomicLeverReason, isPerPeriodLever, isAppliedValue, assumptionFor, buildGridContext, groupAssumptionRows, leverNote, type GridRowLite } from '../cases/assumptionGrid';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
-import { computeReturnsSnapshot, type ReturnsSnapshot } from '../returns-resolvers';
+import { computeReturnsSnapshot, computeReturnsSensitivity, type ReturnsSnapshot } from '../returns-resolvers';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { resolveAssetAreaMetrics, computePhaseTimeline, computeProjectTimeline, resolveSubUnitAdr, type AssetAreaMetrics } from '@/src/core/calculations';
 import { FUNDING_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
 import { resolveFundTerms } from '../fundTerms';
 import {
-  isFundActive, hasFundFeeIncome, buildFundWaterfallRows, buildFundFeeIncomeRows,
+  isFundActive, hasFundFeeIncome, buildFundWaterfallRows, buildFundFeeIncomeRows, buildDdmPostFeeRows,
   buildFundGrossNetRows, buildFundEarnerRows, buildFundHeadlineCards, fundGrossNetNote,
-  fundWaterfallTotalsNote, fundHeadlineRestatementNote,
+  fundWaterfallTotalsNote,
   FUND_GROSS_NET_COLUMNS, FUND_EARNER_COLUMNS, type FundReportCtx,
 } from '../reports/fundReports';
-import { buildAssetNotes, structuralZeroCell } from '../reports/assetNotes';
+import { buildAssetNotes } from '../reports/assetNotes';
 import { formatAccounting } from '@/src/core/formatters';
 import { computeLiveModel, type LiveAssetInput, type LiveModel, type LiveGroup } from './liveModel';
 import {
   ARGB, NUMFMT, BODY_SIZE, fcell, setInput, markInput, setFormula, setLabel, setTitle, setSectionHeader, setColHeader, colLetter,
   fillCell, fillRange, boxBorder, sheetRef, scaleMoneyFormats, scaleNote, defaultDecimals, setStaticMode, setNote, setBasis, setSectionSink, insertRowsAt, type DisplayScale, type DisplayDecimals,
 } from './styles';
-import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
+import { withResolvedAssetNames, assetLabel } from '@/src/core/calculations/assetName';
 
 export interface BuildModelOptions {
   state: FinancialsResolverState;
@@ -2316,7 +2325,7 @@ interface FinLinks {
 /** Cell addresses of the Returns tab's headline IRRs, plus the VALUES behind
  *  them, so the Checks tab's cached formula results come from the same engine
  *  the Returns tab printed rather than from a second model. */
-interface RetLinks { fcffIrrCell: string; fcfeIrrCell: string; fcffIrr: number | null; fcfeIrr: number | null }
+interface RetLinks { rs: ReturnsSnapshot | null }
 
 // ── Revenue (full mirror of the platform Module 2: all 5 sub-tabs in sequence) ─
 // One sheet reproducing every Module 2 surface as a divided section, the same
@@ -3227,32 +3236,73 @@ function addBalanceSheet(ctx: EmitCtx): void {
   E.emitTable(bsRows);
 }
 
-// ── Returns (NOI, terminal value, FCFF / FCFE, live IRR / NPV / MOIC) ─────────
+// ── Case reports, built once per export ───────────────────────────────────────
+// The Module 5 Case Comparison sub-tab and the Module 6 Comparison both read the
+// same report, and every case is a full engine run, so it is computed once per
+// bundle and shared by the two tabs.
+const CASE_REPORT_CACHE = new WeakMap<CaseComparisonInput, CaseComparisonReport | null>();
+function caseReportOf(input: CaseComparisonInput | undefined): CaseComparisonReport | null {
+  if (!input) return null;
+  if (CASE_REPORT_CACHE.has(input)) return CASE_REPORT_CACHE.get(input) ?? null;
+  let rep: CaseComparisonReport | null = null;
+  try { rep = buildCaseComparisonReport(input); } catch { rep = null; }
+  CASE_REPORT_CACHE.set(input, rep);
+  return rep;
+}
+
+// Display formatters shared by the Returns, Scenarios and Checks tabs. Strings,
+// so the display-scale sweep leaves them alone; money is fixed in millions.
+const retPct = (v: number | null | undefined, d = 1): string => (v != null && Number.isFinite(v) ? `${(v * 100).toFixed(d)}%` : 'n/a');
+const retMult = (v: number | null | undefined): string => (v != null && Number.isFinite(v) ? `${v.toFixed(2)}x` : 'n/a');
+const retMoney = (currency: string) => (v: number | null | undefined): string => `${currency} ${formatAccounting(v ?? 0, 'millions', 1)} m`;
+
+/** The platform's terminal value method names (Module5Shared AssumptionsPanel). */
+const TERMINAL_METHOD_LABELS: Record<string, string> = {
+  exit_multiple: 'Exit Multiple', cap_rate: 'Exit Cap Rate', perpetuity: 'Perpetuity (Gordon)', none: 'None',
+};
+/** The sensitivity variable names, as the Returns tab's selectors show them. */
+const SENS_LABELS: Record<SensitivityVariable, { label: string; kind: 'rate' | 'shock' }> = {
+  exit_cap_rate: { label: 'Exit Cap Rate', kind: 'rate' },
+  discount_rate: { label: 'Discount Rate', kind: 'rate' },
+  sales_price_pct: { label: 'Sales Price', kind: 'shock' },
+  adr_pct: { label: 'ADR', kind: 'shock' },
+  construction_cost_pct: { label: 'Construction Cost', kind: 'shock' },
+};
+const sensValueLabel = (v: SensitivityVariable, x: number): string =>
+  SENS_LABELS[v].kind === 'rate' ? `${(x * 100).toFixed(1)}%` : `${x >= 0 ? '+' : ''}${(x * 100).toFixed(0)}%`;
+
+// ── Returns (mirror of Module 5: 1. Returns, 2. RE Metrics, 3. Case Comparison) ─
+/** Module 5 in the order of its three sub-tabs, each section in the order its
+ *  screen renders it, from the SAME builders the screens call (returns snapshot,
+ *  stream / fund / disposal builders, the covenant reducers, the operating KPI
+ *  builder, the case comparison report). Nothing the screens do not show is
+ *  printed here, and nothing they show is left out. */
 function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin: FinLinks): RetLinks {
   void revLinks; void opexLinks; void fin;
   const { wb, snap, lm, state, currency } = ctx;
   const N = snap.axisLength;
   const ws = wb.addWorksheet(SHEETS.returns, { properties: { tabColor: { argb: ARGB.navy } } });
-  writeSheetHeader(ws, snap, N, 'Returns', 'Full mirror of the platform Module 5 Returns + RE Metrics tabs: 1. Returns (headline IRR / MOIC, development economics, exit analysis, sources & uses, funding mix, equity exposure, debt analytics, returns by basis, cash-flow streams + build-ups), 2. RE Metrics (profitability, leverage, coverage, valuation, per-asset).', { label: 'Line', feeds: 'Sourced from the M4 cash flows + returns engine. The project (FCFF) and equity (FCFE) returns.' });
+  writeSheetHeader(ws, snap, N, 'Returns', 'Mirror of the platform Module 5 (Returns and Valuation), in the order of its three sub-tabs: 1. Returns, 2. RE Metrics, 3. Case Comparison.', { label: 'Line', feeds: 'Sourced from the Module 4 statements and the returns engine, on the case selected at export (Case Comparison computes every case).' });
   let r = 5;
   let rs: ReturnsSnapshot | null = null;
   try { rs = computeReturnsSnapshot(snap, state.project); } catch { rs = null; }
 
-  // ── value formatters (strings, so the display-scale sweep leaves them alone) ──
-  const cPct = (v: number | null | undefined, d = 1): string => (v != null && Number.isFinite(v) ? `${(v * 100).toFixed(d)}%` : 'n/a');
-  const cMoney = (v: number | null | undefined): string => `${currency} ${formatAccounting(v ?? 0, 'millions', 1)} m`;
-  const cMult = (v: number | null | undefined): string => (v != null && Number.isFinite(v) ? `${v.toFixed(2)}x` : 'n/a');
+  const cPct = retPct, cMult = retMult, cMoney = retMoney(currency);
 
   // ── local emitters ──
   const section = (text: string): void => { setSectionHeader(ws.getRow(r), text, lastActiveCol(N), ARGB.accent); r += 1; };
-  /** A short explanatory sentence under whatever was just emitted (a footnote,
-   *  a basis note). No-op on an empty string, so callers can pass a shared
-   *  builder's output straight through without a guard. */
+  /** A short explanatory sentence (a screen caption). No-op on an empty string. */
   const note = (text: string): void => {
     if (!text) return;
     setLabel(ws.getCell(r, LBL_COL), text);
     ws.getCell(r, LBL_COL).font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
     r += 2;
+  };
+  /** A bold line of text (a screen heading that is not a table title, or a
+   *  metric read-out like "DDM IRR 18.4% · MOIC 2.96x"). */
+  const textLine = (text: string, bold = true): void => {
+    setLabel(ws.getCell(r, LBL_COL), text, { bold });
+    r += 1;
   };
   const subTitle = (text: string): void => {
     setLabel(ws.getCell(r, LBL_COL), text, { bold: true });
@@ -3260,51 +3310,69 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     for (let c = 1; c <= lastActiveCol(N); c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
     r += 1;
   };
-  // KPI card strip: a row of bordered tiles (label over value), 2 columns each,
-  // wrapping when the period axis runs out. The headline visual of the platform.
-  // `tone: 'bad'` paints the value in the check red. Used for a covenant
-  // reading that must not look like one more neutral metric in the strip (a
-  // Min DSCR below 1.00x is not covered debt service).
-  const kpiStrip = (title: string, cards: Array<{ label: string; value: string; sub?: string; tone?: 'bad' }>): void => {
-    subTitle(title);
+  // KPI card strip: a row of bordered tiles (label / value / sub), 2 columns
+  // each, wrapping when the period axis runs out. The title is optional because
+  // several of the screen's card grids have no heading of their own.
+  const kpiStrip = (title: string, cards: Array<{ label: string; value: string; sub?: string; tone?: 'bad' | 'good' }>): void => {
+    if (title) subTitle(title);
     const firstCol = OPEN_COL, lastCol = lastActiveCol(N), perCard = 2;
     const hasSub = cards.some((c) => c.sub);
-    const h = hasSub ? 3 : 2; // rows per card (label / value [/ sub])
+    const h = hasSub ? 3 : 2;
     let col = firstCol;
     for (const card of cards) {
       if (col + perCard - 1 > lastCol) { col = firstCol; r += h + 1; }
       const c2 = col + perCard - 1;
       for (let rr = 0; rr < h; rr++) ws.mergeCells(r + rr, col, r + rr, c2);
       const lc = ws.getCell(r, col); lc.value = card.label; lc.font = { name: 'Calibri', size: 9, bold: true, color: { argb: ARGB.navyDark } }; lc.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; fillCell(lc, ARGB.grey);
-      const vc = ws.getCell(r + 1, col); vc.value = card.value; vc.font = { name: 'Calibri', size: 12, bold: true, color: { argb: card.tone === 'bad' ? ARGB.bad : ARGB.navy } }; vc.alignment = { horizontal: 'center', vertical: 'middle' };
-      if (hasSub) { const sc = ws.getCell(r + 2, col); sc.value = card.sub ?? ''; sc.font = { name: 'Calibri', size: 8, italic: true, color: { argb: ARGB.navyDark } }; sc.alignment = { horizontal: 'center', vertical: 'middle' }; }
+      const vc = ws.getCell(r + 1, col); vc.value = card.value; vc.font = { name: 'Calibri', size: 12, bold: true, color: { argb: card.tone === 'bad' ? ARGB.bad : card.tone === 'good' ? ARGB.good : ARGB.navy } }; vc.alignment = { horizontal: 'center', vertical: 'middle' };
+      if (hasSub) { const sc = ws.getCell(r + 2, col); sc.value = card.sub ?? ''; sc.font = { name: 'Calibri', size: 8, italic: true, color: { argb: ARGB.navyDark } }; sc.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; }
       boxBorder(ws, r, col, r + h - 1, c2);
       col = c2 + 1;
     }
     r += h + 1;
   };
-  // Scalar money / text row: label in A, value in the Total column (D).
-  const scalarRow = (label: string, value: number | string, numFmt: string, bold = false): void => {
-    setLabel(ws.getCell(r, LBL_COL), label, { bold });
-    const c = ws.getCell(r, TOTAL_COL); c.value = value; c.numFmt = numFmt; c.font = { name: 'Calibri', size: BODY_SIZE, bold, color: { argb: bold ? ARGB.navy : ARGB.formula } };
+  // Scalar row: label in A, value in the Total column (D). `input` shades it as
+  // an assumption the user edits on the platform.
+  const scalarRow = (label: string, value: number | string, numFmt: string, opts: { bold?: boolean; input?: boolean; basis?: string } = {}): void => {
+    setLabel(ws.getCell(r, LBL_COL), label, { bold: opts.bold });
+    const c = ws.getCell(r, TOTAL_COL); c.value = value; c.numFmt = numFmt;
+    c.font = { name: 'Calibri', size: BODY_SIZE, bold: opts.bold, color: { argb: opts.bold ? ARGB.navy : ARGB.formula } };
+    if (typeof value === 'string') c.alignment = { horizontal: 'right' };
+    if (opts.input) markInput(c);
+    if (opts.basis) setBasis(ws.getCell(r, META_B), opts.basis);
     r += 1;
   };
-  // Generic grid (pre-formatted strings): header[0] + rows[][0] in A, the rest
-  // across the period columns from E.
-  const gridTable = (title: string, headers: string[], rows: string[][]): void => {
-    subTitle(title);
+  // A grid of cells: header[0] and each row's label in A, the rest across from
+  // the opening column (E). A cell is a string (display text), a number with its
+  // format, or null (blank). `input` shades a cell as an assumption.
+  type GridCell = string | null | { v: number | string; fmt?: string; input?: boolean; bold?: boolean; tone?: 'good' | 'bad'; fill?: string };
+  const grid = (title: string, headers: string[], rows: Array<{ label: string; cells: GridCell[]; bold?: boolean; input?: boolean; indent?: number }>): void => {
+    if (title) subTitle(title);
     setColHeader(ws.getCell(r, LBL_COL), headers[0], 'left');
     for (let i = 1; i < headers.length; i++) setColHeader(ws.getCell(r, OPEN_COL + i - 1), headers[i], 'right');
     r += 1;
-    for (const cells of rows) {
-      setLabel(ws.getCell(r, LBL_COL), cells[0]);
-      for (let i = 1; i < cells.length; i++) { const c = ws.getCell(r, OPEN_COL + i - 1); c.value = cells[i]; c.numFmt = '@'; c.alignment = { horizontal: 'right' }; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; }
+    for (const row of rows) {
+      const lc = ws.getCell(r, LBL_COL);
+      setLabel(lc, row.label, { bold: row.bold, indent: row.indent });
+      if (row.input) markInput(lc);
+      row.cells.forEach((cell, i) => {
+        if (cell == null) return;
+        const c = ws.getCell(r, OPEN_COL + i);
+        const o = typeof cell === 'string' ? { v: cell } : cell;
+        c.value = o.v;
+        c.numFmt = typeof o.v === 'number' ? (o.fmt ?? NUMFMT.money) : '@';
+        c.alignment = { horizontal: 'right' };
+        c.font = { name: 'Calibri', size: BODY_SIZE, bold: !!(o.bold || row.bold), color: { argb: o.tone === 'bad' ? ARGB.bad : o.tone === 'good' ? ARGB.good : ARGB.formula } };
+        if (o.fill) fillCell(c, o.fill);
+        if (o.input) markInput(c);
+      });
       r += 1;
     }
     r += 1;
   };
   // A money row from an array (label + opening + per-period + Total).
-  const moneyRow = (label: string, series: number[] | undefined, opts: { style?: 'plain' | 'subtotal' | 'total'; prior?: number; indent?: number } = {}): void => {
+  const moneyRow = (label: string, series: number[] | undefined, opts: { style?: 'plain' | 'subtotal' | 'total'; prior?: number; indent?: number; basis?: string } = {}): number => {
+    const used = r;
     const vals = (series ?? []).slice(0, N);
     setLabel(ws.getCell(r, LBL_COL), label, { bold: !!(opts.style && opts.style !== 'plain'), indent: opts.indent });
     const put = (c: number, v: number): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
@@ -3312,22 +3380,14 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     for (let t = 0; t < N; t++) put(pcol(t), vals[t] ?? 0);
     put(TOTAL_COL, (opts.prior ?? 0) + vals.reduce((s, v) => s + (v ?? 0), 0));
     if (opts.style === 'total') { fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.navy); for (let c = 1; c <= lastActiveCol(N); c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } }; }
+    else if (opts.style === 'subtotal') { for (let c = 1; c <= lastActiveCol(N); c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } }; }
+    if (opts.basis) setBasis(ws.getCell(r, META_B), opts.basis);
     r += 1;
+    return used;
   };
-  const statRow = (label: string, cells: string[]): void => {
-    setLabel(ws.getCell(r, LBL_COL), label, { indent: 1 });
-    for (let t = 0; t < N; t++) { const c = ws.getCell(r, pcol(t)); c.value = cells[t] ?? '-'; c.numFmt = '@'; c.alignment = { horizontal: 'right' }; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; }
-    r += 1;
-  };
-  // Fund layer: render one M4Row from the SHARED fund builders. The builders
-  // already put every series on the stream basis (index 0 = inception, which
-  // lands in the opening column E) and already encode the no-total-on-balances
-  // rule as an empty `totalOverride`, so this only has to draw.
-  //
-  // Deliberately its own emitter rather than an extra branch on `moneyRow`
-  // above: that one is shared with the FCFF / FCFE / Distributed Equity stream
-  // rows, so widening its style handling would change what a STANDALONE project
-  // renders. This is only ever called from the fund block.
+  // Fund layer: render one M4Row from the SHARED fund builders, whose series are
+  // already on the stream basis (index 0 = inception, the opening column E) and
+  // whose balance rows carry an empty totalOverride meaning "no lifetime total".
   const emitFundM4 = (row: M4Row): number => {
     const used = r;
     const vals = row.values.slice(0, N);
@@ -3337,9 +3397,6 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     const put = (c: number, v: number): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
     put(OPEN_COL, prior);
     for (let t = 0; t < N; t++) put(pcol(t), vals[t] ?? 0);
-    // An EMPTY totalOverride means "this is a balance, it has no lifetime
-    // total"; anything else round-trips back to a number (the builder's money
-    // formatter is String(v) for these rows).
     if (row.totalOverride !== '') {
       const tv = row.totalOverride !== undefined ? Number(row.totalOverride) : prior + vals.reduce((a, v) => a + (v ?? 0), 0);
       put(TOTAL_COL, Number.isFinite(tv) ? tv : 0);
@@ -3350,386 +3407,563 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     return used;
   };
 
-  // ── 1. Returns (mirror of the platform Returns tab, in the same order) ───────
-  section('1. Returns (IRR / MOIC by basis, dev economics, exit, sources & uses, funding mix, exposure, debt, cash-flow streams)');
-  if (rs) {
-    const rr = rs.result, de = rs.developmentEconomics, ex = rs.exitAnalysis, su = rs.sourcesUses;
-    const ee = rs.equityExposure, da = rs.debtAnalytics, fmx = rs.fundingMix, stb = rs.stabilization, bld = rs.buildup;
-    // Signed stream placement: index 0 = inception (opening col), 1..E -> axis.
-    const place = (stream: number[] | undefined): { prior: number; vals: number[] } => {
-      const s = stream ?? []; const prior = s[0] ?? 0; const vals = new Array<number>(N).fill(0);
-      for (let i = 1; i < s.length && i - 1 < N; i++) vals[i - 1] = s[i] ?? 0;
-      return { prior, vals };
-    };
-    const streamRow = (label: string, stream: number[] | undefined, opts: { style?: 'plain' | 'subtotal' | 'total'; indent?: number } = {}): void => { const p = place(stream); moneyRow(label, p.vals, { ...opts, prior: p.prior }); };
-
-    kpiStrip('Headline Returns', [
-      { label: 'Project IRR (FCFF)', value: cPct(rr.fcff.irr, 1), sub: `MOIC ${cMult(rr.fcff.moic)}` },
-      { label: 'Equity IRR (FCFE)', value: cPct(rr.fcfe.irr, 1), sub: `MOIC ${cMult(rr.fcfe.moic)}` },
-      { label: 'Distributed Equity IRR', value: cPct(rr.dividends.irr, 1), sub: `MOIC ${cMult(rr.dividends.moic)}` },
-      { label: 'Equity Multiple', value: cMult(rr.realEstate.equityMultiple), sub: 'distributions / invested' },
-      { label: 'Total Equity Required', value: cMoney(ee.totalEquityRequired), sub: 'cash + in-kind + existing' },
-    ]);
-    subTitle('Returns Assumptions');
-    scalarRow('Discount rate', rs.config.discountRate, NUMFMT.pct2);
-    scalarRow('Exit year', rs.exitYearLabel, NUMFMT.year);
-    scalarRow('Terminal value method', String(rs.config.terminalMethod), '@');
-    // Only the input the method uses (2026-09-15).
-    if (rs.config.terminalMethod === 'exit_multiple') scalarRow('Exit multiple (x stabilised NOI)', rs.config.exitMultiple, NUMFMT.mult);
-    if (rs.config.terminalMethod === 'perpetuity') scalarRow('Perpetuity growth', rs.config.perpetuityGrowth, NUMFMT.pct2);
-    if (rs.config.terminalMethod === 'cap_rate') {
-      const derived = rs.config.capRateSource === 'derived';
-      scalarRow(derived ? 'Cap rate (derived from the model)' : 'Cap rate (typed)', derived ? rs.config.capRateDerived : rs.config.capRate, NUMFMT.pct2);
-    }
-    r += 1;
-    kpiStrip('Development Economics', [
-      { label: 'Total Development Cost', value: cMoney(de.totalDevelopmentCost), sub: 'incl. land' },
-      { label: 'Total Financing Cost', value: cMoney(de.totalFinancingCost), sub: 'all interest over hold' },
-      { label: 'Profit Before Financing', value: cMoney(de.profitBeforeFinancing), sub: 'GDV - dev cost' },
-      { label: 'Profit After Financing', value: cMoney(de.profitAfterFinancing), sub: '- financing cost' },
-    ]);
-    kpiStrip(`Exit Analysis (exit ${ex.exitYearLabel})`, [
-      { label: 'Exit NOI', value: cMoney(ex.exitNOI) },
-      { label: 'Exit EBITDA', value: cMoney(ex.exitEBITDA) },
-      { label: 'Debt at Exit', value: cMoney(ex.exitDebt) },
-    ]);
-    if (rs.exitYears?.length) {
-      gridTable('Exit-Year Analysis (hold vs sell timing)', ['Exit Year', 'Enterprise Value', 'Equity Value', 'Project IRR', 'Equity IRR', 'Equity MOIC'],
-        rs.exitYears.map((x) => [`${x.exitYearLabel}${x.isSelected ? '  <- selected' : ''}`, cMoney(x.enterpriseValue), cMoney(x.equityValue), cPct(x.fcffIrr, 1), cPct(x.fcfeIrr, 1), cMult(x.equityMoic)]));
-    }
-    subTitle('Sources & Uses of Capital');
-    scalarRow('Sources: Existing Equity', su.existingEquity, NUMFMT.money);
-    scalarRow('Sources: New Equity (cash)', su.newEquityCash, NUMFMT.money);
-    scalarRow('Sources: In-Kind Equity (land)', su.inKindEquity, NUMFMT.money);
-    scalarRow('Sources: Existing Debt', su.existingDebt, NUMFMT.money);
-    scalarRow('Sources: New Debt (incl. capitalised IDC)', su.newDebt, NUMFMT.money);
-    scalarRow('Sources: Customer Collections / Pre-Sales', su.customerCollections, NUMFMT.money);
-    scalarRow('Sources: Operating Cash Generated', su.operatingCash, NUMFMT.money);
-    scalarRow('Total Sources', su.totalSources, NUMFMT.money, true);
-    scalarRow('Uses: Land', su.land, NUMFMT.money);
-    scalarRow('Uses: Construction & Infrastructure', su.construction, NUMFMT.money);
-    scalarRow('Uses: IDC Capitalized During Construction', su.idc, NUMFMT.money);
-    scalarRow('Uses: Reserves / Distributions', su.reservesDistributions, NUMFMT.money);
-    scalarRow('Total Uses', su.totalUses, NUMFMT.money, true);
-    r += 1;
-    kpiStrip('Funding Mix', [
-      { label: 'Debt', value: cPct(fmx.debtPct, 1), sub: '% of total sources' },
-      { label: 'Cash Equity', value: cPct(fmx.cashEquityPct, 1), sub: 'existing + new cash' },
-      { label: 'In-Kind Equity', value: cPct(fmx.inKindEquityPct, 1), sub: 'contributed land' },
-      { label: 'Customer Funding', value: cPct(fmx.customerFundingPct, 1), sub: 'pre-sales collections' },
-    ]);
-    kpiStrip('Equity Exposure', [
-      { label: 'Total Equity Required', value: cMoney(ee.totalEquityRequired) },
-      { label: 'Average Equity Invested', value: cMoney(ee.averageEquityInvested) },
-      { label: 'Equity at Risk', value: cMoney(ee.equityAtRisk), sub: 'peak cumulative equity' },
-      { label: 'Max Negative Cash Flow', value: cMoney(ee.maxNegativeCumulativeCF) },
-      { label: 'First Positive CF Year', value: ee.firstPositiveCFYear != null ? String(ee.firstPositiveCFYear) : 'n/a' },
-      { label: 'First Dividend Year', value: ee.firstDividendYear != null ? String(ee.firstDividendYear) : 'n/a' },
-    ]);
-    if (stb.hasIncomeAssets) {
-      kpiStrip('Stabilization (income assets)', [
-        { label: 'Stabilised NOI', value: cMoney(stb.stabilisedNOI) },
-        { label: 'Stabilised Yield on Cost', value: cPct(stb.stabilisedYieldOnCost, 2) },
-        { label: 'Stabilization Year', value: stb.stabilizationYear != null ? String(stb.stabilizationYear) : 'n/a' },
-      ]);
-    }
-    kpiStrip('Debt Analytics', [
-      { label: 'Peak Debt', value: cMoney(da.peakDebt) },
-      { label: 'Average Debt Outstanding', value: cMoney(da.averageDebtOutstanding) },
-      { label: 'Remaining Debt at Exit', value: cMoney(da.remainingDebtAtExit) },
-      { label: 'Debt Paydown', value: cPct(da.paydownPct, 1) },
-      { label: 'Debt Tenor', value: da.tenorYears == null ? 'n/a' : `${da.tenorYears.toFixed(0)} yrs` },
-    ]);
-    if (rs.partners?.partners.length) {
-      gridTable('Equity Partners', ['Partner', 'Invested', 'Share %', 'Dividends', 'Terminal', 'IRR', 'MOIC'],
-        rs.partners.partners.map((pn) => [pn.name, cMoney(pn.totalEquityInvested), cPct(pn.shareholdingPct, 1), cMoney(pn.dividendsReceived), cMoney(pn.terminalDistribution), cPct(pn.irr, 1), cMult(pn.moic)]));
-    }
-    gridTable('Returns by Cash-Flow Basis', ['Basis', 'IRR', 'MOIC', 'Invested', 'Returned', 'Net Profit'], [
-      ['FCFF (unlevered project)', cPct(rr.fcff.irr, 1), cMult(rr.fcff.moic), cMoney(rr.fcff.totalOutflow), cMoney(rr.fcff.totalInflow), cMoney(rr.fcff.netProfit)],
-      ['FCFE (levered equity)', cPct(rr.fcfe.irr, 1), cMult(rr.fcfe.moic), cMoney(rr.fcfe.totalOutflow), cMoney(rr.fcfe.totalInflow), cMoney(rr.fcfe.netProfit)],
-      ['Distributed Equity', cPct(rr.dividends.irr, 1), cMult(rr.dividends.moic), cMoney(rr.dividends.totalOutflow), cMoney(rr.dividends.totalInflow), cMoney(rr.dividends.netProfit)],
-    ]);
-    subTitle(`Return Cash-Flow Streams (hold to ${rs.exitYearLabel}; inception in the opening column)`);
-    streamRow('FCFF (unlevered project)', rs.fcffPerPeriod, { style: 'subtotal' });
-    streamRow('FCFE (levered equity)', rs.fcfePerPeriod, { style: 'subtotal' });
-    streamRow('Distributed Equity (realized distributions)', rs.dividendStreamPerPeriod, { style: 'subtotal' });
-    streamRow('Memo: NOI (recurring)', rs.noiPerPeriod, { indent: 1 });
-    r += 1;
-    // ROW LISTS COME FROM THE SHARED BUILDER (lib/reports/streamReports.ts),
-    // so this tab, the M5 screen, the IC report and the project PDF cannot
-    // drift apart again. Style stays local: the total row is a navy band here
-    // and a bold row on screen.
-    const emitBuildup = (title: string, rows: Array<{ label: string; values: number[]; indent?: number; isTotal?: boolean }>): void => {
-      subTitle(title);
-      for (const row of rows) streamRow(row.label, row.values, row.isTotal ? { style: 'total' } : { indent: row.indent });
-      r += 1;
-    };
-    emitBuildup('FCFF Build-Up (unlevered, to all capital providers)', buildFcffBuildup(rs, m4StreamRow));
-    emitBuildup('FCFE Build-Up (levered, free cash to equity)', buildFcfeBuildup(rs, m4StreamRow));
-    emitBuildup('Distributed Equity Build-Up (realized distributions)', buildDividendBuildup(rs, m4StreamRow));
-  }
-  // Numeric headline metrics (reconcilable constants; feed the Checks tab).
-  //
-  // THESE READ THE PLATFORM RETURNS ENGINE (`rs`), the same source as the
-  // "Returns by Cash-Flow Basis" grid a few rows above. They used to read
-  // `lm.*` from liveModel.ts, a second and deliberately simplified model left
-  // over from when this workbook emitted live formulas, whose FCFF stream
-  // carries no inception outflow and none of the historical development
-  // investment. On the reference project that printed Project IRR 177.3% here
-  // and 10.9% in the grid overhead, so the tab contradicted itself, and the
-  // Summary tab and the Checks tab quoted the wrong one of the two.
-  subTitle('Returns Metrics (project + equity)');
-  const metricRow = (label: string, v: number, fmt: string): string => {
-    setLabel(ws.getCell(r, LBL_COL), label, { bold: true });
-    const c = ws.getCell(r, TOTAL_COL); c.value = v; c.numFmt = fmt; c.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navy } };
-    const addr = `$${colLetter(TOTAL_COL)}$${r}`; r += 1; return addr;
-  };
-  const mFcff = rs?.result.fcff, mFcfe = rs?.result.fcfe;
-  const fcffIrrCell = metricRow('Project IRR (FCFF, unlevered)', mFcff?.irr ?? 0, NUMFMT.pct2);
-  metricRow('Project NPV (FCFF, unlevered)', mFcff?.npv ?? 0, NUMFMT.money);
-  metricRow('Project MOIC (FCFF, unlevered)', mFcff?.moic ?? 0, NUMFMT.mult);
-  const fcfeIrrCell = metricRow('Equity IRR (FCFE, levered)', mFcfe?.irr ?? 0, NUMFMT.pct2);
-  metricRow('Equity NPV (FCFE, levered)', mFcfe?.npv ?? 0, NUMFMT.money);
-  metricRow('Equity multiple (FCFE MOIC, levered)', mFcfe?.moic ?? 0, NUMFMT.mult);
-  r += 1;
-
-  // ── 2. RE Metrics (mirror of the platform RE Metrics tab) ───────────────────
-  if (rs) {
-    const re = rs.result.realEstate, de2 = rs.developmentEconomics;
-    // How many debt-service years are not covered from operations. A Min DSCR
-    // below 1.00x is a covenant reading, so the card carries the count and is
-    // painted in the check red rather than sitting neutral beside the IRR.
-    const dscrSeries = (re.dscrPerPeriod ?? []).filter((v) => v != null && Number.isFinite(v) && v > 0);
-    const dscrDebtYears = dscrSeries.length;
-    const dscrUncovered = dscrSeries.filter((v) => v < 1).length;
-    section('2. RE Metrics (profitability, yield, leverage, coverage, valuation, per-asset)');
-    kpiStrip('Profitability & Yield', [
-      { label: 'Yield on Cost', value: cPct(re.yieldOnCost, 2), sub: 'stabilised NOI / cost' },
-      { label: 'Cap Rate at Exit', value: cPct(re.capRateAtExit, 2), sub: 'exit NOI / exit value' },
-      { label: 'Development Spread', value: cPct(re.developmentSpread, 2), sub: 'yield less cap rate' },
-      { label: 'Profit on Cost', value: cPct(re.profitOnCost, 1), sub: '(rev - cost) / cost' },
-      { label: 'Profit Margin', value: cPct(re.profitMargin, 1), sub: 'PAT / revenue' },
-      { label: 'Equity Multiple', value: cMult(re.equityMultiple), sub: 'distributions / invested' },
-    ]);
-    kpiStrip('Leverage & Coverage', [
-      { label: 'LTV at Exit', value: cPct(re.ltvAtExit, 1), sub: 'debt / exit value' },
-      { label: 'Debt Yield', value: cPct(re.debtYield, 1), sub: 'NOI / debt' },
-      { label: 'Min DSCR', value: cMult(re.dscrMin), sub: dscrUncovered > 0 ? `${dscrUncovered} of ${dscrDebtYears} yrs below 1.00x` : 'worst period', ...(dscrUncovered > 0 ? { tone: 'bad' as const } : {}) },
-      { label: 'Avg DSCR', value: cMult(re.dscrAvg), sub: 'mean over debt years' },
-      { label: 'Min Interest Cover', value: cMult(re.icrMin), sub: 'EBITDA / interest' },
-      { label: 'Avg Cash-on-Cash', value: cPct(re.cashOnCashAvg, 1), sub: 'cash yield on equity' },
-      { label: 'Peak Equity', value: cMoney(re.peakEquity) },
-    ]);
-    kpiStrip('Development Economics', [
-      { label: 'Gross Development Value', value: cMoney(de2.gdv) },
-      { label: 'Total Development Cost', value: cMoney(de2.totalDevelopmentCost) },
-      { label: 'Total Financing Cost', value: cMoney(de2.totalFinancingCost) },
-      { label: 'Profit before Financing', value: cMoney(de2.profitBeforeFinancing) },
-      { label: 'Profit after Financing', value: cMoney(de2.profitAfterFinancing) },
-      { label: 'Development Margin', value: cPct(de2.developmentMargin, 1), sub: 'profit / GDV' },
-      { label: 'Cost to Value', value: cPct(de2.costToValue, 1), sub: 'dev cost / GDV' },
-    ]);
-    kpiStrip('Valuation & Stabilisation', [
-      { label: 'Stabilised NOI', value: cMoney(rs.stabilisedNOI) },
-      { label: 'Exit NOI', value: cMoney(rs.exitNOI), sub: `year ${rs.exitYearLabel}` },
-      { label: 'Stabilisation Year', value: rs.stabilization.stabilizationYear != null ? String(rs.stabilization.stabilizationYear) : 'n/a' },
-      { label: 'Going-in Yield on Cost', value: cPct(re.yieldOnCost, 2) },
-      { label: 'Exit Cap Rate', value: cPct(re.capRateAtExit, 2) },
-      { label: 'Terminal Enterprise Value', value: cMoney(rs.terminalEnterpriseValue) },
-      { label: 'Terminal Equity Value', value: cMoney(rs.terminalEquityValue) },
-    ]);
-    const nzc = (a?: number[]): boolean => (a ?? []).some((v) => (v ?? 0) !== 0);
-    if (nzc(re.dscrPerPeriod) || nzc(re.icrPerPeriod)) {
-      subTitle('Coverage Ratios by Year');
-      // A year below 1.00x is marked in the cell itself, so the breach is
-      // visible in the row a reader actually scans and not only in the tile.
-      const dscrRow = r;
-      statRow('DSCR', re.dscrPerPeriod.map((v) => (v ? `${v.toFixed(2)}${v < 1 ? ' !' : ''}` : '-')));
-      for (let t = 0; t < N; t++) {
-        const v = re.dscrPerPeriod[t];
-        if (v != null && Number.isFinite(v) && v > 0 && v < 1) {
-          ws.getCell(dscrRow, pcol(t)).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.bad } };
-        }
-      }
-      statRow('Interest cover', re.icrPerPeriod.map((v) => (v ? v.toFixed(2) : '-')));
-      statRow('Cash-on-cash %', re.cashOnCashPerPeriod.map((v) => (v ? cPct(v, 1) : '-')));
-      r += 1;
-    }
-    if (rs.perAsset?.rows.length) {
-      // Zero cost with a 100% margin is structural on an existing operational
-      // asset (its cost was spent before the model starts) and on a companion
-      // (the cost sits on the parent). Marked and footnoted rather than left as
-      // a bare zero, from the SAME shared rule both PDFs use.
-      const assetNotes = buildAssetNotes(state, cMoney);
-      gridTable('Per-Line Economics', ['Line', 'Strategy', 'Revenue', 'Cost', 'Profit', 'Margin', 'Yield on Cost'],
-        poolReturnRows(rs.perAsset.rows, state).map((a) => {
-          const z = assetNotes.hasCostNote(a.assetId, a.totalCost);
-          const nil = z ? structuralZeroCell(z) : null;
-          return [a.assetName, a.strategy, cMoney(a.totalRevenue), nil ?? cMoney(a.totalCost), cMoney(a.profit),
-            nil ?? cPct(a.profitMargin, 1), nil ?? (a.isIncomeAsset ? cPct(a.yieldOnCost, 1) : 'n/a')];
-        }));
-      for (const fn of assetNotes.takeFootnotes()) note(fn.text);
-    }
-  } else {
-    // Fallback when the returns snapshot cannot be computed: keep the signed streams.
-    section('2. RE Metrics');
+  // ═══ 1. Returns (Module5Returns, top to bottom) ═══════════════════════════════
+  section('1. Returns');
+  if (!rs) {
+    note('The returns engine could not compute on this model, so only the signed streams are shown.');
     moneyRow('FCFF (project)', lm.fcff, { style: 'total' });
     moneyRow('FCFE (equity)', lm.fcfe, { style: 'total' });
+    return { rs: null };
+  }
+  const rsx = rs;
+  const rr = rs.result, de = rs.developmentEconomics, su = rs.sourcesUses, cfg = rs.config;
+  // Signed stream placement: index 0 = inception (opening col), 1..E -> axis.
+  const place = (stream: number[] | undefined): { prior: number; vals: number[] } => {
+    const s = stream ?? []; const prior = s[0] ?? 0; const vals = new Array<number>(N).fill(0);
+    for (let i = 1; i < s.length && i - 1 < N; i++) vals[i - 1] = s[i] ?? 0;
+    return { prior, vals };
+  };
+  const streamRow = (label: string, stream: number[] | undefined, opts: { style?: 'plain' | 'subtotal' | 'total'; indent?: number; basis?: string } = {}): number => { const p = place(stream); return moneyRow(label, p.vals, { ...opts, prior: p.prior }); };
+
+  note('Returns on three cash-flow bases: FCFF (unlevered, to all capital providers), FCFE (levered, free cash to equity after debt service), and Distributed Equity (IRR on the actual cash distributions to equity investors). Terminal value is added in the exit year per the assumptions below. NPV is intentionally omitted; IRR / MOIC plus a tight Development Economics are the focus. Exit-year, funding-mix and equity-exposure analytics live on the RE Metrics tab.');
+
+  // ── Returns Assumptions (the panel's inputs, under the panel's labels) ──
+  subTitle('Returns Assumptions');
+  scalarRow('Discount Rate (%)', cfg.discountRate, NUMFMT.pct2, { input: true });
+  scalarRow('Exit Year', rs.exitYearLabel, NUMFMT.year, { input: true });
+  scalarRow('Terminal Value Method', TERMINAL_METHOD_LABELS[cfg.terminalMethod] ?? String(cfg.terminalMethod), '@', { input: true });
+  if (cfg.terminalMethod === 'exit_multiple') scalarRow('Exit Multiple (x stabilised NOI)', cfg.exitMultiple, NUMFMT.mult, { input: true });
+  if (cfg.terminalMethod === 'perpetuity' || cfg.terminalMethod === 'cap_rate') scalarRow('Growth g (%)', cfg.perpetuityGrowth, NUMFMT.pct2, { input: true });
+  if (cfg.terminalMethod !== 'none') {
+    const exitBasis = cfg.terminalValueBasis === 'exit_year';
+    scalarRow('Terminal value basis', exitBasis ? 'Exit year' : 'Year before exit', '@', {
+      input: true,
+      basis: exitBasis ? 'Capitalises the exit year income. Booked as proceeds from disposal in the exit year.' : 'Capitalises the income of the year before the exit. Booked as proceeds from disposal in the exit year.',
+    });
+  }
+  if (cfg.terminalMethod === 'cap_rate') {
+    const manual = cfg.capRateSource === 'manual';
+    scalarRow('Exit Cap Rate (%)', manual ? cfg.capRate : cfg.capRateDerived, NUMFMT.pct2, {
+      input: true,
+      basis: manual
+        ? `Set by you (WACC less growth would be ${(cfg.capRateDerived * 100).toFixed(2)}%).`
+        : `WACC less growth: ${(cfg.discountRate * 100).toFixed(2)}% - ${(cfg.perpetuityGrowth * 100).toFixed(2)}% = ${(cfg.capRateDerived * 100).toFixed(2)}%.`,
+    });
+  }
+  if (cfg.terminalMethod !== 'none') {
+    scalarRow('Terminal metric', cfg.applyGrowthToTerminal ? 'Grown by (1 + g)' : 'Exit year as is', '@', {
+      input: true,
+      basis: cfg.applyGrowthToTerminal ? `Capitalises forward income: exit metric x (1 + ${(cfg.perpetuityGrowth * 100).toFixed(2)}%).` : 'Capitalises the exit year figure itself.',
+    });
+  }
+  r += 1;
+
+  // ── Headline returns ──
+  const irrTone = (irr: number | null): 'good' | 'bad' | undefined => (irr === null ? undefined : irr >= cfg.discountRate ? 'good' : 'bad');
+  kpiStrip('Headline Returns', [
+    { label: 'Project IRR (FCFF)', value: cPct(rr.fcff.irr), sub: `MOIC ${cMult(rr.fcff.moic)}`, tone: irrTone(rr.fcff.irr) },
+    { label: 'Equity IRR (FCFE)', value: cPct(rr.fcfe.irr), sub: `MOIC ${cMult(rr.fcfe.moic)}`, tone: irrTone(rr.fcfe.irr) },
+    { label: 'Distributed Equity IRR', value: cPct(rr.dividends.irr), sub: `MOIC ${cMult(rr.dividends.moic)}`, tone: irrTone(rr.dividends.irr) },
+    { label: 'Equity Multiple', value: cMult(rr.realEstate.equityMultiple), sub: 'distributions / invested' },
+  ]);
+
+  // ── Development Economics ──
+  kpiStrip('Development Economics', [
+    { label: 'Total Development Cost', value: cMoney(de.totalDevelopmentCost), sub: 'incl. land' },
+    { label: 'Total Financing Cost', value: cMoney(de.totalFinancingCost), sub: 'all interest over the hold' },
+    { label: 'Profit Before Financing', value: cMoney(de.profitBeforeFinancing), sub: 'GDV - dev cost', tone: de.profitBeforeFinancing >= 0 ? 'good' : 'bad' },
+    { label: 'Profit After Financing', value: cMoney(de.profitAfterFinancing), sub: '- financing cost', tone: de.profitAfterFinancing >= 0 ? 'good' : 'bad' },
+    { label: 'Development Margin', value: cPct(de.developmentMargin), sub: 'profit / GDV', tone: de.developmentMargin == null ? undefined : de.developmentMargin >= 0 ? 'good' : 'bad' },
+  ]);
+
+  // ── Equity Partners (allocation grid, per-partner returns, streams) ──
+  {
+    const ps = rs.partners;
+    const rows = ps.partners;
+    const stored = state.project.partners ?? [];
+    // The screen's default: one Sponsor holding 100% of every type until a
+    // partner is added (the engine synthesises the same default).
+    const effective = stored.length ? stored : [{ id: 'sponsor', name: 'Sponsor', cashPct: 100, inKindPct: 100, existingPct: 100 }];
+    const pctOf = (p: { cashPct?: number; inKindPct?: number; existingPct?: number }, key: 'cashPct' | 'inKindPct' | 'existingPct'): number => (Number.isFinite(p[key]) ? (p[key] as number) : 0);
+    subTitle('Equity Partners');
+    note('Each equity type shows its project total split across partners as both an amount and a %. Shareholding (the dividend / terminal share) is each partner\'s total equity over the project total, and each partner\'s IRR is a yearly equity IRR on the same basis as the project FCFE / Distributed-Equity stream.');
+    const types: Array<{ label: string; key: 'cashPct' | 'inKindPct' | 'existingPct'; total: number }> = [
+      { label: 'New Cash Equity', key: 'cashPct', total: ps.totalCash },
+      { label: 'In-Kind Equity (land)', key: 'inKindPct', total: ps.totalInKind },
+      { label: 'Existing Equity', key: 'existingPct', total: ps.totalExisting },
+    ];
+    const allocRows: Array<{ label: string; cells: GridCell[]; bold?: boolean; indent?: number }> = [];
+    for (const t of types) {
+      allocRows.push({ label: t.label, cells: [{ v: t.total, bold: true }, ...effective.map((p) => ({ v: (t.total * pctOf(p, t.key)) / 100, input: true }))] });
+      allocRows.push({ label: '% share', indent: 1, cells: [null, ...effective.map((p) => ({ v: pctOf(p, t.key) / 100, fmt: NUMFMT.pct2, input: true }))] });
+    }
+    allocRows.push({ label: 'Total Invested', bold: true, cells: [{ v: ps.totalProjectEquity }, ...effective.map((_p, i) => ({ v: rows[i]?.totalEquityInvested ?? 0 }))] });
+    allocRows.push({ label: 'Weighted-Avg %', cells: [{ v: ps.weightedAvgSum, fmt: NUMFMT.pct2 }, ...effective.map((_p, i) => ({ v: rows[i]?.weightedAvgShareholdingPct ?? 0, fmt: NUMFMT.pct2 }))] });
+    allocRows.push({ label: 'Agreed % (override)', cells: [{ v: ps.shareholdingSum, fmt: NUMFMT.pct2, tone: ps.shareholdingReconciles ? 'good' : 'bad' }, ...effective.map((_p, i) => (rows[i]?.shareholdingIsManual ? { v: rows[i].shareholdingPct, fmt: NUMFMT.pct2, input: true } : { v: '', input: true }))] });
+    grid('', ['Equity Type', 'Project Total', ...effective.map((p) => p.name)], allocRows);
+    note(`Agreed shares total ${cPct(ps.shareholdingSum)}${ps.shareholdingReconciles ? '' : ` (${ps.shareholdingDelta >= 0 ? '+' : ''}${cPct(ps.shareholdingDelta)} vs 100%)`}. A blank Agreed % uses the computed weighted average.`);
+    grid('', ['Partner', 'Invested', 'Agreed %', 'FCFE IRR', 'FCFE MOIC', 'FCFE Eq. Mult.', 'DDM IRR', 'Distributions'],
+      rows.map((p) => ({ label: p.name, cells: [
+        { v: p.totalEquityInvested }, { v: p.shareholdingPct, fmt: NUMFMT.pct2 }, cPct(p.fcfeIrr), cMult(p.fcfeMoic), cMult(p.fcfeEquityMultiple), cPct(p.irr), { v: p.totalCashReturned },
+      ] })));
+    const partnerStreams = (title: string, caption: string, pick: (p: typeof rows[number]) => number[], total: number[], irrOf: (p: typeof rows[number]) => number | null, consolidatedIrr: number | null): void => {
+      subTitle(title);
+      note(caption);
+      for (const p of rows) streamRow(p.name, pick(p), { basis: `IRR ${cPct(irrOf(p))}` });
+      streamRow('Total', total, { style: 'subtotal', basis: `IRR ${cPct(consolidatedIrr)}` });
+      r += 1;
+    };
+    partnerStreams('FCFE Streams by Partner',
+      'Each partner\'s agreed share of the consolidated FCFE (levered free cash flow) each period. Negative = capital in, positive = cash out. The Total reconciles to the consolidated FCFE. The partner\'s IRR is stated in the Basis column.',
+      (p) => p.fcfeStream, ps.totalFcfeStream, (p) => p.fcfeIrr, rr.fcfe.irr);
+    partnerStreams('Distributed-Equity (DDM) Streams by Partner',
+      'Each partner\'s agreed share of dividends distributed (plus terminal equity at exit), less equity contributed at its timing. The Total reconciles to the consolidated Distributed-Equity stream.',
+      (p) => p.cashFlowStream, ps.totalStream, (p) => p.irr, rr.dividends.irr);
   }
 
-  // ── 3. Fund Layer (fund layer Step 6, 2026-08-10) ───────────────────────────
-  //
-  // The M5 fund surface, mirrored: the distribution waterfall in the reference's
-  // exact row order, gross vs post-fee returns, and who earns the fees.
-  //
-  // APPENDED as its own numbered section rather than woven into section 1. The
-  // alternative was to interleave it where the screen puts it (waterfall after
-  // Development Economics, fee income after Equity Partners), which would mean
-  // a section band opening and closing inside "1. Returns" and would renumber
-  // RE Metrics on a fund project but not on a standalone one. A trailing
-  // section keeps every existing row exactly where it is, and the section sink
-  // gives it a Cover ToC entry and a per-tab sub-TOC link for free.
-  //
-  // The whole block is gated on the snapshot's own `active` flags, so with the
-  // fund toggle off nothing here executes and the tab is byte-identical.
-  if (rs && isFundActive(rs)) {
-    const w = rs.waterfall;
-    // TWO contexts, because the two table kinds need different formatting.
-    // Period rows go through emitFundM4, which reads `totalOverride` back as a
-    // NUMBER, so its money formatter is String(v) (the same round-trip trick
-    // the statement tabs use). The string grids and cards are display text, so
-    // they get the workbook's scaled formatters.
-    const rowsCtx: FundReportCtx = { snap, returns: rs, fmt: { money: (v) => String(v), pct: cPct, mult: cMult } };
-    const textCtx: FundReportCtx = { snap, returns: rs, fmt: { money: cMoney, pct: cPct, mult: cMult } };
-    section('3. Fund Layer (distribution waterfall, gross vs net returns, fund fee income)');
+  // ── Fund Fee Income (who EARNS the fees, beside the equity partners) ──
+  // Two formatting contexts: period rows round-trip `totalOverride` back to a
+  // number (money formatter String), the string grids use the display formatters.
+  const rowsCtx: FundReportCtx = { snap, returns: rs, fmt: { money: (v) => String(v), pct: cPct, mult: cMult } };
+  const textCtx: FundReportCtx = { snap, returns: rs, fmt: { money: cMoney, pct: cPct, mult: cMult } };
+  if (hasFundFeeIncome(rs)) {
+    const fe = rs.feeEarners;
+    subTitle('Fund Fee Income');
+    note('Who earns the fund\'s fees, as distinct from who owns its equity. The Fund Manager takes 100% of the five management fees plus its share of the performance fee from the Module 1 distribution matrix; project parties take only their matrix share. Fee earners hold no equity, so nothing here is part of the equity split above.');
+    // A string grid on its own title: the fund verifiers find the earner rows
+    // under this caption.
+    grid('Fund Fee Income by Earner', [...FUND_EARNER_COLUMNS], buildFundEarnerRows(textCtx).map((g) => ({ label: g.cells[0], bold: g.emphasis === 'total', cells: g.cells.slice(1) })));
+    note(fe.noneAllocated
+      ? 'Performance fee not allocated yet.'
+      : `Performance fee shares total ${cPct(fe.performanceFeeShareSum)}${fe.performanceFeeReconciles ? '' : ` (${fe.performanceFeeShareDelta >= 0 ? '+' : ''}${cPct(fe.performanceFeeShareDelta)} vs 100%)`}.`);
 
-    kpiStrip('Fund Returns, Gross vs Net', buildFundHeadlineCards(textCtx));
-    // These cards restate the headline Distributed Equity pair, split either
-    // side of the performance fee. Same shared sentence the PDFs and the M5
-    // screen carry, so the three cannot phrase it differently.
-    note(fundHeadlineRestatementNote(textCtx));
-
-    // The terms the waterfall was run on. Without them the rows below cannot be
-    // checked by eye, and the Inputs tab carries no fund terms.
-    subTitle('Fund Terms Applied');
-    scalarRow('Hurdle rate (preferred return)', w.hurdleRate, NUMFMT.pct2);
-    scalarRow('Performance fee on the excess', w.performanceFeePct, NUMFMT.pct2);
-    scalarRow('Fund Manager', resolveFundTerms(state.project).fundManagerName, '@');
-    r += 1;
-
-    gridTable('Distributed Equity, Gross vs Net of Performance Fee', [...FUND_GROSS_NET_COLUMNS],
-      buildFundGrossNetRows(textCtx).map((g) => g.cells));
-    // Two identical rows labelled gross and net read as a copied row rather
-    // than as a hurdle that was never cleared, so say which it is. Empty (and
-    // therefore skipped) whenever a performance fee actually arises.
-    //
-    // Written into r-1, the blank separator gridTable just left, so the note
-    // sits directly under the table; r += 1 then restores the separator.
-    {
-      const note = fundGrossNetNote(textCtx);
-      if (note) {
-        setLabel(ws.getCell(r - 1, LBL_COL), note);
-        ws.getCell(r - 1, LBL_COL).font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
-        r += 1;
+    const basis = buildFundFeeBasisRows(snap);
+    if (basis.length > 0) {
+      // The capital bases are quantities fees are charged ON, not fees, so they
+      // sit in their own captioned block above the fee basis rows.
+      subTitle(FUND_CAPITAL_BASES_TITLE);
+      // A capital base is ONE amount, so it is written once, in the Total
+      // column, with nothing across the period columns.
+      for (const c of buildFundCapitalRows(snap)) {
+        const rc = r;
+        scalarRow(c.isTotal ? `= ${c.label}` : c.label, c.amount, NUMFMT.money, { bold: c.isTotal, basis: FUND_CAPITAL_BASE_TAG });
+        if (!c.isTotal) ws.getCell(rc, LBL_COL).alignment = { indent: 1 };
       }
-    }
-
-    // The reference row order, from the SHARED builder. The three BALANCE rows
-    // carry no lifetime total, which the builder encodes as an empty
-    // totalOverride so no surface has to remember the rule.
-    subTitle(`Distribution Waterfall (hold to ${rs.exitYearLabel})`);
-    for (const row of buildFundWaterfallRows(rowsCtx)) emitFundM4(row);
-    // Which of those Total cells are lifetime flows and which are balances.
-    // Hurdle Paid's lifetime total sits directly under an untotalled Total
-    // Hurdle Owed, so the column reads as more paid than was ever owed.
-    note(fundWaterfallTotalsNote(textCtx));
-    r += 1;
-
-    // ── Fund Fee Income: who EARNS the fees, beside the equity partners ───────
-    if (hasFundFeeIncome(rs)) {
-      gridTable('Fund Fee Income by Earner', [...FUND_EARNER_COLUMNS],
-        buildFundEarnerRows(textCtx).map((g) => g.cells));
-
-      // What each fee is charged on. SAME shared builder as the P&L tab, the
-      // M5 screen and both PDFs, so a reader asking "why is this fee zero"
-      // gets one answer wherever they look. Base and Rate use the free meta
-      // columns B and C, so the period axis at column F does not shift.
-      const basis = buildFundFeeBasisRows(snap);
-      if (basis.length > 0) {
-        // THE CAPITAL BASES GET THEIR OWN BLOCK. They used to sit at the top of
-        // the fee basis table with Base and Rate empty and their amount in the
-        // Total column, which on the rows immediately below holds either a
-        // basis or a fee charged. Read down the column, "Total equity 2,550.7"
-        // then "Fund structure fee: charged 26.9" and the first looks like a
-        // fee. They are not fees, they are the quantities the fees are charged
-        // on, so they are stated separately and said to be so.
-        subTitle(FUND_CAPITAL_BASES_TITLE);
-        for (const c of buildFundCapitalRows(snap)) {
-          const rc = r;
-          moneyRow(c.isTotal ? `= ${c.label}` : c.label, undefined, { indent: c.isTotal ? 0 : 1 });
-          ws.getCell(rc, TOTAL_COL).value = c.amount;
-          setBasis(ws.getCell(rc, META_B), FUND_CAPITAL_BASE_TAG);
-          if (c.isTotal) for (let cc = 1; cc <= lastActiveCol(N); cc++) ws.getCell(rc, cc).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+      note(FUND_CAPITAL_BASES_NOTE);
+      subTitle('Fund Fee Basis (what each fee is charged on)');
+      ws.getCell(r - 1, META_B).value = 'Base';
+      ws.getCell(r - 1, META_C).value = 'Rate';
+      // Not 9: ExcelJS drops a column whose width equals DEFAULT_COLUMN_WIDTH.
+      ws.getColumn(META_C).width = Math.max(ws.getColumn(META_C).width ?? 0, 10);
+      for (let i = 0; i < basis.length; i++) {
+        const b = basis[i], line = snap.fundFees.lines[i];
+        if (!b.hasRate) {
+          const rFlat = moneyRow(fundFeeChargedLabel(b), line?.amountPerPeriod, { indent: 1 });
+          setBasis(ws.getCell(rFlat, META_B), fundFeeBasisBaseCell(b));
+          setBasis(ws.getCell(rFlat, META_C), b.rate);
+          continue;
         }
-        note(FUND_CAPITAL_BASES_NOTE);
-        subTitle('Fund Fee Basis (what each fee is charged on)');
-        // Column captions go on the subtitle band itself, which already carries
-        // the bold navy-dark font, so no extra row is spent on a header.
-        ws.getCell(r - 1, META_B).value = 'Base';
-        ws.getCell(r - 1, META_C).value = 'Rate';
-        // Not 9: ExcelJS drops a column whose width equals DEFAULT_COLUMN_WIDTH.
-        ws.getColumn(META_C).width = Math.max(ws.getColumn(META_C).width ?? 0, 10);
-        for (let i = 0; i < basis.length; i++) {
-          const b = basis[i], line = snap.fundFees.lines[i];
-          // Same stock-not-flow rule as the P&L block: the Total column holds
-          // the per-period CONSTANT on an annual fee, and the period count sits
-          // on the Base column because the label column is too narrow for it.
-          // A flat amount is ONE row: its basis and its charge are the same
-          // quantity. See the P&L block for the reasoning.
-          if (!b.hasRate) {
-            const rFlat = r; moneyRow(fundFeeChargedLabel(b), line?.amountPerPeriod, { indent: 1 });
-            setBasis(ws.getCell(rFlat, META_B), fundFeeBasisBaseCell(b));
-            setBasis(ws.getCell(rFlat, META_C), b.rate);
-            continue;
-          }
-          const rB = r; moneyRow(fundFeeBasisLabel(b), line?.basisPerPeriod, { indent: 1 });
-          ws.getCell(rB, TOTAL_COL).value = b.basisDisplay;
-          setBasis(ws.getCell(rB, META_B), fundFeeBasisBaseCell(b));
-          setBasis(ws.getCell(rB, META_C), b.rate);
-          const rF = r; moneyRow(fundFeeChargedLabel(b), line?.amountPerPeriod, { indent: 2 });
-          setBasis(ws.getCell(rF, META_B), b.timing);
-        }
-        r += 1;
+        const rB = moneyRow(fundFeeBasisLabel(b), line?.basisPerPeriod, { indent: 1 });
+        ws.getCell(rB, TOTAL_COL).value = b.basisDisplay;
+        setBasis(ws.getCell(rB, META_B), fundFeeBasisBaseCell(b));
+        setBasis(ws.getCell(rB, META_C), b.rate);
+        const rF = moneyRow(fundFeeChargedLabel(b), line?.amountPerPeriod, { indent: 2 });
+        setBasis(ws.getCell(rF, META_B), b.timing);
       }
-
-      subTitle('Fee Income by Period');
-      for (const row of buildFundFeeIncomeRows(rowsCtx)) emitFundM4(row);
       r += 1;
     }
+    subTitle('Fee Income by Period');
+    note('The five management fees as charged in Module 4, plus the performance fee from the waterfall below. Management fees are charged on the project axis, so the inception column is zero. These are fee entitlements, not equity distributions.');
+    for (const row of buildFundFeeIncomeRows(rowsCtx)) emitFundM4(row);
+    r += 1;
   }
 
-  return { fcffIrrCell, fcfeIrrCell, fcffIrr: mFcff?.irr ?? null, fcfeIrr: mFcfe?.irr ?? null };
+  // ── Sources & Uses of Capital ──
+  subTitle('Sources & Uses of Capital');
+  textLine('Sources');
+  scalarRow('Existing Equity', su.existingEquity, NUMFMT.money);
+  scalarRow('New Equity (cash)', su.newEquityCash, NUMFMT.money);
+  scalarRow('In-Kind Equity (land)', su.inKindEquity, NUMFMT.money);
+  scalarRow('Existing Debt', su.existingDebt, NUMFMT.money);
+  scalarRow('New Debt (incl. capitalised IDC)', su.newDebt, NUMFMT.money);
+  scalarRow('Customer Collections / Pre-Sales', su.customerCollections, NUMFMT.money);
+  scalarRow('Operating Cash Generated', su.operatingCash, NUMFMT.money);
+  scalarRow('Total Sources', su.totalSources, NUMFMT.money, { bold: true });
+  textLine('Uses');
+  scalarRow('Land', su.land, NUMFMT.money);
+  scalarRow('Construction & Infrastructure', su.construction, NUMFMT.money);
+  scalarRow('IDC Capitalized During Construction', su.idc, NUMFMT.money);
+  scalarRow('Reserves / Distributions', su.reservesDistributions, NUMFMT.money);
+  scalarRow('Total Uses', su.totalUses, NUMFMT.money, { bold: true });
+  r += 1;
+
+  // ── Returns by Cash-Flow Basis ──
+  grid('Returns by Cash-Flow Basis', ['Basis', 'IRR', 'MOIC', 'Invested', 'Returned', 'Net Profit'], [
+    { label: 'FCFF (unlevered project)', cells: [cPct(rr.fcff.irr), cMult(rr.fcff.moic), { v: rr.fcff.totalOutflow }, { v: rr.fcff.totalInflow }, { v: rr.fcff.netProfit, bold: true }] },
+    { label: 'FCFE (levered equity)', cells: [cPct(rr.fcfe.irr), cMult(rr.fcfe.moic), { v: rr.fcfe.totalOutflow }, { v: rr.fcfe.totalInflow }, { v: rr.fcfe.netProfit, bold: true }] },
+    { label: 'Distributed Equity (realized distributions)', cells: [cPct(rr.dividends.irr), cMult(rr.dividends.moic), { v: rr.dividends.totalOutflow }, { v: rr.dividends.totalInflow }, { v: rr.dividends.netProfit, bold: true }] },
+  ]);
+
+  // ── Return Cash-Flow Streams ──
+  subTitle(`Return Cash-Flow Streams (hold to ${rs.exitYearLabel})`);
+  note('Signed cash flows: negative = invested, positive = returned. Terminal value is included in the exit-year FCFF (enterprise) and FCFE / Distributed Equity (equity) cells. NOI is the recurring hospitality + lease income net of operating cost. The opening column is the inception period.');
+  streamRow('FCFF, unlevered project', rs.fcffPerPeriod, { style: 'subtotal' });
+  streamRow('FCFE, levered equity', rs.fcfePerPeriod, { style: 'subtotal' });
+  streamRow('Distributed Equity (realized distributions)', rs.dividendStreamPerPeriod, { style: 'subtotal' });
+  // NOI is on the PROJECT axis (index 0 = first project year), the streams on the
+  // stream basis (index 0 = inception), so it is lifted by one leading zero, as
+  // the screen does. Without it every NOI figure sat a year early and the exit
+  // year's NOI fell off the end.
+  streamRow('Memo: NOI (recurring)', [0, ...rs.noiPerPeriod.slice(0, Math.max(0, rs.fcffPerPeriod.length - 1))], { indent: 1 });
+  r += 1;
+
+  // ── Step-by-step build-ups (row lists from the shared builder) ──
+  textLine('Step-by-Step Build-Up');
+  const emitBuildup = (title: string, caption: string, rows: Array<{ label: string; values: number[]; indent?: number; isTotal?: boolean }>): void => {
+    subTitle(title);
+    note(caption);
+    for (const row of rows) streamRow(row.label, row.values, row.isTotal ? { style: 'total' } : { indent: row.indent });
+    r += 1;
+  };
+  emitBuildup('FCFF Build-Up (unlevered, to all capital providers)',
+    'Free Cash Flow to Firm = Cash from Operations (pre-interest) less the FULL COST of building, which is the cash capex plus the land contributed in-kind plus the interest capitalised during construction, plus the terminal enterprise value at exit. Pre-financing: debt drawdowns, principal and the operating finance cost are excluded and appear in FCFE below.',
+    buildFcffBuildup(rs, m4StreamRow));
+  emitBuildup('FCFE Build-Up (levered, free cash to equity)',
+    'Free Cash Flow to Equity builds from FCFF above: FCFF, then the debt drawn for capex and the debt drawn for IDC, less principal repaid and the OPERATING finance cost, with the terminal enterprise value swapped for terminal value less closing debt. The in-kind land and the IDC are already inside FCFF and are not repeated here. The NEGATIVE periods are the NEW cash equity the sponsor must inject.',
+    buildFcfeBuildup(rs, m4StreamRow));
+  emitBuildup(rs.waterfall.active ? 'Dividend Discount Model (DDM), before performance fee' : 'Distributed Equity Build-Up (Dividend Discount Model)',
+    'Equity investment (existing + new cash + in-kind) out, dividends and return of capital distributed by the cash-sweep waterfall in, plus the terminal equity value at exit. This is the basis for the Distributed Equity IRR. Dividends are sized in the Financial Statements (Cash Sweep + Dividend policy), not in the funding gap.',
+    buildDividendBuildup(rs, m4StreamRow));
+  textLine(`DDM IRR${rs.waterfall.active ? ' (before performance fee)' : ''} ${cPct(rr.dividends.irr)} · MOIC ${cMult(rr.dividends.moic)}`);
+  r += 1;
+
+  // ── Performance Fee (hurdle waterfall) and DDM after fee ──
+  if (isFundActive(rs)) {
+    const w = rs.waterfall;
+    subTitle('Performance Fee (hurdle waterfall) and DDM after fee');
+    note(`Equity drawn folds into a single unpaid hurdle balance, which accrues at the hurdle rate and is settled by one Hurdle Paid line. Anything distributed above it is excess, and the performance fee is a flat percentage of that excess. Hurdle ${cPct(w.hurdleRate)}, performance fee ${cPct(w.performanceFeePct)}. The distributions net of that fee, against the same equity investment, give the DDM after fee below.`);
+    // The terms the waterfall was run on, shaded as the inputs they are.
+    textLine('Fund Terms Applied');
+    scalarRow('Hurdle rate (preferred return)', w.hurdleRate, NUMFMT.pct2, { input: true });
+    scalarRow('Performance fee on the excess', w.performanceFeePct, NUMFMT.pct2, { input: true });
+    scalarRow('Fund Manager', resolveFundTerms(state.project).fundManagerName, '@', { input: true });
+    r += 1;
+    kpiStrip('Fund Returns, Gross vs Net', buildFundHeadlineCards(textCtx).map((c) => ({ ...c, tone: c.label === 'Unpaid Hurdle at Exit' ? (w.hurdleShortfall > 0 ? 'bad' as const : 'good' as const) : undefined })));
+    grid('', [...FUND_GROSS_NET_COLUMNS], buildFundGrossNetRows(textCtx).map((g) => ({ label: g.cells[0], bold: g.emphasis === 'total', cells: g.cells.slice(1) })));
+    // Written into the blank separator row the grid just left, so the note sits
+    // directly under the table.
+    { const gn = fundGrossNetNote(textCtx); if (gn) { r -= 1; note(gn); } }
+
+    subTitle(`Performance Fee (hold to ${rs.exitYearLabel})`);
+    note('Each line feeds the next, in the order shown. The balance lines (BoP, Total Hurdle Owed, EoP) carry no lifetime total, and neither does Hurdle Accrued, an accrual charged on that compounding balance. The opening column is the inception period. Gross distributions are shown as a memo below the sequence.');
+    for (const row of buildFundWaterfallRows(rowsCtx)) emitFundM4(row);
+    note(fundWaterfallTotalsNote(textCtx));
+
+    subTitle('Dividend Discount Model (DDM), after performance fee');
+    note('The same equity investment as the DDM above, with the distributions net of the performance fee. The IRR and MOIC below are the post-fee return to the equity holders.');
+    for (const row of buildDdmPostFeeRows(rowsCtx)) emitFundM4(row);
+    textLine(`DDM IRR (after performance fee) ${cPct(rs.resultNetDividends.irr)} · MOIC ${cMult(rs.resultNetDividends.moic)}`);
+    r += 1;
+  }
+
+  // ── Exit: terminal value and gain on disposal ──
+  {
+    const vis = state.assets;
+    const lineState = { assets: vis, phases: state.phases, parcels: state.parcels };
+    const lines = planReportLines(lineState);
+    const labelOf = (id: string): string => {
+      const a = vis.find((x) => x.id === id);
+      return a ? assetLabel(a, { parcels: state.parcels, phases: state.phases }) : id;
+    };
+    const groupOf = (assetId: string): { key: string; label: string } | undefined => {
+      const line = lines.find((l) => l.assetIds.includes(assetId));
+      return line ? { key: line.key, label: lineTitle(line, lineState) } : undefined;
+    };
+    const working = buildDisposalWorking(snap, rs, labelOf, groupOf);
+    subTitle('Exit: terminal value and gain on disposal');
+    note('The held assets are sold at the exit for the terminal value. Each figure below is the one booked in the P&L, the cash flow, the balance sheet and the Returns streams, so changing the basis, the method or the cap rate moves all of them together.');
+    for (const row of working.rows) {
+      if (row.kind === 'section') { textLine(row.label); continue; }
+      const strong = row.kind === 'total' || row.kind === 'subtotal';
+      setLabel(ws.getCell(r, LBL_COL), row.label, { bold: strong, indent: row.indent });
+      const c = ws.getCell(r, TOTAL_COL);
+      if (row.format === 'text' || row.value === undefined) { c.value = row.text ?? ''; c.numFmt = '@'; c.alignment = { horizontal: 'right' }; }
+      else { c.value = row.value; c.numFmt = row.format === 'pct' ? NUMFMT.pct2 : row.format === 'mult' ? NUMFMT.mult : NUMFMT.money; }
+      c.font = { name: 'Calibri', size: BODY_SIZE, bold: strong, italic: row.kind === 'check', color: { argb: strong ? ARGB.navy : ARGB.formula } };
+      r += 1;
+    }
+    r += 1;
+    if (working.byAsset.length > 0) {
+      const sumOf = (k: 'building' | 'land' | 'capitalisedInterest' | 'total'): number => working.byAsset.reduce((s, a) => s + a[k], 0);
+      grid('', ['Held line sold', 'Building', 'Land', 'Capitalised interest', 'Net book value'], [
+        ...working.byAsset.map((a) => ({ label: a.label, cells: [{ v: a.building }, { v: a.land }, { v: a.capitalisedInterest }, { v: a.total, bold: true }] as GridCell[] })),
+        { label: 'Total', bold: true, cells: [{ v: sumOf('building') }, { v: sumOf('land') }, { v: sumOf('capitalisedInterest') }, { v: sumOf('total') }] },
+      ]);
+    }
+  }
+
+  // ── Sensitivity, Equity IRR (FCFE), on the screen's default axes ──
+  {
+    const xVar: SensitivityVariable = 'exit_cap_rate', yVar: SensitivityVariable = 'sales_price_pct';
+    let sens: ReturnType<typeof computeReturnsSensitivity> | null = null;
+    try { sens = computeReturnsSensitivity(snap, state.project, xVar, yVar); } catch { sens = null; }
+    subTitle('Sensitivity, Equity IRR (FCFE)');
+    if (sens) {
+      const base = sens.baseEquityIrr;
+      note(`Equity IRR across combinations. Exit Cap Rate and Discount Rate are exact; Sales Price, ADR and Construction Cost are proportional cash-flow shocks (approximate, not a full re-forecast). Columns: ${SENS_LABELS[xVar].label}; rows: ${SENS_LABELS[yVar].label} (the platform's default axes; the platform lets either be changed). Bold green = at or above the base-case Equity IRR (${cPct(base)}), shaded = below.`);
+      grid('', [`${SENS_LABELS[yVar].label} \\ ${SENS_LABELS[xVar].label}`, ...sens.xValues.map((xv) => sensValueLabel(xVar, xv))],
+        sens.yValues.map((yv, yi) => ({
+          label: sensValueLabel(yVar, yv), bold: true,
+          cells: sens!.xValues.map((_x, xi) => {
+            const v = sens!.irr[yi][xi];
+            if (v == null || !Number.isFinite(v)) return 'n/a';
+            const above = base != null && v >= base;
+            return { v, fmt: NUMFMT.pct2, tone: above ? 'good' as const : undefined, fill: base != null && !above ? ARGB.warnBg : undefined };
+          }),
+        })));
+    } else {
+      note('The sensitivity grid could not be computed on this model.');
+    }
+  }
+
+  // ═══ 2. RE Metrics (Module5Metrics, top to bottom) ════════════════════════════
+  section('2. RE Metrics');
+  note('Real-estate decision view. The hero metrics below are the deal-deciders; Lender Covenants and Exit-Year Analysis are the analytical centrepieces; supporting detail is grouped underneath. Every coverage / leverage headline (Min DSCR, Debt Yield, peak LTV) is derived from the per-period series shown in the covenant heatmap, so a headline always equals the row it summarises.');
+  {
+    const m = rs.result.realEstate, ee = rs.equityExposure, fm = rs.fundingMix;
+    // THE SAME INPUTS AND REDUCERS AS THE SCREEN (lib/covenants.ts), so a card
+    // here can never disagree with the covenant row it summarises. LTV is at
+    // PEAK DEBT (debt / GDV); LTV at exit is 0% once debt is repaid.
+    const covenantInputs: CovenantInputs = {
+      dscrPerPeriod: m.dscrPerPeriod,
+      icrPerPeriod: m.icrPerPeriod,
+      noiPerPeriod: rs.noiPerPeriod, debtOutstandingPerPeriod: snap.bs.debtOutstandingPerPeriod,
+      gdvValue: de.gdv, ltvAtExit: m.ltvAtExit,
+    };
+    const covenants = state.project.covenants ?? DEFAULT_COVENANTS;
+    const minDSCR = reduceWorst(covenantSeries('dscr', covenantInputs), 'min');
+    const avgDSCR = reduceAvg(covenantSeries('dscr', covenantInputs));
+    const minICR = reduceWorst(covenantSeries('icr', covenantInputs), 'min');
+    const debtYieldWorst = reduceWorst(covenantSeries('debt_yield', covenantInputs), 'min');
+    const ltvPeak = reduceWorst(covenantSeries('ltv', covenantInputs), 'max');
+    const ltvHero = ltvPeak != null ? ltvPeak : m.ltvAtExit;
+    const dscrThreshold = covenants.find((c) => c.metric === 'dscr')?.threshold ?? 1.20;
+    const ltvThreshold = covenants.find((c) => c.metric === 'ltv')?.threshold ?? 0.60;
+    const dscrPass = minDSCR == null ? null : minDSCR >= dscrThreshold;
+    const ltvPass = ltvHero == null ? null : ltvHero <= ltvThreshold;
+    const badge = (pass: boolean | null): string => (pass == null ? '' : pass ? ' · Pass' : ' · Breach');
+    const tone = (pass: boolean | null): 'good' | 'bad' | undefined => (pass == null ? undefined : pass ? 'good' : 'bad');
+
+    kpiStrip('', [
+      { label: 'Equity Multiple (MOIC)', value: cMult(rr.fcfe.moic), sub: 'equity out / equity in, at the selected exit' },
+      { label: 'Yield on Cost', value: cPct(m.yieldOnCost), sub: 'stabilised NOI / total cost' },
+      { label: 'Profit Margin', value: cPct(m.profitMargin), sub: 'PAT / revenue' },
+      { label: 'Min DSCR', value: cMult(minDSCR), sub: `worst debt-service yr · vs ${cMult(dscrThreshold)}${badge(dscrPass)}`, tone: tone(dscrPass) },
+      { label: 'Peak Equity', value: cMoney(m.peakEquity), sub: `max equity at risk · ${currency}` },
+      { label: ltvPeak != null ? 'LTV (peak debt)' : 'LTV at Exit', value: cPct(ltvHero), sub: `${ltvPeak != null ? 'peak debt / GDV' : 'debt / exit value'} · vs ${cPct(ltvThreshold, 0)}${badge(ltvPass)}`, tone: tone(ltvPass) },
+    ]);
+
+    // ── Lender Covenants ──
+    subTitle('Lender Covenants');
+    note('Standard covenants vs editable thresholds (saved with the project). Worst = the binding period (min for DSCR / ICR / Debt Yield, max for LTV); Pass / Breach compares the worst to the threshold. DSCR and Interest Cover come from the snapshot; Debt Yield = NOI / debt; LTV is measured at peak debt (peak debt outstanding / Gross Development Value), since LTV at exit is ~0% once debt is repaid. Where there is no value basis it falls back to LTV at exit (labelled as such). Thresholds are in x for DSCR / ICR and % for LTV / Debt Yield.');
+    const evals = covenants.map((cov) => ({ cov, ev: evaluateCovenant(cov, covenantInputs) }));
+    const covFmt = (unit: 'x' | 'pct'): string => (unit === 'pct' ? NUMFMT.pct2 : NUMFMT.mult);
+    const metricName = (metric: string): string => COVENANT_METRIC_LABELS.find((o) => o.v === metric)?.label ?? metric;
+    grid('', ['Covenant', 'Metric', 'Test', 'Threshold', 'Worst', 'Avg', 'Status'], evals.map(({ cov, ev }) => {
+      const unit = covenantUnit(cov.metric);
+      return {
+        label: cov.label, input: true,
+        cells: [
+          { v: `${metricName(cov.metric)}${ev.basisLabel ? ` (${ev.basisLabel})` : ''}`, input: true },
+          { v: cov.operator === 'min' ? 'min ≥' : 'max ≤', input: true },
+          { v: cov.threshold, fmt: covFmt(unit), input: true },
+          ev.worst == null ? '-' : { v: ev.worst, fmt: covFmt(unit), bold: true },
+          ev.avg == null ? '-' : { v: ev.avg, fmt: covFmt(unit) },
+          { v: ev.pass == null ? 'n/a' : ev.pass ? 'Pass' : 'Breach', bold: true, tone: ev.pass == null ? undefined : ev.pass ? 'good' : 'bad' },
+        ],
+      };
+    }));
+    // Covenant by year: a row per metric-backed covenant with a real series. A
+    // pass reads in green, a breach in red on the warning shade.
+    const perPeriod = evals.filter(({ ev, cov }) => !ev.exitOnly && cov.metric !== 'custom' && ev.seriesPerPeriod.some((v) => v != null));
+    if (perPeriod.length > 0) {
+      subTitle('Covenant by year');
+      for (const { cov, ev } of perPeriod) {
+        setLabel(ws.getCell(r, LBL_COL), cov.label, { bold: true });
+        setBasis(ws.getCell(r, META_B), `${cov.operator === 'min' ? 'min ≥' : 'max ≤'} ${ev.unit === 'pct' ? cPct(cov.threshold) : cMult(cov.threshold)}`);
+        for (let t = 0; t < N; t++) {
+          const v = ev.seriesPerPeriod[t] ?? null;
+          const c = ws.getCell(r, pcol(t));
+          if (v == null) { c.value = '-'; c.numFmt = '@'; c.alignment = { horizontal: 'right' }; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; continue; }
+          const pass = cov.operator === 'min' ? v >= cov.threshold : v <= cov.threshold;
+          c.value = v; c.numFmt = covFmt(ev.unit);
+          c.font = { name: 'Calibri', size: BODY_SIZE, bold: !pass, color: { argb: pass ? ARGB.good : ARGB.bad } };
+          if (!pass) fillCell(c, ARGB.warnBg);
+        }
+        r += 1;
+      }
+      r += 1;
+    }
+
+    // ── Exit-Year Analysis ──
+    subTitle('Exit-Year Analysis (hold vs sell timing)');
+    note('Project IRR (FCFF) and Equity IRR (FCFE) if the asset is sold at the end of each year, using that year\'s terminal value. The marked row is the selected Exit Year; its Equity MOIC is the Equity Multiple above.');
+    grid('', ['Exit Year', 'Enterprise Value', 'Equity Value', 'Project IRR', 'Equity IRR', 'Equity MOIC'],
+      rs.exitYears.map((x) => ({ label: `${x.exitYearLabel}${x.isSelected ? '  ◀ selected' : ''}`, bold: x.isSelected, cells: [{ v: x.enterpriseValue }, { v: x.equityValue }, cPct(x.fcffIrr), cPct(x.fcfeIrr), cMult(x.equityMoic)] })));
+
+    kpiStrip('Coverage and profitability detail', [
+      { label: 'Avg DSCR', value: cMult(avgDSCR), sub: 'mean over debt-service years' },
+      { label: 'Min Interest Cover', value: cMult(minICR), sub: 'worst yr · EBITDA / interest' },
+      { label: 'Debt Yield', value: cPct(debtYieldWorst), sub: 'worst operating yr · NOI / debt' },
+      { label: 'Avg Cash-on-Cash', value: cPct(m.cashOnCashAvg), sub: 'cash yield on equity' },
+      { label: 'Cap Rate at Exit', value: cPct(m.capRateAtExit), sub: 'exit NOI / exit value' },
+      { label: 'Profit on Cost', value: cPct(m.profitOnCost), sub: '(revenue - cost) / cost' },
+      { label: 'Development Spread', value: cPct(m.developmentSpread), sub: 'yield on cost - exit cap rate' },
+      { label: 'Max Negative Cash Flow', value: cMoney(ee.maxNegativeCumulativeCF), sub: 'peak FCFE outflow', tone: 'bad' },
+    ]);
+    kpiStrip('Development economics', [
+      { label: 'Gross Development Value', value: cMoney(de.gdv), sub: 'GDV' },
+      { label: 'Total Development Cost', value: cMoney(de.totalDevelopmentCost) },
+      { label: 'Total Financing Cost', value: cMoney(de.totalFinancingCost) },
+      { label: 'Profit before Financing', value: cMoney(de.profitBeforeFinancing), sub: 'GDV less cost', tone: de.profitBeforeFinancing >= 0 ? 'good' : 'bad' },
+      { label: 'Profit after Financing', value: cMoney(de.profitAfterFinancing), sub: 'less financing cost', tone: de.profitAfterFinancing >= 0 ? 'good' : 'bad' },
+      { label: 'Development Margin', value: cPct(de.developmentMargin), sub: 'profit / GDV', tone: de.developmentMargin !== null && de.developmentMargin > 0 ? 'good' : undefined },
+      { label: 'Cost to Value', value: cPct(de.costToValue), sub: 'dev cost / GDV' },
+    ]);
+    kpiStrip('Income and exit profile', [
+      { label: 'Stabilised NOI', value: cMoney(rs.stabilisedNOI) },
+      { label: 'Exit NOI', value: cMoney(rs.exitNOI), sub: `year ${rs.exitYearLabel}` },
+      { label: 'Stabilisation Year', value: rs.stabilization.stabilizationYear != null ? String(rs.stabilization.stabilizationYear) : 'n/a', sub: 'NOI reaches 95% of stable' },
+      { label: 'Stabilised Yield on Cost', value: cPct(rs.stabilization.stabilisedYieldOnCost), sub: 'stabilised NOI / dev cost' },
+      { label: 'Exit Cap Rate', value: cPct(m.capRateAtExit), sub: 'exit NOI / exit value' },
+      { label: 'Terminal Enterprise Value', value: cMoney(rs.terminalEnterpriseValue) },
+      { label: 'Terminal Equity Value', value: cMoney(rs.terminalEquityValue), sub: 'EV less debt + cash' },
+    ]);
+    kpiStrip('Funding mix', [
+      { label: 'Debt', value: cPct(fm.debtPct), sub: '% of total sources' },
+      { label: 'Cash Equity', value: cPct(fm.cashEquityPct), sub: 'existing + new cash' },
+      { label: 'In-Kind Equity', value: cPct(fm.inKindEquityPct), sub: 'contributed land' },
+      { label: 'Customer Funding', value: cPct(fm.customerFundingPct), sub: 'pre-sales collections' },
+    ]);
+
+    // ── Operating KPIs (shared builder; only the blocks the project carries) ──
+    const ok = buildOperatingKpis(snap, state.assets);
+    if (ok.hospitality || ok.residential || ok.lease) {
+      subTitle('Operating KPIs (hospitality / residential / lease)');
+      const unitRate = (v: number | null): string => (v == null ? 'n/a' : Math.round(v).toLocaleString('en-US'));
+      const intFmt = (v: number): string => Math.round(v).toLocaleString('en-US');
+      if (ok.hospitality) {
+        const h = ok.hospitality;
+        textLine('Hospitality Operations');
+        note(`Blended across all hospitality (Operate) assets over the hold. ADR and RevPAR are per-night rates in ${currency} (not scaled); occupancy is occupied / available room nights.`);
+        kpiStrip('', [
+          { label: 'Occupancy', value: cPct(h.occupancy), sub: 'occupied / available nights' },
+          { label: 'ADR', value: unitRate(h.adr), sub: `${currency} / occupied night` },
+          { label: 'RevPAR', value: unitRate(h.revpar), sub: `${currency} / available night` },
+          { label: 'Rooms Revenue', value: cMoney(h.roomsRevenue) },
+          { label: 'F&B Revenue', value: cMoney(h.fbRevenue) },
+          { label: 'Other Revenue', value: cMoney(h.otherRevenue) },
+          { label: 'Total Hospitality Revenue', value: cMoney(h.totalRevenue) },
+          { label: 'Available Room Nights', value: intFmt(h.availableRoomNights), sub: 'capacity over hold' },
+        ]);
+      }
+      if (ok.residential) {
+        const s = ok.residential;
+        textLine('Residential (For-Sale)');
+        note(`Blended across all Sell / Sell+Manage assets over the hold. Prices are sale value; per-unit and per-sqm rates are in ${currency} (not scaled).`);
+        kpiStrip('', [
+          { label: 'Residential GDV', value: cMoney(s.saleValue), sub: 'sale value' },
+          { label: 'Units Sold', value: intFmt(s.unitsSold), sub: 'pre + post sales' },
+          { label: 'Avg Sale Price / Unit', value: unitRate(s.pricePerUnit), sub: `${currency} / unit` },
+          { label: 'Avg Sale Price / sqm', value: unitRate(s.pricePerSqm), sub: `${currency} / sellable sqm` },
+          { label: 'Pre-Sales %', value: cPct(s.preSalesPct), sub: 'pre-sales / residential GDV' },
+          { label: 'Sales Velocity', value: unitRate(s.velocity), sub: 'units / yr (active years)' },
+        ]);
+      }
+      if (ok.lease) {
+        const l = ok.lease;
+        textLine('Lease / Income (Retail, Office)');
+        note(`Blended across all Lease assets over the hold. Rent is achieved rent per occupied sqm per year in ${currency} (not scaled); occupancy is occupied area / GLA over operating periods.`);
+        kpiStrip('', [
+          { label: 'Total GLA', value: intFmt(l.gla), sub: 'sqm leasable' },
+          { label: 'Avg Occupancy', value: cPct(l.avgOccupancy), sub: 'occupied / GLA over ops' },
+          { label: 'Rent per Leased sqm', value: unitRate(l.rentPerSqm), sub: `${currency} / occupied sqm / yr` },
+          { label: 'Total Lease Revenue', value: cMoney(l.totalRevenue) },
+        ]);
+      }
+    }
+  }
+
+  // ═══ 3. Case Comparison (Module5CaseComparison) ═══════════════════════════════
+  section('3. Case Comparison');
+  emitCaseComparison({ ws, N, row: () => r, setRow: (x) => { r = x; }, subTitle, note, report: caseReportOf(ctx.caseComparison), currency,
+    intro: 'Every case computed through the full model. The Management Case is the base; each scenario applies its own input overrides. Money figures in millions. The figure in brackets under each scenario is the delta vs the Management Case.' });
+
+  return { rs: rsx };
 }
 
-// ── Scenarios (Module 6: case comparison + year-on-year impact) ───────────────
-/** Full mirror of the platform Module 6 (Scenario Analysis), built from the SAME
- *  shared case builders that feed the on-screen Module 6 and the PDF export:
- *    1. Cases & Assumptions: every case + the assumptions that differ,
- *    2. Scenario Comparison: headline KPIs per case, delta vs the Management base,
- *    3. Year-on-Year Impact: each changed input and the per-period outputs it
- *       drives, Management vs each scenario.
- *  The statement tabs render the SELECTED case (`ctx.state`); this tab always
- *  compares ALL cases. Every case is computed through the same engine the
- *  platform uses (applyOverrides -> financials -> returns), so it ties exactly.
- *  Degrades to a short note when the project has no scenario cases. */
+/** The case comparison matrix, shared by the Module 5 Case Comparison section
+ *  and the Module 6 Comparison section (both screens render the same table from
+ *  the same report). Header: each case with its overrides note; body: CASE_KPIS
+ *  with the delta vs Management in brackets under every scenario. */
+function emitCaseComparison(a: {
+  ws: ExcelJS.Worksheet; N: number; row: () => number; setRow: (r: number) => void;
+  subTitle: (t: string) => void; note: (t: string) => void;
+  report: CaseComparisonReport | null; currency: string; intro: string; title?: string;
+}): void {
+  const { ws, report } = a;
+  if (!report || report.columns.length === 0) {
+    a.note('No cases are defined for this project, so there is nothing to compare. Cases are added in Module 6 (Scenario Analysis).');
+    return;
+  }
+  a.note(a.intro);
+  const cols = report.columns;
+  const baseCol = cols.find((c) => c.id === report.baseId) ?? cols[0];
+  const cPct = retPct, cMult = retMult, cMoney = retMoney(a.currency);
+  const fmtKpi = (v: number | null, kind: CaseKpiKind, nullLabel?: string): string => (v == null || !Number.isFinite(v) ? (nullLabel ?? 'n/a') : kind === 'pct' ? cPct(v) : kind === 'mult' ? cMult(v) : cMoney(v));
+  const fmtDelta = (v: number | null, base: number | null, kind: CaseKpiKind): string => {
+    if (v == null || base == null || !Number.isFinite(v) || !Number.isFinite(base)) return '';
+    const d = v - base; if (Math.abs(d) < 1e-9) return '0';
+    const sign = d > 0 ? '+' : '';
+    return kind === 'pct' ? `${sign}${(d * 100).toFixed(1)} pp` : kind === 'mult' ? `${sign}${d.toFixed(2)}x` : `${sign}${cMoney(d)}`;
+  };
+  a.subTitle(a.title ?? 'Case Comparison, headline KPIs (delta vs Management base)');
+  let r = a.row();
+  setColHeader(ws.getCell(r, LBL_COL), 'Metric', 'left');
+  cols.forEach((c, i) => setColHeader(ws.getCell(r, OPEN_COL + i), `${c.role === 'base' ? '★' : '◆'} ${c.name}${c.isActive ? ' (active)' : ''}`, 'right'));
+  r += 1;
+  setLabel(ws.getCell(r, LBL_COL), '');
+  cols.forEach((c, i) => { const cell = ws.getCell(r, OPEN_COL + i); cell.value = caseOverridesNote(c); cell.numFmt = '@'; cell.alignment = { horizontal: 'right' }; cell.font = { name: 'Calibri', size: 8, italic: true, color: { argb: ARGB.navyDark } }; });
+  r += 1;
+  for (const k of report.kpis) {
+    setLabel(ws.getCell(r, LBL_COL), k.sub ? `${k.label} (${k.sub})` : k.label);
+    cols.forEach((col, i) => {
+      const v = col.values[k.label] ?? null;
+      let s = fmtKpi(v, k.kind, k.nullLabel);
+      if (col.id !== report.baseId) { const d = fmtDelta(v, baseCol.values[k.label] ?? null, k.kind); if (d) s += ` (${d})`; }
+      const cell = ws.getCell(r, OPEN_COL + i); cell.value = s; cell.numFmt = '@'; cell.alignment = { horizontal: 'right' };
+      cell.font = { name: 'Calibri', size: BODY_SIZE, bold: col.isActive, color: { argb: ARGB.formula } };
+    });
+    r += 1;
+  }
+  a.setRow(r + 1);
+}
+
+// ── Scenarios (Module 6: 1. Cases, 2. Assumptions by case, 3. Comparison, 4. YoY) ─
+/** Mirror of the platform Module 6 (Scenario Analysis) in its own section order,
+ *  from the same shared builders its screen reads: the case list, the
+ *  assumptions grid (`curatedDefaultFields`, `inactiveLeverReason`,
+ *  `isAppliedValue`, `groupAssumptionRows`, so the curated key drivers show with
+ *  their Management values even when no case overrides anything), the comparison
+ *  report and the year-on-year report. The statement tabs render the SELECTED
+ *  case; this tab always compares ALL cases. */
 function addScenarios(ctx: EmitCtx): void {
   const { wb, snap, currency } = ctx;
   const N = snap.axisLength;
   const ws = wb.addWorksheet(SHEETS.scenarios, { properties: { tabColor: { argb: ARGB.navy } } });
-  writeSheetHeader(ws, snap, N, 'Scenarios', 'Full mirror of the platform Module 6 Scenario Analysis: 1. Cases & Assumptions, 2. Scenario Comparison (headline KPIs per case, delta vs the Management base), 3. Year-on-Year Impact (each changed input and the per-period outputs it drives). The statement tabs render the selected case; this tab always compares ALL cases.', { label: 'Line', feeds: 'Every case is computed through the same engine as the platform (applyOverrides -> financials -> returns). The Management base is the reference column.' });
+  writeSheetHeader(ws, snap, N, 'Scenarios', 'Mirror of the platform Module 6 (Scenario Analysis): 1. Cases, 2. Assumptions by case, 3. Comparison, 4. Year-on-Year Impact. The statement tabs render the selected case; this tab always compares ALL cases.', { label: 'Line', feeds: 'Every case is computed through the same engine as the platform (overrides applied to the Management base, then the financials and returns). The Management base is the reference column.' });
   let r = 5;
 
-  // Local emitters sharing one row cursor (mirroring the Returns tab).
   const section = (text: string): void => { setSectionHeader(ws.getRow(r), text, lastActiveCol(N), ARGB.accent); r += 1; };
   const subTitle = (text: string): void => {
     setLabel(ws.getCell(r, LBL_COL), text, { bold: true });
@@ -3737,208 +3971,225 @@ function addScenarios(ctx: EmitCtx): void {
     for (let c = 1; c <= lastActiveCol(N); c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
     r += 1;
   };
-  // Generic string grid: header[0] + rows[][0] in the label column (A), the rest
-  // across from the opening column (E).
-  const gridTable = (title: string, headers: string[], rows: string[][]): void => {
-    subTitle(title);
-    setColHeader(ws.getCell(r, LBL_COL), headers[0], 'left');
-    for (let i = 1; i < headers.length; i++) setColHeader(ws.getCell(r, OPEN_COL + i - 1), headers[i], 'right');
+  const note = (text: string): void => {
+    if (!text) return;
+    setLabel(ws.getCell(r, LBL_COL), text);
+    ws.getCell(r, LBL_COL).font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
+    r += 2;
+  };
+  // A per-period money row (label + opening E + F.. + Total D). A running
+  // balance ('stock') leaves the Total BLANK, as the screen does: a balance
+  // summed over periods is not a number.
+  const periodRow = (label: string, values: number[], prior: number, kind: 'flow' | 'stock', style: 'plain' | 'bold' | 'delta' = 'plain'): void => {
+    const vals = values.slice(0, N);
+    setLabel(ws.getCell(r, LBL_COL), label, { bold: style === 'bold' });
+    const font = { name: 'Calibri', size: BODY_SIZE, bold: style === 'bold', italic: style === 'delta', color: { argb: style === 'delta' ? ARGB.navyDark : ARGB.formula } };
+    if (style === 'delta') ws.getCell(r, LBL_COL).font = font;
+    const put = (c: number, v: number): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = NUMFMT.money; cell.font = font; };
+    put(OPEN_COL, prior);
+    for (let t = 0; t < N; t++) put(pcol(t), vals[t] ?? 0);
+    if (kind === 'flow') put(TOTAL_COL, vals.reduce((s, v) => s + (v ?? 0), 0));
     r += 1;
-    for (const cells of rows) {
-      setLabel(ws.getCell(r, LBL_COL), cells[0]);
-      for (let i = 1; i < cells.length; i++) { const c = ws.getCell(r, OPEN_COL + i - 1); c.value = cells[i] ?? ''; c.numFmt = '@'; c.alignment = { horizontal: 'right' }; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; }
+  };
+
+  const input = ctx.caseComparison;
+  const report = caseReportOf(input);
+  const useScenarios = (input?.baseModel?.project?.useScenarios ?? ctx.state.project.useScenarios) ?? true;
+
+  // ── "Use scenarios?" ──
+  setLabel(ws.getCell(r, LBL_COL), 'Use scenarios?', { bold: true });
+  { const c = ws.getCell(r, TOTAL_COL); c.value = useScenarios ? 'Yes' : 'No'; c.numFmt = '@'; c.alignment = { horizontal: 'right' }; markInput(c); }
+  r += 1;
+  note(useScenarios
+    ? 'A scenario is the Management (base) case plus a few input overrides. The active case drives every module and the Returns tabs. The base model is never changed.'
+    : 'Scenarios are off. The platform computes on the Management Case, and the assumptions grid and case comparison are hidden. The cases and overrides are saved, not deleted.');
+
+  // ── 1. Cases ──
+  section('1. Cases');
+  if (!input || !report || report.columns.length === 0) {
+    note('No scenario cases are defined for this project. Add scenario cases in Module 6 (Scenario Analysis) on the platform to compare assumptions and outcomes here, then re-export.');
+    return;
+  }
+  const cols = report.columns;
+  {
+    setColHeader(ws.getCell(r, LBL_COL), 'Case', 'left');
+    ['Type', 'Active', 'Overrides'].forEach((h, i) => setColHeader(ws.getCell(r, OPEN_COL + i), h, 'right'));
+    r += 1;
+    for (const c of cols) {
+      setLabel(ws.getCell(r, LBL_COL), `${c.role === 'base' ? '★' : '◆'} ${c.name}`, { bold: c.isActive });
+      [c.role === 'base' ? 'Management (base)' : 'Scenario', c.isActive ? 'ACTIVE' : '', c.role === 'base' ? 'base' : `${c.overrideCount} override${c.overrideCount === 1 ? '' : 's'}`].forEach((v, i) => {
+        const cell = ws.getCell(r, OPEN_COL + i); cell.value = v; cell.numFmt = '@'; cell.alignment = { horizontal: 'right' }; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+      });
       r += 1;
     }
     r += 1;
-  };
-  // A per-period money row (label + opening E + F.. + Total D). kind 'stock' takes
-  // the last period as its Total (a running balance); 'flow' sums.
-  const periodRow = (label: string, values: number[], prior: number, kind: 'flow' | 'stock', style: 'plain' | 'subtotal' | 'total' = 'plain'): void => {
-    const vals = values.slice(0, N);
-    setLabel(ws.getCell(r, LBL_COL), label, { bold: style !== 'plain' });
-    const put = (c: number, v: number): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
-    put(OPEN_COL, prior);
-    for (let t = 0; t < N; t++) put(pcol(t), vals[t] ?? 0);
-    put(TOTAL_COL, kind === 'stock' ? (vals[N - 1] ?? 0) : vals.reduce((s, v) => s + (v ?? 0), 0));
-    if (style === 'total') { fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.navy); for (let c = 1; c <= lastActiveCol(N); c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } }; }
-    else if (style === 'subtotal') { for (let c = 1; c <= lastActiveCol(N); c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } }; }
-    r += 1;
-  };
-
-  // Build the shared case reports (never throw; degrade to a note).
-  let caseReport: CaseComparisonReport | null = null;
-  let caseYoY: CaseYoYReport | null = null;
-  if (ctx.caseComparison) {
-    try { caseReport = buildCaseComparisonReport(ctx.caseComparison); } catch { caseReport = null; }
-    try { caseYoY = buildCaseYoYReport(ctx.caseComparison); } catch { caseYoY = null; }
   }
-  const cols = caseReport?.columns ?? [];
-  const hasScenarios = cols.length > 1;
+  if (!useScenarios) return;
 
-  // Comparison-matrix value formatters: fixed millions strings, matching the
-  // Returns tab (the per-period YoY rows below honour the workbook display scale).
-  const cPct = (v: number | null | undefined, d = 1): string => (v != null && Number.isFinite(v) ? `${(v * 100).toFixed(d)}%` : 'n/a');
-  const cMoney = (v: number | null | undefined): string => `${currency} ${formatAccounting(v ?? 0, 'millions', 1)} m`;
-  const cMult = (v: number | null | undefined): string => (v != null && Number.isFinite(v) ? `${v.toFixed(2)}x` : 'n/a');
-  const fmtKpi = (v: number | null, kind: CaseKpiKind): string => (v == null || !Number.isFinite(v) ? 'n/a' : kind === 'pct' ? cPct(v, 1) : kind === 'mult' ? cMult(v) : cMoney(v));
-  const fmtDelta = (v: number | null, base: number | null, kind: CaseKpiKind): string => {
-    if (v == null || base == null || !Number.isFinite(v) || !Number.isFinite(base)) return '';
-    const d = v - base; if (Math.abs(d) < 1e-9) return '0';
-    const sign = d > 0 ? '+' : '';
-    return kind === 'pct' ? `${sign}${(d * 100).toFixed(1)} pp` : kind === 'mult' ? `${sign}${d.toFixed(2)}x` : `${sign}${cMoney(d)}`;
-  };
-
-  // ── 1. Cases & Assumptions ───────────────────────────────────────────────────
-  section('1. Cases & Assumptions (every case + the assumptions that differ across scenarios)');
-  if (cols.length) {
-    gridTable('Cases', ['Case', 'Type', 'Active', 'Overrides'],
-      cols.map((c) => [c.name, c.role === 'base' ? 'Management (base)' : 'Scenario', c.isActive ? 'Yes' : '', c.role === 'base' ? '-' : (c.overrideCount === 0 ? '0 (same as Management)' : String(c.overrideCount))]));
-  }
-  if (caseYoY && caseYoY.blocks.length) {
-    const order = caseYoY.blocks[0].inputs[0]?.byCase.map((v) => ({ id: v.id, name: v.name })) ?? [];
-    if (order.length) {
-      const rows: string[][] = [];
-      for (const b of caseYoY.blocks) for (const line of b.inputs) {
-        const byId = new Map(line.byCase.map((v) => [v.id, v.value] as const));
-        rows.push([line.label, ...order.map((o) => formatAssumptionValue(byId.get(o.id) ?? null, line.format))]);
+  // ── 2. Assumptions by case ──
+  section('2. Assumptions by case');
+  note('Each row is an assumption, each column a case. A scenario value that differs from the Management Case is bold. Key drivers show by default, then every field any case overrides; a lever that cannot move results under the current settings is marked so.');
+  {
+    const base = input.baseModel;
+    const gridCtx = buildGridContext(base);
+    const fields = enumerateOverridableFields(base).filter((f) => !isPerPeriodLever(f.field) && !nonEconomicLeverReason(f.path, f.field));
+    const fieldByPath = new Map(fields.map((f) => [f.path, f]));
+    const overridesOf = (id: string): Record<string, unknown> => input.cases.find((c) => c.id === id)?.overrides ?? {};
+    const allOverridePaths = new Set<string>();
+    for (const c of input.cases) if (c.role !== 'base') Object.keys(c.overrides ?? {}).forEach((p) => allOverridePaths.add(p));
+    const rowPaths: string[] = [];
+    const seen = new Set<string>();
+    const add = (p: string): void => { if (!seen.has(p)) { seen.add(p); rowPaths.push(p); } };
+    curatedDefaultFields(base).forEach((f) => { if (!inactiveLeverReason(f.path, base)) add(f.path); });
+    allOverridePaths.forEach(add);
+    const built: GridRowLite[] = [];
+    for (const path of rowPaths) {
+      const baseVal = getByPath(base, path);
+      if (!allOverridePaths.has(path) && !isAppliedValue(baseVal)) continue;
+      built.push({ path, descriptor: assumptionFor(path, fieldByPath.get(path), baseVal, gridCtx) });
+    }
+    const groups = groupAssumptionRows(built);
+    if (groups.length === 0) {
+      note('No assumptions yet. Add one on the platform to start comparing values across cases.');
+    } else {
+      setColHeader(ws.getCell(r, LBL_COL), 'Assumption', 'left');
+      setColHeader(ws.getCell(r, META_B), 'Note', 'left');
+      cols.forEach((c, i) => setColHeader(ws.getCell(r, OPEN_COL + i), `${c.role === 'base' ? '★' : '◆'} ${c.name}`, 'right'));
+      r += 1;
+      for (const g of groups) {
+        subTitle(g.label);
+        for (const item of g.items) {
+          if (item.grouped) { setLabel(ws.getCell(r, LBL_COL), item.label, { bold: true, indent: 1 }); r += 1; }
+          for (const row of item.rows) {
+            const p = row.path;
+            const baseValue = getByPath(base, p);
+            setLabel(ws.getCell(r, LBL_COL), item.grouped ? (row.descriptor.context || row.descriptor.label) : row.descriptor.label, { indent: item.grouped ? 2 : 0 });
+            const notes = [inactiveLeverReason(p, base) ? 'not used under current settings' : '', leverNote(p) ?? ''].filter(Boolean).join('. ');
+            if (notes) setBasis(ws.getCell(r, META_B), notes);
+            cols.forEach((c, i) => {
+              const ov = c.role === 'base' ? {} : overridesOf(c.id);
+              const has = Object.prototype.hasOwnProperty.call(ov, p);
+              const value = has ? ov[p] : baseValue;
+              const cell = ws.getCell(r, OPEN_COL + i);
+              cell.value = `${formatAssumptionValue(value, row.descriptor.format)}${assumptionUnitSuffix(row.descriptor.format)}`;
+              cell.numFmt = '@'; cell.alignment = { horizontal: 'right' };
+              markInput(cell);
+              if (has && c.role !== 'base') cell.font = { ...(cell.font as object), bold: true };
+            });
+            r += 1;
+          }
+        }
       }
-      if (rows.length) gridTable('Assumptions that differ across scenarios', ['Assumption', ...order.map((o) => o.name)], rows);
+      r += 1;
     }
   }
 
-  // ── 2. Scenario Comparison ──────────────────────────────────────────────────
-  if (caseReport && hasScenarios) {
-    const rep = caseReport;
-    const baseCol = cols.find((c) => c.id === rep.baseId) ?? cols[0];
-    section('2. Scenario Comparison (headline KPIs per case, delta vs the Management base)');
-    const header = ['Metric', ...cols.map((c) => `${c.role === 'base' ? '* ' : ''}${c.name}`)];
-    const rows: string[][] = rep.kpis.map((k) => {
-      const cells: string[] = [k.sub ? `${k.label} (${k.sub})` : k.label];
-      for (const col of cols) {
-        const v = col.values[k.label] ?? null;
-        let s = fmtKpi(v, k.kind);
-        if (col.id !== rep.baseId) { const d = fmtDelta(v, baseCol.values[k.label] ?? null, k.kind); if (d) s += ` (${d})`; }
-        cells.push(s);
-      }
-      return cells;
-    });
-    gridTable('Case Comparison, headline KPIs (delta vs Management base)', header, rows);
-  }
+  // ── 3. Comparison ──
+  section('3. Comparison');
+  emitCaseComparison({ ws, N, row: () => r, setRow: (x) => { r = x; }, subTitle, note, report, currency, title: 'Comparison',
+    intro: 'Every case computed through the full model. Money figures in millions. The figure in brackets under each scenario is the delta vs the Management Case.' });
 
-  // ── 3. Year-on-Year Impact ──────────────────────────────────────────────────
-  if (caseYoY && caseYoY.blocks.length && hasScenarios) {
-    section('3. Year-on-Year Impact (each changed input and the per-period outputs it drives, Management vs each scenario)');
-    for (const b of caseYoY.blocks) {
-      for (const o of b.outputs) {
-        subTitle(`${b.inputLabel}, ${o.label}`);
-        periodRow(`${o.base.name} (base)`, o.base.values, o.base.prior, o.kind, 'subtotal');
-        for (const d of o.deltas) periodRow(`change, ${d.name}`, d.values, d.prior, o.kind);
-        r += 1;
-      }
+  // ── 4. Year-on-Year Impact ──
+  section('4. Year-on-Year Impact');
+  let yoy: CaseYoYReport | null = null;
+  try { yoy = buildCaseYoYReport(input); } catch { yoy = null; }
+  note(`One block per input a scenario changes: the input value per case, then every per-period output that input drives (Management and each scenario), with each scenario's delta vs Management below the actuals. The Total column sums flows and is blank for running balances. The opening column${yoy ? ` (${yoy.priorYearLabel})` : ''} is the opening / inception period.`);
+  if (!yoy || yoy.blocks.length === 0) {
+    note('No year-on-year impact yet. Override an input that drives a per-period output (for example debt %, an interest rate, a price / ADR, opex, or a construction cost) in a scenario to see how it diverges from Management over time.');
+    return;
+  }
+  for (const b of yoy.blocks) {
+    subTitle(b.inputLabel);
+    for (const line of b.inputs) {
+      const parts = line.byCase.map((iv) => `${iv.role === 'base' ? '★' : '◆'} ${iv.name}: ${formatAssumptionValue(iv.value, line.format)}${assumptionUnitSuffix(line.format)}`);
+      setLabel(ws.getCell(r, LBL_COL), `${line.label}:  ${parts.join('   ')}`, { bold: true });
+      r += 1;
     }
-  }
-
-  // No scenarios defined: a short note so the tab is never blank when present.
-  if (!hasScenarios) {
-    subTitle('Scenario Analysis');
-    setLabel(ws.getCell(r, LBL_COL), 'No scenario cases are defined for this project. Add scenario cases in Module 6 (Scenario Analysis) on the platform to compare assumptions and outcomes here, then re-export.');
-    r += 1;
+    for (const o of b.outputs) {
+      setLabel(ws.getCell(r, LBL_COL), `${o.label}${o.kind === 'stock' ? ' (balance)' : ''}`, { bold: true });
+      fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.grey);
+      r += 1;
+      periodRow(`★ ${o.base.name}`, o.base.values, o.base.prior, o.kind, 'bold');
+      for (const sc of o.scenarios) periodRow(`◆ ${sc.name}`, sc.values, sc.prior, o.kind);
+      for (const d of o.deltas) periodRow(`${d.name} delta vs Management`, d.values, d.prior, o.kind, 'delta');
+      r += 1;
+    }
   }
 }
 
 // ── Checks / legend ───────────────────────────────────────────────────────────
 function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): void {
-  // No `lm`: every check now reconciles the PLATFORM snapshot, which is what
-  // this workbook prints. It used to read the liveModel twin, so the tab
-  // certified a model the reader never sees.
+  void capexAddrs;
+  // Every check reconciles the PLATFORM snapshot, which is what this workbook
+  // prints, through the SAME rules the PDFs use (lib/reports/checksReport.ts).
   const { wb, snap } = ctx;
-  const N = snap.axisLength;
   const ws = wb.addWorksheet(SHEETS.checks, { properties: { tabColor: { argb: ARGB.navy } }, views: [{ showGridLines: false }] });
   ws.getColumn(1).width = 42; ws.getColumn(2).width = 14; ws.getColumn(3).width = 18; ws.getColumn(4).width = 62;
   setTitle(ws.getCell('A1'), 'Checks & Legend', 16);
   let r = 3;
+  // The legend carries the same four swatches as the Cover.
   setSectionHeader(ws.getRow(r), 'Colour legend (FAST)', 4); r += 1;
   { const inp = ws.getCell(`A${r}`); inp.value = 'Input (the assumption a user edits before re-exporting)'; markInput(inp); r += 1; }
   { const fm = ws.getCell(`A${r}`); fm.value = 'Computed value (platform snapshot, hardcoded constant)'; fm.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; r += 1; }
+  { const sc = ws.getCell(`A${r}`); sc.value = 'Section (a navy band opening a numbered section)'; fillCell(sc, ARGB.accent); sc.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } }; r += 1; }
+  { const tc = ws.getCell(`A${r}`); tc.value = 'Total (a navy row closing a table)'; fillCell(tc, ARGB.navy); tc.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } }; r += 1; }
   r += 1;
 
   setSectionHeader(ws.getRow(r), 'Platform verification snapshot (results as of export)', 4); r += 1;
   ['Check', 'Status', 'Residue', 'Detail'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, 'left')); r += 1;
-  // Hardcoded snapshot: each check is the platform's own verification result as
-  // of export (a constant), not a live Excel reconciliation.
-  //
-  // EVERY ROW IS A REAL COMPARISON. Two of the three used to be the string
-  // 'OK' with an unrelated magnitude in the note column (closing cash, and
-  // total capex printed as though it were a residue, -3,561,517,930 beside a
-  // green OK). A check that cannot fail is worse than no check, because it
-  // certifies the thing it never looked at.
-  //
-  // TOLERANCE IS RELATIVE. It was `maxBsDiff < 1`, an absolute one-currency-unit
-  // band on a balance sheet of seven billion, i.e. 1.4e-10. No iterative funding
-  // solver converges to that, so the workbook reported CHECK on a residue of
-  // 5.1e-8 and failed its own integrity test on every real project. `residue`
-  // carries the measured gap either way, so a genuine break is still visible
-  // and the passing case says how close it actually came.
-  const checkRow = (label: string, ok: boolean, residue: number, detail: string): void => {
+  // TOLERANCE IS RELATIVE (checksReport.CHECK_REL_TOL): a residue is judged
+  // against the peak of the quantity it reconciles, so an iterative solver's
+  // round-off passes and a genuine break still shows its measured gap.
+  const checkRow = (label: string, status: 'OK' | 'CHECK' | 'NOTE', residue: number, detail: string): void => {
     setLabel(ws.getCell(`A${r}`), label);
-    const s = ws.getCell(`B${r}`); s.value = ok ? 'OK' : 'CHECK'; s.numFmt = '@'; s.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ok ? ARGB.good : ARGB.bad } };
+    const s = ws.getCell(`B${r}`); s.value = status; s.numFmt = '@'; s.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: status === 'OK' ? ARGB.good : status === 'CHECK' ? ARGB.bad : ARGB.navyDark } };
     const c = ws.getCell(`C${r}`); c.value = residue; c.numFmt = NUMFMT.money; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
-    const d = ws.getCell(`D${r}`); d.value = detail; d.numFmt = '@'; d.font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
+    const d = ws.getCell(`D${r}`); d.value = detail; d.numFmt = '@'; d.font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } }; d.alignment = { wrapText: true, vertical: 'top' };
     r += 1;
   };
-  // THE RULE LIVES IN ONE PLACE (lib/reports/checksReport.ts), shared with both
-  // PDFs. This tab used to carry its own copy of the tolerance, the worst-
-  // divergence scan and the three identities; the PDFs then grew their own,
-  // and three copies of a tolerance is how a tolerance drifts.
-  //
-  // The money formatter stays pinned to millions here so the rendered text is
-  // unchanged by this extraction. That pinning is itself inconsistent with the
-  // workbook's display scale (a full-unit export prints a residue in units and
-  // describes its peak in millions), but changing it is a behaviour change and
-  // does not belong in a refactor.
   const checkMoney = (v: number): string => `${formatAccounting(Math.abs(v), 'millions', 1)} m`;
+  // The three integrity identities, named as the platform names them.
   for (const c of buildIntegrityChecks(snap)) {
-    checkRow(c.label, c.ok, c.residue, checkDetail(c, snap.yearLabels, checkMoney));
+    checkRow(c.label, c.ok ? 'OK' : 'CHECK', c.residue, checkDetail(c, snap.yearLabels, checkMoney));
   }
-  // 2026-08-16: cash-basis advisories, as NOTE rather than OK or CHECK. A gap
-  // between cash collected and gross sale value is legitimate model state, not
-  // a broken identity, so it must not be coloured as a pass or a failure. Only
-  // rendered when a divergence exists, which on a fully-collected project is
-  // never, so the tab is unchanged for most models.
+  // The fourth: the Balance Sheet tab's reconciliation bridge must leave nothing
+  // unexplained. Same relative tolerance, measured against peak total assets.
+  {
+    const unexplained = buildBsReconciliationRows({ snap, state: ctx.state, fmt: String }).find((x) => x.label === 'Unexplained (must be 0)')?.values ?? [];
+    const w = worstDivergence(unexplained, unexplained.map(() => 0), snap.bs.totalAssetsPerPeriod, snap.axisLength);
+    const chk = { label: 'Balance sheet reconciliation bridge, unexplained', ok: relativeCheckOk(w.residue, w.magnitude), residue: w.residue, atIndex: w.atIndex, magnitude: w.magnitude, what: 'unexplained' };
+    checkRow(chk.label, chk.ok ? 'OK' : 'CHECK', chk.residue, `${checkDetail(chk, snap.yearLabels, checkMoney)}. The "Unexplained (must be 0)" row of the reconciliation bridge on the Balance Sheet tab.`);
+  }
+  // Advisories: NOTE, never OK or CHECK. A gap between cash collected and gross
+  // sale value, or a sale with no downpayment stated, is legitimate model state,
+  // not a broken identity, so the residue beside a NOTE is the size of the gap it
+  // describes and is expected to be non-zero.
   for (const a of poolRevenueBasisByLine(buildRevenueBasisAdvisoriesFor(ctx.state.assets, ctx.state.subUnits, snap.revenue), ctx.state)) {
-    setLabel(ws.getCell(`A${r}`), `Revenue basis, ${a.assetName}`);
-    const s2 = ws.getCell(`B${r}`); s2.value = 'NOTE'; s2.numFmt = '@';
-    s2.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
-    const c2 = ws.getCell(`C${r}`); c2.value = a.collections - a.gross; c2.numFmt = NUMFMT.money;
-    c2.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
-    const d2 = ws.getCell(`D${r}`); d2.value = revenueBasisAdvisoryText(a, checkMoney); d2.numFmt = '@';
-    d2.font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
-    r += 1;
+    checkRow(`Revenue basis, ${a.assetName}`, 'NOTE', a.collections - a.gross, `${revenueBasisAdvisoryText(a, checkMoney)} Advisory, not a failure: the residue is the collections less the gross sale value.`);
   }
-  // Option B Step 3 (2026-08-20): a sell asset with no downpayment on itself
-  // and no project default. NOTE, not OK or CHECK, for the same reason as the
-  // basis advisory above: a missing input is not a broken identity, and a
-  // check that cries wolf on correct arithmetic gets ignored.
   for (const a of poolSaleCohortByLine(buildSaleCohortAdvisories(ctx.state.assets, ctx.state.project.saleCohortDefaults?.downpayment, snap.revenue), ctx.state)) {
-    setLabel(ws.getCell(`A${r}`), `Downpayment not stated, ${a.assetName}`);
-    const s3 = ws.getCell(`B${r}`); s3.value = 'NOTE'; s3.numFmt = '@';
-    s3.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
-    const c3 = ws.getCell(`C${r}`); c3.value = a.saleValue; c3.numFmt = NUMFMT.money;
-    c3.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
-    const d3 = ws.getCell(`D${r}`); d3.value = saleCohortAdvisoryText(a, checkMoney); d3.numFmt = '@';
-    d3.font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
+    checkRow(`Downpayment not stated, ${a.assetName}`, 'NOTE', a.saleValue, `${saleCohortAdvisoryText(a, checkMoney)} Advisory, not a failure: the residue is the sale value the missing input applies to.`);
+  }
+  setLabel(ws.getCell(`A${r}`), 'OK and CHECK rows are identities that must reconcile to zero within the relative tolerance. NOTE rows are advisories: the model is internally consistent, and the figure beside them measures the situation the note describes.');
+  ws.getCell(`A${r}`).font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
+  r += 2;
+
+  // Headline returns: the three pairs, each IRR beside its own MOIC, from the
+  // same returns engine the Returns tab printed.
+  setSectionHeader(ws.getRow(r), 'Headline returns (platform snapshot)', 4); r += 1;
+  ['Basis', '', 'IRR', 'MOIC'].forEach((h, i) => { if (h) setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'); }); r += 1;
+  const res = retLinks.rs?.result;
+  const pairs: Array<[string, number | null | undefined, number | null | undefined]> = [
+    ['Project IRR (FCFF)', res?.fcff.irr, res?.fcff.moic],
+    ['Equity IRR (FCFE)', res?.fcfe.irr, res?.fcfe.moic],
+    ['Distributed Equity IRR', res?.dividends.irr, res?.dividends.moic],
+  ];
+  for (const [label, irr, moic] of pairs) {
+    setLabel(ws.getCell(`A${r}`), label);
+    const ic = ws.getCell(`C${r}`); ic.value = irr != null && Number.isFinite(irr) ? irr : 'n/a'; ic.numFmt = typeof ic.value === 'number' ? NUMFMT.pct2 : '@'; ic.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+    const mc = ws.getCell(`D${r}`); mc.value = moic != null && Number.isFinite(moic) ? moic : 'n/a'; mc.numFmt = typeof mc.value === 'number' ? NUMFMT.mult : '@'; mc.alignment = { horizontal: 'left' }; mc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
     r += 1;
   }
-  r += 1;
-
-  // Linked to the Returns tab cells, with the cached result taken from the SAME
-  // engine that wrote them (retLinks carries the value, not just the address),
-  // so the link and its cached constant cannot disagree.
-  setSectionHeader(ws.getRow(r), 'Headline returns (platform snapshot)', 4); r += 1;
-  setLabel(ws.getCell(`A${r}`), 'Project IRR (FCFF, unlevered)');
-  setFormula(ws.getCell(`C${r}`), fcell(retLinks.fcffIrrCell, retLinks.fcffIrr ?? 0), NUMFMT.pct2, true); r += 1;
-  setLabel(ws.getCell(`A${r}`), 'Equity IRR (FCFE, levered)');
-  setFormula(ws.getCell(`C${r}`), fcell(retLinks.fcfeIrrCell, retLinks.fcfeIrr ?? 0), NUMFMT.pct2, true); r += 1;
   r += 1;
   setLabel(ws.getCell(`A${r}`), 'This workbook is a hardcoded mirror of the platform: every figure is the platform-computed snapshot value, written as a constant. The verification results above are the platform\'s own checks as of export, not a live Excel reconciliation. Editing any cell will NOT recalculate; to run a different scenario, change the inputs in the platform and re-export.');
 }
@@ -4456,271 +4707,252 @@ function applyTabSubToc(
   }
 }
 
-// ── Summary (one-page executive summary) ──────────────────────────────────────
-/** A single-page executive summary: key facts, a headline-metric tile wall, and
- *  two compact financial-highlight tables (development economics + returns /
- *  leverage). Reads the same snapshot + returns engine as the Returns tab, so it
- *  ties exactly; degrades gracefully when the returns snapshot cannot compute. */
+// ── Summary (mirror of the platform Project Overview) ─────────────────────────
+/** The platform's Project Overview, section by section, from the ONE builder the
+ *  overview screen reads (`buildOverviewReport`): the three return pairs (each
+ *  IRR beside its own MOIC), cost per sqm, key economics, cost and capital
+ *  structure with the funding requirement by year, timeline and structure, the
+ *  scheme, land and build by asset type, the revenue mix, the phases, and the
+ *  exit and cash. No DSCR or ICR, as on the screen. Money is in millions on this
+ *  page; areas, counts and rates per sqm are in full units. */
 function addSummary(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, opts: BuildModelOptions, lm: LiveModel): void {
+  void lm;
   const ws = wb.addWorksheet(SHEETS.summary, { properties: { tabColor: { argb: ARGB.navy } }, views: [{ showGridLines: false }] });
   const p = opts.state.project;
   const currency = p.currency ?? 'SAR';
+  // A nine-column canvas (B..J): the phases table is nine columns wide, wider
+  // than the six-column cover band, so the Summary widens its own band and banner.
+  const L = 2, R = 10;
   frontMatterCanvas(ws);
-  let r = frontMatterBanner(ws, opts.projectName, `Executive Summary  ·  ${opts.dateLabel}`);
+  ws.getColumn(2).width = 22;
+  for (let c = 3; c <= R; c++) ws.getColumn(c).width = 13;
+  ws.getColumn(R + 1).width = 3;
+  let r = frontMatterBanner(ws, opts.projectName, `Project Overview  ·  ${opts.dateLabel}`);
+  ws.unMergeCells('B2:G6'); ws.mergeCells(2, L, 6, R); fillRange(ws, 2, L, 6, R, ARGB.navy);
+  ws.unMergeCells('B7:G7'); ws.mergeCells(7, L, 7, R); fillRange(ws, 7, L, 7, R, ARGB.sectionDark);
 
-  let rs: ReturnsSnapshot | null = null;
-  try { rs = computeReturnsSnapshot(snap, opts.state.project); } catch { rs = null; }
-  const de = rs?.developmentEconomics;
-  const re = rs?.result.realEstate;
-  const m = (v: number | null | undefined): string => `${currency} ${formatAccounting(v ?? 0, 'millions', 1)} m`;
-  const pct = (v: number | null | undefined): string => (v == null || !Number.isFinite(v) ? 'n/a' : `${(v * 100).toFixed(1)}%`);
-  const mult = (v: number | null | undefined): string => (v == null || !Number.isFinite(v) ? 'n/a' : `${v.toFixed(2)}x`);
-  const gdv = de?.gdv ?? lm.totalRev.reduce((s, x) => s + x, 0);
-  const peakDebt = Math.max(0, ...lm.debtClose);
-
-  // ── Key facts (two facts per row: B:C label / D value, E:F label / G value) ──
-  frontMatterBand(ws, r, 'Key facts'); r += 1;
-  const facts: Array<[string, string]> = [
-    ['Date', opts.dateLabel],
-    ['Currency', currency],
-    ['Location', [p.location, p.country].filter(Boolean).join(', ') || '-'],
-    ['Horizon', `${snap.axisLength} yrs (${snap.projectStartYear} to ${snap.projectStartYear + snap.axisLength - 1})`],
-    ['Funding method', FUNDING_METHOD_LABELS[(p.financing?.fundingMethod ?? 1) as FundingMethodId]],
-    ['Debt / Equity', `${snap.financing.funding.debtPct.toFixed(0)}% / ${snap.financing.funding.equityPct.toFixed(0)}%`],
-  ];
-  const factTop = r;
-  for (let i = 0; i < facts.length; i += 2) {
-    const rr = factTop + i / 2;
-    const put = (labelCol: number, valLeft: number, valRight: number, pair?: [string, string]): void => {
-      if (!pair) return;
-      const kc = ws.getCell(rr, labelCol); kc.value = pair[0]; kc.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
-      ws.mergeCells(rr, valLeft, rr, valRight);
-      const vc = ws.getCell(rr, valLeft); vc.value = pair[1]; vc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
-    };
-    put(2, 3, 4, facts[i]);        // B label, C:D value
-    put(5, 6, 7, facts[i + 1]);    // E label, F:G value
-    if ((i / 2) % 2 === 1) fillRange(ws, rr, 2, rr, 7, ARGB.grey);
-  }
-  const factRows = Math.ceil(facts.length / 2);
-  boxBorder(ws, factTop, 2, factTop + factRows - 1, 7);
-  r = factTop + factRows + 1;
-
-  // ── Headline metric tiles (3 per row, each spanning 2 columns) ───────────────
-  frontMatterBand(ws, r, 'Headline metrics'); r += 1;
-  // HEADLINE RETURNS COME FROM THE PLATFORM RETURNS ENGINE (`rs`), the same
-  // source as the Returns tab. They used to read `lm.*` from liveModel.ts, the
-  // simplified twin left over from the formula-driven era, which printed
-  // Project IRR 177.3% / Equity IRR 38.3% / multiple 7.31x here against
-  // 10.9% / 7.0% / 2.04x on the Returns tab of the same workbook. Each label
-  // now names its basis, so "equity multiple" cannot be read as the project
-  // one. `n/a` when the returns engine could not run, because a figure from a
-  // different model is worse than no figure.
-  const tiles: Array<[string, string]> = [
-    ['Total development cost', m(snap.financing.capex.totals.inclAllLand)],
-    ['Gross development value', m(gdv)],
-    ['Profit after financing', m(de?.profitAfterFinancing)],
-    ['Project IRR (FCFF, unlevered)', pct(rs?.result.fcff.irr)],
-    ['Equity IRR (FCFE, levered)', pct(rs?.result.fcfe.irr)],
-    ['Equity MOIC (FCFE, levered)', mult(rs?.result.fcfe.moic)],
-    ['Development margin', pct(de?.developmentMargin)],
-    ['Peak debt', m(peakDebt)],
-    ['Total equity required', m(rs?.equityExposure.totalEquityRequired)],
-  ];
-  const tileCols: Array<[number, number]> = [[2, 3], [4, 5], [6, 7]];
-  const tileTop = r;
-  tiles.forEach(([label, value], i) => {
-    const rowBlock = Math.floor(i / 3);
-    const [c1, c2] = tileCols[i % 3];
-    const lr = tileTop + rowBlock * 2, vr = lr + 1;
-    ws.mergeCells(lr, c1, lr, c2);
-    const lc = ws.getCell(lr, c1); lc.value = label; lc.font = { name: 'Calibri', size: 8, bold: true, color: { argb: ARGB.navyDark } }; lc.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; fillCell(lc, ARGB.grey);
-    ws.mergeCells(vr, c1, vr, c2);
-    const vc = ws.getCell(vr, c1); vc.value = value; vc.font = { name: 'Calibri', size: 13, bold: true, color: { argb: ARGB.navy } }; vc.alignment = { horizontal: 'center', vertical: 'middle' };
-    boxBorder(ws, lr, c1, vr, c2);
-  });
-  const tileRows = Math.ceil(tiles.length / 3) * 2;
-  r = tileTop + tileRows + 1;
-
-  // ── Financial highlights: two compact tables side by side ────────────────────
-  frontMatterBand(ws, r, 'Financial highlights'); r += 1;
-  // Column headers.
-  const hdr = (col: number, span: number, text: string): void => {
-    ws.mergeCells(r, col, r, col + span - 1);
-    const c = ws.getCell(r, col); c.value = text; c.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
-    fillRange(ws, r, col, r, col + span - 1, ARGB.subtotal);
+  const band = (text: string): void => {
+    ws.mergeCells(r, L, r, R);
+    const c = ws.getCell(r, L);
+    c.value = text;
+    c.font = { name: 'Calibri', size: 11, bold: true, color: { argb: ARGB.white } };
+    c.alignment = { vertical: 'middle', indent: 1 };
+    fillRange(ws, r, L, r, R, ARGB.navy);
+    ws.getRow(r).height = 18;
+    r += 1;
   };
-  hdr(2, 3, 'Development economics'); // B:D
-  hdr(5, 3, 'Returns & leverage');    // E:G
-  r += 1;
-  const leftRows: Array<[string, string]> = [
-    ['Gross development value', m(gdv)],
-    ['Total development cost', m(de?.totalDevelopmentCost ?? snap.financing.capex.totals.inclAllLand)],
-    ['Total financing cost', m(de?.totalFinancingCost)],
-    ['Profit before financing', m(de?.profitBeforeFinancing)],
-    ['Profit after financing', m(de?.profitAfterFinancing)],
-    ['Development margin', pct(de?.developmentMargin)],
-  ];
-  // Min DSCR below 1.0 means debt service is not covered from operations in at
-  // least one year. It printed as a neutral metric beside the IRR, which on the
-  // reference project meant 0.43x read as unremarkable. It is flagged below.
-  const dscrMin = re?.dscrMin;
-  const dscrBreach = dscrMin != null && Number.isFinite(dscrMin) && dscrMin > 0 && dscrMin < 1;
-  const dscrYears = (re?.dscrPerPeriod ?? []).filter((v) => v != null && Number.isFinite(v) && v > 0);
-  const dscrBelow = dscrYears.filter((v) => v < 1).length;
-  const rightRows: Array<[string, string]> = [
-    ['Project IRR (FCFF, unlevered)', pct(rs?.result.fcff.irr)],
-    ['Equity IRR (FCFE, levered)', pct(rs?.result.fcfe.irr)],
-    ['Equity MOIC (FCFE, levered)', mult(rs?.result.fcfe.moic)],
-    ['Peak debt', m(peakDebt)],
-    ['Peak equity', m(re?.peakEquity)],
-    ['Min DSCR', dscrBreach ? `${mult(dscrMin)}  BELOW 1.00x` : mult(dscrMin)],
-  ];
-  const hlTop = r;
-  const rows = Math.max(leftRows.length, rightRows.length);
-  for (let i = 0; i < rows; i++) {
-    const rr = hlTop + i;
-    const putRow = (labelCol: number, valLeft: number, valRight: number, pair?: [string, string]): void => {
-      if (!pair) return;
-      const kc = ws.getCell(rr, labelCol); kc.value = pair[0]; kc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
-      ws.mergeCells(rr, valLeft, rr, valRight);
-      const vc = ws.getCell(rr, valLeft); vc.value = pair[1]; vc.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navy } }; vc.alignment = { horizontal: 'right' };
-    };
-    putRow(2, 3, 4, leftRows[i]);   // B label, C:D value
-    putRow(5, 6, 7, rightRows[i]);  // E label, F:G value
-    if (i % 2 === 1) fillRange(ws, rr, 2, rr, 7, ARGB.grey);
-  }
-  boxBorder(ws, hlTop, 2, hlTop + rows - 1, 4);
-  boxBorder(ws, hlTop, 5, hlTop + rows - 1, 7);
-  // Paint the Min DSCR value cell in the check red and say what it means, so a
-  // covenant breach cannot be skimmed past as one more metric in the column.
-  if (dscrBreach) {
-    const dscrRow = hlTop + rightRows.length - 1;
-    ws.getCell(dscrRow, 6).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.bad } };
-    r = hlTop + rows;
-    ws.mergeCells(r, 2, r, 7);
-    const warn = ws.getCell(r, 2);
-    warn.value = `Debt service is not covered from operations in ${dscrBelow} of ${dscrYears.length} debt-service years (minimum ${mult(dscrMin)}). Typical for a development funded from drawdowns, but it is a covenant reading, not a neutral metric.`;
-    warn.font = { name: 'Calibri', size: 8, italic: true, color: { argb: ARGB.bad } };
-    warn.alignment = { wrapText: true, vertical: 'top', indent: 1 };
+  const noteLine = (text: string): void => {
+    ws.mergeCells(r, L, r, R);
+    const c = ws.getCell(r, L); c.value = text;
+    c.font = { name: 'Calibri', size: 8, italic: true, color: { argb: ARGB.navyDark } };
+    c.alignment = { wrapText: true, vertical: 'top' };
     ws.getRow(r).height = 24;
     r += 1;
+  };
+
+  let rs: ReturnsSnapshot | null = null;
+  let ov: ReturnType<typeof buildOverviewReport> | null = null;
+  try { rs = computeReturnsSnapshot(snap, p); ov = buildOverviewReport(snap, rs, opts.state); } catch { rs = null; ov = null; }
+
+  const m = (v: number | null | undefined): string => (v == null || !Number.isFinite(v) ? 'n/a' : `${currency} ${formatAccounting(v, 'millions', 1)} m`);
+  const pct = (v: number | null | undefined): string => (v == null || !Number.isFinite(v) ? 'n/a' : `${(v * 100).toFixed(1)}%`);
+  const mult = (v: number | null | undefined): string => (v == null || !Number.isFinite(v) ? 'n/a' : `${v.toFixed(2)}x`);
+  const area = (v: number | null | undefined): string => (v == null || !Number.isFinite(v) ? 'n/a' : Math.round(v).toLocaleString('en-US'));
+
+  // ── Key facts (two facts per row) ──
+  band('Key facts');
+  {
+    const countryName = p.country ? countryLabel(p.country) : '';
+    const loc = (p.location ?? '').trim();
+    const location = loc && countryName && !loc.toLowerCase().includes(countryName.toLowerCase()) ? `${loc}, ${countryName}` : (loc || countryName || '-');
+    const facts: Array<[string, string]> = [
+      ['Date', opts.dateLabel],
+      ['Currency', currency],
+      ['Location', location],
+      ['Horizon', `${snap.axisLength} yrs (${snap.projectStartYear} to ${snap.projectStartYear + snap.axisLength - 1})`],
+      ['Exit year', rs ? String(rs.exitYearLabel) : 'n/a'],
+      ['Funding method', FUNDING_METHOD_LABELS[(p.financing?.fundingMethod ?? 1) as FundingMethodId]],
+    ];
+    const top = r;
+    for (let i = 0; i < facts.length; i += 2) {
+      const put = (labelCol: number, valL: number, valR: number, pair?: [string, string]): void => {
+        if (!pair) return;
+        const kc = ws.getCell(r, labelCol); kc.value = pair[0]; kc.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+        ws.mergeCells(r, valL, r, valR);
+        const vc = ws.getCell(r, valL); vc.value = pair[1]; vc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+      };
+      put(2, 3, 6, facts[i]);
+      put(7, 8, 10, facts[i + 1]);
+      if (((i / 2) % 2) === 1) fillRange(ws, r, L, r, R, ARGB.grey);
+      r += 1;
+    }
+    boxBorder(ws, top, L, r - 1, R);
+    r += 1;
   }
-  r = hlTop + rows + (dscrBreach ? 2 : 1);
 
-  // ── Fund layer (2026-08-10) ─────────────────────────────────────────────────
-  //
-  // The Summary tab was the last surface showing a fund project's economics
-  // with no sign a fund exists: its EBITDA tile is already NET of fund fees and
-  // its Distributed Equity figure is the GROSS one, which is the pair most
-  // likely to be quoted out of a summary. The block APPENDS below the designed
-  // canvas (the same placement the sub-TOC uses on this tab), so every merge
-  // above it is untouched.
-  //
-  // Rows come from the shared fundReports builders. Money is formatted in
-  // millions to match the rest of this page.
-  if (rs && isFundActive(rs)) {
-    const fctx: FundReportCtx = { snap, returns: rs, fmt: { money: m, pct: (v, d = 1) => (v == null || !Number.isFinite(v) ? 'n/a' : `${(v * 100).toFixed(d)}%`), mult } };
-    r += 1;
-    ws.mergeCells(r, 2, r, 7);
-    const band = ws.getCell(r, 2);
-    band.value = 'FUND LAYER';
-    band.font = { name: 'Calibri', size: 10, bold: true, color: { argb: ARGB.white } };
-    band.alignment = { indent: 1, vertical: 'middle' };
-    fillRange(ws, r, 2, r, 7, ARGB.navy);
-    r += 2;
+  if (!rs || !ov) {
+    noteLine('The project overview will appear once the model has enough inputs to compute returns.');
+    return;
+  }
+  const re = rs.result.realEstate, de = rs.developmentEconomics, mix = rs.fundingMix, su = rs.sourcesUses;
 
-    // Gross vs net, the pair a summary reader must not confuse.
-    const gn = buildFundGrossNetRows(fctx);
-    const gnTop = r;
-    const hdr = [...FUND_GROSS_NET_COLUMNS];
-    for (let c = 0; c < hdr.length; c++) { const cell = ws.getCell(r, 2 + c); cell.value = hdr[c]; cell.font = { name: 'Calibri', size: 8, bold: true, color: { argb: ARGB.navyDark } }; cell.alignment = { horizontal: c === 0 ? 'left' : 'right' }; fillCell(cell, ARGB.subtotal); }
-    r += 1;
-    for (const g of gn) {
-      for (let c = 0; c < g.cells.length; c++) {
-        const cell = ws.getCell(r, 2 + c);
-        cell.value = g.cells[c];
-        cell.font = { name: 'Calibri', size: BODY_SIZE, bold: g.emphasis === 'total', color: { argb: g.emphasis === 'total' ? ARGB.navy : ARGB.formula } };
-        cell.alignment = { horizontal: c === 0 ? 'left' : 'right' };
+  // A wall of tiles: label over value over sub, `perRow` across, each tile
+  // spanning an equal share of the eight columns.
+  const tiles = (items: Array<{ label: string; value: string; sub?: string }>, perRow: number): void => {
+    const span = Math.floor((R - L + 1) / perRow);
+    const hasSub = items.some((t) => t.sub);
+    items.forEach((t, i) => {
+      const row = Math.floor(i / perRow);
+      const c1 = L + (i % perRow) * span, c2 = i % perRow === perRow - 1 ? R : c1 + span - 1; // the last tile in a row takes any spare column
+      const lr = r + row * (hasSub ? 3 : 2);
+      ws.mergeCells(lr, c1, lr, c2);
+      const lc = ws.getCell(lr, c1); lc.value = t.label; lc.font = { name: 'Calibri', size: 8, bold: true, color: { argb: ARGB.navyDark } }; lc.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; fillCell(lc, ARGB.grey);
+      ws.mergeCells(lr + 1, c1, lr + 1, c2);
+      const vc = ws.getCell(lr + 1, c1); vc.value = t.value; vc.font = { name: 'Calibri', size: 13, bold: true, color: { argb: ARGB.navy } }; vc.alignment = { horizontal: 'center', vertical: 'middle' };
+      if (hasSub) {
+        ws.mergeCells(lr + 2, c1, lr + 2, c2);
+        const sc = ws.getCell(lr + 2, c1); sc.value = t.sub ?? ''; sc.font = { name: 'Calibri', size: 8, italic: true, color: { argb: ARGB.navyDark } }; sc.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
       }
+      boxBorder(ws, lr, c1, lr + (hasSub ? 2 : 1), c2);
+    });
+    r += Math.ceil(items.length / perRow) * (hasSub ? 3 : 2) + 1;
+  };
+  // A table across the canvas: header row, body rows, optional total row.
+  const table = (headers: string[], rows: string[][], total?: string[]): void => {
+    const top = r;
+    headers.forEach((h, i) => { const c = ws.getCell(r, L + i); c.value = h; c.font = { name: 'Calibri', size: 8, bold: true, color: { argb: ARGB.navyDark } }; c.alignment = { horizontal: i === 0 ? 'left' : 'right', wrapText: true }; fillCell(c, ARGB.subtotal); });
+    r += 1;
+    const body = total ? [...rows, total] : rows;
+    body.forEach((cells, ri) => {
+      const isTotal = !!total && ri === body.length - 1;
+      cells.forEach((v, i) => { const c = ws.getCell(r, L + i); c.value = v; c.font = { name: 'Calibri', size: BODY_SIZE, bold: isTotal || i === 0, color: { argb: isTotal ? ARGB.navy : ARGB.formula } }; c.alignment = { horizontal: i === 0 ? 'left' : 'right' }; });
       r += 1;
-    }
-    boxBorder(ws, gnTop, 2, r - 1, 1 + hdr.length);
-    // Why the gross and net rows are identical, when they are: without it the
-    // pair reads as a copied row. Shared helper, so this page cannot phrase it
-    // differently from the Returns tab or either PDF.
-    {
-      const note = fundGrossNetNote(fctx);
-      if (note) {
-        ws.mergeCells(r, 2, r, 7);
-        const nc = ws.getCell(r, 2); nc.value = note;
-        nc.font = { name: 'Calibri', size: 8, italic: true, color: { argb: ARGB.navyDark } };
-        nc.alignment = { wrapText: true, vertical: 'top' };
-        ws.getRow(r).height = 24;
-        r += 1;
+    });
+    boxBorder(ws, top, L, r - 1, L + headers.length - 1);
+    r += 1;
+  };
+
+  // ── Headline returns: three pairs, each IRR beside its own MOIC ──
+  band('Headline returns');
+  tiles(ov.returns.map((x) => ({
+    label: x.label,
+    value: `${pct(x.irr)}  ·  ${mult(x.moic)}`,
+    sub: x.preFeeIrr !== undefined ? `IRR and MOIC after the performance fee; pre-fee ${pct(x.preFeeIrr)} and ${mult(x.preFeeMoic ?? null)}` : 'IRR and MOIC',
+  })), 3);
+  noteLine(`Investor summary for the open project. Money in ${currency} millions; exit year ${rs.exitYearLabel}.`);
+  r += 1;
+
+  // ── Cost per sqm (full units, the way a developer quotes it) ──
+  band('Cost per sqm');
+  {
+    const c = ov.costPerSqm;
+    tiles([
+      { label: 'Development cost / GFA', value: area(c.developmentCostPerGfa), sub: `${m(c.totalDevelopmentCost)} over ${area(c.gfaSqm)} sqm` },
+      { label: 'Construction cost / GFA', value: area(c.constructionCostPerGfa), sub: 'excludes land' },
+      { label: 'Development cost / saleable', value: area(c.developmentCostPerSaleable), sub: `over ${area(c.saleableSqm)} sqm` },
+      { label: 'Revenue / saleable', value: area(c.revenuePerSaleable), sub: 'what it sells or lets for' },
+    ], 4);
+  }
+
+  // ── Key economics ──
+  band('Key economics');
+  tiles([
+    { label: 'Gross Development Value', value: m(de.gdv) },
+    { label: 'Total Development Cost', value: m(rs.totalDevelopmentCost), sub: 'land + capex' },
+    { label: 'Profit after Financing', value: m(de.profitAfterFinancing) },
+    { label: 'Development Margin', value: pct(de.developmentMargin), sub: 'profit / GDV' },
+  ], 4);
+
+  // ── Cost & capital structure ──
+  band('Cost & capital structure');
+  {
+    const cashEquityPct = mix.cashEquityPct ?? 0, inKindPct = mix.inKindEquityPct ?? 0, debtPct = mix.debtPct ?? 0;
+    tiles([
+      { label: 'Land Cost', value: m(su.land) },
+      { label: 'Capex (construction)', value: m(su.construction), sub: 'excl. land' },
+      { label: 'Debt / Equity', value: `${pct(debtPct)} / ${pct(cashEquityPct + inKindPct)}`, sub: 'of total sources' },
+      { label: 'Peak Equity', value: m(re.peakEquity) },
+      { label: 'Total Financing Cost', value: m(de.totalFinancingCost) },
+      { label: 'Cap Rate at Exit', value: pct(re.capRateAtExit) },
+    ], 3);
+    // The capital stack the overview's donut draws: debt, cash equity and
+    // in-kind equity normalised to their own sum (customer collections excluded).
+    const stack = debtPct + cashEquityPct + inKindPct || 1;
+    table(['Capital stack', 'Share of sources', 'Share of stack'], [
+      ['Debt', pct(debtPct), pct(debtPct / stack)],
+      ['Cash equity', pct(cashEquityPct), pct(cashEquityPct / stack)],
+      ['In-kind equity', pct(inKindPct), pct(inKindPct / stack)],
+    ]);
+    const funding = fundingChartPoints(snap);
+    if (funding.some((x) => x.value > 0)) {
+      ws.getCell(r, L).value = 'Funding requirement by year';
+      ws.getCell(r, L).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+      r += 1;
+      noteLine(`Net cash this project must raise in each calendar year, ${currency} millions.`);
+      // Years across in rows of eight, each year over its amount.
+      for (let i = 0; i < funding.length; i += R - L) {
+        const chunk = funding.slice(i, i + (R - L));
+        const top = r;
+        ws.getCell(r, L).value = 'Year'; ws.getCell(r, L).font = { name: 'Calibri', size: 8, bold: true, color: { argb: ARGB.navyDark } }; fillCell(ws.getCell(r, L), ARGB.subtotal);
+        ws.getCell(r + 1, L).value = 'Requirement'; ws.getCell(r + 1, L).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+        chunk.forEach((pt, j) => {
+          const yc = ws.getCell(r, L + 1 + j); yc.value = String(pt.year); yc.font = { name: 'Calibri', size: 8, bold: true, color: { argb: ARGB.navyDark } }; yc.alignment = { horizontal: 'right' }; fillCell(yc, ARGB.subtotal);
+          const vc = ws.getCell(r + 1, L + 1 + j); vc.value = formatAccounting(pt.value, 'millions', 1); vc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; vc.alignment = { horizontal: 'right' };
+        });
+        boxBorder(ws, top, L, r + 1, L + chunk.length);
+        r += 2;
       }
-    }
-    r += 1;
-
-    // Fund headline figures, as a compact label / value list.
-    for (const card of buildFundHeadlineCards(fctx)) {
-      const kc = ws.getCell(r, 2); kc.value = card.label; kc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
-      ws.mergeCells(r, 3, r, 4);
-      const vc = ws.getCell(r, 3); vc.value = card.value; vc.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navy } }; vc.alignment = { horizontal: 'right' };
-      const sc = ws.getCell(r, 5); sc.value = card.sub; sc.font = { name: 'Calibri', size: 8, italic: true, color: { argb: ARGB.navyDark } };
-      r += 1;
-    }
-    r += 1;
-
-    // The full waterfall, in the reference row order. Lifetime totals only:
-    // this page is a one-page canvas with no period axis, and the per-period
-    // detail lives on the Returns tab. Balance rows carry no total by
-    // construction (the builder encodes it), so they show a dash.
-    const wfTop = r;
-    const wfHdr = ws.getCell(r, 2); wfHdr.value = 'Distribution Waterfall (lifetime)'; wfHdr.font = { name: 'Calibri', size: 8, bold: true, color: { argb: ARGB.navyDark } };
-    const wfHdr2 = ws.getCell(r, 5); wfHdr2.value = 'Total'; wfHdr2.font = { name: 'Calibri', size: 8, bold: true, color: { argb: ARGB.navyDark } }; wfHdr2.alignment = { horizontal: 'right' };
-    fillRange(ws, r, 2, r, 7, ARGB.subtotal);
-    r += 1;
-    for (const row of buildFundWaterfallRows(fctx)) {
-      const kc = ws.getCell(r, 2);
-      kc.value = `${'   '.repeat(row.indent ?? 0)}${row.label}`;
-      kc.font = { name: 'Calibri', size: BODY_SIZE, bold: !!(row.isTotal || row.isSubtotal), color: { argb: row.isTotal ? ARGB.navy : ARGB.formula } };
-      ws.mergeCells(r, 5, r, 6);
-      const vc = ws.getCell(r, 5);
-      vc.value = row.totalOverride === '' ? '-' : String(row.totalOverride ?? '');
-      vc.font = { name: 'Calibri', size: BODY_SIZE, bold: !!row.isTotal, color: { argb: row.isTotal ? ARGB.navy : ARGB.formula } };
-      vc.alignment = { horizontal: 'right' };
-      r += 1;
-    }
-    boxBorder(ws, wfTop, 2, r - 1, 7);
-    r += 1;
-
-    // Fee income by earner.
-    if (hasFundFeeIncome(rs)) {
-      const feTop = r;
-      const feHdr = [...FUND_EARNER_COLUMNS];
-      for (let c = 0; c < feHdr.length; c++) { const cell = ws.getCell(r, 2 + c); cell.value = feHdr[c]; cell.font = { name: 'Calibri', size: 8, bold: true, color: { argb: ARGB.navyDark } }; cell.alignment = { horizontal: c === 0 ? 'left' : 'right' }; fillCell(cell, ARGB.subtotal); }
-      r += 1;
-      for (const g of buildFundEarnerRows(fctx)) {
-        for (let c = 0; c < g.cells.length; c++) {
-          const cell = ws.getCell(r, 2 + c);
-          cell.value = g.cells[c];
-          cell.font = { name: 'Calibri', size: BODY_SIZE, bold: g.emphasis === 'total', color: { argb: g.emphasis === 'total' ? ARGB.navy : ARGB.formula } };
-          cell.alignment = { horizontal: c === 0 ? 'left' : 'right' };
-        }
-        r += 1;
-      }
-      boxBorder(ws, feTop, 2, r - 1, 1 + feHdr.length);
       r += 1;
     }
   }
+
+  // ── Timeline & structure ──
+  band('Timeline & structure');
+  tiles([
+    { label: 'Start year', value: rs.yearLabels[0] != null ? String(rs.yearLabels[0]) : 'n/a' },
+    { label: 'Model horizon', value: `${rs.yearLabels.length} yr`, sub: `to ${rs.exitYearLabel}` },
+    { label: 'Phases', value: String(opts.state.phases.length) },
+    { label: 'Lines', value: String(ov.scheme.lines), sub: 'consolidated' },
+  ], 4);
+
+  // ── Scheme ──
+  band('Scheme');
+  tiles([
+    { label: 'Total land area', value: `${area(ov.scheme.landSqm)} sqm`, sub: m(ov.scheme.landValue) },
+    { label: 'Total GFA', value: `${area(ov.scheme.gfaSqm)} sqm`, sub: `BUA ${area(ov.scheme.buaSqm)}` },
+    { label: 'Plot ratio', value: ov.scheme.plotRatio == null ? 'n/a' : `${ov.scheme.plotRatio.toFixed(2)}x`, sub: 'GFA / land' },
+    { label: 'Saleable and leasable', value: `${area(ov.scheme.saleableSqm)} sqm`, sub: `${area(ov.scheme.units)} units, ${area(ov.scheme.keys)} keys, ${area(ov.scheme.leasableSqm)} sqm let` },
+  ], 4);
+
+  // ── Land and build, by asset type ──
+  band('Land and build, by asset type');
+  table(['Asset type', 'Land (sqm)', 'Share of land', 'GFA (sqm)', 'Units', 'Keys', 'Leasable (sqm)'],
+    ov.byType.map((t) => [t.label, area(t.landSqm), pct(t.landPct), area(t.gfaSqm), t.units > 0 ? area(t.units) : '-', t.keys > 0 ? area(t.keys) : '-', t.leasableSqm > 0 ? area(t.leasableSqm) : '-']),
+    ['Total', area(ov.scheme.landSqm), '100.0%', area(ov.scheme.gfaSqm), ov.scheme.units > 0 ? area(ov.scheme.units) : '-', ov.scheme.keys > 0 ? area(ov.scheme.keys) : '-', ov.scheme.leasableSqm > 0 ? area(ov.scheme.leasableSqm) : '-']);
+
+  // ── Revenue mix ──
+  if (ov.revenueMix.length > 0) {
+    band('Revenue mix');
+    table(['Section', 'Revenue', 'Share'], ov.revenueMix.map((x) => [x.label, m(x.value), pct(x.pct)]));
+  }
+
+  // ── Phases ──
+  band('Phases');
+  table(['Phase', 'Construction', 'Operations from', 'Lines', 'Land (sqm)', 'GFA (sqm)', 'Capex', 'Revenue', 'EBITDA'],
+    ov.phases.map((ph) => [ph.name, `${ph.startYear ?? 'n/a'} to ${ph.constructionEndYear ?? 'n/a'}`, String(ph.operationsStartYear ?? 'n/a'), String(ph.lines), area(ph.landSqm), area(ph.gfaSqm), m(ph.capex), m(ph.revenue), m(ph.ebitda)]));
+
+  // ── Exit and cash ──
+  band('Exit and cash');
+  tiles([
+    { label: 'Exit year', value: String(ov.exit.year), sub: ov.exit.booked ? 'held assets sold' : 'no terminal value' },
+    { label: 'Terminal value', value: m(ov.exit.terminalValue), sub: 'proceeds from disposal' },
+    { label: 'Gain on disposal', value: m(ov.exit.gainOnDisposal), sub: 'proceeds less book value' },
+    { label: 'Peak debt', value: m(ov.exit.peakDebt) },
+    { label: 'Cash low point', value: m(ov.exit.cashLow), sub: ov.exit.cashLowYear == null ? '' : `in ${ov.exit.cashLowYear}` },
+  ], 4);
 
   // Footer note (snapshot disclaimer) + brand.
-  ws.mergeCells(r, 2, r, 7);
-  const note = ws.getCell(r, 2);
-  note.value = 'Figures are platform-computed values as of export (hardcoded snapshot). Money figures shown in millions on this page; see each tab for the full-unit detail. Editing a cell does not recalculate; re-export after changing inputs.';
-  note.font = { name: 'Calibri', size: 8, italic: true, color: { argb: ARGB.navyDark } };
-  note.alignment = { wrapText: true, vertical: 'top' };
-  ws.getRow(r).height = 26;
-  r += 2;
-  const foot = ws.getCell(r, 2); foot.value = 'Financial Modeler Pro  ·  financialmodelerpro.com'; foot.font = { name: 'Calibri', size: 9, color: { argb: ARGB.navyDark } };
+  noteLine('Figures are platform-computed values as of export (hardcoded snapshot). Money figures shown in millions on this page; areas, counts and rates per sqm in full units; see each tab for the full-unit detail. Editing a cell does not recalculate; re-export after changing inputs.');
+  r += 1;
+  const foot = ws.getCell(r, L); foot.value = 'Financial Modeler Pro  ·  financialmodelerpro.com'; foot.font = { name: 'Calibri', size: 9, color: { argb: ARGB.navyDark } };
 }

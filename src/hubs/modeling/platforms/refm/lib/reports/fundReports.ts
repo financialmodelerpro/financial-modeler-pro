@@ -380,11 +380,20 @@ export function buildFundFeeIncomeRows(ctx: FundReportCtx): M4Row[] {
     ...opts,
   });
   const onStreamBasis = (axis: number[]): number[] => [0, ...axis.slice(0, axisLength)];
+  // THE TOTAL IS THE TWO ROWS ABOVE IT (2026-09-17). It used to read
+  // `totalFeeIncomePerPeriod`, which sums only what NAMED earners take, so a
+  // performance fee left unallocated in the distribution matrix vanished from
+  // the total while still printing on the row directly above it (50.4m under a
+  // 97.6m fee on the live project). The earner table beside it totals
+  // management plus performance fee, and so does this row now, on the screen,
+  // the workbook and both PDFs at once.
+  const n = Math.max(s.managementFeePerPeriod.length, s.performanceFeePerPeriod.length);
+  const total = Array.from({ length: n }, (_, i) => (s.managementFeePerPeriod[i] ?? 0) + (s.performanceFeePerPeriod[i] ?? 0));
   return [
     ...ctx.snap.fundFees.lines.map((line) => toRow(line.label, onStreamBasis(line.amountPerPeriod), { indent: 1 })),
     toRow('= Total Management Fees', s.managementFeePerPeriod, { isSubtotal: true }),
     toRow('Performance Fee', s.performanceFeePerPeriod),
-    toRow('= Total Fee Income', s.totalFeeIncomePerPeriod, { isTotal: true }),
+    toRow('= Total Fee Income', total, { isTotal: true }),
   ];
 }
 

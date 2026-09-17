@@ -299,8 +299,13 @@ async function main(): Promise<void> {
     check('P3: the full report marks per-line economics too',
       flat(full).includes('Per-Line Economics'));
     const retCol = sheetCol(wb.getWorksheet('Returns')!, 1);
-    check('P3: the workbook carries both footnotes on Returns',
-      retCol.some((v) => v.includes('Existing operational asset')) && retCol.some((v) => v.includes('Companion asset')));
+    // RE-AIMED 2026-09-17: the workbook's Returns tab mirrors the Module 5
+    // screens, and no Module 5 screen shows a per-line economics table, so the
+    // table (and the footnotes that explained its structural zeros) left the
+    // tab. A footnote with no table above it would explain a zero nobody sees;
+    // the PDFs, which keep the table, keep both footnotes (checked above).
+    check('P3: the workbook Returns tab carries no per-line table, and so no orphaned footnote',
+      !retCol.some((v) => v === 'Per-Line Economics') && !retCol.some((v) => v.includes('Existing operational asset')) && !retCol.some((v) => v.includes('Companion asset')));
     const laCol = sheetCol(wb.getWorksheet('Land & Area')!, 1);
     check('P3: the workbook Land & Area names its nil-area assets',
       laCol.some((v) => v.includes('Assets reporting nil built-up area')));
