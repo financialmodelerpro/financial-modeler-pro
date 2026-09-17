@@ -2807,6 +2807,31 @@ export function collectModuleTabs(state: FinancialsResolverState, caseComparison
   return out;
 }
 
+/** The full tagged content of every module, exactly as the report builds it
+ *  (before empty-item suppression), for verifiers and review dumps. Pure. */
+export function collectModuleContent(state: FinancialsResolverState, caseComparison?: CaseComparisonInput, scale: DisplayScale = 'full'): Record<string, ModuleContent> {
+  state = { ...state, assets: withResolvedAssetNames(state.assets, { parcels: state.parcels, phases: state.phases }) };
+  const snap = computeFinancialsSnapshot(state);
+  let returns: ReturnsSnapshot | null = null;
+  try { returns = computeReturnsSnapshot(snap, state.project); } catch { returns = null; }
+  let caseReport: CaseComparisonReport | null = null;
+  let caseYoY: CaseYoYReport | null = null;
+  if (caseComparison) {
+    try { caseReport = buildCaseComparisonReport(caseComparison); } catch { caseReport = null; }
+    try { caseYoY = buildCaseYoYReport(caseComparison); } catch { caseYoY = null; }
+  }
+  const fmt = makeFmt(scale);
+  const py = snap.projectStartYear - 1;
+  return {
+    module1: buildModule1(snap, state, fmt, py),
+    module2: buildModule2(snap, state, fmt, py),
+    module3: buildModule3(snap, state, fmt, py),
+    module4: buildModule4(snap, state, fmt, py),
+    module5: returns ? buildModule5(returns, snap, state, fmt, py, caseReport, true) : [],
+    module6: buildModule6(caseReport, caseYoY, fmt),
+  };
+}
+
 /** Item-level introspection: every item each module emits with data flags. Pure
  *  (no document). Used by the verifier to assert that (a) previously-blank items
  *  now carry data (e.g. the M4 BS feeders populate), and (b) genuinely-empty
