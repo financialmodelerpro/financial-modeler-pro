@@ -221,7 +221,9 @@ section('E. an exit before the last year');
   const pdfSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf.ts', 'utf8');
   check('E24 every schedule surface reads the shared builder, so none can drift from the balance sheet',
     /scheduleWithDisposal\(/.test(screens) && /Disposed at Exit/.test(screens) && /idcWithDisposal\(/.test(fin)
-    && ((/scheduleWithDisposal\(/.test(xl) && /Disposed at exit/.test(xl)) || (/buildFixedAssetReport\(/.test(xl) && /scheduleWithDisposal\(/.test(faBuilder) && /Disposed at Exit/.test(faBuilder))) &&/scheduleWithDisposal\(/.test(pdfSrc) && /Disposed at exit/.test(pdfSrc));
+    && ((/scheduleWithDisposal\(/.test(xl) && /Disposed at exit/.test(xl)) || (/buildFixedAssetReport\(/.test(xl) && /scheduleWithDisposal\(/.test(faBuilder) && /Disposed at Exit/.test(faBuilder)))
+    // The PDF renders the same builder since 2026-09-17 (re-aimed like the workbook).
+    && ((/scheduleWithDisposal\(/.test(pdfSrc) && /Disposed at exit/.test(pdfSrc)) || (/buildFixedAssetReport\(/.test(pdfSrc) && /scheduleWithDisposal\(/.test(faBuilder) && /Disposed at Exit/.test(faBuilder))));
 
   const obj = { a: [1, 2, 3], m: [[1, 1, 1], [2, 2, 2]], k: 'x', short: [5, 6] };
   const cut = stopAfterExit(obj, 0, 3);

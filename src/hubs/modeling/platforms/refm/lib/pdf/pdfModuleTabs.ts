@@ -34,11 +34,12 @@ export const PDF_MODULE_TABS: Record<string, string[]> = {
     'Tab 3: Schedules',
   ],
   module4: [
-    'Tab 1: Schedules',
-    'Tab 2: Fixed Assets',
-    'Tab 3: P&L',
-    'Tab 4: Cash Flow',
-    'Tab 5: Balance Sheet',
+    // The platform's four tabs, Schedules carrying its two sub-tabs (2026-09-17).
+    'Tab 1: Schedules / Fixed Assets & D&A',
+    'Tab 1: Schedules / BS Schedules',
+    'Tab 2: P&L',
+    'Tab 3: Cash Flow',
+    'Tab 4: Balance Sheet',
   ],
   module5: [
     'Tab 1: Returns',

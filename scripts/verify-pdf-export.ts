@@ -22,7 +22,7 @@ import zlib from 'zlib';
 import path from 'path';
 import { PDFDocument, PDFName, PDFDict, PDFArray, PDFRef, PDFHexString, PDFString } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
-import { generateProjectPdf, generateSummaryPdf, collectModuleTabs, collectModuleItems } from '../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf';
+import { generateProjectPdf, generateSummaryPdf, collectModuleTabs, collectModuleItems, collectModuleContent } from '../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf';
 import { buildBsFeederTables, buildBsReconciliationRows } from '../src/hubs/modeling/platforms/refm/lib/reports/m4Reports';
 import { payloadHasActiveProject } from '../src/shared/entitlements/exportGuard';
 import { PDF_MODULE_TABS } from '../src/hubs/modeling/platforms/refm/lib/pdf/pdfModuleTabs';
@@ -303,7 +303,7 @@ async function main(): Promise<void> {
   // Per-tab selection: restricting module4 to a single tab drops content vs all
   // tabs of module4.
   const m4AllTabs = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: ['module4'] });
-  const m4OneTab = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: ['module4'], moduleTabs: { module4: ['Tab 3: P&L'] } });
+  const m4OneTab = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: ['module4'], moduleTabs: { module4: ['Tab 2: P&L'] } });
   check('per-tab selection drops content (m4 one tab < all tabs)', m4OneTab.length < m4AllTabs.length, `one=${m4OneTab.length} all=${m4AllTabs.length}`);
 
   // Tab manifest stays in sync: every tab the builders emit for the fixture must
@@ -447,7 +447,10 @@ async function main(): Promise<void> {
   // The rich fixture has sell + operate + lease + escrow + debt + equity, so every
   // feeder has real data. collectModuleItems reports raw items with data flags.
   const items = collectModuleItems(buildState(), caseBundle);
-  const m4Sched = items.filter((i) => i.module === 'module4' && i.tab === 'Tab 1: Schedules');
+  // Re-aimed 2026-09-17: the report follows the platform's tabs, so the feeders
+  // sit on Schedules / BS Schedules and the reconciliation bridge beneath the
+  // balance sheet, where the screen puts it.
+  const m4Sched = items.filter((i) => i.module === 'module4' && (i.tab === 'Tab 1: Schedules / BS Schedules' || i.tab === 'Tab 4: Balance Sheet'));
   const FEEDERS = ['A1.', 'A2.', 'A3.', 'A4.', 'L1.', 'L2.', 'L3.', 'E1.', 'E2.', 'Balance Check, Reconciliation Bridge'];
   const missingFeeder = FEEDERS.filter((f) => !m4Sched.some((i) => i.title.startsWith(f)));
   check('M4 Schedules assembles every BS feeder (A1-E2 + reconciliation)', missingFeeder.length === 0, `missing: ${missingFeeder.join(', ')}`);
@@ -467,6 +470,66 @@ async function main(): Promise<void> {
   const a1Last = a1Closing?.values[a1Closing.values.length - 1] ?? null;
   const snapArTie = Array.from(feederCtx.snap.byAssetSchedules.entries()).filter(([id]) => feederCtx.snap.revenue.bySellAsset.has(id)).reduce((s, [, b]) => s + (b.ar.perPeriod[feederCtx.snap.axisLength - 1] ?? 0), 0);
   check('M4 A1 closing AR ties to snapshot per-asset AR', a1Last !== null && Math.abs((a1Last as number) - snapArTie) < 1, `a1=${a1Last} snap=${snapArTie}`);
+
+  // ── Module 4 is a copy of the platform's four tabs (2026-09-17) ──
+  {
+    const st = buildState();
+    const m4 = collectModuleContent(st).module4;
+    const tabs = [...new Set(m4.map((t) => t.tab))];
+    const SCREEN_TABS = ['Tab 1: Schedules / Fixed Assets & D&A', 'Tab 1: Schedules / BS Schedules', 'Tab 2: P&L', 'Tab 3: Cash Flow', 'Tab 4: Balance Sheet'];
+    check('M4 tabs are the platform tabs, in screen order', JSON.stringify(tabs) === JSON.stringify(SCREEN_TABS), tabs.join(' | '));
+    const tableOf = (tab: string, title: string): any => m4.find((t) => t.tab === tab && t.item.type === 'table' && (t.item as any).table.title === title)?.item;
+    const titles = m4.filter((t) => t.item.type === 'table').map((t) => (t.item as any).table.title as string);
+    check('M4 carries no PDF-only table (IDC Pool, Working Capital, hand-built Fixed Assets)',
+      !titles.some((t) => t === 'IDC Pool' || t === 'Working Capital' || /^Fixed Assets, /.test(t) || t === 'Fixed Assets (project total)'), titles.join(' | '));
+    // The Balance Sheet statement is present, and it balances.
+    const bsT = tableOf('Tab 4: Balance Sheet', 'Balance Sheet: Project');
+    check('M4 Balance Sheet statement is present', !!bsT && bsT.table.rows.length > 5);
+    const bsCheck = bsT?.table.rows.find((r: any) => String(r.cells[0]).trim().startsWith('BS Check'));
+    const bsDiffs = (bsCheck?.cells.slice(2) ?? [1e9]).filter((v: any) => typeof v === 'number') as number[];
+    check('M4 Balance Sheet check row reads 0 in every period', !!bsCheck && bsDiffs.length > 0 && bsDiffs.every((v) => Math.abs(v) < 1), `row=${bsCheck ? bsCheck.cells.join(',') : 'missing'}`);
+    check('M4 balance check and reconciliation bridge sit on the Balance Sheet tab',
+      !!tableOf('Tab 4: Balance Sheet', 'Model Integrity Checks') && !!tableOf('Tab 4: Balance Sheet', 'Balance Check, Reconciliation Bridge (per period)'));
+    // Every phase with activity has its own cash flow, both methods.
+    const snapM4 = computeFinancialsSnapshot(st);
+    const activePhases = st.phases.filter((ph: any) => st.assets.some((a: any) => a.phaseId === ph.id && a.visible !== false));
+    const missingCf = activePhases.filter((ph: any) => !tableOf('Tab 3: Cash Flow', `Cash Flow, Direct Method (${ph.name})`));
+    check('M4 every phase has a cash flow (Operations + Investing)', activePhases.length > 0 && missingCf.length === 0, `phases=${activePhases.length} missing: ${missingCf.map((p: any) => p.name).join(', ')}`);
+    // A phase's CFO is the phase's own, not the project's (the per-phase Indirect
+    // view on screen starts from project profit, so the report does not print it).
+    const cfoOf = (title: string): number[] => {
+      const t = tableOf('Tab 3: Cash Flow', title);
+      const r = t?.table.rows.find((x: any) => String(x.cells[0]).trim() === 'Cash Flow from Operations');
+      return r ? r.cells.slice(3).map((v: any) => Number(v ?? 0)) : [];
+    };
+    const projCfo = cfoOf('Cash Flow, Direct Method (project)');
+    const phaseCfoSum = projCfo.map((_, k) => activePhases.reduce((s: number, ph: any) => s + (cfoOf(`Cash Flow, Direct Method (${ph.name})`)[k] ?? 0), 0));
+    check('M4 no per-phase Indirect table (it starts from project profit)', !titles.some((t) => /^Cash Flow, Indirect Method \((?!project\))/.test(t)));
+    check('M4 phase Direct CFO rows are phase figures (they do not each repeat the project CFO)',
+      projCfo.length > 0 && activePhases.length < 2 || activePhases.every((ph: any) => {
+        const c = cfoOf(`Cash Flow, Direct Method (${ph.name})`);
+        return c.some((v, k) => Math.abs(v - (projCfo[k] ?? 0)) > 1);
+      }), `project=${projCfo.slice(0, 6).join(',')} phases sum=${phaseCfoSum.slice(0, 6).join(',')}`);
+    // Fixed asset depreciation per line adds to the P&L D&A, period by period.
+    const N = snapM4.yearLabels.length;
+    const lineDep = new Array<number>(N).fill(0);
+    let lineTables = 0;
+    for (const t of m4) {
+      if (t.tab !== 'Tab 1: Schedules / Fixed Assets & D&A' || t.item.type !== 'table') continue;
+      const tb = (t.item as any).table;
+      if (!/: Depreciable Assets Roll-Forward$/.test(tb.title)) continue;
+      const r = tb.rows.find((x: any) => String(x.cells[0]).trim().startsWith('(−) Depreciation'));
+      if (!r) continue;
+      lineTables++;
+      for (let k = 0; k < N; k++) lineDep[k] += Number(r.cells[3 + k] ?? 0);
+    }
+    const plT = m4.find((t) => t.tab === 'Tab 2: P&L' && t.item.type === 'table' && String((t.item as any).table.title).endsWith(': Project'))?.item as any;
+    const daRow = plT?.table.rows.find((r: any) => String(r.cells[0]).trim().startsWith('Depreciation & Amortization'));
+    const daVals: number[] = daRow ? daRow.cells.slice(3, 3 + N).map((v: any) => Number(v ?? 0)) : [];
+    const worstDa = daVals.length === N ? Math.max(...daVals.map((v, k) => Math.abs(v - lineDep[k]))) : Infinity;
+    check('M4 fixed asset depreciation per line sums to the P&L D&A every period', lineTables > 0 && worstDa < 1, `lines=${lineTables} worst=${worstDa}`);
+    check('M4 P&L D&A is not zero on the fixture (the check has teeth)', daVals.some((v) => Math.abs(v) > 1));
+  }
 
   // Suppression: genuinely-empty items are dropped (hasData=false drives the drop).
   // A minimal project (no assets, no financing) produces a 0-row "Revenue
