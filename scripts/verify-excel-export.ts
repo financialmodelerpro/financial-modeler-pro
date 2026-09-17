@@ -196,12 +196,13 @@ async function main(): Promise<void> {
 
   // ── Consolidated Inputs tab carries the grouped dividers ────────────────────
   const inp = wb.getWorksheet('Inputs')!;
-  for (const re of [/^Project$/, /^Phases$/, /^Assets$/, /^Capex cost lines/, /^Financing settings$/, /Financing facilities/]) check(`Inputs divider present: ${re.source}`, rowByLabel(inp, re) > 0);
+  // 2026-09-17: the Assets table carries the platform's Table 2 title.
+  for (const re of [/^Project$/, /^Phases$/, /^Assets by plot, what you enter$/, /^Capex cost lines/, /^Financing settings$/, /Financing facilities/]) check(`Inputs divider present: ${re.source}`, rowByLabel(inp, re) > 0);
   // Raw financing scalars live under the Financing divider (once), not Project.
   check('Financing settings divider holds the raw financing scalars', rowByLabel(inp, /^Funding method$/) > rowByLabel(inp, /^Financing settings$/) && rowByLabel(inp, /^Debt share$/) > rowByLabel(inp, /^Financing settings$/));
   check('Inputs title says Inputs', /Inputs/.test(labelOf(inp, 1)));
   // All model inputs live on the Inputs tab, grouped by domain divider band.
-  check('Inputs tab has the REVENUE INPUTS domain', rowByLabel(inp, /^REVENUE INPUTS$/) > 0 && rowByLabel(inp, /^Revenue configuration by asset/) > rowByLabel(inp, /^REVENUE INPUTS$/));
+  check('Inputs tab has the REVENUE INPUTS domain', rowByLabel(inp, /^REVENUE INPUTS$/) > 0 && rowByLabel(inp, /^Revenue inputs, /) > rowByLabel(inp, /^REVENUE INPUTS$/));
   check('Inputs tab has the OPEX INPUTS domain', rowByLabel(inp, /^OPEX INPUTS$/) > rowByLabel(inp, /^REVENUE INPUTS$/));
   // Domain order mirrors the module sequence: Capex (M1) -> Financing (M1) ->
   // Revenue (M2) -> Opex (M3). Financing sits right after the Capex cost lines.
@@ -212,11 +213,15 @@ async function main(): Promise<void> {
   // and 9; the split is emitted at 6 and 7, so the check failed while the data
   // was present and correct. A fixed index turns any column edit into a false
   // failure, which is indistinguishable from a real one until someone looks.
-  const parcelsHdr = rowByLabel(inp, /^Land parcels$/);
+  // 2026-09-17: the split moved off the plots table to the Land Funding block,
+  // per phase, which is where Financing section 4 states it; the plots table is
+  // Module 1's Table 1 and carries no split.
+  const parcelsHdr = rowByLabel(inp, /^Land Funding \(per phase/);
+  check('Land Funding block present when the project has land', snap.financing.capex.landByPhase?.length ? parcelsHdr > 0 : true);
   if (parcelsHdr > 0) {
     const hdr: string[] = [];
     for (let c = 1; c <= 16; c++) hdr.push(String(inp.getCell(parcelsHdr + 1, c).value ?? ''));
-    check('Land parcels carry Debt % / Equity % funding split',
+    check('Land funding carries Debt % / Equity % funding split',
       hdr.includes('Debt %') && hdr.includes('Equity %'), hdr.filter((h) => h).join(' | '));
   }
   const facHdr = rowByLabel(inp, /Financing facilities/);
@@ -239,7 +244,7 @@ async function main(): Promise<void> {
   // workbook that claims to be a copy of the model.
   check('NDA is retired: the workbook does not emit the project deduction rows',
     rowByLabel(inp, /^NDA deduction enabled/) < 0 && rowByLabel(inp, /^Project roads %/) < 0);
-  const astHdr = rowByLabel(inp, /^Assets$/);
+  const astHdr = rowByLabel(inp, /^Assets by plot, what you enter$/);
   if (astHdr > 0) {
     const hdrRow: string[] = [];
     for (let c = 1; c <= 16; c++) hdrRow.push(String(inp.getCell(astHdr + 1, c).value ?? ''));

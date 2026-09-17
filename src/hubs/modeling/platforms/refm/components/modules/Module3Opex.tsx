@@ -21,6 +21,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import { planReportLines, lineTitle } from '../../lib/reports/lineRows';
+import { OPEX_CATEGORY_LABELS, OPEX_MODE_LABELS } from '../../lib/opexLineLabels';
 import type { Asset } from '../../lib/state/module1-types';
 import {
   defaultHospitalityOpexLines,
@@ -51,43 +52,10 @@ const FAST_INPUT: React.CSSProperties = {
   width: '100%',
 };
 // ─── category / mode catalogs ─────────────────────────────────────
-const CATEGORY_LABELS: Record<OpexLineCategory, string> = {
-  direct_rooms: 'Direct, Rooms',
-  direct_fb: 'Direct, F&B',
-  direct_other: 'Direct, Other dept.',
-  indirect_ga: 'Indirect, G&A',
-  indirect_it: 'Indirect, IT',
-  indirect_sm: 'Indirect, Sales & Marketing',
-  indirect_pom: 'Indirect, Property Operations & Maint.',
-  indirect_energy: 'Indirect, Energy',
-  indirect_eosb: 'Indirect, EOSB',
-  mgmt_base: 'Management, Base fee',
-  mgmt_tech: 'Management, Technology fee',
-  mgmt_incentive: 'Management, Incentive fee',
-  replacement_reserve: 'Replacement reserve',
-  rent_insurance: 'Rent & insurance',
-  property_tax: 'Property tax',
-  utilities: 'Utilities',
-  cam: 'Service charge / CAM',
-  repairs_maintenance: 'Repairs & maintenance',
-  hq_payroll: 'HQ, Payroll',
-  hq_office: 'HQ, Office & overheads',
-  hq_professional: 'HQ, Professional fees',
-  hq_other: 'HQ, Other',
-  other: 'Other',
-};
-
-const MODE_LABELS: Record<OpexLineMode, string> = {
-  fixed_baseline: 'Fixed (currency / year)',
-  pct_of_room_rev: '% of Room Revenue',
-  pct_of_fb_rev: '% of F&B Revenue',
-  pct_of_other_rev: '% of Other Revenue',
-  pct_of_total_rev: '% of Total Revenue',
-  pct_of_lease_rev: '% of Lease Revenue',
-  per_room_year: 'Per Key per Year',
-  per_sqm_year: 'Per SQM per Year',
-  pct_of_gop: '% of GOP',
-};
+// The words live in lib/opexLineLabels.ts (2026-09-17), shared with the Excel
+// model export so the workbook prints what this screen shows.
+const CATEGORY_LABELS: Record<OpexLineCategory, string> = OPEX_CATEGORY_LABELS;
+const MODE_LABELS: Record<OpexLineMode, string> = OPEX_MODE_LABELS;
 
 // Modes valid per strategy bucket. Each strategy's UI hides modes
 // that don't apply (e.g. Lease can't read room revenue).
