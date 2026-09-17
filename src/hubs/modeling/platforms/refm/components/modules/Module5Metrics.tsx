@@ -19,7 +19,8 @@ import { makeFmt } from './_shared/numberFmt';
 import { MetricCard, MetricGrid, CollapsibleSection, fmtPct, fmtX, type CardTone } from './Module5Shared';
 import { FAST_INPUT } from './_shared/inputStyles';
 import { DEFAULT_COVENANTS, type CovenantThreshold, type CovenantMetric } from '../../lib/state/module1-types';
-import { evaluateCovenant, covenantUnit, covenantSeries, reduceWorst, reduceAvg, type CovenantInputs } from '../../lib/covenants';
+import { evaluateCovenant, covenantUnit, covenantSeries, reduceWorst, reduceAvg, COVENANT_METRIC_LABELS, type CovenantInputs } from '../../lib/covenants';
+import { buildOperatingKpis } from '../../lib/reports/operatingKpis';
 
 const ratioFmt = (v: number): string => (Math.abs(v) < 1e-9 ? '-' : `${v.toFixed(2)}x`);
 const pctRowFmt = (v: number): string => (Math.abs(v) < 1e-9 ? '-' : `${(v * 100).toFixed(1)}%`);
@@ -95,25 +96,15 @@ export default function Module5Metrics(): React.JSX.Element {
     pass == null ? undefined : pass ? { text: 'Pass', tone: 'good' } : { text: 'Breach', tone: 'bad' };
 
   // ── Operating KPI blocks (demoted detail; rendered only when present) ──────
+  // The figures come from the SHARED builder (lib/reports/operatingKpis.ts), the
+  // same one the Excel workbook prints, so the two cannot compute them apart.
+  const opKpis = buildOperatingKpis(snap, state.assets);
+  const ccy = project.currency ?? 'SAR';
+  const rate = (v: number | null): string => (v == null ? 'n/a' : Math.round(v).toLocaleString());
+  const intFmt = (v: number): string => Math.round(v).toLocaleString();
   const hospitalityBlock = (() => {
-    const hosp = [...snap.revenue.byHospitalityAsset.values()];
-    const sumArr = (a: number[]): number => a.reduce((s, v) => s + (v ?? 0), 0);
-    let avail = 0, occRn = 0, rooms = 0, fb = 0, other = 0, totalHosp = 0;
-    for (const h of hosp) {
-      avail += sumArr(h.availableRoomNightsPerPeriod);
-      occRn += sumArr(h.occupiedRoomNightsPerPeriod);
-      rooms += sumArr(h.roomsRevenuePerPeriod);
-      fb += sumArr(h.fbRevenuePerPeriod);
-      other += sumArr(h.otherRevenuePerPeriod);
-      totalHosp += sumArr(h.totalRevenuePerPeriod);
-    }
-    if (avail <= 0) return null; // no hospitality demand => hide the section
-    const occupancy = avail > 0 ? occRn / avail : null;
-    const adr = occRn > 0 ? rooms / occRn : null;
-    const revpar = avail > 0 ? rooms / avail : null;
-    const ccy = project.currency ?? 'SAR';
-    const rate = (v: number | null): string => (v == null ? 'n/a' : Math.round(v).toLocaleString());
-    const intFmt = (v: number): string => Math.round(v).toLocaleString();
+    const h = opKpis.hospitality;
+    if (!h) return null; // no hospitality demand => hide the section
     return (
       <>
         <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-2) 0 var(--sp-1)' }}>
@@ -123,46 +114,22 @@ export default function Module5Metrics(): React.JSX.Element {
           Blended across all hospitality (Operate) assets over the hold. ADR and RevPAR are per-night rates in {ccy} (not scaled); occupancy is occupied / available room nights.
         </div>
         <MetricGrid min={150}>
-          <MetricCard label="Occupancy" value={fmtPct(occupancy)} sub="occupied / available nights" />
-          <MetricCard label="ADR" value={rate(adr)} sub={`${ccy} / occupied night`} />
-          <MetricCard label="RevPAR" value={rate(revpar)} sub={`${ccy} / available night`} />
-          <MetricCard label="Rooms Revenue" value={fmt(rooms)} sub={currency} />
-          <MetricCard label="F&B Revenue" value={fmt(fb)} sub={currency} />
-          <MetricCard label="Other Revenue" value={fmt(other)} sub={currency} />
-          <MetricCard label="Total Hospitality Revenue" value={fmt(totalHosp)} sub={currency} />
-          <MetricCard label="Available Room Nights" value={intFmt(avail)} sub="capacity over hold" />
+          <MetricCard label="Occupancy" value={fmtPct(h.occupancy)} sub="occupied / available nights" />
+          <MetricCard label="ADR" value={rate(h.adr)} sub={`${ccy} / occupied night`} />
+          <MetricCard label="RevPAR" value={rate(h.revpar)} sub={`${ccy} / available night`} />
+          <MetricCard label="Rooms Revenue" value={fmt(h.roomsRevenue)} sub={currency} />
+          <MetricCard label="F&B Revenue" value={fmt(h.fbRevenue)} sub={currency} />
+          <MetricCard label="Other Revenue" value={fmt(h.otherRevenue)} sub={currency} />
+          <MetricCard label="Total Hospitality Revenue" value={fmt(h.totalRevenue)} sub={currency} />
+          <MetricCard label="Available Room Nights" value={intFmt(h.availableRoomNights)} sub="capacity over hold" />
         </MetricGrid>
       </>
     );
   })();
 
   const residentialBlock = (() => {
-    const sell = [...snap.revenue.bySellAsset.entries()];
-    const sumArr = (a: number[]): number => a.reduce((s, v) => s + (v ?? 0), 0);
-    const areaOf = new Map<string, number>();
-    for (const a of state.assets) areaOf.set(a.id, a.sellableBuaSqm || a.buaSqm || 0);
-    let units = 0, preSale = 0, postSale = 0, area = 0;
-    const activeYears = new Set<number>();
-    for (const [id, s] of sell) {
-      const preU = sumArr(s.presalesUnitsPerPeriod);
-      const postU = sumArr(s.postSalesUnitsPerPeriod);
-      units += preU + postU;
-      preSale += sumArr(s.presalesRevenuePerPeriod);
-      postSale += sumArr(s.postSalesRevenuePerPeriod);
-      if (preU + postU > 0) area += areaOf.get(id) ?? 0;
-      s.presalesUnitsPerPeriod.forEach((v, t) => {
-        if ((v ?? 0) + (s.postSalesUnitsPerPeriod[t] ?? 0) > 0) activeYears.add(t);
-      });
-    }
-    const saleValue = preSale + postSale;
-    if (saleValue <= 0 && units <= 0) return null;
-    const pricePerUnit = units > 0 ? saleValue / units : null;
-    const pricePerSqm = area > 0 ? saleValue / area : null;
-    const preSalesPct = saleValue > 0 ? preSale / saleValue : null;
-    const velocity = activeYears.size > 0 ? units / activeYears.size : null;
-    const ccy = project.currency ?? 'SAR';
-    const rate = (v: number | null): string => (v == null ? 'n/a' : Math.round(v).toLocaleString());
-    const intFmt = (v: number): string => Math.round(v).toLocaleString();
+    const s = opKpis.residential;
+    if (!s) return null;
     return (
       <>
         <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-2) 0 var(--sp-1)' }}>
@@ -172,35 +139,20 @@ export default function Module5Metrics(): React.JSX.Element {
           Blended across all Sell / Sell+Manage assets over the hold. Prices are sale value; per-unit and per-sqm rates are in {ccy} (not scaled).
         </div>
         <MetricGrid min={150}>
-          <MetricCard label="Residential GDV" value={fmt(saleValue)} sub={`sale value, ${currency}`} />
-          <MetricCard label="Units Sold" value={intFmt(units)} sub="pre + post sales" />
-          <MetricCard label="Avg Sale Price / Unit" value={rate(pricePerUnit)} sub={`${ccy} / unit`} />
-          <MetricCard label="Avg Sale Price / sqm" value={rate(pricePerSqm)} sub={`${ccy} / sellable sqm`} />
-          <MetricCard label="Pre-Sales %" value={fmtPct(preSalesPct)} sub="pre-sales / residential GDV" />
-          <MetricCard label="Sales Velocity" value={rate(velocity)} sub="units / yr (active years)" />
+          <MetricCard label="Residential GDV" value={fmt(s.saleValue)} sub={`sale value, ${currency}`} />
+          <MetricCard label="Units Sold" value={intFmt(s.unitsSold)} sub="pre + post sales" />
+          <MetricCard label="Avg Sale Price / Unit" value={rate(s.pricePerUnit)} sub={`${ccy} / unit`} />
+          <MetricCard label="Avg Sale Price / sqm" value={rate(s.pricePerSqm)} sub={`${ccy} / sellable sqm`} />
+          <MetricCard label="Pre-Sales %" value={fmtPct(s.preSalesPct)} sub="pre-sales / residential GDV" />
+          <MetricCard label="Sales Velocity" value={rate(s.velocity)} sub="units / yr (active years)" />
         </MetricGrid>
       </>
     );
   })();
 
   const leaseBlock = (() => {
-    const lease = [...snap.revenue.byLeaseAsset.values()];
-    const sumArr = (a: number[]): number => a.reduce((s, v) => s + (v ?? 0), 0);
-    let gla = 0, revenue = 0, occupiedArea = 0, glaYears = 0;
-    for (const l of lease) {
-      const assetGla = Object.values(l.perSubUnit).reduce((s, su) => s + (su.gla ?? 0), 0);
-      gla += assetGla;
-      revenue += sumArr(l.totalRevenuePerPeriod);
-      occupiedArea += sumArr(l.occupiedAreaPerPeriod);
-      const activePeriods = l.occupiedAreaPerPeriod.filter((v) => (v ?? 0) > 0).length;
-      glaYears += assetGla * activePeriods;
-    }
-    if (gla <= 0 && revenue <= 0) return null;
-    const avgOcc = glaYears > 0 ? occupiedArea / glaYears : null;
-    const rentPerSqm = occupiedArea > 0 ? revenue / occupiedArea : null;
-    const ccy = project.currency ?? 'SAR';
-    const rate = (v: number | null): string => (v == null ? 'n/a' : Math.round(v).toLocaleString());
-    const intFmt = (v: number): string => Math.round(v).toLocaleString();
+    const l = opKpis.lease;
+    if (!l) return null;
     return (
       <>
         <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-2) 0 var(--sp-1)' }}>
@@ -210,10 +162,10 @@ export default function Module5Metrics(): React.JSX.Element {
           Blended across all Lease assets over the hold. Rent is achieved rent per occupied sqm per year in {ccy} (not scaled); occupancy is occupied area / GLA over operating periods.
         </div>
         <MetricGrid min={150}>
-          <MetricCard label="Total GLA" value={intFmt(gla)} sub="sqm leasable" />
-          <MetricCard label="Avg Occupancy" value={fmtPct(avgOcc)} sub="occupied / GLA over ops" />
-          <MetricCard label="Rent per Leased sqm" value={rate(rentPerSqm)} sub={`${ccy} / occupied sqm / yr`} />
-          <MetricCard label="Total Lease Revenue" value={fmt(revenue)} sub={currency} />
+          <MetricCard label="Total GLA" value={intFmt(l.gla)} sub="sqm leasable" />
+          <MetricCard label="Avg Occupancy" value={fmtPct(l.avgOccupancy)} sub="occupied / GLA over ops" />
+          <MetricCard label="Rent per Leased sqm" value={rate(l.rentPerSqm)} sub={`${ccy} / occupied sqm / yr`} />
+          <MetricCard label="Total Lease Revenue" value={fmt(l.totalRevenue)} sub={currency} />
         </MetricGrid>
       </>
     );
@@ -346,13 +298,7 @@ export default function Module5Metrics(): React.JSX.Element {
 }
 
 // ── Lender Covenants ────────────────────────────────────────────────────────
-const COV_METRIC_OPTIONS: Array<{ v: CovenantMetric; label: string }> = [
-  { v: 'dscr', label: 'DSCR' },
-  { v: 'icr', label: 'Interest Cover (ICR)' },
-  { v: 'ltv', label: 'LTV (peak debt)' },
-  { v: 'debt_yield', label: 'Debt Yield' },
-  { v: 'custom', label: 'Custom' },
-];
+const COV_METRIC_OPTIONS = COVENANT_METRIC_LABELS;
 const COV_METRIC_DEFAULTS: Record<CovenantMetric, { operator: 'min' | 'max'; threshold: number }> = {
   dscr: { operator: 'min', threshold: 1.20 },
   icr: { operator: 'min', threshold: 2.00 },

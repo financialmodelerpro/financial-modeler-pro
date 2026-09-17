@@ -95,24 +95,30 @@ const allLabels = (ws: ExcelJS.Worksheet): Array<{ row: number; label: string }>
   ws.eachRow((_r, R) => { const l = labelOf(ws, R); if (l) out.push({ row: R, label: l }); });
   return out;
 };
-const rowOf = (ws: ExcelJS.Worksheet, label: string): number => {
-  const hit = allLabels(ws).find((x) => x.label === label);
+/** The first row carrying `label`, below row `after` when given. The Returns
+ *  tab follows the screen's order, where the Fee Income block (with its own
+ *  "Performance Fee" row) comes BEFORE the waterfall, so a waterfall row is
+ *  looked up below the waterfall's own heading. */
+const rowOf = (ws: ExcelJS.Worksheet, label: string, after = 0): number => {
+  const hit = allLabels(ws).find((x) => x.row > after && x.label === label);
   return hit ? hit.row : -1;
 };
+const WF_TITLE = 'Performance Fee (hurdle waterfall) and DDM after fee';
+const wfStart = (ws: ExcelJS.Worksheet): number => rowOf(ws, WF_TITLE);
 const numAt = (ws: ExcelJS.Worksheet, R: number, C: number): number => {
   const v: any = ws.getCell(R, C).value;
   if (typeof v === 'number') return v;
   if (v && typeof v === 'object' && typeof v.result === 'number') return v.result;
   return NaN;
 };
-const totalAt = (ws: ExcelJS.Worksheet, label: string): number => { const R = rowOf(ws, label); return R > 0 ? numAt(ws, R, TOTAL) : NaN; };
+const totalAt = (ws: ExcelJS.Worksheet, label: string, after = 0): number => { const R = rowOf(ws, label, after); return R > 0 ? numAt(ws, R, TOTAL) : NaN; };
 const isBlank = (ws: ExcelJS.Worksheet, R: number, C: number): boolean => {
   const v = ws.getCell(R, C).value;
   return v === null || v === undefined || v === '';
 };
 /** The per-period series of a row, on the STREAM basis (opening column first). */
-const streamAt = (ws: ExcelJS.Worksheet, label: string, N: number): number[] => {
-  const R = rowOf(ws, label);
+const streamAt = (ws: ExcelJS.Worksheet, label: string, N: number, after = 0): number[] => {
+  const R = rowOf(ws, label, after);
   if (R < 0) return [];
   const out = [numAt(ws, R, OPEN)];
   for (let t = 0; t < N; t++) out.push(numAt(ws, R, pcol(t)));
@@ -154,7 +160,7 @@ async function main(): Promise<void> {
   check('fund OFF: P&L has no Fund Fee Basis block', rowOf(wbOff.getWorksheet('P&L')!, 'Fund Fee Basis') < 0);
   check('fund OFF: Cash Flow has no Fund Management and Other Expenses row', rowOf(wbOff.getWorksheet('Cash Flow')!, 'Fund Management and Other Expenses') < 0);
   check('fund OFF: Returns has no Fund Layer section',
-    !allLabels(wbOff.getWorksheet('Returns')!).some((x) => /^3\. Fund Layer/.test(x.label)));
+    wfStart(wbOff.getWorksheet('Returns')!) < 0);
   check('fund OFF: the Returns sub-TOC does not advertise a Fund Layer section',
     !allLabels(wbOff.getWorksheet('Returns')!).some((x) => /^Covers:/.test(x.label) && /Fund Layer/.test(x.label)));
   // EBITDA still lands immediately after Total Operating Expenses, which is the
@@ -339,9 +345,13 @@ async function main(): Promise<void> {
   console.log('\n-- 4. Returns: the distribution waterfall --');
   const ret = wbOn.getWorksheet('Returns')!;
   const w = rsOn.waterfall;
-  check('Returns: the Fund Layer section exists', allLabels(ret).some((x) => /^3\. Fund Layer/.test(x.label)));
-  check('Returns: the section is registered for the Cover ToC and the sub-TOC',
-    allLabels(ret).some((x) => /^Covers:/.test(x.label) && /Fund Layer/.test(x.label)));
+  // The fund block sits where the screen puts it (2026-09-17): inside 1. Returns,
+  // after the DDM before the performance fee, and before 2. RE Metrics.
+  const W0 = wfStart(ret);
+  check('Returns: the performance fee (hurdle waterfall) block exists', W0 > 0);
+  check('Returns: it follows the DDM before fee and precedes RE Metrics, as on the screen',
+    W0 > rowOf(ret, 'Dividend Discount Model (DDM), before performance fee') && rowOf(ret, 'Dividend Discount Model (DDM), before performance fee') > 0
+    && W0 < rowOf(ret, '2. RE Metrics'));
   const REFERENCE_ORDER = [
     'Equity Drawn',
     'Unpaid Hurdle Balance BoP',
@@ -354,7 +364,7 @@ async function main(): Promise<void> {
     'Distributions Net of Performance Fee',
     'Memo: Distributions (gross, before fee)',
   ];
-  const wfRows = REFERENCE_ORDER.map((l) => rowOf(ret, l));
+  const wfRows = REFERENCE_ORDER.map((l) => rowOf(ret, l, W0));
   check('Returns: all ten waterfall rows are present', wfRows.every((R) => R > 0), REFERENCE_ORDER.filter((_l, i) => wfRows[i] < 0).join(', '));
   check('Returns: they appear in the REFERENCE order, contiguously',
     wfRows.every((R, i) => i === 0 || R === wfRows[i - 1] + 1), wfRows.join(','));
@@ -364,16 +374,16 @@ async function main(): Promise<void> {
   // between two balance rows, so a lifetime figure there reads as a balance.
   const NO_TOTAL = ['Unpaid Hurdle Balance BoP', 'Hurdle Accrued', 'Total Hurdle Owed', 'Unpaid Hurdle Balance EoP'];
   check('Returns: the BALANCE rows and Hurdle Accrued carry no lifetime total',
-    NO_TOTAL.every((l) => isBlank(ret, rowOf(ret, l), TOTAL)),
-    NO_TOTAL.filter((l) => !isBlank(ret, rowOf(ret, l), TOTAL)).join(', '));
+    NO_TOTAL.every((l) => isBlank(ret, rowOf(ret, l, W0), TOTAL)),
+    NO_TOTAL.filter((l) => !isBlank(ret, rowOf(ret, l, W0), TOTAL)).join(', '));
   check('Returns: the FLOW rows do carry a lifetime total',
-    REFERENCE_ORDER.filter((l) => !NO_TOTAL.includes(l)).every((l) => Number.isFinite(totalAt(ret, l))));
+    REFERENCE_ORDER.filter((l) => !NO_TOTAL.includes(l)).every((l) => Number.isFinite(totalAt(ret, l, W0))));
   // Every row against the engine, per period and in total.
   const tie = (label: string, series: number[], total?: number): void => {
-    const got = streamAt(ret, label, N);
+    const got = streamAt(ret, label, N, W0);
     let ok = got.length === series.length || got.length >= series.length;
     for (let i = 0; i < series.length && ok; i++) ok = near(got[i] ?? 0, series[i] ?? 0);
-    if (ok && total !== undefined) ok = near(totalAt(ret, label), total);
+    if (ok && total !== undefined) ok = near(totalAt(ret, label, W0), total);
     check(`Returns: "${label}" ties to the engine, per period${total !== undefined ? ' and in total' : ''}`, ok);
   };
   tie('Equity Drawn', w.equityDrawnPerPeriod, w.totalEquityDrawn);
@@ -389,7 +399,7 @@ async function main(): Promise<void> {
   // The terms the waterfall was run on, so the rows above can be checked by eye.
   check('Returns: the hurdle rate applied is stated', near(totalAt(ret, 'Hurdle rate (preferred return)'), w.hurdleRate, 1e-12));
   check('Returns: the performance fee percentage applied is stated', near(totalAt(ret, 'Performance fee on the excess'), w.performanceFeePct, 1e-12));
-  check('Returns: the Fund Manager is named', String(ret.getCell(rowOf(ret, 'Fund Manager'), TOTAL).value ?? '') === TERMS.fundManagerName);
+  check('Returns: the Fund Manager is named', String(ret.getCell(rowOf(ret, 'Fund Manager', W0), TOTAL).value ?? '') === TERMS.fundManagerName);
 
   // ── 5. Returns: gross vs post-fee IRR and MOIC ────────────────────────────
   console.log('\n-- 5. Returns: gross vs post-fee IRR and MOIC --');
@@ -428,13 +438,16 @@ async function main(): Promise<void> {
   check('Returns: the per-period fee income block lists every fee then the two totals', (() => {
     const rStart = rowOf(ret, 'Fee Income by Period');
     if (rStart < 0) return false;
-    const after = allLabels(ret).filter((x) => x.row > rStart).slice(0, FEE_INCOME_ROWS.length).map((x) => x.label);
+    // The screen's caption sits under the title; the rows follow it.
+    const after = allLabels(ret).filter((x) => x.row > rStart && !/^The five management fees/.test(x.label)).slice(0, FEE_INCOME_ROWS.length).map((x) => x.label);
     return after.join('|') === FEE_INCOME_ROWS.join('|');
   })());
   check('Returns: Total Management Fees ties to the fee earners snapshot',
     near(totalAt(ret, '= Total Management Fees'), fe.totalManagementFee));
-  check('Returns: Total Fee Income ties to the fee earners snapshot',
-    near(totalAt(ret, '= Total Fee Income'), fe.totalFeeIncome));
+  // THE TOTAL IS MANAGEMENT PLUS PERFORMANCE FEE (2026-09-17), the earner
+  // table's own total, so an unallocated performance fee is not dropped from it.
+  check('Returns: Total Fee Income ties to management plus performance fee',
+    near(totalAt(ret, '= Total Fee Income'), fe.totalManagementFee + fe.totalPerformanceFee));
   check('Returns: the management fees earned equal the fees CHARGED in the P&L',
     near(fe.totalManagementFee, sum(snapOn.fundFees.totalPerPeriod)) &&
     near(totalAt(ret, '= Total Management Fees'), -numAt(pl, rTot, TOTAL)));
@@ -482,7 +495,7 @@ async function main(): Promise<void> {
   check('a hurdle of zero lets the project clear it and earn a fee (fixture is exercised)',
     rsFee.waterfall.totalPerformanceFee > 0, `fee=${rsFee.waterfall.totalPerformanceFee}`);
   check('raising the performance fee MOVES the Performance Fee row',
-    !near(totalAt(retFee, 'Performance Fee'), totalAt(retNoFee, 'Performance Fee')));
+    !near(totalAt(retFee, 'Performance Fee', wfStart(retFee)), totalAt(retNoFee, 'Performance Fee', wfStart(retNoFee))));
   check('raising the performance fee MOVES the net distributions row',
     totalAt(retFee, 'Distributions Net of Performance Fee') < totalAt(retNoFee, 'Distributions Net of Performance Fee'));
   check('raising the performance fee leaves the GROSS distributions memo unchanged',
@@ -498,7 +511,7 @@ async function main(): Promise<void> {
   const retMatrix = wbMatrix.getWorksheet('Returns')!;
   check('changing the distribution matrix leaves the WATERFALL byte-identical',
     REFERENCE_ORDER.every((l) => {
-      const a = streamAt(retFee, l, N), b = streamAt(retMatrix, l, N);
+      const a = streamAt(retFee, l, N, wfStart(retFee)), b = streamAt(retMatrix, l, N, wfStart(retMatrix));
       return a.every((v, i) => near(v, b[i] ?? 0));
     }));
   check('an unallocated performance-fee remainder is SHOWN, never absorbed', (() => {
