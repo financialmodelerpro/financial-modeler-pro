@@ -49,6 +49,8 @@ import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { resolveAssetAreaMetrics, computePhaseTimeline, computeProjectTimeline, resolveSubUnitAdr, type AssetAreaMetrics } from '@/src/core/calculations';
 import { FUNDING_METHOD_LABELS, COST_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
 import { CAPEX_CATEGORIES } from '../reports/capexReports';
+import { buildConsolidatedReport, perAssetCostsFromTreatment } from '../reports/consolidatedReport';
+import { buildSellingCostReport, SELLING_COSTS_CAPTION, SELLING_COSTS_YOY_CAPTION } from '../reports/sellingCostReports';
 import {
   emitProjectSection, emitPhasesSection, emitStandardsSection, emitPlotsSection, emitAssetEntrySection, emitSubUnitSection,
   emitRevenueInputs, emitEscrowInputs, emitOpexInputs, emitStatementInputsSection, emitDepreciationSection, emitReturnsSection,
@@ -119,6 +121,11 @@ export interface BuildModelOptions {
   /** Module 1 tab 2. Parties are stored outside the version snapshot, so the
    *  caller (ExportModal) loads them and hands them in. Omitted = none entered. */
   parties?: Party[];
+  /** The LIVE sensitivity entitlement (`allows('sensitivity')`), exactly as the
+   *  PDF takes it. The two-way Equity IRR grid is printed only when true; false
+   *  or omitted prints nothing for it, not a placeholder. Defaults to false, the
+   *  same as the PDF, so a caller that forgets the gate cannot leak the grid. */
+  includeSensitivity?: boolean;
 }
 
 export interface ExcelPartSelection { inputs?: boolean; outputs?: boolean; schedules?: boolean }
@@ -247,7 +254,7 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   // downstream Revenue / CoS / Opex link registries; P&L / Cash Flow / Balance
   // Sheet / Returns are link-and-assemble presentation tabs. Each emitter
   // returns the row registry the next links to.
-  const ctx: EmitCtx = { wb, snap, state: opts.state, refs, lm, proj, assets: liveAssets, landAddrs, capexAddrs, revBaseFormula, currency: opts.state.project.currency ?? 'SAR', labelMoney: makeLabelMoney(opts.displayScale ?? 'full', opts.displayDecimals ?? defaultDecimals(opts.displayScale ?? 'full')), caseComparison: opts.caseComparison };
+  const ctx: EmitCtx = { wb, snap, state: opts.state, refs, lm, proj, assets: liveAssets, landAddrs, capexAddrs, revBaseFormula, currency: opts.state.project.currency ?? 'SAR', labelMoney: makeLabelMoney(opts.displayScale ?? 'full', opts.displayDecimals ?? defaultDecimals(opts.displayScale ?? 'full')), caseComparison: opts.caseComparison, includeSensitivity: opts.includeSensitivity === true };
   const finLinks = addFinancing(ctx);
   const { revLinks } = addRevenue(ctx);
   const opexLinks = addOpex(ctx);
@@ -358,6 +365,8 @@ interface EmitCtx {
   labelMoney: (v: number) => string;
   /** Scenario cases (Module 6). Feeds the Scenarios sheet; undefined = no cases. */
   caseComparison?: CaseComparisonInput;
+  /** The sensitivity entitlement (BuildModelOptions.includeSensitivity). */
+  includeSensitivity: boolean;
 }
 
 // ── Pure live-model inputs (cached values + scalars) from the snapshot ─────────
@@ -1358,7 +1367,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   const cSrc = cLast + 2;                              // phasing source (inputs only)
   const TOL = 0.0001;
   const TITLE = 'Capex';
-  const SUB = 'Development cost by line, as on the platform Capex tab. Inputs: each line\'s method, rate, rate source and phasing source, with the allocation profile the engine resolved. Results: Table 1 the schedule by cost line, Tables 2 to 4 the line summaries by phase (incl. all land, excl. land in-kind, excl. total land), Table 5 land cash and in-kind per phase, Table 6 capex by category. Platform values, hardcoded.';
+  const SUB = 'Development cost by line, as on the platform Capex tab. Inputs: each line\'s method, rate, rate source and phasing source, with the allocation profile the engine resolved. Results: the consolidated preview by type, Table 1 the schedule by cost line, Tables 2 to 4 the line summaries by phase (incl. all land, excl. land in-kind, excl. total land), Table 5 land cash and in-kind per phase, Table 6 capex by category. Platform values, hardcoded.';
 
   // ── Capex-local frozen 4-row header (rows 3 dates / 4 index; freeze A-E) ──
   ws.getColumn(C_LBL).width = 40; ws.getColumn(C_UOM).width = 30; ws.getColumn(C_RATE).width = 12; ws.getColumn(C_QTY).width = 19; ws.getColumn(C_TOT).width = 15;
@@ -1513,6 +1522,49 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     }
   }
   r += 1;
+
+  // ── Consolidated by type, what a grouped schedule would show ───────────────
+  // The Capex Results tab's first table, from the SAME rows and the SAME
+  // builder: the report's treatment rows (`capexTreatmentRows`) through
+  // `perAssetCostsFromTreatment` into `buildConsolidatedReport`, with its own
+  // reconciliation against the per-asset total stated beneath it, as on screen.
+  {
+    const treatIds = new Set(capex.treatment.map((t) => t.id));
+    const previewAssets = state.assets.filter((a) => treatIds.has(a.id));
+    const cons = buildConsolidatedReport(previewAssets, state.phases, perAssetCostsFromTreatment(capex.treatment));
+    const [cPhase, cType, cStrat, cCount, cLand, cHard, cSoft, cOp, cTotal] = [C_LBL, C_UOM, C_RATE, C_QTY, C_TOT, C_OPEN, C_OPEN + 1, C_OPEN + 2, C_OPEN + 3];
+    setSectionHeader(ws.getRow(r), 'Consolidated by type, what a grouped schedule would show', cLast); r += 1;
+    note(r, `Grouped by phase, asset type and strategy. Preview only: every schedule below is still per line. ${cons.isRelabellingOnly
+      ? 'Nothing merges on this project, so each row is one asset under a different label.'
+      : `${cons.mergedRows.length} row${cons.mergedRows.length === 1 ? '' : 's'} merge more than one asset.`}`);
+    r += 2;
+    subHeader(r, [[cPhase, 'Phase', 'left'], [cType, 'Type', 'left'], [cStrat, 'Strategy', 'left'], [cCount, 'Assets', 'right'], [cLand, 'Land', 'right'], [cHard, 'Hard', 'right'], [cSoft, 'Soft', 'right'], [cOp, 'Operating', 'right'], [cTotal, 'Total', 'right']]);
+    r += 1;
+    const moneyCells = (rr: number, v: { land: number; hard: number; soft: number; operating: number; total: number }): void => {
+      put(rr, cLand, v.land); put(rr, cHard, v.hard); put(rr, cSoft, v.soft); put(rr, cOp, v.operating); put(rr, cTotal, v.total);
+    };
+    for (const row of cons.rows) {
+      setLabel(ws.getCell(r, cPhase), row.phaseName, { indent: 1 });
+      setLabel(ws.getCell(r, cType), row.typed ? row.typeLabel : `${row.typeLabel} (untyped, so it groups alone)`);
+      setLabel(ws.getCell(r, cStrat), row.strategy);
+      put(r, cCount, row.assetCount, NUMFMT.int);
+      moneyCells(r, row);
+      r += 1;
+    }
+    setLabel(ws.getCell(r, cPhase), 'Total', { bold: true });
+    put(r, cCount, cons.rows.reduce((n, x) => n + x.assetCount, 0), NUMFMT.int);
+    moneyCells(r, cons.totals);
+    fillRange(ws, r, 1, r, cTotal, ARGB.subtotal);
+    for (let c = 1; c <= cTotal; c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+    r += 1;
+    const ties = Math.abs(cons.difference) < 0.005;
+    const fmtMoney = (v: number): string => v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    setLabel(ws.getCell(r, cPhase), ties
+      ? `Ties to the per-asset total: ${fmtMoney(cons.perAssetTotal)}.`
+      : `Does NOT tie to the per-asset total (${fmtMoney(cons.perAssetTotal)}), out by ${fmtMoney(cons.difference)}. Treat the per-asset tables as authoritative.`);
+    ws.getCell(r, cPhase).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ties ? ARGB.good : ARGB.bad } };
+    r += 2;
+  }
 
   // ── Table 1: the schedule by cost line, one block per line ─────────────────
   setSectionHeader(ws.getRow(r), 'Table 1 - Construction Cost Schedule by Period (per cost line, by line)', cLast); r += 1;
@@ -2344,6 +2396,46 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
 
   // ── 2. Revenue Output ────────────────────────────────────────────────────────
   em.section('2. Revenue Output (per line, filed by section and phase, then the project total)');
+  // SELLING COSTS FIRST, as the Output screen leads with them: the rows are the
+  // shared builder's (`buildSellingCostReport`), the same per-line rows, notes,
+  // counts and year-on-year schedule the screen renders.
+  {
+    const sc = buildSellingCostReport({
+      revenue: snap.revenue, assets: state.assets, phases: state.phases, costLines: state.costLines,
+      costOverrides: state.costOverrides, parcels: state.parcels, landAllocationMode: state.landAllocationMode,
+      project: state.project, subUnits: state.subUnits, yearLabels: yl, projectStartYear: psy,
+    });
+    if (sc) {
+      em.groupBand(`Selling Costs (${cur})`);
+      em.headNote(SELLING_COSTS_CAPTION);
+      em.colHeaders([[1, 'Asset', 'left'], [2, 'Phase', 'left'], [3, 'Strategy', 'left'], [4, 'Line', 'left'], [5, 'Rate', 'right'], [6, 'Basis', 'left'], [7, 'Basis amount', 'right'], [8, 'Cost', 'right']]);
+      for (const row of sc.display) {
+        em.cellsRow([
+          [1, row.label, '@'], [2, row.phaseName, '@'], [3, row.strategy, '@'], [4, row.lineName, '@'],
+          [5, row.ratePct / 100, NUMFMT.pct2], [6, row.basisLabel, '@'], [7, row.basisAmount, NUMFMT.money], [8, row.amount, NUMFMT.money],
+        ]);
+      }
+      for (const n of sc.zeroNotes) em.headNote(`${n.label} / ${n.lineName}: ${n.note}`);
+      {
+        const tr = em.cursor();
+        setLabel(ws.getCell(tr, 1), 'Total selling costs', { bold: true });
+        const tc = ws.getCell(tr, 8); tc.value = sc.result.total; tc.numFmt = NUMFMT.money;
+        fillRange(ws, tr, 1, tr, 8, ARGB.subtotal);
+        for (let c = 1; c <= 8; c++) ws.getCell(tr, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+        em.gap();
+      }
+      em.headNote(sc.footnote);
+      em.gap();
+      if (sc.schedule) {
+        em.tableTitle(`Selling Costs, Year on Year (${cur})`, SELLING_COSTS_YOY_CAPTION);
+        em.colHeaders([[1, 'Asset', 'left'], [2, 'Line', 'left'], [TOTAL_COL, 'Total', 'right']]);
+        for (const row of sc.schedule.rows) em.moneyRow(row.assetName, row.values, { indent: 1, basis: row.lineName });
+        em.moneyRow('Total selling costs', sc.schedule.totals, { style: 'total' });
+        em.headNote(sc.schedule.checkText(ctx.labelMoney));
+      }
+      em.gap();
+    }
+  }
   const lineResults = new Map(lines.map((l) => [l.key, lineRevenueResults(l.members.map((m) => m.id), snap.revenue, l.key)] as const));
   const lineMeta = (l: RevenueLine): string => l.isStrip ? 'ground-floor retail strip carved from its hosts'
     : l.isOperateCompanion ? 'Operate companion' : plotsOf(l);
@@ -4148,7 +4240,9 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
   }
 
   // ── Sensitivity, Equity IRR (FCFE), on the screen's default axes ──
-  {
+  // GATED ON THE ENTITLEMENT, as the PDF is: a plan without sensitivity gets
+  // nothing here, not a heading that claims a grid exists.
+  if (ctx.includeSensitivity) {
     const xVar: SensitivityVariable = 'exit_cap_rate', yVar: SensitivityVariable = 'sales_price_pct';
     let sens: ReturnType<typeof computeReturnsSensitivity> | null = null;
     try { sens = computeReturnsSensitivity(snap, state.project, xVar, yVar); } catch { sens = null; }
@@ -4730,6 +4824,12 @@ const MODULE_TOC: TocEntry[] = [
   { group: 'Reference' },
   { sheet: SHEETS.checks, desc: 'Integrity checks, advisories, colour legend and headline returns' },
 ];
+/** The tab list as THIS export prints it: the Returns entry names the
+ *  sensitivity grid only when the entitlement put one on the tab. */
+function moduleTocFor(opts: BuildModelOptions): TocEntry[] {
+  if (opts.includeSensitivity === true) return MODULE_TOC;
+  return MODULE_TOC.map((e) => ('sheet' in e && e.sheet === SHEETS.returns ? { ...e, desc: e.desc.replace('exit working, sensitivity', 'exit working') } : e));
+}
 
 function buildCoverContent(ws: ExcelJS.Worksheet, snap: ReturnType<typeof computeFinancialsSnapshot>, opts: BuildModelOptions, sectionReg: Map<string, Array<{ title: string; row: number }>>): void {
   const p = opts.state.project;
@@ -4760,7 +4860,7 @@ function buildCoverContent(ws: ExcelJS.Worksheet, snap: ReturnType<typeof comput
   // Guide leads the list, then the shared module-grouped tabs.
   const toc: TocEntry[] = [
     { sheet: SHEETS.guide, desc: 'How the model works: what each tab covers and how every figure is calculated' },
-    ...MODULE_TOC,
+    ...moduleTocFor(opts),
   ];
   const tocTop = r;
   let num = 0, zebra = 0;
@@ -4847,7 +4947,7 @@ function buildGuideContent(ws: ExcelJS.Worksheet, snap: ReturnType<typeof comput
   const toSw = ws.getCell(r, 6); toSw.value = 'Total'; fillCell(toSw, ARGB.navy); toSw.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
   r += 2;
 
-  for (const e of MODULE_TOC) {
+  for (const e of moduleTocFor(opts)) {
     if ('group' in e) {
       ws.mergeCells(r, 2, r, 7);
       const gc = ws.getCell(r, 2); gc.value = e.group;

@@ -696,7 +696,9 @@ console.log('\n-- J. Phasing follows collections wherever the line is rendered -
 
   // The Module 2 table must pass it. A source check, because the component is a
   // React tree this file cannot render.
-  const M2 = read('src/hubs/modeling/platforms/refm/components/modules/Module2RevenueOutput.tsx');
+  // The schedule's rows were lifted into the shared builder on 2026-09-17; the
+  // screen and the workbook both render from it, so the call lives there.
+  const M2 = read('src/hubs/modeling/platforms/refm/lib/reports/sellingCostReports.ts');
   check('J6 the Module 2 year-on-year schedule passes the collections curve',
     /collectionsPerPeriod: collectionsForAsset\(revenue, r\.assetId, phase, projectStartYear\)/.test(M2));
   check('J7 and it reads the engine series rather than rebuilding a curve',

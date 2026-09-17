@@ -20,6 +20,8 @@ import ExcelJS from 'exceljs';
 import { buildModelWorkbook, generateModelWorkbookBuffer } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
 import { computeFinancialsSnapshot, computeFundingGap } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { buildCostOfSalesReport } from '../src/hubs/modeling/platforms/refm/lib/reports/cosReports';
+import { buildCapexReport } from '../src/hubs/modeling/platforms/refm/lib/reports/capexReports';
+import { isSellingCostMethod } from '../src/core/calculations/revenue/sellingCosts';
 import * as FinancingReports from '../src/hubs/modeling/platforms/refm/lib/reports/financingReports';
 import { computeFundingBasis } from '../src/hubs/modeling/platforms/refm/lib/reports/fundingBasis';
 import { readFileSync as fsReadFileSync } from 'fs';
@@ -55,7 +57,9 @@ async function main(): Promise<void> {
   const state = buildExcelSampleState();
   const snap = computeFinancialsSnapshot(state);
   const N = snap.axisLength;
-  const wb = buildModelWorkbook({ state, projectName: 'Riverside Mixed-Use', dateLabel: '13 June 2026' });
+  // includeSensitivity: true, so the Returns section-order check sees the grid a
+  // plan with the entitlement gets; the gate itself is checked at the end.
+  const wb = buildModelWorkbook({ state, projectName: 'Riverside Mixed-Use', dateLabel: '13 June 2026', includeSensitivity: true });
 
   // Tab sequence follows the platform module order: Module 1 (Inputs, Timeline,
   // Land & Area, Capex, Financing), Module 2 (Revenue: a single sheet mirroring
@@ -758,6 +762,61 @@ async function main(): Promise<void> {
       check('combined finance cost closes at zero every period', closing.every((v) => Math.abs(v) < 1), `max=${Math.max(...closing.map(Math.abs))}`);
       check('combined finance cost: capitalised interest is a memo, not a deduction', !comb.rows.some((r) => r.label === 'Capitalized') && comb.rows.some((r) => /^\(memo\) of which funded by drawing debt$/.test(r.label)));
     }
+  }
+
+  // ── Selling Costs on the Revenue tab (the Revenue Output screen's first tables) ──
+  // A variant of the sample with a priced marketing line, so the total is a
+  // real figure. The workbook's "Total selling costs" must equal the ENGINE's
+  // charge: every selling-cost line amount the capex engine produced, per asset.
+  {
+    const st: any = { ...state, costLines: state.costLines.map((l: any) => (/^marketing/.test(l.id) ? { ...l, value: 3 } : l)) };
+    const sSnap = computeFinancialsSnapshot(st);
+    const wbSC = buildModelWorkbook({ state: st, projectName: 'X', dateLabel: 'd' });
+    const rev = wbSC.getWorksheet('Revenue')!;
+    const engineTotal = buildCapexReport(sSnap, st).inputAssets
+      .flatMap((a) => a.lines).filter((l) => isSellingCostMethod(l.method)).reduce((s, l) => s + l.amount, 0);
+    const outRow = rowByLabel(rev, /^2\. Revenue Output/);
+    const bandRow = rowByLabel(rev, /^Selling Costs \(/);
+    const totRow = rowByLabelAfter(rev, /^Selling Costs \(/, /^Total selling costs$/);
+    const lineRowAfter = rowByLabelAfter(rev, /^Selling Costs \(/, /^Residential$/);
+    check('Revenue: Selling Costs table leads Revenue Output, above the first section', outRow > 0 && bandRow > outRow && (lineRowAfter < 0 || bandRow < lineRowAfter), `out=${outRow} band=${bandRow}`);
+    check('Revenue: the engine charges a selling cost in the variant (non-vacuous)', engineTotal > 1000, `engine=${engineTotal}`);
+    check('Revenue: Total selling costs equals the engine selling cost total', totRow > 0 && Math.abs(num(rev.getCell(totRow, 8).value) - engineTotal) < 0.01, `wb=${totRow > 0 ? num(rev.getCell(totRow, 8).value) : 'missing'} engine=${engineTotal}`);
+    const yoyTot = rowByLabelAfter(rev, /^Selling Costs, Year on Year/, /^Total selling costs$/);
+    check('Revenue: Selling Costs, Year on Year total equals the engine total', yoyTot > 0 && Math.abs(num(rev.getCell(yoyTot, 4).value) - engineTotal) < 0.01, `yoy=${yoyTot > 0 ? num(rev.getCell(yoyTot, 4).value) : 'missing'}`);
+    check('Revenue: the selling cost rows come from the shared builder', /buildSellingCostReport\(/.test(fsReadFileSync('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts', 'utf8'))
+      && /buildSellingCostReport\(/.test(fsReadFileSync('src/hubs/modeling/platforms/refm/components/modules/Module2RevenueOutput.tsx', 'utf8')));
+  }
+
+  // ── Capex: the consolidated preview, where the Results tab shows it ─────────
+  {
+    const cap = wb.getWorksheet('Capex')!;
+    const cons = rowByLabel(cap, /^Consolidated by type, what a grouped schedule would show$/);
+    const t1 = rowByLabel(cap, /^Table 1 - /);
+    const consTotal = rowByLabelAfter(cap, /^Consolidated by type/, /^Total$/);
+    const projTotal = rowByLabel(cap, /^Project Total$/);
+    check('Capex: consolidated preview present, above Table 1', cons > 0 && t1 > cons && consTotal > cons && consTotal < t1, `cons=${cons} t1=${t1}`);
+    check('Capex: consolidated preview total ties to the Table 1 Project Total', consTotal > 0 && projTotal > 0 && Math.abs(num(cap.getCell(consTotal, 9).value) - num(cap.getCell(projTotal, 5).value)) < 0.01,
+      `cons=${consTotal > 0 ? num(cap.getCell(consTotal, 9).value) : 'missing'} t1=${projTotal > 0 ? num(cap.getCell(projTotal, 5).value) : 'missing'}`);
+    check('Capex: the preview states that it ties', /^Ties to the per-asset total/.test(labelOf(cap, consTotal + 1)), labelOf(cap, consTotal + 1));
+    const src = fsReadFileSync('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts', 'utf8');
+    check('Capex: the workbook preview uses the screen\'s builder and row rule', src.includes('buildConsolidatedReport(previewAssets, state.phases, perAssetCostsFromTreatment(capex.treatment))')
+      && fsReadFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx', 'utf8').includes('perAssetCostsFromTreatment(treatmentTable)'));
+  }
+
+  // ── Sensitivity follows the entitlement, as the PDF does ────────────────────
+  {
+    const wbNo = buildModelWorkbook({ state, projectName: 'X', dateLabel: 'd', includeSensitivity: false });
+    const wbDefault = buildModelWorkbook({ state, projectName: 'X', dateLabel: 'd' });
+    const retNo = wbNo.getWorksheet('Returns')!;
+    let mentions = 0;
+    for (const ws of [retNo, wbNo.getWorksheet('Cover')!, wbNo.getWorksheet('Guide')!]) ws.eachRow((row) => row.eachCell((c) => { if (typeof c.value === 'string' && /sensitivity/i.test(c.value)) mentions += 1; }));
+    check('Sensitivity: absent from Returns when includeSensitivity is false', rowByLabel(retNo, /^Sensitivity/) < 0);
+    check('Sensitivity: no Cover, Guide or Returns text claims a grid when it is false', mentions === 0, `${mentions} mentions`);
+    check('Sensitivity: absent by default (the option defaults to false, as the PDF)', rowByLabel(wbDefault.getWorksheet('Returns')!, /^Sensitivity/) < 0);
+    check('Sensitivity: present when includeSensitivity is true', rowByLabel(ret, /^Sensitivity, Equity IRR \(FCFE\)$/) > 0);
+    check('Sensitivity: ExportModal passes the live entitlement to the workbook',
+      /generateModelWorkbookBuffer\(\{[^\n]*includeSensitivity: allows\('sensitivity'\)/.test(fsReadFileSync('src/hubs/modeling/platforms/refm/components/modals/ExportModal.tsx', 'utf8')));
   }
 
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);

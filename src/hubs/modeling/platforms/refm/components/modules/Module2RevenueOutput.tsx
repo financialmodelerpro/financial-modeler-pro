@@ -49,13 +49,9 @@ import {
   type SellAssetResult,
 } from '@/src/core/calculations/revenue';
 import type { Asset, SubUnit } from '../../lib/state/module1-types';
-import { computeProjectTimeline, computeSubUnitArea, computeAssetRevenue, computeAssetCost } from '@/src/core/calculations';
-import { computeSellingCosts, type SellingCostRow } from '@/src/core/calculations/revenue/sellingCosts';
-import { assetVisibleLines } from '@/src/core/calculations/selectedBase';
-import { collectionsForAsset, phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
-import { assetStrategySells, type CostLine, type CostOverride, type LandAllocationMode, type Parcel, type Phase, type Project } from '../../lib/state/module1-types';
-import { resolveCatalogId } from '../../lib/state/costCatalog';
-import { deriveCostStage } from '@/src/core/calculations';
+import { computeProjectTimeline, computeSubUnitArea } from '@/src/core/calculations';
+import { buildSellingCostReport, type SellingCostSchedule } from '../../lib/reports/sellingCostReports';
+import type { CostLine, CostOverride, LandAllocationMode, Parcel, Phase, Project } from '../../lib/state/module1-types';
 import {
   formatAccounting,
   formatArea,
@@ -84,7 +80,7 @@ import { withResolvedAssetNames, assetPlotLabel } from '@/src/core/calculations/
 import { resolveSubUnitMetric } from '@/src/core/calculations';
 import { lineRevenueResults } from '../../lib/revenue-resolvers';
 import {
-  planRevenueLines, groupRevenueLines, lineForAsset, REVENUE_SECTION_KEY, REVENUE_SECTION_META, type RevenueLine,
+  planRevenueLines, groupRevenueLines, REVENUE_SECTION_KEY, REVENUE_SECTION_META, type RevenueLine,
 } from '../../lib/revenueLines';
 import { withInheritedMassingAll } from '@/src/core/calculations/landChain';
 import { chainMassingFor } from '../../lib/state/assetTypeStandards';
@@ -1661,13 +1657,10 @@ function PhaseDivider({ title, meta, count }: { title: string; meta?: string; co
 // genuinely zero, where the old basis charged it on one night's ADR.
 // ════════════════════════════════════════════════════════════════════════════
 
-/** What a selling cost is called on this tab: marketing by its stage, commission
- *  by its identity, anything else by its own name. */
-function sellingCostName(line: CostLine): string {
-  if (deriveCostStage(line) === 'marketing' || line.stage === 'marketing' || line.stageOverride === 'marketing') return 'Marketing';
-  if (resolveCatalogId(line) === 'commission') return 'Commission';
-  return line.name;
-}
+// THE ROWS ARE THE SHARED BUILDER'S (2026-09-17): `buildSellingCostReport` in
+// lib/reports/sellingCostReports.ts assembles the per-line rows, the notes, the
+// counts and the year-on-year schedule, so the workbook prints exactly what
+// this section shows. The screen only formats and lays them out.
 
 function SellingCostsSection(props: {
   revenue: ProjectRevenueSnapshot;
@@ -1690,82 +1683,18 @@ function SellingCostsSection(props: {
     project, subUnits, yearLabels, projectStartYear, fmt, currency, scale,
   } = props;
 
-  const result = useMemo(() => computeSellingCosts({
-    revenue,
-    assets: assets.filter((a) => a.visible !== false),
-    // THE SHARED VISIBILITY RULE, so a line hidden from an asset on the Capex
-    // tab cannot appear here either. Passing the asset's strategy is what scopes
-    // a selling cost to the assets that sell.
-    linesForAsset: (assetId) => {
-      const a = assets.find((x) => x.id === assetId);
-      if (!a) return [];
-      return assetVisibleLines(costLines, a.phaseId, a.id, a.strategy).map((l) => ({
-        // ONE WORDING PER SELLING COST (2026-09-14, founder: phase 1 read
-        // "Marketing Cost" and phase 2 "Marketing"). The row is named by what
-        // the line IS, so every phase reads the same.
-        id: l.id, name: sellingCostName(l), method: l.method, value: l.value, catalogId: resolveCatalogId(l),
-      }));
-    },
-    // The per-asset override wins exactly as it does in the engine.
-    rateFor: (assetId, lineId, lineValue) => {
-      const ov = costOverrides.find((o) => o.assetId === assetId && o.lineId === lineId);
-      if (ov && ov.overridden !== false && ov.value !== undefined) return ov.value;
-      return lineValue;
-    },
-    sells: (strategy) => assetStrategySells(strategy as Asset['strategy']),
-    // Only reached when NO revenue snapshot exists, which cannot happen here;
-    // supplied so the shape is honest rather than a lie by omission.
-    fallbackBasis: (assetId) => {
-      const a = assets.find((x) => x.id === assetId);
-      return a ? computeAssetRevenue(a, subUnits) : 0;
-    },
-  }), [revenue, assets, costLines, costOverrides, subUnits]);
+  const report = useMemo(() => buildSellingCostReport({
+    revenue, assets, phases, costLines, costOverrides, parcels, landAllocationMode,
+    project, subUnits, yearLabels, projectStartYear,
+  }), [revenue, assets, phases, costLines, costOverrides, parcels, landAllocationMode, project, subUnits, yearLabels, projectStartYear]);
 
-  // PER LINE ON SCREEN (2026-09-13, founder: "shows the blank Land 2, which is
-  // wrong as our asset is merged"). The engine charges a selling cost per
-  // asset (plot), and a plot with no sub-units earned nothing and printed an
-  // empty row beside its line's other plot. The screen reads per LINE: the
-  // plots of one line share the phase's cost line, so their basis amounts and
-  // charges add, and a line reads as one row named as Table 5 names it.
-  const lines = useMemo(() => planRevenueLines(assets, subUnits, phases, project), [assets, subUnits, phases, project]);
-  const lineOfAsset = (assetId: string): RevenueLine | undefined => lineForAsset(lines, assetId);
-  const display = useMemo(() => {
-    const out = new Map<string, { key: string; lineKey: string; label: string; phaseId: string; strategy: string; lineId: string; lineName: string; ratePct: number; basisLabel: string; basisAmount: number; amount: number; notes: string[] }>();
-    for (const r of result.rows) {
-      const line = lineForAsset(lines, r.assetId);
-      const lineKey = line?.key ?? r.assetId;
-      const key = `${lineKey}::${r.lineId}`;
-      const cur = out.get(key);
-      if (cur) {
-        cur.basisAmount += r.basis.amount;
-        cur.amount += r.amount;
-        if (r.note) cur.notes.push(r.note);
-        continue;
-      }
-      out.set(key, {
-        key, lineKey,
-        label: line ? (line.phaseName ? `${line.label}, ${line.phaseName}` : line.label) : r.assetName,
-        phaseId: r.phaseId, strategy: r.strategy, lineId: r.lineId, lineName: r.lineName,
-        ratePct: r.ratePct, basisLabel: r.basis.label, basisAmount: r.basis.amount, amount: r.amount,
-        notes: r.note ? [r.note] : [],
-      });
-    }
-    return [...out.values()];
-  }, [result, lines]);
+  if (!report) return null;
+  const { result, display, zeroNotes, footnote, schedule } = report;
 
-  if (result.rows.length === 0) return null;
-
-  const phaseName = (id: string): string => phases.find((p) => p.id === id)?.name ?? id;
   const th: React.CSSProperties = { textAlign: 'right', padding: '6px 10px', fontSize: 11 };
   const thL: React.CSSProperties = { ...th, textAlign: 'left' };
   const td: React.CSSProperties = { textAlign: 'right', padding: '5px 10px', fontSize: 11, borderBottom: '1px solid var(--color-border)' };
   const tdL: React.CSSProperties = { ...td, textAlign: 'left' };
-
-  const byName = new Map<string, SellingCostRow[]>();
-  for (const r of result.rows) {
-    const k = r.catalogId ?? r.lineName;
-    byName.set(k, [...(byName.get(k) ?? []), r]);
-  }
 
   return (
     <section data-testid="m2-selling-costs" style={{ marginBottom: 'var(--sp-3)' }}>
@@ -1800,7 +1729,7 @@ function SellingCostsSection(props: {
             {display.map((r) => (
               <tr key={r.key} data-testid={`m2-selling-cost-${r.lineKey}-${r.lineId}`}>
                 <td style={tdL}>{r.label}</td>
-                <td style={tdL}>{phaseName(r.phaseId)}</td>
+                <td style={tdL}>{r.phaseName}</td>
                 <td style={tdL}>{r.strategy}</td>
                 <td style={tdL}>{r.lineName}</td>
                 <td style={td}>{r.ratePct.toFixed(2)}%</td>
@@ -1809,12 +1738,12 @@ function SellingCostsSection(props: {
                 <td style={{ ...td, fontWeight: 700 }}>{fmt(r.amount)}</td>
               </tr>
             ))}
-            {display.some((r) => r.amount === 0 && r.notes.length > 0) && (
+            {zeroNotes.length > 0 && (
               <tr>
                 <td colSpan={8} style={{ ...tdL, background: 'var(--color-bg)', fontStyle: 'italic', color: 'var(--color-meta)' }}>
-                  {display.filter((r) => r.amount === 0 && r.notes.length > 0).map((r) => (
+                  {zeroNotes.map((r) => (
                     <div key={`${r.key}::note`} data-testid={`m2-selling-cost-note-${r.lineKey}-${r.lineId}`}>
-                      <strong>{r.label} / {r.lineName}:</strong> {r.notes[0]}
+                      <strong>{r.label} / {r.lineName}:</strong> {r.note}
                     </div>
                   ))}
                 </td>
@@ -1830,35 +1759,18 @@ function SellingCostsSection(props: {
         </table>
       </div>
       <div style={{ fontSize: 10, color: 'var(--color-meta)', padding: '6px 12px', fontStyle: 'italic' }}>
-        {Array.from(byName.keys()).length} selling cost {Array.from(byName.keys()).length === 1 ? 'line' : 'lines'} across{' '}
-        {new Set(display.map((r) => r.lineKey)).size} revenue line{new Set(display.map((r) => r.lineKey)).size === 1 ? '' : 's'}
-        {' '}({new Set(result.rows.map((r) => r.assetId)).size} plot{new Set(result.rows.map((r) => r.assetId)).size === 1 ? '' : 's'}, each line the sum of its plots).
-        These are the same figures the Capex tab charges: one calculation, read by both.
+        {footnote}
       </div>
 
-      <SellingCostSchedule
-        rows={result.rows}
-        assets={assets}
-        phases={phases}
-        costLines={costLines}
-        costOverrides={costOverrides}
-        parcels={parcels}
-        landAllocationMode={landAllocationMode}
-        project={project}
-        subUnits={subUnits}
-        revenue={revenue}
-        yearLabels={yearLabels}
-        projectStartYear={projectStartYear}
-        fmt={fmt}
-        currency={currency}
-        scale={scale}
-        groupOf={(assetId) => {
-          const line = lineOfAsset(assetId);
-          return line
-            ? { key: line.key, label: line.phaseName ? `${line.label}, ${line.phaseName}` : line.label }
-            : { key: assetId, label: assets.find((a) => a.id === assetId)?.name ?? assetId };
-        }}
-      />
+      {schedule && (
+        <SellingCostScheduleTable
+          schedule={schedule}
+          yearLabels={yearLabels}
+          fmt={fmt}
+          currency={currency}
+          scale={scale}
+        />
+      )}
     </section>
   );
 }
@@ -1868,102 +1780,22 @@ function SellingCostsSection(props: {
 //
 // The table above states WHAT each selling cost is and what it is charged on.
 // This one states WHEN it is charged, so the year-on-year figures can be read
-// straight against the Capex tab without a calculator.
-//
-// IT READS THE ENGINE'S OWN `perLinePerPeriod`, the same series the Capex
-// schedule and every export render, projected onto the project axis with the
-// shared `phaseLocalToProjectIndex` rule. It re-derives nothing: a selling cost
-// follows sales collections rather than the construction curve, and rebuilding
-// that here would be a second phasing rule free to drift from the first.
+// straight against the Capex tab without a calculator. The rows are the
+// engine's own `perLinePerPeriod`, phased by the collections curve, from the
+// shared builder (see `buildSellingCostReport`).
 //
 // The Total column is FIRST, matching every other period table in the platform.
 // ════════════════════════════════════════════════════════════════════════════
 
-function SellingCostSchedule(props: {
-  rows: SellingCostRow[];
-  assets: Asset[];
-  phases: Phase[];
-  costLines: CostLine[];
-  costOverrides: CostOverride[];
-  parcels: Parcel[];
-  landAllocationMode: LandAllocationMode;
-  project: Project;
-  subUnits: SubUnit[];
-  revenue: ProjectRevenueSnapshot;
+function SellingCostScheduleTable(props: {
+  schedule: SellingCostSchedule;
   yearLabels: number[];
-  projectStartYear: number;
   fmt: (n: number) => string;
   currency: string;
   scale: DisplayScale;
-  /** The LINE a plot belongs to, for the row it files under (2026-09-13). */
-  groupOf: (assetId: string) => { key: string; label: string };
-}): React.JSX.Element | null {
-  const {
-    rows, assets, phases, costLines, costOverrides, parcels, landAllocationMode,
-    project, subUnits, revenue, yearLabels, projectStartYear, fmt, currency, scale, groupOf,
-  } = props;
-
-  const N = yearLabels.length;
-  const schedule = useMemo(() => {
-    const out: Array<{ key: string; assetName: string; lineName: string; values: number[]; total: number }> = [];
-    for (const r of rows) {
-      const asset = assets.find((a) => a.id === r.assetId);
-      const phase = phases.find((p) => p.id === r.phaseId);
-      if (!asset || !phase) continue;
-      // THE COLLECTIONS CURVE IS NOT OPTIONAL HERE (2026-08-19).
-      //
-      // `perLinePerPeriod` is PHASED BY THIS CALL, not read from somewhere that
-      // already phased it, so omitting the collections series does not "read an
-      // already-phased number": it makes this call phase the line differently
-      // from the Capex tab. A selling cost carries `phasingSource: 'collections'`
-      // and degrades to its own curve without it, which is exactly what went
-      // wrong: Marina Residences' marketing showed 1,253,606 in 2027 here
-      // against 114,380 on Capex, with the lifetime totals agreeing so the
-      // error looked like a rounding quirk rather than a different curve.
-      const bd = computeAssetCost({
-        asset, project, phase, parcels, assets, subUnits, costLines, costOverrides,
-        landAllocationMode, parcelFunding: project.financing?.parcelFunding,
-        revenue,
-        collectionsPerPeriod: collectionsForAsset(revenue, r.assetId, phase, projectStartYear),
-      } as Parameters<typeof computeAssetCost>[0]);
-      const local = bd.perLinePerPeriod?.[r.lineId] ?? [];
-      const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
-      const offset = Math.max(0, phaseStartYear - projectStartYear);
-      const values = new Array<number>(N).fill(0);
-      for (let i = 0; i < local.length; i++) {
-        const idx = phaseLocalToProjectIndex(i, offset);
-        if (idx >= 0 && idx < N) values[idx] += local[i] ?? 0;
-      }
-      // PER LINE (2026-09-13): the plots of one line share the cost line, so
-      // their per-period charges add into one row named as Table 5 names it.
-      const group = groupOf(r.assetId);
-      const key = `${group.key}::${r.lineId}`;
-      const existing = out.find((o) => o.key === key);
-      if (existing) {
-        for (let t = 0; t < N; t++) existing.values[t] += values[t] ?? 0;
-        existing.total = existing.values.reduce((x, v) => x + v, 0);
-        continue;
-      }
-      out.push({
-        key,
-        assetName: group.label,
-        lineName: r.lineName,
-        values,
-        total: values.reduce((x, v) => x + v, 0),
-      });
-    }
-    return out;
-  }, [rows, assets, phases, costLines, costOverrides, parcels, landAllocationMode, project, subUnits, revenue, N, projectStartYear, groupOf]);
-
-  if (schedule.length === 0) return null;
-
-  const totals = new Array<number>(N).fill(0);
-  for (const r of schedule) for (let t = 0; t < N; t++) totals[t] += r.values[t] ?? 0;
-  const grand = totals.reduce((x, v) => x + v, 0);
-  // The lifetime figures from the table above, so a mismatch is visible rather
-  // than silent. They are the same calculation, so they must agree.
-  const lifetimeFromBasis = rows.reduce((x, r) => x + r.amount, 0);
-  const drift = grand - lifetimeFromBasis;
+}): React.JSX.Element {
+  const { schedule, yearLabels, fmt, currency, scale } = props;
+  const { rows, totals, grand } = schedule;
 
   const th: React.CSSProperties = { textAlign: 'right', padding: '5px 8px', fontSize: 11, whiteSpace: 'nowrap' };
   const thL: React.CSSProperties = { ...th, textAlign: 'left' };
@@ -1997,7 +1829,7 @@ function SellingCostSchedule(props: {
             </tr>
           </thead>
           <tbody>
-            {schedule.map((r) => (
+            {rows.map((r) => (
               <tr key={r.key} data-testid={`m2-selling-cost-yoy-${r.key}`}>
                 <td style={tdL}>{r.assetName}</td>
                 <td style={tdL}>{r.lineName}</td>
@@ -2016,13 +1848,10 @@ function SellingCostSchedule(props: {
         </table>
       </div>
       <div style={{ fontSize: 10, color: 'var(--color-meta)', padding: '6px 12px', fontStyle: 'italic' }}>
-        {Math.abs(drift) < 0.005
-          ? 'The lifetime total matches the basis table above exactly, which is the check that the two views are one calculation.'
-          : `The lifetime total differs from the basis table above by ${fmt(drift)}. That should be zero; the two views read the same calculation.`}
+        {schedule.checkText(fmt)}
       </div>
     </div>
   );
 }
-
 
 export type { SellAssetResult };

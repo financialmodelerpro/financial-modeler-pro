@@ -95,7 +95,6 @@ import {
   resolveAssetAreaMetrics,
   aggregatePhaseMetrics,
   classifyAssetCapex,
-  computeCashFlowImpact,
   resolveUsefulLifeYears,
   deriveCostStage,
   isLandValueLine,
@@ -126,8 +125,8 @@ import { buildResultsPeriodAxis } from './_shared/periodAxis';
 import { withResolvedAssetNames, assetPlotLabel } from '@/src/core/calculations/assetName';
 import { withInheritedMassingAll } from '@/src/core/calculations/landChain';
 import { chainMassingFor } from '../../lib/state/assetTypeStandards';
-import { buildConsolidatedReport } from '../../lib/reports/consolidatedReport';
-import { planCapexSummaryLines, assetCapexCategory, CAPEX_CATEGORIES, type CapexPlannableAsset } from '../../lib/reports/capexReports';
+import { buildConsolidatedReport, perAssetCostsFromTreatment } from '../../lib/reports/consolidatedReport';
+import { planCapexSummaryLines, assetCapexCategory, capexTreatmentRows, CAPEX_CATEGORIES, type CapexPlannableAsset } from '../../lib/reports/capexReports';
 import { assetHasSubstance } from './_shared/assetTableModel';
 import { normaliseAssetTypeId } from '../../lib/state/assetTypeStandards';
 
@@ -2865,31 +2864,14 @@ function SummaryTables({
   );
 
   // Capex Summary by Treatment: rows = assets, cols = land cash, land in-kind, hard, soft, operating, total, cash flow impact
-  const treatmentTable = phaseAssets.map((a) => {
-    const m = metricsByAsset.get(a.id) ?? { cashLandValue: 0, inKindLandValue: 0, landValue: 0 };
-    let hard = 0, soft = 0, operating = 0, total = 0;
-    for (const pb of perPhaseBreakdowns) {
-      const bd = pb.assetTotals[a.id];
-      if (!bd) continue;
-      hard += bd.byStage.hard;
-      soft += bd.byStage.soft;
-      operating += bd.byStage.operating;
-      total += bd.total;
-    }
-    const cashFlow = computeCashFlowImpact(total, m.inKindLandValue);
-    return {
-      id: a.id,
-      name: a.name,
-      strategy: a.strategy,
-      landCash: m.cashLandValue,
-      landInKind: m.inKindLandValue,
-      hard,
-      soft,
-      operating,
-      total,
-      cashOutflow: cashFlow.cashOutflow,
-    };
-  });
+  // THE SHARED ROW RULE (2026-09-17): `capexTreatmentRows` in
+  // lib/reports/capexReports.ts, which the workbook's consolidated preview
+  // reads too, so the two print the same figures.
+  const treatmentTable = capexTreatmentRows(
+    phaseAssets,
+    (id) => perPhaseBreakdowns.map((pb) => pb.assetTotals[id]).filter((bd): bd is NonNullable<typeof bd> => !!bd),
+    (id) => metricsByAsset.get(id),
+  );
   const treatTotals = treatmentTable.reduce(
     (acc, r) => ({
       landCash: acc.landCash + r.landCash,
@@ -2926,15 +2908,7 @@ function SummaryTables({
   const consolidated = buildConsolidatedReport(
     phaseAssets,
     phases,
-    treatmentTable.map((r) => ({
-      assetId: r.id,
-      land: r.landCash + r.landInKind,
-      hard: r.hard,
-      soft: r.soft,
-      marketing: 0,
-      operating: r.operating,
-      total: r.total,
-    })),
+    perAssetCostsFromTreatment(treatmentTable),
   );
 
   return (

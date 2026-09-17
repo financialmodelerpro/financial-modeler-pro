@@ -433,7 +433,13 @@ section('O. The Output tab, the Inputs card and the selling costs read per line,
   check('O2 the share sold per year is the first table of block 1, per sub-unit, pre and post in one row',
     out.includes('buildShareSoldRows(') && out.includes('1a. Share of inventory sold per year'));
   check('O3 the selling costs table and its year-on-year schedule file per LINE, the plots of a line added',
-    /const display = useMemo/.test(out) && out.includes('lineForAsset(lines, r.assetId)') && out.includes('groupOf(r.assetId)') && !out.includes('data-testid={`m2-selling-cost-${r.assetId}-${r.lineId}`}'));
+    (() => {
+      // The rows moved into the shared builder on 2026-09-17 (the screen and
+      // the workbook both render it); the screen keeps the per-LINE test ids.
+      const sc = readFileSync(join(process.cwd(), 'src/hubs/modeling/platforms/refm/lib/reports/sellingCostReports.ts'), 'utf8');
+      return /buildSellingCostReport\(/.test(out) && sc.includes('lineForAsset(lines, r.assetId)') && sc.includes('groupOf(r.assetId)')
+        && out.includes('data-testid={`m2-selling-cost-${r.lineKey}-${r.lineId}`}') && !out.includes('data-testid={`m2-selling-cost-${r.assetId}-${r.lineId}`}');
+    })());
   check('O4 the Inputs card shows the sale price per year after indexation, through the engine\'s own applyIndexation',
     inp.includes('-indexed-price') && inp.includes('applyIndexation(base, c.idx, idxAxis)') && inp.includes('expandIndexationToAxis(idxConfig'));
   check('O5 the Inputs card can copy its terms to every other line of the same form, writing every member of every target',

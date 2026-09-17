@@ -147,11 +147,17 @@ function offlineChecks(): void {
   const consumers = walk('src/hubs/modeling/platforms/refm')
     .filter((f) => !f.endsWith('reports/consolidatedReport.ts'))
     .filter((f) => readFileSync(f, 'utf8').includes('buildConsolidatedReport'));
-  check('C2 exactly ONE surface consumes it, the Costs tab',
-    consumers.length === 1 && consumers[0].endsWith('Module1Costs.tsx'), consumers.join(' | '));
+  // TWO PRESENTATION SURFACES since 2026-09-17: the Costs tab and the Excel
+  // workbook's Capex tab, which prints the same preview from the same rows.
+  // Both are presentation; neither is an engine reader (C1).
+  const allowedConsumers = ['Module1Costs.tsx', 'buildModelWorkbook.ts'];
+  check('C2 only the Costs tab and the workbook that mirrors it consume it',
+    consumers.length === 2 && allowedConsumers.every((n) => consumers.some((f) => f.endsWith(n))), consumers.join(' | '));
   const tab = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx', 'utf8');
-  check('C3 the tab feeds it the rows it ALREADY computed, rather than recomputing',
-    /treatmentTable\.map\(\(r\) => \(\{/.test(tab) && tab.includes('assetId: r.id,'));
+  const wbSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts', 'utf8');
+  check('C3 the tab feeds it the rows it ALREADY computed, rather than recomputing, and the workbook the same row rule',
+    /const treatmentTable = capexTreatmentRows\(/.test(tab) && tab.includes('perAssetCostsFromTreatment(treatmentTable)')
+    && wbSrc.includes('perAssetCostsFromTreatment(capex.treatment)'));
   check('C4 the screen states the reconciliation rather than hiding it',
     tab.includes('data-testid="capex-consolidated-check"')
     && tab.includes('Ties to the per-asset total below')

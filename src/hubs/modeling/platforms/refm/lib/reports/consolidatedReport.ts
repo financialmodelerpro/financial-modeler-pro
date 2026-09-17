@@ -27,7 +27,7 @@ import {
   UNTYPED_LABEL,
   type ConsolidatableAsset,
 } from '@/src/core/calculations/consolidation';
-import { planCapexSummaryLines, type CapexInputAsset, type CapexPlannableAsset } from './capexReports';
+import { planCapexSummaryLines, type CapexInputAsset, type CapexPlannableAsset, type CapexTreatmentRow } from './capexReports';
 
 /**
  * What this view needs to know about one asset's cost. Minimal on purpose: the
@@ -42,6 +42,25 @@ export interface PerAssetCost {
   marketing: number;
   operating: number;
   total: number;
+}
+
+/**
+ * Adapter for the Capex Results tab's treatment rows (`capexTreatmentRows`),
+ * which is what the tab's own preview reads: land is the cash plus in-kind land
+ * value, and marketing rides inside the total rather than in a column. The
+ * workbook feeds the same rows through the same adapter, so its preview is the
+ * screen's, figure for figure.
+ */
+export function perAssetCostsFromTreatment(rows: readonly CapexTreatmentRow[]): PerAssetCost[] {
+  return rows.map((r) => ({
+    assetId: r.id,
+    land: r.landCash + r.landInKind,
+    hard: r.hard,
+    soft: r.soft,
+    marketing: 0,
+    operating: r.operating,
+    total: r.total,
+  }));
 }
 
 /** Adapter for the shared capex report, so the exports feed the same builder. */

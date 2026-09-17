@@ -11,7 +11,8 @@
  *
  * Pure: reads the financials snapshot + project state only; no engine mutation.
  */
-import { computeAssetCost, deriveCostStage, resolveAssetAreaMetrics, type AssetAreaMetrics } from '@/src/core/calculations';
+import { computeAssetCost, computeCashFlowImpact, deriveCostStage, resolveAssetAreaMetrics, type AssetAreaMetrics, type AssetCostBreakdown } from '@/src/core/calculations';
+import { assetHasSubstance } from '../../components/modules/_shared/assetTableModel';
 import { collectionsForAsset, phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
 import type { ProjectFinancialsSnapshot, FinancialsResolverState } from '../financials-resolvers';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
@@ -176,6 +177,59 @@ export function sumCapexStages(lines: Array<{ stage: string; amount: number }>):
   return out;
 }
 
+/**
+ * ONE ASSET'S CAPEX BY TREATMENT (2026-09-17, lifted from the Capex screen).
+ *
+ * Land split into cash and in-kind (the asset's resolved land VALUE), the hard,
+ * soft and operating stages and the total from the engine's own breakdown, and
+ * the cash-flow impact. The Capex Results tab renders these rows and feeds them
+ * to the consolidated preview; the workbook builds the same preview from the
+ * same rows, so the two cannot disagree about a figure.
+ */
+export interface CapexTreatmentRow {
+  id: string;
+  name: string;
+  strategy: string;
+  landCash: number;
+  landInKind: number;
+  hard: number;
+  soft: number;
+  operating: number;
+  total: number;
+  cashOutflow: number;
+}
+
+export function capexTreatmentRows<A extends { id: string; name: string; strategy: string }>(
+  assets: readonly A[],
+  /** Every engine breakdown this asset has (the screen holds one per phase). */
+  breakdownsOf: (assetId: string) => ReadonlyArray<{ byStage: { hard: number; soft: number; operating: number }; total: number }>,
+  landOf: (assetId: string) => { cashLandValue: number; inKindLandValue: number } | undefined,
+): Array<CapexTreatmentRow & { strategy: A['strategy'] }> {
+  return assets.map((a) => {
+    const m = landOf(a.id) ?? { cashLandValue: 0, inKindLandValue: 0 };
+    let hard = 0, soft = 0, operating = 0, total = 0;
+    for (const bd of breakdownsOf(a.id)) {
+      hard += bd.byStage.hard;
+      soft += bd.byStage.soft;
+      operating += bd.byStage.operating;
+      total += bd.total;
+    }
+    const cashFlow = computeCashFlowImpact(total, m.inKindLandValue);
+    return {
+      id: a.id,
+      name: a.name,
+      strategy: a.strategy,
+      landCash: m.cashLandValue,
+      landInKind: m.inKindLandValue,
+      hard,
+      soft,
+      operating,
+      total,
+      cashOutflow: cashFlow.cashOutflow,
+    };
+  });
+}
+
 /** Roll per-asset subtotals up to the project. */
 export function totalCapexStages(assets: Array<{ subtotals: CapexStageSubtotals }>): CapexStageSubtotals {
   const out: CapexStageSubtotals = { land: 0, hard: 0, soft: 0, marketing: 0, operating: 0, exclLand: 0, total: 0 };
@@ -217,6 +271,10 @@ export interface CapexReport {
   results: CapexResultTable[];
   /** Per-asset series for the Excel model, which is per asset by design. */
   assetSeries: CapexAssetSeries[];
+  /** The Capex Results tab's treatment rows, one per visible asset with
+   *  something to price, in asset order: what its consolidated preview
+   *  ("Consolidated by type, what a grouped schedule would show") sums. */
+  treatment: CapexTreatmentRow[];
 }
 
 /** Human label for a cost line's method = what its rate multiplies. */
@@ -476,6 +534,7 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
     category: CapexCategory;
   }
   const inputAssets: CapexInputAsset[] = [];
+  const breakdownById = new Map<string, AssetCostBreakdown>();
   const assetCapex: AssetCapex[] = [];
 
   for (const a of assets) {
@@ -493,6 +552,7 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
       collectionsPerPeriod: collectionsForAsset(snap.revenue, a.id, phase, projectStartYear),
       revenue: snap.revenue,
     });
+    breakdownById.set(a.id, breakdown);
     if ((breakdown.total ?? 0) === 0) continue;
     const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
     const offset = Math.max(0, phaseStartYear - projectStartYear);
@@ -752,5 +812,21 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
     inclAll: ac.inclAll, exclInKind: ac.exclInKind, exclAll: ac.exclAll,
   }));
 
-  return { inputAssets, results, assetSeries };
+  // THE SCREEN'S TREATMENT ROWS, on the screen's own asset set: visible and
+  // with something to price (`assetHasSubstance`), land resolved against the
+  // same set within the asset's phase, as the Capex tab's metrics map does.
+  const previewAssets = assets.filter((a) => a.visible && assetHasSubstance(a, subUnits));
+  // The row is NAMED by the one label (`assetLabel`), never the retired
+  // `Asset.name`: the screen hands in assets it already resolved, this builder
+  // is entered with the raw state.
+  const treatment = capexTreatmentRows(
+    previewAssets.map((a) => ({ ...a, name: assetLabel(a, state) })),
+    (id) => { const bd = breakdownById.get(id); return bd ? [bd] : []; },
+    (id) => {
+      const a = previewAssets.find((x) => x.id === id);
+      return a ? resolveAssetAreaMetrics(a, project, parcels, previewAssets.filter((x) => x.phaseId === a.phaseId), subUnits, landAllocationMode) : undefined;
+    },
+  );
+
+  return { inputAssets, results, assetSeries, treatment };
 }

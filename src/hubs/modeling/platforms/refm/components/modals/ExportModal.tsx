@@ -413,7 +413,10 @@ export default function ExportModal({
         // Pass the full case bundle so the workbook's Scenarios tab compares
         // EVERY case (Management base + each scenario), while the statement tabs
         // render `state` (the selected case, defaulting to Management).
-        const buf = await generateModelWorkbookBuffer({ state, projectName: name, dateLabel, displayScale: pdfScale, displayDecimals: pdfDecimals, parts: { ...groupSel }, caseComparison, parties });
+        // The sensitivity grid is a paid feature: the workbook carries the SAME
+        // live entitlement gate the PDF does, so neither export hands a reader
+        // what the plan cannot open on screen.
+        const buf = await generateModelWorkbookBuffer({ state, projectName: name, dateLabel, displayScale: pdfScale, displayDecimals: pdfDecimals, parts: { ...groupSel }, caseComparison, parties, includeSensitivity: allows('sensitivity') });
         triggerDownload(`${safeName}_Model.xlsx`, buf, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         close();
         return;
