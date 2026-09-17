@@ -2632,6 +2632,32 @@ the Assets tab and the workbook use, at all five sites.
 corrected on five of eight rows and defined on both strips. The three assets that were already right do not
 move. Guarded in `verify-pdf-export`: the report may not hand-roll area or land.
 
+### 7.53 A check written for one setting reads as a defect under every other
+
+**Symptom (2026-09-17):** Financing section 3 read "Sources vs Uses: Gap -509,516,352" on the live project, while
+debt plus equity (742.9m) matched the selected funding need to the unit. Separately, the Combined Finance Cost
+ledger (shown only with two or more facilities) closed at 172.5m every year while each facility's own ledger
+closed at zero.
+
+**Mechanism:** both compared against a basis that was right once. Sources vs Uses tested debt + equity against ALL
+of capex plus minimum cash, which is the identity only under Method 1; Methods 2 and 3 size funding NET of the
+project's own cash, so the difference is capex the project pays itself, not a hole. The combined ledger took the
+P&L EXPENSED interest as the payment; since 2026-08-18 IDC is paid in cash, so the capitalised interest was never
+settled. The per-facility ledger had been fixed that day; the combined copy, visible only on multi-facility
+projects, was not.
+
+**The trap to avoid:** a check is only as good as the case it was written against. When a setting changes what a
+quantity means (the funding method, IDC treatment), test the check under EVERY value of that setting, and fix
+every copy of a ledger at once, including the one that only renders in a rarer configuration.
+
+**Fix:** `lib/reports/fundingBasis.ts` is the one rule (screen and workbook): sources against the selected method's
+need, the rest shown as "Funded from Project Cash". The combined ledger pays `totalInterestPaid`, the capitalised
+interest a memo, on the screen and in `financingReports.ts`.
+
+**Proof:** Methods 1 / 2 / 3 on Marina Gate and the sample all Match; project cash 0 / 192.9m / 509.5m. Combined
+closing on a two-facility copy 172.5m to 0.00. Pinned in `verify-excel-export` (funding basis per method, combined
+ledger closes at zero).
+
 ## 8. Registries and two-step registration
 
 ### 8.1 A template registered in one place and not the other fails silently and permanently
