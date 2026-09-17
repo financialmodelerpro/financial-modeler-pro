@@ -91,6 +91,12 @@ export interface AssetCostOfSales {
    *  Sums to 1 whenever anything is recognised, and to 0 when nothing is. */
   recognitionSharePerPeriod: number[];
   totalRecognition: number;
+  /** True when recognitionPerPeriod is the LINE's recognition rather than this
+   *  plot's own (the asset is one plot of a merged line, see
+   *  BuildAssetCostOfSalesInput.lineRecognition). Every plot of that line then
+   *  carries the SAME series, so a line total must take it once, never add it
+   *  per plot. Absent on a line of one plot. */
+  recognitionIsLine?: boolean;
   /** The result of the ONE engine. */
   cos: CostOfSalesResult;
   /** The split by WHICH recognition drove it, not a second computation:
@@ -275,6 +281,7 @@ export function buildAssetCostOfSales(input: BuildAssetCostOfSalesInput): AssetC
     recognitionPerPeriod: recognitionPerPeriod.slice(0, N),
     recognitionSharePerPeriod,
     totalRecognition,
+    ...(lineRecognition ? { recognitionIsLine: true } : {}),
     cos, cosPresalesPerPeriod, cosPostSalesPerPeriod,
     inventoryPerPeriod, vintageMatrix,
     basis: { assetCost, idc, capexBase, label: costOfSalesBasisLabel((v) => Math.round(v).toLocaleString(), assetCost, idc) },
@@ -285,7 +292,14 @@ export function buildAssetCostOfSales(input: BuildAssetCostOfSalesInput): AssetC
  * A LINE'S COST OF SALES IS THE SUM OF ITS PLOTS' (2026-09-13). The engine
  * still charges per asset; the Module 2 screens, the Schedules feed and both
  * exports read per LINE, so this is the one place a line total is assembled.
- * Every series is additive; the recognition share is re-stated as the line's
+ * Every COST series is additive. THE RECOGNITION IS NOT (2026-09-17): a plot of
+ * a merged line already carries the LINE's recognition (`recognitionIsLine`),
+ * so adding it per plot counted the line's revenue once per plot (Branded
+ * Villas, Phase 1: 2,116,349,005 printed against 1,058,174,503 recognised).
+ * When every part carries the line's series it is taken ONCE, from the first
+ * part, and the gross margin is struck on that single figure; the charge, the
+ * base and the inventory never read the sum and do not move.
+ * The recognition share is re-stated as the line's
  * recognition over the line's total, so it sums to one again; the basis
  * label is re-stated on the summed figures. Null where there is nothing.
  */
@@ -304,11 +318,15 @@ export function sumAssetCostOfSales(
   const vintageMatrix: number[][] = [];
   for (let i = 0; i < N; i++) vintageMatrix.push(z());
   let assetCost = 0, idc = 0, capexBase = 0, totalRecognition = 0, totalCapex = 0;
+  // The line's recognition, taken once, where every plot already carries it.
+  const lineRecognition = parts.every((p) => p.recognitionIsLine === true);
+  if (lineRecognition) { totalRecognition = parts[0].totalRecognition; add(recognitionPerPeriod, parts[0].recognitionPerPeriod); }
   for (const p of parts) {
     assetCost += p.assetCost; idc += p.idc; capexBase += p.capexBase;
-    totalRecognition += p.totalRecognition; totalCapex += p.cos.totalCapex;
+    totalCapex += p.cos.totalCapex;
+    if (!lineRecognition) { totalRecognition += p.totalRecognition; add(recognitionPerPeriod, p.recognitionPerPeriod); }
     add(capexPerPeriod, p.capexPerPeriod); add(assetCapexPerPeriod, p.assetCapexPerPeriod);
-    add(idcCapitalisedPerPeriod, p.idcCapitalisedPerPeriod); add(recognitionPerPeriod, p.recognitionPerPeriod);
+    add(idcCapitalisedPerPeriod, p.idcCapitalisedPerPeriod);
     add(cosPerPeriod, p.cos.perPeriod); add(cosPresalesPerPeriod, p.cosPresalesPerPeriod);
     add(cosPostSalesPerPeriod, p.cosPostSalesPerPeriod); add(inventoryPerPeriod, p.inventoryPerPeriod);
     for (let i = 0; i < N; i++) add(vintageMatrix[i], p.vintageMatrix[i]);
@@ -324,6 +342,7 @@ export function sumAssetCostOfSales(
     assetId: id,
     assetCost, idc, capexBase, capexPerPeriod, assetCapexPerPeriod, idcCapitalisedPerPeriod,
     recognitionPerPeriod, recognitionSharePerPeriod, totalRecognition,
+    ...(lineRecognition ? { recognitionIsLine: true } : {}),
     cos: { perPeriod: cosPerPeriod, cumulativePerPeriod, grossMarginPerPeriod, totalCapex, totalRecognition },
     cosPresalesPerPeriod, cosPostSalesPerPeriod, inventoryPerPeriod, vintageMatrix,
     basis: { assetCost, idc, capexBase, label: costOfSalesBasisLabel((v) => Math.round(v).toLocaleString(), assetCost, idc) },
