@@ -89,6 +89,8 @@ import { deriveCostStage, isLandValueLine } from '@/src/core/calculations';
 import { CAPEX_PHASING_SOURCE_LABELS, FUNDING_METHOD_DESCRIPTIONS, REPAYMENT_METHOD_LABELS, DEFAULT_PROJECT_FINANCING_CONFIG } from '../state/module1-types';
 import { buildIdcAllocationTables } from '../reports/financingReports';
 import { computeFundingBasis } from '../reports/fundingBasis';
+import { buildPartiesTable, PARTIES_TITLE, PARTIES_EMPTY_TEXT } from '../reports/partiesReport';
+import type { Party } from '../parties';
 
 export interface BuildModelOptions {
   state: FinancialsResolverState;
@@ -114,6 +116,9 @@ export interface BuildModelOptions {
    *  case); this bundle always compares all cases. Omitted = the Scenarios sheet
    *  shows a short "no scenarios" note. */
   caseComparison?: CaseComparisonInput;
+  /** Module 1 tab 2. Parties are stored outside the version snapshot, so the
+   *  caller (ExportModal) loads them and hands them in. Omitted = none entered. */
+  parties?: Party[];
 }
 
 export interface ExcelPartSelection { inputs?: boolean; outputs?: boolean; schedules?: boolean }
@@ -670,6 +675,25 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   section((c) => emitProjectSection(c, state));
   section((c) => emitPhasesSection(c, state, snap));
 
+  // ── Module 1, tab 2: Parties (2026-09-17) ──────────────────────────────────
+  // Parties live outside the snapshot, so the caller hands them in; one builder
+  // with the PDF (lib/reports/partiesReport.ts). The engine never reads them.
+  inputDivider('PARTIES');
+  {
+    const pt = buildPartiesTable(opts.parties);
+    setSectionHeader(ws.getRow(r), PARTIES_TITLE, 4); r += 1;
+    if (pt.rows.length === 0) {
+      setLabel(ws.getCell(`A${r}`), PARTIES_EMPTY_TEXT); r += 1;
+    } else {
+      pt.columns.forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, 'left')); r += 1;
+      for (const row of pt.rows) {
+        row.forEach((v, i) => setInput(ws.getCell(r, i + 1), v, '@'));
+        r += 1;
+      }
+    }
+    r += 1;
+  }
+
   // ── Module 1, tab 3: Fund Terms (2026-08-11) ───────────────────────────────
   //
   // Gated on the toggle, so a standalone project is untouched. Every cell is an
@@ -734,6 +758,15 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       }
       r += 1;
     }
+  } else {
+    // The Fund Terms tab exists on every project; with the layer off it shows the
+    // toggle and nothing else, so the workbook says the same.
+    inputDivider('FUND INPUTS');
+    setSectionHeader(ws.getRow(r), 'Fund terms', 4); r += 1;
+    setLabel(ws.getCell(`A${r}`), 'Fund layer enabled');
+    setInput(ws.getCell(`B${r}`), 'No', '@');
+    setLabel(ws.getCell(`D${r}`), 'Off: the project is modelled without fund fees, hurdle or performance fee.');
+    r += 2;
   }
 
   // ── Module 1, tab 4: Asset Types & Standards ───────────────────────────────

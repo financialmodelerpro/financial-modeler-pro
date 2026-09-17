@@ -29,7 +29,8 @@ import { loadStoredModel } from '../../lib/state/loadStoredModel';
 import { applyOverrides, buildOverrides, baseCaseId, normaliseCases } from '../../lib/cases/applyOverrides';
 import { caseModelOf, withoutDerivedOverrides } from '../../lib/cases/caseModel';
 import { PDF_MODULE_TABS } from '../../lib/pdf/pdfModuleTabs';
-import { listVersions, loadVersion } from '../../lib/persistence/client';
+import { listVersions, loadVersion, listParties } from '../../lib/persistence/client';
+import type { Party } from '../../lib/parties';
 import type { RefmProjectVersionListItem } from '../../lib/persistence/types';
 import type { HydrateSnapshot } from '../../lib/state/module1-store';
 import type { ProjectCase } from '../../lib/state/module1-types';
@@ -396,6 +397,13 @@ export default function ExportModal({
       }
       const dateLabel = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
       const safeName = fileBase.replace(/[^a-z0-9_-]+/gi, '_').slice(0, 80) || 'project';
+      // PARTIES (Module 1 tab 2) live outside the version snapshot, in their own
+      // table, so both exports receive them here. A failed read exports with no
+      // parties rather than blocking the file.
+      let parties: Party[] = [];
+      if (projectId) {
+        try { parties = (await listParties(projectId)).data?.parties ?? []; } catch { parties = []; }
+      }
 
       if (reportKind === 'excel') {
         const { generateModelWorkbookBuffer } = await import('../../lib/excel/buildModelWorkbook');
@@ -405,7 +413,7 @@ export default function ExportModal({
         // Pass the full case bundle so the workbook's Scenarios tab compares
         // EVERY case (Management base + each scenario), while the statement tabs
         // render `state` (the selected case, defaulting to Management).
-        const buf = await generateModelWorkbookBuffer({ state, projectName: name, dateLabel, displayScale: pdfScale, displayDecimals: pdfDecimals, parts: { ...groupSel }, caseComparison });
+        const buf = await generateModelWorkbookBuffer({ state, projectName: name, dateLabel, displayScale: pdfScale, displayDecimals: pdfDecimals, parts: { ...groupSel }, caseComparison, parties });
         triggerDownload(`${safeName}_Model.xlsx`, buf, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         close();
         return;
@@ -419,6 +427,7 @@ export default function ExportModal({
         displayScale: pdfScale, displayDecimals: pdfDecimals,
         includeSensitivity: allows('sensitivity'),
         watermark,
+        parties,
       };
       // Per-tab selection: renderModule filters emitted tabs to the listed set.
       const moduleTabs: Record<string, string[]> = {};

@@ -712,6 +712,20 @@ async function main(): Promise<void> {
   check('no-project guard: empty / missing project blocks Excel export', payloadHasActiveProject({ projectName: '' }) === false && payloadHasActiveProject({}) === false && payloadHasActiveProject(null) === false, '');
   check('no-project guard: an open project passes', payloadHasActiveProject({ projectName: 'Riverside Mixed-Use' }) === true, '');
 
+  // ── Parties (Module 1 tab 2): handed in by the caller, printed on Inputs ────
+  {
+    const textOf = (w: ExcelJS.Workbook): string => { let s = ''; w.getWorksheet('Inputs')!.eachRow((row) => row.eachCell((c) => { if (typeof c.value === 'string') s += ` | ${c.value}`; })); return s; };
+    const withParties = buildModelWorkbook({ state, projectName: 'Riverside Mixed-Use', dateLabel: '13 June 2026', parties: [
+      { id: 'p2', name: 'Beta Lender', identifier: null, roles: ['Lender'], display_order: 2 },
+      { id: 'p1', name: 'Alpha Developer', identifier: 'CR-100', roles: ['Developer', 'Equity Investor'], display_order: 1 },
+    ] as any });
+    const t = textOf(withParties);
+    check('Parties: the Inputs tab lists every party with identifier', t.includes('Alpha Developer') && t.includes('CR-100') && t.includes('Beta Lender'));
+    check('Parties: in display order', t.indexOf('Alpha Developer') < t.indexOf('Beta Lender'));
+    check('Parties: an export with none says so', textOf(wb).includes('No parties entered.'));
+    check('Parties: the section sits before Fund Terms / Asset Types (Module 1 order)', textOf(wb).indexOf('PARTIES') < textOf(wb).indexOf('ASSET TYPES & STANDARDS'));
+  }
+
   // ── Funding basis: sources are tested against the SELECTED method's need ────
   // Methods 2 and 3 size debt + equity net of the project's own cash, so the
   // old comparison with all of capex read a false "Gap". One rule for the

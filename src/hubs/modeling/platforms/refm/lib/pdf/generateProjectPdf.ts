@@ -93,6 +93,7 @@ import { formatAssumptionValue } from '../cases/assumptionGrid';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { MODULES, type ModuleConfig } from '../modules-config';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
+import type { Party } from '../parties';
 
 function b64ToBytes(b64: string): Uint8Array {
   if (typeof Buffer !== 'undefined') return new Uint8Array(Buffer.from(b64, 'base64'));
@@ -164,6 +165,9 @@ export interface GenerateProjectPdfOptions {
    *  feature, so this defaults to FALSE and the caller passes the live gate;
    *  an export must not contain what the plan cannot open on screen. */
   includeSensitivity?: boolean;
+  /** Module 1 tab 2. Parties are stored outside the version snapshot, so the
+   *  caller (ExportModal) loads them and hands them in. Omitted = none entered. */
+  parties?: Party[];
   /** Trial watermark, RESOLVED BY THE SERVER from the caller's plan. The
    *  builder never decides this: it is handed a spec or null, so there is no
    *  plan logic in the PDF layer to get out of step with the gate. Absent is
