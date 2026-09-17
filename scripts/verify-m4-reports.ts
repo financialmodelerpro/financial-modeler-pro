@@ -17,7 +17,9 @@
  *    P&L Total Revenue row equals snap.pl.totalRevenuePerPeriod.
  */
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
-import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows } from '../src/hubs/modeling/platforms/refm/lib/reports/m4Reports';
+import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsFeederTables } from '../src/hubs/modeling/platforms/refm/lib/reports/m4Reports';
+import { buildFixedAssetReport } from '../src/hubs/modeling/platforms/refm/lib/reports/fixedAssetReports';
+import { disposalContextOf } from '../src/hubs/modeling/platforms/refm/lib/reports/disposalSchedules';
 import { getFinancialLabels, defaultTerminologyForCountry } from '../src/core/calculations/financials';
 import { makeDefaultPhase, makeDefaultProject, makeDefaultCostLines, makeDefaultFinancingTranche } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
@@ -120,6 +122,53 @@ function main(): void {
   const totalLandE = bsRes.rows.find((r) => r.label === 'TOTAL LIABILITIES + EQUITY');
   const ties = !!totalAssets && !!totalLandE && totalAssets.values.every((v, i) => Math.abs(v - (totalLandE.values[i] ?? 0)) < Math.max(1000, Math.abs(v) * 1e-6));
   check('BS TOTAL ASSETS ties to TOTAL LIABILITIES + EQUITY every period', ties);
+
+  // ── Phase Direct CF sums ITS OWN assets (2026-09-17) ───────────────────────
+  // The operating totals used to be the project series whatever the filter.
+  const near = (a: number, b: number): boolean => Math.abs(a - b) < Math.max(1, Math.abs(b) * 1e-9);
+  const rowOf = (rows: ReturnType<typeof buildDirectCFRows>, label: string) => rows.find((r) => r.label === label);
+  const dAll = buildDirectCFRows(ctx('__all__'));
+  check('Project Direct CF operating totals are the engine series (unchanged)',
+    rowOf(dAll, 'Total Revenue Received')!.values.every((v, t) => near(v, snap.directCF.revenueReceivedPerPeriod[t] ?? 0))
+    && rowOf(dAll, 'Cash Flow from Operations')!.values.every((v, t) => near(v, snap.directCF.cashFromOperationsPerPeriod[t] ?? 0)));
+  const dP1 = buildDirectCFRows(ctx('p1')), dP2 = buildDirectCFRows(ctx('p2'));
+  const trr = (rows: typeof dP1): number[] => rowOf(rows, 'Total Revenue Received')!.values;
+  // The fixture carries a 30-day DSO, so the operating cash of each phase must be
+  // DSO-adjusted on its own revenue for the two phases to add to the project.
+  check('Phase Direct CF Total Revenue Received is the phase\'s own, and the phases add to the project (DSO included)',
+    trr(dP1).some((v, t) => !near(v, snap.directCF.revenueReceivedPerPeriod[t] ?? 0))
+    && trr(dP1).every((v, t) => near(v + trr(dP2)[t], snap.directCF.revenueReceivedPerPeriod[t] ?? 0)), `${trr(dP1).slice(0, 5)} + ${trr(dP2).slice(0, 5)} vs ${snap.directCF.revenueReceivedPerPeriod.slice(0, 5)}`);
+  check('Phase Direct CF leaves the project-level fund fees and tax out',
+    !dP1.some((r) => r.label === labels.taxPaid || r.label === 'Fund Management and Other Expenses'));
+  const cfoP = (rows: typeof dP1): number[] => rowOf(rows, 'Cash Flow from Operations')!.values;
+  const fees = snap.directCF.fundFeesPaidPerPeriod ?? A(snap.axisLength);
+  check('Phase CFOs add to the project CFO less fund fees and tax (HQ counted once per phase, as the phase P&L does)',
+    cfoP(dP1).every((v, t) => near(v + cfoP(dP2)[t] - (snap.directCF.hqOpexPaidPerPeriod[t] ?? 0), (snap.directCF.cashFromOperationsPerPeriod[t] ?? 0) - (fees[t] ?? 0) - (snap.directCF.taxPaidPerPeriod[t] ?? 0))));
+
+  // ── Fixed Assets & D&A: the shared builder (2026-09-17) ────────────────────
+  const dCtx = disposalContextOf(snap);
+  const fa = buildFixedAssetReport({ fa: snap.fixedAssets, idc: snap.idc, state, dCtx });
+  const closingFA = fa.project.total.rows.find((r) => r.label === 'Closing Fixed Assets')!;
+  check('Project Total Fixed Assets = the balance sheet Fixed Assets every period (capitalised interest included)',
+    closingFA.values.every((v, t) => near(v, snap.bs.totalFixedAssetsPerPeriod[t] ?? 0)), `${closingFA.values.slice(0, 4)} vs ${snap.bs.totalFixedAssetsPerPeriod.slice(0, 4)}`);
+  const lineIds = fa.groups.flatMap((g) => g.lines.map((l) => l.hostId));
+  check('Every line sits in exactly one strategy group', new Set(lineIds).size === lineIds.length && lineIds.length === fa.inputs.length);
+  const depLine = (rows: typeof closingFA[]): number[] => (rows.find((r) => r.label.startsWith('(−) Depreciation'))?.values ?? A(snap.axisLength));
+  const lineDep = A(snap.axisLength);
+  for (const l of fa.groups.flatMap((g) => g.lines)) depLine(l.depreciable.rows).forEach((v, t) => { lineDep[t] -= v; });
+  check('The lines\' depreciation (capex + capitalised interest) adds to the P&L D&A', lineDep.every((v, t) => near(v, snap.pl.daPerPeriod[t] ?? 0)), `${lineDep.slice(0, 6)} vs ${snap.pl.daPerPeriod.slice(0, 6)}`);
+  if (fa.project.idcPool) {
+    const pool = fa.project.idcPool.rows;
+    const v = (label: string): number[] => pool.find((r) => r.label === label)?.values ?? A(snap.axisLength);
+    const held = v('Capitalised to held fixed assets (Operate / Lease)'), inv = v('Capitalised to Sell inventory (released through Cost of Sales, memo)');
+    check('IDC pool: held + Sell inventory = capitalised interest', held.every((h, t) => near(h + inv[t], snap.idc.totalIdcPerPeriod[t] ?? 0)));
+    const open = v('Opening IDC NBV (held)'), add = v('(+) IDC Additions (held)'), dep = v('(−) IDC Depreciation'), disp = v('(−) Disposed at Exit (capitalised interest)'), close = v('Closing IDC NBV (held)');
+    check('IDC pool held roll-forward foots every period', close.every((c, t) => near(c, open[t] + add[t] + dep[t] + disp[t])));
+  } else {
+    check('IDC pool present when interest is capitalised', snap.idc.totalIdcPerPeriod.every((x) => Math.abs(x) < 0.5));
+  }
+  check('No BS feeder caption carries the stale "Dividends are zero" line',
+    buildBsFeederTables({ snap, state, fmt }).every((t) => !/Dividends are zero/.test(t.caption)));
 
   // ── Label hygiene: Saudi terminology must keep universal acronyms intact and
   // never emit a mangled T->Z acronym (regression guard for EBIZDA/EBIZ/PBZ/PAZ).

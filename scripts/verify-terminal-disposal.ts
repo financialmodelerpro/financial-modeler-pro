@@ -210,13 +210,18 @@ section('E. an exit before the last year');
   const noneDep = scheduleWithDisposal({ openingPerPeriod: noneSnap.fixedAssets.projectTotals.depreciable.openingNBVPerPeriod, additionsPerPeriod: noneSnap.fixedAssets.projectTotals.depreciable.additionsPerPeriod, depreciationPerPeriod: noneSnap.fixedAssets.projectTotals.depreciable.depreciationPerPeriod, closingPerPeriod: noneSnap.fixedAssets.projectTotals.depreciable.closingNBVPerPeriod }, disposalContextOf(noneSnap));
   check('E23 with no terminal value the schedule is the engine\'s own and the disposal row is empty',
     !noneDep.disposed && noneDep.closingPerPeriod.join(',') === noneSnap.fixedAssets.projectTotals.depreciable.closingNBVPerPeriod.join(',') && noneDep.disposalPerPeriod.every((v) => v === 0));
-  const screens = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module4FixedAssets.tsx', 'utf8');
+  // The Fixed Assets screen and the workbook's Schedules tab both render the
+  // shared fixed asset builder (2026-09-17), so the disposal rule is proven there
+  // and each surface is proven to read the builder.
+  const faBuilder = readFileSync('src/hubs/modeling/platforms/refm/lib/reports/fixedAssetReports.ts', 'utf8');
+  const faScreen = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module4FixedAssets.tsx', 'utf8');
+  const screens = /buildFixedAssetReport\(/.test(faScreen) ? faBuilder : faScreen;
   const fin = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Financing.tsx', 'utf8');
   const xl = readFileSync('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts', 'utf8');
   const pdfSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf.ts', 'utf8');
   check('E24 every schedule surface reads the shared builder, so none can drift from the balance sheet',
     /scheduleWithDisposal\(/.test(screens) && /Disposed at Exit/.test(screens) && /idcWithDisposal\(/.test(fin)
-    && /scheduleWithDisposal\(/.test(xl) && /Disposed at exit/.test(xl) && /scheduleWithDisposal\(/.test(pdfSrc) && /Disposed at exit/.test(pdfSrc));
+    && ((/scheduleWithDisposal\(/.test(xl) && /Disposed at exit/.test(xl)) || (/buildFixedAssetReport\(/.test(xl) && /scheduleWithDisposal\(/.test(faBuilder) && /Disposed at Exit/.test(faBuilder))) &&/scheduleWithDisposal\(/.test(pdfSrc) && /Disposed at exit/.test(pdfSrc));
 
   const obj = { a: [1, 2, 3], m: [[1, 1, 1], [2, 2, 2]], k: 'x', short: [5, 6] };
   const cut = stopAfterExit(obj, 0, 3);
