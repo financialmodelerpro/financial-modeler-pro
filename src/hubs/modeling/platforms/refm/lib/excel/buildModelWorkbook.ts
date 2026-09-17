@@ -17,7 +17,7 @@
  */
 import { buildReceivablesRollForward, buildUnearnedRollForward } from '../reports/saleRollForwardReports';
 import ExcelJS from 'exceljs';
-import { buildSaleCohortTermsBlock, saleCohortRuleText, buildSaleCohortGrid, saleCohortGridCaption } from '../reports/saleCohortReports';
+import { buildSaleCohortGrid, saleCohortGridCaption } from '../reports/saleCohortReports';
 import JSZip from 'jszip';
 import { computeFinancialsSnapshot, computeFundingGap, type FinancialsResolverState } from '../financials-resolvers';
 import { buildCapexReport, type CapexReport } from '../reports/capexReports';
@@ -37,7 +37,14 @@ import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/cal
 import { computeReturnsSnapshot, type ReturnsSnapshot } from '../returns-resolvers';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { resolveAssetAreaMetrics, computePhaseTimeline, computeProjectTimeline, resolveSubUnitAdr, type AssetAreaMetrics } from '@/src/core/calculations';
-import { FUNDING_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
+import { FUNDING_METHOD_LABELS, COST_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
+import { CAPEX_CATEGORIES } from '../reports/capexReports';
+import {
+  emitProjectSection, emitPhasesSection, emitStandardsSection, emitPlotsSection, emitAssetEntrySection, emitSubUnitSection,
+  emitRevenueInputs, emitEscrowInputs, emitOpexInputs, emitStatementInputsSection, emitDepreciationSection, emitReturnsSection,
+  emitLandTables, LAND_CHAIN_COLS, utcMonthYear, utcYear, phaseStatusLabel, type SheetCursor,
+} from './inputsSheetSections';
+import { buildAssetAreaTables, buildAssetLandView } from '../../components/modules/_shared/assetInputsView';
 import { resolveFundTerms } from '../fundTerms';
 import {
   isFundActive, hasFundFeeIncome, buildFundWaterfallRows, buildFundFeeIncomeRows,
@@ -578,289 +585,48 @@ interface AssumptionRefs {
 }
 
 // ── Assumptions (Inputs) ──────────────────────────────────────────────────────
+//
+// THE PLATFORM'S INPUT SCREENS, IN THE PLATFORM'S ORDER (2026-09-17). Module 1
+// (Project & Phases, Fund Terms, Asset Types & Standards, Assets & Sub-units,
+// Capex, Financing), then Module 2 (Revenue, Escrow), Module 3 (Opex), Module 4
+// (P&L and depreciation inputs) and Module 5 (Returns). A value a user types
+// on the platform is input-shaded; a value the platform derives, inherits or
+// defaults is written formula-black. The section layouts live in
+// inputsSheetSections.ts; this function orders them and keeps the capex and
+// financing blocks the rest of the workbook links to.
 function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, opts: BuildModelOptions, capex: CapexReport): AssumptionRefs {
   const ws = wb.addWorksheet(SHEETS.assumptions, { properties: { tabColor: { argb: ARGB.navy } } });
-  ws.getColumn(1).width = 36;
+  ws.getColumn(1).width = 40;
   ws.getColumn(2).width = 22;
-  for (let c = 3; c <= 12; c++) ws.getColumn(c).width = 14;
-  const p = opts.state.project;
+  for (let c = 3; c <= 14; c++) ws.getColumn(c).width = 15;
+  const state = opts.state;
+  const p = state.project;
   const fin = snap.financing;
-  const assetRefs: AssetInputRef[] = [];
   const subUnitRefs: SubUnitInputRef[] = [];
-  const parcelRefs: ParcelInputRef[] = [];
   const trancheRefs: TrancheInputRef[] = [];
   const equityRefs: EquityInputRef[] = [];
   const existingEquityRefs: ExistingEquityRef[] = [];
   const addr = (col: string, row: number): string => sheetRef(SHEETS.assumptions, `$${col}$${row}`);
   let r = 1;
+  // Sections written through a cursor share this function's row counter.
+  const section = (emit: (c: SheetCursor) => void): void => {
+    const cur: SheetCursor = { wb, ws, sheetName: SHEETS.assumptions, r };
+    emit(cur);
+    r = cur.r;
+  };
   setTitle(ws.getCell(`A${r}`), 'Inputs (all model assumptions)', 16); r += 1;
-  setLabel(ws.getCell(`A${r}`), 'Every model input, consolidated and grouped by type. Shaded cells are the inputs a user edits before re-exporting. This is a hardcoded snapshot: editing here does NOT recalculate the other tabs; change inputs in the platform and re-export.', { }); r += 2;
+  setLabel(ws.getCell(`A${r}`), 'Every input screen of the platform, in module order. Shaded cells are what a user types on the platform; unshaded figures beside them are derived, inherited from an asset type or defaulted, exactly as the screens show them. This is a hardcoded snapshot: editing here does NOT recalculate the other tabs; change inputs in the platform and re-export.', { }); r += 2;
 
-  // Project section.
-  setSectionHeader(ws.getRow(r), 'Project', 5); r += 1;
   const addKV = (label: string, value: number | string, numFmt: string, name?: string): number => {
     setLabel(ws.getCell(`A${r}`), label);
     setInput(ws.getCell(`B${r}`), value, numFmt);
     if (name) wb.definedNames.add(`${SHEETS.assumptions}!$B$${r}`, name);
     const row = r; r += 1; return row;
   };
-  addKV('Project name', p.name || '(unnamed)', '@');
-  addKV('Currency', p.currency ?? 'SAR', '@');
-  addKV('Location', [p.location, p.country].filter(Boolean).join(', ') || '-', '@');
-  const taxRow = addKV('Tax / Zakat rate', p.tax?.rate ?? 0, NUMFMT.pct2, 'TaxRate');
-  addKV('Country', p.country ?? '-', '@');
-  addKV('Financial terminology', String(p.financialTerminology ?? 'standard'), '@');
-  addKV('Tax / Zakat payment (days)', p.tax?.paymentDays ?? 0, NUMFMT.int);
-  addKV('Statutory reserve transfer (% of PAT)', p.statutoryReserve?.transferRate ?? 0, NUMFMT.pct);
-  addKV('Statutory reserve cap (% share capital)', p.statutoryReserve?.capOfShareCapital ?? 0, NUMFMT.pct);
-  addKV('Share capital (explicit, 0 = auto)', p.shareCapital ?? 0, NUMFMT.money);
-  addKV('Operating receivables, DSO (days)', p.operatingAr?.dsoDays ?? 0, NUMFMT.int, 'DsoDays');
-  addKV('Opex payables, DPO (days)', p.opexAp?.defaultApDays ?? 0, NUMFMT.int, 'DpoDays');
-  addKV('Pre-sales escrow held %', p.escrow?.heldPct ?? 0, NUMFMT.pct);
-  // The roads and parks deduction is retired (2026-09-08); nothing to emit.
-  // before capacity calcs. Project-level here; per-asset values live on the
-  // Assets table when the scope is 'asset'.
-  void taxRow;
-  // Financing raw inputs (funding method, debt/equity, min cash, IDC policy,
-  // dividends) are grouped under the Financing divider below, not here, so the
-  // Assumptions tab holds every input once under its type divider. This dead
-  // registry is retained only for the AssumptionRefs shape.
   const financingScalars: FinancingScalarRefs = {
     dividendEnabled: '', dividendPayout: '', dividendStart: '', sweepStart: '', sweepRatio: '',
   };
-  r += 1;
-
-  // Phases section.
-  setSectionHeader(ws.getRow(r), 'Phases', 5); r += 1;
-  ['Phase', 'Start year', 'Construction yrs', 'Operations yrs', 'Status'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
-  r += 1;
-  const phaseStartCells: string[] = [];
-  for (const ph of opts.state.phases) {
-    const sy = ph.startDate ? new Date(ph.startDate).getUTCFullYear() : snap.projectStartYear;
-    setLabel(ws.getCell(`A${r}`), ph.name);
-    setInput(ws.getCell(`B${r}`), sy, NUMFMT.year);
-    setInput(ws.getCell(`C${r}`), ph.constructionPeriods ?? 0, NUMFMT.int);
-    setInput(ws.getCell(`D${r}`), ph.operationsPeriods ?? 0, NUMFMT.int);
-    setInput(ws.getCell(`E${r}`), String(ph.status ?? 'planning'), '@');
-    phaseStartCells.push(`$B$${r}`);
-    r += 1;
-  }
-  // Project start year = MIN(phase start years): a formula over the inputs.
-  setLabel(ws.getCell(`A${r}`), 'Project start year (model axis origin)', { bold: true });
-  setFormula(ws.getCell(`B${r}`), fcell(`MIN(${phaseStartCells.join(',')})`, snap.projectStartYear), NUMFMT.year);
-  wb.definedNames.add(`${SHEETS.assumptions}!$B$${r}`, 'ProjectStartYear');
-  r += 2;
-
-  // Land parcels.
-  if (opts.state.parcels.length) {
-    setSectionHeader(ws.getRow(r), 'Land parcels', 9); r += 1;
-    ['Parcel', 'Area (sqm)', 'Rate /sqm', 'Cash %', 'In-kind %', 'Debt %', 'Equity %'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
-    r += 1;
-    // Per-parcel land funding split (Financing Tab 4 "Land Funding" card): the
-    // debt / equity share applied to the cash-funded slice of each parcel.
-    const parcelFunding = opts.state.project.financing?.parcelFunding ?? [];
-    for (const pa of opts.state.parcels) {
-      setLabel(ws.getCell(`A${r}`), pa.name);
-      setInput(ws.getCell(`B${r}`), pa.area ?? 0, NUMFMT.int);
-      setInput(ws.getCell(`C${r}`), pa.rate ?? 0, NUMFMT.rate); // /sqm rate, unscaled
-      setInput(ws.getCell(`D${r}`), (pa.cashPct ?? 0) / 100, NUMFMT.pct);
-      setInput(ws.getCell(`E${r}`), (pa.inKindPct ?? 0) / 100, NUMFMT.pct);
-      // Roads % and Parks % used to sit in F and G; with the deduction retired
-      // the columns are gone and Debt / Equity move left to close the gap.
-      const pf = parcelFunding.find((x) => x.parcelId === pa.id);
-      const pDebt = pf?.debtPct ?? 0;
-      setInput(ws.getCell(`F${r}`), pDebt / 100, NUMFMT.pct);
-      setInput(ws.getCell(`G${r}`), (pf?.equityPct ?? (100 - pDebt)) / 100, NUMFMT.pct);
-      parcelRefs.push({ id: pa.id, area: addr('B', r), rate: addr('C', r), cashPct: addr('D', r), inKindPct: addr('E', r) });
-      r += 1;
-    }
-    r += 1;
-  }
-
-  // Assets (area schedule + depreciation).
-  const visibleAssets = opts.state.assets.filter((a) => a.visible !== false);
-  if (visibleAssets.length) {
-    setSectionHeader(ws.getRow(r), 'Assets', 14); r += 1;
-    ['Asset', 'Strategy', 'BUA (sqm)', 'NSA (sqm)', 'GFA (sqm)', 'Support (sqm)', 'Parking (sqm)', 'Parking bays', 'Land (sqm)', 'Land rate /sqm', 'Useful life (yrs)'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
-    r += 1;
-    for (const a of visibleAssets) {
-      setLabel(ws.getCell(`A${r}`), a.name);
-      setInput(ws.getCell(`B${r}`), a.strategy, '@');
-      setInput(ws.getCell(`C${r}`), a.buaSqm ?? 0, NUMFMT.int);
-      setInput(ws.getCell(`D${r}`), a.sellableBuaSqm ?? 0, NUMFMT.int);
-      setInput(ws.getCell(`E${r}`), a.gfaSqm ?? 0, NUMFMT.int);
-      setInput(ws.getCell(`F${r}`), a.supportArea ?? 0, NUMFMT.int);
-      setInput(ws.getCell(`G${r}`), a.parkingArea ?? 0, NUMFMT.int);
-      setInput(ws.getCell(`H${r}`), a.parkingBaysRequired ?? 0, NUMFMT.int);
-      setInput(ws.getCell(`I${r}`), a.landAllocation?.sqm ?? a.landAreaSqm ?? 0, NUMFMT.int);
-      setInput(ws.getCell(`J${r}`), a.landAllocation?.customRate ?? 0, NUMFMT.rate); // /sqm rate, unscaled
-      setInput(ws.getCell(`K${r}`), a.usefulLifeYears ?? 0, NUMFMT.int);
-      assetRefs.push({
-        id: a.id, name: a.name, phaseId: a.phaseId, strategy: a.strategy,
-        bua: addr('C', r), nsa: addr('D', r), gfa: addr('E', r), support: addr('F', r), parking: addr('G', r),
-        parkingBays: addr('H', r), landSqm: addr('I', r), landRate: addr('J', r), usefulLife: addr('K', r),
-      });
-      r += 1;
-    }
-    r += 1;
-    // Multi-parcel land splits: when an asset draws land from more than one
-    // parcel, the single Land (sqm) above is the aggregate. List the per-parcel
-    // sqm so the parcel-level attribution is not lost.
-    const splitAssets = visibleAssets.filter((a) => (a.landAllocation?.multiParcelSplits?.length ?? 0) > 0);
-    if (splitAssets.length) {
-      setSectionHeader(ws.getRow(r), 'Asset land splits (per parcel)', 3); r += 1;
-      ['Asset', 'Parcel', 'Land (sqm)'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
-      r += 1;
-      for (const a of splitAssets) {
-        for (const sp of a.landAllocation!.multiParcelSplits!) {
-          const parcelName = opts.state.parcels.find((pa) => pa.id === sp.parcelId)?.name ?? sp.parcelId;
-          setLabel(ws.getCell(`A${r}`), a.name);
-          setLabel(ws.getCell(`B${r}`), parcelName);
-          setInput(ws.getCell(`C${r}`), sp.sqm ?? 0, NUMFMT.int);
-          r += 1;
-        }
-      }
-      r += 1;
-    }
-  }
-
-  // Sub-units (revenue / area drivers).
-  if (opts.state.subUnits.length) {
-    setSectionHeader(ws.getRow(r), 'Sub-units', 9); r += 1;
-    ['Sub-unit', 'Asset', 'Category', 'Metric', 'Quantity', 'Unit area (sqm)', 'Price / ADR', 'Occupancy %', 'Margin %'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
-    r += 1;
-    for (const u of opts.state.subUnits) {
-      const aName = opts.state.assets.find((a) => a.id === u.assetId)?.name ?? u.assetId;
-      setLabel(ws.getCell(`A${r}`), u.name, { indent: 1 });
-      setLabel(ws.getCell(`B${r}`), aName);
-      setInput(ws.getCell(`C${r}`), String(u.category), '@');
-      setInput(ws.getCell(`D${r}`), String(u.metric), '@');
-      setInput(ws.getCell(`E${r}`), u.metricValue ?? 0, NUMFMT.int);
-      setInput(ws.getCell(`F${r}`), u.unitArea ?? 0, NUMFMT.int);
-      setInput(ws.getCell(`G${r}`), resolveSubUnitAdr(u), NUMFMT.rate); // price / ADR per unit, unscaled
-      setInput(ws.getCell(`H${r}`), (u.occupancyPct ?? 0) / 100, NUMFMT.pct);
-      setInput(ws.getCell(`I${r}`), (u.operatingMargin ?? 0) / 100, NUMFMT.pct);
-      subUnitRefs.push({ id: u.id, assetId: u.assetId, category: addr('C', r), metric: addr('D', r), value: addr('E', r), unitArea: addr('F', r), price: addr('G', r) });
-      r += 1;
-    }
-    r += 1;
-  }
-
-  // Returns config section.
-  setSectionHeader(ws.getRow(r), 'Returns & Valuation assumptions', 5); r += 1;
-  const cfg = opts.state.project.returns;
-  addKV('Discount rate', cfg?.discountRate ?? 0.1, NUMFMT.pct, 'DiscountRate');
-  addKV('Exit year (offset from start, 0-based)', cfg?.exitYearOffset ?? (snap.axisLength - 1), NUMFMT.int, 'ExitYearOffset');
-  setLabel(ws.getCell(`A${r}`), 'Terminal value method'); setInput(ws.getCell(`B${r}`), String(cfg?.terminalMethod ?? 'exit_multiple'), '@'); r += 1;
-  // ONLY THE INPUT THE METHOD USES (2026-09-15): an exit multiple printed beside
-  // a cap rate method reads as the figure the terminal value was struck on.
-  {
-    const tmIn = String(cfg?.terminalMethod ?? 'exit_multiple');
-    const rc = cfg as { capRate?: number; capRateSource?: string } | undefined;
-    if (tmIn === 'exit_multiple') addKV('Exit multiple (x stabilised NOI)', cfg?.exitMultiple ?? 8, NUMFMT.mult, 'ExitMultiple');
-    if (tmIn === 'perpetuity') addKV('Perpetuity growth', cfg?.perpetuityGrowth ?? 0.02, NUMFMT.pct, 'PerpetuityGrowth');
-    if (tmIn === 'cap_rate') addKV(`Cap rate (${rc?.capRateSource === 'manual' ? 'typed' : 'derived from the model; the typed rate if set'})`, rc?.capRate ?? 0.08, NUMFMT.pct, 'CapRate');
-  }
-  r += 1;
-
-  // Capex cost lines: PURE INPUTS only (method + rate / %, plus a physical
-  // quantity for rate-x-area methods). Derived bases stay OFF this sheet: an
-  // in-kind / cash / total land value, a revenue basis, a sum-of-selected-lines
-  // and a derived unit count are all calculated results, so they are computed
-  // live on the calc sheets (Land & Area, Capex itself) instead of being stored
-  // here as constants. Percent rates are decimals (0.10); a fixed lump = rate.
-  setSectionHeader(ws.getRow(r), 'Capex cost lines (inputs: method, rate / %, quantity, stage, phasing window)', 8); r += 1;
-  ['Asset / Cost line', 'Method', 'Rate / %', 'Quantity (rate-x-area only)', 'Stage', 'Start period', 'End period', 'Phasing'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
-  r += 1;
-  const capexRefs: CapexAssetRef[] = [];
-  for (const ia of capex.inputAssets) {
-    setLabel(ws.getCell(`A${r}`), `${ia.assetName}  (${ia.phaseName})`, { bold: true });
-    fillRange(ws, r, 1, r, 8, ARGB.subtotal);
-    r += 1;
-    const lineRefs: CapexLineRef[] = [];
-    for (const ln of ia.lines) {
-      setLabel(ws.getCell(`A${r}`), ln.name, { indent: 1 });
-      setLabel(ws.getCell(`B${r}`), ln.basis);
-      // Rate input: percent as a decimal (pct2), money rate as an unscaled
-      // per-unit rate (NUMFMT.rate) so the workbook display-scale leaves it alone.
-      if (ln.isPercent) setInput(ws.getCell(`C${r}`), ln.rate / 100, NUMFMT.pct2);
-      else setInput(ws.getCell(`C${r}`), ln.rate, NUMFMT.rate);
-      // Stage (land / hard / soft) + the phasing window (start / end period,
-      // even vs manual) that drives this line's per-period spend.
-      setInput(ws.getCell(`E${r}`), ln.stage, '@');
-      setInput(ws.getCell(`F${r}`), ln.startPeriod, NUMFMT.int);
-      setInput(ws.getCell(`G${r}`), ln.endPeriod, NUMFMT.int);
-      setInput(ws.getCell(`H${r}`), ln.phasing, '@');
-      // Keep column D as an input ONLY for a genuine physical quantity: rate-x-
-      // area (BUA / NSA / GFA / NDA / roads / land sqm) and rate-per-parking-bay
-      // (basisFor tags bays as 'count', but a bay is a physical input). A derived
-      // unit count and every money basis (land value / revenue / selected lines)
-      // are left blank here and built live on the calc sheets from the real source.
-      const hasQty = !ln.isFixed && ln.metricValue !== null && (ln.metricKind === 'area' || ln.method === 'rate_per_parking_bay');
-      // Store the EFFECTIVE driver quantity (amount / rate), not the raw area
-      // metric. They are equal when no allocation applies; when the engine
-      // allocates a line's cost across assets (e.g. bua_share), the effective
-      // quantity is this asset's share, so rate x quantity reconciles to the
-      // engine amount on recalculation rather than drifting.
-      if (hasQty) setInput(ws.getCell(`D${r}`), ln.rate ? ln.amount / ln.rate : (ln.metricValue as number), NUMFMT.int);
-      lineRefs.push({
-        id: ln.id,
-        method: ln.method,
-        selectedLineIds: ln.selectedLineIds,
-        stage: ln.stage,
-        rate: ln.rate,
-        isPercent: ln.isPercent,
-        basis: ln.basis,
-        name: ln.name,
-        rateAddr: sheetRef(SHEETS.assumptions, `$C$${r}`),
-        qtyAddr: hasQty ? sheetRef(SHEETS.assumptions, `$D$${r}`) : null,
-        metricKind: ln.metricKind,
-        amount: ln.amount,
-      });
-      r += 1;
-      // Per-sub-unit custom rates (method 'per_sub_unit_custom_rates'): the Rate
-      // cell above is only the fallback default, so expand the real rate sheet as
-      // indented sub-rows (sub-unit name + rate), incl. the Support / Parking rows.
-      if (ln.perSubUnitRates && Object.keys(ln.perSubUnitRates).length) {
-        for (const [key, rate] of Object.entries(ln.perSubUnitRates)) {
-          const subName = key === '__support__' ? 'Support' : key === '__parking__' ? 'Parking' : (opts.state.subUnits.find((s) => s.id === key)?.name ?? key);
-          setLabel(ws.getCell(`A${r}`), `${subName} rate`, { indent: 2 });
-          setInput(ws.getCell(`C${r}`), rate, NUMFMT.rate);
-          r += 1;
-        }
-      }
-    }
-    // 2026-08-15: hard / soft subtotals per asset. The Stage column above has
-    // always been here, but nothing added it up, so no export could answer
-    // "what is the hard cost" without the reader doing it by hand. Emitted only
-    // where there is a figure, so a land-only asset gains no empty rows.
-    for (const [label, amount] of ([
-      ['Hard costs', ia.subtotals.hard],
-      ['Soft costs', ia.subtotals.soft],
-      ['Operating', ia.subtotals.operating],
-      ['Marketing', ia.subtotals.marketing],
-      ['Land', ia.subtotals.land],
-    ] as Array<[string, number]>)) {
-      if (amount === 0) continue;
-      setLabel(ws.getCell(`A${r}`), label, { indent: 1, bold: true });
-      setInput(ws.getCell(`I${r}`), amount, NUMFMT.money);
-      r += 1;
-    }
-    if (ia.subtotals.exclLand !== 0 && (ia.subtotals.land !== 0 || ia.subtotals.marketing !== 0)) {
-      setLabel(ws.getCell(`A${r}`), ia.subtotals.marketing !== 0
-        ? 'Construction cost (excl. land and marketing)'
-        : 'Construction cost (excl. land)', { indent: 1, bold: true });
-      setInput(ws.getCell(`I${r}`), ia.subtotals.exclLand, NUMFMT.money);
-      r += 1;
-    }
-    capexRefs.push({ assetId: ia.assetId, name: ia.assetName, phaseName: ia.phaseName, total: ia.total, lines: lineRefs });
-  }
-  r += 1;
-
-  // Full-width domain divider band between input domains (Capex / Revenue / Opex
-  // / Financing), so each reads as a distinct block. Every model input lives on
-  // this Inputs tab; the module output tabs echo their own slice marked "from
-  // the Inputs tab".
+  // Full-width domain divider band between input domains.
   const inputDivider = (text: string): void => {
     r += 1;
     for (let c = 1; c <= 8; c++) fillCell(ws.getCell(r, c), ARGB.sectionDark);
@@ -870,240 +636,16 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
     ws.getRow(r).height = 18;
     r += 2;
   };
-  const idxLabel = (ix?: { method?: string; rate?: number }): string => {
-    if (!ix || !ix.method || ix.method === 'none') return 'None';
-    const m = ix.method === 'single_rate' ? 'Flat' : ix.method === 'yoy_compound' ? 'Compound' : ix.method === 'yoy_per_period' ? 'Per-Year' : ix.method === 'step' ? 'Step' : ix.method;
-    return ix.rate != null ? `${m} ${(ix.rate * 100).toFixed(1)}%` : m;
-  };
-  const opexValFmt = (mode: string): string => mode === 'fixed_baseline' ? NUMFMT.money : mode.startsWith('per_') ? NUMFMT.rate : NUMFMT.pct;
 
-  // ── Financing inputs (Module 1, right after Capex; Revenue + Opex follow) ───
-  inputDivider('FINANCING INPUTS');
+  // ── Module 1, tab 1: Project & Phases ──────────────────────────────────────
+  section((c) => emitProjectSection(c, state));
+  section((c) => emitPhasesSection(c, state, snap));
 
-  // Financing settings (the raw financing scalars, grouped under the Financing
-  // divider as the single source of truth; the Financing output tab echoes
-  // these inline marked "from Assumptions").
-  setSectionHeader(ws.getRow(r), 'Financing settings', 5); r += 1;
-  setLabel(ws.getCell(`A${r}`), 'Funding method'); setInput(ws.getCell(`B${r}`), FUNDING_METHOD_LABELS[(p.financing?.fundingMethod ?? 1) as FundingMethodId], '@'); r += 1;
-  addKV('Debt share', fin.funding.debtPct / 100, NUMFMT.pct, 'DebtPct');
-  addKV('Equity share', fin.funding.equityPct / 100, NUMFMT.pct, 'EquityPct');
-  addKV('Minimum cash reserve', p.financing?.minimumCashReserve ?? fin.funding.minCashReserve ?? 0, NUMFMT.money, 'MinCashReserve');
-  addKV('IDC treatment', 'Capitalised into asset cost; paid when it arises', '@');
-  addKV('IDC allocation basis', String(p.idcConfig?.allocationBasis ?? 'land'), '@');
-  addKV('IDC funding', 'Cash first, debt drawn only for the shortfall', '@');
-  addKV('Dividends enabled (1 = yes)', p.dividendPolicy?.enabled ? 1 : 0, NUMFMT.int);
-  addKV('Dividend payout ratio %', (p.dividendPolicy?.payoutRatio ?? 0) / 100, NUMFMT.pct);
-  addKV('Dividend start year (0 = auto)', p.dividendStartYear ?? 0, NUMFMT.year);
-  // Selected funding-method configuration: the method-specific inputs that size
-  // the requirement beyond the resolved Debt / Equity share above (existing /
-  // initial cash, Method 4 specified amounts). Only the active method's block is
-  // emitted, mirroring the platform's "2a. Method N Configuration" panel.
-  const fcfg = p.financing;
-  const fmId = (fcfg?.fundingMethod ?? 1) as FundingMethodId;
-  if (fmId === 2 && fcfg?.netFundingConfig) {
-    const mc = fcfg.netFundingConfig;
-    addKV('Method 2: Existing cash', mc.existingCash ?? 0, NUMFMT.money);
-    addKV('Method 2: Debt %', (mc.debtPct ?? 0) / 100, NUMFMT.pct);
-    addKV('Method 2: Equity %', (mc.equityPct ?? 0) / 100, NUMFMT.pct);
-  } else if (fmId === 3 && fcfg?.cashDeficitConfig) {
-    const mc = fcfg.cashDeficitConfig;
-    const minCash = Array.isArray(mc.minimumCashReserve) ? (mc.minimumCashReserve[0] ?? 0) : (mc.minimumCashReserve ?? 0);
-    addKV('Method 3: Initial cash', mc.initialCash ?? 0, NUMFMT.money);
-    addKV('Method 3: Minimum cash reserve', minCash, NUMFMT.money);
-    addKV('Method 3: Debt %', (mc.debtPct ?? 0) / 100, NUMFMT.pct);
-    addKV('Method 3: Equity %', (mc.equityPct ?? 0) / 100, NUMFMT.pct);
-  } else if (fmId === 4 && fcfg?.fixedAmountConfig) {
-    const mc = fcfg.fixedAmountConfig;
-    addKV('Method 4: Specified debt amount', mc.debtAmount ?? 0, NUMFMT.money);
-    addKV('Method 4: Specified equity amount', mc.equityAmount ?? 0, NUMFMT.money);
-  }
-  r += 1;
-
-  // Cash sweep settings (project-wide; the Financing tab links these in).
-  const sweepCfg = (p.financing as { cashSweep?: { startingYear?: number; sweepRatioPct?: number } } | undefined)?.cashSweep ?? {};
-  setSectionHeader(ws.getRow(r), 'Cash sweep settings', 2); r += 1;
-  ['Setting', 'Value'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
-  r += 1;
-  setLabel(ws.getCell(`A${r}`), 'Sweep starting year (0 = auto)');
-  setInput(ws.getCell(`B${r}`), sweepCfg.startingYear ?? 0, NUMFMT.year);
-  financingScalars.sweepStart = addr('B', r); r += 1;
-  setLabel(ws.getCell(`A${r}`), 'Sweep ratio (% of surplus)');
-  setInput(ws.getCell(`B${r}`), (sweepCfg.sweepRatioPct ?? 100) / 100, NUMFMT.pct);
-  financingScalars.sweepRatio = addr('B', r); r += 2;
-
-  // Financing facilities (debt).
-  if (opts.state.financingTranches.length) {
-    setSectionHeader(ws.getRow(r), 'Financing facilities (debt)', 12); r += 1;
-    ['Facility', 'Origin', 'Opening balance', 'Interest rate %', 'Drawdown method', 'Repayment method', 'Repay periods', 'IDC capitalize', 'Repay start year', 'Interest start year', 'Origination year', 'Facility share %'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
-    r += 1;
-    for (const t of opts.state.financingTranches) {
-      const rate = t.interestRatePct ?? ((t.interbankRatePct ?? 0) + (t.creditSpreadPct ?? 0));
-      setLabel(ws.getCell(`A${r}`), t.name);
-      setInput(ws.getCell(`B${r}`), String(t.origin ?? 'new'), '@');
-      setInput(ws.getCell(`C${r}`), t.openingBalance ?? 0, NUMFMT.money);
-      setInput(ws.getCell(`D${r}`), rate / 100, NUMFMT.pct2);
-      setInput(ws.getCell(`E${r}`), String(t.drawdownMethod ?? '-'), '@');
-      setInput(ws.getCell(`F${r}`), String(t.repaymentMethod ?? '-'), '@');
-      setInput(ws.getCell(`G${r}`), t.repaymentPeriods ?? 0, NUMFMT.int);
-      setInput(ws.getCell(`H${r}`), t.idcCapitalize ? 1 : 0, NUMFMT.int);
-      // Timing inputs (0 = auto / not set, rendered as a dash): when the facility
-      // starts repaying, when interest begins accruing, the origination year, and
-      // its share of a multi-facility new-debt drawdown.
-      setInput(ws.getCell(`I${r}`), t.repaymentStartYear ?? 0, NUMFMT.year);
-      setInput(ws.getCell(`J${r}`), t.interestStartYear ?? 0, NUMFMT.year);
-      setInput(ws.getCell(`K${r}`), t.originationYear ?? 0, NUMFMT.year);
-      setInput(ws.getCell(`L${r}`), (t.facilitySharePct ?? 0) / 100, NUMFMT.pct);
-      trancheRefs.push({ id: t.id, name: t.name, openingBalance: addr('C', r), rate: addr('D', r), periods: addr('G', r) });
-      r += 1;
-    }
-    r += 1;
-  }
-
-  // Equity contributions.
-  if (opts.state.equityContributions.length) {
-    setSectionHeader(ws.getRow(r), 'Equity contributions', 4); r += 1;
-    ['Contribution', 'Amount', 'Timing', 'Type'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
-    r += 1;
-    for (const e of opts.state.equityContributions) {
-      setLabel(ws.getCell(`A${r}`), e.name);
-      setInput(ws.getCell(`B${r}`), e.amount ?? 0, NUMFMT.money);
-      setInput(ws.getCell(`C${r}`), String(e.timing ?? 'upfront'), '@');
-      setInput(ws.getCell(`D${r}`), String(e.type ?? 'cash'), '@');
-      equityRefs.push({ id: e.id, name: e.name, amount: addr('B', r) });
-      r += 1;
-    }
-    r += 1;
-  }
-
-  // Existing operations equity (historical). Opening-balance equity on
-  // operational-phase assets (asset.historicalEquityAmount), the source the
-  // Financing sheet's Existing-equity row links to. Input cells (editable).
-  const opPhaseIds = new Set(opts.state.phases.filter((ph) => ph.status === 'operational').map((ph) => ph.id));
-  const existingEqAssets = visibleAssets.filter((a) => opPhaseIds.has(a.phaseId) && Math.max(0, a.historicalEquityAmount ?? 0) > 0);
-  if (existingEqAssets.length) {
-    setSectionHeader(ws.getRow(r), 'Existing operations equity (historical)', 2); r += 1;
-    ['Asset', 'Equity contributed'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
-    r += 1;
-    for (const a of existingEqAssets) {
-      setLabel(ws.getCell(`A${r}`), a.name);
-      setInput(ws.getCell(`B${r}`), Math.max(0, a.historicalEquityAmount ?? 0), NUMFMT.money);
-      existingEquityRefs.push({ assetId: a.id, name: a.name, amount: addr('B', r) });
-      r += 1;
-    }
-    r += 1;
-  }
-
-  // ── Revenue inputs (recognition + indexation + cash / recognition profiles;
-  // unit prices / ADR + occupancy are in the Sub-units table above). ──────────
-  inputDivider('REVENUE INPUTS');
-  setSectionHeader(ws.getRow(r), 'Revenue configuration by asset (unit prices / ADR + occupancy are in the Sub-units table above)', 7); r += 1;
-  ['Asset', 'Strategy', 'Recognition', 'PIT year', 'ADR / Base rate', 'Indexation', 'Index rate %'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
-  // One row per consolidated line (2026-09-15): a line's terms are written to every plot on it.
-  for (const a of lineHosts({ assets: visibleAssets, phases: opts.state.phases, parcels: opts.state.parcels })) {
-    const rc = a.revenue ?? {};
-    setLabel(ws.getCell(`A${r}`), a.name);
-    setInput(ws.getCell(`B${r}`), a.strategy, '@');
-    if (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') {
-      const s = rc.sell;
-      setInput(ws.getCell(`C${r}`), String(s?.recognitionProfile?.method ?? 'over_time'), '@');
-      setInput(ws.getCell(`D${r}`), s?.recognitionProfile?.pointInTimeYear ?? 0, NUMFMT.year);
-      setInput(ws.getCell(`F${r}`), String(s?.indexation?.method ?? 'none'), '@');
-      setInput(ws.getCell(`G${r}`), s?.indexation?.rate ?? 0, NUMFMT.pct2);
-    } else if (a.strategy === 'Operate') {
-      setInput(ws.getCell(`E${r}`), rc.operate?.startingADR ?? 0, NUMFMT.rate);
-      setInput(ws.getCell(`F${r}`), String(rc.operate?.adrIndexation?.method ?? 'none'), '@');
-      setInput(ws.getCell(`G${r}`), rc.operate?.adrIndexation?.rate ?? 0, NUMFMT.pct2);
-    } else {
-      setInput(ws.getCell(`E${r}`), rc.lease?.baseRate ?? 0, NUMFMT.rate);
-      setInput(ws.getCell(`F${r}`), String(rc.lease?.rentIndexation?.method ?? 'none'), '@');
-      setInput(ws.getCell(`G${r}`), rc.lease?.rentIndexation?.rate ?? 0, NUMFMT.pct2);
-    }
-    r += 1;
-  }
-  r += 1;
-  // Per-asset cash + recognition profiles (% by year from the sale year).
-  for (const a of visibleAssets) {
-    const s = a.revenue?.sell; if (!s) continue;
-    // RECOGNITION ONLY (2026-08-20). The cash payment profile row was removed
-    // once the cohort rule was verified: it drives nothing, so printing it in
-    // an inputs table presented a dead field as a live one. The field itself
-    // is deprecated in storage, not deleted, so no entered schedule is lost.
-    const recogPct = s.recognitionProfile?.percentages ?? [];
-    let n = 0; for (let i = 0; i < recogPct.length; i++) if ((recogPct[i] ?? 0) !== 0) n = i + 1;
-    if (!n) continue;
-    setSectionHeader(ws.getRow(r), `Recognition profile, ${a.name} (% by year from sale)`, n + 1); r += 1;
-    setColHeader(ws.getCell(r, 1), 'Profile', 'left'); for (let i = 0; i < n; i++) setColHeader(ws.getCell(r, 2 + i), `Yr ${i + 1}`, 'right'); r += 1;
-    setLabel(ws.getCell(`A${r}`), 'Recognition %'); for (let i = 0; i < n; i++) setInput(ws.getCell(r, 2 + i), recogPct[i] ?? 0, NUMFMT.pct); r += 1;
-    // Sale cohort terms: what actually drives collections. Shared builder, so
-    // this and the PDF cannot drift.
-    {
-      const block = buildSaleCohortTermsBlock(a, opts.state.phases.find((ph) => ph.id === a.phaseId), Number(snap.yearLabels[0]) || 0);
-      if (block && block.downpayments.length) {
-        r += 1;
-        setSectionHeader(ws.getRow(r), `Sale cohort terms, ${a.name}`, block.downpayments.length + 1); r += 1;
-        setColHeader(ws.getCell(r, 1), 'Term', 'left');
-        for (let i = 0; i < block.downpayments.length; i++) setColHeader(ws.getCell(r, 2 + i), String(block.downpayments[i].year), 'right'); r += 1;
-        setLabel(ws.getCell(`A${r}`), 'Downpayment % by sale year');
-        for (let i = 0; i < block.downpayments.length; i++) setInput(ws.getCell(r, 2 + i), block.downpayments[i].value, NUMFMT.pct); r += 1;
-        setLabel(ws.getCell(`A${r}`), 'Max instalment years'); setInput(ws.getCell(r, 2), block.instalmentYears); r += 1;
-        setLabel(ws.getCell(`A${r}`), 'Instalments stop at handover'); setInput(ws.getCell(r, 2), block.stopAtHandover ? 'Yes' : 'No'); r += 1;
-        setLabel(ws.getCell(`A${r}`), saleCohortRuleText(block)); r += 1;
-      }
-    }
-    r += 1;
-  }
-
-  // ── Opex inputs (per-asset opex lines + HQ; operating margins are in the
-  // Sub-units table above). ──────────────────────────────────────────────────
-  inputDivider('OPEX INPUTS');
-  let anyOpex = false;
-  for (const a of lineHosts({ assets: visibleAssets, phases: opts.state.phases, parcels: opts.state.parcels })) {
-    const lines = (a.opex?.lines ?? []).filter((l) => !l.disabled);
-    if (!lines.length) continue;
-    anyOpex = true;
-    setSectionHeader(ws.getRow(r), `Opex lines, ${a.name}`, 6); r += 1;
-    ['Line', 'Category', 'Mode', 'Value', 'Indexation', 'Rate mode'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
-    for (const l of lines) {
-      setLabel(ws.getCell(`A${r}`), l.name);
-      setInput(ws.getCell(`B${r}`), String(l.category), '@');
-      setInput(ws.getCell(`C${r}`), String(l.mode), '@');
-      setInput(ws.getCell(`D${r}`), l.value, opexValFmt(String(l.mode)));
-      setInput(ws.getCell(`E${r}`), l.useAssetDefault ? `(default) ${idxLabel(a.opex?.defaultIndexation)}` : idxLabel(l.indexation), '@');
-      setInput(ws.getCell(`F${r}`), l.rateMode === 'yoy' ? 'YoY' : 'Single', '@');
-      r += 1;
-    }
-    r += 1;
-  }
-  const hqOpexLines = (p.hqOpex?.lines ?? []).filter((l) => !l.disabled);
-  if (hqOpexLines.length) {
-    anyOpex = true;
-    setSectionHeader(ws.getRow(r), 'HQ / Corporate opex lines', 5); r += 1;
-    ['Line', 'Category', 'Mode', 'Value', 'Indexation'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
-    for (const l of hqOpexLines) {
-      setLabel(ws.getCell(`A${r}`), l.name);
-      setInput(ws.getCell(`B${r}`), String(l.category), '@');
-      setInput(ws.getCell(`C${r}`), String(l.mode), '@');
-      setInput(ws.getCell(`D${r}`), l.value, opexValFmt(String(l.mode)));
-      setInput(ws.getCell(`E${r}`), idxLabel(l.indexation), '@');
-      r += 1;
-    }
-    r += 1;
-  }
-  if (!anyOpex) { setLabel(ws.getCell(`A${r}`), 'No per-line opex configured; operating costs are driven by the operating margins in the Sub-units table above.'); r += 2; }
-
-  // ── FUND INPUTS (2026-08-11) ───────────────────────────────────────────────
-  //
-  // The workbook's own rule is that inputs live on this tab, and the fund layer
-  // broke it completely: the toggle, the five rates, the hurdle, the
-  // performance fee, the Fund Manager and the distribution matrix appeared
-  // NOWHERE in the file. A reader could see 359.9m of fees charged on the P&L
-  // with no way to find the rate that produced them.
+  // ── Module 1, tab 3: Fund Terms (2026-08-11) ───────────────────────────────
   //
   // Gated on the toggle, so a standalone project is untouched. Every cell is an
-  // INPUT (navy-pale FAST shading) except the two resolved bases, which are
-  // model-derived and are marked as computed so nobody edits them expecting a
-  // recalculation. See docs/FUND_LAYER_GUIDELINE.md on why fund size is
-  // resolved rather than typed.
+  // INPUT except the resolved bases, which are model-derived and written as
+  // computed. See docs/FUND_LAYER_GUIDELINE.md on why fund size is resolved.
   const fundTerms = resolveFundTerms(p);
   if (fundTerms.enabled) {
     inputDivider('FUND INPUTS');
@@ -1125,29 +667,31 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
     termRow('Hurdle rate (preferred return)', fundTerms.hurdleRatePct, NUMFMT.pct2, 'per annum', 'Accrues on the unpaid hurdle balance plus the same-period equity draw, and compounds.');
     termRow('Performance fee on the excess', fundTerms.performanceFeePct, NUMFMT.pct2, 'of excess', 'Flat on distributions above the hurdle owed. No catch-up, no residual split.');
     termRow('Fund Manager', fundTerms.fundManagerName || 'Fund Manager', '@', '', 'Takes 100% of the management fees plus its matrix share of the performance fee.');
+    // THE SAME TOGGLE FUND TERMS AND FINANCING BOTH SHOW, one field, with the screen's words.
+    termRow('How the management fee is funded', fundTerms.managementFeeFunding === 'equity'
+      ? '100% equity (dedicated equity draw)'
+      : 'Cash deficit funding (project debt / equity ratio)', '@', '',
+      fundTerms.managementFeeFunding === 'equity'
+        ? 'The fee is its own equity draw, outside the debt / equity ratio.'
+        : 'The fee joins the funding deficit and is split at the project debt / equity ratio.');
     termRow('Fund size override', fundTerms.fundSizeOverride ? 'Yes' : 'No', '@', '', fundTerms.fundSizeOverride ? `Typed target ${formatAccounting(fundTerms.fundSize, 'millions', 1)} m pins the fund size instead of the model-resolved figure.` : 'Off: fund size is resolved from the model (total equity plus the debt facility).');
     termRow('Facility limit override', fundTerms.facilityLimitOverride ? 'Yes' : 'No', '@', '', fundTerms.facilityLimitOverride ? `Typed limit ${formatAccounting(fundTerms.facilityLimit, 'millions', 1)} m.` : 'Off: the debt facility is resolved from the model.');
     r += 1;
 
-    // The three resolved capital bases. COMPUTED, not input: they come from the
-    // fee-free pass and are frozen before the solver, which is what stops the
-    // fees from raising the funding that raises the fees.
     const capRows = buildFundCapitalRows(snap);
     if (capRows.length) {
       setSectionHeader(ws.getRow(r), 'Resolved capital bases (computed from the model, not typed)', 4); r += 1;
       ['Base', 'Amount', '', 'How it is resolved'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 1 ? 'right' : 'left')); r += 1;
-      for (const c of capRows) {
-        setLabel(ws.getCell(`A${r}`), c.isTotal ? `= ${c.label}` : c.label, { bold: c.isTotal });
-        const vc = ws.getCell(`B${r}`); vc.value = c.amount; vc.numFmt = NUMFMT.money; vc.font = { name: 'Calibri', size: BODY_SIZE, bold: c.isTotal, color: { argb: ARGB.formula } };
-        setLabel(ws.getCell(`D${r}`), c.note);
+      for (const cr of capRows) {
+        setLabel(ws.getCell(`A${r}`), cr.isTotal ? `= ${cr.label}` : cr.label, { bold: cr.isTotal });
+        const vc = ws.getCell(`B${r}`); vc.value = cr.amount; vc.numFmt = NUMFMT.money; vc.font = { name: 'Calibri', size: BODY_SIZE, bold: cr.isTotal, color: { argb: ARGB.formula } };
+        setLabel(ws.getCell(`D${r}`), cr.note);
         r += 1;
       }
       r += 1;
     }
 
-    // The distribution matrix. Shares are NEVER normalised: a matrix summing to
-    // 80% allocates 80% and the remainder is reported as unallocated, so the
-    // raw entries are what has to be shown here.
+    // The distribution matrix. Shares are NEVER normalised.
     const matrix = fundTerms.feeDistribution ?? [];
     if (matrix.length) {
       setSectionHeader(ws.getRow(r), 'Fee distribution matrix (shares are not normalised)', 4); r += 1;
@@ -1163,10 +707,262 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
     }
   }
 
+  // ── Module 1, tab 4: Asset Types & Standards ───────────────────────────────
+  inputDivider('ASSET TYPES & STANDARDS');
+  section((c) => emitStandardsSection(c, state));
+
+  // ── Module 1, tab 5: Assets & Sub-units (Tables 1, 2 and 5; 3 and 4 are on Land & Area) ──
+  inputDivider('ASSETS & SUB-UNITS');
+  section((c) => emitPlotsSection(c, state));
+  const areaTables = buildAssetAreaTables(state);
+  section((c) => emitAssetEntrySection(c, areaTables));
+  section((c) => emitSubUnitSection(c, state));
+  // The link registry the downstream tabs key on (formulas are not live in the
+  // hardcoded workbook, so the addresses are placeholders; ids and strategies
+  // are what the other tabs read).
+  const visibleAssets = state.assets.filter((a) => a.visible !== false);
+  const assetRefs: AssetInputRef[] = visibleAssets.map((a) => ({
+    id: a.id, name: a.name, phaseId: a.phaseId, strategy: a.strategy,
+    bua: '0', nsa: '0', gfa: '0', support: '0', parking: '0', parkingBays: '0', landSqm: '0', landRate: '0', usefulLife: '0',
+  }));
+  for (const u of state.subUnits) {
+    subUnitRefs.push({ id: u.id, assetId: u.assetId, category: '""', metric: '""', value: '0', unitArea: '0', price: '0' });
+  }
+
+  // ── Module 1, tab 6: Capex cost lines ──────────────────────────────────────
+  // Rates, stages and phasing windows are inputs. The QUANTITY each rate
+  // multiplies and the stage subtotals are the engine's results, written as
+  // computed, never shaded (the platform derives both).
+  inputDivider('CAPEX INPUTS');
+  setSectionHeader(ws.getRow(r), 'Capex cost lines (inputs: method, rate / %, quantity, stage, phasing window)', 9); r += 1;
+  ['Line / Cost line', 'Method', 'Rate / %', 'Quantity (derived)', 'Stage', 'Start period', 'End period', 'Phasing', 'Amount (derived)'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+  r += 1;
+  const methodLabel = (method: string, basis: string): string =>
+    basis && basis !== method ? basis : ((COST_METHOD_LABELS as Record<string, string>)[method] ?? basis);
+  const capexRefs: CapexAssetRef[] = [];
+  for (const ia of capex.inputAssets) {
+    // The pooled line's title already names its phase on a multi-phase project.
+    setLabel(ws.getCell(`A${r}`), ia.assetName, { bold: true });
+    fillRange(ws, r, 1, r, 9, ARGB.subtotal);
+    r += 1;
+    const lineRefs: CapexLineRef[] = [];
+    for (const ln of ia.lines) {
+      setLabel(ws.getCell(`A${r}`), ln.name, { indent: 1 });
+      setLabel(ws.getCell(`B${r}`), methodLabel(ln.method, ln.basis));
+      if (ln.isPercent) setInput(ws.getCell(`C${r}`), ln.rate / 100, NUMFMT.pct2);
+      else setInput(ws.getCell(`C${r}`), ln.rate, NUMFMT.rate);
+      setInput(ws.getCell(`E${r}`), ln.stage, '@');
+      setInput(ws.getCell(`F${r}`), ln.startPeriod, NUMFMT.int);
+      setInput(ws.getCell(`G${r}`), ln.endPeriod, NUMFMT.int);
+      setInput(ws.getCell(`H${r}`), ln.phasing, '@');
+      const hasQty = !ln.isFixed && ln.metricValue !== null && (ln.metricKind === 'area' || ln.method === 'rate_per_parking_bay');
+      // The EFFECTIVE driver quantity (amount / rate), which is this line's share
+      // where the engine allocates a line across assets.
+      if (hasQty) setFormula(ws.getCell(`D${r}`), fcell('0', ln.rate ? ln.amount / ln.rate : (ln.metricValue as number)), NUMFMT.int);
+      setFormula(ws.getCell(`I${r}`), fcell('0', ln.amount), NUMFMT.money);
+      lineRefs.push({
+        id: ln.id,
+        method: ln.method,
+        selectedLineIds: ln.selectedLineIds,
+        stage: ln.stage,
+        rate: ln.rate,
+        isPercent: ln.isPercent,
+        basis: ln.basis,
+        name: ln.name,
+        rateAddr: sheetRef(SHEETS.assumptions, `$C$${r}`),
+        qtyAddr: hasQty ? sheetRef(SHEETS.assumptions, `$D$${r}`) : null,
+        metricKind: ln.metricKind,
+        amount: ln.amount,
+      });
+      r += 1;
+      if (ln.perSubUnitRates && Object.keys(ln.perSubUnitRates).length) {
+        for (const [key, rate] of Object.entries(ln.perSubUnitRates)) {
+          const subName = key === '__support__' ? 'Support' : key === '__parking__' ? 'Parking' : (state.subUnits.find((s) => s.id === key)?.name ?? key);
+          setLabel(ws.getCell(`A${r}`), `${subName} rate`, { indent: 2 });
+          setInput(ws.getCell(`C${r}`), rate, NUMFMT.rate);
+          r += 1;
+        }
+      }
+    }
+    for (const [label, amount] of ([
+      ['Hard costs', ia.subtotals.hard],
+      ['Soft costs', ia.subtotals.soft],
+      ['Operating', ia.subtotals.operating],
+      ['Marketing', ia.subtotals.marketing],
+      ['Land', ia.subtotals.land],
+    ] as Array<[string, number]>)) {
+      if (amount === 0) continue;
+      setLabel(ws.getCell(`A${r}`), label, { indent: 1, bold: true });
+      setFormula(ws.getCell(`I${r}`), fcell('0', amount), NUMFMT.money);
+      r += 1;
+    }
+    if (ia.subtotals.exclLand !== 0 && (ia.subtotals.land !== 0 || ia.subtotals.marketing !== 0)) {
+      setLabel(ws.getCell(`A${r}`), ia.subtotals.marketing !== 0
+        ? 'Construction cost (excl. land and marketing)'
+        : 'Construction cost (excl. land)', { indent: 1, bold: true });
+      setFormula(ws.getCell(`I${r}`), fcell('0', ia.subtotals.exclLand), NUMFMT.money);
+      r += 1;
+    }
+    capexRefs.push({ assetId: ia.assetId, name: ia.assetName, phaseName: ia.phaseName, total: ia.total, lines: lineRefs });
+  }
+  r += 1;
+
+  // ── Module 1, tab 7: Financing ─────────────────────────────────────────────
+  inputDivider('FINANCING INPUTS');
+  setSectionHeader(ws.getRow(r), 'Financing settings', 5); r += 1;
+  setLabel(ws.getCell(`A${r}`), 'Funding method'); setInput(ws.getCell(`B${r}`), FUNDING_METHOD_LABELS[(p.financing?.fundingMethod ?? 1) as FundingMethodId], '@'); r += 1;
+  addKV('Debt share', fin.funding.debtPct / 100, NUMFMT.pct, 'DebtPct');
+  addKV('Equity share', fin.funding.equityPct / 100, NUMFMT.pct, 'EquityPct');
+  addKV('Minimum cash reserve', p.financing?.minimumCashReserve ?? fin.funding.minCashReserve ?? 0, NUMFMT.money, 'MinCashReserve');
+  addKV('IDC allocation basis', (p.idcConfig?.allocationBasis ?? 'land') === 'bua' ? 'Total BUA' : 'Land Area', '@');
+  addKV('Dividends enabled (1 = yes)', p.dividendPolicy?.enabled ? 1 : 0, NUMFMT.int);
+  addKV('Dividend payout ratio %', (p.dividendPolicy?.payoutRatio ?? 0) / 100, NUMFMT.pct);
+  addKV('Dividend start year (0 = auto)', p.dividendStartYear ?? 0, NUMFMT.year);
+  const fcfg = p.financing;
+  const fmId = (fcfg?.fundingMethod ?? 1) as FundingMethodId;
+  if (fmId === 2 && fcfg?.netFundingConfig) {
+    const mc = fcfg.netFundingConfig;
+    addKV('Method 2: Existing cash', mc.existingCash ?? 0, NUMFMT.money);
+    addKV('Method 2: Debt %', (mc.debtPct ?? 0) / 100, NUMFMT.pct);
+    addKV('Method 2: Equity %', (mc.equityPct ?? 0) / 100, NUMFMT.pct);
+  } else if (fmId === 3 && fcfg?.cashDeficitConfig) {
+    const mc = fcfg.cashDeficitConfig;
+    const minCash = Array.isArray(mc.minimumCashReserve) ? (mc.minimumCashReserve[0] ?? 0) : (mc.minimumCashReserve ?? 0);
+    addKV('Method 3: Initial cash', mc.initialCash ?? 0, NUMFMT.money);
+    addKV('Method 3: Minimum cash reserve', minCash, NUMFMT.money);
+    addKV('Method 3: Debt %', (mc.debtPct ?? 0) / 100, NUMFMT.pct);
+    addKV('Method 3: Equity %', (mc.equityPct ?? 0) / 100, NUMFMT.pct);
+  } else if (fmId === 4 && fcfg?.fixedAmountConfig) {
+    const mc = fcfg.fixedAmountConfig;
+    addKV('Method 4: Specified debt amount', mc.debtAmount ?? 0, NUMFMT.money);
+    addKV('Method 4: Specified equity amount', mc.equityAmount ?? 0, NUMFMT.money);
+  }
+  r += 1;
+
+  // LAND FUNDING, PER PHASE, as Financing section 4 shows it: the land cash and
+  // in-kind the capex engine priced (derived), and the debt / equity split
+  // stored per plot. A phase whose plots store no split shows the screen's
+  // default (0% debt, 100% equity) as derived, not as a typed input.
+  const landByPhase = fin.capex.landByPhase ?? [];
+  if (landByPhase.length) {
+    setSectionHeader(ws.getRow(r), 'Land Funding (per phase, from the Capex results)', 5); r += 1;
+    ['Phase', 'Land Cash (Capex Table 5)', 'Land In-Kind (Capex Table 5)', 'Debt %', 'Equity %'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+    r += 1;
+    const parcelFunding = p.financing?.parcelFunding ?? [];
+    for (const lp of landByPhase) {
+      const cfgs = state.parcels.filter((pa) => pa.phaseId === lp.phaseId).map((pa) => parcelFunding.find((x) => x.parcelId === pa.id));
+      const storedCfg = cfgs.find((x) => x !== undefined);
+      const debts = cfgs.map((x) => x?.debtPct ?? 0);
+      const mixed = debts.some((d) => d !== debts[0]);
+      const debtPct = debts[0] ?? 0;
+      const equityPct = cfgs[0]?.equityPct ?? (100 - debtPct);
+      setLabel(ws.getCell(`A${r}`), `${lp.phaseName}${mixed ? ' (mixed split across its plots)' : ''}`);
+      setFormula(ws.getCell(`B${r}`), fcell('0', lp.landCashTotal), NUMFMT.money);
+      setFormula(ws.getCell(`C${r}`), fcell('0', lp.landInKindTotal), NUMFMT.money);
+      if (storedCfg) {
+        setInput(ws.getCell(`D${r}`), debtPct / 100, NUMFMT.pct);
+        setInput(ws.getCell(`E${r}`), equityPct / 100, NUMFMT.pct);
+      } else {
+        setFormula(ws.getCell(`D${r}`), fcell('0', 0), NUMFMT.pct);
+        setFormula(ws.getCell(`E${r}`), fcell('1', 1), NUMFMT.pct);
+        setLabel(ws.getCell(`F${r}`), 'Not set: the default split applies.');
+      }
+      r += 1;
+    }
+    r += 1;
+  }
+
+  // Cash sweep settings (project-wide; the Financing tab links these in).
+  const sweepCfg = (p.financing as { cashSweep?: { startingYear?: number; sweepRatioPct?: number } } | undefined)?.cashSweep ?? {};
+  setSectionHeader(ws.getRow(r), 'Cash sweep settings', 2); r += 1;
+  ['Setting', 'Value'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+  r += 1;
+  setLabel(ws.getCell(`A${r}`), 'Sweep starting year (0 = auto)');
+  setInput(ws.getCell(`B${r}`), sweepCfg.startingYear ?? 0, NUMFMT.year);
+  financingScalars.sweepStart = addr('B', r); r += 1;
+  setLabel(ws.getCell(`A${r}`), 'Sweep ratio (% of surplus)');
+  setInput(ws.getCell(`B${r}`), (sweepCfg.sweepRatioPct ?? 100) / 100, NUMFMT.pct);
+  financingScalars.sweepRatio = addr('B', r); r += 2;
+
+  // Financing facilities (debt).
+  if (state.financingTranches.length) {
+    setSectionHeader(ws.getRow(r), 'Financing facilities (debt)', 12); r += 1;
+    ['Facility', 'Origin', 'Opening balance', 'Interest rate %', 'Drawdown method', 'Repayment method', 'Repay periods', 'IDC capitalize', 'Repay start year', 'Interest start year', 'Origination year', 'Facility share %'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+    r += 1;
+    for (const t of state.financingTranches) {
+      const rate = t.interestRatePct ?? ((t.interbankRatePct ?? 0) + (t.creditSpreadPct ?? 0));
+      setLabel(ws.getCell(`A${r}`), t.name);
+      setInput(ws.getCell(`B${r}`), String(t.origin ?? 'new'), '@');
+      setInput(ws.getCell(`C${r}`), t.openingBalance ?? 0, NUMFMT.money);
+      setInput(ws.getCell(`D${r}`), rate / 100, NUMFMT.pct2);
+      setInput(ws.getCell(`E${r}`), String(t.drawdownMethod ?? '-'), '@');
+      setInput(ws.getCell(`F${r}`), String(t.repaymentMethod ?? '-'), '@');
+      setInput(ws.getCell(`G${r}`), t.repaymentPeriods ?? 0, NUMFMT.int);
+      setInput(ws.getCell(`H${r}`), t.idcCapitalize ? 1 : 0, NUMFMT.int);
+      setInput(ws.getCell(`I${r}`), t.repaymentStartYear ?? 0, NUMFMT.year);
+      setInput(ws.getCell(`J${r}`), t.interestStartYear ?? 0, NUMFMT.year);
+      setInput(ws.getCell(`K${r}`), t.originationYear ?? 0, NUMFMT.year);
+      setInput(ws.getCell(`L${r}`), (t.facilitySharePct ?? 0) / 100, NUMFMT.pct);
+      trancheRefs.push({ id: t.id, name: t.name, openingBalance: addr('C', r), rate: addr('D', r), periods: addr('G', r) });
+      r += 1;
+    }
+    r += 1;
+  }
+
+  // Equity contributions.
+  if (state.equityContributions.length) {
+    setSectionHeader(ws.getRow(r), 'Equity contributions', 4); r += 1;
+    ['Contribution', 'Amount', 'Timing', 'Type'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+    r += 1;
+    for (const e of state.equityContributions) {
+      setLabel(ws.getCell(`A${r}`), e.name);
+      setInput(ws.getCell(`B${r}`), e.amount ?? 0, NUMFMT.money);
+      setInput(ws.getCell(`C${r}`), String(e.timing ?? 'upfront'), '@');
+      setInput(ws.getCell(`D${r}`), String(e.type ?? 'cash'), '@');
+      equityRefs.push({ id: e.id, name: e.name, amount: addr('B', r) });
+      r += 1;
+    }
+    r += 1;
+  }
+
+  // Existing operations equity (historical), on operational-phase assets.
+  const opPhaseIds = new Set(state.phases.filter((ph) => ph.status === 'operational').map((ph) => ph.id));
+  const existingEqAssets = visibleAssets.filter((a) => opPhaseIds.has(a.phaseId) && Math.max(0, a.historicalEquityAmount ?? 0) > 0);
+  if (existingEqAssets.length) {
+    setSectionHeader(ws.getRow(r), 'Existing operations equity (historical)', 2); r += 1;
+    ['Asset', 'Equity contributed'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+    r += 1;
+    for (const a of existingEqAssets) {
+      setLabel(ws.getCell(`A${r}`), a.name);
+      setInput(ws.getCell(`B${r}`), Math.max(0, a.historicalEquityAmount ?? 0), NUMFMT.money);
+      existingEquityRefs.push({ assetId: a.id, name: a.name, amount: addr('B', r) });
+      r += 1;
+    }
+    r += 1;
+  }
+
+  // ── Module 2: Revenue inputs per line, then Escrow ─────────────────────────
+  inputDivider('REVENUE INPUTS');
+  section((c) => emitRevenueInputs(c, state, snap));
+  section((c) => emitEscrowInputs(c, state, snap));
+
+  // ── Module 3: Opex inputs per line and accounts payable ────────────────────
+  inputDivider('OPEX INPUTS');
+  section((c) => emitOpexInputs(c, state));
+
+  // ── Module 4: P&L inputs and depreciation inputs ───────────────────────────
+  inputDivider('FINANCIAL STATEMENT INPUTS');
+  section((c) => emitStatementInputsSection(c, state));
+  section((c) => emitDepreciationSection(c, state, snap));
+
+  // ── Module 5: Returns assumptions ──────────────────────────────────────────
+  inputDivider('RETURNS INPUTS');
+  section((c) => emitReturnsSection(c, state, snap));
+
   ws.views = [{ state: 'frozen', ySplit: 2, showGridLines: false }];
   return {
     startYearName: 'ProjectStartYear', axisLength: snap.axisLength, capex: capexRefs,
-    assets: assetRefs, subUnits: subUnitRefs, parcels: parcelRefs, tranches: trancheRefs, equity: equityRefs,
+    assets: assetRefs, subUnits: subUnitRefs, parcels: [], tranches: trancheRefs, equity: equityRefs,
     existingEquity: existingEquityRefs, financingScalars,
   };
 }
@@ -1234,12 +1030,11 @@ function addPhaseTimeline(ws: ExcelJS.Worksheet, snap: ReturnType<typeof compute
   ws.getColumn(4).width = 17;
 
   const yearOfCol = (c: number): number => colYear(snap, c);
-  const iso = (d: string): Date => new Date(d);
-  const yr = (d: string): number => iso(d).getFullYear();
-  const fmtDate = (d: string): string => {
-    const dt = iso(d);
-    return `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][dt.getMonth()]} ${dt.getFullYear()}`;
-  };
+  // UTC READS (2026-09-17). The export runs in the browser, and a local-time
+  // read of "2027-01-01" is December 2026 anywhere west of UTC, which moved the
+  // dated schedule and every Gantt bar a year.
+  const yr = (d: string): number => utcYear(d, snap.projectStartYear);
+  const fmtDate = (d: string): string => utcMonthYear(d);
 
   const lines = phases.map((p) => ({ phase: p, tl: computePhaseTimeline(p, project) }));
   const projTl = computeProjectTimeline(project, phases);
@@ -1251,7 +1046,7 @@ function addPhaseTimeline(ws: ExcelJS.Worksheet, snap: ReturnType<typeof compute
   r += 1;
   for (const { phase, tl } of lines) {
     setLabel(ws.getCell(r, 1), phase.name);
-    setLabel(ws.getCell(r, 2), phase.status === 'operational' ? 'Operational' : 'Planning');
+    setLabel(ws.getCell(r, 2), phaseStatusLabel(phase.status));
     const cells: Array<[number, string | number]> = [
       [3, fmtDate(tl.constructionStart)], [4, fmtDate(tl.constructionEnd)],
       [5, fmtDate(tl.operationsStart)], [6, fmtDate(tl.operationsEnd)],
@@ -1329,7 +1124,7 @@ function addPhaseTimeline(ws: ExcelJS.Worksheet, snap: ReturnType<typeof compute
   swatch(4, ARGB.sectionDark, 'Project end');
   r += 1;
   const note = ws.getCell(r, 1);
-  note.value = 'Dates are the model\'s own phase timeline (phase start date, construction periods, operations periods and overlap). Operations shade over construction in an overlap year.';
+  note.value = 'Dates are the model\'s own phase timeline (phase start date, construction periods and operations periods). Operations start the period after construction ends; a legacy overlap on an older project pulls them forward, and operations then shade over construction in that year.';
   note.font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
 }
 
@@ -1341,173 +1136,102 @@ function strategyGroup(strategy: string): 'Residential' | 'Hospitality' | 'Retai
   return 'Other';
 }
 
-// ── Land & Area (formula area hierarchy + land value, links to Assumptions) ────
-// Asset-wise (no sub-unit rows): each asset's NSA / Support / BUA / GFA, land
-// value (cash + in-kind split), unit count and GDV, grouped by strategy
-// (Residential -> Hospitality -> Retail) with a total per group. Sub-unit areas
-// are folded directly into each asset's formula (summed off the Assumptions
-// sub-unit inputs) so the tab reads at the asset level. GDV is a residential
-// (for-sale) concept, so it is shown only for Residential assets (and for any
-// asset that drives a percent-of-revenue capex line, which needs the basis).
+// ── Land & Area (Module 1 tab 5, Tables 3 and 4, and land by asset) ───────────
+//
+// THE TOP-DOWN CHAIN, AS THE ASSETS TAB DERIVES IT (2026-09-17). Each plot's
+// land x utilisation gives the net developable area, x coverage the footprint,
+// x FAR the total GFA; the retail share of the footprint is ground-floor retail
+// (its own leased strip, which carves its land out of its hosts), the rest of
+// the footprint is lobby, and service comes off the main asset GFA to leave the
+// NSA; units, parking slots and parking areas follow, and Total BUA is Total
+// GFA plus parking. Table 3 runs it per plot, Table 4 adds the same rows per
+// line. The land block below is what capex charges and the balance sheet
+// holds, by sqm only, through the platform's own land rule. Every figure is
+// read from the function the screen calls (assetInputsView.ts); nothing here
+// recomputes a rule.
 function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs: AssumptionRefs): Map<string, LandAreaAssetAddrs> {
   const ws = wb.addWorksheet(SHEETS.landArea, { properties: { tabColor: { argb: ARGB.navy } } });
-  ws.getColumn(1).width = 30;
-  for (let c = 2; c <= 14; c++) ws.getColumn(c).width = 13;
+  ws.getColumn(1).width = 34;
+  for (let c = 2; c <= LAND_CHAIN_COLS + 3; c++) ws.getColumn(c).width = 14;
   setTitle(ws.getCell('A1'), 'Land & Area', 16);
-  setNote(ws.getCell('A1'), `${SNAPSHOT_NOTE}\n\nSourced from Inputs (parcels, asset areas, sub-units). Feeds the Capex build-up (percent / unit cost bases) and the Balance Sheet land.`);
-  setLabel(ws.getCell('A2'), 'Area hierarchy (NSA -> BUA -> GFA), land value and unit count per asset, grouped by strategy. GDV is shown for residential (for-sale) assets. This tab is a metric grid (one column per metric), so the per-column Basis / Calculation is given in the legend below the table rather than as a row column.');
+  setNote(ws.getCell('A1'), `${SNAPSHOT_NOTE}\n\nSourced from Inputs (plots, Table 2 massing, asset type values). Feeds the Capex quantity bases (Main Asset GFA, Parking Area, Landscape Area, Plot Area, Retail GFA, Retail Parking Area) and the Balance Sheet land.`);
+  setLabel(ws.getCell('A2'), 'The Assets tab\'s derived areas, top-down per plot (land x utilisation x coverage / FAR), merged by line, then the land each asset holds by sqm (a retail strip\'s land is carved from its hosts). The per-column Basis / Calculation is in the legend below the tables.');
 
-  // Engine metrics per asset, cached so the formulas reconcile to the platform.
-  const metricsById = new Map<string, AssetAreaMetrics>();
-  for (const a of state.assets.filter((x) => x.visible !== false)) {
-    const inPhase = state.assets.filter((x) => x.phaseId === a.phaseId);
-    metricsById.set(a.id, resolveAssetAreaMetrics(a, state.project, state.parcels, inPhase, state.subUnits, state.landAllocationMode));
-  }
+  const cursor: SheetCursor = { wb, ws, sheetName: SHEETS.landArea, r: 4 };
+  const tables = buildAssetAreaTables(state);
+  emitLandTables(cursor, tables);
 
-  const catOf = strategyGroup; // strategy -> display group (shared helper)
-  // GDV is shown for residential assets; also kept for any asset whose capex has a
-  // percent-of-revenue line (the build-up base links to the GDV cell).
-  const revenueLinked = new Set(
-    refs.capex.filter((a) => a.lines.some((l) => /revenue/.test(l.method))).flatMap((a) => refs.capexMembers?.get(a.assetId) ?? [a.assetId]),
-  );
-  const needsGdv = (ar: AssetInputRef): boolean => catOf(ar.strategy) === 'Residential' || revenueLinked.has(ar.id);
-
-  // Inline sub-unit expressions (summed off the Assumptions sub-unit inputs), so
-  // the asset rows carry the NSA / support / unit / GDV contributions directly.
-  const subOf = (assetId: string): SubUnitInputRef[] => refs.subUnits.filter((s) => s.assetId === assetId);
-  const areaExpr = (s: SubUnitInputRef): string => `IF(${s.metric}="area",${s.value},${s.value}*${s.unitArea})`;
-  const isNsaCat = (s: SubUnitInputRef): string => `OR(${s.category}="Sellable",${s.category}="Operable",${s.category}="Leasable")`;
-  const nsaExpr = (s: SubUnitInputRef): string => `IF(${isNsaCat(s)},${areaExpr(s)},0)`;
-  const supExpr = (s: SubUnitInputRef): string => `IF(${s.category}="Support",${areaExpr(s)},0)`;
-  const unitsExpr = (s: SubUnitInputRef): string => `IF(OR(${s.metric}="units",${s.metric}="count"),${s.value},0)`;
-  const gdvExpr = (s: SubUnitInputRef): string => `IF(${isNsaCat(s)},${s.value}*${s.price},0)`;
-  const joinOr0 = (parts: string[]): string => (parts.length ? parts.join('+') : '0');
-
-  // Column header set (A label + B..N metrics). Land rate (I) is per-sqm so it is
-  // never summed into a group total.
-  const HEADERS = ['Asset', 'NSA', 'Support', 'BUA', 'Parking', 'GFA', 'Parking bays', 'Land (sqm)', 'Land rate', 'Land value', 'Cash land', 'In-kind land', 'Units', 'GDV'];
-  const LASTCOL = HEADERS.length; // 14 (col N)
-
-  let r = 4;
-  setSectionHeader(ws.getRow(r), 'Asset area & land', LASTCOL); r += 1;
-  HEADERS.forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
-
-  const groupOrder: Array<'Residential' | 'Hospitality' | 'Retail' | 'Other'> = ['Residential', 'Hospitality', 'Retail', 'Other'];
-  interface ARow { ref: AssetInputRef; row: number }
-  interface GBlock { label: string; aRows: ARow[]; subtotalRow: number }
-  const allARows: ARow[] = [];
-  const blocks: GBlock[] = [];
-
-  // Layout + hierarchy (B..G) pass: a group label row, asset hierarchy rows, then
-  // a reserved subtotal row per group.
-  for (const cat of groupOrder) {
-    const inGroup = refs.assets.filter((a) => catOf(a.strategy) === cat);
-    if (!inGroup.length) continue;
-    setLabel(ws.getCell(r, 1), cat, { bold: true }); fillRange(ws, r, 1, r, LASTCOL, ARGB.subtotal); r += 1;
-    const grp: ARow[] = [];
-    for (const ar of inGroup) {
-      const m = metricsById.get(ar.id);
-      const subs = subOf(ar.id);
-      const nsaSub = joinOr0(subs.map(nsaExpr));
-      const supSub = joinOr0(subs.map(supExpr));
-      setLabel(ws.getCell(`A${r}`), ar.name, { indent: 1 });
-      setFormula(ws.getCell(`B${r}`), fcell(`MAX(${ar.nsa},${nsaSub})`, m?.nsa ?? 0), NUMFMT.int, true);
-      setFormula(ws.getCell(`C${r}`), fcell(`${ar.support}+(${supSub})`, m?.supportArea ?? 0), NUMFMT.int, true);
-      setFormula(ws.getCell(`D${r}`), fcell(`MAX(${ar.bua},B${r}+C${r})`, m?.bua ?? 0), NUMFMT.int, true);
-      setFormula(ws.getCell(`E${r}`), fcell(ar.parking, m?.parkingArea ?? 0), NUMFMT.int, true);
-      setFormula(ws.getCell(`F${r}`), fcell(`MAX(${ar.gfa},D${r}+E${r})`, m?.gfa ?? 0), NUMFMT.int, true);
-      setFormula(ws.getCell(`G${r}`), fcell(ar.parkingBays, m?.parkingBays ?? 0), NUMFMT.int, true);
-      const aRow: ARow = { ref: ar, row: r };
-      grp.push(aRow); allARows.push(aRow);
+  // LAND BY ASSET, filed by the capex category rule (a strip always Retail).
+  const LAND_HEADS = ['Asset', 'Land (sqm)', 'Land rate', 'Land value', 'Cash land', 'In-kind land'];
+  const land = buildAssetLandView(state);
+  let r = cursor.r;
+  setSectionHeader(ws.getRow(r), 'Land by asset (what Capex charges and the Balance Sheet holds)', LAND_HEADS.length); r += 1;
+  LAND_HEADS.forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
+  const landAddrsByAsset = new Map<string, LandAreaAssetAddrs>();
+  let firstBodyRow = r;
+  for (const cat of CAPEX_CATEGORIES) {
+    const rows = land.filter((x) => x.category === cat);
+    if (rows.length === 0) continue;
+    setLabel(ws.getCell(r, 1), cat, { bold: true }); fillRange(ws, r, 1, r, LAND_HEADS.length, ARGB.subtotal); r += 1;
+    for (const a of rows) {
+      setLabel(ws.getCell(r, 1), a.name, { indent: 1 });
+      setFormula(ws.getCell(r, 2), fcell('0', a.landSqm), NUMFMT.int);
+      setFormula(ws.getCell(r, 3), fcell('0', a.landRate), NUMFMT.rate);
+      setFormula(ws.getCell(r, 4), fcell('0', a.landValue), NUMFMT.money);
+      setFormula(ws.getCell(r, 5), fcell('0', a.cashLandValue), NUMFMT.money);
+      setFormula(ws.getCell(r, 6), fcell('0', a.inKindLandValue), NUMFMT.money);
+      landAddrsByAsset.set(a.assetId, {
+        landValue: sheetRef(SHEETS.landArea, `$D$${r}`),
+        cashLand: sheetRef(SHEETS.landArea, `$E$${r}`),
+        inKindLand: sheetRef(SHEETS.landArea, `$F$${r}`),
+        unitCount: '0',
+        revenue: '0',
+      });
       r += 1;
     }
-    blocks.push({ label: cat, aRows: grp, subtotalRow: r }); r += 1;
+    setLabel(ws.getCell(r, 1), `Total ${cat}`, { bold: true });
+    const sum = (pick: (x: typeof rows[number]) => number): number => rows.reduce((s, x) => s + pick(x), 0);
+    setFormula(ws.getCell(r, 2), fcell('0', sum((x) => x.landSqm)), NUMFMT.int);
+    setFormula(ws.getCell(r, 4), fcell('0', sum((x) => x.landValue)), NUMFMT.money);
+    setFormula(ws.getCell(r, 5), fcell('0', sum((x) => x.cashLandValue)), NUMFMT.money);
+    setFormula(ws.getCell(r, 6), fcell('0', sum((x) => x.inKindLandValue)), NUMFMT.money);
+    fillRange(ws, r, 1, r, LAND_HEADS.length, ARGB.navy);
+    for (let c = 1; c <= LAND_HEADS.length; c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
+    r += 1;
   }
+  setLabel(ws.getCell(r, 1), 'TOTAL, all assets', { bold: true });
+  setFormula(ws.getCell(r, 2), fcell('0', land.reduce((s, x) => s + x.landSqm, 0)), NUMFMT.int);
+  setFormula(ws.getCell(r, 4), fcell('0', land.reduce((s, x) => s + x.landValue, 0)), NUMFMT.money);
+  setFormula(ws.getCell(r, 5), fcell('0', land.reduce((s, x) => s + x.cashLandValue, 0)), NUMFMT.money);
+  setFormula(ws.getCell(r, 6), fcell('0', land.reduce((s, x) => s + x.inKindLandValue, 0)), NUMFMT.money);
+  fillRange(ws, r, 1, r, LAND_HEADS.length, ARGB.subtotal);
+  r += 1;
+  void firstBodyRow; void refs;
 
-  // Land columns (H..N) pass: need every asset BUA cell for the auto-by-BUA land
-  // share, so this runs after the full layout.
-  const parcelPhase = new Map(state.parcels.map((p) => [p.id, p.phaseId] as const));
-  const parcelsInPhase = (phaseId: string): ParcelInputRef[] => refs.parcels.filter((p) => parcelPhase.get(p.id) === phaseId);
-  const landAddrsByAsset = new Map<string, LandAreaAssetAddrs>();
-  for (const { ref: ar, row } of allARows) {
-    const m = metricsById.get(ar.id);
-    const ph = ar.phaseId;
-    const pcs = parcelsInPhase(ph);
-    const landTotal = pcs.length ? pcs.map((p) => p.area).join('+') : '0';
-    const landValueF = pcs.length ? pcs.map((p) => `${p.area}*${p.rate}`).join('+') : '0';
-    const cashValueF = pcs.length ? pcs.map((p) => `${p.area}*${p.rate}*${p.cashPct}`).join('+') : '0';
-    const phaseBua = allARows.filter((x) => x.ref.phaseId === ph).map((x) => `D${x.row}`).join('+') || '0';
-    setFormula(ws.getCell(`H${row}`), fcell(`IF(${ar.landSqm}>0,${ar.landSqm},IFERROR((${landTotal})*D${row}/(${phaseBua}),0))`, m?.landSqm ?? 0), NUMFMT.int, true);
-    setFormula(ws.getCell(`I${row}`), fcell(`IF(${ar.landRate}>0,${ar.landRate},IFERROR((${landValueF})/(${landTotal}),0))`, (m && m.landSqm > 0) ? m.landValue / m.landSqm : 0), NUMFMT.rate, true);
-    setFormula(ws.getCell(`J${row}`), fcell(`H${row}*I${row}`, m?.landValue ?? 0), NUMFMT.money);
-    setFormula(ws.getCell(`K${row}`), fcell(`J${row}*IFERROR((${cashValueF})/(${landValueF}),0)`, m?.cashLandValue ?? 0), NUMFMT.money);
-    setFormula(ws.getCell(`L${row}`), fcell(`J${row}-K${row}`, m?.inKindLandValue ?? 0), NUMFMT.money);
-    const subs = subOf(ar.id);
-    setFormula(ws.getCell(`M${row}`), fcell(joinOr0(subs.map(unitsExpr)), m?.unitCount ?? 0), NUMFMT.int);
-    // GDV: residential (for-sale) assets + any revenue-linked asset; blank else.
-    if (needsGdv(ar)) setFormula(ws.getCell(`N${row}`), fcell(joinOr0(subs.map(gdvExpr)), m?.totalRevenue ?? 0), NUMFMT.money);
-    landAddrsByAsset.set(ar.id, {
-      landValue: sheetRef(SHEETS.landArea, `$J$${row}`),
-      cashLand: sheetRef(SHEETS.landArea, `$K$${row}`),
-      inKindLand: sheetRef(SHEETS.landArea, `$L$${row}`),
-      unitCount: sheetRef(SHEETS.landArea, `$M$${row}`),
-      revenue: sheetRef(SHEETS.landArea, `$N$${row}`),
-    });
-  }
-
-  // Group total rows: SUM the group's asset rows per column (skip the per-sqm rate
-  // col I; GDV col N only where the group carries it).
-  const sumSpec: Array<{ col: number; pick: (m: AssetAreaMetrics) => number; fmt: string }> = [
-    { col: 2, pick: (m) => m.nsa, fmt: NUMFMT.int },
-    { col: 3, pick: (m) => m.supportArea, fmt: NUMFMT.int },
-    { col: 4, pick: (m) => m.bua, fmt: NUMFMT.int },
-    { col: 5, pick: (m) => m.parkingArea, fmt: NUMFMT.int },
-    { col: 6, pick: (m) => m.gfa, fmt: NUMFMT.int },
-    { col: 7, pick: (m) => m.parkingBays, fmt: NUMFMT.int },
-    { col: 8, pick: (m) => m.landSqm, fmt: NUMFMT.int },
-    { col: 10, pick: (m) => m.landValue, fmt: NUMFMT.money },
-    { col: 11, pick: (m) => m.cashLandValue, fmt: NUMFMT.money },
-    { col: 12, pick: (m) => m.inKindLandValue, fmt: NUMFMT.money },
-    { col: 13, pick: (m) => m.unitCount, fmt: NUMFMT.int },
-  ];
-  for (const b of blocks) {
-    const rr = b.subtotalRow;
-    setLabel(ws.getCell(rr, 1), `Total ${b.label}`, { bold: true });
-    const rowsWithM = b.aRows.map((a) => ({ row: a.row, m: metricsById.get(a.ref.id) })).filter((x) => x.m) as Array<{ row: number; m: AssetAreaMetrics }>;
-    for (const sp of sumSpec) {
-      const f = colSum(colLetter(sp.col), rowsWithM.map((x) => x.row));
-      const cached = rowsWithM.reduce((s, x) => s + sp.pick(x.m), 0);
-      setFormula(ws.getCell(rr, sp.col), fcell(f, cached), sp.fmt);
-    }
-    // GDV total only if any asset in the group carries it.
-    const gdvRows = b.aRows.filter((a) => needsGdv(a.ref)).map((a) => ({ row: a.row, m: metricsById.get(a.ref.id) })).filter((x) => x.m) as Array<{ row: number; m: AssetAreaMetrics }>;
-    if (gdvRows.length) {
-      setFormula(ws.getCell(rr, LASTCOL), fcell(colSum('N', gdvRows.map((x) => x.row)), gdvRows.reduce((s, x) => s + x.m.totalRevenue, 0)), NUMFMT.money);
-    }
-    fillRange(ws, rr, 1, rr, LASTCOL, ARGB.navy);
-    for (let c = 1; c <= LASTCOL; c++) ws.getCell(rr, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
-  }
-
-  // ── Basis / Calculation legend (per-column derivations) ─────────────────────
-  // Land & Area is a metric grid (one column per metric), so the guidance can
-  // not sit in a per-row column like the other tabs. It is given here as a
-  // clearly-labelled per-column legend so the tab is not silently missing it.
-  let lr = (blocks.length ? Math.max(...blocks.map((b) => b.subtotalRow)) : 5) + 2;
-  setSectionHeader(ws.getRow(lr), 'Basis / Calculation (per column)', LASTCOL); lr += 1;
+  // ── Basis / Calculation legend (per column) ────────────────────────────────
+  let lr = r + 1;
+  setSectionHeader(ws.getRow(lr), 'Basis / Calculation (per column)', 8); lr += 1;
   const COL_BASIS: Array<[string, string]> = [
-    ['NSA', 'Sum of Sellable / Operable / Leasable sub-unit areas'],
-    ['Support', 'Sum of Support sub-unit areas'],
-    ['BUA', 'max(asset BUA, NSA + Support)'],
-    ['Parking', 'Asset parking area'],
-    ['GFA', 'max(asset GFA, BUA + Parking)'],
-    ['Parking bays', 'Asset parking bays required'],
-    ['Land (sqm)', 'Asset land sqm, or parcel area x BUA share'],
-    ['Land rate', 'Asset land rate, or parcel land value / area'],
-    ['Land value', 'Land (sqm) x Land rate'],
-    ['Cash land', 'Land value x parcel cash %'],
-    ['In-kind land', 'Land value - Cash land'],
-    ['Units', 'Sum of units / count sub-units'],
-    ['GDV', 'Sum of sub-unit units x price (for-sale assets)'],
+    ['Plot Area (sqm)', 'The sqm the asset draws from its plot on Table 2 (a blank draws the whole plot). A retail strip\'s share is carved from its hosts: retail GFA over the host\'s total GFA, at that plot\'s rate.'],
+    ['Net Developable Area', 'Plot Area x Land Utilisation %'],
+    ['Building Footprint', 'Net Developable Area x Ground Coverage %'],
+    ['Landscape %', '1 - Ground Coverage %'],
+    ['Landscape and Open Area', 'Net Developable Area x Landscape %'],
+    ['Retail GFA', 'Building Footprint x Retail % (ground floor). Carried by the line\'s retail strip, not its host'],
+    ['Lobby and Circulation GFA', 'Building Footprint - Retail GFA (none when there is no retail)'],
+    ['Total GFA', 'Net Developable Area x FAR (a host excludes the retail GFA its strip carries)'],
+    ['Main Asset GFA', 'Total GFA - Retail GFA - Lobby and Circulation GFA; the whole Total GFA when there is no retail'],
+    ['NSA or GLA', 'Main Asset GFA x (1 - Service %)'],
+    ['Average Unit Size', 'Sub-unit unit sizes first, the asset type\'s size as the fallback'],
+    ['Units or Keys', 'NSA / Average Unit Size, rounded to whole units (a sub-unit count wins)'],
+    ['Parking Ratio', 'The asset type\'s ratio: slots per unit, or sqm of GFA per slot'],
+    ['Parking Slots', 'Units x ratio (slots per unit) or Main Asset GFA / ratio (sqm per slot), whole slots'],
+    ['Retail Parking Slots', 'Retail GFA / the retail type\'s sqm per slot, whole slots'],
+    ['Parking Area', 'Parking Slots x Parking area per slot (Asset Types & Standards)'],
+    ['Retail Parking Area', 'Retail Parking Slots x Parking area per slot'],
+    ['Total BUA', 'Total GFA + Total Parking Area, everything built'],
+    ['Land value', 'Land (sqm) x the plot\'s rate; land is allocated by sqm only'],
+    ['Cash land / In-kind land', 'Land value x the plot\'s Cash % / In-Kind %'],
   ];
   for (const [colName, basisText] of COL_BASIS) {
     setLabel(ws.getCell(lr, 1), colName, { bold: true });
@@ -1516,25 +1240,19 @@ function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs:
   }
 
   // ── Structural zeros ────────────────────────────────────────────────────────
-  // An asset can legitimately report nil area here: an existing operational
-  // asset has no new build, and a companion's area sits on its parent. Beside
-  // assets reporting real areas a bare 0 reads as missing data, so the reasons
-  // are named. The CELLS keep their formulas (the group subtotals reference
-  // column D, and a text marker there would break them), so the explanation is
-  // given as a footnote instead of in the cell.
+  // An existing operational asset has no new build, and a companion's area sits
+  // on its hosts. Beside assets reporting real areas a bare 0 reads as missing
+  // data, so the reasons are named as a footnote.
   {
     const notes = buildAssetNotes(state, (v) => `${formatAccounting(v, 'millions', 1)} m`);
-    const nilRows = allARows.filter(({ ref }) => {
-      const m = metricsById.get(ref.id);
-      return notes.hasBuaNote(ref.id, m?.bua ?? 0) !== null;
-    });
+    const nilRows = land.filter((a) => notes.hasBuaNote(a.assetId, a.builtAreaSqm) !== null);
     const raised = notes.takeFootnotes();
     if (nilRows.length > 0 && raised.length > 0) {
       lr += 1;
-      setSectionHeader(ws.getRow(lr), 'Assets reporting nil built-up area (and why)', LASTCOL); lr += 1;
-      for (const { ref } of nilRows) {
-        const z = notes.byAssetId.get(ref.id);
-        setLabel(ws.getCell(lr, 1), `${ref.name} ${z ? z.marker : ''}`, { bold: true });
+      setSectionHeader(ws.getRow(lr), 'Assets reporting nil built-up area (and why)', 8); lr += 1;
+      for (const a of nilRows) {
+        const z = notes.byAssetId.get(a.assetId);
+        setLabel(ws.getCell(lr, 1), `${a.name} ${z ? z.marker : ''}`, { bold: true });
         lr += 1;
       }
       for (const fn of raised) {
@@ -1545,7 +1263,7 @@ function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs:
     }
   }
 
-  ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 5, showGridLines: false }];
+  ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 2, showGridLines: false }];
   return landAddrsByAsset;
 }
 

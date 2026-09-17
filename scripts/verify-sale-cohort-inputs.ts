@@ -287,7 +287,10 @@ section('D. The retired input is retired, and every surface says so');
 
   // ONE SHARED BUILDER for the exports, not three copies. The label must come
   // from the shared constant at every site, so re-wording it is one edit.
-  const wb = read('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts');
+  // The workbook's Inputs sections live in inputsSheetSections.ts since
+  // 2026-09-17, so the workbook is both files.
+  const wb = read('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts')
+    + '\n' + read('src/hubs/modeling/platforms/refm/lib/excel/inputsSheetSections.ts');
   const pdf = read('src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf.ts');
   for (const [name, src] of [['workbook', wb], ['pdf', pdf]] as const) {
     check('D: the ' + name + ' imports the shared sale cohort builder', src.includes('saleCohortReports'));
