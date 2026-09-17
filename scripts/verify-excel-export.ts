@@ -615,7 +615,7 @@ async function main(): Promise<void> {
   check('the Guide links to every data tab', ['Summary', 'Inputs', 'Capex', 'Financing', 'Revenue', 'P&L', 'Balance Sheet', 'Returns', 'Scenarios', 'Checks'].every((n) => guideLinks.includes(`#'${n}'!A1`)), `links=${guideLinks.length}`);
   const guideText = (() => { let s = ''; guide.eachRow((row) => row.eachCell((c) => { const v: any = c.value; s += ' ' + (typeof v === 'string' ? v : (v && v.text) ? v.text : ''); })); return s; })();
   check('the Guide explains the model is a hardcoded snapshot', /hardcoded snapshot/i.test(guideText) && /does NOT recalculate/i.test(guideText));
-  check('the Guide carries the P&L methodology (Revenue - Cost of Sales - Opex = EBITDA)', /Revenue - Cost of Sales - Operating Expenses = EBITDA/.test(guideText));
+  check('the Guide carries the P&L methodology (EBITDA struck after the fund fees)', /Revenue - Cost of Sales = gross profit; - operating expenses - Total Fund Management Fee = EBITDA/.test(guideText));
   check('the Cover ToC links to the Guide', coverLinks.some((l) => l.target === `#'Guide'!A1`));
 
   // ── A totalOverride is a VALUE on EVERY tab (2026-09-01) ────────────────────
