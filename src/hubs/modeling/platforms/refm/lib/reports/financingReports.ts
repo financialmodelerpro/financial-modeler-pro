@@ -11,8 +11,12 @@
  */
 import type { ProjectFinancialsSnapshot, FinancialsResolverState } from '../financials-resolvers';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
+import { planReportLines, lineTitle, poolResults } from './lineRows';
+import { idcWithDisposal, disposalContextOf } from './disposalSchedules';
 
-export interface ReportTable { title: string; rows: M4Row[] }
+/** `group` names the screen's group heading a table sits under (for example
+ *  "Debt Movement - New Facilities"); a renderer with no group band ignores it. */
+export interface ReportTable { title: string; rows: M4Row[]; group?: string }
 
 const neg = (a: number[]): number[] => a.map((v) => -v);
 const sliceN = (a: number[] | undefined, N: number): number[] => (a ?? []).slice(0, N);
@@ -28,88 +32,192 @@ function openingSeries(closing: number[], initial: number): number[] {
 export function buildFinancingScheduleTables(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: (v: number) => string): ReportTable[] {
   const N = snap.yearLabels.length;
   const fin = snap.financing;
-  const tr = (id: string) => state.financingTranches.find((t) => t.id === id);
-  const trName = (id: string): string => tr(id)?.name ?? id;
   const tables: ReportTable[] = [];
+  const last = (a: number[]): number => a[N - 1] ?? 0;
 
-  const ordered = [...fin.facilities.entries()]
-    .filter(([id, f]) => anyNonZero(f.drawSchedule) || anyNonZero(f.outstanding) || (tr(id)?.openingBalance ?? 0) > 0)
-    .sort(([a], [b]) => ((tr(a)?.origin === 'existing' ? 0 : 1) - (tr(b)?.origin === 'existing' ? 0 : 1)));
+  /**
+   * THE FACILITIES THE SCREEN SHOWS, IN ITS ORDER (2026-09-17): existing
+   * facilities first, and only those with an opening balance or any activity
+   * (an empty stub adds nothing), then every new facility. The Financing tab's
+   * Schedules view filters and orders the same way.
+   */
+  const active = (id: string): boolean => {
+    const f = fin.facilities.get(id);
+    if (!f) return false;
+    const tot = (a: number[] | undefined): number => (a ?? []).reduce((s, v) => s + Math.abs(v ?? 0), 0);
+    return tot(f.drawSchedule) > 0 || tot(f.interestPaid) > 0 || tot(f.interestCapitalized) > 0 || tot(f.principalRepaid) > 0;
+  };
+  const existing = state.financingTranches.filter((t) => t.origin === 'existing' && ((t.openingBalance ?? 0) > 0 || active(t.id)) && fin.facilities.has(t.id));
+  const fresh = state.financingTranches.filter((t) => t.origin !== 'existing' && fin.facilities.has(t.id));
+  const swept = (id: string): boolean => snap.cashSweep.eligibleTranches.some((e) => e.trancheId === id);
+  const hasAnySweep = anyNonZero(fin.combined.totalSweepRepaid);
 
-  // Debt Movement per facility.
-  for (const [id, f] of ordered) {
-    const origin = tr(id)?.origin;
-    const priorBal = origin === 'existing' ? Math.max(0, tr(id)?.openingBalance ?? 0) : 0;
+  // Debt Movement per facility. Opening and Closing are balances, so their
+  // Total is the last period, as the screen prints it.
+  const debtMovement = (t: (typeof state.financingTranches)[number], group: string): void => {
+    const f = fin.facilities.get(t.id)!;
+    const isExisting = t.origin === 'existing';
+    const priorBal = isExisting ? Math.max(0, t.openingBalance ?? 0) : 0;
     const closing = sliceN(f.outstanding, N);
     const opening = openingSeries(closing, priorBal);
     const draw = sliceN(f.drawSchedule, N);
     const idc = sliceN(f.interestCapitalized, N);
     const totalDraw = draw.map((v, i) => v + (idc[i] ?? 0));
     const repaid = sliceN(f.principalRepaid, N);
-    tables.push({ title: `Debt Movement, ${trName(id)}${origin === 'existing' ? ' (existing)' : ''}`, rows: [
-      { label: 'Opening', values: opening, totalOverride: fmt(priorBal), priorValue: priorBal },
-      { label: 'Capex Drawdown', values: draw },
-      { label: 'IDC Drawdown (capitalised interest)', values: idc },
-      { label: 'Total Drawdown', values: totalDraw, isSubtotal: true },
-      { label: 'Principal Repaid (incl. cash sweep)', values: neg(repaid) },
-      { label: 'Closing', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0), priorValue: priorBal },
+    const share = fin.shares.get(t.id);
+    const shareNote = !isExisting && fresh.length > 1 && share !== undefined ? ` (${share % 1 === 0 ? share : share.toFixed(1)}% of the project facility)` : '';
+    tables.push({ group, title: `Debt Movement, ${t.name}${isExisting ? ' (existing)' : ''}${shareNote}`, rows: [
+      { label: 'Opening', values: opening, totalOverride: fmt(last(opening)), ...(isExisting ? { priorValue: 0 } : {}) },
+      { label: 'Capex Drawdown', values: draw, ...(isExisting ? { priorValue: 0 } : {}) },
+      { label: 'IDC Drawdown (capitalized interest)', values: idc, ...(isExisting ? { priorValue: 0 } : {}) },
+      { label: 'Total Drawdown', values: totalDraw, isSubtotal: true, ...(isExisting ? { priorValue: priorBal } : {}) },
+      { label: swept(t.id) ? 'Principal Repaid (incl. cash sweep)' : 'Principal Repaid', values: neg(repaid), ...(isExisting ? { priorValue: 0 } : {}) },
+      { label: 'Closing', values: closing, isTotal: true, totalOverride: fmt(last(closing)), ...(isExisting ? { priorValue: priorBal } : {}) },
     ] });
-  }
+  };
+  for (const t of existing) debtMovement(t, 'Debt Movement - Existing Facilities');
+  for (const t of fresh) debtMovement(t, 'Debt Movement - New Facilities');
 
-  // Finance Cost per facility (interest ledger).
-  for (const [id, f] of ordered) {
-    const accrued = sliceN(f.interestAccrued, N);
-    const capitalized = sliceN(f.interestCapitalized, N);
-    const paid = sliceN(f.interestPaid, N);
-    if (!anyNonZero(accrued)) continue;
+  // Combined Debt Service, each cash row split by origin as on the screen.
+  const c = fin.combined;
+  const totalDrawCapIdc = sliceN(c.totalDrawdown, N).map((v, i) => v + (sliceN(c.totalInterestCapitalized, N)[i] ?? 0));
+  const cds: M4Row[] = [
+    { label: 'Total Capex Drawdown', values: sliceN(c.totalDrawdown, N) },
+    { label: 'Total IDC Drawdown', values: sliceN(c.totalInterestCapitalized, N) },
+    { label: 'Total Drawdown (Capex + IDC)', values: totalDrawCapIdc, isSubtotal: true },
+  ];
+  if (existing.length) cds.push({ label: 'Interest Expensed - Existing', values: neg(sliceN(c.existingInterestExpensed, N)) });
+  if (fresh.length) cds.push({ label: 'Interest Expensed - New', values: neg(sliceN(c.newInterestExpensed, N)) });
+  cds.push({ label: 'Total Interest Expensed', values: neg(sliceN(c.totalInterestExpensed, N)), isSubtotal: true });
+  if (existing.length) cds.push({ label: hasAnySweep ? 'Principal Repaid - Existing (incl. sweep)' : 'Principal Repaid - Existing', values: neg(sliceN(c.existingPrincipalRepaid, N)) });
+  if (fresh.length) cds.push({ label: hasAnySweep ? 'Principal Repaid - New (incl. sweep)' : 'Principal Repaid - New', values: neg(sliceN(c.newPrincipalRepaid, N)) });
+  cds.push({ label: 'Total Principal Repaid', values: neg(sliceN(c.totalPrincipalRepaid, N)), isSubtotal: true });
+  if (existing.length) cds.push({ label: 'Debt Service - Existing', values: neg(sliceN(c.existingDebtServiceCash, N)) });
+  if (fresh.length) cds.push({ label: 'Debt Service - New', values: neg(sliceN(c.newDebtServiceCash, N)) });
+  cds.push({ label: 'Total Debt Service (Cash)', values: neg(sliceN(c.debtServiceCash, N)), isTotal: true });
+  tables.push({ title: 'Combined Debt Service', rows: cds });
+
+  // Finance Cost per facility (interest ledger): Opening + Charge - Paid =
+  // Closing, as on the Financing screen. The capitalised figure FUNDS the
+  // payment by drawing debt; deducting it as a second settlement walked the
+  // balance to a stuck negative, so it is a memo.
+  const ledger = (accrued: number[], paid: number[]): { opening: number[]; closing: number[] } => {
     const opening = new Array<number>(N).fill(0);
     const closing = new Array<number>(N).fill(0);
     for (let i = 0; i < N; i++) {
       opening[i] = i === 0 ? 0 : closing[i - 1];
-      // Opening + Charge - Paid = Closing, as on the Financing screen. The
-      // capitalised figure FUNDS the payment by drawing debt; deducting it as a
-      // second settlement walked the balance to a stuck negative.
       closing[i] = opening[i] + (accrued[i] ?? 0) - (paid[i] ?? 0);
     }
-    tables.push({ title: `Finance Cost, ${trName(id)}${tr(id)?.origin === 'existing' ? ' (existing)' : ''}`, rows: [
-      { label: 'Opening', values: opening, totalOverride: fmt(0) },
+    return { opening, closing };
+  };
+  const financeCost = (t: (typeof state.financingTranches)[number], group: string): void => {
+    const f = fin.facilities.get(t.id)!;
+    const accrued = sliceN(f.interestAccrued, N);
+    const capitalized = sliceN(f.interestCapitalized, N);
+    const paid = sliceN(f.interestPaid, N);
+    const { opening, closing } = ledger(accrued, paid);
+    tables.push({ group, title: `Finance Cost, ${t.name}${t.origin === 'existing' ? ' (existing)' : ''}`, rows: [
+      { label: 'Opening', values: opening, totalOverride: fmt(last(opening)) },
       { label: 'Charge (Accrued)', values: accrued },
       { label: 'Paid', values: neg(paid) },
       { label: '(memo) of which funded by drawing debt', values: capitalized, indent: 1 },
-      { label: 'Closing', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
+      { label: 'Closing', values: closing, isTotal: true, totalOverride: fmt(last(closing)) },
+    ] });
+  };
+  for (const t of existing) financeCost(t, 'Finance Cost - Existing Facilities');
+  for (const t of fresh) financeCost(t, 'Finance Cost - New Facilities');
+  if (existing.length + fresh.length > 1) {
+    const accrued = sliceN(c.totalInterestAccrued, N);
+    const expensed = sliceN(c.totalInterestExpensed, N);
+    const { opening, closing } = ledger(accrued, expensed);
+    tables.push({ title: 'Combined Finance Cost (all facilities)', rows: [
+      { label: 'Opening', values: opening, totalOverride: fmt(last(opening)) },
+      { label: 'Charge (Accrued, all debts)', values: accrued },
+      { label: 'Capitalized', values: neg(sliceN(c.totalInterestCapitalized, N)) },
+      { label: 'Paid', values: neg(expensed) },
+      { label: 'Closing', values: closing, isTotal: true, totalOverride: fmt(last(closing)) },
     ] });
   }
 
-  // Combined Debt Service.
-  const c = fin.combined;
-  const totalDrawCapIdc = sliceN(c.totalDrawdown, N).map((v, i) => v + (sliceN(c.totalInterestCapitalized, N)[i] ?? 0));
-  tables.push({ title: 'Combined Debt Service', rows: [
-    { label: 'Total Capex Drawdown', values: sliceN(c.totalDrawdown, N) },
-    { label: 'Total IDC Drawdown', values: sliceN(c.totalInterestCapitalized, N) },
-    { label: 'Total Drawdown (Capex + IDC)', values: totalDrawCapIdc, isSubtotal: true },
-    { label: 'Total Interest Expensed', values: neg(sliceN(c.totalInterestExpensed, N)), isSubtotal: true },
-    { label: 'Total Principal Repaid', values: neg(sliceN(c.totalPrincipalRepaid, N)), isSubtotal: true },
-    { label: 'Total Debt Service (Cash)', values: neg(sliceN(c.debtServiceCash, N)), isTotal: true },
-  ] });
-
-  // Equity Movement (cumulative).
+  // Equity Movement (cumulative). The cash row splits into development and the
+  // fund management fee when the fee is drawn from equity, as on the screen.
   const eq = fin.equity;
-  const cash = sliceN(eq.cashPerPeriod, N);
+  const dev = sliceN(eq.developmentPerPeriod, N);
+  const fee = sliceN(eq.managementFeePerPeriod, N);
+  const hasFee = (eq.totalManagementFee ?? 0) > 0.005;
   const inKind = sliceN(eq.inKindPerPeriod, N);
   const priorExisting = fin.existing.equityTotal;
   const closingEq = new Array<number>(N).fill(0);
   const openingEq = new Array<number>(N).fill(0);
   for (let i = 0; i < N; i++) {
     openingEq[i] = i === 0 ? priorExisting : closingEq[i - 1];
-    closingEq[i] = openingEq[i] + (cash[i] ?? 0) + (inKind[i] ?? 0);
+    closingEq[i] = openingEq[i] + (dev[i] ?? 0) + (fee[i] ?? 0) + (inKind[i] ?? 0);
   }
-  tables.push({ title: 'Equity Movement', rows: [
-    { label: 'Opening (incl. existing carry-forward)', values: openingEq, totalOverride: fmt(priorExisting), priorValue: priorExisting },
-    { label: 'Cash Contribution', values: cash },
-    { label: 'In-Kind Contribution', values: inKind },
-    { label: 'Closing (cumulative equity)', values: closingEq, isTotal: true, totalOverride: fmt(closingEq[N - 1] ?? 0), priorValue: priorExisting },
-  ] });
+  const eqRows: M4Row[] = [
+    { label: 'Opening (incl. existing carry-forward)', values: openingEq, totalOverride: fmt(last(openingEq)), priorValue: 0 },
+    { label: hasFee ? 'Cash Contribution, development' : 'Cash Contribution', values: dev, priorValue: 0 },
+  ];
+  if (hasFee) eqRows.push({ label: 'Cash Contribution, fund management fee', values: fee, priorValue: 0 });
+  eqRows.push({ label: 'In-Kind Contribution', values: inKind, priorValue: 0 });
+  if (priorExisting > 0) eqRows.push({ label: 'Existing Equity (pre-axis carry-forward)', values: new Array<number>(N).fill(0), priorValue: priorExisting });
+  eqRows.push({ label: 'Closing (cumulative equity)', values: closingEq, isTotal: true, totalOverride: fmt(last(closingEq)), priorValue: priorExisting });
+  tables.push({ title: 'Equity Movement', rows: eqRows });
 
+  return tables;
+}
+
+/**
+ * IDC ALLOCATION, BY LINE (2026-09-17), the table the Financing Schedules
+ * sub-tab shows between the finance cost ledgers and the equity movement: each
+ * consolidated line's share of the capitalised construction interest (the
+ * engine allocates per asset; a line's plots add), then where it is routed,
+ * cost of sales for the lines that sell and fixed assets with their
+ * depreciation, disposal and closing net book value for the lines that are
+ * held. The disposal is the composer's own write-off at exit.
+ */
+export function buildIdcAllocationTables(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: (v: number) => string): ReportTable[] {
+  const N = snap.yearLabels.length;
+  const idc = snap.idc;
+  const lineState = { assets: state.assets, phases: state.phases, parcels: state.parcels };
+  const basisLabel = idc.allocationBasis === 'bua' ? 'BUA share' : 'Land share';
+  const rows = planReportLines(lineState, (a) => idc.byAsset.has(a.id)).map((line) => {
+    const members = line.assetIds.map((id) => idc.byAsset.get(id)).filter((r): r is NonNullable<typeof r> => !!r);
+    return { ...poolResults(members), assetName: lineTitle(line, lineState), strategy: members[0].strategy };
+  });
+  const tables: ReportTable[] = [];
+  const main: M4Row[] = rows.map((r) => ({
+    label: `${r.assetName} (Land ${Math.round(r.physicalLandSqm).toLocaleString('en-US')} sqm, BUA ${Math.round(r.physicalBuaSqm).toLocaleString('en-US')} sqm, ${(r.shareOfTotalLand * 100).toFixed(2)}% ${basisLabel})`,
+    values: sliceN(r.idcPerPeriod, N),
+  }));
+  if (rows.length) main.push({ label: 'Total IDC (allocated to assets)', values: sliceN(idc.totalIdcPerPeriod, N), isTotal: true });
+  main.push({ label: idc.capitalize ? 'Memo: Total construction interest (accrual)' : 'Total construction interest to P&L Finance Cost', values: sliceN(idc.totalConstructionInterestPerPeriod, N) });
+  tables.push({ title: `IDC Allocation, by Line (YoY + Total), basis ${idc.allocationBasis === 'bua' ? 'BUA Area' : 'Land Area'}, capitalised into asset cost, paid when it arises, debt drawn for the shortfall`, rows: main });
+
+  const sum = (list: typeof rows): number[] => {
+    const out = new Array<number>(N).fill(0);
+    for (const r of list) for (let t = 0; t < N; t++) out[t] += r.idcPerPeriod[t] ?? 0;
+    return out;
+  };
+  const sell = rows.filter((r) => r.strategy === 'Sell' || r.strategy === 'Sell + Manage');
+  const held = rows.filter((r) => r.strategy === 'Operate' || r.strategy === 'Lease');
+  if (idc.capitalize && sell.length) {
+    tables.push({ title: 'Routed to CoS via Inventory (Sell / Sell+Manage, augments capex basis, unwinds via revenue recognition)', rows: [
+      ...sell.map((r) => ({ label: r.assetName, values: sliceN(r.idcPerPeriod, N) })),
+      { label: 'Subtotal: Sell IDC to CoS', values: sum(sell), isTotal: true },
+    ] });
+  }
+  if (idc.capitalize && held.length) {
+    const d = idcWithDisposal(idc, disposalContextOf(snap));
+    const heldRows: M4Row[] = [
+      ...held.map((r) => ({ label: `${r.assetName} (Additions)`, values: sliceN(r.idcPerPeriod, N) })),
+      { label: 'Subtotal: Operate/Lease IDC to Fixed Assets', values: sum(held), isSubtotal: true },
+      { label: 'Operate/Lease IDC Depreciation (charge to D&A)', values: neg(sliceN(d.depreciationPerPeriod, N)) },
+    ];
+    if (d.disposed) heldRows.push({ label: 'Disposed at Exit (capitalised interest sold with the asset)', values: neg(sliceN(d.disposalPerPeriod, N)) });
+    const nbv = sliceN(d.closingPerPeriod, N);
+    heldRows.push({ label: 'Operate/Lease IDC NBV (closing, sits on BS Fixed Assets)', values: nbv, isTotal: true, totalOverride: fmt(nbv[N - 1] ?? 0) });
+    tables.push({ title: 'Routed to Fixed Assets to D&A (Operate / Lease, adds to depreciable basis at handover, straight-line over useful life)', rows: heldRows });
+  }
   return tables;
 }
 
@@ -149,7 +257,7 @@ export function buildCashSweepTables(snap: ProjectFinancialsSnapshot, state: Fin
     .filter(([, f]) => anyNonZero(f.principalRepaid))
     .map(([id, f], listIdx) => ({ id, f, isExisting: trMeta(id)?.origin === 'existing', priority: trMeta(id)?.cashSweepConfig?.priority ?? 100, listIdx }))
     .sort((a, b) => (a.isExisting !== b.isExisting ? (a.isExisting ? -1 : 1) : a.priority !== b.priority ? a.priority - b.priority : a.listIdx - b.listIdx))
-    .map(({ id, f, isExisting }) => ({ label: `Debt Paid: ${trName(id)}${isExisting ? ' (existing)' : ''}`, values: neg(sliceN(f.principalRepaid, N)), indent: 1 }));
+    .map(({ id, f, isExisting }) => ({ label: `(-) Debt Paid: ${trName(id)}${isExisting ? ' (existing)' : ''}`, values: neg(sliceN(f.principalRepaid, N)), indent: 1 }));
 
   const debtPaidTotal = sliceN(dcf.debtRepaymentPerPeriod, N);   // already negative
   const cashForDividend = cashAvailable.map((v, i) => v + (debtPaidTotal[i] ?? 0));
@@ -157,7 +265,7 @@ export function buildCashSweepTables(snap: ProjectFinancialsSnapshot, state: Fin
   const closing = sliceN(dcf.closingCashPerPeriod, N);
 
   const waterfall: M4Row[] = [
-    { label: 'Opening Cash', values: opening, totalOverride: fmt(opening[0] ?? 0), priorValue: snap.bs.historicalOpeningCashTotal },
+    { label: 'Opening Cash', values: opening, totalOverride: fmt(opening[N - 1] ?? 0), priorValue: snap.bs.historicalOpeningCashTotal },
     { label: '(+) Cash from Operations', values: cfo },
     { label: '(-) Cash from Investing (capex)', values: cfi },
     { label: '(+) Equity Drawdown (Cash)', values: equityCash, priorValue: fin.existing.equityTotal },
@@ -173,7 +281,7 @@ export function buildCashSweepTables(snap: ProjectFinancialsSnapshot, state: Fin
   // Both a BALANCE, so their Total is the closing figure, never a 14-period sum
   // of a stock (the reserve summed to 700.0 against a standing 50.0 reserve).
   waterfall.push(
-    { label: '(+) Debt Drawdown', values: debtDraw, priorValue: fin.existing.debtOutstandingTotal },
+    { label: '(+) Debt Drawdown (incl. additional to maintain min cash)', values: debtDraw, priorValue: fin.existing.debtOutstandingTotal },
     { label: '(-) Interest Paid', values: interestPaid },
     { label: '= Cash Available', values: cashAvailable, isSubtotal: true, totalOverride: fmt(cashAvailable[N - 1] ?? 0) },
     { label: '(memo) Minimum Cash Requirement (reserved, not spent)', values: neg(minCashArr), indent: 1, totalOverride: fmt(-minCash) },
@@ -182,20 +290,20 @@ export function buildCashSweepTables(snap: ProjectFinancialsSnapshot, state: Fin
     { label: '(-) Debt Paid (total principal incl. sweep)', values: debtPaidTotal, isSubtotal: true },
     { label: '= Cash Available for Dividend', values: cashForDividend, isSubtotal: true, totalOverride: fmt(cashForDividend[N - 1] ?? 0) },
   );
-  if (anyNonZero(dividends)) waterfall.push({ label: '(-) Dividend Paid (per policy)', values: dividends });
-  waterfall.push({ label: '= Closing Cash (ties to CF + BS)', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0), priorValue: snap.bs.historicalOpeningCashTotal });
+  if (div.enabled || anyNonZero(dividends)) waterfall.push({ label: '(-) Dividend Paid (per policy, EBITDA-capped)', values: dividends });
+  waterfall.push({ label: '= Closing Cash (ties to Cash Flow tab + Balance Sheet)', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0), priorValue: snap.bs.historicalOpeningCashTotal });
   tables.push({ title: 'Cash Waterfall (Operations -> Debt -> Dividend -> Closing)', rows: waterfall });
 
   // Per-Tranche Sweep & Outstanding.
-  if (sweep.eligibleTranches.length) {
+  if (sweep.enabled && sweep.eligibleTranches.length) {
     const rows: M4Row[] = [];
     for (const row of sweep.eligibleTranches) {
-      rows.push({ label: `${row.trancheName}, Opening (pre-sweep)`, values: sliceN(row.preSweepOutstanding, N) });
+      rows.push({ label: `${row.trancheName}, Opening (pre-sweep)`, values: sliceN(row.preSweepOutstanding, N), totalOverride: fmt(sliceN(row.preSweepOutstanding, N)[N - 1] ?? 0) });
       rows.push({ label: `${row.trancheName}, Sweep Applied (${row.origin}, priority ${row.priority}, from ${row.startingYear})`, values: neg(sliceN(row.sweepPerPeriod, N)), indent: 1 });
       rows.push({ label: `${row.trancheName}, Closing (post-sweep)`, values: sliceN(row.postSweepOutstanding, N), isSubtotal: true, totalOverride: fmt(sliceN(row.postSweepOutstanding, N)[N - 1] ?? 0) });
     }
     rows.push({ label: 'Project total debt outstanding (post-sweep)', values: sliceN(sweep.adjustedDebtOutstanding, N), isTotal: true, totalOverride: fmt(sliceN(sweep.adjustedDebtOutstanding, N)[N - 1] ?? 0) });
-    tables.push({ title: 'Per-Tranche Debt, Sweep & Outstanding', rows });
+    tables.push({ title: 'Per-Tranche Debt: Sweep & Outstanding', rows });
   }
 
   return tables;
