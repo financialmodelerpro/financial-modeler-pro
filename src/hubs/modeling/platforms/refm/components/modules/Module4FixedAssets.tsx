@@ -14,34 +14,34 @@
  *       Table 2: Depreciable Assets, Roll-Forward (Opening + Additions
  *                − Depreciation = Closing + Accumulated Depreciation)
  *       Table 3: Total Fixed Assets (Land + Depreciable closing)
- *   Project Total, same three tables aggregated across every asset.
+ *   Project Total, same three tables aggregated across every asset,
+ *   plus the capitalised interest pool split held vs Sell inventory.
+ *
+ * THE ROWS ARE BUILT ONCE (2026-09-17): `lib/reports/fixedAssetReports.ts`
+ * builds every table on this tab, and the workbook's Schedules tab renders the
+ * same builder, so the screen and the export cannot drift. This file keeps only
+ * what a screen owns: the snapshots it computes, the editable inputs and the
+ * rendering.
  *
  * Phase nesting dropped per user direction (asset level, not phase
  * level). Strategy outer kept for consistency with the rest of the
  * platform. Sell + Sell+Manage parents are excluded entirely (capex
  * flows through M2 Cost of Sales).
- *
- * Engine handles only the depreciable roll-forward. Land is composed
- * in fixed-assets-resolvers.ts (pure additive); both are surfaced here
- * side-by-side so the user sees Land never depreciating.
  */
 
 import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
-import { planReportLines, lineTitle, poolResults } from '../../lib/reports/lineRows';
-import { scheduleWithDisposal, idcWithDisposal, type DisposalContext } from '../../lib/reports/disposalSchedules';
+import { type DisposalContext } from '../../lib/reports/disposalSchedules';
+import { buildFixedAssetReport, type FixedAssetRow, type FixedAssetTable } from '../../lib/reports/fixedAssetReports';
 import { resolveReturnsConfig } from '../../lib/returns-resolvers';
 import {
   computeAllFixedAssetResults,
-  type AssetFixedAssetRow,
-  type LandRollForward,
   type ProjectFixedAssetSnapshot,
 } from '../../lib/fixed-assets-resolvers';
-import { computeIdcSnapshot, type AssetIDCRow } from '../../lib/financials-resolvers';
+import { computeIdcSnapshot } from '../../lib/financials-resolvers';
 import { computeFinancingResult } from '@/src/core/calculations/financing';
 import { DEFAULT_PROJECT_FINANCING_CONFIG } from '../../lib/state/module1-types';
-import { resolveUsefulLifeYears } from '@/src/core/calculations';
 import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import { makeFmt } from './_shared/numberFmt';
 import {
@@ -58,18 +58,7 @@ import { PercentageInput } from '../ui/PercentageInput';
 import { FAST_INPUT } from './_shared/inputStyles';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 
-interface Row {
-  label: string;
-  values: number[];
-  isTotal?: boolean;
-  isSubtotal?: boolean;
-  isSection?: boolean;
-  indent?: number;
-  totalOverride?: string;
-  aggregation?: 'sum' | 'last';
-  /** M4 Pass 2X (2026-05-24): prior-year opening value for stock rows. */
-  priorValue?: number;
-}
+type Row = FixedAssetRow & { isSection?: boolean; totalOverride?: string };
 
 function PeriodTable({ title, caption, yearLabels, rows, currency, fmt, priorYearLabel }: {
   title: string; caption?: string; yearLabels: number[]; rows: Row[]; currency: string;
@@ -151,89 +140,6 @@ function PeriodTable({ title, caption, yearLabels, rows, currency, fmt, priorYea
   );
 }
 
-function landTableRows(land: LandRollForward, dCtx: DisposalContext): Row[] {
-  // M4 Pass 2X (2026-05-24): opening at t=0 represents pre-axis Land
-  // carry (operational phase historicalPreCapexLand). Show in prior col.
-  const openingAtZero = land.openingPerPeriod[0] ?? 0;
-  // THE EXIT SELLS THE LAND TOO (2026-09-16, step 10): the balance sheet takes it
-  // to zero in the exit year, so the schedule shows the disposal that did it.
-  const w = scheduleWithDisposal({ ...land }, dCtx);
-  return [
-    { label: 'Opening Land', values: w.openingPerPeriod, indent: 1, aggregation: 'last', priorValue: openingAtZero },
-    { label: '(+) Land Additions', values: w.additionsPerPeriod, indent: 1, priorValue: 0 },
-    ...(w.disposed ? [{ label: '(−) Land Disposed at Exit', values: w.disposalPerPeriod.map((v) => -v), indent: 1, priorValue: 0 }] : []),
-    { label: 'Closing Land', values: w.closingPerPeriod, isTotal: true, aggregation: 'last', priorValue: openingAtZero },
-  ];
-}
-
-function depreciableTableRows(row: AssetFixedAssetRow, dCtx: DisposalContext, idc?: AssetIDCRow): Row[] {
-  const d = row.depreciable;
-  // M4 Pass 2Q (2026-05-24): integrate IDC into the depreciable roll-
-  // forward when it's nonzero for this asset. Layout per user:
-  //   Opening + (+) Capex Additions + (+) IDC Additions − Depreciation = Closing
-  // Depreciation is on (Capex + IDC) combined. Capex NBV + IDC NBV are
-  // shown as memo splits beneath so the user can see the source of the
-  // closing balance.
-  const N = d.openingNBVPerPeriod.length;
-  // The sold asset stops depreciating at the exit and leaves the schedule there,
-  // on the capex basis and the capitalised interest alike (2026-09-16, step 10).
-  const capexD = scheduleWithDisposal({ openingPerPeriod: d.openingNBVPerPeriod, additionsPerPeriod: d.additionsPerPeriod, depreciationPerPeriod: d.depreciationPerPeriod, closingPerPeriod: d.closingNBVPerPeriod, accumDepPerPeriod: d.accumDepPerPeriod }, dCtx);
-  const idcD = idc ? idcWithDisposal(idc, dCtx) : undefined;
-  const idcAdditions = idcD ? idcD.additionsPerPeriod.slice(0, N) : new Array<number>(N).fill(0);
-  const idcDep = idcD ? idcD.depreciationPerPeriod.slice(0, N) : new Array<number>(N).fill(0);
-  const idcNbv = idcD ? idcD.closingPerPeriod.slice(0, N) : new Array<number>(N).fill(0);
-  const disposalCombined = capexD.disposalPerPeriod.map((v, t) => v + (idcD?.disposalPerPeriod[t] ?? 0));
-  const anyDisposed = capexD.disposed || (idcD?.disposed ?? false);
-  const hasIdc = (idc?.totalIdc ?? 0) > 0;
-
-  const combinedOpening = new Array<number>(N).fill(0);
-  const combinedClosing = new Array<number>(N).fill(0);
-  const combinedDep = new Array<number>(N).fill(0);
-  for (let t = 0; t < N; t++) {
-    // Combined opening at t = capex opening + IDC opening.
-    // IDC opening = previous-period IDC closing (zero at t=0).
-    const idcOpening = t === 0 ? 0 : (idcNbv[t - 1] ?? 0);
-    combinedOpening[t] = (capexD.openingPerPeriod[t] ?? 0) + idcOpening;
-    combinedClosing[t] = (capexD.closingPerPeriod[t] ?? 0) + (idcNbv[t] ?? 0);
-    combinedDep[t] = (capexD.depreciationPerPeriod[t] ?? 0) + (idcDep[t] ?? 0);
-  }
-
-  // M4 Pass 2X (2026-05-24): opening NBV at t=0 = pre-axis carry
-  // (operational phase historicalPreCapexBuilding). Show in prior col.
-  const openingAtZeroCapex = d.openingNBVPerPeriod[0] ?? 0;
-  const openingAtZeroCombined = combinedOpening[0] ?? 0;
-  if (!hasIdc) {
-    return [
-      { label: 'Opening NBV', values: capexD.openingPerPeriod, indent: 1, aggregation: 'last', priorValue: openingAtZeroCapex },
-      { label: '(+) Capex Additions', values: capexD.additionsPerPeriod, indent: 1, priorValue: 0 },
-      { label: '(−) Depreciation', values: capexD.depreciationPerPeriod.map((v) => -v), indent: 1, priorValue: 0 },
-      ...(capexD.disposed ? [{ label: '(−) Disposed at Exit (net book value)', values: capexD.disposalPerPeriod.map((v) => -v), indent: 1, priorValue: 0 }] : []),
-      { label: 'Closing NBV', values: capexD.closingPerPeriod, isTotal: true, aggregation: 'last', priorValue: openingAtZeroCapex },
-      { label: 'Accumulated Depreciation (memo)', values: capexD.accumDepPerPeriod, indent: 1, aggregation: 'last', priorValue: 0 },
-    ];
-  }
-  return [
-    { label: 'Opening NBV (Capex + IDC)', values: combinedOpening, indent: 1, aggregation: 'last', priorValue: openingAtZeroCombined },
-    { label: '(+) Capex Additions', values: d.additionsPerPeriod, indent: 1, priorValue: 0 },
-    { label: '(+) IDC Additions (capitalised interest)', values: idcAdditions, indent: 1, priorValue: 0 },
-    { label: '(−) Depreciation (on Capex + IDC)', values: combinedDep.map((v) => -v), indent: 1, priorValue: 0 },
-    ...(anyDisposed ? [{ label: '(−) Disposed at Exit (net book value)', values: disposalCombined.map((v) => -v), indent: 1, priorValue: 0 }] : []),
-    { label: 'Closing NBV (Capex + IDC)', values: combinedClosing, isTotal: true, aggregation: 'last', priorValue: openingAtZeroCombined },
-    { label: '   of which: Capex NBV', values: capexD.closingPerPeriod, indent: 2, aggregation: 'last', priorValue: openingAtZeroCapex },
-    { label: '   of which: IDC NBV', values: idcNbv, indent: 2, aggregation: 'last', priorValue: 0 },
-    { label: 'Accumulated Capex Depreciation (memo)', values: capexD.accumDepPerPeriod, indent: 1, aggregation: 'last', priorValue: 0 },
-  ];
-}
-
-function totalFATableRows(combinedOpening: number[], combinedClosing: number[], landClose: number[], depClose: number[]): Row[] {
-  return [
-    { label: 'Opening Fixed Assets (Land + Depreciable)', values: combinedOpening, indent: 1, aggregation: 'last' },
-    { label: '   of which: Land', values: landClose.map((_, i) => (i === 0 ? combinedOpening[0] - depClose[0] : combinedOpening[i] - depClose[i])), indent: 2, aggregation: 'last' },
-    { label: '   of which: Depreciable NBV', values: depClose.map((_, i) => (combinedOpening[i] - (combinedOpening[i] - depClose[i]))), indent: 2, aggregation: 'last' },
-    { label: 'Closing Fixed Assets (Land + Depreciable)', values: combinedClosing, isTotal: true, aggregation: 'last' },
-  ];
-}
-
 export default function Module4FixedAssets(): React.JSX.Element {
   const { project, phases, assets: rawAssets, subUnits, parcels, costLines, costOverrides, landAllocationMode, financingTranches, equityContributions, updateAsset: updateOneAsset } = useModule1Store(
     useShallow((s) => ({
@@ -290,50 +196,33 @@ export default function Module4FixedAssets(): React.JSX.Element {
     const cfg = resolveReturnsConfig(project, snap.axisLength);
     return { booked: cfg.terminalMethod !== 'none', exitIdx: cfg.exitYearOffset, axisLength: snap.axisLength };
   }, [project, snap.axisLength]);
+
+  // Every table on the tab, from the shared builder the workbook renders too.
+  const report = useMemo(
+    () => buildFixedAssetReport({ fa: snap, idc: idcSnap, state: { assets, phases, parcels }, dCtx: disposalCtx }),
+    [snap, idcSnap, assets, phases, parcels, disposalCtx],
+  );
+
   const scale: DisplayScale = (project.displayScale ?? 'thousands');
   const decimals: DisplayDecimals = (project.displayDecimals ?? 0) as DisplayDecimals;
   const fmt = makeFmt(scale, decimals);
   const currency = currencyHeaderLine(project.currency ?? 'SAR', scale);
   const yearLabels = snap.yearLabels;
-  const N = yearLabels.length;
   // M4 Pass 2X (2026-05-24): prior-year column for consistency with the
   // rest of the platform. Opening Land + Opening NBV land in the prior
   // column instead of being lumped into Y0.
   const priorYear = snap.projectStartYear - 1;
 
-  // Strategy groups (mirrors Module3OpexOutput).
   // ONE CARD AND ONE INPUT ROW PER CONSOLIDATED LINE (2026-09-15). The engine
-  // stays per asset: a line's plots pool into its card, the method and life
-  // read from its first plot, and an input typed on a line is written to every
-  // plot on it, as the capex and revenue line cards already do.
-  const faLines = useMemo(
-    () => planReportLines({ assets, phases, parcels }, (a) => snap.byAsset.has(a.id)),
-    [assets, phases, parcels, snap.byAsset],
-  );
-  const faAssets = useMemo(
-    () => faLines.map((line) => ({ ...assets.find((a) => a.id === line.assetIds[0])!, name: lineTitle(line, { assets, phases, parcels }) })),
-    [faLines, assets, phases, parcels],
-  );
-  const membersOf = (hostId: string): readonly string[] => faLines.find((l) => l.assetIds[0] === hostId)?.assetIds ?? [hostId];
-  const faRowOf = (hostId: string): ReturnType<typeof snap.byAsset.get> => {
-    const rows = membersOf(hostId).map((id) => snap.byAsset.get(id)).filter((r): r is NonNullable<typeof r> => !!r);
-    if (rows.length === 0) return undefined;
-    return { ...poolResults(rows), usefulLifeYears: rows[0].usefulLifeYears };
-  };
-  const idcRowOf = (hostId: string): ReturnType<typeof idcSnap.byAsset.get> => {
-    const rows = membersOf(hostId).map((id) => idcSnap.byAsset.get(id)).filter((r): r is NonNullable<typeof r> => !!r);
-    return rows.length === 0 ? undefined : poolResults(rows);
-  };
+  // stays per asset: an input typed on a line is written to every plot on it,
+  // as the capex and revenue line cards already do.
+  const membersOf = (hostId: string): readonly string[] => report.inputs.find((i) => i.hostId === hostId)?.memberIds ?? [hostId];
   const updateAsset = (assetId: string, patch: Parameters<typeof updateOneAsset>[1]): void => {
     for (const id of membersOf(assetId)) updateOneAsset(id, patch);
   };
-  const hospitalityAssets = useMemo(
-    () => faAssets.filter((a) => a.strategy === 'Operate' || a.isCompanion === true),
-    [faAssets],
-  );
-  const leaseAssets = useMemo(
-    () => faAssets.filter((a) => a.strategy === 'Lease'),
-    [faAssets],
+  const navAssets = useMemo(
+    () => report.groups.flatMap((g) => g.lines).map((l) => ({ ...assets.find((a) => a.id === l.hostId)!, name: l.title })),
+    [report, assets],
   );
 
   const setAssetUsefulLife = (assetId: string, life: number): void => {
@@ -346,87 +235,9 @@ export default function Module4FixedAssets(): React.JSX.Element {
     updateAsset(assetId, { depreciationRate: rate });
   };
 
-  const renderAssetBody = (a: typeof assets[number]): React.JSX.Element | null => {
-    const row = faRowOf(a.id);
-    if (!row) return null;
-    // M4 Pass 2i (2026-05-20): per-asset inputs panel removed from the
-    // card body and consolidated into a single inputs table at the top
-    // of the tab. Body now renders only the three roll-forward tables.
-    const lifeEffective = row.usefulLifeYears;
-    const method = a.depreciationMethod ?? 'straight_line';
-    const isRB = method === 'reducing_balance';
-    const rateStored = a.depreciationRate;
-    const defaultRBRate = lifeEffective > 0 ? 2 / lifeEffective : 0;
-    const effectiveRate = isRB ? (rateStored !== undefined ? rateStored : defaultRBRate) : 0;
-    const methodLabel = isRB
-      ? `Reducing Balance @ ${(effectiveRate * 100).toFixed(2)}%`
-      : `Straight Line ${lifeEffective} yrs`;
-
-    // Total FA rows: prefer using engine-derived openings + closings
-    // directly so we don't reconstruct Land vs Depreciable from
-    // closing balances (which can drift after a depreciation step).
-    const landD = scheduleWithDisposal({ ...row.land }, disposalCtx);
-    const depD = scheduleWithDisposal({ openingPerPeriod: row.depreciable.openingNBVPerPeriod, additionsPerPeriod: row.depreciable.additionsPerPeriod, depreciationPerPeriod: row.depreciable.depreciationPerPeriod, closingPerPeriod: row.depreciable.closingNBVPerPeriod }, disposalCtx);
-    const totalFA: Row[] = [
-      { label: 'Opening Land', values: landD.openingPerPeriod, indent: 1, aggregation: 'last' },
-      { label: 'Opening Depreciable NBV', values: depD.openingPerPeriod, indent: 1, aggregation: 'last' },
-      { label: 'Opening Fixed Assets', values: landD.openingPerPeriod.map((v, t) => v + (depD.openingPerPeriod[t] ?? 0)), isSubtotal: true, aggregation: 'last' },
-      ...(landD.disposed || depD.disposed ? [{ label: '(−) Disposed at Exit (land and net book value)', values: landD.disposalPerPeriod.map((v, t) => -(v + (depD.disposalPerPeriod[t] ?? 0))), indent: 1 }] : []),
-      { label: 'Closing Land', values: landD.closingPerPeriod, indent: 1, aggregation: 'last' },
-      { label: 'Closing Depreciable NBV', values: depD.closingPerPeriod, indent: 1, aggregation: 'last' },
-      { label: 'Closing Fixed Assets', values: landD.closingPerPeriod.map((v, t) => v + (depD.closingPerPeriod[t] ?? 0)), isTotal: true, aggregation: 'last' },
-    ];
-
-    return (
-      <>
-        <PeriodTable
-          title={`${a.name}: Land Roll-Forward`}
-          caption="Land sits on the balance sheet but never depreciates. Closing Land = Opening Land + Land Additions."
-          yearLabels={yearLabels}
-          currency={currency}
-          fmt={fmt}
-          priorYearLabel={priorYear}
-          rows={landTableRows(row.land, disposalCtx)}
-        />
-
-        <PeriodTable
-          title={`${a.name}: Depreciable Assets Roll-Forward`}
-          caption={`${methodLabel}. Closing NBV = Opening + Capex Additions + IDC Additions − Depreciation. When IDC is present, depreciation applies to both Capex AND IDC; the closing split is shown beneath.`}
-          yearLabels={yearLabels}
-          currency={currency}
-          fmt={fmt}
-          priorYearLabel={priorYear}
-          rows={depreciableTableRows(row, disposalCtx, idcRowOf(a.id))}
-        />
-
-        <PeriodTable
-          title={`${a.name}: Total Fixed Assets (Land + Depreciable)`}
-          caption="Sum of Land closing + Depreciable closing NBV. This is the asset's Fixed Assets line on the balance sheet."
-          yearLabels={yearLabels}
-          currency={currency}
-          fmt={fmt}
-          priorYearLabel={priorYear}
-          rows={totalFA}
-        />
-      </>
-    );
-  };
-
-  // Project totals, Land roll-forward, Depreciable roll-forward,
-  // and Combined Total Fixed Assets.
-  const projectLand = snap.projectTotals.land;
-  const projectDep = snap.projectTotals.depreciable;
-  const projectLandD = scheduleWithDisposal({ ...projectLand }, disposalCtx);
-  const projectDepD = scheduleWithDisposal({ openingPerPeriod: projectDep.openingNBVPerPeriod, additionsPerPeriod: projectDep.additionsPerPeriod, depreciationPerPeriod: projectDep.depreciationPerPeriod, closingPerPeriod: projectDep.closingNBVPerPeriod, accumDepPerPeriod: projectDep.accumDepPerPeriod }, disposalCtx);
-  const projectTotalRows: Row[] = [
-    { label: 'Opening Land', values: projectLandD.openingPerPeriod, indent: 1, aggregation: 'last' },
-    { label: 'Opening Depreciable NBV', values: projectDepD.openingPerPeriod, indent: 1, aggregation: 'last' },
-    { label: 'Opening Fixed Assets', values: projectLandD.openingPerPeriod.map((v, t) => v + (projectDepD.openingPerPeriod[t] ?? 0)), isSubtotal: true, aggregation: 'last' },
-    ...(projectLandD.disposed || projectDepD.disposed ? [{ label: '(−) Disposed at Exit (land and net book value)', values: projectLandD.disposalPerPeriod.map((v, t) => -(v + (projectDepD.disposalPerPeriod[t] ?? 0))), indent: 1 }] : []),
-    { label: 'Closing Land', values: projectLandD.closingPerPeriod, indent: 1, aggregation: 'last' },
-    { label: 'Closing Depreciable NBV', values: projectDepD.closingPerPeriod, indent: 1, aggregation: 'last' },
-    { label: 'Closing Fixed Assets', values: projectLandD.closingPerPeriod.map((v, t) => v + (projectDepD.closingPerPeriod[t] ?? 0)), isTotal: true, aggregation: 'last' },
-  ];
+  const renderTable = (t: FixedAssetTable, key: string): React.JSX.Element => (
+    <PeriodTable key={key} title={t.title} caption={t.caption} yearLabels={yearLabels} currency={currency} fmt={fmt} priorYearLabel={priorYear} rows={t.rows} />
+  );
 
   return (
     <div data-testid="module4-fixed-assets" style={{ padding: 'var(--sp-3)', width: '100%' }}>
@@ -444,7 +255,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
         </p>
       </div>
 
-      {faAssets.length === 0 && (
+      {report.inputs.length === 0 && (
         <div style={{
           padding: 'var(--sp-3)',
           textAlign: 'center',
@@ -457,7 +268,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
       )}
 
       {/* M2 Pass 9M (2026-05-21): asset quick-nav strip. */}
-      <AssetQuickNav assets={faAssets} idPrefix="m4-fa-asset" testidPrefix="m4-fa-nav" />
+      <AssetQuickNav assets={navAssets} idPrefix="m4-fa-asset" testidPrefix="m4-fa-nav" />
 
       {/* M4 Pass 2i (2026-05-20): consolidated Inputs table at the top
        *  of the tab. Per Ahmad: every asset's Method / Useful Life /
@@ -465,7 +276,7 @@ export default function Module4FixedAssets(): React.JSX.Element {
        *  inside each asset card. Opening Land + Building NBV shown as
        *  read-only memos when the asset carries existing-ops history.
        */}
-      {faAssets.length > 0 && (
+      {report.inputs.length > 0 && (
         <PhaseSection
           phaseId="m4-fa-inputs"
           title="Depreciation Inputs (all assets)"
@@ -486,31 +297,18 @@ export default function Module4FixedAssets(): React.JSX.Element {
                 </tr>
               </thead>
               <tbody>
-                {faAssets.map((a) => {
-                  const row = faRowOf(a.id);
-                  if (!row) return null;
-                  const lifeStored = a.usefulLifeYears;
-                  const lifeEffective = row.usefulLifeYears;
-                  const inheriting = lifeStored === undefined || lifeStored <= 0;
-                  const openingLand = row.land.openingAtAxisStart;
-                  const openingBuilding = row.depreciable.openingNBVPerPeriod[0] ?? 0;
-                  const method = a.depreciationMethod ?? 'straight_line';
-                  const isRB = method === 'reducing_balance';
-                  const rateStored = a.depreciationRate;
-                  const defaultRBRate = lifeEffective > 0 ? 2 / lifeEffective : 0;
-                  const strategyLabel = a.strategy === 'Operate'
-                    ? (a.isCompanion ? 'Hospitality (Manage)' : 'Hospitality')
-                    : a.strategy === 'Lease' ? 'Retail / Lease' : a.strategy;
+                {report.inputs.map((i) => {
+                  const isRB = i.method === 'reducing_balance';
                   return (
-                    <tr key={a.id}>
-                      <td style={{ ...ROW_DATA.name }}>{a.name}</td>
-                      <td style={{ ...ROW_DATA.name, color: 'var(--color-meta)', fontSize: 11 }}>{strategyLabel}</td>
+                    <tr key={i.hostId}>
+                      <td style={{ ...ROW_DATA.name }}>{i.title}</td>
+                      <td style={{ ...ROW_DATA.name, color: 'var(--color-meta)', fontSize: 11 }}>{i.strategyLabel}</td>
                       <td style={{ ...ROW_DATA.num, textAlign: 'left' }}>
                         <select
-                          value={method}
-                          onChange={(e) => setAssetMethod(a.id, e.target.value as 'straight_line' | 'reducing_balance')}
+                          value={i.method}
+                          onChange={(e) => setAssetMethod(i.hostId, e.target.value as 'straight_line' | 'reducing_balance')}
                           style={{ ...FAST_INPUT, textAlign: 'left' }}
-                          data-testid={`m4-fa-inputs-method-${a.id}`}
+                          data-testid={`m4-fa-inputs-method-${i.hostId}`}
                         >
                           <option value="straight_line">Straight Line (SL)</option>
                           <option value="reducing_balance">Reducing Balance (WDV)</option>
@@ -519,40 +317,40 @@ export default function Module4FixedAssets(): React.JSX.Element {
                       <td style={{ ...ROW_DATA.num }}>
                         <input
                           type="number"
-                          value={inheriting ? '' : lifeStored}
-                          placeholder={`auto: ${lifeEffective}`}
+                          value={i.inheritsLife ? '' : i.lifeStored}
+                          placeholder={`auto: ${i.lifeEffective}`}
                           min={0}
                           max={60}
                           onChange={(e) => {
                             const v = e.target.value;
-                            setAssetUsefulLife(a.id, v === '' ? 0 : Number(v));
+                            setAssetUsefulLife(i.hostId, v === '' ? 0 : Number(v));
                           }}
                           style={FAST_INPUT}
-                          data-testid={`m4-fa-inputs-life-${a.id}`}
+                          data-testid={`m4-fa-inputs-life-${i.hostId}`}
                         />
                       </td>
                       <td style={{ ...ROW_DATA.num }}>
                         {isRB ? (
                           <PercentageInput
-                            value={(rateStored !== undefined ? rateStored : defaultRBRate) * 100}
-                            onChange={(p) => setAssetRate(a.id, p / 100)}
+                            value={i.rateEffective * 100}
+                            onChange={(p) => setAssetRate(i.hostId, p / 100)}
                             min={0}
                             max={100}
                             decimals={2}
                             style={FAST_INPUT}
-                            data-testid={`m4-fa-inputs-rate-${a.id}`}
+                            data-testid={`m4-fa-inputs-rate-${i.hostId}`}
                           />
                         ) : (
                           <span style={{ fontSize: 11, color: 'var(--color-meta)', fontStyle: 'italic' }}>
-                            {lifeEffective > 0 ? `${(100 / lifeEffective).toFixed(2)}% / yr` : '-'}
+                            {i.lifeEffective > 0 ? `${(i.rateEffective * 100).toFixed(2)}% / yr` : '-'}
                           </span>
                         )}
                       </td>
-                      <td style={{ ...ROW_DATA.num, color: openingLand > 0 ? 'var(--color-text)' : 'var(--color-meta)', fontStyle: openingLand > 0 ? 'normal' : 'italic' }}>
-                        {openingLand > 0 ? fmt(openingLand) : '-'}
+                      <td style={{ ...ROW_DATA.num, color: i.openingLand > 0 ? 'var(--color-text)' : 'var(--color-meta)', fontStyle: i.openingLand > 0 ? 'normal' : 'italic' }}>
+                        {i.openingLand > 0 ? fmt(i.openingLand) : '-'}
                       </td>
-                      <td style={{ ...ROW_DATA.num, color: openingBuilding > 0 ? 'var(--color-text)' : 'var(--color-meta)', fontStyle: openingBuilding > 0 ? 'normal' : 'italic' }}>
-                        {openingBuilding > 0 ? fmt(openingBuilding) : '-'}
+                      <td style={{ ...ROW_DATA.num, color: i.openingBuilding > 0 ? 'var(--color-text)' : 'var(--color-meta)', fontStyle: i.openingBuilding > 0 ? 'normal' : 'italic' }}>
+                        {i.openingBuilding > 0 ? fmt(i.openingBuilding) : '-'}
                       </td>
                     </tr>
                   );
@@ -561,67 +359,43 @@ export default function Module4FixedAssets(): React.JSX.Element {
             </table>
           </div>
           <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 6, fontStyle: 'italic' }}>
-            Useful Life blank = inherits the asset's category default. RB Rate blank = 2 / life (double-declining).
-            Opening Land + Building NBV are read-only memos sourced from Module 1 Tab 4 Existing Operations.
+            {report.inputsCaption}
           </div>
         </PhaseSection>
       )}
 
-      {/* Hospitality / Operations */}
-      <PhaseSection
-        phaseId="strategy-hospitality"
-        title="Hospitality / Operations"
-        meta="Operate assets + Sell + Manage operate companions"
-        countLabel={`${hospitalityAssets.length} asset${hospitalityAssets.length === 1 ? '' : 's'}`}
-        storageKey="fmp:m4:fa:strategy:hospitality:collapsed"
-        assetIds={hospitalityAssets.map((a) => a.id)}
-      >
-        {hospitalityAssets.length === 0 && (
-          <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
-            No Operate or Sell + Manage assets configured yet.
-          </div>
-        )}
-        {hospitalityAssets.map((a) => (
-          <AssetSection
-            key={a.id}
-            assetId={a.id}
-            domId={`m4-fa-asset-${a.id}`}
-            title={a.name}
-            meta={`${a.strategy === 'Operate' ? 'Hospitality' : a.strategy} · ${a.depreciationMethod === 'reducing_balance' ? `RB ${(((a.depreciationRate ?? 2 / Math.max(1, resolveUsefulLifeYears(a))) * 100).toFixed(2))}%` : `SL ${resolveUsefulLifeYears(a)} yrs`}`}
-            storageKey={`fmp:m4:fa:asset:${a.id}:collapsed`}
-          >
-            {renderAssetBody(a)}
-          </AssetSection>
-        ))}
-      </PhaseSection>
-
-      {/* Retail / Lease */}
-      <PhaseSection
-        phaseId="strategy-retail"
-        title="Retail / Lease"
-        meta="Lease assets"
-        countLabel={`${leaseAssets.length} asset${leaseAssets.length === 1 ? '' : 's'}`}
-        storageKey="fmp:m4:fa:strategy:retail:collapsed"
-        assetIds={leaseAssets.map((a) => a.id)}
-      >
-        {leaseAssets.length === 0 && (
-          <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
-            No Lease assets configured yet.
-          </div>
-        )}
-        {leaseAssets.map((a) => (
-          <AssetSection
-            key={a.id}
-            assetId={a.id}
-            domId={`m4-fa-asset-${a.id}`}
-            title={a.name}
-            meta={`Retail / Lease · ${a.depreciationMethod === 'reducing_balance' ? `RB ${(((a.depreciationRate ?? 2 / Math.max(1, resolveUsefulLifeYears(a))) * 100).toFixed(2))}%` : `SL ${resolveUsefulLifeYears(a)} yrs`}`}
-            storageKey={`fmp:m4:fa:asset:${a.id}:collapsed`}
-          >
-            {renderAssetBody(a)}
-          </AssetSection>
-        ))}
-      </PhaseSection>
+      {/* Hospitality / Operations, then Retail / Lease: one group per strategy, a line in exactly one. */}
+      {report.groups.map((g) => (
+        <PhaseSection
+          key={g.key}
+          phaseId={g.key === 'hospitality' ? 'strategy-hospitality' : 'strategy-retail'}
+          title={g.title}
+          meta={g.meta}
+          countLabel={`${g.lines.length} asset${g.lines.length === 1 ? '' : 's'}`}
+          storageKey={`fmp:m4:fa:strategy:${g.key}:collapsed`}
+          assetIds={g.lines.map((l) => l.hostId)}
+        >
+          {g.lines.length === 0 && (
+            <div style={{ padding: '8px 12px', background: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
+              {g.emptyText}
+            </div>
+          )}
+          {g.lines.map((l) => (
+            <AssetSection
+              key={l.hostId}
+              assetId={l.hostId}
+              domId={`m4-fa-asset-${l.hostId}`}
+              title={l.title}
+              meta={l.meta}
+              storageKey={`fmp:m4:fa:asset:${l.hostId}:collapsed`}
+            >
+              {renderTable(l.land, 'land')}
+              {renderTable(l.depreciable, 'dep')}
+              {renderTable(l.total, 'total')}
+            </AssetSection>
+          ))}
+        </PhaseSection>
+      ))}
 
       {/* Project rollup */}
       <PhaseSection
@@ -630,74 +404,10 @@ export default function Module4FixedAssets(): React.JSX.Element {
         meta="all assets combined"
         storageKey="fmp:m4:fa:phase:__project__:collapsed"
       >
-        <PeriodTable
-          title="Project Land: Roll-Forward"
-          caption="Sum of every asset's Land roll-forward. Land never depreciates so closing Land = sum of all assets' opening Land + project-wide Land additions."
-          yearLabels={yearLabels}
-          currency={currency}
-          fmt={fmt}
-          priorYearLabel={priorYear}
-          rows={landTableRows(projectLand, disposalCtx)}
-        />
-        {(() => {
-          const Nproj = projectDep.openingNBVPerPeriod.length;
-          const idcProjD = idcWithDisposal(idcSnap, disposalCtx);
-          const idcAddProj = idcProjD.additionsPerPeriod.slice(0, Nproj);
-          const idcDepProj = idcProjD.depreciationPerPeriod.slice(0, Nproj);
-          const idcNbvProj = idcProjD.closingPerPeriod.slice(0, Nproj);
-          const hasIdcProj = idcAddProj.some((v) => Math.abs(v) > 0.5);
-          const combinedOpening = new Array<number>(Nproj).fill(0);
-          const combinedClosing = new Array<number>(Nproj).fill(0);
-          const combinedDep = new Array<number>(Nproj).fill(0);
-          for (let t = 0; t < Nproj; t++) {
-            const idcOpening = t === 0 ? 0 : (idcNbvProj[t - 1] ?? 0);
-            combinedOpening[t] = (projectDep.openingNBVPerPeriod[t] ?? 0) + idcOpening;
-            combinedClosing[t] = (projectDep.closingNBVPerPeriod[t] ?? 0) + (idcNbvProj[t] ?? 0);
-            combinedDep[t] = (projectDep.depreciationPerPeriod[t] ?? 0) + (idcDepProj[t] ?? 0);
-          }
-          const rows: Row[] = hasIdcProj
-            ? [
-                { label: 'Opening NBV (Capex + IDC)', values: combinedOpening, indent: 1, aggregation: 'last' },
-                { label: '(+) Capex Additions', values: projectDep.additionsPerPeriod, indent: 1 },
-                { label: '(+) IDC Additions (capitalised interest)', values: idcAddProj, indent: 1 },
-                { label: '(−) Depreciation (on Capex + IDC)', values: combinedDep.map((v) => -v), indent: 1 },
-                ...(projectDepD.disposed || idcProjD.disposed ? [{ label: '(−) Disposed at Exit (net book value)', values: projectDepD.disposalPerPeriod.map((v, t) => -(v + (idcProjD.disposalPerPeriod[t] ?? 0))), indent: 1 }] : []),
-                { label: 'Closing NBV (Capex + IDC)', values: combinedClosing, isTotal: true, aggregation: 'last' },
-                { label: '   of which: Capex NBV', values: projectDepD.closingPerPeriod, indent: 2, aggregation: 'last' },
-                { label: '   of which: IDC NBV', values: idcNbvProj, indent: 2, aggregation: 'last' },
-                { label: 'Accumulated Capex Depreciation (memo)', values: projectDep.accumDepPerPeriod, indent: 1, aggregation: 'last' },
-              ]
-            : [
-                { label: 'Opening NBV', values: projectDepD.openingPerPeriod, indent: 1, aggregation: 'last' },
-                { label: '(+) Capex Additions', values: projectDepD.additionsPerPeriod, indent: 1 },
-                { label: '(−) Depreciation', values: projectDepD.depreciationPerPeriod.map((v) => -v), indent: 1 },
-                ...(projectDepD.disposed ? [{ label: '(−) Disposed at Exit (net book value)', values: projectDepD.disposalPerPeriod.map((v) => -v), indent: 1 }] : []),
-                { label: 'Closing NBV', values: projectDepD.closingPerPeriod, isTotal: true, aggregation: 'last' },
-                { label: 'Accumulated Depreciation (memo)', values: projectDepD.accumDepPerPeriod, indent: 1, aggregation: 'last' },
-              ];
-          return (
-            <PeriodTable
-              title="Project Depreciable Assets: Roll-Forward"
-              caption={hasIdcProj
-                ? 'Sum of every asset\'s depreciable roll-forward. Operate/Lease IDC is integrated: depreciation applies to Capex + IDC together.'
-                : 'Sum of every asset\'s depreciable roll-forward. Depreciation per period = sum of per-asset depreciation streams.'}
-              yearLabels={yearLabels}
-              currency={currency}
-              fmt={fmt}
-              priorYearLabel={priorYear}
-              rows={rows}
-            />
-          );
-        })()}
-        <PeriodTable
-          title="Project Total Fixed Assets (Land + Depreciable)"
-          caption="The Fixed Assets line on the project balance sheet. Equals Land closing + Depreciable closing NBV across every asset."
-          yearLabels={yearLabels}
-          currency={currency}
-          fmt={fmt}
-          priorYearLabel={priorYear}
-          rows={projectTotalRows}
-        />
+        {renderTable(report.project.land, 'land')}
+        {renderTable(report.project.depreciable, 'dep')}
+        {renderTable(report.project.total, 'total')}
+        {report.project.idcPool && renderTable(report.project.idcPool, 'idc')}
       </PhaseSection>
     </div>
   );

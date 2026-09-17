@@ -38,7 +38,8 @@ import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup, m4StreamRow }
 import { buildIntegrityChecks, checkDetail, relativeCheckOk, worstDivergence, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildOpexReport } from '../reports/opexReports';
-import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsReconciliationRows, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, totalColumnHeading, totalColumnNote, TOTAL_COLUMN_HEADINGS, TOTAL_COLUMN_NOTES, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, FUND_CAPITAL_BASE_TAG, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
+import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsReconciliationRows, buildBsFeederTables, BS_FEEDER_SECTIONS, BS_RECONCILIATION_CAPTION, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, totalColumnHeading, totalColumnNote, TOTAL_COLUMN_HEADINGS, TOTAL_COLUMN_NOTES, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, FUND_CAPITAL_BASE_TAG, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
+import { buildFixedAssetReport, type FixedAssetTable } from '../reports/fixedAssetReports';
 import { buildCaseComparisonReport, caseOverridesNote, type CaseComparisonInput, type CaseComparisonReport, type CaseKpiKind } from '../reports/caseComparisonReport';
 import { buildCaseYoYReport, type CaseYoYReport } from '../reports/caseYoYReport';
 import { formatAssumptionValue, assumptionUnitSuffix, curatedDefaultFields, inactiveLeverReason, nonEconomicLeverReason, isPerPeriodLever, isAppliedValue, assumptionFor, buildGridContext, groupAssumptionRows, leverNote, type GridRowLite } from '../cases/assumptionGrid';
@@ -1824,7 +1825,7 @@ function m4RowOpts(row: M4Row): M4RowOpts {
 
 function makeEmitters(ws: ExcelJS.Worksheet, N: number, start = 5): {
   section: (text: string) => void; groupBand: (text: string) => void; subTitle: (text: string) => void;
-  moneyRow: (label: string, series: number[] | undefined, opts?: { style?: RowStyle; indent?: number; basis?: string; prior?: number; totalLast?: boolean; totalValue?: number; noTotal?: boolean; numFmt?: string }) => number;
+  moneyRow: (label: string, series: number[] | undefined, opts?: { style?: RowStyle; indent?: number; basis?: string; prior?: number; totalLast?: boolean; totalValue?: number; noTotal?: boolean; noPeriods?: boolean; numFmt?: string }) => number;
   statRow: (label: string, series: number[] | undefined, numFmt: string, indent?: number) => void;
   emitM4: (row: M4Row) => number; emitTable: (rows: M4Row[]) => void; note: (text: string) => void;
   gap: () => void; cursor: () => number;
@@ -1845,7 +1846,7 @@ function makeEmitters(ws: ExcelJS.Worksheet, N: number, start = 5): {
     for (let c = 1; c <= lastActiveCol(N); c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
     r += 1;
   };
-  const moneyRow = (label: string, series: number[] | undefined, opts: { style?: RowStyle; indent?: number; basis?: string; prior?: number; totalLast?: boolean; totalValue?: number; noTotal?: boolean; numFmt?: string } = {}): number => {
+  const moneyRow = (label: string, series: number[] | undefined, opts: { style?: RowStyle; indent?: number; basis?: string; prior?: number; totalLast?: boolean; totalValue?: number; noTotal?: boolean; noPeriods?: boolean; numFmt?: string } = {}): number => {
     const used = r;
     const style = opts.style ?? 'plain';
     setLabel(ws.getCell(r, LBL_COL), label, { indent: opts.indent, bold: style !== 'plain' });
@@ -1856,8 +1857,13 @@ function makeEmitters(ws: ExcelJS.Worksheet, N: number, start = 5): {
     // scaleMoneyFormats, which only touches money / money1.
     const nf = opts.numFmt ?? NUMFMT.money;
     const put = (c: number, v: number): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = nf; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
-    put(OPEN_COL, opts.prior ?? 0);
-    for (let t = 0; t < N; t++) put(pcol(t), vals[t] ?? 0);
+    // A row with no period series (a capital base, a column caption) writes no
+    // period cells at all. Writing zeros there printed 0 in every year column
+    // beside a figure that is a single amount, not a flow (2026-09-17).
+    if (!opts.noPeriods) {
+      put(OPEN_COL, opts.prior ?? 0);
+      for (let t = 0; t < N; t++) put(pcol(t), vals[t] ?? 0);
+    }
     if (!opts.noTotal) put(TOTAL_COL, opts.totalValue !== undefined ? opts.totalValue : opts.totalLast ? (vals[N - 1] ?? 0) : vals.reduce((s, v) => s + (v ?? 0), 0) + (opts.prior ?? 0));
     if (style === 'total') { fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.navy); for (let c = 1; c <= lastActiveCol(N); c++) { const cell = ws.getCell(r, c); cell.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white }, italic: c === META_B }; } }
     else if (style === 'subtotal') { for (let c = 1; c <= lastActiveCol(N); c++) { const cell = ws.getCell(r, c); cell.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark }, italic: c === META_B }; } }
@@ -1873,9 +1879,22 @@ function makeEmitters(ws: ExcelJS.Worksheet, N: number, start = 5): {
   // Render a shared-builder M4Row: section header -> pale band; total / subtotal
   // -> styled bands; totalOverride (a numeric string when fmt = String) -> the
   // exact platform Total; priorValue -> the opening (E) column.
+  //
+  // A GROUP HEADING THAT CARRIES VALUES IS A SUBTOTAL ROW, as the screen renders
+  // it (m4Table: only a heading with no values is a banner). Printing every
+  // heading as a blank band dropped the Residential / Hospitality / Retail
+  // revenue totals, the cost of sales total and the opex group totals from the
+  // P&L and the Cash Flow (2026-09-17).
+  //
+  // THE PHASE A ROW BELONGS TO goes in the Basis column, as the screen's Phase
+  // column and the PDF's [P1] tag carry it, so two lines of the same type in
+  // different phases ("Standalone Commercial" twice) can be told apart.
   const emitM4 = (row: M4Row): number => {
-    if (row.isSection) { subTitle(row.label); return r - 1; }
-    return moneyRow(row.label, row.values, m4RowOpts(row));
+    if (row.isSection && (row.collapseRole !== 'header' || row.values.length === 0)) { subTitle(row.label); return r - 1; }
+    const opts = m4RowOpts(row);
+    const used = moneyRow(row.label, row.values, row.isSection ? { ...opts, style: 'subtotal' } : opts);
+    if (row.phaseLabel) setBasis(ws.getCell(used, META_B), /^\d+$/.test(row.phaseLabel) ? `Phase ${row.phaseLabel}` : row.phaseLabel);
+    return used;
   };
   const emitTable = (rows: M4Row[]): void => { for (const row of rows) emitM4(row); };
   // A short explanatory sentence under whatever was just emitted. Its own
@@ -1891,202 +1910,6 @@ function makeEmitters(ws: ExcelJS.Worksheet, N: number, start = 5): {
   const gap = (): void => { r += 1; };
   const cursor = (): number => r;
   return { section, groupBand, subTitle, moneyRow, statRow, emitM4, emitTable, note, gap, cursor };
-}
-
-// Balance-sheet feeder roll-forwards (the platform Module 4 Schedules "BS
-// Schedules" sub-tab), ordered by balance-sheet sequence: ASSETS (receivables,
-// inventory, restricted cash), LIABILITIES (AP, unearned, debt), EQUITY (equity
-// roll-forward, retained earnings). Mirrors Module4BSFeeders row-for-row; fmt =
-// String so each totalOverride round-trips back to a number in emitM4.
-function buildBSFeederGroups(snap: ReturnType<typeof computeFinancialsSnapshot>, state: FinancialsResolverState): Array<{ group: string; tables: ReportTable[] }> {
-  const N = snap.axisLength;
-  const fmt = (v: number): string => String(v);
-  const zeros = (): number[] => new Array<number>(N).fill(0);
-  const sellEntries = Array.from(snap.byAssetSchedules.entries()).filter(([id]) => snap.revenue.bySellAsset.has(id));
-
-  // A1. Residential Sales Receivables.
-  const a1Rows: M4Row[] = (() => {
-    const opening = zeros(), saleValue = zeros(), cashCollected = zeros(), closing = zeros();
-    for (const [assetId, bundle] of sellEntries) {
-      const sell = snap.revenue.bySellAsset.get(assetId)!;
-      for (let t = 0; t < N; t++) {
-        opening[t] += bundle.ar.openingPerPeriod[t] ?? 0;
-        saleValue[t] += sell.presalesSalesValuePerPeriod[t] ?? 0;
-        cashCollected[t] += sell.presalesCashPerPeriod[t] ?? 0;
-        closing[t] += bundle.ar.perPeriod[t] ?? 0;
-      }
-    }
-    const rows: M4Row[] = [
-      { label: 'Opening AR (project)', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
-      { label: '(+) Pre-Sales Sale Value', values: saleValue, indent: 1 },
-      { label: '(-) Pre-Sales Cash Collected', values: cashCollected.map((v) => -v), indent: 1 },
-      { label: 'Closing AR (project total)', values: closing, isSubtotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
-    ];
-    if (sellEntries.length) {
-      rows.push({ label: 'Closing AR by line', values: [], isSection: true });
-      for (const [, bundle, lineName] of poolMapByLine(new Map(sellEntries), state)) rows.push({ label: lineName, values: bundle.ar.perPeriod.slice(0, N), indent: 1, totalOverride: fmt(bundle.ar.perPeriod[N - 1] ?? 0) });
-      rows.push({ label: 'Total Closing AR', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) });
-    }
-    return rows;
-  })();
-
-  // A2. Operating Receivables (DSO).
-  const a2Rows: M4Row[] = (() => {
-    const operatingRev = snap.pl.hospitalityRevenuePerPeriod.map((v, i) => v + (snap.pl.retailRevenuePerPeriod[i] ?? 0));
-    const closing = snap.bs.arPerPeriod;
-    const opening = zeros();
-    for (let t = 1; t < N; t++) opening[t] = closing[t - 1] ?? 0;
-    const change = closing.map((v, i) => v - (opening[i] ?? 0));
-    const cash = operatingRev.map((v, i) => v - (change[i] ?? 0));
-    return [
-      { label: 'Opening AR', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
-      { label: '(+) Operating revenue billed', values: operatingRev, indent: 1 },
-      { label: '(-) Cash collected', values: cash.map((v) => -v), indent: 1 },
-      { label: 'Closing AR', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
-    ];
-  })();
-
-  // A3. Inventory (Residential WIP).
-  const a3Rows: M4Row[] = (() => {
-    const closing = zeros();
-    for (const cf of snap.perAssetCF.values()) for (let t = 0; t < N; t++) closing[t] += cf.inventoryPerPeriod[t] ?? 0;
-    const opening = zeros();
-    for (let t = 1; t < N; t++) opening[t] = closing[t - 1] ?? 0;
-    const cosTotal = snap.pl.cosPerPeriod;
-    const capexCapitalized = closing.map((v, t) => (v - (opening[t] ?? 0)) + (cosTotal[t] ?? 0));
-    return [
-      { label: 'Opening inventory', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
-      { label: '(+) Capex capitalized', values: capexCapitalized, indent: 1 },
-      { label: '(-) Released to Cost of Sales', values: cosTotal.map((v) => -v), indent: 1 },
-      { label: 'Closing inventory', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
-    ];
-  })();
-
-  // A4. Restricted Cash (Escrow).
-  const a4Rows: M4Row[] = (() => {
-    const closing = snap.escrow.projectTotals.cumulativeBalancePerPeriod.slice(0, N);
-    const opening = zeros();
-    for (let t = 1; t < N; t++) opening[t] = closing[t - 1] ?? 0;
-    return [
-      { label: 'Opening Balance', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
-      { label: '(+) Held this period', values: snap.escrow.projectTotals.heldPerPeriod, indent: 1 },
-      { label: '(-) Release', values: snap.escrow.projectTotals.releasePerPeriod.map((v) => -v), indent: 1 },
-      { label: 'Closing Balance', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
-    ];
-  })();
-
-  // L1. Accounts Payable.
-  const apt = snap.ap.projectTotals;
-  const l1Rows: M4Row[] = [
-    { label: 'Opening AP', values: apt.openingApPerPeriod, isSubtotal: true, totalOverride: fmt(apt.openingApPerPeriod[0] ?? 0) },
-    { label: '(+) Opex incurred', values: apt.opexIncurredPerPeriod, indent: 1 },
-    { label: '(-) Cash paid', values: apt.cashPaidPerPeriod.map((v) => -v), indent: 1 },
-    { label: 'Closing AP', values: apt.closingApPerPeriod, isTotal: true, totalOverride: fmt(apt.closingApPerPeriod[N - 1] ?? 0) },
-  ];
-
-  // L2. Unearned Revenue.
-  const l2Rows: M4Row[] = (() => {
-    const opening = zeros(), saleValue = zeros(), recognized = zeros(), closing = zeros();
-    for (const [assetId, bundle] of sellEntries) {
-      const sell = snap.revenue.bySellAsset.get(assetId)!;
-      for (let t = 0; t < N; t++) {
-        opening[t] += bundle.unearned.openingPerPeriod[t] ?? 0;
-        saleValue[t] += sell.presalesSalesValuePerPeriod[t] ?? 0;
-        recognized[t] += sell.presalesRecognitionPerPeriod[t] ?? 0;
-        closing[t] += bundle.unearned.perPeriod[t] ?? 0;
-      }
-    }
-    const rows: M4Row[] = [
-      { label: 'Opening unearned revenue (project)', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
-      { label: '(+) Pre-sales contracts signed (sale value)', values: saleValue, indent: 1 },
-      { label: '(-) Revenue recognized (at handover)', values: recognized.map((v) => -v), indent: 1 },
-      { label: 'Closing unearned revenue (project total)', values: closing, isSubtotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
-    ];
-    if (sellEntries.length) {
-      rows.push({ label: 'Closing unearned revenue by line', values: [], isSection: true });
-      for (const [, bundle, lineName] of poolMapByLine(new Map(sellEntries), state)) rows.push({ label: lineName, values: bundle.unearned.perPeriod.slice(0, N), indent: 1, totalOverride: fmt(bundle.unearned.perPeriod[N - 1] ?? 0) });
-      rows.push({ label: 'Total Closing Unearned Revenue', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) });
-    }
-    return rows;
-  })();
-
-  // L3. Debt Outstanding by Tranche.
-  const l3Rows: M4Row[] = (() => {
-    const rows: M4Row[] = [];
-    const totalOut = zeros();
-    let totalPrior = 0;
-    for (const t of state.financingTranches) {
-      const f = snap.financing.facilities.get(t.id);
-      if (!f) continue;
-      const outRow = f.outstanding.slice(0, N);
-      while (outRow.length < N) outRow.push(0);
-      const facPrior = f.openingBalance ?? 0;
-      rows.push({ label: t.name, values: outRow, indent: 1, totalOverride: fmt(outRow[N - 1] ?? 0), priorValue: facPrior });
-      for (let i = 0; i < N; i++) totalOut[i] += outRow[i] ?? 0;
-      totalPrior += facPrior;
-    }
-    rows.push({ label: 'Total Debt Outstanding', values: totalOut, isTotal: true, totalOverride: fmt(totalOut[N - 1] ?? 0), priorValue: totalPrior });
-    return rows;
-  })();
-
-  // E1. Equity Cumulative Roll-Forward (split by type).
-  const e1Rows: M4Row[] = (() => {
-    const cashDraws = snap.financing.equity.cashPerPeriod.slice(0, N);
-    const inKindDraws = snap.financing.equity.inKindPerPeriod.slice(0, N);
-    const existingDrawsRaw = snap.financing.equity.existingEquityPerPeriod.slice(0, N);
-    while (cashDraws.length < N) cashDraws.push(0);
-    while (inKindDraws.length < N) inKindDraws.push(0);
-    while (existingDrawsRaw.length < N) existingDrawsRaw.push(0);
-    const priorExisting = existingDrawsRaw.reduce((s, v) => s + v, 0);
-    const opening = zeros(), closing = zeros();
-    let running = priorExisting;
-    for (let t = 0; t < N; t++) { opening[t] = running; running += (cashDraws[t] ?? 0) + (inKindDraws[t] ?? 0); closing[t] = running; }
-    const rows: M4Row[] = [
-      { label: 'Opening equity', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0), priorValue: 0 },
-      { label: '(+) Cash equity drawdown', values: cashDraws, indent: 1 },
-      { label: '(+) In-Kind equity (land in-kind, non-cash)', values: inKindDraws, indent: 1 },
-    ];
-    if (Math.abs(priorExisting) > 0.5) rows.push({ label: '(+) Existing equity (pre-axis carry-forward)', values: zeros(), indent: 1, priorValue: priorExisting });
-    rows.push({ label: 'Closing equity (cumulative)', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0), priorValue: priorExisting });
-    return rows;
-  })();
-
-  // E2. Retained Earnings Roll-Forward.
-  const e2Rows: M4Row[] = (() => {
-    const pat = snap.pl.patPerPeriod.slice(0, N);
-    const reserveTransfer = snap.bs.statutoryReserveTransferPerPeriod.slice(0, N);
-    const dividends = snap.bs.dividendsPerPeriod.slice(0, N);
-    const closing = snap.bs.retainedEarningsPerPeriod.slice(0, N);
-    const pad = (a: number[]): void => { while (a.length < N) a.push(0); };
-    pad(pat); pad(reserveTransfer); pad(dividends); pad(closing);
-    const opening = zeros();
-    for (let t = 0; t < N; t++) opening[t] = t === 0 ? 0 : (closing[t - 1] ?? 0);
-    return [
-      { label: 'Opening retained earnings', values: opening, isSubtotal: true, totalOverride: fmt(opening[0] ?? 0) },
-      { label: '(+) PAT for the period', values: pat, indent: 1 },
-      { label: '(-) Transfer to statutory reserve', values: reserveTransfer.map((v) => -v), indent: 1 },
-      { label: '(-) Dividends declared', values: dividends.map((v) => -v), indent: 1 },
-      { label: 'Closing retained earnings', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0) },
-    ];
-  })();
-
-  return [
-    { group: 'ASSETS', tables: [
-      { title: 'A1. Residential Sales Receivables: Roll-Forward (project)', rows: a1Rows },
-      { title: 'A2. Operating Receivables: Roll-Forward (project)', rows: a2Rows },
-      { title: 'A3. Inventory (Residential WIP): Roll-Forward (project)', rows: a3Rows },
-      { title: 'A4. Restricted Cash (Escrow): Roll-Forward (project)', rows: a4Rows },
-    ] },
-    { group: 'LIABILITIES', tables: [
-      { title: 'L1. Accounts Payable: Roll-Forward (project)', rows: l1Rows },
-      { title: 'L2. Unearned Revenue (Off-plan advances): Roll-Forward (project)', rows: l2Rows },
-      { title: 'L3. Debt Outstanding by Tranche (project)', rows: l3Rows },
-    ] },
-    { group: 'EQUITY', tables: [
-      { title: 'E1. Equity Cumulative Roll-Forward (project, split by type)', rows: e1Rows },
-      { title: 'E2. Retained Earnings Roll-Forward (project)', rows: e2Rows },
-    ] },
-  ];
 }
 
 interface RevLinks { byAssetRow: Map<string, number>; residentialRow: number; hospitalityRow: number; retailRow: number; totalRow: number }
@@ -3588,63 +3411,91 @@ function addSchedules(ctx: EmitCtx): void {
   const ws = wb.addWorksheet(SHEETS.schedules, { properties: { tabColor: { argb: ARGB.navy } } });
   // Roll-forwards: additions and charges sum, opening and closing balances do
   // not. Stated on the sheet rather than left to the reader, on the same rule
-  // as the Balance Sheet and Cash Flow tabs. These rows are emitted directly
-  // (not through the shared M4Row model), so the heading is named here.
-  writeSheetHeader(ws, snap, N, 'Schedules', 'Full mirror of the platform Module 4 Schedules, both sub-tabs in sequence: 1. Fixed Assets & D&A (land + depreciable NBV roll-forward), 2. BS Schedules (balance-sheet feeder roll-forwards ordered ASSETS / LIABILITIES / EQUITY).', { label: 'Line', totalLabel: TOTAL_COLUMN_HEADINGS.mixed, feeds: `Sourced from Capex, depreciation, Modules 1-3 and the financing recurrence. Supports the Balance Sheet. ${TOTAL_COLUMN_NOTES.mixed}` });
+  // as the Balance Sheet and Cash Flow tabs.
+  writeSheetHeader(ws, snap, N, 'Schedules', 'Full mirror of the platform Module 4 Schedules, both sub-tabs in sequence: 1. Fixed Assets & D&A (depreciation inputs, land and depreciable roll-forwards per line with capitalised interest, project totals, IDC pool), 2. BS Schedules (balance-sheet feeder roll-forwards ordered ASSETS / LIABILITIES / EQUITY).', { label: 'Line', totalLabel: TOTAL_COLUMN_HEADINGS.mixed, feeds: `Sourced from Capex, depreciation, Modules 1-3 and the financing recurrence. Supports the Balance Sheet. ${TOTAL_COLUMN_NOTES.mixed}` });
   const E = makeEmitters(ws, N);
-  const nz = (a?: number[]): boolean => (a ?? []).some((v) => (v ?? 0) !== 0);
+
+  // A fixed asset table from the shared builder: a balance row's Total column
+  // holds its last period, a flow row's the sum, exactly as the screen prints.
+  const emitFaTable = (t: FixedAssetTable): void => {
+    E.subTitle(t.title);
+    for (const row of t.rows) {
+      E.moneyRow(row.label, row.values, {
+        style: row.isTotal ? 'total' : row.isSubtotal ? 'subtotal' : 'plain',
+        indent: row.indent,
+        prior: row.priorValue,
+        totalLast: row.aggregation === 'last',
+        // The screen's Total ignores the prior-year cell; a summed row here must too.
+        totalValue: row.aggregation === 'last' ? undefined : row.values.slice(0, N).reduce((s, v) => s + (v ?? 0), 0),
+      });
+    }
+    E.note(t.caption);
+  };
 
   // ── 1. Fixed Assets & D&A ────────────────────────────────────────────────────
+  // THE SCREEN'S OWN TABLES (2026-09-17): `buildFixedAssetReport` is what the
+  // Module 4 Fixed Assets & D&A sub-tab renders, so the inputs, the strategy
+  // groups, the per line tables (capitalised interest inside the depreciable
+  // roll-forward), the project tables and the IDC pool are the same rows here.
   E.section('1. Fixed Assets & D&A (land + depreciable NBV roll-forward, per line + project total)');
-  const fa = snap.fixedAssets;
-  // THE DISPOSAL THE BALANCE SHEET BOOKED SHOWS IN THE SCHEDULE (2026-09-16, step 10).
-  const dCtx = disposalContextOf(snap);
-  for (const [, ra, lineName] of poolMapByLine(fa.byAsset, state)) {
-    const dep = ra.depreciable;
-    if (!nz(dep.closingNBVPerPeriod) && !nz(ra.land.closingPerPeriod)) continue;
-    const landD = scheduleWithDisposal({ ...ra.land, closingPerPeriod: ra.land.closingPerPeriod }, dCtx);
-    const depD = scheduleWithDisposal({ openingPerPeriod: dep.openingNBVPerPeriod, additionsPerPeriod: dep.additionsPerPeriod, depreciationPerPeriod: dep.depreciationPerPeriod, closingPerPeriod: dep.closingNBVPerPeriod, accumDepPerPeriod: dep.accumDepPerPeriod }, dCtx);
-    E.subTitle(`Fixed Assets, ${lineName}`);
-    E.moneyRow('Land opening', landD.openingPerPeriod, { indent: 1, prior: ra.land.openingAtAxisStart, noTotal: true });
-    E.moneyRow('Land additions', landD.additionsPerPeriod, { indent: 1 });
-    if (landD.disposed) E.moneyRow('Land disposed at exit', landD.disposalPerPeriod.map((v) => -v), { indent: 1 });
-    E.moneyRow('Land closing', landD.closingPerPeriod, { style: 'subtotal', totalLast: true });
-    E.moneyRow('Depreciable opening NBV', depD.openingPerPeriod, { indent: 1, noTotal: true });
-    E.moneyRow('Additions', depD.additionsPerPeriod, { indent: 1 });
-    E.moneyRow('Depreciation', depD.depreciationPerPeriod, { indent: 1 });
-    if (depD.disposed) E.moneyRow('Disposed at exit (net book value)', depD.disposalPerPeriod.map((v) => -v), { indent: 1 });
-    E.moneyRow('Depreciable closing NBV', depD.closingPerPeriod, { style: 'subtotal', totalLast: true });
-    E.moneyRow('Combined closing (Land + NBV)', landD.closingPerPeriod.map((v, t) => v + (depD.closingPerPeriod[t] ?? 0)), { style: 'total', totalLast: true });
+  const report = buildFixedAssetReport({ fa: snap.fixedAssets, idc: snap.idc, state, dCtx: disposalContextOf(snap) });
+  if (report.inputs.length === 0) {
+    E.note('No depreciable assets in this project. Sell-only projects route capex through Cost of Sales (Module 2 Tab 3) instead.');
+  } else {
+    E.groupBand('Depreciation Inputs (all assets)');
+    const hr = E.cursor();
+    setColHeader(ws.getCell(hr, LBL_COL), 'Asset', 'left');
+    setColHeader(ws.getCell(hr, META_B), 'Strategy / Method', 'left');
+    setColHeader(ws.getCell(hr, TOTAL_COL), 'Useful Life (yrs)', 'right');
+    setColHeader(ws.getCell(hr, OPEN_COL), 'Rate', 'right');
+    setColHeader(ws.getCell(hr, pcol(0)), 'Opening Land', 'right');
+    setColHeader(ws.getCell(hr, pcol(1)), 'Opening Bldg NBV', 'right');
     E.gap();
+    for (const i of report.inputs) {
+      const rr = E.cursor();
+      setLabel(ws.getCell(rr, LBL_COL), i.title, { indent: 1 });
+      setBasis(ws.getCell(rr, META_B), `${i.strategyLabel}; ${i.method === 'reducing_balance' ? 'Reducing Balance (WDV)' : 'Straight Line (SL)'}`);
+      // The life the engine uses, marked as an input. A blank stored life
+      // inherits the category default, and the cell says so in its comment.
+      const life = ws.getCell(rr, TOTAL_COL);
+      life.value = i.lifeEffective; life.numFmt = NUMFMT.int; markInput(life);
+      if (i.inheritsLife) setNote(life, `Blank on the platform: inherits the ${i.strategyLabel} category default of ${i.lifeEffective} years.`);
+      const rate = ws.getCell(rr, OPEN_COL);
+      rate.value = i.rateEffective; rate.numFmt = NUMFMT.pct;
+      if (i.method === 'reducing_balance') markInput(rate);
+      else rate.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+      const put = (c: number, v: number): void => { const cell = ws.getCell(rr, c); cell.value = v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
+      put(pcol(0), i.openingLand);
+      put(pcol(1), i.openingBuilding);
+      E.gap();
+    }
+    E.note(report.inputsCaption);
   }
-  const fpt = fa.projectTotals;
-  const landTot = scheduleWithDisposal({ ...fpt.land }, dCtx);
-  const depTot = scheduleWithDisposal({ openingPerPeriod: fpt.depreciable.openingNBVPerPeriod, additionsPerPeriod: fpt.depreciable.additionsPerPeriod, depreciationPerPeriod: fpt.depreciable.depreciationPerPeriod, closingPerPeriod: fpt.depreciable.closingNBVPerPeriod, accumDepPerPeriod: fpt.depreciable.accumDepPerPeriod }, dCtx);
-  E.subTitle('Fixed Assets (project total)');
-  E.moneyRow('Land closing', landTot.closingPerPeriod, { indent: 1, totalLast: true });
-  E.moneyRow('Depreciation', depTot.depreciationPerPeriod, { indent: 1 });
-  if (landTot.disposed || depTot.disposed) E.moneyRow('Disposed at exit (land and net book value)', landTot.disposalPerPeriod.map((v, t) => -(v + (depTot.disposalPerPeriod[t] ?? 0))), { indent: 1 });
-  E.moneyRow('Depreciable closing NBV', depTot.closingPerPeriod, { style: 'subtotal', totalLast: true });
-  E.moneyRow('Combined closing', landTot.closingPerPeriod.map((v, t) => v + (depTot.closingPerPeriod[t] ?? 0)), { style: 'total', totalLast: true });
-  // IDC pool (capitalised construction interest depreciates through D&A).
-  const idc = snap.idc;
-  if (nz(idc.totalIdcPerPeriod) || nz(idc.idcNbvPerPeriod)) {
-    E.gap();
-    const idcD = idcWithDisposal(idc, dCtx);
-    E.subTitle('IDC Pool (capitalised construction interest)');
-    E.moneyRow('Construction interest', idc.totalConstructionInterestPerPeriod, { indent: 1 });
-    E.moneyRow('Capitalised to assets', idcD.additionsPerPeriod, { indent: 1 });
-    E.moneyRow('IDC depreciation', idcD.depreciationPerPeriod, { indent: 1 });
-    if (idcD.disposed) E.moneyRow('Disposed at exit (capitalised interest)', idcD.disposalPerPeriod.map((v) => -v), { indent: 1 });
-    E.moneyRow('IDC NBV closing', idcD.closingPerPeriod, { style: 'total', totalLast: true });
+  for (const g of report.groups) {
+    E.groupBand(`${g.title} (${g.lines.length} asset${g.lines.length === 1 ? '' : 's'})`);
+    if (g.lines.length === 0) { E.note(g.emptyText); continue; }
+    for (const l of g.lines) {
+      emitFaTable(l.land);
+      emitFaTable(l.depreciable);
+      emitFaTable(l.total);
+    }
   }
-  E.gap();
+  E.groupBand('Project Total');
+  emitFaTable(report.project.land);
+  emitFaTable(report.project.depreciable);
+  emitFaTable(report.project.total);
+  if (report.project.idcPool) emitFaTable(report.project.idcPool);
 
   // ── 2. BS Schedules ──────────────────────────────────────────────────────────
+  // The shared feeder tables, with their captions, grouped by section as the
+  // screen groups them. This was a hand copy of the builder until 2026-09-17.
   E.section('2. BS Schedules (balance-sheet feeder roll-forwards, ordered ASSETS / LIABILITIES / EQUITY)');
-  for (const grp of buildBSFeederGroups(snap, state)) {
-    E.groupBand(grp.group);
-    for (const tbl of grp.tables) { E.subTitle(tbl.title); E.emitTable(tbl.rows); E.gap(); }
+  const feeders = buildBsFeederTables({ snap, state, fmt: (v: number) => String(v) });
+  for (const sec of BS_FEEDER_SECTIONS) {
+    const tables = feeders.filter((t) => t.section === sec.section);
+    if (tables.length === 0) continue;
+    E.groupBand(sec.section);
+    for (const tbl of tables) { E.subTitle(tbl.title); E.emitTable(tbl.rows); E.note(tbl.caption); }
   }
 }
 
@@ -3690,7 +3541,7 @@ function addProfitLoss(ctx: EmitCtx): void {
     // same column that holds a fee charged on the rows below and read as a fee.
     E.subTitle(FUND_CAPITAL_BASES_TITLE);
     for (const c of buildFundCapitalRows(snap)) {
-      E.moneyRow(c.isTotal ? `= ${c.label}` : c.label, undefined, { style: c.isTotal ? 'subtotal' : 'plain', totalValue: c.amount, basis: FUND_CAPITAL_BASE_TAG });
+      E.moneyRow(c.isTotal ? `= ${c.label}` : c.label, undefined, { style: c.isTotal ? 'subtotal' : 'plain', totalValue: c.amount, basis: FUND_CAPITAL_BASE_TAG, noPeriods: true });
     }
     E.note(FUND_CAPITAL_BASES_NOTE);
     // The Rate column was 2 characters wide, so "0.50%" rendered as a sliver
@@ -3704,7 +3555,7 @@ function addProfitLoss(ctx: EmitCtx): void {
     ws.getColumn(META_C).width = Math.max(ws.getColumn(META_C).width ?? 0, 10);
     setBasis(ws.getCell(E.cursor(), META_B), 'Base');
     setBasis(ws.getCell(E.cursor(), META_C), 'Rate');
-    E.moneyRow('What each fee is charged on', undefined, { style: 'subtotal', noTotal: true });
+    E.moneyRow('What each fee is charged on', undefined, { style: 'subtotal', noTotal: true, noPeriods: true });
     for (let i = 0; i < basisRows.length; i++) {
       const b = basisRows[i];
       const line = snap.fundFees.lines[i];
@@ -3778,10 +3629,22 @@ function addBalanceSheet(ctx: EmitCtx): void {
   // 'Closing'. It used to say 'Total', which read as a lifetime sum: TOTAL
   // ASSETS printed the at-exit figure under that heading.
   const bsRows = buildBSRows({ snap, state, labels, filterPhaseId: '__all__', fmt: (v: number) => String(v) }).rows;
-  writeSheetHeader(ws, snap, N, 'Balance Sheet', 'Full detailed mirror of the platform Module 4 balance sheet (consolidated). Assets = Liabilities + Equity; the BS-check row is ~0 by construction.', { label: 'Line', totalLabel: totalColumnHeading(bsRows), feeds: `The platform balance sheet. Balances by construction. ${totalColumnNote(bsRows)}` });
+  writeSheetHeader(ws, snap, N, 'Balance Sheet', 'Full detailed mirror of the platform Module 4 balance sheet (consolidated), then the reconciliation bridge. Cash is the plug from the Direct Cash Flow Statement; the BS Check row reads 0 in every period when the statement balances.', { label: 'Line', totalLabel: totalColumnHeading(bsRows), feeds: `The platform balance sheet. Cash comes from the Direct Cash Flow; the bridge localises any difference to one line. ${totalColumnNote(bsRows)}` });
   const E = makeEmitters(ws, N);
   E.section('Balance Sheet: Project');
   E.emitTable(bsRows);
+  // THE RECONCILIATION BRIDGE THE SCREEN SHOWS BENEATH THE STATEMENT (2026-09-17),
+  // from the same shared builder, with the screen's caption.
+  E.gap();
+  E.section('Balance Check, Reconciliation Bridge (per period)');
+  // The bridge is read PER PERIOD. Its leading cell is left blank rather than
+  // summed, because this sheet's leading column is headed Closing and a lifetime
+  // sum of period movements under that heading would read as a balance.
+  for (const row of buildBsReconciliationRows({ snap, state, fmt: (v: number) => String(v) })) {
+    if (row.isSection) { E.subTitle(row.label); continue; }
+    E.moneyRow(row.label, row.values, { style: row.isTotal ? 'total' : row.isSubtotal ? 'subtotal' : 'plain', indent: row.indent, noTotal: true });
+  }
+  E.note(BS_RECONCILIATION_CAPTION);
 }
 
 // ── Case reports, built once per export ───────────────────────────────────────

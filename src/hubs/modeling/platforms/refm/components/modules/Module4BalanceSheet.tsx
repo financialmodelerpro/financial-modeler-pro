@@ -36,7 +36,7 @@ import { makeFmt } from './_shared/numberFmt';
 import { PhaseSection } from './_shared/PhaseSection';
 import { M4PeriodTable, type M4Row } from './_shared/m4Table';
 import { FAST_INPUT } from './_shared/inputStyles';
-import { buildBSRows, buildBsReconciliationRows } from '../../lib/reports/m4Reports';
+import { buildBSRows, buildBsReconciliationRows, BS_RECONCILIATION_CAPTION } from '../../lib/reports/m4Reports';
 import { OverrideBadge } from './_shared/OverrideBadge';
 
 export default function Module4BalanceSheet(): React.JSX.Element {
@@ -274,7 +274,7 @@ export default function Module4BalanceSheet(): React.JSX.Element {
           <div style={{ marginTop: 'var(--sp-3)' }}>
             <M4PeriodTable
               title="Balance Check, Reconciliation Bridge (per period)"
-              caption="Δ BS difference = Net cash flow − Δ(Liabilities + Equity) + Δ(non-cash Assets). Exact identity: when the BS balances every line nets to zero each year. When it does not, the line whose change is NOT offset by its cash-flow / non-cash counterpart is the leak. Unexplained must be 0 (else a BS line is missing from the bridge)."
+              caption={BS_RECONCILIATION_CAPTION}
               yearLabels={yearLabels}
               currency={currency}
               fmt={fmt}

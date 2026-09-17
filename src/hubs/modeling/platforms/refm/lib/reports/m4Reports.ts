@@ -25,6 +25,7 @@ import type { FundFeeSchedule } from '../fundFees';
 import { FEE_BASE_LABELS, FEE_TIMING_LABELS } from '../fundTerms';
 import { planReportLines, lineRowLabel, sumLine, poolMapByLine } from './lineRows';
 import { revenueBySection } from './revenueSections';
+import { buildAccountsReceivableDSO } from '@/src/core/calculations/revenue/accountsReceivableDSO';
 
 type Labels = ReturnType<typeof getFinancialLabels>;
 
@@ -861,11 +862,58 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
       pushLineRows(retailAssets, 'revenueReceivedPerPeriod', 'cf-rev-ret');
     }
   }
-  rows.push({ label: 'Total Revenue Received', values: d.revenueReceivedPerPeriod, isSubtotal: true });
+  // A PHASE VIEW SUMS ITS OWN ASSETS (2026-09-17). The operating totals below
+  // were the PROJECT series whatever the filter, so a phase printed its own
+  // revenue lines under the whole project's Total Revenue Received and Cash Flow
+  // from Operations (Marina Gate Phase 1: lines 1,086,064,329 under a total of
+  // 2,162,708,165). Under a filter every operating figure is now struck from the
+  // phase's assets, the same rows printed above it. HQ is project level and is
+  // shown and counted with a "(project)" tag, exactly as the phase P&L carries it;
+  // fund fees and tax are project level with no phase allocation, so a phase view
+  // leaves them out, as the phase P&L stops before them. The project view is
+  // unchanged: it still reads the engine's own series.
+  const phaseFiltered = filterPhaseId !== ALL;
+  const projTag = phaseFiltered ? ' (project)' : '';
+  const phaseAssets = [...residentialAssets, ...hospitalityAssets, ...retailAssets];
+  const sumEscrow = (key: 'heldPerPeriod' | 'releasePerPeriod'): number[] => {
+    const out = new Array<number>(N).fill(0);
+    for (const a of phaseAssets) {
+      const series = snap.escrow.byAsset.get(a.id)?.result[key];
+      if (!series) continue;
+      for (let t = 0; t < N; t++) out[t] += series[t] ?? 0;
+    }
+    return out;
+  };
+  // Operating (hospitality and lease) cash is revenue less the change in DSO
+  // receivables, which the engine strikes on the PROJECT's operating revenue.
+  // The rule is linear in revenue, so the phase's share is the same rule run on
+  // the phase's own operating revenue, and the phases add back to the project.
+  const phaseRevenueReceived = (): number[] => {
+    const out = sumAssetSeries(residentialAssets, 'revenueReceivedPerPeriod');
+    const operatingRevenue = new Array<number>(N).fill(0);
+    for (const a of [...hospitalityAssets, ...retailAssets]) {
+      const pl = snap.perAssetPL.get(a.id);
+      if (!pl) continue;
+      for (let t = 0; t < N; t++) operatingRevenue[t] += pl.revenuePerPeriod[t] ?? 0;
+    }
+    const ar = buildAccountsReceivableDSO({
+      revenuePerPeriod: operatingRevenue,
+      dsoDays: Math.max(0, state.project.operatingAr?.dsoDays ?? 0),
+      daysPerYear: Math.max(1, state.project.operatingAr?.daysPerYear ?? 365),
+      axisLength: N,
+    });
+    for (let t = 0; t < N; t++) out[t] += ar.cashReceivedPerPeriod[t] ?? 0;
+    return out;
+  };
+  const revenueReceived = phaseFiltered ? phaseRevenueReceived() : d.revenueReceivedPerPeriod;
+  const escrowHeld = phaseFiltered ? sumEscrow('heldPerPeriod').map((v) => -v) : d.escrowHeldPerPeriod;
+  const escrowRelease = phaseFiltered ? sumEscrow('releasePerPeriod') : d.escrowReleasePerPeriod;
+  const opexPaid = phaseFiltered ? sumAssetSeries(phaseAssets, 'opexPaidPerPeriod').map((v) => -v) : d.opexPaidPerPeriod;
+  rows.push({ label: 'Total Revenue Received', values: revenueReceived, isSubtotal: true });
 
-  if (d.escrowHeldPerPeriod.some((v) => v !== 0) || d.escrowReleasePerPeriod.some((v) => v !== 0)) {
-    rows.push({ label: 'Less: Inaccessible Funds Locked', values: d.escrowHeldPerPeriod, indent: 1 });
-    rows.push({ label: 'Add: Release of Inaccessible Funds', values: d.escrowReleasePerPeriod, indent: 1 });
+  if (escrowHeld.some((v) => v !== 0) || escrowRelease.some((v) => v !== 0)) {
+    rows.push({ label: 'Less: Inaccessible Funds Locked', values: escrowHeld, indent: 1 });
+    rows.push({ label: 'Add: Release of Inaccessible Funds', values: escrowRelease, indent: 1 });
   }
 
   if (hospitalityAssets.length > 0) {
@@ -883,7 +931,7 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
     }
   }
   if (d.hqOpexPaidPerPeriod.some((v) => v !== 0)) {
-    rows.push({ label: 'HQ Expenses', values: d.hqOpexPaidPerPeriod, indent: 1 });
+    rows.push({ label: `HQ Expenses${projTag}`, values: d.hqOpexPaidPerPeriod, indent: 1 });
   }
 
   // ITEM E (2026-08-18b): PER-CLASS CONTRIBUTION, struck from the rows above.
@@ -924,7 +972,8 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
       for (const c of contribution) rows.push({ label: c.label, values: c.series, isSubtotal: true });
     }
   }
-  rows.push({ label: 'Total Operating Expenses Paid', values: d.opexPaidPerPeriod.map((v, i) => v + (d.hqOpexPaidPerPeriod[i] ?? 0)), isSubtotal: true });
+  const totalOpexPaid = opexPaid.map((v, i) => v + (d.hqOpexPaidPerPeriod[i] ?? 0));
+  rows.push({ label: 'Total Operating Expenses Paid', values: totalOpexPaid, isSubtotal: true });
 
   // Fund fees paid (2026-08-05). They were ALWAYS inside cash from operations
   // (that is how the fee reaches the funding requirement), but they had no row,
@@ -935,14 +984,17 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
   // Direct and Indirect still agree: the fee is a cash expense already inside
   // PAT, so the indirect method needs no add-back and is left untouched.
   const fundFeesPaid = d.fundFeesPaidPerPeriod ?? [];
-  if (fundFeesPaid.some((v) => v !== 0)) {
+  if (!phaseFiltered && fundFeesPaid.some((v) => v !== 0)) {
     rows.push({ label: 'Fund Management and Other Expenses', values: fundFeesPaid, indent: 1 });
   }
 
-  if (d.taxPaidPerPeriod.some((v) => v !== 0)) {
+  if (!phaseFiltered && d.taxPaidPerPeriod.some((v) => v !== 0)) {
     rows.push({ label: `${labels.taxPaid}`, values: d.taxPaidPerPeriod, indent: 1 });
   }
-  rows.push({ label: 'Cash Flow from Operations', values: d.cashFromOperationsPerPeriod, isTotal: true });
+  const cfo = phaseFiltered
+    ? revenueReceived.map((v, t) => v + (escrowHeld[t] ?? 0) + (escrowRelease[t] ?? 0) + (totalOpexPaid[t] ?? 0))
+    : d.cashFromOperationsPerPeriod;
+  rows.push({ label: 'Cash Flow from Operations', values: cfo, isTotal: true });
 
   rows.push(...buildInvestmentRows(ctx, d.capexPerPeriod, d.cashFromInvestmentPerPeriod));
 
@@ -1449,6 +1501,9 @@ export function buildRetainedEarningsRows(ctx: M4FeederCtx): M4Row[] {
   ];
 }
 
+/** The caption the reconciliation bridge carries on every surface. */
+export const BS_RECONCILIATION_CAPTION = 'Δ BS difference = Net cash flow − Δ(Liabilities + Equity) + Δ(non-cash Assets). Exact identity: when the BS balances every line nets to zero each year. When it does not, the line whose change is NOT offset by its cash-flow / non-cash counterpart is the leak. Unexplained must be 0 (else a BS line is missing from the bridge).';
+
 /** Balance-check reconciliation bridge (per period). */
 export function buildBsReconciliationRows(ctx: M4FeederCtx): M4Row[] {
   const r = ctx.snap.bsReconciliation;
@@ -1481,15 +1536,27 @@ export function buildBsReconciliationRows(ctx: M4FeederCtx): M4Row[] {
  *  buildBsReconciliationRows (it lives on the Balance Sheet tab, not the feeder
  *  list). */
 export function buildBsFeederTables(ctx: M4FeederCtx): M4FeederTable[] {
+  // THE CAPTIONS ARE THE SCREEN'S (2026-09-17). The on-screen tab used to type
+  // its own, longer captions beside these, so the screen, the PDF and the
+  // workbook each described the same table differently, and the screen's E2
+  // caption still said dividends were zero after the dividend policy shipped.
+  // One wording now, rendered by all three.
   return [
-    { key: 'A1', section: 'ASSETS', title: 'A1. Residential Sales Receivables: Roll-Forward (project)', caption: 'Per-asset closing AR (mirror of M2 Revenue Output Block 5) + project total. AR forms ONLY on pre-sales. Opening + Pre-Sales Sale Value − Pre-Sales Cash Collected = Closing AR.', rows: buildResidentialReceivablesRows(ctx) },
-    { key: 'A2', section: 'ASSETS', title: 'A2. Operating Receivables: Roll-Forward (project)', caption: 'DSO-driven for hospitality + lease revenue. Closing AR = Operating revenue × DSO / 365.', rows: buildOperatingReceivablesRows(ctx) },
+    { key: 'A1', section: 'ASSETS', title: 'A1. Residential Sales Receivables: Roll-Forward (project)', caption: 'Per-asset closing AR (mirror of M2 Revenue Output Block 5) + project total. AR forms ONLY on pre-sales (sale value lumps at sale year, cash collects via milestone profile). Post-handover sales (SDO) recognise revenue = cash same period and never accrue AR. Opening + Pre-Sales Sale Value − Pre-Sales Cash Collected = Closing AR.', rows: buildResidentialReceivablesRows(ctx) },
+    { key: 'A2', section: 'ASSETS', title: 'A2. Operating Receivables: Roll-Forward (project)', caption: 'DSO-driven for hospitality + lease revenue. Closing AR = Operating revenue × DSO / 365. Configure DSO in the Balance Sheet tab → Working Capital Inputs.', rows: buildOperatingReceivablesRows(ctx) },
     { key: 'A3', section: 'ASSETS', title: 'A3. Inventory (Residential WIP): Roll-Forward (project)', caption: 'Opening + Capex capitalized − Released to CoS = Closing. Floored at 0 once CoS has fully unwound the capex.', rows: buildInventoryRows(ctx) },
-    { key: 'A4', section: 'ASSETS', title: 'A4. Restricted Cash (Escrow): Roll-Forward (project)', caption: 'Opening + Held − Release = Closing. Pre-sales cash held in escrow during construction, released back on each asset\'s Release Year. Restricted CASH (asset).', rows: buildEscrowFeederRows(ctx) },
-    { key: 'L1', section: 'LIABILITIES', title: 'L1. Accounts Payable: Roll-Forward (project)', caption: 'DPO-driven AP. Opening + Opex Incurred − Cash Paid = Closing.', rows: buildApFeederRows(ctx) },
-    { key: 'L2', section: 'LIABILITIES', title: 'L2. Unearned Revenue (Off-plan advances): Roll-Forward (project)', caption: 'Opening + Pre-sales contracts signed (sale value) − Revenue recognized at handover = Closing.', rows: buildUnearnedRows(ctx) },
-    { key: 'L3', section: 'LIABILITIES', title: 'L3. Debt Outstanding by Tranche (project)', caption: 'Per-tranche outstanding balance. Drawdowns add; principal repayments subtract.', rows: buildDebtOutstandingRows(ctx) },
-    { key: 'E1', section: 'EQUITY', title: 'E1. Equity Cumulative Roll-Forward (project, split by type)', caption: 'Opening + Cash + In-Kind + Existing = Closing. Cash flows through Cash Flow (financing); In-Kind is non-cash; Existing carries pre-axis equity forward at axis start.', rows: buildEquityRollForwardRows(ctx) },
-    { key: 'E2', section: 'EQUITY', title: 'E2. Retained Earnings Roll-Forward (project)', caption: 'Opening RE + PAT − Statutory reserve transfer − Dividends = Closing RE.', rows: buildRetainedEarningsRows(ctx) },
+    { key: 'A4', section: 'ASSETS', title: 'A4. Restricted Cash (Escrow): Roll-Forward (project)', caption: 'Opening + Held − Release = Closing. Pre-sales cash held in escrow during construction, released back to the developer on each asset\'s Release Year. Restricted CASH (asset), not a liability. See the M2 Escrow tab for inputs.', rows: buildEscrowFeederRows(ctx) },
+    { key: 'L1', section: 'LIABILITIES', title: 'L1. Accounts Payable: Roll-Forward (project)', caption: 'DPO-driven AP. Opening + Opex Incurred − Cash Paid = Closing. Configure DPO in M3 Opex Output.', rows: buildApFeederRows(ctx) },
+    { key: 'L2', section: 'LIABILITIES', title: 'L2. Unearned Revenue (Off-plan advances): Roll-Forward (project)', caption: 'Opening + Pre-sales contracts signed (sale value) − Revenue recognized at handover = Closing. Liability until residential units hand over.', rows: buildUnearnedRows(ctx) },
+    { key: 'L3', section: 'LIABILITIES', title: 'L3. Debt Outstanding by Tranche (project)', caption: 'Per-tranche outstanding balance. Drawdowns add; principal repayments subtract; interest is recorded in the P&L.', rows: buildDebtOutstandingRows(ctx) },
+    { key: 'E1', section: 'EQUITY', title: 'E1. Equity Cumulative Roll-Forward (project, split by type)', caption: 'Opening + Cash + In-Kind + Existing = Closing. Cash equity flows through Cash Flow (financing block); In-Kind equity is non-cash (land contributed in-kind, recognised on BS as Land + Share Capital simultaneously); Existing equity carries pre-existing operational-phase equity forward at axis start.', rows: buildEquityRollForwardRows(ctx) },
+    { key: 'E2', section: 'EQUITY', title: 'E2. Retained Earnings Roll-Forward (project)', caption: 'Opening RE + PAT − Statutory reserve transfer − Dividends = Closing RE. Dividends follow the dividend policy set in Module 1 Financing (Pay Dividends and the payout ratio) and reduce retained earnings in the year they are declared.', rows: buildRetainedEarningsRows(ctx) },
   ];
 }
+
+/** The section order and the band each section carries on screen. */
+export const BS_FEEDER_SECTIONS: ReadonlyArray<{ section: M4FeederSection; meta: string }> = [
+  { section: 'ASSETS', meta: 'Current asset schedules' },
+  { section: 'LIABILITIES', meta: 'Current + non-current liability schedules' },
+  { section: 'EQUITY', meta: 'Equity roll-forward + Retained Earnings schedule' },
+];
