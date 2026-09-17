@@ -22,7 +22,7 @@ import zlib from 'zlib';
 import path from 'path';
 import { PDFDocument, PDFName, PDFDict, PDFArray, PDFRef, PDFHexString, PDFString } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
-import { generateProjectPdf, generateSummaryPdf, collectModuleTabs, collectModuleItems } from '../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf';
+import { generateProjectPdf, generateSummaryPdf, collectModuleTabs, collectModuleItems, collectModuleContent } from '../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf';
 import { buildBsFeederTables, buildBsReconciliationRows } from '../src/hubs/modeling/platforms/refm/lib/reports/m4Reports';
 import { payloadHasActiveProject } from '../src/shared/entitlements/exportGuard';
 import { PDF_MODULE_TABS } from '../src/hubs/modeling/platforms/refm/lib/pdf/pdfModuleTabs';
@@ -477,8 +477,9 @@ async function main(): Promise<void> {
     assets: [], subUnits: [], parcels: [], costLines: makeDefaultCostLines('p1', 2), costOverrides: [], landAllocationMode: 'autoByBua', financingTranches: [], equityContributions: [],
   };
   const minItems = collectModuleItems(minimal);
-  const revCfg = minItems.find((i) => i.title === 'Revenue Configuration by Line');
-  check('empty "Revenue Configuration by Line" (no assets) is a 0-row table -> suppressed', !!revCfg && !revCfg.hasData, `found=${!!revCfg} hasData=${revCfg?.hasData}`);
+  // Module 2 prints the Revenue tab's project tables; with no lines the first is a 0-row table.
+  const revCfg = minItems.find((i) => i.title === 'Project Total: Project Revenue (Sales Value year-on-year)');
+  check('empty "Project Revenue (Sales Value year-on-year)" (no assets) is a 0-row table -> suppressed', !!revCfg && !revCfg.hasData, `found=${!!revCfg} hasData=${revCfg?.hasData}`);
   const lev = minItems.find((i) => i.title === 'Leverage & Coverage');
   check('empty "Leverage & Coverage" cards (no debt) are all-n/a -> suppressed', !!lev && !lev.hasData, `found=${!!lev} hasData=${lev?.hasData}`);
   // The suppressed items must NOT survive into the rendered content (dropEmptyItems).
@@ -542,6 +543,59 @@ async function main(): Promise<void> {
   ] as const;
   for (const [what, re] of handRolled) {
     check(`area/land: the report never hand-rolls the ${what}`, !re.test(pdfSrc), 'found a re-derivation');
+  }
+
+  // ── Module 2 and Module 3 are a copy of the screens (2026-09-17) ──────────────
+  // The report printed a starting ADR of 0 where the engine prices the ADR from
+  // the sub-unit, stored opex codes where the screen reads labels, no Schedules
+  // feeds, and a Module 3 "Schedules" tab the platform does not have.
+  {
+    const st = buildState();
+    // The ADR lives on the SUB-UNIT; the line's stored starting ADR is zero.
+    st.assets.find((a: any) => a.id === 'H1').revenue.operate.startingADR = 0;
+    const content = collectModuleContent(st, undefined, 'full');
+    const tabsOf = (m: string): string[] => [...new Set(content[m].map((i) => i.tab))];
+    check('M2: tabs are the platform sub-tabs, in order',
+      JSON.stringify(tabsOf('module2')) === JSON.stringify(['Tab 1: Inputs', 'Tab 2: Revenue', 'Tab 3: Cost of Sales', 'Tab 4: Schedules', 'Tab 5: Escrow']), tabsOf('module2').join(' | '));
+    check('M3: tabs are the platform sub-tabs, in order (no Schedules tab)',
+      JSON.stringify(tabsOf('module3')) === JSON.stringify(['Tab 1: Inputs', 'Tab 2: Opex Output']), tabsOf('module3').join(' | '));
+    check('M2/M3: the picker manifest lists exactly those tabs',
+      JSON.stringify(PDF_MODULE_TABS.module2) === JSON.stringify(tabsOf('module2')) && JSON.stringify(PDF_MODULE_TABS.module3) === JSON.stringify(tabsOf('module3')));
+    const tables = (m: string, tab?: string): any[] => content[m].filter((i) => i.item.type === 'table' && (!tab || i.tab === tab)).map((i: any) => i.item.table);
+    const titles = (m: string, tab: string): string[] => tables(m, tab).map((t) => t.title);
+    for (const t of ['Revenue (P&L)', 'Gross Margin (P&L)', 'Accounts Receivable (closing balances)', 'Cash Collected from Customers (per line)']) {
+      check(`M2 Schedules: the "${t}" feed is present`, titles('module2', 'Tab 4: Schedules').includes(t));
+    }
+    for (const t of ['1. Escrow Inputs (project)', '2. A. Pre-Sales Cash by Asset (subject to escrow)', '2. B. Escrow Balance Roll-Forward', '2. C. Cash Flow Impact (project totals)']) {
+      check(`M2 Escrow: "${t}" is present (a Sell line has pre-sales)`, titles('module2', 'Tab 5: Escrow').includes(t));
+    }
+    const escB = tables('module2', 'Tab 5: Escrow').find((t) => t.title === '2. B. Escrow Balance Roll-Forward');
+    check('M2 Escrow: the held balance carries real figures', !!escB && escB.rows.some((r: any) => r.cells.slice(3).some((c: any) => typeof c === 'number' && c !== 0)));
+    const hotelSu = tables('module2', 'Tab 1: Inputs').find((t) => t.columns.some((c: string) => c.startsWith('ADR')));
+    const adr = hotelSu ? Number(String(hotelSu.rows[0]?.cells[3] ?? '').replace(/,/g, '')) : NaN;
+    check('M2 Inputs: the hotel ADR is the resolved sub-unit ADR, not the stored 0', adr === 900, `ADR cell=${hotelSu?.rows[0]?.cells[3]}`);
+    const revTitles = titles('module2', 'Tab 2: Revenue');
+    check('M2 Revenue: a Sell line prints share sold, closing inventory, price per year, recognition and the cohort grid',
+      ['1a. Share of inventory sold', '1c. Closing Inventory', '2a. Sale price per year', '3a. Pre-Sales Recognition Vintage Matrix', '4a. Sale Cohort Grid'].every((k) => revTitles.some((t) => t.includes(k))), revTitles.join(' | '));
+    check('M2 Revenue: the three project tables close the tab',
+      ['Project Revenue (Sales Value year-on-year)', 'Project Revenue Recognised', 'Project Cash Collected'].every((k) => revTitles.some((t) => t.endsWith(k))));
+    check('M2 Inputs: every Sell line prints its cohort terms, handover recognition included',
+      titles('module2', 'Tab 1: Inputs').some((t) => /: Sale cohort terms$/.test(t)));
+    check('M2: no table is filed by strategy', !tables('module2').some((t) => /^(Residential \(Sell\)|Hospitality,|Lease,)/.test(t.title)));
+    const RAW = /\b(direct_(rooms|fb|other)|indirect_[a-z]+|mgmt_[a-z]+|pct_of_[a-z_]+|fixed_baseline|per_room_year|per_sqm_year|hq_[a-z]+)\b/;
+    const m3Strings: string[] = content.module3.flatMap((i: any) => (i.item.type === 'table'
+      ? [i.item.table.title, ...i.item.table.columns, ...i.item.table.rows.flatMap((r: any) => r.cells.map((c: any) => String(c ?? '')))]
+      : [String(i.item.title ?? ''), String(i.item.text ?? '')]));
+    const raw = m3Strings.filter((x) => RAW.test(x));
+    check('M3 Inputs: no stored opex code reaches the report', raw.length === 0, raw.slice(0, 4).join(' | '));
+    const m3in = tables('module3', 'Tab 1: Inputs');
+    check('M3 Inputs: line cards carry the screen columns', m3in.some((t) => JSON.stringify(t.columns) === JSON.stringify(['Line item', 'Category', 'Mode', 'Rate', 'Value', 'Inflation', 'On'])));
+    check('M3 Inputs: the DPO inputs are printed', m3in.some((t) => t.title.startsWith('Accounts Payable (DPO)')));
+    const m3out = tables('module3', 'Tab 2: Opex Output');
+    check('M3 Output: the HQ roll-forward is printed', m3out.some((t) => /HQ, AP Roll-Forward/.test(t.title)));
+    const apProject = m3out.find((x) => /Project Total, AP Roll-Forward/.test(x.title));
+    check('M3 Output: AP rows run opening, incurred, cash paid, closing',
+      !!apProject && apProject.rows.map((r: any) => String(r.cells[0]).trim()).join('|') === 'Opening AP|Opex Incurred|Less: Cash Paid|Closing AP');
   }
 
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);

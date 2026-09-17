@@ -22,16 +22,15 @@ export const PDF_MODULE_TABS: Record<string, string[]> = {
     'Tab 4: Financing / Cash Sweep',
   ],
   module2: [
-    'Tab 1: Revenue Inputs',
-    'Tab 2: Revenue Output',
+    'Tab 1: Inputs',
+    'Tab 2: Revenue',
     'Tab 3: Cost of Sales',
     'Tab 4: Schedules',
     'Tab 5: Escrow',
   ],
   module3: [
-    'Tab 1: Opex Inputs',
+    'Tab 1: Inputs',
     'Tab 2: Opex Output',
-    'Tab 3: Schedules',
   ],
   module4: [
     'Tab 1: Schedules',
