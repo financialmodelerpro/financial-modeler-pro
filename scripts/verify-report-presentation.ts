@@ -232,7 +232,8 @@ async function main(): Promise<void> {
     check('P2: full report balance sheet is headed Closing',
       headingAfter(full, 'Balance Sheet: Project') === TOTAL_COLUMN_HEADINGS.closing, headingAfter(full, 'Balance Sheet: Project'));
     check('P2: full report cash flow is headed Total / Closing',
-      headingAfter(full, 'Cash Flow, Direct Method: Project') === TOTAL_COLUMN_HEADINGS.mixed, headingAfter(full, 'Cash Flow, Direct Method: Project'));
+      // The screen's title since 2026-09-17 ("(project)", not ": Project").
+      headingAfter(full, 'Cash Flow, Direct Method (project)') === TOTAL_COLUMN_HEADINGS.mixed, headingAfter(full, 'Cash Flow, Direct Method (project)'));
     check('P2: full report P&L is still headed Total',
       headingAfter(full, `${getFinancialLabels(state.project).incomeStatementTitle}: Project`) === TOTAL_COLUMN_HEADINGS.sum);
     check('P2: summary balance sheet is headed Closing',

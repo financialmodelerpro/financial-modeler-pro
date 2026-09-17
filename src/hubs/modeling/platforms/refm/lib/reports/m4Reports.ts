@@ -558,6 +558,11 @@ export const FUND_CAPITAL_BASES_TITLE = 'Capital Bases (the quantities the fees 
 export const FUND_CAPITAL_BASE_TAG = 'capital base';
 export const FUND_CAPITAL_BASES_NOTE =
   'These three rows are amounts of CAPITAL, not fees. Total equity and the debt facility are what the model raised; the fund size is their sum. Each fee below states which of them it is charged on.';
+/** The Fund Fee Basis table's title and caption, as the Module 4 P&L tab prints
+ *  them. One wording for the screen and the PDF (2026-09-17). */
+export const FUND_FEE_BASIS_TITLE = 'Fund Fee Basis';
+export const FUND_FEE_BASIS_CAPTION =
+  'What each fee is charged on, and the rate applied. A one-time fee shows the single amount charged on. An annual fee shows the base charged in each period and how many periods it applies to ("2,632.7 x 14"), because a base is a stock and summing it across the life of the fund is not a quantity. A fee reading zero means an empty basis, not a missing rate.';
 
 /**
  * The fee basis table. Empty when the fund layer is off, so a caller can render

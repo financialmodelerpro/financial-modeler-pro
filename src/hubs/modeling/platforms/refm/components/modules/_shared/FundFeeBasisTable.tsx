@@ -20,7 +20,7 @@
  * No em dashes in this file.
  */
 import React from 'react';
-import { fundFeeBasisText, type FundFeeBasisRow, type FundCapitalRow } from '../../../lib/reports/m4Reports';
+import { fundFeeBasisText, FUND_FEE_BASIS_TITLE, FUND_FEE_BASIS_CAPTION, type FundFeeBasisRow, type FundCapitalRow } from '../../../lib/reports/m4Reports';
 
 export function FundFeeBasisTable({ rows, capital = [], currency, fmt, title, caption }: {
   rows: FundFeeBasisRow[];
@@ -45,11 +45,11 @@ export function FundFeeBasisTable({ rows, capital = [], currency, fmt, title, ca
   return (
     <section style={{ marginBottom: 'var(--sp-3)' }} data-testid="fund-fee-basis">
       <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', marginBottom: 4 }}>
-        {title ?? 'Fund Fee Basis'}{' '}
+        {title ?? FUND_FEE_BASIS_TITLE}{' '}
         <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-meta)' }}>({currency})</span>
       </div>
       <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, fontStyle: 'italic' }}>
-        {caption ?? 'What each fee is charged on, and the rate applied. A one-time fee shows the single amount charged on. An annual fee shows the base charged in each period and how many periods it applies to ("2,632.7 x 14"), because a base is a stock and summing it across the life of the fund is not a quantity. A fee reading zero means an empty basis, not a missing rate.'}
+        {caption ?? FUND_FEE_BASIS_CAPTION}
       </div>
       {/* The three capital bases, stated before the fees that charge on them.
           The fees use three different quantities (equity alone, debt alone,
