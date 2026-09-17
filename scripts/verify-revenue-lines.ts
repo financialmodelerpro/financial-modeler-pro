@@ -315,6 +315,18 @@ section('J. A line\'s cost of sales is the sum of its plots\'');
   check('J3 the recognition share sums to one again', near(sum(s.recognitionSharePerPeriod), 1));
   check('J4 the inventory and the vintage matrix add', JSON.stringify(s.inventoryPerPeriod) === JSON.stringify([440, 440, 220, 0]) && s.vintageMatrix[0][2] === 220);
   check('J5 one plot comes back as itself under the line id', sumAssetCostOfSales([part('a', 1)], 'line', N)?.assetId === 'line' && sumAssetCostOfSales([], 'line', N) === null);
+  // J6: plots of a merged line each carry the LINE's recognition, so the line
+  // total takes it ONCE (it printed double on the Cost of Sales build), while
+  // the charge still adds and the margin is struck on the single figure.
+  {
+    const lineRec = (p: AssetCostOfSales): AssetCostOfSales => ({ ...p, recognitionPerPeriod: [0, 0, 200, 200], totalRecognition: 400, recognitionIsLine: true });
+    const l = sumAssetCostOfSales([lineRec(part('a', 1)), lineRec(part('b', 3))], 'line', N)!;
+    check('J6 a line recognition carried by every plot is taken once, the charge still adds',
+      JSON.stringify(l.recognitionPerPeriod) === JSON.stringify([0, 0, 200, 200]) && l.totalRecognition === 400
+      && JSON.stringify(l.cos.perPeriod) === JSON.stringify([0, 0, 220, 220])
+      && JSON.stringify(l.cos.grossMarginPerPeriod) === JSON.stringify([0, 0, -20, -20])
+      && near(sum(l.recognitionSharePerPeriod), 1));
+  }
 }
 
 // ── K. The surfaces read the rule (static) ──────────────────────────────────

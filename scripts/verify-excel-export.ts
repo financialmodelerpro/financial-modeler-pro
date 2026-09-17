@@ -41,6 +41,11 @@ const num = (v: any): number => {
 const isFormula = (v: any): boolean => !!(v && typeof v === 'object' && 'formula' in v);
 const labelOf = (ws: ExcelJS.Worksheet, R: number): string => { const a = ws.getCell(R, 1).value; return typeof a === 'string' ? a : (a && typeof a === 'object' && 'text' in (a as any) ? (a as any).text : ''); };
 const rowByLabel = (ws: ExcelJS.Worksheet, re: RegExp): number => { let row = -1; ws.eachRow((_r, R) => { if (row < 0 && re.test(labelOf(ws, R))) row = R; }); return row; };
+/** The first row matching `re` BELOW the first row matching `after`. The
+ *  Revenue tab mirrors the platform's project total tables, whose grand row is
+ *  "Total Project" in three tables (sales value, recognised, cash), so the
+ *  recognised figure is found under its own table title. */
+const rowByLabelAfter = (ws: ExcelJS.Worksheet, after: RegExp, re: RegExp): number => { const from = rowByLabel(ws, after); let row = -1; if (from < 0) return -1; ws.eachRow((_r, R) => { if (row < 0 && R > from && re.test(labelOf(ws, R))) row = R; }); return row; };
 const sumA = (a: number[], n: number): number => a.slice(0, n).reduce((s, v) => s + (v ?? 0), 0);
 const close = (a: number, b: number, tol = 1e-4): boolean => Math.abs(a - b) <= Math.max(1000, Math.abs(b) * tol);
 
@@ -82,17 +87,24 @@ async function main(): Promise<void> {
 
   // ── Statements tie EXACTLY to the platform snapshot (constants) ─────────────
   const totD = (sheet: string, re: RegExp): number => { const ws = wb.getWorksheet(sheet)!; const R = rowByLabel(ws, re); return R > 0 ? num(ws.getCell(R, 4).value) : NaN; }; // period-sheet Total col = D (4)
-  check('Revenue total == snapshot total revenue', close(totD('Revenue', /^Total revenue$/), sumA(snap.pl.totalRevenuePerPeriod, N)), `wb=${Math.round(totD('Revenue', /^Total revenue$/))} snap=${Math.round(sumA(snap.pl.totalRevenuePerPeriod, N))}`);
+  const revTotalRow = rowByLabelAfter(wb.getWorksheet('Revenue')!, /^Project Revenue Recognised$/, /^Total Project$/);
+  const revTotalWb = revTotalRow > 0 ? num(wb.getWorksheet('Revenue')!.getCell(revTotalRow, 4).value) : NaN;
+  check('Revenue total (Project Revenue Recognised, Total Project) == snapshot total revenue', close(revTotalWb, sumA(snap.pl.totalRevenuePerPeriod, N)), `wb=${Math.round(revTotalWb)} snap=${Math.round(sumA(snap.pl.totalRevenuePerPeriod, N))}`);
   check('Opex total == snapshot total opex', close(totD('Opex', /^Total Project Opex$/), sumA(snap.pl.totalOpexPerPeriod, N)));
-  // Module 3 mirror: the Opex sheet reproduces all platform sub-tabs in order.
+  // Module 3 mirror: the Opex sheet reproduces both platform sub-tabs in order
+  // (Inputs, Opex Output); the payables roll-forward sits on Output, as on screen.
   const opxWs = wb.getWorksheet('Opex')!;
   const m3 = (re: RegExp): number => rowByLabel(opxWs, re);
-  const m3a = m3(/^1\. Opex Inputs/), m3b = m3(/^2\. Opex Output/), m3c = m3(/^3\. Schedules/);
-  check('Opex mirrors the Module 3 sub-tabs in sequence (Inputs, Output, Schedules)', m3a > 0 && m3b > m3a && m3c > m3b, `rows=${m3a},${m3b},${m3c}`);
-  check('Opex Schedules carries the project-total Accounts Payable roll-forward', m3(/^Accounts Payable \(project total\)$/) > m3c);
+  const m3a = m3(/^1\. Opex Inputs/), m3b = m3(/^2\. Opex Output/);
+  check('Opex mirrors the Module 3 sub-tabs in sequence (Inputs, Opex Output)', m3a > 0 && m3b > m3a, `rows=${m3a},${m3b}`);
+  check('Opex Output carries the project-total Accounts Payable roll-forward', m3(/^Project Total: AP Roll-Forward$/) > m3b);
+  check('Opex Inputs print the platform labels, never the stored codes', m3(/^Line item$/) > m3a
+    && (() => { let codes = 0; opxWs.eachRow((row) => row.eachCell((c) => { if (typeof c.value === 'string' && /^(indirect_|direct_|pct_of_|per_room_year|per_sqm_year|fixed_baseline)/.test(c.value)) codes++; })); return codes === 0; })());
   // Cost of Sales is a section on the Revenue sheet; tie its project-total row
-  // (the last 'Total Cost of Sales' on that sheet) to the snapshot.
-  const rowByLabelLast = (ws: ExcelJS.Worksheet, re: RegExp): number => { let row = -1; ws.eachRow((_r, R) => { if (re.test(labelOf(ws, R))) row = R; }); return row; };
+  // (the last 'Total Cost of Sales' ABOVE the Schedules section, whose income
+  // statement feed repeats the label) to the snapshot.
+  const revSchedulesRow = rowByLabel(wb.getWorksheet('Revenue')!, /^4\. Schedules/);
+  const rowByLabelLast = (ws: ExcelJS.Worksheet, re: RegExp): number => { let row = -1; ws.eachRow((_r, R) => { if (re.test(labelOf(ws, R)) && (revSchedulesRow < 0 || R < revSchedulesRow)) row = R; }); return row; };
   const cosTotRow = rowByLabelLast(wb.getWorksheet('Revenue')!, /^Total Cost of Sales$/);
   const cosProjTable = buildCostOfSalesReport(snap, state, (v: number) => String(v)).find((t) => t.title === 'Project Total Cost of Sales');
   const cosProjRow = (cosProjTable?.rows.find((r) => r.isTotal)?.values ?? []) as number[];
@@ -128,7 +140,17 @@ async function main(): Promise<void> {
   const m2 = (re: RegExp): number => rowByLabel(revWs, re);
   const m2a = m2(/^1\. Revenue Inputs/), m2b = m2(/^2\. Revenue Output/), m2c = m2(/^3\. Cost of Sales/), m2d = m2(/^4\. Schedules/);
   check('Revenue mirrors the Module 2 sub-tabs in sequence (Inputs, Output, Cost of Sales, Schedules)', m2a > 0 && m2b > m2a && m2c > m2b && m2d > m2c, `rows=${m2a},${m2b},${m2c},${m2d}`);
-  check('Revenue Output carries per-asset vintage matrices', m2(/Vintage Matrix,/) > m2b);
+  check('Revenue Output carries per-line recognition vintage matrices', m2(/Recognition Vintage Matrix/) > m2b);
+  // A LINE'S REVENUE IS COUNTED ONCE on the Cost of Sales build: the "Revenue
+  // recognised" rows add to the Sell lines' recognised revenue, never to a
+  // multiple of it (a merged line printed its recognition once per plot).
+  {
+    let built = 0;
+    revWs.eachRow((_r, R) => { if (R > m2c && R < m2d && labelOf(revWs, R) === 'Revenue recognised') built += num(revWs.getCell(R, 4).value); });
+    let sellRecognised = 0;
+    for (const [, r] of snap.revenue.bySellAsset) sellRecognised += sumA(r.recognitionPerPeriod, N);
+    check('Cost of Sales build: revenue recognised adds to the Sell lines\' recognised revenue, once', close(built, sellRecognised), `built=${Math.round(built)} sell=${Math.round(sellRecognised)}`);
+  }
   check('P&L Total Revenue == snapshot total revenue', close(totD('P&L', /^Total Revenue$/), sumA(snap.pl.totalRevenuePerPeriod, N)));
   check('P&L PAT == snapshot PAT', close(totD('P&L', /^PAT$/), sumA(snap.pl.patPerPeriod, N)));
   // P&L EBITDA per-period ties cell-for-cell.
@@ -441,8 +463,8 @@ async function main(): Promise<void> {
 
   // ── Display scale leaves stored values unchanged (millions) ─────────────────
   const wbM = buildModelWorkbook({ state, projectName: 'X', dateLabel: 'd', displayScale: 'millions' });
-  const revM = wbM.getWorksheet('Revenue')!; const rtRowM = rowByLabel(revM, /^Total revenue$/);
-  const revTotWb = totD('Revenue', /^Total revenue$/);
+  const revM = wbM.getWorksheet('Revenue')!; const rtRowM = rowByLabelAfter(revM, /^Project Revenue Recognised$/, /^Total Project$/);
+  const revTotWb = revTotalWb;
   check('Display scale leaves stored values unchanged', rtRowM > 0 && Math.abs(num(revM.getCell(rtRowM, 4).value) - revTotWb) <= Math.max(1, Math.abs(revTotWb) * 1e-6));
   // No formulas at millions scale either.
   let fm = 0; for (const ws of wbM.worksheets) ws.eachRow((row) => row.eachCell((c) => { if (isFormula(c.value)) fm++; }));
@@ -657,7 +679,9 @@ async function main(): Promise<void> {
       const emitters = wbSrc.split('const emitM4 = ').length - 1;
       const routed = (wbSrc.match(/m4RowOpts\(row\)/g) ?? []).length;
       check('every M4 emitter maps its row through m4RowOpts (no hand-rolled total rule)',
-        emitters >= 3 && routed >= emitters - 1,
+        // The Revenue and Opex tabs dropped their private emitM4 copies for the
+        // shared makeEmitters (2026-09-17), so two definitions remain.
+        emitters >= 2 && routed >= emitters - 1,
         `emitters=${emitters} routed=${routed} (the Financing emitter reads the override directly and is pinned by the row checks above)`);
       check('no emitter still uses the "override means print the last period" shortcut',
         !/totalLast: row\.totalOverride !== undefined/.test(wbSrc));

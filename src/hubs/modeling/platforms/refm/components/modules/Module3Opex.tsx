@@ -21,7 +21,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import { planReportLines, lineTitle } from '../../lib/reports/lineRows';
-import { OPEX_CATEGORY_LABELS, OPEX_MODE_LABELS } from '../../lib/opexLineLabels';
 import type { Asset } from '../../lib/state/module1-types';
 import {
   defaultHospitalityOpexLines,
@@ -38,6 +37,10 @@ import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
 import { AssetQuickNav } from './_shared/AssetQuickNav';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
+import {
+  OPEX_CATEGORY_LABELS, OPEX_MODE_LABELS, isFixedCostOpexMode, opexInflationMethodOf, opexInflationMethodLabel,
+  summarizeOpexIndexation, type OpexInflationMethod,
+} from '../../lib/reports/opexInputLabels';
 
 // ─── styling primitives (mirror M2) ───────────────────────────────
 const FAST_INPUT: React.CSSProperties = {
@@ -52,10 +55,10 @@ const FAST_INPUT: React.CSSProperties = {
   width: '100%',
 };
 // ─── category / mode catalogs ─────────────────────────────────────
-// The words live in lib/opexLineLabels.ts (2026-09-17), shared with the Excel
-// model export so the workbook prints what this screen shows.
-const CATEGORY_LABELS: Record<OpexLineCategory, string> = OPEX_CATEGORY_LABELS;
-const MODE_LABELS: Record<OpexLineMode, string> = OPEX_MODE_LABELS;
+// The labels live in lib/reports/opexInputLabels so the workbook prints the
+// same words (2026-09-17).
+const CATEGORY_LABELS = OPEX_CATEGORY_LABELS;
+const MODE_LABELS = OPEX_MODE_LABELS;
 
 // Modes valid per strategy bucket. Each strategy's UI hides modes
 // that don't apply (e.g. Lease can't read room revenue).
@@ -91,12 +94,7 @@ const HQ_CATEGORIES: OpexLineCategory[] = [
 // and pct_of_gop modes escalate automatically through the revenue
 // stream itself, so the UI hides inflation controls for them and the
 // engine ignores any indexation config they may carry.
-const FIXED_COST_MODES: ReadonlyArray<OpexLineMode> = [
-  'fixed_baseline', 'per_room_year', 'per_sqm_year',
-];
-function isFixedCostMode(m: OpexLineMode): boolean {
-  return FIXED_COST_MODES.indexOf(m) >= 0;
-}
+const isFixedCostMode = isFixedCostOpexMode;
 
 // ─── utilities ────────────────────────────────────────────────────
 function nid(): string {
@@ -136,20 +134,9 @@ function defaultLineForStrategy(strategy: 'Hospitality' | 'Lease' | 'HQ'): OpexL
 }
 
 // ─── inflation method helpers ─────────────────────────────────────
-type InflationMethod = 'none' | 'single_rate' | 'yoy_compound' | 'yoy_per_period';
-
-function methodOf(config: IndexationConfig | undefined): InflationMethod {
-  const m = config?.method;
-  if (m === 'single_rate' || m === 'yoy_compound' || m === 'yoy_per_period') return m;
-  return 'none';
-}
-
-function methodLabel(m: InflationMethod): string {
-  if (m === 'none') return 'Off';
-  if (m === 'single_rate') return 'Flat';
-  if (m === 'yoy_compound') return 'Compound';
-  return 'Per-Year';
-}
+type InflationMethod = OpexInflationMethod;
+const methodOf = opexInflationMethodOf;
+const methodLabel = opexInflationMethodLabel;
 
 function buildIndexationConfig(
   method: InflationMethod,
@@ -172,15 +159,7 @@ function buildIndexationConfig(
 }
 
 /** Short summary string used inside the "Inherits" badge. */
-function summarizeIndexation(cfg: IndexationConfig | undefined): string {
-  const m = methodOf(cfg);
-  if (m === 'none') return 'Off';
-  if (m === 'single_rate' || m === 'yoy_compound') {
-    const pct = ((cfg?.rate ?? 0) * 100).toFixed(2).replace(/\.00$/, '');
-    return `${methodLabel(m)} ${pct}%`;
-  }
-  return 'Per-Year';
-}
+const summarizeIndexation = summarizeOpexIndexation;
 
 // ─── reusable Inflation panel ─────────────────────────────────────
 function InflationPanel({

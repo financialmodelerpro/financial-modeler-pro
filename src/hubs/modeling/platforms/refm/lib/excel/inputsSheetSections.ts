@@ -33,7 +33,7 @@ import { planRevenueLines, groupRevenueLines, type RevenueLine } from '../revenu
 import { planReportLines, lineTitle } from '../reports/lineRows';
 import { resolveRowVelocity } from '../revenue-resolvers';
 import { buildSaleCohortTermsBlock, saleCohortRuleText } from '../reports/saleCohortReports';
-import { OPEX_CATEGORY_LABELS, OPEX_MODE_LABELS, isFixedCostOpexMode, summarizeOpexIndexation } from '../opexLineLabels';
+import { OPEX_CATEGORY_LABELS, OPEX_MODE_LABELS, isFixedCostOpexMode, summarizeOpexIndexation } from '../reports/opexInputLabels';
 import { resolveReturnsConfig } from '../returns-resolvers';
 
 type Snap = ReturnType<typeof computeFinancialsSnapshot>;
