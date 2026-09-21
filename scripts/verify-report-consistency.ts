@@ -211,9 +211,15 @@ async function main(): Promise<void> {
   check('H1: the version comment is printed when supplied', full.includes('Board pack'));
 
   console.log('\n-- H3: sections that existed on screen but in neither PDF --');
-  check('H3: timeline', full.includes('Timeline (construction and operations windows)'));
-  check('H3: land and area', full.includes('Land & Area'));
-  check('H3: fund inputs band', full.includes('Fund Inputs (fund layer)'));
+  // RE-AIMED 2026-09-21 at the names these sections carry now that Module 1
+  // prints the platform's own tabs: the dated windows are columns of the one
+  // Phases table (the report no longer has a "Timeline" table, which is a
+  // workbook tab and not a Module 1 one), land and area are Tables 3 and 4 of
+  // the assets tab, and the fund inputs are the Fund Terms tab. What is
+  // asserted is unchanged: each section is in the document.
+  check('H3: timeline', full.includes('Construction End') && full.includes('Operations Start'));
+  check('H3: land and area', full.includes('Derived areas by plot') && full.includes('Land by asset'));
+  check('H3: fund inputs band', full.includes('Fund management fees'));
   check('H3: sensitivity grid (when entitled)', full.includes('Two-Way Sensitivity'));
 
   console.log('\n-- H4/H5: the executive summary tells the whole story --');
@@ -299,8 +305,16 @@ async function main(): Promise<void> {
   const disabled = await mk((s) => { s.project.fundTerms = { ...FUND_TERMS, enabled: false }; });
   check('absent vs populated-but-disabled are identical', absent === disabled,
     `${absent.length} vs ${disabled.length} chars`);
+  // THE TAB IS NOT THE CONTENT (2026-09-21). Module 1 tab 3 exists on every
+  // project and shows the toggle with the layer off, which is what the screen
+  // and the workbook both do, so the report says the same. What must not leak
+  // is fund CONTENT: a fee, a base, a matrix, a waterfall, the narrative. The
+  // blanket string test could not tell the two apart, so it is stated as the
+  // named blocks instead, and the toggle itself is asserted present.
   check('no fund content leaks when the toggle is off',
-    !/Fund Layer|Fund Inputs|FUND FEES|This is a FUND project|Distribution Waterfall/i.test(disabled));
+    !/Tab 5: Fund Layer|FUND FEES|This is a FUND project|Distribution Waterfall|Fund management fees|Fee distribution|Capital Bases/i.test(disabled));
+  check('the Fund Terms tab still shows its toggle when the layer is off',
+    /Fund terms/.test(disabled) && /Fund layer enabled/.test(disabled));
 
   console.log(`\n=== ${pass} passed, ${fail} failed ===`);
   if (fail) { console.log('FAILURES:'); for (const f of failures) console.log(`  - ${f}`); process.exit(1); }

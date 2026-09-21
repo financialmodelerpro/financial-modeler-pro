@@ -327,8 +327,16 @@ async function main(): Promise<void> {
   const disabled = await mk((s) => { s.project.fundTerms = { ...FUND_TERMS, enabled: false }; });
   check('both PDFs are identical with fund terms absent vs populated-but-disabled', absent === disabled,
     `${absent.length} vs ${disabled.length} chars`);
+  // THE TAB IS NOT THE CONTENT (2026-09-21, the same narrowing as
+  // verify-report-consistency, which carries a second copy of this check).
+  // Module 1 tab 3 exists on every project and shows its toggle with the layer
+  // off, exactly as the screen and the workbook do, so 'Fund layer enabled'
+  // and the sentence explaining what off means are expected. A fee, a base, a
+  // matrix, a waterfall or a hurdle figure is not.
   check('no fund content leaks when the toggle is off',
-    !/Fund Layer|Distribution Waterfall|Fund structure fee|Total Fund Management Fee|hurdle/i.test(disabled));
+    !/Tab 5: Fund Layer|Distribution Waterfall|Fund structure fee|Total Fund Management Fee|hurdle rate/i.test(disabled));
+  check('the Fund Terms tab still shows its toggle when the layer is off',
+    /Fund terms/.test(disabled) && /Fund layer enabled/.test(disabled));
 
   console.log(`\n=== ${pass} passed, ${fail} failed ===`);
   if (fail) { console.log('FAILURES:'); for (const f of failures) console.log(`  - ${f}`); process.exit(1); }

@@ -13,13 +13,20 @@
  */
 export const PDF_MODULE_TABS: Record<string, string[]> = {
   module1: [
-    'Tab 1: Project Setup',
-    'Tab 2: Assets & Sub-units',
-    'Tab 3: Capex',
-    'Tab 4: Financing / Inputs',
-    'Tab 4: Financing / Funding Gap',
-    'Tab 4: Financing / Schedules',
-    'Tab 4: Financing / Cash Sweep',
+    // The platform's seven tabs, Financing carrying its four sub-tabs in the
+    // screen's own order: Inputs, Schedules, Funding Gap, Cash Sweep
+    // (2026-09-21). Parties and Asset Types & Standards were missing entirely
+    // and the report printed Funding Gap second.
+    'Tab 1: Project & Phases',
+    'Tab 2: Parties',
+    'Tab 3: Fund Terms',
+    'Tab 4: Asset Types & Standards',
+    'Tab 5: Assets & Sub-units',
+    'Tab 6: Capex',
+    'Tab 7: Financing / Inputs',
+    'Tab 7: Financing / Schedules',
+    'Tab 7: Financing / Funding Gap',
+    'Tab 7: Financing / Cash Sweep',
   ],
   module2: [
     'Tab 1: Inputs',

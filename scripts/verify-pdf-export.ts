@@ -596,9 +596,18 @@ async function main(): Promise<void> {
   const pdfSrc = readFileSync(path.join(process.cwd(), 'src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf.ts'), 'utf8');
   check('area/land: the report imports the platform rules',
     /resolveAssetAreaMetrics/.test(pdfSrc) && /computeAssetLandBreakdown/.test(pdfSrc));
-  check('area/land: one helper resolves both, and every asset figure goes through it',
-    /const pdfAreaOf\s*=/.test(pdfSrc) && (pdfSrc.match(/pdfAreaOf\(/g) ?? []).length >= 5,
+  // RE-AIMED 2026-09-21. The COUNT of call sites was a proxy for "no site
+  // re-derives area or land", and the Module 1 rebuild turned it into a false
+  // negative: the assets tab's own view model resolves both now, so the helper
+  // is left holding the Executive Summary alone. The guard asserts what it
+  // always meant instead: the summary goes through the one helper, Module 1
+  // goes through the tab's view model, and nothing hand-rolls either rule.
+  check('area/land: one helper resolves both, and the summary goes through it',
+    /const pdfAreaOf\s*=/.test(pdfSrc) && (pdfSrc.match(/pdfAreaOf\(/g) ?? []).length >= 2,
     `${(pdfSrc.match(/pdfAreaOf\(/g) ?? []).length} call sites`);
+  check('area/land: Module 1 reads the assets tab\'s own view model, it resolves no area itself',
+    /from '\.\.\/\.\.\/components\/modules\/_shared\/assetInputsView'/.test(pdfSrc)
+    && ['buildAssetAreaTables', 'buildAssetLandView', 'buildSubUnitLines', 'buildStandardsView'].every((f) => pdfSrc.includes(f)));
   const handRolled = [
     ['typed BUA fallback', /buaSqm \?\? 0/],
     ['raw land allocation', /landAllocation\?\.sqm \?\?/],
@@ -659,6 +668,81 @@ async function main(): Promise<void> {
     const apProject = m3out.find((x) => /Project Total, AP Roll-Forward/.test(x.title));
     check('M3 Output: AP rows run opening, incurred, cash paid, closing',
       !!apProject && apProject.rows.map((r: any) => String(r.cells[0]).trim()).join('|') === 'Opening AP|Opex Incurred|Less: Cash Paid|Closing AP');
+  }
+
+  // ── Module 1 is a copy of the platform's seven tabs (2026-09-21) ───────────
+  // The report printed four tabs of its own design: no Parties (although the
+  // PDF already ACCEPTED a parties option), no Asset Types & Standards, the
+  // fund terms buried inside Project Setup and gone altogether with the layer
+  // off, two asset tables where the screen has five, unnumbered capex tables,
+  // and Funding Gap printed before Schedules.
+  {
+    const st = buildState();
+    // A project's asset types and their values, so the standards tab is
+    // exercised with real rows rather than its empty state.
+    st.project.assetTypes = [{ id: 'hotel', label: 'Hotel', category: 'Hospitality', sortOrder: 0 }];
+    st.project.assetTypeValues = { hotel: { avgUnitSizeSqm: 130, parkingRatio: 1, coveragePct: 60, farRatio: 2.5 } };
+    st.project.parkingAreaPerSlotSqm = 40;
+    st.assets[0].assetTypeId = 'hotel';
+    const parties = [
+      { id: 'p1', name: 'Alpha Holdings', identifier: 'CR-1', roles: ['Developer'], display_order: 1 },
+      { id: 'p2', name: 'Beta Partners', identifier: null, roles: ['Investor'], display_order: 2 },
+    ] as any;
+    const content = collectModuleContent(st, undefined, 'full', parties);
+    const tabsOf = (m: string): string[] => [...new Set(content[m].map((i) => i.tab))];
+    const SCREEN_TABS = [
+      'Tab 1: Project & Phases', 'Tab 2: Parties', 'Tab 3: Fund Terms', 'Tab 4: Asset Types & Standards',
+      'Tab 5: Assets & Sub-units', 'Tab 6: Capex',
+      'Tab 7: Financing / Inputs', 'Tab 7: Financing / Schedules', 'Tab 7: Financing / Funding Gap',
+      'Tab 7: Financing / Cash Sweep',
+    ];
+    check('M1: tabs are the platform tabs, in order (Schedules before Funding Gap, as the screen has it)',
+      JSON.stringify(tabsOf('module1')) === JSON.stringify(SCREEN_TABS), tabsOf('module1').join(' | '));
+    check('M1: the picker manifest lists exactly those tabs',
+      JSON.stringify(PDF_MODULE_TABS.module1) === JSON.stringify(SCREEN_TABS));
+    const tables = (tab?: string): any[] => content.module1.filter((i: any) => i.item.type === 'table' && (!tab || i.tab === tab)).map((i: any) => i.item.table);
+    const titles = (tab: string): string[] => tables(tab).map((t) => t.title);
+    const cellsOf = (tab: string): string[] => tables(tab).flatMap((t) => t.rows.flatMap((r: any) => r.cells.map((c: any) => String(c ?? ''))));
+    // Parties: the caller's list reaches the page, through the shared builder.
+    const pt = tables('Tab 2: Parties')[0];
+    check('M1 Parties: the caller\'s parties are printed, in the shared builder\'s columns',
+      !!pt && JSON.stringify(pt.columns) === JSON.stringify(['Party', 'Identifier', 'Roles'])
+      && pt.rows.map((r: any) => r.cells[0]).join('|') === 'Alpha Holdings|Beta Partners', pt ? `${pt.rows.length} rows` : 'no table');
+    // Fund Terms: the tab exists on every project, layer off included.
+    const fundTitles = titles('Tab 3: Fund Terms');
+    check('M1 Fund Terms: the tab prints the toggle even with the layer off',
+      fundTitles.includes('Fund terms') && cellsOf('Tab 3: Fund Terms').includes('No'), fundTitles.join(' | '));
+    // Asset Types & Standards: the type values and the project settings.
+    const stdTitles = titles('Tab 4: Asset Types & Standards');
+    check('M1 Standards: the type values and the parking / escalation settings are printed',
+      stdTitles.includes('Asset types and values') && stdTitles.includes('Parking and cost escalation'), stdTitles.join(' | '));
+    // Assets: the screen's five tables, under their own numbers.
+    const assetTitles = titles('Tab 5: Assets & Sub-units');
+    for (const t of ['Table 1 - Plots, the land', 'Table 2 - Assets by plot, what you enter',
+      'Table 3 - Derived areas by plot', 'Table 4 - Merged by line', 'Table 5 - Sub-units']) {
+      check(`M1 Assets: "${t}" is printed`, assetTitles.some((x) => x.startsWith(t)), assetTitles.join(' | '));
+    }
+    check('M1 Assets: the land by asset table is printed',
+      assetTitles.includes('Land by asset (what Capex charges and the Balance Sheet holds)'));
+    // Capex: the screen's six numbered tables.
+    const capexTitles = titles('Tab 6: Capex');
+    for (let n = 1; n <= 6; n++) {
+      check(`M1 Capex: Table ${n} is printed under the screen's number`, capexTitles.some((t) => t.startsWith(`Table ${n} - `)), capexTitles.join(' | '));
+    }
+    check('M1 Capex: the cost line inputs lead the tab', capexTitles[0].startsWith('Inputs - Cost Lines'), capexTitles[0]);
+    // Financing: the nine input sections the screen numbers.
+    const finTitles = titles('Tab 7: Financing / Inputs');
+    for (const t of ['1. Project Financing Settings', '1b. IDC (Interest During Construction) Policy',
+      '2. Funding Method', '3. Funding Basis', '5. Debt Facilities', '6. Capex Breakdown',
+      '7. Funding Requirement', '8. Total Debt Required', '9. Total Equity Required']) {
+      check(`M1 Financing: section "${t}" is printed`, finTitles.includes(t), finTitles.join(' | '));
+    }
+    check('M1 Financing: the method configuration names the selected method',
+      finTitles.some((t) => /^2a\. Method \d Configuration$/.test(t)), finTitles.join(' | '));
+    check('M1 Financing: the IDC allocation by line reaches Schedules',
+      titles('Tab 7: Financing / Schedules').some((t) => t.startsWith('IDC Allocation, by Line')));
+    check('M1 Financing: the sweep and dividend settings open Cash Sweep',
+      titles('Tab 7: Financing / Cash Sweep')[0] === 'Cash sweep and dividend settings');
   }
 
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);

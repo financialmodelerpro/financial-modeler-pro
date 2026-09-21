@@ -57,15 +57,21 @@ import { buildSaleCohortTermsBlock, saleCohortRuleText, buildSaleCohortGrid, sal
 import fontkit from '@pdf-lib/fontkit';
 import { formatAccounting, formatArea, formatInteger, type DisplayScale } from '@/src/core/formatters';
 import { computeSubUnitArea, computePhaseTimeline, computeProjectTimeline } from '@/src/core/calculations';
-import { FUNDING_METHOD_LABELS, DEFAULT_COVENANTS, type FundingMethodId, type Asset } from '../state/module1-types';
-import { resolveFundTerms } from '../fundTerms';
+import {
+  FUNDING_METHOD_LABELS, FUNDING_METHOD_DESCRIPTIONS, REPAYMENT_METHOD_LABELS, PHASE_STATUS_LABELS,
+  DEFAULT_COVENANTS, type FundingMethodId, type Asset,
+} from '../state/module1-types';
+import {
+  resolveFundTerms, FUND_FEE_SPECS, FEE_TIMING_LABELS, FEE_BASE_LABELS, isFundManagerRow,
+  DEFAULT_FUND_MANAGER_NAME,
+} from '../fundTerms';
 import {
   isFundActive, hasFundFeeIncome, buildFundWaterfallRows, buildFundFeeIncomeRows,
   buildFundGrossNetRows, buildFundEarnerRows, buildFundHeadlineCards, buildFundTermsPairs,
   fundGrossNetNote, fundWaterfallTotalsNote, fundHeadlineRestatementNote,
   FUND_GROSS_NET_COLUMNS, FUND_EARNER_COLUMNS, type FundReportCtx, type FundFmt,
 } from '../reports/fundReports';
-import { buildAssetNotes, structuralZeroCell } from '../reports/assetNotes';
+import { buildAssetNotes, structuralZeroCell, type AssetStructuralZero } from '../reports/assetNotes';
 import INTER_REGULAR_B64 from './fonts/interRegular';
 import INTER_BOLD_B64 from './fonts/interBold';
 import {
@@ -81,8 +87,16 @@ import { buildOpexReport } from '../reports/opexReports';
 import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup } from '../reports/streamReports';
 import { buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
 import { evaluateCovenant, type CovenantInputs } from '../covenants';
-import { buildCapexReport } from '../reports/capexReports';
-import { buildFinancingScheduleTables, buildCashSweepTables } from '../reports/financingReports';
+import { buildCapexReport, CAPEX_CATEGORIES, type CapexResultTable } from '../reports/capexReports';
+import { buildPartiesTable, PARTIES_TITLE, PARTIES_EMPTY_TEXT } from '../reports/partiesReport';
+import {
+  buildStandardsView, buildAssetAreaTables, buildAssetLandView, buildSubUnitLines,
+  type InputsViewState, type ViewCell, type CostStandardView,
+} from '../../components/modules/_shared/assetInputsView';
+import { computeFundingBasis } from '../reports/fundingBasis';
+import { countryLabel } from '@/src/core/countries';
+import { deriveCostStage, isLandValueLine } from '@/src/core/calculations';
+import { buildFinancingScheduleTables, buildCashSweepTables, buildIdcAllocationTables } from '../reports/financingReports';
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildCaseComparisonReport, type CaseComparisonInput, type CaseComparisonReport } from '../reports/caseComparisonReport';
 import { poolMapByLine, poolCapexByLine, poolReturnRows, lineHosts, fixHospitalityRates, fixLeaseRates, poolRevenueBasisByLine, poolSaleCohortByLine, type PooledCapexInputLine } from '../reports/lineRows';
@@ -529,9 +543,13 @@ function drawGridTable(ctx: Ctx, table: PdfTable, fmt: Fmt, isInput = false): vo
   // at all. Each column now asks for what its widest cell needs; if the asks fit
   // the page the slack is shared, and if they do not, every column is scaled
   // down together and `shrinkToFit` takes up the remainder. Nothing is cut.
+  const bandRow = (r: PdfTableRow): boolean => r.emphasis === 'heading'
+    && r.cells.length > 1
+    && r.cells.slice(1).every((c) => c === '' || c === null || c === undefined);
   const widest = (i: number): number => {
     let w = ctx.bold.widthOfTextAtSize(table.columns[i] ?? '', 8);
     for (const r of table.rows) {
+      if (i === 0 && bandRow(r)) continue;
       const s = fmt.cell(r.cells[i] ?? null);
       if (!s) continue;
       const cw = Math.max(ctx.font.widthOfTextAtSize(s, 8), ctx.bold.widthOfTextAtSize(s, 8));
@@ -580,11 +598,18 @@ function drawGridTable(ctx: Ctx, table: PdfTable, fmt: Fmt, isInput = false): vo
         ctx.page.drawRectangle({ x: colX(i), y: ctx.y, width: colW(i), height: ROW_H, color: FAST_FILL, borderColor: FAST_BORDER, borderWidth: 0.5 });
       }
     }
-    r.cells.forEach((cell, i) => {
-      const align: 'left' | 'right' = i === 0 ? 'left' : dataAlign ? 'right' : 'left';
-      const color = shadeInputs && i >= 1 ? FAST_TEXT : st.color;
-      drawCell(ctx, fmt.cell(cell), colX(i), colW(i), ctx.y, { align, font: st.bold ? ctx.bold : ctx.font, size: 8, color, shrinkToFit: true });
-    });
+    const isBand = r.emphasis === 'heading'
+      && r.cells.length > 1
+      && r.cells.slice(1).every((c) => c === '' || c === null || c === undefined);
+    if (isBand) {
+      drawCell(ctx, fmt.cell(r.cells[0]), colX(0), CONTENT_W, ctx.y, { align: 'left', font: ctx.bold, size: 8, color: st.color, shrinkToFit: true });
+    } else {
+      r.cells.forEach((cell, i) => {
+        const align: 'left' | 'right' = i === 0 ? 'left' : dataAlign ? 'right' : 'left';
+        const color = shadeInputs && i >= 1 ? FAST_TEXT : st.color;
+        drawCell(ctx, fmt.cell(cell), colX(i), colW(i), ctx.y, { align, font: st.bold ? ctx.bold : ctx.font, size: 8, color, shrinkToFit: true });
+      });
+    }
   }
   ctx.y -= SECTION_GAP;
 }
@@ -1187,155 +1212,570 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
   }
 }
 
-// ── Module 1: Setup & Financial Structure ───────────────────────────────────
-function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: Fmt, py: number): ModuleContent {
+// ── Module 1: Setup, Assets, Capex and Financing ────────────────────────────
+//
+// THE REPORT PRINTS THE PLATFORM'S SEVEN TABS, IN THEIR ORDER AND WORDS
+// (2026-09-21). Module 1 printed four tabs of its own design: Parties and Asset
+// Types & Standards were missing altogether (the PDF already ACCEPTED a
+// `parties` option and never printed it), the fund terms sat inside Project
+// Setup and vanished entirely with the layer off, the assets tab was two
+// tables where the screen has five, the capex tables were unnumbered and in
+// another order than the screen's six, and Financing printed Funding Gap
+// before Schedules, which is not the screen's order either.
+//
+// The workbook was rebuilt against these same screens on 2026-09-17 through
+// `_shared/assetInputsView.ts` (the ONE reading of tabs 4 and 5: standards,
+// plot entry, the chain per plot and per line, the land per asset and the
+// sub-units), `reports/partiesReport.ts`, `fundTerms.ts` (the registry the
+// screen itself renders from), `reports/fundingBasis.ts`, `capexReports.ts`
+// and `financingReports.ts`. This section reads the SAME builders, so the two
+// exports cannot re-word or re-order a table, and nothing here computes a
+// model value.
+const M1_TABS = {
+  project: 'Tab 1: Project & Phases',
+  parties: 'Tab 2: Parties',
+  fund: 'Tab 3: Fund Terms',
+  standards: 'Tab 4: Asset Types & Standards',
+  assets: 'Tab 5: Assets & Sub-units',
+  capex: 'Tab 6: Capex',
+  finInputs: 'Tab 7: Financing / Inputs',
+  finSchedules: 'Tab 7: Financing / Schedules',
+  finGap: 'Tab 7: Financing / Funding Gap',
+  finSweep: 'Tab 7: Financing / Cash Sweep',
+} as const;
+
+/** The twenty derived-area columns of Assets tables 3 and 4, split in two so
+ *  each half is readable on a landscape page. The names and the order are the
+ *  workbook's `CHAIN_HEADS`, which are the screen's own column headings. */
+const CHAIN_AREA_HEADS = [
+  'Plot Area', 'Net Developable', 'Footprint', 'Landscape %', 'Landscape Area',
+  'Retail GFA', 'Lobby GFA', 'Total GFA', 'Main Asset GFA', 'NSA or GLA',
+];
+const CHAIN_UNIT_HEADS = [
+  'Unit Size', 'Units or Keys', 'Parking Ratio', 'Slots', 'Retail Slots', 'Total Slots',
+  'Parking Area', 'Retail Parking', 'Total Parking', 'Total BUA',
+];
+/** Said once under each chain table, so the columns can carry the figure. */
+const CHAIN_UNITS_NOTE = 'All areas in sqm. Net developable is the plot after utilisation; landscape is a share of it; total GFA is the utilised land at the FAR; the main asset GFA is what is left after retail, lobby and service.';
+
+/** A dash, never a zero: a step the chain could not derive has no value. */
+type ChainCells = Record<string, number | undefined>;
+function chainAreaCells(
+  fmt: Fmt, landSqm: number, g: ChainCells, landscapePct: number | undefined,
+): string[] {
+  const a = (v: number | undefined): string => (v === undefined ? '-' : fmt.area(v));
+  return [
+    a(landSqm), a(g.landUtilisedSqm), a(g.footprintSqm),
+    landscapePct === undefined ? '-' : fmt.pctRaw(landscapePct, 2),
+    a(g.landscapeSqm), a(g.retailGfaSqm), a(g.lobbyGfaSqm), a(g.totalGfaSqm), a(g.mainAssetGfaSqm),
+    a(g.netSaleableSqm),
+  ];
+}
+function chainUnitCells(
+  fmt: Fmt, g: ChainCells, unitSize: number | undefined, slotRatio: number | undefined,
+): string[] {
+  const a = (v: number | undefined): string => (v === undefined ? '-' : fmt.area(v));
+  const n = (v: number | undefined): string => (v === undefined ? '-' : fmt.int(v));
+  return [
+    unitSize === undefined ? '-' : fmt.int(unitSize), n(g.units),
+    slotRatio === undefined ? '-' : String(slotRatio), n(g.parkingSlots), n(g.retailParkingSlots),
+    n(g.totalParkingSlots), a(g.parkingAreaSqm), a(g.retailParkingAreaSqm), a(g.totalParkingAreaSqm),
+    a(g.totalBuaSqm),
+  ];
+}
+
+/** The pooled totals rule states its landscape share as a QUOTIENT of the
+ *  row's own sums, where the chain states its own as a percent. One column,
+ *  so the quotient is converted once, here. */
+const pooledLandscapePct = (v: number | undefined): number | undefined => (v === undefined ? undefined : v * 100);
+
+/** A view cell as the screen shows it: the figure, with what it came from when
+ *  the user did not type it (inherited from the type, derived from a share). */
+function viewText(c: ViewCell, fmtValue: (v: number) => string): string {
+  if (c.value === undefined) return c.note ? SHORT_NOTES[c.note] ?? c.note : '-';
+  const s = fmtValue(c.value);
+  return c.typed || !c.note ? s : `${s} ${SHORT_NOTES[c.note] ?? `(${c.note})`}`;
+}
+/** A cell has room for a mark, not for a sentence: the sentence is said under
+ *  the table instead. The view model's own wording is the key, so a new note
+ *  falls through as itself rather than silently losing its meaning. */
+const SHORT_NOTES: Record<string, string> = {
+  'from the type': '(type)',
+  'blank, draws the whole plot': '(whole plot)',
+};
+
+function buildModule1(
+  snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: Fmt, py: number,
+  parties?: readonly Party[],
+): ModuleContent {
   const p = state.project;
   const fin = snap.financing;
   const yl = snap.yearLabels;
-  const trName = (id: string): string => state.financingTranches.find((t) => t.id === id)?.name ?? id;
+  const cur = p.currency ?? 'SAR';
   const items: ModuleContent = [];
   const assetNotes = buildAssetNotes(state, fmt.money);
+  const multiPhase = state.phases.length > 1;
+  const viewState: InputsViewState = {
+    project: p, phases: state.phases, parcels: state.parcels, assets: state.assets,
+    subUnits: state.subUnits, costLines: state.costLines, landAllocationMode: state.landAllocationMode,
+  };
 
-  // Tab 1: Project Setup.
-  items.push(tTable('Tab 1: Project Setup', 'inputs', kvTable('Project Identity', [
-    ['Project name', p.name || '(unnamed)'],
-    ['Currency', p.currency],
-    ['Location', [p.location, p.country].filter(Boolean).join(', ') || '-'],
-    ['Start date', p.startDate ?? '-'],
-    ['Status', String(p.status ?? '-')],
-    ['Tax rate', fmt.pct(p.tax?.rate ?? 0, 1)],
+  // ── TAB 1: PROJECT & PHASES ───────────────────────────────────────────────
+  items.push(tTable(M1_TABS.project, 'inputs', kvTable('Project', [
+    ['Project Name', p.name || '(unnamed)'],
+    ['Currency', cur],
+    ['Project Start Date', p.startDate ?? '-'],
+    ['Project Status', String(p.status ?? 'draft')],
+    ['Location', p.location || '-'],
+    ['Country', p.country ? countryLabel(p.country) : 'Not set'],
+    ['Model axis start year (derived)', String(snap.projectStartYear)],
   ])));
-  // TIMELINE. The workbook has a whole Timeline tab (dated construction and
-  // operations windows per phase plus the project envelope); the PDF had no
-  // equivalent, so nothing in the document said WHEN anything happened.
+  // ONE PHASES TABLE, the screen's: what is typed (start, the two lengths, the
+  // status) beside the windows the platform derives from them. The report used
+  // to print these as two tables, one of them called "Timeline", which is a
+  // workbook tab and not a Module 1 table.
   {
     const pt = computeProjectTimeline(p, state.phases);
-    items.push(tTable('Tab 1: Project Setup', 'inputs', {
-      title: 'Timeline (construction and operations windows)', kind: 'grid', align: 'data',
-      columns: ['Phase', 'Start', 'Construction ends', 'Operations start', 'Operations end', 'Periods'],
+    items.push(tTable(M1_TABS.project, 'inputs', {
+      title: 'Phases', kind: 'grid', align: 'data',
+      columns: ['Phase Name', 'Phase Start Date', 'Construction (years)', 'Operations (years)',
+        'Construction End', 'Operations Start', 'Operations End', 'Status'],
       rows: [
         ...state.phases.map((ph) => {
           const t = computePhaseTimeline(ph, p);
-          return row([ph.name, t.constructionStart, t.constructionEnd, t.operationsStart, t.operationsEnd,
-            `${ph.constructionPeriods ?? 0} + ${ph.operationsPeriods ?? 0}`]);
+          return row([
+            ph.name,
+            ph.startDate && ph.startDate.length === 10 ? ph.startDate : (p.startDate ?? '-'),
+            fmt.int(ph.constructionPeriods ?? 0), fmt.int(ph.operationsPeriods ?? 0),
+            (ph.constructionPeriods ?? 0) === 0 ? 'Operational from start' : t.constructionEnd,
+            t.operationsStart, t.operationsEnd,
+            PHASE_STATUS_LABELS[(ph.status ?? 'planning') as keyof typeof PHASE_STATUS_LABELS] ?? String(ph.status),
+          ]);
         }),
-        row(['Project envelope', pt.start, '', '', pt.end, String(pt.spanPeriods)], 'total'),
+        row(['Project envelope', pt.start, '', '', '', '', pt.end, `${pt.spanPeriods} periods`], 'total'),
       ],
     }));
   }
-  items.push(tTable('Tab 1: Project Setup', 'inputs', {
-    title: 'Phases', kind: 'grid', align: 'data',
-    columns: ['Phase', 'Status', 'Start', 'Constr. yrs', 'Ops yrs'],
-    rows: state.phases.map((ph) => {
-      const sy = ph.startDate ? new Date(ph.startDate).getUTCFullYear() : snap.projectStartYear;
-      return row([ph.name, String(ph.status ?? 'planning'), String(sy), fmt.int(ph.constructionPeriods ?? 0), fmt.int(ph.operationsPeriods ?? 0)]);
-    }),
-  }));
-  // Existing Operations (historical baseline). REBUILT to read the engine's
-  // existing-operations aggregate (snap.financing.existing) instead of the
-  // DEPRECATED phase fields historicalCapexTotal / historicalEquityContributed /
-  // historicalDebtDrawn (no longer read by the engine, see existing.ts; they can
-  // carry stale/garbage legacy data). Pre-capex / equity / debt are derived per
-  // phase from per-asset pre-capex (Land + Building), historicalEquityAmount, and
-  // existing facilities' opening balances; NBV + opening cash come from the
-  // still-used baseline inputs. One column per operational phase + a Total.
-  const ex = fin.existing;
-  const opPhases = state.phases.filter((ph) => ph.status === 'operational');
-  const metricDefs: Array<[string, (ph: typeof opPhases[number]) => number]> = [
-    ['Pre-capex incurred (Land + Building)', (ph) => ex.preCapexByPhase.get(ph.id) ?? 0],
-    ['Existing equity contributed', (ph) => ex.equityByPhase.get(ph.id) ?? 0],
-    ['Existing debt outstanding', (ph) => ex.debtByPhase.get(ph.id) ?? 0],
-    ['Net book value (fixed assets)', (ph) => ph.historicalBaseline?.netBookValueFixedAssets ?? 0],
-    ['Opening cash', (ph) => ph.historicalBaseline?.historicalOpeningCash ?? 0],
-  ];
-  const baselineRows = metricDefs.map(([label, pick]) => ({ label, vals: opPhases.map(pick) }));
-  const baselineHasData = baselineRows.some((r) => r.vals.some((v) => v !== 0));
-  if (opPhases.length && baselineHasData) {
-    items.push(tTable('Tab 1: Project Setup', 'inputs', {
-      title: 'Existing Operations (historical baseline)', kind: 'grid', align: 'data',
-      columns: ['Metric', ...opPhases.map((ph) => ph.name), 'Total'],
-      rows: baselineRows.map((r) => row([r.label, ...r.vals.map((v) => fmt.money(v)), fmt.money(r.vals.reduce((s, v) => s + v, 0))])),
+  // Existing Operations (historical baseline), from the engine's own
+  // existing-operations aggregate, never the deprecated phase fields.
+  {
+    const ex = fin.existing;
+    const opPhases = state.phases.filter((ph) => ph.status === 'operational');
+    const metricDefs: Array<[string, (ph: typeof opPhases[number]) => number]> = [
+      ['Pre-capex incurred (Land + Building)', (ph) => ex.preCapexByPhase.get(ph.id) ?? 0],
+      ['Existing equity contributed', (ph) => ex.equityByPhase.get(ph.id) ?? 0],
+      ['Existing debt outstanding', (ph) => ex.debtByPhase.get(ph.id) ?? 0],
+      ['Net book value (fixed assets)', (ph) => ph.historicalBaseline?.netBookValueFixedAssets ?? 0],
+      ['Opening cash', (ph) => ph.historicalBaseline?.historicalOpeningCash ?? 0],
+    ];
+    const baselineRows = metricDefs.map(([label, pick]) => ({ label, vals: opPhases.map(pick) }));
+    if (opPhases.length && baselineRows.some((r) => r.vals.some((v) => v !== 0))) {
+      items.push(tTable(M1_TABS.project, 'inputs', {
+        title: 'Existing Operations (historical baseline)', kind: 'grid', align: 'data',
+        columns: ['Metric', ...opPhases.map((ph) => ph.name), 'Total'],
+        rows: baselineRows.map((r) => row([r.label, ...r.vals.map((v) => fmt.money(v)), fmt.money(r.vals.reduce((s, v) => s + v, 0))])),
+      }));
+    }
+  }
+
+  // ── TAB 2: PARTIES ────────────────────────────────────────────────────────
+  // Parties live outside the version snapshot (their own table), so the caller
+  // hands them in; ONE builder with the workbook. The engine never reads them.
+  {
+    const pt = buildPartiesTable(parties);
+    items.push(tTable(M1_TABS.parties, 'inputs', {
+      title: PARTIES_TITLE, kind: 'grid', align: 'data',
+      columns: pt.columns,
+      rows: pt.rows.map((r) => row(r)),
+    }));
+    if (pt.rows.length === 0) {
+      items.push(tItem(M1_TABS.parties, 'inputs', { type: 'paragraph', text: PARTIES_EMPTY_TEXT }));
+    }
+    items.push(tItem(M1_TABS.parties, 'inputs', {
+      type: 'paragraph',
+      text: 'Identity only: parties name who is related to the project and are used in no calculation. On a fund project, the Fund Terms tab shares its earner rows with this list.',
     }));
   }
 
-  // FUND INPUTS (only on a fund project; absent leaves the report byte-identical).
+  // ── TAB 3: FUND TERMS ─────────────────────────────────────────────────────
+  // THE TAB EXISTS ON EVERY PROJECT. With the layer off the screen shows the
+  // toggle and nothing else, so the report says exactly that rather than
+  // printing nothing at all (which reads as a missing section).
   {
     const ft = resolveFundTerms(p);
-    if (ft.enabled) {
-      items.push(tTable('Tab 1: Project Setup', 'inputs', kvTable('Fund Inputs (fund layer)', [
-        ['Fund layer', 'Enabled'],
-        ['Fund manager', ft.fundManagerName],
-        ['Fund structure fee', fmt.pct(ft.fundStructureFeePct, 2)],
-        ['Fund management fee', fmt.pct(ft.fundManagementFeePct, 2)],
-        ['Custody and admin fee', fmt.pct(ft.custodyAdminFeePct, 2)],
-        ['Debt arranging fee', fmt.pct(ft.debtArrangingFeePct, 2)],
-        ['Other expenses per annum', fmt.money(ft.otherExpensesPerAnnum)],
-        ['Hurdle rate (preferred return)', fmt.pct(ft.hurdleRatePct, 2)],
-        ['Performance fee on the excess', fmt.pct(ft.performanceFeePct, 2)],
-        ['Fund size', ft.fundSizeOverride ? `${fmt.money(ft.fundSize)} (typed override)` : 'resolved from the model (equity + debt)'],
-        ['Debt facility', ft.facilityLimitOverride ? `${fmt.money(ft.facilityLimit)} (typed override)` : 'resolved from the model'],
+    if (!ft.enabled) {
+      items.push(tTable(M1_TABS.fund, 'inputs', kvTable('Fund terms', [
+        ['Fund layer enabled', 'No'],
       ])));
-      if (ft.feeDistribution?.length) {
-        items.push(tTable('Tab 1: Project Setup', 'inputs', {
-          title: 'Fee Distribution Matrix (shares are NOT normalised)', kind: 'grid', align: 'data',
-          columns: ['Party', 'Commission %', 'Developer fee %', 'Performance fee %'],
-          rows: ft.feeDistribution.map((d: any) => row([
-            d.partyName ?? d.partyId, fmt.pct(d.commissionPct ?? 0, 1),
-            fmt.pct(d.developerFeePct ?? 0, 1), fmt.pct(d.performanceFeePct ?? 0, 1),
-          ])),
+      items.push(tItem(M1_TABS.fund, 'inputs', {
+        type: 'paragraph',
+        text: 'Off: the project is modelled with no fund layer, so it carries no management fee, no preferred return and no performance fee. Turning the layer on adds all three.',
+      }));
+    } else {
+      // The five management fees, from the SAME registry the screen renders:
+      // label, when it is charged and what it is charged on all come from
+      // FUND_FEE_SPECS, so a fee added there appears here with no edit.
+      const rateOf = (spec: typeof FUND_FEE_SPECS[number]): string => {
+        const v = ft[spec.key] as number;
+        return spec.kind === 'amount' ? `${fmt.money(v)} per annum` : fmt.pctRaw(v, 2);
+      };
+      items.push(tTable(M1_TABS.fund, 'inputs', {
+        title: 'Fund management fees', kind: 'grid', align: 'data',
+        columns: ['Fee', 'When', 'Charged on', 'Rate'],
+        rows: FUND_FEE_SPECS.map((spec) => row([
+          spec.label, FEE_TIMING_LABELS[spec.timing], FEE_BASE_LABELS[spec.base], rateOf(spec),
+        ])),
+      }));
+      items.push(tTable(M1_TABS.fund, 'inputs', kvTable('Fund structure, fee bases and the performance fee', [
+        ['Fund layer enabled', 'Yes'],
+        ['Fund Manager', ft.fundManagerName || DEFAULT_FUND_MANAGER_NAME],
+        ['Hurdle rate (preferred return)', fmt.pctRaw(ft.hurdleRatePct, 2)],
+        ['Performance fee on the excess', fmt.pctRaw(ft.performanceFeePct, 2)],
+        ['Fund size', ft.fundSizeOverride ? `${fmt.money(ft.fundSize)} (typed target)` : `${fmt.money(ft.fundSize)} (resolved from the model: total equity plus the debt facility)`],
+        ['Facility limit', ft.facilityLimitOverride ? `${fmt.money(ft.facilityLimit)} (typed limit)` : `${fmt.money(ft.facilityLimit)} (resolved from the model)`],
+        ['How the management fee is funded', ft.managementFeeFunding === 'equity'
+          ? '100% equity (its own dedicated equity draw, outside the debt / equity ratio)'
+          : 'Cash deficit funding (inside the requirement, at the project debt / equity ratio)'],
+      ])));
+      // The resolved bases, through the one builder every fund surface reads.
+      const capRows = buildFundCapitalRows(snap);
+      if (capRows.length) {
+        items.push(tTable(M1_TABS.fund, 'inputs', {
+          title: FUND_CAPITAL_BASES_TITLE, kind: 'grid', align: 'data',
+          columns: ['Base', 'Amount', 'How it is resolved'],
+          rows: capRows.map((cr) => row(
+            [cr.isTotal ? `= ${cr.label}` : cr.label, fmt.money(cr.amount), cr.note],
+            cr.isTotal ? 'total' : undefined,
+          )),
+        }));
+        items.push(tItem(M1_TABS.fund, 'inputs', { type: 'paragraph', text: FUND_CAPITAL_BASES_NOTE }));
+      }
+      // The distribution matrix, in the screen's columns, with the screen's
+      // total row. SHARES ARE NEVER NORMALISED, so the total is stated as it
+      // falls and a column that does not reach 100% says so.
+      const matrix = ft.feeDistribution ?? [];
+      if (matrix.length) {
+        const colTotal = (pick: (d: typeof matrix[number]) => number | undefined): number =>
+          matrix.reduce((s, d) => s + (pick(d) ?? 0), 0);
+        const totalCell = (v: number): string => `${fmt.pctRaw(v, 2)}${Math.abs(v - 100) < 0.01 ? '' : ' (not 100%)'}`;
+        items.push(tTable(M1_TABS.fund, 'inputs', {
+          title: 'Fee distribution (shares are not normalised)', kind: 'grid', align: 'data',
+          columns: ['Earns', 'Performance Fee', 'Developer Fee', 'Commission'],
+          rows: [
+            ...matrix.map((d) => row([
+              isFundManagerRow(d) ? `${d.partyName || DEFAULT_FUND_MANAGER_NAME} (fund manager, also earns 100% of the management fees)` : (d.partyName ?? d.partyId),
+              fmt.pctRaw(d.performanceFeePct ?? 0, 2), fmt.pctRaw(d.developerFeePct ?? 0, 2), fmt.pctRaw(d.commissionPct ?? 0, 2),
+            ])),
+            row(['Total', totalCell(colTotal((d) => d.performanceFeePct)),
+              totalCell(colTotal((d) => d.developerFeePct)), totalCell(colTotal((d) => d.commissionPct))], 'total'),
+          ],
         }));
       }
     }
   }
 
-  // Tab 2: Assets & Sub-units.
-  for (const ph of state.phases) {
-    const assets = state.assets.filter((a) => a.phaseId === ph.id && a.visible !== false);
-    if (!assets.length) continue;
-    items.push(tTable('Tab 2: Assets & Sub-units', 'inputs', {
-      title: `Assets, ${ph.name}`, kind: 'grid', align: 'data',
-      columns: ['Asset', 'Strategy', 'Type', 'BUA (sqm)', 'Land (sqm)'],
-      rows: assets.map((a) => {
-        const { bua, land } = pdfAreaOf(a, state);
-        const z = assetNotes.hasBuaNote(a.id, bua);
-        return row([a.name, a.strategy, a.type || '-', z ? structuralZeroCell(z) : fmt.area(bua), fmt.area(land)]);
-      }),
-    }));
-    for (const fn of assetNotes.takeFootnotes()) items.push(tItem('Tab 2: Assets & Sub-units', 'inputs', { type: 'paragraph', text: fn.text }));
-    for (const a of assets) {
-      const su = state.subUnits.filter((u) => u.assetId === a.id);
-      if (!su.length) continue;
-      items.push(tTable('Tab 2: Assets & Sub-units', 'inputs', {
-        title: `Sub-units, ${a.name}`, kind: 'grid', align: 'data',
-        columns: ['Sub-unit', 'Category', 'Metric', 'Qty', `Unit price / ADR ${rateUnit(p.currency ?? 'SAR')}`],
-        rows: su.map((u) => row([u.name, u.category, u.metric, u.metric === 'area' ? fmt.area(u.metricValue) : fmt.int(u.metricValue), fmt.int(resolveSubUnitAdr(u))])),
+  // ── TAB 4: ASSET TYPES & STANDARDS ────────────────────────────────────────
+  {
+    const v = buildStandardsView(viewState);
+    if (v.types.length === 0) {
+      items.push(tItem(M1_TABS.standards, 'inputs', { type: 'paragraph', text: 'No asset types in this project.' }));
+    } else {
+      const cell = (n: number | undefined, f: (x: number) => string): string => (n === undefined ? '' : f(n));
+      items.push(tTable(M1_TABS.standards, 'inputs', {
+        title: 'Asset types and values', kind: 'grid', align: 'data',
+        columns: ['Asset type', 'Category', 'Strategy for new assets', 'Avg unit size (sqm)', 'Parking ratio',
+          'Ratio basis', 'Utilisation %', 'Coverage %', 'FAR', 'Service %'],
+        rows: v.types.map((t) => row([
+          t.label, t.category || '-', t.strategy ?? '',
+          cell(t.unitSizeSqm, (x) => fmt.int(x)), cell(t.ratio, (x) => String(x)),
+          t.ratioBasis ?? t.ratioBasisDefault,
+          cell(t.utilisationPct, (x) => fmt.pctRaw(x, 2)), cell(t.coveragePct, (x) => fmt.pctRaw(x, 2)),
+          cell(t.far, (x) => String(x)), cell(t.servicePct, (x) => fmt.pctRaw(x, 2)),
+        ])),
+      }));
+      items.push(tItem(M1_TABS.standards, 'inputs', {
+        type: 'paragraph',
+        text: 'A blank value is not set, never zero. Utilisation, coverage, FAR and service are defaults a plot inherits where it states none on Table 2 of the assets tab.',
+      }));
+    }
+    items.push(tTable(M1_TABS.standards, 'inputs', kvTable('Parking and cost escalation', [
+      ['Parking area per slot (sqm) for this project', v.slotAreaSqm === undefined ? 'Not set' : fmt.int(v.slotAreaSqm)],
+      [`Construction cost escalation (% a year, from ${v.baseYear})`,
+        v.escalationPct === undefined ? 'Not set: rates are not escalated.' : fmt.pctRaw(v.escalationPct, 2)],
+    ])));
+    const phaseText = (r: CostStandardView): string => (multiPhase && r.byPhase.length > 0
+      ? r.byPhase.map((b) => `${b.phaseName} ${r.isPercent ? `${b.rate}%` : b.rate.toLocaleString('en-US')}`).join('; ')
+      : '');
+    const rateText = (r: CostStandardView): string =>
+      (r.rate === undefined ? '' : r.isPercent ? fmt.pctRaw(r.rate, 2) : fmt.int(r.rate));
+    const priceText = (pr: { value?: number; unit: string } | null | undefined): string => {
+      if (pr === null) return '-';
+      if (pr === undefined) return '';
+      return `${pr.value === undefined ? '' : fmt.int(pr.value)}${pr.value === undefined ? pr.unit : ` ${pr.unit}`}${cur ? ` (${cur})` : ''}`;
+    };
+    if (v.construction.length) {
+      items.push(tTable(M1_TABS.standards, 'inputs', {
+        title: 'Cost standards: construction cost, sale price and ADR', kind: 'grid', align: 'data',
+        columns: ['Item', 'Applies to', 'Basis', `Rate (${v.baseYear} money)`,
+          ...(multiPhase ? ['By phase'] : []), 'Price per unit', 'Price per sqm'],
+        rows: v.construction.map((r) => row([
+          r.label, r.appliesTo, r.basis, rateText(r),
+          ...(multiPhase ? [phaseText(r)] : []),
+          priceText(r.pricePerUnit), priceText(r.pricePerSqm),
+        ])),
+      }));
+    }
+    if (v.soft.length) {
+      items.push(tTable(M1_TABS.standards, 'inputs', {
+        title: 'Cost standards: soft costs', kind: 'grid', align: 'data',
+        columns: ['Item', 'Basis', `Rate (${v.baseYear} money)`, ...(multiPhase ? ['By phase'] : [])],
+        rows: v.soft.map((r) => row([r.label, r.basis, rateText(r), ...(multiPhase ? [phaseText(r)] : [])])),
+      }));
+    }
+    if (v.construction.length || v.soft.length) {
+      items.push(tItem(M1_TABS.standards, 'inputs', {
+        type: 'paragraph',
+        text: 'Defaults only: a rate typed on a Capex phase line wins, a phase rate here wins over the row rate in that phase, and a type price applies to every Table 5 row of that type with no price of its own.',
       }));
     }
   }
 
-  // Tab 3: Capex. Cost-line INPUT is asset-wise (each contributing line shows
-  // its Quantity = the BUA/NSA/land sqm or unit count the rate multiplies, and
-  // the engine Amount). OUTPUT mirrors the platform Capex Results tab. Both come
-  // from the shared builder (lib/reports/capexReports.ts).
-  // LAND & AREA. Parcels and their allocation to assets, plus built area, so
-  // land efficiency is legible without cross-referencing three tables.
-  if (state.parcels.length || state.assets.length) {
-    const totalLand = state.parcels.reduce((a, pa) => a + (pa.area ?? 0), 0);
-    const totalBua = state.assets.filter((a) => a.visible !== false)
-      .reduce((acc, a) => acc + pdfAreaOf(a, state).bua, 0);
-    items.push(tTable('Tab 2: Assets & Sub-units', 'inputs', {
-      title: 'Land & Area', kind: 'grid', align: 'data',
-      columns: ['Item', 'Land (sqm)', 'Built area (sqm)', 'Plot ratio'],
-      rows: [
-        ...state.parcels.map((pa) => row([`Parcel: ${pa.name}`, fmt.area(pa.area), '', ''])),
-        ...state.assets.filter((a) => a.visible !== false).map((a) => {
-          const { bua, land } = pdfAreaOf(a, state);
-          return row([a.name, fmt.area(land), fmt.area(bua), land > 0 ? (bua / land).toFixed(2) : '-']);
-        }),
-        row(['Total', fmt.area(totalLand), fmt.area(totalBua), totalLand > 0 ? (totalBua / totalLand).toFixed(2) : '-'], 'total'),
-      ],
+  // ── TAB 5: ASSETS & SUB-UNITS (the screen's five tables) ──────────────────
+  const areaTables = buildAssetAreaTables(viewState);
+  // Table 1: the plots.
+  if (state.parcels.length) {
+    let area = 0; let value = 0; let cash = 0; let inKind = 0;
+    const rows = state.parcels.map((pa) => {
+      const a = Math.max(0, pa.area ?? 0); const rate = Math.max(0, pa.rate ?? 0);
+      const lv = a * rate;
+      const cv = lv * (Math.max(0, pa.cashPct ?? 0) / 100);
+      const iv = lv * (Math.max(0, pa.inKindPct ?? 0) / 100);
+      area += a; value += lv; cash += cv; inKind += iv;
+      return row([pa.name, state.phases.find((ph) => ph.id === pa.phaseId)?.name ?? '-', fmt.area(a),
+        fmt.int(rate), fmt.pctRaw(pa.cashPct ?? 0, 0), fmt.pctRaw(pa.inKindPct ?? 0, 0),
+        fmt.money(lv), fmt.money(cv), fmt.money(iv)]);
+    });
+    rows.push(row(['Totals', '', fmt.area(area), fmt.int(area > 0 ? value / area : 0), '', '',
+      fmt.money(value), fmt.money(cash), fmt.money(inKind)], 'total'));
+    items.push(tTable(M1_TABS.assets, 'inputs', {
+      title: 'Table 1 - Plots, the land', kind: 'grid', align: 'data',
+      columns: ['Plot', 'Phase', 'Area (sqm)', `${cur}/sqm`, 'Cash %', 'In-Kind %', 'Land Value', 'Cash Value', 'In-Kind Value'],
+      rows,
+    }));
+    items.push(tItem(M1_TABS.assets, 'inputs', {
+      type: 'paragraph',
+      text: 'Land is allocated by sqm only: each asset draws from its plot on Table 2. The debt / equity split of the land cash is on the Financing tab (Land Funding).',
     }));
   }
+  // Table 2: what you enter, per plot.
+  {
+    const rows: PdfTableRow[] = [];
+    let inherited = false; let whole = false;
+    for (const g of areaTables.plots) {
+      rows.push(row([`${g.plotLabel}${g.phaseName ? `, ${g.phaseName}` : ''}. ${g.check}`, '', '', '', '', '', '', '', ''], 'heading'));
+      if (g.entries.length === 0) { rows.push(row(['No assets drawing from this plot yet.', '', '', '', '', '', '', '', ''])); continue; }
+      for (const e of g.entries) {
+        if ([e.utilisationPct, e.coveragePct, e.far, e.servicePct].some((x) => x.note === 'from the type')) inherited = true;
+        if (e.plotAreaSqm.note) whole = true;
+        rows.push(row([
+          e.typeLabel, e.strategy,
+          viewText(e.plotAreaSqm, (x) => fmt.area(x)),
+          viewText(e.utilisationPct, (x) => fmt.pctRaw(x, 2)),
+          viewText(e.coveragePct, (x) => fmt.pctRaw(x, 2)),
+          viewText(e.far, (x) => String(x)),
+          viewText(e.maxFloors, (x) => fmt.int(x)),
+          viewText(e.retailPct, (x) => fmt.pctRaw(x, 2)),
+          viewText(e.servicePct, (x) => fmt.pctRaw(x, 2)),
+        ]));
+      }
+    }
+    if (rows.length) {
+      items.push(tItem(M1_TABS.assets, 'inputs', {
+        type: 'paragraph',
+        text: 'Utilisation is the screen\'s Land Utilisation %, Coverage its Ground Coverage %, and Retail % the ground-floor retail share.',
+      }));
+      items.push(tTable(M1_TABS.assets, 'inputs', {
+        title: 'Table 2 - Assets by plot, what you enter', kind: 'grid', align: 'data',
+        columns: ['Type', 'Strategy', 'Plot Area (sqm)', 'Utilisation %', 'Coverage %', 'FAR',
+          'Max Floors', 'Retail %', 'Service %'],
+        rows,
+      }));
+      if (inherited) {
+        items.push(tItem(M1_TABS.assets, 'inputs', {
+          type: 'paragraph',
+          text: 'A figure marked "from the type" is inherited from the asset type on Asset Types & Standards; the plot states none of its own.',
+        }));
+      }
+      if (whole) {
+        items.push(tItem(M1_TABS.assets, 'inputs', {
+          type: 'paragraph',
+          text: 'A Plot Area shown as "blank, draws the whole plot" is a blank on the platform: the asset takes the whole plot.',
+        }));
+      }
+      if (areaTables.companions.length > 0) {
+        items.push(tItem(M1_TABS.assets, 'inputs', {
+          type: 'paragraph',
+          text: `Ground-floor retail strips (${areaTables.companions.map((x) => x.name).join('; ')}) are derived from the retail share above, not typed: their areas and the land they carve from their hosts are on Tables 3 and 4.`,
+        }));
+      }
+    }
+  }
+  // Tables 3 and 4: the chain per plot, then the same rows merged by line. Each
+  // is split into an AREA half and a UNITS AND PARKING half so the twenty
+  // columns the screen scrolls through stay readable on a landscape page.
+  {
+    const areaRows: PdfTableRow[] = [];
+    const unitRows: PdfTableRow[] = [];
+    for (const g of areaTables.plots) {
+      const head = `${g.plotLabel}${g.phaseName ? `, ${g.phaseName}` : ''}`;
+      areaRows.push(row([head, ...CHAIN_AREA_HEADS.map(() => '')], 'heading'));
+      unitRows.push(row([head, ...CHAIN_UNIT_HEADS.map(() => '')], 'heading'));
+      for (const r of g.chains) {
+        const ch = r.chain as unknown as ChainCells;
+        areaRows.push(row([r.label, ...chainAreaCells(fmt, r.landSqm, ch, r.chain.landscapePct)]));
+        unitRows.push(row([r.label, ...chainUnitCells(fmt, ch, r.unitSizeSqm, r.ratio)]));
+      }
+      for (const piece of g.retailPieces) {
+        areaRows.push(row([`${piece.name} (carved from its hosts)`, fmt.area(piece.sqm),
+          ...CHAIN_AREA_HEADS.slice(1).map(() => '-')]));
+      }
+    }
+    const pt = areaTables.plotTotal;
+    areaRows.push(row(['TOTAL, all plots', ...chainAreaCells(fmt, pt.landSqm, pt.pooled, pooledLandscapePct(pt.landscapePct))], 'total'));
+    unitRows.push(row(['TOTAL, all plots', ...chainUnitCells(fmt, pt.pooled, pt.avgUnitSize, pt.slotsPerUnit)], 'total'));
+    items.push(tTable(M1_TABS.assets, 'inputs', {
+      title: 'Table 3 - Derived areas by plot (land x utilisation x coverage / FAR)', kind: 'grid', align: 'data',
+      columns: ['Asset', ...CHAIN_AREA_HEADS], rows: areaRows,
+    }));
+    items.push(tItem(M1_TABS.assets, 'inputs', { type: 'paragraph', text: CHAIN_UNITS_NOTE }));
+    items.push(tTable(M1_TABS.assets, 'inputs', {
+      title: 'Table 3 - Derived units and parking by plot', kind: 'grid', align: 'data',
+      columns: ['Asset', ...CHAIN_UNIT_HEADS], rows: unitRows,
+    }));
+    items.push(tItem(M1_TABS.assets, 'inputs', {
+      type: 'paragraph',
+      text: `Plots hold ${fmt.area(areaTables.parcelsTotalSqm)} sqm; the Plot Area column totals ${fmt.area(pt.landSqm)} sqm including the land the retail strips carved from their hosts. A dash means a step could not be derived, which is not zero.`,
+    }));
+
+    const lineAreaRows: PdfTableRow[] = [];
+    const lineUnitRows: PdfTableRow[] = [];
+    for (const l of areaTables.lines) {
+      const head = [l.typeLabel, l.phaseName, l.strategy, fmt.int(l.plots)];
+      lineAreaRows.push(row([...head, ...chainAreaCells(fmt, l.landSqm, l.pooled, pooledLandscapePct(l.landscapePct))]));
+      lineUnitRows.push(row([...head, ...chainUnitCells(fmt, l.pooled, l.avgUnitSize, l.slotsPerUnit)]));
+    }
+    for (const s of areaTables.companions) {
+      const g: ChainCells = {
+        retailGfaSqm: s.retailGfaSqm, totalGfaSqm: s.retailGfaSqm, netSaleableSqm: s.retailGfaSqm,
+        retailParkingSlots: s.slots, retailParkingAreaSqm: s.parkingAreaSqm,
+        totalParkingAreaSqm: s.parkingAreaSqm, totalBuaSqm: s.totalBuaSqm,
+      };
+      const head = [s.name, s.phaseName, s.strategy, fmt.int(s.hosts)];
+      lineAreaRows.push(row([...head, ...chainAreaCells(fmt, s.landSqm, g, undefined)]));
+      lineUnitRows.push(row([...head, ...chainUnitCells(fmt, g, undefined, undefined)]));
+    }
+    const lt = areaTables.lineTotal;
+    lineAreaRows.push(row(['TOTAL, all lines', '', '', '', ...chainAreaCells(fmt, lt.landSqm, lt.pooled, pooledLandscapePct(lt.landscapePct))], 'total'));
+    lineUnitRows.push(row(['TOTAL, all lines', '', '', '', ...chainUnitCells(fmt, lt.pooled, lt.avgUnitSize, lt.slotsPerUnit)], 'total'));
+    const lineHead = ['Type', 'Phase', 'Strategy', 'Plots'];
+    items.push(tTable(M1_TABS.assets, 'inputs', {
+      title: 'Table 4 - Merged by line, derived areas', kind: 'grid', align: 'data',
+      columns: [...lineHead, ...CHAIN_AREA_HEADS], rows: lineAreaRows,
+    }));
+    items.push(tTable(M1_TABS.assets, 'inputs', {
+      title: 'Table 4 - Merged by line, units and parking', kind: 'grid', align: 'data',
+      columns: [...lineHead, ...CHAIN_UNIT_HEADS], rows: lineUnitRows,
+    }));
+    if (areaTables.companions.length > 0) {
+      items.push(tItem(M1_TABS.assets, 'inputs', {
+        type: 'paragraph',
+        text: 'Retail companions are held on Lease. Their floor area is already inside the Retail GFA above and their land is the land their hosts gave up, so nothing is counted twice. The two tables group the same rows differently, so their totals must agree.',
+      }));
+    }
+  }
+  // Table 5: the sub-units under the merged line.
+  {
+    const lines = buildSubUnitLines(viewState);
+    for (const line of lines) {
+      items.push(tTable(M1_TABS.assets, 'inputs', {
+        title: `Table 5 - Sub-units, ${line.title}`, kind: 'grid', align: 'data',
+        columns: ['Sub-unit', 'Category', 'NSA Share %', 'Area (sqm)', 'Unit Size (sqm)',
+          'Units or Keys', `Unit price / ADR ${rateUnit(cur)}`, 'Rate Basis', 'Rate, other basis'],
+        rows: [
+          ...line.rows.map((u) => row([
+            u.plot ? `${u.name} (${u.plot})` : u.name, u.category,
+            viewText(u.sharePct, (x) => fmt.pctRaw(x, 2)),
+            viewText(u.areaSqm, (x) => fmt.area(x)),
+            u.unitSizeSqm === undefined ? '' : fmt.int(u.unitSizeSqm),
+            viewText(u.units, (x) => fmt.int(x)),
+            fmt.int(u.rate), u.rateBasis,
+            u.otherRate
+              ? `${u.otherRate.value === undefined ? '' : fmt.int(u.otherRate.value)} ${u.otherRate.basis}`.trim()
+              : (u.otherNote ?? ''),
+          ])),
+          row([line.title === 'Not on a line' ? 'Total, not on a line' : 'Line total', '',
+            line.nsaSqm > 0 ? fmt.pctRaw((line.areaSqm / line.nsaSqm) * 100, 2) : '',
+            fmt.area(line.areaSqm), '', '', '', '', ''], 'total'),
+        ],
+      }));
+      items.push(tItem(M1_TABS.assets, 'inputs', { type: 'paragraph', text: line.check }));
+    }
+    if (lines.length) {
+      items.push(tItem(M1_TABS.assets, 'inputs', {
+        type: 'paragraph',
+        text: 'Share and area are one pair: whichever the user typed is the statement and the other follows the line\'s NSA. In count mode the count is typed and the area follows.',
+      }));
+    }
+  }
+  // Land by asset: what Capex charges and the Balance Sheet holds, filed under
+  // the capex category rule, through the same view the workbook reads.
+  {
+    const land = buildAssetLandView(viewState);
+    if (land.length) {
+      const rows: PdfTableRow[] = [];
+      const tot = { sqm: 0, value: 0, cash: 0, inKind: 0 };
+      for (const cat of CAPEX_CATEGORIES) {
+        const mine = land.filter((l) => l.category === cat);
+        if (!mine.length) continue;
+        rows.push(row([cat, '', '', '', '', ''], 'heading'));
+        const sub = { sqm: 0, value: 0, cash: 0, inKind: 0 };
+        for (const l of mine) {
+          rows.push(row([l.name, fmt.area(l.landSqm), fmt.int(l.landRate),
+            fmt.money(l.landValue), fmt.money(l.cashLandValue), fmt.money(l.inKindLandValue)]));
+          sub.sqm += l.landSqm; sub.value += l.landValue; sub.cash += l.cashLandValue; sub.inKind += l.inKindLandValue;
+        }
+        rows.push(row([`Total ${cat}`, fmt.area(sub.sqm), '', fmt.money(sub.value), fmt.money(sub.cash), fmt.money(sub.inKind)], 'subtotal'));
+        tot.sqm += sub.sqm; tot.value += sub.value; tot.cash += sub.cash; tot.inKind += sub.inKind;
+      }
+      rows.push(row(['TOTAL, all assets', fmt.area(tot.sqm), '', fmt.money(tot.value), fmt.money(tot.cash), fmt.money(tot.inKind)], 'total'));
+      items.push(tTable(M1_TABS.assets, 'inputs', {
+        title: 'Land by asset (what Capex charges and the Balance Sheet holds)', kind: 'grid', align: 'data',
+        columns: ['Asset', 'Land (sqm)', `Land rate ${rateUnit(cur, 'sqm')}`, 'Land value', 'Cash land', 'In-kind land'],
+        rows,
+      }));
+      // The nil built-up area block, as the workbook's Land & Area sheet has
+      // it: which asset reports no area and WHY, so a zero is never read as a
+      // missing input.
+      const nil = land
+        .map((l) => ({ name: l.name, z: assetNotes.hasBuaNote(l.assetId, l.builtAreaSqm) }))
+        .filter((x): x is { name: string; z: AssetStructuralZero } => x.z !== null);
+      if (nil.length) {
+        // THE REASON IS A SENTENCE, SO IT IS A FOOTNOTE, NOT A COLUMN. Put in
+        // a cell it was ellipsised at about a third of its length, which is a
+        // note that explains nothing.
+        items.push(tTable(M1_TABS.assets, 'inputs', {
+          title: 'Assets reporting nil built-up area (and why)', kind: 'grid', align: 'data',
+          columns: ['Asset', 'Built area (sqm)'],
+          rows: nil.map((x) => row([x.name, structuralZeroCell(x.z)])),
+        }));
+        for (const fn of assetNotes.takeFootnotes()) {
+          items.push(tItem(M1_TABS.assets, 'inputs', { type: 'paragraph', text: fn.text }));
+        }
+      }
+    }
+  }
+
+  // ── TAB 6: CAPEX (the screen's inputs, then its six tables) ───────────────
   const capexReport = buildCapexReport(snap, state);
   // The "Quantity / Basis" column shows what each line's rate or percentage
   // multiplies to produce the Amount: a physical quantity (BUA/NSA/land sqm,
@@ -1353,15 +1793,12 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       : l.isFixed ? fmt.money(l.rate) : l.isPercent ? `${l.rate}%` : fmt.int(l.rate);
   // ONE COST LINE TABLE PER CONSOLIDATED LINE (2026-09-15), its plots pooled.
   for (const ia of poolCapexByLine(capexReport, state).report.inputAssets) {
-    items.push(tTable('Tab 3: Capex', 'inputs', {
-      title: `Cost Lines, ${ia.assetName} (${ia.phaseName})`, kind: 'grid', align: 'data',
-      columns: ['Cost line', 'Stage', 'Basis (multiplier)', `Rate / Value ${rateUnit(p.currency ?? 'SAR')}`, 'Quantity / Basis', 'Amount'],
-      // 2026-08-15: the hard / soft split, stated rather than left for the
-      // reader to add up from the Stage column. A development cost summary that
-      // cannot separate hard from soft is not usable for a lender or an IC, and
-      // the split reached no export before this. Rows are emitted only when they
-      // carry a figure, so a land-only or all-hard asset gains no empty lines.
-      rows: ia.lines.map((l) => row([l.name, l.stage, l.basis, rateCell(l), basisCell(l), fmt.money(l.amount)]))
+    items.push(tTable(M1_TABS.capex, 'inputs', {
+      title: `Inputs - Cost Lines, ${ia.assetName} (${ia.phaseName})`, kind: 'grid', align: 'data',
+      columns: ['Cost line', 'Stage', 'Basis (multiplier)', `Rate / Value ${rateUnit(cur)}`, 'Quantity / Basis',
+        'Start period', 'End period', 'Phasing', 'Amount'],
+      rows: ia.lines.map((l) => row([l.name, l.stage, l.basis, rateCell(l), basisCell(l),
+        fmt.int(l.startPeriod), fmt.int(l.endPeriod), l.phasing, fmt.money(l.amount)]))
         .concat(
           ([
             ['Hard costs', ia.subtotals.hard],
@@ -1371,7 +1808,7 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
             ['Land', ia.subtotals.land],
           ] as Array<[string, number]>)
             .filter(([, v]) => v !== 0)
-            .map(([label, v]) => row([label, '', '', '', '', fmt.money(v)], 'subtotal')),
+            .map(([label, v]) => row([label, '', '', '', '', '', '', '', fmt.money(v)], 'subtotal')),
         )
         .concat(
           // Named for what it is now that marketing is out of it, and only
@@ -1381,135 +1818,365 @@ function buildModule1(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
                 ia.subtotals.marketing !== 0
                   ? 'Construction cost (excl. land and marketing)'
                   : 'Construction cost (excl. land)',
-                '', '', '', '', fmt.money(ia.subtotals.exclLand)], 'subtotal')]
+                '', '', '', '', '', '', '', fmt.money(ia.subtotals.exclLand)], 'subtotal')]
             : [],
         )
-        .concat([row([`Total, ${ia.assetName}`, '', '', '', '', fmt.money(ia.total)], 'total')]),
+        .concat([row([`Total, ${ia.assetName}`, '', '', '', '', '', '', '', fmt.money(ia.total)], 'total')]),
     }));
   }
-  // Capex Breakdown by Year (land split summary), then the per-stage + the
-  // per-asset Results tables (incl all land / excl in-kind / excl all land).
-  const cap = fin.capex.perPeriod;
-  items.push(tTable('Tab 3: Capex', 'outputs', periodTable('Capex Breakdown by Year', py, yl, [
-    periodRow('Land (cash)', cap.landCash, 'sum'),
-    periodRow('Land (in-kind)', cap.landInKind, 'sum'),
-    periodRow('Construction & soft (non-land)', cap.nonLand, 'sum'),
-    periodRow('Total capex (excl. in-kind land)', cap.exclLandInKind, 'sum', 'subtotal'),
-    periodRow('Total capex (incl. all land)', cap.inclAllLand, 'sum', 'total'),
-  ])));
-  const ps = fin.capex.perStagePerPeriod;
-  if (ps) {
-    const stageDefs: Array<[string, string]> = [
-      ['land', 'Land'], ['hard', 'Hard (construction)'], ['soft', 'Soft costs'], ['operating', 'Operating (capitalised)'],
-    ];
-    const stageRows = stageDefs
-      .filter(([key]) => anyNonZero(ps[key] ?? []))
-      .map(([key, label]) => periodRow(label, (ps[key] ?? []).slice(0, yl.length), 'sum'));
-    if (stageRows.length) {
-      items.push(tTable('Tab 3: Capex', 'outputs', periodTable('Capex Results by Stage', py, yl,
-        stageRows.concat([periodRow('Total capex (incl. all land)', cap.inclAllLand.slice(0, yl.length), 'sum', 'total')]))));
+  // TABLES 1 TO 6, in the screen's order and under the screen's numbers. The
+  // builder returns them by the titles the screen gives them, so they are
+  // looked up by name rather than re-titled here.
+  const resultByTitle = (title: string): CapexResultTable | undefined => capexReport.results.find((t) => t.title === title);
+  const numbered: Array<[string, string]> = [
+    ['Capex Schedule by Period (per cost line, by line)', 'Table 1 - Construction Cost Schedule by Period (per cost line, by line)'],
+    ['Total Capex (incl. all land)', 'Table 2 - Total Capex Including Land Value'],
+    ['Capex excl. Land In-Kind (cash-impact schedule)', 'Table 3 - Capex Excluding Land In-Kind (cash-impact schedule)'],
+    ['Capex excl. Total Land (pure development cost)', 'Table 4 - Capex Excluding Total Land (pure development cost)'],
+  ];
+  for (const [title, numberedTitle] of numbered) {
+    const t = resultByTitle(title);
+    if (t) items.push(tTable(M1_TABS.capex, 'outputs', m4RowsToPeriodTable(numberedTitle, py, yl, t.rows)));
+  }
+  // TABLE 5: the land cash and in-kind the Financing tab funds, per phase, from
+  // the engine's own per-phase series, with the land-stage memo the screen
+  // carries (RETT and the like: land value + memo = the land stage total).
+  {
+    const blocks = (fin.capex.landByPhase ?? [])
+      .map((lp) => ({ ...lp, cash: lp.landCash.slice(0, yl.length), inKind: lp.landInKind.slice(0, yl.length) }))
+      .filter((b) => Math.abs(sum(b.cash) + sum(b.inKind)) > 0.5);
+    const rows: PdfTableRow[] = [];
+    if (blocks.length === 0) {
+      items.push(tItem(M1_TABS.capex, 'outputs', { type: 'paragraph', text: 'Table 5 - Land: Cash and In-Kind. No land value in this view.' }));
+    } else {
+      const zeros = (): number[] => new Array<number>(yl.length).fill(0);
+      const gCash = zeros(); const gInKind = zeros();
+      const addInto = (acc: number[], src: number[] | undefined): void => { for (let i = 0; i < acc.length; i++) acc[i] += src?.[i] ?? 0; };
+      for (const b of blocks) {
+        rows.push(periodRow(`${b.phaseName}, Land, cash`, b.cash, 'sum'));
+        rows.push(periodRow(`${b.phaseName}, Land, in-kind`, b.inKind, 'sum'));
+        if (multiPhase) rows.push(periodRow(`Subtotal, ${b.phaseName}`, b.cash.map((v, t) => v + (b.inKind[t] ?? 0)), 'sum', 'subtotal'));
+        addInto(gCash, b.cash); addInto(gInKind, b.inKind);
+      }
+      rows.push(periodRow('Total land, cash', gCash, 'sum', 'subtotal'));
+      rows.push(periodRow('Total land, in-kind', gInKind, 'sum', 'subtotal'));
+      const gLand = gCash.map((v, t) => v + (gInKind[t] ?? 0));
+      rows.push(periodRow('Total land', gLand, 'sum', 'total'));
+      // The memo: every line in the land STAGE that is not land VALUE, by
+      // phase, from the report's own per-line schedules.
+      const memoLines = state.costLines.filter((c) => deriveCostStage(c) === 'land' && !isLandValueLine(c));
+      const memoIds = new Set(memoLines.map((c) => c.id));
+      const memoLabel = memoLines.length > 0
+        ? `Memo: ${[...new Set(memoLines.map((c) => c.name))].join(', ')} (land stage, not land value)`
+        : 'Memo: land-stage costs not in land value';
+      const phaseOf = new Map(state.assets.map((a) => [a.id, a.phaseId] as const));
+      const gMemo = zeros();
+      for (const b of blocks) {
+        const memo = zeros();
+        for (const ia of capexReport.inputAssets) {
+          if (phaseOf.get(ia.assetId) !== b.phaseId) continue;
+          for (const ln of ia.lines) if (memoIds.has(ln.id)) addInto(memo, ln.perPeriod);
+        }
+        if (Math.abs(sum(memo)) <= 0.5) continue;
+        rows.push(periodRow(`${b.phaseName}, ${memoLabel}`, memo, 'sum'));
+        addInto(gMemo, memo);
+      }
+      if (Math.abs(sum(gMemo)) > 0.5) {
+        rows.push(periodRow(`${memoLabel}, total`, gMemo, 'sum', 'subtotal'));
+        rows.push(periodRow('Land stage total (land value + memo, as the tiles show)', gLand.map((v, t) => v + (gMemo[t] ?? 0)), 'sum', 'total'));
+      }
+      items.push(tTable(M1_TABS.capex, 'outputs', periodTable('Table 5 - Land: Cash and In-Kind (what Financing funds)', py, yl, rows)));
+      items.push(tItem(M1_TABS.capex, 'outputs', {
+        type: 'paragraph',
+        text: 'The land inside Table 2, split into the cash the project pays and the value contributed in kind, per phase. Cash + in-kind = Table 2 less Table 4, and equals the land value on the assets tab. The Financing tab reads these phase figures.',
+      }));
     }
   }
-  for (const t of capexReport.results) {
-    items.push(tTable('Tab 3: Capex', 'outputs', m4RowsToPeriodTable(t.title, py, yl, t.rows)));
+  // TABLE 6: by category, both readings, each block footing to Table 2 and Table 4.
+  {
+    const catRows: PdfTableRow[] = [];
+    for (const [title, label] of [
+      ['Capex by Category (incl. all land)', 'Including all land'],
+      ['Capex by Category (excl. total land)', 'Excluding total land'],
+    ] as Array<[string, string]>) {
+      const t = resultByTitle(title);
+      if (!t) continue;
+      catRows.push(row([label, ...new Array<string>(yl.length + 2).fill('')], 'heading'));
+      const total = new Array<number>(yl.length).fill(0);
+      for (const r of t.rows) {
+        if (r.isTotal) continue;
+        catRows.push(periodRow(r.label, r.values.slice(0, yl.length), 'sum'));
+        for (let i = 0; i < total.length; i++) total[i] += r.values[i] ?? 0;
+      }
+      catRows.push(periodRow(`${label}, total`, total, 'sum', 'total'));
+    }
+    if (catRows.length) {
+      items.push(tTable(M1_TABS.capex, 'outputs', periodTable('Table 6 - Capex by Category (Residential, Hospitality, Retail)', py, yl, catRows)));
+      items.push(tItem(M1_TABS.capex, 'outputs', {
+        type: 'paragraph',
+        text: 'Every line filed under its asset type\'s category; a retail strip files under Retail. The first block foots to Table 2, the second to Table 4.',
+      }));
+    }
+  }
+  // The per-stage reading the Capex tiles show, kept as a memo beneath the six.
+  {
+    const ps = fin.capex.perStagePerPeriod;
+    const cap = fin.capex.perPeriod;
+    if (ps) {
+      const stageDefs: Array<[string, string]> = [
+        ['land', 'Land'], ['hard', 'Hard (construction)'], ['soft', 'Soft costs'],
+        ['marketing', 'Marketing'], ['operating', 'Operating (capitalised)'],
+      ];
+      const stageRows = stageDefs
+        .filter(([key]) => anyNonZero(ps[key] ?? []))
+        .map(([key, label]) => periodRow(label, (ps[key] ?? []).slice(0, yl.length), 'sum'));
+      if (stageRows.length) {
+        items.push(tTable(M1_TABS.capex, 'outputs', periodTable('Capex by stage (the tab\'s tiles)', py, yl,
+          stageRows.concat([periodRow('Total capex (incl. all land)', cap.inclAllLand.slice(0, yl.length), 'sum', 'total')]))));
+      }
+    }
   }
 
-  // Tab 4: Financing / Inputs.
-  items.push(tTable('Tab 4: Financing / Inputs', 'inputs', kvTable('Project Financing Settings', [
-    ['Funding method', FUNDING_METHOD_LABELS[(p.financing?.fundingMethod ?? 1) as FundingMethodId]],
-    ['Debt share', fmt.pctRaw(fin.funding.debtPct, 0)],
-    ['Equity share', fmt.pctRaw(fin.funding.equityPct, 0)],
-    ['Minimum cash reserve', fmt.money(p.financing?.minimumCashReserve ?? fin.funding.minCashReserve ?? 0)],
+  // ── TAB 7: FINANCING ──────────────────────────────────────────────────────
+  // The screen's four sub-tabs IN ITS OWN ORDER: Inputs, Schedules, Funding
+  // Gap, Cash Sweep. The report printed Funding Gap second, under a comment
+  // claiming that was the platform order. It is not, and the workbook (which
+  // was checked against the screen) has it right.
+  const cfg = p.financing;
+  const selId = (cfg?.fundingMethod ?? 1) as FundingMethodId;
+  const fnd = fin.funding;
+  const gap = computeFundingGap(snap);
+  const w = gap.method3Waterfall;
+  const sl = (a: number[] | undefined): number[] => (a ?? []).slice(0, yl.length);
+
+  // 1. Project Financing Settings + 1b. IDC policy.
+  items.push(tTable(M1_TABS.finInputs, 'inputs', kvTable('1. Project Financing Settings', [
+    ['Minimum Cash Reserve', fmt.money(cfg?.minimumCashReserve ?? fnd.minCashReserve ?? 0)],
   ])));
-  if (state.parcels.length) {
-    items.push(tTable('Tab 4: Financing / Inputs', 'inputs', {
-      title: 'Land Funding per Parcel', kind: 'grid', align: 'data',
-      columns: ['Parcel', 'Area (sqm)', `Rate ${rateUnit(p.currency ?? 'SAR', 'sqm')}`, 'Cash %', 'In-kind %', 'Cash value'],
-      rows: state.parcels.map((pa) => row([pa.name, fmt.area(pa.area), fmt.int(pa.rate), fmt.pctRaw(pa.cashPct, 0), fmt.pctRaw(pa.inKindPct, 0), fmt.money(pa.area * pa.rate * (pa.cashPct / 100))])),
-    }));
+  items.push(tTable(M1_TABS.finInputs, 'inputs', kvTable('1b. IDC (Interest During Construction) Policy', [
+    ['Allocation Basis', (p.idcConfig?.allocationBasis ?? 'land') === 'bua' ? 'Total BUA' : 'Land Area'],
+    ['Treatment', 'Capitalised into asset cost, paid when it arises'],
+  ])));
+  // 2. Funding method + 2a. its configuration.
+  {
+    const ft = resolveFundTerms(p);
+    items.push(tTable(M1_TABS.finInputs, 'inputs', kvTable('2. Funding Method', [
+      ['Selected method', `Method ${selId}, ${FUNDING_METHOD_LABELS[selId]}`],
+      ['What it funds', FUNDING_METHOD_DESCRIPTIONS[selId]],
+      ...(ft.enabled ? [['Fund management fee, funded by', ft.managementFeeFunding === 'equity'
+        ? '100% equity (drawn from equity directly, outside the ratio)'
+        : 'Cash deficit funding (inside the requirement, at the debt / equity ratio)'] as [string, string]] : []),
+    ])));
+    const pairs: Array<[string, string]> = [];
+    if (selId === 4) {
+      const m4 = cfg?.fixedAmountConfig;
+      pairs.push(['Total Debt Amount', fmt.money(m4?.debtAmount ?? 0)]);
+      pairs.push(['Total Equity Amount', fmt.money(m4?.equityAmount ?? 0)]);
+      const yoy = m4?.yoySchedule ?? [];
+      pairs.push(['Year-on-Year % schedule', yoy.length ? `${yoy.map((v) => `${v}%`).join(', ')} (sums to 100)` : 'Not set']);
+    } else {
+      const pair = selId === 1 ? cfg?.fixedRatio : selId === 2 ? cfg?.netFundingConfig : cfg?.cashDeficitConfig;
+      const d = pair?.debtPct ?? 70; const e = pair?.equityPct ?? 30;
+      pairs.push(['Debt %', fmt.pctRaw(d, 2)]);
+      pairs.push(['Equity %', fmt.pctRaw(e, 2)]);
+      pairs.push(['Match', Math.abs(d + e - 100) < 0.01 ? '100%' : `${(d + e).toFixed(2)}%`]);
+    }
+    items.push(tTable(M1_TABS.finInputs, 'inputs', kvTable(`2a. Method ${selId} Configuration`, pairs)));
   }
-  if (state.financingTranches.length) {
-    items.push(tTable('Tab 4: Financing / Inputs', 'inputs', {
-      title: 'Debt Facilities', kind: 'grid', align: 'data',
-      columns: ['Tranche', 'Origin', 'Opening bal.', 'Rate %', 'Repayment', 'Drawdown'],
+  // 3. Funding Basis, through the shared builder both exports read, so the
+  // Sources vs Uses answer cannot differ between them (TRAPS 7.53).
+  {
+    const fb = computeFundingBasis(fin);
+    items.push(tTable(M1_TABS.finInputs, 'outputs', kvTable('3. Funding Basis', [
+      ['Drawdown Basis', FUNDING_METHOD_DESCRIPTIONS[selId]],
+      ['Total Capex (excl Land In-Kind)', fmt.money(fb.capexExclInKind)],
+      ['Total Funding Need', fmt.money(fb.fundingNeed)],
+      ['Funded from Project Cash', fmt.money(fb.fundedFromProjectCash)],
+      ['Sources vs Uses', fb.ok ? `Match (${fmt.money(fb.sources)})` : `Gap ${fmt.money(fb.gap)}`],
+    ])));
+  }
+  // 4. Land funding per phase, the engine's own per-phase series plus the split.
+  {
+    const landByPhase = fin.capex.landByPhase ?? [];
+    if (landByPhase.length === 0) {
+      items.push(tItem(M1_TABS.finInputs, 'inputs', { type: 'paragraph', text: '4. Land Funding: no phases with land yet.' }));
+    } else {
+      const rows: PdfTableRow[] = [];
+      for (const lp of landByPhase) {
+        const phaseParcels = state.parcels.filter((x) => x.phaseId === lp.phaseId);
+        const cfgs = phaseParcels.map((x) => (cfg?.parcelFunding ?? []).find((y) => y.parcelId === x.id));
+        const debts = cfgs.map((c) => c?.debtPct ?? 0);
+        const equities = cfgs.map((c, i) => c?.equityPct ?? (100 - debts[i]));
+        const mixed = debts.some((d) => d !== debts[0]) || equities.some((e) => e !== equities[0]);
+        const debtPct = debts[0] ?? 0; const equityPct = equities[0] ?? (100 - debtPct);
+        rows.push(periodRow(`${lp.phaseName}, Land Cash (Capex Table 5)`, sl(lp.landCash), 'sum'));
+        rows.push(periodRow(`${lp.phaseName}, Land In-Kind (Capex Table 5)`, sl(lp.landInKind), 'sum'));
+        rows.push(strPeriodRow(`${lp.phaseName}, Debt % / Equity %`, new Array<string>(yl.length).fill(''),
+          `${fmt.pctRaw(debtPct, 2)} / ${fmt.pctRaw(equityPct, 2)}${mixed ? ' (mixed across its plots)' : ''}`));
+      }
+      const zeros = new Array<number>(yl.length).fill(0);
+      rows.push(periodRow('Total, Land Cash', landByPhase.reduce((acc, lp) => acc.map((v, t) => v + (lp.landCash[t] ?? 0)), [...zeros]), 'sum', 'subtotal'));
+      rows.push(periodRow('Total, Land In-Kind', landByPhase.reduce((acc, lp) => acc.map((v, t) => v + (lp.landInKind[t] ?? 0)), [...zeros]), 'sum', 'subtotal'));
+      items.push(tTable(M1_TABS.finInputs, 'inputs', periodTable('4. Land Funding (per phase, from the Capex results)', py, yl, rows)));
+    }
+  }
+  // 5. Debt facilities, every term the facility card holds.
+  if (state.financingTranches.length === 0) {
+    items.push(tItem(M1_TABS.finInputs, 'inputs', { type: 'paragraph', text: '5. Debt Facilities: no facilities yet.' }));
+  } else {
+    const newTranches = state.financingTranches.filter((t) => t.origin !== 'existing');
+    const shareSum = [...fin.shares.values()].reduce((s, v) => s + v, 0);
+    const maxCp = state.phases.reduce((m, ph) => Math.max(m, ph.constructionPeriods ?? 0), 0);
+    const operationsEndYear = snap.projectStartYear + Math.max(0, fin.axis.totalPeriods - 1);
+    const defaultRepayStartYear = Math.min(operationsEndYear, snap.projectStartYear + Math.max(1, maxCp));
+    items.push(tTable(M1_TABS.finInputs, 'inputs', {
+      title: '5. Debt Facilities', kind: 'grid', align: 'data',
+      columns: ['Facility', 'Origin', 'Lender', 'Opening balance', 'Interbank %', 'Spread %',
+        'Rate %', 'Upfront %', 'Commitment %', 'Repayment method', 'Repay start',
+        'Periods', 'Share %'],
       rows: state.financingTranches.map((t) => {
-        const rate = t.interestRatePct ?? ((t.interbankRatePct ?? 0) + (t.creditSpreadPct ?? 0));
-        return row([t.name, t.origin === 'existing' ? 'existing' : 'new', fmt.money(t.openingBalance ?? 0), fmt.pctRaw(rate, 2), String(t.repaymentMethod ?? '-'), String(t.drawdownMethod ?? '-')]);
+        const isExisting = t.origin === 'existing';
+        const hasComponents = t.interbankRatePct !== undefined || t.creditSpreadPct !== undefined;
+        const interbank = t.interbankRatePct ?? 0; const spread = t.creditSpreadPct ?? 0;
+        const repayStart = t.repaymentStartYear ?? (isExisting ? snap.projectStartYear : defaultRepayStartYear);
+        return row([
+          t.name, isExisting ? 'Existing' : 'New', t.lender ?? '',
+          fmt.money(t.openingBalance ?? 0), fmt.pctRaw(interbank, 2), fmt.pctRaw(spread, 2),
+          fmt.pctRaw(hasComponents ? interbank + spread : (t.interestRatePct ?? 0), 2),
+          fmt.pctRaw(t.upfrontFeePct ?? 0, 2), fmt.pctRaw(t.commitmentFeePct ?? 0, 2),
+          (REPAYMENT_METHOD_LABELS as Record<string, string>)[t.repaymentMethod] ?? String(t.repaymentMethod),
+          String(repayStart),
+          t.repaymentMethod === 'year_on_year_pct' ? 'schedule'
+            : fmt.int(isExisting ? (t.remainingRepaymentPeriods ?? 0) : (t.repaymentPeriods ?? 0)),
+          newTranches.length > 1 && !isExisting ? fmt.pctRaw(t.facilitySharePct ?? fin.shares.get(t.id) ?? 0, 2) : '',
+        ]);
       }),
     }));
+    if (newTranches.length > 1 && Math.abs(shareSum - 100) >= 0.01) {
+      items.push(tItem(M1_TABS.finInputs, 'inputs', {
+        type: 'paragraph',
+        text: `Facility shares total ${shareSum.toFixed(2)}%, not 100%. Shares are used exactly as typed, so the facilities together draw ${shareSum.toFixed(2)}% of the project debt requirement.`,
+      }));
+    }
   }
-  // Funding requirement, named methods + selected by year.
-  items.push(tTable('Tab 4: Financing / Inputs', 'outputs', kvTable('Funding Requirement by Method', [
-    [`Method 1 (${FUNDING_METHOD_LABELS[1]})`, fmt.money(fin.funding.method1)],
-    [`Method 2 (${FUNDING_METHOD_LABELS[2]})`, fmt.money(fin.funding.method2)],
-    [`Method 3 (${FUNDING_METHOD_LABELS[3]})`, fmt.money(fin.funding.method3)],
-    [`Method 4 (${FUNDING_METHOD_LABELS[4]})`, fmt.money(fin.funding.method4)],
-    [`Selected (${FUNDING_METHOD_LABELS[fin.funding.selectedMethodId]})`, fmt.money(fin.funding.selected)],
-  ])));
-  items.push(tTable('Tab 4: Financing / Inputs', 'outputs', periodTable(`Selected Funding Requirement by Year (${FUNDING_METHOD_LABELS[fin.funding.selectedMethodId]})`, py, yl, [
-    periodRow('Funding need (capex)', fin.funding.selectedByPeriod.slice(0, yl.length), 'sum'),
-    periodRow('Min cash reserve add-on', fin.funding.minCashByPeriod.slice(0, yl.length), 'sum'),
-    periodRow('Total funding need', fin.funding.totalFundingNeedByPeriod.slice(0, yl.length), 'sum', 'total'),
-  ])));
-  // Total Equity Required, as a year-on-year table (matching the platform's
-  // Equity Movement), with the type totals summarised on the prior column.
-  const eqI = fin.equity;
-  items.push(tTable('Tab 4: Financing / Inputs', 'outputs', periodTable('Total Equity Required (by year)', py, yl, [
-    periodRow('Cash equity', eqI.cashPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('In-kind equity', eqI.inKindPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('Existing equity', eqI.existingEquityPerPeriod.slice(0, yl.length), 'sum', undefined, fin.existing.equityTotal),
-    periodRow('Total equity', eqI.totalPerPeriod.slice(0, yl.length), 'sum', 'total'),
-  ])));
+  // 6. Capex Breakdown, 7. Funding Requirement, 8. Total Debt, 9. Total Equity.
+  {
+    const cx = fin.capex;
+    items.push(tTable(M1_TABS.finInputs, 'outputs', periodTable('6. Capex Breakdown', py, yl, [
+      periodRow('Capex (excluding Land)', sl(cx.perPeriod.exclAllLand), 'sum'),
+      periodRow('Land Cash Value', sl(cx.perPeriod.landCash), 'sum'),
+      periodRow('Total Capex Incl Cash Land', sl(cx.perPeriod.exclLandInKind), 'sum', 'total'),
+      ...(fin.existing.preCapexTotal > 0
+        ? [periodRow('Pre-Capex (existing operations)', new Array<number>(yl.length).fill(0), 'none', undefined, fin.existing.preCapexTotal)]
+        : []),
+    ])));
+    const reqRows: PdfTableRow[] = [
+      periodRow('Method 1, Fixed Debt-to-Equity Ratio', sl(cx.perPeriod.exclLandInKind), 'sum'),
+      periodRow('Method 2, Net Funding Requirement', sl(gap.methodAGapPerPeriod), 'sum'),
+      periodRow('Method 3, Cash Deficit Funding', sl(w.netCashRequiredPerPeriod), 'sum'),
+      periodRow('Method 4, Specified Debt + Equity (manual)', selId === 4 ? sl(fnd.selectedByPeriod) : new Array<number>(yl.length).fill(0), 'sum'),
+      periodRow(`Selected (Method ${selId})`, sl(fnd.selectedByPeriod), 'sum', 'subtotal'),
+    ];
+    if ((fnd.minCashReserve ?? 0) > 0 && selId !== 3) {
+      reqRows.push(periodRow('+ Minimum Cash Reserve', sl(fnd.minCashByPeriod), 'sum'));
+      reqRows.push(periodRow('Total Funding Need', sl(fnd.totalFundingNeedByPeriod), 'sum', 'total'));
+    }
+    items.push(tTable(M1_TABS.finInputs, 'outputs', periodTable('7. Funding Requirement', py, yl, reqRows)));
+    if ((fnd.minCashReserve ?? 0) > 0 && selId === 3) {
+      items.push(tItem(M1_TABS.finInputs, 'outputs', {
+        type: 'paragraph',
+        text: 'Method 3 absorbs the Minimum Cash Reserve implicitly via the deficit calculation.',
+      }));
+    }
+    const newTranches = state.financingTranches.filter((t) => t.origin !== 'existing');
+    const existingOpeningTotal = state.financingTranches
+      .filter((t) => t.origin === 'existing')
+      .reduce((s, t) => s + Math.max(0, t.openingBalance ?? 0), 0);
+    const idcNew = new Array<number>(yl.length).fill(0);
+    const debtRows: PdfTableRow[] = [];
+    if (existingOpeningTotal > 0) {
+      debtRows.push(periodRow('Existing Debt (opening balance, pre-axis)', new Array<number>(yl.length).fill(0), 'none', undefined, existingOpeningTotal));
+    }
+    for (const t of newTranches) {
+      const f = fin.facilities.get(t.id);
+      debtRows.push(periodRow(t.name, sl(f?.drawSchedule), 'sum'));
+      for (let i = 0; i < idcNew.length; i++) idcNew[i] += f?.interestCapitalized[i] ?? 0;
+    }
+    const capexDraw = sl(fin.debtEquitySplit.debt);
+    debtRows.push(periodRow('Capex Drawdown Subtotal', capexDraw, 'sum', 'subtotal'));
+    debtRows.push(periodRow('IDC Drawdown (capitalized interest)', idcNew, 'sum'));
+    debtRows.push(periodRow('Total Debt Required (new draws + IDC)', capexDraw.map((v, i) => v + (idcNew[i] ?? 0)), 'sum', 'total'));
+    items.push(tTable(M1_TABS.finInputs, 'outputs', periodTable('8. Total Debt Required', py, yl, debtRows)));
+    const eqI = fin.equity;
+    items.push(tTable(M1_TABS.finInputs, 'outputs', periodTable('9. Total Equity Required', py, yl, [
+      periodRow('Cash equity', sl(eqI.cashPerPeriod), 'sum'),
+      periodRow('In-kind equity', sl(eqI.inKindPerPeriod), 'sum'),
+      periodRow('Existing equity', sl(eqI.existingEquityPerPeriod), 'sum', undefined, fin.existing.equityTotal),
+      periodRow('Total equity', sl(eqI.totalPerPeriod), 'sum', 'total'),
+    ])));
+  }
 
-  // Tab 4: Financing / Funding Gap (BEFORE Schedules, matching the platform
-  // tab order). Method 2 (Net Funding) + Method 3 (Cash Deficit) waterfalls.
-  const gap = computeFundingGap(snap);
-  items.push(tTable('Tab 4: Financing / Funding Gap', 'outputs', periodTable('Method 2: Net Funding Requirement (Capex vs Pre-Sales)', py, yl, [
-    periodRow('Total project capex (excl. in-kind land)', gap.capexPerPeriod.slice(0, yl.length), 'sum', 'subtotal'),
-    periodRow('Advance received from customer (gross)', gap.preSalesGrossPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('Less: escrow held', gap.escrowHeldPerPeriod.slice(0, yl.length).map((v) => -v), 'sum'),
-    periodRow('Add: escrow released', gap.escrowReleasePerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('Advance received (net)', gap.preSalesNetPerPeriod.slice(0, yl.length), 'sum', 'subtotal'),
-    periodRow('Funding gap = MAX(capex - pre-sales(t-1), 0)', gap.methodAGapPerPeriod.slice(0, yl.length), 'sum', 'total'),
-  ])));
-  const m3 = gap.method3Waterfall;
-  items.push(tTable('Tab 4: Financing / Funding Gap', 'outputs', periodTable('Method 3: Cash Deficit Funding', py, yl, [
-    periodRow('Opening cash', m3.openingCashPerPeriod.slice(0, yl.length), 'none'),
-    periodRow('Cash from operations', m3.cashFromOpsPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('Cash from investing (capex)', m3.cashFromInvPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('Finance cost paid', m3.financeCostPaidPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('Cash available (before new funding)', m3.cashAvailableBeforeNewDebtPerPeriod.slice(0, yl.length), 'none', 'subtotal'),
-    periodRow('Net cash required (= funding drawn)', m3.netCashRequiredPerPeriod.slice(0, yl.length), 'sum', 'total'),
-  ])));
-  // Side-by-side comparison: what each funding method would require per year,
-  // regardless of which one is currently selected (matching the platform's
-  // method picker preview).
-  items.push(tTable('Tab 4: Financing / Funding Gap', 'outputs', periodTable('Funding Requirement by Method (year-on-year)', py, yl, [
-    periodRow('Method 1: Fund full capex', gap.capexPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('Method 2: Net funding gap (capex vs pre-sales)', gap.methodAGapPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('Method 3: Cash deficit (full waterfall)', m3.netCashRequiredPerPeriod.slice(0, yl.length), 'sum'),
-  ])));
-
-  // Tab 4: Financing / Schedules. Mirrors the platform via the shared builder
-  // (per-facility Debt Movement + Finance Cost ledger, Combined Debt Service,
-  // Equity Movement), plus the IDC summary.
+  // Financing / Schedules: the platform's own tables through the shared
+  // builder, plus the IDC allocation by line and the IDC summary.
   const fmtFn = (v: number): string => fmt.money(v);
   for (const t of buildFinancingScheduleTables(snap, state, fmtFn)) {
-    items.push(tTable('Tab 4: Financing / Schedules', 'schedules', m4RowsToPeriodTable(t.title, py, yl, t.rows)));
+    items.push(tTable(M1_TABS.finSchedules, 'schedules', m4RowsToPeriodTable(t.title, py, yl, t.rows)));
   }
-  const idc = snap.idc;
-  items.push(tTable('Tab 4: Financing / Schedules', 'schedules', periodTable('IDC Summary', py, yl, [
-    periodRow('Construction interest', idc.totalConstructionInterestPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('IDC capitalised to assets', idc.totalIdcPerPeriod.slice(0, yl.length), 'sum'),
-    periodRow('IDC depreciation', idcWithDisposal(idc, disposalContextOf(snap)).depreciationPerPeriod.slice(0, yl.length), 'sum'),
-    ...(idcWithDisposal(idc, disposalContextOf(snap)).disposed ? [periodRow('Disposed at exit (capitalised interest)', idcWithDisposal(idc, disposalContextOf(snap)).disposalPerPeriod.slice(0, yl.length).map((v) => -v), 'sum')] : []),
-    periodRow('IDC NBV (closing)', idcWithDisposal(idc, disposalContextOf(snap)).closingPerPeriod.slice(0, yl.length), 'last', 'total'),
+  for (const t of buildIdcAllocationTables(snap, state, fmtFn)) {
+    items.push(tTable(M1_TABS.finSchedules, 'schedules', m4RowsToPeriodTable(t.title, py, yl, t.rows)));
+  }
+  {
+    const idc = snap.idc;
+    const withDisposal = idcWithDisposal(idc, disposalContextOf(snap));
+    items.push(tTable(M1_TABS.finSchedules, 'schedules', periodTable('IDC Summary', py, yl, [
+      periodRow('Construction interest', sl(idc.totalConstructionInterestPerPeriod), 'sum'),
+      periodRow('IDC capitalised to assets', sl(idc.totalIdcPerPeriod), 'sum'),
+      periodRow('IDC depreciation', sl(withDisposal.depreciationPerPeriod), 'sum'),
+      ...(withDisposal.disposed
+        ? [periodRow('Disposed at exit (capitalised interest)', sl(withDisposal.disposalPerPeriod).map((v) => -v), 'sum')]
+        : []),
+      periodRow('IDC NBV (closing)', sl(withDisposal.closingPerPeriod), 'last', 'total'),
+    ])));
+  }
+
+  // Financing / Funding Gap: the two sizing waterfalls, then the side by side.
+  items.push(tTable(M1_TABS.finGap, 'outputs', periodTable('Method 2: Net Funding Requirement (Capex vs Pre-Sales)', py, yl, [
+    periodRow('Total project capex (excl. in-kind land)', sl(gap.capexPerPeriod), 'sum', 'subtotal'),
+    periodRow('Advance received from customer (gross)', sl(gap.preSalesGrossPerPeriod), 'sum'),
+    periodRow('Less: escrow held', sl(gap.escrowHeldPerPeriod).map((v) => -v), 'sum'),
+    periodRow('Add: escrow released', sl(gap.escrowReleasePerPeriod), 'sum'),
+    periodRow('Advance received (net)', sl(gap.preSalesNetPerPeriod), 'sum', 'subtotal'),
+    periodRow('Funding gap = MAX(capex - pre-sales(t-1), 0)', sl(gap.methodAGapPerPeriod), 'sum', 'total'),
+  ])));
+  items.push(tTable(M1_TABS.finGap, 'outputs', periodTable('Method 3: Cash Deficit Funding', py, yl, [
+    periodRow('Opening cash', sl(w.openingCashPerPeriod), 'none'),
+    periodRow('Cash from operations', sl(w.cashFromOpsPerPeriod), 'sum'),
+    periodRow('Cash from investing (capex)', sl(w.cashFromInvPerPeriod), 'sum'),
+    periodRow('Finance cost paid', sl(w.financeCostPaidPerPeriod), 'sum'),
+    periodRow('Cash available (before new funding)', sl(w.cashAvailableBeforeNewDebtPerPeriod), 'none', 'subtotal'),
+    periodRow('Net cash required (= funding drawn)', sl(w.netCashRequiredPerPeriod), 'sum', 'total'),
+  ])));
+  items.push(tTable(M1_TABS.finGap, 'outputs', periodTable('Funding Requirement by Method (year-on-year)', py, yl, [
+    periodRow('Method 1: Fund full capex', sl(gap.capexPerPeriod), 'sum'),
+    periodRow('Method 2: Net funding gap (capex vs pre-sales)', sl(gap.methodAGapPerPeriod), 'sum'),
+    periodRow('Method 3: Cash deficit (full waterfall)', sl(w.netCashRequiredPerPeriod), 'sum'),
   ])));
 
-  // Tab 4: Financing / Cash Sweep. Mirrors the platform Cash Sweep tab (full
-  // waterfall with the min-cash floor + per-tranche Debt Paid + Sweep & Outstanding).
+  // Financing / Cash Sweep: the sweep and dividend settings the tab carries,
+  // then the waterfall and the per-facility sweep through the shared builder.
+  {
+    const sweep = cfg?.cashSweep;
+    const div = p.dividendPolicy;
+    items.push(tTable(M1_TABS.finSweep, 'inputs', kvTable('Cash sweep and dividend settings', [
+      ['Cash sweep starting year', sweep?.startingYear ? String(sweep.startingYear) : 'Auto (the first post-capex year)'],
+      ['Sweep ratio (% of surplus)', fmt.pctRaw(sweep?.sweepRatioPct ?? 100, 2)],
+      ['Dividends enabled', div?.enabled ? 'Yes' : 'No'],
+      ['Dividend payout ratio', fmt.pctRaw(div?.payoutRatio ?? 0, 2)],
+      ['Dividend start year', p.dividendStartYear ? String(p.dividendStartYear) : 'Auto'],
+    ])));
+  }
   for (const t of buildCashSweepTables(snap, state, fmtFn)) {
-    items.push(tTable('Tab 4: Financing / Cash Sweep', 'schedules', m4RowsToPeriodTable(t.title, py, yl, t.rows)));
+    items.push(tTable(M1_TABS.finSweep, 'schedules', m4RowsToPeriodTable(t.title, py, yl, t.rows)));
   }
 
   return items;
@@ -3245,7 +3912,7 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
     if (!selectedKeys.has(m.key)) continue;
     if (!BUILT.has(m.key)) { planned.push({ m, content: null }); continue; }
     let content: ModuleContent | null = null;
-    if (m.key === 'module1') content = buildModule1(snap, opts.state, fmt, py);
+    if (m.key === 'module1') content = buildModule1(snap, opts.state, fmt, py, opts.parties);
     else if (m.key === 'module2') content = buildModule2(snap, opts.state, fmt, py);
     else if (m.key === 'module3') content = buildModule3(snap, opts.state, fmt, py);
     else if (m.key === 'module4') content = buildModule4(snap, opts.state, fmt, py);
@@ -3333,7 +4000,12 @@ export function collectModuleTabs(state: FinancialsResolverState, caseComparison
 
 /** The full tagged content of every module, exactly as the report builds it
  *  (before empty-item suppression), for verifiers and review dumps. Pure. */
-export function collectModuleContent(state: FinancialsResolverState, caseComparison?: CaseComparisonInput, scale: DisplayScale = 'full'): Record<string, ModuleContent> {
+export function collectModuleContent(
+  state: FinancialsResolverState, caseComparison?: CaseComparisonInput, scale: DisplayScale = 'full',
+  // Parties are stored outside the version snapshot, so they arrive from the
+  // caller here exactly as they do on the export path (Module 1 tab 2).
+  parties?: readonly Party[],
+): Record<string, ModuleContent> {
   state = { ...state, assets: withResolvedAssetNames(state.assets, { parcels: state.parcels, phases: state.phases }) };
   const snap = computeFinancialsSnapshot(state);
   let returns: ReturnsSnapshot | null = null;
@@ -3347,7 +4019,7 @@ export function collectModuleContent(state: FinancialsResolverState, caseCompari
   const fmt = makeFmt(scale);
   const py = snap.projectStartYear - 1;
   return {
-    module1: buildModule1(snap, state, fmt, py),
+    module1: buildModule1(snap, state, fmt, py, parties),
     module2: buildModule2(snap, state, fmt, py),
     module3: buildModule3(snap, state, fmt, py),
     module4: buildModule4(snap, state, fmt, py),
