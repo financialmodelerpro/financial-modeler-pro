@@ -49,30 +49,42 @@ export function debtYield(stabilisedNOI: number, debtOutstanding: number): numbe
 }
 
 /**
- * Per-period Debt Service Coverage Ratio = CFADS / debt service. Periods
- * with no debt service yield NaN and are excluded from min/avg; the raw
- * per-period array carries 0 for those periods so it lines up with the
- * axis for display.
+ * Per-period Debt Service Coverage Ratio = CFADS / debt service.
+ *
+ * MEASURED OVER OPERATING PERIODS ONLY (2026-09-21). CFADS is EBITDA, which is
+ * NEGATIVE while a project is building (opex and fees against no income), and
+ * debt service is already being paid then, so a construction year produced a
+ * negative ratio and became the reported minimum: FMP - MARINA GATE read a
+ * minimum of -1.27x in 2027, four years before operations start in 2031, and
+ * failed a 1.20x covenant on it. A ratio of income to debt service in a year
+ * with no income is not a coverage reading.
+ *
+ * `operatingPerPeriod` is optional so a caller with no phase information keeps
+ * the old behaviour; absent, every period with debt service is measured.
+ * Periods that are not measured carry 0, so the displayed series, the minimum
+ * and the count of years below 1.00x all come from one definition.
  */
 export function dscrSeries(
   cfadsPerPeriod: number[],
   debtServicePerPeriod: number[],
-): { perPeriod: number[]; min: number | null; avg: number | null } {
+  operatingPerPeriod?: readonly boolean[],
+): { perPeriod: number[]; min: number | null; avg: number | null; measuredCount: number } {
   const N = cfadsPerPeriod.length;
   const perPeriod = new Array<number>(N).fill(0);
   const active: number[] = [];
   for (let t = 0; t < N; t++) {
     const ds = debtServicePerPeriod[t] ?? 0;
-    if (ds > 1e-6) {
+    const operating = operatingPerPeriod === undefined || operatingPerPeriod[t] === true;
+    if (ds > 1e-6 && operating) {
       const ratio = (cfadsPerPeriod[t] ?? 0) / ds;
       perPeriod[t] = ratio;
       active.push(ratio);
     }
   }
-  if (active.length === 0) return { perPeriod, min: null, avg: null };
+  if (active.length === 0) return { perPeriod, min: null, avg: null, measuredCount: 0 };
   const min = Math.min(...active);
   const avg = active.reduce((s, v) => s + v, 0) / active.length;
-  return { perPeriod, min, avg };
+  return { perPeriod, min, avg, measuredCount: active.length };
 }
 
 /** Per-period Interest Coverage Ratio = EBITDA / interest. */

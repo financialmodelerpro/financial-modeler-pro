@@ -584,6 +584,10 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
       totalEquityInvested,
       totalEquityDistributions: totalDividends + (proceedsDistributed ? 0 : tvEquity),
       cfadsPerPeriod: pl.ebitdaPerPeriod.slice(0, N),
+      // THE SNAPSHOT OWNS THE MASK (2026-09-21), derived once from the phase
+      // timelines, so the covenant table, the tiles and this metric cannot
+      // disagree about which years are operating years.
+      operatingPerPeriod: snap.operatingPerPeriod.slice(0, N),
       debtServicePerPeriod,
       ebitdaPerPeriod: pl.ebitdaPerPeriod.slice(0, N),
       interestPerPeriod: pl.interestExpensePerPeriod.slice(0, N),

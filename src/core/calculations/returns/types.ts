@@ -85,6 +85,11 @@ export interface RealEstateMetrics {
   peakEquity: number;
   /** Per-period Debt Service Coverage Ratio (NOI or CFADS / debt service). */
   dscrPerPeriod: number[];
+  /** How many periods the DSCR was measured over (operating periods with debt
+   *  service). A surface counting "n of m years" reads this rather than
+   *  filtering the series itself, which is how the headline came to say "1 of
+   *  3" while the table showed six rows (2026-09-21). */
+  dscrMeasuredCount: number;
   /** Minimum DSCR across operating periods with debt service. */
   dscrMin: number | null;
   /** Average DSCR across operating periods with debt service. */
@@ -119,6 +124,11 @@ export interface ReturnsInput {
     totalEquityDistributions: number;
     /** Per-period cash flow available for debt service (NOI/CFADS). */
     cfadsPerPeriod: number[];
+    /** True where the period is an OPERATING period for at least one phase.
+     *  DSCR is measured only there: CFADS is EBITDA, which is negative while a
+     *  project is building, so a construction year otherwise became the
+     *  reported minimum (2026-09-21). */
+    operatingPerPeriod?: boolean[];
     /** Per-period cash debt service (interest + principal). */
     debtServicePerPeriod: number[];
     /** Per-period EBITDA. */

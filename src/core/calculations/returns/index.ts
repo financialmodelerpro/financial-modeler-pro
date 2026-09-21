@@ -45,7 +45,7 @@ function buildRealEstateMetrics(input: ReturnsInput): RealEstateMetrics {
   // default), so this reads back the cap rate the model used. Exit-year NOI
   // over a value built on the prior year would not.
   const cap = capRate(m.stabilisedNOI, m.exitEnterpriseValue);
-  const dscr = dscrSeries(m.cfadsPerPeriod, m.debtServicePerPeriod);
+  const dscr = dscrSeries(m.cfadsPerPeriod, m.debtServicePerPeriod, m.operatingPerPeriod);
   const icr = icrSeries(m.ebitdaPerPeriod, m.interestPerPeriod);
   const coc = cashOnCashSeries(m.distributionPerPeriod, m.cumulativeEquityPerPeriod);
   const peakEquity = Math.max(0, ...m.cumulativeEquityPerPeriod, 0);
@@ -61,6 +61,7 @@ function buildRealEstateMetrics(input: ReturnsInput): RealEstateMetrics {
     debtYield: debtYield(m.stabilisedNOI, m.debtOutstandingAtExit),
     peakEquity,
     dscrPerPeriod: dscr.perPeriod,
+    dscrMeasuredCount: dscr.measuredCount,
     dscrMin: dscr.min,
     dscrAvg: dscr.avg,
     icrPerPeriod: icr.perPeriod,

@@ -49,6 +49,7 @@ import {
   computeAssetCost,
   operationsStartIndex,
   resolveUsefulLifeYears,
+  computePhaseTimeline,
 } from '@/src/core/calculations';
 import { collectionsForAsset, phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
 import type { Module1Store } from './state/module1-store';
@@ -491,6 +492,14 @@ export interface ProjectFinancialsSnapshot {
   axisLength: number;
   projectStartYear: number;
   yearLabels: number[];
+  /**
+   * WHICH PERIODS ARE OPERATING (2026-09-21): true where at least one phase is
+   * inside its operations window, so a surface can tell an operating year from
+   * a construction one without re-deriving the phase timeline. DSCR is measured
+   * only here, because CFADS is EBITDA and a project that is still building has
+   * negative EBITDA while it is already paying debt service.
+   */
+  operatingPerPeriod: boolean[];
   // Upstream snapshots (read-through so M4 sub-tabs don't re-resolve)
   revenue: ProjectRevenueSnapshot;
   opex: ProjectOpexSnapshot;
@@ -2842,10 +2851,29 @@ function computeFinancialsSnapshotOnce(
     })),
   };
 
+  // The operating mask, from the phase timelines the rest of the platform
+  // reads. A period counts when ANY phase is in its operations window: that is
+  // when there is income to cover debt service.
+  const operatingPerPeriod = ((): boolean[] => {
+    const mask = new Array<boolean>(N).fill(false);
+    for (const ph of phases) {
+      const t = computePhaseTimeline(ph, project);
+      const from = Number(String(t.operationsStart).slice(0, 4));
+      const to = Number(String(t.operationsEnd).slice(0, 4));
+      if (!Number.isFinite(from) || !Number.isFinite(to)) continue;
+      for (let i = 0; i < N; i++) {
+        const year = projectStartYear + i;
+        if (year >= from && year <= to) mask[i] = true;
+      }
+    }
+    return mask;
+  })();
+
   const snapResult: ProjectFinancialsSnapshot = {
     axisLength: N,
     projectStartYear,
     yearLabels,
+    operatingPerPeriod,
     revenue,
     opex,
     ap,
@@ -3100,7 +3128,7 @@ export function computeFinancialsSnapshot(
         // higher (on FMP - MARINA GATE, 240.2m against this 222.9m, the 17.3m
         // being the equity drawn for the fees). Charging the fees on that would
         // be circular, which is exactly why the base is frozen first.
-        explanation: `From your model: the equity share (${feeFree.financing.funding.equityPct.toFixed(0)}%) of the selected method's funding requirement, frozen before the solve. Excludes in-kind and existing equity, and excludes the equity raised to pay these fees, which is why the cash equity on Financing is higher.`,
+        explanation: `From your model: the equity share (${feeFree.financing.funding.equityPct.toFixed(0)}%) of the selected method's funding requirement, frozen before the solve. Excludes in-kind and existing equity, and the equity raised to pay these fees.`,
       },
       debtFacility: {
         amount: Math.max(0, baseDebtRequirement),
