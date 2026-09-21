@@ -112,6 +112,31 @@ export interface OverviewReport {
 const sum = (a: readonly number[] | undefined): number => (a ?? []).reduce((t, x) => t + (x ?? 0), 0);
 const safeDiv = (a: number, b: number): number | null => (b > 0 ? a / b : null);
 
+/**
+ * THE DISTRIBUTED PAIR, ONE RULE (2026-09-21).
+ *
+ * What equity actually receives is NET of the performance fee, so net leads
+ * and gross sits beside it. Surfaces disagreed: the report led with net, the
+ * workbook Returns tab and the Checks tab printed GROSS unqualified, and the
+ * workbook Summary (built from this file) printed net, so one workbook
+ * contradicted itself on the same model.
+ *
+ * The test is a performance fee ACTUALLY CHARGED, not merely a fund layer: with
+ * no fee the two streams are identical and printing both would be two names for
+ * one number.
+ */
+export function distributedReturnPair(rs: ReturnsSnapshot): ReturnPair {
+  const hasFee = (rs.waterfall?.totalPerformanceFee ?? 0) > 0;
+  if (!hasFee) {
+    return { key: 'distributed', label: 'Distributed (DDM)', irr: rs.result.dividends.irr, moic: rs.result.dividends.moic };
+  }
+  return {
+    key: 'distributed', label: 'Distributed (DDM)',
+    irr: rs.resultNetDividends.irr, moic: rs.resultNetDividends.moic,
+    preFeeIrr: rs.result.dividends.irr, preFeeMoic: rs.result.dividends.moic,
+    note: 'after the performance fee; pre-fee beneath',
+  };
+}
 export function buildOverviewReport(
   snap: ProjectFinancialsSnapshot,
   rs: ReturnsSnapshot,
@@ -125,14 +150,7 @@ export function buildOverviewReport(
   const returns: ReturnPair[] = [
     { key: 'project', label: 'Project (FCFF)', irr: rs.result.fcff.irr, moic: rs.result.fcff.moic },
     { key: 'equity', label: 'Equity (FCFE)', irr: rs.result.fcfe.irr, moic: rs.result.fcfe.moic },
-    fundLayer
-      ? {
-        key: 'distributed', label: 'Distributed (DDM)',
-        irr: rs.resultNetDividends.irr, moic: rs.resultNetDividends.moic,
-        preFeeIrr: rs.result.dividends.irr, preFeeMoic: rs.result.dividends.moic,
-        note: 'after the performance fee; pre-fee beneath',
-      }
-      : { key: 'distributed', label: 'Distributed (DDM)', irr: rs.result.dividends.irr, moic: rs.result.dividends.moic },
+    distributedReturnPair(rs),
   ];
 
   // ── Area, land and the build mix, per asset then per type ────────────────

@@ -23,7 +23,7 @@ import { computeFinancialsSnapshot, computeFundingGap, type FinancialsResolverSt
 import { buildCapexReport, type CapexReport } from '../reports/capexReports';
 import { poolMapByLine, poolCapexByLine, poolResults, lineHosts, fixHospitalityRates, fixLeaseRates, poolRevenueBasisByLine, poolSaleCohortByLine, planReportLines, lineTitle } from '../reports/lineRows';
 import { buildDisposalWorking } from '../reports/disposalReport';
-import { buildOverviewReport } from '../reports/overviewReport';
+import { buildOverviewReport, distributedReturnPair } from '../reports/overviewReport';
 import { buildOperatingKpis } from '../reports/operatingKpis';
 import { fundingChartPoints } from '../portfolio/fundingSeries';
 import { evaluateCovenant, covenantUnit, covenantSeries, reduceWorst, reduceAvg, COVENANT_METRIC_LABELS, type CovenantInputs } from '../covenants';
@@ -3998,7 +3998,20 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
   kpiStrip('Headline Returns', [
     { label: 'Project IRR (FCFF)', value: cPct(rr.fcff.irr), sub: `MOIC ${cMult(rr.fcff.moic)}`, tone: irrTone(rr.fcff.irr) },
     { label: 'Equity IRR (FCFE)', value: cPct(rr.fcfe.irr), sub: `MOIC ${cMult(rr.fcfe.moic)}`, tone: irrTone(rr.fcfe.irr) },
-    { label: 'Distributed Equity IRR', value: cPct(rr.dividends.irr), sub: `MOIC ${cMult(rr.dividends.moic)}`, tone: irrTone(rr.dividends.irr) },
+    // NET LEADS, GROSS BESIDE (2026-09-21, the dashboard rule): what equity
+    // receives is after the performance fee. This tile printed GROSS with no
+    // qualifier while the Summary tab, built from the same dashboard builder,
+    // printed net, so one workbook contradicted itself.
+    ...(() => {
+      const d = distributedReturnPair(rs);
+      const gross = d.preFeeIrr != null;
+      return [{
+        label: gross ? 'Distributed Equity IRR (net of performance fee)' : 'Distributed Equity IRR',
+        value: cPct(d.irr),
+        sub: gross ? `MOIC ${cMult(d.moic)} · gross ${cPct(d.preFeeIrr)} / MOIC ${cMult(d.preFeeMoic)}` : `MOIC ${cMult(d.moic)}`,
+        tone: irrTone(d.irr),
+      }];
+    })(),
     { label: 'Equity Multiple (distributions)', value: cMult(rr.realEstate.equityMultiple), sub: 'distributions / invested' },
   ]);
 
@@ -4719,7 +4732,16 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
   const pairs: Array<[string, number | null | undefined, number | null | undefined]> = [
     ['Project IRR (FCFF)', res?.fcff.irr, res?.fcff.moic],
     ['Equity IRR (FCFE)', res?.fcfe.irr, res?.fcfe.moic],
-    ['Distributed Equity IRR', res?.dividends.irr, res?.dividends.moic],
+    // The same rule as every other surface: net leads where a performance fee
+    // is charged, and the gross pair is named rather than implied.
+    ...(retLinks.rs ? (() => {
+      const dp = distributedReturnPair(retLinks.rs);
+      const rows: Array<[string, number | null | undefined, number | null | undefined]> = [
+        [dp.preFeeIrr != null ? 'Distributed Equity IRR (net of performance fee)' : 'Distributed Equity IRR', dp.irr, dp.moic],
+      ];
+      if (dp.preFeeIrr != null) rows.push(['Distributed Equity IRR (gross)', dp.preFeeIrr, dp.preFeeMoic]);
+      return rows;
+    })() : []),
   ];
   for (const [label, irr, moic] of pairs) {
     setLabel(ws.getCell(`A${r}`), label);
