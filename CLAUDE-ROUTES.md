@@ -183,6 +183,8 @@ app/modeling/
 └── submit-testimonial/page.tsx
 # NOTE: app/modeling/login/page.tsx was DELETED
 
+app/erm/layout.tsx               # Authenticated ERFM Unit 1 route gate and metadata (2026-09-21)
+app/erm/page.tsx                  # ERFM Unit 1 foundation placeholder (2026-09-21)
 app/refm/layout.tsx              # OG metadata for app. domain (added 2026-04-21 for subdomain canonical)
 app/refm/page.tsx                # REFM platform
 app/portal/page.tsx              # Authenticated hub
