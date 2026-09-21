@@ -147,15 +147,35 @@ async function main(): Promise<void> {
   // legitimately begin that way.
   const FUND_LABEL = /\bfund\b|hurdle|performance fee|fee earner|distribution waterfall|custody and admin|debt arranging|net of performance/i;
   const NOT_FUND = /^(funding|funded)/i;
+  // THE TOGGLE IS NOT THE CONTENT (2026-09-21). Module 1 tab 3 exists on every
+  // project and, with the layer off, shows the toggle and nothing else, which
+  // is what the screen does and what `10a69efa` deliberately made the workbook
+  // do on 2026-09-17 ("the Fund Terms tab shows when the layer is off"). That
+  // commit did not update this sweep, so it has failed since, on the band, the
+  // header, the toggle row and the Cover's contents line that lists them. The
+  // sweep is what it always was, minus those four: a fee, a base, a hurdle, a
+  // waterfall or an earner is still forbidden anywhere in an off workbook.
+  const TOGGLE_ONLY = /^(FUND INPUTS|Fund terms|Fund layer enabled)$/;
   let strayRows = 0; const strays: string[] = [];
   for (const ws of wbOff.worksheets) {
     for (const { row, label } of allLabels(ws)) {
+      if (TOGGLE_ONLY.test(label.trim())) continue;
+      // The Cover's per-sheet contents line names the sections that sheet
+      // carries, so it says "Fund terms" for the same reason.
+      if (/^Covers:/.test(label.trim())) continue;
       const words = label.split(/[^A-Za-z]+/).filter(Boolean);
       const fundish = FUND_LABEL.test(label) && !words.every((wd) => NOT_FUND.test(wd) || !/fund/i.test(wd));
       if (fundish) { strayRows++; strays.push(`${ws.name}!${row} ${label}`); }
     }
   }
-  check('fund OFF: no fund label on any of the 17 sheets', strayRows === 0, strays.slice(0, 4).join(' | '));
+  check('fund OFF: no fund label on any of the 17 sheets, beyond the tab toggle itself', strayRows === 0, strays.slice(0, 4).join(' | '));
+  // The toggle IS expected: an absent Fund Terms section would be the report
+  // disagreeing with the screen, which is the defect this pair guards against.
+  {
+    const labels = wbOff.worksheets.flatMap((ws) => allLabels(ws).map((x) => x.label.trim()));
+    check('fund OFF: the Fund Terms section still shows its toggle',
+      labels.includes('Fund terms') && labels.includes('Fund layer enabled'));
+  }
   check('fund OFF: P&L has no Total Fund Management Fee row', rowOf(wbOff.getWorksheet('P&L')!, 'Total Fund Management Fee') < 0);
   check('fund OFF: P&L has no Fund Fee Basis block', rowOf(wbOff.getWorksheet('P&L')!, 'Fund Fee Basis') < 0);
   check('fund OFF: Cash Flow has no Fund Management and Other Expenses row', rowOf(wbOff.getWorksheet('Cash Flow')!, 'Fund Management and Other Expenses') < 0);

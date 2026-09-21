@@ -247,6 +247,15 @@ function offlineChecks(): void {
     // the lines that hand them to resolveAssetKeys / resolveAvgUnitSize, the
     // same by-line allowance as the two resolvers above.
     'src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts',
+    // The PDF's Module 2 was rebuilt against the same screens LATER THE SAME
+    // DAY and needs the same lookup for the same reason (a line's keys and the
+    // unit size behind its sub-units). The door was extended for the workbook
+    // and not for the report, so A1 has failed since `cc093d40`: that session
+    // re-aimed this list before the PDF commits landed and, running only the
+    // directly-covering verifier per commit, never saw it. The by-line
+    // allowance below is what keeps this honest: the report may LOOK the
+    // values up to hand them to the one rule, and may not price from them.
+    'src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf.ts',
   ];
   const isKeysDoorLine = (line: string): boolean =>
     line.includes('resolveAvgUnitSize')

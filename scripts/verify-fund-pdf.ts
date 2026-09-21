@@ -88,11 +88,25 @@ function waterfallInOrder(txt: string, order: readonly string[]): { ok: boolean;
   return { ok, detail: order.map((l, i) => `${l}@${idx[i]}`).join(' ') };
 }
 
-/** Index of `needle` at or after the P&L statement heading, so document prose
- *  cannot stand in for a statement row. */
+/**
+ * Index of `needle` at or after the P&L STATEMENT heading, so document prose
+ * cannot stand in for a statement row.
+ *
+ * THE ANCHOR NAMES THE STATEMENT, NOT THE WORDS IN ITS TITLE (2026-09-21).
+ * `/Income Statement/` alone matched the Module 2 Schedules tab's "Income
+ * Statement Feed" table, which is three thousand lines earlier and arrived
+ * when Module 2's PDF was rebuilt against its screen on 2026-09-17. Scoped
+ * from there, the first "EBITDA" is the hotel operating statement's in Module
+ * 3, so the check read "EBITDA before the fee line" and reported a statement
+ * defect that is not in the statement: measured on the real P&L, the fee is
+ * line 9,622 and EBITDA line 9,628, in that order, exactly as the invariant
+ * requires. The heading is "Income Statement (P&L): <scope>", and pdf-lib's
+ * CID glyphs drop the punctuation on extraction (TRAPS 4.1), so the anchor
+ * allows a few characters between the two halves rather than naming them.
+ */
 const atPL = (txt: string, needle: string): number => {
   const lines = txt.split('\n');
-  const start = lines.findIndex((l) => /Income Statement|Profit & Loss/.test(l));
+  const start = lines.findIndex((l) => /Income Statement.{0,4}P&L|Profit & Loss/.test(l));
   const from = start < 0 ? 0 : start;
   const i = lines.slice(from).findIndex((l) => l.includes(needle));
   return i < 0 ? -1 : from + i;
