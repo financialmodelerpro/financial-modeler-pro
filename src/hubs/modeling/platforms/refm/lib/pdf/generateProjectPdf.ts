@@ -90,7 +90,7 @@ import { buildDisposalWorking } from '../reports/disposalReport';
 import { buildOperatingKpis } from '../reports/operatingKpis';
 import { assetLabel } from '@/src/core/calculations/assetName';
 import { buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
-import { evaluateCovenant, type CovenantInputs } from '../covenants';
+import { evaluateCovenant, covenantSeries, reduceWorst, type CovenantInputs } from '../covenants';
 import { buildCapexReport, CAPEX_SECTIONS, type CapexResultTable } from '../reports/capexReports';
 import { buildPartiesTable, PARTIES_TITLE, PARTIES_EMPTY_TEXT } from '../reports/partiesReport';
 import {
@@ -3369,9 +3369,29 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
 
   const dscrYears = re.dscrPerPeriod.filter((v) => v > 0);
   const dscrBelow = dscrYears.filter((v) => v < 1).length;
+  // THE TILES ARE DERIVED FROM THE COVENANT SERIES THEY SIT ABOVE (2026-09-21),
+  // the same inputs and reducers the covenant table on this page uses
+  // (lib/covenants.ts), which is what the workbook already does. Reading the
+  // returns snapshot's own fields instead put "LTV at Exit 0.0%" and "Debt
+  // Yield n/a" directly above a covenant table quoting a real peak LTV and a
+  // real debt yield: two answers to one question, an inch apart. LTV at exit
+  // is ~0% on any project that repays its debt, so it is not the measure a
+  // lender means.
+  const covTileInputs: CovenantInputs = {
+    dscrPerPeriod: re.dscrPerPeriod,
+    icrPerPeriod: re.icrPerPeriod,
+    noiPerPeriod: returns.noiPerPeriod,
+    debtOutstandingPerPeriod: snap.bs.debtOutstandingPerPeriod,
+    gdvValue: de.gdv,
+    ltvAtExit: re.ltvAtExit,
+  };
+  const ltvPeakTile = reduceWorst(covenantSeries('ltv', covTileInputs), 'max');
+  const debtYieldTile = reduceWorst(covenantSeries('debt_yield', covTileInputs), 'min');
   items.push(tCards(m5Tab('RE Metrics'), 'outputs', 'Leverage & Coverage', [
-    { label: 'LTV at Exit', value: fmt.pct(re.ltvAtExit, 1), sub: 'debt / value at exit' },
-    { label: 'Debt Yield', value: fmt.pct(re.debtYield, 1), sub: 'NOI / debt' },
+    ltvPeakTile != null
+      ? { label: 'LTV (peak debt)', value: fmt.pct(ltvPeakTile, 1), sub: 'peak debt / GDV' }
+      : { label: 'LTV at Exit', value: fmt.pct(re.ltvAtExit, 1), sub: 'debt / value at exit' },
+    { label: 'Debt Yield', value: fmt.pct(debtYieldTile ?? re.debtYield, 1), sub: 'worst operating year, NOI / debt' },
     { label: 'Min DSCR', value: fmt.mult(re.dscrMin), sub: dscrBelow > 0 ? `below 1.00x in ${dscrBelow} of ${dscrYears.length} yrs` : 'worst debt-service year' },
     { label: 'Avg DSCR', value: fmt.mult(re.dscrAvg), sub: 'mean over debt-service years' },
     { label: 'Min Interest Cover', value: fmt.mult(re.icrMin), sub: 'EBITDA / interest' },
