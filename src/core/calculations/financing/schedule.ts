@@ -367,7 +367,23 @@ export function computeFacilitySchedule(
     // left the bank, and `interestCapitalized` is a non-cash balance movement.
     // The gross presentation the returns build-up wants (full charge deducted,
     // IDC drawdown added back) is built in the FCFE chain, not here.
-    const constructionRunning = !isExisting && (constructionSpendByPeriod?.[i] ?? 0) > 0;
+    // CAPITALISATION STOPS AT COMPLETION (2026-09-21).
+    //
+    // From 2026-08-18 this was driven by construction SPEND alone, on the
+    // reasoning that a period with capex is a period being built. But a cost
+    // line can be phased past the construction window (marketing above all,
+    // and any retention), so a project that finished building in 2030 kept
+    // capitalising: on FMP - MARINA GATE 54.37m of interest (44.52m in 2031
+    // and 9.85m in 2032) went onto the depreciable asset basis in operating
+    // years, and NOTHING was expensed in the whole life of the model, because
+    // two trailing marketing lines spent 11.14m and 14.79m after handover.
+    //
+    // Interest is capitalised while the asset is being GOT READY, which ends
+    // at completion. Both tests now apply: inside the construction window AND
+    // actually spending. After the window, interest is an expense, which is
+    // what the `else` branch below has always done.
+    const withinConstruction = i < constructionEndProj;
+    const constructionRunning = !isExisting && withinConstruction && (constructionSpendByPeriod?.[i] ?? 0) > 0;
     if (constructionRunning) {
       interestDuringConstruction[i] = interest;
       interestForAssetBasis[i] = interest;
