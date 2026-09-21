@@ -51,6 +51,7 @@ import {
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 import { irr as irrOf, moic as moicOf } from '../src/core/calculations/returns/irr';
 import { buildExcelSampleState } from './excelSampleState';
+import { buildExistingOperationsState, EXISTING_OPS_LABEL } from './fixtures/existingOperationsState';
 
 for (const f of ['.env.local', '.env']) {
   try {
@@ -119,27 +120,29 @@ const TERMS_BASE = {
   fundManagerName: 'FMP Fund Managers', feeDistribution: [] as any[],
 };
 
-const PID = '1daa9217-d2b8-4b22-acbf-18fed79adeff'; // FMP RE HUB
 const MODULE_KEYS = ['module1', 'module2', 'module3', 'module4', 'module5', 'module6'];
 
-async function loadRealProject(): Promise<{ raw: any; source: string }> {
-  const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return { raw: buildExcelSampleState(), source: 'FIXTURE (no database credentials)' };
-  try {
-    const sb = createClient(url, key, { auth: { persistSession: false } });
-    const { data, error } = await sb.from('refm_project_versions')
-      .select('snapshot,version_label,created_at').eq('project_id', PID)
-      .order('created_at', { ascending: false }).limit(1);
-    if (error || !data?.length) return { raw: buildExcelSampleState(), source: `FIXTURE (query failed: ${error?.message ?? 'no versions'})` };
-    const v = data[0] as any;
-    return { raw: v.snapshot, source: `FMP RE HUB, saved version ${v.version_label ?? '(unlabelled)'} of ${String(v.created_at).slice(0, 10)}` };
-  } catch (e) {
-    return { raw: buildExcelSampleState(), source: `FIXTURE (connection failed: ${(e as Error).message})` };
-  }
+/**
+ * THE COMMITTED FIXTURE, NOT A LIVE READ (2026-09-21).
+ *
+ * This loaded a real project by id and fell back to `buildExcelSampleState()`
+ * on any failure or empty result while still reporting a pass. That project
+ * was soft-deleted on 2026-09-12 and its versions cascade at the purge.
+ *
+ * IT MATTERS WHICH DATA THIS RUNS ON. The long-standing failure here, "the
+ * balance sheet balances to solver tolerance, every period", is worth
+ * 1.351e+9 on this project, and 1,350.7m is exactly its operational Phase 1
+ * land, contributed in kind before the model starts. Moving this verifier to
+ * a project without an operational phase would turn the check green without
+ * anything being fixed, so it moves to the committed capture of the SAME
+ * shape and keeps reporting it.
+ */
+function loadRealProject(): { raw: any; source: string } {
+  return { raw: buildExistingOperationsState(), source: EXISTING_OPS_LABEL };
 }
 
 async function main(): Promise<void> {
-  const { raw, source } = await loadRealProject();
+  const { raw, source } = loadRealProject();
   console.log('=== Fund layer Step 7: end-to-end verification ===');
   console.log(`Data source: ${source}\n`);
   const clone = (): any => JSON.parse(JSON.stringify(raw));

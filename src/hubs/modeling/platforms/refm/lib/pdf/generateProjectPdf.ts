@@ -907,7 +907,7 @@ function checksTable(
   snap: ProjectFinancialsSnapshot,
   fmt: Fmt,
   state?: FinancialsResolverState,
-): PdfTable {
+): { table: PdfTable; notes: string[] } {
   const checks = buildIntegrityChecks(snap);
   // 2026-08-16: cash-basis advisories ride in the same table but as NOTE, never
   // OK or CHECK. They are not identities: a gap between cash collected and
@@ -926,21 +926,27 @@ function checksTable(
     ? poolSaleCohortByLine(buildSaleCohortAdvisories(state.assets, state.project.saleCohortDefaults?.downpayment, snap.revenue), state)
     : [];
   return {
-    title: 'Model Integrity Checks', kind: 'grid', align: 'data',
-    columns: ['Check', 'Status', 'Residue', 'Detail'],
-    rows: [
-      ...checks.map((c) => row(
-        [c.label, c.ok ? 'OK' : 'CHECK', fmt.money(c.residue), checkDetail(c, snap.yearLabels, fmt.money)],
-        c.ok ? undefined : 'subtotal',
-      )),
-      ...advisories.map((a) => row(
-        ['Revenue basis, ' + a.assetName, 'NOTE', fmt.money(a.collections - a.gross),
-          revenueBasisAdvisoryText(a, fmt.money)],
-      )),
-      ...cohortAdvisories.map((a) => row(
-        ['Downpayment not stated, ' + a.assetName, 'NOTE', fmt.money(a.saleValue),
-          saleCohortAdvisoryText(a, fmt.money)],
-      )),
+    table: {
+      title: 'Model Integrity Checks', kind: 'grid', align: 'data',
+      columns: ['Check', 'Status', 'Residue', 'Detail'],
+      rows: [
+        ...checks.map((c) => row(
+          [c.label, c.ok ? 'OK' : 'CHECK', fmt.money(c.residue), checkDetail(c, snap.yearLabels, fmt.money)],
+          c.ok ? undefined : 'subtotal',
+        )),
+        // The advisory rows carry the figure; their sentence is a note below,
+        // because a paragraph in a column truncates itself and its neighbours.
+        ...advisories.map((a) => row(
+          ['Revenue basis, ' + a.assetName, 'NOTE', fmt.money(a.collections - a.gross), 'see note below'],
+        )),
+        ...cohortAdvisories.map((a) => row(
+          ['Downpayment not stated, ' + a.assetName, 'NOTE', fmt.money(a.saleValue), 'see note below'],
+        )),
+      ],
+    },
+    notes: [
+      ...advisories.map((a) => revenueBasisAdvisoryText(a, fmt.money)),
+      ...cohortAdvisories.map((a) => saleCohortAdvisoryText(a, fmt.money)),
     ],
   };
 }
@@ -3151,7 +3157,11 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
     caption(tab, 'outputs', 'Composed from every feeder schedule (AR, Inventory, AP, Unearned, Escrow, Fixed Assets, Debt and Equity). Cash is the plug from the Direct Cash Flow Statement. The BS Check at the bottom reads 0 in every period when the statement balances.');
     items.push(tTable(tab, 'outputs', m4RowsToPeriodTable('Balance Sheet: Project', py, yl, buildBSRows(m4ctx('__all__')).rows)));
     // The balance check: the three model identities, beside the statement they test.
-    items.push(tTable(tab, 'outputs', checksTable(snap, fmt, state)));
+    {
+      const checks = checksTable(snap, fmt, state);
+      items.push(tTable(tab, 'outputs', checks.table));
+      for (const n of checks.notes) items.push(tItem(tab, 'outputs', { type: 'paragraph', text: n }));
+    }
     items.push(tTable(tab, 'outputs', m4RowsToPeriodTable('Balance Check, Reconciliation Bridge (per period)', py, yl, buildBsReconciliationRows({ snap, state, fmt: fmtFn }))));
     caption(tab, 'outputs', BS_RECONCILIATION_CAPTION);
   }
@@ -4283,7 +4293,11 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
   drawItem(ctx, { type: 'table', table: bsTable }, fmt);
   // The summary certifies what it prints, from the same shared builder as the
   // full report and the workbook's Checks tab.
-  drawItem(ctx, { type: 'table', table: checksTable(snap, fmt, opts.state) }, fmt);
+  {
+    const checks = checksTable(snap, fmt, opts.state);
+    drawItem(ctx, { type: 'table', table: checks.table }, fmt);
+    for (const n of checks.notes) drawParagraph(ctx, n, 8);
+  }
 
   // Returns & valuation (KPI cards).
   if (returns) {

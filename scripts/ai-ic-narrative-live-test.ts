@@ -55,7 +55,9 @@ for (const f of ['.env.local', '.env']) {
 const BASE = process.env.FMP_BASE ?? 'https://app.financialmodelerpro.com';
 const SESSION = process.env.FMP_SESSION ?? '';
 const FIELD = process.argv[2] ?? 'executiveSummary';
-const PROJECT_ID = process.argv[3] ?? '1daa9217-d2b8-4b22-acbf-18fed79adeff';
+// The default project is an OPEN one. It used to be FMP RE HUB, soft-deleted
+// on 2026-09-12, whose rows cascade away at the purge (2026-09-21).
+const PROJECT_ID = process.argv[3] ?? 'c417fc6a-4514-4438-857c-a72dc7472f65';
 
 if (!SESSION) {
   console.error('Set FMP_SESSION to your next-auth session cookie value. See the header of this file.');

@@ -43,6 +43,8 @@ import {
 } from '../src/hubs/modeling/platforms/refm/lib/reports/streamReports';
 import { buildIntegrityChecks, relativeCheckOk } from '../src/hubs/modeling/platforms/refm/lib/reports/checksReport';
 import { buildExcelSampleState } from './excelSampleState';
+import { buildExistingOperationsState, EXISTING_OPS_LABEL } from './fixtures/existingOperationsState';
+import { readLiveProjectVersion } from './fixtures/liveProject';
 
 for (const f of ['.env.local', '.env']) {
   try {
@@ -65,7 +67,6 @@ const PUA: Record<string, string> = {
 };
 const decode = (b: Uint8Array): string => pdfText(b).replace(/[\uE000-\uF8FF]/g, (c) => PUA[c] ?? '?');
 
-const PID = '1daa9217-d2b8-4b22-acbf-18fed79adeff';
 const MODULE_KEYS = ['module1', 'module2', 'module3', 'module4', 'module5', 'module6'];
 const FUND_TERMS = {
   enabled: true, fundSize: 0, fundSizeOverride: false, facilityLimit: 0, facilityLimitOverride: false,
@@ -275,18 +276,31 @@ async function main(): Promise<void> {
       !full.includes('Case Comparison'));
   }
 
-  // ── Real project ──────────────────────────────────────────────────────────
-  const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (url && key) {
-    try {
-      const sb = createClient(url, key, { auth: { persistSession: false } });
-      const { data, error } = await sb.from('refm_project_versions').select('snapshot,version_label')
-        .eq('project_id', PID).order('created_at', { ascending: false }).limit(1);
-      if (error) console.log(`\n(real project skipped: ${error.message})`);
-      else if (data?.length) {
-        console.log('\n-- Real project (FMP RE HUB) --');
-        const st = (data[0] as any).snapshot;
-        const r = await render(st, { versionLabel: (data[0] as any).version_label });
+  // ── A real project, and the committed existing-operations fixture ─────────
+  // The same battery runs on both, so a shape the live project does not carry
+  // (an operational first phase) is still exercised.
+  const realLegs: Array<{ label: string; state: any; versionLabel: string }> = [
+    { label: EXISTING_OPS_LABEL, state: buildExistingOperationsState(), versionLabel: 'committed' },
+  ];
+  // THE LIVE LEG NAMES A PROJECT THAT IS STILL OPEN, AND FAILS WHEN IT IS NOT
+  // (2026-09-21). This read FMP RE HUB by id; that project was soft-deleted on
+  // 2026-09-12, and the read skipped in SILENCE when it returned nothing (the
+  // `if (error)` branch fires on an error, and zero rows printed nothing at
+  // all), so from the purge onwards the leg would have vanished with no output
+  // while the verifier still reported a pass. One shared rule now, in
+  // fixtures/liveProject.ts, and the shape that project carried is covered by
+  // the committed fixture leg above.
+  const live = await readLiveProjectVersion();
+  if (live.ok) realLegs.push({ label: live.label, state: live.snapshot, versionLabel: live.versionLabel });
+  else if (live.noCredentials) console.log('\n(live project leg skipped: no database credentials; the runner refuses to run without them unless --allow-offline)');
+  else check('the live project is readable and still has a saved version', false, live.reason);
+
+  {
+    {
+      for (const leg of realLegs) {
+        console.log(`\n-- Real project (${leg.label}) --`);
+        const st = leg.state;
+        const r = await render(st, { versionLabel: leg.versionLabel });
         check('real: integrity checks render in both documents',
           r.full.includes('Model Integrity Checks') && r.summary.includes('Model Integrity Checks'));
         check('real: covenants render', r.full.includes('Lender Covenants (threshold vs modelled)'));
@@ -294,9 +308,7 @@ async function main(): Promise<void> {
         check('real: tab numbering has no gap',
           [...new Set([...r.full.matchAll(/Tab (\d): /g)].map((m) => Number(m[1])))].sort((a, b) => a - b).every((v, i) => v === i + 1));
       }
-    } catch (e) { console.log(`\n(real project skipped: ${(e as Error).message})`); }
-  } else {
-    console.log('\n(real project skipped: no database credentials)');
+    }
   }
 
   // ── Toggle off stays byte-identical ───────────────────────────────────────

@@ -26,7 +26,7 @@
  * The written file is GITIGNORED: it is live project data.
  *
  * Run: npx tsx scripts/fetch-census-fixture.ts            (Marina Gate)
- *      npx tsx scripts/fetch-census-fixture.ts "RE HUB"   (any other project)
+ *      (the "RE HUB" target was removed on 2026-09-21: that project is deleted)
  *
  * No em dashes in this file.
  */
@@ -49,10 +49,17 @@ if (!url || !key) { console.error('Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_
 
 const sb = createClient(url, key, { auth: { persistSession: false } });
 
-/** Which project, and where its fixture lives. */
+/**
+ * Which project, and where its fixture lives.
+ *
+ * THE "RE HUB" TARGET IS GONE (2026-09-21). That project was soft-deleted on
+ * 2026-09-12 and its rows cascade away at the 30-day purge, so a fixture built
+ * from it could not be rebuilt afterwards. The three verifiers that read it now
+ * read `scripts/fixtures/existingOperationsProject.json`, a COMMITTED capture of
+ * the same shape, which is the answer to "a fixture nobody else can refresh".
+ */
 const TARGETS: Record<string, { match: string; out: string }> = {
   'marina gate': { match: '%MARINA GATE%', out: 'scripts/marinaGateSnapshot.json' },
-  're hub': { match: '%RE HUB%', out: 'scripts/fmpReHubSnapshot.json' },
 };
 
 async function main(): Promise<void> {
@@ -63,14 +70,23 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // A SOFT-DELETED PROJECT IS NOT A SOURCE (2026-09-21). `deleted_at` hides a
+  // project from the app but leaves its rows in place until the purge, so this
+  // lookup would happily rebuild a fixture from one that is on its way out and
+  // report success. It is excluded, and named if it is the only match.
   const { data: projects, error: pErr } = await sb
     .from('refm_projects')
-    .select('id, name, updated_at')
+    .select('id, name, updated_at, deleted_at')
     .ilike('name', target.match)
     .order('updated_at', { ascending: false });
   if (pErr) { console.error('project query error:', pErr.message); process.exit(1); }
-  const proj = (projects ?? [])[0];
-  if (!proj) { console.error(`No project matching ${target.match}`); process.exit(1); }
+  const all = projects ?? [];
+  const proj = all.find((p) => !(p as { deleted_at?: string | null }).deleted_at);
+  if (!proj) {
+    const deleted = all.length ? ` (${all.length} matching, all deleted: ${all.map((p) => p.name).join(', ')})` : '';
+    console.error(`No OPEN project matching ${target.match}${deleted}`);
+    process.exit(1);
+  }
 
   const { data: ver, error: vErr } = await sb
     .from('refm_project_versions')

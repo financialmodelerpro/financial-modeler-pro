@@ -46,6 +46,7 @@ import {
   DEFAULT_MODULE1_STATE,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-store';
 import { buildExcelSampleState } from './excelSampleState';
+import { buildExistingOperationsState, EXISTING_OPS_LABEL } from './fixtures/existingOperationsState';
 
 let pass = 0, fail = 0;
 const failures: string[] = [];
@@ -54,7 +55,6 @@ const check = (name: string, cond: boolean, detail = ''): void => {
   else { fail++; failures.push(name); console.log(`  [FAIL] ${name}${detail ? ' :: ' + detail : ''}`); }
 };
 
-const PID = '1daa9217-d2b8-4b22-acbf-18fed79adeff';
 const STRATEGIES = ['Sell', 'Sell + Manage', 'Operate', 'Lease'] as const;
 const M = (v: number): string => (v / 1e6).toFixed(2) + 'm';
 const sum = (a: readonly number[] = []): number => a.reduce((s, v) => s + (v ?? 0), 0);
@@ -110,24 +110,25 @@ function loadDotEnv(): void {
   }
 }
 
-async function loadState(): Promise<{ st: any; src: string }> {
-  loadDotEnv();
-  const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return { st: buildExcelSampleState(), src: 'FIXTURE (no database credentials)' };
-  try {
-    const sb = createClient(url, key, { auth: { persistSession: false } });
-    const { data, error } = await sb.from('refm_project_versions')
-      .select('snapshot,version_label').eq('project_id', PID)
-      .order('created_at', { ascending: false }).limit(1);
-    if (error || !data?.length) return { st: buildExcelSampleState(), src: `FIXTURE (${error?.message ?? 'no versions'})` };
-    return { st: (data[0] as any).snapshot, src: `FMP RE HUB, saved version ${(data[0] as any).version_label}` };
-  } catch (e) {
-    return { st: buildExcelSampleState(), src: `FIXTURE (${(e as Error).message})` };
-  }
+/**
+ * THE COMMITTED FIXTURE, NOT A LIVE READ (2026-09-21).
+ *
+ * This loaded a real project by id and, on any failure OR an empty result,
+ * fell back to `buildExcelSampleState()` while still reporting a pass. The
+ * project was soft-deleted on 2026-09-12, so from the purge onwards every run
+ * would have silently tested the smaller fixture instead: the fallback hid
+ * exactly the thing this file exists to check, because the shared fixture has
+ * no `Sell + Manage` asset and this is the verifier for switching strategies.
+ *
+ * The fixture it needs is now committed, so there is nothing to fall back
+ * from and nothing to lose at the purge.
+ */
+function loadState(): { st: any; src: string } {
+  return { st: buildExistingOperationsState(), src: EXISTING_OPS_LABEL };
 }
 
 async function main(): Promise<void> {
-  const { st, src } = await loadState();
+  const { st, src } = loadState();
   console.log('=== Strategy switch: assumptions activate, deactivate and are retained ===');
   console.log(`Data source: ${src}\n`);
   const base = slice(st);

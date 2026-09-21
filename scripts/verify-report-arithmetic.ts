@@ -41,6 +41,8 @@ import { computeReturnsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/
 import { buildCashSweepTables } from '../src/hubs/modeling/platforms/refm/lib/reports/financingReports';
 import { FCFE_BUILDUP_LABELS } from '../src/hubs/modeling/platforms/refm/lib/reports/streamReports';
 import { buildExcelSampleState } from './excelSampleState';
+import { buildExistingOperationsState, EXISTING_OPS_LABEL } from './fixtures/existingOperationsState';
+import { readLiveProjectVersion } from './fixtures/liveProject';
 
 for (const f of ['.env.local', '.env']) {
   try {
@@ -64,7 +66,6 @@ const sum = (a: readonly number[] = []): number => a.reduce((s, v) => s + (v ?? 
 const near = (a: number, b: number, scale: number): boolean =>
   Math.abs(a - b) <= Math.max(1, Math.abs(scale) * 1e-9);
 
-const PID = '1daa9217-d2b8-4b22-acbf-18fed79adeff'; // FMP RE HUB
 const MODULE_KEYS = ['module1', 'module2', 'module3', 'module4', 'module5', 'module6'];
 const FUND_TERMS = {
   enabled: true, fundSize: 0, fundSizeOverride: false, facilityLimit: 0, facilityLimitOverride: false,
@@ -355,19 +356,22 @@ async function main(): Promise<void> {
   for (const ph of fx.phases) ph.dividendPolicy = { enabled: true, priority: 'before_sweep', startingYear: 2029, payoutRatio: 0.9, mode: 'cash_above_min' };
   await runFor('FIXTURE (fund enabled)', fx);
 
-  // Real project, if reachable. Read-only, never written back.
-  const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (url && key) {
-    try {
-      const sb = createClient(url, key, { auth: { persistSession: false } });
-      const { data, error } = await sb.from('refm_project_versions').select('snapshot,version_label')
-        .eq('project_id', PID).order('created_at', { ascending: false }).limit(1);
-      if (error) console.log(`\n(real project skipped: ${error.message})`);
-      else if (data?.length) await runFor(`FMP RE HUB (saved version ${(data[0] as any).version_label})`, (data[0] as any).snapshot);
-    } catch (e) { console.log(`\n(real project skipped: ${(e as Error).message})`); }
-  } else {
-    console.log('\n(real project skipped: no database credentials)');
-  }
+  // The committed existing-operations fixture: an operational first phase, an
+  // existing facility and all four strategies. Needs no database.
+  await runFor(EXISTING_OPS_LABEL, buildExistingOperationsState());
+
+  // THE LIVE LEG NAMES A PROJECT THAT IS STILL OPEN, AND FAILS WHEN IT IS NOT
+  // (2026-09-21). This read FMP RE HUB by id; that project was soft-deleted on
+  // 2026-09-12, and the read skipped in SILENCE when it returned nothing (the
+  // `if (error)` branch fires on an error, and zero rows printed nothing at
+  // all), so from the purge onwards the leg would have vanished with no output
+  // while the verifier still reported a pass. One shared rule now, in
+  // fixtures/liveProject.ts, and the shape that project carried is covered by
+  // the committed fixture leg above.
+  const live = await readLiveProjectVersion();
+  if (live.ok) await runFor(live.label, live.snapshot);
+  else if (live.noCredentials) console.log('\n(live project leg skipped: no database credentials; the runner refuses to run without them unless --allow-offline)');
+  else check('the live project is readable and still has a saved version', false, live.reason);
 
   // ── Toggle-off byte-identity, on the FIXTURE only ─────────────────────────
   console.log('\n=== Fund toggle OFF is byte-identical to fund terms ABSENT ===');
