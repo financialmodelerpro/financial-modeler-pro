@@ -536,7 +536,7 @@ export function buildFundCapitalRows(snap: ProjectFinancialsSnapshot): FundCapit
   const equity = sched.totalEquity.amount, debt = sched.debtFacility.amount;
   if (Math.abs(equity + debt - sched.fundSize.amount) > 0.01) return [];
   return [
-    { label: 'Total equity', amount: equity, isTotal: false, note: sched.totalEquity.explanation },
+    { label: 'Capex equity', amount: equity, isTotal: false, note: sched.totalEquity.explanation },
     { label: 'Debt facility', amount: debt, isTotal: false, note: sched.debtFacility.explanation },
     { label: 'Fund size', amount: sched.fundSize.amount, isTotal: true, note: 'Total equity plus the debt facility.' },
   ];
@@ -557,7 +557,7 @@ export function buildFundCapitalRows(snap: ProjectFinancialsSnapshot): FundCapit
 export const FUND_CAPITAL_BASES_TITLE = 'Capital Bases (the quantities the fees are charged on)';
 export const FUND_CAPITAL_BASE_TAG = 'capital base';
 export const FUND_CAPITAL_BASES_NOTE =
-  'These three rows are amounts of CAPITAL, not fees. Total equity and the debt facility are what the model raised; the fund size is their sum. Each fee below states which of them it is charged on.';
+  'These three rows are amounts of CAPITAL, not fees. Capex equity and the debt facility are what the model raises to BUILD; the fund size is their sum. Each fee below states which of them it is charged on. Capex equity is deliberately less than the cash equity on Financing: it excludes the equity raised to pay these fees, because charging a fee on the money raised to pay it would be circular.';
 /** The Fund Fee Basis table's title and caption, as the Module 4 P&L tab prints
  *  them. One wording for the screen and the PDF (2026-09-17). */
 export const FUND_FEE_BASIS_TITLE = 'Fund Fee Basis';

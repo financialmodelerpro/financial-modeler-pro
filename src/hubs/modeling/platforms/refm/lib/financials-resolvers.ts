@@ -3094,7 +3094,13 @@ export function computeFinancialsSnapshot(
       totalEquity: {
         amount: Math.max(0, baseEquityRequirement),
         source: baseEquityRequirement > 0 ? 'model' : 'none',
-        explanation: `From your model: the equity share (${feeFree.financing.funding.equityPct.toFixed(0)}%) of the selected method's funding requirement, frozen before the solve. Excludes in-kind and existing equity.`,
+        // NAMED FOR WHAT IT IS, AND WHY IT IS NOT THE CASH EQUITY (2026-09-21).
+        // The base is the equity raised to BUILD, frozen on the fee-free pass;
+        // the cash equity on Financing also funds the fees themselves, so it is
+        // higher (on FMP - MARINA GATE, 240.2m against this 222.9m, the 17.3m
+        // being the equity drawn for the fees). Charging the fees on that would
+        // be circular, which is exactly why the base is frozen first.
+        explanation: `From your model: the equity share (${feeFree.financing.funding.equityPct.toFixed(0)}%) of the selected method's funding requirement, frozen before the solve. Excludes in-kind and existing equity, and excludes the equity raised to pay these fees, which is why the cash equity on Financing is higher.`,
       },
       debtFacility: {
         amount: Math.max(0, baseDebtRequirement),

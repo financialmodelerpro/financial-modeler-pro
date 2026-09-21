@@ -71,7 +71,7 @@ export const CIRCULAR_FEE_BASES = [
 
 export const FEE_BASE_LABELS: Record<FeeBaseKind, string> = {
   fund_size: 'Fund size',
-  total_equity: 'Total equity',
+  total_equity: 'Capex equity',
   debt_facility: 'Debt facility',
   opening_nav: 'Opening NAV',
   facility_limit: 'Facility limit',
