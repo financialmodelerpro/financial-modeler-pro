@@ -26,40 +26,32 @@ import { ASSET_TYPES_BY_CATEGORY, ASSET_TYPE_CATEGORIES, type AssetTypeCategory 
 
 export type MetricKind = 'area' | 'count' | 'money' | 'none';
 
+// THE COARSE KIND NOW LIVES IN ITS OWN LEAF (2026-09-21), so the finer SECTION
+// rule can be built on it without this file and `revenueLines` importing each
+// other. Re-exported here because many callers already import it from this
+// file, and the Assets tab still asks the coarse question directly ("is this
+// type hospitality?").
+export { assetCapexCategory, CAPEX_CATEGORIES, type CapexCategory } from './assetCategory';
+
 /**
- * THE CATEGORY A CAPEX ROW FILES UNDER (2026-09-12): Residential, Hospitality
- * or Retail, the three the founder reads the summary by, else Other. A retail
- * strip is Retail whatever its hosts are. Otherwise the asset's type LABEL
- * resolves against the project's own type list (its category, when the firm
- * set one of the three) and then the built-in category lists; nothing here
- * reads the standards or a stamped id, which is what keeps this file off the
- * forbidden-reader list.
+ * THE ONE FILING RULE, FOR COSTS AS WELL AS REVENUE (2026-09-21).
+ *
+ * Capex filed its category tables by the COARSE kind (Residential /
+ * Hospitality / Retail / Other) while the P&L filed revenue by the finer
+ * SECTION (which splits Retail into "Standalone Commercial" and "Retail
+ * Ground Floor", and files an Operate companion under Hospitality). On
+ * FMP - MARINA GATE that put four of eight assets under a different heading in
+ * the cost tables than in the income statement: both retail strips and both
+ * Standalone Commercial lines sat in one "Retail" row against two separate
+ * revenue sections, so a reader could not carry a line from its cost to its
+ * revenue.
+ *
+ * Costs are filed by the SAME rule now. `revenueSection` keeps its name where
+ * it is defined, because it is the rule, not a capex concept.
  */
-export type CapexCategory = AssetTypeCategory | 'Other';
-export const CAPEX_CATEGORIES: readonly CapexCategory[] = [...ASSET_TYPE_CATEGORIES, 'Other'];
-export function assetCapexCategory(
-  asset: { type?: string; isCompanion?: boolean; companionType?: string },
-  project: { assetTypes?: ReadonlyArray<{ id: string; label: string; category?: string }> },
-): CapexCategory {
-  if (asset.isCompanion === true && asset.companionType === 'retail') return 'Retail';
-  const label = (asset.type ?? '').trim();
-  if (label === '') return 'Other';
-  const key = normaliseAssetTypeId(label);
-  const entry = (project.assetTypes ?? []).find((t) => t.id === key || t.label.trim() === label);
-  const declared = entry?.category?.trim();
-  if (declared && (ASSET_TYPE_CATEGORIES as readonly string[]).includes(declared)) return declared as AssetTypeCategory;
-  for (const cat of ASSET_TYPE_CATEGORIES) {
-    if (ASSET_TYPES_BY_CATEGORY[cat].some((l) => l === label || normaliseAssetTypeId(l) === key)) return cat;
-  }
-  // A firm's own label, not in the built-in lists and with no category set on
-  // tab 4: read the word. 'Hotel 5-star', 'Branded Residences', 'Strip Retail'
-  // all say what they are. Setting the category on tab 4 outranks this.
-  const lower = label.toLowerCase();
-  if (/hotel|resort|hospitality|serviced/.test(lower)) return 'Hospitality';
-  if (/retail|commercial|mall|shop/.test(lower)) return 'Retail';
-  if (/villa|apartment|residen|townhouse|condo|home/.test(lower)) return 'Residential';
-  return 'Other';
-}
+import { revenueSection as assetCapexSection, REVENUE_SECTIONS as CAPEX_SECTIONS, type RevenueSection as CapexSection } from '../revenueLines';
+export { assetCapexSection, CAPEX_SECTIONS };
+export type { CapexSection };
 
 export interface CapexInputLine {
   /** Cost-line id (phase-scoped). Lets the Excel build-up map each line to its
@@ -531,7 +523,7 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
     exclInKind: number[];
     exclAll: number[];
     perLine: Array<{ lineId: string; name: string; values: number[] }>;
-    category: CapexCategory;
+    category: CapexSection;
   }
   const inputAssets: CapexInputAsset[] = [];
   const breakdownById = new Map<string, AssetCostBreakdown>();
@@ -631,7 +623,7 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
     // asset two different things.
     assetCapex.push({
       assetId: a.id, name: assetLabel(a, state), plot: assetPlotLabel(a, state), phaseId: a.phaseId, phaseName: phase.name,
-      category: assetCapexCategory(a, project),
+      category: assetCapexSection(a, project),
       inclAll, exclInKind, exclAll, perLine,
     });
   }
@@ -789,7 +781,7 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
    */
   const categoryTable = (title: string, pick: (ac: AssetCapex) => number[], total: number[], totalLabel: string): CapexResultTable => {
     const rows: M4Row[] = [];
-    for (const cat of CAPEX_CATEGORIES) {
+    for (const cat of CAPEX_SECTIONS) {
       const members = assetCapex.filter((ac) => ac.category === cat);
       if (members.length === 0) continue;
       const values = sumOver(members, pick);

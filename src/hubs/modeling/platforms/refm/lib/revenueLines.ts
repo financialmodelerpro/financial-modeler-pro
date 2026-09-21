@@ -42,7 +42,7 @@ import { groupAssetsForConsolidation } from '@/src/core/calculations/consolidati
 import { normaliseAssetTypeId } from '@/src/core/calculations/typeKey';
 import { isRetailCompanion } from '@/src/core/calculations/retailCompanion';
 import { isRevenueSubUnit } from '@/src/core/calculations';
-import { assetCapexCategory } from './reports/capexReports';
+import { assetCapexCategory } from './reports/assetCategory';
 import { REVENUE_KEY_BY_STRATEGY } from './state/strategySwitch';
 import type { Asset, AssetStrategy, Phase, Project, SubUnit } from './state/module1-types';
 

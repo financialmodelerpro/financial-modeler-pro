@@ -40,7 +40,7 @@ import {
 import { constructionRowsForView, costStandardBasisLabel, rowBasisLabel } from '../../../lib/state/costStandards';
 import { typePriceColumns } from '../../../lib/state/subUnitPriceDefaults';
 import { hasDualPrice } from '../../../lib/state/subUnitPrices';
-import { assetCapexCategory } from '../../../lib/reports/capexReports';
+import { assetCapexSection } from '../../../lib/reports/capexReports';
 import { planReportLines, lineTitle } from '../../../lib/reports/lineRows';
 import type {
   Asset, CostLine, LandAllocationMode, Parcel, Phase, Project, SubUnit,
@@ -433,7 +433,7 @@ export function buildAssetLandView(state: InputsViewState): AssetLandView[] {
     return {
       assetId: a.id,
       name: a.name,
-      category: assetCapexCategory(a, state.project),
+      category: assetCapexSection(a, state.project),
       landSqm: m.landSqm,
       landRate: m.landSqm > 0 ? m.landValue / m.landSqm : 0,
       landValue: m.landValue,
@@ -547,7 +547,7 @@ export function buildSubUnitLines(state: InputsViewState): SubUnitLineView[] {
         : 'No NSA on this line, so there is nothing to check the parts against.';
     out.push({
       key, title, label, phaseId, isStrip,
-      category: members[0] ? assetCapexCategory(members[0], state.project) : 'Other',
+      category: members[0] ? assetCapexSection(members[0], state.project) : 'Other',
       rows, nsaSqm: nsa, areaSqm: areaSum, check,
     });
   };

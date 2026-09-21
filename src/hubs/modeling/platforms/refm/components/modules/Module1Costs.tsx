@@ -126,7 +126,7 @@ import { withResolvedAssetNames, assetPlotLabel } from '@/src/core/calculations/
 import { withInheritedMassingAll } from '@/src/core/calculations/landChain';
 import { chainMassingFor } from '../../lib/state/assetTypeStandards';
 import { buildConsolidatedReport, perAssetCostsFromTreatment } from '../../lib/reports/consolidatedReport';
-import { planCapexSummaryLines, assetCapexCategory, capexTreatmentRows, CAPEX_CATEGORIES, type CapexPlannableAsset } from '../../lib/reports/capexReports';
+import { planCapexSummaryLines, assetCapexSection, capexTreatmentRows, CAPEX_SECTIONS, type CapexPlannableAsset } from '../../lib/reports/capexReports';
 import { assetHasSubstance } from './_shared/assetTableModel';
 import { normaliseAssetTypeId } from '../../lib/state/assetTypeStandards';
 
@@ -3482,7 +3482,7 @@ function SummaryTables({
             return { row, total };
           };
           const section = (label: string, mode: RowMode, key: string): React.JSX.Element[] => {
-            const rows = CAPEX_CATEGORIES
+            const rows = CAPEX_SECTIONS
               .map((cat) => ({ cat, r: sumRows(phaseAssets.filter((a) => categoryOf(a) === cat), mode) }))
               .filter((x) => Math.abs(x.r.total) > 0.5);
             const total = sumRows(phaseAssets, mode);
@@ -5508,7 +5508,7 @@ export default function Module1Costs(): React.JSX.Element {
                 <SummaryTables
                   key={`summary-${granularity}-${resultsView}-${resultsAssetId ?? 'all'}`}
                   phaseAssets={filteredAssets}
-                  categoryOf={(a) => assetCapexCategory(a, project)}
+                  categoryOf={(a) => assetCapexSection(a, project)}
                   perPhaseBreakdowns={perPhaseBreakdowns}
                   parcels={parcels}
                   metricsByAsset={metricsByAsset}

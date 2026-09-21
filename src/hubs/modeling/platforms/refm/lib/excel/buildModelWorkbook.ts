@@ -48,7 +48,7 @@ import { computeReturnsSnapshot, computeReturnsSensitivity, type ReturnsSnapshot
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { resolveAssetAreaMetrics, computePhaseTimeline, computeProjectTimeline, resolveSubUnitAdr, type AssetAreaMetrics } from '@/src/core/calculations';
 import { FUNDING_METHOD_LABELS, COST_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
-import { CAPEX_CATEGORIES } from '../reports/capexReports';
+import { CAPEX_SECTIONS } from '../reports/capexReports';
 import { buildConsolidatedReport, perAssetCostsFromTreatment } from '../reports/consolidatedReport';
 import { buildSellingCostReport, SELLING_COSTS_CAPTION, SELLING_COSTS_YOY_CAPTION } from '../reports/sellingCostReports';
 import {
@@ -1241,7 +1241,7 @@ function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs:
   LAND_HEADS.forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
   const landAddrsByAsset = new Map<string, LandAreaAssetAddrs>();
   const firstBodyRow = r;
-  for (const cat of CAPEX_CATEGORIES) {
+  for (const cat of CAPEX_SECTIONS) {
     const rows = land.filter((x) => x.category === cat);
     if (rows.length === 0) continue;
     setLabel(ws.getCell(r, 1), cat, { bold: true }); fillRange(ws, r, 1, r, LAND_HEADS.length, ARGB.subtotal); r += 1;

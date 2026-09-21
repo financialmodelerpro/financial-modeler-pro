@@ -115,7 +115,7 @@ import {
 } from '@/src/core/calculations/consolidation';
 import { poolLineAreas, poolLineLand, resolveConsolidatedLine } from '@/src/core/calculations/consolidatedLine';
 import { normaliseAssetTypeId } from '../../lib/state/assetTypeStandards';
-import { assetCapexCategory } from '../../lib/reports/capexReports';
+import { assetCapexCategory, assetCapexSection } from '../../lib/reports/capexReports';
 import { orderSubUnitLines } from './_shared/assetTableModel';
 import type { ChainResult } from '@/src/core/calculations/landChain';
 import type { LandChainInputs } from '@/src/core/calculations/landChain';
@@ -3274,7 +3274,7 @@ function groupSubUnitsByLine(
       phaseId,
       strategy: members[0]?.strategy,
       plotByAssetId: Object.fromEntries(members.map((m) => [m.id, assetPlotLabel(m, { parcels, phases })])),
-      category: members[0] ? assetCapexCategory(members[0], project) : 'Other',
+      category: members[0] ? assetCapexSection(members[0], project) : 'Other',
       isStrip: members.length === 1 && isRetailCompanion(members[0]),
       assetIds: members.map((m) => m.id),
       assetNames: members.filter((m) => units.some((u) => u.assetId === m.id)).map((m) => m.name),

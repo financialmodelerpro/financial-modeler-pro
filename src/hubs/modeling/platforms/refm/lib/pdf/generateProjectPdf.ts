@@ -90,7 +90,7 @@ import { buildOperatingKpis } from '../reports/operatingKpis';
 import { assetLabel } from '@/src/core/calculations/assetName';
 import { buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
 import { evaluateCovenant, type CovenantInputs } from '../covenants';
-import { buildCapexReport, CAPEX_CATEGORIES, type CapexResultTable } from '../reports/capexReports';
+import { buildCapexReport, CAPEX_SECTIONS, type CapexResultTable } from '../reports/capexReports';
 import { buildPartiesTable, PARTIES_TITLE, PARTIES_EMPTY_TEXT } from '../reports/partiesReport';
 import {
   buildStandardsView, buildAssetAreaTables, buildAssetLandView, buildSubUnitLines,
@@ -1743,7 +1743,7 @@ function buildModule1(
     if (land.length) {
       const rows: PdfTableRow[] = [];
       const tot = { sqm: 0, value: 0, cash: 0, inKind: 0 };
-      for (const cat of CAPEX_CATEGORIES) {
+      for (const cat of CAPEX_SECTIONS) {
         const mine = land.filter((l) => l.category === cat);
         if (!mine.length) continue;
         rows.push(row([cat, '', '', '', '', ''], 'heading'));
