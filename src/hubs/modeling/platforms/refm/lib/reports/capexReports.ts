@@ -184,8 +184,17 @@ export interface CapexTreatmentRow {
   strategy: string;
   landCash: number;
   landInKind: number;
+  /** THE WHOLE LAND STAGE (2026-09-21), which is the land VALUE plus anything
+   *  else charged in that stage, RETT above all. The consolidated view added
+   *  land value to hard, soft and operating and compared the four against the
+   *  breakdown TOTAL, so a transfer tax fell out of the columns and stayed in
+   *  the total: on FMP - MARINA GATE the rows were short by 6.8m of RETT. */
+  landStage: number;
   hard: number;
   soft: number;
+  /** Selling and marketing, dropped entirely by the same omission: 61.0m on
+   *  the live model, which with the RETT made up the whole 67.8m gap. */
+  marketing: number;
   operating: number;
   total: number;
   cashOutflow: number;
@@ -194,15 +203,17 @@ export interface CapexTreatmentRow {
 export function capexTreatmentRows<A extends { id: string; name: string; strategy: string }>(
   assets: readonly A[],
   /** Every engine breakdown this asset has (the screen holds one per phase). */
-  breakdownsOf: (assetId: string) => ReadonlyArray<{ byStage: { hard: number; soft: number; operating: number }; total: number }>,
+  breakdownsOf: (assetId: string) => ReadonlyArray<{ byStage: { land: number; hard: number; soft: number; marketing: number; operating: number }; total: number }>,
   landOf: (assetId: string) => { cashLandValue: number; inKindLandValue: number } | undefined,
 ): Array<CapexTreatmentRow & { strategy: A['strategy'] }> {
   return assets.map((a) => {
     const m = landOf(a.id) ?? { cashLandValue: 0, inKindLandValue: 0 };
-    let hard = 0, soft = 0, operating = 0, total = 0;
+    let landStage = 0, hard = 0, soft = 0, marketing = 0, operating = 0, total = 0;
     for (const bd of breakdownsOf(a.id)) {
+      landStage += bd.byStage.land;
       hard += bd.byStage.hard;
       soft += bd.byStage.soft;
+      marketing += bd.byStage.marketing;
       operating += bd.byStage.operating;
       total += bd.total;
     }
@@ -213,8 +224,10 @@ export function capexTreatmentRows<A extends { id: string; name: string; strateg
       strategy: a.strategy,
       landCash: m.cashLandValue,
       landInKind: m.inKindLandValue,
+      landStage,
       hard,
       soft,
+      marketing,
       operating,
       total,
       cashOutflow: cashFlow.cashOutflow,

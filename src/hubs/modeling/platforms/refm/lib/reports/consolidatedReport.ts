@@ -54,10 +54,14 @@ export interface PerAssetCost {
 export function perAssetCostsFromTreatment(rows: readonly CapexTreatmentRow[]): PerAssetCost[] {
   return rows.map((r) => ({
     assetId: r.id,
-    land: r.landCash + r.landInKind,
+    // THE LAND STAGE, not the land VALUE, and the marketing stage rather than
+    // a hardcoded zero (2026-09-21): the four printed columns were compared
+    // against the breakdown TOTAL, so RETT and selling costs fell out of the
+    // rows and the table did not foot.
+    land: r.landStage,
     hard: r.hard,
     soft: r.soft,
-    marketing: 0,
+    marketing: r.marketing,
     operating: r.operating,
     total: r.total,
   }));

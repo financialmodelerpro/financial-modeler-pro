@@ -796,8 +796,40 @@ async function main(): Promise<void> {
     const consTotal = rowByLabelAfter(cap, /^Consolidated by type/, /^Total$/);
     const projTotal = rowByLabel(cap, /^Project Total$/);
     check('Capex: consolidated preview present, above Table 1', cons > 0 && t1 > cons && consTotal > cons && consTotal < t1, `cons=${cons} t1=${t1}`);
-    check('Capex: consolidated preview total ties to the Table 1 Project Total', consTotal > 0 && projTotal > 0 && Math.abs(num(cap.getCell(consTotal, 9).value) - num(cap.getCell(projTotal, 5).value)) < 0.01,
-      `cons=${consTotal > 0 ? num(cap.getCell(consTotal, 9).value) : 'missing'} t1=${projTotal > 0 ? num(cap.getCell(projTotal, 5).value) : 'missing'}`);
+    // THE TOTAL COLUMN IS FOUND, NOT COUNTED (2026-09-21). This read column 9,
+    // which was the Total until a Marketing column was added between them, and
+    // a hardcoded index reads an EMPTY cell as 0 rather than failing to find
+    // anything. The header row is the one whose first label is "Phase".
+    const consHeaderRow = (() => {
+      for (let rr = cons; rr < consTotal; rr++) if (String(cap.getCell(rr, 1).value ?? '').trim() === 'Phase') return rr;
+      return -1;
+    })();
+    const consTotalCol = (() => {
+      if (consHeaderRow < 0) return -1;
+      for (let cc = 1; cc <= 16; cc++) if (String(cap.getCell(consHeaderRow, cc).value ?? '').trim() === 'Total') return cc;
+      return -1;
+    })();
+    check('Capex: the consolidated preview has a Total column to read', consTotalCol > 0, `header row ${consHeaderRow}`);
+    check('Capex: consolidated preview total ties to the Table 1 Project Total',
+      consTotal > 0 && projTotal > 0 && consTotalCol > 0
+      && Math.abs(num(cap.getCell(consTotal, consTotalCol).value) - num(cap.getCell(projTotal, 5).value)) < 0.01,
+      `cons=${consTotal > 0 && consTotalCol > 0 ? num(cap.getCell(consTotal, consTotalCol).value) : 'missing'} t1=${projTotal > 0 ? num(cap.getCell(projTotal, 5).value) : 'missing'}`);
+    // EVERY STAGE COLUMN IS PRESENT AND THE ROW ADDS UP. The preview printed
+    // land value, hard, soft and operating against a total that also carried
+    // RETT and marketing, so it was short by 67.8m on the live model.
+    check('Capex: the preview carries a column for every stage, marketing included',
+      consHeaderRow > 0 && ['Land stage', 'Hard', 'Soft', 'Marketing', 'Operating', 'Total']
+        .every((h) => { for (let cc = 1; cc <= 16; cc++) if (String(cap.getCell(consHeaderRow, cc).value ?? '').trim() === h) return true; return false; }));
+    check('Capex: the preview total row adds across its own stage columns', (() => {
+      if (consHeaderRow < 0 || consTotalCol < 0) return false;
+      let sumCols = 0;
+      for (const h of ['Land stage', 'Hard', 'Soft', 'Marketing', 'Operating']) {
+        for (let cc = 1; cc <= 16; cc++) {
+          if (String(cap.getCell(consHeaderRow, cc).value ?? '').trim() === h) { sumCols += num(cap.getCell(consTotal, cc).value); break; }
+        }
+      }
+      return Math.abs(sumCols - num(cap.getCell(consTotal, consTotalCol).value)) < 0.01;
+    })());
     check('Capex: the preview states that it ties', /^Ties to the per-asset total/.test(labelOf(cap, consTotal + 1)), labelOf(cap, consTotal + 1));
     const src = fsReadFileSync('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts', 'utf8');
     check('Capex: the workbook preview uses the screen\'s builder and row rule', src.includes('buildConsolidatedReport(previewAssets, state.phases, perAssetCostsFromTreatment(capex.treatment))')

@@ -1534,16 +1534,19 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     const treatIds = new Set(capex.treatment.map((t) => t.id));
     const previewAssets = state.assets.filter((a) => treatIds.has(a.id));
     const cons = buildConsolidatedReport(previewAssets, state.phases, perAssetCostsFromTreatment(capex.treatment));
-    const [cPhase, cType, cStrat, cCount, cLand, cHard, cSoft, cOp, cTotal] = [C_LBL, C_UOM, C_RATE, C_QTY, C_TOT, C_OPEN, C_OPEN + 1, C_OPEN + 2, C_OPEN + 3];
+    const [cPhase, cType, cStrat, cCount, cLand, cHard, cSoft, cMkt, cOp, cTotal] = [C_LBL, C_UOM, C_RATE, C_QTY, C_TOT, C_OPEN, C_OPEN + 1, C_OPEN + 2, C_OPEN + 3, C_OPEN + 4];
     setSectionHeader(ws.getRow(r), 'Consolidated by type, what a grouped schedule would show', cLast); r += 1;
     note(r, `Grouped by phase, asset type and strategy. Preview only: every schedule below is still per line. ${cons.isRelabellingOnly
       ? 'Nothing merges on this project, so each row is one asset under a different label.'
       : `${cons.mergedRows.length} row${cons.mergedRows.length === 1 ? '' : 's'} merge more than one asset.`}`);
     r += 2;
-    subHeader(r, [[cPhase, 'Phase', 'left'], [cType, 'Type', 'left'], [cStrat, 'Strategy', 'left'], [cCount, 'Assets', 'right'], [cLand, 'Land', 'right'], [cHard, 'Hard', 'right'], [cSoft, 'Soft', 'right'], [cOp, 'Operating', 'right'], [cTotal, 'Total', 'right']]);
+    subHeader(r, [[cPhase, 'Phase', 'left'], [cType, 'Type', 'left'], [cStrat, 'Strategy', 'left'], [cCount, 'Assets', 'right'], [cLand, 'Land stage', 'right'], [cHard, 'Hard', 'right'], [cSoft, 'Soft', 'right'], [cMkt, 'Marketing', 'right'], [cOp, 'Operating', 'right'], [cTotal, 'Total', 'right']]);
     r += 1;
-    const moneyCells = (rr: number, v: { land: number; hard: number; soft: number; operating: number; total: number }): void => {
-      put(rr, cLand, v.land); put(rr, cHard, v.hard); put(rr, cSoft, v.soft); put(rr, cOp, v.operating); put(rr, cTotal, v.total);
+    // EVERY STAGE HAS A COLUMN (2026-09-21), so the row adds up to the Total
+    // beside it. Land is the whole land STAGE, which is the land value plus
+    // RETT; marketing had no column at all.
+    const moneyCells = (rr: number, v: { land: number; hard: number; soft: number; marketing: number; operating: number; total: number }): void => {
+      put(rr, cLand, v.land); put(rr, cHard, v.hard); put(rr, cSoft, v.soft); put(rr, cMkt, v.marketing); put(rr, cOp, v.operating); put(rr, cTotal, v.total);
     };
     for (const row of cons.rows) {
       setLabel(ws.getCell(r, cPhase), row.phaseName, { indent: 1 });
