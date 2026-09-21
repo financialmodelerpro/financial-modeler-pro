@@ -4,11 +4,11 @@
  * Guards the Module 6 debt/equity paired override. A funding method's debt % and
  * equity % are one split summing to 100, and the engine normalizes by
  * (debt + equity). So a scenario override that writes only debt % leaves equity %
- * stale and the change is muted, or (when equity % is 0, as on FMP RE HUB)
+ * stale and the change is muted, or (when equity % is 0, as on this fixture)
  * renormalized away entirely so the override does nothing. The fix auto-derives
  * the paired half (equity % = 100 - debt %) on every override + reset.
  *
- * Drives the REAL store on the LIVE FMP RE HUB snapshot and asserts:
+ * Drives the REAL store on the committed existing-operations fixture and asserts:
  *   1. Overriding debt % auto-updates equity % to 100 - debt % in the merged model.
  *   2. The comparison KPIs (financing cost, equity IRR) move with the override.
  *   3. The base / Management split is never mutated.
@@ -20,17 +20,18 @@
  *   7. Only the ACTIVE funding method's split is a live lever; inactive methods
  *      are gated with a reason (not silent dead levers).
  *
- * The fixture is gitignored live project data; skip-with-notice when absent
- * (refresh: npx tsx scripts/fetch-census-fixture.ts "RE HUB").
+ * The fixture is scripts/fixtures/existingOperationsProject.json, committed, so
+ * this runs on every machine (2026-09-21).
  *
  * Run: npx tsx scripts/verify-module6-debt-equity-pair.ts
  */
-import { readFileSync, existsSync } from 'node:fs';
+
 import { useModule1Store, pickModel } from '../src/hubs/modeling/platforms/refm/lib/state/module1-store';
 import { applyOverrides, baseCaseId } from '../src/hubs/modeling/platforms/refm/lib/cases/applyOverrides';
 import { inactiveLeverReason } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/returns-resolvers';
+import { buildExistingOperationsState, EXISTING_OPS_LABEL } from './fixtures/existingOperationsState';
 
 let passed = 0, failed = 0; const fails: string[] = [];
 function check(label: string, ok: boolean, detail = ''): void {
@@ -38,18 +39,16 @@ function check(label: string, ok: boolean, detail = ''): void {
   else { failed++; fails.push(label); console.log(`  [FAIL] ${label}${detail ? ` :: ${detail}` : ''}`); }
 }
 
-const FIXTURE = 'scripts/fmpReHubSnapshot.json';
-if (!existsSync(FIXTURE)) {
-  console.log(`[SKIP] ${FIXTURE} not present (live project data, gitignored).`);
-  console.log('       Refresh it with: npx tsx scripts/fetch-census-fixture.ts "RE HUB"');
-  console.log('=== Result: skipped (no fixture) ===');
-  process.exit(0);
-}
-const doc = JSON.parse(readFileSync(FIXTURE, 'utf8'));
-const snap = doc.snapshot as any;
+// THE FIXTURE IS COMMITTED (2026-09-21). This read a gitignored local copy of
+// a project that has since been soft-deleted, and skipped itself when the file
+// was absent, so it was green here and absent everywhere else: a verifier that
+// is red on a clean clone is not a pass, and one that skips is not either. It
+// now reads the committed capture of the same shape, so it runs on every
+// machine and cannot be skipped.
+const snap: any = buildExistingOperationsState();
 const store = useModule1Store;
 const method = snap.project?.financing?.fundingMethod;
-console.log(`=== Module 6 debt/equity paired override (LIVE "${doc.projectName}" v${doc.versionNumber}, funding method ${method}) ===\n`);
+console.log(`=== Module 6 debt/equity paired override (${EXISTING_OPS_LABEL}, funding method ${method}) ===\n`);
 
 // The active method's split config key.
 const CFG_KEY = method === 1 ? 'fixedRatio' : method === 2 ? 'netFundingConfig' : method === 3 ? 'cashDeficitConfig' : 'fixedAmountConfig';
@@ -122,7 +121,7 @@ check('resetting debt % reverts BOTH halves to base (no inconsistent split)',
 check('reset restores the base financing cost exactly', kpis().finCost === baseKpis.finCost);
 
 // 6. Regression pin: the OLD unpaired override (debt only) is muted / inert.
-//    On FMP RE HUB base equity is 0, so debt-only renormalizes to 100% debt.
+//    On this fixture base equity is 0, so debt-only renormalizes to 100% debt.
 const unpaired = applyOverrides(snap, { [debtPath]: newDebt }); // equity stays at base
 const unpairedRs = computeReturnsSnapshot(computeFinancialsSnapshot(unpaired), (unpaired as any).project);
 const unpairedFin = Math.round(unpairedRs.developmentEconomics.totalFinancingCost);

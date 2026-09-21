@@ -1,27 +1,28 @@
 /**
  * verify-module6-yoy.ts
  *
- * Guards the Module 6 "Year-on-Year Impact" report builder on the LIVE FMP RE HUB
- * snapshot. Asserts, per changed-input block: the input value per case, every
+ * Guards the Module 6 "Year-on-Year Impact" report builder on the committed
+ * existing-operations fixture. Asserts, per changed-input block: the input value per case, every
  * per-period output the input drives (a debt-ratio change shows debt drawdown AND
  * financing cost; an interest-rate change shows financing cost + balance; revenue
  * change shows revenue), per-case actuals + deltas, the flow/stock kind (for the
  * Total column), and the inception (prior) value. Also asserts the axis leads with
- * the prior year (2025 on FMP RE HUB) like the other modules, and that values tie
+ * the prior year (2025 on this fixture) like the other modules, and that values tie
  * to the existing computed series (no recompute).
  *
- * Fixture is gitignored live data; skip-with-notice when absent
- * (refresh: npx tsx scripts/fetch-census-fixture.ts "RE HUB").
+ * The fixture is scripts/fixtures/existingOperationsProject.json, committed, so
+ * this runs on every machine (2026-09-21).
  *
  * Run: npx tsx scripts/verify-module6-yoy.ts
  */
-import { readFileSync, existsSync } from 'node:fs';
+
 import { buildCaseYoYReport, type YoYBlock, type YoYOutput } from '../src/hubs/modeling/platforms/refm/lib/reports/caseYoYReport';
 import { applyOverrides, baseCaseId } from '../src/hubs/modeling/platforms/refm/lib/cases/applyOverrides';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { buildCaseComparisonReport } from '../src/hubs/modeling/platforms/refm/lib/reports/caseComparisonReport';
 import { inactiveLeverReason, curatedDefaultFields, nonEconomicLeverReason } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
 import type { ProjectCase } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import { buildExistingOperationsState, EXISTING_OPS_LABEL } from './fixtures/existingOperationsState';
 
 let passed = 0, failed = 0; const fails: string[] = [];
 function check(label: string, ok: boolean, detail = ''): void {
@@ -31,16 +32,14 @@ function check(label: string, ok: boolean, detail = ''): void {
 const seriesEqual = (a: number[], b: number[]) => a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) < 1e-6 * Math.max(1, Math.abs(b[i])));
 const nonZero = (a: number[]) => a.some((v) => Math.abs(v) > 1);
 
-const FIXTURE = 'scripts/fmpReHubSnapshot.json';
-if (!existsSync(FIXTURE)) {
-  console.log(`[SKIP] ${FIXTURE} not present (live project data, gitignored).`);
-  console.log('       Refresh it with: npx tsx scripts/fetch-census-fixture.ts "RE HUB"');
-  console.log('=== Result: skipped (no fixture) ===');
-  process.exit(0);
-}
-const doc = JSON.parse(readFileSync(FIXTURE, 'utf8'));
-const base: any = doc.snapshot;
-console.log(`=== Module 6 Year-on-Year Impact (LIVE "${doc.projectName}" v${doc.versionNumber}) ===\n`);
+// THE FIXTURE IS COMMITTED (2026-09-21). This read a gitignored local copy of
+// a project that has since been soft-deleted, and skipped itself when the file
+// was absent, so it was green here and absent everywhere else: a verifier that
+// is red on a clean clone is not a pass, and one that skips is not either. It
+// now reads the committed capture of the same shape, so it runs on every
+// machine and cannot be skipped.
+const base: any = buildExistingOperationsState();
+console.log(`=== Module 6 Year-on-Year Impact (${EXISTING_OPS_LABEL}) ===\n`);
 
 const hasComponents = (t: any) => t.interbankRatePct !== undefined || t.creditSpreadPct !== undefined;
 // Prefer an EXISTING facility with components so the stock-balance prior column
@@ -67,7 +66,7 @@ console.log(`blocks: ${report.blocks.map((b) => `${b.inputLabel} -> [${b.outputs
 
 // ── #5 Axis starts at the prior year (2025), matching other modules ──────────
 check('axis leads with the prior/inception year (yearLabels[0] - 1)', report.priorYearLabel === report.yearLabels[0] - 1, `prior=${report.priorYearLabel} first=${report.yearLabels[0]}`);
-check('on FMP RE HUB the first column is 2025 (project start 2026 minus one)', report.priorYearLabel === 2025 && report.yearLabels[0] === 2026, `prior=${report.priorYearLabel}`);
+check('the first column is 2025 (project start 2026 minus one)', report.priorYearLabel === 2025 && report.yearLabels[0] === 2026, `prior=${report.priorYearLabel}`);
 
 const find = (path: string): YoYBlock | undefined => report.blocks.find((b) => b.path === path);
 const out = (b: YoYBlock | undefined, pred: (o: YoYOutput) => boolean): YoYOutput | undefined => b?.outputs.find(pred);

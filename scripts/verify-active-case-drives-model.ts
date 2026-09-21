@@ -4,7 +4,7 @@
  * Architectural regression guard. The selected case must drive the ENTIRE model
  * and every export, not just the Module 6 comparison. This verifier drives the
  * REAL store (hydrate -> addCase -> setActiveCase -> setCaseFieldValue ->
- * setUseScenarios) on the LIVE "FMP RE HUB" project snapshot and asserts:
+ * setUseScenarios) on the committed existing-operations fixture and asserts:
  *
  *   1. A MODULE OUTSIDE Module 6 (Returns / Overview, via the same
  *      computeFinancialsSnapshot -> computeReturnsSnapshot pipeline they render
@@ -21,16 +21,17 @@
  * module or export reads baseSnapshot directly, or setActiveCase stops spreading
  * the merged model) flips one of these red.
  *
- * The fixture (scripts/fmpReHubSnapshot.json) is live project data, gitignored.
- * Skip-with-notice when absent; refresh via: npx tsx scripts/fetch-census-fixture.ts "RE HUB"
+ * The fixture is scripts/fixtures/existingOperationsProject.json, committed, so
+ * this runs on every machine (2026-09-21).
  *
  * Run: npx tsx scripts/verify-active-case-drives-model.ts
  */
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { useModule1Store, pickModel } from '../src/hubs/modeling/platforms/refm/lib/state/module1-store';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/returns-resolvers';
 import { baseCaseId } from '../src/hubs/modeling/platforms/refm/lib/cases/applyOverrides';
+import { buildExistingOperationsState, EXISTING_OPS_LABEL } from './fixtures/existingOperationsState';
 
 let passed = 0, failed = 0; const fails: string[] = [];
 function check(label: string, ok: boolean, detail = ''): void {
@@ -38,17 +39,15 @@ function check(label: string, ok: boolean, detail = ''): void {
   else { failed++; fails.push(label); console.log(`  [FAIL] ${label}${detail ? ` :: ${detail}` : ''}`); }
 }
 
-const FIXTURE = 'scripts/fmpReHubSnapshot.json';
-if (!existsSync(FIXTURE)) {
-  console.log(`[SKIP] ${FIXTURE} not present (live project data, gitignored).`);
-  console.log('       Refresh it with: npx tsx scripts/fetch-census-fixture.ts "RE HUB"');
-  console.log('=== Result: skipped (no fixture) ===');
-  process.exit(0);
-}
-const doc = JSON.parse(readFileSync(FIXTURE, 'utf8'));
-const snap = doc.snapshot as any;
+// THE FIXTURE IS COMMITTED (2026-09-21). This read a gitignored local copy of
+// a project that has since been soft-deleted, and skipped itself when the file
+// was absent, so it was green here and absent everywhere else: a verifier that
+// is red on a clean clone is not a pass, and one that skips is not either. It
+// now reads the committed capture of the same shape, so it runs on every
+// machine and cannot be skipped.
+const snap: any = buildExistingOperationsState();
 const store = useModule1Store;
-console.log(`=== Active case drives whole model + exports (LIVE "${doc.projectName}" v${doc.versionNumber}) ===\n`);
+console.log(`=== Active case drives whole model + exports (${EXISTING_OPS_LABEL}) ===\n`);
 
 // A "module outside Module 6" reads the live store and runs the shared pipeline.
 // This is exactly what Module5Returns.tsx + Overview.tsx do.
