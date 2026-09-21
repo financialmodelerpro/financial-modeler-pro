@@ -28,9 +28,10 @@ its screen and needed nothing. **The report and the workbook are now both a copy
 2. **The one real failure left in `verify-report-arithmetic`**: "per-asset cost never exceeds total development
    cost", 6262.9 against 4912.2 on the fixture. PROVED PRE-EXISTING by stashing on 2026-09-21, then DIAGNOSED
    and closed the same day (the two sides were scoped differently; see item 1 for the root cause).
-2. **Module 7 (the IC deck) has not been through this sweep**, and it is the one surface that carries numbers a
-   reader takes to a committee. It binds keys rather than copying figures, so the question is whether its slides
-   still name what the screens name after the Module 1 and 2 restructures.
+2. **MODULE 7 DONE 2026-09-21**: the deck described the scheme from raw stored fields (2,970 sqm against the
+   platform's 89,380, 11,000 sqm of land against 37,000, "1 unit" everywhere) while every headline figure was
+   right. Fixed through the platform's own area, land and count rules; 40 slides, zero unlinked bindings, both
+   exports render. TRAPS 7.54b.
 3. **Nothing has been browser-verified since the sweep began.** Both exports are measured by verifier and by
    dumping the content model; a human has not opened the PDF or the workbook.
 4. Everything still open from the 2026-09-14 list below.

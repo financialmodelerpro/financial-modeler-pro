@@ -2679,6 +2679,36 @@ the verifier can hand in a list and read the rows back.
 **Proof:** `verify-pdf-export` passes two named parties in and asserts both rows and the builder's three columns
 come out; it fails if the tab is dropped or the option stops being read.
 
+### 7.54b Every headline figure right, and the thing being described wrong
+
+**Symptom (2026-09-21):** the IC deck, the one surface that goes to a committee, told the reader that
+FMP - MARINA GATE was a **2,970 sqm** scheme on **11,000 sqm** of land with **1 unit** on every line. The
+platform says 89,380 sqm on 37,000 sqm. Meanwhile GDV, total development cost, project IRR, equity IRR and
+peak debt all tied to the engine to the decimal.
+
+**Mechanism:** the IC model read the RAW stored fields (`a.buaTotal ?? a.buaSqm`, `a.landAreaSqm`) and counted
+SUB-UNIT ROWS for "Units", all of which predate the Module 1 restructure: area is derived by the land chain
+now, and land is allocated per plot. The only assets still carrying a stored `buaSqm` were the two retail
+strips, because the companion planner stamps them, so the total was exactly those two; the land was the one
+parcel whose area an asset happened to store; and every line had one sub-unit row, so every line read "1".
+
+**Why nobody saw it:** the money was right. The headline numbers come from the returns snapshot and were
+never in doubt, so a reviewer flicking through saw correct IRRs and a plausible-looking table. The wrong
+figures were the DESCRIPTIVE ones, which no reconciliation touches, and its verifier ran on a mock whose
+sentinel values were the stored fields themselves, so it asserted the defect.
+
+**The trap to avoid:** when a restructure changes how a quantity is DERIVED, the surfaces that merely
+describe the model are the last to be checked and the first to go stale, because nothing they print has to
+add up to anything. Check them against another surface, not against themselves.
+
+**Fix:** `resolveAssetAreaMetrics`, `computeAssetLandBreakdown`, `computeAssetUnitCount` and
+`resolveAssetKeys`, with the same argument lists the Project Overview, the workbook and the PDF use.
+
+**Proof:** BUA 89,380 and land 37,000 both equal the platform's; the hotel reads 144 keys; a seeded deck is
+40 slides with zero unlinked bindings and both exports render. `verify-ic-report` 88/0 (from 79/3): the mock's
+stored fields are left deliberately WRONG so a revert fails, and a new leg asserts the deck and the Project
+Overview describe the same scheme on a committed fixture.
+
 ### 7.55 A verifier that counts call sites is measuring the implementation, not the rule
 
 **Symptom (2026-09-21):** "area/land: one helper resolves both, and every asset figure goes through it" failed
