@@ -11,9 +11,23 @@ with the exit working and the operating KPIs added and the wide tables made read
 its screen and needed nothing. **The report and the workbook are now both a copy of the platform, module by module.**
 
 **OPEN, in order:**
-1. **The one real failure left in `verify-report-arithmetic`**: "per-asset cost never exceeds total development
-   cost", 6262.9 against 4912.2 on the fixture. PROVED PRE-EXISTING by stashing on 2026-09-21, so it is a real
-   finding about per-asset cost, not export damage. Diagnose it next.
+1. **AN OPERATIONAL PHASE WITH PRE-MODEL IN-KIND LAND DOES NOT BALANCE (logged 2026-09-21, DO NOT FIX YET).**
+   On the existing-operations shape the balance sheet is out by **1,350,682,386** in the worst period
+   (`verify-fund-e2e`: "the balance sheet balances to solver tolerance, every period", worst 1.351e+9 on
+   8,292.573m = 1.63e-1 relative). **1,350.7m is exactly parcel Land 1's land value**, on operational Phase 1,
+   100% in kind, and it is exactly the cost of the single asset on that phase. The same 1,350.7m was the whole
+   of the per-asset cost gap (6,262.9 against 4,912.2) that `verify-report-arithmetic` reported: the engine's
+   capex carries none of it (`landInKind` total is literally 0.00 on that snapshot, because capex is computed
+   for the phases that BUILD), while the per-asset row and the balance sheet do carry it. The arithmetic check
+   was rescoped on 2026-09-21 because neither figure was wrong there; **the balance sheet is a different
+   matter, because a balance sheet that does not balance is not a scoping question.** So the question to
+   answer is where land contributed in kind BEFORE the model starts belongs on the opening balance sheet.
+   **MARINA GATE HAS NO OPERATIONAL PHASE, so nothing live is affected**, which is why this is logged rather
+   than fixed. It is reproducible for ever from `scripts/fixtures/existingOperationsProject.json` (it used to
+   live only in a project that is being purged around 2026-10-12).
+2. **The one real failure left in `verify-report-arithmetic`**: "per-asset cost never exceeds total development
+   cost", 6262.9 against 4912.2 on the fixture. PROVED PRE-EXISTING by stashing on 2026-09-21, then DIAGNOSED
+   and closed the same day (the two sides were scoped differently; see item 1 for the root cause).
 2. **Module 7 (the IC deck) has not been through this sweep**, and it is the one surface that carries numbers a
    reader takes to a committee. It binds keys rather than copying figures, so the question is whether its slides
    still name what the screens name after the Module 1 and 2 restructures.

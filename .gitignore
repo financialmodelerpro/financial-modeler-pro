@@ -78,3 +78,6 @@ scripts/.tmp/
 # These carry real project figures and must never be committed.
 fund-exports/
 .fund-terms-backup.json
+
+# Finished exports generated for review (never committed: live project data).
+exports/
