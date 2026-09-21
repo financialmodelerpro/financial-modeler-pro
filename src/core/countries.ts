@@ -201,3 +201,36 @@ export function guessCountryFromLocation(location: string | undefined | null): s
   }
   return resolveCountryCode(location);
 }
+
+/**
+ * THE ONE PROJECT LOCATION LABEL (2026-09-21).
+ *
+ * Five surfaces printed `[location, country].join(', ')`, which put the raw
+ * ISO CODE on the page beside a location that usually already names the
+ * country: FMP - MARINA GATE read "Jeddah, Saudi Arabia, SA" on the cover of
+ * both exports. Two faults in one line, and the country is stored as a code
+ * precisely so that it is resolved for display (countryLabel) rather than
+ * printed.
+ *
+ * The rule: the location as typed, then the country's NAME, and only when the
+ * location does not already name it. The check is on the resolved country, so
+ * "Jeddah, SA" and "Jeddah, Saudi Arabia" both suppress the suffix, and a
+ * location that names a different place keeps both.
+ */
+export function projectLocationLabel(
+  location: string | undefined | null,
+  country: string | undefined | null,
+): string {
+  const loc = (location ?? '').trim();
+  const name = countryLabel(country);
+  if (!name) return loc;
+  if (!loc) return name;
+  // Does the location already name this country, by name or by code?
+  const named = loc.split(',').map((p) => p.trim()).filter(Boolean);
+  const code = resolveCountryCode(country);
+  const already = named.some((part) => {
+    const asCode = resolveCountryCode(part);
+    return (asCode !== undefined && asCode === code) || part.toLowerCase() === name.toLowerCase();
+  });
+  return already ? loc : `${loc}, ${name}`;
+}

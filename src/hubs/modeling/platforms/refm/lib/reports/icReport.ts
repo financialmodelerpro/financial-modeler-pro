@@ -43,6 +43,7 @@ import { revenueBySection } from './revenueSections';
 import { resolveAssetAreaMetrics, computeAssetLandBreakdown, computeAssetUnitCount } from '@/src/core/calculations';
 import { resolveAssetKeys } from '../revenue-resolvers';
 import type { LandAllocationMode } from '../state/module1-types';
+import { projectLocationLabel } from '@/src/core/countries';
 
 export interface ICPartyRef { name: string; identifier: string | null }
 export interface ICKeyValue { label: string; value: number }
@@ -950,7 +951,7 @@ export function buildICReportModel(input: {
   return {
     cover: {
       projectName: project.name,
-      location: [project.location, project.country].filter(Boolean).join(', '),
+      location: projectLocationLabel(project.location, project.country),
       preparedBy: byRole(parties, 'Prepared-by'),
       asOf,
     },

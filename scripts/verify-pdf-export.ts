@@ -26,6 +26,7 @@ import { generateProjectPdf, generateSummaryPdf, collectModuleTabs, collectModul
 import { buildBsFeederTables, buildBsReconciliationRows } from '../src/hubs/modeling/platforms/refm/lib/reports/m4Reports';
 import { payloadHasActiveProject } from '../src/shared/entitlements/exportGuard';
 import { PDF_MODULE_TABS } from '../src/hubs/modeling/platforms/refm/lib/pdf/pdfModuleTabs';
+import { projectLocationLabel } from '../src/core/countries';
 import { pdfTabKey } from '../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import INTER_REGULAR_B64 from '../src/hubs/modeling/platforms/refm/lib/pdf/fonts/interRegular';
@@ -773,6 +774,28 @@ async function main(): Promise<void> {
       met.some((t) => t.startsWith('Operating KPIs')), met.join(' | '));
     check('M5: neither retired tab is emitted',
       !content.module5.some((i) => /Cash Flow Streams|Fund Layer/.test(i.tab)));
+  }
+
+  // ── The project location is one label (2026-09-21) ────────────────────────
+  // Five surfaces joined the location to the RAW ISO CODE, so the live project
+  // read "Jeddah, Saudi Arabia, SA" on both covers: the code was printed rather
+  // than resolved, and appended to a location that already named the country.
+  {
+    check('location: the country name is appended only when the location does not name it',
+      projectLocationLabel('Jeddah, Saudi Arabia', 'SA') === 'Jeddah, Saudi Arabia'
+      && projectLocationLabel('Jeddah, SA', 'SA') === 'Jeddah, SA'
+      && projectLocationLabel('Jeddah', 'SA') === 'Jeddah, Saudi Arabia');
+    check('location: a raw ISO code never reaches the page',
+      !/, SA$/.test(projectLocationLabel('Jeddah, Saudi Arabia', 'SA')));
+    check('location: a location naming a different country keeps both',
+      projectLocationLabel('Dubai, UAE', 'SA') === 'Dubai, UAE, Saudi Arabia');
+    const pdfSrcLoc = readFileSync(path.join(process.cwd(), 'src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf.ts'), 'utf8');
+    // A LITERAL, NOT A REGEX: `/[p.location, p.country]/` is a character class
+    // that matches almost every source file, so the negation was always false
+    // and this check could never fail. Escaping a bracket inside a generated
+    // patch is exactly the kind of thing that goes wrong silently.
+    check('location: the report does not hand-roll the join',
+      !pdfSrcLoc.includes('[p.location, p.country]') && pdfSrcLoc.includes('projectLocationLabel('));
   }
 
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);

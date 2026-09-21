@@ -18,6 +18,7 @@ import type { ReturnsSnapshot } from '../returns-resolvers';
 import type { ProjectFinancialsSnapshot } from '../financials-resolvers';
 import type { Party } from '../parties';
 import { evaluateCovenant, type CovenantInputs } from '../covenants';
+import { projectLocationLabel } from '@/src/core/countries';
 
 export interface LenderFacility {
   name: string;
@@ -122,7 +123,7 @@ export function buildLenderReportModel(input: {
   }));
 
   return {
-    cover: { projectName: project.name, location: [project.location, project.country].filter(Boolean).join(', '), asOf },
+    cover: { projectName: project.name, location: projectLocationLabel(project.location, project.country), asOf },
     yearLabels: rs.yearLabels,
     facilities,
     capital: {

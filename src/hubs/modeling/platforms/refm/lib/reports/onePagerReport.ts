@@ -15,6 +15,7 @@ import type { ReturnsSnapshot } from '../returns-resolvers';
 import type { ProjectFinancialsSnapshot } from '../financials-resolvers';
 import type { Party } from '../parties';
 import { planReportLines, lineRowLabel } from './lineRows';
+import { projectLocationLabel } from '@/src/core/countries';
 
 export interface OnePagerPartyRef { name: string; identifier: string | null }
 
@@ -73,7 +74,7 @@ export function buildOnePagerReportModel(input: {
   return {
     dealAtAGlance: {
       projectName: project.name,
-      location: [project.location, project.country].filter(Boolean).join(', '),
+      location: projectLocationLabel(project.location, project.country),
       phaseCount: phases.length,
       assetMix,
     },

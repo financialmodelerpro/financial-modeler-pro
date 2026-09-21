@@ -1126,7 +1126,7 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
   drawCell(ctx, 'Executive Summary', MARGIN, CONTENT_W, ctx.y - 15, { font: ctx.bold, size: 15, color: NAVY_DARK });
   ctx.y -= 22;
 
-  const loc = [p.location, p.country].filter(Boolean).join(', ') || 'the project location';
+  const loc = projectLocationLabel(p.location, p.country) || 'the project location';
   const narrative =
     `${p.name || 'This project'} is a ${String(p.projectType ?? 'mixed-use')} real estate development in ${loc}, ` +
     `developed on ${fmt.area(landSqm)} sqm of land across ${state.phases.length} ` +
@@ -2219,6 +2219,7 @@ import { defaultHQOpexLines, normalizeOpexIndexation, type OpexLine } from '@/sr
 import type { IndexationConfig } from '@/src/core/calculations/revenue/types';
 import { assetPlotLabel } from '@/src/core/calculations/assetName';
 import { poolResults, planReportLines, lineTitle } from '../reports/lineRows';
+import { projectLocationLabel } from '@/src/core/countries';
 
 /** A builder row, with the two number kinds M4Row has no word for. */
 type ScreenRow = M4Row & { fmt?: 'factor' | 'dec2' };

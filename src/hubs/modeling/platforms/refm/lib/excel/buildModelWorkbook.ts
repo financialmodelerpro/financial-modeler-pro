@@ -93,6 +93,7 @@ import { buildIdcAllocationTables } from '../reports/financingReports';
 import { computeFundingBasis } from '../reports/fundingBasis';
 import { buildPartiesTable, PARTIES_TITLE, PARTIES_EMPTY_TEXT } from '../reports/partiesReport';
 import type { Party } from '../parties';
+import { projectLocationLabel } from '@/src/core/countries';
 
 export interface BuildModelOptions {
   state: FinancialsResolverState;
@@ -4845,7 +4846,7 @@ function buildCoverContent(ws: ExcelJS.Worksheet, snap: ReturnType<typeof comput
   const identity = [
     opts.dateLabel,
     currency,
-    [p.location, p.country].filter(Boolean).join(', ') || null,
+    projectLocationLabel(p.location, p.country) || null,
     `${snap.axisLength}-year horizon (${snap.projectStartYear} to ${snap.projectStartYear + snap.axisLength - 1})`,
     snap.fundFees.active ? 'Fund layer active' : null,
   ].filter(Boolean).join('   ·   ');
