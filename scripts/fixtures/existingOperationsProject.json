@@ -1,0 +1,2838 @@
+{
+  "cases": [
+    {
+      "id": "case_management",
+      "name": "Management Case",
+      "role": "base",
+      "overrides": {}
+    },
+    {
+      "id": "case_downside",
+      "name": "Downside",
+      "role": "scenario",
+      "overrides": {
+        "parcels[id=parcel_1].rate": 80000,
+        "project.financing.cashDeficitConfig.debtPct": 70,
+        "subUnits[id=subunit_1778503945911].unitPrice": 20000,
+        "project.financing.cashDeficitConfig.equityPct": 30,
+        "assets[id=asset_1778503785692].historicalEquityAmount": 1200000000,
+        "assets[id=asset_1778503785692].historicalPreCapexLand": 1000000000,
+        "assets[id=asset_1778503832523].landAllocation.customRate": 80000,
+        "assets[id=asset_1778567453787].landAllocation.customRate": 80000,
+        "assets[id=asset_1778568334266].landAllocation.customRate": 80000,
+        "assets[id=asset_1778583865632].landAllocation.customRate": 80000,
+        "assets[id=asset_1778583998142].landAllocation.customRate": 80000,
+        "assets[id=asset_1778503785692].historicalPreCapexBuilding": 2600000000,
+        "costOverrides[asset_1778567453787::construction-bua__phase_2].value": 10000,
+        "costOverrides[asset_1778583287131::construction-bua__phase_2].value": 15000,
+        "costOverrides[asset_1778583865632::construction-bua__phase_2].value": 15000
+      }
+    },
+    {
+      "id": "case_upside",
+      "name": "Upside",
+      "role": "scenario",
+      "overrides": {
+        "costOverrides[asset_1778583287131::construction-bua__phase_2].value": 3000
+      }
+    }
+  ],
+  "assets": [
+    {
+      "id": "asset_1778503785692",
+      "name": "Hotel Phase 1",
+      "opex": {
+        "lines": [
+          {
+            "id": "rooms-1-7qvfx5",
+            "mode": "pct_of_total_rev",
+            "name": "Rooms direct cost",
+            "value": 0,
+            "category": "direct_rooms",
+            "rateMode": "yoy",
+            "yoyRates": [
+              0.5181,
+              0.5181,
+              0.5032,
+              0.5173,
+              0.5316,
+              0.532,
+              0.532,
+              0.532,
+              0.532,
+              0.532,
+              0.532,
+              0.532,
+              0.532,
+              0.55
+            ],
+            "indexation": {
+              "method": "none"
+            },
+            "useAssetDefault": true,
+            "yoyRatesByPhase": [
+              0.5181,
+              0.5181,
+              0.5032,
+              0.5173,
+              0.5316,
+              0.532,
+              0.532,
+              0.532,
+              0.532,
+              0.532,
+              0.532,
+              0.532,
+              0.532,
+              0.55
+            ]
+          }
+        ],
+        "defaultIndexation": {
+          "rate": 0.03,
+          "method": "yoy_compound",
+          "startYear": 0
+        }
+      },
+      "type": "Hotel 4-star",
+      "buaSqm": 0,
+      "gfaSqm": 0,
+      "status": "operational",
+      "phaseId": "phase_1",
+      "revenue": {
+        "operate": {
+          "fb": {
+            "mode": "percent_of_rooms",
+            "ratePerGuest": 50,
+            "percentOfRooms": 0.183
+          },
+          "dso": 0,
+          "assetId": "asset_1778503785692",
+          "daysPerYear": 365,
+          "startingADR": 268,
+          "otherRevenue": {
+            "mode": "percent_of_rooms",
+            "percentOfRooms": 0.0366
+          },
+          "adrIndexation": {
+            "rate": 0,
+            "method": "yoy_per_period",
+            "startYear": 1,
+            "growthPerPeriod": [
+              0,
+              0.0638,
+              0.0418,
+              0.0426,
+              0.0529,
+              0.03,
+              0.03,
+              0.03,
+              0.03,
+              0.03,
+              0.03,
+              0.03,
+              0.03,
+              0.03
+            ],
+            "growthPerPeriodByPhase": [
+              0,
+              0.0638,
+              0.0418,
+              0.0426,
+              0.0529,
+              0.03,
+              0.03,
+              0.03,
+              0.03,
+              0.03,
+              0.03,
+              0.03,
+              0.03,
+              0.03
+            ]
+          },
+          "occupancyPerPeriod": [
+            0.6281,
+            0.613,
+            0.61,
+            0.608,
+            0.602,
+            0.62,
+            0.62,
+            0.62,
+            0.62,
+            0.62,
+            0.62,
+            0.62,
+            0.62,
+            0.62
+          ],
+          "guestsPerOccupiedRoom": 1.5,
+          "occupancyPerPeriodByPhase": [
+            0.6281,
+            0.613,
+            0.61,
+            0.608,
+            0.602,
+            0.62,
+            0.62,
+            0.62,
+            0.62,
+            0.62,
+            0.62,
+            0.62,
+            0.62,
+            0.62
+          ],
+          "operationsStartYearOverride": 2026
+        }
+      },
+      "visible": true,
+      "strategy": "Operate",
+      "subUnitMetric": "units",
+      "landAllocation": {
+        "sqm": 0,
+        "parcelId": "parcel_1"
+      },
+      "sellableBuaSqm": 0,
+      "usefulLifeYears": 25,
+      "historicalPreCapex": 3682051019,
+      "parkingBaysRequired": 0,
+      "historicalDebtAmount": 2400000000,
+      "historicalEquityAmount": 1200000000,
+      "historicalPreCapexLand": 1000000000,
+      "historicalPreCapexBuilding": 2600000000
+    },
+    {
+      "id": "asset_1778503832523",
+      "name": "Branded Apartments",
+      "type": "Branded Residences",
+      "buaSqm": 0,
+      "gfaSqm": 0,
+      "status": "construction",
+      "phaseId": "phase_2",
+      "revenue": {
+        "sell": {
+          "assetId": "asset_1778503832523",
+          "subUnits": [
+            {
+              "subUnitId": "subunit_1778503945911",
+              "preSalesVelocity": [
+                0.05,
+                0.1,
+                0.15,
+                0.3,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "postSalesVelocity": [
+                0,
+                0,
+                0,
+                0,
+                0.25,
+                0.15,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "preSalesVelocityByPhase": [
+                0.05,
+                0.1,
+                0.15,
+                0.3,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "postSalesVelocityByPhase": [
+                0,
+                0,
+                0,
+                0,
+                0.25,
+                0.15,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "subUnitId": "subunit_1778506951926",
+              "preSalesVelocity": [
+                0.05,
+                0.1,
+                0.15,
+                0.3,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "postSalesVelocity": [
+                0,
+                0,
+                0,
+                0,
+                0.25,
+                0.15,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "preSalesVelocityByPhase": [
+                0.05,
+                0.1,
+                0.15,
+                0.3,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "postSalesVelocityByPhase": [
+                0,
+                0,
+                0,
+                0,
+                0.25,
+                0.15,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          ],
+          "indexation": {
+            "rate": 0,
+            "method": "single_rate",
+            "startYear": 1
+          },
+          "cashPaymentProfile": {
+            "percentages": [
+              0.2,
+              0.3,
+              0.3,
+              0.15,
+              0.05,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "profileMode": "absolute_with_catchup",
+            "percentagesByPhase": [
+              0.2,
+              0.3,
+              0.3,
+              0.15,
+              0.05,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "downpaymentByPhase": [
+            0.2,
+            0.5,
+            0.8,
+            0.95
+          ],
+          "recognitionProfile": {
+            "method": "point_in_time",
+            "percentages": [
+              0.3,
+              0.3,
+              0.3,
+              0.1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "profileMode": "absolute_with_catchup",
+            "pointInTimeYear": "handover",
+            "percentagesByPhase": [
+              0.3,
+              0.3,
+              0.3,
+              0.1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "visible": true,
+      "strategy": "Sell",
+      "landAreaSqm": 5718.413,
+      "parkingArea": 26259,
+      "supportArea": 46577,
+      "subUnitMetric": "area",
+      "landAllocation": {
+        "sqm": 5718.413,
+        "parcelId": "__custom__",
+        "customRate": 98450.587
+      },
+      "sellableBuaSqm": 0,
+      "parkingBaysRequired": 0
+    },
+    {
+      "id": "asset_1778567453787",
+      "name": "Residential Tower",
+      "type": "High-end Apartments",
+      "buaSqm": 0,
+      "gfaSqm": 0,
+      "status": "construction",
+      "phaseId": "phase_2",
+      "revenue": {
+        "sell": {
+          "assetId": "asset_1778567453787",
+          "subUnits": [
+            {
+              "subUnitId": "subunit_1778567752784",
+              "preSalesVelocity": [
+                0.05,
+                0.3,
+                0.3,
+                0.25,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "postSalesVelocity": [
+                0,
+                0,
+                0,
+                0,
+                0.1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "preSalesVelocityByPhase": [
+                0.05,
+                0.3,
+                0.3,
+                0.25,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "postSalesVelocityByPhase": [
+                0,
+                0,
+                0,
+                0,
+                0.1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "subUnitId": "subunit_1778567784716",
+              "preSalesVelocity": [
+                0.05,
+                0.3,
+                0.3,
+                0.25,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "postSalesVelocity": [
+                0,
+                0,
+                0,
+                0,
+                0.1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "preSalesVelocityByPhase": [
+                0.05,
+                0.3,
+                0.3,
+                0.25,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "postSalesVelocityByPhase": [
+                0,
+                0,
+                0,
+                0,
+                0.1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "subUnitId": "subunit_1778567820036",
+              "preSalesVelocity": [
+                0.05,
+                0.3,
+                0.3,
+                0.25,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "postSalesVelocity": [
+                0,
+                0,
+                0,
+                0,
+                0.1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "preSalesVelocityByPhase": [
+                0.05,
+                0.3,
+                0.3,
+                0.25,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "postSalesVelocityByPhase": [
+                0,
+                0,
+                0,
+                0,
+                0.1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          ],
+          "indexation": {
+            "rate": 0,
+            "method": "none",
+            "startYear": 0
+          },
+          "cashPaymentProfile": {
+            "percentages": [
+              0.2,
+              0.3,
+              0.3,
+              0.15,
+              0.05,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "profileMode": "absolute_with_catchup",
+            "percentagesByPhase": [
+              0.2,
+              0.3,
+              0.3,
+              0.15,
+              0.05,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "recognitionProfile": {
+            "method": "point_in_time",
+            "percentages": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "profileMode": "absolute_with_catchup",
+            "pointInTimeYear": "custom",
+            "percentagesByPhase": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "pointInTimeCustomYear": 2030
+          }
+        }
+      },
+      "visible": true,
+      "strategy": "Sell + Manage",
+      "landAreaSqm": 2088.9,
+      "parkingArea": 8736,
+      "supportArea": 16456,
+      "subUnitMetric": "units",
+      "landAllocation": {
+        "sqm": 2088.9,
+        "parcelId": "__custom__",
+        "customRate": 98450.587
+      },
+      "sellableBuaSqm": 0,
+      "managementAgreement": {
+        "managementFeePct": 0,
+        "ownerRevenueSharePct": 0
+      },
+      "parkingBaysRequired": 0
+    },
+    {
+      "id": "asset_1778568334266",
+      "name": "Branded Apartments ",
+      "type": "Branded Residences",
+      "buaSqm": 0,
+      "gfaSqm": 0,
+      "status": "construction",
+      "phaseId": "phase_3",
+      "revenue": {
+        "sell": {
+          "assetId": "asset_1778568334266",
+          "subUnits": [
+            {
+              "subUnitId": "subunit_1778568424109",
+              "preSalesVelocity": [
+                0,
+                0.2,
+                0.2,
+                0.2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "postSalesVelocity": [
+                0,
+                0,
+                0,
+                0,
+                0.3,
+                0.1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "preSalesVelocityByPhase": [
+                0,
+                0.2,
+                0.2,
+                0.2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "postSalesVelocityByPhase": [
+                0,
+                0,
+                0,
+                0,
+                0.3,
+                0.1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "subUnitId": "subunit_1778568467960",
+              "preSalesVelocity": [
+                0,
+                0.2,
+                0.2,
+                0.2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "postSalesVelocity": [
+                0,
+                0,
+                0,
+                0,
+                0.3,
+                0.1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "preSalesVelocityByPhase": [
+                0,
+                0.2,
+                0.2,
+                0.2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "postSalesVelocityByPhase": [
+                0,
+                0,
+                0,
+                0,
+                0.3,
+                0.1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          ],
+          "indexation": {
+            "method": "none"
+          },
+          "cashPaymentProfile": {
+            "percentages": [
+              0,
+              0.2,
+              0.3,
+              0.3,
+              0.15,
+              0.05,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "profileMode": "absolute_with_catchup",
+            "percentagesByPhase": [
+              0,
+              0.2,
+              0.3,
+              0.3,
+              0.15,
+              0.05,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "recognitionProfile": {
+            "method": "over_time",
+            "percentages": [
+              0,
+              0.3,
+              0.3,
+              0.3,
+              0.1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "profileMode": "absolute_with_catchup",
+            "pointInTimeYear": "handover",
+            "percentagesByPhase": [
+              0,
+              0.3,
+              0.3,
+              0.3,
+              0.1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "visible": true,
+      "strategy": "Sell",
+      "landAreaSqm": 6813.74,
+      "parkingArea": 40236,
+      "supportArea": 51706.9,
+      "subUnitMetric": "area",
+      "landAllocation": {
+        "sqm": 6813.74,
+        "parcelId": "__custom__",
+        "customRate": 61722.25
+      },
+      "sellableBuaSqm": 0,
+      "parkingBaysRequired": 0
+    },
+    {
+      "id": "companion_asset_1778567453787",
+      "name": "Residential Tower - Operate",
+      "opex": {
+        "lines": [
+          {
+            "id": "fb-2-t41qlf",
+            "mode": "pct_of_fb_rev",
+            "name": "F&B direct cost",
+            "value": 0.67,
+            "category": "direct_fb",
+            "indexation": {
+              "method": "none"
+            }
+          },
+          {
+            "id": "ood-3-xypf8e",
+            "mode": "pct_of_room_rev",
+            "name": "Other dept. direct cost",
+            "value": 0.75,
+            "category": "direct_other",
+            "indexation": {
+              "method": "none"
+            },
+            "useAssetDefault": true
+          }
+        ]
+      },
+      "type": "High-end Apartments",
+      "buaSqm": 0,
+      "gfaSqm": 0,
+      "status": "construction",
+      "phaseId": "phase_2",
+      "revenue": {
+        "operate": {
+          "fb": {
+            "mode": "percent_of_rooms",
+            "percentOfRooms": 0.08
+          },
+          "dso": 0,
+          "assetId": "companion_asset_1778567453787",
+          "daysPerYear": 365,
+          "startingADR": 0,
+          "otherRevenue": {
+            "mode": "percent_of_rooms",
+            "percentOfRooms": 0
+          },
+          "adrIndexation": {
+            "rate": 0.03,
+            "method": "yoy_compound",
+            "startYear": 1
+          },
+          "rentalPoolMode": "day_one_full",
+          "occupancyPerPeriod": [
+            0,
+            0,
+            0,
+            0.3,
+            0.35,
+            0.4,
+            0.45,
+            0.45,
+            0.45,
+            0.45,
+            0.45,
+            0.45,
+            0.45,
+            0.45
+          ],
+          "guestsPerOccupiedRoom": 1.5,
+          "keysParticipationProfile": [
+            0,
+            0,
+            0,
+            0.9,
+            0.9,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "occupancyPerPeriodByPhase": [
+            0,
+            0,
+            0,
+            0.3,
+            0.35,
+            0.4,
+            0.45,
+            0.45,
+            0.45,
+            0.45,
+            0.45,
+            0.45,
+            0.45,
+            0.45
+          ],
+          "operationsStartYearOverride": 2029,
+          "keysParticipationProfileByPhase": [
+            0,
+            0,
+            0,
+            0.9,
+            0.9,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      "visible": true,
+      "strategy": "Operate",
+      "isCompanion": true,
+      "companionType": "operate",
+      "parentAssetId": "asset_1778567453787",
+      "subUnitMetric": "units",
+      "sellableBuaSqm": 0,
+      "unitsFromParent": 309.9854002549462,
+      "usefulLifeYears": 25,
+      "parkingBaysRequired": 0
+    },
+    {
+      "id": "asset_1778583287131",
+      "name": "Hotel 01",
+      "opex": {
+        "lines": [
+          {
+            "id": "rooms-1-ew9d4y",
+            "mode": "pct_of_room_rev",
+            "name": "Rooms direct cost",
+            "value": 0.14,
+            "category": "direct_rooms",
+            "indexation": {
+              "method": "none"
+            }
+          },
+          {
+            "id": "fb-2-5ns7ah",
+            "mode": "pct_of_fb_rev",
+            "name": "F&B direct cost",
+            "value": 0.65,
+            "category": "direct_fb",
+            "indexation": {
+              "method": "none"
+            }
+          },
+          {
+            "id": "ga-4-lm17wk",
+            "mode": "pct_of_total_rev",
+            "name": "General & administrative",
+            "value": 0.09,
+            "category": "indirect_ga",
+            "indexation": {
+              "method": "none"
+            }
+          },
+          {
+            "id": "sm-6-wyxrgg",
+            "mode": "pct_of_total_rev",
+            "name": "Sales & marketing",
+            "value": 0.05,
+            "category": "indirect_ga",
+            "indexation": {
+              "method": "none"
+            }
+          },
+          {
+            "id": "pom-7-rhqmj6",
+            "mode": "pct_of_total_rev",
+            "name": "Property operations & maintenance",
+            "value": 0.1,
+            "category": "indirect_ga",
+            "indexation": {
+              "method": "none"
+            }
+          },
+          {
+            "id": "energy-8-g7a9lh",
+            "mode": "pct_of_total_rev",
+            "name": "Energy / utilities",
+            "value": 0.1,
+            "category": "indirect_ga",
+            "indexation": {
+              "method": "none"
+            }
+          }
+        ]
+      },
+      "type": "Hotel 5-star",
+      "buaSqm": 0,
+      "gfaSqm": 0,
+      "status": "construction",
+      "phaseId": "phase_2",
+      "revenue": {
+        "operate": {
+          "fb": {
+            "mode": "percent_of_rooms",
+            "ratePerGuest": 20,
+            "percentOfRooms": 0.3
+          },
+          "dso": 0,
+          "assetId": "asset_1778583287131",
+          "daysPerYear": 365,
+          "startingADR": 0,
+          "otherRevenue": {
+            "mode": "percent_of_rooms",
+            "percentOfRooms": 0
+          },
+          "adrIndexation": {
+            "rate": 0.03,
+            "method": "yoy_compound",
+            "startYear": 0
+          },
+          "occupancyPerPeriod": [
+            0,
+            0,
+            0,
+            0.45,
+            0.5,
+            0.55,
+            0.6,
+            0.65,
+            0.65,
+            0.65,
+            0.65,
+            0.65,
+            0.65,
+            0.65
+          ],
+          "guestsPerOccupiedRoom": 1.5,
+          "occupancyPerPeriodByPhase": [
+            0,
+            0,
+            0,
+            0.45,
+            0.5,
+            0.55,
+            0.6,
+            0.65,
+            0.65,
+            0.65,
+            0.65,
+            0.65,
+            0.65,
+            0.65
+          ],
+          "operationsStartYearOverride": 2029
+        }
+      },
+      "visible": true,
+      "strategy": "Operate",
+      "landAreaSqm": 1030.85,
+      "supportArea": 12356,
+      "subUnitMetric": "units",
+      "landAllocation": {
+        "sqm": 1030.85,
+        "parcelId": "__custom__",
+        "customRate": 98450
+      },
+      "sellableBuaSqm": 0,
+      "usefulLifeYears": 25,
+      "parkingBaysRequired": 0
+    },
+    {
+      "id": "asset_1778583865632",
+      "name": "Support Retail Phase 2",
+      "opex": {
+        "lines": [
+          {
+            "id": "propmgmt-1-h8yms8",
+            "mode": "pct_of_lease_rev",
+            "name": "Property management",
+            "value": 0.12,
+            "category": "cam",
+            "indexation": {
+              "method": "none"
+            }
+          }
+        ]
+      },
+      "type": "Strip Retail",
+      "buaSqm": 0,
+      "gfaSqm": 0,
+      "status": "construction",
+      "phaseId": "phase_2",
+      "revenue": {
+        "lease": {
+          "arDays": 0,
+          "assetId": "asset_1778583865632",
+          "baseRate": 0,
+          "rentIndexation": {
+            "rate": 0.025,
+            "method": "yoy_compound",
+            "startYear": 0
+          },
+          "occupancyPerPeriod": [
+            0,
+            0,
+            0,
+            0.45,
+            0.6,
+            0.75,
+            0.9,
+            0.9,
+            0.9,
+            0.9,
+            0.9,
+            0.9,
+            0.9,
+            0.9
+          ],
+          "occupancyPerPeriodByPhase": [
+            0,
+            0,
+            0,
+            0.45,
+            0.6,
+            0.75,
+            0.9,
+            0.9,
+            0.9,
+            0.9,
+            0.9,
+            0.9,
+            0.9,
+            0.9
+          ],
+          "operationsStartYearOverride": 2029
+        }
+      },
+      "visible": true,
+      "strategy": "Lease",
+      "landAreaSqm": 463.84,
+      "supportArea": 1979,
+      "subUnitMetric": "area",
+      "landAllocation": {
+        "sqm": 463.84,
+        "parcelId": "__custom__",
+        "customRate": 98450.59
+      },
+      "sellableBuaSqm": 0,
+      "usefulLifeYears": 25,
+      "parkingBaysRequired": 0
+    },
+    {
+      "id": "asset_1778583998142",
+      "name": "Support Retail Phase 3",
+      "opex": {
+        "lines": [
+          {
+            "id": "propmgmt-1-h8yms8-asset_",
+            "mode": "pct_of_lease_rev",
+            "name": "Property management",
+            "value": 0.12,
+            "category": "cam",
+            "indexation": {
+              "method": "none"
+            }
+          }
+        ]
+      },
+      "type": "Strip Retail",
+      "buaSqm": 0,
+      "gfaSqm": 0,
+      "status": "construction",
+      "phaseId": "phase_3",
+      "revenue": {
+        "lease": {
+          "arDays": 0,
+          "assetId": "asset_1778583998142",
+          "baseRate": 0,
+          "rentIndexation": {
+            "rate": 0.025,
+            "method": "yoy_compound",
+            "startYear": 0
+          },
+          "occupancyPerPeriod": [
+            0,
+            0,
+            0,
+            0.45,
+            0.6,
+            0.75,
+            0.9,
+            0.9,
+            0.9,
+            0.9,
+            0.9,
+            0.9,
+            0.9,
+            0.9
+          ],
+          "occupancyPerPeriodByPhase": [
+            0,
+            0,
+            0,
+            0.45,
+            0.6,
+            0.75,
+            0.9,
+            0.9,
+            0.9,
+            0.9,
+            0.9,
+            0.9,
+            0.9,
+            0.9
+          ],
+          "operationsStartYearOverride": 2029
+        }
+      },
+      "visible": true,
+      "strategy": "Lease",
+      "landAreaSqm": 232.26,
+      "supportArea": 593.31,
+      "subUnitMetric": "area",
+      "landAllocation": {
+        "sqm": 232.26,
+        "parcelId": "__custom__",
+        "customRate": 61722.25
+      },
+      "sellableBuaSqm": 0,
+      "usefulLifeYears": 25,
+      "parkingBaysRequired": 0
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase_1",
+      "name": "Phase 1",
+      "status": "operational",
+      "startDate": "2026-01-01",
+      "dividendPolicy": {
+        "enabled": true,
+        "payoutRatio": 100
+      },
+      "overlapPeriods": 0,
+      "constructionStart": 1,
+      "operationsPeriods": 14,
+      "historicalBaseline": {
+        "currentAdr": 268,
+        "last12MonthsOpex": 0,
+        "historicalDebtDrawn": 2400000000,
+        "last12MonthsRevenue": 0,
+        "historicalCapexTotal": 36820510001282052000,
+        "currentDebtOutstanding": 0,
+        "netBookValueFixedAssets": 0,
+        "historicalEquityContributed": 0,
+        "cumulativeDepreciationCharged": 0
+      },
+      "constructionPeriods": 0
+    },
+    {
+      "id": "phase_2",
+      "name": "Phase 2",
+      "status": "construction",
+      "startDate": "2026-01-01",
+      "dividendPolicy": {
+        "enabled": true,
+        "payoutRatio": 100
+      },
+      "overlapPeriods": 0,
+      "constructionStart": 2,
+      "operationsPeriods": 10,
+      "constructionPeriods": 4
+    },
+    {
+      "id": "phase_3",
+      "name": "Phase 3",
+      "status": "construction",
+      "startDate": "2026-01-01",
+      "dividendPolicy": {
+        "enabled": true
+      },
+      "overlapPeriods": 0,
+      "constructionStart": 6,
+      "operationsPeriods": 10,
+      "constructionPeriods": 4
+    }
+  ],
+  "parcels": [
+    {
+      "id": "parcel_1",
+      "area": 16348,
+      "name": "Land 1",
+      "rate": 82620.65,
+      "cashPct": 0,
+      "phaseId": "phase_1",
+      "parksPct": 0,
+      "roadsPct": 0,
+      "inKindPct": 100,
+      "hasNdaDeduction": false
+    }
+  ],
+  "project": {
+    "tax": {
+      "rate": 0.025
+    },
+    "name": "Existing Operations Sample",
+    "escrow": {
+      "heldPct": 0.04
+    },
+    "hqOpex": {
+      "lines": [
+        {
+          "id": "payroll-1-dua591",
+          "mode": "fixed_baseline",
+          "name": "HQ payroll",
+          "value": 0,
+          "category": "hq_payroll",
+          "disabled": true,
+          "indexation": {
+            "rate": 0.03,
+            "method": "yoy_compound",
+            "startYear": 0
+          }
+        },
+        {
+          "id": "office-2-9bbk93",
+          "mode": "fixed_baseline",
+          "name": "HQ office & overheads",
+          "value": 20000000,
+          "category": "hq_office",
+          "indexation": {
+            "rate": 0.03,
+            "method": "yoy_compound",
+            "startYear": 0
+          }
+        },
+        {
+          "id": "professional-3-jo77rg",
+          "mode": "fixed_baseline",
+          "name": "Professional fees (legal, audit, advisory)",
+          "value": 0,
+          "category": "hq_professional",
+          "disabled": true,
+          "indexation": {
+            "rate": 0.03,
+            "method": "yoy_compound",
+            "startYear": 0
+          }
+        },
+        {
+          "id": "hqother-4-azblmq",
+          "mode": "pct_of_total_rev",
+          "name": "Other corporate opex",
+          "value": 0,
+          "category": "hq_other",
+          "disabled": true,
+          "indexation": {
+            "method": "none"
+          }
+        }
+      ]
+    },
+    "opexAp": {
+      "defaultApDays": 30
+    },
+    "status": "draft",
+    "country": "SA",
+    "returns": {
+      "discountRate": 0.1,
+      "exitMultiple": 8,
+      "exitYearOffset": 13,
+      "terminalMethod": "perpetuity",
+      "perpetuityGrowth": 0.02
+    },
+    "currency": "SAR",
+    "location": "Riyadh, Saudi Arabia",
+    "partners": [
+      {
+        "id": "sponsor",
+        "name": "Sponsor",
+        "inKindPct": 100,
+        "existingPct": 100,
+        "cashContribution": 0,
+        "inKindContribution": 1350682386.1999998,
+        "existingContribution": 1282051019
+      }
+    ],
+    "financing": {
+      "viewMode": "combined",
+      "cashSweep": {
+        "startingYear": 2029
+      },
+      "fixedRatio": {
+        "debtPct": 100,
+        "equityPct": 0
+      },
+      "assetFilter": "__combined__",
+      "phaseFilter": "phase_3",
+      "fundingMethod": 3,
+      "parcelFunding": [
+        {
+          "debtPct": 0,
+          "parcelId": "parcel_1",
+          "equityPct": 100,
+          "fundingType": "100pct_equity"
+        }
+      ],
+      "netFundingConfig": {
+        "debtPct": 100,
+        "equityPct": 0,
+        "existingCash": 0
+      },
+      "cashDeficitConfig": {
+        "debtPct": 100,
+        "equityPct": 0,
+        "initialCash": 0,
+        "minimumCashReserve": 0
+      },
+      "fixedAmountConfig": {
+        "debtAmount": 800000000,
+        "yoySchedule": [
+          60,
+          40,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "equityAmount": 0
+      },
+      "minimumCashReserve": 50000000
+    },
+    "fundTerms": {
+      "enabled": true,
+      "feeBase": "committed_capital",
+      "fundSize": 0,
+      "feeShares": [],
+      "facilityLimit": 0,
+      "hurdleRatePct": 0.08,
+      "feeDistribution": [
+        {
+          "partyId": "__fund_manager__",
+          "partyName": "Fund Manager",
+          "commissionPct": 0,
+          "developerFeePct": 0,
+          "performanceFeePct": 1
+        },
+        {
+          "partyId": "b01e6186-e0bf-4668-81f4-3e273aa4cd6b",
+          "partyName": "PMBC",
+          "commissionPct": 0,
+          "developerFeePct": 0,
+          "performanceFeePct": 0
+        },
+        {
+          "partyId": "3e2e0c06-87d6-4809-8118-3546dfe1b351",
+          "partyName": "FMP",
+          "commissionPct": 0.5,
+          "developerFeePct": 1,
+          "performanceFeePct": 0
+        }
+      ],
+      "fundManagerName": "Fund Manager",
+      "committedCapital": 0,
+      "fundSizeOverride": false,
+      "managementFeePct": 0,
+      "performanceFeePct": 0.2,
+      "custodyAdminFeePct": 0.0025,
+      "debtArrangingFeePct": 0.005,
+      "fundStructureFeePct": 0.005,
+      "fundManagementFeePct": 0.005,
+      "facilityLimitOverride": false,
+      "otherExpensesPerAnnum": 3000000
+    },
+    "idcConfig": {
+      "fundingMode": "conditional",
+      "allocationBasis": "bua"
+    },
+    "modelType": "annual",
+    "startDate": "2026-01-01",
+    "projectType": "Mixed-Use",
+    "displayScale": "thousands",
+    "useScenarios": true,
+    "dividendPolicy": {
+      "mode": "pct_of_ebitda",
+      "enabled": true,
+      "payoutRatio": 100
+    },
+    "displayDecimals": 0,
+    "projectNdaScope": "project",
+    "projectParksPct": 0,
+    "projectRoadsPct": 0,
+    "resultsViewMode": "combined",
+    "revenueTemplates": {
+      "sell": {
+        "indexation": {
+          "method": "step"
+        },
+        "cashPaymentProfile": {
+          "percentages": [],
+          "profileMode": "absolute_with_catchup"
+        },
+        "recognitionProfile": {
+          "method": "point_in_time",
+          "profileMode": "absolute_with_catchup",
+          "pointInTimeYear": "handover"
+        }
+      }
+    },
+    "dividendStartYear": 2030,
+    "outputGranularity": "annual",
+    "projectNdaEnabled": true,
+    "financialTerminology": "saudi"
+  },
+  "subUnits": [
+    {
+      "id": "subunit_1778503945911",
+      "name": "1 BR",
+      "metric": "area",
+      "assetId": "asset_1778503832523",
+      "category": "Sellable",
+      "unitArea": 100,
+      "unitPrice": 33456,
+      "metricValue": 47800
+    },
+    {
+      "id": "subunit_1778506951926",
+      "name": "2 BR",
+      "metric": "area",
+      "assetId": "asset_1778503832523",
+      "category": "Sellable",
+      "unitArea": 100,
+      "unitPrice": 33505,
+      "metricValue": 36497.1
+    },
+    {
+      "id": "subunit_1778567752784",
+      "name": "Branded Suites",
+      "metric": "units",
+      "assetId": "asset_1778567453787",
+      "category": "Sellable",
+      "unitArea": 70,
+      "unitPrice": 2590000,
+      "metricValue": 70,
+      "occupancyPct": 65,
+      "operatingMargin": 30
+    },
+    {
+      "id": "subunit_1778567784716",
+      "name": "1 BR Apartment",
+      "metric": "units",
+      "assetId": "asset_1778567453787",
+      "category": "Sellable",
+      "unitArea": 73.13,
+      "unitPrice": 2705625,
+      "metricValue": 159.98906057705457,
+      "occupancyPct": 65,
+      "operatingMargin": 30
+    },
+    {
+      "id": "subunit_1778567820036",
+      "name": "2 BR Apartment",
+      "metric": "units",
+      "assetId": "asset_1778567453787",
+      "category": "Sellable",
+      "unitArea": 109.28,
+      "unitPrice": 3933900,
+      "metricValue": 79.99633967789165,
+      "occupancyPct": 65,
+      "operatingMargin": 30
+    },
+    {
+      "id": "subunit_1778568424109",
+      "name": "1 BR",
+      "metric": "area",
+      "assetId": "asset_1778568334266",
+      "category": "Sellable",
+      "unitArea": 100,
+      "unitPrice": 29000,
+      "metricValue": 56200
+    },
+    {
+      "id": "subunit_1778568467960",
+      "name": "2 BR",
+      "metric": "area",
+      "assetId": "asset_1778568334266",
+      "category": "Sellable",
+      "unitArea": 100,
+      "unitPrice": 29000,
+      "metricValue": 35456
+    },
+    {
+      "id": "companion-sub_subunit_1778567752784",
+      "name": "Branded Suites",
+      "metric": "units",
+      "assetId": "companion_asset_1778567453787",
+      "category": "Operable",
+      "unitArea": 0,
+      "unitPrice": 1200,
+      "metricValue": 70,
+      "startingAdr": 1200,
+      "parentSubUnitId": "subunit_1778567752784"
+    },
+    {
+      "id": "companion-sub_subunit_1778567784716",
+      "name": "1 BR Apartment",
+      "metric": "units",
+      "assetId": "companion_asset_1778567453787",
+      "category": "Operable",
+      "unitArea": 0,
+      "unitPrice": 1200,
+      "metricValue": 159.98906057705457,
+      "startingAdr": 1200,
+      "parentSubUnitId": "subunit_1778567784716"
+    },
+    {
+      "id": "companion-sub_subunit_1778567820036",
+      "name": "2 BR Apartment",
+      "metric": "units",
+      "assetId": "companion_asset_1778567453787",
+      "category": "Operable",
+      "unitArea": 0,
+      "unitPrice": 1600,
+      "metricValue": 79.99633967789165,
+      "startingAdr": 1600,
+      "parentSubUnitId": "subunit_1778567820036"
+    },
+    {
+      "id": "subunit_1778583485456",
+      "name": "Twin",
+      "metric": "units",
+      "assetId": "asset_1778583287131",
+      "category": "Operable",
+      "unitArea": 41.92,
+      "unitPrice": 750,
+      "metricValue": 168.01049618320613,
+      "occupancyPct": 65,
+      "operatingMargin": 35
+    },
+    {
+      "id": "subunit_1778583508783",
+      "name": "King",
+      "metric": "units",
+      "assetId": "asset_1778583287131",
+      "category": "Operable",
+      "unitArea": 30,
+      "unitPrice": 600,
+      "metricValue": 168,
+      "occupancyPct": 65,
+      "operatingMargin": 35
+    },
+    {
+      "id": "subunit_1778583767159",
+      "name": "Keys",
+      "metric": "units",
+      "assetId": "asset_1778503785692",
+      "category": "Operable",
+      "unitArea": 0,
+      "unitPrice": 268.07,
+      "metricValue": 4321,
+      "occupancyPct": 65,
+      "operatingMargin": 35
+    },
+    {
+      "id": "subunit_1778583947305",
+      "name": "Support Retail",
+      "metric": "area",
+      "assetId": "asset_1778583865632",
+      "category": "Leasable",
+      "unitPrice": 3500,
+      "metricValue": 5521,
+      "occupancyPct": 92,
+      "operatingMargin": 80
+    },
+    {
+      "id": "subunit_1778584054045",
+      "name": "Support Retail",
+      "metric": "area",
+      "assetId": "asset_1778583998142",
+      "category": "Leasable",
+      "unitPrice": 3500,
+      "metricValue": 2906.69,
+      "occupancyPct": 92,
+      "operatingMargin": 80
+    }
+  ],
+  "costLines": [
+    {
+      "id": "land-cash__phase_1",
+      "name": "Land (Cash)",
+      "scope": "direct",
+      "stage": "land",
+      "value": 100,
+      "method": "percent_of_cash_land",
+      "phaseId": "phase_1",
+      "phasing": "even",
+      "isLocked": true,
+      "endPeriod": 0,
+      "startPeriod": 0,
+      "costCategory": "direct",
+      "allocationBasis": "land_share"
+    },
+    {
+      "id": "land-inkind__phase_1",
+      "name": "Land (In-Kind)",
+      "scope": "direct",
+      "stage": "land",
+      "value": 100,
+      "method": "percent_of_inkind_land",
+      "phaseId": "phase_1",
+      "phasing": "even",
+      "isLocked": true,
+      "endPeriod": 0,
+      "startPeriod": 0,
+      "costCategory": "direct",
+      "allocationBasis": "land_share"
+    },
+    {
+      "id": "construction-bua__phase_1",
+      "name": "Construction (BUA)",
+      "scope": "direct",
+      "stage": "hard",
+      "value": 0,
+      "method": "rate_per_nsa",
+      "phaseId": "phase_1",
+      "phasing": "even",
+      "disabled": true,
+      "endPeriod": 2,
+      "startPeriod": 1,
+      "costCategory": "direct",
+      "allocationBasis": "bua_share"
+    },
+    {
+      "id": "construction-parking__phase_1",
+      "name": "Construction (Parking)",
+      "scope": "direct",
+      "stage": "hard",
+      "value": 25000,
+      "method": "rate_per_nsa",
+      "phaseId": "phase_1",
+      "phasing": "even",
+      "disabled": true,
+      "endPeriod": 2,
+      "startPeriod": 1,
+      "costCategory": "direct",
+      "allocationBasis": "per_asset"
+    },
+    {
+      "id": "infrastructure__phase_1",
+      "name": "Infrastructure",
+      "scope": "direct",
+      "stage": "hard",
+      "value": 250,
+      "method": "rate_per_nda",
+      "phaseId": "phase_1",
+      "phasing": "even",
+      "disabled": true,
+      "endPeriod": 2,
+      "startPeriod": 1,
+      "costCategory": "direct",
+      "allocationBasis": "land_share"
+    },
+    {
+      "id": "landscaping__phase_1",
+      "name": "Landscaping",
+      "scope": "direct",
+      "stage": "hard",
+      "value": 75,
+      "method": "rate_per_nda",
+      "phaseId": "phase_1",
+      "phasing": "even",
+      "disabled": true,
+      "endPeriod": 0,
+      "startPeriod": 0,
+      "costCategory": "direct",
+      "allocationBasis": "land_share"
+    },
+    {
+      "id": "pre-operating__phase_1",
+      "name": "Pre-operating",
+      "scope": "indirect",
+      "stage": "soft",
+      "value": 3,
+      "method": "percent_of_selected",
+      "phaseId": "phase_1",
+      "phasing": "even",
+      "disabled": true,
+      "endPeriod": 2,
+      "startPeriod": 0,
+      "costCategory": "direct",
+      "allocationBasis": "bua_share",
+      "selectedLineIds": [
+        "construction-bua__phase_1",
+        "construction-parking__phase_1",
+        "infrastructure__phase_1",
+        "landscaping__phase_1"
+      ]
+    },
+    {
+      "id": "professional-fee__phase_1",
+      "name": "Professional Fee",
+      "scope": "indirect",
+      "stage": "soft",
+      "value": 6,
+      "method": "percent_of_selected",
+      "phaseId": "phase_1",
+      "phasing": "even",
+      "disabled": true,
+      "endPeriod": 2,
+      "startPeriod": 1,
+      "costCategory": "direct",
+      "allocationBasis": "bua_share",
+      "selectedLineIds": [
+        "construction-bua__phase_1",
+        "construction-parking__phase_1"
+      ]
+    },
+    {
+      "id": "commission__phase_1",
+      "name": "Commission",
+      "scope": "indirect",
+      "stage": "soft",
+      "value": 4,
+      "method": "percent_of_selected",
+      "phaseId": "phase_1",
+      "phasing": "even",
+      "disabled": true,
+      "endPeriod": 2,
+      "startPeriod": 0,
+      "costCategory": "direct",
+      "phasingSource": "collections",
+      "allocationBasis": "per_asset",
+      "selectedLineIds": []
+    },
+    {
+      "id": "contingency__phase_1",
+      "name": "Contingency",
+      "scope": "indirect",
+      "stage": "soft",
+      "value": 5,
+      "method": "percent_of_selected",
+      "phaseId": "phase_1",
+      "phasing": "even",
+      "disabled": true,
+      "endPeriod": 2,
+      "startPeriod": 1,
+      "costCategory": "direct",
+      "allocationBasis": "bua_share",
+      "selectedLineIds": [
+        "construction-bua__phase_1",
+        "construction-parking__phase_1"
+      ]
+    },
+    {
+      "id": "land-cash__phase_2",
+      "name": "Land (Cash)",
+      "scope": "direct",
+      "stage": "land",
+      "value": 100,
+      "method": "percent_of_cash_land",
+      "phaseId": "phase_2",
+      "phasing": "even",
+      "isLocked": true,
+      "endPeriod": 1,
+      "startPeriod": 1,
+      "costCategory": "direct",
+      "allocationBasis": "land_share"
+    },
+    {
+      "id": "land-inkind__phase_2",
+      "name": "Land (In-Kind)",
+      "scope": "direct",
+      "stage": "land",
+      "value": 100,
+      "method": "percent_of_inkind_land",
+      "phaseId": "phase_2",
+      "phasing": "even",
+      "isLocked": true,
+      "endPeriod": 1,
+      "startPeriod": 1,
+      "costCategory": "direct",
+      "allocationBasis": "land_share"
+    },
+    {
+      "id": "construction-bua__phase_2",
+      "name": "Construction (BUA)",
+      "scope": "direct",
+      "stage": "hard",
+      "value": 6750,
+      "method": "rate_per_bua",
+      "phaseId": "phase_2",
+      "phasing": "manual",
+      "disabled": false,
+      "endPeriod": 4,
+      "startPeriod": 1,
+      "costCategory": "direct",
+      "distribution": [
+        10,
+        25,
+        30,
+        35,
+        0
+      ],
+      "allocationBasis": "bua_share"
+    },
+    {
+      "id": "construction-parking__phase_2",
+      "name": "Construction (Parking)",
+      "scope": "direct",
+      "stage": "hard",
+      "value": 2500,
+      "method": "rate_x_parking_area",
+      "phaseId": "phase_2",
+      "phasing": "manual",
+      "endPeriod": 4,
+      "startPeriod": 1,
+      "costCategory": "direct",
+      "distribution": [
+        10,
+        25,
+        30,
+        35,
+        0
+      ],
+      "allocationBasis": "per_asset",
+      "windowFollowsConstruction": true
+    },
+    {
+      "id": "infrastructure__phase_2",
+      "name": "Infrastructure",
+      "scope": "direct",
+      "stage": "hard",
+      "value": 3000,
+      "method": "rate_per_land",
+      "phaseId": "phase_2",
+      "phasing": "manual",
+      "endPeriod": 4,
+      "startPeriod": 1,
+      "costCategory": "direct",
+      "distribution": [
+        10,
+        25,
+        30,
+        35,
+        0
+      ],
+      "allocationBasis": "land_share"
+    },
+    {
+      "id": "landscaping__phase_2",
+      "name": "Landscaping",
+      "scope": "direct",
+      "stage": "hard",
+      "value": 617.644,
+      "method": "rate_per_land",
+      "phaseId": "phase_2",
+      "phasing": "manual",
+      "endPeriod": 4,
+      "startPeriod": 1,
+      "costCategory": "direct",
+      "distribution": [
+        10,
+        25,
+        30,
+        35,
+        0
+      ],
+      "allocationBasis": "land_share"
+    },
+    {
+      "id": "pre-operating__phase_2",
+      "name": "Pre-operating",
+      "scope": "indirect",
+      "stage": "soft",
+      "value": 1.8,
+      "method": "percent_of_selected",
+      "phaseId": "phase_2",
+      "phasing": "manual",
+      "endPeriod": 4,
+      "startPeriod": 1,
+      "costCategory": "direct",
+      "distribution": [
+        10,
+        25,
+        30,
+        35,
+        0
+      ],
+      "allocationBasis": "bua_share",
+      "selectedLineIds": [
+        "construction-bua__phase_2",
+        "construction-parking__phase_2",
+        "infrastructure__phase_2",
+        "landscaping__phase_2"
+      ]
+    },
+    {
+      "id": "professional-fee__phase_2",
+      "name": "Professional Fee",
+      "scope": "indirect",
+      "stage": "soft",
+      "value": 15,
+      "method": "percent_of_selected",
+      "phaseId": "phase_2",
+      "phasing": "manual",
+      "endPeriod": 4,
+      "startPeriod": 1,
+      "costCategory": "direct",
+      "distribution": [
+        10,
+        25,
+        30,
+        35,
+        0
+      ],
+      "allocationBasis": "bua_share",
+      "selectedLineIds": [
+        "construction-bua__phase_2",
+        "construction-parking__phase_2"
+      ]
+    },
+    {
+      "id": "commission__phase_2",
+      "name": "Commission",
+      "scope": "indirect",
+      "stage": "soft",
+      "value": 4,
+      "method": "percent_of_total_revenue",
+      "phaseId": "phase_2",
+      "phasing": "manual",
+      "disabled": false,
+      "endPeriod": 5,
+      "startPeriod": 1,
+      "costCategory": "direct",
+      "distribution": [
+        10,
+        25,
+        30,
+        24.6,
+        10.4
+      ],
+      "phasingSource": "collections",
+      "allocationBasis": "per_asset",
+      "selectedLineIds": []
+    },
+    {
+      "id": "contingency__phase_2",
+      "name": "Contingency",
+      "scope": "indirect",
+      "stage": "soft",
+      "value": 7.5,
+      "method": "percent_of_selected",
+      "phaseId": "phase_2",
+      "phasing": "manual",
+      "endPeriod": 4,
+      "startPeriod": 1,
+      "costCategory": "direct",
+      "distribution": [
+        10,
+        25,
+        30,
+        35,
+        0
+      ],
+      "allocationBasis": "bua_share",
+      "selectedLineIds": [
+        "construction-bua__phase_2",
+        "construction-parking__phase_2"
+      ]
+    },
+    {
+      "id": "land-cash__phase_3",
+      "name": "Land (Cash)",
+      "scope": "direct",
+      "stage": "land",
+      "value": 100,
+      "method": "percent_of_cash_land",
+      "phaseId": "phase_3",
+      "phasing": "even",
+      "isLocked": true,
+      "endPeriod": 1,
+      "startPeriod": 1,
+      "costCategory": "direct",
+      "allocationBasis": "land_share"
+    },
+    {
+      "id": "land-inkind__phase_3",
+      "name": "Land (In-Kind)",
+      "scope": "direct",
+      "stage": "land",
+      "value": 100,
+      "method": "percent_of_inkind_land",
+      "phaseId": "phase_3",
+      "phasing": "even",
+      "isLocked": true,
+      "endPeriod": 1,
+      "startPeriod": 1,
+      "costCategory": "direct",
+      "allocationBasis": "land_share"
+    },
+    {
+      "id": "construction-bua__phase_3",
+      "name": "Construction (BUA)",
+      "scope": "direct",
+      "stage": "hard",
+      "value": 6700,
+      "method": "rate_per_bua",
+      "phaseId": "phase_3",
+      "phasing": "manual",
+      "endPeriod": 4,
+      "startPeriod": 1,
+      "costCategory": "direct",
+      "distribution": [
+        10,
+        10,
+        40,
+        40,
+        0,
+        0
+      ],
+      "allocationBasis": "bua_share"
+    },
+    {
+      "id": "construction-parking__phase_3",
+      "name": "Construction (Parking)",
+      "scope": "direct",
+      "stage": "hard",
+      "value": 2500,
+      "method": "rate_x_parking_area",
+      "phaseId": "phase_3",
+      "phasing": "manual",
+      "endPeriod": 4,
+      "startPeriod": 1,
+      "costCategory": "direct",
+      "distribution": [
+        10,
+        10,
+        40,
+        40,
+        0,
+        0
+      ],
+      "allocationBasis": "per_asset"
+    },
+    {
+      "id": "infrastructure__phase_3",
+      "name": "Infrastructure",
+      "scope": "direct",
+      "stage": "hard",
+      "value": 3000,
+      "method": "rate_per_land",
+      "phaseId": "phase_3",
+      "phasing": "manual",
+      "endPeriod": 4,
+      "startPeriod": 1,
+      "costCategory": "direct",
+      "distribution": [
+        10,
+        10,
+        40,
+        40,
+        0,
+        0
+      ],
+      "allocationBasis": "land_share"
+    },
+    {
+      "id": "landscaping__phase_3",
+      "name": "Landscaping",
+      "scope": "direct",
+      "stage": "hard",
+      "value": 617.644,
+      "method": "rate_per_land",
+      "phaseId": "phase_3",
+      "phasing": "manual",
+      "endPeriod": 4,
+      "startPeriod": 1,
+      "costCategory": "direct",
+      "distribution": [
+        10,
+        10,
+        40,
+        40,
+        0,
+        0
+      ],
+      "allocationBasis": "land_share"
+    },
+    {
+      "id": "pre-operating__phase_3",
+      "name": "Pre-operating",
+      "scope": "indirect",
+      "stage": "soft",
+      "value": 1.5,
+      "method": "percent_of_selected",
+      "phaseId": "phase_3",
+      "phasing": "manual",
+      "endPeriod": 4,
+      "startPeriod": 1,
+      "costCategory": "direct",
+      "distribution": [
+        10,
+        10,
+        40,
+        40,
+        0,
+        0
+      ],
+      "allocationBasis": "bua_share",
+      "selectedLineIds": [
+        "construction-bua__phase_3",
+        "construction-parking__phase_3",
+        "infrastructure__phase_3",
+        "landscaping__phase_3"
+      ]
+    },
+    {
+      "id": "professional-fee__phase_3",
+      "name": "Professional Fee",
+      "scope": "indirect",
+      "stage": "soft",
+      "value": 15,
+      "method": "percent_of_selected",
+      "phaseId": "phase_3",
+      "phasing": "manual",
+      "endPeriod": 4,
+      "startPeriod": 1,
+      "costCategory": "direct",
+      "distribution": [
+        10,
+        10,
+        40,
+        4,
+        0,
+        0
+      ],
+      "allocationBasis": "bua_share",
+      "selectedLineIds": [
+        "construction-bua__phase_3",
+        "construction-parking__phase_3"
+      ]
+    },
+    {
+      "id": "commission__phase_3",
+      "name": "Commission",
+      "scope": "indirect",
+      "stage": "soft",
+      "value": 4,
+      "method": "percent_of_total_revenue",
+      "phaseId": "phase_3",
+      "phasing": "manual",
+      "endPeriod": 5,
+      "startPeriod": 1,
+      "costCategory": "direct",
+      "distribution": [
+        10,
+        10,
+        30,
+        8.7,
+        30.8,
+        10.5
+      ],
+      "phasingSource": "collections",
+      "allocationBasis": "per_asset",
+      "selectedLineIds": []
+    },
+    {
+      "id": "contingency__phase_3",
+      "name": "Contingency",
+      "scope": "indirect",
+      "stage": "soft",
+      "value": 7.5,
+      "method": "percent_of_selected",
+      "phaseId": "phase_3",
+      "phasing": "manual",
+      "endPeriod": 4,
+      "startPeriod": 1,
+      "costCategory": "direct",
+      "distribution": [
+        10,
+        10,
+        40,
+        40,
+        0,
+        0
+      ],
+      "allocationBasis": "bua_share",
+      "selectedLineIds": [
+        "construction-bua__phase_3",
+        "construction-parking__phase_3"
+      ]
+    }
+  ],
+  "activeCaseId": "case_management",
+  "costOverrides": [
+    {
+      "value": 7200,
+      "lineId": "construction-bua__phase_2",
+      "method": "rate_per_bua",
+      "assetId": "asset_1778567453787",
+      "phasing": "manual",
+      "endPeriod": 4,
+      "overridden": true,
+      "startPeriod": 1,
+      "distribution": [
+        10,
+        25,
+        30,
+        35,
+        0
+      ]
+    },
+    {
+      "value": 8000,
+      "lineId": "construction-bua__phase_2",
+      "method": "rate_per_bua",
+      "assetId": "asset_1778583287131",
+      "phasing": "manual",
+      "endPeriod": 4,
+      "overridden": true,
+      "startPeriod": 1,
+      "distribution": [
+        10,
+        25,
+        30,
+        35,
+        0
+      ]
+    },
+    {
+      "value": 8000,
+      "lineId": "construction-bua__phase_2",
+      "method": "rate_per_bua",
+      "assetId": "asset_1778583865632",
+      "phasing": "manual",
+      "endPeriod": 4,
+      "overridden": true,
+      "startPeriod": 1,
+      "distribution": [
+        10,
+        25,
+        30,
+        35,
+        0
+      ]
+    },
+    {
+      "value": 1,
+      "lineId": "pre-operating__phase_2",
+      "method": "percent_of_selected",
+      "assetId": "asset_1778567453787",
+      "phasing": "manual",
+      "endPeriod": 4,
+      "overridden": true,
+      "startPeriod": 1,
+      "distribution": [
+        10,
+        25,
+        30,
+        35,
+        0
+      ]
+    },
+    {
+      "value": 1,
+      "lineId": "pre-operating__phase_2",
+      "method": "percent_of_selected",
+      "assetId": "asset_1778583287131",
+      "phasing": "manual",
+      "endPeriod": 4,
+      "overridden": true,
+      "startPeriod": 1,
+      "distribution": [
+        10,
+        25,
+        30,
+        35,
+        0
+      ]
+    },
+    {
+      "value": 2,
+      "lineId": "pre-operating__phase_2",
+      "method": "percent_of_selected",
+      "assetId": "asset_1778583865632",
+      "phasing": "manual",
+      "endPeriod": 4,
+      "overridden": true,
+      "startPeriod": 1,
+      "distribution": [
+        10,
+        25,
+        30,
+        35,
+        0
+      ]
+    },
+    {
+      "value": 0,
+      "lineId": "commission__phase_2",
+      "method": "percent_of_total_revenue",
+      "assetId": "asset_1778583287131",
+      "phasing": "manual",
+      "endPeriod": 5,
+      "overridden": true,
+      "startPeriod": 1,
+      "distribution": [
+        10,
+        25,
+        30,
+        24.6,
+        10.4
+      ]
+    },
+    {
+      "value": 0,
+      "lineId": "commission__phase_2",
+      "method": "percent_of_total_revenue",
+      "assetId": "asset_1778583865632",
+      "phasing": "manual",
+      "endPeriod": 4,
+      "overridden": true,
+      "startPeriod": 1,
+      "distribution": [
+        10,
+        25,
+        30,
+        35,
+        0
+      ]
+    },
+    {
+      "value": 8000,
+      "lineId": "construction-bua__phase_3",
+      "method": "rate_per_bua",
+      "assetId": "asset_1778583998142",
+      "phasing": "manual",
+      "endPeriod": 4,
+      "overridden": true,
+      "startPeriod": 1,
+      "distribution": [
+        10,
+        10,
+        40,
+        40,
+        0,
+        0
+      ]
+    },
+    {
+      "value": 2500,
+      "lineId": "construction-parking__phase_3",
+      "method": "rate_x_parking_area",
+      "assetId": "asset_1778583998142",
+      "phasing": "manual",
+      "endPeriod": 4,
+      "overridden": true,
+      "startPeriod": 1,
+      "distribution": [
+        10,
+        10,
+        40,
+        4,
+        0,
+        0
+      ]
+    },
+    {
+      "value": 3000,
+      "lineId": "infrastructure__phase_3",
+      "method": "rate_per_land",
+      "assetId": "asset_1778583998142",
+      "phasing": "manual",
+      "endPeriod": 4,
+      "overridden": true,
+      "startPeriod": 1,
+      "distribution": [
+        10,
+        10,
+        40,
+        4,
+        0,
+        0
+      ]
+    },
+    {
+      "value": 2,
+      "lineId": "pre-operating__phase_3",
+      "method": "percent_of_selected",
+      "assetId": "asset_1778583998142",
+      "phasing": "manual",
+      "endPeriod": 4,
+      "overridden": true,
+      "startPeriod": 1,
+      "distribution": [
+        10,
+        10,
+        40,
+        4,
+        0,
+        0
+      ]
+    },
+    {
+      "value": 0,
+      "lineId": "commission__phase_3",
+      "method": "percent_of_total_revenue",
+      "assetId": "asset_1778583998142",
+      "phasing": "manual",
+      "endPeriod": 5,
+      "overridden": true,
+      "startPeriod": 1,
+      "distribution": [
+        10,
+        10,
+        30,
+        8.7,
+        30.8,
+        10.5
+      ]
+    },
+    {
+      "value": 7.5,
+      "lineId": "contingency__phase_3",
+      "method": "percent_of_selected",
+      "assetId": "asset_1778583998142",
+      "phasing": "manual",
+      "endPeriod": 4,
+      "overridden": true,
+      "startPeriod": 1,
+      "distribution": [
+        10,
+        10,
+        40,
+        4,
+        0,
+        0
+      ]
+    }
+  ],
+  "financingTranches": [
+    {
+      "id": "tranche_1",
+      "name": "Senior debt",
+      "scope": "project",
+      "ltvPct": 60,
+      "origin": "new",
+      "assetId": "asset_1778503785692",
+      "phaseId": "phase_1",
+      "scopeId": "phase_1",
+      "baseRate": "saibor_1m",
+      "idcCapitalize": true,
+      "upfrontFeePct": 1,
+      "drawdownMethod": "capex_basis",
+      "cashSweepConfig": {
+        "sweepRatio": 100,
+        "startingYear": 2030
+      },
+      "creditSpreadPct": 0,
+      "interestRatePct": 6.3,
+      "repaymentMethod": "cash_sweep",
+      "facilitySharePct": 33.333333333333336,
+      "interbankRatePct": 6.3,
+      "interestRateType": "fixed",
+      "repaymentPeriods": 7,
+      "repaymentStartYear": 2030,
+      "yearOnYearPctSchedule": [
+        10,
+        10,
+        15,
+        15,
+        5,
+        5,
+        40,
+        0,
+        0,
+        0
+      ],
+      "graceInterestTreatment": "pay_from_ocf",
+      "autoGenerateIdcCostLine": true,
+      "equalRepaymentSubMethod": "equal_principal"
+    },
+    {
+      "id": "fin_1778766269786_kb7rq",
+      "name": "Senior Debt - T1",
+      "ltvPct": 60,
+      "origin": "existing",
+      "phaseId": "phase_1",
+      "idcCapitalize": true,
+      "drawdownMethod": "capex_basis",
+      "openingBalance": 2400000000,
+      "creditSpreadPct": 0,
+      "interestRatePct": 6.3,
+      "originationYear": 2025,
+      "repaymentMethod": "cash_sweep",
+      "facilitySharePct": 50,
+      "interbankRatePct": 6.3,
+      "repaymentPeriods": 0,
+      "interestStartYear": 2026,
+      "repaymentStartYear": 2026,
+      "drawdownStartPeriod": 0,
+      "yearOnYearPctSchedule": [
+        5,
+        15,
+        15,
+        15,
+        20,
+        20,
+        10,
+        0,
+        0,
+        0
+      ],
+      "graceInterestTreatment": "capitalize",
+      "equalRepaymentSubMethod": "equal_principal",
+      "remainingRepaymentPeriods": 10
+    }
+  ],
+  "migrationsApplied": [
+    "m20costs-pass7"
+  ],
+  "landAllocationMode": "sqm",
+  "equityContributions": []
+}
