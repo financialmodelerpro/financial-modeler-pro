@@ -215,9 +215,55 @@ async function runFor(tag: string, state: any): Promise<void> {
   check('no asset reports a 100% margin while the project has development cost',
     !(snap.financing.capex.totals.inclAllLand > 0 && rows.length > 0 && rows.every((r) => r.profitMargin === 1)),
     rows.map((r) => `${r.assetName}:${r.profitMargin}`).join(' '));
-  check('per-asset cost never exceeds total development cost',
-    rs.perAsset.totalCost <= snap.financing.capex.totals.inclAllLand * 1.000001,
-    `${(rs.perAsset.totalCost / 1e6).toFixed(1)} vs ${(snap.financing.capex.totals.inclAllLand / 1e6).toFixed(1)}`);
+  // THE TWO SIDES MUST BE SCOPED THE SAME WAY (2026-09-21).
+  //
+  // This compared EVERY asset's cost against the capex the engine computes, and
+  // the engine computes capex for the phases that BUILD. An operational phase
+  // builds nothing (`constructionPeriods` 0) and its land was contributed
+  // before the model starts, so capex carries none of it: on the FMP RE HUB
+  // saved version the whole `landInKind` total is 0.00 while parcel Land 1,
+  // wholly in kind on operational Phase 1, is worth 1,350.7m. That is the
+  // entire gap the check reported (6,262.9 against 4,912.2, difference
+  // 1,350.7m, and the one operational asset's cost is 1,350.7m to the decimal).
+  //
+  // NEITHER FIGURE IS WRONG. Per-asset cost is the basis yield on cost and
+  // margin divide by, and an existing hotel's land is genuinely part of what it
+  // cost; strip it out and the asset reports an infinite yield. So the fix is
+  // to compare like with like rather than to widen the bound: the development
+  // phases' assets against the development capex, with the operational phases
+  // measured on their own terms below. (`existing.preCapexTotal` is NOT the
+  // same quantity, 3,600.0m here, and using it as the allowance would let a
+  // development asset's cost reach 8,512m before this check complained.)
+  {
+    const phaseOf = new Map<string, any>((state.phases ?? []).map((p: any) => [p.id, p]));
+    const assetPhase = (assetId: string): any => phaseOf.get((state.assets ?? []).find((a: any) => a.id === assetId)?.phaseId);
+    const isOperational = (assetId: string): boolean => assetPhase(assetId)?.status === 'operational';
+    const devCost = rows.filter((r) => !isOperational(r.assetId)).reduce((s, r) => s + r.totalCost, 0);
+    const opRows = rows.filter((r) => isOperational(r.assetId));
+    const opCost = opRows.reduce((s, r) => s + r.totalCost, 0);
+    check('per-asset cost never exceeds total development cost (development phases)',
+      devCost <= snap.financing.capex.totals.inclAllLand * 1.000001,
+      `${(devCost / 1e6).toFixed(1)} vs ${(snap.financing.capex.totals.inclAllLand / 1e6).toFixed(1)}`);
+    // The excluded rows are named, so the exclusion cannot quietly grow: a
+    // development asset that started reporting as operational would show up
+    // here as a new row rather than vanish from the bound above.
+    check('every asset excluded from that bound is on an operational phase, and carries a cost',
+      opRows.every((r) => r.totalCost >= 0),
+      opRows.map((r) => `${r.assetName}=${(r.totalCost / 1e6).toFixed(1)}`).join(' | ') || 'none');
+    // An operational asset's cost is its own pre-model basis (the land it sits
+    // on plus what was built before the model starts), never development capex.
+    if (opRows.length) {
+      const preCapex = (state.assets ?? [])
+        .filter((a: any) => phaseOf.get(a.phaseId)?.status === 'operational')
+        .reduce((s: number, a: any) => s + Math.max(0, a.historicalPreCapexLand ?? 0) + Math.max(0, a.historicalPreCapexBuilding ?? 0), 0);
+      const landValue = (state.parcels ?? [])
+        .filter((p: any) => phaseOf.get(p.phaseId)?.status === 'operational')
+        .reduce((s: number, p: any) => s + Math.max(0, p.area ?? 0) * Math.max(0, p.rate ?? 0), 0);
+      check('an operational phase\'s per-asset cost is covered by its own pre-model basis',
+        opCost <= (preCapex + landValue) * 1.000001,
+        `${(opCost / 1e6).toFixed(1)} vs land ${(landValue / 1e6).toFixed(1)} + pre-capex ${(preCapex / 1e6).toFixed(1)}`);
+    }
+  }
   check('an income asset with cost now reports a yield on cost',
     rows.filter((r) => r.isIncomeAsset && r.totalCost > 0).every((r) => r.yieldOnCost !== null));
 
@@ -269,7 +315,15 @@ async function runFor(tag: string, state: any): Promise<void> {
   // engine was right and the PDF's own copy of the build-up was not. So add the
   // printed Total cells and require them to reach the printed "= FCFE".
   console.log('-- A2 (rendered): the printed FCFE build-up column adds up --');
-  const fcfeAt = lineOf(fullTxt, 'FCFE Build-up');
+  // ANCHORED CASE-INSENSITIVELY ON THE PHRASE, not on one capitalisation of it
+  // (2026-09-21). The report's table was called "FCFE Build-up" until Module 5
+  // was rebuilt against its screen, which titles it "FCFE Build-Up (levered,
+  // free cash to equity)". The anchor missed, `fcfeAt` went to -1, and the two
+  // checks below it are inside `if (fcfeAt >= 0)`, so a renamed heading did not
+  // just fail one check: it SILENTLY SKIPPED the arithmetic this section
+  // exists for. A locating anchor should be as loose as it can be while still
+  // being unambiguous.
+  const fcfeAt = fullTxt.split('\n').findIndex((l) => /FCFE Build-Up/i.test(l));
   check('the full report renders an FCFE Build-up', fcfeAt >= 0);
   if (fcfeAt >= 0) {
     // Labels come FROM THE SHARED BUILDER, so this verifier cannot drift from
