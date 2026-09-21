@@ -107,6 +107,7 @@ import { poolMapByLine, poolCapexByLine, poolReturnRows, lineHosts, fixHospitali
 import { revenueBySection } from '../reports/revenueSections';
 import { idcWithDisposal, disposalContextOf } from '../reports/disposalSchedules';
 import { buildCaseYoYReport, type CaseYoYReport } from '../reports/caseYoYReport';
+import { buildAssumptionGrid } from '../reports/scenarioAssumptions';
 import { formatAssumptionValue } from '../cases/assumptionGrid';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { MODULES, type ModuleConfig } from '../modules-config';
@@ -3573,7 +3574,12 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
  *  impact). Renders three tabs: Cases & Assumptions (inputs), Scenario Comparison
  *  (outputs), Year-on-Year Impact (schedules). Degrades to a short note when the
  *  project has no scenario cases, so a selected Module 6 page is never blank. */
-function buildModule6(caseReport: CaseComparisonReport | null, caseYoY: CaseYoYReport | null, fmt: Fmt): ModuleContent {
+function buildModule6(
+  caseReport: CaseComparisonReport | null,
+  caseYoY: CaseYoYReport | null,
+  fmt: Fmt,
+  caseInput?: CaseComparisonInput,
+): ModuleContent {
   const items: ModuleContent = [];
   const cols = caseReport?.columns ?? [];
   const hasScenarios = cols.length > 1;
@@ -3589,24 +3595,39 @@ function buildModule6(caseReport: CaseComparisonReport | null, caseYoY: CaseYoYR
       )),
     }));
   }
-  // Assumptions that differ across cases, one row per diverging lever (drawn from
-  // the shared year-on-year report's input blocks, so it matches Module 6).
-  if (caseYoY && caseYoY.blocks.length) {
-    const order = caseYoY.blocks[0].inputs[0]?.byCase.map((v) => ({ id: v.id, name: v.name })) ?? [];
-    if (order.length) {
-      const rows: PdfTableRow[] = [];
-      for (const b of caseYoY.blocks) {
-        for (const line of b.inputs) {
-          const byId = new Map(line.byCase.map((v) => [v.id, v.value] as const));
-          rows.push(row([line.label, ...order.map((o) => formatAssumptionValue(byId.get(o.id) ?? null, line.format))]));
+  // ASSUMPTIONS BY CASE, THE WHOLE GRID (2026-09-21), through the builder the
+  // workbook reads (reports/scenarioAssumptions.ts). This printed only the
+  // levers that DIVERGE, taken from the year-on-year blocks, so on a project
+  // whose cases carry no overrides it printed nothing at all while the
+  // workbook printed the full grid: the key drivers and their value in every
+  // case, which is what "what does this scenario assume" means.
+  if (caseInput) {
+    const grid = buildAssumptionGrid(caseInput);
+    const head = ['Assumption', ...grid.columns.map((c) => `${c.isBase ? '★ ' : ''}${c.name}`), 'Note'];
+    const rows: PdfTableRow[] = [];
+    for (const g of grid.groups) {
+      rows.push(row([g.label, ...grid.columns.map(() => ''), ''], 'heading'));
+      for (const item of g.items) {
+        if (item.label) rows.push(row([item.label, ...grid.columns.map(() => ''), ''], 'subtotal'));
+        for (const r of item.rows) {
+          rows.push(row([
+            `${r.indented ? '  ' : ''}${r.label}`,
+            ...r.cells.map((c) => c.text),
+            r.note,
+          ]));
         }
       }
-      if (rows.length) {
-        items.push(tTable('Tab 1: Cases & Assumptions', 'inputs', {
-          title: 'Assumptions that differ across scenarios', kind: 'grid', align: 'data',
-          columns: ['Assumption', ...order.map((o) => o.name)], rows,
-        }));
-      }
+    }
+    if (rows.length) {
+      items.push(tTable('Tab 1: Cases & Assumptions', 'inputs', {
+        title: 'Assumptions by case', kind: 'grid', align: 'data', columns: head, rows,
+      }));
+      items.push(tItem('Tab 1: Cases & Assumptions', 'inputs', {
+        type: 'paragraph',
+        text: 'Each row is an assumption, each column a case. Key drivers show by default, then every field any case overrides; a lever that cannot move results under the current settings says so.',
+      }));
+    } else {
+      items.push(tItem('Tab 1: Cases & Assumptions', 'inputs', { type: 'paragraph', text: grid.emptyNote }));
     }
   }
 
@@ -3627,6 +3648,17 @@ function buildModule6(caseReport: CaseComparisonReport | null, caseYoY: CaseYoYR
         items.push(tTable('Tab 3: Year-on-Year Impact', 'schedules', periodTable(`${b.inputLabel}, ${o.label}`, yPrior, yl, rows)));
       }
     }
+  } else {
+    // THE SECTION IS NEVER SILENTLY ABSENT (2026-09-21). The workbook prints
+    // this heading with a note when no input diverges; the report dropped the
+    // whole tab, so a reader comparing the two found a section missing rather
+    // than a section that says there is nothing to show.
+    items.push(tItem('Tab 3: Year-on-Year Impact', 'schedules', {
+      type: 'paragraph',
+      text: hasScenarios
+        ? 'No scenario changes an input that drives a per-period output, so there is no year-on-year divergence to show. Override an assumption in Module 6 and it appears here.'
+        : 'Only the Management Case is defined, so there is nothing to compare year on year. Add a scenario case in Module 6.',
+    }));
   }
 
   // No scenarios defined: a short note so the page is never blank when selected.
@@ -4039,7 +4071,7 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
     else if (m.key === 'module3') content = buildModule3(snap, opts.state, fmt, py);
     else if (m.key === 'module4') content = buildModule4(snap, opts.state, fmt, py);
     else if (m.key === 'module5') content = returns ? buildModule5(returns, snap, opts.state, fmt, py, caseReport, opts.includeSensitivity === true) : null;
-    else if (m.key === 'module6') content = buildModule6(caseReport, caseYoY, fmt);
+    else if (m.key === 'module6') content = buildModule6(caseReport, caseYoY, fmt, opts.caseComparison);
     else continue;
     if (!content) continue;
     content = dropEmptyItems(content); // suppress genuinely-empty items (header, no body)
@@ -4114,7 +4146,7 @@ export function collectModuleTabs(state: FinancialsResolverState, caseComparison
     module2: distinct(buildModule2(snap, state, fmt, py)),
     module3: distinct(buildModule3(snap, state, fmt, py)),
     module4: distinct(buildModule4(snap, state, fmt, py)),
-    module6: distinct(buildModule6(caseReport, caseYoY, fmt)),
+    module6: distinct(buildModule6(caseReport, caseYoY, fmt, caseComparison)),
   };
   if (returns) out.module5 = distinct(buildModule5(returns, snap, state, fmt, py, caseReport));
   return out;
@@ -4146,7 +4178,7 @@ export function collectModuleContent(
     module3: buildModule3(snap, state, fmt, py),
     module4: buildModule4(snap, state, fmt, py),
     module5: returns ? buildModule5(returns, snap, state, fmt, py, caseReport, true) : [],
-    module6: buildModule6(caseReport, caseYoY, fmt),
+    module6: buildModule6(caseReport, caseYoY, fmt, caseComparison),
   };
 }
 
@@ -4174,7 +4206,7 @@ export function collectModuleItems(state: FinancialsResolverState, caseCompariso
     module3: buildModule3(snap, state, fmt, py),
     module4: buildModule4(snap, state, fmt, py),
     module5: returns ? buildModule5(returns, snap, state, fmt, py, caseReport) : [],
-    module6: buildModule6(caseReport, caseYoY, fmt),
+    module6: buildModule6(caseReport, caseYoY, fmt, caseComparison),
   };
   // "populated" = a non-zero value exists (a numeric string with a non-zero digit
   // or a finite non-zero number), so an all-zero table reads as present-but-empty

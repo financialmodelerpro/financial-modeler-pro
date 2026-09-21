@@ -24,6 +24,7 @@ import { buildCapexReport, type CapexReport } from '../reports/capexReports';
 import { poolMapByLine, poolCapexByLine, poolResults, lineHosts, fixHospitalityRates, fixLeaseRates, poolRevenueBasisByLine, poolSaleCohortByLine, planReportLines, lineTitle } from '../reports/lineRows';
 import { buildDisposalWorking } from '../reports/disposalReport';
 import { buildOverviewReport, distributedReturnPair } from '../reports/overviewReport';
+import { buildAssumptionGrid } from '../reports/scenarioAssumptions';
 import { buildOperatingKpis } from '../reports/operatingKpis';
 import { fundingChartPoints } from '../portfolio/fundingSeries';
 import { evaluateCovenant, covenantUnit, covenantSeries, reduceWorst, reduceAvg, COVENANT_METRIC_LABELS, type CovenantInputs } from '../covenants';
@@ -4582,52 +4583,31 @@ function addScenarios(ctx: EmitCtx): void {
   // ── 2. Assumptions by case ──
   section('2. Assumptions by case');
   note('Each row is an assumption, each column a case. A scenario value that differs from the Management Case is bold. Key drivers show by default, then every field any case overrides; a lever that cannot move results under the current settings is marked so.');
+  // ONE BUILDER WITH THE REPORT (2026-09-21): reports/scenarioAssumptions.ts.
+  // This grid was built inline here and not built at all in the report, which
+  // printed only the levers that diverge, so a project whose cases carry no
+  // overrides showed a full grid in one file and nothing in the other.
   {
-    const base = input.baseModel;
-    const gridCtx = buildGridContext(base);
-    const fields = enumerateOverridableFields(base).filter((f) => !isPerPeriodLever(f.field) && !nonEconomicLeverReason(f.path, f.field));
-    const fieldByPath = new Map(fields.map((f) => [f.path, f]));
-    const overridesOf = (id: string): Record<string, unknown> => input.cases.find((c) => c.id === id)?.overrides ?? {};
-    const allOverridePaths = new Set<string>();
-    for (const c of input.cases) if (c.role !== 'base') Object.keys(c.overrides ?? {}).forEach((p) => allOverridePaths.add(p));
-    const rowPaths: string[] = [];
-    const seen = new Set<string>();
-    const add = (p: string): void => { if (!seen.has(p)) { seen.add(p); rowPaths.push(p); } };
-    curatedDefaultFields(base).forEach((f) => { if (!inactiveLeverReason(f.path, base)) add(f.path); });
-    allOverridePaths.forEach(add);
-    const built: GridRowLite[] = [];
-    for (const path of rowPaths) {
-      const baseVal = getByPath(base, path);
-      if (!allOverridePaths.has(path) && !isAppliedValue(baseVal)) continue;
-      built.push({ path, descriptor: assumptionFor(path, fieldByPath.get(path), baseVal, gridCtx) });
-    }
-    const groups = groupAssumptionRows(built);
-    if (groups.length === 0) {
-      note('No assumptions yet. Add one on the platform to start comparing values across cases.');
+    const grid = buildAssumptionGrid(input);
+    if (grid.groups.length === 0) {
+      note(grid.emptyNote);
     } else {
       setColHeader(ws.getCell(r, LBL_COL), 'Assumption', 'left');
       setColHeader(ws.getCell(r, META_B), 'Note', 'left');
-      cols.forEach((c, i) => setColHeader(ws.getCell(r, OPEN_COL + i), `${c.role === 'base' ? '★' : '◆'} ${c.name}`, 'right'));
+      grid.columns.forEach((c, i) => setColHeader(ws.getCell(r, OPEN_COL + i), `${c.isBase ? '★' : '◆'} ${c.name}`, 'right'));
       r += 1;
-      for (const g of groups) {
+      for (const g of grid.groups) {
         subTitle(g.label);
         for (const item of g.items) {
-          if (item.grouped) { setLabel(ws.getCell(r, LBL_COL), item.label, { bold: true, indent: 1 }); r += 1; }
+          if (item.label) { setLabel(ws.getCell(r, LBL_COL), item.label, { bold: true, indent: 1 }); r += 1; }
           for (const row of item.rows) {
-            const p = row.path;
-            const baseValue = getByPath(base, p);
-            setLabel(ws.getCell(r, LBL_COL), item.grouped ? (row.descriptor.context || row.descriptor.label) : row.descriptor.label, { indent: item.grouped ? 2 : 0 });
-            const notes = [inactiveLeverReason(p, base) ? 'not used under current settings' : '', leverNote(p) ?? ''].filter(Boolean).join('. ');
-            if (notes) setBasis(ws.getCell(r, META_B), notes);
-            cols.forEach((c, i) => {
-              const ov = c.role === 'base' ? {} : overridesOf(c.id);
-              const has = Object.prototype.hasOwnProperty.call(ov, p);
-              const value = has ? ov[p] : baseValue;
-              const cell = ws.getCell(r, OPEN_COL + i);
-              cell.value = `${formatAssumptionValue(value, row.descriptor.format)}${assumptionUnitSuffix(row.descriptor.format)}`;
-              cell.numFmt = '@'; cell.alignment = { horizontal: 'right' };
-              markInput(cell);
-              if (has && c.role !== 'base') cell.font = { ...(cell.font as object), bold: true };
+            setLabel(ws.getCell(r, LBL_COL), row.label, { indent: row.indented ? 2 : 0 });
+            if (row.note) setBasis(ws.getCell(r, META_B), row.note);
+            row.cells.forEach((cell, i) => {
+              const c = ws.getCell(r, OPEN_COL + i);
+              c.value = cell.text; c.numFmt = '@'; c.alignment = { horizontal: 'right' };
+              markInput(c);
+              if (cell.overridden) c.font = { ...(c.font as object), bold: true };
             });
             r += 1;
           }
@@ -4636,7 +4616,6 @@ function addScenarios(ctx: EmitCtx): void {
       r += 1;
     }
   }
-
   // ── 3. Comparison ──
   section('3. Comparison');
   emitCaseComparison({ ws, N, row: () => r, setRow: (x) => { r = x; }, subTitle, note, report, currency, title: 'Comparison',
