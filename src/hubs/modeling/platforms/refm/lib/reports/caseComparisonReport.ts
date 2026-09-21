@@ -46,8 +46,8 @@ export const CASE_KPIS: CaseKpiDef[] = [
   { label: 'Equity IRR (FCFE)', kind: 'pct', get: (rs) => rs.result.fcfe.irr },
   { label: 'Project IRR (FCFF)', kind: 'pct', sub: 'unlevered', nullLabel: 'n/a (no unlevered IRR)', get: (rs) => rs.result.fcff.irr },
   { label: 'Distributed-Equity IRR', kind: 'pct', get: (rs) => rs.result.dividends.irr },
-  { label: 'Equity MOIC', kind: 'mult', get: (rs) => rs.result.fcfe.moic },
-  { label: 'Equity Multiple', kind: 'mult', sub: 'distributions / invested', get: (rs) => rs.result.realEstate.equityMultiple },
+  { label: 'Equity Multiple (FCFE)', kind: 'mult', sub: 'equity out / equity in', get: (rs) => rs.result.fcfe.moic },
+  { label: 'Equity Multiple (distributions)', kind: 'mult', sub: 'distributions / invested', get: (rs) => rs.result.realEstate.equityMultiple },
   { label: 'NPV (FCFF)', kind: 'money', sub: 'at discount rate', get: (rs) => rs.result.fcff.npv },
   { label: 'Gross Development Value', kind: 'money', get: (rs) => rs.developmentEconomics.gdv },
   // Total Development Cost split into Land + Capex (construction), which sum back

@@ -115,7 +115,7 @@ check('metric GDV carries unit SAR m', gdv.available && gdv.value.sub === 'SAR m
 const irr = resolveMetric('headline.projectIrr', m, fmtM);
 check('metric Project IRR = 11.9%', irr.available && irr.value.value === '11.9%');
 const moic = resolveMetric('headline.equityMoic', m, fmtM);
-check('metric Equity MOIC = 2.26x', moic.available && moic.value.value === '2.26x');
+check('metric Equity Multiple (FCFE) = 2.26x', moic.available && moic.value.value === '2.26x');
 // Everything resolves EXCEPT metrics that are legitimately model-dependent:
 // NPV needs a multi-case comparison, and debt-repaid-year needs a repayment year.
 const unresolvedMetrics = METRIC_KEYS.filter((k) => !resolveMetric(k, m, fmtM).available);

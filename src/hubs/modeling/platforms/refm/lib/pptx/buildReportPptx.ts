@@ -330,7 +330,7 @@ export function buildReportPptx(input: BuildReportPptxInput): PptxGenJS {
     const h = m.headline;
     const r1 = [
       { label: 'Project IRR', value: pct(h.projectIrr), good: true }, { label: 'Equity IRR', value: pct(h.equityIrr), good: true },
-      { label: 'Distributed IRR', value: pct(h.distributedEquityIrr) }, { label: 'Equity Multiple', value: mult(h.equityMultiple) }, { label: 'Equity MOIC', value: mult(h.equityMoic) },
+      { label: 'Distributed IRR', value: pct(h.distributedEquityIrr) }, { label: 'Equity Multiple (distributions)', value: mult(h.equityMultiple) }, { label: 'Equity Multiple (FCFE)', value: mult(h.equityMoic) },
     ];
     const gap = 0.22, w5 = (11.93 - gap * 4) / 5;
     r1.forEach((t, i) => coverTile(0.7 + i * (w5 + gap), 2.72, w5, t.label, t.value, t.good));
@@ -431,7 +431,7 @@ export function buildReportPptx(input: BuildReportPptxInput): PptxGenJS {
         const rx = MX + 7.5, rw = CONTENT_W - 7.5;
         kpiTiles(c, [
           { label: 'Project IRR', value: pct(h.projectIrr), good: true }, { label: 'Equity IRR', value: pct(h.equityIrr), good: true },
-          { label: 'Distributed IRR', value: pct(h.distributedEquityIrr) }, { label: 'Equity Multiple', value: mult(h.equityMultiple) },
+          { label: 'Distributed IRR', value: pct(h.distributedEquityIrr) }, { label: 'Equity Multiple (distributions)', value: mult(h.equityMultiple) },
           { label: 'Yield on Cost', value: pct(m.reMetrics.yieldOnCost) }, { label: 'Cap Rate at Exit', value: pct(m.reMetrics.capRateAtExit) },
         ], Y + 0.1, 2, rx, rw, 0.78, 15);
         const ecoY = Y + 0.1 + 3 * (0.78 + 0.18) + 0.05;
@@ -568,8 +568,8 @@ export function buildReportPptx(input: BuildReportPptxInput): PptxGenJS {
         H();
         kpiTiles(c, [
           { label: 'Project IRR', value: pct(h.projectIrr), sub: 'unlevered', good: true }, { label: 'Equity IRR', value: pct(h.equityIrr), sub: 'levered', good: true },
-          { label: 'Distributed IRR', value: pct(h.distributedEquityIrr), sub: 'dividends' }, { label: 'Equity Multiple', value: mult(h.equityMultiple), sub: 'dist / invested' },
-          { label: 'Equity MOIC', value: mult(h.equityMoic), sub: 'FCFE' }, { label: 'Terminal Equity', value: fmtM(h.terminalEquity), sub: `exit ${o.exitYear}` },
+          { label: 'Distributed IRR', value: pct(h.distributedEquityIrr), sub: 'dividends' }, { label: 'Equity Multiple (distributions)', value: mult(h.equityMultiple), sub: 'dist / invested' },
+          { label: 'Equity Multiple (FCFE)', value: mult(h.equityMoic) }, { label: 'Terminal Equity', value: fmtM(h.terminalEquity), sub: `exit ${o.exitYear}` },
         ], Y + 0.1, 6, MX, CONTENT_W, 1.05, 15);
         kpiTiles(c, [
           { label: 'Yield on Cost', value: pct(re.yieldOnCost) }, { label: 'Cap Rate at Exit', value: pct(re.capRateAtExit) },

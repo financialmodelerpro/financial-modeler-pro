@@ -120,8 +120,8 @@ export const METRIC_BINDINGS: Record<MetricBindingKey, MetricDef> = {
   'headline.equityIrr':             M('headline.equityIrr', 'Equity IRR', 'Returns', 'pct', (m) => m.headline.equityIrr, () => 'FCFE, levered'),
   'headline.distributedEquityIrr':  M('headline.distributedEquityIrr', 'Distributed IRR', 'Returns', 'pct', (m) => m.headline.distributedEquityIrr, () => 'Dividends'),
   'headline.projectMoic':           M('headline.projectMoic', 'Project MOIC', 'Returns', 'mult', (m) => m.headline.projectMoic),
-  'headline.equityMoic':            M('headline.equityMoic', 'Equity MOIC', 'Returns', 'mult', (m) => m.headline.equityMoic),
-  'headline.equityMultiple':        M('headline.equityMultiple', 'Equity Multiple', 'Returns', 'mult', (m) => m.headline.equityMultiple),
+  'headline.equityMoic':            M('headline.equityMoic', 'Equity Multiple (FCFE)', 'Returns', 'mult', (m) => m.headline.equityMoic),
+  'headline.equityMultiple':        M('headline.equityMultiple', 'Equity Multiple (distributions)', 'Returns', 'mult', (m) => m.headline.equityMultiple),
   'headline.terminalEquity':        M('headline.terminalEquity', 'Exit Equity Value', 'Returns', 'money', (m) => m.headline.terminalEquity, unit),
   'returns.npv':                    M('returns.npv', 'NPV', 'Returns', 'money', (m) => baseNpv(m.scenarios), unit),
 

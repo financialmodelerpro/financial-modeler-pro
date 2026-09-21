@@ -3999,7 +3999,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     { label: 'Project IRR (FCFF)', value: cPct(rr.fcff.irr), sub: `MOIC ${cMult(rr.fcff.moic)}`, tone: irrTone(rr.fcff.irr) },
     { label: 'Equity IRR (FCFE)', value: cPct(rr.fcfe.irr), sub: `MOIC ${cMult(rr.fcfe.moic)}`, tone: irrTone(rr.fcfe.irr) },
     { label: 'Distributed Equity IRR', value: cPct(rr.dividends.irr), sub: `MOIC ${cMult(rr.dividends.moic)}`, tone: irrTone(rr.dividends.irr) },
-    { label: 'Equity Multiple', value: cMult(rr.realEstate.equityMultiple), sub: 'distributions / invested' },
+    { label: 'Equity Multiple (distributions)', value: cMult(rr.realEstate.equityMultiple), sub: 'distributions / invested' },
   ]);
 
   // ── Development Economics ──
@@ -4292,7 +4292,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     const tone = (pass: boolean | null): 'good' | 'bad' | undefined => (pass == null ? undefined : pass ? 'good' : 'bad');
 
     kpiStrip('', [
-      { label: 'Equity Multiple (MOIC)', value: cMult(rr.fcfe.moic), sub: 'equity out / equity in, at the selected exit' },
+      { label: 'Equity Multiple (FCFE)', value: cMult(rr.fcfe.moic), sub: 'equity out / equity in, at the selected exit' },
       { label: 'Yield on Cost', value: cPct(m.yieldOnCost), sub: 'stabilised NOI / total cost' },
       { label: 'Profit Margin', value: cPct(m.profitMargin), sub: 'PAT / revenue' },
       { label: 'Min DSCR', value: cMult(minDSCR), sub: `worst debt-service yr · vs ${cMult(dscrThreshold)}${badge(dscrPass)}`, tone: tone(dscrPass) },
@@ -4344,7 +4344,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
 
     // ── Exit-Year Analysis ──
     subTitle('Exit-Year Analysis (hold vs sell timing)');
-    note('Project IRR (FCFF) and Equity IRR (FCFE) if the asset is sold at the end of each year, using that year\'s terminal value. The marked row is the selected Exit Year; its Equity MOIC is the Equity Multiple above.');
+    note('Project IRR (FCFF) and Equity IRR (FCFE) if the asset is sold at the end of each year, using that year\'s terminal value. The marked row is the selected Exit Year; its Equity MOIC is the Equity Multiple (FCFE) above.');
     grid('', ['Exit Year', 'Enterprise Value', 'Equity Value', 'Project IRR', 'Equity IRR', 'Equity MOIC'],
       rs.exitYears.map((x) => ({ label: `${x.exitYearLabel}${x.isSelected ? '  ◀ selected' : ''}`, bold: x.isSelected, cells: [{ v: x.enterpriseValue }, { v: x.equityValue }, cPct(x.fcffIrr), cPct(x.fcfeIrr), cMult(x.equityMoic)] })));
 
@@ -5413,7 +5413,7 @@ function addSummary(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinanci
     tiles([
       { label: 'Land Cost', value: m(su.land) },
       { label: 'Capex (construction)', value: m(su.construction), sub: 'excl. land' },
-      { label: 'Debt / Equity', value: `${pct(debtPct)} / ${pct(cashEquityPct + inKindPct)}`, sub: 'of total sources' },
+      { label: 'Debt / Equity (of total sources)', value: `${pct(debtPct)} / ${pct(cashEquityPct + inKindPct)}`, sub: 'the achieved mix, including customer collections and operating cash' },
       { label: 'Peak Equity', value: m(re.peakEquity) },
       { label: 'Total Financing Cost', value: m(de.totalFinancingCost) },
       { label: 'Cap Rate at Exit', value: pct(re.capRateAtExit) },

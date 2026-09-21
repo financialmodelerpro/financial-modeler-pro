@@ -1185,7 +1185,7 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
   // Executive Summary stays on a single page.
   drawGridTable(ctx, kv2Table('Financial Structure', [
     ['Funding method', FUNDING_METHOD_LABELS[(p.financing?.fundingMethod ?? 1) as FundingMethodId]],
-    ['Debt / Equity split', `${fmt.pctRaw(fin.funding.debtPct, 0)} / ${fmt.pctRaw(fin.funding.equityPct, 0)}`],
+    ['Debt / Equity (funding ratio)', `${fmt.pctRaw(fin.funding.debtPct, 0)} / ${fmt.pctRaw(fin.funding.equityPct, 0)}, the split NEW funding is drawn at`],
     // Total new debt RAISED = cash drawdown + interest capitalised to the loan.
     // The same definition Module 5's Sources & Uses uses, and the only one that
     // reconciles: existing debt + this = peak debt outstanding. The cash-only
