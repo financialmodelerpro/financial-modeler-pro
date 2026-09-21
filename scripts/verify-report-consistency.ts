@@ -263,9 +263,14 @@ async function main(): Promise<void> {
     check('H2: Module 5 emits tabs at all', nums.length > 0, `saw ${nums.join(',')}`);
     check('H2: Module 5 tab numbers run 1..n with no gap',
       nums.length > 0 && nums.every((v, i) => v === i + 1), `saw ${nums.join(',')}`);
-    check('H2: the Fund Layer tab takes the LAST number, not a fixed 5',
-      new RegExp(`Module 5:[^\\n]*?Tab ${nums.length}: Fund Layer`).test(full),
-      `expected Tab ${nums.length}: Fund Layer`);
+    // 2026-09-21: the fund block is a SECTION of the Returns tab, as it is on
+    // the screen, so what this pins now is that the fund content lands on
+    // Module 5's FIRST tab and that no tab of its own was reintroduced.
+    check('H2: the fund block sits on the Returns tab, not a tab of its own',
+      /Module 5:[^\n]*?Tab 1: Returns/.test(full)
+      && !/Tab \d: Fund Layer/.test(full)
+      && full.includes('Distribution Waterfall'),
+      `saw ${nums.join(',')}`);
     check('H2: Case Comparison is absent when there are fewer than two cases',
       !full.includes('Case Comparison'));
   }

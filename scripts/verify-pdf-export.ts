@@ -745,6 +745,36 @@ async function main(): Promise<void> {
       titles('Tab 7: Financing / Cash Sweep')[0] === 'Cash sweep and dividend settings');
   }
 
+  // ── Module 5 is the platform's three tabs (2026-09-21) ────────────────────
+  // The report carried two tabs of its own making, "Cash Flow Streams" and
+  // "Fund Layer", both of which are SECTIONS of the Returns tab on the screen,
+  // and it kept the exit, funding-mix and equity-exposure analytics on Returns
+  // although that tab's own caption says they live on RE Metrics.
+  {
+    const content = collectModuleContent(buildState(), undefined, 'full');
+    const tabs = [...new Set(content.module5.map((i) => i.tab))];
+    check('M5: tabs are the platform tabs, in order',
+      JSON.stringify(tabs) === JSON.stringify(['Tab 1: Returns', 'Tab 2: RE Metrics']), tabs.join(' | '));
+    check('M5: the picker manifest is the platform tabs (Case Comparison needs two cases)',
+      JSON.stringify(PDF_MODULE_TABS.module5) === JSON.stringify(['Tab 1: Returns', 'Tab 2: RE Metrics', 'Tab 3: Case Comparison']));
+    const titlesOf = (tab: string): string[] => content.module5
+      .filter((i: any) => i.tab === tab && (i.item.type === 'table' || i.item.type === 'cards'))
+      .map((i: any) => (i.item.type === 'table' ? i.item.table.title : i.item.title));
+    const ret = titlesOf('Tab 1: Returns');
+    const met = titlesOf('Tab 2: RE Metrics');
+    check('M5 Returns: the streams and the three build-ups are sections of the tab',
+      ['Return Cash-Flow Streams', 'FCFF Build-Up', 'FCFE Build-Up', 'Distributed Equity Build-Up']
+        .every((t) => ret.some((x) => x.startsWith(t))), ret.join(' | '));
+    check('M5 Returns: the exit working is printed', ret.includes('Exit: terminal value and gain on disposal'), ret.join(' | '));
+    check('M5 RE Metrics: the exit and exposure analytics moved here',
+      met.some((t) => t.startsWith('Exit Analysis')) && met.includes('Equity Exposure & Debt Analytics')
+      && met.includes('Exit-Year Analysis (hold vs sell timing)'), met.join(' | '));
+    check('M5 RE Metrics: the operating KPIs close the tab',
+      met.some((t) => t.startsWith('Operating KPIs')), met.join(' | '));
+    check('M5: neither retired tab is emitted',
+      !content.module5.some((i) => /Cash Flow Streams|Fund Layer/.test(i.tab)));
+  }
+
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
   if (fail > 0) { console.log('Failures:\n' + failures.map((f) => '  - ' + f).join('\n')); process.exit(1); }
 }

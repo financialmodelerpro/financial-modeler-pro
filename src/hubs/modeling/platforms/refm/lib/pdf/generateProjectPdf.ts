@@ -85,6 +85,9 @@ import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/cal
 import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsFeederTables, buildBsReconciliationRows, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisText, totalColumnHeading, totalColumnNote, resolveTotalColumnKind, TOTAL_COLUMN_HEADINGS, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, type M4FeederCtx } from '../reports/m4Reports';
 import { buildOpexReport } from '../reports/opexReports';
 import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup } from '../reports/streamReports';
+import { buildDisposalWorking } from '../reports/disposalReport';
+import { buildOperatingKpis } from '../reports/operatingKpis';
+import { assetLabel } from '@/src/core/calculations/assetName';
 import { buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
 import { evaluateCovenant, type CovenantInputs } from '../covenants';
 import { buildCapexReport, CAPEX_CATEGORIES, type CapexResultTable } from '../reports/capexReports';
@@ -3164,6 +3167,7 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
   const syl = returns.streamYearLabels;
   const yl = returns.yearLabels;
   const items: ModuleContent = [];
+  const cur = state.project.currency ?? 'SAR';
   const assetNotes = buildAssetNotes(state, fmt.money);
 
   // TAB NUMBERS ARE DERIVED, not written down. Case Comparison only exists when
@@ -3171,11 +3175,16 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
   // without scenarios (the default) printed running headers and a table of
   // contents reading "Tab 1, Tab 2, Tab 4, Tab 5", which reads as a missing
   // section rather than an absent one.
+  // THE SCREEN HAS THREE TABS (2026-09-21): Returns, RE Metrics and Case
+  // Comparison. The report carried two more of its own, "Cash Flow Streams"
+  // and "Fund Layer", and both are SECTIONS OF THE RETURNS TAB on the
+  // platform, where the streams sit under Sources & Uses and the fund
+  // waterfall and fee income under the partners. They are folded back, and
+  // the exit, funding-mix and equity-exposure analytics move to RE Metrics,
+  // which is where the Returns tab's own caption says they live.
   const m5Present: string[] = ['Returns', 'RE Metrics'];
   const hasCaseComparison = !!caseReport && caseReport.columns.length > 1;
   if (hasCaseComparison) m5Present.push('Case Comparison');
-  m5Present.push('Cash Flow Streams');
-  if (isFundActive(returns)) m5Present.push('Fund Layer');
   const m5Tab = (name: string): string => {
     const i = m5Present.indexOf(name);
     return i < 0 ? name : `Tab ${i + 1}: ${name}`;
@@ -3231,14 +3240,14 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
     + `Development Margin is measured on GDV; Profit Margin on the RE Metrics page is profit after tax over total revenue.` }));
 
   const ex = returns.exitAnalysis;
-  items.push(tCards(m5Tab('Returns'), 'outputs', `Exit Analysis (${ex.exitYearLabel})`, [
+  const exitCards = tCards(m5Tab('RE Metrics'), 'outputs', `Exit Analysis (${ex.exitYearLabel})`, [
     { label: 'Exit NOI', value: fmt.money(ex.exitNOI) },
     { label: 'Exit EBITDA', value: fmt.money(ex.exitEBITDA) },
     { label: 'Enterprise Value', value: fmt.money(ex.exitEnterpriseValue) },
     { label: 'Equity Value', value: fmt.money(ex.exitEquityValue) },
     { label: 'Debt at Exit', value: fmt.money(ex.exitDebt) },
     { label: 'LTV at Exit', value: fmt.pct(ex.ltvAtExit, 1) },
-  ]));
+  ]);
   const su = returns.sourcesUses;
   items.push(tTable(m5Tab('Returns'), 'outputs', {
     title: 'Sources & Uses', kind: 'grid', align: 'data', columns: ['Sources', 'Amount', 'Uses', 'Amount'],
@@ -3255,25 +3264,25 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
   }));
   const ee = returns.equityExposure;
   const da = returns.debtAnalytics;
-  items.push(tCards(m5Tab('Returns'), 'outputs', 'Equity Exposure & Debt Analytics', [
+  const exposureCards = tCards(m5Tab('RE Metrics'), 'outputs', 'Equity Exposure & Debt Analytics', [
     { label: 'Total Equity Required', value: fmt.money(ee.totalEquityRequired) },
     { label: 'Avg Equity Invested', value: fmt.money(ee.averageEquityInvested) },
     { label: 'Equity at Risk', value: fmt.money(ee.equityAtRisk) },
     { label: 'Peak Debt', value: fmt.money(da.peakDebt) },
     { label: 'Debt Paydown', value: fmt.pct(da.paydownPct, 1) },
     { label: 'Debt Tenor', value: da.tenorYears === null ? 'n/a' : `${da.tenorYears.toFixed(0)} yrs` },
-  ]));
-  // Exit-year analysis (Pass 2) as a table.
-  if (returns.exitYears?.length) {
-    items.push(tTable(m5Tab('Returns'), 'outputs', {
-      title: 'Exit-Year Analysis (hold vs sell)', kind: 'grid', align: 'data',
+  ]);
+  // Exit-year analysis as a table, on RE Metrics with the other exit figures.
+  const exitYearTable = returns.exitYears?.length
+    ? tTable(m5Tab('RE Metrics'), 'outputs', {
+      title: 'Exit-Year Analysis (hold vs sell timing)', kind: 'grid', align: 'data',
       columns: ['Exit Year', 'Enterprise Value', 'Equity Value', 'Project IRR', 'Equity IRR', 'Equity MOIC'],
       rows: returns.exitYears.map((x) => row([
         `${x.exitYearLabel}${x.isSelected ? ' (selected)' : ''}`, fmt.money(x.enterpriseValue), fmt.money(x.equityValue),
         fmt.pct(x.fcffIrr, 1), fmt.pct(x.fcfeIrr, 1), fmt.mult(x.equityMoic),
       ], x.isSelected ? 'subtotal' : undefined)),
-    }));
-  }
+    })
+    : null;
   // Partners (Pass 2) if present.
   if (returns.partners?.partners.length) {
     items.push(tTable(m5Tab('Returns'), 'outputs', {
@@ -3283,7 +3292,54 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
     }));
   }
 
-  // Tab 2: RE Metrics (cards + coverage + per-asset).
+  // THE FUND BLOCK IS A SECTION OF THE RETURNS TAB, not a tab. It renders only
+  // when the toggle is on, so a standalone project is unchanged. Every row
+  // comes from the shared fundReports builders the M5 screen and the workbook
+  // read, so the row order has one definition.
+  for (const piece of buildFundBlock(snap, returns, state, fmt, py)) {
+    if (piece.cards) items.push(tCards(m5Tab('Returns'), 'outputs', piece.title, piece.cards));
+    else if (piece.table) items.push(tTable(m5Tab('Returns'), 'outputs', piece.table));
+    else if (piece.note) items.push(tItem(m5Tab('Returns'), 'outputs', { type: 'paragraph', text: piece.note }));
+  }
+
+  // THE EXIT WORKING, the screen's and the workbook's: what the held assets
+  // were sold for and the gain booked on the disposal, through the one builder
+  // (reports/disposalReport.ts), so the P&L, the cash flow, the balance sheet
+  // and these returns cannot disagree about the exit.
+  {
+    const lineState = { assets: state.assets, phases: state.phases, parcels: state.parcels };
+    const lines = planReportLines(lineState);
+    const labelOf = (id: string): string => {
+      const a = state.assets.find((x) => x.id === id);
+      return a ? assetLabel(a, { parcels: state.parcels, phases: state.phases }) : id;
+    };
+    const groupOf = (assetId: string): { key: string; label: string } | undefined => {
+      const line = lines.find((l) => l.assetIds.includes(assetId));
+      return line ? { key: line.key, label: lineTitle(line, lineState) } : undefined;
+    };
+    const working = buildDisposalWorking(snap, returns, labelOf, groupOf);
+    if (working.booked) {
+      const valueOf = (row: typeof working.rows[number]): string =>
+        row.format === 'text' || row.value === undefined ? (row.text ?? '')
+          : row.format === 'pct' ? fmt.pct(row.value, 2)
+            : row.format === 'mult' ? fmt.mult(row.value) : fmt.money(row.value);
+      items.push(tTable(m5Tab('Returns'), 'outputs', {
+        title: 'Exit: terminal value and gain on disposal', kind: 'grid', align: 'data',
+        columns: ['Exit', 'Amount'],
+        rows: working.rows.map((rw) => row(
+          [`${'  '.repeat(rw.indent ?? 0)}${rw.label}`, valueOf(rw)],
+          rw.kind === 'section' ? 'heading' : rw.kind === 'total' ? 'total' : rw.kind === 'subtotal' ? 'subtotal' : undefined,
+        )),
+      }));
+      items.push(tItem(m5Tab('Returns'), 'outputs', { type: 'paragraph', text:
+        'The held assets are sold at the exit for the terminal value. Each figure here is the one booked in the P&L, the cash flow, the balance sheet and the Returns streams, so changing the basis, the method or the cap rate moves all of them together.' }));
+    }
+  }
+
+  // Tab 2: RE Metrics (cards + coverage + exit + per-line).
+  items.push(exitCards);
+  if (exitYearTable) items.push(exitYearTable);
+  items.push(exposureCards);
   items.push(tCards(m5Tab('RE Metrics'), 'outputs', 'Profitability & Yield', [
     { label: 'Yield on Cost', value: fmt.pct(re.yieldOnCost, 2), sub: 'stabilised NOI / total cost' },
     { label: 'Cap Rate at Exit', value: fmt.pct(re.capRateAtExit, 2), sub: 'exit NOI / exit value' },
@@ -3381,6 +3437,44 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
     for (const fn of assetNotes.takeFootnotes()) items.push(tItem(m5Tab('RE Metrics'), 'outputs', { type: 'paragraph', text: fn.text }));
   }
 
+  // OPERATING KPIs, the screen's last RE Metrics section, through the shared
+  // builder the workbook reads. Only the blocks the project actually carries.
+  {
+    const ok = buildOperatingKpis(snap, state.assets);
+    const rate = (v: number | null): string => (v === null ? 'n/a' : fmt.int(v));
+    if (ok.hospitality) {
+      const h = ok.hospitality;
+      items.push(tCards(m5Tab('RE Metrics'), 'outputs', 'Operating KPIs, Hospitality', [
+        { label: 'Occupancy', value: fmt.pct(h.occupancy, 1), sub: 'occupied / available nights' },
+        { label: 'ADR', value: rate(h.adr), sub: `${cur} / occupied night` },
+        { label: 'RevPAR', value: rate(h.revpar), sub: `${cur} / available night` },
+        { label: 'Rooms Revenue', value: fmt.money(h.roomsRevenue) },
+        { label: 'F&B Revenue', value: fmt.money(h.fbRevenue) },
+        { label: 'Total Hospitality Revenue', value: fmt.money(h.totalRevenue) },
+      ]));
+    }
+    if (ok.residential) {
+      const rk = ok.residential;
+      items.push(tCards(m5Tab('RE Metrics'), 'outputs', 'Operating KPIs, Residential (For-Sale)', [
+        { label: 'Residential GDV', value: fmt.money(rk.saleValue), sub: 'sale value' },
+        { label: 'Units Sold', value: fmt.int(rk.unitsSold), sub: 'pre + post sales' },
+        { label: 'Avg Sale Price / Unit', value: rate(rk.pricePerUnit), sub: `${cur} / unit` },
+        { label: 'Avg Sale Price / sqm', value: rate(rk.pricePerSqm), sub: `${cur} / sellable sqm` },
+        { label: 'Pre-Sales %', value: fmt.pct(rk.preSalesPct, 1), sub: 'pre-sales / residential GDV' },
+        { label: 'Sales Velocity', value: rate(rk.velocity), sub: 'units / yr (active years)' },
+      ]));
+    }
+    if (ok.lease) {
+      const lk = ok.lease;
+      items.push(tCards(m5Tab('RE Metrics'), 'outputs', 'Operating KPIs, Lease / Income', [
+        { label: 'Total GLA', value: fmt.area(lk.gla), sub: 'sqm leasable' },
+        { label: 'Avg Occupancy', value: fmt.pct(lk.avgOccupancy, 1), sub: 'occupied / GLA over ops' },
+        { label: 'Rent per Leased sqm', value: rate(lk.rentPerSqm), sub: `${cur} / occupied sqm / yr` },
+        { label: 'Total Lease Revenue', value: fmt.money(lk.totalRevenue) },
+      ]));
+    }
+  }
+
   // SENSITIVITY. On the M5 Returns tab and in NEITHER export. Gated, because
   // sensitivity is an entitlement feature: an export must not carry what the
   // plan cannot open on screen.
@@ -3413,7 +3507,7 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
 
   // Tab 4: Cash Flow Streams.
   const bu = returns.buildup;
-  items.push(tTable(m5Tab('Cash Flow Streams'), 'schedules', periodTable('Sponsor Cash-Flow Streams', streamPrior, streamYears, [
+  items.push(tTable(m5Tab('Returns'), 'schedules', periodTable(`Return Cash-Flow Streams (hold to ${returns.exitYearLabel})`, streamPrior, streamYears, [
     periodRow('FCFF (unlevered)', returns.fcffPerPeriod.slice(1), 'sum', undefined, returns.fcffPerPeriod[0] ?? 0),
     periodRow('FCFE (levered)', returns.fcfePerPeriod.slice(1), 'sum', undefined, returns.fcfePerPeriod[0] ?? 0),
     periodRow('Distributed equity', returns.dividendStreamPerPeriod.slice(1), 'sum', undefined, returns.dividendStreamPerPeriod[0] ?? 0),
@@ -3425,22 +3519,12 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
   // column was short by the terminal value in every period it appeared.
   const pdfStreamRow = (label: string, series: number[], opts: { indent?: number; isTotal?: boolean }): M4Row =>
     ({ label, values: series.slice(1), priorValue: series[0] ?? 0, indent: opts.indent, isTotal: opts.isTotal });
-  items.push(tTable(m5Tab('Cash Flow Streams'), 'schedules',
-    m4RowsToPeriodTable('FCFF Build-up', streamPrior, streamYears, buildFcffBuildup(returns, pdfStreamRow))));
-  items.push(tTable(m5Tab('Cash Flow Streams'), 'schedules',
-    m4RowsToPeriodTable('FCFE Build-up', streamPrior, streamYears, buildFcfeBuildup(returns, pdfStreamRow))));
-  items.push(tTable(m5Tab('Cash Flow Streams'), 'schedules',
-    m4RowsToPeriodTable('Distributed Equity Build-up', streamPrior, streamYears, buildDividendBuildup(returns, pdfStreamRow))));
-
-  // Tab 5: Fund Layer. Renders ONLY when the fund toggle is on, so a standalone
-  // project produces exactly the tabs it did before. Every row comes from the
-  // shared fundReports builders, the same ones the M5 screen and the Excel
-  // workbook use, so the reference row order has one definition.
-  for (const piece of buildFundBlock(snap, returns, state, fmt, py)) {
-    if (piece.cards) items.push(tCards(m5Tab('Fund Layer'), 'outputs', piece.title, piece.cards));
-    else if (piece.table) items.push(tTable(m5Tab('Fund Layer'), 'outputs', piece.table));
-    else if (piece.note) items.push(tItem(m5Tab('Fund Layer'), 'outputs', { type: 'paragraph', text: piece.note }));
-  }
+  items.push(tTable(m5Tab('Returns'), 'schedules',
+    m4RowsToPeriodTable('FCFF Build-Up (unlevered, to all capital providers)', streamPrior, streamYears, buildFcffBuildup(returns, pdfStreamRow))));
+  items.push(tTable(m5Tab('Returns'), 'schedules',
+    m4RowsToPeriodTable('FCFE Build-Up (levered, free cash to equity)', streamPrior, streamYears, buildFcfeBuildup(returns, pdfStreamRow))));
+  items.push(tTable(m5Tab('Returns'), 'schedules',
+    m4RowsToPeriodTable('Distributed Equity Build-Up (Dividend Discount Model)', streamPrior, streamYears, buildDividendBuildup(returns, pdfStreamRow))));
 
   return items;
 }

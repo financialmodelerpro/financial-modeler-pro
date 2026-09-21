@@ -48,15 +48,14 @@ export const PDF_MODULE_TABS: Record<string, string[]> = {
     'Tab 4: Balance Sheet',
   ],
   module5: [
+    // The platform's three tabs (2026-09-21). "Cash Flow Streams" and "Fund
+    // Layer" were tabs of the report's own making; both are SECTIONS of the
+    // Returns tab on the screen, so they are folded back into it, and the
+    // exit, funding-mix and equity-exposure analytics moved to RE Metrics,
+    // where the Returns tab's own caption says they live.
     'Tab 1: Returns',
     'Tab 2: RE Metrics',
     'Tab 3: Case Comparison',
-    'Tab 4: Cash Flow Streams',
-    // Fund Layer renders only on a fund project. It was MISSING here, so the
-    // per-tab picker never listed it and, because the picker seeds the
-    // selection from this manifest, touching the picker dropped the entire
-    // fund section from the exported PDF.
-    'Tab 5: Fund Layer',
   ],
   module6: [
     'Tab 1: Cases & Assumptions',
