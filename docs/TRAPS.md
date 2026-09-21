@@ -2658,6 +2658,49 @@ interest a memo, on the screen and in `financingReports.ts`.
 closing on a two-facility copy 172.5m to 0.00. Pinned in `verify-excel-export` (funding basis per method, combined
 ledger closes at zero).
 
+### 7.54 An option that is accepted, passed and never read looks exactly like a shipped feature
+
+**Symptom (2026-09-21):** the Parties tab was missing from the PDF report four days after a commit titled
+"Parties reach both exports". Everything a search looks for was there: `GenerateProjectPdfOptions.parties`
+declared, `import type { Party }` at the top of the file, and the export modal loading the list and passing it to
+the workbook AND the PDF. Three of the four steps were real. Nothing printed it.
+
+**Mechanism:** plumbing a value to a builder and READING it in that builder are separate edits, and only the
+second one shows up in the output. The type checker is silent by design: an unused optional property is legal, and
+an unused parameter is legal. So the only evidence was the absence of a table in a 90-page document, which nobody
+reads end to end.
+
+**The trap to avoid:** a grep for the field name answers "was it wired", not "is it printed". When a commit says
+a value reaches a surface, assert the value ON that surface, not the parameter in its signature.
+
+**Fix:** `buildModule1` takes `parties` and renders `buildPartiesTable`; `collectModuleContent` takes it too, so
+the verifier can hand in a list and read the rows back.
+
+**Proof:** `verify-pdf-export` passes two named parties in and asserts both rows and the builder's three columns
+come out; it fails if the tab is dropped or the option stops being read.
+
+### 7.55 A verifier that counts call sites is measuring the implementation, not the rule
+
+**Symptom (2026-09-21):** "area/land: one helper resolves both, and every asset figure goes through it" failed
+with "2 call sites" on a change that made the report MORE correct, because Module 1 stopped resolving areas
+itself and started reading the assets tab's own view model, which resolves them through the same two engine
+functions.
+
+**Mechanism:** the rule was "nothing re-derives area or land". The check expressed it as `pdfAreaOf(` appearing at
+least five times, which is a count of one particular way of obeying the rule. Obey it a better way and the count
+falls, so the guard reports a regression where there was an improvement. The pressure at that moment is to lower
+the number until it passes, which leaves a guard that asserts nothing.
+
+**The trap to avoid:** when a structural check fails on a change you believe is right, decide whether the CHECK or
+the CODE encodes the rule. Re-aim it at the rule and say so in the file; never just relax the threshold.
+
+**Fix:** the check keeps a floor for the summary's own helper and adds a named assertion that Module 1 imports
+`buildAssetAreaTables` / `buildAssetLandView` / `buildSubUnitLines` / `buildStandardsView` from the shared view,
+with the hand-rolled-fallback checks (typed BUA, raw land allocation) untouched.
+
+**Proof:** `verify-pdf-export` 133/0 with the guard strictly larger than it was: it now fails both on a
+re-derivation and on Module 1 dropping the shared view.
+
 ## 8. Registries and two-step registration
 
 ### 8.1 A template registered in one place and not the other fails silently and permanently

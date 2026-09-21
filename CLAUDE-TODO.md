@@ -3,6 +3,25 @@
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
 ---
+## START HERE 2026-09-21: THE EXPORT SWEEP, WHAT IS LEFT OF IT
+
+**DONE 2026-09-21 (detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-21):** the PDF report's **Module 1** now prints
+the platform's seven tabs and **Module 5** its three, both through the shared builders the workbook was rebuilt on,
+with the exit working and the operating KPIs added and the wide tables made readable. Module 6 was measured against
+its screen and needed nothing. **The report and the workbook are now both a copy of the platform, module by module.**
+
+**OPEN, in order:**
+1. **The one real failure left in `verify-report-arithmetic`**: "per-asset cost never exceeds total development
+   cost", 6262.9 against 4912.2 on the fixture. PROVED PRE-EXISTING by stashing on 2026-09-21, so it is a real
+   finding about per-asset cost, not export damage. Diagnose it next.
+2. **Module 7 (the IC deck) has not been through this sweep**, and it is the one surface that carries numbers a
+   reader takes to a committee. It binds keys rather than copying figures, so the question is whether its slides
+   still name what the screens name after the Module 1 and 2 restructures.
+3. **Nothing has been browser-verified since the sweep began.** Both exports are measured by verifier and by
+   dumping the content model; a human has not opened the PDF or the workbook.
+4. Everything still open from the 2026-09-14 list below.
+
+---
 ## START HERE 2026-09-14: WHAT CHANGED SINCE 2026-09-13, THEN THE 2026-09-13 LIST BELOW
 
 Detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-14. **DONE today:** the hotel operating statement on the
