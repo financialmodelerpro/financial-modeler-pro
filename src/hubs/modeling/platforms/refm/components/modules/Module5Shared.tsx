@@ -10,6 +10,7 @@
 import React from 'react';
 import { FAST_INPUT } from './_shared/inputStyles';
 import { OverrideBadge } from './_shared/OverrideBadge';
+import { TERMINAL_METHOD_LABELS } from '../../lib/state/module1-types';
 
 /** Format a decimal as a percentage; null -> "n/a". */
 export function fmtPct(v: number | null | undefined, dp = 1): string {
@@ -180,10 +181,10 @@ export function AssumptionsPanel(props: {
             onChange={(e) => onChange({ terminalMethod: e.target.value as AssumptionsValue['terminalMethod'] })}
             style={selectStyle}
           >
-            <option value="exit_multiple">Exit Multiple</option>
-            <option value="cap_rate">Exit Cap Rate</option>
-            <option value="perpetuity">Perpetuity (Gordon)</option>
-            <option value="none">None</option>
+            {/* One list, beside the field it names (2026-09-21). */}
+            {(Object.keys(TERMINAL_METHOD_LABELS) as Array<keyof typeof TERMINAL_METHOD_LABELS>).map((k) => (
+              <option key={k} value={k}>{TERMINAL_METHOD_LABELS[k]}</option>
+            ))}
           </select>
         </div>
         {value.terminalMethod === 'exit_multiple' && (

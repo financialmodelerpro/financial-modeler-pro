@@ -59,6 +59,7 @@ import { formatAccounting, formatArea, formatInteger, type DisplayScale } from '
 import { computeSubUnitArea, computePhaseTimeline, computeProjectTimeline } from '@/src/core/calculations';
 import {
   FUNDING_METHOD_LABELS, FUNDING_METHOD_DESCRIPTIONS, REPAYMENT_METHOD_LABELS, PHASE_STATUS_LABELS,
+  TERMINAL_METHOD_LABELS,
   DEFAULT_COVENANTS, type FundingMethodId, type Asset,
 } from '../state/module1-types';
 import {
@@ -3210,14 +3211,20 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
   const tm = String(cfg.terminalMethod);
   const capCfg = cfg as { capRate?: number; capRateDerived?: number; capRateSource?: string };
   const capDerived = capCfg.capRateSource === 'derived';
+  // THE METHOD IS NAMED ONCE (2026-09-21), from the list beside the field, so
+  // the report, the workbook, the disposal working and the Returns screen all
+  // call it the same thing. This file used to say "Cap rate on stabilised NOI"
+  // and "Perpetuity growth (Gordon)" where the screen says "Exit Cap Rate" and
+  // "Perpetuity (Gordon)", so two exports of one model read as two settings.
+  const methodName = TERMINAL_METHOD_LABELS[tm as keyof typeof TERMINAL_METHOD_LABELS] ?? tm;
   const methodRows: Array<[string, string]> = tm === 'perpetuity'
-    ? [['Terminal value method', 'Perpetuity growth (Gordon)'], ['Perpetuity growth', fmt.pct(cfg.perpetuityGrowth, 2)]]
+    ? [['Terminal value method', methodName], ['Perpetuity growth', fmt.pct(cfg.perpetuityGrowth, 2)]]
     : tm === 'cap_rate'
-      ? [['Terminal value method', 'Cap rate on stabilised NOI'],
+      ? [['Terminal value method', methodName],
         [capDerived ? 'Cap rate (derived from the model)' : 'Cap rate (typed)', fmt.pct((capDerived ? capCfg.capRateDerived : capCfg.capRate) ?? 0, 2)]]
       : tm === 'none'
-        ? [['Terminal value method', 'None']]
-        : [['Terminal value method', 'Exit multiple'], ['Exit multiple', `${(cfg.exitMultiple ?? 0).toFixed(2)}x`]];
+        ? [['Terminal value method', methodName]]
+        : [['Terminal value method', methodName], ['Exit multiple', `${(cfg.exitMultiple ?? 0).toFixed(2)}x`]];
   items.push(tTable(m5Tab('Returns'), 'inputs', kvTable('Returns Assumptions', [
     ['Discount rate', fmt.pct(cfg.discountRate, 2)],
     ['Exit year', String(returns.exitYearLabel)],

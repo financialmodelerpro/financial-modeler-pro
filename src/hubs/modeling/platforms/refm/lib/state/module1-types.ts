@@ -3154,6 +3154,23 @@ export type FundingMethodId = 1 | 2 | 3 | 4;
 
 export const FUNDING_METHOD_IDS: readonly FundingMethodId[] = [1, 2, 3, 4] as const;
 
+/**
+ * THE TERMINAL VALUE METHOD NAMES (2026-09-21), beside the field they name.
+ *
+ * There were THREE sets for one thing: the Returns screen and the workbook
+ * said "Exit Cap Rate" (the workbook holding a private copy of the screen's
+ * list), the report said "Cap rate on stabilised NOI", and the disposal
+ * working said "Exit cap rate". A reader comparing the two exports could not
+ * tell whether they had been run on the same setting.
+ *
+ * One set, the screen's, because the screen is where the method is chosen.
+ */
+export const TERMINAL_METHOD_LABELS: Record<NonNullable<NonNullable<Project['returns']>['terminalMethod']>, string> = {
+  exit_multiple: 'Exit Multiple',
+  cap_rate: 'Exit Cap Rate',
+  perpetuity: 'Perpetuity (Gordon)',
+  none: 'None',
+};
 export const FUNDING_METHOD_LABELS: Record<FundingMethodId, string> = {
   1: 'Fixed Debt-to-Equity Ratio',
   2: 'Net Funding Requirement',

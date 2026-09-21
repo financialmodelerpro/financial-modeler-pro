@@ -12,6 +12,7 @@
  *
  * Pure. No em dashes in this file.
  */
+import { TERMINAL_METHOD_LABELS } from '../state/module1-types';
 import type { ProjectFinancialsSnapshot } from '../financials-resolvers';
 import type { computeReturnsSnapshot } from '../returns-resolvers';
 
@@ -43,12 +44,8 @@ export interface DisposalWorking {
   byAsset: DisposalAssetRow[];
 }
 
-const METHOD_LABEL: Record<string, string> = {
-  cap_rate: 'Exit cap rate',
-  exit_multiple: 'Exit multiple',
-  perpetuity: 'Perpetuity (Gordon)',
-  none: 'None',
-};
+// The ONE set lives beside the field it names (module1-types).
+const METHOD_LABEL = TERMINAL_METHOD_LABELS;
 
 export function buildDisposalWorking(
   snap: Pick<ProjectFinancialsSnapshot, 'disposal' | 'pl' | 'directCF' | 'bs' | 'yearLabels'>,

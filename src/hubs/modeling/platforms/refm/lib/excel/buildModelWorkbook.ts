@@ -49,6 +49,7 @@ import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { resolveAssetAreaMetrics, computePhaseTimeline, computeProjectTimeline, resolveSubUnitAdr, type AssetAreaMetrics } from '@/src/core/calculations';
 import { FUNDING_METHOD_LABELS, COST_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
 import { CAPEX_SECTIONS } from '../reports/capexReports';
+import { TERMINAL_METHOD_LABELS } from '../state/module1-types';
 import { buildConsolidatedReport, perAssetCostsFromTreatment } from '../reports/consolidatedReport';
 import { buildSellingCostReport, SELLING_COSTS_CAPTION, SELLING_COSTS_YOY_CAPTION } from '../reports/sellingCostReports';
 import {
@@ -3794,10 +3795,6 @@ const retPct = (v: number | null | undefined, d = 1): string => (v != null && Nu
 const retMult = (v: number | null | undefined): string => (v != null && Number.isFinite(v) ? `${v.toFixed(2)}x` : 'n/a');
 const retMoney = (currency: string) => (v: number | null | undefined): string => `${currency} ${formatAccounting(v ?? 0, 'millions', 1)} m`;
 
-/** The platform's terminal value method names (Module5Shared AssumptionsPanel). */
-const TERMINAL_METHOD_LABELS: Record<string, string> = {
-  exit_multiple: 'Exit Multiple', cap_rate: 'Exit Cap Rate', perpetuity: 'Perpetuity (Gordon)', none: 'None',
-};
 /** The sensitivity variable names, as the Returns tab's selectors show them. */
 const SENS_LABELS: Record<SensitivityVariable, { label: string; kind: 'rate' | 'shock' }> = {
   exit_cap_rate: { label: 'Exit Cap Rate', kind: 'rate' },
