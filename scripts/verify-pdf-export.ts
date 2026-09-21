@@ -280,7 +280,11 @@ async function main(): Promise<void> {
   const coverOnly = await generateProjectPdf({
     state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: [],
   });
-  check('empty selection => cover + exec summary (2 pages)', (await pageCount(coverOnly)) === 2, '');
+  // BOTH ARE MANDATORY, and the executive summary is no longer one page: it
+  // carries the Project Dashboard's bands (2026-09-21). What this asserts is
+  // that selecting nothing still produces the cover and the summary, not a
+  // particular length for them.
+  check('empty selection => cover + exec summary (both present)', (await pageCount(coverOnly)) >= 2, '');
 
   // Display scale option: thousands produces a (generally) larger byte stream
   // than millions for the same content (more digits per cell), and both are
@@ -440,7 +444,14 @@ async function main(): Promise<void> {
   // Additive-only guard: nav is scoped to the full report; the empty-selection
   // full report and the summary PDF carry NO ToC / breaks / outline.
   const emptyNav = await parseNav(await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: [] }));
-  check('empty selection adds no navigation (cover + exec only)', emptyNav.pageCount === 2 && emptyNav.tocPages.length === 0 && emptyNav.breakPages.size === 0 && !emptyNav.hasOutline, `pages=${emptyNav.pageCount} toc=${emptyNav.tocPages.length} breaks=${emptyNav.breakPages.size} outline=${emptyNav.hasOutline}`);
+  // THE ASSERTION IS THE NAVIGATION, NOT THE PAGE COUNT (2026-09-21). This
+  // pinned exactly two pages, which was the cover plus a one-page executive
+  // summary; the summary now carries the dashboard's bands and runs to two
+  // pages, which is a layout fact and not a navigation one. What must stay true
+  // is that selecting no module adds no ToC, no module breaks and no outline.
+  check('empty selection adds no navigation (cover + exec only)',
+    emptyNav.pageCount >= 2 && emptyNav.tocPages.length === 0 && emptyNav.breakPages.size === 0 && !emptyNav.hasOutline,
+    `pages=${emptyNav.pageCount} toc=${emptyNav.tocPages.length} breaks=${emptyNav.breakPages.size} outline=${emptyNav.hasOutline}`);
   const summaryNav = await parseNav(await generateSummaryPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: [] }));
   check('summary PDF is unchanged (no ToC / breaks / outline)', summaryNav.tocPages.length === 0 && summaryNav.breakPages.size === 0 && !summaryNav.hasOutline, `toc=${summaryNav.tocPages.length} breaks=${summaryNav.breakPages.size} outline=${summaryNav.hasOutline}`);
 

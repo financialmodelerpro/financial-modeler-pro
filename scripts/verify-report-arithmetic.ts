@@ -272,19 +272,26 @@ async function runFor(tag: string, state: any): Promise<void> {
   console.log('-- B1: the summary PDF P&L column adds up --');
   const common = { state, projectName: 'Arithmetic Check', dateLabel: '12 August 2026', displayScale: 'millions' } as any;
   const sumTxt = decode(await generateSummaryPdf({ ...common, selectedModuleKeys: [] }));
-  const rev = rowTotal(sumTxt, 'Total revenue');
-  const cos = rowTotal(sumTxt, 'Cost of sales');
-  const opex = rowTotal(sumTxt, 'Operating expenses');
-  const fee = snap.fundFees.active ? rowTotal(sumTxt, 'Total Fund Management Fee') : 0;
-  const ebitda = rowTotal(sumTxt, 'EBITDA');
-  const da = rowTotal(sumTxt, 'Depreciation & amortization');
-  const ebit = rowTotal(sumTxt, 'EBIT');
-  const interest = rowTotal(sumTxt, 'Interest expense');
+  // SCOPED TO THE STATEMENT, NOT THE FIRST MATCH (2026-09-21). The executive
+  // summary now carries the Project Dashboard's bands, including a Phases table
+  // with an "EBITDA" COLUMN HEADER, so a whole-document search for the row
+  // "EBITDA" found the header and read the phase name beneath it as its total.
+  // The rows below belong to "Profit & Loss (summary)" and are read from there.
+  const plAt = sumTxt.split('\n').findIndex((l) => /^Profit & Loss \(summary\)$/.test(l.trim()));
+  const rowTotalPL = (label: string): number | null => rowTotal(sumTxt, label, Math.max(0, plAt));
+  const rev = rowTotalPL('Total revenue');
+  const cos = rowTotalPL('Cost of sales');
+  const opex = rowTotalPL('Operating expenses');
+  const fee = snap.fundFees.active ? rowTotalPL('Total Fund Management Fee') : 0;
+  const ebitda = rowTotalPL('EBITDA');
+  const da = rowTotalPL('Depreciation & amortization');
+  const ebit = rowTotalPL('EBIT');
+  const interest = rowTotalPL('Interest expense');
   // Printed only when a disposal is booked at the exit (2026-09-14).
-  const gain = rowTotal(sumTxt, 'Gain on disposal of operating assets');
-  const pbt = rowTotal(sumTxt, 'Profit before tax');
-  const tax = rowTotal(sumTxt, 'Tax / Zakat');
-  const pat = rowTotal(sumTxt, 'Profit after tax');
+  const gain = rowTotalPL('Gain on disposal of operating assets');
+  const pbt = rowTotalPL('Profit before tax');
+  const tax = rowTotalPL('Tax / Zakat');
+  const pat = rowTotalPL('Profit after tax');
   const got = [rev, cos, opex, fee, ebitda, da, ebit, interest, pbt, tax, pat];
   check('every summary P&L Total cell decoded', got.every((v) => v !== null), JSON.stringify(got));
   if (got.every((v) => v !== null)) {

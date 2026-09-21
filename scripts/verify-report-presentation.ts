@@ -373,8 +373,21 @@ async function main(): Promise<void> {
     check('P5: the fund block says it is a restatement', flat(restated).includes('SAME Distributed Equity IRR and MOIC'));
     check('P5: it names the split', flat(restated).includes('before the performance fee'));
     check('P5: it is EMPTY on a standalone project', fundHeadlineRestatementNote(fundCtx(fixture({ fund: false }))) === '');
-    const cardHits = (txt: string): number => txt.split('\n').filter((l) => /^DISTRIBUTED EQUITY (IRR|MOIC)$/.test(l.trim())).length;
-    check('P5: the summary carries the card pair ONCE, not twice', cardHits(summary) === 2, `${cardHits(summary)} card lines (2 = one IRR + one MOIC)`);
+    // THE PAIR IS ONE CARD NOW (2026-09-21). The executive summary carries the
+    // Project Dashboard's bands, where a return is an IRR beside its own MOIC
+    // in one tile ("DISTRIBUTED DDM", MOIC in the sub-line) rather than two
+    // tiles captioned "DISTRIBUTED EQUITY IRR" and "... MOIC". What P5 guards
+    // is unchanged: the distributed figure is stated ONCE in a view, not
+    // restated, so the count is of the one caption and the old pair must be
+    // gone rather than merely rarer.
+    // The caption carries its basis in PARENTHESES, which pdf-lib writes as PUA
+    // glyphs; this file decodes them, so the pattern must include the brackets
+    // (a scratch dump without the PUA map shows "DISTRIBUTED DDM", TRAPS 4.1).
+    const cardHits = (txt: string): number => txt.split('\n').filter((l) => /^DISTRIBUTED \(DDM\)$/.test(l.trim())).length;
+    const oldPairHits = (txt: string): number => txt.split('\n').filter((l) => /^DISTRIBUTED EQUITY (IRR|MOIC)$/.test(l.trim())).length;
+    check('P5: the summary carries the distributed pair ONCE, not twice',
+      cardHits(summary) === 1 && oldPairHits(summary) === 0,
+      `${cardHits(summary)} dashboard cards, ${oldPairHits(summary)} old split cards`);
     check('P5: the summary returns page points at where they are',
       flat(summary).includes('are reported in the Executive Summary'));
     check('P5: the summary still reports the figures somewhere', /DISTRIBUTED EQUITY IRR/.test(summary));

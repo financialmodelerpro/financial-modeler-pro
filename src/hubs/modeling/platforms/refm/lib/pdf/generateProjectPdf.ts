@@ -108,6 +108,7 @@ import { revenueBySection } from '../reports/revenueSections';
 import { idcWithDisposal, disposalContextOf } from '../reports/disposalSchedules';
 import { buildCaseYoYReport, type CaseYoYReport } from '../reports/caseYoYReport';
 import { buildAssumptionGrid } from '../reports/scenarioAssumptions';
+import { buildOverviewReport } from '../reports/overviewReport';
 import { formatAssumptionValue } from '../cases/assumptionGrid';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { MODULES, type ModuleConfig } from '../modules-config';
@@ -1146,28 +1147,91 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
   drawParagraph(ctx, narrative, 9);
   ctx.y -= 4;
 
-  // KPI cards (incl. Dividend IRR / MOIC, Land + Construction split).
-  const cards: PdfCard[] = [];
-  if (returns) {
-    const r = returns.result;
-    for (const c of headlineReturnCards(returns, fmt)) {
-      if (c.label !== 'Terminal Equity Value') cards.push(c);
+  // THE DASHBOARD'S OWN BANDS (2026-09-21), from buildOverviewReport, which the
+  // Project Dashboard screen and the workbook Summary both read. The card set
+  // below used to be this file's own design and predated the dashboard, so the
+  // two exports opened on different summaries of one model.
+  const ov = returns ? (() => { try { return buildOverviewReport(snap, returns, state); } catch { return null; } })() : null;
+  const pctOrNa = (v: number | null): string => (v == null ? 'n/a' : fmt.pct(v, 1));
+  const multOrNa = (v: number | null): string => (v == null ? 'n/a' : fmt.mult(v));
+  if (!ov && returns) {
+    // A HEADLINE IS NEVER ABSENT (2026-09-21). The bands below come from the
+    // overview builder; if it cannot build for this model, the page falls back
+    // to the returns cards rather than opening on no returns at all.
+    drawCards(ctx, 'Headline returns', headlineReturnCards(returns, fmt).filter((c) => c.label !== 'Terminal Equity Value'));
+  }
+  if (ov) {
+    // 1. Headline returns: three pairs, each IRR beside its own MOIC, the
+    //    distributed pair post-fee with pre-fee beneath where a fund exists.
+    drawCards(ctx, 'Headline returns', ov.returns.map((x) => ({
+      label: x.label,
+      value: pctOrNa(x.irr),
+      // The distributed pair states the BASIS in words, not only by printing
+      // the gross beside it: 'net of performance fee' is what makes the pair
+      // readable without the fund section.
+      sub: x.preFeeIrr != null ? `net of fee · MOIC ${multOrNa(x.moic)}` : `MOIC ${multOrNa(x.moic)}`,
+    })));
+    // The basis in full, under the band: a card sub is a label and truncates,
+    // so the sentence goes where a sentence fits.
+    {
+      const dist = ov.returns.find((x) => x.key === 'distributed');
+      if (dist && dist.preFeeIrr != null) {
+        drawParagraph(ctx, `Distributed returns are net of performance fee: ${pctOrNa(dist.irr)} and MOIC ${multOrNa(dist.moic)} after it, against ${pctOrNa(dist.preFeeIrr)} and MOIC ${multOrNa(dist.preFeeMoic ?? null)} before. The Debt / Equity mix is measured on TOTAL sources, which include customer collections and operating cash, so it is not the ratio new funding is drawn at.`, 8);
+      }
     }
+    // 2. Cost per sqm: the first number a developer quotes.
+    const c = ov.costPerSqm;
+    drawCards(ctx, 'Cost per sqm', [
+      { label: 'Development cost / GFA', value: c.developmentCostPerGfa == null ? 'n/a' : fmt.int(c.developmentCostPerGfa), sub: `${rateUnit(p.currency ?? 'SAR', 'sqm')} incl. land` },
+      { label: 'Construction cost / GFA', value: c.constructionCostPerGfa == null ? 'n/a' : fmt.int(c.constructionCostPerGfa), sub: 'excludes land' },
+      { label: 'Development cost / saleable', value: c.developmentCostPerSaleable == null ? 'n/a' : fmt.int(c.developmentCostPerSaleable), sub: 'per saleable sqm' },
+      { label: 'Revenue / saleable', value: c.revenuePerSaleable == null ? 'n/a' : fmt.int(c.revenuePerSaleable), sub: 'what it sells or lets for' },
+    ]);
+    // 3. Key economics.
+    const de2 = returns!.developmentEconomics;
+    drawCards(ctx, 'Key economics', [
+      { label: 'Gross Development Value', value: fmt.money(de2.gdv) },
+      { label: 'Total Development Cost', value: fmt.money(de2.totalDevelopmentCost), sub: 'land + capex' },
+      { label: 'Profit after Financing', value: fmt.money(de2.profitAfterFinancing) },
+      { label: 'Development Margin', value: pctOrNa(de2.developmentMargin), sub: 'profit / GDV' },
+    ]);
+    // 4. Cost and capital structure.
+    drawCards(ctx, 'Cost & capital structure', [
+      { label: 'Land Cost', value: fmt.money(landCost) },
+      { label: 'Capex (construction)', value: fmt.money(constructionCost), sub: 'excl. land' },
+      { label: 'Debt / Equity (of total sources)', value: `${fmt.pct(returns!.fundingMix.debtPct, 0)} / ${fmt.pct((returns!.fundingMix.cashEquityPct ?? 0) + (returns!.fundingMix.inKindEquityPct ?? 0), 0)}`, sub: 'the achieved mix' },
+      { label: 'Peak Equity', value: fmt.money(returns!.result.realEstate.peakEquity) },
+      { label: 'Total Financing Cost', value: fmt.money(de2.totalFinancingCost) },
+      { label: 'Cap Rate at Exit', value: pctOrNa(returns!.result.realEstate.capRateAtExit) },
+      ...(snap.fundFees.active
+        ? [{ label: 'Fund Fees', value: fmt.money(sum(snap.fundFees.totalPerPeriod)), sub: 'over the hold, EBITDA is after' }]
+        : []),
+    ]);
+    // 5. Timeline and structure.
+    drawCards(ctx, 'Timeline & structure', [
+      { label: 'Start year', value: String(returns!.yearLabels[0] ?? snap.projectStartYear) },
+      { label: 'Model horizon', value: `${returns!.yearLabels.length} yr`, sub: `to ${returns!.exitYearLabel}` },
+      { label: 'Phases', value: String(state.phases.length) },
+      { label: 'Lines', value: String(ov.scheme.lines), sub: 'consolidated' },
+    ]);
+    // 6. The scheme.
+    drawCards(ctx, 'The scheme', [
+      { label: 'Total land area', value: `${fmt.area(ov.scheme.landSqm)} sqm`, sub: fmt.money(ov.scheme.landValue) },
+      { label: 'Total GFA', value: `${fmt.area(ov.scheme.gfaSqm)} sqm`, sub: `BUA ${fmt.area(ov.scheme.buaSqm)}` },
+      { label: 'Plot ratio', value: ov.scheme.plotRatio == null ? 'n/a' : `${ov.scheme.plotRatio.toFixed(2)}x`, sub: 'GFA / land' },
+      { label: 'Saleable and leasable', value: `${fmt.area(ov.scheme.saleableSqm)} sqm`, sub: `${fmt.int(ov.scheme.units)} units, ${fmt.int(ov.scheme.keys)} keys, ${fmt.area(ov.scheme.leasableSqm)} sqm let` },
+    ]);
   }
-  cards.push({ label: 'Total Dev Cost', value: fmt.money(fin.capex.totals.inclAllLand), sub: 'incl. land' });
-  cards.push({ label: 'Land Cost', value: fmt.money(landCost), sub: 'land only' });
-  cards.push({ label: 'Construction Cost', value: fmt.money(constructionCost), sub: 'excl. land' });
-  cards.push({ label: 'Total Revenue (GDV)', value: fmt.money(gdv), sub: 'over the hold' });
-  cards.push({ label: 'Peak Debt', value: fmt.money(Math.max(0, ...snap.bs.debtOutstandingPerPeriod)), sub: 'max outstanding' });
-  if (snap.fundFees.active) {
-    cards.push({ label: 'Fund Fees', value: fmt.money(sum(snap.fundFees.totalPerPeriod)), sub: 'over the hold, EBITDA is after' });
-  }
-  drawCards(ctx, 'Headline KPIs', cards);
 
   // Asset composition. A BUA of zero is marked and footnoted when it is
   // structural (an existing operational asset with no new build, or a companion
   // whose area sits on its parent), so it does not read as missing data beside
   // six assets reporting real areas.
+  // THE ASSETS THEMSELVES, kept beside the by-type table because they answer
+  // different questions (which assets exist, against what is being built) and
+  // because this is the ONLY page of the concise summary: it is where a
+  // structurally nil built area is marked and footnoted, so a zero beside six
+  // real areas does not read as missing data.
   const notes = buildAssetNotes(state, fmt.money);
   drawGridTable(ctx, {
     title: 'Asset Composition', kind: 'grid', align: 'data',
@@ -1181,6 +1245,47 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
     }),
   }, fmt);
   for (const fn of notes.takeFootnotes()) drawParagraph(ctx, fn.text, 7.5);
+  // LAND AND BUILD BY TYPE, as the dashboard and the workbook Summary show it.
+  // This was a per-asset list, which is Module 1 tab 5's job and said nothing
+  // about what is being built.
+  if (ov && ov.byType.length) {
+    drawGridTable(ctx, {
+      title: 'Land and build by type', kind: 'grid', align: 'data',
+      columns: ['Asset type', 'Land (sqm)', 'Share of land', 'GFA (sqm)', 'Units', 'Keys', 'Leasable (sqm)'],
+      rows: [
+        ...ov.byType.map((t) => row([t.label, fmt.area(t.landSqm), fmt.pct(t.landPct, 1), fmt.area(t.gfaSqm),
+          t.units > 0 ? fmt.int(t.units) : '-', t.keys > 0 ? fmt.int(t.keys) : '-', t.leasableSqm > 0 ? fmt.area(t.leasableSqm) : '-'])),
+        row(['Total', fmt.area(ov.scheme.landSqm), '100.0%', fmt.area(ov.scheme.gfaSqm),
+          ov.scheme.units > 0 ? fmt.int(ov.scheme.units) : '-', ov.scheme.keys > 0 ? fmt.int(ov.scheme.keys) : '-',
+          ov.scheme.leasableSqm > 0 ? fmt.area(ov.scheme.leasableSqm) : '-'], 'total'),
+      ],
+    }, fmt);
+  }
+  if (ov && ov.revenueMix.length) {
+    drawGridTable(ctx, {
+      title: 'Revenue mix', kind: 'grid', align: 'data',
+      columns: ['Section', 'Revenue', 'Share'],
+      rows: ov.revenueMix.map((x) => row([x.label, fmt.money(x.value), fmt.pct(x.pct, 1)])),
+    }, fmt);
+  }
+  if (ov && ov.phases.length) {
+    drawGridTable(ctx, {
+      title: 'Phases', kind: 'grid', align: 'data',
+      columns: ['Phase', 'Construction', 'Operations from', 'Lines', 'Land (sqm)', 'GFA (sqm)', 'Capex', 'Revenue', 'EBITDA'],
+      rows: ov.phases.map((ph) => row([ph.name, `${ph.startYear ?? 'n/a'} to ${ph.constructionEndYear ?? 'n/a'}`,
+        String(ph.operationsStartYear ?? 'n/a'), String(ph.lines), fmt.area(ph.landSqm), fmt.area(ph.gfaSqm),
+        fmt.money(ph.capex), fmt.money(ph.revenue), fmt.money(ph.ebitda)])),
+    }, fmt);
+  }
+  if (ov) {
+    drawCards(ctx, `Exit (${ov.exit.year})`, [
+      { label: 'Exit year', value: String(ov.exit.year), sub: ov.exit.booked ? 'held assets sold' : 'no terminal value' },
+      { label: 'Terminal value', value: fmt.money(ov.exit.terminalValue), sub: 'proceeds from disposal' },
+      { label: 'Gain on disposal', value: fmt.money(ov.exit.gainOnDisposal) },
+      { label: 'Peak debt', value: fmt.money(ov.exit.peakDebt) },
+      { label: 'Cash low point', value: fmt.money(ov.exit.cashLow), sub: ov.exit.cashLowYear == null ? '' : `in ${ov.exit.cashLowYear}` },
+    ]);
+  }
 
   // Financial structure as two columns (key/value pairs side by side) so the
   // Executive Summary stays on a single page.
@@ -3368,7 +3473,7 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
     { label: 'Equity Multiple (distributions)', value: fmt.mult(re.equityMultiple), sub: 'distributions / invested' },
   ]));
 
-  const dscrYears = re.dscrPerPeriod.filter((v) => v > 0);
+  const dscrYears = re.dscrPerPeriod.filter((v) => v !== 0);
   const dscrBelow = dscrYears.filter((v) => v < 1).length;
   // THE TILES ARE DERIVED FROM THE COVENANT SERIES THEY SIT ABOVE (2026-09-21),
   // the same inputs and reducers the covenant table on this page uses
@@ -3393,8 +3498,8 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
       ? { label: 'LTV (peak debt)', value: fmt.pct(ltvPeakTile, 1), sub: 'peak debt / GDV' }
       : { label: 'LTV at Exit', value: fmt.pct(re.ltvAtExit, 1), sub: 'debt / value at exit' },
     { label: 'Debt Yield', value: fmt.pct(debtYieldTile ?? re.debtYield, 1), sub: 'worst operating year, NOI / debt' },
-    { label: 'Min DSCR', value: fmt.mult(re.dscrMin), sub: dscrBelow > 0 ? `below 1.00x in ${dscrBelow} of ${dscrYears.length} yrs` : 'worst debt-service year' },
-    { label: 'Avg DSCR', value: fmt.mult(re.dscrAvg), sub: 'mean over debt-service years' },
+    { label: 'Min DSCR', value: fmt.mult(re.dscrMin), sub: dscrBelow > 0 ? `below 1.00x in ${dscrBelow} of ${dscrYears.length} operating yrs` : 'worst operating year' },
+    { label: 'Avg DSCR', value: fmt.mult(re.dscrAvg), sub: 'mean over operating years' },
     { label: 'Min Interest Cover', value: fmt.mult(re.icrMin), sub: 'EBITDA / interest' },
     { label: 'Avg Cash-on-Cash', value: fmt.pct(re.cashOnCashAvg, 1), sub: 'distributions / equity' },
   ]));
@@ -3402,7 +3507,7 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
   // The workbook paints it in the check red and says so; the PDF said nothing.
   if (dscrBelow > 0) {
     items.push(tItem(m5Tab('RE Metrics'), 'outputs', { type: 'paragraph', text:
-      `Debt service is not covered from operations in ${dscrBelow} of ${dscrYears.length} debt-service years `
+      `Debt service is not covered from operations in ${dscrBelow} of ${dscrYears.length} operating years `
       + `(minimum ${fmt.mult(re.dscrMin)}). Typical for a development funded from drawdowns, but it is a covenant `
       + `reading, not a neutral metric. Interest cover over the same years runs ${fmt.mult(re.icrMin)} to ${fmt.mult(Math.max(...re.icrPerPeriod))}, `
       + `so interest is covered and the amortisation is not.` }));
@@ -4384,8 +4489,8 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
       { label: 'Yield on Cost', value: fmt.pct(re.yieldOnCost, 2) },
       { label: 'Cap Rate at Exit', value: fmt.pct(re.capRateAtExit, 2) },
     ]);
-    const reDscrYears = re.dscrPerPeriod.filter((v) => v > 0).length;
-    const reDscrBelow = re.dscrPerPeriod.filter((v) => v > 0 && v < 1).length;
+    const reDscrYears = re.dscrPerPeriod.filter((v) => v !== 0).length;
+    const reDscrBelow = re.dscrPerPeriod.filter((v) => v !== 0 && v < 1).length;
     drawCards(ctx, `Exit & Leverage (${exa.exitYearLabel})`, [
       { label: 'Exit Equity Value', value: fmt.money(exa.exitEquityValue) },
       { label: 'LTV at Exit', value: fmt.pct(re.ltvAtExit, 1) },
