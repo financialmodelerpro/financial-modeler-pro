@@ -8,14 +8,21 @@
  * exit-year table, sensitivity, the ask), and the auto-omit predicate must omit a
  * section only when its data is absent / trivial (or its FORM field empty). The
  * section config must normalize (default order, additive, drop unknowns, reorder).
- * Real numbers were separately confirmed end to end against FMP RE HUB's live
- * snapshot (GDV 14,055M, Project IRR 11.9%, Equity IRR 8.3%, MOIC 2.40x, peak debt
- * 2,834.1M, sources/uses 10,440.0M).
+ * The tail of this file then runs the assembler on a REAL model (the committed
+ * existing-operations fixture) and asserts it describes the same scheme as the
+ * Project Overview builder. That leg is new on 2026-09-21: the numbers used to
+ * be "separately confirmed" by hand against a project that has since been
+ * deleted, which is not a check anyone can repeat.
  *
  * No em dashes in this file.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { buildICReportModel, icSectionOmitted, icVisibleSections } from '../src/hubs/modeling/platforms/refm/lib/reports/icReport';
+import { resolveAssetAreaMetrics, computeAssetLandBreakdown } from '../src/core/calculations';
+import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import { computeReturnsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/returns-resolvers';
+import { buildOverviewReport } from '../src/hubs/modeling/platforms/refm/lib/reports/overviewReport';
+import { buildExistingOperationsState } from './fixtures/existingOperationsState';
 import { normalizeSectionConfig, IC_SECTIONS, defaultReportInputs } from '../src/hubs/modeling/platforms/refm/lib/reportInputs';
 
 let pass = 0, fail = 0;
@@ -65,12 +72,28 @@ const snap: any = {
 };
 const project: any = { name: 'FMP RE HUB', location: 'Riyadh', country: 'KSA', financing: { fundingMethod: 3, minimumCashReserve: 50 } };
 const phases: any = [{ id: 'p1', name: 'Phase 1', startDate: '2026-01-01' }, { id: 'p2', name: 'Phase 2', constructionStart: 1 }];
+// THE RAW FIELDS ARE DELIBERATELY WRONG (2026-09-21). `buaTotal` / `buaSqm` /
+// `landAreaSqm` are the stored fields the IC model used to read directly, and
+// they are left here holding figures that do NOT match what the platform's own
+// rules resolve, so a return to reading them fails loudly instead of passing on
+// a number that happens to agree. Each asset also carries what those rules
+// need: a plot draw, and sub-units with a metric and a size.
 const assets: any = [
-  { id: 'a1', name: 'Hotel', type: 'Hotel', strategy: 'Operate', visible: true, phaseId: 'p1', buaTotal: 12083, landAreaSqm: 5000 },
-  { id: 'a2', name: 'Retail', type: 'Retail', strategy: 'Lease', visible: true, phaseId: 'p2', buaSqm: 2907, landAreaSqm: 3000 },
+  { id: 'a1', name: 'Hotel', type: 'Hotel', strategy: 'Operate', visible: true, phaseId: 'p1',
+    buaTotal: 12083, landAreaSqm: 5000, landAllocation: { parcelId: 'parcel1', sqm: 5000 } },
+  { id: 'a2', name: 'Retail', type: 'Retail', strategy: 'Lease', visible: true, phaseId: 'p2',
+    buaSqm: 2907, landAreaSqm: 3000, landAllocation: { parcelId: 'parcel2', sqm: 3000 } },
   { id: 'a3', name: 'Hidden', type: 'Hidden', strategy: 'Sell', visible: false, phaseId: 'p1' },
 ];
-const subUnits: any = [{ assetId: 'a1' }, { assetId: 'a1' }, { assetId: 'a2' }];
+const parcels: any = [
+  { id: 'parcel1', phaseId: 'p1', name: 'Plot A', area: 5000, rate: 1000, cashPct: 100, inKindPct: 0 },
+  { id: 'parcel2', phaseId: 'p2', name: 'Plot B', area: 3000, rate: 1000, cashPct: 100, inKindPct: 0 },
+];
+const subUnits: any = [
+  { id: 'su1', assetId: 'a1', name: 'Keys', category: 'Operable', metric: 'units', metricValue: 120, unitArea: 55, unitPrice: 900 },
+  { id: 'su2', assetId: 'a1', name: 'Suites', category: 'Operable', metric: 'units', metricValue: 30, unitArea: 80, unitPrice: 1400 },
+  { id: 'su3', assetId: 'a2', name: 'Shops', category: 'Leasable', metric: 'area', metricValue: 2907, unitArea: 0, unitPrice: 1200 },
+];
 const parties: any = [
   { id: '1', name: 'PaceMakers', identifier: null, roles: ['Sponsor', 'Developer'] },
   { id: '2', name: 'JV Investor Co', identifier: 'reg-1', roles: ['Investor/Equity Partner'] },
@@ -78,7 +101,24 @@ const parties: any = [
   { id: '4', name: 'Bank', identifier: null, roles: ['Lender'] },
 ];
 
-const m = buildICReportModel({ project, phases, parcels: [], assets, subUnits, rs, snap, parties, asOf: '2026-07-12', cases: [{ id: 'base' } as any] });
+const m = buildICReportModel({ project, phases, parcels, assets, subUnits, landAllocationMode: 'sqm', rs, snap, parties, asOf: '2026-07-12', cases: [{ id: 'base' } as any] });
+
+// ── AREA, LAND AND COUNTS COME FROM THE PLATFORM, NOT FROM STORED FIELDS ────
+// (2026-09-21). The IC model read `a.buaTotal ?? a.buaSqm`, `a.landAreaSqm` and
+// the COUNT OF SUB-UNIT ROWS. All three predate the Module 1 restructure, where
+// area is derived by the land chain and land is allocated per plot, so on
+// FMP - MARINA GATE the deck told a committee the scheme was 2,970 sqm against
+// the platform's 89,380, on 11,000 sqm of land against 37,000, with "1 unit" on
+// every line. The expectations below are computed with the SAME functions the
+// Project Overview, the workbook and the PDF call, so this cannot drift from
+// them, and each is paired with a check that the raw field is NOT the answer.
+const visibleMock = assets.filter((a: any) => a.visible);
+const expectedBua = visibleMock.reduce((t: number, a: any) => t + resolveAssetAreaMetrics(
+  a, project as any, parcels, visibleMock.filter((x: any) => x.phaseId === a.phaseId), subUnits, 'sqm').bua, 0);
+const expectedLand = visibleMock.reduce((t: number, a: any) => t + computeAssetLandBreakdown(
+  a, parcels, visibleMock, subUnits, 'sqm').landSqm, 0);
+const rawBua = visibleMock.reduce((t: number, a: any) => t + (a.buaTotal ?? a.buaSqm ?? 0), 0);
+const rawLand = visibleMock.reduce((t: number, a: any) => t + (a.landAreaSqm ?? 0), 0);
 
 // Headline maps to the exact snapshot fields (no placeholders).
 check('headline Project IRR = rs.result.fcff.irr', near(m.headline.projectIrr!, 0.119));
@@ -128,8 +168,14 @@ check('RE profit on cost = realEstate.profitOnCost', near(m.reMetrics.profitOnCo
 // RE-AIMED 2026-09-12 with the fixture: a row is named by the DERIVED label
 // (plot or phase, then type), never by the retired `Asset.name`.
 check('asset mix excludes hidden assets', m.assetMix.rows.length === 2 && !m.assetMix.rows.some((r) => r.name.includes('Hidden')));
-check('asset mix total BUA = 12083 + 2907', near(m.assetMix.totalBua, 14990));
-check('asset mix units summed from sub-units (2 + 1)', m.assetMix.totalUnits === 3);
+check('asset mix total BUA is the platform\'s resolved area, not the stored field',
+  near(m.assetMix.totalBua, expectedBua) && !near(m.assetMix.totalBua, rawBua));
+check('the stored BUA fields are still there to be wrongly read', near(rawBua, 14990));
+// A hotel is counted in KEYS and a for-sale line in units; a leasable line is an
+// area and counts neither. The old rule counted sub-unit ROWS, so this mock read
+// "3" whatever the rows said.
+check('asset mix units are keys and units, not a count of sub-unit rows',
+  m.assetMix.totalUnits === 150 && m.assetMix.totalUnits !== subUnits.length);
 check('asset mix by-strategy has Operate + Lease shares', m.assetMix.byStrategy.length === 2 && near(m.assetMix.byStrategy.reduce((s, x) => s + x.pct, 0), 1));
 check('asset row carries phase name', m.assetMix.rows.find((r) => r.name.includes('Hotel'))?.phaseName === 'Phase 1');
 
@@ -152,8 +198,9 @@ check('sensitivity axis variables carried', m.sensitivity.xVariable === 'exit_ca
 // Overview extras.
 check('overview strategy mix summarised', m.overview.strategyMix.includes('Operate') && m.overview.strategyMix.includes('Lease'));
 check('overview funding method label', m.overview.fundingMethodLabel === 'Cash Deficit Funding');
-check('overview total BUA', near(m.overview.totalBua, 14990));
-check('overview land area summed (visible)', near(m.overview.landAreaSqm, 8000));
+check('overview total BUA is the platform\'s resolved area', near(m.overview.totalBua, expectedBua));
+check('overview land area is the platform\'s land breakdown, not the stored field',
+  near(m.overview.landAreaSqm, expectedLand) && near(m.overview.landAreaSqm, 8000) && near(rawLand, 8000));
 
 // Overview: timeline, phases, visible-only asset mix.
 check('overview start year = yearLabels[0]', m.overview.startYear === 2026);
@@ -215,6 +262,36 @@ check('hidden flag preserved (cover hidden)', reordered.find((s) => s.key === 'c
 check('missing sections added back (additive)', reordered.length === IC_SECTIONS.length);
 const withUnknown = normalizeSectionConfig([{ key: 'not_a_section', visible: true, order: 0 }]);
 check('unknown section keys dropped', withUnknown.every((s) => IC_SECTIONS.some((x) => x.key === s.key)));
+
+// ── THE DECK AND THE PROJECT OVERVIEW DESCRIBE THE SAME SCHEME ──────────────
+// (2026-09-21) On a REAL model, not the mock above. The IC model and
+// `buildOverviewReport` are two surfaces answering "what is being built", and
+// until today they disagreed: the deck read stored fields and the overview read
+// the platform's rules. A committee gets the deck, so this is the surface where
+// disagreeing costs the most. Runs on the committed fixture, so it needs no
+// database and cannot be skipped.
+{
+  const st: any = buildExistingOperationsState();
+  const fxSnap: any = computeFinancialsSnapshot(st);
+  const fxRs: any = computeReturnsSnapshot(fxSnap, st.project);
+  const deckModel = buildICReportModel({
+    project: st.project, phases: st.phases, parcels: st.parcels, assets: st.assets,
+    subUnits: st.subUnits, landAllocationMode: st.landAllocationMode,
+    rs: fxRs, snap: fxSnap, parties: [], asOf: '2026-09-21', cases: [{ id: 'base' } as any],
+  });
+  const ov = buildOverviewReport(fxSnap, fxRs, st);
+  const close = (a: number, b: number): boolean => Math.abs(a - b) <= Math.max(1, Math.abs(b) * 1e-9);
+  check('deck total BUA equals the Project Overview\'s built area', close(deckModel.overview.totalBua, ov.scheme.buaSqm));
+  check('deck land area equals the Project Overview\'s land', close(deckModel.overview.landAreaSqm, ov.scheme.landSqm));
+  check('deck units or keys equal the Overview\'s units plus keys',
+    close(deckModel.assetMix.totalUnits, ov.scheme.units + ov.scheme.keys));
+  check('the deck names one row per consolidated line, as every surface after the assets tab does',
+    deckModel.assetMix.rows.length === ov.scheme.lines);
+  // A zero on both sides would satisfy every check above without proving
+  // anything, so the figures must be real.
+  check('the fixture actually carries area and land to compare',
+    ov.scheme.buaSqm > 0 && ov.scheme.landSqm > 0 && deckModel.assetMix.rows.length > 0);
+}
 
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
 process.exit(fail === 0 ? 0 : 1);

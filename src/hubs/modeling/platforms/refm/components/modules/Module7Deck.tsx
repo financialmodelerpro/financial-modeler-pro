@@ -195,7 +195,11 @@ export default function Module7Deck({ activeProjectId = null, onRegisterSave, on
       const snap = computeFinancialsSnapshot(sourceModel as never);
       const rs = computeReturnsSnapshot(snap, sourceModel.project);
       return buildICReportModel({ project: sourceModel.project, phases: sourceModel.phases,
-    parcels: sourceModel.parcels, assets: sourceModel.assets, subUnits: sourceModel.subUnits, rs, snap, parties, asOf, scenarios, cases: s.cases });
+        parcels: sourceModel.parcels, assets: sourceModel.assets, subUnits: sourceModel.subUnits,
+        // The deck resolves area and land through the platform's own rules, and
+        // those take the allocation mode (2026-09-21).
+        landAllocationMode: (sourceModel as { landAllocationMode?: 'sqm' | 'percent' | 'autoByBua' }).landAllocationMode,
+        rs, snap, parties, asOf, scenarios, cases: s.cases });
     } catch { return null; }
   }, [sourceModel, parties, asOf, scenarios, s.cases, s.project]);
 

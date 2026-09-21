@@ -40,6 +40,9 @@ import type { CaseComparisonReport } from './caseComparisonReport';
 import type { ReportInputs, ICSectionKey } from '../reportInputs';
 import { planReportLines, lineRowLabel } from './lineRows';
 import { revenueBySection } from './revenueSections';
+import { resolveAssetAreaMetrics, computeAssetLandBreakdown, computeAssetUnitCount } from '@/src/core/calculations';
+import { resolveAssetKeys } from '../revenue-resolvers';
+import type { LandAllocationMode } from '../state/module1-types';
 
 export interface ICPartyRef { name: string; identifier: string | null }
 export interface ICKeyValue { label: string; value: number }
@@ -321,7 +324,44 @@ export interface ICReportModel {
 const byRole = (parties: Party[], role: string): ICPartyRef[] =>
   parties.filter((p) => Array.isArray(p.roles) && p.roles.includes(role)).map((p) => ({ name: p.name, identifier: p.identifier ?? null }));
 
-const assetBua = (a: Asset): number => (a.buaTotal ?? a.buaSqm ?? 0);
+/**
+ * AREA, LAND AND COUNTS COME FROM THE PLATFORM'S RULES (2026-09-21).
+ *
+ * The IC model read the RAW stored fields: `a.buaTotal ?? a.buaSqm` for built
+ * area, `a.landAreaSqm` for land, and the NUMBER OF SUB-UNIT ROWS for "Units".
+ * All three predate the Module 1 restructure, where area is DERIVED by the land
+ * chain and land is allocated per plot, so on a real project the deck told a
+ * committee the wrong scheme: FMP - MARINA GATE showed a total BUA of 2,970 sqm
+ * against the platform's 89,380 (the only assets with a stored `buaSqm` are the
+ * two retail strips, which the companion planner stamps), land of 11,000 sqm
+ * against 37,000, and "1 unit" on every line because each line happened to have
+ * one sub-unit row.
+ *
+ * The same three functions the Project Overview, the workbook and the PDF call,
+ * with the same argument lists, so the four cannot disagree. This is TRAPS 7.52
+ * in the one surface that had not been through it.
+ */
+interface AreaCtx {
+  project: Project;
+  parcels: Parcel[];
+  visible: Asset[];
+  subUnits: SubUnit[];
+  mode: LandAllocationMode;
+}
+const assetBuaOf = (a: Asset, ctx: AreaCtx): number =>
+  resolveAssetAreaMetrics(a, ctx.project, ctx.parcels, ctx.visible.filter((x) => x.phaseId === a.phaseId), ctx.subUnits, ctx.mode).bua;
+const assetLandOf = (a: Asset, ctx: AreaCtx): number =>
+  computeAssetLandBreakdown(a, ctx.parcels, ctx.visible, ctx.subUnits, ctx.mode).landSqm;
+/** The countable inventory a committee reads: units for sale, keys to operate.
+ *  Leasable area is an AREA and is deliberately not counted here. */
+const assetUnitsOf = (a: Asset, ctx: AreaCtx): number => {
+  const strategy = String(a.strategy);
+  if (strategy === 'Operate') {
+    return resolveAssetKeys(a, ctx.subUnits, a.assetTypeId ? ctx.project.assetTypeValues?.[a.assetTypeId] : undefined).keys;
+  }
+  if (strategy === 'Sell' || strategy === 'Sell + Manage') return computeAssetUnitCount(a, ctx.subUnits);
+  return 0;
+};
 
 /**
  * Money for the fund GRID tables, which hold display strings.
@@ -372,6 +412,9 @@ export function buildICReportModel(input: {
   parcels: Parcel[];
   assets: Asset[];
   subUnits?: SubUnit[];
+  /** The one land rule (sqm only since 2026-09-14); defaulted for callers that
+   *  hand over a bare snapshot. */
+  landAllocationMode?: LandAllocationMode;
   rs: ReturnsSnapshot;
   snap: ProjectFinancialsSnapshot;
   parties: Party[];
@@ -380,6 +423,7 @@ export function buildICReportModel(input: {
   cases?: ProjectCase[];
 }): ICReportModel {
   const { project, phases, parcels, assets, subUnits = [], rs, snap, parties, asOf } = input;
+  const landAllocationMode: LandAllocationMode = input.landAllocationMode ?? 'sqm';
   const r = rs.result;
   const de = rs.developmentEconomics;
   const su = rs.sourcesUses;
@@ -401,6 +445,7 @@ export function buildICReportModel(input: {
   // ONE ROW PER CONSOLIDATED LINE (2026-09-15): a line of several plots is one
   // row of the asset schedule, its area and units summed, as on the capex tables.
   const lineState = { assets: visibleAssets, phases, parcels };
+  const areaCtx: AreaCtx = { project, parcels, visible: visibleAssets, subUnits, mode: landAllocationMode };
   const mixLines = planReportLines(lineState);
   const membersOf = (ids: readonly string[]): Asset[] => ids.map((id) => visibleAssets.find((a) => a.id === id)).filter((a): a is Asset => !!a);
   const assetRows: ICAssetRow[] = mixLines.map((line) => {
@@ -409,14 +454,14 @@ export function buildICReportModel(input: {
       name: lineRowLabel(line, lineState),
       strategy: line.strategy,
       phaseName: line.phaseName || phaseName(line.phaseId),
-      bua: members.reduce((s, a) => s + assetBua(a), 0),
-      units: members.reduce((s, a) => s + subUnitsForAsset(a.id), 0),
+      bua: members.reduce((s, a) => s + assetBuaOf(a, areaCtx), 0),
+      units: members.reduce((s, a) => s + assetUnitsOf(a, areaCtx), 0),
     };
   });
   const totalBua = assetRows.reduce((s, x) => s + x.bua, 0);
   const totalUnits = assetRows.reduce((s, x) => s + x.units, 0);
   const stratMap = new Map<string, number>();
-  for (const a of visibleAssets) stratMap.set(String(a.strategy), (stratMap.get(String(a.strategy)) ?? 0) + assetBua(a));
+  for (const a of visibleAssets) stratMap.set(String(a.strategy), (stratMap.get(String(a.strategy)) ?? 0) + assetBuaOf(a, areaCtx));
   const byStrategy: ICStrategyShare[] = [...stratMap.entries()]
     .map(([strategy, bua]) => ({ strategy, bua, pct: totalBua > 0 ? bua / totalBua : 0 }))
     .sort((x, y) => y.bua - x.bua);
@@ -919,7 +964,7 @@ export function buildICReportModel(input: {
       startYear,
       exitYear,
       durationYears,
-      landAreaSqm: visibleAssets.reduce((s, a) => s + (a.landAreaSqm ?? 0), 0),
+      landAreaSqm: visibleAssets.reduce((s, a) => s + assetLandOf(a, areaCtx), 0),
       totalBua,
       strategyMix,
       fundingMethodLabel,

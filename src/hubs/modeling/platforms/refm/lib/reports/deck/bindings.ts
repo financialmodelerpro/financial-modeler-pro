@@ -173,7 +173,7 @@ export const METRIC_BINDINGS: Record<MetricBindingKey, MetricDef> = {
   'overview.durationYears':   M('overview.durationYears', 'Horizon', 'Programme', 'years', (m) => m.overview.durationYears),
   'overview.startYear':       M('overview.startYear', 'Start Year', 'Programme', 'year', (m) => m.overview.startYear),
   'overview.exitYear':        M('overview.exitYear', 'Exit Year', 'Programme', 'year', (m) => m.overview.exitYear),
-  'assetMix.totalUnits':      M('assetMix.totalUnits', 'Total Units', 'Programme', 'int', (m) => m.assetMix.totalUnits),
+  'assetMix.totalUnits':      M('assetMix.totalUnits', 'Total Units or Keys', 'Programme', 'int', (m) => m.assetMix.totalUnits),
   'assetMix.totalBua':        M('assetMix.totalBua', 'Asset BUA', 'Programme', 'area', (m) => m.assetMix.totalBua),
   'programme.debtRepaidYear': M('programme.debtRepaidYear', 'Debt Repaid', 'Programme', 'year', (m) => m.programme.debtRepaidYear),
 };
@@ -508,7 +508,9 @@ const TABLE_DEFS: TableDef[] = [
     resolve: (m, f) => {
       if (!m.assetMix.rows.length) return missing('No assets are defined in this model');
       return ok({
-        headers: [h('Asset'), h('Strategy'), h('Phase'), h('BUA (sqm)', 'right'), h('Units', 'right')],
+        // "Units or keys", the platform's own Table 5 wording: a hotel line is
+        // counted in keys and a for-sale line in units.
+        headers: [h('Asset'), h('Strategy'), h('Phase'), h('BUA (sqm)', 'right'), h('Units or keys', 'right')],
         rows: [
           ...m.assetMix.rows.map((r) => ({ cells: [c(r.name), c(r.strategy), c(r.phaseName), c(f.int(r.bua), 'right'), c(r.units ? f.int(r.units) : '-', 'right')] })),
           { cells: [c('Total', 'left', true), c('', 'left'), c('', 'left'), c(f.int(m.assetMix.totalBua), 'right', true), c(m.assetMix.totalUnits ? f.int(m.assetMix.totalUnits) : '-', 'right', true)], emphasis: true },
