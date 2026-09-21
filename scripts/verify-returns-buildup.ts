@@ -145,6 +145,18 @@ if (SAB === 6) {
   //    reconstructed (rather than engine-supplied) split is free to do.
   for (let t = 0; t < N; t++) d.equityDevelopmentDrawdownPerPeriod[t] = (d.equityDevelopmentDrawdownPerPeriod[t] ?? 0) * 1.1;
 }
+if (SAB === 8) {
+  // 8: FCFE forgets that the sweep is holding cash back, which is exactly how
+  //    it read until 2026-09-22: cash earned in one year shows as paid to
+  //    equity and the next year's principal repayment claws it straight back.
+  //    On the live model that was 192.3m out and 192.3m back, and it bought
+  //    2.69 points of equity IRR from nothing but the ordering.
+  for (let t = 0; t < N; t++) {
+    const move = (d.closingCashPerPeriod[t] ?? 0) - (d.openingCashPerPeriod[t] ?? 0);
+    rs.fcfePerPeriod[t + 1] = (rs.fcfePerPeriod[t + 1] ?? 0) + move;
+    b.cashRetainedPerPeriod[t + 1] = (b.cashRetainedPerPeriod[t + 1] ?? 0) + move;
+  }
+}
 
 // ── 0. Not vacuous ───────────────────────────────────────────────────────────
 console.log('\n-- 0. The fixture exercises every piece --');
@@ -281,7 +293,15 @@ check('the FCFE chain is the reference four steps: FCFF, Net Debt, Finance Cost,
   && FCFE_BUILDUP_LABELS.some((l) => l.includes('Terminal Value less Closing Debt')), FCFE_BUILDUP_LABELS.join(' | '));
 check('it chains from PRE-TERMINAL FCFF, so it carries NO removal rows',
   !FCFE_BUILDUP_LABELS.some((l) => /in FCFF above|removal|back(ed)? out/i.test(l)));
-check('it is SHORT: at most five rows before the total', FCFE_BUILDUP_LABELS.length <= 6, `${FCFE_BUILDUP_LABELS.length} labels`);
+// SIX rows since 2026-09-22, when the cash-retention row landed. The bound is
+// here to stop the chain re-growing the "add the enterprise terminal then back
+// it out again" rows it once carried, not to cap honest content.
+check('it is SHORT: at most six rows before the total', FCFE_BUILDUP_LABELS.length <= 7, `${FCFE_BUILDUP_LABELS.length} labels`);
+check('exactly ONE cash-retention row, and it is a (-) charge',
+  FCFE_BUILDUP_LABELS.filter((l) => /cash retained/i.test(l)).length === 1
+  && FCFE_BUILDUP_LABELS.some((l) => /cash retained/i.test(l) && l.startsWith('(-)')));
+check('and NO cash-retention row appears in FCFF, which is unlevered and holds the firm\'s own cash',
+  !FCFF_BUILDUP_LABELS.some((l) => /cash retained/i.test(l)));
 check('exactly ONE finance-cost row', FCFE_BUILDUP_LABELS.filter((l) => /finance cost/i.test(l)).length === 1);
 // NO IN-KIND CREDIT. In-kind land is charged in FCFF (a (-) row) and FCFE
 // inherits it: no in-kind row of any sign appears in the FCFE chain. This is
@@ -312,11 +332,47 @@ check('and NO in-kind row of any sign appears in FCFE (FCFE inherits the charge,
       - (d.operatingInterestPaidPerPeriod[t] ?? 0)
       + (d.capexDrawdownPerPeriod[t] ?? 0) + (d.idcDrawdownPerPeriod[t] ?? 0)
       + (d.debtRepaymentPerPeriod[t] ?? 0);               // already negative
-    const fromStream = (rs.fcfePerPeriod[t + 1] ?? 0) - (b.terminalEquityPerPeriod[t + 1] ?? 0);
+    // The cash-retention row is taken off BOTH sides, so this still pins the
+    // chain underneath it exactly as it did before 2026-09-22. The retention
+    // itself is pinned by the identity below, which is a stronger statement.
+    const fromStream = (rs.fcfePerPeriod[t + 1] ?? 0) - (b.terminalEquityPerPeriod[t + 1] ?? 0)
+      - (b.cashRetainedPerPeriod[t + 1] ?? 0);
     const diff = Math.abs(equityCash - fromStream);
     if (diff > worst) { worst = diff; at = t; }
   }
   check("FCFE equals the equity holder's actual net cash, every period", worst < 1, `worst ${worst.toFixed(2)} at t=${at}`);
+}
+// THE RETENTION IDENTITY (2026-09-22). Cash the sweep holds back is not the
+// equity holder's, so BEFORE THE EXIT, FCFE must equal what equity actually
+// received less what it actually put in. Before the retention row this was out
+// by the whole sweep balance in two consecutive years (192.3m paid out in 2030
+// and clawed back in 2031 on the live model, worth 2.69 points of equity IRR),
+// and nothing failed, because every other check compared the chain to itself.
+//
+// UP TO THE EXIT ONLY, and that is not a dodge. The exit year carries the
+// terminal value and the release of any balance the project never distributed,
+// which are two different questions covered by their own checks above; the
+// retention question is entirely about the years in between, which is where the
+// defect lived. A project that pays no dividends at all (this fixture) reads
+// zero on both sides in its operating years, which is the same statement.
+{
+  let worst = 0, at = -1;
+  const exitIdx = rs.fcfePerPeriod.length - 2;
+  for (let t = 0; t < Math.min(N, exitIdx); t++) {
+    const received = (snap.dividends.totalDividendsPerPeriod[t] ?? 0);
+    const invested = (snap.financing.equity.cashPerPeriod[t] ?? 0)
+      + (snap.financing.equity.inKindPerPeriod[t] ?? 0);
+    const fromStream = (rs.fcfePerPeriod[t + 1] ?? 0) - (b.terminalEquityPerPeriod[t + 1] ?? 0);
+    const diff = Math.abs((received - invested) - fromStream);
+    if (diff > worst) { worst = diff; at = t; }
+  }
+  check('FCFE equals dividends paid less equity drawn, every period up to the exit',
+    worst < 1, `worst ${worst.toFixed(2)} at t=${at}`);
+  // The row is real on this fixture, so the check above is not vacuous.
+  check('the cash-retention row actually moves something on this fixture',
+    (b.cashRetainedPerPeriod ?? []).some((v) => Math.abs(v) > 1));
+  check('and it nets to zero across the stream: timing, never value',
+    Math.abs(sum(b.cashRetainedPerPeriod)) < 1, M(sum(b.cashRetainedPerPeriod)));
 }
 
 // ── 5. The cash flow statement ───────────────────────────────────────────────

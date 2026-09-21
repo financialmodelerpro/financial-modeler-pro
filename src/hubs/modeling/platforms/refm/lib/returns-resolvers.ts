@@ -161,6 +161,9 @@ export interface ReturnsBuildup {
   debtDrawPerPeriod: number[];          // (+) debt drawn for CAPEX
   idcDrawPerPeriod: number[];           // (+) debt drawn for IDC
   principalRepayPerPeriod: number[];    // (-) principal repaid (already negative)
+  /** (-) cash the project retained rather than paid out, returned at the exit.
+   *  FCFE only. See SponsorStreamInputs.cashMovementAxis for why. */
+  cashRetainedPerPeriod: number[];
 
   terminalEquityPerPeriod: number[];    // (+) terminal value less closing debt (exit only)
   /** The same, less anything the exit dividend already paid out (2026-09-14). */
@@ -255,6 +258,18 @@ export interface ReturnsSnapshot {
   feeEarners: FeeEarnersSnapshot;
 }
 
+/** THE cash-movement series FCFE deducts (2026-09-22): what the project's own
+ *  cash balance did in the period, closing less opening. ONE rule, because
+ *  three places in this file assemble sponsor stream inputs and a second
+ *  definition is exactly how two of them would come to disagree. */
+function cashMovementFrom(
+  dcf: { closingCashPerPeriod: number[]; openingCashPerPeriod: number[] },
+  n: number,
+): number[] {
+  return Array.from({ length: n }, (_, t) =>
+    (dcf.closingCashPerPeriod[t] ?? 0) - (dcf.openingCashPerPeriod[t] ?? 0));
+}
+
 /** M5 Pass 2: rebuild the sponsor stream inputs + exit + terminal config from
  *  a snapshot, for the sensitivity grid (resolver default + UI re-runs). */
 function sponsorInputsFromSnap(snap: ProjectFinancialsSnapshot, project: Project): {
@@ -280,6 +295,7 @@ function sponsorInputsFromSnap(snap: ProjectFinancialsSnapshot, project: Project
       debtDrawAxis: sl(dcf.capexDrawdownPerPeriod),
       idcDrawAxis: sl(dcf.idcDrawdownPerPeriod),
       principalAxis: sl(dcf.debtRepaymentPerPeriod),
+      cashMovementAxis: cashMovementFrom(dcf, N),
       noiPerPeriod: noi,
       debtOutstandingPerPeriod: bs.debtOutstandingPerPeriod,
       existingPreCapex: Math.max(0, fin.existing.preCapexTotal),
@@ -402,6 +418,7 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   const sponsorInputs = {
     cfoAxis, cfiAxis, inKindAxis, financeCostAxis, debtDrawAxis, idcDrawAxis, principalAxis,
     gainTaxAxis: sliceE(snap.disposal.taxOnGainPerPeriod),
+    cashMovementAxis: sliceE(cashMovementFrom(dcf, N)),
     noiPerPeriod, debtOutstandingPerPeriod: bs.debtOutstandingPerPeriod,
     existingPreCapex, existingDebtOpening,
   };
@@ -544,6 +561,11 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     debtDrawPerPeriod: incep(0, debtDrawAxis),
     idcDrawPerPeriod: incep(0, idcDrawAxis),
     principalRepayPerPeriod: incep(0, principalAxis),
+
+    // THE CASH THE PROJECT KEPT (2026-09-22). Comes straight off the stream
+    // builder rather than being rebuilt here, so the printed row and the number
+    // it explains are the same arithmetic. Sums to zero across the stream.
+    cashRetainedPerPeriod: streams.cashRetained,
 
     terminalEquityPerPeriod: incep(0, atExitAxis(tvEquity)),
     // THE DISTRIBUTED-EQUITY BUILD-UP'S TERMINAL ROW (2026-09-14): zero when the
@@ -727,6 +749,7 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     idcDrawAxis: dcf.idcDrawdownPerPeriod.slice(0, N).map((v) => v ?? 0),
     debtDrawAxis: dcf.capexDrawdownPerPeriod.slice(0, N).map((v) => v ?? 0),
     principalAxis: dcf.debtRepaymentPerPeriod.slice(0, N).map((v) => v ?? 0),
+    cashMovementAxis: cashMovementFrom(dcf, N),
     noiPerPeriod,
     debtOutstandingPerPeriod: bs.debtOutstandingPerPeriod,
     existingPreCapex,

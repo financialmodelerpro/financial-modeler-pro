@@ -178,6 +178,7 @@ async function runFor(tag: string, state: any): Promise<void> {
     (bu.existingEquityPerPeriod[i] ?? 0) + (bu.fcffSubtotalPerPeriod[i] ?? 0)
     + (bu.netDebtPerPeriod[i] ?? 0)
     + (bu.financeCostPerPeriod[i] ?? 0)
+    + (bu.cashRetainedPerPeriod[i] ?? 0)
     + (bu.terminalEquityPerPeriod[i] ?? 0));
   check('the build-up components sum to FCFE in every period',
     fcfeRebuilt.every((v: number, i: number) => near(v, rs.fcfePerPeriod[i] ?? 0, peakFcfe)),

@@ -327,6 +327,7 @@ check('summariseStream matches computeReturns', summariseStream(input.fcff, 0.1)
     debtDrawAxis: [600, 300, 0, 0, 0, 0],
     idcDrawAxis: [0, 0, 0, 0, 0, 0],
     principalAxis: [0, 0, -150, -150, -150, -150],
+    cashMovementAxis: [0, 0, 0, 0, 0, 0],
     noiPerPeriod: [0, 0, 500, 500, 500, 500],
     debtOutstandingPerPeriod: [600, 900, 750, 600, 450, 300],
     existingPreCapex: 0,

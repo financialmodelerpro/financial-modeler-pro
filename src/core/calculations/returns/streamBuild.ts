@@ -53,6 +53,27 @@ export interface SponsorStreamInputs {
    *  is the add-back that turns the gross charge into the cash actually paid. */
   idcDrawAxis: number[];
   principalAxis: number[];   // already negative
+  /** Net movement in the project's OWN cash balance (closing less opening),
+   *  POSITIVE when the project retained cash. REQUIRED, so the compiler
+   *  enumerates every place a sponsor stream is assembled.
+   *
+   *  WHY FCFE DEDUCTS IT (2026-09-22). Cash the sweep is holding back for next
+   *  year's principal is not the equity holder's to take, and FCFE without this
+   *  row showed it paid out in the year it was earned and clawed back in the
+   *  year it repaid the debt. On the live model that was 192.3m out in 2030 and
+   *  192.3m back in 2031, which is a year of free money to an IRR: it read
+   *  21.08% against 18.39% once the retention is where it happened. The
+   *  minimum cash reserve has the same shape over the whole hold, funded by
+   *  equity in the first year and released into the final dividend.
+   *
+   *  It is PURE TIMING: everything deducted is returned at the exit, so the
+   *  lifetime FCFE total cannot move (measured, 675.26m before and after). With
+   *  the row in place FCFE equals dividends paid less equity drawn in EVERY
+   *  period, to 0.00, which is the definition it always claimed to be.
+   *
+   *  FCFF does not deduct it and must not: cash in the project's account is
+   *  still the firm's, and FCFF is what the firm generated. */
+  cashMovementAxis: number[];
   noiPerPeriod: number[];
   debtOutstandingPerPeriod: number[];
   existingPreCapex: number;
@@ -91,6 +112,11 @@ export interface SponsorStreams {
    *  terminal out again. */
   fcffBeforeTerminal: number[];
   fcfe: number[];
+  /** The FCFE cash-retention row, signed as FCFE reads it: negative while the
+   *  project holds cash back, positive as it releases, and carrying the whole
+   *  closing balance at the exit. Sums to zero over the stream by construction,
+   *  which is the property that makes this timing and not value. */
+  cashRetained: number[];
   stabilisedNOI: number;
   exitNOI: number;
   terminalEnterpriseValue: number;
@@ -137,6 +163,11 @@ export function buildSponsorStreamsForExit(
   const fcff = new Array<number>(E + 1).fill(0);
   const fcffBeforeTerminal = new Array<number>(E + 1).fill(0);
   const fcfe = new Array<number>(E + 1).fill(0);
+  // Cash the project is holding on the equity holder's behalf. Accumulated as
+  // it is retained and returned in one go at the exit, so the treatment moves
+  // WHEN the cash reaches equity and never HOW MUCH.
+  const cashRetained = new Array<number>(E + 1).fill(0);
+  let cashHeld = 0;
   fcff[0] = -inp.existingPreCapex;
   fcffBeforeTerminal[0] = -inp.existingPreCapex;
   fcfe[0] = -inp.existingPreCapex + inp.existingDebtOpening;
@@ -155,13 +186,21 @@ export function buildSponsorStreamsForExit(
     // reference does (its Returns R104 = the FCFF subtotal, and R105 / R106
     // are debt and finance cost only). FCFE is therefore the return on TOTAL
     // equity, cash plus in-kind; the reference measures the same thing.
+    const retained = inp.cashMovementAxis[t] ?? 0;
+    cashHeld += retained;
+    cashRetained[t + 1] = -retained;
     fcfe[t + 1] = base
       - (inp.financeCostAxis[t] ?? 0)
       + (inp.debtDrawAxis[t] ?? 0) + (inp.idcDrawAxis[t] ?? 0)
-      + (inp.principalAxis[t] ?? 0);
+      + (inp.principalAxis[t] ?? 0)
+      - retained;
   }
   fcff[exit + 1] += tvEnterprise;
-  fcfe[exit + 1] += tvEquity;
+  // The balance goes with the project at the exit, alongside the terminal
+  // EQUITY value. No double count: the terminal value capitalises income, it
+  // does not include the bank account.
+  cashRetained[exit + 1] += cashHeld;
+  fcfe[exit + 1] += tvEquity + cashHeld;
 
-  return { fcff, fcffBeforeTerminal, fcfe, stabilisedNOI, exitNOI, terminalEnterpriseValue: tvEnterprise, terminalEquityValue: tvEquity };
+  return { fcff, fcffBeforeTerminal, fcfe, cashRetained, stabilisedNOI, exitNOI, terminalEnterpriseValue: tvEnterprise, terminalEquityValue: tvEquity };
 }

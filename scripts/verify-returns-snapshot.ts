@@ -132,6 +132,7 @@ console.log('=== M5 Returns snapshot integration ===');
       + bld.fcffSubtotalPerPeriod[t]
       + bld.netDebtPerPeriod[t]
       + bld.financeCostPerPeriod[t]
+      + bld.cashRetainedPerPeriod[t]
       + bld.terminalEquityPerPeriod[t];
     if (Math.abs(fcfeSum - rs.fcfePerPeriod[t]) > 0.01) fcfeOk = false;
     // The terminal row of THIS build-up is zero when the exit dividend already paid the proceeds (2026-09-14).
@@ -333,10 +334,11 @@ console.log('=== M5 Returns snapshot integration ===');
     const bridge = b.existingDebtOpeningPerPeriod[t] + b.financeCostPerPeriod[t]
       + b.debtDrawPerPeriod[t] + b.idcDrawPerPeriod[t]
       + b.principalRepayPerPeriod[t]
+      + b.cashRetainedPerPeriod[t]
       + (b.terminalEquityPerPeriod[t] - b.terminalEnterprisePerPeriod[t]);
     if (Math.abs((rs.fcfePerPeriod[t] - rs.fcffPerPeriod[t]) - bridge) > 0.01) bridgeOk = false;
   }
-  check('SPONSOR: bridge FCFE = FCFF + net debt + full finance cost + terminal swap', bridgeOk);
+  check('SPONSOR: bridge FCFE = FCFF + net debt + full finance cost + cash retained + terminal swap', bridgeOk);
 
   // Existing equity is in the equity IRR stream, so it is finite (not infinite).
   check('SPONSOR: FCFE IRR finite or null (equity actually invested)', rs.result.fcfe.irr === null || Number.isFinite(rs.result.fcfe.irr));

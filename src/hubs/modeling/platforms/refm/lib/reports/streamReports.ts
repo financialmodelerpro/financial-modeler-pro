@@ -51,6 +51,7 @@ export interface StreamBuildupSource {
     debtDrawPerPeriod: number[];
     idcDrawPerPeriod: number[];
     principalRepayPerPeriod: number[];
+    cashRetainedPerPeriod: number[];
     interestPaidPerPeriod: number[];
     terminalEnterprisePerPeriod: number[];
     terminalEquityPerPeriod: number[];
@@ -119,6 +120,7 @@ const FCFE_ROWS: readonly BuildupRowDef[] = [
   { label: '(=) FCFF (unlevered, before terminal value)', pick: 'fcffSubtotalPerPeriod' },
   { label: '(+) Net Debt (total drawdown less principal repaid)', pick: 'netDebtPerPeriod' },
   { label: '(-) Finance Cost (full accrued charge, incl. IDC)', pick: 'financeCostPerPeriod' },
+  { label: '(-) Cash Retained in the Project (returned at exit)', pick: 'cashRetainedPerPeriod' },
   { label: '(+) Terminal Value less Closing Debt', pick: 'terminalEquityPerPeriod' },
 ];
 
