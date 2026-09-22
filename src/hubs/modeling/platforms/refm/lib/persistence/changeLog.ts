@@ -60,6 +60,9 @@ export interface ChangeRowInput {
   userId: string | null;
   action: string;
   path: string | null;
+  /** The human sentence for this change, when the differ produced one. Null
+   *  means the renderer falls back to the path, exactly as before mig 245. */
+  label?: string | null;
   before?: unknown;
   after?: unknown;
 }
@@ -80,6 +83,7 @@ export async function appendChanges(rows: readonly ChangeRowInput[]): Promise<{ 
       user_id: r.userId,
       action: r.action,
       path: r.path,
+      label: r.label ?? null,
       // `before` and `after` are jsonb. `undefined` is not valid JSON, so an
       // absent value is stored as SQL NULL rather than being dropped from the
       // object, which would leave the column unset and indistinguishable.
@@ -129,10 +133,14 @@ export function rowsForSave(
       },
     }];
   }
+  // THE LABEL IS CARRIED, not dropped (2026-09-22). `snapshot-diff` has
+  // produced a human sentence since this log was built and it died here, so
+  // the screen had nothing but the raw path to show.
   return entries.map((e) => ({
     projectId, versionId, userId,
     action: e.kind ?? 'update',
     path: e.path,
+    label: e.label ?? null,
     before: e.before ?? null,
     after: e.after ?? null,
   }));
@@ -145,6 +153,8 @@ export interface ProjectChange {
   userName: string | null;
   action: string;
   path: string | null;
+  /** Human sentence, or null when the differ did not label this entry. */
+  label: string | null;
   before: unknown;
   after: unknown;
   createdAt: string;
@@ -170,7 +180,7 @@ export async function listProjectChanges(
     const sb = getServerClient();
     const { data, error } = await sb
       .from('refm_project_changes')
-      .select('id, version_id, user_id, action, path, before, after, created_at')
+      .select('id, version_id, user_id, action, path, label, save_id, before, after, created_at')
       .eq('project_id', projectId)
       .order('created_at', { ascending: false })
       // Bounded, because PostgREST silently truncates an unbounded read at its
@@ -193,6 +203,7 @@ export async function listProjectChanges(
         userName: r.user_id ? (names[String(r.user_id)] ?? null) : null,
         action: String(r.action),
         path: (r.path as string) ?? null,
+        label: (r.label as string) ?? null,
         before: r.before ?? null,
         after: r.after ?? null,
         createdAt: String(r.created_at),

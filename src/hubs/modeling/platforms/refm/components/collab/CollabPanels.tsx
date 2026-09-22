@@ -159,11 +159,21 @@ function ActivityRow({
             </span>
           )}
         </div>
-        {change.path && (
+        {/* THE SENTENCE LEADS, THE PATH IS THE FOOTNOTE (2026-09-22). This
+            screen is client-facing and a raw snapshot path reads like a
+            debugger. Where the differ labelled the change, that is what shows,
+            with the path on hover for anyone who wants the exact field; where
+            it did not, the path still shows rather than nothing, so no entry
+            can become less informative than it was. */}
+        {change.label ? (
+          <div title={change.path ?? undefined} style={{ color: 'var(--color-body)' }}>
+            {change.label}
+          </div>
+        ) : change.path ? (
           <div style={{ fontFamily: 'monospace', color: 'var(--color-body)', wordBreak: 'break-all' }}>
             {change.path}
           </div>
-        )}
+        ) : null}
         {bulk?.changedPaths !== undefined && (
           <div style={{ color: 'var(--color-muted)' }}>
             {bulk.changedPaths.toLocaleString()} fields changed in one save

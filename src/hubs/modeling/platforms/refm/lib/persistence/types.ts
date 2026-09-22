@@ -182,6 +182,9 @@ export interface ProjectChangeDTO {
   userName:  string | null;
   action:    string;
   path:      string | null;
+  /** The human sentence for this change (mig 245). Null when the differ did
+   *  not label the entry, and the renderer falls back to the path. */
+  label:     string | null;
   before:    unknown;
   after:     unknown;
   createdAt: string;

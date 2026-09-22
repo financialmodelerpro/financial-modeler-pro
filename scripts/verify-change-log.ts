@@ -183,6 +183,16 @@ console.log('\n=== D. Appended, never recomputed; each save logs its own delta =
   check('D10 an empty delta writes nothing at all', rowsForSave('p', 'v', 'u', []).length === 0);
   check('D11 the kind is carried through, so add and remove are not flattened to update',
     rowsForSave('p', 'v', 'u', [{ path: 'x', before: null, after: 1, kind: 'add' }])[0].action === 'add');
+  // D12/D13 (2026-09-22): the LABEL. `snapshot-diff` had produced a human
+  // sentence since this log was built and `rowsForSave` dropped it, so the
+  // screen had only the raw path to render. Pinned both ways, because the
+  // failure mode was silent: a label that exists must arrive, and an entry
+  // without one must not invent a label that would then read as the truth.
+  check('D12 a labelled entry carries its label through to the row',
+    rowsForSave('p', 'v', 'u', [{ path: 'assets[id=a].buaSqm', label: 'Marina Tower: floor area', before: 1, after: 2, kind: 'update' }])[0].label
+      === 'Marina Tower: floor area');
+  check('D13 an unlabelled entry carries null, so the renderer falls back to the path',
+    rowsForSave('p', 'v', 'u', [{ path: 'x', before: 1, after: 2, kind: 'update' }])[0].label === null);
 }
 
 console.log('\n=== E. It surfaces, read access is membership with no role narrowing ===');
