@@ -113,7 +113,14 @@ export const DEFAULT_BRANDING: DeckBranding = {
   logoUrl: null,
   companyName: 'Financial Modeler Pro',
   confidentialLabel: 'Strictly Private & Confidential',
-  headerText: 'FMP RE HUB  ·  Investment Committee Report',
+  // NO PROJECT NAME HERE (2026-09-22). This read "FMP RE HUB  ·  Investment
+  // Committee Report", the name of one real project frozen into the platform
+  // default, so EVERY deck that had not been given a header printed that
+  // project's name on every slide but the cover. It outlived the project: FMP RE
+  // HUB was deleted 2026-09-12 and decks went on naming it. `seedDeck` now
+  // derives the header from the model's own project name, and this generic
+  // string is only the fallback for a stored deck that has no header at all.
+  headerText: 'Investment Committee Report',
   footerText: 'Financial Modeler Pro  ·  Strictly Private & Confidential',
   primary: null,
   secondary: null,

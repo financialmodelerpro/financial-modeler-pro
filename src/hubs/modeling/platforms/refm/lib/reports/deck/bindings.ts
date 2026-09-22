@@ -161,7 +161,10 @@ export const METRIC_BINDINGS: Record<MetricBindingKey, MetricDef> = {
   'reMetrics.profitOnCost':   M('reMetrics.profitOnCost', 'Profit on Cost', 'RE metrics', 'pct', (m) => m.reMetrics.profitOnCost),
   'reMetrics.cashOnCashAvg':  M('reMetrics.cashOnCashAvg', 'Cash on Cash', 'RE metrics', 'pct', (m) => m.reMetrics.cashOnCashAvg, () => 'average'),
   'reMetrics.dscrMin':        M('reMetrics.dscrMin', 'Minimum DSCR', 'RE metrics', 'mult', (m) => m.reMetrics.dscrMin),
-  'reMetrics.ltvAtExit':      M('reMetrics.ltvAtExit', 'LTV at Peak Debt', 'RE metrics', 'pct', (m) => m.reMetrics.ltvAtExit),
+  // THE KEY IS HISTORIC, THE FIGURE IS THE PEAK-DEBT ONE (2026-09-22). The key
+  // is stored in saved decks, so renaming it would unlink every slide that uses
+  // it; the label was already 'LTV at Peak Debt' and only the value was wrong.
+  'reMetrics.ltvAtExit':      M('reMetrics.ltvAtExit', 'LTV at Peak Debt', 'RE metrics', 'pct', (m) => m.reMetrics.ltvAtPeakDebt),
 
   // Operating
   'operating.peakNoi': M('operating.peakNoi', 'Peak NOI', 'Operating', 'money', (m) => (m.operating.hasData ? m.operating.peakNoi : null), unit),

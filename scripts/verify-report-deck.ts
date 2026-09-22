@@ -30,6 +30,7 @@ import { icMoneyScaleSpec } from '../src/hubs/modeling/platforms/refm/lib/report
 import { seedDeck, SLIDE_TEMPLATES, TEMPLATE_BY_ID, templatePageCount } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/templates';
 import { coerceDeck } from '../src/hubs/modeling/platforms/refm/lib/persistence/deck-server';
 import { SLIDE_W, SLIDE_H, type Deck } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/types';
+import { buildTocPaint } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/exportModel';
 
 let pass = 0, fail = 0;
 const check = (name: string, cond: boolean): void => { if (cond) { pass++; console.log(`  [PASS] ${name}`); } else { fail++; console.log(`  [FAIL] ${name}`); } };
@@ -177,10 +178,34 @@ check('deck default case is Management base', deck.settings.deckCase === 'manage
 check('deck default scale is millions', deck.settings.moneyScale === 'millions');
 check('cover carries no section number chip', !deck.slides[0].objects.some((o) => o.name === 'Section number'));
 
-// Section numbering: the first content slide is 01, and numbers are gapless.
-const firstContent = deck.slides.find((s) => s.chrome === 'content')!;
-const chip = firstContent.objects.find((o) => o.name === 'Section number') as any;
-check('first content slide chip reads 01', chip && chip.text === '01');
+// SECTION NUMBERING MUST MATCH THE CONTENTS PAGE (re-aimed 2026-09-22). This
+// took the first CONTENT slide and required its chip to read 01, which pinned an
+// arrangement rather than the rule: the Contents slide is itself chrome
+// 'content', so it took chip 01 while the ToC, which never lists itself, started
+// its numbering at the slide after. Every chip therefore sat one above its own
+// contents entry, and this check passed throughout.
+const chipOf = (s: { objects: { name?: string }[] }): string | null => {
+  const o = s.objects.find((x) => x.name === 'Section number') as { text?: string } | undefined;
+  return o?.text ?? null;
+};
+const numbered = deck.slides.filter((s) => chipOf(s) !== null);
+check('navigation slides carry no section chip (cover and contents)',
+  chipOf(deck.slides[0]) === null
+  && deck.slides.filter((s) => s.templateId === 'contents').every((s) => chipOf(s) === null));
+check('the first numbered slide chip reads 01', numbered.length > 0 && chipOf(numbered[0]) === '01');
+check('chips are gapless', numbered.every((s, i) => chipOf(s) === String(i + 1).padStart(2, '0')));
+// THE RULE ITSELF: a slide's chip is the number the contents page gives it.
+// Built from the ToC's own resolver so the two cannot be reconciled by accident.
+{
+  const contents = deck.slides.find((s) => s.templateId === 'contents');
+  const index = deck.slides.map((s, i) => ({ id: s.id, title: s.title, page: i + 1, isContent: s.chrome === 'content' }));
+  const toc = buildTocPaint({ style: {} as any, scope: 'sections' }, index, contents?.id ?? '');
+  const byTitle = new Map(toc.entries.map((e) => [e.title, e.num]));
+  const mismatched = numbered.filter((s) => byTitle.get(s.title) !== chipOf(s));
+  check('every section chip equals its number on the contents page',
+    mismatched.length === 0,
+    mismatched.slice(0, 3).map((s) => `${s.title}: chip ${chipOf(s)} vs toc ${byTitle.get(s.title)}`).join(' | '));
+}
 
 // available() drops the right slides on a reduced model.
 const mSellOnly = buildICReportModel({ project, phases, parcels: [], assets: [{ id: 'a1', name: 'Plots', strategy: 'Sell', visible: true, phaseId: 'p1', buaTotal: 1000, landAreaSqm: 5000 }] as any, subUnits: [], rs: { ...rs, noiPerPeriod: [0, 0, 0, 0] }, snap: { ...snap, pl: { ebitdaPerPeriod: [0, 0, 0, 0] } }, parties, asOf: '2026-07-16', cases: [{ id: 'base' } as any] });

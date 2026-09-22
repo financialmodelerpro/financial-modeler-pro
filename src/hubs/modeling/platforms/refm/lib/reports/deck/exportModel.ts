@@ -35,7 +35,7 @@ import { isPlaceholderText } from './placeholders';
 import type {
   BoxStyle, ChartKind, Deck, DeckObject, KpiVariant, RiskMatrixRow, ShapeKind, Slide, TextStyle,
 } from './types';
-import { PX_PER_IN, SLIDE_W, SLIDE_H } from './types';
+import { PX_PER_IN, SLIDE_W, SLIDE_H, MARGIN, CONTENT_W } from './types';
 import { DECK_THEME, brandPrimary, fontFor } from './theme';
 import type { ICProgrammeLane } from '../icReport';
 
@@ -127,6 +127,28 @@ export interface ExportObject {
   paint: ExportPaint;
   /** Resolved navigation link (slide -> page, or url), when the object carries one. */
   link?: ExportLink;
+}
+
+const UNWRITTEN_STYLE: TextStyle = {
+  fontRole: 'body', size: 12, italic: true,
+  color: DECK_THEME.slateLight, align: 'left', valign: 'top',
+};
+
+/**
+ * Is this object narrative the author has NOT written yet, as opposed to a
+ * binding that legitimately resolved to nothing?
+ *
+ * The distinction matters: an empty binding (the cover's "Prepared by" with no
+ * Parties entered) should stay silently absent, while an unwritten narrative
+ * block should say so, because its panel label survives and would otherwise
+ * head an empty space. Mirrors the omission rules in `resolveObjectPaint`, so
+ * the two cannot disagree about what counts as a placeholder.
+ */
+function isUnwrittenPlaceholder(o: DeckObject): boolean {
+  if (o.type === 'text') return !o.binding && isPlaceholderText(o.text);
+  if (o.type === 'bullets') return o.items.every((it) => isPlaceholderText(it));
+  if (o.type === 'riskMatrix') return o.rows.every((r) => isPlaceholderText(r.risk));
+  return false;
 }
 
 /** One slide's place in the deck: id, title, 1-based page, and whether it is a
@@ -389,11 +411,37 @@ export function resolveDeckExport(deck: Deck, model: ICReportModel, fmt: DeckFmt
       show: hasChrome,
     };
     const objects: ExportObject[] = [];
+    // AN UNWRITTEN SECTION MUST NOT EXPORT LOOKING FINISHED (2026-09-22).
+    // Placeholder text is editor-only and correctly omitted (see
+    // placeholders.ts), but nothing asked what was LEFT: a slide whose whole
+    // body was still prompts exported as a title, a rule and white space, which
+    // reads as a section deliberately left short rather than one never written.
+    // Investment Highlights, Location, Key Risks and Recommendation all shipped
+    // that way on a project with no narrative entered.
     for (const o of sl.objects) {
       if (o.hidden) continue;
       // The ToC resolves against the deck (slide index), not the model.
       const paint = o.type === 'toc' ? buildTocPaint(o, slideIndex, sl.id) : resolveObjectPaint(o, model, fmt);
-      if (paint === null) continue; // omitted (placeholder / empty text)
+      if (paint === null) {
+        // MARKED IN PLACE, not at the top of the slide and not by dropping the
+        // slide. These blocks sit UNDER their own panel labels, which survive
+        // because they come from the template, so an unwritten block leaves a
+        // heading with nothing beneath it: "Demand drivers" followed by white
+        // space reads as a section deliberately left short. The note goes
+        // exactly where the missing words belong, so a half-written slide marks
+        // only the half that is missing.
+        //
+        // ONLY for a genuine unwritten placeholder. A binding that resolved to
+        // nothing (cover "Prepared by" with no Parties) stays silently omitted,
+        // which is the existing and correct rule.
+        if (hasChrome && isUnwrittenPlaceholder(o)) {
+          objects.push({
+            id: `${o.id}__unwritten`, x: o.x, y: o.y, w: o.w, h: Math.min(o.h, 24), rot: 0,
+            paint: { kind: 'text', text: 'Not yet written.', style: UNWRITTEN_STYLE },
+          });
+        }
+        continue;
+      }
       const link = resolveLink(o.link);
       objects.push({ id: o.id, x: o.x, y: o.y, w: o.w, h: o.h, rot: o.rot, paint, ...(link ? { link } : {}) });
     }

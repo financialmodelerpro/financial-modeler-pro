@@ -38,6 +38,7 @@ import type { ProjectFinancialsSnapshot } from '../financials-resolvers';
 import type { Party } from '../parties';
 import type { CaseComparisonReport } from './caseComparisonReport';
 import type { ReportInputs, ICSectionKey } from '../reportInputs';
+import { covenantSeries, reduceWorst } from '../covenants';
 import { planReportLines, lineRowLabel } from './lineRows';
 import { revenueBySection } from './revenueSections';
 import { resolveAssetAreaMetrics, computeAssetLandBreakdown, computeAssetUnitCount } from '@/src/core/calculations';
@@ -242,6 +243,10 @@ export interface ICReportModel {
     cashOnCashAvg: number | null;
     dscrMin: number | null;
     ltvAtExit: number | null;
+    /** Peak-debt LTV (max debt outstanding / GDV), the figure the PDF, the
+     *  workbook and the RE Metrics tiles all headline. LTV AT EXIT IS NOT IT:
+     *  it is ~0% once the debt is repaid, which is why the deck read 0.0%. */
+    ltvAtPeakDebt: number | null;
   };
   assetMix: {
     rows: ICAssetRow[];
@@ -556,7 +561,13 @@ export function buildICReportModel(input: {
   const sensHasData = Array.isArray(sens?.irr) && sens.irr.some((row) => row.some((v) => v != null && Number.isFinite(v)));
 
   const totalEquity = rs.totalEquityInvested;
-  const equityCommitment = su.existingEquity + su.inKindEquity;
+  // ALL THREE KINDS OF EQUITY (2026-09-22). This summed existing and in-kind and
+  // silently dropped the NEW CASH, which is the largest part on a development,
+  // so the recommendation slide asked an investment committee to commit a number
+  // that was not the commitment: on the live project, with no existing equity,
+  // it showed the in-kind land alone. Summed from the same three components the
+  // deck's own Sources and Uses block prints, so the two tie by construction.
+  const equityCommitment = su.existingEquity + su.newEquityCash + su.inKindEquity;
 
   // ── Chart series (Phase C). Read straight from the snapshot; no recompute. ──
   const yearLabels = rs.yearLabels ?? [];
@@ -1027,6 +1038,23 @@ export function buildICReportModel(input: {
       cashOnCashAvg: reMx.cashOnCashAvg,
       dscrMin: reMx.dscrMin,
       ltvAtExit: reMx.ltvAtExit,
+      // THE SAME SERIES AND REDUCER THE SCREEN, THE WORKBOOK AND THE PDF USE
+      // (2026-09-22), so the deck cannot headline a different LTV from the rest
+      // of the pack. It bound `ltvAtExit` under the label "LTV at Peak Debt",
+      // and LTV at exit is ~0% once the debt is repaid, so the slide read 0.0%.
+      // DEFENSIVE ON PURPOSE: this builder is documented as accepting a PARTIAL
+      // snapshot (the IC report renders for a project with no returns yet), and
+      // reading `snap.bs` unguarded crashed two deck verifiers that pass one.
+      // With no debt series there is no peak to find, so it falls back to the
+      // exit figure, which is what the field held before.
+      ltvAtPeakDebt: reduceWorst(covenantSeries('ltv', {
+        dscrPerPeriod: reMx.dscrPerPeriod ?? [],
+        icrPerPeriod: reMx.icrPerPeriod ?? [],
+        noiPerPeriod: rs.noiPerPeriod ?? [],
+        debtOutstandingPerPeriod: snap.bs?.debtOutstandingPerPeriod ?? [],
+        gdvValue: de.gdv,
+        ltvAtExit: reMx.ltvAtExit,
+      }), 'max') ?? reMx.ltvAtExit,
     },
     assetMix: { rows: assetRows, byStrategy, totalBua, totalUnits },
     phasing,

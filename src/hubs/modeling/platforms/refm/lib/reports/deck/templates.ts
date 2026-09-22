@@ -47,6 +47,12 @@ export interface SlideTemplate {
   /** Insert-menu grouping. */
   group: 'Opening' | 'The asset' | 'The numbers' | 'The case' | 'Full schedules' | 'Closing';
   chrome: Slide['chrome'];
+  /** NAVIGATION, not a section: it carries no number chip and the contents page
+   *  does not list itself (2026-09-22). The cover is excluded by its chrome; the
+   *  CONTENTS slide is `chrome: 'content'`, so it took a chip while the ToC
+   *  numbered from the first real section, and every chip sat one above its own
+   *  contents entry. Declared here rather than tested by id in two files. */
+  navigation?: boolean;
   /** Whether the model supports this slide at all. False = seeded deck omits it. */
   available: (m: ICReportModel, seed: TemplateSeed) => boolean;
   /** How many slides this template expands to for the given model. A full
@@ -132,6 +138,7 @@ export const SLIDE_TEMPLATES: SlideTemplate[] = [
   // Contents (live, auto-syncing agenda with clickable hyperlinks) ─────────────
   T({
     id: 'contents', title: 'Contents', group: 'Opening', chrome: 'content',
+    navigation: true,
     available: () => true,
     build: (m, seed, num) => [
       ...titleBlock(num, 'Contents'),
@@ -799,7 +806,7 @@ export function seedDeck(projectId: string, m: ICReportModel, rawSeed: TemplateS
   // The cover carries no section chip, and is excluded from the numbering. A
   // paginated template contributes several slides, each numbered in turn.
   const slides = usable.flatMap((t) =>
-    buildSlidesFromTemplate(t, m, seed, () => (t.chrome === 'cover' ? '' : String(++n).padStart(2, '0'))));
+    buildSlidesFromTemplate(t, m, seed, () => (t.chrome === 'cover' || t.navigation ? '' : String(++n).padStart(2, '0'))));
   const inputs = seed.inputs;
   return {
     schemaVersion: DECK_SCHEMA_VERSION,
@@ -808,7 +815,13 @@ export function seedDeck(projectId: string, m: ICReportModel, rawSeed: TemplateS
     slides,
     branding: {
       ...DEFAULT_BRANDING,
-      headerText: inputs?.headerText?.trim() ? inputs.headerText : DEFAULT_BRANDING.headerText,
+      // THE HEADER NAMES THE PROJECT BEING EXPORTED. The deck title a few lines
+      // up already read `m.cover.projectName`, so the name was always to hand;
+      // the header took a frozen default instead and named a different project
+      // on every slide. A user's own header text still wins.
+      headerText: inputs?.headerText?.trim()
+        ? inputs.headerText
+        : `${m.cover.projectName}  ·  Investment Committee Report`,
       footerText: inputs?.footerText?.trim() ? inputs.footerText : DEFAULT_BRANDING.footerText,
       fontHeading: inputs?.fontHeading?.trim() ? inputs.fontHeading : DEFAULT_BRANDING.fontHeading,
       fontBody: inputs?.fontBody?.trim() ? inputs.fontBody : DEFAULT_BRANDING.fontBody,
