@@ -84,7 +84,7 @@ export interface SponsorStreamInputs {
    *
    *  FCFF does not deduct it and must not: FCFF is unlevered, and cash a
    *  LENDER has a claim on is still the firm's. */
-  debtCommittedCashAxis: number[];
+  trappedCashAxis: number[];
   noiPerPeriod: number[];
   debtOutstandingPerPeriod: number[];
   existingPreCapex: number;
@@ -197,7 +197,7 @@ export function buildSponsorStreamsForExit(
     // reference does (its Returns R104 = the FCFF subtotal, and R105 / R106
     // are debt and finance cost only). FCFE is therefore the return on TOTAL
     // equity, cash plus in-kind; the reference measures the same thing.
-    const retained = inp.debtCommittedCashAxis[t] ?? 0;
+    const retained = inp.trappedCashAxis[t] ?? 0;
     cashHeld += retained;
     cashRetained[t + 1] = -retained;
     fcfe[t + 1] = base

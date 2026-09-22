@@ -301,10 +301,10 @@ check('it chains from PRE-TERMINAL FCFF, so it carries NO removal rows',
 // it out again" rows it once carried, not to cap honest content.
 check('it is SHORT: at most six rows before the total', FCFE_BUILDUP_LABELS.length <= 7, `${FCFE_BUILDUP_LABELS.length} labels`);
 check('exactly ONE cash-retention row, and it is a (-) charge',
-  FCFE_BUILDUP_LABELS.filter((l) => /cash committed/i.test(l)).length === 1
-  && FCFE_BUILDUP_LABELS.some((l) => /cash committed/i.test(l) && l.startsWith('(-)')));
+  FCFE_BUILDUP_LABELS.filter((l) => /restricted cash/i.test(l)).length === 1
+  && FCFE_BUILDUP_LABELS.some((l) => /restricted cash/i.test(l) && l.startsWith('(-)')));
 check('and NO cash-retention row appears in FCFF, which is unlevered and holds the firm\'s own cash',
-  !FCFF_BUILDUP_LABELS.some((l) => /cash committed/i.test(l)));
+  !FCFF_BUILDUP_LABELS.some((l) => /restricted cash/i.test(l)));
 check('exactly ONE finance-cost row', FCFE_BUILDUP_LABELS.filter((l) => /finance cost/i.test(l)).length === 1);
 // NO IN-KIND CREDIT. In-kind land is charged in FCFF (a (-) row) and FCFE
 // inherits it: no in-kind row of any sign appears in the FCFE chain. This is
@@ -363,11 +363,18 @@ check('and NO in-kind row of any sign appears in FCFE (FCFE inherits the charge,
 // a sweep, and never enough to collapse FCFE into DDM.
 console.log('\n-- 4b. The committed-cash row is narrow --');
 {
-  // NO SWEEP, NO COMMITMENT. This fixture repays on a schedule, so the lender
-  // has no claim on retained cash and the row must be all zeros.
-  check('without a cash sweep the committed-cash row is exactly zero, every period',
-    !snap.cashSweep.enabled && (b.cashRetainedPerPeriod ?? []).every((v) => Math.abs(v) < 0.01),
-    `sweep=${snap.cashSweep.enabled} max ${M(Math.max(0, ...(b.cashRetainedPerPeriod ?? []).map(Math.abs)))}`);
+  // NO SWEEP, NO LENDER CLAIM. This fixture repays on a schedule, so the only
+  // trapped cash is the REQUIRED BALANCE, and the row can never exceed it. That
+  // is the edge the wide rule crossed: it trapped whatever happened to be in the
+  // bank, which on this fixture is 35x the reserve.
+  const floor = snap.cashSweep.minCashReserve;
+  check('the fixture has a real minimum cash reserve', floor > 0, M(floor));
+  check('without a cash sweep, restricted cash never exceeds the required balance',
+    !snap.cashSweep.enabled
+    && (b.cashRetainedPerPeriod ?? []).every((v) => Math.abs(v) <= floor + 0.01),
+    `sweep=${snap.cashSweep.enabled} max ${M(Math.max(0, ...(b.cashRetainedPerPeriod ?? []).map(Math.abs)))} vs floor ${M(floor)}`);
+  check('and the required balance IS charged: equity funded it, so it is not free',
+    (b.cashRetainedPerPeriod ?? []).some((v) => Math.abs(v) > 1));
   // ...and the cash it retains is therefore FREE: FCFE must not be the dividend
   // stream. THE CHECK THAT WOULD HAVE CAUGHT THE WIDE FIX.
   let worst = 0;
@@ -408,7 +415,13 @@ console.log('\n-- 4b. The committed-cash row is narrow --');
   for (let t = 0; t < sRs.fcfePerPeriod.length; t++) {
     sWorst = Math.max(sWorst, Math.abs((sRs.fcfePerPeriod[t] ?? 0) - (sRs.dividendStreamPerPeriod[t] ?? 0)));
   }
-  check('EVEN UNDER A SWEEP, FCFE is not the dividend stream', sWorst > 1, M(sWorst));
+  // On THIS fixture, which retains cash and pays no dividend, they must differ.
+  // Note the honest limit of this check: a FULL sweep plus a full payout leaves
+  // nothing discretionary, so the two streams legitimately coincide there (they
+  // do on the live project). Coincidence is an outcome of those inputs; the
+  // no-sweep fixture above is what proves the definitions are different.
+  check('on a sweep fixture that retains cash, FCFE is still not the dividend stream',
+    sWorst > 1, M(sWorst));
 }
 
 // ── 5. The cash flow statement ───────────────────────────────────────────────

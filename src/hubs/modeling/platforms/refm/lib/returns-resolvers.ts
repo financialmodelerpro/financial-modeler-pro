@@ -163,7 +163,7 @@ export interface ReturnsBuildup {
   principalRepayPerPeriod: number[];    // (-) principal repaid (already negative)
   /** (-) cash a cash sweep has committed to future debt repayment, released at
    *  the exit. Zero under every other repayment method.
-   *  FCFE only. See SponsorStreamInputs.debtCommittedCashAxis for why. */
+   *  FCFE only. See SponsorStreamInputs.trappedCashAxis for why. */
   cashRetainedPerPeriod: number[];
 
   terminalEquityPerPeriod: number[];    // (+) terminal value less closing debt (exit only)
@@ -259,47 +259,56 @@ export interface ReturnsSnapshot {
   feeEarners: FeeEarnersSnapshot;
 }
 
-/** THE committed-cash series FCFE deducts (2026-09-22). ONE rule, because three
+/** THE trapped-cash series FCFE deducts (2026-09-22). ONE rule, because three
  *  places in this file assemble sponsor stream inputs and a second definition is
  *  exactly how two of them would come to disagree.
  *
- *  A CASH SWEEP is what makes retained cash the LENDER'S: once the sweep is on,
- *  everything above the minimum reserve goes to principal, so it was never the
- *  equity holder's to take. The commitment at the end of a period is therefore
- *  the excess over the reserve, capped at the debt still outstanding (cash
- *  beyond the debt cannot be committed to repaying it), and the series FCFE
- *  reads is the CHANGE in that commitment.
+ *  TWO THINGS TRAP CASH, and FCFE reads the CHANGE in their total:
  *
- *  IT IS DELIBERATELY NARROW, and the narrowness is the whole design:
- *    - NO SWEEP, NO COMMITMENT. Under a fixed schedule the lender takes its
- *      scheduled principal and has no claim on the rest, so this is all zeros
- *      and FCFE is cash after that year's interest and principal. A project
- *      that then sits on cash instead of paying a dividend has FREE cash, and
- *      FCFE and DDM differ, which is why the platform carries both streams.
- *    - THE MINIMUM CASH RESERVE IS NOT COMMITTED. It is an operating floor, not
- *      a debt payment, so it stays inside FCFE. (Consequence on the live model:
- *      the 20m reserve is not charged to equity in 2027 and not released in
- *      2038. Revisit only with a decision that says a covenant floor is not
- *      free cash; today's rule is that only a debt claim traps cash.)
+ *    1. THE MINIMUM CASH RESERVE, whatever the repayment method. It is a
+ *       REQUIRED BALANCE and works like working capital: equity funded it and
+ *       cannot take it out until it is released, so an increase in the
+ *       requirement reduces FCFE and a release adds to it. Capped at the cash
+ *       actually held, because a project sitting below its own floor has not
+ *       funded it (founder's decision, 2026-09-22, correcting the same day's
+ *       rule that an operating floor was free cash).
+ *    2. A CASH SWEEP'S CLAIM on everything above that reserve, capped at the
+ *       debt outstanding, since cash beyond the debt cannot be committed to
+ *       repaying it. Once the sweep is on, that money is the lender's and was
+ *       never the equity holder's to take.
  *
- *  Deducting the whole cash movement instead, which is what the first cut of
- *  this did, turns FCFE into the dividend stream: measured, identical to DDM in
- *  every period under both repayment methods. See SponsorStreamInputs. */
-function debtCommittedCashFrom(
+ *  THE SECOND ONE IS CONDITIONAL, AND THAT IS THE WHOLE DESIGN. Under a fixed
+ *  schedule the lender takes its scheduled principal and has no claim on the
+ *  rest, so only the reserve is trapped and everything above it is FREE: a
+ *  project that sits on cash rather than paying a dividend still shows it in
+ *  FCFE, and FCFE and DDM differ, which is why the platform carries both.
+ *
+ *  Trapping the whole cash balance unconditionally, which is what the first cut
+ *  of this did, turns FCFE into the dividend stream: measured, identical to DDM
+ *  in every period under BOTH repayment methods. See SponsorStreamInputs.
+ *
+ *  (Under a FULL sweep plus full payout the two streams legitimately coincide,
+ *  because nothing is discretionary. That is an outcome, not a definition, and
+ *  the fixed-schedule fixture is what proves the difference is real.) */
+function trappedCashFrom(
   snap: ProjectFinancialsSnapshot,
   n: number,
 ): number[] {
   const sweep = snap.cashSweep;
-  const committed = new Array<number>(n).fill(0);
-  if (sweep?.enabled) {
-    const floor = Math.max(0, sweep.minCashReserve ?? 0);
-    for (let t = 0; t < n; t++) {
-      const excess = Math.max(0, (snap.directCF.closingCashPerPeriod[t] ?? 0) - floor);
-      const debt = Math.max(0, snap.bs.debtOutstandingPerPeriod[t] ?? 0);
-      committed[t] = Math.min(excess, debt);
-    }
+  const floor = Math.max(0, sweep?.minCashReserve ?? 0);
+  const trapped = new Array<number>(n).fill(0);
+  for (let t = 0; t < n; t++) {
+    const cash = Math.max(0, snap.directCF.closingCashPerPeriod[t] ?? 0);
+    // THE REQUIRED BALANCE, held whatever the repayment method. Capped at the
+    // cash actually there: a project short of its own floor has not funded it.
+    const reserve = Math.min(floor, cash);
+    // THE SWEEP'S CLAIM, on top, over what the reserve already holds.
+    const committed = sweep?.enabled
+      ? Math.min(Math.max(0, cash - floor), Math.max(0, snap.bs.debtOutstandingPerPeriod[t] ?? 0))
+      : 0;
+    trapped[t] = reserve + committed;
   }
-  return Array.from({ length: n }, (_, t) => committed[t] - (t > 0 ? committed[t - 1] : 0));
+  return Array.from({ length: n }, (_, t) => trapped[t] - (t > 0 ? trapped[t - 1] : 0));
 }
 
 /** M5 Pass 2: rebuild the sponsor stream inputs + exit + terminal config from
@@ -327,7 +336,7 @@ function sponsorInputsFromSnap(snap: ProjectFinancialsSnapshot, project: Project
       debtDrawAxis: sl(dcf.capexDrawdownPerPeriod),
       idcDrawAxis: sl(dcf.idcDrawdownPerPeriod),
       principalAxis: sl(dcf.debtRepaymentPerPeriod),
-      debtCommittedCashAxis: debtCommittedCashFrom(snap, N),
+      trappedCashAxis: trappedCashFrom(snap, N),
       noiPerPeriod: noi,
       debtOutstandingPerPeriod: bs.debtOutstandingPerPeriod,
       existingPreCapex: Math.max(0, fin.existing.preCapexTotal),
@@ -450,7 +459,7 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   const sponsorInputs = {
     cfoAxis, cfiAxis, inKindAxis, financeCostAxis, debtDrawAxis, idcDrawAxis, principalAxis,
     gainTaxAxis: sliceE(snap.disposal.taxOnGainPerPeriod),
-    debtCommittedCashAxis: sliceE(debtCommittedCashFrom(snap, N)),
+    trappedCashAxis: sliceE(trappedCashFrom(snap, N)),
     noiPerPeriod, debtOutstandingPerPeriod: bs.debtOutstandingPerPeriod,
     existingPreCapex, existingDebtOpening,
   };
@@ -781,7 +790,7 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     idcDrawAxis: dcf.idcDrawdownPerPeriod.slice(0, N).map((v) => v ?? 0),
     debtDrawAxis: dcf.capexDrawdownPerPeriod.slice(0, N).map((v) => v ?? 0),
     principalAxis: dcf.debtRepaymentPerPeriod.slice(0, N).map((v) => v ?? 0),
-    debtCommittedCashAxis: debtCommittedCashFrom(snap, N),
+    trappedCashAxis: trappedCashFrom(snap, N),
     noiPerPeriod,
     debtOutstandingPerPeriod: bs.debtOutstandingPerPeriod,
     existingPreCapex,
