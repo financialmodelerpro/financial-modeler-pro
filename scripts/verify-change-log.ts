@@ -253,6 +253,20 @@ console.log('\n=== D. Appended, never recomputed; each save logs its own delta =
       .some((e) => e.kind === 'update'));
 }
 
+// ── D32 to D34: VERSION BOUNDARIES ARE VISIBLE (2026-09-22) ─────────────────
+// Each row already carried "in <version>", which is the same words repeated on
+// every row of a run and still gave no way to see WHERE one version ended.
+{
+  console.log('\n-- D32..D34 a version boundary is a line --');
+  const panels = src(PANELS);
+  check('D32 a boundary is drawn when a row\'s version differs from the one above',
+    /prev\.versionId !== c\.versionId/.test(panels) && /activity-version-boundary/.test(panels));
+  check('D33 a version deleted since reads as UNKNOWN, never as another version',
+    /Version no longer saved/.test(panels));
+  check('D34 and the per-row "in <version>" is kept, so a single row still says where it landed',
+    /\{' in '\}\{versionLabel\.get\(change\.versionId\)\}/.test(panels));
+}
+
 // ── D28 to D31: A LOG THAT STOPS IS NOT A LOG THAT ENDS (2026-09-22) ────────
 // The route has returned `truncated` since it was written and NOTHING read it,
 // so on a busy project the list simply ran out at the server's page size and

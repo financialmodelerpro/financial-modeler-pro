@@ -119,9 +119,38 @@ export function ActivityPanel({
           >
             {day}
           </div>
-          {rows.map((c) => (
-            <ActivityRow key={c.id} change={c} versionLabel={versionLabel} />
-          ))}
+          {rows.map((c, i) => {
+            // A VERSION BOUNDARY IS A LINE, NOT A REPEATED SUFFIX (2026-09-22).
+            // Each row already said "in <version>", which is the same words on
+            // every row of a run and still left no way to see WHERE one version
+            // ended. The list is newest-first, so the boundary is drawn when
+            // this row's version differs from the row ABOVE it, and the label
+            // names the version the rows BELOW the line belong to.
+            const prev = i > 0 ? rows[i - 1] : null;
+            const boundary = prev !== null && prev.versionId !== c.versionId;
+            const name = c.versionId ? versionLabel.get(c.versionId) : undefined;
+            return (
+              <React.Fragment key={c.id}>
+                {boundary && (
+                  <div
+                    data-testid={`activity-version-boundary-${c.versionId ?? 'none'}`}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      margin: '8px 0 4px', fontSize: 10.5, fontWeight: 700,
+                      textTransform: 'uppercase', letterSpacing: '0.05em',
+                      color: 'var(--color-meta)',
+                    }}
+                  >
+                    <span style={{ flex: '0 0 auto' }}>
+                      {name ?? (c.versionId ? 'Version no longer saved' : 'No version')}
+                    </span>
+                    <span style={{ flex: 1, height: 1, background: 'var(--color-border)' }} />
+                  </div>
+                )}
+                <ActivityRow change={c} versionLabel={versionLabel} />
+              </React.Fragment>
+            );
+          })}
         </div>
       ))}
     </div>
