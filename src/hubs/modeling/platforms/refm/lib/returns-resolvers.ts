@@ -161,8 +161,9 @@ export interface ReturnsBuildup {
   debtDrawPerPeriod: number[];          // (+) debt drawn for CAPEX
   idcDrawPerPeriod: number[];           // (+) debt drawn for IDC
   principalRepayPerPeriod: number[];    // (-) principal repaid (already negative)
-  /** (-) cash the project retained rather than paid out, returned at the exit.
-   *  FCFE only. See SponsorStreamInputs.cashMovementAxis for why. */
+  /** (-) cash a cash sweep has committed to future debt repayment, released at
+   *  the exit. Zero under every other repayment method.
+   *  FCFE only. See SponsorStreamInputs.debtCommittedCashAxis for why. */
   cashRetainedPerPeriod: number[];
 
   terminalEquityPerPeriod: number[];    // (+) terminal value less closing debt (exit only)
@@ -258,16 +259,47 @@ export interface ReturnsSnapshot {
   feeEarners: FeeEarnersSnapshot;
 }
 
-/** THE cash-movement series FCFE deducts (2026-09-22): what the project's own
- *  cash balance did in the period, closing less opening. ONE rule, because
- *  three places in this file assemble sponsor stream inputs and a second
- *  definition is exactly how two of them would come to disagree. */
-function cashMovementFrom(
-  dcf: { closingCashPerPeriod: number[]; openingCashPerPeriod: number[] },
+/** THE committed-cash series FCFE deducts (2026-09-22). ONE rule, because three
+ *  places in this file assemble sponsor stream inputs and a second definition is
+ *  exactly how two of them would come to disagree.
+ *
+ *  A CASH SWEEP is what makes retained cash the LENDER'S: once the sweep is on,
+ *  everything above the minimum reserve goes to principal, so it was never the
+ *  equity holder's to take. The commitment at the end of a period is therefore
+ *  the excess over the reserve, capped at the debt still outstanding (cash
+ *  beyond the debt cannot be committed to repaying it), and the series FCFE
+ *  reads is the CHANGE in that commitment.
+ *
+ *  IT IS DELIBERATELY NARROW, and the narrowness is the whole design:
+ *    - NO SWEEP, NO COMMITMENT. Under a fixed schedule the lender takes its
+ *      scheduled principal and has no claim on the rest, so this is all zeros
+ *      and FCFE is cash after that year's interest and principal. A project
+ *      that then sits on cash instead of paying a dividend has FREE cash, and
+ *      FCFE and DDM differ, which is why the platform carries both streams.
+ *    - THE MINIMUM CASH RESERVE IS NOT COMMITTED. It is an operating floor, not
+ *      a debt payment, so it stays inside FCFE. (Consequence on the live model:
+ *      the 20m reserve is not charged to equity in 2027 and not released in
+ *      2038. Revisit only with a decision that says a covenant floor is not
+ *      free cash; today's rule is that only a debt claim traps cash.)
+ *
+ *  Deducting the whole cash movement instead, which is what the first cut of
+ *  this did, turns FCFE into the dividend stream: measured, identical to DDM in
+ *  every period under both repayment methods. See SponsorStreamInputs. */
+function debtCommittedCashFrom(
+  snap: ProjectFinancialsSnapshot,
   n: number,
 ): number[] {
-  return Array.from({ length: n }, (_, t) =>
-    (dcf.closingCashPerPeriod[t] ?? 0) - (dcf.openingCashPerPeriod[t] ?? 0));
+  const sweep = snap.cashSweep;
+  const committed = new Array<number>(n).fill(0);
+  if (sweep?.enabled) {
+    const floor = Math.max(0, sweep.minCashReserve ?? 0);
+    for (let t = 0; t < n; t++) {
+      const excess = Math.max(0, (snap.directCF.closingCashPerPeriod[t] ?? 0) - floor);
+      const debt = Math.max(0, snap.bs.debtOutstandingPerPeriod[t] ?? 0);
+      committed[t] = Math.min(excess, debt);
+    }
+  }
+  return Array.from({ length: n }, (_, t) => committed[t] - (t > 0 ? committed[t - 1] : 0));
 }
 
 /** M5 Pass 2: rebuild the sponsor stream inputs + exit + terminal config from
@@ -295,7 +327,7 @@ function sponsorInputsFromSnap(snap: ProjectFinancialsSnapshot, project: Project
       debtDrawAxis: sl(dcf.capexDrawdownPerPeriod),
       idcDrawAxis: sl(dcf.idcDrawdownPerPeriod),
       principalAxis: sl(dcf.debtRepaymentPerPeriod),
-      cashMovementAxis: cashMovementFrom(dcf, N),
+      debtCommittedCashAxis: debtCommittedCashFrom(snap, N),
       noiPerPeriod: noi,
       debtOutstandingPerPeriod: bs.debtOutstandingPerPeriod,
       existingPreCapex: Math.max(0, fin.existing.preCapexTotal),
@@ -418,7 +450,7 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   const sponsorInputs = {
     cfoAxis, cfiAxis, inKindAxis, financeCostAxis, debtDrawAxis, idcDrawAxis, principalAxis,
     gainTaxAxis: sliceE(snap.disposal.taxOnGainPerPeriod),
-    cashMovementAxis: sliceE(cashMovementFrom(dcf, N)),
+    debtCommittedCashAxis: sliceE(debtCommittedCashFrom(snap, N)),
     noiPerPeriod, debtOutstandingPerPeriod: bs.debtOutstandingPerPeriod,
     existingPreCapex, existingDebtOpening,
   };
@@ -749,7 +781,7 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     idcDrawAxis: dcf.idcDrawdownPerPeriod.slice(0, N).map((v) => v ?? 0),
     debtDrawAxis: dcf.capexDrawdownPerPeriod.slice(0, N).map((v) => v ?? 0),
     principalAxis: dcf.debtRepaymentPerPeriod.slice(0, N).map((v) => v ?? 0),
-    cashMovementAxis: cashMovementFrom(dcf, N),
+    debtCommittedCashAxis: debtCommittedCashFrom(snap, N),
     noiPerPeriod,
     debtOutstandingPerPeriod: bs.debtOutstandingPerPeriod,
     existingPreCapex,

@@ -53,27 +53,38 @@ export interface SponsorStreamInputs {
    *  is the add-back that turns the gross charge into the cash actually paid. */
   idcDrawAxis: number[];
   principalAxis: number[];   // already negative
-  /** Net movement in the project's OWN cash balance (closing less opening),
-   *  POSITIVE when the project retained cash. REQUIRED, so the compiler
-   *  enumerates every place a sponsor stream is assembled.
+  /** The CHANGE per period in cash COMMITTED TO FUTURE DEBT REPAYMENT, positive
+   *  as the commitment grows. REQUIRED, so the compiler enumerates every place
+   *  a sponsor stream is assembled.
    *
-   *  WHY FCFE DEDUCTS IT (2026-09-22). Cash the sweep is holding back for next
-   *  year's principal is not the equity holder's to take, and FCFE without this
-   *  row showed it paid out in the year it was earned and clawed back in the
-   *  year it repaid the debt. On the live model that was 192.3m out in 2030 and
-   *  192.3m back in 2031, which is a year of free money to an IRR: it read
-   *  21.08% against 18.39% once the retention is where it happened. The
-   *  minimum cash reserve has the same shape over the whole hold, funded by
-   *  equity in the first year and released into the final dividend.
+   *  WHY FCFE DEDUCTS IT (2026-09-22). Under a cash sweep, cash above the
+   *  minimum reserve is contractually the lender's the moment the sweep starts,
+   *  so it was never the equity holder's to take. FCFE without this row showed
+   *  it paid out in the year it was earned and clawed back in the year it
+   *  actually repaid the debt: on the live model 192.3m out in 2030 and 192.3m
+   *  back in 2031, and a year of free money is worth 2.69 points of IRR.
    *
-   *  It is PURE TIMING: everything deducted is returned at the exit, so the
-   *  lifetime FCFE total cannot move (measured, 675.26m before and after). With
-   *  the row in place FCFE equals dividends paid less equity drawn in EVERY
-   *  period, to 0.00, which is the definition it always claimed to be.
+   *  WHAT IT MUST NOT BECOME (the defect this replaces, same day). The first
+   *  cut deducted the whole movement in cash, which is a different and wrong
+   *  rule: it makes FCFE "cash actually paid to equity", which is the DIVIDEND
+   *  stream. Measured, FCFE then equalled DDM to 0.00 in every period under
+   *  BOTH repayment methods and the two IRRs were identical (18.39% on the
+   *  sweep, 25.47% on a fixed schedule). Two streams that answer different
+   *  questions had been collapsed into one.
    *
-   *  FCFF does not deduct it and must not: cash in the project's account is
-   *  still the firm's, and FCFF is what the firm generated. */
-  cashMovementAxis: number[];
+   *  SO THE TEST OF THIS ROW IS THAT IT IS NARROW. Under a fixed schedule
+   *  nothing is committed and this is all zeros, so FCFE is cash after that
+   *  year's interest and scheduled principal. A project that then retains cash
+   *  rather than paying a dividend still counts it FREE, and FCFE and DDM
+   *  differ, which is the point of having both. The minimum cash reserve is NOT
+   *  committed either: it is an operating floor, not a debt payment.
+   *
+   *  It is PURE TIMING: whatever is committed is released at the exit, so the
+   *  lifetime FCFE total cannot move.
+   *
+   *  FCFF does not deduct it and must not: FCFF is unlevered, and cash a
+   *  LENDER has a claim on is still the firm's. */
+  debtCommittedCashAxis: number[];
   noiPerPeriod: number[];
   debtOutstandingPerPeriod: number[];
   existingPreCapex: number;
@@ -186,7 +197,7 @@ export function buildSponsorStreamsForExit(
     // reference does (its Returns R104 = the FCFF subtotal, and R105 / R106
     // are debt and finance cost only). FCFE is therefore the return on TOTAL
     // equity, cash plus in-kind; the reference measures the same thing.
-    const retained = inp.cashMovementAxis[t] ?? 0;
+    const retained = inp.debtCommittedCashAxis[t] ?? 0;
     cashHeld += retained;
     cashRetained[t + 1] = -retained;
     fcfe[t + 1] = base

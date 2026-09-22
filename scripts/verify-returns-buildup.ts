@@ -146,15 +146,18 @@ if (SAB === 6) {
   for (let t = 0; t < N; t++) d.equityDevelopmentDrawdownPerPeriod[t] = (d.equityDevelopmentDrawdownPerPeriod[t] ?? 0) * 1.1;
 }
 if (SAB === 8) {
-  // 8: FCFE forgets that the sweep is holding cash back, which is exactly how
-  //    it read until 2026-09-22: cash earned in one year shows as paid to
-  //    equity and the next year's principal repayment claws it straight back.
-  //    On the live model that was 192.3m out and 192.3m back, and it bought
-  //    2.69 points of equity IRR from nothing but the ordering.
+  // 8: THE WIDE FIX. FCFE deducts the whole MOVEMENT in cash instead of only
+  //    the cash a sweep has committed to debt, so every retained balance is
+  //    treated as unavailable and FCFE silently becomes the DIVIDEND stream.
+  //    Built and shipped on 2026-09-22 and caught by review, not by a check:
+  //    it made FCFE equal DDM to 0.00 in every period on both repayment
+  //    methods, and the "identity" read as proof that it was correct.
   for (let t = 0; t < N; t++) {
     const move = (d.closingCashPerPeriod[t] ?? 0) - (d.openingCashPerPeriod[t] ?? 0);
-    rs.fcfePerPeriod[t + 1] = (rs.fcfePerPeriod[t + 1] ?? 0) + move;
-    b.cashRetainedPerPeriod[t + 1] = (b.cashRetainedPerPeriod[t + 1] ?? 0) + move;
+    const already = -(b.cashRetainedPerPeriod[t + 1] ?? 0);
+    const extra = move - already;
+    rs.fcfePerPeriod[t + 1] = (rs.fcfePerPeriod[t + 1] ?? 0) - extra;
+    b.cashRetainedPerPeriod[t + 1] = (b.cashRetainedPerPeriod[t + 1] ?? 0) - extra;
   }
 }
 
@@ -298,10 +301,10 @@ check('it chains from PRE-TERMINAL FCFF, so it carries NO removal rows',
 // it out again" rows it once carried, not to cap honest content.
 check('it is SHORT: at most six rows before the total', FCFE_BUILDUP_LABELS.length <= 7, `${FCFE_BUILDUP_LABELS.length} labels`);
 check('exactly ONE cash-retention row, and it is a (-) charge',
-  FCFE_BUILDUP_LABELS.filter((l) => /cash retained/i.test(l)).length === 1
-  && FCFE_BUILDUP_LABELS.some((l) => /cash retained/i.test(l) && l.startsWith('(-)')));
+  FCFE_BUILDUP_LABELS.filter((l) => /cash committed/i.test(l)).length === 1
+  && FCFE_BUILDUP_LABELS.some((l) => /cash committed/i.test(l) && l.startsWith('(-)')));
 check('and NO cash-retention row appears in FCFF, which is unlevered and holds the firm\'s own cash',
-  !FCFF_BUILDUP_LABELS.some((l) => /cash retained/i.test(l)));
+  !FCFF_BUILDUP_LABELS.some((l) => /cash committed/i.test(l)));
 check('exactly ONE finance-cost row', FCFE_BUILDUP_LABELS.filter((l) => /finance cost/i.test(l)).length === 1);
 // NO IN-KIND CREDIT. In-kind land is charged in FCFF (a (-) row) and FCFE
 // inherits it: no in-kind row of any sign appears in the FCFE chain. This is
@@ -342,37 +345,70 @@ check('and NO in-kind row of any sign appears in FCFE (FCFE inherits the charge,
   }
   check("FCFE equals the equity holder's actual net cash, every period", worst < 1, `worst ${worst.toFixed(2)} at t=${at}`);
 }
-// THE RETENTION IDENTITY (2026-09-22). Cash the sweep holds back is not the
-// equity holder's, so BEFORE THE EXIT, FCFE must equal what equity actually
-// received less what it actually put in. Before the retention row this was out
-// by the whole sweep balance in two consecutive years (192.3m paid out in 2030
-// and clawed back in 2031 on the live model, worth 2.69 points of equity IRR),
-// and nothing failed, because every other check compared the chain to itself.
+// ── 4b. THE COMMITTED-CASH ROW IS NARROW (2026-09-22) ────────────────────────
 //
-// UP TO THE EXIT ONLY, and that is not a dodge. The exit year carries the
-// terminal value and the release of any balance the project never distributed,
-// which are two different questions covered by their own checks above; the
-// retention question is entirely about the years in between, which is where the
-// defect lived. A project that pays no dividends at all (this fixture) reads
-// zero on both sides in its operating years, which is the same statement.
+// A CASH SWEEP makes retained cash the lender's, so FCFE deducts it: without
+// the row, cash earned in one year showed as paid to equity and clawed back in
+// the year it actually repaid the debt (192.3m out in 2030 and back in 2031 on
+// the live model, worth 2.69 points of equity IRR).
+//
+// THE DANGEROUS FIX IS THE WIDE ONE, and it was built first. Deducting the
+// whole MOVEMENT in cash makes FCFE "cash actually paid to equity", which is
+// the DIVIDEND stream: measured, FCFE then equalled DDM to 0.00 in every period
+// under BOTH repayment methods, with identical IRRs (18.39% swept, 25.47%
+// fixed). The two streams exist to answer different questions and a fix that
+// merges them is worse than the defect, because it reads as a clean identity.
+//
+// So this section asserts the row is NARROW, in both directions: inert without
+// a sweep, and never enough to collapse FCFE into DDM.
+console.log('\n-- 4b. The committed-cash row is narrow --');
 {
-  let worst = 0, at = -1;
-  const exitIdx = rs.fcfePerPeriod.length - 2;
-  for (let t = 0; t < Math.min(N, exitIdx); t++) {
-    const received = (snap.dividends.totalDividendsPerPeriod[t] ?? 0);
-    const invested = (snap.financing.equity.cashPerPeriod[t] ?? 0)
-      + (snap.financing.equity.inKindPerPeriod[t] ?? 0);
-    const fromStream = (rs.fcfePerPeriod[t + 1] ?? 0) - (b.terminalEquityPerPeriod[t + 1] ?? 0);
-    const diff = Math.abs((received - invested) - fromStream);
-    if (diff > worst) { worst = diff; at = t; }
+  // NO SWEEP, NO COMMITMENT. This fixture repays on a schedule, so the lender
+  // has no claim on retained cash and the row must be all zeros.
+  check('without a cash sweep the committed-cash row is exactly zero, every period',
+    !snap.cashSweep.enabled && (b.cashRetainedPerPeriod ?? []).every((v) => Math.abs(v) < 0.01),
+    `sweep=${snap.cashSweep.enabled} max ${M(Math.max(0, ...(b.cashRetainedPerPeriod ?? []).map(Math.abs)))}`);
+  // ...and the cash it retains is therefore FREE: FCFE must not be the dividend
+  // stream. THE CHECK THAT WOULD HAVE CAUGHT THE WIDE FIX.
+  let worst = 0;
+  for (let t = 0; t < rs.fcfePerPeriod.length; t++) {
+    worst = Math.max(worst, Math.abs((rs.fcfePerPeriod[t] ?? 0) - (rs.dividendStreamPerPeriod[t] ?? 0)));
   }
-  check('FCFE equals dividends paid less equity drawn, every period up to the exit',
-    worst < 1, `worst ${worst.toFixed(2)} at t=${at}`);
-  // The row is real on this fixture, so the check above is not vacuous.
-  check('the cash-retention row actually moves something on this fixture',
-    (b.cashRetainedPerPeriod ?? []).some((v) => Math.abs(v) > 1));
+  check('FCFE IS NOT THE DIVIDEND STREAM: retained cash still counts as free',
+    worst > 1, `worst |FCFE - DDM| ${M(worst)}`);
+  check('and their IRRs are not the same number',
+    rs.result.fcfe.irr !== rs.result.dividends.irr
+    || (rs.result.fcfe.irr === null && rs.result.dividends.irr === null));
+}
+// THE SWEPT CASE, on its own fixture: the row must BITE, kill the whipsaw, and
+// still leave FCFE distinct from DDM.
+{
+  const swept = build();
+  swept.financingTranches = swept.financingTranches.map((t) => ({
+    ...t, repaymentMethod: 'cash_sweep' as const,
+    cashSweepConfig: { ...(t.cashSweepConfig ?? {}), enabled: true },
+  }));
+  const sSnap = computeFinancialsSnapshot(swept);
+  const sRs = computeReturnsSnapshot(sSnap, swept.project);
+  const sRow = sRs.buildup.cashRetainedPerPeriod ?? [];
+  check('the sweep fixture really sweeps (not vacuous)', sSnap.cashSweep.enabled);
+  check('under a sweep the committed-cash row BITES',
+    sRow.some((v) => Math.abs(v) > 1), M(Math.max(0, ...sRow.map(Math.abs))));
   check('and it nets to zero across the stream: timing, never value',
-    Math.abs(sum(b.cashRetainedPerPeriod)) < 1, M(sum(b.cashRetainedPerPeriod)));
+    Math.abs(sum(sRow)) < 1, M(sum(sRow)));
+  // It only ever removes cash the lender can reach, so it can never exceed the
+  // debt outstanding in the period it commits.
+  let overClaim = 0;
+  for (let t = 0; t < sSnap.axisLength; t++) {
+    const committed = -(sRow[t + 1] ?? 0);
+    if (committed > 0) overClaim = Math.max(overClaim, committed - (sSnap.bs.debtOutstandingPerPeriod[t] ?? 0));
+  }
+  check('it never commits more cash than there is debt to repay', overClaim < 1, M(overClaim));
+  let sWorst = 0;
+  for (let t = 0; t < sRs.fcfePerPeriod.length; t++) {
+    sWorst = Math.max(sWorst, Math.abs((sRs.fcfePerPeriod[t] ?? 0) - (sRs.dividendStreamPerPeriod[t] ?? 0)));
+  }
+  check('EVEN UNDER A SWEEP, FCFE is not the dividend stream', sWorst > 1, M(sWorst));
 }
 
 // ── 5. The cash flow statement ───────────────────────────────────────────────
