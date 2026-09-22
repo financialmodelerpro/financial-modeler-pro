@@ -37,12 +37,17 @@ import type { RefmProjectVersionListItem, ProjectChangeDTO, ProjectCommentDTO } 
  * sees no more on a project they can open than a member does.
  */
 export function ActivityPanel({
-  changes, available, loading, versions,
+  changes, available, loading, versions, truncated = false, limit = 0,
 }: {
   changes: ProjectChangeDTO[];
   available: boolean | undefined;
   loading: boolean;
   versions: RefmProjectVersionListItem[];
+  /** The server returned a full page, so older activity exists that this list
+   *  does not hold. Saying so is the difference between a log that ENDS and a
+   *  log that merely STOPS. */
+  truncated?: boolean;
+  limit?: number;
 }): React.JSX.Element {
   // Version id to a human label, so a row says which version a change landed in
   // rather than showing a uuid. A version deleted since (FK SET NULL) has no
@@ -94,6 +99,15 @@ export function ActivityPanel({
         rewritten or recalculated, and everyone with access to the project sees
         the same entries.
       </p>
+      {/* A LOG THAT STOPS IS NOT A LOG THAT ENDS (2026-09-22). The route has
+          always returned `truncated` and nothing read it, so on a busy project
+          the list simply ran out and the screen implied that was everything. */}
+      {truncated && (
+        <div className="alert-info" data-testid="activity-truncated" style={{ marginBottom: 'var(--sp-2)' }}>
+          Showing the most recent {limit > 0 ? limit.toLocaleString() : changes.length.toLocaleString()} entries.
+          This project has older activity that is not listed here.
+        </div>
+      )}
       {days.map(({ day, rows }) => (
         <div key={day} style={{ marginBottom: 'var(--sp-2)' }}>
           <div

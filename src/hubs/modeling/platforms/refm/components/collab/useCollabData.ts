@@ -30,13 +30,19 @@ import type { ProjectChangeDTO, ProjectCommentDTO } from '../../lib/persistence/
 export interface ProjectChangesData {
   rows: ProjectChangeDTO[];
   available: boolean | undefined;
+  /** True when the server returned a FULL page, so there is older activity
+   *  this list does not contain. The route has always said so and nothing
+   *  read it, which left the log stopping silently (2026-09-22). */
+  truncated: boolean;
+  /** How many rows the server was willing to return, so the notice can say it. */
+  limit: number;
   /** True once the state held answers for THIS project. Loading is derived. */
   ready: boolean;
   error: string | null;
 }
 
 export function useProjectChanges(projectId: string | null, active: boolean): ProjectChangesData {
-  const [state, setState] = useState<{ key: string; rows: ProjectChangeDTO[]; available: boolean } | null>(null);
+  const [state, setState] = useState<{ key: string; rows: ProjectChangeDTO[]; available: boolean; truncated: boolean; limit: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -53,6 +59,8 @@ export function useProjectChanges(projectId: string | null, active: boolean): Pr
         key: projectId,
         rows: res.data?.changes ?? [],
         available: res.data?.available ?? false,
+        truncated: res.data?.truncated ?? false,
+        limit: res.data?.limit ?? 0,
       });
     })();
     return () => { cancelled = true; };
@@ -62,6 +70,8 @@ export function useProjectChanges(projectId: string | null, active: boolean): Pr
   return {
     rows: ready ? state.rows : [],
     available: ready ? state.available : undefined,
+    truncated: ready ? state.truncated : false,
+    limit: ready ? state.limit : 0,
     ready,
     error,
   };

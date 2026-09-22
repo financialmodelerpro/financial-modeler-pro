@@ -515,6 +515,8 @@ export default function VersionModal({
               available={changesData.available}
               loading={!changesData.ready}
               versions={versions}
+              truncated={changesData.truncated}
+              limit={changesData.limit}
             />
           )}
 

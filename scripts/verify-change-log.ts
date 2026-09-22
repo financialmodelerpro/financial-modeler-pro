@@ -253,6 +253,26 @@ console.log('\n=== D. Appended, never recomputed; each save logs its own delta =
       .some((e) => e.kind === 'update'));
 }
 
+// ── D28 to D31: A LOG THAT STOPS IS NOT A LOG THAT ENDS (2026-09-22) ────────
+// The route has returned `truncated` since it was written and NOTHING read it,
+// so on a busy project the list simply ran out at the server's page size and
+// the screen implied that was the whole history. Pinned at every link in the
+// chain, because the break was that one link silently dropped the field.
+{
+  console.log('\n-- D28..D31 truncation is surfaced, not swallowed --');
+  const route = src(ROUTE);
+  const hook = src('src/hubs/modeling/platforms/refm/components/collab/useCollabData.ts');
+  const panels = src(PANELS);
+  check('D28 the route still REPORTS truncation', /truncated:\s*rows\.length >= limit/.test(route));
+  check('D29 the hook CARRIES it rather than dropping it',
+    /truncated:\s*res\.data\?\.truncated/.test(hook) && /truncated:\s*ready \? state\.truncated/.test(hook));
+  check('D30 the panel SAYS SO when it is true',
+    /truncated &&/.test(panels) && /activity-truncated/.test(panels));
+  check('D31 and both doors pass it, so neither can stop silently',
+    /truncated=\{changesData\.truncated\}/.test(src(SCREEN))
+    && /truncated=\{changesData\.truncated\}/.test(src(MODAL)));
+}
+
 // ── D25 to D27: AN ASSET IS NAMED BY THE PLATFORM'S RULE (2026-09-22) ───────
 // `elementLabel` read `rec['name']`, and `Asset.name` is RETIRED (read by
 // nothing, no field to type it in), so an asset add or remove was labelled with
