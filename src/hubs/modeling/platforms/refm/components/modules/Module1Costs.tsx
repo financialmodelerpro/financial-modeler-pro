@@ -125,7 +125,7 @@ import { buildResultsPeriodAxis } from './_shared/periodAxis';
 import { withResolvedAssetNames, assetPlotLabel } from '@/src/core/calculations/assetName';
 import { withInheritedMassingAll } from '@/src/core/calculations/landChain';
 import { chainMassingFor } from '../../lib/state/assetTypeStandards';
-import { buildConsolidatedReport, perAssetCostsFromTreatment } from '../../lib/reports/consolidatedReport';
+import { buildConsolidatedReport, perAssetCostsFromTreatment, consolidatedCaption } from '../../lib/reports/consolidatedReport';
 import { planCapexSummaryLines, assetCapexSection, capexTreatmentRows, CAPEX_SECTIONS, type CapexPlannableAsset } from '../../lib/reports/capexReports';
 import { assetHasSubstance } from './_shared/assetTableModel';
 import { normaliseAssetTypeId } from '../../lib/state/assetTypeStandards';
@@ -2924,11 +2924,7 @@ function SummaryTables({
           Consolidated by type, what a grouped schedule would show
         </strong>
         <div style={{ fontSize: 10, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
-          Grouped by phase, asset type and strategy. Preview only: every schedule and export below
-          is still per asset.{' '}
-          {consolidated.isRelabellingOnly
-            ? 'Nothing merges on this project, so each row is one asset under a different label.'
-            : `${consolidated.mergedRows.length} row${consolidated.mergedRows.length === 1 ? '' : 's'} merge more than one asset.`}
+          {consolidatedCaption(consolidated)}
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ borderCollapse: 'collapse', width: '100%' }} data-testid="capex-consolidated-table">

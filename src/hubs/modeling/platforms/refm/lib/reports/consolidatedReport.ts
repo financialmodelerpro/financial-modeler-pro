@@ -116,6 +116,27 @@ export interface ConsolidatedReport {
   isRelabellingOnly: boolean;
 }
 
+/**
+ * THE ONE CAPTION for the consolidated capex view (2026-09-22), read by the
+ * Capex screen and the workbook so they cannot describe the same table two ways.
+ *
+ * It replaces "Preview only: every schedule below is still per line" (workbook)
+ * and "...still per asset" (screen), which disagreed with each other and were
+ * both stale: presenting BY LINE has been the rule on every surface after the
+ * assets tab since 2026-09-15, so "still" described it as a pending state it had
+ * already left. "Preview only" was also wrong in a way worth not repeating: the
+ * grouping is READ BY THE COMPOSER (`groupAssetsForConsolidation` in
+ * financials-resolvers), where it sets when a merged line releases cost of
+ * sales. What is preview-only is this TABLE, not the grouping behind it.
+ */
+export function consolidatedCaption(r: Pick<ConsolidatedReport, 'isRelabellingOnly' | 'mergedRows'>): string {
+  return 'Grouped by phase, asset type and strategy, as a grouped schedule would show it. '
+    + 'The schedules and exports below present by line, which is the platform rule after the assets tab. '
+    + (r.isRelabellingOnly
+      ? 'Nothing merges on this project, so each row is one asset under a different label.'
+      : `${r.mergedRows.length} row${r.mergedRows.length === 1 ? '' : 's'} merge more than one asset.`);
+}
+
 interface AssetLike extends ConsolidatableAsset {
   name: string;
 }

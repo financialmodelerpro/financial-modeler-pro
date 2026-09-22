@@ -50,8 +50,8 @@ import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { resolveAssetAreaMetrics, computePhaseTimeline, computeProjectTimeline, resolveSubUnitAdr, type AssetAreaMetrics } from '@/src/core/calculations';
 import { FUNDING_METHOD_LABELS, COST_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
 import { CAPEX_SECTIONS } from '../reports/capexReports';
-import { TERMINAL_METHOD_LABELS } from '../state/module1-types';
-import { buildConsolidatedReport, perAssetCostsFromTreatment } from '../reports/consolidatedReport';
+import { TERMINAL_METHOD_LABELS, TERMINAL_BASIS_LABELS } from '../state/module1-types';
+import { buildConsolidatedReport, perAssetCostsFromTreatment, consolidatedCaption } from '../reports/consolidatedReport';
 import { buildSellingCostReport, SELLING_COSTS_CAPTION, SELLING_COSTS_YOY_CAPTION } from '../reports/sellingCostReports';
 import {
   emitProjectSection, emitPhasesSection, emitStandardsSection, emitPlotsSection, emitAssetEntrySection, emitSubUnitSection,
@@ -1537,9 +1537,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     const cons = buildConsolidatedReport(previewAssets, state.phases, perAssetCostsFromTreatment(capex.treatment));
     const [cPhase, cType, cStrat, cCount, cLand, cHard, cSoft, cMkt, cOp, cTotal] = [C_LBL, C_UOM, C_RATE, C_QTY, C_TOT, C_OPEN, C_OPEN + 1, C_OPEN + 2, C_OPEN + 3, C_OPEN + 4];
     setSectionHeader(ws.getRow(r), 'Consolidated by type, what a grouped schedule would show', cLast); r += 1;
-    note(r, `Grouped by phase, asset type and strategy. Preview only: every schedule below is still per line. ${cons.isRelabellingOnly
-      ? 'Nothing merges on this project, so each row is one asset under a different label.'
-      : `${cons.mergedRows.length} row${cons.mergedRows.length === 1 ? '' : 's'} merge more than one asset.`}`);
+    note(r, consolidatedCaption(cons));
     r += 2;
     subHeader(r, [[cPhase, 'Phase', 'left'], [cType, 'Type', 'left'], [cStrat, 'Strategy', 'left'], [cCount, 'Assets', 'right'], [cLand, 'Land stage', 'right'], [cHard, 'Hard', 'right'], [cSoft, 'Soft', 'right'], [cMkt, 'Marketing', 'right'], [cOp, 'Operating', 'right'], [cTotal, 'Total', 'right']]);
     r += 1;
@@ -3990,9 +3988,16 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     });
   }
   if (cfg.terminalMethod !== 'none') {
-    scalarRow('Terminal metric', cfg.applyGrowthToTerminal ? 'Grown by (1 + g)' : 'Exit year as is', '@', {
+    // THIS ROW IS ABOUT GROWTH, NOT THE BASIS YEAR. It read "Exit year as is"
+    // on a model whose basis is the year BEFORE the exit, so the sheet gave two
+    // answers to "which year is capitalised". The year is named once, from the
+    // shared label the Inputs sheet and the disposal report also read.
+    const basisYearLabel = TERMINAL_BASIS_LABELS[cfg.terminalValueBasis === 'exit_year' ? 'exit_year' : 'prior_year'].toLowerCase();
+    scalarRow('Terminal metric', cfg.applyGrowthToTerminal ? 'Grown by (1 + g)' : 'As stated, not grown', '@', {
       input: true,
-      basis: cfg.applyGrowthToTerminal ? `Capitalises forward income: exit metric x (1 + ${(cfg.perpetuityGrowth * 100).toFixed(2)}%).` : 'Capitalises the exit year figure itself.',
+      basis: cfg.applyGrowthToTerminal
+        ? `Capitalises forward income: the ${basisYearLabel} metric x (1 + ${(cfg.perpetuityGrowth * 100).toFixed(2)}%).`
+        : `Capitalises the ${basisYearLabel} figure itself.`,
     });
   }
   r += 1;

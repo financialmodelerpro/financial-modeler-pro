@@ -3171,6 +3171,15 @@ export const TERMINAL_METHOD_LABELS: Record<NonNullable<NonNullable<Project['ret
   perpetuity: 'Perpetuity (Gordon)',
   none: 'None',
 };
+/** WHICH YEAR'S INCOME THE TERMINAL VALUE CAPITALISES, named ONCE (2026-09-22).
+ *  The workbook said "Exit year as is" on a model whose basis is the year
+ *  BEFORE the exit, because that row describes whether the metric is GROWN and
+ *  had been worded as though it described the year. Two answers to one question
+ *  on the same sheet. Every surface now reads this. */
+export const TERMINAL_BASIS_LABELS: Record<'prior_year' | 'exit_year', string> = {
+  prior_year: 'Year before exit',
+  exit_year: 'Exit year',
+};
 export const FUNDING_METHOD_LABELS: Record<FundingMethodId, string> = {
   1: 'Fixed Debt-to-Equity Ratio',
   2: 'Net Funding Requirement',
