@@ -533,6 +533,7 @@ export function combineDebtService(
     }
   }
   const debtServiceCash = new Array<number>(N).fill(0);
+  const scheduledDebtServiceCash = new Array<number>(N).fill(0);
   for (let i = 0; i < N; i++) {
     // 2026-08-18: SUMMED, not derived. This was
     // `(accrued - capitalized) + principal`, which was only correct while
@@ -542,8 +543,16 @@ export function combineDebtService(
     // exactly the IDC drawdown. Closing cash is unaffected either way, because
     // the drawdown comes back in on the financing line.
     debtServiceCash[i] = totalInterestPaid[i] + totalPrincipalRepaid[i];
+    // THE COVENANT'S DENOMINATOR: contractual principal only. A sweep is the
+    // surplus AFTER debt service, so counting it makes the ratio circular and
+    // turns early repayment into a breach (see types.ts for the measurement).
+    // Floored at the interest, so a rounding overshoot on the sweep can never
+    // make scheduled service read below the interest that was actually paid.
+    scheduledDebtServiceCash[i] = totalInterestPaid[i]
+      + Math.max(0, totalPrincipalRepaid[i] - totalSweepRepaid[i]);
   }
   return {
+    scheduledDebtServiceCash,
     totalDrawdown,
     totalIdcDrawdown,
     totalDrawdownAll,

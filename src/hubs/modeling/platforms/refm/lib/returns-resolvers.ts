@@ -193,6 +193,15 @@ export interface ReturnsSnapshot {
   buildup: ReturnsBuildup;
   /** NOI per period (recurring hospitality + lease income net of opex). */
   noiPerPeriod: number[];
+  /** SCHEDULED debt service per period: the DSCR denominator, swept principal
+   *  excluded. The cash statements use total outflow; see financing/types.ts. */
+  scheduledDebtServicePerPeriod: number[];
+  /** Principal repaid by CASH SWEEP per period, shown as its own line in the
+   *  debt schedule so early repayment stays visible. */
+  sweptPrincipalPerPeriod: number[];
+  /** False when NO period carries contractual amortisation, in which case DSCR
+   *  and ICR are the same ratio and each surface printing both must say so. */
+  hasScheduledAmortisation: boolean;
   stabilisedNOI: number;
   exitNOI: number;
   terminalEnterpriseValue: number;
@@ -624,7 +633,20 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   const totalPAT = pl.patPerPeriod.slice(0, E).reduce((s, v) => s + v, 0);
   const totalEquityInvested = Math.max(0, fin.equity.grandTotal);
   const totalDividends = dividendsPaid.slice(0, E).reduce((s, v) => s + v, 0);
-  const debtServicePerPeriod = fin.combined.debtServiceCash.slice(0, N);
+  // THE COVENANT DENOMINATOR IS SCHEDULED SERVICE (2026-09-22), computed once in
+  // the financing engine. Swept principal is excluded: it is the surplus left
+  // AFTER debt service, so counting it makes DSCR circular and reports early
+  // repayment as a breach. The cash statements keep `debtServiceCash`, the total
+  // outflow, which is the right number for a cash flow.
+  const debtServicePerPeriod = fin.combined.scheduledDebtServiceCash.slice(0, N);
+  // Does ANY period carry contractual amortisation? When nothing is scheduled,
+  // DSCR and ICR are the same ratio by construction (the denominators are both
+  // interest), and every surface that prints both must SAY SO rather than leave
+  // a reader to assume one of them is broken.
+  const sweptPrincipalPerPeriod = fin.combined.totalSweepRepaid.slice(0, N);
+  const hasScheduledAmortisation = fin.combined.scheduledDebtServiceCash
+    .slice(0, N)
+    .some((ds, i) => (ds ?? 0) - (fin.combined.totalInterestPaid[i] ?? 0) > 1e-6);
   const cumulativeEquity = cumulative(
     fin.equity.cashPerPeriod.map((v, i) => (v ?? 0) + (equityInKind[i] ?? 0)),
   ).map((v, i) => v + fin.equity.totalExisting); // existing equity is in from t=0
@@ -850,6 +872,9 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     dividendStreamPerPeriod: dividendStream,
     buildup,
     noiPerPeriod,
+    scheduledDebtServicePerPeriod: debtServicePerPeriod,
+    sweptPrincipalPerPeriod,
+    hasScheduledAmortisation,
     stabilisedNOI,
     exitNOI,
     terminalEnterpriseValue: tvEnterprise,

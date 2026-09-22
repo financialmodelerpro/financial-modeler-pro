@@ -92,9 +92,24 @@ export function buildFinancingScheduleTables(snap: ProjectFinancialsSnapshot, st
   if (existing.length) cds.push({ label: hasAnySweep ? 'Principal Repaid - Existing (incl. sweep)' : 'Principal Repaid - Existing', values: neg(sliceN(c.existingPrincipalRepaid, N)) });
   if (fresh.length) cds.push({ label: hasAnySweep ? 'Principal Repaid - New (incl. sweep)' : 'Principal Repaid - New', values: neg(sliceN(c.newPrincipalRepaid, N)) });
   cds.push({ label: 'Total Principal Repaid', values: neg(sliceN(c.totalPrincipalRepaid, N)), isSubtotal: true });
+  // EARLY REPAYMENT STAYS VISIBLE (2026-09-22). The sweep is split out on its
+  // own line because it is excluded from the covenant denominator below, so a
+  // reader can see both what left the bank and what the covenant was measured
+  // on. Only where a sweep actually runs, so a scheduled-only project gains no
+  // empty rows.
+  if (hasAnySweep) {
+    cds.push({ label: '  of which repaid by cash sweep', values: neg(sliceN(c.totalSweepRepaid, N)) });
+    cds.push({ label: '  of which scheduled amortisation', values: neg(sliceN(
+      c.totalPrincipalRepaid.map((v, i) => Math.max(0, (v ?? 0) - (c.totalSweepRepaid[i] ?? 0))), N)) });
+  }
   if (existing.length) cds.push({ label: 'Debt Service - Existing', values: neg(sliceN(c.existingDebtServiceCash, N)) });
   if (fresh.length) cds.push({ label: 'Debt Service - New', values: neg(sliceN(c.newDebtServiceCash, N)) });
   cds.push({ label: 'Total Debt Service (Cash)', values: neg(sliceN(c.debtServiceCash, N)), isTotal: true });
+  // THE COVENANT'S OWN DENOMINATOR, beneath the cash total it differs from, so
+  // the two are never confused for one another.
+  if (hasAnySweep) {
+    cds.push({ label: 'Scheduled Debt Service (covenant basis)', values: neg(sliceN(c.scheduledDebtServiceCash, N)), isSubtotal: true });
+  }
   tables.push({ title: 'Combined Debt Service', rows: cds });
 
   // Finance Cost per facility (interest ledger): Opening + Charge - Paid =

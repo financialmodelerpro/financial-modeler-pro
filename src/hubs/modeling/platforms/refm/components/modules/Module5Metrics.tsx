@@ -19,7 +19,7 @@ import { makeFmt } from './_shared/numberFmt';
 import { MetricCard, MetricGrid, CollapsibleSection, fmtPct, fmtX, type CardTone } from './Module5Shared';
 import { FAST_INPUT } from './_shared/inputStyles';
 import { DEFAULT_COVENANTS, type CovenantThreshold, type CovenantMetric } from '../../lib/state/module1-types';
-import { evaluateCovenant, covenantUnit, covenantSeries, reduceWorst, reduceAvg, COVENANT_METRIC_LABELS, type CovenantInputs } from '../../lib/covenants';
+import { evaluateCovenant, covenantUnit, covenantSeries, reduceWorst, reduceAvg, COVENANT_METRIC_LABELS, covenantBasisNote, type CovenantInputs } from '../../lib/covenants';
 import { buildOperatingKpis } from '../../lib/reports/operatingKpis';
 
 const ratioFmt = (v: number): string => (Math.abs(v) < 1e-9 ? '-' : `${v.toFixed(2)}x`);
@@ -200,6 +200,7 @@ export default function Module5Metrics(): React.JSX.Element {
       <LenderCovenants
         covenants={covenants}
         inputs={covenantInputs}
+        hasScheduledAmortisation={rs.hasScheduledAmortisation}
         yearLabels={rs.yearLabels}
         onChange={setCovenants}
       />
@@ -311,10 +312,13 @@ const fmtCov = (v: number | null, unit: 'x' | 'pct'): string => (v == null ? '-'
 function LenderCovenants(props: {
   covenants: CovenantThreshold[];
   inputs: CovenantInputs;
+  /** False when nothing is contractually amortised, in which case DSCR and ICR
+   *  are the same ratio and the basis note says so. */
+  hasScheduledAmortisation: boolean;
   yearLabels: number[];
   onChange: (next: CovenantThreshold[]) => void;
 }): React.JSX.Element {
-  const { covenants, inputs, yearLabels, onChange } = props;
+  const { covenants, inputs, yearLabels, onChange, hasScheduledAmortisation } = props;
   const evals = covenants.map((c) => ({ cov: c, ev: evaluateCovenant(c, inputs) }));
 
   const upd = (id: string, patch: Partial<CovenantThreshold>): void =>
@@ -353,6 +357,9 @@ function LenderCovenants(props: {
       <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', margin: 'var(--sp-3) 0 var(--sp-1)' }}>Lender Covenants</div>
       <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
         Standard covenants vs editable thresholds (saved with the project). Worst = the binding period (min for DSCR / ICR / Debt Yield, max for LTV); Pass / Breach compares the worst to the threshold. DSCR and Interest Cover come from the snapshot; Debt Yield = NOI / debt; LTV is measured at peak debt (peak debt outstanding / Gross Development Value), since LTV at exit is ~0% once debt is repaid and meaningless for a lender. Where there is no value basis it falls back to LTV at exit (labelled as such). Thresholds are in x for DSCR / ICR and % for LTV / Debt Yield.
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
+        {covenantBasisNote(hasScheduledAmortisation)}
       </div>
 
       {/* Summary: editable thresholds + worst / avg + pass / breach. */}

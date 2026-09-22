@@ -217,6 +217,22 @@ export interface CombinedDebtService {
    *  waterfall's "Debt Paid (sweep)" line. */
   totalSweepRepaid: number[];
   debtServiceCash: number[];
+  /** SCHEDULED debt service (2026-09-22): interest paid plus CONTRACTUAL
+   *  principal, with swept principal EXCLUDED. The covenant denominator.
+   *
+   *  WHY THE COVENANT CANNOT USE `debtServiceCash`. A sweep is by definition the
+   *  surplus left AFTER debt service and the cash floor, so putting it in the
+   *  denominator makes the ratio circular: DSCR collapses toward 1.00x whatever
+   *  the project earns, and the harder it sweeps the worse its coverage looks.
+   *  Measured on the live project, where every penny of principal is swept and
+   *  nothing is scheduled: 2031 read 0.28x against 507.4m of "debt service" that
+   *  was 462.9m voluntary early repayment, and the covenant reported a BREACH on
+   *  a project that had just retired its whole facility years ahead of term. On
+   *  scheduled service the same year is 3.23x.
+   *
+   *  `debtServiceCash` stays the CASH STATEMENTS' number, because total outflow
+   *  is what a cash flow should show. Two questions, two series. */
+  scheduledDebtServiceCash: number[];
   // Pass 31 (2026-05-14): existing-vs-new breakdowns so the Combined
   // Debt Service table can render a separate line for each origin
   // alongside the totals. Existing facilities never produce capex

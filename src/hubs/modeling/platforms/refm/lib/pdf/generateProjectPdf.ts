@@ -90,7 +90,7 @@ import { buildDisposalWorking } from '../reports/disposalReport';
 import { buildOperatingKpis } from '../reports/operatingKpis';
 import { assetLabel } from '@/src/core/calculations/assetName';
 import { buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
-import { evaluateCovenant, covenantSeries, reduceWorst, type CovenantInputs } from '../covenants';
+import { evaluateCovenant, covenantSeries, reduceWorst, covenantBasisNote, type CovenantInputs } from '../covenants';
 import { buildCapexReport, CAPEX_SECTIONS, type CapexResultTable } from '../reports/capexReports';
 import { buildPartiesTable, PARTIES_TITLE, PARTIES_EMPTY_TEXT } from '../reports/partiesReport';
 import {
@@ -3538,6 +3538,8 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
     if (shown.length) {
       const val = (v: number | null, unit: 'x' | 'pct'): string =>
         v === null ? 'n/a' : unit === 'x' ? fmt.mult(v) : fmt.pct(v, 1);
+      items.push(tItem(m5Tab('RE Metrics'), 'outputs', {
+        type: 'paragraph', text: covenantBasisNote(returns.hasScheduledAmortisation) }));
       items.push(tTable(m5Tab('RE Metrics'), 'outputs', {
         title: 'Lender Covenants (threshold vs modelled)', kind: 'grid', align: 'data',
         columns: ['Covenant', 'Test', 'Threshold', 'Modelled (binding)', 'Average', 'Status'],

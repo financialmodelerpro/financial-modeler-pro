@@ -69,7 +69,7 @@ const EPS = 1e-9;
 /** The metric names a covenant row shows, in picker order. ONE list, read by the
  *  RE Metrics tab and the Excel workbook, so the two name a covenant alike. */
 export const COVENANT_METRIC_LABELS: ReadonlyArray<{ v: CovenantMetric; label: string }> = [
-  { v: 'dscr', label: 'DSCR' },
+  { v: 'dscr', label: 'DSCR (scheduled debt service)' },
   { v: 'icr', label: 'Interest Cover (ICR)' },
   { v: 'ltv', label: 'LTV (peak debt)' },
   { v: 'debt_yield', label: 'Debt Yield' },
@@ -78,6 +78,30 @@ export const COVENANT_METRIC_LABELS: ReadonlyArray<{ v: CovenantMetric; label: s
 
 export function covenantUnit(metric: CovenantMetric): 'x' | 'pct' {
   return metric === 'ltv' || metric === 'debt_yield' ? 'pct' : 'x';
+}
+
+/**
+ * THE BASIS NOTE FOR THE COVENANT BLOCK (2026-09-22). ONE sentence, so the RE
+ * Metrics tab, the workbook, the PDF and the lender report explain the DSCR
+ * basis identically instead of four surfaces wording it four ways.
+ *
+ * It exists because of a real reading failure: DSCR counted swept principal, so
+ * the live project reported a BREACH at 0.28x in the year it repaid its entire
+ * facility early. On scheduled service that year is 3.23x.
+ *
+ * WHEN NOTHING IS SCHEDULED, DSCR AND ICR ARE THE SAME RATIO. Both denominators
+ * are then the interest, so the two rows print the same number, and a reader
+ * who is not told why will assume one of them is broken.
+ */
+export function covenantBasisNote(hasScheduledAmortisation: boolean): string {
+  const base = 'DSCR is measured on SCHEDULED debt service (interest plus contractual '
+    + 'principal). Principal repaid early by cash sweep is excluded, because a sweep is '
+    + 'the surplus left after debt service: counting it would make the ratio circular and '
+    + 'report early repayment as a breach. The cash flow statements show the total outflow, '
+    + 'which is the larger figure.';
+  return hasScheduledAmortisation ? base
+    : `${base} This facility carries NO contractual amortisation, so scheduled service is `
+      + 'interest only and DSCR equals ICR below. That is expected here, not an error.';
 }
 
 /**
@@ -161,5 +185,12 @@ export function evaluateCovenant(cov: CovenantThreshold, inp: CovenantInputs): C
   }
   const avg = reduceAvg(series);
   const pass = cov.operator === 'min' ? worst >= cov.threshold : worst <= cov.threshold;
-  return { seriesPerPeriod: series, worst, avg, pass, exitOnly: false, unit };
+  // THE ROW CARRIES ITS OWN BASIS (2026-09-22), through the same `basisLabel`
+  // the LTV rows already use, so the surfaces need no new field and a label the
+  // user has edited is never overwritten. DSCR needs it because the denominator
+  // is NOT the cash debt service printed on the cash flow: swept principal is
+  // excluded, and without this a reader has no way to see which of the two a
+  // 3.23x was measured on.
+  const basisLabel = cov.metric === 'dscr' ? 'scheduled debt service, sweep excluded' : undefined;
+  return { seriesPerPeriod: series, worst, avg, pass, exitOnly: false, unit, basisLabel };
 }
