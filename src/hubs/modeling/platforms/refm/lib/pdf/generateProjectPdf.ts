@@ -3472,9 +3472,9 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
   if (exitYearTable) items.push(exitYearTable);
   items.push(exposureCards);
   items.push(tCards(m5Tab('RE Metrics'), 'outputs', 'Profitability & Yield', [
-    { label: 'Yield on Cost', value: fmt.pct(re.yieldOnCost, 2), sub: 'stabilised NOI / total cost' },
+    { label: 'Yield on Cost', value: fmt.pct(re.yieldOnCost, 2), sub: METRIC_CAPTIONS.yieldOnCost },
     { label: 'Cap Rate at Exit', value: fmt.pct(re.capRateAtExit, 2), sub: 'exit NOI / exit value' },
-    { label: 'Development Spread', value: fmt.pct(re.developmentSpread, 2), sub: 'yield on cost less exit cap' },
+    { label: 'Development Spread', value: fmt.pct(re.developmentSpread, 2), sub: METRIC_CAPTIONS.developmentSpread },
     { label: 'Profit on Cost', value: fmt.pct(re.profitOnCost, 1), sub: 'appraisal profit / dev cost' },
     { label: 'Profit Margin', value: fmt.pct(re.profitMargin, 1), sub: 'profit after tax / revenue' },
     { label: 'Equity Multiple (distributions)', value: fmt.mult(re.equityMultiple), sub: METRIC_CAPTIONS.equityMultipleDistributions },

@@ -629,6 +629,17 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
 
   // ── Real-estate metric feeders ──────────────────────────────────────
   const totalDevelopmentCost = fin.capex.totals.inclAllLand;
+  // THE COST OF THE ASSETS THAT PRODUCE THE NOI (2026-09-22), the Yield on Cost
+  // denominator. Held means Operate or Lease, the SAME test `computePerAssetReturns`
+  // uses for `isIncomeAsset`, so the project metric and the per-asset rows
+  // beneath it cannot disagree about which assets earn. The sign flip matches
+  // the per-asset mapping below: `perAssetCF.capexPerPeriod` is a POSITIVE cost.
+  let heldAssetCost = 0;
+  for (const apl of snap.perAssetPL.values()) {
+    if (apl.strategy !== 'Operate' && apl.strategy !== 'Lease') continue;
+    const acf = snap.perAssetCF.get(apl.assetId);
+    heldAssetCost += Math.max(0, (acf?.capexPerPeriod ?? []).reduce((s, v) => s + (v ?? 0), 0));
+  }
   const totalRevenue = pl.totalRevenuePerPeriod.slice(0, E).reduce((s, v) => s + v, 0);
   const totalPAT = pl.patPerPeriod.slice(0, E).reduce((s, v) => s + v, 0);
   const totalEquityInvested = Math.max(0, fin.equity.grandTotal);
@@ -660,6 +671,7 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     metrics: {
       stabilisedNOI,
       totalDevelopmentCost,
+      heldAssetCost,
       totalRevenue,
       totalCost: totalDevelopmentCost,
       totalPAT,

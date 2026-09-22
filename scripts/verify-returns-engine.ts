@@ -163,7 +163,10 @@ const input: ReturnsInput = {
   dividends: { perPeriod: [-400, 0, 50, 450] },
   discountRate: 0.10,
   metrics: {
-    stabilisedNOI: 90, totalDevelopmentCost: 1000, totalRevenue: 1500, totalCost: 1100,
+    // heldAssetCost is DELIBERATELY not totalDevelopmentCost: most of this
+    // fixture's cost is for-sale, so the two differ and the yield-on-cost check
+    // below proves which denominator the metric uses (2026-09-22).
+    stabilisedNOI: 90, totalDevelopmentCost: 1000, heldAssetCost: 600, totalRevenue: 1500, totalCost: 1100,
     totalPAT: 250, exitNOI: 95, exitEnterpriseValue: 1583, debtOutstandingAtExit: 500,
     totalEquityInvested: 400, totalEquityDistributions: 1000,
     cfadsPerPeriod: [0, 150, 160, 170], debtServicePerPeriod: [0, 100, 100, 100],
@@ -177,8 +180,14 @@ check('computeReturns: FCFF IRR present', res.fcff.irr !== null);
 check('computeReturns: FCFE MOIC = 750/400', near(res.fcfe.moic, 750 / 400));
 check('computeReturns: dividends payback present', res.dividends.paybackPeriod !== null);
 check('computeReturns: equityMultiple = 2.5x', near(res.realEstate.equityMultiple, 2.5));
-check('computeReturns: yieldOnCost = 9%', near(res.realEstate.yieldOnCost, 0.09));
-check('computeReturns: developmentSpread = YoC - cap', res.realEstate.developmentSpread !== null && near(res.realEstate.developmentSpread, 0.09 - 90 / 1583, 1e-4)); // cap = capitalised income (stabilisedNOI) over value, 2026-09-14
+check('computeReturns: yieldOnCost is NOI over HELD cost (90/600 = 15%), not over total (9%)', near(res.realEstate.yieldOnCost, 0.15));
+// Derived from the yield the check above pins rather than a second hardcoded
+// 0.09, which is what made this fail when the yield's denominator changed: the
+// spread is a RELATIONSHIP between two metrics, so it should be asserted as one.
+check('computeReturns: developmentSpread = YoC - cap', res.realEstate.developmentSpread !== null
+  && res.realEstate.yieldOnCost !== null && res.realEstate.capRateAtExit !== null
+  && near(res.realEstate.developmentSpread, res.realEstate.yieldOnCost - res.realEstate.capRateAtExit, 1e-9)
+  && near(res.realEstate.developmentSpread, 0.15 - 90 / 1583, 1e-4)); // cap = capitalised income (stabilisedNOI) over value, 2026-09-14
 check('computeReturns: dscrMin = 1.5', near(res.realEstate.dscrMin, 1.5));
 check('summariseStream matches computeReturns', summariseStream(input.fcff, 0.1).npv === res.fcff.npv);
 

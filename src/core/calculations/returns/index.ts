@@ -39,7 +39,9 @@ export function summariseStream(stream: CashFlowStream, discountRate: number): S
 
 function buildRealEstateMetrics(input: ReturnsInput): RealEstateMetrics {
   const m = input.metrics;
-  const yoc = yieldOnCost(m.stabilisedNOI, m.totalDevelopmentCost);
+  // HELD-ASSET NOI OVER HELD-ASSET COST (2026-09-22). Both sides of the ratio
+  // now cover the same assets; see ReturnsInput.metrics.heldAssetCost.
+  const yoc = yieldOnCost(m.stabilisedNOI, m.heldAssetCost);
   // THE CAPITALISED INCOME over the value (2026-09-14): `stabilisedNOI` is now
   // the income the terminal value capitalised (the year before the exit by
   // default), so this reads back the cap rate the model used. Exit-year NOI

@@ -31,4 +31,8 @@ export const METRIC_CAPTIONS = {
    *  measured, and neither is an operating year with nothing scheduled. */
   dscrAvg: 'mean over operating years with debt service',
   dscrMin: 'worst operating year with debt service',
+  /** Both sides cover the HELD assets only (2026-09-22): dividing held NOI by
+   *  the whole project's cost charged it with the for-sale units. */
+  yieldOnCost: 'stabilised NOI / held-asset cost',
+  developmentSpread: 'yield on cost less exit cap rate',
 } as const;

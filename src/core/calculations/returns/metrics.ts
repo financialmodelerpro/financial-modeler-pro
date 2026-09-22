@@ -12,9 +12,12 @@ export function safeRatio(numerator: number, denominator: number): number | null
   return Number.isFinite(r) ? r : null;
 }
 
-/** Yield on Cost = stabilised NOI / total development cost. */
-export function yieldOnCost(stabilisedNOI: number, totalDevelopmentCost: number): number | null {
-  return safeRatio(stabilisedNOI, totalDevelopmentCost);
+/** Yield on Cost = stabilised NOI / the development cost of the assets that
+ *  PRODUCE that NOI. Not total development cost: the numerator is held assets
+ *  only, so a project whose cost is mostly for-sale units read a yield that was
+ *  a fraction of the truth (see ReturnsInput.metrics.heldAssetCost). */
+export function yieldOnCost(stabilisedNOI: number, heldAssetCost: number): number | null {
+  return safeRatio(stabilisedNOI, heldAssetCost);
 }
 
 /** Cap Rate = NOI / property (enterprise) value. */

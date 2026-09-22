@@ -129,6 +129,22 @@ export interface ReturnsInput {
      *  project is building, so a construction year otherwise became the
      *  reported minimum (2026-09-21). */
     operatingPerPeriod?: boolean[];
+    /** Development cost of the HELD assets only (Operate + Lease), the
+     *  denominator of Yield on Cost. REQUIRED, so the compiler enumerates every
+     *  place a returns input is assembled.
+     *
+     *  WHY NOT TOTAL DEVELOPMENT COST (2026-09-22). The numerator, stabilised
+     *  NOI, is income-producing assets ONLY, so dividing it by the whole
+     *  project charged the held assets with the cost of the units that are
+     *  SOLD, and the ratio measured nothing: on the live project it read 2.09%
+     *  against a 8.50% exit cap rate, for a development spread of -6.41% that
+     *  said the scheme destroyed value when what it really said was that most
+     *  of the cost belongs to villas which are sold and never produce NOI. On
+     *  held cost the same project reads 6.76%.
+     *
+     *  Pass 0 where nothing is held; the metric then resolves to null rather
+     *  than dividing by a cost that does not belong to it. */
+    heldAssetCost: number;
     /** Per-period cash debt service (interest + principal). */
     debtServicePerPeriod: number[];
     /** Per-period EBITDA. */

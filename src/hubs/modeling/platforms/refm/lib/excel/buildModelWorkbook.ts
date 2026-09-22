@@ -4316,7 +4316,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
 
     kpiStrip('', [
       { label: 'Equity Multiple (FCFE)', value: cMult(rr.fcfe.moic), sub: METRIC_CAPTIONS.equityMultipleFcfe },
-      { label: 'Yield on Cost', value: cPct(m.yieldOnCost), sub: 'stabilised NOI / total cost' },
+      { label: 'Yield on Cost', value: cPct(m.yieldOnCost), sub: METRIC_CAPTIONS.yieldOnCost },
       { label: 'Profit Margin', value: cPct(m.profitMargin), sub: 'PAT / revenue' },
       { label: 'Min DSCR', value: cMult(minDSCR), sub: `${METRIC_CAPTIONS.dscrMin} · vs ${cMult(dscrThreshold)}${badge(dscrPass)}`, tone: tone(dscrPass) },
       { label: 'Peak Equity', value: cMoney(m.peakEquity), sub: `max equity at risk · ${currency}` },
@@ -4379,7 +4379,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
       { label: 'Avg Cash-on-Cash', value: cPct(m.cashOnCashAvg), sub: 'cash yield on equity' },
       { label: 'Cap Rate at Exit', value: cPct(m.capRateAtExit), sub: 'exit NOI / exit value' },
       { label: 'Profit on Cost', value: cPct(m.profitOnCost), sub: '(revenue - cost) / cost' },
-      { label: 'Development Spread', value: cPct(m.developmentSpread), sub: 'yield on cost - exit cap rate' },
+      { label: 'Development Spread', value: cPct(m.developmentSpread), sub: METRIC_CAPTIONS.developmentSpread },
       { label: 'Max Negative Cash Flow', value: cMoney(ee.maxNegativeCumulativeCF), sub: 'peak FCFE outflow', tone: 'bad' },
     ]);
     kpiStrip('Development economics', [
@@ -4395,7 +4395,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
       { label: 'Stabilised NOI', value: cMoney(rs.stabilisedNOI) },
       { label: 'Exit NOI', value: cMoney(rs.exitNOI), sub: `year ${rs.exitYearLabel}` },
       { label: 'Stabilisation Year', value: rs.stabilization.stabilizationYear != null ? String(rs.stabilization.stabilizationYear) : 'n/a', sub: 'NOI reaches 95% of stable' },
-      { label: 'Stabilised Yield on Cost', value: cPct(rs.stabilization.stabilisedYieldOnCost), sub: 'stabilised NOI / dev cost' },
+      { label: 'Stabilised Yield on Cost', value: cPct(rs.stabilization.stabilisedYieldOnCost), sub: METRIC_CAPTIONS.yieldOnCost },
       { label: 'Exit Cap Rate', value: cPct(m.capRateAtExit), sub: 'exit NOI / exit value' },
       { label: 'Terminal Enterprise Value', value: cMoney(rs.terminalEnterpriseValue) },
       { label: 'Terminal Equity Value', value: cMoney(rs.terminalEquityValue), sub: 'EV less debt + cash' },
