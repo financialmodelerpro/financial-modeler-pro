@@ -179,7 +179,7 @@ function ActivityRow({
             {bulk.changedPaths.toLocaleString()} fields changed in one save
           </div>
         )}
-        {(change.action === 'update' || change.action === 'add' || change.action === 'remove') && (
+        {(change.action === 'update' || change.action === 'add' || change.action === 'remove' || change.action === 'clear') && (
           <div style={{ marginTop: 2, color: 'var(--color-muted)' }}>
             <ValueChip raw={change.before} kind="before" counterpart={change.after} />
             <span style={{ margin: '0 6px' }}>&rarr;</span>
@@ -199,6 +199,8 @@ function activityBadge(action: string): { label: string; bg: string; fg: string 
   switch (action) {
     case 'add':             return { label: 'Added',   bg: '#d1fae5', fg: '#065f46' };
     case 'remove':          return { label: 'Removed', bg: '#fee2e2', fg: '#991b1b' };
+    // Amber, not red: a cleared value is an edit, not a deletion.
+    case 'clear':           return { label: 'Cleared', bg: '#fef3c7', fg: '#92400e' };
     case 'update':          return { label: 'Updated', bg: '#e0f2fe', fg: '#0c4a6e' };
     case 'bulk-change':     return { label: 'Bulk',    bg: '#ede9fe', fg: '#5b21b6' };
     case 'version.created': return { label: 'Version', bg: '#fef3c7', fg: '#92400e' };

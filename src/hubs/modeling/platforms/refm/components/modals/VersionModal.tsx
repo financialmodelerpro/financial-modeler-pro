@@ -604,6 +604,7 @@ function ChangeLogRow({ entry }: { entry: ChangeLogEntryDTO }): React.JSX.Elemen
   const kindBadge =
     entry.kind === 'add' ? { label: 'Added', bg: '#d1fae5', fg: '#065f46' } :
     entry.kind === 'remove' ? { label: 'Removed', bg: '#fee2e2', fg: '#991b1b' } :
+    entry.kind === 'clear' ? { label: 'Cleared', bg: '#fef3c7', fg: '#92400e' } :
     { label: 'Updated', bg: '#e0f2fe', fg: '#0c4a6e' };
 
   return (
@@ -642,7 +643,7 @@ function ChangeLogRow({ entry }: { entry: ChangeLogEntryDTO }): React.JSX.Elemen
         >
           {entry.label ?? entry.path}
         </div>
-        {entry.kind === 'update' && (
+        {(entry.kind === 'update' || entry.kind === 'clear') && (
           <div style={{ marginTop: 2, color: 'var(--color-muted)' }}>
             {/* Counterparts passed here too: this modal and the Collaborate
                 screen render the same chips and must summarise alike. */}

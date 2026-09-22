@@ -45,7 +45,16 @@ export interface ChangeLogEntry {
    * Discriminator so the UI can render adds + removes differently
    * from updates if it wants to. 'update' is the default.
    */
-  kind: 'add' | 'remove' | 'update';
+  /**
+   * 'clear' IS NOT 'remove' (2026-09-22). 'remove' means an ELEMENT is gone:
+   * a phase, a parcel, a cost override. 'clear' means a record that still
+   * exists lost a VALUE. The two looked identical because this platform stores
+   * a blank as an ABSENT KEY ("never null and never 0", the asset type values
+   * rule), so emptying a field deletes its key and the differ read that as a
+   * deletion. The log then told a reader something had been REMOVED when a
+   * number had been cleared, which is a different and more alarming claim.
+   */
+  kind: 'add' | 'remove' | 'update' | 'clear';
 }
 
 // Compare anything sensibly: scalars by ===, objects by JSON
@@ -138,7 +147,10 @@ function diffObject(
       path: `${basePath}.${k}`,
       before: beforeVal,
       after:  afterVal,
-      kind:   beforeVal === undefined ? 'add' : afterVal === undefined ? 'remove' : 'update',
+      // The RECORD still exists here (diffObject is walking its fields), so a
+      // key going absent is a value CLEARED, never an element removed. Element
+      // removal is emitted by diffIdArray, which keeps 'remove'.
+      kind:   beforeVal === undefined ? 'add' : afterVal === undefined ? 'clear' : 'update',
     });
   }
 }
@@ -285,7 +297,9 @@ function diffCases(
       const bv = bo[k];
       const av = ao[k];
       if (deepEqual(bv, av)) continue;
-      const kind: ChangeLogEntry['kind'] = bv === undefined ? 'add' : av === undefined ? 'remove' : 'update';
+      // Same rule for a case override: the CASE still exists, so dropping one
+      // of its overrides clears that value rather than removing anything.
+      const kind: ChangeLogEntry['kind'] = bv === undefined ? 'add' : av === undefined ? 'clear' : 'update';
       out.push({ path: `cases[${idOf(a)}].${k}`, label: `${nameOf(a)}: ${k}`, before: bv ?? null, after: av ?? null, kind });
     }
   }

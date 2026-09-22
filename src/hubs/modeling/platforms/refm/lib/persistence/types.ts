@@ -166,7 +166,9 @@ export interface ChangeLogEntryDTO {
   label?:  string;
   before:  unknown;
   after:   unknown;
-  kind:    'add' | 'remove' | 'update';
+  /** Mirrors `ChangeLogEntry['kind']` in snapshot-diff, which is where the
+   *  values are defined and why 'clear' is separate from 'remove'. */
+  kind:    'add' | 'remove' | 'update' | 'clear';
 }
 
 // ONE ENTRY IN THE APPEND-ONLY CHANGE LOG (migration 234). Distinct from

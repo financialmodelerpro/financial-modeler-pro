@@ -30,6 +30,7 @@
 import { readFileSync } from 'node:fs';
 import { rowsForSave, MAX_CHANGE_ROWS_PER_SAVE } from '../src/hubs/modeling/platforms/refm/lib/persistence/changeLog';
 import { summariseArray } from '../src/hubs/modeling/platforms/refm/components/collab/CollabPanels';
+import { diffSnapshots } from '../src/hubs/modeling/platforms/refm/lib/persistence/snapshot-diff';
 
 let passed = 0, failed = 0; const fails: string[] = [];
 function check(label: string, ok: boolean, detail = ''): void {
@@ -207,6 +208,49 @@ console.log('\n=== D. Appended, never recomputed; each save logs its own delta =
       === 'Marina Tower: floor area');
   check('D13 an unlabelled entry carries null, so the renderer falls back to the path',
     rowsForSave('p', 'v', 'u', [{ path: 'x', before: 1, after: 2, kind: 'update' }])[0].label === null);
+}
+
+// ── D20 to D24: A VALUE CLEARED IS NOT AN ELEMENT REMOVED (2026-09-22) ──────
+// This platform stores a blank as an ABSENT KEY ("never null and never 0"), so
+// emptying a field deletes its key, and the differ read that as a deletion. The
+// log said REMOVED, in red, when a number had been cleared. Driven through the
+// REAL differ rather than inspected, because the classification is the defect.
+{
+  console.log('\n-- D20..D24 cleared is not removed --');
+  // The differ walks every id-keyed array, so the fixture carries all of them.
+  // A thin fixture crashes in diffIdArray rather than failing a check, which is
+  // a test that cannot report anything.
+  const base = {
+    project: { name: 'P', assetTypeValues: { t1: { buildCost: 1000 } } },
+    landAllocationMode: 'sqm',
+    phases: [{ id: 'ph1', name: 'Phase 1' }],
+    parcels: [], assets: [], subUnits: [], costLines: [],
+    financingTranches: [], equityContributions: [], costOverrides: [], cases: [],
+  } as unknown as Parameters<typeof diffSnapshots>[0];
+  // A field's key goes away while its RECORD stays: a value was cleared.
+  const cleared = JSON.parse(JSON.stringify(base));
+  delete cleared.project.assetTypeValues.t1.buildCost;
+  const cl = diffSnapshots(base, cleared as typeof base);
+  const clEntry = cl.find((e) => e.path.includes('buildCost'));
+  check('D20 clearing a field on a surviving record is CLEAR, not remove',
+    clEntry?.kind === 'clear', `${clEntry?.path} -> ${clEntry?.kind}`);
+  check('D21 and it still carries the value that was cleared, so the log shows what went',
+    clEntry?.before === 1000);
+  // A whole ELEMENT goes: that is still a removal, and must not be softened.
+  const dropped = JSON.parse(JSON.stringify(base));
+  dropped.phases = [];
+  const dr = diffSnapshots(base, dropped as typeof base);
+  check('D22 removing a whole element is STILL remove (the distinction cuts both ways)',
+    dr.some((e) => e.kind === 'remove'), JSON.stringify(dr.map((e) => `${e.path}:${e.kind}`)));
+  // Filling a field in is an add, unchanged.
+  const filled = JSON.parse(JSON.stringify(base));
+  filled.project.assetTypeValues.t1.revenueRate = 500;
+  const fi = diffSnapshots(base, filled as typeof base);
+  check('D23 filling an absent field in is still an add',
+    fi.find((e) => e.path.includes('revenueRate'))?.kind === 'add');
+  check('D24 an ordinary edit is still an update',
+    diffSnapshots(base, { ...JSON.parse(JSON.stringify(base)), project: { ...base!.project, name: 'Q' } } as typeof base)
+      .some((e) => e.kind === 'update'));
 }
 
 // ── D14 to D18: AN ARRAY SAYS WHAT CHANGED (2026-09-22) ─────────────────────
