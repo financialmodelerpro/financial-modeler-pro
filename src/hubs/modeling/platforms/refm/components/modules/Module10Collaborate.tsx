@@ -36,6 +36,19 @@ import { PROJECT_ROLE_META, type ProjectRole } from '@/src/core/collab/projectRo
 import { ActivityPanel, CommentsPanel } from '../collab/CollabPanels';
 import { useProjectChanges, useProjectComments } from '../collab/useCollabData';
 
+/**
+ * THE FOUR SUB-TABS (2026-09-22), declared once so the bar and the gates read
+ * the same list. Overview leads because the screen's job is to answer "what do
+ * I need to look at now" before it offers anywhere to browse.
+ */
+const COLLAB_TABS = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'comments', label: 'Comments' },
+  { key: 'activity', label: 'Activity' },
+  { key: 'access',   label: 'Access' },
+] as const;
+type CollabTab = typeof COLLAB_TABS[number]['key'];
+
 interface Module10CollaborateProps {
   projectId: string;
   projectName: string | null;
@@ -91,6 +104,21 @@ export default function Module10Collaborate({
   const members = membersReady ? membersState.rows : [];
   const roleMeta = role ? PROJECT_ROLE_META[role as ProjectRole] : undefined;
 
+  // ── SUB-TABS (2026-09-22) ────────────────────────────────────────────────
+  // This was one scrolling page of four stacked cards, so a reviewer looking
+  // for an open comment scrolled past the member list to find it, and nothing
+  // answered "what do I need to look at now". The panels are unchanged: they
+  // move into tabs and gain an Overview above them.
+  const [tab, setTab] = useState<CollabTab>('overview');
+
+  // WHAT THE OVERVIEW COUNTS. Open means a ROOT comment (a reply is part of a
+  // thread, not a thread of its own), not deleted, not resolved. Computed from
+  // data already loaded; nothing here costs a read.
+  const openThreads = commentsData.rows.filter(
+    (c) => c.parentId === null && !c.deleted && c.resolvedAt === null,
+  );
+  const latestChange = changesData.rows[0] ?? null;
+
   const sectionTitle: React.CSSProperties = {
     fontSize: 'var(--font-h3, 15px)', fontWeight: 700, color: 'var(--color-heading)',
     margin: '0 0 6px',
@@ -114,7 +142,106 @@ export default function Module10Collaborate({
       </div>
       {error && <div className="alert-info" data-testid="module10-error">{error}</div>}
 
+      {/* ── The four sub-tabs ────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--color-border)', marginBottom: 'var(--sp-3)' }}>
+        {COLLAB_TABS.map((t) => {
+          const active = tab === t.key;
+          // The count rides on the tab so an open thread is visible without
+          // opening Comments, which is the whole point of a tab bar here.
+          const badge = t.key === 'comments' && openThreads.length > 0 ? openThreads.length : null;
+          return (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setTab(t.key)}
+              data-testid={`module10-tab-${t.key}`}
+              aria-current={active ? 'page' : undefined}
+              style={{
+                padding: '8px 14px', border: 'none', background: 'none', cursor: 'pointer',
+                fontSize: 13, fontFamily: 'inherit',
+                fontWeight: active ? 700 : 500,
+                color: active ? 'var(--color-primary)' : 'var(--color-meta)',
+                borderBottom: active ? '2px solid var(--color-primary)' : '2px solid transparent',
+                marginBottom: -1,
+              }}
+            >
+              {t.label}
+              {badge !== null && (
+                <span style={{
+                  marginLeft: 6, fontSize: 10, fontWeight: 700, padding: '1px 6px',
+                  borderRadius: 20, background: '#fef3c7', color: '#92400e',
+                }}>
+                  {badge}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── OVERVIEW: what a person needs to know before anything else ──── */}
+      {tab === 'overview' && (
+        <div data-testid="module10-overview">
+          <div style={card} data-testid="module10-open-comments">
+            <h3 style={sectionTitle}>Open comments</h3>
+            {!commentsData.ready ? (
+              <p style={{ fontSize: 12.5, color: 'var(--color-muted)', margin: 0 }}>Loading comments...</p>
+            ) : openThreads.length === 0 ? (
+              <p style={{ fontSize: 12.5, color: 'var(--color-muted)', margin: 0 }}>
+                Nothing open. Every comment on this project has been resolved.
+              </p>
+            ) : (
+              <>
+                <p style={{ fontSize: 13, color: 'var(--color-body)', margin: '0 0 6px' }}>
+                  <strong>{openThreads.length}</strong> unresolved {openThreads.length === 1 ? 'thread' : 'threads'}.
+                </p>
+                {/* The three most recent, so the card answers rather than
+                    merely counts. The rest are one click away. */}
+                {openThreads.slice(0, 3).map((c) => (
+                  <div key={c.id} style={{ fontSize: 12.5, color: 'var(--color-body)', padding: '3px 0' }}>
+                    <span style={{ color: 'var(--color-muted)' }}>{c.userName ?? 'Unknown'}: </span>
+                    {(c.body ?? '').slice(0, 110)}{(c.body ?? '').length > 110 ? '...' : ''}
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setTab('comments')}
+                  data-testid="module10-goto-comments"
+                  style={{
+                    marginTop: 6, background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                    color: 'var(--color-primary)', fontWeight: 600, fontSize: 12.5, fontFamily: 'inherit',
+                  }}
+                >
+                  Open comments
+                </button>
+              </>
+            )}
+          </div>
+
+          <div style={card} data-testid="module10-recent-activity">
+            <h3 style={sectionTitle}>Latest change</h3>
+            {!changesData.ready ? (
+              <p style={{ fontSize: 12.5, color: 'var(--color-muted)', margin: 0 }}>Loading activity...</p>
+            ) : latestChange === null ? (
+              <p style={{ fontSize: 12.5, color: 'var(--color-muted)', margin: 0 }}>
+                No activity recorded yet for this project.
+              </p>
+            ) : (
+              <p style={{ fontSize: 13, color: 'var(--color-body)', margin: 0 }}>
+                <strong>{latestChange.userName ?? 'Unknown user'}</strong>
+                {', '}
+                {new Date(latestChange.createdAt).toLocaleString()}
+                {(latestChange.label ?? latestChange.path)
+                  ? <span style={{ color: 'var(--color-muted)' }}>{' · '}{latestChange.label ?? latestChange.path}</span>
+                  : null}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Who is editing right now (the same lock the topbar shows) ───── */}
+      {tab === 'overview' && (
       <div style={card} data-testid="module10-editing-now">
         <h3 style={sectionTitle}>Editing now</h3>
         {!lock.lockingAvailable ? (
@@ -132,8 +259,10 @@ export default function Module10Collaborate({
           </p>
         )}
       </div>
+      )}
 
       {/* ── Who has access (read only; managed on the Team access tab) ──── */}
+      {tab === 'access' && (
       <div style={card} data-testid="module10-team">
         <h3 style={sectionTitle}>Who has access</h3>
         {!membersReady ? (
@@ -176,8 +305,10 @@ export default function Module10Collaborate({
           </>
         )}
       </div>
+      )}
 
       {/* ── Comments: the same panel as the Version modal ────────────────── */}
+      {tab === 'comments' && (
       <div style={card} data-testid="module10-comments">
         <h3 style={sectionTitle}>Comments</h3>
         <CommentsPanel
@@ -195,8 +326,10 @@ export default function Module10Collaborate({
           onError={setError}
         />
       </div>
+      )}
 
       {/* ── Activity: the same panel as the Version modal ────────────────── */}
+      {tab === 'activity' && (
       <div style={card} data-testid="module10-activity">
         <h3 style={sectionTitle}>Activity</h3>
         <ActivityPanel
@@ -208,6 +341,7 @@ export default function Module10Collaborate({
           limit={changesData.limit}
         />
       </div>
+      )}
     </div>
   );
 }
