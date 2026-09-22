@@ -304,7 +304,24 @@ async function main(): Promise<void> {
         check('real: integrity checks render in both documents',
           r.full.includes('Model Integrity Checks') && r.summary.includes('Model Integrity Checks'));
         check('real: covenants render', r.full.includes('Lender Covenants (threshold vs modelled)'));
-        check('real: the DSCR breach is called out', flat(r.full).includes('Debt service is not covered from operations'));
+        // THE RULE IS "A SUB-1.00x DSCR IS CALLED OUT", NOT "THERE IS ALWAYS A
+        // BREACH" (2026-09-22). This asserted the call-out unconditionally, and
+        // went red the day DSCR started being measured on SCHEDULED debt
+        // service: the live project stopped breaching (0.28x to 3.23x) because
+        // counting swept principal had been reporting early repayment as a
+        // failure to cover. Asserted BOTH WAYS now, which is strictly stronger,
+        // because a report claiming a breach that the model does not have is
+        // the same defect wearing the other sign. Non-vacuous by construction:
+        // the two legs differ, so one exercises each branch.
+        const legSnap = computeFinancialsSnapshot(st);
+        const legRs: any = computeReturnsSnapshot(legSnap, st.project);
+        const below = (legRs.result.realEstate.dscrPerPeriod as number[])
+          .filter((v) => v !== 0 && v < 1).length;
+        const calledOut = flat(r.full).includes('Debt service is not covered from operations');
+        check(below > 0
+          ? `real: the DSCR breach is called out (${below} year(s) under 1.00x)`
+          : 'real: no DSCR breach is claimed, because there is none',
+        calledOut === (below > 0), `below=${below} calledOut=${calledOut}`);
         check('real: tab numbering has no gap',
           [...new Set([...r.full.matchAll(/Tab (\d): /g)].map((m) => Number(m[1])))].sort((a, b) => a - b).every((v, i) => v === i + 1));
       }
