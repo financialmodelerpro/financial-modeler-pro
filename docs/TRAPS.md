@@ -2731,6 +2731,41 @@ with the hand-rolled-fallback checks (typed BUA, raw land allocation) untouched.
 **Proof:** `verify-pdf-export` 133/0 with the guard strictly larger than it was: it now fails both on a
 re-derivation and on Module 1 dropping the shared view.
 
+### 7.56 A fix whose proof is the defect: an identity that holds everywhere means two things have become one
+
+**Symptom (2026-09-22):** FCFE showed cash held by the debt sweep as paid to equity in the year it was earned
+and clawed back in the year it repaid the debt (192.3m out in 2030, 192.3m back in 2031 on the live project,
+worth 2.69 points of equity IRR). The fix deducted the movement in the cash balance, and it was reported as
+correct on this evidence: **"FCFE now equals dividends paid less equity drawn in every period, to 0.000m."**
+That sentence was written into `verify-returns-buildup` as a passing check, and the suite went green.
+
+**Mechanism:** the identity was not a property of the fix, it was the fix's definition restated. FCFE and the
+distributed-equity (DDM) stream answer different questions: what equity COULD have taken versus what it DID
+take. Deducting every retained balance makes FCFE the second one. Measured afterwards on a copy of the project
+switched between repayment methods, FCFE equalled DDM to **0.00 in every period under BOTH** a cash sweep
+(18.39% / 18.39%) and a fixed schedule (25.47% / 25.47%). Two streams had silently become one, and every check
+in the file compared the chain to itself, so nothing could see it.
+
+**The trap to avoid:** when a change makes two independently-derived quantities agree EXACTLY, EVERYWHERE, ask
+whether they are still independent. Exact agreement across every period and every configuration is the
+signature of a definition collapse, not of a correct derivation. Real agreement has a reason that can be
+stated without restating the formula, and it usually has exceptions.
+
+**The second-order lesson:** the wrong fix was reachable because the defect was real. A genuine symptom
+(the whipsaw) justified a rule far wider than the symptom needed. Fix the narrowest thing that explains the
+evidence: here, only a LENDER'S CLAIM traps cash (a sweep commitment, capped at the debt) plus the REQUIRED
+BALANCE (an operating floor equity funded, released at the end). Under a fixed schedule nothing else is
+trapped, so retained cash stays free and the two streams differ by 192.31m, as they must.
+
+**Fix:** `trappedCashFrom` in `returns-resolvers.ts` is the one rule; `SponsorStreamInputs.trappedCashAxis` is
+REQUIRED so the compiler enumerated all three places a sponsor stream is assembled (an optional field would
+have left the sensitivity grid and the exit-year loop silently on the old definition).
+
+**Proof:** `verify-returns-buildup` 78/0, re-aimed at the danger rather than the symptom: the no-sweep fixture
+asserts restricted cash NEVER EXCEEDS the required balance (the wide rule crossed it by 35x) and that FCFE is
+not the dividend stream, and **sabotage 8 reproduces the wide fix and is caught on `worst |FCFE - DDM| 0.000m`**,
+the exact sentence that was once the evidence for shipping it.
+
 ## 8. Registries and two-step registration
 
 ### 8.1 A template registered in one place and not the other fails silently and permanently
