@@ -253,6 +253,43 @@ console.log('\n=== D. Appended, never recomputed; each save logs its own delta =
       .some((e) => e.kind === 'update'));
 }
 
+// ── D25 to D27: AN ASSET IS NAMED BY THE PLATFORM'S RULE (2026-09-22) ───────
+// `elementLabel` read `rec['name']`, and `Asset.name` is RETIRED (read by
+// nothing, no field to type it in), so an asset add or remove was labelled with
+// its raw id in the one place it exists to be readable. Driven through the real
+// differ, and the assertion is the RULE (plot, then type) rather than a literal
+// string, so `assetLabel` remains free to word itself.
+{
+  console.log('\n-- D25..D27 an asset is named by where it is and what it is --');
+  const arrays = {
+    parcels: [{ id: 'pl1', name: 'Land 3', phaseId: 'ph1' }],
+    subUnits: [], costLines: [], financingTranches: [], equityContributions: [],
+    costOverrides: [], cases: [],
+  };
+  const withAsset = {
+    project: { name: 'P' }, landAllocationMode: 'sqm',
+    phases: [{ id: 'ph1', name: 'Phase 1' }],
+    ...arrays,
+    // The plot lives at landAllocation.parcelId, which is where assetLabel
+    // looks; a bare parcelId is not how an asset records its plot.
+    assets: [{ id: 'as1', type: '4 Star Hotel', phaseId: 'ph1', landAllocation: { parcelId: 'pl1' } }],
+  } as unknown as Parameters<typeof diffSnapshots>[0];
+  const without = { ...JSON.parse(JSON.stringify(withAsset)), assets: [] } as typeof withAsset;
+
+  const added = diffSnapshots(without, withAsset).find((e) => e.kind === 'add' && e.path.startsWith('assets['));
+  check('D25 an added asset is labelled by its PLOT and TYPE, not its id',
+    !!added && /Land 3/.test(added.label ?? '') && /4 Star Hotel/.test(added.label ?? ''),
+    added?.label ?? '(no add entry)');
+  check('D26 and the label never falls back to the raw asset id',
+    !!added && !/as1/.test(added.label ?? ''), added?.label ?? '');
+  // Removing the asset AND its plot in one save: the plot must still resolve,
+  // which is why the labeller merges both snapshots rather than reading `after`.
+  const gone = { ...JSON.parse(JSON.stringify(withAsset)), assets: [], parcels: [] } as typeof withAsset;
+  const removed = diffSnapshots(withAsset, gone).find((e) => e.kind === 'remove' && e.path.startsWith('assets['));
+  check('D27 an asset removed WITH its plot still names the plot (context is both snapshots)',
+    !!removed && /Land 3/.test(removed.label ?? ''), removed?.label ?? '(no remove entry)');
+}
+
 // ── D14 to D18: AN ARRAY SAYS WHAT CHANGED (2026-09-22) ─────────────────────
 // The chip reported an array as "[N items]", the only thing it knew, so a list
 // whose CONTENTS changed while its length did not printed "3 items" on BOTH

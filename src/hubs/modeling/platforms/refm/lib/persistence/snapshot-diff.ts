@@ -35,6 +35,7 @@
  */
 
 import type { HydrateSnapshot } from '../state/module1-store';
+import { assetLabel } from '@/src/core/calculations/assetName';
 
 export interface ChangeLogEntry {
   path: string;             // e.g. "project.name", "phases[id=phase_1].startDate"
@@ -44,8 +45,7 @@ export interface ChangeLogEntry {
   /**
    * Discriminator so the UI can render adds + removes differently
    * from updates if it wants to. 'update' is the default.
-   */
-  /**
+   *
    * 'clear' IS NOT 'remove' (2026-09-22). 'remove' means an ELEMENT is gone:
    * a phase, a parcel, a cost override. 'clear' means a record that still
    * exists lost a VALUE. The two looked identical because this platform stores
@@ -80,6 +80,49 @@ function elementLabel(rec: Record<string, unknown>): string {
   const id = rec['id'];
   if (typeof id === 'string') return id;
   return '?';
+}
+
+/**
+ * How ONE array names its elements (2026-09-22). Most records carry a name the
+ * user typed, so `elementLabel` is right for them. ASSETS DO NOT: `Asset.name`
+ * is RETIRED (read by nothing, and the assets table offers no name to type),
+ * so an asset add or remove was labelled with its raw id, or with "?", in the
+ * one place it exists to be readable.
+ *
+ * An asset is called by WHERE IT IS AND WHAT IT IS, and `assetLabel` is the one
+ * rule for that, so this hands it the same context every other reader uses.
+ *
+ * The context is the UNION of both snapshots' plots and phases, because an
+ * asset and its plot can go in the SAME save, and resolving against `after`
+ * alone would quietly fall back to the phase for exactly the row that needs
+ * naming most.
+ */
+type ElementLabeller = (rec: Record<string, unknown>) => string;
+
+function assetLabeller(
+  before: HydrateSnapshot | null | undefined,
+  after:  HydrateSnapshot | null | undefined,
+): ElementLabeller {
+  const merge = (a: readonly unknown[] = [], b: readonly unknown[] = []): unknown[] => {
+    const m = new Map<string, unknown>();
+    for (const r of [...a, ...b]) {
+      const id = (r as { id?: unknown } | null)?.id;
+      if (typeof id === 'string') m.set(id, r);
+    }
+    return [...m.values()];
+  };
+  const ctx = {
+    parcels: merge(before?.parcels as unknown[], after?.parcels as unknown[]),
+    phases:  merge(before?.phases as unknown[],  after?.phases as unknown[]),
+  } as unknown as Parameters<typeof assetLabel>[1];
+  return (rec) => {
+    // Falls back rather than throwing: a label is a courtesy on an audit row,
+    // and losing the whole entry to a labelling error would be the wrong trade.
+    try {
+      const l = assetLabel(rec as unknown as Parameters<typeof assetLabel>[0], ctx);
+      return l.trim() ? l : elementLabel(rec);
+    } catch { return elementLabel(rec); }
+  };
 }
 
 /**
@@ -166,6 +209,9 @@ function diffIdArray(
   after:  ReadonlyArray<Record<string, unknown>>,
   out: ChangeLogEntry[],
   keyField = 'id',
+  /** How to NAME an element of this array. Defaults to its typed name, which
+   *  is right everywhere except assets, whose name is retired. */
+  labelOf: ElementLabeller = elementLabel,
 ): void {
   // keyVal is coerced to a string so non-string ids (none today) still key.
   const keyOf = (rec: Record<string, unknown>): string | undefined => {
@@ -184,7 +230,7 @@ function diffIdArray(
     if (!beforeRec) {
       out.push({
         path:  childPath,
-        label: `Added ${elementLabel(afterRec)}`,
+        label: `Added ${labelOf(afterRec)}`,
         before: undefined,
         after:  afterRec,
         kind:   'add',
@@ -199,7 +245,7 @@ function diffIdArray(
     if (byIdAfter.has(id)) continue;
     out.push({
       path:  `${basePath}[${keyField}=${id}]`,
-      label: `Removed ${elementLabel(beforeRec)}`,
+      label: `Removed ${labelOf(beforeRec)}`,
       before: beforeRec,
       after:  undefined,
       kind:   'remove',
@@ -352,7 +398,8 @@ export function diffSnapshots(
   // id-keyed arrays
   diffIdArray('phases',              before.phases              as unknown as Record<string, unknown>[], after.phases              as unknown as Record<string, unknown>[], out);
   diffIdArray('parcels',             before.parcels             as unknown as Record<string, unknown>[], after.parcels             as unknown as Record<string, unknown>[], out);
-  diffIdArray('assets',              before.assets              as unknown as Record<string, unknown>[], after.assets              as unknown as Record<string, unknown>[], out);
+  // An asset is named by the platform's ONE label rule, never a retired field.
+  diffIdArray('assets',              before.assets              as unknown as Record<string, unknown>[], after.assets              as unknown as Record<string, unknown>[], out, 'id', assetLabeller(before, after));
   diffIdArray('subUnits',            before.subUnits            as unknown as Record<string, unknown>[], after.subUnits            as unknown as Record<string, unknown>[], out);
   diffIdArray('costLines',           before.costLines           as unknown as Record<string, unknown>[], after.costLines           as unknown as Record<string, unknown>[], out);
   diffIdArray('financingTranches',   before.financingTranches   as unknown as Record<string, unknown>[], after.financingTranches   as unknown as Record<string, unknown>[], out);
