@@ -1118,8 +1118,14 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
   const landSqm = state.parcels.length
     ? state.parcels.reduce((s, pa) => s + (pa.area ?? 0), 0)
     : assets.reduce((s, a) => s + pdfAreaOf(a, state).land, 0);
+  // THE SCHEME IS COUNTED BY LINE (2026-09-22), like every surface after the
+  // assets tab. This counted raw visible ASSETS, so the summary opened with
+  // "8 assets (3 Sell, 4 Lease, 1 Operate)" beside its own per-line tables and
+  // every other document saying 7. A line carries exactly one strategy, which
+  // is why the tally can be taken straight off it.
+  const summaryLines = planReportLines({ assets: state.assets, phases: state.phases, parcels: state.parcels });
   const byStrategy = new Map<string, number>();
-  for (const a of assets) byStrategy.set(a.strategy, (byStrategy.get(a.strategy) ?? 0) + 1);
+  for (const l of summaryLines) byStrategy.set(l.strategy, (byStrategy.get(l.strategy) ?? 0) + 1);
   const compStr = [...byStrategy.entries()].map(([s, n]) => `${n} ${s}`).join(', ');
   const landCost = Math.max(0, fin.capex.totals.inclAllLand - fin.capex.totals.exclAllLand);
   const totalDebtRaised = sum(fin.combined.totalDrawdown) + sum(fin.combined.totalInterestCapitalized);
@@ -1133,8 +1139,8 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
   const narrative =
     `${p.name || 'This project'} is a ${String(p.projectType ?? 'mixed-use')} real estate development in ${loc}, ` +
     `developed on ${fmt.area(landSqm)} sqm of land across ${state.phases.length} ` +
-    `${state.phases.length === 1 ? 'phase' : 'phases'}, comprising ${assets.length} ` +
-    `${assets.length === 1 ? 'asset' : 'assets'}${compStr ? ` (${compStr})` : ''}. ` +
+    `${state.phases.length === 1 ? 'phase' : 'phases'}, comprising ${summaryLines.length} ` +
+    `${summaryLines.length === 1 ? 'line' : 'lines'}${compStr ? ` (${compStr})` : ''}. ` +
     `The model spans ${snap.axisLength} years (${startYear} to ${endYear}). ` +
     `Total development cost is ${fmt.money(fin.capex.totals.inclAllLand)} ` +
     `(${fmt.money(landCost)} land + ${fmt.money(constructionCost)} construction), funded ` +
