@@ -256,6 +256,13 @@ function offlineChecks(): void {
     // allowance below is what keeps this honest: the report may LOOK the
     // values up to hand them to the one rule, and may not price from them.
     'src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf.ts',
+    // The IC DECK joined them on 2026-09-22, for the same reason and by the
+    // same by-line allowance. Module 7 had been reading STORED fields for the
+    // scheme figures, so a deck printed "1 unit" against every asset; it now
+    // resolves counts through `resolveAssetKeys` like every other surface,
+    // which means looking the type values up to hand them to that rule. It
+    // prices nothing from them, which is what this check is about.
+    'src/hubs/modeling/platforms/refm/lib/reports/icReport.ts',
   ];
   const isKeysDoorLine = (line: string): boolean =>
     line.includes('resolveAvgUnitSize')

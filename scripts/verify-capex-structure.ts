@@ -1179,7 +1179,17 @@ section('K. Area x unit size = count: only two of the three are inputs');
         && costsSrc2.includes('const lineSeries = (lineId: string, members: Asset[])')
         && costsSrc2.includes('data-testid={' + String.fromCharCode(96) + 'capex-period-line-' + '$' + '{ln.key}-' + '$' + '{line.id}' + String.fromCharCode(96) + '}')
         && costsSrc2.includes('Table 6 - Capex by Category')
-        && costsSrc2.includes('categoryOf={(a) => assetCapexCategory(a, project)}'));
+        // FILED BY THE REVENUE SECTION SINCE 2026-09-22, not by the coarse
+        // category. The rule this check exists for is "Table 6 files by the
+        // SAME rule the P&L sections use", and the screen obeys it better than
+        // the old name did: `assetCapexSection` IS `revenueSection`, re-exported
+        // by capexReports, so capex and revenue cannot file an asset apart.
+        // Re-aimed at the rule rather than relaxed (TRAPS 7.55); the coarse
+        // `assetCapexCategory` survives underneath it and P4q-d still pins it.
+        && costsSrc2.includes('categoryOf={(a) => assetCapexSection(a, project)}'));
+      check('P4q-f Table 6 files by the SAME rule the revenue sections use',
+        capexSrc2.includes("import { revenueSection as assetCapexSection")
+        && capexSrc2.includes('REVENUE_SECTIONS as CAPEX_SECTIONS'));
     }
     }
   }
