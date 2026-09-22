@@ -37,6 +37,7 @@
  *
  * No em dashes in this file.
  */
+import { randomUUID } from 'node:crypto';
 import { getServerClient } from '@/src/core/db/supabase';
 import type { ChangeLogEntry } from './snapshot-diff';
 
@@ -63,6 +64,9 @@ export interface ChangeRowInput {
   /** The human sentence for this change, when the differ produced one. Null
    *  means the renderer falls back to the path, exactly as before mig 245. */
   label?: string | null;
+  /** Which SAVE this row belongs to (mig 245). Every row of one save shares
+   *  it, so the screen can render forty field changes as one entry. */
+  saveId?: string | null;
   before?: unknown;
   after?: unknown;
 }
@@ -84,6 +88,7 @@ export async function appendChanges(rows: readonly ChangeRowInput[]): Promise<{ 
       action: r.action,
       path: r.path,
       label: r.label ?? null,
+      save_id: r.saveId ?? null,
       // `before` and `after` are jsonb. `undefined` is not valid JSON, so an
       // absent value is stored as SQL NULL rather than being dropped from the
       // object, which would leave the column unset and indistinguishable.
@@ -118,9 +123,17 @@ export function rowsForSave(
   entries: readonly ChangeLogEntry[],
 ): ChangeRowInput[] {
   if (entries.length === 0) return [];
+  // ONE ID PER SAVE, minted here because this is the one place that knows a
+  // save's rows as a set (2026-09-22). Every row of a save carries it, so the
+  // screen groups forty field changes into one entry.
+  //
+  // A UUID, NOT A TIMESTAMP TOLERANCE, by founder decision: no width is right
+  // for both a 1.5-second autosave beat and a slow save, so a tolerance
+  // eventually merges two saves or splits one, and it does so silently.
+  const saveId = randomUUID();
   if (entries.length > MAX_CHANGE_ROWS_PER_SAVE) {
     return [{
-      projectId, versionId, userId,
+      projectId, versionId, userId, saveId,
       action: 'bulk-change',
       path: null,
       before: null,
@@ -137,7 +150,7 @@ export function rowsForSave(
   // produced a human sentence since this log was built and it died here, so
   // the screen had nothing but the raw path to show.
   return entries.map((e) => ({
-    projectId, versionId, userId,
+    projectId, versionId, userId, saveId,
     action: e.kind ?? 'update',
     path: e.path,
     label: e.label ?? null,
@@ -155,6 +168,9 @@ export interface ProjectChange {
   path: string | null;
   /** Human sentence, or null when the differ did not label this entry. */
   label: string | null;
+  /** The save this row belongs to. Null for rows written before mig 245,
+   *  which belong to a save nobody recorded. */
+  saveId: string | null;
   before: unknown;
   after: unknown;
   createdAt: string;
@@ -204,6 +220,7 @@ export async function listProjectChanges(
         action: String(r.action),
         path: (r.path as string) ?? null,
         label: (r.label as string) ?? null,
+        saveId: (r.save_id as string) ?? null,
         before: r.before ?? null,
         after: r.after ?? null,
         createdAt: String(r.created_at),

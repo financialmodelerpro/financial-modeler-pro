@@ -187,6 +187,10 @@ export interface ProjectChangeDTO {
   /** The human sentence for this change (mig 245). Null when the differ did
    *  not label the entry, and the renderer falls back to the path. */
   label:     string | null;
+  /** The save this row belongs to (mig 245). Rows sharing it are ONE save and
+   *  render as one expandable entry. Null for rows written before 245, which
+   *  belong to a save nobody recorded. */
+  saveId:    string | null;
   before:    unknown;
   after:     unknown;
   createdAt: string;

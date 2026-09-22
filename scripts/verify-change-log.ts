@@ -29,7 +29,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { rowsForSave, MAX_CHANGE_ROWS_PER_SAVE } from '../src/hubs/modeling/platforms/refm/lib/persistence/changeLog';
-import { summariseArray } from '../src/hubs/modeling/platforms/refm/components/collab/CollabPanels';
+import { summariseArray, groupBySave } from '../src/hubs/modeling/platforms/refm/components/collab/CollabPanels';
 import { diffSnapshots } from '../src/hubs/modeling/platforms/refm/lib/persistence/snapshot-diff';
 
 let passed = 0, failed = 0; const fails: string[] = [];
@@ -253,14 +253,45 @@ console.log('\n=== D. Appended, never recomputed; each save logs its own delta =
       .some((e) => e.kind === 'update'));
 }
 
+// ── D35 to D40: ONE SAVE IS ONE ENTRY (2026-09-22) ──────────────────────────
+// A save that touched forty fields wrote forty rows and the screen rendered
+// forty rows, so a single edit buried a day's log. Grouped by `save_id`, which
+// the appender mints per save. Driven, not grepped: the grouping is the rule.
+{
+  console.log('\n-- D35..D40 a save groups into one entry --');
+  const row = (id: string, saveId: string | null): Parameters<typeof groupBySave>[0][number] =>
+    ({ id, saveId, versionId: null, userId: null, userName: 'A', action: 'update',
+       path: `p${id}`, label: null, before: 1, after: 2, createdAt: '2026-09-22T10:00:00Z' });
+  const g1 = groupBySave([row('1', 's1'), row('2', 's1'), row('3', 's2')]);
+  check('D35 rows of one save become ONE group', g1.length === 2 && g1[0].rows.length === 2,
+    JSON.stringify(g1.map((g) => g.rows.length)));
+  check('D36 and a different save starts a new group', g1[1].rows.length === 1);
+  // Pre-245 rows have no save id and must not be lumped together, which would
+  // invent a grouping the data does not support.
+  const g2 = groupBySave([row('1', null), row('2', null)]);
+  check('D37 rows with NO save id stay separate (a save nobody recorded)', g2.length === 2);
+  // Order is the log's meaning; grouping must not reorder.
+  const g3 = groupBySave([row('1', 's1'), row('2', 's2'), row('3', 's1')]);
+  check('D38 a non-contiguous repeat of a save id does NOT reorder the log',
+    g3.length === 3, JSON.stringify(g3.map((g) => g.key)));
+  const panels = src(PANELS);
+  check('D39 a one-change save renders as a plain row, not a disclosure',
+    /if \(rows\.length === 1\)/.test(panels) && /return <ActivityRow change=\{rows\[0\]\}/.test(panels));
+  check('D40 days collapse with the most recent OPEN by default',
+    /openDays\[day\] \?\? dayIdx === 0/.test(panels));
+}
+
 // ── D32 to D34: VERSION BOUNDARIES ARE VISIBLE (2026-09-22) ─────────────────
 // Each row already carried "in <version>", which is the same words repeated on
 // every row of a run and still gave no way to see WHERE one version ended.
 {
   console.log('\n-- D32..D34 a version boundary is a line --');
   const panels = src(PANELS);
-  check('D32 a boundary is drawn when a row\'s version differs from the one above',
-    /prev\.versionId !== c\.versionId/.test(panels) && /activity-version-boundary/.test(panels));
+  // Re-aimed for item 8: the boundary moved from between ROWS to between SAVES,
+  // because a save belongs to one version and a per-row test would draw the
+  // line INSIDE an expanded group.
+  check('D32 a boundary is drawn BETWEEN SAVES when the version differs',
+    /saves\[i - 1\]\.rows\[0\]\.versionId !== vid/.test(panels) && /activity-version-boundary/.test(panels));
   check('D33 a version deleted since reads as UNKNOWN, never as another version',
     /Version no longer saved/.test(panels));
   check('D34 and the per-row "in <version>" is kept, so a single row still says where it landed',

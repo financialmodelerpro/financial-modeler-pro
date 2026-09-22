@@ -60,6 +60,11 @@ export function ActivityPanel({
     return m;
   }, [versions]);
 
+  // Which days the reader has toggled. Absent means "use the default", which is
+  // open for the newest day and closed for the rest, so a toggle is remembered
+  // without freezing the default for days that arrive later.
+  const [openDays, setOpenDays] = useState<Record<string, boolean>>({});
+
   if (loading) {
     return <div className="alert-info" data-testid="activity-loading">Loading activity...</div>;
   }
@@ -108,32 +113,51 @@ export function ActivityPanel({
           This project has older activity that is not listed here.
         </div>
       )}
-      {days.map(({ day, rows }) => (
+      {days.map(({ day, rows }, dayIdx) => {
+        // DAYS COLLAPSE, THE MOST RECENT OPEN (2026-09-22). A log of any age is
+        // mostly history a reader is not looking at; leaving every day expanded
+        // made the newest entries the hardest to reach.
+        const open = openDays[day] ?? dayIdx === 0;
+        const saves = groupBySave(rows);
+        return (
         <div key={day} style={{ marginBottom: 'var(--sp-2)' }}>
-          <div
+          <button
+            type="button"
+            onClick={() => setOpenDays((p) => ({ ...p, [day]: !open }))}
+            data-testid={`activity-day-${open ? 'open' : 'closed'}`}
+            aria-expanded={open}
             style={{
+              width: '100%', textAlign: 'left', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 8,
               fontSize: '11px', fontWeight: 700, textTransform: 'uppercase',
               letterSpacing: '0.05em', color: 'var(--color-meta)',
               padding: '6px 0', borderBottom: '1px solid var(--color-border)',
+              background: 'none', border: 'none', borderBottomWidth: 1,
+              borderBottomStyle: 'solid', borderBottomColor: 'var(--color-border)',
+              fontFamily: 'inherit',
             }}
           >
-            {day}
-          </div>
-          {rows.map((c, i) => {
+            <span style={{ width: 10, display: 'inline-block' }}>{open ? '▾' : '▸'}</span>
+            <span>{day}</span>
+            <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>
+              {saves.length} {saves.length === 1 ? 'save' : 'saves'}
+            </span>
+          </button>
+          {open && saves.map((s, i) => {
             // A VERSION BOUNDARY IS A LINE, NOT A REPEATED SUFFIX (2026-09-22).
-            // Each row already said "in <version>", which is the same words on
-            // every row of a run and still left no way to see WHERE one version
-            // ended. The list is newest-first, so the boundary is drawn when
-            // this row's version differs from the row ABOVE it, and the label
-            // names the version the rows BELOW the line belong to.
-            const prev = i > 0 ? rows[i - 1] : null;
-            const boundary = prev !== null && prev.versionId !== c.versionId;
-            const name = c.versionId ? versionLabel.get(c.versionId) : undefined;
+            // Drawn BETWEEN SAVES rather than between rows, because a save
+            // belongs to one version and a per-row test would draw the line
+            // inside an expanded group. Newest-first, so the boundary appears
+            // when this save's version differs from the one ABOVE it, and the
+            // label names the version the saves BELOW it belong to.
+            const vid = s.rows[0].versionId;
+            const boundary = i > 0 && saves[i - 1].rows[0].versionId !== vid;
+            const name = vid ? versionLabel.get(vid) : undefined;
             return (
-              <React.Fragment key={c.id}>
+              <React.Fragment key={s.key}>
                 {boundary && (
                   <div
-                    data-testid={`activity-version-boundary-${c.versionId ?? 'none'}`}
+                    data-testid={`activity-version-boundary-${vid ?? 'none'}`}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 8,
                       margin: '8px 0 4px', fontSize: 10.5, fontWeight: 700,
@@ -142,17 +166,96 @@ export function ActivityPanel({
                     }}
                   >
                     <span style={{ flex: '0 0 auto' }}>
-                      {name ?? (c.versionId ? 'Version no longer saved' : 'No version')}
+                      {name ?? (vid ? 'Version no longer saved' : 'No version')}
                     </span>
                     <span style={{ flex: 1, height: 1, background: 'var(--color-border)' }} />
                   </div>
                 )}
-                <ActivityRow change={c} versionLabel={versionLabel} />
+                <SaveGroup rows={s.rows} versionLabel={versionLabel} />
               </React.Fragment>
             );
           })}
         </div>
-      ))}
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * ONE SAVE IS ONE ENTRY (2026-09-22). A save that touched forty fields wrote
+ * forty rows and the screen rendered forty rows, so a single edit buried a
+ * day's log. Rows are grouped by `save_id` (migration 245), which is minted per
+ * save by the appender.
+ *
+ * CONSECUTIVE rows only, and the list is already newest-first by time, so a
+ * group is a contiguous run and the order of the log is preserved exactly.
+ *
+ * A row with NO save_id belongs to a save nobody recorded (written before 245),
+ * so it is its own group rather than being lumped with its neighbours, which
+ * would invent a grouping the data does not support.
+ */
+export function groupBySave(rows: ProjectChangeDTO[]): Array<{ key: string; rows: ProjectChangeDTO[] }> {
+  const out: Array<{ key: string; rows: ProjectChangeDTO[] }> = [];
+  for (const r of rows) {
+    const last = out[out.length - 1];
+    if (last !== undefined && r.saveId !== null && last.rows[0].saveId === r.saveId) {
+      last.rows.push(r);
+    } else {
+      out.push({ key: r.saveId ?? `solo:${r.id}`, rows: [r] });
+    }
+  }
+  return out;
+}
+
+function SaveGroup({
+  rows, versionLabel,
+}: {
+  rows: ProjectChangeDTO[];
+  versionLabel: Map<string, string>;
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false);
+  // A save of ONE change is not worth a disclosure: it would hide the thing
+  // the reader came for behind a click.
+  if (rows.length === 1) {
+    return <ActivityRow change={rows[0]} versionLabel={versionLabel} />;
+  }
+  const head = rows[0];
+  const time = new Date(head.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  return (
+    <div data-testid={`activity-save-${head.saveId ?? head.id}`}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        style={{
+          display: 'grid', gridTemplateColumns: '58px 84px 1fr', gap: 8,
+          width: '100%', textAlign: 'left', alignItems: 'baseline',
+          padding: '6px 0', borderBottom: '1px dashed var(--color-border)',
+          fontSize: '12px', background: 'none', border: 'none', cursor: 'pointer',
+          fontFamily: 'inherit', color: 'inherit',
+        }}
+      >
+        <span style={{ color: 'var(--color-muted)', fontFamily: 'monospace' }}>{time}</span>
+        <span style={{
+          fontSize: '10px', fontWeight: 700, padding: '1px 6px', borderRadius: 20,
+          background: '#ede9fe', color: '#5b21b6', width: 'max-content',
+          textTransform: 'uppercase', letterSpacing: '0.05em',
+        }}>
+          {open ? '▾' : '▸'} Save
+        </span>
+        <span style={{ color: 'var(--color-heading)' }}>
+          <strong>{head.userName ?? 'Unknown user'}</strong>
+          <span style={{ color: 'var(--color-muted)' }}>
+            {' changed '}{rows.length}{' fields in one save'}
+          </span>
+        </span>
+      </button>
+      {open && (
+        <div style={{ paddingLeft: 'var(--sp-3)', borderLeft: '2px solid var(--color-border)', marginLeft: 4 }}>
+          {rows.map((c) => <ActivityRow key={c.id} change={c} versionLabel={versionLabel} />)}
+        </div>
+      )}
     </div>
   );
 }
