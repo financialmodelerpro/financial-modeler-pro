@@ -644,9 +644,11 @@ function ChangeLogRow({ entry }: { entry: ChangeLogEntryDTO }): React.JSX.Elemen
         </div>
         {entry.kind === 'update' && (
           <div style={{ marginTop: 2, color: 'var(--color-muted)' }}>
-            <ValueChip raw={entry.before} kind="before" />
+            {/* Counterparts passed here too: this modal and the Collaborate
+                screen render the same chips and must summarise alike. */}
+            <ValueChip raw={entry.before} kind="before" counterpart={entry.after} />
             <span style={{ margin: '0 6px' }}>→</span>
-            <ValueChip raw={entry.after} kind="after" />
+            <ValueChip raw={entry.after} kind="after" counterpart={entry.before} />
           </div>
         )}
       </div>

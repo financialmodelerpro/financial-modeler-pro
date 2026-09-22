@@ -181,9 +181,9 @@ function ActivityRow({
         )}
         {(change.action === 'update' || change.action === 'add' || change.action === 'remove') && (
           <div style={{ marginTop: 2, color: 'var(--color-muted)' }}>
-            <ValueChip raw={change.before} kind="before" />
+            <ValueChip raw={change.before} kind="before" counterpart={change.after} />
             <span style={{ margin: '0 6px' }}>&rarr;</span>
-            <ValueChip raw={change.after} kind="after" />
+            <ValueChip raw={change.after} kind="after" counterpart={change.before} />
           </div>
         )}
       </div>
@@ -208,8 +208,42 @@ function activityBadge(action: string): { label: string; bg: string; fg: string 
 
 /** Shared value chip: also used by the Version modal's per-version change-log
  *  rows, which stayed behind in VersionModal.tsx. */
-export function ValueChip({ raw, kind }: { raw: unknown; kind: 'before' | 'after' }): React.JSX.Element {
-  const display = formatLogValue(raw);
+/**
+ * AN ARRAY IS SUMMARISED AGAINST ITS COUNTERPART (2026-09-22), not on its own.
+ *
+ * `formatLogValue` reported an array as `[N items]`, which is the only thing it
+ * knew. So a list whose CONTENTS changed while its length did not printed
+ * "3 items" on both sides: a row that exists precisely because something
+ * changed, saying nothing changed. Two of the most common edits on this
+ * platform do exactly that, retyping a velocity curve and repricing a set of
+ * sub-units.
+ *
+ * Given both sides, the count of elements that actually differ can be stated,
+ * which is the thing a reader wants. Falls back to the plain count when the
+ * counterpart is not an array, so an array replaced by a scalar still reads
+ * honestly rather than claiming a comparison it cannot make.
+ */
+export function summariseArray(mine: unknown[], other: unknown): string {
+  if (!Array.isArray(other)) return `[${mine.length} items]`;
+  if (mine.length !== other.length) return `[${mine.length} items]`;
+  let changed = 0;
+  for (let i = 0; i < mine.length; i++) {
+    if (JSON.stringify(mine[i]) !== JSON.stringify(other[i])) changed += 1;
+  }
+  if (changed === 0) return `[${mine.length} items, unchanged]`;
+  return `[${mine.length} items, ${changed} changed]`;
+}
+
+export function ValueChip({ raw, kind, counterpart }: {
+  raw: unknown;
+  kind: 'before' | 'after';
+  /** The other side of the change, so a same-length array can say what moved
+   *  instead of printing its length twice. */
+  counterpart?: unknown;
+}): React.JSX.Element {
+  const display = Array.isArray(raw) && counterpart !== undefined
+    ? summariseArray(raw, counterpart)
+    : formatLogValue(raw);
   return (
     <span
       title={display.length > 60 ? display : undefined}

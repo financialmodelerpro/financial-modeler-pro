@@ -29,6 +29,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { rowsForSave, MAX_CHANGE_ROWS_PER_SAVE } from '../src/hubs/modeling/platforms/refm/lib/persistence/changeLog';
+import { summariseArray } from '../src/hubs/modeling/platforms/refm/components/collab/CollabPanels';
 
 let passed = 0, failed = 0; const fails: string[] = [];
 function check(label: string, ok: boolean, detail = ''): void {
@@ -105,14 +106,27 @@ console.log('=== A. Its own table, its own columns, enforced by the database ===
 console.log('\n=== B. Append-only guards CONTENT, and an FK may only be released ===');
 {
   const mig = src(MIG);
-  const guard = mig.slice(mig.indexOf('refm_project_changes_no_update()'));
-  check('B1 every meaning-carrying column is immutable',
-    ['action', 'path', 'before', 'after', 'created_at', 'project_id']
-      .every((c) => new RegExp(`NEW\\.${c}\\s+IS DISTINCT FROM OLD\\.${c}`).test(guard)));
+  // THE LIVE GUARD IS THE ONE IN 245, not the one 234 shipped (2026-09-22).
+  // 234 enumerated the meaning-carrying columns; 245 replaced that with a
+  // whole-row comparison after the dry run proved the list had already drifted
+  // (the new `label` column was updatable on a logged row). B1 now asserts the
+  // RULE, that the guard needs no list, rather than the names it used to hold:
+  // the old check would pass a guard that listed nothing at all.
+  const guard245 = src('supabase/migrations/245_project_changes_label_and_save_id.sql');
+  const guard = guard245.slice(guard245.indexOf('refm_project_changes_no_update()'));
+  check('B1 the guard compares the WHOLE ROW, so a column added later is guarded by default',
+    /to_jsonb\(NEW\)\s*-\s*'version_id'\s*-\s*'user_id'/.test(guard)
+    && /is distinct from\s*\(to_jsonb\(OLD\)/i.test(guard));
+  check('B1b and it therefore names NO meaning-carrying column (a list is what drifted)',
+    !/NEW\.(action|path|before|after|created_at|label|save_id)\s+is distinct from/i.test(guard));
+  check('B1c the applier PROVES a column the guard was never told about is refused',
+    /refuses an update to a column added AFTER the guard was written/.test(src('scripts/apply-migration-245.ts')));
+  // Case-insensitive since 2026-09-22: 245 writes lowercase SQL, and a guard is
+  // not less of a guard for being lowercase.
   check('B2 an FK may be RELEASED to NULL (this is what ON DELETE SET NULL does)',
-    /NEW\.version_id IS DISTINCT FROM OLD\.version_id AND NEW\.version_id IS NOT NULL/.test(guard)
-    && /NEW\.user_id\s+IS DISTINCT FROM OLD\.user_id\s+AND NEW\.user_id\s+IS NOT NULL/.test(guard));
-  check('B3 it RAISES rather than silently returning OLD', /RAISE EXCEPTION/.test(guard));
+    /NEW\.version_id is distinct from OLD\.version_id and NEW\.version_id is not null/i.test(guard)
+    && /NEW\.user_id\s+is distinct from OLD\.user_id\s+and NEW\.user_id\s+is not null/i.test(guard));
+  check('B3 it RAISES rather than silently returning OLD', /raise exception/i.test(guard));
   // SABOTAGE: an unconditional RAISE (the first, wrong version) must fail B2.
   check('B3s sabotage: an unconditional RAISE would fail B2',
     !/NEW\.user_id\s+IS DISTINCT FROM OLD\.user_id\s+AND NEW\.user_id\s+IS NOT NULL/
@@ -193,6 +207,31 @@ console.log('\n=== D. Appended, never recomputed; each save logs its own delta =
       === 'Marina Tower: floor area');
   check('D13 an unlabelled entry carries null, so the renderer falls back to the path',
     rowsForSave('p', 'v', 'u', [{ path: 'x', before: 1, after: 2, kind: 'update' }])[0].label === null);
+}
+
+// ── D14 to D18: AN ARRAY SAYS WHAT CHANGED (2026-09-22) ─────────────────────
+// The chip reported an array as "[N items]", the only thing it knew, so a list
+// whose CONTENTS changed while its length did not printed "3 items" on BOTH
+// sides: a row that exists because something changed, saying nothing did. No
+// check could see it, because every check compared the chip to itself.
+{
+  console.log('\n-- D14..D18 array values say what moved --');
+  const a = [1, 2, 3];
+  check('D14 a same-length array with a changed element SAYS SO, not just its length',
+    summariseArray([1, 9, 3], a) === '[3 items, 1 changed]', summariseArray([1, 9, 3], a));
+  check('D15 and counts EVERY changed element, not just the first',
+    summariseArray([9, 9, 3], a) === '[3 items, 2 changed]', summariseArray([9, 9, 3], a));
+  check('D16 a genuinely identical array reads as unchanged rather than ambiguous',
+    summariseArray([1, 2, 3], a) === '[3 items, unchanged]', summariseArray([1, 2, 3], a));
+  check('D17 a different length falls back to the plain count (the length IS the story)',
+    summariseArray([1, 2], a) === '[2 items]', summariseArray([1, 2], a));
+  check('D18 a non-array counterpart claims no comparison it cannot make',
+    summariseArray(a, 'not an array') === '[3 items]', summariseArray(a, 'not an array'));
+  // Objects inside an array are compared by value, which is how sub-unit rows
+  // and velocity curves actually arrive.
+  check('D19 elements are compared BY VALUE, so a repriced row is seen',
+    summariseArray([{ id: 'a', price: 2 }], [{ id: 'a', price: 1 }]) === '[1 items, 1 changed]',
+    summariseArray([{ id: 'a', price: 2 }], [{ id: 'a', price: 1 }]));
 }
 
 console.log('\n=== E. It surfaces, read access is membership with no role narrowing ===');
