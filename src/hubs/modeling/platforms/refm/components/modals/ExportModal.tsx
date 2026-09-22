@@ -18,7 +18,7 @@
  * lazily so it stays out of the initial bundle.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MODULES } from '../../lib/modules-config';
 import { REFM_PLATFORM_SLUG } from '../../lib/usePlatformModules';
@@ -105,6 +105,10 @@ interface ExportModalProps {
   projectId?: string | null;
   projectName?: string | null;
   versionLabel?: string | null;
+  /** True when the live model carries edits that are not yet saved. The version
+   *  picker defaults to the latest SAVED version, so this is what tells the
+   *  user their working draft genuinely differs and offers them the choice. */
+  hasUnsaved?: boolean;
 }
 
 const CURRENT = '__current__';
@@ -166,6 +170,7 @@ export default function ExportModal({
   projectId,
   projectName,
   versionLabel,
+  hasUnsaved = false,
 }: ExportModalProps): React.JSX.Element | null {
   // Plan gate, layered in. Defaults to allowed when no resolver is passed.
   const allows = (featureKey: string): boolean => (canAccess ? canAccess(featureKey) : true);
@@ -173,8 +178,17 @@ export default function ExportModal({
   // Version picker: which saved version's data to export. Defaults to the most
   // recent saved version (so the PDF matches the last version saved); the user
   // can pick any version, or "current working draft" for unsaved edits.
+  //
+  // THAT SENTENCE WAS TRUE OF THE COMMENT AND NOT OF THE CODE until 2026-09-22:
+  // the open effect pinned CURRENT, so every export defaulted to the working
+  // draft. Fixed where the version list lands, because the default cannot be
+  // chosen before the list exists.
   const [versions, setVersions] = useState<RefmProjectVersionListItem[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState<string>(CURRENT);
+  /** Has the user chosen a version THIS time the modal was opened? Guards the
+   *  latest-saved default against overwriting a selection made while the
+   *  version list was still loading. */
+  const versionPickedByUser = useRef(false);
   const [versionsLoading, setVersionsLoading] = useState(false);
   // Fund layer: whether the SELECTED saved version actually carries fund terms.
   // Checked against the version itself rather than guessed from dates, so the
@@ -207,9 +221,20 @@ export default function ExportModal({
         if (cancelled) return;
         const list = res.data?.versions ?? [];
         setVersions(list);
-        // The version default stays "Current working draft" (set in the open
-        // effect below) so the export reflects the LIVE active case. The saved
-        // versions populate the dropdown for explicit selection.
+        // THE DEFAULT IS THE LATEST SAVED VERSION (2026-09-22, founder's
+        // direction). A project opens READ-ONLY and stays that way until the
+        // user takes the edit lock, so for most sessions the "current working
+        // draft" is not a draft at all: it is the saved model wearing a label
+        // that says it might not be, which is the wrong thing to hand someone
+        // exporting a document to send out. The list is newest-first, so
+        // `list[0]` is the row the picker itself marks "(latest saved)".
+        //
+        // Only when the user has not already chosen, because this arrives
+        // ASYNCHRONOUSLY: the modal is open and usable while versions load, and
+        // silently replacing a selection the user just made would be worse than
+        // the default it fixes. With no saved version there is nothing to
+        // prefer, so the working draft stands.
+        if (!versionPickedByUser.current && list.length > 0) setSelectedVersionId(list[0].id);
       })
       .catch(() => { if (!cancelled) setVersions([]); })
       .finally(() => { if (!cancelled) setVersionsLoading(false); });
@@ -225,7 +250,11 @@ export default function ExportModal({
   useEffect(() => {
     if (!open) return;
     setSelectedCaseId(useModule1Store.getState().activeCaseId);
+    // Provisional only. The versions fetch above replaces this with the latest
+    // SAVED version as soon as it lands; this is what shows for the moment
+    // before it does, and what stands when the project has no saved version.
     setSelectedVersionId(CURRENT);
+    versionPickedByUser.current = false;
   }, [open]);
 
   // The export module list, auto-linked to the live platform_modules registry
@@ -571,7 +600,7 @@ export default function ExportModal({
                 <select
                   data-testid="export-version-select"
                   value={selectedVersionId}
-                  onChange={(e) => setSelectedVersionId(e.target.value)}
+                  onChange={(e) => { versionPickedByUser.current = true; setSelectedVersionId(e.target.value); }}
                   disabled={versionsLoading}
                   style={{
                     fontSize: 11, fontWeight: 600, color: 'var(--color-heading)',
@@ -589,6 +618,18 @@ export default function ExportModal({
                 <span style={{ fontSize: 10, color: 'var(--color-muted)' }}>
                   {versionsLoading ? 'Loading versions…' : 'The file is named after the chosen version.'}
                 </span>
+                {/* SAY IT WHEN THE DEFAULT IS NOT WHAT IS ON SCREEN. The picker
+                    now defaults to the latest SAVED version, which is right for
+                    a project opened read-only, but a user holding the edit lock
+                    would otherwise export a file missing the edits in front of
+                    them and have no way to know. Offered, not imposed: the
+                    working draft is still in the dropdown. */}
+                {!versionsLoading && hasUnsaved && selectedVersionId !== CURRENT && (
+                  <span data-testid="export-unsaved-hint" style={{ fontSize: 10, color: 'var(--color-warning, #b45309)', fontWeight: 600 }}>
+                    You have unsaved edits. This exports the last SAVED version;
+                    choose &quot;Current working draft&quot; to include them.
+                  </span>
+                )}
               </div>
             )}
             {/* A saved version reproduces the terms it was computed WITH. A

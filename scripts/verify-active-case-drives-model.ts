@@ -131,10 +131,32 @@ console.log('\n=== Export modal default follows the live active case (source mar
 const exportSrc = readFileSync('src/hubs/modeling/platforms/refm/components/modals/ExportModal.tsx', 'utf8');
 check('ExportModal syncs the selected case to the live active case on open',
   /setSelectedCaseId\(\s*useModule1Store\.getState\(\)\.activeCaseId\s*\)/.test(exportSrc));
-check('ExportModal defaults the export to the current working draft on open (not a stale saved version)',
-  /if \(!open\) return;[\s\S]{0,200}setSelectedVersionId\(CURRENT\)/.test(exportSrc));
-check('ExportModal no longer force-defaults to the latest saved version',
-  !/setSelectedVersionId\(list\.length \? list\[0\]\.id : CURRENT\)/.test(exportSrc));
+// THE RULE IS "AN EXPORT FOLLOWS THE LIVE ACTIVE CASE", NOT "THE VERSION
+// DEFAULT IS THE WORKING DRAFT" (2026-09-22). The 2026-06-17 defect was that
+// the modal stays mounted, so BOTH its pickers froze at mount time and an
+// export after a case switch rendered a stale case from a stale version. The
+// fix that mattered was the case re-sync above; flipping the version default to
+// CURRENT came along with it and was pinned as though it were the rule.
+//
+// The founder's call is that the default should be the latest SAVED version: a
+// project opens read-only and stays so until the edit lock is taken, so for most
+// sessions "current working draft" is the saved model wearing a label saying it
+// might not be, which is the wrong thing to hand someone exporting to send out.
+//
+// That does NOT reopen 2026-06-17, and these checks are what hold that: the case
+// is still synced on open, and the SAVED-VERSION path resolves that same case
+// inside the chosen version rather than taking the version's own active case.
+// So the case follows the user whichever version is picked.
+check('ExportModal defaults the version to the LATEST SAVED one, once the list lands',
+  /if \(!versionPickedByUser\.current && list\.length > 0\) setSelectedVersionId\(list\[0\]\.id\)/.test(exportSrc));
+check('...and never overwrites a version the user picked while the list was loading',
+  /versionPickedByUser\.current = true; setSelectedVersionId\(e\.target\.value\)/.test(exportSrc)
+  && /versionPickedByUser\.current = false;/.test(exportSrc));
+check('a saved-version export still resolves the LIVE ACTIVE CASE inside that version (the 2026-06-17 defect cannot return)',
+  /const chosen = vCases\.find\(\(c\) => c\.id === selectedCaseId\)/.test(exportSrc));
+check('unsaved edits are SAID so, since the default is no longer the working draft',
+  /hasUnsaved && selectedVersionId !== CURRENT/.test(exportSrc)
+  && exportSrc.includes('export-unsaved-hint'));
 check('ExportModal export state is pickModel(store) = the live merged active-case model',
   /function liveModelFromStore\(\)[\s\S]{0,120}pickModel\(useModule1Store\.getState\(\)/.test(exportSrc));
 

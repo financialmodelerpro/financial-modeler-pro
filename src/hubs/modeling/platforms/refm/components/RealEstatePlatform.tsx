@@ -2189,6 +2189,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
         projectId={activeProjectId}
         projectName={activeProjectData?.name ?? null}
         versionLabel={activeVersionData?.name ?? null}
+        hasUnsaved={hasUnsaved}
       />
       <FirstRunGuidePrompt
         open={welcomePromptOpen}
