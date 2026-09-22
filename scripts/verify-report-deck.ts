@@ -202,9 +202,10 @@ check('chips are gapless', numbered.every((s, i) => chipOf(s) === String(i + 1).
   const toc = buildTocPaint({ style: {} as any, scope: 'sections' }, index, contents?.id ?? '');
   const byTitle = new Map(toc.entries.map((e) => [e.title, e.num]));
   const mismatched = numbered.filter((s) => byTitle.get(s.title) !== chipOf(s));
-  check('every section chip equals its number on the contents page',
-    mismatched.length === 0,
-    mismatched.slice(0, 3).map((s) => `${s.title}: chip ${chipOf(s)} vs toc ${byTitle.get(s.title)}`).join(' | '));
+  if (mismatched.length) {
+    console.log('    mismatches: ' + mismatched.slice(0, 3).map((s) => `${s.title}: chip ${chipOf(s)} vs toc ${byTitle.get(s.title)}`).join(' | '));
+  }
+  check('every section chip equals its number on the contents page', mismatched.length === 0);
 }
 
 // available() drops the right slides on a reduced model.

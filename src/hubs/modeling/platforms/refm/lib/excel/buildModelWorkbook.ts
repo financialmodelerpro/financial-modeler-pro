@@ -52,6 +52,7 @@ import { FUNDING_METHOD_LABELS, COST_METHOD_LABELS, type FundingMethodId } from 
 import { CAPEX_SECTIONS } from '../reports/capexReports';
 import { TERMINAL_METHOD_LABELS, TERMINAL_BASIS_LABELS } from '../state/module1-types';
 import { buildConsolidatedReport, perAssetCostsFromTreatment, consolidatedCaption } from '../reports/consolidatedReport';
+import { METRIC_CAPTIONS } from '../reports/metricCaptions';
 import { buildSellingCostReport, SELLING_COSTS_CAPTION, SELLING_COSTS_YOY_CAPTION } from '../reports/sellingCostReports';
 import {
   emitProjectSection, emitPhasesSection, emitStandardsSection, emitPlotsSection, emitAssetEntrySection, emitSubUnitSection,
@@ -4021,7 +4022,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
         tone: irrTone(d.irr),
       }];
     })(),
-    { label: 'Equity Multiple (distributions)', value: cMult(rr.realEstate.equityMultiple), sub: 'distributions / invested' },
+    { label: 'Equity Multiple (distributions)', value: cMult(rr.realEstate.equityMultiple), sub: METRIC_CAPTIONS.equityMultipleDistributions },
   ]);
 
   // ── Development Economics ──
@@ -4314,10 +4315,10 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     const tone = (pass: boolean | null): 'good' | 'bad' | undefined => (pass == null ? undefined : pass ? 'good' : 'bad');
 
     kpiStrip('', [
-      { label: 'Equity Multiple (FCFE)', value: cMult(rr.fcfe.moic), sub: 'equity out / equity in, at the selected exit' },
+      { label: 'Equity Multiple (FCFE)', value: cMult(rr.fcfe.moic), sub: METRIC_CAPTIONS.equityMultipleFcfe },
       { label: 'Yield on Cost', value: cPct(m.yieldOnCost), sub: 'stabilised NOI / total cost' },
       { label: 'Profit Margin', value: cPct(m.profitMargin), sub: 'PAT / revenue' },
-      { label: 'Min DSCR', value: cMult(minDSCR), sub: `worst debt-service yr · vs ${cMult(dscrThreshold)}${badge(dscrPass)}`, tone: tone(dscrPass) },
+      { label: 'Min DSCR', value: cMult(minDSCR), sub: `${METRIC_CAPTIONS.dscrMin} · vs ${cMult(dscrThreshold)}${badge(dscrPass)}`, tone: tone(dscrPass) },
       { label: 'Peak Equity', value: cMoney(m.peakEquity), sub: `max equity at risk · ${currency}` },
       { label: ltvPeak != null ? 'LTV (peak debt)' : 'LTV at Exit', value: cPct(ltvHero), sub: `${ltvPeak != null ? 'peak debt / GDV' : 'debt / exit value'} · vs ${cPct(ltvThreshold, 0)}${badge(ltvPass)}`, tone: tone(ltvPass) },
     ]);
@@ -4372,7 +4373,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
       rs.exitYears.map((x) => ({ label: `${x.exitYearLabel}${x.isSelected ? '  ◀ selected' : ''}`, bold: x.isSelected, cells: [{ v: x.enterpriseValue }, { v: x.equityValue }, cPct(x.fcffIrr), cPct(x.fcfeIrr), cMult(x.equityMoic)] })));
 
     kpiStrip('Coverage and profitability detail', [
-      { label: 'Avg DSCR', value: cMult(avgDSCR), sub: 'mean over debt-service years' },
+      { label: 'Avg DSCR', value: cMult(avgDSCR), sub: METRIC_CAPTIONS.dscrAvg },
       { label: 'Min Interest Cover', value: cMult(minICR), sub: 'worst yr · EBITDA / interest' },
       { label: 'Debt Yield', value: cPct(debtYieldWorst), sub: 'worst operating yr · NOI / debt' },
       { label: 'Avg Cash-on-Cash', value: cPct(m.cashOnCashAvg), sub: 'cash yield on equity' },

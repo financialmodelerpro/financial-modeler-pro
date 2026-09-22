@@ -874,7 +874,7 @@ function headlineReturnCards(returns: ReturnsSnapshot, fmt: Fmt, opts: { omitDis
   return [
     { label: 'Project IRR', value: fmt.pct(r.fcff.irr, 1), sub: 'unlevered, FCFF' },
     { label: 'Equity IRR', value: fmt.pct(r.fcfe.irr, 1), sub: 'levered, FCFE' },
-    { label: 'Equity Multiple (FCFE)', value: fmt.mult(r.fcfe.moic), sub: 'levered cash flow' },
+    { label: 'Equity Multiple (FCFE)', value: fmt.mult(r.fcfe.moic), sub: METRIC_CAPTIONS.equityMultipleFcfe },
     ...distribution,
     { label: 'Terminal Equity Value', value: fmt.money(returns.terminalEquityValue), sub: `exit ${returns.exitYearLabel}` },
   ];
@@ -2332,6 +2332,7 @@ import { defaultHQOpexLines, normalizeOpexIndexation, type OpexLine } from '@/sr
 import type { IndexationConfig } from '@/src/core/calculations/revenue/types';
 import { assetPlotLabel } from '@/src/core/calculations/assetName';
 import { poolResults, planReportLines, lineTitle } from '../reports/lineRows';
+import { METRIC_CAPTIONS } from '../reports/metricCaptions';
 import { projectLocationLabel } from '@/src/core/countries';
 
 /** A builder row, with the two number kinds M4Row has no word for. */
@@ -3476,7 +3477,7 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
     { label: 'Development Spread', value: fmt.pct(re.developmentSpread, 2), sub: 'yield on cost less exit cap' },
     { label: 'Profit on Cost', value: fmt.pct(re.profitOnCost, 1), sub: 'appraisal profit / dev cost' },
     { label: 'Profit Margin', value: fmt.pct(re.profitMargin, 1), sub: 'profit after tax / revenue' },
-    { label: 'Equity Multiple (distributions)', value: fmt.mult(re.equityMultiple), sub: 'distributions / invested' },
+    { label: 'Equity Multiple (distributions)', value: fmt.mult(re.equityMultiple), sub: METRIC_CAPTIONS.equityMultipleDistributions },
   ]));
 
   const dscrYears = re.dscrPerPeriod.filter((v) => v !== 0);
@@ -3504,8 +3505,8 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
       ? { label: 'LTV (peak debt)', value: fmt.pct(ltvPeakTile, 1), sub: 'peak debt / GDV' }
       : { label: 'LTV at Exit', value: fmt.pct(re.ltvAtExit, 1), sub: 'debt / value at exit' },
     { label: 'Debt Yield', value: fmt.pct(debtYieldTile ?? re.debtYield, 1), sub: 'worst operating year, NOI / debt' },
-    { label: 'Min DSCR', value: fmt.mult(re.dscrMin), sub: dscrBelow > 0 ? `below 1.00x in ${dscrBelow} of ${dscrYears.length} operating yrs` : 'worst operating year' },
-    { label: 'Avg DSCR', value: fmt.mult(re.dscrAvg), sub: 'mean over operating years' },
+    { label: 'Min DSCR', value: fmt.mult(re.dscrMin), sub: dscrBelow > 0 ? `below 1.00x in ${dscrBelow} of ${dscrYears.length} operating yrs` : METRIC_CAPTIONS.dscrMin },
+    { label: 'Avg DSCR', value: fmt.mult(re.dscrAvg), sub: METRIC_CAPTIONS.dscrAvg },
     { label: 'Min Interest Cover', value: fmt.mult(re.icrMin), sub: 'EBITDA / interest' },
     { label: 'Avg Cash-on-Cash', value: fmt.pct(re.cashOnCashAvg, 1), sub: 'distributions / equity' },
   ]));
@@ -4502,7 +4503,7 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
     drawCards(ctx, `Exit & Leverage (${exa.exitYearLabel})`, [
       { label: 'Exit Equity Value', value: fmt.money(exa.exitEquityValue) },
       { label: 'LTV at Exit', value: fmt.pct(re.ltvAtExit, 1) },
-      { label: 'Min DSCR', value: fmt.mult(re.dscrMin), sub: reDscrBelow > 0 ? `below 1.00x in ${reDscrBelow} of ${reDscrYears} yrs` : 'worst debt-service year' },
+      { label: 'Min DSCR', value: fmt.mult(re.dscrMin), sub: reDscrBelow > 0 ? `below 1.00x in ${reDscrBelow} of ${reDscrYears} yrs` : METRIC_CAPTIONS.dscrMin },
       { label: 'Peak Debt', value: fmt.money(Math.max(0, ...bs.debtOutstandingPerPeriod)) },
       { label: 'Profit Margin', value: fmt.pct(re.profitMargin, 1) },
       { label: 'Equity Multiple (distributions)', value: fmt.mult(re.equityMultiple) },
