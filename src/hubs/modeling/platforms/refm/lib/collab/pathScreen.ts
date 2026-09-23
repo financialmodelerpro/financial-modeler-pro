@@ -182,6 +182,25 @@ const UNMAPPED: ReadonlyArray<{ prefix: string; because: string }> = [
 
 /* ─────────────────────────────── the answer ─────────────────────────────── */
 
+/**
+ * A COMMENT ON A WHOLE TAB IS NOT A COMMENT ON A FIELD, and pretending it is
+ * would be the second vocabulary this file exists to prevent.
+ *
+ * "The financing assumptions need another look" belongs to the Financing tab
+ * and to no field on it. There is no snapshot path for that, and inventing one
+ * (`project.financing` would be the tempting lie) would file the remark against
+ * a real object that it is not about.
+ *
+ * So a tab anchor is `screen:<tabKey>`: explicitly NOT a path, resolved HERE
+ * because this file is already the one place that knows what a screen is. The
+ * comments column is free text and the server stores it verbatim, so nothing
+ * downstream needed teaching.
+ */
+export const SCREEN_ANCHOR_PREFIX = 'screen:';
+export const screenAnchor = (tabKey: string): string => `${SCREEN_ANCHOR_PREFIX}${tabKey}`;
+export const isScreenAnchor = (path: string | null | undefined): boolean =>
+  typeof path === 'string' && path.startsWith(SCREEN_ANCHOR_PREFIX);
+
 /** `assets[id=asset_1].buaSqm` -> `assets[].buaSqm`. */
 export const pathShape = (path: string): string => path.replace(/\[[^\]]*\]/g, '[]');
 
@@ -198,7 +217,19 @@ const orList = (names: string[]): string =>
  */
 export function screenForPath(path: string | null | undefined): PathScreen | null {
   if (!path) return null;
-  const shape = pathShape(path.trim());
+  const trimmed = path.trim();
+
+  // A TAB ANCHOR RESOLVES TO ITS TAB, exactly. No rule is consulted, because
+  // the anchor already names the screen: this is a lookup, not a guess.
+  if (isScreenAnchor(trimmed)) {
+    const s = ref(trimmed.slice(SCREEN_ANCHOR_PREFIX.length));
+    // A tab that no longer exists must not render half an answer, the same
+    // refusal a rule naming a dead tab gets below.
+    if (!s) return null;
+    return { screens: [s], unmapped: false, sentence: `On the ${s.label} tab` };
+  }
+
+  const shape = pathShape(trimmed);
   if (!shape) return null;
 
   // Unmapped is checked FIRST: these are carve-outs from rules that would

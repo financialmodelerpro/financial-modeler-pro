@@ -743,7 +743,7 @@ export function CommentsPanel({
 }
 
 /** One thread: a root and its replies, with the reply box under them. */
-function CommentThread({
+export function CommentThread({
   projectId, root, replies, viewerId, canComment, versionLabel, busy, setBusy, onChanged, onError,
 }: {
   projectId: string;

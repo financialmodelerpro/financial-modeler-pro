@@ -19,6 +19,7 @@ import { ROLE_META } from '@/src/core/state';
 import { sidebarModules as staticSidebarModules, MODULE_TABS } from './RealEstatePlatform';
 import type { SidebarNavItem } from '../lib/usePlatformModules';
 import PlanBadge from './PlanBadge';
+import { useScreenCommentCounts } from './collab/FieldComments';
 
 interface SidebarProps {
   activeModule: string;
@@ -62,6 +63,9 @@ export default function Sidebar({
   onOpenProjects,
   modules,
 }: SidebarProps): React.JSX.Element {
+  // Open-comment counts per tab, from the provider the shell mounts. Null when
+  // no project is open, which is also when there is nothing to announce.
+  const commentCounts = useScreenCommentCounts();
   const roleMeta = ROLE_META[currentUserRole];
   const sidebarModules = modules ?? staticSidebarModules;
 
@@ -222,6 +226,22 @@ export default function Sidebar({
                     >
                       <span>{tab.icon}</span>
                       <span>{tab.label}</span>
+                      {/* A TAB WITH OPEN COMMENTS SAYS SO BEFORE IT IS OPENED
+                          (2026-09-23). An editor should never have to go
+                          looking, and the sidebar is the only surface visible
+                          from every other tab. The count comes from the one
+                          filing rule (pathScreen through commentAnchors), so a
+                          field with two homes is announced on both. */}
+                      {(commentCounts?.byScreen.get(tab.key) ?? 0) > 0 && (
+                        <span
+                          className="sidebar-badge"
+                          data-testid={`sidebar-tab-${tab.key}-comments`}
+                          title={`${commentCounts!.byScreen.get(tab.key)} open comment(s) on this tab`}
+                          style={{ background: '#f59e0b', color: '#fff', marginLeft: 'auto' }}
+                        >
+                          {commentCounts!.byScreen.get(tab.key)}
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>

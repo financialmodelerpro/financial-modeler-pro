@@ -55,6 +55,8 @@ import {
   writeActiveProjectId, clearCachedSnapshot, isSchemaNoticeDismissed, dismissSchemaNotice,
 } from '../lib/persistence/cache';
 
+import { FieldCommentsProvider } from './collab/FieldComments';
+import { useProjectComments } from './collab/useCollabData';
 import Topbar from './Topbar';
 import Sidebar from './Sidebar';
 import Dashboard from './Dashboard';
@@ -591,6 +593,37 @@ export default function RealEstatePlatform(): React.JSX.Element {
     (key: string): boolean => refmRoleSeesModule(currentUserRole, key),
     [currentUserRole],
   );
+
+  // ── COMMENTS, FETCHED ONCE FOR THE WHOLE PROJECT (2026-09-23) ───────────
+  //
+  // Loaded whenever a project is open, not when a panel is: the markers live
+  // on the module screens now, so the data has to be here before anyone opens
+  // Collaborate. `useProjectComments` is the SAME hook the Collaborate screen
+  // and the version modal use, refresh-after-write discipline included.
+  const shellComments = useProjectComments(activeProjectId, activeProjectId !== null);
+  const [commentBusy, setCommentBusy] = useState(false);
+  const [commentError, setCommentError] = useState<string | null>(null);
+  const fieldCommentsValue = useMemo(() => (
+    activeProjectId
+      ? {
+        projectId: activeProjectId,
+        comments: shellComments.rows,
+        viewerId: shellComments.viewerId,
+        // The SAME matrix the server enforces. A Viewer reads the thread and
+        // is told why they cannot add to it, rather than being shown a control
+        // that 403s (the lesson of the live Edit button a Reviewer could click).
+        canComment: roleCan(activeProjectRole, 'canAddComments'),
+        available: shellComments.available,
+        activeVersionId,
+        refresh: shellComments.refresh,
+        busy: commentBusy,
+        setBusy: setCommentBusy,
+        error: commentError,
+        setError: setCommentError,
+      }
+      : null
+  ), [activeProjectId, shellComments.rows, shellComments.viewerId, shellComments.available,
+    shellComments.refresh, activeProjectRole, activeVersionId, commentBusy, commentError]);
 
   // ── MAY THIS USER ENTER EDIT MODE AT ALL (2026-09-03, Module 10 step 7) ──
   //
@@ -1773,6 +1806,11 @@ export default function RealEstatePlatform(): React.JSX.Element {
     // financial tables breathe at typical 1080p+ widths. CSS `zoom`
     // is widely supported in evergreen browsers and composes with
     // the user's own browser zoom (Ctrl+/-).
+    // COMMENTS ARE PROVIDED ONCE, HERE (2026-09-23), so every marker on every
+    // tab reads one fetch. Per-field fetching would be hundreds of requests on
+    // the Capex screen alone, and two fetchers would be two answers to "what
+    // are the comments on this project".
+    <FieldCommentsProvider value={fieldCommentsValue}>
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh / 0.8)', width: 'calc(100vw / 0.8)', overflow: 'hidden', zoom: 0.8 }}>
       <Topbar
         projectName={activeProjectData?.name ?? ''}
@@ -2287,6 +2325,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
         </div>
       )}
     </div>
+    </FieldCommentsProvider>
   );
 }
 
