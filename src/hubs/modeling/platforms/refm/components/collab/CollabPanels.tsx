@@ -20,6 +20,7 @@
 import React, { useState } from 'react';
 import * as pclient from '../../lib/persistence/client';
 import type { RefmProjectVersionListItem, ProjectChangeDTO, ProjectCommentDTO } from '../../lib/persistence/types';
+import { ScreenBadge, takePendingAnchor } from './ScreenBadge';
 
 const FILTER_STYLE: React.CSSProperties = {
   fontSize: 11.5, fontWeight: 600, color: 'var(--color-heading)',
@@ -403,6 +404,9 @@ function ActivityRow({
             {change.path}
           </div>
         ) : null}
+        {/* AND WHERE TO GO AND CHANGE IT. The sentence above says what moved;
+            this says which tab it is typed on, as a link. */}
+        <ScreenBadge path={change.path} testid={`change-${change.id}`} />
         {bulk?.changedPaths !== undefined && (
           <div style={{ color: 'var(--color-muted)' }}>
             {bulk.changedPaths.toLocaleString()} fields changed in one save
@@ -549,6 +553,33 @@ export function CommentsPanel({
 }): React.JSX.Element {
   const [draft, setDraft] = useState('');
   const [showResolved, setShowResolved] = useState(false);
+  /**
+   * THE FIELD THIS COMMENT IS ABOUT, when there is one (2026-09-23).
+   *
+   * Set by any screen dispatching `fmp:comment-on` with a snapshot path, which
+   * is how a comment gets raised WHERE THE NUMBER IS rather than by describing
+   * it from memory on a project-wide thread. The path grammar is the
+   * snapshot-diff one, the same vocabulary the change log and the overrides
+   * use, so nothing here invents a second way to name a field.
+   *
+   * Cleared after a successful post: the next comment is project-wide again
+   * unless the user asks otherwise, because a sticky anchor would silently
+   * file unrelated remarks against one field.
+   */
+  const [anchorPath, setAnchorPath] = useState<string | null>(null);
+  React.useEffect(() => {
+    // THE LATCH FIRST, because this panel usually mounts AFTER the click that
+    // set the anchor: the user was on another module entirely. The event below
+    // covers the other case, a panel already open when the anchor arrives.
+    const latched = takePendingAnchor();
+    if (latched) setAnchorPath(latched);
+    const onAnchor = (e: Event): void => {
+      const d = (e as CustomEvent<{ path?: string }>).detail;
+      if (d?.path) setAnchorPath(d.path);
+    };
+    window.addEventListener('fmp:comment-on', onAnchor);
+    return () => window.removeEventListener('fmp:comment-on', onAnchor);
+  }, []);
 
   const versionLabel = React.useMemo(() => {
     const m = new Map<string, string>();
@@ -584,6 +615,11 @@ export function CommentsPanel({
       // knows what it was written against. A REPLY takes its thread's anchor;
       // the server drops any sent with one.
       versionId: parentId ? null : activeVersionId,
+      // AND, SINCE 2026-09-23, TO A FIELD. `path` has been accepted by the
+      // route and the client since comments shipped, and nothing ever sent
+      // one, so every comment on this platform was project-wide. A reply takes
+      // its thread's anchor, exactly as the version does.
+      path: parentId ? null : anchorPath,
     });
     setBusy(false);
     if (res.error) { onError(res.error); return false; }
@@ -618,17 +654,49 @@ export function CommentsPanel({
       </p>
 
       {canComment ? (
-        <Composer
-          value={draft}
-          onChange={setDraft}
-          busy={busy}
-          placeholder={activeVersionId
-            ? 'Comment on this project. It will be tagged with the open version.'
-            : 'Comment on this project.'}
-          submitLabel="Comment"
-          testid="comment-new"
-          onSubmit={async () => { if (await post(draft, null)) setDraft(''); }}
-        />
+        <>
+          {/* WHAT THIS COMMENT WILL BE FILED AGAINST, shown before it is sent
+              rather than discovered afterwards, and CLEARABLE: a user who
+              arrived here from a field may well want to say something about
+              the project instead. */}
+          {anchorPath && (
+            <div
+              data-testid="comment-anchor"
+              style={{
+                display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 'var(--sp-1)',
+                padding: '6px 8px', borderRadius: 6, background: 'var(--color-surface-2, #f1f5f9)',
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 11, color: 'var(--color-meta)' }}>On this field</div>
+                <div style={{ fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all' }}>{anchorPath}</div>
+                <ScreenBadge path={anchorPath} testid="comment-anchor" />
+              </div>
+              <button
+                type="button"
+                data-testid="comment-anchor-clear"
+                onClick={() => setAnchorPath(null)}
+                title="Comment on the project instead"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)', fontSize: 16, lineHeight: 1 }}
+              >
+                &times;
+              </button>
+            </div>
+          )}
+          <Composer
+            value={draft}
+            onChange={setDraft}
+            busy={busy}
+            placeholder={anchorPath
+              ? 'Comment on this field.'
+              : activeVersionId
+                ? 'Comment on this project. It will be tagged with the open version.'
+                : 'Comment on this project.'}
+            submitLabel="Comment"
+            testid="comment-new"
+            onSubmit={async () => { if (await post(draft, null)) { setDraft(''); setAnchorPath(null); } }}
+          />
+        </>
       ) : (
         <div className="alert-info" data-testid="comments-read-only" style={{ marginBottom: 'var(--sp-2)' }}>
           Your role on this project is read-only, so you can read comments but not add one.
@@ -874,14 +942,22 @@ function CommentRow({
       </div>
 
       {comment.path && (
-        // TEXT, not a link. Nothing in this platform maps a snapshot path to a
-        // screen, and this step does not build that.
-        <div
-          data-testid={`comment-${comment.id}-path`}
-          style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--color-body)', wordBreak: 'break-all', marginTop: 2 }}
-        >
-          {comment.path}
-        </div>
+        // THE PATH IS STILL HERE, and now it is followed by where to go.
+        // Until 2026-09-23 this was the whole answer, with a note saying
+        // nothing mapped a path to a screen. `lib/collab/pathScreen.ts` does,
+        // and ScreenBadge renders it: a clickable tab name where the field is
+        // editable, a plain sentence where it deliberately is not, and nothing
+        // at all where the map does not know, so the path below never becomes
+        // the lesser answer it used to be.
+        <>
+          <div
+            data-testid={`comment-${comment.id}-path`}
+            style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--color-body)', wordBreak: 'break-all', marginTop: 2 }}
+          >
+            {comment.path}
+          </div>
+          <ScreenBadge path={comment.path} testid={`comment-${comment.id}`} />
+        </>
       )}
 
       {editing ? (

@@ -111,6 +111,19 @@ export default function Module10Collaborate({
   // move into tabs and gain an Overview above them.
   const [tab, setTab] = useState<CollabTab>('overview');
 
+  // ARRIVING FROM A FIELD (2026-09-23). `commentOnField` on another screen
+  // dispatches this, the shell flips to Module 10, and the screen must then
+  // land on Comments rather than on its Overview: the person clicked "comment
+  // on this field", so showing them a summary first is an extra click to get
+  // back to what they asked for. The composer itself picks up the same event
+  // and holds the path (CommentsPanel), which is why this handler only moves
+  // the tab: one event, one listener each for the two things it has to do.
+  useEffect(() => {
+    const onCommentOn = (): void => setTab('comments');
+    window.addEventListener('fmp:comment-on', onCommentOn);
+    return () => window.removeEventListener('fmp:comment-on', onCommentOn);
+  }, []);
+
   // WHAT THE OVERVIEW COUNTS. Open means a ROOT comment (a reply is part of a
   // thread, not a thread of its own), not deleted, not resolved. Computed from
   // data already loaded; nothing here costs a read.
