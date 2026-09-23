@@ -59,13 +59,37 @@ export interface ChangeLogEntry {
 
 // Compare anything sensibly: scalars by ===, objects by JSON
 // equality. We avoid lodash to keep this lib zero-dep + small.
+/**
+ * Stable stringify: object keys in sorted order, arrays left in their own
+ * order (an array's order IS its meaning).
+ *
+ * WHY THIS EXISTS (2026-09-23). `deepEqual` compared `JSON.stringify(a)` with
+ * `JSON.stringify(b)`, which follows INSERTION order, so two objects holding
+ * the same values with their keys written in a different order compared as
+ * DIFFERENT. Postgres `jsonb` then normalises key order on storage, so the row
+ * read back had a `before` and an `after` that were byte-identical: a log entry
+ * that existed because something changed, saying nothing had.
+ *
+ * Measured on the live project: 49 rows of exactly that, mostly
+ * `project.fundTerms.feeDistribution`. The display fix in item 2 made them
+ * legible ("15 items, unchanged") but they should never have been written, and
+ * the founder was right that the row is the defect, not the chip.
+ */
+function stableStringify(v: unknown): string {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v) ?? 'undefined';
+  if (Array.isArray(v)) return `[${v.map(stableStringify).join(',')}]`;
+  const rec = v as Record<string, unknown>;
+  const keys = Object.keys(rec).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(rec[k])}`).join(',')}}`;
+}
+
 function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (typeof a !== typeof b) return false;
   if (a === null || b === null) return a === b;
   if (typeof a !== 'object') return a === b;
   try {
-    return JSON.stringify(a) === JSON.stringify(b);
+    return stableStringify(a) === stableStringify(b);
   } catch {
     return false;
   }
@@ -148,6 +172,60 @@ export const PER_ELEMENT_ARRAYS: Record<string, string> = {
 };
 
 /**
+ * A FIELD NAME IN WORDS (2026-09-23).
+ *
+ * Every entry except the scalar leaves carried a label, and the scalar leaves
+ * are the COMMON CASE, so most rows in the activity log still rendered a raw
+ * snapshot path. Item 1 carried through the labels that already existed and
+ * created none, which was an over-claim on my part; this is the part that
+ * actually makes the log readable.
+ *
+ * A dictionary only where the mechanical answer is wrong or ugly (initialisms
+ * and units), and a humaniser for everything else, so a field added tomorrow
+ * reads sensibly without anyone maintaining a list.
+ */
+const FIELD_WORDS: Record<string, string> = {
+  buaSqm: 'BUA (sqm)', gfaSqm: 'GFA (sqm)', nsaSqm: 'NSA (sqm)',
+  sellableBuaSqm: 'Sellable BUA (sqm)', landAreaSqm: 'Land area (sqm)',
+  ltvPct: 'LTV %', dsoDays: 'DSO (days)', arDays: 'AR (days)',
+  idcCapitalize: 'Capitalise IDC', assetTypeId: 'Asset type',
+  startingADR: 'Starting ADR', adrIndexation: 'ADR indexation',
+  farRatio: 'FAR', hqOpex: 'HQ opex',
+};
+
+function humaniseField(seg: string): string {
+  const known = FIELD_WORDS[seg];
+  if (known) return known;
+  // SENTENCE case, not title case: "Fund terms: Hurdle rate %", which is how
+  // the rest of this platform writes a label, rather than "Fund Terms: Hurdle
+  // Rate %". An initialism that must stay upper lives in FIELD_WORDS above.
+  const words = seg.replace(/([a-z0-9])([A-Z])/g, '$1 $2').split(/\s+/);
+  return words
+    .map((w, i) => {
+      if (/^sqm$/i.test(w)) return '(sqm)';
+      if (/^pct$/i.test(w)) return '%';
+      const lower = w.toLowerCase();
+      return i === 0 ? lower.charAt(0).toUpperCase() + lower.slice(1) : lower;
+    })
+    .join(' ')
+    .replace(/\s+%/, ' %');
+}
+
+/** "Land 5, 4 Star Hotel: BUA (sqm)" or "Fund terms: Hurdle rate %". */
+function leafLabel(basePath: string, key: string, elementName?: string): string {
+  const field = humaniseField(key);
+  if (elementName) {
+    // Anything below the element itself is kept, so a nested revenue field is
+    // not confused with a top-level one on the same asset.
+    const sub = basePath.replace(/^[a-zA-Z]+\[[^\]]*\]\.?/, '').replace(/\./g, ' ');
+    return sub ? `${elementName} ${sub}: ${field}` : `${elementName}: ${field}`;
+  }
+  const segs = basePath.split('.').filter(Boolean);
+  const section = humaniseField(segs[segs.length - 1] ?? basePath);
+  return `${section}: ${field}`;
+}
+
+/**
  * Diff a single object's leaves and recurse into nested objects.
  * `path` is the parent path (e.g. "project" or "phases[id=phase_1]").
  * Arrays of records keyed by id are handled by `diffIdArray` instead.
@@ -157,6 +235,8 @@ function diffObject(
   before: Record<string, unknown> | null | undefined,
   after:  Record<string, unknown> | null | undefined,
   out: ChangeLogEntry[],
+  /** The human name of the record these fields belong to, when there is one. */
+  elementName?: string,
 ): void {
   const b = before ?? {};
   const a = after  ?? {};
@@ -170,7 +250,7 @@ function diffObject(
     const beforeIsObj = beforeVal && typeof beforeVal === 'object' && !Array.isArray(beforeVal);
     const afterIsObj  = afterVal  && typeof afterVal  === 'object' && !Array.isArray(afterVal);
     if (beforeIsObj && afterIsObj) {
-      diffObject(`${basePath}.${k}`, beforeVal as Record<string, unknown>, afterVal as Record<string, unknown>, out);
+      diffObject(`${basePath}.${k}`, beforeVal as Record<string, unknown>, afterVal as Record<string, unknown>, out, elementName);
       continue;
     }
 
@@ -188,6 +268,7 @@ function diffObject(
     // went from 10 to 12 AND index 5 went from 8 to 7".
     out.push({
       path: `${basePath}.${k}`,
+      label: leafLabel(basePath, k, elementName),
       before: beforeVal,
       after:  afterVal,
       // The RECORD still exists here (diffObject is walking its fields), so a
@@ -237,7 +318,7 @@ function diffIdArray(
       });
       continue;
     }
-    diffObject(childPath, beforeRec, afterRec, out);
+    diffObject(childPath, beforeRec, afterRec, out, labelOf(afterRec));
   }
 
   // Removes: walk `before`, anything not in `after` is gone.
@@ -283,7 +364,9 @@ function diffCostOverrides(
       });
       continue;
     }
-    diffObject(childPath, beforeRec, afterRec, out);
+    // A cost override has no name of its own; its compound key IS its identity,
+    // and it is what the add and remove entries above and below already print.
+    diffObject(childPath, beforeRec, afterRec, out, `Cost override (${k})`);
   }
   for (const [k, beforeRec] of byKeyBefore) {
     if (byKeyAfter.has(k)) continue;

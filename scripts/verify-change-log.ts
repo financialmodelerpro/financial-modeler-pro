@@ -210,6 +210,51 @@ console.log('\n=== D. Appended, never recomputed; each save logs its own delta =
     rowsForSave('p', 'v', 'u', [{ path: 'x', before: 1, after: 2, kind: 'update' }])[0].label === null);
 }
 
+// ── D53 to D58: THE SCALAR LEAVES ARE LABELLED, AND A NO-OP IS NOT LOGGED ───
+// Two defects the founder found on the live screen after items 1 to 3 shipped.
+{
+  console.log('\n-- D53..D58 scalar labels, and no-op rows --');
+  const arrays = { parcels: [], subUnits: [], costLines: [], financingTranches: [],
+    equityContributions: [], costOverrides: [], cases: [] };
+  const base = {
+    project: { name: 'P', fundTerms: { hurdleRatePct: 8, feeDistribution: [{ pct: 50, partyId: 'x' }] } },
+    landAllocationMode: 'sqm',
+    phases: [{ id: 'ph1', name: 'Phase 1' }],
+    assets: [{ id: 'as1', type: '4 Star Hotel', phaseId: 'ph1', buaSqm: 100 }],
+    ...arrays,
+  } as unknown as Parameters<typeof diffSnapshots>[0];
+
+  // A scalar field on an ELEMENT is labelled by that element and the field.
+  const a2 = JSON.parse(JSON.stringify(base)); a2.assets[0].buaSqm = 200;
+  const aEntry = diffSnapshots(base, a2 as typeof base).find((e) => e.path.includes('buaSqm'));
+  check('D53 a scalar leaf on an element is LABELLED, not left to the raw path',
+    !!aEntry?.label, aEntry?.label ?? '(none)');
+  check('D54 and the label names the element AND the field in words',
+    /4 Star Hotel/.test(aEntry?.label ?? '') && /BUA \(sqm\)/.test(aEntry?.label ?? ''),
+    aEntry?.label ?? '');
+  // A scalar under a project SECTION is labelled by the section.
+  const p2 = JSON.parse(JSON.stringify(base)); p2.project.fundTerms.hurdleRatePct = 9;
+  const pEntry = diffSnapshots(base, p2 as typeof base).find((e) => e.path.includes('hurdleRatePct'));
+  check('D55 a scalar under a project section is labelled by that section',
+    /Fund terms: Hurdle rate %/.test(pEntry?.label ?? ''), pEntry?.label ?? '(none)');
+  check('D56 EVERY entry now carries a label (the scalar case was the common one)',
+    diffSnapshots(base, p2 as typeof base).every((e) => !!e.label),
+    JSON.stringify(diffSnapshots(base, p2 as typeof base).filter((e) => !e.label).map((e) => e.path)));
+
+  // THE NO-OP ROW. Key order is not a change, and jsonb normalises it away, so
+  // a row logged for it reads as "nothing changed" on both sides.
+  const reordered = JSON.parse(JSON.stringify(base));
+  reordered.project.fundTerms.feeDistribution = [{ partyId: 'x', pct: 50 }]; // same values, keys swapped
+  check('D57 re-ordering an object\'s KEYS is not a change, so nothing is logged',
+    diffSnapshots(base, reordered as typeof base).length === 0,
+    JSON.stringify(diffSnapshots(base, reordered as typeof base).map((e) => e.path)));
+  // ...but an array's own ORDER still is a change, because order is its meaning.
+  const resorted = JSON.parse(JSON.stringify(base));
+  resorted.project.fundTerms.feeDistribution = [{ pct: 50, partyId: 'x' }, { pct: 50, partyId: 'y' }];
+  check('D58 but an ARRAY reordering or resizing is still a change',
+    diffSnapshots(base, resorted as typeof base).length > 0);
+}
+
 // ── D20 to D24: A VALUE CLEARED IS NOT AN ELEMENT REMOVED (2026-09-22) ──────
 // This platform stores a blank as an ABSENT KEY ("never null and never 0"), so
 // emptying a field deletes its key, and the differ read that as a deletion. The
