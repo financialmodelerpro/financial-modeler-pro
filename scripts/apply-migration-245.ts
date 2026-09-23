@@ -19,6 +19,7 @@
  * No em dashes in this file.
  */
 import { readFileSync } from 'node:fs';
+import { withProbes, expectRefusal } from './lib/migrationProbe';
 
 interface PgRow { [k: string]: unknown }
 interface PgClient {
@@ -58,6 +59,10 @@ const check = (name: string, cond: boolean, detail = ''): void => {
     await c.query('begin');
     await c.query(SQL);
     console.log('-- DDL ran --');
+
+    // EVERY WRITE BELOW IS A PROOF, NOT DATA, and is rolled back before the
+    // commit. The DDL above is outside this block and commits normally.
+    await withProbes(c, async () => {
 
     const cols = await c.query(
       `select column_name, is_nullable from information_schema.columns
@@ -107,24 +112,19 @@ const check = (name: string, cond: boolean, detail = ''): void => {
       check('a row with NEITHER column still inserts (the old writer)',
         bare.rows.length === 1 && bare.rows[0].label === null && bare.rows[0].save_id === null);
 
-      // EVERY EXPECTED-TO-FAIL STATEMENT GETS A SAVEPOINT. A raised exception
-      // aborts the whole transaction in Postgres, so without one the FIRST
-      // refusal poisons every check after it and they read as failures that are
-      // not real (TRAPS 3.21: the same trap, from the other side).
-      const expectRefusal = async (sql: string, params: unknown[]): Promise<boolean> => {
-        await c.query('savepoint probe');
-        try { await c.query(sql, params); await c.query('release savepoint probe'); return false; }
-        catch { await c.query('rollback to savepoint probe'); return true; }
-      };
+      // `expectRefusal` is the SHARED one now (scripts/lib/migrationProbe.ts):
+      // its own savepoint per attempt, because a raised exception aborts the
+      // whole transaction and would make every later check read as a failure
+      // that is not real (TRAPS 3.21).
 
       // THE GUARD THAT MUST STILL BITE.
       check('THE APPEND-ONLY TRIGGER STILL REFUSES AN UPDATE to a logged row',
-        await expectRefusal('update public.refm_project_changes set label = $1 where save_id = $2', ['tampered', sid]));
+        await expectRefusal(c, 'update public.refm_project_changes set label = $1 where save_id = $2', ['tampered', sid]));
 
       // The guard is now LIST-FREE, so a column it was never told about is
       // guarded too. Proved on save_id, which 234 could not have known of.
       check('and refuses an update to a column added AFTER the guard was written',
-        await expectRefusal('update public.refm_project_changes set save_id = gen_random_uuid() where save_id = $1', [sid]));
+        await expectRefusal(c, 'update public.refm_project_changes set save_id = gen_random_uuid() where save_id = $1', [sid]));
 
       // The one permitted update must still work, or the cascade breaks.
       let setNullOk = true;
@@ -133,6 +133,7 @@ const check = (name: string, cond: boolean, detail = ''): void => {
       } catch { setNullOk = false; }
       check('but still PERMITS an FK being released to NULL (the cascade depends on it)', setNullOk);
     }
+    }); // withProbes: every probe write above is undone here, always
 
     console.log(`\n=== ${pass} passed, ${fail} failed ===`);
     if (fail > 0) {

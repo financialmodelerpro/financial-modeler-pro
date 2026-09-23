@@ -24,6 +24,7 @@
  * No em dashes in this file.
  */
 import { readFileSync } from 'node:fs';
+import { withProbes, expectRefusal } from './lib/migrationProbe';
 
 interface PgRow { [k: string]: unknown }
 interface PgClient {
@@ -64,6 +65,10 @@ const check = (name: string, cond: boolean, detail = ''): void => {
     await c.query(SQL);
     console.log('-- DDL ran --');
 
+    // EVERY WRITE BELOW IS A PROOF, NOT DATA, and is rolled back before the
+    // commit. The DDL above is outside this block and commits normally.
+    await withProbes(c, async () => {
+
     const cols = await c.query(
       `select column_name, is_nullable from information_schema.columns
         where table_schema = 'public' and table_name = 'refm_project_last_seen'
@@ -90,14 +95,11 @@ const check = (name: string, cond: boolean, detail = ''): void => {
       );
       check('a marker inserts and reads back', one.rows[0].n === 1);
 
-      // A SECOND row for the same pair must be impossible.
-      const expectRefusal = async (sql: string, params: unknown[]): Promise<boolean> => {
-        await c.query('savepoint probe');
-        try { await c.query(sql, params); await c.query('release savepoint probe'); return false; }
-        catch { await c.query('rollback to savepoint probe'); return true; }
-      };
+      // A SECOND row for the same pair must be impossible. `expectRefusal` is
+      // the SHARED one (scripts/lib/migrationProbe.ts), carrying its own
+      // savepoint per attempt (TRAPS 3.21).
       check('a SECOND marker for the same person and project is impossible',
-        await expectRefusal(
+        await expectRefusal(c,
           `insert into public.refm_project_last_seen (user_id, project_id, seen_at)
            values ($1, $2, now())`, [uid, pid]));
 
@@ -140,6 +142,7 @@ const check = (name: string, cond: boolean, detail = ''): void => {
       await c.query('rollback to savepoint cascade_user');
       check('deleting the PERSON removes their markers', userCascadeOk);
     }
+    }); // withProbes: every probe write above is undone here, always
 
     console.log(`\n=== ${pass} passed, ${fail} failed ===`);
     if (fail > 0) {
