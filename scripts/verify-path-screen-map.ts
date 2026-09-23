@@ -253,5 +253,145 @@ console.log('\n=== I. The wiring obeys the rules the panels depend on ===');
     && !readFileSync('src/hubs/modeling/platforms/refm/components/collab/ScreenBadge.tsx', 'utf8').includes('—'));
 }
 
+console.log('\n=== J. A tab anchor, and a module that has no tabs ===');
+{
+  const { screenAnchor, isScreenAnchor, MODULE_ONLY } =
+    require('../src/hubs/modeling/platforms/refm/lib/collab/pathScreen') as typeof import('../src/hubs/modeling/platforms/refm/lib/collab/pathScreen');
+  const { MODULE_TABS: TABS } = require('../src/hubs/modeling/platforms/refm/lib/moduleTabs') as typeof import('../src/hubs/modeling/platforms/refm/lib/moduleTabs');
+
+  check('J1 a tab anchor resolves to exactly that tab',
+    screenForPath(screenAnchor('costs'))?.screens.map((s) => s.key).join() === 'costs');
+  check('J1b and says so in words rather than claiming a field',
+    /^On the /.test(screenForPath(screenAnchor('costs'))?.sentence ?? ''));
+  check('J2 a tab anchor is NOT mistaken for a snapshot path',
+    isScreenAnchor(screenAnchor('costs')) && !isScreenAnchor('assets[id=a].buaSqm'));
+  check('J3 an anchor naming a tab that does not exist resolves to NOTHING, not half an answer',
+    screenForPath(screenAnchor('no-such-tab')) === null);
+
+  // THE RULE, not the current membership of the list: every module with no
+  // sub-tabs must be reachable as a screen, or a comment raised on it can
+  // never be counted or shown again. That is what `screen:m6` did before this
+  // was added, and a module added tomorrow would do it silently.
+  const tabless = Object.entries(TABS).filter(([, t]) => t.length === 0).map(([k]) => k);
+  check('J4 there IS a tab-less module, so this check is not vacuous', tabless.length > 0, tabless.join());
+  const missing = tabless.filter((k) => screenForPath(screenAnchor(k)) === null);
+  check('J5 every tab-less module is still reachable as a screen', missing.length === 0, missing.join());
+  check('J6 and the named list holds exactly those, with no stale entries',
+    Object.keys(MODULE_ONLY).every((k) => tabless.includes(k)),
+    Object.keys(MODULE_ONLY).filter((k) => !tabless.includes(k)).join());
+}
+
+console.log('\n=== K. Filing a comment to a screen, and to no screen ===');
+{
+  const anchors = require('../src/hubs/modeling/platforms/refm/lib/collab/commentAnchors') as typeof import('../src/hubs/modeling/platforms/refm/lib/collab/commentAnchors');
+  const mk = (over: Partial<Record<string, unknown>>): never => ({
+    id: 'c1', projectId: 'p', versionId: null, parentId: null, path: null,
+    userId: 'u1', userName: 'A', body: 'x', deleted: false,
+    createdAt: '2026-09-23T10:00:00Z', updatedAt: null,
+    resolvedAt: null, resolvedBy: null, resolvedByName: null, ...over,
+  }) as never;
+
+  const onAsset = mk({ id: 'a', path: 'assets[id=x]' });
+  const onProject = mk({ id: 'b', path: null });
+  const unplaceable = mk({ id: 'c', path: 'nothingKnown[].zz' });
+  const resolved = mk({ id: 'd', path: 'assets[id=x]', resolvedAt: '2026-09-23T11:00:00Z' });
+  const reply = mk({ id: 'e', parentId: 'a', path: null });
+  const all = [onAsset, onProject, unplaceable, resolved, reply];
+
+  const counts = anchors.countsByScreen(all);
+  check('K1 a field comment counts on the tab that edits it',
+    (counts.byScreen.get('assets') ?? 0) === 1, JSON.stringify([...counts.byScreen]));
+  check('K2 a project-wide comment is counted as such, not filed to a screen',
+    counts.projectWide === 1);
+  check('K3 an unplaceable path is REPORTED, never distributed on a guess',
+    counts.unplaceable === 1);
+  check('K4 a RESOLVED thread is not an open one', !counts.byScreen.has('__never'),
+    `${counts.byScreen.get('assets')}`);
+  check('K5 a REPLY is not a thread of its own', anchors.openThreadsForPath(all, 'assets[id=x]').length === 1);
+  check('K6 the reply is attached to its root',
+    anchors.openThreadsForPath(all, 'assets[id=x]')[0].replies.length === 1);
+
+  // TWO HOMES COUNT TWICE, deliberately: the map says either tab can act.
+  const twoHome = mk({ id: 'f', path: 'assets[id=x].capexPhasing.curve' });
+  const two = anchors.countsByScreen([twoHome]);
+  check('K7 a field with two homes is announced on BOTH tabs',
+    (two.byScreen.get('costs') ?? 0) === 1 && (two.byScreen.get('asset-standards') ?? 0) === 1,
+    JSON.stringify([...two.byScreen]));
+
+  // Two rows of one array are different fields.
+  check('K8 two rows of one array do not share a thread',
+    anchors.openThreadsForPath([onAsset], 'assets[id=y]').length === 0);
+}
+
+console.log('\n=== L. What is for you, and what is not ===');
+{
+  const anchors = require('../src/hubs/modeling/platforms/refm/lib/collab/commentAnchors') as typeof import('../src/hubs/modeling/platforms/refm/lib/collab/commentAnchors');
+  const mk = (over: Partial<Record<string, unknown>>): never => ({
+    id: 'c1', projectId: 'p', versionId: null, parentId: null, path: null,
+    userId: 'me', userName: 'Me', body: 'x', deleted: false,
+    createdAt: '2026-09-23T10:00:00Z', updatedAt: null,
+    resolvedAt: null, resolvedBy: null, resolvedByName: null, ...over,
+  }) as never;
+
+  const mine = mk({ id: 'r1', userId: 'me' });
+  const theirReply = mk({ id: 'x1', parentId: 'r1', userId: 'them', userName: 'Them', createdAt: '2026-09-23T12:00:00Z' });
+  const myReply = mk({ id: 'x2', parentId: 'r1', userId: 'me', createdAt: '2026-09-23T12:00:00Z' });
+  const theirs = mk({ id: 'r2', userId: 'them' });
+  const theirReplyToTheirs = mk({ id: 'x3', parentId: 'r2', userId: 'them', createdAt: '2026-09-23T12:00:00Z' });
+
+  const items = anchors.forYou([mine, theirReply, myReply, theirs, theirReplyToTheirs], 'me', null);
+  check('L1 somebody replying to my thread is for me',
+    items.some((i) => i.kind === 'reply'), JSON.stringify(items.map((i) => i.kind)));
+  check('L2 my OWN reply to my own thread is not news', items.filter((i) => i.kind === 'reply').length === 1);
+  check('L3 a reply to somebody else\'s thread is not mine', items.every((i) => i.thread.root.id === 'r1'));
+
+  const resolvedByThem = mk({ id: 'r1', userId: 'me', resolvedAt: '2026-09-23T13:00:00Z', resolvedBy: 'them' });
+  const resolvedByMe = mk({ id: 'r3', userId: 'me', resolvedAt: '2026-09-23T13:00:00Z', resolvedBy: 'me' });
+  const res = anchors.forYou([resolvedByThem, resolvedByMe], 'me', null);
+  check('L4 somebody resolving my thread is for me', res.some((i) => i.kind === 'resolved'));
+  check('L5 resolving my OWN thread is not news', res.filter((i) => i.kind === 'resolved').length === 1);
+
+  // SINCE is load bearing in BOTH directions, or it is not really filtering.
+  check('L6 something older than my last visit is not reported again',
+    anchors.forYou([mine, theirReply], 'me', '2026-09-23T23:00:00Z').length === 0);
+  check('L7 and something newer IS',
+    anchors.forYou([mine, theirReply], 'me', '2026-09-23T11:00:00Z').length === 1);
+  check('L8 a person with no id is told nothing rather than everything',
+    anchors.forYou([mine, theirReply], '', null).length === 0);
+}
+
+console.log('\n=== M. The screens call it ===');
+{
+  const dir = 'src/hubs/modeling/platforms/refm/components/modules';
+  const tabbed = ['Module1ProjectPhases', 'Module1Assets', 'Module1Costs', 'Module2Revenue',
+    'Module3Opex', 'Module1Financing', 'Module4PL', 'Module5Returns', 'Module6Scenarios'];
+  const missing = tabbed.filter((f) => !readFileSync(`${dir}/${f}.tsx`, 'utf8').includes('<TabComments'));
+  check('M1 every input surface carries the tab banner', missing.length === 0, missing.join(', '));
+
+  const withField = ['Module1ProjectPhases', 'Module1Assets', 'Module1Costs', 'Module2Revenue',
+    'Module3Opex', 'Module1Financing'];
+  const noField = withField.filter((f) => !readFileSync(`${dir}/${f}.tsx`, 'utf8').includes('<FieldComment'));
+  check('M2 every screen with editable rows carries a row marker', noField.length === 0, noField.join(', '));
+
+  // THE MECHANISM IS REAL ONLY IF SOMETHING CALLS IT. This is the check that
+  // would have failed for the whole of the day the map shipped, when
+  // `commentOnField` existed and no screen called anything.
+  const anyCaller = tabbed.some((f) => /<(TabComments|FieldComment)\b/.test(readFileSync(`${dir}/${f}.tsx`, 'utf8')));
+  check('M3 the mechanism has callers, not just an implementation', anyCaller);
+
+  const sidebar = readFileSync('src/hubs/modeling/platforms/refm/components/Sidebar.tsx', 'utf8');
+  check('M4 the sidebar announces a tab with open comments',
+    sidebar.includes('useScreenCommentCounts') && /sidebar-tab-\$\{tab\.key\}-comments|tab\.key\}-comments/.test(sidebar));
+
+  const panels = readFileSync('src/hubs/modeling/platforms/refm/components/collab/CollabPanels.tsx', 'utf8');
+  check('M5 the Collaborate tab filters by screen', panels.includes('comments-filter-screen'));
+  check('M6 and lists what it cannot place rather than hiding it',
+    panels.includes('__unplaceable'));
+  check('M7 the in-place thread REUSES the panel component rather than copying it',
+    readFileSync('src/hubs/modeling/platforms/refm/components/collab/FieldComments.tsx', 'utf8')
+      .includes("import { CommentThread } from './CollabPanels'")
+    && panels.includes('export function CommentThread'));
+}
+
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
 if (fail) { console.log('Failures: ' + fails.join(' | ')); process.exit(1); }
