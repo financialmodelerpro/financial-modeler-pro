@@ -21,6 +21,7 @@ import React, { useState } from 'react';
 import * as pclient from '../../lib/persistence/client';
 import type { RefmProjectVersionListItem, ProjectChangeDTO, ProjectCommentDTO } from '../../lib/persistence/types';
 import { ScreenBadge, takePendingAnchor } from './ScreenBadge';
+import { screenForPath } from '../../lib/collab/pathScreen';
 
 const FILTER_STYLE: React.CSSProperties = {
   fontSize: 11.5, fontWeight: 600, color: 'var(--color-heading)',
@@ -553,6 +554,7 @@ export function CommentsPanel({
 }): React.JSX.Element {
   const [draft, setDraft] = useState('');
   const [showResolved, setShowResolved] = useState(false);
+  const [screenFilter, setScreenFilter] = useState<string>('');
   /**
    * THE FIELD THIS COMMENT IS ABOUT, when there is one (2026-09-23).
    *
@@ -640,8 +642,44 @@ export function CommentsPanel({
     );
   }
 
-  const open = threads.filter((t) => !t.root.resolvedAt);
-  const resolved = threads.filter((t) => t.root.resolvedAt);
+  // ── FILTER BY SCREEN (2026-09-23) ──────────────────────────────────────
+  //
+  // THE COLLABORATE TAB REMAINS THE WHOLE PICTURE: everything raised in
+  // context appears here too, so nothing exists in only one place. Filing a
+  // thread to a screen uses the SAME rule the markers and the sidebar counts
+  // use (pathScreen, through commentAnchors), so the three cannot disagree
+  // about where a comment belongs.
+  //
+  // THREE CHOICES THAT ARE NOT SCREENS, and each is a real answer rather than
+  // a bucket: the project-wide comments, which belong to no screen by
+  // definition; and the ones carrying a path the map CANNOT place, which are
+  // listed rather than hidden, because a comment nobody can find is worse than
+  // one filed oddly.
+  const screenOf = (t: { root: ProjectCommentDTO }): string[] => {
+    if (!t.root.path) return ['__project'];
+    const found = screenForPath(t.root.path);
+    if (!found || found.screens.length === 0) return ['__unplaceable'];
+    return found.screens.map((s) => s.key);
+  };
+  const screenOptions = (() => {
+    const seen = new Map<string, string>();
+    for (const t of threads) {
+      for (const k of screenOf(t)) {
+        if (k === '__project' || k === '__unplaceable') continue;
+        if (!seen.has(k)) seen.set(k, screenForPath(t.root.path)?.screens.find((s) => s.key === k)?.label ?? k);
+      }
+    }
+    return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  })();
+  const hasProjectWide = threads.some((t) => !t.root.path);
+  const hasUnplaceable = threads.some((t) => screenOf(t).includes('__unplaceable'));
+
+  const byScreen = screenFilter === ''
+    ? threads
+    : threads.filter((t) => screenOf(t).includes(screenFilter));
+
+  const open = byScreen.filter((t) => !t.root.resolvedAt);
+  const resolved = byScreen.filter((t) => t.root.resolvedAt);
   const shown = showResolved ? [...open, ...resolved] : open;
 
   return (
@@ -652,6 +690,30 @@ export function CommentsPanel({
         here after a newer version is saved, showing the version it was
         written against.
       </p>
+
+      {/* The screen filter, beside the resolved toggle the panel already had.
+          Offered only when there is more than one thing to choose between, the
+          same rule the Activity filters follow. */}
+      {(screenOptions.length > 1 || (screenOptions.length === 1 && hasProjectWide)) && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 'var(--sp-2)' }}>
+          <select
+            value={screenFilter}
+            onChange={(e) => setScreenFilter(e.target.value)}
+            data-testid="comments-filter-screen"
+            style={FILTER_STYLE}
+          >
+            <option value="">Every screen</option>
+            {hasProjectWide && <option value="__project">On the project</option>}
+            {screenOptions.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+            {hasUnplaceable && <option value="__unplaceable">On a field we cannot place</option>}
+          </select>
+          {screenFilter === '__unplaceable' && (
+            <span style={{ fontSize: 11, color: 'var(--color-meta)' }}>
+              These carry a field the platform cannot match to a screen, so they are listed here rather than filed by guess.
+            </span>
+          )}
+        </div>
+      )}
 
       {canComment ? (
         <>

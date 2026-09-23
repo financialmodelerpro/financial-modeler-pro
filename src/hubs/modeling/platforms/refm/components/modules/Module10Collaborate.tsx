@@ -29,12 +29,13 @@
  * No em dashes in this file.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import * as pclient from '../../lib/persistence/client';
 import type { RefmProjectVersionListItem, ProjectMemberDTO } from '../../lib/persistence/types';
 import { PROJECT_ROLE_META, type ProjectRole } from '@/src/core/collab/projectRoles';
 import { ActivityPanel, CommentsPanel } from '../collab/CollabPanels';
 import { useProjectChanges, useProjectComments } from '../collab/useCollabData';
+import { forYou, anchorLabel } from '../../lib/collab/commentAnchors';
 
 /**
  * THE FOUR SUB-TABS (2026-09-22), declared once so the bar and the gates read
@@ -154,6 +155,16 @@ export default function Module10Collaborate({
     })();
     return () => { cancelled = true; };
   }, [projectId]);
+
+  // WHAT HAPPENED TO THIS PERSON'S OWN COMMENTS since they last looked.
+  // Measured against the SAME held marker the unread badge uses, so the two
+  // cannot disagree about what "since you last looked" means. Pure, over rows
+  // already loaded: see `forYou` for why this is the whole of the notification
+  // story on this platform and why mentions are not part of it.
+  const forYouItems = useMemo(
+    () => forYou(commentsData.rows, commentsData.viewerId, lastSeenAt),
+    [commentsData.rows, commentsData.viewerId, lastSeenAt],
+  );
 
   // What is new, measured against the marker held above. A reader with NO
   // marker (their first visit) has nothing "new": everything is, which is the
@@ -284,6 +295,54 @@ export default function Module10Collaborate({
                   type="button"
                   onClick={() => setTab('comments')}
                   data-testid="module10-goto-comments"
+                  style={{
+                    marginTop: 6, background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                    color: 'var(--color-primary)', fontWeight: 600, fontSize: 12.5, fontFamily: 'inherit',
+                  }}
+                >
+                  Open comments
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* ── WHAT HAPPENED TO YOUR COMMENTS (2026-09-23) ────────────────
+              THERE IS NO NOTIFICATION LAYER ON THIS PLATFORM and this does not
+              invent one: no email is sent for a comment, nothing is pushed,
+              and no per-item unread state is stored. This answers the question
+              a person actually has on opening the project, from data already
+              loaded and the last-seen stamp that already exists (mig 246):
+              who replied to my threads, and who resolved them.
+
+              Mentions are absent because there is no way to WRITE one. A
+              mention filter would match nothing and imply a feature that is
+              not there. */}
+          <div style={card} data-testid="module10-for-you">
+            <h3 style={sectionTitle}>For you</h3>
+            {!commentsData.ready || !seenReady ? (
+              <p style={{ fontSize: 12.5, color: 'var(--color-muted)', margin: 0 }}>Loading...</p>
+            ) : forYouItems.length === 0 ? (
+              <p style={{ fontSize: 12.5, color: 'var(--color-muted)', margin: 0 }}>
+                Nothing new on your comments
+                {lastSeenAt ? ' since you last opened this project' : ''}.
+              </p>
+            ) : (
+              <>
+                {forYouItems.slice(0, 4).map((it) => (
+                  <div key={`${it.thread.root.id}-${it.kind}-${it.at}`}
+                    style={{ fontSize: 12.5, color: 'var(--color-body)', padding: '3px 0' }}>
+                    <strong>{it.byName ?? 'Someone'}</strong>
+                    {it.kind === 'reply' ? ' replied to ' : ' resolved '}
+                    your comment
+                    <span style={{ color: 'var(--color-muted)' }}>
+                      {' '}({anchorLabel(it.thread.root.path)})
+                    </span>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setTab('comments')}
+                  data-testid="module10-goto-for-you"
                   style={{
                     marginTop: 6, background: 'none', border: 'none', padding: 0, cursor: 'pointer',
                     color: 'var(--color-primary)', fontWeight: 600, fontSize: 12.5, fontFamily: 'inherit',

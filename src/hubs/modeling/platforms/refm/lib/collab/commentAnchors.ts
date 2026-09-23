@@ -127,6 +127,74 @@ export function openThreadsForScreen(
     .map((root) => ({ root, replies: repliesOf(all, root.id) }));
 }
 
+/* ─────────────────────────── what is for you ────────────────────────────── */
+
+/**
+ * THERE IS NO NOTIFICATION LAYER ON THIS PLATFORM, AND THIS DOES NOT INVENT
+ * ONE (2026-09-23).
+ *
+ * No email is sent for a comment, nothing is pushed, and no per-item unread
+ * state is stored. Building any of that would mean a delivery mechanism, a
+ * preference for it, an unsubscribe and a dedupe log, and the honest position
+ * is that none of it exists rather than a half version that silently drops
+ * messages.
+ *
+ * What DOES exist is the last-seen stamp per person per project (migration
+ * 246), which already drives the unread marker. So the smallest honest
+ * mechanism is to answer, from data the screen has already loaded, the
+ * question a person actually has when they open the project:
+ *
+ *     "what happened to MY comments since I last looked?"
+ *
+ * Two things count, and both are things someone else did to your words:
+ *   - somebody REPLIED to a thread you started;
+ *   - somebody RESOLVED a thread you started.
+ *
+ * A reply you wrote yourself is not news, and neither is resolving your own
+ * thread. MENTIONS ARE NOT INCLUDED because there is no way to write one: the
+ * composer has no mention syntax and there is no directory behind it, so a
+ * mention filter would match nothing and imply a feature that is absent.
+ */
+export interface ForYouItem {
+  thread: AnchoredThread;
+  /** What happened, in the order a person cares: a reply, or a resolution. */
+  kind: 'reply' | 'resolved';
+  /** When it happened, so the caller can compare against last-seen. */
+  at: string;
+  /** Who did it, when the row records a name. */
+  byName: string | null;
+}
+
+export function forYou(
+  all: readonly ProjectCommentDTO[],
+  viewerId: string,
+  since: string | null,
+): ForYouItem[] {
+  if (!viewerId) return [];
+  const newer = (ts: string | null | undefined): boolean =>
+    !!ts && (since === null || new Date(ts).getTime() > new Date(since).getTime());
+
+  const out: ForYouItem[] = [];
+  for (const root of all) {
+    if (!isLiveRoot(root) || root.userId !== viewerId) continue;
+    const replies = repliesOf(all, root.id);
+    const thread = { root, replies };
+
+    for (const r of replies) {
+      if (r.deleted || r.userId === viewerId) continue;
+      if (newer(r.createdAt)) {
+        out.push({ thread, kind: 'reply', at: r.createdAt, byName: r.userName ?? null });
+      }
+    }
+    // A resolution by someone else. `resolvedBy` is the actor the server
+    // records; a thread you resolved yourself is not news.
+    if (root.resolvedAt && root.resolvedBy !== viewerId && newer(root.resolvedAt)) {
+      out.push({ thread, kind: 'resolved', at: root.resolvedAt, byName: root.resolvedByName ?? null });
+    }
+  }
+  return out.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+}
+
 /**
  * A one-line description of what a comment is anchored to, for a list that
  * mixes field comments, tab comments and project-wide ones.
