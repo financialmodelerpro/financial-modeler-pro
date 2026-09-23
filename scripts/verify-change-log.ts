@@ -253,6 +253,27 @@ console.log('\n=== D. Appended, never recomputed; each save logs its own delta =
       .some((e) => e.kind === 'update'));
 }
 
+// ── D41 to D45: FILTERS SAY WHAT THEY SEARCHED (2026-09-22) ─────────────────
+// Filtering is client-side over the page already loaded, which is honest only
+// if the screen says so when that page is truncated. A filter that silently
+// searches 200 of 5,000 entries and reports "no activity" is a lie by omission.
+{
+  console.log('\n-- D41..D45 filters, and what they admit to --');
+  const panels = src(PANELS);
+  check('D41 there are filters for PERSON and VERSION',
+    /activity-filter-person/.test(panels) && /activity-filter-version/.test(panels));
+  check('D42 they offer only names and versions PRESENT in the page',
+    /new Set\(changes\.map\(\(c\) => c\.userName\)/.test(panels)
+    && /new Set\(changes\.map\(\(c\) => c\.versionId\)/.test(panels));
+  check('D43 a filtered view states how many of how many are shown',
+    /activity-filter-count/.test(panels) && /\{filtered\.length\} of \{changes\.length\} shown/.test(panels));
+  check('D44 a filter matching NOTHING says so, rather than looking like an empty log',
+    /activity-filter-empty/.test(panels) && /No activity matches these filters/.test(panels));
+  check('D45 and on a TRUNCATED page the filter admits it searched only what is loaded',
+    /these filters search only the entries shown/.test(panels)
+    && /in the entries loaded so far/.test(panels));
+}
+
 // ── D35 to D40: ONE SAVE IS ONE ENTRY (2026-09-22) ──────────────────────────
 // A save that touched forty fields wrote forty rows and the screen rendered
 // forty rows, so a single edit buried a day's log. Grouped by `save_id`, which

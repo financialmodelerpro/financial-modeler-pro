@@ -21,6 +21,12 @@ import React, { useState } from 'react';
 import * as pclient from '../../lib/persistence/client';
 import type { RefmProjectVersionListItem, ProjectChangeDTO, ProjectCommentDTO } from '../../lib/persistence/types';
 
+const FILTER_STYLE: React.CSSProperties = {
+  fontSize: 11.5, fontWeight: 600, color: 'var(--color-heading)',
+  border: '1px solid var(--color-border)', borderRadius: 6, padding: '3px 7px',
+  background: 'var(--color-surface)', cursor: 'pointer', fontFamily: 'inherit',
+};
+
 // ── Activity: the append-only change log (Module 10 step 6) ────────────────
 /**
  * WHO changed WHAT, and WHEN. Reads /api/refm/projects/{id}/changes, which is
@@ -64,6 +70,13 @@ export function ActivityPanel({
   // open for the newest day and closed for the rest, so a toggle is remembered
   // without freezing the default for days that arrive later.
   const [openDays, setOpenDays] = useState<Record<string, boolean>>({});
+  // FILTERS (2026-09-22). Client-side over the page already loaded: the log is
+  // read whole up to the server's limit, so filtering here needs no round trip
+  // and cannot disagree with what the list shows. When the page is truncated
+  // the notice says so, and a filter over a truncated page is stated as such
+  // rather than implying it searched the whole history.
+  const [whoFilter, setWhoFilter] = useState<string>('');
+  const [versionFilter, setVersionFilter] = useState<string>('');
 
   if (loading) {
     return <div className="alert-info" data-testid="activity-loading">Loading activity...</div>;
@@ -85,10 +98,22 @@ export function ActivityPanel({
     );
   }
 
+  // The people and versions PRESENT IN THIS PAGE, so the dropdowns offer only
+  // what can actually be selected. Offering a name with no rows behind it is a
+  // filter that returns nothing and looks broken.
+  const people = [...new Set(changes.map((c) => c.userName).filter((n): n is string => !!n))].sort();
+  const versionIds = [...new Set(changes.map((c) => c.versionId).filter((v): v is string => !!v))];
+
+  const filtered = changes.filter(
+    (c) => (whoFilter === '' || c.userName === whoFilter)
+      && (versionFilter === '' || c.versionId === versionFilter),
+  );
+  const filtering = whoFilter !== '' || versionFilter !== '';
+
   // Grouped by calendar day, newest first. The server already returns newest
   // first, so grouping preserves that order rather than re-sorting.
   const days: Array<{ day: string; rows: ProjectChangeDTO[] }> = [];
-  for (const c of changes) {
+  for (const c of filtered) {
     const day = new Date(c.createdAt).toLocaleDateString(undefined, {
       weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
     });
@@ -110,7 +135,65 @@ export function ActivityPanel({
       {truncated && (
         <div className="alert-info" data-testid="activity-truncated" style={{ marginBottom: 'var(--sp-2)' }}>
           Showing the most recent {limit > 0 ? limit.toLocaleString() : changes.length.toLocaleString()} entries.
-          This project has older activity that is not listed here.
+          This project has older activity that is not listed here
+          {filtering ? ', and these filters search only the entries shown' : ''}.
+        </div>
+      )}
+
+      {/* ── Filters, over the page that is loaded ─────────────────────────── */}
+      {(people.length > 1 || versionIds.length > 1) && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 'var(--sp-2)' }}>
+          {people.length > 1 && (
+            <select
+              value={whoFilter}
+              onChange={(e) => setWhoFilter(e.target.value)}
+              data-testid="activity-filter-person"
+              style={FILTER_STYLE}
+            >
+              <option value="">Everyone</option>
+              {people.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+          )}
+          {versionIds.length > 1 && (
+            <select
+              value={versionFilter}
+              onChange={(e) => setVersionFilter(e.target.value)}
+              data-testid="activity-filter-version"
+              style={FILTER_STYLE}
+            >
+              <option value="">Every version</option>
+              {versionIds.map((v) => (
+                <option key={v} value={v}>{versionLabel.get(v) ?? 'Version no longer saved'}</option>
+              ))}
+            </select>
+          )}
+          {filtering && (
+            <>
+              <span style={{ fontSize: 11.5, color: 'var(--color-meta)' }} data-testid="activity-filter-count">
+                {filtered.length} of {changes.length} shown
+              </span>
+              <button
+                type="button"
+                onClick={() => { setWhoFilter(''); setVersionFilter(''); }}
+                data-testid="activity-filter-clear"
+                style={{
+                  background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                  color: 'var(--color-primary)', fontWeight: 600, fontSize: 11.5, fontFamily: 'inherit',
+                }}
+              >
+                Clear
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* A filter that matches nothing must SAY so, or the screen looks broken
+          in exactly the way an empty log does. */}
+      {filtering && filtered.length === 0 && (
+        <div className="alert-info" data-testid="activity-filter-empty">
+          No activity matches these filters
+          {truncated ? ' in the entries loaded so far' : ''}.
         </div>
       )}
       {days.map(({ day, rows }, dayIdx) => {
