@@ -119,6 +119,37 @@ export default function Module10Collaborate({
   );
   const latestChange = changesData.rows[0] ?? null;
 
+  // ── THE UNREAD MARKER (2026-09-22, migration 246) ───────────────────────
+  // Held as of the moment the screen opened and NOT moved while it is open:
+  // marking as the reader watches would make the badge vanish under them.
+  // Stamped once, after the answer exists, for exactly the reason the route
+  // is two calls (see last-seen/route.ts).
+  const [lastSeenAt, setLastSeenAt] = useState<string | null>(null);
+  const [seenReady, setSeenReady] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    setSeenReady(false);
+    void (async () => {
+      const res = await pclient.getLastSeen(projectId);
+      if (cancelled) return;
+      setLastSeenAt(res.data?.lastSeenAt ?? null);
+      setSeenReady(true);
+      // Stamped AFTER the read has landed, so this visit's answer is computed
+      // against the PREVIOUS visit. A failure here is silent by design: the
+      // marker is a convenience and losing it costs a stale badge, not work.
+      void pclient.markProjectSeen(projectId);
+    })();
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  // What is new, measured against the marker held above. A reader with NO
+  // marker (their first visit) has nothing "new": everything is, which is the
+  // same as nothing being worth flagging, and flagging the entire history
+  // would make the feature noise on the one visit it cannot help.
+  const isNew = (iso: string): boolean => lastSeenAt !== null && iso > lastSeenAt;
+  const newChanges = seenReady ? changesData.rows.filter((c) => isNew(c.createdAt)) : [];
+  const newComments = seenReady ? commentsData.rows.filter((c) => !c.deleted && isNew(c.createdAt)) : [];
+
   const sectionTitle: React.CSSProperties = {
     fontSize: 'var(--font-h3, 15px)', fontWeight: 700, color: 'var(--color-heading)',
     margin: '0 0 6px',
@@ -148,7 +179,9 @@ export default function Module10Collaborate({
           const active = tab === t.key;
           // The count rides on the tab so an open thread is visible without
           // opening Comments, which is the whole point of a tab bar here.
-          const badge = t.key === 'comments' && openThreads.length > 0 ? openThreads.length : null;
+          const badge = t.key === 'comments' && openThreads.length > 0 ? openThreads.length
+            : t.key === 'activity' && newChanges.length > 0 ? newChanges.length
+            : null;
           return (
             <button
               key={t.key}
@@ -182,6 +215,37 @@ export default function Module10Collaborate({
       {/* ── OVERVIEW: what a person needs to know before anything else ──── */}
       {tab === 'overview' && (
         <div data-testid="module10-overview">
+          {/* ── Since you last looked ──────────────────────────────────── */}
+          <div style={card} data-testid="module10-since-last-seen">
+            <h3 style={sectionTitle}>Since you last looked</h3>
+            {!seenReady || !changesData.ready ? (
+              <p style={{ fontSize: 12.5, color: 'var(--color-muted)', margin: 0 }}>Checking...</p>
+            ) : lastSeenAt === null ? (
+              <p style={{ fontSize: 12.5, color: 'var(--color-muted)', margin: 0 }}>
+                This is your first visit to this project, so nothing is marked as new.
+                Changes from here on will be.
+              </p>
+            ) : newChanges.length === 0 && newComments.length === 0 ? (
+              <p style={{ fontSize: 12.5, color: 'var(--color-muted)', margin: 0 }}>
+                Nothing has changed since {new Date(lastSeenAt).toLocaleString()}.
+              </p>
+            ) : (
+              <p style={{ fontSize: 13, color: 'var(--color-body)', margin: 0 }}>
+                <strong>{newChanges.length}</strong> {newChanges.length === 1 ? 'change' : 'changes'}
+                {newComments.length > 0 && (
+                  <> and <strong>{newComments.length}</strong> new {newComments.length === 1 ? 'comment' : 'comments'}</>
+                )}
+                {' since '}{new Date(lastSeenAt).toLocaleString()}
+                {changesData.truncated && (
+                  <span style={{ color: 'var(--color-muted)' }}>
+                    {' (counted over the entries loaded, which do not reach the whole history)'}
+                  </span>
+                )}
+                .
+              </p>
+            )}
+          </div>
+
           <div style={card} data-testid="module10-open-comments">
             <h3 style={sectionTitle}>Open comments</h3>
             {!commentsData.ready ? (

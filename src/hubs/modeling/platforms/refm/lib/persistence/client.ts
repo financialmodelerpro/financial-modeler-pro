@@ -198,6 +198,22 @@ export function listVersions(
 // Read only. There is no write helper on purpose: rows are appended by the
 // save path on the server, and a log a client can write into is not an audit
 // trail.
+// ── Last seen (mig 246): the unread marker ─────────────────────────────────
+// TWO calls on purpose. The read must happen BEFORE the write, or "what
+// changed since you last looked" always answers "nothing", so the screen reads
+// with everything else and stamps only once it has rendered its answer.
+export function getLastSeen(
+  projectId: string,
+): Promise<FetchResult<{ lastSeenAt: string | null }>> {
+  return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/last-seen`, { method: 'GET' });
+}
+
+export function markProjectSeen(
+  projectId: string,
+): Promise<FetchResult<{ written: boolean }>> {
+  return callJson(`/api/refm/projects/${encodeURIComponent(projectId)}/last-seen`, { method: 'POST' });
+}
+
 export function listChanges(
   projectId: string,
   limit?: number,

@@ -253,6 +253,37 @@ console.log('\n=== D. Appended, never recomputed; each save logs its own delta =
       .some((e) => e.kind === 'update'));
 }
 
+// ── D46 to D52: THE UNREAD MARKER (2026-09-22, migration 246) ───────────────
+// Stored per user per project in the DATABASE by founder decision: browser
+// storage is lost on another device or a cleared cache, and each of those makes
+// the marker WRONG rather than absent, which is worse because a reader trusts
+// it. The ordering is the whole feature: READ BEFORE WRITE, or "what changed
+// since you last looked" always answers "nothing".
+{
+  console.log('\n-- D46..D52 the unread marker --');
+  const mig = src('supabase/migrations/246_project_last_seen.sql');
+  const lib = src('src/hubs/modeling/platforms/refm/lib/persistence/lastSeen.ts');
+  const route = src('app/api/refm/projects/[id]/last-seen/route.ts');
+  const screen = src(SCREEN);
+  check('D46 one row per person per project, enforced by the PRIMARY KEY',
+    /primary key \(user_id, project_id\)/i.test(mig));
+  check('D47 both FKs CASCADE (a marker is not an audit fact and must not outlive either side)',
+    (mig.match(/on delete cascade/gi) ?? []).length === 2);
+  check('D48 the applier PROVES a second row is impossible and both cascades fire',
+    /a SECOND marker for the same person and project is impossible/.test(src('scripts/apply-migration-246.ts'))
+    && /deleting the PROJECT removes its markers/.test(src('scripts/apply-migration-246.ts'))
+    && /deleting the PERSON removes their markers/.test(src('scripts/apply-migration-246.ts')));
+  check('D49 the write is an UPSERT on that key, so it moves the time and never adds a row',
+    /onConflict: 'user_id,project_id'/.test(lib));
+  check('D50 the user id comes from the SESSION, never the body',
+    /const userId = await getRefmUserId\(\)/.test(route) && !/body[\s\S]{0,40}userId/.test(route));
+  check('D51 THE SCREEN READS BEFORE IT STAMPS, or the answer is always "nothing new"',
+    /const res = await pclient\.getLastSeen\(projectId\)[\s\S]{0,400}pclient\.markProjectSeen\(projectId\)/.test(screen));
+  check('D52 a FIRST visit marks nothing as new, rather than flagging the whole history',
+    /lastSeenAt !== null && iso > lastSeenAt/.test(screen)
+    && /first visit to this project, so nothing is marked as new/.test(screen));
+}
+
 // ── D41 to D45: FILTERS SAY WHAT THEY SEARCHED (2026-09-22) ─────────────────
 // Filtering is client-side over the page already loaded, which is honest only
 // if the screen says so when that page is truncated. A filter that silently
