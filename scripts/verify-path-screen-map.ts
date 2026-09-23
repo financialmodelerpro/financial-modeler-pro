@@ -363,10 +363,15 @@ console.log('\n=== L. What is for you, and what is not ===');
 console.log('\n=== M. The screens call it ===');
 {
   const dir = 'src/hubs/modeling/platforms/refm/components/modules';
-  const tabbed = ['Module1ProjectPhases', 'Module1Assets', 'Module1Costs', 'Module2Revenue',
-    'Module3Opex', 'Module1Financing', 'Module4PL', 'Module5Returns', 'Module6Scenarios'];
+  // THE LIST IS THE SHELL'S OWN, not a copy: every component the shell renders
+  // for a tab must carry the banner, so a tab added tomorrow is covered by
+  // this check on the day it is added rather than whenever someone remembers.
+  const shellSrc = readFileSync('src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx', 'utf8');
+  const tabbed = [...new Set([...shellSrc.matchAll(/=== '[a-z0-9-]+'\s*&&\s*<([A-Za-z0-9_]+)/g)].map((m) => m[1]))]
+    .filter((c) => { try { readFileSync(`${dir}/${c}.tsx`); return true; } catch { return false; } });
+  check('M0 the shell yielded a real list of tab components', tabbed.length > 15, `${tabbed.length}`);
   const missing = tabbed.filter((f) => !readFileSync(`${dir}/${f}.tsx`, 'utf8').includes('<TabComments'));
-  check('M1 every input surface carries the tab banner', missing.length === 0, missing.join(', '));
+  check('M1 EVERY tab the shell renders carries the tab banner', missing.length === 0, missing.join(', '));
 
   const withField = ['Module1ProjectPhases', 'Module1Assets', 'Module1Costs', 'Module2Revenue',
     'Module3Opex', 'Module1Financing'];

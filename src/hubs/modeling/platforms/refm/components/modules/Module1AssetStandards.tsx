@@ -72,6 +72,7 @@ import {
 import { typePriceColumns } from '../../lib/state/subUnitPriceDefaults';
 import type { CostMethod } from '../../lib/state/module1-types';
 import { AssetPhasingControl } from './Module1Costs';
+import { TabComments } from '../collab/FieldComments';
 import {
   ASSET_TYPES_BY_CATEGORY,
   ASSET_TYPE_CATEGORIES,
@@ -542,6 +543,7 @@ export default function Module1AssetStandards({ projectId }: { projectId: string
 
   return (
     <div data-testid="tab-asset-standards">
+      <TabComments tabKey="asset-standards" />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 'var(--sp-3)', flexWrap: 'wrap', gap: 'var(--sp-1)' }}>
         <h2 style={{ fontSize: 'var(--font-h2)', margin: 0 }}>4. Asset Types &amp; Standards</h2>
         <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', fontStyle: 'italic' }}>

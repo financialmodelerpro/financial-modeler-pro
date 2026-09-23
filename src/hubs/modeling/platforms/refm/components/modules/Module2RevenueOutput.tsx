@@ -84,6 +84,7 @@ import {
 } from '../../lib/revenueLines';
 import { withInheritedMassingAll } from '@/src/core/calculations/landChain';
 import { chainMassingFor } from '../../lib/state/assetTypeStandards';
+import { TabComments } from '../collab/FieldComments';
 
 function makeCurrencyFmt(scale: DisplayScale, decimals: DisplayDecimals): (v: number) => string {
   return (v: number) => {
@@ -1471,6 +1472,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
 
   return (
     <div data-testid="m2-revenue-output" style={{ padding: 'var(--sp-3)' }}>
+      <TabComments tabKey="m2-revenue" />
       <div style={{ marginBottom: 'var(--sp-3)' }}>
         <h1 style={{ fontSize: 'var(--font-h2)', color: 'var(--color-heading)', margin: 0 }}>Module 2 · Revenue (Output)</h1>
         <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 2, fontStyle: 'italic' }}>

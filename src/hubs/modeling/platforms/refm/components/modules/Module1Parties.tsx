@@ -15,6 +15,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { PARTY_ROLES, type Party } from '../../lib/parties';
 import { listParties, createParty, updateParty, deleteParty } from '../../lib/persistence/client';
+import { TabComments } from '../collab/FieldComments';
 
 const NAVY = '#1B3A6B';
 const BLUE = '#1B4F8A';
@@ -88,6 +89,7 @@ export default function Module1Parties({ projectId }: { projectId: string | null
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }} data-testid="m1-parties">
+      <TabComments tabKey="parties" />
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <div>

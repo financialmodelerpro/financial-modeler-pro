@@ -11,6 +11,7 @@ import React from 'react';
 import { FAST_INPUT } from './_shared/inputStyles';
 import { OverrideBadge } from './_shared/OverrideBadge';
 import { TERMINAL_METHOD_LABELS } from '../../lib/state/module1-types';
+import { FieldComment } from '../collab/FieldComments';
 
 /** Format a decimal as a percentage; null -> "n/a". */
 export function fmtPct(v: number | null | undefined, dp = 1): string {
@@ -161,7 +162,7 @@ export function AssumptionsPanel(props: {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 'var(--sp-2)', alignItems: 'end' }}>
         <div>
-          <label style={labelStyle}>Discount Rate (%)<OverrideBadge path="project.returns.discountRate" /></label>
+          <label style={labelStyle}>Discount Rate (%)<OverrideBadge path="project.returns.discountRate" /><FieldComment path="project.returns.discountRate" /></label>
           {numInput(value.discountRatePct, (n) => onChange({ discountRatePct: Math.max(0, n) }))}
         </div>
         <div>
@@ -189,13 +190,13 @@ export function AssumptionsPanel(props: {
         </div>
         {value.terminalMethod === 'exit_multiple' && (
           <div>
-            <label style={labelStyle}>Exit Multiple (x stabilised NOI)<OverrideBadge path="project.returns.exitMultiple" /></label>
+            <label style={labelStyle}>Exit Multiple (x stabilised NOI)<OverrideBadge path="project.returns.exitMultiple" /><FieldComment path="project.returns.exitMultiple" /></label>
             {numInput(value.exitMultiple, (n) => onChange({ exitMultiple: Math.max(0, n) }), 0.5)}
           </div>
         )}
         {(value.terminalMethod === 'perpetuity' || value.terminalMethod === 'cap_rate') && (
           <div>
-            <label style={labelStyle}>Growth g (%)<OverrideBadge path="project.returns.perpetuityGrowth" /></label>
+            <label style={labelStyle}>Growth g (%)<OverrideBadge path="project.returns.perpetuityGrowth" /><FieldComment path="project.returns.perpetuityGrowth" /></label>
             {numInput(value.perpetuityGrowthPct, (n) => onChange({ perpetuityGrowthPct: n }), 0.25)}
           </div>
         )}
@@ -205,7 +206,7 @@ export function AssumptionsPanel(props: {
         {value.terminalMethod !== 'none' && (
           <div>
             <label style={labelStyle}>
-              Terminal value basis<OverrideBadge path="project.returns.terminalValueBasis" />
+              Terminal value basis<OverrideBadge path="project.returns.terminalValueBasis" /><FieldComment path="project.returns.terminalValueBasis" />
             </label>
             <select
               value={value.terminalValueBasis}
@@ -230,7 +231,7 @@ export function AssumptionsPanel(props: {
         {value.terminalMethod === 'cap_rate' && (
           <div>
             <label style={labelStyle}>
-              Exit Cap Rate (%)<OverrideBadge path="project.returns.capRate" />
+              Exit Cap Rate (%)<OverrideBadge path="project.returns.capRate" /><FieldComment path="project.returns.capRate" />
             </label>
             {numInput(
               value.capRateOverride ? value.capRatePct : value.capRateDerivedPct,
@@ -260,7 +261,7 @@ export function AssumptionsPanel(props: {
         {value.terminalMethod !== 'none' && (
           <div>
             <label style={labelStyle}>
-              Terminal metric<OverrideBadge path="project.returns.applyGrowthToTerminal" />
+              Terminal metric<OverrideBadge path="project.returns.applyGrowthToTerminal" /><FieldComment path="project.returns.applyGrowthToTerminal" />
             </label>
             <select
               value={value.applyGrowthToTerminal ? 'forward' : 'current'}

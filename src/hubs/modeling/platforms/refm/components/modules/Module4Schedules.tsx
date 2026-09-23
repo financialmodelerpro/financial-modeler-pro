@@ -17,6 +17,7 @@
 import React, { useState } from 'react';
 import Module4FixedAssets from './Module4FixedAssets';
 import Module4BSFeeders from './Module4BSFeeders';
+import { TabComments } from '../collab/FieldComments';
 
 type SubTab = 'fa' | 'bs';
 
@@ -30,6 +31,7 @@ export default function Module4Schedules(): React.JSX.Element {
 
   return (
     <div data-testid="module4-schedules-shell" style={{ width: '100%' }}>
+      <TabComments tabKey="m4-schedules" />
       <div
         style={{
           display: 'flex',

@@ -42,6 +42,7 @@ import { ScrollableTable } from './_shared/ScrollableTable';
 import { PhaseSection } from './_shared/PhaseSection';
 import { PercentageInput } from '../ui/PercentageInput';
 import { FAST_INPUT } from './_shared/inputStyles';
+import { TabComments } from '../collab/FieldComments';
 
 interface Row {
   label: string;
@@ -249,6 +250,7 @@ export default function Module2Escrow(): React.JSX.Element {
 
   return (
     <div data-testid="module2-escrow" style={{ padding: 'var(--sp-3)', width: '100%' }}>
+      <TabComments tabKey="m2-escrow" />
       <div style={{ marginBottom: 'var(--sp-3)' }}>
         <h1 style={{ fontSize: 'var(--font-h2)', color: 'var(--color-heading)', margin: 0 }}>Module 2 · Pre-Sales Escrow</h1>
         <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 2, fontStyle: 'italic' }}>

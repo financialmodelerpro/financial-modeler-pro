@@ -23,6 +23,7 @@ import type { HydrateSnapshot } from '../../lib/state/module1-store';
 import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import { makeFmt } from './_shared/numberFmt';
 import { fmtPct, fmtX } from './Module5Shared';
+import { TabComments } from '../collab/FieldComments';
 
 type KpiKind = CaseKpiKind;
 const KPIS = CASE_KPIS;
@@ -97,6 +98,7 @@ export default function Module5CaseComparison(): React.JSX.Element {
 
   return (
     <div data-testid="module5-cases" style={{ padding: 'var(--sp-3)', width: '100%' }}>
+      <TabComments tabKey="m5-cases" />
       <p style={{ color: 'var(--color-meta)', marginTop: 0, marginBottom: 'var(--sp-3)', fontSize: 'var(--font-small)' }}>
         Every case computed through the full model. The Management Case is the base; each scenario applies its own input overrides.
         Money figures in {currency}. The small figure under each scenario is the delta vs the Management Case (green = better, amber = worse for that metric&apos;s usual direction).

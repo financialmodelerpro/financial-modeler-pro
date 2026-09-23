@@ -41,6 +41,7 @@ import { RevenueLineNav } from './_shared/RevenueLineNav';
 import { buildOpexReport } from '../../lib/reports/opexReports';
 import { planRevenueLines, REVENUE_SECTIONS, REVENUE_SECTION_KEY, REVENUE_SECTION_META } from '../../lib/revenueLines';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
+import { TabComments } from '../collab/FieldComments';
 
 type Aggregation = 'sum' | 'last' | 'avg' | 'none';
 
@@ -328,6 +329,7 @@ export default function Module3OpexOutput(): React.JSX.Element {
 
   return (
     <div data-testid="module3-opex-output" style={{ padding: 'var(--sp-3)' }}>
+      <TabComments tabKey="m3-output" />
       <div style={{ marginBottom: 'var(--sp-3)' }}>
         <h1 style={{ fontSize: 'var(--font-h2)', color: 'var(--color-heading)', margin: 0 }}>Module 3 · Opex (Output)</h1>
         <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 2, fontStyle: 'italic' }}>

@@ -31,6 +31,7 @@ import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/s
 import { makeFmt } from './_shared/numberFmt';
 import { M4PeriodTable } from './_shared/m4Table';
 import { buildDirectCFRows, buildIndirectCFRows } from '../../lib/reports/m4Reports';
+import { TabComments } from '../collab/FieldComments';
 
 type CFView = 'direct' | 'indirect';
 
@@ -73,6 +74,7 @@ export default function Module4CashFlow(): React.JSX.Element {
 
   return (
     <div data-testid="module4-cashflow" style={{ padding: 'var(--sp-3)', width: '100%' }}>
+      <TabComments tabKey="m4-cashflow" />
       <div style={{ marginBottom: 'var(--sp-3)' }}>
         <h1 style={{ fontSize: 'var(--font-h2)', color: 'var(--color-heading)', margin: 0 }}>Module 4 · Cash Flow Statement</h1>
         <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 2, fontStyle: 'italic' }}>{currency}</div>

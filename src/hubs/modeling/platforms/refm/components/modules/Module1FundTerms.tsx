@@ -56,6 +56,7 @@ import {
 } from '../../lib/fundTerms';
 import { resolveFacilityLimit } from '../../lib/fundFees';
 import { getFundTerms, saveFundTerms, listParties } from '../../lib/persistence/client';
+import { TabComments } from '../collab/FieldComments';
 
 const NAVY = '#1B3A6B';
 const BLUE = '#1B4F8A';
@@ -269,6 +270,7 @@ export default function Module1FundTerms({ projectId }: { projectId: string | nu
 
   return (
     <div data-testid="module1-fund-terms">
+      <TabComments tabKey="fund-terms" />
       {/* ── The toggle ─────────────────────────────────────────────────── */}
       <div style={card}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>

@@ -21,6 +21,7 @@ import { FAST_INPUT } from './_shared/inputStyles';
 import { DEFAULT_COVENANTS, type CovenantThreshold, type CovenantMetric } from '../../lib/state/module1-types';
 import { evaluateCovenant, covenantUnit, covenantSeries, reduceWorst, reduceAvg, COVENANT_METRIC_LABELS, covenantBasisNote, type CovenantInputs } from '../../lib/covenants';
 import { buildOperatingKpis } from '../../lib/reports/operatingKpis';
+import { TabComments } from '../collab/FieldComments';
 
 const ratioFmt = (v: number): string => (Math.abs(v) < 1e-9 ? '-' : `${v.toFixed(2)}x`);
 const pctRowFmt = (v: number): string => (Math.abs(v) < 1e-9 ? '-' : `${(v * 100).toFixed(1)}%`);
@@ -178,6 +179,7 @@ export default function Module5Metrics(): React.JSX.Element {
 
   return (
     <div data-testid="module5-metrics" style={{ padding: 'var(--sp-3)', width: '100%' }}>
+      <TabComments tabKey="m5-metrics" />
       <p style={{ color: 'var(--color-meta)', marginTop: 0, marginBottom: 'var(--sp-3)', fontSize: 'var(--font-small)' }}>
         Real-estate decision view. The hero metrics below are the deal-deciders; Lender Covenants and Exit-Year Analysis are the analytical centrepieces; supporting detail is grouped underneath. Every coverage / leverage headline (Min DSCR, Debt Yield, peak LTV) is derived from the per-period series shown in the covenant heatmap, so a headline always equals the row it summarises.
       </p>

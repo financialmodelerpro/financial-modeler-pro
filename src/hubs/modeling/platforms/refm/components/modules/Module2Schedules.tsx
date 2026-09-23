@@ -61,6 +61,7 @@ import {
 import { ScrollableTable } from './_shared/ScrollableTable';
 import { PhaseSection } from './_shared/PhaseSection';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
+import { TabComments } from '../collab/FieldComments';
 
 type Aggregation = 'sum' | 'last' | 'none';
 
@@ -462,6 +463,7 @@ export default function Module2Schedules(): React.JSX.Element {
 
   return (
     <div data-testid="m2-schedules" style={{ padding: 'var(--sp-3)' }}>
+      <TabComments tabKey="m2-schedules" />
       <div style={{ marginBottom: 'var(--sp-3)' }}>
         <h1 style={{ fontSize: 'var(--font-h2)', color: 'var(--color-heading)', margin: 0 }}>Module 2 · Schedules</h1>
         <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 2, fontStyle: 'italic' }}>

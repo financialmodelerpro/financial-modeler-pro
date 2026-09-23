@@ -38,6 +38,7 @@ import { M4PeriodTable, type M4Row } from './_shared/m4Table';
 import { FAST_INPUT } from './_shared/inputStyles';
 import { buildBSRows, buildBsReconciliationRows, BS_RECONCILIATION_CAPTION } from '../../lib/reports/m4Reports';
 import { OverrideBadge } from './_shared/OverrideBadge';
+import { FieldComment, TabComments } from '../collab/FieldComments';
 
 export default function Module4BalanceSheet(): React.JSX.Element {
   const state = useModule1Store(
@@ -99,6 +100,7 @@ export default function Module4BalanceSheet(): React.JSX.Element {
 
   return (
     <div data-testid="module4-balancesheet" style={{ padding: 'var(--sp-3)', width: '100%' }}>
+      <TabComments tabKey="m4-balancesheet" />
       <div style={{ marginBottom: 'var(--sp-3)' }}>
         <h1 style={{ fontSize: 'var(--font-h2)', color: 'var(--color-heading)', margin: 0 }}>Module 4 · Balance Sheet</h1>
         <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 2, fontStyle: 'italic' }}>{currency}</div>
@@ -127,7 +129,7 @@ export default function Module4BalanceSheet(): React.JSX.Element {
         }}>
           <div>
             <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
-              Operating AR Days (DSO)<OverrideBadge path="project.operatingAr.dsoDays" />
+              Operating AR Days (DSO)<OverrideBadge path="project.operatingAr.dsoDays" /><FieldComment path="project.operatingAr.dsoDays" />
             </label>
             <input
               type="number"
@@ -168,7 +170,7 @@ export default function Module4BalanceSheet(): React.JSX.Element {
         }}>
           <div>
             <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
-              Statutory Reserve Transfer Rate (% of PAT)<OverrideBadge path="project.statutoryReserve.transferRate" />
+              Statutory Reserve Transfer Rate (% of PAT)<OverrideBadge path="project.statutoryReserve.transferRate" /><FieldComment path="project.statutoryReserve.transferRate" />
             </label>
             <input
               type="number"
@@ -186,7 +188,7 @@ export default function Module4BalanceSheet(): React.JSX.Element {
           </div>
           <div>
             <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
-              Reserve Cap (% of Share Capital)<OverrideBadge path="project.statutoryReserve.capOfShareCapital" />
+              Reserve Cap (% of Share Capital)<OverrideBadge path="project.statutoryReserve.capOfShareCapital" /><FieldComment path="project.statutoryReserve.capOfShareCapital" />
             </label>
             <input
               type="number"
@@ -204,7 +206,7 @@ export default function Module4BalanceSheet(): React.JSX.Element {
           </div>
           <div>
             <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
-              Share Capital (optional override)<OverrideBadge path="project.shareCapital" />
+              Share Capital (optional override)<OverrideBadge path="project.shareCapital" /><FieldComment path="project.shareCapital" />
             </label>
             <input
               type="number"

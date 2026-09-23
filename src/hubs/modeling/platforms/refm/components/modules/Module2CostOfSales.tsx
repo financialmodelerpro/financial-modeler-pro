@@ -51,6 +51,7 @@ import {
 } from '../../lib/revenueLines';
 import { makeFmt, makePctFmt } from './_shared/numberFmt';
 import type { M4Row } from './_shared/m4Table';
+import { TabComments } from '../collab/FieldComments';
 
 function PeriodTable({ title, caption, yearLabels, rows, currency, fmt, pctFmt }: {
   title: string; caption?: string; yearLabels: number[]; rows: M4Row[]; currency: string;
@@ -188,6 +189,7 @@ export default function Module2CostOfSales(): React.JSX.Element {
 
   return (
     <div data-testid="m2-cost-of-sales" style={{ padding: 'var(--sp-3)' }}>
+      <TabComments tabKey="m2-cost-of-sales" />
       <div style={{ marginBottom: 'var(--sp-3)' }}>
         <h1 style={{ fontSize: 'var(--font-h2)', color: 'var(--color-heading)', margin: 0 }}>Module 2 · Cost of Sales</h1>
         <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 2, fontStyle: 'italic' }}>

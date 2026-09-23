@@ -30,7 +30,7 @@ import { M4PeriodTable } from './_shared/m4Table';
 import { buildPLRows, buildFundFeeBasisRows, buildFundCapitalRows } from '../../lib/reports/m4Reports';
 import { FundFeeBasisTable } from './_shared/FundFeeBasisTable';
 import { OverrideBadge } from './_shared/OverrideBadge';
-import { TabComments } from '../collab/FieldComments';
+import { TabComments, FieldComment } from '../collab/FieldComments';
 
 const SELECT_STYLE: React.CSSProperties = {
   padding: '6px 10px',
@@ -145,7 +145,7 @@ export default function Module4PL(): React.JSX.Element {
           </div>
           <div>
             <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
-              {labels.taxRate} (%)<OverrideBadge path="project.tax.rate" />
+              {labels.taxRate} (%)<OverrideBadge path="project.tax.rate" /><FieldComment path="project.tax.rate" />
             </label>
             <input
               type="number"
@@ -164,7 +164,7 @@ export default function Module4PL(): React.JSX.Element {
           {/* ZAKAT ON THE DISPOSAL GAIN (2026-09-14, founder). Off by default. */}
           <div>
             <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
-              {labels.tax} on the disposal gain<OverrideBadge path="project.tax.applyToDisposalGain" />
+              {labels.tax} on the disposal gain<OverrideBadge path="project.tax.applyToDisposalGain" /><FieldComment path="project.tax.applyToDisposalGain" />
             </label>
             <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 12 }}>
               <input
