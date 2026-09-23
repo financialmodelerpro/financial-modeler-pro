@@ -69,6 +69,7 @@ const toDTO = (r: Record<string, unknown>): ProjectCommentDTO => ({
   deleted: r.deleted_at !== null,
   createdAt: r.created_at as string,
   updatedAt: (r.updated_at as string) ?? null,
+  edited: r.updated_at !== null && r.updated_at !== undefined,
   resolvedAt: (r.resolved_at as string) ?? null,
   resolvedBy: (r.resolved_by as string) ?? null,
   resolvedByName: null,
