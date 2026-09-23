@@ -1,0 +1,28 @@
+#!/bin/sh
+#
+# TYPE CHECK AT COMMIT TIME, BECAUSE THE HABIT DID NOT HOLD.
+#
+# Production was broken twice in ten days the same way (03b7db27 on 2026-09-13,
+# f8b9eba/c70232b on 2026-09-23): a new script was run with `tsx`, which
+# TRANSPILES and does not type check, it printed a green result, and it was
+# committed. Both times a local `tsc --noEmit` had been run and had PASSED,
+# and both times it was run BEFORE the new file existed, which makes it
+# evidence about a tree that no longer exists.
+#
+# `tsconfig.json` already includes `**/*.ts`, so scripts/ is covered. The
+# missing part was never the config, it was WHEN the check ran. Running it here
+# means it cannot predate the change it is meant to check.
+#
+# Takes about 60 to 90 seconds. To skip it deliberately (a docs-only commit in
+# a hurry), `git commit --no-verify`, and own that choice.
+#
+# No em dashes in this file.
+
+echo "pre-commit: type checking the tree as it will be committed..."
+if ! npx tsc --noEmit; then
+  echo ""
+  echo "COMMIT REFUSED: the tree does not type check."
+  echo "This is what Vercel runs. A green script proves the code RAN, never that it compiles."
+  exit 1
+fi
+echo "pre-commit: types OK."

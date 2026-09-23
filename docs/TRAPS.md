@@ -3281,6 +3281,15 @@ bare `tsc` from earlier in the session. The build is the only thing that checks 
 **Proof.** 2026-09-23: `ProjectCommentDTO` requires `edited`; the probe's row mapper omitted it;
 the script ran 29/0 and the deploy failed on `./scripts/probe-collab-loop-live.ts:60:67`.
 
+**Made mechanical 2026-09-23.** After the second break the founder's instruction was that the habit had
+plainly not held, so it stopped being a habit: `.githooks/pre-commit` runs `npx tsc --noEmit` and REFUSES
+the commit on any type error, and `package.json`'s `prepare` points `core.hooksPath` at `.githooks` so a
+fresh clone installs it. `tsconfig.json` ALREADY included `scripts/`, so the config was never the problem:
+the missing part was WHEN the check ran. **Proved by committing a deliberate type error and watching the
+commit be refused**, then confirming no commit had been created. To skip it deliberately, `--no-verify`,
+and own that choice.
+
+
 ### 10.25 A probe that arranges its own subject proves the arrangement, not the subject
 
 **Symptom.** An end-to-end probe of the comment loop passed 25/0 on the live project, walking a

@@ -2,6 +2,54 @@
 
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
+## START HERE 2026-09-23: MODULE 10 IS FINISHED, AND WHAT IS OPEN AFTER IT
+
+**DONE 2026-09-23 (detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-23):** a reviewer can raise a question on the
+number itself and an editor answers it there, without either leaving the screen: the write-verified path-to-screen
+map, markers on all 21 tabs and on the rows people argue about, the in-place thread reusing the Collaborate panel's
+own component, the screen filter, and "For you" over the existing last-seen stamp. Proved end to end on the live
+project as two real people (`scripts/probe-collab-loop-live.ts`, 29/0, leaving nothing behind).
+
+**OPEN, in order:**
+
+1. **THE FOUNDER'S OWN CLICK-THROUGH OF THE COLLABORATION LOOP (2026-09-23, NOT YET DONE).** Everything above is
+   measured through the server functions and the shared rules, and the end-to-end probe exercises the real gate,
+   but **nobody has yet driven it in a browser**: raise a comment on a field as a reviewer, see the marker and the
+   sidebar count as an editor, reply and resolve in the popover, and confirm the Collaborate tab agrees. The
+   places most likely to disappoint are the ones a script cannot see: the marker's position in dense tables
+   (Capex rows especially), the popover's placement near the right edge and inside the `zoom: 0.8` shell (see
+   [docs/TRAPS.md](docs/TRAPS.md) on the shell zoom), and whether the hover-only marker is discoverable at all.
+   **Treat the hover-reveal as the first thing to reconsider** if a field marker is hard to find.
+
+2. **THE PWA (not started).** Installable app shell, offline read of an opened project, and an honest answer for
+   what a save does with no connection. Nothing exists for this yet; it is a fresh piece of work, not a follow-up.
+
+3. **THE CLAUDE.md CONSOLIDATION PASS (2026-09-23).** It sits at **102,509 characters**, over the 100,000 warning
+   target and under the 140,000 hard ceiling, so it WARNS on every size check. The file has grown by accretion:
+   several invariants now restate parts of each other, and some one-line bullets have become paragraphs. The pass
+   is to consolidate the REFM invariants into fewer, sharper statements and move anything dated into
+   [CHANGELOG.md](CHANGELOG.md), per the placement rule. **Never trim rules to make room for narrative**: move the
+   narrative.
+
+4. **MODULE 2 NEEDS AN ESCALATED RATE TABLE.** Cost escalation is applied by `src/core/calculations/costEscalation.ts`
+   and the user can see the project rate and the resulting totals, but not the RATE PER YEAR each line is actually
+   charged at. Revenue has its indexed sale price per year on the line card since 2026-09-13; costs have no
+   equivalent, so "why is this line more than I typed" has no answer on screen.
+
+5. **COST PER SQM BELONGS IN CAPEX.** The Project Overview carries cost per sqm in its own band
+   (`lib/reports/overviewReport.ts`, 2026-09-16) and the Capex tab, where the rates are typed, does not show it.
+   It is the number a developer checks a construction rate against, so it should be beside the rates rather than
+   only on a summary surface.
+
+6. **AN OPERATIONAL PHASE WITH PRE-MODEL IN-KIND LAND DOES NOT BALANCE** (logged 2026-09-21, still open, still
+   deliberately not fixed): the standing `verify-fund-e2e` failure, 1,350,682,386 in the worst period on the
+   existing-operations shape. No live project has an operational phase, so it costs nothing today. The full
+   diagnosis is below in the 2026-09-21 section and should be read before anyone touches it.
+
+7. Everything still open from the earlier lists below (`verify-module6-field-census`, the IC report and exports,
+   the refactor candidates, dirty-on-open, the husk, the em dash in CLAUDE-ROUTES).
+
+---
 ---
 ## START HERE 2026-09-21: THE EXPORT SWEEP, WHAT IS LEFT OF IT
 

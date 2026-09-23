@@ -264,4 +264,9 @@ npm run build        # next build --webpack (avoids MAX_PATH on Windows/OneDrive
 npm run verify       # type-check + lint + build
 ```
 
+**THE TYPE CHECK IS MECHANICAL, NOT A HABIT (2026-09-23).** `.githooks/pre-commit` runs `npx tsc --noEmit` and REFUSES the commit on any type error; `prepare` points `core.hooksPath` at it so a clone installs it. Production broke twice in ten days from a script run with `tsx` (which transpiles, never type checks) after a `tsc` that had passed BEFORE the file existed. `--no-verify` skips it deliberately. TRAPS 10.24.
+
+```bash
+```
+
 `GET /api/health` -> `{ status: 'ok', platform: 'financial-modeler-pro', version: '3.0', commit, timestamp }` (`commit` = `VERCEL_GIT_COMMIT_SHA`, so the deployed revision is verifiable: compare to `git rev-parse HEAD`). Per-platform verifier scripts live in the platform's MD (REFM = `npx tsx scripts/verify-*.ts`; current script list + counts in [CLAUDE-REFM.md](CLAUDE-REFM.md)).
