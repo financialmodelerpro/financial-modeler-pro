@@ -3258,6 +3258,49 @@ drops while its file count barely moves has lost a file whole.
 
 **Proof:** 9854 checks after the restore against 9676 the session before, with both files green.
 
+
+### 10.24 A green script says the code RAN, never that it compiles
+
+**Symptom.** `npx tsx scripts/new-thing.ts` printed `29 passed, 0 failed`. The commit that added
+it broke the PRODUCTION BUILD, twice in ten days (`03b7db27` on 2026-09-13, `f8b9eba` and `c70232b`
+on 2026-09-23).
+
+**Mechanism.** `tsx` TRANSPILES. It strips the types and runs the JavaScript; it does not type
+check. So a script can be structurally wrong against a type it imports (a DTO missing a required
+field, a call with the wrong arity) and still run perfectly, because nothing at runtime consults
+the type. `next build` DOES type check `scripts/`, so the error surfaces on Vercel and nowhere
+earlier.
+
+**The near miss that makes it worse.** Both times a local `tsc --noEmit` had been run and had
+passed. Both times it was run BEFORE the new file existed. A type check is evidence about the tree
+as it was when it ran, and adding a file after it invalidates it completely.
+
+**Fix.** Run `npm run build` before committing anything that ADDS a file, not the script and not a
+bare `tsc` from earlier in the session. The build is the only thing that checks what Vercel checks.
+
+**Proof.** 2026-09-23: `ProjectCommentDTO` requires `edited`; the probe's row mapper omitted it;
+the script ran 29/0 and the deploy failed on `./scripts/probe-collab-loop-live.ts:60:67`.
+
+### 10.25 A probe that arranges its own subject proves the arrangement, not the subject
+
+**Symptom.** An end-to-end probe of the comment loop passed 25/0 on the live project, walking a
+"reviewer" through raising a comment that an "editor" then answered and resolved.
+
+**Mechanism.** TWO substitutions, each individually reasonable, which together removed the thing
+under test. The only other member of the project is a VIEWER, and the script simply called them
+the reviewer; and the writes went straight into the table with the service-role client instead of
+through `getProjectForWrite`, the function the HTTP route calls. So the probe demonstrated that
+rows flow through the READ helpers while bypassing the gate that says a viewer may not comment at
+all. It would have passed just as cleanly with enforcement entirely absent.
+
+**Fix.** Exercise the real gate with the real identities. Measure the REFUSAL first, while the
+person is genuinely what they are, then elevate the role deliberately, prove the permission, and
+RESTORE it. The refusal is the more valuable half: it is the one a green run would otherwise never
+touch.
+
+**Proof.** Re-run: `R1` the server refuses the viewer on the live project, `R2` allows the same
+person once a reviewer, `U0` the role is back to viewer afterwards. 29/0, comments on the project
+2 to 0.
 ### 10.23 A suite count taken while the tree moves is not a count
 
 **Symptom (2026-09-12):** two full-suite runs reported 143 / 23 and 161 / 5 of 166. Neither was
