@@ -109,17 +109,52 @@ console.log('\n=== B. EVERY write handler gates on getProjectForWrite ===');
   // including a Viewer, save. Enumerated rather than trusted.
   const offenders: string[] = [];
   const covered: string[] = [];
+  /**
+   * ONE NAMED ALLOWANCE, WITH AN OBLIGATION THAT IS ENFORCED BELOW.
+   *
+   * `last-seen` POSTs, so it reads as a write handler, but what it writes is
+   * THE CALLER'S OWN unread marker and not one byte of the project. Gating it
+   * on `getProjectForWrite` would require a write permission and a VIEWER
+   * would then never be able to mark a project as seen, which is precisely the
+   * person the marker is for. Read access is the correct gate.
+   *
+   * The allowance is NOT a bare exemption: B1b proves the route takes its user
+   * id from the SESSION and never the body, and writes only through `markSeen`
+   * for that id, so it cannot move somebody else's marker or touch the project.
+   * A route added to this list without meeting that obligation fails.
+   */
+  const OWN_STATE_ONLY = new Set(['[id]/last-seen/route.ts:POST']);
   for (const f of routeFiles()) {
     for (const h of handlers(f)) {
       if (!WRITE.has(h.verb)) continue;
+      const rel = `${f.replace(ROUTES + '/', '')}:${h.verb}`;
       const body = strip(h.body);
       const usesWrite = /getProjectForWrite\(|requireWritableProject\(/.test(body);
       const usesRead = /\bgetProject\(|requireOwnedProject\(/.test(body);
-      if (usesRead && !usesWrite) offenders.push(`${f.replace(ROUTES + '/', '')}:${h.verb}`);
-      if (usesWrite) covered.push(`${f.replace(ROUTES + '/', '')}:${h.verb}`);
+      if (usesRead && !usesWrite && !OWN_STATE_ONLY.has(rel)) offenders.push(rel);
+      if (usesWrite) covered.push(rel);
     }
   }
   check('B1 no write handler gates on the READ resolver', offenders.length === 0, offenders.join(', '));
+  // THE OBLIGATION. Each allowed route must write only the caller's own state.
+  {
+    const bad: string[] = [];
+    for (const rel of OWN_STATE_ONLY) {
+      const [file, verb] = rel.split(':');
+      const full = `${ROUTES}/${file}`;
+      const h = handlers(full).find((x) => x.verb === verb);
+      if (!h) { bad.push(`${rel} (handler not found)`); continue; }
+      const body = strip(h.body);
+      const fromSession = /getRefmUserId\(\)/.test(strip(src(full)));
+      const ownRowOnly = /markSeen\(userId,/.test(body);
+      const touchesProject = /updateProject\(|updateVersion\(|\.from\('refm_projects'\)/.test(body);
+      if (!fromSession || !ownRowOnly || touchesProject) bad.push(rel);
+    }
+    check('B1b and each allowed route writes ONLY the caller\'s own state, from the session id',
+      bad.length === 0, bad.join(', '));
+    check('B1c the allowance is a short, named list rather than a pattern',
+      OWN_STATE_ONLY.size <= 2, `${OWN_STATE_ONLY.size}`);
+  }
   check('B2 a meaningful number of write handlers are covered', covered.length >= 13,
     `covered=${covered.length}: ${covered.join(', ')}`);
   const srv = strip(src(SRV));
