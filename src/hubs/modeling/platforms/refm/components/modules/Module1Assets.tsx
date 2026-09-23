@@ -146,6 +146,7 @@ import { typePriceDefaultFor, describeTypePrices, type TypePriceDefault } from '
 import { withResolvedAssetNames, assetPlotLabel } from '@/src/core/calculations/assetName';
 import { withInheritedMassingAll } from '@/src/core/calculations/landChain';
 import { chainMassingFor } from '../../lib/state/assetTypeStandards';
+import { TabComments, FieldComment } from '../collab/FieldComments';
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 const inputStyle: React.CSSProperties = {
@@ -939,6 +940,10 @@ export default function Module1Assets(): React.JSX.Element {
 
   return (
     <div data-testid="tab-assets">
+      {/* COMMENT WHERE YOU ARE (2026-09-23). What is open on this tab,
+          and a way to raise something about the tab as a whole. The
+          per-field markers sit on the rows below. */}
+      <TabComments tabKey="assets" />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 'var(--sp-3)', flexWrap: 'wrap', gap: 'var(--sp-1)' }}>
         <div>
           <h2 style={{ fontSize: 'var(--font-h2)', margin: 0 }}>
@@ -4055,6 +4060,11 @@ function AssetCard({
           draws, a reassignment is not a reset. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 'var(--sp-1)', fontSize: 11 }} data-testid={`asset-card-${asset.id}-placement`}>
         <span style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Placement</span>
+        {/* RAISE IT ON THIS ASSET, WITHOUT LEAVING THE SCREEN (2026-09-23).
+            Anchored to the asset, which is the unit a reviewer argues about
+            ("this hotel's area looks wrong"), and the path is the one the
+            change log and the overrides already use for it. */}
+        <FieldComment path={`assets[id=${asset.id}]`} label={`this asset`} alwaysShow />
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
           Plot
           <select
@@ -5003,6 +5013,9 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
     <tr data-testid={`subunit-row-${subUnit.id}`}>
       <td style={{ padding: '4px 6px' }}>
         <input type="text" value={subUnit.name} data-testid={`subunit-${subUnit.id}-name`} onChange={(e) => onUpdate({ name: e.target.value })} style={{ ...inputStyle, fontSize: 11 }} placeholder="1BR, Hotel Twin..." />
+        {/* The priced row is what a reviewer questions most often here, so the
+            marker sits on it rather than only on the asset above. */}
+        <FieldComment path={`subUnits[id=${subUnit.id}]`} label={subUnit.name || 'this row'} />
       </td>
       <td style={{ padding: '4px 6px' }}>
         <select value={subUnit.category} data-testid={`subunit-${subUnit.id}-category`} onChange={(e) => onUpdate({ category: e.target.value as SubUnitCategory })} style={{ ...inputStyle, fontSize: 11 }}>

@@ -32,6 +32,7 @@ import { FAST_INPUT } from './_shared/inputStyles';
 import type { ProjectPartner } from '../../lib/state/module1-types';
 import { useEntitlements } from '../../lib/useEntitlements';
 import UpgradePrompt from '@/src/shared/components/UpgradePrompt';
+import { TabComments } from '../collab/FieldComments';
 
 export default function Module5Returns({ activeProjectId = null }: { activeProjectId?: string | null } = {}): React.JSX.Element {
   // Module 1 Parties carrying an equity role, offered as the source for equity
@@ -165,6 +166,10 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
 
   return (
     <div data-testid="module5-returns" style={{ padding: 'var(--sp-3)', width: '100%' }}>
+      {/* COMMENT WHERE YOU ARE (2026-09-23). What is open on this tab,
+          and a way to raise something about the tab as a whole. The
+          per-field markers sit on the rows below. */}
+      <TabComments tabKey="m5-returns" />
       <p style={{ color: 'var(--color-meta)', marginTop: 0, marginBottom: 'var(--sp-3)', fontSize: 'var(--font-small)' }}>
         Returns on three cash-flow bases: <strong>FCFF</strong> (unlevered, to all capital providers),{' '}
         <strong>FCFE</strong> (levered, free cash to equity after debt service), and <strong>Distributed Equity</strong>{' '}

@@ -38,6 +38,7 @@ import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/s
 import { makeFmt } from './_shared/numberFmt';
 import { fmtPct, fmtX } from './Module5Shared';
 import { FAST_INPUT } from './_shared/inputStyles';
+import { TabComments } from '../collab/FieldComments';
 
 type KpiKind = CaseKpiKind;
 
@@ -364,6 +365,10 @@ export default function Module6Scenarios(): React.JSX.Element {
 
   return (
     <div data-testid="module6-scenarios" style={{ padding: 'var(--sp-3)', width: '100%' }}>
+      {/* COMMENT WHERE YOU ARE (2026-09-23). What is open on this tab,
+          and a way to raise something about the tab as a whole. The
+          per-field markers sit on the rows below. */}
+      <TabComments tabKey="module6" />
       {/* ── "Use scenarios?" toggle ──────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 'var(--sp-2)', flexWrap: 'wrap' }}>
         <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--color-heading)' }}>Use scenarios?</span>

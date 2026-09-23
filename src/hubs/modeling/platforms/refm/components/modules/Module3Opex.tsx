@@ -37,6 +37,7 @@ import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { PercentageInput } from '../ui/PercentageInput';
 import { AssetQuickNav } from './_shared/AssetQuickNav';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
+import { TabComments, FieldComment } from '../collab/FieldComments';
 import {
   OPEX_CATEGORY_LABELS, OPEX_MODE_LABELS, isFixedCostOpexMode, opexInflationMethodOf, opexInflationMethodLabel,
   summarizeOpexIndexation, type OpexInflationMethod,
@@ -1127,6 +1128,10 @@ export default function Module3Opex(): React.JSX.Element {
 
   return (
     <div data-testid="module3-opex">
+      {/* COMMENT WHERE YOU ARE (2026-09-23). What is open on this tab,
+          and a way to raise something about the tab as a whole. The
+          per-field markers sit on the rows below. */}
+      <TabComments tabKey="m3-inputs" />
       <div style={{ marginBottom: 'var(--sp-3)' }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Operating Expenses</h2>
         <p style={{ fontSize: 12, color: 'var(--color-meta)' }}>
@@ -1354,6 +1359,11 @@ export default function Module3Opex(): React.JSX.Element {
                 title={
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                     <span>{a.name}</span>
+                    {/* RAISE IT ON THE LINE'S OPEX (2026-09-23). The card is
+                        already per line (its title is lineTitle), so the
+                        anchor is the line's first asset, which is the same
+                        asset its opex block is written to. */}
+                    <FieldComment path={`assets[id=${a.id}].opex`} label={a.name} alwaysShow />
                     {phaseName && (
                       <span
                         style={{

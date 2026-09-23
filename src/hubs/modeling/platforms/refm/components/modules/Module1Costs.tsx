@@ -129,6 +129,7 @@ import { buildConsolidatedReport, perAssetCostsFromTreatment, consolidatedCaptio
 import { planCapexSummaryLines, assetCapexSection, capexTreatmentRows, CAPEX_SECTIONS, type CapexPlannableAsset } from '../../lib/reports/capexReports';
 import { assetHasSubstance } from './_shared/assetTableModel';
 import { normaliseAssetTypeId } from '../../lib/state/assetTypeStandards';
+import { TabComments, FieldComment } from '../collab/FieldComments';
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 const inputStyle: React.CSSProperties = {
@@ -1147,6 +1148,11 @@ function CostRow({
           data-testid={`cost-${asset.id}-${line.id}-name`}
           title={line.name}
         />
+        {/* RAISE IT ON THE LINE (2026-09-23). A capex query is always about a
+            line ("why is the superstructure rate this"), and the line id is
+            what the change log and the overrides already key on, so the
+            comment lands on the same thing the audit trail names. */}
+        <FieldComment path={`costLines[id=${line.id}]`} label={line.name || 'this cost line'} />
         {/* 2026-08-15: the hard / soft marker, restored. It was dropped on
             2026-05-11 (M2.0L Pass3 Fix 13) leaving only a row background
             colour with no legend, so a line's classification was invisible on
@@ -4488,6 +4494,10 @@ export default function Module1Costs(): React.JSX.Element {
 
   return (
     <div data-testid="module1-costs">
+      {/* COMMENT WHERE YOU ARE (2026-09-23). What is open on this tab,
+          and a way to raise something about the tab as a whole. The
+          per-field markers sit on the rows below. */}
+      <TabComments tabKey="costs" />
       {duplicateCharged.length > 0 && (
         <div
           data-testid="costs-duplicate-charge-notice"

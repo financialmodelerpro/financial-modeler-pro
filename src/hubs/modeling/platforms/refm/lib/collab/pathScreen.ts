@@ -83,10 +83,33 @@ const SCREENS: Map<string, { module: string; label: string }> = (() => {
   return out;
 })();
 
+/**
+ * A MODULE WITH NO SUB-TABS IS STILL A SCREEN.
+ *
+ * `MODULE_TABS.module6` is an empty array: Scenario Analysis is one page with
+ * no tabs under it. Anchoring a comment to `screen:m6` therefore resolved to
+ * NOTHING, which would have let someone raise a remark on that page that no
+ * count and no banner could ever show again. Caught by wiring the banner and
+ * checking what the anchor resolved to, before it shipped.
+ *
+ * These are the modules that have no tab of their own, with the label the
+ * sidebar gives them. It is a short list BY CONSTRUCTION, and the verifier
+ * fails if a tab-less module is missing from it, so it cannot go stale as
+ * modules are added.
+ */
+const MODULE_ONLY_SCREENS: Record<string, string> = {
+  module6: 'Scenario Analysis',
+};
+
 const ref = (key: string): ScreenRef | null => {
   const s = SCREENS.get(key);
-  return s ? { key, module: s.module, label: s.label } : null;
+  if (s) return { key, module: s.module, label: s.label };
+  const moduleLabel = MODULE_ONLY_SCREENS[key];
+  return moduleLabel ? { key, module: key, label: moduleLabel } : null;
 };
+
+/** The modules that carry no sub-tabs, so a verifier can enumerate them. */
+export const MODULE_ONLY = MODULE_ONLY_SCREENS;
 
 /* ────────────────────────────── the rules ───────────────────────────────── */
 

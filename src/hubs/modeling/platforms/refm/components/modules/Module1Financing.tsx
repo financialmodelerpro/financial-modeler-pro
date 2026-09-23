@@ -64,6 +64,7 @@ import { PercentageInput } from '../ui/PercentageInput';
 import { CELL_HEADER, CELL_HEADER_TOTAL, TABLE_TITLE, COLUMN_WIDTHS, nonLabelColumnPct, periodTableStyle, ROW_DATA, ROW_SUBTOTAL, ROW_GRAND_TOTAL } from './_shared/tableStyles';
 import { buildResultsPeriodAxis } from './_shared/periodAxis';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
+import { TabComments, FieldComment } from '../collab/FieldComments';
 
 const inputStyle: React.CSSProperties = {
   background: 'var(--color-navy-pale)',
@@ -271,6 +272,10 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
 
   return (
     <div style={{ padding: 'var(--sp-2)' }}>
+      {/* COMMENT WHERE YOU ARE (2026-09-23). What is open on this tab,
+          and a way to raise something about the tab as a whole. The
+          per-field markers sit on the rows below. */}
+      <TabComments tabKey="financing" />
       <div style={{ display: 'flex', gap: 8, marginBottom: 'var(--sp-2)' }}>
         {([
           { key: 'inputs', label: 'Inputs' },
@@ -1242,6 +1247,9 @@ function TrancheCard(p: TrancheCardProps): React.JSX.Element {
         <div>
           <FieldLabel>Name</FieldLabel>
           <input type="text" value={t.name} onChange={(e) => onUpdate(t.id, { name: e.target.value })} style={inputStyle} />
+          {/* RAISE IT ON THE TRANCHE (2026-09-23): the unit a lender
+              conversation is actually about. */}
+          <FieldComment path={`financingTranches[id=${t.id}]`} label={t.name || 'this tranche'} />
         </div>
         <div>
           <FieldLabel>Lender</FieldLabel>

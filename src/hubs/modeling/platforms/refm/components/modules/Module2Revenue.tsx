@@ -42,6 +42,7 @@ import { keysFromArea, resolveSubUnitAdr } from '@/src/core/calculations';
 import { resolveAvgUnitSize } from '../../lib/state/assetTypeStandards';
 import { resolveRowVelocity, expandIndexationToAxis } from '../../lib/revenue-resolvers';
 import { applyIndexation } from '@/src/core/calculations/revenue';
+import { TabComments, FieldComment } from '../collab/FieldComments';
 import {
   planRevenueLines, groupRevenueLines, REVENUE_SECTION_KEY, REVENUE_SECTION_META,
   type RevenueLine, type RevenueSection,
@@ -299,6 +300,10 @@ export default function Module2Revenue(): React.JSX.Element {
 
   return (
     <div data-testid="module2-shell" style={{ padding: 'var(--sp-3)' }}>
+      {/* COMMENT WHERE YOU ARE (2026-09-23). What is open on this tab,
+          and a way to raise something about the tab as a whole. The
+          per-field markers sit on the rows below. */}
+      <TabComments tabKey="m2-inputs" />
       <div style={{ marginBottom: 'var(--sp-3)' }}>
         <h1 style={{ fontSize: 'var(--font-h2)', color: 'var(--color-heading)', margin: 0 }}>
           Module 2 · Revenue
@@ -1460,6 +1465,13 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
         >
           {line.label}
         </strong>
+        {/* RAISE IT ON THE LINE (2026-09-23). Revenue is argued about per
+            line, which is the unit this whole module was restructured onto,
+            and the anchor is the line's FIRST member asset so the path is a
+            real snapshot path the map can place, not a presentation key. */}
+        {line.members[0] && (
+          <FieldComment path={`assets[id=${line.members[0].id}].revenue`} label={line.label} alwaysShow />
+        )}
         {/* THE PLOTS, NAMED ONCE (2026-09-13), as the capex input heads its
          *  merged line: the terms below are written to every one of them. */}
         {!line.isStrip && !line.isOperateCompanion && (

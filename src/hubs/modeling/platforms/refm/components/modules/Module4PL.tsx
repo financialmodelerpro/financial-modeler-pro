@@ -30,6 +30,7 @@ import { M4PeriodTable } from './_shared/m4Table';
 import { buildPLRows, buildFundFeeBasisRows, buildFundCapitalRows } from '../../lib/reports/m4Reports';
 import { FundFeeBasisTable } from './_shared/FundFeeBasisTable';
 import { OverrideBadge } from './_shared/OverrideBadge';
+import { TabComments } from '../collab/FieldComments';
 
 const SELECT_STYLE: React.CSSProperties = {
   padding: '6px 10px',
@@ -93,6 +94,10 @@ export default function Module4PL(): React.JSX.Element {
 
   return (
     <div data-testid="module4-pl" style={{ padding: 'var(--sp-3)', width: '100%' }}>
+      {/* COMMENT WHERE YOU ARE (2026-09-23). What is open on this tab,
+          and a way to raise something about the tab as a whole. The
+          per-field markers sit on the rows below. */}
+      <TabComments tabKey="m4-pl" />
       <div style={{ marginBottom: 'var(--sp-3)' }}>
         <h1 style={{ fontSize: 'var(--font-h2)', color: 'var(--color-heading)', margin: 0 }}>Module 4 · {labels.incomeStatementTitle}</h1>
         <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 2, fontStyle: 'italic' }}>{currency}</div>

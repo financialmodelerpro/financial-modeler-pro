@@ -35,6 +35,7 @@ import {
 import InputLabel from '../ui/InputLabel';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import { CELL_HEADER } from './_shared/tableStyles';
+import { FieldComment, TabComments } from '../collab/FieldComments';
 
 const inputStyle: React.CSSProperties = {
   background: 'var(--color-navy-pale)',
@@ -128,6 +129,7 @@ export default function Module1ProjectPhases(): React.JSX.Element {
 
   return (
     <div data-testid="tab-project-phases">
+      <TabComments tabKey="project-phases" />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 'var(--sp-3)', flexWrap: 'wrap', gap: 'var(--sp-1)' }}>
         <h2 style={{ fontSize: 'var(--font-h2)', margin: 0 }}>
           1. Project &amp; Phases
@@ -504,6 +506,9 @@ function PhaseRow({ phase, project, onUpdate, onRemove, canRemove }: PhaseRowPro
           onChange={(e) => onUpdate({ name: e.target.value })}
           style={inputStyle}
         />
+        {/* RAISE IT ON THE PHASE (2026-09-23): programme questions are always
+            about a phase, not about a date cell in isolation. */}
+        <FieldComment path={`phases[id=${phase.id}]`} label={phase.name || 'this phase'} />
       </td>
       <td style={{ padding: 'var(--sp-1)' }}>
         <input
