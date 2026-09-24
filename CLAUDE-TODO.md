@@ -13,7 +13,13 @@ rather than attributed to a person, bulk rows say what, case rows say where. Sui
 1. **THE FOUNDER'S SCREEN CHECK OF THE ACTIVITY LOG (2026-09-24, founder doing it).** Wrapping of long sentences,
    the "Show what" lists on bulk rows, and how the counts line above the list reads. The browser extension blocked
    the domain for me on every attempt, so nothing here was seen on screen by me.
-2. Everything open from 2026-09-23 below, unchanged.
+2. **THE INSTALLED APP, EXERCISED ON A REAL DEVICE (2026-09-24, not yet done).** Everything was measured over
+   HTTP and by running the worker in a sandbox; nobody has yet installed it. Install on Chrome desktop and
+   Android and add to the iOS home screen; sign in, sign out (must stay in the app window and land on /signin),
+   go offline (offline page, no sign-in), come back, and confirm a figure edited in a browser tab shows in the app
+   on reload. iOS keeps a SEPARATE cookie jar for a home-screen app, so the first launch asks for sign-in and the
+   device-trust code again; that is iOS, not a defect.
+3. Everything open from 2026-09-23 below, unchanged.
 
 ## START HERE 2026-09-23: MODULE 10 IS FINISHED, AND WHAT IS OPEN AFTER IT
 
