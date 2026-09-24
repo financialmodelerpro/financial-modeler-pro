@@ -23,7 +23,7 @@ import type { RefmProjectVersionListItem, ProjectChangeDTO, ProjectCommentDTO } 
 import { ScreenBadge, takePendingAnchor } from './ScreenBadge';
 import { screenForPath } from '../../lib/collab/pathScreen';
 import { useModule1Store } from '../../lib/state/module1-store';
-import { namingContext, recordsFromChanges, presentChanges, type NamingContext, type LeftOut } from '../../lib/persistence/changeLabel';
+import { namingContext, recordsFromChanges, presentChanges, describeBulk, type NamingContext, type LeftOut } from '../../lib/persistence/changeLabel';
 import { sameValue } from '../../lib/persistence/snapshot-diff';
 import { describeChange } from '../../lib/persistence/valueText';
 
@@ -283,7 +283,7 @@ export function ActivityPanel({
             <span style={{ width: 10, display: 'inline-block' }}>{open ? '▾' : '▸'}</span>
             <span>{day}</span>
             <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>
-              {saves.length} {saves.length === 1 ? 'save' : 'saves'}
+              {dayHeaderText(rows, saves.length)}
             </span>
           </button>
           {open && saves.map((s, i) => {
@@ -414,9 +414,8 @@ function ActivityRow({
     hour: '2-digit', minute: '2-digit',
   });
   const badge = activityBadge(change.action);
-  const bulk = change.action === 'bulk-change'
-    ? (change.after as { changedPaths?: number } | null)
-    : null;
+  const ctx = React.useContext(NamingProvider);
+  const bulk = change.action === 'bulk-change' ? describeBulk(change.after, ctx) : null;
 
   return (
     <div
@@ -467,15 +466,50 @@ function ActivityRow({
         {/* AND WHERE TO GO AND CHANGE IT. The sentence above says what moved;
             this says which tab it is typed on, as a link. */}
         <ScreenBadge path={change.path} testid={`change-${change.id}`} />
-        {bulk?.changedPaths !== undefined && (
-          <div style={{ color: 'var(--color-muted)' }}>
-            {bulk.changedPaths.toLocaleString()} fields changed in one save
-          </div>
-        )}
+        {bulk && <BulkDetail bulk={bulk} />}
         {(change.action === 'update' || change.action === 'add' || change.action === 'remove' || change.action === 'clear') && (
           <ValueChange kind={change.action} path={change.path} before={change.before} after={change.after} />
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * WHAT A BULK SAVE CHANGED, not only how much (2026-09-24). The count stays the
+ * headline; the fields a person changed are one click away as sentences, and
+ * whatever the row never recorded by name is counted rather than implied.
+ */
+function BulkDetail({ bulk }: { bulk: NonNullable<ReturnType<typeof describeBulk>> }): React.JSX.Element {
+  const [open, setOpen] = useState(false);
+  const notes: string[] = [];
+  if (bulk.platform) notes.push(`${bulk.platform.toLocaleString()} worked out by the platform`);
+  if (bulk.unrecorded) notes.push(`${bulk.unrecorded.toLocaleString()} not recorded by name (saves before 24 Sep 2026 kept a sample of 10)`);
+  return (
+    <div style={{ color: 'var(--color-muted)' }} data-testid="activity-bulk">
+      <div>
+        {bulk.total.toLocaleString()} fields changed in one save
+        {bulk.edits.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setOpen(!open)}
+            aria-expanded={open}
+            data-testid="activity-bulk-toggle"
+            style={{
+              marginLeft: 8, background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+              color: 'var(--color-primary)', fontWeight: 600, fontSize: 'inherit', fontFamily: 'inherit',
+            }}
+          >
+            {open ? 'Hide' : `Show what (${bulk.edits.length.toLocaleString()})`}
+          </button>
+        )}
+      </div>
+      {open && (
+        <ul style={{ margin: '4px 0 0', paddingLeft: 18, color: 'var(--color-body)' }}>
+          {bulk.edits.map((e) => <li key={e} style={{ overflowWrap: 'anywhere' }}>{e}</li>)}
+        </ul>
+      )}
+      {notes.length > 0 && <div>Of these, {notes.join('; ')}.</div>}
     </div>
   );
 }
@@ -1224,4 +1258,17 @@ export function leftOutText(l: LeftOut): string | null {
   if (l.noChange) parts.push(`${n(l.noChange, 'older entry', 'older entries')} that recorded no change (before 23 Sep 2026 a save that only reordered stored fields was logged as an edit)`);
   if (parts.length === 0) return null;
   return `This list shows what people changed. Also recorded, not listed: ${parts.join('; ')}.`;
+}
+
+/**
+ * WHAT A DAY HEADER COUNTS (2026-09-24). It said "N saves" above a list that
+ * was not grouped by save: a row written before mig 245 has no save id and is
+ * its own entry, so an old day of 35 edits read "35 saves". The header counts
+ * what is LISTED, the changes, and names saves only when every row of the day
+ * carries a recorded save id, which is when the list really is grouped by save.
+ */
+export function dayHeaderText(rows: ReadonlyArray<{ saveId: string | null }>, saveCount: number): string {
+  const changes = `${rows.length.toLocaleString()} ${rows.length === 1 ? 'change' : 'changes'}`;
+  const allRecorded = rows.length > 0 && rows.every((r) => r.saveId !== null);
+  return allRecorded ? `${changes} in ${saveCount.toLocaleString()} ${saveCount === 1 ? 'save' : 'saves'}` : changes;
 }

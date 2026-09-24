@@ -756,3 +756,44 @@ export function nameListItem(rec: Record<string, unknown>, ctx: NamingContext): 
   }
   return undefined;
 }
+
+/* ─────────────────────── a bulk save, in words (2026-09-24) ─────────────────────── */
+
+export interface BulkDescription {
+  /** How many fields the save changed. */
+  total: number;
+  /** The PEOPLE's edits among the recorded paths, as sentences, once each. */
+  edits: string[];
+  /** Recorded paths the platform wrote (computed or internal). */
+  platform: number;
+  /** Changed fields the row never recorded by name. */
+  unrecorded: number;
+}
+
+/**
+ * WHAT A BULK SAVE CHANGED. A save past the per-save cap writes ONE row, and
+ * that row said only a count. Since 2026-09-24 it records every path it
+ * changed (`after.changes`); before that it kept a sample of ten
+ * (`after.sample`). Both read here the same way: each recorded path through
+ * the same role and sentence rules as an ordinary row, and whatever was never
+ * recorded is counted rather than implied.
+ */
+export function describeBulk(after: unknown, ctx: NamingContext): BulkDescription | null {
+  if (!after || typeof after !== 'object') return null;
+  const a = after as { changedPaths?: unknown; changes?: unknown; sample?: unknown };
+  if (typeof a.changedPaths !== 'number') return null;
+  const recorded: Array<{ path: string; kind: string }> = Array.isArray(a.changes)
+    ? (a.changes as Array<{ path?: unknown; kind?: unknown }>).filter((c) => typeof c?.path === 'string')
+      .map((c) => ({ path: c.path as string, kind: typeof c.kind === 'string' ? c.kind : 'update' }))
+    : Array.isArray(a.sample)
+      ? (a.sample as unknown[]).filter((p): p is string => typeof p === 'string').map((path) => ({ path, kind: 'update' }))
+      : [];
+  const edits: string[] = [];
+  let platform = 0;
+  for (const c of recorded) {
+    if (fieldRole(c.path, ctx) !== 'edit') { platform++; continue; }
+    const s = labelForChange({ path: c.path, kind: effectiveKind(c.kind, c.path) }, ctx);
+    if (!edits.includes(s)) edits.push(s);
+  }
+  return { total: a.changedPaths, edits, platform, unrecorded: Math.max(0, a.changedPaths - recorded.length) };
+}

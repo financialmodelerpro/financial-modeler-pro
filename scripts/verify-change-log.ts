@@ -29,9 +29,10 @@
  */
 import { readFileSync } from 'node:fs';
 import { rowsForSave, MAX_CHANGE_ROWS_PER_SAVE } from '../src/hubs/modeling/platforms/refm/lib/persistence/changeLog';
-import { summariseArray, groupBySave } from '../src/hubs/modeling/platforms/refm/components/collab/CollabPanels';
+import { summariseArray, groupBySave, dayHeaderText } from '../src/hubs/modeling/platforms/refm/components/collab/CollabPanels';
+import { screenForPath } from '../src/hubs/modeling/platforms/refm/lib/collab/pathScreen';
 import { diffSnapshots, sameValue } from '../src/hubs/modeling/platforms/refm/lib/persistence/snapshot-diff';
-import { labelForChange, namingContext, recordsFromChanges, presentChanges, effectiveKind, withoutVerb, fieldRole } from '../src/hubs/modeling/platforms/refm/lib/persistence/changeLabel';
+import { labelForChange, namingContext, recordsFromChanges, presentChanges, effectiveKind, withoutVerb, fieldRole, describeBulk } from '../src/hubs/modeling/platforms/refm/lib/persistence/changeLabel';
 import { formatValue, valueSides, describeChange } from '../src/hubs/modeling/platforms/refm/lib/persistence/valueText';
 import { COST_METHOD_LABELS, TERMINAL_METHOD_LABELS } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
@@ -839,6 +840,43 @@ console.log('\n=== K. The list shows what PEOPLE did, one row per edit ===');
   const panels = src(PANELS);
   check('K12 the panel states each reason on screen',
     /leftOutText\(presented\.leftOut\)/.test(panels) && /the platform works out itself/.test(panels) && /internal marker/.test(panels));
+}
+
+console.log('\n=== L. A bulk save says what, a case row says where, a day counts what it lists ===');
+{
+  const ctx = namingContext({ parcels: [{ id: 'p1', name: 'Land 1' }] });
+  // A bulk row written from today records EVERY path; an old one a sample.
+  const many = Array.from({ length: MAX_CHANGE_ROWS_PER_SAVE + 3 }, (_, i) => ({
+    path: i === 0 ? 'parcels[id=p1].area' : i === 1 ? 'assets[id=a].derivedAreas.parkingBays' : `project.x${i}`,
+    before: 1, after: 2, kind: 'update' as const,
+  }));
+  const bulkRow = rowsForSave('p', 'v', 'u', many)[0];
+  const recorded = (bulkRow.after as { changes?: unknown[] }).changes ?? [];
+  check('L1 a bulk row now records EVERY path it changed, not a sample', recorded.length === many.length, String(recorded.length));
+  const d = describeBulk(bulkRow.after, ctx);
+  check('L2 and reads them as sentences, the platform\'s writes counted, nothing unrecorded',
+    !!d && d.total === many.length && d.edits.includes('Land 1: Area (sqm)') && d.platform === 1 && d.unrecorded === 0, JSON.stringify(d));
+  const old = describeBulk({ changedPaths: 250, sample: ['parcels[id=p1].area', 'parcels[id=p1].rate'], note: 'x' }, ctx);
+  check('L3 an OLD bulk row shows its sample as sentences and COUNTS what it never recorded',
+    !!old && old.edits.length === 2 && old.unrecorded === 248, JSON.stringify(old));
+  const panels = src(PANELS);
+  check('L4 the bulk row renders its sentences, not only a count',
+    /describeBulk\(change\.after, ctx\)/.test(panels) && /data-testid="activity-bulk-toggle"/.test(panels));
+
+  // A case override row carries "Edited on" like every other row.
+  const inner = screenForPath('parcels[id=p1].area');
+  const viaCase = screenForPath('cases[case_up].parcels[id=p1].area');
+  check('L5 a case override is edited where its field is, with that case active',
+    !!inner && !!viaCase && viaCase.screens.map((x) => x.key).join() === inner.screens.map((x) => x.key).join()
+    && /with that case active$/.test(viaCase.sentence), viaCase?.sentence ?? '(null)');
+  check('L6 and an unmapped inner field stays unmapped, never invented',
+    screenForPath('cases[c].landAllocationMode')?.unmapped === screenForPath('landAllocationMode')?.unmapped);
+
+  // The day header counts what is listed; saves only where saves were recorded.
+  check('L7 a day of rows with no recorded save counts CHANGES, never "saves"',
+    dayHeaderText([{ saveId: null }, { saveId: null }], 2) === '2 changes');
+  check('L8 a day of recorded saves says both', dayHeaderText([{ saveId: 'a' }, { saveId: 'a' }, { saveId: 'b' }], 2) === '3 changes in 2 saves');
+  check('L9 the header renders that rule', /dayHeaderText\(rows, saves\.length\)/.test(panels) && !/\{saves\.length === 1 \? 'save' : 'saves'\}/.test(panels));
 }
 
 console.log('\n=== G. House rules ===');

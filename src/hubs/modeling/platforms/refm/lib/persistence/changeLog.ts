@@ -45,6 +45,9 @@ import type { ChangeLogEntry } from './snapshot-diff';
  *  instead of one row per path. */
 export const MAX_CHANGE_ROWS_PER_SAVE = 40;
 
+/** The most paths one bulk row records by name (paths and kinds only). */
+export const MAX_BULK_PATHS = 5000;
+
 /** Cached like every other migration probe: false once the table is observed
  *  absent, so a pre-234 database simply does not log. */
 let changesApplied: boolean | undefined;
@@ -142,6 +145,12 @@ export function rowsForSave(
       after: {
         changedPaths: entries.length,
         sample: entries.slice(0, 10).map((e) => e.path),
+        // EVERY PATH, NOT A SAMPLE (2026-09-24): a reader must be able to see
+        // WHAT a bulk save changed, not only how much. Paths and kinds only,
+        // no values, so even a whole-project save stays small; capped so a
+        // pathological save cannot write an unbounded row, and the count above
+        // stays the truth when the cap bites.
+        changes: entries.slice(0, MAX_BULK_PATHS).map((e) => ({ path: e.path, kind: e.kind ?? 'update' })),
         note: `More than ${MAX_CHANGE_ROWS_PER_SAVE} paths changed in one save, so this is recorded as a single entry.`,
       },
     }];

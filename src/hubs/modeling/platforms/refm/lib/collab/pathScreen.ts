@@ -252,6 +252,18 @@ export function screenForPath(path: string | null | undefined): PathScreen | nul
     return { screens: [s], unmapped: false, sentence: `On the ${s.label} tab` };
   }
 
+  // A SCENARIO OVERRIDE IS TYPED WHERE ITS FIELD IS (2026-09-24). With a case
+  // active, editing any input records that case's override, so a path under
+  // `cases[<id>].` is edited on the SAME screen as the field inside it, with
+  // the case switched on. Every other activity row carried this line and the
+  // case rows did not, because no rule matched the prefix.
+  const caseOverride = /^cases\[[^\]]*\]\.(.+)$/.exec(trimmed);
+  if (caseOverride) {
+    const inner = screenForPath(caseOverride[1]);
+    if (!inner || inner.unmapped) return inner;
+    return { ...inner, sentence: `${inner.sentence}, with that case active` };
+  }
+
   const shape = pathShape(trimmed);
   if (!shape) return null;
 
