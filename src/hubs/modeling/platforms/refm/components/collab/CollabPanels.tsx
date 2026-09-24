@@ -23,7 +23,7 @@ import type { RefmProjectVersionListItem, ProjectChangeDTO, ProjectCommentDTO } 
 import { ScreenBadge, takePendingAnchor } from './ScreenBadge';
 import { screenForPath } from '../../lib/collab/pathScreen';
 import { useModule1Store } from '../../lib/state/module1-store';
-import { namingContext, recordsFromChanges, presentChanges, type NamingContext } from '../../lib/persistence/changeLabel';
+import { namingContext, recordsFromChanges, presentChanges, type NamingContext, type LeftOut } from '../../lib/persistence/changeLabel';
 import { sameValue } from '../../lib/persistence/snapshot-diff';
 import { describeChange } from '../../lib/persistence/valueText';
 
@@ -190,11 +190,13 @@ export function ActivityPanel({
       {/* A ROW THAT RECORDS NOTHING IS NOT SHOWN AS A CHANGE, AND IS NOT HIDDEN
           SILENTLY EITHER: the log is append only, so the reader is told these
           rows exist, how many, and why they say nothing. */}
-      {presented.noChange > 0 && (
+      {/* WHAT IS NOT LISTED, AND WHY (2026-09-24). The list shows what PEOPLE
+          did. The platform's own writes and the figures an edit sets as a
+          consequence are recorded too, and counted here by reason, so nothing
+          leaves the screen without the screen saying so. */}
+      {leftOutText(presented.leftOut) !== null && (
         <div data-testid="activity-no-change" style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', marginBottom: 'var(--sp-2)' }}>
-          {presented.noChange.toLocaleString()} older {presented.noChange === 1 ? 'entry records' : 'entries record'} no
-          change and {presented.noChange === 1 ? 'is' : 'are'} not listed: before 23 Sep 2026 a save that only
-          reordered stored fields was logged as an edit.
+          {leftOutText(presented.leftOut)}
         </div>
       )}
 
@@ -1210,4 +1212,16 @@ function Composer({
       </div>
     </div>
   );
+}
+
+/** The line above the Activity list that says what it does not list. */
+export function leftOutText(l: LeftOut): string | null {
+  const n = (x: number, one: string, many: string): string => `${x.toLocaleString()} ${x === 1 ? one : many}`;
+  const parts: string[] = [];
+  if (l.consequence) parts.push(`${n(l.consequence, 'figure', 'figures')} an edit set as a consequence (a price's other basis, the sub-units a "Sells by" switch rewrote)`);
+  if (l.computed) parts.push(`${n(l.computed, 'figure', 'figures')} the platform works out itself (derived areas, seeded settings)`);
+  if (l.internal) parts.push(`${n(l.internal, 'internal marker', 'internal markers')} the platform keeps about a value`);
+  if (l.noChange) parts.push(`${n(l.noChange, 'older entry', 'older entries')} that recorded no change (before 23 Sep 2026 a save that only reordered stored fields was logged as an edit)`);
+  if (parts.length === 0) return null;
+  return `This list shows what people changed. Also recorded, not listed: ${parts.join('; ')}.`;
 }

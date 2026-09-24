@@ -36,7 +36,7 @@ type PgClientCtor = new (cfg: Record<string, unknown>) => PgClient;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { Client } = require('pg') as { Client: PgClientCtor };
 
-const PROJECT = process.argv[2] ?? 'c417fc6a-4514-4438-857c-a72dc7472f65'; // FMP - MARINA GATE
+const PROJECT = process.argv.slice(2).find((a) => !a.startsWith('--')) ?? 'c417fc6a-4514-4438-857c-a72dc7472f65'; // FMP - MARINA GATE
 
 const RAW = /\[|=|::|\b(asset|subunit|parcel|phase|case|retail)_[\w-]+|custom-\d|[a-z][A-Z]/;
 
@@ -47,14 +47,21 @@ const RAW = /\[|=|::|\b(asset|subunit|parcel|phase|case|retail)_[\w-]+|custom-\d
   await c.connect();
   try {
     const log = await c.query(
-      `select id, action, path, label, before, after, created_at
+      `select id, action, path, label, before, after, created_at, user_id, version_id, save_id
          from public.refm_project_changes where project_id = $1 order by created_at desc`, [PROJECT]);
     const ver = await c.query(
       `select snapshot from public.refm_project_versions where project_id = $1 order by created_at desc limit 1`, [PROJECT]);
-    type Row = { action: string; path: string | null; label: string | null; before: unknown; after: unknown };
-    const rows = log.rows as unknown as Row[];
+    type Row = { action: string; path: string | null; label: string | null; before: unknown; after: unknown;
+      createdAt?: string; userId?: string | null; versionId?: string | null; saveId?: string | null };
+    // The panel's DTO names, so the probe groups saves exactly as the panel does.
+    const rows: Row[] = (log.rows as Array<Record<string, unknown>>).map((r) => ({
+      action: String(r.action), path: (r.path as string) ?? null, label: (r.label as string) ?? null,
+      before: r.before ?? null, after: r.after ?? null,
+      createdAt: new Date(r.created_at as string).toISOString(), userId: (r.user_id as string) ?? null,
+      versionId: (r.version_id as string) ?? null, saveId: (r.save_id as string) ?? null,
+    }));
     const ctx = namingContext(ver.rows[0]?.snapshot as Record<string, unknown> | undefined, recordsFromChanges(rows));
-    const { rows: shown, noChange } = presentChanges(rows, ctx, sameValue);
+    const { rows: shown, noChange, leftOut } = presentChanges(rows, ctx, sameValue);
 
     const sentence = (r: Row): boolean => r.path === null ? r.action === 'bulk-change' : !!r.label && !RAW.test(r.label);
     const readable = shown.filter(sentence).length;
@@ -67,6 +74,9 @@ const RAW = /\[|=|::|\b(asset|subunit|parcel|phase|case|retail)_[\w-]+|custom-\d
     console.log(`project ${PROJECT}`);
     console.log(`  stored rows                 ${rows.length}  (with a stored label: ${storedLabel})`);
     console.log(`  record no change (hidden)   ${noChange}`);
+    console.log(`  computed by the platform    ${leftOut.computed}`);
+    console.log(`  internal markers            ${leftOut.internal}`);
+    console.log(`  consequences of an edit     ${leftOut.consequence}`);
     console.log(`  shown                       ${shown.length}`);
     console.log(`  shown as a sentence         ${readable}  (${pct(readable, shown.length)} of shown)`);
     console.log(`  names something deleted     ${gone}`);
@@ -94,6 +104,14 @@ const RAW = /\[|=|::|\b(asset|subunit|parcel|phase|case|retail)_[\w-]+|custom-\d
     console.log(`  chips that look stored       ${stored}`);
     console.log(`  pairs printing the same text ${repeated}`);
     for (const x of samples) console.log(`  STORED-LOOKING: ${x}`);
+    if (process.argv.includes('--list')) {
+      const seen = new Map<string, number>();
+      for (const r of shown) {
+        const shape = `${r.action} ${String(r.path).replace(/\[[^\]]*\]/g, '[]')}`;
+        seen.set(shape, (seen.get(shape) ?? 0) + 1);
+        if (seen.get(shape) === 1) console.log(`  ${r.action.padEnd(6)} ${r.label}`);
+      }
+    }
     process.exit(readable === shown.length && stored === 0 ? 0 : 1);
   } finally {
     await c.end();

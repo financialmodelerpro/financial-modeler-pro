@@ -317,6 +317,7 @@ const SCREEN_WORDS: Record<string, Record<string, string>> = {
     gfaSqm: 'GFA override (sqm)', supportArea: 'Support area (sqm)', parkingArea: 'Parking area (sqm)',
     buaSqm: 'Total GFA (sqm)', sellableBuaSqm: 'NSA or GLA (sqm)', parkingBaysRequired: 'Parking slots',
     'capexPhasing.distribution': 'Construction phasing weights', 'capexPhasing.phasing': 'Construction phasing curve',
+    capexPhasing: 'Construction phasing', landChain: 'Land planning inputs',
     'opex.lines': 'Opex lines',
     'revenue.sell.velocityDefault': 'Sales velocity, all sub-units',
     'revenue.sell.subUnits': 'Sales velocity by sub-unit',
@@ -346,7 +347,7 @@ const SCREEN_WORDS: Record<string, Record<string, string>> = {
   },
   costOverrides: { value: 'Value', method: 'Method', startPeriod: 'Start', endPeriod: 'End' },
   costStandardRows: { rate: 'Rate', byPhase: 'Rate by phase' },
-  assetTypes: { label: 'Name' },
+  assetTypes: { label: 'Name', sortOrder: 'Position in list' },
   assetTypeValues: {
     avgUnitSizeSqm: 'Avg unit size (sqm)', parkingRatio: 'Parking ratio', parkingRatioBasis: 'Ratio basis',
     utilisationPct: 'Utilisation %', coveragePct: 'Coverage %', farRatio: 'FAR', servicePct: 'Service %',
@@ -508,13 +509,18 @@ export function effectiveKind(action: string, path: string | null): string {
 
 /* ─────────────────────── reading STORED rows (the panel) ─────────────────────── */
 
-/** The fields of a stored log row this file reads. */
+/** The fields of a stored log row this file reads. The grouping fields are
+ *  optional so a caller with bare rows (a version's change list) still works. */
 export interface StoredChangeLike {
   action: string;
   path: string | null;
   label: string | null;
   before: unknown;
   after: unknown;
+  saveId?: string | null;
+  userId?: string | null;
+  versionId?: string | null;
+  createdAt?: string;
 }
 
 /**
@@ -529,29 +535,191 @@ export function recordsNoChange(c: StoredChangeLike, same: (a: unknown, b: unkno
   return c.action === 'update' && same(c.before, c.after);
 }
 
+/* ──────────────── who wrote it: a person, or the platform (2026-09-24) ──────────────── */
+
+/**
+ * WHOSE WRITE A FIELD IS. The founder's test: a row saying a user changed a
+ * figure the platform computes is misleading, and a row naming an internal
+ * marker tells a reviewer nothing. So every field has one of three roles:
+ *
+ *   edit        a person typed it on a screen;
+ *   computed    the platform works it out (the Assets tab's derived areas, a
+ *               retail strip's areas, a seeded block), so no person changed it;
+ *   internal    a marker the platform keeps about a value (was this price
+ *               typed or inherited, where did this override come from, when
+ *               was the strategy reviewed), never shown on a screen.
+ *
+ * Measured against the screens on 2026-09-24: every `computed` and `internal`
+ * field below has NO input on any screen (the audit named the writer of each:
+ * settleModel, the store's retail-strip and revenue seeds, the strategy
+ * switch, the per-phase occupancy mirror). Matched on the path's SHAPE (every
+ * selector reduced to []), with a case's prefix removed, since a case
+ * override of a computed figure is still the platform's figure.
+ */
+const COMPUTED: readonly RegExp[] = [
+  /^assets\[\]\.derivedAreas(\.|$)/,
+  /^assets\[\]\.(buaSqm|sellableBuaSqm|parkingBaysRequired)$/,
+  /^assets\[\]\.(revenue|opex)$/,                  // a whole block, seeded on load and save
+  /^assets\[\]\.revenue\.sell\.cashPaymentProfile(\.|$)/,
+  /^project\.(assetTypes|assetTypeValues|costStandardRows)$/, // a whole list, backfilled or seeded
+  /^project\.projectNdaEnabled$/,                 // written only by a migration; the card is retired
+];
+const INTERNAL: readonly RegExp[] = [
+  /\.(priceStated|rateStated|selectionStated|origin|linked|stampedAt|changedAt|needsReview)$/,
+  /^assets\[\]\.(strategyReview|retainedByStrategy|assetTypeStandards)(\.|$)/,
+  /\.occupancyPerPeriodByPhase$/, /\.percentagesByPhase$/, /\.recognitionProfile\.profileMode$/,
+  /^landAllocationMode$/,
+];
+
+const shapeOf = (path: string): string =>
+  path.replace(/^cases\[[^\]]*\]\./, '').replace(/\[[^\]]*\]/g, '[]');
+
+export type FieldRole = 'edit' | 'computed' | 'internal';
+
+export function fieldRole(path: string | null, ctx: NamingContext): FieldRole {
+  if (!path) return 'edit';
+  const shape = shapeOf(path);
+  if (INTERNAL.some((r) => r.test(shape))) return 'internal';
+  if (COMPUTED.some((r) => r.test(shape))) return 'computed';
+  // A sub-unit's AREA is computed when it follows a typed share: the store
+  // re-derives it whenever the line's NSA moves. Its COUNT is typed.
+  const m = /^(?:cases\[[^\]]*\]\.)?subUnits\[id=([^\]]*)\]\.metricValue$/.exec(path);
+  if (m) {
+    const su = find(ctx, 'subUnits', m[1]);
+    const asset = typeof su?.assetId === 'string' ? find(ctx, 'assets', su.assetId) : undefined;
+    const metric = asset?.subUnitMetric ?? su?.metric;
+    if (metric !== 'units' && typeof su?.nsaSharePct === 'number') return 'computed';
+  }
+  return 'edit';
+}
+
+/* ─────────────────────────── one edit, one row ─────────────────────────── */
+
+/**
+ * WHICH ROWS ARE ONE SAVE. A row written since mig 245 carries its save's id,
+ * which is exact. A row written before carries none, so its save is recovered
+ * from how the appender wrote it: one save's rows are ONE insert, consecutive
+ * in the log, by one person into one version. Measured on the live log
+ * (2026-09-24, 808 rows): every gap inside a save is under 500 ms and every gap
+ * between saves is at least 2 s (the autosave beat), with NOTHING in between,
+ * so the boundary is 1 s. A save never holds the same path twice, so a
+ * repeated path also starts a new group: a guess can split a save, never
+ * merge two edits of one field.
+ *
+ * Used ONLY to fold a consequence into its edit. It is not shown as a save.
+ */
+export function groupIntoSaves<T extends StoredChangeLike>(rows: readonly T[]): T[][] {
+  const out: T[][] = [];
+  let cur: T[] = [];
+  let paths = new Set<string>();
+  const t = (r: T): number => (r.createdAt ? new Date(r.createdAt).getTime() : NaN);
+  for (const r of rows) {
+    const prev = cur[cur.length - 1];
+    const sameSave = prev !== undefined && (
+      r.saveId ? r.saveId === prev.saveId
+        : !prev.saveId && r.userId === prev.userId && r.versionId === prev.versionId
+          && Math.abs(t(prev) - t(r)) < 1000 && !paths.has(r.path ?? ''));
+    if (!sameSave) { if (cur.length) out.push(cur); cur = []; paths = new Set(); }
+    cur.push(r);
+    paths.add(r.path ?? '');
+  }
+  if (cur.length) out.push(cur);
+  return out;
+}
+
+const PRICE_FIELDS = ['pricePerSqm', 'pricePerUnit', 'unitPrice'] as const;
+
+/**
+ * WITHIN ONE SAVE, THE EDIT AND ITS CONSEQUENCES. Returns the rows to drop as
+ * consequences. Two families, each measured on the live log:
+ *
+ *   A PRICE. Typing a rate on table 5 writes the active basis, the other
+ *   basis, the legacy `unitPrice` and a marker: one edit, up to four rows.
+ *   The row kept is the basis the line sells by (per sqm for area, per unit
+ *   for units), else the first present.
+ *
+ *   "SELLS BY". Switching a line's metric rewrites every sub-unit's metric,
+ *   area and unit size under it. The switch is the edit.
+ */
+function consequencesIn<T extends StoredChangeLike>(save: readonly T[], ctx: NamingContext): Set<T> {
+  const drop = new Set<T>();
+  const el = (p: string | null): { prefix: string; list: string; id: string; field: string } | undefined => {
+    const m = /^((?:cases\[[^\]]*\]\.)?(subUnits|assets)\[id=([^\]]*)\])\.([A-Za-z0-9_]+)$/.exec(p ?? '');
+    return m ? { prefix: m[1], list: m[2], id: m[3], field: m[4] } : undefined;
+  };
+  // A price: group by sub-unit.
+  const prices = new Map<string, T[]>();
+  for (const r of save) {
+    const e = el(r.path);
+    if (e?.list === 'subUnits' && (PRICE_FIELDS as readonly string[]).includes(e.field)) {
+      const k = e.prefix;
+      prices.set(k, [...(prices.get(k) ?? []), r]);
+    }
+  }
+  for (const [, rows] of prices) {
+    if (rows.length < 2) continue;
+    const e = el(rows[0].path)!;
+    const su = find(ctx, 'subUnits', e.id);
+    const asset = typeof su?.assetId === 'string' ? find(ctx, 'assets', su.assetId) : undefined;
+    const metric = asset?.subUnitMetric ?? su?.metric;
+    const want = metric === 'units' ? 'pricePerUnit' : 'pricePerSqm';
+    const keep = rows.find((r) => el(r.path)?.field === want)
+      ?? PRICE_FIELDS.map((f) => rows.find((r) => el(r.path)?.field === f)).find(Boolean)!;
+    for (const r of rows) if (r !== keep) drop.add(r);
+  }
+  // "Sells by": the asset's switch absorbs its sub-units' metric rewrites.
+  const switched = new Set(save.map((r) => el(r.path)).filter((e) => e?.list === 'assets' && e.field === 'subUnitMetric').map((e) => e!.id));
+  if (switched.size) {
+    for (const r of save) {
+      const e = el(r.path);
+      if (e?.list !== 'subUnits' || !['metric', 'metricValue', 'unitArea'].includes(e.field)) continue;
+      const su = find(ctx, 'subUnits', e.id);
+      if (typeof su?.assetId === 'string' && switched.has(su.assetId)) drop.add(r);
+    }
+  }
+  return drop;
+}
+
+/** What was left out, by reason, so the screen can SAY so. */
+export interface LeftOut { noChange: number; computed: number; internal: number; consequence: number }
+
 /**
  * What the Activity panel SHOWS for the stored rows: every row that records a
- * change, each carrying a sentence (the stored one where there is one, else
- * the one `labelForChange` builds from its path) and the classification the
- * differ's own rule gives it. Rows that record no change are counted, not
- * shown. Returns copies; the stored rows are never touched.
+ * PERSON'S EDIT, each carrying a sentence (the stored one, read without its
+ * verb, where there is one, else the one `labelForChange` builds from its
+ * path) and the classification the differ's own rule gives it. Everything
+ * else is COUNTED by reason, never dropped silently. Returns copies; the
+ * stored rows are never touched. Applies to every row, old and new alike: the
+ * appender still records every path (the log is a ledger), and this decides
+ * what a reader is shown.
  */
 export function presentChanges<T extends StoredChangeLike>(
   changes: readonly T[],
   ctx: NamingContext,
   same: (a: unknown, b: unknown) => boolean,
-): { rows: T[]; noChange: number } {
-  const rows: T[] = [];
-  let noChange = 0;
+): { rows: T[]; noChange: number; leftOut: LeftOut } {
+  const leftOut: LeftOut = { noChange: 0, computed: 0, internal: 0, consequence: 0 };
+  const kept: T[] = [];
   for (const c of changes) {
-    if (recordsNoChange(c, same)) { noChange++; continue; }
+    if (recordsNoChange(c, same)) { leftOut.noChange++; continue; }
+    const role = fieldRole(c.path, ctx);
+    if (role !== 'edit') { leftOut[role]++; continue; }
+    kept.push(c);
+  }
+  const drop = new Set<T>();
+  for (const save of groupIntoSaves(kept)) for (const r of consequencesIn(save, ctx)) drop.add(r);
+  leftOut.consequence = drop.size;
+
+  const rows: T[] = [];
+  for (const c of kept) {
+    if (drop.has(c)) continue;
     const action = effectiveKind(c.action, c.path);
     // A stored label still wins, read without the verb its badge now carries.
     const label = c.label !== null ? withoutVerb(c.label)
       : c.path ? labelForChange({ path: c.path, kind: action, before: c.before, after: c.after }, ctx) : null;
     rows.push(action === c.action && label === c.label ? c : { ...c, action, label });
   }
-  return { rows, noChange };
+  return { rows, noChange: leftOut.noChange, leftOut };
 }
 
 /* ─────────────────────── a reference, by name (values) ─────────────────────── */

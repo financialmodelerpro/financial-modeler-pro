@@ -31,7 +31,7 @@ import { readFileSync } from 'node:fs';
 import { rowsForSave, MAX_CHANGE_ROWS_PER_SAVE } from '../src/hubs/modeling/platforms/refm/lib/persistence/changeLog';
 import { summariseArray, groupBySave } from '../src/hubs/modeling/platforms/refm/components/collab/CollabPanels';
 import { diffSnapshots, sameValue } from '../src/hubs/modeling/platforms/refm/lib/persistence/snapshot-diff';
-import { labelForChange, namingContext, recordsFromChanges, presentChanges, effectiveKind, withoutVerb } from '../src/hubs/modeling/platforms/refm/lib/persistence/changeLabel';
+import { labelForChange, namingContext, recordsFromChanges, presentChanges, effectiveKind, withoutVerb, fieldRole } from '../src/hubs/modeling/platforms/refm/lib/persistence/changeLabel';
 import { formatValue, valueSides, describeChange } from '../src/hubs/modeling/platforms/refm/lib/persistence/valueText';
 import { COST_METHOD_LABELS, TERMINAL_METHOD_LABELS } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
@@ -639,11 +639,14 @@ console.log('\n=== H. An old row is READ with a sentence, by the rule the differ
     all.filter((l) => !noRaw(l)).join(' | '));
 
   // H15..H16: a stored label WINS, and a missing one is built.
-  const stored = { action: 'update', path: 'assets[id=as1].buaSqm', label: 'As it was called then', before: 1, after: 2 };
+  // RE-AIMED 2026-09-24: buaSqm is now the platform's (computed, not listed),
+  // so the rule is proven on a field a person types, the GFA override.
+  const stored = { action: 'update', path: 'assets[id=as1].gfaSqm', label: 'As it was called then', before: 1, after: 2 };
   const bare = { ...stored, label: null };
   const p = presentChanges([stored, bare], ctx, sameValue);
-  check('H15 a stored label wins over the render-time one', p.rows[0].label === 'As it was called then', String(p.rows[0].label));
-  check('H16 a row with no stored label gets the render-time sentence', p.rows[1].label === h3, String(p.rows[1].label));
+  check('H15 a stored label wins over the render-time one', p.rows[0]?.label === 'As it was called then', String(p.rows[0]?.label));
+  check('H16 a row with no stored label gets the render-time sentence',
+    p.rows[1]?.label === L('assets[id=as1].gfaSqm'), String(p.rows[1]?.label));
 
   // H17..H19: a row that records no change. BOTH branches, measured: the key
   // reorder is dropped, and a same-length list whose VALUES moved is kept.
@@ -680,8 +683,11 @@ console.log('\n=== H. An old row is READ with a sentence, by the rule the differ
   check('H24 the Activity panel presents rows through presentChanges, named from the loaded model and the log',
     /presentChanges\(changes, ctx, sameValue\)/.test(panels) && /useModelNamingContext\(changes\)/.test(panels)
     && /recordsFromChanges\(rows\)/.test(panels) && /useModule1Store\(/.test(panels));
+  // RE-AIMED 2026-09-24: the count now covers every reason a row is not
+  // listed (leftOut), no-change included; K12 pins the other reasons.
   check('H25 rows recording no change are stated on screen, never dropped silently',
-    /data-testid="activity-no-change"/.test(panels) && /presented\.noChange/.test(panels));
+    /data-testid="activity-no-change"/.test(panels) && /leftOutText\(presented\.leftOut\)/.test(panels)
+    && /if \(l\.noChange\)/.test(panels));
   check('H26 changeLabel.ts has no em dashes', !src(LABEL).includes('—'));
 }
 
@@ -779,6 +785,60 @@ console.log('\n=== J. A value reads as words, never as stored ===');
   check('J12 but a short list keeps both sides, since they DIFFER', d3.before === '1, 2' && d3.after === '1, 3', JSON.stringify(d3));
   const d4 = describeChange('update', [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }], [{ id: 'a', name: 'A' }]);
   check('J13 a record removed from a list is named', d4.single === 'removed B', JSON.stringify(d4));
+}
+
+console.log('\n=== K. The list shows what PEOPLE did, one row per edit ===');
+{
+  // THE RULE (founder, 2026-09-24): do not attribute the platform's own writes
+  // to a person; show the edit, not its consequences; leave internal markers
+  // out. Nothing leaves the screen without the screen counting it.
+  const ctx = namingContext({
+    assets: [{ id: 'a1', type: 'Villas', subUnitMetric: 'area' }, { id: 'a2', type: 'Hotel', subUnitMetric: 'units' }],
+    subUnits: [{ id: 's1', assetId: 'a1', name: '2 BR', metric: 'area', nsaSharePct: 50 },
+      { id: 's2', assetId: 'a2', name: 'Keys', metric: 'units' }],
+  });
+  const R = (p: string): string => fieldRole(p, ctx);
+  check('K1 derived areas, the retail strip\'s areas and parking slots are the platform\'s',
+    R('assets[id=a1].derivedAreas.parkingBays') === 'computed' && R('assets[id=a1].derivedAreas') === 'computed'
+    && R('assets[id=a1].parkingBaysRequired') === 'computed' && R('assets[id=a1].buaSqm') === 'computed');
+  check('K2 internal markers are internal, on a case override too',
+    ['subUnits[id=s1].priceStated', 'costLines[id=x].rateStated', 'costOverrides[a::b].origin', 'project.costStandardRows[id=r].linked',
+      'assets[id=a1].strategyReview.changedAt', 'assets[id=a1].revenue.lease.occupancyPerPeriodByPhase',
+      'cases[up].subUnits[id=s1].priceStated'].every((p) => R(p) === 'internal'));
+  check('K3 what a person types stays an edit (plot area, a rate, a FAR, a velocity, the GFA override)',
+    ['parcels[id=p].area', 'subUnits[id=s1].pricePerSqm', 'assets[id=a1].landChain.farRatio',
+      'assets[id=a1].revenue.sell.velocityDefault', 'assets[id=a1].gfaSqm'].every((p) => R(p) === 'edit'));
+  check('K4 a sub-unit AREA that follows its share is computed; a COUNT of units is typed',
+    R('subUnits[id=s1].metricValue') === 'computed' && R('subUnits[id=s2].metricValue') === 'edit');
+
+  // Folding, both branches measured.
+  const row = (path: string, at: number, extra: Record<string, unknown> = {}) => ({
+    action: 'update', path, label: null, before: 1, after: 2, userId: 'u', versionId: 'v',
+    createdAt: new Date(Date.UTC(2026, 8, 1, 10, 0, 0, at)).toISOString(), saveId: null as string | null, ...extra,
+  });
+  const price = [row('subUnits[id=s1].pricePerSqm', 0), row('subUnits[id=s1].unitPrice', 3), row('subUnits[id=s1].pricePerUnit', 6), row('subUnits[id=s1].priceStated', 9)];
+  const p1 = presentChanges(price, ctx, sameValue);
+  check('K5 one price edit is ONE row, on the basis the line sells by',
+    p1.rows.length === 1 && p1.rows[0].path === 'subUnits[id=s1].pricePerSqm' && p1.leftOut.consequence === 2 && p1.leftOut.internal === 1,
+    JSON.stringify(p1.leftOut));
+  const alone = presentChanges([row('subUnits[id=s1].unitPrice', 0)], ctx, sameValue);
+  check('K6 but a price field ALONE is the edit, and is kept', alone.rows.length === 1);
+  const twoSaves = presentChanges([row('subUnits[id=s1].pricePerSqm', 0), row('subUnits[id=s1].unitPrice', 2500)], ctx, sameValue);
+  check('K7 legacy rows 1 s or more apart are separate saves, so nothing folds across them', twoSaves.rows.length === 2);
+  const repeat = presentChanges([row('subUnits[id=s1].pricePerSqm', 0), row('subUnits[id=s1].pricePerSqm', 5), row('subUnits[id=s1].unitPrice', 8)], ctx, sameValue);
+  check('K8 a repeated path starts a new save: two edits of one field are never merged', repeat.rows.filter((r) => r.path?.endsWith('pricePerSqm')).length === 2);
+  const byId = presentChanges([row('subUnits[id=s1].pricePerSqm', 0, { saveId: 'A' }), row('subUnits[id=s1].unitPrice', 9000, { saveId: 'A' })], ctx, sameValue);
+  check('K9 a recorded save id is exact, whatever the clock says', byId.rows.length === 1);
+  const sw = presentChanges([row('assets[id=a1].subUnitMetric', 0), row('subUnits[id=s1].metric', 2), row('subUnits[id=s2].metric', 4)], ctx, sameValue);
+  check('K10 a "Sells by" switch absorbs ITS sub-units\' rewrites, and no other asset\'s',
+    sw.rows.map((r) => r.path).join(',') === 'assets[id=a1].subUnitMetric,subUnits[id=s2].metric', sw.rows.map((r) => r.path).join(','));
+  const mixed = [...price, row('assets[id=a1].derivedAreas.parkingBays', 12), { ...row('x.y', 15), before: { a: 1 }, after: { a: 1 } }];
+  const pm = presentChanges(mixed, ctx, sameValue);
+  const counted = pm.rows.length + pm.leftOut.noChange + pm.leftOut.computed + pm.leftOut.internal + pm.leftOut.consequence;
+  check('K11 every stored row is either SHOWN or COUNTED by reason, never lost', counted === mixed.length, `${counted} of ${mixed.length}`);
+  const panels = src(PANELS);
+  check('K12 the panel states each reason on screen',
+    /leftOutText\(presented\.leftOut\)/.test(panels) && /the platform works out itself/.test(panels) && /internal marker/.test(panels));
 }
 
 console.log('\n=== G. House rules ===');
