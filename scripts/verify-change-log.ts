@@ -31,7 +31,7 @@ import { readFileSync } from 'node:fs';
 import { rowsForSave, MAX_CHANGE_ROWS_PER_SAVE } from '../src/hubs/modeling/platforms/refm/lib/persistence/changeLog';
 import { summariseArray, groupBySave } from '../src/hubs/modeling/platforms/refm/components/collab/CollabPanels';
 import { diffSnapshots, sameValue } from '../src/hubs/modeling/platforms/refm/lib/persistence/snapshot-diff';
-import { labelForChange, namingContext, recordsFromChanges, presentChanges, effectiveKind } from '../src/hubs/modeling/platforms/refm/lib/persistence/changeLabel';
+import { labelForChange, namingContext, recordsFromChanges, presentChanges, effectiveKind, withoutVerb } from '../src/hubs/modeling/platforms/refm/lib/persistence/changeLabel';
 import { formatValue, valueSides, describeChange } from '../src/hubs/modeling/platforms/refm/lib/persistence/valueText';
 import { COST_METHOD_LABELS, TERMINAL_METHOD_LABELS } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
@@ -232,8 +232,10 @@ console.log('\n=== D. Appended, never recomputed; each save logs its own delta =
   const aEntry = diffSnapshots(base, a2 as typeof base).find((e) => e.path.includes('buaSqm'));
   check('D53 a scalar leaf on an element is LABELLED, not left to the raw path',
     !!aEntry?.label, aEntry?.label ?? '(none)');
-  check('D54 and the label names the element AND the field in words',
-    /4 Star Hotel/.test(aEntry?.label ?? '') && /BUA \(sqm\)/.test(aEntry?.label ?? ''),
+  // RE-AIMED 2026-09-24: the field reads in the SCREEN'S words, and the screen
+  // heads buaSqm "Total GFA (sqm)" (the platform's BUA is the reference's GFA).
+  check('D54 and the label names the element AND the field in the screen\'s words',
+    /4 Star Hotel/.test(aEntry?.label ?? '') && /Total GFA \(sqm\)/.test(aEntry?.label ?? ''),
     aEntry?.label ?? '');
   // A scalar under a project SECTION is labelled by the section.
   const p2 = JSON.parse(JSON.stringify(base)); p2.project.fundTerms.hurdleRatePct = 9;
@@ -577,39 +579,59 @@ console.log('\n=== H. An old row is READ with a sentence, by the rule the differ
   // H3..H9: what an unlabelled stored row now reads as, one per path family.
   const h3 = L('assets[id=as1].buaSqm');
   check('H3 an asset field reads as the asset, by the ONE asset label rule, and the field in words',
-    h3 === 'Land 1, Branded Villas, Phase 1: BUA (sqm)', h3);
+    h3 === 'Land 1, Branded Villas, Phase 1: Total GFA (sqm)', h3);
   const h4 = L('subUnits[id=su1].unitPrice');
-  check('H4 a sub-unit is named ON its asset, since "2 BR" alone is ambiguous', h4 === 'Land 1, Branded Villas, Phase 1, 2 BR: Unit price', h4);
+  // RE-AIMED 2026-09-24 (founder: the screen's words): table 5 heads unitPrice "Rate".
+  check('H4 a sub-unit is named ON its asset, since "2 BR" alone is ambiguous', h4 === 'Land 1, Branded Villas, Phase 1, 2 BR: Rate', h4);
   const h5 = L('costOverrides[as1::construction-bua__ph1].value');
   check('H5 a cost override names its line and asset, not its compound key, and the phase once',
     h5 === 'Construction override for Land 1, Branded Villas, Phase 1: Value', h5);
   const h6 = L('cases[case_up].subUnits[id=su1].unitPrice');
   check('H6 a case override reads as the case, then the SAME sentence for its inner path',
-    h6 === 'Upside: Land 1, Branded Villas, Phase 1, 2 BR: Unit price', h6);
+    h6 === 'Upside case: Land 1, Branded Villas, Phase 1, 2 BR: Rate', h6);
   const h7 = L('project.assetTypeValues.villas.pricePerSqm', 'add', undefined, 5);
   check('H7 a type value names the type by its label, and "per sqm" reads as words', h7 === 'Asset type Branded Villas: Price per sqm', h7);
   const h8 = L('assets[id=as1].revenue.operate.adrIndexation.rate');
-  check('H8 nested sections qualify the field, initialisms kept', h8 === 'Land 1, Branded Villas, Phase 1, revenue operate ADR indexation: Rate', h8);
+  // RE-AIMED 2026-09-24: a screen phrase REPLACES the nested section names.
+  check('H8 a nested field reads as the screen phrase, not its storage sections', h8 === 'Land 1, Branded Villas, Phase 1: ADR indexation rate %', h8);
+  check('H8b an unlisted nested field still qualifies by its sections, initialisms kept',
+    L('assets[id=as1].revenue.operate.fb.newField') === 'Land 1, Branded Villas, Phase 1, revenue operate F&B: New field');
   const h9 = L('project.fundTerms.hurdleRatePct');
   check('H9 a project section reads as before ("Fund terms: Hurdle rate %")', h9 === 'Fund terms: Hurdle rate %', h9);
 
   // H10..H12: a record the model no longer holds.
   const gone = L('assets[id=zz9].gfaSqm');
   check('H10 an element nothing can name says so in words, never its id',
-    gone === 'Asset no longer in the project: GFA (sqm)' && !/zz9/.test(gone), gone);
+    gone === 'Asset no longer in the project: GFA override (sqm)' && !/zz9/.test(gone), gone);
   const fromLog = namingContext({ phases, parcels, assets: [], subUnits: [], costLines: [] },
     recordsFromChanges([{ path: 'assets[id=zz9]', before: { id: 'zz9', type: 'Strip Retail', phaseId: 'ph2' }, after: null }]));
   const h11 = labelForChange({ path: 'assets[id=zz9].gfaSqm', kind: 'update', before: 1, after: 2 }, fromLog);
-  check('H11 but a deleted element is named from the record its OWN removal row carries', h11 === 'Phase 2, Strip Retail: GFA (sqm)', h11);
+  check('H11 but a deleted element is named from the record its OWN removal row carries', h11 === 'Phase 2, Strip Retail: GFA override (sqm)', h11);
   const h12 = L('costLines[id=professional-fee__ph2].rateStated');
   check('H12 a deleted standard cost line is named from its id (base__phase)',
     h12 === 'Professional fee, Phase 2 (no longer in the project): Rate stated', h12);
 
   // H13: the add / remove / case sentences the differ has always written.
-  check('H13 element and case sentences are unchanged ("Added ...", "Case \\"X\\" added", "Case renamed to")',
-    L('parcels[id=pl1]', 'remove', { id: 'pl1', name: 'Land 1' }, null) === 'Removed Land 1'
-    && L('cases[case_up]', 'add', null, 'Upside') === 'Case "Upside" added'
-    && L('cases[case_up].name', 'update', 'Up', 'Upside') === 'Case renamed to "Upside"');
+  // RE-AIMED 2026-09-24 (founder: pick one place for the verb): the badge
+  // says Added / Removed, so the sentence names WHAT and never the verb, on a
+  // new row and on a STORED one alike.
+  check('H13 element and case sentences carry no verb; the badge does',
+    L('parcels[id=pl1]', 'remove', { id: 'pl1', name: 'Land 1' }, null) === 'Land 1'
+    && L('cases[case_up]', 'add', null, 'Upside') === 'Case "Upside"'
+    && L('cases[case_up].name', 'update', 'Up', 'Upside') === 'Case name');
+  check('H13b a stored sentence written with its verb is read without it',
+    withoutVerb('Added Land 3, Villas') === 'Land 3, Villas' && withoutVerb('Case "Up" removed') === 'Case "Up"'
+    && withoutVerb('Case renamed to "Bear"') === 'Case name' && withoutVerb('Land 1: Area (sqm)') === 'Land 1: Area (sqm)');
+  check('H13c and presentChanges applies it to a stored label',
+    presentChanges([{ action: 'add', path: 'parcels[id=pl1]', label: 'Added Land 1', before: null, after: { id: 'pl1' } }], ctx, sameValue).rows[0].label === 'Land 1');
+  // THE FIELD IN THE SCREEN'S WORDS, one per internal name the founder listed.
+  const words = [
+    L('subUnits[id=su1].metricValue'), L('assets[id=as1].subUnitMetric'), L('assets[id=as1].revenue.sell.velocityDefault'),
+    L('assets[id=as1].capexPhasing.distribution'), L('project.costStandardRows[id=x].byPhase'),
+  ];
+  check('H13d Sub unit metric, Velocity default, Distribution, By phase read as the screen labels',
+    words[1].endsWith(': Sells by') && words[2].endsWith(': Sales velocity, all sub-units')
+    && words[3].endsWith(': Construction phasing weights') && words[4].endsWith(': Rate by phase'), words.join(' | '));
 
   // H14: the PROPERTY, over every path family above: no raw path survives.
   const all = [h3, h4, h5, h6, h7, h8, h9, gone, h11, h12];
@@ -698,7 +720,11 @@ console.log('\n=== I. An absent value is never printed as "null" ===');
   check('I8 the chip prints describeChange, and the panel has no private formatter',
     /describeChange\(kind, before, after, \{ field, ctx \}\)/.test(panels) && !/function formatLogValue/.test(panels));
   check('I9 the Activity log and the Version modal both render the pair through ValueChange',
-    /<ValueChange kind=\{change\.action\}/.test(panels) && /<ValueChange kind=\{entry\.kind\}/.test(MODAL_SRC)
+    /<ValueChange kind=\{change\.action\}/.test(panels)
+    // RE-AIMED 2026-09-24: the modal passes the CORRECTED kind (a stored leaf
+    // "remove" reads as the clear it was), by the same rule as the log.
+    && /<ValueChange kind=\{kind\} path=\{entry\.path\}/.test(MODAL_SRC)
+    && /const kind = effectiveKind\(entry\.kind, entry\.path\)/.test(MODAL_SRC)
     && !/<ValueChip/.test(MODAL_SRC));
   check('I10 the scenario override list words its values AND its paths by the same rules',
     /formatValue\(v, \{ field: fieldOf\(path\), ctx \}\)/.test(switcher) && /labelForChange\(\{ path: p/.test(switcher)

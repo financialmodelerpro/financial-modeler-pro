@@ -295,9 +295,98 @@ export interface LabelInput {
 }
 
 /**
+ * THE FIELD IN THE USER'S WORDS (2026-09-24, founder: "use the label the
+ * screen shows"). Keyed by WHERE the field sits (the element kind, then the
+ * path below the element), because one stored name means different things in
+ * different places: a plot's `rate` is its land rate, a cost standard's `rate`
+ * is its rate. Every phrase is the label on the screen that WRITES the field
+ * (audited 2026-09-24 against Module1Assets, Module1Costs,
+ * Module1AssetStandards, Module2Revenue, Module1FundTerms, Module1Financing,
+ * Module2Escrow, Module5Shared), in sentence case. A phrase REPLACES the
+ * nested section names ("revenue operate adr indexation: Rate" reads "ADR
+ * indexation rate %"). Anything not listed falls back to the humaniser, so a
+ * field added tomorrow still reads as words.
+ */
+const SCREEN_WORDS: Record<string, Record<string, string>> = {
+  assets: {
+    'landChain.utilisationPct': 'Land utilisation %', 'landChain.coveragePct': 'Ground coverage %',
+    'landChain.farRatio': 'FAR', 'landChain.maxFloors': 'Max floors',
+    'landChain.retailPct': 'Retail % (ground floor)', 'landChain.servicePct': 'Service %',
+    'landAllocation.sqm': 'Plot area (sqm)', 'landAllocation.parcelId': 'Plot',
+    type: 'Type', assetTypeId: 'Type', strategy: 'Strategy', phaseId: 'Phase', subUnitMetric: 'Sells by',
+    gfaSqm: 'GFA override (sqm)', supportArea: 'Support area (sqm)', parkingArea: 'Parking area (sqm)',
+    buaSqm: 'Total GFA (sqm)', sellableBuaSqm: 'NSA or GLA (sqm)', parkingBaysRequired: 'Parking slots',
+    'capexPhasing.distribution': 'Construction phasing weights', 'capexPhasing.phasing': 'Construction phasing curve',
+    'opex.lines': 'Opex lines',
+    'revenue.sell.velocityDefault': 'Sales velocity, all sub-units',
+    'revenue.sell.subUnits': 'Sales velocity by sub-unit',
+    'revenue.sell.downpaymentByPhase': 'Downpayment %',
+    'revenue.sell.maxInstalmentYears': 'Max instalment years after sale',
+    'revenue.sell.instalmentsStopAtHandover': 'Instalments',
+    'revenue.sell.indexation.method': 'Price indexation', 'revenue.sell.indexation.rate': 'Price indexation rate %',
+    'revenue.sell.indexation.startYear': 'Price indexation start year',
+    'revenue.sell.recognitionProfile.percentages': 'Revenue recognition %',
+    'revenue.lease.occupancyPerPeriod': 'Occupancy', 'revenue.lease.arDays': 'AR days',
+    'revenue.lease.rentIndexation.method': 'Rent indexation', 'revenue.lease.rentIndexation.rate': 'Rent indexation rate %',
+    'revenue.lease.rentIndexation.startYear': 'Rent indexation start year',
+    'revenue.operate.occupancyPerPeriod': 'Occupancy', 'revenue.operate.dso': 'AR days',
+    'revenue.operate.adrIndexation.method': 'ADR indexation', 'revenue.operate.adrIndexation.rate': 'ADR indexation rate %',
+    'revenue.operate.adrIndexation.startYear': 'ADR indexation start year',
+    'revenue.operate.fb.percentOfRooms': 'F&B %', 'revenue.operate.otherRevenue.percentOfRooms': 'Other revenue %',
+  },
+  subUnits: {
+    nsaSharePct: 'NSA share %', unitArea: 'Average unit size (sqm)', unitPrice: 'Rate',
+    pricePerSqm: 'Rate per sqm', pricePerUnit: 'Rate per unit', parkingRatio: 'Parking',
+    metric: 'Sells by', name: 'Name',
+  },
+  parcels: { area: 'Area (sqm)', rate: 'Land rate per sqm', phaseId: 'Phase', name: 'Name' },
+  costLines: {
+    method: 'Method', value: 'Value', startPeriod: 'Start', endPeriod: 'End',
+    selectedLineIds: 'Applies to (selected lines)', name: 'Name',
+  },
+  costOverrides: { value: 'Value', method: 'Method', startPeriod: 'Start', endPeriod: 'End' },
+  costStandardRows: { rate: 'Rate', byPhase: 'Rate by phase' },
+  assetTypes: { label: 'Name' },
+  assetTypeValues: {
+    avgUnitSizeSqm: 'Avg unit size (sqm)', parkingRatio: 'Parking ratio', parkingRatioBasis: 'Ratio basis',
+    utilisationPct: 'Utilisation %', coveragePct: 'Coverage %', farRatio: 'FAR', servicePct: 'Service %',
+    pricePerUnit: 'Price per unit', pricePerSqm: 'Price per sqm', strategy: 'Strategy for new assets',
+  },
+  project: {
+    'fundTerms.feeDistribution': 'Fund fee distribution', 'fundTerms.enabled': 'Fund structure',
+    partners: 'Equity partners', 'financing.fundingMethod': 'Funding method',
+    'returns.terminalMethod': 'Terminal value method', 'escrow.heldPct': 'Project held % (escrow)',
+    parkingAreaPerSlotSqm: 'Parking area per slot (sqm)', assetTypes: 'Asset types',
+    assetTypeValues: 'Asset type values', costStandardRows: 'Cost standards',
+  },
+};
+
+/** `metricValue` is typed under "Area (sqm)" or "Units or keys", whichever the
+ *  line sells by, and the ASSET's metric wins over the row's (TRAPS 7.32). */
+function metricValueWords(subUnitId: string, ctx: NamingContext): string {
+  const su = find(ctx, 'subUnits', subUnitId);
+  const asset = typeof su?.assetId === 'string' ? find(ctx, 'assets', su.assetId) : undefined;
+  const metric = (asset?.subUnitMetric ?? su?.metric) as string | undefined;
+  return metric === 'units' ? 'Units or keys' : metric === 'area' ? 'Area (sqm)' : 'Area or units';
+}
+
+/** The field phrase for a leaf, in the screen's words where the screen names
+ *  it. `kind` is the element kind ('project' when none), `rest` the segments
+ *  below the element. */
+function fieldPhrase(kind: string, rest: readonly string[], elementId: string, ctx: NamingContext): string | undefined {
+  if (kind === 'subUnits' && rest.join('.') === 'metricValue') return metricValueWords(elementId, ctx);
+  return SCREEN_WORDS[kind]?.[rest.join('.')];
+}
+
+/**
  * The sentence for one change. Never throws and never returns the raw path
  * for a path it can parse; an unparseable path is returned as it came, which
  * is the pre-label behaviour and the most honest thing left to show.
+ *
+ * THE VERB IS THE BADGE'S (2026-09-24). The row's badge already says Added,
+ * Removed, Cleared or Updated, so the sentence names WHAT and never repeats
+ * the verb ("Added Land 3" under an ADDED badge said it twice, while a field
+ * row said it once).
  */
 export function labelForChange(entry: LabelInput, ctx: NamingContext): string {
   const path = entry.path ?? '';
@@ -313,10 +402,10 @@ export function labelForChange(entry: LabelInput, ctx: NamingContext): string {
     const rest = cm[2];
     if (rest === undefined) {
       const carried = kind === 'remove' ? entry.before : entry.after;
-      return kind === 'remove' ? `Case "${caseName(id, ctx, carried)}" removed` : `Case "${caseName(id, ctx, carried)}" added`;
+      return `Case "${caseName(id, ctx, carried)}"`;
     }
-    if (rest === 'name') return `Case renamed to "${caseName(id, ctx, entry.after)}"`;
-    return `${caseName(id, ctx)}: ${labelForChange({ path: rest, kind, before: entry.before, after: entry.after }, ctx)}`;
+    if (rest === 'name') return 'Case name';
+    return `${caseName(id, ctx)} case: ${labelForChange({ path: rest, kind, before: entry.before, after: entry.after }, ctx)}`;
   }
 
   const segs = parsePath(path);
@@ -326,27 +415,37 @@ export function labelForChange(entry: LabelInput, ctx: NamingContext): string {
   const own = (kind === 'remove' ? entry.before : entry.after) as Rec | undefined;
   const ownRec = own && typeof own === 'object' && !Array.isArray(own) ? own : undefined;
 
-  // Walk the path, remembering the DEEPEST element it passes through and the
-  // plain segments after it.
+  // Walk the path, remembering the DEEPEST element it passes through, what
+  // KIND of element it is, and the plain segments after it.
   let element: string | undefined;
+  let elementKind = 'project';
+  let elementId = '';
   let after: Seg[] = [];
   let endsAtElement = false;
   for (let i = 0; i < segs.length; i++) {
     const s = segs[i];
     const last = i === segs.length - 1;
     let named: string | undefined;
+    let k = '';
+    let id = '';
     if (s.sel !== undefined && i === 0 && TOP_LISTS.has(s.name)) {
-      named = nameElement(s.name as ListKey, selId(s.sel), ctx, last ? ownRec : undefined);
+      k = s.name; id = selId(s.sel);
+      named = nameElement(s.name as ListKey, id, ctx, last ? ownRec : undefined);
     } else if (s.sel !== undefined && i === 0 && s.name === 'costOverrides') {
+      k = 'costOverrides'; id = s.sel;
       named = nameCostOverride(s.sel, ctx);
     } else if (s.sel !== undefined && NESTED_LISTS.has(s.name)) {
-      named = nameElement(s.name as ListKey | 'parcelFunding', selId(s.sel), ctx, last ? ownRec : undefined);
+      k = s.name; id = selId(s.sel);
+      named = nameElement(s.name as ListKey | 'parcelFunding', id, ctx, last ? ownRec : undefined);
     } else if (i > 0 && segs[i - 1].name === 'assetTypeValues' && segs[i - 1].sel === undefined) {
       // `project.assetTypeValues.<typeId>`: an object keyed by a type id.
+      k = 'assetTypeValues'; id = s.name;
       named = nameElement('assetTypes', s.name, ctx);
     }
     if (named !== undefined) {
       element = named;
+      elementKind = k;
+      elementId = id;
       after = [];
       endsAtElement = last;
       continue;
@@ -354,11 +453,12 @@ export function labelForChange(entry: LabelInput, ctx: NamingContext): string {
     after.push(s);
   }
 
-  if (endsAtElement && element !== undefined) {
-    if (kind === 'add') return `Added ${element}`;
-    if (kind === 'remove') return `Removed ${element}`;
-    return element;
-  }
+  if (endsAtElement && element !== undefined) return element;
+
+  // Below an element, or below `project` itself.
+  const rest = (element === undefined ? segs.slice(1) : after).map((s) => s.name);
+  const phrase = fieldPhrase(elementKind, rest, elementId, ctx);
+  if (phrase !== undefined) return element !== undefined ? `${element}: ${phrase}` : phrase;
 
   const leaf = after[after.length - 1] ?? segs[segs.length - 1];
   const field = humaniseField(leaf.name);
@@ -371,6 +471,19 @@ export function labelForChange(entry: LabelInput, ctx: NamingContext): string {
   // the differ always did ("Fund terms: Hurdle rate %", "Project: Partners").
   const section = segs.length > 1 ? humaniseField(segs[segs.length - 2].name) : 'Project';
   return `${section}: ${field}`;
+}
+
+/**
+ * A STORED sentence written before the verb moved to the badge ("Added
+ * Land 3", 'Case "Upside" added', 'Case renamed to "Bear"'), read without the
+ * verb, so old and new rows read alike.
+ */
+export function withoutVerb(label: string): string {
+  if (/^Case renamed to "/.test(label)) return 'Case name';
+  return label
+    .replace(/^(Added|Removed) (cost override \()/, 'Cost override (')
+    .replace(/^(Added|Removed) /, '')
+    .replace(/^(Case "[^"]*") (added|removed)$/, '$1');
 }
 
 /**
@@ -433,7 +546,9 @@ export function presentChanges<T extends StoredChangeLike>(
   for (const c of changes) {
     if (recordsNoChange(c, same)) { noChange++; continue; }
     const action = effectiveKind(c.action, c.path);
-    const label = c.label ?? (c.path ? labelForChange({ path: c.path, kind: action, before: c.before, after: c.after }, ctx) : null);
+    // A stored label still wins, read without the verb its badge now carries.
+    const label = c.label !== null ? withoutVerb(c.label)
+      : c.path ? labelForChange({ path: c.path, kind: action, before: c.before, after: c.after }, ctx) : null;
     rows.push(action === c.action && label === c.label ? c : { ...c, action, label });
   }
   return { rows, noChange };

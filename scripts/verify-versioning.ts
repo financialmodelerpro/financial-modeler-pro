@@ -282,7 +282,8 @@ console.log('\n[J] Scenario cases diff');
   ] as never;
   const diffAddCase = diffSnapshots(withBaseCase, withScenario).filter((e) => e.path.startsWith('cases'));
   assertCount('J2: adding a scenario case collapses to one entry', diffAddCase.length, 1);
-  assertEq('J3: add entry path + kind + label', [diffAddCase[0]?.path, diffAddCase[0]?.kind, diffAddCase[0]?.label], ['cases[down]', 'add', 'Case "Downside" added']);
+  // RE-AIMED 2026-09-24: the verb is the badge's (kind 'add'), the label names WHAT.
+  assertEq('J3: add entry path + kind + label', [diffAddCase[0]?.path, diffAddCase[0]?.kind, diffAddCase[0]?.label], ['cases[down]', 'add', 'Case "Downside"']);
 
   // J4: change an override value within a scenario case.
   const edited = deepClone(withScenario);
@@ -297,7 +298,8 @@ console.log('\n[J] Scenario cases diff');
   (renamed.cases as never as Array<{ id: string; name: string }>)[1].name = 'Bear Case';
   const diffRename = diffSnapshots(withScenario, renamed).filter((e) => e.path.startsWith('cases'));
   assertCount('J7: rename yields one entry', diffRename.length, 1);
-  assertEq('J8: rename path + kind + label', [diffRename[0]?.path, diffRename[0]?.kind, diffRename[0]?.label], ['cases[down].name', 'update', 'Case renamed to "Bear Case"']);
+  // RE-AIMED 2026-09-24: a rename is an UPDATE of the case name; the new name is its value.
+  assertEq('J8: rename path + kind + label', [diffRename[0]?.path, diffRename[0]?.kind, diffRename[0]?.label, diffRename[0]?.after], ['cases[down].name', 'update', 'Case name', 'Bear Case']);
 }
 
 // ─────────────────────────────────────────────────────────────────────

@@ -22,6 +22,7 @@ import type { RefmProjectVersionListItem, ChangeLogEntryDTO } from '../../lib/pe
 // panels and their fetch discipline moved to components/collab/, shared with
 // the Module 10 Collaborate screen. These tabs stay, same behaviour.
 import { ActivityPanel, CommentsPanel, ValueChange, NamingProvider, useModelNamingContext } from '../collab/CollabPanels';
+import { labelForChange, withoutVerb, effectiveKind } from '../../lib/persistence/changeLabel';
 import { useProjectChanges, useProjectComments } from '../collab/useCollabData';
 
 interface VersionModalProps {
@@ -608,10 +609,15 @@ function ChangeLogList({ entries }: { entries: ChangeLogEntryDTO[] }): React.JSX
 }
 
 function ChangeLogRow({ entry }: { entry: ChangeLogEntryDTO }): React.JSX.Element {
+  // The SAME sentence rules as the Activity log: a stored label without the
+  // verb its badge carries, else the sentence built from the path.
+  const ctx = React.useContext(NamingProvider);
+  const kind = effectiveKind(entry.kind, entry.path);
+  const sentence = entry.label ? withoutVerb(entry.label) : labelForChange({ path: entry.path, kind, before: entry.before, after: entry.after }, ctx);
   const kindBadge =
-    entry.kind === 'add' ? { label: 'Added', bg: '#d1fae5', fg: '#065f46' } :
-    entry.kind === 'remove' ? { label: 'Removed', bg: '#fee2e2', fg: '#991b1b' } :
-    entry.kind === 'clear' ? { label: 'Cleared', bg: '#fef3c7', fg: '#92400e' } :
+    kind === 'add' ? { label: 'Added', bg: '#d1fae5', fg: '#065f46' } :
+    kind === 'remove' ? { label: 'Removed', bg: '#fee2e2', fg: '#991b1b' } :
+    kind === 'clear' ? { label: 'Cleared', bg: '#fef3c7', fg: '#92400e' } :
     { label: 'Updated', bg: '#e0f2fe', fg: '#0c4a6e' };
 
   return (
@@ -643,17 +649,16 @@ function ChangeLogRow({ entry }: { entry: ChangeLogEntryDTO }): React.JSX.Elemen
       <div style={{ minWidth: 0 }}>
         <div
           style={{
-            fontFamily: 'monospace',
             color: 'var(--color-heading)',
-            wordBreak: 'break-all',
+            overflowWrap: 'anywhere',
           }}
         >
-          {entry.label ?? entry.path}
+          {sentence}
         </div>
-        {(entry.kind === 'update' || entry.kind === 'clear') && (
+        {(kind === 'update' || kind === 'clear') && (
           // The SAME pair renderer as the Collaborate screen, so the two
           // summarise, and word an absent value, alike.
-          <ValueChange kind={entry.kind} path={entry.path} before={entry.before} after={entry.after} />
+          <ValueChange kind={kind} path={entry.path} before={entry.before} after={entry.after} />
         )}
       </div>
     </div>
