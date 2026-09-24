@@ -128,6 +128,22 @@ console.log('\n=== E. House rules ===');
     /allow-list/i.test(src) && /TRAPS 8\.3/.test(src));
 }
 
+console.log('\n-- F. Share your experience is reachable from the sidebar (2026-09-24) --');
+{
+  // The sidebar button must open the SAME modal as the dashboard card, on the
+  // SAME condition, or the two disagree about who is asked. And it must DO
+  // something when clicked: the dead "Team access" entry (TRAPS 8.3) is the
+  // failure this file exists to catch.
+  const cardCond = /\{!noPlan && !shareDone && \(\s*<section/.test(code);
+  const navBlock = code.slice(code.indexOf('data-testid="nav-share-experience"') - 400, code.indexOf('data-testid="nav-share-experience"') + 600);
+  check('F1 the sidebar has a Share your experience button', code.includes('data-testid="nav-share-experience"'));
+  check('F2 on the same condition as the dashboard card', cardCond && /\{!noPlan && !shareDone && \(\s*<div/.test(navBlock));
+  check('F3 and clicking it opens the same modal (setShareOpen(true)), by mouse and by keyboard',
+    /onClick=\{\(\) => \{ setMobileSidebarOpen\(false\); setShareOpen\(true\); \}\}/.test(navBlock)
+    && /onKeyDown=/.test(navBlock) && /<ShareExperienceModal/.test(code));
+  check('F4 it keeps its name when the sidebar is collapsed', /title=\{collapsed \? 'Share your experience' : undefined\}/.test(navBlock));
+}
+
 console.log('');
 console.log(`=== Result: ${pass} passed, ${fail} failed ===`);
 if (fail) { console.log('Failures: ' + fails.join(' | ')); process.exit(1); }

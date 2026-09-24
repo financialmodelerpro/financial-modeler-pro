@@ -795,6 +795,34 @@ export default function ModelingDashboardPage() {
 
           {/* Footer: dark mode + sign out + collapse */}
           <div style={{ padding: collapsed ? '10px 6px' : '10px 10px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            {/* Share your experience (2026-09-24): the SAME modal as the card at
+                the foot of the dashboard, reachable from every view and while
+                scrolled, on the SAME condition (a user with access who has
+                not just submitted), so the two can never disagree about who
+                is asked. */}
+            {!noPlan && !shareDone && (
+              <div
+                className="mh-nav-item"
+                data-testid="nav-share-experience"
+                role="button"
+                tabIndex={0}
+                onClick={() => { setMobileSidebarOpen(false); setShareOpen(true); }}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setMobileSidebarOpen(false); setShareOpen(true); } }}
+                title={collapsed ? 'Share your experience' : undefined}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: collapsed ? 0 : 10,
+                  justifyContent: collapsed ? 'center' : 'flex-start',
+                  padding: collapsed ? '11px 0' : '10px 12px',
+                  borderRadius: 8, cursor: 'pointer',
+                  marginBottom: 6,
+                  borderLeft: '3px solid transparent',
+                }}
+              >
+                <span style={{ fontSize: 16, flexShrink: 0 }} aria-hidden>⭐</span>
+                {!collapsed && <span style={{ fontSize: 13, fontWeight: 600, color: '#C9A84C' }}>Share your experience</span>}
+              </div>
+            )}
+
             {/* Dark mode toggle */}
             <div
               className="mh-nav-item"
