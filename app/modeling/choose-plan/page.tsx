@@ -28,6 +28,7 @@ import { useRouter } from 'next/navigation';
 import { useEntitlements } from '@/src/hubs/modeling/platforms/refm/lib/useEntitlements';
 import { NONE_PLAN_KEY } from '@/src/shared/entitlements/gate';
 import { readPlanIntent, planIntentQuery } from '@/src/hubs/modeling/lib/planIntent';
+import { isOffline } from '@/src/shared/utils/connection';
 
 const NAVY = '#0D2E5A';
 const GOLD = '#C9A84C';
@@ -41,7 +42,8 @@ export default function ChoosePlanPage() {
   const [trialBusy, setTrialBusy] = useState(false);
 
   useEffect(() => {
-    if (status === 'unauthenticated') router.replace('/signin?bypass=true');
+    // Offline is not signed out: see src/shared/utils/connection.ts.
+    if (status === 'unauthenticated' && !isOffline()) router.replace('/signin?bypass=true');
   }, [status, router]);
 
   // Resume a logged-out pricing click: forward to pricing with the saved intent.
@@ -127,7 +129,7 @@ export default function ChoosePlanPage() {
         <div style={{ marginTop: 36, paddingTop: 20, borderTop: '1px solid rgba(255,255,255,0.12)', fontSize: 12.5, color: 'rgba(255,255,255,0.55)' }}>
           Signed in as <span style={{ color: '#fff', fontWeight: 600 }}>{email}</span>
           {' '}&middot;{' '}
-          <button onClick={() => signOut({ callbackUrl: '/' })}
+          <button onClick={() => signOut({ callbackUrl: '/signin' })}
             style={{ background: 'none', border: 'none', color: GOLD, fontWeight: 700, fontSize: 12.5, cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}>
             Sign out
           </button>

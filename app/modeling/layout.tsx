@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import PwaClient from '@/src/hubs/modeling/components/pwa/PwaClient';
 
 const APP_URL   = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com';
 const OG_TITLE  = 'Financial Modeler Pro - Professional Modeling Hub';
@@ -11,6 +12,11 @@ export const metadata: Metadata = {
   // Override the root layout's MAIN_URL canonical so modeling-hub pages
   // default to app.* rather than inheriting the main-domain canonical.
   alternates: { canonical: APP_URL },
+  // INSTALLABLE APP (2026-09-24): the manifest is linked ONLY from the Modeling
+  // Hub's layouts, so the main site and the Training Hub never offer an install.
+  manifest: '/app.webmanifest',
+  appleWebApp: { capable: true, title: 'FMP Modeling', statusBarStyle: 'default' },
+
   openGraph: {
     type: 'website',
     title: OG_TITLE,
@@ -28,5 +34,14 @@ export const metadata: Metadata = {
 };
 
 export default function ModelingLayout({ children }: { children: React.ReactNode }) {
-  return <>{children}</>;
+  return (
+    <>
+      {/* iOS reads its home-screen icon from this link, not the manifest. A
+          <link> rather than metadata.icons, which would replace the root
+          layout's CMS favicon on every app page. */}
+      <link rel="apple-touch-icon" href="/pwa/apple-touch-icon.png" />
+      <PwaClient />
+      {children}
+    </>
+  );
 }

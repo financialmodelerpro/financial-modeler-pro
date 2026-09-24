@@ -11,6 +11,7 @@ import { useEntitlements } from '@/src/hubs/modeling/platforms/refm/lib/useEntit
 import { NONE_PLAN_KEY } from '@/src/shared/entitlements/gate';
 import BillingView from '@/src/hubs/modeling/components/BillingView';
 import { ShareExperienceModal } from '@/src/shared/components/ShareExperienceModal';
+import { isOffline } from '@/src/shared/utils/connection';
 
 // DB row shape returned by GET /api/admin/modules. Only fields we map to
 // `Platform` are listed; unused columns are tolerated as `unknown`.
@@ -506,7 +507,8 @@ export default function ModelingDashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (status === 'unauthenticated') {
+    // Offline is not signed out: see src/shared/utils/connection.ts.
+    if (status === 'unauthenticated' && !isOffline()) {
       router.replace('/signin?bypass=true');
     }
   }, [status, router]);
@@ -686,7 +688,7 @@ export default function ModelingDashboardPage() {
               )}
               <div style={{ borderTop: `1px solid ${theme.border}` }}>
                 <button
-                  onClick={() => { setProfileDropdown(false); signOut({ callbackUrl: '/' }); }}
+                  onClick={() => { setProfileDropdown(false); signOut({ callbackUrl: '/signin' }); }}
                   style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', background: 'none', border: 'none', fontSize: 13, color: '#DC2626', fontWeight: 600, cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}
                 >
                   🚪 Sign Out
@@ -814,7 +816,7 @@ export default function ModelingDashboardPage() {
             {/* Sign out */}
             <div
               className="mh-nav-item"
-              onClick={() => signOut({ callbackUrl: '/' })}
+              onClick={() => signOut({ callbackUrl: '/signin' })}
               title={collapsed ? 'Sign Out' : undefined}
               style={{
                 display: 'flex', alignItems: 'center', gap: collapsed ? 0 : 10,

@@ -480,7 +480,7 @@ export default function Topbar({
       </Link>
 
       <button
-        onClick={() => signOut({ callbackUrl: '/' })}
+        onClick={() => signOut({ callbackUrl: '/signin' })}
         className="topbar-icon-btn"
         title={'SIGN OUT\n\nEnd your session and return to the public site. Unsaved draft changes are kept on the server so you can resume after signing back in.'}
         style={{

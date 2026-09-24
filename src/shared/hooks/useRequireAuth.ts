@@ -3,6 +3,7 @@
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
+import { isOffline } from '@/src/shared/utils/connection';
 
 /**
  * Redirect unauthenticated visitors to the Modeling Hub sign-in.
@@ -26,6 +27,10 @@ export function useRequireAuth(): { loading: boolean } {
 
   useEffect(() => {
     if (status === 'loading') return;
+    // OFFLINE IS NOT SIGNED OUT (2026-09-24). A failed session request reads
+    // as unauthenticated; sending that user to sign in cannot work and blames
+    // their session for their network. The offline notice explains instead.
+    if (isOffline()) return;
     if (!session) {
       router.replace('/signin?bypass=true');
     }

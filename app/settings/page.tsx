@@ -259,7 +259,7 @@ export default function SettingsPage() {
       });
       const j = await res.json();
       if (!res.ok) { showToast(j.error ?? 'Deletion failed', 'error'); return; }
-      await signOut({ callbackUrl: '/' });
+      await signOut({ callbackUrl: '/signin' });
     } finally { setDeleting(false); }
   }
 
@@ -282,7 +282,7 @@ export default function SettingsPage() {
         <div style={{ flex: 1 }} />
         <a href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/dashboard`} style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, textDecoration: 'none', marginRight: 16 }}>← Modeling Hub</a>
         <button
-          onClick={async () => { setSigningOut(true); await signOut({ callbackUrl: '/' }); }}
+          onClick={async () => { setSigningOut(true); await signOut({ callbackUrl: '/signin' }); }}
           disabled={signingOut}
           style={{
             background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.35)',
@@ -472,7 +472,7 @@ export default function SettingsPage() {
               <div style={{ fontSize: 12, color: 'var(--color-meta)' }}>You will be redirected to the home page.</div>
             </div>
             <button
-              onClick={async () => { setSigningOut(true); await signOut({ callbackUrl: '/' }); }}
+              onClick={async () => { setSigningOut(true); await signOut({ callbackUrl: '/signin' }); }}
               disabled={signingOut}
               className="btn-danger"
             >

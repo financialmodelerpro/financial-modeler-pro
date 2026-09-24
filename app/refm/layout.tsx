@@ -1,4 +1,6 @@
+import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
+import PwaClient from '@/src/hubs/modeling/components/pwa/PwaClient';
 import { getServerSession } from 'next-auth';
 import { ensureNotComingSoon } from '@/src/hubs/modeling/lib/ensureNotComingSoon';
 import { authOptions } from '@/src/shared/auth/nextauth';
@@ -40,6 +42,13 @@ import { resolveUserGate } from '@/src/shared/entitlements/resolveUser';
  */
 export const dynamic = 'force-dynamic';
 
+export const metadata: Metadata = {
+  // INSTALLABLE APP (2026-09-24): the manifest is linked ONLY from the Modeling
+  // Hub's layouts, so the main site and the Training Hub never offer an install.
+  manifest: '/app.webmanifest',
+  appleWebApp: { capable: true, title: 'FMP Modeling', statusBarStyle: 'default' },
+};
+
 export default async function RefmLayout({ children }: { children: React.ReactNode }) {
   await ensureNotComingSoon();
 
@@ -57,5 +66,14 @@ export default async function RefmLayout({ children }: { children: React.ReactNo
     if (isNoPlanLockedOut(gate.planKey, gate.isAdmin, gate.lapseState)) redirect('/choose-plan');
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      {/* iOS reads its home-screen icon from this link, not the manifest. A
+          <link> rather than metadata.icons, which would replace the root
+          layout's CMS favicon on every app page. */}
+      <link rel="apple-touch-icon" href="/pwa/apple-touch-icon.png" />
+      <PwaClient />
+      {children}
+    </>
+  );
 }
