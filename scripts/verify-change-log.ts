@@ -30,7 +30,8 @@
 import { readFileSync } from 'node:fs';
 import { rowsForSave, MAX_CHANGE_ROWS_PER_SAVE } from '../src/hubs/modeling/platforms/refm/lib/persistence/changeLog';
 import { summariseArray, groupBySave } from '../src/hubs/modeling/platforms/refm/components/collab/CollabPanels';
-import { diffSnapshots } from '../src/hubs/modeling/platforms/refm/lib/persistence/snapshot-diff';
+import { diffSnapshots, sameValue } from '../src/hubs/modeling/platforms/refm/lib/persistence/snapshot-diff';
+import { labelForChange, namingContext, recordsFromChanges, presentChanges, effectiveKind } from '../src/hubs/modeling/platforms/refm/lib/persistence/changeLabel';
 
 let passed = 0, failed = 0; const fails: string[] = [];
 function check(label: string, ok: boolean, detail = ''): void {
@@ -338,11 +339,16 @@ console.log('\n=== D. Appended, never recomputed; each save logs its own delta =
   const panels = src(PANELS);
   check('D41 there are filters for PERSON and VERSION',
     /activity-filter-person/.test(panels) && /activity-filter-version/.test(panels));
-  check('D42 they offer only names and versions PRESENT in the page',
-    /new Set\(changes\.map\(\(c\) => c\.userName\)/.test(panels)
-    && /new Set\(changes\.map\(\(c\) => c\.versionId\)/.test(panels));
+  // RE-AIMED 2026-09-24: "present in the page" means present in the rows the
+  // page LISTS. Since rows recording no change are counted rather than listed,
+  // the lists are built from `shown` (presentChanges' output), or a person whose
+  // only rows record nothing would be a filter that returns nothing.
+  check('D42 they offer only names and versions PRESENT in the rows listed',
+    /const shown = presented\.rows;/.test(panels)
+    && /new Set\(shown\.map\(\(c\) => c\.userName\)/.test(panels)
+    && /new Set\(shown\.map\(\(c\) => c\.versionId\)/.test(panels));
   check('D43 a filtered view states how many of how many are shown',
-    /activity-filter-count/.test(panels) && /\{filtered\.length\} of \{changes\.length\} shown/.test(panels));
+    /activity-filter-count/.test(panels) && /\{filtered\.length\} of \{shown\.length\} shown/.test(panels));
   check('D44 a filter matching NOTHING says so, rather than looking like an empty log',
     /activity-filter-empty/.test(panels) && /No activity matches these filters/.test(panels));
   check('D45 and on a TRUNCATED page the filter admits it searched only what is loaded',
@@ -533,6 +539,123 @@ console.log('\n=== F. Nothing changes for a single-user account ===');
     !/roleCan|isAdmin|membership/i.test(strip(lib)));
   check('F8 the append is keyed on the SESSION user, not the project owner',
     /rowsForSave\(projectId, versionId, userId, saveDelta\)/.test(src(VPATCH)));
+}
+
+console.log('\n=== H. An old row is READ with a sentence, by the rule the differ writes with ===');
+{
+  // THE RULE (2026-09-24): every row written before the label fix has no stored
+  // label and never will (the log is append only). The screen builds the
+  // sentence from the PATH, with the same function the differ labels with, and
+  // a stored label still wins. Rows that record no change are counted, not
+  // shown; a leaf "remove" reads as the clear it was.
+  const LABEL = 'src/hubs/modeling/platforms/refm/lib/persistence/changeLabel.ts';
+  const DIFF = 'src/hubs/modeling/platforms/refm/lib/persistence/snapshot-diff.ts';
+  const diffSrc = src(DIFF);
+
+  // H1/H2: ONE rule. The differ builds no sentence of its own any more; it
+  // labels every entry through labelForChange in one pass. A second inline
+  // label would be a second rule the stored rows are not read with.
+  check('H1 the differ labels every entry through labelForChange, in one pass',
+    /for \(const e of out\) e\.label = labelForChange\(e, ctx\)/.test(diffSrc));
+  check('H2 and builds no label inline anywhere else',
+    !/\blabel:\s*[`'"]/.test(diffSrc) && !/\blabel:\s*leafLabel|\blabel:\s*`/.test(diffSrc));
+
+  const phases = [{ id: 'ph1', name: 'Phase 1' }, { id: 'ph2', name: 'Phase 2' }];
+  const parcels = [{ id: 'pl1', name: 'Land 1' }];
+  const assets = [{ id: 'as1', type: 'Branded Villas', phaseId: 'ph1', landAllocation: { parcelId: 'pl1' } }];
+  const subUnits = [{ id: 'su1', assetId: 'as1', name: '2 BR' }];
+  const costLines = [{ id: 'construction-bua__ph1', name: 'Construction', phaseId: 'ph1' }];
+  const cases = [{ id: 'case_up', name: 'Upside', role: 'scenario', overrides: {} }];
+  const project = { assetTypes: [{ id: 'villas', label: 'Branded Villas' }] };
+  const ctx = namingContext({ phases, parcels, assets, subUnits, costLines, cases, project });
+  const L = (path: string, kind = 'update', before: unknown = 1, after: unknown = 2): string =>
+    labelForChange({ path, kind, before, after }, ctx);
+  const noRaw = (l: string): boolean => !/\[|=|::|[a-z][A-Z]|\bas1\b|\bsu1\b|\bpl1\b|\bph1\b/.test(l);
+
+  // H3..H9: what an unlabelled stored row now reads as, one per path family.
+  const h3 = L('assets[id=as1].buaSqm');
+  check('H3 an asset field reads as the asset, by the ONE asset label rule, and the field in words',
+    h3 === 'Land 1, Branded Villas, Phase 1: BUA (sqm)', h3);
+  const h4 = L('subUnits[id=su1].unitPrice');
+  check('H4 a sub-unit is named ON its asset, since "2 BR" alone is ambiguous', h4 === 'Land 1, Branded Villas, Phase 1, 2 BR: Unit price', h4);
+  const h5 = L('costOverrides[as1::construction-bua__ph1].value');
+  check('H5 a cost override names its line and asset, not its compound key, and the phase once',
+    h5 === 'Construction override for Land 1, Branded Villas, Phase 1: Value', h5);
+  const h6 = L('cases[case_up].subUnits[id=su1].unitPrice');
+  check('H6 a case override reads as the case, then the SAME sentence for its inner path',
+    h6 === 'Upside: Land 1, Branded Villas, Phase 1, 2 BR: Unit price', h6);
+  const h7 = L('project.assetTypeValues.villas.pricePerSqm', 'add', undefined, 5);
+  check('H7 a type value names the type by its label, and "per sqm" reads as words', h7 === 'Asset type Branded Villas: Price per sqm', h7);
+  const h8 = L('assets[id=as1].revenue.operate.adrIndexation.rate');
+  check('H8 nested sections qualify the field, initialisms kept', h8 === 'Land 1, Branded Villas, Phase 1, revenue operate ADR indexation: Rate', h8);
+  const h9 = L('project.fundTerms.hurdleRatePct');
+  check('H9 a project section reads as before ("Fund terms: Hurdle rate %")', h9 === 'Fund terms: Hurdle rate %', h9);
+
+  // H10..H12: a record the model no longer holds.
+  const gone = L('assets[id=zz9].gfaSqm');
+  check('H10 an element nothing can name says so in words, never its id',
+    gone === 'Asset no longer in the project: GFA (sqm)' && !/zz9/.test(gone), gone);
+  const fromLog = namingContext({ phases, parcels, assets: [], subUnits: [], costLines: [] },
+    recordsFromChanges([{ path: 'assets[id=zz9]', before: { id: 'zz9', type: 'Strip Retail', phaseId: 'ph2' }, after: null }]));
+  const h11 = labelForChange({ path: 'assets[id=zz9].gfaSqm', kind: 'update', before: 1, after: 2 }, fromLog);
+  check('H11 but a deleted element is named from the record its OWN removal row carries', h11 === 'Phase 2, Strip Retail: GFA (sqm)', h11);
+  const h12 = L('costLines[id=professional-fee__ph2].rateStated');
+  check('H12 a deleted standard cost line is named from its id (base__phase)',
+    h12 === 'Professional fee, Phase 2 (no longer in the project): Rate stated', h12);
+
+  // H13: the add / remove / case sentences the differ has always written.
+  check('H13 element and case sentences are unchanged ("Added ...", "Case \\"X\\" added", "Case renamed to")',
+    L('parcels[id=pl1]', 'remove', { id: 'pl1', name: 'Land 1' }, null) === 'Removed Land 1'
+    && L('cases[case_up]', 'add', null, 'Upside') === 'Case "Upside" added'
+    && L('cases[case_up].name', 'update', 'Up', 'Upside') === 'Case renamed to "Upside"');
+
+  // H14: the PROPERTY, over every path family above: no raw path survives.
+  const all = [h3, h4, h5, h6, h7, h8, h9, gone, h11, h12];
+  check('H14 no sentence carries a selector, a compound key, camelCase or an id', all.every(noRaw),
+    all.filter((l) => !noRaw(l)).join(' | '));
+
+  // H15..H16: a stored label WINS, and a missing one is built.
+  const stored = { action: 'update', path: 'assets[id=as1].buaSqm', label: 'As it was called then', before: 1, after: 2 };
+  const bare = { ...stored, label: null };
+  const p = presentChanges([stored, bare], ctx, sameValue);
+  check('H15 a stored label wins over the render-time one', p.rows[0].label === 'As it was called then', String(p.rows[0].label));
+  check('H16 a row with no stored label gets the render-time sentence', p.rows[1].label === h3, String(p.rows[1].label));
+
+  // H17..H19: a row that records no change. BOTH branches, measured: the key
+  // reorder is dropped, and a same-length list whose VALUES moved is kept.
+  const reorder = { action: 'update', path: 'project.fundTerms.feeDistribution', label: null,
+    before: [{ a: 1, b: 2 }], after: [{ b: 2, a: 1 }] };
+  const real = { ...reorder, after: [{ a: 1, b: 3 }] };
+  const q = presentChanges([reorder, real], ctx, sameValue);
+  check('H17 a row whose sides are equal (key order aside) is COUNTED, not shown', q.noChange === 1 && q.rows.length === 1);
+  check('H18 and a real change of the same shape is still shown', q.rows[0] === real || q.rows[0].after === real.after);
+  check('H19 the array chip no longer calls a key reorder a change',
+    summariseArray([{ a: 1, b: 2 }], [{ b: 2, a: 1 }]) === '[1 items, unchanged]');
+
+  // H20..H23: the classification the old differ got wrong, corrected by the
+  // differ's own rule, and the one it got right left alone.
+  check('H20 a stored "remove" on a FIELD reads as a clear', effectiveKind('remove', 'subUnits[id=su1].parkingRatio') === 'clear');
+  check('H21 a stored "remove" of an ELEMENT stays a removal',
+    effectiveKind('remove', 'parcels[id=pl1]') === 'remove' && effectiveKind('remove', 'costOverrides[a::b]') === 'remove'
+    && effectiveKind('remove', 'project.assetTypes[id=villas]') === 'remove');
+  check('H22 a removed CASE stays a removal, a case override dropped is a clear',
+    effectiveKind('remove', 'cases[case_up]') === 'remove' && effectiveKind('remove', 'cases[case_up].subUnits[id=su1].unitPrice') === 'clear');
+  check('H23 the rule agrees with what the differ WRITES today for a cleared field',
+    (() => {
+      const b = { project: {}, landAllocationMode: 'sqm', phases, parcels, assets: [{ ...assets[0], parkingArea: 5 }], subUnits: [], costLines: [], financingTranches: [], equityContributions: [], costOverrides: [], cases: [] } as unknown as Parameters<typeof diffSnapshots>[0];
+      const a = JSON.parse(JSON.stringify(b)); delete a.assets[0].parkingArea;
+      const e = diffSnapshots(b, a)[0];
+      return e?.kind === 'clear' && effectiveKind('remove', e.path) === 'clear';
+    })());
+
+  // H24..H25: the panel is wired to it, and says what it did not list.
+  const panels = src(PANELS);
+  check('H24 the Activity panel presents rows through presentChanges, named from the loaded model and the log',
+    /presentChanges\(changes, ctx, sameValue\)/.test(panels) && /recordsFromChanges\(changes\)/.test(panels)
+    && /useModule1Store\(/.test(panels));
+  check('H25 rows recording no change are stated on screen, never dropped silently',
+    /data-testid="activity-no-change"/.test(panels) && /presented\.noChange/.test(panels));
+  check('H26 changeLabel.ts has no em dashes', !src(LABEL).includes('—'));
 }
 
 console.log('\n=== G. House rules ===');

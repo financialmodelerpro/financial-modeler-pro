@@ -22,6 +22,9 @@ import * as pclient from '../../lib/persistence/client';
 import type { RefmProjectVersionListItem, ProjectChangeDTO, ProjectCommentDTO } from '../../lib/persistence/types';
 import { ScreenBadge, takePendingAnchor } from './ScreenBadge';
 import { screenForPath } from '../../lib/collab/pathScreen';
+import { useModule1Store } from '../../lib/state/module1-store';
+import { namingContext, recordsFromChanges, presentChanges } from '../../lib/persistence/changeLabel';
+import { sameValue } from '../../lib/persistence/snapshot-diff';
 
 const FILTER_STYLE: React.CSSProperties = {
   fontSize: 11.5, fontWeight: 600, color: 'var(--color-heading)',
@@ -80,6 +83,29 @@ export function ActivityPanel({
   const [whoFilter, setWhoFilter] = useState<string>('');
   const [versionFilter, setVersionFilter] = useState<string>('');
 
+  // EVERY ROW READS AS A SENTENCE, INCLUDING THE ONES NOBODY LABELLED
+  // (2026-09-24). A stored label wins; a row with none is labelled here from
+  // its path by `labelForChange`, the SAME function the differ now labels with,
+  // naming things from the loaded model and, for anything since deleted, from
+  // the records the log itself carries. A leaf "remove" is shown as the clear
+  // it was, and a row that records no change is counted rather than shown.
+  const phases = useModule1Store((s) => s.phases);
+  const parcels = useModule1Store((s) => s.parcels);
+  const assets = useModule1Store((s) => s.assets);
+  const subUnits = useModule1Store((s) => s.subUnits);
+  const costLines = useModule1Store((s) => s.costLines);
+  const financingTranches = useModule1Store((s) => s.financingTranches);
+  const equityContributions = useModule1Store((s) => s.equityContributions);
+  const cases = useModule1Store((s) => s.cases);
+  const project = useModule1Store((s) => s.project);
+  const presented = React.useMemo(() => {
+    const ctx = namingContext(
+      { phases, parcels, assets, subUnits, costLines, financingTranches, equityContributions, cases, project },
+      recordsFromChanges(changes),
+    );
+    return presentChanges(changes, ctx, sameValue);
+  }, [changes, phases, parcels, assets, subUnits, costLines, financingTranches, equityContributions, cases, project]);
+
   if (loading) {
     return <div className="alert-info" data-testid="activity-loading">Loading activity...</div>;
   }
@@ -103,10 +129,11 @@ export function ActivityPanel({
   // The people and versions PRESENT IN THIS PAGE, so the dropdowns offer only
   // what can actually be selected. Offering a name with no rows behind it is a
   // filter that returns nothing and looks broken.
-  const people = [...new Set(changes.map((c) => c.userName).filter((n): n is string => !!n))].sort();
-  const versionIds = [...new Set(changes.map((c) => c.versionId).filter((v): v is string => !!v))];
+  const shown = presented.rows;
+  const people = [...new Set(shown.map((c) => c.userName).filter((n): n is string => !!n))].sort();
+  const versionIds = [...new Set(shown.map((c) => c.versionId).filter((v): v is string => !!v))];
 
-  const filtered = changes.filter(
+  const filtered = shown.filter(
     (c) => (whoFilter === '' || c.userName === whoFilter)
       && (versionFilter === '' || c.versionId === versionFilter),
   );
@@ -142,6 +169,17 @@ export function ActivityPanel({
         </div>
       )}
 
+      {/* A ROW THAT RECORDS NOTHING IS NOT SHOWN AS A CHANGE, AND IS NOT HIDDEN
+          SILENTLY EITHER: the log is append only, so the reader is told these
+          rows exist, how many, and why they say nothing. */}
+      {presented.noChange > 0 && (
+        <div data-testid="activity-no-change" style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', marginBottom: 'var(--sp-2)' }}>
+          {presented.noChange.toLocaleString()} older {presented.noChange === 1 ? 'entry records' : 'entries record'} no
+          change and {presented.noChange === 1 ? 'is' : 'are'} not listed: before 23 Sep 2026 a save that only
+          reordered stored fields was logged as an edit.
+        </div>
+      )}
+
       {/* ── Filters, over the page that is loaded ─────────────────────────── */}
       {(people.length > 1 || versionIds.length > 1) && (
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 'var(--sp-2)' }}>
@@ -172,7 +210,7 @@ export function ActivityPanel({
           {filtering && (
             <>
               <span style={{ fontSize: 11.5, color: 'var(--color-meta)' }} data-testid="activity-filter-count">
-                {filtered.length} of {changes.length} shown
+                {filtered.length} of {shown.length} shown
               </span>
               <button
                 type="button"
@@ -464,7 +502,7 @@ export function summariseArray(mine: unknown[], other: unknown): string {
   if (mine.length !== other.length) return `[${mine.length} items]`;
   let changed = 0;
   for (let i = 0; i < mine.length; i++) {
-    if (JSON.stringify(mine[i]) !== JSON.stringify(other[i])) changed += 1;
+    if (!sameValue(mine[i], other[i])) changed += 1;
   }
   if (changed === 0) return `[${mine.length} items, unchanged]`;
   return `[${mine.length} items, ${changed} changed]`;

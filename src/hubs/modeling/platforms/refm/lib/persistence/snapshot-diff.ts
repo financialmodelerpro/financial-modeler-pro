@@ -35,7 +35,7 @@
  */
 
 import type { HydrateSnapshot } from '../state/module1-store';
-import { assetLabel } from '@/src/core/calculations/assetName';
+import { labelForChange, namingContext } from './changeLabel';
 
 export interface ChangeLogEntry {
   path: string;             // e.g. "project.name", "phases[id=phase_1].startDate"
@@ -95,60 +95,6 @@ function deepEqual(a: unknown, b: unknown): boolean {
   }
 }
 
-// Get a stable display label for an array element keyed by id. Phases
-// + assets + sub-units etc. all carry a human-readable `name`; if
-// present that becomes the label, otherwise we fall back to the id.
-function elementLabel(rec: Record<string, unknown>): string {
-  const name = rec['name'];
-  if (typeof name === 'string' && name.trim()) return name;
-  const id = rec['id'];
-  if (typeof id === 'string') return id;
-  return '?';
-}
-
-/**
- * How ONE array names its elements (2026-09-22). Most records carry a name the
- * user typed, so `elementLabel` is right for them. ASSETS DO NOT: `Asset.name`
- * is RETIRED (read by nothing, and the assets table offers no name to type),
- * so an asset add or remove was labelled with its raw id, or with "?", in the
- * one place it exists to be readable.
- *
- * An asset is called by WHERE IT IS AND WHAT IT IS, and `assetLabel` is the one
- * rule for that, so this hands it the same context every other reader uses.
- *
- * The context is the UNION of both snapshots' plots and phases, because an
- * asset and its plot can go in the SAME save, and resolving against `after`
- * alone would quietly fall back to the phase for exactly the row that needs
- * naming most.
- */
-type ElementLabeller = (rec: Record<string, unknown>) => string;
-
-function assetLabeller(
-  before: HydrateSnapshot | null | undefined,
-  after:  HydrateSnapshot | null | undefined,
-): ElementLabeller {
-  const merge = (a: readonly unknown[] = [], b: readonly unknown[] = []): unknown[] => {
-    const m = new Map<string, unknown>();
-    for (const r of [...a, ...b]) {
-      const id = (r as { id?: unknown } | null)?.id;
-      if (typeof id === 'string') m.set(id, r);
-    }
-    return [...m.values()];
-  };
-  const ctx = {
-    parcels: merge(before?.parcels as unknown[], after?.parcels as unknown[]),
-    phases:  merge(before?.phases as unknown[],  after?.phases as unknown[]),
-  } as unknown as Parameters<typeof assetLabel>[1];
-  return (rec) => {
-    // Falls back rather than throwing: a label is a courtesy on an audit row,
-    // and losing the whole entry to a labelling error would be the wrong trade.
-    try {
-      const l = assetLabel(rec as unknown as Parameters<typeof assetLabel>[0], ctx);
-      return l.trim() ? l : elementLabel(rec);
-    } catch { return elementLabel(rec); }
-  };
-}
-
 /**
  * Nested record arrays that should be diffed PER ELEMENT (so a single element's
  * field round-trips as its own path) instead of as one whole-array leaf. Keyed
@@ -172,60 +118,6 @@ export const PER_ELEMENT_ARRAYS: Record<string, string> = {
 };
 
 /**
- * A FIELD NAME IN WORDS (2026-09-23).
- *
- * Every entry except the scalar leaves carried a label, and the scalar leaves
- * are the COMMON CASE, so most rows in the activity log still rendered a raw
- * snapshot path. Item 1 carried through the labels that already existed and
- * created none, which was an over-claim on my part; this is the part that
- * actually makes the log readable.
- *
- * A dictionary only where the mechanical answer is wrong or ugly (initialisms
- * and units), and a humaniser for everything else, so a field added tomorrow
- * reads sensibly without anyone maintaining a list.
- */
-const FIELD_WORDS: Record<string, string> = {
-  buaSqm: 'BUA (sqm)', gfaSqm: 'GFA (sqm)', nsaSqm: 'NSA (sqm)',
-  sellableBuaSqm: 'Sellable BUA (sqm)', landAreaSqm: 'Land area (sqm)',
-  ltvPct: 'LTV %', dsoDays: 'DSO (days)', arDays: 'AR (days)',
-  idcCapitalize: 'Capitalise IDC', assetTypeId: 'Asset type',
-  startingADR: 'Starting ADR', adrIndexation: 'ADR indexation',
-  farRatio: 'FAR', hqOpex: 'HQ opex',
-};
-
-function humaniseField(seg: string): string {
-  const known = FIELD_WORDS[seg];
-  if (known) return known;
-  // SENTENCE case, not title case: "Fund terms: Hurdle rate %", which is how
-  // the rest of this platform writes a label, rather than "Fund Terms: Hurdle
-  // Rate %". An initialism that must stay upper lives in FIELD_WORDS above.
-  const words = seg.replace(/([a-z0-9])([A-Z])/g, '$1 $2').split(/\s+/);
-  return words
-    .map((w, i) => {
-      if (/^sqm$/i.test(w)) return '(sqm)';
-      if (/^pct$/i.test(w)) return '%';
-      const lower = w.toLowerCase();
-      return i === 0 ? lower.charAt(0).toUpperCase() + lower.slice(1) : lower;
-    })
-    .join(' ')
-    .replace(/\s+%/, ' %');
-}
-
-/** "Land 5, 4 Star Hotel: BUA (sqm)" or "Fund terms: Hurdle rate %". */
-function leafLabel(basePath: string, key: string, elementName?: string): string {
-  const field = humaniseField(key);
-  if (elementName) {
-    // Anything below the element itself is kept, so a nested revenue field is
-    // not confused with a top-level one on the same asset.
-    const sub = basePath.replace(/^[a-zA-Z]+\[[^\]]*\]\.?/, '').replace(/\./g, ' ');
-    return sub ? `${elementName} ${sub}: ${field}` : `${elementName}: ${field}`;
-  }
-  const segs = basePath.split('.').filter(Boolean);
-  const section = humaniseField(segs[segs.length - 1] ?? basePath);
-  return `${section}: ${field}`;
-}
-
-/**
  * Diff a single object's leaves and recurse into nested objects.
  * `path` is the parent path (e.g. "project" or "phases[id=phase_1]").
  * Arrays of records keyed by id are handled by `diffIdArray` instead.
@@ -235,8 +127,6 @@ function diffObject(
   before: Record<string, unknown> | null | undefined,
   after:  Record<string, unknown> | null | undefined,
   out: ChangeLogEntry[],
-  /** The human name of the record these fields belong to, when there is one. */
-  elementName?: string,
 ): void {
   const b = before ?? {};
   const a = after  ?? {};
@@ -250,7 +140,7 @@ function diffObject(
     const beforeIsObj = beforeVal && typeof beforeVal === 'object' && !Array.isArray(beforeVal);
     const afterIsObj  = afterVal  && typeof afterVal  === 'object' && !Array.isArray(afterVal);
     if (beforeIsObj && afterIsObj) {
-      diffObject(`${basePath}.${k}`, beforeVal as Record<string, unknown>, afterVal as Record<string, unknown>, out, elementName);
+      diffObject(`${basePath}.${k}`, beforeVal as Record<string, unknown>, afterVal as Record<string, unknown>, out);
       continue;
     }
 
@@ -268,7 +158,6 @@ function diffObject(
     // went from 10 to 12 AND index 5 went from 8 to 7".
     out.push({
       path: `${basePath}.${k}`,
-      label: leafLabel(basePath, k, elementName),
       before: beforeVal,
       after:  afterVal,
       // The RECORD still exists here (diffObject is walking its fields), so a
@@ -290,9 +179,6 @@ function diffIdArray(
   after:  ReadonlyArray<Record<string, unknown>>,
   out: ChangeLogEntry[],
   keyField = 'id',
-  /** How to NAME an element of this array. Defaults to its typed name, which
-   *  is right everywhere except assets, whose name is retired. */
-  labelOf: ElementLabeller = elementLabel,
 ): void {
   // keyVal is coerced to a string so non-string ids (none today) still key.
   const keyOf = (rec: Record<string, unknown>): string | undefined => {
@@ -311,14 +197,13 @@ function diffIdArray(
     if (!beforeRec) {
       out.push({
         path:  childPath,
-        label: `Added ${labelOf(afterRec)}`,
         before: undefined,
         after:  afterRec,
         kind:   'add',
       });
       continue;
     }
-    diffObject(childPath, beforeRec, afterRec, out, labelOf(afterRec));
+    diffObject(childPath, beforeRec, afterRec, out);
   }
 
   // Removes: walk `before`, anything not in `after` is gone.
@@ -326,7 +211,6 @@ function diffIdArray(
     if (byIdAfter.has(id)) continue;
     out.push({
       path:  `${basePath}[${keyField}=${id}]`,
-      label: `Removed ${labelOf(beforeRec)}`,
       before: beforeRec,
       after:  undefined,
       kind:   'remove',
@@ -357,22 +241,18 @@ function diffCostOverrides(
     if (!beforeRec) {
       out.push({
         path:  childPath,
-        label: `Added cost override (${k})`,
         before: undefined,
         after:  afterRec,
         kind:   'add',
       });
       continue;
     }
-    // A cost override has no name of its own; its compound key IS its identity,
-    // and it is what the add and remove entries above and below already print.
-    diffObject(childPath, beforeRec, afterRec, out, `Cost override (${k})`);
+    diffObject(childPath, beforeRec, afterRec, out);
   }
   for (const [k, beforeRec] of byKeyBefore) {
     if (byKeyAfter.has(k)) continue;
     out.push({
       path:  `costOverrides[${k}]`,
-      label: `Removed cost override (${k})`,
       before: beforeRec,
       after:  undefined,
       kind:   'remove',
@@ -408,17 +288,17 @@ function diffCases(
 
   for (const c of afterCases) {
     if (isBase(c) || bMap.has(idOf(c))) continue;
-    out.push({ path: `cases[${idOf(c)}]`, label: `Case "${nameOf(c)}" added`, before: null, after: nameOf(c), kind: 'add' });
+    out.push({ path: `cases[${idOf(c)}]`, before: null, after: nameOf(c), kind: 'add' });
   }
   for (const c of beforeCases) {
     if (isBase(c) || aMap.has(idOf(c))) continue;
-    out.push({ path: `cases[${idOf(c)}]`, label: `Case "${nameOf(c)}" removed`, before: nameOf(c), after: null, kind: 'remove' });
+    out.push({ path: `cases[${idOf(c)}]`, before: nameOf(c), after: null, kind: 'remove' });
   }
   for (const a of afterCases) {
     const b = bMap.get(idOf(a));
     if (!b) continue;
     if (nameOf(b) !== nameOf(a)) {
-      out.push({ path: `cases[${idOf(a)}].name`, label: `Case renamed to "${nameOf(a)}"`, before: nameOf(b), after: nameOf(a), kind: 'update' });
+      out.push({ path: `cases[${idOf(a)}].name`, before: nameOf(b), after: nameOf(a), kind: 'update' });
     }
     const bo = b.overrides ?? {};
     const ao = a.overrides ?? {};
@@ -429,7 +309,7 @@ function diffCases(
       // Same rule for a case override: the CASE still exists, so dropping one
       // of its overrides clears that value rather than removing anything.
       const kind: ChangeLogEntry['kind'] = bv === undefined ? 'add' : av === undefined ? 'clear' : 'update';
-      out.push({ path: `cases[${idOf(a)}].${k}`, label: `${nameOf(a)}: ${k}`, before: bv ?? null, after: av ?? null, kind });
+      out.push({ path: `cases[${idOf(a)}].${k}`, before: bv ?? null, after: av ?? null, kind });
     }
   }
 }
@@ -447,22 +327,20 @@ export function diffSnapshots(
   if (!before && after) {
     out.push({
       path:  '<root>',
-      label: 'Initial version',
       before: null,
       after:  null,
       kind:   'add',
     });
-    return out;
+    return labelled(out, null, after);
   }
   if (before && !after) {
     out.push({
       path:  '<root>',
-      label: 'Empty snapshot',
       before: null,
       after:  null,
       kind:   'remove',
     });
-    return out;
+    return labelled(out, before, null);
   }
   if (!before || !after) return out;
 
@@ -481,8 +359,7 @@ export function diffSnapshots(
   // id-keyed arrays
   diffIdArray('phases',              before.phases              as unknown as Record<string, unknown>[], after.phases              as unknown as Record<string, unknown>[], out);
   diffIdArray('parcels',             before.parcels             as unknown as Record<string, unknown>[], after.parcels             as unknown as Record<string, unknown>[], out);
-  // An asset is named by the platform's ONE label rule, never a retired field.
-  diffIdArray('assets',              before.assets              as unknown as Record<string, unknown>[], after.assets              as unknown as Record<string, unknown>[], out, 'id', assetLabeller(before, after));
+  diffIdArray('assets',              before.assets              as unknown as Record<string, unknown>[], after.assets              as unknown as Record<string, unknown>[], out);
   diffIdArray('subUnits',            before.subUnits            as unknown as Record<string, unknown>[], after.subUnits            as unknown as Record<string, unknown>[], out);
   diffIdArray('costLines',           before.costLines           as unknown as Record<string, unknown>[], after.costLines           as unknown as Record<string, unknown>[], out);
   diffIdArray('financingTranches',   before.financingTranches   as unknown as Record<string, unknown>[], after.financingTranches   as unknown as Record<string, unknown>[], out);
@@ -498,7 +375,35 @@ export function diffSnapshots(
   // scenario cases registry (per-case override add/remove/update + rename)
   diffCases(before.cases as CaseRec[] | undefined, after.cases as CaseRec[] | undefined, out);
 
+  return labelled(out, before, after);
+}
+
+/**
+ * EVERY ENTRY IS LABELLED BY ONE RULE, IN ONE PASS (2026-09-24).
+ *
+ * The sentence used to be built inline at each push site, so the rule lived
+ * only here and a log row written before the rule existed could never be read
+ * with it. It is now `labelForChange` (changeLabel.ts), a function of the
+ * PATH and a naming context, which the Activity panel also calls for any
+ * stored row that has no label. Built from BOTH snapshots, `after` first, so
+ * an element present on both sides is named as it now reads, and an asset
+ * removed in the same save as its plot still finds the plot.
+ */
+function labelled(
+  out: ChangeLogEntry[],
+  before: HydrateSnapshot | null | undefined,
+  after: HydrateSnapshot | null | undefined,
+): ChangeLogEntry[] {
+  const ctx = namingContext(after, before);
+  for (const e of out) e.label = labelForChange(e, ctx);
   return out;
+}
+
+/** Deep equality that ignores object key ORDER (and never array order). The
+ *  same comparison the differ uses, exported so a reader of STORED rows can
+ *  recognise one that records no change. */
+export function sameValue(a: unknown, b: unknown): boolean {
+  return deepEqual(a, b);
 }
 
 /**
