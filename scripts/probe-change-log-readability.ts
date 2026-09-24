@@ -24,6 +24,7 @@
  */
 import { namingContext, recordsFromChanges, presentChanges } from '../src/hubs/modeling/platforms/refm/lib/persistence/changeLabel';
 import { sameValue } from '../src/hubs/modeling/platforms/refm/lib/persistence/snapshot-diff';
+import { describeChange } from '../src/hubs/modeling/platforms/refm/lib/persistence/valueText';
 
 interface PgRow { [k: string]: unknown }
 interface PgClient {
@@ -71,7 +72,29 @@ const RAW = /\[|=|::|\b(asset|subunit|parcel|phase|case|retail)_[\w-]+|custom-\d
     console.log(`  names something deleted     ${gone}`);
     console.log(`  stored remove, shown clear  ${cleared - storedClear}`);
     for (const r of shown.filter((x) => !sentence(x)).slice(0, 20)) console.log(`  NOT A SENTENCE: ${r.path} => ${r.label}`);
-    process.exit(readable === shown.length ? 0 : 1);
+
+    // VALUES (2026-09-24): what the chips print, through the panel's own
+    // describeChange. A chip is STORED-LOOKING if it carries JSON braces or
+    // quotes, the words null / true / false, "1 items", or an id; a pair is
+    // REPEATED if both sides print the same text.
+    const STORED = /[{}"]|\bnull\b|\btrue\b|\bfalse\b|\b1 items\b|\b(asset|subunit|parcel|phase|case)_[\w-]+|custom-\d|__phase/;
+    let chips = 0, stored = 0, repeated = 0;
+    const samples: string[] = [];
+    for (const r of shown) {
+      if (!['update', 'add', 'remove', 'clear'].includes(r.action)) continue;
+      const field = /([A-Za-z0-9_]+)$/.exec(r.path ?? '')?.[1];
+      const d = describeChange(r.action, r.before, r.after, { field, ctx });
+      const texts = [d.single, d.before, d.after].filter((t): t is string => t !== undefined);
+      if (texts.length === 0) continue;
+      chips++;
+      if (texts.some((t) => STORED.test(t))) { stored++; if (samples.length < 15) samples.push(`${r.label} :: ${texts.join(' -> ')}`); }
+      if (d.before !== undefined && d.before === d.after) { repeated++; samples.push(`REPEATED ${r.path} :: ${d.before} :: ${JSON.stringify(r.before)?.slice(0, 80)} -> ${JSON.stringify(r.after)?.slice(0, 80)}`); }
+    }
+    console.log(`  rows with value chips        ${chips}`);
+    console.log(`  chips that look stored       ${stored}`);
+    console.log(`  pairs printing the same text ${repeated}`);
+    for (const x of samples) console.log(`  STORED-LOOKING: ${x}`);
+    process.exit(readable === shown.length && stored === 0 ? 0 : 1);
   } finally {
     await c.end();
   }

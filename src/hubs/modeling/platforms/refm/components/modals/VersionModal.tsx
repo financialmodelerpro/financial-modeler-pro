@@ -21,7 +21,7 @@ import type { RefmProjectVersionListItem, ChangeLogEntryDTO } from '../../lib/pe
 // ONE implementation, TWO doors (2026-09-04): the Activity and Comments
 // panels and their fetch discipline moved to components/collab/, shared with
 // the Module 10 Collaborate screen. These tabs stay, same behaviour.
-import { ActivityPanel, CommentsPanel, ValueChange } from '../collab/CollabPanels';
+import { ActivityPanel, CommentsPanel, ValueChange, NamingProvider, useModelNamingContext } from '../collab/CollabPanels';
 import { useProjectChanges, useProjectComments } from '../collab/useCollabData';
 
 interface VersionModalProps {
@@ -564,6 +564,9 @@ export default function VersionModal({
  * message rather than a blank block.
  */
 function ChangeLogList({ entries }: { entries: ChangeLogEntryDTO[] }): React.JSX.Element {
+  // Values name references and options through the SAME context the Activity
+  // panel uses, so a version's list and the log word a value alike.
+  const ctx = useModelNamingContext(entries ?? []);
   if (!entries || entries.length === 0) {
     return (
       <div
@@ -595,9 +598,11 @@ function ChangeLogList({ entries }: { entries: ChangeLogEntryDTO[] }): React.JSX
       }}
       data-testid="change-log-list"
     >
-      {entries.map((entry, idx) => (
-        <ChangeLogRow key={`${entry.path}-${idx}`} entry={entry} />
-      ))}
+      <NamingProvider.Provider value={ctx}>
+        {entries.map((entry, idx) => (
+          <ChangeLogRow key={`${entry.path}-${idx}`} entry={entry} />
+        ))}
+      </NamingProvider.Provider>
     </div>
   );
 }
@@ -648,7 +653,7 @@ function ChangeLogRow({ entry }: { entry: ChangeLogEntryDTO }): React.JSX.Elemen
         {(entry.kind === 'update' || entry.kind === 'clear') && (
           // The SAME pair renderer as the Collaborate screen, so the two
           // summarise, and word an absent value, alike.
-          <ValueChange kind={entry.kind} before={entry.before} after={entry.after} />
+          <ValueChange kind={entry.kind} path={entry.path} before={entry.before} after={entry.after} />
         )}
       </div>
     </div>

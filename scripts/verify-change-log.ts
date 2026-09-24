@@ -32,7 +32,8 @@ import { rowsForSave, MAX_CHANGE_ROWS_PER_SAVE } from '../src/hubs/modeling/plat
 import { summariseArray, groupBySave } from '../src/hubs/modeling/platforms/refm/components/collab/CollabPanels';
 import { diffSnapshots, sameValue } from '../src/hubs/modeling/platforms/refm/lib/persistence/snapshot-diff';
 import { labelForChange, namingContext, recordsFromChanges, presentChanges, effectiveKind } from '../src/hubs/modeling/platforms/refm/lib/persistence/changeLabel';
-import { formatValue, valueSides } from '../src/hubs/modeling/platforms/refm/lib/persistence/valueText';
+import { formatValue, valueSides, describeChange } from '../src/hubs/modeling/platforms/refm/lib/persistence/valueText';
+import { COST_METHOD_LABELS, TERMINAL_METHOD_LABELS } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
 let passed = 0, failed = 0; const fails: string[] = [];
 function check(label: string, ok: boolean, detail = ''): void {
@@ -651,9 +652,12 @@ console.log('\n=== H. An old row is READ with a sentence, by the rule the differ
 
   // H24..H25: the panel is wired to it, and says what it did not list.
   const panels = src(PANELS);
+  // RE-AIMED 2026-09-24: the store read moved into ONE shared hook
+  // (useModelNamingContext) so the Version modal and the case switcher name
+  // alike; the rule is that the panel's names come from it, with the log's rows.
   check('H24 the Activity panel presents rows through presentChanges, named from the loaded model and the log',
-    /presentChanges\(changes, ctx, sameValue\)/.test(panels) && /recordsFromChanges\(changes\)/.test(panels)
-    && /useModule1Store\(/.test(panels));
+    /presentChanges\(changes, ctx, sameValue\)/.test(panels) && /useModelNamingContext\(changes\)/.test(panels)
+    && /recordsFromChanges\(rows\)/.test(panels) && /useModule1Store\(/.test(panels));
   check('H25 rows recording no change are stated on screen, never dropped silently',
     /data-testid="activity-no-change"/.test(panels) && /presented\.noChange/.test(panels));
   check('H26 changeLabel.ts has no em dashes', !src(LABEL).includes('—'));
@@ -670,10 +674,13 @@ console.log('\n=== I. An absent value is never printed as "null" ===');
   const switcher = src('src/hubs/modeling/platforms/refm/components/CaseSwitcher.tsx');
 
   check('I1 null and undefined read "not set"', formatValue(null) === 'not set' && formatValue(undefined) === 'not set');
-  check('I2 a real value is untouched (0 is a value, false is a value, "" is a value)',
-    formatValue(0) === '0' && formatValue(false) === 'false' && formatValue('') === '""');
+  // RE-AIMED 2026-09-24 (founder: values in words): a zero is still a value and
+  // a false is still an answer, but they read as words now, and a record is
+  // described rather than printed as JSON.
+  check('I2 a real value is still a value (0 reads 0, false reads No)',
+    formatValue(0) === '0' && formatValue(false) === 'No');
   const obj = formatValue({ a: 1, b: null });
-  check('I3 an object never carries "null" inside it either', !/null/.test(obj) && /"a":1/.test(obj), obj);
+  check('I3 a record never carries "null" inside it, and is not JSON', !/null|[{}"]/.test(obj) && /A 1/.test(obj), obj);
 
   // Both branches of each verb, measured.
   const eq = (x: { before: boolean; after: boolean }, b: boolean, a: boolean): boolean => x.before === b && x.after === a;
@@ -686,16 +693,66 @@ console.log('\n=== I. An absent value is never printed as "null" ===');
     eq(valueSides('add', 3, 5), true, true));
 
   // Wherever a value renders: the log, the version modal, the scenario list.
-  check('I8 the chip formats through the one formatter, and the panel has no private copy',
-    /: formatValue\(raw\)/.test(panels) && !/function formatLogValue/.test(panels));
+  // RE-AIMED 2026-09-24: the chip now prints what describeChange says, which is
+  // the one formatter plus the rule for a list said once.
+  check('I8 the chip prints describeChange, and the panel has no private formatter',
+    /describeChange\(kind, before, after, \{ field, ctx \}\)/.test(panels) && !/function formatLogValue/.test(panels));
   check('I9 the Activity log and the Version modal both render the pair through ValueChange',
     /<ValueChange kind=\{change\.action\}/.test(panels) && /<ValueChange kind=\{entry\.kind\}/.test(MODAL_SRC)
     && !/<ValueChip/.test(MODAL_SRC));
-  check('I10 the scenario override list words an absent value the same way',
-    /isAbsent\(v\)\) return NOT_SET/.test(switcher));
+  check('I10 the scenario override list words its values AND its paths by the same rules',
+    /formatValue\(v, \{ field: fieldOf\(path\), ctx \}\)/.test(switcher) && /labelForChange\(\{ path: p/.test(switcher)
+    && !/function humanPath/.test(switcher));
   check('I11 no chip prints the literal "null" or the empty-set glyph any more',
     ![panels, MODAL_SRC, switcher].some((s) => /return '(null|∅)'/.test(s)));
   check('I12 valueText.ts has no em dashes', !src(VT).includes('—'));
+}
+
+console.log('\n=== J. A value reads as words, never as stored ===');
+{
+  // THE TEST (founder, 2026-09-24): a reviewer reads the log without knowing
+  // how the model stores anything.
+  const ctx = namingContext({
+    phases: [{ id: 'ph1', name: 'Phase 1' }],
+    parcels: [{ id: 'parcel_17', name: 'Land 3' }],
+    subUnits: [{ id: 'su1', assetId: 'x', name: '2 BR' }],
+    project: { assetTypes: [{ id: 'villas', label: 'Branded Villas' }] },
+  });
+  const V = (v: unknown, field?: string): string => formatValue(v, { field, ctx });
+  check('J1 a string prints WITHOUT quotes', V('Marina Residences', 'name') === 'Marina Residences' && !/"/.test(V('units', 'metric')));
+  // The words are the SCREEN'S: read from the label maps the screens render
+  // (COST_METHOD_LABELS, TERMINAL_METHOD_LABELS, ...), never a second copy.
+  check('J2 a stored option code reads as the words the screen offers for that field',
+    V('yoy_compound', 'method') === 'YoY Compound' && V('units', 'metric') === 'Units'
+    && V('rate_x_parking_area', 'method') === COST_METHOD_LABELS.rate_x_parking_area
+    && V('cap_rate', 'terminalMethod') === TERMINAL_METHOD_LABELS.cap_rate, V('yoy_compound', 'method'));
+  check('J2b a code no map knows is still humanised, never printed raw', V('some_new_code', 'x') === 'some new code');
+  check('J3 a reference reads as the NAME of what it points at, never the id',
+    V('parcel_17', 'parcelId') === 'Land 3' && V('villas', 'assetTypeId') === 'Branded Villas');
+  check('J4 a reference to something gone says so, never the id',
+    !/parcel_99/.test(V('parcel_99', 'parcelId')) && /no longer in the project/.test(V('parcel_99', 'parcelId')));
+  check('J5 a boolean reads Yes / No, a switch On / Off, and a worded choice as the screen words it',
+    V(true, 'isCompanion') === 'Yes' && V(false, 'priceStated') === 'No' && V(true, 'enabled') === 'On'
+    && V(true, 'instalmentsStopAtHandover') === 'Must finish by handover');
+  check('J6 one item is ONE item, not "1 items"', V([{ x: 1 }, { x: 2 }]) === '2 items' && V([{ x: 1 }]) === '1 item');
+  check('J7 a short list of numbers is listed', V([0, 25, 45]) === '0, 25, 45');
+  const rec = V({ value: 5, lineId: 'contingency__phase_1', method: 'percent_of_selected' }, 'x');
+  check('J8 a record is its stated values in words: no JSON, no ids', !/[{}"]|lineId|contingency__/.test(rec) && /Value 5/.test(rec), rec);
+  check('J9 an ISO timestamp reads as a date', !/T\d{2}:/.test(V('2026-09-11T17:29:02.095Z', 'changedAt')));
+
+  // A list that changed is said ONCE. Both branches measured.
+  const sold = [{ subUnitId: 'su1', preSalesVelocity: [0.05, 0.05] }];
+  const sold2 = [{ subUnitId: 'su1', preSalesVelocity: [0.05, 0.1] }];
+  const d1 = describeChange('update', sold, sold2, { field: 'subUnits', ctx });
+  check('J10 a changed list of records is ONE description naming what moved inside it',
+    d1.single !== undefined && d1.before === undefined && /2 BR/.test(d1.single) && /pre sales velocity/i.test(d1.single), JSON.stringify(d1));
+  const long = Array.from({ length: 20 }, (_, i) => i);
+  const d2 = describeChange('update', long, long.map((v, i) => (i < 3 ? v + 1 : v)));
+  check('J11 a long list of the same length is ONE count of what changed', d2.single === '3 of 20 values changed', JSON.stringify(d2));
+  const d3 = describeChange('update', [1, 2], [1, 3]);
+  check('J12 but a short list keeps both sides, since they DIFFER', d3.before === '1, 2' && d3.after === '1, 3', JSON.stringify(d3));
+  const d4 = describeChange('update', [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }], [{ id: 'a', name: 'A' }]);
+  check('J13 a record removed from a list is named', d4.single === 'removed B', JSON.stringify(d4));
 }
 
 console.log('\n=== G. House rules ===');

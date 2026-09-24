@@ -438,3 +438,38 @@ export function presentChanges<T extends StoredChangeLike>(
   }
   return { rows, noChange };
 }
+
+/* ─────────────────────── a reference, by name (values) ─────────────────────── */
+
+/** Which list a field that HOLDS an id points into. */
+const REFERENCE_FIELDS: Record<string, ListKey> = {
+  parcelId: 'parcels', phaseId: 'phases', assetId: 'assets', subUnitId: 'subUnits',
+  assetTypeId: 'assetTypes', lineId: 'costLines', caseId: 'cases',
+};
+
+/**
+ * The NAME of what a reference field points at, for a value chip: a plot's
+ * name for `parcelId`, a type's label for `assetTypeId`. Undefined when the
+ * field is not a reference; a reference to something the project no longer
+ * holds says so, and never prints the id.
+ */
+export function nameReference(field: string, id: unknown, ctx: NamingContext): string | undefined {
+  const key = REFERENCE_FIELDS[field];
+  if (!key || typeof id !== 'string') return undefined;
+  if (id.startsWith('__')) return undefined; // a sentinel is an answer, not a pointer
+  const name = key === 'assetTypes'
+    ? typedName(find(ctx, key, id))
+    : nameElement(key, id, ctx, undefined, key !== 'costLines');
+  return name || gone(key).toLowerCase();
+}
+
+/** The name of one element of a record LIST inside a value (an opex line, a
+ *  sub-unit's sales row), from its own name or the id it references. */
+export function nameListItem(rec: Record<string, unknown>, ctx: NamingContext): string | undefined {
+  const own = typedName(rec);
+  if (own) return own;
+  for (const f of Object.keys(REFERENCE_FIELDS)) {
+    if (typeof rec[f] === 'string') return nameReference(f, rec[f], ctx);
+  }
+  return undefined;
+}

@@ -23,31 +23,21 @@ import { useModule1Store } from '../lib/state/module1-store';
 import { buildOverrides, getByPath, baseCaseId } from '../lib/cases/applyOverrides';
 import { withoutDerivedOverrides } from '../lib/cases/caseModel';
 import { FAST_INPUT } from './modules/_shared/inputStyles';
-import { NOT_SET, isAbsent } from '../lib/persistence/valueText';
+import { formatValue } from '../lib/persistence/valueText';
+import { labelForChange, type NamingContext } from '../lib/persistence/changeLabel';
+import { useModelNamingContext } from './collab/CollabPanels';
 
-// Compact value formatter for the override list (raw, not currency-scaled).
-function fmtVal(v: unknown): string {
-  // An absent value reads "not set" here too, never "null" or a glyph.
-  if (isAbsent(v)) return NOT_SET;
-  if (typeof v === 'number') return v.toLocaleString();
-  if (typeof v === 'boolean') return v ? 'true' : 'false';
-  if (typeof v === 'string') return v.length > 24 ? v.slice(0, 22) + '…' : v;
-  if (Array.isArray(v)) return `[${v.length}]`;
-  return '{…}';
-}
-
-// Humanise a diff path for display: drop the "[id=…]" verbosity to the last
-// readable segment + field, e.g. "assets[id=a1].revenue.sell.pricePerUnit"
-// -> "assets › revenue.sell.pricePerUnit".
-function humanPath(path: string): string {
-  return path
-    .replace(/\[id=[^\]]+\]/g, '')
-    .replace(/\[[^\]]+\]/g, '')
-    .replace(/\.+/g, '.')
-    .replace(/^\./, '');
+// The override list words a path and a value by the SAME rules as the
+// Activity log (2026-09-24): the sentence from `labelForChange`, the value from
+// `formatValue`, so an override never shows a raw path, "null" or a quoted code.
+const fieldOf = (path: string): string | undefined => /([A-Za-z0-9_]+)$/.exec(path)?.[1];
+function fmtVal(v: unknown, path: string, ctx: NamingContext): string {
+  const t = formatValue(v, { field: fieldOf(path), ctx });
+  return t.length > 28 ? `${t.slice(0, 26)}...` : t;
 }
 
 export default function CaseSwitcher(): React.JSX.Element {
+  const namingCtx = useModelNamingContext();
   const s = useModule1Store(
     useShallow((st) => ({
       cases: st.cases,
@@ -216,12 +206,12 @@ export default function CaseSwitcher(): React.JSX.Element {
                       <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', borderBottom: '1px dashed var(--color-border)' }}>
                         <div style={{ minWidth: 0, flex: 1 }}>
                           <div style={{ fontFamily: 'ui-monospace, monospace', fontSize: 10, color: 'var(--color-heading)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p}>
-                            {humanPath(p)}
+                            {labelForChange({ path: p, kind: 'update' }, namingCtx)}
                           </div>
                           <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>
-                            <span style={{ textDecoration: 'line-through', opacity: 0.7 }}>{fmtVal(getByPath(s.baseSnapshot, p))}</span>
+                            <span style={{ textDecoration: 'line-through', opacity: 0.7 }}>{fmtVal(getByPath(s.baseSnapshot, p), p, namingCtx)}</span>
                             {' → '}
-                            <span style={{ fontWeight: 700, color: 'var(--color-heading)' }}>{fmtVal(overrides[p])}</span>
+                            <span style={{ fontWeight: 700, color: 'var(--color-heading)' }}>{fmtVal(overrides[p], p, namingCtx)}</span>
                           </div>
                         </div>
                         <button type="button" onClick={() => s.resetOverridePath(p)} data-testid="case-reset-one"

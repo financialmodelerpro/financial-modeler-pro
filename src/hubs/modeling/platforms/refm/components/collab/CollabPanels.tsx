@@ -23,9 +23,39 @@ import type { RefmProjectVersionListItem, ProjectChangeDTO, ProjectCommentDTO } 
 import { ScreenBadge, takePendingAnchor } from './ScreenBadge';
 import { screenForPath } from '../../lib/collab/pathScreen';
 import { useModule1Store } from '../../lib/state/module1-store';
-import { namingContext, recordsFromChanges, presentChanges } from '../../lib/persistence/changeLabel';
+import { namingContext, recordsFromChanges, presentChanges, type NamingContext } from '../../lib/persistence/changeLabel';
 import { sameValue } from '../../lib/persistence/snapshot-diff';
-import { formatValue, valueSides } from '../../lib/persistence/valueText';
+import { describeChange } from '../../lib/persistence/valueText';
+
+/**
+ * NAMES FOR A LOGGED PATH OR VALUE, from the model the screen has loaded plus
+ * any records the rows themselves carry (a removed plot's row holds the plot).
+ * ONE hook, so the Activity panel and the Version modal name alike.
+ */
+const NO_ROWS: ReadonlyArray<{ path: string | null; before: unknown; after: unknown }> = [];
+export function useModelNamingContext(
+  rows: ReadonlyArray<{ path: string | null; before: unknown; after: unknown }> = NO_ROWS,
+): NamingContext {
+  const phases = useModule1Store((s) => s.phases);
+  const parcels = useModule1Store((s) => s.parcels);
+  const assets = useModule1Store((s) => s.assets);
+  const subUnits = useModule1Store((s) => s.subUnits);
+  const costLines = useModule1Store((s) => s.costLines);
+  const financingTranches = useModule1Store((s) => s.financingTranches);
+  const equityContributions = useModule1Store((s) => s.equityContributions);
+  const cases = useModule1Store((s) => s.cases);
+  const project = useModule1Store((s) => s.project);
+  return React.useMemo(
+    () => namingContext(
+      { phases, parcels, assets, subUnits, costLines, financingTranches, equityContributions, cases, project },
+      recordsFromChanges(rows),
+    ),
+    [rows, phases, parcels, assets, subUnits, costLines, financingTranches, equityContributions, cases, project],
+  );
+}
+
+/** The naming context every value chip below reads. */
+export const NamingProvider = React.createContext<NamingContext>({});
 
 const FILTER_STYLE: React.CSSProperties = {
   fontSize: 11.5, fontWeight: 600, color: 'var(--color-heading)',
@@ -90,22 +120,8 @@ export function ActivityPanel({
   // naming things from the loaded model and, for anything since deleted, from
   // the records the log itself carries. A leaf "remove" is shown as the clear
   // it was, and a row that records no change is counted rather than shown.
-  const phases = useModule1Store((s) => s.phases);
-  const parcels = useModule1Store((s) => s.parcels);
-  const assets = useModule1Store((s) => s.assets);
-  const subUnits = useModule1Store((s) => s.subUnits);
-  const costLines = useModule1Store((s) => s.costLines);
-  const financingTranches = useModule1Store((s) => s.financingTranches);
-  const equityContributions = useModule1Store((s) => s.equityContributions);
-  const cases = useModule1Store((s) => s.cases);
-  const project = useModule1Store((s) => s.project);
-  const presented = React.useMemo(() => {
-    const ctx = namingContext(
-      { phases, parcels, assets, subUnits, costLines, financingTranches, equityContributions, cases, project },
-      recordsFromChanges(changes),
-    );
-    return presentChanges(changes, ctx, sameValue);
-  }, [changes, phases, parcels, assets, subUnits, costLines, financingTranches, equityContributions, cases, project]);
+  const ctx = useModelNamingContext(changes);
+  const presented = React.useMemo(() => presentChanges(changes, ctx, sameValue), [changes, ctx]);
 
   if (loading) {
     return <div className="alert-info" data-testid="activity-loading">Loading activity...</div>;
@@ -153,6 +169,7 @@ export function ActivityPanel({
   }
 
   return (
+    <NamingProvider.Provider value={ctx}>
     <div data-testid="activity-list">
       <p style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', marginBottom: 'var(--sp-2)' }}>
         Who changed what, and when. This record is append only: it is never
@@ -303,6 +320,7 @@ export function ActivityPanel({
         );
       })}
     </div>
+    </NamingProvider.Provider>
   );
 }
 
@@ -453,7 +471,7 @@ function ActivityRow({
           </div>
         )}
         {(change.action === 'update' || change.action === 'add' || change.action === 'remove' || change.action === 'clear') && (
-          <ValueChange kind={change.action} before={change.before} after={change.after} />
+          <ValueChange kind={change.action} path={change.path} before={change.before} after={change.after} />
         )}
       </div>
     </div>
@@ -505,22 +523,16 @@ export function summariseArray(mine: unknown[], other: unknown): string {
   return `[${mine.length} items, ${changed} changed]`;
 }
 
-export function ValueChip({ raw, kind, counterpart }: {
-  raw: unknown;
-  kind: 'before' | 'after';
-  /** The other side of the change, so a same-length array can say what moved
-   *  instead of printing its length twice. */
-  counterpart?: unknown;
+/** One value in words, already described by `describeChange`. */
+export function ValueChip({ text: display, kind }: {
+  text: string;
+  kind: 'before' | 'after' | 'single';
 }): React.JSX.Element {
-  const display = Array.isArray(raw) && counterpart !== undefined
-    ? summariseArray(raw, counterpart)
-    : formatValue(raw);
   return (
     <span
       title={display.length > 60 ? display : undefined}
       style={{
-        fontFamily: 'monospace',
-        background: kind === 'before' ? '#fef3c7' : '#dcfce7',
+        background: kind === 'before' ? '#fef3c7' : kind === 'after' ? '#dcfce7' : 'var(--color-row-alt)',
         padding: '0 5px',
         borderRadius: 4,
         color: 'var(--color-heading)',
@@ -544,18 +556,23 @@ export function ValueChip({ raw, kind, counterpart }: {
  * it ("Added" needs no "from", "Cleared" and "Removed" need no "to"); see
  * `valueSides`. A stored NULL is never printed as the word "null".
  */
-export function ValueChange({ kind, before, after }: {
+export function ValueChange({ kind, path, before, after }: {
   kind: string;
+  /** The logged path, whose last field decides how a value reads. */
+  path?: string | null;
   before: unknown;
   after: unknown;
 }): React.JSX.Element | null {
-  const show = valueSides(kind, before, after);
-  if (!show.before && !show.after) return null;
+  const ctx = React.useContext(NamingProvider);
+  const field = /([A-Za-z0-9_]+)$/.exec(path ?? '')?.[1];
+  const d = describeChange(kind, before, after, { field, ctx });
+  if (d.single === undefined && d.before === undefined && d.after === undefined) return null;
   return (
     <div style={{ marginTop: 2, color: 'var(--color-muted)' }} data-testid="value-change">
-      {show.before && <ValueChip raw={before} kind="before" counterpart={after} />}
-      {show.before && show.after && <span style={{ margin: '0 6px' }}>&rarr;</span>}
-      {show.after && <ValueChip raw={after} kind="after" counterpart={before} />}
+      {d.single !== undefined && <ValueChip text={d.single} kind="single" />}
+      {d.before !== undefined && <ValueChip text={d.before} kind="before" />}
+      {d.before !== undefined && d.after !== undefined && <span style={{ margin: '0 6px' }}>&rarr;</span>}
+      {d.after !== undefined && <ValueChip text={d.after} kind="after" />}
     </div>
   );
 }
