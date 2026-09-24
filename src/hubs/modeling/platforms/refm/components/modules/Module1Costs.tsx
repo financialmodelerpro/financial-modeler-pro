@@ -128,6 +128,7 @@ import { chainMassingFor } from '../../lib/state/assetTypeStandards';
 import { buildConsolidatedReport, perAssetCostsFromTreatment, consolidatedCaption } from '../../lib/reports/consolidatedReport';
 import { planCapexSummaryLines, assetCapexSection, capexTreatmentRows, CAPEX_SECTIONS, type CapexPlannableAsset } from '../../lib/reports/capexReports';
 import { assetHasSubstance } from './_shared/assetTableModel';
+import CostPerSqmTables from './_shared/CostPerSqmTables';
 import { normaliseAssetTypeId } from '../../lib/state/assetTypeStandards';
 import { TabComments, FieldComment } from '../collab/FieldComments';
 
@@ -3681,6 +3682,10 @@ function SummaryTables({
             {renderSummary('Table 4 - Capex Excluding Total Land (pure development cost)', 'exclAll', 'capex-excl-total-land')}
             {renderLandTable()}
             {renderCategoryTable()}
+            {/* Table 7 (2026-09-24): cost per sqm by line, and for Sell lines the
+                sale price against cost per sqm. Divides figures the tables
+                above already hold; moves none of them. */}
+            <CostPerSqmTables assetIds={phaseAssets.map((a) => a.id)} />
           </>
         );
       })()}

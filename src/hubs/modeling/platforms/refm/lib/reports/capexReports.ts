@@ -198,13 +198,20 @@ export interface CapexTreatmentRow {
   operating: number;
   total: number;
   cashOutflow: number;
+  /** The three area tiers the metrics resolved (NSA within BUA within GFA),
+   *  carried so a per-sqm reading divides by the SAME areas this report
+   *  resolved rather than resolving them again (2026-09-24). Absent when the
+   *  caller passed land figures only. */
+  nsa?: number;
+  bua?: number;
+  gfa?: number;
 }
 
 export function capexTreatmentRows<A extends { id: string; name: string; strategy: string }>(
   assets: readonly A[],
   /** Every engine breakdown this asset has (the screen holds one per phase). */
   breakdownsOf: (assetId: string) => ReadonlyArray<{ byStage: { land: number; hard: number; soft: number; marketing: number; operating: number }; total: number }>,
-  landOf: (assetId: string) => { cashLandValue: number; inKindLandValue: number } | undefined,
+  landOf: (assetId: string) => { cashLandValue: number; inKindLandValue: number; nsa?: number; bua?: number; gfa?: number } | undefined,
 ): Array<CapexTreatmentRow & { strategy: A['strategy'] }> {
   return assets.map((a) => {
     const m = landOf(a.id) ?? { cashLandValue: 0, inKindLandValue: 0 };
@@ -231,6 +238,7 @@ export function capexTreatmentRows<A extends { id: string; name: string; strateg
       operating,
       total,
       cashOutflow: cashFlow.cashOutflow,
+      nsa: m.nsa, bua: m.bua, gfa: m.gfa,
     };
   });
 }
