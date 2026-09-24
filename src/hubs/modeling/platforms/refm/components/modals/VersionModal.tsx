@@ -21,7 +21,7 @@ import type { RefmProjectVersionListItem, ChangeLogEntryDTO } from '../../lib/pe
 // ONE implementation, TWO doors (2026-09-04): the Activity and Comments
 // panels and their fetch discipline moved to components/collab/, shared with
 // the Module 10 Collaborate screen. These tabs stay, same behaviour.
-import { ActivityPanel, CommentsPanel, ValueChip } from '../collab/CollabPanels';
+import { ActivityPanel, CommentsPanel, ValueChange } from '../collab/CollabPanels';
 import { useProjectChanges, useProjectComments } from '../collab/useCollabData';
 
 interface VersionModalProps {
@@ -646,13 +646,9 @@ function ChangeLogRow({ entry }: { entry: ChangeLogEntryDTO }): React.JSX.Elemen
           {entry.label ?? entry.path}
         </div>
         {(entry.kind === 'update' || entry.kind === 'clear') && (
-          <div style={{ marginTop: 2, color: 'var(--color-muted)' }}>
-            {/* Counterparts passed here too: this modal and the Collaborate
-                screen render the same chips and must summarise alike. */}
-            <ValueChip raw={entry.before} kind="before" counterpart={entry.after} />
-            <span style={{ margin: '0 6px' }}>→</span>
-            <ValueChip raw={entry.after} kind="after" counterpart={entry.before} />
-          </div>
+          // The SAME pair renderer as the Collaborate screen, so the two
+          // summarise, and word an absent value, alike.
+          <ValueChange kind={entry.kind} before={entry.before} after={entry.after} />
         )}
       </div>
     </div>

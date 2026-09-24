@@ -23,11 +23,12 @@ import { useModule1Store } from '../lib/state/module1-store';
 import { buildOverrides, getByPath, baseCaseId } from '../lib/cases/applyOverrides';
 import { withoutDerivedOverrides } from '../lib/cases/caseModel';
 import { FAST_INPUT } from './modules/_shared/inputStyles';
+import { NOT_SET, isAbsent } from '../lib/persistence/valueText';
 
 // Compact value formatter for the override list (raw, not currency-scaled).
 function fmtVal(v: unknown): string {
-  if (v === undefined) return '∅';
-  if (v === null) return 'null';
+  // An absent value reads "not set" here too, never "null" or a glyph.
+  if (isAbsent(v)) return NOT_SET;
   if (typeof v === 'number') return v.toLocaleString();
   if (typeof v === 'boolean') return v ? 'true' : 'false';
   if (typeof v === 'string') return v.length > 24 ? v.slice(0, 22) + '…' : v;

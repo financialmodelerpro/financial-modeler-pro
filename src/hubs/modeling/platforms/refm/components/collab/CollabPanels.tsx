@@ -25,6 +25,7 @@ import { screenForPath } from '../../lib/collab/pathScreen';
 import { useModule1Store } from '../../lib/state/module1-store';
 import { namingContext, recordsFromChanges, presentChanges } from '../../lib/persistence/changeLabel';
 import { sameValue } from '../../lib/persistence/snapshot-diff';
+import { formatValue, valueSides } from '../../lib/persistence/valueText';
 
 const FILTER_STYLE: React.CSSProperties = {
   fontSize: 11.5, fontWeight: 600, color: 'var(--color-heading)',
@@ -452,11 +453,7 @@ function ActivityRow({
           </div>
         )}
         {(change.action === 'update' || change.action === 'add' || change.action === 'remove' || change.action === 'clear') && (
-          <div style={{ marginTop: 2, color: 'var(--color-muted)' }}>
-            <ValueChip raw={change.before} kind="before" counterpart={change.after} />
-            <span style={{ margin: '0 6px' }}>&rarr;</span>
-            <ValueChip raw={change.after} kind="after" counterpart={change.before} />
-          </div>
+          <ValueChange kind={change.action} before={change.before} after={change.after} />
         )}
       </div>
     </div>
@@ -517,7 +514,7 @@ export function ValueChip({ raw, kind, counterpart }: {
 }): React.JSX.Element {
   const display = Array.isArray(raw) && counterpart !== undefined
     ? summariseArray(raw, counterpart)
-    : formatLogValue(raw);
+    : formatValue(raw);
   return (
     <span
       title={display.length > 60 ? display : undefined}
@@ -540,17 +537,27 @@ export function ValueChip({ raw, kind, counterpart }: {
   );
 }
 
-function formatLogValue(raw: unknown): string {
-  if (raw === undefined) return '∅';
-  if (raw === null) return 'null';
-  if (typeof raw === 'string') return JSON.stringify(raw);
-  if (typeof raw === 'number') return raw.toLocaleString();
-  if (typeof raw === 'boolean') return raw ? 'true' : 'false';
-  if (Array.isArray(raw)) return `[${raw.length} items]`;
-  if (typeof raw === 'object') {
-    try { return JSON.stringify(raw); } catch { return '[object]'; }
-  }
-  return String(raw);
+/**
+ * BEFORE AND AFTER, AS A READER SHOULD SEE THEM (2026-09-24). The ONE pair
+ * renderer, used by the Activity log and the Version modal alike. An absent
+ * side reads "not set", and is left out entirely where the badge already says
+ * it ("Added" needs no "from", "Cleared" and "Removed" need no "to"); see
+ * `valueSides`. A stored NULL is never printed as the word "null".
+ */
+export function ValueChange({ kind, before, after }: {
+  kind: string;
+  before: unknown;
+  after: unknown;
+}): React.JSX.Element | null {
+  const show = valueSides(kind, before, after);
+  if (!show.before && !show.after) return null;
+  return (
+    <div style={{ marginTop: 2, color: 'var(--color-muted)' }} data-testid="value-change">
+      {show.before && <ValueChip raw={before} kind="before" counterpart={after} />}
+      {show.before && show.after && <span style={{ margin: '0 6px' }}>&rarr;</span>}
+      {show.after && <ValueChip raw={after} kind="after" counterpart={before} />}
+    </div>
+  );
 }
 
 // ── Comments: threads on the project, a version, or a field (step 7) ───────

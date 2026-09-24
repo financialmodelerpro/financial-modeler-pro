@@ -32,6 +32,7 @@ import { rowsForSave, MAX_CHANGE_ROWS_PER_SAVE } from '../src/hubs/modeling/plat
 import { summariseArray, groupBySave } from '../src/hubs/modeling/platforms/refm/components/collab/CollabPanels';
 import { diffSnapshots, sameValue } from '../src/hubs/modeling/platforms/refm/lib/persistence/snapshot-diff';
 import { labelForChange, namingContext, recordsFromChanges, presentChanges, effectiveKind } from '../src/hubs/modeling/platforms/refm/lib/persistence/changeLabel';
+import { formatValue, valueSides } from '../src/hubs/modeling/platforms/refm/lib/persistence/valueText';
 
 let passed = 0, failed = 0; const fails: string[] = [];
 function check(label: string, ok: boolean, detail = ''): void {
@@ -656,6 +657,45 @@ console.log('\n=== H. An old row is READ with a sentence, by the rule the differ
   check('H25 rows recording no change are stated on screen, never dropped silently',
     /data-testid="activity-no-change"/.test(panels) && /presented\.noChange/.test(panels));
   check('H26 changeLabel.ts has no em dashes', !src(LABEL).includes('—'));
+}
+
+console.log('\n=== I. An absent value is never printed as "null" ===');
+{
+  // THE RULE (2026-09-24): a stored NULL reads "not set", and where the badge
+  // already says the value appeared or went away it is not printed at all.
+  // Applied by ONE formatter and ONE pair renderer, wherever a value renders.
+  const VT = 'src/hubs/modeling/platforms/refm/lib/persistence/valueText.ts';
+  const MODAL_SRC = src(MODAL);
+  const panels = src(PANELS);
+  const switcher = src('src/hubs/modeling/platforms/refm/components/CaseSwitcher.tsx');
+
+  check('I1 null and undefined read "not set"', formatValue(null) === 'not set' && formatValue(undefined) === 'not set');
+  check('I2 a real value is untouched (0 is a value, false is a value, "" is a value)',
+    formatValue(0) === '0' && formatValue(false) === 'false' && formatValue('') === '""');
+  const obj = formatValue({ a: 1, b: null });
+  check('I3 an object never carries "null" inside it either', !/null/.test(obj) && /"a":1/.test(obj), obj);
+
+  // Both branches of each verb, measured.
+  const eq = (x: { before: boolean; after: boolean }, b: boolean, a: boolean): boolean => x.before === b && x.after === a;
+  check('I4 Added from nothing prints only the new value', eq(valueSides('add', null, 5), false, true));
+  check('I5 Cleared and Removed to nothing print only the old value',
+    eq(valueSides('clear', 5, null), true, false) && eq(valueSides('remove', { id: 'x' }, undefined), true, false));
+  check('I6 an Update keeps BOTH sides, an absent one as "not set"',
+    eq(valueSides('update', null, 5), true, true) && eq(valueSides('update', 5, null), true, true));
+  check('I7 but an Added row that HAD a value keeps it (the verb does not account for it)',
+    eq(valueSides('add', 3, 5), true, true));
+
+  // Wherever a value renders: the log, the version modal, the scenario list.
+  check('I8 the chip formats through the one formatter, and the panel has no private copy',
+    /: formatValue\(raw\)/.test(panels) && !/function formatLogValue/.test(panels));
+  check('I9 the Activity log and the Version modal both render the pair through ValueChange',
+    /<ValueChange kind=\{change\.action\}/.test(panels) && /<ValueChange kind=\{entry\.kind\}/.test(MODAL_SRC)
+    && !/<ValueChip/.test(MODAL_SRC));
+  check('I10 the scenario override list words an absent value the same way',
+    /isAbsent\(v\)\) return NOT_SET/.test(switcher));
+  check('I11 no chip prints the literal "null" or the empty-set glyph any more',
+    ![panels, MODAL_SRC, switcher].some((s) => /return '(null|∅)'/.test(s)));
+  check('I12 valueText.ts has no em dashes', !src(VT).includes('—'));
 }
 
 console.log('\n=== G. House rules ===');
