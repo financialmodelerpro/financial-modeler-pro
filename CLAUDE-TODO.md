@@ -2,6 +2,19 @@
 
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
+## START HERE 2026-09-24: THE ACTIVITY LOG READS AS WHAT PEOPLE DID
+
+**DONE 2026-09-24 (detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-24):** every stored log row reads as a sentence
+in the screen's words, values in words, one row per edit, the platform's own writes and internal markers counted
+rather than attributed to a person, bulk rows say what, case rows say where. Suite 179 / 2 of 181, 10,853.
+
+**OPEN:**
+
+1. **THE FOUNDER'S SCREEN CHECK OF THE ACTIVITY LOG (2026-09-24, founder doing it).** Wrapping of long sentences,
+   the "Show what" lists on bulk rows, and how the counts line above the list reads. The browser extension blocked
+   the domain for me on every attempt, so nothing here was seen on screen by me.
+2. Everything open from 2026-09-23 below, unchanged.
+
 ## START HERE 2026-09-23: MODULE 10 IS FINISHED, AND WHAT IS OPEN AFTER IT
 
 **DONE 2026-09-23 (detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-23):** a reviewer can raise a question on the

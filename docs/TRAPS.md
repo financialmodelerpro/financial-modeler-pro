@@ -2766,6 +2766,34 @@ asserts restricted cash NEVER EXCEEDS the required balance (the wide rule crosse
 not the dividend stream, and **sabotage 8 reproduces the wide fix and is caught on `worst |FCFE - DDM| 0.000m`**,
 the exact sentence that was once the evidence for shipping it.
 
+### 7.57 A faithful record of the model is not a record of what someone did
+
+**Symptom (2026-09-24):** the Activity log was correct, append only and complete, and a reviewer still could
+not read it. Every stored row predated the label fix, so rows showed raw paths; values printed as stored
+("null", quoted option codes, truncated JSON, `true`, "[2 items] -> [1 items]"); one price edit wrote three or
+four rows; and derived areas, parking slots and internal markers appeared as changes a named user had made.
+Measured on the live project: 808 rows, 0 labelled, 351 printing "null", 109 platform-computed and 92
+internal rows attributed to a person.
+
+**Mechanism:** the ledger records what the SAVE wrote, which is the model's truth and the right thing to
+store. The screen rendered that record directly, so it described storage, and it attributed every write in a
+user's save to the user, including the ones the platform's settles make on that same save. A fix at write
+time could never reach the rows already written.
+
+**The trap to avoid:** fixing a log's wording in the WRITER and calling it done. An append-only record cannot
+be rewritten, so the rule that makes it readable has to be a function of what every row already carries (the
+path and the values) and be applied at READ, by the SAME function the writer uses, or old and new rows read
+differently for ever. And a log that stores everything must still decide what a READER is shown: separate
+"who wrote it" (a person, the platform's computation, an internal marker) from "what is stored", and count
+what is left out rather than hiding it.
+
+**Fix:** `labelForChange` (the one sentence rule, called by the differ and the panel), `formatValue` /
+`describeChange` (values by their field, through the screens' own label maps), `fieldRole` and
+`presentChanges` (roles, one edit per row, everything left out counted by reason).
+
+**Proof:** `verify-change-log` sections H to L (185/0), and `scripts/probe-change-log-readability.ts` on the
+live project: 543 shown, all sentences, 0 values that look stored, every other row counted on screen.
+
 ## 8. Registries and two-step registration
 
 ### 8.1 A template registered in one place and not the other fails silently and permanently
