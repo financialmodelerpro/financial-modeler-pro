@@ -81,7 +81,8 @@ const PROJECT = 'c417fc6a-4514-4438-857c-a72dc7472f65'; // FMP - MARINA GATE
   console.log('\n=== B. The arithmetic is the stated arithmetic ===');
   let divOk = true, marginOk = true;
   for (const l of rep.lines) {
-    if (!near(l.cost.construction, l.hard + l.soft) || !near(l.cost.withIdc, l.hard + l.soft + l.idc) || !near(l.cost.withLand, l.hard + l.soft + l.idc + l.land)) divOk = false;
+    const con = l.hard + l.soft + l.operating;
+    if (!near(l.cost.construction, con) || !near(l.cost.withIdc, con + l.idc) || !near(l.cost.withLand, con + l.idc + l.land)) divOk = false;
     for (const b of COST_BASES) for (const a of AREA_BASES) {
       const got = l.perSqm[b.key][a.key];
       const want = l.area[a.key] > 0 ? l.cost[b.key] / l.area[a.key] : null;
@@ -98,6 +99,34 @@ const PROJECT = 'c417fc6a-4514-4438-857c-a72dc7472f65'; // FMP - MARINA GATE
     }
   }
   check('B1 the three bases build up, and every per-sqm figure is cost over area (n/a only on zero area)', divOk);
+  // ONE DEFINITION OF CONSTRUCTION (founder, 2026-09-24): hard + soft +
+  // operating, the same rule the stage subtotals' exclLand uses, by name.
+  const capexSrc = src('src/hubs/modeling/platforms/refm/lib/reports/capexReports.ts');
+  check('B1b "construction" is ONE rule: the report and the stage subtotals both call constructionCostOf',
+    /constructionCostOf\(\{ hard, soft, operating \}\)/.test(code)
+    && (capexSrc.match(/exclLand = constructionCostOf\(out\)/g) ?? []).length === 2
+    && !/out\.exclLand = out\.hard/.test(capexSrc));
+  // The live model has NO pre-opening cost, so the branch is made to FIRE on a
+  // copy: one soft line re-filed to the operating stage through its own
+  // stageOverride. Construction must not move (both stages are inside it), while
+  // hard + soft alone would drop by exactly what moved.
+  const softLine = state.costLines.find((cl) => (cl as { stage?: string }).stage === 'soft');
+  const moved = { ...state, costLines: state.costLines.map((cl) => (cl === softLine ? { ...cl, stageOverride: 'operating' } : cl)) } as FinancialsResolverState;
+  const movedRep = buildCostPerSqmReport(computeFinancialsSnapshot(moved), moved);
+  const opLines = movedRep.lines.filter((l) => l.operating > 0);
+  const sameConstruction = movedRep.lines.every((l) => {
+    const o = rep.lines.find((x) => x.key === l.key);
+    return !!o && near(l.cost.construction, o.cost.construction);
+  });
+  const hardSoftDropped = opLines.some((l) => {
+    const o = rep.lines.find((x) => x.key === l.key)!;
+    return near((o.hard + o.soft) - (l.hard + l.soft), l.operating);
+  });
+  check('B1c the pre-opening stage is INSIDE construction (measured on a copy with a line re-filed to it)',
+    !!softLine && opLines.length > 0 && sameConstruction && hardSoftDropped,
+    `${softLine ? softLine.id : 'no soft line'}; ${opLines.length} lines with pre-opening`);
+  const T2 = (k: 'operating'): number => cap.treatment.reduce((a, r) => a + r[k], 0);
+  check('B1d and it reconciles to the Capex rows', near(T2('operating'), rep.lines.reduce((a, l) => a + l.operating, 0)));
   check('B2 every margin is a price less a cost, and escalation is realised less base', marginOk);
 
   console.log('\n=== C. The base price is before escalation, measured both ways ===');

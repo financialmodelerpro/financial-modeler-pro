@@ -10,13 +10,16 @@
  * existing number; it divides existing numbers.
  *
  * Per-sqm figures print at FULL scale with no decimals, the way a developer
- * quotes them, whatever the project's display scale.
+ * quotes them, whatever the project's display scale. AMOUNTS (the cost column)
+ * follow the project's display scale and decimals like every other amount on
+ * the tab (founder, 2026-09-24): a cost of 413.6m reads "413.6" under
+ * "SAR M", never as nine digits beside the per-sqm figures.
  *
  * No em dashes in this file.
  */
 import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { formatAccounting } from '@/src/core/formatters';
+import { formatAccounting, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import { useModule1Store } from '../../../lib/state/module1-store';
 import { computeFinancialsSnapshot } from '../../../lib/financials-resolvers';
 import { buildCostPerSqmReport, COST_BASES, AREA_BASES, type CostPerSqmLine } from '../../../lib/reports/costPerSqmReport';
@@ -28,6 +31,9 @@ const card: React.CSSProperties = {
 };
 const note: React.CSSProperties = { fontSize: 11, color: 'var(--color-meta)', margin: '4px 0 6px', lineHeight: 1.5 };
 const perSqm = (v: number | null): string => (v === null ? 'n/a' : formatAccounting(v, 'full', 0));
+/** An amount's column header states its scale, as the tab's other tables do. */
+const scaleTag = (currency: string, scale: DisplayScale): string =>
+  scale === 'thousands' ? `${currency} '000` : scale === 'millions' ? `${currency} M` : currency;
 const sqm = (v: number): string => formatAccounting(v, 'full', 0);
 
 export default function CostPerSqmTables({ assetIds }: {
@@ -52,6 +58,9 @@ export default function CostPerSqmTables({ assetIds }: {
 
   if (!report || shown.length === 0) return null;
   const currency = state.project.currency ?? 'SAR';
+  const scale: DisplayScale = state.project.displayScale ?? 'thousands';
+  const decimals: DisplayDecimals = (state.project.displayDecimals ?? 1) as DisplayDecimals;
+  const amount = (v: number): string => formatAccounting(v, scale, decimals);
   const multiPhase = state.phases.length > 1;
   const name = (l: CostPerSqmLine): string => (multiPhase ? `${l.label}, ${l.phaseName}` : l.label);
   const sells = shown.filter((l) => l.sale);
@@ -61,16 +70,16 @@ export default function CostPerSqmTables({ assetIds }: {
       <div style={card} data-testid="capex-cost-per-sqm">
         <h3 style={{ ...TABLE_TITLE, margin: 0 }}>Table 7a - Cost per sqm, by line</h3>
         <div style={note}>
-          {currency} per sqm, at full scale. Construction is the hard and soft stages; IDC is the interest capitalised to the
-          line; land is the land stage (land value and anything charged with it, such as transfer tax). Marketing and operating
-          stages are in none of the three. Each is divided by the line&apos;s NSA, BUA and GFA (NSA within BUA within GFA).
+          Cost in {scaleTag(currency, scale)}; per sqm figures in {currency} at full scale. Construction is the hard, soft and pre-opening stages, the platform&apos;s one
+          definition of the word; IDC is the interest capitalised to the line; land is the land stage (land value and anything
+          charged with it, such as transfer tax). Marketing sits outside all three. Each is divided by the line&apos;s NSA, BUA and GFA (NSA within BUA within GFA).
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
             <thead>
               <tr>
                 <th style={{ ...CELL_HEADER, textAlign: 'left' }}>Line and cost base</th>
-                <th style={CELL_HEADER}>Cost ({currency})</th>
+                <th style={CELL_HEADER}>Cost ({scaleTag(currency, scale)})</th>
                 {AREA_BASES.map((a) => <th key={a.key} style={CELL_HEADER}>Per sqm of {a.label}</th>)}
               </tr>
             </thead>
@@ -87,7 +96,7 @@ export default function CostPerSqmTables({ assetIds }: {
                   {COST_BASES.map((b) => (
                     <tr key={b.key} data-testid={`cost-per-sqm-${l.key}-${b.key}`}>
                       <td style={{ ...ROW_DATA.name, paddingLeft: 18 }}>{b.label}</td>
-                      <td style={ROW_DATA.num}>{sqm(l.cost[b.key])}</td>
+                      <td style={ROW_DATA.num}>{amount(l.cost[b.key])}</td>
                       {AREA_BASES.map((a) => <td key={a.key} style={ROW_DATA.num}>{perSqm(l.perSqm[b.key][a.key])}</td>)}
                     </tr>
                   ))}

@@ -151,6 +151,16 @@ export interface CapexInputAsset {
   subtotals: CapexStageSubtotals;
 }
 
+/**
+ * CONSTRUCTION COST, THE PLATFORM'S ONE DEFINITION OF THE WORD (2026-09-24,
+ * founder): the hard, soft and operating (pre-opening) stages. Land and
+ * marketing both sit outside it. Every figure called "construction" reads
+ * this, so the word cannot mean two things on two tables.
+ */
+export function constructionCostOf(s: { hard: number; soft: number; operating: number }): number {
+  return s.hard + s.soft + s.operating;
+}
+
 /** Sum a set of report lines into stage subtotals. Exported so the workbook and
  *  both PDFs aggregate identically rather than each rolling their own loop. */
 export function sumCapexStages(lines: Array<{ stage: string; amount: number }>): CapexStageSubtotals {
@@ -165,7 +175,7 @@ export function sumCapexStages(lines: Array<{ stage: string; amount: number }>):
     out.total += amt;
   }
   // Construction cost: land AND marketing both sit outside it.
-  out.exclLand = out.hard + out.soft + out.operating;
+  out.exclLand = constructionCostOf(out);
   return out;
 }
 
@@ -254,7 +264,7 @@ export function totalCapexStages(assets: Array<{ subtotals: CapexStageSubtotals 
     out.operating += a.subtotals.operating;
     out.total += a.subtotals.total;
   }
-  out.exclLand = out.hard + out.soft + out.operating;
+  out.exclLand = constructionCostOf(out);
   return out;
 }
 export interface CapexResultTable { title: string; rows: M4Row[] }

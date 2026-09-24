@@ -6,7 +6,8 @@
  * The founder's analysis for the end of the Capex results:
  *
  *   1. A grid per line: three cost bases against three area denominators.
- *        construction      = hard + soft
+ *        construction      = hard + soft + operating (pre-opening), the
+ *                            platform's one definition (`constructionCostOf`)
  *        + IDC             = construction + capitalised interest
  *        + land            = construction + IDC + the land stage
  *      each over NSA, BUA and GFA (the platform's three tiers,
@@ -37,19 +38,18 @@
  * Assets tab, so a line's figures are its plots' figures summed before any
  * division.
  *
- * Marketing and operating stages are not in any base: the founder's bases are
- * construction (hard and soft), interest and land.
+ * Marketing is in no base: it sits outside construction everywhere.
  *
  * Pure. No em dashes in this file.
  */
 import { resolveSubUnitMetric } from '@/src/core/calculations';
 import { assetLabel } from '@/src/core/calculations/assetName';
 import type { ProjectFinancialsSnapshot, FinancialsResolverState } from '../financials-resolvers';
-import { buildCapexReport, planCapexSummaryLines, type CapexPlannableAsset } from './capexReports';
+import { buildCapexReport, planCapexSummaryLines, constructionCostOf, type CapexPlannableAsset } from './capexReports';
 
 /** The three cost bases, in the order they build up. */
 export const COST_BASES = [
-  { key: 'construction', label: 'Construction (hard and soft)' },
+  { key: 'construction', label: 'Construction (hard, soft, pre-opening)' },
   { key: 'withIdc', label: 'Construction + IDC' },
   { key: 'withLand', label: 'Construction + IDC + land' },
 ] as const;
@@ -73,6 +73,8 @@ export interface CostPerSqmLine {
   /** Amounts, before any division. */
   hard: number;
   soft: number;
+  /** The operating (pre-opening) stage, inside construction. */
+  operating: number;
   idc: number;
   land: number;
   cost: Record<CostBaseKey, number>;
@@ -124,12 +126,12 @@ export function buildCostPerSqmReport(snap: ProjectFinancialsSnapshot, state: Fi
 
   const lines: CostPerSqmLine[] = [];
   for (const ln of plan) {
-    let hard = 0, soft = 0, land = 0, idc = 0, nsa = 0, bua = 0, gfa = 0;
+    let hard = 0, soft = 0, operating = 0, land = 0, idc = 0, nsa = 0, bua = 0, gfa = 0;
     let gdv = 0, gdvAtBase = 0, areaSold = 0, sellMembers = 0;
     for (const id of ln.assetIds) {
       const r = rowById.get(id);
       if (!r) continue;
-      hard += r.hard; soft += r.soft; land += r.landStage;
+      hard += r.hard; soft += r.soft; operating += r.operating; land += r.landStage;
       idc += idcOf(id);
       nsa += r.nsa ?? 0; bua += r.bua ?? 0; gfa += r.gfa ?? 0;
 
@@ -148,10 +150,11 @@ export function buildCostPerSqmReport(snap: ProjectFinancialsSnapshot, state: Fi
       }
     }
 
+    const construction = constructionCostOf({ hard, soft, operating });
     const cost: Record<CostBaseKey, number> = {
-      construction: hard + soft,
-      withIdc: hard + soft + idc,
-      withLand: hard + soft + idc + land,
+      construction,
+      withIdc: construction + idc,
+      withLand: construction + idc + land,
     };
     const area: Record<AreaKey, number> = { nsa, bua, gfa };
     const perSqm = Object.fromEntries(COST_BASES.map((b) => [b.key,
@@ -172,7 +175,7 @@ export function buildCostPerSqmReport(snap: ProjectFinancialsSnapshot, state: Fi
       };
     }
 
-    lines.push({ key: ln.key, label: ln.label, phaseName: ln.phaseName, strategy: ln.strategy, memberIds: ln.assetIds, hard, soft, idc, land, cost, area, perSqm, sale });
+    lines.push({ key: ln.key, label: ln.label, phaseName: ln.phaseName, strategy: ln.strategy, memberIds: ln.assetIds, hard, soft, operating, idc, land, cost, area, perSqm, sale });
   }
   return { lines };
 }
