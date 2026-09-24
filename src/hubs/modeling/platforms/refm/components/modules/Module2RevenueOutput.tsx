@@ -45,7 +45,6 @@ import { computeAllSellResults, resolveSellConfig, expandIndexationToAxis, type 
 import {
   buildAccountsReceivable,
   buildUnearnedRevenue,
-  applyIndexation,
   type SellAssetResult,
 } from '@/src/core/calculations/revenue';
 import type { Asset, SubUnit } from '../../lib/state/module1-types';
@@ -85,6 +84,7 @@ import {
 import { withInheritedMassingAll } from '@/src/core/calculations/landChain';
 import { chainMassingFor } from '../../lib/state/assetTypeStandards';
 import { TabComments } from '../collab/FieldComments';
+import { buildEscalatedPriceTable } from '../../lib/reports/revenueOutputReports';
 
 function makeCurrencyFmt(scale: DisplayScale, decimals: DisplayDecimals): (v: number) => string {
   return (v: number) => {
@@ -1322,28 +1322,23 @@ export default function Module2RevenueOutput(): React.JSX.Element {
           const phaseOffsetForIdx = Math.max(0, (p.startDate ? new Date(p.startDate).getUTCFullYear() : projectStartYear) - projectStartYear);
           const idxAxis = expandIndexationToAxis(indexation, a.revenue?.sell?.indexation?.growthPerPeriodByPhase, phaseOffsetForIdx, snap.axisLength);
           const priceFmt = makeCurrencyFmt('full', Math.max(1, decimals) as DisplayDecimals);
-          const N2 = snap.axisLength;
+          // ONE BUILDER for the screen, the PDF and the workbook (2026-09-24):
+          // one factor row, then a price PER SQM on every sub-unit, a unit row
+          // included (its price per unit over the area one unit counts).
+          const esc = buildEscalatedPriceTable(assetSubUnits, ownerOf, idxAxis, snap.axisLength, currency, priceFmt);
           const factorRow: PeriodRow = {
-            label: 'Indexation factor',
-            values: Array.from({ length: N2 }, (_, i) => applyIndexation(1, i, idxAxis)),
+            label: 'Indexation factor (every sub-unit of this line)',
+            values: esc.factor,
             rowFmt: (v) => `${v.toFixed(4)}x`,
             totalOverride: '',
           };
-          const priceRows: PeriodRow[] = assetSubUnits.map((su) => {
-            const owner = ownerOf(su);
-            const perUnit = resolveSubUnitMetric(su, owner) === 'units';
-            const base = Math.max(0, su.unitPrice ?? 0);
-            return {
-              label: `${su.name || 'sub-unit'} (${currency} ${priceFmt(base)} / ${perUnit ? 'unit' : 'sqm'})`,
-              values: Array.from({ length: N2 }, (_, i) => (base > 0 ? applyIndexation(base, i, idxAxis) : 0)),
-              rowFmt: priceFmt,
-              totalOverride: '',
-            };
-          });
+          const priceRows: PeriodRow[] = esc.rows.map((r) => ({
+            label: r.label, values: r.values, rowFmt: priceFmt, totalOverride: '',
+          }));
           return (
             <PeriodTable
-              title="2a. Sale price per year, after indexation (per sub-unit)"
-              formula={`Price[su, y] = base price (Table 5) x indexation factor at year y (indexation: ${indexLabel}). This is the rate the sold area or units are multiplied by in the revenue table below, so units sold x price = revenue. Rates are at full scale; the Total column is blank because a price does not sum.`}
+              title="2a. Sale price per sqm per year, after indexation (per sub-unit)"
+              formula={`Price per sqm[su, y] = base price per sqm x indexation factor at year y. A sub-unit sold by units is priced per sqm as its price per unit over the area one unit counts, so area sold x price = revenue on every row. Indexation: ${indexLabel}. Pre-sales and sales during operation years are marked in the header. Rates are at full scale; the Total column is blank because a price does not sum.`}
               yearLabels={snap.yearLabels}
               bands={saleBands}
               rows={[factorRow, ...priceRows]}

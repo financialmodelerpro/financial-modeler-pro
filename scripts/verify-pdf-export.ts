@@ -660,7 +660,7 @@ async function main(): Promise<void> {
     check('M2 Inputs: the hotel ADR is the resolved sub-unit ADR, not the stored 0', adr === 900, `ADR cell=${hotelSu?.rows[0]?.cells[3]}`);
     const revTitles = titles('module2', 'Tab 2: Revenue');
     check('M2 Revenue: a Sell line prints share sold, closing inventory, price per year, recognition and the cohort grid',
-      ['1a. Share of inventory sold', '1c. Closing Inventory', '2a. Sale price per year', '3a. Pre-Sales Recognition Vintage Matrix', '4a. Sale Cohort Grid'].every((k) => revTitles.some((t) => t.includes(k))), revTitles.join(' | '));
+      ['1a. Share of inventory sold', '1c. Closing Inventory', '2a. Sale price per sqm per year', '3a. Pre-Sales Recognition Vintage Matrix', '4a. Sale Cohort Grid'].every((k) => revTitles.some((t) => t.includes(k))), revTitles.join(' | '));
     check('M2 Revenue: the three project tables close the tab',
       ['Project Revenue (Sales Value year-on-year)', 'Project Revenue Recognised', 'Project Cash Collected'].every((k) => revTitles.some((t) => t.endsWith(k))));
     check('M2 Inputs: every Sell line prints its cohort terms, handover recognition included',

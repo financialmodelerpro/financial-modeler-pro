@@ -29,8 +29,10 @@
 
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import {
-  buildAccountsReceivable, buildUnearnedRevenue, buildAccountsReceivableDSO,
+  buildAccountsReceivable, buildUnearnedRevenue, buildAccountsReceivableDSO, applyIndexation,
 } from '@/src/core/calculations/revenue';
+import { computeSubUnitArea, resolveSubUnitMetric } from '@/src/core/calculations';
+import type { Asset, SubUnit } from '../state/module1-types';
 import type { SellAssetResult } from '@/src/core/calculations/revenue/types';
 import { lineRevenueResults, type ProjectRevenueSnapshot } from '../revenue-resolvers';
 import { sumAssetCostOfSales, type AssetCostOfSales } from '../costOfSales';
@@ -174,6 +176,68 @@ export function buildShareSoldRows(
     isPercent: true, isTotal: true, totalValue: assetInventory > 0 ? soldTotal / assetInventory : 0,
   });
   return rows;
+}
+
+/**
+ * 2a. THE ESCALATED PRICE, PER SQM, FOR EVERY SUB-UNIT (2026-09-24, founder).
+ *
+ * One indexation factor row for the line (its plots share their phase and
+ * terms, so the factor is the same across every sub-unit), then one escalated
+ * price PER SQM row per sub-unit, pre and post sales in the one table the
+ * caller bands. ONE builder for the screen, the PDF and the workbook, which
+ * each carried a copy of this loop until today.
+ *
+ * WHY PER SQM ON EVERY ROW. The copies printed a row in its own metric, so a
+ * sub-unit sold by UNITS showed a price per unit and could not be read against
+ * its neighbours or against a cost per sqm. A unit row's price per sqm is its
+ * price per unit over the area ONE unit counts (`computeSubUnitArea` over the
+ * unit count), which is what the engine's revenue implies: area sold x this
+ * rate x the factor = the revenue in 2b. The optional "other basis" price on
+ * Table 5 is NOT used, because it is not what the engine sold at. A unit row
+ * with no area to divide by says so rather than printing a guess.
+ */
+export interface EscalatedPriceRow {
+  subUnitId: string;
+  label: string;
+  /** Base price per sqm, before escalation; null when a unit row has no area. */
+  basePerSqm: number | null;
+  /** Escalated price per sqm per year (zero where there is no base). */
+  values: number[];
+}
+export function buildEscalatedPriceTable(
+  units: ReadonlyArray<SubUnit>,
+  ownerOf: (su: SubUnit) => Asset | undefined,
+  idxAxis: Parameters<typeof applyIndexation>[2],
+  axisLength: number,
+  currency: string,
+  fmtRate: (v: number) => string,
+): { factor: number[]; rows: EscalatedPriceRow[] } {
+  const N = axisLength;
+  const factor = Array.from({ length: N }, (_, t) => applyIndexation(1, t, idxAxis));
+  const rows = units.map((su): EscalatedPriceRow => {
+    const owner = ownerOf(su);
+    const base = Math.max(0, su.unitPrice ?? 0);
+    const name = su.name || 'sub-unit';
+    if (resolveSubUnitMetric(su, owner) !== 'units') {
+      return {
+        subUnitId: su.id, basePerSqm: base,
+        label: `${name} (${currency} ${fmtRate(base)} / sqm)`,
+        values: Array.from({ length: N }, (_, t) => (base > 0 ? applyIndexation(base, t, idxAxis) : 0)),
+      };
+    }
+    const count = Math.max(0, su.metricValue ?? 0);
+    const area = computeSubUnitArea(su, owner);
+    const perUnitArea = count > 0 ? area / count : 0;
+    const perSqm = perUnitArea > 0 ? base / perUnitArea : null;
+    return {
+      subUnitId: su.id, basePerSqm: perSqm,
+      label: perSqm === null
+        ? `${name} (${currency} ${fmtRate(base)} / unit; no unit area, so no price per sqm)`
+        : `${name} (${currency} ${fmtRate(base)} / unit = ${fmtRate(perSqm)} / sqm)`,
+      values: Array.from({ length: N }, (_, t) => (perSqm === null ? 0 : applyIndexation(perSqm, t, idxAxis))),
+    };
+  });
+  return { factor, rows };
 }
 
 /** 1b and 2b. One row per sub-unit (pre + post), the two totals, the grand total. */

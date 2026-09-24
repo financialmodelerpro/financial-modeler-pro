@@ -78,7 +78,7 @@ import { withResolvedAssetNames, assetLabel } from '@/src/core/calculations/asse
 // Module 2 and Module 3 mirror (addRevenue / addOpex).
 import { planRevenueLines, groupRevenueLines, lineForAsset, REVENUE_SECTIONS, REVENUE_SECTION_META, type RevenueLine } from '../revenueLines';
 import { lineRevenueResults, resolveRowVelocity, expandIndexationToAxis, resolveSellConfig, resolveHospitalityConfig, resolveLeaseConfig, resolveAssetKeys } from '../revenue-resolvers';
-import { revenueLineName, buildProjectRevenueGroupedRows, PROJECT_REVENUE_TABLES, buildShareSoldRows, buildPrePostRows, buildRevenueScheduleFeeds } from '../reports/revenueOutputReports';
+import { revenueLineName, buildProjectRevenueGroupedRows, PROJECT_REVENUE_TABLES, buildShareSoldRows, buildPrePostRows, buildRevenueScheduleFeeds, buildEscalatedPriceTable } from '../reports/revenueOutputReports';
 import { buildInventoryRollForward } from '../reports/saleRollForwardReports';
 import { OPEX_CATEGORY_LABELS, OPEX_MODE_LABELS, isFixedCostOpexMode, summarizeOpexIndexation, opexLineInflationText } from '../reports/opexInputLabels';
 import { resolveCohortDownpayment, resolveAssetDownpaymentSource } from '../state/saleCohortResolution';
@@ -2490,13 +2490,12 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
             em.tableTitle(`1c. Closing Inventory (unsold ${invLower})`, t.caption);
             em.emitRoll(t.rows, NUMFMT.int);
           }
-          em.tableTitle('2a. Sale price per year, after indexation (per sub-unit)', 'Price = base price (Table 5) x the indexation factor at each year; units sold x price = revenue. Rates at full scale; a price does not sum.');
-          em.periodRow('Indexation factor', Array.from({ length: N }, (_, t) => applyIndexation(1, t, idxAxis)), range(0, N - 1), FACTOR_FMT);
-          for (const su of units) {
-            const perUnit = resolveSubUnitMetric(su, ownerOf(su)) === 'units';
-            const base = Math.max(0, su.unitPrice ?? 0);
-            em.periodRow(`${su.name || 'sub-unit'} (${cur} ${base.toLocaleString('en-US', { maximumFractionDigits: 2 })} / ${perUnit ? 'unit' : 'sqm'})`,
-              Array.from({ length: N }, (_, t) => (base > 0 ? applyIndexation(base, t, idxAxis) : 0)), range(0, N - 1), NUMFMT.rate);
+          {
+            // The screen's own builder (2026-09-24): a price PER SQM on every row.
+            const esc = buildEscalatedPriceTable(units, ownerOf, idxAxis, N, cur, (v) => v.toLocaleString('en-US', { maximumFractionDigits: 2 }));
+            em.tableTitle('2a. Sale price per sqm per year, after indexation (per sub-unit)', 'Price per sqm[su, y] = base price per sqm x indexation factor at year y. A sub-unit sold by units is priced per sqm as its price per unit over the area one unit counts, so area sold x price = revenue on every row. Rates at full scale; a price does not sum.');
+            em.periodRow('Indexation factor (every sub-unit of this line)', esc.factor, range(0, N - 1), FACTOR_FMT);
+            for (const r of esc.rows) em.periodRow(r.label, r.values, range(0, N - 1), NUMFMT.rate);
           }
           em.tableTitle('2b. Revenue (per sub-unit, pre-sales and sales during operation)', `Revenue = ${invLabel.toLowerCase()} sold x base rate x indexation factor at the year.`);
           em.emitRows(buildPrePostRows(units, r.presalesRevenuePerPeriodPerSubUnit, r.postSalesRevenuePerPeriodPerSubUnit, r.presalesRevenuePerPeriod, r.postSalesRevenuePerPeriod, N, { preLabel: 'Total pre-sales revenue', postLabel: 'Total sales during operation revenue', grandLabel: 'Asset Total Revenue' }));

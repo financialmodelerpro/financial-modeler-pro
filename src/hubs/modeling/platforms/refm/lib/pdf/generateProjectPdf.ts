@@ -2319,7 +2319,7 @@ function buildModule1(
 // cannot re-word or re-order a table. Nothing here computes a model value.
 import { planRevenueLines, groupRevenueLines, lineForAsset, REVENUE_SECTIONS, REVENUE_SECTION_META, type RevenueLine } from '../revenueLines';
 import { lineRevenueResults, resolveRowVelocity, expandIndexationToAxis, resolveSellConfig, resolveHospitalityConfig, resolveLeaseConfig, resolveAssetKeys } from '../revenue-resolvers';
-import { revenueLineName, buildProjectRevenueGroupedRows, PROJECT_REVENUE_TABLES, buildShareSoldRows, buildPrePostRows, buildRevenueScheduleFeeds } from '../reports/revenueOutputReports';
+import { revenueLineName, buildProjectRevenueGroupedRows, PROJECT_REVENUE_TABLES, buildShareSoldRows, buildPrePostRows, buildRevenueScheduleFeeds, buildEscalatedPriceTable } from '../reports/revenueOutputReports';
 import { buildInventoryRollForward } from '../reports/saleRollForwardReports';
 import { OPEX_CATEGORY_LABELS, OPEX_MODE_LABELS, isFixedCostOpexMode, summarizeOpexIndexation, opexLineInflationText } from '../reports/opexInputLabels';
 import { resolveAssetDownpaymentSource } from '../state/saleCohortResolution';
@@ -2713,14 +2713,14 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
           put('1a. Share of inventory sold per year (per sub-unit)', buildShareSoldRows(units, denomPerSU, preSU, postSU, denom, N));
           put(`1b. ${invLabel} Sold (per sub-unit, pre-sales and sales during operation)`, buildPrePostRows(units, preSU, postSU, preTot, postTot, N, { preLabel: `Total pre-sales ${invLower}`, postLabel: `Total sales during operation ${invLower}`, grandLabel: `Asset Total ${invLabel} Sold` }, 'count'));
           put(`1c. Closing Inventory (unsold ${invLower})`, buildInventoryRollForward(denom, preTot.map((v, i) => v + (postTot[i] ?? 0)), N, invLower).rows, 'count');
-          put('2a. Sale price per year, after indexation (per sub-unit)', [
-            { label: 'Indexation factor', values: Array.from({ length: N }, (_, t) => applyIndexation(1, t, idxAxis)), fmt: 'factor' },
-            ...units.map((su): ScreenRow => {
-              const perUnit = resolveSubUnitMetric(su, ownerOf(su)) === 'units';
-              const base = Math.max(0, su.unitPrice ?? 0);
-              return { label: `${su.name || 'sub-unit'} (${cur} ${RATE_STR(base)} / ${perUnit ? 'unit' : 'sqm'})`, values: Array.from({ length: N }, (_, t) => (base > 0 ? applyIndexation(base, t, idxAxis) : 0)), valueKind: 'rate' };
-            }),
-          ]);
+          {
+            // The screen's own builder (2026-09-24): a price PER SQM on every row.
+            const esc = buildEscalatedPriceTable(units, ownerOf, idxAxis, N, cur, RATE_STR);
+            put('2a. Sale price per sqm per year, after indexation (per sub-unit)', [
+              { label: 'Indexation factor (every sub-unit of this line)', values: esc.factor, fmt: 'factor' },
+              ...esc.rows.map((r): ScreenRow => ({ label: r.label, values: r.values, valueKind: 'rate' })),
+            ]);
+          }
           put('2b. Revenue (per sub-unit, pre-sales and sales during operation)', buildPrePostRows(units, r.presalesRevenuePerPeriodPerSubUnit, r.postSalesRevenuePerPeriodPerSubUnit, r.presalesRevenuePerPeriod, r.postSalesRevenuePerPeriod, N, { preLabel: 'Total pre-sales revenue', postLabel: 'Total sales during operation revenue', grandLabel: 'Asset Total Revenue' }));
           {
             const m = r.recognitionVintageMatrix;

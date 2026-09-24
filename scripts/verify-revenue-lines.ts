@@ -453,8 +453,12 @@ section('O. The Output tab, the Inputs card and the selling costs read per line,
   const vm = readFileSync(join(process.cwd(), 'src/hubs/modeling/platforms/refm/components/modules/_shared/VintageMatrix.tsx'), 'utf8');
   check('O7 recognition, cash, receivables and unearned wear the same band as blocks 1 and 2, the vintage matrices included',
     (out.match(/bands=\{saleBands\}/g) ?? []).length >= 10 && vm.includes('bands?:') && vm.includes("band?.tone === 'post'"));
-  check('O8 the Output sell block shows the sale price per year after indexation, per sub-unit, through applyIndexation on the resolver\'s axis',
-    out.includes('2a. Sale price per year, after indexation') && out.indexOf('2a. Sale price per year') < out.indexOf('2b. Revenue (per sub-unit') && out.includes('applyIndexation(base, i, idxAxis)') && out.includes('expandIndexationToAxis(indexation'));
+  // RE-AIMED 2026-09-24 (founder: a price PER SQM on every sub-unit): 2a is
+  // built by the ONE builder the PDF and workbook share, which applies the same
+  // indexation on the same resolver axis. verify-escalated-price pins its rows.
+  check('O8 the Output sell block shows the sale price per sqm per year after indexation, per sub-unit, before revenue, on the resolver\'s axis',
+    out.includes('2a. Sale price per sqm per year, after indexation') && out.indexOf('2a. Sale price per sqm per year') < out.indexOf('2b. Revenue (per sub-unit')
+    && out.includes('buildEscalatedPriceTable(assetSubUnits, ownerOf, idxAxis') && out.includes('expandIndexationToAxis(indexation'));
 }
 
 // ── Q. A stored ADR of zero does not shadow the Table 5 price ────────────────
