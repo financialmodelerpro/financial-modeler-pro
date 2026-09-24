@@ -2040,6 +2040,29 @@ function buildModule1(
       }));
     }
   }
+  // TABLE 7 (2026-09-24): cost per sqm by line, and a Sell line's price against
+  // its cost. The SAME rows the screen renders (costPerSqmTables), so the PDF
+  // cannot word or order it differently; amounts at this export's scale, per-sqm
+  // figures in full units.
+  {
+    const cur7 = state.project.currency ?? 'SAR';
+    const report7 = buildCostPerSqmReport(snap, state);
+    const tables7 = costPerSqmTables(report7.lines, { currency: cur7, scaleTag: amountUnit(cur7, fmt.scale), multiPhase: state.phases.length > 1 });
+    const cell7 = (c: CostPerSqmCell): string => {
+      if (typeof c === 'string') return c;
+      if (c.n === null) return 'n/a';
+      if (c.as === 'amount') return fmt.money(c.n);
+      if (c.as === 'area') return `${fmt.area(c.n)} sqm`;
+      return formatAccounting(c.n, 'full', 0);
+    };
+    for (const t of tables7) {
+      items.push(tTable(M1_TABS.capex, 'outputs', {
+        title: t.title, kind: 'grid', align: 'data', columns: t.columns,
+        rows: t.rows.map((r) => row(r.cells.map(cell7), r.kind === 'data' ? undefined : r.kind)),
+      }));
+      items.push(tItem(M1_TABS.capex, 'outputs', { type: 'paragraph', text: t.caption }));
+    }
+  }
   // The per-stage reading the Capex tiles show, kept as a memo beneath the six.
   {
     const ps = fin.capex.perStagePerPeriod;
@@ -2319,6 +2342,7 @@ function buildModule1(
 // cannot re-word or re-order a table. Nothing here computes a model value.
 import { planRevenueLines, groupRevenueLines, lineForAsset, REVENUE_SECTIONS, REVENUE_SECTION_META, type RevenueLine } from '../revenueLines';
 import { lineRevenueResults, resolveRowVelocity, expandIndexationToAxis, resolveSellConfig, resolveHospitalityConfig, resolveLeaseConfig, resolveAssetKeys } from '../revenue-resolvers';
+import { buildCostPerSqmReport, costPerSqmTables, amountUnit, type CostPerSqmCell } from '../reports/costPerSqmReport';
 import { revenueLineName, buildProjectRevenueGroupedRows, PROJECT_REVENUE_TABLES, buildShareSoldRows, buildPrePostRows, buildRevenueScheduleFeeds, buildEscalatedPriceTable } from '../reports/revenueOutputReports';
 import { buildInventoryRollForward } from '../reports/saleRollForwardReports';
 import { OPEX_CATEGORY_LABELS, OPEX_MODE_LABELS, isFixedCostOpexMode, summarizeOpexIndexation, opexLineInflationText } from '../reports/opexInputLabels';

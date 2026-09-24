@@ -19,9 +19,7 @@ rather than attributed to a person, bulk rows say what, case rows say where. Sui
    go offline (offline page, no sign-in), come back, and confirm a figure edited in a browser tab shows in the app
    on reload. iOS keeps a SEPARATE cookie jar for a home-screen app, so the first launch asks for sign-in and the
    device-trust code again; that is iOS, not a defect.
-3. **CAPEX TABLE 7 IS ON SCREEN ONLY (2026-09-24).** The standing rule is that an export prints the platform's own
-   tabs; the PDF Capex section and the workbook's Capex tab should render `buildCostPerSqmReport` after Table 6.
-   The builder is pure and takes (snap, state), exactly what both exports already hold. Also: CLAUDE.md records
+3. **DONE 2026-09-24: Capex Table 7 is in the PDF and the workbook** (same rows as the screen). Still open: CLAUDE.md records
    `verify-consolidated-view` at 27 checks; it measures 22 on HEAD, so the figure there is stale.
 4. Everything open from 2026-09-23 below, unchanged.
 

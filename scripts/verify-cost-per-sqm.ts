@@ -154,6 +154,47 @@ const PROJECT = 'c417fc6a-4514-4438-857c-a72dc7472f65'; // FMP - MARINA GATE
   const table = src('src/hubs/modeling/platforms/refm/components/modules/_shared/CostPerSqmTables.tsx');
   check('D3 the screen renders the builder and computes nothing itself',
     /buildCostPerSqmReport\(computeFinancialsSnapshot\(state\), state\)/.test(table) && !/\/ l\.area|\/ s\.areaSold/.test(table));
+  console.log('\n=== E. The exports print the same Table 7 (the exports print the platform\'s own tabs) ===');
+  {
+    // RE-AIMED 2026-09-24: the screen now renders the shared table rows, so D3's
+    // "renders the builder" holds through costPerSqmTables as well.
+    check('E0 the screen renders costPerSqmTables, the rows both exports print', /costPerSqmTables\(lines,/.test(table));
+    const pdf = src('src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf.ts');
+    const pT6 = pdf.indexOf("periodTable('Table 6 - Capex by Category");
+    const pT7 = pdf.indexOf('costPerSqmTables(report7.lines');
+    check('E1 the PDF prints Table 7 from the same rows, right after Table 6, on the Capex outputs',
+      pT6 > 0 && pT7 > pT6 && /tTable\(M1_TABS\.capex, 'outputs', \{\s*title: t\.title, kind: 'grid'/.test(pdf));
+
+    const { buildModelWorkbook } = await import('../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook');
+    const { NUMFMT } = await import('../src/hubs/modeling/platforms/refm/lib/excel/styles');
+    const wb = buildModelWorkbook({ state, projectName: 'Check', dateLabel: 'today', displayScale: 'millions' });
+    const ws = wb.worksheets.find((w) => /capex/i.test(w.name));
+    let t7Row = 0, checkRow = 0;
+    ws?.eachRow((rw, n) => {
+      const a = String(rw.getCell(1).value ?? '');
+      if (a === 'Table 7a - Cost per sqm, by line') t7Row = n;
+      if (a.startsWith('Check: every cost line total summed')) checkRow = n;
+    });
+    check('E2 the workbook prints Table 7a on the Capex sheet, BELOW the check row the Checks tab reads', t7Row > 0 && checkRow > 0 && t7Row > checkRow, `t7 ${t7Row}, check ${checkRow}`);
+    const first = rep.lines[0];
+    let found = false, amountFmtScaled = false, rateFmtFull = false, header = '';
+    ws?.eachRow((rw, n) => {
+      if (n <= t7Row || found) return;
+      if (String(rw.getCell(1).value ?? '').startsWith('Cost (')) header = String(rw.getCell(1).value);
+      for (let cI = 2; cI <= 12; cI++) { const h = String(rw.getCell(cI).value ?? ''); if (h.startsWith('Cost (')) header = h; }
+      if (String(rw.getCell(1).value ?? '') === COST_BASES[0].label) {
+        const cells = [5, 6, 7, 8].map((cI) => rw.getCell(cI));
+        found = near(Number(cells[0].value), first.cost.construction) && near(Number(cells[1].value), first.perSqm.construction.nsa ?? NaN, 1e-6);
+        amountFmtScaled = cells[0].numFmt !== NUMFMT.rate && /,,/.test(String(cells[0].numFmt));
+        rateFmtFull = cells[1].numFmt === NUMFMT.rate;
+      }
+    });
+    check('E3 its first line reads the report\'s own numbers (cost and cost per sqm of NSA)', found);
+    check('E4 the cost is money, scaled by the workbook\'s display scale, and headed with the scale',
+      amountFmtScaled && /SAR M|M\)/.test(header), `${header}`);
+    check('E5 and the per-sqm figure is a rate, never scaled', rateFmtFull);
+  }
+
   for (const f of ['src/hubs/modeling/platforms/refm/lib/reports/costPerSqmReport.ts', 'src/hubs/modeling/platforms/refm/components/modules/_shared/CostPerSqmTables.tsx']) {
     check(`G ${f} has no em dashes`, !src(f).includes('—'));
   }

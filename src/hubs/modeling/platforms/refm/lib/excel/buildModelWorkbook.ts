@@ -78,6 +78,7 @@ import { withResolvedAssetNames, assetLabel } from '@/src/core/calculations/asse
 // Module 2 and Module 3 mirror (addRevenue / addOpex).
 import { planRevenueLines, groupRevenueLines, lineForAsset, REVENUE_SECTIONS, REVENUE_SECTION_META, type RevenueLine } from '../revenueLines';
 import { lineRevenueResults, resolveRowVelocity, expandIndexationToAxis, resolveSellConfig, resolveHospitalityConfig, resolveLeaseConfig, resolveAssetKeys } from '../revenue-resolvers';
+import { buildCostPerSqmReport, costPerSqmTables, amountUnit } from '../reports/costPerSqmReport';
 import { revenueLineName, buildProjectRevenueGroupedRows, PROJECT_REVENUE_TABLES, buildShareSoldRows, buildPrePostRows, buildRevenueScheduleFeeds, buildEscalatedPriceTable } from '../reports/revenueOutputReports';
 import { buildInventoryRollForward } from '../reports/saleRollForwardReports';
 import { OPEX_CATEGORY_LABELS, OPEX_MODE_LABELS, isFixedCostOpexMode, summarizeOpexIndexation, opexLineInflationText } from '../reports/opexInputLabels';
@@ -233,7 +234,7 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
     const join = (k: keyof LandAreaAssetAddrs): string => `(${parts.map((x) => x[k]).join('+')})`;
     lineLandAddrs.set(host, { landValue: join('landValue'), cashLand: join('cashLand'), inKindLand: join('inKindLand'), unitCount: join('unitCount'), revenue: join('revenue') });
   }
-  const capexAddrs = addCapex(wb, snap, capexByLine.report, refs, lineLandAddrs, opts.state);
+  const capexAddrs = addCapex(wb, snap, capexByLine.report, refs, lineLandAddrs, opts.state, opts.displayScale ?? 'full');
 
   // Excel base-cell formula per asset: Sell links the Land & Area GDV cell;
   // Operate / Lease build the stabilised annual revenue from the sub-unit inputs.
@@ -1357,7 +1358,7 @@ interface CapexAddrs {
   periodCol: (t: number) => number;
 }
 
-function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, capex: CapexReport, refs: AssumptionRefs, landAddrs: Map<string, LandAreaAssetAddrs>, state: FinancialsResolverState): CapexAddrs {
+function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, capex: CapexReport, refs: AssumptionRefs, landAddrs: Map<string, LandAreaAssetAddrs>, state: FinancialsResolverState, displayScale: DisplayScale = 'full'): CapexAddrs {
   void landAddrs;
   const ws = wb.addWorksheet(SHEETS.capex, { properties: { tabColor: { argb: ARGB.navy } } });
   const N = refs.axisLength;
@@ -1371,7 +1372,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   const cSrc = cLast + 2;                              // phasing source (inputs only)
   const TOL = 0.0001;
   const TITLE = 'Capex';
-  const SUB = 'Development cost by line, as on the platform Capex tab. Inputs: each line\'s method, rate, rate source and phasing source, with the allocation profile the engine resolved. Results: the consolidated preview by type, Table 1 the schedule by cost line, Tables 2 to 4 the line summaries by phase (incl. all land, excl. land in-kind, excl. total land), Table 5 land cash and in-kind per phase, Table 6 capex by category. Platform values, hardcoded.';
+  const SUB = 'Development cost by line, as on the platform Capex tab. Inputs: each line\'s method, rate, rate source and phasing source, with the allocation profile the engine resolved. Results: the consolidated preview by type, Table 1 the schedule by cost line, Tables 2 to 4 the line summaries by phase (incl. all land, excl. land in-kind, excl. total land), Table 5 land cash and in-kind per phase, Table 6 capex by category, Table 7 cost per sqm by line and each Sell line\'s price against its cost. Platform values, hardcoded.';
 
   // ── Capex-local frozen 4-row header (rows 3 dates / 4 index; freeze A-E) ──
   ws.getColumn(C_LBL).width = 40; ws.getColumn(C_UOM).width = 30; ws.getColumn(C_RATE).width = 12; ws.getColumn(C_QTY).width = 19; ws.getColumn(C_TOT).width = 15;
@@ -1718,6 +1719,35 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   const buildupTotalAddr = sheetRef(SHEETS.capex, `$E$${r}`);
   const scheduleTotalAddr = sheetRef(SHEETS.capex, `$E$${projTotalRow}`);
   void subtotalRows;
+
+  // ── Table 7: cost per sqm by line, and a Sell line's price against cost ────
+  // Written BELOW the check row so every address the Checks tab reads above is
+  // unchanged. The SAME rows the screen and the PDF render (costPerSqmTables);
+  // amounts are money (the workbook's display-scale sweep scales them, and the
+  // header states the scale), per-sqm figures are rates and areas are counts,
+  // which the sweep never scales.
+  {
+    const cur7 = state.project.currency ?? 'SAR';
+    const tables7 = costPerSqmTables(buildCostPerSqmReport(snap, state).lines, { currency: cur7, scaleTag: amountUnit(cur7, displayScale), multiPhase: state.phases.length > 1 });
+    const cols = [C_LBL, C_TOT, C_TOT + 1, C_TOT + 2, C_TOT + 3];
+    for (const t of tables7) {
+      r += 2;
+      setSectionHeader(ws.getRow(r), t.title, cLast); r += 1;
+      note(r, t.caption); r += 2;
+      subHeader(r, t.columns.map((c, i): [number, string, 'left' | 'right' | 'center'] => [cols[i], c, i === 0 ? 'left' : 'right']));
+      r += 1;
+      for (const row7 of t.rows) {
+        if (row7.kind === 'heading') band(r, '');
+        row7.cells.forEach((c, i) => {
+          const col = cols[i];
+          if (typeof c === 'string') { if (c) setLabel(ws.getCell(r, col), c, { indent: i === 0 && row7.kind !== 'heading' ? 1 : undefined, bold: row7.kind !== 'data' }); return; }
+          if (c.n === null) { setLabel(ws.getCell(r, col), 'n/a'); return; }
+          put(r, col, c.n, c.as === 'amount' ? NUMFMT.money : c.as === 'area' ? NUMFMT.int : NUMFMT.rate);
+        });
+        r += 1;
+      }
+    }
+  }
 
   return {
     scheduleTotalAddr, buildupTotalAddr,
@@ -4814,7 +4844,7 @@ const MODULE_TOC: TocEntry[] = [
   { sheet: SHEETS.assumptions, desc: 'Every input screen of the platform in module order, input cells shaded' },
   { sheet: SHEETS.timeline, desc: 'The model year axis and each phase\'s construction and operations windows' },
   { sheet: SHEETS.landArea, desc: 'Derived areas by plot and by line (top-down chain), land by asset' },
-  { sheet: SHEETS.capex, desc: 'Capex inputs and results Tables 1 to 6, by line' },
+  { sheet: SHEETS.capex, desc: 'Capex inputs and results Tables 1 to 7, by line' },
   { sheet: SHEETS.financing, desc: 'Funding method, facilities, debt and equity drawdowns, IDC, the cash sweep and dividends, in the platform\'s four sub-tabs' },
   { group: 'Module 2  ·  Revenue & Cost of Sales' },
   { sheet: SHEETS.revenue, desc: 'Inputs, Output, Cost of Sales, Schedules and Escrow, one card per line by section' },

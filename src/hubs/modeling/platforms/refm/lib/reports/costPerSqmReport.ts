@@ -179,3 +179,75 @@ export function buildCostPerSqmReport(snap: ProjectFinancialsSnapshot, state: Fi
   }
   return { lines };
 }
+
+/** The unit an AMOUNT column is stated in, from the scale it is shown at. */
+export function amountUnit(currency: string, scale: 'full' | 'thousands' | 'millions'): string {
+  return scale === 'thousands' ? `${currency} '000` : scale === 'millions' ? `${currency} M` : currency;
+}
+
+/* ───────────────── the two tables, as every surface prints them ───────────────── */
+
+/** A cell: text, or a number tagged with WHAT it is, so each surface formats
+ *  it its own way (the screen and PDF as text, the workbook as a number with a
+ *  number format) and none of them decides what the figure is. */
+export type CostPerSqmCell =
+  | string
+  | { n: number | null; as: 'amount' | 'perSqm' | 'area' };
+
+export interface CostPerSqmTable {
+  title: string;
+  caption: string;
+  columns: string[];
+  rows: Array<{ cells: CostPerSqmCell[]; kind: 'heading' | 'data' | 'subtotal' }>;
+}
+
+/**
+ * TABLE 7 AS ROWS (2026-09-24): titles, captions, columns and rows stated once,
+ * so the Capex screen, the PDF and the workbook print the same table in the
+ * same words. `scaleTag` is the amount column's unit ("SAR '000"); per-sqm
+ * figures are always full currency units.
+ */
+export function costPerSqmTables(
+  lines: readonly CostPerSqmLine[],
+  opts: { currency: string; scaleTag: string; multiPhase: boolean },
+): CostPerSqmTable[] {
+  const { currency, scaleTag, multiPhase } = opts;
+  const name = (l: CostPerSqmLine): string => (multiPhase ? `${l.label}, ${l.phaseName}` : l.label);
+  const out: CostPerSqmTable[] = [];
+  if (lines.length === 0) return out;
+
+  const a: CostPerSqmTable = {
+    title: 'Table 7a - Cost per sqm, by line',
+    caption: `Cost in ${scaleTag}; per sqm figures in ${currency} at full scale. Construction is the hard, soft and pre-opening stages, the platform's one definition of the word; IDC is the interest capitalised to the line; land is the land stage (land value and anything charged with it, such as transfer tax). Marketing sits outside all three. Each is divided by the line's NSA, BUA and GFA (NSA within BUA within GFA).`,
+    columns: ['Line and cost base', `Cost (${scaleTag})`, ...AREA_BASES.map((x) => `Per sqm of ${x.label}`)],
+    rows: [],
+  };
+  for (const l of lines) {
+    a.rows.push({ kind: 'heading', cells: [name(l), '', ...AREA_BASES.map((x) => ({ n: l.area[x.key], as: 'area' as const }))] });
+    for (const b of COST_BASES) {
+      a.rows.push({ kind: 'data', cells: [b.label, { n: l.cost[b.key], as: 'amount' }, ...AREA_BASES.map((x) => ({ n: l.perSqm[b.key][x.key], as: 'perSqm' as const }))] });
+    }
+  }
+  out.push(a);
+
+  const sells = lines.filter((l) => l.sale);
+  if (sells.length > 0) {
+    const t: CostPerSqmTable = {
+      title: 'Table 7b - Sale price against cost, per sqm of NSA (Sell lines)',
+      caption: `${currency} per sqm, at full scale. The base price is what the area sold would fetch at the Table 5 prices before escalation; the realised price is GDV (what the model sells it for, escalation included) over the area sold. The margin is each price less the cost per sqm of NSA on each base, and the gap between the two prices is what escalation earned per sqm sold.`,
+      columns: ['Line and cost base', 'Cost per sqm of NSA', 'Margin at base price', 'Margin at realised price'],
+      rows: [],
+    };
+    for (const l of sells) {
+      const s = l.sale!;
+      t.rows.push({ kind: 'heading', cells: [name(l), 'Area sold (sqm)', 'Base price', 'Realised price'] });
+      t.rows.push({ kind: 'data', cells: [`NSA ${Math.round(s.nsa).toLocaleString('en-US')} sqm`, { n: s.areaSold, as: 'area' }, { n: s.basePrice, as: 'perSqm' }, { n: s.realisedPrice, as: 'perSqm' }] });
+      for (const b of COST_BASES) {
+        t.rows.push({ kind: 'data', cells: [b.label, { n: s.costPerSqm[b.key], as: 'perSqm' }, { n: s.marginAtBase[b.key], as: 'perSqm' }, { n: s.marginAtRealised[b.key], as: 'perSqm' }] });
+      }
+      t.rows.push({ kind: 'subtotal', cells: ['Escalation earned (realised less base price)', '', '', { n: s.escalationPerSqm, as: 'perSqm' }] });
+    }
+    out.push(t);
+  }
+  return out;
+}
