@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
-import { COURSES } from '@/src/hubs/training/config/courses';
+import { maxAttemptsFor } from '@/src/hubs/training/lib/assessment/modelGateScope';
 
 /**
  * GET /api/training/attempt-status
@@ -23,14 +23,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: false, error: 'Missing tabKey or email' }, { status: 400 });
   }
 
-  // Resolve maxAttempts from the local COURSES config. Format:
-  //   tabKey = "3SFM_S1" | "BVM_L2" | "3SFM_Final" | "BVM_Final"
-  const sep = tabKey.indexOf('_');
-  const shortCode = sep >= 0 ? tabKey.slice(0, sep).toUpperCase() : '';
-  const sessionId = sep >= 0 ? tabKey.slice(sep + 1) : tabKey;
-  const course = Object.values(COURSES).find(c => c.shortTitle.toUpperCase() === shortCode);
-  const session = course?.sessions.find(s => s.id === sessionId || (s.id === 'S18' && sessionId === 'Final') || (s.id === 'L7' && sessionId === 'Final'));
-  const maxAttempts = session?.maxAttempts ?? (session?.isFinal ? 1 : 3);
+  // The ONE attempt-limit rule, shared with submit-assessment, which enforces it.
+  const maxAttempts = maxAttemptsFor(tabKey);
 
   const sb = getServerClient();
   const { data: row } = await sb

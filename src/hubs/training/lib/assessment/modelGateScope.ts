@@ -31,6 +31,21 @@ export function resolveIsFinal(tabKey: string): boolean {
 }
 
 /**
+ * The attempt limit for a tab key, from the static COURSES config: the ONE
+ * rule (2026-09-26). attempt-status reports it and submit-assessment ENFORCES
+ * it; before, the limit was only ever read in the browser, and the server took
+ * whatever number the request sent.
+ */
+export function maxAttemptsFor(tabKey: string): number {
+  const sep = tabKey.indexOf('_');
+  const shortCode = sep >= 0 ? tabKey.slice(0, sep).toUpperCase() : '';
+  const sessionId = sep >= 0 ? tabKey.slice(sep + 1) : tabKey;
+  const course = Object.values(COURSES).find(c => c.shortTitle.toUpperCase() === shortCode);
+  const session = course?.sessions.find(s => s.id === sessionId || (s.id === 'S18' && sessionId === 'Final') || (s.id === 'L7' && sessionId === 'Final'));
+  return session?.maxAttempts ?? (session?.isFinal ? 1 : 3);
+}
+
+/**
  * Detect Apps Script errors that look like the model-submission gate
  * fired. Used to override the misleading message for non-Final sessions
  * so a Session 2 student isn't told to "first upload a model".

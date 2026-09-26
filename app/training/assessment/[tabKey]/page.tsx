@@ -169,6 +169,8 @@ export default function AssessmentPage() {
   // Maps: for each question index, stores the mapping from shuffled option index → original option index
   // e.g. optionMaps[0] = [2, 0, 3, 1] means shuffled option 0 was originally at index 2
   const [optionMaps, setOptionMaps] = useState<number[][]>([]);
+  // Set when the server refused a submission (2026-09-26, server scoring).
+  const submitFailedRef = useRef(false);
 
   // Update browser tab title when session name is known (FIX 1)
   useEffect(() => {
@@ -308,10 +310,8 @@ export default function AssessmentPage() {
         // Reorder options according to shuffled indices
         const origOptions = [...question.options];
         question.options = indices.map((idx: number) => origOptions[idx]);
-        // Remap correctIndex to match new order
-        if (typeof question.correctIndex === 'number') {
-          question.correctIndex = indices.indexOf(question.correctIndex);
-        }
+        // No answer key reaches the browser (2026-09-26): the server scores by
+        // the option TEXT, so a shuffled order can never change a result.
       }
       setOptionMaps(maps);
     } else {
@@ -390,7 +390,9 @@ export default function AssessmentPage() {
     const recompute = () => {
       const remaining = Math.max(0, Math.floor((expiresMs - Date.now()) / 1000));
       setTimeLeft(remaining);
-      if (remaining <= 0) {
+      // After a refused submission the expired clock does NOT retry by itself
+      // every second; the student presses Submit once the reason is fixed.
+      if (remaining <= 0 && !submitFailedRef.current) {
         if (timerRef.current) clearInterval(timerRef.current);
         setTimeout(() => handleSubmitRef.current(), 0);
       }
@@ -497,26 +499,72 @@ export default function AssessmentPage() {
       return;
     }
 
-    // ── Step 1: Score CLIENT-SIDE - compare answers to stored correctIndex ──
-    const total = questions.questions.length;
-    let correctCount = 0;
-    console.log('[assessment] Scoring - first 3 questions correctIndex:', questions.questions.slice(0, 3).map(q => q.correctIndex));
-    const results: QuestionResult[] = questions.questions.map((q, i) => {
-      // Student's picked index (in current display order)
+    // ── The SERVER scores (2026-09-26) ─────────────────────────────────────
+    // The browser no longer holds the answer key. It sends, per question, the
+    // question's key and the TEXT of the option picked (so shuffling can never
+    // change what an answer means), and renders what the server decides. The
+    // identity is the signed session; nothing about the student is sent here.
+    void email; void regId; void optionMaps;
+    const qs = questions.questions;
+    const submitted = qs.map((q, i) => {
       const picked = answers[i] ?? -1;
+      return { key: q.key ?? '', choice: picked >= 0 ? (q.options[picked] ?? '') : '' };
+    });
 
-      // If options were shuffled, map back to original index for scoring
-      let originalPicked = picked;
-      if (picked >= 0 && optionMaps.length > 0 && optionMaps[i]) {
-        originalPicked = optionMaps[i][picked];
+    let resData: {
+      success?: boolean; error?: string; message?: string; held?: boolean;
+      score?: number; passed?: boolean; correctCount?: number; totalQuestions?: number;
+      attempts?: number; maxAttempts?: number; canRetry?: boolean; wrong?: string[];
+      review?: Array<{ key: string; correctText: string; explanation: string }>;
+    } = {};
+    try {
+      const res = await fetch('/api/training/submit-assessment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tabKey, answers: submitted }),
+      });
+      resData = await res.json().catch(() => ({}));
+      if (res.status === 401) {
+        clearTrainingSession();
+        setErrorMsg(resData.message ?? 'Your sign-in has expired. Please sign in again; your answers are saved on this device.');
+        submitFailedRef.current = true;
+        setPageState('taking');
+        return;
       }
+    } catch {
+      setErrorMsg('We could not reach the server. Your answers are saved on this device; please check your connection and press Submit again.');
+      submitFailedRef.current = true;
+      setPageState('taking');
+      return;
+    }
+    if (!resData.success) {
+      // Nothing was recorded: stay on the questions, answers kept.
+      setErrorMsg(resData.message ?? 'Your answers could not be submitted. Please press Submit again.');
+      submitFailedRef.current = true;
+      setPageState('taking');
+      return;
+    }
 
-      // correctIndex is already in display order (was remapped during shuffle)
-      // so compare picked (display) vs correctIndex (display) directly
-      const correct   = typeof q.correctIndex === 'number' ? q.correctIndex : -1;
-      const isCorrect = correct >= 0 && picked === correct;
-      if (isCorrect) correctCount++;
+    submitFailedRef.current = false;
+    setErrorMsg('');
+    clearSavedAnswers(tabKey);
+    if (resData.held) {
+      setResult({
+        tabKey, score: 0, passed: false, correctCount: 0, totalQuestions: qs.length,
+        attempts: resData.attempts ?? 0, maxAttempts: resData.maxAttempts ?? 0, canRetry: false, held: true,
+      });
+      setPageState('results');
+      return;
+    }
 
+    const wrong = new Set(resData.wrong ?? []);
+    const review = new Map((resData.review ?? []).map((r) => [r.key, r]));
+    const revealed = review.size > 0;
+    const results: QuestionResult[] = qs.map((q, i) => {
+      const picked = answers[i] ?? -1;
+      const key = q.key ?? '';
+      const r = review.get(key);
+      const correct = r ? q.options.indexOf(r.correctText) : -1;
       return {
         index: i,
         q: q.q,
@@ -525,56 +573,23 @@ export default function AssessmentPage() {
         submitted: picked,
         submittedText: picked >= 0 ? (q.options[picked] ?? '') : '',
         correct,
-        correctText: correct >= 0 ? (q.options[correct] ?? '') : '',
-        isCorrect,
-        explanation: q.explanation ?? '',
+        correctText: r?.correctText ?? '',
+        isCorrect: !wrong.has(key),
+        explanation: r?.explanation ?? '',
       };
     });
 
-    const score       = total > 0 ? Math.round((correctCount / total) * 100) : 0;
-    const passScore   = questions.passingScore ?? 70;
-    const passed      = score >= passScore;
-    const maxAtt      = questions.maxAttempts ?? 3;
-    const attemptNo   = (status?.attempts ?? 0) + 1;
-    const canRetry    = !passed && attemptNo < maxAtt;
-    const isFinalExam = questions.isFinal ?? false;
-
-    const sessionLabel = getSessionTitleFromTabKey(tabKey);
-    const submitPayload = {
-      tabKey, regId, email, score, passed, isFinal: isFinalExam, attemptNo,
-      maxAttempts: maxAtt, passingScore: passScore, sessionName: sessionLabel,
-    };
-    console.log('[assessment] Client-side score:', { correctCount, total });
-    console.log('[assessment] Submit payload:', JSON.stringify(submitPayload));
-
-    // ── Step 2: Send scored result to server API (which writes to Apps Script) ──
-    try {
-      const res = await fetch('/api/training/submit-assessment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(submitPayload),
-      });
-      const resData = await res.json();
-      console.log('[assessment] Submit response:', resData);
-    } catch (err) {
-      console.error('[assessment] Submit to Apps Script failed:', err);
-      // Non-fatal - show results anyway, score is calculated locally
-    }
-
-    // ── Step 3: Show results - NEVER re-fetch questions ──
-    // Server-side cleanup of the in-progress row happens inside
-    // /api/training/submit-assessment after the score is recorded.
-    clearSavedAnswers(tabKey);
     setResult({
       tabKey,
-      score,
-      passed,
-      correctCount,
-      totalQuestions: total,
-      attempts: attemptNo,
-      maxAttempts: maxAtt,
-      canRetry,
+      score: resData.score ?? 0,
+      passed: resData.passed === true,
+      correctCount: resData.correctCount ?? 0,
+      totalQuestions: resData.totalQuestions ?? qs.length,
+      attempts: resData.attempts ?? 0,
+      maxAttempts: resData.maxAttempts ?? 0,
+      canRetry: resData.canRetry === true,
       results,
+      revealed,
     });
     setPageState('results');
   }
@@ -826,6 +841,13 @@ export default function AssessmentPage() {
       >
         <NavBar isFinal={isFinal} sessionName={sessionName} dashUrl={dashUrl} />
 
+        {/* A refused submission: nothing was recorded, the answers are kept. */}
+        {errorMsg && (
+          <div role="alert" style={{ maxWidth: 820, margin: '16px auto 0', padding: '12px 16px', background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8, color: '#991B1B', fontSize: 14 }}>
+            {errorMsg}
+          </div>
+        )}
+
         {/* Paused overlay, blocks interaction while attempt is paused on the
             server. Auto-dismisses when the visibility-change resume completes
             and attemptState.paused flips back to false. */}
@@ -1038,6 +1060,26 @@ export default function AssessmentPage() {
 
   // ── Render: results ────────────────────────────────────────────────────────
 
+  // A final-exam result withheld until the model is approved: the server
+  // returned nothing but that (2026-09-26), so nothing else can be shown.
+  if (pageState === 'results' && result?.held) {
+    return (
+      <div style={{ minHeight: '100vh', background: LIGHT_BG }}>
+        <NavBar isFinal={isFinal} sessionName={sessionName} dashUrl={dashUrl} />
+        <div style={{ maxWidth: 560, margin: '80px auto', padding: '0 24px', textAlign: 'center' }}>
+          <div style={{ fontSize: 56, marginBottom: 16 }}>📨</div>
+          <h1 style={{ fontSize: 24, fontWeight: 800, color: NAVY, marginBottom: 12 }}>Your answers are submitted</h1>
+          <p style={{ color: '#475569', marginBottom: 32, lineHeight: 1.6 }}>
+            Your final exam result will be released once your financial model has been reviewed and approved. We will email you.
+          </p>
+          <Link href={dashUrl} style={{ display: 'inline-block', background: NAVY, color: WHITE, padding: '12px 28px', borderRadius: 8, fontWeight: 700, textDecoration: 'none', fontSize: 15 }}>
+            ← Back to Dashboard
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   if (pageState === 'results' && result) {
     const passed     = result.passed;
     const scoreColor = passed ? GREEN : '#DC2626';
@@ -1226,12 +1268,20 @@ export default function AssessmentPage() {
           );
         })()}
 
-        {/* Per-question review - only shown when student PASSES */}
-        {passed && Array.isArray(result.results) && result.results.length > 0 && (
+        {/* Per-question review (2026-09-26): on EVERY attempt the student sees
+            which questions were wrong and what they answered; the correct
+            answer and explanation only once the final attempt is used
+            (result.revealed, decided by the server). */}
+        {Array.isArray(result.results) && result.results.length > 0 && (
           <div style={{ maxWidth: 900, margin: '0 auto 60px', padding: '0 24px' }}>
-            <h2 style={{ fontSize: 18, fontWeight: 800, color: NAVY, marginBottom: 16 }}>
+            <h2 style={{ fontSize: 18, fontWeight: 800, color: NAVY, marginBottom: 6 }}>
               Question Review
             </h2>
+            <p style={{ fontSize: 13, color: '#64748B', margin: '0 0 16px' }}>
+              {result.revealed
+                ? 'You have used every attempt, so the correct answers are shown below.'
+                : 'Questions marked red were answered incorrectly. The correct answers are shown once you have used your final attempt.'}
+            </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               {(result.results as QuestionResult[]).map((qr, i) => {
                 // Apps Script returns: correct (number index), submitted (number index), isCorrect (boolean)

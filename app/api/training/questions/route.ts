@@ -1,31 +1,33 @@
+/**
+ * GET /api/training/questions?tabKey=...
+ *
+ * The questions of one assessment, for the signed-in student.
+ *
+ * 2026-09-26: this used to send every question WITH its correct answer and
+ * explanation (the browser scored itself), and took the student's identity
+ * from the URL. Now identity is the SIGNED session, and each question carries
+ * its key, text and options ONLY (publicQuestion in serverScoring.ts): the
+ * answer key never leaves the server, which scores in submit-assessment.
+ * The email and regId the page still sends in the URL are ignored.
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { getAssessmentQuestions } from '@/src/hubs/training/lib/appsScript/sheets';
 import { resolveIsFinal, looksLikeModelGateError } from '@/src/hubs/training/lib/assessment/modelGateScope';
+import { publicQuestion, type SourceQuestion } from '@/src/hubs/training/lib/assessment/serverScoring';
+import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
 
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const tabKey  = searchParams.get('tabKey');
-  const email   = searchParams.get('email');
-  const regId   = searchParams.get('regId');
-  const shuffle = searchParams.get('shuffle');
-
-  if (!tabKey || !email || !regId) {
-    return NextResponse.json({ success: false, error: 'Missing tabKey, email, or regId' }, { status: 400 });
+  const session = await getTrainingCookieSession();
+  if (!session?.email || !session.registrationId) {
+    return NextResponse.json({ success: false, error: 'Please sign in again.' }, { status: 401 });
   }
+  const tabKey = new URL(req.url).searchParams.get('tabKey');
+  if (!tabKey) return NextResponse.json({ success: false, error: 'Missing tabKey' }, { status: 400 });
 
-  // Assessment-type check: derive isFinal from the static COURSES config so
-  // the model-submission gate can only fire on a Final Exam. Forward the
-  // hint to Apps Script (defense-in-depth on that side once it honours the
-  // param) and use it locally to filter misfired model-gate errors.
+  // Assessment-type check from the static COURSES config, so the model-
+  // submission gate can only fire on a Final Exam.
   const isFinal = resolveIsFinal(tabKey);
-
-  const result = await getAssessmentQuestions(
-    tabKey,
-    email,
-    regId,
-    shuffle === 'false' ? false : undefined,
-    isFinal,
-  );
+  const result = await getAssessmentQuestions(tabKey, session.email, session.registrationId, false, isFinal);
 
   if (!result.success) {
     const rawError = result.error ?? 'Failed to load questions';
@@ -33,42 +35,27 @@ export async function GET(req: NextRequest) {
       console.error('[questions] Apps Script applied model gate to non-final session, ignoring:', { tabKey, rawError });
       return NextResponse.json({ success: false, error: 'Could not load questions. Please try again or contact support.' });
     }
-    console.error('[questions] getAssessmentQuestions failed:', rawError, { tabKey, email });
+    console.error('[questions] getAssessmentQuestions failed:', rawError, { tabKey });
     return NextResponse.json({ success: false, error: rawError });
   }
 
-  // Normalize question fields - handle both nested `data` and flat root shapes
   const raw    = result as unknown as Record<string, unknown>;
   const nested = result.data;
-  const rawQs  = nested?.questions ?? (Array.isArray(raw.questions) ? raw.questions : []);
+  const rawQs  = (nested?.questions ?? (Array.isArray(raw.questions) ? raw.questions : [])) as SourceQuestion[];
+  const questions = rawQs.map(publicQuestion);
 
-  // Normalize each question: map field name variants + ensure correctIndex exists
-  const normalizedQs = (rawQs as Record<string, unknown>[]).map((q) => ({
-    ...q,
-    // Normalise question text field
-    q: (q.q as string) || (q.question as string) || (q.questionText as string) || '',
-    // Normalise correct answer index: Apps Script may return as `correctAnswer`, `answer`, or `correctIndex`
-    correctIndex: q.correctIndex ?? q.correctAnswer ?? q.answer ?? undefined,
-    // Normalise explanation: Apps Script may use `explanation`, `hint`, or `rationale`
-    explanation: (q.explanation as string) || (q.hint as string) || (q.rationale as string) || '',
-  }));
+  if (!questions.length) console.error('[questions] No questions in response:', { tabKey, hasNested: !!nested, rawKeys: Object.keys(raw) });
 
-  const data = {
-    tabKey:       nested?.tabKey       ?? raw.tabKey       ?? tabKey,
-    sessionName:  nested?.sessionName  ?? raw.sessionName,
-    course:       nested?.course       ?? raw.course,
-    isFinal:      nested?.isFinal      ?? raw.isFinal      ?? isFinal,
-    questions:    normalizedQs,
-    timeLimit:    nested?.timeLimit     ?? raw.timeLimit,
-    passingScore: nested?.passingScore  ?? raw.passingScore,
-    maxAttempts:  nested?.maxAttempts   ?? raw.maxAttempts,
-  };
-
-  if (!normalizedQs.length) {
-    console.error('[questions] No questions in response:', { tabKey, hasNested: !!nested, rawKeys: Object.keys(raw) });
-  }
-
-  console.log('[questions] Returning', normalizedQs.length, 'questions, first correctIndex:', normalizedQs[0]?.correctIndex, 'first explanation:', (normalizedQs[0]?.explanation as string)?.substring(0, 50) || '(empty)');
-
-  return NextResponse.json({ success: true, data });
+  return NextResponse.json({
+    success: true,
+    data: {
+      tabKey:       nested?.tabKey       ?? raw.tabKey       ?? tabKey,
+      sessionName:  nested?.sessionName  ?? raw.sessionName,
+      course:       nested?.course       ?? raw.course,
+      isFinal,
+      questions,
+      timeLimit:    nested?.timeLimit    ?? raw.timeLimit,
+      passingScore: nested?.passingScore ?? raw.passingScore,
+    },
+  });
 }

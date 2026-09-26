@@ -708,6 +708,8 @@ export async function getAllCertificates(): Promise<{ success: boolean; data?: C
 // ── Assessment Engine ─────────────────────────────────────────────────────────
 
 export interface AssessmentQuestion {
+  /** The server scoring key (serverScoring.questionKey); the only identity the browser sends back (2026-09-26). */
+  key?:          string;
   questionId:    string;
   q:             string;
   options:       string[];
@@ -762,6 +764,10 @@ export interface SubmitAssessmentResult {
   canRetry: boolean;
   feedback?: string;
   results?: QuestionResult[];
+  /** A final-exam result withheld until the model is approved (2026-09-26): nothing else is shown. */
+  held?: boolean;
+  /** The correct answers are included (only once the final attempt is used). */
+  revealed?: boolean;
 }
 
 /** Fetch questions for a given tab key.
