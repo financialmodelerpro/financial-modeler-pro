@@ -183,8 +183,17 @@ function normDefault(s: string | null): string {
   return v.trim();
 }
 
-async function main() {
-  const res = await fetch(process.env.SUPABASE_URL + '/rest/v1/', {
+export interface SchemaDrift { findings: string[]; unparsed: string[]; liveTables: number; declaredTables: number; }
+
+/**
+ * The whole comparison, returned rather than printed, so verify-schema-drift
+ * runs EXACTLY this code and no copy of it (2026-09-26). `log` receives the
+ * same report the CLI prints; pass a no-op to run it quietly.
+ */
+export async function collectSchemaDrift(log: (s: string) => void = console.log): Promise<SchemaDrift> {
+  const url = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!url || !process.env.SUPABASE_SERVICE_ROLE_KEY) throw new Error('Needs SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (run with --env-file=.env.local)');
+  const res = await fetch(url + '/rest/v1/', {
     headers: { apikey: process.env.SUPABASE_SERVICE_ROLE_KEY!, Authorization: 'Bearer ' + process.env.SUPABASE_SERVICE_ROLE_KEY! },
   });
   const swagger = await res.json() as { definitions?: Record<string, { required?: string[]; properties?: Record<string, { type?: string; format?: string; default?: unknown; description?: string }> }> };
@@ -198,22 +207,23 @@ async function main() {
     live.set(t, { required: new Set(def.required ?? []), cols });
   }
 
-  console.log(`migrations parsed: ${files.length} files, ${declared.size} declared tables; live tables exposed: ${live.size}\n`);
+  if (!res.ok) throw new Error(`live schema read failed: HTTP ${res.status}`);
+  log(`migrations parsed: ${files.length} files, ${declared.size} declared tables; live tables exposed: ${live.size}\n`);
 
   const findings: string[] = [];
-  const f = (s: string) => { findings.push(s); console.log('  ' + s); };
+  const f = (s: string) => { findings.push(s); log('  ' + s); };
 
-  console.log('== A. Declared tables MISSING live ==');
+  log('== A. Declared tables MISSING live ==');
   for (const [t, d] of declared) {
     if (!live.has(t)) f(`MISSING TABLE: ${t} (declared in ${d.createdIn.join(', ') || 'ALTER only'})`);
   }
 
-  console.log('== B. Live tables NO migration declares (pre-log artifacts) ==');
+  log('== B. Live tables NO migration declares (pre-log artifacts) ==');
   for (const t of live.keys()) {
     if (!declared.has(t)) f(`UNDECLARED LIVE TABLE: ${t}`);
   }
 
-  console.log('== C. Column-level drift (existence / nullability / default / FK target) ==');
+  log('== C. Column-level drift (existence / nullability / default / FK target) ==');
   for (const [t, d] of declared) {
     const lt = live.get(t);
     if (!lt) continue;
@@ -247,28 +257,34 @@ async function main() {
     for (const conflict of d.conflicts) f(`REDECLARATION CONFLICT: ${t} ${conflict}`);
   }
 
-  console.log('\n== D. Declared but UNVERIFIABLE via this method (stated, not assumed) ==');
+  log('\n== D. Declared but UNVERIFIABLE via this method (stated, not assumed) ==');
   let uniques = 0; let checks = 0; let onDeletes = 0;
   for (const [t, d] of declared) {
     if (!live.has(t)) continue;
     for (const [c, dc] of d.cols) {
       const key = `${t}.${c}`;
-      if (dc.fkTable && !KNOWN_BEHAVIOR[key]) { onDeletes++; console.log(`  ON DELETE unverified: ${key} declared ${dc.onDelete} (${dc.file})`); }
-      if (dc.fkTable && KNOWN_BEHAVIOR[key]) console.log(`  ON DELETE known: ${key}: ${KNOWN_BEHAVIOR[key]}`);
-      if (dc.unique) { uniques++; console.log(`  UNIQUE unverified: ${key} (${dc.file})`); }
-      if (dc.hasCheck) { checks++; console.log(`  CHECK unverified: ${key} (${dc.file})`); }
+      if (dc.fkTable && !KNOWN_BEHAVIOR[key]) { onDeletes++; log(`  ON DELETE unverified: ${key} declared ${dc.onDelete} (${dc.file})`); }
+      if (dc.fkTable && KNOWN_BEHAVIOR[key]) log(`  ON DELETE known: ${key}: ${KNOWN_BEHAVIOR[key]}`);
+      if (dc.unique) { uniques++; log(`  UNIQUE unverified: ${key} (${dc.file})`); }
+      if (dc.hasCheck) { checks++; log(`  CHECK unverified: ${key} (${dc.file})`); }
     }
-    for (const tc of d.tableConstraints) console.log(`  table-level constraint unverified: ${t}: ${tc}`);
+    for (const tc of d.tableConstraints) log(`  table-level constraint unverified: ${t}: ${tc}`);
   }
-  console.log(`  totals: ${onDeletes} FK ON DELETE, ${uniques} column UNIQUE, ${checks} column CHECK unverified`);
+  log(`  totals: ${onDeletes} FK ON DELETE, ${uniques} column UNIQUE, ${checks} column CHECK unverified`);
 
-  console.log('\n== E. Statements the parser could not fold in (verify by hand or probe) ==');
-  for (const u of unparsed.slice(0, 60)) console.log('  ' + u);
-  if (unparsed.length > 60) console.log(`  ...and ${unparsed.length - 60} more`);
+  log('\n== E. Statements the parser could not fold in (verify by hand or probe) ==');
+  for (const u of unparsed.slice(0, 60)) log('  ' + u);
+  if (unparsed.length > 60) log(`  ...and ${unparsed.length - 60} more`);
 
-  console.log(`\nTOTAL structural findings: ${findings.length}`);
+  log(`\nTOTAL structural findings: ${findings.length}`);
+  return { findings, unparsed, liveTables: live.size, declaredTables: declared.size };
+}
+
+async function main() {
+  const { findings, unparsed } = await collectSchemaDrift();
   fs.writeFileSync(path.join(ROOT, 'scripts', 'schema-drift-report.txt'),
     findings.join('\n') + '\n\n-- unparsed --\n' + unparsed.join('\n'));
   console.log('full findings written to scripts/schema-drift-report.txt');
 }
-main().catch((e) => { console.error(e); process.exit(1); });
+// Run as a CLI only when invoked directly; the verifier imports collectSchemaDrift.
+if (require.main === module) main().catch((e) => { console.error(e); process.exit(1); });
