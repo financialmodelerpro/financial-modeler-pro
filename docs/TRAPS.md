@@ -3065,6 +3065,30 @@ on a reset. `verify-training-password-reset` B3/B4 fail if the request's ID or a
 takeover, refused, the other student unchanged, my code not spent), and the same takeover run against
 the previous route for comparison: 200 and re-pointed, against 400 and untouched now.
 
+### 9.9 The browser held the answer key and wrote its own grade
+
+**Symptom (2026-09-26):** found while closing the cookie hole. `/api/training/questions` sent every
+correct answer and explanation; the page scored itself and posted `{ email, score, passed, isFinal,
+maxAttempts }` to `/api/training/submit-assessment`, which recorded them and, on a final pass, issued
+a certificate. No session was checked. The attempt limit was only ever enforced in the browser.
+
+**Mechanism:** "Scoring is done entirely client-side; this endpoint does NOT re-fetch questions or
+re-score" was written as a design note, because it was fast and the page already had the questions.
+Every value that decides an outcome crossed the trust boundary in the wrong direction.
+
+**The general lesson:** an outcome (a grade, a certificate, a price, a limit) is computed where the
+inputs cannot be edited, and the browser receives only what it needs to render. When a page needs
+data to show AFTER an action (here, the correct answers), the server releases it at that moment, by
+its own rule, never in advance.
+
+**Fix:** `serverScoring.ts` + the rebuilt route and page; `verify-server-scoring` fails if any
+result field is read from the body or any answer field is sent; `verify-training-identity` scans
+every training route for identity taken from the request.
+
+**Proof:** production answers 401 to a forged score-and-pass submission and to every closed route;
+the answer-key fields are absent from the question payload (A1, run on every field name the source
+uses).
+
 ---
 
 ## 10. Verifier discipline

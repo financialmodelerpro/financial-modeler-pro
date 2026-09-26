@@ -35,7 +35,11 @@ rather than attributed to a person, bulk rows say what, case rows say where. Sui
    on reload. iOS keeps a SEPARATE cookie jar for a home-screen app, so the first launch asks for sign-in and the
    device-trust code again; that is iOS, not a defect.
 0. **SECURITY, 2026-09-26. STEP 1 DONE: THE COOKIE IS SIGNED** (`edd43f3a`; unsigned accepted until 13:30 UTC that day,
-   then refused). **STILL OPEN, IN THIS ORDER:** (a) about 25 training routes take identity from the request body or URL
+   then refused). **DONE 2026-09-26 (`78321055`, `f5198407`): (a) and (b) below, and (c) measured: all 10
+   certificates have a matching passed final (0 without).** STILL OPEN: the JWT follow-up (d); a real enrolled student
+   taking one assessment end to end (the question source answers only for one); client-reported badge stats in
+   `activity` (sessionsPassed, hasPerfect) still come from the browser, now only for the signed student's own profile.
+   **Original list:** (a) about 25 training routes take identity from the request body or URL
    with NO cookie at all, most seriously `submit-assessment`, which accepts a client-supplied score and pass and then
    issues a CERTIFICATE, and `questions`, which sends the answer key to the browser; also profile, notes, certificate,
    attempt-status, watch-history, transcript-link POST, live-session register/watched and others: move each to the signed
