@@ -4,7 +4,7 @@
  * PwaClient.tsx (2026-09-24)
  *
  * The Modeling Hub's installable-app client half. Mounted once by each Modeling
- * Hub layout. Two jobs, nothing else:
+ * Hub layout. Three jobs, nothing else:
  *
  *   1. REGISTER the service worker (/sw.js), only on the app host or a local
  *      dev host, so the main site and the Training Hub never get one. The
@@ -15,15 +15,59 @@
  *      check their connection and offers a retry; it never signs them out or
  *      sends them to sign in (the guards check `isOffline` for the same
  *      reason).
+ *   3. KEEP THE INSTALLED WINDOW INSIDE THE APP (2026-09-26). Only when running
+ *      as the installed app (display-mode standalone, or iOS home screen): a
+ *      link to another origin (the main site, the Training Hub) or to the app
+ *      host's own marketing pages opens in a normal browser tab, and landing
+ *      on a marketing page sends the window to the dashboard. The rule is
+ *      `linkTarget` / `isMarketingPath` in lib/pwa/appManifest.ts. In a
+ *      browser tab nothing here runs, so the site behaves exactly as before.
  *
  * No em dashes in this file.
  */
 import React, { useEffect, useState } from 'react';
+import { usePathname } from 'next/navigation';
+import { isMarketingPath, linkTarget } from '@/src/hubs/modeling/lib/pwa/appManifest';
 
 const APP_HOST = 'app.financialmodelerpro.com';
 
+/** True when this page is running as the installed app, not in a browser tab. */
+function isInstalledWindow(): boolean {
+  if (typeof window === 'undefined') return false;
+  const modes = ['standalone', 'minimal-ui', 'window-controls-overlay', 'fullscreen'];
+  if (modes.some((m) => window.matchMedia?.(`(display-mode: ${m})`).matches)) return true;
+  return (navigator as Navigator & { standalone?: boolean }).standalone === true;
+}
+
 export default function PwaClient(): React.JSX.Element | null {
   const [offline, setOffline] = useState(false);
+  const pathname = usePathname();
+
+  // A marketing page is never the app's page: the window goes to the dashboard
+  // (which sends a signed-out user to sign in).
+  useEffect(() => {
+    if (isInstalledWindow() && isMarketingPath(window.location.pathname)) window.location.replace('/dashboard');
+  }, [pathname]);
+
+  // Links that leave the app open in a browser tab. Capture phase on the
+  // document, so it runs before a Next <Link> and its preventDefault stops the
+  // client-side navigation.
+  useEffect(() => {
+    if (!isInstalledWindow()) return;
+    const onClick = (e: MouseEvent): void => {
+      if (e.defaultPrevented || e.button !== 0) return;
+      const a = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
+      if (!a || a.hasAttribute('download')) return;
+      let url: URL;
+      try { url = new URL(a.href, window.location.href); } catch { return; }
+      if (linkTarget(url, window.location.origin) !== 'browser') return;
+      e.preventDefault();
+      e.stopPropagation();
+      window.open(url.href, '_blank', 'noopener,noreferrer');
+    };
+    document.addEventListener('click', onClick, true);
+    return () => document.removeEventListener('click', onClick, true);
+  }, []);
 
   useEffect(() => {
     const host = window.location.hostname;

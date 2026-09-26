@@ -7,6 +7,7 @@ import SessionProviderWrapper from '@/src/shared/components/SessionProviderWrapp
 import BrandingThemeApplier from '@/src/shared/components/BrandingThemeApplier';
 import { ToastProvider } from '@/src/shared/components/ui/Toaster';
 import { getServerClient } from '@/src/core/db/supabase';
+import { readSiteFaviconUrl } from '@/src/shared/cms/siteFavicon';
 import { OrganizationJsonLd, WebSiteJsonLd } from '@/src/shared/seo/components/StructuredData';
 import PromoBanner from '@/src/hubs/main/components/pricing/PromoBanner';
 import LaunchCountdownBanner from '@/src/hubs/main/components/launch/LaunchCountdownBanner';
@@ -43,19 +44,9 @@ const KEYWORDS = [
 ];
 
 export async function generateMetadata(): Promise<Metadata> {
+  // The ONE favicon rule, shared with the Modeling Hub's installed-app icon.
   let iconUrl = '';
-
-  try {
-    const sb = getServerClient();
-    const { data } = await sb
-      .from('cms_content')
-      .select('key, value')
-      .eq('section', 'header_settings')
-      .in('key', ['icon_url', 'icon_as_favicon']);
-    const map: Record<string, string> = {};
-    for (const row of (data ?? []) as { key: string; value: string }[]) map[row.key] = row.value;
-    if (map.icon_as_favicon === 'true' && map.icon_url) iconUrl = map.icon_url;
-  } catch { /* use defaults */ }
+  try { iconUrl = await readSiteFaviconUrl(getServerClient()); } catch { /* use defaults */ }
 
   const ogImage = `${MAIN_URL}/api/og/main`;
 

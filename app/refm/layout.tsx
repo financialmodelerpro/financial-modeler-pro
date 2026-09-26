@@ -46,7 +46,7 @@ export const metadata: Metadata = {
   // INSTALLABLE APP (2026-09-24): the manifest is linked ONLY from the Modeling
   // Hub's layouts, so the main site and the Training Hub never offer an install.
   manifest: '/app.webmanifest',
-  appleWebApp: { capable: true, title: 'FMP Modeling', statusBarStyle: 'default' },
+  appleWebApp: { capable: true, title: 'Modeling Hub', statusBarStyle: 'default' },
 };
 
 export default async function RefmLayout({ children }: { children: React.ReactNode }) {
@@ -71,7 +71,7 @@ export default async function RefmLayout({ children }: { children: React.ReactNo
       {/* iOS reads its home-screen icon from this link, not the manifest. A
           <link> rather than metadata.icons, which would replace the root
           layout's CMS favicon on every app page. */}
-      <link rel="apple-touch-icon" href="/pwa/apple-touch-icon.png" />
+      <link rel="apple-touch-icon" href="/app-icon/apple-touch-icon.png" />
       <PwaClient />
       {children}
     </>

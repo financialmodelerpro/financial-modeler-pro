@@ -13,7 +13,7 @@ rather than attributed to a person, bulk rows say what, case rows say where. Sui
 1. **THE FOUNDER'S SCREEN CHECK OF THE ACTIVITY LOG (2026-09-24, founder doing it).** Wrapping of long sentences,
    the "Show what" lists on bulk rows, and how the counts line above the list reads. The browser extension blocked
    the domain for me on every attempt, so nothing here was seen on screen by me.
-2. **THE INSTALLED APP, EXERCISED ON A REAL DEVICE (2026-09-24, not yet done).** Everything was measured over
+2. **THE INSTALLED APP, EXERCISED ON A REAL DEVICE (2026-09-24, not yet done; re-scoped 2026-09-26: it is now named Modeling Hub, carries the favicon and opens browser tabs for the website; an app installed before must be REINSTALLED or wait for Chrome's manifest update check to show the new name and icon).** Everything was measured over
    HTTP and by running the worker in a sandbox; nobody has yet installed it. Install on Chrome desktop and
    Android and add to the iOS home screen; sign in, sign out (must stay in the app window and land on /signin),
    go offline (offline page, no sign-in), come back, and confirm a figure edited in a browser tab shows in the app

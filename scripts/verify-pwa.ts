@@ -15,6 +15,16 @@
  *   C. OFFLINE: a failed navigation gets the offline page, which asks the user
  *      to check their connection and has NO sign-in and no figures; the guards
  *      never send an offline user to sign in.
+ *   E. IT IS THE MODELING HUB (2026-09-26, founder: "the installed app opens
+ *      the whole website"): named Modeling Hub, opens on the dashboard (sign-in
+ *      when signed out, with Create Account on that page), and a link that
+ *      leaves the app (another origin, or the app host's own marketing pages)
+ *      opens in a browser tab; landing on a marketing page goes to the
+ *      dashboard. The rule is RUN on real URLs, and the list of app pages is
+ *      proved equal to the folders under app/modeling.
+ *   F. ITS ICON IS THE SITE FAVICON: one favicon rule, read by the root layout
+ *      and by the icon route; every icon is DRAWN by the real renderer at its
+ *      stated size; the static fallback copies exist at their sizes.
  *   D. AUTH STAYS IN THE APP WINDOW: every Modeling Hub sign-out asks for
  *      /signin. Asking for "/" is resolved by the NextAuth redirect rule to
  *      /admin/dashboard, which the app host sends to the MAIN domain, leaving
@@ -28,6 +38,10 @@
 import { readFileSync, existsSync } from 'node:fs';
 import vm from 'node:vm';
 import sharp from 'sharp';
+import { readdirSync, statSync } from 'node:fs';
+import { buildAppManifest, isMarketingPath, linkTarget, MODELING_APP_PAGES, APP_ICON_FILES, type AppIconFile, iconVersion }
+  from '../src/hubs/modeling/lib/pwa/appManifest';
+import { renderAppIcon } from '../src/hubs/modeling/lib/pwa/appIcon';
 
 let passed = 0, failed = 0; const fails: string[] = [];
 function check(label: string, ok: boolean, detail = ''): void {
@@ -38,10 +52,15 @@ const src = (p: string): string => { try { return readFileSync(p, 'utf8'); } cat
 
 (async () => {
   console.log('=== A. It installs, and only from the Modeling Hub ===');
-  const manifest = JSON.parse(src('public/app.webmanifest') || '{}') as {
+  const FAV = 'https://example.test/favicon.png';
+  const manifest = buildAppManifest(FAV) as {
     name?: string; short_name?: string; display?: string; scope?: string; start_url?: string; id?: string;
     icons?: Array<{ src: string; sizes: string; purpose?: string }>;
   };
+  const manifestRoute = src('app/app.webmanifest/route.ts');
+  check('A0 the manifest is SERVED by the route (no static public/app.webmanifest to shadow it)',
+    !existsSync('public/app.webmanifest') && /buildAppManifest\(favicon\)/.test(manifestRoute)
+    && /application\/manifest\+json/.test(manifestRoute));
   check('A1 name and short name', !!manifest.name && !!manifest.short_name);
   check('A2 opens in its own window (standalone)', manifest.display === 'standalone');
   check('A3 scope and start URL are on the app origin (relative, inside the scope)',
@@ -50,17 +69,23 @@ const src = (p: string): string => { try { return readFileSync(p, 'utf8'); } cat
   check('A4 a 192 and a 512 "any" icon and a maskable one',
     icons.some((i) => i.sizes === '192x192') && icons.some((i) => i.sizes === '512x512' && (i.purpose ?? 'any') === 'any')
     && icons.some((i) => i.purpose === 'maskable'));
-  for (const i of icons) {
-    const file = `public${i.src}`;
+  check('A5 every manifest icon is served by /app-icon/, versioned by the favicon',
+    icons.length > 0 && icons.every((i) => i.src.startsWith('/app-icon/') && i.src.endsWith(`?v=${iconVersion(FAV)}`)));
+  check('A5b a different favicon gives different icon URLs, so an installed app picks the new mark up',
+    iconVersion(FAV) !== iconVersion('https://example.test/other.png'));
+  for (const f of Object.keys(APP_ICON_FILES) as AppIconFile[]) {
+    const file = `public/pwa/${f}`;
     const meta = existsSync(file) ? await sharp(file).metadata() : null;
-    check(`A5 ${i.src} exists at its stated size`, !!meta && `${meta.width}x${meta.height}` === i.sizes, meta ? `${meta.width}x${meta.height}` : 'missing');
+    const size = APP_ICON_FILES[f].size;
+    check(`A6 static fallback ${file} exists at ${size}x${size}`, !!meta && meta.width === size && meta.height === size,
+      meta ? `${meta.width}x${meta.height}` : 'missing');
   }
-  check('A6 the iOS touch icon exists', existsSync('public/pwa/apple-touch-icon.png'));
   const modelingLayout = src('app/modeling/layout.tsx');
   const refmLayout = src('app/refm/layout.tsx');
   for (const [name, l] of [['app/modeling/layout.tsx', modelingLayout], ['app/refm/layout.tsx', refmLayout]] as const) {
     check(`A7 ${name} links the manifest, the touch icon and mounts the client`,
-      /manifest: '\/app\.webmanifest'/.test(l) && /rel="apple-touch-icon"/.test(l) && /<PwaClient \/>/.test(l));
+      /manifest: '\/app\.webmanifest'/.test(l) && /rel="apple-touch-icon" href="\/app-icon\/apple-touch-icon\.png"/.test(l)
+      && /<PwaClient \/>/.test(l) && /appleWebApp: \{ capable: true, title: 'Modeling Hub'/.test(l));
   }
   check('A8 the ROOT layout links no manifest, so the main site and Training Hub never offer an install',
     !/webmanifest|PwaClient/.test(src('app/layout.tsx')) && !/webmanifest|PwaClient/.test(src('app/training/layout.tsx')));
@@ -168,6 +193,80 @@ const src = (p: string): string => { try { return readFileSync(p, 'utf8'); } cat
   check('C5 an open page says so when the connection drops, and never signs out',
     /data-testid="pwa-offline-notice"/.test(client) && /check your internet connection/i.test(client) && !/signOut|\/signin/.test(client));
 
+  console.log('\n=== E. It is the Modeling Hub, and its window stays inside it ===');
+  check('E1 named Modeling Hub, never the company site alone',
+    /Modeling Hub/.test(String(manifest.name)) && manifest.short_name === 'Modeling Hub');
+  check('E2 it opens on the dashboard, and keeps the id of the first release (an update, not a second app)',
+    new URL(String(manifest.start_url), 'https://app.example').pathname === '/dashboard' && manifest.id === '/dashboard');
+  check('E3 signed out, the dashboard sends the window to /signin, which offers Sign In AND Create Account',
+    /router\.replace\('\/signin\?bypass=true'\)/.test(src('app/modeling/dashboard/page.tsx'))
+    && /'Sign In' : 'Create Account'/.test(src('app/modeling/signin/SignInForm.tsx')));
+  const ORIGIN = 'https://app.financialmodelerpro.com';
+  const at = (u: string): 'app' | 'browser' => linkTarget(new URL(u, ORIGIN), ORIGIN);
+  const inApp = ['/signin', '/register', '/dashboard', '/dashboard?source=pwa', '/refm?project=1', '/settings', '/pricing',
+    '/choose-plan', '/modeling/signin', '/modeling/confirm-email', '/api/auth/session'];
+  const toBrowser = ['/', '/modeling', '/modeling/', '/modeling/real-estate', 'https://www.financialmodelerpro.com/',
+    'https://www.financialmodelerpro.com/articles', 'https://www.financialmodelerpro.com/forgot-password',
+    'https://learn.financialmodelerpro.com/signin', 'https://example.com/x'];
+  const wrongApp = inApp.filter((u) => at(u) !== 'app');
+  const wrongBrowser = toBrowser.filter((u) => at(u) !== 'browser');
+  check('E4 app pages stay in the window', wrongApp.length === 0, wrongApp.join(', '));
+  check('E5 the main site, the Training Hub, anything external and the hub marketing pages open in a browser tab',
+    wrongBrowser.length === 0, wrongBrowser.join(', '));
+  check('E6 a mailto or tel link is left to the device', at('mailto:a@b.c') === 'app' && at('tel:123') === 'app');
+  const folders = readdirSync('app/modeling').filter((d) => statSync(`app/modeling/${d}`).isDirectory() && !d.startsWith('['));
+  const listed = [...MODELING_APP_PAGES].sort().join(',');
+  check('E7 the app-page list IS the folders under app/modeling, so a new app page is never read as marketing',
+    folders.sort().join(',') === listed, `folders: ${folders.join(',')} | listed: ${listed}`);
+  check('E8 every platform page is marketing, every app page is not',
+    MODELING_APP_PAGES.every((f) => !isMarketingPath(`/modeling/${f}`)) && isMarketingPath('/modeling/business-valuation'));
+  check('E9 the client acts ONLY in the installed window, through the one rule, before a Next <Link> can navigate',
+    /if \(!isInstalledWindow\(\)\) return;/.test(client) && /linkTarget\(url, window\.location\.origin\)/.test(client)
+    && /isInstalledWindow\(\) && isMarketingPath\(window\.location\.pathname\)/.test(client)
+    && /document\.addEventListener\('click', onClick, true\)/.test(client) && /window\.open\(url\.href, '_blank'/.test(client));
+  check('E10 account settings, an app page outside the hub layouts, mounts the same client',
+    /<PwaClient \/>/.test(src('app/settings/layout.tsx')));
+
+  console.log('\n=== F. Its icon is the site favicon ===');
+  const rootLayout = src('app/layout.tsx');
+  const iconRoute = src('app/app-icon/[file]/route.ts');
+  const oneRule = /readSiteFaviconUrl\(getServerClient\(\)\)/;
+  check('F1 the root layout (browser tab), the manifest and the icon route read the favicon through the ONE rule',
+    oneRule.test(rootLayout) && oneRule.test(iconRoute) && oneRule.test(manifestRoute));
+  const readers = ['app/layout.tsx', 'app/app-icon/[file]/route.ts', 'app/app.webmanifest/route.ts',
+    'src/hubs/modeling/components/pwa/PwaClient.tsx', 'scripts/generate-pwa-icons.ts'].filter((f) => /icon_as_favicon/.test(src(f)));
+  check('F2 no reader restates the favicon rule for itself', readers.length === 0, readers.join(', '));
+  check('F3 the route draws with the real renderer and falls back to the static copy, never a blank',
+    /renderAppIcon\(/.test(iconRoute) && /\/pwa\/\$\{file\}/.test(iconRoute) && /isAppIconFile\(file\)/.test(iconRoute));
+  const gen = src('scripts/generate-pwa-icons.ts');
+  check('F4 the static fallback is drawn from the favicon by the same rule and renderer, never a second mark',
+    /readSiteFaviconUrl\(/.test(gen) && /renderAppIcon\(/.test(gen) && !/<svg/.test(gen));
+  // RUN the renderer on a non-square opaque source (the favicon is 256 x 266).
+  const probe = await sharp({ create: { width: 256, height: 266, channels: 4, background: { r: 20, g: 60, b: 160, alpha: 1 } } }).png().toBuffer();
+  for (const f of Object.keys(APP_ICON_FILES) as AppIconFile[]) {
+    const out = await sharp(await renderAppIcon(probe, f)).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const { width, height } = out.info;
+    const px = (x: number, y: number): number[] => { const o = (y * width + x) * 4; return [...out.data.subarray(o, o + 4)]; };
+    const size = APP_ICON_FILES[f].size;
+    const corner = px(0, 0);
+    const centre = px(Math.floor(width / 2), Math.floor(height / 2));
+    const purpose = APP_ICON_FILES[f].purpose;
+    const cornerOk = purpose === 'any' ? corner[3] === 0 : corner[3] === 255 && corner[0] === 255;
+    check(`F5 ${f}: ${size}x${size}, the mark at the centre, corner ${purpose === 'any' ? 'transparent' : 'opaque white'}`,
+      width === size && height === size && centre[2] > 100 && centre[3] === 255 && cornerOk,
+      `${width}x${height} corner ${corner} centre ${centre}`);
+  }
+  {
+    const out = await sharp(await renderAppIcon(probe, 'icon-maskable-512.png')).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const { width } = out.info; const r = width * 0.4; let outside = 0; let inside = 0;
+    for (let y = 0; y < width; y += 4) for (let x = 0; x < width; x += 4) {
+      const o = (y * width + x) * 4;
+      if (out.data[o] < 200) { if (Math.hypot(x - width / 2, y - width / 2) > r) outside++; else inside++; }
+    }
+    check('F6 the maskable icon keeps the whole mark inside the 80% safe zone (and the mark is there)',
+      outside === 0 && inside > 0, `${outside} outside, ${inside} inside`);
+  }
+
   console.log('\n=== D. Auth stays inside the app window ===');
   const signOutFiles = ['app/modeling/dashboard/page.tsx', 'app/modeling/choose-plan/page.tsx', 'app/settings/page.tsx',
     'src/hubs/modeling/platforms/refm/components/Topbar.tsx'];
@@ -182,7 +281,9 @@ const src = (p: string): string => { try { return readFileSync(p, 'utf8'); } cat
   check('D3 the server guard redirects to a RELATIVE sign-in path', /redirect\('\/signin\?bypass=true'\)/.test(refmLayout));
 
   console.log('\n=== G. House rules ===');
-  for (const f of ['public/sw.js', 'public/offline.html', 'public/app.webmanifest', 'src/hubs/modeling/components/pwa/PwaClient.tsx',
+  for (const f of ['public/sw.js', 'public/offline.html', 'app/app.webmanifest/route.ts', 'app/app-icon/[file]/route.ts',
+    'src/hubs/modeling/lib/pwa/appManifest.ts', 'src/hubs/modeling/lib/pwa/appIcon.ts', 'src/shared/cms/siteFavicon.ts',
+    'app/settings/layout.tsx', 'src/hubs/modeling/components/pwa/PwaClient.tsx',
     'src/shared/utils/connection.ts', 'scripts/generate-pwa-icons.ts']) {
     check(`G ${f} has no em dashes`, !src(f).includes('—'));
   }
