@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import PwaClient from '@/src/hubs/modeling/components/pwa/PwaClient';
+import InstalledAppFooter from '@/src/hubs/modeling/components/pwa/InstalledAppFooter';
 import { getServerSession } from 'next-auth';
 import { ensureNotComingSoon } from '@/src/hubs/modeling/lib/ensureNotComingSoon';
 import { authOptions } from '@/src/shared/auth/nextauth';
@@ -74,6 +75,7 @@ export default async function RefmLayout({ children }: { children: React.ReactNo
       <link rel="apple-touch-icon" href="/app-icon/apple-touch-icon.png" />
       <PwaClient />
       {children}
+      <InstalledAppFooter />
     </>
   );
 }

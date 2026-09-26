@@ -47,7 +47,8 @@ import vm from 'node:vm';
 import sharp from 'sharp';
 import { readdirSync, statSync } from 'node:fs';
 import { buildAppManifest, isMarketingPath, linkTarget, MODELING_APP_PAGES, APP_ICON_FILES, type AppIconFile, iconVersion,
-  installedAppCss, INSTALLED_DISPLAY_MODES, INSTALLED_ATTR, INSTALLED_HIDDEN_SELECTORS, APP_NAME }
+  installedAppCss, INSTALLED_DISPLAY_MODES, INSTALLED_ATTR, INSTALLED_HIDDEN_SELECTORS, APP_NAME,
+  INSTALLED_ONLY_SELECTOR, INSTALLED_FOOTER_VAR }
   from '../src/hubs/modeling/lib/pwa/appManifest';
 import { renderAppIcon } from '../src/hubs/modeling/lib/pwa/appIcon';
 
@@ -278,11 +279,16 @@ const src = (p: string): string => { try { return readFileSync(p, 'utf8'); } cat
   console.log('\n=== H. The installed window is not the website, and a tab is untouched ===');
   const css = installedAppCss();
   // Strip the two guarded forms; nothing may remain that hides anything.
-  const mediaBlock = css.match(/^@media ([^{]+)\{ ([^{}]+) \{ display: none !important; \} \}/);
-  const rest = mediaBlock ? css.slice(mediaBlock[0].length).trim() : css;
-  const byAttrOk = rest.split(', ').every((sel) => sel.replace(/ \{ display: none !important; \}$/, '').startsWith(`html[${INSTALLED_ATTR}] `));
-  check('H1 every hiding rule is inside the installed-window media query or behind the installed attribute (a tab matches neither)',
-    !!mediaBlock && byAttrOk && !/\bbrowser\b/.test(css), css);
+  // Split the CSS into its rules; every rule is either the one unguarded
+  // DEFAULT (the installed-only footer hidden) or guarded by the installed
+  // media query or the installed attribute.
+  const defaultRule = `${INSTALLED_ONLY_SELECTOR} { display: none !important; }`;
+  const mediaBlock = css.match(/@media ([^{]+)\{ (.+?) \} \} /);
+  const outside = css.replace(defaultRule, '').replace(mediaBlock?.[0] ?? '', '').trim();
+  const outsideRules = outside.match(/[^{}]+\{[^{}]*\}/g) ?? [];
+  const byAttrOk = outsideRules.length > 0 && outsideRules.every((r) => r.trim().split(', ').every((sel) => sel.trim().startsWith(`html[${INSTALLED_ATTR}]`)));
+  check('H1 every hiding or showing rule is inside the installed-window media query or behind the installed attribute; the only unguarded rule HIDES the footer (a tab matches neither)',
+    css.startsWith(defaultRule) && !!mediaBlock && byAttrOk && !/\bbrowser\b/.test(css), css);
   check('H2 the media query lists exactly the installed display modes the script also tests, never "browser"',
     mediaBlock?.[1].trim() === INSTALLED_DISPLAY_MODES.map((m) => `(display-mode: ${m})`).join(', ')
     && !(INSTALLED_DISPLAY_MODES as readonly string[]).includes('browser')
@@ -316,6 +322,19 @@ const src = (p: string): string => { try { return readFileSync(p, 'utf8'); } cat
     && /document\.title = APP_NAME/.test(client) && /new MutationObserver\(setTitle\)/.test(client));
   check('H8 the iPhone home-screen app gets the same treatment (navigator.standalone sets the attribute)',
     /navigator as Navigator & \{ standalone\?: boolean \}\)\.standalone === true/.test(client));
+
+  const footer = src('src/hubs/modeling/components/pwa/InstalledAppFooter.tsx');
+  check('H9 the app footer carries the SAME attribution as the exports and emails (imported, never retyped) and the deployed build',
+    /import \{ FMP_FOOTER_BASE \} from '@\/src\/shared\/email\/templates\/_base'/.test(footer) && /\{FMP_FOOTER_BASE\}/.test(footer)
+    && /VERCEL_GIT_COMMIT_SHA/.test(footer) && !/PaceMakers/.test(footer));
+  check('H10 it is installed-only: marked for the installed rule, and it sets no display of its own that could show it in a tab',
+    /data-installed-only/.test(footer) && !/display:\s*'/.test(footer) && css.includes(`${INSTALLED_ONLY_SELECTOR} { display: flex !important; }`));
+  const layouts = ['app/modeling/layout.tsx', 'app/refm/layout.tsx', 'app/settings/layout.tsx'];
+  const missing = layouts.filter((l) => !/<InstalledAppFooter \/>/.test(src(l)));
+  check('H11 it is on every page of the installed app (every installed-app layout mounts it)', missing.length === 0, missing.join(', '));
+  check('H12 the full-window REFM workspace gives up the footer\'s height ONLY in the installed window (the variable is unset in a tab)',
+    src('src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx').includes(`height: 'calc((100vh - var(${INSTALLED_FOOTER_VAR}, 0px)) / 0.8)'`)
+    && !css.replace(/@media[^{]+\{ (.+?) \} \} /, '').replace(/html\[data-installed-app\][^}]*\}/g, '').includes(INSTALLED_FOOTER_VAR));
 
   console.log('\n=== J. The Modeling Hub confirmation email says the app exists ===');
   const { confirmEmailTemplate, MODELING_APP_SIGNIN_URL } = await import('../src/shared/email/templates/confirmEmail');

@@ -69,10 +69,25 @@ export const INSTALLED_ATTR = 'data-installed-app';
  */
 export const INSTALLED_HIDDEN_SELECTORS = ['nav[data-fmp-nav]', '[data-pwa-hide]'] as const;
 
+/**
+ * What ONLY the installed window shows (2026-09-26): the app footer. Hidden
+ * everywhere by default, shown under the same installed-window rule, so a
+ * browser tab never sees it.
+ */
+export const INSTALLED_ONLY_SELECTOR = '[data-installed-only]';
+/** The footer's height; a full-window screen (the REFM workspace) gives up
+ * exactly this much in the installed window, and nothing in a tab. */
+export const INSTALLED_FOOTER_PX = 28;
+export const INSTALLED_FOOTER_VAR = '--installed-footer-h';
+
 export function installedAppCss(): string {
   const hide = INSTALLED_HIDDEN_SELECTORS.join(', ');
   const byAttr = INSTALLED_HIDDEN_SELECTORS.map((s) => `html[${INSTALLED_ATTR}] ${s}`).join(', ');
-  return `@media ${INSTALLED_MEDIA_QUERY} { ${hide} { display: none !important; } } ${byAttr} { display: none !important; }`;
+  const show = `${INSTALLED_ONLY_SELECTOR} { display: flex !important; } :root { ${INSTALLED_FOOTER_VAR}: ${INSTALLED_FOOTER_PX}px; }`;
+  return `${INSTALLED_ONLY_SELECTOR} { display: none !important; } `
+    + `@media ${INSTALLED_MEDIA_QUERY} { ${hide} { display: none !important; } ${show} } `
+    + `${byAttr} { display: none !important; } `
+    + `html[${INSTALLED_ATTR}] ${INSTALLED_ONLY_SELECTOR} { display: flex !important; } html[${INSTALLED_ATTR}] { ${INSTALLED_FOOTER_VAR}: ${INSTALLED_FOOTER_PX}px; }`;
 }
 
 /** A short stable version for an icon source, so the icon URLs change exactly

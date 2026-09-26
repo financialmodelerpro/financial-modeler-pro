@@ -44,6 +44,8 @@ const SNAPSHOT_JS = `(() => {
     backHome: shown(byText('Back to Home')),
     form: shown(document.querySelector('input[type="password"]')),
     title: document.title,
+    footer: shown(document.querySelector('[data-installed-only]')),
+    footerText: (document.querySelector('[data-installed-only]') || {}).textContent || '',
   };
 })()`;
 
@@ -59,6 +61,7 @@ const SNAPSHOT_JS = `(() => {
     check('TAB: the website header is visible', t.header === true);
     check('TAB: the Training Hub sign-in link and its line are visible', t.trainingLink === true && t.separateLine === true);
     check('TAB: "Back to Home" is visible', t.backHome === true);
+    check('TAB: the app footer is NOT shown', t.footer === false);
     check('TAB: the title is the page\'s own, not the app\'s', t.title !== 'FMP Modeling Hub', String(t.title));
 
     // The installed window. Headless Chromium cannot emulate display-mode (measured
@@ -79,6 +82,8 @@ const SNAPSHOT_JS = `(() => {
     check('INSTALLED: the Training Hub sign-in link and its line are hidden', a.trainingLink === false && a.separateLine === false);
     check('INSTALLED: "Back to Home" is hidden', a.backHome === false);
     check('INSTALLED: the sign-in form is still there', a.form === true);
+    check('INSTALLED: the app footer is shown, with the attribution', a.footer === true
+      && String(a.footerText).includes('© Financial Modeler Pro. A PaceMakers Business Consultants Platform.'), String(a.footerText));
     check('INSTALLED: the window title is "FMP Modeling Hub"', a.title === 'FMP Modeling Hub', String(a.title));
   } finally {
     await browser.close();

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import PwaClient from '@/src/hubs/modeling/components/pwa/PwaClient';
+import InstalledAppFooter from '@/src/hubs/modeling/components/pwa/InstalledAppFooter';
 
 const APP_URL   = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com';
 const OG_TITLE  = 'Financial Modeler Pro - Professional Modeling Hub';
@@ -42,6 +43,7 @@ export default function ModelingLayout({ children }: { children: React.ReactNode
       <link rel="apple-touch-icon" href="/app-icon/apple-touch-icon.png" />
       <PwaClient />
       {children}
+      <InstalledAppFooter />
     </>
   );
 }

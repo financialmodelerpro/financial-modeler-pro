@@ -1811,7 +1811,8 @@ export default function RealEstatePlatform(): React.JSX.Element {
     // the Capex screen alone, and two fetchers would be two answers to "what
     // are the comments on this project".
     <FieldCommentsProvider value={fieldCommentsValue}>
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh / 0.8)', width: 'calc(100vw / 0.8)', overflow: 'hidden', zoom: 0.8 }}>
+    {/* Installed app (2026-09-26): the window keeps a footer below the workspace, so the shell gives up exactly its height there; in a browser tab --installed-footer-h is unset and this is 100vh as before. */}
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc((100vh - var(--installed-footer-h, 0px)) / 0.8)', width: 'calc(100vw / 0.8)', overflow: 'hidden', zoom: 0.8 }}>
       <Topbar
         projectName={activeProjectData?.name ?? ''}
         activeProjectData={activeProjectData}
