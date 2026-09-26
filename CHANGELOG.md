@@ -4,6 +4,10 @@
 
 Entries are grouped by their most recent date. Fuller per-day narrative for REFM platform work lives in [CLAUDE-REFM.md](CLAUDE-REFM.md); per-route and migration detail in [CLAUDE-ROUTES.md](CLAUDE-ROUTES.md) and [CLAUDE-DB.md](CLAUDE-DB.md); the general lessons in [docs/TRAPS.md](docs/TRAPS.md); fund-layer standing rules in [docs/FUND_LAYER_GUIDELINE.md](docs/FUND_LAYER_GUIDELINE.md). This file is loaded on demand only and has no size limit.
 
+## 2026-09-26
+
+- **SESSION-END SUITE FOR THE 2026-09-24 TAIL (Table 7, 2a per sqm, Table 7 in both exports), which closed without one: 182 pass / 2 FAIL of 184, 10,934 individual checks**, with credentials on the clean tree at `aee05540`: the standing pair (`verify-fund-e2e`, `verify-module6-field-census`). 184 verifiers vs 181 at `ba77cc3c` (the new ones include `verify-escalated-price` and `verify-cost-per-sqm`), +81 checks, so no verifier stopped running. The stale `verify-consolidated-view` count is corrected to the measured 22 (CLAUDE.md said 27, CLAUDE-REFM 21).
+
 ## 2026-09-24
 
 - **MODULE 2 TABLE 2a PRICES EVERY SUB-UNIT PER SQM, FROM ONE BUILDER** (`679b9d41`). Measured against the founder's spec: the factor row and the one banded pre/post table were already there; a sub-unit sold by UNITS printed its price per unit. `buildEscalatedPriceTable` (`lib/reports/revenueOutputReports.ts`) is now the one builder the screen, the PDF and the workbook call (each carried its own copy of the loop). An area row is unchanged; a unit row reads per sqm as price per unit over the area one unit counts, which is what the engine's revenue implies (area sold x rate = the 2b revenue), never Table 5's optional "other basis" price. `verify-escalated-price` 12. My earlier "skipped" note was wrong: I had read the answer to my own clarifying question as the founder's decision.

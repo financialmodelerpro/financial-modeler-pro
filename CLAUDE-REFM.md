@@ -24,7 +24,7 @@ The append-only log (`refm_project_changes`) is made readable at READ, by the ru
 | `verify-consolidation-key` | 53 |
 | `verify-consolidated-line` | 38 |
 | `verify-consolidation-collisions` | 23 |
-| `verify-consolidated-view` | 21 |
+| `verify-consolidated-view` | 22 |
 | `verify-asset-label` | 41 |
 | `verify-rate-scale` | 17 |
 | `verify-selling-cost-scope` | 91 (core change only) |

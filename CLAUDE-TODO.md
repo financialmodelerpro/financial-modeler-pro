@@ -19,8 +19,8 @@ rather than attributed to a person, bulk rows say what, case rows say where. Sui
    go offline (offline page, no sign-in), come back, and confirm a figure edited in a browser tab shows in the app
    on reload. iOS keeps a SEPARATE cookie jar for a home-screen app, so the first launch asks for sign-in and the
    device-trust code again; that is iOS, not a defect.
-3. **DONE 2026-09-24: Capex Table 7 is in the PDF and the workbook** (same rows as the screen). Still open: CLAUDE.md records
-   `verify-consolidated-view` at 27 checks; it measures 22 on HEAD, so the figure there is stale.
+3. **DONE 2026-09-24: Capex Table 7 is in the PDF and the workbook** (same rows as the screen). The stale
+   `verify-consolidated-view` count was corrected to the measured 22 on 2026-09-26; suite 182 / 2 of 184, 10,934.
 4. Everything open from 2026-09-23 below, unchanged.
 
 ## START HERE 2026-09-23: MODULE 10 IS FINISHED, AND WHAT IS OPEN AFTER IT
