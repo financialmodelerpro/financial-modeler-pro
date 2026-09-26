@@ -34,7 +34,15 @@ rather than attributed to a person, bulk rows say what, case rows say where. Sui
    go offline (offline page, no sign-in), come back, and confirm a figure edited in a browser tab shows in the app
    on reload. iOS keeps a SEPARATE cookie jar for a home-screen app, so the first launch asks for sign-in and the
    device-trust code again; that is iOS, not a defect.
-0. **SECURITY, FOUND 2026-09-26, NOT FIXED: THE TRAINING SESSION COOKIE IS UNSIGNED.** `training_session` is
+0. **SECURITY, 2026-09-26. STEP 1 DONE: THE COOKIE IS SIGNED** (`edd43f3a`; unsigned accepted until 13:30 UTC that day,
+   then refused). **STILL OPEN, IN THIS ORDER:** (a) about 25 training routes take identity from the request body or URL
+   with NO cookie at all, most seriously `submit-assessment`, which accepts a client-supplied score and pass and then
+   issues a CERTIFICATE, and `questions`, which sends the answer key to the browser; also profile, notes, certificate,
+   attempt-status, watch-history, transcript-link POST, live-session register/watched and others: move each to the signed
+   session with ownership checks; (b) score on the server and stop sending `correctIndex` (needs the founder's call on
+   the results screen); (c) audit existing certificates for any with no attempt trail; (d) the JWT follow-up, which also
+   deletes the dead unsigned-cookie branch. The original finding, for the record:
+   **THE TRAINING SESSION COOKIE WAS UNSIGNED.** `training_session` is
    plain JSON `{ email, registrationId }` (httpOnly, so page script cannot read it, but anyone can SEND one), and
    every cookie-gated training route trusts it as is (`getTrainingCookieSession`). A crafted cookie naming another
    student's email acts as that student on those 14 routes (timed attempts, live-session assessments and submits,
