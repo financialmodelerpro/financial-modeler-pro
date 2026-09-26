@@ -19,6 +19,15 @@ rather than attributed to a person, bulk rows say what, case rows say where. Sui
    go offline (offline page, no sign-in), come back, and confirm a figure edited in a browser tab shows in the app
    on reload. iOS keeps a SEPARATE cookie jar for a home-screen app, so the first launch asks for sign-in and the
    device-trust code again; that is iOS, not a defect.
+0. **SECURITY, FOUND 2026-09-26, NOT FIXED: THE TRAINING SESSION COOKIE IS UNSIGNED.** `training_session` is
+   plain JSON `{ email, registrationId }` (httpOnly, so page script cannot read it, but anyone can SEND one), and
+   every cookie-gated training route trusts it as is (`getTrainingCookieSession`). A crafted cookie naming another
+   student's email acts as that student on those 14 routes (timed attempts, live-session assessments and submits,
+   model submissions and their files, progress, the transcript
+   link). The fix is to sign it (HMAC with the server secret, as the new device-pending cookie already is) in
+   `issueTrainingSession.ts` and verify in `getTrainingCookieSession`; every current session would be signed out
+   once. Separately, `/api/training/questions` takes the email and registration id from the QUERY with no cookie.
+   Decide both before the next training release.
 3. **DONE 2026-09-24: Capex Table 7 is in the PDF and the workbook** (same rows as the screen). The stale
    `verify-consolidated-view` count was corrected to the measured 22 on 2026-09-26; suite 182 / 2 of 184, 10,934.
 4. Everything open from 2026-09-23 below, unchanged.

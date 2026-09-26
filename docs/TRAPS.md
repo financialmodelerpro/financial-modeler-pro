@@ -3004,6 +3004,41 @@ site shows, compare the health commit to HEAD FIRST and say which build was bein
 polled until it equalled HEAD. Before the push, the newest deployment in the project was
 `40221720`, created 2026-09-11 17:21:49 UTC: not failed, not queued, simply never asked for.
 
+### 9.7 Two ways to sign in, and only one of them signed you in
+
+**Symptom (2026-09-26):** a student pressed Start on a timed assessment and was told "We could not
+start your timed attempt. Please check your connection". The founder's first reading was an
+unapplied migration on a second database. There is one database and no migration was involved.
+
+**Mechanism:** the Training Hub has two ways to finish signing in. `/api/training/validate`
+(password on a trusted device) set the `training_session` cookie from 2026-03-24.
+`/api/training/device-verify` (password on a new device, then the emailed code), added
+2026-04-04, set NONE; the form stored a localStorage session alone. For two weeks nothing on the
+server needed the cookie, so the gap was invisible. The server-anchored assessment timer
+(2026-04-19/21) made starting an attempt require it, and from that day every code sign-in could
+open the assessment page and never start it. The client turned the 401 into its generic
+"check your connection" fallback, and its own verifier pinned that ("startAttemptApi -> null on
+401 (expired session)"), treating a missing session as a transient failure. Measured: 190 of 200
+starts in seven days were 401, zero 500s; one student signed in by code 11 times since 25 Sep
+and never started.
+
+**The general lesson:** a session issued in TWO places is one rule in two places (the Module 1
+theme, 7.x), and the second copy is only tested by the first feature that DEPENDS on it, which
+may be months later and in another part of the product. And a fallback message that covers
+every failure is a diagnosis that says "not us": read the status code in the server logs before
+reasoning from the words on screen.
+
+**Fix:** `issueTrainingSession.ts` is the ONE issuer and both paths call it; the code stays a
+second factor through a signed, short-lived pending cookie from `validate`; the page reports a
+401 as "sign in again" and does not retry it. `verify-training-code-signin` A3 fails if anything
+else sets the cookie.
+
+**Proof:** `scripts/probe-training-code-signin-live.ts` on production, through production's own
+routes (a locally minted pending cookie is REFUSED, because production signs with its own
+secret): password on a new device asks for the code; a code with no password step is refused and
+not spent; the code signs the probe in on the server; Start writes a row whose deadline is the
+timer and the server clock counts down; every probe row re-read as gone. 10/10.
+
 ---
 
 ## 10. Verifier discipline
