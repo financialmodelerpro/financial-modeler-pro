@@ -535,7 +535,7 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail, inviteToken, invit
             </span>
           </div>
 
-          <p style={{ textAlign: 'center', marginTop: 10, fontSize: 12, color: '#9CA3AF' }}>
+          <p data-pwa-hide style={{ textAlign: 'center', marginTop: 10, fontSize: 12, color: '#9CA3AF' }}>
             <a href="/" style={{ color: '#9CA3AF', textDecoration: 'none' }}>← Back to Home</a>
           </p>
         </div>

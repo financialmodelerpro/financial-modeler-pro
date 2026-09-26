@@ -27,21 +27,36 @@
  */
 import React, { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { isMarketingPath, linkTarget } from '@/src/hubs/modeling/lib/pwa/appManifest';
+import {
+  isMarketingPath, linkTarget, installedAppCss, INSTALLED_DISPLAY_MODES, INSTALLED_ATTR, APP_NAME,
+} from '@/src/hubs/modeling/lib/pwa/appManifest';
 
 const APP_HOST = 'app.financialmodelerpro.com';
 
 /** True when this page is running as the installed app, not in a browser tab. */
 function isInstalledWindow(): boolean {
   if (typeof window === 'undefined') return false;
-  const modes = ['standalone', 'minimal-ui', 'window-controls-overlay', 'fullscreen'];
-  if (modes.some((m) => window.matchMedia?.(`(display-mode: ${m})`).matches)) return true;
+  if (INSTALLED_DISPLAY_MODES.some((m) => window.matchMedia?.(`(display-mode: ${m})`).matches)) return true;
   return (navigator as Navigator & { standalone?: boolean }).standalone === true;
 }
 
 export default function PwaClient(): React.JSX.Element | null {
   const [offline, setOffline] = useState(false);
   const pathname = usePathname();
+
+  // The installed window: mark <html> (so the hiding CSS also applies on an
+  // iPhone home-screen app) and title the window "Modeling Hub". Next sets the
+  // page title on every navigation, so it is re-asserted whenever <title>
+  // changes. In a browser tab none of this runs.
+  useEffect(() => {
+    if (!isInstalledWindow()) return;
+    document.documentElement.setAttribute(INSTALLED_ATTR, '');
+    const setTitle = (): void => { if (document.title !== APP_NAME) document.title = APP_NAME; };
+    setTitle();
+    const obs = new MutationObserver(setTitle);
+    obs.observe(document.head, { childList: true, subtree: true, characterData: true });
+    return () => obs.disconnect();
+  }, []);
 
   // A marketing page is never the app's page: the window goes to the dashboard
   // (which sends a signed-out user to sign in).
@@ -88,8 +103,13 @@ export default function PwaClient(): React.JSX.Element | null {
     };
   }, []);
 
-  if (!offline) return null;
+  // The hiding rule is rendered on the server with the page, so the installed
+  // window never shows the website header even for a frame.
+  const installedStyle = <style data-installed-app-css dangerouslySetInnerHTML={{ __html: installedAppCss() }} />;
+  if (!offline) return installedStyle;
   return (
+    <>
+    {installedStyle}
     <div
       role="alert"
       data-testid="pwa-offline-notice"
@@ -115,5 +135,6 @@ export default function PwaClient(): React.JSX.Element | null {
         Try again
       </button>
     </div>
+    </>
   );
 }

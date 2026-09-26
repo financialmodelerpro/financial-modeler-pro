@@ -5,7 +5,10 @@
  * keeps inside its window, and its icons. Pure, so a verifier runs the real
  * thing rather than reading a file.
  *
- *   NAME: the Modeling Hub, not the company site.
+ *   NAME: "Modeling Hub", which is also the window title (2026-09-26): Chrome
+ *     titles an installed window "<app name> - <page title>" unless the page
+ *     title already starts with the name, so the client sets the page title to
+ *     exactly APP_NAME inside the installed window.
  *   START: the dashboard. Signed in, that is where a user works; signed out,
  *     the dashboard sends them to /signin, where Sign In and Create Account
  *     are both one click away. So the app never opens on a marketing page.
@@ -34,12 +37,42 @@ export const APP_ICON_FILES = {
 export type AppIconFile = keyof typeof APP_ICON_FILES;
 export const isAppIconFile = (f: string): f is AppIconFile => Object.prototype.hasOwnProperty.call(APP_ICON_FILES, f);
 
-export const APP_NAME = 'FMP Modeling Hub';
+export const APP_NAME = 'Modeling Hub';
 export const APP_SHORT_NAME = 'Modeling Hub';
 export const APP_START_URL = '/dashboard?source=pwa';
 /** Kept from the first release so an app already installed UPDATES rather than
  * appearing as a second, different app. */
 export const APP_ID = '/dashboard';
+
+/**
+ * HOW THE INSTALLED WINDOW IS DETECTED (2026-09-26), the ONE rule, used by the
+ * CSS that hides the website's chrome and by the client script alike:
+ *   - the CSS media feature `display-mode` is one of these, which is what the
+ *     browser reports for a window opened from an installed app and never for
+ *     a browser tab (a tab reports "browser"); it applies before any script
+ *     runs, so nothing flashes;
+ *   - OR, for an iPhone home-screen app, `navigator.standalone === true`,
+ *     which the client turns into the `data-installed-app` attribute on
+ *     <html>, so the same CSS applies there too.
+ * In a browser tab neither is true, so nothing is hidden and nothing changes.
+ */
+export const INSTALLED_DISPLAY_MODES = ['standalone', 'minimal-ui', 'window-controls-overlay', 'fullscreen'] as const;
+export const INSTALLED_MEDIA_QUERY = INSTALLED_DISPLAY_MODES.map((m) => `(display-mode: ${m})`).join(', ');
+export const INSTALLED_ATTR = 'data-installed-app';
+
+/**
+ * What the installed window hides: the website's header (`nav[data-fmp-nav]`,
+ * with Home, the hubs, Pricing, Articles, Contact and the Sign In menu) and
+ * anything a page marks `data-pwa-hide` (another hub's sign-in, "Back to
+ * Home"). Only inside the installed-window conditions above.
+ */
+export const INSTALLED_HIDDEN_SELECTORS = ['nav[data-fmp-nav]', '[data-pwa-hide]'] as const;
+
+export function installedAppCss(): string {
+  const hide = INSTALLED_HIDDEN_SELECTORS.join(', ');
+  const byAttr = INSTALLED_HIDDEN_SELECTORS.map((s) => `html[${INSTALLED_ATTR}] ${s}`).join(', ');
+  return `@media ${INSTALLED_MEDIA_QUERY} { ${hide} { display: none !important; } } ${byAttr} { display: none !important; }`;
+}
 
 /** A short stable version for an icon source, so the icon URLs change exactly
  * when the favicon does. */

@@ -25,6 +25,13 @@
  *   F. ITS ICON IS THE SITE FAVICON: one favicon rule, read by the root layout
  *      and by the icon route; every icon is DRAWN by the real renderer at its
  *      stated size; the static fallback copies exist at their sizes.
+ *   H. THE INSTALLED WINDOW IS NOT THE WEBSITE (2026-09-26): the website's
+ *      header, another hub's sign-in and "Back to Home" are hidden ONLY under
+ *      the installed-window rule (display-mode, or the iPhone attribute), the
+ *      window is titled "Modeling Hub", and a browser tab is untouched: every
+ *      hiding rule sits inside that media query or behind that attribute.
+ *   J. THE MODELING HUB CONFIRMATION EMAIL SAYS THE APP EXISTS, and the
+ *      Training Hub one does not; it never calls it a download. RENDERED.
  *   D. AUTH STAYS IN THE APP WINDOW: every Modeling Hub sign-out asks for
  *      /signin. Asking for "/" is resolved by the NextAuth redirect rule to
  *      /admin/dashboard, which the app host sends to the MAIN domain, leaving
@@ -39,7 +46,8 @@ import { readFileSync, existsSync } from 'node:fs';
 import vm from 'node:vm';
 import sharp from 'sharp';
 import { readdirSync, statSync } from 'node:fs';
-import { buildAppManifest, isMarketingPath, linkTarget, MODELING_APP_PAGES, APP_ICON_FILES, type AppIconFile, iconVersion }
+import { buildAppManifest, isMarketingPath, linkTarget, MODELING_APP_PAGES, APP_ICON_FILES, type AppIconFile, iconVersion,
+  installedAppCss, INSTALLED_DISPLAY_MODES, INSTALLED_ATTR, INSTALLED_HIDDEN_SELECTORS, APP_NAME }
   from '../src/hubs/modeling/lib/pwa/appManifest';
 import { renderAppIcon } from '../src/hubs/modeling/lib/pwa/appIcon';
 
@@ -267,6 +275,64 @@ const src = (p: string): string => { try { return readFileSync(p, 'utf8'); } cat
       outside === 0 && inside > 0, `${outside} outside, ${inside} inside`);
   }
 
+  console.log('\n=== H. The installed window is not the website, and a tab is untouched ===');
+  const css = installedAppCss();
+  // Strip the two guarded forms; nothing may remain that hides anything.
+  const mediaBlock = css.match(/^@media ([^{]+)\{ ([^{}]+) \{ display: none !important; \} \}/);
+  const rest = mediaBlock ? css.slice(mediaBlock[0].length).trim() : css;
+  const byAttrOk = rest.split(', ').every((sel) => sel.replace(/ \{ display: none !important; \}$/, '').startsWith(`html[${INSTALLED_ATTR}] `));
+  check('H1 every hiding rule is inside the installed-window media query or behind the installed attribute (a tab matches neither)',
+    !!mediaBlock && byAttrOk && !/\bbrowser\b/.test(css), css);
+  check('H2 the media query lists exactly the installed display modes the script also tests, never "browser"',
+    mediaBlock?.[1].trim() === INSTALLED_DISPLAY_MODES.map((m) => `(display-mode: ${m})`).join(', ')
+    && !(INSTALLED_DISPLAY_MODES as readonly string[]).includes('browser')
+    && /INSTALLED_DISPLAY_MODES\.some\(\(m\) => window\.matchMedia/.test(client));
+  check('H3 it hides the website header (the navbar root carries the attribute it targets) and whatever a page marks',
+    (INSTALLED_HIDDEN_SELECTORS as readonly string[]).includes('nav[data-fmp-nav]')
+    && /<nav\s+data-fmp-nav/.test(src('src/shared/components/layout/Navbar.tsx'))
+    && (INSTALLED_HIDDEN_SELECTORS as readonly string[]).includes('[data-pwa-hide]'));
+  const signin = src('app/modeling/signin/SignInForm.tsx');
+  const register = src('app/modeling/register/RegisterForm.tsx');
+  const unmarked = (file: string, text: string, re: RegExp): string[] => {
+    const lines = text.split('\n'); const bad: string[] = [];
+    lines.forEach((l, i) => {
+      if (!re.test(l)) return;
+      const window = lines.slice(Math.max(0, i - 3), i + 1).join('\n');
+      if (!/data-pwa-hide/.test(window)) bad.push(`${file}:${i + 1}`);
+    });
+    return bad;
+  };
+  const badTraining = [...unmarked('SignInForm', signin, /training hub|LEARN_URL/i), ...unmarked('RegisterForm', register, /training hub|LEARN_URL/i)];
+  check('H4 every Training Hub sign-in link and the "separate from training hub" line sit inside a hidden wrapper',
+    badTraining.length === 0 && /separate from training hub/.test(signin), badTraining.join(', '));
+  const badHome = [...unmarked('SignInForm', signin, /Back to Home/), ...unmarked('RegisterForm', register, /Back to Home/)];
+  check('H5 "Back to Home" (the website) is hidden in the installed window too', badHome.length === 0, badHome.join(', '));
+  check('H6 the hiding rule is rendered with the page (server HTML), so the header never shows for a frame',
+    /<style data-installed-app-css dangerouslySetInnerHTML=\{\{ __html: installedAppCss\(\) \}\} \/>/.test(client)
+    && /if \(!offline\) return installedStyle;/.test(client));
+  check('H7 the window title is exactly the app name, set ONLY in the installed window and re-asserted when Next retitles',
+    APP_NAME === 'Modeling Hub' && manifest.name === 'Modeling Hub'
+    && /if \(!isInstalledWindow\(\)\) return;\s*document\.documentElement\.setAttribute\(INSTALLED_ATTR, ''\);/.test(client)
+    && /document\.title = APP_NAME/.test(client) && /new MutationObserver\(setTitle\)/.test(client));
+  check('H8 the iPhone home-screen app gets the same treatment (navigator.standalone sets the attribute)',
+    /navigator as Navigator & \{ standalone\?: boolean \}\)\.standalone === true/.test(client));
+
+  console.log('\n=== J. The Modeling Hub confirmation email says the app exists ===');
+  const { confirmEmailTemplate, MODELING_APP_SIGNIN_URL } = await import('../src/shared/email/templates/confirmEmail');
+  const modelingMail = await confirmEmailTemplate({ confirmUrl: 'https://app.example/confirm?t=x', hub: 'modeling' });
+  const trainingMail = await confirmEmailTemplate({ confirmUrl: 'https://learn.example/confirm?t=x', hub: 'training' });
+  const m = modelingMail.html;
+  check('J1 the Modeling Hub confirmation says it can be installed as an app from the browser',
+    /install the Modeling Hub as an app from your browser/.test(m));
+  check('J2 with the short version for Chrome on a computer, Android and iPhone',
+    /install icon in the address bar/.test(m) && /Install app/.test(m) && /Share, then Add to Home Screen/.test(m));
+  check('J3 it links the Modeling Hub SIGN-IN page, where the install option appears',
+    MODELING_APP_SIGNIN_URL.endsWith('/signin') && m.includes(`href="${MODELING_APP_SIGNIN_URL}"`));
+  check('J4 it never calls it a download', !/download/i.test(m.replace(/<[^>]+>/g, ' ')));
+  check('J5 the Training Hub confirmation has none of it', !/as an app|Add to Home Screen|install/i.test(trainingMail.html));
+  check('J6 the confirmation itself is unchanged: the confirm button still comes first',
+    m.indexOf('https://app.example/confirm?t=x') > 0 && m.indexOf('https://app.example/confirm?t=x') < m.indexOf('as an app'));
+
   console.log('\n=== D. Auth stays inside the app window ===');
   const signOutFiles = ['app/modeling/dashboard/page.tsx', 'app/modeling/choose-plan/page.tsx', 'app/settings/page.tsx',
     'src/hubs/modeling/platforms/refm/components/Topbar.tsx'];
@@ -283,7 +349,7 @@ const src = (p: string): string => { try { return readFileSync(p, 'utf8'); } cat
   console.log('\n=== G. House rules ===');
   for (const f of ['public/sw.js', 'public/offline.html', 'app/app.webmanifest/route.ts', 'app/app-icon/[file]/route.ts',
     'src/hubs/modeling/lib/pwa/appManifest.ts', 'src/hubs/modeling/lib/pwa/appIcon.ts', 'src/shared/cms/siteFavicon.ts',
-    'app/settings/layout.tsx', 'src/hubs/modeling/components/pwa/PwaClient.tsx',
+    'app/settings/layout.tsx', 'src/hubs/modeling/components/pwa/PwaClient.tsx', 'src/shared/email/templates/confirmEmail.ts',
     'src/shared/utils/connection.ts', 'scripts/generate-pwa-icons.ts']) {
     check(`G ${f} has no em dashes`, !src(f).includes('—'));
   }
