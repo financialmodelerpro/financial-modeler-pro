@@ -4,8 +4,13 @@ MISSING TABLE: pricing_features (declared in 014_pricing.sql, 018_pricing_initia
 MISSING TABLE: pricing_modules (declared in 014_pricing.sql, 018_pricing_initial_plans.sql)
 MISSING TABLE: marketing_designs (declared in 100_marketing_studio.sql)
 MISSING TABLE: marketing_brand_kit (declared in 100_marketing_studio.sql)
+MISSING TABLE: refm_account_standards (declared in 242_asset_type_standards.sql)
 UNDECLARED LIVE TABLE: project_scenarios
+UNDECLARED LIVE TABLE: eq_space_grants
+UNDECLARED LIVE TABLE: eq_spaces
+UNDECLARED LIVE TABLE: eq_access_events
 UNDECLARED LIVE TABLE: newsletter_subscribers_legacy
+UNDECLARED LIVE TABLE: eq_actors
 UNDECLARED LIVE TABLE: projects
 UNDECLARED LIVE TABLE: training_passwords
 UNDECLARED LIVE TABLE: transcript_links
@@ -26,10 +31,6 @@ NULLABILITY: admin_audit_log.admin_id declared nullable (007_audit_log.sql) but 
 NULLABILITY: training_pending_registrations.course declared NOT NULL (027_auth_enhancements.sql) but live is nullable
 EXTRA LIVE COLUMN: session_registrations.reminder_24h_sent (no migration declares it)
 EXTRA LIVE COLUMN: session_registrations.reminder_1h_sent (no migration declares it)
-NULLABILITY: session_watch_history.watch_seconds declared NOT NULL (107_live_session_watch_seconds.sql) but live is nullable
-NULLABILITY: session_watch_history.total_seconds declared NOT NULL (107_live_session_watch_seconds.sql) but live is nullable
-NULLABILITY: session_watch_history.last_position declared NOT NULL (107_live_session_watch_seconds.sql) but live is nullable
-NULLABILITY: session_watch_history.updated_at declared NOT NULL (107_live_session_watch_seconds.sql) but live is nullable
 DEFAULT: email_branding.signature_html declared [<div style="margin-top:32px;padding-top:24px;border-top:1px solid #e5e7eb;"> <p style="margin:0;font-size:14px;color:#374151;font-weight:600;">financial modeler pro</p> <p style="margin:4px 0 0;font-size:13px;color:#6b7280;">professional financial modeling training</p> <p style="margin:4px 0 0;font-size:13px;color:#6b7280;"><a href="https://financialmodelerpro.com" style="color:#2e75b6;">financialmodelerpro.com</a></p> </div>] (043_email_system.sql) but live is [none]
 MISSING COLUMN: newsletter_subscribers.name (declared 078_articles_newsletter.sql)
 DEFAULT: newsletter_subscribers.source declared [articles] (078_articles_newsletter.sql) but live is [none]
@@ -38,7 +39,16 @@ DEFAULT: refm_projects.schema_version declared [4] (149_refm_projects.sql) but l
 FK TARGET: refm_projects.current_version_id declared -> no FK (149_refm_projects.sql) but live -> refm_project_versions
 DEFAULT: refm_project_versions.schema_version declared [4] (149_refm_projects.sql) but live is [5]
 FK TARGET: refm_project_versions.base_version_id declared -> no FK (152_refm_version_change_log.sql) but live -> refm_project_versions
+FK TARGET: refm_project_versions.created_by declared -> no FK (230_refm_version_created_by.sql) but live -> users
 FK TARGET: refm_report_decks.current_version_id declared -> no FK (207_refm_report_deck_versions.sql) but live -> refm_report_deck_versions
+NULLABILITY: refm_cost_catalog.user_id declared NOT NULL (214_refm_cost_catalog.sql) but live is nullable
+NULLABILITY: refm_cost_catalog.account_id declared nullable (241_cost_catalog_account_scope.sql) but live is NOT NULL
+MISSING COLUMN: refm_asset_types.avg_unit_size (declared 242_asset_type_standards.sql)
+MISSING COLUMN: refm_asset_types.parking_ratio (declared 242_asset_type_standards.sql)
+MISSING COLUMN: refm_asset_types.parking_ratio_basis (declared 242_asset_type_standards.sql)
+MISSING COLUMN: refm_asset_types.construction_cost_per_sqm (declared 243_asset_type_rates_and_order.sql)
+MISSING COLUMN: refm_asset_types.revenue_rate (declared 243_asset_type_rates_and_order.sql)
+MISSING COLUMN: refm_asset_types.revenue_rate_unit (declared 243_asset_type_rates_and_order.sql)
 
 -- unparsed --
 002_phase1_cms.sql: DO $$ block (procedural, not folded into the model)
@@ -93,5 +103,32 @@ FK TARGET: refm_report_decks.current_version_id declared -> no FK (207_refm_repo
 221_fix_user_delete_fk_drift.sql: constraint-altering statement (not folded into the model): ALTER TABLE public.user_permissions DROP CONSTRAINT user_permissions_created_by_fkey;
 221_fix_user_delete_fk_drift.sql: constraint-altering statement (not folded into the model): ALTER TABLE public.user_permissions ADD CONSTRAINT user_permissions_created_by_fkey FOREIG
 221_fix_user_delete_fk_drift.sql: DO $$ block (procedural, not folded into the model)
+223_deprecate_legacy_training_tables.sql: DO $$ block (procedural, not folded into the model)
+227_admin_audit_log_admin_id_declare_live_shape.sql: constraint-altering statement (not folded into the model): ALTER TABLE public.admin_audit_log DROP CONSTRAINT admin_audit_log_admin_id_fkey;
+227_admin_audit_log_admin_id_declare_live_shape.sql: constraint-altering statement (not folded into the model): ALTER TABLE public.admin_audit_log ADD CONSTRAINT admin_audit_log_admin_id_fkey FOREIGN KE
+227_admin_audit_log_admin_id_declare_live_shape.sql: constraint-altering statement (not folded into the model): ALTER TABLE public.admin_audit_log ALTER COLUMN admin_id SET NOT NULL;
+227_admin_audit_log_admin_id_declare_live_shape.sql: DO $$ block (procedural, not folded into the model)
+228_declared_constraints_branding_scope_and_watch_history.sql: constraint-altering statement (not folded into the model): ALTER TABLE public.branding_config ADD CONSTRAINT branding_config_scope_key UNIQUE (scope)
+228_declared_constraints_branding_scope_and_watch_history.sql: constraint-altering statement (not folded into the model): ALTER TABLE public.session_watch_history ALTER COLUMN %I SET NOT NULL', col);
+228_declared_constraints_branding_scope_and_watch_history.sql: DO $$ block (procedural, not folded into the model)
+229_project_card_status_priority_order.sql: constraint-altering statement (not folded into the model): ALTER TABLE refm_projects DROP CONSTRAINT IF EXISTS refm_projects_status_check;
+229_project_card_status_priority_order.sql: constraint-altering statement (not folded into the model): ALTER TABLE refm_projects ADD CONSTRAINT refm_projects_status_check CHECK (status IN ('Dra
+229_project_card_status_priority_order.sql: DO $$ block (procedural, not folded into the model)
+230_refm_version_created_by.sql: constraint-altering statement (not folded into the model): ALTER TABLE refm_project_versions ADD CONSTRAINT refm_project_versions_created_by_fkey FOR
+230_refm_version_created_by.sql: DO $$ block (procedural, not folded into the model)
+231_refm_project_members.sql: DO $$ block (procedural, not folded into the model)
+232_refm_member_ordering.sql: DO $$ block (procedural, not folded into the model)
+241_cost_catalog_account_scope.sql: constraint-altering statement (not folded into the model): ALTER TABLE refm_cost_catalog ALTER COLUMN account_id SET NOT NULL;
+241_cost_catalog_account_scope.sql: constraint-altering statement (not folded into the model): ALTER TABLE refm_cost_catalog ALTER COLUMN user_id DROP NOT NULL;
+241_cost_catalog_account_scope.sql: constraint-altering statement (not folded into the model): ALTER TABLE refm_cost_catalog DROP CONSTRAINT IF EXISTS refm_cost_catalog_user_id_fkey;
+241_cost_catalog_account_scope.sql: constraint-altering statement (not folded into the model): ALTER TABLE refm_cost_catalog ADD CONSTRAINT refm_cost_catalog_user_id_fkey FOREIGN KEY (u
+241_cost_catalog_account_scope.sql: constraint-altering statement (not folded into the model): ALTER TABLE refm_cost_catalog DROP CONSTRAINT IF EXISTS refm_cost_catalog_user_entry_uniqu
+241_cost_catalog_account_scope.sql: constraint-altering statement (not folded into the model): ALTER TABLE refm_cost_catalog DROP CONSTRAINT IF EXISTS refm_cost_catalog_account_entry_un
+241_cost_catalog_account_scope.sql: constraint-altering statement (not folded into the model): ALTER TABLE refm_cost_catalog ADD CONSTRAINT refm_cost_catalog_account_entry_unique UNIQUE
+243_asset_type_rates_and_order.sql: constraint-altering statement (not folded into the model): ALTER TABLE refm_asset_types ADD CONSTRAINT refm_asset_types_construction_cost_nonneg CHEC
+243_asset_type_rates_and_order.sql: constraint-altering statement (not folded into the model): ALTER TABLE refm_asset_types ADD CONSTRAINT refm_asset_types_revenue_rate_nonneg CHECK (re
+243_asset_type_rates_and_order.sql: constraint-altering statement (not folded into the model): ALTER TABLE refm_asset_types ADD CONSTRAINT refm_asset_types_revenue_rate_unit_known CHECK
+243_asset_type_rates_and_order.sql: DO $$ block (procedural, not folded into the model)
+244_asset_type_values_move_to_project.sql: constraint-altering statement (not folded into the model): ALTER TABLE refm_asset_types DROP CONSTRAINT IF EXISTS refm_asset_types_construction_cost_
 m2_0_module1_rebuild.sql: constraint-altering statement (not folded into the model): ALTER TABLE refm_projects ALTER COLUMN schema_version SET DEFAULT 5;
 m2_0_module1_rebuild.sql: constraint-altering statement (not folded into the model): ALTER TABLE refm_project_versions ALTER COLUMN schema_version SET DEFAULT 5;

@@ -28,6 +28,7 @@ rather than attributed to a person, bulk rows say what, case rows say where. Sui
    `issueTrainingSession.ts` and verify in `getTrainingCookieSession`; every current session would be signed out
    once. Separately, `/api/training/questions` takes the email and registration id from the QUERY with no cookie.
    Decide both before the next training release.
+0b. **FOUND 2026-09-26: FOUR LIVE TABLES NO CODE HERE DECLARES OR READS** (`eq_spaces`, `eq_actors`, `eq_access_events`, `eq_space_grants`), surfaced by `audit-schema-drift`. Even the service role gets "permission denied", so another application with its own grants writes to this Supabase project. Nothing in this repo touches them; find out whose they are before the next schema change. The same run found NO training table missing or drifted.
 3. **DONE 2026-09-24: Capex Table 7 is in the PDF and the workbook** (same rows as the screen). The stale
    `verify-consolidated-view` count was corrected to the measured 22 on 2026-09-26; suite 182 / 2 of 184, 10,934.
 4. Everything open from 2026-09-23 below, unchanged.
