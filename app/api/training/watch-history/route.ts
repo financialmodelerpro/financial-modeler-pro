@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
+import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,7 +9,11 @@ export const dynamic = 'force-dynamic';
  * Returns all session_watch_history rows for the given student email.
  */
 export async function GET(req: NextRequest) {
-  const email = req.nextUrl.searchParams.get('email');
+  // The student is the SIGNED session (2026-09-26); any identity in the request is ignored.
+  const sess = await getTrainingCookieSession();
+  if (!sess) return NextResponse.json({ error: 'Please sign in again.' }, { status: 401 });
+  void req;
+  const email = sess.email;
   if (!email) {
     return NextResponse.json({ error: 'email required' }, { status: 400 });
   }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
+import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,8 +10,12 @@ export const dynamic = 'force-dynamic';
  * Body: { sessionIds: string[], email: string }
  */
 export async function POST(req: NextRequest) {
+  // The student is the SIGNED session (2026-09-26); any identity in the request is ignored.
+  const sess = await getTrainingCookieSession();
+  if (!sess) return NextResponse.json({ error: 'Please sign in again.' }, { status: 401 });
   try {
-    const { sessionIds, email } = await req.json() as { sessionIds: string[]; email: string };
+    const { sessionIds } = await req.json() as { sessionIds: string[]; email?: string };
+    const email = sess.email;
     if (!email || !sessionIds?.length) {
       return NextResponse.json({ registrations: {} });
     }

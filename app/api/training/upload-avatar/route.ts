@@ -1,15 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
+import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
 import { STORAGE_CACHE_IMMUTABLE } from '@/src/shared/storage/cacheControl';
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
 const MAX_BYTES = 2 * 1024 * 1024; // 2 MB
 
 export async function POST(req: NextRequest) {
+  // Only a signed-in student may upload, and the file is named for THEM (2026-09-26:
+  // anyone could upload, named for any regId or "anon").
+  const sess = await getTrainingCookieSession();
+  if (!sess) return NextResponse.json({ error: 'Please sign in again.' }, { status: 401 });
   try {
     const formData = await req.formData();
     const file = formData.get('file') as File | null;
-    const regId = (formData.get('regId') as string | null) ?? 'anon';
+    const regId = sess.registrationId;
 
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });

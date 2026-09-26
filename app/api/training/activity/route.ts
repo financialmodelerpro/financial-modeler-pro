@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
+import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
 
 const BADGE_DEFS: { key: string; label: string; icon: string; check: (p: number, streak: number, perfect: boolean, speed: boolean) => boolean }[] = [
   { key: 'first_step',   label: 'First Step',      icon: '👣', check: (p) => p >= 1 },
@@ -13,9 +14,13 @@ const BADGE_DEFS: { key: string; label: string; icon: string; check: (p: number,
 ];
 
 export async function POST(req: NextRequest) {
+  // The student is the SIGNED session (2026-09-26); any identity in the request is ignored.
+  const sess = await getTrainingCookieSession();
+  if (!sess) return NextResponse.json({ error: 'Please sign in again.' }, { status: 401 });
+  const registrationId = sess.registrationId;
   try {
-    const { registrationId, sessionsPassed, hasPerfect, isSpeedRunner } = await req.json() as {
-      registrationId: string;
+    const { sessionsPassed, hasPerfect, isSpeedRunner } = await req.json() as {
+      registrationId?: string;
       sessionsPassed: number;
       hasPerfect?: boolean;
       isSpeedRunner?: boolean;

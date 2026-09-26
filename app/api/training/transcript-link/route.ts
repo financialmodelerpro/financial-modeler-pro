@@ -67,10 +67,14 @@ export async function GET(req: NextRequest) {
 
 // ── POST - create or return existing link ─────────────────────────────────────
 export async function POST(req: NextRequest) {
+  // Minting a share link is a WRITE: only the signed student, for themselves
+  // (2026-09-26). Reading a link stays public by design.
+  const sess = await getTrainingCookieSession();
+  if (!sess) return NextResponse.json({ error: 'Please sign in again.' }, { status: 401 });
   try {
     const body = await req.json() as { regId?: string; email?: string; courseId?: string };
-    const regId    = body.regId?.trim();
-    const email    = body.email?.trim().toLowerCase();
+    const regId    = sess.registrationId;
+    const email    = sess.email;
     const courseId = body.courseId?.trim().toLowerCase();
 
     if (!regId || !email || !courseId) {

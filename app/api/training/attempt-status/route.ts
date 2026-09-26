@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
+import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
 import { maxAttemptsFor } from '@/src/hubs/training/lib/assessment/modelGateScope';
 
 /**
@@ -15,9 +16,12 @@ import { maxAttemptsFor } from '@/src/hubs/training/lib/assessment/modelGateScop
  * the stale source, just never removed).
  */
 export async function GET(req: NextRequest) {
+  // The student is the SIGNED session (2026-09-26); any identity in the request is ignored.
+  const sess = await getTrainingCookieSession();
+  if (!sess) return NextResponse.json({ error: 'Please sign in again.' }, { status: 401 });
   const { searchParams } = new URL(req.url);
   const tabKey = searchParams.get('tabKey');
-  const email  = searchParams.get('email');
+  const email  = sess.email;
 
   if (!tabKey || !email) {
     return NextResponse.json({ success: false, error: 'Missing tabKey or email' }, { status: 400 });

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
+import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
 import { detectVideoChange } from '@/src/hubs/training/lib/watch/detectVideoChange';
 import {
   hydrateIntervals,
@@ -46,7 +47,12 @@ export async function POST(
 
   try {
     const body = (await req.json()) as WatchedPayload;
-    const { email, regId = '', status = 'completed', watch_seconds, total_seconds, last_position } = body;
+    // The student is the SIGNED session (2026-09-26); any identity in the body is ignored.
+    const sess = await getTrainingCookieSession();
+    if (!sess) return NextResponse.json({ success: false, error: 'Please sign in again.' }, { status: 401 });
+    const { status = 'completed', watch_seconds, total_seconds, last_position } = body;
+    const email = sess.email;
+    const regId = sess.registrationId;
     if (!email) return NextResponse.json({ success: false, error: 'Email required' }, { status: 400 });
 
     const sb = getServerClient();
@@ -263,8 +269,10 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const email = req.nextUrl.searchParams.get('email');
-  if (!email) return NextResponse.json({ status: 'not_started', watch_percentage: 0, watch_seconds: 0, total_seconds: 0, watch_intervals: [] });
+  const sess = await getTrainingCookieSession();
+  if (!sess) return NextResponse.json({ error: 'Please sign in again.' }, { status: 401 });
+  void req;
+  const email = sess.email;
 
   const sb = getServerClient();
   const { data } = await sb

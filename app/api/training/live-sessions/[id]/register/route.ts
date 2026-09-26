@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
+import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
 import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
 import { registrationConfirmationTemplate } from '@/src/shared/email/templates/liveSessionNotification';
 
@@ -29,13 +30,12 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+  // The student is the SIGNED session (2026-09-26); any identity in the request is ignored.
+  const sess = await getTrainingCookieSession();
+  if (!sess) return NextResponse.json({ error: 'Please sign in again.' }, { status: 401 });
   const body = await req.json() as { regId?: string; name?: string; email?: string };
-
-  // Trim + validate explicitly so empty-string values (the most common
-  // failure mode when the cookie/session isn't loaded yet) get a clear
-  // error message instead of a silent 400.
-  const regId = (body.regId ?? '').trim();
-  const email = (body.email ?? '').trim().toLowerCase();
+  const regId = sess.registrationId;
+  const email = sess.email;
   const name  = (body.name  ?? '').trim();
 
   if (!regId) {
@@ -141,11 +141,11 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const body = await req.json() as { email?: string };
-  if (!body.email) return NextResponse.json({ error: 'email required' }, { status: 400 });
-
+  const sess = await getTrainingCookieSession();
+  if (!sess) return NextResponse.json({ error: 'Please sign in again.' }, { status: 401 });
+  void req;
   const sb = getServerClient();
-  await sb.from('session_registrations').delete().eq('session_id', id).eq('student_email', body.email.toLowerCase());
+  await sb.from('session_registrations').delete().eq('session_id', id).eq('student_email', sess.email);
   return NextResponse.json({ success: true });
 }
 
@@ -155,7 +155,11 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const email = req.nextUrl.searchParams.get('email');
+  // Signed-out visitors see the unregistered state; the join link is only for
+  // the SIGNED student's own registration (2026-09-26).
+  void req;
+  const sess = await getTrainingCookieSession();
+  const email = sess?.email ?? '';
   if (!email) return NextResponse.json({ registered: false, joinLinkAvailable: false });
 
   const sb = getServerClient();

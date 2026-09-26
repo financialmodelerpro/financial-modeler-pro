@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
+import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
 import { detectVideoChange } from '@/src/hubs/training/lib/watch/detectVideoChange';
 import {
   hydrateIntervals,
@@ -16,7 +17,11 @@ import {
  *  + watch_intervals JSONB so the player can hydrate the tracker on mount).
  */
 export async function GET(req: NextRequest) {
-  const email = req.nextUrl.searchParams.get('email');
+  // The student is the SIGNED session (2026-09-26); any identity in the request is ignored.
+  const sess = await getTrainingCookieSession();
+  if (!sess) return NextResponse.json({ error: 'Please sign in again.' }, { status: 401 });
+  void req;
+  const email = sess.email;
   if (!email) return NextResponse.json({ history: [] });
 
   const sb = getServerClient();
@@ -51,6 +56,8 @@ export async function GET(req: NextRequest) {
  * and the per-live-session-assessment optional gate keep working.
  */
 export async function POST(req: NextRequest) {
+  const sess = await getTrainingCookieSession();
+  if (!sess) return NextResponse.json({ error: 'Please sign in again.' }, { status: 401 });
   const body = await req.json() as {
     student_email?: string;
     tab_key?: string;
@@ -62,7 +69,8 @@ export async function POST(req: NextRequest) {
     watch_intervals?: unknown;
   };
 
-  const { student_email, tab_key, course_id, status } = body;
+  const { tab_key, course_id, status } = body;
+  const student_email = sess.email;
   if (!student_email || !tab_key || !course_id || !status) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
   }
