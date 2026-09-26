@@ -9,7 +9,7 @@
  *   tab:       the website header, the Training Hub link, "Back to Home" all
  *              visible; the title is the page's own.
  *   installed: none of them visible; the sign-in form still is; the title is
- *              "Modeling Hub".
+ *              "FMP Modeling Hub".
  *
  * Run against a dev server or production:
  *   BASE=http://localhost:3000 npx tsx scripts/probe-installed-window.ts
@@ -59,7 +59,7 @@ const SNAPSHOT_JS = `(() => {
     check('TAB: the website header is visible', t.header === true);
     check('TAB: the Training Hub sign-in link and its line are visible', t.trainingLink === true && t.separateLine === true);
     check('TAB: "Back to Home" is visible', t.backHome === true);
-    check('TAB: the title is the page\'s own, not the app\'s', t.title !== 'Modeling Hub', String(t.title));
+    check('TAB: the title is the page\'s own, not the app\'s', t.title !== 'FMP Modeling Hub', String(t.title));
 
     // The installed window. Headless Chromium cannot emulate display-mode (measured
     // 2026-09-26: setEmulatedMedia leaves it "browser"), so this drives the OTHER
@@ -72,14 +72,14 @@ const SNAPSHOT_JS = `(() => {
     await app.goto(url, { waitUntil: 'networkidle' });
     const flagged = await app.evaluate("document.documentElement.hasAttribute('data-installed-app')");
     check('the installed-window path ran (the client marked <html>)', flagged === true);
-    await app.waitForFunction("document.title === 'Modeling Hub'", null, { timeout: 5000 }).catch(() => undefined);
+    await app.waitForFunction("document.title === 'FMP Modeling Hub'", null, { timeout: 5000 }).catch(() => undefined);
     const a = await snapshot(app);
     console.log(`installed: ${JSON.stringify(a)}`);
     check('INSTALLED: the website header is hidden', a.header === false);
     check('INSTALLED: the Training Hub sign-in link and its line are hidden', a.trainingLink === false && a.separateLine === false);
     check('INSTALLED: "Back to Home" is hidden', a.backHome === false);
     check('INSTALLED: the sign-in form is still there', a.form === true);
-    check('INSTALLED: the window title is "Modeling Hub"', a.title === 'Modeling Hub', String(a.title));
+    check('INSTALLED: the window title is "FMP Modeling Hub"', a.title === 'FMP Modeling Hub', String(a.title));
   } finally {
     await browser.close();
   }

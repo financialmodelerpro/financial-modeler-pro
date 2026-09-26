@@ -310,8 +310,8 @@ const src = (p: string): string => { try { return readFileSync(p, 'utf8'); } cat
   check('H6 the hiding rule is rendered with the page (server HTML), so the header never shows for a frame',
     /<style data-installed-app-css dangerouslySetInnerHTML=\{\{ __html: installedAppCss\(\) \}\} \/>/.test(client)
     && /if \(!offline\) return installedStyle;/.test(client));
-  check('H7 the window title is exactly the app name, set ONLY in the installed window and re-asserted when Next retitles',
-    APP_NAME === 'Modeling Hub' && manifest.name === 'Modeling Hub'
+  check('H7 the window title is exactly the app name (FMP Modeling Hub; short name Modeling Hub, 12 characters, for icon labels), set ONLY in the installed window and re-asserted when Next retitles',
+    APP_NAME === 'FMP Modeling Hub' && manifest.name === APP_NAME && manifest.short_name === 'Modeling Hub' && String(manifest.short_name).length <= 12
     && /if \(!isInstalledWindow\(\)\) return;\s*document\.documentElement\.setAttribute\(INSTALLED_ATTR, ''\);/.test(client)
     && /document\.title = APP_NAME/.test(client) && /new MutationObserver\(setTitle\)/.test(client));
   check('H8 the iPhone home-screen app gets the same treatment (navigator.standalone sets the attribute)',

@@ -5,7 +5,8 @@
  * keeps inside its window, and its icons. Pure, so a verifier runs the real
  * thing rather than reading a file.
  *
- *   NAME: "Modeling Hub", which is also the window title (2026-09-26): Chrome
+ *   NAME: "FMP Modeling Hub", which is also the window title (2026-09-26,
+ *     founder); the SHORT name stays "Modeling Hub" for icon labels. Chrome
  *     titles an installed window "<app name> - <page title>" unless the page
  *     title already starts with the name, so the client sets the page title to
  *     exactly APP_NAME inside the installed window.
@@ -37,7 +38,7 @@ export const APP_ICON_FILES = {
 export type AppIconFile = keyof typeof APP_ICON_FILES;
 export const isAppIconFile = (f: string): f is AppIconFile => Object.prototype.hasOwnProperty.call(APP_ICON_FILES, f);
 
-export const APP_NAME = 'Modeling Hub';
+export const APP_NAME = 'FMP Modeling Hub';
 export const APP_SHORT_NAME = 'Modeling Hub';
 export const APP_START_URL = '/dashboard?source=pwa';
 /** Kept from the first release so an app already installed UPDATES rather than
