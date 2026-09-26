@@ -3039,6 +3039,32 @@ secret): password on a new device asks for the code; a code with no password ste
 not spent; the code signs the probe in on the server; Start writes a row whose deadline is the
 timer and the server clock counts down; every probe row re-read as gone. 10/10.
 
+### 9.8 A check on one identifier and an action on another
+
+**Symptom (2026-09-26):** students said a password reset never arrived. Nothing had been sent: 11 of
+13 requests in seven days were refused before the send, because the form demanded the Registration
+ID and the email and compared them exactly. Reading the route that finished the reset found worse.
+
+**Mechanism:** `/api/training/set-password` verified the emailed code against the EMAIL, then wrote
+the password for the REGISTRATION ID in the request body, and "ensured" the lookup row by upserting
+that ID with the requester's email. Proof of owning one inbox was accepted as authority over any
+account, and the account's email was moved to the attacker's. Measured with probe students on the
+old route: 200, the victim's password now the attacker's, the victim's email re-pointed.
+
+**The general lesson:** when a route proves X and acts on Y, the proof covers nothing. Derive the
+target of the action from the thing that was proved (here, the student the verified email belongs
+to), never from another field of the same request. And "the email never arrives" is a claim about
+delivery that the logs can refute in one query: read the status codes before looking at the
+provider.
+
+**Fix:** `studentLookup.ts` is the one identity rule; the code is sent to the email on file; the
+password is written for that email's own account only; nothing writes `training_registrations_meta`
+on a reset. `verify-training-password-reset` B3/B4 fail if the request's ID or a meta write returns.
+
+**Proof:** `scripts/probe-training-password-reset.ts` 15/15 on the real database (step 4 is the
+takeover, refused, the other student unchanged, my code not spent), and the same takeover run against
+the previous route for comparison: 200 and re-pointed, against 400 and untouched now.
+
 ---
 
 ## 10. Verifier discipline

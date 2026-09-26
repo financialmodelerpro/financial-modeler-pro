@@ -55,25 +55,33 @@ function SetPasswordForm() {
     }, 1000);
   }
 
+  // The email alone is enough (2026-09-26); the Registration ID is asked for
+  // only when that email has more than one account. The server says where the
+  // code went (masked), since it always goes to the email ON FILE.
+  const [needsRegId, setNeedsRegId] = useState(!!params.get('regId'));
+  const [sentTo,     setSentTo]     = useState('');
+
+  async function requestCode(): Promise<boolean> {
+    const res  = await fetch('/api/training/send-verification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email.trim().toLowerCase(), registrationId: regId.trim().toUpperCase() || undefined }),
+    });
+    const json = await res.json().catch(() => ({})) as { success?: boolean; error?: string; sentTo?: string; needsRegistrationId?: boolean };
+    if (json.success) { setSentTo(json.sentTo ?? ''); return true; }
+    if (json.needsRegistrationId) setNeedsRegId(true);
+    setSendErr(json.error ?? 'Could not send the code. Please try again.');
+    return false;
+  }
+
   async function handleSendCode(e: React.FormEvent) {
     e.preventDefault();
     setSendErr('');
-    if (!regId.trim() || !email.trim()) { setSendErr('Both fields are required.'); return; }
+    if (!email.trim()) { setSendErr('Enter the email address you registered with.'); return; }
     setSending(true);
     try {
-      const res  = await fetch('/api/training/send-verification', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim().toLowerCase(), registrationId: regId.trim() }),
-      });
-      const json = await res.json() as { success: boolean; error?: string };
-      if (json.success) {
-        setStep('verify');
-        startResendCountdown();
-      } else {
-        setSendErr(json.error ?? 'Could not send verification code. Please try again.');
-      }
-    } catch { setSendErr('An unexpected error occurred.'); }
+      if (await requestCode()) { setStep('verify'); startResendCountdown(); }
+    } catch { setSendErr('Could not reach the server. Check your connection and try again.'); }
     finally { setSending(false); }
   }
 
@@ -82,15 +90,8 @@ function SetPasswordForm() {
     setSending(true);
     setSendErr('');
     try {
-      const res  = await fetch('/api/training/send-verification', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim().toLowerCase(), registrationId: regId.trim() }),
-      });
-      const json = await res.json() as { success: boolean; error?: string };
-      if (json.success) { startResendCountdown(); }
-      else { setSendErr(json.error ?? 'Could not resend code.'); }
-    } catch { setSendErr('An unexpected error occurred.'); }
+      if (await requestCode()) startResendCountdown();
+    } catch { setSendErr('Could not reach the server. Check your connection and try again.'); }
     finally { setSending(false); }
   }
 
@@ -107,7 +108,7 @@ function SetPasswordForm() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          registrationId: regId.trim(),
+          registrationId: regId.trim().toUpperCase() || undefined,
           email:          email.trim().toLowerCase(),
           code:           code.trim(),
           password,
@@ -149,7 +150,7 @@ function SetPasswordForm() {
             Reset Your Password
           </h1>
           <p style={{ fontSize: 13, color: '#6B7280', margin: 0 }}>
-            Enter your details and we&apos;ll send a verification code to your email
+            Enter the email you registered with and we&apos;ll email you a code to reset it
           </p>
         </div>
 
@@ -161,23 +162,30 @@ function SetPasswordForm() {
 
         <form onSubmit={handleSendCode} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
           <div>
-            <label style={labelStyle}>REGISTRATION ID <span style={{ color: '#DC2626' }}>*</span></label>
-            <input type="text" required value={regId} onChange={e => setRegId(e.target.value)}
-              placeholder="FMP-2026-XXXX" style={inputStyle}
-              onFocus={e => { e.currentTarget.style.borderColor = GREEN; }}
-              onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
-          </div>
-
-          <div>
             <label style={labelStyle}>EMAIL ADDRESS <span style={{ color: '#DC2626' }}>*</span></label>
             <input type="email" required value={email} onChange={e => setEmail(e.target.value)}
-              placeholder="you@example.com" style={inputStyle}
+              placeholder="you@example.com" style={inputStyle} autoComplete="email"
               onFocus={e => { e.currentTarget.style.borderColor = GREEN; }}
               onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
             <div style={{ marginTop: 5, fontSize: 11.5, color: '#9CA3AF' }}>
-              We&apos;ll send a 6-digit code to this address
+              The address you used when you registered
             </div>
           </div>
+
+          {needsRegId ? (
+            <div>
+              <label style={labelStyle}>REGISTRATION ID <span style={{ color: '#9CA3AF', fontWeight: 500 }}>(only if this email has more than one account)</span></label>
+              <input type="text" value={regId} onChange={e => setRegId(e.target.value)}
+                placeholder="FMP-2026-XXXX" style={inputStyle}
+                onFocus={e => { e.currentTarget.style.borderColor = GREEN; }}
+                onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
+            </div>
+          ) : (
+            <button type="button" onClick={() => setNeedsRegId(true)}
+              style={{ alignSelf: 'flex-start', background: 'none', border: 'none', padding: 0, fontSize: 12, color: '#6B7280', textDecoration: 'underline', cursor: 'pointer' }}>
+              I have more than one account on this email
+            </button>
+          )}
 
           <button type="submit" disabled={sending}
             style={{
@@ -189,7 +197,7 @@ function SetPasswordForm() {
             }}>
             {sending
               ? <><span style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} /> Sending code…</>
-              : 'Send Verification Code →'}
+              : 'Email Me a Reset Code →'}
           </button>
         </form>
 
@@ -211,7 +219,11 @@ function SetPasswordForm() {
           Check Your Email
         </h1>
         <p style={{ fontSize: 13, color: '#6B7280', margin: 0 }}>
-          We sent a 6-digit code to <strong>{email}</strong>
+          We sent a 6-digit code to <strong>{sentTo || 'your registered email'}</strong>
+        </p>
+        <p style={{ fontSize: 12, color: '#9CA3AF', margin: '8px 0 0', lineHeight: 1.5 }}>
+          It can take a minute. If it isn&apos;t in your inbox, check Spam and Promotions for
+          &ldquo;Training Hub password reset code&rdquo;.
         </p>
       </div>
 

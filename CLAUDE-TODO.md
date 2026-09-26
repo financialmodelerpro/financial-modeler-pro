@@ -12,7 +12,10 @@ the Modeling Hub with the site favicon. Suite 184 / 2 of 186, 10,993.
 **OPEN:** (1) the founder is emailing the 62 affected students himself (list and draft prepared; nothing sent from
 here); (2) the unsigned `training_session` cookie (item 0 below); (3) DONE 2026-09-26: the installed window hides the website header and
 other-hub links, is titled "Modeling Hub", and the Modeling Hub confirmation email mentions the app; still to see on a real
-installed window (Chrome desktop, Android, iPhone); (4) everything open from 2026-09-24 below.
+installed window (Chrome desktop, Android, iPhone); (4) the Training Hub password reset is fixed and proved on the real database, but the
+full SEND was not exercised (no provider key locally, and a production probe would email a real address): the first real
+student reset after deploy is the check, and `[send-verification] sent ...` / `refused: <reason>` now appear in the logs;
+(5) everything open from 2026-09-24 below.
 
 ## START HERE 2026-09-24: THE ACTIVITY LOG READS AS WHAT PEOPLE DID
 
