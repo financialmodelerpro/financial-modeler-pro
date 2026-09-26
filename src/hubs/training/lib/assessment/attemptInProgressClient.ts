@@ -33,15 +33,30 @@ export async function startAttemptApi(
   timerMinutes: number | null,
   isFinal: boolean,
 ): Promise<ServerAttemptState | null> {
+  return (await startAttemptResult(idn, timerMinutes, isFinal)).state;
+}
+
+/**
+ * The same start, saying WHY it failed when it did. `signedOut` is a 401: the
+ * server has no session for this browser, which no retry can fix and which is
+ * not a connection problem, so the page must ask the student to sign in again
+ * rather than blame their connection (2026-09-26).
+ */
+export async function startAttemptResult(
+  idn: AttemptIdentifier,
+  timerMinutes: number | null,
+  isFinal: boolean,
+): Promise<{ state: ServerAttemptState | null; signedOut: boolean }> {
   try {
     const res = await fetch('/api/training/assessment/start', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ ...idn, timerMinutes, isFinal }),
     });
-    if (!res.ok) return null;
-    return await res.json() as ServerAttemptState;
-  } catch { return null; }
+    if (res.status === 401) return { state: null, signedOut: true };
+    if (!res.ok) return { state: null, signedOut: false };
+    return { state: await res.json() as ServerAttemptState, signedOut: false };
+  } catch { return { state: null, signedOut: false }; }
 }
 
 export async function pauseAttemptApi(idn: AttemptIdentifier): Promise<{ ok: boolean; state?: ServerAttemptState; code?: string }> {

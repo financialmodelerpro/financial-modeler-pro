@@ -27,16 +27,10 @@ function getSessionTitleFromTabKey(tabKey: string): string {
 
 // ── Training session helper ───────────────────────────────────────────────────
 
-function getTrainingSession(): { email: string; registrationId: string } | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem('training_session');
-    if (!raw) return null;
-    return JSON.parse(raw) as { email: string; registrationId: string };
-  } catch {
-    return null;
-  }
-}
+// The shared reader, which honours the session's expiry (2026-09-26). This
+// page had its own copy that ignored it, so an hour after sign-in, when the
+// server cookie had gone, the page still looked signed in and Start failed.
+const getTrainingSession = readTrainingSession;
 
 // ── localStorage answer persistence ──────────────────────────────────────────
 
@@ -64,9 +58,10 @@ function clearSavedAnswers(tabKey: string) {
 // Server-anchored attempt timer (migration 126). Authoritative state lives in
 // assessment_attempts_in_progress; the client mirrors it for display + re-syncs
 // on visibility change. See src/lib/training/attemptInProgressClient.ts.
+import { getTrainingSession as readTrainingSession, clearTrainingSession } from '@/src/hubs/training/lib/session/training-session';
 import {
   type ServerAttemptState,
-  startAttemptApi,
+  startAttemptResult,
   pauseAttemptApi,
   resumeAttemptApi,
   getAttemptStateApi,
@@ -455,10 +450,21 @@ export default function AssessmentPage() {
     // attemptState; otherwise we stay on the ready screen with a clear retry
     // prompt rather than running untimed.
     setStartingAttempt(true);
-    let state = await startAttemptApi({ tabKey, attemptNumber: attemptForRun }, timerMin, isFinalExam);
-    if (!state) state = await startAttemptApi({ tabKey, attemptNumber: attemptForRun }, timerMin, isFinalExam);
-    if (!state) state = await getAttemptStateApi({ tabKey, attemptNumber: attemptForRun });
+    const idn = { tabKey, attemptNumber: attemptForRun };
+    let result = await startAttemptResult(idn, timerMin, isFinalExam);
+    if (!result.state && !result.signedOut) result = await startAttemptResult(idn, timerMin, isFinalExam);
+    let state = result.state;
+    if (!state && !result.signedOut) state = await getAttemptStateApi(idn);
     setStartingAttempt(false);
+
+    if (!state && result.signedOut) {
+      // The server has no session for this browser. No retry fixes that and it
+      // is not their connection: say so, and clear the stale local session so
+      // the sign-in page does not bounce them straight back here.
+      clearTrainingSession();
+      setErrorMsg('Your sign-in has expired. Please sign in again to start the assessment. Your timer has not started, so you have not lost any time.');
+      return;
+    }
 
     if (!state) {
       setErrorMsg('We could not start your timed attempt. Please check your connection and press Start again. Your timer begins only once the attempt starts cleanly, so you will not lose time.');

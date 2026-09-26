@@ -11,6 +11,9 @@ import { trustDevice, buildTrustCookieHeader } from '@/src/shared/auth/deviceTru
 import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
 import { deviceVerificationTemplate } from '@/src/shared/email/templates/deviceVerification';
 import crypto from 'crypto';
+import {
+  DEVICE_PENDING_COOKIE, readDevicePending, setTrainingSessionCookie, clearDevicePendingCookie,
+} from '@/src/hubs/training/lib/session/issueTrainingSession';
 
 export async function POST(req: NextRequest) {
   try {
@@ -22,7 +25,7 @@ export async function POST(req: NextRequest) {
       trustDevice?: boolean;
     };
 
-    const { action, email, registrationId, code } = body;
+    const { action, email, code } = body;
     if (!email) return NextResponse.json({ success: false, error: 'email required' }, { status: 400 });
 
     const sb = getServerClient();
@@ -55,6 +58,16 @@ export async function POST(req: NextRequest) {
     if (action === 'check') {
       if (!code) return NextResponse.json({ success: false, error: 'code required' }, { status: 400 });
 
+      // The password step must have happened, for this email, in the last few
+      // minutes; otherwise there is no sign-in for the code to finish.
+      const pending = readDevicePending(req.cookies.get(DEVICE_PENDING_COOKIE)?.value, email);
+      if (!pending) {
+        return NextResponse.json(
+          { success: false, error: 'Your sign-in expired. Please enter your password again.' },
+          { status: 401 },
+        );
+      }
+
       const { data: otpRow } = await sb
         .from('training_email_otps')
         .select('id')
@@ -71,7 +84,12 @@ export async function POST(req: NextRequest) {
       // Mark OTP as used
       await sb.from('training_email_otps').update({ used: true }).eq('id', otpRow.id);
 
-      const response = NextResponse.json({ success: true });
+      // Device verified: issue the SAME server session validate issues. Until
+      // 2026-09-26 this path set none, so a student signed in with a code was
+      // signed out to every cookie-gated API (see issueTrainingSession.ts).
+      const response = NextResponse.json({ success: true, email: pending.email, registrationId: pending.registrationId });
+      setTrainingSessionCookie(response, pending.email, pending.registrationId);
+      clearDevicePendingCookie(response);
 
       // Trust device if requested - always use email as identifier (consistent with isDeviceTrusted)
       if (body.trustDevice && email) {

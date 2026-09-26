@@ -102,8 +102,12 @@ const guardBeforeTaking = /if \(!state\) \{[\s\S]*?return;[\s\S]*?\}\s*[\s\S]*?s
 check('Start handler early-returns on null state BEFORE entering taking', guardBeforeTaking.test(startBody));
 
 // Retry-once + read-back fallback chain (idempotent server) must be present.
-const startApiCalls = (startBody.match(/startAttemptApi\(/g) || []).length;
-check('Start handler retries startAttemptApi at least once (>=2 calls)', startApiCalls >= 2, `calls=${startApiCalls}`);
+// Re-aimed 2026-09-26: the handler now calls startAttemptResult (the same
+// start, reporting a 401 as signed out), so this counts either name; the rule
+// is the retry, not the alias. A 401 is deliberately NOT retried, since no
+// retry fixes a missing session (verify-training-code-signin C2 pins that).
+const startApiCalls = (startBody.match(/startAttempt(Api|Result)\(/g) || []).length;
+check('Start handler retries the start at least once (>=2 calls)', startApiCalls >= 2, `calls=${startApiCalls}`);
 check('Start handler falls back to getAttemptStateApi (recovers a lost response)', /getAttemptStateApi\(/.test(startBody));
 
 // On success it must populate BOTH attemptState and timeLeft before taking, so

@@ -18,8 +18,7 @@ import { isDeviceTrusted, isDeviceVerificationRequired } from '@/src/shared/auth
 import { getTrainingComingSoonState } from '@/src/hubs/training/lib/comingSoon';
 import { isTrainingIdentifierBypassed } from '@/src/shared/comingSoon/bypassList';
 import bcrypt from 'bcryptjs';
-
-const SESSION_MAX_AGE = 60 * 60; // 1 hour
+import { setTrainingSessionCookie, setDevicePendingCookie } from '@/src/hubs/training/lib/session/issueTrainingSession';
 
 export async function POST(req: NextRequest) {
   let body: {
@@ -227,21 +226,22 @@ export async function POST(req: NextRequest) {
     const trusted = await isDeviceTrusted(deviceCookie, email, 'training');
 
     if (!trusted && await isDeviceVerificationRequired()) {
-      return NextResponse.json({
+      // The password is right; the emailed code finishes the sign-in. The
+      // pending cookie is what lets device-verify issue the session, so the
+      // code is a second factor and never a way around the password.
+      const pending = NextResponse.json({
         success: false,
         requiresDeviceVerification: true,
         email,
         registrationId: regId,
       });
+      setDevicePendingCookie(pending, email, regId);
+      return pending;
     }
 
-    // Fully authenticated - set session cookie
+    // Fully authenticated - set session cookie (the ONE issuer, shared with device-verify)
     const response = NextResponse.json({ success: true, email, registrationId: regId });
-    response.cookies.set(
-      'training_session',
-      JSON.stringify({ email, registrationId: regId }),
-      { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: SESSION_MAX_AGE },
-    );
+    setTrainingSessionCookie(response, email, regId);
     return response;
 
   } catch {
