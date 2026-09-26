@@ -14,6 +14,11 @@
  *      session only with validate's signed pending cookie for the same email;
  *      the rule is RUN on a real, a forged, an expired, a wrong-email and a
  *      missing cookie, and the check sits BEFORE the code is looked up or spent.
+ *   S. THE SESSION IS SIGNED (2026-09-26): a forged, tampered, expired or
+ *      replayed value is refused, RUN on each; an unsigned cookie is accepted
+ *      only before the cutoff and flagged for re-issue, so nobody is signed
+ *      out; every reader goes through the one verified reader, and progress
+ *      no longer takes identity from the URL.
  *   C. THE PAGE TELLS THE TRUTH: the assessment page reads the session through
  *      the shared reader (which honours expiry) and says "sign in again" on a
  *      401 instead of blaming the connection, and does not retry a 401.
@@ -61,9 +66,46 @@ function walk(dir: string, out: string[] = []): string[] {
   const res = NextResponse.json({});
   mod.setTrainingSessionCookie(res, 'a@b.test', 'REG1');
   const c = res.cookies.get('training_session');
-  check('A4 the cookie is httpOnly, path /, one hour, and carries the email and id the start route reads',
-    !!c && c.httpOnly === true && c.path === '/' && c.maxAge === 3600
-    && JSON.parse(c.value).email === 'a@b.test' && JSON.parse(c.value).registrationId === 'REG1');
+  const readBack = c ? mod.readTrainingSession(c.value) : null;
+  check('A4 the cookie is httpOnly, path /, one hour, SIGNED, and reads back the email and id the routes use',
+    !!c && c.httpOnly === true && c.path === '/' && c.maxAge === 3600 && c.value.startsWith('v1.')
+    && readBack?.legacy === false && readBack.session.email === 'a@b.test' && readBack.session.registrationId === 'REG1');
+
+  console.log('\n=== S. The session is signed ===');
+  const t = 1_800_000_000_000;
+  const signed = mod.encodeTrainingSession('Victim@X.test', 'REG7', t);
+  const r0 = mod.readTrainingSession(signed, t + 60_000);
+  check('S1 a signed session reads back (email normalised)', r0?.session.email === 'victim@x.test' && r0.session.registrationId === 'REG7' && r0.legacy === false);
+  const [, pl, sg] = signed.split('.');
+  const forgedPl = Buffer.from(JSON.stringify({ e: 'someone.else@x.test', r: 'REG1', x: t + 9e9 })).toString('base64url');
+  check('S2 a FORGED payload under a real signature is refused', mod.readTrainingSession(`v1.${forgedPl}.${sg}`, t) === null);
+  check('S3 a tampered signature is refused', mod.readTrainingSession(`v1.${pl}.${sg.slice(0, -3)}abc`, t) === null);
+  check('S4 an expired session is refused', mod.readTrainingSession(signed, t + 3601_000) === null);
+  const pendRes = NextResponse.json({});
+  mod.setDevicePendingCookie(pendRes, 'victim@x.test', 'REG7', t);
+  const pendVal = pendRes.cookies.get(mod.DEVICE_PENDING_COOKIE)!.value;
+  check('S5 another cookie\'s signature cannot be replayed as a session (own context string)',
+    mod.readTrainingSession(`v1.${pendVal}`, t) === null && mod.readTrainingSession(pendVal, mod.LEGACY_UNSIGNED_ACCEPTED_UNTIL) === null);
+  const legacy = JSON.stringify({ email: 'Old@X.test', registrationId: 'REG2' });
+  const before = mod.readTrainingSession(legacy, mod.LEGACY_UNSIGNED_ACCEPTED_UNTIL - 1);
+  check('S6 NOBODY IS SIGNED OUT: an unsigned cookie is accepted before the cutoff, flagged for re-issue',
+    before?.legacy === true && before.session.email === 'old@x.test');
+  check('S7 and refused from the cutoff on (a hand-written cookie stops working)', mod.readTrainingSession(legacy, mod.LEGACY_UNSIGNED_ACCEPTED_UNTIL) === null);
+  check('S8 the cutoff is within hours of the change, never an open-ended window',
+    mod.LEGACY_UNSIGNED_ACCEPTED_UNTIL > Date.parse('2026-09-26T12:00:00Z') && mod.LEGACY_UNSIGNED_ACCEPTED_UNTIL <= Date.parse('2026-09-26T14:00:00Z'));
+  const reader = src('src/hubs/training/lib/session/trainingSessionCookie.ts');
+  check('S9 the one reader verifies, and re-issues a legacy cookie signed',
+    reader.includes('readTrainingSession(cookieStore.get(TRAINING_SESSION_COOKIE)?.value)') && reader.includes('if (read.legacy)')
+    && reader.includes('encodeTrainingSession(read.session.email, read.session.registrationId)') && !reader.includes('JSON.parse'));
+  const rawReaders = [...walk('app'), ...walk('src')].filter((f) => {
+    const t = src(f);
+    if (f.endsWith('issueTrainingSession.ts') || f.endsWith('trainingSessionCookie.ts')) return false;
+    return t.includes("get('training_session')") || t.includes('get("training_session")') || t.includes('.get(TRAINING_SESSION_COOKIE)');
+  });
+  check('S10 nothing else reads the session cookie (every route goes through the verified reader)', rawReaders.length === 0, rawReaders.join(', '));
+  const progress = src('app/api/training/progress/route.ts');
+  check('S11 progress takes identity from the signed session only, never the URL',
+    progress.includes('await getTrainingCookieSession()') && !progress.includes("searchParams.get('email')") && !progress.includes("searchParams.get('registrationId')"));
 
   console.log('\n=== B. The code finishes a password sign-in, it never replaces one ===');
   const pend = NextResponse.json({});

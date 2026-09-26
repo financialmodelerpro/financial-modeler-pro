@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
 import { getServerClient } from '@/src/core/db/supabase';
 
 /**
@@ -55,23 +55,14 @@ function emptyProgress(email: string, registrationId: string): ProgressData {
 }
 
 export async function GET(req: NextRequest) {
-  let email = '';
-  let registrationId = '';
-
-  try {
-    const cookieStore = await cookies();
-    const raw = cookieStore.get('training_session')?.value;
-    if (raw) {
-      const parsed = JSON.parse(raw) as { email?: string; registrationId?: string };
-      email = parsed.email ?? '';
-      registrationId = parsed.registrationId ?? '';
-    }
-  } catch { /* ignore */ }
-
-  if (!email || !registrationId) {
-    email          = req.nextUrl.searchParams.get('email')          ?? '';
-    registrationId = req.nextUrl.searchParams.get('registrationId') ?? '';
-  }
+  // Identity from the SIGNED session only (2026-09-26). This route used to fall
+  // back to the email and ID in the URL when there was no cookie, so anyone
+  // could read any student's progress without forging anything. The pages
+  // still send those parameters; they are ignored.
+  void req;
+  const sess = await getTrainingCookieSession();
+  const email = sess?.email ?? '';
+  const registrationId = sess?.registrationId ?? '';
 
   if (!email || !registrationId) {
     return NextResponse.json({ success: false, error: 'Not authenticated.' }, { status: 401 });

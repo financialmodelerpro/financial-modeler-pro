@@ -20,7 +20,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
-import { cookies } from 'next/headers';
+import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
 import crypto from 'crypto';
 
 function generateToken(): string {
@@ -129,12 +129,11 @@ export async function DELETE(req: NextRequest) {
     const { token } = await req.json() as { token?: string };
     if (!token) return NextResponse.json({ error: 'token required' }, { status: 400 });
 
-    // Validate the session cookie to ensure the owner is revoking
-    const cookieStore = await cookies();
-    const raw = cookieStore.get('training_session')?.value;
-    if (!raw) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-    const { registrationId } = JSON.parse(raw) as { registrationId: string };
+    // The SIGNED session proves the owner is revoking (2026-09-26: this read the
+    // cookie as plain JSON, so a forged one could revoke anyone's link).
+    const sess = await getTrainingCookieSession();
+    if (!sess?.registrationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { registrationId } = sess;
     const sb = getServerClient();
 
     await sb.from('transcript_links')
