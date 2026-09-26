@@ -2,6 +2,17 @@
 
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
+## START HERE 2026-09-26: TRAINING CODE SIGN-IN FIXED, SCHEMA DRIFT IN THE SUITE
+
+**DONE 2026-09-26 (detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-26):** a student signed in with the emailed device
+code is now signed in on the server (timed assessments start; proved on production); the schema-drift audit is a suite
+failure; the eq_* tables are identified (the ERM branch's erm_001, left in place by the founder); the installed app is
+the Modeling Hub with the site favicon. Suite 184 / 2 of 186, 10,993.
+
+**OPEN:** (1) the founder is emailing the 62 affected students himself (list and draft prepared; nothing sent from
+here); (2) the unsigned `training_session` cookie (item 0 below); (3) the installed-app header, title and signup-email
+changes requested 2026-09-26 (in progress); (4) everything open from 2026-09-24 below.
+
 ## START HERE 2026-09-24: THE ACTIVITY LOG READS AS WHAT PEOPLE DID
 
 **DONE 2026-09-24 (detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-24):** every stored log row reads as a sentence
