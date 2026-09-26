@@ -28,7 +28,16 @@ rather than attributed to a person, bulk rows say what, case rows say where. Sui
    `issueTrainingSession.ts` and verify in `getTrainingCookieSession`; every current session would be signed out
    once. Separately, `/api/training/questions` takes the email and registration id from the QUERY with no cookie.
    Decide both before the next training release.
-0b. **FOUND 2026-09-26: FOUR LIVE TABLES NO CODE HERE DECLARES OR READS** (`eq_spaces`, `eq_actors`, `eq_access_events`, `eq_space_grants`), surfaced by `audit-schema-drift`. Even the service role gets "permission denied", so another application with its own grants writes to this Supabase project. Nothing in this repo touches them; find out whose they are before the next schema change. The same run found NO training table missing or drifted.
+0b. **RESOLVED 2026-09-26: THE FOUR eq_* TABLES ARE OURS, THE ERM PLATFORM'S FIRST MIGRATION, APPLIED FROM A BRANCH.**
+   `erm_001_access_foundation.sql` on `feat/erm` (worktree `D:/FMP/fmp-erm`), applied to PRODUCTION as `postgres` on
+   2026-09-22 16:33 UTC (pg_stat_statements first-seen, one DDL batch) and recorded APPLIED on that branch (`1c443235`);
+   `main` does not carry the file, so its drift audit saw undeclared tables. Measured read-only: EMPTY (0 rows, 0 inserts
+   ever), owner `postgres`, RLS on with no policies, ALL revoked from anon, authenticated and service_role (their D10),
+   append-only and no-TRUNCATE triggers, FK `eq_actors.user_id` -> `users`. Reachable only by the `postgres` role
+   (DATABASE_URL); the service role is refused; role `erm_app` exists and `authenticator` may assume it for a JWT
+   whose role claim names it, but it holds NO table grants yet. The standing point: a branch applied DDL to the one
+   production database before merging, so `main`'s record of the schema is behind production. verify-schema-drift
+   accepts the four by name with this reason and will fail RESOLVED when `feat/erm` merges.
 3. **DONE 2026-09-24: Capex Table 7 is in the PDF and the workbook** (same rows as the screen). The stale
    `verify-consolidated-view` count was corrected to the measured 22 on 2026-09-26; suite 182 / 2 of 184, 10,934.
 4. Everything open from 2026-09-23 below, unchanged.

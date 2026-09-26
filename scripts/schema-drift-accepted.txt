@@ -9,8 +9,7 @@
 # saying why it is acceptable. Never add one to make the suite green without knowing what it is.
 # Lines starting with # and blank lines are ignored.
 #
-# Baseline, 2026-09-26: 51 findings, none on a training table. Includes the four eq_* tables no code in
-# this repo declares or reads (CLAUDE-TODO 0b: another application writes to this project).
+# Baseline, 2026-09-26: 51 findings, none on a training table.
 
 MISSING TABLE: founder_profile (declared in 002_phase1_cms.sql)
 MISSING TABLE: pricing_plans (declared in 014_pricing.sql, 018_pricing_initial_plans.sql)
@@ -20,6 +19,10 @@ MISSING TABLE: marketing_designs (declared in 100_marketing_studio.sql)
 MISSING TABLE: marketing_brand_kit (declared in 100_marketing_studio.sql)
 MISSING TABLE: refm_account_standards (declared in 242_asset_type_standards.sql)
 UNDECLARED LIVE TABLE: project_scenarios
+# The four eq_* tables are the ERM platform's erm_001_access_foundation.sql, on branch feat/erm
+# (worktree D:/FMP/fmp-erm), applied to production 2026-09-22 16:33 UTC and recorded APPLIED on that
+# branch (1c443235). main does not carry the file yet. When feat/erm merges, the audit declares
+# them and these four lines go RESOLVED: remove them then.
 UNDECLARED LIVE TABLE: eq_space_grants
 UNDECLARED LIVE TABLE: eq_spaces
 UNDECLARED LIVE TABLE: eq_access_events
