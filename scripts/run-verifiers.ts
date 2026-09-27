@@ -82,6 +82,10 @@ const ACCEPTED_SKIPS: Record<string, string> = {
     'Per-FIELD skips for levers whose override path is not in the catalog. These are '
     + 'the census reporting what it could not probe, which is the honest behaviour it '
     + 'was rebuilt for, not a credential gap.',
+  'verify-formula-workbook.ts':
+    'Its real-Excel half (recalculate the formula-linked export in Excel and compare every '
+    + 'figure with the platform) needs Excel, so it skips where Excel is not installed; the '
+    + 'offline half always runs. On the founder machine, where Excel is installed, it runs in full.',
 };
 const TALLY = /(\d+) passed, (\d+) failed/;
 

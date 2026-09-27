@@ -1,0 +1,53 @@
+/**
+ * liveExportInputs.ts (2026-09-27)
+ *
+ * The live project's export inputs, assembled EXACTLY as the Export modal's
+ * saved-version path assembles them: the latest saved version loaded through
+ * the store (`loadStoredModel`), the version's own active case, the case
+ * comparison bundle, and the parties from their own table. Shared by
+ * regenerate-exports.ts and verify-formula-workbook.ts so both build the same
+ * workbook from the same state.
+ *
+ * No em dashes in this file.
+ */
+import { createClient } from '@supabase/supabase-js';
+import { loadStoredModel } from '../../src/hubs/modeling/platforms/refm/lib/state/loadStoredModel';
+import { modelFromSnapshot, pickModel } from '../../src/hubs/modeling/platforms/refm/lib/state/module1-store';
+import { baseCaseId, normaliseCases } from '../../src/hubs/modeling/platforms/refm/lib/cases/applyOverrides';
+import type { computeFinancialsSnapshot } from '../../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import type { BuildModelOptions } from '../../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
+import { LIVE_PROJECT_ID } from './liveProject';
+
+export interface LiveExportInputs {
+  projectName: string;
+  versionLabel: string | null;
+  versionComment: string | null;
+  state: Parameters<typeof computeFinancialsSnapshot>[0];
+  caseComparison: BuildModelOptions['caseComparison'];
+  parties: BuildModelOptions['parties'];
+}
+
+export async function loadLiveExportInputs(): Promise<LiveExportInputs> {
+  const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error('no credentials: run with --env-file=.env.local');
+  const sb = createClient(url, key, { auth: { persistSession: false } });
+  const { data: projRows, error: projErr } = await sb.from('refm_projects').select('id, name').eq('id', LIVE_PROJECT_ID).limit(1);
+  if (projErr) throw new Error(`project read: ${projErr.message}`);
+  if (!projRows?.length) throw new Error('project not found (deleted or purged?)');
+  const { data: verRows, error: verErr } = await sb.from('refm_project_versions').select('snapshot, label, comment')
+    .eq('project_id', LIVE_PROJECT_ID).order('created_at', { ascending: false }).limit(1);
+  if (verErr) throw new Error(`version read: ${verErr.message}`);
+  if (!verRows?.length) throw new Error('no saved version');
+  const v = verRows[0] as { snapshot: unknown; label: string | null; comment: string | null };
+  const migrated = loadStoredModel(v.snapshot).snapshot;
+  const state = modelFromSnapshot(migrated) as LiveExportInputs['state'];
+  const cases = normaliseCases(migrated.cases);
+  const activeCaseId = migrated.activeCaseId && cases.some((c) => c.id === migrated.activeCaseId) ? migrated.activeCaseId : baseCaseId(cases);
+  const caseComparison = { baseModel: pickModel(migrated as unknown as Record<string, unknown>), cases, activeCaseId } as BuildModelOptions['caseComparison'];
+  const { data: partyRows } = await sb.from('refm_parties').select('*').eq('project_id', LIVE_PROJECT_ID);
+  return {
+    projectName: (projRows[0] as { name: string }).name,
+    versionLabel: v.label, versionComment: v.comment,
+    state, caseComparison, parties: (partyRows ?? []) as BuildModelOptions['parties'],
+  };
+}

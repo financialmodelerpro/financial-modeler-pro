@@ -24,9 +24,6 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { loadStoredModel } from '../src/hubs/modeling/platforms/refm/lib/state/loadStoredModel';
-import { modelFromSnapshot, pickModel } from '../src/hubs/modeling/platforms/refm/lib/state/module1-store';
-import { baseCaseId, normaliseCases } from '../src/hubs/modeling/platforms/refm/lib/cases/applyOverrides';
 import { seedDeck } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/templates';
 import { defaultReportInputs } from '../src/hubs/modeling/platforms/refm/lib/reportInputs';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
@@ -40,6 +37,7 @@ import { makeDeckFmt } from '../src/hubs/modeling/platforms/refm/lib/reports/dec
 import { icMoneyScaleSpec } from '../src/hubs/modeling/platforms/refm/lib/reportInputs';
 import { coerceDeck } from '../src/hubs/modeling/platforms/refm/lib/persistence/deck-server';
 import { LIVE_PROJECT_ID } from './fixtures/liveProject';
+import { loadLiveExportInputs } from './fixtures/liveExportInputs';
 
 for (const f of ['.env.local']) {
   try {
@@ -58,42 +56,19 @@ const dateLabel = new Date().toLocaleDateString('en-GB', { day: 'numeric', month
   const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) { console.error('FAIL: no credentials. Run with --env-file=.env.local'); process.exit(1); }
   const sb = createClient(url, key, { auth: { persistSession: false } });
-
-  const { data: projRows, error: projErr } = await sb
-    .from('refm_projects').select('id, name').eq('id', LIVE_PROJECT_ID).limit(1);
-  if (projErr) { console.error('FAIL: project read:', projErr.message); process.exit(1); }
-  if (!projRows?.length) { console.error('FAIL: project not found (deleted or purged?)'); process.exit(1); }
-  const projectName: string = (projRows[0] as { name: string }).name;
-
-  const { data: verRows, error: verErr } = await sb
-    .from('refm_project_versions').select('snapshot, label, comment')
-    .eq('project_id', LIVE_PROJECT_ID).order('created_at', { ascending: false }).limit(1);
-  if (verErr) { console.error('FAIL: version read:', verErr.message); process.exit(1); }
-  if (!verRows?.length) { console.error('FAIL: no saved version'); process.exit(1); }
-  const v = verRows[0] as { snapshot: unknown; label: string | null; comment: string | null };
-
-  // MIRRORS THE EXPORT MODAL'S SAVED-VERSION PATH exactly: load through the
-  // store, take the settled base, keep the version's own active case, and hand
-  // the comparison bundle to both exports. Without the bundle the Scenarios
-  // tab is an 18-row "no scenarios" stub, which is how the first run of this
-  // script produced a workbook a sixth of the previous size.
-  const migrated = loadStoredModel(v.snapshot).snapshot;
-  const state = modelFromSnapshot(migrated) as Parameters<typeof computeFinancialsSnapshot>[0];
-  const cases = normaliseCases(migrated.cases);
-  const activeCaseId = migrated.activeCaseId && cases.some((c) => c.id === migrated.activeCaseId)
-    ? migrated.activeCaseId : baseCaseId(cases);
-  const caseComparison = {
-    baseModel: pickModel(migrated as unknown as Record<string, unknown>),
-    cases, activeCaseId,
-  };
+  // THE ONE LOAD PATH (scripts/fixtures/liveExportInputs.ts), shared with
+  // verify-formula-workbook so both build from exactly the same state: the
+  // latest saved version through the store, the version's own active case, the
+  // comparison bundle and the parties, as the Export modal assembles them.
+  const live = await loadLiveExportInputs();
+  const projectName = live.projectName;
+  const v = { label: live.versionLabel, comment: live.versionComment };
+  const state = live.state;
+  const caseComparison = live.caseComparison!;
+  const cases = caseComparison.cases;
   const snap = computeFinancialsSnapshot(state);
   const rs = computeReturnsSnapshot(snap, state.project);
-
-  // Parties live in their own table (refm_parties), never on the project, so
-  // both exports take them from the caller exactly as the Export modal does.
-  const { data: partyRows } = await sb
-    .from('refm_parties').select('*').eq('project_id', LIVE_PROJECT_ID);
-  const parties = (partyRows ?? []) as Parameters<typeof buildICReportModel>[0]['parties'];
+  const parties = live.parties as Parameters<typeof buildICReportModel>[0]['parties'];
 
   mkdirSync(OUT, { recursive: true });
   const wrote: string[] = [];

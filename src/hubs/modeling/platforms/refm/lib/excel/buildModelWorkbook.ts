@@ -541,7 +541,7 @@ export async function generateModelWorkbookBuffer(opts: BuildModelOptions): Prom
  * Post-process the .xlsx zip to add iterate / iterateCount / iterateDelta to
  * xl/workbook.xml so Excel converges the circular formulas on open.
  */
-async function enableIterativeCalc(buf: ArrayBuffer): Promise<ArrayBuffer> {
+export async function enableIterativeCalc(buf: ArrayBuffer): Promise<ArrayBuffer> {
   try {
     const zip = await JSZip.loadAsync(buf);
     const f = zip.file('xl/workbook.xml');
