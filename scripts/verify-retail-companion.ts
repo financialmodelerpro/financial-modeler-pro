@@ -441,7 +441,7 @@ async function liveChecks(): Promise<void> {
         // retail TYPE's own sqm-per-slot ratio. This passed nothing at all
         // before, so the live half of this verifier measured a companion whose
         // retail parking was structurally absent.
-        retailAreaPerSlotSqm: resolveRetailSlotArea(project.assetTypeValues as never),
+        retailAreaPerSlotSqm: resolveRetailSlotArea(project as never, assets as never),
       }, computeAssetUnitCount(a, subUnits)));
     }
     const lines = groupAssetsForConsolidation(

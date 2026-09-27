@@ -958,7 +958,7 @@ export function computeAssetChain(
  * has no chain of its own and reads the retail figures stamped onto it.
  */
 export function planDerivedAreasForModel(model: ChainModel): DerivedAreasPlan {
-  const slot = resolveRetailSlotArea(model.project.assetTypeValues);
+  const slot = resolveRetailSlotArea(model.project, model.assets);
   const rows: DerivableAreaRow[] = [];
   for (const a of model.assets) {
     if (a.isCompanion === true) continue;

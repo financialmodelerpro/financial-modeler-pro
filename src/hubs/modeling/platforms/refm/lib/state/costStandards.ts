@@ -50,7 +50,7 @@ import {
   type Asset, type CostLine, type CostMethod, type CostOverride, type CostStage,
 } from './module1-types';
 import {
-  normaliseAssetTypeId, resolveAssetTypeKey,
+  normaliseAssetTypeId, resolveAssetTypeKey, retailStripTypeId,
   type AssetTypeStandard, type AssetTypeValuesByType,
 } from './assetTypeStandards';
 
@@ -417,10 +417,8 @@ export function standardTypeIdFor(
   asset: Pick<Asset, 'assetTypeId' | 'type' | 'isCompanion' | 'companionType'>,
   assetTypes: readonly AssetTypeStandard[],
 ): string | undefined {
-  if (isRetailCompanion(asset)) {
-    if (asset.assetTypeId) return asset.assetTypeId;
-    return assetTypes.find((t) => /ground[\s-]*floor/i.test(t.label) || t.id.includes('ground-floor'))?.id;
-  }
+  // THE ONE STRIP-TYPE RULE, shared with retail parking (2026-09-27).
+  if (isRetailCompanion(asset)) return retailStripTypeId(asset, assetTypes);
   return resolveAssetTypeKey(asset);
 }
 

@@ -1897,7 +1897,7 @@ function buildAssetRows(
   // (2026-09-10). It was a project field until then; a plot column before that.
   // Hoisted out of the row loop because it is the same for every plot and
   // because a per-row resolve would invite a per-row answer.
-  const retailSlotAreaSqm = resolveRetailSlotArea(project.assetTypeValues);
+  const retailSlotAreaSqm = resolveRetailSlotArea(project, allAssets);
   return groups.map((g) => {
     const plotLabel = g.parcel ? g.parcel.name : 'No specific plot';
     return {
@@ -4526,7 +4526,7 @@ function AssetCard({
                   // so the panel reported "no retail parking ratio" on a plot
                   // whose own row three tables up derived retail parking fine.
                   // Same resolve, same answer, both surfaces.
-                  retailAreaPerSlotSqm: resolveRetailSlotArea(project.assetTypeValues),
+                  retailAreaPerSlotSqm: resolveRetailSlotArea(project, allAssets),
                 }}
                 subUnitUnits={computeAssetUnitCount(asset, subUnits)}
                 entered={{

@@ -292,7 +292,7 @@ export function buildAssetAreaTables(state: InputsViewState): AssetAreaTables {
   const subUnits = state.subUnits as SubUnit[];
   const project = state.project;
   const model = { assets, parcels, subUnits, project, landAllocationMode: state.landAllocationMode };
-  const slot = resolveRetailSlotArea(project.assetTypeValues);
+  const slot = resolveRetailSlotArea(project, state.assets);
   const phaseName = (id: string | undefined): string | undefined => state.phases.find((p) => p.id === id)?.name;
 
   // Carved land per companion and per plot, through the engine's own function.
@@ -493,7 +493,7 @@ export function buildSubUnitLines(state: InputsViewState): SubUnitLineView[] {
   const phaseIds = phases.map((p) => p.id);
   const subUnits = (state.subUnits as SubUnit[]).filter((u) => byId.has(u.assetId) || !state.assets.some((a) => a.id === u.assetId));
   const model = { assets, parcels, subUnits: state.subUnits as SubUnit[], project: state.project, landAllocationMode: state.landAllocationMode };
-  const slot = resolveRetailSlotArea(state.project.assetTypeValues);
+  const slot = resolveRetailSlotArea(state.project, state.assets);
 
   // What each plot's parts are parts of: the chain's NSA where it runs.
   const nsaByAsset: Record<string, ResolvedNsa> = {};

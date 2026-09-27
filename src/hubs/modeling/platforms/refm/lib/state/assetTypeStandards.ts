@@ -507,72 +507,82 @@ export function resolveParkingRatio(
 }
 
 /**
- * THE PLATFORM'S GROUND-FLOOR RETAIL TYPE.
+ * THE TYPE A RETAIL STRIP IS (2026-09-27, founder: find the type from the
+ * strips, never by the catalog's name). ONE rule, read by the cost standards
+ * (what a strip is priced as) and by retail parking (what a shop's parking is
+ * divided by), so the two can never name different types.
  *
- * The catalog in module1-types spells this label in its Retail category. It is
- * declared HERE rather than imported from there because module1-types imports
- * nothing at runtime and this file must stay leaf-level, so the two spellings
- * are a MIRRORED PAIR: `verify-land-chain` fails if the catalog's Retail
- * category stops containing this exact string, which is the only thing keeping
- * a rename in one file from silently unhooking retail parking in the other.
+ * A strip that states a type of its own is that type. Otherwise it is the
+ * project's ground-floor retail type: the entry whose label or id says ground
+ * floor, the way the project's own list names it. A strip carries its HOSTS'
+ * label ("Branded Villas") and is not that type, which is why the label alone
+ * cannot answer this.
  */
-export const GROUND_FLOOR_RETAIL_TYPE_LABEL = 'Retail combined';
+export function retailStripTypeId(
+  strip: { assetTypeId?: string | null } | undefined,
+  assetTypes: ReadonlyArray<{ id: string; label: string }>,
+): string | undefined {
+  if (strip?.assetTypeId) return strip.assetTypeId;
+  return assetTypes.find((t) => /ground[\s-]*floor/i.test(t.label) || t.id.includes('ground-floor'))?.id;
+}
+
+/**
+ * THE PROJECT'S RETAIL STRIP TYPE: what its strips are, by the rule above.
+ * Where no strip exists yet (the chain runs before the strips it creates),
+ * the rule's answer for a strip stating nothing, so the answer does not change
+ * the moment the first strip is made. Strips that state DIFFERENT types have
+ * no one divisor between them, and the chain names the gap rather than pick.
+ */
+export function projectRetailStripTypeId(
+  project: { assetTypes?: ReadonlyArray<{ id: string; label: string }> },
+  assets: ReadonlyArray<{ isCompanion?: boolean; companionType?: string; assetTypeId?: string | null; visible?: boolean }>,
+): string | undefined {
+  const types = project.assetTypes ?? [];
+  const strips = assets.filter((a) => a.visible !== false && a.isCompanion === true && a.companionType === 'retail');
+  const ids = new Set(strips.map((a) => retailStripTypeId(a, types)).filter((x): x is string => !!x));
+  if (ids.size > 1) return undefined;
+  if (ids.size === 1) return [...ids][0];
+  return retailStripTypeId(undefined, types);
+}
 
 /**
  * SQM OF RETAIL GFA PER PARKING SLOT: the divisor a host plot's ground-floor
- * retail uses, resolved from the project's asset type values (2026-09-10).
+ * retail uses, read from the retail strip type's own parking ratio.
  *
  * IT IS A TYPE STANDARD, NOT A PROJECT FIELD. It lived on `project.
  * retailAreaPerSlotSqm` for a day, and before that on every plot row, and both
  * shapes put one number somewhere it could disagree with the type table that
  * already had a cell for it: a retail type states its parking ratio in sqm per
- * slot, which IS this figure. The reference agrees, and more directly than the
- * intermediate design did: its retail-parking column divides by the retail row
- * of the ordinary parking-ratio table. On the one live project holding retail
- * the two places HAD disagreed, the project field carrying 40 (the area a slot
- * occupies) where the reference divides by 25.
+ * slot, which IS this figure. The reference agrees: its retail-parking column
+ * divides by the retail row of the ordinary parking-ratio table.
  *
- * THE RULE, in order:
- *   1. The ground-floor retail type, when it states a POSITIVE sqm-per-slot
- *      ratio. This is the workbook's fixed reference, and it is what makes the
- *      answer deterministic when a firm's list holds several retail types.
- *   2. Otherwise, the ONE type that states a positive sqm-per-slot ratio, when
- *      exactly one does, so a firm that renamed or replaced the entry still
- *      derives retail parking.
- *   3. Otherwise nothing, and the chain reports `no_retail_area_per_slot` by
- *      name. That covers both "nobody has said" and "two types claim it", and
- *      the gap sentence names the ground-floor retail type as the place to
- *      settle it, which resolves the second case the moment it is followed.
+ * THE TYPE IS THE STRIPS' (2026-09-27), replacing a lookup by the catalog's
+ * label ("Retail combined") with a fallback to whichever ONE type stated sqm
+ * per slot. That held only while exactly one did: on Marina Gate the figure was
+ * read from a type no longer in the project's list, and a second retail type
+ * stating sqm per slot would have made retail parking vanish.
  *
- * A TYPED ZERO IS NOT A DIVISOR. "This type needs no parking" is a real answer
- * for an asset's OWN parking (rule 8 of the chain derives zero slots from it),
- * but it cannot size a shop's, so it does not make an entry a candidate here.
- * A slots-per-unit ratio is not a candidate either: it counts a different
- * thing.
+ * A TYPED ZERO IS NOT A DIVISOR, and a slots-per-unit ratio is not one either:
+ * it counts a different thing. Either way the answer is nothing, and the chain
+ * reports `no_retail_area_per_slot` by name.
  */
-export function resolveRetailSlotArea(
-  valuesByType: AssetTypeValuesByType | undefined,
-): number | undefined {
-  const id = resolveRetailSlotTypeId(valuesByType);
-  return id === undefined ? undefined : valuesByType?.[id]?.parkingRatio;
+type RetailSlotProject = { assetTypes?: ReadonlyArray<{ id: string; label: string }>; assetTypeValues?: AssetTypeValuesByType };
+type RetailSlotAssets = Parameters<typeof projectRetailStripTypeId>[1];
+
+export function resolveRetailSlotArea(project: RetailSlotProject, assets: RetailSlotAssets): number | undefined {
+  const id = resolveRetailSlotTypeId(project, assets);
+  return id === undefined ? undefined : project.assetTypeValues?.[id]?.parkingRatio;
 }
 
 /** WHICH TYPE's values answer `resolveRetailSlotArea` (the same rule, one home),
  *  for a surface that must point at the cell holding the ratio, not copy it. */
-export function resolveRetailSlotTypeId(
-  valuesByType: AssetTypeValuesByType | undefined,
-): string | undefined {
-  if (!valuesByType) return undefined;
-  const candidates = Object.keys(valuesByType).sort().filter((id) => {
-    const v = valuesByType[id];
-    return v?.parkingRatioBasis === 'sqm_per_slot'
-      && typeof v.parkingRatio === 'number' && Number.isFinite(v.parkingRatio)
-      && v.parkingRatio > 0;
-  });
-  const named = normaliseAssetTypeId(GROUND_FLOOR_RETAIL_TYPE_LABEL);
-  if (candidates.includes(named)) return named;
-  if (candidates.length === 1) return candidates[0];
-  return undefined;
+export function resolveRetailSlotTypeId(project: RetailSlotProject, assets: RetailSlotAssets): string | undefined {
+  const id = projectRetailStripTypeId(project, assets);
+  if (id === undefined) return undefined;
+  const v = project.assetTypeValues?.[id];
+  return v?.parkingRatioBasis === 'sqm_per_slot'
+    && typeof v.parkingRatio === 'number' && Number.isFinite(v.parkingRatio) && v.parkingRatio > 0
+    ? id : undefined;
 }
 
 /** One phrase naming where a resolved standard came from, for a caption. */

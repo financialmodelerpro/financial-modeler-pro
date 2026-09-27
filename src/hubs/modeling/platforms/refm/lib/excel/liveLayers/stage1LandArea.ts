@@ -177,8 +177,8 @@ export const stage1LandArea: LiveLayer = {
     }
 
     // ── Land & Area: the chain per plot ───────────────────────────────────────
-    const slotArea = resolveRetailSlotArea(project.assetTypeValues);
-    const retailSlotKey = resolveRetailSlotTypeId(project.assetTypeValues);
+    const slotArea = resolveRetailSlotArea(project, visible);
+    const retailSlotKey = resolveRetailSlotTypeId(project, visible);
     let slotRef: string | undefined;
     if (retailSlotKey !== undefined) {
       if (w.has(`type:${retailSlotKey}:ratio`) && typeof w.cell(`type:${retailSlotKey}:ratio`).value === 'number') slotRef = R(`type:${retailSlotKey}:ratio`);

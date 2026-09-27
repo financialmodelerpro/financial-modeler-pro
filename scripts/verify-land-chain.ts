@@ -59,7 +59,7 @@ import type { Asset, Parcel, SubUnit } from '../src/hubs/modeling/platforms/refm
 import { ASSET_TYPES_BY_CATEGORY, selectableCostMethods, COST_METHOD_LABELS, isRetiredCostMethod, type CostMethod } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { orderSubUnitLines } from '../src/hubs/modeling/platforms/refm/components/modules/_shared/assetTableModel';
 import {
-  GROUND_FLOOR_RETAIL_TYPE_LABEL,
+  projectRetailStripTypeId,
   normaliseAssetTypeId,
   resolveRetailSlotArea,
   resolveChainDefaults,
@@ -1782,36 +1782,47 @@ function offlineChecks(): void {
     // And the tab says where the figure went, so its disappearance is not a
     // mystery to anyone who used it yesterday.
     && stdTab.includes('data-testid="std-retail-parking-note"'));
-  // U43d THE RULE THAT PICKS THE TYPE, run rather than read. Ambiguity is
-  // possible (a firm may hold several retail types) and must resolve the same
-  // way every time or the number moves under the user.
-  const retailId = normaliseAssetTypeId(GROUND_FLOOR_RETAIL_TYPE_LABEL);
+  // U43d THE TYPE IS THE STRIPS' (2026-09-27, founder), run rather than read.
+  // It was the catalog's label ("Retail combined") with a fallback to the ONE
+  // type stating sqm per slot, which held only while exactly one did: on the
+  // live project the figure was read from a type no longer in the list.
   const vals = (o: Record<string, unknown>): AssetTypeValuesByType => o as AssetTypeValuesByType;
-  check('U43d the ground-floor retail type WINS, a lone sqm-per-slot type serves, and a tie resolves to neither',
-    // 1. The named type, even with another candidate present.
-    resolveRetailSlotArea(vals({
-      [retailId]: { parkingRatio: 25, parkingRatioBasis: 'sqm_per_slot' },
+  const types = [{ id: 'branded-villas', label: 'Branded Villas' }, { id: 'retail-ground-floor', label: 'Retail Ground Floor' }, { id: 'standalone-commercial', label: 'Standalone Commercial' }];
+  const strip = (assetTypeId?: string) => ({ isCompanion: true, companionType: 'retail', visible: true, ...(assetTypeId ? { assetTypeId } : {}) });
+  const proj = (v: Record<string, unknown>) => ({ assetTypes: types, assetTypeValues: vals(v) });
+  check('U43d retail parking divides by the ratio of the type the STRIPS are, by any name, and never guesses',
+    // 1. The project's ground-floor type, even with ANOTHER type stating sqm per slot.
+    resolveRetailSlotArea(proj({
+      'retail-ground-floor': { parkingRatio: 25, parkingRatioBasis: 'sqm_per_slot' },
       'standalone-commercial': { parkingRatio: 30, parkingRatioBasis: 'sqm_per_slot' },
-    })) === 25
-    // 2. Exactly one candidate, under any name: a renamed list still derives.
-    && resolveRetailSlotArea(vals({
-      'shops': { parkingRatio: 30, parkingRatioBasis: 'sqm_per_slot' },
-      'apartments': { parkingRatio: 1, parkingRatioBasis: 'slots_per_unit' },
-    })) === 30
-    // 3. Two unnamed candidates: we cannot tell which is ground-floor retail,
-    //    so nothing, and the chain says so by name rather than picking one.
-    && resolveRetailSlotArea(vals({
-      'shops': { parkingRatio: 30, parkingRatioBasis: 'sqm_per_slot' },
+    }), [strip()]) === 25
+    // 2. The same with no strip yet: the chain runs before the strips it creates.
+    && resolveRetailSlotArea(proj({ 'retail-ground-floor': { parkingRatio: 25, parkingRatioBasis: 'sqm_per_slot' } }), []) === 25
+    // 3. A strip stating a type of its own is that type, whatever it is called.
+    && resolveRetailSlotArea(proj({
+      'retail-ground-floor': { parkingRatio: 25, parkingRatioBasis: 'sqm_per_slot' },
+      'shops': { parkingRatio: 40, parkingRatioBasis: 'sqm_per_slot' },
+    }), [strip('shops')]) === 40
+    // 4. Strips stating DIFFERENT types have no one divisor: nothing, and the chain names the gap.
+    && resolveRetailSlotArea(proj({
+      'shops': { parkingRatio: 40, parkingRatioBasis: 'sqm_per_slot' },
       'kiosks': { parkingRatio: 20, parkingRatioBasis: 'sqm_per_slot' },
-    })) === undefined
-    // 4. A TYPED ZERO is not a divisor, and neither is a count-based ratio.
-    && resolveRetailSlotArea(vals({ [retailId]: { parkingRatio: 0, parkingRatioBasis: 'sqm_per_slot' } })) === undefined
-    && resolveRetailSlotArea(vals({ [retailId]: { parkingRatio: 25, parkingRatioBasis: 'slots_per_unit' } })) === undefined
-    && resolveRetailSlotArea(undefined) === undefined
-    && resolveRetailSlotArea(vals({})) === undefined);
-  check('U43e the ground-floor retail label is a MIRRORED PAIR with the catalog, and the pair still agrees',
-    ASSET_TYPES_BY_CATEGORY.Retail.includes(GROUND_FLOOR_RETAIL_TYPE_LABEL),
-    `${GROUND_FLOOR_RETAIL_TYPE_LABEL} vs [${ASSET_TYPES_BY_CATEGORY.Retail.join(', ')}]`);
+    }), [strip('shops'), strip('kiosks')]) === undefined
+    // 5. A value held by a type the strips are NOT is never read (the orphan shape).
+    && resolveRetailSlotArea(proj({ 'retail-combined': { parkingRatio: 25, parkingRatioBasis: 'sqm_per_slot' } }), [strip()]) === undefined
+    // 6. A TYPED ZERO is not a divisor, and neither is a count-based ratio.
+    && resolveRetailSlotArea(proj({ 'retail-ground-floor': { parkingRatio: 0, parkingRatioBasis: 'sqm_per_slot' } }), [strip()]) === undefined
+    && resolveRetailSlotArea(proj({ 'retail-ground-floor': { parkingRatio: 25, parkingRatioBasis: 'slots_per_unit' } }), [strip()]) === undefined
+    && resolveRetailSlotArea({ assetTypes: [], assetTypeValues: undefined }, []) === undefined);
+  // U43e ONE STRIP-TYPE RULE: what a strip is PRICED as and what its parking is
+  // DIVIDED by are the same type, and no catalog label is consulted for either.
+  const stdSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/state/costStandards.ts', 'utf8');
+  const tsSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards.ts', 'utf8');
+  check('U43e the strip type rule is ONE function, read by the cost standards and by retail parking, and names no catalog label',
+    /if \(isRetailCompanion\(asset\)\) return retailStripTypeId\(asset, assetTypes\);/.test(stdSrc)
+    && projectRetailStripTypeId({ assetTypes: types }, [strip()]) === 'retail-ground-floor'
+    && projectRetailStripTypeId({ assetTypes: types }, [strip('shops')]) === 'shops'
+    && !tsSrc.includes("'Retail combined'") && !tsSrc.includes('GROUND_FLOOR_RETAIL_TYPE_LABEL'));
   check('U43b NO per-plot surface offers it any more, in the table or the drawer',
     !/asset-row-\$\{asset\.id\}-retail-slot/.test(tabSrc)
     && !/patchChain\(\{ retailAreaPerSlotSqm: v \}\)/.test(tabSrc)

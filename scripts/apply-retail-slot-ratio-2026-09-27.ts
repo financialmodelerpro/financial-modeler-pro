@@ -82,7 +82,7 @@ function numbers(wb: ExcelJS.Workbook): Map<string, number> {
   const store = useModule1Store;
   store.getState().hydrate(structuredClone(loadStoredModel(base.snapshot).snapshot));
   const before = store.getState().extractPersistSnapshot();
-  console.log(`Before: ${TYPE_ID} = ${JSON.stringify(before.project.assetTypeValues?.[TYPE_ID])}; the chain reads ${resolveRetailSlotArea(before.project.assetTypeValues)} from ${resolveRetailSlotTypeId(before.project.assetTypeValues)}`);
+  console.log(`Before: ${TYPE_ID} = ${JSON.stringify(before.project.assetTypeValues?.[TYPE_ID])}; the chain reads ${resolveRetailSlotArea(before.project, before.assets)} from ${resolveRetailSlotTypeId(before.project, before.assets)}`);
 
   store.getState().setAssetTypeValue(TYPE_ID, { parkingRatio: 25, parkingRatioBasis: 'sqm_per_slot' });
   // The rule prefers the catalog's own ground-floor retail id BY NAME, so while the
@@ -90,7 +90,7 @@ function numbers(wb: ExcelJS.Workbook): Map<string, number> {
   store.getState().setAssetTypeValue(ORPHAN_ID, { parkingRatio: undefined, parkingRatioBasis: undefined });
   if (store.getState().project.assetTypeValues?.[ORPHAN_ID]) throw new Error(`${ORPHAN_ID} still holds values: ${JSON.stringify(store.getState().project.assetTypeValues?.[ORPHAN_ID])}`);
   const after = store.getState().extractPersistSnapshot();
-  console.log(`After:  ${TYPE_ID} = ${JSON.stringify(after.project.assetTypeValues?.[TYPE_ID])}; the chain reads ${resolveRetailSlotArea(after.project.assetTypeValues)} from ${resolveRetailSlotTypeId(after.project.assetTypeValues)}`);
+  console.log(`After:  ${TYPE_ID} = ${JSON.stringify(after.project.assetTypeValues?.[TYPE_ID])}; the chain reads ${resolveRetailSlotArea(after.project, after.assets)} from ${resolveRetailSlotTypeId(after.project, after.assets)}`);
 
   const edit = diffSnapshots(before, after);
   console.log(`\nThe edit, as the change log records it (${edit.length} path(s)):`);

@@ -38,7 +38,7 @@ export function platformAfterEdit(snapshot: HydrateSnapshot): ReturnType<typeof 
   for (let pass = 0; pass < 8; pass++) {
     const before = store.getState();
     const { assets, parcels, subUnits, project, phases, landAllocationMode } = before;
-    const slot = resolveRetailSlotArea(project.assetTypeValues);
+    const slot = resolveRetailSlotArea(project, assets);
     const model = { assets, parcels, subUnits, project, landAllocationMode };
     const chainOf = new Map<string, ReturnType<typeof computeAssetChain>['chain']>();
     for (const g of groupAssetsByPlot(assets, parcels)) for (const a of g.assets) chainOf.set(a.id, computeAssetChain(a as Asset, model as never, slot).chain);
