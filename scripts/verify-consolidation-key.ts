@@ -293,6 +293,11 @@ function offlineChecks(): void {
     // computed into the same lines the assets tab's table 4 shows, and pools
     // areas only; it computes no money from the key.
     'src/hubs/modeling/platforms/refm/components/modules/_shared/assetInputsView.ts',
+    // EIGHTH, 2026-09-27: the formula-linked workbook's Land & Area layer, which
+    // writes Table 4's formulas on the SAME lines the view above prints, so it
+    // groups the same way. Presentation: it groups rows and pools areas into
+    // formulas; it computes no money from the key.
+    'src/hubs/modeling/platforms/refm/lib/excel/liveLayers/stage1LandArea.ts',
   ];
   const unexpected = consumers.filter((f) => !ALLOWED_CONSUMERS.includes(f));
   const missing = ALLOWED_CONSUMERS.filter((f) => !consumers.includes(f));

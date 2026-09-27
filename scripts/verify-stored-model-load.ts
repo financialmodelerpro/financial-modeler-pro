@@ -108,8 +108,14 @@ section('C. no reader runs on migration output alone');
   check('C1 nothing outside the load path calls migration alone', callers.length === 0, callers.join(', '));
   const route = readFileSync('app/api/refm/portfolio/route.ts', 'utf8');
   const exp = readFileSync('src/hubs/modeling/platforms/refm/components/modals/ExportModal.tsx', 'utf8');
+  // THE SAVED-VERSION ASSEMBLY MOVED INTO ONE SHARED HELPER (2026-09-27), so the
+  // export dialog and the formula-linked workbook route cannot load a saved version
+  // two ways. The rule is unchanged: that helper loads through loadStoredModel, and
+  // the dialog reaches a saved version only through the helper.
+  const helper = readFileSync('src/hubs/modeling/platforms/refm/lib/excel/savedVersionInputs.ts', 'utf8');
   check('C2 the Portfolio route and the saved-version export load through the helper',
-    route.includes('loadStoredModel(raw)') && exp.includes('loadStoredModel(row.snapshot)'));
+    route.includes('loadStoredModel(raw)') && helper.includes('loadStoredModel(rawSnapshot)')
+    && exp.includes('savedVersionInputs(row.snapshot') && !exp.includes('hydrationFromAnySnapshot'));
 }
 
 async function live(): Promise<void> {

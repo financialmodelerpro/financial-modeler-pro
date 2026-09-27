@@ -152,8 +152,13 @@ check('ExportModal defaults the version to the LATEST SAVED one, once the list l
 check('...and never overwrites a version the user picked while the list was loading',
   /versionPickedByUser\.current = true; setSelectedVersionId\(e\.target\.value\)/.test(exportSrc)
   && /versionPickedByUser\.current = false;/.test(exportSrc));
+// The resolution moved into the shared saved-version helper (2026-09-27), which the
+// dialog and the formula-linked workbook route both call: the helper finds the chosen
+// case inside the version, and the dialog hands it the LIVE active case.
+const savedHelperSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/excel/savedVersionInputs.ts', 'utf8');
 check('a saved-version export still resolves the LIVE ACTIVE CASE inside that version (the 2026-06-17 defect cannot return)',
-  /const chosen = vCases\.find\(\(c\) => c\.id === selectedCaseId\)/.test(exportSrc));
+  /cases\.find\(\(c\) => c\.id === chosenCaseId\)/.test(savedHelperSrc)
+  && /savedVersionInputs\(row\.snapshot, selectedCaseId\)/.test(exportSrc));
 check('unsaved edits are SAID so, since the default is no longer the working draft',
   /hasUnsaved && selectedVersionId !== CURRENT/.test(exportSrc)
   && exportSrc.includes('export-unsaved-hint'));

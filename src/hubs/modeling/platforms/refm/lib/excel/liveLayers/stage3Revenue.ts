@@ -44,6 +44,7 @@ import { LiveWriter } from './writer';
 import { PERIOD_COLS } from '../buildModelWorkbook';
 import { ARGB, NUMFMT, setInput, setLabel, fillRange } from '../styles';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
+import { resolveAssetTypeKey } from '../../state/assetTypeStandards';
 import { resolveSubUnitMetric, isRevenueSubUnit } from '@/src/core/calculations';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { planRevenueLines, groupRevenueLines, type RevenueLine } from '../../revenueLines';
@@ -357,7 +358,7 @@ export const stage3Revenue: LiveLayer = {
         if (!op) continue;
         const ix = op.adrIndexation as Idx;
         const win = opsWindow(l, p, K(l, 'ADR Indexation', 'Operations start year'));
-        const tk = a.assetTypeId;
+        const tk = resolveAssetTypeKey(a);
         const sz = newRow(`rvc:${l.key}:size`, `${revenueLineName(l)}: unit size (sub-units first, the type second)`);
         const unitCells = units.filter((u) => w.has(`su:${u.id}:unit`)).map((u) => `su:${u.id}:unit`);
         const typeUnit = tk && w.has(`type:${tk}:unit`) ? w.ref(`type:${tk}:unit`) : '0';
