@@ -1813,6 +1813,8 @@ const TOTAL_COL = 4;          // D  Total
 const OPEN_COL = 5;           // E  Opening / Period 0 / Dec(startYear - 1)
 const pcol = (t: number): number => OPEN_COL + 1 + t;        // F.. active period t
 const lastActiveCol = (N: number): number => OPEN_COL + N;   // last active column
+/** The period sheets' column geometry (period t sits at OPEN_COL + 1 + t), for the live layers. */
+export const PERIOD_COLS = { LBL_COL, META_B, TOTAL_COL, OPEN_COL } as const;
 const activeRange = (N: number, r: number): string => `${colLetter(pcol(0))}${r}:${colLetter(lastActiveCol(N))}${r}`;
 // Display year / period index for a 1-based column (E = startYear-1 / index 0).
 const colYear = (snap: ReturnType<typeof computeFinancialsSnapshot>, c: number): number => snap.projectStartYear + (c - 6);
@@ -1987,8 +1989,25 @@ function makeEmitters(ws: ExcelJS.Worksheet, N: number, start = 5): {
   statRow: (label: string, series: number[] | undefined, numFmt: string, indent?: number) => void;
   emitM4: (row: M4Row) => number; emitTable: (rows: M4Row[]) => void; note: (text: string) => void;
   gap: () => void; cursor: () => number;
+  setRegScope: (scope: string | null) => void; setRegLine: (key: string) => void; setRegTable: (id: string) => void; reg: (label: string, row: number) => void;
 } {
   let r = start;
+  // WHERE EACH ROW LANDS, for the formula-linked export (cellRegistry.ts): a
+  // row registers as scope|line|table|label once a scope is set. Registering
+  // writes nothing, and outside that export the sink is off, so this build is
+  // byte-identical with or without it. A repeated key takes a ~n suffix.
+  let regScope: string | null = null, regLine = '', regTable = '';
+  const regCounts = new Map<string, number>();
+  const reg = (label: string, row: number): void => {
+    if (regScope === null) return;
+    const base = `${regScope}|${regLine}|${regTable}|${label}`;
+    const n = regCounts.get(base) ?? 0;
+    regCounts.set(base, n + 1);
+    registerCell(n ? `${base}~${n}` : base, ws, ws.getCell(row, LBL_COL));
+  };
+  const setRegScope = (scope: string | null): void => { regScope = scope; regLine = ''; regTable = ''; };
+  const setRegLine = (key: string): void => { regLine = key; regTable = ''; };
+  const setRegTable = (id: string): void => { regTable = id; };
   const section = (text: string): void => { setSectionHeader(ws.getRow(r), text, lastActiveCol(N), ARGB.accent); r += 1; };
   // Mid-level group band (navy fill): between a deep-navy section and a pale
   // sub-table title (e.g. ASSETS / LIABILITIES / EQUITY within BS Schedules).
@@ -2007,6 +2026,7 @@ function makeEmitters(ws: ExcelJS.Worksheet, N: number, start = 5): {
   const moneyRow = (label: string, series: number[] | undefined, opts: { style?: RowStyle; indent?: number; basis?: string; prior?: number; totalLast?: boolean; totalValue?: number; noTotal?: boolean; noPeriods?: boolean; numFmt?: string } = {}): number => {
     const used = r;
     const style = opts.style ?? 'plain';
+    reg(label, r);
     setLabel(ws.getCell(r, LBL_COL), label, { indent: opts.indent, bold: style !== 'plain' });
     if (opts.basis) setBasis(ws.getCell(r, META_B), opts.basis);
     const vals = (series ?? []).slice(0, N);
@@ -2029,6 +2049,7 @@ function makeEmitters(ws: ExcelJS.Worksheet, N: number, start = 5): {
     return used;
   };
   const statRow = (label: string, series: number[] | undefined, numFmt: string, indent = 1): void => {
+    reg(label, r);
     setLabel(ws.getCell(r, LBL_COL), label, { indent });
     const vals = (series ?? []).slice(0, N);
     for (let t = 0; t < N; t++) { const cell = ws.getCell(r, pcol(t)); cell.value = vals[t] ?? 0; cell.numFmt = numFmt; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; }
@@ -2067,7 +2088,7 @@ function makeEmitters(ws: ExcelJS.Worksheet, N: number, start = 5): {
   };
   const gap = (): void => { r += 1; };
   const cursor = (): number => r;
-  return { section, groupBand, subTitle, moneyRow, statRow, emitM4, emitTable, note, gap, cursor };
+  return { section, groupBand, subTitle, moneyRow, statRow, emitM4, emitTable, note, gap, cursor, setRegScope, setRegLine, setRegTable, reg };
 }
 
 interface RevLinks { byAssetRow: Map<string, number>; residentialRow: number; hospitalityRow: number; retailRow: number; totalRow: number }
@@ -2121,6 +2142,8 @@ function makeRevOpexEmitters(ws: ExcelJS.Worksheet, N: number): ReturnType<typeo
     cell.value = v; cell.numFmt = fmt; cell.font = { ...font };
   };
   const tableTitle = (text: string, caption = ''): void => {
+    // The table's id: its "1a." style number, else its title up to the first comma.
+    em.setRegTable(/^(\d+[a-z]?\.)/.exec(text)?.[1] ?? text.split(',')[0].trim());
     const r = em.cursor();
     setLabel(ws.getCell(r, LBL_COL), text, { bold: true });
     ws.getCell(r, LBL_COL).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
@@ -2136,6 +2159,7 @@ function makeRevOpexEmitters(ws: ExcelJS.Worksheet, N: number): ReturnType<typeo
   };
   const scalarRow = (label: string, value: number | string | undefined, fmt: string, opts: { basis?: string; input?: boolean; indent?: number } = {}): number => {
     const r = em.cursor();
+    em.reg(label, r);
     setLabel(ws.getCell(r, LBL_COL), label, { indent: opts.indent ?? 1 });
     if (opts.basis) setBasis(ws.getCell(r, META_B), opts.basis);
     if (value !== undefined) put(r, TOTAL_COL, value, typeof value === 'string' ? '@' : fmt, opts.input === true);
@@ -2144,6 +2168,7 @@ function makeRevOpexEmitters(ws: ExcelJS.Worksheet, N: number): ReturnType<typeo
   };
   const periodRow = (label: string, axis: readonly number[], window: readonly number[], fmt: string, opts: { basis?: string; input?: boolean; indent?: number; total?: number; bold?: boolean } = {}): number => {
     const r = em.cursor();
+    em.reg(label, r);
     setLabel(ws.getCell(r, LBL_COL), label, { indent: opts.indent ?? 1, bold: opts.bold });
     if (opts.basis) setBasis(ws.getCell(r, META_B), opts.basis);
     for (const t of window) if (t >= 0 && t < N) put(r, pcol(t), axis[t] ?? 0, fmt, opts.input === true);
@@ -2158,6 +2183,8 @@ function makeRevOpexEmitters(ws: ExcelJS.Worksheet, N: number): ReturnType<typeo
   };
   const cellsRow = (cells: Array<[number, number | string, string, boolean?]>): void => {
     const r = em.cursor();
+    const first = cells.find(([c]) => c === LBL_COL)?.[1];
+    if (typeof first === 'string') em.reg(first, r);
     for (const [c, v, fmt, input] of cells) {
       if (c === LBL_COL && typeof v === 'string' && !input) { setLabel(ws.getCell(r, c), v, { indent: 1 }); continue; }
       if (c === META_B && typeof v === 'string' && !input) { setBasis(ws.getCell(r, c), v); continue; }
@@ -2261,6 +2288,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
 
   // ── 1. Revenue Inputs ────────────────────────────────────────────────────────
   em.section('1. Revenue Inputs (one card per line, filed by section: sub-units, pace, prices, terms and recognition)');
+  em.setRegScope('revin');
   {
     const dp = state.project.saleCohortDefaults?.downpayment;
     em.scalarRow('Project default downpayment', dp === undefined ? 'not set' : dp, NUMFMT.pct, {
@@ -2279,6 +2307,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
       const ownerOf = (u: SubUnit): Asset | undefined => memberById.get(u.assetId) ?? a;
       const w = windowsOf(line, phase);
       const parent = line.isOperateCompanion && line.parentLineKey ? lines.find((l) => l.key === line.parentLineKey) : undefined;
+      em.setRegLine(line.key);
       em.subTitle(revenueLineName(line));
       {
         const units = line.subUnits;
@@ -2468,6 +2497,8 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
 
   // ── 2. Revenue Output ────────────────────────────────────────────────────────
   em.section('2. Revenue Output (per line, filed by section and phase, then the project total)');
+  em.setRegScope('rev');
+  em.setRegLine('__sell__');
   // SELLING COSTS FIRST, as the Output screen leads with them: the rows are the
   // shared builder's (`buildSellingCostReport`), the same per-line rows, notes,
   // counts and year-on-year schedule the screen renders.
@@ -2491,6 +2522,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
       {
         const tr = em.cursor();
         setLabel(ws.getCell(tr, 1), 'Total selling costs', { bold: true });
+        registerCell('rev|__sell__||Total selling costs', ws, ws.getCell(tr, 1));
         const tc = ws.getCell(tr, 8); tc.value = sc.result.total; tc.numFmt = NUMFMT.money;
         fillRange(ws, tr, 1, tr, 8, ARGB.subtotal);
         for (let c = 1; c <= 8; c++) ws.getCell(tr, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
@@ -2524,7 +2556,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
         const memberById = new Map(line.members.map((m) => [m.id, m] as const));
         const ownerOf = (u: SubUnit): Asset | undefined => memberById.get(u.assetId) ?? a;
         const w = windowsOf(line, p);
-        const lineHead = (): void => { em.subTitle(revenueLineName(line)); const meta = lineMeta(line); if (meta) setBasis(ws.getCell(em.cursor() - 1, META_B), meta); };
+        const lineHead = (): void => { em.setRegLine(line.key); em.subTitle(revenueLineName(line)); const meta = lineMeta(line); if (meta) setBasis(ws.getCell(em.cursor() - 1, META_B), meta); };
 
         if (line.form === 'sell') {
           const r = res?.sell;
@@ -2594,6 +2626,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
             for (const cr of grid.rows) {
               const row = em.cursor();
               setLabel(ws.getCell(row, 1), String(cr.saleYear));
+              registerCell(`rev|${line.key}|4achk|${cr.saleYear}`, ws, ws.getCell(row, 1));
               const dp = ws.getCell(row, 2); dp.value = cr.paysInFull ? 1 : cr.downpayment; dp.numFmt = NUMFMT.pct;
               setLabel(ws.getCell(row, 3), cr.paysInFull ? 'not used' : cr.downpaymentSource.replace('_', ' '));
               const gv = ws.getCell(row, 4); gv.value = cr.gdv; gv.numFmt = NUMFMT.money;
@@ -2720,6 +2753,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
   }
   // THE PROJECT TOTAL: three tables grouped by section, from the shared builder.
   em.groupBand('Project Total');
+  em.setRegLine('__project__');
   let totalRow = em.cursor();
   for (const t of PROJECT_REVENUE_TABLES) {
     em.tableTitle(t.title, t.caption);
@@ -2731,6 +2765,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
   }
 
   // ── 3. Cost of Sales ─────────────────────────────────────────────────────────
+  em.setRegScope(null);
   em.section('3. Cost of Sales (per line: the build of the base, vintage matrix, summary, inventory; then the project totals)');
   let cosTotalRow = em.cursor();
   {

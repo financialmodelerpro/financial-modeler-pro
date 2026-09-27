@@ -96,7 +96,7 @@ export const stage2Capex: LiveLayer = {
     const { C_RATE, C_QTY, C_TOT, C_OPEN } = CAPEX_COLS;
     const cP = (t: number): number => C_OPEN + 1 + t;
     const cChk = C_OPEN + N + 1;
-    const w = new LiveWriter(wb, reg);
+    const w = new LiveWriter(wb, reg, ctx.pending);
 
     // ── Refusals ─────────────────────────────────────────────────────────────
     const refuse: string[] = [];
@@ -109,6 +109,7 @@ export const stage2Capex: LiveLayer = {
     for (const [host, ids] of members) for (const id of ids) hostOfAsset.set(id, host);
     const calcAssets = [...members.values()].flat().map((id) => state.assets.find((a) => a.id === id)).filter((a): a is Asset => !!a);
 
+    const noRevenueRows = (a: Asset): boolean => !(state.subUnits as Array<{ assetId: string; category?: string }>).some((u) => u.assetId === a.id && u.category !== 'Support');
     const calc: CalcRow[] = [];
     for (const a of calcAssets) {
       const phase = phases.find((p) => p.id === a.phaseId);
@@ -236,7 +237,23 @@ export const stage2Capex: LiveLayer = {
       const series = collectionsForAsset(snap.revenue as never, a.id, phase, snap.projectStartYear);
       if (!series) continue;
       cs.getCell(cr, 1).value = `Sales collections: ${a.name} (from Revenue, stage 3)`;
-      for (let i = 0; i < L; i++) w.valueA({ sheet: CALC, row: cr, col: wCol(i) }, series[i] ?? 0, { pending: true });
+      if (w.has(`rvc:${a.id}:cash`)) {
+        // LIVE once Revenue is (stage 3): the asset's cash collected, placed phase-local
+        // (projectAxisToPhaseLocal: local 0 is nothing, local i is axis year off + i - 1,
+        // and only the phase's own cp + op + 2 slots).
+        const cashRow = w.addr(`rvc:${a.id}:cash`).row;
+        const phRow = w.addr(`cxc:ph:${phase.id}`).row;
+        for (let i = 0; i < L; i++) {
+          if (i === 0) { w.valueA({ sheet: CALC, row: cr, col: wCol(i) }, 0); continue; }
+          const off = w.refA({ sheet: CALC, row: phRow, col: 3 });
+          const k = `(${off}+${i}-1)`;
+          const slots = `(MAX(0,${w.ref(`phase:${phase.id}:cp`)})+MAX(0,${w.ref(`phase:${phase.id}:op`)})+2)`;
+          w.fA({ sheet: CALC, row: cr, col: wCol(i) }, `IF(AND(${i}<${slots},${k}>=0,${k}<=${N - 1}),INDEX(${w.rangeA('Revenue Calc', cashRow, 4, 4 + N - 1)},1,${k}+1),0)`, { cached: series[i] ?? 0 });
+        }
+      } else {
+        // A plot with no revenue rows collects nothing by structure; anything else waits for Revenue.
+        for (let i = 0; i < L; i++) w.valueA({ sheet: CALC, row: cr, col: wCol(i) }, series[i] ?? 0, { pending: !noRevenueRows(a) });
+      }
       collRow.set(a.id, cr);
       cr += 1;
     }
@@ -274,7 +291,11 @@ export const stage2Capex: LiveLayer = {
         const parts = b.ids.map((id) => rowOf.get(`${c.asset.id}:${id}`)).filter((x): x is CalcRow => !!x).map((x) => w.refA(A(x.row, cF)));
         w.fA(A(row, cE), parts.length ? parts.join('+') : '0');
       } else if (b.kind === 'revenue') {
-        w.valueA(A(row, cE), b.value, { pending: true });
+        // LIVE once Revenue is (stage 3): the asset's sale revenue over the hold.
+        if (w.has(`rvc:${c.asset.id}:saleRev`)) w.fA(A(row, cE), w.ref(`rvc:${c.asset.id}:saleRev`, 3), { cached: b.value });
+        // A plot with no revenue rows sells nothing: its base is zero by structure, not waiting on anything.
+        else if (noRevenueRows(c.asset)) w.valueA(A(row, cE), 0);
+        else w.valueA(A(row, cE), b.value, { pending: true });
       } else w.valueA(A(row, cE), 0);
       // Amount.
       const D = w.refA(A(row, cD)), E = w.refA(A(row, cE));
@@ -474,9 +495,15 @@ export const stage2Capex: LiveLayer = {
     w.f('cx:check', allT1.map((k) => refCx(k, C_TOT)).join('+'));
 
     const pending = [...w.pending];
+    // Marketing reads Revenue: live when the Revenue layer is (it runs first), the platform's values otherwise.
+    const sellingRows = calc.filter((c) => c.base.kind === 'revenue');
+    const revenueLive = sellingRows.every((c) => w.has(`rvc:${c.asset.id}:saleRev`) || noRevenueRows(c.asset));
+    const revenueNote = revenueLive
+      ? 'Marketing charges on the sale revenue and follows the sales collections the Revenue sheet computes, so it is live too.'
+      : 'Waiting for Revenue: marketing charges on sale revenue and follows sales collections, which the working sheet holds as the platform\'s values, so marketing and the totals that include it do not yet follow an input that moves revenue.';
     return [
       { sheet: 'Capex', status: 'partial' as const, formulas: w.formulas.get('Capex') ?? 0, pending,
-        note: 'Live on this sheet: every cost line\'s rate (the cost standards on Inputs), base (the Land & Area areas and land values), amount, window and spread, Tables 1 to 6, the consolidated view and the check row, computed per plot on a hidden working sheet (Capex Calc) and summed by line. Waiting for Revenue (stage 3): marketing charges on sale revenue and follows sales collections, which the working sheet holds as the platform\'s values, so marketing and the totals that include it do not yet follow an input that moves revenue. Table 7 reads capitalised interest and revenue and stays at the platform\'s values until those stages. The plot spend curves and fixed line windows are inputs listed at the foot of the sheet.' },
+        note: `Live on this sheet: every cost line's rate (the cost standards on Inputs), base (the Land & Area areas and land values), amount, window and spread, Tables 1 to 6, the consolidated view and the check row, computed per plot on a hidden working sheet (Capex Calc) and summed by line. ${revenueNote} Table 7 reads capitalised interest and revenue and stays at the platform\'s values until those stages. The plot spend curves and fixed line windows are inputs listed at the foot of the sheet.` },
       { sheet: CALC, status: 'partial' as const, formulas: w.formulas.get(CALC) ?? 0, pending: [], note: 'Working sheet for Capex.' },
     ];
   },

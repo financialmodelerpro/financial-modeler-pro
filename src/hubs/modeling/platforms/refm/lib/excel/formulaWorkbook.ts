@@ -34,6 +34,7 @@ import { buildModelWorkbook, enableIterativeCalc, type BuildModelOptions } from 
 import { CellRegistry, setCellSink } from './cellRegistry';
 import { stage1LandArea } from './liveLayers/stage1LandArea';
 import { stage2Capex } from './liveLayers/stage2Capex';
+import { stage3Revenue } from './liveLayers/stage3Revenue';
 
 export type SheetStatus = 'live' | 'partial' | 'values' | 'values-by-design' | 'front';
 
@@ -41,6 +42,8 @@ export interface LayerContext {
   wb: ExcelJS.Workbook;
   reg: CellRegistry;
   opts: BuildModelOptions;
+  /** Addresses waiting for a later stage, shared by every layer of the build (writer.ts). */
+  pending: Set<string>;
 }
 
 export interface LiveLayer {
@@ -56,7 +59,8 @@ export interface LiveLayer {
 }
 
 /** The layers, in dependency order. */
-export const LIVE_LAYERS: LiveLayer[] = [stage1LandArea, stage2Capex];
+// Revenue before Capex: Capex's selling costs read the revenue a line earns.
+export const LIVE_LAYERS: LiveLayer[] = [stage1LandArea, stage3Revenue, stage2Capex];
 
 /** Sheets that are values by the founder's decision (2026-09-27), never live. */
 const BY_DESIGN: Record<string, string> = {
@@ -86,7 +90,7 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
   }
   const pending = new Set<string>();
   for (const layer of LIVE_LAYERS) {
-    for (const s of layer.apply({ wb, reg: registry, opts })) {
+    for (const s of layer.apply({ wb, reg: registry, opts, pending })) {
       for (const a of s.pending ?? []) pending.add(a);
       const prev = status.get(s.sheet);
       status.set(s.sheet, {

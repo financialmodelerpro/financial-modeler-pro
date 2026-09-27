@@ -25,9 +25,10 @@ const addrId = (a: CellAddr): string => `${a.sheet}!R${a.row}C${a.col}`;
 export class LiveWriter {
   readonly formulas = new Map<string, number>();
   /** Addresses whose value waits for a later stage ("Sheet!R1C2"). */
-  readonly pending = new Set<string>();
+  /** Shared by every layer of one build, so a formula reading a cell another layer marked pending is pending too. */
+  readonly pending: Set<string>;
   private deps: string[] = [];
-  constructor(readonly wb: ExcelJS.Workbook, readonly reg: CellRegistry) {}
+  constructor(readonly wb: ExcelJS.Workbook, readonly reg: CellRegistry, pending?: Set<string>) { this.pending = pending ?? new Set<string>(); }
 
   has(key: string): boolean { return this.reg.get(key) !== undefined; }
   addr(key: string, col?: number): CellAddr {
