@@ -97,6 +97,8 @@ export interface TypeValuesRow {
 }
 
 export interface CostStandardView {
+  /** The stored row's id (a blank type row reads `type:<typeId>`). */
+  id: string;
   label: string;
   appliesTo: string;
   basis: string;
@@ -153,6 +155,7 @@ export function buildStandardsView(state: InputsViewState): StandardsView {
     const tv = typeId !== undefined ? values[typeId] : undefined;
     const cols = typePriceColumns(tv?.strategy);
     return {
+      id: row.id,
       label: row.label,
       appliesTo: typeId !== undefined
         ? 'Assets of this type'
@@ -174,6 +177,7 @@ export function buildStandardsView(state: InputsViewState): StandardsView {
       ? rowBasisLabel(row, stored, costLines)
       : costStandardBasisLabel(row.method, currency, row.catalogId);
     return {
+      id: row.id,
       label: row.label,
       appliesTo: basis,
       basis,

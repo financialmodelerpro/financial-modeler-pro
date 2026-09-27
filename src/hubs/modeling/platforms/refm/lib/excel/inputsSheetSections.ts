@@ -213,6 +213,7 @@ export function emitStandardsSection(c: SheetCursor, state: FinancialsResolverSt
       if (construction) { setLabel(c.ws.getCell(c.r, col), row.appliesTo); col += 1; }
       setLabel(c.ws.getCell(c.r, col), row.basis); col += 1;
       if (row.rate !== undefined) setInput(c.ws.getCell(c.r, col), row.isPercent ? row.rate / 100 : row.rate, row.isPercent ? NUMFMT.pct2 : NUMFMT.rate);
+      registerCell(`std:${row.id}:rate`, c.ws, c.ws.getCell(c.r, col));
       col += 1;
       if (multiPhase && row.byPhase.length > 0) {
         setInput(c.ws.getCell(c.r, col), row.byPhase.map((b) => `${b.phaseName} ${row.isPercent ? `${b.rate}%` : b.rate.toLocaleString('en-US')}`).join('; '), '@');

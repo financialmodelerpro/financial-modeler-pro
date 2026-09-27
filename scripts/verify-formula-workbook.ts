@@ -31,60 +31,65 @@ import { buildFormulaWorkbook } from '../src/hubs/modeling/platforms/refm/lib/ex
 import { loadLiveExportInputs } from './fixtures/liveExportInputs';
 import { excelAvailable, recalcInExcel, cellKey } from './excelRecalc';
 import JSZip from 'jszip';
-import { CellRegistry, setCellSink } from '../src/hubs/modeling/platforms/refm/lib/excel/cellRegistry';
+import { CellRegistry } from '../src/hubs/modeling/platforms/refm/lib/excel/cellRegistry';
 import { platformAfterEdit } from './fixtures/platformAfterEdit';
 import type { LiveExportInputs } from './fixtures/liveExportInputs';
 
 const colLetterOf = (n: number): string => { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
 
-/** Where each quantity lands in the HARDCODED build of a (possibly edited) model. */
-const regCache = new WeakMap<object, CellRegistry>();
-function oracleRegistry(opts: Parameters<typeof buildModelWorkbook>[0]): CellRegistry {
-  const hit = regCache.get(opts); if (hit) return hit;
-  const reg = new CellRegistry();
-  setCellSink(reg.sink, reg.shift);
-  try { buildModelWorkbook(opts); } finally { setCellSink(null); }
-  regCache.set(opts, reg); return reg;
-}
-/** The platform's value for a registered quantity: a number, a text, or undefined (blank). */
-function platformValue(plainWb: ExcelJS.Workbook, reg: CellRegistry, key: string): number | string | undefined {
-  const a = reg.get(key); if (!a) return undefined;
-  const v = plainWb.getWorksheet(a.sheet)!.getCell(a.row, a.col).value as unknown;
-  const r = v && typeof v === 'object' && 'result' in (v as object) ? (v as { result: unknown }).result : v;
-  return typeof r === 'number' || typeof r === 'string' ? r : undefined;
-}
-/** Registered cells that hold a formula in the live workbook. */
-function liveKeys(reg: CellRegistry, wb: ExcelJS.Workbook): string[] {
-  return reg.keys().filter((k) => {
-    const a = reg.need(k);
-    const v = wb.getWorksheet(a.sheet)!.getCell(a.row, a.col).value as unknown;
-    return !!v && typeof v === 'object' && 'formula' in (v as object);
-  });
-}
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const monthYear = (serial: number): string => {
   const d = new Date(Date.UTC(1899, 11, 30) + Math.round(serial) * 86_400_000);
   return `${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 };
-/** Every live cell, platform against Excel: numbers to the tolerance, text exactly, a month text against a date serial, blank against blank. */
-function compareLive(plainWb: ExcelJS.Workbook, oReg: CellRegistry, reg: CellRegistry, wb: ExcelJS.Workbook, rec: ReturnType<typeof recalcInExcel>): Array<{ kind: 'number' | 'text'; msg: string }> {
-  const out: Array<{ kind: 'number' | 'text'; msg: string }> = [];
-  for (const k of liveKeys(reg, wb)) {
-    const a = reg.need(k);
-    const o = platformValue(plainWb, oReg, k);
-    const e = rec.cells.get(cellKey(a.sheet, a.row, a.col));
-    const where = `${k} (${a.sheet}!R${a.row}C${a.col})`;
-    if (typeof o === 'number') {
-      if (typeof e !== 'number' || Math.abs(e - o) > tolFor(a.sheet, o)) out.push({ kind: 'number', msg: `${where}: Excel ${JSON.stringify(e)} vs platform ${o}` });
-    } else if (typeof o === 'string') {
-      const ok = typeof e === 'string' ? e.trim() === o.trim()
-        : typeof e === 'number' && /^[A-Z][a-z]{2} \d{4}$/.test(o) && monthYear(e) === o;
-      if (!ok) out.push({ kind: 'text', msg: `${where}: Excel ${JSON.stringify(e)} vs platform "${o}"` });
-    } else if (e !== undefined) {
-      out.push({ kind: 'text', msg: `${where}: Excel ${JSON.stringify(e)} vs platform blank` });
-    }
+/** The platform's value at an address of a hardcoded workbook: a number, a text, or undefined (blank). */
+function plainAt(plainWb: ExcelJS.Workbook, sheet: string, r: number, c: number): number | string | undefined {
+  const ws = plainWb.getWorksheet(sheet); if (!ws) return undefined;
+  const v = ws.getCell(r, c).value as unknown;
+  const x = v && typeof v === 'object' && 'result' in (v as object) ? (v as { result: unknown }).result : v;
+  return typeof x === 'number' || typeof x === 'string' ? x : undefined;
+}
+/** Every formula cell on a sheet the platform itself builds (a hidden working
+ *  sheet has no platform twin), compared AT ITS ADDRESS with the platform's
+ *  figure: numbers to the tolerance, text exactly, a month text against a date
+ *  serial, blank against blank. */
+function compareLive(plainWb: ExcelJS.Workbook, wb: ExcelJS.Workbook, rec: ReturnType<typeof recalcInExcel>): Array<{ addr: string; kind: 'number' | 'text'; msg: string }> {
+  const out: Array<{ addr: string; kind: 'number' | 'text'; msg: string }> = [];
+  for (const ws of wb.worksheets) {
+    if (!plainWb.getWorksheet(ws.name)) continue;
+    ws.eachRow((row, r) => row.eachCell((cell, c) => {
+      const v = cell.value as unknown;
+      if (!(v && typeof v === 'object' && 'formula' in (v as object))) return;
+      const addr = cellKey(ws.name, r, c);
+      const o = plainAt(plainWb, ws.name, r, c);
+      const e = rec.cells.get(addr);
+      if (typeof o === 'number') {
+        if (typeof e !== 'number' || Math.abs(e - o) > tolFor(ws.name, o)) out.push({ addr, kind: 'number', msg: `${addr}: Excel ${JSON.stringify(e)} vs platform ${o}` });
+      } else if (typeof o === 'string') {
+        const ok = typeof e === 'string' ? e.trim() === o.trim()
+          : typeof e === 'number' && /^[A-Z][a-z]{2} \d{4}$/.test(o) && monthYear(e) === o;
+        if (!ok) out.push({ addr, kind: 'text', msg: `${addr}: Excel ${JSON.stringify(e)} vs platform "${o}"` });
+      } else if (e !== undefined && !(typeof e === 'number' && e === 0)) {
+        // A blank platform cell whose formula yields 0 or nothing reads the same on the page.
+        out.push({ addr, kind: 'text', msg: `${addr}: Excel ${JSON.stringify(e)} vs platform blank` });
+      }
+    }));
   }
   return out;
+}
+/** Formula cells on the platform's own sheets whose platform figure differs between two builds. */
+function movedCells(a: ExcelJS.Workbook, b: ExcelJS.Workbook, live: ExcelJS.Workbook): number {
+  let n = 0;
+  for (const ws of live.worksheets) {
+    if (!a.getWorksheet(ws.name)) continue;
+    ws.eachRow((row, r) => row.eachCell((cell, c) => {
+      const v = cell.value as unknown;
+      if (!(v && typeof v === 'object' && 'formula' in (v as object))) return;
+      const x = plainAt(a, ws.name, r, c), y = plainAt(b, ws.name, r, c);
+      if (typeof x === 'number' && typeof y === 'number' ? Math.abs(x - y) > 1e-6 : x !== y) n++;
+    }));
+  }
+  return n;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -92,7 +97,7 @@ type Snap = LiveExportInputs['snapshot'] & Record<string, any>;
 /** `variant`: the live model has no instance of the branch under test, so a copy is
  *  made that has one (a structural edit, re-run through the platform and exported
  *  afresh) and the input change is tested on THAT workbook. */
-type Perturbation = { label: string; cell: string; value: number; edit: (s: Snap) => void; variant?: (s: Snap) => void } | { label: string; skip: string };
+type Perturbation = { label: string; cell: string; value: number; edit: (s: Snap) => void; variant?: (s: Snap) => void; movesRevenue: boolean; col?: number } | { label: string; skip: string };
 /**
  * THE INPUT CHANGES, each target chosen by a RULE from the model (never a fixed
  * id), so the test keeps meaning the same thing as the project changes. A rule
@@ -115,7 +120,7 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     const pa = (st.parcels as any[]).find((p) => p.id === sole.landAllocation.parcelId);
     const v = Math.round(pa.area * 1.1);
     out.push({
-      label: `plot area of a plot one asset draws whole (${pa.name}${whole ? '' : ', on a copy where its only asset stops typing its draw'}) +10%`,
+      movesRevenue: true, label: `plot area of a plot one asset draws whole (${pa.name}${whole ? '' : ', on a copy where its only asset stops typing its draw'}) +10%`,
       cell: `parcel:${pa.id}:area`, value: v,
       edit: (s) => { (s.parcels as any[]).find((p) => p.id === pa.id).area = v; },
       ...(whole ? {} : { variant: (s: Snap) => { const a = assetOf(s, sole.id); delete a.landAllocation.sqm; delete a.landAreaSqm; } }),
@@ -125,25 +130,25 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   const typedHost = hosts.find((a) => hostIds.has(a.id) && a.landAllocation?.sqm > 0);
   if (typedHost) {
     const v = Math.round(typedHost.landAllocation.sqm * 0.9);
-    out.push({ label: `typed land draw of a retail host (${typedHost.name}) -10%`, cell: `entry:${typedHost.id}:plot`, value: v, edit: (s) => { assetOf(s, typedHost.id).landAllocation.sqm = v; } });
+    out.push({ movesRevenue: true, label: `typed land draw of a retail host (${typedHost.name}) -10%`, cell: `entry:${typedHost.id}:plot`, value: v, edit: (s) => { assetOf(s, typedHost.id).landAllocation.sqm = v; } });
   } else out.push({ label: 'typed land draw of a retail host', skip: 'no retail host draws a typed area' });
   // 3. FAR typed on a retail host.
   const farHost = hosts.find((a) => hostIds.has(a.id) && typeof a.landChain?.farRatio === 'number');
   if (farHost) {
     const v = Math.round(farHost.landChain.farRatio * 1.2 * 100) / 100;
-    out.push({ label: `FAR of a retail host (${farHost.name}) +20%`, cell: `entry:${farHost.id}:far`, value: v, edit: (s) => { assetOf(s, farHost.id).landChain.farRatio = v; } });
+    out.push({ movesRevenue: true, label: `FAR of a retail host (${farHost.name}) +20%`, cell: `entry:${farHost.id}:far`, value: v, edit: (s) => { assetOf(s, farHost.id).landChain.farRatio = v; } });
   } else out.push({ label: 'FAR typed on a retail host', skip: 'none' });
   // 4. Coverage typed on a retail host.
   const covHost = hosts.find((a) => hostIds.has(a.id) && typeof a.landChain?.coveragePct === 'number');
   if (covHost) {
     const pct = Math.max(5, covHost.landChain.coveragePct - 5);
-    out.push({ label: `ground coverage of a retail host (${covHost.name}) -5 points`, cell: `entry:${covHost.id}:cov`, value: pct / 100, edit: (s) => { assetOf(s, covHost.id).landChain.coveragePct = pct; } });
+    out.push({ movesRevenue: true, label: `ground coverage of a retail host (${covHost.name}) -5 points`, cell: `entry:${covHost.id}:cov`, value: pct / 100, edit: (s) => { assetOf(s, covHost.id).landChain.coveragePct = pct; } });
   } else out.push({ label: 'coverage typed on a retail host', skip: 'none' });
   // 5. Retail share on a retail host.
   const retHost = hosts.find((a) => hostIds.has(a.id) && (a.landChain?.retailPct ?? 0) > 0);
   if (retHost) {
     const pct = retHost.landChain.retailPct + 5;
-    out.push({ label: `retail share of a retail host (${retHost.name}) +5 points`, cell: `entry:${retHost.id}:retail`, value: pct / 100, edit: (s) => { assetOf(s, retHost.id).landChain.retailPct = pct; } });
+    out.push({ movesRevenue: true, label: `retail share of a retail host (${retHost.name}) +5 points`, cell: `entry:${retHost.id}:retail`, value: pct / 100, edit: (s) => { assetOf(s, retHost.id).landChain.retailPct = pct; } });
   } else out.push({ label: 'retail share on a retail host', skip: 'none' });
   // 6. A massing figure a plot INHERITS from its type (the plot states none).
   //    Where no plot inherits, a copy moves one plot's typed FAR onto its type.
@@ -155,7 +160,7 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     const base = inh ? st.project.assetTypeValues[inh.assetTypeId].farRatio : donor.landChain.farRatio;
     const v = Math.round(base * 1.15 * 100) / 100;
     out.push({
-      label: `a type FAR a plot inherits (${donor.name}${inh ? '' : ', on a copy where the plot states none and its type does'}) +15%`,
+      movesRevenue: true, label: `a type FAR a plot inherits (${donor.name}${inh ? '' : ', on a copy where the plot states none and its type does'}) +15%`,
       cell: `type:${donor.assetTypeId}:far`, value: v,
       edit: (s) => { s.project.assetTypeValues![donor.assetTypeId].farRatio = v; },
       ...(inh ? {} : { variant: (s: Snap) => {
@@ -167,7 +172,7 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   // 7. Parking area per slot.
   if (typeof st.project.parkingAreaPerSlotSqm === 'number') {
     const v = st.project.parkingAreaPerSlotSqm + 5;
-    out.push({ label: 'parking area per slot +5 sqm', cell: 'project:slotArea', value: v, edit: (s) => { s.project.parkingAreaPerSlotSqm = v; } });
+    out.push({ movesRevenue: false, label: 'parking area per slot +5 sqm', cell: 'project:slotArea', value: v, edit: (s) => { s.project.parkingAreaPerSlotSqm = v; } });
   } else out.push({ label: 'parking area per slot', skip: 'not set' });
   // 8. The retail parking ratio the chain reads (resolveRetailSlotArea's rule).
   const rv = st.project.assetTypeValues ?? {};
@@ -176,19 +181,77 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   if (slotId && strips.length) {
     const listed = (st.project.assetTypes ?? []).some((t: any) => t.id === slotId);
     const v = rv[slotId].parkingRatio + 10;
-    out.push({ label: `retail sqm per parking slot +10 (held by ${slotId}${listed ? '' : ', a type not in the list'})`, cell: listed ? `type:${slotId}:ratio` : 'project:retailSlotArea', value: v, edit: (s) => { s.project.assetTypeValues![slotId].parkingRatio = v; } });
+    out.push({ movesRevenue: false, label: `retail sqm per parking slot +10 (held by ${slotId}${listed ? '' : ', a type not in the list'})`, cell: listed ? `type:${slotId}:ratio` : 'project:retailSlotArea', value: v, edit: (s) => { s.project.assetTypeValues![slotId].parkingRatio = v; } });
   } else out.push({ label: 'retail sqm per parking slot', skip: 'no retail strip or no ratio' });
-  // 9. A phase's construction period, and 10. a later phase's start date.
+  // 9. A phase's construction period, and 10. a phase's start date. THE AXIS IS FIXED
+  //    AT EXPORT (the sheet says so), so each change is chosen so the project still
+  //    starts and ends in the same years: a shorter build on a phase that does not
+  //    alone set the end, and an earlier start on a phase that does not set the start.
   const ph = st.phases as any[];
-  out.push({ label: `construction years of ${ph[0].name} +1`, cell: `phase:${ph[0].id}:cp`, value: ph[0].constructionPeriods + 1, edit: (s) => { (s.phases as any[])[0].constructionPeriods = ph[0].constructionPeriods + 1; } });
-  const earliest = ph.reduce((m, q) => (q.startDate < m ? q.startDate : m), ph[0].startDate);
-  const later = ph.find((p) => p.startDate > earliest);
+  const yr = (p: any): number => Number(String(p.startDate).slice(0, 4));
+  const endYr = (p: any, cp = p.constructionPeriods, sy = yr(p)): number => sy + cp + p.operationsPeriods - 1;
+  const lastEnd = Math.max(...ph.map((p) => endYr(p)));
+  const firstStart = Math.min(...ph.map(yr));
+  const shorten = ph.find((p) => p.constructionPeriods >= 2 && ph.some((q) => q !== p && endYr(q) === lastEnd));
+  if (shorten) {
+    out.push({ movesRevenue: true, label: `construction years of ${shorten.name} -1 (the project still ends in ${lastEnd})`, cell: `phase:${shorten.id}:cp`, value: shorten.constructionPeriods - 1,
+      edit: (s) => { (s.phases as any[]).find((x) => x.id === shorten.id).constructionPeriods = shorten.constructionPeriods - 1; } });
+  } else out.push({ label: 'construction years of a phase', skip: 'no phase can shorten without moving the project end' });
+  const later = ph.find((p) => yr(p) - 1 >= firstStart && yr(p) > firstStart && endYr(p, p.constructionPeriods, yr(p) - 1) <= lastEnd);
   if (later) {
-    const d = new Date(`${later.startDate.slice(0, 10)}T00:00:00Z`); d.setUTCFullYear(d.getUTCFullYear() + 1);
+    const d = new Date(`${later.startDate.slice(0, 10)}T00:00:00Z`); d.setUTCFullYear(d.getUTCFullYear() - 1);
     const iso = d.toISOString().slice(0, 10);
     const serial = Math.round((d.getTime() - Date.UTC(1899, 11, 30)) / 86_400_000);
-    out.push({ label: `start date of ${later.name} one year later`, cell: `phase:${later.id}:start`, value: serial, edit: (s) => { (s.phases as any[]).find((p) => p.id === later.id).startDate = iso; } });
-  } else out.push({ label: 'start date of a later phase', skip: 'one phase, or all start together' });
+    out.push({ movesRevenue: true, label: `start date of ${later.name} one year earlier (the project still starts in ${firstStart})`, cell: `phase:${later.id}:start`, value: serial, edit: (s) => { (s.phases as any[]).find((p) => p.id === later.id).startDate = iso; } });
+  } else out.push({ label: 'start date of a later phase', skip: 'no phase can move earlier inside the axis' });
+  // ── STAGE 2, CAPEX: inputs that move cost and not revenue ──
+  const rowsStd = (st.project.costStandardRows ?? []) as any[];
+  const stdEdit = (id: string, label: string, to: (rate: number) => number, isPercent: boolean): void => {
+    const row = rowsStd.find((x) => x.id === id);
+    if (!row || typeof row.rate !== 'number' || !reg.get(`std:${id}:rate`)) { out.push({ label, skip: `standard row ${id} not shown with a rate` }); return; }
+    const v = to(row.rate);
+    out.push({ movesRevenue: false, label, cell: `std:${id}:rate`, value: isPercent ? v / 100 : v,
+      edit: (s) => { (s.project.costStandardRows as any[]).find((x) => x.id === id).rate = v; } });
+  };
+  // The standard row each rule names is the one the model's own lines charge, found by rule.
+  const usedType = hosts.find((a) => a.assetTypeId && rowsStd.some((x) => x.id === `type:${a.assetTypeId}` && typeof x.rate === 'number'))?.assetTypeId;
+  if (usedType) stdEdit(`type:${usedType}`, `construction rate of a type in use (${usedType}) +10%`, (r) => Math.round(r * 1.1), false);
+  else out.push({ label: 'construction rate of a type in use', skip: 'no type row with a rate' });
+  const byCatalog = (cat: string): any => rowsStd.find((x) => x.catalogId === cat && !x.assetTypeId && !(x.appliesToTypeIds ?? []).length && typeof x.rate === 'number');
+  const park = byCatalog('construction-parking');
+  if (park) stdEdit(park.id, 'parking construction rate +200', (r) => r + 200, false); else out.push({ label: 'parking construction rate', skip: 'no row' });
+  const scoped = rowsStd.find((x) => (x.appliesToTypeIds ?? []).length > 0 && typeof x.rate === 'number');
+  if (scoped) stdEdit(scoped.id, `a rate scoped to some types (${scoped.label}) +100`, (r) => r + 100, false); else out.push({ label: 'a scoped standard rate', skip: 'no scoped row' });
+  const soft = rowsStd.find((x) => x.list === 'soft' && x.method === 'percent_of_selected' && typeof x.rate === 'number' && x.rate >= 5);
+  if (soft) stdEdit(soft.id, `a soft percentage (${soft.label}) +2 points`, (r) => r + 2, true); else out.push({ label: 'a soft percentage', skip: 'no row' });
+  const rett = rowsStd.find((x) => x.method === 'percent_of_cash_land' && typeof x.rate === 'number');
+  if (rett) stdEdit(rett.id, `a percentage of cash land (${rett.label}) halved`, (r) => r / 2, true); else out.push({ label: 'a percentage of cash land', skip: 'no row' });
+  // A plot's rate and cash share move land value, RETT and the land tables.
+  const plot = (st.parcels as any[]).find((pa) => hosts.some((h) => h.landAllocation?.parcelId === pa.id) && pa.rate > 0);
+  if (plot) {
+    const v = Math.round(plot.rate * 1.1);
+    out.push({ movesRevenue: false, label: `land rate of a plot (${plot.name}) +10%`, cell: `parcel:${plot.id}:rate`, value: v, edit: (s) => { (s.parcels as any[]).find((x) => x.id === plot.id).rate = v; } });
+    const cash = Math.max(0, Math.min(100, (plot.cashPct ?? 0) - 10));
+    out.push({ movesRevenue: false, label: `cash share of a plot (${plot.name}) -10 points`, cell: `parcel:${plot.id}:cash`, value: cash / 100, edit: (s) => { (s.parcels as any[]).find((x) => x.id === plot.id).cashPct = cash; } });
+  } else out.push({ label: 'land rate of a plot', skip: 'no plot with a rate' });
+  // A plot's spend curve, and a line's own window.
+  const curved = (st.assets as any[]).find((a) => a.capexPhasing?.phasing === 'manual' && (a.capexPhasing.distribution ?? []).length > 2 && reg.get(`cxcurve:${a.id}`));
+  if (curved) {
+    const d = curved.capexPhasing.distribution as number[];
+    const i = d.findIndex((x, k) => k > 0 && x > 0);
+    const v = d[i] + 10;
+    const at = reg.get(`cxcurve:${curved.id}`)!;
+    // The curve cell for period i is column C_OPEN + i on the curve row (registered at column 1).
+    out.push({ movesRevenue: false, label: `a plot spend curve, period ${i} +10 (${curved.name})`, cell: `cxcurve:${curved.id}`, value: v, col: 6 + i,
+      edit: (s) => { (s.assets as any[]).find((x) => x.id === curved.id).capexPhasing.distribution[i] = v; } } as Perturbation);
+    void at;
+  } else out.push({ label: 'a plot spend curve', skip: 'no curve shown' });
+  const fixed = (st.costLines as any[]).find((l) => l.windowFollowsConstruction === false && l.endPeriod >= l.startPeriod && reg.get(`cxwin:${l.id}`) && l.startPeriod >= 1);
+  if (fixed) {
+    const v = fixed.endPeriod + 1;
+    out.push({ movesRevenue: false, label: `a line's own window (${fixed.name}, ${fixed.phaseId}) one period longer`, cell: `cxwin:${fixed.id}`, value: v, col: 4,
+      edit: (s) => { (s.costLines as any[]).find((x) => x.id === fixed.id).endPeriod = v; } } as Perturbation);
+  } else out.push({ label: "a line's own window", skip: 'no fixed window shown' });
   return out;
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -235,7 +298,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
   console.log('=== A. Offline ===');
   const plain = buildModelWorkbook(opts);
   const oracle = numbers(plain);
-  const { wb, registry, status } = buildFormulaWorkbook(opts);
+  const { wb, registry, status, pending: buildPending } = buildFormulaWorkbook(opts);
   const built = numbers(wb);
   const formulas = formulaCells(wb);
   const plainAgain = numbers(buildModelWorkbook(opts));
@@ -295,19 +358,26 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     // B4. The live cells whose platform value is TEXT (a date written "Dec 2030",
     // a step shown "-") read the same in Excel: a date formula shows that month.
     {
-      const oReg = oracleRegistry(opts);
-      const bad = compareLive(plain, oReg, registry, wb, rec).filter((x) => x.kind === 'text');
-      const n = liveKeys(registry, wb).filter((k) => typeof platformValue(plain, oReg, k) === 'string').length;
-      check(`B4 ${n} live cells whose platform value is text (dates, "-") read the same in Excel`, n > 0 && bad.length === 0, bad.slice(0, 6).map((x) => x.msg).join('\n        '));
+      const bad = compareLive(plain, wb, rec).filter((x) => x.kind === 'text');
+      let n = 0;
+      for (const ws of wb.worksheets) ws.eachRow((row, r) => row.eachCell((cell, c) => {
+        const v = cell.value as unknown;
+        if (v && typeof v === 'object' && 'formula' in (v as object) && typeof plainAt(plain, ws.name, r, c) === 'string') n++;
+      }));
+      check(`B4 ${n} live cells whose platform value is text (dates, "-", checks, notes) read the same in Excel`, n > 0 && bad.length === 0, bad.slice(0, 6).map((x) => x.msg).join('\n        '));
     }
+    // B3. Every figure the platform wrote, sheet by sheet.
     for (const [sheet, ps] of perSheet) {
       const f = rec.formulasBySheet.get(sheet) ?? 0;
       check(`B3 ${sheet}: ${ps.compared} figures recalculate to the platform's (${f} live formulas)`, ps.bad.length === 0, ps.bad.slice(0, 6).join('\n        '));
     }
+    // B3b. The checks above are the whole proof, so their NUMBER is pinned to the sheets the platform builds.
+    check(`B3b every sheet the platform builds was compared (${perSheet.size})`, perSheet.size >= wb.worksheets.filter((x) => x.state !== 'hidden' && x.name !== 'Cover' && x.name !== 'Guide').length - 1);
     // B0. The comparison FIRES: a copy with one figure deliberately wrong must be
     // caught, at exactly that cell (a check that has only ever passed proves nothing).
     {
-      const victim = [...oracle.values()].find((n) => n.sheet === 'Capex' && Math.abs(n.v) > 1000)!;
+      // A figure on a sheet that is still VALUES, so nothing live reads it and exactly one cell can move.
+      const victim = [...oracle.values()].find((n) => status.get(n.sheet)?.status === 'values' && Math.abs(n.v) > 1000)!;
       const { wb: bad } = buildFormulaWorkbook(opts);
       bad.getWorksheet(victim.sheet)!.getCell(victim.row, victim.col).value = victim.v + 1;
       const badPath = `exports/${input.projectName} - Live Model (sabotaged copy).xlsx`;
@@ -321,21 +391,19 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     // recalculates with the same cell typed in; every live cell must agree, and
     // the change must actually move something (a test that moves nothing proves nothing).
     console.log('\n=== C. Real Excel, after an input changes ===');
-    const oReg0 = oracleRegistry(opts);
-    const variants = new Map<Perturbation, { wb: ExcelJS.Workbook; registry: CellRegistry; plain: ExcelJS.Workbook; oReg: CellRegistry; path: string; opts: typeof opts }>();
+    const liveResult = { wb, registry, plain, path, opts, pending: buildPending };
     for (const pt of perturbations(input, registry)) {
       if ('skip' in pt) { check(`C ${pt.label}`, false, `no target on this model: ${pt.skip}`); continue; }
       // The workbook under test: the export itself, or a copy made for a branch the live model lacks.
-      let base = { wb, registry, plain, oReg: oReg0, path, opts };
+      let base = liveResult;
       if (pt.variant) {
         const vs = structuredClone(input.snapshot) as Snap; pt.variant(vs);
         const vOpts = { ...opts, state: platformAfterEdit(vs as never) as typeof input.state };
         const built = buildFormulaWorkbook(vOpts);
         const vPath = `exports/${input.projectName} - Live Model (test copy).xlsx`;
         writeFileSync(vPath, Buffer.from(await enableIterativeCalc((await built.wb.xlsx.writeBuffer()) as ArrayBuffer)));
-        base = { wb: built.wb, registry: built.registry, plain: buildModelWorkbook(vOpts), oReg: oracleRegistry(vOpts), path: vPath, opts: vOpts };
-        variants.set(pt, base);
-        const untouched = compareLive(base.plain, base.oReg, base.registry, base.wb, recalcInExcel(vPath));
+        base = { wb: built.wb, registry: built.registry, plain: buildModelWorkbook(vOpts), path: vPath, opts: vOpts, pending: built.pending };
+        const untouched = compareLive(base.plain, base.wb, recalcInExcel(vPath));
         check(`C ${pt.label}: the test copy recalculates to the platform before the change`, untouched.length === 0, untouched.slice(0, 6).map((x) => x.msg).join('\n        '));
       }
       const snap = structuredClone(input.snapshot) as Snap;
@@ -343,16 +411,18 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       pt.edit(snap);
       const pOpts = { ...opts, state: platformAfterEdit(snap as never) as typeof input.state };
       const pPlain = buildModelWorkbook(pOpts);
-      const pReg = oracleRegistry(pOpts);
-      const a = base.registry.need(pt.cell);
+      const a0 = base.registry.need(pt.cell);
+      const a = { ...a0, col: pt.col ?? a0.col };
       const r3 = recalcInExcel(base.path, [{ ref: `${a.sheet}!${colLetterOf(a.col)}${a.row}`, value: pt.value }]);
-      const bad = compareLive(pPlain, pReg, base.registry, base.wb, r3);
-      const moved = liveKeys(base.registry, base.wb).filter((k) => {
-        const before = platformValue(base.plain, base.oReg, k), after = platformValue(pPlain, pReg, k);
-        return typeof before === 'number' && typeof after === 'number' ? Math.abs(before - after) > 1e-6 : before !== after;
-      }).length;
-      check(`C ${pt.label}: ${moved} live cells move on the platform, and Excel agrees on every live cell`, moved > 0 && bad.length === 0,
-        bad.slice(0, 8).map((x) => x.msg).join('\n        '));
+      const bad = compareLive(pPlain, base.wb, r3);
+      // A cell waiting for a later stage may lag an input that moves REVENUE, and only that.
+      const hard = bad.filter((x) => !base.pending.has(x.addr));
+      const lagging = bad.filter((x) => base.pending.has(x.addr));
+      const moved = movedCells(base.plain, pPlain, base.wb);
+      const allowed = pt.movesRevenue ? lagging.length : 0;
+      check(`C ${pt.label}: ${moved} live cells move on the platform, and Excel agrees on every live cell${pt.movesRevenue ? ` (${lagging.length} marked cells wait for Revenue, stage 3)` : ''}`,
+        moved > 0 && hard.length === 0 && lagging.length === allowed,
+        [...hard, ...(pt.movesRevenue ? [] : lagging)].slice(0, 8).map((x) => x.msg).join('\n        '));
       if (pt.variant) { const { unlinkSync } = await import('node:fs'); unlinkSync(base.path); }
     }
   }

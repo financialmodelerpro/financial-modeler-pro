@@ -33,6 +33,7 @@ import type ExcelJS from 'exceljs';
 import { buildModelWorkbook, enableIterativeCalc, type BuildModelOptions } from './buildModelWorkbook';
 import { CellRegistry, setCellSink } from './cellRegistry';
 import { stage1LandArea } from './liveLayers/stage1LandArea';
+import { stage2Capex } from './liveLayers/stage2Capex';
 
 export type SheetStatus = 'live' | 'partial' | 'values' | 'values-by-design' | 'front';
 
@@ -47,11 +48,15 @@ export interface LiveLayer {
   name: string;
   /** Apply the layer. Returns the status each sheet it touched now has, and a
    *  note per sheet saying what is live on it (shown on the sheet). */
-  apply(ctx: LayerContext): Array<{ sheet: string; status: 'live' | 'partial' | 'values'; note: string; formulas: number }>;
+  apply(ctx: LayerContext): Array<{
+    sheet: string; status: 'live' | 'partial' | 'values'; note: string; formulas: number;
+    /** Addresses ("Sheet!R1C2") whose value waits for a stage not yet live. */
+    pending?: string[];
+  }>;
 }
 
 /** The layers, in dependency order. */
-export const LIVE_LAYERS: LiveLayer[] = [stage1LandArea];
+export const LIVE_LAYERS: LiveLayer[] = [stage1LandArea, stage2Capex];
 
 /** Sheets that are values by the founder's decision (2026-09-27), never live. */
 const BY_DESIGN: Record<string, string> = {
@@ -63,6 +68,8 @@ export interface FormulaWorkbookResult {
   wb: ExcelJS.Workbook;
   registry: CellRegistry;
   status: Map<string, { status: SheetStatus; note: string; formulas: number }>;
+  /** Every live address whose value still waits for a later stage (see liveLayers/writer.ts). */
+  pending: Set<string>;
 }
 
 export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookResult {
@@ -77,8 +84,10 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
     else if (BY_DESIGN[ws.name]) status.set(ws.name, { status: 'values-by-design', note: BY_DESIGN[ws.name], formulas: 0 });
     else status.set(ws.name, { status: 'values', note: '', formulas: 0 });
   }
+  const pending = new Set<string>();
   for (const layer of LIVE_LAYERS) {
     for (const s of layer.apply({ wb, reg: registry, opts })) {
+      for (const a of s.pending ?? []) pending.add(a);
       const prev = status.get(s.sheet);
       status.set(s.sheet, {
         status: s.status,
@@ -87,8 +96,10 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
       });
     }
   }
+  // A layer's hidden working sheet is not a tab the reader sees, so it gets no status line.
+  for (const ws of wb.worksheets) if (ws.state !== 'visible' && ws.state !== undefined) status.delete(ws.name);
   relabel(wb, status);
-  return { wb, registry, status };
+  return { wb, registry, status, pending };
 }
 
 export async function generateFormulaWorkbookBuffer(opts: BuildModelOptions): Promise<ArrayBuffer> {

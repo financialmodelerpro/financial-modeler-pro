@@ -1368,6 +1368,9 @@ interface CapexAddrs {
   periodCol: (t: number) => number;
 }
 
+/** The Capex sheet's own column geometry (period t sits at C_OPEN + 1 + t), for the live layer. */
+export const CAPEX_COLS = { C_LBL: 1, C_UOM: 2, C_RATE: 3, C_QTY: 4, C_TOT: 5, C_OPEN: 6 } as const;
+
 function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, capex: CapexReport, refs: AssumptionRefs, landAddrs: Map<string, LandAreaAssetAddrs>, state: FinancialsResolverState, displayScale: DisplayScale = 'full'): CapexAddrs {
   void landAddrs;
   const ws = wb.addWorksheet(SHEETS.capex, { properties: { tabColor: { argb: ARGB.navy } } });
@@ -1415,6 +1418,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     ix.alignment = { horizontal: 'right' };
   }
   ws.views = [{ state: 'frozen', xSplit: C_TOT, ySplit: 4, showGridLines: false }];
+  registerCell('cx:hdr', ws, ws.getCell(3, C_OPEN));
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   const put = (rr: number, c: number, v: number, fmt: string = NUMFMT.money): void => {
@@ -1495,6 +1499,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   const escPct = state.project.costEscalationPct ?? 0;
   setLabel(ws.getCell(r, C_LBL), `Construction cost escalation (% a year, from ${snap.projectStartYear}, set on Types and Standards)`, { bold: true });
   setInput(ws.getCell(r, C_RATE), escPct / 100, NUMFMT.pct2);
+  registerCell('cx:esc', ws, ws.getCell(r, C_RATE));
   setLabel(ws.getCell(r, C_QTY), escPct === 0 ? 'Off' : 'Applied');
   r += 1;
   note(r, escPct === 0
@@ -1509,6 +1514,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       const src = inputLine(m.hostId, ln.id);
       const total = ln.amount;
       const pp = src?.perPeriod ?? [];
+      registerCell(`cxin:${m.hostId}:${ln.id}`, ws, ws.getCell(r, C_LBL));
       setLabel(ws.getCell(r, C_LBL), ln.name, { indent: 1 });
       setLabel(ws.getCell(r, C_UOM), methodLabel(ln.method, ln.basis));
       put(r, C_RATE, ln.isPercent ? ln.rate / 100 : ln.rate, ln.isPercent ? NUMFMT.pct2 : NUMFMT.rate);
@@ -1560,6 +1566,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       put(rr, cLand, v.land); put(rr, cHard, v.hard); put(rr, cSoft, v.soft); put(rr, cMkt, v.marketing); put(rr, cOp, v.operating); put(rr, cTotal, v.total);
     };
     for (const row of cons.rows) {
+      registerCell(`cxcons:${row.key}`, ws, ws.getCell(r, cPhase));
       setLabel(ws.getCell(r, cPhase), row.phaseName, { indent: 1 });
       setLabel(ws.getCell(r, cType), row.typed ? row.typeLabel : `${row.typeLabel} (untyped, so it groups alone)`);
       setLabel(ws.getCell(r, cStrat), row.strategy);
@@ -1568,12 +1575,14 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       r += 1;
     }
     setLabel(ws.getCell(r, cPhase), 'Total', { bold: true });
+    registerCell('cxcons:total', ws, ws.getCell(r, cPhase));
     put(r, cCount, cons.rows.reduce((n, x) => n + x.assetCount, 0), NUMFMT.int);
     moneyCells(r, cons.totals);
     fillRange(ws, r, 1, r, cTotal, ARGB.subtotal);
     for (let c = 1; c <= cTotal; c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
     r += 1;
     const ties = Math.abs(cons.difference) < 0.005;
+    registerCell('cxcons:tie', ws, ws.getCell(r, cPhase));
     const fmtMoney = (v: number): string => v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     setLabel(ws.getCell(r, cPhase), ties
       ? `Ties to the per-asset total: ${fmtMoney(cons.perAssetTotal)}.`
@@ -1594,6 +1603,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     band(r, m.heading); r += 1;
     for (const ln of m.ref.lines) {
       const src = inputLine(m.hostId, ln.id);
+      registerCell(`cx1:${m.hostId}:${ln.id}`, ws, ws.getCell(r, C_LBL));
       setLabel(ws.getCell(r, C_LBL), ln.name, { indent: 1 });
       setLabel(ws.getCell(r, C_UOM), methodLabel(ln.method, ln.basis));
       const rateDec = ln.isPercent ? ln.rate / 100 : ln.rate;
@@ -1610,18 +1620,20 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     }
     moneyRow(r, `Subtotal - ${multiPhase && m.phaseName ? `${m.phaseName}: ${m.label}` : m.label}`, m.incl, { style: 'subtotal', total: m.ref.total });
     subtotalRows.push(r);
+    registerCell(`cx1sub:${m.hostId}`, ws, ws.getCell(r, C_LBL));
     perAssetCapex.set(m.hostId, { inclRow: r, exclInKindRow: r, exclAllRow: r });
     r += 1;
   }
   const grandIncl = snap.financing.capex.perPeriod.inclAllLand.slice(0, N);
   const projTotalRow = r;
+  registerCell('cx1:total', ws, ws.getCell(r, C_LBL));
   moneyRow(r, 'Project Total', grandIncl, { style: 'navy', total: sumN(grandIncl) });
   r += 2;
 
   // ── Tables 2 to 4: one row per line, the phase in its own column ──────────
   // Screen order and labels: Line | Phase | Total | Prior | periods, a subtotal
   // under each phase where the project has more than one, then Total.
-  const summaryTable = (title: string, pick: (m: LineMeta) => number[], key: 'exclInKindRow' | 'exclAllRow' | null): number => {
+  const summaryTable = (title: string, pick: (m: LineMeta) => number[], key: 'exclInKindRow' | 'exclAllRow' | null, pfx: string): number => {
     setSectionHeader(ws.getRow(r), title, cLast); r += 1;
     subHeader(r, [[C_LBL, 'Line', 'left'], [C_UOM, 'Phase', 'left'], [C_TOT, 'Total', 'right']]);
     r += 1;
@@ -1629,6 +1641,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     let block: { phaseId: string; phaseName: string; series: number[] } | null = null;
     const closeBlock = (): void => {
       if (!block || !multiPhase) return;
+      registerCell(`${pfx}sub:${block.phaseId}`, ws, ws.getCell(r, C_LBL));
       moneyRow(r, `Subtotal, ${block.phaseName}`, block.series, { style: 'subtotal' }); r += 1;
     };
     for (const m of lines) {
@@ -1636,6 +1649,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       if (Math.abs(sumN(series)) <= 0.5) continue;
       if (block && block.phaseId !== m.phaseId) { closeBlock(); block = null; }
       if (!block) block = { phaseId: m.phaseId, phaseName: m.phaseName, series: zeros() };
+      registerCell(`${pfx}:${m.hostId}`, ws, ws.getCell(r, C_LBL));
       moneyRow(r, m.label, series, { b: m.phaseName, indent: 1 });
       const reg = key ? perAssetCapex.get(m.hostId) : undefined; if (reg && key) reg[key] = r;
       addInto(block.series, series); addInto(grand, series);
@@ -1643,12 +1657,13 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     }
     closeBlock();
     const totalRow = r;
+    registerCell(`${pfx}:total`, ws, ws.getCell(r, C_LBL));
     moneyRow(r, 'Total', grand, { style: 'navy' }); r += 2;
     return totalRow;
   };
-  summaryTable('Table 2 - Total Capex Including Land Value', (m) => m.incl, null);
-  const exclInKindTotalRow = summaryTable('Table 3 - Capex Excluding Land In-Kind (cash-impact schedule)', (m) => m.exclInKind, 'exclInKindRow');
-  const exclAllTotalRow = summaryTable('Table 4 - Capex Excluding Total Land (pure development cost)', (m) => m.exclAll, 'exclAllRow');
+  summaryTable('Table 2 - Total Capex Including Land Value', (m) => m.incl, null, 'cx2');
+  const exclInKindTotalRow = summaryTable('Table 3 - Capex Excluding Land In-Kind (cash-impact schedule)', (m) => m.exclInKind, 'exclInKindRow', 'cx3');
+  const exclAllTotalRow = summaryTable('Table 4 - Capex Excluding Total Land (pure development cost)', (m) => m.exclAll, 'exclAllRow', 'cx4');
 
   // ── Table 5: land cash and in-kind, per phase (what Financing funds) ──────
   // The engine's own per-phase series (CapexAggregate.landByPhase), the figures
@@ -1664,14 +1679,20 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   const gCash = zeros(); const gInKind = zeros();
   if (landBlocks.length === 0) { note(r, 'No land value in this view.'); r += 1; }
   for (const b of landBlocks) {
+    registerCell(`cx5:${b.phaseId}:cash`, ws, ws.getCell(r, C_LBL));
     moneyRow(r, 'Land, cash', b.cash, { b: b.phaseName, indent: 1 }); r += 1;
+    registerCell(`cx5:${b.phaseId}:inkind`, ws, ws.getCell(r, C_LBL));
     moneyRow(r, 'Land, in-kind', b.inKind, { b: b.phaseName, indent: 1 }); r += 1;
+    if (multiPhase) registerCell(`cx5:${b.phaseId}:sub`, ws, ws.getCell(r, C_LBL));
     if (multiPhase) { moneyRow(r, `Subtotal, ${b.phaseName}`, b.cash.map((v, t) => v + (b.inKind[t] ?? 0)), { style: 'subtotal' }); r += 1; }
     addInto(gCash, b.cash); addInto(gInKind, b.inKind);
   }
   if (landBlocks.length > 0) {
+    registerCell('cx5:total:cash', ws, ws.getCell(r, C_LBL));
     moneyRow(r, 'Total land, cash', gCash, { style: 'navy' }); r += 1;
+    registerCell('cx5:total:inkind', ws, ws.getCell(r, C_LBL));
     moneyRow(r, 'Total land, in-kind', gInKind, { style: 'navy' }); r += 1;
+    registerCell('cx5:total:land', ws, ws.getCell(r, C_LBL));
     const gLand = gCash.map((v, t) => v + (gInKind[t] ?? 0));
     moneyRow(r, 'Total land', gLand, { style: 'navy' }); r += 1;
     // THE MEMO: every line in the land STAGE that is not land VALUE (RETT, a
@@ -1689,11 +1710,14 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
         for (const ln of m.ref.lines) if (memoIds.has(ln.id)) addInto(memo, inputLine(m.hostId, ln.id)?.perPeriod);
       }
       if (Math.abs(sumN(memo)) <= 0.5) continue;
+      registerCell(`cx5memo:${b.phaseId}`, ws, ws.getCell(r, C_LBL));
       moneyRow(r, memoLabel, memo, { b: b.phaseName, indent: 1 }); r += 1;
       addInto(gMemo, memo);
     }
     if (Math.abs(sumN(gMemo)) > 0.5) {
+      registerCell('cx5memo:total', ws, ws.getCell(r, C_LBL));
       moneyRow(r, `${memoLabel}, total`, gMemo, { style: 'subtotal' }); r += 1;
+      registerCell('cx5:stage', ws, ws.getCell(r, C_LBL));
       moneyRow(r, 'Land stage total (land value + memo, as the tiles show)', gLand.map((v, t) => v + (gMemo[t] ?? 0)), { style: 'navy' }); r += 1;
     }
   }
@@ -1708,16 +1732,18 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   subHeader(r, [[C_LBL, 'Category', 'left'], [C_TOT, 'Total', 'right']]);
   r += 1;
   const catTables: Array<[string, string]> = [['Capex by Category (incl. all land)', 'Including all land'], ['Capex by Category (excl. total land)', 'Excluding total land']];
-  for (const [title, label] of catTables) {
+  for (const [ti, [title, label]] of catTables.entries()) {
     const t = capex.results.find((x) => x.title === title);
     if (!t) continue;
     band(r, label); r += 1;
     const total = zeros();
     for (const row of t.rows) {
       if (row.isTotal) continue;
+      registerCell(`cx6:${ti}:${row.label}`, ws, ws.getCell(r, C_LBL));
       moneyRow(r, row.label, row.values, { indent: 1 }); r += 1;
       addInto(total, row.values);
     }
+    registerCell(`cx6:${ti}:total`, ws, ws.getCell(r, C_LBL));
     moneyRow(r, `${label}, total`, total, { style: 'navy' }); r += 1;
   }
   r += 1;
@@ -1726,6 +1752,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   // total summed must equal Table 1's Project Total.
   setLabel(ws.getCell(r, C_LBL), 'Check: every cost line total summed (ties to Table 1 Project Total)', { bold: true });
   put(r, C_TOT, allLineTotals.reduce((s, v) => s + v, 0));
+  registerCell('cx:check', ws, ws.getCell(r, C_TOT));
   const buildupTotalAddr = sheetRef(SHEETS.capex, `$E$${r}`);
   const scheduleTotalAddr = sheetRef(SHEETS.capex, `$E$${projTotalRow}`);
   void subtotalRows;
