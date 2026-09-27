@@ -35,6 +35,8 @@ import { planRevenueLines } from '../src/hubs/modeling/platforms/refm/lib/revenu
 import { resolveUsefulLifeYears } from '../src/core/calculations';
 import { CellRegistry } from '../src/hubs/modeling/platforms/refm/lib/excel/cellRegistry';
 import { platformAfterEdit } from './fixtures/platformAfterEdit';
+import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import { DEFAULT_COVENANTS } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import type { LiveExportInputs } from './fixtures/liveExportInputs';
 
 const colLetterOf = (n: number): string => { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
@@ -128,6 +130,7 @@ function compareLive(basePlain: ExcelJS.Workbook, pertPlain: ExcelJS.Workbook, w
     const lastPlatformRow = bws.rowCount;
     const rows = mapRows(ws.name, bws, pws, ws, rec);
     ws.eachRow((row, r) => row.eachCell((cell, c) => {
+      if (isMergedSlave(cell)) return;
       const v = cell.value as unknown;
       if (!(v && typeof v === 'object' && 'formula' in (v as object))) return;
       if (r > lastPlatformRow) return;
@@ -160,6 +163,7 @@ function movedCells(a: ExcelJS.Workbook, b: ExcelJS.Workbook, live: ExcelJS.Work
     if (!aws || !bws) continue;
     const rows = mapRows(ws.name, aws, bws, ws, null);
     ws.eachRow((row, r) => row.eachCell((cell, c) => {
+      if (isMergedSlave(cell)) return;
       const v = cell.value as unknown;
       if (!(v && typeof v === 'object' && 'formula' in (v as object))) return;
       if (r > aws.rowCount) return;
@@ -455,6 +459,38 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   const dso = st.project.operatingAr?.dsoDays ?? 0;
   out.push({ movesRevenue: false, label: `operating receivables DSO ${dso} to ${dso + 30} days`, cell: 'project:dso', value: dso + 30,
     edit: (s) => { s.project.operatingAr = { ...(s.project.operatingAr ?? {}), dsoDays: dso + 30 }; } });
+
+  // Returns (stage 7): the exit cap rate (the terminal value, the disposal, every
+  // stream, the sensitivity), the hurdle (the waterfall and the net returns), a
+  // partner's cash share (the time-weighted split) and a typed agreed share.
+  const ret = st.project.returns ?? {};
+  if (ret.terminalMethod === 'cap_rate' && ret.capRateOverride === true && reg.get('ret|Exit Cap Rate (%)')) {
+    const cap = (ret.capRate ?? 0) + 0.005;
+    out.push({ movesRevenue: false, label: `the exit cap rate to ${(cap * 100).toFixed(2)}%`, cell: 'ret|Exit Cap Rate (%)', col: RC.TOTAL, value: cap,
+      edit: (s) => { s.project.returns = { ...(s.project.returns ?? {}), capRate: cap }; } });
+  } else out.push({ label: 'the exit cap rate', skip: 'no typed exit cap rate on the Returns sheet' });
+  const ft = st.project.fundTerms;
+  if (ft?.enabled && reg.get('ft:Hurdle rate (preferred return)')) {
+    const h = (ft.hurdleRatePct ?? 0) + 0.04;
+    out.push({ movesRevenue: false, label: `the hurdle rate to ${(h * 100).toFixed(1)}%`, cell: 'ft:Hurdle rate (preferred return)', value: h,
+      edit: (s) => { s.project.fundTerms = { ...s.project.fundTerms, hurdleRatePct: h }; } });
+  } else out.push({ label: 'the hurdle rate', skip: 'no fund layer on this model' });
+  const partners = (st.project.partners ?? []) as any[];
+  if (partners.length >= 2 && reg.get('retg|Equity Partners|% share|1')) {
+    const c0 = (partners[0].cashPct ?? 0) + 20;
+    out.push({ movesRevenue: false, label: `${partners[0].name}'s share of the new cash equity to ${c0}%`, cell: 'retg|Equity Partners|% share|1', value: c0 / 100,
+      edit: (s) => { (s.project.partners as any[])[0].cashPct = c0; } });
+    out.push({ movesRevenue: false, label: `an agreed share of 60% typed for ${partners[0].name}`, cell: 'retg|Equity Partners|Agreed % (override)|1', value: 0.6,
+      edit: (s) => { (s.project.partners as any[])[0].manualShareholdingPct = 60; } });
+  } else out.push({ label: 'a partner\'s share', skip: 'fewer than two equity partners' });
+  // RE Metrics (stage 7b): the DSCR threshold raised above the worst year, so the
+  // covenant must flip from Pass to Breach (the branch the model does not show).
+  const covs = (st.project.covenants ?? DEFAULT_COVENANTS) as any[];
+  const dscrCov = covs.find((c) => c.metric === 'dscr');
+  if (dscrCov && reg.get(`retg|Lender Covenants|${dscrCov.label}|2`)) {
+    out.push({ movesRevenue: false, label: `the DSCR covenant threshold ${dscrCov.threshold} to 50 (Pass to Breach)`, cell: `retg|Lender Covenants|${dscrCov.label}|2`, value: 50,
+      edit: (s) => { s.project.covenants = covs.map((c) => (c === dscrCov ? { ...c, threshold: 50 } : { ...c })); } });
+  } else out.push({ label: 'the DSCR covenant threshold', skip: 'no DSCR covenant on the Returns sheet' });
   return out;
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -495,6 +531,9 @@ function rowPeak(wb: ExcelJS.Workbook, sheet: string, row: number): number {
   return peak;
 }
 
+/** The hidden half of a merged cell (a card spans two columns) reads its master's value
+ *  through ExcelJS but holds nothing in the file, so it is not a formula of its own. */
+const isMergedSlave = (cell: ExcelJS.Cell): boolean => cell.isMerged && cell.master.address !== cell.address;
 type Num = { key: string; sheet: string; row: number; col: number; v: number };
 function numbers(wb: ExcelJS.Workbook): Map<string, Num> {
   const out = new Map<string, Num>();
@@ -512,6 +551,7 @@ function numbers(wb: ExcelJS.Workbook): Map<string, Num> {
 function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; result: unknown }> {
   const out = new Map<string, { formula: string; result: unknown }>();
   for (const ws of wb.worksheets) ws.eachRow((row, r) => row.eachCell((cell, c) => {
+      if (isMergedSlave(cell)) return;
     const raw = cell.value as unknown;
     if (raw && typeof raw === 'object' && 'formula' in (raw as object)) out.set(cellKey(ws.name, r, c), raw as { formula: string; result: unknown });
   }));
@@ -560,6 +600,15 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
   const buf = await enableFormulaIteration((await wb.xlsx.writeBuffer()) as ArrayBuffer);
   const calcPr = (await (await JSZip.loadAsync(buf)).file('xl/workbook.xml')!.async('string')).match(/<calcPr[^>]*>/)?.[0] ?? '';
   check('A7 iterative calculation is switched on in the file', /iterate="1"/.test(calcPr), calcPr);
+  // A8. A RESIDUE IS NOT A DISTRIBUTION (2026-09-27): the fixed-point solve left
+  // 0.00000003 above the floor in 2031 and the engine paid it as a dividend, so cash
+  // on cash averaged over eight years instead of seven (37.0% for 42.3%). Every
+  // dividend on the live model is either none or at least half a cent.
+  {
+    const divs = computeFinancialsSnapshot(input.state as never).dividends.totalDividendsPerPeriod;
+    const residue = divs.map((v, t) => ({ v, t })).filter(({ v }) => v !== 0 && Math.abs(v) < 0.005);
+    check('A8 no dividend is a solver residue (every one is zero or at least half a cent)', residue.length === 0, residue.map(({ v, t }) => `year ${t + 1}: ${v}`).join(', '));
+  }
   mkdirSync('exports', { recursive: true });
   const path = `exports/${input.projectName} - Live Model.xlsx`;
   writeFileSync(path, Buffer.from(buf));
@@ -595,6 +644,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       const bad = [...cmp.bad.filter((x) => x.kind === 'text'), ...cmp.layout.map((a) => ({ addr: a, kind: 'text' as const, msg: `${a}: layout moved on unchanged inputs` }))];
       let n = 0;
       for (const ws of wb.worksheets) ws.eachRow((row, r) => row.eachCell((cell, c) => {
+      if (isMergedSlave(cell)) return;
         const v = cell.value as unknown;
         if (v && typeof v === 'object' && 'formula' in (v as object) && typeof plainAt(plain, ws.name, r, c) === 'string') n++;
       }));

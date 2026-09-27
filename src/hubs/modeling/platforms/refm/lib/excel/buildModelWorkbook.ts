@@ -3986,7 +3986,13 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
   const cPct = retPct, cMult = retMult, cMoney = retMoney(currency);
 
   // ── local emitters ──
-  const section = (text: string): void => { setSectionHeader(ws.getRow(r), text, lastActiveCol(N), ARGB.accent); r += 1; };
+  // Row keys for the formula-linked export (cellRegistry.ts), by the table a row sits in:
+  // retr (a period row), retg (a grid cell, |<index>), retk / retks (a card's value / sub),
+  // rett (a text line), retx (the exit working), retc (a covenant by year). Writes nothing here.
+  let retSec = '';
+  const retSeen = new Map<string, number>();
+  const retKey = (base: string): string => { const n = retSeen.get(base) ?? 0; retSeen.set(base, n + 1); return n ? `${base}~${n}` : base; };
+  const section = (text: string): void => { retSec = text; setSectionHeader(ws.getRow(r), text, lastActiveCol(N), ARGB.accent); r += 1; };
   /** A short explanatory sentence (a screen caption). No-op on an empty string. */
   const note = (text: string): void => {
     if (!text) return;
@@ -3997,10 +4003,12 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
   /** A bold line of text (a screen heading that is not a table title, or a
    *  metric read-out like "DDM IRR 18.4% · MOIC 2.96x"). */
   const textLine = (text: string, bold = true): void => {
+    registerCell(retKey(`rett|${retSec}`), ws, ws.getCell(r, LBL_COL));
     setLabel(ws.getCell(r, LBL_COL), text, { bold });
     r += 1;
   };
   const subTitle = (text: string): void => {
+    retSec = text;
     setLabel(ws.getCell(r, LBL_COL), text, { bold: true });
     fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.subtotal);
     for (let c = 1; c <= lastActiveCol(N); c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
@@ -4020,6 +4028,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
       const c2 = col + perCard - 1;
       for (let rr = 0; rr < h; rr++) ws.mergeCells(r + rr, col, r + rr, c2);
       const lc = ws.getCell(r, col); lc.value = card.label; lc.font = { name: 'Calibri', size: 9, bold: true, color: { argb: ARGB.navyDark } }; lc.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; fillCell(lc, ARGB.grey);
+      { const kk = retKey(`retk|${retSec}|${card.label}`); registerCell(kk, ws, ws.getCell(r + 1, col)); if (hasSub) registerCell(kk.replace(/^retk\|/, 'retks|'), ws, ws.getCell(r + 2, col)); }
       const vc = ws.getCell(r + 1, col); vc.value = card.value; vc.font = { name: 'Calibri', size: 12, bold: true, color: { argb: card.tone === 'bad' ? ARGB.bad : card.tone === 'good' ? ARGB.good : ARGB.navy } }; vc.alignment = { horizontal: 'center', vertical: 'middle' };
       if (hasSub) { const sc = ws.getCell(r + 2, col); sc.value = card.sub ?? ''; sc.font = { name: 'Calibri', size: 8, italic: true, color: { argb: ARGB.navyDark } }; sc.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; }
       boxBorder(ws, r, col, r + h - 1, c2);
@@ -4052,6 +4061,9 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     r += 1;
     for (const row of rows) {
       const lc = ws.getCell(r, LBL_COL);
+      const gk = retKey(`retg|${retSec}|${row.label}`);
+      registerCell(gk, ws, lc);
+      row.cells.forEach((_c, i) => registerCell(`${gk}|${i}`, ws, ws.getCell(r, OPEN_COL + i)));
       setLabel(lc, row.label, { bold: row.bold, indent: row.indent });
       if (row.input) markInput(lc);
       row.cells.forEach((cell, i) => {
@@ -4073,6 +4085,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
   const moneyRow = (label: string, series: number[] | undefined, opts: { style?: 'plain' | 'subtotal' | 'total'; prior?: number; indent?: number; basis?: string } = {}): number => {
     const used = r;
     const vals = (series ?? []).slice(0, N);
+    registerCell(retKey(`retr|${retSec}|${label}`), ws, ws.getCell(r, LBL_COL));
     setLabel(ws.getCell(r, LBL_COL), label, { bold: !!(opts.style && opts.style !== 'plain'), indent: opts.indent });
     const put = (c: number, v: number): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
     put(OPEN_COL, opts.prior ?? 0);
@@ -4092,6 +4105,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     const vals = row.values.slice(0, N);
     const prior = row.priorValue ?? 0;
     const style: 'plain' | 'subtotal' | 'total' = row.isTotal ? 'total' : row.isSubtotal ? 'subtotal' : 'plain';
+    registerCell(retKey(`retr|${retSec}|${row.label}`), ws, ws.getCell(r, LBL_COL));
     setLabel(ws.getCell(r, LBL_COL), row.label, { indent: row.indent, bold: style !== 'plain' });
     const put = (c: number, v: number): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
     put(OPEN_COL, prior);
@@ -4406,6 +4420,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
       const strong = row.kind === 'total' || row.kind === 'subtotal';
       setLabel(ws.getCell(r, LBL_COL), row.label, { bold: strong, indent: row.indent });
       const c = ws.getCell(r, TOTAL_COL);
+      registerCell(retKey(`retx|${row.label}`), ws, c);
       if (row.format === 'text' || row.value === undefined) { c.value = row.text ?? ''; c.numFmt = '@'; c.alignment = { horizontal: 'right' }; }
       else { c.value = row.value; c.numFmt = row.format === 'pct' ? NUMFMT.pct2 : row.format === 'mult' ? NUMFMT.mult : NUMFMT.money; }
       c.font = { name: 'Calibri', size: BODY_SIZE, bold: strong, italic: row.kind === 'check', color: { argb: strong ? ARGB.navy : ARGB.formula } };
@@ -4511,6 +4526,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     if (perPeriod.length > 0) {
       subTitle('Covenant by year');
       for (const { cov, ev } of perPeriod) {
+        registerCell(retKey(`retc|${cov.label}`), ws, ws.getCell(r, LBL_COL));
         setLabel(ws.getCell(r, LBL_COL), cov.label, { bold: true });
         setBasis(ws.getCell(r, META_B), `${cov.operator === 'min' ? 'min ≥' : 'max ≤'} ${ev.unit === 'pct' ? cPct(cov.threshold) : cMult(cov.threshold)}`);
         for (let t = 0; t < N; t++) {
