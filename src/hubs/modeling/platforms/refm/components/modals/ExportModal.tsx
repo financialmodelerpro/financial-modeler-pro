@@ -24,8 +24,8 @@ import { MODULES } from '../../lib/modules-config';
 import { REFM_PLATFORM_SLUG } from '../../lib/usePlatformModules';
 import { moduleComponentNumber } from '@/src/shared/entitlements/moduleCatalog';
 import type { WatermarkSpec } from '@/src/shared/entitlements/exportWatermark';
-import { useModule1Store, modelFromSnapshot, pickModel } from '../../lib/state/module1-store';
-import { loadStoredModel } from '../../lib/state/loadStoredModel';
+import { useModule1Store, pickModel } from '../../lib/state/module1-store';
+import { savedVersionInputs } from '../../lib/excel/savedVersionInputs';
 import { applyOverrides, buildOverrides, baseCaseId, normaliseCases } from '../../lib/cases/applyOverrides';
 import { caseModelOf, withoutDerivedOverrides } from '../../lib/cases/caseModel';
 import { PDF_MODULE_TABS } from '../../lib/pdf/pdfModuleTabs';
@@ -306,7 +306,22 @@ export default function ExportModal({
   const storeActiveCaseId = useModule1Store.getState().activeCaseId;
   const [selectedCaseId, setSelectedCaseId] = useState<string>(storeActiveCaseId);
   // Full detailed PDF, concise executive-summary PDF, or the Excel model.
-  const [reportKind, setReportKind] = useState<'full' | 'summary' | 'excel'>('full');
+  const [reportKind, setReportKind] = useState<'full' | 'summary' | 'excel' | 'excel-live'>('full');
+  /** Both Excel kinds share the scale, case and section controls. */
+  const excelKind = reportKind === 'excel' || reportKind === 'excel-live';
+  // THE FORMULA-LINKED WORKBOOK IS A PREVIEW FOR ONE ACCOUNT (2026-09-27). The
+  // SERVER decides, on every open; this only mirrors its answer, and the route
+  // that builds the file refuses anyone else whatever this says.
+  const [formulaAllowed, setFormulaAllowed] = useState(false);
+  useEffect(() => {
+    if (!open || !projectId) { setFormulaAllowed(false); return; }
+    let cancelled = false;
+    fetch(`/api/refm/projects/${projectId}/export/formula-workbook`, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (!cancelled) setFormulaAllowed(j?.allowed === true); })
+      .catch(() => { if (!cancelled) setFormulaAllowed(false); });
+    return () => { cancelled = true; };
+  }, [open, projectId]);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -349,8 +364,7 @@ export default function ExportModal({
     }
     // Entitlement gate for the chosen format. Server export paths are pure
     // client-side here, so this is the enforcement point for export access.
-    const requiredFeature = FEATURE_FOR_KIND[reportKind];
-    if (!allows(requiredFeature)) {
+    if (reportKind !== 'excel-live' && !allows(FEATURE_FOR_KIND[reportKind])) {
       setError(`This export format is not included in your current plan. Upgrade to unlock it.`);
       return;
     }
@@ -375,6 +389,32 @@ export default function ExportModal({
       setError('Could not confirm your plan for this export. Check your connection and try again.');
       return;
     }
+    if (reportKind === 'excel-live') {
+      try {
+        if (!projectId) throw new Error('Open a saved project to export the live workbook.');
+        const res = await fetch(`/api/refm/projects/${projectId}/export/formula-workbook`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            // The working draft is not exported this way: CURRENT means the latest saved version.
+            versionId: selectedVersionId === CURRENT ? null : selectedVersionId,
+            caseId: selectedCaseId, displayScale: pdfScale, displayDecimals: pdfDecimals, parts: { ...groupSel },
+          }),
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => null) as { error?: string } | null;
+          throw new Error(j?.error || `The live workbook could not be built (${res.status}).`);
+        }
+        const disp = res.headers.get('Content-Disposition') ?? '';
+        const fname = /filename="([^"]+)"/.exec(disp)?.[1] ?? 'Live_Model.xlsx';
+        triggerDownload(fname, await res.arrayBuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        close();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Export failed.');
+      } finally {
+        setGenerating(false);
+      }
+      return;
+    }
     try {
       const { generateProjectPdf, generateSummaryPdf } = await import('../../lib/pdf/generateProjectPdf');
       // Resolve the state + naming for the chosen version. "Current" exports the
@@ -394,19 +434,11 @@ export default function ExportModal({
         // alone dropped the Types and Standards defaults, so an exported saved
         // version priced a different model from the one on screen. Top level is
         // the settled base case; the version's own active case id is kept.
-        const migrated = loadStoredModel(row.snapshot).snapshot;
-        const vCases = normaliseCases(migrated.cases);
-        const vActiveId = migrated.activeCaseId && vCases.some((c) => c.id === migrated.activeCaseId) ? migrated.activeCaseId : baseCaseId(vCases);
-        const vBase = pickModel(migrated as unknown as Record<string, unknown>);
-        const chosen = vCases.find((c) => c.id === selectedCaseId);
-        // Picker untouched / case not in this version -> the version's own active
-        // model (original behaviour); otherwise the chosen case's model.
-        state = (chosen
-          ? (chosen.role === 'base' ? vBase : caseModelOf(vBase, chosen.overrides))
-          : modelFromSnapshot(migrated)) as typeof state;
-        caseComparison = { baseModel: vBase, cases: vCases, activeCaseId: vActiveId };
+        const v = savedVersionInputs(row.snapshot, selectedCaseId);
+        state = v.state as typeof state;
+        caseComparison = v.caseComparison;
         const vName = versionDisplayName(row);
-        name = migrated.project?.name || projectName || name;
+        name = v.projectName || projectName || name;
         pdfVersionLabel = row.version_label ? `v${row.version_label}` : (row.label ?? versionLabel ?? null);
         // The downloaded file is named after the version it came from.
         fileBase = vName;
@@ -582,13 +614,34 @@ export default function ExportModal({
               </div>
               <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)', border: '1px solid var(--color-border)', padding: '5px 12px', borderRadius: 6 }}>{allows(FEATURE_FOR_KIND.excel) ? 'Continue' : '🔒 Upgrade'}</span>
             </button>
+            {formulaAllowed && (
+              <button
+                type="button"
+                data-testid="export-option-excel-live"
+                onClick={() => { setReportKind('excel-live'); setSelectedCaseId(baseCaseId(normaliseCases(useModule1Store.getState().cases))); setStep('modules'); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 14, padding: '14px',
+                  borderRadius: 8, border: '1.5px dashed var(--color-border)', background: 'var(--color-surface)',
+                  cursor: 'pointer', textAlign: 'left',
+                }}
+              >
+                <span style={{ fontSize: 22 }}>🧮</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)' }}>Excel Model, live formulas (preview)</div>
+                  <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2 }}>Visible to your account only while it is built. Sheets made live so far recalculate from their inputs; the rest are platform values and say so.</div>
+                </div>
+                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)', border: '1px solid var(--color-border)', padding: '5px 12px', borderRadius: 6 }}>Continue</span>
+              </button>
+            )}
           </div>
         )}
 
         {step === 'modules' && (
           <div style={{ padding: '12px 16px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ fontSize: 11, color: 'var(--color-muted)', padding: '0 2px 4px' }}>
-              {reportKind === 'excel'
+              {reportKind === 'excel-live'
+                ? 'PREVIEW, visible to your account only. The live Excel model: the same tabs as the Excel model, with the sheets built so far recalculating from their inputs in Excel (each sheet says whether it is live). It is built on the server from a SAVED version (the latest when the working draft is selected). Pick the scale, case and version below.'
+                : excelKind
                 ? 'The Excel model is a hardcoded mirror of the platform: one consolidated Inputs tab plus a tab per module (Timeline, Land & Area, Capex, Revenue, Cost of Sales, Opex, Financing, P&L, Cash Flow, Balance Sheet, Returns, Scenarios, Checks). The statement tabs default to the Management case; the Scenarios tab always compares every case (pick a different case below). Every figure is the platform-computed value written as a constant; editing a cell does not recalculate, re-export after changing inputs. Pick the scale and version below.'
                 : reportKind === 'summary'
                   ? 'The Executive Summary report includes the cover, executive summary, key inputs (phases), the headline P&L / cash flow / balance sheet, and returns. Pick the number scale and version below.'
@@ -659,7 +712,7 @@ export default function ExportModal({
                   color: pdfScale === s ? 'var(--color-on-primary-navy)' : 'var(--color-heading)',
                   background: pdfScale === s ? 'var(--color-navy)' : 'var(--color-surface)',
                 }}>
-                  <input type="radio" name="pdf-scale" checked={pdfScale === s} onChange={() => { setPdfScale(s); if (reportKind === 'excel') setPdfDecimals(s === 'millions' ? 1 : 0); }} style={{ display: 'none' }} />
+                  <input type="radio" name="pdf-scale" checked={pdfScale === s} onChange={() => { setPdfScale(s); if (excelKind) setPdfDecimals(s === 'millions' ? 1 : 0); }} style={{ display: 'none' }} />
                   {s === 'full' ? 'Full' : s}
                 </label>
               ))}
@@ -696,13 +749,13 @@ export default function ExportModal({
                   ))}
                 </select>
                 <span style={{ fontSize: 10, color: 'var(--color-muted)' }}>
-                  {reportKind === 'excel'
+                  {excelKind
                     ? 'The statement tabs render this case (defaults to Management); the Scenarios tab always compares all cases.'
                     : 'The report renders this case; Modules 5 & 6 compare all cases.'}
                 </span>
               </div>
             )}
-            {(reportKind === 'full' || reportKind === 'excel') && (
+            {(reportKind === 'full' || excelKind) && (
               <div data-testid="export-groups" style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '8px 10px', border: '1px solid var(--color-border)', borderRadius: 8, background: 'var(--color-surface)' }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)' }}>Sections to include</div>
                 <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
@@ -714,7 +767,7 @@ export default function ExportModal({
                   ))}
                 </div>
                 <div style={{ fontSize: 10, color: 'var(--color-muted)' }}>
-                  {reportKind === 'excel'
+                  {excelKind
                     ? 'Unticked categories are hidden in the workbook (the model stays formula-linked; hidden sheets still feed the calculations).'
                     : 'Filters what renders in every module first; the per-module and per-tab choices below still apply.'}
                 </div>
@@ -806,7 +859,7 @@ export default function ExportModal({
                       opacity: generating ? 0.7 : 1,
                     }}
                   >
-                    {generating ? 'Generating…' : reportKind === 'excel' ? 'Generate Excel Model' : reportKind === 'summary' ? 'Generate Summary PDF' : `Generate PDF (${selectedKeys.length})`}
+                    {generating ? 'Generating…' : reportKind === 'excel-live' ? 'Generate Live Excel Model' : excelKind ? 'Generate Excel Model' : reportKind === 'summary' ? 'Generate Summary PDF' : `Generate PDF (${selectedKeys.length})`}
                   </button>
                 );
               })()}

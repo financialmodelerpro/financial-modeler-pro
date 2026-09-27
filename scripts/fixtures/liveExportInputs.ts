@@ -12,8 +12,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { loadStoredModel } from '../../src/hubs/modeling/platforms/refm/lib/state/loadStoredModel';
-import { modelFromSnapshot, pickModel } from '../../src/hubs/modeling/platforms/refm/lib/state/module1-store';
-import { baseCaseId, normaliseCases } from '../../src/hubs/modeling/platforms/refm/lib/cases/applyOverrides';
+import { savedVersionInputs } from '../../src/hubs/modeling/platforms/refm/lib/excel/savedVersionInputs';
 import type { computeFinancialsSnapshot } from '../../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import type { BuildModelOptions } from '../../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
 import { LIVE_PROJECT_ID } from './liveProject';
@@ -41,11 +40,10 @@ export async function loadLiveExportInputs(): Promise<LiveExportInputs> {
   if (verErr) throw new Error(`version read: ${verErr.message}`);
   if (!verRows?.length) throw new Error('no saved version');
   const v = verRows[0] as { snapshot: unknown; label: string | null; comment: string | null };
-  const migrated = loadStoredModel(v.snapshot).snapshot;
-  const state = modelFromSnapshot(migrated) as LiveExportInputs['state'];
-  const cases = normaliseCases(migrated.cases);
-  const activeCaseId = migrated.activeCaseId && cases.some((c) => c.id === migrated.activeCaseId) ? migrated.activeCaseId : baseCaseId(cases);
-  const caseComparison = { baseModel: pickModel(migrated as unknown as Record<string, unknown>), cases, activeCaseId } as BuildModelOptions['caseComparison'];
+  // THE SAME ASSEMBLY the Export dialog and the live workbook's route use.
+  const { migrated, state: st, caseComparison: cc } = savedVersionInputs(v.snapshot);
+  const state = st as LiveExportInputs['state'];
+  const caseComparison = cc as BuildModelOptions['caseComparison'];
   const { data: partyRows } = await sb.from('refm_parties').select('*').eq('project_id', LIVE_PROJECT_ID);
   return {
     projectName: (projRows[0] as { name: string }).name,
