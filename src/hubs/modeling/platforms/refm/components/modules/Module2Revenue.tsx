@@ -2027,10 +2027,10 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
                 </InlineSection>
               )}
 
-              {/* DSO (drives AR roll-forward, Pass 8d) */}
+              {/* Per-line DSO: read by nothing since 2026-09-27; the project DSO drives the receivable. */}
               <InlineSection
                 title="Accounts Receivable Days"
-                hint="Drives the AR roll-forward on the Schedules tab. Hospitality default 30 days. (Industry term: DSO, Days Sales Outstanding.)"
+                hint="Not used: the operating receivable on the Schedules tab and the balance sheet is the project DSO, set on the Balance Sheet tab (Working Capital Inputs)."
               >
                 <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center' }}>
                   <div style={{ width: 80 }}>
@@ -2259,7 +2259,7 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
 
               <InlineSection
                 title="Accounts Receivable Days"
-                hint="Days between revenue recognition (per-period rent earned) and cash collection. Default 30 days."
+                hint="Not used: the operating receivable on the Schedules tab and the balance sheet is the project DSO, set on the Balance Sheet tab (Working Capital Inputs)."
               >
                 <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>AR days</span>

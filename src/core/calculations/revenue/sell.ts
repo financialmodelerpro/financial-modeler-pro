@@ -126,6 +126,25 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
       soldUnits += roundedUnits;
       const indexedRate = applyIndexation(baseRate, yr, config.indexation);
       const value = roundedArea * indexedRate;
+      // A SALE YEAR AFTER HANDOVER IS A SALE AFTER HANDOVER (2026-09-27, founder),
+      // whichever velocity row it was typed on. A pre-sales velocity left in a year
+      // a shortened phase no longer builds in was counted as a pre-sale and
+      // recognised AT HANDOVER, a year BEFORE the contract was signed: Marina Gate
+      // with Phase 1 cut to three years booked 208.4m early and closed unearned
+      // revenue at -208.4m. Such a sale now recognises and collects in its own
+      // year. The handover year itself is the LAST CONSTRUCTION year and stays a
+      // pre-sales year (the reference convention, verify-revenue-rebuild A2): a
+      // sale in it is recognised and paid that same year either way, and escrow
+      // holds it as a pre-sale. The quantity sold and the order are unchanged.
+      if (yr > handoverYear) {
+        postSalesArea[yr] += roundedArea;
+        postSalesUnits[yr] += roundedUnits;
+        postSalesRevenue[yr] += value;
+        postAreaSU[yr] += roundedArea;
+        postRevSU[yr] += value;
+        postUnitsSU[yr] += roundedUnits;
+        continue;
+      }
       presalesArea[yr] += roundedArea;
       presalesUnits[yr] += roundedUnits;
       presalesRevenue[yr] += value;

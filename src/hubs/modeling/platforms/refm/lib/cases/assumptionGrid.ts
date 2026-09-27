@@ -999,7 +999,7 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
   // Working-capital timing (operate DSO / lease AR days): affects balance-sheet
   // and cash phasing, not a headline comparison KPI.
   if (/^assets\[id=[^\]]+\]\.revenue\.(operate\.dso|lease\.arDays)$/.test(path)) {
-    return 'Working-capital timing; affects balance-sheet / cash phasing, no headline comparison KPI';
+    return 'Read by nothing: the operating receivable is the project DSO (Balance Sheet tab), not these per-line days';
   }
 
   // ── Operational phases: their forward operations / overlap period counts are

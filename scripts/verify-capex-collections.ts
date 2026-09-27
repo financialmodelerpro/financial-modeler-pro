@@ -66,6 +66,7 @@ const SITES: Array<{ file: string; wired: boolean; bases: boolean; why: string }
   { file: 'src/hubs/modeling/platforms/refm/lib/costOfSales.ts', wired: true, bases: true,
     why: 'THE cost-of-sales layer (2026-08-30). The only place a cost-of-sales capex base is assembled: the screen, both PDFs, the workbook, the P&L and the balance sheet all read its result. It needs BOTH, because a selling cost follows collections for its phasing and charges on a revenue base for its amount' },
   { file: 'src/hubs/modeling/platforms/refm/lib/fixed-assets-resolvers.ts', wired: true, bases: true, why: 'capitalised capex drives depreciation' },
+  { file: 'src/hubs/modeling/platforms/refm/lib/excel/liveLayers/stage2Capex.ts', wired: true, bases: true, why: 'the formula-linked export caches each Capex formula with the engine value, so it must value lines the way the engine does' },
   { file: 'src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx', wired: true, bases: true, why: 'the Capex screen' },
   { file: 'src/hubs/modeling/platforms/refm/lib/reports/sellingCostReports.ts', wired: true, bases: true,
     why: 'the Selling Costs year-on-year schedule, lifted 2026-09-17 from Module2RevenueOutput.tsx into the shared builder the screen and the workbook both render. It was registered wired:false on the reasoning that perLinePerPeriod is "already phased"; that reasoning was WRONG, because the series is phased BY this very call, and a selling cost carries phasingSource collections. See TRAPS 7.26: a registry reason can be fluent and false' },

@@ -269,7 +269,9 @@ export function buildPrePostRows(
 /** Below this a feed value is residue, not a balance (the screen's snap). */
 const FEED_ZERO = 1;
 
-interface LineFeed {
+export interface LineFeed {
+  /** The revenue line this feed is (RevenueLine.key). */
+  lineKey: string;
   name: string;
   section: RevenueSection;
   revenue: number[]; cashCollected: number[];
@@ -283,16 +285,22 @@ export function buildRevenueLineFeeds(
   revenue: ProjectRevenueSnapshot,
   lines: readonly RevenueLine[],
   byAssetCostOfSales: ReadonlyMap<string, AssetCostOfSales> | undefined,
+  /** THE PROJECT'S operating receivable terms, the ones the balance sheet uses. Required, so every surface passes them. */
+  operatingAr: { dsoDays?: number; daysPerYear?: number } | undefined,
 ): LineFeed[] {
   const N = revenue.axisLength;
   const zeros = (): number[] => new Array<number>(N).fill(0);
-  const snap = (a: readonly number[]): number[] => a.slice(0, N).map((v) => (Math.abs(v) < FEED_ZERO ? 0 : Math.max(0, v)));
+  // ONE QUANTITY, ONE NUMBER (2026-09-27, founder): the receivable and unearned
+  // balances are the series the balance sheet carries, as they are. This feed used
+  // to floor them at zero and snap anything under 1 to zero, so a negative unearned
+  // balance read 0 here and -208.4m on the balance sheet.
+  const raw = (a: readonly number[]): number[] => a.slice(0, N);
   const out: LineFeed[] = [];
   for (const line of lines) {
     const a = line.host;
     const memberIds = line.members.map((m) => m.id);
     const res = lineRevenueResults(memberIds, revenue, line.key);
-    const base = { name: revenueLineName(line), section: line.section };
+    const base = { lineKey: line.key, name: revenueLineName(line), section: line.section };
     if (line.form === 'sell') {
       const r = res.sell;
       if (!r) continue;
@@ -309,17 +317,21 @@ export function buildRevenueLineFeeds(
         cosOps: cos ? cos.cosPostSalesPerPeriod.slice(0, N) : zeros(),
         totalCos: cos ? cos.cos.perPeriod.slice(0, N) : zeros(),
         inventory: cos ? cos.inventoryPerPeriod.slice(0, N) : zeros(),
-        ar: snap(ar.perPeriod), ur: snap(ur.perPeriod),
+        ar: raw(ar.perPeriod), ur: raw(ur.perPeriod),
         capex: cos ? cos.capexPerPeriod.slice(0, N) : zeros(),
       });
       continue;
     }
     const operating = line.form === 'operate' ? res.hospitality : res.lease;
     if (!operating) continue;
+    // THE BALANCE SHEET'S RECEIVABLE (2026-09-27, founder): the project DSO, the
+    // terms the balance sheet carries the operating receivable on. This read each
+    // line's own receivable days (30 by default), so the Schedules feed showed a
+    // receivable the balance sheet does not hold. The per-line days drive nothing.
     const arDso = buildAccountsReceivableDSO({
       revenuePerPeriod: operating.totalRevenuePerPeriod,
-      dsoDays: line.form === 'operate' ? (a.revenue?.operate?.dso ?? 30) : (a.revenue?.lease?.arDays ?? 30),
-      daysPerYear: line.form === 'operate' ? (a.revenue?.operate?.daysPerYear ?? 365) : 365,
+      dsoDays: Math.max(0, operatingAr?.dsoDays ?? 0),
+      daysPerYear: Math.max(1, operatingAr?.daysPerYear ?? 365),
       axisLength: N,
     });
     out.push({
@@ -327,7 +339,7 @@ export function buildRevenueLineFeeds(
       revenue: operating.totalRevenuePerPeriod.slice(0, N),
       cashCollected: arDso.cashReceivedPerPeriod.slice(0, N),
       cosConstr: zeros(), cosOps: zeros(), totalCos: zeros(), inventory: zeros(),
-      ar: snap(arDso.perPeriod), ur: zeros(), capex: zeros(),
+      ar: raw(arDso.perPeriod), ur: zeros(), capex: zeros(),
     });
   }
   return out;
@@ -339,9 +351,10 @@ export function buildRevenueScheduleFeeds(
   revenue: ProjectRevenueSnapshot,
   lines: readonly RevenueLine[],
   byAssetCostOfSales: ReadonlyMap<string, AssetCostOfSales> | undefined,
+  operatingAr: { dsoDays?: number; daysPerYear?: number } | undefined,
 ): Array<{ group: string; meta: string; tables: TitledTable[] }> {
   const N = revenue.axisLength;
-  const feeds = buildRevenueLineFeeds(revenue, lines, byAssetCostOfSales);
+  const feeds = buildRevenueLineFeeds(revenue, lines, byAssetCostOfSales, operatingAr);
   const bySection = REVENUE_SECTIONS
     .map((section) => ({ section, lines: feeds.filter((f) => f.section === section) }))
     .filter((g) => g.lines.length > 0);

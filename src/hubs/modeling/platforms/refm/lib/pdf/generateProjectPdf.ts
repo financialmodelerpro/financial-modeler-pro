@@ -2670,7 +2670,7 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
         if (a.isCompanion === true && resolved?.keysParticipationPerPeriod) {
           strips.push(windowRow('Rental pool enrollment (Sell + Manage)', padded(resolved.keysParticipationPerPeriod), ops, N, 'pct'));
         }
-        kv.push(row(['Accounts Receivable Days', `${cfg.dso ?? 30} days`]));
+        kv.push(row(['Accounts Receivable Days', `${cfg.dso ?? 30} days (not used: the operating receivable is the project DSO)`]));
         items.push(tTable(T1, 'inputs', gridTable(`${ln}: Operating inputs (${head})`, ['Field', 'Value'], kv, 'kv')));
         items.push(tTable(T1, 'inputs', periodTable(`${ln}: Per-year inputs, Operations ${span(ops)}`, py, yl, strips)));
         continue;
@@ -2905,7 +2905,7 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
 
   // ── Tab 4: Schedules, the three feeds ──────────────────────────────────────
   const T4 = M2_TAB.schedules;
-  for (const feed of buildRevenueScheduleFeeds(snap.revenue, lines, snap.byAssetCostOfSales)) {
+  for (const feed of buildRevenueScheduleFeeds(snap.revenue, lines, snap.byAssetCostOfSales, state.project.operatingAr)) {
     items.push(tPara(T4, 'schedules', feed.group, feed.meta));
     for (const t of feed.tables) {
       if (t.rows.length) items.push(tTable(T4, 'schedules', screenTable(t.title, py, yl, t.rows)));

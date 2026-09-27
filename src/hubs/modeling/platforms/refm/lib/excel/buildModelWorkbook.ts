@@ -2473,7 +2473,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
         if (a.isCompanion === true && resolved?.keysParticipationPerPeriod) {
           em.periodRow('Rental pool enrollment (Sell + Manage)', padded(resolved.keysParticipationPerPeriod), ops, NUMFMT.pct, { input: true, indent: 0, basis: 'Effective keys = total keys x pool %' });
         }
-        em.scalarRow('Accounts Receivable Days', cfg.dso ?? 30, NUMFMT.int, { input: true, indent: 0, basis: 'days; drives the receivable on Schedules' });
+        em.scalarRow('Accounts Receivable Days', cfg.dso ?? 30, NUMFMT.int, { input: true, indent: 0, basis: 'days; NOT USED: the operating receivable is the project DSO on the Inputs sheet (Balance Sheet tab)' });
         em.gap();
         continue;
       }
@@ -2490,7 +2490,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
       const occ = padded(resolved?.occupancyPerPeriod);
       const occVisible = ops.map((t) => occ[t] ?? 0);
       em.periodRow('Occupancy ramp', occ, ops, NUMFMT.pct, { input: true, indent: 0, total: occVisible.length ? occVisible.reduce((s, v) => s + v, 0) / occVisible.length : 0, basis: `Occupied lease area = GLA x occupancy; peak ${(Math.max(0, ...occVisible) * 100).toFixed(0)}%; Total column = average` });
-      em.scalarRow('Accounts Receivable Days', cfg.arDays ?? 30, NUMFMT.int, { input: true, indent: 0, basis: 'AR days' });
+      em.scalarRow('Accounts Receivable Days', cfg.arDays ?? 30, NUMFMT.int, { input: true, indent: 0, basis: 'days; NOT USED: the operating receivable is the project DSO on the Inputs sheet (Balance Sheet tab)' });
       em.gap();
     }
   }
@@ -2800,7 +2800,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
   // ── 4. Schedules (the three feeds) ───────────────────────────────────────────
   em.section('4. Schedules (income statement, balance sheet and cash flow feeds, per line)');
   em.setRegScope('sched');
-  for (const feed of buildRevenueScheduleFeeds(snap.revenue, lines, snap.byAssetCostOfSales)) {
+  for (const feed of buildRevenueScheduleFeeds(snap.revenue, lines, snap.byAssetCostOfSales, state.project.operatingAr)) {
     em.setRegLine(feed.group);
     em.groupBand(feed.group);
     setBasis(ws.getCell(em.cursor() - 1, META_B), feed.meta);

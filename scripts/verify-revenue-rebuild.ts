@@ -1051,6 +1051,36 @@ assertNear('O10: Ramp 100% in year 7 → revenue = 100 × 365 × 500 = 18,250,00
 assertNear('O11: 50% participation → asset-level ADR stays at base 500 (rate not flow)',
   halfResult.adrPerPeriod[4], 500, 0.5);
 
+// ── P. A SALE YEAR AFTER HANDOVER IS A SALE AFTER HANDOVER (2026-09-27) ──────
+// A pre-sales velocity typed in a year AFTER the handover year (a phase shortened
+// after velocity was typed) is a sale after handover: recognised and collected in
+// its own year, never recognised at handover before it is signed. The handover
+// year itself (the last construction year) stays a pre-sales year. Both branches
+// are measured on one fixture, so neither check can pass vacuously.
+{
+  const suP: SubUnitMaterial[] = [{ id: 'su-P', area: 1000, count: 0, ratePerArea: 100, ratePerUnit: 0, metric: 'area' }];
+  const cfgP: AssetSellConfig = {
+    assetId: 'asset-P',
+    // handover is idx 2: 20% in idx 1 (before), 30% in idx 2 (the handover year), 50% in idx 3 (after).
+    subUnits: [{ subUnitId: 'su-P', preSalesVelocity: [0, 0.2, 0.3, 0.5, 0, 0], postSalesVelocity: [0, 0, 0, 0, 0, 0] }],
+    cashPaymentProfile: { percentages: [], profileMode: 'absolute_with_catchup' },
+    recognitionProfile: { method: 'point_in_time', pointInTimeYear: 'handover' },
+    indexation: { method: 'none' },
+  };
+  const rP = computeSellAsset({ config: cfgP, subUnits: suP, axisLength: 6, handoverYear: 2 });
+  assertTrue('P1: a pre-sales year after handover files as a sale after handover',
+    rP.presalesRevenuePerPeriod[3] === 0 && Math.abs(rP.postSalesRevenuePerPeriod[3] - 50000) < 1e-6,
+    `pre[3]=${rP.presalesRevenuePerPeriod[3]}, post[3]=${rP.postSalesRevenuePerPeriod[3]}`);
+  assertTrue('P2: the handover year itself stays a pre-sales year',
+    Math.abs(rP.presalesRevenuePerPeriod[2] - 30000) < 1e-6 && rP.postSalesRevenuePerPeriod[2] === 0,
+    `pre[2]=${rP.presalesRevenuePerPeriod[2]}, post[2]=${rP.postSalesRevenuePerPeriod[2]}`);
+  assertTrue('P3: nothing is recognised before it is signed (recognition at handover = what was signed by then)',
+    Math.abs(rP.recognitionPerPeriod[2] - 50000) < 1e-6 && Math.abs(rP.recognitionPerPeriod[3] - 50000) < 1e-6,
+    `rec[2]=${rP.recognitionPerPeriod[2]}, rec[3]=${rP.recognitionPerPeriod[3]}`);
+  const urP = buildUnearnedRevenue(rP.presalesRecognitionPerPeriod, rP.presalesRevenuePerPeriod, 6);
+  assertTrue('P4: unearned revenue never goes below zero', urP.perPeriod.every((v) => v >= -1e-6), urP.perPeriod.join(', '));
+}
+
 // Report
 let pass = 0;
 let fail = 0;

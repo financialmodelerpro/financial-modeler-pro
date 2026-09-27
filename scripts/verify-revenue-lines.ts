@@ -38,6 +38,7 @@ import { seedRevenueBlocks } from '../src/hubs/modeling/platforms/refm/lib/state
 import { sumAssetCostOfSales, type AssetCostOfSales } from '../src/hubs/modeling/platforms/refm/lib/costOfSales';
 import { keysFromArea, isRevenueSubUnit, resolveSubUnitAdr } from '../src/core/calculations';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import { buildRevenueLineFeeds } from '../src/hubs/modeling/platforms/refm/lib/reports/revenueOutputReports';
 import { buildExcelSampleState } from './excelSampleState';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
 import { settleSubUnitPrices, activePriceKey, rowsWithoutPriceIn, hasDualPrice } from '../src/hubs/modeling/platforms/refm/lib/state/subUnitPrices';
@@ -575,6 +576,33 @@ async function live(): Promise<void> {
 
 live().then(() => {
   console.log('');
+  // ── S. ONE QUANTITY, ONE NUMBER: the Schedules feed shows the balance sheet's figures ─
+  // (2026-09-27, founder). The feed floored the receivable and unearned balances at
+  // zero and put the operating receivable on each line's own days; the balance sheet
+  // reads the schedules raw and the project DSO. Measured on the sample model with a
+  // project DSO set, so the operating branch carries a real receivable.
+  section('S. The Schedules feed carries the receivable and unearned figures of the balance sheet');
+  {
+    const base = buildExcelSampleState() as unknown as { project: Project; assets: Asset[]; subUnits: SubUnit[]; phases: Phase[] } & Record<string, unknown>;
+    const st = { ...base, project: { ...base.project, operatingAr: { dsoDays: 45 } } };
+    const fsn = computeFinancialsSnapshot(st as never);
+    const N = fsn.axisLength;
+    const feeds = buildRevenueLineFeeds(fsn.revenue, planRevenueLines(st.assets, st.subUnits, st.phases, st.project), fsn.byAssetCostOfSales, st.project.operatingAr);
+    const lineOf = new Map(planRevenueLines(st.assets, st.subUnits, st.phases, st.project).map((l) => [l.key, l]));
+    const sumFeed = (form: string, k: 'ar' | 'ur'): number[] => Array.from({ length: N }, (_, t) => feeds.filter((f) => lineOf.get(f.lineKey)?.form === form || (form === 'op' && lineOf.get(f.lineKey)?.form !== 'sell')).reduce((x, f) => x + (f[k][t] ?? 0), 0));
+    const opAr = sumFeed('op', 'ar');
+    check('S1 the operating receivable in the feed IS the balance sheet receivable, every year (project DSO)',
+      opAr.some((v) => v > 1) && opAr.every((v, t) => Math.abs(v - (fsn.bs.arPerPeriod[t] ?? 0)) < 1e-6), opAr.map((v) => v.toFixed(0)).join(', '));
+    const sellIds = [...fsn.byAssetSchedules.keys()].filter((id) => fsn.revenue.bySellAsset.has(id));
+    const schedUr = Array.from({ length: N }, (_, t) => sellIds.reduce((x, id) => x + (fsn.byAssetSchedules.get(id)!.unearned.perPeriod[t] ?? 0), 0));
+    const feedUr = sumFeed('sell', 'ur');
+    check('S2 the unearned revenue in the feed IS the schedules figure, unfloored',
+      feedUr.some((v) => v > 1) && feedUr.every((v, t) => Math.abs(v - schedUr[t]) < 1e-6));
+    const screen = readFileSync(join(process.cwd(), 'src/hubs/modeling/platforms/refm/components/modules/Module2Schedules.tsx'), 'utf8');
+    check('S3 the Schedules screen reads the one feed builder and computes no receivable of its own',
+      screen.includes('buildRevenueLineFeeds(') && !screen.includes('buildAccountsReceivable(') && !screen.includes('buildAccountsReceivableDSO('));
+  }
+
   if (failures.length === 0) {
     console.log(`verify-revenue-lines: ${passed} passed, 0 failed`);
   } else {

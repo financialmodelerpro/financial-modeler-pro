@@ -211,7 +211,6 @@ export const stage3Cos: LiveLayer = {
     }
 
     // ── Schedules: the three feeds ───────────────────────────────────────────
-    const snapZ = (x: string): string => `IF(ABS(${x})<1,0,MAX(0,${x}))`;
     type Feed = { name: string; section: string; revenue: (t: number) => string; cash: (t: number) => string; cosC: (t: number) => string; cosO: (t: number) => string; cosT: (t: number) => string; inv: (t: number) => string; ar: (t: number) => string; ur: (t: number) => string; capex: (t: number) => string };
     const feeds: Feed[] = [];
     const Z = (): string => '0';
@@ -225,21 +224,21 @@ export const stage3Cos: LiveLayer = {
           cash: (t) => `${rv(`rvc:${l.key}:cashPre`, t)}+${rv(`rvc:${l.key}:postRev`, t)}`,
           cosC: lc ? (t) => at(lc.pre, t) : Z, cosO: lc ? (t) => at(lc.post, t) : Z, cosT: lc ? (t) => at(lc.cos, t) : Z,
           inv: lc ? (t) => at(lc.inv, t) : Z,
-          ar: (t) => snapZ(rv(`rvc:${l.key}:ar`, t)), ur: (t) => snapZ(rv(`rvc:${l.key}:ur`, t)),
+          ar: (t) => rv(`rvc:${l.key}:ar`, t), ur: (t) => rv(`rvc:${l.key}:ur`, t),
           capex: lc ? (t) => at(lc.base, t) : Z,
         });
       } else if (l.form !== 'sell') {
         const revKey = l.form === 'operate' ? `rvc:${l.key}:total` : `rvc:${l.key}:rev`;
         if (!has(revKey)) continue;
-        const dsoKey = `revin|${l.key}|${l.form === 'operate' ? 'ADR Indexation' : 'Rent Indexation'}|Accounts Receivable Days`;
-        const dso = (): string => `MAX(0,${w.ref(dsoKey, TOTAL_COL)})`;
-        const days = (): string => (l.form === 'operate' ? `MAX(1,${w.ref(`revfoot|${l.key}|days`, TOTAL_COL)})` : '365');
+        // The project DSO, the terms the balance sheet uses (revenueOutputReports).
+        const dso = (): string => `MAX(0,N(${w.ref('project:dso')}))`;
+        const days = (): string => String(Math.max(1, state.project.operatingAr?.daysPerYear ?? 365));
         const close = (t: number): string => `MAX(0,${rv(revKey, t)})*(${dso()}/${days()})`;
         feeds.push({
           name, section: l.section,
           revenue: (t) => rv(revKey, t),
           cash: (t) => `MAX(0,${rv(revKey, t)})-(${close(t)}-${t === 0 ? '0' : close(t - 1)})`,
-          cosC: Z, cosO: Z, cosT: Z, inv: Z, ar: (t) => snapZ(close(t)), ur: Z, capex: Z,
+          cosC: Z, cosO: Z, cosT: Z, inv: Z, ar: close, ur: Z, capex: Z,
         });
       }
     }

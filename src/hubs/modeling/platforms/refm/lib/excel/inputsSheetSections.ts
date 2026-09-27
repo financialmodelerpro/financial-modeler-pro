@@ -589,7 +589,7 @@ function emitOperateLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap:
   kv(c, 'Average guests per occupied room night', op?.guestsPerOccupiedRoom ?? 1.5, NUMFMT.rate, op?.guestsPerOccupiedRoom !== undefined);
   ancillaryRows(c, 'F&B Revenue', op?.fb);
   ancillaryRows(c, 'Other Revenue', op?.otherRevenue);
-  kv(c, 'Accounts Receivable Days', op?.dso ?? 30, NUMFMT.int, op?.dso !== undefined);
+  kv(c, 'Accounts Receivable Days (not used: the project DSO drives the receivable)', op?.dso ?? 30, NUMFMT.int, op?.dso !== undefined);
 }
 
 function emitLeaseLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Snap): void {
@@ -602,7 +602,7 @@ function emitLeaseLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: S
   kv(c, 'Operations start year', snap.projectStartYear + w.opsIdx, NUMFMT.year, lease?.operationsStartYearOverride != null,
     undefined, `Default (after handover): ${snap.projectStartYear + w.defaultOpsIdx}`);
   yearStrip(c, 'Occupancy', w.operations, (idx) => lease?.occupancyPerPeriod?.[idx], NUMFMT.pct, true, snap, 'Occupancy ramp');
-  kv(c, 'Accounts Receivable Days', lease?.arDays ?? 30, NUMFMT.int, lease?.arDays !== undefined);
+  kv(c, 'Accounts Receivable Days (not used: the project DSO drives the receivable)', lease?.arDays ?? 30, NUMFMT.int, lease?.arDays !== undefined);
 }
 
 export function emitEscrowInputs(c: SheetCursor, state: FinancialsResolverState, snap: Snap): void {

@@ -309,15 +309,21 @@ export const stage3Revenue: LiveLayer = {
           suMap.set(u.id, { A: sc, pre: { area: pre.rows.area, rev: pre.rows.rev, v: pre.rows.v }, post: { area: post.rows.area, rev: post.rows.rev, v: post.rows.v } });
           passRows.push({ pre: [pre.rows.area, pre.rows.rev], post: [post.rows.area, post.rows.rev] });
         }
-        const sum = (key: string, label: string, pick: (s: SellRes['su'] extends Map<string, infer V> ? V : never) => number): number => {
+        // A SALE YEAR AFTER HANDOVER IS A SALE AFTER HANDOVER, whichever velocity
+        // row it was typed on (computeSellAsset, 2026-09-27): the pre-sales pass
+        // still sells in its order, but a year after the handover year files as a
+        // sale during operation, recognised and collected in its own year.
+        type SU = SellRes['su'] extends Map<string, infer V> ? V : never;
+        const sum = (key: string, label: string, f: (s: SU, t: number) => string): number => {
           const r = newRow(`rvc:${l.key}:${key}`, `${revenueLineName(l)}: ${label}`);
-          perT(r, (t) => ([...suMap.values()].map((s) => at(pick(s), t)).join('+') || '0'));
+          perT(r, (t) => ([...suMap.values()].map((s) => f(s, t)).join('+') || '0'));
           return r;
         };
-        const preRev = sum('preRev', 'pre-sales revenue', (s) => s.pre.rev);
-        const postRev = sum('postRev', 'sales during operation revenue', (s) => s.post.rev);
-        const preArea = sum('preArea', 'pre-sales area', (s) => s.pre.area);
-        const postArea = sum('postArea', 'sales during operation area', (s) => s.post.area);
+        const before = (t: number): string => `IF(${t}<=${HS(p)},1,0)`;
+        const preRev = sum('preRev', 'pre-sales revenue', (s, t) => `${at(s.pre.rev, t)}*${before(t)}`);
+        const postRev = sum('postRev', 'sales during operation revenue', (s, t) => `${at(s.post.rev, t)}+${at(s.pre.rev, t)}*(1-${before(t)})`);
+        const preArea = sum('preArea', 'pre-sales area', (s, t) => `${at(s.pre.area, t)}*${before(t)}`);
+        const postArea = sum('postArea', 'sales during operation area', (s, t) => `${at(s.post.area, t)}+${at(s.pre.area, t)}*(1-${before(t)})`);
         // Sale cohorts: row s pays its sale value across the years.
         const dpKey = K(l, 'Sale cohort terms', 'Downpayment %');
         const dpRow = w.addr(dpKey).row;

@@ -35,15 +35,10 @@
 import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
-import { computeAllSellResults, lineRevenueResults } from '../../lib/revenue-resolvers';
+import { computeAllSellResults } from '../../lib/revenue-resolvers';
 import { computeFinancialsSnapshot } from '../../lib/financials-resolvers';
-import { sumAssetCostOfSales } from '../../lib/costOfSales';
 import { planRevenueLines, REVENUE_SECTIONS, type RevenueSection } from '../../lib/revenueLines';
-import {
-  buildAccountsReceivable,
-  buildUnearnedRevenue,
-  buildAccountsReceivableDSO,
-} from '@/src/core/calculations/revenue';
+import { buildRevenueLineFeeds } from '../../lib/reports/revenueOutputReports';
 import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import { makeFmt, ZERO_SNAP_THRESHOLD } from './_shared/numberFmt';
 import {
@@ -234,105 +229,25 @@ export default function Module2Schedules(): React.JSX.Element {
     () => planRevenueLines(assets, state.subUnits, phases, project),
     [assets, state.subUnits, phases, project],
   );
+  // THE ONE FEED BUILDER (2026-09-27): the screen reads `buildRevenueLineFeeds`,
+  // the rule the PDF and the workbook print, so the three cannot disagree. This
+  // screen kept its own copy, which floored the receivable and unearned balances
+  // at zero (the balance sheet does not) and put the operating receivable on each
+  // line's own days (the balance sheet uses the project DSO).
   const perAssetFeed = useMemo<PerAssetFeed[]>(() => {
-    const N = snap.axisLength;
-    const zeros = (): number[] => new Array<number>(N).fill(0);
-    const out: PerAssetFeed[] = [];
-
-    for (const line of lines) {
+    const feeds = buildRevenueLineFeeds(snap, lines, finSnap?.byAssetCostOfSales, project.operatingAr);
+    return feeds.flatMap((f) => {
+      const line = lines.find((l) => l.key === f.lineKey);
+      if (!line) return [];
       const a = line.host;
-      const memberIds = line.members.map((m) => m.id);
-      const res = lineRevenueResults(memberIds, snap, line.key);
-      const name = line.phaseName ? `${line.label} · ${line.phaseName}` : line.label;
-      const base = { assetId: line.key, lineKey: line.key, name, section: line.section, strategy: a.strategy, isCompanion: a.isCompanion === true };
-
-      if (line.form === 'sell') {
-        const r = res.sell;
-        if (!r) continue;
-
-        // THE one result per plot, summed for the line. No base assembled
-        // here, no second engine.
-        const cosResult = finSnap
-          ? sumAssetCostOfSales(
-              memberIds.map((id) => finSnap.byAssetCostOfSales.get(id)).filter((c): c is NonNullable<typeof c> => !!c),
-              line.key, N,
-            )
-          : null;
-        const capexPerPeriod = cosResult ? cosResult.capexPerPeriod.slice(0, N) : zeros();
-        const inventory = cosResult ? cosResult.inventoryPerPeriod.slice(0, N) : zeros();
-
-        // Pass 9g-I (2026-05-18): correct engine args.
-        //   AR = Pre-Sales Sale Value (signing) - Pre-Sales Cash Received
-        //   UR = Pre-Sales Sale Value (signing) - Pre-Sales Recognised
-        const ar = buildAccountsReceivable(r.presalesRevenuePerPeriod, r.presalesCashPerPeriod, N);
-        const ur = buildUnearnedRevenue(r.presalesRecognitionPerPeriod, r.presalesRevenuePerPeriod, N);
-
-        // Revenue = total recognition; Cash = total cash collected.
-        const revenue = r.recognitionPerPeriod.slice();
-        const cashCollected = r.cashCollectedPerPeriod.slice();
-
-        // Snap AR/UR per period to suppress sub-currency-unit residuals.
-        const arSnapped = ar.perPeriod.map((v) => Math.abs(v) < 1 ? 0 : Math.max(0, v));
-        const urSnapped = ur.perPeriod.map((v) => Math.abs(v) < 1 ? 0 : Math.max(0, v));
-
-        out.push({
-          ...base,
-          revenue,
-          cashCollected,
-          cosConstr: cosResult ? cosResult.cosPresalesPerPeriod.slice(0, N) : zeros(),
-          cosOps: cosResult ? cosResult.cosPostSalesPerPeriod.slice(0, N) : zeros(),
-          totalCos: cosResult ? cosResult.cos.perPeriod.slice(0, N) : zeros(),
-          inventory,
-          ar: arSnapped,
-          ur: urSnapped,
-          capex: capexPerPeriod,
-        });
-        continue;
-      }
-
-      if (line.form === 'operate') {
-        const r = res.hospitality;
-        if (!r) continue;
-        const dso = a.revenue?.operate?.dso ?? 30;
-        const arH = buildAccountsReceivableDSO({
-          revenuePerPeriod: r.totalRevenuePerPeriod,
-          dsoDays: dso,
-          daysPerYear: a.revenue?.operate?.daysPerYear ?? 365,
-          axisLength: N,
-        });
-        out.push({
-          ...base,
-          revenue: r.totalRevenuePerPeriod.slice(),
-          cashCollected: arH.cashReceivedPerPeriod.slice(),
-          cosConstr: zeros(), cosOps: zeros(), totalCos: zeros(), inventory: zeros(),
-          ar: arH.perPeriod.map((v) => Math.abs(v) < 1 ? 0 : Math.max(0, v)),
-          ur: zeros(),
-          capex: zeros(),
-        });
-        continue;
-      }
-
-      const r = res.lease;
-      if (!r) continue;
-      const arDays = a.revenue?.lease?.arDays ?? 30;
-      const arL = buildAccountsReceivableDSO({
-        revenuePerPeriod: r.totalRevenuePerPeriod,
-        dsoDays: arDays,
-        daysPerYear: 365,
-        axisLength: N,
-      });
-      out.push({
-        ...base,
-        revenue: r.totalRevenuePerPeriod.slice(),
-        cashCollected: arL.cashReceivedPerPeriod.slice(),
-        cosConstr: zeros(), cosOps: zeros(), totalCos: zeros(), inventory: zeros(),
-        ar: arL.perPeriod.map((v) => Math.abs(v) < 1 ? 0 : Math.max(0, v)),
-        ur: zeros(),
-        capex: zeros(),
-      });
-    }
-    return out;
-  }, [snap, lines, finSnap]);
+      return [{
+        assetId: line.key, lineKey: line.key, section: line.section, strategy: a.strategy, isCompanion: a.isCompanion === true,
+        name: line.phaseName ? `${line.label} · ${line.phaseName}` : line.label,
+        revenue: f.revenue, cashCollected: f.cashCollected, cosConstr: f.cosConstr, cosOps: f.cosOps, totalCos: f.totalCos,
+        inventory: f.inventory, ar: f.ar, ur: f.ur, capex: f.capex,
+      }];
+    });
+  }, [snap, lines, finSnap, project.operatingAr]);
 
   // ─ Lines file by SECTION, in the one reading order (2026-09-13) ─
   const bySection = REVENUE_SECTIONS
