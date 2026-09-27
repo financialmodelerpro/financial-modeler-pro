@@ -153,6 +153,9 @@ export const stage3Revenue: LiveLayer = {
         if (le.occupancyPerPeriodByPhase === undefined) refuse.push(`${name}: occupancy held on the legacy axis`);
       }
     }
+    // An exit before the last year stops a held asset trading after it (`stopAfterExit`),
+    // which this build does not express yet.
+    if (snap.disposal.booked && snap.disposal.exitIdx < N - 1 && lines.some((l) => l.form !== 'sell')) refuse.push('the exit falls before the last year, which stops the hotel and lease lines trading after it');
     if (refuse.length) {
       return [{ sheet: REV, status: 'values' as const, formulas: 0, note: `Revenue could not be made live for this model: ${[...new Set(refuse)].join('; ')}.` }];
     }

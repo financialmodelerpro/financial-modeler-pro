@@ -32,6 +32,7 @@ import { loadLiveExportInputs } from './fixtures/liveExportInputs';
 import { excelAvailable, recalcInExcel, cellKey } from './excelRecalc';
 import JSZip from 'jszip';
 import { planRevenueLines } from '../src/hubs/modeling/platforms/refm/lib/revenueLines';
+import { resolveUsefulLifeYears } from '../src/core/calculations';
 import { CellRegistry } from '../src/hubs/modeling/platforms/refm/lib/excel/cellRegistry';
 import { platformAfterEdit } from './fixtures/platformAfterEdit';
 import type { LiveExportInputs } from './fixtures/liveExportInputs';
@@ -419,6 +420,19 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   const dflt = st.project.opexAp?.defaultApDays ?? 0;
   out.push({ movesRevenue: false, label: `project default DPO ${dflt} to ${dflt + 45} days`, cell: 'opexin|__ap__||Project Default DPO (days)', col: RC.TOTAL, value: dflt + 45,
     edit: (s) => { s.project.opexAp = { ...(s.project.opexAp ?? {}), defaultApDays: dflt + 45 }; } });
+
+  // Schedules (stage 4): a held line's useful life, and the project DSO.
+  const lifeHost = hotA ?? leaseA;
+  if (lifeHost && reg.get(`fain:${lifeHost.id}`)) {
+    // Five years from the life in force (a blank life inherits the category default).
+    const life = resolveUsefulLifeYears(lifeHost) + 5;
+    const lineIds = (lines.find((l) => l.members.some((m: any) => m.id === lifeHost.id))?.members ?? [lifeHost]).map((m: any) => m.id);
+    out.push({ movesRevenue: false, label: `useful life of a held line (${lifeHost.name}) to ${life} years`, cell: `fain:${lifeHost.id}`, col: RC.TOTAL, value: life,
+      edit: (s) => { for (const q of s.assets as any[]) if (lineIds.includes(q.id)) q.usefulLifeYears = life; } });
+  } else out.push({ label: 'useful life of a held line', skip: 'no held line on the inputs table' });
+  const dso = st.project.operatingAr?.dsoDays ?? 0;
+  out.push({ movesRevenue: false, label: `operating receivables DSO ${dso} to ${dso + 30} days`, cell: 'project:dso', value: dso + 30,
+    edit: (s) => { s.project.operatingAr = { ...(s.project.operatingAr ?? {}), dsoDays: dso + 30 }; } });
   return out;
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

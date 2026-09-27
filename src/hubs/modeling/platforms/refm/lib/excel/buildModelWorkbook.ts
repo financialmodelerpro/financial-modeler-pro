@@ -3666,8 +3666,9 @@ function addSchedules(ctx: EmitCtx): void {
 
   // A fixed asset table from the shared builder: a balance row's Total column
   // holds its last period, a flow row's the sum, exactly as the screen prints.
-  const emitFaTable = (t: FixedAssetTable): void => {
+  const emitFaTable = (t: FixedAssetTable, regTable = ''): void => {
     E.subTitle(t.title);
+    E.setRegTable(regTable);
     for (const row of t.rows) {
       E.moneyRow(row.label, row.values, {
         style: row.isTotal ? 'total' : row.isSubtotal ? 'subtotal' : 'plain',
@@ -3687,6 +3688,8 @@ function addSchedules(ctx: EmitCtx): void {
   // groups, the per line tables (capitalised interest inside the depreciable
   // roll-forward), the project tables and the IDC pool are the same rows here.
   E.section('1. Fixed Assets & D&A (land + depreciable NBV roll-forward, per line + project total)');
+  // Row keys for the formula-linked export (cellRegistry.ts); writes nothing here.
+  E.setRegScope('sch');
   const report = buildFixedAssetReport({ fa: snap.fixedAssets, idc: snap.idc, state, dCtx: disposalContextOf(snap) });
   if (report.inputs.length === 0) {
     E.note('No depreciable assets in this project. Sell-only projects route capex through Cost of Sales (Module 2 Tab 3) instead.');
@@ -3703,6 +3706,7 @@ function addSchedules(ctx: EmitCtx): void {
     for (const i of report.inputs) {
       const rr = E.cursor();
       setLabel(ws.getCell(rr, LBL_COL), i.title, { indent: 1 });
+      registerCell(`fain:${i.hostId}`, ws, ws.getCell(rr, LBL_COL));
       setBasis(ws.getCell(rr, META_B), `${i.strategyLabel}; ${i.method === 'reducing_balance' ? 'Reducing Balance (WDV)' : 'Straight Line (SL)'}`);
       // The life the engine uses, marked as an input. A blank stored life
       // inherits the category default, and the cell says so in its comment.
@@ -3724,16 +3728,18 @@ function addSchedules(ctx: EmitCtx): void {
     E.groupBand(`${g.title} (${g.lines.length} asset${g.lines.length === 1 ? '' : 's'})`);
     if (g.lines.length === 0) { E.note(g.emptyText); continue; }
     for (const l of g.lines) {
-      emitFaTable(l.land);
-      emitFaTable(l.depreciable);
-      emitFaTable(l.total);
+      E.setRegLine(l.hostId);
+      emitFaTable(l.land, 'land');
+      emitFaTable(l.depreciable, 'dep');
+      emitFaTable(l.total, 'total');
     }
   }
   E.groupBand('Project Total');
-  emitFaTable(report.project.land);
-  emitFaTable(report.project.depreciable);
-  emitFaTable(report.project.total);
-  if (report.project.idcPool) emitFaTable(report.project.idcPool);
+  E.setRegLine('__project__');
+  emitFaTable(report.project.land, 'land');
+  emitFaTable(report.project.depreciable, 'dep');
+  emitFaTable(report.project.total, 'total');
+  if (report.project.idcPool) emitFaTable(report.project.idcPool, 'idc');
 
   // ── 2. BS Schedules ──────────────────────────────────────────────────────────
   // The shared feeder tables, with their captions, grouped by section as the
@@ -3744,8 +3750,9 @@ function addSchedules(ctx: EmitCtx): void {
     const tables = feeders.filter((t) => t.section === sec.section);
     if (tables.length === 0) continue;
     E.groupBand(sec.section);
-    for (const tbl of tables) { E.subTitle(tbl.title); E.emitTable(tbl.rows); E.note(tbl.caption); }
+    for (const tbl of tables) { E.setRegLine(tbl.key); E.subTitle(tbl.title); E.emitTable(tbl.rows); E.note(tbl.caption); }
   }
+  E.setRegScope(null);
 }
 
 // ── P&L (full detailed mirror via the shared platform row-builder) ────────────

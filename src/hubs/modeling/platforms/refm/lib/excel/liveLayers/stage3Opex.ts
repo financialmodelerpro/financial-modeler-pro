@@ -117,6 +117,8 @@ export const stage3Opex: LiveLayer = {
       if (!IDX_METHODS.has(ix.method ?? 'none')) refuse.push(`HQ: ${ln.name} inflation ${ix.method}`);
     }
     if (hqStored.length === 0) refuse.push('HQ runs on the default seed, which the sheet does not show');
+    // An exit before the last year stops the held assets trading after it (`stopAfterExit`).
+    if (snap.disposal.booked && snap.disposal.exitIdx < N - 1 && opexAssets.length) refuse.push('the exit falls before the last year, which stops the held assets trading after it');
     if (refuse.length) return values(`Opex could not be made live for this model: ${[...new Set(refuse)].join('; ')}.`);
 
     // ── Inflation, which the cards state in words, listed at the sheet's foot ─
