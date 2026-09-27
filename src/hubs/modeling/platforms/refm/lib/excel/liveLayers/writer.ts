@@ -22,13 +22,41 @@ import { quoteSheet, colLetter } from '../styles';
 
 const addrId = (a: CellAddr): string => `${a.sheet}!R${a.row}C${a.col}`;
 
+/**
+ * WHAT EVERY FORMULA READS, per build (keyed by the build's shared pending set), so
+ * pending can be settled to a fixed point once every layer has written. Marking at
+ * write time alone misses a FORWARD reference: an opening balance written before
+ * the closing balance it reads (2026-09-27, the Cash Flow's opening cash).
+ */
+const DEPS = new WeakMap<Set<string>, Map<string, string[]>>();
+
+/** Mark pending every formula that reads a pending cell, directly or through others. */
+export function settlePending(pending: Set<string>): number {
+  const deps = DEPS.get(pending);
+  if (!deps) return 0;
+  let added = 0;
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const [addr, reads] of deps) {
+      if (pending.has(addr)) continue;
+      if (reads.some((d) => pending.has(d))) { pending.add(addr); added++; changed = true; }
+    }
+  }
+  return added;
+}
+
 export class LiveWriter {
   readonly formulas = new Map<string, number>();
   /** Addresses whose value waits for a later stage ("Sheet!R1C2"). */
   /** Shared by every layer of one build, so a formula reading a cell another layer marked pending is pending too. */
   readonly pending: Set<string>;
   private deps: string[] = [];
-  constructor(readonly wb: ExcelJS.Workbook, readonly reg: CellRegistry, pending?: Set<string>) { this.pending = pending ?? new Set<string>(); }
+  private readonly allDeps: Map<string, string[]>;
+  constructor(readonly wb: ExcelJS.Workbook, readonly reg: CellRegistry, pending?: Set<string>) {
+    this.pending = pending ?? new Set<string>();
+    if (!DEPS.has(this.pending)) DEPS.set(this.pending, new Map());
+    this.allDeps = DEPS.get(this.pending)!;
+  }
 
   has(key: string): boolean { return this.reg.get(key) !== undefined; }
   addr(key: string, col?: number): CellAddr {
@@ -65,6 +93,7 @@ export class LiveWriter {
     const cached = opts.cached !== undefined ? opts.cached : this.platformValue(a);
     c.value = { formula, result: cached } as unknown as ExcelJS.CellValue;
     if (opts.numFmt) c.numFmt = opts.numFmt;
+    this.allDeps.set(addrId(a), deps);
     if (deps.some((d) => this.pending.has(d))) this.pending.add(addrId(a));
     this.formulas.set(a.sheet, (this.formulas.get(a.sheet) ?? 0) + 1);
   }

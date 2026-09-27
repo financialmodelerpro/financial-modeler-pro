@@ -421,6 +421,11 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   out.push({ movesRevenue: false, label: `project default DPO ${dflt} to ${dflt + 45} days`, cell: 'opexin|__ap__||Project Default DPO (days)', col: RC.TOTAL, value: dflt + 45,
     edit: (s) => { s.project.opexAp = { ...(s.project.opexAp ?? {}), defaultApDays: dflt + 45 }; } });
 
+  // P&L (stage 5): the tax rate, which strikes tax on profit before tax less the gain.
+  const taxRate = st.project.tax?.rate ?? 0;
+  out.push({ movesRevenue: false, label: `the tax rate ${(taxRate * 100).toFixed(2)}% to ${((taxRate + 0.01) * 100).toFixed(2)}%`, cell: 'project:taxRate', value: taxRate + 0.01,
+    edit: (s) => { s.project.tax = { ...(s.project.tax ?? {}), rate: taxRate + 0.01 }; } });
+
   // Schedules (stage 4): a held line's useful life, and the project DSO.
   const lifeHost = hotA ?? leaseA;
   if (lifeHost && reg.get(`fain:${lifeHost.id}`)) {
@@ -507,6 +512,11 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
   check('A5 no cell still claims the workbook is a hardcoded snapshot', claims.length === 0, claims.slice(0, 5).join(', '));
   const unlabelled = [...status].filter(([name, s]) => s.status !== 'front' && s.status !== 'values-by-design' && s.status !== 'values' && !s.note).map(([n]) => n);
   check('A6 every live or partly live sheet says what is live on it', unlabelled.length === 0, unlabelled.join(', '));
+  // A sheet that SAYS it is values must BE values: a layer that refuses part way must
+  // not leave the formulas it wrote before refusing (stage 5 did, 2026-09-27).
+  const valuesWithFormulas = [...status].filter(([name, st]) => (st.status === 'values' || st.status === 'values-by-design')
+    && [...formulas.keys()].some((k) => k.startsWith(`${name}!`))).map(([n]) => n);
+  check('A6b a sheet reported as values carries no formula', valuesWithFormulas.length === 0, valuesWithFormulas.join(', '));
 
   const buf = await enableIterativeCalc((await wb.xlsx.writeBuffer()) as ArrayBuffer);
   const calcPr = (await (await JSZip.loadAsync(buf)).file('xl/workbook.xml')!.async('string')).match(/<calcPr[^>]*>/)?.[0] ?? '';
@@ -610,7 +620,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       // A PENDING cell (it reads a figure a later stage computes: capitalised interest, which
       // moves with capex, revenue and timing alike) may lag ANY input change; it is counted.
       // Every other live cell must follow the change exactly.
-      check(`C ${pt.label}: ${moved} live cells move on the platform, and Excel agrees on every live cell${lagging.length ? ` (${lagging.length} pending cells lag: they read capitalised interest, stage 6)` : ''}${cmp.layout.length ? `; ${cmp.layout.length} cells the platform lays out differently after the change (the live workbook keeps its exported layout: ${cmp.layout.slice(0, 4).join(', ')}${cmp.layout.length > 4 ? ', ...' : ''})` : ''}`,
+      check(`C ${pt.label}: ${moved} live cells move on the platform, and Excel agrees on every live cell${lagging.length ? ` (${lagging.length} pending cells lag: they read what the financing solve or Returns still owns, stages 6 and 7)` : ''}${cmp.layout.length ? `; ${cmp.layout.length} cells the platform lays out differently after the change (the live workbook keeps its exported layout: ${cmp.layout.slice(0, 4).join(', ')}${cmp.layout.length > 4 ? ', ...' : ''})` : ''}`,
         moved > 0 && hard.length === 0,
         hard.slice(0, 8).map((x) => x.msg).join('\n        '));
       if (pt.variant) { const { unlinkSync } = await import('node:fs'); unlinkSync(base.path); }

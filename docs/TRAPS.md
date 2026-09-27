@@ -1076,6 +1076,42 @@ start of any session that touches what it measures, and treat "still green after
 on such a verifier as a question, not an answer. Reproduced with the day's code changes stashed:
 the same five, so the fixture and not the change is what moved.
 
+### 3.24 Reading a cell with `getCell` creates it, and a layer that refuses after writing leaves its formulas behind
+
+**Symptom (2026-09-27, formula-linked export):** two faults of one shape. (1) A comparison that read
+the plain workbook with `ws.getCell(r, c)` grew each sheet's `rowCount`, so rows appended below it by a
+later step landed further down than the verifier looked, and the comparison missed them. (2) The P&L
+layer refused on its twentieth row (a label it could not match) after writing formulas on the first
+nineteen: the sheet reported "values" while carrying 338 live formulas.
+
+**Mechanism:** ExcelJS `getCell` is a GETTER THAT CREATES: asking for a cell materialises its row. And
+a layer that writes as it walks has no way to take back what it wrote when it meets a row it cannot
+express, so its refusal is only a label over a half-live sheet.
+
+**Fix:** read with `ws.findRow(r)?.findCell(c)`, which creates nothing. Every statement layer COLLECTS
+its formulas first and writes them only once the whole statement has matched, so a refusal leaves the
+sheet exactly as the platform printed it.
+
+**Proof:** `verify-formula-workbook` A6b fails if any sheet reported as values carries a formula;
+it would have caught the 338.
+
+### 3.25 Marking a formula pending at write time misses a forward reference
+
+**Symptom (2026-09-27):** after the Cash Flow went live, every input change failed on one row, the
+opening cash, which in Excel moved with the change while on the platform it held at the 20m minimum
+(the funding solve re-sizes debt to keep it there). The row reads the prior year's closing cash, which
+reads the financing flows, which wait for stage 6: it should have been allowed to lag.
+
+**Mechanism:** a formula was marked pending only if a cell it reads was ALREADY pending when it was
+written. The opening balance is written before the closing balance it reads, so at that moment nothing
+it read was pending.
+
+**Fix:** the writer records what every formula reads, per build, and `settlePending` marks pending to a
+fixed point after every layer has run.
+
+**Proof:** the stage 5 proof, where 187 of the failing cells were this row and 15 were its twin on the
+indirect cash flow; no other cell failed.
+
 ## 4. PDF export (pdf-lib)
 
 ### 4.1 PDF text is glyph ids, so a naive grep returns nothing
@@ -2793,6 +2829,34 @@ what is left out rather than hiding it.
 
 **Proof:** `verify-change-log` sections H to L (185/0), and `scripts/probe-change-log-readability.ts` on the
 live project: 543 shown, all sentences, 0 values that look stored, every other row counted on screen.
+
+### 7.58 A floor on a display feed hid a negative balance the balance sheet was carrying
+
+**Symptom (2026-09-27):** with Phase 1 of Marina Gate cut from four construction years to three, the
+Phase 1 line's unearned revenue closed 2029 at -208.4m on the balance sheet and at 0 on the Revenue tab's
+Schedules feed. Two tabs, one quantity, two numbers.
+
+**Mechanism:** two faults, each hiding the other. (1) A pre-sales velocity left in a year the shortened
+phase no longer built in was still a pre-sale, so it was recognised at the new handover, a year before
+the contract was signed: 501.2m recognised against 292.9m signed. (2) The Schedules feed floored the
+receivable and unearned balances at zero and snapped anything under 1, "to suppress residue", so the
+negative balance the model was actually carrying never reached the screen that describes it. The
+Schedules SCREEN kept its own copy of the feed rules, with the same floor, beside the builder the PDF and
+workbook used.
+
+**The trap to avoid:** a floor, clamp or snap on a DISPLAY of a model quantity. It cannot fix the
+model, only hide it, and the one place the quantity appears unfloored (here the balance sheet) then
+disagrees with every place it is floored. Residue is a precision question for the formatter; a sign is
+a model fact.
+
+**Fix:** a sale year after the handover year is a sale after handover (`computeSellAsset`; the handover
+year itself stays a pre-sales year, the reference convention). The feed reads the balances as the
+schedules hold them, the operating receivable on the project DSO the balance sheet uses, and the screen
+reads the one builder (`buildRevenueLineFeeds`, whose project terms are a required argument, so the
+compiler enumerated every caller).
+
+**Proof:** `verify-revenue-rebuild` P1 to P4 (P1 fails on the old engine), `verify-revenue-lines` S1 to
+S3; Marina Gate as saved moves nothing.
 
 ## 8. Registries and two-step registration
 

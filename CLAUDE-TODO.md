@@ -2,6 +2,29 @@
 
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
+## START HERE 2026-09-27: THE FORMULA-LINKED WORKBOOK IS LIVE THROUGH THE STATEMENTS (STAGES 0 TO 5)
+
+**DONE 2026-09-27 (detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-27):** the formula-linked export is live on
+Inputs (partly), Timeline, Land & Area, Capex, Revenue, Opex, Schedules, P&L, Cash Flow and Balance Sheet, proved in
+real Excel on Marina Gate by `verify-formula-workbook` (behind the founder-only preview gate). A sale year after
+handover is a sale after handover; the Schedules feed shows the balance sheet's receivable and unearned figures.
+
+**OPEN, in order:**
+1. **Stage 6, the circular financing** (Financing sheet: debt drawdowns, IDC funded cash-first with a borrowed
+   shortfall, the Method 3 deficit sizing, the sweep, dividends, equity), iterative as the reference does. It
+   clears every PENDING cell except the exit proceeds: capitalised interest (Cost of Sales, inventory, fixed
+   assets), fund fees (their base is frozen from a fee-free solve, so decide how that freeze is expressed),
+   interest, debt, share capital, dividends. Then the Balance Sheet check reads zero after an input moves.
+2. **Stage 7, Returns and the fund waterfall** (hurdle IRR as a value with a note, founder decision), Summary
+   and Checks; the exit proceeds (terminal value) go live there.
+3. Still refused by name, for a later pass if a project needs them: year-by-year opex rates, opex inflation
+   other than none / one step / compounding, reducing balance depreciation, a phase overlap, existing
+   operations, an exit before the last year, a sell velocity held on the legacy axis, and the rest listed in
+   each layer's header.
+4. **The Zakat payment days input is read by nothing** (the engine pays tax in the year it is charged). Either
+   wire it or say so on the Inputs sheet and the Financing tab; founder's call.
+5. The Branded Villas Phase 1 plots have different spend curves (founder is reviewing on the Capex tab).
+
 ## START HERE 2026-09-26: TRAINING CODE SIGN-IN FIXED, SCHEMA DRIFT IN THE SUITE
 
 **DONE 2026-09-26 (detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-26):** a student signed in with the emailed device

@@ -32,12 +32,14 @@
 import type ExcelJS from 'exceljs';
 import { buildModelWorkbook, enableIterativeCalc, type BuildModelOptions } from './buildModelWorkbook';
 import { CellRegistry, setCellSink } from './cellRegistry';
+import { settlePending } from './liveLayers/writer';
 import { stage1LandArea } from './liveLayers/stage1LandArea';
 import { stage2Capex } from './liveLayers/stage2Capex';
 import { stage3Revenue } from './liveLayers/stage3Revenue';
 import { stage3Cos } from './liveLayers/stage3Cos';
 import { stage3Opex } from './liveLayers/stage3Opex';
 import { stage4Schedules } from './liveLayers/stage4Schedules';
+import { stage5Statements } from './liveLayers/stage5Statements';
 
 export type SheetStatus = 'live' | 'partial' | 'values' | 'values-by-design' | 'front';
 
@@ -63,7 +65,7 @@ export interface LiveLayer {
 
 /** The layers, in dependency order. */
 // Revenue before Capex: Capex's selling costs read the revenue a line earns.
-export const LIVE_LAYERS: LiveLayer[] = [stage1LandArea, stage3Revenue, stage2Capex, stage3Cos, stage3Opex, stage4Schedules];
+export const LIVE_LAYERS: LiveLayer[] = [stage1LandArea, stage3Revenue, stage2Capex, stage3Cos, stage3Opex, stage4Schedules, stage5Statements];
 
 /** Sheets that are values by the founder's decision (2026-09-27), never live. */
 const BY_DESIGN: Record<string, string> = {
@@ -103,6 +105,8 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
       });
     }
   }
+  // Pending settles to a fixed point: a formula written before a pending cell it reads is pending too.
+  settlePending(pending);
   // A layer's hidden working sheet is not a tab the reader sees, so it gets no status line.
   for (const ws of wb.worksheets) if (ws.state !== 'visible' && ws.state !== undefined) status.delete(ws.name);
   relabel(wb, status);

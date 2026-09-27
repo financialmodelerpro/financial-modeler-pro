@@ -3771,7 +3771,10 @@ function addProfitLoss(ctx: EmitCtx): void {
   const E = makeEmitters(ws, N);
   const hasData = (rows: M4Row[]): boolean => rows.some((rr) => rr.values.some((v) => v !== 0));
   E.section(`${labels.incomeStatementTitle}: Project`);
+  // Row keys for the formula-linked export (cellRegistry.ts); writes nothing here.
+  E.setRegScope('pl'); E.setRegLine('__all__');
   E.emitTable(buildPLRows(mk('__all__')));
+  E.setRegScope(null);
 
   // ── Fund Fee Basis (2026-08-05) ────────────────────────────────────────
   //
@@ -3845,7 +3848,9 @@ function addProfitLoss(ctx: EmitCtx): void {
     const rows = buildPLRows(mk(ph.id));
     if (!hasData(rows)) continue;
     E.gap(); E.section(`${labels.incomeStatementTitle}: ${ph.name} (to ${labels.ebitda})`);
+    E.setRegScope('pl'); E.setRegLine(ph.id);
     E.emitTable(rows);
+    E.setRegScope(null);
   }
 }
 
@@ -3863,15 +3868,22 @@ function addCashFlow(ctx: EmitCtx): void {
   writeSheetHeader(ws, snap, N, 'Cash Flow', 'Full detailed mirror of the platform Module 4 cash flow: the consolidated Direct and Indirect methods, then a per-phase Direct view (Operations + Investing).', { label: 'Line', totalLabel: totalColumnHeading(directRows), feeds: `The platform cash flow statement. Closing cash reconciles to the Balance Sheet. ${totalColumnNote(directRows)}` });
   const E = makeEmitters(ws, N);
   const hasData = (rows: M4Row[]): boolean => rows.some((rr) => rr.values.some((v) => v !== 0));
+  // Row keys for the formula-linked export (cellRegistry.ts); writes nothing here.
   E.section('Cash Flow, Direct Method: Project');
+  E.setRegScope('cf'); E.setRegLine('direct');
   E.emitTable(directRows);
+  E.setRegScope(null);
   E.gap(); E.section('Cash Flow, Indirect Method: Project');
+  E.setRegScope('cf'); E.setRegLine('indirect');
   E.emitTable(buildIndirectCFRows(mk('__all__')));
+  E.setRegScope(null);
   for (const ph of state.phases) {
     const rows = buildDirectCFRows(mk(ph.id));
     if (!hasData(rows)) continue;
     E.gap(); E.section(`Cash Flow: ${ph.name} (Operations + Investing)`);
+    E.setRegScope('cf'); E.setRegLine(ph.id);
     E.emitTable(rows);
+    E.setRegScope(null);
   }
 }
 
@@ -3888,7 +3900,10 @@ function addBalanceSheet(ctx: EmitCtx): void {
   writeSheetHeader(ws, snap, N, 'Balance Sheet', 'Full detailed mirror of the platform Module 4 balance sheet (consolidated), then the reconciliation bridge. Cash is the plug from the Direct Cash Flow Statement; the BS Check row reads 0 in every period when the statement balances.', { label: 'Line', totalLabel: totalColumnHeading(bsRows), feeds: `The platform balance sheet. Cash comes from the Direct Cash Flow; the bridge localises any difference to one line. ${totalColumnNote(bsRows)}` });
   const E = makeEmitters(ws, N);
   E.section('Balance Sheet: Project');
+  // Row keys for the formula-linked export (cellRegistry.ts); writes nothing here.
+  E.setRegScope('bs'); E.setRegLine('__all__');
   E.emitTable(bsRows);
+  E.setRegScope(null);
   // THE RECONCILIATION BRIDGE THE SCREEN SHOWS BENEATH THE STATEMENT (2026-09-17),
   // from the same shared builder, with the screen's caption.
   E.gap();
