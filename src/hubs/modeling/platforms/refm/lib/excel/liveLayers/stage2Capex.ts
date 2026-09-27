@@ -216,6 +216,8 @@ export const stage2Capex: LiveLayer = {
     const cD = 4, cE = 5, cF = 6, cG = 7, cH = 8, cI = 9, cW = 10, cPr = cW + L;
     const wCol = (i: number): number => cW + i;
     const pCol = (t: number): number => cPr + t;
+    // Where the per-year columns start, for the layers that read this sheet after it (Cost of Sales).
+    w.claim('cxc:P0', CALC, 2, pCol(0));
     cs.getCell(1, 1).value = 'Capex working sheet: one row per plot and cost line, the engine\'s own rules. Hidden; the Capex sheet sums a line\'s plots from here. Values marked pending belong to a stage not yet live.';
     let cr = 3;
     for (const [c, h] of [[1, 'Plot'], [2, 'Cost line'], [3, 'Method'], [cD, 'Rate'], [cE, 'Base'], [cF, 'Amount'], [cG, 'Start'], [cH, 'End'], [cI, 'Shape sum']] as Array<[number, string]>) cs.getCell(cr, c).value = h;

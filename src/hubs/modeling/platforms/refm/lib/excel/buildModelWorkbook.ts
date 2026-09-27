@@ -2765,8 +2765,8 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
   }
 
   // ── 3. Cost of Sales ─────────────────────────────────────────────────────────
-  em.setRegScope(null);
   em.section('3. Cost of Sales (per line: the build of the base, vintage matrix, summary, inventory; then the project totals)');
+  em.setRegScope('cos');
   let cosTotalRow = em.cursor();
   {
     // Built twice on purpose: once with String so every Total override parses
@@ -2775,6 +2775,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
     const tables = buildCostOfSalesReport(snap, state, (v) => String(v));
     const labelled = buildCostOfSalesReport(snap, state, ctx.labelMoney);
     const emitTable = (t: typeof tables[number], i: number): void => {
+      em.setRegLine(t.lineKey ?? '__project__');
       em.tableTitle(t.title);
       t.rows.forEach((row, k) => {
         const shown = row.isSection ? { ...row, label: labelled[i]?.rows[k]?.label ?? row.label } : row;
@@ -2798,7 +2799,9 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
 
   // ── 4. Schedules (the three feeds) ───────────────────────────────────────────
   em.section('4. Schedules (income statement, balance sheet and cash flow feeds, per line)');
+  em.setRegScope('sched');
   for (const feed of buildRevenueScheduleFeeds(snap.revenue, lines, snap.byAssetCostOfSales)) {
+    em.setRegLine(feed.group);
     em.groupBand(feed.group);
     setBasis(ws.getCell(em.cursor() - 1, META_B), feed.meta);
     for (const t of feed.tables) {
@@ -2812,6 +2815,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
   const escrowLines = planReportLines({ assets: state.assets, phases: state.phases, parcels: state.parcels }, (a) => snap.escrow.byAsset.has(a.id));
   if (escrowLines.length > 0) {
     em.section('5. Escrow (inputs, pre-sales cash subject to escrow, balance roll-forward, cash flow impact)');
+    em.setRegScope('esc');
     const esc = snap.escrow.projectTotals;
     const rows = escrowLines.map((line) => {
       const members = line.assetIds.map((id) => snap.escrow.byAsset.get(id)).filter((x): x is NonNullable<typeof x> => !!x);
@@ -2859,6 +2863,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
     em.moneyRow('Net Cash Flow Adjustment (to M4)', esc.cashFlowAdjustmentPerPeriod, { style: 'total' });
   }
 
+  em.setRegScope(null);
   return {
     revLinks: { byAssetRow: new Map<string, number>(), residentialRow: totalRow, hospitalityRow: totalRow, retailRow: totalRow, totalRow },
     cosLinks: { byAssetRow: new Map<string, number>(), totalRow: cosTotalRow },

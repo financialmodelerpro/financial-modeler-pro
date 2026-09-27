@@ -563,10 +563,12 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       const hard = bad.filter((x) => !base.pending.has(x.addr));
       const lagging = bad.filter((x) => base.pending.has(x.addr));
       const moved = movedCells(base.plain, pPlain, base.wb);
-      const allowed = pt.movesRevenue ? lagging.length : 0;
-      check(`C ${pt.label}: ${moved} live cells move on the platform, and Excel agrees on every live cell${pt.movesRevenue ? ` (${lagging.length} marked cells wait for a later stage)` : ''}${cmp.layout.length ? `; ${cmp.layout.length} cells the platform lays out differently after the change (the live workbook keeps its exported layout: ${cmp.layout.slice(0, 4).join(', ')}${cmp.layout.length > 4 ? ', ...' : ''})` : ''}`,
-        moved > 0 && hard.length === 0 && lagging.length === allowed,
-        [...hard, ...(pt.movesRevenue ? [] : lagging)].slice(0, 8).map((x) => x.msg).join('\n        '));
+      // A PENDING cell (it reads a figure a later stage computes: capitalised interest, which
+      // moves with capex, revenue and timing alike) may lag ANY input change; it is counted.
+      // Every other live cell must follow the change exactly.
+      check(`C ${pt.label}: ${moved} live cells move on the platform, and Excel agrees on every live cell${lagging.length ? ` (${lagging.length} pending cells lag: they read capitalised interest, stage 6)` : ''}${cmp.layout.length ? `; ${cmp.layout.length} cells the platform lays out differently after the change (the live workbook keeps its exported layout: ${cmp.layout.slice(0, 4).join(', ')}${cmp.layout.length > 4 ? ', ...' : ''})` : ''}`,
+        moved > 0 && hard.length === 0,
+        hard.slice(0, 8).map((x) => x.msg).join('\n        '));
       if (pt.variant) { const { unlinkSync } = await import('node:fs'); unlinkSync(base.path); }
     }
 

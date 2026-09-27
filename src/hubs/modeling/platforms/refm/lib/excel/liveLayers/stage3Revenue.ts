@@ -680,7 +680,7 @@ export const stage3Revenue: LiveLayer = {
 
     return [
       { sheet: REV, status: 'partial' as const, formulas: w.formulas.get(REV) ?? 0,
-        note: 'Live on this sheet: the input cards (prices from the Inputs sheet, velocities, downpayments, instalment years, occupancy, F&B and other shares, operations start) and the Revenue Output for every line: share sold, units and area sold, closing inventory, price per year, revenue, recognition, the sale cohort grid and its check, cash, the receivable and unearned roll-forwards, the hotel and lease statements, and the three project totals, computed on a hidden working sheet (Revenue Calc). The indexation rates and start years and the days per year are listed as inputs at the foot of the sheet. Not yet live: selling costs, Cost of Sales, Schedules and Escrow, which read capitalised interest and Capex (their own stages).' },
+        note: 'Live on this sheet: the input cards (prices from the Inputs sheet, velocities, downpayments, instalment years, occupancy, F&B and other shares, operations start) and the Revenue Output for every line: share sold, units and area sold, closing inventory, price per year, revenue, recognition, the sale cohort grid and its check, cash, the receivable and unearned roll-forwards, the hotel and lease statements, and the three project totals, computed on a hidden working sheet (Revenue Calc). The indexation rates and start years and the days per year are listed as inputs at the foot of the sheet.' },
     ];
   },
 };
