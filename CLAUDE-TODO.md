@@ -2,6 +2,34 @@
 
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
+## START HERE 2026-09-27 (evening): RESUME AT STAGE 7c OF THE FORMULA-LINKED WORKBOOK
+
+**DONE 2026-09-27 (detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-27):** stage 6 (the circular financing, `23434118`) and
+stages 7a / 7b (the Returns sheet live except Case Comparison and the residential price per sqm, `31bb94b9`);
+`verify-formula-workbook` 82 / 0 in real Excel on Marina Gate. Two platform defects fixed at the founder's direction: a
+partner's typed Agreed % never reached the engine (`a7413f94`), and a 3e-8 residue dividend counted as a distribution
+year (`6178c0e3`, TRAPS 3.28; Avg Cash-on-Cash 37.0% to 42.3% on Marina Gate).
+
+**OPEN, in order (the founder resumes here):**
+1. **Stage 7c, first the two LABELLING DEFECTS in the live workbook:** (a) `relabel` in `formulaWorkbook.ts` rewrites a
+   MERGED "how this tab is calculated" block once per cell, so the status sentence accumulates (ten copies on the Balance
+   Sheet): skip merged slaves; (b) the P&L, Cash Flow, Balance Sheet, Schedules and Revenue status notes still say the
+   financing figures "wait for that stage", which stage 6 made live: a layer needs a way to REPLACE a sheet's note (today
+   notes only concatenate), and the notes must name what is really still values.
+2. **Stage 7c proper:** the Balance Sheet reconciliation bridge (values today; the Checks sheet reads its "Unexplained"
+   row), the Checks sheet (the three identities as worst signed divergence from the live statements, status on the
+   relative tolerance, the revenue-basis notes, the headline returns as IRR over the Returns rows; the Detail sentences
+   quote float residue and should stay values with a note), and the Summary (text over the live cells; its areas come
+   through `resolveAssetAreaMetrics`, whose NSA takes max(sub-units, the stored `sellableBuaSqm`), so that stored field
+   must be shown as an input or the figure stays a value).
+3. **Proposed stage 8, close the partly live sheets:** Capex Table 7 (construction plus capitalised interest by line), the
+   per-phase totals and the escalation rows; Schedules' capitalised interest pool and the debt, equity and retained
+   earnings feeder tables; the P&L Fund Fee Basis block; the Revenue rows at the foot (about rows 611 to 618).
+4. **The Exit Year cell is an input the live workbook cannot follow** (the solve is built for the exit fixed at export):
+   say so on the cell, or make the exit structure-free.
+5. Carried from before: the refusals listed in each layer's header; the Zakat payment days input is read by nothing
+   (founder's call); the Branded Villas Phase 1 spend curves (founder reviewing).
+
 ## START HERE 2026-09-27: THE FORMULA-LINKED WORKBOOK IS LIVE THROUGH THE STATEMENTS (STAGES 0 TO 5)
 
 **DONE 2026-09-27 (detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-27):** the formula-linked export is live on
