@@ -19,6 +19,9 @@
  * No em dashes in this file.
  */
 import { computePartnerReturns } from '../src/core/calculations/returns/partners';
+import { buildExcelSampleState } from './excelSampleState';
+import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import { computeReturnsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/returns-resolvers';
 
 let pass = 0;
 let fail = 0;
@@ -114,6 +117,33 @@ const psu = computePartnerReturns({
 });
 check('under-allocated agreed shares do NOT reconcile', !psu.shareholdingReconciles);
 check('reconciliation delta is signed (-10%)', near(psu.shareholdingDelta, -0.1));
+
+// 6. THROUGH THE RESOLVER (2026-09-27). Every check above calls the engine
+// directly, which is why the defect was invisible: `computeReturnsSnapshot`
+// never passed the partner's stamped Agreed % on, so a typed share moved no
+// figure on any surface. This leg goes the way the screen and exports go.
+{
+  const state = buildExcelSampleState();
+  const snap = computeFinancialsSnapshot(state);
+  const withPartners = (manual: [number | undefined, number | undefined]) => ({
+    ...state.project,
+    partners: [
+      { id: 'p1', name: 'First', cashPct: 50, inKindPct: 50, existingPct: 50, ...(manual[0] !== undefined ? { manualShareholdingPct: manual[0] } : {}) },
+      { id: 'p2', name: 'Second', cashPct: 50, inKindPct: 50, existingPct: 50, ...(manual[1] !== undefined ? { manualShareholdingPct: manual[1] } : {}) },
+    ],
+  });
+  const auto = computeReturnsSnapshot(snap, withPartners([undefined, undefined])).partners;
+  const typed = computeReturnsSnapshot(snap, withPartners([70, 30])).partners;
+  const fcfe = computeReturnsSnapshot(snap, withPartners([undefined, undefined])).fcfePerPeriod;
+  check('resolver: a typed Agreed % reaches the partner (70 / 30)',
+    near(typed.partners[0].shareholdingPct, 0.7) && typed.partners[0].shareholdingIsManual && near(typed.partners[1].shareholdingPct, 0.3));
+  check('resolver: the typed share drives the partner FCFE stream',
+    fcfe.every((v, t) => near(typed.partners[0].fcfeStream[t], 0.7 * v, Math.max(1e-6, Math.abs(v) * 1e-12))));
+  check('resolver: the typed share moves the partner distributions (not the time-weighted split)',
+    Math.abs(typed.partners[0].totalCashReturned - auto.partners[0].totalCashReturned) > 1);
+  check('resolver: with nothing typed, the agreed share is the time-weighted one',
+    !auto.partners[0].shareholdingIsManual && near(auto.partners[0].shareholdingPct, auto.partners[0].weightedAvgShareholdingPct));
+}
 
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
 process.exit(fail === 0 ? 0 : 1);

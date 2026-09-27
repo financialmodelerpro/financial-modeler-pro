@@ -779,6 +779,11 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
       cashContribution: pctAmt(p.cashPct, totalCashEquity, p.cashContribution),
       inKindContribution: pctAmt(p.inKindPct, totalInKindEquity, p.inKindContribution),
       existingContribution: pctAmt(p.existingPct, totalExistingEquity, p.existingContribution),
+      // THE AGREED SHARE THE SCREEN STAMPS (2026-09-27). The engine has read it since
+      // 2026-07-09, but this mapping never passed it on, so a typed Agreed % moved no
+      // partner figure on any surface. Percent (0-100) on the partner, as the engine takes it.
+      ...(p.manualShareholdingPct !== undefined && Number.isFinite(p.manualShareholdingPct)
+        ? { manualShareholdingPct: p.manualShareholdingPct } : {}),
     })),
     totalCash: totalCashEquity,
     totalInKind: totalInKindEquity,
