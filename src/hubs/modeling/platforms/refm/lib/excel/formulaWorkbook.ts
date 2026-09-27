@@ -36,6 +36,7 @@ import { stage1LandArea } from './liveLayers/stage1LandArea';
 import { stage2Capex } from './liveLayers/stage2Capex';
 import { stage3Revenue } from './liveLayers/stage3Revenue';
 import { stage3Cos } from './liveLayers/stage3Cos';
+import { stage3Opex } from './liveLayers/stage3Opex';
 
 export type SheetStatus = 'live' | 'partial' | 'values' | 'values-by-design' | 'front';
 
@@ -61,7 +62,7 @@ export interface LiveLayer {
 
 /** The layers, in dependency order. */
 // Revenue before Capex: Capex's selling costs read the revenue a line earns.
-export const LIVE_LAYERS: LiveLayer[] = [stage1LandArea, stage3Revenue, stage2Capex, stage3Cos];
+export const LIVE_LAYERS: LiveLayer[] = [stage1LandArea, stage3Revenue, stage2Capex, stage3Cos, stage3Opex];
 
 /** Sheets that are values by the founder's decision (2026-09-27), never live. */
 const BY_DESIGN: Record<string, string> = {

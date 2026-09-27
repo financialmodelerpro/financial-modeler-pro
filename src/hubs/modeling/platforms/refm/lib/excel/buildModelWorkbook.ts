@@ -2944,7 +2944,10 @@ function addOpex(ctx: EmitCtx): OpexLinks {
 
   // ── 1. Opex Inputs ───────────────────────────────────────────────────────────
   em.section('1. Opex Inputs (HQ overheads, accounts payable, then one card per line: Hospitality, Retail / Lease)');
+  // Row keys for the formula-linked export (cellRegistry.ts); writes nothing here.
+  em.setRegScope('opexin');
   {
+    em.setRegLine('__hq__');
     em.subTitle('HQ & Corporate Overheads');
     setBasis(ws.getCell(em.cursor() - 1, META_B), 'project-wide');
     const hqLines = state.project.hqOpex?.lines && state.project.hqOpex.lines.length > 0 ? state.project.hqOpex.lines : defaultHQOpexLines();
@@ -2962,6 +2965,7 @@ function addOpex(ctx: EmitCtx): OpexLinks {
   const hospitality = hosts.filter((h) => h.host.strategy === 'Operate');
   const lease = hosts.filter((h) => h.host.strategy === 'Lease');
   {
+    em.setRegLine('__ap__');
     em.subTitle('Accounts Payable (DPO)');
     setBasis(ws.getCell(em.cursor() - 1, META_B), 'project-wide');
     const dflt = state.project.opexAp?.defaultApDays;
@@ -2978,6 +2982,7 @@ function addOpex(ctx: EmitCtx): OpexLinks {
     em.gap();
   }
   const card = ({ host, name }: { host: Asset; name: string }): void => {
+    em.setRegLine(host.id);
     em.subTitle(name);
     const badge = host.strategy === 'Lease' ? 'Retail / Lease' : host.isCompanion === true ? 'Hospitality (Manage side)' : 'Hospitality';
     const phaseName = state.phases.find((p) => p.id === host.phaseId)?.name ?? '';
@@ -2996,6 +3001,7 @@ function addOpex(ctx: EmitCtx): OpexLinks {
 
   // ── 2. Opex Output ───────────────────────────────────────────────────────────
   em.section('2. Opex Output (per-line operating statements by section, the project total, accounts payable)');
+  em.setRegScope('opex');
   const tables = buildOpexReport(snap, state);
   for (const section of REVENUE_SECTIONS) {
     const sectionTables = tables.filter((t) => t.lineKey && t.section === section);
@@ -3005,7 +3011,9 @@ function addOpex(ctx: EmitCtx): OpexLinks {
       const line = revLines.find((l) => l.key === key);
       em.subTitle(line ? revenueLineName(line) : key);
       for (const t of sectionTables.filter((x) => x.lineKey === key)) {
+        em.setRegLine(key);
         em.tableTitle(t.title);
+        em.setRegTable(t.title.endsWith('Operating statistics') ? 'stats' : 'stmt');
         em.emitTable(t.rows);
         em.gap();
       }
@@ -3014,6 +3022,7 @@ function addOpex(ctx: EmitCtx): OpexLinks {
   let totalRow = em.cursor(); let hqRow = -1;
   em.groupBand('Project Total');
   for (const t of tables.filter((x) => !x.lineKey)) {
+    em.setRegLine('__project__');
     em.tableTitle(t.title);
     for (const row of t.rows) {
       const used = em.emitM4(row);
@@ -3026,8 +3035,10 @@ function addOpex(ctx: EmitCtx): OpexLinks {
   // opex incurred, less cash paid, closing; one per line, then HQ, then the project.
   em.groupBand('Accounts Payable (Opex)');
   setBasis(ws.getCell(em.cursor() - 1, META_B), 'DPO-driven AP roll-forward; feeds balance sheet current liabilities and cash paid for opex');
-  const apRoll = (title: string, meta: string, opening: number[], incurredLabel: string, incurred: number[], cashPaid: number[], closing: number[]): void => {
+  const apRoll = (title: string, meta: string, opening: number[], incurredLabel: string, incurred: number[], cashPaid: number[], closing: number[], regLine = ''): void => {
+    em.setRegLine(regLine);
     em.tableTitle(title, meta);
+    em.setRegTable('ap');
     em.moneyRow('Opening AP', opening, { style: 'subtotal', totalValue: opening[0] ?? 0 });
     em.moneyRow(incurredLabel, incurred, { indent: 1 });
     em.moneyRow('Less: Cash Paid', cashPaid.slice(0, N).map((v) => -v), { indent: 1 });
@@ -3038,11 +3049,12 @@ function addOpex(ctx: EmitCtx): OpexLinks {
     const members = line.assetIds.map((id) => snap.ap.byAsset.get(id)).filter((x): x is NonNullable<typeof x> => !!x);
     const pooled = poolResults(members);
     const name = nameOf(members[0].assetId, lineTitle(line, lineState));
-    apRoll(`${name}: AP Roll-Forward`, `DPO ${members[0].effectiveApDays} days`, pooled.result.openingPerPeriod, 'Opex Incurred', pooled.opexIncurredPerPeriod, pooled.result.cashPaidPerPeriod, pooled.result.perPeriod);
+    apRoll(`${name}: AP Roll-Forward`, `DPO ${members[0].effectiveApDays} days`, pooled.result.openingPerPeriod, 'Opex Incurred', pooled.opexIncurredPerPeriod, pooled.result.cashPaidPerPeriod, pooled.result.perPeriod, `ap:${line.assetIds.join('+')}`);
   }
-  apRoll('HQ: AP Roll-Forward', `HQ & Corporate Overheads, DPO ${snap.ap.hq.apDays} days`, snap.ap.hq.result.openingPerPeriod, 'HQ Opex Incurred', snap.ap.hq.opexIncurredPerPeriod, snap.ap.hq.result.cashPaidPerPeriod, snap.ap.hq.result.perPeriod);
+  apRoll('HQ: AP Roll-Forward', `HQ & Corporate Overheads, DPO ${snap.ap.hq.apDays} days`, snap.ap.hq.result.openingPerPeriod, 'HQ Opex Incurred', snap.ap.hq.opexIncurredPerPeriod, snap.ap.hq.result.cashPaidPerPeriod, snap.ap.hq.result.perPeriod, '__hq__');
   const apt = snap.ap.projectTotals;
-  apRoll('Project Total: AP Roll-Forward', 'Sum across every line and HQ. Cash Paid = Opex Incurred less the change in AP.', apt.openingApPerPeriod, 'Opex Incurred', apt.opexIncurredPerPeriod, apt.cashPaidPerPeriod, apt.closingApPerPeriod);
+  apRoll('Project Total: AP Roll-Forward', 'Sum across every line and HQ. Cash Paid = Opex Incurred less the change in AP.', apt.openingApPerPeriod, 'Opex Incurred', apt.opexIncurredPerPeriod, apt.cashPaidPerPeriod, apt.closingApPerPeriod, '__project__');
+  em.setRegScope(null);
 
   // hospRow / retailRow have no per-strategy rollup row on the platform; they
   // feed nothing (addReturns voids the registry), so they point at the total.

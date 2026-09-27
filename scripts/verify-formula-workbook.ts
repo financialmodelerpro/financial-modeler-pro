@@ -389,6 +389,36 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     out.push({ movesRevenue: true, label: `a lease's operations start one year later (${shownStart + 1})`, cell: `revin|${leaseL.key}|Rent Indexation|Operations start year`, col: RC.TOTAL, value: shownStart + 1,
       edit: (s) => { (s.assets as any[]).find((q) => q.id === a.id).revenue.lease.operationsStartYearOverride = shownStart + 1; } });
   } else out.push({ label: 'lease revenue inputs', skip: 'no lease line' });
+
+  // Opex (stage 3c): a line value on each card (a share of revenue, a share of GOP
+  // that was zero, a rate per sqm that was zero), an inflation rate, the DPO.
+  const opexLine = (a: any, pred: (l: any) => boolean): { i: number; l: any } | undefined => {
+    const ls = (a?.opex?.lines ?? []) as any[]; const i = ls.findIndex(pred); return i >= 0 ? { i, l: ls[i] } : undefined;
+  };
+  const cardKey = (a: any, name: string): string => `opexin|${a.id}||${name}`;
+  const setLine = (id: string, i: number, v: number) => (s: Snap): void => { (s.assets as any[]).find((q) => q.id === id).opex.lines[i].value = v; };
+  const hotA = hotL ? earner(hotL) : undefined;
+  const ga = opexLine(hotA, (l) => l.mode === 'pct_of_total_rev' && l.value > 0 && !l.disabled);
+  if (hotA && ga) out.push({ movesRevenue: false, label: `hotel opex, ${ga.l.name} +5 points of total revenue`, cell: cardKey(hotA, ga.l.name), col: RC.OPEN + 1, value: ga.l.value + 0.05, edit: setLine(hotA.id, ga.i, ga.l.value + 0.05) });
+  else out.push({ label: 'a hotel opex share of revenue', skip: 'none' });
+  const inc = opexLine(hotA, (l) => l.mode === 'pct_of_gop' && !l.disabled);
+  if (hotA && inc) out.push({ movesRevenue: false, label: `hotel opex, ${inc.l.name} (on GOP) ${inc.l.value} to ${inc.l.value + 0.08}`, cell: cardKey(hotA, inc.l.name), col: RC.OPEN + 1, value: inc.l.value + 0.08, edit: setLine(hotA.id, inc.i, inc.l.value + 0.08) });
+  else out.push({ label: 'a hotel opex line on GOP', skip: 'none' });
+  const leaseA = leaseL ? earner(leaseL) : undefined;
+  const rm = opexLine(leaseA, (l) => l.mode === 'per_sqm_year' && l.useAssetDefault !== false && !l.disabled);
+  if (leaseA && rm) {
+    out.push({ movesRevenue: false, label: `lease opex, ${rm.l.name} ${rm.l.value} to ${rm.l.value + 50} per sqm (inflated)`, cell: cardKey(leaseA, rm.l.name), col: RC.OPEN + 1, value: rm.l.value + 50, edit: setLine(leaseA.id, rm.i, rm.l.value + 50) });
+    const di = leaseA.opex?.defaultIndexation;
+    if (di?.method && di.method !== 'none') {
+      const r2 = (di.rate ?? 0) + 0.01;
+      out.push({ movesRevenue: false, label: 'lease asset inflation +1 point (on a copy where a per sqm line charges)', cell: `oxfoot|${leaseA.id}|idx`, col: RC.TOTAL, value: r2,
+        edit: (s) => { const q = (s.assets as any[]).find((x) => x.id === leaseA.id); q.opex.defaultIndexation.rate = r2; q.opex.lines[rm.i].value = rm.l.value + 50; },
+        variant: setLine(leaseA.id, rm.i, rm.l.value + 50) });
+    }
+  } else out.push({ label: 'a lease opex rate per sqm', skip: 'none' });
+  const dflt = st.project.opexAp?.defaultApDays ?? 0;
+  out.push({ movesRevenue: false, label: `project default DPO ${dflt} to ${dflt + 45} days`, cell: 'opexin|__ap__||Project Default DPO (days)', col: RC.TOTAL, value: dflt + 45,
+    edit: (s) => { s.project.opexAp = { ...(s.project.opexAp ?? {}), defaultApDays: dflt + 45 }; } });
   return out;
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
