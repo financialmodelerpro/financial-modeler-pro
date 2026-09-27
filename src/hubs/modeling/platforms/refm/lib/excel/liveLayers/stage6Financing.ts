@@ -384,7 +384,8 @@ export const stage6Financing: LiveLayer = {
       }
       const closePre = rClosePre;
       const cashBefore = row(k('cashbefore'), L('cash before this year\'s dividends'), (t) => `${at(closePre, t)}-(${cumDiv(t)})`);
-      const excess0 = row(k('excess'), L('cash above the minimum'), (t) => `MAX(0,${at(cashBefore, t)}-${MIN()})`);
+      // Below half a cent the cash above the floor is a solver residue, not a distribution (the engine's DISTRIBUTION_SNAP).
+      const excess0 = row(k('excess'), L('cash above the minimum'), (t) => `IF(${at(cashBefore, t)}-${MIN()}<0.005,0,${at(cashBefore, t)}-${MIN()})`);
       // Phase EBITDA (revenue less cost of sales less opex, its own assets).
       const phaseDiv: number[] = [];
       for (const p of phases) {
@@ -401,7 +402,7 @@ export const stage6Financing: LiveLayer = {
       }
       for (let t = 0; t < N; t++) {
         const phaseSum = phaseDiv.map((r) => at(r, t)).join('+') || '0';
-        const terminal = t === X ? `+IF(AND(${sc3(divOn)}=1,${at(excess0, t)}>0),MAX(0,${at(cashBefore, t)}-(${phaseSum})),0)` : '';
+        const terminal = t === X ? `+IF(AND(${sc3(divOn)}=1,${at(excess0, t)}>0,${at(cashBefore, t)}-(${phaseSum})>=0.005),${at(cashBefore, t)}-(${phaseSum}),0)` : '';
         w.fA(C(rDiv, cT(t)), `${phaseSum}${terminal}`, tag === 'main' ? { cached: snap.dividends.totalDividendsPerPeriod[t] ?? 0 } : {});
         w.fA(C(rClose, cT(t)), `${at(cashBefore, t)}-${at(rDiv, t)}`, tag === 'main' ? { cached: snap.directCF.closingCashPerPeriod[t] ?? 0 } : {});
       }

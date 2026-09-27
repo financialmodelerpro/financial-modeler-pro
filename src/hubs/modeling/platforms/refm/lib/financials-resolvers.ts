@@ -1163,6 +1163,8 @@ export function computeCashWaterfall(args: {
     if (after) afterSweepPhases.push(after);
   }
 
+  /** Cash above the floor smaller than half a cent is a solver residue, not a distribution. */
+  const DISTRIBUTION_SNAP = 0.005;
   const excessAvailablePerPeriod = new Array<number>(N).fill(0);
   const cashBeforeAllocationPerPeriod = new Array<number>(N).fill(0);
   const totalSweepPerPeriod = new Array<number>(N).fill(0);
@@ -1185,7 +1187,12 @@ export function computeCashWaterfall(args: {
   for (let t = 0; t < N; t++) {
     const cashBefore = (preSweepClosingCash[t] ?? 0) - cumAllocation;
     cashBeforeAllocationPerPeriod[t] = cashBefore;
+    // A RESIDUE IS NOT CASH (2026-09-27): the fixed-point solve can leave the cash a
+    // few hundred-millionths above the floor in a year with nothing to distribute, and
+    // a 0.00000003 dividend then counted as a distribution year (cash on cash averaged
+    // over eight years instead of seven on Marina Gate). Below half a cent is none.
     let excess = Math.max(0, cashBefore - minCashReserve);
+    if (excess < DISTRIBUTION_SNAP) excess = 0;
     excessAvailablePerPeriod[t] = excess;
     if (excess <= 0) {
       adjustedClosingCash[t] = cashBefore;
@@ -1274,7 +1281,7 @@ export function computeCashWaterfall(args: {
       const floor = Math.max(0, terminalCashFloor ?? 0);
       const allocSoFar = (sweepInEngine ? 0 : totalSweepPerPeriod[t]) + totalDividendsPerPeriod[t];
       const terminalExtra = Math.max(0, cashBefore - allocSoFar - floor);
-      if (terminalExtra > 0) {
+      if (terminalExtra >= DISTRIBUTION_SNAP) {
         totalDividendsPerPeriod[t] += terminalExtra;
         terminalPayoutPerPeriod[t] += terminalExtra;
       }

@@ -1152,6 +1152,23 @@ rule the Opex statements already followed for a cost line hidden while zero.
 **Proof:** `verify-formula-workbook` C: the DSO change and a new escrow change (0% to 20% held), each
 adding rows the export did not have, agree on every live cell.
 
+### 3.28 A solver residue counted as an event moves a metric by whole points
+
+**Symptom (2026-09-27, the Returns sheet made live):** Avg Cash-on-Cash read 37.0% on the platform and
+42.3% in the live workbook, on identical streams. Excel's per-year series matched the engine's to the cent.
+
+**Mechanism:** the fixed-point financing left the 2031 cash 0.00000003 above the minimum, the dividend
+engine paid it out, and `cashOnCashSeries` averages over the years WITH a distribution (`> 0`), so the
+average ran over eight years instead of seven. The same residue printed as a 2031 Hurdle Paid of 3e-8.
+A value that small is float noise, but a rule that asks "did anything happen" turns it into an event.
+
+**Fix:** snap at the source: cash above the floor below half a cent is no distribution (`DISTRIBUTION_SNAP`
+in the dividend waterfall, mirrored in the workbook's solve). Marina Gate: 37.0% to 42.3%; every other figure
+moved by float noise only.
+
+**The trap to avoid:** a test "is it non-zero" on the output of an iterative solve. Give it a tolerance at the
+point the quantity is made, the way the facility already snaps a residue balance. `verify-formula-workbook` A8.
+
 ## 4. PDF export (pdf-lib)
 
 ### 4.1 PDF text is glyph ids, so a naive grep returns nothing
