@@ -569,6 +569,31 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
         [...hard, ...(pt.movesRevenue ? [] : lagging)].slice(0, 8).map((x) => x.msg).join('\n        '));
       if (pt.variant) { const { unlinkSync } = await import('node:fs'); unlinkSync(base.path); }
     }
+
+    // D. BEYOND THE WORKBOOK'S YEARS (founder, 2026-09-27: match the platform, and
+    // warn). A phase moved so far that a typed sale year falls past the last year
+    // this workbook has: the platform would grow its axis; this workbook cannot, so
+    // it must leave the velocity unsold and SAY SO, and it must not show a single
+    // Excel error. Compared with no platform run, because the platform's answer
+    // needs years this file does not have.
+    console.log('\n=== D. Real Excel, a phase moved past the workbook\'s years ===');
+    {
+      const st = input.state as unknown as { phases: Array<{ id: string; startDate: string }> };
+      const last = st.phases[st.phases.length - 1];
+      const moved = new Date(`${last.startDate.slice(0, 10)}T00:00:00Z`); moved.setUTCFullYear(moved.getUTCFullYear() + 6);
+      const serial = Math.round((moved.getTime() - Date.UTC(1899, 11, 30)) / 86_400_000);
+      const a = registry.need(`phase:${last.id}:start`);
+      const rd = recalcInExcel(path, [{ ref: `${a.sheet}!${colLetterOf(a.col)}${a.row}`, value: serial }]);
+      const errs = [...rd.cells].filter(([, v]) => typeof v === 'object').map(([k]) => k);
+      check('D1 no cell anywhere in the workbook shows an Excel error', errs.length === 0, errs.slice(0, 6).join(', '));
+      const top = rd.cells.get(cellKey('Revenue', 1, 4));
+      check('D2 the warning at the top of the Revenue sheet appears', typeof top === 'string' && top.startsWith('WARNING'), JSON.stringify(top));
+      const warns = [...rd.cells].filter(([k, v]) => k.startsWith('Revenue!') && typeof v === 'string' && v.startsWith('WARNING:') && v.includes('Typed '));
+      check(`D3 the velocity check names the share outside the model, beside the typed figure (${warns.length} line${warns.length === 1 ? '' : 's'})`, warns.length > 0, '');
+      const okBefore = [...rec.cells].filter(([k, v]) => k.startsWith('Revenue!') && typeof v === 'string' && (v.startsWith('WARNING') || v.startsWith('OK: all')));
+      check('D4 before the change every line reads OK and the top warning is blank', okBefore.every(([, v]) => String(v).startsWith('OK: all')) && okBefore.length > 0 && rec.cells.get(cellKey('Revenue', 1, 4)) === undefined,
+        okBefore.filter(([, v]) => !String(v).startsWith('OK')).map(([k]) => k).join(', '));
+    }
   }
 
   console.log(`\n${failed === 0 ? 'ALL PASS' : 'FAILURES'}: ${passed} passed, ${failed} failed`);

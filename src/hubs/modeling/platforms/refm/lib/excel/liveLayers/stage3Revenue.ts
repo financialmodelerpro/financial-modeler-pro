@@ -250,7 +250,7 @@ export const stage3Revenue: LiveLayer = {
     };
 
     // Per-line results the visible rows read (keys of calc rows, by series).
-    interface SellRes { preRev: number; postRev: number; preArea: number; postArea: number; cashPre: number; recPre: number; arClose: number; urClose: number; mat: number[]; factor: number; su: Map<string, { A: number; pre: { area: number; rev: number }; post: { area: number; rev: number } }>; H: () => string; line: RevenueLine; phase: Phase }
+    interface SellRes { preRev: number; postRev: number; preArea: number; postArea: number; cashPre: number; recPre: number; arClose: number; urClose: number; mat: number[]; factor: number; su: Map<string, { A: number; pre: { area: number; rev: number; v: number }; post: { area: number; rev: number; v: number } }>; H: () => string; line: RevenueLine; phase: Phase }
     interface HotelRes { win: { s: () => string; e: () => string }; inOps: number; occ: number; factor: number; adr: number; arn: number; orn: number; guests: number; rooms: number; fb: number; other: number; total: number; keys: number; days: () => string; fbPct: () => string; otherPct: () => string; guestsIn: () => string }
     interface LeaseRes { win: { s: () => string; e: () => string }; inOps: number; occ: number; factor: number; rate: number; occupied: number; rev: number; gla: number; su: Map<string, { gla: number; rate: number; occ: number; rev: number }> }
     const sellRes = new Map<string, SellRes>();
@@ -303,7 +303,7 @@ export const stage3Revenue: LiveLayer = {
           };
           const pre = pass('pre', null);
           const post = pass('post', pre.last);
-          suMap.set(u.id, { A: sc, pre: { area: pre.rows.area, rev: pre.rows.rev }, post: { area: post.rows.area, rev: post.rows.rev } });
+          suMap.set(u.id, { A: sc, pre: { area: pre.rows.area, rev: pre.rows.rev, v: pre.rows.v }, post: { area: post.rows.area, rev: post.rows.rev, v: post.rows.v } });
           passRows.push({ pre: [pre.rows.area, pre.rows.rev], post: [post.rows.area, post.rows.rev] });
         }
         const sum = (key: string, label: string, pick: (s: SellRes['su'] extends Map<string, infer V> ? V : never) => number): number => {
@@ -601,6 +601,45 @@ export const stage3Revenue: LiveLayer = {
         row(O(l, '2.', 'Total Lease Revenue'), (t) => at(lr.rev, t));
       }
       void name;
+    }
+
+    // ── THE VELOCITY CHECK (founder, 2026-09-27: match the platform, and warn) ──
+    // The platform's years grow with its phases, so every typed velocity is always
+    // sold there. This workbook's years are FIXED at export, so a phase moved or
+    // lengthened past them leaves some typed velocity in years it does not have.
+    // Excel cannot ask what to do, and failing would leave a sheet of errors, so the
+    // velocity is left where the platform would put it (those years are simply not
+    // in this workbook: the area stays unsold in closing inventory here) and a
+    // visible warning says so, with the typed and the in-model figures side by side.
+    fr += 1;
+    setLabel(rv.getCell(fr, 1), 'Velocity check: does every typed sales velocity fall inside this workbook\'s years?', { bold: true });
+    fillRange(rv, fr, 1, fr, OPEN_COL + N, ARGB.subtotal);
+    fr += 1;
+    setLabel(rv.getCell(fr, 1), 'Line / sub-unit', { bold: true }); setLabel(rv.getCell(fr, 2), 'Result', { bold: true });
+    setLabel(rv.getCell(fr, TOTAL_COL), 'Typed', { bold: true }); setLabel(rv.getCell(fr, OPEN_COL), 'Inside the model', { bold: true });
+    fr += 1;
+    const warnCells: string[] = [];
+    for (const [key, sr] of sellRes) {
+      const l = sr.line;
+      for (const u of l.subUnits) {
+        const su = sr.su.get(u.id); if (!su) continue;
+        const nm = u.name || 'sub-unit';
+        setLabel(rv.getCell(fr, 1), `${revenueLineName(l)} / ${nm}`, { indent: 1 });
+        const inRows = [K(l, 'Pre-Sales velocity', nm), K(l, 'Sales During Operation', nm)].filter(has).map((k) => w.addr(k).row);
+        w.fA({ sheet: REV, row: fr, col: TOTAL_COL }, inRows.length ? inRows.map((r) => `SUM(${w.rangeA(REV, r, pc(0), pc(N - 1))})`).join('+') : '0', { numFmt: NUMFMT.pct2 });
+        w.fA({ sheet: REV, row: fr, col: OPEN_COL }, `SUM(${rowRange(CALC, su.pre.v, cT(0), cT(N - 1))})+SUM(${rowRange(CALC, su.post.v, cT(0), cT(N - 1))})`, { numFmt: NUMFMT.pct2 });
+        const typed = (): string => w.refA({ sheet: REV, row: fr, col: TOTAL_COL }), inside = (): string => w.refA({ sheet: REV, row: fr, col: OPEN_COL });
+        w.fA({ sheet: REV, row: fr, col: 2 }, `IF(${inside()}<${typed()}-1E-9,"WARNING: "&TEXT(${typed()}-${inside()},"0.00%")&" of the typed velocity falls in years this workbook does not have (a phase change needs more years than were exported), so it is not sold here and stays in closing inventory. Typed "&TEXT(${typed()},"0.00%")&", inside the model "&TEXT(${inside()},"0.00%")&". Re-export from the platform to include those years.","OK: all "&TEXT(${typed()},"0.00%")&" of the typed velocity falls inside the model's years.")`);
+        warnCells.push(`${w.refA({ sheet: REV, row: fr, col: OPEN_COL })}<${w.refA({ sheet: REV, row: fr, col: TOTAL_COL })}-1E-9`);
+        rv.addConditionalFormatting({ ref: `B${fr}`, rules: [{ type: 'expression', priority: 1, formulae: [`LEFT(B${fr},7)="WARNING"`], style: { font: { bold: true, color: { argb: 'FFC00000' } }, fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: 'FFFDE9E7' } } } }] } as unknown as Parameters<typeof rv.addConditionalFormatting>[0]);
+        void key;
+        fr += 1;
+      }
+    }
+    // One line at the top of the sheet, blank while every velocity fits.
+    if (warnCells.length) {
+      w.fA({ sheet: REV, row: 1, col: TOTAL_COL }, `IF(OR(${warnCells.join(',')}),"WARNING: typed sales velocity falls outside this workbook's years after a phase change; see the velocity check at the foot of this sheet.","")`, { cached: '' });
+      rv.getCell(1, TOTAL_COL).font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFC00000' } };
     }
 
     // The project totals, three views, grouped by section as the builder groups them.
