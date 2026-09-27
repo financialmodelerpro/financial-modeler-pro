@@ -26,8 +26,8 @@
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 import type ExcelJS from 'exceljs';
-import { buildModelWorkbook, enableIterativeCalc } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
-import { buildFormulaWorkbook } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
+import { buildModelWorkbook } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
+import { buildFormulaWorkbook, enableFormulaIteration } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
 import { loadLiveExportInputs } from './fixtures/liveExportInputs';
 import { excelAvailable, recalcInExcel, cellKey } from './excelRecalc';
 import JSZip from 'jszip';
@@ -78,10 +78,15 @@ function mapRows(sheet: string, basePws: ExcelJS.Worksheet, pertPws: ExcelJS.Wor
   // (what a diff does), so a row that disappears in one table cannot pair a row
   // below it with a same-named row in the next table. Unlabelled rows keep their
   // distance from the labelled row above, when that row paired.
+  // A label that PRINTS A FIGURE (a fund fee's base, "0.50% of Fund size 742.9 m")
+  // changes when the figure does, so the figure is masked for the pairing: a
+  // decimal or a number of five or more digits. Years and small counts are kept,
+  // so "Spent in 2028" still pairs with itself and nothing else (2026-09-27).
+  const key = (l: string): string => l.replace(/\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d[\d,]*\.\d+|\d{5,}/g, '#');
   const L: Array<{ r: number; l: string }> = [];
-  for (let r = 1; r <= basePws.rowCount; r++) { const l = liveLabel(r); if (l) L.push({ r, l }); }
+  for (let r = 1; r <= basePws.rowCount; r++) { const l = liveLabel(r); if (l) L.push({ r, l: key(l) }); }
   const P: Array<{ r: number; l: string }> = [];
-  for (let r = 1; r <= pertPws.rowCount; r++) { const l = text(pertPws.getCell(r, 1).value); if (l) P.push({ r, l }); }
+  for (let r = 1; r <= pertPws.rowCount; r++) { const l = text(pertPws.getCell(r, 1).value); if (l) P.push({ r, l: key(l) }); }
   const n = L.length, m = P.length;
   const dp: Uint16Array[] = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
   for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) {
@@ -132,7 +137,7 @@ function compareLive(basePlain: ExcelJS.Workbook, pertPlain: ExcelJS.Workbook, w
       if (m === undefined) { if (e !== undefined && e !== 0) layout.push(addr); return; }
       const o = plainAt(pertPlain, ws.name, m, c);
       if (typeof o === 'number') {
-        if (typeof e !== 'number' || Math.abs(e - o) > tolFor(ws.name, o)) bad.push({ addr, kind: 'number', msg: `${addr}${m !== r ? ` (platform row ${m})` : ''}: Excel ${JSON.stringify(e)} vs platform ${o}` });
+        if (typeof e !== 'number' || Math.abs(e - o) > tolFor(ws.name, o, rowPeak(pertPlain, ws.name, m))) bad.push({ addr, kind: 'number', msg: `${addr}${m !== r ? ` (platform row ${m})` : ''}: Excel ${JSON.stringify(e)} vs platform ${o}` });
       } else if (typeof o === 'string') {
         const ok = typeof e === 'string' ? e.trim() === o.trim()
           : typeof e === 'number' && /^[A-Z][a-z]{2} \d{4}$/.test(o) && monthYear(e) === o;
@@ -426,6 +431,18 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   out.push({ movesRevenue: false, label: `the tax rate ${(taxRate * 100).toFixed(2)}% to ${((taxRate + 0.01) * 100).toFixed(2)}%`, cell: 'project:taxRate', value: taxRate + 0.01,
     edit: (s) => { s.project.tax = { ...(s.project.tax ?? {}), rate: taxRate + 0.01 }; } });
 
+  // Financing (stage 6): the minimum cash reserve (the Method 3 deficit, the IDC
+  // headroom, the sweep and dividends all turn on it), and escrow, whose rows the
+  // statements print only while non-zero (a total must carry them unshown).
+  const minC = st.project.financing?.minimumCashReserve ?? 0;
+  out.push({ movesRevenue: false, label: `the minimum cash reserve ${minC} to ${minC + 15_000_000}`, cell: 'fin|1. Project Financing Settings|Minimum Cash Reserve', col: RC.TOTAL, value: minC + 15_000_000,
+    edit: (s) => { (s.project.financing as { minimumCashReserve?: number }).minimumCashReserve = minC + 15_000_000; } });
+  const held = st.project.escrow?.heldPct ?? 0;
+  if (held === 0 && reg.get('esc|||Project Held % (regulator-locked)')) {
+    out.push({ movesRevenue: false, label: 'escrow held on pre-sales cash 0% to 20% (rows the statements print only while non-zero)', cell: 'esc|||Project Held % (regulator-locked)', col: RC.TOTAL, value: 0.2,
+      edit: (s) => { s.project.escrow = { ...(s.project.escrow ?? {}), heldPct: 0.2 }; } });
+  } else out.push({ label: 'escrow held from zero', skip: held ? 'escrow already held' : 'no escrow inputs on the Revenue sheet' });
+
   // Schedules (stage 4): a held line's useful life, and the project DSO.
   const lifeHost = hotA ?? leaseA;
   if (lifeHost && reg.get(`fain:${lifeHost.id}`)) {
@@ -448,13 +465,35 @@ function check(label: string, ok: boolean, detail = ''): void {
   else { failed++; fails.push(label); console.log(`  [FAIL] ${label}${detail ? `\n        ${detail}` : ''}`); }
 }
 
-/** Sheets whose figures come out of the circular financing: 1 currency unit, the engine's tolerance. */
-const CIRCULAR_SHEETS = new Set<string>([]);
-const tolFor = (sheet: string, v: number): number =>
-  // EXACT, in money terms: the smaller of half a cent and one part in a billion, never
-  // below a millionth of a currency unit, the float noise of summing hundred-million
-  // figures in a different order (a check residue the platform holds as -7.45e-9).
-  CIRCULAR_SHEETS.has(sheet) ? 1 : Math.max(1e-6, Math.min(0.005, 1e-9 * Math.max(1, Math.abs(v))));
+/**
+ * EXACT, in money terms: the smaller of half a cent and one part in a billion of the
+ * figures in play, never below a millionth of a currency unit.
+ *
+ * "The figures in play" is the larger of the cell and the largest figure on its ROW
+ * (2026-09-27, stage 6). A near-zero result of hundred-million figures (a net cash
+ * flow that nets to nothing) carries the float residue of summing them in a
+ * different order: the platform holds 8.4e-5 where Excel lands on exactly 0. Scaled
+ * to the cell alone that residue failed; scaled to the row it is a billionth of the
+ * money being netted, and the cap still holds every cell to half a cent.
+ */
+const tolFor = (_sheet: string, v: number, rowPeak = 0): number =>
+  Math.max(1e-6, Math.min(0.005, 1e-9 * Math.max(1, Math.abs(v), Math.abs(rowPeak))));
+/** The largest absolute figure on a sheet row of a workbook (cached per workbook). */
+const PEAKS = new WeakMap<ExcelJS.Workbook, Map<string, number>>();
+function rowPeak(wb: ExcelJS.Workbook, sheet: string, row: number): number {
+  if (!PEAKS.has(wb)) PEAKS.set(wb, new Map());
+  const cache = PEAKS.get(wb)!;
+  const key = `${sheet}!${row}`;
+  if (cache.has(key)) return cache.get(key)!;
+  let peak = 0;
+  wb.getWorksheet(sheet)?.findRow(row)?.eachCell((c) => {
+    const v = c.value as unknown;
+    const x = v && typeof v === 'object' && 'result' in (v as object) ? (v as { result: unknown }).result : v;
+    if (typeof x === 'number' && Number.isFinite(x)) peak = Math.max(peak, Math.abs(x));
+  });
+  cache.set(key, peak);
+  return peak;
+}
 
 type Num = { key: string; sheet: string; row: number; col: number; v: number };
 function numbers(wb: ExcelJS.Workbook): Map<string, Num> {
@@ -500,7 +539,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     const b = built.get(k);
     // ExcelJS writes no cached value for a result of 0 (it copies only truthy fields),
     // and the file recalculates on load, so a missing cache over a platform 0 is equal.
-    if (formulas.has(k)) { if (!b && n.v === 0) continue; if (!b || Math.abs(b.v - n.v) > tolFor(n.sheet, n.v)) { cacheDiff++; if (cacheBad.length < 5) cacheBad.push(`${k}: cached ${b?.v} vs platform ${n.v}`); } }
+    if (formulas.has(k)) { if (!b && n.v === 0) continue; if (!b || Math.abs(b.v - n.v) > tolFor(n.sheet, n.v, rowPeak(plain, n.sheet, n.row))) { cacheDiff++; if (cacheBad.length < 5) cacheBad.push(`${k}: cached ${b?.v} vs platform ${n.v}`); } }
     else if (!b || b.v !== n.v) untouchedDiff++;
   }
   check('A3 every cell no layer touched is exactly the hardcoded value', untouchedDiff === 0, `${untouchedDiff} differ`);
@@ -518,7 +557,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     && [...formulas.keys()].some((k) => k.startsWith(`${name}!`))).map(([n]) => n);
   check('A6b a sheet reported as values carries no formula', valuesWithFormulas.length === 0, valuesWithFormulas.join(', '));
 
-  const buf = await enableIterativeCalc((await wb.xlsx.writeBuffer()) as ArrayBuffer);
+  const buf = await enableFormulaIteration((await wb.xlsx.writeBuffer()) as ArrayBuffer);
   const calcPr = (await (await JSZip.loadAsync(buf)).file('xl/workbook.xml')!.async('string')).match(/<calcPr[^>]*>/)?.[0] ?? '';
   check('A7 iterative calculation is switched on in the file', /iterate="1"/.test(calcPr), calcPr);
   mkdirSync('exports', { recursive: true });
@@ -545,7 +584,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       ps.compared++;
       if (e === undefined) { ps.bad.push(`${k}: missing in Excel (platform ${n.v})`); continue; }
       if (typeof e !== 'number') { ps.bad.push(`${k}: Excel ${JSON.stringify(e)} vs platform ${n.v}`); continue; }
-      if (Math.abs(e - n.v) > tolFor(n.sheet, n.v)) ps.bad.push(`${k}: Excel ${e} vs platform ${n.v} (diff ${(e - n.v).toPrecision(4)})`);
+      if (Math.abs(e - n.v) > tolFor(n.sheet, n.v, rowPeak(plain, n.sheet, n.row))) ps.bad.push(`${k}: Excel ${e} vs platform ${n.v} (diff ${(e - n.v).toPrecision(4)})`);
     }
     for (const [k, e] of rec.cells) if (typeof e === 'object') { errors++; if (errList.length < 5) errList.push(`${k}: Excel error ${e.error}`); }
     check('B2 no cell recalculates to an Excel error', errors === 0, errList.join('; '));
@@ -576,9 +615,9 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       const { wb: bad } = buildFormulaWorkbook(opts);
       bad.getWorksheet(victim.sheet)!.getCell(victim.row, victim.col).value = victim.v + 1;
       const badPath = `exports/${input.projectName} - Live Model (sabotaged copy).xlsx`;
-      writeFileSync(badPath, Buffer.from(await enableIterativeCalc((await bad.xlsx.writeBuffer()) as ArrayBuffer)));
+      writeFileSync(badPath, Buffer.from(await enableFormulaIteration((await bad.xlsx.writeBuffer()) as ArrayBuffer)));
       const r2 = recalcInExcel(badPath);
-      const caught = [...oracle].filter(([k, n]) => { const e = r2.cells.get(k); return typeof e !== 'number' || Math.abs(e - n.v) > tolFor(n.sheet, n.v); }).map(([k]) => k);
+      const caught = [...oracle].filter(([k, n]) => { const e = r2.cells.get(k); return typeof e !== 'number' || Math.abs(e - n.v) > tolFor(n.sheet, n.v, rowPeak(plain, n.sheet, n.row)); }).map(([k]) => k);
       check('B0 the comparison fires: a copy with one figure off by 1 is caught at exactly that cell', caught.length === 1 && caught[0] === victim.key, caught.slice(0, 3).join(', '));
       const { unlinkSync } = await import('node:fs'); unlinkSync(badPath);
     }
@@ -598,7 +637,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
         const vOpts = { ...opts, state: platformAfterEdit(vs as never) as typeof input.state };
         const built = buildFormulaWorkbook(vOpts);
         const vPath = `exports/${input.projectName} - Live Model (test copy).xlsx`;
-        writeFileSync(vPath, Buffer.from(await enableIterativeCalc((await built.wb.xlsx.writeBuffer()) as ArrayBuffer)));
+        writeFileSync(vPath, Buffer.from(await enableFormulaIteration((await built.wb.xlsx.writeBuffer()) as ArrayBuffer)));
         base = { wb: built.wb, registry: built.registry, plain: buildModelWorkbook(vOpts), path: vPath, opts: vOpts, pending: built.pending };
         const untouched = compareLive(base.plain, base.plain, base.wb, recalcInExcel(vPath));
         check(`C ${pt.label}: the test copy recalculates to the platform before the change`, untouched.bad.length === 0 && untouched.layout.length === 0, untouched.bad.slice(0, 6).map((x) => x.msg).join('\n        '));

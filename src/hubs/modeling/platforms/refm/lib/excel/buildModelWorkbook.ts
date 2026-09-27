@@ -542,13 +542,13 @@ export async function generateModelWorkbookBuffer(opts: BuildModelOptions): Prom
  * Post-process the .xlsx zip to add iterate / iterateCount / iterateDelta to
  * xl/workbook.xml so Excel converges the circular formulas on open.
  */
-export async function enableIterativeCalc(buf: ArrayBuffer): Promise<ArrayBuffer> {
+export async function enableIterativeCalc(buf: ArrayBuffer, iteration: { count: number; delta: number } = { count: 100, delta: 0.001 }): Promise<ArrayBuffer> {
   try {
     const zip = await JSZip.loadAsync(buf);
     const f = zip.file('xl/workbook.xml');
     if (!f) return buf;
     let xml = await f.async('string');
-    const ITER = 'iterate="1" iterateCount="100" iterateDelta="0.001"';
+    const ITER = `iterate="1" iterateCount="${iteration.count}" iterateDelta="${iteration.delta}"`;
     if (/<calcPr\b/.test(xml)) {
       xml = xml.replace(/<calcPr\b([^>]*?)\/>/, (_m, attrs: string) => {
         const cleaned = attrs.replace(/\s+iterate(Count|Delta)?="[^"]*"/g, '');
@@ -721,6 +721,8 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
     ['Term', 'Value', 'Unit', 'Note'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : i === 1 ? 'right' : 'left')); r += 1;
     const termRow = (label: string, value: number | string, numFmt: string, unit: string, note: string): void => {
       setLabel(ws.getCell(`A${r}`), label);
+      // Keyed for the formula-linked export (cellRegistry.ts); writes nothing here.
+      registerCell(`ft:${label}`, ws, ws.getCell(`B${r}`));
       setInput(ws.getCell(`B${r}`), value, numFmt);
       setLabel(ws.getCell(`C${r}`), unit);
       setLabel(ws.getCell(`D${r}`), note);
@@ -752,6 +754,7 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       ['Base', 'Amount', '', 'How it is resolved'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 1 ? 'right' : 'left')); r += 1;
       for (const cr of capRows) {
         setLabel(ws.getCell(`A${r}`), cr.isTotal ? `= ${cr.label}` : cr.label, { bold: cr.isTotal });
+        registerCell(`ftcap:${cr.label}`, ws, ws.getCell(`B${r}`));
         const vc = ws.getCell(`B${r}`); vc.value = cr.amount; vc.numFmt = NUMFMT.money; vc.font = { name: 'Calibri', size: BODY_SIZE, bold: cr.isTotal, color: { argb: ARGB.formula } };
         setLabel(ws.getCell(`D${r}`), cr.note);
         r += 1;
@@ -3084,6 +3087,16 @@ function addFinancing(ctx: EmitCtx): FinLinks {
   const nz = (a: readonly number[] | undefined): boolean => sl(a).some((v) => Math.abs(v ?? 0) > 0.005);
   const last = lastActiveCol(N);
   let r = 5;
+  // Row keys for the formula-linked export (cellRegistry.ts): fin|<section>|<label>,
+  // the section being the sub-title or facility band above the row. Writes nothing here.
+  let regSec = '';
+  const regCounts = new Map<string, number>();
+  const regRow = (label: string): void => {
+    const base = `fin|${regSec}|${label}`;
+    const n = regCounts.get(base) ?? 0;
+    regCounts.set(base, n + 1);
+    registerCell(n ? `${base}~${n}` : base, ws, ws.getCell(r, LBL_COL));
+  };
 
   // ── Cell writers ───────────────────────────────────────────────────────────
   const constCell = (cell: ExcelJS.Cell, v: number | string, numFmt: string): void => {
@@ -3092,6 +3105,7 @@ function addFinancing(ctx: EmitCtx): FinLinks {
   /** A scalar in the Total column. `input` shades it: a value the user types on
    *  the platform. Derived figures stay formula-black. */
   const scalar = (label: string, value: number | string, numFmt: string, basis: string, input = false, indent?: number): void => {
+    regRow(label);
     setLabel(ws.getCell(r, LBL_COL), label, { indent });
     if (basis) setBasis(ws.getCell(r, META_B), basis);
     const cell = ws.getCell(r, TOTAL_COL);
@@ -3105,12 +3119,14 @@ function addFinancing(ctx: EmitCtx): FinLinks {
     r += 1;
   };
   const subTitle = (text: string): void => {
+    regSec = text;
     setLabel(ws.getCell(r, LBL_COL), text, { bold: true });
     fillRange(ws, r, 1, r, last, ARGB.subtotal);
     for (let c = 1; c <= last; c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
     r += 1;
   };
   const groupBand = (text: string): void => {
+    regSec = text;
     setLabel(ws.getCell(r, LBL_COL), text, { bold: true });
     fillRange(ws, r, 1, r, last, ARGB.navy);
     for (let c = 1; c <= last; c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
@@ -3127,6 +3143,7 @@ function addFinancing(ctx: EmitCtx): FinLinks {
     const ov = blank ? undefined : Number(row.totalOverride);
     const stated = ov !== undefined && Number.isFinite(ov) ? ov : undefined;
     const strong = !!(row.isTotal || row.isSubtotal);
+    regRow(row.label);
     setLabel(ws.getCell(r, LBL_COL), row.label, { indent: row.indent, bold: strong });
     if (basis) setBasis(ws.getCell(r, META_B), basis);
     const vals = row.values ?? [];
@@ -3149,6 +3166,7 @@ function addFinancing(ctx: EmitCtx): FinLinks {
   };
   /** A per-period INPUT row (a schedule the user types, one cell per year). */
   const inputSeries = (label: string, values: number[], numFmt: string, basis: string): void => {
+    regRow(label);
     setLabel(ws.getCell(r, LBL_COL), label, { indent: 1 });
     if (basis) setBasis(ws.getCell(r, META_B), basis);
     for (let t = 0; t < N; t++) setInput(ws.getCell(r, pcol(t)), values[t] ?? 0, numFmt);
@@ -4011,7 +4029,10 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
   };
   // Scalar row: label in A, value in the Total column (D). `input` shades it as
   // an assumption the user edits on the platform.
+  // Row keys for the formula-linked export (cellRegistry.ts): ret|<label>, ~n on a repeat. Writes nothing here.
+  const retRegCounts = new Map<string, number>();
   const scalarRow = (label: string, value: number | string, numFmt: string, opts: { bold?: boolean; input?: boolean; basis?: string } = {}): void => {
+    { const n = retRegCounts.get(label) ?? 0; retRegCounts.set(label, n + 1); registerCell(n ? `ret|${label}~${n}` : `ret|${label}`, ws, ws.getCell(r, LBL_COL)); }
     setLabel(ws.getCell(r, LBL_COL), label, { bold: opts.bold });
     const c = ws.getCell(r, TOTAL_COL); c.value = value; c.numFmt = numFmt;
     c.font = { name: 'Calibri', size: BODY_SIZE, bold: opts.bold, color: { argb: opts.bold ? ARGB.navy : ARGB.formula } };

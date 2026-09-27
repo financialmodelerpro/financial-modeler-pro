@@ -328,6 +328,9 @@ export const stage5Statements: LiveLayer = {
       const K = (label: string): string => `cf|${view}||${label}`;
       const C2 = (label: string, t: number): string => (has(K(label)) ? w.refA({ sheet: CF, row: w.addr(K(label)).row, col: pc(t) }) : '0');
       const sumRows = (labs: string[]): F => (t) => labs.filter((l) => has(K(l))).map((l) => C2(l, t)).join('+') || '0';
+      /** A phase's escrow: its revenue lines' held or released cash (the escrow working rows). */
+      const phaseEscrow = (kind: 'held' | 'release'): F => (t) => lines.filter((l) => l.phaseId === phaseId && has(`escc:${l.key}:${kind}`))
+        .map((l) => w.refA({ sheet: 'Cost of Sales Calc', row: w.addr(`escc:${l.key}:${kind}`).row, col: 4 + t })).join('+') || '0';
       const cursor = new Map<string, number>();
       const financing: string[] = [];
       const operating: string[] = [];
@@ -366,8 +369,8 @@ export const stage5Statements: LiveLayer = {
             else if (L === '(+) Change in Escrow balance') f = (t) => `-((${escClose(t)})-(${prevOf(escClose, t)}))`;
           }
         } else if (L === 'Total Revenue Received') f = (t) => `${sumF(res.map(revRcv))(t)}+${opCash(t)}`;
-        else if (L === 'Less: Inaccessible Funds Locked' && !phaseFiltered) f = (t) => `-${revCell(escB('Total Additions'), t)}`;
-        else if (L === 'Add: Release of Inaccessible Funds' && !phaseFiltered) f = (t) => `-${revCell(escB('Less: Release of Locked Funds'), t)}`;
+        else if (L === 'Less: Inaccessible Funds Locked') f = phaseFiltered ? neg(phaseEscrow('held')) : (t) => `-${revCell(escB('Total Additions'), t)}`;
+        else if (L === 'Add: Release of Inaccessible Funds') f = phaseFiltered ? phaseEscrow('release') : (t) => `-${revCell(escB('Less: Release of Locked Funds'), t)}`;
         else if (L.startsWith('HQ Expenses')) f = neg(hqPaid);
         else if (L === '= Residential Cash Collection') f = (t) => `${sumF(res.map(revRcv))(t)}-(${sumF(res.map(opexPaid))(t)})`;
         else if (L === '= Hospitality EBITDA') f = (t) => `${sumF(hosp.map(revRcv))(t)}-(${sumF(hosp.map(opexPaid))(t)})`;
@@ -375,7 +378,20 @@ export const stage5Statements: LiveLayer = {
         else if (L === 'Total Operating Expenses Paid') f = (t) => `-(${sumF(all.map(opexPaid))(t)})-${hqPaid(t)}`;
         else if (L === 'Fund Management and Other Expenses') f = (t) => `-(${feeRows.map((fr) => at(fr, t)).join('+') || '0'})`;
         else if (L === labels.taxPaid) { const tk = plKey(`${labels.tax} (`); if (tk) f = (t) => w.refA({ sheet: PL, row: w.addr(tk).row, col: pc(t) }); }
-        else if (L === 'Cash Flow from Operations') f = sumRows(['Total Revenue Received', 'Less: Inaccessible Funds Locked', 'Add: Release of Inaccessible Funds', 'Total Operating Expenses Paid', 'Fund Management and Other Expenses', labels.taxPaid]);
+        else if (L === 'Cash Flow from Operations') {
+          // A TOTAL CARRIES EVERY COMPONENT, SHOWN OR NOT (2026-09-27): the platform
+          // prints the escrow, fee and tax rows only while non-zero, so a row absent
+          // at export is added here by its own rule, or an input that makes it
+          // non-zero would reach the platform's total and never this one.
+          const escrowIn = (t: number): string => (has(K('Less: Inaccessible Funds Locked')) ? '0'
+            : phaseFiltered ? `-(${phaseEscrow('held')(t)})+(${phaseEscrow('release')(t)})`
+              : !hasEscrow ? '0' : `-${revCell(escB('Total Additions'), t)}-${revCell(escB('Less: Release of Locked Funds'), t)}`);
+          const feesIn = (t: number): string => (phaseFiltered || has(K('Fund Management and Other Expenses')) || !feeRows.length ? '0' : `-(${feeRows.map((fr) => at(fr, t)).join('+')})`);
+          const taxKey = plKey(`${labels.tax} (`);
+          const taxIn = (t: number): string => (phaseFiltered || has(K(labels.taxPaid)) || !taxKey ? '0' : w.refA({ sheet: PL, row: w.addr(taxKey).row, col: pc(t) }));
+          const shown = sumRows(['Total Revenue Received', 'Less: Inaccessible Funds Locked', 'Add: Release of Inaccessible Funds', 'Total Operating Expenses Paid', 'Fund Management and Other Expenses', labels.taxPaid]);
+          f = (t) => `${shown(t)}+${escrowIn(t)}+${feesIn(t)}+${taxIn(t)}`;
+        }
         else if (L.startsWith('Land In-Kind')) f = neg(inKind);
         else if (L === 'Total Capex') f = (t) => `-(${cash(t)})-(${inKind(t)})`;
         else if (L === 'Proceeds from Disposal of Operating Assets') f = (t) => at(proceeds, t);
@@ -464,7 +480,9 @@ export const stage5Statements: LiveLayer = {
       else if (L === 'Residential Sales Receivables') f = resAr;
       else if (L === 'Inventory (Residential WIP)') f = has('schc:A3:close') ? sc('schc:A3:close') : undefined;
       else if (L === 'Restricted Cash (Escrow)') f = escClose;
-      else if (L === 'Total Current Assets') f = sumB(['Cash', 'Accounts Receivable (Operating)', 'Residential Sales Receivables', 'Inventory (Residential WIP)', 'Restricted Cash (Escrow)']);
+      // A TOTAL CARRIES EVERY COMPONENT, SHOWN OR NOT: the operating receivable and
+      // escrow rows appear only while non-zero, so an absent one is added by its rule.
+      else if (L === 'Total Current Assets') f = (t) => `${sumB(['Cash', 'Accounts Receivable (Operating)', 'Residential Sales Receivables', 'Inventory (Residential WIP)', 'Restricted Cash (Escrow)'])(t)}${hasB('Accounts Receivable (Operating)') ? '' : `+${opArProject(t)}`}${hasB('Restricted Cash (Escrow)') ? '' : `+(${escClose(t)})`}`;
       else if (L === 'TOTAL ASSETS') f = sumB(['Total Fixed Assets', 'Total Current Assets']);
       else if (L === 'Accounts Payable') f = apClose;
       else if (L === 'Unearned Revenue (Off-plan advances)') f = unearned;

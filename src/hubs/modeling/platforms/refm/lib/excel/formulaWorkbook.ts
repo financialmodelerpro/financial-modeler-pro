@@ -40,6 +40,8 @@ import { stage3Cos } from './liveLayers/stage3Cos';
 import { stage3Opex } from './liveLayers/stage3Opex';
 import { stage4Schedules } from './liveLayers/stage4Schedules';
 import { stage5Statements } from './liveLayers/stage5Statements';
+import { stage6Financing } from './liveLayers/stage6Financing';
+import { stage6bFinancingSheet } from './liveLayers/stage6bFinancingSheet';
 
 export type SheetStatus = 'live' | 'partial' | 'values' | 'values-by-design' | 'front';
 
@@ -65,7 +67,7 @@ export interface LiveLayer {
 
 /** The layers, in dependency order. */
 // Revenue before Capex: Capex's selling costs read the revenue a line earns.
-export const LIVE_LAYERS: LiveLayer[] = [stage1LandArea, stage3Revenue, stage2Capex, stage3Cos, stage3Opex, stage4Schedules, stage5Statements];
+export const LIVE_LAYERS: LiveLayer[] = [stage1LandArea, stage3Revenue, stage2Capex, stage3Cos, stage3Opex, stage4Schedules, stage5Statements, stage6Financing, stage6bFinancingSheet];
 
 /** Sheets that are values by the founder's decision (2026-09-27), never live. */
 const BY_DESIGN: Record<string, string> = {
@@ -113,10 +115,21 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
   return { wb, registry, status, pending };
 }
 
+/**
+ * THE LIVE WORKBOOK ITERATES FURTHER THAN THE HARDCODED ONE (2026-09-27, stage 6):
+ * two coupled fixed-point solves (the fee-free one and the real one) must settle
+ * to the platform's exact fixed point, so 1,000 passes to a millionth of a unit.
+ * The hardcoded export keeps its own setting, byte-identical.
+ */
+export const FORMULA_ITERATION = { count: 1000, delta: 0.000001 };
+export function enableFormulaIteration(buf: ArrayBuffer): Promise<ArrayBuffer> {
+  return enableIterativeCalc(buf, FORMULA_ITERATION);
+}
+
 export async function generateFormulaWorkbookBuffer(opts: BuildModelOptions): Promise<ArrayBuffer> {
   const { wb } = buildFormulaWorkbook(opts);
   const buf = await wb.xlsx.writeBuffer();
-  return enableIterativeCalc(buf as ArrayBuffer);
+  return enableFormulaIteration(buf as ArrayBuffer);
 }
 
 // ── Honest labelling ─────────────────────────────────────────────────────────

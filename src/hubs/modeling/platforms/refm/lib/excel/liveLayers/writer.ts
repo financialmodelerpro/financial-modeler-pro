@@ -29,11 +29,18 @@ const addrId = (a: CellAddr): string => `${a.sheet}!R${a.row}C${a.col}`;
  * the closing balance it reads (2026-09-27, the Cash Flow's opening cash).
  */
 const DEPS = new WeakMap<Set<string>, Map<string, string[]>>();
+/** The cells that ARE pending values (not formulas), per build. A later layer that
+ *  writes a formula over one takes it out (stage 6 makes stage 3 to 5's pending
+ *  figures live), so pending is recomputed from these, never only added to. */
+const SOURCES = new WeakMap<Set<string>, Set<string>>();
 
-/** Mark pending every formula that reads a pending cell, directly or through others. */
+/** Recompute pending: the pending values, and every formula that reads one, directly or through others. */
 export function settlePending(pending: Set<string>): number {
   const deps = DEPS.get(pending);
+  const sources = SOURCES.get(pending);
   if (!deps) return 0;
+  pending.clear();
+  for (const s of sources ?? []) pending.add(s);
   let added = 0;
   for (let changed = true; changed;) {
     changed = false;
@@ -55,6 +62,7 @@ export class LiveWriter {
   constructor(readonly wb: ExcelJS.Workbook, readonly reg: CellRegistry, pending?: Set<string>) {
     this.pending = pending ?? new Set<string>();
     if (!DEPS.has(this.pending)) DEPS.set(this.pending, new Map());
+    if (!SOURCES.has(this.pending)) SOURCES.set(this.pending, new Set());
     this.allDeps = DEPS.get(this.pending)!;
   }
 
@@ -94,6 +102,7 @@ export class LiveWriter {
     c.value = { formula, result: cached } as unknown as ExcelJS.CellValue;
     if (opts.numFmt) c.numFmt = opts.numFmt;
     this.allDeps.set(addrId(a), deps);
+    SOURCES.get(this.pending)!.delete(addrId(a));
     if (deps.some((d) => this.pending.has(d))) this.pending.add(addrId(a));
     this.formulas.set(a.sheet, (this.formulas.get(a.sheet) ?? 0) + 1);
   }
@@ -106,7 +115,9 @@ export class LiveWriter {
     const c = this.cellA(a);
     c.value = v === undefined ? null : v;
     if (opts.numFmt) c.numFmt = opts.numFmt;
-    if (opts.pending) this.pending.add(addrId(a));
+    this.allDeps.delete(addrId(a));
+    if (opts.pending) { this.pending.add(addrId(a)); SOURCES.get(this.pending)!.add(addrId(a)); }
+    else SOURCES.get(this.pending)!.delete(addrId(a));
   }
   /** Forget references gathered while building text that is not a formula. */
   reset(): void { this.deps = []; }

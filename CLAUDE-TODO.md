@@ -10,11 +10,7 @@ real Excel on Marina Gate by `verify-formula-workbook` (behind the founder-only 
 handover is a sale after handover; the Schedules feed shows the balance sheet's receivable and unearned figures.
 
 **OPEN, in order:**
-1. **Stage 6, the circular financing** (Financing sheet: debt drawdowns, IDC funded cash-first with a borrowed
-   shortfall, the Method 3 deficit sizing, the sweep, dividends, equity), iterative as the reference does. It
-   clears every PENDING cell except the exit proceeds: capitalised interest (Cost of Sales, inventory, fixed
-   assets), fund fees (their base is frozen from a fee-free solve, so decide how that freeze is expressed),
-   interest, debt, share capital, dividends. Then the Balance Sheet check reads zero after an input moves.
+1. **DONE 2026-09-27: stage 6, the circular financing** (live, iterated by Excel, the fee-free and real solves, the Financing sheet). Still refused by name for a later pass: a funding method other than 3, more than one facility or a non-sweep repayment, parcel funding, dividends on EBITDA, fund fees on NAV or a facility limit, a fund size override.
 2. **Stage 7, Returns and the fund waterfall** (hurdle IRR as a value with a note, founder decision), Summary
    and Checks; the exit proceeds (terminal value) go live there.
 3. Still refused by name, for a later pass if a project needs them: year-by-year opex rates, opex inflation

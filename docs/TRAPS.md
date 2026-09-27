@@ -1112,6 +1112,46 @@ fixed point after every layer has run.
 **Proof:** the stage 5 proof, where 187 of the failing cells were this row and 15 were its twin on the
 indirect cash flow; no other cell failed.
 
+### 3.26 A circular formula copied from a converged quantity oscillates, and a loop with no starting values never starts
+
+**Symptom (2026-09-27, the financing solve in Excel):** two faults in turn. (1) Every cell of the circular
+financing read `#VALUE!` in Excel, even with iteration off, and no errored cell had a non-errored source.
+(2) Once they computed, the first sweep year held the sweep at 0 and paid the cash out as a 450m dividend
+where the platform swept 463m of debt; recalculating left it there, and stepping the two cells flipped
+them between two states for ever.
+
+**Mechanism:** (1) Excel iterates a loop from each cell's cached result. The new working cells were
+written with none, so the first pass had nothing to start from and the error went round the loop and
+stayed. (2) The platform reads the sweep budget off its CONVERGED snapshot as closing cash + this year's
+sweep + this year's dividends, where the sweep cancels algebraically. Written literally as a formula, the
+sweep reads itself one iteration late, and the loop (sweep, then dividend, then budget) oscillates.
+
+**Fix:** every working cell with no platform value starts from 0; the budget is built from its parts
+(last year's closing cash before dividends, plus this year's operating, investing and non-sweep
+financing cash, less the dividends already paid), which is the same quantity at the fixed point with no
+self-reference. The platform's own solve lands exactly (another pass moves no cell), so after both fixes
+Excel reaches the same fixed point to the cent before and after every input change.
+
+**The trap to avoid:** transcribing a quantity the engine reads off a converged state into a formula that
+iterates. Re-derive it from quantities that do not depend on the cell itself.
+
+### 3.27 A total that sums the rows it can see misses the row the platform prints only when non-zero
+
+**Symptom (2026-09-27):** after the project DSO moved from 0 to 30 days, the workbook's Total Current
+Assets was short by the operating receivable in every year; after escrow was held on pre-sales, the phase
+cash flows were long by the escrow. Every other cell agreed.
+
+**Mechanism:** the builders print the operating receivable, escrow, fee and tax rows only while non-zero.
+At export they were zero, so the rows did not exist, and a total written as the sum of the rows present
+could never include them. On the platform the row appears and joins its total.
+
+**Fix:** a total carries every component by its own rule, shown or not (the balance sheet's current assets,
+the direct cash flow's operations, project and per phase, the financing solve's operating cash). The same
+rule the Opex statements already followed for a cost line hidden while zero.
+
+**Proof:** `verify-formula-workbook` C: the DSO change and a new escrow change (0% to 20% held), each
+adding rows the export did not have, agree on every live cell.
+
 ## 4. PDF export (pdf-lib)
 
 ### 4.1 PDF text is glyph ids, so a naive grep returns nothing
