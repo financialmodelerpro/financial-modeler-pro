@@ -11,6 +11,7 @@
  * verifiable (the cached result must reconcile to the platform snapshot).
  */
 import type ExcelJS from 'exceljs';
+import { notifyRowsInserted } from './cellRegistry';
 
 /**
  * LOCKED REPORT PALETTE (2026-07-28). Every fill in the workbook comes from this
@@ -325,6 +326,7 @@ export function insertRowsAt(ws: ExcelJS.Worksheet, at: number, count: number): 
   for (const m of merges) { try { ws.unMergeCells(m); } catch { /* not merged after all */ } }
 
   ws.spliceRows(at, 0, ...Array.from({ length: count }, () => [] as never[]));
+  notifyRowsInserted(ws.name, at, count);
 
   const shiftA1 = (a1: string): string => a1.replace(/^(\$?[A-Z]+\$?)(\d+)$/, (_s, col: string, row: string) => {
     const R = Number(row);

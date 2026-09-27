@@ -19,7 +19,7 @@ import { join, resolve } from 'node:path';
 export interface ExcelRecalc {
   calc: { iteration: boolean; maxIterations: number; maxChange: number };
   /** "Sheet!R12C6" -> number, or { error: code } */
-  cells: Map<string, number | { error: number }>;
+  cells: Map<string, number | string | { error: number }>;
   formulasBySheet: Map<string, number>;
 }
 
@@ -52,7 +52,7 @@ export function recalcInExcel(xlsxPath: string, sets: Array<{ ref: string; value
         const kv = Object.fromEntries(p.slice(1).map((x) => x.split('=')));
         res.calc = { iteration: kv.iteration === 'True', maxIterations: Number(kv.maxIterations), maxChange: Number(kv.maxChange) };
       } else if (p[0] === '#formulas') res.formulasBySheet.set(p[1], Number(p[2]));
-      else res.cells.set(cellKey(p[0], Number(p[1]), Number(p[2])), p[3] === 'n' ? Number(p[4]) : { error: Number(p[4]) });
+      else res.cells.set(cellKey(p[0], Number(p[1]), Number(p[2])), p[3] === 'n' ? Number(p[4]) : p[3] === 's' ? p.slice(4).join(' ') : { error: Number(p[4]) });
     }
     return res;
   } finally {

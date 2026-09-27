@@ -32,6 +32,7 @@
 import type ExcelJS from 'exceljs';
 import { buildModelWorkbook, enableIterativeCalc, type BuildModelOptions } from './buildModelWorkbook';
 import { CellRegistry, setCellSink } from './cellRegistry';
+import { stage1LandArea } from './liveLayers/stage1LandArea';
 
 export type SheetStatus = 'live' | 'partial' | 'values' | 'values-by-design' | 'front';
 
@@ -46,11 +47,11 @@ export interface LiveLayer {
   name: string;
   /** Apply the layer. Returns the status each sheet it touched now has, and a
    *  note per sheet saying what is live on it (shown on the sheet). */
-  apply(ctx: LayerContext): Array<{ sheet: string; status: 'live' | 'partial'; note: string; formulas: number }>;
+  apply(ctx: LayerContext): Array<{ sheet: string; status: 'live' | 'partial' | 'values'; note: string; formulas: number }>;
 }
 
-/** The layers, in dependency order. Stage 0 has none: nothing is live yet. */
-export const LIVE_LAYERS: LiveLayer[] = [];
+/** The layers, in dependency order. */
+export const LIVE_LAYERS: LiveLayer[] = [stage1LandArea];
 
 /** Sheets that are values by the founder's decision (2026-09-27), never live. */
 const BY_DESIGN: Record<string, string> = {
@@ -66,7 +67,7 @@ export interface FormulaWorkbookResult {
 
 export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookResult {
   const registry = new CellRegistry();
-  setCellSink(registry.sink);
+  setCellSink(registry.sink, registry.shift);
   let wb: ExcelJS.Workbook;
   try { wb = buildModelWorkbook(opts); } finally { setCellSink(null); }
 
@@ -103,7 +104,7 @@ export function sheetStatusSentence(s: { status: SheetStatus; note: string }): s
     case 'live': return `LIVE: every derived figure on this sheet is an Excel formula; change a shaded input and it recalculates. ${s.note}`.trim();
     case 'partial': return `PARTLY LIVE: ${s.note} Everything else on this sheet is the platform's value as of export and does NOT recalculate yet.`;
     case 'values-by-design': return s.note;
-    case 'values': return 'NOT LIVE YET in this build: the figures on this sheet are the platform\'s values as of export and do NOT recalculate when an input changes.';
+    case 'values': return `${s.note ? `${s.note} ` : ''}NOT LIVE YET in this build: the figures on this sheet are the platform\'s values as of export and do NOT recalculate when an input changes.`;
     default: return '';
   }
 }

@@ -285,10 +285,31 @@ function offlineChecks(): void {
     isKeysDoorLine(line)
     || line.includes('resolveAssetKeys(')
     || /assetTypes \?\? \[\]\)\.find\(/.test(line);
+  /**
+   * THE FORMULA DOOR (2026-09-27): the formula-linked workbook's live layers
+   * write Excel formulas that POINT AT the Inputs cells holding a type's values
+   * (unit size, parking ratio, massing), so the workbook reads them the way the
+   * platform does. To know WHICH cell, a layer resolves the type, its parking
+   * basis and the type holding the retail slot ratio, and it does that only
+   * through the platform's own rules. It prices nothing: no construction or
+   * revenue rate may appear, and every mention must be a call to one of those
+   * rules or the import that brings them.
+   */
+  const FORMULA_DOORS = files.map((f) => f.replace(/\\/g, '/')).filter((f) => f.includes('/lib/excel/liveLayers/'));
+  const FORMULA_RULES = ['resolveRetailSlotArea(', 'resolveRetailSlotTypeId(', 'resolveAssetTypeValues('];
+  const isFormulaDoorLine = (line: string): boolean =>
+    FORMULA_RULES.some((r) => line.includes(r))
+    || /from '[^']*assetTypeStandards';/.test(line)
+    || /^\s*\*|^\s*\/\//.test(line);
   const offenders: string[] = [];
   for (const f of files) {
     const rel = f.replace(/\\/g, '/');
     if (DEFINITION_ONLY.some((d) => rel === d.file)) continue;
+    if (FORMULA_DOORS.includes(rel)) {
+      const src = readFileSync(f, 'utf8');
+      const bad = src.split('\n').filter((l) => FORBIDDEN_TOKENS.some((t) => l.includes(t)) && !isFormulaDoorLine(l));
+      if (bad.length === 0 && !src.includes('constructionCostPerSqm') && !src.includes('revenueRate')) continue;
+    }
     const door = MASSING_DOORS.includes(rel);
     const keysDoor = KEYS_DOORS.includes(rel);
     const rollupDoor = TYPE_ROLLUP_DOORS.includes(rel);
@@ -336,6 +357,12 @@ function offlineChecks(): void {
         && !src.includes('assetTypeStandards')
         && src.split('\n').filter((l) => FORBIDDEN_TOKENS.some((t) => l.includes(t))).every(isTypeRollupLine);
     }));
+  check('A1e the formula door is scanned (the live layers are inside the export surface) and resolves through the platform rules only (not a stale hole)',
+    FORMULA_DOORS.length > 0 && FORMULA_DOORS.every((f) => {
+      const src = readFileSync(f, 'utf8');
+      return !src.includes('constructionCostPerSqm') && !src.includes('revenueRate')
+        && src.split('\n').filter((l) => FORBIDDEN_TOKENS.some((t) => l.includes(t))).every(isFormulaDoorLine);
+    }), `${FORMULA_DOORS.length} layer file(s) found`);
   check('A1 zero references to the tables or stamp fields across the calculation and export surface',
     offenders.length === 0, offenders.slice(0, 5).join(' | '));
   // Each exclusion above is only safe while the excluded file is unreachable

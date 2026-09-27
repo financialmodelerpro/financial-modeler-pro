@@ -19,6 +19,7 @@ import { buildReceivablesRollForward, buildUnearnedRollForward } from '../report
 import ExcelJS from 'exceljs';
 import { buildSaleCohortTermsBlock, saleCohortRuleText, buildSaleCohortGrid, saleCohortGridCaption } from '../reports/saleCohortReports';
 import JSZip from 'jszip';
+import { registerCell } from './cellRegistry';
 import { computeFinancialsSnapshot, computeFundingGap, type FinancialsResolverState } from '../financials-resolvers';
 import { buildCapexReport, type CapexReport } from '../reports/capexReports';
 import { poolMapByLine, poolCapexByLine, poolResults, lineHosts, fixHospitalityRates, fixLeaseRates, poolRevenueBasisByLine, poolSaleCohortByLine, planReportLines, lineTitle } from '../reports/lineRows';
@@ -1067,6 +1068,7 @@ function addTimeline(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinanc
     const dCell = ws.getCell(3, c);
     setFormula(dCell, fcell(c === OPEN_COL ? 'ProjectStartYear-1' : `${prev}3+1`, colYear(snap, c)), NUMFMT.date, true);
     hdr(dCell);
+    registerCell(`tl:year:${c}`, ws, dCell);
     // Index row (4): E = 0, then +1.
     const iCell = ws.getCell(4, c);
     setFormula(iCell, fcell(c === OPEN_COL ? '0' : `${prev}4+1`, c - OPEN_COL), NUMFMT.year);
@@ -1134,12 +1136,15 @@ function addPhaseTimeline(ws: ExcelJS.Worksheet, snap: ReturnType<typeof compute
     }
     setFormula(ws.getCell(r, 7), fcell(String(phase.constructionPeriods), phase.constructionPeriods), NUMFMT.int);
     setFormula(ws.getCell(r, 8), fcell(String(phase.operationsPeriods), phase.operationsPeriods), NUMFMT.int);
+    (['cs', 'ce', 'os', 'oe', 'cp', 'op'] as const).forEach((k, i) => registerCell(`tl:phase:${phase.id}:${k}`, ws, ws.getCell(r, 3 + i)));
     r += 1;
   }
   // Project envelope.
   setLabel(ws.getCell(r, 1), 'Project', { bold: true });
   setLabel(ws.getCell(r, 2), `${phases.length} phase${phases.length === 1 ? '' : 's'}`);
   const envelope: Array<[number, string]> = [[3, fmtDate(projTl.startDate)], [6, fmtDate(projTl.endDate)]];
+  registerCell('tl:project:start', ws, ws.getCell(r, 3));
+  registerCell('tl:project:end', ws, ws.getCell(r, 6));
   for (const [c, v] of envelope) {
     const cell = ws.getCell(r, c); cell.value = v;
     cell.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.formula } };
@@ -1152,7 +1157,7 @@ function addPhaseTimeline(ws: ExcelJS.Worksheet, snap: ReturnType<typeof compute
   setSectionHeader(ws.getRow(r), 'Development programme (Gantt)', last, ARGB.sectionDark); r += 1;
   // Year ruler over the period columns, so a bar can be read off a year.
   setColHeader(ws.getCell(r, 1), 'Phase', 'left');
-  for (let c = OPEN_COL; c <= last; c++) setColHeader(ws.getCell(r, c), yearOfCol(c), 'right');
+  for (let c = OPEN_COL; c <= last; c++) { setColHeader(ws.getCell(r, c), yearOfCol(c), 'right'); registerCell(`tl:ganttYear:${c}`, ws, ws.getCell(r, c)); }
   r += 1;
 
   const bar = (cell: ExcelJS.Cell, argb: string, label = ''): void => {
@@ -1165,6 +1170,7 @@ function addPhaseTimeline(ws: ExcelJS.Worksheet, snap: ReturnType<typeof compute
   };
   for (const { phase, tl } of lines) {
     setLabel(ws.getCell(r, 1), phase.name);
+    registerCell(`tl:gantt:${phase.id}`, ws, ws.getCell(r, OPEN_COL));
     const cs = yr(tl.constructionStart), ce = yr(tl.constructionEnd);
     const os = yr(tl.operationsStart), oe = yr(tl.operationsEnd);
     const hasOps = phase.operationsPeriods > 0;
@@ -1181,6 +1187,7 @@ function addPhaseTimeline(ws: ExcelJS.Worksheet, snap: ReturnType<typeof compute
   }
   // Project end marker row.
   setLabel(ws.getCell(r, 1), 'Project end', { bold: true });
+  registerCell('tl:gantt:end', ws, ws.getCell(r, OPEN_COL));
   for (let c = OPEN_COL; c <= last; c++) {
     const cell = ws.getCell(r, c);
     if (yearOfCol(c) === projTl.endYear) bar(cell, ARGB.sectionDark, 'END');
@@ -1256,6 +1263,7 @@ function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs:
       setFormula(ws.getCell(r, 4), fcell('0', a.landValue), NUMFMT.money);
       setFormula(ws.getCell(r, 5), fcell('0', a.cashLandValue), NUMFMT.money);
       setFormula(ws.getCell(r, 6), fcell('0', a.inKindLandValue), NUMFMT.money);
+      (['sqm', 'rate', 'value', 'cash', 'inkind'] as const).forEach((k, i) => registerCell(`land:${a.assetId}:${k}`, ws, ws.getCell(r, 2 + i)));
       landAddrsByAsset.set(a.assetId, {
         landValue: sheetRef(SHEETS.landArea, `$D$${r}`),
         cashLand: sheetRef(SHEETS.landArea, `$E$${r}`),
@@ -1271,6 +1279,7 @@ function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs:
     setFormula(ws.getCell(r, 4), fcell('0', sum((x) => x.landValue)), NUMFMT.money);
     setFormula(ws.getCell(r, 5), fcell('0', sum((x) => x.cashLandValue)), NUMFMT.money);
     setFormula(ws.getCell(r, 6), fcell('0', sum((x) => x.inKindLandValue)), NUMFMT.money);
+    (['sqm', 'rate', 'value', 'cash', 'inkind'] as const).forEach((k, i) => { if (k !== 'rate') registerCell(`landcat:${cat}:${k}`, ws, ws.getCell(r, 2 + i)); });
     fillRange(ws, r, 1, r, LAND_HEADS.length, ARGB.navy);
     for (let c = 1; c <= LAND_HEADS.length; c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
     r += 1;
@@ -1280,6 +1289,7 @@ function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs:
   setFormula(ws.getCell(r, 4), fcell('0', land.reduce((s, x) => s + x.landValue, 0)), NUMFMT.money);
   setFormula(ws.getCell(r, 5), fcell('0', land.reduce((s, x) => s + x.cashLandValue, 0)), NUMFMT.money);
   setFormula(ws.getCell(r, 6), fcell('0', land.reduce((s, x) => s + x.inKindLandValue, 0)), NUMFMT.money);
+  (['sqm', 'rate', 'value', 'cash', 'inkind'] as const).forEach((k, i) => { if (k !== 'rate') registerCell(`landtot:${k}`, ws, ws.getCell(r, 2 + i)); });
   fillRange(ws, r, 1, r, LAND_HEADS.length, ARGB.subtotal);
   r += 1;
   void firstBodyRow; void refs;

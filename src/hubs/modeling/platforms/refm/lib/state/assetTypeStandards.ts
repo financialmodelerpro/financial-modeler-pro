@@ -553,6 +553,15 @@ export const GROUND_FLOOR_RETAIL_TYPE_LABEL = 'Retail combined';
 export function resolveRetailSlotArea(
   valuesByType: AssetTypeValuesByType | undefined,
 ): number | undefined {
+  const id = resolveRetailSlotTypeId(valuesByType);
+  return id === undefined ? undefined : valuesByType?.[id]?.parkingRatio;
+}
+
+/** WHICH TYPE's values answer `resolveRetailSlotArea` (the same rule, one home),
+ *  for a surface that must point at the cell holding the ratio, not copy it. */
+export function resolveRetailSlotTypeId(
+  valuesByType: AssetTypeValuesByType | undefined,
+): string | undefined {
   if (!valuesByType) return undefined;
   const candidates = Object.keys(valuesByType).sort().filter((id) => {
     const v = valuesByType[id];
@@ -561,8 +570,8 @@ export function resolveRetailSlotArea(
       && v.parkingRatio > 0;
   });
   const named = normaliseAssetTypeId(GROUND_FLOOR_RETAIL_TYPE_LABEL);
-  if (candidates.includes(named)) return valuesByType[named]?.parkingRatio;
-  if (candidates.length === 1) return valuesByType[candidates[0]]?.parkingRatio;
+  if (candidates.includes(named)) return named;
+  if (candidates.length === 1) return candidates[0];
   return undefined;
 }
 

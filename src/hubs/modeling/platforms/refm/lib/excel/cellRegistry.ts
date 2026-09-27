@@ -27,9 +27,22 @@ export interface CellAddr {
 
 type Sink = (key: string, addr: CellAddr) => void;
 let sink: Sink | null = null;
+type ShiftSink = (sheet: string, atRow: number, count: number) => void;
+let shiftSink: ShiftSink | null = null;
 
 /** Start (a function) or stop (null) recording. Only the formula export sets it. */
-export function setCellSink(fn: Sink | null): void { sink = fn; }
+export function setCellSink(fn: Sink | null, onShift: ShiftSink | null = null): void { sink = fn; shiftSink = fn ? onShift : null; }
+
+/**
+ * ROWS WERE INSERTED ON A FINISHED SHEET (the per-tab contents block is added
+ * after the sheets are written), so every recorded row at or below the insert
+ * moves down. Called from insertRowsAt, the one place rows are inserted; a
+ * no-op outside the formula export. Without it every address the registry
+ * holds for a cell below the block would point at the wrong row.
+ */
+export function notifyRowsInserted(sheet: string, atRow: number, count: number): void {
+  if (shiftSink && count > 0) shiftSink(sheet, atRow, count);
+}
 
 /** Record that `cell` on `ws` holds quantity `key`. A no-op outside the formula export. */
 export function registerCell(key: string, ws: ExcelJS.Worksheet, cell: ExcelJS.Cell): void {
@@ -46,6 +59,9 @@ export class CellRegistry {
       throw new Error(`cellRegistry: "${key}" registered twice (${prev.sheet}!R${prev.row}C${prev.col} and ${addr.sheet}!R${addr.row}C${addr.col})`);
     }
     this.map.set(key, addr);
+  };
+  readonly shift = (sheet: string, atRow: number, count: number): void => {
+    for (const a of this.map.values()) if (a.sheet === sheet && a.row >= atRow) a.row += count;
   };
   get(key: string): CellAddr | undefined { return this.map.get(key); }
   /** The cell or a thrown error naming the missing key (a formula must never guess). */

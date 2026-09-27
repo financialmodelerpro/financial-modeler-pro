@@ -29,6 +29,7 @@ import { PHASE_STATUS_LABELS, type Asset, type Phase, type SubUnit } from '../st
 import {
   buildStandardsView, buildAssetAreaTables, buildSubUnitLines, type ViewCell, type AssetAreaTables,
 } from '../../components/modules/_shared/assetInputsView';
+import { registerCell } from './cellRegistry';
 import { planRevenueLines, groupRevenueLines, type RevenueLine } from '../revenueLines';
 import { planReportLines, lineTitle } from '../reports/lineRows';
 import { resolveRowVelocity } from '../revenue-resolvers';
@@ -81,8 +82,9 @@ function band(c: SheetCursor, text: string, span: number): void {
   c.r += 1;
 }
 
-function kv(c: SheetCursor, label: string, value: number | string | undefined, fmt: string, input: boolean, name?: string, noteText?: string): number {
+function kv(c: SheetCursor, label: string, value: number | string | undefined, fmt: string, input: boolean, name?: string, noteText?: string, regKey?: string): number {
   setLabel(c.ws.getCell(c.r, 1), label);
+  if (regKey) registerCell(regKey, c.ws, c.ws.getCell(c.r, 2));
   if (value !== undefined) {
     if (input) setInput(c.ws.getCell(c.r, 2), value, fmt);
     else derived(c.ws.getCell(c.r, 2), value, fmt);
@@ -127,7 +129,7 @@ export function emitProjectSection(c: SheetCursor, state: FinancialsResolverStat
   setSectionHeader(c.ws.getRow(c.r), 'Project', 5); c.r += 1;
   kv(c, 'Project Name', p.name || '(unnamed)', '@', true);
   kv(c, 'Currency', p.currency ?? 'SAR', '@', true);
-  kv(c, 'Project Start Date', utcDate(p.startDate), '@', true);
+  kv(c, 'Project Start Date', utcDate(p.startDate), '@', true, undefined, undefined, 'project:startDate');
   kv(c, 'Project Status', String(p.status ?? 'draft'), '@', true);
   // DISPLAY ONLY on the platform, and the country is its own row below, so the
   // location is printed as typed with no code appended to it.
@@ -145,6 +147,7 @@ export function emitPhasesSection(c: SheetCursor, state: FinancialsResolverState
     setInput(c.ws.getCell(c.r, 2), utcDate(ph.startDate && ph.startDate.length === 10 ? ph.startDate : state.project.startDate), '@');
     setInput(c.ws.getCell(c.r, 3), ph.constructionPeriods ?? 0, NUMFMT.int);
     setInput(c.ws.getCell(c.r, 4), ph.operationsPeriods ?? 0, NUMFMT.int);
+    (['start', 'cp', 'op', 'cEnd', 'oStart', 'oEnd'] as const).forEach((k, i) => registerCell(`phase:${ph.id}:${k}`, c.ws, c.ws.getCell(c.r, 2 + i)));
     derived(c.ws.getCell(c.r, 5), ph.constructionPeriods === 0 ? 'Operational from start' : utcMonthYear(tl.constructionEnd), '@');
     derived(c.ws.getCell(c.r, 6), utcMonthYear(tl.operationsStart), '@');
     derived(c.ws.getCell(c.r, 7), utcMonthYear(tl.operationsEnd), '@');
@@ -155,6 +158,7 @@ export function emitPhasesSection(c: SheetCursor, state: FinancialsResolverState
   // period sheets key their year headings to.
   setLabel(c.ws.getCell(c.r, 1), 'Model axis start year (derived)', { bold: true });
   derived(c.ws.getCell(c.r, 2), snap.projectStartYear, NUMFMT.year);
+  registerCell('project:axisYear', c.ws, c.ws.getCell(c.r, 2));
   c.wb.definedNames.add(`${c.sheetName}!$B$${c.r}`, 'ProjectStartYear');
   c.r += 2;
 }
@@ -170,6 +174,7 @@ export function emitStandardsSection(c: SheetCursor, state: FinancialsResolverSt
     headers(c, ['Asset type', 'Category', 'Strategy for new assets', 'Avg unit size (sqm)', 'Parking ratio', 'Ratio basis', 'Utilisation %', 'Coverage %', 'FAR', 'Service %']);
     for (const t of v.types) {
       setLabel(c.ws.getCell(c.r, 1), t.label);
+      (['unit', 'ratio', 'basis', 'util', 'cov', 'far', 'svc'] as const).forEach((k, i) => registerCell(`type:${t.id}:${k}`, c.ws, c.ws.getCell(c.r, 4 + i)));
       setInput(c.ws.getCell(c.r, 2), t.category || '-', '@');
       if (t.strategy) setInput(c.ws.getCell(c.r, 3), t.strategy, '@');
       if (t.unitSizeSqm !== undefined) setInput(c.ws.getCell(c.r, 4), t.unitSizeSqm, NUMFMT.rate);
@@ -186,7 +191,11 @@ export function emitStandardsSection(c: SheetCursor, state: FinancialsResolverSt
     c.r += 1;
   }
   setSectionHeader(c.ws.getRow(c.r), 'Parking and cost escalation', 3); c.r += 1;
-  kv(c, 'Parking area per slot (sqm) for this project', v.slotAreaSqm, NUMFMT.rate, true);
+  kv(c, 'Parking area per slot (sqm) for this project', v.slotAreaSqm, NUMFMT.rate, true, undefined, undefined, 'project:slotArea');
+  // Free cells on the same row, for the live workbook to state the retail
+  // parking ratio the chain reads (it can come from a type no longer listed).
+  registerCell('project:retailSlotLabel', c.ws, c.ws.getCell(c.r - 1, 3));
+  registerCell('project:retailSlotArea', c.ws, c.ws.getCell(c.r - 1, 4));
   // BLANK WHEN ABSENT, NEVER 0: an absent rate is "not set" on the platform.
   kv(c, `Construction cost escalation (% a year, from ${v.baseYear})`, v.escalationPct === undefined ? undefined : v.escalationPct / 100, NUMFMT.pct2, true,
     undefined, v.escalationPct === undefined ? 'Not set: rates are not escalated.' : undefined);
@@ -248,6 +257,7 @@ export function emitPlotsSection(c: SheetCursor, state: FinancialsResolverState)
     derived(c.ws.getCell(c.r, 7), lv, NUMFMT.money);
     derived(c.ws.getCell(c.r, 8), cv, NUMFMT.money);
     derived(c.ws.getCell(c.r, 9), iv, NUMFMT.money);
+    (['area', 'rate', 'cash', 'inkind', 'value', 'cashValue', 'inkindValue'] as const).forEach((k, i) => registerCell(`parcel:${pa.id}:${k}`, c.ws, c.ws.getCell(c.r, 3 + i)));
     area += a; value += lv; cash += cv; inKind += iv;
     c.r += 1;
   }
@@ -257,6 +267,7 @@ export function emitPlotsSection(c: SheetCursor, state: FinancialsResolverState)
   derived(c.ws.getCell(c.r, 7), value, NUMFMT.money, true);
   derived(c.ws.getCell(c.r, 8), cash, NUMFMT.money, true);
   derived(c.ws.getCell(c.r, 9), inKind, NUMFMT.money, true);
+  (['area', 'rate', 'x', 'y', 'value', 'cashValue', 'inkindValue'] as const).forEach((k, i) => { if (k !== 'x' && k !== 'y') registerCell(`parcels:total:${k}`, c.ws, c.ws.getCell(c.r, 3 + i)); });
   fillRange(c.ws, c.r, 1, c.r, 9, ARGB.subtotal);
   c.r += 1;
   note(c, 'Land is allocated by sqm only: each asset draws from its plot on Table 2. The debt / equity split of land cash is on Financing (Land Funding).');
@@ -282,6 +293,7 @@ export function emitAssetEntrySection(c: SheetCursor, tables: AssetAreaTables): 
       viewCell(c.ws.getCell(c.r, 7), e.maxFloors, NUMFMT.int);
       viewCell(c.ws.getCell(c.r, 8), e.retailPct, NUMFMT.pct2, 100);
       viewCell(c.ws.getCell(c.r, 9), e.servicePct, NUMFMT.pct2, 100);
+      (['plot', 'util', 'cov', 'far', 'floors', 'retail', 'svc'] as const).forEach((k, i) => registerCell(`entry:${e.assetId}:${k}`, c.ws, c.ws.getCell(c.r, 3 + i)));
       if ([e.utilisationPct, e.coveragePct, e.far, e.servicePct].some((x) => x.note === 'from the type')) inherited = true;
       if (e.plotAreaSqm.note) whole = true;
       c.r += 1;
@@ -312,6 +324,7 @@ export function emitSubUnitSection(c: SheetCursor, state: FinancialsResolverStat
       viewCell(c.ws.getCell(c.r, 4), u.areaSqm, NUMFMT.int);
       if (u.unitSizeSqm !== undefined) setInput(c.ws.getCell(c.r, 5), u.unitSizeSqm, NUMFMT.rate);
       viewCell(c.ws.getCell(c.r, 6), u.units, NUMFMT.int);
+      (['share', 'area', 'unit', 'units', 'rate'] as const).forEach((k, i) => registerCell(`su:${u.id}:${k}`, c.ws, c.ws.getCell(c.r, 3 + i)));
       setInput(c.ws.getCell(c.r, 7), u.rate, NUMFMT.rate);
       setLabel(c.ws.getCell(c.r, 8), u.rateBasis);
       if (u.otherRate) {
@@ -323,6 +336,8 @@ export function emitSubUnitSection(c: SheetCursor, state: FinancialsResolverStat
     setLabel(c.ws.getCell(c.r, 1), line.title === 'Not on a line' ? 'Total, not on a line' : 'Line total', { bold: true, indent: 1 });
     if (line.nsaSqm > 0) derived(c.ws.getCell(c.r, 3), line.areaSqm / line.nsaSqm, NUMFMT.pct2, true);
     derived(c.ws.getCell(c.r, 4), line.areaSqm, NUMFMT.int, true);
+    registerCell(`suline:${line.key}:share`, c.ws, c.ws.getCell(c.r, 3));
+    registerCell(`suline:${line.key}:area`, c.ws, c.ws.getCell(c.r, 4));
     c.r += 1;
   }
   note(c, 'Share and area are one pair: whichever is shaded is the statement and the other follows the line\'s NSA. In count mode the count is typed and the area follows.');
@@ -696,6 +711,11 @@ export const LAND_CHAIN_COLS = 1 + CHAIN_HEADS.length;
 
 type Pooled = Record<string, number | undefined>;
 /** The twenty chain columns, one row: areas, the two ratios and the counts. */
+/** The twenty chain columns' registry names, in column order. */
+export const CHAIN_FIELDS = ['land', 'nda', 'fp', 'lsPct', 'ls', 'ret', 'lob', 'tg', 'main', 'nsa', 'usize', 'units', 'ratio', 'slots', 'rslots', 'tslots', 'parea', 'rparea', 'tparea', 'bua'] as const;
+function registerChainRow(ws: ExcelJS.Worksheet, r: number, startCol: number, prefix: string): void {
+  CHAIN_FIELDS.forEach((f, i) => registerCell(`${prefix}:${f}`, ws, ws.getCell(r, startCol + i)));
+}
 function chainCells(ws: ExcelJS.Worksheet, r: number, startCol: number, landSqm: number, g: Pooled, ratios: { landscapePct?: number; unitSize?: number; slotRatio?: number }, bold = false): void {
   const vals: Array<[number | undefined, string]> = [
     [landSqm, NUMFMT.int], [g.landUtilisedSqm, NUMFMT.int], [g.footprintSqm, NUMFMT.int],
@@ -727,16 +747,18 @@ export function emitLandTables(c: SheetCursor, tables: AssetAreaTables): void {
         unitSize: row.unitSizeSqm,
         slotRatio: row.ratio,
       });
+      registerChainRow(ws, c.r, 2, `chain:${row.assetId}`);
       c.r += 1;
     }
     for (const piece of g.retailPieces) {
       setLabel(ws.getCell(c.r, 1), `${piece.name} (land carved from this plot's hosts)`, { indent: 1 });
       derived(ws.getCell(c.r, 2), piece.sqm, NUMFMT.int);
+      registerCell(`piece:${g.key}:${piece.name}`, ws, ws.getCell(c.r, 2));
       for (let col = 3; col <= LAND_CHAIN_COLS; col++) { const cell = ws.getCell(c.r, col); cell.value = '-'; cell.alignment = { horizontal: 'right' }; }
       c.r += 1;
     }
   }
-  totalRow(c, 'TOTAL, all plots', tables.plotTotal);
+  totalRow(c, 'TOTAL, all plots', tables.plotTotal, 0, 'chaintot:plots');
   note(c, `Plots hold ${Math.round(tables.parcelsTotalSqm).toLocaleString('en-US')} sqm; the Plot Area column totals ${Math.round(tables.plotTotal.landSqm).toLocaleString('en-US')} sqm including the land the retail strips carved from their hosts. A dash means a step could not be derived, which is not zero.`);
   c.r += 1;
 
@@ -750,6 +772,7 @@ export function emitLandTables(c: SheetCursor, tables: AssetAreaTables): void {
     setLabel(ws.getCell(c.r, 3), l.strategy);
     derived(ws.getCell(c.r, 4), l.plots, NUMFMT.int);
     chainCells(ws, c.r, 5, l.landSqm, l.pooled, { landscapePct: l.landscapePct, unitSize: l.avgUnitSize, slotRatio: l.slotsPerUnit });
+    registerChainRow(ws, c.r, 5, `chainline:${l.key}`);
     c.r += 1;
   }
   if (tables.companions.length > 0) {
@@ -761,18 +784,20 @@ export function emitLandTables(c: SheetCursor, tables: AssetAreaTables): void {
       derived(ws.getCell(c.r, 4), s.hosts, NUMFMT.int);
       const g: Pooled = { retailGfaSqm: s.retailGfaSqm, totalGfaSqm: s.retailGfaSqm, netSaleableSqm: s.retailGfaSqm, retailParkingSlots: s.slots, retailParkingAreaSqm: s.parkingAreaSqm, totalParkingAreaSqm: s.parkingAreaSqm, totalBuaSqm: s.totalBuaSqm };
       chainCells(ws, c.r, 5, s.landSqm, g, {});
+      registerChainRow(ws, c.r, 5, `chaincomp:${s.name}`);
       c.r += 1;
     }
   }
-  totalRow(c, 'TOTAL, all lines', tables.lineTotal, 3);
+  totalRow(c, 'TOTAL, all lines', tables.lineTotal, 3, 'chaintot:lines');
   note(c, 'The same totals as by plot: the two tables group the same rows differently, so they must agree.');
   c.r += 1;
 }
 
-function totalRow(c: SheetCursor, label: string, t: { landSqm: number; pooled: Pooled; landscapePct?: number; avgUnitSize?: number; slotsPerUnit?: number }, pad = 0): void {
+function totalRow(c: SheetCursor, label: string, t: { landSqm: number; pooled: Pooled; landscapePct?: number; avgUnitSize?: number; slotsPerUnit?: number }, pad = 0, regPrefix?: string): void {
   const ws = c.ws;
   setLabel(ws.getCell(c.r, 1), label, { bold: true });
   chainCells(ws, c.r, 2 + pad, t.landSqm, t.pooled, { landscapePct: t.landscapePct, unitSize: t.avgUnitSize, slotRatio: t.slotsPerUnit }, true);
+  if (regPrefix) registerChainRow(ws, c.r, 2 + pad, regPrefix);
   fillRange(ws, c.r, 1, c.r, LAND_CHAIN_COLS + pad, ARGB.subtotal);
   c.r += 1;
 }

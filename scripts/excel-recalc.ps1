@@ -10,7 +10,7 @@
 # how a change to an input is tested: set, recalculate, read back.
 #
 # Output: <OutPath>, lines of  sheet<TAB>row<TAB>col<TAB>kind<TAB>value
-#   kind = n (number) or e (error code); plus a header line of calc settings and
+#   kind = n (number), s (text, tabs and line breaks as spaces) or e (error code); plus a header line of calc settings and
 #   one "#formulas" line per sheet.
 # Read-only: the workbook is never saved.
 #
@@ -55,6 +55,7 @@ try {
       for ($j = 1; $j -le $nc; $j++) {
         $v = $vals[$i, $j]
         if ($v -is [double]) { $out.Add("$name`t$($r0 + $i - 1)`t$($c0 + $j - 1)`tn`t" + $v.ToString('R', [System.Globalization.CultureInfo]::InvariantCulture)) }
+        elseif ($v -is [string]) { if ($v -ne '') { $out.Add("$name`t$($r0 + $i - 1)`t$($c0 + $j - 1)`ts`t" + ($v -replace "[`t`r`n]", ' ')) } }
         elseif ($v -is [int]) { $out.Add("$name`t$($r0 + $i - 1)`t$($c0 + $j - 1)`te`t$v") }
       }
     }

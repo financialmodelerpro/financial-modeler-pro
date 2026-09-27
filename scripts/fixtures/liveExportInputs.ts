@@ -25,6 +25,8 @@ export interface LiveExportInputs {
   state: Parameters<typeof computeFinancialsSnapshot>[0];
   caseComparison: BuildModelOptions['caseComparison'];
   parties: BuildModelOptions['parties'];
+  /** The migrated snapshot the state was made from, for a test that edits an input and re-runs the platform. */
+  snapshot: ReturnType<typeof loadStoredModel>['snapshot'];
 }
 
 export async function loadLiveExportInputs(): Promise<LiveExportInputs> {
@@ -48,6 +50,6 @@ export async function loadLiveExportInputs(): Promise<LiveExportInputs> {
   return {
     projectName: (projRows[0] as { name: string }).name,
     versionLabel: v.label, versionComment: v.comment,
-    state, caseComparison, parties: (partyRows ?? []) as BuildModelOptions['parties'],
+    state, caseComparison, parties: (partyRows ?? []) as BuildModelOptions['parties'], snapshot: migrated,
   };
 }
