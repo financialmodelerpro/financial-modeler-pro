@@ -28,6 +28,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import type ExcelJS from 'exceljs';
 import { buildModelWorkbook, PERIOD_COLS } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
 import { buildFormulaWorkbook, enableFormulaIteration } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
+import { readCells, shadedCells, isShaded, isLegendSwatch, cellId } from '../src/hubs/modeling/platforms/refm/lib/excel/liveLayers/inputAudit';
 import { loadLiveExportInputs } from './fixtures/liveExportInputs';
 import { excelAvailable, recalcInExcel, cellKey } from './excelRecalc';
 import JSZip from 'jszip';
@@ -135,6 +136,9 @@ function compareLive(basePlain: ExcelJS.Workbook, pertPlain: ExcelJS.Workbook, w
       const v = cell.value as unknown;
       if (!(v && typeof v === 'object' && 'formula' in (v as object))) return;
       if (r > lastPlatformRow) return;
+      // A module cell that ECHOES an Inputs cell (stage9InputLinks) is an input shown twice,
+      // laid out where it was at export; it is compared at its Inputs door, not here.
+      if (isInputsEcho(ws.name, String((v as { formula: string }).formula))) return;
       const addr = cellKey(ws.name, r, c);
       const e = rec.cells.get(addr);
       const m = rows.get(r);
@@ -178,6 +182,34 @@ function movedCells(a: ExcelJS.Workbook, b: ExcelJS.Workbook, live: ExcelJS.Work
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Snap = LiveExportInputs['snapshot'] & Record<string, any>;
+/**
+ * WHERE A USER TYPES THIS INPUT. A module cell the link layer turned into an echo
+ * of Inputs (`N('Inputs'!$B$9)`, `IF(N(..)=0,2031,N(..))`, `N(..)-N(axis)`) is typed
+ * at its Inputs cell; a year index is typed there as its calendar year.
+ */
+/** A module-sheet formula that only restates an Inputs cell (through a link conversion). */
+function isInputsEcho(sheet: string, f: string): boolean {
+  if (sheet === 'Inputs') return false;
+  return /^N\((?:'Inputs'|Inputs)!\$[A-Z]+\$\d+\)(-N\((?:'Inputs'|Inputs)!\$[A-Z]+\$\d+\))?$/.test(f)
+    || /^(?:'Inputs'|Inputs)!\$[A-Z]+\$\d+$/.test(f)
+    || /^IF\(N\((?:'Inputs'|Inputs)!\$[A-Z]+\$\d+\)=[01],/.test(f);
+}
+function inputsDoor(wb: ExcelJS.Workbook, a: { sheet: string; row: number; col: number }, value: number): { at: { sheet: string; row: number; col: number }; value: number } {
+  const v = wb.getWorksheet(a.sheet)?.getCell(a.row, a.col).value as unknown as { formula?: string } | null;
+  const f = v && typeof v === 'object' ? v.formula : undefined;
+  if (!f || a.sheet === 'Inputs') return { at: a, value };
+  const refs = [...f.matchAll(/(?:'Inputs'|Inputs)!\$([A-Z]+)\$(\d+)/g)];
+  if (!isInputsEcho(a.sheet, f) || !refs.length) return { at: a, value };
+  const col = (s: string): number => s.split('').reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0);
+  const at = { sheet: 'Inputs', row: Number(refs[0][2]), col: col(refs[0][1]) };
+  if (refs.length > 1 && /\)-N\(/.test(f)) {
+    const ax = wb.getWorksheet('Inputs')!.getCell(Number(refs[1][2]), col(refs[1][1])).value as unknown;
+    const axv = ax && typeof ax === 'object' && 'result' in (ax as object) ? Number((ax as { result: unknown }).result) : Number(ax);
+    return { at, value: value + axv };
+  }
+  return { at, value };
+}
+
 /** `variant`: the live model has no instance of the branch under test, so a copy is
  *  made that has one (a structural edit, re-run through the platform and exported
  *  afresh) and the input change is tested on THAT workbook. */
@@ -617,6 +649,37 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
   const pendingSheets = new Set([...buildPending].map((a) => a.split('!')[0]));
   const waitMismatch = [...status].filter(([name, st]) => /wait(s)? for that stage/i.test(st.note) !== pendingSheets.has(name)).map(([n]) => n);
   check('A6d a sheet says it waits for a later stage if and only if a cell on it does', waitMismatch.length === 0, waitMismatch.join(', '));
+  // A SHADED CELL IS A PROMISE (founder, 2026-09-28): type here and the model recalculates.
+  // Every shaded cell must be read by a formula, and none may be a formula (typing would
+  // cut the link it is). The legend swatch is the one shaded label. Fixed-at-export cells
+  // are unshaded and carry the note, so they can never read as inputs.
+  {
+    const deadOf = (book: ExcelJS.Workbook): string[] => {
+      const rd = readCells(book);
+      return shadedCells(book).filter((s) => s.isFormula || (!rd.has(cellId(s.sheet, s.row, s.col)) && !(s.isText && isLegendSwatch(String(s.value)))))
+        .map((s) => `${s.sheet}!${colLetterOf(s.col)}${s.row}${s.isFormula ? ' (a formula)' : ''}`);
+    };
+    const dead = deadOf(wb);
+    check(`A11 every shaded cell is an input a formula reads (${shadedCells(wb).length} shaded)`, dead.length === 0, dead.slice(0, 8).join(', '));
+    const notes = (): number => { let n = 0; wb.worksheets.forEach((ws) => ws.eachRow((row) => row.eachCell((c) => { const t = (c.note as unknown as { texts?: Array<{ text: string }> } | undefined)?.texts?.map((x) => x.text).join('') ?? ''; if (t.startsWith('Fixed at export')) n++; }))); return n; };
+    const fixedNotes = notes();
+    const shadedFixed = shadedCells(wb).filter((s) => { const t = (wb.getWorksheet(s.sheet)!.getCell(s.row, s.col).note as unknown as { texts?: Array<{ text: string }> } | undefined)?.texts?.map((x) => x.text).join('') ?? ''; return t.startsWith('Fixed at export'); });
+    check(`A11b every fixed-at-export cell (${fixedNotes}) is unshaded`, fixedNotes > 0 && shadedFixed.length === 0, shadedFixed.slice(0, 4).map((s) => `${s.sheet}!R${s.row}C${s.col}`).join(', '));
+    // THE GUARD FIRES: shade one unshaded number no formula reads, in a copy, and it must be caught there.
+    const { wb: copy } = buildFormulaWorkbook(opts);
+    const rd = readCells(copy);
+    let planted = '';
+    for (const ws of copy.worksheets) {
+      if (planted || ws.state === 'hidden' || ws.name !== 'Inputs') continue;
+      ws.eachRow((row, r) => row.eachCell((c, col) => {
+        if (planted || typeof c.value !== 'number' || rd.has(cellId(ws.name, r, col)) || isShaded(c)) return;
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EAF4' } } as ExcelJS.Fill;
+        planted = `${ws.name}!${colLetterOf(col)}${r}`;
+      }));
+    }
+    const caught = deadOf(copy);
+    check('A11c the guard fires: a number no formula reads, shaded in a copy, is caught at exactly that cell', !!planted && caught.length === 1 && caught[0] === planted, `planted ${planted}, caught ${caught.join(', ')}`);
+  }
   // ONE AREA RULE FOR THE PRICE PER SQM (2026-09-28): sale value over the NSA used of
   // every Sell asset that sold anything, by units OR by area. Computed here from the
   // rule, not from the builder; and where no unit sold, the area branch must be what fired.
@@ -741,8 +804,15 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       const pOpts = { ...opts, state: platformAfterEdit(snap as never) as typeof input.state };
       const pPlain = buildModelWorkbook(pOpts);
       const a0 = base.registry.need(pt.cell);
-      const a = { ...a0, col: pt.col ?? a0.col };
-      const r3 = recalcInExcel(base.path, [{ ref: `${a.sheet}!${colLetterOf(a.col)}${a.row}`, value: pt.value }]);
+      const aMod = { ...a0, col: pt.col ?? a0.col };
+      // INPUTS IS THE ONE PLACE A USER TYPES (stage9InputLinks, 2026-09-28): where the
+      // module cell is now an echo of Inputs, the test types into the Inputs cell, the
+      // door a user uses, converting a model-year index to its calendar year.
+      const typed = inputsDoor(base.wb, aMod, pt.value);
+      const a = typed.at;
+      const shadedTarget = isShaded(base.wb.getWorksheet(a.sheet)!.getCell(a.row, a.col));
+      if (!shadedTarget) check(`C ${pt.label}: the cell the test types into is a shaded input`, false, `${a.sheet}!${colLetterOf(a.col)}${a.row} is not shaded`);
+      const r3 = recalcInExcel(base.path, [{ ref: `${a.sheet}!${colLetterOf(a.col)}${a.row}`, value: typed.value }]);
       const cmp = compareLive(base.plain, pPlain, base.wb, r3);
       const bad = cmp.bad;
       // A cell waiting for a later stage may lag an input that moves REVENUE, and only that.

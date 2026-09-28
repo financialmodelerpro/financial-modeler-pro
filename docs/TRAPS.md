@@ -1201,6 +1201,26 @@ ONE row there is no `+`: the count is the boolean FALSE, and Excel compares a bo
 **The trap to avoid:** building an Excel count or flag from a list of comparisons joined by `+`: the one-element
 case is a different type. A JavaScript twin cannot see it (JS coerces), only Excel can. `verify-formula-workbook` B2.
 
+### 3.31 A shaded cell that nothing reads: the live workbook's inputs lived twice, and users type into the wrong copy
+
+**Symptom (2026-09-28):** every figure in the formula-linked workbook matched the platform and responded to its
+inputs in real Excel, yet 448 shaded numbers (and 725 shaded text choices) did nothing when typed into. The Inputs
+sheet showed "Construction (superstructure) 11,000" with its window 1 to 4; editing it moved nothing.
+
+**Mechanism:** the hardcoded export repeats most inputs, once on the Inputs sheet and once on the module sheet the
+screen mirrors. The live layers were written reading the module copies (and the cost-standard rows), so the
+Inputs copies, the place a user looks first, were decoration. Every existing check typed into the cell the layer
+reads, so every check passed: the tests proved the model, not the door a user uses.
+
+**Fix:** Inputs is the one place a user types (founder). `stage9InputLinks` turns each module copy into an unshaded
+echo of Inputs where both hold the same value (a mismatch is reported, never wired), shows derived figures on
+Inputs as unshaded echoes, wires only module cells a formula actually reads, and unshades what the live workbook is
+built for at export with a note saying so. The input-change tests type at the Inputs cell and assert it is shaded.
+
+**The trap to avoid:** proving a live model by typing into the cell the formulas read. Measure the promise
+instead: every shaded cell must be read by some formula (`inputAudit.readCells`), and prove the guard fires by
+planting one. `verify-formula-workbook` A11, A11b, A11c.
+
 ## 4. PDF export (pdf-lib)
 
 ### 4.1 PDF text is glyph ids, so a naive grep returns nothing

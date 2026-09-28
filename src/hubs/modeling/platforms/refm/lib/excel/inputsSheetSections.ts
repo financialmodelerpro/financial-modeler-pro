@@ -185,6 +185,7 @@ export function emitStandardsSection(c: SheetCursor, state: FinancialsResolverSt
       if (t.coveragePct !== undefined) setInput(c.ws.getCell(c.r, 8), t.coveragePct / 100, NUMFMT.pct2);
       if (t.far !== undefined) setInput(c.ws.getCell(c.r, 9), t.far, NUMFMT.rate);
       if (t.servicePct !== undefined) setInput(c.ws.getCell(c.r, 10), t.servicePct / 100, NUMFMT.pct2);
+      for (const col of [4, 5, 7, 8, 9, 10]) fixedHere(c, c.r, col, 'A type default applies only where a plot or sub-unit of this type states none, and in this model none relies on it.');
       c.r += 1;
     }
     note(c, 'A blank value is not set, never zero. Utilisation, coverage, FAR and service are defaults a plot inherits where it states none on Table 2.');
@@ -212,7 +213,7 @@ export function emitStandardsSection(c: SheetCursor, state: FinancialsResolverSt
       let col = 2;
       if (construction) { setLabel(c.ws.getCell(c.r, col), row.appliesTo); col += 1; }
       setLabel(c.ws.getCell(c.r, col), row.basis); col += 1;
-      if (row.rate !== undefined) setInput(c.ws.getCell(c.r, col), row.isPercent ? row.rate / 100 : row.rate, row.isPercent ? NUMFMT.pct2 : NUMFMT.rate);
+      if (row.rate !== undefined) { setInput(c.ws.getCell(c.r, col), row.isPercent ? row.rate / 100 : row.rate, row.isPercent ? NUMFMT.pct2 : NUMFMT.rate); fixedHere(c, c.r, col, 'No cost line in this model charges at this standard.'); }
       registerCell(`std:${row.id}:rate`, c.ws, c.ws.getCell(c.r, col));
       col += 1;
       if (multiPhase && row.byPhase.length > 0) {
@@ -223,7 +224,7 @@ export function emitStandardsSection(c: SheetCursor, state: FinancialsResolverSt
         for (const pr of [row.pricePerUnit, row.pricePerSqm]) {
           if (pr === null) { derived(c.ws.getCell(c.r, col), '-', '@'); col += 2; continue; }
           if (pr === undefined) { col += 2; continue; }
-          if (pr.value !== undefined) setInput(c.ws.getCell(c.r, col), pr.value, NUMFMT.rate);
+          if (pr.value !== undefined) { setInput(c.ws.getCell(c.r, col), pr.value, NUMFMT.rate); fixedHere(c, c.r, col, 'A type price applies only to a sub-unit with no price of its own, and in this model every sub-unit of this type states one.'); }
           setLabel(c.ws.getCell(c.r, col + 1), `${pr.unit}${currency ? ` (${currency})` : ''}`);
           col += 2;
         }
@@ -302,6 +303,7 @@ export function emitAssetEntrySection(c: SheetCursor, tables: AssetAreaTables, s
       viewCell(c.ws.getCell(c.r, 5), e.coveragePct, NUMFMT.pct2, 100);
       viewCell(c.ws.getCell(c.r, 6), e.far, NUMFMT.rate);
       viewCell(c.ws.getCell(c.r, 7), e.maxFloors, NUMFMT.int);
+      fixedHere(c, c.r, 7, 'Max floors is a planning note: nothing in the model reads it, on the platform either.');
       viewCell(c.ws.getCell(c.r, 8), e.retailPct, NUMFMT.pct2, 100);
       viewCell(c.ws.getCell(c.r, 9), e.servicePct, NUMFMT.pct2, 100);
       (['plot', 'util', 'cov', 'far', 'floors', 'retail', 'svc'] as const).forEach((k, i) => registerCell(`entry:${e.assetId}:${k}`, c.ws, c.ws.getCell(c.r, 3 + i)));
@@ -349,7 +351,7 @@ export function emitSubUnitSection(c: SheetCursor, state: FinancialsResolverStat
       setInput(c.ws.getCell(c.r, 7), u.rate, NUMFMT.rate);
       setLabel(c.ws.getCell(c.r, 8), u.rateBasis);
       if (u.otherRate) {
-        if (u.otherRate.value !== undefined) setInput(c.ws.getCell(c.r, 9), u.otherRate.value, NUMFMT.rate);
+        if (u.otherRate.value !== undefined) { setInput(c.ws.getCell(c.r, 9), u.otherRate.value, NUMFMT.rate); fixedHere(c, c.r, 9, 'The row sells on the other basis; this price is kept for a switch, not used.'); }
         setLabel(c.ws.getCell(c.r, 10), u.otherRate.basis);
       } else if (u.otherNote) setLabel(c.ws.getCell(c.r, 10), u.otherNote);
       c.r += 1;
@@ -410,10 +412,13 @@ export function emitStatementInputsSection(c: SheetCursor, state: FinancialsReso
     undefined, p.financialTerminology === undefined ? 'Not set: follows the country.' : undefined);
   kv(c, `${zakat ? 'Zakat' : 'Tax'} Rate (%)`, p.tax?.rate ?? 0, NUMFMT.pct2, true, 'TaxRate', undefined, 'project:taxRate');
   kv(c, `${zakat ? 'Zakat' : 'Tax'} on the disposal gain`, p.tax?.applyToDisposalGain === true ? 'Charge it on the gain at exit' : 'Not charged on the gain at exit', '@', true);
-  kv(c, `${zakat ? 'Zakat' : 'Tax'} payment (days)`, p.tax?.paymentDays ?? 0, NUMFMT.int, true);
+  const payRow = kv(c, `${zakat ? 'Zakat' : 'Tax'} payment (days)`, p.tax?.paymentDays ?? 0, NUMFMT.int, true);
+  fixedHere(c, payRow, 2, `${zakat ? 'Zakat' : 'Tax'} is paid in the year it is charged; the platform reads this setting nowhere either.`);
   kv(c, 'Statutory reserve transfer (% of PAT)', p.statutoryReserve?.transferRate ?? 0, NUMFMT.pct, true, undefined, undefined, 'project:reserveRate');
-  kv(c, 'Statutory reserve cap (% share capital)', p.statutoryReserve?.capOfShareCapital ?? 0, NUMFMT.pct, true, undefined, undefined, 'project:reserveCap');
-  kv(c, 'Share capital (explicit, 0 = auto)', p.shareCapital ?? 0, NUMFMT.money, true);
+  const capRow = kv(c, 'Statutory reserve cap (% share capital)', p.statutoryReserve?.capOfShareCapital ?? 0, NUMFMT.pct, true, undefined, undefined, 'project:reserveCap');
+  fixedHere(c, capRow, 2, 'A cap of zero at export applies no cap; a cap stated at export is live.');
+  const shareRow = kv(c, 'Share capital (explicit, 0 = auto)', p.shareCapital ?? 0, NUMFMT.money, true);
+  fixedHere(c, shareRow, 2, 'The financing solve carries the share capital stated at export.');
   kv(c, 'Operating receivables, DSO (days)', p.operatingAr?.dsoDays ?? 0, NUMFMT.int, true, 'DsoDays', undefined, 'project:dso');
   c.r += 1;
 }
@@ -428,18 +433,18 @@ export function emitReturnsSection(c: SheetCursor, state: FinancialsResolverStat
   const cfg = resolveReturnsConfig(state.project, snap.axisLength);
   const stored = state.project.returns ?? {};
   setSectionHeader(c.ws.getRow(c.r), 'Returns Assumptions', 3); c.r += 1;
-  kv(c, 'Discount Rate (%)', cfg.discountRate, NUMFMT.pct, stored.discountRate !== undefined, 'DiscountRate');
-  kv(c, 'Exit Year', snap.projectStartYear + cfg.exitYearOffset, NUMFMT.year, stored.exitYearOffset !== undefined, 'ExitYear');
+  kv(c, 'Discount Rate (%)', cfg.discountRate, NUMFMT.pct, stored.discountRate !== undefined, 'DiscountRate', undefined, 'inp=ret|Discount Rate (%)@4');
+  kv(c, 'Exit Year', snap.projectStartYear + cfg.exitYearOffset, NUMFMT.year, stored.exitYearOffset !== undefined, 'ExitYear', undefined, 'inp=ret|Exit Year@4');
   kv(c, 'Terminal Value Method', TERMINAL_METHOD_LABELS[cfg.terminalMethod] ?? cfg.terminalMethod, '@', stored.terminalMethod !== undefined);
   if (cfg.terminalMethod === 'exit_multiple') kv(c, 'Exit Multiple (x stabilised NOI)', cfg.exitMultiple, NUMFMT.mult, stored.exitMultiple !== undefined, 'ExitMultiple');
-  if (cfg.terminalMethod === 'perpetuity' || cfg.terminalMethod === 'cap_rate') kv(c, 'Growth g (%)', cfg.perpetuityGrowth, NUMFMT.pct2, stored.perpetuityGrowth !== undefined, 'PerpetuityGrowth');
+  if (cfg.terminalMethod === 'perpetuity' || cfg.terminalMethod === 'cap_rate') kv(c, 'Growth g (%)', cfg.perpetuityGrowth, NUMFMT.pct2, stored.perpetuityGrowth !== undefined, 'PerpetuityGrowth', undefined, 'inp=ret|Growth g (%)@4');
   if (cfg.terminalMethod !== 'none') {
     kv(c, 'Terminal value basis', cfg.terminalValueBasis === 'exit_year' ? 'Exit year' : 'Year before exit', '@', stored.terminalValueBasis !== undefined);
   }
   if (cfg.terminalMethod === 'cap_rate') {
     const manual = cfg.capRateSource === 'manual';
     kv(c, 'Exit Cap Rate (%)', manual ? cfg.capRate : cfg.capRateDerived, NUMFMT.pct2, manual, 'CapRate',
-      manual ? `Set by you (WACC less growth would be ${(cfg.capRateDerived * 100).toFixed(2)}%).` : 'WACC less growth, derived.');
+      manual ? `Set by you (WACC less growth would be ${(cfg.capRateDerived * 100).toFixed(2)}%).` : 'WACC less growth, derived.', manual ? 'inp=ret|Exit Cap Rate (%)@4' : undefined);
   }
   if (cfg.terminalMethod !== 'none') {
     kv(c, 'Terminal metric', cfg.applyGrowthToTerminal ? 'Grown by (1 + g)' : 'Exit year as is', '@', stored.applyGrowthToTerminal !== undefined);
@@ -480,7 +485,21 @@ function lineWindow(host: Asset, phase: Phase | undefined, snap: Snap): LineWind
 }
 
 /** A strip of per-year values over a window, the years as headers. */
-function yearStrip(c: SheetCursor, label: string, years: number[], values: (idx: number) => number | undefined, fmt: string, input: boolean, snap: Snap, headerLabel = 'Year'): void {
+/**
+ * FORMULA-LINKED EXPORT KEYS (stage9InputLinks). `inp=<module key>@<col>[#conv]`
+ * says the module sheet's copy of this input echoes THIS cell (Inputs is the one
+ * place a user types); `fixed:<why>` says the live workbook is built for the
+ * value at export, which the audit applies only if no formula reads the cell.
+ * Registering writes nothing: the hardcoded export is unchanged.
+ */
+const linkHere = (c: SheetCursor, row: number, col: number, spec: string | undefined): void => {
+  if (spec) registerCell(`inp=${spec}`, c.ws, c.ws.getCell(row, col));
+};
+export const fixedHere = (c: SheetCursor, row: number, col: number, why: string): void => {
+  registerCell(`fixed:${why}|${c.sheetName}!R${row}C${col}`, c.ws, c.ws.getCell(row, col));
+};
+
+function yearStrip(c: SheetCursor, label: string, years: number[], values: (idx: number) => number | undefined, fmt: string, input: boolean, snap: Snap, headerLabel = 'Year', linkOf?: (idx: number) => string | undefined): void {
   if (years.length === 0) return;
   setColHeader(c.ws.getCell(c.r, 1), headerLabel, 'left');
   years.forEach((idx, i) => setColHeader(c.ws.getCell(c.r, 2 + i), snap.projectStartYear + idx, 'right'));
@@ -489,27 +508,33 @@ function yearStrip(c: SheetCursor, label: string, years: number[], values: (idx:
   years.forEach((idx, i) => {
     const v = values(idx) ?? 0;
     if (input) setInput(c.ws.getCell(c.r, 2 + i), v, fmt); else derived(c.ws.getCell(c.r, 2 + i), v, fmt);
+    if (input) linkHere(c, c.r, 2 + i, linkOf?.(idx));
   });
   c.r += 1;
 }
 
-function indexationRows(c: SheetCursor, title: string, ix: { method?: string; rate?: number; startYear?: number; steps?: Array<{ year: number; factor: number }> } | undefined, snap: Snap): void {
+/** The module sheets' year columns: the axis year idx sits in column 6 + idx (PERIOD_COLS). */
+const axisCol = (idx: number): number => 6 + idx;
+
+function indexationRows(c: SheetCursor, title: string, ix: { method?: string; rate?: number; startYear?: number; steps?: Array<{ year: number; factor: number }> } | undefined, snap: Snap, revfootLine?: string): void {
   const method = ix?.method ?? 'none';
   kv(c, `${title}: method`, INDEX_METHOD_LABELS[method] ?? method, '@', true);
   if (method === 'yoy_compound' || method === 'single_rate') {
-    kv(c, `${title}: rate %`, ix?.rate ?? 0, NUMFMT.pct2, true);
-    kv(c, `${title}: start year`, snap.projectStartYear + (ix?.startYear ?? 0), NUMFMT.year, ix?.startYear !== undefined);
+    // The Revenue foot carries the rate and the start as a MODEL-YEAR INDEX; Inputs states the calendar year.
+    kv(c, `${title}: rate %`, ix?.rate ?? 0, NUMFMT.pct2, true, undefined, undefined, revfootLine ? `inp=revfoot|${revfootLine}|idx@4` : undefined);
+    kv(c, `${title}: start year`, snap.projectStartYear + (ix?.startYear ?? 0), NUMFMT.year, ix?.startYear !== undefined, undefined, undefined,
+      revfootLine && ix?.startYear !== undefined ? `inp=revfoot|${revfootLine}|idx@5#yearidx` : undefined);
   }
   if (method === 'step') {
     for (const s of ix?.steps ?? []) kv(c, `${title}: step from ${s.year}`, s.factor, NUMFMT.rate, true);
   }
 }
 
-function ancillaryRows(c: SheetCursor, title: string, cfg: { mode?: string; percentOfRooms?: number | number[]; ratePerGuest?: number | number[]; fixedAmountPerPeriod?: number | number[] } | undefined): void {
+function ancillaryRows(c: SheetCursor, title: string, cfg: { mode?: string; percentOfRooms?: number | number[]; ratePerGuest?: number | number[]; fixedAmountPerPeriod?: number | number[] } | undefined, link?: string): void {
   const scalar = (v: number | number[] | undefined): number => (v == null ? 0 : typeof v === 'number' ? v : (v[0] ?? 0));
   const mode = cfg?.mode ?? 'percent_of_rooms';
   kv(c, `${title}: driver`, mode === 'percent_of_rooms' ? '% of Rooms' : mode === 'per_guest' ? 'Per Guest' : 'Baseline + Growth', '@', true);
-  if (mode === 'percent_of_rooms') kv(c, `${title}: % of rooms revenue`, scalar(cfg?.percentOfRooms), NUMFMT.pct2, true);
+  if (mode === 'percent_of_rooms') kv(c, `${title}: % of rooms revenue`, scalar(cfg?.percentOfRooms), NUMFMT.pct2, true, undefined, undefined, link);
   else if (mode === 'per_guest') kv(c, `${title}: rate per guest`, scalar(cfg?.ratePerGuest), NUMFMT.rate, true);
   else kv(c, `${title}: baseline amount`, scalar(cfg?.fixedAmountPerPeriod), NUMFMT.money, true);
 }
@@ -548,7 +573,7 @@ function emitSellLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Sn
   // line pace, else nothing (resolveRowVelocity).
   const axisOf = (arr: number[] | undefined, legacy: number[] | undefined) => (idx: number): number | undefined =>
     arr !== undefined ? arr[idx - w.phaseOffset] : legacy?.[idx];
-  const velocityRows: Array<{ label: string; pre: (i: number) => number | undefined; post: (i: number) => number | undefined }> = [];
+  const velocityRows: Array<{ label: string; revRow?: string; pre: (i: number) => number | undefined; post: (i: number) => number | undefined }> = [];
   if (sell.velocityDefault && units.length !== 1) {
     velocityRows.push({ label: 'All sub-units (line pace)', pre: axisOf(sell.velocityDefault.preSalesVelocityByPhase, undefined), post: axisOf(sell.velocityDefault.postSalesVelocityByPhase, undefined) });
   } else {
@@ -556,21 +581,25 @@ function emitSellLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Sn
       const v = resolveRowVelocity(sell, u.id);
       velocityRows.push({
         label: `${u.name || 'sub-unit'}${v.source === 'default' ? ' (line pace)' : v.source === 'none' ? ' (no velocity: sells nothing)' : ''}`,
+        // The Revenue card's row for this sub-unit, the velocity the live sale passes read.
+        revRow: u.name || undefined,
         pre: axisOf(v.pre, v.preLegacy), post: axisOf(v.post, v.postLegacy),
       });
     }
   }
+  const velLink = (table: string, row: { revRow?: string }) => (idx: number): string | undefined =>
+    row.revRow ? `revin|${line.key}|${table}|${row.revRow}@${axisCol(idx)}` : undefined;
   if (w.construction.length > 0) {
     for (const [i, row] of velocityRows.entries()) {
-      yearStrip(c, row.label, w.construction, row.pre, NUMFMT.pct, true, snap, i === 0 ? `Pre-Sales velocity, ${snap.projectStartYear + w.construction[0]} to ${snap.projectStartYear + w.construction[w.construction.length - 1]}` : '');
+      yearStrip(c, row.label, w.construction, row.pre, NUMFMT.pct, true, snap, i === 0 ? `Pre-Sales velocity, ${snap.projectStartYear + w.construction[0]} to ${snap.projectStartYear + w.construction[w.construction.length - 1]}` : '', velLink('Pre-Sales velocity', row));
     }
   }
   if (w.operations.length > 0) {
     for (const [i, row] of velocityRows.entries()) {
-      yearStrip(c, row.label, w.operations, row.post, NUMFMT.pct, true, snap, i === 0 ? `Sales During Operation, ${snap.projectStartYear + w.operations[0]} to ${snap.projectStartYear + w.operations[w.operations.length - 1]}` : '');
+      yearStrip(c, row.label, w.operations, row.post, NUMFMT.pct, true, snap, i === 0 ? `Sales During Operation, ${snap.projectStartYear + w.operations[0]} to ${snap.projectStartYear + w.operations[w.operations.length - 1]}` : '', velLink('Sales During Operation', row));
     }
   }
-  indexationRows(c, 'Price Indexation', sell.indexation, snap);
+  indexationRows(c, 'Price Indexation', sell.indexation, snap, line.key);
   const rec = sell.recognitionProfile ?? { method: 'point_in_time' as const, pointInTimeYear: 'handover' as const };
   kv(c, 'Revenue Recognition', rec.method === 'over_time' ? 'Over-Time' : 'Point-in-Time', '@', true);
   if (rec.method !== 'over_time') {
@@ -589,9 +618,12 @@ function emitSellLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Sn
     block.downpayments.forEach((d, i) => setColHeader(c.ws.getCell(c.r, 2 + i), String(d.year), 'right'));
     c.r += 1;
     setLabel(c.ws.getCell(c.r, 1), 'Downpayment % by sale year', { indent: 1 });
-    block.downpayments.forEach((d, i) => setInput(c.ws.getCell(c.r, 2 + i), d.value, NUMFMT.pct));
+    block.downpayments.forEach((d, i) => {
+      setInput(c.ws.getCell(c.r, 2 + i), d.value, NUMFMT.pct);
+      linkHere(c, c.r, 2 + i, `revin|${line.key}|Sale cohort terms|Downpayment %@${axisCol(d.year - snap.projectStartYear)}`);
+    });
     c.r += 1;
-    kv(c, 'Max instalment years after sale', block.instalmentYears, NUMFMT.int, true);
+    kv(c, 'Max instalment years after sale', block.instalmentYears, NUMFMT.int, true, undefined, undefined, `inp=revin|${line.key}|Sale cohort terms|Max instalment years after sale@4`);
     kv(c, 'Instalments', block.stopAtHandover ? 'Stop at handover' : 'May run past handover', '@', true);
     note(c, saleCohortRuleText(block));
   }
@@ -602,14 +634,15 @@ function emitOperateLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap:
   // THE ADR THE ENGINE SELLS AT: the first positive of the row's stored ADR and
   // its Table 5 price (resolveSubUnitAdr). A stored 0 never shadows a price.
   for (const u of line.subUnits) kv(c, `Starting ADR, ${u.name || 'sub-unit'} (per room per night, Table 5)`, resolveSubUnitAdr(u), NUMFMT.rate, false);
-  indexationRows(c, 'ADR indexation', op?.adrIndexation, snap);
+  const L = (label: string, col = 4): string => `inp=revin|${line.key}|*|${label}@${col}`;
+  indexationRows(c, 'ADR indexation', op?.adrIndexation, snap, line.key);
   kv(c, 'Operations start year', snap.projectStartYear + w.opsIdx, NUMFMT.year, op?.operationsStartYearOverride != null,
-    undefined, `Default (after handover): ${snap.projectStartYear + w.defaultOpsIdx}`);
-  yearStrip(c, 'Occupancy', w.operations, (idx) => op?.occupancyPerPeriod?.[idx], NUMFMT.pct, true, snap, 'Occupancy ramp');
-  kv(c, 'Average guests per occupied room night', op?.guestsPerOccupiedRoom ?? 1.5, NUMFMT.rate, op?.guestsPerOccupiedRoom !== undefined);
-  ancillaryRows(c, 'F&B Revenue', op?.fb);
-  ancillaryRows(c, 'Other Revenue', op?.otherRevenue);
-  kv(c, 'Accounts Receivable Days (not used: the project DSO drives the receivable)', op?.dso ?? 30, NUMFMT.int, op?.dso !== undefined);
+    undefined, `Default (after handover): ${snap.projectStartYear + w.defaultOpsIdx}`, op?.operationsStartYearOverride != null ? L('Operations start year') : undefined);
+  yearStrip(c, 'Occupancy', w.operations, (idx) => op?.occupancyPerPeriod?.[idx], NUMFMT.pct, true, snap, 'Occupancy ramp', (idx) => `revin|${line.key}|*|Occupancy ramp@${axisCol(idx)}`);
+  kv(c, 'Average guests per occupied room night', op?.guestsPerOccupiedRoom ?? 1.5, NUMFMT.rate, op?.guestsPerOccupiedRoom !== undefined, undefined, undefined, L('Average guests per occupied room night'));
+  ancillaryRows(c, 'F&B Revenue', op?.fb, L('F&B Revenue, F&B %'));
+  ancillaryRows(c, 'Other Revenue', op?.otherRevenue, L('Other Revenue, Other %'));
+  kv(c, 'Accounts Receivable Days (not used: the project DSO drives the receivable)', op?.dso ?? 30, NUMFMT.int, op?.dso !== undefined, undefined, undefined, L('Accounts Receivable Days'));
 }
 
 function emitLeaseLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Snap): void {
@@ -618,18 +651,19 @@ function emitLeaseLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: S
   for (const u of line.subUnits) {
     kv(c, `Rent, ${u.name || 'sub-unit'} (per sqm per year, Table 5)`, (u.unitPrice ?? 0) > 0 ? (u.unitPrice as number) : (lease?.baseRate ?? 0), NUMFMT.rate, false);
   }
-  indexationRows(c, 'Rent indexation', lease?.rentIndexation, snap);
+  const L = (label: string, col = 4): string => `inp=revin|${line.key}|*|${label}@${col}`;
+  indexationRows(c, 'Rent indexation', lease?.rentIndexation, snap, line.key);
   kv(c, 'Operations start year', snap.projectStartYear + w.opsIdx, NUMFMT.year, lease?.operationsStartYearOverride != null,
-    undefined, `Default (after handover): ${snap.projectStartYear + w.defaultOpsIdx}`);
-  yearStrip(c, 'Occupancy', w.operations, (idx) => lease?.occupancyPerPeriod?.[idx], NUMFMT.pct, true, snap, 'Occupancy ramp');
-  kv(c, 'Accounts Receivable Days (not used: the project DSO drives the receivable)', lease?.arDays ?? 30, NUMFMT.int, lease?.arDays !== undefined);
+    undefined, `Default (after handover): ${snap.projectStartYear + w.defaultOpsIdx}`, lease?.operationsStartYearOverride != null ? L('Operations start year') : undefined);
+  yearStrip(c, 'Occupancy', w.operations, (idx) => lease?.occupancyPerPeriod?.[idx], NUMFMT.pct, true, snap, 'Occupancy ramp', (idx) => `revin|${line.key}|*|Occupancy ramp@${axisCol(idx)}`);
+  kv(c, 'Accounts Receivable Days (not used: the project DSO drives the receivable)', lease?.arDays ?? 30, NUMFMT.int, lease?.arDays !== undefined, undefined, undefined, L('Accounts Receivable Days'));
 }
 
 export function emitEscrowInputs(c: SheetCursor, state: FinancialsResolverState, snap: Snap): void {
   const p = state.project;
   const assets = state.assets;
   setSectionHeader(c.ws.getRow(c.r), 'Escrow Inputs', 7); c.r += 1;
-  kv(c, 'Project Held % (regulator-locked)', p.escrow?.heldPct ?? 0, NUMFMT.pct2, true);
+  kv(c, 'Project Held % (regulator-locked)', p.escrow?.heldPct ?? 0, NUMFMT.pct2, true, undefined, undefined, 'inp=esc|||Project Held % (regulator-locked)@4');
   kv(c, 'Default Held Until Year (optional)', p.escrow?.defaultHeldUntilYear ?? 'auto: handover year', p.escrow?.defaultHeldUntilYear !== undefined ? NUMFMT.year : '@', p.escrow?.defaultHeldUntilYear !== undefined);
   kv(c, 'Default Release Year (optional)', p.escrow?.defaultReleaseYear ?? 'auto: handover year + 1', p.escrow?.defaultReleaseYear !== undefined ? NUMFMT.year : '@', p.escrow?.defaultReleaseYear !== undefined);
   const lines = planReportLines({ assets, phases: state.phases, parcels: state.parcels }, (a) => snap.escrow.byAsset.has(a.id));
@@ -679,6 +713,7 @@ export function emitOpexInputs(c: SheetCursor, state: FinancialsResolverState): 
       setInput(c.ws.getCell(c.r, 3), OPEX_MODE_LABELS[l.mode] ?? String(l.mode), '@');
       setInput(c.ws.getCell(c.r, 4), yoy ? 'YoY' : 'Single', '@');
       setInput(c.ws.getCell(c.r, 5), l.value, opexValFmt(String(l.mode)));
+      linkHere(c, c.r, 5, `opexin|${host.id}||${l.name}@6`);
       if (!fixed) derived(c.ws.getCell(c.r, 6), 'auto via revenue', '@');
       else if (yoy) derived(c.ws.getCell(c.r, 6), 'supplied by YoY rates', '@');
       else if (l.useAssetDefault !== false) derived(c.ws.getCell(c.r, 6), `Inherits: ${summarizeOpexIndexation(host.opex?.defaultIndexation)}`, '@');
@@ -697,6 +732,7 @@ export function emitOpexInputs(c: SheetCursor, state: FinancialsResolverState): 
       setInput(c.ws.getCell(c.r, 2), OPEX_CATEGORY_LABELS[l.category] ?? String(l.category), '@');
       setInput(c.ws.getCell(c.r, 3), OPEX_MODE_LABELS[l.mode] ?? String(l.mode), '@');
       setInput(c.ws.getCell(c.r, 4), l.value, opexValFmt(String(l.mode)));
+      linkHere(c, c.r, 4, `opexin|__hq__||${l.name}@6`);
       setInput(c.ws.getCell(c.r, 5), summarizeOpexIndexation(l.indexation), '@');
       setInput(c.ws.getCell(c.r, 6), l.disabled ? 'Off' : 'On', '@');
       c.r += 1;
@@ -705,7 +741,7 @@ export function emitOpexInputs(c: SheetCursor, state: FinancialsResolverState): 
   }
   if (ordered.length === 0 && hq.length === 0) { note(c, 'No operating lines: opex applies to Operate and Lease lines.'); c.r += 1; }
   setSectionHeader(c.ws.getRow(c.r), 'Accounts Payable (DPO)', 3); c.r += 1;
-  kv(c, 'Project Default DPO (days)', p.opexAp?.defaultApDays ?? 0, NUMFMT.int, true, 'DpoDays', 'Blank or 0 = pay on incurrence (no AP).');
+  kv(c, 'Project Default DPO (days)', p.opexAp?.defaultApDays ?? 0, NUMFMT.int, true, 'DpoDays', 'Blank or 0 = pay on incurrence (no AP).', 'inp=opexin|__ap__||Project Default DPO (days)@4#dpo');
   kv(c, 'Days basis', p.opexAp?.daysPerYear ?? 365, NUMFMT.int, p.opexAp?.daysPerYear !== undefined);
   if (ordered.length > 0) {
     headers(c, ['Asset', 'Effective DPO (days)', 'DPO Override']);

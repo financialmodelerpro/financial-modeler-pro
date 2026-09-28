@@ -666,12 +666,17 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   setTitle(ws.getCell(`A${r}`), 'Inputs (all model assumptions)', 16); r += 1;
   setLabel(ws.getCell(`A${r}`), 'Every input screen of the platform, in module order. Shaded cells are what a user types on the platform; unshaded figures beside them are derived, inherited from an asset type or defaulted, exactly as the screens show them. This is a hardcoded snapshot: editing here does NOT recalculate the other tabs; change inputs in the platform and re-export.', { }); r += 2;
 
-  const addKV = (label: string, value: number | string, numFmt: string, name?: string): number => {
+  // `link`: the formula-linked export's key for this input (stage9InputLinks): the
+  // module cell that echoes it (inp=), or the cell it echoes (echo=). Writes nothing.
+  const addKV = (label: string, value: number | string, numFmt: string, name?: string, link?: string): number => {
     setLabel(ws.getCell(`A${r}`), label);
     setInput(ws.getCell(`B${r}`), value, numFmt);
     if (name) wb.definedNames.add(`${SHEETS.assumptions}!$B$${r}`, name);
+    if (link) registerCell(link, ws, ws.getCell(`B${r}`));
     const row = r; r += 1; return row;
   };
+  const FIN = (section: string, label: string): string => `fin|${section}|${label}@4`;
+  const fixedAt = (row: number, col: number, why: string): void => registerCell(`fixed:${why}|${SHEETS.assumptions}!R${row}C${col}`, ws, ws.getCell(row, col));
   const financingScalars: FinancingScalarRefs = {
     dividendEnabled: '', dividendPayout: '', dividendStart: '', sweepStart: '', sweepRatio: '',
   };
@@ -772,6 +777,7 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
         setInput(ws.getCell(`B${r}`), m.commissionPct ?? 0, NUMFMT.pct2);
         setInput(ws.getCell(`C${r}`), m.developerFeePct ?? 0, NUMFMT.pct2);
         setInput(ws.getCell(`D${r}`), m.performanceFeePct ?? 0, NUMFMT.pct2);
+        for (const col of [2, 3, 4]) fixedAt(r, col, 'How the fees are shared among earners is built in at export.');
         r += 1;
       }
       r += 1;
@@ -827,6 +833,8 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
     r += 1;
     const lineRefs: CapexLineRef[] = [];
     for (const ln of ia.lines) {
+      // Row key for the formula-linked export (stage9InputLinks): this plot's row for this cost line.
+      registerCell(`inpcx:${ia.assetId}:${ln.id}`, ws, ws.getCell(`A${r}`));
       setLabel(ws.getCell(`A${r}`), ln.name, { indent: 1 });
       setLabel(ws.getCell(`B${r}`), methodLabel(ln.method, ln.basis));
       if (ln.isPercent) setInput(ws.getCell(`C${r}`), ln.rate / 100, NUMFMT.pct2);
@@ -891,13 +899,13 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   inputDivider('FINANCING INPUTS');
   setSectionHeader(ws.getRow(r), 'Financing settings', 5); r += 1;
   setLabel(ws.getCell(`A${r}`), 'Funding method'); setInput(ws.getCell(`B${r}`), FUNDING_METHOD_LABELS[(p.financing?.fundingMethod ?? 1) as FundingMethodId], '@'); r += 1;
-  addKV('Debt share', fin.funding.debtPct / 100, NUMFMT.pct, 'DebtPct');
-  addKV('Equity share', fin.funding.equityPct / 100, NUMFMT.pct, 'EquityPct');
-  addKV('Minimum cash reserve', p.financing?.minimumCashReserve ?? fin.funding.minCashReserve ?? 0, NUMFMT.money, 'MinCashReserve');
+  addKV('Debt share', fin.funding.debtPct / 100, NUMFMT.pct, 'DebtPct', `inp=${FIN('2a. Method 3 Configuration', 'Debt %')}`);
+  addKV('Equity share', fin.funding.equityPct / 100, NUMFMT.pct, 'EquityPct', `inp=${FIN('2a. Method 3 Configuration', 'Equity %')}`);
+  addKV('Minimum cash reserve', p.financing?.minimumCashReserve ?? fin.funding.minCashReserve ?? 0, NUMFMT.money, 'MinCashReserve', `inp=${FIN('1. Project Financing Settings', 'Minimum Cash Reserve')}`);
   addKV('IDC allocation basis', (p.idcConfig?.allocationBasis ?? 'land') === 'bua' ? 'Total BUA' : 'Land Area', '@');
-  addKV('Dividends enabled (1 = yes)', p.dividendPolicy?.enabled ? 1 : 0, NUMFMT.int);
-  addKV('Dividend payout ratio %', (p.dividendPolicy?.payoutRatio ?? 0) / 100, NUMFMT.pct);
-  addKV('Dividend start year (0 = auto)', p.dividendStartYear ?? 0, NUMFMT.year);
+  addKV('Dividends enabled (1 = yes)', p.dividendPolicy?.enabled ? 1 : 0, NUMFMT.int, undefined, `inp=${FIN('Dividend Policy', 'Pay Dividends')}#onoff`);
+  addKV('Dividend payout ratio %', (p.dividendPolicy?.payoutRatio ?? 0) / 100, NUMFMT.pct, undefined, `inp=${FIN('Dividend Policy', 'Payout Ratio')}`);
+  addKV('Dividend start year (0 = auto)', p.dividendStartYear ?? 0, NUMFMT.year, undefined, `inp=${FIN('Dividend Policy', 'Start Year')}#auto`);
   const fcfg = p.financing;
   const fmId = (fcfg?.fundingMethod ?? 1) as FundingMethodId;
   if (fmId === 2 && fcfg?.netFundingConfig) {
@@ -908,10 +916,10 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   } else if (fmId === 3 && fcfg?.cashDeficitConfig) {
     const mc = fcfg.cashDeficitConfig;
     const minCash = Array.isArray(mc.minimumCashReserve) ? (mc.minimumCashReserve[0] ?? 0) : (mc.minimumCashReserve ?? 0);
-    addKV('Method 3: Initial cash', mc.initialCash ?? 0, NUMFMT.money);
-    addKV('Method 3: Minimum cash reserve', minCash, NUMFMT.money);
-    addKV('Method 3: Debt %', (mc.debtPct ?? 0) / 100, NUMFMT.pct);
-    addKV('Method 3: Equity %', (mc.equityPct ?? 0) / 100, NUMFMT.pct);
+    fixedAt(addKV('Method 3: Initial cash', mc.initialCash ?? 0, NUMFMT.money), 2, 'The financing solve starts from the cash the model holds at export.');
+    addKV('Method 3: Minimum cash reserve', minCash, NUMFMT.money, undefined, `echo=${FIN('1. Project Financing Settings', 'Minimum Cash Reserve')}`);
+    addKV('Method 3: Debt %', (mc.debtPct ?? 0) / 100, NUMFMT.pct, undefined, `echo=${FIN('2a. Method 3 Configuration', 'Debt %')}`);
+    addKV('Method 3: Equity %', (mc.equityPct ?? 0) / 100, NUMFMT.pct, undefined, `echo=${FIN('2a. Method 3 Configuration', 'Equity %')}`);
   } else if (fmId === 4 && fcfg?.fixedAmountConfig) {
     const mc = fcfg.fixedAmountConfig;
     addKV('Method 4: Specified debt amount', mc.debtAmount ?? 0, NUMFMT.money);
@@ -942,6 +950,8 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       if (storedCfg) {
         setInput(ws.getCell(`D${r}`), debtPct / 100, NUMFMT.pct);
         setInput(ws.getCell(`E${r}`), equityPct / 100, NUMFMT.pct);
+        registerCell(`inp=${FIN('4. Land Funding (per phase, from the Capex results)', `${lp.phaseName}, Debt %`)}`, ws, ws.getCell(`D${r}`));
+        registerCell(`inp=${FIN('4. Land Funding (per phase, from the Capex results)', `${lp.phaseName}, Equity %`)}`, ws, ws.getCell(`E${r}`));
       } else {
         setFormula(ws.getCell(`D${r}`), fcell('0', 0), NUMFMT.pct);
         setFormula(ws.getCell(`E${r}`), fcell('1', 1), NUMFMT.pct);
@@ -959,9 +969,11 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   r += 1;
   setLabel(ws.getCell(`A${r}`), 'Sweep starting year (0 = auto)');
   setInput(ws.getCell(`B${r}`), sweepCfg.startingYear ?? 0, NUMFMT.year);
+  registerCell(`inp=${FIN('Cash Sweep Settings', 'Sweep Starting Year (calendar)')}#auto`, ws, ws.getCell(`B${r}`));
   financingScalars.sweepStart = addr('B', r); r += 1;
   setLabel(ws.getCell(`A${r}`), 'Sweep ratio (% of surplus)');
   setInput(ws.getCell(`B${r}`), (sweepCfg.sweepRatioPct ?? 100) / 100, NUMFMT.pct);
+  registerCell(`inp=${FIN('Cash Sweep Settings', 'Sweep Ratio (% of excess cash)')}`, ws, ws.getCell(`B${r}`));
   financingScalars.sweepRatio = addr('B', r); r += 2;
 
   // Financing facilities (debt).
@@ -983,6 +995,15 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       setInput(ws.getCell(`J${r}`), t.interestStartYear ?? 0, NUMFMT.year);
       setInput(ws.getCell(`K${r}`), t.originationYear ?? 0, NUMFMT.year);
       setInput(ws.getCell(`L${r}`), (t.facilitySharePct ?? 0) / 100, NUMFMT.pct);
+      {
+        // The Financing sheet states the facility's rate as interbank plus spread; the
+        // combined rate here is its echo. Terms the live solve is not built for are fixed.
+        const sec = `${t.name} (${t.origin === 'existing' ? 'existing' : 'new'} facility)`;
+        registerCell(`echo=${FIN(sec, 'Interest Rate %')}`, ws, ws.getCell(`D${r}`));
+        registerCell(`inp=${FIN(sec, 'Repayment Periods')}`, ws, ws.getCell(`G${r}`));
+        registerCell(`inp=${FIN(sec, 'Repayment Start Year')}#auto`, ws, ws.getCell(`I${r}`));
+        for (const col of [3, 8, 10, 11, 12]) fixedAt(r, col, 'The live financing solve is built for one new facility repaid by the cash sweep, as exported.');
+      }
       trancheRefs.push({ id: t.id, name: t.name, openingBalance: addr('C', r), rate: addr('D', r), periods: addr('G', r) });
       r += 1;
     }

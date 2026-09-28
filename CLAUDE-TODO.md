@@ -2,7 +2,16 @@
 
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
-## START HERE 2026-09-28: STAGES 7c AND 8 ARE DONE; RESUME AT ITEM 4 BELOW (the Exit Year input)
+## START HERE 2026-09-28 (late): INPUTS IS THE ONE PLACE A USER TYPES, AND THE GUARD HOLDS IT
+
+**DONE:** item 4 below and item 5's Zakat days, by the wider fix: every shaded cell in the live workbook is read by
+a formula (`verify-formula-workbook` A11 to A11c, 92 / 0); Exit Year and the other export-time structure are
+unshaded with the note. **OPEN:** (a) a platform answer for the fixed-at-export numbers worth making live later
+(Exit Year above all, then share capital and the facility terms): each needs the solve to be structure-free for it;
+(b) item 5's remaining carry-overs (refusals per layer, the Branded Villas Phase 1 spend curves); (c) the
+session-end suite.
+
+## 2026-09-28: STAGES 7c AND 8 ARE DONE; RESUME AT ITEM 4 BELOW (the Exit Year input)
 
 **DONE 2026-09-28 (detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-28):** items 1 and 2 below in full: both labelling
 defects, the reconciliation bridge, the Checks sheet, and the Summary (with the Stated NSA as an Inputs Table 2
