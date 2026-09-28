@@ -505,7 +505,7 @@ export const stage2Capex: LiveLayer = {
       : 'Waiting for Revenue: marketing charges on sale revenue and follows sales collections, which the working sheet holds as the platform\'s values, so marketing and the totals that include it do not yet follow an input that moves revenue.';
     return [
       { sheet: 'Capex', status: 'partial' as const, formulas: w.formulas.get('Capex') ?? 0, pending,
-        note: `Live on this sheet: every cost line's rate (the cost standards on Inputs), base (the Land & Area areas and land values), amount, window and spread, Tables 1 to 6, the consolidated view and the check row, computed per plot on a hidden working sheet (Capex Calc) and summed by line. ${revenueNote} The per-phase totals and Table 7 (construction plus capitalised interest by line, with the escalation rows) are the platform\'s values. The plot spend curves and fixed line windows are inputs listed at the foot of the sheet.` },
+        note: `Live on this sheet: every cost line's rate (the cost standards on Inputs), base (the Land & Area areas and land values), amount, window and spread, Tables 1 to 6, the per-phase totals, the consolidated view and the check row, computed per plot on a hidden working sheet (Capex Calc) and summed by line. ${revenueNote} The plot spend curves and fixed line windows are inputs listed at the foot of the sheet.` },
       { sheet: CALC, status: 'partial' as const, formulas: w.formulas.get(CALC) ?? 0, pending: [], note: 'Working sheet for Capex.' },
     ];
   },

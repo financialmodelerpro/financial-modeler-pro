@@ -1778,6 +1778,8 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       r += 1;
       for (const row7 of t.rows) {
         if (row7.kind === 'heading') band(r, '');
+        // Row keys for the formula-linked export (cellRegistry.ts); writes nothing here.
+        if (row7.key) registerCell(row7.key, ws, ws.getCell(r, C_LBL));
         row7.cells.forEach((c, i) => {
           const col = cols[i];
           if (typeof c === 'string') { if (c) setLabel(ws.getCell(r, col), c, { indent: i === 0 && row7.kind !== 'heading' ? 1 : undefined, bold: row7.kind !== 'data' }); return; }

@@ -2,11 +2,12 @@
 
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
-## START HERE 2026-09-28: STAGE 7c IS DONE; RESUME AT PROPOSED STAGE 8 (item 3 below)
+## START HERE 2026-09-28: STAGES 7c AND 8 ARE DONE; RESUME AT ITEM 4 BELOW (the Exit Year input)
 
 **DONE 2026-09-28 (detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-28):** items 1 and 2 below in full: both labelling
 defects, the reconciliation bridge, the Checks sheet, and the Summary (with the Stated NSA as an Inputs Table 2
-input and NSA used beside it), and the residential price per sqm on NSA used (done, 89 / 0). **OPEN, in order:** items 3 to 5 below.
+input and NSA used beside it), the residential price per sqm on NSA used, and stage 8 (item 3: the Schedules
+tables, the Fund Fee Basis, Capex Table 7; Capex and P&L now report LIVE). **OPEN, in order:** items 4 and 5 below.
 
 ## 2026-09-27 (evening): RESUME AT STAGE 7c OF THE FORMULA-LINKED WORKBOOK
 

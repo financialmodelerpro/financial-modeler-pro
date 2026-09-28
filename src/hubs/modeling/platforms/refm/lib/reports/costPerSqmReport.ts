@@ -198,7 +198,8 @@ export interface CostPerSqmTable {
   title: string;
   caption: string;
   columns: string[];
-  rows: Array<{ cells: CostPerSqmCell[]; kind: 'heading' | 'data' | 'subtotal' }>;
+  /** `key` names the row for the formula-linked workbook's registry; every surface ignores it. */
+  rows: Array<{ cells: CostPerSqmCell[]; kind: 'heading' | 'data' | 'subtotal'; key?: string }>;
 }
 
 /**
@@ -223,9 +224,9 @@ export function costPerSqmTables(
     rows: [],
   };
   for (const l of lines) {
-    a.rows.push({ kind: 'heading', cells: [name(l), '', ...AREA_BASES.map((x) => ({ n: l.area[x.key], as: 'area' as const }))] });
+    a.rows.push({ kind: 'heading', key: `cx7a|${l.key}|head`, cells: [name(l), '', ...AREA_BASES.map((x) => ({ n: l.area[x.key], as: 'area' as const }))] });
     for (const b of COST_BASES) {
-      a.rows.push({ kind: 'data', cells: [b.label, { n: l.cost[b.key], as: 'amount' }, ...AREA_BASES.map((x) => ({ n: l.perSqm[b.key][x.key], as: 'perSqm' as const }))] });
+      a.rows.push({ kind: 'data', key: `cx7a|${l.key}|${b.key}`, cells: [b.label, { n: l.cost[b.key], as: 'amount' }, ...AREA_BASES.map((x) => ({ n: l.perSqm[b.key][x.key], as: 'perSqm' as const }))] });
     }
   }
   out.push(a);
@@ -241,11 +242,11 @@ export function costPerSqmTables(
     for (const l of sells) {
       const s = l.sale!;
       t.rows.push({ kind: 'heading', cells: [name(l), 'Area sold (sqm)', 'Base price', 'Realised price'] });
-      t.rows.push({ kind: 'data', cells: [`NSA ${Math.round(s.nsa).toLocaleString('en-US')} sqm`, { n: s.areaSold, as: 'area' }, { n: s.basePrice, as: 'perSqm' }, { n: s.realisedPrice, as: 'perSqm' }] });
+      t.rows.push({ kind: 'data', key: `cx7b|${l.key}|sold`, cells: [`NSA ${Math.round(s.nsa).toLocaleString('en-US')} sqm`, { n: s.areaSold, as: 'area' }, { n: s.basePrice, as: 'perSqm' }, { n: s.realisedPrice, as: 'perSqm' }] });
       for (const b of COST_BASES) {
-        t.rows.push({ kind: 'data', cells: [b.label, { n: s.costPerSqm[b.key], as: 'perSqm' }, { n: s.marginAtBase[b.key], as: 'perSqm' }, { n: s.marginAtRealised[b.key], as: 'perSqm' }] });
+        t.rows.push({ kind: 'data', key: `cx7b|${l.key}|${b.key}`, cells: [b.label, { n: s.costPerSqm[b.key], as: 'perSqm' }, { n: s.marginAtBase[b.key], as: 'perSqm' }, { n: s.marginAtRealised[b.key], as: 'perSqm' }] });
       }
-      t.rows.push({ kind: 'subtotal', cells: ['Escalation earned (realised less base price)', '', '', { n: s.escalationPerSqm, as: 'perSqm' }] });
+      t.rows.push({ kind: 'subtotal', key: `cx7b|${l.key}|esc`, cells: ['Escalation earned (realised less base price)', '', '', { n: s.escalationPerSqm, as: 'perSqm' }] });
     }
     out.push(t);
   }

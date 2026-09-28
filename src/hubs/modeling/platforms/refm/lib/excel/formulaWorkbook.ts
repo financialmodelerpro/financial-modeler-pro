@@ -47,6 +47,7 @@ import { stage7bMetrics } from './liveLayers/stage7bMetrics';
 import { stage7cChecks } from './liveLayers/stage7cChecks';
 import { stage7dSummary } from './liveLayers/stage7dSummary';
 import { stage8Schedules, stage8FundFees } from './liveLayers/stage8Schedules';
+import { stage8Capex7 } from './liveLayers/stage8Capex7';
 
 export type SheetStatus = 'live' | 'partial' | 'values' | 'values-by-design' | 'front';
 
@@ -88,7 +89,7 @@ export interface LiveLayer {
 
 /** The layers, in dependency order. */
 // Revenue before Capex: Capex's selling costs read the revenue a line earns.
-export const LIVE_LAYERS: LiveLayer[] = [stage1LandArea, stage3Revenue, stage2Capex, stage3Cos, stage3Opex, stage4Schedules, stage5Statements, stage6Financing, stage6bFinancingSheet, stage8Schedules, stage8FundFees, stage7Returns, stage7bMetrics, stage7cChecks, stage7dSummary];
+export const LIVE_LAYERS: LiveLayer[] = [stage1LandArea, stage3Revenue, stage2Capex, stage3Cos, stage3Opex, stage4Schedules, stage5Statements, stage6Financing, stage6bFinancingSheet, stage8Schedules, stage8FundFees, stage8Capex7, stage7Returns, stage7bMetrics, stage7cChecks, stage7dSummary];
 
 /** Sheets that are values by the founder's decision (2026-09-27), never live. */
 const BY_DESIGN: Record<string, string> = {
