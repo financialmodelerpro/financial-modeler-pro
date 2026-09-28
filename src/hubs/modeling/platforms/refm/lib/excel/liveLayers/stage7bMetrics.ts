@@ -14,8 +14,9 @@
  *   - every card: equity multiple, yield on cost (held NOI over the held assets'
  *     cost), profit margin, coverage, cash on cash, development economics, the
  *     income and exit profile, the funding mix and the operating KPIs.
- * One card stays the platform's value: the residential average price per sqm,
- * whose area is a stored asset field the workbook does not carry.
+ * The residential average price per sqm divides by the NSA used on Inputs Table 2
+ * of every Sell asset that sold anything (2026-09-28: it read a stored asset field
+ * the workbook did not carry, by a second area rule, until the platform moved to one).
  *
  * No em dashes in this file.
  */
@@ -282,6 +283,21 @@ export const stage7bMetrics: LiveLayer = {
         kpi(RS, 'Residential GDV', () => moneyT(sale()));
         kpi(RS, 'Units Sold', () => intT(units()));
         kpi(RS, 'Avg Sale Price / Unit', () => rateT(sale(), units()));
+        // PRICE PER SQM OVER THE NSA USED (2026-09-28, founder: one area rule): each
+        // Sell asset that sold anything, by units OR by area, adds the NSA used cell on
+        // Inputs Table 2 (buildOperatingKpis). An asset whose rows or NSA cell are not
+        // on the sheet leaves the card the platform's value.
+        const sellAssets = [...snap.revenue.bySellAsset.keys()];
+        const soldOf = (id: string): string | null => {
+          const ks = (state.subUnits as Array<{ id: string; assetId: string }>).filter((u) => u.assetId === id)
+            .flatMap((u) => w.reg.keys().filter((k) => k.startsWith('rvc:') && k.includes(`:${u.id}:`) && /:(pre|post):(area|units)$/.test(k)));
+          return ks.length ? ks.map(rv).join('+') : null;
+        };
+        if (sellAssets.length && sellAssets.every((id) => has(`entry:${id}:nsaUsed`))) {
+          // An asset with no sale rows on the sheet sold nothing, so it adds nothing.
+          const area = (): string => `(${sellAssets.map((id) => { const s = soldOf(id); return s ? `IF((${s})>0,N(${w.ref(`entry:${id}:nsaUsed`)}),0)` : '0'; }).join('+')})`;
+          kpi(RS, 'Avg Sale Price / sqm', () => rateT(sale(), area()));
+        }
         kpi(RS, 'Pre-Sales %', () => ratioT(pre(), sale()));
         kpi(RS, 'Sales Velocity', () => rateT(units(), active()));
       }
@@ -305,7 +321,7 @@ export const stage7bMetrics: LiveLayer = {
     for (const fn of writes) fn();
     return [{
       sheet: RET, status: 'partial' as const, formulas: w.formulas.get(RET) ?? 0,
-      note: 'Live: 2. RE Metrics (the covenant series, worst, average and pass or breach against the shaded thresholds, the exit-year analysis rebuilt per candidate exit, every card and the operating KPIs), except the residential average price per sqm, whose area is a stored asset field. 3. Case Comparison is the platform\'s values by design: a live workbook models the case that was exported.',
+      note: 'Live: 2. RE Metrics (the covenant series, worst, average and pass or breach against the shaded thresholds, the exit-year analysis rebuilt per candidate exit, every card and the operating KPIs, the residential price per sqm over the NSA used on Inputs Table 2). 3. Case Comparison is the platform\'s values by design: a live workbook models the case that was exported.',
     }];
   },
 };

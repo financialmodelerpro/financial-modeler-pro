@@ -32,10 +32,11 @@ import { loadLiveExportInputs } from './fixtures/liveExportInputs';
 import { excelAvailable, recalcInExcel, cellKey } from './excelRecalc';
 import JSZip from 'jszip';
 import { planRevenueLines } from '../src/hubs/modeling/platforms/refm/lib/revenueLines';
-import { resolveUsefulLifeYears } from '../src/core/calculations';
+import { resolveUsefulLifeYears, resolveAssetAreaMetrics } from '../src/core/calculations';
 import { CellRegistry } from '../src/hubs/modeling/platforms/refm/lib/excel/cellRegistry';
 import { platformAfterEdit } from './fixtures/platformAfterEdit';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import { buildOperatingKpis } from '../src/hubs/modeling/platforms/refm/lib/reports/operatingKpis';
 import { DEFAULT_COVENANTS } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import type { LiveExportInputs } from './fixtures/liveExportInputs';
 
@@ -616,6 +617,25 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
   const pendingSheets = new Set([...buildPending].map((a) => a.split('!')[0]));
   const waitMismatch = [...status].filter(([name, st]) => /wait(s)? for that stage/i.test(st.note) !== pendingSheets.has(name)).map(([n]) => n);
   check('A6d a sheet says it waits for a later stage if and only if a cell on it does', waitMismatch.length === 0, waitMismatch.join(', '));
+  // ONE AREA RULE FOR THE PRICE PER SQM (2026-09-28): sale value over the NSA used of
+  // every Sell asset that sold anything, by units OR by area. Computed here from the
+  // rule, not from the builder; and where no unit sold, the area branch must be what fired.
+  {
+    const st = input.state as any;
+    const vis = (st.assets as any[]).filter((a) => a.visible !== false);
+    const snapK = computeFinancialsSnapshot(input.state);
+    const sumA = (a?: number[]): number => (a ?? []).reduce((s, v) => s + (v ?? 0), 0);
+    let sale = 0, area = 0, units = 0;
+    for (const [id, s] of snapK.revenue.bySellAsset.entries()) {
+      const u = sumA(s.presalesUnitsPerPeriod) + sumA(s.postSalesUnitsPerPeriod), ar = sumA(s.presalesAreaPerPeriod) + sumA(s.postSalesAreaPerPeriod);
+      sale += sumA(s.presalesRevenuePerPeriod) + sumA(s.postSalesRevenuePerPeriod); units += u;
+      if (u > 0 || ar > 0) area += resolveAssetAreaMetrics(vis.find((a) => a.id === id), st.project, st.parcels, vis, st.subUnits, st.landAllocationMode).nsa;
+    }
+    const got = buildOperatingKpis(snapK, input.state).residential?.pricePerSqm ?? null;
+    const want = area > 0 ? sale / area : null;
+    check(`A9 the residential price per sqm is sale value over the NSA used of every Sell asset that sold anything${units === 0 ? ' (no unit sold here, so the area branch is what counts)' : ''}`,
+      want !== null && got !== null && Math.abs(got - want) < 1e-6, `builder ${got}, rule ${want}`);
+  }
 
   const buf = await enableFormulaIteration((await wb.xlsx.writeBuffer()) as ArrayBuffer);
   const calcPr = (await (await JSZip.loadAsync(buf)).file('xl/workbook.xml')!.async('string')).match(/<calcPr[^>]*>/)?.[0] ?? '';

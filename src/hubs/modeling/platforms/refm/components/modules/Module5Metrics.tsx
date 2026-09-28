@@ -99,7 +99,7 @@ export default function Module5Metrics(): React.JSX.Element {
   // ── Operating KPI blocks (demoted detail; rendered only when present) ──────
   // The figures come from the SHARED builder (lib/reports/operatingKpis.ts), the
   // same one the Excel workbook prints, so the two cannot compute them apart.
-  const opKpis = buildOperatingKpis(snap, state.assets);
+  const opKpis = buildOperatingKpis(snap, state);
   const ccy = project.currency ?? 'SAR';
   const rate = (v: number | null): string => (v == null ? 'n/a' : Math.round(v).toLocaleString());
   const intFmt = (v: number): string => Math.round(v).toLocaleString();

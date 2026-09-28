@@ -6,10 +6,7 @@
 
 **DONE 2026-09-28 (detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-28):** items 1 and 2 below in full: both labelling
 defects, the reconciliation bridge, the Checks sheet, and the Summary (with the Stated NSA as an Inputs Table 2
-input and NSA used beside it); `verify-formula-workbook` 88 / 0. **OPEN, in order:** items 3 to 5 below. New small
-follow-up: the RE Metrics "Avg Sale Price / sqm" KPI reads `sellableBuaSqm || buaSqm` (operatingKpis.ts), a
-second, different area rule from `resolveAssetAreaMetrics`; now that the stated NSA is an input it could go live,
-but first decide whether that KPI should read NSA used (one rule) rather than its own.
+input and NSA used beside it), and the residential price per sqm on NSA used (done, 89 / 0). **OPEN, in order:** items 3 to 5 below.
 
 ## 2026-09-27 (evening): RESUME AT STAGE 7c OF THE FORMULA-LINKED WORKBOOK
 

@@ -11,8 +11,8 @@
  *
  * Pure. No em dashes in this file.
  */
-import type { ProjectFinancialsSnapshot } from '../financials-resolvers';
-import type { Asset } from '../state/module1-types';
+import type { FinancialsResolverState, ProjectFinancialsSnapshot } from '../financials-resolvers';
+import { resolveAssetAreaMetrics } from '@/src/core/calculations';
 
 export interface HospitalityKpis {
   occupancy: number | null;
@@ -51,7 +51,7 @@ const sumArr = (a: readonly number[] | undefined): number => (a ?? []).reduce((s
 
 export function buildOperatingKpis(
   snap: Pick<ProjectFinancialsSnapshot, 'revenue'>,
-  assets: readonly Pick<Asset, 'id' | 'sellableBuaSqm' | 'buaSqm'>[],
+  state: Pick<FinancialsResolverState, 'assets' | 'project' | 'parcels' | 'subUnits' | 'landAllocationMode'>,
 ): OperatingKpis {
   // ── Hospitality ──
   let avail = 0, occRn = 0, rooms = 0, fb = 0, other = 0, totalHosp = 0;
@@ -72,8 +72,13 @@ export function buildOperatingKpis(
   };
 
   // ── Residential (for-sale) ──
+  // ONE AREA RULE (2026-09-28, founder): the price per sqm divides by the NSA the
+  // platform uses everywhere else, resolveAssetAreaMetrics' larger of the sub-units'
+  // area and the stated NSA. It read `sellableBuaSqm || buaSqm`, stored fields a
+  // chain-derived asset leaves at 0: a second area rule that could only disagree.
+  const visible = state.assets.filter((a) => a.visible !== false);
   const areaOf = new Map<string, number>();
-  for (const a of assets) areaOf.set(a.id, a.sellableBuaSqm || a.buaSqm || 0);
+  for (const a of visible) areaOf.set(a.id, resolveAssetAreaMetrics(a, state.project, state.parcels, visible, state.subUnits, state.landAllocationMode).nsa);
   let units = 0, preSale = 0, postSale = 0, area = 0;
   const activeYears = new Set<number>();
   for (const [id, s] of snap.revenue.bySellAsset.entries()) {
@@ -82,7 +87,11 @@ export function buildOperatingKpis(
     units += preU + postU;
     preSale += sumArr(s.presalesRevenuePerPeriod);
     postSale += sumArr(s.postSalesRevenuePerPeriod);
-    if (preU + postU > 0) area += areaOf.get(id) ?? 0;
+    // AN ASSET THAT SOLD ANYTHING COUNTS ITS AREA, by units OR by area (2026-09-28,
+    // founder). Gating on units alone left every asset sold by area out, so a project
+    // selling 1.74bn of villas by the sqm read n/a: a broken KPI, not a cautious one.
+    const soldArea = sumArr(s.presalesAreaPerPeriod) + sumArr(s.postSalesAreaPerPeriod);
+    if (preU + postU > 0 || soldArea > 0) area += areaOf.get(id) ?? 0;
     s.presalesUnitsPerPeriod.forEach((v, t) => {
       if ((v ?? 0) + (s.postSalesUnitsPerPeriod[t] ?? 0) > 0) activeYears.add(t);
     });

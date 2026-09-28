@@ -3617,7 +3617,7 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
   // OPERATING KPIs, the screen's last RE Metrics section, through the shared
   // builder the workbook reads. Only the blocks the project actually carries.
   {
-    const ok = buildOperatingKpis(snap, state.assets);
+    const ok = buildOperatingKpis(snap, state);
     const rate = (v: number | null): string => (v === null ? 'n/a' : fmt.int(v));
     if (ok.hospitality) {
       const h = ok.hospitality;

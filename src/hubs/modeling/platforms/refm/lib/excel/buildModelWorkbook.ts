@@ -4588,7 +4588,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     ]);
 
     // ── Operating KPIs (shared builder; only the blocks the project carries) ──
-    const ok = buildOperatingKpis(snap, state.assets);
+    const ok = buildOperatingKpis(snap, state);
     if (ok.hospitality || ok.residential || ok.lease) {
       subTitle('Operating KPIs (hospitality / residential / lease)');
       const unitRate = (v: number | null): string => (v == null ? 'n/a' : Math.round(v).toLocaleString('en-US'));
