@@ -2,7 +2,18 @@
 
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
-## START HERE 2026-09-27 (evening): RESUME AT STAGE 7c OF THE FORMULA-LINKED WORKBOOK
+## START HERE 2026-09-28: RESUME AT THE SUMMARY SHEET (LAST PART OF STAGE 7c)
+
+**DONE 2026-09-28 (detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-28):** item 1 below (both labelling defects), and
+of item 2 the reconciliation bridge and the Checks sheet (`verify-formula-workbook` 87 / 0). Cash Flow and Balance
+Sheet now report LIVE. **OPEN, in order:** (a) the Summary: most tiles have a live twin already (the Returns
+`retk|` cards print the same words: GDV, TDC, profit, margin, peak equity, financing cost, cap rate, terminal value,
+funding mix; the headline pairs can read the Checks sheet's numeric IRR / MOIC cells); the areas (land, GFA, BUA,
+NSA, units, keys, leasable, the by-type and phase tables) resolve through `resolveAssetAreaMetrics`, whose NSA is
+max(sub-units, stored `sellableBuaSqm`), so that stored field must be an Inputs cell or those figures stay values;
+(b) then items 3 to 5 below.
+
+## 2026-09-27 (evening): RESUME AT STAGE 7c OF THE FORMULA-LINKED WORKBOOK
 
 **DONE 2026-09-27 (detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-27):** stage 6 (the circular financing, `23434118`) and
 stages 7a / 7b (the Returns sheet live except Case Comparison and the residential price per sqm, `31bb94b9`);

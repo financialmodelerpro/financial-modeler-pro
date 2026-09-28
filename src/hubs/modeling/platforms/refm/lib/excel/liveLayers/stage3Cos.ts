@@ -319,6 +319,11 @@ export const stage3Cos: LiveLayer = {
     }
 
     return [{ sheet: REV, status: 'partial' as const, formulas: w.formulas.get(REV) ?? 0,
-      note: 'Also live: selling costs (read from the Capex working sheet), Cost of Sales (each Sell plot\'s capex plus capitalised interest, released on its line\'s recognition share, on a hidden working sheet), the Schedules feeds and Escrow. Capitalised interest comes out of the financing and waits for that stage, so Cost of Sales, inventory, gross margin and the capex feed do not yet follow an input that moves it; the basis sentence over each Cost of Sales build states the platform\'s lifetime figures in words.' }];
+      note: 'Also live: selling costs (read from the Capex working sheet), Cost of Sales (each Sell plot\'s capex plus capitalised interest, released on its line\'s recognition share, on a hidden working sheet), the Schedules feeds and Escrow.',
+      waits: {
+        on: 'financing',
+        text: 'Capitalised interest comes out of the financing and waits for that stage, so Cost of Sales, inventory, gross margin and the capex feed do not yet follow an input that moves it; the basis sentence over each Cost of Sales build states the platform\'s lifetime figures in words.',
+        after: 'Capitalised interest reads the live financing solve. The basis sentence over each Cost of Sales build states the platform\'s lifetime figures in words, as of export, and the rows at the foot of the Revenue Output are the platform\'s values.',
+      } }];
   },
 };

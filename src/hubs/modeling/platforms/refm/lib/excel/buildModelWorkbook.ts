@@ -3929,10 +3929,13 @@ function addBalanceSheet(ctx: EmitCtx): void {
   // The bridge is read PER PERIOD. Its leading cell is left blank rather than
   // summed, because this sheet's leading column is headed Closing and a lifetime
   // sum of period movements under that heading would read as a balance.
+  // Row keys for the formula-linked export (cellRegistry.ts); writes nothing here.
+  E.setRegScope('bsr'); E.setRegLine('__all__');
   for (const row of buildBsReconciliationRows({ snap, state, fmt: (v: number) => String(v) })) {
     if (row.isSection) { E.subTitle(row.label); continue; }
     E.moneyRow(row.label, row.values, { style: row.isTotal ? 'total' : row.isSubtotal ? 'subtotal' : 'plain', indent: row.indent, noTotal: true });
   }
+  E.setRegScope(null);
   E.note(BS_RECONCILIATION_CAPTION);
 }
 
@@ -4856,7 +4859,10 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
   // TOLERANCE IS RELATIVE (checksReport.CHECK_REL_TOL): a residue is judged
   // against the peak of the quantity it reconciles, so an iterative solver's
   // round-off passes and a genuine break still shows its measured gap.
-  const checkRow = (label: string, status: 'OK' | 'CHECK' | 'NOTE', residue: number, detail: string): void => {
+  // Row keys for the formula-linked export (cellRegistry.ts): the residue cell of each
+  // identity, with its status one column to the left. Records addresses, writes nothing.
+  const checkRow = (label: string, status: 'OK' | 'CHECK' | 'NOTE', residue: number, detail: string, key?: string): void => {
+    if (key) registerCell(key, ws, ws.getCell(`C${r}`));
     setLabel(ws.getCell(`A${r}`), label);
     const s = ws.getCell(`B${r}`); s.value = status; s.numFmt = '@'; s.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: status === 'OK' ? ARGB.good : status === 'CHECK' ? ARGB.bad : ARGB.navyDark } };
     const c = ws.getCell(`C${r}`); c.value = residue; c.numFmt = NUMFMT.money; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
@@ -4866,7 +4872,7 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
   const checkMoney = (v: number): string => `${formatAccounting(Math.abs(v), 'millions', 1)} m`;
   // The three integrity identities, named as the platform names them.
   for (const c of buildIntegrityChecks(snap)) {
-    checkRow(c.label, c.ok ? 'OK' : 'CHECK', c.residue, checkDetail(c, snap.yearLabels, checkMoney));
+    checkRow(c.label, c.ok ? 'OK' : 'CHECK', c.residue, checkDetail(c, snap.yearLabels, checkMoney), `chk|id|${c.label}`);
   }
   // The fourth: the Balance Sheet tab's reconciliation bridge must leave nothing
   // unexplained. Same relative tolerance, measured against peak total assets.
@@ -4874,7 +4880,7 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
     const unexplained = buildBsReconciliationRows({ snap, state: ctx.state, fmt: String }).find((x) => x.label === 'Unexplained (must be 0)')?.values ?? [];
     const w = worstDivergence(unexplained, unexplained.map(() => 0), snap.bs.totalAssetsPerPeriod, snap.axisLength);
     const chk = { label: 'Balance sheet reconciliation bridge, unexplained', ok: relativeCheckOk(w.residue, w.magnitude), residue: w.residue, atIndex: w.atIndex, magnitude: w.magnitude, what: 'unexplained' };
-    checkRow(chk.label, chk.ok ? 'OK' : 'CHECK', chk.residue, `${checkDetail(chk, snap.yearLabels, checkMoney)}. The "Unexplained (must be 0)" row of the reconciliation bridge on the Balance Sheet tab.`);
+    checkRow(chk.label, chk.ok ? 'OK' : 'CHECK', chk.residue, `${checkDetail(chk, snap.yearLabels, checkMoney)}. The "Unexplained (must be 0)" row of the reconciliation bridge on the Balance Sheet tab.`, `chk|id|${chk.label}`);
   }
   // Advisories: NOTE, never OK or CHECK. A gap between cash collected and gross
   // sale value, or a sale with no downpayment stated, is legitimate model state,
@@ -4910,6 +4916,7 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
     })() : []),
   ];
   for (const [label, irr, moic] of pairs) {
+    registerCell(`chk|ret|${label}`, ws, ws.getCell(`C${r}`));
     setLabel(ws.getCell(`A${r}`), label);
     const ic = ws.getCell(`C${r}`); ic.value = irr != null && Number.isFinite(irr) ? irr : 'n/a'; ic.numFmt = typeof ic.value === 'number' ? NUMFMT.pct2 : '@'; ic.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
     const mc = ws.getCell(`D${r}`); mc.value = moic != null && Number.isFinite(moic) ? moic : 'n/a'; mc.numFmt = typeof mc.value === 'number' ? NUMFMT.mult : '@'; mc.alignment = { horizontal: 'left' }; mc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };

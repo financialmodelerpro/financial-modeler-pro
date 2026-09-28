@@ -26,7 +26,7 @@
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 import type ExcelJS from 'exceljs';
-import { buildModelWorkbook } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
+import { buildModelWorkbook, PERIOD_COLS } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
 import { buildFormulaWorkbook, enableFormulaIteration } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
 import { loadLiveExportInputs } from './fixtures/liveExportInputs';
 import { excelAvailable, recalcInExcel, cellKey } from './excelRecalc';
@@ -596,6 +596,17 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
   const valuesWithFormulas = [...status].filter(([name, st]) => (st.status === 'values' || st.status === 'values-by-design')
     && [...formulas.keys()].some((k) => k.startsWith(`${name}!`))).map(([n]) => n);
   check('A6b a sheet reported as values carries no formula', valuesWithFormulas.length === 0, valuesWithFormulas.join(', '));
+  // A merged block reads and writes its master, so a relabel per cell stacked the status
+  // sentence once per column (2026-09-28): every status sentence is stated once per cell.
+  const stacked: string[] = [];
+  for (const ws of wb.worksheets) ws.eachRow((row, r) => row.eachCell((cell, c) => {
+    if (typeof cell.value === 'string' && (cell.value.match(/(PARTLY LIVE:|\bLIVE:|NOT LIVE YET)/g) ?? []).length > 1) stacked.push(cellKey(ws.name, r, c));
+  }));
+  check('A6c no status sentence is stated twice in one cell', stacked.length === 0, stacked.slice(0, 5).join(', '));
+  // A note says a sheet waits for a later stage exactly when a cell on it still does.
+  const pendingSheets = new Set([...buildPending].map((a) => a.split('!')[0]));
+  const waitMismatch = [...status].filter(([name, st]) => /wait(s)? for that stage/i.test(st.note) !== pendingSheets.has(name)).map(([n]) => n);
+  check('A6d a sheet says it waits for a later stage if and only if a cell on it does', waitMismatch.length === 0, waitMismatch.join(', '));
 
   const buf = await enableFormulaIteration((await wb.xlsx.writeBuffer()) as ArrayBuffer);
   const calcPr = (await (await JSZip.loadAsync(buf)).file('xl/workbook.xml')!.async('string')).match(/<calcPr[^>]*>/)?.[0] ?? '';
@@ -660,8 +671,11 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     // B0. The comparison FIRES: a copy with one figure deliberately wrong must be
     // caught, at exactly that cell (a check that has only ever passed proves nothing).
     {
-      // A figure on a sheet that is still VALUES, so nothing live reads it and exactly one cell can move.
-      const victim = [...oracle.values()].find((n) => status.get(n.sheet)?.status === 'values' && Math.abs(n.v) > 1000)!;
+      // A figure on a sheet that is VALUES (not yet live, or values by design), so nothing
+      // live reads it and exactly one cell can move. Checks went live 2026-09-28, which
+      // left Scenarios as the sheet no formula reads.
+      const victim = [...oracle.values()].find((n) => ['values', 'values-by-design'].includes(status.get(n.sheet)?.status ?? '') && Math.abs(n.v) > 1000);
+      if (!victim) { check('B0 the comparison fires: no figure is left that nothing live reads, so the sabotage has nowhere to go', false); throw new Error('B0 has no victim'); }
       const { wb: bad } = buildFormulaWorkbook(opts);
       bad.getWorksheet(victim.sheet)!.getCell(victim.row, victim.col).value = victim.v + 1;
       const badPath = `exports/${input.projectName} - Live Model (sabotaged copy).xlsx`;
@@ -738,6 +752,25 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       const okBefore = [...rec.cells].filter(([k, v]) => k.startsWith('Revenue!') && typeof v === 'string' && (v.startsWith('WARNING') || v.startsWith('OK: all')));
       check('D4 before the change every line reads OK and the top warning is blank', okBefore.every(([, v]) => String(v).startsWith('OK: all')) && okBefore.length > 0 && rec.cells.get(cellKey('Revenue', 1, 4)) === undefined,
         okBefore.filter(([, v]) => !String(v).startsWith('OK')).map(([k]) => k).join(', '));
+    }
+
+    // THE LIVE CHECKS FIRE (2026-09-28, stage 7c): a status that can only read OK
+    // certifies nothing. One year of balance sheet Cash is typed over by 1,000,000:
+    // the balance, the cash tie and the bridge must read CHECK, and Direct = Indirect,
+    // which never reads that cell, must still read OK.
+    console.log('\n=== E. Real Excel, a balance typed over ===');
+    {
+      const ids = ['Balance sheet balances (Assets = L + E)', 'Cash flow closing == balance sheet cash', 'Direct cash flow == Indirect cash flow', 'Balance sheet reconciliation bridge, unexplained'];
+      const statusOf = (r: ReturnType<typeof recalcInExcel>, label: string): unknown => { const a = registry.need(`chk|id|${label}`); return r.cells.get(cellKey(a.sheet, a.row, a.col - 1)); };
+      const liveIds = ids.filter((l) => { const a = registry.need(`chk|id|${l}`); return formulas.has(cellKey(a.sheet, a.row, a.col - 1)); });
+      check('E0 every identity on the Checks sheet is live', liveIds.length === ids.length, ids.filter((l) => !liveIds.includes(l)).join(', '));
+      check('E1 before the edit every identity reads OK', ids.every((l) => statusOf(rec, l) === 'OK'), ids.map((l) => `${l}: ${String(statusOf(rec, l))}`).join('; '));
+      const cash = registry.need('bs|__all__||Cash');
+      const col = PERIOD_COLS.OPEN_COL + 1 + 3; // the fourth year
+      const was = rec.cells.get(cellKey(cash.sheet, cash.row, col));
+      const re = recalcInExcel(path, [{ ref: `${cash.sheet}!${colLetterOf(col)}${cash.row}`, value: (typeof was === 'number' ? was : 0) + 1_000_000 }]);
+      const want: Record<string, string> = { [ids[0]]: 'CHECK', [ids[1]]: 'CHECK', [ids[2]]: 'OK', [ids[3]]: 'CHECK' };
+      check('E2 after it the balance, the cash tie and the bridge read CHECK, and Direct = Indirect still reads OK', ids.every((l) => statusOf(re, l) === want[l]), ids.map((l) => `${l}: ${String(statusOf(re, l))}`).join('; '));
     }
   }
 

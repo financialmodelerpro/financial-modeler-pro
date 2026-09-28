@@ -346,7 +346,12 @@ export const stage4Schedules: LiveLayer = {
 
     return [{
       sheet: SCH, status: 'partial' as const, formulas: w.formulas.get(SCH) ?? 0,
-      note: 'Live: the land and depreciable roll-forwards per line and for the project (each year\'s capex its own straight-line vintage from the first operating year, the useful life on the inputs table, the exit write-off in the exit year), and the sales and operating receivables, inventory, escrow, payables and unearned revenue schedules. Capitalised interest, its depreciation and its NBV come out of the financing and wait for that stage, so the combined depreciation, NBV and inventory do not yet follow an input that moves it, and the IDC pool, debt, equity and retained earnings are the platform\'s values.',
+      note: 'Live: the land and depreciable roll-forwards per line and for the project (each year\'s capex its own straight-line vintage from the first operating year, the useful life on the inputs table, the exit write-off in the exit year), and the sales and operating receivables, inventory, escrow, payables and unearned revenue schedules.',
+      waits: {
+        on: 'financing',
+        text: 'Capitalised interest, its depreciation and its NBV come out of the financing and wait for that stage, so the combined depreciation, NBV and inventory do not yet follow an input that moves it, and the IDC pool, debt, equity and retained earnings are the platform\'s values.',
+        after: 'Capitalised interest, its depreciation and its NBV per line and for the project read the live financing solve. The capitalised interest pool and the debt, equity and retained earnings tables are the platform\'s values.',
+      },
     }];
   },
 };

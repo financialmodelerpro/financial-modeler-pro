@@ -26,7 +26,7 @@
  *
  * No em dashes in this file.
  */
-import type { LayerContext, LiveLayer } from '../formulaWorkbook';
+import type { LayerContext, LiveLayer, SheetWait } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
 import { PERIOD_COLS } from '../buildModelWorkbook';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
@@ -243,9 +243,14 @@ export const stage5Statements: LiveLayer = {
     for (const ph of state.phases) if (!refused && w.reg.keys().some((k) => k.startsWith(`pl|${ph.id}||`))) doView(ph.id);
     if (refused) return [{ sheet: PL, status: 'values' as const, formulas: 0, note: `The P&L could not be made live for this model: ${refused}.` }];
     for (const [key, f] of writes) applyRow(key, f);
-    const out: Array<{ sheet: string; status: 'live' | 'partial' | 'values'; note: string; formulas: number }> = [{
+    const out: Array<{ sheet: string; status: 'live' | 'partial' | 'values'; note: string; formulas: number; waits?: SheetWait }> = [{
       sheet: PL, status: 'partial' as const, formulas: w.formulas.get(PL) ?? 0,
-      note: 'Live: the income statement, project and per phase, every row a formula over the Revenue, Cost of Sales, Opex and Schedules working sheets, down to profit after tax at the Inputs sheet\'s rate. The fund fees, interest, the depreciation on capitalised interest and cost of sales (which carries it) come out of the financing and wait for that stage; the exit proceeds wait for Returns. The Fund Fee Basis block is the platform\'s values.',
+      note: 'Live: the income statement, project and per phase, every row a formula over the Revenue, Cost of Sales, Opex and Schedules working sheets, down to profit after tax at the Inputs sheet\'s rate. The Fund Fee Basis block is the platform\'s values.',
+      waits: {
+        on: 'financing',
+        text: 'The fund fees, interest, the depreciation on capitalised interest and cost of sales (which carries it) come out of the financing and wait for that stage, and so do the exit proceeds.',
+        after: 'The fund fees, interest, the depreciation on capitalised interest, cost of sales and the exit proceeds read the live financing solve.',
+      },
     }];
 
     // ── THE CASH FLOW, direct (project and per phase) and indirect ───────────
@@ -425,7 +430,13 @@ export const stage5Statements: LiveLayer = {
       }
       out.push({
         sheet: CF, status: 'partial' as const, formulas: w.formulas.get(CF) ?? 0,
-        note: 'Live: the direct cash flow (revenue received, the operating receivable on the project DSO, opex paid through the payables, tax, capex per line from the Capex working sheet, land in kind), the indirect cash flow from profit after tax, and net, opening and closing cash. The financing flows (equity and debt drawn, repayments, interest paid, dividends) and the fund fees come out of the financing solve and wait for that stage; the exit proceeds wait for Returns.',
+        note: 'Live: the direct cash flow (revenue received, the operating receivable on the project DSO, opex paid through the payables, tax, capex per line from the Capex working sheet, land in kind), the indirect cash flow from profit after tax, and net, opening and closing cash.',
+        waits: {
+          on: 'financing',
+          text: 'The financing flows (equity and debt drawn, repayments, interest paid, dividends), the fund fees and the exit proceeds come out of the financing solve and wait for that stage.',
+          after: 'The financing flows (equity and debt drawn, repayments, interest paid, dividends), the fund fees and the exit proceeds read the live financing solve.',
+          afterStatus: 'live',
+        },
       });
     }
     // ── THE BALANCE SHEET ────────────────────────────────────────────────────
@@ -508,9 +519,59 @@ export const stage5Statements: LiveLayer = {
         const rng = w.rangeA(BS, r, pc(0), pc(N - 1));
         w.fA({ sheet: BS, row: r, col: TOTAL_COL }, key.includes('||BS Check') ? `MAX(ABS(MAX(${rng})),ABS(MIN(${rng})))` : w.refA({ sheet: BS, row: r, col: pc(N - 1) }));
       }
+      // ── THE RECONCILIATION BRIDGE (2026-09-28, stage 7c) ─────────────────
+      // Each line is the change in ONE balance, read through the same rule the
+      // balance sheet row above uses, so the bridge can only disagree with the
+      // statement where a balance is missing from it, which is what it is for.
+      // Unexplained is the change in the check row less every line above it.
+      // A pre-axis opening (existing operations) has no cell to read, so that
+      // shape keeps the platform's values.
+      const bridgeRefused = snap.bs.historicalOpeningCashTotal !== 0 || snap.financing.existing.debtOutstandingTotal !== 0 || snap.financing.existing.equityTotal !== 0;
+      const RK = (label: string): string => `bsr|${ALL}||${label}`;
+      const checkLabel = bsRows.find((x) => x.label.startsWith('BS Check'))?.label;
+      const netKey = 'cf|direct||Net Cash Flow';
+      const delta = (f: F): F => (t) => (t === 0 ? `(${f(t)})` : `(${f(t)})-(${f(t - 1)})`);
+      const neg = (f: F): F => (t) => `-(${f(t)})`;
+      const bridge: Array<[string, F]> = [
+        ['Net cash flow (Direct = Indirect)', (t) => w.refA({ sheet: CF, row: w.addr(netKey).row, col: pc(t) })],
+        ['Δ Debt outstanding', neg(delta((t) => at(debtRow, t)))],
+        ['Δ Share capital', neg(delta((t) => at(shareRow, t)))],
+        ['Δ Reserve + Retained earnings', neg(delta((t) => `${at(rReserve, t)}+${at(rRetained, t)}`))],
+        ['Δ Accounts payable', neg(delta(apClose))],
+        ['Δ Unearned revenue', neg(delta(unearned))],
+        ['Δ Restricted cash (escrow)', delta(escClose)],
+        ['Δ AR (operating)', delta(opArProject)],
+        ['Δ Receivables (residential)', delta(resAr)],
+        ['Δ Inventory', delta(has('schc:A3:close') ? sc('schc:A3:close') : () => '0')],
+        ['Δ Fixed assets NBV', delta(sc('schg:__project__:cap:adj'))],
+        ['Δ Land', delta(sc('schg:__project__:land:adj'))],
+        ['Δ Capitalised IDC NBV', delta(has('schg:__project__:idc:adj') ? sc('schg:__project__:idc:adj') : () => '0')],
+      ];
+      const bridgeKeys = [...bridge.map(([l]) => RK(l)), RK('= Δ BS difference (this period)'), RK('Unexplained (must be 0)'), RK('BS difference (cumulative)')];
+      const bridgeMissing = bridgeKeys.filter((k) => !has(k));
+      const bridgeLive = !bridgeRefused && !!checkLabel && has(netKey) && !bridgeMissing.length;
+      if (bridgeLive && checkLabel) {
+        const rowOf = (label: string): number => w.addr(RK(label)).row;
+        const checkF: F = (t) => bsCell(checkLabel, t);
+        for (const [label, f] of bridge) for (let t = 0; t < N; t++) w.fA({ sheet: BS, row: rowOf(label), col: pc(t) }, f(t));
+        for (let t = 0; t < N; t++) {
+          const lines = bridge.map(([label]) => w.refA({ sheet: BS, row: rowOf(label), col: pc(t) })).join('+');
+          w.fA({ sheet: BS, row: rowOf('= Δ BS difference (this period)'), col: pc(t) }, delta(checkF)(t));
+          w.fA({ sheet: BS, row: rowOf('Unexplained (must be 0)'), col: pc(t) }, `${w.refA({ sheet: BS, row: rowOf('= Δ BS difference (this period)'), col: pc(t) })}-(${lines})`);
+          w.fA({ sheet: BS, row: rowOf('BS difference (cumulative)'), col: pc(t) }, checkF(t));
+        }
+      }
       out.push({
         sheet: BS, status: 'partial' as const, formulas: w.formulas.get(BS) ?? 0,
-        note: 'Live: every balance, from the Schedules, Revenue, Cost of Sales and Opex working sheets and the Cash Flow, retained earnings rolled forward from profit after tax less the statutory reserve and dividends, and the check row. Debt, share capital and dividends come out of the financing solve and wait for that stage, and until then the check row reads zero only before an input moves. The reconciliation bridge beneath is the platform\'s values.',
+        note: `Live: every balance, from the Schedules, Revenue, Cost of Sales and Opex working sheets and the Cash Flow, retained earnings rolled forward from profit after tax less the statutory reserve and dividends, and the check row. ${bridgeLive
+          ? 'The reconciliation bridge beneath is live too: each line is the change in one balance, read through the same rule as its row above, and Unexplained is the change in the check row less every line.'
+          : `The reconciliation bridge beneath is the platform's values${bridgeRefused ? ': this model carries balances from before the model starts, which have no cell to read' : ''}.`}`,
+        waits: {
+          on: 'financing',
+          text: 'Debt, share capital and dividends come out of the financing solve and wait for that stage, and until then the check row reads zero only before an input moves.',
+          after: 'Debt, share capital and dividends read the live financing solve, so the check row holds when an input moves.',
+          afterStatus: bridgeLive ? 'live' : 'partial',
+        },
       });
     }
     return out;

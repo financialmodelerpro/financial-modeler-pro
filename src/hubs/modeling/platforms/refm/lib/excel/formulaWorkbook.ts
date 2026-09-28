@@ -44,6 +44,7 @@ import { stage6Financing } from './liveLayers/stage6Financing';
 import { stage6bFinancingSheet } from './liveLayers/stage6bFinancingSheet';
 import { stage7Returns } from './liveLayers/stage7Returns';
 import { stage7bMetrics } from './liveLayers/stage7bMetrics';
+import { stage7cChecks } from './liveLayers/stage7cChecks';
 
 export type SheetStatus = 'live' | 'partial' | 'values' | 'values-by-design' | 'front';
 
@@ -53,7 +54,21 @@ export interface LayerContext {
   opts: BuildModelOptions;
   /** Addresses waiting for a later stage, shared by every layer of the build (writer.ts). */
   pending: Set<string>;
+  /** The later stages that made themselves live in this build, so a sheet's note can stop saying it waits for them. */
+  settled: Set<LaterStage>;
 }
+
+/** A stage an earlier layer's figures can wait for. */
+export type LaterStage = 'financing';
+
+/**
+ * WHAT A SHEET WAITS FOR IS DECIDED AFTER EVERY LAYER HAS RUN (2026-09-28). A layer
+ * cannot know whether a later stage will make its pending figures live (that stage
+ * may refuse the model), so it states both sentences and the build picks one: `text`
+ * while the stage has not settled, `after` once it has, and the sheet's status moves
+ * to `afterStatus` when the wait was all that kept it partial.
+ */
+export interface SheetWait { on: LaterStage; text: string; after: string; afterStatus?: 'live' | 'partial' }
 
 export interface LiveLayer {
   /** Short name, for reports and commit notes. */
@@ -64,12 +79,14 @@ export interface LiveLayer {
     sheet: string; status: 'live' | 'partial' | 'values'; note: string; formulas: number;
     /** Addresses ("Sheet!R1C2") whose value waits for a stage not yet live. */
     pending?: string[];
+    /** A sentence that holds only until a later stage settles (see SheetWait). */
+    waits?: SheetWait;
   }>;
 }
 
 /** The layers, in dependency order. */
 // Revenue before Capex: Capex's selling costs read the revenue a line earns.
-export const LIVE_LAYERS: LiveLayer[] = [stage1LandArea, stage3Revenue, stage2Capex, stage3Cos, stage3Opex, stage4Schedules, stage5Statements, stage6Financing, stage6bFinancingSheet, stage7Returns, stage7bMetrics];
+export const LIVE_LAYERS: LiveLayer[] = [stage1LandArea, stage3Revenue, stage2Capex, stage3Cos, stage3Opex, stage4Schedules, stage5Statements, stage6Financing, stage6bFinancingSheet, stage7Returns, stage7bMetrics, stage7cChecks];
 
 /** Sheets that are values by the founder's decision (2026-09-27), never live. */
 const BY_DESIGN: Record<string, string> = {
@@ -98,16 +115,28 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
     else status.set(ws.name, { status: 'values', note: '', formulas: 0 });
   }
   const pending = new Set<string>();
+  const settled = new Set<LaterStage>();
+  const waits = new Map<string, SheetWait[]>();
   for (const layer of LIVE_LAYERS) {
-    for (const s of layer.apply({ wb, reg: registry, opts, pending })) {
+    for (const s of layer.apply({ wb, reg: registry, opts, pending, settled })) {
       for (const a of s.pending ?? []) pending.add(a);
       const prev = status.get(s.sheet);
+      // A layer that reports a sheet as values has thrown away what earlier layers wrote, waits included.
+      if (s.status === 'values') waits.delete(s.sheet);
+      if (s.waits) waits.set(s.sheet, [...(waits.get(s.sheet) ?? []), s.waits]);
       status.set(s.sheet, {
         status: s.status,
         note: prev?.note ? `${prev.note} ${s.note}` : s.note,
         formulas: (prev?.formulas ?? 0) + s.formulas,
       });
     }
+  }
+  for (const [sheet, list] of waits) {
+    const st = status.get(sheet); if (!st) continue;
+    const open = list.filter((x) => !settled.has(x.on));
+    const text = list.map((x) => (settled.has(x.on) ? x.after : x.text)).join(' ');
+    const lifted = !open.length && list.every((x) => x.afterStatus === 'live') && st.status === 'partial';
+    status.set(sheet, { ...st, status: lifted ? 'live' : st.status, note: [st.note, text].filter(Boolean).join(' ') });
   }
   // Pending settles to a fixed point: a formula written before a pending cell it reads is pending too.
   settlePending(pending);
@@ -174,6 +203,9 @@ function relabel(wb: ExcelJS.Workbook, status: FormulaWorkbookResult['status']):
     const st = status.get(ws.name);
     const replacement = !st || st.status === 'front' || ws.name === 'Summary' ? wbText : sheetStatusSentence(st);
     ws.eachRow((row) => row.eachCell((cell) => {
+      // A merged block's every cell reads and writes its MASTER, so rewriting each one
+      // appended the status sentence once per cell (ten copies on a ten-column block).
+      if (cell.isMerged && cell.master.address !== cell.address) return;
       if (typeof cell.value === 'string' && HARDCODED.test(cell.value)) cell.value = rewriteText(cell.value, replacement);
       const n = cell.note as unknown as { texts?: Array<{ text: string }> } | string | undefined;
       if (n && typeof n === 'object' && Array.isArray(n.texts)) {

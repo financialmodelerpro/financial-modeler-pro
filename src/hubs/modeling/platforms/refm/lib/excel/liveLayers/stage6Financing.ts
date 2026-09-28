@@ -481,6 +481,8 @@ export const stage6Financing: LiveLayer = {
     cfPending(`Interest Paid, New loans`, (t) => `-${at(main.interest, t)}`);
     cfPending('Dividends paid', (t) => `-${at(main.divTotal, t)}`);
 
+    // Every pending cell of stages 3 to 5 now reads the solve, so their notes stop saying they wait.
+    ctx.settled.add('financing');
     // The Financing sheet's own status is set by the layer that makes its tables live (stage6bFinancingSheet).
     return [];
   },

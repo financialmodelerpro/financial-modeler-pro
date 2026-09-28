@@ -1169,6 +1169,23 @@ moved by float noise only.
 **The trap to avoid:** a test "is it non-zero" on the output of an iterative solve. Give it a tolerance at the
 point the quantity is made, the way the facility already snaps a residue balance. `verify-formula-workbook` A8.
 
+### 3.29 SUMPRODUCT array-evaluates an operator on a range but NOT a function like ABS on it
+
+**Symptom (2026-09-28, the Checks sheet made live):** every OK / CHECK status cell recalculated to #VALUE! in
+real Excel, while the residue cells beside them matched the platform.
+
+**Mechanism:** the residue was `SUMPRODUCT(MAX(rowA-rowB))` and the peak `SUMPRODUCT(MAX(ABS(row)))`. Written
+by ExcelJS (a legacy, non-dynamic formula), the range SUBTRACTION is evaluated per year inside SUMPRODUCT, but
+`ABS(range)` is IMPLICITLY INTERSECTED with the formula's own column. Off the range's columns that is #VALUE!;
+on them it is ONE YEAR, silently: a six-cell probe read 5 where the peak was 7, no error at all.
+
+**Fix:** no array where none is needed: the peak of the absolute value is `MAX(MAX(r),-MIN(r))`. The residue
+keeps SUMPRODUCT, measured correct in Excel (including from a column outside the range).
+
+**The trap to avoid:** trusting "SUMPRODUCT forces array evaluation" for anything but operators. Probe the
+exact formula in Excel from a cell outside the range before using it, and prefer a form with no array at all.
+`verify-formula-workbook` B2 / B4 caught it; E2 proves the statuses now flip.
+
 ## 4. PDF export (pdf-lib)
 
 ### 4.1 PDF text is glyph ids, so a naive grep returns nothing
