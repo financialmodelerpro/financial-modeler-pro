@@ -117,7 +117,18 @@ export const stage6Financing: LiveLayer = {
       if (!SWEEPS(t) && !has(`fin|${t.name} (new facility)|Repayment Periods`)) refuse.push(`the repayment terms of ${t.name} are not on the Financing sheet`);
     }
     if (new Set(tranches.map((t) => t.name)).size !== tranches.length) refuse.push('two facilities with the same name');
-    if ((finCfg?.parcelFunding ?? []).length) refuse.push('parcel funding');
+    // PARCEL FUNDING (2026-09-28, stage D): a plot's land cash split between debt and
+    // equity (computeDebtEquitySplit). The Financing sheet states it PER PHASE, so a
+    // phase whose plots state different splits has no cell for each; and a deferred
+    // payment re-times the land cash itself, which the live Capex does not express.
+    const pf = finCfg?.parcelFunding ?? [];
+    if (pf.some((c) => c.fundingType === 'deferred_payment')) refuse.push('a plot paid on a deferred schedule');
+    const typedSplit = (c: { debtPct?: number; equityPct?: number }): boolean => typeof c.debtPct === 'number' || typeof c.equityPct === 'number';
+    for (const ph of phases) {
+      const cfgs = (state.parcels as Array<{ id: string; phaseId?: string }>).filter((p) => p.phaseId === ph.id).map((p) => pf.find((c) => c.parcelId === p.id));
+      const typed = cfgs.filter((c): c is NonNullable<typeof c> => !!c && typedSplit(c));
+      if (typed.length && (typed.length !== cfgs.length || typed.some((c) => c.debtPct !== typed[0].debtPct || c.equityPct !== typed[0].equityPct))) refuse.push(`${ph.name}'s plots state different land funding splits`);
+    }
     if (project.modelType === 'monthly') refuse.push('monthly periods');
     if (phases.some((p) => p.status === 'operational' || (p.overlapPeriods ?? 0) !== 0)) refuse.push('an operational phase or a phase overlap');
     if (snap.bs.historicalOpeningCashTotal !== 0 || snap.financing.existing.equityTotal !== 0) refuse.push('existing operations');
@@ -125,7 +136,6 @@ export const stage6Financing: LiveLayer = {
     if (booked && X < N - 1) refuse.push('an exit before the last year');
     const dp = project.dividendPolicy;
     if (!dp) refuse.push('no project dividend policy');
-    else if (dp.mode === 'pct_of_ebitda') refuse.push('dividends on EBITDA');
     if (fundTerms.enabled) {
       for (const spec of FUND_FEE_SPECS) {
         const v = Number((fundTerms as unknown as Record<string, number>)[spec.key]) || 0;
@@ -198,6 +208,11 @@ export const stage6Financing: LiveLayer = {
     });
     const divOn = cell('fnc:don', 'dividends on', () => `IF(${inp(K.divOn)}="On",1,0)`);
     const payout = cell('fnc:dvp', 'payout ratio', () => `MAX(0,MIN(1,N(${inp(K.payout)})))`);
+    // DIVIDENDS ON EBITDA (2026-09-28, stage E): the payout sizes off the phase's EBITDA
+    // this year (floored at zero) rather than the cash above the minimum; both stay
+    // capped by that cash and by the phase's cumulative EBITDA (distributeDividends).
+    const onEbitda = project.dividendPolicy?.mode === 'pct_of_ebitda';
+    const divBase = (ebRow: number, ex: string, t: number): string => (onEbitda ? `MAX(0,${at(ebRow, t)})` : ex);
     // ── THE FACILITIES, in the order the engine consumes the shared budgets
     //    (computeFinancing: existing first, then sweep priority ascending, stable).
     const ordered = tranches.map((t, i) => ({ t, i })).sort((a, b) => ((a.t.cashSweepConfig?.priority ?? 100) - (b.t.cashSweepConfig?.priority ?? 100)) || (a.i - b.i)).map((x) => x.t);
@@ -382,8 +397,8 @@ export const stage6Financing: LiveLayer = {
       const firstCapex = cell(k('first'), L('first year with capex'), () => `IFERROR(MATCH(TRUE,INDEX(${rng(capexCash)}>0,0),0)-1,0)`);
       const minAt: F = (t) => `IF(${t}=${sc3(firstCapex)},${MIN()},0)`;
       const nonLand = row(k('nonland'), L('capex excl. land (fallback split)'), (t) => `MAX(0,${at(capexCash, t)}-(${landCashF(t)}))`);
-      const debtRow = row(k('debt'), L('debt requirement'), (t) => `IF(${sc3(gapTot)}>0,${at(netReq, t)}*${sc3(dFrac)},(${at(nonLand, t)}+${minAt(t)})*${sc3(dFrac)})`, cachedFrom(tag, snap.financing.debtEquitySplit.debt));
-      const equityDev = row(k('equity'), L('equity requirement'), (t) => `IF(${sc3(gapTot)}>0,${at(netReq, t)}*${sc3(eFrac)},(${at(nonLand, t)}+${minAt(t)})*${sc3(eFrac)}+${landCashF(t)})`, cachedFrom(tag, snap.financing.equity.developmentPerPeriod));
+      const debtRow = row(k('debt'), L('debt requirement'), (t) => `IF(${sc3(gapTot)}>0,${at(netReq, t)}*${sc3(dFrac)},(${at(nonLand, t)}+${minAt(t)})*${sc3(dFrac)}+${landCashF(t)}*${sc3(landDebt)})`, cachedFrom(tag, snap.financing.debtEquitySplit.debt));
+      const equityDev = row(k('equity'), L('equity requirement'), (t) => `IF(${sc3(gapTot)}>0,${at(netReq, t)}*${sc3(eFrac)},(${at(nonLand, t)}+${minAt(t)})*${sc3(eFrac)}+${landCashF(t)}*(1-${sc3(landDebt)}))`, cachedFrom(tag, snap.financing.equity.developmentPerPeriod));
       // THE FACILITIES (2026-09-28, stages B and C), in the engine's budget order
       // (computeFinancing): each draws its share of the debt requirement, accrues
       // interest on its balance after the draw, pays that interest from the shared
@@ -482,7 +497,7 @@ export const stage6Financing: LiveLayer = {
         for (let t = 0; t < N; t++) {
           const ex = `(${at(excess0, t)}${before.map((r) => `-${at(r, t)}`).join('')})`;
           const budget = `MAX(0,SUM(${rng(eb, 0, t)})-(${t === 0 ? '0' : `SUM(${rng(d, 0, t - 1)})`}))`;
-          w.fA(C(d, cT(t)), `IF(AND(${sc3(divOn)}=1,${t}>=${sc3(divStart)},${sc3(payout)}>0,${ex}>0),MIN(${ex}*${sc3(payout)},${ex},${budget}),0)`);
+          w.fA(C(d, cT(t)), `IF(AND(${sc3(divOn)}=1,${t}>=${sc3(divStart)},${sc3(payout)}>0,${ex}>0),MIN(${divBase(eb, ex, t)}*${sc3(payout)},${ex},${budget}),0)`);
         }
         phaseDiv.push(d);
       }
@@ -503,6 +518,31 @@ export const stage6Financing: LiveLayer = {
       && visible.some((a) => kk.startsWith(`cxc:${a.id}:`)));
     const landCashRow = row('fnc:landcash', 'land cash', (t) => landKeys.map((kk) => w.refA({ sheet: 'Capex Calc', row: w.addr(kk).row, col: P0 + t })).join('+') || '0');
     const landCashF: F = (t) => at(landCashRow, t);
+    // THE LAND CASH SPLIT (computeDebtEquitySplit): each plot's debt share weighted by
+    // its cash land value. It applies where the funding is sized on capex; where a
+    // deficit sizes it (Methods 2 and 3 with a gap) the engine splits the deficit at the
+    // project ratio and the plots' split has no effect, and so here.
+    const landDebt = cell('fnc:landdebt', 'land cash funded by debt (share)', () => {
+      const shareOf = (parcel: { id: string; phaseId?: string }): string => {
+        const c = pf.find((x) => x.parcelId === parcel.id);
+        if (!c) return '0';
+        const ph = phases.find((x) => x.id === parcel.phaseId);
+        const band = '4. Land Funding (per phase, from the Capex results)';
+        const dk = ph ? `fin|${band}|${ph.name}, Debt %` : '', ek = ph ? `fin|${band}|${ph.name}, Equity %` : '';
+        if (typedSplit(c) && has(dk) && has(ek)) {
+          const d = `MAX(0,N(${inp(dk)}))`, e = `MAX(0,N(${inp(ek)}))`;
+          return `IF(${d}+${e}>0,${d}/(${d}+${e}),0)`;
+        }
+        // A split stated only by its type is structure: 100% debt, or none.
+        return c.fundingType === '100pct_debt' ? '1'
+          : c.fundingType === 'custom_split' ? String(Math.max(0, c.customDebtPct ?? 0) / Math.max(1e-9, Math.max(0, c.customDebtPct ?? 0) + Math.max(0, c.customEquityPct ?? 100 - (c.customDebtPct ?? 0)))) : '0';
+      };
+      const plots = (state.parcels as Array<{ id: string; phaseId?: string }>).filter((x) => has(`parcel:${x.id}:cashValue`));
+      if (!plots.length) return '0';
+      const cv = (x: { id: string }): string => `MAX(0,N(${w.ref(`parcel:${x.id}:cashValue`)}))`;
+      const tot = plots.map(cv).join('+');
+      return `IF((${tot})>0,(${plots.map((x) => `${cv(x)}*${shareOf(x)}`).join('+')})/(${tot}),0)`;
+    });
 
     // ── The two solves ───────────────────────────────────────────────────────
     const ff = solveBlock('ff', zero, false);

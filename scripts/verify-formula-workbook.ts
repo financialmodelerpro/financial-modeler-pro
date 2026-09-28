@@ -562,6 +562,24 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
       variant: (s) => mezz(s, { repaymentMethod: 'equal_repayment', equalRepaymentSubMethod: 'equal_total', repaymentPeriods: 6 }),
       edit: (s) => { trs(s).find((t) => t.id === 'tranche_mezz_test').creditSpreadPct = spread + 4; } });
   } else out.push({ label: 'B and C: facility shapes', skip: 'no facility with a stated spread' });
+  // STAGE E: dividends on EBITDA (the payout sizes off each phase's EBITDA); the payout cut.
+  if (st.project.dividendPolicy && reg.get('fin|Dividend Policy|Payout Ratio')) {
+    out.push({ movesRevenue: false, label: 'E: dividends on EBITDA, the payout ratio to 60%', cell: 'fin|Dividend Policy|Payout Ratio', col: RC.TOTAL, value: 0.6,
+      variant: (s) => { s.project.dividendPolicy = { ...s.project.dividendPolicy, mode: 'pct_of_ebitda' }; },
+      edit: (s) => { s.project.dividendPolicy = { ...s.project.dividendPolicy, payoutRatio: 60 }; } });
+  } else out.push({ label: 'E: dividends on EBITDA', skip: 'no dividend policy' });
+  // STAGE D: the first phase's plots fund their land cash 50 / 50. Under a Method 3
+  // deficit the platform splits the deficit at the project ratio and the plots' split
+  // moves nothing (computeFundingRequirement), so the copy must first match the
+  // platform with parcel funding stated, then follow a change that does move it.
+  const ph0 = ((st.phases ?? []) as any[])[0];
+  const plots0 = ((st.parcels ?? []) as any[]).filter((p) => p.phaseId === ph0?.id);
+  if (ph0 && plots0.length) {
+    const minC2 = st.project.financing?.minimumCashReserve ?? 0;
+    out.push({ movesRevenue: false, label: `D: ${ph0.name}'s plots fund their land cash 50 / 50, and the minimum cash reserve +15m`, cell: 'fin|1. Project Financing Settings|Minimum Cash Reserve', col: RC.TOTAL, value: minC2 + 15_000_000,
+      variant: (s) => { (s.project.financing as any).parcelFunding = plots0.map((p) => ({ parcelId: p.id, debtPct: 50, equityPct: 50, fundingType: 'custom_split' })); },
+      edit: (s) => { (s.project.financing as any).minimumCashReserve = minC2 + 15_000_000; } });
+  } else out.push({ label: 'D: parcel funding', skip: 'no plots in the first phase' });
   return out;
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
