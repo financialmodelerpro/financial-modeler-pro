@@ -1221,6 +1221,29 @@ built for at export with a note saying so. The input-change tests type at the In
 instead: every shaded cell must be read by some formula (`inputAudit.readCells`), and prove the guard fires by
 planting one. `verify-formula-workbook` A11, A11b, A11c.
 
+### 3.32 A test copy that quietly dropped a sheet to values, and a formula Excel will not open
+
+**Symptom (2026-09-28):** the fund size override test failed on four text cells off by one decimal ("35.8%"
+against "35.7%"); every number agreed. Separately, the first Method 1 test copy crashed the Excel recalculation
+with "Unable to get the Open property of the Workbooks class".
+
+**Mechanism:** (1) Under a typed fund size the platform omits the capital block (equity + debt = fund size, since a
+typed target is not their sum), stage 7 required those rows, and so the WHOLE Returns sheet fell back to the
+platform's values. Values are equal before the change, so only the cells that happened to reach a live text
+formula showed anything after it. The same check then found the no-sweep shapes of stage C had lost their Returns
+sheet the same way, and nobody had seen it. (2) A funding-basis check inlined the per-year requirement twice; under
+Method 1 that is every capex term of every year, 9,251 characters, and Excel refuses to OPEN a file holding a
+formula over 8,192. The refusal is a COM error, not a finding.
+
+**Fix:** absence of the capital block under the override is the answer, not a gap; the retained cash rule drops
+the sweep's claim when no loan sweeps (the engine's own `trappedCashFrom`); a total the sheet already shows is
+READ from its row, never re-expanded.
+
+**The trap to avoid:** proving a structure by the numbers it moves. A sheet that stopped being live moves nothing
+and agrees with the platform until an input changes. Assert the status: every sheet the export keeps live stays
+live on every test copy (`verify-formula-workbook` C "keeps every sheet"), and no formula exceeds Excel's limit
+(A2b, and on every test copy before Excel opens it).
+
 ## 4. PDF export (pdf-lib)
 
 ### 4.1 PDF text is glyph ids, so a naive grep returns nothing

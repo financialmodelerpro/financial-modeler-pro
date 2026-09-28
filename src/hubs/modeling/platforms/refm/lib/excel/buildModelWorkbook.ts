@@ -751,6 +751,9 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
         ? 'The fee is its own equity draw, outside the debt / equity ratio.'
         : 'The fee joins the funding deficit and is split at the project debt / equity ratio.');
     termRow('Fund size override', fundTerms.fundSizeOverride ? 'Yes' : 'No', '@', '', fundTerms.fundSizeOverride ? `Typed target ${formatAccounting(fundTerms.fundSize, 'millions', 1)} m pins the fund size instead of the model-resolved figure.` : 'Off: fund size is resolved from the model (total equity plus the debt facility).');
+    // THE TYPED TARGET AS A NUMBER (2026-09-28, stage G): it lived only in the note's
+    // words, so nothing could read it. The fund structure fee charges on it.
+    if (fundTerms.fundSizeOverride) termRow('Fund size (typed target)', Math.max(0, fundTerms.fundSize || 0), NUMFMT.money, '', 'Pins the fund size the fund structure fee charges on; total equity and the debt facility stay the model\'s.');
     termRow('Facility limit override', fundTerms.facilityLimitOverride ? 'Yes' : 'No', '@', '', fundTerms.facilityLimitOverride ? `Typed limit ${formatAccounting(fundTerms.facilityLimit, 'millions', 1)} m.` : 'Off: the debt facility is resolved from the model.');
     r += 1;
 
@@ -900,8 +903,10 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   inputDivider('FINANCING INPUTS');
   setSectionHeader(ws.getRow(r), 'Financing settings', 5); r += 1;
   setLabel(ws.getCell(`A${r}`), 'Funding method'); setInput(ws.getCell(`B${r}`), FUNDING_METHOD_LABELS[(p.financing?.fundingMethod ?? 1) as FundingMethodId], '@'); r += 1;
-  addKV('Debt share', fin.funding.debtPct / 100, NUMFMT.pct, 'DebtPct', `inp=${FIN('2a. Method 3 Configuration', 'Debt %')}`);
-  addKV('Equity share', fin.funding.equityPct / 100, NUMFMT.pct, 'EquityPct', `inp=${FIN('2a. Method 3 Configuration', 'Equity %')}`);
+  // The selected method's own ratio (computeFundingRequirement reads each method's config).
+  const M_CFG = `2a. Method ${p.financing?.fundingMethod ?? 1} Configuration`;
+  addKV('Debt share', fin.funding.debtPct / 100, NUMFMT.pct, 'DebtPct', `inp=${FIN(M_CFG, 'Debt %')}`);
+  addKV('Equity share', fin.funding.equityPct / 100, NUMFMT.pct, 'EquityPct', `inp=${FIN(M_CFG, 'Equity %')}`);
   addKV('Minimum cash reserve', p.financing?.minimumCashReserve ?? fin.funding.minCashReserve ?? 0, NUMFMT.money, 'MinCashReserve', `inp=${FIN('1. Project Financing Settings', 'Minimum Cash Reserve')}`);
   addKV('IDC allocation basis', (p.idcConfig?.allocationBasis ?? 'land') === 'bua' ? 'Total BUA' : 'Land Area', '@');
   addKV('Dividends enabled (1 = yes)', p.dividendPolicy?.enabled ? 1 : 0, NUMFMT.int, undefined, `inp=${FIN('Dividend Policy', 'Pay Dividends')}#onoff`);
@@ -911,16 +916,16 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   const fmId = (fcfg?.fundingMethod ?? 1) as FundingMethodId;
   if (fmId === 2 && fcfg?.netFundingConfig) {
     const mc = fcfg.netFundingConfig;
-    addKV('Method 2: Existing cash', mc.existingCash ?? 0, NUMFMT.money);
-    addKV('Method 2: Debt %', (mc.debtPct ?? 0) / 100, NUMFMT.pct);
-    addKV('Method 2: Equity %', (mc.equityPct ?? 0) / 100, NUMFMT.pct);
+    fixedAt(addKV('Method 2: Existing cash', mc.existingCash ?? 0, NUMFMT.money), 2, 'Method 2 sizes its gap on capex and last year\'s pre-sales; the platform reads this setting nowhere either.');
+    addKV('Method 2: Debt %', (mc.debtPct ?? 0) / 100, NUMFMT.pct, undefined, `echo=${FIN(M_CFG, 'Debt %')}`);
+    addKV('Method 2: Equity %', (mc.equityPct ?? 0) / 100, NUMFMT.pct, undefined, `echo=${FIN(M_CFG, 'Equity %')}`);
   } else if (fmId === 3 && fcfg?.cashDeficitConfig) {
     const mc = fcfg.cashDeficitConfig;
     const minCash = Array.isArray(mc.minimumCashReserve) ? (mc.minimumCashReserve[0] ?? 0) : (mc.minimumCashReserve ?? 0);
     fixedAt(addKV('Method 3: Initial cash', mc.initialCash ?? 0, NUMFMT.money), 2, 'The financing solve starts from the cash the model holds at export.');
     addKV('Method 3: Minimum cash reserve', minCash, NUMFMT.money, undefined, `echo=${FIN('1. Project Financing Settings', 'Minimum Cash Reserve')}`);
-    addKV('Method 3: Debt %', (mc.debtPct ?? 0) / 100, NUMFMT.pct, undefined, `echo=${FIN('2a. Method 3 Configuration', 'Debt %')}`);
-    addKV('Method 3: Equity %', (mc.equityPct ?? 0) / 100, NUMFMT.pct, undefined, `echo=${FIN('2a. Method 3 Configuration', 'Equity %')}`);
+    addKV('Method 3: Debt %', (mc.debtPct ?? 0) / 100, NUMFMT.pct, undefined, `echo=${FIN(M_CFG, 'Debt %')}`);
+    addKV('Method 3: Equity %', (mc.equityPct ?? 0) / 100, NUMFMT.pct, undefined, `echo=${FIN(M_CFG, 'Equity %')}`);
   } else if (fmId === 4 && fcfg?.fixedAmountConfig) {
     const mc = fcfg.fixedAmountConfig;
     addKV('Method 4: Specified debt amount', mc.debtAmount ?? 0, NUMFMT.money);

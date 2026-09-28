@@ -77,7 +77,6 @@ export const stage7Returns: LiveLayer = {
     const refuse: string[] = [];
     if (X !== N - 1) refuse.push('an exit before the last year');
     if (!booked || cfg.terminalMethod !== 'cap_rate') refuse.push('a terminal value other than the exit cap rate');
-    if (snap.cashSweep?.enabled !== true) refuse.push('no cash sweep (the retained cash rule reads the sweep)');
     if (rs.fcffPerPeriod.length !== N + 1) refuse.push('a stream length other than the axis plus inception');
     for (const k of ['cf|direct||Cash Flow from Operations', 'cf|direct||Cash Flow from Investment', 'cf|direct||Closing cash', 'pl|__all__||Total Revenue', 'fnc:proceeds', 'fnc:noi', 'fnc:inkind', 'fnc:min', 'fnc:don']) if (!has(k)) refuse.push(`the ${k} cell is not live`);
     if (refuse.length) return values(`The Returns sheet stays the platform's values: ${[...new Set(refuse)].join('; ')}.`);
@@ -132,9 +131,12 @@ export const stage7Returns: LiveLayer = {
     const debt = rowA('rtc:debt', 'debt outstanding', (t) => (debtKey ? vis('Balance Sheet', debtKey, t) : fnc('fnc:main:debtbs', t)));
     const close = rowA('rtc:close', 'closing cash', (t) => CF('Closing cash', t));
     const floor = cellS('rtc:floor', 'minimum cash reserve', () => fnc3('fnc:min'));
-    // The cash the project keeps: the required balance, then the sweep's claim over it.
-    const level = rowA('rtc:trapLevel', 'cash held back (minimum reserve plus the sweep\'s claim)', (t) =>
-      `MIN(${sc3(floor)},MAX(0,${at(close, t)}))+MIN(MAX(0,MAX(0,${at(close, t)})-${sc3(floor)}),MAX(0,${at(debt, t)}))`);
+    // The cash the project keeps (trappedCashFrom): the required balance, then, only while
+    // a loan sweeps, the sweep's claim over it. On a fixed schedule the lender has no claim
+    // on the rest, so only the reserve is held.
+    const sweeps = snap.cashSweep?.enabled === true;
+    const level = rowA('rtc:trapLevel', sweeps ? 'cash held back (minimum reserve plus the sweep\'s claim)' : 'cash held back (the minimum reserve; no loan sweeps)', (t) =>
+      `MIN(${sc3(floor)},MAX(0,${at(close, t)}))${sweeps ? `+MIN(MAX(0,MAX(0,${at(close, t)})-${sc3(floor)}),MAX(0,${at(debt, t)}))` : ''}`);
     const trap = rowA('rtc:trap', 'cash retained this year', (t) => `${at(level, t)}-${t === 0 ? '0' : at(level, t - 1)}`);
     const ffPre = rowA('rtc:ffpre', 'FCFF before the terminal value', (t) => `${at(cfo, t)}+${at(cfi, t)}-${at(inKind, t)}`);
     const fePre = rowA('rtc:fepre', 'FCFE before the terminal value and the cash released at the exit', (t) => `${at(ffPre, t)}-${at(finCost, t)}+${at(draw, t)}+${at(idcDraw, t)}+${at(principal, t)}-${at(trap, t)}`);
@@ -410,10 +412,16 @@ export const stage7Returns: LiveLayer = {
     if (rs.feeEarners.active) {
       const feeRow = (i: number, t: number): string => fnc(`fnc:fee:${i}`, t);
       const R0 = (): string => fnc3('fnc:fee:base');
-      const baseOf = (base: string): string => (base === 'fund_size' ? R0() : base === 'total_equity' ? `${R0()}*${fnc3('fnc:eF')}` : base === 'debt_facility' ? `${R0()}*${fnc3('fnc:dF')}` : '0');
-      scalar('ret|Capex equity', () => baseOf('total_equity'));
-      scalar('ret|Debt facility', () => baseOf('debt_facility'));
-      scalar('ret|= Fund size', () => baseOf('fund_size'));
+      const baseOf = (base: string): string => (base === 'fund_size' ? fnc3('fnc:fee:fundsize') : base === 'total_equity' ? `${R0()}*${fnc3('fnc:eF')}` : base === 'debt_facility' ? `${R0()}*${fnc3('fnc:dF')}` : '0');
+      // The capital block (equity + debt = fund size) is printed only where the parts sum
+      // to the total (buildFundCapitalRows); a TYPED fund size is not their sum, so under
+      // the override the platform omits it and its absence is the answer, not a gap.
+      const capital = state.project.fundTerms?.fundSizeOverride === true
+        ? (key: string, f: () => string): void => { if (has(key)) scalar(key, f); }
+        : scalar;
+      capital('ret|Capex equity', () => baseOf('total_equity'));
+      capital('ret|Debt facility', () => baseOf('debt_facility'));
+      capital('ret|= Fund size', () => baseOf('fund_size'));
       const fbSec = findKey('retr|', /^Fund Fee Basis \(what each fee is charged on\)\|/) ? 'Fund Fee Basis (what each fee is charged on)' : '';
       snap.fundFees.lines.forEach((line, i) => {
         const charged = rowOf(`retr|${fbSec}|${line.label}: charged`);

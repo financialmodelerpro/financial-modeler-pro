@@ -2,7 +2,17 @@
 
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
-## START HERE 2026-09-28 (late): INPUTS IS THE ONE PLACE A USER TYPES, AND THE GUARD HOLDS IT
+## START HERE 2026-09-28 (close): THE FINANCING IS LIVE FOR EVERY STRUCTURE THE FOUNDER LISTED EXCEPT F
+
+**DONE (detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-28):** B (any number of loans), C (fixed repayment: annuity,
+equal principal, bullet), D (parcel funding), E (dividends on EBITDA), G (a typed fund size), A (Methods 1 and 2),
+each proved on a test copy of Marina Gate in real Excel. **OPEN, in order:** (1) F, fund fees on NAV, needs a
+PRODUCT decision first (the base is unreachable on the platform today); (2) still refused by name and not on the
+founder's list: Method 4 (manual amounts), an exit-multiple or perpetuity terminal value, "no dividend policy"
+(the new-project default), year-on-year / balloon / custom repayment, existing facilities, and Exit Year as a live
+input; (3) the session-end suite.
+
+## 2026-09-28 (late): INPUTS IS THE ONE PLACE A USER TYPES, AND THE GUARD HOLDS IT
 
 **DONE:** item 4 below and item 5's Zakat days, by the wider fix: every shaded cell in the live workbook is read by
 a formula (`verify-formula-workbook` A11 to A11c, 92 / 0); Exit Year and the other export-time structure are

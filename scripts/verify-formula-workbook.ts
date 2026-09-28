@@ -145,6 +145,10 @@ function compareLive(basePlain: ExcelJS.Workbook, pertPlain: ExcelJS.Workbook, w
       if (m === undefined) { if (e !== undefined && e !== 0) layout.push(addr); return; }
       const o = plainAt(pertPlain, ws.name, m, c);
       if (typeof o === 'number') {
+        // A Checks residual is judged by its OWN rule: the verdict beside it (compared as text)
+        // is "OK" on both sides, so the residual is noise below the check's tolerance. A billion
+        // scale subtraction leaves about 1e-6 of it either side of zero (2026-09-28).
+        if (ws.name === 'Checks' && plainAt(pertPlain, ws.name, m, c - 1) === 'OK' && rec.cells.get(cellKey(ws.name, r, c - 1)) === 'OK') return;
         if (typeof e !== 'number' || Math.abs(e - o) > tolFor(ws.name, o, rowPeak(pertPlain, ws.name, m))) bad.push({ addr, kind: 'number', msg: `${addr}${m !== r ? ` (platform row ${m})` : ''}: Excel ${JSON.stringify(e)} vs platform ${o}` });
       } else if (typeof o === 'string') {
         const ok = typeof e === 'string' ? e.trim() === o.trim()
@@ -580,6 +584,25 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
       variant: (s) => { (s.project.financing as any).parcelFunding = plots0.map((p) => ({ parcelId: p.id, debtPct: 50, equityPct: 50, fundingType: 'custom_split' })); },
       edit: (s) => { (s.project.financing as any).minimumCashReserve = minC2 + 15_000_000; } });
   } else out.push({ label: 'D: parcel funding', skip: 'no plots in the first phase' });
+  // STAGE A: Methods 1 and 2 on copies; the ratio moved at its Inputs door. And D where it
+  // bites: under Method 1 the plots' land cash split changes the draw.
+  const m1 = (s: Snap): void => { const f = s.project.financing as any; f.fundingMethod = 1; f.fixedRatio = { debtPct: 70, equityPct: 30 }; };
+  out.push({ movesRevenue: false, label: 'A: Method 1 (70 / 30 of capex), the debt share to 60', cell: 'fin|2a. Method 1 Configuration|Debt %', col: RC.TOTAL, value: 0.6,
+    variant: m1, edit: (s) => { (s.project.financing as any).fixedRatio = { debtPct: 60, equityPct: 30 }; } });
+  if (ph0 && plots0.length) {
+    out.push({ movesRevenue: false, label: `A and D: Method 1 with ${ph0.name}'s plots at 50 / 50, their debt share to 80`, cell: `fin|4. Land Funding (per phase, from the Capex results)|${ph0.name}, Debt %`, col: RC.TOTAL, value: 0.8,
+      variant: (s) => { m1(s); (s.project.financing as any).parcelFunding = plots0.map((p) => ({ parcelId: p.id, debtPct: 50, equityPct: 50, fundingType: 'custom_split' })); },
+      edit: (s) => { for (const c of (s.project.financing as any).parcelFunding) c.debtPct = 80; } });
+  }
+  out.push({ movesRevenue: false, label: 'A: Method 2 (capex net of pre-sales, 70 / 30), the debt share to 60', cell: 'fin|2a. Method 2 Configuration|Debt %', col: RC.TOTAL, value: 0.6,
+    variant: (s) => { const f = s.project.financing as any; f.fundingMethod = 2; f.netFundingConfig = { debtPct: 70, equityPct: 30 }; },
+    edit: (s) => { (s.project.financing as any).netFundingConfig = { debtPct: 60, equityPct: 30 }; } });
+  // STAGE G: the fund size pinned to a typed target, which the structure fee charges on.
+  if (st.project.fundTerms?.enabled) {
+    out.push({ movesRevenue: false, label: 'G: the fund size pinned at 800m, then 900m', cell: 'ft:Fund size (typed target)', value: 900_000_000,
+      variant: (s) => { s.project.fundTerms = { ...s.project.fundTerms, fundSizeOverride: true, fundSize: 800_000_000 }; },
+      edit: (s) => { s.project.fundTerms = { ...s.project.fundTerms, fundSize: 900_000_000 }; } });
+  } else out.push({ label: 'G: fund size override', skip: 'no fund layer' });
   return out;
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -637,6 +660,12 @@ function numbers(wb: ExcelJS.Workbook): Map<string, Num> {
   }
   return out;
 }
+// EXCEL REFUSES TO OPEN a file holding a formula longer than 8,192 characters, and the
+// refusal surfaces as a COM crash, not a finding (a Method 1 copy did it, 2026-09-28).
+const EXCEL_FORMULA_LIMIT = 8192;
+function overLong(wb: ExcelJS.Workbook): string[] {
+  return [...formulaCells(wb)].filter(([, f]) => f.formula.length > EXCEL_FORMULA_LIMIT).map(([k, f]) => `${k} (${f.formula.length})`);
+}
 function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; result: unknown }> {
   const out = new Map<string, { formula: string; result: unknown }>();
   for (const ws of wb.worksheets) ws.eachRow((row, r) => row.eachCell((cell, c) => {
@@ -663,6 +692,8 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
   for (const [k, n] of oracle) if (plainAgain.get(k)?.v !== n.v) differs++;
   check('A1 the hardcoded export is unchanged and deterministic (built twice, every number equal)', differs === 0 && plainAgain.size === oracle.size, `${differs} differ`);
   check('A2 the hardcoded export contains no formula at all', formulaCells(plain).size === 0);
+  const longLive = overLong(wb);
+  check(`A2b no formula exceeds Excel's ${EXCEL_FORMULA_LIMIT}-character limit`, longLive.length === 0, longLive.slice(0, 5).join(', '));
   let untouchedDiff = 0, cacheDiff = 0; const cacheBad: string[] = [];
   for (const [k, n] of oracle) {
     const b = built.get(k);
@@ -840,6 +871,14 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
         const vOpts = { ...opts, state: platformAfterEdit(vs as never) as typeof input.state };
         const built = buildFormulaWorkbook(vOpts);
         const vPath = `exports/${input.projectName} - Live Model (test copy).xlsx`;
+        // A copy made for a structure must keep every sheet the export keeps live: a sheet
+        // that falls back to values shows only as numbers that stop moving, and a C test
+        // catches that only where the change happens to reach it (the fund size override
+        // dropped the whole Returns sheet and surfaced as a 0.1% rounding flip, 2026-09-28).
+        const dropped = [...status].filter(([n, st]) => (st.status === 'live' || st.status === 'partial') && built.status.get(n)?.status === 'values').map(([n]) => `${n}: ${built.status.get(n)?.note?.slice(0, 160)}`);
+        check(`C ${pt.label}: the test copy keeps every sheet the export keeps live`, dropped.length === 0, dropped.join('\n        '));
+        const longV = overLong(built.wb);
+        if (longV.length) { check(`C ${pt.label}: the test copy has no formula over Excel's limit`, false, longV.slice(0, 5).join(', ')); continue; }
         writeFileSync(vPath, Buffer.from(await enableFormulaIteration((await built.wb.xlsx.writeBuffer()) as ArrayBuffer)));
         base = { wb: built.wb, registry: built.registry, plain: buildModelWorkbook(vOpts), path: vPath, opts: vOpts, pending: built.pending };
         const untouched = compareLive(base.plain, base.plain, base.wb, recalcInExcel(vPath));

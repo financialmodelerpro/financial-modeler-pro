@@ -92,10 +92,12 @@ export const stage6Financing: LiveLayer = {
 
     // ── Refusals ─────────────────────────────────────────────────────────────
     const refuse: string[] = [];
+    // METHODS 1, 2 AND 3 (2026-09-28, stage A). Method 4 states its amounts per year, which no sheet carries.
+    const METHOD = (finCfg?.fundingMethod ?? 1) as number;
     const K = {
       minCash: 'fin|1. Project Financing Settings|Minimum Cash Reserve',
-      debtPct: 'fin|2a. Method 3 Configuration|Debt %',
-      equityPct: 'fin|2a. Method 3 Configuration|Equity %',
+      debtPct: `fin|2a. Method ${METHOD} Configuration|Debt %`,
+      equityPct: `fin|2a. Method ${METHOD} Configuration|Equity %`,
       sweepStart: 'fin|Cash Sweep Settings|Sweep Starting Year (calendar)',
       sweepRatio: 'fin|Cash Sweep Settings|Sweep Ratio (% of excess cash)',
       divOn: 'fin|Dividend Policy|Pay Dividends',
@@ -103,7 +105,7 @@ export const stage6Financing: LiveLayer = {
       divStart: 'fin|Dividend Policy|Start Year',
       capRate: 'ret|Exit Cap Rate (%)',
     };
-    if (finCfg?.fundingMethod !== 3) refuse.push(`funding method ${finCfg?.fundingMethod ?? 'unset'} (only Method 3, cash deficit, is expressed)`);
+    if (![1, 2, 3].includes(METHOD)) refuse.push(`funding method ${METHOD} (specified debt and equity amounts)`);
     // ANY NUMBER OF NEW FACILITIES (2026-09-28, stage B), each repaid by the sweep or on a
     // schedule (stage C). What stays refused names itself: an existing facility belongs
     // to existing operations; a schedule typed per year is not yet on any sheet.
@@ -142,7 +144,8 @@ export const stage6Financing: LiveLayer = {
         if (v !== 0 && (spec.base === 'opening_nav' || spec.base === 'facility_limit')) refuse.push(`a fund fee charged on ${spec.base}`);
         if (v !== 0 && !has(`ft:${spec.label}`)) refuse.push(`the ${spec.label} rate is not on the Inputs sheet`);
       }
-      if (fundTerms.fundSizeOverride) refuse.push('a fund size override');
+      // A FUND SIZE OVERRIDE (2026-09-28, stage G) pins the fund-size base to the typed target.
+      if (fundTerms.fundSizeOverride && !has('ft:Fund size (typed target)')) refuse.push('a fund size override the Inputs sheet does not state as a number');
     }
     if ((project.idcConfig?.allocationBasis ?? 'land') !== 'land') refuse.push('capitalised interest allocated by BUA');
     if (project.financing?.cashSweep?.startingYear !== undefined && !has(K.sweepStart)) refuse.push('a sweep start the sheet does not show');
@@ -278,6 +281,18 @@ export const stage6Financing: LiveLayer = {
     const escrowF: F = (t) => (!has('cf|direct||Less: Inaccessible Funds Locked') && has(escB('Total Additions'))
       ? `-${visCell('Revenue', escB('Total Additions'), t)}-${visCell('Revenue', escB('Less: Release of Locked Funds'), t)}` : '0');
     const opsBase = row('fnc:opsbase', 'operating cash before fees and tax', (t) => `${['cf|direct||Total Revenue Received', 'cf|direct||Less: Inaccessible Funds Locked', 'cf|direct||Add: Release of Inaccessible Funds', 'cf|direct||Total Operating Expenses Paid'].filter(has).map((k) => visCell(CF, k, t)).join('+')}+${escrowF(t)}`);
+    // METHOD 2'S GAP (computeFundingGap methodAGapPerPeriod): this year's cash capex less
+    // last year's pre-sales collections net of escrow, floored at zero.
+    const cashPreOf = (): F => {
+      const ks = visible.filter((a) => (a.strategy === 'Sell' || a.strategy === 'Sell + Manage')).map((a) => lineForAsset(lines, a.id)).filter((l): l is NonNullable<typeof l> => !!l && has(`rvc:${l.key}:cashPre`)).map((l) => `rvc:${l.key}:cashPre`);
+      const uniq = [...new Set(ks)];
+      return (t) => uniq.map((kk) => sheetAt('Revenue Calc', kk, t)).join('+') || '0';
+    };
+    const presalesGross = cashPreOf();
+    const escHeldF: F = (t) => (has('esc||B. Escrow Balance Roll-Forward|Total Additions') ? visCell('Revenue', 'esc||B. Escrow Balance Roll-Forward|Total Additions', t) : '0');
+    const escRelF: F = (t) => (has('esc||B. Escrow Balance Roll-Forward|Less: Release of Locked Funds') ? `-(${visCell('Revenue', 'esc||B. Escrow Balance Roll-Forward|Less: Release of Locked Funds', t)})` : '0');
+    const gap2 = row('fnc:gap2', 'Method 2: capex net of last year\'s pre-sales', (t) => `MAX(0,${at(capexCash, t)}-${t === 0 ? '0' : `((${presalesGross(t - 1)})-(${escHeldF(t - 1)})+(${escRelF(t - 1)}))`})`);
+    const gap2Tot = cell('fnc:gap2tot', 'Method 2: total gap', () => `SUM(${rng(gap2)})`);
     const ebitdaBase = row('fnc:ebitdabase', 'revenue less opex (P&L)', (t) => `${visCell(PL, 'pl|__all__||Total Revenue', t)}+${visCell(PL, 'pl|__all__||Total Operating Expenses', t)}`);
 
     // Capitalised interest: land area and construction window of each non-companion asset.
@@ -312,7 +327,7 @@ export const stage6Financing: LiveLayer = {
     // ── ONE SOLVE ────────────────────────────────────────────────────────────
     interface Block {
       idc: Map<string, number>; idcDepProj: number; idcAddHeld: number; idcNbvProj: number; idcDisp: number; intExp: number; interest: number;
-      draw: number; idcDraw: number; repay: number; equityDev: number; feeDraw: number; netReq: number; divTotal: number; bal: number; debtBs: number;
+      draw: number; idcDraw: number; repay: number; equityDev: number; debtReq: number; feeDraw: number; netReq: number; divTotal: number; bal: number; debtBs: number;
       cos: Map<string, number>; tax: number; idcDepByAsset: Map<string, number>; idcNbvByAsset: Map<string, number>;
     }
     const cachedFrom = (tag: string, a: readonly number[] | undefined): readonly number[] | undefined => (tag === 'main' ? a : undefined);
@@ -397,8 +412,18 @@ export const stage6Financing: LiveLayer = {
       const firstCapex = cell(k('first'), L('first year with capex'), () => `IFERROR(MATCH(TRUE,INDEX(${rng(capexCash)}>0,0),0)-1,0)`);
       const minAt: F = (t) => `IF(${t}=${sc3(firstCapex)},${MIN()},0)`;
       const nonLand = row(k('nonland'), L('capex excl. land (fallback split)'), (t) => `MAX(0,${at(capexCash, t)}-(${landCashF(t)}))`);
-      const debtRow = row(k('debt'), L('debt requirement'), (t) => `IF(${sc3(gapTot)}>0,${at(netReq, t)}*${sc3(dFrac)},(${at(nonLand, t)}+${minAt(t)})*${sc3(dFrac)}+${landCashF(t)}*${sc3(landDebt)})`, cachedFrom(tag, snap.financing.debtEquitySplit.debt));
-      const equityDev = row(k('equity'), L('equity requirement'), (t) => `IF(${sc3(gapTot)}>0,${at(netReq, t)}*${sc3(eFrac)},(${at(nonLand, t)}+${minAt(t)})*${sc3(eFrac)}+${landCashF(t)}*(1-${sc3(landDebt)}))`, cachedFrom(tag, snap.financing.equity.developmentPerPeriod));
+      // THE DRAW, BY METHOD. Sized on capex (Method 1, or 2 and 3 with no gap): capex
+      // excluding land at the ratio plus the minimum cash buffer, land cash at the plots'
+      // split. Sized on a gap: Method 3 the deficit (the minimum is inside it), Method 2
+      // capex net of last year's pre-sales plus the buffer, both at the ratio.
+      const onCapexD: F = (t) => `(${at(nonLand, t)}+${minAt(t)})*${sc3(dFrac)}+${landCashF(t)}*${sc3(landDebt)}`;
+      const onCapexE: F = (t) => `(${at(nonLand, t)}+${minAt(t)})*${sc3(eFrac)}+${landCashF(t)}*(1-${sc3(landDebt)})`;
+      const gapD: F = (t) => (METHOD === 3 ? `IF(${sc3(gapTot)}>0,${at(netReq, t)}*${sc3(dFrac)},${onCapexD(t)})`
+        : METHOD === 2 ? `IF(${sc3(gap2Tot)}>0,(${at(gap2, t)}+${minAt(t)})*${sc3(dFrac)},${onCapexD(t)})` : onCapexD(t));
+      const gapE: F = (t) => (METHOD === 3 ? `IF(${sc3(gapTot)}>0,${at(netReq, t)}*${sc3(eFrac)},${onCapexE(t)})`
+        : METHOD === 2 ? `IF(${sc3(gap2Tot)}>0,(${at(gap2, t)}+${minAt(t)})*${sc3(eFrac)},${onCapexE(t)})` : onCapexE(t));
+      const debtRow = row(k('debt'), L('debt requirement'), gapD, cachedFrom(tag, snap.financing.debtEquitySplit.debt));
+      const equityDev = row(k('equity'), L('equity requirement'), gapE, cachedFrom(tag, snap.financing.equity.developmentPerPeriod));
       // THE FACILITIES (2026-09-28, stages B and C), in the engine's budget order
       // (computeFinancing): each draws its share of the debt requirement, accrues
       // interest on its balance after the draw, pays that interest from the shared
@@ -508,7 +533,7 @@ export const stage6Financing: LiveLayer = {
         w.fA(C(rClose, cT(t)), `${at(cashBefore, t)}-${at(rDiv, t)}`, tag === 'main' ? { cached: snap.directCF.closingCashPerPeriod[t] ?? 0 } : {});
       }
       const debtBs = row(k('debtbs'), L('debt outstanding (balance sheet)'), (t) => (booked && t >= X ? '0' : at(rBal, t)), cachedFrom(tag, snap.bs.debtOutstandingPerPeriod));
-      return { idc, idcDepProj, idcAddHeld, idcNbvProj, idcDisp, intExp, interest: rInterest, draw: rDraw, idcDraw: rIdcDraw, repay, equityDev, feeDraw, netReq, divTotal: rDiv, bal: rBal, debtBs, cos, tax, idcDepByAsset, idcNbvByAsset };
+      return { idc, idcDepProj, idcAddHeld, idcNbvProj, idcDisp, intExp, interest: rInterest, draw: rDraw, idcDraw: rIdcDraw, repay, equityDev, debtReq: debtRow, feeDraw, netReq, divTotal: rDiv, bal: rBal, debtBs, cos, tax, idcDepByAsset, idcNbvByAsset };
     };
     // Land cash per period (the fallback split's land): the land value lines, cash half, from the Capex working sheet.
     const P0 = w.addr('cxc:P0').col;
@@ -551,8 +576,11 @@ export const stage6Financing: LiveLayer = {
     const feeRows: number[] = [];
     let feeTotal: F = zero;
     if (fundTerms.enabled) {
-      const R = cell('fnc:fee:base', 'fund size: the fee-free funding requirement', () => `SUM(${rng(ff.netReq)})`, snap.fundFees.fundSize.amount);
-      const baseOf = (base: string): string => (base === 'fund_size' ? sc3(R) : base === 'total_equity' ? `${sc3(R)}*${sc3(eFrac)}` : base === 'debt_facility' ? `${sc3(R)}*${sc3(dFrac)}` : '0');
+      const R = cell('fnc:fee:base', 'the fee-free funding requirement', () => (METHOD === 3 ? `SUM(${rng(ff.netReq)})` : `SUM(${rng(ff.debtReq)})+SUM(${rng(ff.equityDev)})`), (snap.fundFees.totalEquity?.amount ?? 0) + (snap.fundFees.debtFacility?.amount ?? 0));
+      // resolveFundSize: the typed target where the override is on, the requirement otherwise.
+      // Total equity and the debt facility stay the requirement's shares either way.
+      const FS = cell('fnc:fee:fundsize', 'fund size', () => (fundTerms.fundSizeOverride ? `MAX(0,N(${w.ref('ft:Fund size (typed target)')}))` : sc3(R)), snap.fundFees.fundSize.amount);
+      const baseOf = (base: string): string => (base === 'fund_size' ? sc3(FS) : base === 'total_equity' ? `${sc3(R)}*${sc3(eFrac)}` : base === 'debt_facility' ? `${sc3(R)}*${sc3(dFrac)}` : '0');
       FUND_FEE_SPECS.forEach((spec, i) => {
         const inputCell = (): string => (has(`ft:${spec.label}`) ? `N(${w.ref(`ft:${spec.label}`)})` : '0');
         feeRows.push(row(`fnc:fee:${i}`, `${spec.label}`, (t) => {
@@ -564,7 +592,7 @@ export const stage6Financing: LiveLayer = {
       });
       feeTotal = (t) => feeRows.map((r) => at(r, t)).join('+');
       // The resolved capital bases on the Inputs sheet.
-      for (const [label, f] of [['Fund size', () => sc3(R)], ['Capex equity', () => `${sc3(R)}*${sc3(eFrac)}`], ['Debt facility', () => `${sc3(R)}*${sc3(dFrac)}`]] as Array<[string, () => string]>) {
+      for (const [label, f] of [['Fund size', () => sc3(FS)], ['Capex equity', () => `${sc3(R)}*${sc3(eFrac)}`], ['Debt facility', () => `${sc3(R)}*${sc3(dFrac)}`]] as Array<[string, () => string]>) {
         const key = w.reg.keys().find((kk) => kk.startsWith(`ftcap:${label}`));
         if (key) w.f(key, f());
       }

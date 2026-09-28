@@ -83,7 +83,22 @@ export const stage6bFinancingSheet: LiveLayer = {
     const feeByEquity = state.project.fundTerms?.enabled === true && state.project.fundTerms?.managementFeeFunding === 'equity';
     const feeTotal: F = (t) => { const ks = w.reg.keys().filter((k) => /^fnc:fee:\d+$/.test(k)); return ks.map((k) => calc(k, t)).join('+') || '0'; };
     const gapTot = (): string => sc3('fnc:main:gaptot');
-    const selected: F = (t) => `IF(${gapTot()}>0,${netReq(t)},${exclLandInKind(t)})`;
+    // THE SELECTED METHOD'S REQUIREMENT (computeFundingRequirement, 2026-09-28 stage A):
+    // Method 3 the deficit, Method 2 its gap, Method 1 capex; a gap method with no gap
+    // falls back to capex. Methods 1 and 2 add the minimum cash buffer in the first
+    // capex year; Method 3's deficit already funds up to the minimum.
+    const METHOD = (state.project.financing?.fundingMethod ?? 1) as number;
+    const gap2 = S('gap2');
+    const selected: F = (t) => (METHOD === 3 ? `IF(${gapTot()}>0,${netReq(t)},${exclLandInKind(t)})`
+      : METHOD === 2 ? `IF(${sc3('fnc:gap2tot')}>0,${gap2(t)},${exclLandInKind(t)})` : exclLandInKind(t));
+    const minAtF: F = (t) => (METHOD === 3 ? '0' : `IF(${t}=${sc3('fnc:main:first')},${MIN()},0)`);
+    // A total the sheet already shows is READ from its row, never re-expanded: under
+    // Methods 1 and 2 the requirement is a per-year capex sum, and restating it inside the
+    // Funding Basis checks built a 9,251-character formula Excel refuses to open (8,192).
+    const finTot = (key: string, fallback: () => string): string => (has(key) ? w.refA({ sheet: FIN, row: w.addr(key).row, col: TOTAL_COL }) : fallback());
+    const needTotal = (): string => (METHOD === 3 ? `SUM(${calcRng('fnc:main:netreq')})`
+      : finTot('fin|7. Funding Requirement|Total Funding Need', () => `(${sumAll(selected)})+${MIN()}`));
+    const capexTotal = (): string => finTot('fin|6. Capex Breakdown|Total Capex Incl Cash Land', () => sumAll(exclLandInKind));
     // The waterfall's own cash after funding (opening next year).
     const afterFee: F = (t) => (t + 1 < N ? calc('fnc:main:open', t + 1) : `(${calc('fnc:main:avail', t)}+${netReq(t)}${feeByEquity ? `-(${feeTotal(t)})+${feeDraw(t)}` : ''})`);
     const sellEarners = visible.filter((a) => (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') && has(`rvc:${a.id}:cash`));
@@ -128,11 +143,11 @@ export const stage6bFinancingSheet: LiveLayer = {
     R('Summary', 'IDC (Construction)', { scalar: () => `SUM(${calcRng('fnc:main:idcdraw')})` });
     R('Summary', 'Finance Cost (New)', { scalar: () => `SUM(${calcRng('fnc:main:interest')})` });
     // 3. Funding Basis.
-    R('3. Funding Basis', 'Total Capex (excl Land In-Kind)', { scalar: () => sumAll(exclLandInKind) });
-    R('3. Funding Basis', 'Total Funding Need', { scalar: () => `SUM(${calcRng('fnc:main:netreq')})` });
-    R('3. Funding Basis', 'Funded from Project Cash', { scalar: () => `(${sumAll(exclLandInKind)})+${MIN()}-SUM(${calcRng('fnc:main:netreq')})` });
+    R('3. Funding Basis', 'Total Capex (excl Land In-Kind)', { scalar: capexTotal });
+    R('3. Funding Basis', 'Total Funding Need', { scalar: needTotal });
+    R('3. Funding Basis', 'Funded from Project Cash', { scalar: () => `(${capexTotal()})+${MIN()}-(${needTotal()})` });
     R('3. Funding Basis', 'Sources vs Uses', { scalar: () => {
-      const src = `(SUM(${calcRng('fnc:main:debt')})+SUM(${calcRng('fnc:main:equity')}))`, need = `SUM(${calcRng('fnc:main:netreq')})`;
+      const src = `(SUM(${calcRng('fnc:main:debt')})+SUM(${calcRng('fnc:main:equity')}))`, need = needTotal();
       return `IF(ABS(${src}-${need})<1,"Match ("&TEXT(ROUND(${src},0),"#,##0")&")","Gap "&TEXT(ROUND(${src}-${need},0),"#,##0"))`;
     } });
     // 4. Land funding by phase.
@@ -154,6 +169,8 @@ export const stage6bFinancingSheet: LiveLayer = {
     R('7. Funding Requirement', 'Method 3, Cash Deficit Funding', { f: netReq });
     R('7. Funding Requirement', 'Method 4, Specified Debt + Equity (manual)', { f: () => '0' });
     R('7. Funding Requirement', /^Selected \(Method \d\)$/, { f: selected });
+    R('7. Funding Requirement', '+ Minimum Cash Reserve', { f: minAtF });
+    R('7. Funding Requirement', 'Total Funding Need', { f: add(selected, minAtF) });
     // 8 and 9. Debt and equity required.
     for (const tr of tranches) R('8. Total Debt Required', tr.name, { f: T(tr.id, 'draw') });
     R('8. Total Debt Required', 'Capex Drawdown Subtotal', { f: debtSplit });
@@ -250,14 +267,20 @@ export const stage6bFinancingSheet: LiveLayer = {
     R(M3, '(+) Existing debt opening balance', { f: () => '0' });
     R(M3, '= Cash before financing', { f: M('avail'), tot: 'last' });
     R(M3, /^Development funding need = /, { f: netReq });
-    R(M3, /^Debt draw, base/, { f: debtSplit });
-    R(M3, /^Equity draw, base/, { f: equityDev });
-    R(M3, 'Debt Drawdown, capex', { f: debtSplit });
+    // Under Methods 1 and 2 this table is the deficit ILLUSTRATION at the selected
+    // method's ratio as typed (the platform's own table), not the draws the model made;
+    // under Method 3 the two are the same series.
+    // The ratio is the method's NORMALISED share (60 / 30 typed is 66.7% debt), the Calc's.
+    const m3Debt: F = METHOD === 3 ? debtSplit : (t) => `${netReq(t)}*${sc3('fnc:dF')}`;
+    const m3Equity: F = METHOD === 3 ? equityDev : (t) => `${netReq(t)}*${sc3('fnc:eF')}`;
+    R(M3, /^Debt draw, base/, { f: m3Debt });
+    R(M3, /^Equity draw, base/, { f: m3Equity });
+    R(M3, 'Debt Drawdown, capex', { f: m3Debt });
     R(M3, /^Debt Drawdown, IDC/, { f: idcDraw });
-    R(M3, '= Total Debt Drawdown', { f: add(debtSplit, idcDraw) });
-    R(M3, 'Equity Drawdown, development', { f: equityDev });
+    R(M3, '= Total Debt Drawdown', { f: add(m3Debt, idcDraw) });
+    R(M3, 'Equity Drawdown, development', { f: m3Equity });
     R(M3, /^Equity Drawdown, fund management fee/, { f: feeDraw });
-    R(M3, '= Total Equity Drawdown', { f: add(equityDev, feeDraw) });
+    R(M3, '= Total Equity Drawdown', { f: add(m3Equity, feeDraw) });
     R(M3, '(-) Fund management fee paid from cash (not drawn)', { f: (t) => `-((${feeTotal(t)})-${feeDraw(t)})` });
     R(M3, /^Closing cash \(after funding/, { f: afterFee, tot: 'last' });
     // Cash waterfall and the sweep.
@@ -292,7 +315,7 @@ export const stage6bFinancingSheet: LiveLayer = {
     R('Per-Tranche Debt: Sweep & Outstanding', 'Project total debt outstanding (post-sweep)', { f: postSweep, tot: 'last' });
 
     // ── Write, or refuse if a period row has no rule ─────────────────────────
-    const INPUT_SECS = ['1. Project Financing Settings', '1b. IDC (Interest During Construction) Policy', '2. Funding Method', '2a. Method 3 Configuration', 'Cash Sweep Settings', 'Dividend Policy'];
+    const INPUT_SECS = ['1. Project Financing Settings', '1b. IDC (Interest During Construction) Policy', '2. Funding Method', '2a. Method 1 Configuration', '2a. Method 2 Configuration', '2a. Method 3 Configuration', 'Cash Sweep Settings', 'Dividend Policy'];
     const writes: Array<() => void> = [];
     const unmatched: string[] = [];
     for (const key of w.reg.keys().filter((k) => k.startsWith('fin|'))) {

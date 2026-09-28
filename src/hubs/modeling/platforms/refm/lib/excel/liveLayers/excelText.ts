@@ -12,7 +12,10 @@
 
 /** Excel's IRR, retried from two further guesses before giving up (the engine
  *  falls back to bisection, so a root far from 10% must still be found). */
-export const irrOf = (r: string): string => `IFERROR(IRR(${r}),IFERROR(IRR(${r},-0.5),IRR(${r},1)))`;
+// Excel's IRR fails to converge from a guess far from the root: a sale in an early exit
+// year can lose three quarters of the equity (-76.5%, 2026-09-28), which neither 0.1 nor
+// -0.5 reaches, so the deep negative guesses come before the high one.
+export const irrOf = (r: string): string => `IFERROR(IRR(${r}),IFERROR(IRR(${r},-0.5),IFERROR(IRR(${r},-0.8),IFERROR(IRR(${r},-0.95),IRR(${r},1)))))`;
 /** retPct: a fraction as a percentage with d decimals. */
 export const pctT = (e: string, d = 1): string => `TEXT(${e},"${d > 0 ? `0.${'0'.repeat(d)}` : '0'}%")`;
 /** An IRR in words, "n/a" where the stream has none. */
