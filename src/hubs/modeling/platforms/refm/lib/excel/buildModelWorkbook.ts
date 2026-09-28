@@ -15,6 +15,7 @@
  *
  * Pure: reads computeFinancialsSnapshot + state, returns a workbook.
  */
+import { effectiveTrancheRatePct } from '@/src/core/calculations/financing';
 import { buildReceivablesRollForward, buildUnearnedRollForward } from '../reports/saleRollForwardReports';
 import ExcelJS from 'exceljs';
 import { buildSaleCohortTermsBlock, saleCohortRuleText, buildSaleCohortGrid, saleCohortGridCaption } from '../reports/saleCohortReports';
@@ -437,7 +438,7 @@ function prepareLiveModel(snap: ReturnType<typeof computeFinancialsSnapshot>, st
 
   const p = state.project;
   const fin = snap.financing;
-  const trancheRates = state.financingTranches.map((t) => (t.interestRatePct ?? ((t.interbankRatePct ?? 0) + (t.creditSpreadPct ?? 0))) / 100).filter((r) => r > 0);
+  const trancheRates = state.financingTranches.map((t) => effectiveTrancheRatePct(t) / 100).filter((r) => r > 0);
   const debtRate = trancheRates.length ? trancheRates.reduce((s, r) => s + r, 0) / trancheRates.length : 0;
   const proj: import('./liveModel').LiveProjectInput = {
     N,
@@ -982,7 +983,8 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
     ['Facility', 'Origin', 'Opening balance', 'Interest rate %', 'Drawdown method', 'Repayment method', 'Repay periods', 'IDC capitalize', 'Repay start year', 'Interest start year', 'Origination year', 'Facility share %'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
     r += 1;
     for (const t of state.financingTranches) {
-      const rate = t.interestRatePct ?? ((t.interbankRatePct ?? 0) + (t.creditSpreadPct ?? 0));
+      // The rate the engine charges (effectiveTrancheRatePct), never the stored field alone.
+      const rate = effectiveTrancheRatePct(t);
       setLabel(ws.getCell(`A${r}`), t.name);
       setInput(ws.getCell(`B${r}`), String(t.origin ?? 'new'), '@');
       setInput(ws.getCell(`C${r}`), t.openingBalance ?? 0, NUMFMT.money);
@@ -1002,6 +1004,8 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
         registerCell(`echo=${FIN(sec, 'Interest Rate %')}`, ws, ws.getCell(`D${r}`));
         registerCell(`inp=${FIN(sec, 'Repayment Periods')}`, ws, ws.getCell(`G${r}`));
         registerCell(`inp=${FIN(sec, 'Repayment Start Year')}#auto`, ws, ws.getCell(`I${r}`));
+        // The facility's share of the debt drawn, which the live solve reads where a share is typed.
+        registerCell(`tr:${t.id}:share`, ws, ws.getCell(`L${r}`));
         for (const col of [3, 8, 10, 11, 12]) fixedAt(r, col, 'The live financing solve is built for one new facility repaid by the cash sweep, as exported.');
       }
       trancheRefs.push({ id: t.id, name: t.name, openingBalance: addr('C', r), rate: addr('D', r), periods: addr('G', r) });

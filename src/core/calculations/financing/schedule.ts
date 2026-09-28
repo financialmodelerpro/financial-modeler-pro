@@ -10,6 +10,18 @@ import type {
   ProjectAxis,
 } from './types';
 
+/**
+ * THE RATE A FACILITY IS CHARGED, as an annual percentage, the ONE rule every surface
+ * that shows it must use (2026-09-28): interbank plus spread wherever either is
+ * stated, the single stored rate only when neither is. The Inputs sheet and the
+ * lender report printed the stored rate first, a figure the model does not charge
+ * once the two disagree.
+ */
+export function effectiveTrancheRatePct(t: Pick<FinancingTranche, 'interbankRatePct' | 'creditSpreadPct' | 'interestRatePct'>): number {
+  const hasComponents = t.interbankRatePct !== undefined || t.creditSpreadPct !== undefined;
+  return hasComponents ? Math.max(0, (t.interbankRatePct ?? 0) + (t.creditSpreadPct ?? 0)) : Math.max(0, t.interestRatePct ?? 0);
+}
+
 function equalPeriodicPayment(principal: number, rate: number, n: number): number {
   if (n <= 0 || principal <= 0) return 0;
   if (rate <= 0) return principal / n;
@@ -77,10 +89,7 @@ export function computeFacilitySchedule(
   // Pass 27 (2026-05-14): effective interest rate = Interbank Rate +
   // Credit Spread when both are present; otherwise fall back to the
   // legacy single interestRatePct field for back-compat.
-  const hasComponents = tranche.interbankRatePct !== undefined || tranche.creditSpreadPct !== undefined;
-  const annualRatePct = hasComponents
-    ? Math.max(0, (tranche.interbankRatePct ?? 0) + (tranche.creditSpreadPct ?? 0))
-    : Math.max(0, tranche.interestRatePct);
+  const annualRatePct = effectiveTrancheRatePct(tranche);
   const periodicRate =
     project.modelType === 'monthly'
       ? annualRatePct / 100 / 12

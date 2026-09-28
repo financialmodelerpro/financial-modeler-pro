@@ -173,6 +173,7 @@ export function computeFinancingResult(ctx: FinancingContext): FinancingComputat
 }
 
 export type { FundingGapInputs } from './funding';
+export { effectiveTrancheRatePct } from './schedule';
 
 export type {
   FinancingComputation,

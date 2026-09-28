@@ -50,7 +50,11 @@ export const stage6bFinancingSheet: LiveLayer = {
     const visible = state.assets.filter((a) => a.visible !== false);
     const lines = planRevenueLines(state.assets, state.subUnits, state.phases, state.project);
     const lineState = { assets: state.assets, phases: state.phases, parcels: state.parcels };
-    const trancheName = state.financingTranches[0]?.name ?? '';
+    // EVERY FACILITY HAS ITS OWN ROWS (2026-09-28, stages B and C): the solve writes
+    // fnc:main:tr:<id>:* per loan beside the totals every other table reads.
+    const tranches = state.financingTranches ?? [];
+    const esc = (x: string): string => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const T = (id: string, s: string) => (t: number): string => calc(`fnc:main:tr:${id}:${s}`, t);
 
     // ── Readers ──────────────────────────────────────────────────────────────
     const calc = (key: string, t: number): string => w.refA({ sheet: CALC, row: w.addr(key).row, col: 4 + t });
@@ -74,7 +78,7 @@ export const stage6bFinancingSheet: LiveLayer = {
     const nonLand: F = (t) => `MAX(0,${S('capexall')(t)}-(${landCash(t)})-${S('inkind')(t)})`;
     const exclLandInKind: F = (t) => `${nonLand(t)}+${landCash(t)}`;
     const debtSplit = M('debt'), equityDev = M('equity'), feeDraw = M('feedraw'), draw = M('draw'), idcDraw = M('idcdraw'), interest = M('interest');
-    const sweep = M('sweep'), bal = M('bal'), repay = M('repay'), netReq = M('netreq'), divT = M('div'), closeCash = M('close'), cfo = M('cfo'), cfi = S('cfi');
+    const sweep = M('sweep'), sched = M('sched'), bal = M('bal'), repay = M('repay'), netReq = M('netreq'), divT = M('div'), closeCash = M('close'), cfo = M('cfo'), cfi = S('cfi');
     const intExp = M('intexp'), fromCash = M('fromcash'), inKind = S('inkind');
     const feeByEquity = state.project.fundTerms?.enabled === true && state.project.fundTerms?.managementFeeFunding === 'equity';
     const feeTotal: F = (t) => { const ks = w.reg.keys().filter((k) => /^fnc:fee:\d+$/.test(k)); return ks.map((k) => calc(k, t)).join('+') || '0'; };
@@ -139,7 +143,7 @@ export const stage6bFinancingSheet: LiveLayer = {
     R('4. Land Funding (per phase, from the Capex results)', 'Total, Land Cash', { f: landCash });
     R('4. Land Funding (per phase, from the Capex results)', 'Total, Land In-Kind', { f: landInKindOf(visible) });
     // 5. The facility's rate.
-    R(`${trancheName} (new facility)`, 'Interest Rate %', { scalar: () => sc3('fnc:rate') });
+    for (const tr of tranches) R(`${tr.name} (new facility)`, 'Interest Rate %', { scalar: () => sc3(has(`fnc:tr:${tr.id}:rate`) ? `fnc:tr:${tr.id}:rate` : 'fnc:rate') });
     // 6. Capex breakdown.
     R('6. Capex Breakdown', 'Capex (excluding Land)', { f: nonLand });
     R('6. Capex Breakdown', 'Land Cash Value', { f: landCash });
@@ -151,7 +155,7 @@ export const stage6bFinancingSheet: LiveLayer = {
     R('7. Funding Requirement', 'Method 4, Specified Debt + Equity (manual)', { f: () => '0' });
     R('7. Funding Requirement', /^Selected \(Method \d\)$/, { f: selected });
     // 8 and 9. Debt and equity required.
-    R('8. Total Debt Required', trancheName, { f: draw });
+    for (const tr of tranches) R('8. Total Debt Required', tr.name, { f: T(tr.id, 'draw') });
     R('8. Total Debt Required', 'Capex Drawdown Subtotal', { f: debtSplit });
     R('8. Total Debt Required', 'IDC Drawdown (capitalized interest)', { f: idcDraw });
     R('8. Total Debt Required', 'Total Debt Required (new draws + IDC)', { f: add(debtSplit, idcDraw) });
@@ -160,28 +164,41 @@ export const stage6bFinancingSheet: LiveLayer = {
     R('9. Total Equity Required', /^Cash Equity, fund management fee/, { f: feeDraw });
     R('9. Total Equity Required', 'Total Equity Required', { f: add(equityDev, feeDraw, inKind) });
     // Debt movement, combined debt service, finance cost.
-    const DM = new RegExp(`^Debt Movement, ${trancheName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`);
-    R(DM, 'Opening', { f: (t) => prevOf(bal, t), tot: 'last' });
-    R(DM, 'Capex Drawdown', { f: draw });
-    R(DM, 'IDC Drawdown (capitalized interest)', { f: idcDraw });
-    R(DM, 'Total Drawdown', { f: add(draw, idcDraw) });
-    R(DM, /^Principal Repaid/, { f: neg(sweep) });
-    R(DM, 'Closing', { f: bal, tot: 'last' });
+    for (const tr of tranches) {
+      // With more than one facility the title carries its share: "Senior debt (60% of the project facility)".
+      const DM = new RegExp(`^Debt Movement, ${esc(tr.name)}( \\(.*\\))?$`);
+      const tb = T(tr.id, 'bal'), td = T(tr.id, 'draw'), ti = T(tr.id, 'idc');
+      R(DM, 'Opening', { f: (t) => prevOf(tb, t), tot: 'last' });
+      R(DM, 'Capex Drawdown', { f: td });
+      R(DM, 'IDC Drawdown (capitalized interest)', { f: ti });
+      R(DM, 'Total Drawdown', { f: add(td, ti) });
+      R(DM, /^Principal Repaid/, { f: neg(add(T(tr.id, 'sched'), T(tr.id, 'sweep'))) });
+      R(DM, 'Closing', { f: tb, tot: 'last' });
+    }
     R('Combined Debt Service', 'Total Capex Drawdown', { f: draw });
     R('Combined Debt Service', 'Total IDC Drawdown', { f: idcDraw });
     R('Combined Debt Service', 'Total Drawdown (Capex + IDC)', { f: add(draw, idcDraw) });
     R('Combined Debt Service', /^(Total )?Interest Expensed( - New)?$/, { f: neg(intExp) });
-    R('Combined Debt Service', /^(Total Principal Repaid|Principal Repaid - New.*)$/, { f: neg(sweep) });
+    R('Combined Debt Service', /^(Total Principal Repaid|Principal Repaid - New.*)$/, { f: neg(add(sched, sweep)) });
     R('Combined Debt Service', '  of which repaid by cash sweep', { f: neg(sweep) });
-    R('Combined Debt Service', '  of which scheduled amortisation', { f: () => '0' });
-    R('Combined Debt Service', /^(Debt Service - New|Total Debt Service \(Cash\))$/, { f: neg(add(interest, sweep)) });
-    R('Combined Debt Service', 'Scheduled Debt Service (covenant basis)', { f: neg(interest) });
-    const FC = new RegExp(`^Finance Cost, ${trancheName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`);
-    R(FC, 'Opening', { f: () => '0', tot: 'last' });
-    R(FC, 'Charge (Accrued)', { f: interest });
-    R(FC, 'Paid', { f: neg(interest) });
-    R(FC, '(memo) of which funded by drawing debt', { f: idcDraw });
-    R(FC, 'Closing', { f: () => '0', tot: 'last' });
+    R('Combined Debt Service', '  of which scheduled amortisation', { f: neg(sched) });
+    R('Combined Debt Service', /^(Debt Service - New|Total Debt Service \(Cash\))$/, { f: neg(add(interest, sched, sweep)) });
+    R('Combined Debt Service', 'Scheduled Debt Service (covenant basis)', { f: neg(add(interest, sched)) });
+    for (const tr of tranches) {
+      const FC = new RegExp(`^Finance Cost, ${esc(tr.name)}( \\(.*\\))?$`);
+      R(FC, 'Opening', { f: () => '0', tot: 'last' });
+      R(FC, 'Charge (Accrued)', { f: T(tr.id, 'int') });
+      R(FC, 'Paid', { f: neg(T(tr.id, 'int')) });
+      R(FC, '(memo) of which funded by drawing debt', { f: T(tr.id, 'idc') });
+      R(FC, 'Closing', { f: () => '0', tot: 'last' });
+    }
+    // With more than one facility the sheet adds the combined ledger, every facility's in one.
+    const CFC = 'Combined Finance Cost (all facilities)';
+    R(CFC, 'Opening', { f: () => '0', tot: 'last' });
+    R(CFC, /^Charge \(Accrued/, { f: interest });
+    R(CFC, 'Paid', { f: neg(interest) });
+    R(CFC, '(memo) of which funded by drawing debt', { f: idcDraw });
+    R(CFC, 'Closing', { f: () => '0', tot: 'last' });
     // Capitalised interest by line and where it goes.
     const IDC = /^IDC Allocation, by Line/;
     for (const l of idcLines) {
@@ -257,7 +274,7 @@ export const stage6bFinancingSheet: LiveLayer = {
     R(CW, '= Cash Available', { f: cashAvail, tot: 'last' });
     R(CW, /^\(memo\) Minimum Cash Requirement/, { f: () => `-${MIN()}`, tot: () => `-${MIN()}` });
     R(CW, /^\(memo\) Headroom above/, { f: (t) => `${cashAvail(t)}-${MIN()}`, tot: 'last' });
-    R(CW, new RegExp(`^\\(-\\) Debt Paid: ${trancheName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`), { f: neg(sweep) });
+    for (const tr of tranches) R(CW, new RegExp(`^\\(-\\) Debt Paid: ${esc(tr.name)}`), { f: neg(add(T(tr.id, 'sched'), T(tr.id, 'sweep'))) });
     R(CW, '(-) Debt Paid (total principal incl. sweep)', { f: neg(repay) });
     R(CW, '= Cash Available for Dividend', { f: (t) => `${cashAvail(t)}-${repay(t)}`, tot: 'last' });
     R(CW, /^\(-\) Dividend Paid/, { f: neg(divT) });
@@ -266,9 +283,12 @@ export const stage6bFinancingSheet: LiveLayer = {
     R(CW, '(memo) IDC capitalised to debt', { f: idcDraw });
     const X = snap.disposal.exitIdx, booked = snap.disposal.booked;
     const postSweep: F = (t) => (booked && t >= X ? '0' : bal(t));
-    R('Per-Tranche Debt: Sweep & Outstanding', /, Opening \(pre-sweep\)$/, { f: (t) => `${postSweep(t)}+${sweep(t)}`, tot: 'last' });
-    R('Per-Tranche Debt: Sweep & Outstanding', /, Sweep Applied \(/, { f: neg(sweep) });
-    R('Per-Tranche Debt: Sweep & Outstanding', /, Closing \(post-sweep\)$/, { f: postSweep, tot: 'last' });
+    for (const tr of tranches) {
+      const post: F = (t) => (booked && t >= X ? '0' : T(tr.id, 'bal')(t));
+      R('Per-Tranche Debt: Sweep & Outstanding', new RegExp(`^${esc(tr.name)}, Opening \\(pre-sweep\\)$`), { f: (t) => `${post(t)}+${T(tr.id, 'sweep')(t)}`, tot: 'last' });
+      R('Per-Tranche Debt: Sweep & Outstanding', new RegExp(`^${esc(tr.name)}, Sweep Applied \\(`), { f: neg(T(tr.id, 'sweep')) });
+      R('Per-Tranche Debt: Sweep & Outstanding', new RegExp(`^${esc(tr.name)}, Closing \\(post-sweep\\)$`), { f: post, tot: 'last' });
+    }
     R('Per-Tranche Debt: Sweep & Outstanding', 'Project total debt outstanding (post-sweep)', { f: postSweep, tot: 'last' });
 
     // ── Write, or refuse if a period row has no rule ─────────────────────────

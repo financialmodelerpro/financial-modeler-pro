@@ -105,8 +105,14 @@ export const stage8Schedules: LiveLayer = {
       const debt = vis('bs|__all__||Debt (long-term)');
       const tranches = state.financingTranches ?? [];
       const rules: Record<string, F | null> = { 'Total Debt Outstanding': debt };
-      // The live financing takes one facility (stage 6 refuses more), so it is the total.
-      if (tranches.length === 1) rules[tranches[0].name] = debt;
+      // Each facility's own closing balance from the solve, nothing after the exit
+      // (the balance sheet's rule), so the tranche rows add up to the total.
+      const X = resolveReturnsConfig(state.project, N).exitYearOffset;
+      const booked = snap.disposal.booked;
+      for (const t of tranches) {
+        const b = calc(`fnc:main:tr:${t.id}:bal`);
+        rules[t.name] = b ? (i) => (booked && i >= X ? '0' : b(i)) : null;
+      }
       table('debt outstanding by tranche', 'sch|L3||', rules);
     }
 

@@ -12,6 +12,7 @@
  * No em dashes in this file.
  */
 
+import { effectiveTrancheRatePct } from '@/src/core/calculations/financing';
 import type { Project, FinancingTranche } from '../state/module1-types';
 import { DEFAULT_COVENANTS, type CovenantThreshold } from '../state/module1-types';
 import type { ReturnsSnapshot } from '../returns-resolvers';
@@ -116,7 +117,7 @@ export function buildLenderReportModel(input: {
 
   const facilities: LenderFacility[] = (financingTranches ?? []).map((t) => ({
     name: t.name,
-    interestRatePct: t.interestRatePct ?? 0,
+    interestRatePct: effectiveTrancheRatePct(t),
     ltvPct: t.ltvPct ?? 0,
     facilitySharePct: Number.isFinite(t.facilitySharePct) ? (t.facilitySharePct as number) : null,
     sweepRatioPct: Number.isFinite(t.sweepRatio) ? (t.sweepRatio as number) : null,

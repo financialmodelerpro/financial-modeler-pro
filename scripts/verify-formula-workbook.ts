@@ -533,6 +533,35 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     out.push({ movesRevenue: false, label: `the DSCR covenant threshold ${dscrCov.threshold} to 50 (Pass to Breach)`, cell: `retg|Lender Covenants|${dscrCov.label}|2`, value: 50,
       edit: (s) => { s.project.covenants = covs.map((c) => (c === dscrCov ? { ...c, threshold: 50 } : { ...c })); } });
   } else out.push({ label: 'the DSCR covenant threshold', skip: 'no DSCR covenant on the Returns sheet' });
+  // STAGES B AND C (2026-09-28): the facility shapes no live project has, each on a
+  // COPY of this model (a variant), which must first recalculate to the platform in
+  // Excel as exported, then follow an input typed at its Inputs door.
+  const tr0 = ((st.financingTranches ?? []) as any[])[0];
+  if (tr0 && reg.get(`fin|${tr0.name} (new facility)|Credit Spread %`)) {
+    const spread = tr0.creditSpreadPct ?? 0;
+    const trs = (s: Snap): any[] => (s as any).financingTranches as any[];
+    const mezz = (s: Snap, extra: Record<string, unknown>): void => {
+      const base = trs(s)[0];
+      base.facilitySharePct = 60;
+      trs(s).push({ ...structuredClone(base), id: 'tranche_mezz_test', name: 'Mezzanine', facilitySharePct: 40, creditSpreadPct: spread + 3, cashSweepConfig: { priority: 50 }, ...extra });
+    };
+    // B: two loans on the sweep, 60 / 40, the second at a higher spread and FIRST in the sweep order.
+    out.push({ movesRevenue: false, label: 'B: two loans on the sweep (60 / 40, the mezzanine first), its spread +1 point', cell: 'fin|Mezzanine (new facility)|Credit Spread %', col: RC.TOTAL, value: (spread + 4) / 100,
+      variant: (s) => mezz(s, {}),
+      edit: (s) => { trs(s).find((t) => t.id === 'tranche_mezz_test').creditSpreadPct = spread + 4; } });
+    // C: one loan on equal repayment, as an annuity, over six years; the periods cut to four.
+    out.push({ movesRevenue: false, label: 'C: one loan on equal repayment (annuity, 6 years), the periods to 4', cell: `fin|${tr0.name} (new facility)|Repayment Periods`, col: RC.TOTAL, value: 4,
+      variant: (s) => { Object.assign(trs(s)[0], { repaymentMethod: 'equal_repayment', equalRepaymentSubMethod: 'equal_total', repaymentPeriods: 6 }); },
+      edit: (s) => { trs(s)[0].repaymentPeriods = 4; } });
+    // C: equal principal from a stated year; the start moved a year later.
+    out.push({ movesRevenue: false, label: 'C: one loan on equal principal from 2032 (5 years), the start to 2033', cell: `fin|${tr0.name} (new facility)|Repayment Start Year`, col: RC.TOTAL, value: 2033,
+      variant: (s) => { Object.assign(trs(s)[0], { repaymentMethod: 'equal_repayment', equalRepaymentSubMethod: 'equal_principal', repaymentPeriods: 5, repaymentStartYear: 2032 }); },
+      edit: (s) => { trs(s)[0].repaymentStartYear = 2033; } });
+    // B and C together: the senior on the sweep, the mezzanine amortising; the mezzanine's spread +1 point.
+    out.push({ movesRevenue: false, label: 'B and C: the senior on the sweep beside an amortising mezzanine (annuity, 6 years), its spread +1 point', cell: 'fin|Mezzanine (new facility)|Credit Spread %', col: RC.TOTAL, value: (spread + 4) / 100,
+      variant: (s) => mezz(s, { repaymentMethod: 'equal_repayment', equalRepaymentSubMethod: 'equal_total', repaymentPeriods: 6 }),
+      edit: (s) => { trs(s).find((t) => t.id === 'tranche_mezz_test').creditSpreadPct = spread + 4; } });
+  } else out.push({ label: 'B and C: facility shapes', skip: 'no facility with a stated spread' });
   return out;
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

@@ -94,7 +94,7 @@ export const stage7bMetrics: LiveLayer = {
     const pat = rowA('rtm:pat', 'profit after tax (P&L)', (t) => vis('P&L', patKey!, t));
     const intExp = rowA('rtm:int', 'interest expensed', (t) => `ABS(${fnc('fnc:main:intexp', t)})`);
     // THE COVENANT DENOMINATOR: scheduled service, interest plus contractual principal (the exit repayment), the sweep excluded.
-    const ds = rowA('rtm:ds', 'scheduled debt service (sweep excluded)', (t) => `${fnc('fnc:main:interest', t)}+${fnc('fnc:main:exitrepay', t)}`);
+    const ds = rowA('rtm:ds', 'scheduled debt service (sweep excluded)', (t) => `${fnc('fnc:main:interest', t)}+${fnc('fnc:main:sched', t)}+${fnc('fnc:main:exitrepay', t)}`);
     const gdv = cellS('rtm:gdv', 'gross development value (revenue over the hold)', () => `SUM(${w.rangeA('P&L', w.addr('pl|__all__||Total Revenue').row, pc(0), pc(X))})`);
     const measured = (v: string): string => `IF(ABS(${v})<0.000000001,"-",${v})`;
     const dscr = rowA('rtm:dscr', 'DSCR', (t) => `IF(AND(${at(op, t)}=1,${at(ds, t)}>0.000001),${measured(`${at(ebitda, t)}/${at(ds, t)}`)},"-")`);
