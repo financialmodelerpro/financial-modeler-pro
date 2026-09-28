@@ -2,16 +2,14 @@
 
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
-## START HERE 2026-09-28: RESUME AT THE SUMMARY SHEET (LAST PART OF STAGE 7c)
+## START HERE 2026-09-28: STAGE 7c IS DONE; RESUME AT PROPOSED STAGE 8 (item 3 below)
 
-**DONE 2026-09-28 (detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-28):** item 1 below (both labelling defects), and
-of item 2 the reconciliation bridge and the Checks sheet (`verify-formula-workbook` 87 / 0). Cash Flow and Balance
-Sheet now report LIVE. **OPEN, in order:** (a) the Summary: most tiles have a live twin already (the Returns
-`retk|` cards print the same words: GDV, TDC, profit, margin, peak equity, financing cost, cap rate, terminal value,
-funding mix; the headline pairs can read the Checks sheet's numeric IRR / MOIC cells); the areas (land, GFA, BUA,
-NSA, units, keys, leasable, the by-type and phase tables) resolve through `resolveAssetAreaMetrics`, whose NSA is
-max(sub-units, stored `sellableBuaSqm`), so that stored field must be an Inputs cell or those figures stay values;
-(b) then items 3 to 5 below.
+**DONE 2026-09-28 (detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-28):** items 1 and 2 below in full: both labelling
+defects, the reconciliation bridge, the Checks sheet, and the Summary (with the Stated NSA as an Inputs Table 2
+input and NSA used beside it); `verify-formula-workbook` 88 / 0. **OPEN, in order:** items 3 to 5 below. New small
+follow-up: the RE Metrics "Avg Sale Price / sqm" KPI reads `sellableBuaSqm || buaSqm` (operatingKpis.ts), a
+second, different area rule from `resolveAssetAreaMetrics`; now that the stated NSA is an input it could go live,
+but first decide whether that KPI should read NSA used (one rule) rather than its own.
 
 ## 2026-09-27 (evening): RESUME AT STAGE 7c OF THE FORMULA-LINKED WORKBOOK
 

@@ -19,10 +19,10 @@
  */
 import type ExcelJS from 'exceljs';
 import {
-  ARGB, NUMFMT, BODY_SIZE, fcell, setInput, setFormula, setLabel, setSectionHeader, setColHeader, fillRange,
+  ARGB, NUMFMT, BODY_SIZE, fcell, setInput, markInput, setFormula, setLabel, setSectionHeader, setColHeader, fillRange,
 } from './styles';
 import type { computeFinancialsSnapshot, FinancialsResolverState } from '../financials-resolvers';
-import { computePhaseTimeline, resolveSubUnitAdr, resolveUsefulLifeYears } from '@/src/core/calculations';
+import { computePhaseTimeline, resolveAssetAreaMetrics, resolveSubUnitAdr, resolveUsefulLifeYears } from '@/src/core/calculations';
 import { countryLabel } from '@/src/core/countries';
 import { defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 import { PHASE_STATUS_LABELS, type Asset, type Phase, type SubUnit } from '../state/module1-types';
@@ -277,12 +277,22 @@ export function emitPlotsSection(c: SheetCursor, state: FinancialsResolverState)
 
 // ── MODULE 1 TAB 5, TABLE 2: ASSETS BY PLOT, WHAT YOU ENTER ─────────────────
 
-export function emitAssetEntrySection(c: SheetCursor, tables: AssetAreaTables): void {
-  setSectionHeader(c.ws.getRow(c.r), 'Assets by plot, what you enter', 9); c.r += 1;
-  headers(c, ['Type', 'Strategy', 'Plot Area (sqm)', 'Land Utilisation %', 'Ground Coverage %', 'FAR', 'Max Floors', 'Retail % (ground floor)', 'Service %']);
+export function emitAssetEntrySection(c: SheetCursor, tables: AssetAreaTables, state: FinancialsResolverState): void {
+  // THE NSA RULE ON THE ROW (2026-09-28, founder): an asset's net saleable area is the
+  // LARGER of its sub-units' area (Table 5) and the NSA stated on the asset
+  // (resolveAssetAreaMetrics). The stated figure is an input like any other, and the
+  // figure the model uses sits beside it, so the rule is read where it is applied.
+  const visible = state.assets.filter((a) => a.visible !== false);
+  const nsaOf = (id: string): { stated: number; used: number } | undefined => {
+    const a = visible.find((x) => x.id === id);
+    if (!a) return undefined;
+    return { stated: Math.max(0, a.sellableBuaSqm ?? 0), used: resolveAssetAreaMetrics(a, state.project, state.parcels, visible, state.subUnits, state.landAllocationMode).nsa };
+  };
+  setSectionHeader(c.ws.getRow(c.r), 'Assets by plot, what you enter', 11); c.r += 1;
+  headers(c, ['Type', 'Strategy', 'Plot Area (sqm)', 'Land Utilisation %', 'Ground Coverage %', 'FAR', 'Max Floors', 'Retail % (ground floor)', 'Service %', 'Stated NSA (sqm)', 'NSA used (sqm)']);
   let inherited = false, whole = false;
   for (const g of tables.plots) {
-    band(c, `${g.plotLabel}${g.phaseName ? `, ${g.phaseName}` : ''}. ${g.check}`, 9);
+    band(c, `${g.plotLabel}${g.phaseName ? `, ${g.phaseName}` : ''}. ${g.check}`, 11);
     if (g.entries.length === 0) { note(c, 'No assets drawing from this plot yet.'); continue; }
     for (const e of g.entries) {
       setLabel(c.ws.getCell(c.r, 1), e.typeLabel, { indent: 1 });
@@ -295,6 +305,15 @@ export function emitAssetEntrySection(c: SheetCursor, tables: AssetAreaTables): 
       viewCell(c.ws.getCell(c.r, 8), e.retailPct, NUMFMT.pct2, 100);
       viewCell(c.ws.getCell(c.r, 9), e.servicePct, NUMFMT.pct2, 100);
       (['plot', 'util', 'cov', 'far', 'floors', 'retail', 'svc'] as const).forEach((k, i) => registerCell(`entry:${e.assetId}:${k}`, c.ws, c.ws.getCell(c.r, 3 + i)));
+      const nsa = nsaOf(e.assetId);
+      if (nsa) {
+        // A blank states none (the platform stores 0 and the rule reads it as nothing).
+        const sc = c.ws.getCell(c.r, 10);
+        if (nsa.stated > 0) setInput(sc, nsa.stated, NUMFMT.int); else { markInput(sc); sc.numFmt = NUMFMT.int; }
+        derived(c.ws.getCell(c.r, 11), nsa.used, NUMFMT.int);
+        registerCell(`entry:${e.assetId}:nsa`, c.ws, sc);
+        registerCell(`entry:${e.assetId}:nsaUsed`, c.ws, c.ws.getCell(c.r, 11));
+      }
       if ([e.utilisationPct, e.coveragePct, e.far, e.servicePct].some((x) => x.note === 'from the type')) inherited = true;
       if (e.plotAreaSqm.note) whole = true;
       c.r += 1;
@@ -302,6 +321,7 @@ export function emitAssetEntrySection(c: SheetCursor, tables: AssetAreaTables): 
   }
   if (inherited) note(c, 'Unshaded coverage, FAR, utilisation or service figures are inherited from the asset type (Asset types and values above); the plot states none.');
   if (whole) note(c, 'An unshaded Plot Area is a blank on the platform: the asset draws its whole plot.');
+  note(c, 'NSA used is the LARGER of the sub-units\' area on Table 5 and the Stated NSA typed here (a blank states none). It is the net saleable area every cost per sqm, the Summary and the land and area tables read.');
   if (tables.companions.length > 0) {
     note(c, `Ground-floor retail strips (${tables.companions.map((x) => x.name).join('; ')}) are derived from the retail share above, not typed: their areas and carved land are on Land & Area.`);
   }

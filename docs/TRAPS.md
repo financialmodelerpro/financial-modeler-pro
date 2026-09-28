@@ -1186,6 +1186,21 @@ keeps SUMPRODUCT, measured correct in Excel (including from a column outside the
 exact formula in Excel from a cell outside the range before using it, and prefer a form with no array at all.
 `verify-formula-workbook` B2 / B4 caught it; E2 proves the statuses now flip.
 
+### 3.30 A count built from one comparison is a BOOLEAN, and Excel ranks every boolean above every number
+
+**Symptom (2026-09-28, the Summary made live):** the hotel's keys read #DIV/0! in real Excel, while the same
+formula's twin over the platform's cells gave 144.
+
+**Mechanism:** the unit size is the average of the rows' stated sizes, else the type's: `IF(count>0, sum/count,
+type)`, the count written as `(x1>0)+(x2>0)+...`. With several rows the `+` coerces the booleans to numbers. With
+ONE row there is no `+`: the count is the boolean FALSE, and Excel compares a boolean above any number, so
+`FALSE>0` is TRUE and the sum was divided by FALSE.
+
+**Fix:** coerce explicitly, `(0+(x1>0)+...)`, whatever the number of terms.
+
+**The trap to avoid:** building an Excel count or flag from a list of comparisons joined by `+`: the one-element
+case is a different type. A JavaScript twin cannot see it (JS coerces), only Excel can. `verify-formula-workbook` B2.
+
 ## 4. PDF export (pdf-lib)
 
 ### 4.1 PDF text is glyph ids, so a naive grep returns nothing

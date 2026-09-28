@@ -795,7 +795,7 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   inputDivider('ASSETS & SUB-UNITS');
   section((c) => emitPlotsSection(c, state));
   const areaTables = buildAssetAreaTables(state);
-  section((c) => emitAssetEntrySection(c, areaTables));
+  section((c) => emitAssetEntrySection(c, areaTables, state));
   section((c) => emitSubUnitSection(c, state));
   // The link registry the downstream tabs key on (formulas are not live in the
   // hardcoded workbook, so the addresses are placeholders; ids and strategies
@@ -5518,6 +5518,7 @@ function addSummary(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinanci
         const kc = ws.getCell(r, labelCol); kc.value = pair[0]; kc.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
         ws.mergeCells(r, valL, r, valR);
         const vc = ws.getCell(r, valL); vc.value = pair[1]; vc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+        registerCell(`sum|fact|${pair[0]}`, ws, vc);
       };
       put(2, 3, 6, facts[i]);
       put(7, 8, 10, facts[i + 1]);
@@ -5547,9 +5548,12 @@ function addSummary(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinanci
       const lc = ws.getCell(lr, c1); lc.value = t.label; lc.font = { name: 'Calibri', size: 8, bold: true, color: { argb: ARGB.navyDark } }; lc.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; fillCell(lc, ARGB.grey);
       ws.mergeCells(lr + 1, c1, lr + 1, c2);
       const vc = ws.getCell(lr + 1, c1); vc.value = t.value; vc.font = { name: 'Calibri', size: 13, bold: true, color: { argb: ARGB.navy } }; vc.alignment = { horizontal: 'center', vertical: 'middle' };
+      // Row keys for the formula-linked export (cellRegistry.ts); writes nothing here.
+      registerCell(`sum|tile|${t.label}`, ws, vc);
       if (hasSub) {
         ws.mergeCells(lr + 2, c1, lr + 2, c2);
-        const sc = ws.getCell(lr + 2, c1); sc.value = t.sub ?? ''; sc.font = { name: 'Calibri', size: 8, italic: true, color: { argb: ARGB.navyDark } }; sc.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        const sc = ws.getCell(lr + 2, c1); sc.value = t.sub ?? '';
+        registerCell(`sum|tilesub|${t.label}`, ws, sc); sc.font = { name: 'Calibri', size: 8, italic: true, color: { argb: ARGB.navyDark } }; sc.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
       }
       boxBorder(ws, lr, c1, lr + (hasSub ? 2 : 1), c2);
     });
@@ -5563,7 +5567,7 @@ function addSummary(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinanci
     const body = total ? [...rows, total] : rows;
     body.forEach((cells, ri) => {
       const isTotal = !!total && ri === body.length - 1;
-      cells.forEach((v, i) => { const c = ws.getCell(r, L + i); c.value = v; c.font = { name: 'Calibri', size: BODY_SIZE, bold: isTotal || i === 0, color: { argb: isTotal ? ARGB.navy : ARGB.formula } }; c.alignment = { horizontal: i === 0 ? 'left' : 'right' }; });
+      cells.forEach((v, i) => { const c = ws.getCell(r, L + i); c.value = v; if (i > 0) registerCell(`sum|tbl|${headers[0]}|${cells[0]}|${i}`, ws, c); c.font = { name: 'Calibri', size: BODY_SIZE, bold: isTotal || i === 0, color: { argb: isTotal ? ARGB.navy : ARGB.formula } }; c.alignment = { horizontal: i === 0 ? 'left' : 'right' }; });
       r += 1;
     });
     boxBorder(ws, top, L, r - 1, L + headers.length - 1);
@@ -5577,6 +5581,7 @@ function addSummary(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinanci
     value: `${pct(x.irr)}  ·  ${mult(x.moic)}`,
     sub: x.preFeeIrr !== undefined ? `IRR and MOIC after the performance fee; pre-fee ${pct(x.preFeeIrr)} and ${mult(x.preFeeMoic ?? null)}` : 'IRR and MOIC',
   })), 3);
+  registerCell('sum|note|investor', ws, ws.getCell(r, L));
   noteLine(`Investor summary for the open project. Money in ${currency} millions; exit year ${rs.exitYearLabel}.`);
   r += 1;
 
@@ -5635,7 +5640,7 @@ function addSummary(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinanci
         ws.getCell(r + 1, L).value = 'Requirement'; ws.getCell(r + 1, L).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
         chunk.forEach((pt, j) => {
           const yc = ws.getCell(r, L + 1 + j); yc.value = String(pt.year); yc.font = { name: 'Calibri', size: 8, bold: true, color: { argb: ARGB.navyDark } }; yc.alignment = { horizontal: 'right' }; fillCell(yc, ARGB.subtotal);
-          const vc = ws.getCell(r + 1, L + 1 + j); vc.value = formatAccounting(pt.value, 'millions', 1); vc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; vc.alignment = { horizontal: 'right' };
+          const vc = ws.getCell(r + 1, L + 1 + j); registerCell(`sum|fund|${pt.year}`, ws, vc); vc.value = formatAccounting(pt.value, 'millions', 1); vc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; vc.alignment = { horizontal: 'right' };
         });
         boxBorder(ws, top, L, r + 1, L + chunk.length);
         r += 2;

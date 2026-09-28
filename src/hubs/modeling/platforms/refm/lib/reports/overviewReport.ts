@@ -137,6 +137,27 @@ export function distributedReturnPair(rs: ReturnsSnapshot): ReturnPair {
     note: 'after the performance fee; pre-fee beneath',
   };
 }
+/**
+ * THE ROW OF THE BY-TYPE TABLE AN ASSET FILES UNDER, the one rule the overview and
+ * the live workbook's Summary share (exported 2026-09-28).
+ *
+ * A RETAIL STRIP IS ITS OWN TYPE, not its host's (2026-09-16). It carries the
+ * land its hosts gave up and its own ground-floor area, so filing it under the
+ * host's label would show the same type twice, once with leasable area it does
+ * not have. This is the Revenue tab's own filing rule for a strip.
+ */
+export function overviewTypeOf(a: Asset, project: FinancialsResolverState['project']): { id: string; label: string } {
+  if (a.isCompanion === true && a.companionType === 'retail') return { id: 'retail-ground-floor', label: 'Retail Ground Floor' };
+  // THE TYPE IS ONE ROW WHETHER THE ASSET CARRIES ITS ID OR ONLY ITS LABEL
+  // (2026-09-16): an asset typed before the registry moved onto the project has
+  // the label and no id, and keying on the raw id showed the same type twice.
+  const label = (a.type ?? '').trim();
+  const entry = (project.assetTypes ?? []).find((t) => t.id === a.assetTypeId)
+    ?? (project.assetTypes ?? []).find((t) => t.label.trim() === label);
+  const shown = entry?.label ?? label;
+  return { id: entry?.id ?? normaliseAssetTypeId(shown) ?? 'other', label: shown || 'Not typed' };
+}
+
 export function buildOverviewReport(
   snap: ProjectFinancialsSnapshot,
   rs: ReturnsSnapshot,
@@ -156,21 +177,7 @@ export function buildOverviewReport(
   // ── Area, land and the build mix, per asset then per type ────────────────
   const metricsOf = (a: Asset): ReturnType<typeof resolveAssetAreaMetrics> =>
     resolveAssetAreaMetrics(a, state.project, state.parcels, visible, state.subUnits, state.landAllocationMode);
-  // A RETAIL STRIP IS ITS OWN TYPE, not its host's (2026-09-16). It carries the
-  // land its hosts gave up and its own ground-floor area, so filing it under the
-  // host's label would show the same type twice, once with leasable area it does
-  // not have. This is the Revenue tab's own filing rule for a strip.
-  const typeLabel = (a: Asset): { id: string; label: string } => {
-    if (a.isCompanion === true && a.companionType === 'retail') return { id: 'retail-ground-floor', label: 'Retail Ground Floor' };
-    // THE TYPE IS ONE ROW WHETHER THE ASSET CARRIES ITS ID OR ONLY ITS LABEL
-    // (2026-09-16): an asset typed before the registry moved onto the project has
-    // the label and no id, and keying on the raw id showed the same type twice.
-    const label = (a.type ?? '').trim();
-    const entry = (state.project.assetTypes ?? []).find((t) => t.id === a.assetTypeId)
-      ?? (state.project.assetTypes ?? []).find((t) => t.label.trim() === label);
-    const shown = entry?.label ?? label;
-    return { id: entry?.id ?? normaliseAssetTypeId(shown) ?? 'other', label: shown || 'Not typed' };
-  };
+  const typeLabel = (a: Asset): { id: string; label: string } => overviewTypeOf(a, state.project);
   const typeValuesOf = (a: Asset): ReturnType<typeof resolveAssetKeys> => resolveAssetKeys(
     a, state.subUnits, a.assetTypeId ? state.project.assetTypeValues?.[a.assetTypeId] : undefined,
   );

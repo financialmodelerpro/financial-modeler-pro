@@ -363,11 +363,24 @@ export const stage1LandArea: LiveLayer = {
       }
     }
 
+    // ── Inputs Table 2: the NSA used, the LARGER of Table 5 and the stated NSA ─
+    // resolveAssetAreaMetrics: nsa = max(the Sellable, Operable and Leasable
+    // rows' area, asset.sellableBuaSqm). A row Table 5 does not show leaves the
+    // figure the platform's value rather than a sum that misses it.
+    const NSA_CATS = new Set(['Sellable', 'Operable', 'Leasable']);
+    for (const a of state.assets) {
+      if (!w.has(`entry:${a.id}:nsaUsed`) || !w.has(`entry:${a.id}:nsa`)) continue;
+      const rows = (state.subUnits as SubUnit[]).filter((u) => u.assetId === a.id && NSA_CATS.has(u.category));
+      if (rows.some((u) => !w.has(`su:${u.id}:area`))) continue;
+      const table5 = rows.length ? `SUM(${rows.map((u) => R(`su:${u.id}:area`)).join(',')})` : '0';
+      w.f(`entry:${a.id}:nsaUsed`, `MAX(${table5},MAX(0,N(${R(`entry:${a.id}:nsa`)})))`);
+    }
+
     const counts = w.formulas;
     return [
       { sheet: 'Timeline', status: 'live' as const, formulas: counts.get('Timeline') ?? 0, note: 'The axis years, the dated phase schedule and the Gantt (conditional formatting) follow the phase dates on Inputs. The axis length is fixed at export.' },
       { sheet: 'Land & Area', status: 'live' as const, formulas: counts.get('Land & Area') ?? 0, note: 'The chain per plot, merged by line, the retail carve and the land by asset follow Inputs. Which plot an asset draws, the parking ratio basis and which assets host a retail strip are fixed at export; a step shown "-" at export stays "-".' },
-      { sheet: 'Inputs', status: 'partial' as const, formulas: counts.get('Inputs') ?? 0, note: 'Live on this sheet: the phase dates, the model axis year, the plot values, Table 2 figures drawn from a whole plot or inherited from a type, and the sub-unit areas, shares and unit counts.' },
+      { sheet: 'Inputs', status: 'partial' as const, formulas: counts.get('Inputs') ?? 0, note: 'Live on this sheet: the phase dates, the model axis year, the plot values, Table 2 figures drawn from a whole plot or inherited from a type, the NSA used (the larger of the sub-units\' area and the Stated NSA), and the sub-unit areas, shares and unit counts.' },
     ];
   },
 };

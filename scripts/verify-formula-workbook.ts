@@ -215,6 +215,15 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     const v = Math.round(typedHost.landAllocation.sqm * 0.9);
     out.push({ movesRevenue: true, label: `typed land draw of a retail host (${typedHost.name}) -10%`, cell: `entry:${typedHost.id}:plot`, value: v, edit: (s) => { assetOf(s, typedHost.id).landAllocation.sqm = v; } });
   } else out.push({ label: 'typed land draw of a retail host', skip: 'no retail host draws a typed area' });
+  // 2b. A Stated NSA ABOVE the sub-units' area (2026-09-28): the larger-of rule on
+  //     Inputs Table 2 switches to the typed figure, and the Summary's areas follow.
+  //     The asset with the least Table 5 area, so the typed figure is the larger.
+  const nsaT5 = (a: any): number => (st.subUnits as any[]).filter((u) => u.assetId === a.id && ['Sellable', 'Operable', 'Leasable'].includes(u.category)).length;
+  const nsaHost = [...hosts].filter((a) => reg.get(`entry:${a.id}:nsa`)).sort((x, y) => nsaT5(x) - nsaT5(y))[0];
+  if (nsaHost) {
+    const v = 5000 + Math.round((st.subUnits as any[]).filter((u) => u.assetId === nsaHost.id).reduce((s, u) => s + (u.metricValue ?? 0), 0));
+    out.push({ movesRevenue: false, label: `a Stated NSA above the sub-units' area (${nsaHost.name}, ${v.toLocaleString('en-US')} sqm)`, cell: `entry:${nsaHost.id}:nsa`, value: v, edit: (s) => { assetOf(s, nsaHost.id).sellableBuaSqm = v; } });
+  } else out.push({ label: 'a Stated NSA above the sub-units\' area', skip: 'no asset shows the Stated NSA input' });
   // 3. FAR typed on a retail host.
   const farHost = hosts.find((a) => hostIds.has(a.id) && typeof a.landChain?.farRatio === 'number');
   if (farHost) {
