@@ -3817,8 +3817,11 @@ function addProfitLoss(ctx: EmitCtx): void {
     // top of the fee table, with Base and Rate empty, their amount sat in the
     // same column that holds a fee charged on the rows below and read as a fee.
     E.subTitle(FUND_CAPITAL_BASES_TITLE);
+    // Row keys for the formula-linked export (cellRegistry.ts): the row of each capital
+    // base, fee basis and fee charged, by the fee's index. Records addresses, writes nothing.
+    const regRow = (key: string, row: number): void => registerCell(key, ws, ws.getCell(row, 1));
     for (const c of buildFundCapitalRows(snap)) {
-      E.moneyRow(c.isTotal ? `= ${c.label}` : c.label, undefined, { style: c.isTotal ? 'subtotal' : 'plain', totalValue: c.amount, basis: FUND_CAPITAL_BASE_TAG, noPeriods: true });
+      regRow(`plfee|cap|${c.label}`, E.moneyRow(c.isTotal ? `= ${c.label}` : c.label, undefined, { style: c.isTotal ? 'subtotal' : 'plain', totalValue: c.amount, basis: FUND_CAPITAL_BASE_TAG, noPeriods: true }));
     }
     E.note(FUND_CAPITAL_BASES_NOTE);
     // The Rate column was 2 characters wide, so "0.50%" rendered as a sliver
@@ -3849,17 +3852,20 @@ function addProfitLoss(ctx: EmitCtx): void {
       // it. Rate-based fees keep the pair, where basis and charge differ.
       if (!b.hasRate) {
         const rFlat = E.moneyRow(fundFeeChargedLabel(b), line?.amountPerPeriod, { indent: 1 });
+        regRow(`plfee|fee|${i}`, rFlat);
         setBasis(ws.getCell(rFlat, META_B), fundFeeBasisBaseCell(b));
         setBasis(ws.getCell(rFlat, META_C), b.rate);
         continue;
       }
       const rBasis = E.moneyRow(fundFeeBasisLabel(b), line?.basisPerPeriod, { indent: 1, totalValue: b.basisDisplay });
+      regRow(`plfee|basis|${i}`, rBasis);
       setBasis(ws.getCell(rBasis, META_B), fundFeeBasisBaseCell(b));
       setBasis(ws.getCell(rBasis, META_C), b.rate);
       const rFee = E.moneyRow(fundFeeChargedLabel(b), line?.amountPerPeriod, { indent: 2 });
+      regRow(`plfee|fee|${i}`, rFee);
       setBasis(ws.getCell(rFee, META_B), b.timing);
     }
-    E.moneyRow('Total Fund Management Fee', snap.fundFees.totalPerPeriod, { style: 'total' });
+    regRow('plfee|total', E.moneyRow('Total Fund Management Fee', snap.fundFees.totalPerPeriod, { style: 'total' }));
   }
 
   for (const ph of state.phases) {

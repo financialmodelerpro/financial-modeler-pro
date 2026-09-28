@@ -245,11 +245,14 @@ export const stage5Statements: LiveLayer = {
     for (const [key, f] of writes) applyRow(key, f);
     const out: Array<{ sheet: string; status: 'live' | 'partial' | 'values'; note: string; formulas: number; waits?: SheetWait }> = [{
       sheet: PL, status: 'partial' as const, formulas: w.formulas.get(PL) ?? 0,
-      note: 'Live: the income statement, project and per phase, every row a formula over the Revenue, Cost of Sales, Opex and Schedules working sheets, down to profit after tax at the Inputs sheet\'s rate. The Fund Fee Basis block is the platform\'s values.',
+      note: 'Live: the income statement, project and per phase, every row a formula over the Revenue, Cost of Sales, Opex and Schedules working sheets, down to profit after tax at the Inputs sheet\'s rate.',
       waits: {
         on: 'financing',
         text: 'The fund fees, interest, the depreciation on capitalised interest and cost of sales (which carries it) come out of the financing and wait for that stage, and so do the exit proceeds.',
         after: 'The fund fees, interest, the depreciation on capitalised interest, cost of sales and the exit proceeds read the live financing solve.',
+        // With no Fund Fee Basis block the financing was all that kept the P&L partial;
+        // where there is one, stage 8 (stage8FundFees) says whether it is live.
+        afterStatus: w.reg.keys().some((k) => k.startsWith('plfee|')) ? 'partial' : 'live',
       },
     }];
 

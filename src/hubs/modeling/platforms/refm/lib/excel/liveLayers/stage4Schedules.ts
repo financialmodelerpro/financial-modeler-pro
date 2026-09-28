@@ -350,7 +350,8 @@ export const stage4Schedules: LiveLayer = {
       waits: {
         on: 'financing',
         text: 'Capitalised interest, its depreciation and its NBV come out of the financing and wait for that stage, so the combined depreciation, NBV and inventory do not yet follow an input that moves it, and the IDC pool, debt, equity and retained earnings are the platform\'s values.',
-        after: 'Capitalised interest, its depreciation and its NBV per line and for the project read the live financing solve. The capitalised interest pool and the debt, equity and retained earnings tables are the platform\'s values.',
+        // The pool and the debt, equity and retained earnings tables are stage 8's, which says what it made live.
+        after: 'Capitalised interest, its depreciation and its NBV per line and for the project read the live financing solve.',
       },
     }];
   },
