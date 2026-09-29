@@ -208,7 +208,7 @@ export interface CapexTreatmentRow {
   operating: number;
   total: number;
   cashOutflow: number;
-  /** The three area tiers the metrics resolved (NSA within BUA within GFA),
+  /** The three area tiers the metrics resolved (NSA within the platform's `bua`, which is Total GFA, within its `gfa`, which is Total BUA; see areaTiers),
    *  carried so a per-sqm reading divides by the SAME areas this report
    *  resolved rather than resolving them again (2026-09-24). Absent when the
    *  caller passed land figures only. */

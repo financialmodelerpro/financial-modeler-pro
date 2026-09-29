@@ -908,7 +908,7 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   addKV('Debt share', fin.funding.debtPct / 100, NUMFMT.pct, 'DebtPct', `inp=${FIN(M_CFG, 'Debt %')}`);
   addKV('Equity share', fin.funding.equityPct / 100, NUMFMT.pct, 'EquityPct', `inp=${FIN(M_CFG, 'Equity %')}`);
   addKV('Minimum cash reserve', p.financing?.minimumCashReserve ?? fin.funding.minCashReserve ?? 0, NUMFMT.money, 'MinCashReserve', `inp=${FIN('1. Project Financing Settings', 'Minimum Cash Reserve')}`);
-  addKV('IDC allocation basis', (p.idcConfig?.allocationBasis ?? 'land') === 'bua' ? 'Total BUA' : 'Land Area', '@');
+  addKV('IDC allocation basis', (p.idcConfig?.allocationBasis ?? 'land') === 'bua' ? 'Total GFA' : 'Land Area', '@');
   addKV('Dividends enabled (1 = yes)', p.dividendPolicy?.enabled ? 1 : 0, NUMFMT.int, undefined, `inp=${FIN('Dividend Policy', 'Pay Dividends')}#onoff`);
   addKV('Dividend payout ratio %', (p.dividendPolicy?.payoutRatio ?? 0) / 100, NUMFMT.pct, undefined, `inp=${FIN('Dividend Policy', 'Payout Ratio')}`);
   addKV('Dividend start year (0 = auto)', p.dividendStartYear ?? 0, NUMFMT.year, undefined, `inp=${FIN('Dividend Policy', 'Start Year')}#auto`);
@@ -976,10 +976,15 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   setLabel(ws.getCell(`A${r}`), 'Sweep starting year (0 = auto)');
   setInput(ws.getCell(`B${r}`), sweepCfg.startingYear ?? 0, NUMFMT.year);
   registerCell(`inp=${FIN('Cash Sweep Settings', 'Sweep Starting Year (calendar)')}#auto`, ws, ws.getCell(`B${r}`));
+  // With no loan on the sweep nothing reads these two, so they are fixed, not offered (2026-09-29).
+  const anySweeps = state.financingTranches.some((t) => t.repaymentMethod === 'cash_sweep' || t.cashSweepConfig?.enabled === true);
+  const NO_SWEEP = 'No loan is repaid by the cash sweep, so the live workbook is built without one; put a loan on the sweep on the platform and re-export.';
+  if (!anySweeps) fixedAt(r, 2, NO_SWEEP);
   financingScalars.sweepStart = addr('B', r); r += 1;
   setLabel(ws.getCell(`A${r}`), 'Sweep ratio (% of surplus)');
   setInput(ws.getCell(`B${r}`), (sweepCfg.sweepRatioPct ?? 100) / 100, NUMFMT.pct);
   registerCell(`inp=${FIN('Cash Sweep Settings', 'Sweep Ratio (% of excess cash)')}`, ws, ws.getCell(`B${r}`));
+  if (!anySweeps) fixedAt(r, 2, NO_SWEEP);
   financingScalars.sweepRatio = addr('B', r); r += 2;
 
   // Financing facilities (debt).
@@ -1009,9 +1014,14 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
         registerCell(`echo=${FIN(sec, 'Interest Rate %')}`, ws, ws.getCell(`D${r}`));
         registerCell(`inp=${FIN(sec, 'Repayment Periods')}`, ws, ws.getCell(`G${r}`));
         registerCell(`inp=${FIN(sec, 'Repayment Start Year')}#auto`, ws, ws.getCell(`I${r}`));
-        // The facility's share of the debt drawn, which the live solve reads where a share is typed.
+        // The facility's share of the debt drawn, which the live solve reads where a share is typed
+        // (resolveFacilityShares: as typed, equal split only where none is). Typed, this is the ONE
+        // door and the Financing sheet's copy echoes it; untyped, both are fixed (2026-09-29: the
+        // Financing copy was a shaded duplicate nothing read).
         registerCell(`tr:${t.id}:share`, ws, ws.getCell(`L${r}`));
-        for (const col of [3, 8, 10, 11, 12]) fixedAt(r, col, 'The live financing solve is built for one new facility repaid by the cash sweep, as exported.');
+        const sharesTyped = state.financingTranches.some((x) => typeof x.facilitySharePct === 'number');
+        if (sharesTyped) registerCell(`inp=${FIN(sec, 'Facility Share %')}`, ws, ws.getCell(`L${r}`));
+        for (const col of [3, 8, 10, 11, ...(sharesTyped ? [] : [12])]) fixedAt(r, col, 'The live financing solve is built for one new facility repaid by the cash sweep, as exported.');
       }
       trancheRefs.push({ id: t.id, name: t.name, openingBalance: addr('C', r), rate: addr('D', r), periods: addr('G', r) });
       r += 1;
@@ -3323,7 +3333,7 @@ function addFinancing(ctx: EmitCtx): FinLinks {
 
   subTitle('1b. IDC (Interest During Construction) Policy');
   const idcBasis = state.project.idcConfig?.allocationBasis ?? 'land';
-  scalar('Allocation Basis', idcBasis === 'bua' ? 'Total BUA' : 'Land Area', '@', 'How project IDC is split across non-companion assets', true);
+  scalar('Allocation Basis', idcBasis === 'bua' ? 'Total GFA' : 'Land Area', '@', 'How project IDC is split across non-companion assets', true);
   scalar('Treatment', 'Capitalised into asset cost, paid when it arises', '@', 'One treatment: IDC is paid in the period it arises, and debt is drawn only for the part cash cannot cover');
   r += 1;
 
@@ -3428,7 +3438,8 @@ function addFinancing(ctx: EmitCtx): FinLinks {
       }), pctFmt, `From ${repayStart}, sums to 100`);
     }
     if (!isExisting && newTranches.length > 1) {
-      scalar('Facility Share %', (t.facilitySharePct ?? fin.shares.get(t.id) ?? 0) / 100, pctFmt, 'of the project debt requirement', true, 1);
+      // An input only where a share is typed (the Inputs door echoes here); otherwise the equal split it resolves to.
+      scalar('Facility Share %', (t.facilitySharePct ?? fin.shares.get(t.id) ?? 0) / 100, pctFmt, 'of the project debt requirement', state.financingTranches.some((x) => typeof x.facilitySharePct === 'number'), 1);
     }
     if (t.repaymentMethod === 'cash_sweep' || t.cashSweepConfig?.enabled === true || t.repaymentMethod === 'cashsweep_from_period' || t.repaymentMethod === 'cashsweep_min_cash') {
       note('Cash sweep starting year and ratio are set once for all loans under 4. Cash Sweep (Cash Sweep Settings). Loans are repaid existing-first, then in the order listed.');
@@ -3513,7 +3524,7 @@ function addFinancing(ctx: EmitCtx): FinLinks {
   for (const table of schedTables) {
     if (table.title === 'Equity Movement') {
       for (const it of idcTables) { emitTable(it); r += 1; }
-      note(`Grand total ${Math.round(sum(snap.idc.totalIdcPerPeriod)).toLocaleString('en-US')} allocated by ${snap.idc.allocationBasis === 'bua' ? 'BUA share' : 'land share'}. Construction-active assets drive the per-period weights.`);
+      note(`Grand total ${Math.round(sum(snap.idc.totalIdcPerPeriod)).toLocaleString('en-US')} allocated by ${snap.idc.allocationBasis === 'bua' ? 'GFA share' : 'land share'}. Construction-active assets drive the per-period weights.`);
       group = undefined;
     }
     if (table.group && table.group !== group) groupBand(table.group);

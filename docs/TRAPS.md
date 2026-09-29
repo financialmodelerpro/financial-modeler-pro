@@ -2990,6 +2990,25 @@ compiler enumerated every caller).
 **Proof:** `verify-revenue-rebuild` P1 to P4 (P1 fails on the old engine), `verify-revenue-lines` S1 to
 S3; Marina Gate as saved moves nothing.
 
+### 7.59 A field printed under its NAME: the second time the outer area tiers were inverted
+
+**Symptom (2026-09-29):** the workbook Summary showed Total GFA 105,940 and BUA 89,380 while its own Land &
+Area sheet showed the reverse, and a plot ratio of 2.86 (BUA over land) where GFA over land is 2.42.
+
+**Mechanism:** the engine's fields swap the outer tiers against the industry words (`bua` is Total GFA,
+parking excluded; `gfa` is Total BUA). The cost-method labels were corrected on 2026-09-11 and pinned
+(`verify-capex-structure` P4h), but that check covered the picker only. The Overview builder summed `m.gfa`
+into a field it called `gfaSqm`, so the Overview screen, the PDF and both workbooks printed it as GFA; the IC
+deck, Table 7's columns, the IDC basis, the Assets tab drawer card and the activity log did the same. A check
+on one surface proves nothing about the next one that reads the same field by name.
+
+**Fix:** `areaTiers` in core is the ONE translation from field to printed word, and every surface that prints
+a tier reads through it. The engine's names stay: nobody sees them.
+
+**The trap to avoid:** tying a label to a NAME. Tie the printed word to the SUM it means, by arithmetic, on
+every surface at once, and prove the model can tell them apart (parking > 0). `verify-area-tier-labels`
+(22; the old code fails 17).
+
 ## 8. Registries and two-step registration
 
 ### 8.1 A template registered in one place and not the other fails silently and permanently

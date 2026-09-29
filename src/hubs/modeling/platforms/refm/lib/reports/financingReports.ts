@@ -198,19 +198,19 @@ export function buildIdcAllocationTables(snap: ProjectFinancialsSnapshot, state:
   const N = snap.yearLabels.length;
   const idc = snap.idc;
   const lineState = { assets: state.assets, phases: state.phases, parcels: state.parcels };
-  const basisLabel = idc.allocationBasis === 'bua' ? 'BUA share' : 'Land share';
+  const basisLabel = idc.allocationBasis === 'bua' ? 'GFA share' : 'Land share';
   const rows = planReportLines(lineState, (a) => idc.byAsset.has(a.id)).map((line) => {
     const members = line.assetIds.map((id) => idc.byAsset.get(id)).filter((r): r is NonNullable<typeof r> => !!r);
     return { ...poolResults(members), assetName: lineTitle(line, lineState), strategy: members[0].strategy };
   });
   const tables: ReportTable[] = [];
   const main: M4Row[] = rows.map((r) => ({
-    label: `${r.assetName} (Land ${Math.round(r.physicalLandSqm).toLocaleString('en-US')} sqm, BUA ${Math.round(r.physicalBuaSqm).toLocaleString('en-US')} sqm, ${(r.shareOfTotalLand * 100).toFixed(2)}% ${basisLabel})`,
+    label: `${r.assetName} (Land ${Math.round(r.physicalLandSqm).toLocaleString('en-US')} sqm, GFA ${Math.round(r.physicalBuaSqm).toLocaleString('en-US')} sqm, ${(r.shareOfTotalLand * 100).toFixed(2)}% ${basisLabel})`,
     values: sliceN(r.idcPerPeriod, N),
   }));
   if (rows.length) main.push({ label: 'Total IDC (allocated to assets)', values: sliceN(idc.totalIdcPerPeriod, N), isTotal: true });
   main.push({ label: idc.capitalize ? 'Memo: Total construction interest (accrual)' : 'Total construction interest to P&L Finance Cost', values: sliceN(idc.totalConstructionInterestPerPeriod, N) });
-  tables.push({ title: `IDC Allocation, by Line (YoY + Total), basis ${idc.allocationBasis === 'bua' ? 'BUA Area' : 'Land Area'}, capitalised into asset cost, paid when it arises, debt drawn for the shortfall`, rows: main });
+  tables.push({ title: `IDC Allocation, by Line (YoY + Total), basis ${idc.allocationBasis === 'bua' ? 'GFA Area' : 'Land Area'}, capitalised into asset cost, paid when it arises, debt drawn for the shortfall`, rows: main });
 
   const sum = (list: typeof rows): number[] => {
     const out = new Array<number>(N).fill(0);

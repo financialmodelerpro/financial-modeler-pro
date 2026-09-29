@@ -969,7 +969,7 @@ export interface AssetAreaMetrics {
   landSqm: number;
   ndaSqm: number;              // M2.0h Fix 4: parcel-level NDA aware
   roadsSqm: number;
-  // M2.0h Fix 3: three-tier hierarchy. NSA ⊂ BUA ⊂ GFA where
+  // M2.0h Fix 3: three-tier hierarchy in PLATFORM field names, nsa ⊂ bua ⊂ gfa, printed as NSA ⊂ Total GFA ⊂ Total BUA (areaTiers.ts), where
   //   nsa = sub-units (Sellable + Operable + Leasable)
   //   bua = nsa + Support (sub-unit Support + asset.supportArea)
   //   gfa = bua + Parking (asset.parkingArea)
@@ -1055,7 +1055,7 @@ export function computeAssetAreaTotals(asset: Asset, subUnits: SubUnit[]): Asset
 
 // ── M2.0h Fix 3: three-tier area hierarchy ─────────────────────────────────
 // Real estate convention from Ahmad's M2.0h brief:
-//   NSA (Net Sellable) ⊂ BUA (Built-Up) ⊂ GFA (Gross Floor)
+//   NSA (Net Sellable) ⊂ bua ⊂ gfa, in the PLATFORM field names; printed, they are NSA ⊂ Total GFA ⊂ Total BUA (areaTiers.ts)
 //   NSA = sum of revenue sub-units (Sellable + Operable + Leasable)
 //   BUA = NSA + Support (sub-unit Support + asset.supportArea)
 //   GFA = BUA + Parking (asset.parkingArea)

@@ -55,11 +55,13 @@ export const COST_BASES = [
 ] as const;
 export type CostBaseKey = typeof COST_BASES[number]['key'];
 
-/** The three area denominators, smallest first. */
+/** The three area denominators, smallest first. The KEYS are the platform's fields and the
+ *  LABELS are the words a user reads, through `areaTiers`: the platform's `bua` is Total GFA
+ *  (parking excluded) and its `gfa` is Total BUA (everything built). */
 export const AREA_BASES = [
   { key: 'nsa', label: 'NSA' },
-  { key: 'bua', label: 'BUA' },
-  { key: 'gfa', label: 'GFA' },
+  { key: 'bua', label: 'GFA' },
+  { key: 'gfa', label: 'BUA' },
 ] as const;
 export type AreaKey = typeof AREA_BASES[number]['key'];
 
@@ -219,7 +221,7 @@ export function costPerSqmTables(
 
   const a: CostPerSqmTable = {
     title: 'Table 7a - Cost per sqm, by line',
-    caption: `Cost in ${scaleTag}; per sqm figures in ${currency} at full scale. Construction is the hard, soft and pre-opening stages, the platform's one definition of the word; IDC is the interest capitalised to the line; land is the land stage (land value and anything charged with it, such as transfer tax). Marketing sits outside all three. Each is divided by the line's NSA, BUA and GFA (NSA within BUA within GFA).`,
+    caption: `Cost in ${scaleTag}; per sqm figures in ${currency} at full scale. Construction is the hard, soft and pre-opening stages, the platform's one definition of the word; IDC is the interest capitalised to the line; land is the land stage (land value and anything charged with it, such as transfer tax). Marketing sits outside all three. Each is divided by the line's NSA, GFA and BUA (NSA within GFA, which excludes parking, within BUA, which includes it).`,
     columns: ['Line and cost base', `Cost (${scaleTag})`, ...AREA_BASES.map((x) => `Per sqm of ${x.label}`)],
     rows: [],
   };

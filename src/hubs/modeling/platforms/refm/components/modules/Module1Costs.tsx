@@ -30,6 +30,7 @@
  */
 
 import { resolveSubUnitAdr } from '@/src/core/calculations';
+import { areaTiers } from '@/src/core/calculations/areaTiers';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
@@ -5250,7 +5251,7 @@ export default function Module1Costs(): React.JSX.Element {
             {phaseHasAssets && activeAsset && assetMetrics && (
               <div style={{ ...sectionCardStyle, padding: 'var(--sp-1) var(--sp-2)', fontSize: 11, color: 'var(--color-meta)', display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }} data-testid={`costs-inputs-asset-stats-${activeAsset.id}`}>
                 <span><strong>{activeAsset.name}</strong> · {assetPhase?.name ?? ''} · {activeAsset.strategy}</span>
-                <span>BUA: <strong>{Math.round(assetMetrics.bua).toLocaleString()}</strong> sqm</span>
+                <span>GFA: <strong>{Math.round(areaTiers(assetMetrics).totalGfaSqm).toLocaleString()}</strong> sqm</span>
                 <span>NSA: <strong>{Math.round(assetMetrics.nsa).toLocaleString()}</strong> sqm</span>
                 <span>Land: <strong>{Math.round(assetMetrics.landSqm).toLocaleString()}</strong> sqm</span>
                 <span>Land Cost: <strong>{formatAccounting(assetMetrics.landValue, scale, decimals)}</strong></span>

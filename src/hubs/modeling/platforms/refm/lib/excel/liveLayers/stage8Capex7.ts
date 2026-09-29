@@ -163,7 +163,7 @@ export const stage8Capex7: LiveLayer = {
     const waiting = [...ctx.pending].some((a) => a.startsWith(`${CAPEX}!`) || a.startsWith(`${CALC}!`));
     return [{
       sheet: CAPEX, status: waiting ? 'partial' as const : 'live' as const, formulas: w.formulas.get(CAPEX) ?? 0,
-      note: 'Also live: Table 7 (construction, capitalised interest and land per line over its NSA, BUA and GFA, and for a Sell line the base and realised price per sqm against each), from the line amounts on the working sheet, the financing solve, the live areas and the Revenue working sheet.',
+      note: 'Also live: Table 7 (construction, capitalised interest and land per line over its NSA, GFA and BUA, and for a Sell line the base and realised price per sqm against each), from the line amounts on the working sheet, the financing solve, the live areas and the Revenue working sheet.',
     }];
   },
 };

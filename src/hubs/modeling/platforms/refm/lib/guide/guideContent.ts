@@ -95,16 +95,16 @@ export const TAB_CONTENT: Record<string, GuideTabEntry> = {
     steps: [
       'Add each asset to its phase and choose its strategy: Sell (residential for sale), Operate (hospitality), Lease (income property), or Sell + Manage.',
       'Changing a strategy later is a model operation, not a label change: the dialog previews exactly what moves, the outgoing strategy\'s assumptions are parked (not deleted), and a review banner lists the inputs the new strategy still needs.',
-      'Set the asset areas (BUA, GFA) and link the asset to its land parcel. Parcels are project-wide: a Phase 2 asset can draw on Phase 1 land, and every parcel option shows the rate it resolves to.',
+      'Set the asset areas (Total GFA, Total BUA) and link the asset to its land parcel. Parcels are project-wide: a Phase 2 asset can draw on Phase 1 land, and every parcel option shows the rate it resolves to.',
       'Add sub-units under each asset: apartments or villas, hotel keys, or leasable space. Area and unit size are the inputs and the count is derived (area = unit size x count), so only two of the three are ever typed.',
     ],
-    review: 'the area reconciliation, which shows how sub-units, support, and parking roll up to the asset BUA and GFA. Confirm it matches your intent before moving on.',
+    review: 'the area reconciliation, which shows how sub-units, support, and parking roll up to the asset Total GFA (parking excluded) and Total BUA (parking included). Confirm it matches your intent before moving on.',
   },
   'module1/costs': {
     intro: 'The development cost, as an ordered list of cost lines per phase. A cost line belongs to the phase, so every asset in the phase reads it unless you override per asset; the row names the other assets a typed value reaches.',
     steps: [
       'Add lines from the cost catalog. Selecting an entry stamps its method, stage, and phasing onto the line; renaming changes the label only, so behaviour never hides behind a name.',
-      'For each line choose a basis: a fixed lump sum, a rate times a quantity (per BUA sqm, per unit, per key), or a percentage of another total. A percent-of-selected-lines base may reference only lines ABOVE it in the list, which is what makes a fee-on-fee cascade safe.',
+      'For each line choose a basis: a fixed lump sum, a rate times a quantity (per sqm of main asset GFA, per unit, per key), or a percentage of another total. A percent-of-selected-lines base may reference only lines ABOVE it in the list, which is what makes a fee-on-fee cascade safe.',
       'Set the stage per line: land, hard, soft, marketing, or operating. Marketing is a selling cost, so construction cost excluding land also excludes it, and selling lines apply only to assets that sell.',
       'Phasing: each asset carries one capex curve that every line inherits, with per-line break-out. Two lines are derived and never take the construction curve: a transfer tax follows the land cash, and marketing or commission follow sales collections.',
       'Reorder lines where needed; the order is part of the model because percentage bases are positional.',

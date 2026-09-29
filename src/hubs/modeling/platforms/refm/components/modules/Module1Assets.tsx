@@ -4488,14 +4488,14 @@ function AssetCard({
                   <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>sum of revenue sub-units</div>
                 </div>
                 <div style={{ ...calcOutputStyle, padding: 'var(--sp-2)' }}>
-                  <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>BUA (Built-Up)</div>
+                  <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total GFA</div>
                   <strong style={{ fontSize: 16 }} data-testid={`asset-${asset.id}-bua`}>{fmt(hier.bua)} sqm</strong>
-                  <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>NSA + Support ({fmt(hier.breakdown.supportArea)})</div>
+                  <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>NSA + Support ({fmt(hier.breakdown.supportArea)}), parking excluded</div>
                 </div>
                 <div style={{ ...calcOutputStyle, padding: 'var(--sp-2)' }}>
-                  <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>GFA (Gross Floor)</div>
+                  <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total BUA</div>
                   <strong style={{ fontSize: 16 }} data-testid={`asset-${asset.id}-gfa`}>{fmt(gfaDisplay)} sqm</strong>
-                  <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>BUA + Parking ({fmt(hier.breakdown.parkingArea)})</div>
+                  <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>Total GFA + Parking ({fmt(hier.breakdown.parkingArea)})</div>
                 </div>
               </div>
             );
@@ -4755,7 +4755,7 @@ function AssetCard({
                 data-testid={`asset-card-${asset.id}-footer`}
               >
                 <div data-testid={`asset-${asset.id}-derived-bua`}>
-                  <span style={{ color: 'var(--color-meta)' }}>BUA: </span>
+                  <span style={{ color: 'var(--color-meta)' }}>GFA: </span>
                   <strong>{fmt(hier.bua)} sqm</strong>
                 </div>
                 <div data-testid={`asset-${asset.id}-derived-sellable`}>

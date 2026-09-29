@@ -127,8 +127,8 @@ export function recordsFromChanges(
  * reads sensibly without anyone maintaining a list.
  */
 const FIELD_WORDS: Record<string, string> = {
-  buaSqm: 'BUA (sqm)', gfaSqm: 'GFA (sqm)', nsaSqm: 'NSA (sqm)',
-  sellableBuaSqm: 'Sellable BUA (sqm)', landAreaSqm: 'Land area (sqm)',
+  buaSqm: 'Total GFA (sqm)', gfaSqm: 'Total BUA (sqm)', nsaSqm: 'NSA (sqm)',
+  sellableBuaSqm: 'NSA or GLA (sqm)', landAreaSqm: 'Land area (sqm)',
   ltvPct: 'LTV %', dsoDays: 'DSO (days)', arDays: 'AR (days)', dso: 'DSO',
   idcCapitalize: 'Capitalise IDC', assetTypeId: 'Asset type',
   startingADR: 'Starting ADR', startingAdr: 'Starting ADR', adrIndexation: 'ADR indexation',
@@ -314,7 +314,7 @@ const SCREEN_WORDS: Record<string, Record<string, string>> = {
     'landChain.retailPct': 'Retail % (ground floor)', 'landChain.servicePct': 'Service %',
     'landAllocation.sqm': 'Plot area (sqm)', 'landAllocation.parcelId': 'Plot',
     type: 'Type', assetTypeId: 'Type', strategy: 'Strategy', phaseId: 'Phase', subUnitMetric: 'Sells by',
-    gfaSqm: 'GFA override (sqm)', supportArea: 'Support area (sqm)', parkingArea: 'Parking area (sqm)',
+    gfaSqm: 'Total BUA override (sqm)', supportArea: 'Support area (sqm)', parkingArea: 'Parking area (sqm)',
     buaSqm: 'Total GFA (sqm)', sellableBuaSqm: 'NSA or GLA (sqm)', parkingBaysRequired: 'Parking slots',
     'capexPhasing.distribution': 'Construction phasing weights', 'capexPhasing.phasing': 'Construction phasing curve',
     capexPhasing: 'Construction phasing', landChain: 'Land planning inputs',

@@ -443,10 +443,10 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
                     <div style={labelStyle}>Allocation Basis</div>
                     <div style={{ display: 'flex', gap: 6 }}>
                       {pillBtn(basis === 'land', 'Land Area', () => setIdcCfg({ allocationBasis: 'land' }), 'land')}
-                      {pillBtn(basis === 'bua', 'Total BUA', () => setIdcCfg({ allocationBasis: 'bua' }), 'bua')}
+                      {pillBtn(basis === 'bua', 'Total GFA', () => setIdcCfg({ allocationBasis: 'bua' }), 'bua')}
                     </div>
                     <div style={captionStyle}>
-                      How project IDC is split across non-companion assets. Land = parcel-allocated sqm; BUA = built-up area sqm (sub-units + support).
+                      How project IDC is split across non-companion assets. Land = parcel-allocated sqm; Total GFA = the sub-units plus support, parking excluded.
                     </div>
                   </div>
                   <div>
@@ -2679,14 +2679,14 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
           (Sell) or Fixed Assets+D&A (Operate/Lease). */}
       {(() => {
         const idc = p.idc;
-        const basisLabel = idc.allocationBasis === 'bua' ? 'BUA share' : 'Land share';
+        const basisLabel = idc.allocationBasis === 'bua' ? 'GFA share' : 'Land share';
         const policyChips = (
           <div style={{ display: 'flex', gap: 6, marginBottom: 'var(--sp-1)' }}>
             <span style={{
               fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99,
               background: 'color-mix(in srgb, var(--color-navy) 12%, transparent)',
               color: 'var(--color-navy)', border: '1px solid var(--color-navy)',
-            }}>Basis: {idc.allocationBasis === 'bua' ? 'BUA Area' : 'Land Area'}</span>
+            }}>Basis: {idc.allocationBasis === 'bua' ? 'GFA Area' : 'Land Area'}</span>
             <span style={{
               fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99,
               background: idc.capitalize
@@ -2756,7 +2756,7 @@ function SchedulesView(p: SchedulesProps): React.JSX.Element {
                             <td style={ROW_DATA.name}>
                               {r.assetName}
                               <span style={{ fontSize: 10, color: 'var(--color-text-muted)', marginLeft: 6 }}>
-                                (Land {sqmFmt(r.physicalLandSqm)} sqm · BUA {sqmFmt(r.physicalBuaSqm)} sqm · {sharePct}% {basisLabel})
+                                (Land {sqmFmt(r.physicalLandSqm)} sqm · GFA {sqmFmt(r.physicalBuaSqm)} sqm · {sharePct}% {basisLabel})
                               </span>
                             </td>
                             <td style={ROW_DATA.numTotal}>{p.fmt(total)}</td>

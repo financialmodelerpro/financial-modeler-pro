@@ -42,6 +42,7 @@ import { covenantSeries, reduceWorst } from '../covenants';
 import { planReportLines, lineRowLabel } from './lineRows';
 import { revenueBySection } from './revenueSections';
 import { resolveAssetAreaMetrics, computeAssetLandBreakdown, computeAssetUnitCount } from '@/src/core/calculations';
+import { areaTiers } from '@/src/core/calculations/areaTiers';
 import { resolveAssetKeys } from '../revenue-resolvers';
 import type { LandAllocationMode } from '../state/module1-types';
 import { projectLocationLabel } from '@/src/core/countries';
@@ -354,8 +355,10 @@ interface AreaCtx {
   subUnits: SubUnit[];
   mode: LandAllocationMode;
 }
+/** Total BUA, everything built, parking included (areaTiers): the deck's word is BUA, and until
+ *  2026-09-29 it summed the platform's `bua`, which is Total GFA. */
 const assetBuaOf = (a: Asset, ctx: AreaCtx): number =>
-  resolveAssetAreaMetrics(a, ctx.project, ctx.parcels, ctx.visible.filter((x) => x.phaseId === a.phaseId), ctx.subUnits, ctx.mode).bua;
+  areaTiers(resolveAssetAreaMetrics(a, ctx.project, ctx.parcels, ctx.visible.filter((x) => x.phaseId === a.phaseId), ctx.subUnits, ctx.mode)).totalBuaSqm;
 const assetLandOf = (a: Asset, ctx: AreaCtx): number =>
   computeAssetLandBreakdown(a, ctx.parcels, ctx.visible, ctx.subUnits, ctx.mode).landSqm;
 /** The countable inventory a committee reads: units for sale, keys to operate.

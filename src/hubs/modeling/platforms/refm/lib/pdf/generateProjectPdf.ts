@@ -1241,10 +1241,11 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
   const notes = buildAssetNotes(state, fmt.money);
   drawGridTable(ctx, {
     title: 'Asset Composition', kind: 'grid', align: 'data',
-    columns: ['Phase', 'Asset', 'Strategy', 'BUA (sqm)', 'Sub-units'],
+    columns: ['Phase', 'Asset', 'Strategy', 'GFA (sqm)', 'Sub-units'],
     rows: assets.map((a) => {
       const ph = state.phases.find((x) => x.id === a.phaseId);
       const su = state.subUnits.filter((u) => u.assetId === a.id);
+      // Total GFA (areaTiers): the platform's `bua`, parking excluded. The column said BUA until 2026-09-29.
       const bua = pdfAreaOf(a, state).bua;
       const z = notes.hasBuaNote(a.id, bua);
       return row([ph?.name ?? '-', a.name, a.strategy, z ? structuralZeroCell(z) : fmt.area(bua), fmt.int(su.length)]);
@@ -2099,7 +2100,7 @@ function buildModule1(
     ['Minimum Cash Reserve', fmt.money(cfg?.minimumCashReserve ?? fnd.minCashReserve ?? 0)],
   ])));
   items.push(tTable(M1_TABS.finInputs, 'inputs', kvTable('1b. IDC (Interest During Construction) Policy', [
-    ['Allocation Basis', (p.idcConfig?.allocationBasis ?? 'land') === 'bua' ? 'Total BUA' : 'Land Area'],
+    ['Allocation Basis', (p.idcConfig?.allocationBasis ?? 'land') === 'bua' ? 'Total GFA' : 'Land Area'],
     ['Treatment', 'Capitalised into asset cost, paid when it arises'],
   ])));
   // 2. Funding method + 2a. its configuration.

@@ -38,9 +38,12 @@ import { moneyT } from './excelText';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { computeReturnsSnapshot, resolveReturnsConfig } from '../../returns-resolvers';
-import { buildOverviewReport, overviewTypeOf } from '../../reports/overviewReport';
+import { buildOverviewReport, overviewTypeOf, CASH_LOW_TIE } from '../../reports/overviewReport';
 import { fundingChartPoints } from '../../portfolio/fundingSeries';
 import { figureTools, liveAssetAreas, type X, type AreaRow } from './liveAreas';
+
+/** The platform field that holds each printed tier (see `areaTiers` in core). */
+const TOTAL_GFA = 'bua' as const, TOTAL_BUA = 'gfa' as const;
 
 const SUM = 'Summary';
 
@@ -147,7 +150,9 @@ export const stage7dSummary: LiveLayer = {
     const tdcOk = figure(tdc, rs.totalDevelopmentCost) && figure(cons$, rs.sourcesUses.construction) && figure(land$, rs.sourcesUses.land);
     const plRev = cellX('pl|__all__||Total Revenue', TOTAL_COL);
     const revOk = figure(plRev, snap.pl.totalRevenuePerPeriod.reduce((s, v) => s + v, 0));
-    const gfaT = areasLive ? sumOver(ids, 'gfa') : null, buaT = areasLive ? sumOver(ids, 'bua') : null, nsaT = areasLive ? sumOver(ids, 'nsa') : null;
+    // liveAreas keeps the platform's field names; the words go through areaTiers: Total GFA is
+    // the platform's `bua` (parking excluded), Total BUA its `gfa` (everything built).
+    const gfaT = areasLive ? sumOver(ids, TOTAL_GFA) : null, buaT = areasLive ? sumOver(ids, TOTAL_BUA) : null, nsaT = areasLive ? sumOver(ids, 'nsa') : null;
     const areasOk = areasLive && figure(gfaT, ov.scheme.gfaSqm) && figure(buaT, ov.scheme.buaSqm) && figure(nsaT, ov.scheme.saleableSqm);
     put('sum|tile|Development cost / GFA', 'development cost per sqm of GFA', tdcOk && areasOk, () => div(tdc!, gfaT!, areaW));
     put('sum|tilesub|Development cost / GFA', 'the development cost and GFA', tdcOk && areasOk, () => `${T(tdc!.f)}&" over "&${areaW(gfaT!.f)}&" sqm"`);
@@ -225,11 +230,11 @@ export const stage7dSummary: LiveLayer = {
       for (const a of visible) { const t = overviewTypeOf(a, state.project); byType.set(t.label, [...(byType.get(t.label) ?? []), a.id]); }
       for (const row of ov.byType) {
         const members = byType.get(row.label) ?? [];
-        const ok = schemeOk && members.length > 0 && near(sumOver(members, 'land').v, row.landSqm) && near(sumOver(members, 'gfa').v, row.gfaSqm);
+        const ok = schemeOk && members.length > 0 && near(sumOver(members, 'land').v, row.landSqm) && near(sumOver(members, TOTAL_GFA).v, row.gfaSqm);
         const R = (col: number) => `sum|tbl|Asset type|${row.label}|${col}`;
         put(R(1), `${row.label} land`, ok, () => areaW(sumOver(members, 'land').f));
         put(R(2), `${row.label} share of land`, ok, () => `IF(${landT!.f}>0,${pctW(`${sumOver(members, 'land').f}/${landT!.f}`)},${pctW('0')})`);
-        put(R(3), `${row.label} GFA`, ok, () => areaW(sumOver(members, 'gfa').f));
+        put(R(3), `${row.label} GFA`, ok, () => areaW(sumOver(members, TOTAL_GFA).f));
         put(R(4), `${row.label} units`, ok, () => dashOr(sumOver(members, 'units')));
         put(R(5), `${row.label} keys`, ok, () => dashOr(sumOver(members, 'keys')));
         put(R(6), `${row.label} leasable area`, ok, () => dashOr(sumOver(members, 'leasable')));
@@ -267,9 +272,9 @@ export const stage7dSummary: LiveLayer = {
       const datesOk = !!cs && !!ce && !!os && yr("cs") === ph.startYear && yr("ce") === ph.constructionEndYear && yr("os") === ph.operationsStartYear;
       put(R(1), `${ph.name} construction years`, datesOk, () => `TEXT(YEAR(${cs!.f}),"0")&" to "&TEXT(YEAR(${ce!.f}),"0")`);
       put(R(2), `${ph.name} operations start`, datesOk, () => `TEXT(YEAR(${os!.f}),"0")`);
-      const areaOk = areasLive && near(sumOver(members, 'land').v, ph.landSqm) && near(sumOver(members, 'gfa').v, ph.gfaSqm);
+      const areaOk = areasLive && near(sumOver(members, 'land').v, ph.landSqm) && near(sumOver(members, TOTAL_GFA).v, ph.gfaSqm);
       put(R(4), `${ph.name} land`, areaOk, () => areaW(sumOver(members, 'land').f));
-      put(R(5), `${ph.name} GFA`, areaOk, () => areaW(sumOver(members, 'gfa').f));
+      put(R(5), `${ph.name} GFA`, areaOk, () => areaW(sumOver(members, TOTAL_GFA).f));
       const capex = cellX(`cx2sub:${ph.id}`, TOTAL_COL + 1);
       put(R(6), `${ph.name} capex`, figure(capex, ph.capex), () => T(capex!.f));
       const rev = cellX(`pl|${ph.id}||Total Revenue`, TOTAL_COL), ebitda = cellX(`pl|${ph.id}||EBITDA`, TOTAL_COL);
@@ -294,7 +299,8 @@ export const stage7dSummary: LiveLayer = {
     put('sum|tilesub|Cash low point', 'the year of the cash low point', bsLive('Cash') && has(`tl:year:${pc(0)}`) && ov.exit.cashLowYear != null, () => {
       const c = bsRange('Cash');
       const a = w.addr(`tl:year:${pc(0)}`);
-      return `"in "&TEXT(INDEX(${w.rangeA(a.sheet, a.row, pc(0), pc(N - 1))},MATCH(MIN(${c}),${c},0)),"0")`;
+      // The first year within CASH_LOW_TIE of the lowest, the platform's own rule.
+      return `"in "&TEXT(INDEX(${w.rangeA(a.sheet, a.row, pc(0), pc(N - 1))},MATCH(1,INDEX(--(${c}<=MIN(${c})+${CASH_LOW_TIE}),0),0)),"0")`;
     });
 
     if (!written) return values(`The Summary stays the platform's values: ${[...new Set(kept)].slice(0, 6).join('; ')}.`);

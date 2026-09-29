@@ -71,9 +71,9 @@ const PERCENT_COST_LEVER_IDS = new Set<string>([
 
 // Labels mirror the Capex (Module 1 Costs) line names + their displayed units
 // exactly, so the grid lever and the Capex line read as one consistent label:
-// BUA is priced per sqm, Parking per bay.
+// the superstructure is priced per sqm of main asset GFA, Parking per bay.
 const COST_LINE_LEVER_LABELS: Record<string, string> = {
-  'construction-bua': 'Construction (BUA), per sqm',
+  'construction-bua': 'Superstructure, per sqm of main asset GFA',
   'construction-parking': 'Construction (Parking), per bay',
   'infrastructure': 'Infrastructure rate',
   'landscaping': 'Landscaping rate',

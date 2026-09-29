@@ -174,7 +174,7 @@ expectLabel(F('project.returns.exitMultiple', 'Project', 'returns.exitMultiple',
 expectLabel(F('project.returns.perpetuityGrowth', 'Project', 'returns.perpetuityGrowth', 0.02), 'Perpetuity growth rate', 'project', true);
 expectLabel(F('project.financing.fixedRatio.debtPct', 'Project', 'financing.fixedRatio.debtPct', 70), 'Debt %', 'financing', true);
 expectLabel(F('financingTranches[id=t1].interestRatePct', 'Facility: Senior', 'interestRatePct', 7.5), 'Interest rate', 'financing', true);
-expectLabel(F('costLines[id=construction-bua__p1].value', 'Cost line: Construction (BUA)', 'value', 4500), 'Construction (BUA), per sqm', 'construction', true);
+expectLabel(F('costLines[id=construction-bua__p1].value', 'Cost line: Construction (BUA)', 'value', 4500), 'Superstructure, per sqm of main asset GFA', 'construction', true);
 expectLabel(F('costLines[id=construction-parking__p1].value', 'Cost line: Construction (Parking)', 'value', 25000), 'Construction (Parking), per bay', 'construction', true);
 // Tax / Zakat rate is intentionally no longer curated (constant across cases).
 expectLabel(F('project.tax.rate', 'Project', 'tax.rate', 0.15), 'Tax / Zakat rate', 'project', false);
@@ -398,7 +398,7 @@ console.log('\n=== Per-asset cost sourcing + attribution ===');
   // Attribution: asset + phase, never an ambiguous duplicate.
   const ctx = buildGridContext(model);
   const d1 = describeAssumption(a1 as any, ctx);
-  check('per-asset row label is the lever name', d1.label === 'Construction (BUA), per sqm');
+  check('per-asset row label is the lever name', d1.label === 'Superstructure, per sqm of main asset GFA');
   check('per-asset row is attributed to asset + phase', d1.context.includes('Hotel') && d1.context.includes('Phase 1'), `context="${d1.context}"`);
   const a2 = curated.find((f) => f.path === 'costOverrides[A2::construction-bua__p1].value');
   const d2 = describeAssumption(a2 as any, ctx);
@@ -443,7 +443,7 @@ check('isAppliedValue: real value -> applied', isAppliedValue(7200) && isApplied
   const itemOf = (c: string, label: string) => cat(c)?.items.find((i) => i.label === label);
 
   // Multi-asset item: one heading, one row per asset, real per-asset values.
-  const con = itemOf('construction', 'Construction (BUA), per sqm');
+  const con = itemOf('construction', 'Superstructure, per sqm of main asset GFA');
   check('construction cost rate is ONE grouped item', !!con && con.grouped);
   check('grouped item has one row per asset (2)', con!.rows.length === 2);
   check('per-asset rows labelled by entity (non-empty context)', con!.rows.every((r) => r.descriptor.context.trim() !== ''));

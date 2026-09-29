@@ -41,6 +41,12 @@ import { buildOperatingKpis } from '../src/hubs/modeling/platforms/refm/lib/repo
 import { DEFAULT_COVENANTS } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import type { LiveExportInputs } from './fixtures/liveExportInputs';
 
+/** Every shaded cell no formula reads, or that is itself a formula (A11): a promise broken. */
+function deadOf(book: ExcelJS.Workbook): string[] {
+  const rd = readCells(book);
+  return shadedCells(book).filter((s) => s.isFormula || (!rd.has(cellId(s.sheet, s.row, s.col)) && !(s.isText && isLegendSwatch(String(s.value)))))
+    .map((s) => `${s.sheet}!${colLetterOf(s.col)}${s.row}${s.isFormula ? ' (a formula)' : ''}`);
+}
 const colLetterOf = (n: number): string => { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -572,6 +578,16 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
       variant: (s) => { s.project.dividendPolicy = { ...s.project.dividendPolicy, mode: 'pct_of_ebitda' }; },
       edit: (s) => { s.project.dividendPolicy = { ...s.project.dividendPolicy, payoutRatio: 60 }; } });
   } else out.push({ label: 'E: dividends on EBITDA', skip: 'no dividend policy' });
+  // NO DIVIDEND POLICY, the new-project default (2026-09-29): no project policy and no
+  // phase policy is dividends off. The copy must stay live and follow a change; with no
+  // dividends row on its Cash Flow the three dividend inputs are fixed at export, and the
+  // per-copy shaded-cell check proves none of them is left shaded.
+  const noDividends = (s: Snap): void => { delete (s.project as any).dividendPolicy; for (const ph of s.phases as any[]) delete ph.dividendPolicy; };
+  if (reg.get('fin|1. Project Financing Settings|Minimum Cash Reserve')) {
+    const minC = Number(st.project.financing?.minimumCashReserve ?? 0);
+    out.push({ movesRevenue: false, label: 'No dividend policy (dividends off): the minimum cash reserve +15m', cell: 'fin|1. Project Financing Settings|Minimum Cash Reserve', col: RC.TOTAL, value: minC + 15_000_000,
+      variant: noDividends, edit: (s) => { (s.project.financing as any).minimumCashReserve = minC + 15_000_000; } });
+  }
   // STAGE D: the first phase's plots fund their land cash 50 / 50. Under a Method 3
   // deficit the platform splits the deficit at the project ratio and the plots' split
   // moves nothing (computeFundingRequirement), so the copy must first match the
@@ -732,11 +748,6 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
   // cut the link it is). The legend swatch is the one shaded label. Fixed-at-export cells
   // are unshaded and carry the note, so they can never read as inputs.
   {
-    const deadOf = (book: ExcelJS.Workbook): string[] => {
-      const rd = readCells(book);
-      return shadedCells(book).filter((s) => s.isFormula || (!rd.has(cellId(s.sheet, s.row, s.col)) && !(s.isText && isLegendSwatch(String(s.value)))))
-        .map((s) => `${s.sheet}!${colLetterOf(s.col)}${s.row}${s.isFormula ? ' (a formula)' : ''}`);
-    };
     const dead = deadOf(wb);
     check(`A11 every shaded cell is an input a formula reads (${shadedCells(wb).length} shaded)`, dead.length === 0, dead.slice(0, 8).join(', '));
     const notes = (): number => { let n = 0; wb.worksheets.forEach((ws) => ws.eachRow((row) => row.eachCell((c) => { const t = (c.note as unknown as { texts?: Array<{ text: string }> } | undefined)?.texts?.map((x) => x.text).join('') ?? ''; if (t.startsWith('Fixed at export')) n++; }))); return n; };
@@ -877,6 +888,11 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
         // dropped the whole Returns sheet and surfaced as a 0.1% rounding flip, 2026-09-28).
         const dropped = [...status].filter(([n, st]) => (st.status === 'live' || st.status === 'partial') && built.status.get(n)?.status === 'values').map(([n]) => `${n}: ${built.status.get(n)?.note?.slice(0, 160)}`);
         check(`C ${pt.label}: the test copy keeps every sheet the export keeps live`, dropped.length === 0, dropped.join('\n        '));
+        // And a copy's shaded cells are promises too: a structure that reads an input as fixed
+        // (dividends off with no row to show them, 2026-09-29) must unshade it, not leave a
+        // switch that does nothing.
+        const deadV = deadOf(built.wb);
+        check(`C ${pt.label}: every shaded cell on the test copy is an input a formula reads`, deadV.length === 0, deadV.slice(0, 6).join(', '));
         const longV = overLong(built.wb);
         if (longV.length) { check(`C ${pt.label}: the test copy has no formula over Excel's limit`, false, longV.slice(0, 5).join(', ')); continue; }
         writeFileSync(vPath, Buffer.from(await enableFormulaIteration((await built.wb.xlsx.writeBuffer()) as ArrayBuffer)));

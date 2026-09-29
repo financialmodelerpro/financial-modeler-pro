@@ -603,11 +603,11 @@ console.log('\n=== H. An old row is READ with a sentence, by the rule the differ
   // H10..H12: a record the model no longer holds.
   const gone = L('assets[id=zz9].gfaSqm');
   check('H10 an element nothing can name says so in words, never its id',
-    gone === 'Asset no longer in the project: GFA override (sqm)' && !/zz9/.test(gone), gone);
+    gone === 'Asset no longer in the project: Total BUA override (sqm)' && !/zz9/.test(gone), gone);
   const fromLog = namingContext({ phases, parcels, assets: [], subUnits: [], costLines: [] },
     recordsFromChanges([{ path: 'assets[id=zz9]', before: { id: 'zz9', type: 'Strip Retail', phaseId: 'ph2' }, after: null }]));
   const h11 = labelForChange({ path: 'assets[id=zz9].gfaSqm', kind: 'update', before: 1, after: 2 }, fromLog);
-  check('H11 but a deleted element is named from the record its OWN removal row carries', h11 === 'Phase 2, Strip Retail: GFA override (sqm)', h11);
+  check('H11 but a deleted element is named from the record its OWN removal row carries', h11 === 'Phase 2, Strip Retail: Total BUA override (sqm)', h11);
   const h12 = L('costLines[id=professional-fee__ph2].rateStated');
   check('H12 a deleted standard cost line is named from its id (base__phase)',
     h12 === 'Professional fee, Phase 2 (no longer in the project): Rate stated', h12);

@@ -24,6 +24,7 @@ import {
   resolveAssetAreaMetrics, computeAssetLandBreakdown, computeAssetUnitCount, computePhaseTimeline,
 } from '@/src/core/calculations';
 import { normaliseAssetTypeId } from '@/src/core/calculations/typeKey';
+import { areaTiers, plotRatio } from '@/src/core/calculations/areaTiers';
 import { resolveAssetKeys, resolveAssetLeasableSqm } from '../revenue-resolvers';
 import { revenueBySection } from './revenueSections';
 import { planReportLines, type LineState } from './lineRows';
@@ -125,6 +126,9 @@ const safeDiv = (a: number, b: number): number | null => (b > 0 ? a / b : null);
  * no fee the two streams are identical and printing both would be two names for
  * one number.
  */
+/** Balances within this of the lowest are the same low point (see the cash low year). */
+export const CASH_LOW_TIE = 0.5;
+
 export function distributedReturnPair(rs: ReturnsSnapshot): ReturnPair {
   const hasFee = (rs.waterfall?.totalPerformanceFee ?? 0) > 0;
   if (!hasFee) {
@@ -193,10 +197,12 @@ export function buildOverviewReport(
     const assetLeasable = a.strategy === 'Lease' ? resolveAssetLeasableSqm(a, state.subUnits) : 0;
     const assetUnits = a.strategy === 'Sell' || a.strategy === 'Sell + Manage' ? computeAssetUnitCount(a, state.subUnits) : 0;
     landSqm += land.landSqm; landValue += land.landValue;
-    gfaSqm += m.gfa; buaSqm += m.bua; saleableSqm += m.nsa;
+    // THE WORDS AND THE SUMS THROUGH ONE RULE (areaTiers): GFA excludes parking, BUA holds it.
+    const tier = areaTiers(m);
+    gfaSqm += tier.totalGfaSqm; buaSqm += tier.totalBuaSqm; saleableSqm += tier.nsaSqm;
     units += assetUnits; keys += assetKeys; leasableSqm += assetLeasable;
     const row = byTypeMap.get(t.id) ?? { typeId: t.id, label: t.label, landSqm: 0, landPct: 0, gfaSqm: 0, units: 0, keys: 0, leasableSqm: 0 };
-    row.landSqm += land.landSqm; row.gfaSqm += m.gfa;
+    row.landSqm += land.landSqm; row.gfaSqm += tier.totalGfaSqm;
     row.units += assetUnits; row.keys += assetKeys; row.leasableSqm += assetLeasable;
     byTypeMap.set(t.id, row);
   }
@@ -228,7 +234,7 @@ export function buildOverviewReport(
       revenue += sum(pl?.revenuePerPeriod);
       ebitda += sum(pl?.ebitdaPerPeriod);
       phaseLand += computeAssetLandBreakdown(a, state.parcels, visible, state.subUnits, state.landAllocationMode).landSqm;
-      phaseGfa += metricsOf(a).gfa;
+      phaseGfa += areaTiers(metricsOf(a)).totalGfaSqm;
       phaseCapex += capexOf(a.id);
     }
     return {
@@ -250,7 +256,11 @@ export function buildOverviewReport(
   const cash = snap.bs.cashPerPeriod ?? [];
   let cashLow = cash.length ? cash[0] : 0;
   let cashLowIdx = 0;
-  cash.forEach((v, i) => { if (v < cashLow) { cashLow = v; cashLowIdx = i; } });
+  cash.forEach((v) => { if (v < cashLow) cashLow = v; });
+  // THE FIRST YEAR AT THE LOW, WITHIN HALF A UNIT (2026-09-29): cash held at the minimum
+  // reserve for years sits flat, and an exact minimum picks a year by rounding noise (the
+  // platform said 2027 where Excel's recalculation said 2031 for the same balances).
+  cashLowIdx = Math.max(0, cash.findIndex((v) => v <= cashLow + CASH_LOW_TIE));
 
   return {
     returns,
@@ -267,7 +277,7 @@ export function buildOverviewReport(
     },
     scheme: {
       landSqm, landValue, gfaSqm, buaSqm, saleableSqm,
-      plotRatio: safeDiv(gfaSqm, landSqm),
+      plotRatio: plotRatio(gfaSqm, landSqm),
       units, keys, leasableSqm,
       lines: planReportLines(lineState).length,
     },
