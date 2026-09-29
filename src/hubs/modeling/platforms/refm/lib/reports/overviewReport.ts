@@ -130,7 +130,11 @@ const safeDiv = (a: number, b: number): number | null => (b > 0 ? a / b : null);
 export const CASH_LOW_TIE = 0.5;
 
 export function distributedReturnPair(rs: ReturnsSnapshot): ReturnPair {
-  const hasFee = (rs.waterfall?.totalPerformanceFee ?? 0) > 0;
+  // THE SPLIT FOLLOWS THE TERMS, NOT THE FEE CHARGED (2026-09-29): where the fund charges a performance
+  // fee at all, net and gross are both shown, equal while no fee arises. Splitting only once a fee was
+  // charged gave a live workbook exported with no distributions no row for the net figure, so switching
+  // dividends on showed the gross return where the platform shows the net one.
+  const hasFee = rs.waterfall?.active === true && (rs.waterfall?.performanceFeePct ?? 0) > 0;
   if (!hasFee) {
     return { key: 'distributed', label: 'Distributed (DDM)', irr: rs.result.dividends.irr, moic: rs.result.dividends.moic };
   }

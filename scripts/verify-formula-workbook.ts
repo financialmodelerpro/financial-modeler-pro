@@ -602,14 +602,18 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
       edit: (s) => { s.project.dividendPolicy = { ...s.project.dividendPolicy, payoutRatio: 60 }; } });
   } else out.push({ label: 'E: dividends on EBITDA', skip: 'no dividend policy' });
   // NO DIVIDEND POLICY, the new-project default (2026-09-29): no project policy and no
-  // phase policy is dividends off. The copy must stay live and follow a change; with no
-  // dividends row on its Cash Flow the three dividend inputs are fixed at export, and the
-  // per-copy shaded-cell check proves none of them is left shaded.
+  // phase policy is dividends off. The copy must stay live and follow a change, and switching
+  // dividends on must do what the platform's first policy does: the Cash Flow always prints
+  // "Dividends paid" (2026-09-29), so the exit year's full payout has a row to land in.
   const noDividends = (s: Snap): void => { delete (s.project as any).dividendPolicy; for (const ph of s.phases as any[]) delete ph.dividendPolicy; };
   if (reg.get('fin|1. Project Financing Settings|Minimum Cash Reserve')) {
     const minC = Number(st.project.financing?.minimumCashReserve ?? 0);
     out.push({ movesRevenue: false, label: 'No dividend policy (dividends off): the minimum cash reserve +15m', cell: 'fin|1. Project Financing Settings|Minimum Cash Reserve', col: RC.TOTAL, value: minC + 15_000_000,
       variant: noDividends, edit: (s) => { (s.project.financing as any).minimumCashReserve = minC + 15_000_000; } });
+  }
+  if (reg.get('fin|Dividend Policy|Pay Dividends')) {
+    out.push({ movesRevenue: false, label: 'No dividend policy: dividends switched on (1 at the Inputs door, On on Financing)', cell: 'fin|Dividend Policy|Pay Dividends', col: RC.TOTAL, value: 1,
+      variant: noDividends, edit: (s) => { s.project.dividendPolicy = { enabled: true }; } });
   }
   // STAGE D: the first phase's plots fund their land cash 50 / 50. Under a Method 3
   // deficit the platform splits the deficit at the project ratio and the plots' split

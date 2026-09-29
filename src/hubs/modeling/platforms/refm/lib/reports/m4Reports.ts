@@ -800,9 +800,10 @@ function buildFinancingRows(ctx: M4ReportCtx, cffSubtotal: number[]): M4Row[] {
   };
   pushDebtBucket('existing', 'Existing loans', existingOpening);
   pushDebtBucket('new', 'New loans');
-  if (d.dividendsPaidPerPeriod.some((v) => v !== 0)) {
-    rows.push({ label: 'Dividends paid', values: d.dividendsPaidPerPeriod, indent: 1 });
-  }
+  // ALWAYS PRINTED, AT ZERO WHEN NONE IS PAID (2026-09-29, founder): the dividend policy is an input,
+  // so the statement keeps the row it would fill; a live workbook exported with dividends off can
+  // then switch them on and show them.
+  rows.push({ label: 'Dividends paid', values: d.dividendsPaidPerPeriod, indent: 1 });
   // In-kind equity is inside the financing total, matching the Land In-Kind row
   // inside the investing total (see buildInvestmentRows).
   const cffShown = hasInKindEq ? cffSubtotal.map((v, t) => v + (inKindEq[t] ?? 0)) : cffSubtotal;

@@ -135,7 +135,9 @@ export const stage7dSummary: LiveLayer = {
           const f = w.addr(feeKey);
           const fee = `SUM(${w.rangeA(f.sheet, f.row, OPEN_COL, OPEN_COL + N)})`;
           const g = chk('Distributed Equity IRR (gross)');
-          return `IF(${fee}>0,"IRR and MOIC after the performance fee; pre-fee "&${pctN(g.irr)}&" and "&${multN(g.moic)},"IRR and MOIC")`;
+          // The split follows the TERMS (distributedReturnPair, 2026-09-29), not the fee charged.
+          const split = has('ft:Performance fee on the excess') ? `N(${w.ref('ft:Performance fee on the excess')})>0` : `${fee}>0`;
+          return `IF(${split},"IRR and MOIC after the performance fee; pre-fee "&${pctN(g.irr)}&" and "&${multN(g.moic)},"IRR and MOIC")`;
         });
       }
     }

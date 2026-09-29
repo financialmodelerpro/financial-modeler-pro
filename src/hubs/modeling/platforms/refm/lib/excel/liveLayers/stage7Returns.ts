@@ -331,9 +331,12 @@ export const stage7Returns: LiveLayer = {
       const label = retKeys.find((k) => k.startsWith('retk|Headline Returns|Distributed Equity IRR'))?.split('|')[2];
       if (!label) missing.push('the distributed equity card');
       else if (netRng && perfTotal) {
+        // The split follows the TERMS (distributedReturnPair, 2026-09-29): net and gross wherever a
+        // performance fee is charged at all, equal while none arises.
         const nr = netRng, pt = perfTotal;
-        kpi('Headline Returns', label, () => `IF(${pt()}>0,${irrT(nr())},${irrT(DDM())})`,
-          () => `IF(${pt()}>0,"MOIC "&${multT(moicOf(nr()))}&" · gross "&${irrT(DDM())}&" / MOIC "&${multT(moicOf(DDM()))},"MOIC "&${multT(moicOf(DDM()))})`);
+        const split = has('ft:Performance fee on the excess') ? `N(${w.ref('ft:Performance fee on the excess')})>0` : `${pt()}>0`;
+        kpi('Headline Returns', label, () => `IF(${split},${irrT(nr())},${irrT(DDM())})`,
+          () => `IF(${split},"MOIC "&${multT(moicOf(nr()))}&" · gross "&${irrT(DDM())}&" / MOIC "&${multT(moicOf(DDM()))},"MOIC "&${multT(moicOf(DDM()))})`);
       } else kpi('Headline Returns', label, () => irrT(DDM()), () => `"MOIC "&${multT(moicOf(DDM()))}`);
     }
     kpi('Headline Returns', 'Equity Multiple (distributions)', () => multT(`IF(${invested()}>0,${distTotal()}/${invested()},0)`));

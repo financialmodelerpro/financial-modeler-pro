@@ -174,6 +174,9 @@ export const stage6Financing: LiveLayer = {
     if ((project.idcConfig?.allocationBasis ?? 'land') !== 'land') refuse.push('capitalised interest allocated by GFA');
     if (project.financing?.cashSweep?.startingYear !== undefined && !has(K.sweepStart)) refuse.push('a sweep start the sheet does not show');
     for (const k of [K.minCash, K.debtPct, K.equityPct, K.payout, K.divOn, K.divStart]) if (!has(k)) refuse.push(`the input ${k.split('|').pop()} is not on the Financing sheet`);
+    // The Cash Flow always prints "Dividends paid" (at zero with dividends off, 2026-09-29), so switching
+    // dividends on in the workbook has a row to fill; without it the switch could show nothing.
+    if (!has('cf|direct||Dividends paid')) refuse.push('a Cash Flow with no dividends row');
     if (booked && !has(K.capRate)) refuse.push('the exit cap rate is not on the Returns sheet');
     for (const k of ['stc:interest', 'stc:proceeds', 'schg:__project__:dep', `cf|direct||Total Revenue Received`, `pl|__all__||Total Revenue`]) if (!has(k)) refuse.push(`the ${k} cell is not live`);
     if (refuse.length) return values(`The circular financing could not be made live for this model: ${[...new Set(refuse)].join('; ')}.`);
@@ -227,22 +230,14 @@ export const stage6Financing: LiveLayer = {
       return stored !== undefined ? typed : `IF(N(${inp(K.sweepStart)})=${Number(shown)},MAX(0,MIN(${N - 1},${sc3(cend)})),${typed})`;
     });
     const sweepRatio = cell('fnc:swr', 'sweep ratio', () => (has(K.sweepRatio) ? `MAX(0,MIN(1,N(${inp(K.sweepRatio)})))` : '1'));
-    // A STATEMENT WITH NO DIVIDEND ROW HAS NOWHERE TO PUT ONE (2026-09-29). The Cash Flow prints
-    // "Dividends paid" only where a dividend is paid, and a live workbook keeps its exported
-    // layout, so where the export paid none the solve reads dividends as OFF and reads none of
-    // the three inputs: stage9InputLinks then unshades them with the fixed-at-export note, and a
-    // shaded switch that could not show its result is never offered. Where the row exists, the
-    // switch, the ratio and the start year are live as before.
-    const divShown = has('cf|direct||Dividends paid');
     const divStart = cell('fnc:dvs', 'dividend start index', () => {
-      if (!divShown) return `MAX(0,MIN(${N - 1},${defaultStartYear()}-${AXIS()}))`;
       const shown = w.platformValue(w.addr(K.divStart, PERIOD_COLS.TOTAL_COL));
       const derived = `MAX(0,MIN(${N - 1},${defaultStartYear()}-${AXIS()}))`;
       const typed = `MAX(0,MIN(${N - 1},N(${inp(K.divStart)})-${AXIS()}))`;
       return project.dividendStartYear !== undefined ? typed : `IF(N(${inp(K.divStart)})=${Number(shown)},${derived},${typed})`;
     });
-    const divOn = cell('fnc:don', 'dividends on', () => (divShown ? `IF(${inp(K.divOn)}="On",1,0)` : '0'));
-    const payout = cell('fnc:dvp', 'payout ratio', () => (divShown ? `MAX(0,MIN(1,N(${inp(K.payout)})))` : '0'));
+    const divOn = cell('fnc:don', 'dividends on', () => `IF(${inp(K.divOn)}="On",1,0)`);
+    const payout = cell('fnc:dvp', 'payout ratio', () => `MAX(0,MIN(1,N(${inp(K.payout)})))`);
     // DIVIDENDS ON EBITDA (2026-09-28, stage E): the payout sizes off the phase's EBITDA
     // this year (floored at zero) rather than the cash above the minimum; both stay
     // capped by that cash and by the phase's cumulative EBITDA (distributeDividends).
