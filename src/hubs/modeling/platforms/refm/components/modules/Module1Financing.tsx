@@ -53,6 +53,7 @@ import {
   getAssetPreCapexTotal,
 } from '../../lib/state/module1-types';
 import { computeFinancingResult } from '@/src/core/calculations/financing';
+import { buildFinancingSummary, FINANCING_SUMMARY_CAPTIONS } from '../../lib/reports/financingReports';
 import { facilityShareTotal, facilityShareSumIsValid } from '@/src/core/calculations/financing/shares';
 import { computeIdcSnapshot, computeFundingGap, computeFinancialsSnapshot } from '../../lib/financials-resolvers';
 import { computeFundingBasis } from '../../lib/reports/fundingBasis';
@@ -313,35 +314,12 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
               read on the project's overall capital stack and lifetime
               interest cost without diving into the schedules. */}
           {(() => {
-            const totalDebt = result.debtEquitySplit.debt.reduce((s, v) => s + v, 0);
-            const totalEquity = result.debtEquitySplit.equity.reduce((s, v) => s + v, 0);
-            const totalFunding = totalDebt + totalEquity;
-            // Pass 33b (2026-05-14): label clarification - IDC is the
-            // interest capitalized DURING CONSTRUCTION (rolled into
-            // loan principal), Operating Finance Cost is the cash
-            // interest paid AFTER construction (P&L expense). Calling
-            // them out explicitly so they don't read as net values.
-            const totalIdc = result.combined.totalInterestCapitalized.reduce((s, v) => s + v, 0);
-            // Pass 37 (2026-05-14): split Finance Cost (Operating) into
-            // Existing vs New cards. Existing facility interest is on
-            // pre-existing debt, new facility interest is on debt raised
-            // for this project, conflating them hides materiality.
-            let financeCostExisting = 0;
-            let financeCostNew = 0;
-            for (const t of financingTranches) {
-              const fr = result.facilities.get(t.id);
-              if (!fr) continue;
-              const sum = fr.interestPaid.reduce((s, v) => s + v, 0);
-              if (t.origin === 'existing') financeCostExisting += sum;
-              else financeCostNew += sum;
-            }
-            // Pass 41 (2026-05-14): only show Finance Cost (Existing)
-            // when there's actual activity on an existing facility -
-            // either an opening balance > 0 or interest already paid.
-            // An empty stub existing tranche should not add a "-" tile.
-            const hasExisting = financingTranches.some(
-              (t) => t.origin === 'existing' && ((t.openingBalance ?? 0) > 0 || financeCostExisting > 0),
-            );
+            // THE ONE DEFINITION (buildFinancingSummary, 2026-09-29): what the tables below total, the same
+            // figures the workbook prints. These tiles summed the sizing split and dropped the IDC drawn as
+            // debt, the in-kind land, the fee equity and the interest paid from cash.
+            const fsum = buildFinancingSummary(result, financingTranches);
+            const { totalFunding, totalDebt, totalEquity, idc: totalIdc, financeCostNew, financeCostExisting } = fsum;
+            const hasExisting = fsum.hasExistingTile;
             const tile = (label: string, sublabel: string, value: number, accent?: string): React.JSX.Element => (
               <div
                 key={label}
@@ -362,10 +340,10 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
             return (
               <section style={{ ...sectionStyle, padding: 'var(--sp-1) var(--sp-2)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 8 }}>
-                  {tile('Total Funding', 'Debt + Equity', totalFunding, 'var(--color-navy)')}
-                  {tile('Total Debt', 'Capex + IDC funded', totalDebt, 'var(--color-warning, #92400e)')}
-                  {tile('Total Equity', 'Cash + In-kind', totalEquity, 'var(--color-success, #166534)')}
-                  {tile('IDC (Construction)', 'Interest capitalized', totalIdc, 'var(--color-meta, #6b7280)')}
+                  {tile('Total Funding', FINANCING_SUMMARY_CAPTIONS.totalFunding, totalFunding, 'var(--color-navy)')}
+                  {tile('Total Debt', FINANCING_SUMMARY_CAPTIONS.totalDebt, totalDebt, 'var(--color-warning, #92400e)')}
+                  {tile('Total Equity', FINANCING_SUMMARY_CAPTIONS.totalEquity, totalEquity, 'var(--color-success, #166534)')}
+                  {tile('IDC (Construction)', FINANCING_SUMMARY_CAPTIONS.idc, totalIdc, 'var(--color-meta, #6b7280)')}
                   {tile('Finance Cost (New)', 'New facility interest paid', financeCostNew, 'var(--color-danger, #b91c1c)')}
                   {hasExisting && tile('Finance Cost (Existing)', 'Existing facility interest paid', financeCostExisting, 'var(--color-warning, #92400e)')}
                 </div>

@@ -18,6 +18,45 @@ import { idcWithDisposal, disposalContextOf } from './disposalSchedules';
  *  "Debt Movement - New Facilities"); a renderer with no group band ignores it. */
 export interface ReportTable { title: string; rows: M4Row[]; group?: string }
 
+/**
+ * THE FINANCING SUMMARY, ONE DEFINITION (2026-09-29, export review item 2). The screen tiles and the
+ * workbook block each summed the SIZING split, so Total Debt dropped the IDC drawn as debt (while its
+ * own caption said "Capex + IDC funded"), Total Equity dropped the in-kind land and the fee equity,
+ * and IDC counted only the interest drawn as debt, not the part paid from cash. They now state what
+ * the detail tables below them total: debt raised (capex and IDC drawdowns), equity raised (cash for
+ * development and fees, in kind, existing), and every unit of capitalised interest.
+ */
+export interface FinancingSummary {
+  totalFunding: number; totalDebt: number; totalEquity: number; idc: number;
+  financeCostNew: number; financeCostExisting: number; hasExistingTile: boolean;
+}
+export const FINANCING_SUMMARY_CAPTIONS = {
+  totalFunding: 'Debt + Equity',
+  totalDebt: 'Capex + IDC drawn as debt',
+  totalEquity: 'Cash (development and fees) + In-kind',
+  idc: 'Interest capitalised (drawn as debt and paid from cash)',
+} as const;
+export function buildFinancingSummary(
+  fin: ProjectFinancialsSnapshot['financing'],
+  tranches: ReadonlyArray<{ id: string; origin?: string; openingBalance?: number }>,
+): FinancingSummary {
+  const total = (a: readonly number[] | undefined): number => (a ?? []).reduce((s, v) => s + (v ?? 0), 0);
+  const totalDebt = total(fin.combined.totalDrawdown) + total(fin.combined.totalInterestCapitalized);
+  const totalEquity = fin.equity.grandTotal;
+  let financeCostNew = 0, financeCostExisting = 0;
+  for (const t of tranches) {
+    const f = fin.facilities.get(t.id); if (!f) continue;
+    const s = total(f.interestPaid);
+    if (t.origin === 'existing') financeCostExisting += s; else financeCostNew += s;
+  }
+  return {
+    totalFunding: totalDebt + totalEquity, totalDebt, totalEquity,
+    idc: total(fin.combined.totalInterestForAssetBasis),
+    financeCostNew, financeCostExisting,
+    hasExistingTile: tranches.some((t) => t.origin === 'existing' && ((t.openingBalance ?? 0) > 0 || financeCostExisting > 0)),
+  };
+}
+
 const neg = (a: number[]): number[] => a.map((v) => -v);
 const sliceN = (a: number[] | undefined, N: number): number[] => (a ?? []).slice(0, N);
 const anyNonZero = (a: number[] | undefined): boolean => !!a && a.some((v) => (v ?? 0) !== 0);

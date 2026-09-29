@@ -187,6 +187,17 @@ async function main(): Promise<void> {
   check('Schedules: Equity Movement present', finRow(/^Equity Movement$/) > 0);
   // The platform has no Capital Stack table, so the workbook shows none (2026-09-17).
   check('Schedules: no Capital Stack table (not on the platform)', finRow(/^Capital Stack/) < 0);
+  // THE SUMMARY STATES WHAT THE TABLES BELOW IT TOTAL (2026-09-29, export review item 2): it summed the
+  // sizing split, so Total Debt dropped the IDC drawn, Total Equity the in-kind land and fee equity, and
+  // IDC the interest paid from cash, while the detail rows further down were right.
+  {
+    const tot = (re: RegExp): number => { const R = finRow(re); return R > 0 ? num(finWs.getCell(R, 4).value) : NaN; };
+    const s = { fund: tot(/^Total Funding$/), debt: tot(/^Total Debt$/), equity: tot(/^Total Equity$/), idc: tot(/^IDC \(Construction\)$/) };
+    const d = { debt: tot(/^Total Debt Required \(new draws \+ IDC\)$/), equity: tot(/^Total Equity Required$/), idc: tot(/^Total IDC \(allocated to assets\)$/) };
+    check('Financing Summary: Total Debt, Total Equity and IDC equal the detail rows they summarise, and Funding is their sum',
+      close(s.debt, d.debt) && close(s.equity, d.equity) && close(s.idc, d.idc) && close(s.fund, s.debt + s.equity),
+      `debt ${s.debt} vs ${d.debt}; equity ${s.equity} vs ${d.equity}; IDC ${s.idc} vs ${d.idc}; funding ${s.fund}`);
+  }
   check('Schedules: IDC Allocation by Line present (as on the platform)', finRow(/^IDC Allocation, by Line/) > r2 && finRow(/^IDC Allocation, by Line/) < r3);
   // Combined Debt Service ties to the combined snapshot.
   const cmb = snap.financing.combined;

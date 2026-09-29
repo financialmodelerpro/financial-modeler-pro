@@ -137,10 +137,14 @@ export const stage6bFinancingSheet: LiveLayer = {
     };
     const sumAll = (f: F): string => Array.from({ length: N }, (_, t) => f(t)).join('+');
     // Summary.
-    R('Summary', 'Total Funding', { scalar: () => `SUM(${calcRng('fnc:main:debt')})+SUM(${calcRng('fnc:main:equity')})` });
-    R('Summary', 'Total Debt', { scalar: () => `SUM(${calcRng('fnc:main:debt')})` });
-    R('Summary', 'Total Equity', { scalar: () => `SUM(${calcRng('fnc:main:equity')})` });
-    R('Summary', 'IDC (Construction)', { scalar: () => `SUM(${calcRng('fnc:main:idcdraw')})` });
+    // buildFinancingSummary (2026-09-29): debt RAISED (capex and IDC drawdowns), equity RAISED (cash for
+    // development and fees, in kind) and every unit of capitalised interest, not the sizing split.
+    const sumDebt = (): string => `SUM(${calcRng('fnc:main:draw')})+SUM(${calcRng('fnc:main:idcdraw')})`;
+    const sumEquity = (): string => `SUM(${calcRng('fnc:main:equity')})+SUM(${calcRng('fnc:main:feedraw')})+SUM(${calcRng('fnc:inkind')})`;
+    R('Summary', 'Total Funding', { scalar: () => `${sumDebt()}+${sumEquity()}` });
+    R('Summary', 'Total Debt', { scalar: sumDebt });
+    R('Summary', 'Total Equity', { scalar: sumEquity });
+    R('Summary', 'IDC (Construction)', { scalar: () => `SUM(${calcRng('fnc:main:basis')})` });
     // BY ORIGIN (2026-09-29, existing loans): new and existing facilities report apart. An existing
     // loan is never capitalised, so its interest is expensed in full; a new loan's expensed interest is
     // its interest less what was capitalised.

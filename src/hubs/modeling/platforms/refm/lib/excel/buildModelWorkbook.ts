@@ -95,7 +95,7 @@ import type { IndexationConfig } from '@/src/core/calculations/revenue/types';
 import { assetPlotLabel } from '@/src/core/calculations/assetName';
 import { deriveCostStage, isLandValueLine } from '@/src/core/calculations';
 import { CAPEX_PHASING_SOURCE_LABELS, FUNDING_METHOD_DESCRIPTIONS, REPAYMENT_METHOD_LABELS, DEFAULT_PROJECT_FINANCING_CONFIG } from '../state/module1-types';
-import { buildIdcAllocationTables } from '../reports/financingReports';
+import { buildIdcAllocationTables, buildFinancingSummary, FINANCING_SUMMARY_CAPTIONS } from '../reports/financingReports';
 import { CAPITALISED_INTEREST_RULE } from '@/src/core/calculations/capitalisedInterest';
 import { computeFundingBasis } from '../reports/fundingBasis';
 import { buildPartiesTable, PARTIES_TITLE, PARTIES_EMPTY_TEXT } from '../reports/partiesReport';
@@ -3348,22 +3348,15 @@ function addFinancing(ctx: EmitCtx): FinLinks {
   note('Shaded cells are the values typed on the platform Financing Inputs tab; everything else is computed. Change an input on the platform and re-export.');
 
   // The KPI tiles that open the Inputs tab.
-  const totalDebtSized = sum(fin.debtEquitySplit.debt);
-  const totalEquitySized = sum(fin.debtEquitySplit.equity);
-  let financeCostExisting = 0; let financeCostNew = 0;
-  for (const t of state.financingTranches) {
-    const f = fin.facilities.get(t.id); if (!f) continue;
-    const s = f.interestPaid.reduce((a, v) => a + (v ?? 0), 0);
-    if (t.origin === 'existing') financeCostExisting += s; else financeCostNew += s;
-  }
-  const hasExistingTile = state.financingTranches.some((t) => t.origin === 'existing' && ((t.openingBalance ?? 0) > 0 || financeCostExisting > 0));
+  // The screen's tiles, through the one definition (buildFinancingSummary): what the tables below total.
+  const fs = buildFinancingSummary(fin, state.financingTranches);
   subTitle('Summary');
-  scalar('Total Funding', totalDebtSized + totalEquitySized, NUMFMT.money, 'Debt + Equity');
-  scalar('Total Debt', totalDebtSized, NUMFMT.money, 'Capex + IDC funded');
-  scalar('Total Equity', totalEquitySized, NUMFMT.money, 'Cash + In-kind');
-  scalar('IDC (Construction)', sum(fin.combined.totalInterestCapitalized), NUMFMT.money, 'Interest capitalized');
-  scalar('Finance Cost (New)', financeCostNew, NUMFMT.money, 'New facility interest paid');
-  if (hasExistingTile) scalar('Finance Cost (Existing)', financeCostExisting, NUMFMT.money, 'Existing facility interest paid');
+  scalar('Total Funding', fs.totalFunding, NUMFMT.money, FINANCING_SUMMARY_CAPTIONS.totalFunding);
+  scalar('Total Debt', fs.totalDebt, NUMFMT.money, FINANCING_SUMMARY_CAPTIONS.totalDebt);
+  scalar('Total Equity', fs.totalEquity, NUMFMT.money, FINANCING_SUMMARY_CAPTIONS.totalEquity);
+  scalar('IDC (Construction)', fs.idc, NUMFMT.money, FINANCING_SUMMARY_CAPTIONS.idc);
+  scalar('Finance Cost (New)', fs.financeCostNew, NUMFMT.money, 'New facility interest paid');
+  if (fs.hasExistingTile) scalar('Finance Cost (Existing)', fs.financeCostExisting, NUMFMT.money, 'Existing facility interest paid');
   r += 1;
 
   subTitle('1. Project Financing Settings');
