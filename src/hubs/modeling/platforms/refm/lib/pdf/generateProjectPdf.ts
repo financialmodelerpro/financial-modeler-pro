@@ -1541,7 +1541,9 @@ function buildModule1(
       // FUND_FEE_SPECS, so a fee added there appears here with no edit.
       const rateOf = (spec: typeof FUND_FEE_SPECS[number]): string => {
         const v = ft[spec.key] as number;
-        return spec.kind === 'amount' ? `${fmt.money(v)} per annum` : fmt.pctRaw(v, 2);
+        // Fund rates are stored as DECIMAL FRACTIONS (0.005 is 0.50%), so they take the decimal
+        // formatter; pctRaw printed every one 100 times too small (2026-09-29, the export review).
+        return spec.kind === 'amount' ? `${fmt.money(v)} per annum` : fmt.pct(v, 2);
       };
       items.push(tTable(M1_TABS.fund, 'inputs', {
         title: 'Fund management fees', kind: 'grid', align: 'data',
@@ -1553,8 +1555,8 @@ function buildModule1(
       items.push(tTable(M1_TABS.fund, 'inputs', kvTable('Fund structure, fee bases and the performance fee', [
         ['Fund layer enabled', 'Yes'],
         ['Fund Manager', ft.fundManagerName || DEFAULT_FUND_MANAGER_NAME],
-        ['Hurdle rate (preferred return)', fmt.pctRaw(ft.hurdleRatePct, 2)],
-        ['Performance fee on the excess', fmt.pctRaw(ft.performanceFeePct, 2)],
+        ['Hurdle rate (preferred return)', fmt.pct(ft.hurdleRatePct, 2)],
+        ['Performance fee on the excess', fmt.pct(ft.performanceFeePct, 2)],
         ['Fund size', ft.fundSizeOverride ? `${fmt.money(ft.fundSize)} (typed target)` : `${fmt.money(ft.fundSize)} (resolved from the model: total equity plus the debt facility)`],
         ['Facility limit', ft.facilityLimitOverride ? `${fmt.money(ft.facilityLimit)} (typed limit)` : `${fmt.money(ft.facilityLimit)} (resolved from the model)`],
         ['How the management fee is funded', ft.managementFeeFunding === 'equity'

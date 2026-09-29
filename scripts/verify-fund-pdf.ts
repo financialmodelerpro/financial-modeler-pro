@@ -203,6 +203,18 @@ async function main(): Promise<void> {
   check('full PDF: the Fund Manager is named', full.includes(TERMS.fundManagerName));
   check('full PDF: the hurdle and performance fee terms are stated',
     full.includes('Hurdle rate (preferred return)') && full.includes('Performance fee on the excess'));
+  // THE RATES AS THEY ARE STORED, x 100 (2026-09-29): the Fund Terms tab printed every rate 100 times
+  // too small (a decimal through the percent-as-typed formatter) and the check above, on labels alone,
+  // passed. Each rate's line must carry its own value, and never the stored decimal read as a percent.
+  // Each table cell extracts as its own line: a fee row is label, when, charged on, RATE; a key /
+  // value row is label, VALUE. Read the cell itself, inside the Fund Terms tables.
+  const lines = full.split('\n').map((l) => l.trim());
+  const from = lines.findIndex((l) => l === 'Fund management fees');
+  const cellAfter = (label: string, n: number): string => { const i = lines.findIndex((l, k) => k >= from && l === label); return i < 0 ? '' : (lines[i + n] ?? ''); };
+  const rates: Array<[string, number, number]> = [['Fund structure fee', TERMS.fundStructureFeePct, 3], ['Fund management fee', TERMS.fundManagementFeePct, 3],
+    ['Custody and admin fee', TERMS.custodyAdminFeePct, 3], ['Debt arranging fee', TERMS.debtArrangingFeePct, 3], ['Performance fee on the excess', TERMS.performanceFeePct, 1]];
+  const wrong = rates.filter(([l, v, n]) => cellAfter(l, n) !== `${(v * 100).toFixed(2)}%`).map(([l, v, n]) => `${l}: "${cellAfter(l, n)}" (want ${(v * 100).toFixed(2)}%)`);
+  check('full PDF: every fund rate prints as its stored decimal x 100 on the Fund Terms tab', from >= 0 && wrong.length === 0, wrong.join('; '));
 
   // ── 4. The summary PDF ─────────────────────────────────────────────────────
   console.log('\n-- 4. PDF summary export --');
