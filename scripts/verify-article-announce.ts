@@ -21,7 +21,8 @@ const check = (name: string, ok: boolean, detail = ''): void => {
   if (ok) { pass++; console.log(`  [PASS] ${name}`); }
   else { fail++; fails.push(name); console.log(`  [FAIL] ${name}${detail ? ` :: ${detail}` : ''}`); }
 };
-const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8');
+// Line endings normalised on read: a checkout may be CRLF, and these patterns match LF source.
+const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8').replace(/\r\n/g, '\n');
 
 const AUDIENCE  = read('src/shared/newsletter/announceAudience.ts');
 const ROUTE     = read('app/api/admin/articles/[id]/announce/route.ts');

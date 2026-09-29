@@ -40,7 +40,8 @@ function check(label: string, ok: boolean, detail = ''): void {
 }
 
 const ROOT = join(__dirname, '..');
-const PAGE = readFileSync(join(ROOT, 'app/training/assessment/[tabKey]/page.tsx'), 'utf8');
+// Line endings normalised on read: a checkout may be CRLF, and these patterns match LF source.
+const PAGE = readFileSync(join(ROOT, 'app/training/assessment/[tabKey]/page.tsx'), 'utf8').replace(/\r\n/g, '\n');
 
 // ── [A] Behavioural: client wrappers return null on every failure mode. ──────
 const realFetch = globalThis.fetch;
@@ -140,7 +141,7 @@ console.log('\n=== [B] timer_bypass is not wired into the per-student timer path
 // (which the handler now always satisfies). This asserts no stray per-student
 // bypass branch crept into the assessment page.
 check('Assessment page does not branch the timer on timer_bypass (no per-student hide)', !/timer_bypass/.test(PAGE));
-const startRoute = readFileSync(join(ROOT, 'app/api/training/assessment/start/route.ts'), 'utf8');
+const startRoute = readFileSync(join(ROOT, 'app/api/training/assessment/start/route.ts'), 'utf8').replace(/\r\n/g, '\n');
 check('Start route does not silently drop the timer on a 0/empty timer (24h sentinel server-side)',
   /24 \* 60 \* 60 \* 1000/.test(readFileSync(join(ROOT, 'src/hubs/training/lib/assessment/attemptInProgress.ts'), 'utf8'))
   && /timerMinutes/.test(startRoute));

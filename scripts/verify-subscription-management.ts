@@ -34,7 +34,8 @@ const check = (name: string, ok: boolean, detail = ''): void => {
   if (ok) { pass++; console.log(`  [PASS] ${name}`); }
   else { fail++; fails.push(name); console.log(`  [FAIL] ${name}${detail ? ` :: ${detail}` : ''}`); }
 };
-const read = (rel: string): string => fs.readFileSync(path.join(process.cwd(), rel), 'utf8');
+// Line endings normalised on read: a checkout may be CRLF, and these patterns match LF source.
+const read = (rel: string): string => fs.readFileSync(path.join(process.cwd(), rel), 'utf8').replace(/\r\n/g, '\n');
 const EM = String.fromCharCode(0x2014);
 
 console.log('=== Event parsing captures subscription + customer ids ===');

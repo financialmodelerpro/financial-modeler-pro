@@ -1,0 +1,4 @@
+# Every text file is LF in the repository and on checkout, whatever the machine's core.autocrlf
+# (2026-09-29). A fresh Windows clone wrote CRLF and three verifiers that read source failed on
+# it: a check that is red on a clean clone is not a pass. Binaries are detected and left alone.
+* text=auto eol=lf
