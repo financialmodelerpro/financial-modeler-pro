@@ -47,6 +47,7 @@ import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
 import { PERIOD_COLS } from '../buildModelWorkbook';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
+import { sharesCapitalisedInterest } from '@/src/core/calculations/capitalisedInterest';
 import { isRevenueSubUnit, resolveUsefulLifeYears, isLandValueLine } from '@/src/core/calculations';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { resolveFundTerms, FUND_FEE_SPECS } from '../../fundTerms';
@@ -334,8 +335,9 @@ export const stage6Financing: LiveLayer = {
     const gap2Tot = cell('fnc:gap2tot', 'Method 2: total gap', () => `SUM(${rng(gap2)})`);
     const ebitdaBase = row('fnc:ebitdabase', 'revenue less opex (P&L)', (t) => `${visCell(PL, 'pl|__all__||Total Revenue', t)}+${visCell(PL, 'pl|__all__||Total Operating Expenses', t)}`);
 
-    // Capitalised interest: land area and construction window of each non-companion asset.
-    const idcAssets = visible.filter((a) => a.isCompanion !== true);
+    // Capitalised interest: land area and construction window of each asset that shares it, by the
+    // ONE rule the engine calls (sharesCapitalisedInterest: a retail strip shares, an Operate companion does not).
+    const idcAssets = visible.filter(sharesCapitalisedInterest);
     const sqmOf = (a: Asset): string => (has(`land:${a.id}:sqm`) ? `MAX(0,N(${w.ref(`land:${a.id}:sqm`)}))` : '0');
     const winRow = new Map<string, number>();
     for (const a of idcAssets) {
@@ -351,7 +353,7 @@ export const stage6Financing: LiveLayer = {
     const sqmCell = (a: Asset): string => w.refA(C(winRow.get(a.id)!, 4));
     const winAssets = idcAssets.filter((a) => winRow.has(a.id));
     const activeDenom = row('fnc:idcden', 'land sqm of the assets under construction', (t) => winAssets.map((a) => `IF(${inWin(a, t)},${sqmCell(a)},0)`).join('+') || '0');
-    const totalDenom = cell('fnc:idctot', 'land sqm of every non-companion asset', () => winAssets.map(sqmCell).join('+') || '0');
+    const totalDenom = cell('fnc:idctot', 'land sqm of every asset that shares capitalised interest', () => winAssets.map(sqmCell).join('+') || '0');
 
     // The cost of sales each Sell plot releases, on its line's recognition.
     const sellParts = visible.filter((a) => has(`cosc:${a.id}:capex`));
@@ -361,7 +363,7 @@ export const stage6Financing: LiveLayer = {
     const faLines = planReportLines({ assets: state.assets, phases: state.phases, parcels: state.parcels }, (a) => snap.fixedAssets.byAsset.has(a.id));
     const lifeKeyOf = new Map<string, string>();
     for (const l of faLines) for (const id of l.assetIds) if (has(`schc:${l.assetIds[0]}:life`)) lifeKeyOf.set(id, `schc:${l.assetIds[0]}:life`);
-    const heldIdc = held.filter((a) => a.isCompanion !== true);
+    const heldIdc = held.filter(sharesCapitalisedInterest);
 
     // ── ONE SOLVE ────────────────────────────────────────────────────────────
     interface Block {

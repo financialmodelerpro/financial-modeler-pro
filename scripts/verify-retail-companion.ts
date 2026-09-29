@@ -48,6 +48,7 @@ import type { Asset, SubUnit, SubUnitCategory, SubUnitMetric } from '../src/hubs
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { buildCapexReport } from '../src/hubs/modeling/platforms/refm/lib/reports/capexReports';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
+import { sharesCapitalisedInterest } from '../src/core/calculations/capitalisedInterest';
 import {
   normaliseAssetTypeId, resolveAssetTypeValues, resolveAvgUnitSize, resolveRetailSlotArea,
 } from '../src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards';
@@ -394,9 +395,13 @@ function offlineChecks(): void {
   // The EXCLUSIONS stay: a companion is still filtered out of land, cost and
   // the consolidation groupings, which is a different question from what KIND
   // of asset it is.
-  check('E3 the exclusions that make a companion free are UNTOUCHED',
-    /if \(a\.visible === false \|\| a\.isCompanion === true\) continue;/
-      .test(readFileSync('src/hubs/modeling/platforms/refm/lib/financials-resolvers.ts', 'utf8'))
+  // RE-AIMED 2026-09-29: this pinned the source line that skipped EVERY companion in the capitalised
+  // interest split, written while the strip was free. Since step 6 the strip carries capex, and the
+  // line was the defect that left it out of the split. The rule is now one function: the companion
+  // that IS free (the Operate one) stays out; a retail strip shares (verify-idc-participants).
+  check('E3 the free companion (Operate) stays out of the interest split, by the one rule, and consolidation still skips companions',
+    !sharesCapitalisedInterest({ isCompanion: true }) && sharesCapitalisedInterest({ isCompanion: true, companionType: 'retail' })
+    && /sharesCapitalisedInterest\(a\)/.test(readFileSync('src/hubs/modeling/platforms/refm/lib/financials-resolvers.ts', 'utf8'))
     && /if \(a\.isCompanion === true\) continue;/
       .test(readFileSync('src/core/calculations/consolidation.ts', 'utf8')));
 }

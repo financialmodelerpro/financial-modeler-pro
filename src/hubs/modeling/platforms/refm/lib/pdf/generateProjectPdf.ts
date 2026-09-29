@@ -101,6 +101,7 @@ import { computeFundingBasis } from '../reports/fundingBasis';
 import { countryLabel } from '@/src/core/countries';
 import { deriveCostStage, isLandValueLine } from '@/src/core/calculations';
 import { buildFinancingScheduleTables, buildCashSweepTables, buildIdcAllocationTables } from '../reports/financingReports';
+import { CAPITALISED_INTEREST_RULE } from '@/src/core/calculations/capitalisedInterest';
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildCaseComparisonReport, type CaseComparisonInput, type CaseComparisonReport } from '../reports/caseComparisonReport';
 import { poolMapByLine, poolCapexByLine, poolReturnRows, lineHosts, fixHospitalityRates, fixLeaseRates, poolRevenueBasisByLine, poolSaleCohortByLine, type PooledCapexInputLine } from '../reports/lineRows';
@@ -2270,6 +2271,7 @@ function buildModule1(
   for (const t of buildIdcAllocationTables(snap, state, fmtFn)) {
     items.push(tTable(M1_TABS.finSchedules, 'schedules', m4RowsToPeriodTable(t.title, py, yl, t.rows)));
   }
+  items.push(tPara(M1_TABS.finSchedules, 'schedules', 'How capitalised interest is shared', CAPITALISED_INTEREST_RULE));
   {
     const idc = snap.idc;
     const withDisposal = idcWithDisposal(idc, disposalContextOf(snap));

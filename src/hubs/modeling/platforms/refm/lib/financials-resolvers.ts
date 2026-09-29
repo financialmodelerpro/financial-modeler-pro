@@ -53,6 +53,7 @@ import {
   computePhaseTimeline,
 } from '@/src/core/calculations';
 import { areaTiers } from '@/src/core/calculations/areaTiers';
+import { sharesCapitalisedInterest } from '@/src/core/calculations/capitalisedInterest';
 import { collectionsForAsset, phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
 import type { Module1Store } from './state/module1-store';
 import type { Asset, Phase, FinancingTranche } from './state/module1-types';
@@ -587,7 +588,7 @@ export function computeIdcSnapshot(
   let totalShareDenom = 0;
   const constructionWindow = new Map<string, { startIdx: number; endIdx: number }>();
   for (const a of assets) {
-    if (a.visible === false || a.isCompanion === true) continue;
+    if (!sharesCapitalisedInterest(a)) continue;
     const landSqm = Math.max(0, computeAssetLandSqm(a, parcels, assets, subUnits, landAllocationMode));
     // THE ASSETS TAB'S TOTAL GFA (2026-09-29), through the one area rule: the basis summed the
     // sub-units alone (computeAssetBua), so a plot whose areas the land chain derives was shared on
@@ -611,7 +612,7 @@ export function computeIdcSnapshot(
 
   const byAssetIDC = new Map<string, AssetIDCRow>();
   for (const a of assets) {
-    if (a.visible === false || a.isCompanion === true) continue;
+    if (!sharesCapitalisedInterest(a)) continue;
     const sqm = assetShare.get(a.id) ?? 0;
     byAssetIDC.set(a.id, {
       assetId: a.id,
@@ -672,7 +673,7 @@ export function computeIdcSnapshot(
   const idcDeprecProject = zeros(N);
   const idcNbvProject = zeros(N);
   for (const a of assets) {
-    if (a.visible === false || a.isCompanion === true) continue;
+    if (!sharesCapitalisedInterest(a)) continue;
     if (a.strategy !== 'Operate' && a.strategy !== 'Lease') continue;
     const idc = byAssetIDC.get(a.id);
     if (!idc || idc.totalIdc <= 0) continue;

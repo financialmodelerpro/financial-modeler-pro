@@ -96,6 +96,7 @@ import { assetPlotLabel } from '@/src/core/calculations/assetName';
 import { deriveCostStage, isLandValueLine } from '@/src/core/calculations';
 import { CAPEX_PHASING_SOURCE_LABELS, FUNDING_METHOD_DESCRIPTIONS, REPAYMENT_METHOD_LABELS, DEFAULT_PROJECT_FINANCING_CONFIG } from '../state/module1-types';
 import { buildIdcAllocationTables } from '../reports/financingReports';
+import { CAPITALISED_INTEREST_RULE } from '@/src/core/calculations/capitalisedInterest';
 import { computeFundingBasis } from '../reports/fundingBasis';
 import { buildPartiesTable, PARTIES_TITLE, PARTIES_EMPTY_TEXT } from '../reports/partiesReport';
 import type { Party } from '../parties';
@@ -3564,7 +3565,7 @@ function addFinancing(ctx: EmitCtx): FinLinks {
   for (const table of schedTables) {
     if (table.title === 'Equity Movement') {
       for (const it of idcTables) { emitTable(it); r += 1; }
-      note(`Grand total ${Math.round(sum(snap.idc.totalIdcPerPeriod)).toLocaleString('en-US')} allocated by ${snap.idc.allocationBasis === 'bua' ? 'GFA share' : 'land share'}. Construction-active assets drive the per-period weights.`);
+      note(`Grand total ${Math.round(sum(snap.idc.totalIdcPerPeriod)).toLocaleString('en-US')} allocated by ${snap.idc.allocationBasis === 'bua' ? 'GFA share' : 'land share'}. ${CAPITALISED_INTEREST_RULE}`);
       group = undefined;
     }
     if (table.group && table.group !== group) groupBand(table.group);
