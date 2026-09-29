@@ -19,6 +19,7 @@ import { isRetailCompanion } from '@/src/core/calculations/retailCompanion';
 import { resolveAssetAreaMetrics, computeAssetUnitCount } from '@/src/core/calculations';
 import { resolveAssetKeys, resolveAssetLeasableSqm } from '../../revenue-resolvers';
 import type { FinancialsResolverState } from '../../financials-resolvers';
+import { resolveAssetTypeKey, resolveAssetTypeValues } from '../../state/assetTypeStandards';
 import type { Asset, SubUnit } from '../../state/module1-types';
 
 /** A figure twice: the Excel formula, and its value over the platform's cells. */
@@ -102,7 +103,9 @@ export function liveAssetAreas(tools: FigureTools, state: Pick<FinancialsResolve
       // of the rows' stated sizes where any is stated, else the TYPE's (resolveAvgUnitSize).
       const keys = a.strategy === 'Operate' ? (() => {
         const sizes = rows.map((u) => cellX(`su:${u.id}:unit`)).filter((x): x is X => !!x);
-        const typeSize = a.assetTypeId ? cellX(`type:${a.assetTypeId}:unit`) : null;
+        // The type is found by the platform's one rule (the stored reference, else the label).
+        const typeKey = resolveAssetTypeKey(a);
+        const typeSize = typeKey ? cellX(`type:${typeKey}:unit`) : null;
         // 0+ COERCES the count to a number: a lone (x>0) stays a BOOLEAN, and Excel ranks
         // every boolean above every number, so FALSE>0 is TRUE and the size divided by FALSE.
         const posCount = { f: sizes.length ? `(0+${sizes.map((s) => `(${s.f}>0)`).join('+')})` : '0', v: sizes.filter((s) => s.v > 0).length };
@@ -118,7 +121,7 @@ export function liveAssetAreas(tools: FigureTools, state: Pick<FinancialsResolve
         const x = all(perRow); return x ? add(x) : null;
       })() : { f: '0', v: 0 };
       const leasable = a.strategy === 'Lease' ? (() => { const x = all(rows.map((u) => su(u, 'area'))); return x ? add(x) : null; })() : { f: '0', v: 0 };
-      const typeValues = a.assetTypeId ? state.project.assetTypeValues?.[a.assetTypeId] : undefined;
+      const typeValues = resolveAssetTypeValues(a, state.project.assetTypeValues);
       const want: Record<string, number> = {
         bua: m.bua, gfa: m.gfa, nsa: m.nsa,
         units: sell ? computeAssetUnitCount(a, subUnits) : 0,
