@@ -46,11 +46,13 @@ import {
 import {
   computeAssetLandSqm,
   computeAssetBua,
+  resolveAssetAreaMetrics,
   computeAssetCost,
   operationsStartIndex,
   resolveUsefulLifeYears,
   computePhaseTimeline,
 } from '@/src/core/calculations';
+import { areaTiers } from '@/src/core/calculations/areaTiers';
 import { collectionsForAsset, phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
 import type { Module1Store } from './state/module1-store';
 import type { Asset, Phase, FinancingTranche } from './state/module1-types';
@@ -587,7 +589,10 @@ export function computeIdcSnapshot(
   for (const a of assets) {
     if (a.visible === false || a.isCompanion === true) continue;
     const landSqm = Math.max(0, computeAssetLandSqm(a, parcels, assets, subUnits, landAllocationMode));
-    const buaSqm = Math.max(0, computeAssetBua(a, subUnits));
+    // THE ASSETS TAB'S TOTAL GFA (2026-09-29), through the one area rule: the basis summed the
+    // sub-units alone (computeAssetBua), so a plot whose areas the land chain derives was shared on
+    // a different area from the one the Assets tab, Capex and every report show for it.
+    const buaSqm = Math.max(0, areaTiers(resolveAssetAreaMetrics(a, project, parcels, assets.filter((x) => x.visible !== false && x.phaseId === a.phaseId), subUnits, landAllocationMode)).totalGfaSqm);
     physicalLand.set(a.id, landSqm);
     physicalBua.set(a.id, buaSqm);
     const sqm = allocationBasis === 'bua' ? buaSqm : landSqm;

@@ -36,7 +36,6 @@ import { buildModelWorkbook } from '../src/hubs/modeling/platforms/refm/lib/exce
 import { buildFormulaWorkbook } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
 import { generateProjectPdf, generateSummaryPdf } from '../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf';
 import { buildIdcAllocationTables } from '../src/hubs/modeling/platforms/refm/lib/reports/financingReports';
-import { SUB_UNIT_CATEGORIES } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
 let pass = 0, fail = 0;
 const failures: string[] = [];
@@ -132,9 +131,15 @@ const tierOfWord = (label: string): 'bua' | 'gfa' | null => (/\bBUA\b/.test(labe
   check('F1 Table 7: the column headed GFA divides by GFA and the one headed BUA by BUA, on every line', cps.lines.length > 0 && t7Bad.length === 0, t7Bad.slice(0, 4).join('; '));
 
   // ── G. The IDC basis: its area is the sub-units, which hold no parking ────────
-  check('G1 no sub-unit category is parking, so a sub-unit sum is at most GFA', !SUB_UNIT_CATEGORIES.some((c) => /park/i.test(c)));
+  // The IDC's area IS the Assets tab's Total GFA, asset by asset (2026-09-29: it summed the sub-units, so a
+  // plot the land chain derives was shared on a different area from the one every other surface shows).
   const buaCase = { ...st, project: { ...st.project, idcConfig: { ...(st.project.idcConfig ?? {}), allocationBasis: 'bua' } } };
-  const idcTables = quiet(() => buildIdcAllocationTables(computeFinancialsSnapshot(buaCase), buaCase, (v) => String(v)));
+  const buaSnap: any = quiet(() => computeFinancialsSnapshot(buaCase));
+  const idcBad = vis.filter((a: any) => a.isCompanion !== true).filter((a: any) => !near(buaSnap.idc.byAsset.get(a.id)?.physicalBuaSqm ?? -1, byId.get(a.id)!.totalGfaSqm));
+  const derivedPlot = vis.some((a: any) => a.isCompanion !== true && a.derivedAreas?.totalGfaSqm !== undefined);
+  check('G1 the IDC area of every asset is its Total GFA on the Assets tab (and a plot here derives its GFA, so the rule is exercised)', derivedPlot && idcBad.length === 0,
+    idcBad.map((a: any) => `${a.id}: ${buaSnap.idc.byAsset.get(a.id)?.physicalBuaSqm} vs ${byId.get(a.id)!.totalGfaSqm}`).join('; '));
+  const idcTables = quiet(() => buildIdcAllocationTables(buaSnap, buaCase, (v) => String(v)));
   const idcText = JSON.stringify(idcTables.filter((t: any) => /IDC Allocation/.test(t.title)));
   check('G2 so the IDC area basis is named GFA wherever it prints, never BUA', idcText.includes('GFA Area') && !/BUA (Area|share|\d)/.test(idcText));
 
