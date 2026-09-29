@@ -2,7 +2,18 @@
 
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
-## START HERE 2026-09-28 (close): THE FINANCING IS LIVE FOR EVERY STRUCTURE THE FOUNDER LISTED EXCEPT F
+## START HERE 2026-09-29: THE LIVE WORKBOOK'S REFUSED LIST IS SETTLED
+
+**DONE (detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-29):** GFA / BUA printed through one rule on every surface;
+no dividend policy live; existing loans raised inside the model and year-on-year repayment live. **LEFT REFUSED
+BY DECISION** until a real project needs them: Method 4, exit multiple and perpetuity (cap rate covers the buyers),
+balloon and custom repayment, fund fees on NAV (F: no fee can be charged on NAV today). **OPEN, founder's call:**
+(1) always print a zero "Dividends paid" row on the Cash Flow, so a no-dividend workbook can switch dividends on;
+(2) the IDC GFA basis sums sub-units, not the Assets tab's derived GFA; (3) an existing loan raised BEFORE the model
+starts, on a project without existing operations, leaves the platform's balance sheet out by the loan (open item 1
+family); (4) three source-reading verifiers fail on a CRLF checkout (a fresh Windows clone).
+
+## 2026-09-28 (close): THE FINANCING IS LIVE FOR EVERY STRUCTURE THE FOUNDER LISTED EXCEPT F
 
 **DONE (detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-28):** B (any number of loans), C (fixed repayment: annuity,
 equal principal, bullet), D (parcel funding), E (dividends on EBITDA), G (a typed fund size), A (Methods 1 and 2),

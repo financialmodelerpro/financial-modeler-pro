@@ -2076,7 +2076,8 @@ function DebtRequiredTable(p: DebtReqProps): React.JSX.Element {
   const existingOpeningTotal = (() => {
     let s = 0;
     for (const t of p.tranches) {
-      if (t.origin === 'existing') s += Math.max(0, t.openingBalance ?? 0);
+      // The engine's opening balance: zero for an existing loan raised inside the model, which it draws instead.
+      if (t.origin === 'existing') s += Math.max(0, p.facilities.get(t.id)?.openingBalance ?? 0);
     }
     return s;
   })();

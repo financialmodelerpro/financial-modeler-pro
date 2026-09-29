@@ -3009,6 +3009,24 @@ a tier reads through it. The engine's names stay: nobody sees them.
 every surface at once, and prove the model can tell them apart (parking > 0). `verify-area-tier-labels`
 (22; the old code fails 17).
 
+### 7.60 A display that re-derives what the engine decided: an existing loan shown twice
+
+**Symptom (2026-09-29):** an existing loan of 200m raised inside the model's years showed a Cash Flow total of
+400m, a Debt Movement table that opened at the loan in year one and then drew it again, and an "Existing Debt
+(pre-axis)" row, while the balance sheet balanced to the cent.
+
+**Mechanism:** the engine decides once that only a loan raised BEFORE the model starts is prior-column debt
+(`buildExistingAggregate`, which says counting an in-model loan too "would double-count"). Five display sites
+(both Cash Flow views, the Debt Movement table, the workbook, the PDF, the Financing screen) summed
+`openingBalance` over every existing loan instead of reading that decision. The balance sheet reads the
+engine, so no reconciliation fired, and no live project has an existing loan, so no screen showed it.
+
+**Fix:** every site reads the engine's own figure (`existing.debtOutstandingTotal`, a facility's
+`openingBalance`, which is zero for a loan the engine draws).
+
+**The trap to avoid:** a presentation that restates an engine rule from the inputs. It agrees until the one
+case the rule exists for. Found by proving the live workbook against the platform on a copy with that shape.
+
 ## 8. Registries and two-step registration
 
 ### 8.1 A template registered in one place and not the other fails silently and permanently

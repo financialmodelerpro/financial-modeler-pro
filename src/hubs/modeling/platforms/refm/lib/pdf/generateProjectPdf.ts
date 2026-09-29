@@ -2235,9 +2235,8 @@ function buildModule1(
       }));
     }
     const newTranches = state.financingTranches.filter((t) => t.origin !== 'existing');
-    const existingOpeningTotal = state.financingTranches
-      .filter((t) => t.origin === 'existing')
-      .reduce((s, t) => s + Math.max(0, t.openingBalance ?? 0), 0);
+    // The engine's prior-column debt: an existing loan raised inside the model is a draw, not an opening balance.
+    const existingOpeningTotal = snap.financing.existing.debtOutstandingTotal;
     const idcNew = new Array<number>(yl.length).fill(0);
     const debtRows: PdfTableRow[] = [];
     if (existingOpeningTotal > 0) {

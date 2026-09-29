@@ -57,7 +57,8 @@ export function buildFinancingScheduleTables(snap: ProjectFinancialsSnapshot, st
   const debtMovement = (t: (typeof state.financingTranches)[number], group: string): void => {
     const f = fin.facilities.get(t.id)!;
     const isExisting = t.origin === 'existing';
-    const priorBal = isExisting ? Math.max(0, t.openingBalance ?? 0) : 0;
+    // The engine's opening balance: zero for an existing loan raised inside the model, which it draws instead.
+    const priorBal = isExisting ? Math.max(0, f.openingBalance ?? 0) : 0;
     const closing = sliceN(f.outstanding, N);
     const opening = openingSeries(closing, priorBal);
     const draw = sliceN(f.drawSchedule, N);

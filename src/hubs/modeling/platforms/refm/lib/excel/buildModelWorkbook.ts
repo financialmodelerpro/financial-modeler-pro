@@ -1001,7 +1001,8 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       setInput(ws.getCell(`D${r}`), rate / 100, NUMFMT.pct2);
       setInput(ws.getCell(`E${r}`), String(t.drawdownMethod ?? '-'), '@');
       setInput(ws.getCell(`F${r}`), String(t.repaymentMethod ?? '-'), '@');
-      setInput(ws.getCell(`G${r}`), t.repaymentPeriods ?? 0, NUMFMT.int);
+      // An existing loan's periods are its REMAINING ones, as the Financing sheet and the engine read them.
+      setInput(ws.getCell(`G${r}`), (t.origin === 'existing' ? t.remainingRepaymentPeriods : t.repaymentPeriods) ?? 0, NUMFMT.int);
       setInput(ws.getCell(`H${r}`), t.idcCapitalize ? 1 : 0, NUMFMT.int);
       setInput(ws.getCell(`I${r}`), t.repaymentStartYear ?? 0, NUMFMT.year);
       setInput(ws.getCell(`J${r}`), t.interestStartYear ?? 0, NUMFMT.year);
@@ -1019,14 +1020,45 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
         // door and the Financing sheet's copy echoes it; untyped, both are fixed (2026-09-29: the
         // Financing copy was a shaded duplicate nothing read).
         registerCell(`tr:${t.id}:share`, ws, ws.getCell(`L${r}`));
-        const sharesTyped = state.financingTranches.some((x) => typeof x.facilitySharePct === 'number');
+        const sharesTyped = state.financingTranches.some((x) => x.origin !== 'existing' && typeof x.facilitySharePct === 'number');
         if (sharesTyped) registerCell(`inp=${FIN(sec, 'Facility Share %')}`, ws, ws.getCell(`L${r}`));
-        for (const col of [3, 8, 10, 11, ...(sharesTyped ? [] : [12])]) fixedAt(r, col, 'The live financing solve is built for one new facility repaid by the cash sweep, as exported.');
+        // An existing loan (2026-09-29): its opening balance and interest start year are typed here
+        // and the Financing sheet echoes them; its origination year is the one the workbook is built for.
+        const ex = t.origin === 'existing';
+        if (ex) {
+          registerCell(`inp=${FIN(sec, 'Opening Balance')}`, ws, ws.getCell(`C${r}`));
+          registerCell(`inp=${FIN(sec, 'Interest Start Year')}#auto`, ws, ws.getCell(`J${r}`));
+        }
+        for (const col of [...(ex ? [] : [3, 10]), 8, 11, ...(sharesTyped && !ex ? [] : [12])]) fixedAt(r, col, 'The live financing solve is built for one new facility repaid by the cash sweep, as exported.');
+        // A year-on-year loan repays on its schedule (the strip below), not over a count of periods.
+        if (t.repaymentMethod === 'year_on_year_pct') fixedAt(r, 7, 'A year-on-year loan repays on its schedule (the year-on-year strip below), not over a count of periods; the platform reads no periods for it.');
       }
       trancheRefs.push({ id: t.id, name: t.name, openingBalance: addr('C', r), rate: addr('D', r), periods: addr('G', r) });
       r += 1;
     }
     r += 1;
+    // YEAR-ON-YEAR REPAYMENT, typed per year (2026-09-29): the door for each loan's schedule on
+    // the Financing sheet, year for year, so it is typed here like every other input.
+    const yoyLoans = state.financingTranches.filter((t) => t.repaymentMethod === 'year_on_year_pct');
+    if (yoyLoans.length) {
+      const nY = snap.axisLength;
+      setSectionHeader(ws.getRow(r), 'Year-on-year repayment % (share of the loan repaid each year, from its repayment start)', 1 + nY); r += 1;
+      setColHeader(ws.getCell(r, 1), 'Facility', 'left');
+      for (let i = 0; i < nY; i++) setColHeader(ws.getCell(r, 2 + i), String(snap.projectStartYear + i), 'right');
+      r += 1;
+      for (const t of yoyLoans) {
+        const repayStart = t.repaymentStartYear ?? (t.origin === 'existing' ? snap.projectStartYear : defaultRepayStartYearOf(state, snap.projectStartYear, snap.financing.axis.totalPeriods));
+        const sched = t.yearOnYearPctSchedule ?? [];
+        setLabel(ws.getCell(`A${r}`), t.name);
+        for (let i = 0; i < nY; i++) {
+          const k = snap.projectStartYear + i - repayStart;
+          setInput(ws.getCell(r, 2 + i), k >= 0 ? (sched[k] ?? 0) / 100 : 0, NUMFMT.pct);
+          registerCell(`inp=fin|${t.name} (${t.origin === 'existing' ? 'existing' : 'new'} facility)|Year-on-Year % Schedule@${PERIOD_COLS.OPEN_COL + 1 + i}`, ws, ws.getCell(r, 2 + i));
+        }
+        r += 1;
+      }
+      r += 1;
+    }
   }
 
   // Equity contributions.
@@ -1856,7 +1888,13 @@ const LBL_COL = 1;            // A  row label
 const META_B = 2, META_C = 3; // B, C  (Capex: UOM, Rate; period sheets: spacers)
 const TOTAL_COL = 4;          // D  Total
 const OPEN_COL = 5;           // E  Opening / Period 0 / Dec(startYear - 1)
-const pcol = (t: number): number => OPEN_COL + 1 + t;        // F.. active period t
+const pcol = (t: number): number => OPEN_COL + 1 + t;
+/** The repayment start the Financing sheet shows for a new loan left on auto (Inputs aligns its
+ *  year-on-year strip to the same year, so the two sheets show one schedule). */
+function defaultRepayStartYearOf(state: FinancialsResolverState, projectStartYear: number, totalPeriods: number): number {
+  const maxCp = state.phases.reduce((m, p) => Math.max(m, p.constructionPeriods ?? 0), 0);
+  return Math.min(projectStartYear + Math.max(0, totalPeriods - 1), projectStartYear + Math.max(1, maxCp));
+}        // F.. active period t
 const lastActiveCol = (N: number): number => OPEN_COL + N;   // last active column
 /** The period sheets' column geometry (period t sits at OPEN_COL + 1 + t), for the live layers. */
 export const PERIOD_COLS = { LBL_COL, META_B, TOTAL_COL, OPEN_COL } as const;
@@ -3401,8 +3439,7 @@ function addFinancing(ctx: EmitCtx): FinLinks {
   if (newTranches.length > 1 && Math.abs(shareSum - 100) >= 0.01) {
     note(`Facility shares total ${shareSum.toFixed(2)}%, not 100%. Shares are used exactly as typed, so the facilities together draw ${shareSum.toFixed(2)}% of the project debt requirement.`);
   }
-  const maxCp = state.phases.reduce((m, p) => Math.max(m, p.constructionPeriods ?? 0), 0);
-  const defaultRepayStartYear = Math.min(operationsEndYear, projectStartYear + Math.max(1, maxCp));
+  const defaultRepayStartYear = defaultRepayStartYearOf(state, projectStartYear, fin.axis.totalPeriods);
   for (const t of state.financingTranches) {
     const isExisting = t.origin === 'existing';
     groupBand(`${t.name} (${isExisting ? 'existing' : 'new'} facility)`);
@@ -3439,7 +3476,7 @@ function addFinancing(ctx: EmitCtx): FinLinks {
     }
     if (!isExisting && newTranches.length > 1) {
       // An input only where a share is typed (the Inputs door echoes here); otherwise the equal split it resolves to.
-      scalar('Facility Share %', (t.facilitySharePct ?? fin.shares.get(t.id) ?? 0) / 100, pctFmt, 'of the project debt requirement', state.financingTranches.some((x) => typeof x.facilitySharePct === 'number'), 1);
+      scalar('Facility Share %', (t.facilitySharePct ?? fin.shares.get(t.id) ?? 0) / 100, pctFmt, 'of the project debt requirement', state.financingTranches.some((x) => x.origin !== 'existing' && typeof x.facilitySharePct === 'number'), 1);
     }
     if (t.repaymentMethod === 'cash_sweep' || t.cashSweepConfig?.enabled === true || t.repaymentMethod === 'cashsweep_from_period' || t.repaymentMethod === 'cashsweep_min_cash') {
       note('Cash sweep starting year and ratio are set once for all loans under 4. Cash Sweep (Cash Sweep Settings). Loans are repaid existing-first, then in the order listed.');
@@ -3486,7 +3523,10 @@ function addFinancing(ctx: EmitCtx): FinLinks {
 
   // 8. Total Debt Required.
   subTitle('8. Total Debt Required');
-  const existingOpeningTotal = state.financingTranches.filter((t) => t.origin === 'existing').reduce((s, t) => s + Math.max(0, t.openingBalance ?? 0), 0);
+  // PRIOR-COLUMN DEBT IS THE ENGINE'S (2026-09-29): an existing loan raised INSIDE the model is drawn
+  // as cash in its year (buildExistingAggregate, computeFacilitySchedule), so only one raised before
+  // the model starts is an opening balance. Summing every existing loan here counted the in-model one twice.
+  const existingOpeningTotal = snap.financing.existing.debtOutstandingTotal;
   if (existingOpeningTotal > 0) emitM4({ label: 'Existing Debt (opening balance, pre-axis)', values: zeros(), priorValue: existingOpeningTotal }, 'Existing facilities, prior column');
   const idcNew = zeros();
   for (const t of newTranches) {

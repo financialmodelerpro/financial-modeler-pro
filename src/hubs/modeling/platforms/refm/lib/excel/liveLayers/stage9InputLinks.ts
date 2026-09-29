@@ -183,6 +183,7 @@ export const stage9InputLinks: LiveLayer = {
       { re: /^revin\|.+\|\|.+$/, col: 5, why: 'The row sells on the other basis; this price is kept for a switch, not used.' },
       { re: /^fin\|.+ facility\)\|(Upfront Fee %|Commitment Fee %)$/, col: 4, why: 'The live financing charges no upfront or commitment fee, as exported.' },
       { re: /^fin\|4\. Land Funding .*\|.+, (Debt|Equity) %$/, col: 4, why: 'Land is funded at the split stated at export.' },
+      { re: /^fin\|.+ \(existing facility\)\|Origination Year$/, col: 4, why: 'The existing loan is drawn in the year it was raised, as exported: a year before the model starts is existing operations, which the live workbook is not built for.' },
       { re: /^retg\|Equity Partners\|(Existing Equity|% share~2)\|\d+$/, why: 'Existing equity belongs to existing operations, which the live workbook is not built for.' },
     ];
     for (const k of allKeys) for (const m of MODULE_FIXED) {

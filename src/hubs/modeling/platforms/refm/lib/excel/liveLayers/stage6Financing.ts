@@ -62,7 +62,9 @@ const PL = 'P&L';
 type F = (t: number) => string;
 
 /** Repayment the live solve expresses: the sweep, and the fixed-count schedules (computeFacilitySchedule). */
-const LIVE_REPAYMENT = new Set(['cash_sweep', 'equal_repayment', 'straight_line', 'equal_periodic_amortization', 'bullet']);
+const LIVE_REPAYMENT = new Set(['cash_sweep', 'equal_repayment', 'straight_line', 'equal_periodic_amortization', 'bullet', 'year_on_year_pct']);
+/** A facility's section on the Financing sheet, by its origin. */
+const bandOf = (t: { name: string; origin?: string }): string => `fin|${t.name} (${t.origin === 'existing' ? 'existing' : 'new'} facility)`;
 const SWEEPS = (t: { repaymentMethod: string; cashSweepConfig?: { enabled?: boolean } }): boolean =>
   t.repaymentMethod === 'cash_sweep' || t.cashSweepConfig?.enabled === true;
 
@@ -111,12 +113,29 @@ export const stage6Financing: LiveLayer = {
     // to existing operations; a schedule typed per year is not yet on any sheet.
     if (!tranches.length) refuse.push('no facility');
     for (const t of tranches) {
-      if (t.origin === 'existing') refuse.push('an existing facility');
+      // EXISTING LOANS (2026-09-29): one raised INSIDE the model's years is drawn as cash in its
+      // origination year (computeFacilitySchedule) and is live. One raised BEFORE the model starts
+      // carries into the prior column, which is existing operations; on a project without them the
+      // platform's own balance sheet is out by exactly the loan, so there is nothing to prove against.
+      const psyNum = Number(w.platformValue(w.addr('project:axisYear')));
+      if (t.origin === 'existing' && !(Number.isFinite(t.originationYear) && (t.originationYear as number) >= psyNum && (t.originationYear as number) < psyNum + N)) refuse.push('an existing loan raised before the model starts (existing operations)');
+      if (t.origin === 'existing' && !has(`${bandOf(t)}|Opening Balance`)) refuse.push(`the opening balance of ${t.name} is not on the Financing sheet`);
       if (!LIVE_REPAYMENT.has(t.repaymentMethod)) refuse.push(`repayment method ${t.repaymentMethod}`);
       if (t.interbankRatePct === undefined && t.creditSpreadPct === undefined) refuse.push('a facility rate not stated as interbank plus spread');
       if (t.cashSweepConfig?.startingYear !== undefined || t.cashSweepConfig?.sweepRatio !== undefined) refuse.push('a sweep set on the facility rather than the project');
-      if (!has(`fin|${t.name} (new facility)|Interbank Rate %`)) refuse.push(`the rates of ${t.name} are not on the Financing sheet`);
-      if (!SWEEPS(t) && !has(`fin|${t.name} (new facility)|Repayment Periods`)) refuse.push(`the repayment terms of ${t.name} are not on the Financing sheet`);
+      if (!has(`${bandOf(t)}|Interbank Rate %`)) refuse.push(`the rates of ${t.name} are not on the Financing sheet`);
+      const yoyLoan = t.repaymentMethod === 'year_on_year_pct' && !SWEEPS(t);
+      if (!SWEEPS(t) && !yoyLoan && !has(`${bandOf(t)}|Repayment Periods`)) refuse.push(`the repayment terms of ${t.name} are not on the Financing sheet`);
+      if (yoyLoan) {
+        // YEAR-ON-YEAR (2026-09-29): the schedule is typed per year on the Financing row, k = 0 in
+        // the repayment start year as exported. A stored schedule longer than that row shows
+        // would hold years the workbook cannot see.
+        const yk = `${bandOf(t)}|Year-on-Year % Schedule`;
+        const shownStart = has(`${bandOf(t)}|Repayment Start Year`) ? Number(w.platformValue(w.addr(`${bandOf(t)}|Repayment Start Year`, PERIOD_COLS.TOTAL_COL))) : NaN;
+        const room = N - (shownStart - Number(w.platformValue(w.addr('project:axisYear'))));
+        if (!has(yk) || !Number.isFinite(shownStart)) refuse.push(`the year-on-year schedule of ${t.name} is not on the Financing sheet`);
+        else if ((t.yearOnYearPctSchedule ?? []).some((v, i) => i >= room && (v ?? 0) > 0)) refuse.push(`a year-on-year schedule of ${t.name} longer than the years the workbook shows`);
+      }
     }
     if (new Set(tranches.map((t) => t.name)).size !== tranches.length) refuse.push('two facilities with the same name');
     // PARCEL FUNDING (2026-09-28, stage D): a plot's land cash split between debt and
@@ -231,35 +250,47 @@ export const stage6Financing: LiveLayer = {
     const divBase = (ebRow: number, ex: string, t: number): string => (onEbitda ? `MAX(0,${at(ebRow, t)})` : ex);
     // ── THE FACILITIES, in the order the engine consumes the shared budgets
     //    (computeFinancing: existing first, then sweep priority ascending, stable).
-    const ordered = tranches.map((t, i) => ({ t, i })).sort((a, b) => ((a.t.cashSweepConfig?.priority ?? 100) - (b.t.cashSweepConfig?.priority ?? 100)) || (a.i - b.i)).map((x) => x.t);
-    const anyShareTyped = tranches.some((t) => typeof t.facilitySharePct === 'number');
+    const exFirst = (t: { origin?: string }): number => (t.origin === 'existing' ? 0 : 1);
+    const ordered = tranches.map((t, i) => ({ t, i })).sort((a, b) => (exFirst(a.t) - exFirst(b.t)) || ((a.t.cashSweepConfig?.priority ?? 100) - (b.t.cashSweepConfig?.priority ?? 100)) || (a.i - b.i)).map((x) => x.t);
+    const newCount = Math.max(1, tranches.filter((t) => t.origin !== 'existing').length);
+    const anyShareTyped = tranches.some((t) => t.origin !== 'existing' && typeof t.facilitySharePct === 'number');
     const fac = ordered.map((t, j) => {
-      const band = `fin|${t.name} (new facility)`;
+      const band = bandOf(t);
       const K2 = (s: string): string => `fnc:tr:${t.id}:${s}`;
       const rate = cell(j === 0 ? 'fnc:rate' : K2('rate'), `${t.name}: rate`, () => `MAX(0,N(${inp(`${band}|Interbank Rate %`)})+N(${inp(`${band}|Credit Spread %`)}))`);
       if (j === 0 && tranches.length > 1) w.claim(K2('rate'), CALC, rate, 1);
       // The share of the debt requirement: as typed on Inputs, or an equal split where none is (resolveFacilityShares).
-      const share = cell(K2('share'), `${t.name}: share of the debt drawn`, () => (anyShareTyped && has(`tr:${t.id}:share`) ? `MAX(0,N(${w.ref(`tr:${t.id}:share`)}))` : String(1 / tranches.length)));
+      const isEx = t.origin === 'existing';
+      const share = cell(K2('share'), `${t.name}: share of the debt drawn`, () => (isEx ? '0' : anyShareTyped && has(`tr:${t.id}:share`) ? `MAX(0,N(${w.ref(`tr:${t.id}:share`)}))` : String(1 / newCount)));
       const sweeps = SWEEPS(t);
       // Repayment start: typed, or construction end where it was left on auto (the value shown at export).
       const startKey = `${band}|Repayment Start Year`;
       const start = cell(K2('rs'), `${t.name}: repayment start index`, () => {
         if (!has(startKey) || t.repaymentStartYear === undefined) {
-          if (!has(startKey)) return `MAX(0,MIN(${N},${sc3(cend)}))`;
+          // Left on auto: construction end for a new loan, the project's first year for an existing one.
+          const auto = isEx ? '0' : `MAX(0,MIN(${N},${sc3(cend)}))`;
+          if (!has(startKey)) return auto;
           const shown = Number(w.platformValue(w.addr(startKey, PERIOD_COLS.TOTAL_COL)));
-          return `IF(N(${inp(startKey)})=${shown},MAX(0,MIN(${N},${sc3(cend)})),MAX(0,MIN(${N},N(${inp(startKey)})-YEAR(${w.ref('project:startDate')}))))`;
+          return `IF(N(${inp(startKey)})=${shown},${auto},MAX(0,MIN(${N},N(${inp(startKey)})-YEAR(${w.ref('project:startDate')}))))`;
         }
         return `MAX(0,MIN(${N},N(${inp(startKey)})-YEAR(${w.ref('project:startDate')})))`;
       });
       // Periods: 0 repays over the rest of the model for a fixed-count method.
       const perKey = `${band}|Repayment Periods`;
+      // An existing loan takes no fallback: 0 periods means the whole balance at the last year.
       const periods = cell(K2('n'), `${t.name}: repayment periods`, () => (sweeps || !has(perKey) ? '0'
-        : `IF(MAX(0,N(${inp(perKey)}))>0,MAX(0,N(${inp(perKey)})),MAX(0,${N}-${sc3(start)}))`));
+        : isEx ? `MAX(0,N(${inp(perKey)}))`
+          : `IF(MAX(0,N(${inp(perKey)}))>0,MAX(0,N(${inp(perKey)})),MAX(0,${N}-${sc3(start)}))`));
+      // An existing loan: its balance drawn in the origination year (as exported), interest from its start year.
+      const orig = isEx ? Math.max(0, Math.min(N - 1, (t.originationYear as number) - Number(w.platformValue(w.addr('project:axisYear'))))) : -1;
+      const ob = isEx ? cell(K2('ob'), `${t.name}: opening balance`, () => `MAX(0,N(${inp(`${band}|Opening Balance`)}))`) : 0;
+      const isStart = isEx ? cell(K2('is'), `${t.name}: interest start index`, () => (has(`${band}|Interest Start Year`) ? `MAX(0,N(${inp(`${band}|Interest Start Year`)})-${AXIS()})` : '0')) : 0;
       const sub = t.repaymentMethod === 'equal_repayment' ? (t.equalRepaymentSubMethod ?? 'equal_total') : '';
-      const kind: 'sweep' | 'annuity' | 'principal' | 'bullet' = sweeps ? 'sweep'
+      const kind: 'sweep' | 'annuity' | 'principal' | 'bullet' | 'yoy' = sweeps ? 'sweep'
+        : t.repaymentMethod === 'year_on_year_pct' ? 'yoy'
         : t.repaymentMethod === 'bullet' ? 'bullet'
           : t.repaymentMethod === 'equal_periodic_amortization' || sub === 'equal_total' ? 'annuity' : 'principal';
-      return { t, K2, rate, share, start, periods, kind, sweeps };
+      return { t, K2, rate, share, start, periods, kind, sweeps, isEx, orig, ob, isStart };
     });
 
     // Capex on the axis, from the Cash Flow's own rows (cash, and in kind).
@@ -341,6 +372,8 @@ export const stage6Financing: LiveLayer = {
     interface Block {
       idc: Map<string, number>; idcDepProj: number; idcAddHeld: number; idcNbvProj: number; idcDisp: number; intExp: number; interest: number;
       draw: number; idcDraw: number; repay: number; equityDev: number; debtReq: number; feeDraw: number; netReq: number; divTotal: number; bal: number; debtBs: number;
+      /** Drawdown (incl. IDC), principal repaid and interest, by origin: the Cash Flow prints them so. */
+      byOrigin: { new: { draw: number; repay: number; princ: number; int: number }; existing: { draw: number; repay: number; princ: number; int: number } | null };
       cos: Map<string, number>; tax: number; idcDepByAsset: Map<string, number>; idcNbvByAsset: Map<string, number>;
     }
     const cachedFrom = (tag: string, a: readonly number[] | undefined): readonly number[] | undefined => (tag === 'main' ? a : undefined);
@@ -449,6 +482,7 @@ export const stage6Financing: LiveLayer = {
         const r = (s: string, label: string): number => claimRow(k(`tr:${f.t.id}:${s}`), L(`${f.t.name}: ${label}`));
         return { f, d: r('draw', 'debt drawn'), bp: r('balpre', 'balance after the draw'), int: r('int', 'interest'), fc: r('fc', 'interest paid from cash'),
           id: r('idc', 'interest drawn as debt'), sch: r('sched', 'scheduled principal'), sw: r('sweep', 'cash sweep'), bal: r('bal', 'balance, closing'),
+          yr: f.kind === 'yoy' ? r('yoy', 'year-on-year %, from the repayment start') : 0, ys: 0,
           td: 0, tol: 0, pmt: 0, fin: 0 };
       });
       for (const p of per) {
@@ -458,6 +492,18 @@ export const stage6Financing: LiveLayer = {
         p.pmt = cell(k(`tr:${p.f.t.id}:pmt`), L(`${p.f.t.name}: scheduled payment`), () => (p.f.kind === 'annuity'
           ? `IF(OR(${n}<=0,${sc3(p.td)}<=0),0,IF(${rt}<=0,${sc3(p.td)}/${n},${sc3(p.td)}*${rt}*(1+${rt})^${n}/((1+${rt})^${n}-1)))`
           : p.f.kind === 'principal' ? `IF(${n}>0,${sc3(p.td)}/${n},0)` : '0'));
+        if (p.f.kind === 'yoy') {
+          // normaliseYoY: the typed % over the repayment years (start to the last year), scaled
+          // to 100; all zero is an equal split. The row is read RELATIVE to the start, as the
+          // engine reads the schedule: k = 0 sits in the start year as exported (s0).
+          const yk = `${bandOf(p.f.t)}|Year-on-Year % Schedule`;
+          const ya = w.addr(yk);
+          const s0 = Number(w.platformValue(w.addr(`${bandOf(p.f.t)}|Repayment Start Year`, PERIOD_COLS.TOTAL_COL))) - Number(w.platformValue(w.addr('project:axisYear')));
+          const row = w.rangeA(ya.sheet, ya.row, pc(0), pc(N - 1));
+          const st = sc3(p.f.start);
+          for (let t = 0; t < N; t++) w.fA(C(p.yr, cT(t)), `IF(AND(${t}>=${st},${t}-${st}+${s0}<=${N - 1},${t}-${st}+${s0}>=0),MAX(0,N(INDEX(${row},${t}-${st}+${s0 + 1}))),0)`);
+          p.ys = cell(k(`tr:${p.f.t.id}:ysum`), L(`${p.f.t.name}: year-on-year %, total`), () => `SUM(${rng(p.yr)})`);
+        }
         // The last scheduled year, when the whole balance is due.
         p.fin = cell(k(`tr:${p.f.t.id}:fin`), L(`${p.f.t.name}: final repayment index`), () => (p.f.sweeps ? String(N - 1)
           : `IF(${n}>0,MIN(${N - 1},${sc3(p.f.start)}+${n}-1),${N - 1})`));
@@ -468,15 +514,18 @@ export const stage6Financing: LiveLayer = {
         w.fA(C(rRunning, cT(t)), `IF(AND(${t}<${sc3(cend)},${at(capexAll, t)}>0),1,0)`);
         per.forEach((p, j) => {
           const before = per.slice(0, j);
-          w.fA(C(p.d, cT(t)), `MAX(0,${at(debtRow, t)})*${sc3(p.f.share)}`);
+          w.fA(C(p.d, cT(t)), p.f.isEx ? (t === p.f.orig ? sc3(p.f.ob) : '0') : `MAX(0,${at(debtRow, t)})*${sc3(p.f.share)}`);
           w.fA(C(p.bp, cT(t)), `${prev(p.bal, t)}+${at(p.d, t)}`);
-          w.fA(C(p.int, cT(t)), `${at(p.bp, t)}*${sc3(p.f.rate)}`);
+          w.fA(C(p.int, cT(t)), p.f.isEx ? `IF(${t}>=${sc3(p.f.isStart)},${at(p.bp, t)}*${sc3(p.f.rate)},0)` : `${at(p.bp, t)}*${sc3(p.f.rate)}`);
           const head = before.length ? `MAX(0,${at(rHead, t)}-(${sumAt(before.map((x) => x.fc), t)}))` : `MAX(0,${at(rHead, t)})`;
-          w.fA(C(p.fc, cT(t)), `IF(${at(rRunning, t)}=1,MIN(${at(p.int, t)},${head}),0)`);
-          w.fA(C(p.id, cT(t)), `IF(${at(rRunning, t)}=1,${at(p.int, t)}-${at(p.fc, t)},0)`);
+          // An existing loan is never capitalised (constructionRunning needs a new loan): its interest is paid and expensed.
+          w.fA(C(p.fc, cT(t)), p.f.isEx ? '0' : `IF(${at(rRunning, t)}=1,MIN(${at(p.int, t)},${head}),0)`);
+          w.fA(C(p.id, cT(t)), p.f.isEx ? '0' : `IF(${at(rRunning, t)}=1,${at(p.int, t)}-${at(p.fc, t)},0)`);
           const owed = `(${at(p.bp, t)}+${at(p.id, t)})`;
           const inWindow = `AND(${t}>=${sc3(p.f.start)},${t}<${sc3(p.f.start)}+${sc3(p.f.periods)})`;
+          const yoyFrac = p.f.kind === 'yoy' ? `IF(${t}>=${sc3(p.f.start)},IF(${sc3(p.ys)}<1E-9,1/MAX(1,${N}-${sc3(p.f.start)}),${at(p.yr, t)}/${sc3(p.ys)}),0)` : '0';
           const due = p.f.kind === 'sweep' || p.f.kind === 'bullet' ? '0'
+            : p.f.kind === 'yoy' ? `MIN(${owed},${sc3(p.td)}*${yoyFrac})`
             : p.f.kind === 'annuity' ? `IF(${inWindow},MIN(${owed},MAX(0,${sc3(p.pmt)}-${at(p.int, t)})),0)`
               : `IF(${inWindow},MIN(${owed},${sc3(p.pmt)}),0)`;
           w.fA(C(p.sch, cT(t)), p.f.kind === 'sweep' ? '0' : `IF(${t}=${sc3(p.fin)},${owed},${due})`);
@@ -484,7 +533,7 @@ export const stage6Financing: LiveLayer = {
         w.fA(C(rDraw, cT(t)), sumAt(per.map((p) => p.d), t), cachedFrom(tag, fin.totalDrawdown) ? { cached: fin.totalDrawdown[t] ?? 0 } : {});
         w.fA(C(rBalPre, cT(t)), sumAt(per.map((p) => p.bp), t));
         w.fA(C(rInterest, cT(t)), sumAt(per.map((p) => p.int), t), tag === 'main' ? { cached: fin.totalInterestAccrued[t] ?? 0 } : {});
-        w.fA(C(rBasis, cT(t)), `IF(${at(rRunning, t)}=1,${at(rInterest, t)},0)`, tag === 'main' ? { cached: fin.totalInterestForAssetBasis[t] ?? 0 } : {});
+        w.fA(C(rBasis, cT(t)), `IF(${at(rRunning, t)}=1,${sumAt(per.filter((p) => !p.f.isEx).map((p) => p.int), t)},0)`, tag === 'main' ? { cached: fin.totalInterestForAssetBasis[t] ?? 0 } : {});
         w.fA(C(rFromCash, cT(t)), sumAt(per.map((p) => p.fc), t));
         w.fA(C(rIdcDraw, cT(t)), sumAt(per.map((p) => p.id), t), tag === 'main' ? { cached: fin.totalIdcDrawdown[t] ?? 0 } : {});
         w.fA(C(rSched, cT(t)), sumAt(per.map((p) => p.sch), t));
@@ -514,6 +563,20 @@ export const stage6Financing: LiveLayer = {
       }
       const exitRepay = row(k('exitrepay'), L('debt repaid at the exit'), (t) => (booked && t === X ? `MAX(0,${at(rBal, t)})` : '0'));
       const repay = row(k('repay'), L('principal repaid (scheduled, sweep and exit)'), (t) => `${at(rSched, t)}+${at(rSweep, t)}+${at(exitRepay, t)}`);
+      // BY ORIGIN (2026-09-29, existing loans): the Cash Flow prints new and existing loans on
+      // their own rows (pushDebtBucket); the two halves sum to the totals above.
+      const originRows = (ex: boolean): { draw: number; repay: number; princ: number; int: number } => {
+        const ps = per.filter((q) => q.f.isEx === ex);
+        const o = ex ? 'existing' : 'new';
+        return {
+          draw: row(k(`draw:${o}`), L(`debt drawn, ${o} loans (incl. interest drawn)`), (t) => `${sumAt(ps.map((q) => q.d), t)}+${sumAt(ps.map((q) => q.id), t)}`),
+          repay: row(k(`repay:${o}`), L(`principal repaid, ${o} loans`), (t) => `${sumAt(ps.map((q) => q.sch), t)}+${sumAt(ps.map((q) => q.sw), t)}${booked && t === X ? `+MAX(0,${sumAt(ps.map((q) => q.bal), t)})` : ''}`),
+          // Principal as the Financing sheet reports it: scheduled plus sweep, the exit repayment apart.
+          princ: row(k(`princ:${o}`), L(`principal repaid (scheduled and sweep), ${o} loans`), (t) => `${sumAt(ps.map((q) => q.sch), t)}+${sumAt(ps.map((q) => q.sw), t)}`),
+          int: row(k(`int:${o}`), L(`interest, ${o} loans`), (t) => sumAt(ps.map((q) => q.int), t)),
+        };
+      };
+      const byOrigin = { new: originRows(false), existing: per.some((q) => q.f.isEx) ? originRows(true) : null };
       // Cash: before dividends, then the waterfall of dividends by phase.
       const cumDiv: F = (t) => (t === 0 ? '0' : `SUM(${rng(rDiv, 0, t - 1)})`);
       for (let t = 0; t < N; t++) {
@@ -546,7 +609,7 @@ export const stage6Financing: LiveLayer = {
         w.fA(C(rClose, cT(t)), `${at(cashBefore, t)}-${at(rDiv, t)}`, tag === 'main' ? { cached: snap.directCF.closingCashPerPeriod[t] ?? 0 } : {});
       }
       const debtBs = row(k('debtbs'), L('debt outstanding (balance sheet)'), (t) => (booked && t >= X ? '0' : at(rBal, t)), cachedFrom(tag, snap.bs.debtOutstandingPerPeriod));
-      return { idc, idcDepProj, idcAddHeld, idcNbvProj, idcDisp, intExp, interest: rInterest, draw: rDraw, idcDraw: rIdcDraw, repay, equityDev, debtReq: debtRow, feeDraw, netReq, divTotal: rDiv, bal: rBal, debtBs, cos, tax, idcDepByAsset, idcNbvByAsset };
+      return { idc, idcDepProj, idcAddHeld, idcNbvProj, idcDisp, intExp, interest: rInterest, draw: rDraw, idcDraw: rIdcDraw, repay, equityDev, debtReq: debtRow, feeDraw, netReq, divTotal: rDiv, bal: rBal, debtBs, cos, tax, idcDepByAsset, idcNbvByAsset, byOrigin };
     };
     // Land cash per period (the fallback split's land): the land value lines, cash half, from the Capex working sheet.
     const P0 = w.addr('cxc:P0').col;
@@ -643,9 +706,15 @@ export const stage6Financing: LiveLayer = {
     cfPending('Equity Drawdown, development', (t) => at(main.equityDev, t));
     cfPending('Equity Drawdown (Cash)', (t) => `${at(main.equityDev, t)}+${at(main.feeDraw, t)}`);
     cfPending('Equity Drawdown, management fee', (t) => at(main.feeDraw, t));
-    cfPending(`Debt Drawdown, New loans`, (t) => `${at(main.draw, t)}+${at(main.idcDraw, t)}`);
-    cfPending(`Debt Repayment, New loans`, (t) => `-${at(main.repay, t)}`);
-    cfPending(`Interest Paid, New loans`, (t) => `-${at(main.interest, t)}`);
+    cfPending(`Debt Drawdown, New loans`, (t) => at(main.byOrigin.new.draw, t));
+    cfPending(`Debt Repayment, New loans`, (t) => `-${at(main.byOrigin.new.repay, t)}`);
+    cfPending(`Interest Paid, New loans`, (t) => `-${at(main.byOrigin.new.int, t)}`);
+    const exo = main.byOrigin.existing;
+    if (exo) {
+      cfPending(`Debt Drawdown, Existing loans`, (t) => at(exo.draw, t));
+      cfPending(`Debt Repayment, Existing loans`, (t) => `-${at(exo.repay, t)}`);
+      cfPending(`Interest Paid, Existing loans`, (t) => `-${at(exo.int, t)}`);
+    }
     cfPending('Dividends paid', (t) => `-${at(main.divTotal, t)}`);
 
     // Every pending cell of stages 3 to 5 now reads the solve, so their notes stop saying they wait.

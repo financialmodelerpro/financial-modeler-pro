@@ -141,7 +141,15 @@ export const stage6bFinancingSheet: LiveLayer = {
     R('Summary', 'Total Debt', { scalar: () => `SUM(${calcRng('fnc:main:debt')})` });
     R('Summary', 'Total Equity', { scalar: () => `SUM(${calcRng('fnc:main:equity')})` });
     R('Summary', 'IDC (Construction)', { scalar: () => `SUM(${calcRng('fnc:main:idcdraw')})` });
-    R('Summary', 'Finance Cost (New)', { scalar: () => `SUM(${calcRng('fnc:main:interest')})` });
+    // BY ORIGIN (2026-09-29, existing loans): new and existing facilities report apart. An existing
+    // loan is never capitalised, so its interest is expensed in full; a new loan's expensed interest is
+    // its interest less what was capitalised.
+    const hasEx = has('fnc:main:int:existing');
+    const O = (o: 'new' | 'existing', s: string): F => (t) => calc(`fnc:main:${s}:${o}`, t);
+    const expNew: F = (t) => `${O('new', 'int')(t)}-${calc('fnc:main:basis', t)}`;
+    R('Summary', 'Finance Cost (New)', { scalar: () => `SUM(${calcRng('fnc:main:int:new')})` });
+    R('Summary', 'Finance Cost (Existing)', { scalar: () => (hasEx ? `SUM(${calcRng('fnc:main:int:existing')})` : '0') });
+    R('8. Total Debt Required', 'Existing Debt (opening balance, pre-axis)', { f: () => '0' });
     // 3. Funding Basis.
     R('3. Funding Basis', 'Total Capex (excl Land In-Kind)', { scalar: capexTotal });
     R('3. Funding Basis', 'Total Funding Need', { scalar: needTotal });
@@ -158,7 +166,7 @@ export const stage6bFinancingSheet: LiveLayer = {
     R('4. Land Funding (per phase, from the Capex results)', 'Total, Land Cash', { f: landCash });
     R('4. Land Funding (per phase, from the Capex results)', 'Total, Land In-Kind', { f: landInKindOf(visible) });
     // 5. The facility's rate.
-    for (const tr of tranches) R(`${tr.name} (new facility)`, 'Interest Rate %', { scalar: () => sc3(has(`fnc:tr:${tr.id}:rate`) ? `fnc:tr:${tr.id}:rate` : 'fnc:rate') });
+    for (const tr of tranches) R(`${tr.name} (${tr.origin === 'existing' ? 'existing' : 'new'} facility)`, 'Interest Rate %', { scalar: () => sc3(has(`fnc:tr:${tr.id}:rate`) ? `fnc:tr:${tr.id}:rate` : 'fnc:rate') });
     // 6. Capex breakdown.
     R('6. Capex Breakdown', 'Capex (excluding Land)', { f: nonLand });
     R('6. Capex Breakdown', 'Land Cash Value', { f: landCash });
@@ -195,11 +203,17 @@ export const stage6bFinancingSheet: LiveLayer = {
     R('Combined Debt Service', 'Total Capex Drawdown', { f: draw });
     R('Combined Debt Service', 'Total IDC Drawdown', { f: idcDraw });
     R('Combined Debt Service', 'Total Drawdown (Capex + IDC)', { f: add(draw, idcDraw) });
-    R('Combined Debt Service', /^(Total )?Interest Expensed( - New)?$/, { f: neg(intExp) });
-    R('Combined Debt Service', /^(Total Principal Repaid|Principal Repaid - New.*)$/, { f: neg(add(sched, sweep)) });
+    R('Combined Debt Service', /^(Total )?Interest Expensed$/, { f: neg(intExp) });
+    R('Combined Debt Service', 'Interest Expensed - New', { f: neg(expNew) });
+    R('Combined Debt Service', 'Interest Expensed - Existing', { f: neg(O('existing', 'int')) });
+    R('Combined Debt Service', 'Total Principal Repaid', { f: neg(add(sched, sweep)) });
+    R('Combined Debt Service', /^Principal Repaid - New/, { f: neg(O('new', 'princ')) });
+    R('Combined Debt Service', /^Principal Repaid - Existing/, { f: neg(O('existing', 'princ')) });
     R('Combined Debt Service', '  of which repaid by cash sweep', { f: neg(sweep) });
     R('Combined Debt Service', '  of which scheduled amortisation', { f: neg(sched) });
-    R('Combined Debt Service', /^(Debt Service - New|Total Debt Service \(Cash\))$/, { f: neg(add(interest, sched, sweep)) });
+    R('Combined Debt Service', 'Total Debt Service (Cash)', { f: neg(add(interest, sched, sweep)) });
+    R('Combined Debt Service', 'Debt Service - New', { f: neg(add(O('new', 'int'), O('new', 'princ'))) });
+    R('Combined Debt Service', 'Debt Service - Existing', { f: neg(add(O('existing', 'int'), O('existing', 'princ'))) });
     R('Combined Debt Service', 'Scheduled Debt Service (covenant basis)', { f: neg(add(interest, sched)) });
     for (const tr of tranches) {
       const FC = new RegExp(`^Finance Cost, ${esc(tr.name)}( \\(.*\\))?$`);

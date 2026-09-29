@@ -571,6 +571,29 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     out.push({ movesRevenue: false, label: 'B and C: the senior on the sweep beside an amortising mezzanine (annuity, 6 years), its spread +1 point', cell: 'fin|Mezzanine (new facility)|Credit Spread %', col: RC.TOTAL, value: (spread + 4) / 100,
       variant: (s) => mezz(s, { repaymentMethod: 'equal_repayment', equalRepaymentSubMethod: 'equal_total', repaymentPeriods: 6 }),
       edit: (s) => { trs(s).find((t) => t.id === 'tranche_mezz_test').creditSpreadPct = spread + 4; } });
+    // YEAR-ON-YEAR (2026-09-29): one loan repaid 10 / 20 / 30 / 40% from 2032. A year's % typed at
+    // its Inputs door (the schedule re-normalises to 100), and the start moved a year, which
+    // shifts the whole schedule with it, as the engine reads it (normaliseYoY from the start).
+    const yoy = (s: Snap): void => { Object.assign(trs(s)[0], { repaymentMethod: 'year_on_year_pct', repaymentStartYear: 2032, yearOnYearPctSchedule: [10, 20, 30, 40] }); };
+    out.push({ movesRevenue: false, label: 'Year-on-year repayment (10 / 20 / 30 / 40% from 2032): the 2033 share to 30%', cell: `fin|${tr0.name} (new facility)|Year-on-Year % Schedule`, col: pcol(2033 - psy), value: 0.3,
+      variant: yoy, edit: (s) => { trs(s)[0].yearOnYearPctSchedule = [10, 30, 30, 40]; } });
+    out.push({ movesRevenue: false, label: 'Year-on-year repayment: the start to 2033, the schedule moving with it', cell: `fin|${tr0.name} (new facility)|Repayment Start Year`, col: RC.TOTAL, value: 2033,
+      variant: yoy, edit: (s) => { trs(s)[0].repaymentStartYear = 2033; } });
+    // EXISTING LOANS (2026-09-29): 150m raised in 2028 (inside the model's years, drawn as cash that
+    // year), 7%, interest from 2028, equal principal from 2031 over five years. Its balance at its
+    // Inputs door, its spread, and the same loan on the sweep beside the senior (existing first).
+    const EX = 'Existing loan (existing facility)';
+    const existing = (o: Record<string, unknown> = {}) => (s: Snap): void => {
+      trs(s).unshift({ ...structuredClone(trs(s)[0]), id: 'tranche_existing_test', name: 'Existing loan', origin: 'existing', openingBalance: 150_000_000, originationYear: 2028, interestStartYear: 2028,
+        interbankRatePct: 5, creditSpreadPct: 2, repaymentMethod: 'equal_repayment', equalRepaymentSubMethod: 'equal_principal', remainingRepaymentPeriods: 5, repaymentStartYear: 2031, cashSweepConfig: undefined, facilitySharePct: undefined, ...o });
+    };
+    const exOf = (s: Snap): any => trs(s).find((t) => t.id === 'tranche_existing_test');
+    out.push({ movesRevenue: false, label: 'Existing loan (150m raised 2028, equal principal from 2031): its balance to 200m', cell: `fin|${EX}|Opening Balance`, col: RC.TOTAL, value: 200_000_000,
+      variant: existing(), edit: (s) => { exOf(s).openingBalance = 200_000_000; } });
+    out.push({ movesRevenue: false, label: 'Existing loan: its spread +1 point', cell: `fin|${EX}|Credit Spread %`, col: RC.TOTAL, value: 0.03,
+      variant: existing(), edit: (s) => { exOf(s).creditSpreadPct = 3; } });
+    out.push({ movesRevenue: false, label: 'Existing loan on the sweep beside the senior (existing repaid first): its spread +1 point', cell: `fin|${EX}|Credit Spread %`, col: RC.TOTAL, value: 0.03,
+      variant: existing({ repaymentMethod: 'cash_sweep', remainingRepaymentPeriods: 0 }), edit: (s) => { exOf(s).creditSpreadPct = 3; } });
   } else out.push({ label: 'B and C: facility shapes', skip: 'no facility with a stated spread' });
   // STAGE E: dividends on EBITDA (the payout sizes off each phase's EBITDA); the payout cut.
   if (st.project.dividendPolicy && reg.get('fin|Dividend Policy|Payout Ratio')) {

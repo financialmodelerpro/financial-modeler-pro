@@ -740,9 +740,10 @@ function buildInvestmentRows(ctx: M4ReportCtx, capexSubtotal: number[], cfiSubto
 function buildFinancingRows(ctx: M4ReportCtx, cffSubtotal: number[]): M4Row[] {
   const { snap, state } = ctx;
   const N = snap.axisLength;
-  const existingOpening = state.financingTranches
-    .filter((t) => t.origin === 'existing')
-    .reduce((s, t) => s + Math.max(0, t.openingBalance ?? 0), 0);
+  // PRIOR-COLUMN DEBT IS THE ENGINE'S (2026-09-29): an existing loan raised INSIDE the model is drawn
+  // as cash in its year (buildExistingAggregate, computeFacilitySchedule), so only one raised before
+  // the model starts is an opening balance. Summing every existing loan here counted the in-model one twice.
+  const existingOpening = snap.financing.existing.debtOutstandingTotal;
   const rows: M4Row[] = [];
   const d = snap.directCF;
   rows.push({ label: 'CASH FROM FINANCING', values: [], isSection: true });
@@ -816,9 +817,10 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
   const visibleAssets = state.assets.filter((a) => a.visible !== false);
   const matchesPhase = (a: { phaseId: string }): boolean => filterPhaseId === ALL || a.phaseId === filterPhaseId;
   const phaseShort = (id: string): string => phaseShortName(state, id);
-  const existingOpening = state.financingTranches
-    .filter((t) => t.origin === 'existing')
-    .reduce((s, t) => s + Math.max(0, t.openingBalance ?? 0), 0);
+  // PRIOR-COLUMN DEBT IS THE ENGINE'S (2026-09-29): an existing loan raised INSIDE the model is drawn
+  // as cash in its year (buildExistingAggregate, computeFacilitySchedule), so only one raised before
+  // the model starts is an opening balance. Summing every existing loan here counted the in-model one twice.
+  const existingOpening = snap.financing.existing.debtOutstandingTotal;
   const d = snap.directCF;
   const rows: M4Row[] = [];
   const residentialAssets = visibleAssets.filter((a) => (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') && matchesPhase(a));
