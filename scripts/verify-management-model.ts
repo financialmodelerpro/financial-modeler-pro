@@ -66,10 +66,18 @@ async function main(): Promise<void> {
   for (const p of ps) {
     if (!p.current_version_id) continue;
     const [v] = await get(`refm_project_versions?id=eq.${p.current_version_id}&select=snapshot`);
-    const raw = v?.snapshot;
+    let raw = v?.snapshot;
     if (!raw || !(raw.assets ?? []).length) continue;
     const baseCase = (raw.cases ?? []).find((c: any) => c.role === 'base');
-    const scen = (raw.cases ?? []).find((c: any) => c.role === 'scenario' && Object.keys(c.overrides ?? {}).length === 0);
+    let scen = (raw.cases ?? []).find((c: any) => c.role === 'scenario' && Object.keys(c.overrides ?? {}).length === 0);
+    // THE RULE, NOT THE DATA (2026-09-29): the live projects' scenarios gained overrides and the
+    // live half measured nothing. An empty scenario is added to a COPY where none exists, so the
+    // check proves the rule on every project with assets whatever its cases hold today.
+    if (baseCase && !scen) {
+      const like = (raw.cases ?? []).find((c: any) => c.role === 'scenario') ?? baseCase;
+      scen = { ...structuredClone(like), id: 'verify_empty_scenario', name: 'Empty scenario (verifier)', role: 'scenario', overrides: {} };
+      raw = { ...structuredClone(raw), cases: [...(raw.cases ?? []), scen] };
+    }
     if (!baseCase || !scen) continue;
     covered++;
     console.log(`\n${p.name}`);
