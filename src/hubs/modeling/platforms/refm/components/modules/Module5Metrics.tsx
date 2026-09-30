@@ -19,7 +19,7 @@ import { makeFmt } from './_shared/numberFmt';
 import { MetricCard, MetricGrid, CollapsibleSection, fmtPct, fmtX, type CardTone } from './Module5Shared';
 import { FAST_INPUT } from './_shared/inputStyles';
 import { DEFAULT_COVENANTS, type CovenantThreshold, type CovenantMetric } from '../../lib/state/module1-types';
-import { evaluateCovenant, covenantUnit, covenantSeries, reduceWorst, reduceAvg, COVENANT_METRIC_LABELS, covenantBasisNote, type CovenantInputs } from '../../lib/covenants';
+import { evaluateCovenant, covenantUnit, covenantSeries, reduceWorst, reduceAvg, COVENANT_METRIC_LABELS, covenantBasisNote, covenantCoverageNote, type CovenantInputs } from '../../lib/covenants';
 import { buildOperatingKpis } from '../../lib/reports/operatingKpis';
 import { TabComments } from '../collab/FieldComments';
 import { METRIC_CAPTIONS, METRIC_LABELS } from '../../lib/reports/metricCaptions';
@@ -323,6 +323,7 @@ function LenderCovenants(props: {
 }): React.JSX.Element {
   const { covenants, inputs, yearLabels, onChange, hasScheduledAmortisation } = props;
   const evals = covenants.map((c) => ({ cov: c, ev: evaluateCovenant(c, inputs) }));
+  const coverageNote = covenantCoverageNote(evals.map(({ cov, ev }) => ({ label: cov.label, ev })), yearLabels);
 
   const upd = (id: string, patch: Partial<CovenantThreshold>): void =>
     onChange(covenants.map((c) => (c.id === id ? { ...c, ...patch } : c)));
@@ -364,6 +365,9 @@ function LenderCovenants(props: {
       <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
         {covenantBasisNote(hasScheduledAmortisation)}
       </div>
+      {coverageNote && (
+        <div data-testid="covenant-coverage-note" style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>{coverageNote}</div>
+      )}
 
       {/* Summary: editable thresholds + worst / avg + pass / breach. */}
       <div style={{ overflowX: 'auto', marginBottom: 'var(--sp-2)' }}>

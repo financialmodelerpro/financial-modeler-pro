@@ -29,7 +29,7 @@ import { buildOverviewReport, distributedReturnPair, distributedStreamLabel } fr
 import { buildAssumptionGrid } from '../reports/scenarioAssumptions';
 import { buildOperatingKpis } from '../reports/operatingKpis';
 import { fundingChartPoints } from '../portfolio/fundingSeries';
-import { evaluateCovenant, covenantUnit, covenantSeries, reduceWorst, reduceAvg, COVENANT_METRIC_LABELS, covenantBasisNote, type CovenantInputs } from '../covenants';
+import { evaluateCovenant, covenantUnit, covenantSeries, reduceWorst, reduceAvg, COVENANT_METRIC_LABELS, covenantBasisNote, covenantCoverageNote, type CovenantInputs } from '../covenants';
 import { DEFAULT_COVENANTS } from '../state/module1-types';
 import { enumerateOverridableFields, getByPath } from '../cases/applyOverrides';
 import type { SensitivityVariable } from '@/src/core/calculations/returns';
@@ -4581,6 +4581,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     note('Standard covenants vs editable thresholds (saved with the project). Worst = the binding period (min for DSCR / ICR / Debt Yield, max for LTV); Pass / Breach compares the worst to the threshold. DSCR and Interest Cover come from the snapshot; Debt Yield = NOI / debt; LTV is measured at peak debt (peak debt outstanding / Gross Development Value), since LTV at exit is ~0% once debt is repaid. Where there is no value basis it falls back to LTV at exit (labelled as such). Thresholds are in x for DSCR / ICR and % for LTV / Debt Yield.');
     note(covenantBasisNote(rs.hasScheduledAmortisation));
     const evals = covenants.map((cov) => ({ cov, ev: evaluateCovenant(cov, covenantInputs) }));
+    { const n = covenantCoverageNote(evals.map(({ cov, ev }) => ({ label: cov.label, ev })), snap.yearLabels); if (n) note(n); }
     const covFmt = (unit: 'x' | 'pct'): string => (unit === 'pct' ? NUMFMT.pct2 : NUMFMT.mult);
     const metricName = (metric: string): string => COVENANT_METRIC_LABELS.find((o) => o.v === metric)?.label ?? metric;
     grid('', ['Covenant', 'Metric', 'Test', 'Threshold', 'Worst', 'Avg', 'Status'], evals.map(({ cov, ev }) => {

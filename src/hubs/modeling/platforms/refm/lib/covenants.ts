@@ -105,6 +105,29 @@ export function covenantBasisNote(hasScheduledAmortisation: boolean): string {
 }
 
 /**
+ * HOW MANY YEARS EACH COVENANT IS TESTED IN (2026-09-30, export review item 14). A covenant
+ * applies only in the years it can be measured, debt outstanding and, for Debt Yield, income
+ * too, so on a scheme whose sweep clears the facility soon after opening a Pass can rest on one
+ * or two points: measured on the live project, DSCR and ICR in 2031 and 2032 only and Debt Yield
+ * in 2031 alone (10.43% against 10%), printed as a plain Pass. MEASURED from the same series the
+ * evaluator reads; null when every covenant is tested in THIN_TEST_YEARS or more, so a project
+ * with a long debt life says nothing extra.
+ */
+export const THIN_TEST_YEARS = 3;
+export function covenantCoverageNote(
+  evals: ReadonlyArray<{ label: string; ev: Pick<CovenantEval, 'seriesPerPeriod' | 'exitOnly'> }>,
+  yearLabels: ReadonlyArray<number | string>,
+): string | null {
+  const thin = evals
+    .filter(({ ev }) => !ev.exitOnly)
+    .map(({ label, ev }) => ({ label, years: ev.seriesPerPeriod.flatMap((v, i) => (v == null ? [] : [String(yearLabels[i] ?? i)])) }))
+    .filter((x) => x.years.length > 0 && x.years.length < THIN_TEST_YEARS);
+  if (!thin.length) return null;
+  const part = (x: { label: string; years: string[] }): string =>
+    `${x.label} is tested in ${x.years.length === 1 ? 'one year only' : `${x.years.length} years only`} (${x.years.join(', ')})`;
+  return `${thin.map(part).join('; ')}. A covenant applies only in years it can be measured (debt outstanding, and for Debt Yield income as well), so each Pass above rests on those years alone.`;
+}
+/**
  * Reduce a per-period (nullable) ratio series to its binding value: the min for
  * a 'min' covenant, the max for a 'max' covenant. Null entries (periods the
  * ratio does not apply to) are skipped. This and reduceAvg are the SINGLE

@@ -9,7 +9,12 @@
  *
  * Run: npx tsx scripts/verify-covenants.ts
  */
-import { evaluateCovenant, covenantSeries, covenantUnit, reduceWorst, reduceAvg, type CovenantInputs } from '../src/hubs/modeling/platforms/refm/lib/covenants';
+import { evaluateCovenant, covenantSeries, covenantUnit, reduceWorst, reduceAvg, covenantCoverageNote, THIN_TEST_YEARS, type CovenantInputs } from '../src/hubs/modeling/platforms/refm/lib/covenants';
+import { readFileSync } from 'fs';
+import { readLiveProjectVersion } from './fixtures/liveProject';
+import { loadStoredModel } from '../src/hubs/modeling/platforms/refm/lib/state/loadStoredModel';
+import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import { computeReturnsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/returns-resolvers';
 import { DEFAULT_COVENANTS, type CovenantThreshold } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
 let pass = 0, fail = 0;
@@ -121,5 +126,48 @@ const inp: CovenantInputs = {
 // ── covenantSeries length aligns with the period axis ──────────────────────────
 check('covenantSeries length = axis length', covenantSeries('dscr', inp).length === inp.dscrPerPeriod.length);
 
-console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
-if (fail > 0) { console.log('Failures:', fails.join(', ')); process.exit(1); }
+// ── How many years each covenant is tested in (2026-09-30, export review item 14) ──
+// A Pass resting on one or two points must say so; a covenant tested across the debt life says
+// nothing extra. Both branches driven here, the firing one on the live project too.
+{
+  const yl = [2027, 2028, 2029, 2030];
+  const ev = (series: Array<number | null>, exitOnly = false) => ({ seriesPerPeriod: series, exitOnly });
+  const thin = covenantCoverageNote([
+    { label: 'Debt Yield', ev: ev([null, 0.1, null, null]) },
+    { label: 'DSCR', ev: ev([null, 3, 5, null]) },
+    { label: 'LTV (peak debt)', ev: ev([0.1, 0.2, 0.2, 0.1]) },
+    { label: 'LTV at exit', ev: ev([null, null, null, null], true) },
+  ], yl);
+  check('CV1 a covenant tested in one year is named with that year', !!thin && /Debt Yield is tested in one year only \(2028\)/.test(thin), thin ?? 'null');
+  check('CV2 one tested in two years is named with both', !!thin && /DSCR is tested in 2 years only \(2028, 2029\)/.test(thin));
+  check('CV3 one tested across the life is not mentioned', !!thin && !/LTV/.test(thin));
+  check(`CV4 when every covenant is tested in ${THIN_TEST_YEARS} or more years, nothing is said`,
+    covenantCoverageNote([{ label: 'DSCR', ev: ev([1, 2, 3, null]) }], yl) === null);
+  const R = 'src/hubs/modeling/platforms/refm/';
+  const callers = ['components/modules/Module5Metrics.tsx', 'lib/excel/buildModelWorkbook.ts', 'lib/pdf/generateProjectPdf.ts']
+    .filter((f) => !/covenantCoverageNote\(/.test(readFileSync(R + f, 'utf8')));
+  check('CV5 the screen, the workbook and the PDF print it through covenantCoverageNote', callers.length === 0, callers.join(', '));
+}
+
+(async () => {
+  const live = await readLiveProjectVersion();
+  if (!live.ok) { check('CV6 live project read', false, 'noCredentials' in live && live.noCredentials ? 'no credentials' : (live as { reason: string }).reason); }
+  else {
+    const q = <T,>(f: () => T): T => { const l = console.log, w = console.warn; console.log = () => {}; console.warn = () => {}; try { return f(); } finally { console.log = l; console.warn = w; } };
+    const m: any = q(() => loadStoredModel(live.snapshot).snapshot);
+    const snap: any = q(() => computeFinancialsSnapshot(m));
+    const rs: any = q(() => computeReturnsSnapshot(snap, m.project));
+    const re = rs.result.realEstate;
+    const li: CovenantInputs = { dscrPerPeriod: re.dscrPerPeriod, icrPerPeriod: re.icrPerPeriod, noiPerPeriod: rs.noiPerPeriod, debtOutstandingPerPeriod: snap.bs.debtOutstandingPerPeriod, gdvValue: rs.developmentEconomics.gdv, ltvAtExit: re.ltvAtExit };
+    const evals = (m.project.covenants ?? DEFAULT_COVENANTS).map((c: CovenantThreshold) => ({ label: c.label, ev: evaluateCovenant(c, li) }));
+    const note = covenantCoverageNote(evals, snap.yearLabels);
+    // Independently counted: every covenant with 1..THIN-1 tested years must be named, no other.
+    const expected = evals.filter((e: any) => !e.ev.exitOnly).map((e: any) => ({ label: e.label, n: e.ev.seriesPerPeriod.filter((v: any) => v != null).length })).filter((x: any) => x.n > 0 && x.n < THIN_TEST_YEARS);
+    console.log(`     ${live.label}: ${expected.map((x: any) => `${x.label} ${x.n}`).join(', ') || 'none thin'}`);
+    check(`CV6 ${live.label}: the note names exactly the covenants tested in fewer than ${THIN_TEST_YEARS} years`,
+      expected.length > 0 && !!note && expected.every((x: any) => note.includes(`${x.label} is tested in`))
+      && evals.filter((e: any) => !expected.some((x: any) => x.label === e.label)).every((e: any) => !note.includes(`${e.label} is tested in`)), note ?? 'null');
+  }
+  console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
+  if (fail > 0) { console.log('Failures:', fails.join(', ')); process.exit(1); }
+})();
