@@ -2,7 +2,36 @@
 
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
-## START HERE 2026-09-29: THE LIVE WORKBOOK'S REFUSED LIST IS SETTLED
+## START HERE 2026-09-30: EXPORT REVIEW GROUPS 1 AND 2 DONE; GROUP 3 NOT STARTED; GROUP 4 REPORTED
+
+**DONE, one commit each, detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-29 and 2026-09-30:** the retail strip
+IDC split, items 1 to 3 and 5 to 22 (item 4 was the IDC question). Two regressions the session-end suite found
+were fixed the same day (the schema banner on every version after the lobby change; the item 13 NPV sentence
+tripping a row check). **OPEN, in order:**
+1. **Group 3 (items 23 to 29), not started**: Timeline sheet absent from the PDF; the bridge integrity check
+   dropped; "How this tab is calculated" blocks and the Basis column absent from PDF schedules; stabilised NOI,
+   stabilisation year, cost to value, max negative cash flow and the funding mix tiles absent; Case Comparison
+   printed twice; Year on Year Impact lost its driver and case rows (ten identical blocks, two duplicated);
+   a caption pointing at a "Fund Layer section" that does not exist and a fee example from another project.
+2. **Group 4 (report only, founder decides; nothing changed)**. Findings, with file:line, in the 2026-09-30
+   session report; the ones that are engine gaps rather than empty inputs: no tax LOSS CARRY-FORWARD
+   (`financials-resolvers.ts` ~2112, `max(0, pbt) x rate` per year) and `tax.paymentDays` unread; an all-zero
+   fee distribution matrix still cuts investor distributions by the whole performance fee and pays it to no
+   one (`waterfall.ts` 243/256, `feeEarners.ts` 191); ADR / rent indexation with no stored start year runs
+   from the PROJECT start while the box shows the operations start (`Module2Revenue.tsx` ~1306); opex
+   indexation counts from project year 0, not operations start (`assetOpex.ts` ~100); selling costs always
+   capitalised into the Sell base (`costOfSales.ts` 67). The rest are zero-seeded inputs (hotel fees,
+   FF&E, fixed charges, lease opex, HQ overhead, escrow, AP days, operating DSO).
+3. Formula-linked workbook: still PARKED (above); keep `verify-formula-workbook` green.
+
+## 2026-09-29 (late): THE FORMULA-LINKED WORKBOOK IS PARKED
+
+**Founder, 2026-09-29: park it.** The hardcoded export and the model are what it mirrors, so those are
+finalised first (the export review fix list, founder's 29 items in four groups). **Start NO new formula-workbook
+structure** until the founder returns to it. Keeping `verify-formula-workbook` green through the fix list is
+still required: an export change that breaks the live workbook's proof is fixed there, not left red.
+
+## 2026-09-29: THE LIVE WORKBOOK'S REFUSED LIST IS SETTLED
 
 **DONE (detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-29):** GFA / BUA printed through one rule on every surface;
 no dividend policy live; existing loans raised inside the model and year-on-year repayment live. **LEFT REFUSED

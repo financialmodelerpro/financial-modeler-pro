@@ -3027,6 +3027,24 @@ engine, so no reconciliation fired, and no live project has an existing loan, so
 **The trap to avoid:** a presentation that restates an engine rule from the inputs. It agrees until the one
 case the rule exists for. Found by proving the live workbook against the platform on a copy with that shape.
 
+### 7.61 A derived field the banner did not know was derived: every project "updated to latest schema"
+
+**Symptom (2026-09-30):** after a change to the lobby rule in the area chain, every stored version of every
+live project loaded with the schema banner (`verify-migration-banner` C1: 0 of 10 versions silent), although
+no value a user had typed was reinterpreted and the money was byte-identical.
+
+**Mechanism:** the banner fires on any diff between the stored snapshot and the loaded model that
+`isDerivedFill` does not excuse. It excused unstated rates, unstated prices and standard-origin overrides,
+but not `Asset.derivedAreas`, which the chain alone writes on every load and save. Any change to how an area
+is DERIVED therefore read as a stated value reinterpreted, on every project at once.
+
+**Fix:** the area bag is the fourth derived kind in `isDerivedFill` (`module1-migrate.ts`); the verifier
+proves on a real version that a stale bag alone stays silent and a stated value beside it still speaks.
+
+**The trap to avoid:** adding a field the platform writes for itself without declaring it derived to the
+one rule that decides what counts as a user's statement. It is invisible until the derivation changes. Found
+by the session-end suite, not by the change's own verifier, which is what that suite is for.
+
 ## 8. Registries and two-step registration
 
 ### 8.1 A template registered in one place and not the other fails silently and permanently
