@@ -41,6 +41,7 @@ import { computeReturnsSnapshot, resolveReturnsConfig } from '../../returns-reso
 import { buildOverviewReport, overviewTypeOf, CASH_LOW_TIE } from '../../reports/overviewReport';
 import { fundingChartPoints } from '../../portfolio/fundingSeries';
 import { figureTools, liveAssetAreas, type X, type AreaRow } from './liveAreas';
+import { METRIC_LABELS } from '../../reports/metricCaptions';
 
 /** The platform field that holds each printed tier (see `areaTiers` in core). */
 const TOTAL_GFA = 'bua' as const, TOTAL_BUA = 'gfa' as const;
@@ -191,7 +192,7 @@ export const stage7dSummary: LiveLayer = {
     };
     card('Gross Development Value', 'Development economics|Gross Development Value');
     card('Total Development Cost', 'Development economics|Total Development Cost');
-    card('Profit after Financing', 'Development economics|Profit after Financing');
+    card(METRIC_LABELS.developmentSurplusAfter, `Development economics|${METRIC_LABELS.developmentSurplusAfter}`);
     card('Development Margin', 'Development economics|Development Margin');
     card('Peak Equity', '2. RE Metrics|Peak Equity');
     card('Total Financing Cost', 'Development economics|Total Financing Cost');

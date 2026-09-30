@@ -31,6 +31,7 @@ import type { ICReportModel, ICScheduleBlock, ICStatementBlock } from '../icRepo
 import type { CaseComparisonReport } from '../caseComparisonReport';
 import type { ChartKind } from './types';
 import { DECK_THEME, CHART_SERIES, signColor } from './theme';
+import { METRIC_LABELS } from '../metricCaptions';
 
 // ── Formatting contract ─────────────────────────────────────────────────────
 
@@ -129,8 +130,8 @@ export const METRIC_BINDINGS: Record<MetricBindingKey, MetricDef> = {
   'devEconomics.gdv':                    M('devEconomics.gdv', 'Gross Development Value', 'Development economics', 'money', (m) => m.devEconomics.gdv, unit),
   'devEconomics.tdc':                    M('devEconomics.tdc', 'Total Development Cost', 'Development economics', 'money', (m) => m.devEconomics.tdc, unit),
   'devEconomics.financingCost':          M('devEconomics.financingCost', 'Financing Cost', 'Development economics', 'money', (m) => m.devEconomics.financingCost, unit),
-  'devEconomics.profitBeforeFinancing':  M('devEconomics.profitBeforeFinancing', 'Profit before Financing', 'Development economics', 'money', (m) => m.devEconomics.profitBeforeFinancing, unit),
-  'devEconomics.profitAfterFinancing':   M('devEconomics.profitAfterFinancing', 'Profit after Financing', 'Development economics', 'money', (m) => m.devEconomics.profitAfterFinancing, unit),
+  'devEconomics.profitBeforeFinancing':  M('devEconomics.profitBeforeFinancing', METRIC_LABELS.developmentSurplusBefore, 'Development economics', 'money', (m) => m.devEconomics.profitBeforeFinancing, unit),
+  'devEconomics.profitAfterFinancing':   M('devEconomics.profitAfterFinancing', METRIC_LABELS.developmentSurplusAfter, 'Development economics', 'money', (m) => m.devEconomics.profitAfterFinancing, unit),
   'devEconomics.developmentMargin':      M('devEconomics.developmentMargin', 'Development Margin', 'Development economics', 'pct', (m) => m.devEconomics.developmentMargin, () => 'Profit / GDV'),
   'devEconomics.costToValue':            M('devEconomics.costToValue', 'Cost to Value', 'Development economics', 'pct', (m) => m.devEconomics.costToValue, () => 'TDC / GDV'),
 

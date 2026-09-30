@@ -28,7 +28,7 @@ import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { computeReturnsSnapshot, resolveReturnsConfig } from '../../returns-resolvers';
 import { planRevenueLines, lineForAsset } from '../../revenueLines';
-import { METRIC_CAPTIONS } from '../../reports/metricCaptions';
+import { METRIC_CAPTIONS, METRIC_LABELS } from '../../reports/metricCaptions';
 import { DEFAULT_COVENANTS, type Phase } from '../../state/module1-types';
 
 const RET = 'Returns';
@@ -223,8 +223,8 @@ export const stage7bMetrics: LiveLayer = {
     kpi(DE, 'Gross Development Value', () => moneyT(g()));
     kpi(DE, 'Total Development Cost', () => moneyT(tdc()));
     kpi(DE, 'Total Financing Cost', () => moneyT(tfc()));
-    kpi(DE, 'Profit before Financing', () => moneyT(`(${g()}-${tdc()})`));
-    kpi(DE, 'Profit after Financing', () => moneyT(`(${g()}-${tdc()}-${tfc()})`));
+    kpi(DE, METRIC_LABELS.developmentSurplusBefore, () => moneyT(`(${g()}-${tdc()})`));
+    kpi(DE, METRIC_LABELS.developmentSurplusAfter, () => moneyT(`(${g()}-${tdc()}-${tfc()})`));
     kpi(DE, 'Development Margin', () => ratioT(`${g()}-${tdc()}-${tfc()}`, g()));
     kpi(DE, 'Cost to Value', () => ratioT(tdc(), g()));
 

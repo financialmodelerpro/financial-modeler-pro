@@ -31,6 +31,7 @@
  * No em dashes in this file.
  */
 
+import { METRIC_LABELS } from '../reports/metricCaptions';
 import {
   countFact,
   document,
@@ -124,8 +125,8 @@ export function buildIcModelGrounding(model: ICReportModel, opts: IcGroundingOpt
       money('dev.gdv', 'Gross development value', de.gdv),
       money('dev.tdc', 'Total development cost', de.tdc),
       money('dev.financingCost', 'Total financing cost', de.financingCost),
-      money('dev.profitBeforeFinancing', 'Profit before financing', de.profitBeforeFinancing),
-      money('dev.profitAfterFinancing', 'Profit after financing', de.profitAfterFinancing),
+      money('dev.profitBeforeFinancing', METRIC_LABELS.developmentSurplusBefore, de.profitBeforeFinancing),
+      money('dev.profitAfterFinancing', METRIC_LABELS.developmentSurplusAfter, de.profitAfterFinancing),
       percentFact('dev.developmentMargin', 'Development margin', de.developmentMargin),
       percentFact('dev.costToValue', 'Cost to value', de.costToValue),
     ]),

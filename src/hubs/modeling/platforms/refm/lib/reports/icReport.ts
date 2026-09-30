@@ -46,6 +46,7 @@ import { areaTiers } from '@/src/core/calculations/areaTiers';
 import { resolveAssetKeys } from '../revenue-resolvers';
 import type { LandAllocationMode } from '../state/module1-types';
 import { projectLocationLabel } from '@/src/core/countries';
+import { METRIC_LABELS } from './metricCaptions';
 
 export interface ICPartyRef { name: string; identifier: string | null }
 export interface ICKeyValue { label: string; value: number }
@@ -522,9 +523,9 @@ export function buildICReportModel(input: {
   const valueBridge: ICBridgeRow[] = [
     { label: 'Gross development value', value: de.gdv },
     { label: 'less Total development cost', value: -de.totalDevelopmentCost },
-    { label: 'Profit before financing', value: de.profitBeforeFinancing, emphasis: true },
+    { label: METRIC_LABELS.developmentSurplusBefore, value: de.profitBeforeFinancing, emphasis: true },
     { label: 'less Financing cost', value: -de.totalFinancingCost },
-    { label: 'Profit after financing', value: de.profitAfterFinancing, emphasis: true },
+    { label: METRIC_LABELS.developmentSurplusAfter, value: de.profitAfterFinancing, emphasis: true },
   ];
   const costStack: ICBridgeRow[] = [
     { label: 'Construction (excl. land)', value: su.construction },

@@ -31,7 +31,7 @@
  *
  * No em dashes in this file.
  */
-import { readFileSync } from 'fs';
+import { readFileSync, readdirSync } from 'fs';
 import { createClient } from '@supabase/supabase-js';
 import { pdfText } from './pdfTextExtract';
 import { generateProjectPdf, generateSummaryPdf } from '../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf';
@@ -45,6 +45,7 @@ import { buildIntegrityChecks, relativeCheckOk } from '../src/hubs/modeling/plat
 import { buildExcelSampleState } from './excelSampleState';
 import { buildExistingOperationsState, EXISTING_OPS_LABEL } from './fixtures/existingOperationsState';
 import { readLiveProjectVersion } from './fixtures/liveProject';
+import { METRIC_CAPTIONS } from '../src/hubs/modeling/platforms/refm/lib/reports/metricCaptions';
 
 for (const f of ['.env.local', '.env']) {
   try {
@@ -145,7 +146,8 @@ async function main(): Promise<void> {
     !summary.includes('DIVIDEND IRR') && !summary.includes('DIVIDEND MOIC'));
 
   console.log('\n-- F4: margins state their basis, and the two profits are bridged --');
-  check('F4: development margin names its basis', full.includes('profit after fin. / GDV'));
+  // Re-aimed 2026-09-29: the caption was renamed with the surplus (METRIC_CAPTIONS.developmentMargin); the rule is that it names its basis.
+  check('F4: development margin names its basis', full.includes(METRIC_CAPTIONS.developmentMargin) && METRIC_CAPTIONS.developmentMargin.includes('/ GDV'));
   check('F4: profit margin names its basis', full.includes('profit after tax / revenue'));
   check('F4: the appraisal-vs-P&L bridge is stated', flat(full).includes('Appraisal basis, not the P&L'));
   check('F4: the bridge names the excluded items', /operating expenses \(/.test(full) && flat(full).includes('which an appraisal does not deduct'));
@@ -349,6 +351,16 @@ async function main(): Promise<void> {
     !/Tab 5: Fund Layer|FUND FEES|This is a FUND project|Distribution Waterfall|Fund management fees|Fee distribution|Capital Bases/i.test(disabled));
   check('the Fund Terms tab still shows its toggle when the layer is off',
     /Fund terms/.test(disabled) && /Fund layer enabled/.test(disabled));
+
+  // THE APPRAISAL SURPLUS IS NEVER CALLED A PROFIT (2026-09-29, export review item 9). "Profit after
+  // Financing" read 653.6m with the fund and 654.1m without while PAT moved 50m: it excludes opex and
+  // fund fees. Every surface reads METRIC_LABELS; the old words may appear nowhere a user reads.
+  {
+    const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${d}/${e.name}`) : /\.(ts|tsx)$/.test(e.name) ? [`${d}/${e.name}`] : []));
+    const hits = walk('src/hubs/modeling/platforms/refm').filter((f) => !f.endsWith('metricCaptions.ts'))
+      .filter((f) => readFileSync(f, 'utf8').split('\n').some((l) => !/^\s*(\/\/|\*)/.test(l) && /profit (after|before) fin/i.test(l)));
+    check('no surface calls the development surplus a profit (the words live in METRIC_LABELS)', hits.length === 0, hits.join(', '));
+  }
 
   console.log(`\n=== ${pass} passed, ${fail} failed ===`);
   if (fail) { console.log('FAILURES:'); for (const f of failures) console.log(`  - ${f}`); process.exit(1); }

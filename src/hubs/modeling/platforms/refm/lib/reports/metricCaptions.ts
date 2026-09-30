@@ -21,7 +21,20 @@
  * No em dashes in this file.
  */
 
+/** THE DEVELOPMENT-APPRAISAL SURPLUS, NAMED SO IT CANNOT BE READ AS PROFIT (2026-09-29, export review
+ *  item 9). It is GDV less development cost (less finance cost, after): no operating cost, no fund fee,
+ *  no tax. Called "Profit after Financing", it read 653.6m with the fund and 654.1m without, beside a PAT
+ *  that moves 50m, so the fund looked nearly free. One label for every surface that prints it. */
+export const METRIC_LABELS = {
+  developmentSurplusBefore: 'Development Surplus before Finance',
+  developmentSurplusAfter: 'Development Surplus after Finance',
+} as const;
+
 export const METRIC_CAPTIONS = {
+  /** GDV less development cost: an appraisal figure, before operating costs and fund fees. */
+  developmentSurplusBefore: 'GDV less development cost',
+  developmentSurplusAfter: 'less finance cost; before opex, fees and tax',
+  developmentMargin: 'surplus after finance / GDV',
   /** MOIC on the levered free-cash-flow stream. */
   equityMultipleFcfe: 'equity out / equity in, at the selected exit',
   /** MOIC on what was actually distributed. */

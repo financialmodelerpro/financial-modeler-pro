@@ -23,6 +23,7 @@ import { computeFinancialsSnapshot } from '../lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../lib/returns-resolvers';
 import { fundingChartPoints, type FundingYearPoint } from '../lib/portfolio/fundingSeries';
 import { buildOverviewReport, type OverviewReport } from '../lib/reports/overviewReport';
+import { METRIC_LABELS } from '../lib/reports/metricCaptions';
 
 interface OverviewProps {
   projectName: string | null;
@@ -160,7 +161,7 @@ export default function Overview({ projectName, status }: OverviewProps): React.
   const donutBg = `conic-gradient(var(--color-navy) 0 ${c1}%, var(--color-gold) ${c1}% ${c2}%, var(--color-navy-mid) ${c2}% 100%)`;
 
   const chips: { kind: ChipKind; label: string }[] = [
-    { kind: (de.profitAfterFinancing ?? 0) >= 0 ? 'ok' : 'err', label: `Profit after financing ${(de.profitAfterFinancing ?? 0) >= 0 ? 'positive' : 'negative'}` },
+    { kind: (de.profitAfterFinancing ?? 0) >= 0 ? 'ok' : 'err', label: `${METRIC_LABELS.developmentSurplusAfter} ${(de.profitAfterFinancing ?? 0) >= 0 ? 'positive' : 'negative'}` },
     { kind: (de.developmentMargin ?? 0) >= 0.15 ? 'ok' : (de.developmentMargin ?? 0) >= 0 ? 'warn' : 'err', label: `Margin ${pct(de.developmentMargin)}` },
   ];
 
@@ -301,7 +302,7 @@ export default function Overview({ projectName, status }: OverviewProps): React.
       <div style={sectionGrid}>
         <Kpi label="Gross Development Value" value={money(de.gdv)} accent="var(--color-navy)" />
         <Kpi label="Total Development Cost" value={money(rs.totalDevelopmentCost)} sub="land + capex" accent="var(--color-navy)" />
-        <Kpi label="Profit after Financing" value={money(de.profitAfterFinancing)} accent="var(--color-navy)" />
+        <Kpi label={METRIC_LABELS.developmentSurplusAfter} value={money(de.profitAfterFinancing)} accent="var(--color-navy)" />
         <Kpi label="Development Margin" value={pct(de.developmentMargin)} sub="profit / GDV" accent="var(--color-navy)" />
       </div>
 

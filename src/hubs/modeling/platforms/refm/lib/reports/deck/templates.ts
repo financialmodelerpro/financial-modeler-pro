@@ -173,7 +173,7 @@ export const SLIDE_TEMPLATES: SlideTemplate[] = [
         )),
         ...captionBlock({ x: rightX, y: CONTENT_Y + 8 + 3 * (84 + GAP), w: rightW, h: CONTENT_BOTTOM - (CONTENT_Y + 8 + 3 * (84 + GAP)) },
           'Development economics',
-          'Profit after financing and the margin it implies, read against the total development cost committed.',
+          'The development surplus after finance (before opex and fund fees) and the margin it implies, read against the total development cost committed.',
           'navy'),
       ];
     },

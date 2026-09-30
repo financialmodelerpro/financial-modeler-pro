@@ -1199,7 +1199,7 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
     drawCards(ctx, 'Key economics', [
       { label: 'Gross Development Value', value: fmt.money(de2.gdv) },
       { label: 'Total Development Cost', value: fmt.money(de2.totalDevelopmentCost), sub: 'land + capex' },
-      { label: 'Profit after Financing', value: fmt.money(de2.profitAfterFinancing) },
+      { label: METRIC_LABELS.developmentSurplusAfter, value: fmt.money(de2.profitAfterFinancing) },
       { label: 'Development Margin', value: pctOrNa(de2.developmentMargin), sub: 'profit / GDV' },
     ]);
     // 4. Cost and capital structure.
@@ -2361,7 +2361,7 @@ import { defaultHQOpexLines, normalizeOpexIndexation, type OpexLine } from '@/sr
 import type { IndexationConfig } from '@/src/core/calculations/revenue/types';
 import { assetPlotLabel } from '@/src/core/calculations/assetName';
 import { poolResults, planReportLines, lineTitle } from '../reports/lineRows';
-import { METRIC_CAPTIONS } from '../reports/metricCaptions';
+import { METRIC_CAPTIONS, METRIC_LABELS } from '../reports/metricCaptions';
 import { projectLocationLabel } from '@/src/core/countries';
 
 /** A builder row, with the two number kinds M4Row has no word for. */
@@ -3384,17 +3384,17 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
     { label: 'GDV', value: fmt.money(de.gdv), sub: 'gross development value' },
     { label: 'Total Dev Cost', value: fmt.money(de.totalDevelopmentCost), sub: 'incl. land' },
     { label: 'Financing Cost', value: fmt.money(de.totalFinancingCost), sub: 'interest + fees' },
-    { label: 'Profit Before Fin.', value: fmt.money(de.profitBeforeFinancing), sub: 'GDV less dev cost' },
-    { label: 'Profit After Fin.', value: fmt.money(de.profitAfterFinancing), sub: 'less financing cost' },
-    { label: 'Development Margin', value: fmt.pct(de.developmentMargin, 1), sub: 'profit after fin. / GDV' },
+    { label: METRIC_LABELS.developmentSurplusBefore, value: fmt.money(de.profitBeforeFinancing), sub: METRIC_CAPTIONS.developmentSurplusBefore },
+    { label: METRIC_LABELS.developmentSurplusAfter, value: fmt.money(de.profitAfterFinancing), sub: METRIC_CAPTIONS.developmentSurplusAfter },
+    { label: 'Development Margin', value: fmt.pct(de.developmentMargin, 1), sub: METRIC_CAPTIONS.developmentMargin },
   ]));
   // A development APPRAISAL and an accounting P&L answer different questions,
   // and the report printed both without saying so: profit after financing and
   // profit after tax sat 3.6x apart on adjacent pages with nothing between
   // them. This states the bridge.
   items.push(tItem(m5Tab('Returns'), 'outputs', { type: 'paragraph', text:
-    `Appraisal basis, not the P&L. Profit after financing (${fmt.money(de.profitAfterFinancing)}) is GDV less development cost less financing cost, `
-    + `and it excludes operating expenses, depreciation and tax. The P&L's profit after tax over the same horizon is `
+    `Appraisal basis, not the P&L. The development surplus after finance (${fmt.money(de.profitAfterFinancing)}) is GDV less development cost less financing cost, `
+    + `and it excludes operating expenses, fees, depreciation and tax, so it is not a profit figure. The P&L's profit after tax over the same horizon is `
     + `${fmt.money(sum(snap.pl.patPerPeriod))}; the difference is operating expenses (${fmt.money(sum(snap.pl.totalOpexPerPeriod))}), `
     + `depreciation (${fmt.money(sum(snap.pl.daPerPeriod))}) and tax (${fmt.money(sum(snap.pl.taxPerPeriod))}), which an appraisal does not deduct. `
     + `Development Margin is measured on GDV; Profit Margin on the RE Metrics page is profit after tax over total revenue.` }));
@@ -4522,7 +4522,7 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
     drawCards(ctx, 'Development Economics', [
       { label: 'GDV', value: fmt.money(de.gdv) },
       { label: 'Total Dev Cost', value: fmt.money(de.totalDevelopmentCost) },
-      { label: 'Profit After Financing', value: fmt.money(de.profitAfterFinancing) },
+      { label: METRIC_LABELS.developmentSurplusAfter, value: fmt.money(de.profitAfterFinancing) },
       { label: 'Development Margin', value: fmt.pct(de.developmentMargin, 1) },
       { label: 'Yield on Cost', value: fmt.pct(re.yieldOnCost, 2) },
       { label: 'Cap Rate at Exit', value: fmt.pct(re.capRateAtExit, 2) },

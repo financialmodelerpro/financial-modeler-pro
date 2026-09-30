@@ -18,6 +18,7 @@ import { caseModelOf, withoutDerivedOverrides } from '../cases/caseModel';
 import { buildGridContext, describeAssumption, assumptionFor, formatAssumptionValue } from '../cases/assumptionGrid';
 import type { HydrateSnapshot } from '../state/module1-store';
 import type { ProjectCase } from '../state/module1-types';
+import { METRIC_LABELS } from './metricCaptions';
 
 /** One "what drives this case" row: a real override, base value vs case value. */
 export interface CaseDriverRow { label: string; base: string; value: string }
@@ -56,7 +57,7 @@ export const CASE_KPIS: CaseKpiDef[] = [
   { label: 'Capex (construction)', kind: 'money', sub: 'excl. land', get: (rs) => rs.sourcesUses.construction },
   { label: 'Total Development Cost', kind: 'money', sub: 'land + capex', get: (rs) => rs.totalDevelopmentCost },
   { label: 'Total Financing Cost', kind: 'money', get: (rs) => rs.developmentEconomics.totalFinancingCost },
-  { label: 'Profit after Financing', kind: 'money', get: (rs) => rs.developmentEconomics.profitAfterFinancing },
+  { label: METRIC_LABELS.developmentSurplusAfter, kind: 'money', get: (rs) => rs.developmentEconomics.profitAfterFinancing },
   { label: 'Development Margin', kind: 'pct', sub: 'profit / GDV', get: (rs) => rs.developmentEconomics.developmentMargin },
   { label: 'Cap Rate at Exit', kind: 'pct', get: (rs) => rs.result.realEstate.capRateAtExit },
   { label: 'Min DSCR', kind: 'mult', sub: 'min over operating periods', get: (rs) => rs.result.realEstate.dscrMin },

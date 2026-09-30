@@ -42,6 +42,7 @@ import { computeReturnsSnapshot, resolveReturnsConfig } from '../../returns-reso
 import { planReportLines, lineTitle } from '../../reports/lineRows';
 import { planRevenueLines, lineForAsset } from '../../revenueLines';
 import type { CostLine, Phase } from '../../state/module1-types';
+import { METRIC_LABELS } from '../../reports/metricCaptions';
 
 const RET = 'Returns';
 const CALC = 'Returns Calc';
@@ -345,8 +346,8 @@ export const stage7Returns: LiveLayer = {
     const DE = 'Development Economics';
     kpi(DE, 'Total Development Cost', () => moneyT(tdc()));
     kpi(DE, 'Total Financing Cost', () => moneyT(tfc()));
-    kpi(DE, 'Profit Before Financing', () => moneyT(`(${gdv()}-${tdc()})`));
-    kpi(DE, 'Profit After Financing', () => moneyT(`(${gdv()}-${tdc()}-${tfc()})`));
+    kpi(DE, METRIC_LABELS.developmentSurplusBefore, () => moneyT(`(${gdv()}-${tdc()})`));
+    kpi(DE, METRIC_LABELS.developmentSurplusAfter, () => moneyT(`(${gdv()}-${tdc()}-${tfc()})`));
     kpi(DE, 'Development Margin', () => ratioT(`${gdv()}-${tdc()}-${tfc()}`, gdv()));
 
     // Equity partners.

@@ -22,6 +22,7 @@ import { DEFAULT_COVENANTS, type CovenantThreshold, type CovenantMetric } from '
 import { evaluateCovenant, covenantUnit, covenantSeries, reduceWorst, reduceAvg, COVENANT_METRIC_LABELS, covenantBasisNote, type CovenantInputs } from '../../lib/covenants';
 import { buildOperatingKpis } from '../../lib/reports/operatingKpis';
 import { TabComments } from '../collab/FieldComments';
+import { METRIC_CAPTIONS, METRIC_LABELS } from '../../lib/reports/metricCaptions';
 
 const ratioFmt = (v: number): string => (Math.abs(v) < 1e-9 ? '-' : `${v.toFixed(2)}x`);
 const pctRowFmt = (v: number): string => (Math.abs(v) < 1e-9 ? '-' : `${(v * 100).toFixed(1)}%`);
@@ -258,8 +259,8 @@ export default function Module5Metrics(): React.JSX.Element {
           <MetricCard label="Gross Development Value" value={fmt(de.gdv)} sub={`GDV, ${currency}`} />
           <MetricCard label="Total Development Cost" value={fmt(de.totalDevelopmentCost)} sub={currency} />
           <MetricCard label="Total Financing Cost" value={fmt(de.totalFinancingCost)} sub={currency} />
-          <MetricCard label="Profit before Financing" value={fmt(de.profitBeforeFinancing)} sub="GDV less cost" tone={de.profitBeforeFinancing >= 0 ? 'good' : 'bad'} />
-          <MetricCard label="Profit after Financing" value={fmt(de.profitAfterFinancing)} sub="less financing cost" tone={de.profitAfterFinancing >= 0 ? 'good' : 'bad'} />
+          <MetricCard label={METRIC_LABELS.developmentSurplusBefore} value={fmt(de.profitBeforeFinancing)} sub={METRIC_CAPTIONS.developmentSurplusBefore} tone={de.profitBeforeFinancing >= 0 ? 'good' : 'bad'} />
+          <MetricCard label={METRIC_LABELS.developmentSurplusAfter} value={fmt(de.profitAfterFinancing)} sub={METRIC_CAPTIONS.developmentSurplusAfter} tone={de.profitAfterFinancing >= 0 ? 'good' : 'bad'} />
           <MetricCard label="Development Margin" value={fmtPct(de.developmentMargin)} sub="profit / GDV" tone={de.developmentMargin !== null && de.developmentMargin > 0 ? 'good' : 'neutral'} />
           <MetricCard label="Cost to Value" value={fmtPct(de.costToValue)} sub="dev cost / GDV" />
         </MetricGrid>

@@ -27,6 +27,7 @@ import { icSectionOmitted, icScenarioChartRows, icFindingLine, type ICReportMode
 import type { LenderReportModel, LenderCovenantRow } from '../reports/lenderReport';
 import type { OnePagerReportModel } from '../reports/onePagerReport';
 import type { CaseComparisonReport } from '../reports/caseComparisonReport';
+import { METRIC_LABELS } from '../reports/metricCaptions';
 
 // Brand hex WITHOUT '#', as pptxgenjs expects.
 const B = { navy: '1B4F8A', white: 'FFFFFF', slate: '5A6675', pale: 'DDE7F3', mid: '7FA8D9', green: '2E7D52', red: 'DC2626', negRed: 'B23A3A', border: 'C9D8EC', ink: '1A2230', paleBg: 'EEF3FA' };
@@ -436,7 +437,7 @@ export function buildReportPptx(input: BuildReportPptxInput): PptxGenJS {
         ], Y + 0.1, 2, rx, rw, 0.78, 15);
         const ecoY = Y + 0.1 + 3 * (0.78 + 0.18) + 0.05;
         calloutBox(c, rx, ecoY, rw, 1.5, `Development Economics (${moneyUnit})`,
-          `GDV ${fmtM(d.gdv)}    ·    TDC ${fmtM(d.tdc)}\nProfit after financing ${fmtM(d.profitAfterFinancing)}\nDevelopment margin ${pct(d.developmentMargin)}`, 'navy');
+          `GDV ${fmtM(d.gdv)}    ·    TDC ${fmtM(d.tdc)}\n${METRIC_LABELS.developmentSurplusAfter} ${fmtM(d.profitAfterFinancing)}\nDevelopment margin ${pct(d.developmentMargin)}`, 'navy');
         break;
       }
       case 'investment_recommendation': {
@@ -518,8 +519,8 @@ export function buildReportPptx(input: BuildReportPptxInput): PptxGenJS {
       case 'value_economics': {
         H(unitM);
         kpiTiles(c, [
-          { label: 'GDV', value: fmtM(d.gdv) }, { label: 'Profit before Fin.', value: fmtM(d.profitBeforeFinancing), good: d.profitBeforeFinancing >= 0 },
-          { label: 'Profit after Fin.', value: fmtM(d.profitAfterFinancing), good: d.profitAfterFinancing >= 0 }, { label: 'Dev Margin', value: pct(d.developmentMargin), good: (d.developmentMargin ?? 0) >= 0 },
+          { label: 'GDV', value: fmtM(d.gdv) }, { label: METRIC_LABELS.developmentSurplusBefore, value: fmtM(d.profitBeforeFinancing), good: d.profitBeforeFinancing >= 0 },
+          { label: METRIC_LABELS.developmentSurplusAfter, value: fmtM(d.profitAfterFinancing), good: d.profitAfterFinancing >= 0 }, { label: 'Dev Margin', value: pct(d.developmentMargin), good: (d.developmentMargin ?? 0) >= 0 },
           { label: 'Profit on Cost', value: pct(m.reMetrics.profitOnCost) },
         ], Y + 0.1, 5, MX, CONTENT_W, 0.95, 16);
         dataTable(c, ['Value bridge', moneyUnit], m.valueBridge.map((r) => [r.label, sbridgeM(r.value)]), Y + 1.25, new Set(m.valueBridge.map((r, i) => (r.emphasis ? i : -1)).filter((i) => i >= 0)), 9, MX, 6.0);
@@ -607,7 +608,7 @@ export function buildReportPptx(input: BuildReportPptxInput): PptxGenJS {
       case 'scenario_economics': {
         if (!input.scenarios) break;
         H(unitM);
-        scenarioTable(c, ['NPV (FCFF)', 'Gross Development Value', 'Total Development Cost', 'Profit after Financing', 'Development Margin', 'Equity IRR (FCFE)'], Y + 0.1, MX, 6.3, 9);
+        scenarioTable(c, ['NPV (FCFF)', 'Gross Development Value', 'Total Development Cost', METRIC_LABELS.developmentSurplusAfter, 'Development Margin', 'Equity IRR (FCFE)'], Y + 0.1, MX, 6.3, 9);
         const rows2 = icScenarioChartRows(input.scenarios);
         columnChart(c, rows2.map((r) => r.name), [{ name: 'NPV', color: B.navy, values: rows2.map((r) => (r.npv == null ? 0 : r.npv / MONEY_DIV)) }],
           MX + 6.7, Y + 0.2, 5.6, 3.0, { showValue: true, perPointColors: rows2.map((r) => ((r.npv ?? 0) >= 0 ? B.green : B.negRed)) });

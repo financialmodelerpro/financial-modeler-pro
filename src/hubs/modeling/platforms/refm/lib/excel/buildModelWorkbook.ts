@@ -54,7 +54,7 @@ import { FUNDING_METHOD_LABELS, COST_METHOD_LABELS, type FundingMethodId } from 
 import { CAPEX_SECTIONS } from '../reports/capexReports';
 import { TERMINAL_METHOD_LABELS, TERMINAL_BASIS_LABELS } from '../state/module1-types';
 import { buildConsolidatedReport, perAssetCostsFromTreatment, consolidatedCaption } from '../reports/consolidatedReport';
-import { METRIC_CAPTIONS } from '../reports/metricCaptions';
+import { METRIC_CAPTIONS, METRIC_LABELS } from '../reports/metricCaptions';
 import { buildSellingCostReport, SELLING_COSTS_CAPTION, SELLING_COSTS_YOY_CAPTION } from '../reports/sellingCostReports';
 import {
   emitProjectSection, emitPhasesSection, emitStandardsSection, emitPlotsSection, emitAssetEntrySection, emitSubUnitSection,
@@ -4280,8 +4280,8 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
   kpiStrip('Development Economics', [
     { label: 'Total Development Cost', value: cMoney(de.totalDevelopmentCost), sub: 'incl. land' },
     { label: 'Total Financing Cost', value: cMoney(de.totalFinancingCost), sub: 'all interest over the hold' },
-    { label: 'Profit Before Financing', value: cMoney(de.profitBeforeFinancing), sub: 'GDV - dev cost', tone: de.profitBeforeFinancing >= 0 ? 'good' : 'bad' },
-    { label: 'Profit After Financing', value: cMoney(de.profitAfterFinancing), sub: '- financing cost', tone: de.profitAfterFinancing >= 0 ? 'good' : 'bad' },
+    { label: METRIC_LABELS.developmentSurplusBefore, value: cMoney(de.profitBeforeFinancing), sub: METRIC_CAPTIONS.developmentSurplusBefore, tone: de.profitBeforeFinancing >= 0 ? 'good' : 'bad' },
+    { label: METRIC_LABELS.developmentSurplusAfter, value: cMoney(de.profitAfterFinancing), sub: METRIC_CAPTIONS.developmentSurplusAfter, tone: de.profitAfterFinancing >= 0 ? 'good' : 'bad' },
     { label: 'Development Margin', value: cPct(de.developmentMargin), sub: 'profit / GDV', tone: de.developmentMargin == null ? undefined : de.developmentMargin >= 0 ? 'good' : 'bad' },
   ]);
 
@@ -4639,8 +4639,8 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
       { label: 'Gross Development Value', value: cMoney(de.gdv), sub: 'GDV' },
       { label: 'Total Development Cost', value: cMoney(de.totalDevelopmentCost) },
       { label: 'Total Financing Cost', value: cMoney(de.totalFinancingCost) },
-      { label: 'Profit before Financing', value: cMoney(de.profitBeforeFinancing), sub: 'GDV less cost', tone: de.profitBeforeFinancing >= 0 ? 'good' : 'bad' },
-      { label: 'Profit after Financing', value: cMoney(de.profitAfterFinancing), sub: 'less financing cost', tone: de.profitAfterFinancing >= 0 ? 'good' : 'bad' },
+      { label: METRIC_LABELS.developmentSurplusBefore, value: cMoney(de.profitBeforeFinancing), sub: METRIC_CAPTIONS.developmentSurplusBefore, tone: de.profitBeforeFinancing >= 0 ? 'good' : 'bad' },
+      { label: METRIC_LABELS.developmentSurplusAfter, value: cMoney(de.profitAfterFinancing), sub: METRIC_CAPTIONS.developmentSurplusAfter, tone: de.profitAfterFinancing >= 0 ? 'good' : 'bad' },
       { label: 'Development Margin', value: cPct(de.developmentMargin), sub: 'profit / GDV', tone: de.developmentMargin !== null && de.developmentMargin > 0 ? 'good' : undefined },
       { label: 'Cost to Value', value: cPct(de.costToValue), sub: 'dev cost / GDV' },
     ]);
@@ -5675,7 +5675,7 @@ function addSummary(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinanci
   tiles([
     { label: 'Gross Development Value', value: m(de.gdv) },
     { label: 'Total Development Cost', value: m(rs.totalDevelopmentCost), sub: 'land + capex' },
-    { label: 'Profit after Financing', value: m(de.profitAfterFinancing) },
+    { label: METRIC_LABELS.developmentSurplusAfter, value: m(de.profitAfterFinancing) },
     { label: 'Development Margin', value: pct(de.developmentMargin), sub: 'profit / GDV' },
   ], 4);
 
