@@ -45,7 +45,7 @@ import { buildIntegrityChecks, relativeCheckOk } from '../src/hubs/modeling/plat
 import { buildExcelSampleState } from './excelSampleState';
 import { buildExistingOperationsState, EXISTING_OPS_LABEL } from './fixtures/existingOperationsState';
 import { readLiveProjectVersion } from './fixtures/liveProject';
-import { METRIC_CAPTIONS, METRIC_LABELS } from '../src/hubs/modeling/platforms/refm/lib/reports/metricCaptions';
+import { METRIC_CAPTIONS, METRIC_LABELS, RETURNS_NPV_NOTE } from '../src/hubs/modeling/platforms/refm/lib/reports/metricCaptions';
 import { chargesPerformanceFee, distributedStreamLabel, DISTRIBUTED_STREAM_LABEL, PRE_FEE_QUALIFIER } from '../src/hubs/modeling/platforms/refm/lib/reports/overviewReport';
 import { CASE_KPIS } from '../src/hubs/modeling/platforms/refm/lib/reports/caseComparisonReport';
 
@@ -404,6 +404,20 @@ async function main(): Promise<void> {
     const bare = /(label[=:]\s*|toRow\(|streamRow\()['"`]Distributed Equity \(realized distributions\)['"`]|label[=:]\s*\{?['"`]Distributed[- ]Equity IRR['"`]\}?[^\n]*result\.dividends\.irr|label[=:]\s*\{?['"`]Distributed[- ]Equity IRR['"`]\}?[^\n]*\br\.dividends\.irr/;
     const hits = walk('src/hubs/modeling/platforms/refm').filter((f) => readFileSync(f, 'utf8').split('\n').some((l) => bare.test(l)));
     check('no surface prints the pre-fee distributed figure unqualified', hits.length === 0, hits.join(', '));
+  }
+
+  // NPV IS NOT CALLED OMITTED WHILE THE SAME TAB PRINTS IT (2026-09-30, export review item 13). The
+  // rule is conditional on the fact it states: while Case Comparison carries an NPV row, no surface
+  // may say NPV is omitted, and the screen and the workbook say where it is through one sentence.
+  {
+    const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${d}/${e.name}`) : /\.(ts|tsx)$/.test(e.name) ? [`${d}/${e.name}`] : []));
+    const npvPrinted = CASE_KPIS.some((k) => /^NPV\b/.test(k.label));
+    // Code lines only: the note's own doc comment quotes the retired sentence.
+    const omits = walk('src/hubs/modeling/platforms/refm').filter((f) => readFileSync(f, 'utf8').split('\n').some((l) => !/^\s*(\/\/|\*)/.test(l) && /NPV is intentionally omitted/.test(l)));
+    check('while Case Comparison prints NPV, no surface calls NPV omitted', !npvPrinted || omits.length === 0, omits.join(', '));
+    const R = 'src/hubs/modeling/platforms/refm/';
+    const missing = ['components/modules/Module5Returns.tsx', 'lib/excel/buildModelWorkbook.ts'].filter((f) => !readFileSync(R + f, 'utf8').includes('RETURNS_NPV_NOTE'));
+    check('the Returns screen and the workbook say where NPV is through RETURNS_NPV_NOTE', missing.length === 0 && /Case Comparison/.test(RETURNS_NPV_NOTE), missing.join(', '));
   }
 
   console.log(`\n=== ${pass} passed, ${fail} failed ===`);

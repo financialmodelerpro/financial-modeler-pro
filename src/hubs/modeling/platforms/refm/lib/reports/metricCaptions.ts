@@ -53,3 +53,11 @@ export const METRIC_CAPTIONS = {
   yieldOnCost: 'stabilised NOI / held-asset cost',
   developmentSpread: 'yield on cost less exit cap rate',
 } as const;
+
+/**
+ * WHERE NPV IS (2026-09-30, export review item 13). The Returns tab said "NPV is intentionally omitted"
+ * and then printed NPV (FCFF) in its own Case Comparison, which Module 6, the IC deck, the PPTX and
+ * the PDF scenario table all read too. NPV is not omitted, it is not a HEADLINE; this sentence says
+ * so on the screen and the workbook alike.
+ */
+export const RETURNS_NPV_NOTE = 'NPV is not a headline figure here: IRR / MOIC and the Development Economics lead, and NPV (FCFF, at the discount rate) is reported per case in the Case Comparison.';

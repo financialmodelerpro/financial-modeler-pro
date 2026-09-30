@@ -54,7 +54,7 @@ import { FUNDING_METHOD_LABELS, COST_METHOD_LABELS, type FundingMethodId } from 
 import { CAPEX_SECTIONS } from '../reports/capexReports';
 import { TERMINAL_METHOD_LABELS, TERMINAL_BASIS_LABELS } from '../state/module1-types';
 import { buildConsolidatedReport, perAssetCostsFromTreatment, consolidatedCaption } from '../reports/consolidatedReport';
-import { METRIC_CAPTIONS, METRIC_LABELS } from '../reports/metricCaptions';
+import { METRIC_CAPTIONS, METRIC_LABELS, RETURNS_NPV_NOTE } from '../reports/metricCaptions';
 import { buildSellingCostReport, SELLING_COSTS_CAPTION, SELLING_COSTS_YOY_CAPTION } from '../reports/sellingCostReports';
 import {
   emitProjectSection, emitPhasesSection, emitStandardsSection, emitPlotsSection, emitAssetEntrySection, emitSubUnitSection,
@@ -4214,7 +4214,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
   };
   const streamRow = (label: string, stream: number[] | undefined, opts: { style?: 'plain' | 'subtotal' | 'total'; indent?: number; basis?: string } = {}): number => { const p = place(stream); return moneyRow(label, p.vals, { ...opts, prior: p.prior }); };
 
-  note('Returns on three cash-flow bases: FCFF (unlevered, to all capital providers), FCFE (levered, free cash to equity after debt service), and Distributed Equity (IRR on the actual cash distributions to equity investors). Terminal value is added in the exit year per the assumptions below. NPV is intentionally omitted; IRR / MOIC plus a tight Development Economics are the focus. Exit-year, funding-mix and equity-exposure analytics live on the RE Metrics tab.');
+  note('Returns on three cash-flow bases: FCFF (unlevered, to all capital providers), FCFE (levered, free cash to equity after debt service), and Distributed Equity (IRR on the actual cash distributions to equity investors). Terminal value is added in the exit year per the assumptions below. ' + RETURNS_NPV_NOTE + ' Exit-year, funding-mix and equity-exposure analytics live on the RE Metrics tab.');
 
   // ── Returns Assumptions (the panel's inputs, under the panel's labels) ──
   subTitle('Returns Assumptions');

@@ -34,7 +34,7 @@ import type { ProjectPartner } from '../../lib/state/module1-types';
 import { useEntitlements } from '../../lib/useEntitlements';
 import UpgradePrompt from '@/src/shared/components/UpgradePrompt';
 import { TabComments } from '../collab/FieldComments';
-import { METRIC_CAPTIONS, METRIC_LABELS } from '../../lib/reports/metricCaptions';
+import { METRIC_CAPTIONS, METRIC_LABELS, RETURNS_NPV_NOTE } from '../../lib/reports/metricCaptions';
 
 export default function Module5Returns({ activeProjectId = null }: { activeProjectId?: string | null } = {}): React.JSX.Element {
   // Module 1 Parties carrying an equity role, offered as the source for equity
@@ -177,7 +177,7 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
       <p style={{ color: 'var(--color-meta)', marginTop: 0, marginBottom: 'var(--sp-3)', fontSize: 'var(--font-small)' }}>
         Returns on three cash-flow bases: <strong>FCFF</strong> (unlevered, to all capital providers),{' '}
         <strong>FCFE</strong> (levered, free cash to equity after debt service), and <strong>Distributed Equity</strong>{' '}
-        (IRR on the actual cash distributions to equity investors). Terminal value is added in the exit year per the assumptions below. NPV is intentionally omitted; IRR / MOIC plus a tight Development Economics are the focus. Exit-year, funding-mix and equity-exposure analytics live on the RE Metrics tab.
+        (IRR on the actual cash distributions to equity investors). Terminal value is added in the exit year per the assumptions below. {RETURNS_NPV_NOTE} Exit-year, funding-mix and equity-exposure analytics live on the RE Metrics tab.
       </p>
 
       <AssumptionsPanel value={assumptions} yearLabels={rs.yearLabels} onChange={onAssumptions} />
