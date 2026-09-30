@@ -156,6 +156,7 @@ async function main(): Promise<void> {
   console.log('\nC and D. Every stored version of every live project');
   let versions = 0; let silent = 0; let settles = 0; let computed = 0;
   const speaks: string[] = []; const unsettled: string[] = []; const broken: string[] = [];
+  let bagSample: { where: string; extract: unknown } | null = null;
   for (const p of projects) {
     const rows = await get(`refm_project_versions?project_id=eq.${p.id}&select=id,version_label,snapshot&order=created_at.asc`);
     for (const v of rows) {
@@ -168,6 +169,7 @@ async function main(): Promise<void> {
       // nothing left to say about it. This is the check that would have caught a
       // banner that can never be cleared.
       if (loadOf(res.extract).notice) unsettled.push(where); else settles++;
+      if (!bagSample && ((res.extract as any)?.assets ?? []).some((a: any) => a.derivedAreas && Object.keys(a.derivedAreas).length)) bagSample = { where, extract: res.extract };
       // D. The route and the numbers are untouched: the model still computes.
       if ((res.model.assets ?? []).length > 0) {
         const snap: any = quiet(() => computeFinancialsSnapshot(res.model as never));
@@ -180,6 +182,19 @@ async function main(): Promise<void> {
   check('C1 the narrowing bites on real data: a stored version loads silently', versions > 0 && silent > 0, 'every version still speaks');
   check(`C2 what a load settles stays settled (${settles} of ${versions})`, versions > 0 && settles === versions, unsettled.slice(0, 4).join(' | '));
   check(`D1 the model still computes on every version (${computed} of ${versions})`, versions > 0 && computed === versions, broken.slice(0, 4).join(' | '));
+
+  // THE AREA BAG IS NEVER STATED (2026-09-30): a stale `derivedAreas` figure is re-derived by the
+  // chain on load, which reinterprets nothing. Found when the lobby rule changed (export review item
+  // 21) and every stored version began to raise the banner. On a real loaded model that carries a
+  // bag: the stale bag alone stays silent, and a stated value beside it still speaks.
+  check('C3 a live version carries a derived area bag to go stale', !!bagSample, 'none found');
+  if (bagSample) {
+    const stale = JSON.parse(JSON.stringify(bagSample.extract));
+    for (const a of stale.assets ?? []) if (a.derivedAreas && Object.keys(a.derivedAreas).length) a.derivedAreas.lobbyGfaSqm = 123456;
+    check(`C4 ${bagSample.where}: a stale derived area is re-derived without a banner`, !loadOf(stale).notice, String(loadOf(stale).notice));
+    stale.landAllocationMode = 'autoByBua';
+    check(`C5 ${bagSample.where}: a stated value beside it still raises one`, !!loadOf(stale).notice, 'silent');
+  }
 }
 
 main().then(() => { console.log(`\n=== ${pass} passed, ${fail} failed ===`); process.exit(fail ? 1 : 0); })

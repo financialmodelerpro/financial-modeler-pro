@@ -2334,6 +2334,11 @@ const DERIVED_PRICE_FIELDS: readonly string[] = ['unitPrice', 'pricePerSqm', 'pr
  */
 function isDerivedFill(e: ChangeLogEntry, raw: Record<string, unknown>): boolean {
   if (e.kind === 'add') return true;
+  // THE AREA BAG IS NEVER STATED (2026-09-30). `Asset.derivedAreas` is written only by the chain, on
+  // every load and save (`computeAssetChain`), and no one types into it, so a load that re-derives it
+  // reinterprets nothing. Found when the lobby rule changed (export review item 21) and every stored
+  // version began to raise the schema banner for a figure the user never stated.
+  if (/^assets\[id=[^\]]+\]\.derivedAreas(\.|$)/.test(e.path)) return true;
   const lineValue = /^costLines\[id=(.+)\]\.value$/.exec(e.path);
   if (lineValue) {
     const rows = (raw.costLines as Array<{ id: string; rateStated?: boolean }> | undefined) ?? [];
