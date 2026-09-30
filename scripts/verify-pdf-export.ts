@@ -250,6 +250,16 @@ async function main(): Promise<void> {
   });
   check('part toggle drops content (m1 outputs-only < m1 all)', m1OutputsOnly.length < m1All.length, `out=${m1OutputsOnly.length} all=${m1All.length}`);
   check('part toggle still valid PDF', (await pageCount(m1OutputsOnly)) >= 2, '');
+  // THE ENVELOPE COUNTS THE PERIODS THE MODEL RUNS (2026-09-29, export review item 6): it printed end
+  // year minus start year, one short, because the phase ends are inclusive. Tied to the axis itself.
+  {
+    const { pdfText } = await import('./pdfTextExtract');
+    const lines = pdfText(m1All).split('\n').map((l) => l.trim());
+    const i = lines.indexOf('Project envelope');
+    const periodsCell = i >= 0 ? lines.slice(i, i + 8).find((l) => / periods$/.test(l)) ?? '' : '';
+    const axisN = computeFinancialsSnapshot(buildState()).axisLength;
+    check('Phases: the project envelope counts the periods the model runs (the axis length)', periodsCell === `${axisN} periods`, `"${periodsCell}" vs ${axisN}`);
+  }
 
   // FAST input shading: input-part tables fill their value cells with the
   // navy-pale FAST_INPUT color (0.886 0.917 0.957) so assumptions read as

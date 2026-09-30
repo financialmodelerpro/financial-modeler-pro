@@ -1476,7 +1476,7 @@ function buildModule1(
             PHASE_STATUS_LABELS[(ph.status ?? 'planning') as keyof typeof PHASE_STATUS_LABELS] ?? String(ph.status),
           ]);
         }),
-        row(['Project envelope', pt.start, '', '', '', '', pt.end, `${pt.spanPeriods} periods`], 'total'),
+        row(['Project envelope', pt.start, '', '', '', '', pt.end, `${pt.periodCount} periods`], 'total'),
       ],
     }));
   }

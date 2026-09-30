@@ -369,7 +369,7 @@ export default function Module1ProjectPhases(): React.JSX.Element {
           }}
           data-testid="project-end-formula"
         >
-          Project End = {project.startDate} + max phase duration = <strong>{projectEndDate}</strong> (end year <strong data-testid="project-end-year">{projectTimeline.endYear}</strong>, total <strong>{projectTimeline.totalPeriods}</strong> {'years'})
+          Project End = {project.startDate} + max phase duration = <strong>{projectEndDate}</strong> (end year <strong data-testid="project-end-year">{projectTimeline.endYear}</strong>, total <strong>{projectTimeline.periodCount}</strong> {'years'})
         </div>
       </div>
 

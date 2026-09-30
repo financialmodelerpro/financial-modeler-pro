@@ -2823,8 +2823,13 @@ export interface ProjectTimeline {
   endDate: string;
   /** M2.0f: endDate.getFullYear() with NO +1 offset. Display caption. */
   endYear: number;
-  /** M2.0f: total span in modelType units (rename of spanPeriods). */
+  /** End minus start in modelType units: ONE LESS than the periods the model runs, because the phase
+   *  ends are inclusive (operations end 2038-12-31 for a model running 2027 to 2038). Engines use it only
+   *  as a floor; financing-hooks sizes arrays as totalPeriods + 1. Never print it as a count. */
   totalPeriods: number;
+  /** THE PERIODS THE MODEL RUNS, inclusive (2026-09-29, export review item 6): 12 for 2027 to 2038.
+   *  The screen and the PDF printed totalPeriods as the count and read 11. */
+  periodCount: number;
 
   // ── Legacy aliases (kept stable for M2.0e callers) ────────────────
   /** Legacy alias for startDate. */
@@ -2842,6 +2847,7 @@ export function computeProjectTimeline(project: Project, phases: Phase[]): Proje
       endDate:   project.startDate,
       endYear:   new Date(project.startDate).getFullYear() || 0,
       totalPeriods: 0,
+      periodCount: 0,
       start:        project.startDate,
       end:          project.startDate,
       spanPeriods:  0,
@@ -2862,16 +2868,16 @@ export function computeProjectTimeline(project: Project, phases: Phase[]): Proje
     totalPeriods = endD.getFullYear() - startD.getFullYear();
   }
   totalPeriods = Math.max(0, totalPeriods);
-  // M2.0f Fix 5: endYear comes straight from endDate.getFullYear() with
-  // no +1 / no rounding. For phase startDate=2025-01-01, construction=4,
-  // operations=10, overlap=0 the chain produces endDate=2039-01-01 and
-  // endYear=2039 (the inclusive "Project End" caption).
+  // M2.0f Fix 5: endYear comes straight from endDate.getFullYear() with no +1 / no rounding. The phase
+  // ends are INCLUSIVE (a 2025-01-01 start with 4 + 10 years ends 2038-12-31, endYear 2038), which is why
+  // totalPeriods is one less than the periods the model runs and periodCount is the count.
   const endYear = endD.getFullYear() || 0;
   return {
     startDate,
     endDate,
     endYear,
     totalPeriods,
+    periodCount: totalPeriods + 1,
     start:       startDate,
     end:         endDate,
     spanPeriods: totalPeriods,
