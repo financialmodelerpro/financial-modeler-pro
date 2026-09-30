@@ -45,7 +45,7 @@ import { eligibleBaseLines, assetVisibleLines } from '../src/core/calculations/s
 import { planRetailCompanionOverrides } from '../src/core/calculations/retailCompanion';
 import { applyReferenceCostBases } from '../src/core/calculations/costBases';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
-import { buildCapexReport, assetCapexCategory } from '../src/hubs/modeling/platforms/refm/lib/reports/capexReports';
+import { buildCapexReport, assetCapexCategory, CAPEX_SECTIONS, CAPEX_TABLE6_TITLE, CAPEX_TABLE6_CAPTION } from '../src/hubs/modeling/platforms/refm/lib/reports/capexReports';
 import { buildExcelSampleState } from './excelSampleState';
 import { selectableCostMethods, COST_METHOD_LABELS, COST_METHOD_BASIS_HELP, type CostMethod } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { repairStaleWizardCostWindows } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
@@ -1178,7 +1178,7 @@ section('K. Area x unit size = count: only two of the three are inputs');
         !costsSrc2.includes('const renderAsset = (')
         && costsSrc2.includes('const lineSeries = (lineId: string, members: Asset[])')
         && costsSrc2.includes('data-testid={' + String.fromCharCode(96) + 'capex-period-line-' + '$' + '{ln.key}-' + '$' + '{line.id}' + String.fromCharCode(96) + '}')
-        && costsSrc2.includes('Table 6 - Capex by Category')
+        && costsSrc2.includes('{CAPEX_TABLE6_TITLE}')
         // FILED BY THE REVENUE SECTION SINCE 2026-09-22, not by the coarse
         // category. The rule this check exists for is "Table 6 files by the
         // SAME rule the P&L sections use", and the screen obeys it better than
@@ -1282,6 +1282,21 @@ section('J. Tab order: the help icon is not a tab stop');
   check('the help trigger is removed from the tab order', /tabIndex=\{-1\}/.test(SRC_LABEL_UI));
   check('and keeps its text reachable as a title', /title=\{help\}/.test(SRC_LABEL_UI));
   check('it is still a real button', /<button\s/.test(SRC_LABEL_UI) && SRC_LABEL_UI.includes('aria-label={`Help:'));
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+section('K. Table 6 says what it files by (2026-09-30, export review item 18)');
+
+{
+  // The title listed "Residential, Hospitality, Retail" after Table 6 moved to the revenue filing rule,
+  // so four rows printed under a three-word promise. The rule: the heading names every section the
+  // table can print, from the list the table files by, and no surface keeps a hand-written list.
+  check('K1 the caption names every section Table 6 can print', CAPEX_SECTIONS.every((sec) => CAPEX_TABLE6_CAPTION.includes(sec)));
+  check('K2 the title makes no list of its own that could fall behind', !/\(/.test(CAPEX_TABLE6_TITLE));
+  const R6 = 'src/hubs/modeling/platforms/refm/';
+  const stale = ['components/modules/Module1Costs.tsx', 'lib/excel/buildModelWorkbook.ts', 'lib/pdf/generateProjectPdf.ts']
+    .filter((f) => { const t = fs.readFileSync(R6 + f, 'utf8'); return /Capex by Category \(Residential/.test(t) || !t.includes('CAPEX_TABLE6_TITLE') || !t.includes('CAPEX_TABLE6_CAPTION'); });
+  check('K3 the screen, the workbook and the PDF read the one title and caption', stale.length === 0, stale.join(', '));
 }
 
 // ── Report ─────────────────────────────────────────────────────────────────

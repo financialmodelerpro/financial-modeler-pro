@@ -51,7 +51,7 @@ import { computeReturnsSnapshot, computeReturnsSensitivity, type ReturnsSnapshot
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { resolveAssetAreaMetrics, computePhaseTimeline, computeProjectTimeline, resolveSubUnitAdr, type AssetAreaMetrics } from '@/src/core/calculations';
 import { FUNDING_METHOD_LABELS, COST_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
-import { CAPEX_SECTIONS } from '../reports/capexReports';
+import { CAPEX_SECTIONS, CAPEX_TABLE6_TITLE, CAPEX_TABLE6_CAPTION } from '../reports/capexReports';
 import { TERMINAL_METHOD_LABELS, TERMINAL_BASIS_LABELS } from '../state/module1-types';
 import { buildConsolidatedReport, perAssetCostsFromTreatment, consolidatedCaption } from '../reports/consolidatedReport';
 import { METRIC_CAPTIONS, METRIC_LABELS, RETURNS_NPV_NOTE, capRateAtExitCaption, exitYearAnalysisNote } from '../reports/metricCaptions';
@@ -1799,8 +1799,8 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   // ── Table 6: capex by category, both readings ─────────────────────────────
   // The report builder's category tables, filed per ASSET by assetCapexCategory
   // (a retail strip under Retail), each block footing to Table 2 and Table 4.
-  setSectionHeader(ws.getRow(r), 'Table 6 - Capex by Category (Residential, Hospitality, Retail)', cLast); r += 1;
-  note(r, 'Every line filed under its asset type\'s category; a retail strip files under Retail. The first block foots to Table 2, the second to Table 4.');
+  setSectionHeader(ws.getRow(r), CAPEX_TABLE6_TITLE, cLast); r += 1;
+  note(r, CAPEX_TABLE6_CAPTION);
   r += 2;
   subHeader(r, [[C_LBL, 'Category', 'left'], [C_TOT, 'Total', 'right']]);
   r += 1;

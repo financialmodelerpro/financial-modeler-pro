@@ -160,7 +160,7 @@ const PROJECT = 'c417fc6a-4514-4438-857c-a72dc7472f65'; // FMP - MARINA GATE
     // "renders the builder" holds through costPerSqmTables as well.
     check('E0 the screen renders costPerSqmTables, the rows both exports print', /costPerSqmTables\(lines,/.test(table));
     const pdf = src('src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf.ts');
-    const pT6 = pdf.indexOf("periodTable('Table 6 - Capex by Category");
+    const pT6 = pdf.indexOf('periodTable(CAPEX_TABLE6_TITLE');
     const pT7 = pdf.indexOf('costPerSqmTables(report7.lines');
     check('E1 the PDF prints Table 7 from the same rows, right after Table 6, on the Capex outputs',
       pT6 > 0 && pT7 > pT6 && /tTable\(M1_TABS\.capex, 'outputs', \{\s*title: t\.title, kind: 'grid'/.test(pdf));

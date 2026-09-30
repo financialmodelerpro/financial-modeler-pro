@@ -91,7 +91,7 @@ import { buildOperatingKpis } from '../reports/operatingKpis';
 import { assetLabel } from '@/src/core/calculations/assetName';
 import { buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
 import { evaluateCovenant, covenantSeries, reduceWorst, covenantBasisNote, covenantCoverageNote, type CovenantInputs } from '../covenants';
-import { buildCapexReport, CAPEX_SECTIONS, type CapexResultTable } from '../reports/capexReports';
+import { buildCapexReport, CAPEX_SECTIONS, CAPEX_TABLE6_TITLE, CAPEX_TABLE6_CAPTION, type CapexResultTable } from '../reports/capexReports';
 import { buildPartiesTable, PARTIES_TITLE, PARTIES_EMPTY_TEXT } from '../reports/partiesReport';
 import {
   buildStandardsView, buildAssetAreaTables, buildAssetLandView, buildSubUnitLines,
@@ -2036,10 +2036,10 @@ function buildModule1(
       catRows.push(periodRow(`${label}, total`, total, 'sum', 'total'));
     }
     if (catRows.length) {
-      items.push(tTable(M1_TABS.capex, 'outputs', periodTable('Table 6 - Capex by Category (Residential, Hospitality, Retail)', py, yl, catRows)));
+      items.push(tTable(M1_TABS.capex, 'outputs', periodTable(CAPEX_TABLE6_TITLE, py, yl, catRows)));
       items.push(tItem(M1_TABS.capex, 'outputs', {
         type: 'paragraph',
-        text: 'Every line filed under its asset type\'s category; a retail strip files under Retail. The first block foots to Table 2, the second to Table 4.',
+        text: CAPEX_TABLE6_CAPTION,
       }));
     }
   }

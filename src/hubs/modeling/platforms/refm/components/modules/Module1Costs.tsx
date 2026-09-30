@@ -127,7 +127,7 @@ import { withResolvedAssetNames, assetPlotLabel } from '@/src/core/calculations/
 import { withInheritedMassingAll } from '@/src/core/calculations/landChain';
 import { chainMassingFor } from '../../lib/state/assetTypeStandards';
 import { buildConsolidatedReport, perAssetCostsFromTreatment, consolidatedCaption } from '../../lib/reports/consolidatedReport';
-import { planCapexSummaryLines, assetCapexSection, capexTreatmentRows, CAPEX_SECTIONS, type CapexPlannableAsset } from '../../lib/reports/capexReports';
+import { planCapexSummaryLines, assetCapexSection, capexTreatmentRows, CAPEX_SECTIONS, CAPEX_TABLE6_TITLE, CAPEX_TABLE6_CAPTION, type CapexPlannableAsset } from '../../lib/reports/capexReports';
 import { assetHasSubstance } from './_shared/assetTableModel';
 import CostPerSqmTables from './_shared/CostPerSqmTables';
 import { normaliseAssetTypeId } from '../../lib/state/assetTypeStandards';
@@ -3512,9 +3512,9 @@ function SummaryTables({
           };
           return (
             <div style={sectionCardStyle} data-testid="capex-summary-category">
-              <h3 style={{ ...TABLE_TITLE, margin: 0 }}>Table 6 - Capex by Category (Residential, Hospitality, Retail)</h3>
+              <h3 style={{ ...TABLE_TITLE, margin: 0 }}>{CAPEX_TABLE6_TITLE}</h3>
               <div style={{ fontSize: 11, color: 'var(--color-meta)', margin: '4px 0 6px' }}>
-                Every line filed under its asset type's category; a retail strip files under Retail. The first block foots to Table 2, the second to Table 4.
+                {CAPEX_TABLE6_CAPTION}
               </div>
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 11 }}>

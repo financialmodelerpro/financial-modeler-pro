@@ -51,6 +51,16 @@ export { assetCapexCategory, CAPEX_CATEGORIES, type CapexCategory } from './asse
  */
 import { revenueSection as assetCapexSection, REVENUE_SECTIONS as CAPEX_SECTIONS, type RevenueSection as CapexSection } from '../revenueLines';
 export { assetCapexSection, CAPEX_SECTIONS };
+
+/**
+ * TABLE 6'S TITLE AND CAPTION, FROM THE SECTIONS IT FILES BY (2026-09-30, export review item 18). The
+ * title listed "Residential, Hospitality, Retail" after Table 6 moved to the revenue filing rule
+ * (2026-09-22), so it printed four rows under a three-word promise, two of them reading like asset
+ * types. They are Module 2's SECTIONS, by the founder's order, so the table says Section and names
+ * them from CAPEX_SECTIONS itself: a section added there can never leave the title behind.
+ */
+export const CAPEX_TABLE6_TITLE = 'Table 6 - Capex by Section';
+export const CAPEX_TABLE6_CAPTION = `Every line is filed by the rule Module 2 files revenue by, so capex and revenue sit under the same headings (${CAPEX_SECTIONS.join(', ')}); a retail strip is ${CAPEX_SECTIONS[3]}. The first block foots to Table 2, the second to Table 4.`;
 export type { CapexSection };
 
 export interface CapexInputLine {
