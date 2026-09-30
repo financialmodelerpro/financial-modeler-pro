@@ -18,7 +18,10 @@ import { buildCaseComparisonReport, CASE_KPIS } from '../src/hubs/modeling/platf
 import {
   enumerateOverridableFields, seedCases, buildOverrides, applyOverrides, getByPath,
 } from '../src/hubs/modeling/platforms/refm/lib/cases/applyOverrides';
-import { inactiveLeverReason, nonEconomicLeverReason } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
+import { inactiveLeverReason, nonEconomicLeverReason, curatedDefaultFields } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
+import { standardTypeIdFor } from '../src/hubs/modeling/platforms/refm/lib/state/costStandards';
+import { buildAssumptionGrid } from '../src/hubs/modeling/platforms/refm/lib/reports/scenarioAssumptions';
+import { caseModelOf } from '../src/hubs/modeling/platforms/refm/lib/cases/caseModel';
 
 let passed = 0, failed = 0;
 const fails: string[] = [];
@@ -263,5 +266,71 @@ check('comparison exposes an NPV (FCFF) row (so discount rate has a metric)', CA
 const fcffKpi = CASE_KPIS.find((k) => k.label === 'Project IRR (FCFF)');
 check('Project IRR (FCFF) carries an explicit null label (not a bare n/a)', !!fcffKpi?.nullLabel);
 
-console.log(`\n=== Result: ${passed} passed, ${failed} failed ===`);
-if (failed > 0) { console.log('FAILED: ' + fails.join('; ')); process.exit(1); }
+// ── 7. The Cases header counts what the grid lists (2026-09-29, export review item 7). ──
+// The header diffed each scenario's SETTLED model against the base, so a type rate or price counted
+// once for itself and again for every field the settle derives from it ("23 overrides" above a grid
+// listing 7), and the type rows were filed under "Project, Returns & Exit" in engine words.
+console.log('\n[7] Cases header vs the assumptions grid');
+{
+  reset();
+  // A type sale price is seeded on a copy (the sample carries none), for the type the rate row names,
+  // so the settle has unstated sub-unit prices to derive from it: the fields the header must NOT count.
+  const bm: any = structuredClone(live());
+  const typeId = (bm.project.costStandardRows ?? []).map((r: any) => /^type:(.+)$/.exec(String(r.id))?.[1]).find(Boolean);
+  if (typeId) bm.project.assetTypeValues = { ...(bm.project.assetTypeValues ?? {}), [typeId]: { ...(bm.project.assetTypeValues?.[typeId] ?? {}), pricePerSqm: 30_000 } };
+  // Its rows' prices unstated, so they take the type's price: the settle then DERIVES them from the override.
+  const ofType = new Set((bm.assets ?? []).filter((a: any) => a.assetTypeId === typeId).map((a: any) => a.id));
+  for (const u of bm.subUnits ?? []) if (ofType.has(u.assetId)) u.priceStated = false;
+  const paths = enumerateOverridableFields(bm).map((f) => f.path);
+  const rate = paths.find((p) => /^project\.costStandardRows\[id=type:[^\]]+\]\.rate$/.test(p));
+  const price = paths.find((p) => /^project\.assetTypeValues\.[^.]+\.pricePerSqm$/.test(p));
+  if (!rate || !price) check('7a the fixture carries a type construction rate and a type sale price to override', false, `${rate} / ${price}`);
+  else {
+    const cases = [
+      { id: MGMT, name: 'Management Case', role: 'base', overrides: {} },
+      { id: 'case_type_levers', name: 'Type levers', role: 'scenario', overrides: { [rate]: Number(getByPath(bm, rate) ?? 0) + 1000, [price]: Number(getByPath(bm, price) ?? 0) + 500 } },
+    ] as any[];
+    const input = { baseModel: bm, cases, activeCaseId: MGMT, liveActiveModel: bm };
+    const col = buildCaseComparisonReport(input).columns.find((c) => c.id === 'case_type_levers');
+    const grid = buildAssumptionGrid(input);
+    const rows = grid.groups.flatMap((g) => g.items.flatMap((it) => it.rows.map((r) => ({ g: g.label, r }))));
+    const overridden = rows.filter((x) => x.r.cells.find((c) => c.caseId === 'case_type_levers')?.overridden);
+    check('7b the grid lists exactly the two overrides, and the header count equals them', overridden.length === 2 && overridden.length === col?.overrideCount, `${overridden.length} rows, header ${col?.overrideCount}`);
+    const byPath = (p: string) => rows.find((x) => x.r.path === p);
+    check('7c the type construction rate sits under Construction & Capex, in money', byPath(rate)?.g === 'Construction & Capex' && /,/.test(byPath(rate)?.r.cells[1]?.text ?? ''), `${byPath(rate)?.g} ${byPath(rate)?.r.cells[1]?.text}`);
+    check('7d the type sale price sits under Revenue', byPath(price)?.g === 'Revenue', String(byPath(price)?.g));
+  }
+}
+
+// 7e LIVE: on the live model the settle DERIVES fields from a type rate or price (Marina Gate: 7 stored
+// overrides, 23 fields differing), so this is where the count rule is told apart; each scenario's
+// header count must equal the rows the grid overrides for it.
+void (async () => {
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    const { loadLiveExportInputs } = await import('./fixtures/liveExportInputs');
+    const lin: any = await loadLiveExportInputs();
+    const cc = lin.caseComparison;
+    const cols = buildCaseComparisonReport(cc).columns;
+    const lrows = buildAssumptionGrid(cc).groups.flatMap((g) => g.items.flatMap((it) => it.rows));
+    const scen = (cc.cases as any[]).filter((c) => c.role !== 'base' && Object.keys(c.overrides ?? {}).length > 0);
+    const settled = scen.map((c) => Object.keys(buildOverrides(cc.baseModel, caseModelOf(cc.baseModel, c.overrides))).length);
+    const bad = scen.filter((c) => cols.find((x) => x.id === c.id)?.overrideCount !== lrows.filter((rw) => rw.cells.find((x: any) => x.caseId === c.id)?.overridden).length).map((c) => c.name);
+    check(`7e live: the settle derives more fields than the stored overrides (${scen.map((c, k) => `${c.name} ${Object.keys(c.overrides).length} stored, ${settled[k]} differing`).join('; ')})`, scen.length > 0 && settled.some((n, k) => n > Object.keys(scen[k].overrides).length));
+    check('7f live: every scenario\'s header count equals the rows the grid overrides for it', scen.length > 0 && bad.length === 0, bad.join(', '));
+    // 7g (export review item 8): the default levers include every type an asset PRICES by. A retail strip
+    // carries no assetTypeId and prices by the retail type, so the raw-field test left its rent and
+    // construction standard out, and every scenario built from the defaults left retail untouched.
+    const bmL = cc.baseModel;
+    const typesPriced = new Set((bmL.assets ?? []).filter((a: any) => a.visible !== false).map((a: any) => standardTypeIdFor(a, bmL.project.assetTypes ?? [])).filter(Boolean));
+    const curatedPaths = new Set(curatedDefaultFields(bmL).map((f) => f.path));
+    const lever = (t: string): string[] => enumerateOverridableFields(bmL).map((f) => f.path)
+      .filter((p) => p === 'project.costStandardRows[id=type:' + t + '].rate'
+        || p === 'project.assetTypeValues.' + t + '.pricePerSqm' || p === 'project.assetTypeValues.' + t + '.pricePerUnit')
+      .filter((p) => Number(getByPath(bmL, p)) > 0);
+    const missing = [...typesPriced].flatMap((t: any) => lever(t).filter((p) => !curatedPaths.has(p)));
+    const strip = (bmL.assets ?? []).find((a: any) => a.companionType === 'retail');
+    check("7g live: the default levers include every type an asset prices by, a retail strip's type included", !!strip && typesPriced.has(standardTypeIdFor(strip, bmL.project.assetTypes ?? [])) && missing.length === 0, missing.join(' | '));
+  } else check('7e live leg needs credentials (run with --env-file=.env.local)', false);
+  console.log(`\n=== Result: ${passed} passed, ${failed} failed ===`);
+  if (failed > 0) { console.log('FAILED: ' + fails.join('; ')); process.exit(1); }
+})();

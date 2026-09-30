@@ -14,7 +14,7 @@
 import { computeFinancialsSnapshot } from '../financials-resolvers';
 import { computeReturnsSnapshot } from '../returns-resolvers';
 import { applyOverrides, baseCaseId, buildOverrides, getByPath, enumerateOverridableFields } from '../cases/applyOverrides';
-import { caseModelOf } from '../cases/caseModel';
+import { caseModelOf, withoutDerivedOverrides } from '../cases/caseModel';
 import { buildGridContext, describeAssumption, assumptionFor, formatAssumptionValue } from '../cases/assumptionGrid';
 import type { HydrateSnapshot } from '../state/module1-store';
 import type { ProjectCase } from '../state/module1-types';
@@ -159,7 +159,10 @@ export function buildCaseComparisonReport(input: CaseComparisonInput): CaseCompa
       ? 0
       : (c.id === activeCaseId && activeOverrideCount !== undefined
           ? activeOverrideCount
-          : Object.keys(buildOverrides(baseModel, model)).length);
+          // The same rule the active case's count uses (withoutDerivedOverrides): a field the settle
+          // DERIVES from an override is not an override. Counting it read "23 overrides" above a grid
+          // listing the 7 a user set (2026-09-29, export review item 7).
+          : Object.keys(withoutDerivedOverrides(buildOverrides(baseModel, model), model)).length);
     const drivers = c.role === 'base' ? [] : driversFor(model);
     return { id: c.id, name: c.name, role: c.role, isActive: c.id === activeCaseId, overrideCount, values, drivers };
   });

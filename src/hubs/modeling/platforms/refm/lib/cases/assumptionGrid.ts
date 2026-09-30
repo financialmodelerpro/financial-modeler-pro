@@ -26,6 +26,8 @@ import { deriveLineBaseId, assetStrategySells, COST_METHOD_LABELS } from '../sta
 import { deriveAssetScope } from '@/src/core/calculations';
 import { resolvePhasingSource } from '@/src/core/calculations/capexPhasing';
 import type { Asset, Phase, CostLine, SubUnit, CostOverride, FinancingTranche } from '../state/module1-types';
+import { standardTypeIdFor } from '../state/costStandards';
+import type { AssetTypeStandard } from '../state/assetTypeStandards';
 
 // ── Categories (mirror the Inputs-tab bands) ────────────────────────────────
 export type AssumptionCategory = 'project' | 'construction' | 'financing' | 'revenue' | 'opex';
@@ -123,8 +125,9 @@ const FIELD_LABELS: Record<string, string> = {
 };
 
 const SUFFIX_LABELS: ReadonlyArray<readonly [RegExp, string]> = [
-  [/^assetTypeValues\.[^.]+\.pricePerSqm$/, 'Type price per sqm'],
-  [/^assetTypeValues\.[^.]+\.pricePerUnit$/, 'Type price per unit'],
+  [/^assetTypeValues\.[^.]+\.pricePerSqm$/, 'Sale price per sqm (type default)'],
+  [/^assetTypeValues\.[^.]+\.pricePerUnit$/, 'Price per unit or key (type default)'],
+  [/^costStandardRows\[id=type:[^\]]+\]\.rate$/, 'Superstructure rate per sqm (type construction standard)'],
   [/^costStandardRows\[[^\]]+\]\.rate$/, 'Cost standard rate'],
   [/debtPct$/, 'Debt %'],
   [/equityPct$/, 'Equity %'],
@@ -267,6 +270,10 @@ function categoryOf(path: string): AssumptionCategory {
     || path.startsWith('equityContributions[') || path.includes('parcelFunding[')) return 'financing';
   if (path.includes('.opex.') || path.includes('].opex')) return 'opex';
   if (path.includes('.revenue.') || path.startsWith('subUnits[')) return 'revenue';
+  // A type's default prices are revenue and its construction rate is capex (2026-09-29, export review
+  // item 7): filed under "Project, Returns & Exit" they could not be found beside what they move.
+  if (/^project\.assetTypeValues\.[^.]+\.(pricePerSqm|pricePerUnit|revenueRate)$/.test(path)) return 'revenue';
+  if (path.startsWith('project.costStandardRows[') || path.startsWith('project.assetTypeValues.')) return 'construction';
   return 'project';
 }
 
@@ -275,6 +282,8 @@ function formatForField(f: OverridableField, costBaseId?: string): AssumptionFor
   if (f.type === 'boolean') return 'boolean';
   if (f.type === 'string') return 'text';
   if (costBaseId !== undefined) return PERCENT_COST_LEVER_IDS.has(costBaseId) ? 'percent-whole' : 'accounting';
+  // A type's construction standard is money per sqm; the other standard rows keep their own scale.
+  if (/^costStandardRows\[id=type:/.test(f.field)) return 'accounting';
   if (/^costStandardRows\[/.test(f.field)) return 'number';
   if (/^assetTypeValues\.[^.]+\.(pricePerSqm|pricePerUnit)$/.test(f.field)) return 'accounting';
   const leaf = f.field;
@@ -415,8 +424,13 @@ export function curatedDefaultFields(model: HydrateSnapshot): OverridableField[]
 
   // 1b. The type prices and construction cost standards of the types the model uses (2026-09-15):
   //     both apply inside a scenario now, and a price at type level is the biggest single dial.
-  const usedTypes = new Set(((model as unknown as { assets?: Array<{ assetTypeId?: string; visible?: boolean }> }).assets ?? [])
-    .filter((a) => a.visible !== false && a.assetTypeId).map((a) => a.assetTypeId as string));
+  //     A type is USED by every asset that prices by it, through the one rule pricing and the cost
+  //     standards read (standardTypeIdFor): a retail strip carries no assetTypeId and prices by the retail
+  //     type, so reading the raw field left the Retail Ground Floor rent and construction standard out of
+  //     the defaults and every scenario built from them left retail untouched (2026-09-29, export review item 8).
+  const typeList = ((model as unknown as { project?: { assetTypes?: AssetTypeStandard[] } }).project?.assetTypes ?? []) as AssetTypeStandard[];
+  const usedTypes = new Set(((model as unknown as { assets?: Asset[] }).assets ?? [])
+    .filter((a) => a.visible !== false).map((a) => standardTypeIdFor(a, typeList)).filter((t): t is string => !!t));
   for (const f of all) {
     const tv = /^project\.assetTypeValues\.([^.]+)\.(pricePerUnit|pricePerSqm)$/.exec(f.path);
     if (tv && usedTypes.has(tv[1]) && Number(f.value) > 0) { out.push(f); continue; }
