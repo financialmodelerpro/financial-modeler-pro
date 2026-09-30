@@ -95,7 +95,7 @@ import type { IndexationConfig } from '@/src/core/calculations/revenue/types';
 import { assetPlotLabel } from '@/src/core/calculations/assetName';
 import { deriveCostStage, isLandValueLine } from '@/src/core/calculations';
 import { CAPEX_PHASING_SOURCE_LABELS, FUNDING_METHOD_DESCRIPTIONS, REPAYMENT_METHOD_LABELS, DEFAULT_PROJECT_FINANCING_CONFIG } from '../state/module1-types';
-import { buildIdcAllocationTables, buildFinancingSummary, FINANCING_SUMMARY_CAPTIONS } from '../reports/financingReports';
+import { buildIdcAllocationTables, buildFinancingSummary, FINANCING_SUMMARY_CAPTIONS, operatingInflowClasses } from '../reports/financingReports';
 import { CAPITALISED_INTEREST_RULE } from '@/src/core/calculations/capitalisedInterest';
 import { computeFundingBasis } from '../reports/fundingBasis';
 import { buildPartiesTable, PARTIES_TITLE, PARTIES_EMPTY_TEXT } from '../reports/partiesReport';
@@ -3595,19 +3595,9 @@ function addFinancing(ctx: EmitCtx): FinLinks {
   const totalNewDebt = debtSplit.map((v, i) => v + (idcAdd[i] ?? 0));
   const minCash = w.minCashReserve;
   const visibleAssets = state.assets.filter((a) => a.visible !== false);
-  const classSeries = (pick: (a: (typeof visibleAssets)[number]) => boolean): number[] => {
-    const out = zeros();
-    for (const a of visibleAssets) {
-      if (!pick(a)) continue;
-      const cf = snap.perAssetCF.get(a.id);
-      if (!cf) continue;
-      for (let t = 0; t < N; t++) out[t] += (cf.revenueReceivedPerPeriod[t] ?? 0) - (cf.opexPaidPerPeriod[t] ?? 0);
-    }
-    return out;
-  };
-  const resColl = classSeries((a) => a.strategy === 'Sell' || a.strategy === 'Sell + Manage');
-  const hospEbitda = classSeries((a) => a.strategy === 'Operate' || a.isCompanion === true);
-  const retailNoi = classSeries((a) => a.strategy === 'Lease');
+  // One classifier (operatingCashClass): by strategy, so a Lease retail strip is retail, not hospitality.
+  const cls = operatingInflowClasses(snap.perAssetCF, visibleAssets, N);
+  const resColl = cls.residential, hospEbitda = cls.hospitality, retailNoi = cls.retail;
   const feeInSizing = w.feeFundedByEquity ? zeros() : sl(w.fundFeesPerPeriod).map((v) => -v);
   const opIn = sl(w.operatingInflowsPerPeriod);
   const otherOps = opIn.map((v, t) => v - (resColl[t] ?? 0) - (hospEbitda[t] ?? 0) - (retailNoi[t] ?? 0) - (feeInSizing[t] ?? 0));

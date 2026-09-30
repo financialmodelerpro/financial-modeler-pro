@@ -29,7 +29,7 @@
  * No em dashes in this file.
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import {
   buildRetailCompanionSpecs,
   carveRetailLand,
@@ -382,6 +382,13 @@ function offlineChecks(): void {
     'src/hubs/modeling/platforms/refm/lib/financials-resolvers.ts',
     'src/hubs/modeling/platforms/refm/lib/fixed-assets-resolvers.ts',
   ];
+  // THE WHOLE TREE, NOT A LIST (2026-09-29): three more copies of the flag rule lived in files this
+  // list never named (the Financing screen, the workbook, the live workbook), which is how a Lease strip
+  // was counted as hospitality in the funding waterfall. A list whose correctness depends on another
+  // list drifts; the scan cannot.
+  const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? walk(`${d}/${e.name}`) : /\.(ts|tsx)$/.test(e.name) ? [`${d}/${e.name}`] : []);
+  CLASSIFIERS.push(...walk('src/hubs/modeling/platforms/refm').filter((f) => !CLASSIFIERS.includes(f)), ...walk('src/core'));
   const offenders = CLASSIFIERS.filter((f) =>
     /(strategy === 'Operate'[^;\n]*\|\|[^;\n]*isCompanion === true)|(isCompanion === true[^;\n]*\|\|[^;\n]*strategy === 'Operate')/
       .test(readFileSync(f, 'utf8')));

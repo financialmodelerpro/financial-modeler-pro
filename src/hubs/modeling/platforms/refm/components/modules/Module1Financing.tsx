@@ -53,7 +53,7 @@ import {
   getAssetPreCapexTotal,
 } from '../../lib/state/module1-types';
 import { computeFinancingResult } from '@/src/core/calculations/financing';
-import { buildFinancingSummary, FINANCING_SUMMARY_CAPTIONS } from '../../lib/reports/financingReports';
+import { buildFinancingSummary, FINANCING_SUMMARY_CAPTIONS, operatingInflowClasses } from '../../lib/reports/financingReports';
 import { facilityShareTotal, facilityShareSumIsValid } from '@/src/core/calculations/financing/shares';
 import { computeIdcSnapshot, computeFundingGap, computeFinancialsSnapshot } from '../../lib/financials-resolvers';
 import { computeFundingBasis } from '../../lib/reports/fundingBasis';
@@ -3251,19 +3251,9 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
               lines: every row is in the arithmetic of the row beneath it. */}
           {p.view === 'gap' && (() => {
             const visibleAssets = state.assets.filter((a) => a.visible !== false);
-            const classSeries = (pick: (a: typeof visibleAssets[number]) => boolean): number[] => {
-              const out = new Array<number>(N).fill(0);
-              for (const a of visibleAssets) {
-                if (!pick(a)) continue;
-                const cf = snap.perAssetCF.get(a.id);
-                if (!cf) continue;
-                for (let t = 0; t < N; t++) out[t] += (cf.revenueReceivedPerPeriod[t] ?? 0) - (cf.opexPaidPerPeriod[t] ?? 0);
-              }
-              return out;
-            };
-            const resColl = classSeries((a) => a.strategy === 'Sell' || a.strategy === 'Sell + Manage');
-            const hospEbitda = classSeries((a) => a.strategy === 'Operate' || a.isCompanion === true);
-            const retailNoi = classSeries((a) => a.strategy === 'Lease');
+            // One classifier (operatingCashClass): by strategy, so a Lease retail strip is retail, not hospitality.
+            const cls = operatingInflowClasses(snap.perAssetCF, visibleAssets, N);
+            const resColl = cls.residential, hospEbitda = cls.hospitality, retailNoi = cls.retail;
             const feeInSizing = w.feeFundedByEquity ? new Array<number>(N).fill(0) : w.fundFeesPerPeriod.map((v) => -v);
             const otherOps = w.operatingInflowsPerPeriod.map((v, t) => v - (resColl[t] ?? 0) - (hospEbitda[t] ?? 0) - (retailNoi[t] ?? 0) - (feeInSizing[t] ?? 0));
             const capexCash = w.cashFromInvPerPeriod.map((v) => -v);

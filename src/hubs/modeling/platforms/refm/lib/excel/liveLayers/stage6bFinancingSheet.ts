@@ -26,6 +26,7 @@ import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { planRevenueLines, lineForAsset } from '../../revenueLines';
 import { planReportLines, lineTitle } from '../../reports/lineRows';
 import type { Asset, CostLine, Phase } from '../../state/module1-types';
+import { operatingCashClass } from '../../reports/financingReports';
 
 const FIN = 'Financing';
 const CALC = 'Financing Calc';
@@ -121,9 +122,10 @@ export const stage6bFinancingSheet: LiveLayer = {
     };
     const opexPaid = (a: Asset): F => (has(`oxc:ap:${a.id}:paid`) ? (t) => w.refA({ sheet: 'Opex Calc', row: w.addr(`oxc:ap:${a.id}:paid`).row, col: 4 + t }) : () => '0');
     const classOf = (pick: (a: Asset) => boolean): F => (t) => visible.filter(pick).map((a) => `(${assetRev(a)(t)})-(${opexPaid(a)(t)})`).join('+') || '0';
-    const resColl = classOf((a) => a.strategy === 'Sell' || a.strategy === 'Sell + Manage');
-    const hospEb = classOf((a) => a.strategy === 'Operate' || a.isCompanion === true);
-    const retNoi = classOf((a) => a.strategy === 'Lease');
+    // The one classifier (operatingCashClass), by strategy: a Lease retail strip is retail, not hospitality.
+    const resColl = classOf((a) => operatingCashClass(a) === 'residential');
+    const hospEb = classOf((a) => operatingCashClass(a) === 'hospitality');
+    const retNoi = classOf((a) => operatingCashClass(a) === 'retail');
     const opIn: F = (t) => `${cfo(t)}${feeByEquity ? `+(${feeTotal(t)})` : ''}`;
     // Capitalised interest by line.
     const idcOf = (ids: readonly string[]): F => (t) => ids.filter((id) => has(`fnc:main:idc:${id}`)).map((id) => calc(`fnc:main:idc:${id}`, t)).join('+') || '0';

@@ -57,6 +57,37 @@ export function buildFinancingSummary(
   };
 }
 
+/**
+ * WHICH OPERATING CASH CLASS AN ASSET FILES UNDER IN THE FUNDING WATERFALL, BY ITS STRATEGY (2026-09-29,
+ * export review item 5). The rows read "Operate OR a companion" as hospitality, so a retail strip, a
+ * companion held on LEASE, counted in Hospitality EBITDA and again in Retail NOI, and the "other
+ * operating cash" plug absorbed the double count (22,306,050 on Marina Gate). The Operate companion
+ * files under hospitality because its strategy IS Operate. One rule for the Financing screen, the
+ * workbook and the live workbook's copy.
+ */
+export type OperatingCashClass = 'residential' | 'hospitality' | 'retail';
+export function operatingCashClass(a: { strategy?: string }): OperatingCashClass | null {
+  if (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') return 'residential';
+  if (a.strategy === 'Operate') return 'hospitality';
+  if (a.strategy === 'Lease') return 'retail';
+  return null;
+}
+/** Each class's revenue received less opex paid, per period, over the visible assets. */
+export function operatingInflowClasses(
+  perAssetCF: ReadonlyMap<string, { revenueReceivedPerPeriod: number[]; opexPaidPerPeriod: number[] }>,
+  assets: ReadonlyArray<{ id: string; visible?: boolean; strategy?: string }>,
+  N: number,
+): Record<OperatingCashClass, number[]> {
+  const out: Record<OperatingCashClass, number[]> = { residential: new Array<number>(N).fill(0), hospitality: new Array<number>(N).fill(0), retail: new Array<number>(N).fill(0) };
+  for (const a of assets) {
+    if (a.visible === false) continue;
+    const c = operatingCashClass(a); const cf = perAssetCF.get(a.id);
+    if (!c || !cf) continue;
+    for (let t = 0; t < N; t++) out[c][t] += (cf.revenueReceivedPerPeriod[t] ?? 0) - (cf.opexPaidPerPeriod[t] ?? 0);
+  }
+  return out;
+}
+
 const neg = (a: number[]): number[] => a.map((v) => -v);
 const sliceN = (a: number[] | undefined, N: number): number[] => (a ?? []).slice(0, N);
 const anyNonZero = (a: number[] | undefined): boolean => !!a && a.some((v) => (v ?? 0) !== 0);
