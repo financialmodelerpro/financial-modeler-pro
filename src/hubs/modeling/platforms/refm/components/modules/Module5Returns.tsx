@@ -19,6 +19,7 @@ import { computeFinancialsSnapshot, type ProjectFinancialsSnapshot } from '../..
 import { computeReturnsSnapshot, computeReturnsSensitivity } from '../../lib/returns-resolvers';
 import type { SensitivityVariable } from '@/src/core/calculations/returns';
 import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup, distributedTieNote } from '../../lib/reports/streamReports';
+import { distributedReturnPair, distributedStreamLabel } from '../../lib/reports/overviewReport';
 import { buildDisposalWorking, type DisposalWorkingRow } from '../../lib/reports/disposalReport';
 import { assetLabel } from '@/src/core/calculations/assetName';
 import { currencyHeaderLine, formatScaledForExport, SCALE_DIVISOR, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
@@ -141,7 +142,7 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
   const streamRows: M4Row[] = [
     toRow('FCFF, unlevered project', rs.fcffPerPeriod, { isSubtotal: true }),
     toRow('FCFE, levered equity', rs.fcfePerPeriod, { isSubtotal: true }),
-    toRow('Distributed Equity (realized distributions)', rs.dividendStreamPerPeriod, { isSubtotal: true }),
+    toRow(distributedStreamLabel(rs), rs.dividendStreamPerPeriod, { isSubtotal: true }),
     toRow('Memo: NOI (recurring)', noiStream, { indent: 1 }),
   ];
 
@@ -149,7 +150,7 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
   const streamSummary: Array<{ key: string; label: string; s: typeof r.fcff }> = [
     { key: 'fcff', label: 'FCFF (unlevered project)', s: r.fcff },
     { key: 'fcfe', label: 'FCFE (levered equity)', s: r.fcfe },
-    { key: 'dividends', label: 'Distributed Equity (realized distributions)', s: r.dividends },
+    { key: 'dividends', label: distributedStreamLabel(rs), s: r.dividends },
   ];
 
   const irrTone = (irr: number | null) => (irr === null ? 'neutral' : irr >= cfg.discountRate ? 'good' : 'bad');
@@ -164,6 +165,7 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
   const fcffBuildupRows: M4Row[] = buildFcffBuildup(rs, streamRow);
   const fcfeBuildupRows: M4Row[] = buildFcfeBuildup(rs, streamRow);
   const dividendBuildupRows: M4Row[] = buildDividendBuildup(rs, streamRow);
+  const distPair = distributedReturnPair(rs);
   const tieNote = distributedTieNote(rs);
 
   return (
@@ -184,7 +186,7 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
       <MetricGrid min={155}>
         <MetricCard label="Project IRR (FCFF)" value={fmtPct(r.fcff.irr)} sub={`MOIC ${fmtX(r.fcff.moic)}`} tone={irrTone(r.fcff.irr)} />
         <MetricCard label="Equity IRR (FCFE)" value={fmtPct(r.fcfe.irr)} sub={`MOIC ${fmtX(r.fcfe.moic)}`} tone={irrTone(r.fcfe.irr)} />
-        <MetricCard label="Distributed Equity IRR" value={fmtPct(r.dividends.irr)} sub={`MOIC ${fmtX(r.dividends.moic)}`} tone={irrTone(r.dividends.irr)} tooltip="IRR based on actual cash distributions to equity investors (existing + new cash + in-kind contributions out, dividends + terminal equity in). With the terminal-year 100% payout this matches the Equity IRR (FCFE)." />
+        <MetricCard label="Distributed Equity IRR" value={fmtPct(distPair.irr)} sub={distPair.preFeeIrr !== undefined ? `net of performance fee; ${fmtPct(distPair.preFeeIrr)} before it` : `MOIC ${fmtX(distPair.moic)}`} tone={irrTone(distPair.irr)} tooltip="IRR based on actual cash distributions to equity investors (existing + new cash + in-kind contributions out, dividends + terminal equity in), net of the performance fee where the fund charges one. It equals the Equity IRR (FCFE) only when every year's free cash to equity is paid out." />
         <MetricCard label="Equity Multiple (distributions)" value={fmtX(r.realEstate.equityMultiple)} sub="distributions / invested" />
       </MetricGrid>
 

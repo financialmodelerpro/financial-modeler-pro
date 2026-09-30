@@ -19,6 +19,7 @@ import { buildGridContext, describeAssumption, assumptionFor, formatAssumptionVa
 import type { HydrateSnapshot } from '../state/module1-store';
 import type { ProjectCase } from '../state/module1-types';
 import { METRIC_LABELS } from './metricCaptions';
+import { distributedReturnPair } from './overviewReport';
 
 /** One "what drives this case" row: a real override, base value vs case value. */
 export interface CaseDriverRow { label: string; base: string; value: string }
@@ -46,7 +47,8 @@ export const CASE_KPIS: CaseKpiDef[] = [
   // with the levered Equity IRR (FCFE), which is the headline investors read.
   { label: 'Equity IRR (FCFE)', kind: 'pct', get: (rs) => rs.result.fcfe.irr },
   { label: 'Project IRR (FCFF)', kind: 'pct', sub: 'unlevered', nullLabel: 'n/a (no unlevered IRR)', get: (rs) => rs.result.fcff.irr },
-  { label: 'Distributed-Equity IRR', kind: 'pct', get: (rs) => rs.result.dividends.irr },
+  // Net of the performance fee where the fund charges one: the headline convention (distributedReturnPair).
+  { label: 'Distributed Equity IRR', kind: 'pct', sub: 'net of performance fee where charged', get: (rs) => distributedReturnPair(rs).irr },
   { label: 'Equity Multiple (FCFE)', kind: 'mult', sub: 'equity out / equity in', get: (rs) => rs.result.fcfe.moic },
   { label: 'Equity Multiple (distributions)', kind: 'mult', sub: 'distributions / invested', get: (rs) => rs.result.realEstate.equityMultiple },
   { label: 'NPV (FCFF)', kind: 'money', sub: 'at discount rate', get: (rs) => rs.result.fcff.npv },

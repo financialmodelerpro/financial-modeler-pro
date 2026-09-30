@@ -129,12 +129,30 @@ const safeDiv = (a: number, b: number): number | null => (b > 0 ? a / b : null);
 /** Balances within this of the lowest are the same low point (see the cash low year). */
 export const CASH_LOW_TIE = 0.5;
 
+/**
+ * THE DISTRIBUTED IRR CONVENTION (2026-09-30, export review item 12): where the fund charges a
+ * performance fee, the headline distributed return is NET of it, and every surface that prints the
+ * pre-fee figure says so. Distributed IRR read 18.4% in three places and 17.2% in two with nothing
+ * to tell a reader the first was before the fee. `distributedReturnPair` is the headline;
+ * `distributedStreamLabel` names the pre-fee stream the basis and stream tables print. Both read
+ * `chargesPerformanceFee`, so the qualifier and the net headline can never disagree.
+ *
+ * THE SPLIT FOLLOWS THE TERMS, NOT THE FEE CHARGED (2026-09-29): where the fund charges a performance
+ * fee at all, net and gross are both shown, equal while no fee arises. Splitting only once a fee was
+ * charged gave a live workbook exported with no distributions no row for the net figure, so switching
+ * dividends on showed the gross return where the platform shows the net one.
+ */
+export function chargesPerformanceFee(rs: Pick<ReturnsSnapshot, 'waterfall'>): boolean {
+  return rs.waterfall?.active === true && (rs.waterfall?.performanceFeePct ?? 0) > 0;
+}
+export const PRE_FEE_QUALIFIER = 'before performance fee';
+export const DISTRIBUTED_STREAM_LABEL = 'Distributed Equity (realized distributions)';
+export function distributedStreamLabel(rs: Pick<ReturnsSnapshot, 'waterfall'>): string {
+  return chargesPerformanceFee(rs) ? `${DISTRIBUTED_STREAM_LABEL}, ${PRE_FEE_QUALIFIER}` : DISTRIBUTED_STREAM_LABEL;
+}
+
 export function distributedReturnPair(rs: ReturnsSnapshot): ReturnPair {
-  // THE SPLIT FOLLOWS THE TERMS, NOT THE FEE CHARGED (2026-09-29): where the fund charges a performance
-  // fee at all, net and gross are both shown, equal while no fee arises. Splitting only once a fee was
-  // charged gave a live workbook exported with no distributions no row for the net figure, so switching
-  // dividends on showed the gross return where the platform shows the net one.
-  const hasFee = rs.waterfall?.active === true && (rs.waterfall?.performanceFeePct ?? 0) > 0;
+  const hasFee = chargesPerformanceFee(rs);
   if (!hasFee) {
     return { key: 'distributed', label: 'Distributed (DDM)', irr: rs.result.dividends.irr, moic: rs.result.dividends.moic };
   }

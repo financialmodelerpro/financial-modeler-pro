@@ -240,9 +240,12 @@ export const stage7Returns: LiveLayer = {
     const RS = findKey('retr|', /^Return Cash-Flow Streams .*\|FCFF, unlevered project$/);
     const streamsSec = RS ? RS.split('|')[1] : '';
     const mirror = (label: string, src: number): void => { const r = rowOf(`retr|${streamsSec}|${label}`); if (r === undefined) { missing.push(label); return; } streamRow(r, (s) => cellR(src, sc(s))); };
+    // The distributed rows carry ", before performance fee" where the fund charges one
+    // (distributedStreamLabel), so they are found by their fixed prefix.
+    const distLabel = (sec: string): string => retKeys.find((k) => k.startsWith(`${sec}|Distributed Equity (realized distributions)`))?.slice(sec.length + 1) ?? 'Distributed Equity (realized distributions)';
     mirror('FCFF, unlevered project', R(ffTot));
     mirror('FCFE, levered equity', R(feTot));
-    mirror('Distributed Equity (realized distributions)', R(ddTot));
+    mirror(distLabel(`retr|${streamsSec}`), R(ddTot));
     { const r = rowOf(`retr|${streamsSec}|Memo: NOI (recurring)`); if (r !== undefined) streamRow(r, axis((t) => at(noi, t))); }
 
     // Returns by cash-flow basis.
@@ -256,7 +259,7 @@ export const stage7Returns: LiveLayer = {
     };
     basisRow('FCFF (unlevered project)', FCFF);
     basisRow('FCFE (levered equity)', FCFE);
-    basisRow('Distributed Equity (realized distributions)', DDM);
+    basisRow(distLabel('retg|Returns by Cash-Flow Basis'), DDM);
 
     // Totals the cards read.
     const sumA = (r: number): string => w.rangeA(CALC, r, cT(0), cT(N - 1));

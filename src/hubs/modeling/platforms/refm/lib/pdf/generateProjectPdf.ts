@@ -109,7 +109,7 @@ import { revenueBySection } from '../reports/revenueSections';
 import { idcWithDisposal, disposalContextOf } from '../reports/disposalSchedules';
 import { buildCaseYoYReport, type CaseYoYReport } from '../reports/caseYoYReport';
 import { buildAssumptionGrid } from '../reports/scenarioAssumptions';
-import { buildOverviewReport } from '../reports/overviewReport';
+import { buildOverviewReport, distributedReturnPair } from '../reports/overviewReport';
 import { formatAssumptionValue } from '../cases/assumptionGrid';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { MODULES, type ModuleConfig } from '../modules-config';
@@ -858,10 +858,10 @@ const tCards = (tab: string, part: PartKind, title: string, cards: PdfCard[]): T
 // name the gross beside them, because net is what the equity actually receives.
 function headlineReturnCards(returns: ReturnsSnapshot, fmt: Fmt, opts: { omitDistribution?: boolean } = {}): PdfCard[] {
   const r = returns.result;
-  const fundOn = isFundActive(returns);
-  const net = fundOn ? returns.resultNetDividends : null;
-  const hasFee = !!net && (returns.waterfall?.totalPerformanceFee ?? 0) > 0;
-  const dist = hasFee && net ? net : r.dividends;
+  // The headline convention (distributedReturnPair): net of the performance fee where one is charged.
+  const pair = distributedReturnPair(returns);
+  const hasFee = pair.preFeeIrr !== undefined;
+  const dist = { irr: pair.irr, moic: pair.moic };
   const basis = hasFee ? 'net of performance fee' : 'on distributions';
   // The distribution pair is OMITTED on a page that has already printed it a
   // page or two earlier. In the concise summary the executive summary and the
@@ -884,9 +884,7 @@ function headlineReturnCards(returns: ReturnsSnapshot, fmt: Fmt, opts: { omitDis
 /** Where the omitted distribution pair was reported instead. */
 function distributionPointerNote(returns: ReturnsSnapshot, fmt: Fmt): string {
   const fundOn = isFundActive(returns);
-  const net = fundOn ? returns.resultNetDividends : null;
-  const hasFee = !!net && (returns.waterfall?.totalPerformanceFee ?? 0) > 0;
-  const dist = hasFee && net ? net : returns.result.dividends;
+  const dist = distributedReturnPair(returns);
   const where = fundOn ? 'the Executive Summary, and split gross against net in the Fund Layer section' : 'the Executive Summary';
   return `Distributed Equity IRR ${fmt.pct(dist.irr, 1)} and MOIC ${fmt.mult(dist.moic)} are reported in ${where}, and are not repeated here.`;
 }

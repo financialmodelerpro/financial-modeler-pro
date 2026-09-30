@@ -47,6 +47,7 @@ import { resolveAssetKeys } from '../revenue-resolvers';
 import type { LandAllocationMode } from '../state/module1-types';
 import { projectLocationLabel } from '@/src/core/countries';
 import { METRIC_LABELS } from './metricCaptions';
+import { distributedReturnPair } from './overviewReport';
 
 export interface ICPartyRef { name: string; identifier: string | null }
 export interface ICKeyValue { label: string; value: number }
@@ -994,7 +995,7 @@ export function buildICReportModel(input: {
       projectMoic: r.fcff.moic,
       equityIrr: r.fcfe.irr,
       equityMoic: r.fcfe.moic,
-      distributedEquityIrr: r.dividends.irr,
+      distributedEquityIrr: distributedReturnPair(rs).irr,
       equityMultiple: reMx.equityMultiple,
       terminalEquity: rs.terminalEquityValue,
     },

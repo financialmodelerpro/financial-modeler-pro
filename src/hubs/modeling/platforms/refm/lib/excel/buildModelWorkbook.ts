@@ -25,7 +25,7 @@ import { computeFinancialsSnapshot, computeFundingGap, type FinancialsResolverSt
 import { buildCapexReport, type CapexReport } from '../reports/capexReports';
 import { poolMapByLine, poolCapexByLine, poolResults, lineHosts, fixHospitalityRates, fixLeaseRates, poolRevenueBasisByLine, poolSaleCohortByLine, planReportLines, lineTitle } from '../reports/lineRows';
 import { buildDisposalWorking } from '../reports/disposalReport';
-import { buildOverviewReport, distributedReturnPair } from '../reports/overviewReport';
+import { buildOverviewReport, distributedReturnPair, distributedStreamLabel } from '../reports/overviewReport';
 import { buildAssumptionGrid } from '../reports/scenarioAssumptions';
 import { buildOperatingKpis } from '../reports/operatingKpis';
 import { fundingChartPoints } from '../portfolio/fundingSeries';
@@ -4410,7 +4410,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
   grid('Returns by Cash-Flow Basis', ['Basis', 'IRR', 'MOIC', 'Invested', 'Returned', 'Net Profit'], [
     { label: 'FCFF (unlevered project)', cells: [cPct(rr.fcff.irr), cMult(rr.fcff.moic), { v: rr.fcff.totalOutflow }, { v: rr.fcff.totalInflow }, { v: rr.fcff.netProfit, bold: true }] },
     { label: 'FCFE (levered equity)', cells: [cPct(rr.fcfe.irr), cMult(rr.fcfe.moic), { v: rr.fcfe.totalOutflow }, { v: rr.fcfe.totalInflow }, { v: rr.fcfe.netProfit, bold: true }] },
-    { label: 'Distributed Equity (realized distributions)', cells: [cPct(rr.dividends.irr), cMult(rr.dividends.moic), { v: rr.dividends.totalOutflow }, { v: rr.dividends.totalInflow }, { v: rr.dividends.netProfit, bold: true }] },
+    { label: distributedStreamLabel(rs), cells: [cPct(rr.dividends.irr), cMult(rr.dividends.moic), { v: rr.dividends.totalOutflow }, { v: rr.dividends.totalInflow }, { v: rr.dividends.netProfit, bold: true }] },
   ]);
 
   // ── Return Cash-Flow Streams ──
@@ -4418,7 +4418,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
   note('Signed cash flows: negative = invested, positive = returned. Terminal value is included in the exit-year FCFF (enterprise) and FCFE / Distributed Equity (equity) cells. NOI is the recurring hospitality + lease income net of operating cost. The opening column is the inception period.');
   streamRow('FCFF, unlevered project', rs.fcffPerPeriod, { style: 'subtotal' });
   streamRow('FCFE, levered equity', rs.fcfePerPeriod, { style: 'subtotal' });
-  streamRow('Distributed Equity (realized distributions)', rs.dividendStreamPerPeriod, { style: 'subtotal' });
+  streamRow(distributedStreamLabel(rs), rs.dividendStreamPerPeriod, { style: 'subtotal' });
   // NOI is on the PROJECT axis (index 0 = first project year), the streams on the
   // stream basis (index 0 = inception), so it is lifted by one leading zero, as
   // the screen does. Without it every NOI figure sat a year early and the exit

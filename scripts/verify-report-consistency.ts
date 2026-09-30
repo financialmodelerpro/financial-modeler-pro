@@ -46,6 +46,8 @@ import { buildExcelSampleState } from './excelSampleState';
 import { buildExistingOperationsState, EXISTING_OPS_LABEL } from './fixtures/existingOperationsState';
 import { readLiveProjectVersion } from './fixtures/liveProject';
 import { METRIC_CAPTIONS, METRIC_LABELS } from '../src/hubs/modeling/platforms/refm/lib/reports/metricCaptions';
+import { chargesPerformanceFee, distributedStreamLabel, DISTRIBUTED_STREAM_LABEL, PRE_FEE_QUALIFIER } from '../src/hubs/modeling/platforms/refm/lib/reports/overviewReport';
+import { CASE_KPIS } from '../src/hubs/modeling/platforms/refm/lib/reports/caseComparisonReport';
 
 for (const f of ['.env.local', '.env']) {
   try {
@@ -374,6 +376,34 @@ async function main(): Promise<void> {
     check('no tile calls the share of all sources a Debt / Equity ratio (the label lives in METRIC_LABELS)', hits.length === 0, hits.join(', '));
     check('the PDF names the share of all sources and says what it is not',
       full.toLowerCase().includes(METRIC_LABELS.shareOfSources.toLowerCase()) && full.includes(METRIC_CAPTIONS.shareOfSources));
+  }
+
+  // ONE DISTRIBUTED IRR CONVENTION (2026-09-30, export review item 12). It read 18.4% in three places
+  // and 17.2% in two, the first being BEFORE the performance fee with nothing to say so. The headline
+  // is net where the fund charges a fee (distributedReturnPair); the pre-fee stream is labelled by
+  // distributedStreamLabel. Both branches are driven: the fee fixture and a project with no fund.
+  {
+    // A 0% hurdle, so the fee is actually charged: the main fixture earns below its 8% hurdle.
+    const feeFx = fundFixture({ hurdle: 0 });
+    const rs: any = computeReturnsSnapshot(computeFinancialsSnapshot(feeFx), feeFx.project);
+    const { full } = await render(feeFx);
+    const pctTxt = (v: number | null): string => (v === null ? 'n/a' : `${(v * 100).toFixed(1)}%`);
+    const gross = rs.result.dividends.irr as number, net = rs.resultNetDividends.irr as number;
+    check('the fee fixture really separates gross from net (not vacuous)', chargesPerformanceFee(rs) && Math.abs(gross - net) > 0.0005 && pctTxt(gross) !== pctTxt(net), `${pctTxt(gross)} vs ${pctTxt(net)}`);
+    const caseKpi = CASE_KPIS.find((k) => /^Distributed[- ]Equity IRR/.test(k.label))!;
+    check('case comparison (Module 5 and Module 6) prints the NET distributed IRR where a fee is charged', caseKpi.get(rs) === net);
+    const plain = buildExcelSampleState();
+    const prs: any = computeReturnsSnapshot(computeFinancialsSnapshot(plain), plain.project);
+    check('and the plain distributed IRR on a project with no fund, under an unqualified label',
+      !chargesPerformanceFee(prs) && caseKpi.get(prs) === prs.result.dividends.irr && distributedStreamLabel(prs) === DISTRIBUTED_STREAM_LABEL);
+    check('the pre-fee stream says so where a fee is charged', distributedStreamLabel(rs).endsWith(PRE_FEE_QUALIFIER));
+    const card = /DISTRIBUTED EQUITY IRR\n([^\n]+)\n([^\n]+)/.exec(full);
+    check('the PDF headline card prints the net figure and says it is net', !!card && card[1] === pctTxt(net) && /net of performance fee/.test(card[2]), card ? `${card[1]} / ${card[2]}` : 'card not found');
+    // No surface prints the pre-fee stream under a bare label, or a bare distributed IRR off the gross stream.
+    const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${d}/${e.name}`) : /\.(ts|tsx)$/.test(e.name) ? [`${d}/${e.name}`] : []));
+    const bare = /(label[=:]\s*|toRow\(|streamRow\()['"`]Distributed Equity \(realized distributions\)['"`]|label[=:]\s*\{?['"`]Distributed[- ]Equity IRR['"`]\}?[^\n]*result\.dividends\.irr|label[=:]\s*\{?['"`]Distributed[- ]Equity IRR['"`]\}?[^\n]*\br\.dividends\.irr/;
+    const hits = walk('src/hubs/modeling/platforms/refm').filter((f) => readFileSync(f, 'utf8').split('\n').some((l) => bare.test(l)));
+    check('no surface prints the pre-fee distributed figure unqualified', hits.length === 0, hits.join(', '));
   }
 
   console.log(`\n=== ${pass} passed, ${fail} failed ===`);
