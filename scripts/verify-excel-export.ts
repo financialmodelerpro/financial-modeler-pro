@@ -345,7 +345,9 @@ async function main(): Promise<void> {
     return order.every((v, i) => v > 0 && (i === 0 || v > order[i - 1]));
   })());
   check('Returns prints no block the platform does not show (no NPV rows, no Debt Analytics / Equity Exposure / Exit Analysis strips)',
-    m5(/NPV \(FC/) < 0 && m5(/^Debt Analytics$/) < 0 && m5(/^Equity Exposure$/) < 0 && m5(/^Exit Analysis/) < 0 && m5(/^Per-Line Economics$/) < 0);
+    // RE-AIMED 2026-09-30: the rule is no NPV ROW or block; RETURNS_NPV_NOTE (export review item 13) now
+    // names NPV in a sentence saying where it is, which is not a row, so the match is a label that STARTS with NPV.
+    m5(/^NPV \(FC/) < 0 && m5(/^Debt Analytics$/) < 0 && m5(/^Equity Exposure$/) < 0 && m5(/^Exit Analysis/) < 0 && m5(/^Per-Line Economics$/) < 0);
   check('Returns assumptions are shaded as inputs under the panel labels', (() => {
     const R = m5(/^Discount Rate \(%\)$/);
     return R > 0 && (ret.getCell(R, 4).fill as any)?.fgColor?.argb === ARGB.inputFill && m5(/^Terminal Value Method$/) > 0;
