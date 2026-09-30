@@ -51,7 +51,7 @@ import { computeReturnsSnapshot, computeReturnsSensitivity, type ReturnsSnapshot
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { resolveAssetAreaMetrics, computePhaseTimeline, computeProjectTimeline, resolveSubUnitAdr, type AssetAreaMetrics } from '@/src/core/calculations';
 import { FUNDING_METHOD_LABELS, COST_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
-import { CAPEX_SECTIONS, CAPEX_TABLE6_TITLE, CAPEX_TABLE6_CAPTION } from '../reports/capexReports';
+import { CAPEX_SECTIONS, CAPEX_TABLE6_TITLE, CAPEX_TABLE6_CAPTION, resolvedWindowYears } from '../reports/capexReports';
 import { TERMINAL_METHOD_LABELS, TERMINAL_BASIS_LABELS } from '../state/module1-types';
 import { buildConsolidatedReport, perAssetCostsFromTreatment, consolidatedCaption } from '../reports/consolidatedReport';
 import { METRIC_CAPTIONS, METRIC_LABELS, RETURNS_NPV_NOTE, capRateAtExitCaption, exitYearAnalysisNote } from '../reports/metricCaptions';
@@ -1610,7 +1610,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       const srcId = win?.source ?? src?.phasingSource ?? 'inherit';
       const srcText = cl && isLandValueLine(cl)
         ? 'Parcel payment schedule'
-        : `${(CAPEX_PHASING_SOURCE_LABELS as Record<string, string>)[srcId] ?? srcId}${win ? `, periods ${win.startPeriod} to ${win.endPeriod}` : ''}${win?.degraded ? ' (source empty, own window used)' : ''}`;
+        : `${(CAPEX_PHASING_SOURCE_LABELS as Record<string, string>)[srcId] ?? srcId}${win ? `, ${resolvedWindowYears(win, src?.phaseOffset ?? 0, snap.yearLabels)}` : ''}${win?.degraded ? ' (source empty, own window used)' : ''}`;
       setLabel(ws.getCell(r, cSrc), srcText);
       r += 1;
     }

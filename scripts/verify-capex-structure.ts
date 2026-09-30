@@ -1299,10 +1299,48 @@ section('K. Table 6 says what it files by (2026-09-30, export review item 18)');
   check('K3 the screen, the workbook and the PDF read the one title and caption', stale.length === 0, stale.join(', '));
 }
 
-// ── Report ─────────────────────────────────────────────────────────────────
-console.log(`\n${'='.repeat(70)}`);
-console.log(`verify-capex-structure: ${passed} passed, ${failures.length} failed`);
-if (failures.length > 0) {
-  for (const f of failures) console.log(`  FAIL  ${f}`);
-  process.exit(1);
-}
+// ════════════════════════════════════════════════════════════════════════════
+// L. A line's resolved window is printed in the years its profile is printed in (2026-09-30, review
+// item 19). The engine's window is phase-local; printed raw beside a project-axis profile it read one
+// year off. The rule: every line's spend lies inside the years `resolvedWindowYears` prints, measured
+// on the live project, where the old reading fails (so the check is not vacuous).
+(async () => {
+  section('L. The resolved window reads in the profile\'s own years');
+  const { readLiveProjectVersion } = await import('./fixtures/liveProject');
+  const { loadStoredModel } = await import('../src/hubs/modeling/platforms/refm/lib/state/loadStoredModel');
+  const { phaseLocalToProjectIndex } = await import('../src/core/calculations/capexPhasing');
+  const { resolvedWindowYears } = await import('../src/hubs/modeling/platforms/refm/lib/reports/capexReports');
+  const live = await readLiveProjectVersion();
+  if (!live.ok) check('L0 live project read', false);
+  else {
+    const q = <T,>(f: () => T): T => { const l = console.log, w = console.warn; console.log = () => {}; console.warn = () => {}; try { return f(); } finally { console.log = l; console.warn = w; } };
+    const m: any = q(() => loadStoredModel(live.snapshot).snapshot);
+    const snap: any = q(() => computeFinancialsSnapshot(m));
+    const rep: any = q(() => (buildCapexReport as any)(snap, m));
+    const years: number[] = snap.yearLabels;
+    let n = 0, inside = 0, oldInside = 0;
+    for (const ia of rep.inputAssets) for (const ln of ia.lines) {
+      const w = ln.resolvedWindow; if (!w || w.degraded) continue;
+      const nz = (ln.perPeriod as number[]).map((v, i) => (Math.abs(v) > 0.005 ? i : -1)).filter((i) => i >= 0);
+      if (!nz.length) continue;
+      n++;
+      const first = years[nz[0]], last = years[nz[nz.length - 1]];
+      const text = resolvedWindowYears(w, ln.phaseOffset, years);
+      const s = years[phaseLocalToProjectIndex(w.startPeriod, ln.phaseOffset)], e = years[phaseLocalToProjectIndex(w.endPeriod, ln.phaseOffset)];
+      if (text.startsWith(String(s)) && text.includes(String(e)) && first >= s && last <= e) inside++;
+      if (years[w.startPeriod - 1] !== undefined && first >= years[w.startPeriod - 1] && last <= years[w.endPeriod - 1]) oldInside++;
+    }
+    console.log(`     ${live.label}: ${n} lines with a window and spend; inside the printed years ${inside}; inside the old period numbers read as columns ${oldInside}`);
+    check('L1 every line spends inside the years its window caption prints', n > 0 && inside === n, `${inside} of ${n}`);
+    check('L2 the old raw period numbers do NOT fit here (the check is not vacuous)', oldInside < n);
+    check('L3 the workbook prints the window through resolvedWindowYears', /resolvedWindowYears\(win, src\?\.phaseOffset/.test(fs.readFileSync('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts', 'utf8')));
+  }
+
+  // ── Report ─────────────────────────────────────────────────────────────────
+  console.log(`\n${'='.repeat(70)}`);
+  console.log(`verify-capex-structure: ${passed} passed, ${failures.length} failed`);
+  if (failures.length > 0) {
+    for (const f of failures) console.log(`  FAIL  ${f}`);
+    process.exit(1);
+  }
+})();

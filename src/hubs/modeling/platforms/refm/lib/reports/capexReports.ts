@@ -53,6 +53,26 @@ import { revenueSection as assetCapexSection, REVENUE_SECTIONS as CAPEX_SECTIONS
 export { assetCapexSection, CAPEX_SECTIONS };
 
 /**
+ * A LINE'S RESOLVED WINDOW IN THE YEARS ITS PROFILE IS PRINTED IN (2026-09-30, export review item 19).
+ * The engine's window is PHASE-LOCAL (period 0 the upfront Y0 slot, period 1 the phase's first
+ * year) and the workbook printed those numbers raw beside a profile on the PROJECT axis, so rows read
+ * one year off their own profile while the money sat correctly. Mapped through
+ * `phaseLocalToProjectIndex`, the one placement rule the engine spends through, with the SAME offset
+ * the line's profile was projected with (`CapexInputLine.phaseOffset`).
+ */
+export function resolvedWindowYears(
+  win: { startPeriod: number; endPeriod: number },
+  phaseOffset: number,
+  yearLabels: ReadonlyArray<number | string>,
+): string {
+  const y = (i: number): string => {
+    const label = yearLabels[phaseLocalToProjectIndex(i, phaseOffset)];
+    return label === undefined ? `period ${i}` : `${label}${i === 0 ? ' (upfront)' : ''}`;
+  };
+  return win.endPeriod !== win.startPeriod ? `${y(win.startPeriod)} to ${y(win.endPeriod)}` : y(win.startPeriod);
+}
+
+/**
  * TABLE 6'S TITLE AND CAPTION, FROM THE SECTIONS IT FILES BY (2026-09-30, export review item 18). The
  * title listed "Residential, Hospitality, Retail" after Table 6 moved to the revenue filing rule
  * (2026-09-22), so it printed four rows under a three-word promise, two of them reading like asset
@@ -97,6 +117,8 @@ export interface CapexInputLine {
    *  Inputs cost-line table so a user sees when each line spends and how. */
   startPeriod: number;
   endPeriod: number;
+  /** The phase's offset on the project axis, the one `perPeriod` was projected with (2026-09-30). */
+  phaseOffset: number;
   phasing: string;
   /** Effective per-sub-unit custom rates, only when method is
    *  'per_sub_unit_custom_rates'. Keys are sub-unit ids plus the special
@@ -634,6 +656,7 @@ export function buildCapexReport(snap: ProjectFinancialsSnapshot, state: Financi
         perPeriod: projectOntoAxis(breakdown.perLinePerPeriod?.[lineId] ?? [], offset, N),
         startPeriod: ov?.startPeriod ?? cl.startPeriod,
         endPeriod: ov?.endPeriod ?? cl.endPeriod,
+        phaseOffset: offset,
         phasing: String(ov?.phasing ?? cl.phasing ?? 'even'),
         perSubUnitRates: method === 'per_sub_unit_custom_rates' ? (ov?.perSubUnitRates ?? cl.perSubUnitRates) : undefined,
         phasingSource: String(ov?.phasingSource ?? cl.phasingSource ?? 'inherit'),
