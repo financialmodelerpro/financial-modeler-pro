@@ -93,12 +93,24 @@ const tierOfWord = (label: string): 'bua' | 'gfa' | null => (/\bBUA\b/.test(labe
   check('C3 its plot ratio is GFA over land', String(cellAt('sum|tile|Plot ratio')) === `${(GFA / LAND).toFixed(2)}x`, String(cellAt('sum|tile|Plot ratio')));
   // Land & Area: every column headed Total GFA or Total BUA, on the plots' total row.
   const la = plain.getWorksheet('Land & Area')!;
-  const totRow = registry.need('chaintot:plots:bua').row;
-  const heads: Array<{ col: number; word: string }> = [];
-  la.eachRow((row, r) => { if (r >= totRow) return; row.eachCell((c, col) => { const v = String(c.value ?? ''); if (/^Total (GFA|BUA) \(sqm\)$/.test(v)) heads.push({ col, word: v }); }); });
-  const laBad = heads.filter((h) => !near(Number(la.getCell(totRow, h.col).value), want(tierOfWord(h.word)!)));
-  check('C4 Land & Area: each column headed Total GFA or Total BUA totals to that tier', heads.length >= 2 && laBad.length === 0,
-    `${heads.length} headed; ${laBad.map((h) => `${h.word} = ${la.getCell(totRow, h.col).value}`).join('; ')}`);
+  // NSA too (2026-09-29, export review item 3): both tables totalled 65,123.04 where the project NSA
+  // is 68,093.28, the retail strips' lettable area being on no host row. Each table's total row,
+  // under its own header row.
+  const laWant = (w: string): number => (w.startsWith('NSA') ? NSA : want(tierOfWord(w)!));
+  const laBad: string[] = []; let heads = 0;
+  for (const key of ['chaintot:plots:bua', 'chaintot:lines:bua']) {
+    const totRow = registry.need(key).row;
+    let headRow = -1;
+    la.eachRow((row, r) => { if (r < totRow && row.values && (row.values as unknown[]).some((v) => String(v ?? '') === 'NSA or GLA (sqm)')) headRow = r; });
+    la.getRow(headRow).eachCell((c, col) => {
+      const v = String(c.value ?? '');
+      if (!/^(Total (GFA|BUA)|NSA or GLA) \(sqm\)$/.test(v)) return;
+      heads++;
+      if (!near(Number(la.getCell(totRow, col).value), laWant(v))) laBad.push(`${key} ${v} = ${la.getCell(totRow, col).value}`);
+    });
+  }
+  check('C4 Land & Area: on both tables, the columns headed NSA, Total GFA and Total BUA total to their tier', heads >= 6 && laBad.length === 0,
+    `${heads} headed; ${laBad.join('; ')}`);
 
   // ── D. The PDF, by its text ───────────────────────────────────────────────────
   const PUA: Record<string, string> = { '': '(', '': ')', '': '-', '': ':' };

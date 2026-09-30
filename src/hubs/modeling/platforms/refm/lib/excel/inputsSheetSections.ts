@@ -808,10 +808,12 @@ export function emitLandTables(c: SheetCursor, tables: AssetAreaTables): void {
       c.r += 1;
     }
     for (const piece of g.retailPieces) {
-      setLabel(ws.getCell(c.r, 1), `${piece.name} (land carved from this plot's hosts)`, { indent: 1 });
-      derived(ws.getCell(c.r, 2), piece.sqm, NUMFMT.int);
+      // Land and NSA, nothing else: its floor area is inside the hosts' rows, its land and its
+      // lettable area are not (totalsFromRows), so the column totals foot to the rows above.
+      setLabel(ws.getCell(c.r, 1), `${piece.name} (land carved from this plot's hosts, and its NSA here)`, { indent: 1 });
+      chainCells(ws, c.r, 2, piece.sqm, { netSaleableSqm: piece.nsaSqm } as Pooled, {});
       registerCell(`piece:${g.key}:${piece.name}`, ws, ws.getCell(c.r, 2));
-      for (let col = 3; col <= LAND_CHAIN_COLS; col++) { const cell = ws.getCell(c.r, col); cell.value = '-'; cell.alignment = { horizontal: 'right' }; }
+      registerCell(`piecensa:${g.key}:${piece.name}`, ws, ws.getCell(c.r, 2 + CHAIN_FIELDS.indexOf('nsa')));
       c.r += 1;
     }
   }
@@ -833,13 +835,13 @@ export function emitLandTables(c: SheetCursor, tables: AssetAreaTables): void {
     c.r += 1;
   }
   if (tables.companions.length > 0) {
-    note(c, 'Retail companions, held on Lease. Their floor area is already inside the Retail GFA above; their land is the land their hosts gave up, so nothing is counted twice.');
+    note(c, 'Retail companions, held on Lease. Their floor area is already inside the Retail GFA above; their land is the land their hosts gave up, and their NSA is their own lettable area, which no host row carries, so the totals add their land and their NSA and nothing is counted twice.');
     for (const s of tables.companions) {
       setLabel(ws.getCell(c.r, 1), s.name, { indent: 1 });
       setLabel(ws.getCell(c.r, 2), s.phaseName);
       setLabel(ws.getCell(c.r, 3), s.strategy);
       derived(ws.getCell(c.r, 4), s.hosts, NUMFMT.int);
-      const g: Pooled = { retailGfaSqm: s.retailGfaSqm, totalGfaSqm: s.retailGfaSqm, netSaleableSqm: s.retailGfaSqm, retailParkingSlots: s.slots, retailParkingAreaSqm: s.parkingAreaSqm, totalParkingAreaSqm: s.parkingAreaSqm, totalBuaSqm: s.totalBuaSqm };
+      const g: Pooled = { retailGfaSqm: s.retailGfaSqm, totalGfaSqm: s.retailGfaSqm, netSaleableSqm: s.nsaSqm, retailParkingSlots: s.slots, retailParkingAreaSqm: s.parkingAreaSqm, totalParkingAreaSqm: s.parkingAreaSqm, totalBuaSqm: s.totalBuaSqm };
       chainCells(ws, c.r, 5, s.landSqm, g, {});
       registerChainRow(ws, c.r, 5, `chaincomp:${s.name}`);
       c.r += 1;

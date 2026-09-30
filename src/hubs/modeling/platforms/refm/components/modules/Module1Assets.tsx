@@ -116,7 +116,7 @@ import {
 import { poolLineAreas, poolLineLand, resolveConsolidatedLine } from '@/src/core/calculations/consolidatedLine';
 import { normaliseAssetTypeId } from '../../lib/state/assetTypeStandards';
 import { assetCapexCategory, assetCapexSection } from '../../lib/reports/capexReports';
-import { orderSubUnitLines } from './_shared/assetTableModel';
+import { orderSubUnitLines, retailStripNsaByParcel } from './_shared/assetTableModel';
 import type { ChainResult } from '@/src/core/calculations/landChain';
 import type { LandChainInputs } from '@/src/core/calculations/landChain';
 import { currencyHeaderLine, formatArea, formatAccounting } from '@/src/core/formatters';
@@ -638,20 +638,25 @@ export default function Module1Assets(): React.JSX.Element {
    */
   const retailLand = useMemo((): RetailLandView => {
     const byAssetId: Record<string, number> = {};
-    const byParcelId: Record<string, { assetId: string; name: string; sqm: number }[]> = {};
-    let totalSqm = 0;
+    const byParcelId: Record<string, { assetId: string; name: string; sqm: number; nsaSqm: number }[]> = {};
+    const nsaByAssetId: Record<string, number> = {};
+    let totalSqm = 0, totalNsaSqm = 0;
     for (const a of assets) {
       if (!isRetailCompanion(a)) continue;
       const b = computeAssetLandBreakdown(a, parcels, assets, subUnits, landAllocationMode);
       byAssetId[a.id] = b.landSqm;
       totalSqm += b.landSqm;
+      const nsa = resolveAssetAreaMetrics(a, project, parcels, assets.filter((x) => x.visible !== false && x.phaseId === a.phaseId), subUnits, landAllocationMode).nsa;
+      nsaByAssetId[a.id] = nsa;
+      totalNsaSqm += nsa;
+      const nsaOn = retailStripNsaByParcel(a, assets, nsa, b.splits);
       for (const sp of b.splits) {
         if (!sp.parcelId || sp.sqm <= 0) continue;
-        (byParcelId[sp.parcelId] ??= []).push({ assetId: a.id, name: a.name, sqm: sp.sqm });
+        (byParcelId[sp.parcelId] ??= []).push({ assetId: a.id, name: a.name, sqm: sp.sqm, nsaSqm: nsaOn[sp.parcelId] ?? 0 });
       }
     }
-    return { byAssetId, byParcelId, totalSqm };
-  }, [assets, parcels, subUnits, landAllocationMode]);
+    return { byAssetId, byParcelId, totalSqm, nsaByAssetId, totalNsaSqm };
+  }, [assets, parcels, subUnits, landAllocationMode, project]);
 
   /**
    * THE TYPE CHOICES, RESOLVED ONCE (2026-09-10).
@@ -2093,9 +2098,13 @@ interface RetailLandView {
   /** The pieces each PLOT gave up, for the per-plot table. A companion pools
    *  retail from hosts on different plots, so its land arrives in pieces and
    *  each belongs under the plot it came from. */
-  byParcelId: Record<string, { assetId: string; name: string; sqm: number }[]>;
+  byParcelId: Record<string, { assetId: string; name: string; sqm: number; nsaSqm: number }[]>;
   /** Every companion's land, which the totals add to the hosts' remainder. */
   totalSqm: number;
+  /** Each companion's NSA (the one area rule), and their sum, which the NSA totals add:
+   *  a host's NSA is its main asset's, so no host row carries the strip's lettable area. */
+  nsaByAssetId: Record<string, number>;
+  totalNsaSqm: number;
 }
 
 function TotalCells({ totals, testId }: { totals: AreaTotals; testId: string }): React.JSX.Element {
@@ -2513,6 +2522,7 @@ function AssetResultsTable({
   const totals = totalsFromRows(
     rowGroups.flatMap((g) => g.rows) as unknown as TotalledRow[],
     retailLand.totalSqm,
+    retailLand.totalNsaSqm,
   );
   return (
     <div style={sectionCardStyle} data-testid="assets-results-section">
@@ -2702,8 +2712,10 @@ function AssetResultsTable({
                         its hosts, already counted in their rows above, so
                         repeating it here would double count the exact area the
                         carve exists to place. */}
+                    {/* Except its NSA on this plot: its lettable area is on no host row
+                        (a host's NSA is its main asset's), so the column foots only with it. */}
                     {Array.from({ length: 19 }).map((_, i) => (
-                      <td key={`rc-${i}`} style={CELL_DERIVED}>-</td>
+                      <td key={`rc-${i}`} style={CELL_DERIVED} data-testid={i === 8 ? `plot-${group.key}-retail-nsa-${piece.assetId}` : undefined}>{i === 8 ? areaText(piece.nsaSqm) : '-'}</td>
                     ))}
                   </tr>
                 ))}
@@ -2782,6 +2794,7 @@ function MergedLineTable({
   const totals = totalsFromRows(
     lineRowGroups.flatMap((l) => l.rows) as unknown as TotalledRow[],
     retailLand.totalSqm,
+    retailLand.totalNsaSqm,
   );
   return (
     <div style={sectionCardStyle} data-testid="assets-merged-section">
@@ -2985,7 +2998,7 @@ function MergedLineTable({
                   <td style={CELL_DERIVED}>-</td>
                   <td style={CELL_DERIVED} title="INTERNAL FIELD: Asset.buaSqm. The retail floor area, parking excluded.">{areaText(retailGfa)}</td>
                   <td style={CELL_DERIVED}>-</td>
-                  <td style={CELL_DERIVED} title="INTERNAL FIELD: Asset.sellableBuaSqm. A retail strip leases its floor area; the chain takes no service deduction off retail.">{areaText(retailGfa)}</td>
+                  <td style={CELL_DERIVED} title="Its NSA by the one area rule (INTERNAL FIELD: Asset.sellableBuaSqm, or its rows'): a retail strip leases its floor area; the chain takes no service deduction off retail. The totals add it: no host row carries it.">{areaText(retailLand.nsaByAssetId[r.id] ?? retailGfa)}</td>
                   <td style={CELL_DERIVED}>-</td>
                   <td style={CELL_DERIVED}>-</td>
                   <td style={CELL_DERIVED}>-</td>

@@ -411,6 +411,38 @@ export interface TotalledRow {
   chain: Partial<Record<string, number | undefined>>;
 }
 
+/**
+ * A RETAIL STRIP'S NSA ON EACH PLOT ITS HOSTS STAND ON (2026-09-29): the strip's
+ * own NSA (the one area rule's), shared by the retail GFA its hosts carry on each
+ * plot, so the strip's per-plot rows foot to its NSA exactly as its land pieces
+ * foot to its land. Where the hosts carry no retail GFA the land split shares it
+ * instead, so a strip's NSA is never silently dropped. One rule for the Assets tab
+ * and the view the workbook and the PDF read.
+ */
+export function retailStripNsaByParcel(
+  strip: Pick<Asset, 'retailHostAssetIds'>,
+  assets: ReadonlyArray<Pick<Asset, 'id' | 'landAllocation' | 'derivedAreas'>>,
+  stripNsaSqm: number,
+  landSplits: ReadonlyArray<{ parcelId?: string; sqm: number }>,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  const byParcel: Record<string, number> = {};
+  let total = 0;
+  for (const id of strip.retailHostAssetIds ?? []) {
+    const h = assets.find((a) => a.id === id);
+    const pid = h?.landAllocation?.parcelId;
+    const ret = Math.max(0, h?.derivedAreas?.retailGfaSqm ?? 0);
+    if (!pid || ret <= 0) continue;
+    byParcel[pid] = (byParcel[pid] ?? 0) + ret; total += ret;
+  }
+  if (total <= 0) {
+    for (const sp of landSplits) if (sp.parcelId && sp.sqm > 0) { byParcel[sp.parcelId] = (byParcel[sp.parcelId] ?? 0) + sp.sqm; total += sp.sqm; }
+  }
+  if (total <= 0) return out;
+  for (const [pid, w] of Object.entries(byParcel)) out[pid] = stripNsaSqm * (w / total);
+  return out;
+}
+
 export interface AreaTotals {
   landSqm: number;
   pooled: Record<string, number>;
@@ -422,13 +454,18 @@ export interface AreaTotals {
 /**
  * Total the rows, and add the land the retail companions hold.
  *
- * THE COMPANION CONTRIBUTES LAND AND NOTHING ELSE, and that is not an
- * omission. Its floor area IS its hosts' retail GFA, already inside their
- * Retail GFA, Total GFA and Total BUA, so adding it again would double count
- * the very area the carve exists to place. Its LAND is the opposite case: the
- * hosts gave it up and their rows are already net of it, so leaving it out
- * makes the Land column short by exactly the carve, which is how the carve
- * managed to be invisible for a day.
+ * THE COMPANION CONTRIBUTES ITS LAND AND ITS NSA, AND NOTHING ELSE. Its floor
+ * area IS its hosts' retail GFA, already inside their Retail GFA, Total GFA and
+ * Total BUA, so adding it again would double count the very area the carve
+ * exists to place. Its LAND is the opposite case: the hosts gave it up and
+ * their rows are already net of it, so leaving it out makes the Land column
+ * short by exactly the carve, which is how the carve managed to be invisible
+ * for a day. Its NSA is the same case as its land (2026-09-29, export review
+ * item 3): a host's NSA is its MAIN asset's saleable area, net of the retail,
+ * so the strip's lettable area is on no host row, and leaving it out made the
+ * NSA total 65,123.04 on Marina Gate where the project NSA the Summary and
+ * Capex Table 7a use is 68,093.28. The average unit size stays the units' own
+ * (host NSA over units): a strip has no units.
  *
  * The three ratios are quotients of the SUMMED columns, never averages of the
  * rows' own ratios, which is the rule table 4 already applies to a line built
@@ -437,8 +474,11 @@ export interface AreaTotals {
 export function totalsFromRows(
   rows: readonly TotalledRow[],
   companionLandSqm: number,
+  companionNsaSqm = 0,
 ): AreaTotals {
-  const pooled = poolLineAreas(rows.map((r) => r.chain), POOLED_AREA_KEYS as unknown as string[]);
+  const pooledRows = poolLineAreas(rows.map((r) => r.chain), POOLED_AREA_KEYS as unknown as string[]);
+  const avgUnitNsa = pooledRows.netSaleableSqm;
+  const pooled: Record<string, number> = { ...pooledRows, netSaleableSqm: (pooledRows.netSaleableSqm ?? 0) + (Number.isFinite(companionNsaSqm) ? companionNsaSqm : 0) };
   const q = (a: number | undefined, b: number | undefined): number | undefined =>
     (typeof a === 'number' && typeof b === 'number' && b > 0) ? a / b : undefined;
   return {
@@ -446,7 +486,7 @@ export function totalsFromRows(
       + (Number.isFinite(companionLandSqm) ? companionLandSqm : 0),
     pooled,
     landscapePct: q(pooled.landscapeSqm, pooled.landUtilisedSqm),
-    avgUnitSize: q(pooled.netSaleableSqm, pooled.units),
+    avgUnitSize: q(avgUnitNsa, pooled.units),
     parkingRatio: q(pooled.parkingSlots, pooled.units),
   };
 }

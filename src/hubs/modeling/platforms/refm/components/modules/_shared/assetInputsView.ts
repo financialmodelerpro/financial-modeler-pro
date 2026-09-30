@@ -47,7 +47,7 @@ import type {
 } from '../../../lib/state/module1-types';
 import {
   computeAssetChain, groupAssetsByPlot, plotCheckText, partitionSubUnitsByLine, resolveAssetNsa, lineNsaOf,
-  orderSubUnitLines, totalsFromRows, assetHasSubstance, UNPLOTTED_GROUP,
+  orderSubUnitLines, totalsFromRows, assetHasSubstance, UNPLOTTED_GROUP, retailStripNsaByParcel,
   type ResolvedNsa, type TotalledRow,
 } from './assetTableModel';
 import type { ChainResult } from '@/src/core/calculations/landChain';
@@ -228,8 +228,8 @@ export interface PlotGroupView {
   check: string;
   entries: EntryRow[];
   chains: ChainRow[];
-  /** The retail companions' land carved from this plot's hosts. */
-  retailPieces: Array<{ name: string; sqm: number }>;
+  /** The retail companions' land carved from this plot's hosts, and their NSA on this plot. */
+  retailPieces: Array<{ name: string; sqm: number; nsaSqm: number }>;
 }
 
 /** A pooled row of the by-line table, or its total. */
@@ -243,8 +243,8 @@ export interface PooledView {
 }
 
 /** The totals rule's result under the view's own field names. */
-function pooledView(rows: readonly TotalledRow[], companionLandSqm: number): PooledView {
-  const t = totalsFromRows(rows, companionLandSqm);
+function pooledView(rows: readonly TotalledRow[], companionLandSqm: number, companionNsaSqm = 0): PooledView {
+  const t = totalsFromRows(rows, companionLandSqm, companionNsaSqm);
   return { landSqm: t.landSqm, pooled: t.pooled, landscapePct: t.landscapePct, avgUnitSize: t.avgUnitSize, slotsPerUnit: t.parkingRatio };
 }
 
@@ -263,6 +263,8 @@ export interface CompanionAreaView {
   hosts: number;
   landSqm: number;
   retailGfaSqm: number;
+  /** Its NSA by the one area rule (resolveAssetAreaMetrics), which the Summary and Capex Table 7a use. */
+  nsaSqm: number;
   slots: number;
   parkingAreaSqm: number;
   totalBuaSqm: number;
@@ -297,16 +299,23 @@ export function buildAssetAreaTables(state: InputsViewState): AssetAreaTables {
 
   // Carved land per companion and per plot, through the engine's own function.
   const byCompanion: Record<string, number> = {};
-  const byParcel: Record<string, Array<{ name: string; sqm: number }>> = {};
+  const byParcel: Record<string, Array<{ name: string; sqm: number; nsaSqm: number }>> = {};
+  const nsaByCompanion: Record<string, number> = {};
   let companionTotal = 0;
+  let companionNsaTotal = 0;
   for (const a of assets) {
     if (!isRetailCompanion(a)) continue;
     const b = computeAssetLandBreakdown(a, parcels, assets, subUnits, state.landAllocationMode);
     byCompanion[a.id] = b.landSqm;
     companionTotal += b.landSqm;
+    // Its NSA (the one area rule) counts in the NSA totals: no host row carries it (totalsFromRows).
+    const nsa = resolveAssetAreaMetrics(a, state.project, parcels, assets.filter((x) => x.visible !== false && x.phaseId === a.phaseId), subUnits, state.landAllocationMode).nsa;
+    nsaByCompanion[a.id] = nsa;
+    companionNsaTotal += nsa;
+    const nsaOn = retailStripNsaByParcel(a, assets, nsa, b.splits);
     for (const sp of b.splits) {
       if (!sp.parcelId || sp.sqm <= 0) continue;
-      (byParcel[sp.parcelId] ??= []).push({ name: a.name, sqm: sp.sqm });
+      (byParcel[sp.parcelId] ??= []).push({ name: a.name, sqm: sp.sqm, nsaSqm: nsaOn[sp.parcelId] ?? 0 });
     }
   }
 
@@ -357,7 +366,7 @@ export function buildAssetAreaTables(state: InputsViewState): AssetAreaTables {
     };
   });
   const allRows = [...rowById.values()];
-  const plotTotal = pooledView(allRows, companionTotal);
+  const plotTotal = pooledView(allRows, companionTotal, companionNsaTotal);
 
   const groups = groupAssetsForConsolidation(
     assets as unknown as Parameters<typeof groupAssetsForConsolidation>[0],
@@ -399,6 +408,7 @@ export function buildAssetAreaTables(state: InputsViewState): AssetAreaTables {
       hosts: (strip.retailHostAssetIds ?? []).length,
       landSqm: byCompanion[strip.id] ?? 0,
       retailGfaSqm: retailGfa,
+      nsaSqm: nsaByCompanion[strip.id] ?? retailGfa,
       slots: strip.parkingBaysRequired ?? 0,
       parkingAreaSqm: Math.max(0, (strip.gfaSqm ?? 0) - retailGfa),
       totalBuaSqm: strip.gfaSqm ?? 0,
@@ -409,7 +419,7 @@ export function buildAssetAreaTables(state: InputsViewState): AssetAreaTables {
     plotTotal,
     lines,
     companions,
-    lineTotal: pooledView(lineRows, companionTotal),
+    lineTotal: pooledView(lineRows, companionTotal, companionNsaTotal),
     parcelsTotalSqm: parcels.reduce((s, p) => s + Math.max(0, p.area), 0),
   };
 }

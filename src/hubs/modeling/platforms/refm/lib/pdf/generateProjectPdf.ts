@@ -1762,8 +1762,9 @@ function buildModule1(
         unitRows.push(row([r.label, ...chainUnitCells(fmt, ch, r.unitSizeSqm, r.ratio)]));
       }
       for (const piece of g.retailPieces) {
+        // Land and its NSA on this plot, nothing else (totalsFromRows): the column totals foot.
         areaRows.push(row([`${piece.name} (carved from its hosts)`, fmt.area(piece.sqm),
-          ...CHAIN_AREA_HEADS.slice(1).map(() => '-')]));
+          ...CHAIN_AREA_HEADS.slice(1).map((h) => (h === 'NSA or GLA' ? fmt.area(piece.nsaSqm) : '-'))]));
       }
     }
     const pt = areaTables.plotTotal;

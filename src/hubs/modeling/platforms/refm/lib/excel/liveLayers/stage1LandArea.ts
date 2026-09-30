@@ -259,28 +259,36 @@ export const stage1LandArea: LiveLayer = {
       const strip = strips.find((s) => s.name === name);
       const hs = (strip?.retailHostAssetIds ?? []).map((id) => hosts.find((h) => h.id === id)).filter((h): h is Asset => !!h && h.landAllocation?.parcelId === parcelId);
       w.f(pk, hs.length ? hs.map((h) => `(${grossRef(h)}-${R(`chain:${h.id}:land`)})`).join('+') : '0');
+      // Its NSA on this plot (retailStripNsaByParcel): the retail GFA its hosts carry here, the strip's
+      // NSA being its hosts' retail GFA (its row on the line table reads the same).
+      const nk = `piecensa:${parcelId}:${name}`;
+      if (w.has(nk)) w.f(nk, hs.length ? `SUM(${hs.map((h) => R(`chain:${h.id}:ret`)).join(',')})` : '0');
     }
 
     // Totals (totalsFromRows): sums, with the three ratios from the sums.
     const chainRows = hosts.filter((a) => w.has(`chain:${a.id}:land`)).map((a) => `chain:${a.id}`);
     const sumOf = (rows: string[], f: string): string => rows.map((r) => R(`${r}:${f}`)).join(',');
     const SUMMED = ['nda', 'fp', 'ls', 'ret', 'lob', 'tg', 'main', 'nsa', 'units', 'slots', 'rslots', 'tslots', 'parea', 'rparea', 'tparea', 'bua'];
-    const writeTotals = (prefix: string, rows: string[], extraLand: string[]): void => {
+    // totalsFromRows: a companion adds its land AND its NSA (no host row carries its lettable area);
+    // the average unit size stays the units' own NSA.
+    const writeTotals = (prefix: string, rows: string[], extraLand: string[], extraNsa: string[] = []): void => {
       if (!w.has(`${prefix}:land`)) return;
       w.f(`${prefix}:land`, `SUM(${[...rows.map((r) => R(`${r}:land`)), ...extraLand].join(',')})`);
       for (const f of SUMMED) {
         if (!w.has(`${prefix}:${f}`)) continue;
-        const cells = sumOf(rows, f);
+        const cells = f === 'nsa' ? [sumOf(rows, f), ...extraNsa].filter(Boolean).join(',') : sumOf(rows, f);
         if (typeof w.cell(`${prefix}:${f}`).value === 'string') w.f(`${prefix}:${f}`, `IF(COUNT(${cells})=0,"-",SUM(${cells}))`);
         else w.f(`${prefix}:${f}`, `SUM(${cells})`);
       }
       w.f(`${prefix}:lsPct`, `IF(N(${R(`${prefix}:nda`)})>0,N(${R(`${prefix}:ls`)})/${R(`${prefix}:nda`)},"-")`);
-      w.f(`${prefix}:usize`, `IF(N(${R(`${prefix}:units`)})>0,N(${R(`${prefix}:nsa`)})/${R(`${prefix}:units`)},"-")`);
+      w.f(`${prefix}:usize`, `IF(N(${R(`${prefix}:units`)})>0,SUM(${sumOf(rows, 'nsa')})/${R(`${prefix}:units`)},"-")`);
       w.f(`${prefix}:ratio`, `IF(N(${R(`${prefix}:units`)})>0,N(${R(`${prefix}:slots`)})/${R(`${prefix}:units`)},"-")`);
     };
     const pieceRefs = pieceKeys.map((k) => R(k));
-    writeTotals('chaintot:plots', chainRows, pieceRefs);
-    writeTotals('chaintot:lines', chainRows, pieceRefs);
+    const pieceNsaRefs = reg.keys().filter((k) => k.startsWith('piecensa:')).map((k) => R(k));
+    const compNsaRefs = strips.filter((s) => w.has(`chaincomp:${s.name}:nsa`)).map((s) => R(`chaincomp:${s.name}:nsa`));
+    writeTotals('chaintot:plots', chainRows, pieceRefs, pieceNsaRefs);
+    writeTotals('chaintot:lines', chainRows, pieceRefs, compNsaRefs);
 
     // Lines (groupAssetsForConsolidation; a member without substance is not pooled).
     const groups = groupAssetsForConsolidation(visible as unknown as Parameters<typeof groupAssetsForConsolidation>[0], state.phases.map((p) => p.id), normaliseAssetTypeId);
