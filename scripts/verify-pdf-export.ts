@@ -302,6 +302,25 @@ async function main(): Promise<void> {
   const millions = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: allKeys, displayScale: 'millions' });
   const thousands = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: allKeys, displayScale: 'thousands' });
   check('scale option produces valid PDFs (millions + thousands)', (await pageCount(millions)) >= 15 && (await pageCount(thousands)) >= 15, '');
+  // THE BAND SAYS MONEY, AND MONEY IS SCALED (2026-09-30, export review item 20). "All figures in X millions"
+  // headed pages whose rates, areas and counts are in their own units on purpose. The band now names money
+  // only, and the claim it makes is checked: at the millions scale no money amount of a million or more
+  // prints in full units, and the full-scale export names no scale word at all.
+  {
+    const { pdfText } = await import('./pdfTextExtract');
+    const tm = pdfText(millions), tf = pdfText(await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: allKeys, displayScale: 'full' }));
+    check('SB1 the page band says money, never all figures', /Money in \S+ millions; rates, areas and counts in their own units/.test(tm) && !/All figures in/.test(tm));
+    // A RATE may exceed a million in its own unit (this fixture sells apartments at 1,500,000 per
+    // unit, under a "SAR/unit" heading), which is what the band now says. So the rule is: every
+    // full-unit figure of a million or more sits under a per-unit or per-sqm label.
+    const fullUnit = [...tm.matchAll(/\d{1,3}(,\d{3}){2,}/g)]
+      .filter((h) => !/\/\s?unit|\/\s?sqm|per unit|per sqm|ADR/i.test(tm.slice(Math.max(0, h.index! - 400), h.index! + h[0].length + 12)))
+      .map((h) => h[0]);
+    check('SB2 at the millions scale every full-unit figure of a million or more is a labelled rate, never a money total', fullUnit.length === 0, fullUnit.slice(0, 3).join(' '));
+    // Not vacuous: the full-scale export of the same model DOES print such amounts.
+    check('SB2b ...and the full-scale export does, so SB2 can fail', /\d{1,3}(,\d{3}){2,}/.test(tf));
+    check('SB3 a full-scale export states no millions or thousands anywhere', !/millions|'000/.test(tf));
+  }
 
   // Decimals option: 2 decimals produces a valid (and generally larger) byte
   // stream than 0 decimals for the same content.

@@ -445,10 +445,18 @@ function rateUnit(currency: string, per = 'unit'): string {
   return `(${currency}/${per})`;
 }
 
+/**
+ * THE PAGE BAND SAYS MONEY, NOT ALL FIGURES (2026-09-30, export review item 20). "All figures in USD
+ * millions" headed every page, including pages whose ADRs, rates per sqm, areas and key counts are
+ * printed in their own units on purpose (see rateUnit above and the count / rate rows in the period
+ * renderer), so the band claimed a scale those columns do not use. Measured on the live project: at
+ * the millions scale no money amount prints unscaled; the band was the only false statement.
+ */
 function unitLabel(currency: string, scale: DisplayScale): string {
-  if (scale === 'thousands') return `All figures in ${currency} '000`;
-  if (scale === 'millions') return `All figures in ${currency} millions`;
-  return `All figures in ${currency}`;
+  const own = 'rates, areas and counts in their own units';
+  if (scale === 'thousands') return `Money in ${currency} '000; ${own}`;
+  if (scale === 'millions') return `Money in ${currency} millions; ${own}`;
+  return `Money in ${currency}; ${own}`;
 }
 
 // ── Drawing primitives ──────────────────────────────────────────────────────
