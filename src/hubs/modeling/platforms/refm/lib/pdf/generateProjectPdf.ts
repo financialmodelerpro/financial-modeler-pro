@@ -2359,7 +2359,7 @@ import { defaultHQOpexLines, normalizeOpexIndexation, type OpexLine } from '@/sr
 import type { IndexationConfig } from '@/src/core/calculations/revenue/types';
 import { assetPlotLabel } from '@/src/core/calculations/assetName';
 import { poolResults, planReportLines, lineTitle } from '../reports/lineRows';
-import { METRIC_CAPTIONS, METRIC_LABELS, capRateAtExitCaption } from '../reports/metricCaptions';
+import { METRIC_CAPTIONS, METRIC_LABELS, capRateAtExitCaption, exitYearAnalysisNote } from '../reports/metricCaptions';
 import { projectLocationLabel } from '@/src/core/countries';
 
 /** A builder row, with the two number kinds M4Row has no word for. */
@@ -3496,7 +3496,10 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
 
   // Tab 2: RE Metrics (cards + coverage + exit + per-line).
   items.push(exitCards);
-  if (exitYearTable) items.push(exitYearTable);
+  if (exitYearTable) {
+    items.push(exitYearTable);
+    items.push(tItem(m5Tab('RE Metrics'), 'outputs', { type: 'paragraph', text: exitYearAnalysisNote(returns.exitYears) }));
+  }
   items.push(exposureCards);
   items.push(tCards(m5Tab('RE Metrics'), 'outputs', 'Profitability & Yield', [
     { label: 'Yield on Cost', value: fmt.pct(re.yieldOnCost, 2), sub: METRIC_CAPTIONS.yieldOnCost },

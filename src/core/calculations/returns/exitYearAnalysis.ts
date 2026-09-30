@@ -13,6 +13,8 @@ export interface ExitYearRow {
   exitIdx: number;
   enterpriseValue: number;
   equityValue: number;
+  /** Debt outstanding at the close of the exit year, the amount the equity value deducts (2026-09-30). */
+  debtAtExit: number;
   fcffIrr: number | null;
   fcfeIrr: number | null;
   equityMoic: number;
@@ -36,6 +38,7 @@ export function exitYearAnalysis(args: {
       exitIdx: e,
       enterpriseValue: s.terminalEnterpriseValue,
       equityValue: s.terminalEquityValue,
+      debtAtExit: Math.max(0, inputs.debtOutstandingPerPeriod[e] ?? 0),
       fcffIrr: irr(s.fcff),
       fcfeIrr: irr(s.fcfe),
       equityMoic: moic(s.fcfe),

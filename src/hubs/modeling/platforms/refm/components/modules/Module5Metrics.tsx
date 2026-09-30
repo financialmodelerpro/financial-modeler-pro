@@ -22,7 +22,7 @@ import { DEFAULT_COVENANTS, type CovenantThreshold, type CovenantMetric } from '
 import { evaluateCovenant, covenantUnit, covenantSeries, reduceWorst, reduceAvg, COVENANT_METRIC_LABELS, covenantBasisNote, covenantCoverageNote, type CovenantInputs } from '../../lib/covenants';
 import { buildOperatingKpis } from '../../lib/reports/operatingKpis';
 import { TabComments } from '../collab/FieldComments';
-import { METRIC_CAPTIONS, METRIC_LABELS, capRateAtExitCaption } from '../../lib/reports/metricCaptions';
+import { METRIC_CAPTIONS, METRIC_LABELS, capRateAtExitCaption, exitYearAnalysisNote } from '../../lib/reports/metricCaptions';
 
 const ratioFmt = (v: number): string => (Math.abs(v) < 1e-9 ? '-' : `${v.toFixed(2)}x`);
 const pctRowFmt = (v: number): string => (Math.abs(v) < 1e-9 ? '-' : `${(v * 100).toFixed(1)}%`);
@@ -211,7 +211,7 @@ export default function Module5Metrics(): React.JSX.Element {
       {/* ── CENTREPIECE 2: Exit-Year Analysis (hold vs sell timing) ───────── */}
       {sectionTitle('Exit-Year Analysis (hold vs sell timing)')}
       <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
-        Project IRR (FCFF) and Equity IRR (FCFE) if the asset is sold at the end of each year, using that year&apos;s terminal value. The highlighted row is the selected Exit Year; its Equity MOIC is the hero Equity Multiple above.
+        Project IRR (FCFF) and Equity IRR (FCFE) if the asset is sold at the end of each year, using that year&apos;s terminal value. The highlighted row is the selected Exit Year; its Equity MOIC is the hero Equity Multiple above. {exitYearAnalysisNote(rs.exitYears)}
       </div>
       <div style={{ overflowX: 'auto', marginBottom: 'var(--sp-3)' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 640 }}>

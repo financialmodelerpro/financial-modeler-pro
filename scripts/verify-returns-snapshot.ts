@@ -15,7 +15,7 @@ import { makeDefaultPhase, makeDefaultProject, makeDefaultCostLines, makeDefault
 import { applyOverrides } from '../src/hubs/modeling/platforms/refm/lib/cases/applyOverrides';
 import { covenantSeries, reduceWorst, evaluateCovenant, type CovenantInputs } from '../src/hubs/modeling/platforms/refm/lib/covenants';
 import { readFileSync as readSrc, readdirSync as readDir } from 'fs';
-import { capRateAtExitCaption } from '../src/hubs/modeling/platforms/refm/lib/reports/metricCaptions';
+import { capRateAtExitCaption, exitYearAnalysisNote } from '../src/hubs/modeling/platforms/refm/lib/reports/metricCaptions';
 import { terminalMetricIndex } from '../src/core/calculations/returns/disposal';
 import { readLiveProjectVersion } from './fixtures/liveProject';
 import { loadStoredModel } from '../src/hubs/modeling/platforms/refm/lib/state/loadStoredModel';
@@ -506,6 +506,36 @@ console.log('=== M5 Returns snapshot integration ===');
       check(`CR2 ${basis}: the caption names that year`, caption === `capitalised NOI (${r.yearLabels[capIdx]}) / exit value`);
       if (basis === 'prior_year') check('CR3 on this project exit-year NOI gives a DIFFERENT ratio, so the old caption was wrong here (not vacuous)', Math.abs(r.exitNOI / r.terminalEnterpriseValue - cap) > 1e-4);
     }
+  }
+  // ── THE EXIT-YEAR TABLE STARTS WHERE THERE IS INCOME TO CAPITALISE (2026-09-30, review item 16) ──
+  // Marina Gate printed 2031 at EV 0, equity 0 and equity IRR -64.2%: under the prior-year basis the
+  // first operating year capitalises the year before it, which has no NOI. Rules, not values: the
+  // list starts at the first year whose CAPITALISED NOI is positive (counted independently here), the
+  // equity column is EV less that year's closing debt, and the sentence beside it says which.
+  if (live.ok) {
+    const q = <T,>(f: () => T): T => { const l = console.log, w = console.warn; console.log = () => {}; console.warn = () => {}; try { return f(); } finally { console.log = l; console.warn = w; } };
+    const m: any = q(() => loadStoredModel(live.snapshot).snapshot);
+    const sn: any = q(() => computeFinancialsSnapshot(m));
+    const r: any = q(() => computeReturnsSnapshot(sn, m.project));
+    const rows = r.exitYears as Array<any>;
+    const firstFunded = r.noiPerPeriod.findIndex((_: number, i: number) => (r.noiPerPeriod[terminalMetricIndex(i, r.config.terminalValueBasis)] ?? 0) > 0);
+    console.log(`     exit years ${rows.map((x) => x.exitYearLabel).join(', ')}; first year with capitalised income ${r.yearLabels[firstFunded]}`);
+    check('EY1 the first candidate is the first year whose capitalised income is positive', rows.length > 0 && rows[0].exitIdx === firstFunded);
+    check('EY2 no candidate is valued on zero income', rows.every((x) => x.enterpriseValue > 0));
+    check('EY3 equity value is EV less the closing debt of that year, which each row carries',
+      rows.every((x) => Math.abs(x.debtAtExit - Math.max(0, sn.bs.debtOutstandingPerPeriod[x.exitIdx] ?? 0)) < 0.01 && Math.abs(x.equityValue - Math.max(0, x.enterpriseValue - x.debtAtExit)) < 0.01));
+    const selected = rows.find((x) => x.isSelected);
+    check('EY4 the selected exit row still carries the headline equity IRR', !!selected && selected.fcfeIrr === r.result.fcfe.irr);
+    const note = exitYearAnalysisNote(rows);
+    const allRepaid = rows.every((x) => x.debtAtExit < 0.5);
+    check('EY5 the sentence says equity equals EV exactly when no row has debt to deduct',
+      allRepaid === /equals enterprise value in every year shown/.test(note)
+      && /deducts|less the debt/.test(exitYearAnalysisNote([{ debtAtExit: 0 }, { debtAtExit: 5 }]))
+      && /equals enterprise value/.test(exitYearAnalysisNote([{ debtAtExit: 0 }])));
+    const R = 'src/hubs/modeling/platforms/refm/';
+    const callers = ['components/modules/Module5Metrics.tsx', 'lib/excel/buildModelWorkbook.ts', 'lib/pdf/generateProjectPdf.ts']
+      .filter((f) => !/exitYearAnalysisNote\(/.test(readSrc(R + f, 'utf8')));
+    check('EY6 the screen, the workbook and the PDF print the sentence', callers.length === 0, callers.join(', '));
   }
   const walk = (d: string): string[] => readDir(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${d}/${e.name}`) : /\.(ts|tsx)$/.test(e.name) ? [`${d}/${e.name}`] : []));
   const stale = walk('src/hubs/modeling/platforms/refm').filter((f) => /['"]exit NOI \/ exit value['"]/.test(readSrc(f, 'utf8')));

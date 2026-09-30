@@ -76,3 +76,17 @@ export function capRateAtExitCaption(rs: { config: { terminalValueBasis?: Termin
   const year = rs.yearLabels[terminalMetricIndex(exitIdx, rs.config.terminalValueBasis)];
   return `capitalised NOI (${year}) / exit value`;
 }
+
+/**
+ * WHAT THE EXIT-YEAR TABLE DEDUCTS (2026-09-30, export review item 16). Equity value is enterprise
+ * value less the debt outstanding at the close of that year, so where the facility is repaid by
+ * then the two columns are the same number, and a reader should be told so. MEASURED on the rows;
+ * the first-row sentence is always true because the candidate list is built that way.
+ */
+export function exitYearAnalysisNote(rows: ReadonlyArray<{ debtAtExit: number }>): string {
+  const first = 'The first year shown is the first whose capitalised income is positive; an earlier exit would value the scheme on no income.';
+  if (rows.length && rows.every((r) => r.debtAtExit < 0.5)) {
+    return `${first} Equity value equals enterprise value in every year shown because the facility is repaid by the close of each of them, so there is no debt to deduct.`;
+  }
+  return `${first} Equity value is enterprise value less the debt outstanding at the close of that year.`;
+}

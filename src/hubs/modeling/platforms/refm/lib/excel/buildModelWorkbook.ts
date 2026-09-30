@@ -54,7 +54,7 @@ import { FUNDING_METHOD_LABELS, COST_METHOD_LABELS, type FundingMethodId } from 
 import { CAPEX_SECTIONS } from '../reports/capexReports';
 import { TERMINAL_METHOD_LABELS, TERMINAL_BASIS_LABELS } from '../state/module1-types';
 import { buildConsolidatedReport, perAssetCostsFromTreatment, consolidatedCaption } from '../reports/consolidatedReport';
-import { METRIC_CAPTIONS, METRIC_LABELS, RETURNS_NPV_NOTE, capRateAtExitCaption } from '../reports/metricCaptions';
+import { METRIC_CAPTIONS, METRIC_LABELS, RETURNS_NPV_NOTE, capRateAtExitCaption, exitYearAnalysisNote } from '../reports/metricCaptions';
 import { buildSellingCostReport, SELLING_COSTS_CAPTION, SELLING_COSTS_YOY_CAPTION } from '../reports/sellingCostReports';
 import {
   emitProjectSection, emitPhasesSection, emitStandardsSection, emitPlotsSection, emitAssetEntrySection, emitSubUnitSection,
@@ -4623,7 +4623,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
 
     // ── Exit-Year Analysis ──
     subTitle('Exit-Year Analysis (hold vs sell timing)');
-    note('Project IRR (FCFF) and Equity IRR (FCFE) if the asset is sold at the end of each year, using that year\'s terminal value. The marked row is the selected Exit Year; its Equity MOIC is the Equity Multiple (FCFE) above.');
+    note('Project IRR (FCFF) and Equity IRR (FCFE) if the asset is sold at the end of each year, using that year\'s terminal value. The marked row is the selected Exit Year; its Equity MOIC is the Equity Multiple (FCFE) above. ' + exitYearAnalysisNote(rs.exitYears));
     grid('', ['Exit Year', 'Enterprise Value', 'Equity Value', 'Project IRR', 'Equity IRR', 'Equity MOIC'],
       rs.exitYears.map((x) => ({ label: `${x.exitYearLabel}${x.isSelected ? '  ◀ selected' : ''}`, bold: x.isSelected, cells: [{ v: x.enterpriseValue }, { v: x.equityValue }, cPct(x.fcffIrr), cPct(x.fcfeIrr), cMult(x.equityMoic)] })));
 

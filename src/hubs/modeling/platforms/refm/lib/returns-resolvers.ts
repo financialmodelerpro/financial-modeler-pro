@@ -61,7 +61,7 @@ import type {
   WaterfallSnapshot, FeeEarnersSnapshot,
 } from '@/src/core/calculations/returns';
 import type { ProjectFinancialsSnapshot } from './financials-resolvers';
-import type { TerminalValueBasis } from '@/src/core/calculations/returns/disposal';
+import { terminalMetricIndex, type TerminalValueBasis } from '@/src/core/calculations/returns/disposal';
 import type { Project } from './state/module1-types';
 import { resolveFundTerms, resolveFeeEarners } from './fundTerms';
 
@@ -810,7 +810,12 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   // Candidate exits run from the first operating year (first positive NOI,
   // else the model midpoint) through the last axis year; always include the
   // selected exit. Each row rebuilds the streams via the same shared builder.
-  const firstOpsIdx = noiPerPeriod.findIndex((v) => (v ?? 0) > 0);
+  // THE FIRST CANDIDATE HAS INCOME TO CAPITALISE (2026-09-30, export review item 16). Under the
+  // default prior-year basis the first operating year values the scheme on the year BEFORE it,
+  // which has no NOI: Marina Gate printed 2031 at enterprise value 0 and equity IRR -64.2%. The
+  // candidate list now starts at the first year whose CAPITALISED income (terminalMetricIndex, the
+  // rule the valuation itself uses) is positive, so it follows the basis setting.
+  const firstOpsIdx = noiPerPeriod.findIndex((_, i) => (noiPerPeriod[terminalMetricIndex(i, cfg.terminalValueBasis)] ?? 0) > 0);
   const startIdx = firstOpsIdx >= 0 ? firstOpsIdx : Math.min(N - 1, Math.max(0, Math.floor(N / 2)));
   // CANDIDATES RUN ONLY UP TO THE CHOSEN EXIT (2026-09-15, founder): the
   // snapshot sells the held assets at the chosen exit and they stop trading
