@@ -222,9 +222,10 @@ export const stage1LandArea: LiveLayer = {
       w.f(ch('lsPct'), `1-${cov}`);
       w.f(ch('ls'), `${R(ch('nda'))}*(1-${cov})`);
       w.f(ch('ret'), `${R(ch('fp'))}*${ret}`);
-      w.f(ch('lob'), `${R(ch('fp'))}-${R(ch('ret'))}`);
+      // A lobby exists only beside retail, so main GFA is one subtraction (landChain.ts, 2026-09-30).
+      w.f(ch('lob'), `IF(${ret}>0,${R(ch('fp'))}-${R(ch('ret'))},0)`);
       w.f(ch('tg'), `${R(ch('nda'))}*${far}`);
-      w.f(ch('main'), `IF(${ret}=0,${R(ch('tg'))},${R(ch('tg'))}-${R(ch('ret'))}-${R(ch('lob'))})`);
+      w.f(ch('main'), `${R(ch('tg'))}-${R(ch('ret'))}-${R(ch('lob'))}`);
       w.f(ch('nsa'), `${R(ch('main'))}*(1-N(${svc}))`);
       // Unit size (resolveAvgUnitSize): the sub-units' stated sizes first, the type's as the fallback.
       const sized = (suByAsset.get(a.id) ?? []).filter((u) => w.has(`su:${u.id}:unit`)).map((u) => R(`su:${u.id}:unit`));
