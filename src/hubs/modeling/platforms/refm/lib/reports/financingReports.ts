@@ -13,6 +13,50 @@ import type { ProjectFinancialsSnapshot, FinancialsResolverState } from '../fina
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { planReportLines, lineTitle, poolResults } from './lineRows';
 import { idcWithDisposal, disposalContextOf } from './disposalSchedules';
+import { parcelDebtEquity } from '@/src/core/calculations/financing/debtEquity';
+import type { ParcelFundingConfig } from '../state/module1-types';
+
+/**
+ * THE LAND SPLIT A PHASE IS FUNDED AT, AS THE ENGINE READS IT (2026-09-30, export review item 17).
+ * The workbook printed 0% / 100% beside "Not set: the default split applies", and the default a
+ * reader finds on the same sheet is the project's 70 / 30. Both halves were true and together they
+ * contradicted: land with no split stated is funded 100% by EQUITY (`parcelDebtEquity`), and the
+ * project ratio never applies to land. The screen, the workbook and the PDF each re-read the stored
+ * fields for themselves; they now read the engine's rule here, and say the same sentence when a
+ * phase states nothing.
+ */
+export const LAND_FUNDING_UNSET_NOTE = 'Not stated: land with no split stated is funded 100% by equity. The project debt / equity ratio does not apply to land.';
+
+/**
+ * WHETHER THE PER-PHASE SPLIT IS USED AT ALL (measured 2026-09-30 on the live project, Method 3). The
+ * engine applies the land split only when funding mirrors capex; when a method sizes funding to its
+ * own curve (a gap-sized Method 2 or 3, or Method 4) `debtEquity.ts` takes the custom path, land cash
+ * is funded inside that curve at the method's ratio, and the split inputs are inert. So the section
+ * states whichever is TRUE, from the engine's own condition (`customDebtByPeriod` present), never both.
+ */
+export function landSplitApplies(funding: { customDebtByPeriod?: readonly number[] }): boolean {
+  return !funding.customDebtByPeriod;
+}
+export function landFundingNote(
+  funding: { customDebtByPeriod?: readonly number[]; debtPct: number; equityPct: number },
+  methodId: number | undefined,
+  anyUnstated: boolean,
+): string | null {
+  if (!landSplitApplies(funding)) {
+    return `Not used under Method ${methodId ?? '?'}: this method sizes funding to its own curve, so land cash is funded inside it at the method's ratio (${Math.round(funding.debtPct)}% debt / ${Math.round(funding.equityPct)}% equity). The split below applies only when funding mirrors capex (Method 1).`;
+  }
+  return anyUnstated ? LAND_FUNDING_UNSET_NOTE : null;
+}
+export function phaseLandSplit(parcelIds: readonly string[], parcelFunding: readonly ParcelFundingConfig[] | undefined): { debtPct: number; equityPct: number; mixed: boolean; stated: boolean } {
+  const cfgs = parcelIds.map((id) => (parcelFunding ?? []).find((x) => x.parcelId === id));
+  const splits = cfgs.map((c) => parcelDebtEquity(c));
+  const first = splits[0] ?? parcelDebtEquity(undefined);
+  return {
+    debtPct: first.debt, equityPct: first.equity,
+    mixed: splits.some((x) => Math.abs(x.debt - first.debt) > 1e-9),
+    stated: cfgs.some((c) => c !== undefined),
+  };
+}
 
 /** `group` names the screen's group heading a table sits under (for example
  *  "Debt Movement - New Facilities"); a renderer with no group band ignores it. */

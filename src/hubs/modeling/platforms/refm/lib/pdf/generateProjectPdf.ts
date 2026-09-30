@@ -100,7 +100,7 @@ import {
 import { computeFundingBasis } from '../reports/fundingBasis';
 import { countryLabel } from '@/src/core/countries';
 import { deriveCostStage, isLandValueLine } from '@/src/core/calculations';
-import { buildFinancingScheduleTables, buildCashSweepTables, buildIdcAllocationTables } from '../reports/financingReports';
+import { buildFinancingScheduleTables, buildCashSweepTables, buildIdcAllocationTables, phaseLandSplit, landFundingNote } from '../reports/financingReports';
 import { CAPITALISED_INTEREST_RULE } from '@/src/core/calculations/capitalisedInterest';
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildCaseComparisonReport, type CaseComparisonInput, type CaseComparisonReport } from '../reports/caseComparisonReport';
@@ -2150,13 +2150,11 @@ function buildModule1(
       items.push(tItem(M1_TABS.finInputs, 'inputs', { type: 'paragraph', text: '4. Land Funding: no phases with land yet.' }));
     } else {
       const rows: PdfTableRow[] = [];
+      let anyUnstated = false;
       for (const lp of landByPhase) {
-        const phaseParcels = state.parcels.filter((x) => x.phaseId === lp.phaseId);
-        const cfgs = phaseParcels.map((x) => (cfg?.parcelFunding ?? []).find((y) => y.parcelId === x.id));
-        const debts = cfgs.map((c) => c?.debtPct ?? 0);
-        const equities = cfgs.map((c, i) => c?.equityPct ?? (100 - debts[i]));
-        const mixed = debts.some((d) => d !== debts[0]) || equities.some((e) => e !== equities[0]);
-        const debtPct = debts[0] ?? 0; const equityPct = equities[0] ?? (100 - debtPct);
+        const split = phaseLandSplit(state.parcels.filter((x) => x.phaseId === lp.phaseId).map((x) => x.id), cfg?.parcelFunding);
+        const { debtPct, equityPct, mixed } = split;
+        if (!split.stated) anyUnstated = true;
         rows.push(periodRow(`${lp.phaseName}, Land Cash (Capex Table 5)`, sl(lp.landCash), 'sum'));
         rows.push(periodRow(`${lp.phaseName}, Land In-Kind (Capex Table 5)`, sl(lp.landInKind), 'sum'));
         rows.push(strPeriodRow(`${lp.phaseName}, Debt % / Equity %`, new Array<string>(yl.length).fill(''),
@@ -2166,6 +2164,8 @@ function buildModule1(
       rows.push(periodRow('Total, Land Cash', landByPhase.reduce((acc, lp) => acc.map((v, t) => v + (lp.landCash[t] ?? 0)), [...zeros]), 'sum', 'subtotal'));
       rows.push(periodRow('Total, Land In-Kind', landByPhase.reduce((acc, lp) => acc.map((v, t) => v + (lp.landInKind[t] ?? 0)), [...zeros]), 'sum', 'subtotal'));
       items.push(tTable(M1_TABS.finInputs, 'inputs', periodTable('4. Land Funding (per phase, from the Capex results)', py, yl, rows)));
+      const landNote = landFundingNote(fin.funding, cfg?.fundingMethod, anyUnstated);
+      if (landNote) items.push(tItem(M1_TABS.finInputs, 'inputs', { type: 'paragraph', text: landNote }));
     }
   }
   // 5. Debt facilities, every term the facility card holds.

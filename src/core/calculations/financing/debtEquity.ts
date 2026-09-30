@@ -14,7 +14,9 @@ interface ParcelDeb {
   equity: number;
 }
 
-function parcelDebtEquity(cfg: ParcelFundingConfig | undefined): ParcelDeb {
+/** The split one plot's land cash is funded at. Exported (2026-09-30) so every surface that prints
+ *  the split shows this, the engine's own answer, rather than re-reading the stored fields. */
+export function parcelDebtEquity(cfg: ParcelFundingConfig | undefined): ParcelDeb {
   if (!cfg) return { debt: 0, equity: 100 };
   if (typeof cfg.debtPct === 'number' || typeof cfg.equityPct === 'number') {
     const d = Math.max(0, cfg.debtPct ?? 0);

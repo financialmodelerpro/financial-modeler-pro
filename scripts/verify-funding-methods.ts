@@ -19,6 +19,10 @@ import type { CapexAggregate } from '../src/core/calculations/financing/types';
 import type { ProjectFinancingConfig } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { computeFinancialsSnapshot, computeFundingGap } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { makeDefaultPhase, makeDefaultProject, makeDefaultCostLines, makeDefaultFinancingTranche } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import { readFileSync } from 'fs';
+import { phaseLandSplit, landFundingNote, landSplitApplies, LAND_FUNDING_UNSET_NOTE } from '../src/hubs/modeling/platforms/refm/lib/reports/financingReports';
+import { readLiveProjectVersion } from './fixtures/liveProject';
+import { loadStoredModel } from '../src/hubs/modeling/platforms/refm/lib/state/loadStoredModel';
 
 let pass = 0;
 let fail = 0;
@@ -550,5 +554,44 @@ console.log('\n[SWEEP] Repayment method wired: engine schedule is the single sou
   check('project-level sweep startingYear=2031 applied to all loans (no sweep before 2031)', approx(before2031, 0, 1), `before=${before2031}`);
 }
 
-console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
-if (fail > 0) process.exit(1);
+// -- The land split the section shows is the one the engine applies (2026-09-30, export review item 17) --
+// The workbook printed 0% / 100% beside "Not set: the default split applies", with 70 / 30 the default a
+// reader finds. Measured: on Method 1 unstated land is funded 100% by equity; on a gap-sized Method 2/3
+// (or Method 4) the split is not used at all. Each branch driven on the engine, the live leg on Marina Gate.
+{
+  const sumA = (a?: number[]) => (a ?? []).reduce((x, v) => x + (v ?? 0), 0);
+  const run = (method: 1 | 3, pf: any[]) => { const st = buildSnapState(method); const fc = st.project.financing as any; fc.parcelFunding = pf; fc.fixedRatio = { debtPct: 70, equityPct: 30 }; return computeFinancialsSnapshot(st).financing as any; };
+  const m1 = run(1, []);
+  const landCash = sumA(m1.capex.perPeriod.landCash);
+  const unset = phaseLandSplit(['parcel1'], []);
+  check('LF1 Method 1, no split stated: the section shows 0 / 100 and the engine funds the land 100% by equity',
+    landSplitApplies(m1.funding) && landCash > 0 && unset.debtPct === 0 && unset.equityPct === 100 && !unset.stated
+    && Math.abs(sumA(m1.debtEquitySplit.landDebt)) < 0.01 && Math.abs(sumA(m1.debtEquitySplit.landEquity) - landCash) < 0.01, `land cash ${landCash}`);
+  check('LF2 ...and the note says so, not "the default split"', landFundingNote(m1.funding, 1, true) === LAND_FUNDING_UNSET_NOTE && !/default split/.test(LAND_FUNDING_UNSET_NOTE));
+  const m1s = run(1, [{ parcelId: 'parcel1', debtPct: 40, equityPct: 60 }]);
+  const stated = phaseLandSplit(['parcel1'], [{ parcelId: 'parcel1', debtPct: 40, equityPct: 60 } as any]);
+  check('LF3 Method 1, 40 / 60 stated: the section shows what the engine draws',
+    stated.stated && stated.debtPct === 40 && Math.abs(sumA(m1s.debtEquitySplit.landDebt) - 0.4 * landCash) < 0.01 && landFundingNote(m1s.funding, 1, false) === null);
+  const m3 = run(3, [{ parcelId: 'parcel1', debtPct: 40, equityPct: 60 }]);
+  const note3 = landFundingNote(m3.funding, 3, false);
+  check('LF4 a gap-sized Method 3 ignores the split (no separate land debt even with 40 / 60 stated), and the note says it is not used',
+    !landSplitApplies(m3.funding) && Math.abs(sumA(m3.debtEquitySplit.landDebt)) < 0.01 && !!note3 && /Not used under Method 3/.test(note3) && note3.includes(`${Math.round(m3.funding.debtPct)}% debt / ${Math.round(m3.funding.equityPct)}% equity`), note3 ?? 'null');
+  const R = 'src/hubs/modeling/platforms/refm/';
+  const callers = ['components/modules/Module1Financing.tsx', 'lib/excel/buildModelWorkbook.ts', 'lib/pdf/generateProjectPdf.ts']
+    .filter((f) => { const t = readFileSync(R + f, 'utf8'); return !/phaseLandSplit\(/.test(t) || !/landFundingNote\(/.test(t) || /the default split applies/.test(t); });
+  check('LF5 the screen, the workbook and the PDF read the split and the note through the one rule', callers.length === 0, callers.join(', '));
+}
+
+(async () => {
+  const live = await readLiveProjectVersion();
+  if (live.ok) {
+    const q = <T,>(f: () => T): T => { const l = console.log, w = console.warn; console.log = () => {}; console.warn = () => {}; try { return f(); } finally { console.log = l; console.warn = w; } };
+    const m: any = q(() => loadStoredModel(live.snapshot).snapshot);
+    const f: any = q(() => computeFinancialsSnapshot(m)).financing;
+    const note = landFundingNote(f.funding, m.project.financing?.fundingMethod, true);
+    console.log(`     ${live.label}: method ${m.project.financing?.fundingMethod}, split applies ${landSplitApplies(f.funding)}; ${note}`);
+    check(`LF6 ${live.label}: the note matches the path the engine took`, landSplitApplies(f.funding) ? note === LAND_FUNDING_UNSET_NOTE : !!note && /^Not used under Method/.test(note));
+  } else check('LF6 live project read', false);
+  console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
+  if (fail > 0) process.exit(1);
+})();

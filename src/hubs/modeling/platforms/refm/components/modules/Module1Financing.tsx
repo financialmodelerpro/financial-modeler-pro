@@ -53,7 +53,7 @@ import {
   getAssetPreCapexTotal,
 } from '../../lib/state/module1-types';
 import { computeFinancingResult } from '@/src/core/calculations/financing';
-import { buildFinancingSummary, FINANCING_SUMMARY_CAPTIONS, operatingInflowClasses } from '../../lib/reports/financingReports';
+import { buildFinancingSummary, FINANCING_SUMMARY_CAPTIONS, operatingInflowClasses, phaseLandSplit, landFundingNote } from '../../lib/reports/financingReports';
 import { facilityShareTotal, facilityShareSumIsValid } from '@/src/core/calculations/financing/shares';
 import { computeIdcSnapshot, computeFundingGap, computeFinancialsSnapshot } from '../../lib/financials-resolvers';
 import { computeFundingBasis } from '../../lib/reports/fundingBasis';
@@ -811,12 +811,7 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
                 <tbody>
                   {(result.capex.landByPhase ?? []).map((lp) => {
                     const phaseParcels = parcels.filter((p) => p.phaseId === lp.phaseId);
-                    const cfgs = phaseParcels.map((p) => (financingConfig.parcelFunding ?? []).find((x) => x.parcelId === p.id));
-                    const debts = cfgs.map((c) => c?.debtPct ?? 0);
-                    const equities = cfgs.map((c, i) => c?.equityPct ?? (100 - debts[i]));
-                    const mixed = debts.some((d) => d !== debts[0]) || equities.some((e) => e !== equities[0]);
-                    const debtPct = debts[0] ?? 0;
-                    const equityPct = equities[0] ?? (100 - debtPct);
+                    const { debtPct, equityPct, mixed } = phaseLandSplit(phaseParcels.map((p) => p.id), financingConfig.parcelFunding);
                     const writeAll = (patch: Partial<ParcelFundingConfig>): void => { phaseParcels.forEach((p) => setParcelFundingPatch(p.id, patch)); };
                     return (
                       <tr key={lp.phaseId} data-testid={`financing-land-funding-${lp.phaseId}`}>
@@ -850,6 +845,11 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
                 </tbody>
               </table>
             )}
+            {(() => {
+              const anyUnstated = (result.capex.landByPhase ?? []).some((lp) => !phaseLandSplit(parcels.filter((p) => p.phaseId === lp.phaseId).map((p) => p.id), financingConfig.parcelFunding).stated);
+              const landNote = landFundingNote(result.funding, financingConfig.fundingMethod, anyUnstated);
+              return landNote ? <div data-testid="financing-land-funding-note" style={{ color: 'var(--color-text-muted)', fontSize: 11, marginTop: 4 }}>{landNote}</div> : null;
+            })()}
           </section>
 
           <FacilitiesSection

@@ -95,7 +95,7 @@ import type { IndexationConfig } from '@/src/core/calculations/revenue/types';
 import { assetPlotLabel } from '@/src/core/calculations/assetName';
 import { deriveCostStage, isLandValueLine } from '@/src/core/calculations';
 import { CAPEX_PHASING_SOURCE_LABELS, FUNDING_METHOD_DESCRIPTIONS, REPAYMENT_METHOD_LABELS, DEFAULT_PROJECT_FINANCING_CONFIG } from '../state/module1-types';
-import { buildIdcAllocationTables, buildFinancingSummary, FINANCING_SUMMARY_CAPTIONS, operatingInflowClasses } from '../reports/financingReports';
+import { buildIdcAllocationTables, buildFinancingSummary, FINANCING_SUMMARY_CAPTIONS, operatingInflowClasses, phaseLandSplit, landFundingNote, landSplitApplies } from '../reports/financingReports';
 import { CAPITALISED_INTEREST_RULE } from '@/src/core/calculations/capitalisedInterest';
 import { computeFundingBasis } from '../reports/fundingBasis';
 import { buildPartiesTable, PARTIES_TITLE, PARTIES_EMPTY_TEXT } from '../reports/partiesReport';
@@ -945,24 +945,21 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
     r += 1;
     const parcelFunding = p.financing?.parcelFunding ?? [];
     for (const lp of landByPhase) {
-      const cfgs = state.parcels.filter((pa) => pa.phaseId === lp.phaseId).map((pa) => parcelFunding.find((x) => x.parcelId === pa.id));
-      const storedCfg = cfgs.find((x) => x !== undefined);
-      const debts = cfgs.map((x) => x?.debtPct ?? 0);
-      const mixed = debts.some((d) => d !== debts[0]);
-      const debtPct = debts[0] ?? 0;
-      const equityPct = cfgs[0]?.equityPct ?? (100 - debtPct);
+      const split = phaseLandSplit(state.parcels.filter((pa) => pa.phaseId === lp.phaseId).map((pa) => pa.id), parcelFunding);
+      const { debtPct, equityPct, mixed } = split;
       setLabel(ws.getCell(`A${r}`), `${lp.phaseName}${mixed ? ' (mixed split across its plots)' : ''}`);
       setFormula(ws.getCell(`B${r}`), fcell('0', lp.landCashTotal), NUMFMT.money);
       setFormula(ws.getCell(`C${r}`), fcell('0', lp.landInKindTotal), NUMFMT.money);
-      if (storedCfg) {
+      if (!landSplitApplies(fin.funding)) setLabel(ws.getCell(`F${r}`), landFundingNote(fin.funding, p.financing?.fundingMethod, false) ?? '');
+      if (split.stated) {
         setInput(ws.getCell(`D${r}`), debtPct / 100, NUMFMT.pct);
         setInput(ws.getCell(`E${r}`), equityPct / 100, NUMFMT.pct);
         registerCell(`inp=${FIN('4. Land Funding (per phase, from the Capex results)', `${lp.phaseName}, Debt %`)}`, ws, ws.getCell(`D${r}`));
         registerCell(`inp=${FIN('4. Land Funding (per phase, from the Capex results)', `${lp.phaseName}, Equity %`)}`, ws, ws.getCell(`E${r}`));
       } else {
-        setFormula(ws.getCell(`D${r}`), fcell('0', 0), NUMFMT.pct);
-        setFormula(ws.getCell(`E${r}`), fcell('1', 1), NUMFMT.pct);
-        setLabel(ws.getCell(`F${r}`), 'Not set: the default split applies.');
+        setFormula(ws.getCell(`D${r}`), fcell(String(debtPct / 100), debtPct / 100), NUMFMT.pct);
+        setFormula(ws.getCell(`E${r}`), fcell(String(equityPct / 100), equityPct / 100), NUMFMT.pct);
+        setLabel(ws.getCell(`F${r}`), landFundingNote(fin.funding, p.financing?.fundingMethod, true) ?? '');
       }
       r += 1;
     }
