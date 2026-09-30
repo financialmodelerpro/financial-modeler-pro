@@ -85,7 +85,7 @@ import { computeReturnsSnapshot, computeReturnsSensitivity, type ReturnsSnapshot
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsFeederTables, buildBsReconciliationRows, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisText, totalColumnHeading, totalColumnNote, resolveTotalColumnKind, TOTAL_COLUMN_HEADINGS, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, type M4FeederCtx } from '../reports/m4Reports';
 import { buildOpexReport } from '../reports/opexReports';
-import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup } from '../reports/streamReports';
+import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup, distributedTieNote } from '../reports/streamReports';
 import { buildDisposalWorking } from '../reports/disposalReport';
 import { buildOperatingKpis } from '../reports/operatingKpis';
 import { assetLabel } from '@/src/core/calculations/assetName';
@@ -3707,6 +3707,8 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
     m4RowsToPeriodTable('FCFE Build-Up (levered, free cash to equity)', streamPrior, streamYears, buildFcfeBuildup(returns, pdfStreamRow))));
   items.push(tTable(m5Tab('Returns'), 'schedules',
     m4RowsToPeriodTable('Distributed Equity Build-Up (Dividend Discount Model)', streamPrior, streamYears, buildDividendBuildup(returns, pdfStreamRow))));
+  const tieNote = distributedTieNote(returns);
+  if (tieNote) items.push(tPara(m5Tab('Returns'), 'schedules', 'Distributed Equity and FCFE', tieNote));
 
   return items;
 }

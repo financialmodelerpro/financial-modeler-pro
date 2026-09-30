@@ -37,7 +37,7 @@ import { countryLabel } from '@/src/core/countries';
 import { revenueBySection } from '../reports/revenueSections';
 import { scheduleWithDisposal, idcWithDisposal, disposalContextOf } from '../reports/disposalSchedules';
 import { buildFinancingScheduleTables, buildCashSweepTables, type ReportTable } from '../reports/financingReports';
-import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup, m4StreamRow } from '../reports/streamReports';
+import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup, m4StreamRow, distributedTieNote } from '../reports/streamReports';
 import { buildIntegrityChecks, checkDetail, relativeCheckOk, worstDivergence, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildOpexReport } from '../reports/opexReports';
@@ -4441,7 +4441,8 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     'Free Cash Flow to Equity builds from FCFF above: FCFF, then the debt drawn for capex and the debt drawn for IDC, less principal repaid and the OPERATING finance cost, with the terminal enterprise value swapped for terminal value less closing debt. The in-kind land and the IDC are already inside FCFF and are not repeated here. The NEGATIVE periods are the NEW cash equity the sponsor must inject.',
     buildFcfeBuildup(rs, m4StreamRow));
   emitBuildup(rs.waterfall.active ? 'Dividend Discount Model (DDM), before performance fee' : 'Distributed Equity Build-Up (Dividend Discount Model)',
-    'Equity investment (existing + new cash + in-kind) out, dividends and return of capital distributed by the cash-sweep waterfall in, plus the terminal equity value at exit. This is the basis for the Distributed Equity IRR. Dividends are sized in the Financial Statements (Cash Sweep + Dividend policy), not in the funding gap.',
+    'Equity investment (existing + new cash + in-kind) out, dividends and return of capital distributed by the cash-sweep waterfall in, plus the terminal equity value at exit. This is the basis for the Distributed Equity IRR. Dividends are sized in the Financial Statements (Cash Sweep + Dividend policy), not in the funding gap.'
+      + ((n) => (n ? ' ' + n : ''))(distributedTieNote(rs)),
     buildDividendBuildup(rs, m4StreamRow));
   textLine(`DDM IRR${rs.waterfall.active ? ' (before performance fee)' : ''} ${cPct(rr.dividends.irr)} · MOIC ${cMult(rr.dividends.moic)}`);
   r += 1;

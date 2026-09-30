@@ -43,8 +43,11 @@ import {
 import { computeFinancialsSnapshot, computeFundingGap } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/returns-resolvers';
 import {
-  FCFF_BUILDUP_LABELS, FCFE_BUILDUP_LABELS, buildFcffBuildup, buildFcfeBuildup, m4StreamRow,
+  FCFF_BUILDUP_LABELS, FCFE_BUILDUP_LABELS, buildFcffBuildup, buildFcfeBuildup, m4StreamRow, distributedTieNote,
 } from '../src/hubs/modeling/platforms/refm/lib/reports/streamReports';
+import { readFileSync } from 'fs';
+import { readLiveProjectVersion } from './fixtures/liveProject';
+import { loadStoredModel } from '../src/hubs/modeling/platforms/refm/lib/state/loadStoredModel';
 import { buildDirectCFRows } from '../src/hubs/modeling/platforms/refm/lib/reports/m4Reports';
 import { getFinancialLabels, defaultTerminologyForCountry } from '../src/core/calculations/financials';
 
@@ -648,6 +651,56 @@ check('the balance sheet balances every period',
 check('Direct CF closing cash == Indirect CF closing cash',
   snap.directCF.closingCashPerPeriod.every((v, t) => Math.abs(v - (snap.indirectCF.closingCashPerPeriod[t] ?? 0)) < 1));
 
+// -- 7. When FCFE and Distributed Equity are one stream, the page says so (2026-09-30, review item 11) --
+// The tie is an OUTCOME: measured, no single setting produces it (this fixture at a 100% payout
+// still differs on a schedule AND on a sweep that leaves the debt outstanding), so the note must
+// appear exactly when the streams agree in every period. The fixture drives the silent branches;
+// the live project, which ties to the cent, drives the firing one, with a 50% copy of it silent.
+console.log('\n-- 7. The FCFE / Distributed tie is stated where it holds and only there --');
+const gap = (r: { fcfePerPeriod: number[]; dividendStreamPerPeriod: number[] }): number =>
+  Math.max(...r.fcfePerPeriod.map((v, i) => Math.abs(v - (r.dividendStreamPerPeriod[i] ?? 0))));
+{
+  const run = (pct: number, sweep: boolean) => {
+    const st = build();
+    (st.project as unknown as { dividendPolicy: unknown }).dividendPolicy = { enabled: true, mode: 'cash_above_min', payoutRatio: pct };
+    if (sweep) st.financingTranches = st.financingTranches.map((t) => ({ ...t, repaymentMethod: 'cash_sweep' as const, cashSweepConfig: { ...(t.cashSweepConfig ?? {}), enabled: true } }));
+    return computeReturnsSnapshot(computeFinancialsSnapshot(st), st.project);
+  };
+  const sched = run(100, false), swept = run(100, true);
+  console.log(`     fixture at 100% payout: schedule gap ${M(gap(sched))}, sweep gap ${M(gap(swept))}`);
+  check('7a a full payout alone does not tie them (so no setting may be named as the cause), and no note prints',
+    gap(sched) > 1 && gap(swept) > 1 && distributedTieNote(sched) === null && distributedTieNote(swept) === null);
+  const f = [-10, 4, 9];
+  const n = distributedTieNote({ fcfePerPeriod: f, dividendStreamPerPeriod: [...f] });
+  check('7b equal streams get the note, and it calls the tie an outcome, not an identity', !!n && /outcome of the inputs, not an identity/.test(n));
+  check('7c one period apart by more than half a cent is enough to drop it', distributedTieNote({ fcfePerPeriod: f, dividendStreamPerPeriod: [-10, 4, 9.01] }) === null);
+  check('7d an all-zero stream is not called a tie', distributedTieNote({ fcfePerPeriod: [0, 0], dividendStreamPerPeriod: [0, 0] }) === null);
+  const R = 'src/hubs/modeling/platforms/refm/';
+  const callers = ['components/modules/Module5Returns.tsx', 'lib/excel/buildModelWorkbook.ts', 'lib/pdf/generateProjectPdf.ts']
+    .filter((f2) => !/distributedTieNote\(/.test(readFileSync(R + f2, 'utf8')));
+  check('7e the screen, the workbook and the PDF all print the note through distributedTieNote', callers.length === 0, callers.join(', '));
+}
+
+// 7f/7g, the LIVE leg: the project that prompted this ties, and a 50% copy of it does not. Read-only.
+// Async, so the summary below waits for it.
+(async () => {
+{
+  const live = await readLiveProjectVersion();
+  if (!live.ok) check('7f live project read', false, 'noCredentials' in live && live.noCredentials ? 'no credentials' : (live as { reason: string }).reason);
+  else {
+    const q = <T,>(fn: () => T): T => { const l = console.log, w = console.warn; console.log = () => {}; console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+    const model: any = q(() => loadStoredModel(live.snapshot).snapshot);
+    const lr: any = q(() => computeReturnsSnapshot(computeFinancialsSnapshot(model), model.project));
+    const copy = JSON.parse(JSON.stringify(model));
+    copy.project.dividendPolicy = { ...(copy.project.dividendPolicy ?? {}), enabled: true, mode: 'cash_above_min', payoutRatio: 50 };
+    const hr: any = q(() => computeReturnsSnapshot(computeFinancialsSnapshot(copy), copy.project));
+    console.log(`     ${live.label}: gap ${M(gap(lr))}; at 50% ${M(gap(hr))}`);
+    check(`7f ${live.label}: the streams tie in every period and the note prints`, gap(lr) < 0.01 && distributedTieNote(lr) !== null, M(gap(lr)));
+    check(`7g ${live.label} at a 50% payout: the streams differ and the note does not print`, gap(hr) > 1 && distributedTieNote(hr) === null, M(gap(hr)));
+  }
+}
+
 console.log(`\n=== ${pass} passed, ${fail} failed ===`);
 if (fail > 0) { console.log('FAILURES:'); failures.forEach((f) => console.log(`  - ${f}`)); }
 process.exit(fail > 0 ? 1 : 0);
+})();

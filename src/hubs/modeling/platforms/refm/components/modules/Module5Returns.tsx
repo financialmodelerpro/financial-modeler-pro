@@ -18,7 +18,7 @@ import { isEquityParty, type Party } from '../../lib/parties';
 import { computeFinancialsSnapshot, type ProjectFinancialsSnapshot } from '../../lib/financials-resolvers';
 import { computeReturnsSnapshot, computeReturnsSensitivity } from '../../lib/returns-resolvers';
 import type { SensitivityVariable } from '@/src/core/calculations/returns';
-import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup } from '../../lib/reports/streamReports';
+import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup, distributedTieNote } from '../../lib/reports/streamReports';
 import { buildDisposalWorking, type DisposalWorkingRow } from '../../lib/reports/disposalReport';
 import { assetLabel } from '@/src/core/calculations/assetName';
 import { currencyHeaderLine, formatScaledForExport, SCALE_DIVISOR, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
@@ -164,6 +164,7 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
   const fcffBuildupRows: M4Row[] = buildFcffBuildup(rs, streamRow);
   const fcfeBuildupRows: M4Row[] = buildFcfeBuildup(rs, streamRow);
   const dividendBuildupRows: M4Row[] = buildDividendBuildup(rs, streamRow);
+  const tieNote = distributedTieNote(rs);
 
   return (
     <div data-testid="module5-returns" style={{ padding: 'var(--sp-3)', width: '100%' }}>
@@ -335,7 +336,7 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
           On a standalone project only the first table renders. */}
       <M4PeriodTable
         title={rs.waterfall.active ? 'Dividend Discount Model (DDM), before performance fee' : 'Distributed Equity Build-Up (Dividend Discount Model)'}
-        caption="Equity investment (existing + new cash + in-kind) out, dividends and return of capital distributed by the cash-sweep waterfall in, plus the terminal equity value at exit. This is the basis for the Distributed Equity IRR. Dividends are sized in the Financial Statements (Cash Sweep + Dividend policy), not in the funding gap."
+        caption={'Equity investment (existing + new cash + in-kind) out, dividends and return of capital distributed by the cash-sweep waterfall in, plus the terminal equity value at exit. This is the basis for the Distributed Equity IRR. Dividends are sized in the Financial Statements (Cash Sweep + Dividend policy), not in the funding gap.' + (tieNote ? ' ' + tieNote : '')}
         yearLabels={axisLabels}
         rows={dividendBuildupRows}
         currency={currency}

@@ -175,6 +175,31 @@ export function buildDividendBuildup<T>(rs: StreamBuildupSource, make: StreamRow
   return build(rs, DIVIDEND_ROWS, '= Net Equity Cash Flow (dividend basis)', rs.dividendStreamPerPeriod ?? [], make, labels);
 }
 
+/**
+ * WHEN FCFE AND DISTRIBUTED EQUITY ARE THE SAME STREAM (2026-09-30, export review item 11).
+ *
+ * They are two different measures: FCFE is the free cash TO equity (it deducts the
+ * sweep claim and the minimum cash reserve and nothing else), the distributed stream
+ * is what the dividend policy actually PAID. They agree in a year exactly when all of
+ * that free cash was paid out, and a reader who sees two identical tables should be
+ * told so rather than left to suspect a copy.
+ *
+ * AN OUTCOME, NOT AN IDENTITY, AND NO SETTING DECIDES IT ALONE (measured): the live
+ * project (one facility on a cash sweep, 100% payout of cash above the minimum) ties
+ * to the cent and falls to 17.6% against 18.4% on a copy at 50%; the verifier fixture
+ * at 100% still differs by 176.8m on a repayment schedule and by 67.4m on a sweep that
+ * leaves the debt outstanding, since that sweep pays nothing out. So the sentence is
+ * returned only when the two series agree in EVERY period, it names no setting as the
+ * cause, and it is null when they differ, since the tables then speak for themselves.
+ */
+export function distributedTieNote(rs: { fcfePerPeriod?: number[]; dividendStreamPerPeriod?: number[] }): string | null {
+  const f = rs.fcfePerPeriod ?? [], d = rs.dividendStreamPerPeriod ?? [];
+  const n = Math.max(f.length, d.length);
+  if (n === 0 || !f.some((v) => Math.abs(v ?? 0) > 0.005)) return null;
+  for (let i = 0; i < n; i++) if (Math.abs((f[i] ?? 0) - (d[i] ?? 0)) > 0.005) return null;
+  return 'This stream equals FCFE in every year of this model. That is an outcome of the inputs, not an identity: in every year all the cash left after debt service, any sweep and the minimum cash reserve, which is what FCFE counts as free to equity, was paid out as dividends. A payout below 100%, a later dividend start, or cash a repayment schedule leaves in the bank would separate the two.';
+}
+
 /** Convenience for surfaces that already speak M4Row (the screen and Excel). */
 export const m4StreamRow: StreamRowMaker<M4Row> = (label, series, opts) => ({
   label, values: series, indent: opts.indent, isTotal: opts.isTotal,
