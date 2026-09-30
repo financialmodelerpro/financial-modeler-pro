@@ -1,4 +1,5 @@
 import { resolveAssetDownpaymentSource } from '../state/saleCohortResolution';
+import { saleRevenueOf, collectionsOf } from '@/src/core/calculations/revenue/sellingCosts';
 import { assetLabel } from '@/src/core/calculations/assetName';
 /**
  * checksReport.ts (2026-08-12)
@@ -142,26 +143,25 @@ export function buildRevenueBasisAdvisories(
 
 /**
  * The same advisories straight from a snapshot, so every surface asks the
- * question identically instead of each assembling gross and collections itself.
+ * question identically instead of each assembling the two figures itself.
  * Sell-strategy assets only: nothing else has a sale value or a collection.
+ *
+ * THE TWO BASES A SELLING COST CAN ACTUALLY CHARGE ON (2026-09-30, export review item 22).
+ * The "gross" side was units x the BASE price, unindexed, while collections carry the
+ * sale price indexation, so on the live project the note read "cash collected 1,058.2m is
+ * 14.3% above gross sale value 926.1m" and called indexation a basis difference, when
+ * lifetime collections equal recognised sale revenue exactly. The engine's sale basis is
+ * `saleRevenueOf` and its cash basis `collectionsOf` (core sellingCosts, the ONE reading
+ * of each), so the advisory now compares those, and fires only when the choice of basis
+ * would really change a charge.
  */
 export function buildRevenueBasisAdvisoriesFor(
   assets: ReadonlyArray<{ id: string; name: string; strategy?: string; visible?: boolean }>,
-  subUnits: ReadonlyArray<{ assetId: string; category?: string; metricValue?: number; unitPrice?: number }>,
-  revenue: { bySellAsset: Map<string, { cashCollectedPerPeriod?: number[] } | undefined> } | undefined,
+  revenue: Parameters<typeof saleRevenueOf>[0],
 ): RevenueBasisAdvisory[] {
   const sell = assets.filter((a) => a.visible !== false
     && (a.strategy === 'Sell' || a.strategy === 'Sell + Manage'));
-  const grossOf = (id: string): number => subUnits
-    .filter((u) => u.assetId === id
-      && (u.category === 'Sellable' || u.category === 'Operable' || u.category === 'Leasable'))
-    .reduce((s, u) => s + Math.max(0, u.metricValue ?? 0) * Math.max(0, u.unitPrice ?? 0), 0);
-  const collectionsOf = (id: string): number | undefined => {
-    const series = revenue?.bySellAsset?.get(id)?.cashCollectedPerPeriod;
-    if (!series || series.length === 0) return undefined;
-    return series.reduce((s, v) => s + (v ?? 0), 0);
-  };
-  return buildRevenueBasisAdvisories(sell, grossOf, collectionsOf);
+  return buildRevenueBasisAdvisories(sell, (id) => saleRevenueOf(revenue, id) ?? 0, (id) => collectionsOf(revenue, id));
 }
 
 /** One sentence naming what the divergence means, for any surface. */
@@ -171,8 +171,8 @@ export function revenueBasisAdvisoryText(
 ): string {
   const pct = (a.relative * 100).toFixed(1);
   const dir = a.relative < 0 ? 'below' : 'above';
-  return `${a.assetName}: cash collected ${money(a.collections)} is ${pct}% ${dir} gross sale value ${money(a.gross)}. `
-    + 'A cost on the cash basis charges on the smaller figure; one on the sale basis charges on the larger.';
+  return `${a.assetName}: cash collected ${money(a.collections)} is ${pct}% ${dir} its recognised sale value ${money(a.gross)}. `
+    + `A selling cost on the cash basis charges on the ${a.relative < 0 ? 'smaller' : 'larger'} figure; one on the sale basis charges on the ${a.relative < 0 ? 'larger' : 'smaller'}.`;
 }
 
 export function relativeCheckOk(residue: number, magnitude: number): boolean {

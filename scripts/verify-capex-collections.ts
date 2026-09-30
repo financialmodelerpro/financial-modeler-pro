@@ -25,7 +25,11 @@ import path from 'node:path';
 import { computeAssetCost } from '../src/core/calculations';
 import { collectionsForAsset, collectionsForAssetAtOffset } from '../src/core/calculations/capexPhasing';
 import type { RevenueSource } from '../src/core/calculations/revenue/sellingCosts';
-import { buildRevenueBasisAdvisories, revenueBasisAdvisoryText } from '../src/hubs/modeling/platforms/refm/lib/reports/checksReport';
+import { buildRevenueBasisAdvisories, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText } from '../src/hubs/modeling/platforms/refm/lib/reports/checksReport';
+import { saleRevenueOf, collectionsOf } from '../src/core/calculations/revenue/sellingCosts';
+import { readLiveProjectVersion } from './fixtures/liveProject';
+import { loadStoredModel } from '../src/hubs/modeling/platforms/refm/lib/state/loadStoredModel';
+import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import {
   makeDefaultPhase, makeDefaultProject, makeBlankCostLines,
   type Asset, type CostLine, type SubUnit,
@@ -349,11 +353,45 @@ check('A5 the financing path uses the AXIS offset, not a date-derived one',
     buildRevenueBasisAdvisories([{ id: 'a', name: 'A' }], () => 1000, () => 1000).length === 0);
 }
 
-console.log('');
-if (failures.length === 0) {
-  console.log(`verify-capex-collections: ${passed} passed, 0 failures`);
-  process.exit(0);
+// ── F. THE ADVISORY COMPARES THE TWO BASES A SELLING COST CAN CHARGE ON (2026-09-30, review item 22) ──
+// It compared collections (indexed) with units x the BASE price (unindexed), so it measured indexation
+// and called it a basis difference, and it said the cash basis was the smaller figure while cash was
+// 14% ABOVE. The engine's two bases are `saleRevenueOf` and `collectionsOf`; the advisory reads those.
+{
+  const up = buildRevenueBasisAdvisories([{ id: 'u', name: 'U' }], () => 1_000_000, () => 1_200_000)[0];
+  const down = buildRevenueBasisAdvisories([{ id: 'd', name: 'D' }], () => 1_000_000, () => 800_000)[0];
+  const tUp = revenueBasisAdvisoryText(up, String), tDown = revenueBasisAdvisoryText(down, String);
+  check('F1 the sentence follows the direction: cash above sale puts the cash basis on the LARGER figure',
+    /cash basis charges on the larger figure; one on the sale basis charges on the smaller/.test(tUp)
+    && /cash basis charges on the smaller figure; one on the sale basis charges on the larger/.test(tDown), tUp);
+  check('F2 the snapshot builder reads the engine bases, never units x a base price',
+    /saleRevenueOf\(revenue, id\)/.test(read('src/hubs/modeling/platforms/refm/lib/reports/checksReport.ts'))
+    && !/metricValue \?\? 0\) \* Math\.max\(0, u\.unitPrice/.test(read('src/hubs/modeling/platforms/refm/lib/reports/checksReport.ts')));
 }
-console.log(`verify-capex-collections: ${passed} passed, ${failures.length} FAILURES`);
-for (const f of failures) console.log(`  FAIL  ${f}`);
-process.exit(1);
+
+(async () => {
+  const live = await readLiveProjectVersion();
+  if (!live.ok) check('F3 live project read', false);
+  else {
+    const q = <T,>(f: () => T): T => { const l = console.log, w = console.warn; console.log = () => {}; console.warn = () => {}; try { return f(); } finally { console.log = l; console.warn = w; } };
+    const m: any = q(() => loadStoredModel(live.snapshot).snapshot);
+    const snap: any = q(() => computeFinancialsSnapshot(m));
+    const sell = m.assets.filter((a: any) => a.visible !== false && (a.strategy === 'Sell' || a.strategy === 'Sell + Manage'));
+    // Independently: which assets' two engine bases really differ, and which the old unindexed gross flagged.
+    const real = sell.filter((a: any) => { const sv = saleRevenueOf(snap.revenue, a.id) ?? 0, c = collectionsOf(snap.revenue, a.id); return sv > 0 && c !== undefined && Math.abs(c / sv - 1) > 0.005; });
+    const oldGross = (id: string) => m.subUnits.filter((u: any) => u.assetId === id && ['Sellable', 'Operable', 'Leasable'].includes(u.category)).reduce((x: number, u: any) => x + Math.max(0, u.metricValue ?? 0) * Math.max(0, u.unitPrice ?? 0), 0);
+    const oldFlags = sell.filter((a: any) => { const g = oldGross(a.id), c = collectionsOf(snap.revenue, a.id); return g > 0 && c !== undefined && Math.abs(c / g - 1) > 0.005; });
+    const adv = buildRevenueBasisAdvisoriesFor(m.assets, snap.revenue);
+    console.log(`     ${live.label}: engine bases differ on ${real.length} asset(s); the old gross flagged ${oldFlags.length}; advisories now ${adv.length}`);
+    check(`F3 ${live.label}: an advisory fires exactly where the engine's two bases differ`, adv.length === real.length && adv.every((a) => real.some((r: any) => r.id === a.assetId)));
+    check('F4 ...and the old unindexed comparison would have fired here (not vacuous)', oldFlags.length > real.length);
+  }
+  console.log('');
+  if (failures.length === 0) {
+    console.log(`verify-capex-collections: ${passed} passed, 0 failures`);
+    process.exit(0);
+  }
+  console.log(`verify-capex-collections: ${passed} passed, ${failures.length} FAILURES`);
+  for (const f of failures) console.log(`  FAIL  ${f}`);
+  process.exit(1);
+})();

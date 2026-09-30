@@ -4958,8 +4958,8 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
   // sale value, or a sale with no downpayment stated, is legitimate model state,
   // not a broken identity, so the residue beside a NOTE is the size of the gap it
   // describes and is expected to be non-zero.
-  for (const a of poolRevenueBasisByLine(buildRevenueBasisAdvisoriesFor(ctx.state.assets, ctx.state.subUnits, snap.revenue), ctx.state)) {
-    checkRow(`Revenue basis, ${a.assetName}`, 'NOTE', a.collections - a.gross, `${revenueBasisAdvisoryText(a, checkMoney)} Advisory, not a failure: the residue is the collections less the gross sale value.`);
+  for (const a of poolRevenueBasisByLine(buildRevenueBasisAdvisoriesFor(ctx.state.assets, snap.revenue), ctx.state)) {
+    checkRow(`Revenue basis, ${a.assetName}`, 'NOTE', a.collections - a.gross, `${revenueBasisAdvisoryText(a, checkMoney)} Advisory, not a failure: the residue is the collections less the recognised sale value.`);
   }
   for (const a of poolSaleCohortByLine(buildSaleCohortAdvisories(ctx.state.assets, ctx.state.project.saleCohortDefaults?.downpayment, snap.revenue), ctx.state)) {
     checkRow(`Downpayment not stated, ${a.assetName}`, 'NOTE', a.saleValue, `${saleCohortAdvisoryText(a, checkMoney)} Advisory, not a failure: the residue is the sale value the missing input applies to.`);

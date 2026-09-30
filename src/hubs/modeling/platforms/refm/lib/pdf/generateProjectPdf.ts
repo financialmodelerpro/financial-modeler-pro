@@ -925,7 +925,7 @@ function checksTable(
   // would cry wolf. They appear here because this is where a reader looks for
   // model caveats, and only when a divergence actually exists.
   const advisories = state
-    ? poolRevenueBasisByLine(buildRevenueBasisAdvisoriesFor(state.assets, state.subUnits, snap.revenue), state)
+    ? poolRevenueBasisByLine(buildRevenueBasisAdvisoriesFor(state.assets, snap.revenue), state)
     : [];
   // Option B Step 3 (2026-08-20): a sell asset with no downpayment on itself
   // and no project default to fall back on. Same NOTE treatment and the same
