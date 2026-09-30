@@ -14,6 +14,11 @@ import { terminalEnterpriseValue } from '../src/core/calculations/returns';
 import { makeDefaultPhase, makeDefaultProject, makeDefaultCostLines, makeDefaultFinancingTranche } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { applyOverrides } from '../src/hubs/modeling/platforms/refm/lib/cases/applyOverrides';
 import { covenantSeries, reduceWorst, evaluateCovenant, type CovenantInputs } from '../src/hubs/modeling/platforms/refm/lib/covenants';
+import { readFileSync as readSrc, readdirSync as readDir } from 'fs';
+import { capRateAtExitCaption } from '../src/hubs/modeling/platforms/refm/lib/reports/metricCaptions';
+import { terminalMetricIndex } from '../src/core/calculations/returns/disposal';
+import { readLiveProjectVersion } from './fixtures/liveProject';
+import { loadStoredModel } from '../src/hubs/modeling/platforms/refm/lib/state/loadStoredModel';
 
 let pass = 0, fail = 0;
 const failures: string[] = [];
@@ -477,6 +482,35 @@ console.log('=== M5 Returns snapshot integration ===');
   check('CASES: base model not mutated by applyOverrides', st.subUnits[0].startingAdr === 900);
 }
 
+// ── WHAT THE EXIT CAP RATE DIVIDES, AND THE CAPTION SAYS IT (2026-09-30, export review item 15) ──
+// The figure is the CAPITALISED income over the exit value, which reads back the input; the caption
+// said "exit NOI / exit value", and exit-year NOI over the value gives a different number. Asserted
+// on the live project (where the two differ) under both bases, so the caption follows the setting.
+(async () => {
+  const live = await readLiveProjectVersion();
+  if (!live.ok) { check('CR live project read', false); }
+  else {
+    const q = <T,>(f: () => T): T => { const l = console.log, w = console.warn; console.log = () => {}; console.warn = () => {}; try { return f(); } finally { console.log = l; console.warn = w; } };
+    const m: any = q(() => loadStoredModel(live.snapshot).snapshot);
+    for (const basis of ['prior_year', 'exit_year'] as const) {
+      const copy = JSON.parse(JSON.stringify(m));
+      copy.project.returns = { ...(copy.project.returns ?? {}), terminalValueBasis: basis };
+      const r: any = q(() => computeReturnsSnapshot(computeFinancialsSnapshot(copy), copy.project));
+      const exitIdx = r.yearLabels.findIndex((y: any) => String(y) === String(r.exitYearLabel));
+      const capIdx = terminalMetricIndex(exitIdx, r.config.terminalValueBasis);
+      const capNoi = r.noiPerPeriod[capIdx] ?? 0;
+      const cap = r.result.realEstate.capRateAtExit;
+      const caption = capRateAtExitCaption(r);
+      console.log(`     ${basis}: cap ${cap}, capitalised NOI ${r.yearLabels[capIdx]} ${Math.round(capNoi)}, exit NOI ${Math.round(r.exitNOI)}, caption "${caption}"`);
+      check(`CR1 ${basis}: the cap rate is the capitalised NOI over the exit value`, cap != null && Math.abs(cap - capNoi / r.terminalEnterpriseValue) < 1e-9);
+      check(`CR2 ${basis}: the caption names that year`, caption === `capitalised NOI (${r.yearLabels[capIdx]}) / exit value`);
+      if (basis === 'prior_year') check('CR3 on this project exit-year NOI gives a DIFFERENT ratio, so the old caption was wrong here (not vacuous)', Math.abs(r.exitNOI / r.terminalEnterpriseValue - cap) > 1e-4);
+    }
+  }
+  const walk = (d: string): string[] => readDir(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${d}/${e.name}`) : /\.(ts|tsx)$/.test(e.name) ? [`${d}/${e.name}`] : []));
+  const stale = walk('src/hubs/modeling/platforms/refm').filter((f) => /['"]exit NOI \/ exit value['"]/.test(readSrc(f, 'utf8')));
+  check('CR4 no surface captions the cap rate "exit NOI / exit value"', stale.length === 0, stale.join(', '));
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);
 if (failures.length) { console.log('Failures:'); failures.forEach((f) => console.log('  - ' + f)); }
 process.exit(fail > 0 ? 1 : 0);
+})();

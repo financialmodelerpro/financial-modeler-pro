@@ -22,7 +22,7 @@ import { DEFAULT_COVENANTS, type CovenantThreshold, type CovenantMetric } from '
 import { evaluateCovenant, covenantUnit, covenantSeries, reduceWorst, reduceAvg, COVENANT_METRIC_LABELS, covenantBasisNote, covenantCoverageNote, type CovenantInputs } from '../../lib/covenants';
 import { buildOperatingKpis } from '../../lib/reports/operatingKpis';
 import { TabComments } from '../collab/FieldComments';
-import { METRIC_CAPTIONS, METRIC_LABELS } from '../../lib/reports/metricCaptions';
+import { METRIC_CAPTIONS, METRIC_LABELS, capRateAtExitCaption } from '../../lib/reports/metricCaptions';
 
 const ratioFmt = (v: number): string => (Math.abs(v) < 1e-9 ? '-' : `${v.toFixed(2)}x`);
 const pctRowFmt = (v: number): string => (Math.abs(v) < 1e-9 ? '-' : `${(v * 100).toFixed(1)}%`);
@@ -247,7 +247,7 @@ export default function Module5Metrics(): React.JSX.Element {
           <MetricCard label="Min Interest Cover" value={fmtX(minICR)} sub="worst yr · EBITDA / interest" />
           <MetricCard label="Debt Yield" value={fmtPct(debtYieldWorst)} sub="worst operating yr · NOI / debt" />
           <MetricCard label="Avg Cash-on-Cash" value={fmtPct(m.cashOnCashAvg)} sub="cash yield on equity" />
-          <MetricCard label="Cap Rate at Exit" value={fmtPct(m.capRateAtExit)} sub="exit NOI / exit value" />
+          <MetricCard label="Cap Rate at Exit" value={fmtPct(m.capRateAtExit)} sub={capRateAtExitCaption(rs)} />
           <MetricCard label="Profit on Cost" value={fmtPct(m.profitOnCost)} sub="(revenue - cost) / cost" />
           <MetricCard label="Development Spread" value={fmtPct(m.developmentSpread)} sub="yield on cost - exit cap rate" />
           <MetricCard label="Max Negative Cash Flow" value={fmt(ee.maxNegativeCumulativeCF)} sub="peak FCFE outflow" tone="bad" />
@@ -272,7 +272,7 @@ export default function Module5Metrics(): React.JSX.Element {
           <MetricCard label="Exit NOI" value={fmt(rs.exitNOI)} sub={`year ${rs.exitYearLabel}`} />
           <MetricCard label="Stabilisation Year" value={rs.stabilization.stabilizationYear != null ? String(rs.stabilization.stabilizationYear) : 'n/a'} sub="NOI reaches 95% of stable" />
           <MetricCard label="Stabilised Yield on Cost" value={fmtPct(rs.stabilization.stabilisedYieldOnCost)} sub="stabilised NOI / dev cost" />
-          <MetricCard label="Exit Cap Rate" value={fmtPct(m.capRateAtExit)} sub="exit NOI / exit value" />
+          <MetricCard label="Exit Cap Rate" value={fmtPct(m.capRateAtExit)} sub={capRateAtExitCaption(rs)} />
           <MetricCard label="Terminal Enterprise Value" value={fmt(rs.terminalEnterpriseValue)} sub={currency} />
           <MetricCard label="Terminal Equity Value" value={fmt(rs.terminalEquityValue)} sub="EV less debt + cash" />
         </MetricGrid>

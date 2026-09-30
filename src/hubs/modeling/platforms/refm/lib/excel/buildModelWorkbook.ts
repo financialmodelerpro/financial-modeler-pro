@@ -54,7 +54,7 @@ import { FUNDING_METHOD_LABELS, COST_METHOD_LABELS, type FundingMethodId } from 
 import { CAPEX_SECTIONS } from '../reports/capexReports';
 import { TERMINAL_METHOD_LABELS, TERMINAL_BASIS_LABELS } from '../state/module1-types';
 import { buildConsolidatedReport, perAssetCostsFromTreatment, consolidatedCaption } from '../reports/consolidatedReport';
-import { METRIC_CAPTIONS, METRIC_LABELS, RETURNS_NPV_NOTE } from '../reports/metricCaptions';
+import { METRIC_CAPTIONS, METRIC_LABELS, RETURNS_NPV_NOTE, capRateAtExitCaption } from '../reports/metricCaptions';
 import { buildSellingCostReport, SELLING_COSTS_CAPTION, SELLING_COSTS_YOY_CAPTION } from '../reports/sellingCostReports';
 import {
   emitProjectSection, emitPhasesSection, emitStandardsSection, emitPlotsSection, emitAssetEntrySection, emitSubUnitSection,
@@ -4632,7 +4632,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
       { label: 'Min Interest Cover', value: cMult(minICR), sub: 'worst yr · EBITDA / interest' },
       { label: 'Debt Yield', value: cPct(debtYieldWorst), sub: 'worst operating yr · NOI / debt' },
       { label: 'Avg Cash-on-Cash', value: cPct(m.cashOnCashAvg), sub: 'cash yield on equity' },
-      { label: 'Cap Rate at Exit', value: cPct(m.capRateAtExit), sub: 'exit NOI / exit value' },
+      { label: 'Cap Rate at Exit', value: cPct(m.capRateAtExit), sub: capRateAtExitCaption(rs) },
       { label: 'Profit on Cost', value: cPct(m.profitOnCost), sub: '(revenue - cost) / cost' },
       { label: 'Development Spread', value: cPct(m.developmentSpread), sub: METRIC_CAPTIONS.developmentSpread },
       { label: 'Max Negative Cash Flow', value: cMoney(ee.maxNegativeCumulativeCF), sub: 'peak FCFE outflow', tone: 'bad' },
@@ -4651,7 +4651,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
       { label: 'Exit NOI', value: cMoney(rs.exitNOI), sub: `year ${rs.exitYearLabel}` },
       { label: 'Stabilisation Year', value: rs.stabilization.stabilizationYear != null ? String(rs.stabilization.stabilizationYear) : 'n/a', sub: 'NOI reaches 95% of stable' },
       { label: 'Stabilised Yield on Cost', value: cPct(rs.stabilization.stabilisedYieldOnCost), sub: METRIC_CAPTIONS.yieldOnCost },
-      { label: 'Exit Cap Rate', value: cPct(m.capRateAtExit), sub: 'exit NOI / exit value' },
+      { label: 'Exit Cap Rate', value: cPct(m.capRateAtExit), sub: capRateAtExitCaption(rs) },
       { label: 'Terminal Enterprise Value', value: cMoney(rs.terminalEnterpriseValue) },
       { label: 'Terminal Equity Value', value: cMoney(rs.terminalEquityValue), sub: 'EV less debt + cash' },
     ]);

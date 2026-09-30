@@ -20,6 +20,7 @@
  *
  * No em dashes in this file.
  */
+import { terminalMetricIndex, type TerminalValueBasis } from '@/src/core/calculations/returns/disposal';
 
 /** THE DEVELOPMENT-APPRAISAL SURPLUS, NAMED SO IT CANNOT BE READ AS PROFIT (2026-09-29, export review
  *  item 9). It is GDV less development cost (less finance cost, after): no operating cost, no fund fee,
@@ -61,3 +62,17 @@ export const METRIC_CAPTIONS = {
  * so on the screen and the workbook alike.
  */
 export const RETURNS_NPV_NOTE = 'NPV is not a headline figure here: IRR / MOIC and the Development Economics lead, and NPV (FCFF, at the discount rate) is reported per case in the Case Comparison.';
+
+/**
+ * WHAT THE EXIT CAP RATE DIVIDES (2026-09-30, export review item 15). The caption said "exit NOI /
+ * exit value", and 29.0m of exit-year NOI over a 328.3m value is 8.84%, not the 8.5% printed. The
+ * figure is right: it is the CAPITALISED income over the value (`buildRealEstateMetrics`), which
+ * under the default basis is the year BEFORE the exit, so it reads back the input. The caption names
+ * that year through the same `terminalMetricIndex` the valuation uses, so it follows the basis.
+ */
+export function capRateAtExitCaption(rs: { config: { terminalValueBasis?: TerminalValueBasis }; exitYearLabel: number | string; yearLabels: ReadonlyArray<number | string> }): string {
+  const exitIdx = rs.yearLabels.findIndex((y) => String(y) === String(rs.exitYearLabel));
+  if (exitIdx < 0) return 'capitalised NOI / exit value';
+  const year = rs.yearLabels[terminalMetricIndex(exitIdx, rs.config.terminalValueBasis)];
+  return `capitalised NOI (${year}) / exit value`;
+}

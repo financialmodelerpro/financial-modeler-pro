@@ -2359,7 +2359,7 @@ import { defaultHQOpexLines, normalizeOpexIndexation, type OpexLine } from '@/sr
 import type { IndexationConfig } from '@/src/core/calculations/revenue/types';
 import { assetPlotLabel } from '@/src/core/calculations/assetName';
 import { poolResults, planReportLines, lineTitle } from '../reports/lineRows';
-import { METRIC_CAPTIONS, METRIC_LABELS } from '../reports/metricCaptions';
+import { METRIC_CAPTIONS, METRIC_LABELS, capRateAtExitCaption } from '../reports/metricCaptions';
 import { projectLocationLabel } from '@/src/core/countries';
 
 /** A builder row, with the two number kinds M4Row has no word for. */
@@ -3500,7 +3500,7 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
   items.push(exposureCards);
   items.push(tCards(m5Tab('RE Metrics'), 'outputs', 'Profitability & Yield', [
     { label: 'Yield on Cost', value: fmt.pct(re.yieldOnCost, 2), sub: METRIC_CAPTIONS.yieldOnCost },
-    { label: 'Cap Rate at Exit', value: fmt.pct(re.capRateAtExit, 2), sub: 'exit NOI / exit value' },
+    { label: 'Cap Rate at Exit', value: fmt.pct(re.capRateAtExit, 2), sub: capRateAtExitCaption(returns) },
     { label: 'Development Spread', value: fmt.pct(re.developmentSpread, 2), sub: METRIC_CAPTIONS.developmentSpread },
     { label: 'Profit on Cost', value: fmt.pct(re.profitOnCost, 1), sub: 'appraisal profit / dev cost' },
     { label: 'Profit Margin', value: fmt.pct(re.profitMargin, 1), sub: 'profit after tax / revenue' },
