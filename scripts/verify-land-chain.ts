@@ -107,8 +107,12 @@ function offlineChecks(): void {
     near(resort.landUtilisedSqm, 48862.98) && near(resort.footprintSqm, 24431.49)
     && near(resort.landscapeSqm, 24431.49) && resort.landscapePct === 50,
     JSON.stringify({ u: resort.landUtilisedSqm, f: resort.footprintSqm, l: resort.landscapeSqm }));
-  check('A2 no-retail row: retail 0, lobby is the whole footprint',
-    near(resort.retailGfaSqm, 0) && near(resort.lobbyGfaSqm, 24431.49));
+  // RE-AIMED 2026-09-30 (export review item 21). The reference SHOWS the whole footprint as lobby on
+  // this row and then does not deduct it; the platform states the same outcome with no lobby, since a
+  // lobby that is never deducted was being counted as service area on top of an NSA that holds it.
+  // The main asset keeping all of it (A3) is the reference's figure and still ties to the cent.
+  check('A2 no-retail row: retail 0 and no lobby, since there is no podium',
+    near(resort.retailGfaSqm, 0) && near(resort.lobbyGfaSqm, 0));
   check('A3 no-retail row: total GFA is UTILISED LAND x FAR, and the main asset keeps ALL of it',
     near(resort.totalGfaSqm, 146588.94) && near(resort.mainAssetGfaSqm, 146588.94));
   // A4 AND A5 CARRY THE DIVERGENCE. Net saleable still ties to the workbook to
@@ -143,6 +147,19 @@ function offlineChecks(): void {
   check('A7 retail row: the main asset gives up BOTH retail and lobby',
     near(apts.totalGfaSqm, 24507.792) && near(apts.mainAssetGfaSqm, 20423.16),
     `main=${apts.mainAssetGfaSqm}`);
+  // ONE RULE, AND NOTHING COUNTED TWICE (2026-09-30, export review item 21). On a no-retail row the
+  // whole footprint was called lobby and kept in the main asset, so the service and circulation
+  // figure (lobby + main less net saleable) held the ground floor that NSA already held: Table 4
+  // did not foot, by 7,650 sqm on the live project. Both rows must now foot both ways.
+  for (const [name, r] of [['no-retail', resort], ['retail', apts]] as const) {
+    const lobby = r.lobbyGfaSqm ?? 0, retailG = r.retailGfaSqm ?? 0;
+    const serviceArea = lobby + Math.max(0, (r.mainAssetGfaSqm ?? 0) - (r.netSaleableSqm ?? 0));
+    check(`A7b ${name} row: main + retail + lobby = total GFA, one subtraction`,
+      near((r.mainAssetGfaSqm ?? 0) + retailG + lobby, r.totalGfaSqm ?? NaN));
+    check(`A7c ${name} row: NSA + service and circulation + retail = total GFA, nothing counted twice`,
+      near((r.netSaleableSqm ?? 0) + serviceArea + retailG, r.totalGfaSqm ?? NaN),
+      `nsa ${r.netSaleableSqm} + service ${serviceArea} + retail ${retailG} vs total ${r.totalGfaSqm}`);
+  }
   check('A8 retail row: net saleable ties exactly; the count is WHOLE (workbook 108.92352)',
     near(apts.netSaleableSqm, 16338.528) && apts.units === 109);
   check('A9 retail row: retail parking is on its OWN basis, and every slot count is whole',

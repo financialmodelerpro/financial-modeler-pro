@@ -214,14 +214,14 @@ export interface ChainResult {
   landscapeSqm?: number;
   /** footprint x retail share. */
   retailGfaSqm?: number;
-  /** footprint less retail. Called "Lobby Area GFA" in the reference. */
+  /** footprint less retail WHERE THERE IS RETAIL, else 0. Called "Lobby Area GFA" in the reference,
+   *  which shows the whole footprint here on a no-retail row and then does not deduct it (see step 3). */
   lobbyGfaSqm?: number;
   /** utilised x FAR. The platform calls this tier GFA once parking is added
    *  (see `totalBuaSqm`); on its own it is the building's floor area. */
   totalGfaSqm?: number;
-  /** Total GFA when there is no retail; otherwise total less retail and
-   *  lobby. The reference deducts NEITHER when retail is zero, which is why
-   *  this is a branch and not a subtraction. */
+  /** Total less retail less lobby, ONE subtraction on every row: with no retail both are 0, so the
+   *  main asset keeps the whole GFA, which is the reference's outcome. */
   mainAssetGfaSqm?: number;
   /** main x (1 - service). The platform calls this NSA. */
   netSaleableSqm?: number;
@@ -331,9 +331,15 @@ export function computeLandChain(
 
   // 3. Retail and lobby, both shares of the FOOTPRINT.
   const retail = share(i.retailPct) ?? 0;
+  // A LOBBY EXISTS ONLY BESIDE RETAIL (2026-09-30, export review item 21). The lobby is the part of
+  // a retail podium's ground floor the retail does not take. With no retail there is no podium: the
+  // ground floor is the building's own (the reference keeps it in the main asset), and calling the
+  // whole footprint "lobby" put 7,650 sqm on the live project into the service and circulation
+  // figure while the same area sat inside NSA, so Table 4 no longer footed. One rule now: lobby is
+  // footprint less retail where there is retail, else zero, and every figure reads that one number.
   if (out.footprintSqm !== undefined) {
     out.retailGfaSqm = out.footprintSqm * retail;
-    out.lobbyGfaSqm = out.footprintSqm - out.retailGfaSqm;
+    out.lobbyGfaSqm = retail > 0 ? out.footprintSqm - out.retailGfaSqm : 0;
   }
 
   // 4. Total GFA from FAR on the UTILISED area (not the footprint, and not
@@ -343,12 +349,9 @@ export function computeLandChain(
     out.totalGfaSqm = out.landUtilisedSqm * i.farRatio;
   }
 
-  // 5. Main asset GFA. With NO retail the whole GFA is the asset's, lobby
-  //    included; with retail, both retail and lobby come out.
+  // 5. Main asset GFA: total less retail less lobby. No branch: with no retail both are zero (step 3).
   if (out.totalGfaSqm !== undefined) {
-    out.mainAssetGfaSqm = retail === 0
-      ? out.totalGfaSqm
-      : out.totalGfaSqm - (out.retailGfaSqm ?? 0) - (out.lobbyGfaSqm ?? 0);
+    out.mainAssetGfaSqm = out.totalGfaSqm - (out.retailGfaSqm ?? 0) - (out.lobbyGfaSqm ?? 0);
   }
 
   // 6. Net saleable: the main asset less its service share.
