@@ -172,7 +172,7 @@ export const stage7dSummary: LiveLayer = {
     {
       const D = mixOk ? add(debt$!) : null, C = mixOk ? add(cash$!) : null, K = kind$, S = totSrc;
       const share = (x: X): string => `IF(${S!.f}>0,${pctW(`${x.f}/${S!.f}`)},"n/a")`;
-      put('sum|tile|Debt / Equity (of total sources)', 'the funding mix', mixOk, () => `${share(D!)}&" / "&${share(add([C!, K!]))}`);
+      put(`sum|tile|${METRIC_LABELS.shareOfSources}`, 'the funding mix', mixOk, () => `${share(D!)}&" / "&${share(add([C!, K!]))}`);
       const stack = (): string => `(${D!.f}+${C!.f}+${K!.f})`;
       const ofStack = (x: X): string => `IF(${stack()}>0,${pctW(`${x.f}/${stack()}`)},${pctW('0')})`;
       const parts: Array<[string, () => X]> = [['Debt', () => D!], ['Cash equity', () => C!], ['In-kind equity', () => K!]];

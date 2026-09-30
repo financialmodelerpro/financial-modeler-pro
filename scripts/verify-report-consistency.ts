@@ -45,7 +45,7 @@ import { buildIntegrityChecks, relativeCheckOk } from '../src/hubs/modeling/plat
 import { buildExcelSampleState } from './excelSampleState';
 import { buildExistingOperationsState, EXISTING_OPS_LABEL } from './fixtures/existingOperationsState';
 import { readLiveProjectVersion } from './fixtures/liveProject';
-import { METRIC_CAPTIONS } from '../src/hubs/modeling/platforms/refm/lib/reports/metricCaptions';
+import { METRIC_CAPTIONS, METRIC_LABELS } from '../src/hubs/modeling/platforms/refm/lib/reports/metricCaptions';
 
 for (const f of ['.env.local', '.env']) {
   try {
@@ -360,6 +360,20 @@ async function main(): Promise<void> {
     const hits = walk('src/hubs/modeling/platforms/refm').filter((f) => !f.endsWith('metricCaptions.ts'))
       .filter((f) => readFileSync(f, 'utf8').split('\n').some((l) => !/^\s*(\/\/|\*)/.test(l) && /profit (after|before) fin/i.test(l)));
     check('no surface calls the development surplus a profit (the words live in METRIC_LABELS)', hits.length === 0, hits.join(', '));
+  }
+
+  // THE SOURCES SPLIT IS NEVER CALLED A DEBT / EQUITY RATIO (2026-09-30, export review item 10).
+  // "Debt / Equity 35.8% / 20.8%" was each one's share of ALL sources, customer collections and
+  // operating cash included, beside a capital stack that read differently. A tile or label that
+  // states it reads METRIC_LABELS.shareOfSources; the one "Debt / Equity" label left is the
+  // funding RATIO row, which is a different figure and says so in its own words.
+  {
+    const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${d}/${e.name}`) : /\.(ts|tsx)$/.test(e.name) ? [`${d}/${e.name}`] : []));
+    const bad = /(label[=:]\s*\{?\s*['"`]|sum\|tile\|)Debt \/ Equity(['"`]| \(of total)/;
+    const hits = walk('src/hubs/modeling/platforms/refm').filter((f) => readFileSync(f, 'utf8').split('\n').some((l) => bad.test(l)));
+    check('no tile calls the share of all sources a Debt / Equity ratio (the label lives in METRIC_LABELS)', hits.length === 0, hits.join(', '));
+    check('the PDF names the share of all sources and says what it is not',
+      full.toLowerCase().includes(METRIC_LABELS.shareOfSources.toLowerCase()) && full.includes(METRIC_CAPTIONS.shareOfSources));
   }
 
   console.log(`\n=== ${pass} passed, ${fail} failed ===`);

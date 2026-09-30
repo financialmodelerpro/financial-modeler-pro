@@ -1183,7 +1183,7 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
     {
       const dist = ov.returns.find((x) => x.key === 'distributed');
       if (dist && dist.preFeeIrr != null) {
-        drawParagraph(ctx, `Distributed returns are net of performance fee: ${pctOrNa(dist.irr)} and MOIC ${multOrNa(dist.moic)} after it, against ${pctOrNa(dist.preFeeIrr)} and MOIC ${multOrNa(dist.preFeeMoic ?? null)} before. The Debt / Equity mix is measured on TOTAL sources, which include customer collections and operating cash, so it is not the ratio new funding is drawn at.`, 8);
+        drawParagraph(ctx, `Distributed returns are net of performance fee: ${pctOrNa(dist.irr)} and MOIC ${multOrNa(dist.moic)} after it, against ${pctOrNa(dist.preFeeIrr)} and MOIC ${multOrNa(dist.preFeeMoic ?? null)} before. The debt and equity shares are measured on ALL sources, which include customer collections and operating cash, so they are neither a debt-to-equity ratio nor the ratio new funding is drawn at.`, 8);
       }
     }
     // 2. Cost per sqm: the first number a developer quotes.
@@ -1206,7 +1206,7 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
     drawCards(ctx, 'Cost & capital structure', [
       { label: 'Land Cost', value: fmt.money(landCost) },
       { label: 'Capex (construction)', value: fmt.money(constructionCost), sub: 'excl. land' },
-      { label: 'Debt / Equity (of total sources)', value: `${fmt.pct(returns!.fundingMix.debtPct, 0)} / ${fmt.pct((returns!.fundingMix.cashEquityPct ?? 0) + (returns!.fundingMix.inKindEquityPct ?? 0), 0)}`, sub: 'the achieved mix' },
+      { label: METRIC_LABELS.shareOfSources, value: `${fmt.pct(returns!.fundingMix.debtPct, 0)} / ${fmt.pct((returns!.fundingMix.cashEquityPct ?? 0) + (returns!.fundingMix.inKindEquityPct ?? 0), 0)}`, sub: METRIC_CAPTIONS.shareOfSources },
       { label: 'Peak Equity', value: fmt.money(returns!.result.realEstate.peakEquity) },
       { label: 'Total Financing Cost', value: fmt.money(de2.totalFinancingCost) },
       { label: 'Cap Rate at Exit', value: pctOrNa(returns!.result.realEstate.capRateAtExit) },

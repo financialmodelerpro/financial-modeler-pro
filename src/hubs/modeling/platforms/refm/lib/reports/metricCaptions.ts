@@ -28,6 +28,9 @@
 export const METRIC_LABELS = {
   developmentSurplusBefore: 'Development Surplus before Finance',
   developmentSurplusAfter: 'Development Surplus after Finance',
+  /** Each one's SHARE OF ALL SOURCES (2026-09-29, export review item 10), not a debt-to-equity ratio:
+   *  called "Debt / Equity" it read 35.8% / 20.8% two rows above a capital stack of 63.3 / 25.6 / 11.1. */
+  shareOfSources: 'Debt / equity, share of all sources',
 } as const;
 
 export const METRIC_CAPTIONS = {
@@ -35,6 +38,7 @@ export const METRIC_CAPTIONS = {
   developmentSurplusBefore: 'GDV less development cost',
   developmentSurplusAfter: 'less finance cost; before opex, fees and tax',
   developmentMargin: 'surplus after finance / GDV',
+  shareOfSources: 'not a D/E ratio; sales and operations fund the rest',
   /** MOIC on the levered free-cash-flow stream. */
   equityMultipleFcfe: 'equity out / equity in, at the selected exit',
   /** MOIC on what was actually distributed. */

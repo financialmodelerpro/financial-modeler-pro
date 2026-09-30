@@ -5281,7 +5281,7 @@ const G = (kind: GuideLine['kind'], text: string): GuideLine => ({ kind, text })
 const TAB_GUIDES: Record<string, GuideLine[]> = {
   [SHEETS.summary]: [
     G('inputs', 'Finished figures from the returns engine, the capex report, the area and land rules, the revenue sections and the balance sheet.'),
-    G('logic', 'Nothing is re-derived: this is the same overview builder the platform\'s Project Overview uses. Each IRR sits beside its own MOIC; the distributed pair is after the performance fee where a fund exists. Cost per sqm divides development or construction cost by GFA or saleable area. Debt / Equity is each one\'s share of total sources.'),
+    G('logic', 'Nothing is re-derived: this is the same overview builder the platform\'s Project Overview uses. Each IRR sits beside its own MOIC; the distributed pair is after the performance fee where a fund exists. Cost per sqm divides development or construction cost by GFA or saleable area. Debt / equity is each one\'s share of ALL sources, customer collections and operating cash included, so it is not a debt-to-equity ratio.'),
     G('feeds', 'Nothing downstream. This is the read-out to hand over when the detail is not needed.'),
   ],
   [SHEETS.assumptions]: [
@@ -5686,7 +5686,7 @@ function addSummary(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinanci
     tiles([
       { label: 'Land Cost', value: m(su.land) },
       { label: 'Capex (construction)', value: m(su.construction), sub: 'excl. land' },
-      { label: 'Debt / Equity (of total sources)', value: `${pct(debtPct)} / ${pct(cashEquityPct + inKindPct)}`, sub: 'the achieved mix, including customer collections and operating cash' },
+      { label: METRIC_LABELS.shareOfSources, value: `${pct(debtPct)} / ${pct(cashEquityPct + inKindPct)}`, sub: METRIC_CAPTIONS.shareOfSources },
       { label: 'Peak Equity', value: m(re.peakEquity) },
       { label: 'Total Financing Cost', value: m(de.totalFinancingCost) },
       { label: 'Cap Rate at Exit', value: pct(re.capRateAtExit) },

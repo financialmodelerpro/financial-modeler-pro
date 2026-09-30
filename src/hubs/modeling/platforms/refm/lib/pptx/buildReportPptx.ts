@@ -809,7 +809,7 @@ export function buildReportPptx(input: BuildReportPptxInput): PptxGenJS {
           { label: 'Total Equity', value: fmt(cap.totalEquity) },
           { label: 'Peak Equity', value: fmt(cap.peakEquity) },
           { label: 'Peak Debt', value: fmt(cap.peakDebt) },
-          { label: 'Debt / Equity', value: `${pct(cap.debtPct)} / ${pct(cap.equityPct)}` },
+          { label: METRIC_LABELS.shareOfSources, value: `${pct(cap.debtPct)} / ${pct(cap.equityPct)}` },
         ], CONTENT_Y + 0.5);
         break;
       }

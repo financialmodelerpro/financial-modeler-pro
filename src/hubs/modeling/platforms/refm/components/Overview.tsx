@@ -23,7 +23,7 @@ import { computeFinancialsSnapshot } from '../lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../lib/returns-resolvers';
 import { fundingChartPoints, type FundingYearPoint } from '../lib/portfolio/fundingSeries';
 import { buildOverviewReport, type OverviewReport } from '../lib/reports/overviewReport';
-import { METRIC_LABELS } from '../lib/reports/metricCaptions';
+import { METRIC_LABELS, METRIC_CAPTIONS } from '../lib/reports/metricCaptions';
 
 interface OverviewProps {
   projectName: string | null;
@@ -328,7 +328,7 @@ export default function Overview({ projectName, status }: OverviewProps): React.
         <div style={{ display: 'grid', gap: 'var(--sp-2)', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
           <Kpi label="Land Cost" value={money(su.land)} accent="var(--color-gold)" />
           <Kpi label="Capex (construction)" value={money(su.construction)} sub="excl. land" accent="var(--color-gold)" />
-          <Kpi label="Debt / Equity" value={`${pct(debtPct)} / ${pct(equityPct)}`} sub="of total sources" accent="var(--color-gold)" />
+          <Kpi label={METRIC_LABELS.shareOfSources} value={`${pct(debtPct)} / ${pct(equityPct)}`} sub={METRIC_CAPTIONS.shareOfSources} accent="var(--color-gold)" />
           <Kpi label="Peak Equity" value={money(re.peakEquity)} accent="var(--color-gold)" />
           <Kpi label="Total Financing Cost" value={money(de.totalFinancingCost)} accent="var(--color-gold)" />
           <Kpi label="Cap Rate at Exit" value={pct(re.capRateAtExit)} accent="var(--color-gold)" />
