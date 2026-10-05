@@ -373,6 +373,30 @@ async function main(): Promise<void> {
   check('Module 6 renders a page even with no scenarios', (await pageCount(m6NoCases)) >= 3, `pages=${await pageCount(m6NoCases)}`);
   check('Module 6 renders scenario content with >1 case', (await pageCount(m6WithCases)) > (await pageCount(m6NoCases)), `with=${await pageCount(m6WithCases)} no=${await pageCount(m6NoCases)}`);
 
+  // C26 (2026-10-05, export review item 26): the RE Metrics detail tiles come
+  // from ONE builder on the screen, the workbook and the PDF. The report's own
+  // grouping had dropped Stabilised NOI, the stabilisation year, Cost to Value,
+  // Max Negative Cash Flow and the Funding Mix row.
+  {
+    const { pdfText } = await import('./pdfTextExtract');
+    const { buildReMetricDetailGroups } = await import('../src/hubs/modeling/platforms/refm/lib/reports/reMetricTiles');
+    const { computeReturnsSnapshot } = await import('../src/hubs/modeling/platforms/refm/lib/returns-resolvers');
+    const st = buildState();
+    const sn = computeFinancialsSnapshot(st);
+    const groups = buildReMetricDetailGroups(computeReturnsSnapshot(sn, st.project), sn.bs.debtOutstandingPerPeriod);
+    // Letters and digits only: the font draws a hyphen as a private-use glyph.
+    const norm = (s: string): string => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const txt = norm(pdfText(await generateProjectPdf({ state: st, projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: ['module5'] })));
+    const missing = groups.flatMap((g) => g.tiles.map((t) => t.label)).filter((l) => !txt.includes(norm(l)));
+    check('C26: every RE Metrics detail tile is printed', missing.length === 0, missing.join(', '));
+    check('C26: the five the report had dropped are among them',
+      ['Stabilised NOI', 'Stabilisation Year', 'Cost to Value', 'Max Negative Cash Flow', 'Customer Funding'].every((l) => groups.some((g) => g.tiles.some((t) => t.label === l))));
+    check('C26: every group title is printed', groups.every((g) => txt.includes(norm(g.title))), groups.map((g) => g.title).join(', '));
+    const callers = ['src/hubs/modeling/platforms/refm/components/modules/Module5Metrics.tsx', 'src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts', 'src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf.ts']
+      .filter((f) => !readFileSync(f, 'utf8').includes('buildReMetricDetailGroups('));
+    check('C26: the screen, the workbook and the PDF all read the one builder', callers.length === 0, callers.join(', '));
+  }
+
   // C27 (2026-10-05, export review item 27): the case matrix prints ONCE per
   // document. Both modules render the same shared matrix, so a full report
   // printed it twice verbatim; where both render, Module 5 keeps it and

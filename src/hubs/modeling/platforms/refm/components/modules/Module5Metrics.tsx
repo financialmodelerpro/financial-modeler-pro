@@ -19,10 +19,11 @@ import { makeFmt } from './_shared/numberFmt';
 import { MetricCard, MetricGrid, CollapsibleSection, fmtPct, fmtX, type CardTone } from './Module5Shared';
 import { FAST_INPUT } from './_shared/inputStyles';
 import { DEFAULT_COVENANTS, type CovenantThreshold, type CovenantMetric } from '../../lib/state/module1-types';
-import { evaluateCovenant, covenantUnit, covenantSeries, reduceWorst, reduceAvg, COVENANT_METRIC_LABELS, covenantBasisNote, covenantCoverageNote, type CovenantInputs } from '../../lib/covenants';
+import { evaluateCovenant, covenantUnit, covenantSeries, reduceWorst, COVENANT_METRIC_LABELS, covenantBasisNote, covenantCoverageNote, type CovenantInputs } from '../../lib/covenants';
 import { buildOperatingKpis } from '../../lib/reports/operatingKpis';
 import { TabComments } from '../collab/FieldComments';
-import { METRIC_CAPTIONS, METRIC_LABELS, capRateAtExitCaption, exitYearAnalysisNote } from '../../lib/reports/metricCaptions';
+import { exitYearAnalysisNote } from '../../lib/reports/metricCaptions';
+import { buildReMetricDetailGroups, type ReMetricValue } from '../../lib/reports/reMetricTiles';
 
 const ratioFmt = (v: number): string => (Math.abs(v) < 1e-9 ? '-' : `${v.toFixed(2)}x`);
 const pctRowFmt = (v: number): string => (Math.abs(v) < 1e-9 ? '-' : `${(v * 100).toFixed(1)}%`);
@@ -51,11 +52,10 @@ export default function Module5Metrics(): React.JSX.Element {
   const scale: DisplayScale = (project.displayScale ?? 'thousands');
   const decimals: DisplayDecimals = (project.displayDecimals ?? 0) as DisplayDecimals;
   const fmt = makeFmt(scale, decimals);
+  const tileText = (v: ReMetricValue): string => (v.kind === 'money' ? fmt(v.v ?? 0) : v.kind === 'pct' ? fmtPct(v.v) : v.kind === 'mult' ? fmtX(v.v) : v.v);
   const currency = currencyHeaderLine(project.currency ?? 'SAR', scale);
   const m = rs.result.realEstate;
   const de = rs.developmentEconomics;
-  const ee = rs.equityExposure;
-  const fm = rs.fundingMix;
 
   // Snapshot-derived ratio inputs for the Lender Covenants section AND the
   // headline cards. DSCR + ICR come straight off the snapshot; Debt Yield is
@@ -75,14 +75,9 @@ export default function Module5Metrics(): React.JSX.Element {
   // heatmap renders, via the shared reducers (reduceWorst / reduceAvg), so a
   // headline card can never disagree with the per-period row it summarises.
   const dscrSeries = covenantSeries('dscr', covenantInputs);
-  const icrSeriesArr = covenantSeries('icr', covenantInputs);
-  const debtYieldSeries = covenantSeries('debt_yield', covenantInputs);
   const ltvSeries = covenantSeries('ltv', covenantInputs);
 
   const minDSCR = reduceWorst(dscrSeries, 'min');             // worst debt-service period
-  const avgDSCR = reduceAvg(dscrSeries);                      // mean over debt-service periods
-  const minICR = reduceWorst(icrSeriesArr, 'min');            // worst interest period
-  const debtYieldWorst = reduceWorst(debtYieldSeries, 'min'); // worst operating period with debt
   const ltvPeak = reduceWorst(ltvSeries, 'max');             // peak debt / GDV; null if no GDV basis
   const ltvHero = ltvPeak != null ? ltvPeak : m.ltvAtExit;   // fall back to LTV at exit
   const equityMoic = rs.result.fcfe.moic;                     // == selected Exit-Year row Equity MOIC
@@ -241,51 +236,17 @@ export default function Module5Metrics(): React.JSX.Element {
       </div>
 
       {/* ── DETAIL (demoted): coverage + profitability, economics, income, funding ── */}
-      <CollapsibleSection title="Coverage and profitability detail" defaultOpen>
-        <MetricGrid min={150}>
-          <MetricCard label="Avg DSCR" value={fmtX(avgDSCR)} sub="mean over debt-service years" />
-          <MetricCard label="Min Interest Cover" value={fmtX(minICR)} sub="worst yr · EBITDA / interest" />
-          <MetricCard label="Debt Yield" value={fmtPct(debtYieldWorst)} sub="worst operating yr · NOI / debt" />
-          <MetricCard label="Avg Cash-on-Cash" value={fmtPct(m.cashOnCashAvg)} sub="cash yield on equity" />
-          <MetricCard label="Cap Rate at Exit" value={fmtPct(m.capRateAtExit)} sub={capRateAtExitCaption(rs)} />
-          <MetricCard label="Profit on Cost" value={fmtPct(m.profitOnCost)} sub="(revenue - cost) / cost" />
-          <MetricCard label="Development Spread" value={fmtPct(m.developmentSpread)} sub="yield on cost - exit cap rate" />
-          <MetricCard label="Max Negative Cash Flow" value={fmt(ee.maxNegativeCumulativeCF)} sub="peak FCFE outflow" tone="bad" />
-        </MetricGrid>
-      </CollapsibleSection>
-
-      <CollapsibleSection title="Development economics" defaultOpen>
-        <MetricGrid min={150}>
-          <MetricCard label="Gross Development Value" value={fmt(de.gdv)} sub={`GDV, ${currency}`} />
-          <MetricCard label="Total Development Cost" value={fmt(de.totalDevelopmentCost)} sub={currency} />
-          <MetricCard label="Total Financing Cost" value={fmt(de.totalFinancingCost)} sub={currency} />
-          <MetricCard label={METRIC_LABELS.developmentSurplusBefore} value={fmt(de.profitBeforeFinancing)} sub={METRIC_CAPTIONS.developmentSurplusBefore} tone={de.profitBeforeFinancing >= 0 ? 'good' : 'bad'} />
-          <MetricCard label={METRIC_LABELS.developmentSurplusAfter} value={fmt(de.profitAfterFinancing)} sub={METRIC_CAPTIONS.developmentSurplusAfter} tone={de.profitAfterFinancing >= 0 ? 'good' : 'bad'} />
-          <MetricCard label="Development Margin" value={fmtPct(de.developmentMargin)} sub="profit / GDV" tone={de.developmentMargin !== null && de.developmentMargin > 0 ? 'good' : 'neutral'} />
-          <MetricCard label="Cost to Value" value={fmtPct(de.costToValue)} sub="dev cost / GDV" />
-        </MetricGrid>
-      </CollapsibleSection>
-
-      <CollapsibleSection title="Income and exit profile">
-        <MetricGrid min={150}>
-          <MetricCard label="Stabilised NOI" value={fmt(rs.stabilisedNOI)} sub={currency} />
-          <MetricCard label="Exit NOI" value={fmt(rs.exitNOI)} sub={`year ${rs.exitYearLabel}`} />
-          <MetricCard label="Stabilisation Year" value={rs.stabilization.stabilizationYear != null ? String(rs.stabilization.stabilizationYear) : 'n/a'} sub="NOI reaches 95% of stable" />
-          <MetricCard label="Stabilised Yield on Cost" value={fmtPct(rs.stabilization.stabilisedYieldOnCost)} sub="stabilised NOI / dev cost" />
-          <MetricCard label="Exit Cap Rate" value={fmtPct(m.capRateAtExit)} sub={capRateAtExitCaption(rs)} />
-          <MetricCard label="Terminal Enterprise Value" value={fmt(rs.terminalEnterpriseValue)} sub={currency} />
-          <MetricCard label="Terminal Equity Value" value={fmt(rs.terminalEquityValue)} sub="EV less debt + cash" />
-        </MetricGrid>
-      </CollapsibleSection>
-
-      <CollapsibleSection title="Funding mix">
-        <MetricGrid min={150}>
-          <MetricCard label="Debt" value={fmtPct(fm.debtPct)} sub="% of total sources" />
-          <MetricCard label="Cash Equity" value={fmtPct(fm.cashEquityPct)} sub="existing + new cash" />
-          <MetricCard label="In-Kind Equity" value={fmtPct(fm.inKindEquityPct)} sub="contributed land" />
-          <MetricCard label="Customer Funding" value={fmtPct(fm.customerFundingPct)} sub="pre-sales collections" />
-        </MetricGrid>
-      </CollapsibleSection>
+      {/* The four detail groups come from ONE builder that the workbook and the
+          PDF read too (lib/reports/reMetricTiles.ts), in this order and words. */}
+      {buildReMetricDetailGroups(rs, snap.bs.debtOutstandingPerPeriod).map((g) => (
+        <CollapsibleSection key={g.title} title={g.title} defaultOpen={g.defaultOpen}>
+          <MetricGrid min={150}>
+            {g.tiles.map((t) => (
+              <MetricCard key={t.label} label={t.label} value={tileText(t.value)} sub={t.sub ?? (t.value.kind === 'money' ? currency : undefined)} tone={t.tone ?? 'neutral'} />
+            ))}
+          </MetricGrid>
+        </CollapsibleSection>
+      ))}
 
       {/* Operating KPIs (hospitality / residential / lease), rendered only when
           the project carries the matching asset strategies. Blended over the

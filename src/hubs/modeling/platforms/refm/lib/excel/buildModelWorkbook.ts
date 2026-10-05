@@ -30,6 +30,7 @@ import { buildAssumptionGrid } from '../reports/scenarioAssumptions';
 import { buildOperatingKpis } from '../reports/operatingKpis';
 import { fundingChartPoints } from '../portfolio/fundingSeries';
 import { evaluateCovenant, covenantUnit, covenantSeries, reduceWorst, reduceAvg, COVENANT_METRIC_LABELS, covenantBasisNote, covenantCoverageNote, type CovenantInputs } from '../covenants';
+import { buildReMetricDetailGroups } from '../reports/reMetricTiles';
 import { DEFAULT_COVENANTS } from '../state/module1-types';
 import { enumerateOverridableFields, getByPath } from '../cases/applyOverrides';
 import type { SensitivityVariable } from '@/src/core/calculations/returns';
@@ -4624,40 +4625,14 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     grid('', ['Exit Year', 'Enterprise Value', 'Equity Value', 'Project IRR', 'Equity IRR', 'Equity MOIC'],
       rs.exitYears.map((x) => ({ label: `${x.exitYearLabel}${x.isSelected ? '  ◀ selected' : ''}`, bold: x.isSelected, cells: [{ v: x.enterpriseValue }, { v: x.equityValue }, cPct(x.fcffIrr), cPct(x.fcfeIrr), cMult(x.equityMoic)] })));
 
-    kpiStrip('Coverage and profitability detail', [
-      { label: 'Avg DSCR', value: cMult(avgDSCR), sub: METRIC_CAPTIONS.dscrAvg },
-      { label: 'Min Interest Cover', value: cMult(minICR), sub: 'worst yr · EBITDA / interest' },
-      { label: 'Debt Yield', value: cPct(debtYieldWorst), sub: 'worst operating yr · NOI / debt' },
-      { label: 'Avg Cash-on-Cash', value: cPct(m.cashOnCashAvg), sub: 'cash yield on equity' },
-      { label: 'Cap Rate at Exit', value: cPct(m.capRateAtExit), sub: capRateAtExitCaption(rs) },
-      { label: 'Profit on Cost', value: cPct(m.profitOnCost), sub: '(revenue - cost) / cost' },
-      { label: 'Development Spread', value: cPct(m.developmentSpread), sub: METRIC_CAPTIONS.developmentSpread },
-      { label: 'Max Negative Cash Flow', value: cMoney(ee.maxNegativeCumulativeCF), sub: 'peak FCFE outflow', tone: 'bad' },
-    ]);
-    kpiStrip('Development economics', [
-      { label: 'Gross Development Value', value: cMoney(de.gdv), sub: 'GDV' },
-      { label: 'Total Development Cost', value: cMoney(de.totalDevelopmentCost) },
-      { label: 'Total Financing Cost', value: cMoney(de.totalFinancingCost) },
-      { label: METRIC_LABELS.developmentSurplusBefore, value: cMoney(de.profitBeforeFinancing), sub: METRIC_CAPTIONS.developmentSurplusBefore, tone: de.profitBeforeFinancing >= 0 ? 'good' : 'bad' },
-      { label: METRIC_LABELS.developmentSurplusAfter, value: cMoney(de.profitAfterFinancing), sub: METRIC_CAPTIONS.developmentSurplusAfter, tone: de.profitAfterFinancing >= 0 ? 'good' : 'bad' },
-      { label: 'Development Margin', value: cPct(de.developmentMargin), sub: 'profit / GDV', tone: de.developmentMargin !== null && de.developmentMargin > 0 ? 'good' : undefined },
-      { label: 'Cost to Value', value: cPct(de.costToValue), sub: 'dev cost / GDV' },
-    ]);
-    kpiStrip('Income and exit profile', [
-      { label: 'Stabilised NOI', value: cMoney(rs.stabilisedNOI) },
-      { label: 'Exit NOI', value: cMoney(rs.exitNOI), sub: `year ${rs.exitYearLabel}` },
-      { label: 'Stabilisation Year', value: rs.stabilization.stabilizationYear != null ? String(rs.stabilization.stabilizationYear) : 'n/a', sub: 'NOI reaches 95% of stable' },
-      { label: 'Stabilised Yield on Cost', value: cPct(rs.stabilization.stabilisedYieldOnCost), sub: METRIC_CAPTIONS.yieldOnCost },
-      { label: 'Exit Cap Rate', value: cPct(m.capRateAtExit), sub: capRateAtExitCaption(rs) },
-      { label: 'Terminal Enterprise Value', value: cMoney(rs.terminalEnterpriseValue) },
-      { label: 'Terminal Equity Value', value: cMoney(rs.terminalEquityValue), sub: 'EV less debt + cash' },
-    ]);
-    kpiStrip('Funding mix', [
-      { label: 'Debt', value: cPct(fm.debtPct), sub: '% of total sources' },
-      { label: 'Cash Equity', value: cPct(fm.cashEquityPct), sub: 'existing + new cash' },
-      { label: 'In-Kind Equity', value: cPct(fm.inKindEquityPct), sub: 'contributed land' },
-      { label: 'Customer Funding', value: cPct(fm.customerFundingPct), sub: 'pre-sales collections' },
-    ]);
+    // THE FOUR DETAIL GROUPS, from the one builder the screen and the PDF read
+    // (lib/reports/reMetricTiles.ts, export review item 26).
+    for (const g of buildReMetricDetailGroups(rs, snap.bs.debtOutstandingPerPeriod)) {
+      kpiStrip(g.title, g.tiles.map((t) => ({
+        label: t.label, sub: t.sub, tone: t.tone,
+        value: t.value.kind === 'money' ? cMoney(t.value.v) : t.value.kind === 'pct' ? cPct(t.value.v) : t.value.kind === 'mult' ? cMult(t.value.v) : t.value.v,
+      })));
+    }
 
     // ── Operating KPIs (shared builder; only the blocks the project carries) ──
     const ok = buildOperatingKpis(snap, state);

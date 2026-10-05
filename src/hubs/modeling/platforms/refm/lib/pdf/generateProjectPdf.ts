@@ -111,6 +111,7 @@ import { buildCaseYoYReport, type CaseYoYReport } from '../reports/caseYoYReport
 import { buildAssumptionGrid } from '../reports/scenarioAssumptions';
 import { buildOverviewReport, distributedReturnPair } from '../reports/overviewReport';
 import { formatAssumptionValue, assumptionUnitSuffix } from '../cases/assumptionGrid';
+import { buildReMetricDetailGroups } from '../reports/reMetricTiles';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { MODULES, type ModuleConfig } from '../modules-config';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
@@ -3640,6 +3641,18 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
       }),
     }));
     for (const fn of assetNotes.takeFootnotes()) items.push(tItem(m5Tab('RE Metrics'), 'outputs', { type: 'paragraph', text: fn.text }));
+  }
+
+  // THE SCREEN'S FOUR DETAIL GROUPS (2026-10-05, export review item 26), from
+  // the one builder the screen and the workbook read. The report's own grouping
+  // had dropped Stabilised NOI, the stabilisation year, Cost to Value, Max
+  // Negative Cash Flow and the whole Funding Mix row.
+  for (const g of buildReMetricDetailGroups(returns, snap.bs.debtOutstandingPerPeriod)) {
+    items.push(tCards(m5Tab('RE Metrics'), 'outputs', g.title, g.tiles.map((t) => ({
+      label: t.label,
+      value: t.value.kind === 'money' ? (t.value.v == null ? 'n/a' : fmt.money(t.value.v)) : t.value.kind === 'pct' ? fmt.pct(t.value.v, 1) : t.value.kind === 'mult' ? fmt.mult(t.value.v) : t.value.v,
+      sub: t.sub,
+    }))));
   }
 
   // OPERATING KPIs, the screen's last RE Metrics section, through the shared
