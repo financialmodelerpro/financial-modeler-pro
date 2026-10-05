@@ -112,6 +112,7 @@ import { buildAssumptionGrid } from '../reports/scenarioAssumptions';
 import { buildOverviewReport, distributedReturnPair } from '../reports/overviewReport';
 import { formatAssumptionValue, assumptionUnitSuffix } from '../cases/assumptionGrid';
 import { buildReMetricDetailGroups } from '../reports/reMetricTiles';
+import { buildPhaseProgramme, PROGRAMME_CELL_TEXT, PROGRAMME_TITLE, PROGRAMME_LEGEND, type ProgrammeCell } from '../reports/phaseProgramme';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { MODULES, type ModuleConfig } from '../modules-config';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
@@ -1498,6 +1499,19 @@ function buildModule1(
         row(['Project envelope', pt.start, '', '', '', '', pt.end, `${pt.periodCount} periods`], 'total'),
       ],
     }));
+    // THE PROGRAMME ACROSS THE YEARS (2026-10-05, export review item 23), the
+    // grid the workbook's Timeline Gantt draws, from the same builder. Printed
+    // here under the table it is drawn from, so no tab the screens lack is added.
+    const yl = snap.yearLabels;
+    const prog = buildPhaseProgramme(state.phases, p, [py, ...yl], snap.projectStartYear);
+    const textOf = (c: ProgrammeCell): string => PROGRAMME_CELL_TEXT[c];
+    // A grid of words has no total, so its leading column carries no heading.
+    const progTable = periodTable(PROGRAMME_TITLE, py, yl, [
+      ...prog.rows.map((r) => strPeriodRow(r.name, r.cells.slice(1).map(textOf), '', undefined, textOf(r.cells[0]))),
+      strPeriodRow('Project end', yl.map((y) => (y === prog.endYear ? 'End' : '')), '', 'subtotal', py === prog.endYear ? 'End' : ''),
+    ]);
+    items.push(tTable(M1_TABS.project, 'inputs', { ...progTable, columns: ['', '', ...progTable.columns.slice(2)] }));
+    items.push(tItem(M1_TABS.project, 'inputs', { type: 'paragraph', text: PROGRAMME_LEGEND }));
   }
   // Existing Operations (historical baseline), from the engine's own
   // existing-operations aggregate, never the deprecated phase fields.

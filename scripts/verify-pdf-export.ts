@@ -373,6 +373,34 @@ async function main(): Promise<void> {
   check('Module 6 renders a page even with no scenarios', (await pageCount(m6NoCases)) >= 3, `pages=${await pageCount(m6NoCases)}`);
   check('Module 6 renders scenario content with >1 case', (await pageCount(m6WithCases)) > (await pageCount(m6NoCases)), `with=${await pageCount(m6WithCases)} no=${await pageCount(m6NoCases)}`);
 
+  // C23 (2026-10-05, export review item 23): the development programme across
+  // the years prints in Module 1 Tab 1, from the builder the workbook's Gantt
+  // reads. The report printed the dated phase table and no programme.
+  {
+    const { pdfText } = await import('./pdfTextExtract');
+    const { buildPhaseProgramme, PROGRAMME_TITLE } = await import('../src/hubs/modeling/platforms/refm/lib/reports/phaseProgramme');
+    const st = buildState();
+    const sn = computeFinancialsSnapshot(st);
+    const years = [sn.projectStartYear - 1, ...sn.yearLabels];
+    const prog = buildPhaseProgramme(st.phases, st.project, years, sn.projectStartYear);
+    const lines = pdfText(await generateProjectPdf({ state: st, projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: ['module1'] })).split('\n').map((l) => l.trim());
+    check('C23: Module 1 prints the development programme', lines.includes(PROGRAMME_TITLE));
+    check('C23: every phase has a programme row', prog.rows.length === st.phases.length && prog.rows.every((r) => lines.includes(r.name)));
+    // The grid is the phase's own windows: as many Build years as construction
+    // periods and Ops years as operations periods, where the axis holds them and
+    // the two do not overlap. Counted from the phases, not from the builder.
+    const bad = st.phases.filter((ph: any, i: number) => {
+      const c = prog.rows[i].cells;
+      const build = c.filter((x) => x === 'construction').length, ops = c.filter((x) => x === 'operations').length;
+      return build !== (ph.constructionPeriods ?? 0) || ops !== Math.min(ph.operationsPeriods ?? 0, years.length);
+    }).map((ph: any) => ph.name);
+    check('C23: each row spans its phase\'s construction and operations periods', bad.length === 0, bad.join(', '));
+    check('C23: the project end falls on the last year any phase operates',
+      prog.endYear === Math.max(...prog.rows.map((r) => years[r.cells.lastIndexOf('operations')] ?? 0)));
+    check('C23: the workbook Gantt reads the same builder',
+      readFileSync('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts', 'utf8').includes('buildPhaseProgramme('));
+  }
+
   // C26 (2026-10-05, export review item 26): the RE Metrics detail tiles come
   // from ONE builder on the screen, the workbook and the PDF. The report's own
   // grouping had dropped Stabilised NOI, the stabilisation year, Cost to Value,

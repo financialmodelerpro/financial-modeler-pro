@@ -31,6 +31,7 @@ import { buildOperatingKpis } from '../reports/operatingKpis';
 import { fundingChartPoints } from '../portfolio/fundingSeries';
 import { evaluateCovenant, covenantUnit, covenantSeries, reduceWorst, reduceAvg, COVENANT_METRIC_LABELS, covenantBasisNote, covenantCoverageNote, type CovenantInputs } from '../covenants';
 import { buildReMetricDetailGroups } from '../reports/reMetricTiles';
+import { buildPhaseProgramme } from '../reports/phaseProgramme';
 import { DEFAULT_COVENANTS } from '../state/module1-types';
 import { enumerateOverridableFields, getByPath } from '../cases/applyOverrides';
 import type { SensitivityVariable } from '@/src/core/calculations/returns';
@@ -1242,21 +1243,21 @@ function addPhaseTimeline(ws: ExcelJS.Worksheet, snap: ReturnType<typeof compute
       cell.alignment = { horizontal: 'center' };
     }
   };
-  for (const { phase, tl } of lines) {
-    setLabel(ws.getCell(r, 1), phase.name);
-    registerCell(`tl:gantt:${phase.id}`, ws, ws.getCell(r, OPEN_COL));
-    const cs = yr(tl.constructionStart), ce = yr(tl.constructionEnd);
-    const os = yr(tl.operationsStart), oe = yr(tl.operationsEnd);
-    const hasOps = phase.operationsPeriods > 0;
-    for (let c = OPEN_COL; c <= last; c++) {
-      const y = yearOfCol(c);
-      // Operations paint over construction in an overlap year, because that is
-      // the year the asset starts earning; the overlap is visible in the dated
-      // table above rather than being fudged into a half-filled cell.
-      if (hasOps && y >= os && y <= oe) bar(ws.getCell(r, c), ARGB.good);
-      else if (phase.constructionPeriods > 0 && y >= cs && y <= ce) bar(ws.getCell(r, c), ARGB.navy);
-      else fillCell(ws.getCell(r, c), ARGB.grey);
-    }
+  // The bars are the shared programme (lib/reports/phaseProgramme.ts), the
+  // grid the PDF prints too. Operations paint over construction in an overlap
+  // year; the overlap is visible in the dated table above.
+  const ganttYears: number[] = [];
+  for (let c = OPEN_COL; c <= last; c++) ganttYears.push(yearOfCol(c));
+  const programme = buildPhaseProgramme(phases, project, ganttYears, snap.projectStartYear);
+  for (const pr of programme.rows) {
+    setLabel(ws.getCell(r, 1), pr.name);
+    registerCell(`tl:gantt:${pr.phaseId}`, ws, ws.getCell(r, OPEN_COL));
+    pr.cells.forEach((cellKind, k) => {
+      const cell = ws.getCell(r, OPEN_COL + k);
+      if (cellKind === 'operations') bar(cell, ARGB.good);
+      else if (cellKind === 'construction') bar(cell, ARGB.navy);
+      else fillCell(cell, ARGB.grey);
+    });
     r += 1;
   }
   // Project end marker row.
