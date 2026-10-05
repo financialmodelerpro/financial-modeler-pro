@@ -2,6 +2,16 @@
 
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
+## 2026-10-05: TRAINING HUB, A MODEL APPROVED IN ERROR (PARKED, NOT BUILT)
+
+A 3SFM model scored 5.5% "Not Yet Competent" was approved by a mis-click. One click issued the certificate, sent three emails (approval, held final-exam result, certificate) and unlocked BVM, with no confirmation and no undo. Reversed by hand the same day (submission set to rejected with the same note, certificate row + PDF + badge deleted, BVM enrollment row deleted, audit row written); backup of what was deleted is kept OUTSIDE the repo at `D:\FMP\backups\2026-10-05_FMP-3SFM-2026-0240\`. The correcting email goes through Communications Hub > Campaigns > Custom List. Open, in order:
+
+1. **BVM IS NOT GATED ON THE SERVER, AND THE URL GATE USES A DIFFERENT RULE FROM THE DASHBOARD.** The dashboard locks BVM on the `training_enrollments` BVM row (`app/training/dashboard/page.tsx` ~739-750, 1084). The watch page's direct-URL gate (`app/training/watch/[courseId]/[sessionKey]/page.tsx` ~154-166) is CLIENT-SIDE and unlocks on "all 3SFM sessions + 3SFM final passed", which ignores the model gate, and `/api/training/progress` reports a HELD final as passed. No server route (`submit-assessment`, `questions`, `course-details`, `attachments`) checks BVM enrollment or the 3SFM certificate. So a student whose final is held (passed, model not approved) can open BVM sessions by URL and submit BVM assessments. Applies to every held-final student, not only this case. The rule should be ONE server-side predicate (BVM open only when 3SFM is earned: certificate issued, or the BVM row that only approval or a non-held final pass writes) read by the dashboard, the watch page and the BVM assessment routes.
+2. **Approve has no confirmation.** Proposed: a confirm step naming the student, the attempt, and the score + competency verdict, before the POST.
+3. **Nothing stops approving a failing score.** The verdict lives only in free text (`review_note`). Proposed: store a structured score + verdict on the review, and refuse (or require an explicit override reason) approving a Not Yet Competent verdict.
+4. **No undo.** `review/route.ts` returns 409 on any decided row and `checkApproval.ts` says reversal is a hand edit. The existing certificate "revoke" (`training_admin_actions`) is a flag the verify page, certificate API, progress and the cert engine all ignore. Proposed: an admin "Reverse approval" action doing what was done by hand on 2026-10-05 (status to rejected keeping the note, delete the cert row + storage PDF/badge/transcript, remove the BVM row only if approval created it, audit row, correcting email that says the earlier emails were sent in error).
+5. Minor: `/api/og/certificate/<id>` returns 500 (not 404) for a certificate that does not exist.
+
 ## START HERE 2026-09-30: EXPORT REVIEW GROUPS 1 AND 2 DONE; GROUP 3 NOT STARTED; GROUP 4 REPORTED
 
 **DONE, one commit each, detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-29 and 2026-09-30:** the retail strip
