@@ -116,7 +116,7 @@ import { MODULES, type ModuleConfig } from '../modules-config';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 import type { Party } from '../parties';
 import { buildFixedAssetReport, type FixedAssetTable } from '../reports/fixedAssetReports';
-import { BS_FEEDER_SECTIONS, BS_RECONCILIATION_CAPTION, FUND_FEE_BASIS_TITLE, FUND_FEE_BASIS_CAPTION } from '../reports/m4Reports';
+import { BS_FEEDER_SECTIONS, BS_RECONCILIATION_CAPTION, FUND_FEE_BASIS_TITLE, fundFeeBasisCaption } from '../reports/m4Reports';
 
 function b64ToBytes(b64: string): Uint8Array {
   if (typeof Buffer !== 'undefined') return new Uint8Array(Buffer.from(b64, 'base64'));
@@ -889,11 +889,21 @@ function headlineReturnCards(returns: ReturnsSnapshot, fmt: Fmt, opts: { omitDis
   ];
 }
 
+/**
+ * The two fund tables a sentence may point a reader at, titled by these same
+ * constants, so a pointer cannot name a section that is not printed. "The Fund
+ * Layer section" was folded into the Returns tab on 2026-09-21 and two sentences
+ * kept sending readers to it (export review item 29).
+ */
+export const FUND_GROSS_NET_TITLE = 'Fund Returns, Gross vs Net';
+export const FUND_WATERFALL_TITLE = 'Distribution Waterfall';
+const FUND_TABLES_POINTER = `the ${FUND_GROSS_NET_TITLE} and ${FUND_WATERFALL_TITLE} tables`;
+
 /** Where the omitted distribution pair was reported instead. */
 function distributionPointerNote(returns: ReturnsSnapshot, fmt: Fmt): string {
   const fundOn = isFundActive(returns);
   const dist = distributedReturnPair(returns);
-  const where = fundOn ? 'the Executive Summary, and split gross against net in the Fund Layer section' : 'the Executive Summary';
+  const where = fundOn ? `the Executive Summary, and split gross against net in ${FUND_TABLES_POINTER}` : 'the Executive Summary';
   return `Distributed Equity IRR ${fmt.pct(dist.irr, 1)} and MOIC ${fmt.mult(dist.moic)} are reported in ${where}, and are not repeated here.`;
 }
 
@@ -901,8 +911,8 @@ function distributionPointerNote(returns: ReturnsSnapshot, fmt: Fmt): string {
 function headlineBasisNote(returns: ReturnsSnapshot, fmt: Fmt): string {
   if (!isFundActive(returns)) return '';
   const fee = returns.waterfall?.totalPerformanceFee ?? 0;
-  if (fee <= 0) return 'This is a fund project. No performance fee arises, so distributed-equity returns are the same gross and net; see the Fund Layer section.';
-  return `This is a fund project. The distributed-equity figures above are NET of a performance fee of ${fmt.money(fee)}; the gross figures and the full waterfall are in the Fund Layer section.`;
+  if (fee <= 0) return `This is a fund project. No performance fee arises, so distributed-equity returns are the same gross and net; see ${FUND_TABLES_POINTER}.`;
+  return `This is a fund project. The distributed-equity figures above are NET of a performance fee of ${fmt.money(fee)}; the gross figures and the full waterfall are in ${FUND_TABLES_POINTER}.`;
 }
 
 /**
@@ -988,13 +998,13 @@ function buildFundBlock(
   const ctx: FundReportCtx = { snap, returns, fmt: fundFmtFrom(fmt) };
   const out: FundBlockPiece[] = [];
 
-  out.push({ title: 'Fund Returns, Gross vs Net', table: null, cards: buildFundHeadlineCards(ctx).map((c) => ({ label: c.label, value: c.value, sub: c.sub })) });
+  out.push({ title: FUND_GROSS_NET_TITLE, table: null, cards: buildFundHeadlineCards(ctx).map((c) => ({ label: c.label, value: c.value, sub: c.sub })) });
   // This block restates the headline Distributed Equity pair, split either side
   // of the performance fee. Saying so is what stops it reading as a third copy
   // of the same two numbers, which is exactly how it read when no fee arose.
   {
     const restated = fundHeadlineRestatementNote(ctx);
-    if (restated) out.push({ title: 'Fund Returns, Gross vs Net', table: null, cards: null, note: restated });
+    if (restated) out.push({ title: FUND_GROSS_NET_TITLE, table: null, cards: null, note: restated });
   }
   out.push({
     title: 'Fund Terms Applied', cards: null,
@@ -1017,7 +1027,7 @@ function buildFundBlock(
   // The waterfall is a stream-basis period table: index 0 is the inception
   // period, which is why it uses the stream year labels and not the axis ones.
   out.push({
-    title: 'Distribution Waterfall', cards: null,
+    title: FUND_WATERFALL_TITLE, cards: null,
     table: m4RowsToPeriodTable(`Distribution Waterfall (hold to ${returns.exitYearLabel})`, streamPrior, streamYears, buildFundWaterfallRows(ctx)),
   });
   // Which rows in that Total column are lifetime flows and which are balances.
@@ -1025,7 +1035,7 @@ function buildFundBlock(
   // Hurdle Owed and reads as more paid than was ever owed.
   {
     const totalsNote = fundWaterfallTotalsNote(ctx);
-    if (totalsNote) out.push({ title: 'Distribution Waterfall', table: null, cards: null, note: totalsNote });
+    if (totalsNote) out.push({ title: FUND_WATERFALL_TITLE, table: null, cards: null, note: totalsNote });
   }
   if (hasFundFeeIncome(returns)) {
     out.push({
@@ -3259,7 +3269,7 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
           row(['Total', '', '', '', '', fmt.money(basis.reduce((s, b) => s + b.charged, 0))], 'total'),
         ],
       }));
-      caption(tab, 'outputs', FUND_FEE_BASIS_CAPTION);
+      caption(tab, 'outputs', fundFeeBasisCaption(basis, fmt.money));
       const notes = basis
         .filter((b) => b.note && b.base !== 'Flat amount')
         .filter((b, i, all) => all.findIndex((x) => x.base === b.base) === i);

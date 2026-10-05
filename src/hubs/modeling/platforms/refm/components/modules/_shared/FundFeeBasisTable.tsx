@@ -20,7 +20,7 @@
  * No em dashes in this file.
  */
 import React from 'react';
-import { fundFeeBasisText, FUND_FEE_BASIS_TITLE, FUND_FEE_BASIS_CAPTION, type FundFeeBasisRow, type FundCapitalRow } from '../../../lib/reports/m4Reports';
+import { fundFeeBasisText, fundFeeBasisCaption, FUND_FEE_BASIS_TITLE, type FundFeeBasisRow, type FundCapitalRow } from '../../../lib/reports/m4Reports';
 
 export function FundFeeBasisTable({ rows, capital = [], currency, fmt, title, caption }: {
   rows: FundFeeBasisRow[];
@@ -49,7 +49,7 @@ export function FundFeeBasisTable({ rows, capital = [], currency, fmt, title, ca
         <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-meta)' }}>({currency})</span>
       </div>
       <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 6, fontStyle: 'italic' }}>
-        {caption ?? FUND_FEE_BASIS_CAPTION}
+        {caption ?? fundFeeBasisCaption(rows, fmt)}
       </div>
       {/* The three capital bases, stated before the fees that charge on them.
           The fees use three different quantities (equity alone, debt alone,

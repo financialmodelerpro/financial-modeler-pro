@@ -34,7 +34,7 @@
 import { readFileSync, readdirSync } from 'fs';
 import { createClient } from '@supabase/supabase-js';
 import { pdfText } from './pdfTextExtract';
-import { generateProjectPdf, generateSummaryPdf } from '../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf';
+import { generateProjectPdf, generateSummaryPdf, FUND_GROSS_NET_TITLE, FUND_WATERFALL_TITLE } from '../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/returns-resolvers';
 import {
@@ -42,6 +42,7 @@ import {
   buildFcfeBuildup, m4StreamRow,
 } from '../src/hubs/modeling/platforms/refm/lib/reports/streamReports';
 import { buildIntegrityChecks, relativeCheckOk, BRIDGE_CHECK_LABEL } from '../src/hubs/modeling/platforms/refm/lib/reports/checksReport';
+import { fundFeeBasisCaption } from '../src/hubs/modeling/platforms/refm/lib/reports/m4Reports';
 import { buildExcelSampleState } from './excelSampleState';
 import { buildExistingOperationsState, EXISTING_OPS_LABEL } from './fixtures/existingOperationsState';
 import { readLiveProjectVersion } from './fixtures/liveProject';
@@ -96,6 +97,7 @@ const render = async (state: any, extra: any = {}): Promise<{ full: string; summ
 /** drawParagraph WRAPS, so a phrase can straddle a line break; collapse
  *  whitespace before matching one. */
 const flat = (t: string): string => t.replace(/\s+/g, ' ');
+const titled = (txt: string, title: string): boolean => txt.split('\n').some((l) => l.trim().startsWith(title));
 const countLines = (txt: string, exact: string): number => txt.split('\n').filter((l) => l.trim() === exact).length;
 
 async function main(): Promise<void> {
@@ -266,8 +268,31 @@ async function main(): Promise<void> {
     check('F2: the headline says the distribution figures are net',
       r2.full.includes('net of performance fee') && r2.summary.includes('net of performance fee'));
     check('F2: the gross figure is named beside the net one', /net; gross /.test(flat(r2.full)));
-    check('F2: a sentence states the fee and points at the waterfall',
-      flat(r2.full).includes('are NET of a performance fee') && r2.full.includes('Fund Layer'));
+    // RE-AIMED 2026-10-05 (export review item 29): this asserted the sentence
+    // contained "Fund Layer", which pinned a pointer at a section folded into
+    // the Returns tab on 2026-09-21. The rule is that the sentence points at
+    // tables the document PRINTS: it names both, and both are titled in it.
+    check('F2: a sentence states the fee and points at the gross vs net and waterfall tables',
+      flat(r2.full).includes('are NET of a performance fee') && flat(r2.full).includes(`in the ${FUND_GROSS_NET_TITLE} and ${FUND_WATERFALL_TITLE} tables`));
+    check('F2: both tables the sentence names are printed (full report)',
+      titled(r2.full, FUND_GROSS_NET_TITLE) && titled(r2.full, FUND_WATERFALL_TITLE));
+    check('F2: both tables the sentence names are printed (summary)',
+      titled(r2.summary, FUND_GROSS_NET_TITLE) && titled(r2.summary, FUND_WATERFALL_TITLE));
+    // A title may carry a suffix ("Distribution Waterfall (hold to 2038)"), so it is a line PREFIX.
+    for (const [doc, txt] of [['full report', r2.full], ['summary', r2.summary], ['no-fee full report', full], ['no-fee summary', summary]] as const) {
+      check(`I29: ${doc} points at no "Fund Layer section"`, !flat(txt).includes('Fund Layer section'));
+    }
+    // I29b: the fee basis caption's worked example is THIS model's own basis
+    // cell, never a constant from another project.
+    {
+      const m = /applies to \("([^"]+)"\)/.exec(flat(r2.full));
+      check('I29b: the fee basis caption carries a worked example', !!m);
+      const cells = r2.full.split('\n').map((l) => l.trim());
+      check('I29b: the example is a basis cell printed in the same document', !!m && cells.includes(m[1]), m ? m[1] : 'none');
+      check('I29b: the old constant from another project is gone', !flat(r2.full).includes('2,632.7 x 14') || cells.includes('2,632.7 x 14'));
+      check('I29b: with no per-period base there is no example to invent',
+        !fundFeeBasisCaption([], String).includes('("'));
+    }
     // And with NO fee, the note says gross equals net rather than staying silent.
     check('F2: with no fee arising the document says so',
       flat(full).includes('No performance fee arises'));
