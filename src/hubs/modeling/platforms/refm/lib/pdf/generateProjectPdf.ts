@@ -1091,6 +1091,8 @@ function buildFundBlock(
  *  showing its delta vs the base in-cell. Feeds BOTH Module 5 (Tab 3) and Module
  *  6 (Scenario Comparison) from the same shared builder. Null when there are fewer
  *  than two cases to compare. */
+export const CASE_MATRIX_TITLE = 'Case Comparison, headline KPIs (delta vs Management Case)';
+
 function buildCaseComparisonMatrix(caseReport: CaseComparisonReport, fmt: Fmt): PdfTable | null {
   if (caseReport.columns.length <= 1) return null;
   const baseCol = caseReport.columns.find((c) => c.id === caseReport.baseId) ?? caseReport.columns[0];
@@ -1119,7 +1121,7 @@ function buildCaseComparisonMatrix(caseReport: CaseComparisonReport, fmt: Fmt): 
     }
     return row(cells);
   });
-  return { title: 'Case Comparison, headline KPIs (delta vs Management Case)', kind: 'grid', align: 'data', columns: header, rows };
+  return { title: CASE_MATRIX_TITLE, kind: 'grid', align: 'data', columns: header, rows };
 }
 
 // ── Executive summary ─────────────────────────────────────────────────────────
@@ -3877,6 +3879,37 @@ function renderableContent(content: ModuleContent, sel: ModuleSectionSelection, 
 /** Placeholder page for a module that is on the roadmap but not built yet, so
  *  the exported report covers the whole platform. Lists the planned content from
  *  the registry; fills in with real content automatically once the module ships. */
+/**
+ * THE CASE MATRIX PRINTS ONCE PER DOCUMENT (2026-10-05, export review item 27).
+ * Module 5's Case Comparison and Module 6's Scenario Comparison both render the
+ * same shared matrix, so a full report printed it twice, verbatim. Where BOTH
+ * will render, the first (Module 5) keeps it and Module 6 points back to it.
+ * Decided here, after the module and tab filters, because a pointer to a table
+ * the reader did not export is worse than the duplicate.
+ */
+function printCaseMatrixOnce(
+  planned: Array<{ m: ModuleConfig; content: ModuleContent | null }>,
+  sel: Record<string, ModuleSectionSelection>,
+  moduleTabs: Record<string, string[]> | undefined,
+): void {
+  const rendered = (key: string): { m: ModuleConfig; content: ModuleContent; hit: TaggedItem | undefined } | null => {
+    const p = planned.find((x) => x.m.key === key);
+    if (!p?.content) return null;
+    const hit = renderableContent(p.content, sel[key] ?? {}, moduleTabs?.[key])
+      .find((ti) => ti.item.type === 'table' && ti.item.table.title === CASE_MATRIX_TITLE);
+    return { m: p.m, content: p.content, hit };
+  };
+  const m5 = rendered('module5'), m6 = rendered('module6');
+  if (!m5?.hit || !m6?.hit) return;
+  const i = m6.content.indexOf(m6.hit);
+  m6.content[i] = { tab: m6.hit.tab, part: m6.hit.part, item: { type: 'paragraph',
+    text: caseMatrixPointer(`Module ${m5.m.num}, ${m5.hit.tab}`) } };
+}
+
+export function caseMatrixPointer(where: string): string {
+  return `The headline KPIs across every case, with each scenario's change against the Management Case, are printed once, in ${where}.`;
+}
+
 function renderPlaceholderModule(ctx: Ctx, m: ModuleConfig): void {
   const header = `Module ${m.num}: ${m.longLabel}`;
   newPage(ctx, header);
@@ -4247,6 +4280,7 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
     if (!renderableContent(content, sel[m.key] ?? {}, opts.moduleTabs?.[m.key]).length) continue;
     planned.push({ m, content });
   }
+  printCaseMatrixOnce(planned, sel, opts.moduleTabs);
   // Size from the items that will ACTUALLY render (after the part / tab filter),
   // so a hidden outsized table cannot widen the whole report.
   ctx.metrics = resolveMetrics(

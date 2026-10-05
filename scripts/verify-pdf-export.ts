@@ -27,7 +27,7 @@ import { buildBsFeederTables, buildBsReconciliationRows } from '../src/hubs/mode
 import { payloadHasActiveProject } from '../src/shared/entitlements/exportGuard';
 import { PDF_MODULE_TABS } from '../src/hubs/modeling/platforms/refm/lib/pdf/pdfModuleTabs';
 import { projectLocationLabel } from '../src/core/countries';
-import { pdfTabKey } from '../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf';
+import { pdfTabKey, CASE_MATRIX_TITLE } from '../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import INTER_REGULAR_B64 from '../src/hubs/modeling/platforms/refm/lib/pdf/fonts/interRegular';
 import INTER_BOLD_B64 from '../src/hubs/modeling/platforms/refm/lib/pdf/fonts/interBold';
@@ -372,6 +372,25 @@ async function main(): Promise<void> {
   const m6WithCases = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: ['module6'], caseComparison: caseBundle });
   check('Module 6 renders a page even with no scenarios', (await pageCount(m6NoCases)) >= 3, `pages=${await pageCount(m6NoCases)}`);
   check('Module 6 renders scenario content with >1 case', (await pageCount(m6WithCases)) > (await pageCount(m6NoCases)), `with=${await pageCount(m6WithCases)} no=${await pageCount(m6NoCases)}`);
+
+  // C27 (2026-10-05, export review item 27): the case matrix prints ONCE per
+  // document. Both modules render the same shared matrix, so a full report
+  // printed it twice verbatim; where both render, Module 5 keeps it and
+  // Module 6 points back. Each module exported alone still carries it, since a
+  // pointer to a table the reader did not export is worse than the duplicate.
+  {
+    const { pdfText } = await import('./pdfTextExtract');
+    const lines = (b: Uint8Array): string[] => pdfText(b).split('\n').map((l) => l.trim());
+    const matrixCount = (b: Uint8Array): number => lines(b).filter((l) => l === CASE_MATRIX_TITLE).length;
+    const both = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: ['module5', 'module6'], caseComparison: caseBundle });
+    check('C27: with Modules 5 and 6 the case matrix prints exactly once', matrixCount(both) === 1, `count=${matrixCount(both)}`);
+    const flatBoth = lines(both).join(' ');
+    check('C27: Module 6 points at the one copy', flatBoth.includes('are printed once, in Module 5'), 'no pointer');
+    check('C27: Module 5 alone still prints the matrix', matrixCount(m5WithCases) === 1, `count=${matrixCount(m5WithCases)}`);
+    check('C27: Module 6 alone still prints the matrix', matrixCount(m6WithCases) === 1, `count=${matrixCount(m6WithCases)}`);
+    const m6WithoutM5Tab = await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: ['module5', 'module6'], moduleTabs: { module5: ['Tab 1: Returns'] }, caseComparison: caseBundle });
+    check('C27: with Module 5 Case Comparison deselected, Module 6 keeps the matrix', matrixCount(m6WithoutM5Tab) === 1 && !lines(m6WithoutM5Tab).join(' ').includes('are printed once, in'), `count=${matrixCount(m6WithoutM5Tab)}`);
+  }
 
   // Manifest sync with a case bundle: Module 6's scenario tabs (Comparison /
   // Year-on-Year) + Module 5's Case Comparison must all appear in the manifest.
