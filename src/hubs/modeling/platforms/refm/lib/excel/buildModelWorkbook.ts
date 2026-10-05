@@ -38,7 +38,7 @@ import { revenueBySection } from '../reports/revenueSections';
 import { scheduleWithDisposal, idcWithDisposal, disposalContextOf } from '../reports/disposalSchedules';
 import { buildFinancingScheduleTables, buildCashSweepTables, type ReportTable } from '../reports/financingReports';
 import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup, m4StreamRow, distributedTieNote } from '../reports/streamReports';
-import { buildIntegrityChecks, checkDetail, relativeCheckOk, worstDivergence, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
+import { buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildOpexReport } from '../reports/opexReports';
 import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsReconciliationRows, buildBsFeederTables, BS_FEEDER_SECTIONS, BS_RECONCILIATION_CAPTION, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, totalColumnHeading, totalColumnNote, TOTAL_COLUMN_HEADINGS, TOTAL_COLUMN_NOTES, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, FUND_CAPITAL_BASE_TAG, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
@@ -4942,17 +4942,10 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
     r += 1;
   };
   const checkMoney = (v: number): string => `${formatAccounting(Math.abs(v), 'millions', 1)} m`;
-  // The three integrity identities, named as the platform names them.
+  // The four integrity identities, named as the platform names them; the
+  // fourth is the Balance Sheet's reconciliation bridge (one builder with the PDF).
   for (const c of buildIntegrityChecks(snap)) {
     checkRow(c.label, c.ok ? 'OK' : 'CHECK', c.residue, checkDetail(c, snap.yearLabels, checkMoney), `chk|id|${c.label}`);
-  }
-  // The fourth: the Balance Sheet tab's reconciliation bridge must leave nothing
-  // unexplained. Same relative tolerance, measured against peak total assets.
-  {
-    const unexplained = buildBsReconciliationRows({ snap, state: ctx.state, fmt: String }).find((x) => x.label === 'Unexplained (must be 0)')?.values ?? [];
-    const w = worstDivergence(unexplained, unexplained.map(() => 0), snap.bs.totalAssetsPerPeriod, snap.axisLength);
-    const chk = { label: 'Balance sheet reconciliation bridge, unexplained', ok: relativeCheckOk(w.residue, w.magnitude), residue: w.residue, atIndex: w.atIndex, magnitude: w.magnitude, what: 'unexplained' };
-    checkRow(chk.label, chk.ok ? 'OK' : 'CHECK', chk.residue, `${checkDetail(chk, snap.yearLabels, checkMoney)}. The "Unexplained (must be 0)" row of the reconciliation bridge on the Balance Sheet tab.`, `chk|id|${chk.label}`);
   }
   // Advisories: NOTE, never OK or CHECK. A gap between cash collected and gross
   // sale value, or a sale with no downpayment stated, is legitimate model state,

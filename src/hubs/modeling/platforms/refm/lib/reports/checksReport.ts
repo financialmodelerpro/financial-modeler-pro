@@ -70,6 +70,8 @@ export interface IntegrityCheck {
   magnitude: number;
   /** What the magnitude is (for the detail line). */
   what: string;
+  /** Where the reconciled figure is printed, appended to the detail line. */
+  where?: string;
 }
 
 interface ChecksSource {
@@ -83,6 +85,7 @@ interface ChecksSource {
   };
   directCF: { closingCashPerPeriod: number[]; netCashFlowPerPeriod: number[] };
   indirectCF: { netCashFlowPerPeriod: number[] };
+  bsReconciliation: { unexplainedPerPeriod: number[] };
 }
 
 /**
@@ -193,33 +196,45 @@ export function worstDivergence(
 }
 
 /**
- * The three identities the model must satisfy. Every one is a REAL comparison
+ * The four identities the model must satisfy. Every one is a REAL comparison
  * of two series: a check that cannot fail is worse than no check, because it
  * certifies the thing it never looked at.
+ *
+ * THE FOURTH IS THE RECONCILIATION BRIDGE (2026-10-05, export review item 24).
+ * The workbook computed it inline after the three and the PDF called only this
+ * builder, so the report printed the bridge and not the check on it. Its
+ * Unexplained row must be zero, judged against peak total assets.
  */
 export function buildIntegrityChecks(snap: ChecksSource): IntegrityCheck[] {
   const n = snap.axisLength;
   const bs = snap.bs;
   const lPlusE = bs.totalLiabilitiesPerPeriod.map((v, i) => v + (bs.totalEquityPerPeriod[i] ?? 0));
-  const mk = (label: string, a: number[], b: number[], mag: number[], what: string): IntegrityCheck => {
+  const mk = (label: string, a: number[], b: number[], mag: number[], what: string, where?: string): IntegrityCheck => {
     const w = worstDivergence(a, b, mag, n);
-    return { label, ok: relativeCheckOk(w.residue, w.magnitude), residue: w.residue, atIndex: w.atIndex, magnitude: w.magnitude, what };
+    return { label, ok: relativeCheckOk(w.residue, w.magnitude), residue: w.residue, atIndex: w.atIndex, magnitude: w.magnitude, what, where };
   };
+  const unexplained = snap.bsReconciliation.unexplainedPerPeriod;
   return [
     mk('Balance sheet balances (Assets = L + E)', bs.totalAssetsPerPeriod, lPlusE, bs.totalAssetsPerPeriod, 'assets'),
     mk('Cash flow closing == balance sheet cash', snap.directCF.closingCashPerPeriod, bs.cashPerPeriod, bs.cashPerPeriod, 'cash'),
     mk('Direct cash flow == Indirect cash flow', snap.directCF.netCashFlowPerPeriod, snap.indirectCF.netCashFlowPerPeriod, snap.directCF.netCashFlowPerPeriod, 'net cash flow'),
+    mk(BRIDGE_CHECK_LABEL, unexplained, unexplained.map(() => 0), bs.totalAssetsPerPeriod, 'unexplained',
+      'The "Unexplained (must be 0)" row of the reconciliation bridge on the Balance Sheet.'),
   ];
 }
+
+export const BRIDGE_CHECK_LABEL = 'Balance sheet reconciliation bridge, unexplained';
 
 /** The detail sentence for a check, stating the residue AND its scale either way. */
 export function checkDetail(c: IntegrityCheck, yearLabels: readonly number[], money: (v: number) => string): string {
   const year = yearLabels[c.atIndex] ?? c.atIndex;
-  if (c.magnitude === 0) return `worst period ${year}: nothing to reconcile`;
+  const where = c.where ? ` ${c.where}` : '';
+  if (c.magnitude === 0) return `worst period ${year}: nothing to reconcile.${where}`;
   const ratio = Math.abs(c.residue / c.magnitude).toExponential(1);
-  return c.ok
+  const body = c.ok
     ? `worst period ${year}: ${ratio} of peak ${money(Math.abs(c.magnitude))}, within tolerance ${CHECK_REL_TOL.toExponential(0)}`
     : `worst period ${year}: ${ratio} of peak ${money(Math.abs(c.magnitude))}, OUTSIDE tolerance ${CHECK_REL_TOL.toExponential(0)}`;
+  return c.where ? `${body}.${where}` : body;
 }
 
 /**

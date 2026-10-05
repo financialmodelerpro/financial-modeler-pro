@@ -41,7 +41,7 @@ import {
   FCFF_BUILDUP_LABELS, FCFE_BUILDUP_LABELS, DIVIDEND_BUILDUP_LABELS,
   buildFcfeBuildup, m4StreamRow,
 } from '../src/hubs/modeling/platforms/refm/lib/reports/streamReports';
-import { buildIntegrityChecks, relativeCheckOk } from '../src/hubs/modeling/platforms/refm/lib/reports/checksReport';
+import { buildIntegrityChecks, relativeCheckOk, BRIDGE_CHECK_LABEL } from '../src/hubs/modeling/platforms/refm/lib/reports/checksReport';
 import { buildExcelSampleState } from './excelSampleState';
 import { buildExistingOperationsState, EXISTING_OPS_LABEL } from './fixtures/existingOperationsState';
 import { readLiveProjectVersion } from './fixtures/liveProject';
@@ -169,6 +169,26 @@ async function main(): Promise<void> {
     check(`G1: ${doc} checks the balance sheet`, txt.includes('Balance sheet balances (Assets = L + E)'));
     check(`G1: ${doc} checks closing cash against the balance sheet`, txt.includes('Cash flow closing == balance sheet cash'));
     check(`G1: ${doc} checks Direct against Indirect cash flow`, txt.includes('Direct cash flow == Indirect cash flow'));
+  }
+
+  // G1b (2026-10-05, export review item 24): the FOURTH check, the reconciliation
+  // bridge, comes from the same builder on every surface. The PDF printed the
+  // bridge and not the check on it, because the workbook computed it inline.
+  for (const [doc, txt] of [['full report', full], ['summary', summary]] as const) {
+    check(`G1b: ${doc} checks the reconciliation bridge`, txt.includes(BRIDGE_CHECK_LABEL));
+  }
+  {
+    const four = buildIntegrityChecks(snap);
+    check('G1b: the builder returns the bridge check', four.some((c) => c.label === BRIDGE_CHECK_LABEL));
+    const bridge = four.find((c) => c.label === BRIDGE_CHECK_LABEL);
+    check('G1b: the bridge check passes on the healthy fixture', bridge?.ok === true);
+    // It must be able to fail: a bridge that leaves 1% of peak assets unexplained.
+    const peak = Math.max(...snap.bs.totalAssetsPerPeriod.map((v: number) => Math.abs(v)));
+    const broken = { ...snap, bsReconciliation: { ...snap.bsReconciliation, unexplainedPerPeriod: snap.bsReconciliation.unexplainedPerPeriod.map((v: number, i: number) => (i === 1 ? v + peak * 0.01 : v)) } };
+    check('G1b: an unexplained residue FAILS the bridge check (not vacuous)',
+      buildIntegrityChecks(broken).find((c) => c.label === BRIDGE_CHECK_LABEL)?.ok === false);
+    const wbSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts', 'utf8');
+    check('G1b: the workbook computes no second bridge check of its own', !wbSrc.includes("worstDivergence("));
   }
 
   console.log('\n-- G2: the tolerance is relative and anchored on the PEAK --');
