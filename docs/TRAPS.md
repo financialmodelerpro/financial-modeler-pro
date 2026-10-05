@@ -3045,6 +3045,27 @@ proves on a real version that a stale bag alone stays silent and a stated value 
 one rule that decides what counts as a user's statement. It is invisible until the derivation changes. Found
 by the session-end suite, not by the change's own verifier, which is what that suite is for.
 
+### 7.62 "What changed" read as a diff of a settled model: one price change listed as 31 inputs
+
+**Symptom (2026-10-05, export review item 28):** Module 6's Year-on-Year Impact printed 22 driver blocks
+on Marina Gate, every revenue block with the same figures, while the project's cases store six overrides.
+On a fixture one price change produced 31 "changed inputs", 30 of them line markers nobody typed. Two
+blocks also had identical titles.
+
+**Mechanism:** three at once. The changed inputs were `buildOverrides(base, caseModel)`, a diff of the
+SETTLED case model against the base, so every value the settle derived from an override (unstated
+sub-unit prices, standard-origin capex overrides, `rateStated` markers) read as an input. Each block's
+output was the case's WHOLE movement, because a case moves its inputs together and the engine runs once
+per case. And the grid context labelled assets by the retired `Asset.name`, which `verify-asset-label`
+never saw because it checks the surfaces, not the context helpers they call.
+
+**Fix:** a case's changed inputs are its own stored overrides through `withoutDerivedOverrides` (only the
+live active case, which has no stored map yet, diffs, as the store does); blocks whose outputs are
+identical in every case and period merge with a note that the figures are their combined effect; the grid
+reads `assetLabel`. **Rule: "what a scenario changed" is its override map, never a diff of a settled
+model, the same rule as TRAPS 7.47 seen from the reading side.** `verify-module6-yoy` asserts every listed
+input is a stored one (59 extra on the old builder).
+
 ## 8. Registries and two-step registration
 
 ### 8.1 A template registered in one place and not the other fails silently and permanently

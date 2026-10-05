@@ -32,13 +32,14 @@ import { fundingChartPoints } from '../portfolio/fundingSeries';
 import { evaluateCovenant, covenantUnit, covenantSeries, reduceWorst, reduceAvg, COVENANT_METRIC_LABELS, covenantBasisNote, covenantCoverageNote, type CovenantInputs } from '../covenants';
 import { buildReMetricDetailGroups } from '../reports/reMetricTiles';
 import { buildPhaseProgramme } from '../reports/phaseProgramme';
+import { TAB_GUIDES as SHARED_TAB_GUIDES, type GuideLine } from '../reports/tabGuides';
 import { DEFAULT_COVENANTS } from '../state/module1-types';
 import { enumerateOverridableFields, getByPath } from '../cases/applyOverrides';
 import type { SensitivityVariable } from '@/src/core/calculations/returns';
 import { countryLabel } from '@/src/core/countries';
 import { revenueBySection } from '../reports/revenueSections';
 import { scheduleWithDisposal, idcWithDisposal, disposalContextOf } from '../reports/disposalSchedules';
-import { buildFinancingScheduleTables, buildCashSweepTables, type ReportTable } from '../reports/financingReports';
+import { buildFinancingScheduleTables, buildCashSweepTables, financingRowBasis, type ReportTable } from '../reports/financingReports';
 import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup, m4StreamRow, distributedTieNote } from '../reports/streamReports';
 import { buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
 import { buildCostOfSalesReport } from '../reports/cosReports';
@@ -3258,75 +3259,7 @@ function addFinancing(ctx: EmitCtx): FinLinks {
   // It matched substrings in a fixed order, so every "Closing" row (a finance
   // cost ledger, the equity roll-forward, closing cash) read the DEBT rule.
   // Each row now says what IT is, keyed on its own label and its table.
-  const basisFor = (label: string, table: string): string => {
-    const t = table.toLowerCase();
-    const exact: Record<string, string> = {
-      'Capex Drawdown': 'Debt share of the development funding need',
-      'IDC Drawdown (capitalized interest)': 'IDC the pre-interest cash cannot cover, drawn as debt',
-      'Total Drawdown': 'Capex drawdown + IDC drawdown',
-      'Principal Repaid': 'Scheduled principal repaid',
-      'Principal Repaid (incl. cash sweep)': 'Scheduled + cash-swept principal',
-      'Total Capex Drawdown': 'Sum of the facilities\' capex drawdowns',
-      'Total IDC Drawdown': 'Sum of the facilities\' IDC drawdowns',
-      'Total Drawdown (Capex + IDC)': 'Capex drawdown + IDC drawdown',
-      'Interest Expensed - Existing': 'Existing facilities, interest charged to the P&L',
-      'Interest Expensed - New': 'New facilities, interest charged to the P&L',
-      'Total Interest Expensed': 'Interest charged to the P&L once construction stops',
-      'Principal Repaid - Existing': 'Existing facilities, principal repaid',
-      'Principal Repaid - Existing (incl. sweep)': 'Existing facilities, principal repaid incl. sweep',
-      'Principal Repaid - New': 'New facilities, principal repaid',
-      'Principal Repaid - New (incl. sweep)': 'New facilities, principal repaid incl. sweep',
-      'Total Principal Repaid': 'Scheduled + cash-swept principal, all facilities',
-      'Debt Service - Existing': 'Existing facilities, interest paid + principal',
-      'Debt Service - New': 'New facilities, interest paid + principal',
-      'Total Debt Service (Cash)': 'Interest paid + principal repaid',
-      'Charge (Accrued)': 'Facility rate x outstanding balance',
-      'Charge (Accrued, all debts)': 'Sum of the facilities\' charges',
-      'Capitalized': 'Interest drawn as debt (IDC drawdown)',
-      'Paid': 'Interest paid in cash; IDC is paid when it arises',
-      '(memo) of which funded by drawing debt': 'Part of the payment funded by the IDC drawdown',
-      'Opening (incl. existing carry-forward)': 'Prior period closing (existing equity in the prior column)',
-      'Cash Contribution': 'Equity drawn in cash',
-      'Cash Contribution, development': 'Equity share of the development funding need',
-      'Cash Contribution, fund management fee': 'Fund management fee drawn from equity directly',
-      'In-Kind Contribution': 'In-kind land contributed as equity',
-      'Existing Equity (pre-axis carry-forward)': 'Existing operations equity (prior column)',
-      'Closing (cumulative equity)': 'Opening + cash + in-kind contributions',
-      'Opening Cash': 'Prior period closing cash',
-      '(+) Cash from Operations': 'Cash Flow, operating activities',
-      '(-) Cash from Investing (capex)': 'Cash Flow, investing activities: capex, and the exit proceeds in the exit year',
-      '(+) Equity Drawdown (Cash)': 'Cash equity drawn',
-      '(+) Equity In-Kind (memo, non-cash)': 'In-kind land, not a cash inflow',
-      '(+) Debt Drawdown (incl. additional to maintain min cash)': 'Cash debt drawn (capitalised IDC is non-cash)',
-      '(-) Interest Paid': 'Cash interest paid',
-      '= Cash Available': 'Opening + operations + investing + equity + debt - interest',
-      '(memo) Minimum Cash Requirement (reserved, not spent)': 'Minimum cash reserve, held and never spent',
-      '(memo) Headroom above the minimum reserve': 'Cash available - minimum reserve',
-      '(-) Debt Paid (total principal incl. sweep)': 'Principal repaid, scheduled + sweep',
-      '= Cash Available for Dividend': 'Cash available - debt paid',
-      '(-) Dividend Paid (per policy, EBITDA-capped)': 'Distribution per the dividend policy',
-      '= Closing Cash (ties to Cash Flow tab + Balance Sheet)': 'Cash available for dividend - dividend paid',
-      'Project total debt outstanding (post-sweep)': 'Sum of the facilities\' post-sweep balances',
-      'Total IDC (allocated to assets)': 'Capitalised construction interest, all lines',
-      'Memo: Total construction interest (accrual)': 'Interest accrued while construction spends',
-      'Subtotal: Sell IDC to CoS': 'Released through cost of sales as units are recognised',
-      'Subtotal: Operate/Lease IDC to Fixed Assets': 'Added to the depreciable basis at handover',
-      'Operate/Lease IDC Depreciation (charge to D&A)': 'Straight line over the useful life',
-      'Disposed at Exit (capitalised interest sold with the asset)': 'Written off with the asset at the exit',
-      'Operate/Lease IDC NBV (closing, sits on BS Fixed Assets)': 'Additions - depreciation - disposal',
-    };
-    if (label === 'Opening') return t.startsWith('finance cost') || t.startsWith('combined finance cost') ? 'Prior period closing (interest payable)' : 'Prior period closing';
-    if (label === 'Closing') return t.startsWith('finance cost') || t.startsWith('combined finance cost') ? 'Opening + charge - paid' : 'Opening + total drawdown - principal repaid';
-    if (exact[label]) return exact[label];
-    if (label.startsWith('(-) Debt Paid: ')) return 'Principal repaid on this facility';
-    if (label.endsWith(', Opening (pre-sweep)')) return 'Balance before this period\'s sweep';
-    if (label.includes(', Sweep Applied (')) return 'Surplus swept to this facility';
-    if (label.endsWith(', Closing (post-sweep)')) return 'Opening (pre-sweep) - sweep applied';
-    if (label.endsWith(' (Additions)')) return 'Line share of IDC added to fixed assets';
-    if (t.startsWith('idc allocation')) return 'Line share of the project IDC';
-    if (t.startsWith('routed to cos')) return 'Line share of IDC in its capex basis';
-    return '';
-  };
+  const basisFor = financingRowBasis;
   const emitTable = (table: ReportTable): void => {
     subTitle(table.title);
     for (const row of table.rows) emitM4(row, basisFor(row.label, table.title));
@@ -5244,85 +5177,24 @@ function buildGuideContent(ws: ExcelJS.Worksheet, snap: ReturnType<typeof comput
  * this block is the tab-level summary. Content mirrors the real engine, so if the
  * mechanics change, this text changes with them. Keyed by the SHEETS.* tab name.
  */
-type GuideLine = { kind: 'inputs' | 'logic' | 'feeds'; text: string };
-const G = (kind: GuideLine['kind'], text: string): GuideLine => ({ kind, text });
-
+// The guide text lives in lib/reports/tabGuides.ts (shared with the PDF); the
+// workbook maps its sheets onto it.
 const TAB_GUIDES: Record<string, GuideLine[]> = {
-  [SHEETS.summary]: [
-    G('inputs', 'Finished figures from the returns engine, the capex report, the area and land rules, the revenue sections and the balance sheet.'),
-    G('logic', 'Nothing is re-derived: this is the same overview builder the platform\'s Project Overview uses. Each IRR sits beside its own MOIC; the distributed pair is after the performance fee where a fund exists. Cost per sqm divides development or construction cost by GFA or saleable area. Debt / equity is each one\'s share of ALL sources, customer collections and operating cash included, so it is not a debt-to-equity ratio.'),
-    G('feeds', 'Nothing downstream. This is the read-out to hand over when the detail is not needed.'),
-  ],
-  [SHEETS.assumptions]: [
-    G('inputs', 'Every input screen of the platform in module order: Project & Phases, Fund Terms, Asset Types & Standards (type values, parking area per slot, cost escalation, cost standards), Plots, Assets by plot (Table 2), Sub-units (Table 5), Capex lines, Financing, Revenue and Escrow per line, Opex per line and DPO, P&L and depreciation inputs, Returns.'),
-    G('logic', 'Nothing is computed here. Shaded cells are what a user types on the platform; unshaded figures beside them (derived windows, values inherited from the asset type, capex quantities and subtotals, resolved ADR and rent, default splits) are shown the way the screens show them.'),
-    G('feeds', 'Every other tab. Change an input on the platform and re-export to see the effect flow through; editing this workbook does not recalculate it.'),
-  ],
-  [SHEETS.timeline]: [
-    G('inputs', 'Each phase\'s start date, construction periods and operations periods (a legacy overlap on an older project is read, never edited).'),
-    G('logic', 'Period 0 is the opening column (the year before the project start); periods 1..N are the active years. Construction runs from the phase start for its construction periods; operations begin the day after construction ends and run for the operations periods. The project ends at the latest operations end across all phases.'),
-    G('feeds', 'Every period tab keys its columns to this axis, so all tabs share one timeline and one period index.'),
-  ],
-  [SHEETS.landArea]: [
-    G('inputs', 'Plot area and land rate (Table 1), the Table 2 massing (land utilisation, ground coverage, FAR, retail share, service share), and the asset type values (unit size, parking ratio, parking area per slot). A plot value wins; an absent value inherits from the type; a typed 0 is a real value.'),
-    G('logic', 'Top-down per plot: plot area x utilisation = net developable area; x coverage = building footprint; utilised land x FAR = Total GFA. The retail share of the footprint is ground-floor retail, carried by the line\'s retail strip, which carves its land out of its hosts in proportion to retail GFA over each host\'s total GFA. Main Asset GFA less the service share gives net saleable area; units, parking slots and parking areas follow; Total BUA = Total GFA + parking. Table 4 adds the plots of each line. Land is allocated by sqm only: land value = land sqm x the plot\'s rate, split into cash and in-kind by the plot\'s percentages.'),
-    G('feeds', 'The Capex quantity bases (Main Asset GFA, Parking Area, Landscape Area, Plot Area, Retail GFA, Retail Parking Area), the land value lines in Capex, and the land on the Balance Sheet.'),
-  ],
-  [SHEETS.capex]: [
-    G('inputs', 'Each cost line, by line: method, rate (base-year money, a Types and Standards default unless typed on the Capex line), the rate source, and the phasing source the engine resolved (the phase curve, the line\'s own curve, follows land cash, follows collections, or the parcel payment schedule); construction cost escalation from Types and Standards.'),
-    G('logic', 'Each line = Rate x Quantity on its basis (Main Asset GFA, Parking Area, Landscape, Retail GFA, Retail Parking, Plot Area, units, a percentage of land, of revenue or of the lines selected above it, or a lump sum). When escalation is on, a rate escalates from the project start year into the years its line spends, weighted by the line\'s spend profile; lump sums, the land value lines and anything charged on land or revenue are exempt. The allocation profile is the engine\'s resolved spend as a share of each line\'s total.'),
-    G('feeds', 'Table 2 (incl. all land) feeds Cost of Sales and fixed assets; Table 3 (excl. land in-kind) is the cash capex Financing funds; Table 4 (excl. total land) is construction cost; Table 5 gives land cash and in-kind per phase for land funding; Table 6 files the cost by category.'),
-  ],
-  [SHEETS.financing]: [
-    G('inputs', 'Minimum cash, IDC allocation basis, funding method and its debt / equity split, how the fund management fee is funded, the land funding split per phase, and each facility\'s interbank rate, credit spread, fees, repayment method, start year, periods and share.'),
-    G('logic', 'The selected method sizes the requirement. Method 3 (cash deficit) draws debt and equity at the ratio only in periods with construction spend, to keep the minimum cash, and its sizing carries no finance cost. IDC is paid in the period it arises, with debt drawn only for what cash cannot cover, and is capitalised into asset cost. A fee funded by equity is drawn directly, outside the ratio. Each finance cost ledger closes Opening + Charge - Paid. The sweep repays debt from surplus above the minimum cash, then dividends follow the policy.'),
-    G('feeds', 'Interest to the P&L; drawdowns, repayments, interest paid and dividends to the Cash Flow; debt and equity to the Balance Sheet; FCFE and distributions to Returns.'),
-  ],
-  [SHEETS.revenue]: [
-    G('inputs', 'Per line, filed by section (Residential, Hospitality, Standalone Commercial, Retail Ground Floor): sub-units and prices from the Assets tab (sale price per sqm or per unit, ADR, rent), sales pace by year, price or rent indexation, recognition method, sale cohort terms (downpayment by sale year, instalment years), hotel occupancy, guests, F&B and Other, lease occupancy, receivable days, and the escrow held % and years.'),
-    G('logic', 'Sell revenue = area or units sold (pace x inventory, capped at what is unsold) x base price x indexation factor. Pre-sales recognise at handover (the last construction year), or per the recognition profile; sales during operation recognise in their sale year. Collections follow the sale cohort terms: a downpayment in the sale year, then instalments to handover. Hotel revenue = keys x days x occupancy x indexed ADR, plus F&B and Other as a percentage of rooms. Lease revenue = gross lease area x occupancy x indexed rent. Cost of sales = Module 1 capex plus capitalised IDC, released on each line\'s share of lifetime recognised revenue. Escrow locks a share of pre-sales cash and releases it as one sum in the release year.'),
-    G('feeds', 'Revenue and Cost of Sales to the P&L; collections (net of escrow) to the Cash Flow operating block; receivables, inventory, unearned revenue and the escrow balance to the Balance Sheet.'),
-  ],
-  [SHEETS.opex]: [
-    G('inputs', 'HQ overheads and the project DPO, then per line: opex items by category and mode (percent of revenue or GOP, per key, per sqm, fixed), the asset inflation and any per-item override or year-by-year rates.'),
-    G('logic', 'Fixed, per-key and per-sqm items inflate with the asset (or overriding) inflation; percent-of-revenue and percent-of-GOP items move with revenue and are not indexed. A hotel reads as an operating statement: revenue by department, departmental expenses, undistributed expenses, GOP, management fees, fixed charges and reserves, EBITDA. Lease lines group into property operating costs and other charges down to EBITDA. Accounts payable = opex x DPO / days basis; cash paid = opex less the change in payables.'),
-    G('feeds', 'Opex by line to the P&L between revenue and EBITDA (hotel departments and expense groups as members of their headers); opex paid to the Cash Flow; accounts payable to the Balance Sheet.'),
-  ],
-  [SHEETS.schedules]: [
-    G('inputs', 'Capex by line, capitalised interest (IDC) by line, useful life and depreciation method per line, revenue recognition and collections, opex and DPO, and the debt, equity and dividend schedules.'),
-    G('logic', 'Fixed Assets & D&A, per held line (Operate and Lease): Land (opening + additions - disposed at exit = closing; land never depreciates) and Depreciable (opening + capex additions + IDC additions - depreciation - disposed at exit = closing). Depreciation starts when the asset is available for use, on capex and IDC alike, and stops at the exit, when the balance is written off as a disposal. IDC on a Sell line is not a fixed asset: it goes to inventory and is released through Cost of Sales. BS Schedules roll each balance forward: receivables, unearned revenue, inventory, payables, escrow, debt, equity and retained earnings.'),
-    G('feeds', 'Every closing balance is a Balance Sheet line; every movement is the matching adjustment in the Indirect Cash Flow; depreciation is the D&A line of the P&L.'),
-  ],
-  [SHEETS.pl]: [
-    G('inputs', 'Recognised revenue and Cost of Sales from Revenue, opex from Opex, the fund management fees, D&A from Schedules, interest, the disposal gain, and the zakat or tax rate with its disposal-gain toggle.'),
-    G('logic', 'Revenue - Cost of Sales = gross profit; - operating expenses - Total Fund Management Fee = EBITDA (struck after the fund fees). EBITDA - D&A = EBIT; - interest expensed (construction interest is capitalised, not expensed) + gain on disposal = profit before zakat or tax; - zakat or tax (charged excluding the disposal gain unless the toggle includes it) = profit after tax. The subtotals are the engine\'s own figures, never recomputed. A phase view stops at EBITDA before the fund fees, which are project-level, so phase EBITDAs do not add to the project figure.'),
-    G('feeds', 'Profit after tax to retained earnings on the Balance Sheet and to the top of the Indirect Cash Flow; EBITDA to the DSCR and ICR covenants in Returns.'),
-  ],
-  [SHEETS.cashflow]: [
-    G('inputs', 'Collections and escrow from Revenue, opex paid from Opex, fund fees, zakat or tax paid, capex and disposal proceeds, and drawdowns, repayments, interest and dividends from Financing.'),
-    G('logic', 'Direct: cash collected - opex paid - Fund Management and Other Expenses - zakat or tax = cash flow from operations; - capex paid in cash (in-kind land shown as a matched pair that nets to zero) + disposal proceeds at the exit = cash flow from investing; + equity and debt drawn - principal, interest and dividends = cash flow from financing. Indirect: profit after tax + D&A - gain on disposal +/- working capital movements = the same cash flow from operations. Closing cash = opening + net cash flow, and both methods must agree every period. A phase view shows operations and investing only.'),
-    G('feeds', 'Closing cash is the Balance Sheet cash line. The Checks tab asserts Direct equals Indirect and cash ties to the Balance Sheet in every period.'),
-  ],
-  [SHEETS.balsheet]: [
-    G('inputs', 'Closing balances from the Schedules, closing cash from the Direct Cash Flow, and debt and equity from Financing.'),
-    G('logic', 'Assets (cash, restricted escrow cash, receivables, inventory, fixed assets including capitalised IDC, land) = Liabilities (payables, unearned revenue, debt) + Equity (share capital, reserves, retained earnings). Cash is carried from the Direct Cash Flow, and the balance check proves the two sides agree; the reconciliation bridge explains every period\'s movement and its Unexplained row must read 0. Held fixed assets and land read zero from the exit, when they are disposed of.'),
-    G('feeds', 'Nothing downstream: this is the closing position. Debt outstanding feeds LTV at peak debt in Returns.'),
-  ],
-  [SHEETS.returns]: [
-    G('inputs', 'The Module 4 statements, the returns assumptions (discount rate, exit year, terminal value method, basis, cap rate or multiple, growth), equity partner shares, fund terms and covenant thresholds.'),
-    G('logic', 'FCFF is unlevered full cost: operating cash before interest, less cash capex (investing before disposal proceeds), in-kind land and capitalised interest, plus the terminal value. FCFE builds visibly from FCFF before the terminal value: + net debt - finance cost, then the terminal value less closing debt. Distributed equity is equity in against dividends out. The terminal value capitalises the basis year\'s income (the year before exit by default) at the exit cap rate, an exit multiple or perpetuity growth, or is none, and is booked as a disposal. IRR and MOIC per basis; ' + RETURNS_NPV_NOTE + ' RE Metrics: covenants from per-period series (DSCR and ICR worst year, Debt Yield, LTV at peak debt = debt / GDV).'),
-    G('feeds', 'The Summary tab and the Scenarios comparison.'),
-  ],
-  [SHEETS.scenarios]: [
-    G('inputs', 'The Management base case and each scenario case\'s overrides.'),
-    G('logic', 'Each case re-runs the engine on a copy of the base with its overrides applied and settled (the base is never changed). The assumptions grid shows the key drivers and every overridden field per case; the comparison shows headline KPIs with deltas against Management; the year-on-year impact appears only when an override drives a per-period output.'),
-    G('feeds', 'Nothing downstream. The statement tabs in this workbook are the case selected at export.'),
-  ],
-  [SHEETS.checks]: [
-    G('inputs', 'The balance sheet, both cash flow methods, the reconciliation bridge and the revenue advisories.'),
-    G('logic', 'Three identities, each within a relative tolerance of its peak: the balance sheet balances, cash flow closing cash equals balance sheet cash, and Direct net cash flow equals Indirect. The reconciliation bridge\'s Unexplained residue is a fourth. NOTE rows are advisories whose figure measures the situation described, not a failure.'),
-    G('feeds', 'Nothing. This tab is the audit trail: when every check passes, the workbook is internally consistent and ties to the platform.'),
-  ],
+  [SHEETS.summary]: SHARED_TAB_GUIDES.summary,
+  [SHEETS.assumptions]: SHARED_TAB_GUIDES.assumptions,
+  [SHEETS.timeline]: SHARED_TAB_GUIDES.timeline,
+  [SHEETS.landArea]: SHARED_TAB_GUIDES.landArea,
+  [SHEETS.capex]: SHARED_TAB_GUIDES.capex,
+  [SHEETS.financing]: SHARED_TAB_GUIDES.financing,
+  [SHEETS.revenue]: SHARED_TAB_GUIDES.revenue,
+  [SHEETS.opex]: SHARED_TAB_GUIDES.opex,
+  [SHEETS.schedules]: SHARED_TAB_GUIDES.schedules,
+  [SHEETS.pl]: SHARED_TAB_GUIDES.pl,
+  [SHEETS.cashflow]: SHARED_TAB_GUIDES.cashflow,
+  [SHEETS.balsheet]: SHARED_TAB_GUIDES.balsheet,
+  [SHEETS.returns]: SHARED_TAB_GUIDES.returns,
+  [SHEETS.scenarios]: SHARED_TAB_GUIDES.scenarios,
+  [SHEETS.checks]: SHARED_TAB_GUIDES.checks,
 };
 
 /** Add the navigation + guidance layer to every data tab: a "Covers" line on the

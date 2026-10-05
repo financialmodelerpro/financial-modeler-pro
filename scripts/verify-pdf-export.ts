@@ -27,7 +27,7 @@ import { buildBsFeederTables, buildBsReconciliationRows } from '../src/hubs/mode
 import { payloadHasActiveProject } from '../src/shared/entitlements/exportGuard';
 import { PDF_MODULE_TABS } from '../src/hubs/modeling/platforms/refm/lib/pdf/pdfModuleTabs';
 import { projectLocationLabel } from '../src/core/countries';
-import { pdfTabKey, CASE_MATRIX_TITLE } from '../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf';
+import { pdfTabKey, CASE_MATRIX_TITLE, PDF_TAB_GUIDES } from '../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import INTER_REGULAR_B64 from '../src/hubs/modeling/platforms/refm/lib/pdf/fonts/interRegular';
 import INTER_BOLD_B64 from '../src/hubs/modeling/platforms/refm/lib/pdf/fonts/interBold';
@@ -399,6 +399,46 @@ async function main(): Promise<void> {
       prog.endYear === Math.max(...prog.rows.map((r) => years[r.cells.lastIndexOf('operations')] ?? 0)));
     check('C23: the workbook Gantt reads the same builder',
       readFileSync('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts', 'utf8').includes('buildPhaseProgramme('));
+  }
+
+  // C25 (2026-10-05, export review item 25): "How this tab is calculated" and
+  // the Basis / Calculation text reach the PDF, from the workbook's own words.
+  {
+    const { pdfText } = await import('./pdfTextExtract');
+    const { TAB_GUIDES, TAB_GUIDE_HEADING } = await import('../src/hubs/modeling/platforms/refm/lib/reports/tabGuides');
+    const { buildFinancingScheduleTables, financingRowBasis } = await import('../src/hubs/modeling/platforms/refm/lib/reports/financingReports');
+    const st = buildState();
+    const sn = computeFinancialsSnapshot(st);
+    // The font draws ( ) [ ] - : as private-use glyphs; decode them so a page
+    // header ("Module 1: ...") reads as written (TRAPS: pdf glyph PUA decode).
+    const PUA: Record<string, string> = { '': '(', '': ')', '': '[', '': ']', '': '-', '': ':' };
+    const raw = pdfText(await generateProjectPdf({ state: st, projectName: 'X', versionLabel: null, dateLabel: 'd',
+      selectedModuleKeys: ['module1', 'module2', 'module3', 'module4', 'module5', 'module6'] })).replace(/[-]/g, (c) => PUA[c] ?? c);
+    const norm = (s: string): string => s.replace(/[^A-Za-z0-9]/g, '');
+    // A guide that breaks across a page has the footer and the next page's
+    // header between its words; those are page furniture, not the text.
+    const furniture = (l: string): boolean => /^Page \d+ of \d+/.test(l) || l.startsWith('Financial Modeler Pro') || /^Module \d+:? .*·\s*Tab /.test(l) || l.startsWith('Money in ');
+    const flat = norm(raw.split('\n').map((l) => l.trim()).filter((l) => !furniture(l)).join(' '));
+    // A guide follows a tab that PRINTS: this fixture has no Capex tab, and a
+    // guide under a tab that is not there would be a heading with no figures.
+    const emittedTabs = collectModuleTabs(st);
+    const due = Object.entries(PDF_TAB_GUIDES).flatMap(([mod, map]) => Object.entries(map)
+      .filter(([tab]) => (emittedTabs[mod] ?? []).some((t) => pdfTabKey(t) === tab))
+      .map(([tab, ids]) => ({ where: `${mod}:${tab}`, ids })));
+    check('C25: the fixture prints most of the mapped tabs (not vacuous)', due.length >= 8, `${due.length} due`);
+    const missingGuides = due.filter((d) => !d.ids.every((id) => TAB_GUIDES[id].every((l) => flat.includes(norm(l.text))))).map((d) => d.where);
+    check('C25: every printed tab that has a guide prints it, word for word', missingGuides.length === 0, missingGuides.join(', '));
+    check('C25: each guide carries its heading', raw.split('\n').filter((l) => l.trim() === TAB_GUIDE_HEADING).length === due.length,
+      `${raw.split('\n').filter((l) => l.trim() === TAB_GUIDE_HEADING).length} headings, ${due.length} due`);
+    check('C25: no printed guide speaks of "this workbook"', !/this workbook|The Checks tab/i.test(raw.replace(/\s+/g, ' ')));
+    const tables = buildFinancingScheduleTables(sn, st, String);
+    const withBasis = tables.filter((t) => t.rows.some((r) => financingRowBasis(r.label, t.title) !== ''));
+    const lines = raw.split('\n').map((l) => l.trim());
+    const noBasisTable = withBasis.filter((t) => !lines.includes(`${t.title}: basis / calculation`)).map((t) => t.title);
+    check('C25: every financing schedule that states a basis is followed by its basis table', withBasis.length > 0 && noBasisTable.length === 0, `${withBasis.length} with basis; missing: ${noBasisTable.join(', ')}`);
+    const wbSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts', 'utf8');
+    check('C25: the workbook holds no guide text or financing basis of its own',
+      !wbSrc.includes("G('logic'") && !wbSrc.includes('const basisFor = (label') && wbSrc.includes('financingRowBasis') && wbSrc.includes('SHARED_TAB_GUIDES'));
   }
 
   // C26 (2026-10-05, export review item 26): the RE Metrics detail tiles come

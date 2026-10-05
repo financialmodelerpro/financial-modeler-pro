@@ -442,3 +442,80 @@ export function buildCashSweepTables(snap: ProjectFinancialsSnapshot, state: Fin
 
   return tables;
 }
+
+/**
+ * THE BASIS / CALCULATION TEXT FOR A FINANCING SCHEDULE ROW, by its exact label
+ * and its table (export review item 20, moved here from the workbook on
+ * 2026-10-05 for item 25 so the PDF prints the same sentence). It matched
+ * substrings in a fixed order once, so every "Closing" row read the DEBT rule.
+ * Empty when a row has no basis to state.
+ */
+export function financingRowBasis(label: string, table: string): string {
+  const t = table.toLowerCase();
+  const exact: Record<string, string> = {
+    'Capex Drawdown': 'Debt share of the development funding need',
+    'IDC Drawdown (capitalized interest)': 'IDC the pre-interest cash cannot cover, drawn as debt',
+    'Total Drawdown': 'Capex drawdown + IDC drawdown',
+    'Principal Repaid': 'Scheduled principal repaid',
+    'Principal Repaid (incl. cash sweep)': 'Scheduled + cash-swept principal',
+    'Total Capex Drawdown': 'Sum of the facilities\' capex drawdowns',
+    'Total IDC Drawdown': 'Sum of the facilities\' IDC drawdowns',
+    'Total Drawdown (Capex + IDC)': 'Capex drawdown + IDC drawdown',
+    'Interest Expensed - Existing': 'Existing facilities, interest charged to the P&L',
+    'Interest Expensed - New': 'New facilities, interest charged to the P&L',
+    'Total Interest Expensed': 'Interest charged to the P&L once construction stops',
+    'Principal Repaid - Existing': 'Existing facilities, principal repaid',
+    'Principal Repaid - Existing (incl. sweep)': 'Existing facilities, principal repaid incl. sweep',
+    'Principal Repaid - New': 'New facilities, principal repaid',
+    'Principal Repaid - New (incl. sweep)': 'New facilities, principal repaid incl. sweep',
+    'Total Principal Repaid': 'Scheduled + cash-swept principal, all facilities',
+    'Debt Service - Existing': 'Existing facilities, interest paid + principal',
+    'Debt Service - New': 'New facilities, interest paid + principal',
+    'Total Debt Service (Cash)': 'Interest paid + principal repaid',
+    'Charge (Accrued)': 'Facility rate x outstanding balance',
+    'Charge (Accrued, all debts)': 'Sum of the facilities\' charges',
+    'Capitalized': 'Interest drawn as debt (IDC drawdown)',
+    'Paid': 'Interest paid in cash; IDC is paid when it arises',
+    '(memo) of which funded by drawing debt': 'Part of the payment funded by the IDC drawdown',
+    'Opening (incl. existing carry-forward)': 'Prior period closing (existing equity in the prior column)',
+    'Cash Contribution': 'Equity drawn in cash',
+    'Cash Contribution, development': 'Equity share of the development funding need',
+    'Cash Contribution, fund management fee': 'Fund management fee drawn from equity directly',
+    'In-Kind Contribution': 'In-kind land contributed as equity',
+    'Existing Equity (pre-axis carry-forward)': 'Existing operations equity (prior column)',
+    'Closing (cumulative equity)': 'Opening + cash + in-kind contributions',
+    'Opening Cash': 'Prior period closing cash',
+    '(+) Cash from Operations': 'Cash Flow, operating activities',
+    '(-) Cash from Investing (capex)': 'Cash Flow, investing activities: capex, and the exit proceeds in the exit year',
+    '(+) Equity Drawdown (Cash)': 'Cash equity drawn',
+    '(+) Equity In-Kind (memo, non-cash)': 'In-kind land, not a cash inflow',
+    '(+) Debt Drawdown (incl. additional to maintain min cash)': 'Cash debt drawn (capitalised IDC is non-cash)',
+    '(-) Interest Paid': 'Cash interest paid',
+    '= Cash Available': 'Opening + operations + investing + equity + debt - interest',
+    '(memo) Minimum Cash Requirement (reserved, not spent)': 'Minimum cash reserve, held and never spent',
+    '(memo) Headroom above the minimum reserve': 'Cash available - minimum reserve',
+    '(-) Debt Paid (total principal incl. sweep)': 'Principal repaid, scheduled + sweep',
+    '= Cash Available for Dividend': 'Cash available - debt paid',
+    '(-) Dividend Paid (per policy, EBITDA-capped)': 'Distribution per the dividend policy',
+    '= Closing Cash (ties to Cash Flow tab + Balance Sheet)': 'Cash available for dividend - dividend paid',
+    'Project total debt outstanding (post-sweep)': 'Sum of the facilities\' post-sweep balances',
+    'Total IDC (allocated to assets)': 'Capitalised construction interest, all lines',
+    'Memo: Total construction interest (accrual)': 'Interest accrued while construction spends',
+    'Subtotal: Sell IDC to CoS': 'Released through cost of sales as units are recognised',
+    'Subtotal: Operate/Lease IDC to Fixed Assets': 'Added to the depreciable basis at handover',
+    'Operate/Lease IDC Depreciation (charge to D&A)': 'Straight line over the useful life',
+    'Disposed at Exit (capitalised interest sold with the asset)': 'Written off with the asset at the exit',
+    'Operate/Lease IDC NBV (closing, sits on BS Fixed Assets)': 'Additions - depreciation - disposal',
+  };
+  if (label === 'Opening') return t.startsWith('finance cost') || t.startsWith('combined finance cost') ? 'Prior period closing (interest payable)' : 'Prior period closing';
+  if (label === 'Closing') return t.startsWith('finance cost') || t.startsWith('combined finance cost') ? 'Opening + charge - paid' : 'Opening + total drawdown - principal repaid';
+  if (exact[label]) return exact[label];
+  if (label.startsWith('(-) Debt Paid: ')) return 'Principal repaid on this facility';
+  if (label.endsWith(', Opening (pre-sweep)')) return 'Balance before this period\'s sweep';
+  if (label.includes(', Sweep Applied (')) return 'Surplus swept to this facility';
+  if (label.endsWith(', Closing (post-sweep)')) return 'Opening (pre-sweep) - sweep applied';
+  if (label.endsWith(' (Additions)')) return 'Line share of IDC added to fixed assets';
+  if (t.startsWith('idc allocation')) return 'Line share of the project IDC';
+  if (t.startsWith('routed to cos')) return 'Line share of IDC in its capex basis';
+  return '';
+}

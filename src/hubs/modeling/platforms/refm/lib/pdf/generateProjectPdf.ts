@@ -100,7 +100,7 @@ import {
 import { computeFundingBasis } from '../reports/fundingBasis';
 import { countryLabel } from '@/src/core/countries';
 import { deriveCostStage, isLandValueLine } from '@/src/core/calculations';
-import { buildFinancingScheduleTables, buildCashSweepTables, buildIdcAllocationTables, phaseLandSplit, landFundingNote } from '../reports/financingReports';
+import { buildFinancingScheduleTables, buildCashSweepTables, buildIdcAllocationTables, phaseLandSplit, landFundingNote, financingRowBasis } from '../reports/financingReports';
 import { CAPITALISED_INTEREST_RULE } from '@/src/core/calculations/capitalisedInterest';
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildCaseComparisonReport, type CaseComparisonInput, type CaseComparisonReport } from '../reports/caseComparisonReport';
@@ -113,6 +113,7 @@ import { buildOverviewReport, distributedReturnPair } from '../reports/overviewR
 import { formatAssumptionValue, assumptionUnitSuffix } from '../cases/assumptionGrid';
 import { buildReMetricDetailGroups } from '../reports/reMetricTiles';
 import { buildPhaseProgramme, PROGRAMME_CELL_TEXT, PROGRAMME_TITLE, PROGRAMME_LEGEND, type ProgrammeCell } from '../reports/phaseProgramme';
+import { TAB_GUIDES, TAB_GUIDE_HEADING, GUIDE_KIND_LABEL, type GuideId } from '../reports/tabGuides';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { MODULES, type ModuleConfig } from '../modules-config';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
@@ -1093,6 +1094,24 @@ function buildFundBlock(
  *  showing its delta vs the base in-cell. Feeds BOTH Module 5 (Tab 3) and Module
  *  6 (Scenario Comparison) from the same shared builder. Null when there are fewer
  *  than two cases to compare. */
+/**
+ * THE BASIS / CALCULATION COLUMN, AS A TABLE UNDER ITS SCHEDULE (2026-10-05,
+ * export review item 25). The workbook carries it as a column beside each row;
+ * a column here would take the width of two or three periods off every
+ * schedule and push it across more pages, so each schedule is followed by its
+ * rows' bases instead, from the same sentence the workbook prints
+ * (financingRowBasis). Only rows that state a basis; a repeated row once.
+ */
+export const BASIS_TABLE_SUFFIX = ': basis / calculation';
+function financingBasisTable(t: { title: string; rows: M4Row[] }): PdfTable | null {
+  const seen = new Set<string>();
+  const rows = t.rows
+    .map((r) => [r.label, financingRowBasis(r.label, t.title)] as const)
+    .filter(([l, b]) => b !== '' && !seen.has(l + '|' + b) && (seen.add(l + '|' + b), true));
+  if (!rows.length) return null;
+  return { title: t.title + BASIS_TABLE_SUFFIX, kind: 'grid', align: 'data', columns: ['Row', 'Basis / Calculation'], rows: rows.map(([l, b]) => row([l, b])) };
+}
+
 export const CASE_MATRIX_TITLE = 'Case Comparison, headline KPIs (delta vs Management Case)';
 
 function buildCaseComparisonMatrix(caseReport: CaseComparisonReport, fmt: Fmt): PdfTable | null {
@@ -2303,9 +2322,13 @@ function buildModule1(
   const fmtFn = (v: number): string => fmt.money(v);
   for (const t of buildFinancingScheduleTables(snap, state, fmtFn)) {
     items.push(tTable(M1_TABS.finSchedules, 'schedules', m4RowsToPeriodTable(t.title, py, yl, t.rows)));
+    const b = financingBasisTable(t);
+    if (b) items.push(tTable(M1_TABS.finSchedules, 'schedules', b));
   }
   for (const t of buildIdcAllocationTables(snap, state, fmtFn)) {
     items.push(tTable(M1_TABS.finSchedules, 'schedules', m4RowsToPeriodTable(t.title, py, yl, t.rows)));
+    const b = financingBasisTable(t);
+    if (b) items.push(tTable(M1_TABS.finSchedules, 'schedules', b));
   }
   items.push(tPara(M1_TABS.finSchedules, 'schedules', 'How capitalised interest is shared', CAPITALISED_INTEREST_RULE));
   {
@@ -2360,6 +2383,8 @@ function buildModule1(
   }
   for (const t of buildCashSweepTables(snap, state, fmtFn)) {
     items.push(tTable(M1_TABS.finSweep, 'schedules', m4RowsToPeriodTable(t.title, py, yl, t.rows)));
+    const b = financingBasisTable(t);
+    if (b) items.push(tTable(M1_TABS.finSweep, 'schedules', b));
   }
 
   return items;
@@ -3921,6 +3946,40 @@ function renderableContent(content: ModuleContent, sel: ModuleSectionSelection, 
  *  the exported report covers the whole platform. Lists the planned content from
  *  the registry; fills in with real content automatically once the module ships. */
 /**
+ * "HOW THIS TAB IS CALCULATED" (2026-10-05, export review item 25). The workbook
+ * appended a guide to every tab and the PDF printed none. The text is the
+ * workbook's, from lib/reports/tabGuides.ts; this maps each report tab to the
+ * guides that describe it, printed at the END of the tab so the reader meets the
+ * figures first. A tab matched by name (the "Tab N:" prefix is presentation).
+ */
+export const PDF_TAB_GUIDES: Record<string, Record<string, GuideId[]>> = {
+  module1: { 'Project & Phases': ['timeline'], 'Assets & Sub-units': ['landArea'], Capex: ['capex'], 'Financing / Inputs': ['financing'] },
+  module2: { Revenue: ['revenue'] },
+  module3: { 'Opex Output': ['opex'] },
+  module4: { 'Schedules / Fixed Assets & D&A': ['schedules'], 'P&L': ['pl'], 'Cash Flow': ['cashflow'], 'Balance Sheet': ['balsheet', 'checks'] },
+  module5: { Returns: ['returns'] },
+  module6: { 'Cases & Assumptions': ['scenarios'] },
+};
+
+export function withTabGuides(moduleKey: string, content: ModuleContent): ModuleContent {
+  const map = PDF_TAB_GUIDES[moduleKey];
+  if (!map) return content;
+  const out = content.slice();
+  for (const [name, ids] of Object.entries(map)) {
+    let last = -1;
+    out.forEach((ti, i) => { if (pdfTabKey(ti.tab) === name) last = i; });
+    if (last < 0) continue;
+    const { tab, part } = out[last];
+    const lines = ids.flatMap((id) => TAB_GUIDES[id]);
+    const guide: TaggedItem[] = lines.map((l, k) => ({ tab, part, item: {
+      type: 'paragraph' as const, title: k === 0 ? TAB_GUIDE_HEADING : undefined, text: `${GUIDE_KIND_LABEL[l.kind]}: ${l.text}`,
+    } }));
+    out.splice(last + 1, 0, ...guide);
+  }
+  return out;
+}
+
+/**
  * THE CASE MATRIX PRINTS ONCE PER DOCUMENT (2026-10-05, export review item 27).
  * Module 5's Case Comparison and Module 6's Scenario Comparison both render the
  * same shared matrix, so a full report printed it twice, verbatim. Where BOTH
@@ -4314,7 +4373,7 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
     else if (m.key === 'module6') content = buildModule6(caseReport, caseYoY, fmt, opts.caseComparison);
     else continue;
     if (!content) continue;
-    content = dropEmptyItems(content); // suppress genuinely-empty items (header, no body)
+    content = withTabGuides(m.key, dropEmptyItems(content)); // suppress genuinely-empty items (header, no body), then the tab guides
     // Skip a module ENTIRELY (no section-break / ToC / outline node) when the
     // Inputs/Schedules/Outputs filter + per-tab selection leave it with nothing to
     // render, so nav lists only included content with no dangling links.

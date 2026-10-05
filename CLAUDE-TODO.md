@@ -12,7 +12,16 @@ A 3SFM model scored 5.5% "Not Yet Competent" was approved by a mis-click. One cl
 4. **No undo.** `review/route.ts` returns 409 on any decided row and `checkApproval.ts` says reversal is a hand edit. The existing certificate "revoke" (`training_admin_actions`) is a flag the verify page, certificate API, progress and the cert engine all ignore. Proposed: an admin "Reverse approval" action doing what was done by hand on 2026-10-05 (status to rejected keeping the note, delete the cert row + storage PDF/badge/transcript, remove the BVM row only if approval created it, audit row, correcting email that says the earlier emails were sent in error).
 5. Minor: `/api/og/certificate/<id>` returns 500 (not 404) for a certificate that does not exist.
 
-## START HERE 2026-09-30: EXPORT REVIEW GROUPS 1 AND 2 DONE; GROUP 3 NOT STARTED; GROUP 4 REPORTED
+## START HERE 2026-10-05: EXPORT REVIEW GROUP 3 DONE (items 23 to 29); GROUP 4 STILL THE FOUNDER'S CALL
+
+Each item one commit, detail in [CHANGELOG.md](CHANGELOG.md) 2026-10-05. **OPEN, in order:** (1) Group 4 below
+(report only, unchanged); (2) the Training Hub BVM gate and the approve guard / undo, section above; (3) item 25
+ported the Financing basis text only: the Revenue, Opex, P&L and Cash Flow basis cells are still workbook-only (mostly
+row descriptors the PDF shows in its own columns; port them only if a reader asks); (4) `verify-pdf-export` is slow:
+measured 487s at `dcf2a936` (before Group 3) and about 640s after, the 19 new checks rendering a few full PDFs. Worth
+sharing one render across its sections if the suite's wall time starts to matter.
+
+## 2026-09-30: EXPORT REVIEW GROUPS 1 AND 2 DONE; GROUP 3 (now DONE 2026-10-05); GROUP 4 REPORTED
 
 **DONE, one commit each, detail in [CHANGELOG.md](CHANGELOG.md) 2026-09-29 and 2026-09-30:** the retail strip
 IDC split, items 1 to 3 and 5 to 22 (item 4 was the IDC question). Two regressions the session-end suite found
