@@ -68,7 +68,10 @@ console.log(`blocks: ${report.blocks.map((b) => `${b.inputLabel} -> [${b.outputs
 check('axis leads with the prior/inception year (yearLabels[0] - 1)', report.priorYearLabel === report.yearLabels[0] - 1, `prior=${report.priorYearLabel} first=${report.yearLabels[0]}`);
 check('the first column is 2025 (project start 2026 minus one)', report.priorYearLabel === 2025 && report.yearLabels[0] === 2026, `prior=${report.priorYearLabel}`);
 
-const find = (path: string): YoYBlock | undefined => report.blocks.find((b) => b.path === path);
+// RE-AIMED 2026-10-05 (export review item 28): blocks whose effect is identical
+// now merge, and a merged block carries its FIRST input's path. The rule is that
+// the input is shown in a block, so look it up among each block's input lines.
+const find = (path: string): YoYBlock | undefined => report.blocks.find((b) => b.path === path || b.inputs.some((l) => l.path === path));
 const out = (b: YoYBlock | undefined, pred: (o: YoYOutput) => boolean): YoYOutput | undefined => b?.outputs.find(pred);
 
 // ── Interest-rate block: input row + financing cost (flow) + balance (stock) ──
@@ -230,5 +233,53 @@ const downFinCost = cmp.columns.find((c) => c.id === 'case_down')!.values['Total
 check('the interest-rate override moves Total Financing Cost in the comparison', baseFinCost != null && downFinCost != null && Math.abs(downFinCost - baseFinCost) > 1,
   `base=${Math.round(baseFinCost ?? 0)} down=${Math.round(downFinCost ?? 0)}`);
 
+// ── Item 28 (2026-10-05): one block per distinct effect ──────────────────────
+// A case moves all its inputs at once, so two inputs changed in the same case
+// produce ONE effect. Printing it under each input read as if each alone moved
+// the output by the whole amount (Marina Gate: thirteen revenue blocks, one
+// figure). Inputs with an identical effect share a block that says so; inputs
+// with different effects keep their own.
+console.log('\n=== Item 28: inputs with an identical effect share one block ===');
+void (async () => {
+  const sells = (base.subUnits ?? []).filter((u: any) => sellAssetIds.has(u.assetId) && Number(u.unitPrice) > 0).slice(0, 2);
+  check('the fixture has two priced Sell sub-units to move together', sells.length === 2, `found ${sells.length}`);
+  const paths: string[] = sells.map((u: any) => `subUnits[id=${u.id}].unitPrice`);
+  const together: ProjectCase = { id: 'case_both', name: 'Both prices', role: 'scenario',
+    overrides: Object.fromEntries(sells.map((u: any, i: number) => [paths[i], Number(u.unitPrice) * 1.2])) };
+  const mergedReport = buildCaseYoYReport({ baseModel: base, cases: [cases[0], together, downside], activeCaseId: 'case_management' });
+  const holders = paths.map((p) => mergedReport.blocks.filter((b) => b.inputs.some((l) => l.path === p)));
+  check('each input appears in exactly one block', holders.every((h) => h.length === 1), holders.map((h) => h.length).join(','));
+  const joint = holders[0][0];
+  check('the two inputs moved together share ONE block', !!joint && holders[1][0] === joint);
+  check('the shared block says its figures are the combined effect', !!joint?.note && /combined effect/.test(joint.note));
+  const rateBlock = mergedReport.blocks.find((b) => b.inputs.some((l) => l.path === ratePath));
+  check('an input with a DIFFERENT effect keeps its own block (not vacuous)', !!rateBlock && rateBlock !== joint && !rateBlock.note);
+  const sig = (b: YoYBlock): string => b.outputs.map((o) => `${o.key}=${[o.base, ...o.scenarios].map((r) => r.values.map((v) => v.toFixed(2)).join(',')).join('/')}`).sort().join('|');
+  for (const [name, r] of [['fixture cases', report], ['merge cases', mergedReport]] as const) {
+    const sigs = r.blocks.map(sig);
+    check(`${name}: no two blocks print the same figures`, new Set(sigs).size === sigs.length, `${sigs.length} blocks, ${new Set(sigs).size} distinct`);
+    const dupLabels = r.blocks.filter((b) => new Set(b.inputs.map((l) => l.label)).size !== b.inputs.length);
+    check(`${name}: every input line in a block names its own subject`, dupLabels.length === 0, dupLabels.map((b) => b.inputLabel).join(' | '));
+  }
+  // What a case changed is its OWN overrides: the old diff of the settled case
+  // model against the base listed 31 inputs for one price change on this
+  // fixture, 30 of them markers the settle wrote.
+  {
+    const stored = new Set(cases.flatMap((c) => Object.keys(c.overrides ?? {})));
+    const listed = report.blocks.flatMap((b) => b.inputs.map((l) => l.path));
+    const extra = listed.filter((p) => !stored.has(p));
+    check('every input a block lists is one a case stores (no settle markers)', extra.length === 0, `${extra.length} extra: ${extra.slice(0, 3).join(', ')}`);
+  }
+  // The PDF prints the screen's block whole: what changed, each case's actuals, the change.
+  const { generateProjectPdf } = await import('../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf');
+  const { pdfText } = await import('./pdfTextExtract');
+  const pdf = pdfText(await generateProjectPdf({ state: base, projectName: 'X', dateLabel: 'd', selectedModuleKeys: ['module6'],
+    caseComparison: { baseModel: base, cases: [cases[0], together, downside], activeCaseId: 'case_management' } }));
+  const lines = pdf.split('\n').map((l) => l.trim());
+  check('PDF: each block opens with what changed, per case', lines.some((l) => l.endsWith(': what changed')));
+  check('PDF: the shared block prints its combined-effect note', pdf.replace(/\s+/g, ' ').includes('combined effect'));
+  check('PDF: each case prints its actual figures, not only the change', lines.includes(together.name) && lines.includes(downside.name));
+
 console.log(`\n=== Result: ${passed} passed, ${failed} failed ===`);
 if (failed) { console.log('Failures: ' + fails.join(' | ')); process.exit(1); }
+})();

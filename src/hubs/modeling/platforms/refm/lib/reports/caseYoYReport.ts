@@ -26,7 +26,7 @@
  */
 import { computeFinancialsSnapshot, type ProjectFinancialsSnapshot } from '../financials-resolvers';
 import { applyOverrides, baseCaseId, buildOverrides, enumerateOverridableFields, getByPath } from '../cases/applyOverrides';
-import { caseModelOf } from '../cases/caseModel';
+import { caseModelOf, withoutDerivedOverrides } from '../cases/caseModel';
 import { describeAssumption, assumptionFor, buildGridContext, type AssumptionCategory, type AssumptionFormat } from '../cases/assumptionGrid';
 import type { HydrateSnapshot } from '../state/module1-store';
 import type { ProjectCase } from '../state/module1-types';
@@ -94,6 +94,8 @@ export interface YoYBlock {
   inputs: YoYInputLine[];
   /** Every per-period output the input drives that a scenario actually moves. */
   outputs: YoYOutput[];
+  /** Set on a merged block: its outputs are the inputs' combined effect. */
+  note?: string;
 }
 export interface CaseYoYReport {
   yearLabels: number[];
@@ -257,7 +259,14 @@ export function buildCaseYoYReport(input: CaseComparisonInput): CaseYoYReport {
   const changedPaths = new Map<string, { label: string; context: string; format: AssumptionFormat; category: AssumptionCategory }>();
   for (const { c, model, snap } of computed) {
     if (c.role === 'base' || !snap) continue;
-    const overrides = c.id === activeCaseId && liveActiveModel ? buildOverrides(baseModel, liveActiveModel) : buildOverrides(baseModel, model);
+    // WHAT A CASE CHANGED IS ITS OWN OVERRIDES, never a diff of its settled
+    // model against the base (2026-10-05, export review item 28). The diff also
+    // caught everything the settle wrote: on an unsettled base one price change
+    // listed 31 "changed inputs", 30 of them line markers nobody typed. The live
+    // active case has no stored map yet, so it diffs exactly as the store does.
+    const overrides = c.id === activeCaseId && liveActiveModel
+      ? withoutDerivedOverrides(buildOverrides(baseModel, liveActiveModel), liveActiveModel)
+      : withoutDerivedOverrides(c.overrides ?? {}, model);
     for (const path of Object.keys(overrides)) {
       if (changedPaths.has(path)) continue;
       const f = fieldByPath.get(path);
@@ -335,7 +344,50 @@ export function buildCaseYoYReport(input: CaseComparisonInput): CaseYoYReport {
       inputs = [inputLineFor(canonical, canonMeta)];
       consumed.add(canonical);
     }
+    // Each line names its own subject: once blocks merge below, "Price Per Sqm"
+    // alone could be any of several sub-units.
+    if (!isPair) inputs = inputs.map((l) => ({ ...l, label: canonMeta.context ? `${l.label} (${canonMeta.context})` : l.label }));
     blocks.push({ path: canonical, inputLabel, inputs, outputs });
   }
-  return { yearLabels, priorYearLabel, blocks };
+  return { yearLabels, priorYearLabel, blocks: mergeIdenticalBlocks(blocks) };
+}
+
+/**
+ * ONE BLOCK PER DISTINCT EFFECT (2026-10-05, export review item 28).
+ *
+ * A case moves all its inputs at once and the engine runs once per case, so an
+ * output series is the COMBINED effect of everything that case changed. Emitting
+ * one block per input therefore printed the same revenue figures under thirteen
+ * different headings (Marina Gate: every revenue block -247.3m / +116.5m),
+ * which reads as if each input alone moved revenue by the whole amount. Blocks
+ * whose outputs are identical in every case and period are merged into one that
+ * lists every input beside the effect they produce together, and says so. A
+ * block whose outputs differ from every other stays on its own.
+ */
+export const YOY_JOINT_EFFECT_NOTE = 'These inputs change together in the cases, so the figures below are their combined effect; the model does not divide it between them.';
+
+function mergeIdenticalBlocks(blocks: YoYBlock[]): YoYBlock[] {
+  const series = (r: { prior: number; values: number[] }): string => [r.prior, ...r.values].map((v) => v.toFixed(4)).join(',');
+  const signature = (b: YoYBlock): string => b.outputs
+    .map((o) => `${o.key}=${[o.base, ...o.scenarios].map(series).join('/')}`)
+    .sort()
+    .join('|');
+  const groups = new Map<string, YoYBlock[]>();
+  for (const b of blocks) {
+    const k = signature(b);
+    const g = groups.get(k);
+    if (g) g.push(b); else groups.set(k, [b]);
+  }
+  return [...groups.values()].map((g) => {
+    if (g.length === 1) return g[0];
+    const inputs = g.flatMap((b) => b.inputs);
+    const outputs = g[0].outputs;
+    return {
+      path: g[0].path,
+      inputLabel: `${inputs.length} inputs moving ${outputs.map((o) => o.label).join(', ')}`,
+      inputs,
+      outputs,
+      note: YOY_JOINT_EFFECT_NOTE,
+    };
+  });
 }

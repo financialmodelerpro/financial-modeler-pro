@@ -27,6 +27,7 @@ import { deriveAssetScope } from '@/src/core/calculations';
 import { resolvePhasingSource } from '@/src/core/calculations/capexPhasing';
 import type { Asset, Phase, CostLine, SubUnit, CostOverride, FinancingTranche } from '../state/module1-types';
 import { standardTypeIdFor } from '../state/costStandards';
+import { assetLabel } from '@/src/core/calculations/assetName';
 import type { AssetTypeStandard } from '../state/assetTypeStandards';
 
 // ── Categories (mirror the Inputs-tab bands) ────────────────────────────────
@@ -211,7 +212,11 @@ export function buildGridContext(model: HydrateSnapshot): GridContext {
     subUnits?: SubUnit[]; financingTranches?: FinancingTranche[]; costOverrides?: CostOverride[];
   };
   const assets = new Map<string, { name: string; phaseId?: string }>();
-  for (const a of m.assets ?? []) assets.set(a.id, { name: a.name || a.id, phaseId: a.phaseId });
+  // THE ONE LABEL (2026-10-05, export review item 28): this read the RETIRED
+  // Asset.name, so two retail strips both read "Retail" and two Phase 1 villa
+  // assets the same, and Module 6 printed blocks a reader could not tell apart.
+  const labelCtx = { parcels: m.parcels ?? [], phases: m.phases ?? [] };
+  for (const a of m.assets ?? []) assets.set(a.id, { name: assetLabel(a, labelCtx) || a.id, phaseId: a.phaseId });
   const phases = new Map<string, string>();
   for (const p of m.phases ?? []) phases.set(p.id, p.name || p.id);
   const parcels = new Map<string, string>();
@@ -253,6 +258,11 @@ function entityContext(group: string): string {
 }
 function join(parts: Array<string | undefined>): string {
   return parts.filter((p) => p && p.trim()).join(' · ');
+}
+/** An asset label with its phase, unless the label already names it (assetLabel
+ *  carries the phase on a multi-phase project). */
+function withPhase(asset: string | undefined, phase: string | undefined): string {
+  return asset && phase && asset.includes(phase) ? asset : join([asset, phase]);
 }
 function humanizeLeaf(leaf: string): string {
   let s = leaf.split('.').pop() ?? leaf;
@@ -323,7 +333,7 @@ export function describeAssumption(f: OverridableField, ctx?: GridContext): Assu
       if (ctx) {
         const asset = ctx.assets.get(assetId ?? '')?.name;
         const phaseId = ctx.costLines.get(lineId ?? '')?.phaseId;
-        context = join([asset, phaseId ? ctx.phases.get(phaseId) : undefined]);
+        context = withPhase(asset, phaseId ? ctx.phases.get(phaseId) : undefined);
       }
     } else {
       const lineId = selectorOf(f.path, 'costLines') ?? '';
@@ -331,7 +341,7 @@ export function describeAssumption(f: OverridableField, ctx?: GridContext): Assu
       baseId = line?.baseId ?? deriveLineBaseId(lineId);
       if (ctx) {
         const asset = line?.targetAssetId ? ctx.assets.get(line.targetAssetId)?.name : undefined;
-        context = join([asset, line?.phaseId ? ctx.phases.get(line.phaseId) : undefined]);
+        context = withPhase(asset, line?.phaseId ? ctx.phases.get(line.phaseId) : undefined);
       }
     }
     const label = COST_LINE_LEVER_LABELS[baseId] ?? humanizeLeaf(baseId || 'value');
@@ -365,7 +375,7 @@ export function describeAssumption(f: OverridableField, ctx?: GridContext): Assu
     } else if (f.path.startsWith('assets[')) {
       const id = selectorOf(f.path, 'assets') ?? '';
       const a = ctx.assets.get(id);
-      context = a ? join([a.name, a.phaseId ? ctx.phases.get(a.phaseId) : undefined]) : context;
+      context = a ? withPhase(a.name, a.phaseId ? ctx.phases.get(a.phaseId) : undefined) : context;
     } else if (f.path.startsWith('financingTranches[')) {
       const id = selectorOf(f.path, 'financingTranches') ?? '';
       const t = ctx.tranches.get(id);

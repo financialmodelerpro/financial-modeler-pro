@@ -110,7 +110,7 @@ import { idcWithDisposal, disposalContextOf } from '../reports/disposalSchedules
 import { buildCaseYoYReport, type CaseYoYReport } from '../reports/caseYoYReport';
 import { buildAssumptionGrid } from '../reports/scenarioAssumptions';
 import { buildOverviewReport, distributedReturnPair } from '../reports/overviewReport';
-import { formatAssumptionValue } from '../cases/assumptionGrid';
+import { formatAssumptionValue, assumptionUnitSuffix } from '../cases/assumptionGrid';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { MODULES, type ModuleConfig } from '../modules-config';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
@@ -3808,12 +3808,26 @@ function buildModule6(
   if (caseYoY && caseYoY.blocks.length && hasScenarios) {
     const yPrior = caseYoY.priorYearLabel;
     const yl = caseYoY.yearLabels;
+    // THE SCREEN'S BLOCK, WHOLE (2026-10-05, export review item 28): the
+    // driver lines with their value in each case, then per output Management,
+    // each case's actual figures, and each case's change. The report printed the
+    // base and the changes only, under a heading naming one input, so blocks
+    // driven by different inputs were indistinguishable.
+    const T = 'Tab 3: Year-on-Year Impact';
     for (const b of caseYoY.blocks) {
+      const caseNames = b.inputs[0]?.byCase.map((c) => c.name) ?? [];
+      items.push(tTable(T, 'schedules', {
+        title: `${b.inputLabel}: what changed`, kind: 'grid', align: 'data',
+        columns: ['Input', ...caseNames],
+        rows: b.inputs.map((l) => row([l.label, ...l.byCase.map((c) => `${formatAssumptionValue(c.value, l.format)}${assumptionUnitSuffix(l.format)}`)])),
+      }));
+      if (b.note) items.push(tItem(T, 'schedules', { type: 'paragraph', text: b.note }));
       for (const o of b.outputs) {
         const total = o.kind === 'flow' ? 'sum' : 'last';
         const rows: PdfTableRow[] = [periodRow(`${o.base.name} (base)`, o.base.values, total, 'subtotal', o.base.prior)];
+        for (const sc of o.scenarios) rows.push(periodRow(sc.name, sc.values, total, undefined, sc.prior));
         for (const d of o.deltas) rows.push(periodRow(`change, ${d.name}`, d.values, total, undefined, d.prior));
-        items.push(tTable('Tab 3: Year-on-Year Impact', 'schedules', periodTable(`${b.inputLabel}, ${o.label}`, yPrior, yl, rows)));
+        items.push(tTable(T, 'schedules', periodTable(`${b.note ? `${o.label} by case` : `${b.inputLabel}, ${o.label}`}${o.kind === 'stock' ? ' (balance)' : ''}`, yPrior, yl, rows)));
       }
     }
   } else {

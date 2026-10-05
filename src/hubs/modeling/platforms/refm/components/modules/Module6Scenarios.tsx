@@ -654,6 +654,11 @@ export default function Module6Scenarios(): React.JSX.Element {
                     ))}
                   </div>
                 ))}
+                {block.note && (
+                  <div style={{ padding: '6px 12px', fontSize: 11, fontStyle: 'italic', color: 'var(--color-meta)', borderBottom: '1px solid var(--color-border)' }} data-testid={`m6-yoy-note-${block.path}`}>
+                    {block.note}
+                  </div>
+                )}
                 {/* Output sub-tables: one per driven output. */}
                 {block.outputs.map((out) => (
                   <div key={out.key} style={{ overflowX: 'auto', borderBottom: '1px solid var(--color-border)' }} data-testid={`m6-yoy-out-${out.key}`}>
