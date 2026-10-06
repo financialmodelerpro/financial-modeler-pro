@@ -1182,7 +1182,7 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
   const opOccupancy = operateConfig?.occupancyPerPeriod ?? new Array<number>(totalPeriods).fill(0);
   const opGuestsPerOR = operateConfig?.guestsPerOccupiedRoom ?? 1.5;
   const opStartingADR = operateConfig?.startingADR ?? 0;
-  const opDSO = operateConfig?.dso ?? 30;
+  const opDSO = operateConfig?.dso ?? Math.max(0, project.operatingAr?.dsoDays ?? 0);
 
   const updateOperateInline = (patch: Partial<OperateCfg>): void => {
     // Pass 9b (2026-05-18): merge existing + patch FIRST, then coalesce
@@ -1354,7 +1354,7 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
   const leaseRentIdx = leaseConfig?.rentIndexation ?? { method: 'none' as const };
   const leaseOccupancy = leaseConfig?.occupancyPerPeriod ?? new Array<number>(totalPeriods).fill(0);
   const leaseBaseRate = leaseConfig?.baseRate ?? 0;
-  const leaseArDays = leaseConfig?.arDays ?? 30;
+  const leaseArDays = leaseConfig?.arDays ?? Math.max(0, project.operatingAr?.dsoDays ?? 0);
   const leaseOpsStartOverride = leaseConfig?.operationsStartYearOverride;
 
   const updateLeaseInline = (patch: Partial<LeaseCfg>): void => {
@@ -2027,10 +2027,10 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
                 </InlineSection>
               )}
 
-              {/* Per-line DSO: read by nothing since 2026-09-27; the project DSO drives the receivable. */}
+              {/* Per-line DSO: this line's receivable days (receivableDays.ts, 2026-10-05). */}
               <InlineSection
                 title="Accounts Receivable Days"
-                hint="Not used: the operating receivable on the Schedules tab and the balance sheet is the project DSO, set on the Balance Sheet tab (Working Capital Inputs)."
+                hint="This line's collection terms: the receivable on the Schedules tab and the balance sheet runs on these days. Leave the project DSO (Balance Sheet tab, Working Capital Inputs) to apply by typing nothing here; 0 means cash on the day."
               >
                 <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center' }}>
                   <div style={{ width: 80 }}>
@@ -2259,7 +2259,7 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
 
               <InlineSection
                 title="Accounts Receivable Days"
-                hint="Not used: the operating receivable on the Schedules tab and the balance sheet is the project DSO, set on the Balance Sheet tab (Working Capital Inputs)."
+                hint="This line's collection terms: the receivable on the Schedules tab and the balance sheet runs on these days. Leave the project DSO (Balance Sheet tab, Working Capital Inputs) to apply by typing nothing here; 0 means cash on the day."
               >
                 <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>AR days</span>

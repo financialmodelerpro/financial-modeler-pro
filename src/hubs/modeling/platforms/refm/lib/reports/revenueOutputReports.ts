@@ -27,6 +27,7 @@
  * No em dashes in this file.
  */
 
+import { lineReceivableDays } from '../receivableDays';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import {
   buildAccountsReceivable, buildUnearnedRevenue, buildAccountsReceivableDSO, applyIndexation,
@@ -324,13 +325,12 @@ export function buildRevenueLineFeeds(
     }
     const operating = line.form === 'operate' ? res.hospitality : res.lease;
     if (!operating) continue;
-    // THE BALANCE SHEET'S RECEIVABLE (2026-09-27, founder): the project DSO, the
-    // terms the balance sheet carries the operating receivable on. This read each
-    // line's own receivable days (30 by default), so the Schedules feed showed a
-    // receivable the balance sheet does not hold. The per-line days drive nothing.
+    // THE BALANCE SHEET'S RECEIVABLE: the days the engine collects this line
+    // on (receivableDays.ts, 2026-10-05: the line's own where stated, else the
+    // project DSO), so the Schedules feed holds what the balance sheet holds.
     const arDso = buildAccountsReceivableDSO({
       revenuePerPeriod: operating.totalRevenuePerPeriod,
-      dsoDays: Math.max(0, operatingAr?.dsoDays ?? 0),
+      dsoDays: lineReceivableDays(a, { operatingAr }),
       daysPerYear: Math.max(1, operatingAr?.daysPerYear ?? 365),
       axisLength: N,
     });

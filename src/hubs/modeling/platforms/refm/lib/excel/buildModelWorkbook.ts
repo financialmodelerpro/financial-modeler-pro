@@ -32,6 +32,7 @@ import { fundingChartPoints } from '../portfolio/fundingSeries';
 import { evaluateCovenant, covenantUnit, covenantSeries, reduceWorst, reduceAvg, COVENANT_METRIC_LABELS, covenantBasisNote, covenantCoverageNote, type CovenantInputs } from '../covenants';
 import { buildReMetricDetailGroups } from '../reports/reMetricTiles';
 import { buildPhaseProgramme } from '../reports/phaseProgramme';
+import { lineReceivableDays, statedLineReceivableDays } from '../receivableDays';
 import { REVENUE_CAPTIONS, shareSoldCaption, soldCaption, revenueCaption, recognitionMatrixCaption, recognitionCaption } from '../reports/revenueCaptions';
 import { tabGuide, type GuideLine } from '../reports/tabGuides';
 import { DEFAULT_COVENANTS } from '../state/module1-types';
@@ -2555,7 +2556,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
         if (a.isCompanion === true && resolved?.keysParticipationPerPeriod) {
           em.periodRow('Rental pool enrollment (Sell + Manage)', padded(resolved.keysParticipationPerPeriod), ops, NUMFMT.pct, { input: true, indent: 0, basis: 'Effective keys = total keys x pool %' });
         }
-        em.scalarRow('Accounts Receivable Days', cfg.dso ?? 30, NUMFMT.int, { input: true, indent: 0, basis: 'days; NOT USED: the operating receivable is the project DSO on the Inputs sheet (Balance Sheet tab)' });
+        em.scalarRow('Accounts Receivable Days', lineReceivableDays(a, state.project), NUMFMT.int, { input: true, indent: 0, basis: statedLineReceivableDays(a) !== undefined ? 'days; set on this line: its receivable runs on them' : 'days; the project DSO (this line states none)' });
         em.gap();
         continue;
       }
@@ -2572,7 +2573,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
       const occ = padded(resolved?.occupancyPerPeriod);
       const occVisible = ops.map((t) => occ[t] ?? 0);
       em.periodRow('Occupancy ramp', occ, ops, NUMFMT.pct, { input: true, indent: 0, total: occVisible.length ? occVisible.reduce((s, v) => s + v, 0) / occVisible.length : 0, basis: `Occupied lease area = GLA x occupancy; peak ${(Math.max(0, ...occVisible) * 100).toFixed(0)}%; Total column = average` });
-      em.scalarRow('Accounts Receivable Days', cfg.arDays ?? 30, NUMFMT.int, { input: true, indent: 0, basis: 'days; NOT USED: the operating receivable is the project DSO on the Inputs sheet (Balance Sheet tab)' });
+      em.scalarRow('Accounts Receivable Days', lineReceivableDays(a, state.project), NUMFMT.int, { input: true, indent: 0, basis: statedLineReceivableDays(a) !== undefined ? 'days; set on this line: its receivable runs on them' : 'days; the project DSO (this line states none)' });
       em.gap();
     }
   }

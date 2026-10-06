@@ -31,6 +31,7 @@
  *
  * No em dashes in this file.
  */
+import { lineReceivableDays } from '../../receivableDays';
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
 import { PERIOD_COLS } from '../buildModelWorkbook';
@@ -82,6 +83,12 @@ export const stage4Schedules: LiveLayer = {
     for (const l of faLines) {
       const lives = new Set(l.assetIds.map((id) => resolveUsefulLifeYears(state.assets.find((a) => a.id === id)!)));
       if (lives.size > 1) refuse.push(`${l.assetIds.join(', ')}: plots of one line depreciate over different lives`);
+    }
+    // 2026-10-05: a hotel or lease line with its OWN receivable days differing
+    // from the project DSO (receivableDays.ts) is not mirrored by these formulas.
+    const projectDso = Math.max(0, state.project.operatingAr?.dsoDays ?? 0);
+    if (state.assets.some((a) => a.visible !== false && (a.strategy === 'Operate' || a.strategy === 'Lease') && lineReceivableDays(a, state.project) !== projectDso)) {
+      refuse.push('a line collects on its own receivable days, which these formulas do not mirror');
     }
     const arDays = state.project.operatingAr?.daysPerYear;
     if (arDays !== undefined && arDays !== 365) refuse.push('the operating receivables use a year that is not 365 days, which the sheet does not show');

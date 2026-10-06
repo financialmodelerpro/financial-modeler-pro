@@ -17,6 +17,7 @@
  * Pure: no React, no hooks, no DOM. Reads the financials snapshot + project
  * state only.
  */
+import { lineReceivableDays } from '../receivableDays';
 import { hospitalityStatementsByLine, hospitalityRevenueParts, hospitalityCostParts } from './hospitalityStatement';
 import type { ProjectFinancialsSnapshot, FinancialsResolverState } from '../financials-resolvers';
 import { getFinancialLabels } from '@/src/core/calculations/financials';
@@ -910,19 +911,18 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
   // the phase's own operating revenue, and the phases add back to the project.
   const phaseRevenueReceived = (): number[] => {
     const out = sumAssetSeries(residentialAssets, 'revenueReceivedPerPeriod');
-    const operatingRevenue = new Array<number>(N).fill(0);
+    // Each asset at the days the engine collects it on (receivableDays.ts).
     for (const a of [...hospitalityAssets, ...retailAssets]) {
       const pl = snap.perAssetPL.get(a.id);
       if (!pl) continue;
-      for (let t = 0; t < N; t++) operatingRevenue[t] += pl.revenuePerPeriod[t] ?? 0;
+      const ar = buildAccountsReceivableDSO({
+        revenuePerPeriod: pl.revenuePerPeriod.slice(0, N),
+        dsoDays: lineReceivableDays(a, state.project),
+        daysPerYear: Math.max(1, state.project.operatingAr?.daysPerYear ?? 365),
+        axisLength: N,
+      });
+      for (let t = 0; t < N; t++) out[t] += ar.cashReceivedPerPeriod[t] ?? 0;
     }
-    const ar = buildAccountsReceivableDSO({
-      revenuePerPeriod: operatingRevenue,
-      dsoDays: Math.max(0, state.project.operatingAr?.dsoDays ?? 0),
-      daysPerYear: Math.max(1, state.project.operatingAr?.daysPerYear ?? 365),
-      axisLength: N,
-    });
-    for (let t = 0; t < N; t++) out[t] += ar.cashReceivedPerPeriod[t] ?? 0;
     return out;
   };
   const revenueReceived = phaseFiltered ? phaseRevenueReceived() : d.revenueReceivedPerPeriod;
@@ -1141,6 +1141,9 @@ export function buildIndirectCFRows(ctx: M4ReportCtx): M4Row[] {
   }
   rows.push({ label: '(+) Change in AP', values: ap, indent: 1 });
   rows.push({ label: '(+) Change in Unearned Revenue', values: un, indent: 1 });
+  // The tax charged but not yet paid (tax.paymentDays, 2026-10-05); project view only.
+  const taxPay = filtered ? [] : (ic.changeInTaxPayablePerPeriod ?? []);
+  if (taxPay.some((v) => Math.abs(v) > 1e-9)) rows.push({ label: `(+) Change in ${labels.tax} payable`, values: taxPay, indent: 1 });
   rows.push({ label: '(+) Change in Escrow balance', values: esc, indent: 1 });
   rows.push({ label: 'Cash Flow from Operations', values: cfo, isSubtotal: true });
 
@@ -1167,7 +1170,7 @@ export interface BSRowsResult {
 }
 
 export function buildBSRows(ctx: M4ReportCtx): BSRowsResult {
-  const { snap, state, fmt } = ctx;
+  const { snap, state, fmt, labels } = ctx;
   const N = snap.axisLength;
   const bs = snap.bs;
 
@@ -1196,6 +1199,7 @@ export function buildBSRows(ctx: M4ReportCtx): BSRowsResult {
   const unearned = sumAssetsBy((id) => snap.byAssetSchedules.get(id)?.unearned.perPeriod);
   // AP links to the canonical project-wide total (includes HQ AP).
   const ap = snap.ap.projectTotals.closingApPerPeriod.slice(0, N);
+  const taxPayable = (bs.taxPayablePerPeriod ?? []).slice(0, N);
   const escrow = sumAssetsBy((id) => snap.escrow.byAsset.get(id)?.result.cumulativeBalancePerPeriod);
   const idcNbv = bs.totalFixedAssetsPerPeriod.slice(0, N).map((v, t) => v - (land[t] ?? 0) - (nbv[t] ?? 0));
   const debt = bs.debtOutstandingPerPeriod;
@@ -1217,7 +1221,7 @@ export function buildBSRows(ctx: M4ReportCtx): BSRowsResult {
     totalFA[t] = land[t] + nbv[t] + idcNbv[t];
     totalCA[t] = cash[t] + escrow[t] + arOperating[t] + resReceivables[t] + inventory[t];
     totalAssets[t] = totalFA[t] + totalCA[t];
-    totalCL[t] = ap[t] + unearned[t];
+    totalCL[t] = ap[t] + unearned[t] + (taxPayable[t] ?? 0);
     totalLiab[t] = totalCL[t] + debt[t];
     totalEquity[t] = shareCapital[t] + reserve[t] + retained[t];
     totalLandE[t] = totalLiab[t] + totalEquity[t];
@@ -1262,6 +1266,7 @@ export function buildBSRows(ctx: M4ReportCtx): BSRowsResult {
   rows.push({ label: 'Current Liabilities', values: [], isSection: true });
   rows.push({ label: 'Accounts Payable', values: ap, indent: 1, totalIsBalance: true, totalOverride: fmt(ap[N - 1] ?? 0), priorValue: 0 });
   rows.push({ label: 'Unearned Revenue (Off-plan advances)', values: unearned, indent: 1, totalIsBalance: true, totalOverride: fmt(unearned[N - 1] ?? 0), priorValue: 0 });
+  if (taxPayable.some((v) => Math.abs(v) > 1e-9)) rows.push({ label: `${labels.tax} payable`, values: taxPayable, indent: 1, totalIsBalance: true, totalOverride: fmt(taxPayable[N - 1] ?? 0), priorValue: 0 });
   rows.push({ label: 'Total Current Liabilities', values: totalCL, isSubtotal: true, totalIsBalance: true, totalOverride: fmt(totalCL[N - 1] ?? 0), priorValue: 0 });
 
   rows.push({ label: 'Non-current Liabilities', values: [], isSection: true });
@@ -1536,6 +1541,7 @@ export function buildBsReconciliationRows(ctx: M4FeederCtx): M4Row[] {
     { label: 'Δ Reserve + Retained earnings', values: neg(r.deltaReserveRetainedPerPeriod), indent: 1 },
     { label: 'Δ Accounts payable', values: neg(r.deltaApPerPeriod), indent: 1 },
     { label: 'Δ Unearned revenue', values: neg(r.deltaUnearnedPerPeriod), indent: 1 },
+    ...((r.deltaTaxPayablePerPeriod ?? []).some((v) => Math.abs(v) > 1e-9) ? [{ label: 'Δ Tax payable', values: neg(r.deltaTaxPayablePerPeriod), indent: 1 }] : []),
     { label: '(+) Δ Non-cash assets', values: [], isSection: true },
     { label: 'Δ Restricted cash (escrow)', values: r.deltaEscrowPerPeriod, indent: 1 },
     { label: 'Δ AR (operating)', values: r.deltaArPerPeriod, indent: 1 },

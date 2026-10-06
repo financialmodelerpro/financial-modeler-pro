@@ -895,7 +895,7 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
   //    (keys: ADR / occupancy) and per-period inputs, so the asset-level operate
   //    scalars are not the driver. NOTE: fb.mode / otherRevenue.mode DO move (they
   //    switch how F&B / other revenue is computed) and are deliberately NOT here. ──
-  const opDetail = /^assets\[id=([^\]]+)\]\.revenue\.operate\.(startingADR|dso|guestsPerOccupiedRoom|rentalPoolMode)$/.exec(path)
+  const opDetail = /^assets\[id=([^\]]+)\]\.revenue\.operate\.(startingADR|guestsPerOccupiedRoom|rentalPoolMode)$/.exec(path)
     || /^assets\[id=([^\]]+)\]\.revenue\.operate\.(fb|otherRevenue)\.(ratePerGuest)$/.exec(path);
   if (opDetail) {
     const asset = assetById(opDetail[1]);
@@ -1022,11 +1022,9 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
     }
   }
 
-  // Working-capital timing (operate DSO / lease AR days): affects balance-sheet
-  // and cash phasing, not a headline comparison KPI.
-  if (/^assets\[id=[^\]]+\]\.revenue\.(operate\.dso|lease\.arDays)$/.test(path)) {
-    return 'Read by nothing: the operating receivable is the project DSO (Balance Sheet tab), not these per-line days';
-  }
+  // Working-capital timing (operate DSO / lease AR days) is LIVE since
+  // 2026-10-05 (receivableDays.ts): it moves the receivable, operating cash and
+  // so the funding need and returns, so it is not gated here.
 
   // ── Operational phases: their forward operations / overlap period counts are
   //    fixed by the operational baseline, so overriding them does nothing. ──

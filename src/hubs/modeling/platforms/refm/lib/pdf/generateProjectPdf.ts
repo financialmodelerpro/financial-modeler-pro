@@ -112,6 +112,7 @@ import { buildAssumptionGrid } from '../reports/scenarioAssumptions';
 import { buildOverviewReport, distributedReturnPair } from '../reports/overviewReport';
 import { formatAssumptionValue, assumptionUnitSuffix } from '../cases/assumptionGrid';
 import { buildReMetricDetailGroups } from '../reports/reMetricTiles';
+import { receivableDaysText } from '../receivableDays';
 import { buildPhaseProgramme, PROGRAMME_CELL_TEXT, PROGRAMME_TITLE, PROGRAMME_LEGEND, type ProgrammeCell } from '../reports/phaseProgramme';
 import { tabGuide, TAB_GUIDE_HEADING, GUIDE_KIND_LABEL, type GuideId } from '../reports/tabGuides';
 import { REVENUE_CAPTIONS, shareSoldCaption, soldCaption, revenueCaption, recognitionMatrixCaption, recognitionCaption } from '../reports/revenueCaptions';
@@ -2737,7 +2738,7 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
         if (a.isCompanion === true && resolved?.keysParticipationPerPeriod) {
           strips.push(windowRow('Rental pool enrollment (Sell + Manage)', padded(resolved.keysParticipationPerPeriod), ops, N, 'pct'));
         }
-        kv.push(row(['Accounts Receivable Days', `${cfg.dso ?? 30} days (not used: the operating receivable is the project DSO)`]));
+        kv.push(row(['Accounts Receivable Days', receivableDaysText(a, state.project)]));
         items.push(tTable(T1, 'inputs', gridTable(`${ln}: Operating inputs (${head})`, ['Field', 'Value'], kv, 'kv')));
         items.push(tTable(T1, 'inputs', periodTable(`${ln}: Per-year inputs, Operations ${span(ops)}`, py, yl, strips)));
         continue;
@@ -2752,7 +2753,7 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       items.push(tTable(T1, 'inputs', gridTable(`${ln}: Lease inputs (${head})`, ['Field', 'Value'], [
         row(['Rent indexation', m2IndexationText(cfg.rentIndexation, w.opsStartIdx, psy)]),
         row(['Operations start year', `${psy + w.opsStartIdx} (default after handover: ${psy + w.defaultOpsStartIdx})`]),
-        row(['Accounts Receivable Days', `${cfg.arDays ?? 30} days`]),
+        row(['Accounts Receivable Days', receivableDaysText(a, state.project)]),
       ], 'kv')));
       const occ = padded(resolved?.occupancyPerPeriod);
       const occVisible = ops.map((t) => occ[t] ?? 0);

@@ -13,6 +13,7 @@
  */
 
 import { chargeTax, DEFAULT_TAX_BASIS } from '@/src/core/calculations/taxCharge';
+import { lineReceivableDays } from './receivableDays';
 import { groupAssetsForConsolidation } from '@/src/core/calculations/consolidation';
 import { normaliseAssetTypeId } from '@/src/core/calculations/typeKey';
 import { buildSaleCohortAdvisories, saleCohortAdvisoryIssue } from './reports/checksReport';
@@ -261,6 +262,8 @@ export interface ProjectIndirectCF {
   gainOnDisposalPerPeriod: number[];
   changeInApPerPeriod: number[];           // +ΔAP
   changeInUnearnedPerPeriod: number[];     // +ΔUnearned (liability)
+  /** +Δ zakat / tax payable (2026-10-05): the charge not yet paid. Zero when paid in the year. */
+  changeInTaxPayablePerPeriod: number[];
   changeInEscrowPerPeriod: number[];       // −ΔEscrow (restricted-cash asset build consumes cash)
   cashFromOperationsPerPeriod: number[];
   capexPerPeriod: number[];
@@ -328,6 +331,8 @@ export interface ProjectBS {
    *  milestones. Offsets the operating-cash reduction so the BS balances. */
   escrowRestrictedCashPerPeriod: number[];
   debtOutstandingPerPeriod: number[];
+  /** Zakat / tax charged but not yet paid at the year end (tax.paymentDays, 2026-10-05). */
+  taxPayablePerPeriod: number[];
   totalCurrentLiabilitiesPerPeriod: number[];
   totalLiabilitiesPerPeriod: number[];
   // Equity
@@ -472,6 +477,7 @@ export interface BsReconciliation {
   deltaNbvPerPeriod: number[];
   deltaLandPerPeriod: number[];
   deltaIdcNbvPerPeriod: number[];
+  deltaTaxPayablePerPeriod: number[];
   /** Residual that the named components do NOT explain. EXACT identity =>
    *  this is ~0 everywhere; a nonzero value means a line is missing from
    *  the BS or the bridge (a coding gap), not a wiring leak. */
@@ -2173,12 +2179,38 @@ function computeFinancialsSnapshotOnce(
   }
   const operatingArDays = Math.max(0, project.operatingAr?.dsoDays ?? 0);
   const operatingArDaysPerYear = Math.max(1, project.operatingAr?.daysPerYear ?? 365);
-  const operatingAR: AccountsReceivableDSOResult = buildAccountsReceivableDSO({
-    revenuePerPeriod: operatingRevenuePerPeriod,
-    dsoDays: operatingArDays,
-    daysPerYear: operatingArDaysPerYear,
-    axisLength: N,
-  });
+  // EACH LINE'S OWN RECEIVABLE DAYS (2026-10-05, export review group 4): an
+  // Operate line's `revenue.operate.dso` and a Lease line's
+  // `revenue.lease.arDays` were typed on Module 2 and read by nothing. Each
+  // hotel or lease asset's receivable is now built on its OWN revenue at its
+  // own days where it states them (a typed 0 is cash basis), else at the
+  // project DSO; the project figure is their sum. The arithmetic is linear,
+  // so where every line takes the project DSO the result is what it was.
+  const lineArDays = (a: (typeof assets)[number]): number => lineReceivableDays(a, project);
+  const operatingAR: AccountsReceivableDSOResult = (() => {
+    const perPeriod = zeros(N), changePerPeriod = zeros(N), cashReceivedPerPeriod = zeros(N);
+    const covered = zeros(N);
+    for (const a of assets) {
+      if (a.visible === false || (a.strategy !== 'Operate' && a.strategy !== 'Lease')) continue;
+      const rev = perAssetPL.get(a.id)?.revenuePerPeriod;
+      if (!rev) continue;
+      const r = buildAccountsReceivableDSO({ revenuePerPeriod: rev.slice(0, N), dsoDays: lineArDays(a), daysPerYear: operatingArDaysPerYear, axisLength: N });
+      for (let t = 0; t < N; t++) {
+        perPeriod[t] += r.perPeriod[t] ?? 0;
+        changePerPeriod[t] += r.changePerPeriod[t] ?? 0;
+        cashReceivedPerPeriod[t] += r.cashReceivedPerPeriod[t] ?? 0;
+        covered[t] += rev[t] ?? 0;
+      }
+    }
+    // Anything in the operating revenue no asset accounts for keeps the project DSO.
+    const rest = operatingRevenuePerPeriod.map((v, t) => v - covered[t]);
+    if (rest.some((v) => Math.abs(v) > 1e-6)) {
+      const r = buildAccountsReceivableDSO({ revenuePerPeriod: rest, dsoDays: operatingArDays, daysPerYear: operatingArDaysPerYear, axisLength: N });
+      for (let t = 0; t < N; t++) { perPeriod[t] += r.perPeriod[t] ?? 0; changePerPeriod[t] += r.changePerPeriod[t] ?? 0; cashReceivedPerPeriod[t] += r.cashReceivedPerPeriod[t] ?? 0; }
+    }
+    const openingPerPeriod = perPeriod.map((_, t) => (t === 0 ? 0 : perPeriod[t - 1]));
+    return { perPeriod, openingPerPeriod, changePerPeriod, cashReceivedPerPeriod };
+  })();
 
   // 5. Direct Cash Flow
   // Revenue received = sum of M2 cash arrays (Sell + Hospitality + Lease)
@@ -2274,7 +2306,14 @@ function computeFinancialsSnapshotOnce(
     }
   }
 
-  const taxPaidArr = taxArr.slice();
+  // WHEN IT IS PAID (2026-10-05, export review group 4): zakat settles after
+  // the year end, so `paymentDays` of each year's charge is still payable at
+  // the close (days / 365 of it) and is paid the next year. 0, the default,
+  // pays it in the year, exactly as before.
+  const taxPayDays = Math.max(0, Math.min(365, project.tax?.paymentDays ?? 0));
+  const taxPayable = taxArr.map((v) => v * taxPayDays / 365);
+  const taxPayableChange = taxPayable.map((v, t) => v - (t === 0 ? 0 : taxPayable[t - 1]));
+  const taxPaidArr = taxArr.map((v, t) => v - taxPayableChange[t]);
 
   // HOW THE MANAGEMENT FEE IS FUNDED (2026-08-18f, rebuilt AT THE ENGINE).
   //
@@ -2467,7 +2506,7 @@ function computeFinancialsSnapshotOnce(
   for (let t = 0; t < N; t++) {
     cashFromOpsIndirect[t] = pat[t] + da[t] + interestExpense[t] + cosTotal[t] - gainOnDisposal[t]
       - arOperatingChange[t] - residentialArChange[t]
-      + apChange[t] + unearnedChange[t] - escrowChange[t];
+      + apChange[t] + unearnedChange[t] + taxPayableChange[t] - escrowChange[t];
     // Interest is a FINANCING item in this model: the Direct CF shows interest
     // paid in the financing block (not operations). The +interestExpense
     // add-back above already removes the accrued interest from operating cash,
@@ -2640,6 +2679,7 @@ function computeFinancialsSnapshotOnce(
     gainOnDisposalPerPeriod: gainOnDisposal.map((v) => -v),
     changeInApPerPeriod: apChange,
     changeInUnearnedPerPeriod: unearnedChange,
+    changeInTaxPayablePerPeriod: taxPayableChange,
     changeInEscrowPerPeriod: escrowChange.map((v) => -v),
     cashFromOperationsPerPeriod: cashFromOpsIndirect,
     capexPerPeriod: capexProj.map((v) => -v),
@@ -2719,7 +2759,7 @@ function computeFinancialsSnapshotOnce(
   }
   if (disposalBooked) for (let t = exitIdx; t < N; t++) debtOutstanding[t] = 0;
   const totalCL = zeros(N);
-  for (let t = 0; t < N; t++) totalCL[t] = apClosing[t] + unearnedClosing[t];
+  for (let t = 0; t < N; t++) totalCL[t] = apClosing[t] + unearnedClosing[t] + taxPayable[t];
   const totalLiab = zeros(N);
   for (let t = 0; t < N; t++) totalLiab[t] = totalCL[t] + debtOutstanding[t];
 
@@ -2792,6 +2832,7 @@ function computeFinancialsSnapshotOnce(
     unearnedRevenuePerPeriod: unearnedClosing,
     escrowRestrictedCashPerPeriod: escrowRestrictedCash,
     debtOutstandingPerPeriod: debtOutstanding,
+    taxPayablePerPeriod: taxPayable,
     totalCurrentLiabilitiesPerPeriod: totalCL,
     totalLiabilitiesPerPeriod: totalLiab,
     shareCapitalPerPeriod: shareCapital,
@@ -2823,7 +2864,7 @@ function computeFinancialsSnapshotOnce(
   const recoNetCf = directCF.netCashFlowPerPeriod.slice(0, N);
   while (recoNetCf.length < N) recoNetCf.push(0);
   const dDebt = zeros(N), dShare = zeros(N), dRR = zeros(N), dAp = zeros(N), dUn = zeros(N), dEsc = zeros(N);
-  const dAr = zeros(N), dResAr = zeros(N), dInv = zeros(N), dNbv = zeros(N), dLand = zeros(N), dIdc = zeros(N);
+  const dAr = zeros(N), dResAr = zeros(N), dInv = zeros(N), dNbv = zeros(N), dLand = zeros(N), dIdc = zeros(N), dTax = zeros(N);
   const bsDiffChange = zeros(N), unexplained = zeros(N);
   for (let t = 0; t < N; t++) {
     dDebt[t] = deltaWithOpen(debtOutstanding, t, financing.existing.debtOutstandingTotal);
@@ -2831,6 +2872,7 @@ function computeFinancialsSnapshotOnce(
     dRR[t] = deltaWithOpen(reserveRetained, t, 0);
     dAp[t] = deltaWithOpen(apClosing, t, 0);
     dUn[t] = deltaWithOpen(unearnedClosing, t, 0);
+    dTax[t] = deltaWithOpen(taxPayable, t, 0);
     // Escrow is a restricted-cash ASSET (not a liability).
     dEsc[t] = deltaWithOpen(escrowRestrictedCash, t, 0);
     dAr[t] = deltaWithOpen(arPerPeriod, t, 0);
@@ -2841,7 +2883,7 @@ function computeFinancialsSnapshotOnce(
     dIdc[t] = deltaWithOpen(idcNbvP, t, 0);
     bsDiffChange[t] = (bsDiff[t] ?? 0) - (t === 0 ? 0 : (bsDiff[t - 1] ?? 0));
     const bridged = (recoNetCf[t] ?? 0)
-      - (dDebt[t] + dShare[t] + dRR[t] + dAp[t] + dUn[t])
+      - (dDebt[t] + dShare[t] + dRR[t] + dAp[t] + dUn[t] + dTax[t])
       + (dAr[t] + dResAr[t] + dInv[t] + dNbv[t] + dLand[t] + dIdc[t] + dEsc[t]);
     unexplained[t] = bsDiffChange[t] - bridged;
   }
@@ -2861,6 +2903,7 @@ function computeFinancialsSnapshotOnce(
     deltaNbvPerPeriod: dNbv,
     deltaLandPerPeriod: dLand,
     deltaIdcNbvPerPeriod: dIdc,
+    deltaTaxPayablePerPeriod: dTax,
     unexplainedPerPeriod: unexplained,
   };
 

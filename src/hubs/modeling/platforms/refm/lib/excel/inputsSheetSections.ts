@@ -558,8 +558,8 @@ export function emitRevenueInputs(c: SheetCursor, state: FinancialsResolverState
       const w = lineWindow(host, phase, snap);
       setSectionHeader(c.ws.getRow(c.r), `Revenue inputs, ${titleOf(line)} (${line.strategy})`, 12); c.r += 1;
       if (line.form === 'sell') emitSellLine(c, line, w, snap, phase);
-      else if (line.form === 'operate') emitOperateLine(c, line, w, snap);
-      else emitLeaseLine(c, line, w, snap);
+      else if (line.form === 'operate') emitOperateLine(c, line, w, snap, state.project.operatingAr?.dsoDays ?? 0);
+      else emitLeaseLine(c, line, w, snap, state.project.operatingAr?.dsoDays ?? 0);
       c.r += 1;
     }
   }
@@ -630,7 +630,7 @@ function emitSellLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Sn
   }
 }
 
-function emitOperateLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Snap): void {
+function emitOperateLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Snap, projectDso: number): void {
   const op = line.host.revenue?.operate;
   // THE ADR THE ENGINE SELLS AT: the first positive of the row's stored ADR and
   // its Table 5 price (resolveSubUnitAdr). A stored 0 never shadows a price.
@@ -643,10 +643,10 @@ function emitOperateLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap:
   kv(c, 'Average guests per occupied room night', op?.guestsPerOccupiedRoom ?? 1.5, NUMFMT.rate, op?.guestsPerOccupiedRoom !== undefined, undefined, undefined, L('Average guests per occupied room night'));
   ancillaryRows(c, 'F&B Revenue', op?.fb, L('F&B Revenue, F&B %'));
   ancillaryRows(c, 'Other Revenue', op?.otherRevenue, L('Other Revenue, Other %'));
-  kv(c, 'Accounts Receivable Days (not used: the project DSO drives the receivable)', op?.dso ?? 30, NUMFMT.int, op?.dso !== undefined, undefined, undefined, L('Accounts Receivable Days'));
+  kv(c, op?.dso !== undefined ? 'Accounts Receivable Days (set on this line)' : 'Accounts Receivable Days (the project DSO; this line states none)', op?.dso ?? Math.max(0, projectDso), NUMFMT.int, op?.dso !== undefined, undefined, undefined, L('Accounts Receivable Days'));
 }
 
-function emitLeaseLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Snap): void {
+function emitLeaseLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Snap, projectDso: number): void {
   const lease = line.host.revenue?.lease;
   // THE RENT THE ENGINE LETS AT: the Table 5 price, else the line's stored base rate.
   for (const u of line.subUnits) {
@@ -657,7 +657,7 @@ function emitLeaseLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: S
   kv(c, 'Operations start year', snap.projectStartYear + w.opsIdx, NUMFMT.year, lease?.operationsStartYearOverride != null,
     undefined, `Default (after handover): ${snap.projectStartYear + w.defaultOpsIdx}`, lease?.operationsStartYearOverride != null ? L('Operations start year') : undefined);
   yearStrip(c, 'Occupancy', w.operations, (idx) => lease?.occupancyPerPeriod?.[idx], NUMFMT.pct, true, snap, 'Occupancy ramp', (idx) => `revin|${line.key}|*|Occupancy ramp@${axisCol(idx)}`);
-  kv(c, 'Accounts Receivable Days (not used: the project DSO drives the receivable)', lease?.arDays ?? 30, NUMFMT.int, lease?.arDays !== undefined, undefined, undefined, L('Accounts Receivable Days'));
+  kv(c, lease?.arDays !== undefined ? 'Accounts Receivable Days (set on this line)' : 'Accounts Receivable Days (the project DSO; this line states none)', lease?.arDays ?? Math.max(0, projectDso), NUMFMT.int, lease?.arDays !== undefined, undefined, undefined, L('Accounts Receivable Days'));
 }
 
 export function emitEscrowInputs(c: SheetCursor, state: FinancialsResolverState, snap: Snap): void {
