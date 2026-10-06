@@ -246,6 +246,39 @@ check('summariseStream matches computeReturns', summariseStream(input.fcff, 0.1)
   check('stab: stabilizationYear = 2028 (first ≥95)', st.stabilizationYear === 2028);
   check('stab: no income => null year', stabilizationMetrics({ noiPerPeriod: [0, 0, 0], stabilisedNOI: 0, stabilisedYieldOnCost: null, axisYearLabels: [2025, 2026, 2027] }).stabilizationYear === null);
 
+  // STABILISED = THE RAMP IS OVER (2026-10-05): the first year after which NOI
+  // grows no faster than it grows into the capitalised year. A ramp of 50% a
+  // year to 2029, then indexation alone (r) to the capitalised year 2034.
+  {
+    const yl = [2026, 2027, 2028, 2029, 2030, 2031, 2032, 2033, 2034, 2035];
+    const series = (r: number): number[] => {
+      const out = [0, 40, 60, 90]; // 2026 build, 2027-2029 ramping
+      while (out.length < yl.length) out.push(out[out.length - 1] * (1 + r));
+      return out;
+    };
+    for (const r of [0.03, 0.08]) {
+      const noi = series(r);
+      const s = stabilizationMetrics({ noiPerPeriod: noi, stabilisedNOI: noi[8], stabilisedYieldOnCost: null, axisYearLabels: yl, metricIdx: 8 });
+      check(`stab: at ${(r * 100).toFixed(0)}% indexation the ramp ends in 2029, whatever the rate`, s.stabilizationYear === 2029, String(s.stabilizationYear));
+    }
+    // The old 95% rule names a ramp-free year whenever indexation outruns 5%:
+    // at 8% the year before the capitalised one is 1/1.08 = 92.6% of it, so
+    // the 95% test names 2034 itself. The growth test is not vacuous.
+    const noi8 = series(0.08);
+    const old = stabilizationMetrics({ noiPerPeriod: noi8, stabilisedNOI: noi8[8], stabilisedYieldOnCost: null, axisYearLabels: yl });
+    check('stab: the old 95% rule gets 8% indexation wrong (so the new test can fail)', old.stabilizationYear === 2034, String(old.stabilizationYear));
+    // A later exit does not move it: capitalise 2035 instead.
+    const late = stabilizationMetrics({ noiPerPeriod: series(0.03), stabilisedNOI: series(0.03)[9], stabilisedYieldOnCost: null, axisYearLabels: yl, metricIdx: 9 });
+    check('stab: a later capitalised year still names the end of the ramp', late.stabilizationYear === 2029, String(late.stabilizationYear));
+    // THE PREMISE, stated: growth INTO the capitalised year is read as the
+    // steady rate, because a cap-rate exit already assumes that year's income
+    // is stabilised. Where NOI is still ramping into it, the measure inherits
+    // that assumption and names the year before (NOI alone cannot tell a ramp
+    // from indexation without the rates).
+    const ramping = stabilizationMetrics({ noiPerPeriod: [0, 40, 60, 90, 120], stabilisedNOI: 120, stabilisedYieldOnCost: null, axisYearLabels: yl.slice(0, 5), metricIdx: 4 });
+    check('stab: a ramp into the capitalised year reads its last step as steady (the valuation premise)', ramping.stabilizationYear === 2029, String(ramping.stabilizationYear));
+  }
+
   // Debt analytics: peak 1000, repaid to 200 at exit (idx 4).
   const da = debtAnalytics({ debtOutstandingPerPeriod: [1000, 800, 600, 400, 200, 0], exitIdx: 4, axisYearLabels: [2025, 2026, 2027, 2028, 2029, 2030] });
   check('debt: peakDebt = 1000', near(da.peakDebt, 1000));

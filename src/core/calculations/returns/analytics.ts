@@ -166,20 +166,49 @@ export function equityExposure(args: {
   };
 }
 
+/** Half a point of growth above the steady rate still counts as steady. */
+export const STABILISATION_GROWTH_TOLERANCE = 0.005;
+
 /** Stabilization metrics for income-producing assets. */
 export function stabilizationMetrics(args: {
   noiPerPeriod: number[];
   stabilisedNOI: number;
   stabilisedYieldOnCost: number | null;
   axisYearLabels: number[];
-  /** Fraction of stabilised NOI that counts as "stabilised" (default 0.95). */
+  /** Axis index of the capitalised year (the steady growth is read into it). */
+  metricIdx?: number;
+  /** Fallback only: fraction of stabilised NOI that counts as "stabilised" (default 0.95). */
   threshold?: number;
 }): StabilizationMetrics {
   const { noiPerPeriod, stabilisedNOI, stabilisedYieldOnCost, axisYearLabels } = args;
   const threshold = args.threshold ?? 0.95;
   const hasIncomeAssets = noiPerPeriod.some((v) => (v ?? 0) > 0) && stabilisedNOI > 0;
   let stabilizationYear: number | null = null;
-  if (hasIncomeAssets) {
+  // STABILISED = THE RAMP IS OVER (2026-10-05, export review). The year NOI
+  // stops growing faster than it grows into the capitalised year, i.e. the
+  // first year after which every year's growth is at most that steady growth
+  // (plus half a point), which is indexation alone once a scheme is let and
+  // open. It needs no indexation rate (they differ by asset and by ADR, rent
+  // and opex), and it holds at any rate and any exit year. The old test, the
+  // first year at 95% of the capitalised NOI, named the year before the
+  // capitalised one whenever indexation ran under about 5%, ramp or no ramp.
+  // PREMISE: growth into the capitalised year is the steady rate, which is what
+  // a cap-rate exit already assumes of that year's income. Where NOI still
+  // ramps into it, the measure inherits that assumption.
+  const m = args.metricIdx;
+  const growth = (t: number): number | null => {
+    const prev = noiPerPeriod[t - 1] ?? 0, cur = noiPerPeriod[t] ?? 0;
+    return t > 0 && prev > 0 ? cur / prev - 1 : null;
+  };
+  const steady = m !== undefined ? growth(m) : null;
+  if (hasIncomeAssets && m !== undefined && steady !== null) {
+    const ceiling = steady + STABILISATION_GROWTH_TOLERANCE;
+    let year = m;
+    while (year - 1 >= 0 && (noiPerPeriod[year - 1] ?? 0) > 0 && (growth(year) ?? Infinity) <= ceiling) year -= 1;
+    stabilizationYear = axisYearLabels[year] ?? null;
+  } else if (hasIncomeAssets) {
+    // No growth to read (the capitalised year is the first with income, or
+    // none was given): the first year at 95% of the capitalised NOI.
     const target = stabilisedNOI * threshold;
     for (let i = 0; i < noiPerPeriod.length; i++) {
       if ((noiPerPeriod[i] ?? 0) >= target) { stabilizationYear = axisYearLabels[i] ?? null; break; }

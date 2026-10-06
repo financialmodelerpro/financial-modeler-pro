@@ -746,6 +746,8 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     stabilisedNOI,
     stabilisedYieldOnCost: result.realEstate.yieldOnCost,
     axisYearLabels: snap.yearLabels,
+    // The capitalised year, by the rule the valuation itself uses.
+    metricIdx: terminalMetricIndex(exit, cfg.terminalValueBasis),
   });
 
   const debtAnalyticsBlock = debtAnalytics({

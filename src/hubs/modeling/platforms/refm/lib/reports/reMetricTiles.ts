@@ -99,7 +99,7 @@ export function buildReMetricDetailGroups(rs: ReturnsSnapshot, debtOutstandingPe
       tiles: [
         { label: 'Stabilised NOI', value: money(rs.stabilisedNOI) },
         { label: 'Exit NOI', value: money(rs.exitNOI), sub: `year ${rs.exitYearLabel}` },
-        { label: 'Stabilisation Year', value: { kind: 'text', v: rs.stabilization.stabilizationYear != null ? String(rs.stabilization.stabilizationYear) : 'n/a' }, sub: 'NOI reaches 95% of stable' },
+        { label: 'Stabilisation Year', value: { kind: 'text', v: rs.stabilization.stabilizationYear != null ? String(rs.stabilization.stabilizationYear) : 'n/a' }, sub: 'NOI growth settles to its steady rate' },
         { label: 'Stabilised Yield on Cost', value: pct(rs.stabilization.stabilisedYieldOnCost), sub: METRIC_CAPTIONS.yieldOnCost },
         { label: 'Exit Cap Rate', value: pct(m.capRateAtExit), sub: capRateAtExitCaption(rs) },
         { label: 'Terminal Enterprise Value', value: money(rs.terminalEnterpriseValue) },
