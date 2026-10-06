@@ -12,7 +12,16 @@ A 3SFM model scored 5.5% "Not Yet Competent" was approved by a mis-click. One cl
 4. **No undo.** `review/route.ts` returns 409 on any decided row and `checkApproval.ts` says reversal is a hand edit. The existing certificate "revoke" (`training_admin_actions`) is a flag the verify page, certificate API, progress and the cert engine all ignore. Proposed: an admin "Reverse approval" action doing what was done by hand on 2026-10-05 (status to rejected keeping the note, delete the cert row + storage PDF/badge/transcript, remove the BVM row only if approval created it, audit row, correcting email that says the earlier emails were sent in error).
 5. Minor: `/api/og/certificate/<id>` returns 500 (not 404) for a certificate that does not exist.
 
-## START HERE 2026-10-05: EXPORT REVIEW GROUP 3 DONE (items 23 to 29); GROUP 4 STILL THE FOUNDER'S CALL
+## START HERE 2026-10-06: THE EXPORT REVIEW IS CLOSED (Groups 1 to 4 built; detail in CHANGELOG 2026-10-06)
+
+**OPEN, in order:** (1) the Training Hub BVM gate and the approve guard / undo (section above, still parked by the
+founder); (2) the live formula workbook now REFUSES, with a stated reason, a cit tax basis, a tax payment lag and a
+line with its own receivable days, none of which it mirrors yet (none applies to Marina Gate); (3) Group 4 items not
+in the founder's list stay open: an all-zero fee distribution matrix for the developer fee and commission columns
+(stored, printed, read by no engine), ADR / rent indexation start year vs the box, selling costs always capitalised;
+(4) `verify-pdf-export` takes about eleven minutes. The 2026-10-05 block below is history.
+
+## 2026-10-05: EXPORT REVIEW GROUP 3 DONE (items 23 to 29); GROUP 4 STILL THE FOUNDER'S CALL
 
 Each item one commit, detail in [CHANGELOG.md](CHANGELOG.md) 2026-10-05. **OPEN, in order:** (1) Group 4 below
 (report only, unchanged); (2) the Training Hub BVM gate and the approve guard / undo, section above; (3) item 25
