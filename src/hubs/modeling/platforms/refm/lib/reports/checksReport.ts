@@ -227,15 +227,16 @@ export function buildIntegrityChecks(snap: ChecksSource): IntegrityCheck[] {
 export const BRIDGE_CHECK_LABEL = 'Balance sheet reconciliation bridge, unexplained';
 
 /** The detail sentence for a check, stating the residue AND its scale either way. */
-export function checkDetail(c: IntegrityCheck, yearLabels: readonly number[], money: (v: number) => string): string {
+export function checkDetail(c: IntegrityCheck, yearLabels: readonly number[], money: (v: number) => string, opts: { where?: boolean } = {}): string {
   const year = yearLabels[c.atIndex] ?? c.atIndex;
-  const where = c.where ? ` ${c.where}` : '';
+  // A narrow column (the PDF) prints `where` as a note below the table instead.
+  const where = c.where && opts.where !== false ? ` ${c.where}` : '';
   if (c.magnitude === 0) return `worst period ${year}: nothing to reconcile.${where}`;
   const ratio = Math.abs(c.residue / c.magnitude).toExponential(1);
   const body = c.ok
     ? `worst period ${year}: ${ratio} of peak ${money(Math.abs(c.magnitude))}, within tolerance ${CHECK_REL_TOL.toExponential(0)}`
     : `worst period ${year}: ${ratio} of peak ${money(Math.abs(c.magnitude))}, OUTSIDE tolerance ${CHECK_REL_TOL.toExponential(0)}`;
-  return c.where ? `${body}.${where}` : body;
+  return where ? `${body}.${where}` : body;
 }
 
 /**

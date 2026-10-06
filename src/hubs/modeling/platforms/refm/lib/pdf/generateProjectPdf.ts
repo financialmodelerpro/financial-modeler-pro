@@ -958,7 +958,7 @@ function checksTable(
       columns: ['Check', 'Status', 'Residue', 'Detail'],
       rows: [
         ...checks.map((c) => row(
-          [c.label, c.ok ? 'OK' : 'CHECK', fmt.money(c.residue), checkDetail(c, snap.yearLabels, fmt.money)],
+          [c.label, c.ok ? 'OK' : 'CHECK', fmt.money(c.residue), checkDetail(c, snap.yearLabels, fmt.money, { where: false })],
           c.ok ? undefined : 'subtotal',
         )),
         // The advisory rows carry the figure; their sentence is a note below,
@@ -973,6 +973,8 @@ function checksTable(
       ],
     },
     notes: [
+      // Where a check's figure is printed: a sentence too long for the Detail column.
+      ...checks.filter((c) => c.where).map((c) => `${c.label}: ${c.where}`),
       ...advisories.map((a) => revenueBasisAdvisoryText(a, fmt.money)),
       ...cohortAdvisories.map((a) => saleCohortAdvisoryText(a, fmt.money)),
       ...emptyAdvisories.map((a) => emptyInputAdvisoryText(a)),

@@ -30,6 +30,7 @@ import { computeReturnsSnapshot, resolveReturnsConfig } from '../../returns-reso
 import { planRevenueLines, lineForAsset } from '../../revenueLines';
 import { METRIC_CAPTIONS, METRIC_LABELS } from '../../reports/metricCaptions';
 import { DEFAULT_COVENANTS, type Phase } from '../../state/module1-types';
+import { STABILISATION_GROWTH_TOLERANCE } from '@/src/core/calculations/returns/analytics';
 
 const RET = 'Returns';
 const CALC = 'Returns Calc';
@@ -114,6 +115,21 @@ export const stage7bMetrics: LiveLayer = {
       return ks.length ? `MAX(0,${ks.map((k) => `SUM(${w.rangeA('Capex Calc', w.addr(k).row, P0, P0 + N - 1)})`).join('+')})` : '0';
     }).join('+') || '0');
     const stab = (): string => at(noi, M);
+    // THE STABILISATION YEAR, the engine's rule (stabilizationMetrics, 2026-10-05):
+    // walking back from the capitalised year M while the year before has NOI and
+    // the year's growth is at most the growth into M plus the tolerance. A pass
+    // row, a run of consecutive passes, and M less the run ending at M. Where M
+    // has no year with NOI before it there is no growth to read, and the first
+    // year at 95% of the capitalised NOI is the fallback, as in the engine.
+    const steadyG = (): string => `${at(noi, M)}/${at(noi, M - 1)}-1+${STABILISATION_GROWTH_TOLERANCE}`;
+    const stabPass = M > 0 ? rowA('rtm:stabpass', 'stabilisation: growth at most the steady growth', (t) => (t === 0 || t > M ? '0'
+      : `IF(AND(${at(noi, t - 1)}>0,${at(noi, M - 1)}>0),IF(${at(noi, t)}/${at(noi, t - 1)}-1<=${steadyG()},1,0),0)`)) : -1;
+    const runRow = cr;
+    const stabRun = M > 0 ? rowA('rtm:stabrun', 'stabilisation: consecutive years at the steady growth', (t) => (t === 0 ? at(stabPass, 0) : `IF(${at(stabPass, t)}=1,${at(runRow, t - 1)}+1,0)`)) : -1;
+    const stab95 = (): string => `IFERROR(TEXT(${AX()}+MATCH(TRUE,INDEX(${rngA(noi)}>=${stab()}*0.95,0),0)-1,"0"),"n/a")`;
+    const stabYear = (): string => (M > 0
+      ? `IF(${at(noi, M - 1)}>0,TEXT(${AX()}+${M}-${at(stabRun, M)},"0"),${stab95()})`
+      : stab95());
     const yoc = (): string => `${stab()}/${sc3(heldCost)}`;
     const tdc = (): string => `SUM(${w.rangeA('Financing Calc', w.addr('fnc:capexall').row, 4, 4 + N - 1)})`;
     const tfc = (): string => `SUM(${w.rangeA('Financing Calc', w.addr('fnc:main:interest').row, 4, 4 + N - 1)})`;
@@ -232,7 +248,7 @@ export const stage7bMetrics: LiveLayer = {
     const IE = 'Income and exit profile';
     kpi(IE, 'Stabilised NOI', () => moneyT(stab()));
     kpi(IE, 'Exit NOI', () => moneyT(at(noi, X)));
-    kpi(IE, 'Stabilisation Year', () => `IF(AND(COUNTIF(${rngA(noi)},">0")>0,${stab()}>0),IFERROR(TEXT(${AX()}+MATCH(TRUE,INDEX(${rngA(noi)}>=${stab()}*0.95,0),0)-1,"0"),"n/a"),"n/a")`);
+    kpi(IE, 'Stabilisation Year', () => `IF(AND(COUNTIF(${rngA(noi)},">0")>0,${stab()}>0),${stabYear()},"n/a")`);
     kpi(IE, 'Stabilised Yield on Cost', () => ratioT(stab(), sc3(heldCost)));
     kpi(IE, 'Exit Cap Rate', () => ratioT(stab(), ev));
     kpi(IE, 'Terminal Enterprise Value', () => moneyT(ev));

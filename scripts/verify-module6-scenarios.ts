@@ -372,7 +372,7 @@ console.log('\n=== Per-asset cost sourcing + attribution ===');
     project: { name: 'P', returns: { discountRate: 0.1 } },
     phases: [{ id: 'p1', name: 'Phase 1' }],
     parcels: [],
-    assets: [{ id: 'A1', name: 'Hotel', phaseId: 'p1' }, { id: 'A2', name: 'Mall', phaseId: 'p1' }],
+    assets: [{ id: 'A1', name: 'Hotel', type: 'Hotel', phaseId: 'p1' }, { id: 'A2', name: 'Mall', type: 'Mall', phaseId: 'p1' }], // typed: assets are labelled by assetLabel, not the retired name (2026-10-05)
     subUnits: [],
     costLines: [
       { id: 'construction-bua__p1', phaseId: 'p1', name: 'Construction (BUA)', value: 0 },        // master 0 (per-asset mode)
@@ -417,7 +417,7 @@ check('isAppliedValue: real value -> applied', isAppliedValue(7200) && isApplied
     project: { name: 'P', returns: { discountRate: 0.1, exitMultiple: 8 } },
     phases: [{ id: 'p1', name: 'Phase 1' }],
     parcels: [],
-    assets: [{ id: 'A1', name: 'Hotel', phaseId: 'p1' }, { id: 'A2', name: 'Mall', phaseId: 'p1' }],
+    assets: [{ id: 'A1', name: 'Hotel', type: 'Hotel', phaseId: 'p1' }, { id: 'A2', name: 'Mall', type: 'Mall', phaseId: 'p1' }], // typed: assets are labelled by assetLabel, not the retired name (2026-10-05)
     subUnits: [
       { id: 'su1', assetId: 'A1', name: 'Keys', unitPrice: 800, occupancyPct: 0, startingAdr: 0 }, // adr/occ = 0 -> suppress
       { id: 'su2', assetId: 'A2', name: 'Shops', unitPrice: 0 },                                    // price 0 -> suppress

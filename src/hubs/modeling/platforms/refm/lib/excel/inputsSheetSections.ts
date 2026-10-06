@@ -36,6 +36,7 @@ import { resolveRowVelocity } from '../revenue-resolvers';
 import { buildSaleCohortTermsBlock, saleCohortRuleText } from '../reports/saleCohortReports';
 import { OPEX_CATEGORY_LABELS, OPEX_MODE_LABELS, isFixedCostOpexMode, summarizeOpexIndexation } from '../reports/opexInputLabels';
 import { resolveReturnsConfig } from '../returns-resolvers';
+import { statedLineReceivableDays } from '../receivableDays';
 
 type Snap = ReturnType<typeof computeFinancialsSnapshot>;
 
@@ -420,7 +421,12 @@ export function emitStatementInputsSection(c: SheetCursor, state: FinancialsReso
   fixedHere(c, capRow, 2, 'A cap of zero at export applies no cap; a cap stated at export is live.');
   const shareRow = kv(c, 'Share capital (explicit, 0 = auto)', p.shareCapital ?? 0, NUMFMT.money, true);
   fixedHere(c, shareRow, 2, 'The financing solve carries the share capital stated at export.');
-  kv(c, 'Operating receivables, DSO (days)', p.operatingAr?.dsoDays ?? 0, NUMFMT.int, true, 'DsoDays', undefined, 'project:dso');
+  // 2026-10-06: where hotel and lease lines state their OWN receivable days
+  // (receivableDays.ts), the engine collects them on those, so this one door is
+  // the days EVERY such line collects on (the live layers refuse a model whose
+  // lines differ from it), and it says so; typing it moves every line.
+  const ownDays = state.assets.some((a) => a.visible !== false && statedLineReceivableDays(a) !== undefined);
+  kv(c, ownDays ? 'Operating receivables, days (every hotel and lease line)' : 'Operating receivables, DSO (days)', p.operatingAr?.dsoDays ?? 0, NUMFMT.int, true, 'DsoDays', undefined, 'project:dso');
   c.r += 1;
 }
 

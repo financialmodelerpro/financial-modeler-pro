@@ -510,7 +510,17 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   } else out.push({ label: 'useful life of a held line', skip: 'no held line on the inputs table' });
   const dso = st.project.operatingAr?.dsoDays ?? 0;
   out.push({ movesRevenue: false, label: `operating receivables DSO ${dso} to ${dso + 30} days`, cell: 'project:dso', value: dso + 30,
-    edit: (s) => { s.project.operatingAr = { ...(s.project.operatingAr ?? {}), dsoDays: dso + 30 }; } });
+    // 2026-10-06 (re-aimed): where lines state their own receivable days the engine
+    // reads those, and the workbook's one door sets EVERY line (inputsSheetSections
+    // says so on the row), so the platform edit is the same: the project figure and
+    // every stated line together. Typing the project figure alone moves nothing there.
+    edit: (s) => {
+      s.project.operatingAr = { ...(s.project.operatingAr ?? {}), dsoDays: dso + 30 };
+      for (const a of s.assets as any[]) {
+        if (a.strategy === 'Operate' && typeof a.revenue?.operate?.dso === 'number') a.revenue.operate.dso = dso + 30;
+        if (a.strategy === 'Lease' && typeof a.revenue?.lease?.arDays === 'number') a.revenue.lease.arDays = dso + 30;
+      }
+    } });
 
   // Returns (stage 7): the exit cap rate (the terminal value, the disposal, every
   // stream, the sensitivity), the hurdle (the waterfall and the net returns), a
