@@ -262,7 +262,9 @@ console.log('\n=== 4b. The Fund Manager is an earner, not a party ===');
   const noMatrix = resolveFeeEarners(resolveFundTerms({ fundTerms: { enabled: true, fundManagerName: 'Solo' } } as any));
   check('the Fund Manager is present with an EMPTY matrix', noMatrix.length === 1 && noMatrix[0].kind === 'fund_manager');
   check('and still takes the management fees', noMatrix[0].managementFeeShare === 1);
-  check('and takes no performance fee it was not given', noMatrix[0].performanceFeePct === 0);
+  // RE-AIMED 2026-10-05 (founder): with nobody assigned a share, the manager
+  // earns the whole performance fee BY DEFAULT, flagged as such.
+  check('and earns the whole performance fee by default when nobody holds a share', noMatrix[0].performanceFeePct === 1 && noMatrix[0].performanceFeeDefaulted === true);
 
   // It must NOT be shaped like an M5 equity partner: it contributes no equity,
   // so a zero-equity PartnerInput would give it a 0% shareholding and an

@@ -410,7 +410,11 @@ async function main(): Promise<void> {
     const alt = JSON.parse(JSON.stringify(c.state));
     alt.project.fundTerms = {
       ...alt.project.fundTerms,
-      feeDistribution: [{ partyId: '__fund_manager__', partyName: 'FMP Fund Managers', performanceFeePct: 0.55, developerFeePct: 0, commissionPct: 0 }],
+      // 2026-10-05: an unassigned remainder now defaults to the manager, so a lone
+      // 55% manager row resolves to 100% and would not move the split. The other
+      // 45% goes to a named party, which does.
+      feeDistribution: [{ partyId: '__fund_manager__', partyName: 'FMP Fund Managers', performanceFeePct: 0.55, developerFeePct: 0, commissionPct: 0 },
+        { partyId: 'alt_party', partyName: 'Alt Party', performanceFeePct: 0.45, developerFeePct: 0, commissionPct: 0 }],
     };
     const rAlt = computeReturnsSnapshot(computeFinancialsSnapshot(alt), alt.project);
     check(`[${c.label}] changing the fee matrix leaves the ENTIRE partners block byte-identical`,

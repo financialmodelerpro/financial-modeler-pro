@@ -63,7 +63,7 @@ import type {
 import type { ProjectFinancialsSnapshot } from './financials-resolvers';
 import { terminalMetricIndex, type TerminalValueBasis } from '@/src/core/calculations/returns/disposal';
 import type { Project } from './state/module1-types';
-import { resolveFundTerms, resolveFeeEarners } from './fundTerms';
+import { resolveFundTerms, resolveFeeEarners, performanceFeeDefaultsToManager, performanceFeeDefaultShare } from './fundTerms';
 
 export interface ReturnsConfig {
   discountRate: number;
@@ -266,6 +266,11 @@ export interface ReturnsSnapshot {
    * toggle off, which is every standalone project.
    */
   feeEarners: FeeEarnersSnapshot;
+  /** True when the fund layer is on and nobody holds a performance-fee share,
+   *  so the Fund Manager earns it by default (2026-10-05). */
+  performanceFeeDefaultedToManager: boolean;
+  /** The share of the performance fee no matrix row holds, earned by the Fund Manager by default (0..1). */
+  performanceFeeDefaultShare: number;
 }
 
 /** THE trapped-cash series FCFE deducts (2026-09-22). ONE rule, because three
@@ -925,5 +930,7 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     // metrics that merely share a name.
     resultNetDividends: summariseStream({ perPeriod: netDividendStream }, cfg.discountRate),
     feeEarners,
+    performanceFeeDefaultedToManager: fundTerms.enabled && performanceFeeDefaultsToManager(fundTerms),
+    performanceFeeDefaultShare: fundTerms.enabled ? performanceFeeDefaultShare(fundTerms) : 0,
   };
 }

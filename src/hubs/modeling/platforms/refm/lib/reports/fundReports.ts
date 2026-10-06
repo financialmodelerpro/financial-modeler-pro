@@ -338,7 +338,7 @@ export function buildFundEarnerRows(ctx: FundReportCtx): FundGridRow[] {
   const rows: FundGridRow[] = s.earners.map((e) => ({
     cells: [
       e.name,
-      e.kind === 'fund_manager' ? 'Fund Manager' : 'Project Party',
+      e.kind === 'fund_manager' ? (ctx.returns.performanceFeeDefaultedToManager ? 'Fund Manager, unassigned performance fee by default' : 'Fund Manager') : 'Project Party',
       pct(e.managementFeeShare, 1), money(e.totalManagementFeeIncome),
       pct(e.performanceFeeShare, 1), money(e.totalPerformanceFeeIncome),
       money(e.totalFeeIncome),
@@ -357,6 +357,19 @@ export function buildFundEarnerRows(ctx: FundReportCtx): FundGridRow[] {
     emphasis: 'total',
   });
   return rows;
+}
+
+/**
+ * THE PERFORMANCE FEE'S EARNER WHEN NOBODY WAS ASSIGNED ONE (2026-10-05): the
+ * Fund Manager, by default, said where the earners are shown. Null otherwise.
+ */
+export function fundPerformanceFeeDefaultNote(ctx: Pick<FundReportCtx, 'returns'>): string | null {
+  const r = ctx.returns;
+  if (!r.feeEarners.active || !r.performanceFeeDefaultedToManager || r.feeEarners.totalPerformanceFee <= 0) return null;
+  const manager = r.feeEarners.earners.find((e) => e.kind === 'fund_manager')?.name ?? 'the Fund Manager';
+  const share = r.performanceFeeDefaultShare;
+  if (share >= 1 - 1e-9) return `No performance-fee share is assigned in the fee distribution matrix, so ${manager} earns the whole performance fee by default. Assign shares in Module 1, Fund Terms, to split it.`;
+  return `${(share * 100).toFixed(1)}% of the performance fee is assigned to no one in the fee distribution matrix, so ${manager} earns that share by default, on top of its own. Assign it in Module 1, Fund Terms, to split it otherwise.`;
 }
 
 /**

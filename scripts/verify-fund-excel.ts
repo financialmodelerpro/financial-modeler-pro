@@ -526,7 +526,11 @@ async function main(): Promise<void> {
     return g !== n && parseFloat(n) < parseFloat(g);
   })());
   // The distribution matrix splits the fee; it must not touch the waterfall.
-  const stateMatrix = fundState({ hurdle: 0, perfFee: 0.3, matrix: [{ partyId: '__fund_manager__', sharePct: 0.6 }] });
+  // RE-AIMED 2026-10-05: the fixture used `sharePct`, a key the sanitiser drops,
+  // so its matrix was really EMPTY and only left a remainder by accident; empty
+  // now defaults to the manager. The real field states a typed 60% share, which
+  // leaves 40% shown as unallocated, the rule this section asserts.
+  const stateMatrix = fundState({ hurdle: 0, perfFee: 0.3, matrix: [{ partyId: '__fund_manager__', partyName: 'Fund Manager', performanceFeePct: 0.6, developerFeePct: 0, commissionPct: 0 }] });
   const wbMatrix = build(stateMatrix);
   const retMatrix = wbMatrix.getWorksheet('Returns')!;
   check('changing the distribution matrix leaves the WATERFALL byte-identical',
@@ -534,10 +538,14 @@ async function main(): Promise<void> {
       const a = streamAt(retFee, l, N, wfStart(retFee)), b = streamAt(retMatrix, l, N, wfStart(retMatrix));
       return a.every((v, i) => near(v, b[i] ?? 0));
     }));
-  check('an unallocated performance-fee remainder is SHOWN, never absorbed', (() => {
+  // RE-AIMED 2026-10-05 (founder): the share no row holds is earned by the Fund
+  // Manager BY DEFAULT and labelled so, rather than left to no one.
+  check('an unassigned performance-fee remainder goes to the Fund Manager, labelled a default', (() => {
     const rsM = computeReturnsSnapshot(computeFinancialsSnapshot(stateMatrix), stateMatrix.project);
-    if (!(rsM.feeEarners.unallocatedPerformanceFee > 0)) return false;
-    return rowOf(retMatrix, 'Unallocated') > 0;
+    if (!(Math.abs(rsM.performanceFeeDefaultShare - 0.4) < 1e-9 && rsM.feeEarners.unallocatedPerformanceFee < 1e-6)) return false;
+    let labelled = false;
+    retMatrix.eachRow((row) => row.eachCell((c) => { if (typeof c.value === 'string' && /by default/.test(c.value)) labelled = true; }));
+    return labelled && rowOf(retMatrix, 'Unallocated') < 0;
   })());
 
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);

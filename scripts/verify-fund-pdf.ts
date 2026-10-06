@@ -142,7 +142,8 @@ async function main(): Promise<void> {
     buildFundGrossNetRows(ctx).map((g) => g.cells[0]).join('|') === 'Excluding fund fees (gross)|Net of performance fee');
   check('the earner builder puts the Fund Manager first and totals last', (() => {
     const rows = buildFundEarnerRows(ctx);
-    return rows[0]?.cells[1] === 'Fund Manager' && rows[rows.length - 1]?.cells[0] === 'Total';
+    // The Type cell names the manager, and says when its performance share is the default (2026-10-05).
+    return String(rows[0]?.cells[1] ?? '').startsWith('Fund Manager') && rows[rows.length - 1]?.cells[0] === 'Total';
   })());
   check('the builder is inert on a standalone project', (() => {
     const off = state({ off: true });

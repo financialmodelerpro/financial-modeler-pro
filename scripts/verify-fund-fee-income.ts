@@ -206,7 +206,20 @@ console.log('\n=== 3. resolveFeeEarners feeds the engine the right shape ===');
   const bareEarners = resolveFeeEarners(bare);
   check('an empty matrix still yields the Fund Manager', bareEarners.length === 1
     && bareEarners[0].kind === 'fund_manager' && bareEarners[0].managementFeeShare === 1);
-  check('with a zero performance share, not an invented default', bareEarners[0].performanceFeePct === 0);
+// RE-AIMED 2026-10-05 (founder's decision, export review group 4): with NO
+// performance share assigned the Fund Manager earns the whole fee BY DEFAULT
+// (a fee with no named recipient is worse than a defaulted one). A TYPED
+// matrix is still honoured exactly, its shortfall shown as unallocated.
+  check('with the whole performance fee BY DEFAULT, flagged as such', bareEarners[0].performanceFeePct === 1 && bareEarners[0].performanceFeeDefaulted === true);
+  const typed = resolveFeeEarners(resolveFundTerms({ fundTerms: { enabled: true, fundManagerName: 'Solo FM', feeDistribution: [{ partyId: 'p1', partyName: 'P1', performanceFeePct: 0.4, developerFeePct: 0, commissionPct: 0 }] } } as any));
+  check('a typed 40% to a party leaves 60% unassigned, earned by the manager by default', Math.abs(typed[0].performanceFeePct - 0.6) < 1e-12 && typed[0].performanceFeeDefaulted === true);
+  const full = resolveFeeEarners(resolveFundTerms({ fundTerms: { enabled: true, fundManagerName: 'Solo FM', feeDistribution: [{ partyId: 'p1', partyName: 'P1', performanceFeePct: 1, developerFeePct: 0, commissionPct: 0 }] } } as any));
+  check('shares typed to 100% leave nothing to default (the earner stays editable)', full[0].performanceFeePct === 0 && full[0].performanceFeeDefaulted === false);
+  // Each share is clamped to 0..1 on entry, so over-allocation is two rows past 100%.
+  const over = resolveFeeEarners(resolveFundTerms({ fundTerms: { enabled: true, fundManagerName: 'Solo FM', feeDistribution: [
+    { partyId: 'p1', partyName: 'P1', performanceFeePct: 0.7, developerFeePct: 0, commissionPct: 0 },
+    { partyId: 'p2', partyName: 'P2', performanceFeePct: 0.6, developerFeePct: 0, commissionPct: 0 }] } } as any));
+  check('an over-allocated column (130%) is not trimmed and defaults nothing', over[1].performanceFeePct === 0.7 && over[2].performanceFeePct === 0.6 && over[0].performanceFeePct === 0 && over[0].performanceFeeDefaulted === false);
 }
 
 // ── 4 to 6: the M5 integration ─────────────────────────────────────────────
@@ -295,16 +308,22 @@ console.log('\n=== 4. The fee split CANNOT disturb the partner reconciliation ==
 
   // And the fee earners MUST differ, or the checks above are passing on three
   // identical results and prove nothing.
-  check('the fee earners genuinely differ between the three matrices',
-    firstDiff(a.ret.feeEarners, b.ret.feeEarners) !== null
+// RE-AIMED 2026-10-05 (founder's decision, export review group 4): with NO
+// performance share assigned the Fund Manager earns the whole fee BY DEFAULT
+// (a fee with no named recipient is worse than a defaulted one). A TYPED
+// matrix is still honoured exactly, its shortfall shown as unallocated.
+  // The empty matrix now DEFAULTS to the manager, so it pays out as the
+  // manager-takes-all one does; the split matrix must still differ.
+  check('the empty matrix pays out as manager-takes-all (the default), the split one differently',
+    near(a.ret.feeEarners.earners[0].totalPerformanceFeeIncome, b.ret.feeEarners.earners[0].totalPerformanceFeeIncome, 1e-3)
     && firstDiff(b.ret.feeEarners, c.ret.feeEarners) !== null);
   check('the manager-takes-all matrix gives it the whole performance fee',
     near(b.ret.feeEarners.earners[0].totalPerformanceFeeIncome, b.ret.waterfall.totalPerformanceFee, 1e-3));
   check('the split matrix shares it out', c.ret.feeEarners.earners.length === 3
     && near(c.ret.feeEarners.allocatedPerformanceFee, c.ret.waterfall.totalPerformanceFee, 1e-3));
-  check('an empty matrix leaves the performance fee unallocated',
-    a.ret.feeEarners.noneAllocated
-    && near(a.ret.feeEarners.unallocatedPerformanceFee, a.ret.waterfall.totalPerformanceFee, 1e-3));
+  check('an empty matrix gives the whole performance fee to the Fund Manager, none unallocated',
+    a.ret.performanceFeeDefaultedToManager === true && a.ret.feeEarners.unallocatedPerformanceFee < 1e-6
+    && near(a.ret.feeEarners.earners[0].totalPerformanceFeeIncome, a.ret.waterfall.totalPerformanceFee, 1e-3));
 
   // No fee earner is ever inside the partner roster.
   const partnerIds = c.ret.partners.partners.map((p: any) => p.id);

@@ -27,7 +27,7 @@ import { makeFmt } from './_shared/numberFmt';
 import { M4PeriodTable, type M4Row } from './_shared/m4Table';
 import { FundFeeBasisTable } from './_shared/FundFeeBasisTable';
 import { buildFundFeeBasisRows, buildFundCapitalRows } from '../../lib/reports/m4Reports';
-import { buildFundWaterfallRows, buildDdmPostFeeRows, buildFundFeeIncomeRows, fundGrossNetNote, type FundReportCtx } from '../../lib/reports/fundReports';
+import { buildFundWaterfallRows, buildDdmPostFeeRows, buildFundFeeIncomeRows, fundGrossNetNote, fundPerformanceFeeDefaultNote, type FundReportCtx } from '../../lib/reports/fundReports';
 import { MetricCard, MetricGrid, AssumptionsPanel, fmtPct, fmtX, type AssumptionsValue } from './Module5Shared';
 import { FAST_INPUT } from './_shared/inputStyles';
 import type { ProjectPartner } from '../../lib/state/module1-types';
@@ -556,7 +556,11 @@ function FeeIncomeSection(props: {
   // one. Three states, not two: nobody has allocated yet (neutral, a normal
   // starting point), allocated to 100% (green), or allocated to something else
   // (amber with the signed delta).
-  const chip = s.noneAllocated
+  // Nobody assigned a share: the Fund Manager earns it by default (2026-10-05).
+  const defaultNote = fundPerformanceFeeDefaultNote(props.reportCtx);
+  const chip = defaultNote
+    ? { bg: '#F3F4F6', fg: '#4B5563', icon: 'i', text: defaultNote }
+    : s.noneAllocated
     ? { bg: '#F3F4F6', fg: '#4B5563', icon: 'i', text: 'Performance fee not allocated yet' }
     : s.performanceFeeReconciles
       ? { bg: '#E7F6EC', fg: '#1A7A30', icon: '✓', text: `Performance fee shares total ${fmtPct(s.performanceFeeShareSum)}` }

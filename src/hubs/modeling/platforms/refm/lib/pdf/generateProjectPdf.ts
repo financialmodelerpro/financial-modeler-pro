@@ -68,7 +68,7 @@ import {
 } from '../fundTerms';
 import {
   isFundActive, hasFundFeeIncome, buildFundWaterfallRows, buildFundFeeIncomeRows,
-  buildFundGrossNetRows, buildFundEarnerRows, buildFundHeadlineCards, buildFundTermsPairs,
+  buildFundGrossNetRows, buildFundEarnerRows, fundPerformanceFeeDefaultNote, buildFundHeadlineCards, buildFundTermsPairs,
   fundGrossNetNote, fundWaterfallTotalsNote, fundHeadlineRestatementNote,
   FUND_GROSS_NET_COLUMNS, FUND_EARNER_COLUMNS, type FundReportCtx, type FundFmt,
 } from '../reports/fundReports';
@@ -1050,6 +1050,8 @@ function buildFundBlock(
         rows: buildFundEarnerRows(ctx).map((g) => row(g.cells, g.emphasis)),
       },
     });
+    const defaultNote = fundPerformanceFeeDefaultNote(ctx);
+    if (defaultNote) out.push({ title: 'Fund Fee Income by Earner', table: null, cards: null, note: defaultNote });
     const basis = buildFundFeeBasisRows(snap);
     if (basis.length > 0) {
       // The three capital bases are their OWN table, above the fee rows. They

@@ -241,8 +241,32 @@ export interface FeeEarner {
   managementFeeShare: number;
   /** Shares of the split fee types, from the distribution matrix. */
   performanceFeePct: number;
+  /** True on the Fund Manager when it earns the performance fee BY DEFAULT
+   *  because nobody was assigned a share (see performanceFeeDefaultsToManager). */
+  performanceFeeDefaulted?: boolean;
   developerFeePct: number;
   commissionPct: number;
+}
+
+/**
+ * THE PERFORMANCE FEE HAS AN EARNER (2026-10-05, export review group 4,
+ * founder's decision). The waterfall takes the whole fee out of investor
+ * distributions whatever the matrix says, so with nobody assigned a share the
+ * fee left investors and reached no one (Marina Gate: 97,643,955 to no one).
+ * A fee with no named recipient is worse than a defaulted one, so the share of
+ * the performance fee that NO row of the matrix holds goes to the Fund Manager:
+ * all of it when the column is empty, the remainder when it is typed but short
+ * (Marina Gate: the manager's typed 60% left 39,052,396 to no one). It is
+ * labelled a default wherever the earners are shown, and the earner stays
+ * editable: shares typed to 100% leave nothing to default. A column OVER 100%
+ * is not trimmed; it stays a stated over-allocation, flagged as before.
+ */
+export function performanceFeeDefaultShare(terms: Pick<FundTerms, 'feeDistribution'>): number {
+  const assigned = terms.feeDistribution.reduce((sum, r) => sum + Math.max(0, r.performanceFeePct ?? 0), 0);
+  return Math.max(0, 1 - assigned);
+}
+export function performanceFeeDefaultsToManager(terms: Pick<FundTerms, 'feeDistribution'>): boolean {
+  return performanceFeeDefaultShare(terms) > 1e-9;
 }
 
 /**
@@ -254,12 +278,15 @@ export interface FeeEarner {
  */
 export function resolveFeeEarners(terms: FundTerms): FeeEarner[] {
   const fmRow = terms.feeDistribution.find(isFundManagerRow);
+  const defaultShare = performanceFeeDefaultShare(terms);
+  const defaulted = defaultShare > 1e-9;
   const manager: FeeEarner = {
     entityId: FUND_MANAGER_ROW_ID,
     name: terms.fundManagerName || DEFAULT_FUND_MANAGER_NAME,
     kind: 'fund_manager',
     managementFeeShare: 1,
-    performanceFeePct: fmRow?.performanceFeePct ?? 0,
+    performanceFeePct: Math.max(0, fmRow?.performanceFeePct ?? 0) + defaultShare,
+    performanceFeeDefaulted: defaulted,
     developerFeePct: fmRow?.developerFeePct ?? 0,
     commissionPct: fmRow?.commissionPct ?? 0,
   };

@@ -69,7 +69,7 @@ import { buildAssetAreaTables, buildAssetLandView } from '../../components/modul
 import { resolveFundTerms } from '../fundTerms';
 import {
   isFundActive, hasFundFeeIncome, buildFundWaterfallRows, buildFundFeeIncomeRows, buildDdmPostFeeRows,
-  buildFundGrossNetRows, buildFundEarnerRows, buildFundHeadlineCards, fundGrossNetNote,
+  buildFundGrossNetRows, buildFundEarnerRows, fundPerformanceFeeDefaultNote, buildFundHeadlineCards, fundGrossNetNote,
   fundWaterfallTotalsNote,
   FUND_GROSS_NET_COLUMNS, FUND_EARNER_COLUMNS, type FundReportCtx,
 } from '../reports/fundReports';
@@ -4272,7 +4272,9 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     // A string grid on its own title: the fund verifiers find the earner rows
     // under this caption.
     grid('Fund Fee Income by Earner', [...FUND_EARNER_COLUMNS], buildFundEarnerRows(textCtx).map((g) => ({ label: g.cells[0], bold: g.emphasis === 'total', cells: g.cells.slice(1) })));
-    note(fe.noneAllocated
+    const defaultNote = fundPerformanceFeeDefaultNote({ returns: rs });
+    if (defaultNote) note(defaultNote);
+    else note(fe.noneAllocated
       ? 'Performance fee not allocated yet.'
       : `Performance fee shares total ${cPct(fe.performanceFeeShareSum)}${fe.performanceFeeReconciles ? '' : ` (${fe.performanceFeeShareDelta >= 0 ? '+' : ''}${cPct(fe.performanceFeeShareDelta)} vs 100%)`}.`);
 
