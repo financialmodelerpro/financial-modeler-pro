@@ -33,7 +33,7 @@ import {
   type AssumptionCategory, type AssumptionFormat, type GridContext, type GridRowLite,
 } from '../../lib/cases/assumptionGrid';
 import { buildCaseComparisonReport, CASE_KPIS, type CaseKpiKind, caseOverridesNote } from '../../lib/reports/caseComparisonReport';
-import { buildCaseYoYReport, type YoYBlock } from '../../lib/reports/caseYoYReport';
+import { buildCaseYoYReport, YOY_DRIVER_NOTE, YOY_RECONCILIATION_TITLE, YOY_RECONCILIATION_NOTE, yoyAloneLabel, yoyReconLabels, type YoYBlock } from '../../lib/reports/caseYoYReport';
 import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
 import { makeFmt } from './_shared/numberFmt';
 import { fmtPct, fmtX } from './Module5Shared';
@@ -621,7 +621,7 @@ export default function Module6Scenarios(): React.JSX.Element {
       <section style={card} data-testid="m6-yoy">
         <div style={sectionTitle}>4. Year-on-Year Impact</div>
         <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 10 }}>
-          One block per input a scenario changes: the input value per case, then every per-period output that input drives (Management and each scenario), with each scenario&apos;s delta vs Management below the actuals. Money in {currency}. The Total column sums flows (drawdown, financing cost, revenue, opex) and is blank for running balances. The first column ({yoy.priorYearLabel}) is the opening / inception period. Values read directly from the computed model (no recompute).
+          {YOY_DRIVER_NOTE} Money in {currency}. The Total column sums flows (drawdown, financing cost, revenue, opex) and is blank for running balances. The first column ({yoy.priorYearLabel}) is the opening / inception period. Values read directly from the computed model (no recompute).
         </div>
         {yoy.blocks.length === 0 ? (
           <div style={{ fontSize: 12, color: 'var(--color-meta)', fontStyle: 'italic' }} data-testid="m6-yoy-empty">
@@ -654,11 +654,7 @@ export default function Module6Scenarios(): React.JSX.Element {
                     ))}
                   </div>
                 ))}
-                {block.note && (
-                  <div style={{ padding: '6px 12px', fontSize: 11, fontStyle: 'italic', color: 'var(--color-meta)', borderBottom: '1px solid var(--color-border)' }} data-testid={`m6-yoy-note-${block.path}`}>
-                    {block.note}
-                  </div>
-                )}
+
                 {/* Output sub-tables: one per driven output. */}
                 {block.outputs.map((out) => (
                   <div key={out.key} style={{ overflowX: 'auto', borderBottom: '1px solid var(--color-border)' }} data-testid={`m6-yoy-out-${out.key}`}>
@@ -681,7 +677,7 @@ export default function Module6Scenarios(): React.JSX.Element {
                         </tr>
                         {out.scenarios.map((sc) => (
                           <tr key={sc.id} data-testid={`m6-yoy-${out.key}-${sc.id}`}>
-                            <td style={lblCol}>◆ {sc.name}</td>
+                            <td style={lblCol}>◆ {yoyAloneLabel(sc.name)}</td>
                             <td style={totalCol}>{out.kind === 'flow' ? flowTotal(sc.values) : ''}</td>
                             <td style={priorCol}>{fmt(sc.prior)}</td>
                             {sc.values.map((v, i) => <td key={i} style={yCol}>{fmt(v)}</td>)}
@@ -703,6 +699,49 @@ export default function Module6Scenarios(): React.JSX.Element {
               </div>
             );
           })
+        )}
+        {/* The reconciliation: each output's drivers-alone sum against each case. */}
+        {yoy.reconciliation.length > 0 && (
+          <div style={{ marginTop: 'var(--sp-3)', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }} data-testid="m6-yoy-reconciliation">
+            <div style={{ background: 'color-mix(in srgb, var(--color-navy) 12%, transparent)', color: 'var(--color-heading)', fontWeight: 800, fontSize: 12, padding: '7px 12px', borderBottom: '1px solid var(--color-border)' }}>
+              {YOY_RECONCILIATION_TITLE}
+            </div>
+            <div style={{ padding: '6px 12px', fontSize: 11, fontStyle: 'italic', color: 'var(--color-meta)', borderBottom: '1px solid var(--color-border)' }}>{YOY_RECONCILIATION_NOTE}</div>
+            {yoy.reconciliation.map((rc) => {
+              const cell: React.CSSProperties = { textAlign: 'right', padding: '5px 10px', fontSize: 11, minWidth: 84, whiteSpace: 'nowrap' };
+              const lbl: React.CSSProperties = { textAlign: 'left', padding: '5px 10px', fontSize: 12, position: 'sticky', left: 0, background: 'var(--color-surface, #fff)', minWidth: 250, whiteSpace: 'nowrap' };
+              const sgn = (d: number): string => (Math.abs(d) < 1e-9 ? '0' : `${d > 0 ? '+' : ''}${fmt(d)}`);
+              const tot = (v: number[]): string => (rc.kind === 'flow' ? sgn(v.reduce((a, b) => a + b, 0)) : '');
+              const line = (label: string, sr: { values: number[]; prior: number }, bold = false, k = label): React.ReactElement => (
+                <tr key={k}>
+                  <td style={{ ...lbl, fontWeight: bold ? 700 : 400 }}>{label}</td>
+                  <td style={{ ...cell, fontWeight: 700 }}>{tot(sr.values)}</td>
+                  <td style={{ ...cell, fontStyle: 'italic', color: 'var(--color-meta)' }}>{sgn(sr.prior)}</td>
+                  {sr.values.map((v, i) => <td key={i} style={{ ...cell, fontWeight: bold ? 700 : 400 }}>{sgn(v)}</td>)}
+                </tr>
+              );
+              return (
+                <div key={rc.key} style={{ overflowX: 'auto', borderBottom: '1px solid var(--color-border)' }} data-testid={`m6-yoy-recon-${rc.key}`}>
+                  <table style={{ borderCollapse: 'collapse', minWidth: 480 }}>
+                    <thead>
+                      <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+                        <th style={{ ...lbl, background: 'var(--color-navy)', fontWeight: 700 }}>{rc.label}{rc.kind === 'stock' ? ' (balance)' : ''}, {rc.drivers} driver{rc.drivers === 1 ? '' : 's'}</th>
+                        <th style={{ ...cell, color: 'var(--color-on-primary-navy)' }}>Total</th>
+                        <th style={{ ...cell, color: 'var(--color-on-primary-navy)', fontStyle: 'italic' }}>{yoy.priorYearLabel}</th>
+                        {yoy.yearLabels.map((yr) => <th key={yr} style={{ ...cell, color: 'var(--color-on-primary-navy)' }}>{yr}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rc.perCase.flatMap((pc) => {
+                        const L = yoyReconLabels(pc.name);
+                        return [line(L.sum, pc.sumOfDrivers, false, `${pc.id}-s`), line(L.interaction, pc.interaction, false, `${pc.id}-i`), line(L.total, pc.total, true, `${pc.id}-t`)];
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })}
+          </div>
         )}
       </section>
       </>)}

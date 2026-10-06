@@ -48,7 +48,7 @@ import { buildOpexReport, OPEX_AP_BASIS, OPEX_AP_TOTAL_BASIS } from '../reports/
 import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsReconciliationRows, buildBsFeederTables, BS_FEEDER_SECTIONS, BS_RECONCILIATION_CAPTION, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, totalColumnHeading, totalColumnNote, TOTAL_COLUMN_HEADINGS, TOTAL_COLUMN_NOTES, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, FUND_CAPITAL_BASE_TAG, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
 import { buildFixedAssetReport, type FixedAssetTable } from '../reports/fixedAssetReports';
 import { buildCaseComparisonReport, caseOverridesNote, type CaseComparisonInput, type CaseComparisonReport, type CaseKpiKind } from '../reports/caseComparisonReport';
-import { buildCaseYoYReport, type CaseYoYReport } from '../reports/caseYoYReport';
+import { buildCaseYoYReport, YOY_DRIVER_NOTE, YOY_RECONCILIATION_TITLE, YOY_RECONCILIATION_NOTE, yoyAloneLabel, yoyReconLabels, type CaseYoYReport } from '../reports/caseYoYReport';
 import { formatAssumptionValue, assumptionUnitSuffix, curatedDefaultFields, inactiveLeverReason, nonEconomicLeverReason, isPerPeriodLever, isAppliedValue, assumptionFor, buildGridContext, groupAssumptionRows, leverNote, type GridRowLite } from '../cases/assumptionGrid';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 import { computeReturnsSnapshot, computeReturnsSensitivity, type ReturnsSnapshot } from '../returns-resolvers';
@@ -4790,7 +4790,7 @@ function addScenarios(ctx: EmitCtx): void {
   section('4. Year-on-Year Impact');
   let yoy: CaseYoYReport | null = null;
   try { yoy = buildCaseYoYReport(input); } catch { yoy = null; }
-  note(`One block per effect: the inputs a scenario changes with their value per case (inputs whose effect is identical share a block, since a case moves them together), then every per-period output that input drives (Management and each scenario), with each scenario's delta vs Management below the actuals. The Total column sums flows and is blank for running balances. The opening column${yoy ? ` (${yoy.priorYearLabel})` : ''} is the opening / inception period.`);
+  note(`${YOY_DRIVER_NOTE} The Total column sums flows and is blank for running balances. The opening column${yoy ? ` (${yoy.priorYearLabel})` : ''} is the opening / inception period.`);
   if (!yoy || yoy.blocks.length === 0) {
     note('No year-on-year impact yet. Override an input that drives a per-period output (for example debt %, an interest rate, a price / ADR, opex, or a construction cost) in a scenario to see how it diverges from Management over time.');
     return;
@@ -4802,14 +4802,30 @@ function addScenarios(ctx: EmitCtx): void {
       setLabel(ws.getCell(r, LBL_COL), `${line.label}:  ${parts.join('   ')}`, { bold: true });
       r += 1;
     }
-    if (b.note) note(b.note);
     for (const o of b.outputs) {
       setLabel(ws.getCell(r, LBL_COL), `${o.label}${o.kind === 'stock' ? ' (balance)' : ''}`, { bold: true });
       fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.grey);
       r += 1;
       periodRow(`★ ${o.base.name}`, o.base.values, o.base.prior, o.kind, 'bold');
-      for (const sc of o.scenarios) periodRow(`◆ ${sc.name}`, sc.values, sc.prior, o.kind);
+      for (const sc of o.scenarios) periodRow(`◆ ${yoyAloneLabel(sc.name)}`, sc.values, sc.prior, o.kind);
       for (const d of o.deltas) periodRow(`${d.name} delta vs Management`, d.values, d.prior, o.kind, 'delta');
+      r += 1;
+    }
+  }
+  // The reconciliation: each output's drivers-alone sum against each case.
+  if (yoy.reconciliation.length) {
+    subTitle(YOY_RECONCILIATION_TITLE);
+    note(YOY_RECONCILIATION_NOTE);
+    for (const rc of yoy.reconciliation) {
+      setLabel(ws.getCell(r, LBL_COL), `${rc.label}${rc.kind === 'stock' ? ' (balance)' : ''}, ${rc.drivers} driver${rc.drivers === 1 ? '' : 's'}`, { bold: true });
+      fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.grey);
+      r += 1;
+      for (const pc of rc.perCase) {
+        const L = yoyReconLabels(pc.name);
+        periodRow(L.sum, pc.sumOfDrivers.values, pc.sumOfDrivers.prior, rc.kind, 'delta');
+        periodRow(L.interaction, pc.interaction.values, pc.interaction.prior, rc.kind, 'delta');
+        periodRow(L.total, pc.total.values, pc.total.prior, rc.kind, 'bold');
+      }
       r += 1;
     }
   }

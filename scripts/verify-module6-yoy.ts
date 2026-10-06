@@ -18,6 +18,7 @@
 
 import { buildCaseYoYReport, type YoYBlock, type YoYOutput } from '../src/hubs/modeling/platforms/refm/lib/reports/caseYoYReport';
 import { applyOverrides, baseCaseId } from '../src/hubs/modeling/platforms/refm/lib/cases/applyOverrides';
+import { caseModelOf } from '../src/hubs/modeling/platforms/refm/lib/cases/caseModel';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { buildCaseComparisonReport } from '../src/hubs/modeling/platforms/refm/lib/reports/caseComparisonReport';
 import { inactiveLeverReason, curatedDefaultFields, nonEconomicLeverReason } from '../src/hubs/modeling/platforms/refm/lib/cases/assumptionGrid';
@@ -233,29 +234,50 @@ const downFinCost = cmp.columns.find((c) => c.id === 'case_down')!.values['Total
 check('the interest-rate override moves Total Financing Cost in the comparison', baseFinCost != null && downFinCost != null && Math.abs(downFinCost - baseFinCost) > 1,
   `base=${Math.round(baseFinCost ?? 0)} down=${Math.round(downFinCost ?? 0)}`);
 
-// ── Item 28 (2026-10-05): one block per distinct effect ──────────────────────
-// A case moves all its inputs at once, so two inputs changed in the same case
-// produce ONE effect. Printing it under each input read as if each alone moved
-// the output by the whole amount (Marina Gate: thirteen revenue blocks, one
-// figure). Inputs with an identical effect share a block that says so; inputs
-// with different effects keep their own.
-console.log('\n=== Item 28: inputs with an identical effect share one block ===');
+// ── Item 28 (2026-10-05, founder): one block per STORED DRIVER, its own effect ─
+// A case moves all its inputs at once, so a case's output is their COMBINED
+// effect. Each driver's own effect is the engine run with that driver alone;
+// the reconciliation adds the drivers up against the whole case, with the
+// interaction on its own row. Marina Gate: the villa price alone is 218.0m of
+// the Downside's 247.3m revenue change, which one merged block hid.
+console.log('\n=== Item 28: one block per stored driver, each with its own effect ===');
 void (async () => {
   const sells = (base.subUnits ?? []).filter((u: any) => sellAssetIds.has(u.assetId) && Number(u.unitPrice) > 0).slice(0, 2);
   check('the fixture has two priced Sell sub-units to move together', sells.length === 2, `found ${sells.length}`);
   const paths: string[] = sells.map((u: any) => `subUnits[id=${u.id}].unitPrice`);
   const together: ProjectCase = { id: 'case_both', name: 'Both prices', role: 'scenario',
     overrides: Object.fromEntries(sells.map((u: any, i: number) => [paths[i], Number(u.unitPrice) * 1.2])) };
-  const mergedReport = buildCaseYoYReport({ baseModel: base, cases: [cases[0], together, downside], activeCaseId: 'case_management' });
-  const holders = paths.map((p) => mergedReport.blocks.filter((b) => b.inputs.some((l) => l.path === p)));
-  check('each input appears in exactly one block', holders.every((h) => h.length === 1), holders.map((h) => h.length).join(','));
-  const joint = holders[0][0];
-  check('the two inputs moved together share ONE block', !!joint && holders[1][0] === joint);
-  check('the shared block says its figures are the combined effect', !!joint?.note && /combined effect/.test(joint.note));
-  const rateBlock = mergedReport.blocks.find((b) => b.inputs.some((l) => l.path === ratePath));
-  check('an input with a DIFFERENT effect keeps its own block (not vacuous)', !!rateBlock && rateBlock !== joint && !rateBlock.note);
+  const twoCases = [cases[0], together, downside];
+  const r2 = buildCaseYoYReport({ baseModel: base, cases: twoCases, activeCaseId: 'case_management' });
+  const holders = paths.map((p) => r2.blocks.filter((b) => b.inputs.some((l) => l.path === p)));
+  check('each driver has exactly one block', holders.every((h) => h.length === 1), holders.map((h) => h.length).join(','));
+  check('two drivers changed in the same case get TWO blocks', !!holders[0][0] && !!holders[1][0] && holders[0][0] !== holders[1][0]);
+
+  // A block's change is that driver ALONE, measured independently here.
+  const S = (a: number[]): number => a.reduce((x, v) => x + (v ?? 0), 0);
+  const baseRev = S(computeFinancialsSnapshot(base).pl.totalRevenuePerPeriod);
+  for (let i = 0; i < 2; i++) {
+    const alone = S(computeFinancialsSnapshot(applyOverridesSettled({ [paths[i]]: together.overrides[paths[i]] })).pl.totalRevenuePerPeriod) - baseRev;
+    const shown = S(holders[i][0]?.outputs.find((o) => o.key === 'revenue')?.deltas.find((d) => d.id === 'case_both')?.values ?? []);
+    check(`driver ${i + 1}: its block's revenue change is the engine run with that driver alone`, Math.abs(shown - alone) <= Math.max(1, Math.abs(alone) * 1e-9), `shown=${shown.toFixed(0)} alone=${alone.toFixed(0)}`);
+    check(`driver ${i + 1}: and it is not the whole case's change (not vacuous)`, Math.abs(alone) > 1 && Math.abs(shown - (S(computeFinancialsSnapshot(applyOverridesSettled(together.overrides)).pl.totalRevenuePerPeriod) - baseRev)) > 1);
+  }
+  const rateBlock = r2.blocks.find((b) => b.inputs.some((l) => l.path === ratePath));
+  const rateOnBoth = rateBlock?.outputs[0]?.deltas.find((d) => d.id === 'case_both');
+  check('a driver a case leaves alone shows no change in that case', !!rateOnBoth && rateOnBoth.values.every((v) => Math.abs(v) < 1e-6));
+
+  // The reconciliation: drivers alone + interaction = whole case, every output, case and year.
+  let worst = 0;
+  for (const rc of r2.reconciliation) for (const pc of rc.perCase) pc.total.values.forEach((t, k) => { worst = Math.max(worst, Math.abs(pc.sumOfDrivers.values[k] + pc.interaction.values[k] - t)); });
+  check('reconciliation: drivers alone + interaction = whole case, every output, case and year', r2.reconciliation.length > 0 && worst < 1e-6, `worst ${worst}`);
+  const revRc = r2.reconciliation.find((x) => x.key === 'revenue');
+  const both = revRc?.perCase.find((x) => x.id === 'case_both');
+  check('reconciliation: the revenue whole-case change is the case run, not a sum',
+    !!both && Math.abs(S(both.total.values) - (S(computeFinancialsSnapshot(applyOverridesSettled(together.overrides)).pl.totalRevenuePerPeriod) - baseRev)) <= 1);
+  check('reconciliation: it counts the drivers it adds up', (revRc?.drivers ?? 0) >= 2);
+
   const sig = (b: YoYBlock): string => b.outputs.map((o) => `${o.key}=${[o.base, ...o.scenarios].map((r) => r.values.map((v) => v.toFixed(2)).join(',')).join('/')}`).sort().join('|');
-  for (const [name, r] of [['fixture cases', report], ['merge cases', mergedReport]] as const) {
+  for (const [name, r] of [['fixture cases', report], ['two-driver cases', r2]] as const) {
     const sigs = r.blocks.map(sig);
     check(`${name}: no two blocks print the same figures`, new Set(sigs).size === sigs.length, `${sigs.length} blocks, ${new Set(sigs).size} distinct`);
     const dupLabels = r.blocks.filter((b) => new Set(b.inputs.map((l) => l.label)).size !== b.inputs.length);
@@ -270,16 +292,22 @@ void (async () => {
     const extra = listed.filter((p) => !stored.has(p));
     check('every input a block lists is one a case stores (no settle markers)', extra.length === 0, `${extra.length} extra: ${extra.slice(0, 3).join(', ')}`);
   }
-  // The PDF prints the screen's block whole: what changed, each case's actuals, the change.
+  // The PDF prints the screen's block whole and the reconciliation.
   const { generateProjectPdf } = await import('../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf');
   const { pdfText } = await import('./pdfTextExtract');
+  const { YOY_RECONCILIATION_TITLE, yoyAloneLabel, yoyReconLabels } = await import('../src/hubs/modeling/platforms/refm/lib/reports/caseYoYReport');
   const pdf = pdfText(await generateProjectPdf({ state: base, projectName: 'X', dateLabel: 'd', selectedModuleKeys: ['module6'],
-    caseComparison: { baseModel: base, cases: [cases[0], together, downside], activeCaseId: 'case_management' } }));
+    caseComparison: { baseModel: base, cases: twoCases, activeCaseId: 'case_management' } }));
   const lines = pdf.split('\n').map((l) => l.trim());
+  const flat = pdf.replace(/\s+/g, ' ');
   check('PDF: each block opens with what changed, per case', lines.some((l) => l.endsWith(': what changed')));
-  check('PDF: the shared block prints its combined-effect note', pdf.replace(/\s+/g, ' ').includes('combined effect'));
-  check('PDF: each case prints its actual figures, not only the change', lines.includes(together.name) && lines.includes(downside.name));
+  check('PDF: each case prints its figures with this driver alone', flat.includes(yoyAloneLabel(together.name)) && flat.includes(yoyAloneLabel(downside.name)));
+  check('PDF: the reconciliation prints, with its interaction row', flat.includes(YOY_RECONCILIATION_TITLE) && flat.includes(yoyReconLabels(together.name).interaction));
 
 console.log(`\n=== Result: ${passed} passed, ${failed} failed ===`);
 if (failed) { console.log('Failures: ' + fails.join(' | ')); process.exit(1); }
 })();
+
+function applyOverridesSettled(o: Record<string, unknown>): any {
+  return caseModelOf(base, o);
+}

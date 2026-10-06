@@ -107,7 +107,7 @@ import { buildCaseComparisonReport, type CaseComparisonInput, type CaseCompariso
 import { poolMapByLine, poolCapexByLine, poolReturnRows, lineHosts, fixHospitalityRates, fixLeaseRates, poolRevenueBasisByLine, poolSaleCohortByLine, type PooledCapexInputLine } from '../reports/lineRows';
 import { revenueBySection } from '../reports/revenueSections';
 import { idcWithDisposal, disposalContextOf } from '../reports/disposalSchedules';
-import { buildCaseYoYReport, type CaseYoYReport } from '../reports/caseYoYReport';
+import { buildCaseYoYReport, YOY_DRIVER_NOTE, YOY_RECONCILIATION_TITLE, YOY_RECONCILIATION_NOTE, yoyAloneLabel, yoyReconLabels, type CaseYoYReport } from '../reports/caseYoYReport';
 import { buildAssumptionGrid } from '../reports/scenarioAssumptions';
 import { buildOverviewReport, distributedReturnPair } from '../reports/overviewReport';
 import { formatAssumptionValue, assumptionUnitSuffix } from '../cases/assumptionGrid';
@@ -3893,12 +3893,12 @@ function buildModule6(
   if (caseYoY && caseYoY.blocks.length && hasScenarios) {
     const yPrior = caseYoY.priorYearLabel;
     const yl = caseYoY.yearLabels;
-    // THE SCREEN'S BLOCK, WHOLE (2026-10-05, export review item 28): the
-    // driver lines with their value in each case, then per output Management,
-    // each case's actual figures, and each case's change. The report printed the
-    // base and the changes only, under a heading naming one input, so blocks
-    // driven by different inputs were indistinguishable.
+    // THE SCREEN'S BLOCK, WHOLE (2026-10-05, export review item 28): one block
+    // per stored driver, its value in each case, then per output Management,
+    // each case with ONLY this driver applied, and the change; then the
+    // reconciliation of the drivers against each whole case.
     const T = 'Tab 3: Year-on-Year Impact';
+    items.push(tItem(T, 'schedules', { type: 'paragraph', text: YOY_DRIVER_NOTE }));
     for (const b of caseYoY.blocks) {
       const caseNames = b.inputs[0]?.byCase.map((c) => c.name) ?? [];
       items.push(tTable(T, 'schedules', {
@@ -3906,13 +3906,26 @@ function buildModule6(
         columns: ['Input', ...caseNames],
         rows: b.inputs.map((l) => row([l.label, ...l.byCase.map((c) => `${formatAssumptionValue(c.value, l.format)}${assumptionUnitSuffix(l.format)}`)])),
       }));
-      if (b.note) items.push(tItem(T, 'schedules', { type: 'paragraph', text: b.note }));
       for (const o of b.outputs) {
         const total = o.kind === 'flow' ? 'sum' : 'last';
         const rows: PdfTableRow[] = [periodRow(`${o.base.name} (base)`, o.base.values, total, 'subtotal', o.base.prior)];
-        for (const sc of o.scenarios) rows.push(periodRow(sc.name, sc.values, total, undefined, sc.prior));
+        for (const sc of o.scenarios) rows.push(periodRow(yoyAloneLabel(sc.name), sc.values, total, undefined, sc.prior));
         for (const d of o.deltas) rows.push(periodRow(`change, ${d.name}`, d.values, total, undefined, d.prior));
-        items.push(tTable(T, 'schedules', periodTable(`${b.note ? `${o.label} by case` : `${b.inputLabel}, ${o.label}`}${o.kind === 'stock' ? ' (balance)' : ''}`, yPrior, yl, rows)));
+        items.push(tTable(T, 'schedules', periodTable(`${b.inputLabel}, ${o.label}${o.kind === 'stock' ? ' (balance)' : ''}`, yPrior, yl, rows)));
+      }
+    }
+    // The reconciliation: each output's drivers-alone sum against each case.
+    if (caseYoY.reconciliation.length) {
+      items.push(tItem(T, 'schedules', { type: 'paragraph', title: YOY_RECONCILIATION_TITLE, text: YOY_RECONCILIATION_NOTE }));
+      for (const rc of caseYoY.reconciliation) {
+        const total = rc.kind === 'flow' ? 'sum' : 'last';
+        const rows: PdfTableRow[] = rc.perCase.flatMap((pc) => {
+          const L = yoyReconLabels(pc.name);
+          return [periodRow(L.sum, pc.sumOfDrivers.values, total, undefined, pc.sumOfDrivers.prior),
+            periodRow(L.interaction, pc.interaction.values, total, undefined, pc.interaction.prior),
+            periodRow(L.total, pc.total.values, total, 'subtotal', pc.total.prior)];
+        });
+        items.push(tTable(T, 'schedules', periodTable(`Reconciliation, ${rc.label}${rc.kind === 'stock' ? ' (balance)' : ''} (${rc.drivers} driver${rc.drivers === 1 ? '' : 's'})`, yPrior, yl, rows)));
       }
     }
   } else {

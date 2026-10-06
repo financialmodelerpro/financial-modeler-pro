@@ -95,13 +95,32 @@ export interface YoYBlock {
   /** Every per-period output the input drives that a scenario actually moves. */
   outputs: YoYOutput[];
   /** Set on a merged block: its outputs are the inputs' combined effect. */
-  note?: string;
 }
+/** The words every surface prints with the per-driver view, once. */
+export const YOY_DRIVER_NOTE = 'Each block is ONE driver on its own: the model is run with only that input changed, so a case\'s figures here are Management plus this driver, and the change is what this driver alone does. The reconciliation at the end adds the drivers up against each case.';
+export const YOY_RECONCILIATION_TITLE = 'Reconciliation: drivers alone against the whole case';
+export const YOY_RECONCILIATION_NOTE = 'Drivers alone, added up: the sum of each driver\'s own change. Interaction: what the drivers do together beyond that sum (zero when their effects simply add). Whole case: the case\'s change with every driver applied.';
+export const yoyAloneLabel = (caseName: string): string => `${caseName}, this driver alone`;
+export const yoyReconLabels = (caseName: string): { sum: string; interaction: string; total: string } => ({
+  sum: `${caseName}: drivers alone, added up`, interaction: `${caseName}: interaction`, total: `${caseName}: whole case`,
+});
+/** A per-period series with its inception value. */
+export interface YoYSeries { values: number[]; prior: number }
+/**
+ * One output's reconciliation for one case: the drivers' own changes added up,
+ * the case's whole change, and the difference between them (the interaction:
+ * what the drivers do together beyond the sum of what each does alone).
+ */
+export interface YoYReconciliationCase { id: string; name: string; sumOfDrivers: YoYSeries; interaction: YoYSeries; total: YoYSeries }
+export interface YoYReconciliation { key: string; label: string; kind: YoYOutputKind; drivers: number; perCase: YoYReconciliationCase[] }
 export interface CaseYoYReport {
   yearLabels: number[];
   /** Inception column shown first (= yearLabels[0] - 1), matching other modules. */
   priorYearLabel: number;
+  /** One block per stored driver, each with that driver's OWN effect. */
   blocks: YoYBlock[];
+  /** Per output: the drivers' own changes against the case's whole change. */
+  reconciliation: YoYReconciliation[];
 }
 
 function normalise(series: number[] | undefined, n: number): number[] {
@@ -226,25 +245,51 @@ function splitPartnerPath(path: string): string | null {
 const isDebtHalf = (path: string): boolean => /\.debtPct$/.test(path);
 
 /**
- * Build the per-period impact report grouped by changed input. Empty `blocks`
- * when no override moves a tracked per-period output (caller shows empty state).
+ * ONE BLOCK PER STORED DRIVER, EACH WITH ITS OWN EFFECT (2026-10-05, export
+ * review item 28, founder's decision).
+ *
+ * A case moves its inputs together and the engine runs once per case, so a
+ * case's output series is the COMBINED effect of everything it changed. Each
+ * driver's OWN effect is measured by running the engine with that driver alone
+ * applied to the base (one run per driver per case; Marina Gate: 12 runs, about
+ * 8 seconds). A block shows the driver's value per case, then every tracked
+ * output its own run moves (a price can move capex through its selling costs,
+ * so outputs are not limited to the driver's category), as each case's figure
+ * with only that driver applied and the change against Management.
+ *
+ * The RECONCILIATION then adds the drivers' own changes per output and case and
+ * sets them against the case's whole change; the difference is the INTERACTION
+ * (what the drivers do together beyond the sum of what each does alone), shown
+ * on its own row rather than absorbed into any driver.
+ *
+ * A driver is a case's STORED override (through withoutDerivedOverrides), never
+ * a diff of a settled model, which listed every value the settle wrote (TRAPS
+ * 7.62). The debt / equity split is one driver of two paths, as before.
+ * Empty `blocks` when no override moves a tracked per-period output.
  */
 export function buildCaseYoYReport(input: CaseComparisonInput): CaseYoYReport {
   const { baseModel, cases, activeCaseId, liveActiveModel } = input;
   const baseId = baseCaseId(cases);
 
+  const snapOf = (model: HydrateSnapshot): ProjectFinancialsSnapshot | null => {
+    try { return computeFinancialsSnapshot(model as never); } catch { return null; }
+  };
   const computed = cases.map((c) => {
     let model: HydrateSnapshot;
     if (c.id === activeCaseId && liveActiveModel) model = liveActiveModel;
     else if (c.role === 'base') model = baseModel;
     else model = caseModelOf(baseModel, c.overrides);
-    let snap: ProjectFinancialsSnapshot | null = null;
-    try { snap = computeFinancialsSnapshot(model as never); } catch { snap = null; }
-    return { c, model, snap };
+    // What the case changed: its own stored overrides; the live active case
+    // has no stored map yet, so it diffs exactly as the store does.
+    const overrides: Record<string, unknown> = c.role === 'base' ? {}
+      : c.id === activeCaseId && liveActiveModel
+        ? withoutDerivedOverrides(buildOverrides(baseModel, liveActiveModel), liveActiveModel)
+        : withoutDerivedOverrides(c.overrides ?? {}, model);
+    return { c, model, snap: snapOf(model), overrides };
   });
   const baseEntry = computed.find((e) => e.c.id === baseId) ?? computed[0];
   const baseSnap = baseEntry?.snap ?? null;
-  if (!baseSnap || !baseEntry) return { yearLabels: [], priorYearLabel: 0, blocks: [] };
+  if (!baseSnap || !baseEntry) return { yearLabels: [], priorYearLabel: 0, blocks: [], reconciliation: [] };
   const n = baseSnap.yearLabels.length;
   const yearLabels = baseSnap.yearLabels.slice();
   const priorYearLabel = (yearLabels[0] ?? 0) - 1;
@@ -253,20 +298,9 @@ export function buildCaseYoYReport(input: CaseComparisonInput): CaseYoYReport {
   const fieldByPath = new Map(enumerateOverridableFields(baseModel).map((f) => [f.path, f]));
   const trancheName = (id: string): string => ctx.tranches.get(id)?.name || id;
 
-  // Distinct changed inputs across all scenarios, with their descriptor. Keep the
-  // raw label + context separate so a debt/equity pair can be relabelled as a
-  // single funding split using the shared method context.
   const changedPaths = new Map<string, { label: string; context: string; format: AssumptionFormat; category: AssumptionCategory }>();
-  for (const { c, model, snap } of computed) {
-    if (c.role === 'base' || !snap) continue;
-    // WHAT A CASE CHANGED IS ITS OWN OVERRIDES, never a diff of its settled
-    // model against the base (2026-10-05, export review item 28). The diff also
-    // caught everything the settle wrote: on an unsettled base one price change
-    // listed 31 "changed inputs", 30 of them line markers nobody typed. The live
-    // active case has no stored map yet, so it diffs exactly as the store does.
-    const overrides = c.id === activeCaseId && liveActiveModel
-      ? withoutDerivedOverrides(buildOverrides(baseModel, liveActiveModel), liveActiveModel)
-      : withoutDerivedOverrides(c.overrides ?? {}, model);
+  for (const { c, overrides } of computed) {
+    if (c.role === 'base') continue;
     for (const path of Object.keys(overrides)) {
       if (changedPaths.has(path)) continue;
       const f = fieldByPath.get(path);
@@ -274,120 +308,114 @@ export function buildCaseYoYReport(input: CaseComparisonInput): CaseYoYReport {
       changedPaths.set(path, { label: d.label, context: d.context ?? '', format: d.format, category: d.category });
     }
   }
-
   const scenarios = computed.filter((e) => e.c.role !== 'base');
 
-  function buildOutput(def: OutputDef): YoYOutput | null {
-    const baseValues = normalise(def.get(baseSnap!), n);
-    const basePrior = def.prior(baseSnap!);
-    const scenarioRows: YoYSeriesRow[] = [];
-    const deltaRows: YoYDeltaRow[] = [];
-    let moved = false;
-    for (const { c, snap } of scenarios) {
-      const values = normalise(snap ? def.get(snap) : undefined, n);
-      const prior = snap ? def.prior(snap) : 0;
-      if (diverges(values, baseValues, prior, basePrior)) moved = true;
-      scenarioRows.push({ id: c.id, name: c.name, role: c.role, values, prior });
-      deltaRows.push({ id: c.id, name: c.name, values: values.map((v, i) => v - baseValues[i]), prior: prior - basePrior });
-    }
-    if (!moved) return null; // only show outputs the input actually moves
-    return {
-      key: def.key, label: def.label, kind: def.kind,
-      base: { id: baseEntry!.c.id, name: baseEntry!.c.name, role: 'base', values: baseValues, prior: basePrior },
-      scenarios: scenarioRows, deltas: deltaRows,
-    };
-  }
-
-  const blocks: YoYBlock[] = [];
-  const ordered = [...changedPaths.entries()].sort((a, b) =>
-    (CATEGORY_ORDER[a[1].category] ?? 9) - (CATEGORY_ORDER[b[1].category] ?? 9) || a[0].localeCompare(b[0]));
-
-  const inputLineFor = (linePath: string, m: { label: string; format: AssumptionFormat }): YoYInputLine => ({
-    path: linePath, label: m.label, format: m.format,
+  // The drivers, in category order; a debt / equity split is one driver.
+  type Driver = { canonical: string; paths: string[]; label: string; inputs: YoYInputLine[]; defs: OutputDef[] };
+  const inputLineFor = (linePath: string, m: { label: string; context: string; format: AssumptionFormat }): YoYInputLine => ({
+    path: linePath, label: m.context ? `${m.label} (${m.context})` : m.label, format: m.format,
     byCase: computed.map(({ c, model }) => ({
       id: c.id, name: c.name, role: c.role,
       value: (getByPath(model, linePath) as number | string | boolean | null) ?? null,
     })),
   });
-
+  const ordered = [...changedPaths.entries()].sort((a, b) =>
+    (CATEGORY_ORDER[a[1].category] ?? 9) - (CATEGORY_ORDER[b[1].category] ?? 9) || a[0].localeCompare(b[0]));
+  const drivers: Driver[] = [];
   const consumed = new Set<string>();
-  for (const [path, meta] of ordered) {
+  for (const [path] of ordered) {
     if (consumed.has(path)) continue;
-
-    // Debt/equity split: collapse the auto-balanced pair into ONE block. Both
-    // halves drive the same consolidated financing outputs, so the canonical
-    // key/outputs come from the debt half and the block shows both input lines
-    // once instead of emitting a duplicate "Equity %" block.
     const partner = splitPartnerPath(path);
     const isPair = partner !== null && changedPaths.has(partner);
     const canonical = isPair ? (isDebtHalf(path) ? path : partner!) : path;
     const canonMeta = changedPaths.get(canonical)!;
-
-    const outputs = outputsForInput(canonical, canonMeta.category, trancheName, isPair)
-      .map(buildOutput)
-      .filter((o): o is YoYOutput => o !== null);
-    if (outputs.length === 0) {
-      if (isPair) consumed.add(partner!); // never re-emit the partner half alone
-      continue; // input drives no moving per-period output
-    }
-
-    let inputLabel: string;
-    let inputs: YoYInputLine[];
+    const defs = outputsForInput(canonical, canonMeta.category, trancheName, isPair);
     if (isPair) {
       const debtPath = isDebtHalf(path) ? path : partner!;
       const equityPath = isDebtHalf(path) ? partner! : path;
-      inputLabel = `Debt / Equity split${canonMeta.context ? `, ${canonMeta.context}` : ''}`;
-      inputs = [inputLineFor(debtPath, changedPaths.get(debtPath)!), inputLineFor(equityPath, changedPaths.get(equityPath)!)];
       consumed.add(debtPath); consumed.add(equityPath);
+      drivers.push({
+        canonical, paths: [debtPath, equityPath], label: `Debt / Equity split${canonMeta.context ? `, ${canonMeta.context}` : ''}`,
+        inputs: [inputLineFor(debtPath, changedPaths.get(debtPath)!), inputLineFor(equityPath, changedPaths.get(equityPath)!)], defs,
+      });
     } else {
-      inputLabel = canonMeta.context ? `${canonMeta.label} (${canonMeta.context})` : canonMeta.label;
-      inputs = [inputLineFor(canonical, canonMeta)];
       consumed.add(canonical);
+      drivers.push({
+        canonical, paths: [canonical], label: canonMeta.context ? `${canonMeta.label} (${canonMeta.context})` : canonMeta.label,
+        inputs: [inputLineFor(canonical, canonMeta)], defs,
+      });
     }
-    // Each line names its own subject: once blocks merge below, "Price Per Sqm"
-    // alone could be any of several sub-units.
-    if (!isPair) inputs = inputs.map((l) => ({ ...l, label: canonMeta.context ? `${l.label} (${canonMeta.context})` : l.label }));
-    blocks.push({ path: canonical, inputLabel, inputs, outputs });
   }
-  return { yearLabels, priorYearLabel, blocks: mergeIdenticalBlocks(blocks) };
-}
 
-/**
- * ONE BLOCK PER DISTINCT EFFECT (2026-10-05, export review item 28).
- *
- * A case moves all its inputs at once and the engine runs once per case, so an
- * output series is the COMBINED effect of everything that case changed. Emitting
- * one block per input therefore printed the same revenue figures under thirteen
- * different headings (Marina Gate: every revenue block -247.3m / +116.5m),
- * which reads as if each input alone moved revenue by the whole amount. Blocks
- * whose outputs are identical in every case and period are merged into one that
- * lists every input beside the effect they produce together, and says so. A
- * block whose outputs differ from every other stays on its own.
- */
-export const YOY_JOINT_EFFECT_NOTE = 'These inputs change together in the cases, so the figures below are their combined effect; the model does not divide it between them.';
+  // Every tracked output any driver names: a driver's own run is read against
+  // all of them, since its effect need not stay in its category.
+  const allDefs: OutputDef[] = [];
+  for (const d of drivers) for (const def of d.defs) if (!allDefs.some((x) => x.key === def.key)) allDefs.push(def);
 
-function mergeIdenticalBlocks(blocks: YoYBlock[]): YoYBlock[] {
-  const series = (r: { prior: number; values: number[] }): string => [r.prior, ...r.values].map((v) => v.toFixed(4)).join(',');
-  const signature = (b: YoYBlock): string => b.outputs
-    .map((o) => `${o.key}=${[o.base, ...o.scenarios].map(series).join('/')}`)
-    .sort()
-    .join('|');
-  const groups = new Map<string, YoYBlock[]>();
-  for (const b of blocks) {
-    const k = signature(b);
-    const g = groups.get(k);
-    if (g) g.push(b); else groups.set(k, [b]);
-  }
-  return [...groups.values()].map((g) => {
-    if (g.length === 1) return g[0];
-    const inputs = g.flatMap((b) => b.inputs);
-    const outputs = g[0].outputs;
-    return {
-      path: g[0].path,
-      inputLabel: `${inputs.length} inputs moving ${outputs.map((o) => o.label).join(', ')}`,
-      inputs,
-      outputs,
-      note: YOY_JOINT_EFFECT_NOTE,
-    };
+  // A driver's own run per case: the base with only that driver's stored values.
+  const aloneSnap = new Map<string, ProjectFinancialsSnapshot | null>();
+  const aloneOf = (caseId: string, d: Driver): ProjectFinancialsSnapshot | null => {
+    const e = scenarios.find((x) => x.c.id === caseId);
+    if (!e) return null;
+    const picked: Record<string, unknown> = {};
+    for (const p of d.paths) if (p in e.overrides) picked[p] = e.overrides[p];
+    if (Object.keys(picked).length === 0) return baseSnap; // this case leaves the driver alone
+    const k = `${caseId}|${d.canonical}`;
+    if (!aloneSnap.has(k)) aloneSnap.set(k, snapOf(caseModelOf(baseModel, picked)));
+    return aloneSnap.get(k) ?? null;
+  };
+
+  const baseRow = (def: OutputDef): YoYSeriesRow => ({
+    id: baseEntry.c.id, name: baseEntry.c.name, role: 'base', values: normalise(def.get(baseSnap), n), prior: def.prior(baseSnap),
   });
+
+  const blocks: YoYBlock[] = [];
+  for (const d of drivers) {
+    const outputs: YoYOutput[] = [];
+    for (const def of allDefs) {
+      const base = baseRow(def);
+      const scenarioRows: YoYSeriesRow[] = [];
+      const deltaRows: YoYDeltaRow[] = [];
+      let moved = false;
+      for (const { c } of scenarios) {
+        const s = aloneOf(c.id, d);
+        const values = normalise(s ? def.get(s) : undefined, n);
+        const prior = s ? def.prior(s) : 0;
+        if (diverges(values, base.values, prior, base.prior)) moved = true;
+        scenarioRows.push({ id: c.id, name: c.name, role: c.role, values, prior });
+        deltaRows.push({ id: c.id, name: c.name, values: values.map((v, i) => v - base.values[i]), prior: prior - base.prior });
+      }
+      if (moved) outputs.push({ key: def.key, label: def.label, kind: def.kind, base, scenarios: scenarioRows, deltas: deltaRows });
+    }
+    if (outputs.length > 0) blocks.push({ path: d.canonical, inputLabel: d.label, inputs: d.inputs, outputs });
+  }
+
+  // The reconciliation: per output and case, the drivers' own changes added up
+  // against the case's whole change; the remainder is the interaction.
+  const reconciliation: YoYReconciliation[] = [];
+  for (const def of allDefs) {
+    const inBlocks = blocks.filter((b) => b.outputs.some((o) => o.key === def.key));
+    if (inBlocks.length === 0) continue;
+    const base = baseRow(def);
+    const perCase = scenarios.map(({ c, snap }) => {
+      const total = normalise(snap ? def.get(snap) : undefined, n).map((v, i) => v - base.values[i]);
+      const totalPrior = (snap ? def.prior(snap) : 0) - base.prior;
+      const sum = new Array<number>(n).fill(0);
+      let sumPrior = 0;
+      for (const b of inBlocks) {
+        const dr = b.outputs.find((o) => o.key === def.key)!.deltas.find((x) => x.id === c.id);
+        if (!dr) continue;
+        dr.values.forEach((v, i) => { sum[i] += v; });
+        sumPrior += dr.prior;
+      }
+      return {
+        id: c.id, name: c.name,
+        sumOfDrivers: { values: sum, prior: sumPrior },
+        interaction: { values: total.map((v, i) => v - sum[i]), prior: totalPrior - sumPrior },
+        total: { values: total, prior: totalPrior },
+      };
+    });
+    reconciliation.push({ key: def.key, label: def.label, kind: def.kind, drivers: inBlocks.length, perCase });
+  }
+  return { yearLabels, priorYearLabel, blocks, reconciliation };
 }
