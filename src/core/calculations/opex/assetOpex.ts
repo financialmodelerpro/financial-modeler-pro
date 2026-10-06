@@ -91,7 +91,15 @@ export function computeAssetOpex(inputs: AssetOpexInputs): AssetOpexResult {
     if (line.disabled) continue;
     if (line.mode === 'pct_of_gop') continue;
     const stream = streamForMode(line.mode, revenue);
-    const idx = resolveLineIndexation(line, defaultIndexation);
+    // INFLATION COUNTS FROM THE ASSET'S OPERATIONS START (2026-10-05, export
+    // review group 4). The stored start year is 0 (the screen has no start-year
+    // control and writes 0), and it compounded from project year 0, so a hotel
+    // opening in year 4 began trading with four years of inflation already in
+    // its first-year costs, while its ADR and rent index from operations start.
+    // A start year later than operations start is still honoured. HQ overheads
+    // (hqOpex.ts) are project-wide from year 0 and are not changed.
+    const lineIdx = resolveLineIndexation(line, defaultIndexation);
+    const idx = { ...lineIdx, startYear: Math.max(lineIdx.startYear ?? 0, start) };
     const isYoy = line.rateMode === 'yoy';
     const yoy = line.yoyRates ?? [];
     const out = perLine[i];

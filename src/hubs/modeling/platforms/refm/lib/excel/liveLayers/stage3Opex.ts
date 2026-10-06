@@ -151,11 +151,14 @@ export const stage3Opex: LiveLayer = {
       footRow(`oxfoot|${a.id}|idx`, `${cardName(a)}, asset default`, idxOf(a.opex?.defaultIndexation));
       (a.opex?.lines ?? []).forEach((ln, i) => { if (ln.useAssetDefault === false && FIXED_MODES.has(ln.mode)) footRow(`oxfoot|${a.id}|${i}|idx`, `${cardName(a)}, ${ln.name}`, (ln.indexation ?? { method: 'none' }) as Idx); });
     }
-    const factorF = (footKey: string, ix: Idx, t: number): string => {
+    // An asset's inflation counts from its operations start (`opsFloor`, the
+    // engine's rule in assetOpex.ts since 2026-10-05); HQ passes none.
+    const factorF = (footKey: string, ix: Idx, t: number, opsFloor?: string): string => {
       const m = ix.method ?? 'none';
       if (m === 'none' || !has(footKey)) return '1';
       const rate = w.ref(footKey, TOTAL_COL), start = w.ref(footKey, OPEN_COL);
-      return m === 'yoy_compound' ? `(1+${rate})^MAX(0,${t}-MAX(0,${start}))` : `IF(${t}>=MAX(0,${start}),1+${rate},1)`;
+      const from = opsFloor ? `MAX(MAX(0,${start}),${opsFloor})` : `MAX(0,${start})`;
+      return m === 'yoy_compound' ? `(1+${rate})^MAX(0,${t}-${from})` : `IF(${t}>=${from},1+${rate},1)`;
     };
 
     // ── Input cells on the cards ─────────────────────────────────────────────
@@ -233,7 +236,7 @@ export const stage3Opex: LiveLayer = {
       const gla = (): string => (!isOp && earner && l ? w.ref(`rvc:${l.key}:gla`, 3) : '0');
 
       const dflt = idxOf(a.opex?.defaultIndexation);
-      const dfltF = (dflt.method ?? 'none') === 'none' ? null : newRow(`oxc:${a.id}:factor`, 'asset inflation factor', (t) => factorF(`oxfoot|${a.id}|idx`, dflt, t));
+      const dfltF = (dflt.method ?? 'none') === 'none' ? null : newRow(`oxc:${a.id}:factor`, 'asset inflation factor', (t) => factorF(`oxfoot|${a.id}|idx`, dflt, t, S()));
       const names = stored.map((x) => x.name);
       const keysIn = cardKeys(a.id, names, ['Asset Inflation']);
       const lineRows: number[] = new Array<number>(stored.length).fill(0);
@@ -243,7 +246,7 @@ export const stage3Opex: LiveLayer = {
         if (!has(k)) throw new Error(`opex card row missing: ${k}`);
         const ix = lineIdx(a, ln, dflt);
         const own = ln.useAssetDefault === false && FIXED_MODES.has(ln.mode) && (ix.method ?? 'none') !== 'none';
-        const fRow = own ? newRow(`oxc:${a.id}:${i}:factor`, `${ln.name} inflation factor`, (t) => factorF(`oxfoot|${a.id}|${i}|idx`, ix, t)) : (FIXED_MODES.has(ln.mode) && (ix.method ?? 'none') !== 'none' ? dfltF : null);
+        const fRow = own ? newRow(`oxc:${a.id}:${i}:factor`, `${ln.name} inflation factor`, (t) => factorF(`oxfoot|${a.id}|${i}|idx`, ix, t, S())) : (FIXED_MODES.has(ln.mode) && (ix.method ?? 'none') !== 'none' ? dfltF : null);
         const fac = (t: number): string => (fRow ? at(fRow, t) : '1');
         const rate = (): string => `MAX(0,N(${valueCell(k)}))`;
         const s = streamFor(ln.mode);
