@@ -81,3 +81,6 @@ fund-exports/
 
 # Finished exports generated for review (never committed: live project data).
 exports/
+
+# Suite runner logs (scripts/run-verifiers.ts)
+.suite-logs/

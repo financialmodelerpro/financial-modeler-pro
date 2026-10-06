@@ -35,11 +35,22 @@
  *   npx tsx scripts/run-verifiers.ts                 (full, credentials loaded)
  *   npx tsx scripts/run-verifiers.ts --allow-offline (static half only)
  *   npx tsx scripts/run-verifiers.ts --filter admin  (subset, same rules)
+ *   npx tsx scripts/run-verifiers.ts --batch 2/4     (the second quarter of the sorted list)
+ *   npx tsx scripts/run-verifiers.ts --summarise <log> [<log> ...]
+ *                                                    (one count from several batch logs)
+ *   --timeout-min N   per-verifier limit (default 40); a verifier over it FAILS as TIMEOUT
+ *
+ * THE LOG (2026-10-06, founder): every verifier's name, PASS / FAIL / TIMEOUT,
+ * check count and duration is APPENDED to .suite-logs/<run>/suite.log the
+ * moment it finishes (appendFileSync, so a killed run is still readable), with
+ * its [FAIL] lines beneath, and its whole output goes to <name>.out beside it.
+ * A run that printed only dots could not name what broke, and a stalled one
+ * told us nothing; every regression of that week was found by this suite alone.
  *
  * No em dashes in this file.
  */
-import { readdirSync, existsSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { readdirSync, existsSync, mkdirSync, appendFileSync, writeFileSync, readFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
 
 const ALLOW_OFFLINE = process.argv.includes('--allow-offline');
 const filterIdx = process.argv.indexOf('--filter');
@@ -89,7 +100,72 @@ const ACCEPTED_SKIPS: Record<string, string> = {
 };
 const TALLY = /(\d+) passed, (\d+) failed/;
 
-function main(): void {
+const batchIdx = process.argv.indexOf('--batch');
+const BATCH = batchIdx >= 0 ? process.argv[batchIdx + 1] ?? '' : '';
+const timeoutIdx = process.argv.indexOf('--timeout-min');
+const TIMEOUT_MS = (timeoutIdx >= 0 ? Number(process.argv[timeoutIdx + 1]) : 40) * 60_000;
+
+/** One verifier's line in the log. The summariser parses exactly this shape. */
+const LOG_LINE = /^\S+ (PASS|FAIL|TIMEOUT) (verify-[\w.-]+\.ts) checks (\d+) \((\d+) passed, (\d+) failed\) ([\d.]+)s$/;
+
+function allVerifiers(): string[] {
+  return readdirSync('scripts').filter((f) => f.startsWith('verify-') && f.endsWith('.ts')).sort();
+}
+
+/** Runs one verifier, killing its whole process tree if it passes the limit. */
+function runOne(args: string[]): Promise<{ status: 'PASS' | 'FAIL' | 'TIMEOUT'; out: string; secs: number }> {
+  const t0 = Date.now();
+  return new Promise((resolve) => {
+    const child = spawn('npx', args, { shell: true });
+    let out = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { out += d; });
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      // shell: true puts npx, tsx and node under a shell; on Windows only a tree kill stops them all.
+      if (process.platform === 'win32' && child.pid) spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)]);
+      else child.kill('SIGKILL');
+    }, TIMEOUT_MS);
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve({ status: timedOut ? 'TIMEOUT' : code === 0 ? 'PASS' : 'FAIL', out, secs: (Date.now() - t0) / 1000 });
+    });
+  });
+}
+
+/** One count from one or more logs: the LAST result per verifier wins, and anything missing is named. */
+function summarise(logs: string[]): void {
+  const latest = new Map<string, { status: string; checks: number; log: string; head: string }>();
+  for (const log of logs) {
+    const text = readFileSync(log, 'utf8');
+    const head = text.split(/\r?\n/)[0] ?? '';
+    for (const line of text.split(/\r?\n/)) {
+      const m = LOG_LINE.exec(line);
+      if (m) latest.set(m[2], { status: m[1], checks: Number(m[3]), log, head });
+    }
+  }
+  const all = allVerifiers();
+  const missing = all.filter((f) => !latest.has(f));
+  const failed = [...latest].filter(([, r]) => r.status !== 'PASS');
+  const checks = [...latest.values()].reduce((a, r) => a + r.checks, 0);
+  const heads = [...new Set([...latest.values()].map((r) => r.head))];
+  for (const h of heads) console.log(h);
+  console.log(`SUITE (from ${logs.length} log(s)): ${latest.size - failed.length} pass / ${failed.length} fail  (of ${latest.size} run, ${all.length} in the suite), ${checks} individual checks`);
+  for (const [f, r] of failed) console.log(`  ${r.status} ${f}  (${r.log})`);
+  if (missing.length) {
+    console.log(`\nNOT RUN (${missing.length}): this is NOT the suite count until they are.`);
+    for (const f of missing) console.log(`  - ${f}`);
+  }
+  const ok = missing.length === 0 && failed.length === 0;
+  console.log(`\n${ok ? 'ALL PASS.' : 'NOT CLEAN.'}`);
+  process.exit(ok ? 0 : 1);
+}
+
+async function main(): Promise<void> {
+  const sumIdx = process.argv.indexOf('--summarise');
+  if (sumIdx >= 0) return summarise(process.argv.slice(sumIdx + 1).filter((a) => !a.startsWith('--')));
+
   if (!haveEnv && !ALLOW_OFFLINE) {
     console.error(`\nREFUSING TO RUN: ${ENV_FILE} is missing.`);
     console.error('Fourteen verifiers have a live half that silently skips without credentials,');
@@ -98,38 +174,54 @@ function main(): void {
     process.exit(2);
   }
 
-  const files = readdirSync('scripts')
-    .filter((f) => f.startsWith('verify-') && f.endsWith('.ts'))
-    .filter((f) => (FILTER ? f.includes(FILTER) : true))
-    .sort();
+  let files = allVerifiers().filter((f) => (FILTER ? f.includes(FILTER) : true));
+  if (BATCH) {
+    const [k, n] = BATCH.split('/').map(Number);
+    const size = Math.ceil(files.length / n);
+    files = files.slice((k - 1) * size, k * size);
+  }
+  const runDir = `.suite-logs/${new Date().toISOString().replace(/[:.]/g, '-')}${BATCH ? `_batch-${BATCH.replace('/', 'of')}` : ''}`;
+  mkdirSync(runDir, { recursive: true });
+  const LOG = `${runDir}/suite.log`;
+  const commit = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
+  const dirty = spawnSync('git', ['status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8' }).stdout.trim() !== '';
+  const creds = haveEnv && !ALLOW_OFFLINE ? 'WITH' : 'WITHOUT';
+  writeFileSync(LOG, `# suite run at ${commit}${dirty ? ' (TREE NOT CLEAN: do not quote this count)' : ''}, ${files.length} verifiers, ${creds} credentials${BATCH ? `, batch ${BATCH}` : ''}\n`);
 
   let passed = 0;
   const failed: string[] = [];
   const skipped: Array<{ name: string; lines: string[] }> = [];
   let totalChecks = 0;
 
-  console.log(`Running ${files.length} verifiers ${haveEnv && !ALLOW_OFFLINE ? 'WITH' : 'WITHOUT'} credentials.\n`);
+  console.log(`Running ${files.length} verifiers ${creds} credentials at ${commit}${dirty ? ' (TREE NOT CLEAN)' : ''}. Log: ${LOG}\n`);
 
   for (const f of files) {
     const args = haveEnv && !ALLOW_OFFLINE
       ? ['tsx', `--env-file=${ENV_FILE}`, `scripts/${f}`]
       : ['tsx', `scripts/${f}`];
-    const r = spawnSync('npx', args, { encoding: 'utf8', shell: true });
-    const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
+    const r = await runOne(args);
+    const out = r.out;
+    writeFileSync(`${runDir}/${f.replace(/\.ts$/, '')}.out`, out);
 
     const tally = TALLY.exec(out);
     if (tally) totalChecks += Number(tally[1]) + Number(tally[2]);
+    const p = tally ? Number(tally[1]) : 0, q = tally ? Number(tally[2]) : 0;
+    const fails = out.split(/\r?\n/).filter((l) => /^\s*\[FAIL\]/.test(l)).slice(0, 8).map((l) => `    ${l.trim().slice(0, 300)}`);
+    // Flushed per verifier, so a killed or stalled run still names everything it finished.
+    appendFileSync(LOG, `${new Date().toISOString()} ${r.status} ${f} checks ${p + q} (${p} passed, ${q} failed) ${r.secs.toFixed(1)}s\n${fails.length ? `${fails.join('\n')}\n` : ''}`);
 
     const skipLines = out.split('\n').map((l) => l.trim())
       .filter((l) => SKIP_MARKER.test(l) && !ZERO_SKIPPED.test(l));
     if (skipLines.length) skipped.push({ name: f, lines: [...new Set(skipLines)].slice(0, 4) });
 
-    if (r.status === 0) { passed++; process.stdout.write('.'); }
-    else { failed.push(f); process.stdout.write('F'); }
+    if (r.status === 'PASS') passed++;
+    else failed.push(r.status === 'TIMEOUT' ? `${f} (TIMEOUT after ${TIMEOUT_MS / 60_000} min)` : f);
+    console.log(`  ${r.status.padEnd(7)} ${f.padEnd(48)} ${String(p + q).padStart(5)} checks ${r.secs.toFixed(1).padStart(7)}s`);
   }
 
   console.log(`\n\n${'='.repeat(72)}`);
-  console.log(`SUITE: ${passed} pass / ${failed.length} fail  (of ${files.length}), ${totalChecks} individual checks`);
+  console.log(`SUITE${BATCH ? ` BATCH ${BATCH}` : ""}: ${passed} pass / ${failed.length} fail  (of ${files.length}), ${totalChecks} individual checks at ${commit}${dirty ? " (TREE NOT CLEAN)" : ""}`);
+  console.log(`Log: ${LOG}`);
 
   if (failed.length) {
     console.log('\nFAILED:');
@@ -169,4 +261,4 @@ function main(): void {
   process.exit(ok ? 0 : 1);
 }
 
-main();
+void main();
