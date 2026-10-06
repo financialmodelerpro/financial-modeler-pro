@@ -46,7 +46,7 @@ import { fundFeeBasisCaption } from '../src/hubs/modeling/platforms/refm/lib/rep
 import { buildExcelSampleState } from './excelSampleState';
 import { buildExistingOperationsState, EXISTING_OPS_LABEL } from './fixtures/existingOperationsState';
 import { readLiveProjectVersion } from './fixtures/liveProject';
-import { METRIC_CAPTIONS, METRIC_LABELS, RETURNS_NPV_NOTE } from '../src/hubs/modeling/platforms/refm/lib/reports/metricCaptions';
+import { METRIC_CAPTIONS, METRIC_LABELS, returnsNpvNote } from '../src/hubs/modeling/platforms/refm/lib/reports/metricCaptions';
 import { chargesPerformanceFee, distributedStreamLabel, DISTRIBUTED_STREAM_LABEL, PRE_FEE_QUALIFIER } from '../src/hubs/modeling/platforms/refm/lib/reports/overviewReport';
 import { CASE_KPIS } from '../src/hubs/modeling/platforms/refm/lib/reports/caseComparisonReport';
 
@@ -463,8 +463,10 @@ async function main(): Promise<void> {
     const omits = walk('src/hubs/modeling/platforms/refm').filter((f) => readFileSync(f, 'utf8').split('\n').some((l) => !/^\s*(\/\/|\*)/.test(l) && /NPV is intentionally omitted/.test(l)));
     check('while Case Comparison prints NPV, no surface calls NPV omitted', !npvPrinted || omits.length === 0, omits.join(', '));
     const R = 'src/hubs/modeling/platforms/refm/';
-    const missing = ['components/modules/Module5Returns.tsx', 'lib/excel/buildModelWorkbook.ts'].filter((f) => !readFileSync(R + f, 'utf8').includes('RETURNS_NPV_NOTE'));
-    check('the Returns screen and the workbook say where NPV is through RETURNS_NPV_NOTE', missing.length === 0 && /Case Comparison/.test(RETURNS_NPV_NOTE), missing.join(', '));
+    // RE-AIMED 2026-10-05: the sentence is now returnsNpvNote(hasCaseComparison),
+    // which names a Case Comparison only where one is printed.
+    const missing = ['components/modules/Module5Returns.tsx', 'lib/excel/buildModelWorkbook.ts'].filter((f) => !readFileSync(R + f, 'utf8').includes('returnsNpvNote('));
+    check('the Returns screen and the workbook say where NPV is through returnsNpvNote', missing.length === 0 && /Case Comparison/.test(returnsNpvNote(true)) && !/Case Comparison/.test(returnsNpvNote(false)), missing.join(', '));
   }
 
   console.log(`\n=== ${pass} passed, ${fail} failed ===`);

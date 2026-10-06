@@ -33,7 +33,7 @@ import { evaluateCovenant, covenantUnit, covenantSeries, reduceWorst, reduceAvg,
 import { buildReMetricDetailGroups } from '../reports/reMetricTiles';
 import { buildPhaseProgramme } from '../reports/phaseProgramme';
 import { REVENUE_CAPTIONS, shareSoldCaption, soldCaption, revenueCaption, recognitionMatrixCaption, recognitionCaption } from '../reports/revenueCaptions';
-import { TAB_GUIDES as SHARED_TAB_GUIDES, type GuideLine } from '../reports/tabGuides';
+import { tabGuide, type GuideLine } from '../reports/tabGuides';
 import { DEFAULT_COVENANTS } from '../state/module1-types';
 import { enumerateOverridableFields, getByPath } from '../cases/applyOverrides';
 import type { SensitivityVariable } from '@/src/core/calculations/returns';
@@ -58,7 +58,7 @@ import { FUNDING_METHOD_LABELS, COST_METHOD_LABELS, type FundingMethodId } from 
 import { CAPEX_SECTIONS, CAPEX_TABLE6_TITLE, CAPEX_TABLE6_CAPTION, resolvedWindowYears } from '../reports/capexReports';
 import { TERMINAL_METHOD_LABELS, TERMINAL_BASIS_LABELS } from '../state/module1-types';
 import { buildConsolidatedReport, perAssetCostsFromTreatment, consolidatedCaption } from '../reports/consolidatedReport';
-import { METRIC_CAPTIONS, METRIC_LABELS, RETURNS_NPV_NOTE, capRateAtExitCaption, exitYearAnalysisNote } from '../reports/metricCaptions';
+import { METRIC_CAPTIONS, METRIC_LABELS, returnsNpvNote, capRateAtExitCaption, exitYearAnalysisNote } from '../reports/metricCaptions';
 import { buildSellingCostReport, SELLING_COSTS_CAPTION, SELLING_COSTS_YOY_CAPTION } from '../reports/sellingCostReports';
 import {
   emitProjectSection, emitPhasesSection, emitStandardsSection, emitPlotsSection, emitAssetEntrySection, emitSubUnitSection,
@@ -292,10 +292,11 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   // shifts every section row and the guide row down. Both re-base `sectionReg`
   // as they go, so the Cover and Guide, built last, link to the corrected rows.
   setSectionSink(null);
-  const guideRows = applyTabGuides(wb, sectionReg);
-  applyTabSubToc(wb, sectionReg, guideRows);
+  const guides = workbookGuides({ fundOn: opts.state.project.fundTerms?.enabled === true, caseComparison: (opts.caseComparison?.cases.length ?? 0) > 1 });
+  const guideRows = applyTabGuides(wb, sectionReg, guides);
+  applyTabSubToc(wb, sectionReg, guideRows, guides);
   buildCoverContent(coverWs, snap, opts, sectionReg);
-  buildGuideContent(guideWs, snap, opts, sectionReg);
+  buildGuideContent(guideWs, snap, opts, sectionReg, guides);
 
   // Workbook-wide DISPLAY scale: re-format magnitude money cells (display only;
   // stored values + formulas stay in full units). Applied last so every sheet's
@@ -4143,7 +4144,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
   };
   const streamRow = (label: string, stream: number[] | undefined, opts: { style?: 'plain' | 'subtotal' | 'total'; indent?: number; basis?: string } = {}): number => { const p = place(stream); return moneyRow(label, p.vals, { ...opts, prior: p.prior }); };
 
-  note('Returns on three cash-flow bases: FCFF (unlevered, to all capital providers), FCFE (levered, free cash to equity after debt service), and Distributed Equity (IRR on the actual cash distributions to equity investors). Terminal value is added in the exit year per the assumptions below. ' + RETURNS_NPV_NOTE + ' Exit-year, funding-mix and equity-exposure analytics live on the RE Metrics tab.');
+  note('Returns on three cash-flow bases: FCFF (unlevered, to all capital providers), FCFE (levered, free cash to equity after debt service), and Distributed Equity (IRR on the actual cash distributions to equity investors). Terminal value is added in the exit year per the assumptions below. ' + returnsNpvNote((ctx.caseComparison?.cases.length ?? 0) > 1) + ' Exit-year, funding-mix and equity-exposure analytics live on the RE Metrics tab.');
 
   // ── Returns Assumptions (the panel's inputs, under the panel's labels) ──
   subTitle('Returns Assumptions');
@@ -5107,7 +5108,7 @@ function buildCoverContent(ws: ExcelJS.Worksheet, snap: ReturnType<typeof comput
  *  the tab. Content is shared with the per-tab bottom blocks (TAB_GUIDES), so the
  *  two never drift. Built in the post-pass so the "Covers" lines can list the
  *  sections actually captured during the build. */
-function buildGuideContent(ws: ExcelJS.Worksheet, snap: ReturnType<typeof computeFinancialsSnapshot>, opts: BuildModelOptions, sectionReg: Map<string, Array<{ title: string; row: number }>>): void {
+function buildGuideContent(ws: ExcelJS.Worksheet, snap: ReturnType<typeof computeFinancialsSnapshot>, opts: BuildModelOptions, sectionReg: Map<string, Array<{ title: string; row: number }>>, TAB_GUIDES: SheetGuides): void {
   void snap;
   frontMatterCanvas(ws);
   let r = frontMatterBanner(ws, 'Model Guide', 'How this model works  ·  what each tab covers  ·  how every figure is calculated');
@@ -5192,29 +5193,35 @@ function buildGuideContent(ws: ExcelJS.Worksheet, snap: ReturnType<typeof comput
  */
 // The guide text lives in lib/reports/tabGuides.ts (shared with the PDF); the
 // workbook maps its sheets onto it.
-const TAB_GUIDES: Record<string, GuideLine[]> = {
-  [SHEETS.summary]: SHARED_TAB_GUIDES.summary,
-  [SHEETS.assumptions]: SHARED_TAB_GUIDES.assumptions,
-  [SHEETS.timeline]: SHARED_TAB_GUIDES.timeline,
-  [SHEETS.landArea]: SHARED_TAB_GUIDES.landArea,
-  [SHEETS.capex]: SHARED_TAB_GUIDES.capex,
-  [SHEETS.financing]: SHARED_TAB_GUIDES.financing,
-  [SHEETS.revenue]: SHARED_TAB_GUIDES.revenue,
-  [SHEETS.opex]: SHARED_TAB_GUIDES.opex,
-  [SHEETS.schedules]: SHARED_TAB_GUIDES.schedules,
-  [SHEETS.pl]: SHARED_TAB_GUIDES.pl,
-  [SHEETS.cashflow]: SHARED_TAB_GUIDES.cashflow,
-  [SHEETS.balsheet]: SHARED_TAB_GUIDES.balsheet,
-  [SHEETS.returns]: SHARED_TAB_GUIDES.returns,
-  [SHEETS.scenarios]: SHARED_TAB_GUIDES.scenarios,
-  [SHEETS.checks]: SHARED_TAB_GUIDES.checks,
-};
+// AS THIS PROJECT READS THEM (2026-10-05): the fund-off P&L and Cash Flow
+// wording on a project without the fund layer, and an NPV sentence that names
+// no Case Comparison on a one-case project; the PDF reads the same tabGuide().
+type SheetGuides = Record<string, GuideLine[]>;
+function workbookGuides(ctx: { fundOn: boolean; caseComparison: boolean }): SheetGuides {
+  return {
+    [SHEETS.summary]: tabGuide('summary', ctx),
+    [SHEETS.assumptions]: tabGuide('assumptions', ctx),
+    [SHEETS.timeline]: tabGuide('timeline', ctx),
+    [SHEETS.landArea]: tabGuide('landArea', ctx),
+    [SHEETS.capex]: tabGuide('capex', ctx),
+    [SHEETS.financing]: tabGuide('financing', ctx),
+    [SHEETS.revenue]: tabGuide('revenue', ctx),
+    [SHEETS.opex]: tabGuide('opex', ctx),
+    [SHEETS.schedules]: tabGuide('schedules', ctx),
+    [SHEETS.pl]: tabGuide('pl', ctx),
+    [SHEETS.cashflow]: tabGuide('cashflow', ctx),
+    [SHEETS.balsheet]: tabGuide('balsheet', ctx),
+    [SHEETS.returns]: tabGuide('returns', ctx),
+    [SHEETS.scenarios]: tabGuide('scenarios', ctx),
+    [SHEETS.checks]: tabGuide('checks', ctx),
+  };
+}
 
 /** Add the navigation + guidance layer to every data tab: a "Covers" line on the
  *  subtitle row (where the tab has one) and a "How this tab is calculated" block
  *  appended at the BOTTOM (so the frozen header + every data row are untouched).
  *  Runs after the section sink is cleared, so its own header does not register. */
-function applyTabGuides(wb: ExcelJS.Workbook, sectionReg: Map<string, Array<{ title: string; row: number }>>): Map<string, number> {
+function applyTabGuides(wb: ExcelJS.Workbook, sectionReg: Map<string, Array<{ title: string; row: number }>>, TAB_GUIDES: SheetGuides): Map<string, number> {
   // Tabs whose row-2 subtitle can safely become a "Covers" line.
   const A2_COVERS = new Set<string>([SHEETS.landArea, SHEETS.capex, SHEETS.financing, SHEETS.revenue, SHEETS.opex, SHEETS.schedules, SHEETS.pl, SHEETS.cashflow, SHEETS.balsheet, SHEETS.returns, SHEETS.scenarios]);
   const LABEL: Record<GuideLine['kind'], string> = { inputs: 'Inputs', logic: 'Calculation', feeds: 'Feeds' };
@@ -5285,6 +5292,7 @@ function applyTabSubToc(
   wb: ExcelJS.Workbook,
   sectionReg: Map<string, Array<{ title: string; row: number }>>,
   guideRows: Map<string, number>,
+  TAB_GUIDES: SheetGuides,
 ): void {
   const LINKS_PER_ROW = 4;
   const SPAN = 10;

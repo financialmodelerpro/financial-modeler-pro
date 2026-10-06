@@ -15,7 +15,7 @@
  *
  * No em dashes in this file.
  */
-import { RETURNS_NPV_NOTE } from './metricCaptions';
+import { RETURNS_NPV_NOTE, RETURNS_NPV_NOTE_ONE_CASE } from './metricCaptions';
 
 export type GuideLine = { kind: 'inputs' | 'logic' | 'feeds'; text: string };
 const G = (kind: GuideLine['kind'], text: string): GuideLine => ({ kind, text });
@@ -120,8 +120,6 @@ const FUND_OFF_GUIDES: Partial<Record<GuideId, GuideLine[]>> = {
   ],
 };
 
-/** Where NPV is, said without naming a Case Comparison a one-case project does not print. */
-const NPV_NOTE_ONE_CASE = 'NPV is not a headline figure here: IRR / MOIC and the Development Economics lead, and NPV (FCFF, at the discount rate) is reported per case once scenario cases are compared.';
 
 /**
  * The guide for a subject on THIS project: the fund-off wording where the fund
@@ -130,7 +128,7 @@ const NPV_NOTE_ONE_CASE = 'NPV is not a headline figure here: IRR / MOIC and the
  */
 export function tabGuide(id: GuideId, ctx: { fundOn: boolean; caseComparison: boolean }): GuideLine[] {
   const lines = !ctx.fundOn && FUND_OFF_GUIDES[id] ? FUND_OFF_GUIDES[id]! : TAB_GUIDES[id];
-  return ctx.caseComparison ? lines : lines.map((l) => ({ ...l, text: l.text.split(RETURNS_NPV_NOTE).join(NPV_NOTE_ONE_CASE) }));
+  return ctx.caseComparison ? lines : lines.map((l) => ({ ...l, text: l.text.split(RETURNS_NPV_NOTE).join(RETURNS_NPV_NOTE_ONE_CASE) }));
 }
 
 export const TAB_GUIDE_HEADING = 'How this tab is calculated';

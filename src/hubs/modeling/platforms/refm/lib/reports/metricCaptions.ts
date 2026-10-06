@@ -62,6 +62,12 @@ export const METRIC_CAPTIONS = {
  * so on the screen and the workbook alike.
  */
 export const RETURNS_NPV_NOTE = 'NPV is not a headline figure here: IRR / MOIC and the Development Economics lead, and NPV (FCFF, at the discount rate) is reported per case in the Case Comparison.';
+/** Where NPV is, said without naming a Case Comparison a one-case project does
+ *  not print (2026-10-05): a pointer must name a table the document prints. */
+export const RETURNS_NPV_NOTE_ONE_CASE = 'NPV is not a headline figure here: IRR / MOIC and the Development Economics lead, and NPV (FCFF, at the discount rate) is reported per case once scenario cases are compared.';
+export function returnsNpvNote(hasCaseComparison: boolean): string {
+  return hasCaseComparison ? RETURNS_NPV_NOTE : RETURNS_NPV_NOTE_ONE_CASE;
+}
 
 /**
  * WHAT THE EXIT CAP RATE DIVIDES (2026-09-30, export review item 15). The caption said "exit NOI /

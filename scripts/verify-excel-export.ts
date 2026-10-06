@@ -17,6 +17,7 @@
  * (dash for zero, percentages 2dp) holds at both display scales.
  */
 import ExcelJS from 'exceljs';
+import { yoyAloneLabel } from '../src/hubs/modeling/platforms/refm/lib/reports/caseYoYReport';
 import { buildModelWorkbook, generateModelWorkbookBuffer } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
 import { computeFinancialsSnapshot, computeFundingGap } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { buildCostOfSalesReport } from '../src/hubs/modeling/platforms/refm/lib/reports/cosReports';
@@ -560,7 +561,7 @@ async function main(): Promise<void> {
   check('Scenarios comparison matrix carries headline KPIs (Equity IRR)', s6(/^Comparison$/) > s6(/^3\. Comparison$/) && s6(/^Equity IRR \(FCFE\)$/) > 0);
   check('Scenarios Year-on-Year Impact renders each case row and the delta row', (() => {
     const r4 = s6(/^4\. Year-on-Year Impact$/); let base = -1, sc = -1, delta = -1;
-    scn.eachRow((_r, R) => { if (R <= r4) return; const l = labelOf(scn, R); if (base < 0 && l === '★ Management') base = R; if (sc < 0 && l === '◆ Downside') sc = R; if (delta < 0 && l === 'Downside delta vs Management') delta = R; });
+    scn.eachRow((_r, R) => { if (R <= r4) return; const l = labelOf(scn, R); if (base < 0 && l === '★ Management') base = R; if (sc < 0 && l === `◆ ${yoyAloneLabel('Downside')}`) sc = R; /* re-aimed 2026-10-05: a case row is that case with ONE driver applied (item 28) */ if (delta < 0 && l === 'Downside delta vs Management') delta = R; });
     return r4 > 0 && base > r4 && sc > base && delta > sc;
   })());
   // The Scenarios tab stays hardcoded (no formula cells) at both display scales.
@@ -633,7 +634,10 @@ async function main(): Promise<void> {
   check('the Guide links to every data tab', ['Summary', 'Inputs', 'Capex', 'Financing', 'Revenue', 'P&L', 'Balance Sheet', 'Returns', 'Scenarios', 'Checks'].every((n) => guideLinks.includes(`#'${n}'!A1`)), `links=${guideLinks.length}`);
   const guideText = (() => { let s = ''; guide.eachRow((row) => row.eachCell((c) => { const v: any = c.value; s += ' ' + (typeof v === 'string' ? v : (v && v.text) ? v.text : ''); })); return s; })();
   check('the Guide explains the model is a hardcoded snapshot', /hardcoded snapshot/i.test(guideText) && /does NOT recalculate/i.test(guideText));
-  check('the Guide carries the P&L methodology (EBITDA struck after the fund fees)', /Revenue - Cost of Sales = gross profit; - operating expenses - Total Fund Management Fee = EBITDA/.test(guideText));
+  // RE-AIMED 2026-10-05: the guide reads the project. This fixture has no fund,
+  // so the P&L methodology is struck without fund fees and names no fund row.
+  check('the Guide carries the P&L methodology as this project reads it (no fund: no fund fee row)',
+    /Revenue - Cost of Sales = gross profit; - operating expenses = EBITDA/.test(guideText) && !/Total Fund Management Fee/.test(guideText));
   check('the Cover ToC links to the Guide', coverLinks.some((l) => l.target === `#'Guide'!A1`));
 
   // ── A totalOverride is a VALUE on EVERY tab (2026-09-01) ────────────────────

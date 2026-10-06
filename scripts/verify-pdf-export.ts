@@ -440,7 +440,7 @@ async function main(): Promise<void> {
     check('C25: every financing schedule that states a basis is followed by its basis table', withBasis.length > 0 && noBasisTable.length === 0, `${withBasis.length} with basis; missing: ${noBasisTable.join(', ')}`);
     const wbSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts', 'utf8');
     check('C25: the workbook holds no guide text or financing basis of its own',
-      !wbSrc.includes("G('logic'") && !wbSrc.includes('const basisFor = (label') && wbSrc.includes('financingRowBasis') && wbSrc.includes('SHARED_TAB_GUIDES'));
+      !wbSrc.includes("G('logic'") && !wbSrc.includes('const basisFor = (label') && wbSrc.includes('financingRowBasis') && wbSrc.includes('tabGuide('));
   }
 
   // C25b (2026-10-05, item 25 extended to Revenue and Opex): every revenue and
@@ -464,6 +464,15 @@ async function main(): Promise<void> {
     check('C25b: every revenue and payables basis sentence the workbook prints, the PDF prints', missing.length === 0, missing.map((t) => t.slice(0, 40)).join(' | '));
     const wbSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts', 'utf8');
     check('C25b: the workbook holds no revenue caption of its own', !wbSrc.includes("'Sales during operation apply to units left") && wbSrc.includes('REVENUE_CAPTIONS.'));
+    // The WORKBOOK's guides read the project too (2026-10-05): this fixture has
+    // no fund and one case, so no fund statement row and no Case Comparison.
+    const { tabGuide, TAB_GUIDES } = await import('../src/hubs/modeling/platforms/refm/lib/reports/tabGuides');
+    const { RETURNS_NPV_NOTE } = await import('../src/hubs/modeling/platforms/refm/lib/reports/metricCaptions');
+    const oneCaseNoFund = { fundOn: false, caseComparison: false };
+    check('C25b: the workbook prints the fund-off P&L and Cash Flow guides on a non-fund project',
+      [...tabGuide('pl', oneCaseNoFund), ...tabGuide('cashflow', oneCaseNoFund)].every((l) => wbFlat.includes(norm(l.text)))
+      && !wbFlat.includes(norm(TAB_GUIDES.pl[1].text)) && !wbFlat.includes(norm(TAB_GUIDES.cashflow[1].text)));
+    check('C25b: the workbook names no Case Comparison for NPV on a one-case project', !wbFlat.includes(norm(RETURNS_NPV_NOTE)));
   }
 
   // C26 (2026-10-05, export review item 26): the RE Metrics detail tiles come
