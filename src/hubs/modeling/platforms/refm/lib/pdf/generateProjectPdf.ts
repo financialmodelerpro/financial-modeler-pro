@@ -120,7 +120,7 @@ import { MODULES, type ModuleConfig } from '../modules-config';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 import type { Party } from '../parties';
 import { buildFixedAssetReport, type FixedAssetTable } from '../reports/fixedAssetReports';
-import { BS_FEEDER_SECTIONS, BS_RECONCILIATION_CAPTION, FUND_FEE_BASIS_TITLE, fundFeeBasisCaption } from '../reports/m4Reports';
+import { BS_FEEDER_SECTIONS, BS_RECONCILIATION_CAPTION, FUND_FEE_BASIS_TITLE, fundFeeBasisCaption, taxBasisNote } from '../reports/m4Reports';
 
 function b64ToBytes(b64: string): Uint8Array {
   if (typeof Buffer !== 'undefined') return new Uint8Array(Buffer.from(b64, 'base64'));
@@ -3321,9 +3321,12 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       ['Terminology mode', (project.financialTerminology ?? defaultTerminologyForCountry(project.country)) === 'saudi' ? 'Saudi (EBITDA / EBIT / Zakat)' : 'Standard (EBITDA / EBIT / Tax)'],
       [`${labels.taxRate} (%)`, fmt.pct(project.tax?.rate ?? 0, 2)],
       [`${labels.tax} on the disposal gain`, project.tax?.applyToDisposalGain === true ? 'Charged on the gain at exit' : 'Not charged (default)'],
+      ['Basis', (project.tax?.basis ?? 'zakat') === 'cit' ? 'Corporate income tax (losses carried forward, 25% cap)' : 'Zakat (net worth; no loss carry-forward)'],
+      [`${labels.tax} paid after (days)`, String(project.tax?.paymentDays ?? 0)],
     ])));
     caption(tab, 'outputs', `Strategy-grouped P&L composed from Module 2 Revenue and Cost of Sales, Module 3 Opex, depreciation and Module 1 financing interest. The project statement runs down to ${labels.pat}; a single phase stops at ${labels.ebitda}, since D&A, interest and tax are project level.`);
     items.push(tTable(tab, 'outputs', m4RowsToPeriodTable(`${labels.incomeStatementTitle}: Project`, py, yl, buildPLRows(m4ctx('__all__')))));
+    { const tn = taxBasisNote(snap.pl, snap.yearLabels, fmt.money); if (tn) caption(tab, 'outputs', tn); }
     // Fund Fee Basis, beneath the consolidated statement only (the fees are
     // project level), with the screen's title, caption, capital bases, columns
     // and Total row. A grid, never a period table: a base is a stock.

@@ -1580,3 +1580,36 @@ export const BS_FEEDER_SECTIONS: ReadonlyArray<{ section: M4FeederSection; meta:
   { section: 'LIABILITIES', meta: 'Current + non-current liability schedules' },
   { section: 'EQUITY', meta: 'Equity roll-forward + Retained Earnings schedule' },
 ];
+
+/**
+ * WHETHER A LOSS CARRIES FORWARD, SAID BESIDE THE TAX LINE (2026-10-05, export
+ * review group 4). On the zakat basis a loss year relieves nothing later, which
+ * a reader can take for a missing feature; on the corporate income tax basis
+ * the relief is capped. Either way the P&L says which rule applies and what it
+ * did. Null on zakat when no year made a loss (nothing to explain).
+ */
+export function taxBasisNote(
+  pl: { taxBasis: 'zakat' | 'cit'; taxLossesArisingPerPeriod: number[]; taxLossReliefPerPeriod: number[]; taxLossCarriedForwardPerPeriod: number[] },
+  yearLabels: readonly number[],
+  money: (v: number) => string,
+): string | null {
+  const sum = (a: readonly number[]): number => a.reduce((s, v) => s + (v ?? 0), 0);
+  const lossYears = yearLabels.filter((_, t) => (pl.taxLossesArisingPerPeriod[t] ?? 0) > 0);
+  const ranges: string[] = [];
+  for (const y of lossYears) {
+    const last = ranges[ranges.length - 1];
+    const m = last ? /(\d+)$/.exec(last) : null;
+    if (m && Number(m[1]) === y - 1) ranges[ranges.length - 1] = `${last.split(' to ')[0]} to ${y}`;
+    else ranges.push(String(y));
+  }
+  const losses = sum(pl.taxLossesArisingPerPeriod);
+  const when = ranges.length ? ranges.join(', ') : '';
+  if (pl.taxBasis === 'cit') {
+    const relieved = sum(pl.taxLossReliefPerPeriod);
+    const left = pl.taxLossCarriedForwardPerPeriod[pl.taxLossCarriedForwardPerPeriod.length - 1] ?? 0;
+    return `Corporate income tax basis: tax losses carry forward without limit, and the relief in any year is capped at 25% of that year's taxable profit (the KSA rule).`
+      + (losses > 0 ? ` Losses of ${when} (${money(losses)}): ${money(relieved)} relieved over the horizon, ${money(left)} still carried forward at the end.` : ' No year makes a tax loss.');
+  }
+  if (losses <= 0) return null;
+  return `Zakat basis: zakat is assessed each year on net worth, not on profit, so the losses of ${when} (${money(losses)}) are not carried forward against later years. That is the rule, not an omission; on a corporate income tax basis they would be.`;
+}

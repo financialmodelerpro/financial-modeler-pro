@@ -27,7 +27,7 @@ import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/s
 import { makeFmt } from './_shared/numberFmt';
 import { PhaseSection } from './_shared/PhaseSection';
 import { M4PeriodTable } from './_shared/m4Table';
-import { buildPLRows, buildFundFeeBasisRows, buildFundCapitalRows } from '../../lib/reports/m4Reports';
+import { buildPLRows, buildFundFeeBasisRows, buildFundCapitalRows, taxBasisNote } from '../../lib/reports/m4Reports';
 import { FundFeeBasisTable } from './_shared/FundFeeBasisTable';
 import { OverrideBadge } from './_shared/OverrideBadge';
 import { TabComments, FieldComment } from '../collab/FieldComments';
@@ -90,6 +90,7 @@ export default function Module4PL(): React.JSX.Element {
   // P&L rows come from the shared pure builder (lib/reports/m4Reports.ts),
   // the single source of truth this tab and the PDF export both render from.
   // A phase-filtered view truncates at EBITDA inside the builder.
+  const taxNote = taxBasisNote(snap.pl, yearLabels, fmt);
   const filteredRows = buildPLRows({ snap, state, labels, filterPhaseId, fmt });
 
   return (
@@ -180,7 +181,47 @@ export default function Module4PL(): React.JSX.Element {
               held assets is excluded unless your treatment says otherwise.
             </div>
           </div>
+          {/* THE BASIS (2026-10-05): it decides whether a loss carries forward. */}
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
+              Basis<OverrideBadge path="project.tax.basis" /><FieldComment path="project.tax.basis" />
+            </label>
+            <select
+              value={project.tax?.basis ?? 'zakat'}
+              onChange={(e) => state.setProject({ tax: { ...(project.tax ?? {}), basis: e.target.value === 'cit' ? 'cit' : 'zakat' } })}
+              style={SELECT_STYLE}
+              data-testid="m4-pl-tax-basis"
+            >
+              <option value="zakat">Zakat (net worth; no loss carry-forward)</option>
+              <option value="cit">Corporate income tax (losses carried forward, 25% cap)</option>
+            </select>
+            <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
+              Zakat is assessed each year on its own. Corporate income tax carries losses forward without limit,
+              relieving at most 25% of a year&apos;s taxable profit (the KSA rule).
+            </div>
+          </div>
+          {/* WHEN IT IS PAID (2026-10-05): zakat settles after the year end. */}
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--color-meta)', display: 'block', marginBottom: 4 }}>
+              {labels.tax} paid after (days)<OverrideBadge path="project.tax.paymentDays" /><FieldComment path="project.tax.paymentDays" />
+            </label>
+            <input
+              type="number"
+              value={project.tax?.paymentDays ?? 0}
+              min={0}
+              max={365}
+              step={1}
+              onChange={(e) => state.setProject({ tax: { ...(project.tax ?? {}), paymentDays: Math.max(0, Math.min(365, Math.round(Number(e.target.value) || 0))) } })}
+              style={{ ...SELECT_STYLE, minWidth: 0, textAlign: 'right' }}
+              data-testid="m4-pl-tax-payment-days"
+            />
+            <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
+              Days after the year end it is paid. 0 pays it in the year it is charged; 120 (a typical zakat
+              filing) leaves a third of the year&apos;s charge payable at the year end, settled the next year.
+            </div>
+          </div>
         </div>
+        {taxNote && <div style={{ fontSize: 11, color: 'var(--color-meta)', marginTop: 'var(--sp-2)', fontStyle: 'italic' }} data-testid="m4-pl-tax-basis-note">{taxNote}</div>}
       </PhaseSection>
 
       {/* M4 Pass 2L: phase filter buttons (replacing the asset dropdown). */}

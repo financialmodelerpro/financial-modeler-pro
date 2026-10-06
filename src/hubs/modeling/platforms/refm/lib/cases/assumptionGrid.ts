@@ -100,6 +100,8 @@ const FIELD_LABELS: Record<string, string> = {
   'returns.exitYearOffset': 'Exit year (offset)',
   'tax.rate': 'Tax / Zakat rate',
   'tax.applyToDisposalGain': 'Zakat on the disposal gain',
+  'tax.basis': 'Tax basis (zakat or corporate income tax)',
+  'tax.paymentDays': 'Tax paid after the year end (days)',
   'returns.terminalValueBasis': 'Terminal value basis',
   'operatingAr.dsoDays': 'Receivable days (DSO)',
   'shareCapital': 'Share capital',

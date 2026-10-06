@@ -69,6 +69,10 @@ export const stage5Statements: LiveLayer = {
     if (!w.reg.keys().some((k) => k.startsWith('oxc:'))) refuse.push('Opex is not live');
     if (!w.reg.keys().some((k) => k.startsWith('rvc:'))) refuse.push('Revenue is not live');
     if (!has('project:taxRate')) refuse.push('the tax rate is not on the Inputs sheet');
+    // 2026-10-05: the formulas charge the rate on each year's profit and pay it
+    // in the year; a carried-forward loss or a later payment is not mirrored yet.
+    if (state.project.tax?.basis === 'cit') refuse.push('the tax basis carries losses forward, which these formulas do not mirror');
+    if ((state.project.tax?.paymentDays ?? 0) > 0) refuse.push('tax is paid after the year end, which these formulas do not mirror');
     if (refuse.length) return [{ sheet: PL, status: 'values' as const, formulas: 0, note: `The P&L could not be made live for this model: ${refuse.join('; ')}.` }];
 
     // ── The working sheet: what the loop and Returns still own, pending ─────

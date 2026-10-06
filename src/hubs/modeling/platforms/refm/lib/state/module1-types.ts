@@ -649,6 +649,13 @@ export interface Project {
   tax?: {
     /** Decimal tax rate applied to PBT (e.g. 0.025 = 2.5%). */
     rate?: number;
+    /**
+     * THE BASIS (2026-10-05): 'zakat' (a charge on net worth; no loss carried
+     * forward) or 'cit' (corporate income tax; losses carried forward without
+     * limit, relief capped at 25% of each year's taxable profit, the KSA rule).
+     * Absent means zakat. Core: taxCharge.ts.
+     */
+    basis?: 'zakat' | 'cit';
     /** Tax paid timing in days from incurrence. 0 = same-year (cash basis). */
     paymentDays?: number;
     /**

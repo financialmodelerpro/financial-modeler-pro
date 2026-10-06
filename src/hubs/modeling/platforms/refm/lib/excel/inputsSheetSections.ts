@@ -413,7 +413,8 @@ export function emitStatementInputsSection(c: SheetCursor, state: FinancialsReso
   kv(c, `${zakat ? 'Zakat' : 'Tax'} Rate (%)`, p.tax?.rate ?? 0, NUMFMT.pct2, true, 'TaxRate', undefined, 'project:taxRate');
   kv(c, `${zakat ? 'Zakat' : 'Tax'} on the disposal gain`, p.tax?.applyToDisposalGain === true ? 'Charge it on the gain at exit' : 'Not charged on the gain at exit', '@', true);
   const payRow = kv(c, `${zakat ? 'Zakat' : 'Tax'} payment (days)`, p.tax?.paymentDays ?? 0, NUMFMT.int, true);
-  fixedHere(c, payRow, 2, `${zakat ? 'Zakat' : 'Tax'} is paid in the year it is charged; the platform reads this setting nowhere either.`);
+  fixedHere(c, payRow, 2, `Days after the year end it is paid; 0 pays it in the year it is charged.`);
+  kv(c, 'Basis', (p.tax?.basis ?? 'zakat') === 'cit' ? 'Corporate income tax (losses carried forward, 25% cap)' : 'Zakat (net worth; no loss carry-forward)', '@', true);
   kv(c, 'Statutory reserve transfer (% of PAT)', p.statutoryReserve?.transferRate ?? 0, NUMFMT.pct, true, undefined, undefined, 'project:reserveRate');
   const capRow = kv(c, 'Statutory reserve cap (% share capital)', p.statutoryReserve?.capOfShareCapital ?? 0, NUMFMT.pct, true, undefined, undefined, 'project:reserveCap');
   fixedHere(c, capRow, 2, 'A cap of zero at export applies no cap; a cap stated at export is live.');

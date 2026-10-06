@@ -205,6 +205,7 @@ const PATH_ALTERNATES: ReadonlyArray<readonly [RegExp, string[]]> = [
   [/\.indexation\.method$/, ['none', 'single_rate', 'yoy_compound', 'step']],
   [/returns\.terminalMethod$/, ['exit_multiple', 'perpetuity', 'cap_rate']],
   [/returns\.terminalValueBasis$/, ['prior_year', 'exit_year']],
+  [/tax\.basis$/, ['zakat', 'cit']], // 2026-10-05
   [/\.strategy$/, ['Sell', 'Operate', 'Lease', 'Sell + Manage']],
   [/idcConfig\.fundingMode$/, ['capitalized', 'expensed', 'conditional']],
   [/idcConfig\.allocationBasis$/, ['nsa', 'bua', 'gfa']],

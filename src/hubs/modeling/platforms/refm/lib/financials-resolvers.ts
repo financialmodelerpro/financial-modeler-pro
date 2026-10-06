@@ -12,6 +12,7 @@
  * the asset-filter logic and the strategy-grouping in one place.
  */
 
+import { chargeTax, DEFAULT_TAX_BASIS } from '@/src/core/calculations/taxCharge';
 import { groupAssetsForConsolidation } from '@/src/core/calculations/consolidation';
 import { normaliseAssetTypeId } from '@/src/core/calculations/typeKey';
 import { buildSaleCohortAdvisories, saleCohortAdvisoryIssue } from './reports/checksReport';
@@ -170,7 +171,15 @@ export interface ProjectPL {
   gainOnDisposalPerPeriod: number[];   // the gain on disposal in the exit year (2026-09-14); zero in every other year
   pbtPerPeriod: number[];
   taxRate: number;
+  /** The stated basis (absent reads zakat): it decides whether a loss carries forward (taxCharge.ts). */
+  taxBasis: 'zakat' | 'cit';
   taxPerPeriod: number[];
+  /** cit: losses relieved against each year's profit (capped at 25%); zakat: zeros. */
+  taxLossReliefPerPeriod: number[];
+  /** cit: unrelieved losses carried forward at each close; zakat: zeros. */
+  taxLossCarriedForwardPerPeriod: number[];
+  /** Losses arising per year (the negative taxable bases), on either basis. */
+  taxLossesArisingPerPeriod: number[];
   patPerPeriod: number[];
 }
 
@@ -2110,12 +2119,18 @@ function computeFinancialsSnapshotOnce(
     pbt[t] = ebit[t] - interestExpense[t]; // + interestIncome (zero today)
   }
   const taxRate = Math.max(0, project.tax?.rate ?? 0);
-  const taxArr = zeros(N);
+  // THE BASIS DECIDES WHETHER A LOSS CARRIES FORWARD (2026-10-05): zakat (the
+  // default) charges each year on its own; corporate income tax relieves losses
+  // brought forward, capped at 25% of the year's taxable profit (taxCharge.ts).
+  const taxBasis = project.tax?.basis ?? DEFAULT_TAX_BASIS;
+  let taxCharge = chargeTax(pbt, taxRate, taxBasis);
+  const taxArr = taxCharge.tax.slice();
+  // Filled in place, like taxArr, so the exit recompute below reaches the statements.
+  const taxLossReliefArr = taxCharge.lossReliefPerPeriod.slice();
+  const taxLossPoolArr = taxCharge.lossCarriedForwardPerPeriod.slice();
+  const taxLossesArisingArr = taxCharge.lossesArisingPerPeriod.slice();
   const pat = zeros(N);
-  for (let t = 0; t < N; t++) {
-    taxArr[t] = Math.max(0, pbt[t]) * taxRate;
-    pat[t] = pbt[t] - taxArr[t];
-  }
+  for (let t = 0; t < N; t++) pat[t] = pbt[t] - taxArr[t];
 
   const gainOnDisposal = zeros(N);
   const pl: ProjectPL = {
@@ -2139,7 +2154,11 @@ function computeFinancialsSnapshotOnce(
     gainOnDisposalPerPeriod: gainOnDisposal,
     pbtPerPeriod: pbt,
     taxRate,
+    taxBasis,
     taxPerPeriod: taxArr,
+    taxLossReliefPerPeriod: taxLossReliefArr,
+    taxLossCarriedForwardPerPeriod: taxLossPoolArr,
+    taxLossesArisingPerPeriod: taxLossesArisingArr,
     patPerPeriod: pat,
   };
 
@@ -2241,10 +2260,16 @@ function computeFinancialsSnapshotOnce(
       pbt[t] += removed;
     }
     pbt[exitIdx] += gainOnDisposal[exitIdx];
-    for (let t = exitIdx; t < N; t++) {
-      const withoutGain = Math.max(0, pbt[t] - gainOnDisposal[t]) * taxRate;
-      taxArr[t] = gainTaxed ? Math.max(0, pbt[t]) * taxRate : withoutGain;
-      taxOnGain[t] = taxArr[t] - withoutGain;
+    // The whole series again through the one rule: a carried-forward loss
+    // depends on every year before it, so the exit cannot be patched alone.
+    const withoutGainCharge = chargeTax(pbt.map((v, t) => v - gainOnDisposal[t]), taxRate, taxBasis);
+    taxCharge = gainTaxed ? chargeTax(pbt, taxRate, taxBasis) : withoutGainCharge;
+    for (let t = 0; t < N; t++) {
+      taxArr[t] = taxCharge.tax[t];
+      taxLossReliefArr[t] = taxCharge.lossReliefPerPeriod[t];
+      taxLossPoolArr[t] = taxCharge.lossCarriedForwardPerPeriod[t];
+      taxLossesArisingArr[t] = taxCharge.lossesArisingPerPeriod[t];
+      taxOnGain[t] = taxArr[t] - withoutGainCharge.tax[t];
       pat[t] = pbt[t] - taxArr[t];
     }
   }
