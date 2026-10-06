@@ -336,7 +336,8 @@ async function main(): Promise<void> {
   // sub-tabs in order (Returns, RE Metrics, Case Comparison), each section in
   // its screen order, under the screen's own titles.
   const m5 = (re: RegExp): number => rowByLabel(ret, re);
-  check('Returns mirrors Module 5 sub-tabs in order (1. Returns -> 2. RE Metrics -> 3. Case Comparison)', m5(/^1\. Returns$/) > 0 && m5(/^2\. RE Metrics$/) > m5(/^1\. Returns$/) && m5(/^3\. Case Comparison$/) > m5(/^2\. RE Metrics$/));
+  // RE-AIMED 2026-10-06 (founder): a one-case workbook prints no Case Comparison; 3 after 2 is asserted on the multi-case workbook below.
+  check('Returns mirrors Module 5 sub-tabs in order (1. Returns -> 2. RE Metrics; 3. Case Comparison only with cases)', m5(/^1\. Returns$/) > 0 && m5(/^2\. RE Metrics$/) > m5(/^1\. Returns$/) && m5(/^3\. Case Comparison$/) < 0);
   check('Returns carries the Returns sub-tab sections in screen order', (() => {
     const order = [/^Returns Assumptions$/, /^Headline Returns$/, /^Development Economics$/, /^Equity Partners$/, /^Sources & Uses of Capital$/, /^Returns by Cash-Flow Basis$/, /^Return Cash-Flow Streams/, /^FCFF Build-Up/, /^FCFE Build-Up/, /^(Distributed Equity Build-Up|Dividend Discount Model \(DDM\), before performance fee)/, /^Exit: terminal value and gain on disposal$/, /^Sensitivity, Equity IRR \(FCFE\)$/].map(m5);
     return order.every((v, i) => v > 0 && (i === 0 || v > order[i - 1]) && v < m5(/^2\. RE Metrics$/));
@@ -851,6 +852,24 @@ async function main(): Promise<void> {
     const src = fsReadFileSync('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts', 'utf8');
     check('Capex: the workbook preview uses the screen\'s builder and row rule', src.includes('buildConsolidatedReport(previewAssets, state.phases, perAssetCostsFromTreatment(capex.treatment))')
       && fsReadFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx', 'utf8').includes('perAssetCostsFromTreatment(treatmentTable)'));
+  }
+
+  // ── Case Comparison prints only where there is something to compare (2026-10-06, founder) ──
+  {
+    const mentionsIn = (wb: ExcelJS.Workbook): number => {
+      let n = 0;
+      wb.eachSheet((ws) => ws.eachRow((row) => row.eachCell((c) => { if (typeof c.value === 'string' && /Case Comparison/.test(c.value)) n++; })));
+      return n;
+    };
+    const one = buildModelWorkbook({ state, projectName: 'X', dateLabel: 'd' });
+    check('Case Comparison: a one-case workbook names it nowhere (cover, contents, sub-TOC, header, section)', mentionsIn(one) === 0, `${mentionsIn(one)} cells`);
+    const cmp = buildModelWorkbook({ state, projectName: 'X', dateLabel: 'd', caseComparison: { baseModel: state, cases: cmpCases as any, activeCaseId: 'base' } });
+    const cover = cmp.getWorksheet('Cover')!;
+    let onCover = false;
+    cover.eachRow((row) => row.eachCell((c) => { if (typeof c.value === 'string' && /Case Comparison/.test(c.value)) onCover = true; }));
+    const cmpRet = cmp.getWorksheet('Returns')!;
+    check('Case Comparison: a multi-case workbook still prints the section, after RE Metrics, and lists it on the cover (not vacuous)',
+      rowByLabel(cmpRet, /^2\. RE Metrics$/) > 0 && rowByLabel(cmpRet, /^3\. Case Comparison$/) > rowByLabel(cmpRet, /^2\. RE Metrics$/) && onCover);
   }
 
   // ── Sensitivity follows the entitlement, as the PDF does ────────────────────

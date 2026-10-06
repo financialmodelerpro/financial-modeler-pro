@@ -293,7 +293,7 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   // shifts every section row and the guide row down. Both re-base `sectionReg`
   // as they go, so the Cover and Guide, built last, link to the corrected rows.
   setSectionSink(null);
-  const guides = workbookGuides({ fundOn: opts.state.project.fundTerms?.enabled === true, caseComparison: (opts.caseComparison?.cases.length ?? 0) > 1 });
+  const guides = workbookGuides({ fundOn: opts.state.project.fundTerms?.enabled === true, caseComparison: hasCaseComparison(opts.caseComparison) });
   const guideRows = applyTabGuides(wb, sectionReg, guides);
   applyTabSubToc(wb, sectionReg, guideRows, guides);
   buildCoverContent(coverWs, snap, opts, sectionReg);
@@ -3949,6 +3949,13 @@ function addBalanceSheet(ctx: EmitCtx): void {
 // same report, and every case is a full engine run, so it is computed once per
 // bundle and shared by the two tabs.
 const CASE_REPORT_CACHE = new WeakMap<CaseComparisonInput, CaseComparisonReport | null>();
+/** THERE IS SOMETHING TO COMPARE (2026-10-06, founder): more than one case.
+ *  On a one-case project the Case Comparison section, its line in the sheet
+ *  header, the sub-TOC and the cover's contents entry are all left out, since a
+ *  heading whose only content is "nothing to compare" should not print. */
+export function hasCaseComparison(input: CaseComparisonInput | undefined): boolean {
+  return (input?.cases.length ?? 0) > 1;
+}
 function caseReportOf(input: CaseComparisonInput | undefined): CaseComparisonReport | null {
   if (!input) return null;
   if (CASE_REPORT_CACHE.has(input)) return CASE_REPORT_CACHE.get(input) ?? null;
@@ -3986,7 +3993,10 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
   const { wb, snap, lm, state, currency } = ctx;
   const N = snap.axisLength;
   const ws = wb.addWorksheet(SHEETS.returns, { properties: { tabColor: { argb: ARGB.navy } } });
-  writeSheetHeader(ws, snap, N, 'Returns', 'Mirror of the platform Module 5 (Returns and Valuation), in the order of its three sub-tabs: 1. Returns, 2. RE Metrics, 3. Case Comparison.', { label: 'Line', feeds: 'Sourced from the Module 4 statements and the returns engine, on the case selected at export (Case Comparison computes every case).' });
+  const withCases = hasCaseComparison(ctx.caseComparison);
+  writeSheetHeader(ws, snap, N, 'Returns', withCases
+    ? 'Mirror of the platform Module 5 (Returns and Valuation), in the order of its three sub-tabs: 1. Returns, 2. RE Metrics, 3. Case Comparison.'
+    : 'Mirror of the platform Module 5 (Returns and Valuation), in the order of its sub-tabs: 1. Returns, 2. RE Metrics. One case, so there is no Case Comparison.', { label: 'Line', feeds: 'Sourced from the Module 4 statements and the returns engine, on the case selected at export (Case Comparison computes every case).' });
   let r = 5;
   let rs: ReturnsSnapshot | null = null;
   try { rs = computeReturnsSnapshot(snap, state.project); } catch { rs = null; }
@@ -4619,9 +4629,11 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
   }
 
   // ═══ 3. Case Comparison (Module5CaseComparison) ═══════════════════════════════
-  section('3. Case Comparison');
-  emitCaseComparison({ ws, N, row: () => r, setRow: (x) => { r = x; }, subTitle, note, report: caseReportOf(ctx.caseComparison), currency,
-    intro: 'Every case computed through the full model. The Management Case is the base; each scenario applies its own input overrides. Money figures in millions. The figure in brackets under each scenario is the delta vs the Management Case.' });
+  if (withCases) {
+    section('3. Case Comparison');
+    emitCaseComparison({ ws, N, row: () => r, setRow: (x) => { r = x; }, subTitle, note, report: caseReportOf(ctx.caseComparison), currency,
+      intro: 'Every case computed through the full model. The Management Case is the base; each scenario applies its own input overrides. Money figures in millions. The figure in brackets under each scenario is the delta vs the Management Case.' });
+  }
 
   return { rs: rsx };
 }
@@ -5025,8 +5037,14 @@ const MODULE_TOC: TocEntry[] = [
 /** The tab list as THIS export prints it: the Returns entry names the
  *  sensitivity grid only when the entitlement put one on the tab. */
 function moduleTocFor(opts: BuildModelOptions): TocEntry[] {
-  if (opts.includeSensitivity === true) return MODULE_TOC;
-  return MODULE_TOC.map((e) => ('sheet' in e && e.sheet === SHEETS.returns ? { ...e, desc: e.desc.replace('exit working, sensitivity', 'exit working') } : e));
+  const withCases = hasCaseComparison(opts.caseComparison);
+  return MODULE_TOC.map((e) => {
+    if (!('sheet' in e) || e.sheet !== SHEETS.returns) return e;
+    let desc = e.desc;
+    if (opts.includeSensitivity !== true) desc = desc.replace('exit working, sensitivity', 'exit working');
+    if (!withCases) desc = desc.replace(', Case Comparison', '');
+    return { ...e, desc };
+  });
 }
 
 function buildCoverContent(ws: ExcelJS.Worksheet, snap: ReturnType<typeof computeFinancialsSnapshot>, opts: BuildModelOptions, sectionReg: Map<string, Array<{ title: string; row: number }>>): void {
