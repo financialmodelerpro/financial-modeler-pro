@@ -203,3 +203,12 @@ export function buildOpexReport(snap: OpexReportSnap, state: OpexReportState): R
 
   return tables;
 }
+
+/**
+ * THE ACCOUNTS PAYABLE BASIS SENTENCES (2026-10-05, export review item 25),
+ * printed beside the DPO input and the project total roll-forward on both the
+ * workbook and the PDF. The rest of the workbook's Opex basis column names each
+ * item's category, which the PDF's input tables already print as a column.
+ */
+export const OPEX_AP_BASIS = 'AP closing = opex x (DPO / days basis); blank or 0 pays on incurrence.';
+export const OPEX_AP_TOTAL_BASIS = 'Sum across every line and HQ. Cash Paid = Opex Incurred less the change in AP.';

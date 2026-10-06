@@ -405,7 +405,7 @@ async function main(): Promise<void> {
   // the Basis / Calculation text reach the PDF, from the workbook's own words.
   {
     const { pdfText } = await import('./pdfTextExtract');
-    const { TAB_GUIDES, TAB_GUIDE_HEADING } = await import('../src/hubs/modeling/platforms/refm/lib/reports/tabGuides');
+    const { tabGuide, TAB_GUIDE_HEADING } = await import('../src/hubs/modeling/platforms/refm/lib/reports/tabGuides');
     const { buildFinancingScheduleTables, financingRowBasis } = await import('../src/hubs/modeling/platforms/refm/lib/reports/financingReports');
     const st = buildState();
     const sn = computeFinancialsSnapshot(st);
@@ -426,7 +426,9 @@ async function main(): Promise<void> {
       .filter(([tab]) => (emittedTabs[mod] ?? []).some((t) => pdfTabKey(t) === tab))
       .map(([tab, ids]) => ({ where: `${mod}:${tab}`, ids })));
     check('C25: the fixture prints most of the mapped tabs (not vacuous)', due.length >= 8, `${due.length} due`);
-    const missingGuides = due.filter((d) => !d.ids.every((id) => TAB_GUIDES[id].every((l) => flat.includes(norm(l.text))))).map((d) => d.where);
+    // The guide as THIS project reads it: no fund here, one case (tabGuide's variants).
+    const guideCtx = { fundOn: st.project.fundTerms?.enabled === true, caseComparison: false };
+    const missingGuides = due.filter((d) => !d.ids.every((id) => tabGuide(id, guideCtx).every((l) => flat.includes(norm(l.text))))).map((d) => d.where);
     check('C25: every printed tab that has a guide prints it, word for word', missingGuides.length === 0, missingGuides.join(', '));
     check('C25: each guide carries its heading', raw.split('\n').filter((l) => l.trim() === TAB_GUIDE_HEADING).length === due.length,
       `${raw.split('\n').filter((l) => l.trim() === TAB_GUIDE_HEADING).length} headings, ${due.length} due`);
@@ -439,6 +441,29 @@ async function main(): Promise<void> {
     const wbSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts', 'utf8');
     check('C25: the workbook holds no guide text or financing basis of its own',
       !wbSrc.includes("G('logic'") && !wbSrc.includes('const basisFor = (label') && wbSrc.includes('financingRowBasis') && wbSrc.includes('SHARED_TAB_GUIDES'));
+  }
+
+  // C25b (2026-10-05, item 25 extended to Revenue and Opex): every revenue and
+  // payables basis sentence the WORKBOOK prints for a project, the PDF prints
+  // too, from the one shared source (revenueCaptions.ts, opexReports.ts).
+  {
+    const { pdfText } = await import('./pdfTextExtract');
+    const { buildModelWorkbook } = await import('../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook');
+    const { REVENUE_CAPTIONS } = await import('../src/hubs/modeling/platforms/refm/lib/reports/revenueCaptions');
+    const { OPEX_AP_BASIS, OPEX_AP_TOTAL_BASIS } = await import('../src/hubs/modeling/platforms/refm/lib/reports/opexReports');
+    const st = buildState();
+    const norm = (s: string): string => s.replace(/[^A-Za-z0-9]/g, '');
+    const wbText: string[] = [];
+    buildModelWorkbook({ state: st, projectName: 'X', dateLabel: 'd' }).eachSheet((ws) => ws.eachRow((r) => r.eachCell((c) => { if (typeof c.value === 'string') wbText.push(c.value); })));
+    const wbFlat = norm(wbText.join(' '));
+    const pdfFlat = norm(pdfText(await generateProjectPdf({ state: st, projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: ['module2', 'module3'] })));
+    const all = [...Object.values(REVENUE_CAPTIONS), OPEX_AP_BASIS, OPEX_AP_TOTAL_BASIS];
+    const inWorkbook = all.filter((t) => wbFlat.includes(norm(t)));
+    const missing = inWorkbook.filter((t) => !pdfFlat.includes(norm(t)));
+    check('C25b: the workbook prints some of these sentences for the fixture (not vacuous)', inWorkbook.length >= 6, `${inWorkbook.length}`);
+    check('C25b: every revenue and payables basis sentence the workbook prints, the PDF prints', missing.length === 0, missing.map((t) => t.slice(0, 40)).join(' | '));
+    const wbSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts', 'utf8');
+    check('C25b: the workbook holds no revenue caption of its own', !wbSrc.includes("'Sales during operation apply to units left") && wbSrc.includes('REVENUE_CAPTIONS.'));
   }
 
   // C26 (2026-10-05, export review item 26): the RE Metrics detail tiles come

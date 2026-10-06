@@ -97,7 +97,9 @@ const render = async (state: any, extra: any = {}): Promise<{ full: string; summ
 /** drawParagraph WRAPS, so a phrase can straddle a line break; collapse
  *  whitespace before matching one. */
 const flat = (t: string): string => t.replace(/\s+/g, ' ');
-const titled = (txt: string, title: string): boolean => txt.split('\n').some((l) => l.trim().startsWith(title));
+// A heading is the title alone or with its bracketed suffix ("Distribution
+// Waterfall (hold to 2038)"); a wrapped sentence naming it is not one.
+const titled = (txt: string, title: string): boolean => txt.split('\n').some((l) => { const t = l.trim(); return t === title || t.startsWith(`${title} (`); });
 const countLines = (txt: string, exact: string): number => txt.split('\n').filter((l) => l.trim() === exact).length;
 
 async function main(): Promise<void> {

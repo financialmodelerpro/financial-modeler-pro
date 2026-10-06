@@ -100,5 +100,38 @@ export const TAB_GUIDES: Record<GuideId, GuideLine[]> = {
   ],
 };
 
+/**
+ * A PROJECT WITHOUT A FUND READS NO FUND ROWS. Two guides name fund statement
+ * rows ("Total Fund Management Fee", "Fund Management and Other Expenses"),
+ * which a project with the fund layer off does not have; the report promises
+ * no fund text on such a project (verify-fund-pdf, toggle OFF). These are the
+ * same sentences with the fund steps taken out.
+ */
+const FUND_OFF_GUIDES: Partial<Record<GuideId, GuideLine[]>> = {
+  pl: [
+    G('inputs', 'Recognised revenue and Cost of Sales from Revenue, opex from Opex, D&A from Schedules, interest, the disposal gain, and the zakat or tax rate with its disposal-gain toggle.'),
+    G('logic', 'Revenue - Cost of Sales = gross profit; - operating expenses = EBITDA. EBITDA - D&A = EBIT; - interest expensed (construction interest is capitalised, not expensed) + gain on disposal = profit before zakat or tax; - zakat or tax (charged excluding the disposal gain unless the toggle includes it) = profit after tax. The subtotals are the engine\'s own figures, never recomputed. A phase view stops at EBITDA.'),
+    TAB_GUIDES.pl[2],
+  ],
+  cashflow: [
+    G('inputs', 'Collections and escrow from Revenue, opex paid from Opex, zakat or tax paid, capex and disposal proceeds, and drawdowns, repayments, interest and dividends from Financing.'),
+    G('logic', 'Direct: cash collected - opex paid - zakat or tax = cash flow from operations; - capex paid in cash (in-kind land shown as a matched pair that nets to zero) + disposal proceeds at the exit = cash flow from investing; + equity and debt drawn - principal, interest and dividends = cash flow from financing. Indirect: profit after tax + D&A - gain on disposal +/- working capital movements = the same cash flow from operations. Closing cash = opening + net cash flow, and both methods must agree every period. A phase view shows operations and investing only.'),
+    TAB_GUIDES.cashflow[2],
+  ],
+};
+
+/** Where NPV is, said without naming a Case Comparison a one-case project does not print. */
+const NPV_NOTE_ONE_CASE = 'NPV is not a headline figure here: IRR / MOIC and the Development Economics lead, and NPV (FCFF, at the discount rate) is reported per case once scenario cases are compared.';
+
+/**
+ * The guide for a subject on THIS project: the fund-off wording where the fund
+ * layer is off, and an NPV sentence that points at no Case Comparison where
+ * there is only one case (a pointer must name a table the document prints).
+ */
+export function tabGuide(id: GuideId, ctx: { fundOn: boolean; caseComparison: boolean }): GuideLine[] {
+  const lines = !ctx.fundOn && FUND_OFF_GUIDES[id] ? FUND_OFF_GUIDES[id]! : TAB_GUIDES[id];
+  return ctx.caseComparison ? lines : lines.map((l) => ({ ...l, text: l.text.split(RETURNS_NPV_NOTE).join(NPV_NOTE_ONE_CASE) }));
+}
+
 export const TAB_GUIDE_HEADING = 'How this tab is calculated';
 export const GUIDE_KIND_LABEL: Record<GuideLine['kind'], string> = { inputs: 'Inputs', logic: 'Calculation', feeds: 'Feeds' };

@@ -80,7 +80,9 @@ const at = (txt: string, needle: string): number => txt.split('\n').findIndex((l
  */
 function waterfallInOrder(txt: string, order: readonly string[]): { ok: boolean; detail: string } {
   const lines = txt.split('\n');
-  const start = lines.findIndex((l) => l.includes('Distribution Waterfall'));
+  // The HEADING is the title alone or with its bracketed horizon (re-aimed 2026-10-05): a
+  // sentence naming the table (export review item 29) can wrap onto a line of its own.
+  const start = lines.findIndex((l) => /^Distribution Waterfall( \(.*)?$/.test(l.trim()));
   if (start < 0) return { ok: false, detail: 'no Distribution Waterfall heading' };
   const scoped = lines.slice(start);
   const idx = order.map((l) => scoped.findIndex((x) => x.includes(l)));

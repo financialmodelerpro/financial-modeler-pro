@@ -32,6 +32,7 @@ import { fundingChartPoints } from '../portfolio/fundingSeries';
 import { evaluateCovenant, covenantUnit, covenantSeries, reduceWorst, reduceAvg, COVENANT_METRIC_LABELS, covenantBasisNote, covenantCoverageNote, type CovenantInputs } from '../covenants';
 import { buildReMetricDetailGroups } from '../reports/reMetricTiles';
 import { buildPhaseProgramme } from '../reports/phaseProgramme';
+import { REVENUE_CAPTIONS, shareSoldCaption, soldCaption, revenueCaption, recognitionMatrixCaption, recognitionCaption } from '../reports/revenueCaptions';
 import { TAB_GUIDES as SHARED_TAB_GUIDES, type GuideLine } from '../reports/tabGuides';
 import { DEFAULT_COVENANTS } from '../state/module1-types';
 import { enumerateOverridableFields, getByPath } from '../cases/applyOverrides';
@@ -43,7 +44,7 @@ import { buildFinancingScheduleTables, buildCashSweepTables, financingRowBasis, 
 import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup, m4StreamRow, distributedTieNote } from '../reports/streamReports';
 import { buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
 import { buildCostOfSalesReport } from '../reports/cosReports';
-import { buildOpexReport } from '../reports/opexReports';
+import { buildOpexReport, OPEX_AP_BASIS, OPEX_AP_TOTAL_BASIS } from '../reports/opexReports';
 import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsReconciliationRows, buildBsFeederTables, BS_FEEDER_SECTIONS, BS_RECONCILIATION_CAPTION, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, totalColumnHeading, totalColumnNote, TOTAL_COLUMN_HEADINGS, TOTAL_COLUMN_NOTES, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, FUND_CAPITAL_BASE_TAG, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
 import { buildFixedAssetReport, type FixedAssetTable } from '../reports/fixedAssetReports';
 import { buildCaseComparisonReport, caseOverridesNote, type CaseComparisonInput, type CaseComparisonReport, type CaseKpiKind } from '../reports/caseComparisonReport';
@@ -2469,11 +2470,11 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
           }
         };
         if (w.construction.length > 0) {
-          em.tableTitle(`Pre-Sales velocity, Construction ${span(w.construction)}`, 'Pre-sales run during construction; the handover year is the last construction year.');
+          em.tableTitle(`Pre-Sales velocity, Construction ${span(w.construction)}`, REVENUE_CAPTIONS.presalesVelocity);
           paceRows('pre', w.construction);
         }
         if (w.operations.length > 0) {
-          em.tableTitle(`Sales During Operation, ${span(w.operations)}`, 'Sales during operation apply to units left after pre-sales, collected and recognised in the same year.');
+          em.tableTitle(`Sales During Operation, ${span(w.operations)}`, REVENUE_CAPTIONS.salesDuringOperation);
           paceRows('post', w.operations);
         }
         const idx = sell?.indexation ?? { method: 'none' as const };
@@ -2485,7 +2486,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
           em.periodRow('YoY growth', padded(idxAxis.growthPerPeriod), w.cash, NUMFMT.pct, { input: true });
         }
         if (w.cash.length > 0) {
-          em.tableTitle('Sale price per year, after indexation', 'Base price per sub-unit (Table 5) x the indexation factor at each year: the rate the engine multiplies the sold area or units by.');
+          em.tableTitle('Sale price per year, after indexation', REVENUE_CAPTIONS.salePricePerYear);
           em.periodRow('Indexation factor', Array.from({ length: N }, (_, t) => applyIndexation(1, t, idxAxis)), w.cash, FACTOR_FMT);
           for (const su of line.subUnits) {
             const perUnit = resolveSubUnitMetric(su, ownerOf(su)) === 'units';
@@ -2497,21 +2498,17 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
         }
         const rec = sell?.recognitionProfile;
         if (rec?.method === 'over_time') {
-          em.tableTitle('Revenue Recognition', 'Over-Time: percent of each cohort recognised per project year.');
+          em.tableTitle('Revenue Recognition', recognitionCaption(rec, yl[w.handoverIdx]));
           const pcts = padded(rec.percentages);
           em.periodRow('Recognition %', pcts, w.cash, NUMFMT.pct, { input: true, total: w.cash.reduce((s, t) => s + (pcts[t] ?? 0), 0) });
         } else {
-          const anchor = rec?.pointInTimeYear ?? 'handover';
-          em.tableTitle('Revenue Recognition', anchor === 'handover'
-            ? `Point-in-Time, at handover (${yl[w.handoverIdx]}): every pre-sales cohort recognises in full at handover; sales during operation recognise in their own sale year.`
-            : anchor === 'sale_year' ? 'Point-in-Time, at sale year: each cohort recognises in full in the year it is sold.'
-              : `Point-in-Time, at custom year ${rec?.pointInTimeCustomYear ?? yl[w.handoverIdx]}: every pre-sales cohort recognises in full in that year.`);
+          em.tableTitle('Revenue Recognition', recognitionCaption(rec, yl[w.handoverIdx]));
         }
         // SALE COHORT TERMS, whatever the recognition method: they drive
         // collections, not recognition, so handover recognition hides nothing.
         const block = buildSaleCohortTermsBlock(a, phase, psy);
         if (block) {
-          em.tableTitle('Sale cohort terms', 'Drives collections: a downpayment in the year a cohort sells, then the balance in equal instalments.');
+          em.tableTitle('Sale cohort terms', REVENUE_CAPTIONS.cohortTerms);
           em.scalarRow('Max instalment years after sale', block.instalmentYears, NUMFMT.int, { input: true });
           em.scalarRow('Instalments', block.stopAtHandover ? `Must finish by handover (${block.handoverYear})` : 'May run past handover', '@', { input: true });
           const projectDefault = state.project.saleCohortDefaults?.downpayment;
@@ -2664,9 +2661,9 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
           const denom = denomPerSU.reduce((s, v) => s + v, 0);
           const cfg = resolveSellConfig(a, state.project);
           const idxAxis = expandIndexationToAxis(cfg?.indexation, a.revenue?.sell?.indexation?.growthPerPeriodByPhase, w.phaseOffset, N);
-          em.tableTitle('1a. Share of inventory sold per year (per sub-unit)', `Sold over total inventory per row and year, after the cap at what was still unsold and rounding to whole ${invLower}; the Total column is the lifetime share sold.`);
+          em.tableTitle('1a. Share of inventory sold per year (per sub-unit)', shareSoldCaption(invLower));
           em.emitRows(buildShareSoldRows(units, denomPerSU, preSU, postSU, denom, N));
-          em.tableTitle(`1b. ${invLabel} Sold (per sub-unit, pre-sales and sales during operation)`, `Sold = velocity x sub-unit inventory, capped at what is still unsold; whole ${invLower} per step and the exact remainder on the last.`);
+          em.tableTitle(`1b. ${invLabel} Sold (per sub-unit, pre-sales and sales during operation)`, soldCaption(invLower));
           em.emitRows(buildPrePostRows(units, preSU, postSU, preTot, postTot, N, { preLabel: `Total pre-sales ${invLower}`, postLabel: `Total sales during operation ${invLower}`, grandLabel: `Asset Total ${invLabel} Sold` }, 'count'));
           {
             const t = buildInventoryRollForward(denom, preTot.map((v, i) => v + (postTot[i] ?? 0)), N, invLower);
@@ -2676,22 +2673,22 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
           {
             // The screen's own builder (2026-09-24): a price PER SQM on every row.
             const esc = buildEscalatedPriceTable(units, ownerOf, idxAxis, N, cur, (v) => v.toLocaleString('en-US', { maximumFractionDigits: 2 }));
-            em.tableTitle('2a. Sale price per sqm per year, after indexation (per sub-unit)', 'Price per sqm[su, y] = base price per sqm x indexation factor at year y. A sub-unit sold by units is priced per sqm as its price per unit over the area one unit counts, so area sold x price = revenue on every row. Rates at full scale; a price does not sum.');
+            em.tableTitle('2a. Sale price per sqm per year, after indexation (per sub-unit)', REVENUE_CAPTIONS.pricePerSqm);
             em.periodRow('Indexation factor (every sub-unit of this line)', esc.factor, range(0, N - 1), FACTOR_FMT);
             for (const r of esc.rows) em.periodRow(r.label, r.values, range(0, N - 1), NUMFMT.rate);
           }
-          em.tableTitle('2b. Revenue (per sub-unit, pre-sales and sales during operation)', `Revenue = ${invLabel.toLowerCase()} sold x base rate x indexation factor at the year.`);
+          em.tableTitle('2b. Revenue (per sub-unit, pre-sales and sales during operation)', revenueCaption(invLabel));
           em.emitRows(buildPrePostRows(units, r.presalesRevenuePerPeriodPerSubUnit, r.postSalesRevenuePerPeriodPerSubUnit, r.presalesRevenuePerPeriod, r.postSalesRevenuePerPeriod, N, { preLabel: 'Total pre-sales revenue', postLabel: 'Total sales during operation revenue', grandLabel: 'Asset Total Revenue' }));
           {
             const m = r.recognitionVintageMatrix;
             const active = range(0, N - 1).filter((i) => (m[i] ?? []).reduce((s, v) => s + (v ?? 0), 0) > 0.5);
-            em.tableTitle('3a. Pre-Sales Recognition Vintage Matrix', `Rows = cohort sale year, columns = year recognised; handover resolves to ${yl[w.handoverIdx] ?? '?'}. Row sum = cohort sales value; column sum = recognition per year.`);
+            em.tableTitle('3a. Pre-Sales Recognition Vintage Matrix', recognitionMatrixCaption(yl[w.handoverIdx] ?? '?'));
             for (const i of active) em.moneyRow(`Sold in ${yl[i]}`, (m[i] ?? []).slice(0, N), { indent: 1 });
             const totals = new Array<number>(N).fill(0);
             for (const row of m) for (let t = 0; t < N; t++) totals[t] += row?.[t] ?? 0;
             em.moneyRow('Year Total', totals, { style: 'total' });
           }
-          em.tableTitle('3b. Recognition Summary (per period)', 'Pre-Sales Recognised = column sum of 3a; Sales During Operation recognise in the same period; Total = P&L revenue per year.');
+          em.tableTitle('3b. Recognition Summary (per period)', REVENUE_CAPTIONS.recognitionSummary);
           em.emitRows([
             { label: 'Pre-Sales Recognised', values: r.presalesRecognitionPerPeriod },
             { label: 'Sales During Operation Recognised', values: r.postSalesRecognitionPerPeriod },
@@ -2721,13 +2718,13 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
             }
           } else {
             const m = r.cashVintageMatrix;
-            em.tableTitle('4a. Pre-Sales Cash Vintage Matrix', 'Rows are sale years, columns the years that cohort pays.');
+            em.tableTitle('4a. Pre-Sales Cash Vintage Matrix', REVENUE_CAPTIONS.cashMatrix);
             for (const i of range(0, N - 1).filter((k) => (m[k] ?? []).reduce((s, v) => s + (v ?? 0), 0) > 0.5)) em.moneyRow(`Sold in ${yl[i]}`, (m[i] ?? []).slice(0, N), { indent: 1 });
             const totals = new Array<number>(N).fill(0);
             for (const row of m) for (let t = 0; t < N; t++) totals[t] += row?.[t] ?? 0;
             em.moneyRow('Year Total', totals, { style: 'total' });
           }
-          em.tableTitle('4b. Cash Summary (per period)', 'Pre-Sales Cash = column sum of 4a; Sales During Operation are collected in the same period; Total = cash from revenue per year.');
+          em.tableTitle('4b. Cash Summary (per period)', REVENUE_CAPTIONS.cashSummary);
           em.emitRows([
             { label: 'Pre-Sales Cash', values: r.presalesCashPerPeriod },
             { label: 'Sales During Operation Cash', values: r.postSalesCashPerPeriod },
@@ -2792,9 +2789,9 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
             { label: perSu ? 'Total Occupied Room Nights' : 'Occupied Room Nights', values: r.occupiedRoomNightsPerPeriod, valueKind: 'count', isSubtotal: perSu, indent: 1 },
             { label: `Guests per Year (x ${guests.toFixed(2)} guests / ORN)`, values: r.guestsPerPeriod, valueKind: 'count', isSubtotal: true, indent: 1 },
           ];
-          em.tableTitle('1. Drivers + Calculations', 'Available Room Nights = Keys x Days/Year; Occupied Room Nights = ARN x Occupancy; Guests = ORN x Guests/Room.');
+          em.tableTitle('1. Drivers + Calculations', REVENUE_CAPTIONS.operateDrivers);
           em.emitRows(rows);
-          em.tableTitle('2. Rooms + F&B + Other + Total Hospitality Revenue', 'Rooms = ORN x ADR (per sub-unit, then summed); F&B and Other follow their mode. Recognition = cash = revenue in the same period.');
+          em.tableTitle('2. Rooms + F&B + Other + Total Hospitality Revenue', REVENUE_CAPTIONS.operateRevenue);
           em.emitRows([
             ...(perSu ? keyed.map((u) => ({ label: `${u.name} Rooms Revenue`, values: r.perSubUnit[u.id].roomsRevenuePerPeriod, indent: 1 })) : []),
             { label: perSu ? 'Total Rooms Revenue' : 'Rooms Revenue', values: r.roomsRevenuePerPeriod, isSubtotal: perSu },
@@ -2814,7 +2811,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
         const lastPos = (x: readonly number[]): number => { for (let i = x.length - 1; i >= 0; i--) if (x[i] > 0) return x[i]; return 0; };
         const occNZ = r.occupancyPerPeriod.filter((v) => v > 0);
         const zones = line.subUnits.filter((u) => r.perSubUnit?.[u.id]);
-        em.tableTitle('1. Drivers + Calculations', 'Occupied Lease Area = GLA x Occupancy; Indexed Rate = Base Rate x Rent Indexation Factor; Revenue = Occupied Area x Indexed Rate.');
+        em.tableTitle('1. Drivers + Calculations', REVENUE_CAPTIONS.leaseDrivers);
         em.emitRows([
           { label: 'Drivers', values: [], isSection: true },
           { label: 'Total Gross Lease Area (sqm)', values: r.occupiedAreaPerPeriod.slice(0, N).map((v) => (v > 0 ? gla : 0)), valueKind: 'count', totalValue: gla, indent: 1 },
@@ -2826,7 +2823,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
           ...zones.map((u) => ({ label: `${u.name} Occupied Area (sqm)`, values: r.perSubUnit[u.id].occupiedAreaPerPeriod, valueKind: 'count' as const, indent: 2 })),
           { label: 'Total Occupied Lease Area (sqm)', values: r.occupiedAreaPerPeriod, valueKind: 'count', isSubtotal: zones.length > 0, indent: 1 },
         ]);
-        em.tableTitle('2. Per-Sub-Unit + Total Lease Revenue', 'Revenue = Occupied Area x Indexed Rate (per zone, then summed). Recognition = cash = revenue in the same period.');
+        em.tableTitle('2. Per-Sub-Unit + Total Lease Revenue', REVENUE_CAPTIONS.leaseRevenue);
         em.emitRows([
           ...zones.map((u) => ({ label: `${u.name} Rent Revenue`, values: r.perSubUnit[u.id].revenuePerPeriod, indent: 1 })),
           { label: 'Total Lease Revenue', values: r.totalRevenuePerPeriod, isTotal: true },
@@ -2927,11 +2924,11 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
     }
     em.gap();
     em.groupBand('2. Escrow Schedules');
-    em.tableTitle('A. Pre-Sales Cash by Asset (subject to escrow)', 'Held = pre-sales cash x the effective held %, only through each line\'s held-until year.');
+    em.tableTitle('A. Pre-Sales Cash by Asset (subject to escrow)', REVENUE_CAPTIONS.escrowHeld);
     for (const row of rows) em.moneyRow(row.name, row.preSalesCashPerPeriod, { indent: 1 });
     em.moneyRow('Total Pre-Sales Cash (all assets)', esc.preSalesCashPerPeriod, { style: 'total' });
     em.gap();
-    em.tableTitle('B. Escrow Balance Roll-Forward', 'Opening + Additions - Release = Closing; closing returns to zero once every line has released.');
+    em.tableTitle('B. Escrow Balance Roll-Forward', REVENUE_CAPTIONS.escrowBalance);
     const opening = new Array<number>(N).fill(0);
     for (let t = 1; t < N; t++) opening[t] = esc.cumulativeBalancePerPeriod[t - 1] ?? 0;
     em.moneyRow('Opening Balance', opening, { style: 'subtotal', noTotal: true });
@@ -2941,7 +2938,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
     em.moneyRow('Less: Release of Locked Funds', esc.releasePerPeriod.slice(0, N).map((v) => -v), { style: 'subtotal' });
     em.moneyRow('Closing Balance', esc.cumulativeBalancePerPeriod, { style: 'total', totalLast: true });
     em.gap();
-    em.tableTitle('C. Cash Flow Impact (project totals)', 'What Module 4 deducts (held) and adds back (release); the net sums to zero over the horizon.');
+    em.tableTitle('C. Cash Flow Impact (project totals)', REVENUE_CAPTIONS.escrowCashImpact);
     em.moneyRow('Less: Inaccessible Funds Locked', esc.heldPerPeriod.slice(0, N).map((v) => -v), { indent: 1 });
     em.moneyRow('Add: Release of Inaccessible Funds', esc.releasePerPeriod, { indent: 1 });
     em.moneyRow('Net Cash Flow Adjustment (to M4)', esc.cashFlowAdjustmentPerPeriod, { style: 'total' });
@@ -3054,7 +3051,7 @@ function addOpex(ctx: EmitCtx): OpexLinks {
     setBasis(ws.getCell(em.cursor() - 1, META_B), 'project-wide');
     const dflt = state.project.opexAp?.defaultApDays;
     const projectDefault = Math.max(0, dflt ?? 0);
-    em.scalarRow('Project Default DPO (days)', dflt ?? '0 (cash basis)', NUMFMT.int, { input: true, basis: 'AP closing = opex x (DPO / days basis); blank or 0 pays on incurrence.' });
+    em.scalarRow('Project Default DPO (days)', dflt ?? '0 (cash basis)', NUMFMT.int, { input: true, basis: OPEX_AP_BASIS });
     em.scalarRow('Days basis', state.project.opexAp?.daysPerYear ?? 365, NUMFMT.int, { input: true, basis: 'Days per year for the DPO ratio.' });
     if (hosts.length > 0) {
       em.colHeaders([[LBL_COL, 'Asset', 'left'], [TOTAL_COL, 'Effective DPO (days)', 'right'], [OPEN_COL, 'DPO Override', 'right']]);
@@ -3137,7 +3134,7 @@ function addOpex(ctx: EmitCtx): OpexLinks {
   }
   apRoll('HQ: AP Roll-Forward', `HQ & Corporate Overheads, DPO ${snap.ap.hq.apDays} days`, snap.ap.hq.result.openingPerPeriod, 'HQ Opex Incurred', snap.ap.hq.opexIncurredPerPeriod, snap.ap.hq.result.cashPaidPerPeriod, snap.ap.hq.result.perPeriod, '__hq__');
   const apt = snap.ap.projectTotals;
-  apRoll('Project Total: AP Roll-Forward', 'Sum across every line and HQ. Cash Paid = Opex Incurred less the change in AP.', apt.openingApPerPeriod, 'Opex Incurred', apt.opexIncurredPerPeriod, apt.cashPaidPerPeriod, apt.closingApPerPeriod, '__project__');
+  apRoll('Project Total: AP Roll-Forward', OPEX_AP_TOTAL_BASIS, apt.openingApPerPeriod, 'Opex Incurred', apt.opexIncurredPerPeriod, apt.cashPaidPerPeriod, apt.closingApPerPeriod, '__project__');
   em.setRegScope(null);
 
   // hospRow / retailRow have no per-strategy rollup row on the platform; they

@@ -476,7 +476,11 @@ async function main(): Promise<void> {
     check('the waterfall row order matches on the screen builder', wfRows.map((r) => r.label).join('|') === FUND_WATERFALL_ROW_ORDER.join('|'));
     const orderIn = (txt: string): boolean => {
       const lines = txt.split('\n');
-      const start = lines.findIndex((l) => l.includes('Distribution Waterfall'));
+      // RE-AIMED 2026-10-05: the HEADING is the title alone, or with its bracketed horizon.
+      // Export review item 29 made two fund sentences name the table ("...in the
+      // Fund Returns, Gross vs Net and Distribution Waterfall tables"), and the
+      // old `includes` found that sentence first, above the Fee Income block.
+      const start = lines.findIndex((l) => /^Distribution Waterfall( \(.*)?$/.test(l.trim()));
       if (start < 0) return false;
       const sc = lines.slice(start);
       const idx = FUND_WATERFALL_ROW_ORDER.map((l) => sc.findIndex((x) => x.includes(l)));

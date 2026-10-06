@@ -84,7 +84,7 @@ import {
 import { computeReturnsSnapshot, computeReturnsSensitivity, type ReturnsSnapshot } from '../returns-resolvers';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsFeederTables, buildBsReconciliationRows, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisText, totalColumnHeading, totalColumnNote, resolveTotalColumnKind, TOTAL_COLUMN_HEADINGS, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, type M4FeederCtx } from '../reports/m4Reports';
-import { buildOpexReport } from '../reports/opexReports';
+import { buildOpexReport, OPEX_AP_BASIS, OPEX_AP_TOTAL_BASIS } from '../reports/opexReports';
 import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup, distributedTieNote } from '../reports/streamReports';
 import { buildDisposalWorking } from '../reports/disposalReport';
 import { buildOperatingKpis } from '../reports/operatingKpis';
@@ -113,7 +113,8 @@ import { buildOverviewReport, distributedReturnPair } from '../reports/overviewR
 import { formatAssumptionValue, assumptionUnitSuffix } from '../cases/assumptionGrid';
 import { buildReMetricDetailGroups } from '../reports/reMetricTiles';
 import { buildPhaseProgramme, PROGRAMME_CELL_TEXT, PROGRAMME_TITLE, PROGRAMME_LEGEND, type ProgrammeCell } from '../reports/phaseProgramme';
-import { TAB_GUIDES, TAB_GUIDE_HEADING, GUIDE_KIND_LABEL, type GuideId } from '../reports/tabGuides';
+import { tabGuide, TAB_GUIDE_HEADING, GUIDE_KIND_LABEL, type GuideId } from '../reports/tabGuides';
+import { REVENUE_CAPTIONS, shareSoldCaption, soldCaption, revenueCaption, recognitionMatrixCaption, recognitionCaption } from '../reports/revenueCaptions';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { MODULES, type ModuleConfig } from '../modules-config';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
@@ -2639,9 +2640,11 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
         };
         if (w.construction.length > 0) {
           items.push(tTable(T1, 'inputs', periodTable(`${ln}: Pre-Sales velocity, Construction ${span(w.construction)}`, py, yl, paceRows('pre', w.construction))));
+          items.push(tItem(T1, 'inputs', { type: 'paragraph', text: REVENUE_CAPTIONS.presalesVelocity }));
         }
         if (w.operations.length > 0) {
           items.push(tTable(T1, 'inputs', periodTable(`${ln}: Sales During Operation, ${span(w.operations)}`, py, yl, paceRows('post', w.operations))));
+          items.push(tItem(T1, 'inputs', { type: 'paragraph', text: REVENUE_CAPTIONS.salesDuringOperation }));
         }
         const idx = sell?.indexation ?? { method: 'none' as const };
         const idxAxis = expandIndexationToAxis(idx, sell?.indexation?.growthPerPeriodByPhase, w.phaseOffset, N);
@@ -2660,6 +2663,7 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
               Array.from({ length: N }, (_, t) => (base > 0 ? applyIndexation(base, t, idxAxis) : 0)), w.cash, N, 'rate'));
           }
           items.push(tTable(T1, 'inputs', periodTable(`${ln}: Sale price per year, after indexation (${m2IndexationText(idx, 0, psy)})`, py, yl, priceRows)));
+          items.push(tItem(T1, 'inputs', { type: 'paragraph', text: REVENUE_CAPTIONS.salePricePerYear }));
         }
         const rec = sell?.recognitionProfile;
         if (rec?.method === 'over_time') {
@@ -2667,12 +2671,9 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
           items.push(tTable(T1, 'inputs', periodTable(`${ln}: Revenue Recognition, Over-Time (percent of each cohort per project year)`, py, yl, [
             windowRow('Recognition %', pcts, w.cash, N, 'pct', M4_PCT.pct(w.cash.reduce((s, t) => s + (pcts[t] ?? 0), 0), 1)),
           ])));
+          items.push(tItem(T1, 'inputs', { type: 'paragraph', text: recognitionCaption(rec, yl[w.handoverIdx]) }));
         } else {
-          const anchor = rec?.pointInTimeYear ?? 'handover';
-          items.push(tPara(T1, 'inputs', `${ln}: Revenue Recognition`, anchor === 'handover'
-            ? `Point-in-Time, at handover (${yl[w.handoverIdx]}): every pre-sales cohort recognises in full at handover; sales during operation recognise in their own sale year.`
-            : anchor === 'sale_year' ? 'Point-in-Time, at sale year: each cohort recognises in full in the year it is sold.'
-              : `Point-in-Time, at custom year ${rec?.pointInTimeCustomYear ?? yl[w.handoverIdx]}: every pre-sales cohort recognises in full in that year.`));
+          items.push(tPara(T1, 'inputs', `${ln}: Revenue Recognition`, recognitionCaption(rec, yl[w.handoverIdx])));
         }
         // SALE COHORT TERMS on every Sell line, whatever the recognition method:
         // they drive collections, not recognition, so handover recognition hides nothing.
@@ -2683,6 +2684,7 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
             row(['Max instalment years after sale', String(block.instalmentYears)]),
             row(['Instalments', block.stopAtHandover ? `Must finish by handover (${block.handoverYear})` : 'May run past handover']),
           ], 'kv')));
+          items.push(tItem(T1, 'inputs', { type: 'paragraph', text: REVENUE_CAPTIONS.cohortTerms }));
           if (block.downpayments.length > 0) {
             items.push(tTable(T1, 'inputs', {
               title: `${ln}: Downpayment % by sale year (% of the sale value of that year)`, kind: 'grid', align: 'data',
@@ -2772,8 +2774,15 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
         const memberById = new Map(line.members.map((m) => [m.id, m] as const));
         const ownerOf = (u: SubUnit) => memberById.get(u.assetId) ?? a;
         const w = windowsOf(line, p);
+        // THE SECTION'S BASIS / CALCULATION SENTENCE goes directly under the table
+        // it explains, and only when that table printed (export review item 25).
+        let lastPut = false;
         const put = (title: string, rows: readonly ScreenRow[], kindAll?: 'count'): void => {
-          if (rows.length) sectionItems.push(tTable(T2, 'outputs', screenTable(`${ln}: ${title}`, py, yl, rows, kindAll)));
+          lastPut = rows.length > 0;
+          if (lastPut) sectionItems.push(tTable(T2, 'outputs', screenTable(`${ln}: ${title}`, py, yl, rows, kindAll)));
+        };
+        const note = (text: string | undefined): void => {
+          if (lastPut && text) sectionItems.push(tItem(T2, 'outputs', { type: 'paragraph', text }));
         };
 
         if (line.form === 'sell') {
@@ -2798,8 +2807,12 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
           const cfg = resolveSellConfig(a, state.project);
           const idxAxis = expandIndexationToAxis(cfg?.indexation, a.revenue?.sell?.indexation?.growthPerPeriodByPhase, w.phaseOffset, N);
           put('1a. Share of inventory sold per year (per sub-unit)', buildShareSoldRows(units, denomPerSU, preSU, postSU, denom, N));
+          note(shareSoldCaption(invLower));
           put(`1b. ${invLabel} Sold (per sub-unit, pre-sales and sales during operation)`, buildPrePostRows(units, preSU, postSU, preTot, postTot, N, { preLabel: `Total pre-sales ${invLower}`, postLabel: `Total sales during operation ${invLower}`, grandLabel: `Asset Total ${invLabel} Sold` }, 'count'));
-          put(`1c. Closing Inventory (unsold ${invLower})`, buildInventoryRollForward(denom, preTot.map((v, i) => v + (postTot[i] ?? 0)), N, invLower).rows, 'count');
+          note(soldCaption(invLower));
+          const invRoll = buildInventoryRollForward(denom, preTot.map((v, k) => v + (postTot[k] ?? 0)), N, invLower);
+          put(`1c. Closing Inventory (unsold ${invLower})`, invRoll.rows, 'count');
+          note(invRoll.caption);
           {
             // The screen's own builder (2026-09-24): a price PER SQM on every row.
             const esc = buildEscalatedPriceTable(units, ownerOf, idxAxis, N, cur, RATE_STR);
@@ -2807,8 +2820,10 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
               { label: 'Indexation factor (every sub-unit of this line)', values: esc.factor, fmt: 'factor' },
               ...esc.rows.map((r): ScreenRow => ({ label: r.label, values: r.values, valueKind: 'rate' })),
             ]);
+          note(REVENUE_CAPTIONS.pricePerSqm);
           }
           put('2b. Revenue (per sub-unit, pre-sales and sales during operation)', buildPrePostRows(units, r.presalesRevenuePerPeriodPerSubUnit, r.postSalesRevenuePerPeriodPerSubUnit, r.presalesRevenuePerPeriod, r.postSalesRevenuePerPeriod, N, { preLabel: 'Total pre-sales revenue', postLabel: 'Total sales during operation revenue', grandLabel: 'Asset Total Revenue' }));
+          note(revenueCaption(invLabel));
           {
             const m = r.recognitionVintageMatrix;
             const active = range(0, N - 1).filter((i) => (m[i] ?? []).reduce((s, v) => s + (v ?? 0), 0) > 0.5);
@@ -2818,12 +2833,14 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
               ...active.map((i): ScreenRow => ({ label: `Sold in ${yl[i]}`, values: (m[i] ?? []).slice(0, N), indent: 1 })),
               { label: 'Year Total', values: totals, isTotal: true },
             ]);
+          note(recognitionMatrixCaption(yl[w.handoverIdx] ?? '?'));
           }
           put('3b. Recognition Summary (per period)', [
             { label: 'Pre-Sales Recognised', values: r.presalesRecognitionPerPeriod },
             { label: 'Sales During Operation Recognised', values: r.postSalesRecognitionPerPeriod },
             { label: 'Total Revenue Recognised', values: r.recognitionPerPeriod, isTotal: true },
           ]);
+        note(REVENUE_CAPTIONS.recognitionSummary);
           // 4a. THE SALE COHORT GRID, from the shared builder the screen and the
           // workbook render; the plain cash vintage matrix only where it has none.
           const grid = buildSaleCohortGrid(a, p, psy, yl, state.project.saleCohortDefaults?.downpayment, r);
@@ -2832,6 +2849,7 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
               ...grid.rows.map((cr): ScreenRow => ({ label: cr.paysInFull ? `${cr.saleYear} sale, paid in full` : `${cr.saleYear} sale, ${(cr.downpayment * 100).toFixed(2)}% down`, values: cr.cells.slice(0, N), indent: 1 })),
               { label: 'Total collected', values: grid.columnTotals.slice(0, N), isTotal: true },
             ]);
+          note(saleCohortGridCaption(grid));
             sectionItems.push(tTable(T2, 'outputs', gridTable(`${ln}: 4a. Sale Cohort Grid check`,
               ['Sale year', 'Down %', 'In force from', 'Sale value', 'Collected', 'Check'], [
                 ...grid.rows.map((cr) => row([
@@ -2853,16 +2871,22 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
                 .map((i): ScreenRow => ({ label: `Sold in ${yl[i]}`, values: (m[i] ?? []).slice(0, N), indent: 1 })),
               { label: 'Year Total', values: totals, isTotal: true },
             ]);
+          note(REVENUE_CAPTIONS.cashMatrix);
           }
           put('4b. Cash Summary (per period)', [
             { label: 'Pre-Sales Cash', values: r.presalesCashPerPeriod },
             { label: 'Sales During Operation Cash', values: r.postSalesCashPerPeriod },
             { label: 'Total Cash Collected', values: r.cashCollectedPerPeriod, isTotal: true },
           ]);
+        note(REVENUE_CAPTIONS.cashSummary);
           const ar = buildAccountsReceivable(r.presalesRevenuePerPeriod, r.presalesCashPerPeriod, N);
           const ur = buildUnearnedRevenue(r.presalesRecognitionPerPeriod, r.presalesRevenuePerPeriod, N);
-          put('5. Accounts Receivable (Sales Receivable roll-forward)', buildReceivablesRollForward(ar, r.presalesRevenuePerPeriod, r.presalesCashPerPeriod, N, ar.changePerPeriod).rows);
-          put('6. Unearned Revenue (Contract Liability roll-forward)', buildUnearnedRollForward(ur, r.presalesRevenuePerPeriod, r.presalesRecognitionPerPeriod, N, ur.changePerPeriod).rows);
+          const arRoll = buildReceivablesRollForward(ar, r.presalesRevenuePerPeriod, r.presalesCashPerPeriod, N, ar.changePerPeriod);
+          put('5. Accounts Receivable (Sales Receivable roll-forward)', arRoll.rows);
+          note(arRoll.caption);
+          const unRoll = buildUnearnedRollForward(ur, r.presalesRevenuePerPeriod, r.presalesRecognitionPerPeriod, N, ur.changePerPeriod);
+          put('6. Unearned Revenue (Contract Liability roll-forward)', unRoll.rows);
+          note(unRoll.caption);
           continue;
         }
 
@@ -2909,6 +2933,7 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
             { label: perSu ? 'Total Occupied Room Nights' : 'Occupied Room Nights', values: r.occupiedRoomNightsPerPeriod, valueKind: 'count', isSubtotal: perSu, indent: 1 },
             { label: `Guests per Year (x ${guests.toFixed(2)} guests / ORN)`, values: r.guestsPerPeriod, valueKind: 'count', isSubtotal: true, indent: 1 },
           ]);
+        note(REVENUE_CAPTIONS.operateDrivers);
           put('2. Rooms + F&B + Other + Total Hospitality Revenue', [
             ...(perSu ? keyed.map((u): ScreenRow => ({ label: `${u.name} Rooms Revenue`, values: r.perSubUnit[u.id].roomsRevenuePerPeriod, indent: 1 })) : []),
             { label: perSu ? 'Total Rooms Revenue' : 'Rooms Revenue', values: r.roomsRevenuePerPeriod, isSubtotal: perSu },
@@ -2916,6 +2941,7 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
             { label: 'Other Revenue', values: r.otherRevenuePerPeriod },
             { label: 'Total Hospitality Revenue', values: r.totalRevenuePerPeriod, isTotal: true },
           ]);
+        note(REVENUE_CAPTIONS.operateRevenue);
           continue;
         }
 
@@ -2936,10 +2962,12 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
           ...zones.map((u): ScreenRow => ({ label: `${u.name} Occupied Area (sqm)`, values: r.perSubUnit[u.id].occupiedAreaPerPeriod, valueKind: 'count', indent: 2 })),
           { label: 'Total Occupied Lease Area (sqm)', values: r.occupiedAreaPerPeriod, valueKind: 'count', isSubtotal: zones.length > 0, indent: 1 },
         ]);
+      note(REVENUE_CAPTIONS.leaseDrivers);
         put('2. Per-Sub-Unit + Total Lease Revenue', [
           ...zones.map((u): ScreenRow => ({ label: `${u.name} Rent Revenue`, values: r.perSubUnit[u.id].revenuePerPeriod, indent: 1 })),
           { label: 'Total Lease Revenue', values: r.totalRevenuePerPeriod, isTotal: true },
         ]);
+      note(REVENUE_CAPTIONS.leaseRevenue);
       }
     }
     if (sectionItems.length > 0) {
@@ -3007,6 +3035,7 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       ...rows.map((rw) => periodRow(`   ${rw.name}`, rw.preSalesCashPerPeriod.slice(0, N), 'sum')),
       periodRow('Total Pre-Sales Cash (all assets)', esc.preSalesCashPerPeriod.slice(0, N), 'sum', 'total'),
     ])));
+    items.push(tItem(T5, 'schedules', { type: 'paragraph', text: REVENUE_CAPTIONS.escrowHeld }));
     const opening = new Array<number>(N).fill(0);
     for (let t = 1; t < N; t++) opening[t] = esc.cumulativeBalancePerPeriod[t - 1] ?? 0;
     items.push(tTable(T5, 'schedules', periodTable('2. B. Escrow Balance Roll-Forward', py, yl, [
@@ -3017,11 +3046,13 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       periodRow('Less: Release of Locked Funds', esc.releasePerPeriod.slice(0, N).map((v) => -v), 'sum', 'subtotal'),
       periodRow('Closing Balance', esc.cumulativeBalancePerPeriod.slice(0, N), 'last', 'total'),
     ])));
+    items.push(tItem(T5, 'schedules', { type: 'paragraph', text: REVENUE_CAPTIONS.escrowBalance }));
     items.push(tTable(T5, 'schedules', periodTable('2. C. Cash Flow Impact (project totals)', py, yl, [
       periodRow('   Less: Inaccessible Funds Locked', esc.heldPerPeriod.slice(0, N).map((v) => -v), 'sum'),
       periodRow('   Add: Release of Inaccessible Funds', esc.releasePerPeriod.slice(0, N), 'sum'),
       periodRow('Net Cash Flow Adjustment (to M4)', esc.cashFlowAdjustmentPerPeriod.slice(0, N), 'sum', 'total'),
     ])));
+    items.push(tItem(T5, 'schedules', { type: 'paragraph', text: REVENUE_CAPTIONS.escrowCashImpact }));
   }
 
   return items;
@@ -3110,6 +3141,7 @@ function buildModule3(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       row(['Project Default DPO (days)', dflt !== undefined ? String(dflt) : '0 (cash basis)']),
       row(['Days basis', String(state.project.opexAp?.daysPerYear ?? 365)]),
     ], 'kv')));
+    items.push(tItem(T1, 'inputs', { type: 'paragraph', text: OPEX_AP_BASIS }));
     if (hosts.length > 0) {
       items.push(tTable(T1, 'inputs', gridTable('Accounts Payable (DPO), per line', ['Line', 'Effective DPO (days)', 'DPO Override'],
         [...hospitality, ...lease].map(({ host, name }) => {
@@ -3163,6 +3195,7 @@ function buildModule3(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
   apRoll(`Accounts Payable (Opex): HQ, AP Roll-Forward (DPO ${snap.ap.hq.apDays} days)`, snap.ap.hq.result.openingPerPeriod, 'HQ Opex Incurred', snap.ap.hq.opexIncurredPerPeriod, snap.ap.hq.result.cashPaidPerPeriod, snap.ap.hq.result.perPeriod);
   const apt = snap.ap.projectTotals;
   apRoll('Accounts Payable (Opex): Project Total, AP Roll-Forward', apt.openingApPerPeriod, 'Opex Incurred', apt.opexIncurredPerPeriod, apt.cashPaidPerPeriod, apt.closingApPerPeriod);
+  items.push(tItem(T2, 'schedules', { type: 'paragraph', text: OPEX_AP_TOTAL_BASIS }));
 
   return items;
 }
@@ -3961,7 +3994,7 @@ export const PDF_TAB_GUIDES: Record<string, Record<string, GuideId[]>> = {
   module6: { 'Cases & Assumptions': ['scenarios'] },
 };
 
-export function withTabGuides(moduleKey: string, content: ModuleContent): ModuleContent {
+export function withTabGuides(moduleKey: string, content: ModuleContent, ctx: { fundOn: boolean; caseComparison: boolean }): ModuleContent {
   const map = PDF_TAB_GUIDES[moduleKey];
   if (!map) return content;
   const out = content.slice();
@@ -3970,7 +4003,7 @@ export function withTabGuides(moduleKey: string, content: ModuleContent): Module
     out.forEach((ti, i) => { if (pdfTabKey(ti.tab) === name) last = i; });
     if (last < 0) continue;
     const { tab, part } = out[last];
-    const lines = ids.flatMap((id) => TAB_GUIDES[id]);
+    const lines = ids.flatMap((id) => tabGuide(id, ctx));
     const guide: TaggedItem[] = lines.map((l, k) => ({ tab, part, item: {
       type: 'paragraph' as const, title: k === 0 ? TAB_GUIDE_HEADING : undefined, text: `${GUIDE_KIND_LABEL[l.kind]}: ${l.text}`,
     } }));
@@ -4373,7 +4406,7 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
     else if (m.key === 'module6') content = buildModule6(caseReport, caseYoY, fmt, opts.caseComparison);
     else continue;
     if (!content) continue;
-    content = withTabGuides(m.key, dropEmptyItems(content)); // suppress genuinely-empty items (header, no body), then the tab guides
+    content = withTabGuides(m.key, dropEmptyItems(content), { fundOn: opts.state.project.fundTerms?.enabled === true, caseComparison: (opts.caseComparison?.cases.length ?? 0) > 1 }); // suppress genuinely-empty items (header, no body), then the tab guides
     // Skip a module ENTIRELY (no section-break / ToC / outline node) when the
     // Inputs/Schedules/Outputs filter + per-tab selection leave it with nothing to
     // render, so nav lists only included content with no dangling links.
