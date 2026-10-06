@@ -25,7 +25,7 @@ import { computeFinancialsSnapshot, computeFundingGap, type FinancialsResolverSt
 import { buildCapexReport, type CapexReport } from '../reports/capexReports';
 import { poolMapByLine, poolCapexByLine, poolResults, lineHosts, fixHospitalityRates, fixLeaseRates, poolRevenueBasisByLine, poolSaleCohortByLine, planReportLines, lineTitle } from '../reports/lineRows';
 import { buildDisposalWorking } from '../reports/disposalReport';
-import { buildOverviewReport, distributedReturnPair, distributedStreamLabel } from '../reports/overviewReport';
+import { buildOverviewReport, distributedReturnPair, distributedStreamLabel , fundFeesLife, surplusExcludesFundCaption, FUND_FEES_TILE_LABEL, FUND_FEES_TILE_SUB } from '../reports/overviewReport';
 import { buildAssumptionGrid } from '../reports/scenarioAssumptions';
 import { buildOperatingKpis } from '../reports/operatingKpis';
 import { fundingChartPoints } from '../portfolio/fundingSeries';
@@ -5541,7 +5541,8 @@ function addSummary(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinanci
   tiles([
     { label: 'Gross Development Value', value: m(de.gdv) },
     { label: 'Total Development Cost', value: m(rs.totalDevelopmentCost), sub: 'land + capex' },
-    { label: METRIC_LABELS.developmentSurplusAfter, value: m(de.profitAfterFinancing) },
+    { label: METRIC_LABELS.developmentSurplusAfter, value: m(de.profitAfterFinancing), sub: surplusExcludesFundCaption(fundFeesLife(snap), m) },
+    ...(fundFeesLife(snap) > 0 ? [{ label: FUND_FEES_TILE_LABEL, value: m(fundFeesLife(snap)), sub: FUND_FEES_TILE_SUB }] : []),
     { label: 'Development Margin', value: pct(de.developmentMargin), sub: 'profit / GDV' },
   ], 4);
 

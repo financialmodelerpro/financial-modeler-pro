@@ -317,3 +317,21 @@ export function buildOverviewReport(
     },
   };
 }
+
+/**
+ * WHAT THE FUND COSTS, ON THE FRONT PAGE (2026-10-05, export review item 9
+ * follow-up). The development surplus is an appraisal figure, GDV less
+ * development and financing cost, so the fund's fees are not in it: on Marina
+ * Gate it read 653.6m with the fund and 654.1m without while profit after tax
+ * moved 725.3m to 675.2m, and nothing on the page showed the 50m. Every front
+ * page now says what the surplus excludes and prints the fees beside it.
+ */
+export const FUND_FEES_TILE_LABEL = 'Fund fees (life)';
+export const FUND_FEES_TILE_SUB = 'charged in the P&L; not in the surplus';
+export function fundFeesLife(snap: Pick<ProjectFinancialsSnapshot, 'fundFees'>): number {
+  const f = snap.fundFees;
+  return f?.active ? (f.totalPerPeriod ?? []).reduce((s, v) => s + (v ?? 0), 0) : 0;
+}
+export function surplusExcludesFundCaption(fees: number, money: (v: number) => string): string | undefined {
+  return fees > 0 ? `excludes fund fees of ${money(fees)}` : undefined;
+}

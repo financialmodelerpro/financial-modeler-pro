@@ -31,6 +31,7 @@
  *
  * No em dashes in this file.
  */
+import { fundFeesLife, FUND_FEES_TILE_LABEL } from '../src/hubs/modeling/platforms/refm/lib/reports/overviewReport';
 import { readFileSync, readdirSync } from 'fs';
 import { createClient } from '@supabase/supabase-js';
 import { pdfText } from './pdfTextExtract';
@@ -225,6 +226,26 @@ async function main(): Promise<void> {
   check('G3: the covenant table is present', full.includes('Lender Covenants (threshold vs modelled)'));
   check('G3: it states the test direction', full.includes('minimum') || full.includes('maximum'));
   check('G3: it states a verdict', full.includes('Pass') || full.includes('BREACH'));
+
+  // G4 (2026-10-05, export review item 9 follow-up): the front page shows what
+  // the fund costs. The development surplus is an appraisal figure that
+  // excludes the fund's fees, so it barely moved with the fund on while profit
+  // after tax fell by the fees, and nothing on the page showed them.
+  console.log('\n-- G4: the front page shows what the fund costs --');
+  {
+    const fees = fundFeesLife(snap);
+    check('G4: the fund fixture charges fund fees (not vacuous)', fees > 0, `${fees}`);
+    for (const [doc, txt] of [['full report', full], ['summary', summary]] as const) {
+      const f = flat(txt).toUpperCase();
+      check(`G4: the ${doc} prints the fund fees tile`, f.includes(FUND_FEES_TILE_LABEL.toUpperCase()));
+      check(`G4: the ${doc} says what the surplus excludes`, f.includes('EXCLUDES FUND FEES OF'));
+    }
+    const plain = await render(buildExcelSampleState());
+    check('G4: a project without a fund prints neither', !flat(plain.full).toUpperCase().includes(FUND_FEES_TILE_LABEL.toUpperCase()) && !flat(plain.full).toUpperCase().includes('EXCLUDES FUND FEES OF'));
+    const R = 'src/hubs/modeling/platforms/refm/';
+    const missing = ['components/Overview.tsx', 'lib/excel/buildModelWorkbook.ts', 'lib/pdf/generateProjectPdf.ts'].filter((f) => !readFileSync(R + f, 'utf8').includes('fundFeesLife('));
+    check('G4: the screen Overview, the workbook Summary and both PDFs read the one figure', missing.length === 0, missing.join(', '));
+  }
 
   console.log('\n-- H1: the document is attributable --');
   // SCOPED TO THE COVER. The footer carries the version on every page, so an

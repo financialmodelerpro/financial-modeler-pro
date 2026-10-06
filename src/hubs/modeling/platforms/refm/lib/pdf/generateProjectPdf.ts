@@ -109,7 +109,7 @@ import { revenueBySection } from '../reports/revenueSections';
 import { idcWithDisposal, disposalContextOf } from '../reports/disposalSchedules';
 import { buildCaseYoYReport, YOY_DRIVER_NOTE, YOY_RECONCILIATION_TITLE, YOY_RECONCILIATION_NOTE, yoyAloneLabel, yoyReconLabels, type CaseYoYReport } from '../reports/caseYoYReport';
 import { buildAssumptionGrid } from '../reports/scenarioAssumptions';
-import { buildOverviewReport, distributedReturnPair } from '../reports/overviewReport';
+import { buildOverviewReport, distributedReturnPair , fundFeesLife, surplusExcludesFundCaption, FUND_FEES_TILE_LABEL, FUND_FEES_TILE_SUB } from '../reports/overviewReport';
 import { formatAssumptionValue, assumptionUnitSuffix } from '../cases/assumptionGrid';
 import { buildReMetricDetailGroups } from '../reports/reMetricTiles';
 import { receivableDaysText } from '../receivableDays';
@@ -1242,7 +1242,8 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
     drawCards(ctx, 'Key economics', [
       { label: 'Gross Development Value', value: fmt.money(de2.gdv) },
       { label: 'Total Development Cost', value: fmt.money(de2.totalDevelopmentCost), sub: 'land + capex' },
-      { label: METRIC_LABELS.developmentSurplusAfter, value: fmt.money(de2.profitAfterFinancing) },
+      { label: METRIC_LABELS.developmentSurplusAfter, value: fmt.money(de2.profitAfterFinancing), sub: surplusExcludesFundCaption(fundFeesLife(snap), fmt.money) },
+      ...(fundFeesLife(snap) > 0 ? [{ label: FUND_FEES_TILE_LABEL, value: fmt.money(fundFeesLife(snap)), sub: FUND_FEES_TILE_SUB }] : []),
       { label: 'Development Margin', value: pctOrNa(de2.developmentMargin), sub: 'profit / GDV' },
     ]);
     // 4. Cost and capital structure.
@@ -4731,7 +4732,8 @@ export async function generateSummaryPdf(opts: GenerateProjectPdfOptions): Promi
     drawCards(ctx, 'Development Economics', [
       { label: 'GDV', value: fmt.money(de.gdv) },
       { label: 'Total Dev Cost', value: fmt.money(de.totalDevelopmentCost) },
-      { label: METRIC_LABELS.developmentSurplusAfter, value: fmt.money(de.profitAfterFinancing) },
+      { label: METRIC_LABELS.developmentSurplusAfter, value: fmt.money(de.profitAfterFinancing), sub: surplusExcludesFundCaption(fundFeesLife(snap), fmt.money) },
+      ...(fundFeesLife(snap) > 0 ? [{ label: FUND_FEES_TILE_LABEL, value: fmt.money(fundFeesLife(snap)), sub: FUND_FEES_TILE_SUB }] : []),
       { label: 'Development Margin', value: fmt.pct(de.developmentMargin, 1) },
       { label: 'Yield on Cost', value: fmt.pct(re.yieldOnCost, 2) },
       { label: 'Cap Rate at Exit', value: fmt.pct(re.capRateAtExit, 2) },
