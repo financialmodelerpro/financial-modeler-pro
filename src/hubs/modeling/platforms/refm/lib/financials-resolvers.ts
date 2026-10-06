@@ -2183,7 +2183,7 @@ function computeFinancialsSnapshotOnce(
   // Operate line's `revenue.operate.dso` and a Lease line's
   // `revenue.lease.arDays` were typed on Module 2 and read by nothing. Each
   // hotel or lease asset's receivable is now built on its OWN revenue at its
-  // own days where it states them (a typed 0 is cash basis), else at the
+  // own days where it states a positive figure (0 is unset), else at the
   // project DSO; the project figure is their sum. The arithmetic is linear,
   // so where every line takes the project DSO the result is what it was.
   const lineArDays = (a: (typeof assets)[number]): number => lineReceivableDays(a, project);

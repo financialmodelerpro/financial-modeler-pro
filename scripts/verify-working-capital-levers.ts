@@ -52,18 +52,20 @@ const statementsHold = (label: string, s: Snap): void => {
     a.revenue = { ...(a.revenue ?? {}), lease: { ...(a.revenue?.lease ?? {}), arDays: days } };
     return computeFinancialsSnapshot(s);
   };
-  const sNone = withDays(undefined), sZero = withDays(0), s30 = withDays(30), s90 = withDays(90);
+  const sNone = withDays(undefined), sZero = withDays(0), s30 = withDays(30), s60 = withDays(60), s90 = withDays(90);
   const peak = (s: Snap): number => maxAbs(s.bs.arPerPeriod);
   check('a line stating no days takes the project DSO', near(peak(sNone), peak(s30)) && peak(sNone) > 0, `${peak(sNone)} vs ${peak(s30)}`);
-  check('a typed 0 is cash basis on that line', peak(sZero) < peak(sNone));
-  check('90 days hold three times the receivable of 30 (linear, not vacuous)', near(peak(s90) - peak(sZero), 3 * (peak(s30) - peak(sZero)), 1e-6), `${peak(s90)} ${peak(s30)} ${peak(sZero)}`);
+  // 2026-10-06 (founder): ZERO IS UNSET. Re-aimed from "a typed 0 is cash basis".
+  check('a 0 on the line falls through to the project DSO (zero is unset)', near(peak(sZero), peak(sNone)) && peak(sZero) > 0, `${peak(sZero)} vs ${peak(sNone)}`);
+  check('a positive figure overrides it (90 days hold more than the project 30)', peak(s90) > peak(sNone) + 1);
+  check('the line\'s days are linear (90 less 30 is twice 60 less 30, not vacuous)', peak(s60) > peak(s30) + 1 && near(peak(s90) - peak(s30), 2 * (peak(s60) - peak(s30)), 1e-6), `${peak(s90)} ${peak(s60)} ${peak(s30)}`);
   check('the line\'s days move operating cash (a real working-capital lever)',
     maxAbs(s90.directCF.cashFromOperationsPerPeriod.map((v, t) => v - (sNone.directCF.cashFromOperationsPerPeriod[t] ?? 0))) > 1);
   for (const [l, s] of [['no days', sNone], ['0 days', sZero], ['90 days', s90]] as const) statementsHold(`receivable ${l}`, s);
-  check('the rule: own days win, else the project DSO',
+  check('the rule: a positive own figure wins, else (absent or 0) the project DSO',
     lineReceivableDays({ strategy: 'Lease', revenue: { lease: { arDays: 45 } } }, { operatingAr: { dsoDays: 30 } }) === 45
     && lineReceivableDays({ strategy: 'Lease', revenue: { lease: {} } }, { operatingAr: { dsoDays: 30 } }) === 30
-    && lineReceivableDays({ strategy: 'Operate', revenue: { operate: { dso: 0 } } }, { operatingAr: { dsoDays: 30 } }) === 0);
+    && lineReceivableDays({ strategy: 'Operate', revenue: { operate: { dso: 0 } } }, { operatingAr: { dsoDays: 30 } }) === 30);
   // The Schedules feed holds what the balance sheet holds.
   {
     const s: any = JSON.parse(JSON.stringify(base)); const a = s.assets.find((x: any) => x.id === lease.id); a.revenue.lease.arDays = 90;

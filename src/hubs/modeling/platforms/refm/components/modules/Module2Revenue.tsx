@@ -2030,7 +2030,7 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
               {/* Per-line DSO: this line's receivable days (receivableDays.ts, 2026-10-05). */}
               <InlineSection
                 title="Accounts Receivable Days"
-                hint="This line's collection terms: the receivable on the Schedules tab and the balance sheet runs on these days. Leave the project DSO (Balance Sheet tab, Working Capital Inputs) to apply by typing nothing here; 0 means cash on the day."
+                hint="This line's collection terms: the receivable on the Schedules tab and the balance sheet runs on these days. Leave it blank or 0 and the project DSO (Balance Sheet tab, Working Capital Inputs) applies; only a positive figure here overrides it."
               >
                 <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center' }}>
                   <div style={{ width: 80 }}>
@@ -2259,7 +2259,7 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
 
               <InlineSection
                 title="Accounts Receivable Days"
-                hint="This line's collection terms: the receivable on the Schedules tab and the balance sheet runs on these days. Leave the project DSO (Balance Sheet tab, Working Capital Inputs) to apply by typing nothing here; 0 means cash on the day."
+                hint="This line's collection terms: the receivable on the Schedules tab and the balance sheet runs on these days. Leave it blank or 0 and the project DSO (Balance Sheet tab, Working Capital Inputs) applies; only a positive figure here overrides it."
               >
                 <div style={{ display: 'flex', gap: 'var(--sp-1)', alignItems: 'center', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>AR days</span>
