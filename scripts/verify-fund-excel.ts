@@ -538,14 +538,26 @@ async function main(): Promise<void> {
       const a = streamAt(retFee, l, N, wfStart(retFee)), b = streamAt(retMatrix, l, N, wfStart(retMatrix));
       return a.every((v, i) => near(v, b[i] ?? 0));
     }));
-  // RE-AIMED 2026-10-05 (founder): the share no row holds is earned by the Fund
-  // Manager BY DEFAULT and labelled so, rather than left to no one.
-  check('an unassigned performance-fee remainder goes to the Fund Manager, labelled a default', (() => {
+  // RE-AIMED 2026-10-06 (founder): a TYPED column short of 100% is never defaulted.
+  // The remainder stays Unallocated, with its amount and a warning, on Returns and Checks.
+  let feeDetail = '';
+  check('a typed 60% leaves 40% UNALLOCATED, printed with its amount and a warning (never a default)', (() => {
     const rsM = computeReturnsSnapshot(computeFinancialsSnapshot(stateMatrix), stateMatrix.project);
-    if (!(Math.abs(rsM.performanceFeeDefaultShare - 0.4) < 1e-9 && rsM.feeEarners.unallocatedPerformanceFee < 1e-6)) return false;
+    if (!(rsM.performanceFeeDefaultShare === 0 && rsM.feeEarners.unallocatedPerformanceFee > 1)) return false;
+    let labelledDefault = false, warned = false;
+    retMatrix.eachRow((row) => row.eachCell((c) => { if (typeof c.value === 'string') { if (/performance fee by default/.test(c.value)) labelledDefault = true; if (/is allocated to no one/.test(c.value)) warned = true; } }));
+    const checks = wbMatrix.getWorksheet('Checks')!;
+    feeDetail = JSON.stringify({ labelledDefault, warned, unallocRow: rowOf(retMatrix, 'Unallocated'), checksRow: rowOf(checks, 'Performance fee unallocated'), unalloc: rsM.feeEarners.unallocatedPerformanceFee });
+    return !labelledDefault && warned && rowOf(retMatrix, 'Unallocated') > 0 && rowOf(checks, 'Performance fee unallocated') > 0;
+  })(), feeDetail);
+  // And the other half: an EMPTY column still defaults to the manager, labelled, with no warning.
+  check('an EMPTY performance fee column defaults to the Fund Manager, labelled, with no unallocated row', (() => {
+    const stateEmpty = fundState({ hurdle: 0, perfFee: 0.3, matrix: [] });
+    const rsE = computeReturnsSnapshot(computeFinancialsSnapshot(stateEmpty), stateEmpty.project);
+    const wbE = build(stateEmpty); const retE = wbE.getWorksheet('Returns')!;
     let labelled = false;
-    retMatrix.eachRow((row) => row.eachCell((c) => { if (typeof c.value === 'string' && /by default/.test(c.value)) labelled = true; }));
-    return labelled && rowOf(retMatrix, 'Unallocated') < 0;
+    retE.eachRow((row) => row.eachCell((c) => { if (typeof c.value === 'string' && /performance fee by default/.test(c.value)) labelled = true; }));
+    return rsE.performanceFeeDefaultShare === 1 && rsE.feeEarners.unallocatedPerformanceFee < 1e-6 && labelled && rowOf(retE, 'Unallocated') < 0 && rowOf(wbE.getWorksheet('Checks')!, 'Performance fee unallocated') < 0;
   })());
 
   console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`);

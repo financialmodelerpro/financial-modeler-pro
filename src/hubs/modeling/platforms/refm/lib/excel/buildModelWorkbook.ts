@@ -70,7 +70,7 @@ import { buildAssetAreaTables, buildAssetLandView } from '../../components/modul
 import { resolveFundTerms } from '../fundTerms';
 import {
   isFundActive, hasFundFeeIncome, buildFundWaterfallRows, buildFundFeeIncomeRows, buildDdmPostFeeRows,
-  buildFundGrossNetRows, buildFundEarnerRows, fundPerformanceFeeDefaultNote, buildFundHeadlineCards, fundGrossNetNote,
+  buildFundGrossNetRows, buildFundEarnerRows, fundPerformanceFeeDefaultNote, fundPerformanceFeeShortfallNote, performanceFeeShortfall, buildFundHeadlineCards, fundGrossNetNote,
   fundWaterfallTotalsNote,
   FUND_GROSS_NET_COLUMNS, FUND_EARNER_COLUMNS, type FundReportCtx,
 } from '../reports/fundReports';
@@ -4274,7 +4274,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     // A string grid on its own title: the fund verifiers find the earner rows
     // under this caption.
     grid('Fund Fee Income by Earner', [...FUND_EARNER_COLUMNS], buildFundEarnerRows(textCtx).map((g) => ({ label: g.cells[0], bold: g.emphasis === 'total', cells: g.cells.slice(1) })));
-    const defaultNote = fundPerformanceFeeDefaultNote({ returns: rs });
+    const defaultNote = fundPerformanceFeeDefaultNote({ returns: rs }) ?? fundPerformanceFeeShortfallNote(rs, cMoney);
     if (defaultNote) note(defaultNote);
     else note(fe.noneAllocated
       ? 'Performance fee not allocated yet.'
@@ -4888,6 +4888,14 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
   // An input left at zero (2026-10-05): a NOTE, never a CHECK; the export goes ahead.
   for (const a of buildEmptyInputAdvisories(ctx.state)) {
     checkRow(`Input at zero, ${a.item}`, 'NOTE', 0, `${emptyInputAdvisoryText(a)} Advisory, not a failure: the model charges nothing for it.`);
+  }
+  // A typed performance fee column short of 100% (2026-10-06): a NOTE with the amount.
+  if (ctx.state.project.fundTerms?.enabled) {
+    let feeReturns: ReturnType<typeof computeReturnsSnapshot> | null = null;
+    try { feeReturns = computeReturnsSnapshot(snap, ctx.state.project); } catch { feeReturns = null; }
+    const g = performanceFeeShortfall(feeReturns);
+    const text = fundPerformanceFeeShortfallNote(feeReturns, checkMoney);
+    if (g && text) checkRow('Performance fee unallocated', 'NOTE', g.unallocated, `${text} Advisory, not a failure.`);
   }
   setLabel(ws.getCell(`A${r}`), 'OK and CHECK rows are identities that must reconcile to zero within the relative tolerance. NOTE rows are advisories: the model is internally consistent, and the figure beside them measures the situation the note describes.');
   ws.getCell(`A${r}`).font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };

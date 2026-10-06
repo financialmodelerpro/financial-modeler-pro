@@ -68,7 +68,7 @@ import {
 } from '../fundTerms';
 import {
   isFundActive, hasFundFeeIncome, buildFundWaterfallRows, buildFundFeeIncomeRows,
-  buildFundGrossNetRows, buildFundEarnerRows, fundPerformanceFeeDefaultNote, buildFundHeadlineCards, buildFundTermsPairs,
+  buildFundGrossNetRows, buildFundEarnerRows, fundPerformanceFeeDefaultNote, fundPerformanceFeeShortfallNote, performanceFeeShortfall, buildFundHeadlineCards, buildFundTermsPairs,
   fundGrossNetNote, fundWaterfallTotalsNote, fundHeadlineRestatementNote,
   FUND_GROSS_NET_COLUMNS, FUND_EARNER_COLUMNS, type FundReportCtx, type FundFmt,
 } from '../reports/fundReports';
@@ -952,6 +952,11 @@ function checksTable(
     : [];
   // An input left at zero (2026-10-05): a NOTE, never a CHECK.
   const emptyAdvisories = state ? buildEmptyInputAdvisories(state) : [];
+  // A typed performance fee column short of 100% (2026-10-06): a NOTE with the amount.
+  let feeReturns: ReturnsSnapshot | null = null;
+  if (state && state.project.fundTerms?.enabled) { try { feeReturns = computeReturnsSnapshot(snap, state.project); } catch { feeReturns = null; } }
+  const feeShortfall = performanceFeeShortfall(feeReturns);
+  const feeShortfallText = fundPerformanceFeeShortfallNote(feeReturns, fmt.money);
   return {
     table: {
       title: 'Model Integrity Checks', kind: 'grid', align: 'data',
@@ -970,6 +975,7 @@ function checksTable(
           ['Downpayment not stated, ' + a.assetName, 'NOTE', fmt.money(a.saleValue), 'see note below'],
         )),
         ...emptyAdvisories.map((a) => row(['Input at zero, ' + a.item, 'NOTE', '-', 'see note below'])),
+        ...(feeShortfall ? [row(['Performance fee unallocated', 'NOTE', fmt.money(feeShortfall.unallocated), 'see note below'])] : []),
       ],
     },
     notes: [
@@ -978,6 +984,7 @@ function checksTable(
       ...advisories.map((a) => revenueBasisAdvisoryText(a, fmt.money)),
       ...cohortAdvisories.map((a) => saleCohortAdvisoryText(a, fmt.money)),
       ...emptyAdvisories.map((a) => emptyInputAdvisoryText(a)),
+      ...(feeShortfallText ? [feeShortfallText] : []),
     ],
   };
 }
@@ -1057,7 +1064,7 @@ function buildFundBlock(
         rows: buildFundEarnerRows(ctx).map((g) => row(g.cells, g.emphasis)),
       },
     });
-    const defaultNote = fundPerformanceFeeDefaultNote(ctx);
+    const defaultNote = fundPerformanceFeeDefaultNote(ctx) ?? fundPerformanceFeeShortfallNote(ctx.returns, ctx.fmt.money);
     if (defaultNote) out.push({ title: 'Fund Fee Income by Earner', table: null, cards: null, note: defaultNote });
     const basis = buildFundFeeBasisRows(snap);
     if (basis.length > 0) {

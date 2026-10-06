@@ -252,18 +252,26 @@ export interface FeeEarner {
  * THE PERFORMANCE FEE HAS AN EARNER (2026-10-05, export review group 4,
  * founder's decision). The waterfall takes the whole fee out of investor
  * distributions whatever the matrix says, so with nobody assigned a share the
- * fee left investors and reached no one (Marina Gate: 97,643,955 to no one).
- * A fee with no named recipient is worse than a defaulted one, so the share of
- * the performance fee that NO row of the matrix holds goes to the Fund Manager:
- * all of it when the column is empty, the remainder when it is typed but short
- * (Marina Gate: the manager's typed 60% left 39,052,396 to no one). It is
- * labelled a default wherever the earners are shown, and the earner stays
- * editable: shares typed to 100% leave nothing to default. A column OVER 100%
- * is not trimmed; it stays a stated over-allocation, flagged as before.
+ * fee left investors and reached no one. With the performance fee column EMPTY
+ * (no row types any share), the Fund Manager earns the whole fee by default,
+ * labelled so wherever the earners are shown.
+ *
+ * NARROWED 2026-10-06 (founder): the default never lands on a column that is
+ * TYPED BUT SHORT. There the typed shares are the statement (Marina Gate: the
+ * manager at 60%), so topping the manager up to 100% would make its 60%
+ * meaningless; the remainder stays UNALLOCATED, is still taken from investors
+ * by the waterfall, and is printed with its amount and a warning
+ * (fundPerformanceFeeShortfallNote) until the user types the split. A column
+ * OVER 100% is not trimmed; it stays a stated over-allocation, flagged as before.
  */
 export function performanceFeeDefaultShare(terms: Pick<FundTerms, 'feeDistribution'>): number {
+  const typed = terms.feeDistribution.some((r) => (r.performanceFeePct ?? 0) > 0);
+  return typed ? 0 : 1;
+}
+/** The share of the performance fee a TYPED column leaves to no one (0 when empty or at least 100%). */
+export function performanceFeeShortfallShare(terms: Pick<FundTerms, 'feeDistribution'>): number {
   const assigned = terms.feeDistribution.reduce((sum, r) => sum + Math.max(0, r.performanceFeePct ?? 0), 0);
-  return Math.max(0, 1 - assigned);
+  return assigned > 0 ? Math.max(0, 1 - assigned) : 0;
 }
 export function performanceFeeDefaultsToManager(terms: Pick<FundTerms, 'feeDistribution'>): boolean {
   return performanceFeeDefaultShare(terms) > 1e-9;

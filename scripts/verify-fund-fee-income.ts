@@ -212,7 +212,11 @@ console.log('\n=== 3. resolveFeeEarners feeds the engine the right shape ===');
 // matrix is still honoured exactly, its shortfall shown as unallocated.
   check('with the whole performance fee BY DEFAULT, flagged as such', bareEarners[0].performanceFeePct === 1 && bareEarners[0].performanceFeeDefaulted === true);
   const typed = resolveFeeEarners(resolveFundTerms({ fundTerms: { enabled: true, fundManagerName: 'Solo FM', feeDistribution: [{ partyId: 'p1', partyName: 'P1', performanceFeePct: 0.4, developerFeePct: 0, commissionPct: 0 }] } } as any));
-  check('a typed 40% to a party leaves 60% unassigned, earned by the manager by default', Math.abs(typed[0].performanceFeePct - 0.6) < 1e-12 && typed[0].performanceFeeDefaulted === true);
+  // RE-AIMED 2026-10-06 (founder): a TYPED column short of 100% is never defaulted;
+  // the remainder stays unallocated (and is warned about), so a typed share keeps its meaning.
+  check('a typed 40% to a party leaves 60% UNALLOCATED, not defaulted to the manager', typed[0].performanceFeePct === 0 && typed[0].performanceFeeDefaulted === false && Math.abs(typed[1].performanceFeePct - 0.4) < 1e-12);
+  const typedFm = resolveFeeEarners(resolveFundTerms({ fundTerms: { enabled: true, fundManagerName: 'Solo FM', feeDistribution: [{ partyId: '__fund_manager__', partyName: 'Solo FM', performanceFeePct: 0.6, developerFeePct: 0, commissionPct: 0 }] } } as any));
+  check('a manager typed at 60% keeps exactly 60% (its share is not topped up)', Math.abs(typedFm[0].performanceFeePct - 0.6) < 1e-12 && typedFm[0].performanceFeeDefaulted === false);
   const full = resolveFeeEarners(resolveFundTerms({ fundTerms: { enabled: true, fundManagerName: 'Solo FM', feeDistribution: [{ partyId: 'p1', partyName: 'P1', performanceFeePct: 1, developerFeePct: 0, commissionPct: 0 }] } } as any));
   check('shares typed to 100% leave nothing to default (the earner stays editable)', full[0].performanceFeePct === 0 && full[0].performanceFeeDefaulted === false);
   // Each share is clamped to 0..1 on entry, so over-allocation is two rows past 100%.

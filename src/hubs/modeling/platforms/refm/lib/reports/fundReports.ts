@@ -367,9 +367,25 @@ export function fundPerformanceFeeDefaultNote(ctx: Pick<FundReportCtx, 'returns'
   const r = ctx.returns;
   if (!r.feeEarners.active || !r.performanceFeeDefaultedToManager || r.feeEarners.totalPerformanceFee <= 0) return null;
   const manager = r.feeEarners.earners.find((e) => e.kind === 'fund_manager')?.name ?? 'the Fund Manager';
-  const share = r.performanceFeeDefaultShare;
-  if (share >= 1 - 1e-9) return `No performance-fee share is assigned in the fee distribution matrix, so ${manager} earns the whole performance fee by default. Assign shares in Module 1, Fund Terms, to split it.`;
-  return `${(share * 100).toFixed(1)}% of the performance fee is assigned to no one in the fee distribution matrix, so ${manager} earns that share by default, on top of its own. Assign it in Module 1, Fund Terms, to split it otherwise.`;
+  return `No performance-fee share is assigned in the fee distribution matrix, so ${manager} earns the whole performance fee by default. Assign shares in Module 1, Fund Terms, to split it.`;
+}
+
+/**
+ * A TYPED PERFORMANCE FEE COLUMN THAT IS SHORT OF 100% (2026-10-06, founder):
+ * the remainder is not defaulted to anyone, it stays unallocated, and this is
+ * the warning every surface prints, with the amount. Null when nothing is short.
+ */
+export interface PerformanceFeeShortfall { sharesTotal: number; unallocated: number }
+export function performanceFeeShortfall(returns: ReturnsSnapshot | null | undefined): PerformanceFeeShortfall | null {
+  const fe = returns?.feeEarners;
+  if (!fe?.active || returns?.performanceFeeDefaultedToManager) return null;
+  if (fe.noneAllocated || !(fe.unallocatedPerformanceFee > 0.5)) return null;
+  return { sharesTotal: fe.performanceFeeShareSum, unallocated: fe.unallocatedPerformanceFee };
+}
+export function fundPerformanceFeeShortfallNote(returns: ReturnsSnapshot | null | undefined, money: (v: number) => string): string | null {
+  const g = performanceFeeShortfall(returns);
+  if (!g) return null;
+  return `Performance fee shares in the fee distribution matrix total ${(g.sharesTotal * 100).toFixed(1)}%, so ${money(g.unallocated)} (${((1 - g.sharesTotal) * 100).toFixed(1)}%) of the performance fee is allocated to no one. It is still taken from investors by the waterfall. Type the remaining share in Module 1, Fund Terms.`;
 }
 
 /**

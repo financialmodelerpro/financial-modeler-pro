@@ -51,7 +51,7 @@ import type { Party } from '../../lib/parties';
 import {
   FUND_FEE_SPECS, FEE_BASE_LABELS, FEE_TIMING_LABELS, FEE_DISTRIBUTION_COLUMNS,
   FUND_MANAGER_ROW_ID, DEFAULT_FUND_MANAGER_NAME, isFundManagerRow,
-  resolveFundTerms, toFundTermsPatch, feeColumnTotal, feeColumnBalanced, performanceFeeDefaultsToManager, performanceFeeDefaultShare,
+  resolveFundTerms, toFundTermsPatch, feeColumnTotal, feeColumnBalanced, performanceFeeShortfallShare, performanceFeeDefaultsToManager,
   type FeeDistributionColumnKey, type FeeDistributionRow, type FundTerms,
 } from '../../lib/fundTerms';
 import { resolveFacilityLimit } from '../../lib/fundFees';
@@ -516,10 +516,18 @@ export default function Module1FundTerms({ projectId }: { projectId: string | nu
         </div>
         {terms.performanceFeePct > 0 && performanceFeeDefaultsToManager(terms) && (
           <div style={{ ...helpText, marginBottom: 'var(--sp-2)', fontWeight: 600 }} data-testid="fund-terms-performance-default">
-            {performanceFeeDefaultShare(terms) >= 1 - 1e-9
-              ? `No performance-fee share is assigned, so ${terms.fundManagerName || DEFAULT_FUND_MANAGER_NAME} earns the whole performance fee by default.`
-              : `${(performanceFeeDefaultShare(terms) * 100).toFixed(1)}% of the performance fee is assigned to no one, so ${terms.fundManagerName || DEFAULT_FUND_MANAGER_NAME} earns that share by default.`}
+            {`No performance-fee share is assigned, so ${terms.fundManagerName || DEFAULT_FUND_MANAGER_NAME} earns the whole performance fee by default.`}
             {' '}Type shares in the Performance fee column to assign it otherwise.
+          </div>
+        )}
+        {/* Typed but short of 100% (2026-10-06): never defaulted; unallocated, said as a warning. */}
+        {terms.performanceFeePct > 0 && performanceFeeShortfallShare(terms) > 1e-9 && (
+          <div
+            data-testid="fund-terms-performance-shortfall"
+            style={{ marginBottom: 'var(--sp-2)', padding: '7px 10px', borderRadius: 6, fontSize: 12, lineHeight: 1.5, background: '#FFF8E8', border: '1px solid #E4C271', color: '#7A5B12' }}
+          >
+            <strong>{(performanceFeeShortfallShare(terms) * 100).toFixed(1)}% of the performance fee is assigned to no one.</strong>{' '}
+            The shares typed total {((1 - performanceFeeShortfallShare(terms)) * 100).toFixed(1)}%; the rest stays unallocated (it is still taken from investors) until you type it. Module 5 shows the amount.
           </div>
         )}
 
