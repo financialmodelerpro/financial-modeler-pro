@@ -43,7 +43,7 @@ import { revenueBySection } from '../reports/revenueSections';
 import { scheduleWithDisposal, idcWithDisposal, disposalContextOf } from '../reports/disposalSchedules';
 import { buildFinancingScheduleTables, buildCashSweepTables, financingRowBasis, type ReportTable } from '../reports/financingReports';
 import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup, m4StreamRow, distributedTieNote } from '../reports/streamReports';
-import { buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
+import { buildEmptyInputAdvisories, emptyInputAdvisoryText, buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildOpexReport, OPEX_AP_BASIS, OPEX_AP_TOTAL_BASIS } from '../reports/opexReports';
 import { buildPLRows, taxBasisNote, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsReconciliationRows, buildBsFeederTables, BS_FEEDER_SECTIONS, BS_RECONCILIATION_CAPTION, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, totalColumnHeading, totalColumnNote, TOTAL_COLUMN_HEADINGS, TOTAL_COLUMN_NOTES, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, FUND_CAPITAL_BASE_TAG, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
@@ -4884,6 +4884,10 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
   }
   for (const a of poolSaleCohortByLine(buildSaleCohortAdvisories(ctx.state.assets, ctx.state.project.saleCohortDefaults?.downpayment, snap.revenue), ctx.state)) {
     checkRow(`Downpayment not stated, ${a.assetName}`, 'NOTE', a.saleValue, `${saleCohortAdvisoryText(a, checkMoney)} Advisory, not a failure: the residue is the sale value the missing input applies to.`);
+  }
+  // An input left at zero (2026-10-05): a NOTE, never a CHECK; the export goes ahead.
+  for (const a of buildEmptyInputAdvisories(ctx.state)) {
+    checkRow(`Input at zero, ${a.item}`, 'NOTE', 0, `${emptyInputAdvisoryText(a)} Advisory, not a failure: the model charges nothing for it.`);
   }
   setLabel(ws.getCell(`A${r}`), 'OK and CHECK rows are identities that must reconcile to zero within the relative tolerance. NOTE rows are advisories: the model is internally consistent, and the figure beside them measures the situation the note describes.');
   ws.getCell(`A${r}`).font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };

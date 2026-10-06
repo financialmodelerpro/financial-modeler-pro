@@ -18,6 +18,7 @@
  * lazily so it stays out of the initial bundle.
  */
 
+import { buildEmptyInputAdvisories } from '../../lib/reports/checksReport';
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MODULES } from '../../lib/modules-config';
@@ -195,6 +196,8 @@ export default function ExportModal({
   // warning below is a fact and not a maybe. 'na' covers the current draft and
   // any project with the fund layer off, where there is nothing to warn about.
   const [versionFund, setVersionFund] = useState<'na' | 'checking' | 'has' | 'missing'>('na');
+  // Inputs left at zero in the model being exported (2026-10-05): a warning only.
+  const emptyInputs = buildEmptyInputAdvisories(useModule1Store.getState() as never);
   const fundOnInLiveModel = ((useModule1Store.getState().project ?? {}) as { fundTerms?: { enabled?: boolean } })
     .fundTerms?.enabled === true;
 
@@ -701,6 +704,21 @@ export default function ExportModal({
                 <strong>This version has no fund terms.</strong> The fund layer is on for this project, but the version
                 you picked was saved before that, so the export will show no fund fees, no waterfall and no fee income.
                 Choose <em>Current working draft</em> to include them, or save a new version first.
+              </div>
+            )}
+            {/* INPUTS LEFT AT ZERO (2026-10-05): a warning, never a refusal; the
+                same list the Checks pages print (buildEmptyInputAdvisories). */}
+            {emptyInputs.length > 0 && (
+              <div
+                data-testid="export-empty-inputs"
+                style={{
+                  margin: '0 2px 8px', padding: '7px 10px', borderRadius: 6, fontSize: 11, lineHeight: 1.5,
+                  background: '#FFF8E8', border: '1px solid #E4C271', color: '#7A5B12',
+                }}
+              >
+                <strong>{emptyInputs.length} cost input{emptyInputs.length === 1 ? ' is' : 's are'} at zero:</strong>{' '}
+                {emptyInputs.map((a) => a.item).join(', ')}. They charge nothing in this export. You can export anyway;
+                the Checks page lists where each one sits.
               </div>
             )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 2px 8px', flexWrap: 'wrap' }}>

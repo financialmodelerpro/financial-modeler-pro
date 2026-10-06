@@ -89,7 +89,7 @@ import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup, distributedTi
 import { buildDisposalWorking } from '../reports/disposalReport';
 import { buildOperatingKpis } from '../reports/operatingKpis';
 import { assetLabel } from '@/src/core/calculations/assetName';
-import { buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
+import { buildEmptyInputAdvisories, emptyInputAdvisoryText, buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
 import { evaluateCovenant, covenantSeries, reduceWorst, covenantBasisNote, covenantCoverageNote, type CovenantInputs } from '../covenants';
 import { buildCapexReport, CAPEX_SECTIONS, CAPEX_TABLE6_TITLE, CAPEX_TABLE6_CAPTION, type CapexResultTable } from '../reports/capexReports';
 import { buildPartiesTable, PARTIES_TITLE, PARTIES_EMPTY_TEXT } from '../reports/partiesReport';
@@ -950,6 +950,8 @@ function checksTable(
   const cohortAdvisories = state
     ? poolSaleCohortByLine(buildSaleCohortAdvisories(state.assets, state.project.saleCohortDefaults?.downpayment, snap.revenue), state)
     : [];
+  // An input left at zero (2026-10-05): a NOTE, never a CHECK.
+  const emptyAdvisories = state ? buildEmptyInputAdvisories(state) : [];
   return {
     table: {
       title: 'Model Integrity Checks', kind: 'grid', align: 'data',
@@ -967,11 +969,13 @@ function checksTable(
         ...cohortAdvisories.map((a) => row(
           ['Downpayment not stated, ' + a.assetName, 'NOTE', fmt.money(a.saleValue), 'see note below'],
         )),
+        ...emptyAdvisories.map((a) => row(['Input at zero, ' + a.item, 'NOTE', '-', 'see note below'])),
       ],
     },
     notes: [
       ...advisories.map((a) => revenueBasisAdvisoryText(a, fmt.money)),
       ...cohortAdvisories.map((a) => saleCohortAdvisoryText(a, fmt.money)),
+      ...emptyAdvisories.map((a) => emptyInputAdvisoryText(a)),
     ],
   };
 }

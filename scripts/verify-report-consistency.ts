@@ -42,7 +42,7 @@ import {
   FCFF_BUILDUP_LABELS, FCFE_BUILDUP_LABELS, DIVIDEND_BUILDUP_LABELS,
   buildFcfeBuildup, m4StreamRow,
 } from '../src/hubs/modeling/platforms/refm/lib/reports/streamReports';
-import { buildIntegrityChecks, relativeCheckOk, BRIDGE_CHECK_LABEL } from '../src/hubs/modeling/platforms/refm/lib/reports/checksReport';
+import { buildIntegrityChecks, relativeCheckOk, BRIDGE_CHECK_LABEL, buildEmptyInputAdvisories } from '../src/hubs/modeling/platforms/refm/lib/reports/checksReport';
 import { fundFeeBasisCaption } from '../src/hubs/modeling/platforms/refm/lib/reports/m4Reports';
 import { buildExcelSampleState } from './excelSampleState';
 import { buildExistingOperationsState, EXISTING_OPS_LABEL } from './fixtures/existingOperationsState';
@@ -245,6 +245,29 @@ async function main(): Promise<void> {
     const R = 'src/hubs/modeling/platforms/refm/';
     const missing = ['components/Overview.tsx', 'lib/excel/buildModelWorkbook.ts', 'lib/pdf/generateProjectPdf.ts'].filter((f) => !readFileSync(R + f, 'utf8').includes('fundFeesLife('));
     check('G4: the screen Overview, the workbook Summary and both PDFs read the one figure', missing.length === 0, missing.join(', '));
+  }
+
+  // G5 (2026-10-05, export review group 4): an input left at zero is said at
+  // export, as a NOTE (a warning, never a refusal, never a CHECK).
+  console.log('\n-- G5: inputs left at zero are a NOTE --');
+  {
+    const st = buildExcelSampleState() as any;
+    // The sample seeds no opex lines; give its lease asset one per-sqm cost left at zero.
+    const leaseAsset = st.assets.find((a: any) => a.strategy === 'Lease');
+    leaseAsset.opex = { ...(leaseAsset.opex ?? {}), lines: [{ id: 'L1', name: 'Insurance', category: 'rent_insurance', mode: 'per_sqm_year', value: 0 }] };
+    const adv = buildEmptyInputAdvisories(st);
+    check('G5: the fixture leaves cost inputs at zero (not vacuous)', adv.length > 0, `${adv.length}`);
+    const plain = await render(st);
+    const lines = plain.full.split('\n').map((l) => l.trim());
+    check('G5: the full report lists each as a NOTE in the integrity checks', adv.every((a) => lines.some((l) => l === `Input at zero, ${a.item}`)) && lines.includes('NOTE'));
+    check('G5: none of them is a CHECK (the model is still consistent)', !lines.some((l, i) => l.startsWith('Input at zero') && lines[i + 1] === 'CHECK'));
+    const filled = JSON.parse(JSON.stringify(st));
+    for (const a of filled.assets) for (const ln of a.opex?.lines ?? []) ln.value = 1;
+    for (const ln of filled.project.hqOpex?.lines ?? []) ln.value = 1;
+    check('G5: with every cost filled in there is nothing to say', buildEmptyInputAdvisories(filled).length === 0);
+    const R = 'src/hubs/modeling/platforms/refm/';
+    const missing = ['lib/pdf/generateProjectPdf.ts', 'lib/excel/buildModelWorkbook.ts', 'components/modals/ExportModal.tsx'].filter((f) => !readFileSync(R + f, 'utf8').includes('buildEmptyInputAdvisories('));
+    check('G5: both exports and the export dialog read the one list', missing.length === 0, missing.join(', '));
   }
 
   console.log('\n-- H1: the document is attributable --');

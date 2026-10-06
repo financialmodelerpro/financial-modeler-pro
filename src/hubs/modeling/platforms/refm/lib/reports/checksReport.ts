@@ -1,6 +1,7 @@
 import { resolveAssetDownpaymentSource } from '../state/saleCohortResolution';
 import { saleRevenueOf, collectionsOf } from '@/src/core/calculations/revenue/sellingCosts';
 import { assetLabel } from '@/src/core/calculations/assetName';
+import { planReportLines, lineTitle, type LineState } from './lineRows';
 /**
  * checksReport.ts (2026-08-12)
  *
@@ -330,4 +331,58 @@ export function saleCohortAdvisoryText(
 /** The same thing as one short line, for a warnings list that has no money formatter. */
 export function saleCohortAdvisoryIssue(a: SaleCohortAdvisory): string {
   return `${a.assetName}: no downpayment stated (no asset value and no project default), so every sale cohort is computed as taking no deposit`;
+}
+
+/**
+ * AN INPUT LEFT AT ZERO, SAID AT EXPORT (2026-10-05, export review group 4).
+ *
+ * Opex seeds every cost line at zero, so a fixed, per-key or per-sqm cost a
+ * user never filled in charges nothing and reads exactly like one they set to
+ * zero on purpose (Marina Gate: five such items across its hotel and lease
+ * lines). An ADVISORY, like the two above: the model is consistent and the
+ * export goes ahead; it says which items are empty, pooled by item with the
+ * lines they sit on, so the reader can tell an omission from a choice.
+ * Percentage-of-revenue lines are left out on purpose: a 0% fee or reserve is
+ * commonly intended, and listing every one would bury the costs that matter.
+ */
+export interface EmptyInputAdvisory {
+  /** The opex item, e.g. "Insurance". */
+  item: string;
+  /** The lines it is zero on, by the line title the statements use. */
+  lines: string[];
+}
+
+const EMPTY_CHECK_MODES = new Set(['fixed_baseline', 'per_room_year', 'per_sqm_year']);
+
+type EmptyCheckLine = { name: string; mode: string; value: number; disabled?: boolean; rateMode?: string };
+export function buildEmptyInputAdvisories(state: {
+  assets: ReadonlyArray<{ id: string; visible?: boolean; strategy?: string; opex?: { lines?: ReadonlyArray<EmptyCheckLine> } }>;
+  phases: LineState['phases'];
+  parcels: LineState['parcels'];
+  project: { hqOpex?: { lines?: ReadonlyArray<EmptyCheckLine> } };
+}): EmptyInputAdvisory[] {
+  const lineState = { assets: state.assets.filter((a) => a.visible !== false), phases: state.phases, parcels: state.parcels } as unknown as LineState;
+  const reportLines = planReportLines(lineState);
+  const titleOf = (id: string): string => {
+    const l = reportLines.find((x) => x.assetIds.includes(id));
+    return l ? lineTitle(l, lineState) : id;
+  };
+  const empty = (ln: EmptyCheckLine): boolean =>
+    !ln.disabled && EMPTY_CHECK_MODES.has(ln.mode) && ln.rateMode !== 'yoy' && !(Number(ln.value) > 0);
+  const byItem = new Map<string, string[]>();
+  const add = (item: string, where: string): void => {
+    const list = byItem.get(item) ?? [];
+    if (!list.includes(where)) list.push(where);
+    byItem.set(item, list);
+  };
+  for (const a of state.assets) {
+    if (a.visible === false || (a.strategy !== 'Operate' && a.strategy !== 'Lease')) continue;
+    for (const ln of a.opex?.lines ?? []) if (empty(ln)) add(ln.name, titleOf(a.id));
+  }
+  for (const ln of state.project.hqOpex?.lines ?? []) if (empty(ln)) add(ln.name, 'HQ & Corporate Overheads');
+  return [...byItem.entries()].map(([item, lines]) => ({ item, lines }));
+}
+
+export function emptyInputAdvisoryText(a: EmptyInputAdvisory): string {
+  return `${a.item} is zero on ${a.lines.join('; ')}. An input left at zero charges nothing; enter a rate, or switch the line off if none applies.`;
 }
