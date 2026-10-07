@@ -4,6 +4,21 @@
 
 Entries are grouped by their most recent date. Fuller per-day narrative for REFM platform work lives in [CLAUDE-REFM.md](CLAUDE-REFM.md); per-route and migration detail in [CLAUDE-ROUTES.md](CLAUDE-ROUTES.md) and [CLAUDE-DB.md](CLAUDE-DB.md); the general lessons in [docs/TRAPS.md](docs/TRAPS.md); fund-layer standing rules in [docs/FUND_LAYER_GUIDELINE.md](docs/FUND_LAYER_GUIDELINE.md). This file is loaded on demand only and has no size limit.
 
+## 2026-10-07
+
+- **THE EXPORT REVIEW IS CLOSED, measured.** Founder follow-ups, one commit each:
+  - **The suite runner** logs every verifier as it finishes, kills a verifier's whole process tree after `--timeout-min`, runs `--batch k/n` and `--summarise` (`c4053cdf`), and holds the machine out of idle sleep for the run (`135f0f5d`).
+  - **A line's 0 receivable days is unset** and falls through to the project DSO (`c33dda42`).
+  - **The performance fee defaults to the manager only when no share is typed**; a short typed column stays unallocated, with its amount and a warning (`806895c3`).
+  - **No Case Comparison heading on a one-case workbook** (`4deeadd7`).
+  - **The per-commit rule now also runs** `verify-formula-workbook` and `verify-report-readability` for export or engine changes.
+- **THE "HANGS" WERE THE LAPTOP ASLEEP** (TRAPS 10.26). The System log shows the lid close at 19:30 local on 2026-10-06, Modern Standby, then hibernate on the battery budget. The runner sat in `verify-report-readability`, which runs in 16 minutes, 81/0, with the lid open.
+- **Suite: 193 pass / 2 fail of 195, 11,508 checks, with credentials, in four logged batches**. The two failures, named from the log, are the standing pair: `verify-fund-e2e` (the 1.351bn existing-operations residue) and `verify-module6-field-census` (4 of 18, TRAPS 3.23).
+- **Marina Gate as saved:**
+  - No project DSO is stored in either version; the founder believed it set.
+  - Its five lines state 0. Setting a DSO of 30 now drives all five: peak operating receivable 5.58m, distributed IRR 17.15% to 17.03%. Before the fix the same DSO moved nothing.
+  - Fund Manager 60% = 58,578,594; 39,052,396 unallocated, with the warning.
+
 ## 2026-10-06
 
 - **THE EXPORT REVIEW IS CLOSED (founder's decisions on Group 3 follow-ups and Group 4), one commit each.**

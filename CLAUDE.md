@@ -174,7 +174,7 @@ read-a-changed-file selection still pulled in verifiers that merely mention a to
 - **A LONG RUN NEEDS AN AWAKE MACHINE (2026-10-07).** Three suite "hangs" in three days were the laptop sleeping
   (lid, idle, battery budget; Kernel-Power 506/42), and a sleeping machine fires no timer. The runner holds the
   machine out of IDLE sleep for its whole run (`keepAwake`, Windows); the LID is not covered, so keep it open or
-  set the lid action to "do nothing" on AC, and run on AC. TRAPS 10.25.
+  set the lid action to "do nothing" on AC, and run on AC. TRAPS 10.26.
 
 The rules that already applied still apply: run the COMMITTED runner, never a hand-rolled loop
 (TRAPS 3.20), and state whether credentials were loaded. **The full-suite claim in this file is a

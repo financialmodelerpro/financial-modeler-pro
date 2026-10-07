@@ -3695,6 +3695,36 @@ touch.
 **Proof.** Re-run: `R1` the server refuses the viewer on the live project, `R2` allows the same
 person once a reviewer, `U0` the role is back to viewer afterwards. 29/0, comments on the project
 2 to 0.
+### 10.26 A run that "hangs" may be a machine that is asleep
+
+**Symptom.** Three full-suite runs in three days stalled: overnight on 2026-10-05, a two-hour background
+run on 2026-10-06 that was killed at its limit with about 150 of 195 verifiers done, and a single
+`verify-report-readability` under the new runner the same evening, which the 40-minute per-verifier
+timeout only ended after 148 minutes. The old runner printed only dots, so the stall looked like a
+code hang in whichever verifier happened to be running, and the first explanation offered was "the
+machine paused", unmeasured.
+
+**Mechanism.** The machine is a laptop. Closing the lid puts it into Modern Standby, where background
+work is throttled to almost nothing, and on battery it then hibernates when the standby battery
+budget runs out. A sleeping machine fires no timer, so neither the runner's per-verifier timeout nor
+the harness's background limit can act until it wakes. The verifier was innocent: run directly with
+the lid open, `verify-report-readability` finished in 16 minutes, 81/0, memory flat at 300 to 520 MB.
+
+**Fix.** Measure it in the System event log: `Get-WinEvent -FilterHashtable @{LogName='System';
+ProviderName='Microsoft-Windows-Kernel-Power','Microsoft-Windows-Power-Troubleshooter'}`, ids 506
+(entering Modern Standby, with the reason: Lid, Idle Timeout, Austerity Battery Drain Budget) and 42
+(entering sleep). The runner now (1) logs every verifier as it finishes, so a stall names where it
+stopped, (2) times each verifier out with a whole-tree kill, and (3) holds the machine out of IDLE
+sleep for its run (`keepAwake`, `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)` held by
+a PowerShell child that exits with the runner). The LID is not covered by any of that: it is a power
+setting, so a long run is made with the lid open, on AC (CLAUDE.md, the rule for long runs).
+
+**Proof.** The log lines up with every stall: lid close at 19:30 local on 2026-10-06 (16:30Z), the
+runner starting `verify-report-readability` at 16:43Z, and the kill landing at 19:11:17Z, the
+recorded sleep time of the hibernate. The keep-awake helper was measured present during a run and
+gone 25 seconds after it, and the API call returned non-zero (accepted). The next full run, in four
+logged batches with the lid open, completed: 193 / 2 of 195, the standing pair named from the log.
+
 ### 10.23 A suite count taken while the tree moves is not a count
 
 **Symptom (2026-09-12):** two full-suite runs reported 143 / 23 and 161 / 5 of 166. Neither was
