@@ -39,6 +39,7 @@
  *   npx tsx scripts/run-verifiers.ts --summarise <log> [<log> ...]
  *                                                    (one count from several batch logs)
  *   --timeout-min N   per-verifier limit (default 40); a verifier over it FAILS as TIMEOUT
+ *   --allow-sleep     do not hold the machine awake (it is held awake on Windows by default)
  *
  * THE LOG (2026-10-06, founder): every verifier's name, PASS / FAIL / TIMEOUT,
  * check count and duration is APPENDED to .suite-logs/<run>/suite.log the
@@ -110,6 +111,24 @@ const LOG_LINE = /^\S+ (PASS|FAIL|TIMEOUT) (verify-[\w.-]+\.ts) checks (\d+) \((
 
 function allVerifiers(): string[] {
   return readdirSync('scripts').filter((f) => f.startsWith('verify-') && f.endsWith('.ts')).sort();
+}
+
+/**
+ * KEEP THE MACHINE AWAKE FOR THE RUN (2026-10-07, founder). Three suite runs in
+ * three days "hung" because the machine went to sleep under them (Kernel-Power
+ * 506 / 42 in the System log: lid, idle timeout, standby battery budget), and a
+ * sleeping machine fires no timer, so even the per-verifier timeout waited.
+ * On Windows a PowerShell child holds SetThreadExecutionState(ES_CONTINUOUS |
+ * ES_SYSTEM_REQUIRED) while this runner's process exists (it polls the parent
+ * PID and exits with it, so a killed runner leaves nothing behind); `powercfg
+ * /requests` lists it under SYSTEM while a run is on. It blocks IDLE sleep only:
+ * closing the lid still sleeps the machine unless the lid action is "do nothing".
+ */
+function keepAwake(): () => void {
+  if (process.platform !== 'win32' || process.argv.includes('--allow-sleep')) return () => {};
+  const ps = `Add-Type -Name P -Namespace W -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint f);'; [void][W.P]::SetThreadExecutionState([uint32]2147483649); while (Get-Process -Id ${process.pid} -ErrorAction SilentlyContinue) { Start-Sleep -Seconds 20 }`;
+  const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], { stdio: 'ignore', windowsHide: true });
+  return () => { try { child.kill(); } catch { /* already gone */ } };
 }
 
 /** Runs one verifier, killing its whole process tree if it passes the limit. */
@@ -194,6 +213,7 @@ async function main(): Promise<void> {
   let totalChecks = 0;
 
   console.log(`Running ${files.length} verifiers ${creds} credentials at ${commit}${dirty ? ' (TREE NOT CLEAN)' : ''}. Log: ${LOG}\n`);
+  const releaseAwake = keepAwake();
 
   for (const f of files) {
     const args = haveEnv && !ALLOW_OFFLINE
@@ -258,6 +278,7 @@ async function main(): Promise<void> {
   // which would be the same comfortable half-truth the runner exists to end.
   const skipNote = accepted.length ? ` (${accepted.length} accepted skip(s), listed above)` : ', no skips';
   console.log(`\n${ok ? `ALL PASS${skipNote}.` : 'NOT CLEAN.'}`);
+  releaseAwake();
   process.exit(ok ? 0 : 1);
 }
 

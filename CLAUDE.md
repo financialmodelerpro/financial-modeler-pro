@@ -171,6 +171,10 @@ read-a-changed-file selection still pulled in verifiers that merely mention a to
   (If the npm alias cannot resolve `tsx`, invoke `npx tsx scripts/run-verifiers.ts`, the same script.)
   Since 2026-10-06 it logs every verifier to `.suite-logs/<run>/suite.log` as it finishes and times each out;
   run it in `--batch k/n` slices and quote ONE count from `--summarise <logs>`, which names anything not run.
+- **A LONG RUN NEEDS AN AWAKE MACHINE (2026-10-07).** Three suite "hangs" in three days were the laptop sleeping
+  (lid, idle, battery budget; Kernel-Power 506/42), and a sleeping machine fires no timer. The runner holds the
+  machine out of IDLE sleep for its whole run (`keepAwake`, Windows); the LID is not covered, so keep it open or
+  set the lid action to "do nothing" on AC, and run on AC. TRAPS 10.25.
 
 The rules that already applied still apply: run the COMMITTED runner, never a hand-rolled loop
 (TRAPS 3.20), and state whether credentials were loaded. **The full-suite claim in this file is a
