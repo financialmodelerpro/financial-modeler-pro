@@ -21,6 +21,14 @@ in the founder's list stay open: an all-zero fee distribution matrix for the dev
 (stored, printed, read by no engine), ADR / rent indexation start year vs the box, selling costs always capitalised;
 (4) `verify-pdf-export` takes about eleven minutes. The 2026-10-05 block below is history.
 
+**MARINA GATE'S FIVE ZERO OPEX LINES ARE A MODELLING GAP, NOT A REPORTING ONE (founder, 2026-10-06; the
+founder fills them, do NOT suppress the export warning).** A 4 star hotel with zero repairs and maintenance,
+insurance and technology service fee is not credible, and neither are four lease lines with zero repairs and
+maintenance, insurance and service charge. The Checks NOTE rows and the export dialog warning
+(`buildEmptyInputAdvisories`) stay until the inputs are filled. Also for the founder: Marina Gate's typed
+performance fee split (Fund Manager 60%, 39,052,396 unallocated) and its project DSO (unset in every saved
+version; the founder believed it set).
+
 ## 2026-10-05: EXPORT REVIEW GROUP 3 DONE (items 23 to 29); GROUP 4 STILL THE FOUNDER'S CALL
 
 Each item one commit, detail in [CHANGELOG.md](CHANGELOG.md) 2026-10-05. **OPEN, in order:** (1) Group 4 below

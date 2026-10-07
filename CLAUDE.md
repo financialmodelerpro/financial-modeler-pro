@@ -164,8 +164,13 @@ read-a-changed-file selection still pulled in verifiers that merely mention a to
   subject is the thing you built or fixed, e.g. `verify-accounts` for an account-model change).
   Name it and state that it passed. Everything else, including verifiers that happen to read a
   changed file, waits for the session-end suite, which is what catches cross-cutting breakage.
+- **EXCEPT (2026-10-06, founder): a change touching the EXPORT or the ENGINE also runs
+  `verify-formula-workbook` and `verify-report-readability` before it is pushed**, the two that broke most
+  often in the week the suite alone found every regression.
 - **At session end: run `npm run verify:suite` once, with credentials, and state the count.**
   (If the npm alias cannot resolve `tsx`, invoke `npx tsx scripts/run-verifiers.ts`, the same script.)
+  Since 2026-10-06 it logs every verifier to `.suite-logs/<run>/suite.log` as it finishes and times each out;
+  run it in `--batch k/n` slices and quote ONE count from `--summarise <logs>`, which names anything not run.
 
 The rules that already applied still apply: run the COMMITTED runner, never a hand-rolled loop
 (TRAPS 3.20), and state whether credentials were loaded. **The full-suite claim in this file is a
