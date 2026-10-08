@@ -87,8 +87,15 @@ console.log('=== verify-cases ===');
   edited.costLines[0].value = 1750;
   const ov = buildOverrides(base, edited);
   check('D1: buildOverrides captured 4 changed fields', Object.keys(ov).length === 4);
-  const rebuilt = applyOverrides(base, ov);
-  check('D2: round-trip rebuilds the edited snapshot exactly', eq(rebuilt, edited));
+  const rebuilt: any = applyOverrides(base, ov);
+  // RE-AIMED 2026-10-08 (founder decision 1): a case that states a cost rate makes it the USER's (applyOverrides
+  // sets the line's rateStated, as a price override sets priceStated), so the settle cannot re-derive it from a
+  // standard. The round trip is exact in every field the case changed, and adds exactly that one marker.
+  const markerOn = rebuilt.costLines[0].rateStated === true;
+  const withoutMarker = JSON.parse(JSON.stringify(rebuilt));
+  withoutMarker.costLines[0].rateStated = (edited as any).costLines[0].rateStated;
+  if (withoutMarker.costLines[0].rateStated === undefined) delete withoutMarker.costLines[0].rateStated;
+  check('D2: round-trip rebuilds the edited snapshot exactly, plus the stated-rate marker on the rate it overrode', eq(withoutMarker, edited) && markerOn);
   check('D3: round-trip leaves base untouched', base.project.financing.fundingMethod === 1);
 }
 

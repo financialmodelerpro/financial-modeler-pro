@@ -309,11 +309,19 @@ section('E. Stage is a per-line choice with one derivation');
     costLines: ls, costOverrides: [], landAllocationMode: 'sqm',
   });
   const before = run(withRate);
+  // RE-AIMED 2026-10-08 (founder decision 2): a line on the MARKETING stage is expensed as incurred, so moving
+  // a line there takes it out of capex into the breakdown's expensed part; moving it to another capex stage is
+  // a bucket move that keeps the capex total. Both halves.
+  const toSoft = run(withRate.map((l) => (base(l.id) === 'construction-bua' ? { ...l, stageOverride: 'soft' as const } : l)));
+  check('reclassifying to another capex stage moves the money between stage buckets',
+    before.byStage.hard > 0 && toSoft.byStage.hard === 0 && Math.abs(toSoft.byStage.soft - before.byStage.hard - before.byStage.soft) < 1e-6,
+    `hard ${before.byStage.hard} -> ${toSoft.byStage.hard}, soft ${toSoft.byStage.soft}`);
+  check('and does not change the asset total', Math.abs(toSoft.total - before.total) < 1e-6);
   const after = run(withRate.map((l) => (base(l.id) === 'construction-bua' ? { ...l, stageOverride: 'marketing' as const } : l)));
-  check('reclassifying moves the money between stage buckets',
-    before.byStage.hard > 0 && after.byStage.hard === 0 && Math.abs(after.byStage.marketing - before.byStage.hard) < 1e-6,
-    `hard ${before.byStage.hard} -> ${after.byStage.hard}, marketing ${after.byStage.marketing}`);
-  check('and does not change the asset total', Math.abs(after.total - before.total) < 1e-6);
+  check('reclassifying to MARKETING expenses it: out of capex, into the expensed part, nothing lost',
+    after.byStage.hard === 0 && after.byStage.marketing === 0 && Math.abs(after.expensed.total - before.byStage.hard) < 1e-6
+    && Math.abs(after.total + after.expensed.total - before.total) < 1e-6,
+    `capex ${before.total} -> ${after.total}, expensed ${after.expensed.total}`);
   check('the row renders a stage selector', SRC_COSTS_UI.includes('writeStage(e.target.value as CostStage)'));
   check('and clears the override when the catalog value is picked',
     SRC_COSTS_UI.includes('stageOverride: next === catalogStage ? undefined : next'));

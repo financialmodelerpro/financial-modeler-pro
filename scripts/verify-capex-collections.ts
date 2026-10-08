@@ -203,11 +203,17 @@ check('A5 the financing path uses the AXIS offset, not a date-derived one',
   } as SubUnit];
   const lines = makeBlankCostLines('p1', 3)
     .map((c) => (c.id.split('__')[0] === 'marketing' ? { ...c, value: 4 } as CostLine : c));
-  const run = (collections?: number[]): number[] => computeAssetCost({
+  // RE-AIMED 2026-10-08 (founder decision 2): marketing is expensed as incurred, so its curve is read from the
+  // breakdown's `expensed` part; it still follows collections, which is what this section proves.
+  const mkId = lines.find((c) => c.id.startsWith('marketing'))!.id;
+  const full = (collections?: number[]) => computeAssetCost({
     asset, project: project as never, phase: phase as never, parcels: [] as never,
     assets: [asset], subUnits, costLines: lines, costOverrides: [],
     landAllocationMode: 'autoByBua', collectionsPerPeriod: collections,
-  }).perLinePerPeriod[lines.find((c) => c.id.startsWith('marketing'))!.id] ?? [];
+  });
+  const run = (collections?: number[]): number[] => full(collections).expensed.perLinePerPeriod[mkId] ?? [];
+  check('B0 the marketing line is expensed, not capex (its curve is in the expensed part only)',
+    full([0, 100, 0, 0, 0]).perLinePerPeriod[mkId] === undefined && (full([0, 100, 0, 0, 0]).expensed.perLinePerPeriod[mkId] ?? []).some((v) => v > 0));
 
   const early = run([0, 100, 0, 0, 0]);
   const late = run([0, 0, 0, 0, 100]);

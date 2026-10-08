@@ -39,7 +39,8 @@ export const METRIC_CAPTIONS = {
   /** GDV less development cost and the operating expenses over the same years (2026-10-08: the GDV counts
    *  operating revenue, so the surplus deducts what earning it cost, selling and marketing included). */
   developmentSurplusBefore: 'GDV less development cost and operating expenses',
-  developmentSurplusAfter: 'less finance cost; before fund fees and tax',
+  // No fund words here: the caption prints on every project, and the fund fees tile states their exclusion.
+  developmentSurplusAfter: 'less finance cost; before tax',
   operatingExpenses: 'to the exit, selling and marketing included',
   developmentMargin: 'surplus after finance / GDV',
   shareOfSources: 'not a D/E ratio; sales and operations fund the rest',

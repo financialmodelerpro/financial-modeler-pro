@@ -983,7 +983,10 @@ function offlineChecks(): void {
   // sub-unit parking override are still read by nothing that computes and stay
   // INACTIVE; none of them is non-economic.
   check('S4 the Module 6 picker offers the unit size (engine-read for hospitality keys) and keeps the unread values INACTIVE, never non-economic',
-    inactiveLeverReason('project.assetTypeValues.villas.avgUnitSizeSqm', {} as never) === null
+    // RE-AIMED 2026-10-08: on a model where no asset takes the type its values are read by nothing, which the
+    // gate now says; so the unit size is asserted live where an asset uses the type, and gated where none does.
+    inactiveLeverReason('project.assetTypeValues.villas.avgUnitSizeSqm', { project: {}, assets: [{ id: 'v1', assetTypeId: 'villas', strategy: 'Operate', visible: true }] } as never) === null
+    && /no asset on this project uses the villas type/.test(inactiveLeverReason('project.assetTypeValues.villas.avgUnitSizeSqm', {} as never) ?? '')
     && inactiveLeverReason('project.assetTypeValues.villas.constructionCostPerSqm', {} as never) !== null
     && inactiveLeverReason('subUnits[su_1].parkingRatio', {} as never) !== null
     && nonEconomicLeverReason('project.assetTypeValues.villas.avgUnitSizeSqm', 'assetTypeValues.villas.avgUnitSizeSqm') === null

@@ -721,8 +721,8 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
   const selLine = /^costLines\[id=([^\]]+)\]\.(stageOverride|assetScopeOverride)$/.exec(path);
   if (selLine) {
     const line = (m.costLines ?? []).find((l) => l.id === selLine[1]);
-    if (line && deriveAssetScope(line) === 'selling') {
-      if (selLine[2] === 'stageOverride') return 'a selling cost is never part of a percentage base, so its stage decides only which report bucket it sits in';
+    // Its STAGE is live since 2026-10-08: the marketing stage is expensed as incurred, any other capitalised.
+    if (line && deriveAssetScope(line) === 'selling' && selLine[2] === 'assetScopeOverride') {
       const charged = (m.costOverrides ?? []).filter((o) => o.lineId === line.id && !o.disabled);
       if (!(Number(line.value) > 0) && charged.every((o) => assetStrategySells(assetById(o.assetId)?.strategy))) {
         return 'this line charges only where an asset states its own rate, and every such asset sells, so its scope changes nothing here';

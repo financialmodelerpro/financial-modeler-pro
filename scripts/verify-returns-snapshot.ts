@@ -186,7 +186,9 @@ console.log('=== M5 Returns snapshot integration ===');
   const de = rs.developmentEconomics, ex = rs.exitAnalysis, su = rs.sourcesUses;
   // Development economics ties to the snapshot.
   check('PASS1: GDV = total revenue over hold', near(de.gdv, rs.totalDevelopmentCost >= 0 ? de.gdv : 0) && de.gdv > 0);
-  check('PASS1: profitBeforeFinancing = GDV − dev cost', near(de.profitBeforeFinancing, de.gdv - de.totalDevelopmentCost));
+  // RE-AIMED 2026-10-08 (founder decision 2): the surplus deducts the operating expenses over the GDV's years too.
+  check('PASS1: profitBeforeFinancing = GDV − dev cost − operating expenses', near(de.profitBeforeFinancing, de.gdv - de.totalDevelopmentCost - de.operatingExpenses));
+  check('PASS1: the operating expenses are the P&L\'s over the same years as the GDV', near(de.operatingExpenses, snap.pl.totalOpexPerPeriod.slice(0, rs.config.exitYearOffset + 1).reduce((x: number, v: number) => x + v, 0)));
   check('PASS1: profitAfterFinancing = before − financing cost', near(de.profitAfterFinancing, de.profitBeforeFinancing - de.totalFinancingCost));
   check('PASS1: devEcon.totalDevelopmentCost = rs.totalDevelopmentCost', near(de.totalDevelopmentCost, rs.totalDevelopmentCost));
   // Exit analysis ties to the terminal value + exit NOI.

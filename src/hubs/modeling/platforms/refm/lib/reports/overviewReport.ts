@@ -341,9 +341,8 @@ export function surplusExcludesFundCaption(fees: number, money: (v: number) => s
  * their own tile. One sentence for every surface that prints the surplus.
  */
 export function surplusCaption(operatingExpenses: number, fees: number, money: (v: number) => string): string | undefined {
-  const parts: string[] = [];
-  if (operatingExpenses > 0) parts.push(`after operating expenses of ${money(operatingExpenses)}`);
-  const fund = surplusExcludesFundCaption(fees, money);
-  if (fund) parts.push(fund);
-  return parts.length ? parts.join('; ') : undefined;
+  // The deduction, short enough for a summary tile at every display scale. Where a fund charges fees, the
+  // FUND_FEES_TILE beside it states that they are not in the surplus, so the caption does not repeat it.
+  void fees;
+  return operatingExpenses > 0 ? `after opex of ${money(operatingExpenses)}` : undefined;
 }

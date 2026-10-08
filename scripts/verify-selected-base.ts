@@ -376,10 +376,12 @@ section('F. The marketing stage');
   for (const s of COST_STAGES) {
     check(`F5 ${s} has a label`, !!COST_STAGE_LABELS[s]);
   }
-  check('F6 the engine buckets marketing separately', (() => {
+  // RE-AIMED 2026-10-08 (founder decision 2): marketing is expensed as incurred, so it leaves the capex stage
+  // buckets entirely and is carried in the breakdown's expensed part.
+  check('F6 the engine keeps marketing out of the capex stages, in the expensed part', (() => {
     const lines = [L('build', 'fixed', 1000), { ...L('mk', 'fixed', 50), stage: 'marketing' } as CostLine];
     const bd = computeAssetCost({ asset: asset, project: project as never, phase: phase as never, parcels: [] as never, assets: [asset], subUnits: [] as never, costLines: lines, costOverrides: [], landAllocationMode: 'autoByBua' });
-    return bd.byStage.marketing === 50 && bd.byStage.soft === 0 && bd.byStage.hard === 1000;
+    return bd.byStage.marketing === 0 && bd.expensed.total === 50 && bd.byStage.soft === 0 && bd.byStage.hard === 1000 && bd.total === 1000;
   })());
 }
 

@@ -81,6 +81,12 @@ import {
 } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { stampFromEntry, resolveCatalogId, BUILT_IN_COST_CATALOG } from '@/src/hubs/modeling/platforms/refm/lib/state/costCatalog';
 
+// WHAT THE ENGINE CHARGED FOR A LINE (re-aimed 2026-10-08, founder decision 2): a capitalised line is in the
+// breakdown's capex figures, a marketing line is expensed as incurred and sits in its `expensed` part. The
+// selling cost report reads the same two places (sellingCostReports.ts), so this asks the engine's own question.
+const lineAmt = (bd: any, id: string): number => bd?.byLineId?.[id] ?? bd?.expensed?.byLineId?.[id] ?? 0;
+const linePer = (bd: any, id: string): number[] => bd?.perLinePerPeriod?.[id] ?? bd?.expensed?.perLinePerPeriod?.[id] ?? [];
+
 let pass = 0, fail = 0;
 const failures: string[] = [];
 function check(name: string, ok: boolean, detail = ''): void {
@@ -281,7 +287,7 @@ console.log('\n-- B. Visibility and charge come from the SAME rule --');
     const res = costOf(a, ls);
     const sells = assetStrategySells(a.strategy);
     const sees = (id: string): boolean => visible.some((l) => l.id === id);
-    const charged = (id: string): number => res.byLineId[id] ?? 0;
+    const charged = (id: string): number => lineAmt(res, id);
     check(`${a.name} (${a.strategy}): every line it is CHARGED for is a line it can SEE`,
       ls.every((l) => charged(l.id) === 0 || sees(l.id)),
       ls.filter((l) => charged(l.id) !== 0 && !sees(l.id)).map((l) => l.id).join(',') || 'none charged unseen');
@@ -299,8 +305,8 @@ console.log('\n-- B. Visibility and charge come from the SAME rule --');
   // Not vacuous: the charge is a real figure on a selling asset.
   const sellRes = costOf(ASSETS[0], ls);
   check('the fixture charges a REAL marketing amount on the selling asset (not vacuous)',
-    (sellRes.byLineId[MK_ID] ?? 0) > 1_000_000,
-    (sellRes.byLineId[MK_ID] ?? 0).toFixed(0));
+    (lineAmt(sellRes, MK_ID)) > 1_000_000,
+    (lineAmt(sellRes, MK_ID)).toFixed(0));
 }
 
 // ── C. The phase-level question still gets the phase-level answer ───────────
@@ -376,12 +382,12 @@ console.log('\n-- E. The percent-of-revenue bases come from the REVENUE MODULE -
   for (const a of [ASSETS[2], ASSETS[3]]) {
     const withBases = costOf(a, openScope, [], REV_BASES[a.id]);
     check(`${a.name} (${a.strategy}): a sale-basis line charges ZERO even with the scope forced open`,
-      (withBases.byLineId[MK_ID] ?? 0) === 0,
-      (withBases.byLineId[MK_ID] ?? 0).toFixed(2));
+      (lineAmt(withBases, MK_ID)) === 0,
+      (lineAmt(withBases, MK_ID)).toFixed(2));
     const withoutBases = costOf(a, openScope);
     check(`${a.name}: and WITHOUT the linked basis it charged a real amount (so the fix is not vacuous)`,
-      (withoutBases.byLineId[MK_ID] ?? 0) > 0,
-      (withoutBases.byLineId[MK_ID] ?? 0).toFixed(2));
+      (lineAmt(withoutBases, MK_ID)) > 0,
+      (lineAmt(withoutBases, MK_ID)).toFixed(2));
   }
 
   // A SELLING ASSET CHARGES ON THE REVENUE MODULE'S SALE VALUE, not on the
@@ -390,20 +396,20 @@ console.log('\n-- E. The percent-of-revenue bases come from the REVENUE MODULE -
   const sellRes = costOf(ASSETS[0], ls, [], REV_BASES['a_sell']);
   const expectSale = SALE_REVENUE['a_sell'] * 0.03;
   check('a Sell asset charges 3% of the REVENUE MODULE sale value',
-    Math.abs((sellRes.byLineId[MK_ID] ?? 0) - expectSale) < 1,
-    `${(sellRes.byLineId[MK_ID] ?? 0).toFixed(0)} vs ${expectSale.toFixed(0)}`);
+    Math.abs((lineAmt(sellRes, MK_ID)) - expectSale) < 1,
+    `${(lineAmt(sellRes, MK_ID)).toFixed(0)} vs ${expectSale.toFixed(0)}`);
   const sellOld = costOf(ASSETS[0], ls);
   check('and that is NOT what the sub-unit product would have given (the two differ)',
-    Math.abs((sellOld.byLineId[MK_ID] ?? 0) - expectSale) > 1,
-    `old ${(sellOld.byLineId[MK_ID] ?? 0).toFixed(0)}`);
+    Math.abs((lineAmt(sellOld, MK_ID)) - expectSale) > 1,
+    `old ${(lineAmt(sellOld, MK_ID)).toFixed(0)}`);
 
   // percent_of_total_revenue reads the LIFETIME total, so a held asset is no
   // longer charged on a single period.
   const hotelTotal = costOf(ASSETS[2], openScope, [], REV_BASES['a_operate']);
   const expectComm = TOTAL_REVENUE['a_operate'] * 0.02;
   check('percent_of_total_revenue charges on the whole-hold revenue, not one period',
-    Math.abs((hotelTotal.byLineId[CM_ID] ?? 0) - expectComm) < 1,
-    `${(hotelTotal.byLineId[CM_ID] ?? 0).toFixed(0)} vs ${expectComm.toFixed(0)}`);
+    Math.abs((lineAmt(hotelTotal, CM_ID)) - expectComm) < 1,
+    `${(lineAmt(hotelTotal, CM_ID)).toFixed(0)} vs ${expectComm.toFixed(0)}`);
   check('and the whole-hold figure is materially larger than the one-night product',
     TOTAL_REVENUE['a_operate'] > oldOperate * 100,
     `${TOTAL_REVENUE['a_operate'].toFixed(0)} vs ${oldOperate.toFixed(0)}`);
@@ -447,7 +453,7 @@ console.log('\n-- F. A project with no selling line at all is untouched --');
     // whose ternary binds after the ||, so it was the constant true: a check
     // that could not fail, on the very thing section F exists to prove.
     check(`${a.name}: the construction line still charges every asset, held or sold`,
-      (res.byLineId['hard__p1'] ?? 0) > 0, (res.byLineId['hard__p1'] ?? 0).toFixed(0));
+      (lineAmt(res, 'hard__p1')) > 0, (lineAmt(res, 'hard__p1')).toFixed(0));
   }
   const totals = ASSETS.map((a) => costOf(a, only).total);
   check('every asset carries a non-zero total from the construction line alone',
@@ -508,12 +514,12 @@ console.log('\n-- H. A line minted by the catalog picker scopes the same as a se
     check(`${a.name} (${a.strategy}): does not see the minted selling lines`,
       !visible.some((l) => l.id === mk.id) && !visible.some((l) => l.id === cm.id));
     check(`${a.name}: and is charged zero for them`,
-      (res.byLineId[mk.id] ?? 0) === 0 && (res.byLineId[cm.id] ?? 0) === 0,
-      `${(res.byLineId[mk.id] ?? 0).toFixed(2)} / ${(res.byLineId[cm.id] ?? 0).toFixed(2)}`);
+      (lineAmt(res, mk.id)) === 0 && (lineAmt(res, cm.id)) === 0,
+      `${(lineAmt(res, mk.id)).toFixed(2)} / ${(lineAmt(res, cm.id)).toFixed(2)}`);
   }
   const sellRes = costOf(ASSETS[0], minted, [], REV_BASES['a_sell']);
   check('while the selling asset is still charged in full for the minted line',
-    (sellRes.byLineId[mk.id] ?? 0) > 1_000_000, (sellRes.byLineId[mk.id] ?? 0).toFixed(0));
+    (lineAmt(sellRes, mk.id)) > 1_000_000, (lineAmt(sellRes, mk.id)).toFixed(0));
 }
 
 // ── I. ONE CALCULATION, READ BY BOTH SURFACES (2026-08-19, Pass C) ──────────
@@ -558,7 +564,7 @@ console.log('\n-- I. The Revenue display and the Capex engine are one calculatio
       const engine = costOf(a, ls, [], REV_BASES[a.id]);
       for (const row of display.rows.filter((r) => r.assetId === a.id)) {
         compared += 1;
-        const charged = engine.byLineId[row.lineId] ?? 0;
+        const charged = lineAmt(engine, row.lineId);
         if (Math.abs(charged - row.amount) > 1e-9) {
           allMatch = false;
           detail = `${a.name} / ${row.lineName}: display ${row.amount} vs engine ${charged}`;
@@ -568,7 +574,7 @@ console.log('\n-- I. The Revenue display and the Capex engine are one calculatio
       // display, which a one-directional check would not catch.
       for (const l of ls) {
         if (!isSellingCostMethod(l.method)) continue;
-        const charged = engine.byLineId[l.id] ?? 0;
+        const charged = lineAmt(engine, l.id);
         if (charged === 0) continue;
         if (!display.rows.some((r) => r.assetId === a.id && r.lineId === l.id)) {
           allMatch = false;
@@ -674,8 +680,8 @@ console.log('\n-- J. Phasing follows collections wherever the line is rendered -
     revenue: REV_SOURCE,
   } as unknown as Parameters<typeof computeAssetCost>[0]);
 
-  const a = withCollections.perLinePerPeriod?.[mk.id] ?? [];
-  const b = withoutCollections.perLinePerPeriod?.[mk.id] ?? [];
+  const a = linePer(withCollections, mk.id);
+  const b = linePer(withoutCollections, mk.id);
   const sumOf = (x: number[]): number => x.reduce((s2, v) => s2 + (v ?? 0), 0);
 
   check('J1 the fixture line follows collections', mk.phasingSource === 'collections');

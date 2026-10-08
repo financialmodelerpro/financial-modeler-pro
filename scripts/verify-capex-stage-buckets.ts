@@ -83,9 +83,12 @@ const withRate = (baseId: string, value: number) => (c: CostLine): CostLine =>
   try { agg = aggregate(lines); } catch (e) { threw = e instanceof Error ? e.message : String(e); }
   check('B1 a NON-ZERO marketing line does not throw', threw === '', threw);
   if (agg) {
-    const mk = agg.perStagePerPeriod?.marketing ?? [];
+    // RE-AIMED 2026-10-08 (founder decision 2): marketing is EXPENSED as incurred, so its spend lands in the
+    // aggregate's expensed series and the capex marketing bucket stays empty. Both halves.
+    const mk = agg.expensedPerPeriod ?? [];
     const total = mk.reduce((s, v) => s + v, 0);
-    check('B2 ...and its spend lands in the marketing bucket', total > 0, String(total));
+    const capexMk = (agg.perStagePerPeriod?.marketing ?? []).reduce((s, v) => s + v, 0);
+    check('B2 ...and its spend lands in the expensed series, none of it in the capex marketing bucket', total > 0 && capexMk === 0, `expensed ${total}, capex bucket ${capexMk}`);
     // 3% of gross revenue 10 x 100,000 = 30,000.
     check('B3 ...at the right amount', Math.abs(total - 30_000) < 1e-6, String(total));
     check('B4 ...and NOT in the soft bucket',

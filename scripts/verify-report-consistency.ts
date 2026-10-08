@@ -31,7 +31,7 @@
  *
  * No em dashes in this file.
  */
-import { fundFeesLife, FUND_FEES_TILE_LABEL } from '../src/hubs/modeling/platforms/refm/lib/reports/overviewReport';
+import { fundFeesLife, FUND_FEES_TILE_LABEL, FUND_FEES_TILE_SUB } from '../src/hubs/modeling/platforms/refm/lib/reports/overviewReport';
 import { readFileSync, readdirSync } from 'fs';
 import { createClient } from '@supabase/supabase-js';
 import { pdfText } from './pdfTextExtract';
@@ -238,7 +238,13 @@ async function main(): Promise<void> {
     for (const [doc, txt] of [['full report', full], ['summary', summary]] as const) {
       const f = flat(txt).toUpperCase();
       check(`G4: the ${doc} prints the fund fees tile`, f.includes(FUND_FEES_TILE_LABEL.toUpperCase()));
-      check(`G4: the ${doc} says what the surplus excludes`, f.includes('EXCLUDES FUND FEES OF'));
+      // RE-AIMED 2026-10-08 (founder decision 2): the surplus caption states what the surplus DEDUCTS (the
+      // operating expenses); the fund fees tile beside it states that the fees are not in it.
+      // The caption states the operating expenses the surplus deducts, exactly when there are any (this fixture has
+      // none, so none is due); the fees tile states that the fund fees are not in the surplus.
+      const opexDue = (rs.developmentEconomics.operatingExpenses ?? 0) > 0;
+      check(`G4: the ${doc} says what the surplus deducts (when it deducts anything), and the fees tile what it excludes`,
+        f.includes('AFTER OPEX OF') === opexDue && f.includes(FUND_FEES_TILE_SUB.toUpperCase()), `opex due ${opexDue}, caption ${f.includes('AFTER OPEX OF')}`);
     }
     const plain = await render(buildExcelSampleState());
     check('G4: a project without a fund prints neither', !flat(plain.full).toUpperCase().includes(FUND_FEES_TILE_LABEL.toUpperCase()) && !flat(plain.full).toUpperCase().includes('EXCLUDES FUND FEES OF'));

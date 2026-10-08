@@ -791,8 +791,11 @@ async function main(): Promise<void> {
     const sSnap = computeFinancialsSnapshot(st);
     const wbSC = buildModelWorkbook({ state: st, projectName: 'X', dateLabel: 'd' });
     const rev = wbSC.getWorksheet('Revenue')!;
+    // RE-AIMED 2026-10-08 (founder decision 2): the engine's selling charge is the capitalised selling lines
+    // (commission, still in the capex report) PLUS the marketing it expenses as incurred (the P&L's own series).
     const engineTotal = buildCapexReport(sSnap, st).inputAssets
-      .flatMap((a) => a.lines).filter((l) => isSellingCostMethod(l.method)).reduce((s, l) => s + l.amount, 0);
+      .flatMap((a) => a.lines).filter((l) => isSellingCostMethod(l.method)).reduce((s, l) => s + l.amount, 0)
+      + (sSnap.pl.sellingExpensePerPeriod ?? []).reduce((s: number, v: number) => s + (v ?? 0), 0);
     const outRow = rowByLabel(rev, /^2\. Revenue Output/);
     const bandRow = rowByLabel(rev, /^Selling Costs \(/);
     const totRow = rowByLabelAfter(rev, /^Selling Costs \(/, /^Total selling costs$/);
