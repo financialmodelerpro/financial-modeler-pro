@@ -54,6 +54,13 @@ export function parseAccounting(raw: string): number | null {
   if (core === '' || core === '.') return 0;
   const n = Number(core);
   if (!Number.isFinite(n)) return null;
+  // BEYOND EXACT NUMBERS IS REFUSED, NOT CLAMPED (2026-10-07). A value past
+  // 2^53 cannot be held exactly, and it is in practice two figures typed into
+  // one field: a saved version carries 36820510001282052000, which is
+  // '3682051000' with '1282052000' appended, in a field that had no limit.
+  // Refused, the field reverts to its last good value as for any unreadable
+  // text; clamping would silently store a different number.
+  if (Math.abs(n) > Number.MAX_SAFE_INTEGER) return null;
   return sign * n;
 }
 

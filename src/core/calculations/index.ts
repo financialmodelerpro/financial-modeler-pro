@@ -53,6 +53,7 @@
  * for percent_of_cash_land deferred-payment parcels.
  */
 
+import { phaseHasModelCapex } from './modelCapex';
 import type {
   Project,
   Phase,
@@ -1754,6 +1755,24 @@ export interface ComputeAssetCostInput {
   revenue?: RevenueSource;
 }
 
+/** The canonical empty breakdown: built from COST_STAGES, so a new stage cannot drop out. */
+function emptyAssetCostBreakdown(phase: { constructionPeriods: number }): AssetCostBreakdown {
+  const cpZero = phase.constructionPeriods + 1;
+  const byStage = {} as Record<CostStage, number>;
+  for (const k of COST_STAGES) byStage[k] = 0;
+  return {
+    byLineId: {},
+    byStage,
+    total: 0,
+    perPeriod: new Array<number>(cpZero).fill(0),
+    perPeriodLandTotal: new Array<number>(cpZero).fill(0),
+    perPeriodLandInKind: new Array<number>(cpZero).fill(0),
+    perLinePerPeriod: {},
+    resolvedWindowByLineId: {},
+    selectedBaseByLineId: {},
+  };
+}
+
 export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdown {
   const {
     asset, project, phase, parcels, assets, subUnits, costLines, costOverrides,
@@ -1781,20 +1800,12 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
   //    The Operate companion is untouched. It carries NO physical attributes
   //    and inherits its parent's revenue, so charging it any line would double
   //    count the parent's building.
-  if (asset.isCompanion === true && !isRetailCompanion(asset)) {
-    const cpZero = phase.constructionPeriods + 1;
-    return {
-      byLineId: {},
-      byStage: { land: 0, hard: 0, soft: 0, marketing: 0, operating: 0 },
-      total: 0,
-      perPeriod: new Array<number>(cpZero).fill(0),
-      perPeriodLandTotal: new Array<number>(cpZero).fill(0),
-      perPeriodLandInKind: new Array<number>(cpZero).fill(0),
-      perLinePerPeriod: {},
-      resolvedWindowByLineId: {},
-      selectedBaseByLineId: {},
-    };
-  }
+  if (asset.isCompanion === true && !isRetailCompanion(asset)) return emptyAssetCostBreakdown(phase);
+  // AN OPERATIONAL PHASE HAS NO MODEL CAPEX (2026-10-07, modelCapex.ts): its
+  // cost is the historical opening balance, so every reader of this function
+  // (the capex aggregate, fixed assets, cost of sales, financing, the selling
+  // cost and capex reports, the live workbook) gets the same zero.
+  if (!phaseHasModelCapex(phase)) return emptyAssetCostBreakdown(phase);
   const phaseAssets = assets.filter((a) => a.phaseId === phase.id && a.visible);
   // M2.0d: filter targeted custom lines so each asset only sees its own
   // (untagged lines = project-wide and apply to all assets).

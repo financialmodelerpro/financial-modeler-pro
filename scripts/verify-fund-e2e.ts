@@ -130,12 +130,14 @@ const MODULE_KEYS = ['module1', 'module2', 'module3', 'module4', 'module5', 'mod
  * was soft-deleted on 2026-09-12 and its versions cascade at the purge.
  *
  * IT MATTERS WHICH DATA THIS RUNS ON. The long-standing failure here, "the
- * balance sheet balances to solver tolerance, every period", is worth
- * 1.351e+9 on this project, and 1,350.7m is exactly its operational Phase 1
- * land, contributed in kind before the model starts. Moving this verifier to
- * a project without an operational phase would turn the check green without
- * anything being fixed, so it moves to the committed capture of the SAME
- * shape and keeps reporting it.
+ * balance sheet balances to solver tolerance, every period", was worth
+ * 1.351e+9 on this project: the fixed asset schedule priced its operational
+ * Phase 1 hotel's plot, which the capex aggregate (rightly) does not. FIXED
+ * 2026-10-07 by phaseHasModelCapex, the one rule every reader of an asset's
+ * cost now gets through computeAssetCost (TRAPS 7.63, verify-model-capex).
+ * Moving this verifier to a project without an operational phase would have
+ * turned the check green without anything being fixed, so it stayed on the
+ * committed capture of the SAME shape, which is how the fix is proved.
  */
 function loadRealProject(): { raw: any; source: string } {
   return { raw: buildExistingOperationsState(), source: EXISTING_OPS_LABEL };

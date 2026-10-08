@@ -38,6 +38,7 @@
  * No em dashes in this file.
  */
 import type { FinancialsResolverState } from '../financials-resolvers';
+import { getAssetPreCapexTotal, type Asset } from '../state/module1-types';
 
 /** Why an asset's zero is structural. */
 export type StructuralZeroKind = 'companion' | 'existing_operations';
@@ -60,9 +61,16 @@ export function structuralZeroCell(z: AssetStructuralZero): string {
 
 type AssetLike = FinancialsResolverState['assets'][number];
 
-/** Historical spend that happened before the model's first period. */
+/**
+ * Historical spend that happened before the model's first period, by the ONE
+ * rule the engine and the Existing Operations inputs use (getAssetPreCapexTotal:
+ * land + building where either is stated, the legacy single figure only where
+ * neither is). It read the legacy `historicalPreCapex` directly until
+ * 2026-10-07, so a saved version whose legacy total was never updated after its
+ * split was typed printed 3,682.1m in this note beside a model built on 3,600.0m.
+ */
 function historicalPreCapex(asset: AssetLike): number {
-  return Number((asset as { historicalPreCapex?: number }).historicalPreCapex ?? 0);
+  return getAssetPreCapexTotal(asset as Asset);
 }
 
 /**

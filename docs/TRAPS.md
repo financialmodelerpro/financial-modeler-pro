@@ -3066,6 +3066,37 @@ reads `assetLabel`. **Rule: "what a scenario changed" is its override map, never
 model, the same rule as TRAPS 7.47 seen from the reading side.** `verify-module6-yoy` asserts every listed
 input is a stored one (59 extra on the old builder).
 
+### 7.63 Two engines asked "what does this asset cost" and only one knew the phase was already built
+
+**Symptom.** The existing-operations capture's balance sheet was out by exactly 1,350.7m in every year from
+the first, assets above liabilities and equity, and `verify-fund-e2e` failed on it for two weeks, carried
+as a "standing failure" with a diagnosis that ended in "where does pre-model in-kind land belong".
+
+**Mechanism.** The question was the wrong one. Nothing about in-kind land was wrong: the 1,350.7m of land
+capex DID charge in year 0 was the Phase 2 and 3 land, and equity was credited the same amount. The break
+was a different 1,350.7m. `aggregateProjectCapex` skipped an OPERATIONAL phase (its cost is the historical
+opening, `existing.ts`), but `computeAllFixedAssetResults` did not, so it priced the operational hotel's plot
+(16,348 sqm at 82,620.65, 100% in kind) as a year-0 land addition on top of the hotel's historical 1,000m:
+a debit with no capex, cash or equity entry. Five more readers of an asset's cost (cost of sales, the
+financing hooks, the selling cost and capex reports, the live workbook's Capex stage) also decided for
+themselves, and a SELL asset on an operational phase broke inventory the same way (a capture with one added
+measured 1,913.7m: the hotel's 1,350.7m plus 562.9m of unfunded inventory). The same plot value equalling
+the in-kind charge made it look like an in-kind question, which is why the first diagnosis stopped there.
+
+**Fix.** `phaseHasModelCapex` (`src/core/calculations/modelCapex.ts`) is the ONE rule, and
+`computeAssetCost` applies it first and returns an empty breakdown, so every reader of an asset's cost gets
+the same zero for an operational asset; the capex aggregate calls the same predicate. Found on the way:
+`assetNotes.ts` printed the legacy single pre-capex figure (3,682.1m) in the exports' existing-operations
+note while the screen and the engine use land + building (3,600.0m); it now reads `getAssetPreCapexTotal`.
+
+**Proof.** `verify-model-capex` 35/0: per asset, fixed asset additions, cost of sales base and the capex
+report row each equal that asset's model capex, then the sum equals the aggregate, on the capture, the Sell
+capture (1,913.7m before, 0.0 after), the greenfield sample and the live project; every reader of
+`computeAssetCost` is checked for a private "operational" decision. FMP - MARINA GATE byte-identical (the
+full financial and returns snapshots and all 28,776 workbook cells hash the same). **A balance that breaks
+by exactly one input's value names that input, but not the reader that double-counted it: find the leg by
+toggling one input at a time, and check every reader of the shared function, not the one that failed.**
+
 ## 8. Registries and two-step registration
 
 ### 8.1 A template registered in one place and not the other fails silently and permanently

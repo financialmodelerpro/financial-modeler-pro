@@ -12,6 +12,7 @@ import type {
 } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { COST_STAGES } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { computeAssetCost, deriveCostStage } from '../index';
+import { phaseHasModelCapex } from '../modelCapex';
 import { collectionsForAssetAtOffset, phaseLocalToProjectIndex, type CollectionsSource } from '../capexPhasing';
 import type { CapexAggregate, CapexLandByPhase, ProjectAxis } from './types';
 
@@ -51,8 +52,9 @@ export interface CapexInputs {
  * two surfaces disagreed by the whole of a first phase's land for twelve weeks.
  * Both now call the same function, and the comment describes what it does.
  *
- * Operational phases (status === 'operational') are skipped entirely;
- * their historical capex flows through `existing.ts` instead.
+ * Operational phases are skipped entirely (phaseHasModelCapex, the ONE rule,
+ * which computeAssetCost also applies); their historical capex flows through
+ * `existing.ts` instead.
  */
 export function aggregateProjectCapex(inputs: CapexInputs, axis: ProjectAxis): CapexAggregate {
   const N = axis.totalPeriods;
@@ -87,7 +89,7 @@ export function aggregateProjectCapex(inputs: CapexInputs, axis: ProjectAxis): C
 
   const landByPhase: CapexLandByPhase[] = [];
   for (const phase of inputs.phases) {
-    if (phase.status === 'operational') continue;
+    if (!phaseHasModelCapex(phase)) continue;
     const offset = axis.phaseOffsets.get(phase.id) ?? 0;
     const phaseAssets = inputs.assets.filter((a) => a.phaseId === phase.id && a.visible);
     // The phase's own land, cash and in-kind, on the project axis (2026-09-12).

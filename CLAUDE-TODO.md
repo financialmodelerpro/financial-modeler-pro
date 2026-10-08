@@ -257,7 +257,9 @@ project as two real people (`scripts/probe-collab-loop-live.ts`, 29/0, leaving n
    It is the number a developer checks a construction rate against, so it should be beside the rates rather than
    only on a summary surface.
 
-6. **AN OPERATIONAL PHASE WITH PRE-MODEL IN-KIND LAND DOES NOT BALANCE** (logged 2026-09-21, still open, still
+6. **FIXED 2026-10-07 (phaseHasModelCapex, TRAPS 7.63; the diagnosis below was half right: the unmatched leg was the
+   fixed asset schedule pricing the operational hotel's plot, not where in-kind land belongs).**
+   **AN OPERATIONAL PHASE WITH PRE-MODEL IN-KIND LAND DOES NOT BALANCE** (logged 2026-09-21, still open, still
    deliberately not fixed): the standing `verify-fund-e2e` failure, 1,350,682,386 in the worst period on the
    existing-operations shape. No live project has an operational phase, so it costs nothing today. The full
    diagnosis is below in the 2026-09-21 section and should be read before anyone touches it.
@@ -275,7 +277,7 @@ with the exit working and the operating KPIs added and the wide tables made read
 its screen and needed nothing. **The report and the workbook are now both a copy of the platform, module by module.**
 
 **OPEN, in order:**
-1. **AN OPERATIONAL PHASE WITH PRE-MODEL IN-KIND LAND DOES NOT BALANCE (logged 2026-09-21, DO NOT FIX YET).**
+1. **FIXED 2026-10-07 (TRAPS 7.63).** **AN OPERATIONAL PHASE WITH PRE-MODEL IN-KIND LAND DOES NOT BALANCE (logged 2026-09-21, DO NOT FIX YET).**
    On the existing-operations shape the balance sheet is out by **1,350,682,386** in the worst period
    (`verify-fund-e2e`: "the balance sheet balances to solver tolerance, every period", worst 1.351e+9 on
    8,292.573m = 1.63e-1 relative). **1,350.7m is exactly parcel Land 1's land value**, on operational Phase 1,
