@@ -189,8 +189,12 @@ const mOcc: any = { project: {}, assets: [{ id: 'h', strategy: 'Operate' }], sub
 check('Occupancy % inactive on an Operate (hospitality) asset', !!inactiveLeverReason('subUnits[id=k].occupancyPct', mOcc));
 const mOpexPct: any = { project: {}, assets: [{ id: 'h', strategy: 'Operate', opex: { lines: [{ mode: 'pct_of_total_rev' }] } }] };
 check('Opex inflation inactive with no fixed-cost lines', !!inactiveLeverReason('assets[id=h].opex.defaultIndexation.rate', mOpexPct));
-const mOpexFixed: any = { project: {}, assets: [{ id: 'h', strategy: 'Operate', opex: { lines: [{ mode: 'per_room_year' }, { mode: 'pct_of_total_rev' }] } }] };
-check('Opex inflation ACTIVE when a fixed-cost line exists', inactiveLeverReason('assets[id=h].opex.defaultIndexation.rate', mOpexFixed) === null);
+// RE-AIMED 2026-10-08: the indexation scales the fixed-cost lines ABOVE ZERO; a line left at 0 gives it
+// nothing to scale (measured on the reference project, five assets). Both halves.
+const mOpexFixed: any = { project: {}, assets: [{ id: 'h', strategy: 'Operate', opex: { lines: [{ mode: 'per_room_year', value: 1200 }, { mode: 'pct_of_total_rev' }] } }] };
+const mOpexZero: any = { project: {}, assets: [{ id: 'h', strategy: 'Operate', opex: { lines: [{ mode: 'per_room_year', value: 0 }, { mode: 'pct_of_total_rev' }] } }] };
+check('Opex inflation ACTIVE when a fixed-cost line above zero exists', inactiveLeverReason('assets[id=h].opex.defaultIndexation.rate', mOpexFixed) === null);
+check('Opex inflation inactive when every fixed-cost line is at zero', !!inactiveLeverReason('assets[id=h].opex.defaultIndexation.rate', mOpexZero));
 const mLease: any = { project: {}, subUnits: [{ id: 'u', assetId: 'L', unitPrice: 1200 }] };
 check('Lease base rate inactive when unit price is set', !!inactiveLeverReason('assets[id=L].revenue.lease.baseRate', mLease));
 const mPerp: any = { project: { returns: { terminalMethod: 'exit_multiple' } } };
@@ -227,9 +231,13 @@ check('the derived bag is HIDDEN, every field of it',
     .every((f) => nonEconomicLeverReason(`assets[id=a].derivedAreas.${f}`, f) !== null));
 // Three inputs the TAB reads. Inactive, not hidden: the day the derivation
 // moves into the engine they are live dials and only this branch stops firing.
-check('the share, the opt-in and the slot area are inactive, with a reason each',
-  [['subUnits[id=u].nsaSharePct', {}], ['project.useDerivedAreas', {}], ['project.parkingAreaPerSlotSqm', {}]]
-    .every(([p]) => !!inactiveLeverReason(p as string, { project: {} } as any)));
+// RE-AIMED 2026-10-08: every case model settles (caseModelOf), which re-runs the area chain, so the
+// slot area is now a live dial (it moves the parking area and its cost); the share and the opt-in are
+// still read by the tab alone.
+check('the share and the opt-in are inactive, with a reason each; the slot area is live',
+  [['subUnits[id=u].nsaSharePct', {}], ['project.useDerivedAreas', {}]]
+    .every(([p]) => !!inactiveLeverReason(p as string, { project: {} } as any))
+  && inactiveLeverReason('project.parkingAreaPerSlotSqm', { project: {} } as any) === null);
 check('and none of the three is hidden instead, which would take it off the picker',
   ['subUnits[id=u].nsaSharePct', 'project.useDerivedAreas', 'project.parkingAreaPerSlotSqm']
     .every((p) => nonEconomicLeverReason(p, p.split('.').pop() as string) === null));
@@ -240,20 +248,16 @@ check('and none of the three is hidden instead, which would take it off the pick
 // string has to say which, or it is a false statement dressed as curation.
 const mChain: any = { project: {}, assets: [{ id: 'a', landChain: { farRatio: 2 } }] };
 const chainReason = (f: string): string | null => inactiveLeverReason(`assets[id=a].landChain.${f}`, mChain);
-check('every chain input is inactive, none of them hidden',
-  ['coveragePct', 'farRatio', 'retailPct', 'utilisationPct', 'servicePct', 'maxFloors', 'retailAreaPerSlotSqm']
-    .every((f) => chainReason(f) !== null
-      && nonEconomicLeverReason(`assets[id=a].landChain.${f}`, f) === null));
-check('the three that move the CARVE say so, rather than claiming they move nothing',
-  ['coveragePct', 'farRatio', 'retailPct'].every((f) => {
-    const r = chainReason(f) ?? '';
-    return r.includes('RETAIL LAND CARVE') && !r.includes('nothing at all');
-  }));
-check('and the two that genuinely move nothing say THAT, rather than borrowing the carve sentence',
-  ['utilisationPct', 'servicePct'].every((f) => {
-    const r = chainReason(f) ?? '';
-    return r.includes('nothing at all') && !r.includes('RETAIL LAND CARVE');
-  }));
+// RE-AIMED 2026-10-08: A SCENARIO NOW RE-DERIVES MASSING. Every case model settles, and the settle re-runs
+// the area chain, so the five massing inputs are live dials (measured on the reference project: each moves
+// capex and returns, not only the land carve). Only the retired and the unread fields stay gated, and the
+// service share on a LEASE line, which reaches rent only through Table 5 rows the tab re-derives.
+const mLease2: any = { project: {}, assets: [{ id: 'a', strategy: 'Lease', landChain: { farRatio: 2 } }] };
+check('every massing input is LIVE in a scenario, and none is hidden',
+  ['coveragePct', 'farRatio', 'retailPct', 'utilisationPct', 'servicePct']
+    .every((f) => chainReason(f) === null && nonEconomicLeverReason(`assets[id=a].landChain.${f}`, f) === null));
+check('the service share on a LEASE line is inactive and says why (its rows are re-derived on the tab)',
+  /Table 5 rows/.test(inactiveLeverReason('assets[id=a].landChain.servicePct', mLease2) ?? ''));
 // A RETIRED FIELD AND AN UNREAD ONE GET THEIR OWN SENTENCES, because neither
 // is a massing input that happens to be inert: one is retired and one is a note.
 check('the retired retail area per slot and the unread maxFloors are named for what they are',

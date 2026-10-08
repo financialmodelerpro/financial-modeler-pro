@@ -225,6 +225,9 @@ const PATH_ALTERNATES: ReadonlyArray<readonly [RegExp, string[]]> = [
   [/\.country$/, ['Saudi Arabia', 'United Arab Emirates']],
   [/financialTerminology$/, ['standard', 'saudi']],
   [/^landAllocationMode$/, ['gfa', 'sqm']],
+  // 2026-10-08: two enums the census had no values for (41 fields read as "unprobed").
+  [/\.assetScopeOverride$/, ['all', 'selling']],
+  [/\.parkingRatioBasis$/, ['slots_per_unit', 'sqm_per_slot']],
 ];
 // Period / count / year / index leaves must be probed with SMALL integers only:
 // feeding a huge value makes the engine allocate / loop over millions of periods
@@ -312,8 +315,19 @@ const documentedInert = rows.filter((r) => r.status === 'DEAD' && DOCUMENTED_INE
 //    Annotated movers are NOT ignored. They are pinned below, so a NEW gate
 //    placed over a live lever still fails red and has to be justified.
 const isHidden = (r: Row): boolean => nonEconomicLeverReason(r.path, r.path.split('.').pop()!) !== null;
+// THE NAMED EXCEPTION (2026-10-08, founder): three markers the platform writes for ITSELF. Flipping one
+// moves money, because it tells the settle whether to re-derive something (whether a phase line's rate
+// is the user's, whether an asset is a companion, whether a line's window follows its phase), but none
+// is an assumption a scenario varies: the value it governs is the dial, and overriding that value sets
+// the marker (applyOverrides). Allowed BY NAME, with an enforced obligation below: each must stay hidden
+// with a reason that calls it a marker or a flag, so the exception cannot quietly widen.
+// catalogId joins them: it is a line's IDENTITY in the cost catalog, and changing it re-prices the line
+// from a different standard, which is renaming a line, not varying an assumption (hidden like id and
+// assetTypeId already are).
+const SETTLE_MARKER = /\.(rateStated|isCompanion|windowFollowsConstruction|catalogId)$/;
 const hiddenMovers = rows.filter((r) => !isUnmeasurable(r) && r.moved.length > 0
-  && r.moved[0] !== '<compute-error>' && isHidden(r));
+  && r.moved[0] !== '<compute-error>' && isHidden(r) && !SETTLE_MARKER.test(r.path));
+const markerRows = rows.filter((r) => SETTLE_MARKER.test(r.path));
 
 // ── ANNOTATED MOVERS: shown with a note, and the note must be earned.
 //
@@ -371,6 +385,11 @@ check('base model computes a full KPI set', Object.values(baseKpis).some((v) => 
 check('a non-trivial number of fields empirically move a comparison KPI', movers.length > 30, `movers=${movers.length}`);
 check('NO live lever is HIDDEN: no empirical KPI mover is removed from the picker by nonEconomicLeverReason', hiddenMovers.length === 0,
   hiddenMovers.slice(0, 8).map((r) => `${r.path} moves[${r.moved.join(',')}]`).join(' ; '));
+{
+  const unexplained = markerRows.filter((r) => !/marker|flag|selector|identity/i.test(nonEconomicLeverReason(r.path, r.path.split('.').pop()!) ?? ''));
+  check(`the named settle markers (${markerRows.length}) are all hidden, each with a reason that says it is a marker or flag`,
+    markerRows.length > 0 && unexplained.length === 0, unexplained.map((r) => r.path).join(' ; '));
+}
 check('every ANNOTATED mover (shown with a note, dropped from curated defaults) is a documented one', undocumentedAnnotated.length === 0,
   undocumentedAnnotated.slice(0, 8).map((r) => `${r.path} moves[${r.moved.join(',')}]`).join(' ; '));
 check('every picker string field has a declared override domain (an unprobed field is not evidence of inertness)',

@@ -155,6 +155,30 @@ export function applyOverrides(base: HydrateSnapshot, overrides: Record<string, 
     const line = (out.costLines ?? []).find((l) => l.id === id) as unknown as Record<string, unknown> | undefined;
     if (line && line.windowFollowsConstruction === true) line.windowFollowsConstruction = false;
   }
+  /**
+   * AND A COST RATE A CASE STATES IS A STATED RATE (2026-10-08, founder: "per asset
+   * construction cost is the most common sensitivity in real estate and the tool has
+   * to flex it"). The same mechanism as the price rule above. A per-asset override
+   * the cost standards wrote carries `origin: 'standard'`, and a phase line with no
+   * typed rate carries `rateStated: false`; the settle re-derives both from the
+   * standard, so a scenario's value was undone the moment its model was settled
+   * (about 90 levers on Marina Gate; a per-asset construction rate +10% moved total
+   * development cost by 0.00). The override therefore marks the element the user's
+   * own, unless the case names the marker itself.
+   */
+  for (const path of Object.keys(overrides)) {
+    if (path.startsWith('costOverrides[') && path.endsWith('].value')) {
+      const [assetId, lineId] = path.slice('costOverrides['.length, path.lastIndexOf(']')).split('::');
+      if (`costOverrides[${assetId}::${lineId}].origin` in overrides) continue;
+      const o = (out.costOverrides ?? []).find((x) => x.assetId === assetId && x.lineId === lineId) as unknown as Record<string, unknown> | undefined;
+      if (o && o.origin === 'standard') delete o.origin;
+    } else if (path.startsWith('costLines[id=') && path.endsWith('].value')) {
+      const id = path.slice('costLines[id='.length, path.lastIndexOf(']'));
+      if (`costLines[id=${id}].rateStated` in overrides) continue;
+      const line = (out.costLines ?? []).find((l) => l.id === id) as unknown as Record<string, unknown> | undefined;
+      if (line && line.rateStated !== true) line.rateStated = true;
+    }
+  }
   return out;
 }
 

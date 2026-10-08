@@ -234,9 +234,15 @@ section('G. the store, Module 6 and the screens');
   check('G6 an emptied list is a decision and is never reseeded', (emptied.getState().project.costStandardRows ?? []).length === 0);
 
   const model = createModule1Store().getState().extractPersistSnapshot() as unknown as HydrateSnapshot;
-  const why = inactiveLeverReason('project.costStandardRows[id=type:branded-villas].rate', model);
   // Since 2026-09-15 (step 8) a cost standard applies inside a scenario: caseModelOf settles every case model.
-  check('G7 a cost standard is a live Module 6 lever, not marked inactive', why === null, String(why));
+  // RE-AIMED 2026-10-08: this model is EMPTY, and on a model where no asset takes the type the standard is
+  // applied to nothing, which the gate now says. So both halves: live where an asset uses the type, the
+  // true reason where none does.
+  const usedModel = { ...model, assets: [{ id: 'v1', phaseId: 'p1', assetTypeId: 'branded-villas', strategy: 'Sell', visible: true }] } as unknown as HydrateSnapshot;
+  const why = inactiveLeverReason('project.costStandardRows[id=type:branded-villas].rate', usedModel);
+  const whyUnused = inactiveLeverReason('project.costStandardRows[id=type:branded-villas].rate', model);
+  check('G7 a cost standard is a live Module 6 lever where an asset uses its type, and says so where none does',
+    why === null && /no asset on this project uses the branded-villas type/.test(whyUnused ?? ''), `${why} | ${whyUnused}`);
   check('G8 the line marker and the row structure are not scenario levers',
     nonEconomicLeverReason('costLines[id=x].rateStated', 'rateStated') !== null
     && nonEconomicLeverReason('project.costStandardRows[id=x].label', 'label') !== null);
@@ -479,10 +485,14 @@ section('S. a type states its sale prices, ADR and lease rate, and a Table 5 row
   const same = settleSubUnitPriceDefaults(g().subUnits, g().assets, [], g().project.assetTypeValues);
   check('S11 the settle returns its input when nothing moves', same.subUnits === g().subUnits && settleSubUnitPriceStated(g().subUnits).subUnits === g().subUnits);
   const model = createModule1Store().getState().extractPersistSnapshot() as unknown as HydrateSnapshot;
-  const why = inactiveLeverReason('project.assetTypeValues.branded-villas.pricePerSqm', model);
   // Since 2026-09-15 (step 8) a type price applies inside a scenario, so it is a live lever.
-  check('S12 a type price is a live Module 6 lever and the marker stays hidden',
-    why === null && nonEconomicLeverReason('subUnits[id=x].priceStated', 'priceStated') !== null, String(why));
+  // RE-AIMED 2026-10-08, as G7: on the empty model no asset takes the type, so both halves.
+  const usedModel = { ...model, assets: [{ id: 'v1', phaseId: 'p1', assetTypeId: 'branded-villas', strategy: 'Sell', visible: true }] } as unknown as HydrateSnapshot;
+  const why = inactiveLeverReason('project.assetTypeValues.branded-villas.pricePerSqm', usedModel);
+  const whyUnused = inactiveLeverReason('project.assetTypeValues.branded-villas.pricePerSqm', model);
+  check('S12 a type price is a live Module 6 lever where an asset uses its type (and says so where none does), and the marker stays hidden',
+    why === null && /no asset on this project uses the branded-villas type/.test(whyUnused ?? '')
+    && nonEconomicLeverReason('subUnits[id=x].priceStated', 'priceStated') !== null, `${why} | ${whyUnused}`);
   const tab = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1AssetStandards.tsx', 'utf8');
   const assetsSrc = readFileSync('src/hubs/modeling/platforms/refm/components/modules/Module1Assets.tsx', 'utf8');
   const storeSrc = readFileSync('src/hubs/modeling/platforms/refm/lib/state/module1-store.ts', 'utf8')

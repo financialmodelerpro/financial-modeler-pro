@@ -3097,6 +3097,34 @@ full financial and returns snapshots and all 28,776 workbook cells hash the same
 by exactly one input's value names that input, but not the reader that double-counted it: find the leg by
 toggling one input at a time, and check every reader of the shared function, not the one that failed.**
 
+### 7.64 A settle that re-derives a value undoes the scenario that overrode it, and a census on the old path cannot see it
+
+**Symptom.** In Module 6, a scenario raising a per-asset construction rate by 10% moved total development cost
+by 0.00. The field was offered in the picker (a curated default, even), the value was stored, and the results
+ignored it. On FMP - MARINA GATE about 90 cost levers behaved this way. The field census, the verifier built to
+catch exactly a dead lever, reported other failures for three weeks and never this one.
+
+**Mechanism.** Two halves. (1) Since 2026-09-15 every case model is `caseModelOf`: overrides applied, then the
+model SETTLED. The cost-standards settle re-derives every per-asset override whose `origin` is `'standard'`, and
+every phase line whose `rateStated` is false, from the standard, so a scenario's value was overwritten the moment
+the model settled. Prices had the same shape and were fixed at the same time (`priceStated`), cost rates were not.
+(2) The census still took the RAW stored snapshot and probed with value-only `applyOverrides`, on which the
+override held, so the lever measured live; its failures were artefacts of that old path instead (a derived bag
+read as a hidden lever, a type default read as dead).
+
+**Fix.** `applyOverrides` marks a cost value a case states as the user's own, the price rule's mechanism: a
+per-asset override's `origin: 'standard'` is dropped, a phase line gets `rateStated: true`, unless the case names
+the marker itself (founder 2026-10-08: per-asset construction cost is the most common sensitivity and the tool
+must flex it). The census now reads `loadStoredModel` and probes through `caseModelOf`, so it measures what the
+product computes; on that path it found the badges a settled scenario had made false (massing, parking, stage,
+the fund hurdle and performance fee) and the fields with no probe values or no reason, all fixed by name.
+
+**Proof.** Per-asset construction +10% moves total development cost by 29.38m, the same as the raw override;
+Marina Gate byte-identical (no case of it overrides a derived value). `verify-module6-field-census` 19/0 on the
+real path with a refreshed fixture, with a named exception for the four settle markers and identities, each
+obliged to stay hidden with a reason calling it one. **A verifier that measures a path the product stopped using
+reports green on exactly the defects the new path introduced: re-aim it the day the path changes.**
+
 ## 8. Registries and two-step registration
 
 ### 8.1 A template registered in one place and not the other fails silently and permanently

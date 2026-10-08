@@ -23,9 +23,22 @@ import { enumerateOverridableFields, type OverridableField } from './applyOverri
 import { deriveLineBaseId, assetStrategySells, COST_METHOD_LABELS } from '../state/module1-types';
 // The engine's OWN scope rule, not a restatement of it: the reason a user reads
 // and the test the engine applies must be the same function.
-import { deriveAssetScope } from '@/src/core/calculations';
+import { deriveAssetScope, resolveAssetAreaMetrics } from '@/src/core/calculations';
+import { activePriceKey } from '../state/subUnitPrices';
+import { isFixedCostOpexMode } from '../reports/opexInputLabels';
+
+/** An area-priced cost method and the engine metric it multiplies (resolveAssetAreaMetrics). */
+const AREA_METHOD_METRIC: Record<string, string> = {
+  rate_x_parking_area: 'parkingArea', rate_x_retail_parking_area: 'retailParkingArea', rate_x_landscape_area: 'landscapeArea',
+  rate_x_retail_gfa: 'retailGfa', rate_x_main_asset_gfa: 'mainAssetGfa',
+};
+const AREA_METRIC_LABEL: Record<string, string> = {
+  parkingArea: 'parking area', retailParkingArea: 'retail parking area', landscapeArea: 'landscape area',
+  retailGfa: 'retail GFA', mainAssetGfa: 'main asset GFA',
+};
 import { resolvePhasingSource } from '@/src/core/calculations/capexPhasing';
-import type { Asset, Phase, CostLine, SubUnit, CostOverride, FinancingTranche } from '../state/module1-types';
+import type { Asset, Phase, CostLine, SubUnit, CostOverride, FinancingTranche, Project, Parcel, LandAllocationMode } from '../state/module1-types';
+import type { OpexLineMode } from '@/src/core/calculations/opex';
 import { standardTypeIdFor } from '../state/costStandards';
 import { assetLabel } from '@/src/core/calculations/assetName';
 import type { AssetTypeStandard } from '../state/assetTypeStandards';
@@ -502,6 +515,10 @@ const NON_ECONOMIC_LEAVES: Record<string, string> = {
   // prices it. Its sibling `parkingArea` was never on this list, so the two
   // halves of one precedence rule were gated differently.
   unitsFromParent: 'engine-derived (from the parent asset)',
+  // BOOKKEEPING THE PLATFORM WRITES (2026-10-08, census on the real path): an identity, a link and a
+  // marker. Measured inert, and none is an assumption anybody would vary.
+  catalogId: 'an identity in the cost catalog', retailLineKey: 'an internal link between a retail strip and its line',
+  overridden: 'a bookkeeping marker on a per-asset override',
 };
 
 // Structural SELECTORS: enum fields that define HOW an entity is set up (its
@@ -519,6 +536,12 @@ const NON_ECONOMIC_LEAVES: Record<string, string> = {
  * A leaf-name entry would have removed a working lever along with the dead one.
  */
 const RETIRED_FIELD_PATTERNS: ReadonlyArray<{ re: RegExp; why: string }> = [
+  {
+    // 2026-09-10: the retail parking divisor is the retail TYPE's own ratio (resolveRetailSlotArea);
+    // the project-level field it came from is read by nothing.
+    re: /^project\.retailAreaPerSlotSqm$/,
+    why: 'a retired retail area per parking slot: the divisor is the retail type\'s own parking ratio now, so this changes nothing',
+  },
   {
     // 2026-08-18: IDC has ONE treatment. capitalize / fundingMode are retired
     // and computeFacilitySchedule reads neither; all four former quadrants
@@ -554,7 +577,11 @@ const RETIRED_FIELD_PATTERNS: ReadonlyArray<{ re: RegExp; why: string }> = [
     // never runs a store action, cannot do anything at all. All 14 instances on
     // the reference project measured inert.
     re: /^cost(Lines|Overrides)\[[^\]]+\]\.windowFollowsConstruction$/,
-    why: 'a store-maintenance flag: it re-derives this line\'s window when the phase construction length is edited, and the engine never reads it, so a scenario override changes nothing (edit the start / end period instead)',
+    // 2026-10-08: since every case model settles (caseModelOf), the settle re-derives a flagged line's
+    // window from its phase in a scenario too, so flipping the flag DOES move the window. It stays hidden
+    // because it is a marker, not an assumption; the window itself is the dial, and overriding it clears
+    // the marker (applyOverrides).
+    why: 'a marker telling the platform to re-derive this line\'s window from its phase\'s construction length (on load, on save and in every scenario); vary the start / end period instead, which makes the window the scenario\'s own',
   },
 ];
 
@@ -582,6 +609,9 @@ export function nonEconomicLeverReason(path: string, field: string): string | nu
   // asset type or move it up the table. `name` and `id` were already covered as
   // non-economic leaves; a type's label, category and position were not, because
   // until today they were not in the model at all.
+  if (/^assets\[[^\]]+\]\.strategyReview\./.test(path)) {
+    return 'a record of a past strategy change, kept for the review banner on the assets tab; not a financial assumption';
+  }
   if (/^project\.assetTypes(\.|\[)/.test(path)) {
     return 'a name, a grouping and a position in this project\'s asset type list; a scenario varies values, it does not rename things';
   }
@@ -681,9 +711,29 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
   // stage subtotals and the report buckets, and no financial output, which is
   // the definition of inactive here. Add a '% of Construction' line and the
   // field is live again with no code change.
+  // 2026-10-08: AND A '% OF SELECTED LINES' LINE READS IT TOO. A soft-cost standard charged as a
+  // percentage of selected lines builds its base from the hard (and soft) stages, so restaging a
+  // construction line out of hard drops it from that base (measured: construction hard to land moves
+  // capex by -75.2m on the reference project). The gate fires only where nothing reads the stage.
+  // A SELLING COST IS NEVER PART OF A PERCENTAGE BASE (derivedSelection excludes selling-scope lines), so its
+  // stage decides only the report bucket; and where its phase rate is zero and every asset that charges it
+  // sells, narrowing or widening its scope changes nothing either (2026-10-08).
+  const selLine = /^costLines\[id=([^\]]+)\]\.(stageOverride|assetScopeOverride)$/.exec(path);
+  if (selLine) {
+    const line = (m.costLines ?? []).find((l) => l.id === selLine[1]);
+    if (line && deriveAssetScope(line) === 'selling') {
+      if (selLine[2] === 'stageOverride') return 'a selling cost is never part of a percentage base, so its stage decides only which report bucket it sits in';
+      const charged = (m.costOverrides ?? []).filter((o) => o.lineId === line.id && !o.disabled);
+      if (!(Number(line.value) > 0) && charged.every((o) => assetStrategySells(assetById(o.assetId)?.strategy))) {
+        return 'this line charges only where an asset states its own rate, and every such asset sells, so its scope changes nothing here';
+      }
+    }
+  }
   if (/^costLines\[[^\]]+\]\.stageOverride$/.test(path)) {
-    const readsStage = (m.costLines ?? []).some((l: any) => l.method === 'percent_of_construction')
-      || (m.costOverrides ?? []).some((o: any) => o.method === 'percent_of_construction');
+    const PCT = new Set(['percent_of_construction', 'percent_of_selected']);
+    const readsStage = (m.costLines ?? []).some((l) => PCT.has(l.method))
+      || (m.costOverrides ?? []).some((o) => PCT.has(o.method))
+      || ((m.project?.costStandardRows ?? []) as Array<{ method?: string }>).some((r) => PCT.has(r.method ?? ''));
     if (!readsStage) {
       return 'moves the stage tiles and the report buckets only: land value follows the two standard land lines, and no line on this model is priced as a percentage of the construction stage, so a reclassification changes no financial output';
     }
@@ -714,9 +764,8 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
   if (path === 'project.useDerivedAreas') {
     return 'the opt-in that lets the assets tab derive support and parking rows; the derivation runs on that tab, not in the engine, so switching it here derives nothing';
   }
-  if (path === 'project.parkingAreaPerSlotSqm') {
-    return 'the sqm one parking slot occupies; it is read by the area chain on the assets tab and by no calculation, so it moves nothing today';
-  }
+  // project.parkingAreaPerSlotSqm is NOT gated since 2026-10-08: every case model settles
+  // (caseModelOf), which re-runs the area chain, so it moves the parking area and its cost.
 
   // ── THE AREA CHAIN'S OWN INPUTS (2026-09-11) ──────────────────────────
   //
@@ -742,6 +791,12 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
   // prices where a user can type them. On the day that lands, this branch stops
   // firing and nothing else changes.
   if (/^assets\[[^\]]+\]\.landChain\./.test(path)) {
+    // THE SERVICE SHARE ON A LEASE LINE moves its net saleable area, which reaches rent only through the
+    // line's Table 5 rows; the assets tab re-derives those rows from the area, a scenario does not.
+    const leaseService = /^assets\[id=([^\]]+)\]\.landChain\.servicePct$/.exec(path);
+    if (leaseService && assetById(leaseService[1])?.strategy === 'Lease') {
+      return 'this moves the line\'s net saleable area, which reaches the rent only through its Table 5 rows; the assets tab re-derives those rows from the area and a scenario does not, so vary the rows\' area instead';
+    }
     // The two that are retired or read by nothing say so plainly rather than
     // borrowing the carve sentence, which would not be true of them.
     if (/\.retailAreaPerSlotSqm$/.test(path)) {
@@ -750,15 +805,40 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
     if (/\.maxFloors$/.test(path)) {
       return 'a massing note on the plot; no calculation reads it, on the assets tab or anywhere else';
     }
-    const CARVE_INPUTS = /\.(coveragePct|farRatio|retailPct)$/.test(path);
-    return CARVE_INPUTS
-      ? 'massing is derived on the assets tab, so an override here re-derives nothing: it changes only the RETAIL LAND CARVE, moving land between a host and its companion, and no built area, capex or revenue with it'
-      : 'massing is derived on the assets tab and a value-only override does not re-run it, so this changes nothing at all (the engine reads the chain for one figure, the retail share, which this input does not affect)';
+    // 2026-10-08: A SCENARIO NOW RE-DERIVES MASSING. Every case model is settled (caseModelOf), and the
+    // settle re-runs the area chain, which is exactly the "case carrying its own derived rows" this note
+    // anticipated, so coverage, FAR, utilisation, the service and retail shares are live dials (measured:
+    // each moves capex, returns and the land carve). Only the two retired fields above stay gated.
+    return null;
   }
 
   // THE COST STANDARDS APPLY INSIDE A SCENARIO (2026-09-15, step 8): every case model is
   // settled through caseModelOf, which writes a row onto its assets as it does on load, so
   // a cost standard is a live lever and is not gated here any more.
+  // A TYPE NO ASSET USES moves nothing, whatever its value (2026-10-08). "Uses" by the standards' own
+  // rule (standardTypeIdFor), so a retail strip counts for the retail ground-floor type it takes.
+  const typesInUse = new Set((m.assets ?? []).filter((a) => a.visible !== false)
+    .map((a) => standardTypeIdFor(a, (proj.assetTypes ?? []) as AssetTypeStandard[])).filter(Boolean));
+  const tv = /^project\.assetTypeValues\.([^.]+)\.(.+)$/.exec(path);
+  if (tv && !typesInUse.has(tv[1])) return `no asset on this project uses the ${tv[1]} type, so its values are read by nothing here`;
+  const csr = /^project\.costStandardRows\[id=type:([^\]]+)\]\./.exec(path);
+  if (csr && !typesInUse.has(csr[1])) return `no asset on this project uses the ${csr[1]} type, so its construction standard is applied to nothing`;
+  // THE RETAIL STRIP'S PARKING RATIO, where only strips take the type. A scenario re-derives the hosts'
+  // retail parking, but the strip that carries its cost is pooled from them on the assets tab (one of the
+  // reconciliations that stays on that tab), so the cost the scenario prices does not move.
+  if (tv && /^(parkingRatio|parkingRatioBasis)$/.test(tv[2])) {
+    const users = (m.assets ?? []).filter((a) => a.visible !== false && standardTypeIdFor(a, (proj.assetTypes ?? []) as AssetTypeStandard[]) === tv[1]);
+    if (users.length > 0 && users.every((a) => a.isCompanion === true && a.companionType === 'retail')) {
+      return 'only retail strips take this type; a scenario re-derives their hosts\' retail parking, but the strip that carries its cost is pooled from them on the assets tab, so the priced area does not move in a scenario';
+    }
+  }
+  // A MASSING DEFAULT EVERY ASSET OF THE TYPE OVERRIDES reaches none of them (the asset's own value wins).
+  if (tv && /^(farRatio|coveragePct|utilisationPct|servicePct)$/.test(tv[2])) {
+    const ofType = (m.assets ?? []).filter((a) => a.visible !== false && standardTypeIdFor(a, (proj.assetTypes ?? []) as AssetTypeStandard[]) === tv[1]);
+    if (ofType.length > 0 && ofType.every((a) => typeof (a.landChain as Record<string, unknown> | undefined)?.[tv[2]] === 'number')) {
+      return 'every asset of this type states its own value on its plot, and the plot\'s wins, so this default reaches none of them';
+    }
+  }
   if (/^project\.assetTypeValues(\.|\[)/.test(path)) {
     // THE UNIT SIZE IS ENGINE-READ SINCE 2026-09-13: the hospitality revenue
     // resolver counts keys on a row stated in sqm as area over the unit size
@@ -778,6 +858,9 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
     if (/\.costRates(\.|\[)/.test(path)) {
       return 'a cost rate standard on the asset type; the store writes it onto each asset of the type as a capex override, and a scenario does not re-run that step, so change the capex override value for this asset and line instead';
     }
+    // 2026-10-08: the massing and parking defaults (FAR, coverage, utilisation, service share, parking
+    // ratio and its basis) reach the model through the area chain, which every case model re-runs.
+    if (/\.(farRatio|coveragePct|utilisationPct|servicePct|parkingRatio|parkingRatioBasis)$/.test(path)) return null;
     return 'an asset type standard for this project; no calculation reads it yet (the area chain that will is a later step), so it moves nothing today. The unit size beside it IS read, for hospitality keys, and is offered';
   }
   if (/^subUnits\[[^\]]+\]\.parkingRatio$/.test(path)) {
@@ -952,11 +1035,13 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
       // construction sub-unit DOES use it (area x units drives build area).
       const su = subUnitById(suField[1]);
       const ph = asset?.phaseId ? (m as any).phases?.find((p: any) => p.id === asset.phaseId) : undefined;
-      if (su?.metric === 'area') return 'This sub-unit is priced by total area (metric "area"); the per-unit area is not used';
+      // 2026-10-08: NOT inert on an area row any more. The unit size counts hotel keys
+      // (keysFromArea) and per-unit parking from the area, measured moving 13 KPIs.
       if ((asset as any)?.parentAssetId || (asset as any)?.companionType) return 'Companion sub-unit; its built area sits on the parent asset, so the per-unit area is not used';
       if (ph?.status === 'operational') return 'This sub-unit is in an operational phase; its per-unit area is historical, not in the forward build';
     }
-    if (suField[2] === 'unitPrice' && ((asset as any)?.parentAssetId || (asset as any)?.companionType)) {
+    // The OPERATE companion earns its parent's pool; a retail strip (companionType 'retail') earns its own rent.
+    if (suField[2] === 'unitPrice' && (asset?.parentAssetId || (asset?.companionType && asset?.companionType !== 'retail'))) {
       return 'Companion sub-unit; revenue is modelled on the parent asset\'s rental pool, so its unit price is not used';
     }
   }
@@ -986,6 +1071,42 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
       if ((asset as any)?.parentAssetId || (asset as any)?.companionType) return 'Companion asset; its built area sits on the parent asset, so the asset-level BUA is not used';
       if (asset?.strategy === 'Sell' && (asset as any)?.subUnitMetric === 'area') return 'This Sell asset takes its saleable area from the sub-units, so this field does not drive revenue. It DOES drive cost allocation: any cost line allocated on BUA share reads it, and changing it moves returns materially';
     }
+  }
+  // A PLOT'S AREA: each asset is priced and massed on its own allocated sqm (land is allocated by sqm only).
+  if (/^parcels\[[^\]]+\]\.area$/.test(path)) {
+    return 'the plot\'s total area; each asset is priced and massed on its own allocated sqm, so vary the asset\'s allocation instead';
+  }
+  // A TYPED AREA WHERE THE CHAIN DERIVED ONE: derived wins, the typed figure is the fallback only.
+  const typedArea = /^assets\[id=([^\]]+)\]\.(buaSqm|parkingArea|supportArea)$/.exec(path);
+  if (typedArea) {
+    const da = assetById(typedArea[1])?.derivedAreas ?? {};
+    const key = { buaSqm: 'totalGfaSqm', parkingArea: 'parkingAreaSqm', supportArea: 'serviceAreaSqm' }[typedArea[2] as 'buaSqm' | 'parkingArea' | 'supportArea'];
+    if (typeof da[key] === 'number') return 'the area chain derives this figure for the asset and the derived one is what is priced; the typed value is used only where the chain derives none';
+  }
+  // A PLOT WITH NO TABLE 5 ROWS SELLS NOTHING, so its sale terms and selling costs act on nothing.
+  {
+    const sellCfg = /^assets\[id=([^\]]+)\]\.revenue\.sell\./.exec(path)
+      ?? /^costOverrides\[([^:]+)::(?:marketing|commission)__[^\]]+\]\.value$/.exec(path);
+    if (sellCfg) {
+      const a = assetById(sellCfg[1]);
+      const rows = (m.subUnits ?? []).filter((u) => u.assetId === sellCfg[1] && u.category !== 'Support');
+      if (a && assetStrategySells(a.strategy) && rows.length === 0) {
+        return 'this plot has no Table 5 rows, so it sells nothing here; its line sells on the plots that carry rows';
+      }
+    }
+  }
+  // AN OPEX DEFAULT INDEXATION WITH NOTHING TO INDEX: no fixed-cost line on the asset is above zero.
+  if (/^assets\[id=([^\]]+)\]\.opex\.defaultIndexation\./.test(path)) {
+    const a = assetById(/^assets\[id=([^\]]+)\]/.exec(path)![1]);
+    const indexed = (a?.opex?.lines ?? []).some((l: { disabled?: boolean; mode: OpexLineMode; value: number; useAssetDefault?: boolean; rateMode?: string }) => !l.disabled && isFixedCostOpexMode(l.mode) && Number(l.value) > 0 && l.useAssetDefault !== false && l.rateMode !== 'yoy');
+    if (!indexed) return 'no fixed-cost opex line on this asset is above zero and follows the asset default, so this indexation scales nothing';
+  }
+  // THE PRICE ON THE BASIS THE ROW DOES NOT SELL ON: kept for a switch, not used.
+  const otherBasis = /^subUnits\[id=([^\]]+)\]\.(pricePerSqm|pricePerUnit)$/.exec(path);
+  if (otherBasis) {
+    const su = subUnitById(otherBasis[1]);
+    const a = su ? assetById(su.assetId) : undefined;
+    if (su && a && activePriceKey(su, a) !== otherBasis[2]) return 'the row sells on its other price basis; this price is kept for a switch and is not used';
   }
   if (/^assets\[id=([^\]]+)\]\.landAreaSqm$/.test(path)) {
     const id = /^assets\[id=([^\]]+)\]/.exec(path)![1];
@@ -1168,9 +1289,8 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
     // a fund draws). The typed limit is reported on the fund-terms exports.
     return 'No fund fee is charged on the facility limit: each fee declares its own base (fund size, total equity, or the debt actually raised). The typed limit is shown on the fund terms, but it does not enter a calculation';
   }
-  if (/^project\.fundTerms\.(performanceFeePct|hurdleRatePct)$/.test(path)) {
-    return 'The performance fee and hurdle split fund proceeds between the LP and the GP in the waterfall. They move net-of-carry LP distributions, but the comparison KPIs are consolidated returns struck before that split';
-  }
+  // project.fundTerms.performanceFeePct / hurdleRatePct are NOT gated since 2026-10-08: the distributed
+  // equity IRR the comparison reports is net of the performance fee (export review item 12), so both move it.
 
   // ── Master cost-line fields on an already-OPERATIONAL phase: the costs are
   //    historical, not in the forward projection. (Construction-phase master cost
@@ -1191,8 +1311,18 @@ export function inactiveLeverReason(path: string, model: HydrateSnapshot): strin
     if (ov && (ov.overridden === false || ov.disabled)) return 'This per-asset override is inactive (it tracks the master); its value is not used';
     // Parking cost is rate x parking AREA; an asset with no parking area has
     // nothing for the parking rate / phasing to act on.
-    if (deriveLineBaseId(co[2]) === 'construction-parking' && !(Number(assetById(co[1])?.parkingArea) > 0)) {
-      return 'This asset has no parking area; the parking cost rate has nothing to multiply';
+    // 2026-10-08: read through resolveAssetAreaMetrics, the figure the engine prices, so a derived
+    // parking area counts (the typed field alone said "no parking" on three assets the chain gives parking).
+    {
+      const a = assetById(co[1]);
+      const line = (m.costLines ?? []).find((l) => l.id === co[2]);
+      const method = (ov?.method ?? line?.method) as string | undefined;
+      const metricKey = method ? AREA_METHOD_METRIC[method] : undefined;
+      if (a && metricKey && co[3] === 'value') {
+        const mm = model as unknown as { project: Project; parcels: Parcel[]; assets: Asset[]; subUnits: SubUnit[]; landAllocationMode: LandAllocationMode };
+        const metrics = resolveAssetAreaMetrics(a, mm.project, mm.parcels ?? [], mm.assets ?? [], mm.subUnits ?? [], mm.landAllocationMode) as unknown as Record<string, number>;
+        if (!((metrics[metricKey] ?? 0) > 0)) return `This asset has no ${AREA_METRIC_LABEL[metricKey]}, so this rate has nothing to multiply`;
+      }
     }
     // Commission is a revenue-driven cost recognised WITH the sale, so a
     // commission override's own phasing (start / end period) is not used.
