@@ -6,6 +6,27 @@ Entries are grouped by their most recent date. Fuller per-day narrative for REFM
 
 ## 2026-10-08
 
+- **FOUNDER DECISION 1, a scenario can flex a per-asset cost rate** (`653d3594`, TRAPS 7.64). A case's override of a value the settle derives now marks it the user's own, the same mechanism prices already used: a standard-origin override drops its origin, and a phase line gets `rateStated: true`.
+  - **Before:** a per-asset construction rate +10% moved total development cost by 0.00. About 90 Marina Gate levers behaved this way.
+  - **After:** the same override moves it by 29.38m.
+  - **The census passes, 19/0, on the honest path.** It found stale "not used" badges (massing, parking, stage, hurdle and performance fee, retail strip rent, unit size), fields that needed true reasons, bookkeeping fields to hide, enums needing probe values, and settle markers needing a named exception.
+- **FOUNDER DECISION 2, marketing is expensed as incurred, and the surplus deducts operating expenses** (`0a0a6328`, `ef9961b9`).
+  - **The rule:** `isExpensedAsIncurred` (core) takes a marketing-stage line out of capex inside `computeAssetCost`. The P&L charges it as "Selling & Marketing Expenses", paid in the period it's charged.
+  - **Commission stays capitalised,** released through cost of sales with the revenue (the IFRS 15 timing).
+  - **The surplus:** `developmentEconomics` deducts the operating expenses over the GDV's years, because the GDV counts operating revenue. The live workbook mirrors all of it (working rows keyed `cxe:`).
+  - **Marina Gate:**
+    - total development cost 1,336.7 to 1,275.7;
+    - surplus after finance 653.6 to 414.3;
+    - margin 30.22% to 19.16%;
+    - cost to value 61.81% to 58.98%;
+    - PAT 675.2 to 675.0;
+    - IRRs and MOIC unchanged.
+- **Hotel area per key, reported, inputs unchanged.**
+  - **The service share is 0%,** so every sqm of GFA counts as key area. A scenario cannot model it either, because the hotel's Table 5 row is re-derived on the Assets tab only.
+  - **The engine cannot charge per key on this hotel.** Its rows are area, so `rate_per_unit` multiplies a unit count of 0.
+
+## 2026-10-08 (earlier)
+
 - **THE EXISTING-OPERATIONS BALANCE SHEET BALANCES** (`993d878e`, TRAPS 7.63).
   - **The break:** 1,350.7m, one step in year 0. The fixed asset schedule priced an operational phase's plot that capex rightly skips.
   - **The fix:** `phaseHasModelCapex` is the one rule, applied inside `computeAssetCost`.

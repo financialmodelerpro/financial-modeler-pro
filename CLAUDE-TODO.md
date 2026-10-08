@@ -12,7 +12,17 @@ A 3SFM model scored 5.5% "Not Yet Competent" was approved by a mis-click. One cl
 4. **No undo.** `review/route.ts` returns 409 on any decided row and `checkApproval.ts` says reversal is a hand edit. The existing certificate "revoke" (`training_admin_actions`) is a flag the verify page, certificate API, progress and the cert engine all ignore. Proposed: an admin "Reverse approval" action doing what was done by hand on 2026-10-05 (status to rejected keeping the note, delete the cert row + storage PDF/badge/transcript, remove the BVM row only if approval created it, audit row, correcting email that says the earlier emails were sent in error).
 5. Minor: `/api/og/certificate/<id>` returns 500 (not 404) for a certificate that does not exist.
 
-## START HERE 2026-10-08: THREE FOUNDER DECISIONS OPEN, then the formula-linked workbook
+## START HERE 2026-10-08 (session end): DECISIONS 1 AND 2 BUILT; THE HOTEL IS THE FOUNDER'S CALL
+
+**DONE:** scenario overrides of derived values mark them stated (census 19/0); marketing expensed and the surplus
+deducts operating expenses (CHANGELOG 2026-10-08). **OPEN, the founder's:**
+- **the hotel's service share and key size;**
+- **whether the engine should count keys for per-unit capex** on an area-stated hotel. Today `rate_per_unit`
+  multiplies a unit count of 0 there, so FF&E or fit-out per key cannot be charged.
+- **whether a scenario should re-derive share-based Table 5 rows** (the Lease service share, the hotel's keys
+  from the service share, the retail strip's pooled parking). These stay on the Assets tab; their gates say so.
+
+## (superseded the same day) THREE FOUNDER DECISIONS OPEN, then the formula-linked workbook
 
 1. **A scenario override of a value the settle derives is undone by the settle** (census on the real path,
    about 90 levers on Marina Gate: standard-origin per-asset cost rates, unstated phase rates, type-priced
